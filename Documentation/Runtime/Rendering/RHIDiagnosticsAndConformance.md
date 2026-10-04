@@ -52,7 +52,9 @@ owned names and replay identically inline or on the RHI thread. Regions nest to
 region crossing a render-pass boundary is invalid command admission and
 increments the saturating invalid-region observation. Render-pass and internal
 transfer labels nest inside public regions; every successful begin owns one
-matching end.
+matching end. Metal currently provides no native region labels: validated region
+commands replay as no-ops, preserving executable command semantics without
+requiring optional diagnostic support.
 
 Public command-list flush admission requires closed diagnostic and timing
 regions. Internal Vulkan submissions during replay may split a native command

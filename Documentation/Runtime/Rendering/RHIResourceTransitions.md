@@ -98,6 +98,26 @@ MoltenVK additionally reports native events unsupported. Native split remains
 off by default until its performance gate is qualified; support is not inferred
 from multi-queue availability.
 
+## Metal State Authority
+
+Metal stores portable access state with each native resource wrapper. Buffer byte
+ranges and texture aspect/mip/layer ranges remain independent. Replay preflights
+an entire transition batch, including native resource identity and exact
+`ExpectedBefore`, before applying any `RequiredAfter`. A mismatch reports the
+resource, selected range, expected, tracked and requested accesses. `Discard`
+waives only the previous-state comparison; `bDiscardContents` does not waive it.
+
+The current backend uses one queue and tracked Metal resources, so these portable
+state updates require no separate native barrier. Ending transfer/compute encoders
+and the existing command ordering preserve native hazard synchronization. Split
+transition fallback uses the same checked ordinary transition path.
+
+Buffer initialization and convenience writes publish canonical usage access;
+raw uploads publish `TransferWrite`. Texture uploads publish the canonical shader
+read or storage access for their selected subresource. Render passes check their
+attachment initial accesses and publish final accesses when the pass ends. Native
+hazard tracking does not replace these portable state preconditions.
+
 ## Vulkan State Authority
 
 Each Vulkan buffer owns an interval state tracker, and each Vulkan texture owns

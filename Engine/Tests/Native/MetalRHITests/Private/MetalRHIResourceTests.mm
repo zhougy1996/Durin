@@ -2621,3 +2621,75 @@ TEST(FMetalRHIViewportTests, CppLayerOwnershipAndDrawableFailureRecoverAcrossTea
 		EXPECT_EQ(WeakLayer, nil);
 	}
 }
+
+
+TEST(FMetalRHITransitionTests, ExactRangesAndRejectedBatchesPreserveStateInBothExecutionModes)
+{
+	using namespace Durin;
+	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+	for (const char* Mode : {"inline", "threaded"})
+	{
+		SCOPED_TRACE(Mode);
+		FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+		ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
+		FScopedRHIExit Exit;
+		auto& Commands = FRHICommandListImmediate::Get();
+		auto Buffer = GDynamicRHI->RHITryCreateBuffer(Commands, FRHIBufferCreateDesc::Create(
+			"transition ranges", 64, 1, EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy));
+		ASSERT_TRUE(Buffer);
+		auto TextureDesc = FRHITextureCreateDesc::Create2D("transition subresources", 4, 4, EPixelFormat::RGBA8_UNORM);
+		TextureDesc.Dimension = ETextureDimension::Texture2DArray;
+		TextureDesc.ArraySize = 2;
+		TextureDesc.NumMips = 2;
+		TextureDesc.SetFlags(ETextureCreateFlags::SourceCopy | ETextureCreateFlags::DestinationCopy);
+		auto Texture = GDynamicRHI->RHITryCreateTexture(Commands, TextureDesc);
+		ASSERT_TRUE(Texture);
+		auto* NativeBuffer = static_cast<FMetalBuffer*>(Buffer->GetReference());
+		auto* NativeTexture = static_cast<FMetalTexture*>(Texture->GetReference());
+		const FRHITextureSubresourceRange First{ERHITextureAspect::Color, 0, 1, 0, 1};
+		const FRHITextureSubresourceRange Last{ERHITextureAspect::Color, 1, 1, 1, 1};
+		Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+		const std::array BufferTransitions{
+			FRHIBufferTransition{Buffer->GetReference(), 0, 16, ERHIAccess::None, ERHIAccess::TransferWrite},
+			FRHIBufferTransition{Buffer->GetReference(), 32, 16, ERHIAccess::None, ERHIAccess::TransferRead}};
+		Commands.TransitionBuffers(BufferTransitions);
+		const std::array TextureTransitions{
+			FRHITextureTransition{Texture->GetReference(), First, ERHIAccess::None, ERHIAccess::TransferWrite},
+			FRHITextureTransition{Texture->GetReference(), Last, ERHIAccess::None, ERHIAccess::TransferRead}};
+		Commands.TransitionTextures(TextureTransitions);
+		Commands.EndGPUSubmission();
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+			ERHIAccess Tracked = ERHIAccess::None;
+			EXPECT_TRUE(NativeBuffer->GetStateTracker().Validate(16, 16, ERHIAccess::None, Tracked));
+			EXPECT_FALSE(NativeBuffer->GetStateTracker().Validate(0, 64, ERHIAccess::TransferWrite, Tracked));
+			EXPECT_TRUE(NativeBuffer->GetStateTracker().Validate(0, 64, ERHIAccess::Discard, Tracked));
+			const std::array InvalidBuffers{
+				FRHIBufferTransition{Buffer->GetReference(), 16, 16, ERHIAccess::None, ERHIAccess::TransferWrite},
+				FRHIBufferTransition{Buffer->GetReference(), 32, 16, ERHIAccess::None, ERHIAccess::TransferWrite}};
+			const auto BufferError = ApplyMetalBufferTransitions(InvalidBuffers);
+			ASSERT_TRUE(BufferError);
+			EXPECT_NE(BufferError->find("offset=32"), std::string::npos);
+			EXPECT_TRUE(NativeBuffer->GetStateTracker().Validate(16, 16, ERHIAccess::None, Tracked));
+			EXPECT_TRUE(NativeBuffer->GetStateTracker().Validate(32, 16, ERHIAccess::TransferRead, Tracked));
+			const FRHITextureSubresourceRange Untouched{ERHITextureAspect::Color, 1, 1, 0, 1};
+			EXPECT_TRUE(NativeTexture->ValidateAccess(Untouched, ERHIAccess::None, Tracked));
+			const std::array InvalidTextures{
+				FRHITextureTransition{Texture->GetReference(), Untouched, ERHIAccess::None, ERHIAccess::TransferWrite},
+				FRHITextureTransition{Texture->GetReference(), Last, ERHIAccess::None, ERHIAccess::TransferWrite, true}};
+			const auto TextureError = ApplyMetalTextureTransitions(InvalidTextures);
+			ASSERT_TRUE(TextureError);
+			EXPECT_NE(TextureError->find("layer=1+1"), std::string::npos);
+			// Content discard does not waive ExpectedBefore; no earlier entry was published.
+			EXPECT_TRUE(NativeTexture->ValidateAccess(Untouched, ERHIAccess::None, Tracked));
+			EXPECT_TRUE(NativeTexture->ValidateAccess(Last, ERHIAccess::TransferRead, Tracked));
+			const std::array Reset{FRHITextureTransition{Texture->GetReference(),
+				{ERHITextureAspect::Color, 0, 2, 0, 2}, ERHIAccess::Discard, ERHIAccess::TransferRead}};
+			EXPECT_FALSE(ApplyMetalTextureTransitions(Reset));
+			EXPECT_TRUE(NativeTexture->ValidateAccess({ERHITextureAspect::Color, 0, 2, 0, 2}, ERHIAccess::TransferRead, Tracked));
+		});
+		*Buffer = nullptr;
+		*Texture = nullptr;
+		RHIExit();
+	}
+}

@@ -10,6 +10,7 @@
 #include "MetalTexture.h"
 #include "MetalViewport.h"
 #include "MetalResourceDescriptors.h"
+#include "MetalResourceState.h"
 #include "RHIShaderParameters.h"
 
 namespace Durin
@@ -134,8 +135,9 @@ namespace Durin
 				RHISubmitCommands();
 				bFrameOpen = false;
 			}
-			auto RHIBeginDiagnosticRegion(std::string_view) -> void override { Unsupported(); }
-			auto RHIEndDiagnosticRegion() -> void override { Unsupported(); }
+			// Public recording validates region scope; unavailable native labels are harmless.
+			auto RHIBeginDiagnosticRegion(std::string_view) -> void override {}
+			auto RHIEndDiagnosticRegion() -> void override {}
 			auto RHIBeginRenderPass(const FRHIRenderPassInfo& Info, FName) -> void override
 			{
 				const FMetalAutoreleasePool Pool;
@@ -156,6 +158,23 @@ namespace Durin
 					&& bool(Info.DepthStencilRenderTarget)
 						== Info.RenderTargetLayout.bHasDepthStencil,
 					"Metal baseline supports up to four color attachments with optional depth.");
+				std::vector<FRHITextureTransition> AttachmentStates;
+				const auto QueueAttachment = [&](FRHITextureView* View, const FRHIAttachmentLayout& Layout) {
+					require(View);
+					auto* Texture = dynamic_cast<FMetalTexture*>(View->GetTexture());
+					require(Texture);
+					const auto Expected = Layout.InitialLayout == ERHITextureLayout::Undefined
+						? ERHIAccess::Discard : Layout.InitialAccess;
+					ERHIAccess Tracked = ERHIAccess::None;
+					requiref(Texture->ValidateAccess(View->GetDesc().Range, Expected, Tracked),
+						"Metal render-pass attachment state mismatch: resource={}, expected={}, tracked={}, requested={}.",
+						static_cast<const void*>(Texture), static_cast<uint32>(Expected), static_cast<uint32>(Tracked), static_cast<uint32>(Layout.FinalAccess));
+					AttachmentStates.push_back({Texture, View->GetDesc().Range, ERHIAccess::Discard, Layout.FinalAccess});
+				};
+				for (uint32 Index = 0; Index < Info.RenderTargetLayout.NumColorRenderTargets; ++Index)
+					QueueAttachment(Info.ColorRenderTargetViews[Index], Info.RenderTargetLayout.ColorAttachments[Index].RenderTarget);
+				if (Info.RenderTargetLayout.bHasDepthStencil)
+					QueueAttachment(Info.DepthStencilRenderTargetView, Info.RenderTargetLayout.DepthStencilAttachment);
 				FRHITexture* Color = Info.ColorRenderTargets[0];
 				auto Desc = NS::RetainPtr(MTL::RenderPassDescriptor::renderPassDescriptor());
 				for (uint32 Index = 0;
@@ -242,6 +261,7 @@ namespace Durin
 				RenderEncoder = NS::RetainPtr(Active->Command->renderCommandEncoder(Desc.get()));
 				requiref(static_cast<bool>(RenderEncoder), "Metal render encoder creation failed.");
 				CurrentRenderTargetLayout = Info.RenderTargetLayout;
+				PendingAttachmentStates = std::move(AttachmentStates);
 				RenderWidth = Color ? Color->GetSizeX()
 					: Info.DepthStencilRenderTarget->GetSizeX();
 				RenderHeight = Color ? Color->GetSizeY()
@@ -254,6 +274,9 @@ namespace Durin
 				requiref(static_cast<bool>(RenderEncoder), "Metal render pass is not active.");
 				RenderEncoder->endEncoding();
 				RenderEncoder.reset();
+				for (const auto& Attachment : PendingAttachmentStates)
+					static_cast<FMetalTexture*>(Attachment.Texture)->ApplyAccess(Attachment.Range, Attachment.RequiredAfter);
+				PendingAttachmentStates.clear();
 				GraphicsPipeline = nullptr;
 				BoundVertexStreams = 0;
 				IndexBuffer = nullptr;
@@ -452,18 +475,15 @@ namespace Durin
 			auto RHITransitionBuffers(std::span<const FRHIBufferTransition> Transitions)
 			-> void override
 			{
-				requiref(ValidateBufferTransitions(Transitions).has_value(),
-					"Invalid Metal buffer transition.");
-				// The baseline uses one tracked Metal queue. Ending each blit encoder
-				// supplies the native boundary for its hazard-tracked accesses.
+				const auto Error = ApplyMetalBufferTransitions(Transitions);
+				requiref(!Error, "{}", Error.value_or(""));
+				// Tracked resources on the single queue supply native hazard synchronization.
 			}
 			auto RHITransitionTextures(std::span<const FRHITextureTransition> Transitions)
 			-> void override
 			{
-				requiref(ValidateTextureTransitions(Transitions).has_value(),
-					"Invalid Metal texture transition.");
-				// The current transfer path uses one hazard-tracked command queue
-				// and ends each blit encoder before the next access.
+				const auto Error = ApplyMetalTextureTransitions(Transitions);
+				requiref(!Error, "{}", Error.value_or(""));
 			}
 			auto RHICopyBuffer(FRHIBuffer* Source, FRHIBuffer* Destination,
 			std::span<const FRHIBufferCopyRegion> Regions) -> void override
@@ -602,6 +622,9 @@ namespace Durin
 				requiref(static_cast<bool>(Encoder), "Metal buffer upload encoder creation failed.");
 				Encoder->copyFromBuffer(Staging, 0, Target->GetHandle(), Offset, Data.size());
 				Encoder->endEncoding();
+				const auto CanonicalAccess = GetMetalCanonicalBufferAccess(Buffer->GetUsage());
+				Target->GetStateTracker().Apply(Offset, Data.size(), CanonicalAccess == ERHIAccess::None
+					? ERHIAccess::TransferWrite : CanonicalAccess);
 				Active->NativeResources.push_back(NS::RetainPtr(Staging));
 				Active->NativeResources.push_back(NS::RetainPtr(Target->GetHandle()));
 				Active->ResourceOwners.emplace_back(Buffer);
@@ -617,7 +640,10 @@ namespace Durin
 			}
 			auto RHIUploadBuffer(FRHIBuffer* Buffer, uint32 Offset,
 			FByteView Data) -> void override
-			{ RHIWriteBuffer(Buffer, Offset, Data); }
+			{
+				RHIWriteBuffer(Buffer, Offset, Data);
+				if (!Data.empty()) static_cast<FMetalBuffer*>(Buffer)->GetStateTracker().Apply(Offset, Data.size(), ERHIAccess::TransferWrite);
+			}
 			auto RHIInitializeTexture(FRHITexture* Texture) -> void override
 			{
 				requiref(Texture && (Texture->GetDimension() == ETextureDimension::Texture2D
@@ -689,6 +715,10 @@ namespace Durin
 					MipIndex,
 					MTL::Origin::Make(Region.DestX, Region.DestY, 0));
 				Encoder->endEncoding();
+				static_cast<FMetalTexture*>(Texture)->ApplyAccess(
+					{ERHITextureAspect::Color, MipIndex, 1, ArraySlice, 1},
+					EnumHasAnyFlags(Texture->GetFlags(), ETextureCreateFlags::Storage)
+						? ERHIAccess::GraphicsShaderReadWrite : ERHIAccess::GraphicsShaderRead);
 				if (Active)
 				{
 					Active->NativeResources.push_back(NS::RetainPtr(Staging));
@@ -777,6 +807,10 @@ namespace Durin
 					MipIndex,
 					MTL::Origin::Make(Region.DestX, Region.DestY, Region.DestZ));
 				Encoder->endEncoding();
+				static_cast<FMetalTexture*>(Texture)->ApplyAccess(
+					{ERHITextureAspect::Color, MipIndex, 1, 0, 1},
+					EnumHasAnyFlags(Texture->GetFlags(), ETextureCreateFlags::Storage)
+						? ERHIAccess::GraphicsShaderReadWrite : ERHIAccess::GraphicsShaderRead);
 				if (Active)
 				{
 					Active->NativeResources.push_back(NS::RetainPtr(Staging));
@@ -1450,6 +1484,7 @@ namespace Durin
 		public:
 			auto CancelPending() -> void override
 			{
+				PendingAttachmentStates.clear();
 				const FMetalAutoreleasePool Pool;
 				if (!State) return;
 				std::lock_guard Lock(State->Mutex);
@@ -1493,6 +1528,7 @@ namespace Durin
 			bool bFrameOpen = false;
 			NS::SharedPtr<MTL::RenderCommandEncoder> RenderEncoder;
 			FRHIRenderTargetLayout CurrentRenderTargetLayout;
+			std::vector<FRHITextureTransition> PendingAttachmentStates;
 			uint32 RenderWidth = 0;
 			uint32 RenderHeight = 0;
 			TRefCountPtr<FMetalGraphicsPipelineState> GraphicsPipeline;

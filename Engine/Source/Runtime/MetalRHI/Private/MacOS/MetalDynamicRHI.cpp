@@ -10,6 +10,7 @@
 #include "MetalTexture.h"
 #include "MetalViewport.h"
 #include "MetalResourceDescriptors.h"
+#include "MetalResourceState.h"
 #include "RHICommandList.h"
 #include "PipelineStateCache.h"
 #include "Threading/Task.h"
@@ -392,7 +393,15 @@ namespace Durin
 						.Source = ERHICreationFailureSource::NativeBackend});
 				if (Desc.InitialData.Data && Desc.InitialData.Size)
 					std::memcpy(Buffer->contents(), Desc.InitialData.Data, Desc.InitialData.Size);
-				return FBufferRHIRef(new FMetalBuffer(Desc, std::move(Buffer)));
+				auto Result = FBufferRHIRef(new FMetalBuffer(Desc, std::move(Buffer)));
+				if (Desc.InitialData.Data && Desc.InitialData.Size)
+				{
+					const auto CanonicalAccess = GetMetalCanonicalBufferAccess(Desc.Usage);
+					static_cast<FMetalBuffer*>(Result.GetReference())->GetStateTracker().Apply(
+						0, Desc.InitialData.Size, CanonicalAccess == ERHIAccess::None
+							? ERHIAccess::HostWrite : CanonicalAccess);
+				}
+				return Result;
 			}
 			auto RHICreateBufferView(FRHIBuffer* Buffer,
 			const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView> override

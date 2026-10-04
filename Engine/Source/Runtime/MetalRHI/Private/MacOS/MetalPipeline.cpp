@@ -313,7 +313,7 @@ namespace Durin
 		if (!Device || Desc.Target != MetalShaderTarget
 			|| Desc.CodeFormat != EShaderCodeFormat::Msl20Source
 			|| !Desc.EntryPoint || !*Desc.EntryPoint
-			|| Desc.Code.size() < 32
+			|| Desc.Code.empty()
 			|| std::ranges::find(Desc.Code, std::byte{0}) != Desc.Code.end()
 			|| FXxHash128::HashBuffer(Desc.Code) != Desc.Hash
 			|| (Desc.Frequency == EShaderFrequency::Compute
@@ -325,8 +325,6 @@ namespace Durin
 				Desc.BindingRemapIdentity)) return nullptr;
 		const std::string_view Source(
 			reinterpret_cast<const char*>(Desc.Code.data()), Desc.Code.size());
-		if (!Source.substr(0, 256).contains("#include <metal_stdlib>"))
-			return nullptr;
 		const std::string SourceText(Source);
 		auto Text = NS::TransferPtr(NS::String::alloc()->init(SourceText.c_str(), NS::UTF8StringEncoding));
 		if (!Text) return nullptr;

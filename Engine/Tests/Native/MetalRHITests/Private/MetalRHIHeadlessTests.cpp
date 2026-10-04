@@ -387,6 +387,10 @@ TEST(FMetalRHIHeadlessTests, DeviceAndSingleQueueInitializeInBothExecutionModes)
 		EXPECT_FALSE(Queues.bIndependentCompute);
 		auto& Commands = Durin::FRHICommandListImmediate::Get();
 		const auto First = Commands.BeginGPUSubmission({.Queue = Queues.Graphics});
+		Commands.BeginDiagnosticRegion("Metal optional diagnostics");
+		Commands.BeginDiagnosticRegion("Nested region");
+		Commands.EndDiagnosticRegion();
+		Commands.EndDiagnosticRegion();
 		Commands.EndGPUSubmission();
 		const auto Second = Commands.BeginGPUSubmission(
 			{.Queue = Queues.Graphics, .Waits = {First}});
@@ -542,6 +546,25 @@ TEST(FMetalRHIHeadlessTests, ShaderCreationValidatesTargetEntryAndNativeBindingM
 	Invalid.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
 		Invalid.Frequency, Invalid.MetalBindings, Invalid.MetalPushConstantBufferSlot);
 	EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Invalid));
+	// Valid source formatting is decided by the MSL compiler, not a textual prefix.
+	for (const auto& Variant : {std::string("/*") + std::string(512, 'x') + "*/\n" + Source,
+		std::string("#include<metal_stdlib>\n") + Source.substr(Source.find('\n') + 1),
+		std::string("kernel void shortMain(){}")})
+	{
+		const bool Short = Variant.size() < 32;
+		Durin::FByteBuffer VariantCode;
+		for (char Character : Variant) VariantCode.push_back(std::byte(Character));
+		auto Desc = Durin::FRHIShaderCreateDesc::Create("source formatting",
+			Durin::EShaderFrequency::Compute, VariantCode, Durin::FXxHash128::HashBuffer(VariantCode));
+		Desc.Target = Durin::MetalShaderTarget;
+		Desc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
+		Desc.ComputeThreadGroupSize = {1, 1, 1};
+		Desc.SetEntryPoint(Short ? "shortMain" : "computeMain");
+		if (!Short) Desc.MetalBindings.push_back({0, 0, Durin::ERHIBindingType::StorageBuffer, 0, 1});
+		Desc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+			Desc.Frequency, Desc.MetalBindings, Desc.MetalPushConstantBufferSlot);
+		EXPECT_TRUE(Durin::GDynamicRHI->RHICreateShader(Desc));
+	}
 	Durin::RHIExit();
 }
 

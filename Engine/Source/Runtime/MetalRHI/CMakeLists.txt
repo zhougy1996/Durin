@@ -12,6 +12,7 @@ if(APPLE)
 	target_sources(MetalRHI PRIVATE
 		Private/MetalCppDevice.cpp
 		Private/MacOS/MetalResourceDescriptors.cpp
+		Private/MacOS/MetalResourceState.cpp
 		Private/MacOS/MetalPipeline.cpp
 		Private/MacOS/MetalSubmission.cpp
 		Private/MacOS/MetalCommandContext.cpp
@@ -19,6 +20,7 @@ if(APPLE)
 	# Native headers and implementation macros compile independently of the Core PCH.
 	set_source_files_properties(
 		Private/MetalCppDevice.cpp Private/MacOS/MetalResourceDescriptors.cpp
+		Private/MacOS/MetalResourceState.cpp
 		Private/MacOS/MetalPipeline.cpp Private/MacOS/MetalSubmission.cpp
 		Private/MacOS/MetalCommandContext.cpp Private/MacOS/MetalDynamicRHI.cpp
 		PROPERTIES SKIP_PRECOMPILE_HEADERS ON)

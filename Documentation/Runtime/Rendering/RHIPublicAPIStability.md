@@ -75,7 +75,11 @@ their API surface and does not duplicate their detailed rules.
 Shader creation carries the backend target, code format, binary entry point,
 code hash, and Metal binding map with its push-constant slot and remap digest.
 Metal accepts canonical MSL slot assignments and matching native function types;
-Vulkan rejects Metal binding metadata. Pipeline creation retains complete-or-
+Vulkan rejects Metal binding metadata. MSL source syntax is validated by the native
+compiler; include spelling, directive position and a minimum source-text length
+are not admission requirements. Empty code, hash/target/format mismatches, invalid
+binding metadata and incompatible native function stages remain rejected.
+Pipeline creation retains complete-or-
 failure publication when a required shader or binding contract is incompatible.
 
 ## Current Experimental Families
