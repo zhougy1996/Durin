@@ -16,8 +16,6 @@ set_source_files_properties(
 )
 find_library(METAL_FRAMEWORK Metal REQUIRED)
 find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
-find_library(SPIRV_CROSS_LIBRARY spirv-cross-c-shared
-	HINTS "$ENV{VULKAN_SDK}/lib" REQUIRED)
 
 durin_add_native_test(MetalShaderQualificationTests
 	KIND qualification
@@ -26,8 +24,7 @@ durin_add_native_test(MetalShaderQualificationTests
 	BACKENDS metal
 	SOURCES Private/MetalShaderQualificationTests.mm Private/MetalMaterialQualificationTests.mm
 	LIBRARIES Core CoreDObject Engine RenderCore ShaderBuild Slang_Imported
-		${METAL_FRAMEWORK} ${FOUNDATION_FRAMEWORK} ${SPIRV_CROSS_LIBRARY}
-	INCLUDE_DIRECTORIES "$ENV{VULKAN_SDK}/include"
+		${METAL_FRAMEWORK} ${FOUNDATION_FRAMEWORK} spirv-cross-c
 	ENVIRONMENTS authored-shaders
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Production material shader compilation uses the authored editor shader environment."

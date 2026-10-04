@@ -115,6 +115,50 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(WarmStats.DdcHits, 1u);
 	}
 
+	TEST_F(FShaderBuilderTests, RejectsTargetThatDoesNotMatchActiveCompiler)
+	{
+		Builder = std::make_unique<FShaderBuilder>();
+		auto Options = MakeCompileOptions();
+		Options.Target = MetalShaderTarget;
+		++Options.Target.BindingRemapSchema;
+		auto Output = Builder->GetOrCompile("/ShaderBuilderTests/Simple", Options);
+		EXPECT_FALSE(Output);
+		EXPECT_EQ(Output.Error.Code, EShaderError::InvalidCompileRequest);
+		EXPECT_EQ(Builder->GetStats().Compilations, 0u);
+	}
+
+#if defined(__APPLE__)
+	TEST_F(FShaderBuilderTests, MetalAndVulkanCompileAndWarmInSeparateCacheEntries)
+	{
+		Builder = std::make_unique<FShaderBuilder>();
+		auto MetalOptions = MakeCompileOptions();
+		MetalOptions.Target = MetalShaderTarget;
+		const auto Metal = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MetalOptions);
+		ASSERT_TRUE(Metal) << FormatShaderError(Metal.Error);
+		ASSERT_EQ(Metal.CompiledShaders.size(), 1u);
+		EXPECT_EQ(Metal.CompiledShaders[0].Target, MetalShaderTarget);
+		EXPECT_EQ(Metal.CompiledShaders[0].CodeFormat, EShaderCodeFormat::Msl20Source);
+		EXPECT_NE(Metal.CompiledShaders[0].BindingRemapIdentity, FXxHash128{});
+		const auto Vulkan = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions());
+		ASSERT_TRUE(Vulkan) << FormatShaderError(Vulkan.Error);
+		EXPECT_EQ(Vulkan.CompiledShaders[0].Target, VulkanShaderTarget);
+		EXPECT_NE(Metal.CompiledShaders[0].Hash, Vulkan.CompiledShaders[0].Hash);
+		EXPECT_EQ(Builder->GetStats().Compilations, 2u);
+		Builder.reset();
+		Builder = std::make_unique<FShaderBuilder>();
+		const auto WarmMetal = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MetalOptions);
+		ASSERT_TRUE(WarmMetal) << FormatShaderError(WarmMetal.Error);
+		EXPECT_EQ(WarmMetal.CompiledShaders[0].Hash, Metal.CompiledShaders[0].Hash);
+		EXPECT_EQ(WarmMetal.CompiledShaders[0].BindingRemapIdentity,
+			Metal.CompiledShaders[0].BindingRemapIdentity);
+		const auto WarmVulkan = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions());
+		ASSERT_TRUE(WarmVulkan) << FormatShaderError(WarmVulkan.Error);
+		EXPECT_EQ(WarmVulkan.CompiledShaders[0].Hash, Vulkan.CompiledShaders[0].Hash);
+		EXPECT_EQ(Builder->GetStats().Compilations, 0u);
+		EXPECT_EQ(Builder->GetStats().DdcHits, 2u);
+	}
+#endif
+
 	TEST_F(FShaderBuilderTests, CorruptDdcValueIsRecompiledAndRepaired)
 	{
 		const FShaderCompileOptions Options = MakeCompileOptions();

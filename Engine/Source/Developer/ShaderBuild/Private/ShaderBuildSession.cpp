@@ -23,9 +23,9 @@ namespace Durin
 		auto Boundary(FShaderError Error) -> FBuildInputError { return {FormatShaderError(Error)}; }
 		auto Invalid() -> FBuildInputError { return Boundary({.Code = EShaderError::CaptureInputInvalid}); }
 		auto Descriptor() -> FBuildFunctionDescriptor
-		{ return {"Durin.Shader.Compile", 2, 1, "Shader.Output", 3, FCacheBucket::FromString("Shader")}; }
+			{ return {"Durin.Shader.Compile", 5, 1, "Shader.Output", 5, FCacheBucket::FromString("Shader")}; }
 		auto Reference(const FShaderVariantKey& Variant) -> FBuildInputReference
-		{ return {"Closure", Variant.Value, "ShaderVariant", 6, "Shader.SourceClosure", 2}; }
+			{ return {"Closure", Variant.Value, "ShaderVariant", 7, "Shader.SourceClosure", 2}; }
 		struct FOptions
 		{
 			FShaderCompileOptions Value;
@@ -41,9 +41,20 @@ namespace Durin
 			if (!Bytes) return {};
 			FBinaryReader Reader(std::as_bytes(std::span(Bytes->data(), Bytes->size())), {.MaximumTotalBytes = 1024 * 1024});
 			FOptions Result; uint32 Version = 0, Generated = 0, Count = 0;
-			if (!Reader.ReadU32(Version) || Version != 1
+			if (!Reader.ReadU32(Version) || Version != 2
 				|| !Reader.ReadString(Result.Value.VirtualShaderPath, ShaderCaptureLimits::MaximumPathBytes) || Result.Value.VirtualShaderPath.empty()
-				|| !Reader.ReadString(Result.Value.CompilerEnvironment, 32768) || !Reader.ReadU32(Generated) || Generated > 1
+				|| !Reader.ReadString(Result.Value.CompilerEnvironment, 32768)) return {};
+			uint32 Platform = 0, Backend = 0, Intermediate = 0, Output = 0;
+			if (!Reader.ReadU32(Platform) || !Reader.ReadU32(Backend)
+				|| !Reader.ReadU32(Intermediate) || !Reader.ReadU32(Output)
+				|| !Reader.ReadU32(Result.Value.Target.MslLanguageVersion)
+				|| !Reader.ReadU32(Result.Value.Target.BindingRemapSchema)) return {};
+			Result.Value.Target.Platform = EShaderTargetPlatform(Platform);
+			Result.Value.Target.Backend = EShaderRuntimeBackend(Backend);
+			Result.Value.Target.IntermediateFormat = EShaderCodeFormat(Intermediate);
+			Result.Value.Target.OutputFormat = EShaderCodeFormat(Output);
+			if ((Result.Value.Target != VulkanShaderTarget && Result.Value.Target != MetalShaderTarget)
+				|| !Reader.ReadU32(Generated) || Generated > 1
 				|| !Reader.ReadU32(Count) || !Count || Count > 32) return {};
 			Result.Generated = Generated != 0; Result.Names.reserve(Count); Result.Value.Frequencies.reserve(Count);
 			std::set<std::pair<std::string, uint32>> UniqueEntries;
@@ -146,7 +157,7 @@ namespace Durin
 		public:
 			explicit FFunction(std::shared_ptr<FCompilerService> InService) : Service(std::move(InService)) {}
 			auto GetName() const -> std::string_view override { return "Durin.Shader.Compile"; }
-			auto GetVersion() const -> uint32 override { return 2; }
+			auto GetVersion() const -> uint32 override { return 3; }
 			auto Configure(FBuildConfigContext& Context) const -> void override
 			{ const auto D = Descriptor(); Context.SetConstantsSchema(D.ConstantsSchema); Context.SetOutput(D.OutputType, D.OutputSchema); Context.SetCacheBucket(D.Bucket); }
 			auto Build(FBuildContext& Context) const -> void override
@@ -192,7 +203,7 @@ namespace Durin
 					UpdateCanonicalHash(Combined, FXxHash128::HashBuffer(Generated)); UpdateCanonicalHash(Combined, Meta.SourceTreeSignature);
 					Meta.SourceTreeSignature = Combined.Finalize();
 				}
-				FShaderVariantKey Variant; ShaderCompileUtilities::BuildVariantKey(Options->Value.VirtualShaderPath, Meta, Options->Value.Macros, Options->Value.CompilerEnvironment, Variant);
+				FShaderVariantKey Variant; ShaderCompileUtilities::BuildVariantKey(Options->Value.VirtualShaderPath, Meta, Options->Value.Macros, Options->Value.CompilerEnvironment, Options->Value.Target, Variant);
 				if (Variant.Value != Input.Identity.Identity || Options->Value.CompilerEnvironment != Service->Environment)
 					return Fail(FormatShaderError({.Code = EShaderError::DependencyContentConflict}));
 				Options->Value.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(std::move(Files), std::move(Options->Roots));
@@ -239,7 +250,10 @@ namespace Durin
 			return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
 		FBinaryWriter Writer({.MaximumTotalBytes = 1024 * 1024});
 		Writer.Reserve(512);
-		Writer.WriteU32(1); Writer.WriteString(Options.VirtualShaderPath); Writer.WriteString(Options.CompilerEnvironment);
+		Writer.WriteU32(2); Writer.WriteString(Options.VirtualShaderPath); Writer.WriteString(Options.CompilerEnvironment);
+		Writer.WriteU32(uint32(Options.Target.Platform)); Writer.WriteU32(uint32(Options.Target.Backend));
+		Writer.WriteU32(uint32(Options.Target.IntermediateFormat)); Writer.WriteU32(uint32(Options.Target.OutputFormat));
+		Writer.WriteU32(Options.Target.MslLanguageVersion); Writer.WriteU32(Options.Target.BindingRemapSchema);
 		Writer.WriteU32(GeneratedSource.has_value()); Writer.WriteU32(uint32(Options.EntryPoints.size()));
 		for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
 		{ Writer.WriteString(Options.EntryPoints[Index]); Writer.WriteU32(uint32(Options.Frequencies[Index])); }

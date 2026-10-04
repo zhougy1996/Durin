@@ -127,6 +127,8 @@ namespace Durin
 			return std::format("Shader parameter '{}' has an unsupported push constant size.", Error.Parameter);
 		case EShaderError::ReflectionUnavailable: return "Failed to access Slang program layout reflection";
 		case EShaderError::SpirvConversionFailed: return "Failed to convert Slang SPIR-V output";
+		case EShaderError::MslConversionFailed: return "Failed to translate SPIR-V to Metal shading language";
+		case EShaderError::MetalBindingRemapInvalid: return "Metal shader binding remap exceeds or conflicts with native slots";
 		case EShaderError::MissingEntryPoints: return "No entry points found";
 		case EShaderError::CompilationNotStarted: return "Shader compilation has not completed.";
 		case EShaderError::SlangFailure:
@@ -184,6 +186,8 @@ namespace Durin
 		case EShaderError::PayloadEntryInvalid: return "Shader payload entry identity is invalid.";
 		case EShaderError::PayloadSpirvInvalid: return "Shader payload SPIR-V is invalid.";
 		case EShaderError::PayloadSpirvHashMismatch: return "Shader payload SPIR-V hash is invalid.";
+		case EShaderError::PayloadMslInvalid: return "Shader payload MSL source is invalid.";
+		case EShaderError::PayloadMslHashMismatch: return "Shader payload MSL source hash is invalid.";
 		case EShaderError::PayloadBindingCountInvalid: return "Shader payload binding count is invalid.";
 		case EShaderError::PayloadPushConstantCountInvalid: return "Shader payload push-constant count is invalid.";
 		case EShaderError::PayloadTrailingBytes: return "Shader payload contains trailing bytes.";

@@ -22,9 +22,10 @@ namespace Durin
 		}
 	}
 
-	auto FShaderDataConfiguration::Authored() -> FShaderDataConfiguration
+	auto FShaderDataConfiguration::Authored(
+		EShaderTargetPlatform InTargetPlatform) -> FShaderDataConfiguration
 	{
-		return {};
+		return {.TargetPlatform = InTargetPlatform};
 	}
 
 	auto FShaderDataConfiguration::Cooked(
@@ -40,6 +41,9 @@ namespace Durin
 	{
 		if (Configuration.Domain == EShaderDataDomain::Authored)
 		{
+			if (Configuration.TargetPlatform != EShaderTargetPlatform::Win64
+				&& Configuration.TargetPlatform != EShaderTargetPlatform::MacOS)
+				return std::unexpected(FShaderError{.Code = EShaderError::DataConfigurationInvalid});
 			// Startup initializes the domain before the manager publishes the module as Active.
 			const auto Info = FModuleManager::Get().FindModule("ShaderBuild");
 			if (!Info || !Info->Module || (Info->State.load() != EModuleState::Loading
@@ -47,7 +51,6 @@ namespace Durin
 			{
 				return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleRequired});
 			}
-			Configuration.TargetPlatform = EShaderTargetPlatform::Win64;
 			Configuration.TargetProfile = EShaderTargetProfile::EditorValidation;
 			Configuration.CookRoot.clear();
 		}
@@ -55,7 +58,8 @@ namespace Durin
 		{
 			return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleForbidden});
 		}
-		else if (Configuration.TargetPlatform != EShaderTargetPlatform::Win64
+		else if ((Configuration.TargetPlatform != EShaderTargetPlatform::Win64
+				&& Configuration.TargetPlatform != EShaderTargetPlatform::MacOS)
 			|| Configuration.TargetProfile != EShaderTargetProfile::Game
 			|| Configuration.CookRoot.empty()
 			|| !Configuration.CookRoot.is_absolute()

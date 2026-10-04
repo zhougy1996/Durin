@@ -70,8 +70,14 @@ namespace Durin
 		class FTestShader final : public FRHIShader
 		{
 		public:
-			FTestShader(EShaderFrequency Frequency, uint64 Hash)
-				: FRHIShader(FRHIShaderDesc(Frequency, FXxHash128{Hash, 0}))
+			FTestShader(EShaderFrequency Frequency, uint64 Hash,
+				FShaderTargetIdentity Target = VulkanShaderTarget)
+				: FRHIShader([&] {
+					FRHIShaderDesc Desc(Frequency, FXxHash128{Hash, 0});
+					Desc.Target = Target;
+					Desc.CodeFormat = Target.OutputFormat;
+					return Desc;
+				}())
 			{
 			}
 		};
@@ -3057,6 +3063,47 @@ namespace Durin
 		Second.ColorBlendStates[0].ColorWriteMask = ERHIColorWriteMask::Red;
 		ASSERT_TRUE((SecondKey = BuildGraphicsPipelineStateKey(Second, nullptr))) << ToString(SecondKey.error());
 		EXPECT_NE(*FirstKey, *SecondKey);
+	}
+
+	TEST(FRHICommandListTests, PipelineKeysSeparateTargetsWithIdenticalCodeHashes)
+	{
+		FTestShader VulkanVertex(EShaderFrequency::Vertex, 91);
+		FTestShader VulkanFragment(EShaderFrequency::Fragment, 92);
+		FTestShader MetalVertex(EShaderFrequency::Vertex, 91, MetalShaderTarget);
+		FTestShader MetalFragment(EShaderFrequency::Fragment, 92, MetalShaderTarget);
+		FTestVertexDeclaration VertexDeclaration;
+		FGraphicsPipelineStateInitializer Graphics;
+		Graphics.BoundShaders = {&VulkanVertex, &VulkanFragment};
+		Graphics.VertexDeclaration = &VertexDeclaration;
+		Graphics.RenderTargetLayout.NumColorRenderTargets = 1;
+		Graphics.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format =
+			EPixelFormat::RGBA8_UNORM;
+		auto VulkanKey = BuildGraphicsPipelineStateKey(Graphics, nullptr);
+		ASSERT_TRUE(VulkanKey);
+		Graphics.BoundShaders = {&MetalVertex, &MetalFragment};
+		auto MetalKey = BuildGraphicsPipelineStateKey(Graphics, nullptr);
+		ASSERT_TRUE(MetalKey);
+		EXPECT_NE(*VulkanKey, *MetalKey);
+		EXPECT_NE(FGraphicsPipelineStateKeyHasher{}(*VulkanKey),
+			FGraphicsPipelineStateKeyHasher{}(*MetalKey));
+		Graphics.BoundShaders = {&VulkanVertex, &MetalFragment};
+		auto Mixed = BuildGraphicsPipelineStateKey(Graphics, nullptr);
+		ASSERT_FALSE(Mixed);
+		EXPECT_EQ(Mixed.error(), ERHIGraphicsPipelineError::ShaderTargetMismatch);
+
+		auto VulkanCompute = MakeRefCount<FTestShader>(EShaderFrequency::Compute, 93);
+		auto MetalCompute = MakeRefCount<FTestShader>(EShaderFrequency::Compute, 93,
+			MetalShaderTarget);
+		FComputePipelineStateInitializer Compute;
+		Compute.ComputeShader = VulkanCompute;
+		auto VulkanComputeKey = BuildComputePipelineStateKey(Compute, nullptr);
+		ASSERT_TRUE(VulkanComputeKey);
+		Compute.ComputeShader = MetalCompute;
+		auto MetalComputeKey = BuildComputePipelineStateKey(Compute, nullptr);
+		ASSERT_TRUE(MetalComputeKey);
+		EXPECT_NE(*VulkanComputeKey, *MetalComputeKey);
+		EXPECT_NE(FComputePipelineStateKeyHasher{}(*VulkanComputeKey),
+			FComputePipelineStateKeyHasher{}(*MetalComputeKey));
 	}
 
 	TEST(FRHICommandListTests, GraphicsPipelineKeyCanonicalizesDynamicDepthBias)

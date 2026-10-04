@@ -1148,6 +1148,8 @@ float4 FragmentMain(
 			std::chrono::duration_cast<std::chrono::microseconds>(
 				CompileBegin - GenerateBegin).count();
 		FGeneratedShaderCompileRequest Request;
+		Request.Target = Input.Environment.Target == "metal-msl-2.0"
+			? MetalShaderTarget : VulkanShaderTarget;
 		Request.VirtualPath = "/Generated/Materials/" + Result.Identity.ToString();
 		Request.Source = Result.GeneratedSource;
 		Request.EntryPoints.assign(MaterialCompiledEntryPoints.begin(), MaterialCompiledEntryPoints.end());

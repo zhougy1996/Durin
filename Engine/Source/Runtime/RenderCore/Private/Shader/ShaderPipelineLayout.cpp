@@ -35,6 +35,9 @@ namespace Durin
 			CompiledShader.Hash
 		);
 		CreateDesc.SetEntryPoint(CompiledShader.BinaryEntryPoint.c_str());
+		CreateDesc.Target = CompiledShader.Target;
+		CreateDesc.CodeFormat = CompiledShader.CodeFormat;
+		CreateDesc.BindingRemapIdentity = CompiledShader.BindingRemapIdentity;
 		return CreateDesc;
 	}
 

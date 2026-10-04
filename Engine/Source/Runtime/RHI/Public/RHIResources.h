@@ -285,7 +285,9 @@ namespace Durin
 
 		auto operator==(const FRHIShaderDesc& Other) const -> bool
 		{
-			return Frequency == Other.Frequency && Hash == Other.Hash;
+			return Frequency == Other.Frequency && Hash == Other.Hash
+				&& Target == Other.Target && CodeFormat == Other.CodeFormat
+				&& BindingRemapIdentity == Other.BindingRemapIdentity;
 		}
 
 		auto operator!=(const FRHIShaderDesc& Other) const -> bool
@@ -296,6 +298,9 @@ namespace Durin
 		FXxHash128 Hash;
 
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
+		FShaderTargetIdentity Target;
+		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
+		FXxHash128 BindingRemapIdentity{};
 	};
 
 	// Extends shader identity with non-owning compiled-code input used during creation.
@@ -349,17 +354,33 @@ namespace Durin
 			: FRHIResource(ERHIResourceType::Shader)
 			, Frequency(InCreateDesc.Frequency)
 			, Hash(InCreateDesc.Hash)
+			, Target(InCreateDesc.Target)
+			, CodeFormat(InCreateDesc.CodeFormat)
+			, BindingRemapIdentity(InCreateDesc.BindingRemapIdentity)
 		{
+		}
+		explicit FRHIShader(const FRHIShaderCreateDesc& InCreateDesc)
+			: FRHIShader(static_cast<const FRHIShaderDesc&>(InCreateDesc))
+		{
+			EntryPoint = InCreateDesc.EntryPoint ? InCreateDesc.EntryPoint : "";
 		}
 
 		auto GetFrequency() const -> EShaderFrequency { return Frequency; }
 
 		auto GetHash() const -> FXxHash128 { return Hash; }
+		auto GetTarget() const -> const FShaderTargetIdentity& { return Target; }
+		auto GetCodeFormat() const -> EShaderCodeFormat { return CodeFormat; }
+		auto GetBindingRemapIdentity() const -> FXxHash128 { return BindingRemapIdentity; }
+		auto GetEntryPoint() const -> std::string_view { return EntryPoint; }
 
 	protected:
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
 
 		FXxHash128 Hash;
+		FShaderTargetIdentity Target;
+		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
+		FXxHash128 BindingRemapIdentity{};
+		std::string EntryPoint = "main";
 	};
 
 	// Selects which clear-value representation is valid for an attachment.
@@ -1702,8 +1723,14 @@ namespace Durin
 	// Canonical immutable identity used by graphics-pipeline caches.
 	struct FGraphicsPipelineStateKey
 	{
+		FShaderTargetIdentity Target;
+		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
 		FXxHash128 VertexShaderHash;
 		FXxHash128 FragmentShaderHash;
+		FXxHash128 VertexBindingRemapIdentity{};
+		FXxHash128 FragmentBindingRemapIdentity{};
+		std::string VertexEntryPoint;
+		std::string FragmentEntryPoint;
 		FRHIRenderTargetLayout RenderTargetLayout;
 		std::vector<FRHIVertexElementIdentity> VertexElements;
 		FPipelineLayoutDesc PipelineLayout;
@@ -1728,6 +1755,7 @@ namespace Durin
 		InvalidBlendState,
 		MissingShaders,
 		ShaderStageMismatch,
+		ShaderTargetMismatch,
 		InvalidReflectedLayout,
 		InvalidPushConstants,
 		InvalidRenderTargets,
@@ -1755,7 +1783,11 @@ namespace Durin
 	// Canonical immutable identity used by compute-pipeline caches.
 	struct FComputePipelineStateKey
 	{
+		FShaderTargetIdentity Target;
+		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
 		FXxHash128 ComputeShaderHash;
+		FXxHash128 BindingRemapIdentity{};
+		std::string EntryPoint;
 		FPipelineLayoutDesc PipelineLayout;
 
 		auto operator==(const FComputePipelineStateKey&) const -> bool = default;
@@ -1770,6 +1802,7 @@ namespace Durin
 	{
 		MissingShader,
 		ShaderStageMismatch,
+		ShaderTargetMismatch,
 		InvalidReflectedLayout,
 		InvalidPushConstants,
 		OverlappingPushConstants,

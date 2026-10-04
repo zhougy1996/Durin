@@ -9,6 +9,7 @@
 #include "Application/ModalLoopTick.h"
 #include "Asset/Asset.h"
 #include "RHI.h"
+#include "RHIGlobals.h"
 #include "Mona.h"
 #include "Engine/Engine.h"
 #include "Asset/AssetCompilingManager.h"
@@ -145,9 +146,18 @@ namespace Durin
 			return false;
 		}
 #else
+		const auto Backend = ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND"));
+		if (!Backend)
+		{
+			DURIN_ERROR("Engine pre-initialization failed because the RHI backend selection is invalid.");
+			return false;
+		}
+		const auto ShaderPlatform = *Backend == ERHIBackend::Metal
+			? EShaderTargetPlatform::MacOS : EShaderTargetPlatform::Win64;
 		FShaderOperationResult ShaderDataError;
 		if (!(ShaderDataError = InitializeShaderData(FShaderDataConfiguration::Cooked(
-				std::filesystem::path(FPaths::LaunchDir()).lexically_normal()))))
+				std::filesystem::path(FPaths::LaunchDir()).lexically_normal(),
+				ShaderPlatform))))
 		{
 			DURIN_ERROR("Engine pre-initialization failed because Cooked Shader data could not start: {}", FormatShaderError(ShaderDataError.error()));
 			return false;

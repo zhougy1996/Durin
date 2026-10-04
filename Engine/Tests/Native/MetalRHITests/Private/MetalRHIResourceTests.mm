@@ -276,6 +276,62 @@ TEST(FMetalRHITextureTests, RecordedBufferTextureRoundTripCompletesOnGPU)
 	}
 }
 
+TEST(FMetalRHITextureTests, RecordedColorClearIsReadableAfterGPUCompletion)
+{
+	@autoreleasepool
+	{
+		FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			SCOPED_TRACE(Mode);
+			FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+			ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Headless()));
+			FScopedRHIExit Exit;
+			auto& Commands = Durin::FRHICommandListImmediate::Get();
+			constexpr uint32_t Width = 8;
+			constexpr uint32_t Height = 8;
+			auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+				"Metal color clear", Width, Height, Durin::EPixelFormat::RGBA8_UNORM);
+			Desc.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+				| Durin::ETextureCreateFlags::CPUReadback);
+			ASSERT_TRUE(Durin::GDynamicRHI->RHIIsTextureSupported(Desc));
+			auto Created = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
+			ASSERT_TRUE(Created.has_value());
+			auto Texture = std::move(*Created);
+			Durin::FRHIRenderPassInfo Pass;
+			Pass.RenderTargetLayout.NumColorRenderTargets = 1;
+			Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format =
+				Durin::EPixelFormat::RGBA8_UNORM;
+			Pass.ColorRenderTargets[0] = Texture.GetReference();
+			Pass.ColorClearValues[0] = Durin::FClearValueBinding(0.0f, 1.0f, 0.0f, 1.0f);
+			ASSERT_TRUE(Pass.RenderTargetLayout.IsValid());
+			const auto Signal = Commands.BeginGPUSubmission(
+				{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+			Commands.SwitchPipeline(Durin::ERHIPipeline::Graphics);
+			Commands.BeginRenderPass(Pass, "MetalColorClear");
+			Commands.EndRenderPass();
+			Commands.EndGPUSubmission();
+			Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread,
+				Durin::ERHISubmitFlags::SubmitToGPU);
+			ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
+				Durin::ERHIGPUWaitResult::Complete);
+			Durin::FByteBuffer Pixels;
+			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+				Commands, Texture.GetReference(), 0, 0, Pixels));
+			ASSERT_EQ(Pixels.size(), Width * Height * 4);
+			for (size_t Index = 0; Index < Pixels.size(); Index += 4)
+			{
+			EXPECT_EQ(Pixels[Index], std::byte{0});
+			EXPECT_EQ(Pixels[Index + 1], std::byte{255});
+			EXPECT_EQ(Pixels[Index + 2], std::byte{0});
+			EXPECT_EQ(Pixels[Index + 3], std::byte{255});
+			}
+			Texture = nullptr;
+			Durin::RHIExit();
+		}
+	}
+}
+
 TEST(FMetalRHITextureTests, PitchedUploadWorksInsideAndOutsideSubmission)
 {
 	@autoreleasepool

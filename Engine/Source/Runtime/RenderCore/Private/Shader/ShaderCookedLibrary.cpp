@@ -11,8 +11,8 @@ namespace Durin
 	namespace
 	{
 		constexpr uint32 LibraryMagic = 0x424c5344; // DSLB
-		constexpr uint32 LibrarySchemaVersion = 1;
-		constexpr uint32 LibraryBuilderVersion = 1;
+		constexpr uint32 LibrarySchemaVersion = 3;
+		constexpr uint32 LibraryBuilderVersion = 3;
 		constexpr uint32 LibraryHeaderSize = 112;
 		constexpr uint32 LibraryDirectoryRecordSize = 80;
 		constexpr uint64 LibraryAlignment = 16;
@@ -69,9 +69,16 @@ namespace Durin
 			EShaderTargetPlatform Platform,
 			EShaderTargetProfile Profile) -> bool
 		{
-			return Platform == EShaderTargetPlatform::Win64
+			return (Platform == EShaderTargetPlatform::Win64
+				|| Platform == EShaderTargetPlatform::MacOS)
 				&& (Profile == EShaderTargetProfile::Game
 					|| Profile == EShaderTargetProfile::EditorValidation);
+		}
+
+		auto TargetForPlatform(EShaderTargetPlatform Platform) -> FShaderTargetIdentity
+		{
+			return Platform == EShaderTargetPlatform::MacOS
+				? MetalShaderTarget : VulkanShaderTarget;
 		}
 
 		auto IsEligible(
@@ -121,6 +128,7 @@ namespace Durin
 			std::vector<std::string>& OutEntryStorage) -> bool
 		{
 			OutOptions = {};
+			OutOptions.Target = TargetForPlatform(Request.TargetPlatform);
 			OutEntryStorage.clear();
 			OutEntryStorage.reserve(Request.Members.size());
 			for (const FShaderRuntimeRequestMember& Member : Request.Members)
@@ -671,6 +679,17 @@ namespace Durin
 				|| Found->RuntimeIdentity != Identity
 				|| Found->MemberCount != Request.Members.size())
 				return std::unexpected(FShaderError{.Code = EShaderError::LibraryRequiredRequestMissing, .ActualIdentity = Request.Name});
+			const FByteView Payload(Candidate->Bytes->data() + static_cast<size_t>(Found->Offset),
+				static_cast<size_t>(Found->Size));
+			if (FXxHash128::HashBuffer(Payload) != Found->PayloadDigest)
+				return std::unexpected(FShaderError{.Code = EShaderError::LibraryPayloadDigestInvalid,
+					.ActualIdentity = Request.Name});
+			std::vector<std::string> Entries;
+			FShaderCompileOptions Options;
+			MakeCompileOptions(Request, Options, Entries);
+			FShaderCompilerOutput Validated;
+			if (auto Result = ShaderCompiledOutput::Decode(Payload, Options, Validated); !Result)
+				return Result;
 		}
 		OutLibrary.State = std::move(Candidate);
 

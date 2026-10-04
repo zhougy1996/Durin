@@ -278,7 +278,9 @@ namespace Durin
 	ENGINE_API auto AreMaterialFunctionOwnersCurrent(std::span<const FMaterialFunctionOwnerStamp> Owners) -> bool;
 
 	[[nodiscard]] ENGINE_API auto BuildDefaultMaterialCompilerEnvironment(
-		FMaterialCompilerEnvironment& OutEnvironment) -> FMaterialOperationResult;
+		FMaterialCompilerEnvironment& OutEnvironment,
+		std::optional<FShaderTargetIdentity> Target = std::nullopt)
+		-> FMaterialOperationResult;
 
 	namespace MIR
 	{

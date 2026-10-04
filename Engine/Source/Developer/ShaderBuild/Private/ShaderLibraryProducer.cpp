@@ -50,6 +50,8 @@ namespace Durin
 			FShaderCompileOptions Options;
 			if (!MakeCompileOptions(Types, Options))
 				return std::unexpected(FShaderError{.Code = EShaderError::RequestBuildTypesMismatch, .ActualIdentity = Request.Name});
+			Options.Target = TargetPlatform == EShaderTargetPlatform::MacOS
+				? MetalShaderTarget : VulkanShaderTarget;
 			Options.SourceArtifacts = Artifacts;
 			FShaderCompilerOutput Output = Builder.GetOrCompile(
 				Options.VirtualShaderPath, Options);

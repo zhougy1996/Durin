@@ -13,13 +13,6 @@ namespace Durin
 	inline constexpr std::string_view ShaderCookedLibraryRelativePath =
 		"Shaders/ShaderLibrary.dslb";
 
-	// Identifies the platform encoded by one Shader request and library.
-	enum class EShaderTargetPlatform : uint32
-	{
-		Invalid = 0,
-		Win64 = 1,
-	};
-
 	// Identifies the runtime profile encoded by one Shader request and library.
 	enum class EShaderTargetProfile : uint32
 	{

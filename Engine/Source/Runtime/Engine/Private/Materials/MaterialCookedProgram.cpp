@@ -60,8 +60,18 @@ namespace Durin
 			Ar << Range.StageFlags << Range.Offset << Range.Size;
 		}
 
+		auto SerializeMetalBinding(FArchive& Ar, FMetalShaderBinding& Binding) -> void
+		{
+			Ar << Binding.SetIndex << Binding.BindingIndex << Binding.Type
+				<< Binding.Slot << Binding.Count;
+		}
+
 		auto SerializeShader(FArchive& Ar, FCompiledShader& Shader) -> void
 		{
+			Ar << Shader.Target.Platform << Shader.Target.Backend
+				<< Shader.Target.IntermediateFormat << Shader.Target.OutputFormat
+				<< Shader.Target.MslLanguageVersion << Shader.Target.BindingRemapSchema
+				<< Shader.CodeFormat;
 			Ar << Shader.Frequency;
 			SerializeBoundedString(
 				Ar, Shader.SourceEntryPoint, MaterialCookedProgramMaxStringBytes);
@@ -85,6 +95,13 @@ namespace Durin
 				[](FArchive& Inner, FPushConstantRange& Range) {
 					SerializePushRange(Inner, Range);
 				});
+			SerializeBoundedSequence(Ar, Shader.MetalBindings,
+				MaterialCookedProgramMaxBindingsPerStage,
+				[](FArchive& Inner, FMetalShaderBinding& Binding) {
+					SerializeMetalBinding(Inner, Binding);
+				});
+			Ar << Shader.MetalPushConstantBufferSlot;
+			SerializeHash(Ar, Shader.BindingRemapIdentity);
 			if (Ar.IsLoading() && !Ar.IsError())
 				Shader.Code = std::make_shared<const FSharedByteBuffer>(FSharedByteBuffer::Take(std::move(Code)));
 		}
@@ -195,8 +212,14 @@ namespace Durin
 		auto ValidateDecodedProgram(
 			const FMaterialCompilerResult& Program,
 			const FMaterialStaticProperties& StaticProperties,
+			ECookTargetPlatform TargetPlatform,
 			bool bRequireCurrentEnvironment) -> FMaterialOperationResult
 		{
+			const bool bMetal = TargetPlatform == ECookTargetPlatform::MacOS;
+			const FShaderTargetIdentity ExpectedTarget = bMetal
+				? MetalShaderTarget : VulkanShaderTarget;
+			const std::string_view ExpectedName = bMetal
+				? "metal-msl-2.0" : "vulkan-spirv-1.5";
 			if (!Program.Identity.IsValid() || Program.CompilerIdentity.empty()
 				|| Program.Target.empty()
 				|| Program.PassContractVersion
@@ -213,7 +236,7 @@ namespace Durin
 					|| (Index && Program.StaticBools[Index - 1].DeclarationId
 						== Program.StaticBools[Index].DeclarationId))
 					return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
-			if (bRequireCurrentEnvironment && Program.Target != "vulkan-spirv-1.5")
+			if (bRequireCurrentEnvironment && Program.Target != ExpectedName)
 				return {EMaterialCookError::CookedProgramTargetIncompatible};
 			// Cooked execution has no compiler provider. Versions, target, layout,
 			// stage contracts and byte hashes validate its source-independent ABI.
@@ -223,7 +246,7 @@ namespace Durin
 					GetShaderCompilerEnvironmentIdentity();
 				if (CurrentCompilerIdentity.empty()
 					|| Program.CompilerIdentity != CurrentCompilerIdentity
-					|| Program.Target != "vulkan-spirv-1.5")
+					|| Program.Target != ExpectedName)
 					return {EMaterialCookError::CookedProgramCompilerTargetIdentityIncompatible};
 			}
 			if (const auto Validation = ValidateMaterialStaticProperties(StaticProperties); !Validation) return Validation;
@@ -261,6 +284,30 @@ namespace Durin
 				if (!Shader.Code || Shader.Code->IsEmpty() || Shader.BinaryEntryPoint.empty()
 					|| FXxHash128::HashBuffer(*Shader.Code) != Shader.Hash)
 					return {EMaterialCookError::CookedShaderCodeHashInvalid};
+				if (Shader.Target != ExpectedTarget
+					|| Shader.CodeFormat != ExpectedTarget.OutputFormat)
+					return {EMaterialCookError::CookedProgramTargetIncompatible};
+				if (bMetal)
+				{
+					const auto Map = BuildMetalShaderBindingMap(Shader.Frequency, Shader.Reflection);
+					const auto Code = Shader.Code->GetBytes();
+					const std::string_view Source(reinterpret_cast<const char*>(Code.data()), Code.size());
+					if (!Map || Shader.Code->size() < 32
+						|| std::ranges::find(Code, std::byte{0}) != Code.end()
+						|| Shader.MetalBindings != Map->Bindings
+						|| Shader.MetalPushConstantBufferSlot != Map->PushConstantBufferSlot
+						|| Shader.BindingRemapIdentity != Map->Identity
+						|| !Source.substr(0, 256).contains("#include <metal_stdlib>")
+						|| Source.find(Shader.BinaryEntryPoint) == std::string_view::npos)
+						return {EMaterialCookError::CookedProgramTargetIncompatible};
+				}
+				else if (!Shader.MetalBindings.empty()
+					|| Shader.MetalPushConstantBufferSlot != UINT32_MAX
+					|| Shader.BindingRemapIdentity != FXxHash128{}
+					|| Shader.Code->size() < 5 * sizeof(uint32)
+					|| Shader.Code->size() % sizeof(uint32) != 0
+					|| std::memcmp(Shader.Code->data(), "\x03\x02\x23\x07", 4) != 0)
+					return {EMaterialCookError::CookedProgramTargetIncompatible};
 			}
 			const auto Contract = ValidateMaterialCompilerResult(Program);
 			if (!Contract) return {FMaterialError(Contract)};
@@ -278,11 +325,13 @@ namespace Durin
 		FByteBuffer& OutBytes) -> FMaterialOperationResult
 	{
 		OutBytes.clear();
-		if (TargetPlatform != ECookTargetPlatform::Win64 || TargetProfile != ECookTargetProfile::Game)
+		if ((TargetPlatform != ECookTargetPlatform::Win64
+				&& TargetPlatform != ECookTargetPlatform::MacOS)
+			|| TargetProfile != ECookTargetProfile::Game)
 			return {EMaterialCookError::CookedProgramTargetUnsupported};
 		if (!Program) return {EMaterialCookError::ProgramUnavailable};
 		if (const auto Validation = ValidateDecodedProgram(
-				Program, StaticProperties, false); !Validation) return Validation;
+				Program, StaticProperties, TargetPlatform, false); !Validation) return Validation;
 		FMaterialCompilerResult Copy = Program;
 		FMaterialStaticProperties PropertyCopy = StaticProperties;
 		FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::CookedPayload);
@@ -341,7 +390,7 @@ namespace Durin
 			return {EMaterialCookError::CookedProgramTargetIncompatible};
 		Candidate.bSucceeded = true;
 		if (const auto Validation = ValidateDecodedProgram(
-				Candidate, CandidateProperties, true); !Validation) return Validation;
+				Candidate, CandidateProperties, Platform, true); !Validation) return Validation;
 		OutStaticProperties = CandidateProperties;
 		OutProgram = std::make_shared<const FMaterialCompilerResult>(
 			std::move(Candidate));

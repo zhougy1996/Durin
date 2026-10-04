@@ -10,6 +10,7 @@
 #include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "DynamicRHI.h"
+#include "RHIGlobals.h"
 
 namespace Durin
 {
@@ -52,7 +53,8 @@ namespace Durin
 			: ERHIFeatureLevel::SM5;
 		const auto Decoded = DecodeMaterialCookedProgramFamily(
 			Bytes,
-			ECookTargetPlatform::Win64,
+			ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND")) == ERHIBackend::Metal
+				? ECookTargetPlatform::MacOS : ECookTargetPlatform::Win64,
 			ECookTargetProfile::Game,
 			GetMaterialQualityLevel(), FeatureLevel, {},
 			PayloadProperties, ProgramCandidate);
@@ -126,10 +128,14 @@ namespace Durin
 	{
 		Super::SerializeCooked(Ar);
 		if (Ar.IsError() || IsDynamicInstance()) return;
-		if (Ar.GetTarget().Platform != "Win64" || Ar.GetTarget().Profile != "Game")
+		const auto TargetPlatform = Ar.GetTarget().Platform == "MacOS"
+			? ECookTargetPlatform::MacOS : ECookTargetPlatform::Win64;
+		if ((Ar.GetTarget().Platform != "Win64"
+				&& Ar.GetTarget().Platform != "MacOS")
+			|| Ar.GetTarget().Profile != "Game")
 		{
 			Ar.Fail(EArchiveFailureCode::InvalidData,
-				"Material cooked program data requires the Win64 Game target.");
+				"Material cooked program data requires a Win64 or MacOS Game target.");
 			return;
 		}
 		FBulkData Projection;
@@ -148,7 +154,9 @@ namespace Durin
 				return;
 			}
 			FMaterialCompilerEnvironment BaseEnvironment;
-			if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment);
+			if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment,
+				TargetPlatform == ECookTargetPlatform::MacOS
+					? MetalShaderTarget : VulkanShaderTarget);
 				!Environment)
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
@@ -186,7 +194,7 @@ namespace Durin
 			FByteBuffer Bytes;
 			const auto Encoded = EncodeMaterialCookedProgramFamily(
 				VariantPointers, GetRenderableStaticProperties(),
-				ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes);
+				TargetPlatform, ECookTargetProfile::Game, Bytes);
 			if (!Encoded)
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData, FormatMaterialError(Encoded.Error));
@@ -213,7 +221,8 @@ namespace Durin
 			return {.Error = Error, .ObjectPath = GetObjectPath(), .VirtualPath = std::string(VirtualPackagePath),
 				.TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()};
 		};
-		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+		if ((Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+				&& Context.GetTargetPlatform() != ECookTargetPlatform::MacOS)
 			|| Context.GetTargetProfile() != ECookTargetProfile::Game) return Reject(ECookContributionError::Target);
 		if (!CompilationOwner.MaterialCompileStatus.IsCurrent() || !CompilationOwner.RenderLayer.CompiledProgram
 			|| CompilationOwner.MaterialCompileStatus.DependencyRevision != GetShaderReloadGeneration()

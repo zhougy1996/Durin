@@ -13,8 +13,17 @@ namespace Durin::ShaderCompileUtilities
 	namespace
 	{
 		constexpr std::string_view GShaderSourceTreeSignatureVersion = "DurinShaderPortableSourceTree_v1";
-		constexpr std::string_view GShaderVariantKeyVersion = "DurinShaderVariantKey_v6";
-		constexpr std::string_view GShaderDependencyKeyVersion = "DurinShaderDependencyKey_v1";
+		constexpr std::string_view GShaderVariantKeyVersion = "DurinShaderVariantKey_v7";
+		constexpr std::string_view GShaderDependencyKeyVersion = "DurinShaderDependencyKey_v2";
+		auto HashTarget(FXxHash128Builder& Builder, const FShaderTargetIdentity& Target) -> void
+		{
+			UpdateCanonicalHash(Builder, Target.Platform);
+			UpdateCanonicalHash(Builder, Target.Backend);
+			UpdateCanonicalHash(Builder, Target.IntermediateFormat);
+			UpdateCanonicalHash(Builder, Target.OutputFormat);
+			UpdateCanonicalHash(Builder, Target.MslLanguageVersion);
+			UpdateCanonicalHash(Builder, Target.BindingRemapSchema);
+		}
 	}
 
 	// Resolve only the dependency generation used to construct the variant key.
@@ -137,6 +146,7 @@ namespace Durin::ShaderCompileUtilities
 		const FShaderMetaData& MetaData,
 		const std::vector<FShaderMacroDefinition>& Macros,
 		std::string_view CompilerEnvironment,
+		const FShaderTargetIdentity& Target,
 		FShaderVariantKey& OutVariantKey
 	) -> void
 	{
@@ -145,6 +155,7 @@ namespace Durin::ShaderCompileUtilities
 		UpdateCanonicalHashString(Builder, FSlangSessionEnvironment::BackendName);
 		UpdateCanonicalHashString(Builder, FSlangSessionEnvironment::TargetFormatName);
 		UpdateCanonicalHashString(Builder, FSlangSessionEnvironment::TargetProfileName);
+		HashTarget(Builder, Target);
 		UpdateCanonicalHashString(Builder, CompilerEnvironment);
 		UpdateCanonicalHashString(Builder, VirtualShaderPath);
 		UpdateCanonicalHash(Builder, MetaData.SourceTreeSignature);
@@ -169,11 +180,13 @@ namespace Durin::ShaderCompileUtilities
 		std::string_view VirtualShaderPath,
 		const std::vector<FShaderMacroDefinition>& Macros,
 		std::string_view CompilerEnvironment,
+		const FShaderTargetIdentity& Target,
 		FShaderDependencyKey& OutDependencyKey
 	) -> void
 	{
 		FXxHash128Builder Builder;
 		UpdateCanonicalHashString(Builder, GShaderDependencyKeyVersion);
+		HashTarget(Builder, Target);
 		UpdateCanonicalHashString(Builder, VirtualShaderPath);
 		UpdateCanonicalHashString(Builder, CompilerEnvironment);
 		UpdateCanonicalHash(Builder, static_cast<uint64>(Macros.size()));

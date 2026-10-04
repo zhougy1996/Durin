@@ -3,6 +3,7 @@
 #include "Materials/MaterialRenderTypes.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "DynamicRHI.h"
+#include "RHIGlobals.h"
 
 namespace Durin
 {
@@ -135,9 +136,14 @@ namespace Durin
 	}
 
 	auto BuildDefaultMaterialCompilerEnvironment(
-		FMaterialCompilerEnvironment& OutEnvironment) -> FMaterialOperationResult
+		FMaterialCompilerEnvironment& OutEnvironment,
+		std::optional<FShaderTargetIdentity> Target) -> FMaterialOperationResult
 	{
 		FShaderCompileOptions Options;
+		const bool bMetal = Target
+			? *Target == MetalShaderTarget
+			: ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND")) == ERHIBackend::Metal;
+		Options.Target = bMetal ? MetalShaderTarget : VulkanShaderTarget;
 		for (const auto Entry : MaterialCompiledEntryPoints) Options.EntryPoints.push_back(Entry.data());
 		Options.Frequencies.assign(4, EShaderFrequency::Fragment);
 		Options.Frequencies.insert(Options.Frequencies.end(), 3, EShaderFrequency::Vertex);
@@ -153,6 +159,7 @@ namespace Durin
 		}
 
 		FMaterialCompilerEnvironment Environment;
+		Environment.Target = bMetal ? "metal-msl-2.0" : "vulkan-spirv-1.5";
 		if (const auto* Capabilities = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr)
 		{
 			Environment.FeatureLevel = Capabilities->FeatureLevel;

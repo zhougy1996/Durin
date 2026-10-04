@@ -23,7 +23,9 @@ namespace Durin
 		EShaderTargetProfile TargetProfile = EShaderTargetProfile::EditorValidation;
 		std::filesystem::path CookRoot;
 
-		RENDERCORE_API static auto Authored() -> FShaderDataConfiguration;
+		RENDERCORE_API static auto Authored(
+			EShaderTargetPlatform InTargetPlatform = EShaderTargetPlatform::Win64)
+			-> FShaderDataConfiguration;
 		RENDERCORE_API static auto Cooked(
 			std::filesystem::path InCookRoot,
 			EShaderTargetPlatform InTargetPlatform = EShaderTargetPlatform::Win64,

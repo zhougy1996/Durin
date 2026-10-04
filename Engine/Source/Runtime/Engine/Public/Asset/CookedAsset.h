@@ -10,7 +10,8 @@ namespace Durin
 	enum class ECookTargetPlatform : uint32
 	{
 		Invalid = 0,
-		Win64 = 1
+		Win64 = 1,
+		MacOS = 2
 	};
 
 	enum class ECookTargetProfile : uint32

@@ -975,3 +975,60 @@ TEST(FMaterialCompileLifecycleTests,
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
 }
+
+TEST(FMaterialCompileLifecycleTests, MetalCookedProgramPreservesStageBindingMaps)
+{
+	InitializeDObjectSystem();
+	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "MetalCookedProgramRoundTrip");
+	ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material));
+	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
+	auto Program = *Material->GetAcceptedCompiledProgram();
+	Program.Target = "metal-msl-2.0";
+	for (auto& Shader : Program.CompiledShaders)
+	{
+		Shader.Target = Durin::MetalShaderTarget;
+		Shader.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
+		Shader.BinaryEntryPoint = "main";
+		const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\nfragment float4 main() { return float4(1); }\n";
+		Durin::FByteBuffer Bytes;
+		for (char Character : Source) Bytes.push_back(std::byte(Character));
+		Shader.Code = std::make_shared<const Durin::FSharedByteBuffer>(
+			Durin::FSharedByteBuffer::Take(std::move(Bytes)));
+		Shader.Hash = Durin::FXxHash128::HashBuffer(*Shader.Code);
+		const auto Map = Durin::BuildMetalShaderBindingMap(Shader.Frequency, Shader.Reflection);
+		ASSERT_TRUE(Map);
+		Shader.MetalBindings = Map->Bindings;
+		Shader.MetalPushConstantBufferSlot = Map->PushConstantBufferSlot;
+		Shader.BindingRemapIdentity = Map->Identity;
+	}
+	const std::array Programs{&Program};
+	Durin::FByteBuffer Bytes;
+	auto Result = Durin::EncodeMaterialCookedProgramFamily(Programs,
+		Material->GetStaticProperties(), Durin::ECookTargetPlatform::MacOS,
+		Durin::ECookTargetProfile::Game, Bytes);
+	ASSERT_TRUE(Result) << Durin::FormatMaterialError(Result.Error);
+	Durin::FMaterialStaticProperties Properties;
+	std::shared_ptr<const Durin::FMaterialCompilerResult> Decoded;
+	Result = Durin::DecodeMaterialCookedProgramFamily(Bytes,
+		Durin::ECookTargetPlatform::MacOS, Durin::ECookTargetProfile::Game,
+		Program.Quality, Program.FeatureLevel, {}, Properties, Decoded);
+	ASSERT_TRUE(Result) << Durin::FormatMaterialError(Result.Error);
+	ASSERT_TRUE(Decoded);
+	for (size_t Index = 0; Index < Program.CompiledShaders.size(); ++Index)
+	{
+		EXPECT_EQ(Decoded->CompiledShaders[Index].Target, Durin::MetalShaderTarget);
+		EXPECT_EQ(Decoded->CompiledShaders[Index].MetalBindings,
+			Program.CompiledShaders[Index].MetalBindings);
+		EXPECT_EQ(Decoded->CompiledShaders[Index].BindingRemapIdentity,
+			Program.CompiledShaders[Index].BindingRemapIdentity);
+	}
+	EXPECT_FALSE(Durin::DecodeMaterialCookedProgramFamily(Bytes,
+		Durin::ECookTargetPlatform::Win64, Durin::ECookTargetProfile::Game,
+		Program.Quality, Program.FeatureLevel, {}, Properties, Decoded));
+	Program.CompiledShaders.front().BindingRemapIdentity.HashLow ^= 1;
+	EXPECT_FALSE(Durin::EncodeMaterialCookedProgramFamily(Programs,
+		Material->GetStaticProperties(), Durin::ECookTargetPlatform::MacOS,
+		Durin::ECookTargetProfile::Game, Bytes));
+	Durin::MarkAsGarbage(Material);
+}

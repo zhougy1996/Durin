@@ -43,6 +43,7 @@ namespace Durin
 		case ERHIGraphicsPipelineError::InvalidBlendState: return "Graphics pipeline contains an invalid blend-state value.";
 		case ERHIGraphicsPipelineError::MissingShaders: return "Graphics pipeline requires vertex and fragment shaders.";
 		case ERHIGraphicsPipelineError::ShaderStageMismatch: return "Graphics pipeline shader stages do not match their slots.";
+		case ERHIGraphicsPipelineError::ShaderTargetMismatch: return "Graphics pipeline shaders have incompatible backend targets or code formats.";
 		case ERHIGraphicsPipelineError::InvalidReflectedLayout: return "Graphics pipeline reflected layout is structurally invalid.";
 		case ERHIGraphicsPipelineError::InvalidPushConstants: return "Graphics pipeline push-constant layout is structurally invalid.";
 		case ERHIGraphicsPipelineError::InvalidRenderTargets: return "Graphics pipeline render-target layout is invalid.";
@@ -68,6 +69,7 @@ namespace Durin
 		{
 		case ERHIComputePipelineError::MissingShader: return "Compute pipeline requires a compute shader.";
 		case ERHIComputePipelineError::ShaderStageMismatch: return "Compute pipeline shader stage does not match its slot.";
+		case ERHIComputePipelineError::ShaderTargetMismatch: return "Compute pipeline shader target and code format are incompatible.";
 		case ERHIComputePipelineError::InvalidReflectedLayout: return "Compute pipeline reflected layout is structurally invalid.";
 		case ERHIComputePipelineError::InvalidPushConstants: return "Compute pipeline push-constant layout is structurally invalid.";
 		case ERHIComputePipelineError::OverlappingPushConstants: return "Compute pipeline push-constant ranges overlap.";

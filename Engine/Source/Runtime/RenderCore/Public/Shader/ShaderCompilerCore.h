@@ -66,6 +66,7 @@ namespace Durin
 	// Carries source identity, entry points, variants, and cache policy into compilation.
 	struct FShaderCompileOptions
 	{
+		FShaderTargetIdentity Target;
 		// Stable cache identity resolved by the caller. Leave empty to disable disk-backed shader cache reads and writes.
 		std::string VirtualShaderPath;
 		// Requested source-level entry points, such as `vertexMain` or `fragmentMain`.
@@ -106,9 +107,35 @@ namespace Durin
 		std::vector<FPushConstantRange> PushConstantRanges;
 	};
 
+	// Checked Vulkan descriptor to native Metal slot assignment for one stage.
+	struct FMetalShaderBinding
+	{
+		uint32 SetIndex = 0;
+		uint32 BindingIndex = 0;
+		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
+		uint32 Slot = 0;
+		uint32 Count = 1;
+
+		auto operator==(const FMetalShaderBinding&) const -> bool = default;
+	};
+
+	struct FMetalShaderBindingMap
+	{
+		std::vector<FMetalShaderBinding> Bindings;
+		uint32 PushConstantBufferSlot = UINT32_MAX;
+		FXxHash128 Identity{};
+	};
+
+	// Canonical schema-1 slot allocation used by the compiler and payload admission.
+	RENDERCORE_API auto BuildMetalShaderBindingMap(EShaderFrequency Frequency,
+		const FShaderReflectionData& Reflection)
+		-> std::expected<FMetalShaderBindingMap, FShaderError>;
+
 	// Owns one compiled stage binary and the reflection data needed to bind it.
 	struct FCompiledShader
 	{
+		FShaderTargetIdentity Target;
+		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
 		// Source-level entry point requested by the caller, such as `vertexMain`.
 		std::string SourceEntryPoint;
@@ -119,6 +146,9 @@ namespace Durin
 		std::shared_ptr<const FSharedByteBuffer> Code;
 		FXxHash128 Hash{};
 		FShaderReflectionData Reflection;
+		std::vector<FMetalShaderBinding> MetalBindings;
+		uint32 MetalPushConstantBufferSlot = UINT32_MAX;
+		FXxHash128 BindingRemapIdentity{};
 	};
 
 	// Owns compiled stages and a structured compilation outcome.
@@ -143,6 +173,7 @@ namespace Durin
 	// compiles, reflects, and caches it without materializing authored source on disk.
 	struct FGeneratedShaderCompileRequest
 	{
+		FShaderTargetIdentity Target;
 		std::string VirtualPath;
 		std::string Source;
 		std::vector<std::string> EntryPoints;

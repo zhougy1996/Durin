@@ -2,6 +2,7 @@
 #include "Modules/ModuleManager.h"
 #include "Shader/IShaderBuildModule.h"
 #include "Shader/ShaderData.h"
+#include "RHIGlobals.h"
 #include "ShaderBuild/ShaderPaths.h"
 #include "ShaderBuilder.h"
 #include "ShaderLibraryProducer.h"
@@ -161,7 +162,12 @@ namespace Durin
 			FShaderPaths::InitDefaultMountPoints();
 			BuildService = std::make_shared<FShaderBuildService>();
 			Builder = std::make_unique<FShaderBuilder>(BuildService);
-			const auto Result = InitializeShaderData(FShaderDataConfiguration::Authored());
+			const auto Backend = ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND"));
+			requiref(Backend.has_value(), "Invalid RHI backend for ShaderBuild startup");
+			const auto TargetPlatform = *Backend == ERHIBackend::Metal
+				? EShaderTargetPlatform::MacOS : EShaderTargetPlatform::Win64;
+			const auto Result = InitializeShaderData(
+				FShaderDataConfiguration::Authored(TargetPlatform));
 			requiref(Result,
 				"Authored Shader data initialization failed: {}", FormatShaderError(Result.error()));
 		}

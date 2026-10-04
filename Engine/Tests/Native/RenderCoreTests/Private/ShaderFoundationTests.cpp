@@ -616,15 +616,52 @@ namespace Durin
 
 	TEST(FShaderFoundationTests, MakeShaderCreateDescPreservesFrequencyHashAndUsesBackendEntryPoint)
 	{
-		const FCompiledShader CompiledShader = MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 7);
+		auto CompiledShader = MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 7);
+		CompiledShader.Target = MetalShaderTarget;
+		CompiledShader.CodeFormat = EShaderCodeFormat::Msl20Source;
+		CompiledShader.BindingRemapIdentity = {17, 23};
 		const FRHIShaderCreateDesc CreateDesc = MakeShaderCreateDesc(CompiledShader);
 
 		EXPECT_EQ(CreateDesc.Frequency, EShaderFrequency::Fragment);
 		EXPECT_EQ(CreateDesc.Hash, CompiledShader.Hash);
+		EXPECT_EQ(CreateDesc.Target, MetalShaderTarget);
+		EXPECT_EQ(CreateDesc.CodeFormat, EShaderCodeFormat::Msl20Source);
+		EXPECT_EQ(CreateDesc.BindingRemapIdentity, CompiledShader.BindingRemapIdentity);
 		EXPECT_STREQ(CreateDesc.EntryPoint, "main");
 		EXPECT_STREQ(CreateDesc.DebugName, "UnitFragmentShader");
 		ASSERT_EQ(CreateDesc.Code.size(), CompiledShader.Code->size());
 		EXPECT_EQ(std::memcmp(CreateDesc.Code.data(), CompiledShader.Code->data(), CreateDesc.Code.size_bytes()), 0);
+	}
+
+	TEST(FShaderFoundationTests, ShaderMapRejectsWrongTargetAndSeparatesIdenticalCode)
+	{
+		FShaderType Type("TargetVertexShader", "/Unit/TargetShader",
+			EShaderFrequency::Vertex, "vertexMain");
+		std::array<const FShaderType*, 1> Types = {&Type};
+		FShaderCompilerOutput VulkanOutput;
+		VulkanOutput.Error = {};
+		VulkanOutput.CompiledShaders = {
+			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "TargetVertexShader", 5)};
+		FShaderCompileOptions VulkanOptions;
+		VulkanOptions.VirtualShaderPath = "/Unit/TargetShader";
+		VulkanOptions.EntryPoints = {"vertexMain"};
+		VulkanOptions.Frequencies = {EShaderFrequency::Vertex};
+		FShaderMapBase VulkanMap;
+		FShaderOperationResult Error;
+		ASSERT_TRUE((Error = VulkanMap.Initialize(Types, VulkanOutput, VulkanOptions)))
+			<< FormatShaderError(Error.error());
+		auto MetalOptions = VulkanOptions;
+		MetalOptions.Target = MetalShaderTarget;
+		FShaderMapBase RejectedMap;
+		EXPECT_FALSE((Error = RejectedMap.Initialize(Types, VulkanOutput, MetalOptions)));
+		EXPECT_EQ(Error.error().Code, EShaderError::PayloadOutputInvalid);
+		auto MetalOutput = VulkanOutput;
+		MetalOutput.CompiledShaders[0].Target = MetalShaderTarget;
+		MetalOutput.CompiledShaders[0].CodeFormat = EShaderCodeFormat::Msl20Source;
+		FShaderMapBase MetalMap;
+		ASSERT_TRUE((Error = MetalMap.Initialize(Types, MetalOutput, MetalOptions)))
+			<< FormatShaderError(Error.error());
+		EXPECT_NE(VulkanMap.GetCacheKey(), MetalMap.GetCacheKey());
 	}
 
 	TEST(FShaderFoundationTests, BuildPipelineLayoutFromShadersMergesBindingsAndPushConstants)

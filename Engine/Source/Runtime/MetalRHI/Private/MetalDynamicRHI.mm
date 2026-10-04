@@ -123,7 +123,7 @@ namespace Durin
 			}
 			auto RHIEndGPUSubmission(const FRHIGPUSyncPointRef& Signal) -> void override
 			{
-				requiref(State && Active && Signal,
+				requiref(State && Active && Signal && !RenderEncoder,
 					"Metal GPU submission end requires an active recording and signal.");
 				{
 					std::lock_guard Lock(State->Mutex);
@@ -191,8 +191,53 @@ namespace Durin
 			auto RHIEndFrame() -> void override { Unsupported(); }
 			auto RHIBeginDiagnosticRegion(std::string_view) -> void override { Unsupported(); }
 			auto RHIEndDiagnosticRegion() -> void override { Unsupported(); }
-			auto RHIBeginRenderPass(const FRHIRenderPassInfo&, FName) -> void override { Unsupported(); }
-			auto RHIEndRenderPass() -> void override { Unsupported(); }
+			auto RHIBeginRenderPass(const FRHIRenderPassInfo& Info, FName) -> void override
+			{
+				requiref(Active && !RenderEncoder && Info.RenderTargetLayout.IsValid()
+					&& Info.RenderTargetLayout.NumColorRenderTargets == 1
+					&& !Info.RenderTargetLayout.bHasDepthStencil
+					&& !Info.RenderTargetLayout.ColorAttachments[0].bHasResolveTarget
+					&& Info.ColorRenderTargetViews[0] && !Info.ColorResolveTargets[0]
+					&& !Info.DepthStencilRenderTarget,
+					"Metal baseline supports one color attachment without resolve or depth.");
+				FRHITexture* Color = Info.ColorRenderTargets[0];
+				const auto& Layout = Info.RenderTargetLayout.ColorAttachments[0].RenderTarget;
+				requiref(Color && Info.ColorRenderTargetViews[0]->GetTexture() == Color
+					&& Color->GetDimension() == ETextureDimension::Texture2D
+					&& Color->GetNumSamples() == 1 && Layout.NumSamples == 1
+					&& Color->GetFormat() == Layout.Format
+					&& EnumHasAnyFlags(Color->GetFlags(), ETextureCreateFlags::RenderTargetable)
+					&& Info.ColorClearValues[0].Binding == EClearBinding::Color,
+					"Metal color attachment does not match its render pass layout.");
+				id<MTLTexture> Texture = static_cast<FMetalTexture*>(Color)->GetHandle();
+				MTLRenderPassDescriptor* Desc = [MTLRenderPassDescriptor renderPassDescriptor];
+				auto* Attachment = Desc.colorAttachments[0];
+				Attachment.texture = Texture;
+				switch (Layout.LoadAction)
+				{
+				case ERHIRenderTargetLoadAction::Clear:
+					Attachment.loadAction = MTLLoadActionClear;
+					Attachment.clearColor = MTLClearColorMake(
+						Info.ColorClearValues[0].ClearValue.Color[0],
+						Info.ColorClearValues[0].ClearValue.Color[1],
+						Info.ColorClearValues[0].ClearValue.Color[2],
+						Info.ColorClearValues[0].ClearValue.Color[3]);
+					break;
+				case ERHIRenderTargetLoadAction::Load: Attachment.loadAction = MTLLoadActionLoad; break;
+				case ERHIRenderTargetLoadAction::DontCare: Attachment.loadAction = MTLLoadActionDontCare; break;
+				}
+				Attachment.storeAction = Layout.StoreAction == ERHIRenderTargetStoreAction::Store
+					? MTLStoreActionStore : MTLStoreActionDontCare;
+				RenderEncoder = [Active->Command renderCommandEncoderWithDescriptor:Desc];
+				requiref(RenderEncoder != nil, "Metal render encoder creation failed.");
+				[Active->NativeResources addObject:Texture];
+			}
+			auto RHIEndRenderPass() -> void override
+			{
+				requiref(RenderEncoder != nil, "Metal render pass is not active.");
+				[RenderEncoder endEncoding];
+				RenderEncoder = nil;
+			}
 			auto RHIBeginDrawingViewport(FRHIViewport*, FRHITexture*) -> void override { Unsupported(); }
 			auto RHIEndDrawingViewport(FRHIViewport*, bool, bool) -> void override { Unsupported(); }
 			auto RHISetViewport(float, float, float, float, float, float) -> void override { Unsupported(); }
@@ -664,6 +709,7 @@ namespace Durin
 					for (const auto& Readback : Active->Readbacks)
 						Readback.Request->Cancel();
 				Active.reset();
+				RenderEncoder = nil;
 				StorageOwner.reset();
 			}
 			friend class FMetalDynamicRHI;
@@ -674,6 +720,7 @@ namespace Durin
 			std::shared_ptr<FMetalSubmissionState> State;
 			std::shared_ptr<void> StorageOwner;
 			std::optional<FMetalPendingSubmission> Active;
+			id<MTLRenderCommandEncoder> RenderEncoder = nil;
 			std::vector<FMetalPendingSubmission> Pending;
 		};
 
@@ -792,7 +839,8 @@ namespace Durin
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc& Desc) const -> bool override
 			{
 				constexpr ETextureCreateFlags TransferFlags = ETextureCreateFlags::SourceCopy
-					| ETextureCreateFlags::DestinationCopy | ETextureCreateFlags::CPUReadback;
+					| ETextureCreateFlags::DestinationCopy | ETextureCreateFlags::CPUReadback
+					| ETextureCreateFlags::RenderTargetable;
 				const bool b2D = Desc.Dimension == ETextureDimension::Texture2D;
 				const bool b2DArray = Desc.Dimension == ETextureDimension::Texture2DArray;
 				const bool bCube = Desc.Dimension == ETextureDimension::TextureCube;
@@ -810,6 +858,9 @@ namespace Durin
 					&& (!b2DArray || Desc.ArraySize <= 2048)
 					&& (!bCubeArray || Desc.ArraySize <= 2048 * TextureCubeFaceCount)
 					&& EnumHasAnyFlags(Desc.Flags, TransferFlags)
+					&& (!EnumHasAnyFlags(Desc.Flags, ETextureCreateFlags::RenderTargetable)
+						|| (b2D && Desc.NumMips == 1
+							&& Desc.Format == EPixelFormat::RGBA8_UNORM))
 					&& (static_cast<uint64>(Desc.Flags)
 						& ~static_cast<uint64>(TransferFlags)) == 0;
 			}
@@ -841,7 +892,8 @@ namespace Durin
 					Native.depth = Desc.Depth;
 				}
 				Native.storageMode = MTLStorageModePrivate;
-				Native.usage = MTLTextureUsageUnknown;
+				Native.usage = EnumHasAnyFlags(Desc.Flags, ETextureCreateFlags::RenderTargetable)
+					? MTLTextureUsageRenderTarget : MTLTextureUsageUnknown;
 				id<MTLTexture> Texture = [Device newTextureWithDescriptor:Native];
 				if (!Texture)
 					return std::unexpected(FRHICreationError{
@@ -943,7 +995,14 @@ namespace Durin
 			{
 				if (!Texture || !ValidateTextureViewDesc(Texture, Desc)
 					|| (Desc.Usage != ERHITextureViewUsage::TransferSource
-						&& Desc.Usage != ERHITextureViewUsage::TransferDestination))
+						&& Desc.Usage != ERHITextureViewUsage::TransferDestination
+						&& Desc.Usage != ERHITextureViewUsage::ColorAttachment))
+					return nullptr;
+				if (Desc.Usage == ERHITextureViewUsage::ColorAttachment
+					&& (!EnumHasAnyFlags(Texture->GetFlags(), ETextureCreateFlags::RenderTargetable)
+						|| Texture->GetDimension() != ETextureDimension::Texture2D
+						|| Desc.Range.FirstMip != 0 || Desc.Range.NumMips != 1
+						|| Desc.Range.FirstArrayLayer != 0 || Desc.Range.NumArrayLayers != 1))
 					return nullptr;
 				return new FRHITextureView(Texture, Desc);
 			}

@@ -125,6 +125,40 @@ TEST(FMaterialVertexEvaluationTests, VertexResourcesAndPixelInterpolationCompile
 	EXPECT_NE(Normalized.Identity, Compiled.Identity);
 }
 
+TEST(FMaterialCompilerTests, MetalMaterialProgramCompilesAndCooks)
+{
+	using namespace Durin;
+	auto Input = MakeSyntheticMaterialCompilerInput();
+	FMaterialCompilerEnvironment CurrentEnvironment;
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(CurrentEnvironment));
+	Input.Environment.CompilerIdentity = CurrentEnvironment.CompilerIdentity;
+	Input.Environment.Target = "metal-msl-2.0";
+	const auto Compiled = MIR::Compile(Input);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
+		: FormatMaterialError(Compiled.Diagnostics.front().Error));
+	ASSERT_EQ(Compiled.CompiledShaders.size(), MaterialCompiledEntryPoints.size());
+	for (const auto& Shader : Compiled.CompiledShaders)
+	{
+		EXPECT_EQ(Shader.Target, MetalShaderTarget);
+		EXPECT_EQ(Shader.CodeFormat, EShaderCodeFormat::Msl20Source);
+		EXPECT_NE(Shader.BindingRemapIdentity, FXxHash128{});
+	}
+	FByteBuffer Bytes;
+	const std::array Programs{&Compiled};
+	auto Error = EncodeMaterialCookedProgramFamily(Programs,
+		Input.StaticProperties, ECookTargetPlatform::MacOS,
+		ECookTargetProfile::Game, Bytes);
+	ASSERT_TRUE(Error) << FormatMaterialError(Error.Error);
+	FMaterialStaticProperties Properties;
+	std::shared_ptr<const FMaterialCompilerResult> Decoded;
+	Error = DecodeMaterialCookedProgramFamily(Bytes,
+		ECookTargetPlatform::MacOS, ECookTargetProfile::Game,
+		Compiled.Quality, Compiled.FeatureLevel, {}, Properties, Decoded);
+	ASSERT_TRUE(Error) << FormatMaterialError(Error.Error);
+	ASSERT_TRUE(Decoded);
+	EXPECT_EQ(Decoded->Identity, Compiled.Identity);
+}
+
 TEST(FMaterialVertexEvaluationTests, ReachableInterpolatorsHaveABoundedInterface)
 {
 	using namespace Durin;

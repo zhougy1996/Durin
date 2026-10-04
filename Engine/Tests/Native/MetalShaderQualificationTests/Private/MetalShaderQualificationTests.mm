@@ -3,7 +3,7 @@
 
 #include "slang.h"
 #include "slang-com-ptr.h"
-#include "spirv_cross/spirv_cross_c.h"
+#include "spirv_cross_c.h"
 
 #include <gtest/gtest.h>
 

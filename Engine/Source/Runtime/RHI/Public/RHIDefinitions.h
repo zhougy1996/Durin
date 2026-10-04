@@ -4,6 +4,33 @@
 
 namespace Durin
 {
+	enum class EShaderTargetPlatform : uint32
+	{
+		Invalid = 0,
+		Win64 = 1,
+		MacOS = 2,
+	};
+
+	enum class EShaderRuntimeBackend : uint32 { Vulkan = 1, Metal = 2 };
+	enum class EShaderCodeFormat : uint32 { Spirv15 = 1, Msl20Source = 2 };
+
+	struct FShaderTargetIdentity
+	{
+		EShaderTargetPlatform Platform = EShaderTargetPlatform::Win64;
+		EShaderRuntimeBackend Backend = EShaderRuntimeBackend::Vulkan;
+		EShaderCodeFormat IntermediateFormat = EShaderCodeFormat::Spirv15;
+		EShaderCodeFormat OutputFormat = EShaderCodeFormat::Spirv15;
+		uint32 MslLanguageVersion = 0;
+		uint32 BindingRemapSchema = 0;
+
+		auto operator==(const FShaderTargetIdentity&) const -> bool = default;
+	};
+
+	inline constexpr FShaderTargetIdentity VulkanShaderTarget{};
+	inline constexpr FShaderTargetIdentity MetalShaderTarget{
+		EShaderTargetPlatform::MacOS, EShaderRuntimeBackend::Metal,
+		EShaderCodeFormat::Spirv15, EShaderCodeFormat::Msl20Source, 200, 1};
+
 	constexpr uint32 FrameInFlight = 2;
 
 	// Carries executor-owned RHI frame identity during ordered BeginFrame replay.

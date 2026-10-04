@@ -12,8 +12,26 @@ namespace Durin::ShaderSharedOutput
 		constexpr uint32 MaximumDescriptorIndex = 65535;
 		constexpr uint32 MaximumPushBytes = 65536;
 		constexpr uint64 MaximumStringBytes = 32768;
-		constexpr uint64 MaximumMetadataBytes = 4 + 8 + MaximumStringBytes
-			+ 32 * (2 * (8 + MaximumStringBytes) + 4 + 16);
+		constexpr uint64 MaximumMetadataBytes = 4 + 8 + MaximumStringBytes + 6 * 4
+			+ 32 * (2 * (8 + MaximumStringBytes) + 8 + 16);
+		auto WriteTarget(FBinaryWriter& Writer, const FShaderTargetIdentity& Target) -> void
+		{
+			Writer.WriteU32(uint32(Target.Platform)); Writer.WriteU32(uint32(Target.Backend));
+			Writer.WriteU32(uint32(Target.IntermediateFormat)); Writer.WriteU32(uint32(Target.OutputFormat));
+			Writer.WriteU32(Target.MslLanguageVersion); Writer.WriteU32(Target.BindingRemapSchema);
+		}
+		auto ReadTarget(FBinaryReader& Reader, FShaderTargetIdentity& Target) -> bool
+		{
+			uint32 Platform = 0, Backend = 0, Intermediate = 0, Output = 0;
+			if (!Reader.ReadU32(Platform) || !Reader.ReadU32(Backend)
+				|| !Reader.ReadU32(Intermediate) || !Reader.ReadU32(Output)
+				|| !Reader.ReadU32(Target.MslLanguageVersion)
+				|| !Reader.ReadU32(Target.BindingRemapSchema)) return false;
+			Target.Platform = EShaderTargetPlatform(Platform); Target.Backend = EShaderRuntimeBackend(Backend);
+			Target.IntermediateFormat = EShaderCodeFormat(Intermediate);
+			Target.OutputFormat = EShaderCodeFormat(Output);
+			return true;
+		}
 		auto Failure(EShaderError Code, uint64 Index = 0) -> std::unexpected<FShaderError>
 		{ return std::unexpected(FShaderError{.Code = Code, .Index = Index}); }
 		auto ValidFlags(uint32 Flags) -> bool
@@ -36,7 +54,8 @@ namespace Durin::ShaderSharedOutput
 		}
 		auto ValidRequest(const FShaderCompileOptions& Options) -> bool
 		{
-			if (Options.VirtualShaderPath.size() > MaximumStringBytes
+			if ((Options.Target != VulkanShaderTarget && Options.Target != MetalShaderTarget)
+				|| Options.VirtualShaderPath.size() > MaximumStringBytes
 				|| Options.EntryPoints.empty() || Options.EntryPoints.size() > ShaderCompiledOutput::MaximumEntryPoints
 				|| Options.Frequencies.size() != Options.EntryPoints.size()) return false;
 			std::set<std::pair<std::string_view, uint32>> Unique;
@@ -48,19 +67,38 @@ namespace Durin::ShaderSharedOutput
 			}
 			return true;
 		}
-		auto ValidCode(FByteView Code) -> bool
+		auto ValidCode(FByteView Code, const FShaderTargetIdentity& Target) -> bool
 		{
+			if (Target == MetalShaderTarget)
+			{
+				if (Code.size() < 32 || Code.size() > MaximumCodeBytes
+					|| std::ranges::find(Code, std::byte{0}) != Code.end()) return false;
+				const std::string_view Source(reinterpret_cast<const char*>(Code.data()), Code.size());
+				return Source.substr(0, 256).contains("#include <metal_stdlib>");
+			}
 			uint32 Magic = 0;
 			return Code.size() >= 20 && Code.size() <= MaximumCodeBytes && Code.size() % 4 == 0
 				&& ReadLittleEndianAt(Code, 0, Magic) && Magic == 0x07230203u;
 		}
-		auto ReadReflection(const FSharedByteBuffer& Block, size_t Entry, FShaderReflectionData* Output,
+		auto ValidMetalMap(const FCompiledShader& Shader) -> bool
+		{
+			if (Shader.Target == VulkanShaderTarget)
+				return Shader.MetalBindings.empty()
+					&& Shader.MetalPushConstantBufferSlot == UINT32_MAX
+					&& Shader.BindingRemapIdentity == FXxHash128{};
+			if (Shader.Target != MetalShaderTarget) return false;
+			const auto Expected = BuildMetalShaderBindingMap(Shader.Frequency, Shader.Reflection);
+			return Expected && Shader.MetalBindings == Expected->Bindings
+				&& Shader.MetalPushConstantBufferSlot == Expected->PushConstantBufferSlot
+				&& Shader.BindingRemapIdentity == Expected->Identity;
+		}
+		auto ReadReflection(const FSharedByteBuffer& Block, size_t Entry, FCompiledShader& Shader,
 			const std::function<bool()>& Cancel) -> FShaderOperationResult
 		{
 			FBinaryReader Reader(Block.GetBytes(), {.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes});
 			uint32 Count = 0;
 			if (!Reader.ReadU32(Count) || Count > MaximumReflectionEntries) return Failure(EShaderError::PayloadBindingCountInvalid, Entry);
-			if (Output) Output->ResourceBindings.reserve(Count);
+			Shader.Reflection.ResourceBindings.reserve(Count);
 			for (uint32 Index = 0; Index < Count; ++Index)
 			{
 				if (Index % 256 == 0 && Cancel && Cancel()) return Failure(EShaderError::Cancelled);
@@ -72,10 +110,10 @@ namespace Durin::ShaderSharedOutput
 					return Failure(EShaderError::PayloadBindingInvalid, Entry);
 				Binding.StageFlags = EShaderStageFlags(Flags); Binding.Type = ERHIBindingType(Type);
 				if (!ValidBinding(Binding)) return Failure(EShaderError::PayloadBindingInvalid, Entry);
-				if (Output) Output->ResourceBindings.push_back(std::move(Binding));
+				Shader.Reflection.ResourceBindings.push_back(std::move(Binding));
 			}
 			if (!Reader.ReadU32(Count) || Count > MaximumReflectionEntries) return Failure(EShaderError::PayloadPushConstantCountInvalid, Entry);
-			if (Output) Output->PushConstantRanges.reserve(Count);
+			Shader.Reflection.PushConstantRanges.reserve(Count);
 			for (uint32 Index = 0; Index < Count; ++Index)
 			{
 				if (Index % 256 == 0 && Cancel && Cancel()) return Failure(EShaderError::Cancelled);
@@ -85,8 +123,28 @@ namespace Durin::ShaderSharedOutput
 					return Failure(EShaderError::PayloadPushConstantInvalid, Entry);
 				Range.StageFlags = EShaderStageFlags(Flags);
 				if (!ValidRange(Range)) return Failure(EShaderError::PayloadPushConstantInvalid, Entry);
-				if (Output) Output->PushConstantRanges.push_back(Range);
+				Shader.Reflection.PushConstantRanges.push_back(Range);
 			}
+			if (!Reader.ReadU32(Count) || Count > MaximumReflectionEntries)
+				return Failure(EShaderError::PayloadBindingCountInvalid, Entry);
+			Shader.MetalBindings.reserve(Count);
+			for (uint32 Index = 0; Index < Count; ++Index)
+			{
+				FMetalShaderBinding Binding;
+				uint32 Type = 0;
+				if (!Reader.ReadU32(Binding.SetIndex) || !Reader.ReadU32(Binding.BindingIndex)
+					|| !Reader.ReadU32(Type) || !Reader.ReadU32(Binding.Slot)
+					|| !Reader.ReadU32(Binding.Count)
+					|| Type > uint32(ERHIBindingType::StorageImage))
+					return Failure(EShaderError::PayloadBindingInvalid, Entry);
+				Binding.Type = ERHIBindingType(Type);
+				Shader.MetalBindings.push_back(Binding);
+			}
+			if (!Reader.ReadU32(Shader.MetalPushConstantBufferSlot)
+				|| !Reader.ReadU64(Shader.BindingRemapIdentity.HashLow)
+				|| !Reader.ReadU64(Shader.BindingRemapIdentity.HashHigh)
+				|| !ValidMetalMap(Shader))
+				return Failure(EShaderError::PayloadBindingInvalid, Entry);
 			if (!Reader.IsAtEnd()) return Failure(EShaderError::PayloadTrailingBytes, Entry);
 			return {};
 		}
@@ -105,13 +163,14 @@ namespace Durin::ShaderSharedOutput
 			if (Cancel && Cancel()) return Failure(EShaderError::Cancelled);
 			if (!ValidRequest(Options)) return Failure(EShaderError::PayloadRequestInvalid);
 			const auto Metadata = GetBuildMetadataPayload(Output);
-			if (Output.GetSchema() != "Shader.Output" || Output.GetSchemaVersion() != 3
+			if (Output.GetSchema() != "Shader.Output" || Output.GetSchemaVersion() != 5
 				|| Metadata.size() > MaximumMetadataBytes
 				|| !Output.CheckLimits({.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes}))
 				return Failure(EShaderError::PayloadHeaderInvalid);
 			FBinaryReader Reader(Metadata.GetBytes(), {.MaximumTotalBytes = MaximumMetadataBytes});
-			uint32 Count = 0; std::string VirtualShaderPath;
+			uint32 Count = 0; std::string VirtualShaderPath; FShaderTargetIdentity Target;
 			if (!Reader.ReadU32(Count) || !Reader.ReadString(VirtualShaderPath, MaximumStringBytes)
+				|| !ReadTarget(Reader, Target) || Target != Options.Target
 				|| VirtualShaderPath != Options.VirtualShaderPath
 				|| Count != Options.EntryPoints.size() || Output.GetValues().size() != Count * 2)
 				return Failure(EShaderError::PayloadHeaderInvalid);
@@ -119,17 +178,21 @@ namespace Durin::ShaderSharedOutput
 			for (uint32 Index = 0; Index < Count; ++Index)
 			{
 				if (Cancel && Cancel()) return Failure(EShaderError::Cancelled);
-				FEntry Entry; uint32 Frequency = 0;
+			FEntry Entry; uint32 Frequency = 0, Format = 0;
 				if (!Reader.ReadString(Entry.SourceName, MaximumStringBytes) || !Reader.ReadString(Entry.BinaryName, MaximumStringBytes)
-					|| !Reader.ReadU32(Frequency) || !Reader.ReadU64(Entry.Hash.HashLow) || !Reader.ReadU64(Entry.Hash.HashHigh)
+					|| !Reader.ReadU32(Frequency) || !Reader.ReadU32(Format)
+					|| !Reader.ReadU64(Entry.Hash.HashLow) || !Reader.ReadU64(Entry.Hash.HashHigh)
 					|| Entry.SourceName != Options.EntryPoints[Index] || Entry.BinaryName.empty()
-					|| Frequency != uint32(Options.Frequencies[Index])) return Failure(EShaderError::PayloadEntryInvalid, Index);
+					|| Frequency != uint32(Options.Frequencies[Index])
+					|| Format != uint32(Target.OutputFormat)) return Failure(EShaderError::PayloadEntryInvalid, Index);
 				Entry.Frequency = EShaderFrequency(Frequency);
 				const auto* Code = Output.FindValue(ValueId(Index, false));
 				const auto* Reflection = Output.FindValue(ValueId(Index, true));
 				if (!Code || !Reflection) return Failure(EShaderError::PayloadEntryInvalid, Index);
-				if (!ValidCode(Code->GetData().GetBytes())) return Failure(EShaderError::PayloadSpirvInvalid, Index);
-				if (Code->GetRawHash() != Entry.Hash) return Failure(EShaderError::PayloadSpirvHashMismatch, Index);
+				if (!ValidCode(Code->GetData().GetBytes(), Target))
+					return Failure(Target == MetalShaderTarget ? EShaderError::PayloadMslInvalid : EShaderError::PayloadSpirvInvalid, Index);
+				if (Code->GetRawHash() != Entry.Hash)
+					return Failure(Target == MetalShaderTarget ? EShaderError::PayloadMslHashMismatch : EShaderError::PayloadSpirvHashMismatch, Index);
 				Entry.Code = Code->GetData(); Entry.Reflection = Reflection->GetData();
 				Entries.push_back(std::move(Entry));
 			}
@@ -143,19 +206,24 @@ namespace Durin::ShaderSharedOutput
 	{
 		if (!Product || !ValidRequest(Options) || Product.CompiledShaders.size() != Options.EntryPoints.size())
 			return Failure(EShaderError::PayloadRequestInvalid);
-		FBuildOutputBuilder Output("Shader.Output", 3, {.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes});
+		FBuildOutputBuilder Output("Shader.Output", 5, {.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes});
 		uint64 DataBytes = 0;
 		FBinaryWriter Metadata({.MaximumTotalBytes = MaximumMetadataBytes});
 		Metadata.WriteU32(uint32(Product.CompiledShaders.size())); Metadata.WriteString(Options.VirtualShaderPath);
+		WriteTarget(Metadata, Options.Target);
 		for (size_t Index = 0; Index < Product.CompiledShaders.size(); ++Index)
 		{
 			if (Cancel && Cancel()) return Failure(EShaderError::Cancelled);
 			const auto& Shader = Product.CompiledShaders[Index];
-			if (!Shader.Code || Shader.SourceEntryPoint != Options.EntryPoints[Index] || Shader.Frequency != Options.Frequencies[Index]
+			if (!Shader.Code || Shader.Target != Options.Target || Shader.CodeFormat != Options.Target.OutputFormat
+				|| Shader.SourceEntryPoint != Options.EntryPoints[Index] || Shader.Frequency != Options.Frequencies[Index]
 				|| Shader.SourceEntryPoint.size() > MaximumStringBytes || Shader.BinaryEntryPoint.empty() || Shader.BinaryEntryPoint.size() > MaximumStringBytes
-				|| !ValidCode(Shader.Code->GetBytes()) || FXxHash128::HashBuffer(Shader.Code->GetBytes()) != Shader.Hash)
+				|| !ValidCode(Shader.Code->GetBytes(), Options.Target)
+				|| !ValidMetalMap(Shader)
+				|| FXxHash128::HashBuffer(Shader.Code->GetBytes()) != Shader.Hash)
 				return Failure(EShaderError::PayloadOutputInvalid, Index);
-			Metadata.WriteString(Shader.SourceEntryPoint); Metadata.WriteString(Shader.BinaryEntryPoint); Metadata.WriteU32(uint32(Shader.Frequency));
+			Metadata.WriteString(Shader.SourceEntryPoint); Metadata.WriteString(Shader.BinaryEntryPoint);
+			Metadata.WriteU32(uint32(Shader.Frequency)); Metadata.WriteU32(uint32(Shader.CodeFormat));
 			Metadata.WriteU64(Shader.Hash.HashLow); Metadata.WriteU64(Shader.Hash.HashHigh);
 			const auto& Reflection = Shader.Reflection;
 			if (Reflection.ResourceBindings.size() > MaximumReflectionEntries || Reflection.PushConstantRanges.size() > MaximumReflectionEntries)
@@ -180,6 +248,16 @@ namespace Durin::ShaderSharedOutput
 				if (!ValidRange(Range)) return Failure(EShaderError::PayloadPushConstantInvalid, Index);
 				Descriptor.WriteU32(uint32(Range.StageFlags)); Descriptor.WriteU32(Range.Offset); Descriptor.WriteU32(Range.Size); Descriptor.WriteU32(0);
 			}
+			Descriptor.WriteU32(uint32(Shader.MetalBindings.size()));
+			for (const auto& Binding : Shader.MetalBindings)
+			{
+				Descriptor.WriteU32(Binding.SetIndex); Descriptor.WriteU32(Binding.BindingIndex);
+				Descriptor.WriteU32(uint32(Binding.Type)); Descriptor.WriteU32(Binding.Slot);
+				Descriptor.WriteU32(Binding.Count);
+			}
+			Descriptor.WriteU32(Shader.MetalPushConstantBufferSlot);
+			Descriptor.WriteU64(Shader.BindingRemapIdentity.HashLow);
+			Descriptor.WriteU64(Shader.BindingRemapIdentity.HashHigh);
 			if (Descriptor.HasError()) return Failure(EShaderError::PayloadTooLarge, Index);
 			DataBytes += Shader.Code->size() + Descriptor.Tell();
 			Output.AddValue(ValueId(uint32(Index), false), *Shader.Code);
@@ -209,11 +287,12 @@ namespace Durin::ShaderSharedOutput
 		{
 			auto& Entry = (*Entries)[Index];
 			FCompiledShader Shader;
+			Shader.Target = Options.Target; Shader.CodeFormat = Options.Target.OutputFormat;
 			Shader.Frequency = Entry.Frequency; Shader.SourceEntryPoint = std::move(Entry.SourceName);
 			Shader.BinaryEntryPoint = std::move(Entry.BinaryName); Shader.Hash = Entry.Hash;
 			Shader.DebugName = Options.VirtualShaderPath.empty() ? Shader.SourceEntryPoint : Options.VirtualShaderPath + "::" + Shader.SourceEntryPoint;
 			Shader.Code = std::make_shared<const FSharedByteBuffer>(std::move(Entry.Code));
-			if (auto Valid = ReadReflection(Entry.Reflection, Index, &Shader.Reflection, Cancel); !Valid) return std::unexpected(std::move(Valid.error()));
+			if (auto Valid = ReadReflection(Entry.Reflection, Index, Shader, Cancel); !Valid) return std::unexpected(std::move(Valid.error()));
 			Product.CompiledShaders.push_back(std::move(Shader));
 		}
 		if (Cancel && Cancel()) return Failure(EShaderError::Cancelled);

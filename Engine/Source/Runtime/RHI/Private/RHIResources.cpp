@@ -156,6 +156,24 @@ namespace Durin
 			Builder.UpdateValue(Value);
 		}
 
+		auto HashShaderTarget(FXxHash64Builder& Builder,
+			const FShaderTargetIdentity& Target) -> void
+		{
+			HashValue(Builder, Target.Platform);
+			HashValue(Builder, Target.Backend);
+			HashValue(Builder, Target.IntermediateFormat);
+			HashValue(Builder, Target.OutputFormat);
+			HashValue(Builder, Target.MslLanguageVersion);
+			HashValue(Builder, Target.BindingRemapSchema);
+		}
+
+		auto HashEntryPoint(FXxHash64Builder& Builder,
+			std::string_view EntryPoint) -> void
+		{
+			HashValue(Builder, uint64(EntryPoint.size()));
+			Builder.Update(EntryPoint);
+		}
+
 		auto HashAttachment(FXxHash64Builder& Builder,
 			const FRHIAttachmentLayout& Attachment) -> void
 		{
@@ -385,6 +403,13 @@ namespace Durin
 		if (Initializer.BoundShaders.VertexShader->GetFrequency() != EShaderFrequency::Vertex
 			|| Initializer.BoundShaders.FragmentShader->GetFrequency() != EShaderFrequency::Fragment)
 			return std::unexpected(ERHIGraphicsPipelineError::ShaderStageMismatch);
+		if (Initializer.BoundShaders.VertexShader->GetTarget()
+				!= Initializer.BoundShaders.FragmentShader->GetTarget()
+			|| Initializer.BoundShaders.VertexShader->GetCodeFormat()
+				!= Initializer.BoundShaders.FragmentShader->GetCodeFormat()
+			|| Initializer.BoundShaders.VertexShader->GetCodeFormat()
+				!= Initializer.BoundShaders.VertexShader->GetTarget().OutputFormat)
+			return std::unexpected(ERHIGraphicsPipelineError::ShaderTargetMismatch);
 		for (const FBindingLayout& Set : Initializer.PipelineLayout.BindingLayouts)
 		{
 			std::unordered_set<uint32> Slots;
@@ -496,8 +521,14 @@ namespace Durin
 		};
 
 		FGraphicsPipelineStateKey Key;
+		Key.Target = Initializer.BoundShaders.VertexShader->GetTarget();
+		Key.CodeFormat = Initializer.BoundShaders.VertexShader->GetCodeFormat();
 		Key.VertexShaderHash = Initializer.BoundShaders.VertexShader->GetHash();
 		Key.FragmentShaderHash = Initializer.BoundShaders.FragmentShader->GetHash();
+		Key.VertexBindingRemapIdentity = Initializer.BoundShaders.VertexShader->GetBindingRemapIdentity();
+		Key.FragmentBindingRemapIdentity = Initializer.BoundShaders.FragmentShader->GetBindingRemapIdentity();
+		Key.VertexEntryPoint = Initializer.BoundShaders.VertexShader->GetEntryPoint();
+		Key.FragmentEntryPoint = Initializer.BoundShaders.FragmentShader->GetEntryPoint();
 		Key.RenderTargetLayout.NumColorRenderTargets =
 			Initializer.RenderTargetLayout.NumColorRenderTargets;
 		for (uint32 Index = 0;
@@ -563,8 +594,14 @@ namespace Durin
 		const FGraphicsPipelineStateKey& Key) const -> size_t
 	{
 		FXxHash64Builder Builder;
+		HashShaderTarget(Builder, Key.Target);
+		HashValue(Builder, Key.CodeFormat);
 		HashValue(Builder, Key.VertexShaderHash);
 		HashValue(Builder, Key.FragmentShaderHash);
+		HashValue(Builder, Key.VertexBindingRemapIdentity);
+		HashValue(Builder, Key.FragmentBindingRemapIdentity);
+		HashEntryPoint(Builder, Key.VertexEntryPoint);
+		HashEntryPoint(Builder, Key.FragmentEntryPoint);
 		HashValue(Builder, Key.RenderTargetLayout.NumColorRenderTargets);
 		for (uint32 Index = 0; Index < Key.RenderTargetLayout.NumColorRenderTargets; ++Index)
 		{
@@ -654,6 +691,9 @@ namespace Durin
 			return std::unexpected(ERHIComputePipelineError::MissingShader);
 		if (Initializer.ComputeShader->GetFrequency() != EShaderFrequency::Compute)
 			return std::unexpected(ERHIComputePipelineError::ShaderStageMismatch);
+		if (Initializer.ComputeShader->GetCodeFormat()
+			!= Initializer.ComputeShader->GetTarget().OutputFormat)
+			return std::unexpected(ERHIComputePipelineError::ShaderTargetMismatch);
 		for (const FBindingLayout& Set : Initializer.PipelineLayout.BindingLayouts)
 		{
 			std::unordered_set<uint32> Slots;
@@ -705,7 +745,11 @@ namespace Durin
 			return std::unexpected(Validation.error());
 
 		FComputePipelineStateKey Key;
+		Key.Target = Initializer.ComputeShader->GetTarget();
+		Key.CodeFormat = Initializer.ComputeShader->GetCodeFormat();
 		Key.ComputeShaderHash = Initializer.ComputeShader->GetHash();
+		Key.BindingRemapIdentity = Initializer.ComputeShader->GetBindingRemapIdentity();
+		Key.EntryPoint = Initializer.ComputeShader->GetEntryPoint();
 		Key.PipelineLayout = Initializer.PipelineLayout;
 		for (FBindingLayout& Set : Key.PipelineLayout.BindingLayouts)
 			std::ranges::sort(Set.BindingLayouts, {}, &FBindingLayoutItem::Slot);
@@ -721,7 +765,11 @@ namespace Durin
 		const FComputePipelineStateKey& Key) const -> size_t
 	{
 		FXxHash64Builder Builder;
+		HashShaderTarget(Builder, Key.Target);
+		HashValue(Builder, Key.CodeFormat);
 		HashValue(Builder, Key.ComputeShaderHash);
+		HashValue(Builder, Key.BindingRemapIdentity);
+		HashEntryPoint(Builder, Key.EntryPoint);
 		HashValue(Builder, Key.PipelineLayout.BindingLayouts.size());
 		for (const FBindingLayout& Set : Key.PipelineLayout.BindingLayouts)
 		{

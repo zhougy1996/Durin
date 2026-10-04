@@ -244,6 +244,71 @@ namespace Durin
 		ExpectBinding(Fragment, "PreviewSettings", 2, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
 	}
 
+#if defined(__APPLE__)
+	TEST(FShaderReflectionTests, MetalTexturePreviewCarriesCheckedNativeBindings)
+	{
+		const auto ShaderPath = std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
+			/ "TexturePreview.slang";
+		FShaderCompileOptions Options;
+		Options.Target = MetalShaderTarget;
+		Options.VirtualShaderPath = "/Engine/TexturePreview";
+		Options.EntryPoints = {"VertexMain", "FragmentMain"};
+		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+		const auto Output = FSlangShaderCompiler().Compile(ShaderPath.string(), Options);
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
+		for (const auto& Shader : Output.CompiledShaders)
+		{
+			EXPECT_EQ(Shader.Target, MetalShaderTarget);
+			EXPECT_EQ(Shader.CodeFormat, EShaderCodeFormat::Msl20Source);
+			EXPECT_EQ(Shader.BinaryEntryPoint, "main0");
+			ASSERT_TRUE(Shader.Code);
+			const std::string_view Source(reinterpret_cast<const char*>(Shader.Code->data()),
+				Shader.Code->size());
+			EXPECT_TRUE(Source.contains("#include <metal_stdlib>"));
+			EXPECT_NE(Shader.BindingRemapIdentity, FXxHash128{});
+		}
+		const auto& Fragment = Output.CompiledShaders[1];
+		ASSERT_EQ(Fragment.MetalBindings.size(), 3u);
+		EXPECT_EQ(Fragment.MetalBindings[0], (FMetalShaderBinding{0, 0, ERHIBindingType::Texture, 0, 1}));
+		EXPECT_EQ(Fragment.MetalBindings[1], (FMetalShaderBinding{0, 1, ERHIBindingType::Sampler, 0, 1}));
+		EXPECT_EQ(Fragment.MetalBindings[2], (FMetalShaderBinding{0, 2, ERHIBindingType::UniformBuffer, 0, 1}));
+		EXPECT_EQ(Fragment.MetalPushConstantBufferSlot, UINT32_MAX);
+	}
+
+	TEST(FShaderReflectionTests, MetalComputeReservesArrayAndPushConstantSlots)
+	{
+		constexpr std::string_view Source = R"(
+[[vk::binding(0, 0)]] Texture2D<float4> Inputs[2];
+[[vk::binding(1, 0)]] SamplerState InputSamplers[2];
+[[vk::binding(2, 0)]] RWStructuredBuffer<uint> Output;
+struct FPush { uint Offset; };
+[[vk::push_constant]] ConstantBuffer<FPush> Push;
+[shader("compute")]
+[numthreads(2, 1, 1)]
+void ComputeMain(uint3 id : SV_DispatchThreadID)
+{
+    Output[id.x] = uint(Inputs[id.x].SampleLevel(InputSamplers[id.x], float2(0.5, 0.5), 0).r * 255) + Push.Offset;
+}
+)";
+		FShaderCompileOptions Options;
+		Options.Target = MetalShaderTarget;
+		Options.VirtualShaderPath = "/Unit/MetalBindingArrays";
+		Options.EntryPoints = {"ComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Compute};
+		const auto Output = FSlangShaderCompiler().CompileSource(
+			"MetalBindingArrays", "/Unit/MetalBindingArrays.slang", Source, Options);
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
+		const auto& Shader = Output.CompiledShaders[0];
+		ASSERT_EQ(Shader.MetalBindings.size(), 3u);
+		EXPECT_EQ(Shader.MetalBindings[0], (FMetalShaderBinding{0, 0, ERHIBindingType::Texture, 0, 2}));
+		EXPECT_EQ(Shader.MetalBindings[1], (FMetalShaderBinding{0, 1, ERHIBindingType::Sampler, 0, 2}));
+		EXPECT_EQ(Shader.MetalBindings[2], (FMetalShaderBinding{0, 2, ERHIBindingType::StorageBuffer, 0, 1}));
+		EXPECT_EQ(Shader.MetalPushConstantBufferSlot, 1u);
+	}
+#endif
+
 	TEST(FShaderReflectionTests, VolumetricCloudPublishesMatchedSpatialBindingsAndRgba16Output)
 	{
 		const std::filesystem::path ShaderPath =

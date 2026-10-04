@@ -158,6 +158,9 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef
 	{
+		if (InCreateDesc.Target != VulkanShaderTarget
+			|| InCreateDesc.CodeFormat != EShaderCodeFormat::Spirv15
+			|| !InCreateDesc.BindingRemapIdentity.IsZero()) return nullptr;
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Shader);
 #endif

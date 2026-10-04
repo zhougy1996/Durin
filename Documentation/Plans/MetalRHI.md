@@ -11,7 +11,9 @@ Completed:
 
 Stage 0 is in progress. The Metal backend has device admission, a headless
 queue, initial shared-buffer and color 2D/2D-array/cube/cube-array/3D texture transfers, transfer
-views, and sampler creation. Production shader integration, presentation, full
+views, sampler creation, and a recorded single-color RGBA8 offscreen clear pass
+whose output is checked after native GPU completion in inline and threaded modes.
+Production shader integration, presentation, full
 runtime qualification, and performance results remain open. The repeatable
 `Tools/ShaderQualification/metal_routes.py` probe generated MSL for 11 authored
 entry points and fixed-shader variants using pinned Slang 2026.5.2. The route
@@ -52,7 +54,7 @@ own run. Earlier Apple Silicon families 7/8, Intel Macs, and macOS versions
 below 27 are outside this first baseline, not inferred compatible from the M4
 result. The build/cook baseline is Xcode 26.6, macOS SDK 26.5, Apple Clang 21,
 Metal Toolchain 17F109, pinned Slang 2026.5.2, and SPIRV-Cross C API 0.68.0
-from Vulkan SDK 1.4.357.0 (to be pinned in the production dependency).
+from the Vulkan SDK 1.4.357.0 source tag (now pinned by commit).
 Those are tested
 minimum toolchain versions for this first baseline, not claims about older
 toolchain failure. Stage 1 must reject unsupported devices/OS versions before
@@ -89,10 +91,13 @@ SPIRV-Cross MSL level rejected arrays of textures, while MSL 2.0 compiled and
 the registered qualification case dynamically selected two texture/sampler
 array elements with checked GPU buffer output. It requires a pinned
 SPIRV-Cross dependency for shader cooking and checked per-stage binding
-allocation. The current native
-test links the host Vulkan SDK's `libspirv-cross-c-shared` 0.68.0; production
-integration must pin and deploy that dependency rather than assume host SDK
-availability. Slang 2026.5.2 needed no upgrade; the host required installation
+allocation. The `spirv-cross` dependency manifest now pins Khronos'
+`vulkan-sdk-1.4.357.0` source tag (commit
+`6c09849fe88c48eaed08413aa022aaa136a3a057`). The native Metal shader
+qualification target builds and links its C API and MSL backend from that
+source; it no longer depends on a host Vulkan SDK dynamic library. Production
+ShaderBuild integration remains open. Slang 2026.5.2 needed no upgrade; the host
+required installation
 of Xcode Metal Toolchain 17F109. Receipt:
 `Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/MetalShaderQualificationTests.xml`
 (`./DevTool test MetalShaderQualificationTests --mode qualification --report`,
@@ -187,14 +192,43 @@ does not use a device-specific `.metallib` as its portable cooked artifact.
 | Runtime shader and pipeline | Carry target, code format, binary entry name, byte digest, and remap identity on each compiled stage and RHI shader. Metal pipeline creation validates the complete binding map and shader format before publication. Shader and graphics/compute pipeline hashes domain-separate by backend and artifact format; identical source or code bytes cannot make cross-backend cache entries interchangeable. |
 | Cooked library and material program | Bump the library and material-program schemas for Metal-capable payloads. Encode platform/profile and per-stage format/remap metadata; validate them against the selected device before opening or constructing a shader. Keep Win64 legacy admission only for its existing Vulkan path. Reject a wrong-platform, wrong-format, wrong-entry, or stale-remap artifact with a recoverable diagnostic, without falling back to source compilation in cooked mode. |
 
-Current code does not implement this contract: `ShaderCompiledOutput` schema 1
-requires SPIR-V magic and hashes raw code; `FShaderCompileOptions` has no
-backend target; `FShaderMap` caches by compiled code hashes; `FRHIShaderDesc`
-and pipeline keys have no backend discriminator; `ShaderData` and
-`ShaderCookedLibrary` hard-code Win64; and `MaterialCookedProgram` admits only
-`vulkan-spirv-1.5`. Stage 3 implements and tests each boundary before Metal
-artifacts are accepted; Stage 4 extends the asset cooker and packaged-game
-admission beyond shaders.
+Compile requests and captured inputs now carry the complete target tuple;
+variant, dependency, and DDC keys separate it. The Slang compiler now translates
+Metal requests through the pinned SPIRV-Cross MSL backend, allocates explicit
+per-stage buffer/texture/sampler slots from reflection, reserves vertex-stream
+and push-constant buffer slots, and records the native map and its digest on
+each compiled stage. The direct compiler path passes textured vertex/fragment
+and resource-array compute tests. `ShaderBuilder` now admits canonical Metal
+requests on macOS. Its cold and warm cache paths separate Metal MSL from Vulkan
+SPIR-V, and `ShaderSharedOutput` schema 5 carries the native binding map and
+rejects stale map digests or malformed MSL. `ShaderCompiledOutput` schema 3
+now carries target-specific SPIR-V or MSL plus the validated Metal binding map.
+The cooked shader library schema 3 admits MacOS/Metal records and checks
+platform/profile separation. Opening a library validates every required
+record's payload and binding map before publishing it. Unit round trips verify
+Metal library loading and rejection of malformed MSL with recomputed file and
+record digests;
+the full production MacOS cook and game load remain unqualified. Remaining
+Stage 3 work includes Metal shader/pipeline creation and runtime binding
+submission and validation for material programs.
+`FShaderMap` now preserves the compile target, rejects a
+stage with a mismatched target or code format, and separates identical code
+bytes by target in its cache key. RHI shaders and graphics/compute pipeline
+keys carry target, code format, entry name, and remap identity; Vulkan shader
+creation rejects Metal artifacts. All 56 RenderShaderContractTests cases pass;
+the 12 RenderShaderCacheTests and 24 RenderShaderBuilderTests cases pass;
+the six RenderShaderCookedLibraryTests and the existing Vulkan cooked-library
+integration test pass;
+the 118 RHICommandListTests and 13 RHIPipelineCreationTests cases also passed.
+An earlier test run on this host crashed in `dyld4::Loader::loadAddress` before
+startup; retrying with `DYLD_PRINT_LIBRARIES=1` ran all cases.
+`ShaderData` now admits MacOS for authored and cooked shader domains, and
+ShaderBuild and Launch select that target when `DURIN_RHI_BACKEND=metal`.
+Material generated compilation now passes the selected Metal target through
+ShaderBuild. Material cooked-program schema 11 carries each stage's target,
+code format, and native binding map; MacOS/Game serialization, decode, and
+wrong-platform rejection pass focused tests, including real Metal material
+compilation. A full asset cook and packaged Metal game launch remain unqualified.
 
 ### Stage 0 capability and image comparison matrix
 
@@ -359,11 +393,14 @@ also pass recorded layer copies and readback, including a two-face copy across
 the cube boundary and 2D-to-array layer copies, in both execution modes. Other
 array/cube/volume formats,
 shader/render uses, and remaining texture operations are unsupported.
-Resource capabilities stay unpublished until the required resource surface is
+The production Metal command path now records a single-color RGBA8 offscreen
+clear pass and reads its exact pixels after GPU completion in inline and
+threaded modes. Other render formats, depth, resolves, and drawing remain
+unsupported. Resource capabilities stay unpublished until the required resource surface is
 implemented and verified. Native failure injection, submission timeouts under
 delayed GPU work, and comprehensive retention across completion remain open.
 Receipt: `Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/MetalRHIHeadlessTests.xml`
-(`./DevTool test MetalRHIHeadlessTests --mode qualification --report`, fifteen cases
+(`./DevTool test MetalRHIHeadlessTests --mode qualification --report`, sixteen cases
 passed on the stated M4/Xcode/macOS host).
 The application-host `MacOSWindowLifecycleTests` target built with
 `DURIN_ENABLE_APPLICATION_TESTS=ON`, but CTest discovery timed out in other

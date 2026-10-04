@@ -18,12 +18,28 @@ namespace Durin
 {
 	namespace
 	{
+		auto IsActiveCompilerTarget(const FShaderTargetIdentity& Target) -> bool
+		{
+			if (Target == VulkanShaderTarget) return true;
+		#if defined(__APPLE__)
+			return Target == MetalShaderTarget;
+		#else
+			return false;
+		#endif
+		}
+
 		auto BuildRequestKey(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const std::vector<FShaderMacroDefinition>& Macros) -> std::string
 		{
 			FXxHash128Builder Builder;
-			UpdateCanonicalHashString(Builder, "DurinShaderCompileRequest_v1");
+			UpdateCanonicalHashString(Builder, "DurinShaderCompileRequest_v2");
 			UpdateCanonicalHashString(Builder, VirtualShaderPath);
 			UpdateCanonicalHashString(Builder, Options.CompilerEnvironment);
+			UpdateCanonicalHash(Builder, Options.Target.Platform);
+			UpdateCanonicalHash(Builder, Options.Target.Backend);
+			UpdateCanonicalHash(Builder, Options.Target.IntermediateFormat);
+			UpdateCanonicalHash(Builder, Options.Target.OutputFormat);
+			UpdateCanonicalHash(Builder, Options.Target.MslLanguageVersion);
+			UpdateCanonicalHash(Builder, Options.Target.BindingRemapSchema);
 			UpdateCanonicalHash(Builder, Options.bForceRecompile);
 			UpdateCanonicalHash(Builder, static_cast<uint64>(Options.EntryPoints.size()));
 			for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
@@ -249,7 +265,7 @@ namespace Durin
 		FShaderDependencyKey DependencyKey;
 		ShaderCompileUtilities::BuildDependencyKey(
 			VirtualShaderPath, NormalizedMacros,
-			EffectiveOptions.CompilerEnvironment, DependencyKey);
+			EffectiveOptions.CompilerEnvironment, EffectiveOptions.Target, DependencyKey);
 		const uint64 ReloadGeneration = GetShaderReloadGeneration();
 		{
 			std::lock_guard Lock(SourceTreeFingerprintCacheMutex);
@@ -297,7 +313,7 @@ namespace Durin
 			Output.Error = {.Code = EShaderError::MissingVirtualPath};
 			return Output;
 		}
-		if (!HasValidUniqueEntryPoints(Options))
+		if (!IsActiveCompilerTarget(Options.Target) || !HasValidUniqueEntryPoints(Options))
 		{
 			Output.Error = {.Code = EShaderError::InvalidCompileRequest};
 			return Output;
@@ -326,7 +342,7 @@ namespace Durin
 			auto MetaData = CapturedMetaData(std::move(Paths), *EffectiveOptions.SourceArtifacts);
 			if (!MetaData) return {.Error = std::move(MetaData.error())};
 			FShaderVariantKey Variant;
-			ShaderCompileUtilities::BuildVariantKey(EffectiveOptions.VirtualShaderPath, *MetaData, NormalizedMacros, CompilerEnvironmentIdentity, Variant);
+			ShaderCompileUtilities::BuildVariantKey(EffectiveOptions.VirtualShaderPath, *MetaData, NormalizedMacros, CompilerEnvironmentIdentity, EffectiveOptions.Target, Variant);
 			return RunSingleFlight("Captured/" + BuildOutputKey(Variant, EffectiveOptions)
 				+ (EffectiveOptions.bForceRecompile ? "/Forced" : "/Cached"), [&] {
 				return ExecuteDerivedBuild(EffectiveOptions, Variant, MetaData->PortableDependencies, std::nullopt,
@@ -362,10 +378,13 @@ namespace Durin
 		-> FShaderCompilerOutput
 	{
 		// Bound work before hashing/copying the generated root.
+		if (!IsActiveCompilerTarget(Request.Target))
+			return {.Error = {.Code = EShaderError::InvalidCompileRequest}};
 		if (Request.Source.size() > 1024 * 1024 || Request.EntryPoints.size() > 8)
 			return {.Error = {.Code = EShaderError::InvalidGeneratedRequest}};
 		if (!Request.SourceArtifacts) return GetOrCompileGeneratedInternal(Request);
 		FShaderCompileOptions Options;
+		Options.Target = Request.Target;
 		Options.Frequencies = Request.Frequencies;
 		Options.CompilerEnvironment = CompilerEnvironmentIdentity;
 		Options.bForceRecompile = Request.bForceRecompile;
@@ -422,6 +441,7 @@ namespace Durin
 			return Output;
 		}
 		FShaderCompileOptions Options;
+		Options.Target = Request.Target;
 		Options.Frequencies = Request.Frequencies;
 		Options.SourceArtifacts = Request.SourceArtifacts;
 		Options.Macros = Request.Macros;
@@ -475,7 +495,7 @@ namespace Durin
 			UpdateCanonicalHash(Tree, MetaData->SourceTreeSignature);
 			MetaData->SourceTreeSignature = Tree.Finalize();
 			FShaderVariantKey Variant;
-			ShaderCompileUtilities::BuildVariantKey(Request.VirtualPath, *MetaData, Macros, CompilerEnvironmentIdentity, Variant);
+			ShaderCompileUtilities::BuildVariantKey(Request.VirtualPath, *MetaData, Macros, CompilerEnvironmentIdentity, Options.Target, Variant);
 			return ExecuteDerivedBuild(Options, Variant, MetaData->PortableDependencies, Request.Source,
 				[&]() -> FArtifactResult { return Options.SourceArtifacts; });
 		}
@@ -514,7 +534,7 @@ namespace Durin
 			ImportContextBuilder.Finalize().ToString());
 		FShaderDependencyKey DependencyKey;
 		ShaderCompileUtilities::BuildDependencyKey(
-			DependencyIdentity, Macros, Options.CompilerEnvironment,
+			DependencyIdentity, Macros, Options.CompilerEnvironment, Options.Target,
 			DependencyKey);
 		FShaderMetaData DependencyMetaData;
 		bool bManifestCurrent = false;
@@ -584,7 +604,7 @@ namespace Durin
 		FShaderVariantKey VariantKey;
 		ShaderCompileUtilities::BuildVariantKey(
 			Request.VirtualPath, MetaData, Macros,
-			Options.CompilerEnvironment, VariantKey);
+			Options.CompilerEnvironment, Options.Target, VariantKey);
 		const std::string OutputKey = BuildOutputKey(VariantKey, Options);
 		// Dependency content is now part of OutputKey. A source change during
 		// another flight cannot join an obsolete compilation.
@@ -691,7 +711,7 @@ namespace Durin
 		FShaderDependencyKey DependencyKey;
 		ShaderCompileUtilities::BuildDependencyKey(
 			VirtualShaderPath, NormalizedMacros,
-			EffectiveOptions.CompilerEnvironment, DependencyKey);
+			EffectiveOptions.CompilerEnvironment, EffectiveOptions.Target, DependencyKey);
 		bool bManifestCurrent = false;
 		if (ManifestStore.Load(
 			VirtualShaderPath, DependencyKey, OutMetaData))
@@ -746,7 +766,7 @@ namespace Durin
 		}
 
 		FShaderVariantKey VariantKey;
-		ShaderCompileUtilities::BuildVariantKey(VirtualShaderPath, CurrentMetaData, NormalizedMacros, EffectiveOptions.CompilerEnvironment, VariantKey);
+		ShaderCompileUtilities::BuildVariantKey(VirtualShaderPath, CurrentMetaData, NormalizedMacros, EffectiveOptions.CompilerEnvironment, EffectiveOptions.Target, VariantKey);
 		return ExecuteDerivedBuild(EffectiveOptions, VariantKey, CurrentMetaData.PortableDependencies, std::nullopt,
 			[&] { return ShaderCompileUtilities::CaptureSourceArtifacts(CurrentMetaData); });
 	}

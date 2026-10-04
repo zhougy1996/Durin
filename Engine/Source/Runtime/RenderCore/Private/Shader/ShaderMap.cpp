@@ -125,6 +125,7 @@ namespace Durin
 
 			if (InCompileOptions)
 			{
+				OutCompileOptions.Target = InCompileOptions->Target;
 				OutCompileOptions.Macros = InCompileOptions->Macros;
 				OutCompileOptions.bForceRecompile = InCompileOptions->bForceRecompile;
 			}
@@ -234,8 +235,14 @@ namespace Durin
 			}
 
 			FXxHash128Builder Builder;
-			UpdateCanonicalHashString(Builder, "DurinShaderMapCacheKey_v1");
+			UpdateCanonicalHashString(Builder, "DurinShaderMapCacheKey_v2");
 			UpdateCanonicalHashString(Builder, CompileOptions.VirtualShaderPath);
+			UpdateCanonicalHash(Builder, CompileOptions.Target.Platform);
+			UpdateCanonicalHash(Builder, CompileOptions.Target.Backend);
+			UpdateCanonicalHash(Builder, CompileOptions.Target.IntermediateFormat);
+			UpdateCanonicalHash(Builder, CompileOptions.Target.OutputFormat);
+			UpdateCanonicalHash(Builder, CompileOptions.Target.MslLanguageVersion);
+			UpdateCanonicalHash(Builder, CompileOptions.Target.BindingRemapSchema);
 
 			const uint64 EntryPointCount = static_cast<uint64>(CompileOptions.EntryPoints.size());
 			UpdateCanonicalHash(Builder, EntryPointCount);
@@ -265,8 +272,21 @@ namespace Durin
 
 			const uint64 ShaderCount = static_cast<uint64>(Output.CompiledShaders.size());
 			UpdateCanonicalHash(Builder, ShaderCount);
-			for (const FCompiledShader& CompiledShader : Output.CompiledShaders)
+			for (size_t ShaderIndex = 0; ShaderIndex < Output.CompiledShaders.size(); ++ShaderIndex)
 			{
+				const FCompiledShader& CompiledShader = Output.CompiledShaders[ShaderIndex];
+				if (CompiledShader.Target != CompileOptions.Target
+					|| CompiledShader.CodeFormat != CompileOptions.Target.OutputFormat)
+					return std::unexpected(FShaderError{
+						.Code = EShaderError::PayloadOutputInvalid, .Index = ShaderIndex});
+				UpdateCanonicalHash(Builder, CompiledShader.Target.Platform);
+				UpdateCanonicalHash(Builder, CompiledShader.Target.Backend);
+				UpdateCanonicalHash(Builder, CompiledShader.Target.IntermediateFormat);
+				UpdateCanonicalHash(Builder, CompiledShader.Target.OutputFormat);
+				UpdateCanonicalHash(Builder, CompiledShader.Target.MslLanguageVersion);
+				UpdateCanonicalHash(Builder, CompiledShader.Target.BindingRemapSchema);
+				UpdateCanonicalHash(Builder, CompiledShader.CodeFormat);
+				UpdateCanonicalHashString(Builder, CompiledShader.BinaryEntryPoint);
 				UpdateCanonicalHash(Builder, CompiledShader.Hash);
 			}
 
