@@ -4,7 +4,7 @@ Summary: Define completion, compensation, and UI ownership for nonblocking edito
 
 Modules: TextureBuild, AssetForgeBuiltins, DurinEd, TextureEditor, StaticMeshEditor, Engine
 
-Last reviewed: 2026-10-02
+Last reviewed: 2026-10-05
 
 ## Ownership Layers
 
@@ -138,6 +138,9 @@ For direct Texture2D source selection:
   valid applied state Dirty for retry.
 - The Widget owns only the active asset identity, phase label, conflicting
   control state, close rejection, and final diagnostic presentation.
+  Texture Editor shows the phase in its toolbar, disables Save while a build is
+  pending, and offers cancellation. Normal editor ticks apply completion; the
+  interactive UI does not block to wait for the build.
 
 Other asset families can reuse the compensating operation only when they have a
 real prepare/rollback/compensate transaction. Direct import itself does not use

@@ -245,7 +245,9 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::CanSaveActiveDocument() const -> bool
 	{
-		return Documents.CanSave(GetActiveTexture());
+		DTexture2D* Texture = GetActiveTexture();
+		return Texture && !HasPendingTexture2DCompilation(*Texture)
+			&& Documents.CanSave(Texture);
 	}
 
 	auto MTextureEditor::SaveActiveDocument() -> bool
@@ -327,8 +329,8 @@ namespace Durin::Editor::Texture
 		return Documents.Save(Texture, [this, Texture] {
 			if (!HasPendingTexture2DCompilation(*Texture)) return true;
 			SetError(
-				"This texture has an uncommitted asynchronous build. "
-				"Choose Wait for Build to commit it, or Cancel Build to save the last successful state.");
+				"This texture is still building. Save when the build finishes, "
+				"or cancel it to keep the last successful state.");
 			return false;
 		}, [this](std::string Message) { SetError(std::move(Message)); });
 	}
@@ -350,18 +352,26 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::DrawToolbar(const ::Durin::Editor::FDocumentTab& Document, DTexture2D* Texture) -> void
 	{
+		const FTexture2DBuildStatus Status = GetTexture2DBuildStatus(*Texture);
+		if (Status.bPending) ImGui::BeginDisabled();
 		if (ImGui::Button("Save")) SaveTexture(Texture);
+		if (Status.bPending) ImGui::EndDisabled();
 		ImGui::SameLine();
 		if (ImGui::Button("Refresh"))
 		{
 			Texture->PostLoad();
+		}
+		if (Status.bPending)
+		{
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel Build"))
+				FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 		}
 		ImGui::SameLine();
 		ImGui::TextDisabled("|");
 		ImGui::SameLine();
 		ImGui::TextUnformatted(Document.ResourceId.c_str());
 
-		const FTexture2DBuildStatus Status = GetTexture2DBuildStatus(*Texture);
 		const bool bReady = Texture->HasPlatformData();
 		const bool bFailed = Status.Phase == ETexture2DCompilationPhase::Failed;
 		const std::string StatusName = Status.bPending ? DescribeBuildPhase(Status.Phase)
@@ -418,7 +428,6 @@ namespace Durin::Editor::Texture
 		{
 			ImGui::TextDisabled("TEXTURE DETAILS");
 			ImGui::Separator();
-			DrawBuildReadiness(Texture);
 			DrawFailureState(Texture);
 			if (ImGui::CollapsingHeader("Payload Lifecycle", ImGuiTreeNodeFlags_DefaultOpen))
 				DrawPayloadLifecycle(Texture);
@@ -428,40 +437,6 @@ namespace Durin::Editor::Texture
 				DrawSourceData(Texture);
 		}
 		ImGui::EndChild();
-	}
-
-	auto MTextureEditor::DrawBuildReadiness(DTexture2D* Texture) -> void
-	{
-		const FTexture2DBuildStatus Status = GetTexture2DBuildStatus(*Texture);
-		if (!Status.bPending) return;
-		const ImVec4 PhaseColor = Status.Phase == ETexture2DCompilationPhase::Failed
-			? ImVec4(1.0f, 0.42f, 0.32f, 1.0f)
-			: Status.Phase == ETexture2DCompilationPhase::Cancelled
-				? ImVec4(0.75f, 0.75f, 0.75f, 1.0f)
-				: ImVec4(0.42f, 0.72f, 1.0f, 1.0f);
-		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.07f, 0.11f, 0.16f, 0.65f));
-		ImGui::BeginChild(
-			"TextureBuildReadiness",
-			ImVec2(0, 0),
-			ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_Borders);
-		ImGui::TextColored(PhaseColor, "%s", DescribeBuildPhase(Status.Phase));
-		if (!Status.FailureMessage.empty())
-			ImGui::TextWrapped("%s", Status.FailureMessage.c_str());
-		if (ImGui::Button("Cancel Build"))
-			FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
-		ImGui::SameLine();
-		if (ImGui::Button("Wait for Build"))
-		{
-			if (!WaitForTexture2DCompilation(*Texture))
-			{
-				const FTexture2DBuildStatus Completed = GetTexture2DBuildStatus(*Texture);
-				SetError(Completed.FailureMessage.empty()
-					? "The texture build did not complete." : Completed.FailureMessage);
-			}
-		}
-		ImGui::EndChild();
-		ImGui::PopStyleColor();
-		ImGui::Spacing();
 	}
 
 	auto MTextureEditor::DrawPayloadLifecycle(DTexture2D* Texture) -> void
@@ -484,7 +459,7 @@ namespace Durin::Editor::Texture
 	{
 		const FTexture2DBuildStatus Status = GetTexture2DBuildStatus(*Texture);
 		const bool bResourceFailed = Texture->GetResourceUpdateState() == ETextureResourceUpdateState::Failed;
-		if (Status.Phase != ETexture2DCompilationPhase::Failed
+		if ((Status.bPending || Status.Phase != ETexture2DCompilationPhase::Failed)
 			&& !bResourceFailed) return;
 		const char* Title = "Build Error";
 		ImVec4 TitleColor(1.0f, 0.5f, 0.3f, 1.0f); // Amber default
