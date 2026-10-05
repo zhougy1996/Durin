@@ -52,7 +52,8 @@ namespace Durin
 				return PublishInvalid();
 			const long double Duration = (Samples[1].timestamp - Samples[0].timestamp)
 				* static_cast<long double>(Pool->NanosecondsPerTick);
-			if (!std::isfinite(Duration) || Duration >= std::numeric_limits<uint64>::max())
+			if (!std::isfinite(Duration)
+				|| Duration >= static_cast<long double>(std::numeric_limits<uint64>::max()))
 				return PublishInvalid();
 			PublishReady(static_cast<uint64>(std::round(Duration)));
 		}
