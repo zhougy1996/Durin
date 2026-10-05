@@ -80,6 +80,7 @@ namespace
 		return Input;
 	}
 
+	// This fixture translates SPIR-V itself; its input target must not follow the active RHI.
 	auto TranslateMaterialStage(const Durin::FCompiledShader& Shader, std::string& Error)
 		-> std::string
 	{
@@ -203,7 +204,8 @@ TEST(FMetalMaterialQualificationTests, ProductionMaterialDirectMslCompiles)
 		for (const bool bTextured : {false, true})
 		{
 			auto Input = MakeMaterialInput(bTextured);
-			const auto Environment = Durin::BuildDefaultMaterialCompilerEnvironment(Input.Environment);
+			const auto Environment = Durin::BuildDefaultMaterialCompilerEnvironment(
+			Input.Environment, Durin::VulkanShaderTarget);
 			ASSERT_TRUE(Environment) << Durin::FormatMaterialError(Environment.Error);
 			const auto Compiled = Durin::MIR::Compile(Input);
 			ASSERT_TRUE(Compiled);
@@ -241,7 +243,8 @@ TEST(FMetalMaterialQualificationTests, ProductionMaterialVariantsCompileAsMetalL
 		{
 			SCOPED_TRACE(bTextured ? "masked textured material" : "resource-free unlit material");
 			auto Input = MakeMaterialInput(bTextured);
-			const auto Environment = Durin::BuildDefaultMaterialCompilerEnvironment(Input.Environment);
+			const auto Environment = Durin::BuildDefaultMaterialCompilerEnvironment(
+			Input.Environment, Durin::VulkanShaderTarget);
 			ASSERT_TRUE(Environment) << Durin::FormatMaterialError(Environment.Error);
 			const auto Compiled = Durin::MIR::Compile(Input);
 			ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
@@ -283,7 +286,8 @@ TEST(FMetalMaterialQualificationTests, ProductionLitAndUnlitMaterialDrawProduceC
 			SCOPED_TRACE(bLit ? "lit GBuffer" : "unlit color");
 			auto Input = MakeMaterialInput(false);
 			if (bLit) Input.StaticProperties.ShadingModel = Durin::EMaterialShadingModel::Lit;
-			const auto Environment = Durin::BuildDefaultMaterialCompilerEnvironment(Input.Environment);
+			const auto Environment = Durin::BuildDefaultMaterialCompilerEnvironment(
+			Input.Environment, Durin::VulkanShaderTarget);
 			ASSERT_TRUE(Environment) << Durin::FormatMaterialError(Environment.Error);
 			const auto Compiled = Durin::MIR::Compile(Input);
 			ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
@@ -439,7 +443,8 @@ TEST(FMetalMaterialQualificationTests, MaskedMaterialSamplesTextureAndDiscardsBe
 	{
 		auto Input = MakeMaterialInput(true);
 		Input.StaticProperties.ShadingModel = Durin::EMaterialShadingModel::Unlit;
-		const auto Environment = Durin::BuildDefaultMaterialCompilerEnvironment(Input.Environment);
+		const auto Environment = Durin::BuildDefaultMaterialCompilerEnvironment(
+			Input.Environment, Durin::VulkanShaderTarget);
 		ASSERT_TRUE(Environment) << Durin::FormatMaterialError(Environment.Error);
 		const auto Compiled = Durin::MIR::Compile(Input);
 		ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"

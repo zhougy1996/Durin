@@ -1,52 +1,89 @@
 # Metal RHI Plan
 
-Summary: Introduce a native Metal backend for macOS Apple Silicon, qualify existing shaders and RHI semantics, and run real editor and packaged-game workloads before considering default adoption.
+Summary: Deliver the native Metal backend for macOS Apple Silicon and track shader, lifecycle, editor, cooked-game, image-parity, and performance qualification.
 
-Last reviewed: 2026-10-04
+Last reviewed: 2026-10-05
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Stage 0 is in progress. The Metal backend has device admission, headless
-frame begin/end and queue submission, initial shared-buffer and color 2D/2D-array/cube/cube-array/3D texture transfers, transfer
-views, sampler creation, and a recorded single-color RGBA8 offscreen clear pass
-whose output is checked after native GPU completion in inline and threaded modes.
-Apple's Metal-cpp is now pinned as a source dependency, and device admission and
-command-queue creation use its C++ API. The remaining resource, command, and
-presentation implementation still uses Objective-C++ under ARC; migration of
-those calls and ownership is open. `MetalRHI` builds and its headless GPU
-qualification target passes after this first boundary change on the M4 host.
-Production shader integration, full presentation qualification, full
-runtime qualification, and performance results remain open. The repeatable
-`Tools/ShaderQualification/metal_routes.py` probe generated MSL for 11 authored
-entry points and fixed-shader variants using pinned Slang 2026.5.2. The route
-decision below combines code-generation and bounded GPU evidence; remaining
-Stage 0 checks need broader shader layouts and output. Source inspection found an
-established RHI contract and a Vulkan-oriented shader and platform startup path.
-The workload/RHI inventory below is complete; it identifies seven generated
-material entries and the Win64-only cooked admission path. The registered Metal
-qualification target compiles resource-free unlit and masked textured production
-material variants via `MIR::Compile`, translates all 14 resulting SPIR-V stages
-through SPIRV-Cross, and creates Apple Metal libraries/functions with checked
-stage types and material layouts. It also draws the production unlit vertex and
-fragment shaders on Apple M4 with the eight local-vertex-factory attributes,
-the 288-byte primitive uniform, and a checked RGBA8 pixel readback. A second
-GPU case draws the generated masked/unlit textured fragment stage with
-layout-driven uniform offsets and checks both retained texture×tint output and
-discarded-pixel clear color. The unlit draw case also draws the generated Lit
-geometry pass with a counterclockwise front face and checks all four GBuffer
-target pixels, including encoded normals, roughness, and the lit flag. The same
-production material sources now also pass
-Slang direct-MSL generation and Apple Metal library/function validation for all
-14 entry stages. This completes the direct-output exercise; it does not repair
-the previously observed production culling ABI failure. The backend target and
-artifact identity contract and capability comparison set below are fixed for
-implementation. The initial support baseline below distinguishes qualified
-M4 hardware from earlier untested Apple Silicon. Stage 0 now has six of seven
-checklist items
-complete.
+The backend is implemented and macOS now selects Metal by default. The remaining
+work is qualification, not initial backend bring-up. This plan remains Active:
+window lifecycle, the complete parameter/format and paired-scene image matrix,
+and comparable performance measurements have not all been accepted.
+
+The default-adoption decision was delivered separately in `c9c73de07`: automatic
+Metal initialization can fall back to Vulkan in Editor, explicit selection is
+strict, and shader/material targets follow the active backend. This supersedes
+the original opt-in rollout assumption; it does not waive acceptance gates.
+[Metal-cpp migration](MetalCppMigration.md) is completed, including native
+resource, pipeline, submission, completion and viewport RAII. The authoritative
+startup/ownership contract is in
+[RHI capabilities and startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md#startup-presentation-ownership).
+
+| Stage | Closeout assessment on 2026-10-05 |
+| --- | --- |
+| 0 | Route, target identity and support baseline established; complete parameter/format coverage remains open. |
+| 1 | Selection, device and native layer implementation delivered; repeated real-window resize/minimize/close acceptance remains open. |
+| 2 | Baseline resources, transitions, GPU completion and lifetime checks pass in inline/threaded modes. Native error status is simulated, not a forced physical GPU fault. |
+| 3 | Production shader route, bindings, graphics/compute and bounded checked-output fixtures delivered; current qualification receipts below distinguish fixture repair from runtime behavior. |
+| 4 | Cook/Game smoke and real Editor diagnostic runs exist; full workload, lifecycle, paired-image and performance gates remain open. |
+
+### Closeout evidence and remaining work
+
+Historical receipts below retain the revision and scope at which they were
+recorded; they are not current support declarations. Later evidence supersedes
+older notes about ARC, two render targets, Vulkan defaults and missing sky lighting.
+
+- `MetalCppMigration.md` Stage 4/5 receipts establish actual delayed completion,
+  timeout, shutdown with work outstanding, retained resources, upload/readback,
+  empty submissions, simulated failure, repeated layer creation and missing
+  drawable recovery. Its final baseline shader suite passed 17 cases; its
+  validation-enabled headless suite passed 37 at that revision.
+- `efafb76b5` fixes production vertex orientation and first-present publication,
+  with asymmetric ImGui and suppressed/unavailable drawable regressions.
+- `6d449838a` and `2933c1588` qualify sky lighting, cube faces/mips, refresh,
+  retirement and GPU timestamp correctness on Apple M4; their recorded `all`
+  builds pass. Timing correctness is not a performance baseline.
+- `c9c73de07` records the default-adoption `all` build, 8 initialization cases,
+  42 headless cases, and 92/94 routine targets. The two unrelated import fixture
+  failures were subsequently repaired in `298ca965f`, whose affected targets
+  and isolated static-mesh cases pass; this is not a new full-suite receipt.
+- [Drawable pacing investigation](../Investigations/MetalUnsynchronizedDrawablePacing.md)
+  records successful real Editor diagnostic runs at 60/30 Hz and the restored
+  production `all` build. Those Debug/Tracy measurements do not establish the
+  Release/Tracy-off Metal/Vulkan performance baseline. The two-drawable workaround
+  remains outside this plan's production policy.
+
+Closeout rerun on the Apple M4 host, source base `298ca965f` plus the fixture
+repair in this change, using `MacOS-arm64-Debug-DurinEditor`:
+
+| Selection | Result and receipt |
+| --- | --- |
+| `MTL_DEBUG_LAYER=1 ./DevTool test MetalRHIHeadlessTests --mode qualification --report Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/MetalRHICloseout.xml` | Passed with Metal API validation, including BC5/BC7 uploads and viewport policy changes that previously had build-only receipts. Logs `Build/.agent-state/logs/20261005-224344-163759-70075-cmake.log` and `20261005-224351-094383-70075-ctest.log`. |
+| `./DevTool test MetalShaderQualificationTests --mode qualification --report Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/MetalRHICloseoutShaders.xml` | Failed: 14/17 passed. Three material fixtures passed the default Metal artifact to their manual SPIRV-Cross translator. This is retained as a failed run. Log `Build/.agent-state/logs/20261005-224438-275501-70150-ctest.log`. |
+| Same shader selection after explicitly selecting `VulkanShaderTarget` in the SPIR-V/direct-MSL probe inputs, report `MetalRHICloseoutShadersFixed.xml` in the same report directory | Passed 17/17 with native Metal execution on Apple M4. Logs `Build/.agent-state/logs/20261005-224604-143445-70254-cmake.log` and `20261005-224609-938859-70254-ctest.log`. Production compilation defaults are unchanged. |
+
+The shader rerun uses the baseline environment, not Metal API validation; the
+historical direct-native uniform-size validation limitation remains recorded in
+the migration plan. This closeout changes tests/documentation only, with no
+shared Engine API change requiring a new workspace `all` build. Application
+smoke and performance qualification have not been run in this closeout.
+
+To accept the remaining gates, retain receipts for repeated real-window
+resize/minimize/close, material edits/reload and shutdown; run the declared scene
+and preview workloads; preserve all paired captures and numerical differences
+from the matrix below; and measure frame, shader/pipeline preparation, memory
+and presentation using the owning performance protocol. Keep failed runs and
+unsupported cases explicit. Do not replace these checks with startup success,
+default adoption, or a scope reduction.
+
+### Historical route and baseline evidence
+
+The following evidence records the initial 2026-10-04 qualification. Its open
+items are reconciled by the closeout assessment above and the stage checklists.
 
 The current probe host is an Apple M4 (10 GPU cores), macOS 27.0.1, Xcode
 26.6, macOS SDK 26.5, Apple Clang 21, and Metal Toolchain 17F109. The native
@@ -477,7 +514,8 @@ owning boundaries without spreading native Metal types into Renderer code.
   selected backend rather than a universal startup prerequisite.
 - Exclude iOS, Intel Mac qualification, ray tracing, mesh/tessellation feature
   expansion, independent async queues, native split optimization, and transient
-  aliasing from this baseline. Do not change the default backend in this plan.
+  aliasing from this baseline. Default adoption was decided separately in
+  `c9c73de07`; retain the qualification gates in this plan.
 - Treat performance as measured evidence. Native Metal is not assumed faster
   than the existing Vulkan/MoltenVK path.
 
@@ -536,8 +574,9 @@ screen capture showed a system removable-volume permission dialog for the
 application-test host. The attempt was interrupted after 71 seconds. It does
 not qualify visible presentation, resize, or close behavior; the hidden-window
 Editor and native `CAMetalLayer` tests remain the bounded evidence.
-The RHI loader now accepts `DURIN_RHI_BACKEND=vulkan|metal`, defaults to
-Vulkan, rejects invalid names, and unloads the selected module by identity.
+At initial bring-up the RHI loader accepted `DURIN_RHI_BACKEND=vulkan|metal`
+and defaulted to Vulkan. The later `c9c73de07` decision defaults macOS to Metal;
+invalid names remain rejected and the selected module unloads by identity.
 MetalRHI is registered in the Engine closure. On M4/macOS 27.0.1, its native
 device and command queue initialize and shut down through the module loader in
 both inline and threaded headless modes (`MetalRHIHeadlessTests`). It rejects
@@ -606,15 +645,15 @@ outcomes without leaked ownership or teardown hangs.
 
 Dependencies: Stage 1 device and execution ownership established.
 
-- [ ] Implement required buffer/texture descriptions, views, samplers, transfers,
+- [x] Implement required buffer/texture descriptions, views, samplers, transfers,
   uploads, readback, exact support queries, and recoverable creation failures.
-- [ ] Implement single-queue submission and owning GPU sync points, including
+- [x] Implement single-queue submission and owning GPU sync points, including
   empty submissions, timeouts, cancellation, failure, and shutdown.
-- [ ] Retain command resources and staging allocations through their actual GPU
+- [x] Retain command resources and staging allocations through their actual GPU
   use; reclaim only after valid retirement prerequisites are satisfied.
-- [ ] Map logical resource access and transition semantics to Metal synchronization
+- [x] Map logical resource access and transition semantics to Metal synchronization
   and encoder boundaries; preserve full-barrier fallback where required.
-- [ ] Add native backend coverage for delayed completion, upload reuse, readback,
+- [x] Add native backend coverage for delayed completion, upload reuse, readback,
   failed submission, and teardown with work outstanding. Use deterministic
   fixtures when native failure injection is unavailable and label that evidence.
 
@@ -624,15 +663,17 @@ reuse. Unsupported operations follow the documented capability/error contract.
 
 ### Stage 3: Implement shaders, bindings, and graphics/compute execution
 
-Dependencies: Stages 0 and 2 accepted.
+Dependencies: Stage 0 route and target decisions and Stage 2 resource execution
+established. The broader Stage 0 format qualification remains open; completion
+of these implementation checks does not close that gate.
 
 - [x] Integrate the selected shader route into ShaderBuild and runtime shader
   loading, with target-specific cache and cooked-artifact separation.
-- [ ] Implement graphics/compute pipeline creation, reflection-to-native binding
+- [x] Implement graphics/compute pipeline creation, reflection-to-native binding
   maps, constant data, arrays, vertex input, and required render/depth state.
-- [ ] Implement the supported draw, indexed draw, dispatch, and indirect paths;
+- [x] Implement the supported draw, indexed draw, dispatch, and indirect paths;
   preserve pipeline complete-or-failure publication and binding validation.
-- [ ] Run actual global/material shader and compute/readback workloads through
+- [x] Run actual global/material shader and compute/readback workloads through
   production command recording, replay, submission, and retirement.
 - [x] Verify wrong-backend shader artifacts are rejected and cannot contaminate
   caches or silently load into an incompatible device.
@@ -662,8 +703,9 @@ Dependencies: Stage 3 production execution accepted.
 
 Acceptance: the declared editor and cooked-game workload matrix passes on the
 named hardware, remaining limitations are explicit, and output/performance
-receipts support continued opt-in use. Default adoption and advanced Metal
-optimization require a separate decision after this baseline is accepted.
+receipts support the declared baseline. Default adoption has already been
+decided separately; that decision does not satisfy these qualification gates.
+Advanced Metal optimizations remain separate work.
 
 ## Validation and Handoff
 
