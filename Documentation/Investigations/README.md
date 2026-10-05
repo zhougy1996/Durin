@@ -19,6 +19,11 @@
   Ninja cannot account for parser processes hidden inside module-level DHT
   commands, so fixed worker and pool limits cannot both avoid oversubscription
   and lend idle compiler capacity to critical-path reflection generation.
+- [Metal unsynchronized drawable pacing](MetalUnsynchronizedDrawablePacing.md) —
+  three drawables retain a 60 Hz presentation cadence with synchronization off,
+  even after removing scene redraw and the final blit; two remove the ceiling
+  on the measured M4 host, while the underlying system policy remains unresolved.
+
 This index lists verified unresolved investigations only. Authoring and
 lifecycle rules are in `AGENTS.md`; resolved history belongs in Git, an archived
 implementation plan, and the resulting runtime, editor, development, or
