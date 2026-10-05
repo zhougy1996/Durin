@@ -4,6 +4,36 @@
 #include "StaticMesh/StaticMeshTestEnvironment.h"
 #include "StaticMeshMaterialTestFixture.h"
 #include "Components/SplineMeshComponent.h"
+#include "StaticMesh/StaticMeshCompilation.h"
+
+namespace
+{
+	// Exercise authored source rebuilds independently of one-time model import receipts.
+	auto RebuildMaterialSlotFixture(Durin::DStaticMesh& Mesh,
+		const std::filesystem::path& SourcePath) -> ::testing::AssertionResult
+	{
+		using namespace Durin;
+		const auto Imported = AssetForge::Builtins::CreateTransientStaticMeshFromFile(
+			SourcePath.generic_string(), nullptr, FGuid::NewGuid().ToString());
+		if (!Imported) return ::testing::AssertionFailure()
+			<< AssetForge::Builtins::FormatStaticMeshRebuildError(Imported.error());
+		const auto Source = (*Imported)->GetSource();
+		MarkAsGarbage(*Imported);
+		const auto Geometry = Source.AcquireGeometry();
+		if (!Geometry) return ::testing::AssertionFailure() << FormatStaticMeshSourceError(Geometry.error());
+		auto Slots = AssetForge::Builtins::ReconcileStaticMeshMaterialSlots(
+			Mesh.GetMaterialSlots(), (*Geometry)->PolygonGroups);
+		const auto Built = Mesh.BuildFromSource(EStaticMeshBuildMode::Synchronous,
+			{.Source = Source, .PreparedMaterialSlots = std::move(Slots)});
+		if (!Built)
+		{
+			auto Failure = ::testing::AssertionFailure();
+			for (const auto& Error : Built.error()) Failure << Error << "\n";
+			return Failure;
+		}
+		return ::testing::AssertionSuccess();
+	}
+}
 
 TEST(FStaticMeshMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlots)
 {
@@ -156,16 +186,18 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 	};
 	auto Rebuild = [&](Durin::DStaticMesh* Mesh, std::string_view Name, std::string_view Materials,
 		std::optional<std::pair<std::string_view, std::string_view>> Replacement = std::nullopt, bool LastOnly = false,
-		std::optional<uint32> AppendedMaterialIndex = std::nullopt) {
+		std::optional<uint32> AppendedMaterialIndex = std::nullopt) -> ::testing::AssertionResult {
 		const std::filesystem::path SourcePath = Root / "Models" / (std::string(Name) + ".gltf");
 		WriteStaticMeshSlotVariant(SourcePath, Materials, Replacement, LastOnly, AppendedMaterialIndex);
-		ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMesh(
-			*Mesh));
+		const auto Reimport = Durin::AssetForge::Builtins::ReimportStaticMesh(*Mesh);
+		if (Reimport || Reimport.error().Code != Durin::AssetForge::Builtins::EStaticMeshRebuildError::UnsupportedReimport)
+			return ::testing::AssertionFailure() << "Expected one-time model reimport rejection";
+		return RebuildMaterialSlotFixture(*Mesh, SourcePath);
 	};
 
 	Durin::DStaticMesh* Reordered = ImportBase("Reordered");
 	ASSERT_NE(Reordered, nullptr);
-	Rebuild(Reordered, "Reordered", R"({ "name": "Blue" }, { "name": "Red" })");
+	ASSERT_TRUE(Rebuild(Reordered, "Reordered", R"({ "name": "Blue" }, { "name": "Red" })"));
 	ASSERT_EQ(Reordered->GetNumMaterialSlots(), 2u);
 	EXPECT_EQ(Reordered->GetMaterialSlot(0)->Name, Durin::FName("Red"));
 	EXPECT_EQ(Reordered->GetMaterialSlot(0)->SourceMaterialIndex, 1u);
@@ -177,7 +209,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 
 	Durin::DStaticMesh* RenameAndReorder = ImportBase("RenameAndReorder");
 	ASSERT_NE(RenameAndReorder, nullptr);
-	Rebuild(RenameAndReorder, "RenameAndReorder", R"({ "name": "Blue" }, { "name": "Crimson" })");
+	ASSERT_TRUE(Rebuild(RenameAndReorder, "RenameAndReorder", R"({ "name": "Blue" }, { "name": "Crimson" })"));
 	ASSERT_EQ(RenameAndReorder->GetNumMaterialSlots(), 3u);
 	EXPECT_EQ(RenameAndReorder->GetMaterialSlot(0)->Name, Durin::FName("Red"));
 	EXPECT_EQ(RenameAndReorder->GetMaterialSlot(1)->Name, Durin::FName("Blue"));
@@ -200,7 +232,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 	EXPECT_EQ(Reordered->GetMaterialSlot(1)->DefaultMaterial, OtherDefault);
 	Renamed->SetMaterialSlotDefaultMaterial(0, PreservedDefault);
 	ASSERT_TRUE(Renamed->RenameMaterialSlot(0, Durin::FName("Body")));
-	Rebuild(Renamed, "Renamed", R"({ "name": "Crimson" }, { "name": "Blue" })");
+	ASSERT_TRUE(Rebuild(Renamed, "Renamed", R"({ "name": "Crimson" }, { "name": "Blue" })"));
 	ASSERT_EQ(Renamed->GetNumMaterialSlots(), 2u);
 	EXPECT_EQ(Renamed->GetMaterialSlot(0)->Name, Durin::FName("Body"));
 	EXPECT_EQ(Renamed->GetMaterialSlot(0)->SourceName, "Crimson");
@@ -208,8 +240,8 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 
 	Durin::DStaticMesh* Added = ImportBase("Added");
 	ASSERT_NE(Added, nullptr);
-	Rebuild(Added, "Added", R"({ "name": "Red" }, { "name": "Blue" }, { "name": "Green" })",
-		std::nullopt, false, 2);
+	ASSERT_TRUE(Rebuild(Added, "Added", R"({ "name": "Red" }, { "name": "Blue" }, { "name": "Green" })",
+		std::nullopt, false, 2));
 	ASSERT_EQ(Added->GetNumMaterialSlots(), 3u);
 	EXPECT_EQ(Added->GetMaterialSlot(0)->Name, Durin::FName("Red"));
 	EXPECT_EQ(Added->GetMaterialSlot(1)->Name, Durin::FName("Blue"));
@@ -217,8 +249,8 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 
 	Durin::DStaticMesh* Removed = ImportBase("Removed");
 	ASSERT_NE(Removed, nullptr);
-	Rebuild(Removed, "Removed", R"({ "name": "Red" }, { "name": "Blue" })",
-		std::pair<std::string_view, std::string_view>{R"("material": 0)", R"("material": 1)"});
+	ASSERT_TRUE(Rebuild(Removed, "Removed", R"({ "name": "Red" }, { "name": "Blue" })",
+		std::pair<std::string_view, std::string_view>{R"("material": 0)", R"("material": 1)"}));
 	ASSERT_EQ(Removed->GetNumMaterialSlots(), 2u);
 	EXPECT_EQ(Removed->GetMaterialSlot(0)->Name, Durin::FName("Red"));
 	EXPECT_EQ(Removed->GetMaterialSlot(1)->Name, Durin::FName("Blue"));
@@ -226,24 +258,42 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 	EXPECT_TRUE(std::ranges::all_of(
 		Removed->GetRenderData()->LODResources[0].Sections,
 		[](const Durin::FStaticMeshSection& Section) { return Section.MaterialSlotIndex == 1u; }));
-	Rebuild(Removed, "Removed", R"({ "name": "Red" }, { "name": "Blue" })");
+	ASSERT_TRUE(Rebuild(Removed, "Removed", R"({ "name": "Red" }, { "name": "Blue" })"));
 	ASSERT_EQ(Removed->GetNumMaterialSlots(), 2u);
 	EXPECT_EQ(Removed->GetRenderData()->LODResources[0].Sections[0].MaterialSlotIndex, 0u);
 	EXPECT_EQ(Removed->GetRenderData()->LODResources[0].Sections[1].MaterialSlotIndex, 1u);
 
 	Durin::DStaticMesh* Duplicate = ImportBase("Duplicate");
 	ASSERT_NE(Duplicate, nullptr);
-	Rebuild(Duplicate, "Duplicate", R"({ "name": "Shared" }, { "name": "Shared" })");
+	ASSERT_TRUE(Rebuild(Duplicate, "Duplicate", R"({ "name": "Shared" }, { "name": "Shared" })"));
 	ASSERT_EQ(Duplicate->GetNumMaterialSlots(), 2u);
 	EXPECT_EQ(Duplicate->GetMaterialSlot(0)->Name, Durin::FName("Red"));
 	EXPECT_EQ(Duplicate->GetMaterialSlot(1)->Name, Durin::FName("Blue"));
 	EXPECT_EQ(Duplicate->GetMaterialSlot(0)->SourceName, "Shared");
 	EXPECT_EQ(Duplicate->GetMaterialSlot(1)->SourceName, "Shared");
+	for (const char* Name : {"Reordered", "RenameAndReorder", "Renamed", "Added", "Removed", "Duplicate"})
+	{
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(std::format("/StaticMeshSlotReimport/{}", Name), Path));
+		ASSERT_TRUE(Durin::UnloadPackage(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	}
+	ASSERT_TRUE(Durin::UnloadPackage(PreservedDefaultPath));
 }
 
 TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 {
 	FRenderSceneHarness Harness;
+	struct FSceneCleanup
+	{
+		FRenderSceneHarness& Harness;
+		~FSceneCleanup()
+		{
+			Harness.Shutdown();
+			// Collect world children while their stack-allocated engine outer is alive,
+			// including when a fatal assertion exits this test early.
+			Durin::CollectGarbage();
+		}
+	} Cleanup{Harness};
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "StaticMeshSlotEndToEnd";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	Durin::Testing::RegisterMountPointForTests("/StaticMeshSlotEndToEnd/", Root.generic_string() + "/");
@@ -309,8 +359,10 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	ASSERT_EQ(Component->GetMaterial(RedIndex)->GetPackage()->GetPackagePath(), MaterialPath.ToString());
 	WriteStaticMeshSlotVariant(
 		MutableSource, R"({ "name": "Blue" }, { "name": "Red" })");
-	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMesh(
-		*Component->GetStaticMesh()));
+	const auto Reimport = Durin::AssetForge::Builtins::ReimportStaticMesh(*Component->GetStaticMesh());
+	ASSERT_FALSE(Reimport);
+	EXPECT_EQ(Reimport.error().Code, Durin::AssetForge::Builtins::EStaticMeshRebuildError::UnsupportedReimport);
+	ASSERT_TRUE(RebuildMaterialSlotFixture(*Component->GetStaticMesh(), MutableSource));
 	ASSERT_EQ(Component->GetStaticMesh()->GetMaterialIndex(Durin::FName("Red")), RedIndex);
 	EXPECT_EQ(Component->GetStaticMesh()->GetMaterialSlot(RedIndex)->SourceMaterialIndex, 1u);
 	const auto& ReimportedSections =
@@ -337,8 +389,6 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	ASSERT_TRUE(Durin::UnloadPackage(
 		MeshPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
-	Harness.Shutdown();
-	Durin::CollectGarbage();
 }
 
 namespace
