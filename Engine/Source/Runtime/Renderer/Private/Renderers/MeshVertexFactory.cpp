@@ -128,6 +128,10 @@ namespace Durin::RendererPrivate
 				if constexpr (bSpline) return FSplineMeshBatchBinding{}.GetLayoutKey();
 				else return FStaticMeshBatchBinding{}.GetLayoutKey();
 			}
+			auto UsesGeneratedMaterialVertexStage(uint32 Pass) const -> bool override
+			{
+				return GetShaderType(Pass) != nullptr;
+			}
 			auto GetShaderType(uint32 Pass) const -> FShaderType* override
 			{
 				if (Pass > MaterialMeshPassGBufferGPUCulling) return nullptr;

@@ -2,7 +2,7 @@
 
 Summary: Replace primitive-family rendering dispatch with a common geometry-batch contract, extensible vertex-factory bindings, and shared mesh-pass processing while preserving the existing render graph.
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-10-07
 
 Status: Active
 Completed:
@@ -36,6 +36,25 @@ GPU performance baselines remain open. Frozen source baseline:
 a final gate. Apple M4 timings are diagnostic and do not satisfy named RTX 3090
 gates. No image tolerance or performance threshold has been relaxed.
 See the stage handoffs below for exact evidence and remaining obligations.
+
+Windows closeout has a repair checkpoint on an RTX 3090 (driver 616.64), using
+`Win64-Release-DurinEditor` with `DURIN_WITH_TRACY=0`. The operator confirmed
+an idle GPU measurement window. The recorded frozen source object is absent
+locally and `git fetch origin d7d1749ba9832f7d31237eb432d8e75e81bb47c3`
+returned `not our ref`; no rewrite map is available. Acceptance comparisons
+remain pending restoration of that reference or an explicitly accepted
+replacement. No comparison gate is closed by candidate-only observations.
+
+Closeout found a reproducible independent-factory regression: generated material
+vertex stages were selected by entry-point name and frequency, replacing the
+custom factory's identically named `VertexMain`. The selected correction makes
+generated vertex-stage use an explicit factory capability; built-in Local/Spline
+factories opt in and independent factories retain their registered vertex stage
+by default. The custom fixture also follows the expanded primitive uniform
+layout. Existing image and performance tolerances remain unchanged.
+The repair passes the independent-factory and cooked-composition gates and an
+`all` build. The 2026-10-07 handoff below records failed wider selections and
+the still-open baseline, memory and qualification obligations.
 
 ## Goal
 
@@ -770,6 +789,69 @@ allocator measurements and timing qualification should run on the final
 qualification device against both the frozen source commit and the final
 implementation; this preserves identical device/driver/scene conditions and
 avoids substituting cross-device measurements.
+
+#### Windows closeout repair checkpoint (2026-10-07)
+
+Source base: `aa70fbb29`, plus this repair. Host: Windows x64/MSVC, RTX 3090,
+driver 616.64 (`0x9a100000`), Vulkan API 1.4.351. Preset:
+`Win64-Release-DurinEditor`; configure explicitly used
+`-DDURIN_ENABLE_TRACY=OFF`, and generated compile definitions contain
+`DURIN_WITH_TRACY=0`. Vulkan validation uses the Release default (off).
+The operator confirmed an idle measurement window. No before/after comparison
+or complete allocation measurement was obtained, so timing remains diagnostic.
+
+The independent-factory case failed both in its full target and alone with
+`Transform` missing from reflection, followed by a descriptor-batch assertion.
+Generated material vertex artifacts had displaced the custom `VertexMain`.
+Factory-owned opt-in now selects generated vertex stages only for compatible
+factories. The regression fixture preserves the same-name collision, compares
+actual rendered outputs, and includes the expanded primitive uniform fields.
+Windows integration also needed `FVulkanGPUTimingManager::CreateQuery` exported
+from the Vulkan module; the previously failing test executable now links.
+
+Commands below use `.\DevTool.bat` from the checkout root and
+`--preset Win64-Release-DurinEditor`. XML reports are under
+`Build/NativeTestResults/Win64-Release-DurinEditor/`; logs are under
+`Build/.agent-state/logs/`.
+
+| Selection | Result and receipt |
+| --- | --- |
+| Initial `test StaticMeshRenderPreparationVulkanTests`, then isolated independent-factory case | Both failed; logs `20261007-213039-034888-30348-StaticMeshRenderPreparationVulkanTests.log` and `20261007-213125-617835-49472-StaticMeshRenderPreparationVulkanTests.log`. |
+| Repaired `test StaticMeshRenderPreparationVulkanTests` | 10/10 cases passed; `GeometryCloseoutPreparationFixed.xml`, log `20261007-213358-283568-33112-StaticMeshRenderPreparationVulkanTests.log`. The final collision assertion also passes in the bounded selection below. |
+| `test affected --test-jobs 4` | Build blocked before execution by the pre-existing `CoreConcurrencyTests` move-only callback static assertion at `ThreadingTests.cpp:2372`; log `20261007-213418-438093-39804-cmake.log`. No successful affected-suite receipt is claimed. |
+| `test '@domain=renderer+static-mesh+spline,kind=contract+feature+integration' --test-jobs 4` | Initial build found missing GPU timing export, log `20261007-213856-354365-39760-cmake.log`. After repair, 22/23 targets passed; `GeometryCloseoutBoundedFixed.xml`, log `20261007-214054-628876-45460-ctest.log`. The remaining Vulkan transfer-arena failure also reproduces alone: `GeometryCloseoutTransferIsolated.xml`, log `20261007-214247-467304-28180-VulkanRHIIntegrationTests.log`. |
+| `test RenderShaderCookIntegrationTests` | Passed; `GeometryCloseoutShaderCook.xml`, log `20261007-214228-193670-21420-RenderShaderCookIntegrationTests.log`. |
+| `test '@domain=renderer+static-mesh+spline,kind=qualification' --mode qualification --test-jobs 1` | 8/10 targets passed; `GeometryCloseoutQualification.xml`, log `20261007-213633-387309-54080-ctest.log`. GBuffer and StaticMesh build qualification failed as detailed below. |
+| `build` (target `all`) | Passed; log `20261007-214144-171542-28512-cmake.log`. |
+
+The remaining Vulkan transfer-arena test expects a native creation-failure
+exception and terminal failure propagation at `VulkanMemoryPolicyTests.cpp:614`
+and `:622`. Both assertions fail in isolation; this is not evidence that the
+historical Windows NVIDIA driver-worker crash has been resolved.
+
+StaticMesh build qualification fails while removing the still-open
+`BuildSessionMeshBaseline` directory. An isolated repeat passes 6/7 cases and
+reproduces that same failure: `GeometryCloseoutMeshBuildIsolated.xml`, log
+`20261007-214252-532456-27908-ctest.log`.
+
+GBuffer qualification fails its specular-AA motion comparison with both peak
+ranges zero, and its indirect pilot falls back instead of dispatching. The
+fixture changes only `ViewProjectionMatrix` for the motion sweep, while current
+GPU transforms use `ProjectionMatrix * ViewMatrix`; repairing that fixture is
+still required. The indirect fallback cause has not been established.
+The named GBuffer timing gate additionally requires Vulkan API 1.4.325, whereas
+this host exposes 1.4.351; the fixture correctly labels its measurements
+`observation`. No driver-cohort or numerical acceptance requirement was changed.
+
+Candidate-only 1920x1080 observations (30 warm-up, 120 samples, one run):
+GBuffer median/p95 57,248/58,144 ns; deferred 167,584/169,440 ns;
+combined 224,816/227,040 ns; GBuffer attachment bytes 33,177,600.
+These do not establish the required three-run, same-reference regression gate.
+Full frozen-source image pairs, allocation counts, transitive peak retained
+bytes, 100-cycle memory accounting, accepted timing comparisons, and passing
+final qualification remain open. The available pre-migration Stage 0 commit
+`bb44ceaf9509e1e7fb23e34ec5399c8affa54971` is only a proposed replacement for the
+unavailable frozen reference; it has not been adopted or measured.
 
 ## Validation and Handoff
 

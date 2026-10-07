@@ -244,7 +244,7 @@ struct Output {
  float3 worldNormal:TEXCOORD1; float4 worldTangent:TEXCOORD2;
  float2 uv0:TEXCOORD3; float2 uv1:TEXCOORD4; float2 uv2:TEXCOORD5; float2 uv3:TEXCOORD6;
 };
-struct TransformData { float4x4 LocalToClip; float4x4 LocalToWorld; float4x4 NormalToWorld; float4 TransformParams; };
+struct TransformData { float4x4 LocalToClip; float4x4 LocalToWorld; float4x4 NormalToWorld; float4x4 WorldToLocal; float4 BoundsCenter; float4 TransformParams; };
 struct DeformationData { float4 displacementScale; };
 [[vk::binding(0,1)]] ConstantBuffer<TransformData> Transform;
 [[vk::binding(24,1)]] ConstantBuffer<DeformationData> Deformation;

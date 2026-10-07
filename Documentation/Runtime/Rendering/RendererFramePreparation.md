@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-10-07
 
 ## Ownership Boundary
 
@@ -208,7 +208,11 @@ clears/stores only its own layer; no intra-pass render-pass splitting is enabled
 Renderer-owned mesh vertex-factory implementations supply compatible vertex
 shader types and typed vertex parameter preparation. Shader-type compilation
 metadata supplies the same options to authored material maps and cook. Forward,
-shadow and GBuffer execution use the registered factory/layout identity; pass
+shadow and GBuffer material maps use generated vertex stages only when the
+registered factory opts into that material vertex contract. Local/Spline
+factories opt in; independent factories retain their own vertex shader even
+when its entry-point name matches a generated material stage.
+Forward, shadow and GBuffer execution use the registered factory/layout identity; pass
 state and material policy remain with each pass. Pipeline identities include
 factory/layout, vertex declaration and topology. Registered implementations are
 retained for the Renderer module lifetime, and registration is synchronized.

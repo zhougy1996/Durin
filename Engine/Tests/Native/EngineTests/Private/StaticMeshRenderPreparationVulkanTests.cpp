@@ -1440,6 +1440,17 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	FPreparedStaticMeshView FrozenExpected;
 	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& CommandList) {
 		Materials = {Opaque->Resolve_RenderThread(), Masked->Resolve_RenderThread()};
+		// Keep the entry-point collision that previously substituted the
+		// generated Local vertex stage for this independent factory's shader.
+		for (const auto& Material : Materials)
+		{
+			ASSERT_TRUE(Material.CompiledProgram);
+			ASSERT_TRUE(std::ranges::any_of(Material.CompiledProgram->CompiledShaders,
+				[](const FCompiledShader& Shader) {
+					return Shader.Frequency == EShaderFrequency::Vertex
+						&& Shader.SourceEntryPoint == FQualificationVertexShader::StaticType().GetEntryPoint();
+				}));
+		}
 		Geometries[0] = FProceduralGeometry::Create(CommandList, 1, false);
 		Geometries[1] = FProceduralGeometry::Create(CommandList, 2, true);
 		Geometries[1].Binding->DisplacementScale = {0.05f, 0.0f, 0.0f, 0.8f};

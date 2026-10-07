@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-29
+Last reviewed: 2026-10-07
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -654,6 +654,13 @@ typed shader map transactionally. Opaque shadow retains the fixed material-
 resource-free fragment. StaticMesh, SplineMesh, Material
 Preview, and thumbnails therefore consume the same accepted surface program;
 none reads the authored graph or IR.
+
+Independent vertex factories retain their registered vertex stages unless they
+explicitly opt into the generated material vertex contract. An entry-point name
+shared with a generated stage does not grant that opt-in. Generated material
+fragments still compose with the independent factory's vertex stage; the owning
+[frame preparation contract](RendererFramePreparation.md#ownership-boundary)
+defines the factory boundary.
 
 The scene snapshot supplies indexed collection buffers at material-set bindings
 3 through 6. One per-view cache uploads each distinct accepted world snapshot once

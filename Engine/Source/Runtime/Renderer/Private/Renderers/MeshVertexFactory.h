@@ -37,6 +37,10 @@ namespace Durin::RendererPrivate
 		virtual auto GetType() const -> const FVertexFactoryType& = 0;
 		virtual auto GetLayoutKey() const -> FXxHash64 = 0;
 		virtual auto GetShaderType(uint32 Pass) const -> FShaderType* = 0;
+		// Generated material vertex stages implement only an opted-in factory
+		// contract. An equal entry-point name does not establish compatibility.
+		virtual auto UsesGeneratedMaterialVertexStage(uint32 Pass) const -> bool
+		{ return false; }
 		auto GetRuntimeRequestName(uint32 Pass) const -> std::string
 		{
 			return std::format("MeshVertex.{}.{}.{}", GetType().GetName(), GetLayoutKey().HashValue, Pass);

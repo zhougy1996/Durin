@@ -77,7 +77,7 @@ namespace Durin::VulkanRHI
 		explicit FVulkanGPUTimingManager(FVulkanDevice& InDevice);
 		~FVulkanGPUTimingManager();
 
-		auto CreateQuery() -> TRefCountPtr<FVulkanGPUTimingQuery>;
+		VULKANRHI_API auto CreateQuery() -> TRefCountPtr<FVulkanGPUTimingQuery>;
 		auto Begin(FVulkanQueue& Queue, FVulkanCommandBuffer& CommandBuffer,
 			FVulkanGPUTimingQuery& Query) -> void;
 		auto End(FVulkanQueue& Queue, FVulkanCommandBuffer& CommandBuffer,
