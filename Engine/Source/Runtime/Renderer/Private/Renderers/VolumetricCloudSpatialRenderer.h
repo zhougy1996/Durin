@@ -9,7 +9,7 @@
 namespace Durin
 {
 	// Owns the frozen P1 spatial contracts before GPU resource integration.
-	class RENDERER_API FVolumetricCloudSpatialRenderer final
+	class FVolumetricCloudSpatialRenderer final
 	{
 	public:
 		using EQualityTier = EVolumetricCloudQuality;
@@ -222,21 +222,21 @@ namespace Durin
 				   + (Extent % ThreadGroupSize != 0 ? 1u : 0u);
 		}
 
-		static auto CalculateTargetBytes(uint32 Width, uint32 Height) -> uint64;
-		static auto ResolveQualityPolicy(EQualityTier Tier) -> FQualityPolicy;
-		static auto CalculateScaledExtent(
+		static RENDERER_API auto CalculateTargetBytes(uint32 Width, uint32 Height) -> uint64;
+		static RENDERER_API auto ResolveQualityPolicy(EQualityTier Tier) -> FQualityPolicy;
+		static RENDERER_API auto CalculateScaledExtent(
 			uint32 Width, uint32 Height, const FQualityPolicy& Policy
 		) -> FExtent;
-		static auto CalculateScaledViewport(const FViewportRect& Viewport, const FExtent& Output, const FExtent& Target) -> FViewportRect;
-		static auto CalculatePolicyKey(EQualityTier Tier) -> uint64;
-		static auto CalculateJitter(
+		static RENDERER_API auto CalculateScaledViewport(const FViewportRect& Viewport, const FExtent& Output, const FExtent& Target) -> FViewportRect;
+		static RENDERER_API auto CalculatePolicyKey(EQualityTier Tier) -> uint64;
+		static RENDERER_API auto CalculateJitter(
 			uint64 SuccessfulSequence, const FQualityPolicy& Policy
 		) -> FVector2f;
-		static auto SelectRoute(const FRouteInputs& Inputs) -> FRouteDecision;
-		static auto IntersectHeightSlab(const FSlabRay& Ray) -> FSlabInterval;
-		static auto IntegrateReference(const FReferenceInput& Input)
+		static RENDERER_API auto SelectRoute(const FRouteInputs& Inputs) -> FRouteDecision;
+		static RENDERER_API auto IntersectHeightSlab(const FSlabRay& Ray) -> FSlabInterval;
+		static RENDERER_API auto IntegrateReference(const FReferenceInput& Input)
 			-> FReferenceResult;
-		static auto MakeExecutionCounters(
+		static RENDERER_API auto MakeExecutionCounters(
 			const FRouteInputs& Inputs, const FRouteDecision& Decision, uint64 PrimarySamples, uint64 LightSamples
 		) -> FExecutionCounters;
 	};
