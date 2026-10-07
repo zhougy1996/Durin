@@ -43,7 +43,7 @@ namespace Durin
 		CORE_API static auto TryLoad(FSharedByteBuffer Bytes, FCbLimits Limits = {})
 			-> std::expected<FCbField, std::string>;
 		auto IsValid() const -> bool { return !Bytes.IsEmpty(); }
-		auto GetView() const -> FCbFieldView;
+		CORE_API auto GetView() const -> FCbFieldView;
 		auto GetBytes() const -> FSharedByteBuffer { return Bytes; }
 	private:
 		friend class FCbWriter;
@@ -58,7 +58,7 @@ namespace Durin
 		CORE_API static auto TryLoad(FSharedByteBuffer Bytes, FCbLimits Limits = {})
 			-> std::expected<FCbObject, std::string>;
 		auto IsValid() const -> bool { return Field.IsValid(); }
-		auto GetView() const -> FCbObjectView;
+		CORE_API auto GetView() const -> FCbObjectView;
 		auto GetBytes() const -> FSharedByteBuffer { return Field.GetBytes(); }
 	private:
 		friend class FCbWriter;
@@ -73,7 +73,7 @@ namespace Durin
 		CORE_API static auto TryLoad(FSharedByteBuffer Bytes, FCbLimits Limits = {})
 			-> std::expected<FCbArray, std::string>;
 		auto IsValid() const -> bool { return Field.IsValid(); }
-		auto GetView() const -> FCbArrayView;
+		CORE_API auto GetView() const -> FCbArrayView;
 		auto GetBytes() const -> FSharedByteBuffer { return Field.GetBytes(); }
 	private:
 		friend class FCbWriter;
