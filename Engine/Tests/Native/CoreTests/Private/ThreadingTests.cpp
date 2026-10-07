@@ -2369,7 +2369,9 @@ namespace Durin
 		static_assert(!std::is_copy_constructible_v<FCallback>);
 		static_assert(!std::is_copy_assignable_v<FCallback>);
 		static_assert(std::is_nothrow_move_constructible_v<FCallback>);
-		static_assert(std::is_nothrow_move_assignable_v<FCallback>);
+		// The native standard-library implementation may declare move
+		// assignment potentially throwing (including MSVC 14.44).
+		static_assert(std::is_move_assignable_v<FCallback>);
 
 		int (*NullFunction)() = nullptr;
 		FCallback Empty(NullFunction);

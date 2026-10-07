@@ -47,6 +47,7 @@ durin_add_native_test(SceneImportVulkanTests
 		bc7enc_rdo::bc7enc_rdo
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${DURIN_PROJECT_SOURCE_DIR}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Public
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetForgeBuiltins/Private

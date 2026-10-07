@@ -621,6 +621,7 @@ namespace Durin
 
 	auto FLogger::Flush() -> void
 	{
+		std::scoped_lock LifecycleLock(Impl->LifecycleMutex);
 		std::unique_lock Lock(Impl->QueueMutex);
 		if (Impl->State != FImpl::EState::Running)
 		{
@@ -674,6 +675,10 @@ namespace Durin
 		}
 		if (Impl->DispatchThread.joinable()) Impl->DispatchThread.join();
 		Impl->FlushSinks();
+		// Close files before publishing Stopped so callers can remove or move
+		// the log directory on hosts that disallow deleting open files.
+		Impl->FileLogger.reset();
+		Impl->ConsoleLogger.reset();
 		{
 			std::scoped_lock Lock(Impl->QueueMutex);
 			Impl->State = FImpl::EState::Stopped;

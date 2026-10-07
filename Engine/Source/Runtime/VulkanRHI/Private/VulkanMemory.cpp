@@ -185,10 +185,13 @@ namespace Durin::VulkanRHI
 		}
 
 		VkBuffer RawBuffer = VK_NULL_HANDLE;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		const auto InjectedResult = ConsumeVulkanCreateFailureResult(EVulkanCreateFailurePoint::Buffer);
+#endif
 		VkResult Result =
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer)
-				? VK_ERROR_OUT_OF_DEVICE_MEMORY
+			InjectedResult != vk::Result::eSuccess
+				? static_cast<VkResult>(InjectedResult)
 				:
 #endif
 			[&] {

@@ -340,8 +340,13 @@ namespace Durin::VulkanRHI
 
 	auto ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> bool
 	{
+		return ConsumeVulkanCreateFailureResult(FailurePoint) != vk::Result::eSuccess;
+	}
+
+	auto ConsumeVulkanCreateFailureResult(EVulkanCreateFailurePoint FailurePoint) -> vk::Result
+	{
 		return GArmedVulkanCreateFailures[static_cast<size_t>(FailurePoint)].exchange(
-			vk::Result::eSuccess, std::memory_order_acq_rel) != vk::Result::eSuccess;
+			vk::Result::eSuccess, std::memory_order_acq_rel);
 	}
 
 	auto ResetVulkanCreateFailures() -> void

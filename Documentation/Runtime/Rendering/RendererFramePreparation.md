@@ -271,7 +271,9 @@ and is rebuilt for new views, frames, and resource-resolution attempts.
 Surface shader instances compile reflection into immutable binding layouts.
 Before recording, receiver and cascade resolution builds concrete fragment
 bindings once per material uniform group, pass and selected shader; compatible
-draws retain the same batch. Hit-proxy preparation also resolves its fragment
+draws retain the same batch. Layouts that read primitive uniforms additionally
+key bindings by primitive; primitive-independent layouts share across primitives,
+preserving compatible GPU-culling groups. Hit-proxy preparation also resolves its fragment
 bindings before opening the render pass. Missing resources, unsupported layouts
 and invalid uniform ranges fail preparation. Recording consumes the retained
 batch without reflection traversal or material resource-vector construction.

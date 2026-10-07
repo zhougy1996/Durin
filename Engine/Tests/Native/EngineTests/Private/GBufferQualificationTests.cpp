@@ -735,11 +735,12 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 					ASSERT_NE(Target, nullptr);
 					Durin::FSceneView View;
 					const double Offset = 2.0 * MotionPixels[FrameIndex] / Width;
-					View.ViewProjectionMatrix =
+					View.ProjectionMatrix =
 						Durin::Math::TranslationMatrix(
 							Durin::FVector3{Offset, 0.0, 0.0})
 						* Durin::Math::ScaleMatrix(
 							Durin::FVector3{Scale, Scale, 1.0});
+					View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
 					View.ViewLocation = {0.0, 0.0, 1.0};
 					View.ViewportWidth = Width;
 					View.ViewportHeight = Height;

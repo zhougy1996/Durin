@@ -611,7 +611,7 @@ namespace Durin::VulkanRHI
 				catch (const vk::SystemError& Error)
 				{
 					EXPECT_EQ(Error.code().value(), static_cast<int>(vk::Result::eErrorOutOfDeviceMemory));
-					EXPECT_NE(std::string_view(Error.what()).find("Injected Vulkan native creation failure"), std::string_view::npos);
+					EXPECT_NE(std::string_view(Error.what()).find("Vulkan buffer allocation failed"), std::string_view::npos);
 				}
 				for (auto Result : {vk::Result::eErrorDeviceLost, vk::Result::eErrorUnknown})
 				{
@@ -666,7 +666,9 @@ namespace Durin::VulkanRHI
 		EXPECT_GE(Upload.ArenaHighWaterBytes, 32ull * 1024 * 1024);
 		EXPECT_GE(Upload.ArenaReuseCount, 1u);
 		EXPECT_GE(Upload.ArenaOversizeCount, 1u);
-		EXPECT_EQ(Upload.ArenaWaitCount, 0u);
+		// Five full-page uploads exhaust the four-page arena before its pending
+		// payload is submitted. The fifth must submit and wait for that owner.
+		EXPECT_EQ(Upload.ArenaWaitCount, 1u);
 		GDynamicRHI->RHIResetMemoryStatistics();
 		const FRHIMemoryStatistics ResetStatistics =
 			GDynamicRHI->RHIGetMemoryStatistics();

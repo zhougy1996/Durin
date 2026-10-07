@@ -567,7 +567,11 @@ namespace Durin
 		}
 		auto Prepare = [&](const FPreparedStaticMeshDraw& Draw, uint32 Pass, FRHIShader* Shader,
 			const FCompiledSurfaceBindingLayout& Layout, FBindings& Out) -> bool {
-			const auto Key = std::make_tuple(Draw.MaterialUniformIndex, Pass, Draw.PrimitiveIndex, Shader);
+			const bool bUsesPrimitive = std::ranges::any_of(Layout.GetEntries(), [](const auto& Entry) {
+				return Entry.Source == FCompiledSurfaceBindingLayout::ESource::Primitive;
+			});
+			const auto Key = std::make_tuple(Draw.MaterialUniformIndex, Pass,
+				bUsesPrimitive ? Draw.PrimitiveIndex : std::numeric_limits<uint32>::max(), Shader);
 			if (const auto Existing = Batches.find(Key); Existing != Batches.end())
 			{
 				Out = Existing->second;

@@ -56,6 +56,19 @@ The repair passes the independent-factory and cooked-composition gates and an
 `all` build. The 2026-10-07 handoff below records failed wider selections and
 the still-open baseline, memory and qualification obligations.
 
+The follow-up repair addresses the five remaining Windows failures: projection
+motion is applied to the matrices consumed by GPU transforms; reflected fragment
+bindings share across primitives only when they do not read primitive uniforms;
+buffer failure injection preserves the requested native result; logger shutdown
+closes file sinks; and move-only callback tests accept MSVC's potentially throwing
+move assignment. The transfer-arena regression also requires one exact pressure
+wait when five uploads exhaust its four pending pages. Focused regressions,
+26 bounded targets, SceneImport integration and the Release `all` build pass.
+Qualification passes 9/10 targets; Spline's 4 ms CPU p95 gate fails both in the
+full selection and alone. The expanded affected build is blocked by unrelated
+Windows object-path/soft-reference size assertions. Receipts are recorded below;
+acceptance thresholds and the frozen-reference decision remain unchanged.
+
 ## Goal
 
 Add a mesh primitive using an existing vertex factory by implementing its
@@ -852,6 +865,52 @@ bytes, 100-cycle memory accounting, accepted timing comparisons, and passing
 final qualification remain open. The available pre-migration Stage 0 commit
 `bb44ceaf9509e1e7fb23e34ec5399c8affa54971` is only a proposed replacement for the
 unavailable frozen reference; it has not been adopted or measured.
+
+#### Windows failure repair follow-up (2026-10-07)
+
+Source base: `050fbaefa`, plus this follow-up. Host, preset and instrumentation
+match the preceding checkpoint. This follow-up fixes the five diagnosed failures
+without relaxing image, timing or native-error requirements:
+
+- The motion fixture updates `ProjectionMatrix` and derives the combined matrix,
+  matching the production transform source. GBuffer qualification now passes
+  its specular-AA comparison.
+- Fragment binding reuse includes primitive identity only when reflection reads
+  primitive uniforms. Primitive-independent GPU-culling bindings can therefore
+  form the intended group; the production indirect pilot now dispatches.
+- Buffer allocation injection retains the requested `vk::Result`, so recoverable
+  allocation failures remain attached to the result and terminal errors escape.
+  The test checks the allocation-boundary diagnostic. Five pending full-page
+  uploads exhaust four arena pages and require exactly one pressure wait; the
+  obsolete zero-wait expectation is corrected.
+- Logger shutdown flushes and releases sinks before returning. A regression
+  removes the log directory while the logger remains alive; public flushes
+  serialize with lifecycle changes. StaticMesh build qualification now cleans up.
+- The move-only callback test requires move assignment without assuming MSVC's
+  standard-library implementation declares it `noexcept`.
+
+The broader affected build also exposed a missing source include directory in
+`SceneImportVulkanTests`, which consumes the shared texture test fixture. Its
+target now declares that include dependency.
+
+Commands use `.\DevTool.bat` and `--preset Win64-Release-DurinEditor`.
+Reports and logs use the directories specified in the preceding checkpoint.
+
+| Selection | Result and receipt |
+| --- | --- |
+| `test CoreUtilityTests FLoggerTests.*` | 19/19 cases passed; `GeometryRepairLogger.xml`, log `20261007-233639-385654-25544-CoreUtilityTests.log`. |
+| `test VulkanRHIIntegrationTests FVulkanTransferArenaIntegrationTests.ReusesBoundedPagesHandlesFragmentationOversizeAndExactWaits` | Passed; `GeometryRepairTransfer.xml`, log `20261007-233919-591011-21536-VulkanRHIIntegrationTests.log`. |
+| `test GBufferQualificationTests --mode qualification` | Passed; `GeometryRepairGBuffer.xml`, log `20261007-233807-430675-42164-ctest.log`. |
+| `test StaticMeshBuildQualificationTests --mode qualification --test-jobs 1` | 7/7 cases passed; `GeometryRepairMeshBuild.xml`, log `20261007-233828-905102-52424-ctest.log`. |
+| `test affected --test-jobs 4` | Initial build failed on the missing SceneImport fixture include directory, log `20261007-233931-359790-40776-cmake.log`. After fixing that target dependency, the expanded 98-target build stopped at unrelated Windows `FObjectPath`/soft-reference size assertions in `PackageLinkerTests.cpp:177–179`, log `20261007-234202-294799-35984-cmake.log`. No passing affected-suite receipt is claimed. |
+| `test '@domain=core+renderer+static-mesh+spline,kind=contract+feature+integration' --test-jobs 4` | 26/26 targets passed, including complete Core concurrency, logger and Vulkan integration coverage; `GeometryRepairBounded.xml`, log `20261007-235026-057354-57336-ctest.log`. |
+| `test '@domain=renderer+static-mesh+spline,kind=qualification' --mode qualification --test-jobs 1` | 9/10 targets passed; `GeometryRepairQualification.xml`, log `20261007-235134-254536-51584-ctest.log`. Spline actor reconstruction CPU p95 was 4.2524 ms against 4 ms. The standalone repeat also fails at 4.0802 ms: `GeometryRepairSplineRepeat.xml`, log `20261007-235404-006345-21172-ctest.log`. The performance gate remains open; no threshold was changed. |
+| `test SceneImportVulkanTests` | Passed; `GeometryRepairSceneImport.xml`, log `20261007-235436-568171-44728-SceneImportVulkanTests.log`. |
+| `build` (target `all`) | Passed; log `20261007-235448-210012-33308-cmake.log`. |
+
+The named timing cohort and unavailable frozen baseline remain unchanged.
+Passing these candidate tests does not close image-pair, memory or baseline
+performance acceptance gates. The plan remains Active.
 
 ## Validation and Handoff
 

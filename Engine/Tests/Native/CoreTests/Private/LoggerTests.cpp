@@ -267,6 +267,23 @@ TEST(FLoggerTests, ErrorAndFatalReturnOnlyAfterFileIsFlushed)
 	EXPECT_NE(FatalContents.find("[LoggerTests] Fatal reliable 23"), std::string::npos);
 }
 
+TEST(FLoggerTests, ShutdownClosesLogFilesBeforeLoggerDestruction)
+{
+	const std::filesystem::path Directory = MakeTestDirectory("ClosedOnShutdown");
+	Durin::FLogger Logger;
+	ASSERT_TRUE(Logger.Initialize(MakeSettings(Directory)));
+	Logger.Log(Durin::ELogLevel::Error, std::source_location::current(), "LoggerTests", "Persist before shutdown");
+	Logger.Shutdown();
+	const auto Files = FindLogFiles(Directory);
+	ASSERT_EQ(Files.size(), 1u);
+	EXPECT_NE(ReadFile(Files.front()).find("Persist before shutdown"), std::string::npos);
+	std::error_code Error;
+	Durin::Testing::RemoveTestWorkDirectory(Directory, Error);
+	EXPECT_FALSE(Error) << Error.message();
+	EXPECT_FALSE(std::filesystem::exists(Directory));
+	Logger.Flush();
+}
+
 TEST(FLoggerTests, ShutdownCompletesWithConcurrentReliableProducers)
 {
 	Durin::FLogger Logger;

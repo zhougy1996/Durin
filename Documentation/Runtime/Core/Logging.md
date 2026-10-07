@@ -4,7 +4,7 @@ Summary: Define process log ordering, bounded admission and history, sink durabi
 
 Modules: Core
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-10-07
 
 `FLogger` owns log ordering, sink delivery, and bounded structured history for
 one process session. Editor presentation is a consumer of this contract and
@@ -44,7 +44,10 @@ wait for editor UI work. Sink failures use the fallback stderr path and still
 release reliable producers.
 
 Shutdown drains accepted records in sequence, wakes producers waiting for
-capacity or durability, flushes sinks, and then ends the session history. Calls
+capacity or durability, flushes and releases sinks, and then ends the session
+history. Log files are closed before shutdown returns, so callers can remove
+the log directory while the logger object remains alive. Public flush operations
+serialize with initialization and shutdown. Calls
 after shutdown are fallback-only and are not inserted into retained history.
 Process placement of logger initialization and finalization is defined by
 [Runtime Lifecycle](RuntimeLifecycle.md).
