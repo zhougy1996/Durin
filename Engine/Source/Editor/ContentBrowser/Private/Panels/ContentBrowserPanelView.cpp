@@ -214,8 +214,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (NextSettings != PresentationSettings)
 		{
 			PresentationSettings = std::move(NextSettings);
-			if (SavePresentationSettings)
-				SavePresentationSettings(PresentationSettings);
+			if (SavePresentationSettings && !SavePresentationSettings(PresentationSettings))
+				SetError("Could not save Content Browser settings.");
 		}
 	}
 

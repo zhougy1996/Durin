@@ -9,6 +9,7 @@
 #include "DObject/ObjectPtr.h"
 #include "PropertyEditor/PropertyView.h"
 #include "Widgets/MaterialFunctionCallPicker.h"
+#include "Settings/EditorSettings.h"
 
 namespace Durin
 {
@@ -67,6 +68,9 @@ namespace Durin::Editor::Material
 		auto SaveMaterial(DMaterialInterface* Material) -> bool;
 		auto DrawDocument(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawToolbar(DMaterialInterface* Material) -> void;
+		auto DrawPreferences(std::string& OutError) -> void;
+		auto SetAutoCompile(bool bEnabled) -> void;
+		auto ResetPreferences() -> bool;
 		auto DrawCompileStatus(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawDockLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawPreviewPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
@@ -102,6 +106,7 @@ namespace Durin::Editor::Material
 		std::unordered_map<uint64, std::unique_ptr<FMaterialGraphCanvas>> MaterialGraphCanvases;
 		std::unique_ptr<FMaterialParameterPanelCache> MaterialParameterPanelCache;
 		std::unique_ptr<FMaterialEditorSessionSettings> SessionSettings;
+		FEditorSettingsPageRegistration SettingsPage;
 		std::array<char, 128> ParentSearchText{};
 		std::array<char, 128> TextureSearchText{};
 		std::unordered_map<uint64, std::array<char, 128>> ParameterSearchTexts;

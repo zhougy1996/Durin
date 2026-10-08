@@ -184,6 +184,7 @@ durin_add_native_test(ContentBrowserWorkflowTests
 		${_durin_content_browser_private}/Panels/ContentBrowserItemView.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserExtensionPresentation.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserPanel.cpp
+		${_durin_content_browser_private}/Panels/ContentBrowserPreferences.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserPanelView.cpp
 		${_durin_content_browser_private}/Assets/ContentBrowserThumbnailReferences.cpp
 		${_durin_content_browser_private}/Assets/SourceImageThumbnailCache.cpp

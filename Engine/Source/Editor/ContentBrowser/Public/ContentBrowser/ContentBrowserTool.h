@@ -28,7 +28,7 @@ namespace Durin::Editor::ContentBrowser
 	};
 
 	using FSavePresentationSettings =
-		std::function<void(const FPresentationSettings&)>;
+		std::function<bool(const FPresentationSettings&)>;
 
 	// Owns the browser body while the temporary Level adapter owns its window.
 	class IContentBrowserTool : public IContentBrowser

@@ -454,7 +454,10 @@ durin_add_native_test(EditorHostToolTests
 	PRIVATE_SOURCE_RATIONALE
 		"MainFrame-owned Console model and layout coverage avoids exporting private host-tool implementations."
 	SOURCES Private/ConsoleRecordModelTests.cpp Private/EditorHostToolTests.cpp
-	PRIVATE_SOURCES ${_durin_main_frame_private}/Panels/ConsoleRecordModel.cpp
+	PRIVATE_SOURCES
+		${_durin_main_frame_private}/Panels/ConsoleRecordModel.cpp
+		${_durin_main_frame_private}/Settings/EditorSettingsWindow.cpp
+		${_durin_main_frame_private}/Settings/HostSettings.cpp
 	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd
 	INCLUDE_DIRECTORIES ${_durin_main_frame_private}
 	COMPILE_DEFINITIONS MAINFRAME_EXPORTS

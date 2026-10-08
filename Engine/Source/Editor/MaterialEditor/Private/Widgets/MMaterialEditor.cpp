@@ -276,12 +276,20 @@ namespace Durin::Editor::Material
 		, SessionSettings(std::make_unique<FMaterialEditorSessionSettings>())
 	{
 		SessionSettings->Load();
+		SettingsPage = FEditorSettingsPageRegistration({
+			.Id = "editor.material", .Label = "Material Editor",
+			.Keywords = "automatic auto compile preview details parameters diagnostics panels",
+			.Description = "Compilation and panel preferences shared by open material documents. Changes take effect immediately.",
+			.Draw = [this](std::string& Error) { DrawPreferences(Error); },
+			.Reset = [this] { return ResetPreferences(); },
+		});
 		MoveObserverHandle = RegisterAssetMoveObserver(
 			this);
 	}
 
 	MMaterialEditor::~MMaterialEditor()
 	{
+		SettingsPage = {};
 		UnregisterAssetMoveObserver(MoveObserverHandle);
 		FinishActivePropertyEdit(true);
 		SessionSettings->Save();
@@ -632,10 +640,7 @@ namespace Durin::Editor::Material
 				ImGui::SameLine();
 				if (ImGui::Checkbox("Auto Compile", &SessionSettings->bAutoCompile))
 				{
-					for (const auto& [Resource, OpenSession] : EditingSessions)
-						if (auto* OpenBase = OpenSession->GetWorkingMaterial())
-							OpenBase->SetEditCompileMode(SessionSettings->bAutoCompile
-								? EMaterialEditCompileMode::Automatic : EMaterialEditCompileMode::Manual);
+					SetAutoCompile(SessionSettings->bAutoCompile);
 					SessionSettings->Save();
 				}
 				if (ImGui::IsItemHovered())

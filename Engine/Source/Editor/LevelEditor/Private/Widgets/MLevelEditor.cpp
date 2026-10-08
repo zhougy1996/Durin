@@ -62,6 +62,8 @@ namespace Durin::Editor::Level
 
 	MLevelEditor::~MLevelEditor()
 	{
+		ViewportSettingsPage = {};
+		ProjectSettingsPage = {};
 		RequestDeactivate();
 		if (Context && SceneViewportPanel)
 		{
@@ -80,6 +82,21 @@ namespace Durin::Editor::Level
 		CreateDocumentServices();
 		CreateImportDialogs();
 		FinalizeSessionConstruction();
+		ViewportSettingsPage = FEditorSettingsPageRegistration({
+			.Id = "editor.viewport", .Label = "Viewport and Controls",
+			.Keywords = "camera movement speed grid statistics snap translation rotation scale gizmo",
+			.Description = "Level viewport navigation, overlays and transform snapping. Changes take effect immediately and stay in sync with the viewport toolbar.",
+			.Draw = [this](std::string& Error) { DrawViewportPreferences(Error); },
+			.Reset = [this] { return ResetViewportPreferences(); },
+		});
+		ProjectSettingsPage = FEditorSettingsPageRegistration({
+			.Id = "project.general", .Label = "General and Startup",
+			.Keywords = "project name file default level startup",
+			.Description = "Settings shared by the current project. Apply saves the default startup level.",
+			.bProject = true,
+			.Draw = [this](std::string& Error) { DrawProjectSettings(Error); },
+			.OnOpen = [this] { PendingDefaultLevel = DefaultLevel; },
+		});
 	}
 
 	auto MLevelEditor::InitializeContext() -> void
@@ -483,7 +500,6 @@ namespace Durin::Editor::Level
 				WorkspaceManager.RequestCloseDocument(ActiveDocument->Id);
 		}
 
-		DrawProjectSettings();
 
 		MonaImGui::ErrorDialog("Editor Error", EditorError);
 		for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
@@ -563,7 +579,7 @@ namespace Durin::Editor::Level
 		if (ImGui::MenuItem("Project Settings..."))
 		{
 			PendingDefaultLevel = DefaultLevel;
-			bProjectSettingsOpen = true;
+			FEditorSettingsRegistry::Get().RequestOpen("project.general");
 		}
 		if (bPlaying) ImGui::EndDisabled();
 	}
@@ -586,112 +602,107 @@ namespace Durin::Editor::Level
 		}
 	}
 
-	auto MLevelEditor::DrawProjectSettings() -> void
+	auto MLevelEditor::DrawProjectSettings(std::string& OutError) -> void
 	{
-		if (!bProjectSettingsOpen) return;
-		const float DialogWidth = MonaImGui::ScaleUI(620.0f);
-		const float DialogHeight = MonaImGui::ScaleUI(390.0f);
-		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-		ImGui::SetNextWindowSize(ImVec2(DialogWidth, DialogHeight), ImGuiCond_Appearing);
-		ImGui::SetNextWindowSizeConstraints(ImVec2(MonaImGui::ScaleUI(520.0f), MonaImGui::ScaleUI(300.0f)), ImVec2(MonaImGui::ScaleUI(900.0f), MonaImGui::ScaleUI(650.0f)));
-		if (ImGui::Begin("Project Settings###Durin.LevelEditor.ProjectSettings", &bProjectSettingsOpen, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
+		const bool bPlaying = GEditor && GEditor->IsPlaying();
+		if (bPlaying) ImGui::TextDisabled("Stop Play before changing project settings.");
+		ImGui::BeginDisabled(bPlaying);
+		const FProjectInfo* Project = GetCurrentProject();
+		ImGui::Text("Configure the current project and editor defaults.");
+		ImGui::Spacing();
+		ImGui::SeparatorText("Project");
+		if (Project)
 		{
-			const FProjectInfo* Project = GetCurrentProject();
-			ImGui::Text("Configure the current project and editor defaults.");
+			if (ImGui::BeginTable("ProjectInfo", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
+			{
+				ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(110.0f));
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+				ImGui::TextDisabled("Name");
+				ImGui::TableSetColumnIndex(1);
+				ImGui::TextWrapped("%s", Project->Name.c_str());
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+				ImGui::TextDisabled("Project file");
+				ImGui::TableSetColumnIndex(1);
+				ImGui::TextWrapped("%s", Project->ProjectFile.c_str());
+				ImGui::EndTable();
+			}
 			ImGui::Spacing();
-			ImGui::SeparatorText("Project");
-			if (Project)
-			{
-				if (ImGui::BeginTable("ProjectInfo", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
-				{
-					ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(110.0f));
-					ImGui::TableNextRow();
-					ImGui::TableSetColumnIndex(0);
-					ImGui::TextDisabled("Name");
-					ImGui::TableSetColumnIndex(1);
-					ImGui::TextWrapped("%s", Project->Name.c_str());
-					ImGui::TableNextRow();
-					ImGui::TableSetColumnIndex(0);
-					ImGui::TextDisabled("Project file");
-					ImGui::TableSetColumnIndex(1);
-					ImGui::TextWrapped("%s", Project->ProjectFile.c_str());
-					ImGui::EndTable();
-				}
-				ImGui::Spacing();
-				ImGui::SeparatorText("Editor");
-				ImGui::AlignTextToFramePadding();
-				ImGui::TextDisabled("Default level");
-				ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
-				ImGui::SetNextItemWidth(-1.0f);
-				static std::array<char, 128> LevelSearchText{};
-				const ::Durin::Editor::FAssetPickerResult PickerResult = ::Durin::Editor::AssetPicker::Draw({
-					.ComboId = "##DefaultLevel",
-					.SearchId = "##DefaultLevelSearch",
-					.SearchHint = "Search levels...",
-					.RequiredClass = DLevel::StaticClass(),
-					.ClassPolicy = ::Durin::Editor::EAssetClassPolicy::Exact,
-					.AssignmentMode = ::Durin::Editor::EAssetAssignmentMode::AssetPath,
-					.CurrentSelectionPath =
-						PendingDefaultLevel.GetPath().ToString(),
-					.SearchText = LevelSearchText,
-					.bAllowNone = true,
-					.NoneLabel = "None",
-					.AssignPathSelection = [this](
-						std::string_view SelectionPath, std::string& OutError) {
-						if (SelectionPath.empty())
-						{
-							PendingDefaultLevel.Reset();
-							return true;
-						}
-						FTopLevelAssetPath AssetPath;
-						if (const auto PathValidation = FTopLevelAssetPath::TryCreateWithDiagnostic(
-								SelectionPath, AssetPath); !PathValidation)
-						{
-							OutError = ToString(PathValidation.error());
-							return false;
-						}
-						FObjectPath LevelPath;
-						const auto Resolution =
-							ResolveLevelPackage(
-								AssetPath.GetPackagePath(), LevelPath);
-						if (!Resolution)
-						{
-							OutError = Resolution.Message;
-							return false;
-						}
-						if (LevelPath.GetAssetPath() != AssetPath)
-						{
-							OutError = "The selected Level is not the unique top-level Level in its package.";
-							return false;
-						}
-						PendingDefaultLevel.SetPath(std::move(LevelPath));
+			ImGui::SeparatorText("Editor");
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextDisabled("Default level");
+			ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
+			ImGui::SetNextItemWidth(-1.0f);
+			static std::array<char, 128> LevelSearchText{};
+			const ::Durin::Editor::FAssetPickerResult PickerResult = ::Durin::Editor::AssetPicker::Draw({
+				.ComboId = "##DefaultLevel",
+				.SearchId = "##DefaultLevelSearch",
+				.SearchHint = "Search levels...",
+				.RequiredClass = DLevel::StaticClass(),
+				.ClassPolicy = ::Durin::Editor::EAssetClassPolicy::Exact,
+				.AssignmentMode = ::Durin::Editor::EAssetAssignmentMode::AssetPath,
+				.CurrentSelectionPath =
+					PendingDefaultLevel.GetPath().ToString(),
+				.SearchText = LevelSearchText,
+				.bAllowNone = true,
+				.NoneLabel = "None",
+				.AssignPathSelection = [this](
+					std::string_view SelectionPath, std::string& OutError) {
+					if (SelectionPath.empty())
+					{
+						PendingDefaultLevel.Reset();
 						return true;
-					},
-					.PathPrefixFilter = Project->MountRoot,
-				});
-				if (!PickerResult.Error.empty()) SetError(PickerResult.Error);
-			}
-			else
-			{
-				ImGui::TextDisabled("No project is currently open.");
-			}
-			ImGui::Separator();
-			const float ButtonWidth = MonaImGui::ScaleUI(86.0f);
-			const float ButtonGap = ImGui::GetStyle().ItemSpacing.x;
-			ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - ButtonWidth * 2.0f - ButtonGap);
-			if (ImGui::Button("Cancel", ImVec2(ButtonWidth, 0.0f))) bProjectSettingsOpen = false;
-			ImGui::SameLine();
-			const bool bCanApply = Project && PendingDefaultLevel != DefaultLevel;
-			if (!bCanApply) ImGui::BeginDisabled();
-			if (ImGui::Button("Apply", ImVec2(ButtonWidth, 0.0f)))
-			{
-				const TSoftObjectPtr<DLevel> PreviousDefaultLevel = DefaultLevel;
-				DefaultLevel = PendingDefaultLevel;
-				if (!SaveProjectSettings()) DefaultLevel = PreviousDefaultLevel;
-			}
-			if (!bCanApply) ImGui::EndDisabled();
+					}
+					FTopLevelAssetPath AssetPath;
+					if (const auto PathValidation = FTopLevelAssetPath::TryCreateWithDiagnostic(
+							SelectionPath, AssetPath); !PathValidation)
+					{
+						OutError = ToString(PathValidation.error());
+						return false;
+					}
+					FObjectPath LevelPath;
+					const auto Resolution =
+						ResolveLevelPackage(
+							AssetPath.GetPackagePath(), LevelPath);
+					if (!Resolution)
+					{
+						OutError = Resolution.Message;
+						return false;
+					}
+					if (LevelPath.GetAssetPath() != AssetPath)
+					{
+						OutError = "The selected Level is not the unique top-level Level in its package.";
+						return false;
+					}
+					PendingDefaultLevel.SetPath(std::move(LevelPath));
+					return true;
+				},
+				.PathPrefixFilter = Project->MountRoot,
+			});
+			if (!PickerResult.Error.empty()) OutError = PickerResult.Error;
 		}
-		ImGui::End();
+		else
+		{
+			ImGui::TextDisabled("No project is currently open.");
+		}
+		ImGui::Separator();
+		const float ButtonWidth = MonaImGui::ScaleUI(86.0f);
+		const float ButtonGap = ImGui::GetStyle().ItemSpacing.x;
+		ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - ButtonWidth * 2.0f - ButtonGap);
+		if (ImGui::Button("Revert", ImVec2(ButtonWidth, 0.0f))) { PendingDefaultLevel = DefaultLevel; OutError.clear(); }
+		ImGui::SameLine();
+		const bool bCanApply = Project && PendingDefaultLevel != DefaultLevel;
+		if (!bCanApply) ImGui::BeginDisabled();
+		if (ImGui::Button("Apply", ImVec2(ButtonWidth, 0.0f)))
+		{
+			const TSoftObjectPtr<DLevel> PreviousDefaultLevel = DefaultLevel;
+			DefaultLevel = PendingDefaultLevel;
+			if (!SaveProjectSettings()) { DefaultLevel = PreviousDefaultLevel; OutError = EditorError; }
+			else OutError.clear();
+		}
+		if (!bCanApply) ImGui::EndDisabled();
+		ImGui::EndDisabled();
 	}
 
 	auto MLevelEditor::SetError(std::string Message) -> void

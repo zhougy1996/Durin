@@ -10,6 +10,7 @@
 #include "Panels/ContentBrowserItemView.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 #include "Threading/Task.h"
+#include "Settings/EditorSettings.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {
@@ -148,6 +149,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto SetWarning(std::string Message) -> void;
 		auto RepairSelection() -> void;
 
+		auto DrawPreferences(std::string& OutError) -> void;
+		auto ResetPreferences() -> bool;
+		auto ApplyPreferences(const FPresentationSettings& Next) -> bool;
+		FEditorSettingsPageRegistration SettingsPage;
 		::Durin::Editor::ContentBrowser::FPresentationSettings PresentationSettings;
 		::Durin::Editor::ContentBrowser::FSavePresentationSettings SavePresentationSettings;
 		FOpenAsset OpenAsset;

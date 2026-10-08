@@ -105,9 +105,19 @@ namespace Durin::Editor::ContentBrowser::Private
 				if (NavigateToPhysical(Mount.PhysicalRoot))
 					break;
 		}
+		SettingsPage = FEditorSettingsPageRegistration({
+			.Id = "editor.content-browser", .Label = "Content Browser",
+			.Keywords = "grid details view thumbnail icon size lock hidden files folders",
+			.Description = "Browser presentation preferences. Changes take effect immediately and stay in sync with the browser toolbar.",
+			.Draw = [this](std::string& Error) { DrawPreferences(Error); },
+			.Reset = [this] { return ResetPreferences(); },
+		});
 	}
 
-	FContentBrowserPanel::~FContentBrowserPanel() = default;
+	FContentBrowserPanel::~FContentBrowserPanel()
+	{
+		SettingsPage = {};
+	}
 
 	auto FContentBrowserPanel::NotifyMountedContentChanged() -> bool
 	{

@@ -8,6 +8,7 @@
 #include "Workspace/Workspace.h"
 #include "Workspace/WorkspaceRootWindow.h"
 #include "Threading/Task.h"
+#include "Settings/EditorSettings.h"
 
 namespace Durin
 {
@@ -82,7 +83,9 @@ namespace Durin::Editor::Level
 		auto DrawContentBrowserImport(
 			EImportDialogType Type, bool bAllowAssetMutation) -> void;
 		auto FinalizeSessionConstruction() -> void;
-		auto DrawProjectSettings() -> void;
+		auto DrawProjectSettings(std::string& OutError) -> void;
+		auto DrawViewportPreferences(std::string& OutError) -> void;
+		auto ResetViewportPreferences() -> bool;
 		auto LoadProjectSettings() -> bool;
 		auto SaveProjectSettings() -> bool;
 		auto ApplyFixedUpDefaultLevelPath(const FPackagePath& Path) -> void;
@@ -110,7 +113,8 @@ namespace Durin::Editor::Level
 		::Durin::Editor::FWorkspaceRootWindow RootWindow;
 		bool bResetLayoutRequested = false;
 		bool bWasActive = false;
-		bool bProjectSettingsOpen = false;
+		FEditorSettingsPageRegistration ViewportSettingsPage;
+		FEditorSettingsPageRegistration ProjectSettingsPage;
 		TSoftObjectPtr<DLevel> DefaultLevel;
 		TSoftObjectPtr<DLevel> PendingDefaultLevel;
 		std::string EditorError;

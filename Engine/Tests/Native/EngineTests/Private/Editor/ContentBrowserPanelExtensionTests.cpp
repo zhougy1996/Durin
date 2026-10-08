@@ -15,6 +15,17 @@ namespace Durin::Editor::ContentBrowser::Private
 	// Exercises production UI entrypoints without creating an OS window or starting a renderer.
 	struct FContentBrowserPanelTestAccess
 	{
+		static auto ApplyPreferences(FContentBrowserPanel& Panel, const FPresentationSettings& Settings) -> bool
+		{ return Panel.ApplyPreferences(Settings); }
+		static auto Preferences(const FContentBrowserPanel& Panel) -> FPresentationSettings
+		{
+			FPresentationSettings Result = Panel.PresentationSettings;
+			Result.ViewMode = static_cast<uint8>(Panel.ViewMode);
+			Result.IconSize = Panel.IconSize;
+			Result.bIconSizeLocked = Panel.bIconSizeLocked;
+			Result.bShowHiddenFiles = Panel.Model.IsShowingHiddenFiles();
+			return Result;
+		}
 		static auto Copy(FContentBrowserPanel& Panel) -> void { Panel.CopyContentSelection(); }
 		static auto Paste(FContentBrowserPanel& Panel, std::string_view Folder) -> void { Panel.PasteContent(Folder); }
 		static auto CanPaste(const FContentBrowserPanel& Panel) -> bool { return Panel.HasContentClipboard(); }
@@ -56,6 +67,30 @@ namespace Durin::Editor::ContentBrowser::Private
 			Panel.DrawItemContextMenu(Panel.Model.GetItems().front());
 		}
 	};
+
+	TEST(FContentBrowserPanelExtensionTests, PreferenceSaveFailureLeavesActivePresentationUnchanged)
+	{
+		InitializeDObjectSystem();
+		bool bAllowSave = false;
+		FPresentationSettings Saved;
+		FContentBrowserPanel Panel({}, [&](const FPresentationSettings& Settings) {
+			if (!bAllowSave) return false;
+			Saved = Settings;
+			return true;
+		}, {}, {}, {}, {}, {}, {}, {}, {});
+		const auto Previous = FContentBrowserPanelTestAccess::Preferences(Panel);
+		auto Next = Previous;
+		Next.ViewMode = 1;
+		Next.IconSize = 120.0f;
+		Next.bIconSizeLocked = true;
+		Next.bShowHiddenFiles = true;
+		EXPECT_FALSE(FContentBrowserPanelTestAccess::ApplyPreferences(Panel, Next));
+		EXPECT_EQ(FContentBrowserPanelTestAccess::Preferences(Panel), Previous);
+		bAllowSave = true;
+		EXPECT_TRUE(FContentBrowserPanelTestAccess::ApplyPreferences(Panel, Next));
+		EXPECT_EQ(FContentBrowserPanelTestAccess::Preferences(Panel), Next);
+		EXPECT_EQ(Saved, Next);
+	}
 
 	TEST(FContentBrowserPanelExtensionTests, CopiesOrdinarySelectionAcrossPanelsAndInvalidatesReplacedClipboard)
 	{

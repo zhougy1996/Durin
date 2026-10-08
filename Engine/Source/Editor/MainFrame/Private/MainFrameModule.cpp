@@ -28,6 +28,8 @@
 #include "RHIGlobals.h"
 #include "Profiling/Profiling.h"
 #include "Settings/HostSettings.h"
+#include "Settings/EditorSettingsWindow.h"
+#include "Settings/EditorSettings.h"
 #include "Panels/ConsolePanel.h"
 #include "Widgets/EditorNotificationOverlay.h"
 #include "Asset/Asset.h"
@@ -179,7 +181,7 @@ namespace Durin::Editor::MainFrame
 		struct FMainFrameViewState
 		{
 			bool bAboutDialogOpen = false;
-			bool bEditorPreferencesOpen = false;
+			FEditorSettingsWindow SettingsWindow;
 			std::string ProfilingStatusMessage;
 			bool bProfilingStatusOpen = false;
 			bool bAssetCompatibilityOpen = false;
@@ -368,8 +370,7 @@ namespace Durin::Editor::MainFrame
 						std::move(BrowserSettings),
 						[](
 							const ContentBrowser::FPresentationSettings& Settings) {
-							if (!ContentBrowser::SavePresentationSettings(Settings))
-								DURIN_WARN("Could not save Content Browser settings.");
+							return ContentBrowser::SavePresentationSettings(Settings);
 						});
 					bWorkspaceReady = static_cast<bool>(Context.ContentBrowserTool);
 				}
@@ -550,58 +551,6 @@ namespace Durin::Editor::MainFrame
 			ImGui::End();
 		}
 
-		auto DrawPreferences(FHostSettings& Settings, MWindow& RootWindow, bool& bOpen) -> void
-		{
-			if (!bOpen) return;
-			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-			ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(430.0f), MonaImGui::ScaleUI(230.0f)), ImGuiCond_Appearing);
-			if (ImGui::Begin("Editor Preferences###Durin.EditorHost.EditorPreferences", &bOpen, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
-			{
-				ImGui::SeparatorText("Appearance");
-				ImGui::AlignTextToFramePadding();
-				ImGui::TextDisabled("Color theme");
-				ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
-				const MonaImGui::EColorTheme CurrentTheme = Settings.GetColorTheme();
-				const char* ThemeLabel = CurrentTheme == MonaImGui::EColorTheme::Light ? "Light" : "Dark";
-				ImGui::SetNextItemWidth(-1.0f);
-				if (ImGui::BeginCombo("##ColorTheme", ThemeLabel))
-				{
-					for (const auto [Label, Theme] : {std::pair{"Dark", MonaImGui::EColorTheme::Dark}, std::pair{"Light", MonaImGui::EColorTheme::Light}})
-					{
-						if (ImGui::Selectable(Label, CurrentTheme == Theme))
-						{
-							Settings.SetColorTheme(Theme);
-							MonaImGui::SetColorTheme(Theme);
-							Settings.Save();
-						}
-					}
-					ImGui::EndCombo();
-				}
-
-				ImGui::AlignTextToFramePadding();
-				ImGui::TextDisabled("UI scale");
-				ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
-				const float CurrentScale = Settings.GetUIScale();
-				const std::string ScaleLabel = std::format("{}%", static_cast<int32>(CurrentScale * 100.0f));
-				ImGui::SetNextItemWidth(-1.0f);
-				if (ImGui::BeginCombo("##UIScale", ScaleLabel.c_str()))
-				{
-					for (const float Scale : {0.75f, 1.0f, 1.25f, 1.5f, 2.0f})
-					{
-						const std::string Label = std::format("{}%", static_cast<int32>(Scale * 100.0f));
-						if (!ImGui::Selectable(Label.c_str(), std::abs(CurrentScale - Scale) < 0.01f)) continue;
-						Settings.SetDisplaySettings(Settings.GetWindowWidth(), Settings.GetWindowHeight(), Scale);
-						MonaImGui::SetGlobalUIScale(Scale);
-						if (!RootWindow.IsMaximized()) RootWindow.ResizeWindow({
-							static_cast<float>(Settings.GetWindowWidth()), static_cast<float>(Settings.GetWindowHeight())});
-						Settings.Save();
-					}
-					ImGui::EndCombo();
-				}
-			}
-			ImGui::End();
-		}
-
 		auto ObserveHostWindowState(FHostSettings& Settings, const MWindow& RootWindow) -> void
 		{
 			const bool bMaximized = RootWindow.IsMaximized();
@@ -778,7 +727,7 @@ namespace Durin::Editor::MainFrame
 				if (ImGui::MenuItem(UndoLabel.c_str(), "Ctrl+Z", false, ActiveWorkspace && ActiveWorkspace->CanUndo())) ActiveWorkspace->Undo();
 				if (ImGui::MenuItem(RedoLabel.c_str(), "Ctrl+Y", false, ActiveWorkspace && ActiveWorkspace->CanRedo())) ActiveWorkspace->Redo();
 				ImGui::Separator();
-				if (ImGui::MenuItem("Editor Preferences...")) ViewState.bEditorPreferencesOpen = true;
+				if (ImGui::MenuItem("Editor Preferences...")) FEditorSettingsRegistry::Get().RequestOpen("editor.appearance");
 				for (const std::shared_ptr<Editor::IWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();
 				ImGui::EndMenu();
 			}
@@ -1077,7 +1026,7 @@ namespace Durin::Editor::MainFrame
 			}
 			ViewState.NamePoolDiagnostics.Draw(ViewState.bNamePoolDiagnosticsOpen);
 			DrawAboutDialog(ViewState.bAboutDialogOpen);
-			DrawPreferences(HostSettings, RootWindow, ViewState.bEditorPreferencesOpen);
+			ViewState.SettingsWindow.Draw(HostSettings, RootWindow);
 			DrawProfilingToolStatusDialog(
 				ViewState.bProfilingStatusOpen, ViewState.ProfilingStatusMessage);
 			AssetCompatibilityWindow.Draw(ViewState.bAssetCompatibilityOpen,

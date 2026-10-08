@@ -37,6 +37,34 @@ such as viewport cameras, gizmo preferences, and Details layout.
 When the new file is absent it starts from defaults and does not read retired
 Level Editor browser keys.
 
+## Settings Window
+
+`MainFrame::FEditorSettingsWindow` presents editor preferences and project
+settings in one resizable window with a category sidebar and a content pane.
+`Edit > Editor Preferences` selects Appearance; the Level Editor's
+`Project Settings` command selects General and Startup. Search filters pages
+by category, setting keywords, description, and scope, including comma-separated
+alternatives and exclusions prefixed with `-`.
+
+`DurinEd` owns the game-thread-only `FEditorSettingsRegistry` and scoped
+`FEditorSettingsPageRegistration`. Feature widgets register stable page IDs,
+labels, descriptions, drawing callbacks, and optional reset/open callbacks.
+Registrations retire before their widgets' settings dependencies are destroyed;
+MainFrame does not own feature configuration or persist feature state.
+
+The built-in pages expose Appearance, Display (VSync), Viewport and Controls,
+Content Browser, Material Editor, and project General and Startup. Preferences
+apply and save immediately through their existing stores, with visible save
+errors. The Content Browser save callback returns success so failed writes from
+the preferences page do not change its active presentation. Project default-level
+edits use Apply and Revert and are disabled during Play. Selecting or reopening
+the project page initializes its draft from the saved default level.
+
+Restore page defaults resets only the preferences on that page. It preserves
+window geometry, per-level cameras, browser navigation and pane widths, material
+graph viewports, and unrelated settings. Project settings do not expose an
+automatic reset action.
+
 ## Startup Bootstrap
 
 `MainFrame` constructs and owns a lightweight native shell before loading
