@@ -568,7 +568,7 @@ namespace
 		auto& Mip = Data.Mips.emplace_back();
 		Mip.Width = Mip.Height = 1;
 		Mip.RowPitch = 4;
-		Mip.Pixels = FSharedByteBuffer::Take(FByteBuffer(4, Value));
+		Mip.Pixels = Durin::FSharedByteBuffer::Take(Durin::FByteBuffer(4, Value));
 		return Data;
 	}
 
@@ -591,7 +591,7 @@ namespace
 			auto& Mip = Data->Mips.emplace_back();
 			Mip.Width = Mip.Height = Mip.Depth = 1;
 			Mip.RowPitch = Mip.DepthPitch = 4;
-			Mip.Voxels = FSharedByteBuffer::Take(FByteBuffer(4, Value));
+			Mip.Voxels = Durin::FSharedByteBuffer::Take(Durin::FByteBuffer(4, Value));
 			Texture.SetPlatformData(std::move(Data));
 		}
 	}
