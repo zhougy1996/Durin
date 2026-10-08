@@ -18,6 +18,15 @@ namespace Durin::VulkanRHI
 	class FVulkanPendingGraphicsState;
 	class FVulkanComputePipelineState;
 
+	// Context-owned scratch storage; native descriptor writes borrow these arrays only
+	// until updateDescriptorSets returns. Capacity survives subsequent updates.
+	struct FVulkanDescriptorWriteScratch
+	{
+		std::vector<vk::DescriptorBufferInfo> BufferInfos;
+		std::vector<vk::DescriptorImageInfo> ImageInfos;
+		std::vector<vk::WriteDescriptorSet> Writes;
+	};
+
 	// Accumulates compute bindings and materializes one complete descriptor snapshot.
 	class FVulkanPendingComputeState
 	{
@@ -48,6 +57,7 @@ namespace Durin::VulkanRHI
 		auto PrepareDescriptors(FVulkanCommandListContext& InContext) -> void;
 
 		FVulkanDevice& Device;
+		FVulkanDescriptorWriteScratch DescriptorWriteScratch;
 		FVulkanComputePipelineState* CurrentPipelineState = nullptr;
 		std::vector<FRHIShaderParameterResource> PendingResources;
 		FVulkanDeferredBufferBindings DeferredBindings;
@@ -165,6 +175,7 @@ namespace Durin::VulkanRHI
 		auto VerifyDescriptorCacheOccupancy() const -> void;
 
 		FVulkanDevice& Device;
+		FVulkanDescriptorWriteScratch DescriptorWriteScratch;
 
 		FVulkanGraphicsPipelineState* CurrentPipelineState = nullptr;
 

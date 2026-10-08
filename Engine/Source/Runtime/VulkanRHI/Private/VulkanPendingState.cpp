@@ -14,15 +14,18 @@
 
 namespace Durin::VulkanRHI
 {
-	static auto UpdateDescriptorSets(FVulkanDevice& Device,
+	static auto UpdateDescriptorSets(FVulkanDevice& Device, FVulkanDescriptorWriteScratch& Scratch,
 		std::span<const FRHIShaderParameterResource> Resources,
 		std::span<const vk::DescriptorSet> DescriptorSets, uint32 FirstSet = 0) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.Update");
 		// Vulkan write descriptors store pointers into these arrays until updateDescriptorSets returns.
-		std::vector<vk::DescriptorBufferInfo> BufferInfos;
-		std::vector<vk::DescriptorImageInfo> ImageInfos;
-		std::vector<vk::WriteDescriptorSet> DescriptorWrites;
+		auto& BufferInfos = Scratch.BufferInfos;
+		auto& ImageInfos = Scratch.ImageInfos;
+		auto& DescriptorWrites = Scratch.Writes;
+		DescriptorWrites.clear();
+		BufferInfos.clear();
+		ImageInfos.clear();
 		BufferInfos.reserve(Resources.size());
 		ImageInfos.reserve(Resources.size());
 		DescriptorWrites.reserve(Resources.size());
@@ -246,7 +249,8 @@ namespace Durin::VulkanRHI
 					|| A[Index].BindingIndex != B[Index].BindingIndex
 					|| A[Index].ArrayElement != B[Index].ArrayElement
 					|| A[Index].Type != B[Index].Type
-					|| A[Index].Offset != B[Index].Offset
+					|| (A[Index].Type != ERHIBindingType::UniformBufferDynamic
+						&& A[Index].Offset != B[Index].Offset)
 					|| A[Index].Size != B[Index].Size) return false;
 			}
 			return true;
@@ -306,7 +310,7 @@ namespace Durin::VulkanRHI
 			{
 				CachedDescriptorSets = Device.GetGlobalDescriptorPool().AllocateDescriptorSets(
 					Handles, Layout.GetInfo().GetDescriptorRequirements());
-				UpdateDescriptorSets(Device, PendingResources, CachedDescriptorSets);
+				UpdateDescriptorSets(Device, DescriptorWriteScratch, PendingResources, CachedDescriptorSets);
 				CachedResources = PendingResources;
 				CachedOwners.clear();
 				for (FRHIShaderParameterResource& Resource : CachedResources)
@@ -706,6 +710,7 @@ namespace Durin::VulkanRHI
 			auto Entry = Set.Selected.lock();
 			if (Entry)
 			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.ReuseSelected");
 				++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.Hits;
 				Owner.TouchDescriptorCacheEntry(*Entry);
 			}
@@ -733,54 +738,67 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		GVulkanDescriptorHashCount.fetch_add(1, std::memory_order_relaxed);
 #endif
-		FXxHash64Builder HashBuilder;
-		HashBuilder.UpdateValue(Layout);
-		for (const auto& Resource : Resources)
-		{
-			HashBuilder.UpdateValue(Resource.BindingIndex);
-			HashBuilder.UpdateValue(Resource.ArrayElement);
-			HashBuilder.UpdateValue(Resource.Type);
-			HashBuilder.UpdateValue(reinterpret_cast<uintptr_t>(Resource.Resource));
-			HashBuilder.UpdateValue(Resource.Size);
-			if (Resource.Type != ERHIBindingType::UniformBufferDynamic) HashBuilder.UpdateValue(Resource.Offset);
-		}
-		const uint64 Hash = HashBuilder.Finalize().HashValue;
-		const auto [First, Last] = DescriptorSetCacheIndex.equal_range(Hash);
-		for (auto Candidate = First; Candidate != Last; ++Candidate)
-		{
-			auto& Entry = DescriptorSetCache[Candidate->second];
-			// The device layout cache interns complete structural layouts. Set index
-			// is external to compatibility; every draw explicitly binds all sets.
-			if (Entry->Layout == Layout && std::ranges::equal(Entry->Resources, Resources,
-				[](const auto& A, const auto& B) {
-					return A.Resource == B.Resource && A.BindingIndex == B.BindingIndex
-						&& A.ArrayElement == B.ArrayElement && A.Type == B.Type && A.Size == B.Size
-						&& (A.Type == ERHIBindingType::UniformBufferDynamic || A.Offset == B.Offset);
-				}))
+		uint64 Hash = 0;
+		auto Entry = [&]() -> std::shared_ptr<FDescriptorEntry> {
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.Lookup");
+			FXxHash64Builder HashBuilder;
+			HashBuilder.UpdateValue(Layout);
+			for (const auto& Resource : Resources)
 			{
-				++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.Hits;
-				TouchDescriptorCacheEntry(*Entry);
-				return Entry;
+				HashBuilder.UpdateValue(Resource.BindingIndex);
+				HashBuilder.UpdateValue(Resource.ArrayElement);
+				HashBuilder.UpdateValue(Resource.Type);
+				HashBuilder.UpdateValue(reinterpret_cast<uintptr_t>(Resource.Resource));
+				HashBuilder.UpdateValue(Resource.Size);
+				if (Resource.Type != ERHIBindingType::UniformBufferDynamic) HashBuilder.UpdateValue(Resource.Offset);
 			}
+			Hash = HashBuilder.Finalize().HashValue;
+			const auto [First, Last] = DescriptorSetCacheIndex.equal_range(Hash);
+			for (auto Candidate = First; Candidate != Last; ++Candidate)
+			{
+				auto& Entry = DescriptorSetCache[Candidate->second];
+				// The device layout cache interns complete structural layouts. Set index
+				// is external to descriptor-set compatibility.
+				if (Entry->Layout == Layout && std::ranges::equal(Entry->Resources, Resources,
+					[](const auto& A, const auto& B) {
+						return A.Resource == B.Resource && A.BindingIndex == B.BindingIndex
+							&& A.ArrayElement == B.ArrayElement && A.Type == B.Type && A.Size == B.Size
+							&& (A.Type == ERHIBindingType::UniformBufferDynamic || A.Offset == B.Offset);
+					}))
+				{
+					return Entry;
+				}
+			}
+			return {};
+		}();
+		if (Entry)
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.CacheHit");
+			++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.Hits;
+			TouchDescriptorCacheEntry(*Entry);
+			return Entry;
 		}
-		++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.Misses;
-		auto Entry = std::make_shared<FDescriptorEntry>();
-		Entry->Hash = Hash;
-		Entry->Layout = Layout;
-		Entry->Resources.assign(Resources.begin(), Resources.end());
-		Entry->ResourceOwners.reserve(Resources.size());
-		for (const auto& Resource : Resources) Entry->ResourceOwners.emplace_back(Resource.Resource);
-		Entry->DescriptorSet = Device.GetGlobalDescriptorPool().AllocateDescriptorSets(
-			std::span<const vk::DescriptorSetLayout>(&Layout, 1), Requirements).front();
-		UpdateDescriptorSets(Device, Resources, std::span<const vk::DescriptorSet>(&Entry->DescriptorSet, 1), SetIndex);
-		++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.NativeCreations;
-		++Device.AccessPipelineCacheStatistics().Get().DescriptorAllocations;
-		DescriptorSetCache.push_back(Entry);
-		DescriptorSetCacheIndex.emplace(Hash, DescriptorSetCache.size() - 1);
-		AddDescriptorCacheOccupancy(1, Resources.size());
-		TouchDescriptorCacheEntry(*Entry);
-		EnforceDescriptorCacheBudget();
-		return Entry;
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.CacheMiss");
+			++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.Misses;
+			Entry = std::make_shared<FDescriptorEntry>();
+			Entry->Hash = Hash;
+			Entry->Layout = Layout;
+			Entry->Resources.assign(Resources.begin(), Resources.end());
+			Entry->ResourceOwners.reserve(Resources.size());
+			for (const auto& Resource : Resources) Entry->ResourceOwners.emplace_back(Resource.Resource);
+			Entry->DescriptorSet = Device.GetGlobalDescriptorPool().AllocateDescriptorSets(
+				std::span<const vk::DescriptorSetLayout>(&Layout, 1), Requirements).front();
+			UpdateDescriptorSets(Device, DescriptorWriteScratch, Resources, std::span<const vk::DescriptorSet>(&Entry->DescriptorSet, 1), SetIndex);
+			++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.NativeCreations;
+			++Device.AccessPipelineCacheStatistics().Get().DescriptorAllocations;
+			DescriptorSetCache.push_back(Entry);
+			DescriptorSetCacheIndex.emplace(Hash, DescriptorSetCache.size() - 1);
+			AddDescriptorCacheOccupancy(1, Resources.size());
+			TouchDescriptorCacheEntry(*Entry);
+			EnforceDescriptorCacheBudget();
+			return Entry;
+		}
 	}
 
 	auto FVulkanPendingGraphicsState::TouchDescriptorCacheEntry(

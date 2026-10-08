@@ -275,7 +275,10 @@ namespace Durin::VulkanRHI
 				.setSetLayouts(Layouts);
 			try
 			{
-				auto DescriptorSets = Device.GetHandle().allocateDescriptorSets(AllocateInfo);
+				auto DescriptorSets = [&]() {
+				DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.AllocateNative");
+				return Device.GetHandle().allocateDescriptorSets(AllocateInfo);
+			}();
 				Pool->CommitAllocation(Requirements);
 				return DescriptorSets;
 			}
@@ -302,7 +305,10 @@ namespace Durin::VulkanRHI
 			.setSetLayouts(Layouts);
 		try
 		{
-			auto DescriptorSets = Device.GetHandle().allocateDescriptorSets(AllocateInfo);
+			auto DescriptorSets = [&]() {
+				DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.AllocateNative");
+				return Device.GetHandle().allocateDescriptorSets(AllocateInfo);
+			}();
 			NewPool.CommitAllocation(Requirements);
 			return DescriptorSets;
 		}
