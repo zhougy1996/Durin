@@ -171,13 +171,6 @@ TEST(FPathIdentityContractTests, NullAndInternedNameBoundsAreStrictAndAtomic)
 	EXPECT_EQ(Object.ToString(), "/Game/Keep.Asset");
 	static_assert(sizeof(Durin::FPackagePath) == sizeof(Durin::FName));
 	static_assert(sizeof(Durin::FTopLevelAssetPath) == sizeof(Durin::FName) * 2);
-#if defined(_WIN64)
-	static_assert(sizeof(Durin::FPackagePath) == 12);
-	static_assert(sizeof(Durin::FTopLevelAssetPath) == 24);
-	static_assert(sizeof(Durin::FObjectPath) == 64);
-	static_assert(sizeof(Durin::FSoftObjectPtr) == 80);
-	static_assert(sizeof(Durin::TSoftObjectPtr<Durin::DObject>) == 80);
-#endif
 }
 
 TEST(FPackageLinkerContractTests, PackageIndicesValidateBoundariesAndRoundTrip)

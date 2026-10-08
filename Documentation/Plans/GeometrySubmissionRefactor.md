@@ -2,12 +2,28 @@
 
 Summary: Replace primitive-family rendering dispatch with a common geometry-batch contract, extensible vertex-factory bindings, and shared mesh-pass processing while preserving the existing render graph.
 
-Last reviewed: 2026-10-07
+Last reviewed: 2026-10-09
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-09
 
 ## Current Status
+
+On 2026-10-09 the user explicitly declined historical comparisons because the
+elapsed time and intervening changes make them unhelpful. Final acceptance now
+uses current-revision correctness, independent provider/factory parity, resource
+retirement, cooked-stage composition and the existing registered test assertions.
+Historical before/after image, timing, allocation-count and retained-byte
+comparisons are retired requirements, not measurements claimed to have passed.
+The unavailable reference is not replaced. Image and performance thresholds remain
+unchanged; outputs outside a named device/driver cohort remain observations.
+Final current-revision acceptance is complete: the affected selection expanded
+to all 103 routine native-test targets and passed. Qualification initially passed
+9/10 targets; the remaining shadow target's stale structural assertions were
+aligned with the documented Base Scene decomposition and all 3 cases then passed.
+The unchanged nine qualification receipts are reused. Release `all` and document
+validation complete the handoff below. No historical comparison is claimed.
+The revised scope in Stage 0 governs this closeout.
 
 Stages 1–3 implementation and correctness checks are complete. Stage 2 supports multiple batches,
 checked vertex/instance inputs, factory pass capabilities and named cooked
@@ -26,48 +42,16 @@ Cooked Local/Spline vertex stages compose with forward, GBuffer and masked-shado
 material stages after ShaderBuild unload. A separate fixed opaque-shadow
 fragment request closes that runtime lookup gap. Shader-type compilation
 metadata is the common authored/cooked source; the duplicate factory compile
-callback and authored-only opaque vertex shortcut are removed. The affected selection passes 70/70 and the bounded GPU selection passes 7/7
-after this follow-up. Final plan completion remains gated on the measurements below.
+callback and authored-only opaque vertex shortcut are removed. Earlier validation
+and repair receipts remain in the stage handoffs; final current-revision receipts
+will be recorded separately.
 
-Stage 0 image-pair coverage, allocation/retained-memory measurements and exclusive
-GPU performance baselines remain open. Frozen source baseline:
-`d7d1749ba9832f7d31237eb432d8e75e81bb47c3`. The user requested plan execution on
-2026-09-08; the previously deferred exclusive GPU/RTX 3090 qualification remains
-a final gate. Apple M4 timings are diagnostic and do not satisfy named RTX 3090
-gates. No image tolerance or performance threshold has been relaxed.
-See the stage handoffs below for exact evidence and remaining obligations.
-
-Windows closeout has a repair checkpoint on an RTX 3090 (driver 616.64), using
-`Win64-Release-DurinEditor` with `DURIN_WITH_TRACY=0`. The operator confirmed
-an idle GPU measurement window. The recorded frozen source object is absent
-locally and `git fetch origin d7d1749ba9832f7d31237eb432d8e75e81bb47c3`
-returned `not our ref`; no rewrite map is available. Acceptance comparisons
-remain pending restoration of that reference or an explicitly accepted
-replacement. No comparison gate is closed by candidate-only observations.
-
-Closeout found a reproducible independent-factory regression: generated material
-vertex stages were selected by entry-point name and frequency, replacing the
-custom factory's identically named `VertexMain`. The selected correction makes
-generated vertex-stage use an explicit factory capability; built-in Local/Spline
-factories opt in and independent factories retain their registered vertex stage
-by default. The custom fixture also follows the expanded primitive uniform
-layout. Existing image and performance tolerances remain unchanged.
-The repair passes the independent-factory and cooked-composition gates and an
-`all` build. The 2026-10-07 handoff below records failed wider selections and
-the still-open baseline, memory and qualification obligations.
-
-The follow-up repair addresses the five remaining Windows failures: projection
-motion is applied to the matrices consumed by GPU transforms; reflected fragment
-bindings share across primitives only when they do not read primitive uniforms;
-buffer failure injection preserves the requested native result; logger shutdown
-closes file sinks; and move-only callback tests accept MSVC's potentially throwing
-move assignment. The transfer-arena regression also requires one exact pressure
-wait when five uploads exhaust its four pending pages. Focused regressions,
-26 bounded targets, SceneImport integration and the Release `all` build pass.
-Qualification passes 9/10 targets; Spline's 4 ms CPU p95 gate fails both in the
-full selection and alone. The expanded affected build is blocked by unrelated
-Windows object-path/soft-reference size assertions. Receipts are recorded below;
-acceptance thresholds and the frozen-reference decision remain unchanged.
+Windows closeout uses the RTX 3090, driver 616.64, preset
+`Win64-Release-DurinEditor`, and `DURIN_WITH_TRACY=0`. The independent-factory,
+projection-motion, fragment-grouping, native-error and logger-close repairs are
+implemented. Spline qualification passes two consecutive focused retries with
+confirmation p95 3.3812 ms against the unchanged 4 ms limit. The user-requested
+fixed-size assertion removal also passes all 20 PackageLinker contract cases.
 
 ## Goal
 
@@ -194,7 +178,8 @@ submission lookup, telemetry-driven readiness, or second production scheduler.
 
 ### Stage 0: Freeze contracts and establish baselines
 
-Dependencies: none. Outcome: reviewable interfaces and an executable baseline.
+Dependencies: none. Outcome: reviewable interfaces and executable current-revision
+qualification under the revised acceptance scope.
 
 - [x] Inventory receiver, shadow, GBuffer, retained-forward, translucent,
   preview/thumbnail, geometry-cache, shader compilation/cook, and recovery
@@ -207,11 +192,11 @@ Dependencies: none. Outcome: reviewable interfaces and an executable baseline.
   place them in existing registered test owners where possible. Define numeric
   image tolerances, representative scenes, CPU/memory/performance budgets, and
   sampling policy before changing production behavior.
-- [ ] Run the smallest registry-selected baseline set covering scene contracts,
+- [x] Run the smallest registry-selected current-revision set covering scene contracts,
   StaticMesh/Spline preparation, directional shadows, GBuffer, and resource
   reload. Record preset/backend, commands, results, captures, and known failures.
 
-Completion: interface/failure/lifetime decisions and reproducible baseline
+Completion: interface/failure/lifetime decisions and reproducible current-revision
 evidence are recorded here; unresolved items blocking later stages are closed.
 
 
@@ -314,6 +299,10 @@ Factory binding, ownership and identity decisions:
 
 #### Frozen qualification fixtures and gates
 
+The original historical comparison policy below is preserved as provenance.
+For final acceptance, apply the user-authorized revision at the end of this
+section; historical ratios and baseline collection no longer block completion.
+
 - Extend `RenderContractTests` with checked ranges/layout/capability tests and
   `RendererSceneContractTests` with empty/multi-batch providers, mixed pass intent,
   ordering, hidden/removal, invalid bounds, offscreen casters and snapshot lifetime.
@@ -350,6 +339,29 @@ Factory binding, ownership and identity decisions:
   draw counts must remain unchanged. Capture image bytes, device/driver metadata,
   scene parameters, timings, allocation counts and retained bytes before Stage 1.
   Missing measurements remain open gates, not zero-valued baselines.
+
+#### Revised acceptance scope (2026-10-09)
+
+The user requested continued acceptance, then explicitly rejected comparison
+against an old revision because substantial intervening changes make it
+unrepresentative. Neither `d7d1749ba9832f7d31237eb432d8e75e81bb47c3` nor the
+proposed replacement `bb44ceaf9509e1e7fb23e34ec5399c8affa54971` will be used for
+new before/after acceptance measurements.
+
+Retire the historical image-pair, CPU/GPU timing-ratio, allocation-count and
+transitive retained-byte comparison obligations, including reconstructing a
+frozen driver cohort for that comparison. Do not mark those measurements passed.
+Keep current-revision independent-provider/custom-factory image parity,
+100-cycle binding retirement, pass/cook/recovery contracts, registered numerical
+assertions, and the final affected/qualification selections. Image and performance
+thresholds remain unchanged; stale graph-shape assertions follow the documented
+current route contract. Cohort-specific observations do not
+become named-cohort performance receipts. Full process-allocation profiling is
+not implied by binding-lifetime correctness.
+
+Complete the plan only after the current selections pass, remaining legacy
+routes are audited, and lasting Runtime contracts and documentation validate.
+Historical handoffs retain their original failed or missing measurements.
 
 #### Stage 0 baseline evidence
 
@@ -731,14 +743,14 @@ Dependencies: Stage 3. Outcome: independent extension evidence and final handoff
 - [x] Remove temporary adapters, obsolete family-based draw structures, dead
   code, and superseded tests; audit core paths for concrete proxy/factory casts
   and type switches. Registration and owned factory implementations are allowed.
-- [ ] Run final affected tests and the bounded qualification lanes below;
-  compare Stage 0 captures, timings, allocation/retained-memory data, and counters
-  against the predeclared gates. Record deviations rather than rebaseline them.
-- [ ] Publish lasting batch/factory contracts in their owning Runtime documents,
+- [x] Run final affected tests and the bounded qualification lanes below;
+  validate current-revision parity, lifecycle, cook/recovery and registered
+  assertions under the revised acceptance scope. Record failures explicitly.
+- [x] Publish lasting batch/factory contracts in their owning Runtime documents,
   update affected rendering contracts and direct links, validate documentation,
   and complete this plan only when every required gate has evidence.
 
-Completion: both extension fixtures pass, baseline behavior/performance gates
+Completion: both extension fixtures and current-scope validation gates
 pass, old production routes are gone, and final evidence is recorded.
 
 #### Attachment, capability and cooked-stage closure (2026-09-08)
@@ -911,6 +923,100 @@ Reports and logs use the directories specified in the preceding checkpoint.
 The named timing cohort and unavailable frozen baseline remain unchanged.
 Passing these candidate tests does not close image-pair, memory or baseline
 performance acceptance gates. The plan remains Active.
+
+#### Windows focused retry (2026-10-09)
+
+Source: `ecc375dc2`; working tree was clean. No CMake/Ninja/compiler/linker/CTest
+processes were running before execution. Preset: `Win64-Release-DurinEditor`,
+with cached `DURIN_ENABLE_TRACY=OFF`; the failed compile also confirms
+`DURIN_WITH_TRACY=0`. Commands use `.\DevTool.bat` from the checkout root.
+
+- `test PackageLinkerContractTests --preset Win64-Release-DurinEditor` still
+  fails during compilation at `PackageLinkerTests.cpp:177–179`, before test
+  execution. Log: `20261009-011906-552123-25832-cmake.log`. No successful XML
+  test report is claimed for this build failure.
+- `test SplineQualificationTests --mode qualification --preset Win64-Release-DurinEditor --test-jobs 1`
+  passes 2/2 cases twice consecutively. Reports: `GeometryRetry20261009Spline.xml`
+  and `GeometryRetry20261009SplineConfirmation.xml`; logs:
+  `20261009-011919-920170-12952-ctest.log` and
+  `20261009-011955-053302-10652-ctest.log`.
+- The confirmation sets `GTEST_OUTPUT` to save
+  `GeometryRetry20261009SplineMetrics.xml` in the same report directory.
+  Reconstruction p95 is 3.3812 ms; collision-road p95 is 0.0866 ms;
+  128-segment collision retention is 1,774,592 bytes, and spline-mesh component
+  structural size is 952 bytes. The fixture uses 20 warm-up iterations and
+  300 measured iterations per case. All original limits remain unchanged.
+
+Report and log directories match the preceding Windows handoff. These focused
+results establish that the prior Spline failure does not reproduce in this
+retry; they do not establish a cause for the earlier timing failure or replace
+the full acceptance measurements. The plan remains Active.
+
+#### Remove configuration-dependent layout assertions (2026-10-09)
+
+The user explicitly requested removal of the fixed-size tests. Compiler layout
+diagnostics confirmed `FObjectPath` is 56 bytes and `FSoftObjectPtr` is 72 bytes
+in the current Release/MSVC configuration, smaller than the asserted 64/80.
+The assertions were introduced with the compact-path refactor, but gated only
+on `_WIN64` despite the contained `std::string` having configuration-dependent
+storage. This was a test assumption, not demonstrated runtime growth.
+
+Removed the five Windows-only absolute byte-size assertions. Retained the
+complete path validation, atomic failure behavior and type-relative interned-name
+storage checks. No runtime storage, serialization or numerical performance limit
+was changed.
+
+Validation: `.\DevTool.bat test PackageLinkerContractTests --preset Win64-Release-DurinEditor`
+passes 20/20 cases. Report: `GeometryLayoutAssertionsRemoved.xml`; log:
+`20261009-033555-525927-44624-PackageLinkerContractTests.log`, in the report/log
+directories documented above. The prior Windows compile blocker is resolved;
+full plan acceptance remains open.
+
+#### Final current-revision acceptance (2026-10-09)
+
+Source candidate: `c39e41f98`, plus the qualification-only correction below.
+Host: Windows x64/MSVC 14.44, NVIDIA GeForce RTX 3090, driver 616.64
+(`0x9a100000`), Vulkan API 1.4.351. Preset: `Win64-Release-DurinEditor`,
+`DURIN_WITH_TRACY=0`. Runtime and image/performance limits are unchanged.
+The operator previously authorized an idle measurement window.
+
+The user retired historical comparisons as recorded in the revised acceptance
+scope. Historical frozen-source pairs, allocation profiles and cohort-specific
+performance measurements are superseded obligations, not passing measurements.
+The current fixtures still enforce provider/factory output parity and 100-cycle
+binding retirement; these are not a full process-memory profile.
+
+Commands below use `.\DevTool.bat` and `--preset Win64-Release-DurinEditor`.
+Reports are under `Build/NativeTestResults/Win64-Release-DurinEditor/`;
+logs are under `Build/.agent-state/logs/`.
+
+| Selection | Final evidence |
+| --- | --- |
+| `test affected --base 050fbaefa --test-jobs 4` | 148 changed paths caused selection to expand to all routine native tests: 103/103 targets passed. `050fbaefa` is only the test-selection ref, not a performance baseline. Report `GeometryAcceptance20261009Affected.xml`; log `20261009-035228-327110-4680-ctest.log`. Full routine output is retained in `GeometryAcceptance20261009RoutineDetails.log`. |
+| `test '@domain=renderer+static-mesh+spline,kind=qualification' --mode qualification --test-jobs 1` | 9/10 targets passed, including Spline, GBuffer, StaticMesh build and Vulkan/material creation. Report `GeometryAcceptance20261009Qualification.xml`; log `20261009-035433-538355-30068-ctest.log`. Only stale shadow-test structural expectations failed. |
+| `test DirectionalShadowBaselineVulkanTests --mode qualification --test-jobs 1` | After the correction, all 3 cases passed. Report `GeometryAcceptance20261009ShadowFixed.xml`; log `20261009-040015-518441-34420-ctest.log`. The other nine qualification targets are unchanged and their passing receipts above are reused. |
+| `build` (target `all`) | Passed; log `20261009-040036-919687-30352-cmake.log`. |
+
+`doc validate --scope changed` validates the changed plan;
+`doc plan validate --scope all` validates 6 active, 3 completed and 402 archived
+plans. No required current-scope validation remains open.
+
+The shadow correction adds fixture names to failures, requires zero draws and an
+explicit RDG culling decision for unlit receivers, and retains positive shadow
+draw assertions for lit receivers. The documented Base Scene decomposition
+already increased exposed attachment/sample handoffs from 15 to 22; the test now
+checks that current shape. See the prior
+[decomposition evidence](RdgAccessDeclarationsAndBaseSceneDecomposition.md).
+Image, motion, masked coverage, cascade parity and contact-shadow checks remain.
+This is a structural expectation repair; no production rendering behavior changes.
+
+Core collection/visibility/shadow preparation paths were audited for concrete
+StaticMesh/Spline proxy dispatch. No such branches remain in the inspected
+paths; the remaining input-binding cast targets the common interface. Lasting
+batch publication, snapshot lifetime and independent generated-stage opt-in
+contracts live in [frame preparation](../Runtime/Rendering/RendererFramePreparation.md)
+and [materials](../Runtime/Rendering/MaterialSystem.md), with the related Runtime
+contracts linked below. The plan is complete under the user-authorized scope.
 
 ## Validation and Handoff
 

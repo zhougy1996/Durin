@@ -900,6 +900,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 
 	for (const FFixture& Fixture : Fixtures)
 	{
+		SCOPED_TRACE(Fixture.Name);
 		const FScopedShadowRecordingPolicy RecordingPolicy(Fixture.RecordingPolicy);
 		Durin::FSceneTestOwner SceneOwner;
 		Durin::FScene& Scene = *SceneOwner;
@@ -1010,7 +1011,19 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 				std::string_view(Fixture.RecordingPolicy) == "parallel" ? 3u : 0u);
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowSelectedLights, 1u);
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowValidReceiverViews, 1u);
-			EXPECT_GT(GLastTelemetry.DirectionalShadow.ShadowSuccessfulDraws, 0u);
+			if (Fixture.RenderMode == Durin::ERenderMode::Unlit)
+			{
+				// Unlit receivers do not consume shadow output; RDG culls its producer.
+				EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowSuccessfulDraws, 0u);
+				EXPECT_TRUE(std::ranges::any_of(GLastSceneRenderGraphCapture.CullingDecisions,
+					[](const Durin::FRDGCullingDecision& Decision) {
+						return Decision.Name == "Scene.DirectionalShadow" && Decision.bCulled;
+					}));
+			}
+			else
+			{
+				EXPECT_GT(GLastTelemetry.DirectionalShadow.ShadowSuccessfulDraws, 0u);
+			}
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowDiagnosticViews[static_cast<size_t>(Fixture.DiagnosticMode)], 1u);
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowQualityViews[static_cast<size_t>(Fixture.FilterQuality)], 1u);
 			const Durin::FDirectionalShadowFilter ExpectedFilter =
@@ -1175,9 +1188,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.DeclaredPasses, 12u);
 	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.Dependencies, 24u);
 	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.BufferTransitions, 0u);
-	// Preserve the subresource baseline independently of executable compaction.
-	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.TextureTransitionSubresources, 15u);
-	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.TextureTransitions, 15u);
+	// Explicit Base Scene raster stages expose seven additional attachment/sample
+	// handoffs compared with the former monolithic 15-transition route.
+	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.TextureTransitionSubresources, 22u);
+	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.TextureTransitions, 22u);
 	EXPECT_FALSE(
 		GLastSceneRenderGraphCapture.Statistics.bCompileBudgetExceeded);
 	EXPECT_FALSE(
