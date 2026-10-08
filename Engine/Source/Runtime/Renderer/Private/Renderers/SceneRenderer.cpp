@@ -55,9 +55,6 @@ namespace Durin
 			Resolved.bHybridRetainedResourcesReady;
 		auto& Composition = Context.Transaction.Composition;
 		auto& Telemetry = Context.Observation.Telemetry;
-		auto& DeferredParameters = Composition.DeferredParameters;
-		auto& ProductionDeferredParameters =
-			Composition.ProductionDeferredParameters;
 		const auto GraphResources = PrepareGraphResources(Graph);
 		OutputTexture = GraphResources.Output;
 
@@ -127,8 +124,6 @@ namespace Durin
 				.DefaultWhite = GraphResources.DefaultWhite,
 				.DefaultShadowArray = GraphResources.DefaultShadowArray,
 				.Environment = GraphResources.Environment,
-				.DeferredParameters = DeferredParameters,
-				.ProductionDeferredParameters = ProductionDeferredParameters,
 				.Width = Width, .Height = Height,
 				.Feature = Features.Deferred,
 				.AmbientOcclusionFeature = Features.AmbientOcclusion,
@@ -148,7 +143,6 @@ namespace Durin
 			.DefaultWhite = GraphResources.DefaultWhite,
 			.DefaultShadowArray = GraphResources.DefaultShadowArray,
 			.Environment = GraphResources.Environment,
-			.ProductionDeferredParameters = ProductionDeferredParameters,
 			.DeferredFeature = Features.Deferred,
 			.GBufferFeature = Features.GBuffer});
 		const FVolumetricCloudRecordInputs CloudInputs{

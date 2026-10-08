@@ -42,7 +42,7 @@ namespace Durin
 
 	DURIN_DEFINE_METADATA(FBaseScenePassParameters,
 		MakeRDGValueParameterMemberMetadata<FParameters,
-			decltype(FParameters::DeferredLighting), FIsolatedDeferredPassResult>(
+			decltype(FParameters::DeferredLighting), FProductionDeferredParameters>(
 				"DeferredLighting", offsetof(FParameters, DeferredLighting)),
 		MakeRDGValueParameterMemberMetadata<FParameters,
 			decltype(FParameters::Completion), FSceneColorPassResult>(
@@ -85,12 +85,11 @@ namespace Durin
 		const bool bRequiresDeferredOpaque =
 			Inputs.DeferredFeature.HasPurpose(ESceneFeaturePurpose::Production);
 		const bool bNeedsGBuffer = Inputs.GBufferFeature.IsEnabled();
-		auto& ProductionDeferredParameters = Inputs.ProductionDeferredParameters;
 		const auto BaseSceneCompletion = Graph.CreateValue<FSceneColorPassResult>(
 			"Scene.BaseValue", "scene-color-result");
 		auto Parameters = Graph.AllocParameters<FBaseScenePassParameters>();
 		Parameters->DeferredLighting = {
-			.Value = Inputs.Deferred.Completion};
+			.Value = Inputs.Deferred.ProductionParameters};
 		Parameters->Completion = {.Value = BaseSceneCompletion};
 		SceneTextureGroups::FPersistentTextureReads PersistentReads;
 		PersistentReads.Assign(Parameters->Resources.DirectionalShadow,
@@ -125,7 +124,7 @@ namespace Durin
 		else
 			Parameters->Resources.SceneDepthDepthToDepth = Depth;
 		(void)Graph.AddPass(BaseScenePassName, ERDGPassType::Graphics, std::move(Parameters),
-			[Recorder, RecordInputs, &ProductionDeferredParameters](
+			[Recorder, RecordInputs](
 				FRHICommandListImmediate& Commands,
 				const FBaseScenePassParameters& PassParameters,
 				const FRDGParameterResolver& Resolver) mutable {
@@ -146,6 +145,8 @@ namespace Durin
 				const FSceneColorTimingQuerySink TimingSink =
 					GetSceneColorTimingQuerySink();
 				TScopedRendererGPUTimingQuery Timing(Commands, TimingSink);
+				const auto& ProductionDeferredParameters = Resolver.ReadValue(
+					PassParameters.DeferredLighting);
 				Resolver.WriteValue(PassParameters.Completion) = Recorder.RenderBaseScene_RenderThread(
 					Commands,
 					RecordInputs,

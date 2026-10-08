@@ -354,6 +354,7 @@ static_assert(!CHasResolvedTargets<Durin::FSceneRenderPlan>);
 static_assert(!CHasResolvedTargets<Durin::FResolvedSceneResources>);
 static_assert(!CHasTelemetry<Durin::FSceneRenderOutcome>);
 static_assert(!CHasDeferredParameters<Durin::FSceneRenderOutcome>);
+static_assert(!CHasDeferredParameters<Durin::FSceneRenderGraphComposition>);
 static_assert(std::is_default_constructible_v<Durin::FSceneRenderOutcome>);
 static_assert(std::is_copy_constructible_v<Durin::FSceneFrameFeaturePlan>);
 static_assert(CAcceptsFeatureInputs<
@@ -3483,6 +3484,29 @@ namespace Durin
 			Graph.MarkPassRoot(Consumer);
 			ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Graph).has_value());
 			EXPECT_EQ(Graph.GetPasses().back().Name, "Caller.ReadScene");
+			const auto Capture = Graph.Capture();
+			const auto Payload = std::ranges::find_if(Capture.Resources, [](const auto& Resource) {
+				return Resource.Name == "Scene.ProductionDeferredParameters";
+			});
+			ASSERT_NE(Payload, Capture.Resources.end());
+			const auto FindPass = [&](std::string_view Name) {
+				return std::ranges::find_if(Graph.GetPasses(), [&](const auto& Pass) { return Pass.Name == Name; });
+			};
+			const auto Deferred = FindPass(DeferredDirectionalLightingPassName);
+			const auto Base = FindPass(BaseScenePassName);
+			ASSERT_NE(Deferred, Graph.GetPasses().end());
+			ASSERT_NE(Base, Graph.GetPasses().end());
+			for (const auto& [PassIndex, Use] : {
+				std::pair{Deferred->DeclarationIndex, ERDGUse::Write},
+				std::pair{Base->DeclarationIndex, ERDGUse::Read}})
+				EXPECT_TRUE(std::ranges::any_of(Capture.Uses, [&](const auto& Candidate) {
+					return Candidate.ResourceId == Payload->ResourceId
+						&& Candidate.PassDeclarationIndex == PassIndex && Candidate.Use == Use;
+				}));
+			EXPECT_TRUE(std::ranges::any_of(Graph.GetDependencies(), [&](const auto& Edge) {
+				return Edge.BeforePass == Deferred->DeclarationIndex && Edge.AfterPass == Base->DeclarationIndex
+					&& Edge.Kind == ERDGDependencyKind::Value && Edge.Cause == Payload->Name;
+			}));
 			FRejectAllocation Allocator;
 			EXPECT_FALSE(Graph.Execute(Commands, &Allocator).has_value());
 			EXPECT_EQ(Context.Transaction.Composition.SceneColorPublication.Result, ERenderViewResult::InvalidOutput);

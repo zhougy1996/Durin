@@ -4,6 +4,7 @@
 
 #include "Renderers/AmbientOcclusionRendering.h"
 #include "Renderers/ContactShadowVisibilityRendering.h"
+#include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/DirectionalShadowRendering.h"
 #include "RDG/RDGParameters.h"
 
@@ -15,6 +16,10 @@ namespace Durin
 	struct FCloudShadowGraphOutput;
 	struct FSceneRenderTelemetry;
 	struct FSceneView;
+
+	// Graph-owned binding payload; textures remain owned and declared separately.
+	using FProductionDeferredParameters =
+		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>;
 
 	struct FDeferredDirectionalLightingPassResources final
 	{
@@ -45,6 +50,7 @@ namespace Durin
 		std::optional<TRDGValueRead<FContactShadowVisibilityPassResult>> ContactShadow;
 		std::optional<TRDGValueRead<FVolumetricCloudShadowPassResult>> CloudShadow;
 		TRDGValueWrite<FIsolatedDeferredPassResult> Completion;
+		TRDGValueWrite<FProductionDeferredParameters> ProductionParameters;
 		FDeferredDirectionalLightingPassResources Resources;
 
 		static RENDERER_API auto GetRDGParametersMetadata()
@@ -54,6 +60,7 @@ namespace Durin
 	struct FDeferredLightingGraphOutput final
 	{
 		TRDGValueHandle<FIsolatedDeferredPassResult> Completion;
+		TRDGValueHandle<FProductionDeferredParameters> ProductionParameters;
 		std::optional<FRDGTextureHandle> Isolated;
 	};
 
@@ -86,10 +93,6 @@ namespace Durin
 		std::optional<FRDGTextureHandle> DefaultWhite;
 		std::optional<FRDGTextureHandle> DefaultShadowArray;
 		FSceneEnvironmentInputs Environment;
-		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>&
-			DeferredParameters;
-		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>&
-			ProductionDeferredParameters;
 		uint32 Width;
 		uint32 Height;
 		const FSceneFeatureDecision& Feature;

@@ -54,6 +54,9 @@ namespace Durin
 		MakeRDGValueParameterMemberMetadata<FParameters,
 			decltype(FParameters::Completion), FIsolatedDeferredPassResult>(
 				"Completion", offsetof(FParameters, Completion)),
+		MakeRDGValueParameterMemberMetadata<FParameters,
+			decltype(FParameters::ProductionParameters), FProductionDeferredParameters>(
+				"ProductionParameters", offsetof(FParameters, ProductionParameters)),
 		MakeRDGNestedParameterMemberMetadata<FParameters,
 			decltype(FParameters::Resources)>("Resources",
 				offsetof(FParameters, Resources),
@@ -119,14 +122,14 @@ namespace Durin
 			Inputs.Feature.HasPurpose(ESceneFeaturePurpose::Production);
 		const bool bHybridRetainedResourcesReady =
 			Inputs.bHybridRetainedResourcesReady;
-		auto& DeferredParameters = Inputs.DeferredParameters;
-		auto& ProductionDeferredParameters = Inputs.ProductionDeferredParameters;
 		const bool bIsolated = bWantsIsolatedDeferred;
 		const auto AmbientOcclusionQuality = Inputs.AmbientOcclusion.Quality;
 		std::optional<FRDGTextureHandle> IsolatedDeferred;
 		const auto DeferredDirectionalLightingCompletion = Graph.CreateValue<
 			FIsolatedDeferredPassResult>("Scene.DeferredDirectionalLightingValue",
 				"deferred-directional-lighting-result");
+		const auto ProductionParameters = Graph.CreateValue<FProductionDeferredParameters>(
+			"Scene.ProductionDeferredParameters", "production-deferred-parameters");
 		if (bIsolated)
 			IsolatedDeferred = Graph.CreateTexture(
 				FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
@@ -156,6 +159,7 @@ namespace Durin
 				.Value = *Inputs.CloudShadow.Completion};
 		Parameters->Completion = {
 			.Value = DeferredDirectionalLightingCompletion};
+		Parameters->ProductionParameters = {.Value = ProductionParameters};
 		SceneTextureGroups::FPersistentTextureReads PersistentReads;
 		PersistentReads.Assign(Parameters->Resources.DirectionalShadow,
 			Inputs.DirectionalShadow.Shadow, DirectionalShadowTexture);
@@ -205,7 +209,7 @@ namespace Durin
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		(void)Graph.AddPass(DeferredDirectionalLightingPassName, ERDGPassType::Graphics, std::move(Parameters),
 			[Recorder, RecordView = &RecordView, AmbientOcclusionQuality,
-				&Options, &DeferredParameters, &ProductionDeferredParameters,
+				&Options,
 				Width, Height, bWantsDeferredInputs, bWantsIsolatedDeferred,
 				bWantsProductionDeferred, bHybridRetainedResourcesReady,
 				EnvironmentSampler,
@@ -258,7 +262,7 @@ namespace Durin
 				const auto CloudShadowResult = CloudShadowValue
 					? *CloudShadowValue : FVolumetricCloudShadowPassResult{};
 				auto& DeferredResult = Resolver.WriteValue(PassParameters.Completion);
-				DeferredParameters = bWantsDeferredInputs
+				const auto DeferredParameters = bWantsDeferredInputs
 					? Recorder.BuildDeferredParameters(
 						*RecordView,
 						PassParameters.Resources.EnvironmentIrradiance
@@ -313,11 +317,14 @@ namespace Durin
 						&& DeferredParameters.has_value());
 				if (bWantsProductionDeferred && bProductionResourcesReady)
 				{
+					auto& ProductionDeferredParameters = Resolver.WriteValue(
+						PassParameters.ProductionParameters);
 					ProductionDeferredParameters = *DeferredParameters;
 					ProductionDeferredParameters->DiagnosticMode = 0;
 				}
 			});
 		return {.Completion = DeferredDirectionalLightingCompletion,
+			.ProductionParameters = ProductionParameters,
 			.Isolated = IsolatedDeferred};
 	}
 

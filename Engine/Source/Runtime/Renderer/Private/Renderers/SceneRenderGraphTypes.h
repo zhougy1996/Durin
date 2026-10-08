@@ -102,10 +102,6 @@ namespace Durin
 
 	struct FSceneRenderGraphComposition final
 	{
-		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>
-			DeferredParameters;
-		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>
-			ProductionDeferredParameters;
 		FSceneColorPassResult SceneColorPublication;
 		FPostProcessPassResult PostProcessPublication;
 	};

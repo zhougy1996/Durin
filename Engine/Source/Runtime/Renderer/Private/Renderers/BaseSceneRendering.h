@@ -43,7 +43,7 @@ namespace Durin
 
 	struct FBaseScenePassParameters final
 	{
-		TRDGValueRead<FIsolatedDeferredPassResult> DeferredLighting;
+		TRDGValueRead<FProductionDeferredParameters> DeferredLighting;
 		TRDGValueWrite<FSceneColorPassResult> Completion;
 		FBaseScenePassResources Resources;
 
@@ -75,8 +75,6 @@ namespace Durin
 		std::optional<FRDGTextureHandle> DefaultWhite;
 		std::optional<FRDGTextureHandle> DefaultShadowArray;
 		FSceneEnvironmentInputs Environment;
-		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>&
-			ProductionDeferredParameters;
 		const FSceneFeatureDecision& DeferredFeature;
 		const FSceneFeatureDecision& GBufferFeature;
 	};

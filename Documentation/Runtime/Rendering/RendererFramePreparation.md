@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-10-07
+Last reviewed: 2026-10-08
 
 ## Ownership Boundary
 
@@ -491,6 +491,12 @@ copy with production diagnostic policy, and cloud composition receives cloud-
 shadow visibility explicitly rather than through executor member state. Scene
 Color and post process return explicit output/result values instead of
 rewriting caller-owned texture variables.
+
+The production deferred binding payload is a separate graph-owned typed value.
+Base Scene declares and reads that value, so the payload itself establishes its
+producer dependency. Its physical bindings borrow graph-retained resources;
+texture uses remain separate declarations. Composition stores no intermediate
+deferred parameter blocks.
 
 Scene Color and post-process callbacks copy only their final transactional
 publication into `FSceneRenderGraphComposition`; intermediate payloads never
