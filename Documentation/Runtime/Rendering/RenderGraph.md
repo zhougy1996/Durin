@@ -303,6 +303,18 @@ orphan work borrowing the graph. A failed graph remains consumed: later callback
 and extraction publication do not run, and another `Execute` cannot replay its
 accepted prefix. Queued command payloads retain their owners independently of
 the graph and release them when replay storage retires.
+With a threaded RHI executor and physical queue capabilities, recording dispatches
+the first complete execution batch immediately, then coalesces up to eight
+complete batches per CPU dispatch and dispatches the remainder at graph end.
+Dispatch occurs after the batch GPU submission, transitions, and ownership
+releases close. An open outer timing/diagnostic scope or buffer lock defers it
+to a later safe boundary. Whole-view GPU timing therefore delays dispatch until
+the renderer closes that query after graph recording. `RDG.DispatchRecordedBatches` reports each dispatch boundary.
+This hands commands to the RHI thread without forcing native GPU submission or
+waiting for replay completion; bounded queue admission can still backpressure
+the producer. Inline and context-free recording retain their deferred behavior.
+A later recording failure does not undo an already dispatched prefix.
+
 Immediate-only `AddPass` callbacks remain supported. Barriers,
 queue ownership and submission assembly remain on the immediate timeline; an
 owned recording callback cannot use immediate allocation, readback or flush APIs.

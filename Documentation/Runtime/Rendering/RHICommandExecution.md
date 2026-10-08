@@ -45,6 +45,15 @@ batch at that point, and lets later immediate recording continue in a new
 segment. Lists supplied to the compatibility additional-list submit boundary
 follow the current immediate segment in argument order.
 
+`FRHICommandListImmediate::DispatchToRHIThread()` explicitly dispatches the
+pending ordered prefix and returns its executor serial. It requests neither a
+completion wait nor native GPU submission. Threaded queue admission may apply
+backpressure; inline executors replay on the caller. `IsRHIThreadEnabled()`
+queries the owning executor mode without collecting statistics.
+`CanDispatchToRHIThread()` checks for open render passes, diagnostic/timing
+scopes, buffer locks, and GPU submissions before an opportunistic dispatch. Queueing a
+regular list alone does not dispatch it.
+
 There is no bypass path. Normal rendering, immediate lists, and regular lists
 all record before executor replay.
 

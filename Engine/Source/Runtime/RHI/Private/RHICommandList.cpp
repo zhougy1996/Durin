@@ -2555,6 +2555,24 @@ namespace Durin
 		return Executor->TryQueueCommandList(CommandList);
 	}
 
+	auto FRHICommandListImmediate::DispatchToRHIThread() -> uint64
+	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("RHI.DispatchToRHIThread");
+		return Executor->Submit({}, ERHISubmitFlags::None);
+	}
+
+	auto FRHICommandListImmediate::IsRHIThreadEnabled() const -> bool
+	{
+		return Executor->State->RHIThread != nullptr;
+	}
+
+	auto FRHICommandListImmediate::CanDispatchToRHIThread() const -> bool
+	{
+		return !bInsideRenderPass && DiagnosticRegionDepth == 0
+			&& ActiveGPUTimingQueries.empty() && !HasOpenBufferLocks()
+			&& !ActiveGPUSubmissionLease;
+	}
+
 	auto FRHICommandListImmediate::ImmediateFlush(
 		EImmediateFlushType FlushType,
 		ERHISubmitFlags SubmitFlags) -> void

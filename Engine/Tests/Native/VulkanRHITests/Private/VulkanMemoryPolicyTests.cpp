@@ -239,6 +239,51 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	TEST(FVulkanCompletionIntegrationTests, RDGDefersDispatchUntilOuterTimingQueryCloses)
+	{
+		FInlineRHITestScope Scope;
+		_putenv_s("DURIN_RHI_EXECUTION", "threaded");
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		auto Timing = GDynamicRHI->RHICreateGPUTimingQuery();
+		ASSERT_TRUE(Timing);
+		auto& Commands = FRHICommandListImmediate::Get();
+		Commands.BeginGPUTimingQuery(Timing);
+		EXPECT_FALSE(Commands.CanDispatchToRHIThread());
+		FRDGBuilder Graph;
+		FRDGBuilderTestAccessor::AddPass(Graph, "TimedPass", ERDGPassType::Copy,
+			[](FRHICommandListImmediate&, const FRDGPassResources&) {});
+		EXPECT_TRUE(Graph.Execute(Commands));
+		Commands.EndGPUTimingQuery(Timing);
+		EXPECT_TRUE(Commands.CanDispatchToRHIThread());
+		Commands.DispatchToRHIThread();
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+	}
+
+	TEST(FVulkanCompletionIntegrationTests, RDGDispatchesBeforeLaterPassRecordingCompletes)
+	{
+		FInlineRHITestScope Scope;
+		_putenv_s("DURIN_RHI_EXECUTION", "threaded");
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		std::atomic<bool> bReplayed = false;
+		bool bOverlapped = false;
+		FRDGBuilder Graph;
+		FRDGBuilderTestAccessor::AddPass(Graph, "Early", ERDGPassType::Copy,
+			[&](FRHICommandListImmediate& Commands, const FRDGPassResources&) {
+				Commands.EnqueueLambda([&] { bReplayed.store(true, std::memory_order_release); });
+			});
+		FRDGBuilderTestAccessor::AddPass(Graph, "Later", ERDGPassType::Copy,
+			[&](FRHICommandListImmediate&, const FRDGPassResources&) {
+				const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+				while (!bReplayed.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < Deadline)
+					std::this_thread::yield();
+				bOverlapped = bReplayed.load(std::memory_order_acquire);
+			});
+		auto& Commands = FRHICommandListImmediate::Get();
+		EXPECT_TRUE(Graph.Execute(Commands));
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		EXPECT_TRUE(bOverlapped);
+	}
+
 	TEST(FVulkanCompletionIntegrationTests, SameFamilyComputeQueueWaitsForNativeTimelineSignal)
 	{ CheckNativeComputeWait("same-family", true); }
 	TEST(FVulkanCompletionIntegrationTests, DedicatedComputeFamilyWaitsForNativeTimelineSignal)

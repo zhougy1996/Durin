@@ -905,7 +905,8 @@ namespace Durin
 				ReplayGate.wait();
 			}, 0);
 
-		const uint64 Serial = Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_TRUE(Executor.GetImmediateCommandList().IsRHIThreadEnabled());
+		const uint64 Serial = Executor.GetImmediateCommandList().DispatchToRHIThread();
 		while (!bReplayStarted.load(std::memory_order_acquire))
 		{
 			std::this_thread::yield();

@@ -451,6 +451,23 @@ namespace Durin
 			for (const auto& Transfer : Context.InitialReleases) CommandList.ReleaseQueueOwnership(Transfer);
 			CommandList.EndGPUSubmission();
 		}
+		const bool bDispatchWhileRecording = Context.bExplicitSubmissions && CommandList.IsRHIThreadEnabled();
+		constexpr uint32 MaxBatchesPerDispatch = 8;
+		uint32 BatchesSinceDispatch = 0;
+		bool bDispatchedFirstBatch = false;
+		auto DispatchCompletedBatch = [&](bool bFinal) {
+			if (!bDispatchWhileRecording) return;
+			++BatchesSinceDispatch;
+			if ((!bDispatchedFirstBatch || BatchesSinceDispatch >= MaxBatchesPerDispatch || bFinal)
+				&& CommandList.CanDispatchToRHIThread())
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("RDG.DispatchRecordedBatches");
+				DURIN_PROFILE_CPU_ZONE_TEXT(std::format("batches={} final={}", BatchesSinceDispatch, bFinal));
+				CommandList.DispatchToRHIThread();
+				BatchesSinceDispatch = 0;
+				bDispatchedFirstBatch = true;
+			}
+		};
 		for (const auto& Batch : Compiled->ExecutionPlan.Batches)
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("RDG.RecordBatch");
@@ -466,7 +483,13 @@ namespace Durin
 			{
 				FRHICommandListImmediate& Commands;
 				bool bEnabled;
-				~FCloseSubmission() { if (bEnabled) Commands.EndGPUSubmission(); }
+				auto Close() -> void
+				{
+					if (!bEnabled) return;
+					Commands.EndGPUSubmission();
+					bEnabled = false;
+				}
+				~FCloseSubmission() { Close(); }
 			} CloseSubmission{CommandList, Context.bExplicitSubmissions};
 			for (const auto& Transfer : Context.Acquires[Batch.Id.Index]) CommandList.AcquireQueueOwnership(Transfer);
 			for (const auto& Transition : Context.TransitionEnds[Batch.Id.Index]) CommandList.EndTransition(Transition);
@@ -475,6 +498,8 @@ namespace Durin
 				RecordBarrierBatch(CommandList, Context.PreparedEpilogue, Context.PreparedTransitions);
 				for (const auto& Transition : Context.TransitionBegins[Batch.Id.Index]) CommandList.BeginTransition(Transition);
 				for (const auto& Transfer : Context.Releases[Batch.Id.Index]) CommandList.ReleaseQueueOwnership(Transfer);
+				CloseSubmission.Close();
+				DispatchCompletedBatch(true);
 				continue;
 			}
 			for (uint32 Index = Batch.FirstPass; Index < Batch.FirstPass + Batch.NumPasses; ++Index)
@@ -539,6 +564,8 @@ namespace Durin
 			}
 			for (const auto& Transition : Context.TransitionBegins[Batch.Id.Index]) CommandList.BeginTransition(Transition);
 			for (const auto& Transfer : Context.Releases[Batch.Id.Index]) CommandList.ReleaseQueueOwnership(Transfer);
+			CloseSubmission.Close();
+			DispatchCompletedBatch(Batch.Id.Index + 1 == Compiled->ExecutionPlan.Batches.size());
 		}
 		return {};
 	}

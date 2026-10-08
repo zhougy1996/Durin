@@ -259,6 +259,7 @@ namespace Durin
 		uint64 NumRecordedDrawCommands = 0;
 
 		friend class FRHICommandList;
+		friend class FRHICommandListImmediate;
 		friend class FRHICommandListExecutor;
 	};
 
@@ -356,6 +357,12 @@ namespace Durin
 		RHI_API ~FRHICommandListImmediate() override;
 		RHI_API auto QueueCommandList(FRHICommandList&& CommandList) -> void;
 		RHI_API auto TryQueueCommandList(FRHICommandList&& CommandList) -> bool;
+		// Hands recorded work to the RHI executor without a completion wait or GPU flush.
+		// Bounded queue admission can apply backpressure; inline mode replays locally.
+		RHI_API auto DispatchToRHIThread() -> uint64;
+		RHI_API auto IsRHIThreadEnabled() const -> bool;
+		// False while a render pass, diagnostic/timing scope, buffer lock, or GPU submission is open.
+		RHI_API auto CanDispatchToRHIThread() const -> bool;
 		RHI_API auto ImmediateFlush(
 			EImmediateFlushType FlushType,
 			ERHISubmitFlags SubmitFlags = ERHISubmitFlags::None) -> void;

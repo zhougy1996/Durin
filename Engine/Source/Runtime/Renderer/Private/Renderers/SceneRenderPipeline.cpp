@@ -457,6 +457,10 @@ namespace Durin
 			CommandList.EndGPUTimingQuery(Timing);
 			Service.ViewGPUTimingSink(std::move(Timing));
 		}
+		// A whole-view GPU timing query prevents dispatch inside the graph.
+		// Hand its closed prefix to RHI before later view/UI work is recorded.
+		if (CommandList.IsRHIThreadEnabled() && CommandList.CanDispatchToRHIThread())
+			CommandList.DispatchToRHIThread();
 		const FRDGStatistics Statistics = Graph.GetStatistics();
 		if (Service.RenderGraphWarnings.ShouldReport(Statistics, Graph.GetBudget()))
 		{
