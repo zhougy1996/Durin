@@ -108,7 +108,9 @@ physical view, including uniform sidecars, until completion or safe cancellation
 Updates publish new contents; rebinding resolves their range and invalidates
 descriptor selection. Existing bindings and older submissions keep their original
 contents. Bound descriptor state retains the captured backing between submissions;
-each consuming payload independently retains it through completion. Physical buffers
+each consuming payload independently retains it through completion. Payload allocation owners use a
+hash set keyed by the retained pointer identity, avoiding linear scans for repeated
+retention and retirement queries. Physical buffers
 use ordinary counted deletion and queue-qualified retirement.
 Native buffer/view downcasts enforce native content mode; logical views must
 first resolve to the selected version's native backing and descriptor.

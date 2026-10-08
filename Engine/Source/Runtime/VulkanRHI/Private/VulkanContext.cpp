@@ -1327,9 +1327,9 @@ namespace Durin::VulkanRHI
 		PendingComputeState->NotifyDeletedPipeline(PipelineState);
 	}
 
-	auto FVulkanCommandListContext::RetainAllocation(std::shared_ptr<void> Owner) -> void
+	auto FVulkanCommandListContext::RetainAllocation(const std::shared_ptr<void>& Owner) -> void
 	{
-		GetPayload().RetainAllocation(std::move(Owner));
+		GetPayload().RetainAllocation(Owner);
 	}
 
 	auto FVulkanCommandListContext::Finalize() -> std::unique_ptr<FVulkanPayload>

@@ -1157,6 +1157,18 @@ namespace Durin::VulkanRHI
 			Snapshots[1].PipelineCache.GraphicsPipelines.Capacity);
 	}
 
+	TEST_F(FVulkanPublicRHIConformanceTests, DynamicStateCacheResetsForNewCommandBufferRecording)
+	{
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		bool bPassed = false;
+		auto& Commands = FRHICommandListImmediate::Get();
+		Commands.EnqueueLambda([&] { bPassed = TestVulkanCommandBufferStateCache(); });
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		EXPECT_TRUE(bPassed);
+		RHIExit();
+		ExpectVulkanModuleUnloaded();
+	}
+
 	TEST_F(FVulkanPublicRHIConformanceTests, DynamicOffsetsReuseSparseArrayDescriptorsAndSelectCorrectPixels)
 	{
 		const auto ShaderPath = std::filesystem::path(DURIN_TEST_DATA_DIR) / "RecoverableResourceFactories.slang";
@@ -1272,6 +1284,10 @@ namespace Durin::VulkanRHI
 				EXPECT_EQ(Work.DescriptorOwnerRebuilds, 1u);
 				EXPECT_EQ(Work.BindingValidationVisits, FullValidation ? 6u : 2u);
 				EXPECT_EQ(Work.DescriptorDrawValidationVisits, 6u);
+				EXPECT_EQ(Work.ViewportWrites, 2u);
+				EXPECT_EQ(Work.ScissorWrites, 2u);
+				EXPECT_EQ(Work.DepthBiasWrites, 1u);
+				EXPECT_EQ(Work.DescriptorBinds, 2u);
 			}
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 			RHIExit();

@@ -33,7 +33,68 @@ namespace Durin::VulkanRHI
 		check(State == EState::ReadyForBegin);
 		vk::CommandBufferBeginInfo BeginInfo;
 		Handle.begin(BeginInfo);
+		RecordedViewport.reset();
+		RecordedScissor.reset();
+		RecordedDepthBias.reset();
+		for (auto& Binding : RecordedDescriptors)
+		{
+			Binding.Layout = nullptr;
+			Binding.Sets.clear();
+			Binding.DynamicOffsets.clear();
+		}
 		State = EState::IsInsideBegin;
+	}
+
+	auto FVulkanCommandBuffer::SetGraphicsDynamicState(const vk::Viewport& Viewport,
+		const vk::Rect2D& Scissor, float DepthBiasConstant, float DepthBiasClamp,
+		float DepthBiasSlope) -> void
+	{
+		CheckVulkanRHIThread();
+		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
+		if (!RecordedViewport || *RecordedViewport != Viewport)
+		{
+			Handle.setViewport(0, Viewport);
+			RecordedViewport = Viewport;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			GVulkanViewportWriteCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+		}
+		if (!RecordedScissor || *RecordedScissor != Scissor)
+		{
+			Handle.setScissor(0, Scissor);
+			RecordedScissor = Scissor;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			GVulkanScissorWriteCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+		}
+		const std::array DepthBias{DepthBiasConstant, DepthBiasClamp, DepthBiasSlope};
+		if (!RecordedDepthBias || *RecordedDepthBias != DepthBias)
+		{
+			Handle.setDepthBias(DepthBiasConstant, DepthBiasClamp, DepthBiasSlope);
+			RecordedDepthBias = DepthBias;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			GVulkanDepthBiasWriteCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+		}
+	}
+
+	auto FVulkanCommandBuffer::BindDescriptorSets(vk::PipelineBindPoint BindPoint,
+		vk::PipelineLayout Layout, std::span<const vk::DescriptorSet> Sets,
+		std::span<const uint32> DynamicOffsets) -> void
+	{
+		CheckVulkanRHIThread();
+		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
+		check(BindPoint == vk::PipelineBindPoint::eGraphics || BindPoint == vk::PipelineBindPoint::eCompute);
+		auto& Binding = RecordedDescriptors[BindPoint == vk::PipelineBindPoint::eGraphics ? 0 : 1];
+		if (Binding.Layout == Layout && std::ranges::equal(Binding.Sets, Sets)
+			&& std::ranges::equal(Binding.DynamicOffsets, DynamicOffsets)) return;
+		Handle.bindDescriptorSets(BindPoint, Layout, 0, Sets, DynamicOffsets);
+		Binding.Layout = Layout;
+		Binding.Sets.assign(Sets.begin(), Sets.end());
+		Binding.DynamicOffsets.assign(DynamicOffsets.begin(), DynamicOffsets.end());
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanDescriptorBindCount.fetch_add(1, std::memory_order_relaxed);
+#endif
 	}
 
 	auto FVulkanCommandBuffer::End() -> void

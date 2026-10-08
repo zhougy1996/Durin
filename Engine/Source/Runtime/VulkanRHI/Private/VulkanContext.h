@@ -151,7 +151,7 @@ namespace Durin::VulkanRHI
 		// Seals and transfers ownership; native submission is coordinator-owned.
 		auto Finalize() -> std::unique_ptr<FVulkanPayload>;
 		auto HasPendingCommands() const -> bool { return !Payloads.empty(); }
-		auto RetainAllocation(std::shared_ptr<void> Owner) -> void;
+		auto RetainAllocation(const std::shared_ptr<void>& Owner) -> void;
 		auto AcquireTransferRange(EVulkanAllocationClassCandidate AllocationClass,
 			uint64 Size, uint64 Alignment) -> FVulkanTransferRange;
 

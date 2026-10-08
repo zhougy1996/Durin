@@ -234,6 +234,10 @@ namespace Durin::VulkanRHI
 	std::atomic<uint64> GVulkanDescriptorDrawValidationVisitCount = 0;
 	std::atomic<uint64> GVulkanDescriptorSortCount = 0;
 	std::atomic<uint64> GVulkanDescriptorHashCount = 0;
+	std::atomic<uint64> GVulkanViewportWriteCount = 0;
+	std::atomic<uint64> GVulkanScissorWriteCount = 0;
+	std::atomic<uint64> GVulkanDepthBiasWriteCount = 0;
+	std::atomic<uint64> GVulkanDescriptorBindCount = 0;
 	std::atomic<uint64> GVulkanDescriptorOwnerRebuildCount = 0;
 	std::atomic<uint64> GVulkanDescriptorOccupancyVerificationVisitCount = 0;
 	std::atomic<uint64> GVulkanDescriptorOccupancyMutationCount = 0;
@@ -784,10 +788,13 @@ namespace Durin::VulkanRHI
 			std::weak_ptr<int> Observer = Owner;
 			Context.RHISetReplayStorageOwner(Owner);
 			Context.RetainAllocation(Owner);
+			const auto RetainedCount = Owner.use_count();
+			for (uint32 Repeat = 0; Repeat < 64; ++Repeat) Context.RetainAllocation(Owner);
+			const bool bDeduplicated = Owner.use_count() == RetainedCount;
 			const auto Queued = Device.GetSubmissionCoordinator().EnqueueContext(Context);
 			Context.RHISetReplayStorageOwner({});
 			Owner.reset();
-			bool bPassed = !Observer.expired() && Queued.GetState() == ERHIGPUSubmissionState::Pending;
+			bool bPassed = bDeduplicated && !Observer.expired() && Queued.GetState() == ERHIGPUSubmissionState::Pending;
 			if (bDiscard)
 			{
 				Device.GetSubmissionCoordinator().DiscardPending();
@@ -1088,6 +1095,62 @@ namespace Durin::VulkanRHI
 			->GetDeferredDeletionQueue().ReleaseResources();
 	}
 
+	auto TestVulkanCommandBufferStateCache() -> bool
+	{
+		CheckVulkanRHIThread();
+		auto& Device = *FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		FVulkanCommandBufferPool Pool(Device);
+		Pool.CreatePool(Device.GetGraphicsQueue()->GetFamilyIndex());
+		auto* Commands = Pool.Create();
+		const auto Native = Device.GetHandle();
+		const auto SetLayout = Native.createDescriptorSetLayout(vk::DescriptorSetLayoutCreateInfo{});
+		const auto LayoutA = Native.createPipelineLayout(vk::PipelineLayoutCreateInfo{}.setSetLayouts(SetLayout));
+		const auto LayoutB = Native.createPipelineLayout(vk::PipelineLayoutCreateInfo{}.setSetLayouts(SetLayout));
+		const auto DescriptorPool = Native.createDescriptorPool(vk::DescriptorPoolCreateInfo{}.setMaxSets(2));
+		const std::array SetLayouts{SetLayout, SetLayout};
+		const auto Sets = Native.allocateDescriptorSets(vk::DescriptorSetAllocateInfo{}
+			.setDescriptorPool(DescriptorPool).setSetLayouts(SetLayouts));
+		const vk::Viewport Viewport{0, 0, 8, 8, 0, 1};
+		vk::Rect2D Scissor{{0, 0}, {8, 8}};
+		ResetVulkanHotPathWorkTestStats();
+		Commands->Begin();
+		Commands->SetGraphicsDynamicState(Viewport, Scissor, 0, 0, 0);
+		Commands->SetGraphicsDynamicState(Viewport, Scissor, 0, 0, 0);
+		auto Stats = GetVulkanHotPathWorkTestStats();
+		bool bPassed = Stats.ViewportWrites == 1 && Stats.ScissorWrites == 1 && Stats.DepthBiasWrites == 1;
+		Scissor.extent.width = 4;
+		Commands->SetGraphicsDynamicState(Viewport, Scissor, 0, 0, 0);
+		Commands->SetGraphicsDynamicState(Viewport, Scissor, 0, 0, 2);
+		Stats = GetVulkanHotPathWorkTestStats();
+		bPassed &= Stats.ViewportWrites == 1 && Stats.ScissorWrites == 2 && Stats.DepthBiasWrites == 2;
+		const auto FirstSet = std::span(Sets).first(1);
+		const auto SecondSet = std::span(Sets).subspan(1, 1);
+		Commands->BindDescriptorSets(vk::PipelineBindPoint::eGraphics, LayoutA, FirstSet, {});
+		Commands->BindDescriptorSets(vk::PipelineBindPoint::eGraphics, LayoutA, FirstSet, {});
+		// Compute and graphics bindings must not suppress each other.
+		Commands->BindDescriptorSets(vk::PipelineBindPoint::eCompute, LayoutA, FirstSet, {});
+		Commands->BindDescriptorSets(vk::PipelineBindPoint::eGraphics, LayoutA, SecondSet, {});
+		Commands->BindDescriptorSets(vk::PipelineBindPoint::eGraphics, LayoutB, SecondSet, {});
+		Commands->BindDescriptorSets(vk::PipelineBindPoint::eGraphics, LayoutA, SecondSet, {});
+		bPassed &= GetVulkanHotPathWorkTestStats().DescriptorBinds == 5;
+		Commands->End();
+		Commands->Reset();
+		Commands->Begin();
+		// The same values must be emitted again in a new recording.
+		Commands->SetGraphicsDynamicState(Viewport, Scissor, 0, 0, 2);
+		Stats = GetVulkanHotPathWorkTestStats();
+		bPassed &= Stats.ViewportWrites == 2 && Stats.ScissorWrites == 3 && Stats.DepthBiasWrites == 3;
+		Commands->BindDescriptorSets(vk::PipelineBindPoint::eGraphics, LayoutA, SecondSet, {});
+		bPassed &= GetVulkanHotPathWorkTestStats().DescriptorBinds == 6;
+		Commands->End();
+		Commands->Reset();
+		Native.destroyDescriptorPool(DescriptorPool);
+		Native.destroyPipelineLayout(LayoutB);
+		Native.destroyPipelineLayout(LayoutA);
+		Native.destroyDescriptorSetLayout(SetLayout);
+		return bPassed;
+	}
+
 	auto ResetVulkanHotPathWorkTestStats() -> void
 	{
 		GVulkanSync2BufferBarrierCount.store(0, std::memory_order_release);
@@ -1098,6 +1161,10 @@ namespace Durin::VulkanRHI
 		GVulkanDescriptorDrawValidationVisitCount.store(0, std::memory_order_release);
 		GVulkanDescriptorSortCount.store(0, std::memory_order_release);
 		GVulkanDescriptorHashCount.store(0, std::memory_order_release);
+		GVulkanViewportWriteCount.store(0, std::memory_order_release);
+		GVulkanScissorWriteCount.store(0, std::memory_order_release);
+		GVulkanDepthBiasWriteCount.store(0, std::memory_order_release);
+		GVulkanDescriptorBindCount.store(0, std::memory_order_release);
 		GVulkanDescriptorOwnerRebuildCount.store(0, std::memory_order_release);
 		GVulkanDescriptorOccupancyVerificationVisitCount.store(0, std::memory_order_release);
 		GVulkanDescriptorOccupancyMutationCount.store(0, std::memory_order_release);
@@ -1114,6 +1181,10 @@ namespace Durin::VulkanRHI
 			.DescriptorDrawValidationVisits = GVulkanDescriptorDrawValidationVisitCount.load(std::memory_order_acquire),
 			.DescriptorSorts = GVulkanDescriptorSortCount.load(std::memory_order_acquire),
 			.DescriptorHashes = GVulkanDescriptorHashCount.load(std::memory_order_acquire),
+			.ViewportWrites = GVulkanViewportWriteCount.load(std::memory_order_acquire),
+			.ScissorWrites = GVulkanScissorWriteCount.load(std::memory_order_acquire),
+			.DepthBiasWrites = GVulkanDepthBiasWriteCount.load(std::memory_order_acquire),
+			.DescriptorBinds = GVulkanDescriptorBindCount.load(std::memory_order_acquire),
 			.DescriptorOwnerRebuilds = GVulkanDescriptorOwnerRebuildCount.load(std::memory_order_acquire),
 			.DescriptorOccupancyVerificationVisits = GVulkanDescriptorOccupancyVerificationVisitCount.load(std::memory_order_acquire),
 			.DescriptorOccupancyMutations = GVulkanDescriptorOccupancyMutationCount.load(std::memory_order_acquire)};

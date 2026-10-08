@@ -126,9 +126,14 @@ interns complete structural layouts and keeps their handles stable for device
 life. A set snapshot can therefore be reused across PSOs only when its layout
 handle and every binding/array resource value match. Hashes are fast rejects;
 complete resource equality confirms hits. The set index and dynamic offsets are
-external to this identity. Every draw explicitly binds the full set sequence,
-including sparse empty sets, so Vulkan pipeline-layout prefix compatibility does
-not authorize implicit inheritance. Pending parameters remain PSO-local.
+external to this identity. Every draw selects the full set sequence, including
+sparse empty sets. Each command-buffer recording caches the last pipeline layout,
+complete set sequence, and dynamic offsets separately for graphics and compute;
+only an exact match skips the native bind. Pipeline-layout prefix compatibility
+alone never authorizes implicit inheritance. Viewport, scissor, and depth bias
+are likewise emitted only when their values change within a recording. Starting
+another recording invalidates all these native-state caches. Pending parameters
+remain PSO-local.
 
 Each pending set holds a weak selection into the bounded context cache. An
 unchanged selection bypasses hashing and lookup. Changes to a resource, type,

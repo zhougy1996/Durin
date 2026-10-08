@@ -325,9 +325,9 @@ namespace Durin::VulkanRHI
 			InContext.GetCommandBuffer();
 			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Compute.BindDescriptorSets");
 			InContext.RetainAllocation(Device.GetGlobalDescriptorPool().GetAllocationOwner());
-			InContext.GetCommandBuffer()->GetHandle().bindDescriptorSets(
+			InContext.GetCommandBuffer()->BindDescriptorSets(
 				vk::PipelineBindPoint::eCompute,
-				CurrentPipelineState->GetPipelineLayout(), 0,
+				CurrentPipelineState->GetPipelineLayout(),
 				CachedDescriptorSets, DynamicOffsets);
 		}
 	}
@@ -495,9 +495,7 @@ namespace Durin::VulkanRHI
 		}
 
 		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
-		CmdBuffer->GetHandle().setViewport(0, Viewport);
-		CmdBuffer->GetHandle().setScissor(0, Scissor);
-		CmdBuffer->GetHandle().setDepthBias(DepthBiasConstantFactor,
+		CmdBuffer->SetGraphicsDynamicState(Viewport, Scissor, DepthBiasConstantFactor,
 			DepthBiasClamp, DepthBiasSlopeFactor);
 
 		FVulkanGraphicsPipelineDescriptorState::FDescriptorSetsForDraw DescriptorSetsForDraw = CurrentDescriptorState->GetOrCreateDescriptorSetsForDraw(Device, *CurrentPipelineState);
@@ -505,10 +503,9 @@ namespace Durin::VulkanRHI
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.BindDescriptorSets");
 			InContext.RetainAllocation(Device.GetGlobalDescriptorPool().GetAllocationOwner());
-			CmdBuffer->GetHandle().bindDescriptorSets(
+			CmdBuffer->BindDescriptorSets(
 				vk::PipelineBindPoint::eGraphics,
 				CurrentPipelineState->GetPipelineLayout(),
-				0,
 				*DescriptorSetsForDraw.DescriptorSets,
 				DescriptorSetsForDraw.DynamicOffsets
 			);

@@ -26,6 +26,12 @@ namespace Durin::VulkanRHI
 
 		auto Begin() -> void;
 
+		// Cached state belongs to one recording and is invalidated by Begin().
+		auto SetGraphicsDynamicState(const vk::Viewport& Viewport, const vk::Rect2D& Scissor,
+			float DepthBiasConstant, float DepthBiasClamp, float DepthBiasSlope) -> void;
+		auto BindDescriptorSets(vk::PipelineBindPoint BindPoint, vk::PipelineLayout Layout,
+			std::span<const vk::DescriptorSet> Sets, std::span<const uint32> DynamicOffsets) -> void;
+
 		auto End() -> void;
 
 		auto Reset() -> void;
@@ -70,6 +76,16 @@ namespace Durin::VulkanRHI
 		double SubmittedTime = 0.0;
 
 		vk::CommandBuffer Handle;
+		std::optional<vk::Viewport> RecordedViewport;
+		std::optional<vk::Rect2D> RecordedScissor;
+		std::optional<std::array<float, 3>> RecordedDepthBias;
+		struct FDescriptorBinding
+		{
+			vk::PipelineLayout Layout{};
+			std::vector<vk::DescriptorSet> Sets;
+			std::vector<uint32> DynamicOffsets;
+		};
+		std::array<FDescriptorBinding, 2> RecordedDescriptors;
 		bool bRenderPassDebugLabelOpen = false;
 		uint32 DiagnosticRegionDepth = 0;
 

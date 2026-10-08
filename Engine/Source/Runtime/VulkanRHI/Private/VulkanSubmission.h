@@ -34,11 +34,10 @@ namespace Durin::VulkanRHI
 		auto operator=(const FVulkanPayload&) -> FVulkanPayload& = delete;
 		auto GetSyncPoint() const -> const FRHIGPUSyncPointRef& { return SyncPoint; }
 		auto AttachSignal(const FRHIGPUSyncPointRef& Signal) -> bool;
-		auto RetainAllocation(std::shared_ptr<void> Owner) -> void
+		auto RetainAllocation(const std::shared_ptr<void>& Owner) -> void
 		{
 			require(Owner);
-			if (!std::ranges::contains(AllocationOwners, Owner))
-				AllocationOwners.push_back(std::move(Owner));
+			AllocationOwners.insert(Owner);
 		}
 		auto AddCompletionWait(const FRHIGPUSyncPointRef& SyncPoint) -> void
 		{
@@ -51,7 +50,7 @@ namespace Durin::VulkanRHI
 		FVulkanQueue& Queue;
 		FRHIGPUSyncPointRef SyncPoint;
 		std::vector<FRHIGPUSyncPointRef> Signals;
-		std::vector<std::shared_ptr<void>> AllocationOwners;
+		std::unordered_set<std::shared_ptr<void>> AllocationOwners;
 		std::vector<TRefCountPtr<FVulkanGPUTimingQuery>> TimingQueries;
 		std::vector<std::shared_ptr<void>> ReplayStorageOwners;
 		std::vector<std::shared_ptr<void>> RetainedTransitions;

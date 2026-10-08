@@ -252,10 +252,16 @@ namespace Durin::VulkanRHI
 		uint64 DescriptorDrawValidationVisits = 0;
 		uint64 DescriptorSorts = 0;
 		uint64 DescriptorHashes = 0;
+		uint64 ViewportWrites = 0;
+		uint64 ScissorWrites = 0;
+		uint64 DepthBiasWrites = 0;
+		uint64 DescriptorBinds = 0;
+
 		uint64 DescriptorOwnerRebuilds = 0;
 		uint64 DescriptorOccupancyVerificationVisits = 0;
 		uint64 DescriptorOccupancyMutations = 0;
 	};
+	VULKANRHI_API auto TestVulkanCommandBufferStateCache() -> bool;
 	VULKANRHI_API auto ResetVulkanHotPathWorkTestStats() -> void;
 	VULKANRHI_API auto GetVulkanHotPathWorkTestStats()
 		-> FVulkanHotPathWorkTestStats;
@@ -272,6 +278,10 @@ namespace Durin::VulkanRHI
 	extern std::atomic<uint64> GVulkanDescriptorDrawValidationVisitCount;
 	extern std::atomic<uint64> GVulkanDescriptorSortCount;
 	extern std::atomic<uint64> GVulkanDescriptorHashCount;
+	extern std::atomic<uint64> GVulkanViewportWriteCount;
+	extern std::atomic<uint64> GVulkanScissorWriteCount;
+	extern std::atomic<uint64> GVulkanDepthBiasWriteCount;
+	extern std::atomic<uint64> GVulkanDescriptorBindCount;
 	extern std::atomic<uint64> GVulkanDescriptorOwnerRebuildCount;
 	extern std::atomic<uint64> GVulkanDescriptorOccupancyVerificationVisitCount;
 	extern std::atomic<uint64> GVulkanDescriptorOccupancyMutationCount;

@@ -133,7 +133,7 @@ namespace Durin::VulkanRHI
 		if (!Retained || LatestUse.GetState() != ERHIGPUSubmissionState::Pending) return false;
 		std::vector<FVulkanPayload*> Selected;
 		for (const auto& Payload : PendingPayloads)
-			if (std::ranges::find(Payload->AllocationOwners, Retained) != Payload->AllocationOwners.end())
+			if (Payload->AllocationOwners.contains(Retained))
 				Selected.push_back(Payload.get());
 		// A lease reused by the current recording must not be submitted mid-draw.
 		if (std::ranges::none_of(Selected, [&](const auto* Payload) {
