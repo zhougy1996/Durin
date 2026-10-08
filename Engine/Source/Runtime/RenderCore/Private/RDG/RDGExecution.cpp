@@ -507,30 +507,26 @@ namespace Durin
 				if (Compiled->RuntimePasses[Index].BufferUploadBytes != 0)
 				{
 					DURIN_PROFILE_CPU_ZONE_NAMED("RDG.RecordUploadBatch");
-					uint64 Bytes = 0;
-					uint32 End = Index;
 					FRHICommandList Uploads;
-					while (End < Batch.FirstPass + Batch.NumPasses && End - Index < MaxUploadBatchCount)
+					// Compilation already fixes upload grouping and its size limits.
+					require(Index == Batch.FirstPass);
+					const uint32 End = Batch.FirstPass + Batch.NumPasses;
+					for (uint32 UploadIndex = Index; UploadIndex < End; ++UploadIndex)
 					{
-						const auto& Runtime = Compiled->RuntimePasses[End];
-						if (Runtime.BufferUploadBytes == 0 || (End != Index
-							&& (Bytes > MaxUploadBatchBytes
-								|| Runtime.BufferUploadBytes > MaxUploadBatchBytes - Bytes))) break;
-						require(Runtime.RecordingPolicy == ERDGRecordingPolicy::Serial
+						const auto& Runtime = Compiled->RuntimePasses[UploadIndex];
+						require(Runtime.BufferUploadBytes != 0
+							&& Runtime.RecordingPolicy == ERDGRecordingPolicy::Serial
 							&& Runtime.RecordingExecute && *Runtime.RecordingExecute);
-						const auto& Pass = Compiled->Passes[End];
+						const auto& Pass = Compiled->Passes[UploadIndex];
 						DURIN_PROFILE_CPU_ZONE_NAMED("RDG.RecordPass");
 						DURIN_PROFILE_CPU_ZONE_TEXT(std::string_view(Pass.Name).substr(0, 128));
 						// Keep barriers between uploads, including overlapping writes.
-						RecordBarrierBatch(Uploads, Context.PreparedPassBarriers[End], Context.PreparedTransitions);
-						const FRDGPassResources Resources(*this, End);
+						RecordBarrierBatch(Uploads, Context.PreparedPassBarriers[UploadIndex], Context.PreparedTransitions);
+						const FRDGPassResources Resources(*this, UploadIndex);
 						const FRDGParameterResolver Resolver(Resources, Runtime.ParameterLayout,
 							Runtime.OptionalAliases, Runtime.Parameters, Pass.Name, Pass.Type);
 						(*Runtime.RecordingExecute)(Uploads, Resolver);
-						Bytes += Runtime.BufferUploadBytes;
-						++End;
 					}
-					require(End > Index);
 					Uploads.FinishRecording();
 					CommandList.QueueCommandList(std::move(Uploads));
 					Index = End - 1;
