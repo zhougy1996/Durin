@@ -594,6 +594,13 @@ namespace Durin::VulkanRHI
 			GateSubmit.setPNext(&GateTimeline).setWaitSemaphores(Gate).setWaitDstStageMask(Stage);
 			Compute.GetHandle().submit(GateSubmit);
 			const auto Producer = Submit(Compute, {}, TestPools.GetAllocationOwner(), Timing.GetReference());
+			// A graphics frame can pace independently while compute still owns resources.
+			Device.GetImmediateContext()->RHIEndFrame();
+			const auto& FrameUses = Device.GetCurrentFrame().GetRetirementUsesForTesting();
+			require(FrameUses.GetSyncPoints().size() == 1
+				&& FRHIGPUSyncPointBackend::GetPoint(FrameUses.GetSyncPoints().front()).Queue == Graphics.GetId());
+			Device.GetCurrentFrame().Prepare();
+			Result.bFramePacingIndependent = Producer.GetState() == ERHIGPUSubmissionState::Submitted;
 			// Graphics completion alone must not reset a pool also used by compute.
 			const auto Independent = Submit(Graphics, {}, TestPools.GetAllocationOwner());
 			require(Graphics.GetCompletionTracker().WaitForSyncPoint(Independent, 1'000'000'000) == ERHIGPUWaitResult::Complete);

@@ -87,7 +87,8 @@ namespace Durin::VulkanRHI
 		std::vector<std::unique_ptr<FVulkanPayload>> PendingPayloads;
 	};
 
-	// Retains submitted payloads until their GPU work completes and resources can recycle.
+	// Bounds graphics frames in flight. Resource recycling is owned by submissions
+	// and allocation leases, independently of this pacing prerequisite.
 	class FVulkanFrame
 	{
 	public:
@@ -97,6 +98,9 @@ namespace Durin::VulkanRHI
 		auto Prepare() -> void;
 
 		auto SetRetirementUses(FRHIRetirementPrerequisites Uses) -> void;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		auto GetRetirementUsesForTesting() const -> const FRHIRetirementPrerequisites& { return RetirementUses; }
+#endif
 
 	private:
 		FVulkanDevice& Device;

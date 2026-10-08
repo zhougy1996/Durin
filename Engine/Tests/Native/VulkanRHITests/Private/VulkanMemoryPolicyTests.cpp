@@ -131,6 +131,7 @@ namespace Durin::VulkanRHI
 			EXPECT_TRUE(TestVulkanSealedPressureDependency());
 			const auto Result = RunVulkanCrossQueueWaitForTesting();
 			EXPECT_TRUE(Result.bConsumerBlocked);
+			EXPECT_TRUE(Result.bFramePacingIndependent);
 			EXPECT_TRUE(Result.bRetirementBlocked);
 			EXPECT_TRUE(Result.bDescriptorReuseBlocked);
 			EXPECT_TRUE(Result.bDescriptorReusedAfterCompletion);

@@ -205,10 +205,19 @@ bytes or allocating one Vulkan buffer per operation.
 
 ## Uniform, Descriptor, Command, and Fence Reuse
 
-Frame retirement first submits both provisioned command contexts, then captures
-the physical queue prefixes. Reusing a frame waits all of those prerequisites.
-The two-slot pacing policy remains backend-owned. Upload versions do not use
-those slots: snapshot admission and exact payload ownership govern their reuse.
+Frame end submits both provisioned command contexts, but records only the
+graphics context end-frame sync point for the two-slot pacing policy. Reusing
+a frame waits that point and its explicit GPU dependencies; unrelated compute
+work does not become a frame-wide CPU wait. Frame slots do not authorize resource
+recycling: payload completion and allocation leases retain their complete
+queue-qualified prerequisites. Upload versions do not use those slots: snapshot
+admission and exact payload ownership govern their reuse.
+
+`Vulkan.BeginFrame.FrameSlotWait` includes completion processing as well as any
+GPU wait. Nested `Vulkan.Completion.Poll`, `WaitForSyncPoint`, `WaitFenceNative`,
+`ObserveThrough`, `ResolveResults`, and `ReleaseCompleted` zones distinguish
+native fence blocking from CPU result processing and recycling. `WaitForSyncPoint`
+attaches the physical queue index and target token while Tracy is connected.
 Public uniform/storage ranges remain logical buffer/offset/size values, and
 native backing offsets stay private.
 

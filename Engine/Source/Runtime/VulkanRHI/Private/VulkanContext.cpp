@@ -305,10 +305,14 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		FVulkanFrame& Frame = Device.GetCurrentFrame();
-		GetPayload(); // Preserve an end-frame completion point even for an empty frame.
+		// Frame pacing follows this graphics context, not unrelated work on other queues.
+		// Resources retain their own complete multi-queue retirement prerequisites.
+		const auto FrameEnd = GetPayload().GetSyncPoint();
 		Device.GetSubmissionCoordinator().SubmitPendingContexts(this);
 
-		Frame.SetRetirementUses(Device.GetLastReservedUses());
+		FRHIRetirementPrerequisites FrameUses;
+		require(FrameUses.Add(FrameEnd));
+		Frame.SetRetirementUses(std::move(FrameUses));
 		Pool->FreeUnusedCommandBuffers(Queue);
 	}
 

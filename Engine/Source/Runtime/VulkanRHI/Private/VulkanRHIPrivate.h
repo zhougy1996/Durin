@@ -198,6 +198,7 @@ namespace Durin::VulkanRHI
 	struct FVulkanCrossQueueWaitTestResult
 	{
 		bool bConsumerBlocked = false;
+		bool bFramePacingIndependent = false;
 		bool bRetirementBlocked = false;
 		bool bDescriptorReuseBlocked = false;
 		bool bDescriptorReusedAfterCompletion = false;

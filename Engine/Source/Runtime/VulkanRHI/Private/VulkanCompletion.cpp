@@ -8,6 +8,7 @@
 #include "VulkanMemory.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanSubmission.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::VulkanRHI
 {
@@ -96,6 +97,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCompletionTracker::Poll() -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Completion.Poll");
 		CheckVulkanRHIThread();
 		if (bFailed) return;
 		for (FSubmission& Submission : Submissions)
@@ -129,8 +131,10 @@ namespace Durin::VulkanRHI
 			"Unknown Vulkan completion token: token={}, completed={}, submitted={}",
 			Token, CompletedToken.load(std::memory_order_acquire), LastSubmittedToken.load());
 		const auto WaitStart = std::chrono::steady_clock::now();
-		const bool bCompleted = Device.GetFenceManager().WaitForFence(
-			It->Fence, UINT64_MAX);
+		const bool bCompleted = [&] {
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Completion.WaitFenceNative");
+			return Device.GetFenceManager().WaitForFence(It->Fence, UINT64_MAX);
+		}();
 		requiref(bCompleted, "Failed to wait for Vulkan completion token {}.", Token);
 		const auto WaitDuration = std::chrono::steady_clock::now() - WaitStart;
 		GVulkanMemoryBaselineTracker.RecordFrameFenceWait(
@@ -142,8 +146,12 @@ namespace Durin::VulkanRHI
 	auto FVulkanCompletionTracker::WaitForSyncPoint(const FRHIGPUSyncPointRef& SyncPoint,
 		uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Completion.WaitForSyncPoint");
 		CheckVulkanRHIThread();
 		if (!Timeline.Owns(SyncPoint)) return ERHIGPUWaitResult::Invalid;
+		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("queue={} token={}",
+			FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue.Index,
+			FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value));
 		try
 		{
 			Poll();
@@ -161,7 +169,10 @@ namespace Durin::VulkanRHI
 			const auto It = std::ranges::find(Submissions, Token, &FSubmission::Token);
 			require(It != Submissions.end() && It->bSubmitted);
 			const auto Start = std::chrono::steady_clock::now();
-			const bool bComplete = Device.GetFenceManager().WaitForFence(It->Fence, TimeoutNanoseconds);
+			const bool bComplete = [&] {
+				DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Completion.WaitFenceNative");
+				return Device.GetFenceManager().WaitForFence(It->Fence, TimeoutNanoseconds);
+			}();
 			GVulkanMemoryBaselineTracker.RecordFrameFenceWait(std::chrono::duration_cast<std::chrono::nanoseconds>(
 				std::chrono::steady_clock::now() - Start).count());
 			if (!bComplete) return ERHIGPUWaitResult::Timeout;
@@ -210,6 +221,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCompletionTracker::ObserveThrough(
 		FVulkanCompletionToken Token) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Completion.ObserveThrough");
 		for (FSubmission& Submission : Submissions)
 		{
 			if (Submission.Token > Token)
@@ -241,6 +253,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCompletionTracker::ResolveResults(FSubmission& Submission) -> bool
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Completion.ResolveResults");
 		for (auto* Payload : Submission.Payloads)
 			if (!Payload->TimingQueries.empty()
 				&& !Device.GetGPUTimingManager().ResolveCompleted(Payload->TimingQueries)) return false;
@@ -249,6 +262,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCompletionTracker::ReleaseCompleted() -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Completion.ReleaseCompleted");
 		while (!Submissions.empty()
 			&& Submissions.front().SyncPoint.IsRetirementEligible())
 		{
