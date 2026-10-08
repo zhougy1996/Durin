@@ -70,6 +70,8 @@ namespace Durin::VulkanRHI
 			TRefCountPtr<FRHIBufferView> View;
 			std::shared_ptr<void> Backing;
 			std::shared_ptr<void> Lease;
+			uint64 PhysicalOffset = 0;
+			bool bDynamic = false;
 		};
 		struct FBinding
 		{

@@ -874,9 +874,11 @@ namespace Durin
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
 		for (const char* Mode : {"inline", "threaded"})
 		for (const bool bCompute : {false, true})
+		for (const bool bDynamic : {false, true})
 		{
 			SCOPED_TRACE(Mode);
 			SCOPED_TRACE(bCompute);
+			SCOPED_TRACE(bDynamic);
 			struct FRHIScope
 			{
 				std::string Previous = std::getenv("DURIN_RHI_EXECUTION") ? std::getenv("DURIN_RHI_EXECUTION") : "";
@@ -899,7 +901,7 @@ namespace Durin
 			if (bCompute) Reflections.push_back(Compiled.CompiledShaders[0].Reflection);
 			else Reflections = {Compiled.CompiledShaders[1].Reflection, Compiled.CompiledShaders[2].Reflection};
 			ASSERT_TRUE(BuildPipelineLayoutFromReflection(Reflections, Layout));
-			if (!bCompute) Layout.BindingLayouts[0].BindingLayouts[0].Type = ERHIBindingType::UniformBufferDynamic;
+			if (bDynamic) Layout.BindingLayouts[0].BindingLayouts[0].Type = ERHIBindingType::UniformBufferDynamic;
 			const auto Output = GDynamicRHI->RHICreateTexture(Commands,
 				FRHITextureCreateDesc::Create2D("DeferredOutput", 4, 1, EPixelFormat::RGBA8_UNORM)
 					.SetFlags(ETextureCreateFlags::CPUReadback | ETextureCreateFlags::ShaderResource
@@ -945,7 +947,7 @@ namespace Durin
 			EXPECT_FALSE(GDynamicRHI->RHIGetOrCreateBufferView(Storage, StorageView));
 			const std::array Parameters{
 				FRHIShaderParameterResource{.Resource = Uniform.GetReference(), .BindingIndex = 0,
-					.Type = bCompute ? ERHIBindingType::UniformBuffer : ERHIBindingType::UniformBufferDynamic, .Size = 16},
+					.Type = bDynamic ? ERHIBindingType::UniformBufferDynamic : ERHIBindingType::UniformBuffer, .Size = 16},
 				FRHIShaderParameterResource{.Resource = Storage.GetReference(), .BindingIndex = 1,
 					.Type = ERHIBindingType::StorageBuffer, .Size = 16}};
 			auto Batch = FRHIShaderParameterBatch::Create(Shaders[bCompute ? 0 : 2], Parameters);

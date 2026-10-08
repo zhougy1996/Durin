@@ -1211,10 +1211,13 @@ namespace Durin::VulkanRHI
 		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
 		for (const bool FullValidation : {false, true})
+		for (const uint32 Variant : {0u, 1u, 2u})
 		for (const char* Mode : {"inline", "threaded"})
 		{
 			SCOPED_TRACE(Mode);
 			SCOPED_TRACE(FullValidation);
+			SCOPED_TRACE(Variant);
+			const bool Deferred = Variant != 0;
 			_putenv_s("DURIN_VULKAN_FULL_DESCRIPTOR_VALIDATION", FullValidation ? "on" : "off");
 			_putenv_s("DURIN_RHI_EXECUTION", Mode);
 			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
@@ -1258,30 +1261,47 @@ namespace Durin::VulkanRHI
 				const uint32 Alignment = static_cast<uint32>(static_cast<FVulkanDynamicRHI*>(GDynamicRHI)
 					->GetDeviceForTesting()->GetGpuProperties().limits.minUniformBufferOffsetAlignment);
 				const uint32 Stride = std::max(Alignment, 16u);
-				auto Buffer = GDynamicRHI->RHICreateBuffer(Commands, FRHIBufferCreateDesc::Create(
+				auto Buffer = Deferred ? TRefCountPtr<FRHIBuffer>{} : GDynamicRHI->RHICreateBuffer(Commands, FRHIBufferCreateDesc::Create(
 					"DynamicOffsetColors", Stride * 3, 16, EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Static));
-				ASSERT_TRUE(Buffer);
-				auto* Bytes = static_cast<std::byte*>(GDynamicRHI->RHILockBuffer(Commands, Buffer, 0, Stride * 3, EResourceLockMode::WriteOnly));
-				ASSERT_NE(Bytes, nullptr);
+				auto* Bytes = Deferred ? nullptr : static_cast<std::byte*>(GDynamicRHI->RHILockBuffer(Commands, Buffer, 0, Stride * 3, EResourceLockMode::WriteOnly));
+				ASSERT_TRUE(Deferred || Bytes);
 				std::array<FRHIUniformBufferRange, 3> Uniforms;
+				std::array<FBufferViewRHIRef, 3> OffsetViews;
 				for (uint32 Index = 0; Index < Colors.size(); ++Index)
 				{
-					std::memcpy(Bytes + Stride * Index, Colors[Index].data(), sizeof(Colors[Index]));
-					Uniforms[Index] = {Buffer.GetReference(), Stride * Index, sizeof(Colors[Index])};
+					if (Variant == 2)
+					{
+						FByteBuffer Data(Stride * 3);
+						std::memcpy(Data.data() + Stride * 2, Colors[Index].data(), sizeof(Colors[Index]));
+						auto Logical = Commands.CreateUniformBuffer({Stride * 3}, ERHIBufferLifetimeUsage::SingleFrame, Data);
+						ASSERT_TRUE(Logical);
+						OffsetViews[Index] = FRHIBufferView::Create(Logical, {Stride, 16, ERHIBufferViewType::Uniform});
+						Uniforms[Index] = {Logical.GetReference(), Stride, 0, Logical.GetReference()};
+					}
+					else if (Deferred) Uniforms[Index] = Commands.CreateUniformBufferRange(Colors[Index].data(), sizeof(Colors[Index]));
+					else
+					{
+						std::memcpy(Bytes + Stride * Index, Colors[Index].data(), sizeof(Colors[Index]));
+						Uniforms[Index] = {Buffer.GetReference(), Stride * Index, sizeof(Colors[Index])};
+					}
 				}
-				GDynamicRHI->RHIUnlockBuffer(Commands, Buffer);
-				ASSERT_EQ(Uniforms[0].Buffer, Uniforms[2].Buffer);
-				ASSERT_NE(Uniforms[0].Offset, Uniforms[2].Offset);
+				if (!Deferred)
+				{
+					GDynamicRHI->RHIUnlockBuffer(Commands, Buffer);
+					ASSERT_EQ(Uniforms[0].Buffer, Uniforms[2].Buffer);
+					ASSERT_NE(Uniforms[0].Offset, Uniforms[2].Offset);
+				}
 				std::array<FRHIShaderParameterResource, 2> Parameters;
 				for (uint32 Index = 0; Index < Parameters.size(); ++Index)
-					Parameters[1 - Index] = {.Resource = Uniforms[Index].Buffer, .SetIndex = 2, .BindingIndex = 5,
+					Parameters[1 - Index] = {.Resource = Variant == 2 ? static_cast<FRHIResource*>(OffsetViews[Index].GetReference()) : Uniforms[Index].Buffer, .SetIndex = 2, .BindingIndex = 5,
 						.ArrayElement = Index, .Type = ERHIBindingType::UniformBufferDynamic,
 						.Offset = Uniforms[Index].Offset, .Size = Uniforms[Index].Size};
 				auto First = FRHIShaderParameterBatch::Create(Fragment, Parameters);
+				Parameters[1].Resource = Variant == 2 ? static_cast<FRHIResource*>(OffsetViews[2].GetReference()) : Uniforms[2].Buffer;
 				Parameters[1].Offset = Uniforms[2].Offset;
 				auto Second = FRHIShaderParameterBatch::Create(Fragment, Parameters);
 				ASSERT_TRUE(First && Second);
-				ASSERT_EQ(First->GetParameters()[1].Resource, Second->GetParameters()[1].Resource);
+				if (!Deferred) ASSERT_EQ(First->GetParameters()[1].Resource, Second->GetParameters()[1].Resource);
 				ResetVulkanHotPathWorkTestStats();
 				Commands.SwitchPipeline(ERHIPipeline::Graphics);
 				FRHIRenderPassInfo Pass;
@@ -1298,6 +1318,11 @@ namespace Durin::VulkanRHI
 				Commands.SetPreparedShaderParameters(Second);
 				Commands.Draw({.VertexCount = 3});
 				Commands.EndRenderPass();
+				// Submitted commands must own the logical snapshots and their upload allocations.
+				First.reset();
+				Second.reset();
+				Uniforms = {};
+				OffsetViews = {};
 				FByteBuffer Pixels;
 				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Target, 0, 0, Pixels));
 				ASSERT_EQ(Pixels.size(), 256u);
@@ -1319,6 +1344,12 @@ namespace Durin::VulkanRHI
 				EXPECT_EQ(Work.ScissorWrites, 2u);
 				EXPECT_EQ(Work.DepthBiasWrites, 1u);
 				EXPECT_EQ(Work.DescriptorBinds, 2u);
+				FRHIDiagnosticSnapshot Snapshot;
+				GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+					Snapshot = GDynamicRHI->RHIGetDiagnosticSnapshot();
+				});
+				// The two sparse empty sets share one descriptor; both color bindings share another.
+				EXPECT_EQ(Snapshot.PipelineCache.DescriptorSnapshots.NativeCreations, 2u);
 			}
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 			RHIExit();

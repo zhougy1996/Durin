@@ -190,8 +190,9 @@ namespace Durin::VulkanRHI
 		{
 			if (!Binding.bDirty) continue;
 			const auto Snapshot = FRHIDeferredBufferBackend::ResolveSnapshot(*Binding.Logical->GetBuffer());
+			const bool bDynamic = Binding.Parameter.Type == ERHIBindingType::UniformBufferDynamic;
 			auto Resolved = Binding.Resolved;
-			if (!Resolved || Resolved->Snapshot != Snapshot)
+			if (!Resolved || Resolved->Snapshot != Snapshot || Resolved->bDynamic != bDynamic)
 			{
 				Resolved.reset();
 				const auto& Desc = Binding.Logical->GetBuffer()->GetDesc();
@@ -229,12 +230,25 @@ namespace Durin::VulkanRHI
 				Resolved->Snapshot = Snapshot;
 				Resolved->Backing = Backing;
 				Resolved->Lease = Backing->Lease;
-				Resolved->View = new FVulkanBufferView(Device, Backing->Buffer, ViewDesc);
+				Resolved->PhysicalOffset = ViewDesc.Offset;
+				Resolved->bDynamic = bDynamic;
+				// The descriptor names the upload page; the binding selects its immutable allocation.
+				if (bDynamic) ViewDesc.Offset = 0;
+				Resolved->View = bDynamic
+					? Device.GetRHI().RHIGetOrCreateBufferView(Backing->Buffer, ViewDesc)
+					: TRefCountPtr<FRHIBufferView>(new FVulkanBufferView(Device, Backing->Buffer, ViewDesc));
+				requiref(Resolved->View, "Could not create a deferred buffer descriptor view.");
 				Binding.Resolved = Resolved;
 			}
 			Binding.bDirty = false;
 			auto Parameter = Binding.Parameter;
 			Parameter.Resource = Resolved->View.GetReference();
+			if (bDynamic)
+			{
+				const uint64 Offset = Resolved->PhysicalOffset + Parameter.Offset;
+				requiref(Offset <= UINT32_MAX, "Deferred dynamic uniform offset exceeds Vulkan limits.");
+				Parameter.Offset = static_cast<uint32>(Offset);
+			}
 			Result.push_back(Parameter);
 		}
 		return Result;
@@ -251,9 +265,14 @@ namespace Durin::VulkanRHI
 			auto* Buffer = FVulkanBuffer::Cast(Resolved->View->GetBuffer());
 			const bool bUniform = Binding.Logical->GetDesc().Type == ERHIBufferViewType::Uniform;
 			// Read-to-read changes need no memory dependency for immutable host-initialized data.
-			Buffer->GetStateTracker().Apply(Resolved->View->GetDesc().Offset, Resolved->View->GetDesc().Size, Pipeline == ERHIPipeline::Compute
+			const uint64 Offset = Resolved->PhysicalOffset
+				+ (Resolved->bDynamic ? Binding.Parameter.Offset : 0);
+			const ERHIAccess Expected = Pipeline == ERHIPipeline::Compute
 				? (bUniform ? ERHIAccess::ComputeUniformRead : ERHIAccess::ComputeShaderRead)
-				: (bUniform ? ERHIAccess::GraphicsUniformRead : ERHIAccess::GraphicsShaderRead));
+				: (bUniform ? ERHIAccess::GraphicsUniformRead : ERHIAccess::GraphicsShaderRead);
+			ERHIAccess Tracked = ERHIAccess::None;
+			if (!Buffer->GetStateTracker().Validate(Offset, Resolved->View->GetDesc().Size, Expected, Tracked))
+				Buffer->GetStateTracker().Apply(Offset, Resolved->View->GetDesc().Size, Expected);
 			Context.RetainAllocation(Resolved->Lease);
 			Context.RetainAllocation(Resolved);
 		}

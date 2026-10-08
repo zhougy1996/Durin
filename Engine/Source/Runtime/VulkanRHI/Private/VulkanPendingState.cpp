@@ -14,6 +14,29 @@
 
 namespace Durin::VulkanRHI
 {
+	// Descriptor buffer identity is its retained backing and fixed range, not a view wrapper.
+	static auto GetDescriptorResourceIdentity(const FRHIShaderParameterResource& Resource)
+		-> std::tuple<const FRHIResource*, uint64, uint64>
+	{
+		if (Resource.Type == ERHIBindingType::UniformBuffer
+			|| Resource.Type == ERHIBindingType::UniformBufferDynamic
+			|| Resource.Type == ERHIBindingType::StorageBuffer)
+		{
+			const auto* View = static_cast<const FRHIBufferView*>(Resource.Resource);
+			return {View->GetBuffer(), View->GetDesc().Offset, View->GetDesc().Size};
+		}
+		return {Resource.Resource, 0, 0};
+	}
+
+	static auto DescriptorResourcesEqual(const FRHIShaderParameterResource& A,
+		const FRHIShaderParameterResource& B) -> bool
+	{
+		return A.BindingIndex == B.BindingIndex
+			&& A.ArrayElement == B.ArrayElement && A.Type == B.Type && A.Size == B.Size
+			&& (A.Type == ERHIBindingType::UniformBufferDynamic || A.Offset == B.Offset)
+			&& GetDescriptorResourceIdentity(A) == GetDescriptorResourceIdentity(B);
+	}
+
 	static auto UpdateDescriptorSets(FVulkanDevice& Device, FVulkanDescriptorWriteScratch& Scratch,
 		std::span<const FRHIShaderParameterResource> Resources,
 		std::span<const vk::DescriptorSet> DescriptorSets, uint32 FirstSet = 0) -> void
@@ -143,6 +166,7 @@ namespace Durin::VulkanRHI
 		}
 		for (const FRHIShaderParameterResource& Parameter : InResourceParameters)
 		{
+			if (!bResolvingDeferred && IsCPUAuthoredBufferResource(Parameter.Resource)) continue;
 			const auto It = std::ranges::find_if(PendingResources,
 				[&](const FRHIShaderParameterResource& Existing) {
 					return Existing.SetIndex == Parameter.SetIndex
@@ -244,14 +268,8 @@ namespace Durin::VulkanRHI
 			if (A.size() != B.size()) return false;
 			for (size_t Index = 0; Index < A.size(); ++Index)
 			{
-				if (A[Index].Resource != B[Index].Resource
-					|| A[Index].SetIndex != B[Index].SetIndex
-					|| A[Index].BindingIndex != B[Index].BindingIndex
-					|| A[Index].ArrayElement != B[Index].ArrayElement
-					|| A[Index].Type != B[Index].Type
-					|| (A[Index].Type != ERHIBindingType::UniformBufferDynamic
-						&& A[Index].Offset != B[Index].Offset)
-					|| A[Index].Size != B[Index].Size) return false;
+				if (A[Index].SetIndex != B[Index].SetIndex
+					|| !DescriptorResourcesEqual(A[Index], B[Index])) return false;
 			}
 			return true;
 		};
@@ -270,7 +288,11 @@ namespace Durin::VulkanRHI
 					? (Buffer->IsDeferredReadOnly() ? ERHIAccess::ComputeShaderRead : ERHIAccess::ComputeShaderReadWrite)
 					: ERHIAccess::ComputeUniformRead;
 				ERHIAccess Tracked = ERHIAccess::None;
-				checkf(Buffer->GetStateTracker().Validate(View->GetDesc().Offset,
+				const uint64 Offset = View->GetDesc().Offset
+					+ (Resource.Type == ERHIBindingType::UniformBufferDynamic ? Resource.Offset : 0);
+				checkf(Offset <= Buffer->GetSize() && View->GetDesc().Size <= Buffer->GetSize() - Offset,
+					"Compute buffer descriptor range exceeds its buffer.");
+				checkf(Buffer->GetStateTracker().Validate(Offset,
 					View->GetDesc().Size, Expected, Tracked),
 					"Compute buffer descriptor binding state mismatch.");
 				if (Resource.Type == ERHIBindingType::UniformBufferDynamic)
@@ -426,6 +448,8 @@ namespace Durin::VulkanRHI
 		if (!bResolvingDeferred) DeferredBindings.Update(InResourceParameters);
 		for (const auto& ResourceParameter : InResourceParameters)
 		{
+			// Resolve logical updates before deciding whether native descriptor contents changed.
+			if (!bResolvingDeferred && IsCPUAuthoredBufferResource(ResourceParameter.Resource)) continue;
 			if (PendingSets.size() <= ResourceParameter.SetIndex)
 				PendingSets.resize(static_cast<size_t>(ResourceParameter.SetIndex) + 1);
 			auto& Set = PendingSets[ResourceParameter.SetIndex];
@@ -446,13 +470,12 @@ namespace Durin::VulkanRHI
 			else
 			{
 				Set.bOwnersDirty |= FoundIt->Resource != ResourceParameter.Resource;
-				if (FoundIt->Resource != ResourceParameter.Resource || FoundIt->Type != ResourceParameter.Type
-					|| FoundIt->Size != ResourceParameter.Size
-					|| (ResourceParameter.Type != ERHIBindingType::UniformBufferDynamic && FoundIt->Offset != ResourceParameter.Offset))
+				if (FoundIt->Resource != ResourceParameter.Resource
+					|| !DescriptorResourcesEqual(*FoundIt, ResourceParameter))
 				{
 					bStructureValidated = false;
-					Set.Selected.reset();
 				}
+				if (!DescriptorResourcesEqual(*FoundIt, ResourceParameter)) Set.Selected.reset();
 				*FoundIt = ResourceParameter;
 			}
 		}
@@ -748,7 +771,10 @@ namespace Durin::VulkanRHI
 				HashBuilder.UpdateValue(Resource.BindingIndex);
 				HashBuilder.UpdateValue(Resource.ArrayElement);
 				HashBuilder.UpdateValue(Resource.Type);
-				HashBuilder.UpdateValue(reinterpret_cast<uintptr_t>(Resource.Resource));
+				const auto [Backing, Offset, Range] = GetDescriptorResourceIdentity(Resource);
+				HashBuilder.UpdateValue(reinterpret_cast<uintptr_t>(Backing));
+				HashBuilder.UpdateValue(Offset);
+				HashBuilder.UpdateValue(Range);
 				HashBuilder.UpdateValue(Resource.Size);
 				if (Resource.Type != ERHIBindingType::UniformBufferDynamic) HashBuilder.UpdateValue(Resource.Offset);
 			}
@@ -760,11 +786,7 @@ namespace Durin::VulkanRHI
 				// The device layout cache interns complete structural layouts. Set index
 				// is external to descriptor-set compatibility.
 				if (Entry->Layout == Layout && std::ranges::equal(Entry->Resources, Resources,
-					[](const auto& A, const auto& B) {
-						return A.Resource == B.Resource && A.BindingIndex == B.BindingIndex
-							&& A.ArrayElement == B.ArrayElement && A.Type == B.Type && A.Size == B.Size
-							&& (A.Type == ERHIBindingType::UniformBufferDynamic || A.Offset == B.Offset);
-					}))
+					DescriptorResourcesEqual))
 				{
 					return Entry;
 				}
