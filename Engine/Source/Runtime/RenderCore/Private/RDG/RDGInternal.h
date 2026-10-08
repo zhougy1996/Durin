@@ -75,6 +75,7 @@ namespace Durin::RDGPrivate
 		std::string_view ParameterPath;
 		std::string_view ShaderBindingName;
 		ERHIBindingType ShaderBindingType = ERHIBindingType::Texture;
+		bool bInstanceAccess = false;
 	};
 
 	using FOptionalAlias = std::pair<uint32, uint32>;

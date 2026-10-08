@@ -103,6 +103,14 @@ namespace Durin::RDGPrivate
 				uint32 ExpectedElementSize = 0;
 				switch (Member.Kind)
 				{
+				case ERDGParameterMemberKind::TextureAccess:
+					ExpectedElementSize = Member.bOptional
+						? sizeof(std::optional<FRDGTextureAccess>) : sizeof(FRDGTextureAccess);
+					break;
+				case ERDGParameterMemberKind::BufferAccess:
+					ExpectedElementSize = Member.bOptional
+						? sizeof(std::optional<FRDGBufferAccess>) : sizeof(FRDGBufferAccess);
+					break;
 				case ERDGParameterMemberKind::Texture:
 					ExpectedElementSize = Member.bOptional
 						? sizeof(std::optional<FRDGTextureParameter>)
@@ -167,6 +175,15 @@ namespace Durin::RDGPrivate
 				bool bShapeValid = false;
 				switch (Member.Kind)
 				{
+				case ERDGParameterMemberKind::TextureAccess:
+				case ERDGParameterMemberKind::BufferAccess:
+					bShapeValid = (Member.Kind == ERDGParameterMemberKind::TextureAccess
+						? bTextureKind && Member.RangeKind == ERDGParameterRangeKind::TextureSubresource
+						: bBufferKind && Member.RangeKind == ERDGParameterRangeKind::BufferBytes)
+						&& Member.Use == ERDGUse::Read && Member.Access == ERHIAccess::None
+						&& !Member.bDiscard && !Member.bPassManagedTransition
+						&& Member.ResultAccess == ERHIAccess::None;
+					break;
 				case ERDGParameterMemberKind::Texture:
 					bShapeValid = bTextureKind
 						&& Member.RangeKind == ERDGParameterRangeKind::TextureSubresource
@@ -258,13 +275,17 @@ namespace Durin::RDGPrivate
 					}
 					ShaderBindingNames.emplace_back(Member.ShaderBindingName);
 
-					const bool bTextureBinding = Member.Kind
+					const bool bInstanceAccess = Member.Kind == ERDGParameterMemberKind::TextureAccess
+						|| Member.Kind == ERDGParameterMemberKind::BufferAccess;
+					const bool bTextureBinding = (Member.Kind
 						== ERDGParameterMemberKind::Texture
+						|| Member.Kind == ERDGParameterMemberKind::TextureAccess)
 						&& (Member.ShaderBindingType == ERHIBindingType::Texture
 							|| Member.ShaderBindingType
 								== ERHIBindingType::StorageImage);
-					const bool bBufferBinding = Member.Kind
+					const bool bBufferBinding = (Member.Kind
 						== ERDGParameterMemberKind::Buffer
+						|| Member.Kind == ERDGParameterMemberKind::BufferAccess)
 						&& Member.ShaderBindingType
 							== ERHIBindingType::StorageBuffer;
 					const bool bUav = Member.ShaderBindingType
@@ -283,7 +304,7 @@ namespace Durin::RDGPrivate
 							&& EnumHasAnyFlags(Member.Access,
 								ShaderRead | ShaderReadWrite);
 					if ((!bTextureBinding && !bBufferBinding)
-						|| !bAccessCompatible)
+						|| (!bInstanceAccess && !bAccessCompatible))
 					{
 						return std::unexpected(FRDGMetadataError{ERDGMetadataError::ShaderDeclarationIncompatible, MetadataContext(*Metadata, Member)});
 					}
@@ -346,6 +367,8 @@ namespace Durin::RDGPrivate
 		Use.Use = Member.Use;
 		Use.Access = Member.Access;
 		Use.bDiscard = Member.bDiscard;
+		Use.bInstanceAccess = Member.Kind == ERDGParameterMemberKind::TextureAccess
+			|| Member.Kind == ERDGParameterMemberKind::BufferAccess;
 		Use.bPassManagedTransition = Member.bPassManagedTransition;
 		Use.ResultAccess = Member.ResultAccess;
 		Use.ParameterPath = FieldPath;
@@ -435,9 +458,11 @@ namespace Durin
 					switch (Member.Kind)
 					{
 					case ERDGParameterMemberKind::Texture:
+					case ERDGParameterMemberKind::TextureAccess:
 					case ERDGParameterMemberKind::ManagedTexture:
 						AddCategory(Layout->TextureElements); break;
 					case ERDGParameterMemberKind::Buffer:
+					case ERDGParameterMemberKind::BufferAccess:
 						AddCategory(Layout->BufferElements); break;
 					case ERDGParameterMemberKind::ValueRead:
 					case ERDGParameterMemberKind::ValueWrite:
@@ -546,6 +571,34 @@ namespace Durin
 			&& InMetadata == Layout->Metadata,
 			"Render graph pass '{}' attempted composed shader submission from a "
 			"copied or foreign parameter object.", PassName);
+	}
+
+	auto FRDGParameterResolver::GetTexture(const FRDGTextureAccess& Parameter) const -> FRHITexture*
+	{
+		FindMember(&Parameter, ERDGParameterMemberKind::TextureAccess,
+			ERDGParameterMemberKind::TextureAccess, false);
+		return Resources.GetTexture(Parameter.Texture);
+	}
+
+	auto FRDGParameterResolver::GetTexture(const std::optional<FRDGTextureAccess>& Parameter) const -> FRHITexture*
+	{
+		FindMember(&Parameter, ERDGParameterMemberKind::TextureAccess,
+			ERDGParameterMemberKind::TextureAccess, true);
+		return Parameter ? Resources.GetTexture(Parameter->Texture) : nullptr;
+	}
+
+	auto FRDGParameterResolver::GetBuffer(const FRDGBufferAccess& Parameter) const -> FRHIBuffer*
+	{
+		FindMember(&Parameter, ERDGParameterMemberKind::BufferAccess,
+			ERDGParameterMemberKind::BufferAccess, false);
+		return Resources.GetBuffer(Parameter.Buffer);
+	}
+
+	auto FRDGParameterResolver::GetBuffer(const std::optional<FRDGBufferAccess>& Parameter) const -> FRHIBuffer*
+	{
+		FindMember(&Parameter, ERDGParameterMemberKind::BufferAccess,
+			ERDGParameterMemberKind::BufferAccess, true);
+		return Parameter ? Resources.GetBuffer(Parameter->Buffer) : nullptr;
 	}
 
 	auto FRDGParameterResolver::GetTexture(

@@ -985,6 +985,238 @@ namespace Durin
 		}
 	} // namespace
 
+	TEST_F(FRDGTests, InstanceAccessSharesLayoutAcrossDomainsAndResolvesExactMembers)
+	{
+		const auto* Layout = GetRDGParameterLayout<FInstanceAccessParameters>();
+		ASSERT_NE(Layout, nullptr);
+		EXPECT_EQ(Layout->TextureElements.size(), 2u);
+		EXPECT_EQ(Layout->BufferElements.size(), 1u);
+		for (const auto Domain : {ERDGPassType::Graphics, ERDGPassType::Compute, ERDGPassType::Copy})
+		{
+			const auto Access = Domain == ERDGPassType::Graphics ? ERHIAccess::GraphicsShaderRead
+				: Domain == ERDGPassType::Compute ? ERHIAccess::ComputeShaderRead : ERHIAccess::TransferRead;
+			auto Texture = MakeGraphTexture("Instance", 2);
+			auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("Buffer", 256, 4, EBufferUsageFlags::UnorderedAccess));
+			FRDGBuilder Builder;
+			const auto Handle = Builder.RegisterExternalTexture(Texture, "Instance", Access, Access);
+			const auto BufferHandle = Builder.RegisterExternalBuffer(Buffer, "Buffer", Access, Access);
+			auto Parameters = Builder.AllocParameters<FInstanceAccessParameters>();
+			Parameters->Textures[1] = FRDGTextureAccess{Handle, {ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Read, Access};
+			Parameters->Buffer = FRDGBufferAccess{BufferHandle, 32, 128, ERDGUse::Read, Access};
+			uint32 Calls = 0;
+			Builder.AddPass("Instance", Domain, std::move(Parameters),
+				[&](FRHICommandListImmediate&, const FInstanceAccessParameters& Values, const FRDGParameterResolver& Resolver) {
+					EXPECT_EQ(Resolver.GetTexture(Values.Textures[0]), nullptr);
+					EXPECT_EQ(Resolver.GetTexture(Values.Textures[1]), Texture.GetReference());
+					EXPECT_EQ(Resolver.GetTexture(*Values.Textures[1]), Texture.GetReference());
+					EXPECT_EQ(Resolver.GetBuffer(Values.Buffer), Buffer.GetReference());
+					EXPECT_EQ(Resolver.GetBuffer(*Values.Buffer), Buffer.GetReference());
+					++Calls;
+				});
+			const auto Result = Builder.Execute(GetCommandList());
+			ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+			EXPECT_EQ(Calls, 1u);
+			const auto& Capture = Builder.Capture();
+			ASSERT_EQ(Capture.Parameters.size(), 3u);
+			EXPECT_FALSE(Capture.Parameters[0].bPresent);
+			EXPECT_EQ(Capture.Parameters[1].Access, Access);
+			EXPECT_EQ(Capture.Parameters[1].TextureRange.FirstMip, 1u);
+			EXPECT_EQ(Capture.Parameters[2].BufferOffset, 32u);
+			EXPECT_EQ(Capture.Parameters[2].BufferSize, 128u);
+			EXPECT_EQ(GetRDGParameterLayout<FInstanceAccessParameters>(), Layout);
+		}
+	}
+
+	TEST_F(FRDGTests, InstanceAccessFreezesNestedOptionalArrayDeclarationsAtSubmission)
+	{
+		FRDGBuilder Builder;
+		const auto Handle = Builder.RegisterExternalTexture(MakeGraphTexture("Frozen", 2), "Frozen",
+			ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+		auto Parameters = Builder.AllocParameters<FNestedInstanceAccessParameters>();
+		Parameters->Inputs[1].Textures[1] = FRDGTextureAccess{Handle,
+			{ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Read, ERHIAccess::ComputeShaderRead};
+		auto* Payload = &Parameters.Get();
+		FRDGBuilderTestAccessor::AddPass(Builder, "Frozen", ERDGPassType::Compute, std::move(Parameters));
+		// Change all runtime authority before compilation, not just after Capture.
+		Payload->Inputs[1].Textures[1]->Access = ERHIAccess::None;
+		Payload->Inputs[1].Textures[1]->Range.FirstMip = 99;
+		Payload->Inputs[0].Textures[0] = Payload->Inputs[1].Textures[1];
+		Payload->Inputs[1].Textures[1].reset();
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+		const auto& Capture = Builder.Capture();
+		ASSERT_EQ(Capture.Parameters.size(), 6u);
+		EXPECT_FALSE(Capture.Parameters[0].bPresent);
+		EXPECT_TRUE(Capture.Parameters[4].bPresent);
+		EXPECT_EQ(Capture.Parameters[4].FieldPath, "FNestedInstanceAccessParameters.Inputs[1].Textures[1]");
+		EXPECT_EQ(Capture.Parameters[4].Access, ERHIAccess::ComputeShaderRead);
+		EXPECT_EQ(Capture.Parameters[4].TextureRange.FirstMip, 1u);
+	}
+
+	TEST_F(FRDGTests, InstanceAccessRejectsMalformedDeclarationsEvenWhenPassWouldBeCulled)
+	{
+		struct FCase { ERDGUse Use; ERHIAccess Access; bool bDiscard; ERDGUseError Error; };
+		const std::array Cases{
+			FCase{ERDGUse::Read, ERHIAccess::None, false, ERDGUseError::RequiredAccessInvalid},
+			FCase{ERDGUse::Read, ERHIAccess::VertexBufferRead, false, ERDGUseError::RequiredAccessInvalid},
+			FCase{ERDGUse::ReadWrite, ERHIAccess::GraphicsShaderReadWrite | ERHIAccess::GraphicsShaderRead, false, ERDGUseError::RequiredAccessInvalid},
+			FCase{ERDGUse::ReadWrite, ERHIAccess::DepthStencilReadWrite, false, ERDGUseError::RequiredAccessInvalid},
+			FCase{ERDGUse::Read, ERHIAccess::ComputeShaderRead, false, ERDGUseError::PassAccessIncompatible},
+			FCase{ERDGUse::Read, ERHIAccess::GraphicsShaderReadWrite, false, ERDGUseError::UseAccessMismatch},
+			FCase{ERDGUse::Write, ERHIAccess::GraphicsShaderRead, false, ERDGUseError::UseAccessMismatch},
+			FCase{ERDGUse::ReadWrite, ERHIAccess::GraphicsShaderRead, false, ERDGUseError::UseAccessMismatch},
+			FCase{ERDGUse::Read, ERHIAccess::GraphicsShaderRead, true, ERDGUseError::ReadDiscardInvalid},
+			FCase{static_cast<ERDGUse>(255), ERHIAccess::GraphicsShaderRead, false, ERDGUseError::UseAccessMismatch}};
+		for (const auto& Case : Cases)
+		{
+			FRDGBuilder Builder;
+			Builder.EnablePassCulling();
+			const auto Handle = CreateTestTexture(Builder, "Dead", MakeGraphTexture("Dead"));
+			auto Parameters = Builder.AllocParameters<FInstanceAccessParameters>();
+			Parameters->Textures[0] = FRDGTextureAccess{Handle, WholeColor(), Case.Use, Case.Access, Case.bDiscard};
+			FRDGBuilderTestAccessor::AddPass(Builder, "Dead", ERDGPassType::Graphics, std::move(Parameters));
+			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+			ASSERT_FALSE(Result.has_value());
+			EXPECT_TRUE(HasRDGTestReason(Result.error(), Case.Error)) << ToString(Result.error());
+		}
+	}
+
+	TEST_F(FRDGTests, InstanceShaderDecorationCannotWidenDeclaredAccess)
+	{
+		FRDGBuilder Builder;
+		Builder.EnablePassCulling();
+		const auto Handle = CreateTestTexture(Builder, "Dead", MakeGraphTexture("Dead"));
+		auto Parameters = Builder.AllocParameters<FInstanceShaderAccessParameters>();
+		ASSERT_TRUE(Parameters);
+		Parameters->Texture = {Handle, WholeColor(), ERDGUse::Read, ERHIAccess::TransferRead};
+		FRDGBuilderTestAccessor::AddPass(Builder, "Dead", ERDGPassType::Copy, std::move(Parameters));
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_FALSE(Result.has_value());
+		EXPECT_TRUE(HasRDGTestReason(Result.error(), ERDGUseError::UseAccessMismatch));
+	}
+
+	TEST_F(FRDGTests, InstanceAccessPreservesDiscardVersioningAndDeclarationOrder)
+	{
+		for (const bool bDiscard : {false, true})
+		{
+			FRDGBuilder Builder;
+			Builder.EnablePassCulling();
+			const auto Handle = CreateTestTexture(Builder, "Versioned", MakeGraphTexture("Versioned"));
+			for (const auto* Name : {"First", "Second"})
+			{
+				auto Parameters = Builder.AllocParameters<FInstanceAccessParameters>();
+				const bool bFirst = std::string_view(Name) == "First";
+				Parameters->Textures[0] = FRDGTextureAccess{Handle, WholeColor(), ERDGUse::ReadWrite,
+					ERHIAccess::ComputeShaderReadWrite, bFirst || bDiscard};
+				const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, Name, ERDGPassType::Compute, std::move(Parameters));
+				if (!bFirst) Builder.MarkPassRoot(Pass, "result");
+			}
+			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+			ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+			ASSERT_EQ(Builder.GetPasses().size(), bDiscard ? 1u : 2u);
+			EXPECT_EQ(Builder.GetPasses().back().Name, "Second");
+			if (!bDiscard) EXPECT_EQ(Builder.GetPasses().front().Name, "First");
+			EXPECT_EQ(Builder.GetCullingDecisions().front().bCulled, bDiscard);
+		}
+	}
+
+	TEST_F(FRDGTests, InstanceAccessRejectsExactRangeOverflowAndForeignHandles)
+	{
+		for (uint32 Case = 0; Case < 4; ++Case)
+		{
+			FRDGBuilder Builder, Other;
+			Builder.EnablePassCulling();
+			auto Parameters = Builder.AllocParameters<FInstanceAccessParameters>();
+			if (Case < 2)
+			{
+				const auto Handle = CreateTestTexture(Case == 1 ? Other : Builder, "Texture", MakeGraphTexture("Texture"));
+				Parameters->Textures[0] = FRDGTextureAccess{Handle,
+					{ERHITextureAspect::Color, Case == 0 ? 1u : 0u, 1, 0, 1}, ERDGUse::Read, ERHIAccess::ComputeShaderRead};
+			}
+			else
+			{
+				auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("Buffer", 64, 4, EBufferUsageFlags::UnorderedAccess));
+				const auto Handle = Builder.RegisterExternalBuffer(Buffer, "Buffer", ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+				Parameters->Buffer = FRDGBufferAccess{Handle, 32,
+					Case == 2 ? 33u : 0u, ERDGUse::Read, ERHIAccess::ComputeShaderRead};
+			}
+			FRDGBuilderTestAccessor::AddPass(Builder, "Dead", ERDGPassType::Compute, std::move(Parameters));
+			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+			ASSERT_FALSE(Result.has_value());
+			const auto Reason = Case == 0 ? ERDGUseError::TextureRangeInvalid
+				: Case == 1 ? ERDGUseError::ResourceHandleInvalid : ERDGUseError::BufferRangeInvalid;
+			EXPECT_TRUE(HasRDGTestReason(Result.error(), Reason)) << ToString(Result.error());
+		}
+	}
+
+	TEST_F(FRDGTests, InstanceShaderAccessSubmitsExactTextureView)
+	{
+		FRDGBuilder Builder;
+		const auto Handle = Builder.RegisterExternalTexture(MakeGraphTexture("Sampled", 2), "Sampled",
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("Buffer", 256, 4, EBufferUsageFlags::StructuredBuffer));
+		const auto BufferHandle = Builder.RegisterExternalBuffer(Buffer, "Buffer",
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		auto Parameters = Builder.AllocParameters<FInstanceShaderAccessParameters>();
+		Parameters->Texture = {Handle, {ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Read, ERHIAccess::GraphicsShaderRead};
+		Parameters->Buffer = FRDGBufferAccess{BufferHandle, 32, 128, ERDGUse::Read, ERHIAccess::GraphicsShaderRead};
+		uint32 Calls = 0;
+		Builder.AddPass("Sampled", ERDGPassType::Graphics, std::move(Parameters),
+			[&](FRHICommandListImmediate&, const FInstanceShaderAccessParameters& Values, const FRDGParameterResolver& Resolver) {
+				FRHICommandList Commands;
+				Commands.SwitchPipeline(ERHIPipeline::Graphics);
+				auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Fragment, FXxHash128{}));
+				const std::array Bindings{FShaderParameterBinding{
+					.Name = "Texture", .Type = ERHIBindingType::Texture, .bGraphResource = true},
+					FShaderParameterBinding{.Name = "Buffer", .BindingIndex = 1,
+						.Type = ERHIBindingType::StorageBuffer, .bGraphResource = true}};
+				const auto Scope = Resolver.GetShaderParameters(Values);
+				SetRDGShaderParametersImpl(Commands, Shader.GetReference(), "FInstanceFixture",
+					EShaderFrequency::Fragment, Bindings, Scope, nullptr, nullptr);
+				EXPECT_GT(Commands.GetNumRecordedCommands(), 0u);
+				++Calls;
+			});
+		const auto Result = Builder.Execute(GetCommandList());
+		ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+		EXPECT_EQ(Calls, 1u);
+	}
+
+	TEST_F(FRDGTests, InstanceAccessMatchesStaticDeclarationAndRejectsCopiedResolverMember)
+	{
+		auto Capture = [](bool bDynamic) {
+			FRDGBuilder Builder;
+			const auto Handle = Builder.RegisterExternalTexture(MakeGraphTexture("Input"), "Input",
+				ERHIAccess::TransferRead, ERHIAccess::TransferRead);
+			if (bDynamic)
+			{
+				auto Parameters = Builder.AllocParameters<FInstanceAccessParameters>();
+				Parameters->Textures[0] = FRDGTextureAccess{Handle, WholeColor(), ERDGUse::Read, ERHIAccess::TransferRead};
+				FRDGBuilderTestAccessor::AddPass(Builder, "Read", ERDGPassType::Copy, std::move(Parameters));
+			}
+			else
+			{
+				auto Parameters = Builder.AllocParameters<FCopyResolutionParameters>();
+				Parameters->Texture = {Handle, WholeColor()};
+				FRDGBuilderTestAccessor::AddPass(Builder, "Read", ERDGPassType::Copy, std::move(Parameters));
+			}
+			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+			EXPECT_TRUE(Result.has_value());
+			return StripParameterFields(Builder.Dump());
+		};
+		EXPECT_EQ(Capture(false), Capture(true));
+		FRDGBuilder Builder;
+		const auto Handle = Builder.RegisterExternalTexture(MakeGraphTexture("Input"), "Input",
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		auto Parameters = Builder.AllocParameters<FInstanceAccessParameters>();
+		Parameters->Textures[0] = FRDGTextureAccess{Handle, WholeColor(), ERDGUse::Read, ERHIAccess::GraphicsShaderRead};
+		Builder.AddPass("Copied", ERDGPassType::Graphics, std::move(Parameters),
+			[](FRHICommandListImmediate&, const FInstanceAccessParameters& Values, const FRDGParameterResolver& Resolver) {
+				const auto Copy = Values.Textures[0];
+				Resolver.GetTexture(Copy);
+			});
+		EXPECT_DEATH(static_cast<void>(Builder.Execute(GetCommandList())), "not declared");
+	}
+
 	TEST_F(FRDGTests, ExecuteConsumesEmptyManualParameterizedAndTypedGraphs)
 	{
 		for (int Shape = 0; Shape < 4; ++Shape)

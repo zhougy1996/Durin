@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-10-03
+Last reviewed: 2026-10-08
 
 ## Reading and Calling the Graph
 
@@ -417,10 +417,22 @@ object in builder-owned aligned storage. The metadata for `T` owns its stable
 structure name, size, alignment, and ordered member descriptions. Supported
 members are texture, buffer, token, typed-value read/write, color attachment,
 depth/stencil attachment, and managed-texture wrappers; a member may be a fixed array, an
-`std::optional` wrapper, or a nested registered parameter structure. Wrappers
-store only graph-local handles and exact runtime ranges. Metadata stores the
-invariant use, access, discard, attachment action, managed-transition, and
-result-access intent.
+`std::optional` wrapper, or a nested registered parameter structure. Static
+wrappers store graph-local handles and exact runtime ranges; their metadata
+stores invariant use, access, discard, attachment actions, managed-transition,
+and result-access intent.
+
+`FRDGTextureAccess` and `FRDGBufferAccess` instead carry `Use`, `Access`, and
+`bDiscard` in each instance alongside the handle and exact range. Their typed
+metadata constructors describe category and shape only. One cached layout can
+serve graphics, compute, and copy declarations without retaining instance or
+graph state. Submission snapshots both forms into the same canonical uses;
+compilation and lazy diagnostics never reread access from the parameter object.
+A dynamic read cannot write or discard, and write/read-write requires write
+access. Resource category, pass domain, handle ownership, exact range, and shader
+decoration are validated before culling. Dynamic access has no managed exit
+state. Optional and fixed-array traversal and resolver address authority are
+the same as for static wrappers.
 
 `MakeRDGIndirectArgumentMetadata` fixes one buffer member to read-only
 `IndirectArgumentRead`. It is legal in graphics and compute passes, cannot be
@@ -496,6 +508,10 @@ in one RHI parameter command. A graphics shader requires a graphics pass and a
 compute shader requires a compute pass. SRVs require graph read authority and
 the matching shader-readable access; storage images and writable storage
 buffers require graph write authority and the matching read/write access.
+Instance access wrappers support the same decoration and exact-view submission;
+the annotation cannot widen the submitted access. Static decoration errors are
+metadata errors; instance access errors are normalized declaration errors with
+the pass and field path.
 
 Fixed arrays bind in element order and must match reflection extent. A
 disengaged optional is legal when the selected shader does not reflect its

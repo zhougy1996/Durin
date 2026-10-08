@@ -561,6 +561,24 @@ namespace Durin::RDGPrivate
 				return std::unexpected(FRDGUseError{ERDGUseError::ResourceHandleInvalid, UseContext(Pass, Use, nullptr, UseIndex)});
 			}
 			const auto& Resource = Resources[Use.ResourceIndex];
+			if (Use.bInstanceAccess && !IsExportAccessAllowed(Use.Kind, Use.Access))
+			{
+				return std::unexpected(FRDGUseError{ERDGUseError::RequiredAccessInvalid, UseContext(Pass, Use, &Resource, UseIndex)});
+			}
+			if (Use.bInstanceAccess)
+			{
+				ERHITextureLayout Layout;
+				// RHI write states are exclusive; texture reads must also select
+				// one representable native layout for the declared aspects.
+				if ((AccessHasWrite(Use.Access) && !std::has_single_bit(static_cast<uint32>(Use.Access)))
+					|| (Use.Kind == ERDGResourceKind::Texture
+						&& (!GetTextureLayoutForAccess(Use.Access, Layout)
+							|| (Use.Access == ERHIAccess::DepthStencilReadWrite
+								&& EnumHasAnyFlags(Use.TextureRange.Aspects, ERHITextureAspect::Color))
+							|| (Use.Access == ERHIAccess::ColorAttachmentReadWrite
+								&& Use.TextureRange.Aspects != ERHITextureAspect::Color))))
+					return std::unexpected(FRDGUseError{ERDGUseError::RequiredAccessInvalid, UseContext(Pass, Use, &Resource, UseIndex)});
+			}
 			if (Pass.bExport && !IsExportAccessAllowed(Use.Kind, Use.Access))
 			{
 				return std::unexpected(FRDGUseError{ERDGUseError::FinalAccessInvalid, UseContext(Pass, Use, &Resource, UseIndex)});
@@ -587,6 +605,22 @@ namespace Durin::RDGPrivate
 			if (Use.bDiscard && Use.Use == ERDGUse::Read)
 			{
 				return std::unexpected(FRDGUseError{ERDGUseError::ReadDiscardInvalid, UseContext(Pass, Use, nullptr, UseIndex)});
+			}
+			if (Use.bInstanceAccess
+				&& ((Use.Use != ERDGUse::Read && Use.Use != ERDGUse::Write && Use.Use != ERDGUse::ReadWrite)
+					|| (Use.Use == ERDGUse::ReadWrite && !AccessHasWrite(Use.Access))))
+			{
+				return std::unexpected(FRDGUseError{ERDGUseError::UseAccessMismatch, UseContext(Pass, Use, &Resource, UseIndex)});
+			}
+			if (!Use.ShaderBindingName.empty())
+			{
+				const bool bUav = Use.ShaderBindingType == ERHIBindingType::StorageImage
+					|| (Use.ShaderBindingType == ERHIBindingType::StorageBuffer && Use.Use != ERDGUse::Read);
+				const ERHIAccess ShaderRead = ERHIAccess::GraphicsShaderRead | ERHIAccess::ComputeShaderRead;
+				const ERHIAccess ShaderWrite = ERHIAccess::GraphicsShaderReadWrite | ERHIAccess::ComputeShaderReadWrite;
+				if (bUav ? Use.Use == ERDGUse::Read || !EnumHasAnyFlags(Use.Access, ShaderWrite)
+					: Use.Use == ERDGUse::Write || !EnumHasAnyFlags(Use.Access, ShaderRead | ShaderWrite))
+					return std::unexpected(FRDGUseError{ERDGUseError::UseAccessMismatch, UseContext(Pass, Use, &Resource, UseIndex)});
 			}
 			if (Use.bPassManagedTransition
 				&& (Use.ResultAccess == ERHIAccess::None

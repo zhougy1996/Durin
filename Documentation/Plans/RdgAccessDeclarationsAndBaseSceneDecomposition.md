@@ -19,7 +19,19 @@ preserved Release GBuffer runs pass on GTX 1060.
 The [diagnostic receipt](../Development/Build/RenderingPerformanceBaselineReceipt20261008.md)
 records exact evidence and authority. Stage 0 remains open for complete route
 captures and an accepted timing baseline; GTX 1060 observations do not replace
-named RTX 3090 gates. Stages 1-5 have not started; no GPU acceptance gate is closed.
+named RTX 3090 gates. Stage 1 is implemented: typed instance
+texture/buffer access now normalizes at submission, uses the existing resolver
+authority and shader composition, and preserves static declarations.
+RenderContractTests passes 211/211, including eight new instance-access tests;
+the eight also pass individually under serial isolation. Workspace `all` passes.
+Affected validation passes 96/98 targets in its first batch; ContentBrowserWorkflowTests
+passes on a subsequent direct whole-target run. The remaining
+`FMaterialCompilerTests.MetalMaterialProgramCompilesAndCooks` failure reproduces
+alone: unchanged `ShaderBuilder.cpp::IsActiveCompilerTarget` rejects Metal on
+non-Apple hosts before compilation. This host-policy/test mismatch remains an
+explicit validation exception, not a waived or passed Metal gate. Stages 2-5
+have not started; no GPU acceptance gate is closed. The user confirmed an
+exclusive quiet GPU lane for measurements on 2026-10-08.
 
 The source review includes the current `BaseSceneRendering`, `SceneColorRendering`,
 RDG parameter lowering, RHI attachment contracts, and the locally installed UE
@@ -438,19 +450,29 @@ from CPU tests or from the UE implementation.
 Depends on: Stage 0 API and validation decisions.
 Outcome: one metadata layout supports different legal per-instance accesses.
 
-- [ ] Implement explicit texture/buffer access wrappers and typed metadata
+- [x] Implement explicit texture/buffer access wrappers and typed metadata
   decoding; preserve static convenience declarations through common lowering.
-- [ ] Freeze submitted values into normalized uses; adapt Capture, parameter
+- [x] Freeze submitted values into normalized uses; adapt Capture, parameter
   validation, optional/array traversal, and shader authority checks.
-- [ ] Test same-layout/different-instance access, exact ranges, nested arrays and
+- [x] Test same-layout/different-instance access, exact ranges, nested arrays and
   optionals, invalid access on culled passes, and layout-cache isolation.
-- [ ] Verify declaration immutability, copied/foreign resolver rejection, culling
+- [x] Verify declaration immutability, copied/foreign resolver rejection, culling
   closure, discard versioning, and execution ordering remain intact.
-- [ ] Migrate every affected shared API consumer and complete the required builds.
+- [x] Migrate every affected shared API consumer and complete the required builds.
 
 Gate: RenderContractTests and affected CPU contracts pass; static/dynamic forms
 produce equivalent normalized uses where their intents are equal. The required
 workspace `all` build passes for changed shared Engine APIs.
+
+Evidence (Win64-Debug-DurinEditor, 2026-10-08): full contracts
+`Build/.agent-state/logs/20261008-184315-776933-43816-RenderContractTests.log`,
+serial instance isolation `20261008-184424-301057-40664-ctest.log`, affected batch
+`20261008-184025-068049-24284-ctest.log`, Content Browser direct retry
+`20261008-184327-223218-15128-ContentBrowserWorkflowTests.log`, isolated Metal
+failure `20261008-184336-683439-11292-MaterialCompilerTests.log`, and workspace
+`all` `20261008-184352-199339-24192-cmake.log` (latter filenames under the same
+log directory). No shared-wrapper consumers require migration in Sandbox or
+RoadWeaver; both retain the workspace shared API build gate.
 
 ### Stage 2: Establish graph-owned attachment boundaries
 

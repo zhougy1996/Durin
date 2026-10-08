@@ -63,6 +63,27 @@ namespace Durin
 		uint64 Size = 0;
 	};
 
+	// Instance access is normalized when the pass is submitted, never cached in
+	// the shared parameter layout. Ranges are exact and discard is independent.
+	struct FRDGTextureAccess final
+	{
+		FRDGTextureHandle Texture;
+		FRHITextureSubresourceRange Range{};
+		ERDGUse Use = ERDGUse::Read;
+		ERHIAccess Access = ERHIAccess::None;
+		bool bDiscard = false;
+	};
+
+	struct FRDGBufferAccess final
+	{
+		FRDGBufferHandle Buffer;
+		uint64 Offset = 0;
+		uint64 Size = 0;
+		ERDGUse Use = ERDGUse::Read;
+		ERHIAccess Access = ERHIAccess::None;
+		bool bDiscard = false;
+	};
+
 	// Carries one graph-local logical scheduling value.
 	struct FRDGTokenParameter final
 	{
@@ -283,6 +304,8 @@ namespace Durin
 		constexpr bool bExpectedWrapper =
 			std::same_as<ExpectedType, FRDGTextureParameter>
 			|| std::same_as<ExpectedType, FRDGBufferParameter>
+			|| std::same_as<ExpectedType, FRDGTextureAccess>
+			|| std::same_as<ExpectedType, FRDGBufferAccess>
 			|| std::same_as<ExpectedType, FRDGTokenParameter>
 			|| std::same_as<ExpectedType, FRDGColorAttachmentParameter>
 			|| std::same_as<ExpectedType,
@@ -318,6 +341,26 @@ namespace Durin
 				return Optional ? static_cast<const void*>(&*Optional) : nullptr;
 			};
 		return Metadata;
+	}
+
+	template<typename ParameterStruct, typename MemberType>
+	constexpr auto MakeRDGTextureAccessMetadata(const char* Name, uint32 Offset)
+		-> FRDGParameterMemberMetadata
+	{
+		return MakeRDGResourceParameterMemberMetadata<ParameterStruct, MemberType,
+			FRDGTextureAccess>(Name, Offset, ERDGParameterMemberKind::TextureAccess,
+			ERDGResourceKind::Texture, ERDGParameterRangeKind::TextureSubresource,
+			ERDGUse::Read, ERHIAccess::None);
+	}
+
+	template<typename ParameterStruct, typename MemberType>
+	constexpr auto MakeRDGBufferAccessMetadata(const char* Name, uint32 Offset)
+		-> FRDGParameterMemberMetadata
+	{
+		return MakeRDGResourceParameterMemberMetadata<ParameterStruct, MemberType,
+			FRDGBufferAccess>(Name, Offset, ERDGParameterMemberKind::BufferAccess,
+			ERDGResourceKind::Buffer, ERDGParameterRangeKind::BufferBytes,
+			ERDGUse::Read, ERHIAccess::None);
 	}
 
 	// Common texture roles fix wrapper, range, use, and access as one contract.
@@ -601,6 +644,12 @@ namespace Durin
 
 		auto GetTexture(const FRDGTextureParameter& Parameter) const
 			-> FRHITexture*;
+		auto GetTexture(const FRDGTextureAccess& Parameter) const -> FRHITexture*;
+		auto GetTexture(const std::optional<FRDGTextureAccess>& Parameter) const
+			-> FRHITexture*;
+		auto GetBuffer(const FRDGBufferAccess& Parameter) const -> FRHIBuffer*;
+		auto GetBuffer(const std::optional<FRDGBufferAccess>& Parameter) const
+			-> FRHIBuffer*;
 		auto GetTexture(
 			const std::optional<FRDGTextureParameter>& Parameter) const
 			-> FRHITexture*;

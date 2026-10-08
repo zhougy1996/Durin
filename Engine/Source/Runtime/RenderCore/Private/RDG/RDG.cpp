@@ -59,6 +59,27 @@ namespace Durin::RDGPrivate
 
 		switch (Member.Kind)
 		{
+		case ERDGParameterMemberKind::TextureAccess:
+			Result.bPresent = Visit.template operator()<FRDGTextureAccess>(
+				[&](const auto& Value) {
+					Use.ResourceIndex = GetTextureIndex(Value.Texture);
+					Use.TextureRange = Value.Range;
+					Use.Use = Value.Use;
+					Use.Access = Value.Access;
+					Use.bDiscard = Value.bDiscard;
+				});
+			break;
+		case ERDGParameterMemberKind::BufferAccess:
+			Result.bPresent = Visit.template operator()<FRDGBufferAccess>(
+				[&](const auto& Value) {
+					Use.ResourceIndex = GetBufferIndex(Value.Buffer);
+					Use.BufferOffset = Value.Offset;
+					Use.BufferSize = Value.Size;
+					Use.Use = Value.Use;
+					Use.Access = Value.Access;
+					Use.bDiscard = Value.bDiscard;
+				});
+			break;
 		case ERDGParameterMemberKind::Texture:
 			Result.bPresent = Visit.template operator()<
 				FRDGTextureParameter>([&](const auto& Value) {

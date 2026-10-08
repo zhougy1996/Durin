@@ -302,23 +302,27 @@ namespace Durin
 						.BindingIndex = Binding.BindingIndex,
 						.ArrayElement = ArrayElement,
 						.Type = Binding.Type};
-					if (Member.Kind == ERDGParameterMemberKind::Texture)
+					auto ReadWrapper = [&]<typename Wrapper>() -> const Wrapper& {
+						if (!Member.bOptional) return *static_cast<const Wrapper*>(ElementData);
+						const auto& Optional = *static_cast<const std::optional<Wrapper>*>(ElementData);
+						checkf(Optional.has_value(),
+							"Render graph pass '{}' parameter '{}[{}]' is unavailable "
+							"for required shader '{}' binding '{}'",
+							Resolver.GetPassName(), Leaf.Path, ArrayElement, ShaderName, Binding.Name);
+						return *Optional;
+					};
+					if (Member.Kind == ERDGParameterMemberKind::Texture
+						|| Member.Kind == ERDGParameterMemberKind::TextureAccess)
 					{
-						const FRDGTextureParameter* GraphTexture = nullptr;
-						if (Member.bOptional)
-						{
-							const auto& Optional = *static_cast<const std::optional<
-								FRDGTextureParameter>*>(ElementData);
-							checkf(Optional.has_value(),
-								"Render graph pass '{}' parameter '{}[{}]' is unavailable "
-								"for required shader '{}' binding '{}'",
-								Resolver.GetPassName(), Leaf.Path, ArrayElement,
-								ShaderName, Binding.Name);
-							GraphTexture = &*Optional;
-						}
-						else GraphTexture = static_cast<const
-							FRDGTextureParameter*>(ElementData);
-						FRHITexture* Texture = Resolver.GetTexture(*GraphTexture);
+						FRHITextureSubresourceRange Range;
+						auto ResolveTexture = [&]<typename Wrapper>() {
+							const auto& GraphTexture = ReadWrapper.template operator()<Wrapper>();
+							Range = GraphTexture.Range;
+							return Resolver.GetTexture(GraphTexture);
+						};
+						FRHITexture* Texture = Member.Kind == ERDGParameterMemberKind::Texture
+							? ResolveTexture.template operator()<FRDGTextureParameter>()
+							: ResolveTexture.template operator()<FRDGTextureAccess>();
 						if (Texture->GetResourceType()
 							== ERHIResourceType::TextureReference)
 							Texture = static_cast<FRHITextureReference*>(Texture)
@@ -331,7 +335,7 @@ namespace Durin
 							Binding.Type == ERHIBindingType::StorageImage
 								? ERHITextureViewUsage::Storage
 								: ERHITextureViewUsage::Sampled);
-						Desc.Range = GraphTexture->Range;
+						Desc.Range = Range;
                         // A cube storage write addresses a 2D face (or a face array),
                         // while sampling retains the cube interpretation.
                         if (Binding.Type == ERHIBindingType::StorageImage
@@ -355,27 +359,18 @@ namespace Durin
 					}
 					else
 					{
-						const FRDGBufferParameter* GraphBuffer = nullptr;
-						if (Member.bOptional)
-						{
-							const auto& Optional = *static_cast<const std::optional<
-								FRDGBufferParameter>*>(ElementData);
-							checkf(Optional.has_value(),
-								"Render graph pass '{}' parameter '{}[{}]' is unavailable "
-								"for required shader '{}' binding '{}'",
-								Resolver.GetPassName(), Leaf.Path, ArrayElement,
-								ShaderName, Binding.Name);
-							GraphBuffer = &*Optional;
-						}
-						else GraphBuffer = static_cast<const
-							FRDGBufferParameter*>(ElementData);
-						Parameter.Resource = Resolver.GetBuffer(*GraphBuffer);
-						Parameter.Offset = static_cast<uint32>(GraphBuffer->Offset);
-						Parameter.Size = static_cast<uint32>(GraphBuffer->Size);
-						checkf(Parameter.Offset == GraphBuffer->Offset
-							&& Parameter.Size == GraphBuffer->Size,
-							"Render graph pass '{}' parameter '{}' buffer range exceeds "
-							"shader submission limits", Resolver.GetPassName(), Leaf.Path);
+						auto ResolveBuffer = [&]<typename Wrapper>() {
+							const auto& GraphBuffer = ReadWrapper.template operator()<Wrapper>();
+							Parameter.Resource = Resolver.GetBuffer(GraphBuffer);
+							Parameter.Offset = static_cast<uint32>(GraphBuffer.Offset);
+							Parameter.Size = static_cast<uint32>(GraphBuffer.Size);
+							checkf(Parameter.Offset == GraphBuffer.Offset && Parameter.Size == GraphBuffer.Size,
+								"Render graph pass '{}' parameter '{}' buffer range exceeds "
+								"shader submission limits", Resolver.GetPassName(), Leaf.Path);
+						};
+						if (Member.Kind == ERDGParameterMemberKind::Buffer)
+							ResolveBuffer.template operator()<FRDGBufferParameter>();
+						else ResolveBuffer.template operator()<FRDGBufferAccess>();
 					}
 					Resources.push_back(Parameter);
 				}

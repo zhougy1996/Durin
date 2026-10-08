@@ -50,6 +50,8 @@ namespace Durin::RDGPrivate
 		{
 		case ERDGParameterMemberKind::Texture: return "texture";
 		case ERDGParameterMemberKind::Buffer: return "buffer";
+		case ERDGParameterMemberKind::TextureAccess: return "texture-access";
+		case ERDGParameterMemberKind::BufferAccess: return "buffer-access";
 		case ERDGParameterMemberKind::Token: return "token";
 		case ERDGParameterMemberKind::ColorAttachment:
 			return "color-attachment";
