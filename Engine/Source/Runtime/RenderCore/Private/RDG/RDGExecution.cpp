@@ -572,6 +572,20 @@ namespace Durin
 		}
 	}
 
+	auto FRDGPassResources::GetDeclaredAttachment(std::string_view FieldPath) const -> FRDGAttachmentView
+	{
+		const auto& Pass = Graph.State->Passes[Graph.Compiled->Passes[PassIndex].DeclarationIndex];
+		const auto Use = std::ranges::find(Pass.Uses, FieldPath, &FGraphUse::ParameterPath);
+		if (Use == Pass.Uses.end()) return {};
+		requiref(Use->bGraphAttachment,
+			"Render graph pass '{}' resolved an unavailable attachment '{}'.", Pass.Name, FieldPath);
+		const auto& Backing = Graph.Compiled->Backings[Use->ResourceIndex];
+		require(Backing.Texture);
+		return {Backing.Texture.GetReference(), Use->TextureRange, Use->LoadAction,
+			Use->bStore ? ERHIRenderTargetStoreAction::Store : ERHIRenderTargetStoreAction::DontCare,
+			false, ERHIAccess::None, Use->Access, true};
+	}
+
 	auto FRDGPassResources::GetTexture(
 		FRDGTextureHandle Handle) const -> FRHITexture*
 	{

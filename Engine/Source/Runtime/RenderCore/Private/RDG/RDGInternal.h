@@ -76,6 +76,8 @@ namespace Durin::RDGPrivate
 		std::string_view ShaderBindingName;
 		ERHIBindingType ShaderBindingType = ERHIBindingType::Texture;
 		bool bInstanceAccess = false;
+		bool bGraphAttachment = false;
+		ERHIRenderTargetLoadAction LoadAction = ERHIRenderTargetLoadAction::Load;
 	};
 
 	using FOptionalAlias = std::pair<uint32, uint32>;

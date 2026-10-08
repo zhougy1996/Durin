@@ -1,4 +1,5 @@
 #include "Resources/RenderTargetLayouts.h"
+#include "RDG/RDGParameters.h"
 
 namespace Durin::RenderTargetLayouts
 {
@@ -276,6 +277,33 @@ namespace Durin::RenderTargetLayouts
 			ERHIAccess::DepthStencilReadWrite;
 		return Layout;
 	}
+
+	namespace
+	{
+		auto MakeGraphBoundary(FRHIRenderTargetLayout Layout) -> FRHIRenderTargetLayout
+		{
+			for (uint32 Index = 0; Index < Layout.NumColorRenderTargets; ++Index)
+			{
+				auto& Color = Layout.ColorAttachments[Index].RenderTarget;
+				Color = MakeRDGAttachmentLayout(Color.Format, ERHIAccess::ColorAttachmentReadWrite,
+					Color.LoadAction, Color.StoreAction, Color.NumSamples);
+			}
+			if (Layout.bHasDepthStencil)
+			{
+				auto& Depth = Layout.DepthStencilAttachment;
+				Depth = MakeRDGAttachmentLayout(Depth.Format, ERHIAccess::DepthStencilReadWrite,
+					Depth.LoadAction, Depth.StoreAction, Depth.NumSamples);
+			}
+			return Layout;
+		}
+	}
+
+	auto MakeGraphSceneTargets() -> FRHIRenderTargetLayout { return MakeGraphBoundary(MakeSceneTargets()); }
+	auto MakeGraphGBufferTargets() -> FRHIRenderTargetLayout { return MakeGraphBoundary(MakeGBufferTargets()); }
+	auto MakeGraphHybridSceneBootstrap() -> FRHIRenderTargetLayout { return MakeGraphBoundary(MakeHybridSceneBootstrap()); }
+	auto MakeGraphHybridDeferredOutput() -> FRHIRenderTargetLayout { return MakeGraphBoundary(MakeHybridDeferredOutput()); }
+	auto MakeGraphHybridRetainedForward() -> FRHIRenderTargetLayout { return MakeGraphBoundary(MakeHybridRetainedForward()); }
+	auto MakeGraphSortedTranslucency() -> FRHIRenderTargetLayout { return MakeGraphBoundary(MakeHybridSortedTranslucency()); }
 
 	auto MakeScenePostProcessOutput(EPixelFormat OutputFormat)
 		-> FRHIRenderTargetLayout

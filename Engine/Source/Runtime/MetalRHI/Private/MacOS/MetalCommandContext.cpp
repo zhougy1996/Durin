@@ -202,7 +202,10 @@ namespace Durin
 					QueueAttachment(Info.ColorRenderTargetViews[Index], Info.RenderTargetLayout.ColorAttachments[Index].RenderTarget);
 				if (Info.RenderTargetLayout.bHasDepthStencil)
 					QueueAttachment(Info.DepthStencilRenderTargetView, Info.RenderTargetLayout.DepthStencilAttachment);
-				FRHITexture* Color = Info.ColorRenderTargets[0];
+				FRHITextureView* ExtentSource = Info.RenderTargetLayout.NumColorRenderTargets > 0
+					? Info.ColorRenderTargetViews[0] : Info.DepthStencilRenderTargetView;
+				requiref(ExtentSource, "Metal render pass requires an attachment view.");
+				const FIntPoint RenderExtent = ExtentSource->GetExtent();
 				auto Desc = NS::RetainPtr(MTL::RenderPassDescriptor::renderPassDescriptor());
 				for (uint32 Index = 0;
 					Index < Info.RenderTargetLayout.NumColorRenderTargets; ++Index)
@@ -215,12 +218,12 @@ namespace Durin
 						&& Info.ColorRenderTargetViews[Index]->GetTexture() == Target
 						&& !AttachmentLayout.bHasResolveTarget
 						&& !Info.ColorResolveTargets[Index]
-						&& Target->GetDimension() == ETextureDimension::Texture2D
+						&& (Target->GetDimension() == ETextureDimension::Texture2D
+							|| Target->GetDimension() == ETextureDimension::Texture2DArray)
 						&& Target->GetNumSamples() == 1 && Layout.NumSamples == 1
 						&& Target->GetFormat() == Layout.Format
 						&& IsMetalColorRenderFormat(Layout.Format)
-						&& Target->GetSizeX() == Color->GetSizeX()
-						&& Target->GetSizeY() == Color->GetSizeY()
+						&& Info.ColorRenderTargetViews[Index]->GetExtent() == RenderExtent
 						&& EnumHasAnyFlags(Target->GetFlags(),
 							ETextureCreateFlags::RenderTargetable)
 						&& Info.ColorClearValues[Index].Binding == EClearBinding::Color,
@@ -228,6 +231,8 @@ namespace Durin
 					auto* Texture = static_cast<FMetalTexture*>(Target)->GetHandle();
 					auto* Attachment = Desc->colorAttachments()->object(Index);
 					Attachment->setTexture(Texture);
+					Attachment->setLevel(Info.ColorRenderTargetViews[Index]->GetDesc().Range.FirstMip);
+					Attachment->setSlice(Info.ColorRenderTargetViews[Index]->GetDesc().Range.FirstArrayLayer);
 					switch (Layout.LoadAction)
 					{
 					case ERHIRenderTargetLoadAction::Clear:
@@ -261,8 +266,7 @@ namespace Durin
 						&& DepthLayout.Format == EPixelFormat::D32
 						&& Depth->GetNumSamples() == 1
 						&& DepthLayout.NumSamples == 1
-						&& (!Color || Depth->GetSizeX() == Color->GetSizeX())
-						&& (!Color || Depth->GetSizeY() == Color->GetSizeY())
+						&& Info.DepthStencilRenderTargetView->GetExtent() == RenderExtent
 						&& EnumHasAnyFlags(Depth->GetFlags(),
 							ETextureCreateFlags::DepthStencilTargetable)
 						&& Info.DepthStencilClearValue.Binding
@@ -270,6 +274,7 @@ namespace Durin
 						"Metal depth attachment does not match its render pass layout.");
 					DepthTexture = static_cast<FMetalTexture*>(Depth)->GetHandle();
 					Desc->depthAttachment()->setTexture(DepthTexture);
+					Desc->depthAttachment()->setLevel(Info.DepthStencilRenderTargetView->GetDesc().Range.FirstMip);
 					Desc->depthAttachment()->setSlice(Info.DepthStencilRenderTargetView->GetDesc().Range.FirstArrayLayer);
 					switch (DepthLayout.LoadAction)
 					{
@@ -289,10 +294,8 @@ namespace Durin
 				requiref(static_cast<bool>(RenderEncoder), "Metal render encoder creation failed.");
 				CurrentRenderTargetLayout = Info.RenderTargetLayout;
 				PendingAttachmentStates = std::move(AttachmentStates);
-				RenderWidth = Color ? Color->GetSizeX()
-					: Info.DepthStencilRenderTarget->GetSizeX();
-				RenderHeight = Color ? Color->GetSizeY()
-					: Info.DepthStencilRenderTarget->GetSizeY();
+				RenderWidth = RenderExtent.x;
+				RenderHeight = RenderExtent.y;
 				if (DepthTexture) Active->NativeResources.push_back(NS::RetainPtr(DepthTexture));
 			}
 			auto RHIEndRenderPass() -> void override

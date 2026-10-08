@@ -19,6 +19,37 @@ namespace Durin::VulkanRHI
 {
 	namespace
 	{
+		struct FGraphRasterBoundaryParameters final
+		{
+			FRDGColorAttachmentBinding Color;
+			FRDGDepthStencilAttachmentBinding Depth;
+			static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*
+			{
+				static const std::array Members{
+					MakeRDGColorAttachmentBindingMetadata<FGraphRasterBoundaryParameters, decltype(Color)>(
+						"Color", offsetof(FGraphRasterBoundaryParameters, Color)),
+					MakeRDGDepthStencilAttachmentBindingMetadata<FGraphRasterBoundaryParameters, decltype(Depth)>(
+						"Depth", offsetof(FGraphRasterBoundaryParameters, Depth))};
+				static const auto Metadata = MakeInlineRDGParametersMetadata<FGraphRasterBoundaryParameters>(
+					"FGraphRasterBoundaryParameters", Members);
+				return &Metadata;
+			}
+		};
+
+		struct FGraphSampleBoundaryParameters final
+		{
+			std::array<FRDGTextureAccess, 2> Inputs;
+			static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*
+			{
+				static const std::array Members{
+					MakeRDGTextureAccessMetadata<FGraphSampleBoundaryParameters, decltype(Inputs)>(
+						"Inputs", offsetof(FGraphSampleBoundaryParameters, Inputs))};
+				static const auto Metadata = MakeInlineRDGParametersMetadata<FGraphSampleBoundaryParameters>(
+					"FGraphSampleBoundaryParameters", Members);
+				return &Metadata;
+			}
+		};
+
 		// Publishes test-owned counted Vulkan resources through the production RDG
 		// allocation contract without introducing a second ownership path.
 		class FTransitionTestRDGAllocator final : public FRDGAllocator
@@ -317,6 +348,88 @@ namespace Durin::VulkanRHI
 			ERHIBindingType::Texture, Tracked));
 		EXPECT_EQ(GetVulkanDescriptorImageLayout(ERHIBindingType::Texture),
 			vk::ImageLayout::eShaderReadOnlyOptimal);
+	}
+
+	TEST(FVulkanResourceTransitionTests, GraphAttachmentBoundariesReplayExactViewsInlineAndThreaded)
+	{
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			struct FRHIScope
+			{
+				explicit FRHIScope(const char* InMode) { _putenv_s("DURIN_RHI_EXECUTION", InMode); }
+				~FRHIScope() { if (GDynamicRHI) RHIExit(); _putenv_s("DURIN_RHI_EXECUTION", ""); }
+			} Scope(Mode);
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext())) << Mode;
+			auto& Commands = FRHICommandListImmediate::Get();
+			FTextureRHIRef Color = RHICreateTexture(FRHITextureCreateDesc::Create2D(
+				"GraphAttachmentColor", 8, 8, EPixelFormat::RGBA8_UNORM).SetNumMips(2)
+				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));
+			FTextureRHIRef Depth = RHICreateTexture(FRHITextureCreateDesc::Create2D(
+				"GraphAttachmentDepth", 8, 8, EPixelFormat::D32).SetNumMips(2)
+				.SetFlags(ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::ShaderResource));
+			ASSERT_TRUE(Color && Depth);
+			for (uint32 Reuse = 0; Reuse < 2; ++Reuse)
+			{
+				FRDGBuilder Graph;
+				const auto ColorHandle = Graph.RegisterExternalTexture(Color, "Color", ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead);
+				const auto DepthHandle = Graph.RegisterExternalTexture(Depth, "Depth", ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead);
+				for (const auto Load : {ERHIRenderTargetLoadAction::Clear, ERHIRenderTargetLoadAction::Load})
+				{
+					auto Parameters = Graph.AllocParameters<FGraphRasterBoundaryParameters>();
+					Parameters->Color = {ColorHandle, {ERHITextureAspect::Color, 1, 1, 0, 1}, Load};
+					Parameters->Depth = {DepthHandle, {ERHITextureAspect::Depth, 1, 1, 0, 1}, Load};
+					Graph.AddPass(Load == ERHIRenderTargetLoadAction::Clear ? "Clear" : "Load", ERDGPassType::Graphics,
+						std::move(Parameters), [Load, Reuse](FRHICommandListImmediate& List,
+							const FGraphRasterBoundaryParameters& Values, const FRDGParameterResolver& Resolver) {
+							const auto ColorBinding = MakeRDGNativeAttachmentBinding(Resolver.GetColorAttachment(Values.Color));
+							const auto DepthBinding = MakeRDGNativeAttachmentBinding(Resolver.GetDepthStencilAttachment(Values.Depth));
+							FRHIRenderPassInfo Pass;
+							Pass.RenderTargetLayout.NumColorRenderTargets = 1;
+							Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget = MakeRDGAttachmentLayout(
+								EPixelFormat::RGBA8_UNORM, ERHIAccess::ColorAttachmentReadWrite, Load);
+							Pass.RenderTargetLayout.bHasDepthStencil = true;
+							Pass.RenderTargetLayout.DepthStencilAttachment = MakeRDGAttachmentLayout(
+								EPixelFormat::D32, ERHIAccess::DepthStencilReadWrite, Load);
+							ColorBinding.BindColor(Pass, 0);
+							DepthBinding.BindDepthStencil(Pass);
+							Pass.ColorClearValues[0] = FClearValueBinding(Reuse == 0 ? 1.0f : 0.0f,
+								Reuse == 0 ? 0.0f : 1.0f, 0.0f, 1.0f);
+							Pass.DepthStencilClearValue = FClearValueBinding(0.25f, 0u);
+							List.BeginRenderPass(Pass, "GraphAttachmentBoundary");
+							List.EndRenderPass();
+						});
+				}
+				auto Parameters = Graph.AllocParameters<FGraphSampleBoundaryParameters>();
+				Parameters->Inputs[0] = {ColorHandle, {ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Read, ERHIAccess::GraphicsShaderRead};
+				Parameters->Inputs[1] = {DepthHandle, {ERHITextureAspect::Depth, 1, 1, 0, 1}, ERDGUse::Read, ERHIAccess::GraphicsShaderRead};
+				Graph.AddPass("Sample", ERDGPassType::Graphics, std::move(Parameters),
+					[](FRHICommandListImmediate&, const FGraphSampleBoundaryParameters& Values, const FRDGParameterResolver& Resolver) {
+						EXPECT_NE(Resolver.GetTexture(Values.Inputs[0]), nullptr);
+						EXPECT_NE(Resolver.GetTexture(Values.Inputs[1]), nullptr);
+					});
+				const auto Result = Graph.Execute(Commands);
+				ASSERT_TRUE(Result) << ToString(Result.error());
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				EXPECT_EQ(static_cast<FVulkanTexture*>(Color.GetReference())->GetStateTracker().Get(ERHITextureAspect::Color, 1, 0), ERHIAccess::GraphicsShaderRead);
+				EXPECT_EQ(static_cast<FVulkanTexture*>(Depth.GetReference())->GetStateTracker().Get(ERHITextureAspect::Depth, 1, 0), ERHIAccess::GraphicsShaderRead);
+				EXPECT_EQ(static_cast<FVulkanTexture*>(Color.GetReference())->GetStateTracker().Get(ERHITextureAspect::Color, 0, 0), ERHIAccess::None);
+				FByteBuffer Bytes;
+				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Color, 1, 0, Bytes));
+				ASSERT_EQ(Bytes.size(), 4u * 4u * 4u);
+				for (size_t Index = 0; Index < Bytes.size(); Index += 4)
+				{
+					EXPECT_EQ(Bytes[Index], Reuse == 0 ? std::byte{255} : std::byte{0});
+					EXPECT_EQ(Bytes[Index + 1], Reuse == 0 ? std::byte{0} : std::byte{255});
+					EXPECT_EQ(Bytes[Index + 2], std::byte{0});
+					EXPECT_EQ(Bytes[Index + 3], std::byte{255});
+				}
+			}
+			FRHIDiagnosticSnapshot Diagnostics;
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+				Diagnostics = GDynamicRHI->RHIGetDiagnosticSnapshot();
+			});
+			EXPECT_EQ(Diagnostics.Messages.Error, 0u) << Mode;
+		}
 	}
 
 	TEST(FVulkanResourceTransitionTests, HardwareRecordsBufferAndDisjointTextureTransitions)

@@ -29,8 +29,12 @@ passes on a subsequent direct whole-target run. The remaining
 `FMaterialCompilerTests.MetalMaterialProgramCompilesAndCooks` failure reproduces
 alone: unchanged `ShaderBuilder.cpp::IsActiveCompilerTarget` rejects Metal on
 non-Apple hosts before compilation. This host-policy/test mismatch remains an
-explicit validation exception, not a waived or passed Metal gate. Stages 2-5
-have not started; no GPU acceptance gate is closed. The user confirmed an
+explicit validation exception, not a waived or passed Metal gate. Stage 2 now
+implements frozen runtime attachment declarations, exact native view binding,
+and graph-boundary layout helpers. Stage 2 is implemented and validated on
+Windows/Vulkan, with Metal compilation/runtime acceptance explicitly outstanding.
+Stages 3-5 have not started. Execution is paused after Stage 2 at the user's
+request. No named hardware acceptance gate is closed. The user confirmed an
 exclusive quiet GPU lane for measurements on 2026-10-08.
 
 The source review includes the current `BaseSceneRendering`, `SceneColorRendering`,
@@ -479,21 +483,68 @@ RoadWeaver; both retain the workspace shared API build gate.
 Depends on: Stage 1 normalization and Stage 0 RHI decisions.
 Outcome: attachment bindings, pipeline layouts, and recorded state agree.
 
-- [ ] Implement runtime attachment load/store/access declarations and the shared
+Implementation decision (2026-10-08): introduce the graph layout family here and
+verify existing full-layout pipeline/cache compatibility. Production scene
+pipeline selection and native recording switch together in Stage 4, when their
+managed multi-stage callbacks are replaced. Switching just the pipeline here
+would disagree with existing legacy recording. This preserves the frozen paired
+migration rule; no production Base Scene decomposition is claimed in Stage 2.
+
+- [x] Implement runtime attachment load/store/access declarations and the shared
   native binding-lowering boundary, with exact depth/stencil range handling.
-- [ ] Introduce migrated layout helpers that leave attachments in their declared
-  access; update pipeline creation/cache consumers for the selected contract.
-- [ ] Preserve legacy layout helpers for unmigrated paths without changing their
+- [x] Introduce migrated layout helpers that leave attachments in their declared
+  access; verify full-layout pipeline/cache compatibility. Production pipeline
+  and recording selection migrate together in Stage 4 as explained above.
+- [x] Preserve legacy layout helpers for unmigrated paths without changing their
   behavior accidentally; name the distinction explicitly during migration.
-- [ ] Validate binding/use mismatch, clear versus load, store invalidation,
+- [x] Validate binding/use mismatch, clear versus load, store invalidation,
   discarded pooled allocations, replay state, and downstream sampled access.
-- [ ] Adapt RHI, VulkanRHI and MetalRHI consumers where contracts changed; test
+- [x] Adapt RHI, VulkanRHI and MetalRHI consumers where contracts changed; test
   inline and threaded command replay and existing queue fallback behavior.
 
 Gate: relevant RenderContractTests, RHIResourceTransitionValidationTests and
 RHICommandListTests pass; selected VulkanRHIIntegrationTests demonstrate correct
 attachment/sample handoffs with validation enabled. Changed backend semantics
 have corresponding backend evidence or an explicitly outstanding acceptance gate.
+
+Stage 2 evidence (2026-10-08, Win64-Debug-DurinEditor, GTX 1060):
+
+- RenderContractTests: 215/215; four runtime attachment tests cover frozen
+  optional declarations, exact mip/array-layer views, native layout mismatch,
+  load/clear, store invalidation and rejected ranges/stencil intent. All four
+  also pass individually under serial isolation.
+- RHIResourceViewValidationTests: 6/6; EditorRenderingTests: 85/85, including
+  graph/legacy layout and full pipeline-key separation.
+- RHIResourceTransitionValidationTests: 8/8; RHICommandListTests: 118/118;
+  RendererSceneContractTests: 60/60. Existing queue fallback/replay contracts
+  remain covered by these suites and full Vulkan integration.
+- VulkanRHIIntegrationTests: 115/115. The new attachment test runs inline and
+  threaded, clears/loads exact color and D32 mip views, declares subsequent
+  sampled access and
+  checks physical states plus repeated-backing red/green readback. Its diagnostic
+  error counter is zero; the complete integration log contains no VUID errors.
+  Initial testing exposed whole-texture framebuffer sizing for a selected mip;
+  the shared view extent helper and Vulkan framebuffer fix close that regression.
+- Workspace `all` builds after shared Engine API consumer searches in Engine,
+  Sandbox and RoadWeaver. No downstream wrapper migrations were required in the
+  latter two projects. Affected analysis selects `all` because of shared RHI
+  inputs; the bounded Stage 2 suites above supplement Stage 1's broad receipt.
+  The previously reproduced Windows Metal compiler-policy exception remains.
+- Metal source now selects exact attachment mip/slice and view extent. This
+  Windows host cannot compile or execute Metal: macOS compilation and equivalent
+  attachment/replay validation remain an outstanding backend acceptance gate.
+  These results do not close Stage 0 timing/route evidence or named GPU gates.
+
+Logs under `Build/.agent-state/logs/`: final RenderContractTests
+`20261008-190800-181971-21204-RenderContractTests.log`, view validation
+`20261008-190440-445886-24268-RHIResourceViewValidationTests.log`, layout/editor
+`20261008-190617-633054-15252-EditorRenderingTests.log`, Vulkan integration
+`20261008-190622-449870-32780-VulkanRHIIntegrationTests.log`, transition validation
+`20261008-190814-088170-22008-RHIResourceTransitionValidationTests.log`, command
+replay `20261008-190821-799673-34220-RHICommandListTests.log`, and workspace build
+`20261008-190852-786032-11340-cmake.log`. Serial attachment isolation is recorded
+in `20261008-190918-853942-13008-ctest.log`; scene contracts in
+`20261008-190849-897378-30372-RendererSceneContractTests.log`.
 
 ### Stage 3: Make deferred inputs explicit graph resources
 

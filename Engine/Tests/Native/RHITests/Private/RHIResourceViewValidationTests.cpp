@@ -4,6 +4,21 @@
 
 namespace Durin
 {
+	TEST(FRHIResourceViewValidationTests, TextureViewExtentUsesSelectedMip)
+	{
+		auto Texture = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(
+			"MipExtent", 16, 8, EPixelFormat::RGBA8_UNORM).SetNumMips(5)
+			.SetFlags(ETextureCreateFlags::ShaderResource));
+		auto Desc = MakeDefaultTextureViewDesc(*Texture, ERHITextureViewUsage::Sampled);
+		Desc.Range.FirstMip = 2;
+		Desc.Range.NumMips = 1;
+		const auto View = MakeRefCount<FRHITextureView>(Texture.GetReference(), Desc);
+		EXPECT_EQ(View->GetExtent(), FIntPoint(4, 2));
+		Desc.Range.FirstMip = 4;
+		const auto Tail = MakeRefCount<FRHITextureView>(Texture.GetReference(), Desc);
+		EXPECT_EQ(Tail->GetExtent(), FIntPoint(1, 1));
+	}
+
 	TEST(FRHIResourceViewValidationTests, ConcurrentFinalReleaseDefersParentsToDeletionOwner)
 	{
 		const auto Owner = std::this_thread::get_id();

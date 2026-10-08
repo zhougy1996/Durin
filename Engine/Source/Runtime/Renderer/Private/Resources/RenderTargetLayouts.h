@@ -45,6 +45,15 @@ namespace Durin::RenderTargetLayouts
 	RENDERER_API auto MakeHybridDeferredOutput() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeHybridRetainedForward() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeHybridSortedTranslucency() -> FRHIRenderTargetLayout;
+	// Graph-owned raster boundaries. Entry and exit remain in attachment access;
+	// RDG supplies all inter-pass transitions. Legacy helpers above retain their
+	// managed publication contracts until their callers migrate together.
+	RENDERER_API auto MakeGraphSceneTargets() -> FRHIRenderTargetLayout;
+	RENDERER_API auto MakeGraphGBufferTargets() -> FRHIRenderTargetLayout;
+	RENDERER_API auto MakeGraphHybridSceneBootstrap() -> FRHIRenderTargetLayout;
+	RENDERER_API auto MakeGraphHybridDeferredOutput() -> FRHIRenderTargetLayout;
+	RENDERER_API auto MakeGraphHybridRetainedForward() -> FRHIRenderTargetLayout;
+	RENDERER_API auto MakeGraphSortedTranslucency() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeFinalScenePostProcessOutput(EViewportOutput Output,
 		EPixelFormat OutputFormat = EPixelFormat::SRGBA8_UNORM)
 		-> FRHIRenderTargetLayout;

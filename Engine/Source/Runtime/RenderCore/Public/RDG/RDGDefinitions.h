@@ -47,6 +47,8 @@ namespace Durin
 		Buffer,
 		TextureAccess,
 		BufferAccess,
+		ColorAttachmentBinding,
+		DepthStencilAttachmentBinding,
 		Token,
 		ColorAttachment,
 		DepthStencilAttachment,

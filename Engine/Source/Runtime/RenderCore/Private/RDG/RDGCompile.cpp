@@ -561,6 +561,12 @@ namespace Durin::RDGPrivate
 				return std::unexpected(FRDGUseError{ERDGUseError::ResourceHandleInvalid, UseContext(Pass, Use, nullptr, UseIndex)});
 			}
 			const auto& Resource = Resources[Use.ResourceIndex];
+			if (Use.bGraphAttachment && (Use.TextureRange.NumMips != 1 || Use.TextureRange.NumArrayLayers != 1
+				|| (Use.Access == ERHIAccess::ColorAttachmentReadWrite
+					&& Use.TextureRange.Aspects != ERHITextureAspect::Color)
+				|| (Use.Access == ERHIAccess::DepthStencilReadWrite
+					&& Use.TextureRange.Aspects != ERHITextureAspect::Depth)))
+				return std::unexpected(FRDGUseError{ERDGUseError::TextureRangeInvalid, UseContext(Pass, Use, &Resource, UseIndex)});
 			if (Use.bInstanceAccess && !IsExportAccessAllowed(Use.Kind, Use.Access))
 			{
 				return std::unexpected(FRDGUseError{ERDGUseError::RequiredAccessInvalid, UseContext(Pass, Use, &Resource, UseIndex)});

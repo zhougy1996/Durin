@@ -52,6 +52,8 @@ namespace Durin::RDGPrivate
 		case ERDGParameterMemberKind::Buffer: return "buffer";
 		case ERDGParameterMemberKind::TextureAccess: return "texture-access";
 		case ERDGParameterMemberKind::BufferAccess: return "buffer-access";
+		case ERDGParameterMemberKind::ColorAttachmentBinding: return "color-attachment-binding";
+		case ERDGParameterMemberKind::DepthStencilAttachmentBinding: return "depth-stencil-attachment-binding";
 		case ERDGParameterMemberKind::Token: return "token";
 		case ERDGParameterMemberKind::ColorAttachment:
 			return "color-attachment";
@@ -121,7 +123,9 @@ namespace Durin
 					.bPassManagedTransition = Use.bPassManagedTransition,
 					.ResultAccess = Use.ResultAccess,
 					.ShaderBindingName = std::string(Use.ShaderBindingName),
-					.ShaderBindingType = Use.ShaderBindingType});
+					.ShaderBindingType = Use.ShaderBindingType,
+					.LoadAction = Use.LoadAction,
+					.StoreAction = Use.bStore ? ERHIRenderTargetStoreAction::Store : ERHIRenderTargetStoreAction::DontCare});
 			}
 		}
 		for (uint32 Index = 0; Index < Compiled->Resources.size(); ++Index)
@@ -390,6 +394,10 @@ namespace Durin
 				Output << " shader-binding=" << Parameter.ShaderBindingName
 					<< " binding-type="
 					<< static_cast<uint32>(Parameter.ShaderBindingType);
+			if (Parameter.Kind == ERDGParameterMemberKind::ColorAttachmentBinding
+				|| Parameter.Kind == ERDGParameterMemberKind::DepthStencilAttachmentBinding)
+				Output << " load-action=" << static_cast<uint32>(Parameter.LoadAction)
+					<< " store-action=" << static_cast<uint32>(Parameter.StoreAction);
 			Output << '\n';
 		}
 		for (const auto& Use : Diagnostics->Uses)

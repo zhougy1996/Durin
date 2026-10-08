@@ -488,6 +488,33 @@ captures preserve the same string. Manual uses keep an empty path and retain
 their previous dump text. Paths never contain allocation identity, addresses,
 timestamps, or measured duration.
 
+### Runtime Attachment Boundaries
+
+`FRDGColorAttachmentBinding` and `FRDGDepthStencilAttachmentBinding` carry exact
+texture ranges, runtime load/store actions, and conservative attachment access.
+`NormalizeRDGAttachment` is the common policy for submission and native layout
+construction: `Load` reads/writes existing contents, `Clear` and `DontCare` write
+a discarded new version, and store `DontCare` invalidates that range. Depth
+bindings admit the depth aspect only; independent stencil intent is rejected.
+Native attachments require one mip and one array layer. Neither binding carries
+a managed result state or supports shader decoration.
+
+The resolver obtains attachment views from frozen normalized declarations,
+including optional presence and actions. `MakeRDGNativeAttachmentBinding` owns
+the exact native texture view until `BeginRenderPass` records its own references.
+Binding it verifies the complete declared layout against the supplied native
+pass, including load/store, format, samples, and access. Unsupported view ranges
+and mismatched layouts fail explicitly. `MakeRDGAttachmentLayout` leaves both
+entry and exit in the declared attachment access; RDG supplies transitions for
+subsequent sampling. RHI replay still validates and commits physical states.
+Framebuffer extent follows the selected view mip. Metal native attachments
+select both the declared mip level and array slice.
+
+Renderer `MakeGraph*` layout helpers use this policy. Legacy layout helpers keep
+their managed publication contracts. Pipeline and recording callers must select
+the same helper; full layout equality and pipeline cache keys include actions
+and entry/exit state, so the two policies are distinct cache entries.
+
 ### Reflected Shader Composition
 
 A texture or buffer parameter member may additionally declare one reflected

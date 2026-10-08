@@ -14,6 +14,45 @@ namespace Durin
 {
 	using namespace RenderTargetLayouts;
 
+	TEST(FRendererRenderTargetLayoutTests, GraphRasterLayoutsKeepDeclaredAttachmentBoundaries)
+	{
+		for (const auto& Layout : {MakeGraphSceneTargets(), MakeGraphGBufferTargets(),
+			MakeGraphHybridSceneBootstrap(), MakeGraphHybridDeferredOutput(),
+			MakeGraphHybridRetainedForward(), MakeGraphSortedTranslucency()})
+		{
+			ASSERT_TRUE(Layout.IsValid());
+			for (uint32 Index = 0; Index < Layout.NumColorRenderTargets; ++Index)
+			{
+				const auto& Color = Layout.ColorAttachments[Index].RenderTarget;
+				EXPECT_EQ(Color.InitialAccess, ERHIAccess::ColorAttachmentReadWrite);
+				EXPECT_EQ(Color.FinalAccess, ERHIAccess::ColorAttachmentReadWrite);
+				EXPECT_EQ(Color.InitialLayout, ERHITextureLayout::ColorAttachment);
+				EXPECT_EQ(Color.FinalLayout, ERHITextureLayout::ColorAttachment);
+				EXPECT_EQ(Color.StoreAction, ERHIRenderTargetStoreAction::Store);
+			}
+			if (Layout.bHasDepthStencil)
+			{
+				const auto& Depth = Layout.DepthStencilAttachment;
+				EXPECT_EQ(Depth.InitialAccess, ERHIAccess::DepthStencilReadWrite);
+				EXPECT_EQ(Depth.FinalAccess, ERHIAccess::DepthStencilReadWrite);
+				EXPECT_EQ(Depth.InitialLayout, ERHITextureLayout::DepthStencilAttachment);
+				EXPECT_EQ(Depth.FinalLayout, ERHITextureLayout::DepthStencilAttachment);
+				EXPECT_EQ(Depth.StoreAction, ERHIRenderTargetStoreAction::Store);
+			}
+		}
+		const auto Graph = MakeGraphSceneTargets();
+		const auto Legacy = MakeSceneTargets();
+		EXPECT_NE(Graph, Legacy);
+		EXPECT_NE(FRHIRenderTargetLayoutHasher{}(Graph), FRHIRenderTargetLayoutHasher{}(Legacy));
+		FGraphicsPipelineStateKey GraphPipeline, LegacyPipeline;
+		GraphPipeline.RenderTargetLayout = Graph;
+		LegacyPipeline.RenderTargetLayout = Legacy;
+		EXPECT_NE(GraphPipeline, LegacyPipeline);
+		EXPECT_NE(FGraphicsPipelineStateKeyHasher{}(GraphPipeline), FGraphicsPipelineStateKeyHasher{}(LegacyPipeline));
+		EXPECT_EQ(Legacy.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::GraphicsShaderRead);
+		EXPECT_EQ(MakeGraphHybridSceneBootstrap().DepthStencilAttachment.LoadAction, ERHIRenderTargetLoadAction::Load);
+	}
+
 	TEST(FRendererRenderTargetLayoutTests, SceneTargetsPreserveDepthForEditorAssistance)
 	{
 		const FRHIRenderTargetLayout Layout = MakeSceneTargets();

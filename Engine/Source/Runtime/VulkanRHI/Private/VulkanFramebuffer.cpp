@@ -28,9 +28,10 @@ namespace Durin::VulkanRHI
 		DepthStencilRenderTargetImage = vk::Image{};
 		NumColorRenderTargets = RPInfo.RenderTargetLayout.NumColorRenderTargets;
 
-		FRHITexture* ExtentSource = NumColorRenderTargets > 0 ? RPInfo.ColorRenderTargets[0] : RPInfo.DepthStencilRenderTarget;
+		FRHITextureView* ExtentSource = NumColorRenderTargets > 0 ? RPInfo.ColorRenderTargetViews[0] : RPInfo.DepthStencilRenderTargetView;
 		check(ExtentSource != nullptr);
-		Extent = vk::Extent2D(ExtentSource->GetSizeX(), ExtentSource->GetSizeY());
+		const FIntPoint ViewExtent = ExtentSource->GetExtent();
+		Extent = vk::Extent2D(ViewExtent.x, ViewExtent.y);
 
 		std::vector<vk::ImageView> AttachmentViews;
 		AttachmentTextureViews.reserve(InRenderPass.GetAttachmentCount());

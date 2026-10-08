@@ -57,8 +57,31 @@ namespace Durin::RDGPrivate
 			return true;
 		};
 
+		auto ReadAttachment = [&](const auto& Value) {
+			Use.ResourceIndex = GetTextureIndex(Value.Texture);
+			Use.TextureRange = Value.Range;
+			Use.bGraphAttachment = true;
+			Use.LoadAction = Value.LoadAction;
+			const auto ExpectedAccess = Member.Kind == ERDGParameterMemberKind::ColorAttachmentBinding
+				? ERHIAccess::ColorAttachmentReadWrite : ERHIAccess::DepthStencilReadWrite;
+			const auto Policy = NormalizeRDGAttachment(Value.Access, Value.LoadAction, Value.StoreAction);
+			if (Policy && Value.Access == ExpectedAccess)
+			{
+				Use.Use = Policy->Use;
+				Use.Access = Policy->Access;
+				Use.bDiscard = Policy->bDiscard;
+				Use.bStore = Policy->bStore;
+			}
+		};
+
 		switch (Member.Kind)
 		{
+		case ERDGParameterMemberKind::ColorAttachmentBinding:
+			Result.bPresent = Visit.template operator()<FRDGColorAttachmentBinding>(ReadAttachment);
+			break;
+		case ERDGParameterMemberKind::DepthStencilAttachmentBinding:
+			Result.bPresent = Visit.template operator()<FRDGDepthStencilAttachmentBinding>(ReadAttachment);
+			break;
 		case ERDGParameterMemberKind::TextureAccess:
 			Result.bPresent = Visit.template operator()<FRDGTextureAccess>(
 				[&](const auto& Value) {

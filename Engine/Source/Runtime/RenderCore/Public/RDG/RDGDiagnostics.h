@@ -67,6 +67,8 @@ namespace Durin
 		ERHIAccess ResultAccess = ERHIAccess::None;
 		std::string ShaderBindingName;
 		ERHIBindingType ShaderBindingType = ERHIBindingType::Texture;
+		ERHIRenderTargetLoadAction LoadAction = ERHIRenderTargetLoadAction::Load;
+		ERHIRenderTargetStoreAction StoreAction = ERHIRenderTargetStoreAction::Store;
 	};
 
 	// Separates command-list barriers from transitions owned by a pass body.

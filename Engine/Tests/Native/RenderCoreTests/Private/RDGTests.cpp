@@ -985,6 +985,151 @@ namespace Durin
 		}
 	} // namespace
 
+	TEST_F(FRDGTests, RuntimeAttachmentFreezesNativePolicyAndExactView)
+	{
+		FRDGBuilder Builder;
+		auto Texture = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2DArray("Attachment")
+			.SetExtent(64, 64).SetArraySize(2).SetNumMips(2).SetFormat(EPixelFormat::RGBA8_UNORM)
+			.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource));
+		const auto Handle = Builder.RegisterExternalTexture(Texture, "Attachment",
+			ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead);
+		auto Parameters = Builder.AllocParameters<FRuntimeAttachmentParameters>();
+		Parameters->Color = FRDGColorAttachmentBinding{Handle, {ERHITextureAspect::Color, 1, 1, 1, 1},
+			ERHIRenderTargetLoadAction::Clear, ERHIRenderTargetStoreAction::Store};
+		auto* Payload = &Parameters.Get();
+		uint32 Calls = 0;
+		Builder.AddPass("Attachment", ERDGPassType::Graphics, std::move(Parameters),
+			[&](FRHICommandListImmediate&, const FRuntimeAttachmentParameters& Values, const FRDGParameterResolver& Resolver) {
+				const auto Attachment = Resolver.GetColorAttachment(Values.Color);
+				EXPECT_EQ(Attachment.LoadAction, ERHIRenderTargetLoadAction::Clear);
+				EXPECT_EQ(Attachment.Range.FirstMip, 1u);
+				EXPECT_EQ(Attachment.Range.FirstArrayLayer, 1u);
+				EXPECT_FALSE(Attachment.bPassManagedTransition);
+				EXPECT_TRUE(Attachment.bGraphBoundary);
+				EXPECT_FALSE(Resolver.GetDepthStencilAttachment(Values.Depth));
+				const auto Native = MakeRDGNativeAttachmentBinding(Attachment);
+				EXPECT_EQ(Native.View->GetDesc().Range.FirstMip, 1u);
+				EXPECT_EQ(Native.View->GetDesc().Range.FirstArrayLayer, 1u);
+				FRHIRenderPassInfo Pass;
+				Pass.RenderTargetLayout.NumColorRenderTargets = 1;
+				Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget = Native.Layout;
+				Native.BindColor(Pass, 0);
+				EXPECT_EQ(Pass.ColorRenderTargetViews[0], Native.View.GetReference());
+				EXPECT_EQ(Native.Layout.InitialAccess, ERHIAccess::ColorAttachmentReadWrite);
+				EXPECT_EQ(Native.Layout.FinalAccess, ERHIAccess::ColorAttachmentReadWrite);
+				EXPECT_DEATH({ Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget.LoadAction = ERHIRenderTargetLoadAction::Load;
+					Native.BindColor(Pass, 0); }, "does not match");
+				++Calls;
+			});
+		// The resolver and lazy diagnostics consume the submission snapshot, even
+		// if an escaped mutable pointer changes the original optional payload.
+		Payload->Color.reset();
+		const auto Result = Builder.Execute(GetCommandList());
+		ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+		EXPECT_EQ(Calls, 1u);
+		const auto& Capture = Builder.Capture();
+		ASSERT_EQ(Capture.Parameters.size(), 2u);
+		EXPECT_EQ(Capture.Parameters[0].LoadAction, ERHIRenderTargetLoadAction::Clear);
+		EXPECT_EQ(Capture.Parameters[0].StoreAction, ERHIRenderTargetStoreAction::Store);
+		EXPECT_EQ(Capture.Parameters[0].Use, ERDGUse::Write);
+		EXPECT_TRUE(Capture.Parameters[0].bDiscard);
+		EXPECT_FALSE(Capture.Parameters[0].bPassManagedTransition);
+		ASSERT_EQ(Builder.GetFinalBarriers().GetTextureTransitions().size(), 1u);
+		EXPECT_EQ(Builder.GetFinalBarriers().GetTextureTransitions()[0].ExpectedBefore, ERHIAccess::ColorAttachmentReadWrite);
+	}
+
+	TEST_F(FRDGTests, RuntimeAttachmentLoadRetainsContentsAndDontCareStoreInvalidatesThem)
+	{
+		for (const auto Store : {ERHIRenderTargetStoreAction::Store, ERHIRenderTargetStoreAction::DontCare})
+		{
+			FRDGBuilder Builder;
+			Builder.EnablePassCulling();
+			const auto Handle = CreateTestTexture(Builder, "Color", MakeGraphTexture("Color"));
+			for (uint32 Index = 0; Index < 2; ++Index)
+			{
+				auto Parameters = Builder.AllocParameters<FRuntimeAttachmentParameters>();
+				Parameters->Color = FRDGColorAttachmentBinding{Handle, WholeColor(),
+					Index == 0 ? ERHIRenderTargetLoadAction::Clear : ERHIRenderTargetLoadAction::Load,
+					Index == 0 ? Store : ERHIRenderTargetStoreAction::Store};
+				const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, Index == 0 ? "Clear" : "Load",
+					ERDGPassType::Graphics, std::move(Parameters));
+				if (Index == 1) Builder.MarkPassRoot(Pass, "result");
+			}
+			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+			if (Store == ERHIRenderTargetStoreAction::Store)
+			{
+				ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+				ASSERT_EQ(Builder.GetPasses().size(), 2u);
+				EXPECT_EQ(Builder.GetPasses()[0].Name, "Clear");
+				EXPECT_EQ(Builder.GetPasses()[1].Name, "Load");
+			}
+			else
+			{
+				ASSERT_FALSE(Result.has_value());
+				EXPECT_TRUE(HasRDGTestReason(Result.error(), ERDGUseError::ResourceProducerMissing));
+			}
+		}
+	}
+
+	TEST_F(FRDGTests, RuntimeAttachmentRejectsUnrepresentableRangesAndPoliciesBeforeCulling)
+	{
+		for (uint32 Case = 0; Case < 4; ++Case)
+		{
+			FRDGBuilder Builder;
+			Builder.EnablePassCulling();
+			const auto Handle = CreateTestTexture(Builder, "Dead", MakeGraphTexture("Dead", 2));
+			auto Parameters = Builder.AllocParameters<FRuntimeAttachmentParameters>();
+			Parameters->Color = FRDGColorAttachmentBinding{Handle, WholeColor(), ERHIRenderTargetLoadAction::Clear};
+			if (Case == 0) Parameters->Color->Range.NumMips = 2;
+			if (Case == 1) Parameters->Color->LoadAction = static_cast<ERHIRenderTargetLoadAction>(255);
+			if (Case == 2) Parameters->Color->Access = ERHIAccess::GraphicsShaderRead;
+			if (Case == 3) Parameters->Color->StoreAction = static_cast<ERHIRenderTargetStoreAction>(255);
+			FRDGBuilderTestAccessor::AddPass(Builder, "Dead", ERDGPassType::Graphics, std::move(Parameters));
+			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+			ASSERT_FALSE(Result.has_value());
+			EXPECT_TRUE(HasRDGTestReason(Result.error(), Case == 0 ? ERDGUseError::TextureRangeInvalid
+				: ERDGUseError::RequiredAccessInvalid)) << ToString(Result.error());
+		}
+		EXPECT_FALSE(NormalizeRDGAttachment(ERHIAccess::GraphicsShaderRead,
+			ERHIRenderTargetLoadAction::Load, ERHIRenderTargetStoreAction::Store));
+	}
+
+	TEST_F(FRDGTests, RuntimeDepthAttachmentPreservesConservativeAccessAndRejectsStencilIntent)
+	{
+		for (const auto Aspect : {ERHITextureAspect::Depth, ERHITextureAspect::Stencil,
+			ERHITextureAspect::Depth | ERHITextureAspect::Stencil})
+		{
+			FRDGBuilder Builder;
+			auto Depth = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D("Depth", 64, 64,
+				EPixelFormat::D24S8).SetFlags(ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::ShaderResource));
+			const auto Handle = Builder.RegisterExternalTexture(Depth, "Depth", ERHIAccess::DepthStencilReadWrite,
+				ERHIAccess::DepthStencilReadWrite);
+			auto Parameters = Builder.AllocParameters<FRuntimeAttachmentParameters>();
+			Parameters->Depth = FRDGDepthStencilAttachmentBinding{Handle, {Aspect, 0, 1, 0, 1}, ERHIRenderTargetLoadAction::Load};
+			Builder.AddPass("Depth", ERDGPassType::Graphics, std::move(Parameters),
+				[](FRHICommandListImmediate&, const FRuntimeAttachmentParameters& Values, const FRDGParameterResolver& Resolver) {
+					const auto Attachment = Resolver.GetDepthStencilAttachment(*Values.Depth);
+					EXPECT_EQ(Attachment.Access, ERHIAccess::DepthStencilReadWrite);
+					EXPECT_EQ(Attachment.LoadAction, ERHIRenderTargetLoadAction::Load);
+					const auto Native = MakeRDGNativeAttachmentBinding(Attachment);
+					FRHIRenderPassInfo Pass;
+					Pass.RenderTargetLayout.bHasDepthStencil = true;
+					Pass.RenderTargetLayout.DepthStencilAttachment = Native.Layout;
+					Native.BindDepthStencil(Pass);
+					EXPECT_EQ(Pass.DepthStencilRenderTargetView->GetDesc().Range.Aspects, ERHITextureAspect::Depth);
+					EXPECT_DEATH({ const auto Copy = Values.Depth; Resolver.GetDepthStencilAttachment(Copy); }, "not declared");
+				});
+			const auto Result = Builder.Execute(GetCommandList());
+			if (Aspect == ERHITextureAspect::Depth)
+				ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+			else
+			{
+				ASSERT_FALSE(Result.has_value());
+				EXPECT_TRUE(HasRDGTestReason(Result.error(), ERDGUseError::TextureRangeInvalid));
+			}
+		}
+	}
+
 	TEST_F(FRDGTests, InstanceAccessSharesLayoutAcrossDomainsAndResolvesExactMembers)
 	{
 		const auto* Layout = GetRDGParameterLayout<FInstanceAccessParameters>();

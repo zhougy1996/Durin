@@ -1,4 +1,5 @@
 #include "RDGBuilderInternal.h"
+#include "DynamicRHI.h"
 
 namespace Durin::RDGPrivate
 {
@@ -103,6 +104,14 @@ namespace Durin::RDGPrivate
 				uint32 ExpectedElementSize = 0;
 				switch (Member.Kind)
 				{
+				case ERDGParameterMemberKind::ColorAttachmentBinding:
+					ExpectedElementSize = Member.bOptional
+						? sizeof(std::optional<FRDGColorAttachmentBinding>) : sizeof(FRDGColorAttachmentBinding);
+					break;
+				case ERDGParameterMemberKind::DepthStencilAttachmentBinding:
+					ExpectedElementSize = Member.bOptional
+						? sizeof(std::optional<FRDGDepthStencilAttachmentBinding>) : sizeof(FRDGDepthStencilAttachmentBinding);
+					break;
 				case ERDGParameterMemberKind::TextureAccess:
 					ExpectedElementSize = Member.bOptional
 						? sizeof(std::optional<FRDGTextureAccess>) : sizeof(FRDGTextureAccess);
@@ -177,7 +186,9 @@ namespace Durin::RDGPrivate
 				{
 				case ERDGParameterMemberKind::TextureAccess:
 				case ERDGParameterMemberKind::BufferAccess:
-					bShapeValid = (Member.Kind == ERDGParameterMemberKind::TextureAccess
+				case ERDGParameterMemberKind::ColorAttachmentBinding:
+				case ERDGParameterMemberKind::DepthStencilAttachmentBinding:
+					bShapeValid = (Member.Kind != ERDGParameterMemberKind::BufferAccess
 						? bTextureKind && Member.RangeKind == ERDGParameterRangeKind::TextureSubresource
 						: bBufferKind && Member.RangeKind == ERDGParameterRangeKind::BufferBytes)
 						&& Member.Use == ERDGUse::Read && Member.Access == ERHIAccess::None
@@ -367,6 +378,7 @@ namespace Durin::RDGPrivate
 		Use.Use = Member.Use;
 		Use.Access = Member.Access;
 		Use.bDiscard = Member.bDiscard;
+		Use.LoadAction = Member.LoadAction;
 		Use.bInstanceAccess = Member.Kind == ERDGParameterMemberKind::TextureAccess
 			|| Member.Kind == ERDGParameterMemberKind::BufferAccess;
 		Use.bPassManagedTransition = Member.bPassManagedTransition;
@@ -396,6 +408,71 @@ namespace Durin::RDGPrivate
 namespace Durin
 {
 	using namespace RDGPrivate;
+
+	auto NormalizeRDGAttachment(ERHIAccess Access,
+		ERHIRenderTargetLoadAction Load, ERHIRenderTargetStoreAction Store)
+		-> std::optional<FRDGAttachmentPolicy>
+	{
+		if ((Access != ERHIAccess::ColorAttachmentReadWrite && Access != ERHIAccess::DepthStencilReadWrite)
+			|| (Load != ERHIRenderTargetLoadAction::Load && Load != ERHIRenderTargetLoadAction::Clear
+				&& Load != ERHIRenderTargetLoadAction::DontCare)
+			|| (Store != ERHIRenderTargetStoreAction::Store && Store != ERHIRenderTargetStoreAction::DontCare))
+			return std::nullopt;
+		return FRDGAttachmentPolicy{Load == ERHIRenderTargetLoadAction::Load ? ERDGUse::ReadWrite : ERDGUse::Write,
+			Access, Load != ERHIRenderTargetLoadAction::Load, Store == ERHIRenderTargetStoreAction::Store};
+	}
+
+	auto MakeRDGAttachmentLayout(EPixelFormat Format, ERHIAccess Access,
+		ERHIRenderTargetLoadAction Load, ERHIRenderTargetStoreAction Store,
+		uint8 NumSamples) -> FRHIAttachmentLayout
+	{
+		const auto Policy = NormalizeRDGAttachment(Access, Load, Store);
+		requiref(Policy.has_value(), "Invalid graph attachment policy.");
+		ERHITextureLayout Layout;
+		require(GetTextureLayoutForAccess(Policy->Access, Layout));
+		return {.Format = Format, .NumSamples = NumSamples, .LoadAction = Load,
+			.StoreAction = Store, .InitialLayout = Layout, .FinalLayout = Layout,
+			.InitialAccess = Policy->Access, .FinalAccess = Policy->Access};
+	}
+
+	auto MakeRDGNativeAttachmentBinding(const FRDGAttachmentView& Attachment) -> FRDGNativeAttachmentBinding
+	{
+		requiref(Attachment && Attachment.bGraphBoundary && !Attachment.bPassManagedTransition,
+			"Native graph binding requires a declared graph attachment boundary.");
+		auto Desc = MakeDefaultTextureViewDesc(*Attachment.Texture,
+			Attachment.Access == ERHIAccess::ColorAttachmentReadWrite
+				? ERHITextureViewUsage::ColorAttachment : ERHITextureViewUsage::DepthStencilAttachment);
+		Desc.Range = Attachment.Range;
+		requiref(ValidateTextureViewDesc(Attachment.Texture, Desc).has_value(),
+			"Graph attachment has an unrepresentable exact native view.");
+		FTextureViewRHIRef View = GDynamicRHI
+			? GDynamicRHI->RHIGetOrCreateTextureView(Attachment.Texture, Desc)
+			: FTextureViewRHIRef(new FRHITextureView(Attachment.Texture, Desc));
+		requiref(View, "Graph attachment could not create its exact native view.");
+		return {std::move(View), MakeRDGAttachmentLayout(Attachment.Texture->GetFormat(),
+			Attachment.Access, Attachment.LoadAction, Attachment.StoreAction, Attachment.Texture->GetNumSamples())};
+	}
+
+	auto FRDGNativeAttachmentBinding::BindColor(FRHIRenderPassInfo& Pass, uint32 Index) const -> void
+	{
+		requiref(View && Index < Pass.RenderTargetLayout.NumColorRenderTargets
+			&& View->GetDesc().Usage == ERHITextureViewUsage::ColorAttachment
+			&& !Pass.RenderTargetLayout.ColorAttachments[Index].bHasResolveTarget
+			&& Pass.RenderTargetLayout.ColorAttachments[Index].RenderTarget == Layout,
+			"Native color attachment does not match its declared graph layout.");
+		Pass.ColorRenderTargets[Index] = View->GetTexture();
+		Pass.ColorRenderTargetViews[Index] = View.GetReference();
+	}
+
+	auto FRDGNativeAttachmentBinding::BindDepthStencil(FRHIRenderPassInfo& Pass) const -> void
+	{
+		requiref(View && Pass.RenderTargetLayout.bHasDepthStencil
+			&& View->GetDesc().Usage == ERHITextureViewUsage::DepthStencilAttachment
+			&& Pass.RenderTargetLayout.DepthStencilAttachment == Layout,
+			"Native depth attachment does not match its declared graph layout.");
+		Pass.DepthStencilRenderTarget = View->GetTexture();
+		Pass.DepthStencilRenderTargetView = View.GetReference();
+	}
 
 	auto BuildRDGParameterLayout(const FRDGParametersMetadata* Metadata,
 		uint32 ExpectedSize, uint32 ExpectedAlignment)
@@ -470,6 +547,8 @@ namespace Durin
 					case ERDGParameterMemberKind::Token:
 						AddCategory(Layout->TokenElements); break;
 					case ERDGParameterMemberKind::ColorAttachment:
+					case ERDGParameterMemberKind::ColorAttachmentBinding:
+					case ERDGParameterMemberKind::DepthStencilAttachmentBinding:
 					case ERDGParameterMemberKind::DepthStencilAttachment:
 					case ERDGParameterMemberKind::ManagedColorAttachment:
 					case ERDGParameterMemberKind::ManagedDepthStencilAttachment:
@@ -492,12 +571,12 @@ namespace Durin
 		return Layout;
 	}
 
-	auto FRDGParameterResolver::FindMember(const void* Address,
+	auto FRDGParameterResolver::FindElement(const void* Address,
 		ERDGParameterMemberKind ExpectedKind,
 		ERDGParameterMemberKind AlternateKind, bool bOptional) const
-		-> const FRDGParameterMemberMetadata&
+		-> const FRDGParameterLayoutElement&
 	{
-		const FRDGParameterMemberMetadata* Found = nullptr;
+		const FRDGParameterLayoutElement* Found = nullptr;
 		if (Layout != nullptr && Parameters != nullptr && Address != nullptr)
 		{
 			const uintptr_t RootAddress = reinterpret_cast<uintptr_t>(Parameters);
@@ -548,11 +627,11 @@ namespace Durin
 					if (Member.bOptional == bOptional
 						&& (Member.Kind == ExpectedKind
 							|| Member.Kind == AlternateKind))
-						Found = &Member;
+						Found = &Layout->Elements[ElementIndex];
 					else if (!bOptional && Member.bOptional
 						&& (Member.Kind == ExpectedKind
 							|| Member.Kind == AlternateKind))
-						Found = &Member;
+						Found = &Layout->Elements[ElementIndex];
 				}
 			}
 		}
@@ -563,6 +642,14 @@ namespace Durin
 		return *Found;
 	}
 
+	auto FRDGParameterResolver::FindMember(const void* Address,
+		ERDGParameterMemberKind ExpectedKind, ERDGParameterMemberKind AlternateKind,
+		bool bOptional) const -> const FRDGParameterMemberMetadata&
+	{
+		const auto& Element = FindElement(Address, ExpectedKind, AlternateKind, bOptional);
+		return *Layout->Leaves[Element.LeafIndex].Metadata;
+	}
+
 	auto FRDGParameterResolver::ValidateShaderParametersIdentity(
 		const void* Data, const FRDGParametersMetadata* InMetadata) const
 		-> void
@@ -571,6 +658,34 @@ namespace Durin
 			&& InMetadata == Layout->Metadata,
 			"Render graph pass '{}' attempted composed shader submission from a "
 			"copied or foreign parameter object.", PassName);
+	}
+
+	auto FRDGParameterResolver::GetColorAttachment(const FRDGColorAttachmentBinding& Parameter) const -> FRDGAttachmentView
+	{
+		const auto& Element = FindElement(&Parameter, ERDGParameterMemberKind::ColorAttachmentBinding,
+			ERDGParameterMemberKind::ColorAttachmentBinding, false);
+		return Resources.GetDeclaredAttachment(Element.FieldPath);
+	}
+
+	auto FRDGParameterResolver::GetColorAttachment(const std::optional<FRDGColorAttachmentBinding>& Parameter) const -> FRDGAttachmentView
+	{
+		const auto& Element = FindElement(&Parameter, ERDGParameterMemberKind::ColorAttachmentBinding,
+			ERDGParameterMemberKind::ColorAttachmentBinding, true);
+		return Resources.GetDeclaredAttachment(Element.FieldPath);
+	}
+
+	auto FRDGParameterResolver::GetDepthStencilAttachment(const FRDGDepthStencilAttachmentBinding& Parameter) const -> FRDGAttachmentView
+	{
+		const auto& Element = FindElement(&Parameter, ERDGParameterMemberKind::DepthStencilAttachmentBinding,
+			ERDGParameterMemberKind::DepthStencilAttachmentBinding, false);
+		return Resources.GetDeclaredAttachment(Element.FieldPath);
+	}
+
+	auto FRDGParameterResolver::GetDepthStencilAttachment(const std::optional<FRDGDepthStencilAttachmentBinding>& Parameter) const -> FRDGAttachmentView
+	{
+		const auto& Element = FindElement(&Parameter, ERDGParameterMemberKind::DepthStencilAttachmentBinding,
+			ERDGParameterMemberKind::DepthStencilAttachmentBinding, true);
+		return Resources.GetDeclaredAttachment(Element.FieldPath);
 	}
 
 	auto FRDGParameterResolver::GetTexture(const FRDGTextureAccess& Parameter) const -> FRHITexture*

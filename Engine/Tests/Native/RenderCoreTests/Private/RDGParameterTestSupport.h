@@ -6,6 +6,24 @@
 
 namespace Durin
 {
+	struct FRuntimeAttachmentParameters final
+	{
+		std::optional<FRDGColorAttachmentBinding> Color;
+		std::optional<FRDGDepthStencilAttachmentBinding> Depth;
+
+		static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*
+		{
+			static const std::array Members{
+				MakeRDGColorAttachmentBindingMetadata<FRuntimeAttachmentParameters, decltype(Color)>(
+					"Color", offsetof(FRuntimeAttachmentParameters, Color)),
+				MakeRDGDepthStencilAttachmentBindingMetadata<FRuntimeAttachmentParameters, decltype(Depth)>(
+					"Depth", offsetof(FRuntimeAttachmentParameters, Depth))};
+			static const auto Metadata = MakeInlineRDGParametersMetadata<FRuntimeAttachmentParameters>(
+				"FRuntimeAttachmentParameters", Members);
+			return &Metadata;
+		}
+	};
+
 	struct FInstanceAccessParameters final
 	{
 		std::array<std::optional<FRDGTextureAccess>, 2> Textures;

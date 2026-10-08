@@ -118,6 +118,43 @@ namespace Durin
 		FRHITextureSubresourceRange Range{};
 	};
 
+	// Ordinary raster boundaries: the graph owns transitions into and out of
+	// attachment access. These declarations have no managed result state.
+	struct FRDGColorAttachmentBinding final
+	{
+		FRDGTextureHandle Texture;
+		FRHITextureSubresourceRange Range{};
+		ERHIRenderTargetLoadAction LoadAction = ERHIRenderTargetLoadAction::Load;
+		ERHIRenderTargetStoreAction StoreAction = ERHIRenderTargetStoreAction::Store;
+		ERHIAccess Access = ERHIAccess::ColorAttachmentReadWrite;
+	};
+
+	struct FRDGDepthStencilAttachmentBinding final
+	{
+		FRDGTextureHandle Texture;
+		FRHITextureSubresourceRange Range{};
+		ERHIRenderTargetLoadAction LoadAction = ERHIRenderTargetLoadAction::Load;
+		ERHIRenderTargetStoreAction StoreAction = ERHIRenderTargetStoreAction::Store;
+		ERHIAccess Access = ERHIAccess::DepthStencilReadWrite;
+	};
+
+	struct FRDGAttachmentPolicy final
+	{
+		ERDGUse Use;
+		ERHIAccess Access;
+		bool bDiscard;
+		bool bStore;
+	};
+
+	// The same policy supplies normalized uses and native pipeline/pass layouts.
+	RENDERCORE_API auto NormalizeRDGAttachment(ERHIAccess Access,
+		ERHIRenderTargetLoadAction Load, ERHIRenderTargetStoreAction Store)
+		-> std::optional<FRDGAttachmentPolicy>;
+	RENDERCORE_API auto MakeRDGAttachmentLayout(EPixelFormat Format,
+		ERHIAccess Access, ERHIRenderTargetLoadAction Load,
+		ERHIRenderTargetStoreAction Store = ERHIRenderTargetStoreAction::Store,
+		uint8 NumSamples = 1) -> FRHIAttachmentLayout;
+
 	// Carries a graph-local texture whose entry/exit transitions are pass-managed.
 	struct FRDGManagedTextureParameter final
 	{
@@ -306,6 +343,8 @@ namespace Durin
 			|| std::same_as<ExpectedType, FRDGBufferParameter>
 			|| std::same_as<ExpectedType, FRDGTextureAccess>
 			|| std::same_as<ExpectedType, FRDGBufferAccess>
+			|| std::same_as<ExpectedType, FRDGColorAttachmentBinding>
+			|| std::same_as<ExpectedType, FRDGDepthStencilAttachmentBinding>
 			|| std::same_as<ExpectedType, FRDGTokenParameter>
 			|| std::same_as<ExpectedType, FRDGColorAttachmentParameter>
 			|| std::same_as<ExpectedType,
@@ -364,6 +403,26 @@ namespace Durin
 	}
 
 	// Common texture roles fix wrapper, range, use, and access as one contract.
+	template<typename ParameterStruct, typename MemberType>
+	constexpr auto MakeRDGColorAttachmentBindingMetadata(const char* Name, uint32 Offset)
+		-> FRDGParameterMemberMetadata
+	{
+		return MakeRDGResourceParameterMemberMetadata<ParameterStruct, MemberType,
+			FRDGColorAttachmentBinding>(Name, Offset, ERDGParameterMemberKind::ColorAttachmentBinding,
+			ERDGResourceKind::Texture, ERDGParameterRangeKind::TextureSubresource,
+			ERDGUse::Read, ERHIAccess::None);
+	}
+
+	template<typename ParameterStruct, typename MemberType>
+	constexpr auto MakeRDGDepthStencilAttachmentBindingMetadata(const char* Name, uint32 Offset)
+		-> FRDGParameterMemberMetadata
+	{
+		return MakeRDGResourceParameterMemberMetadata<ParameterStruct, MemberType,
+			FRDGDepthStencilAttachmentBinding>(Name, Offset, ERDGParameterMemberKind::DepthStencilAttachmentBinding,
+			ERDGResourceKind::Texture, ERDGParameterRangeKind::TextureSubresource,
+			ERDGUse::Read, ERHIAccess::None);
+	}
+
 	template<typename ParameterStruct, typename MemberType, ERDGPassType Domain = ERDGPassType::Graphics>
 	constexpr auto MakeRDGTextureReadMetadata(const char* Name, uint32 Offset)
 		-> FRDGParameterMemberMetadata
@@ -579,6 +638,8 @@ namespace Durin
 		size_t AllocationIndex = InvalidAllocationIndex;
 	};
 
+	struct FRDGAttachmentView;
+
 	// Exposes only resources declared by the executing graph to pass callbacks.
 	class FRDGPassResources final
 	{
@@ -609,6 +670,8 @@ namespace Durin
 		}
 		RENDERCORE_API auto ResolveValue(uint64 Owner, uint32 Index, const void* TypeIdentity,
 			bool bWrite) const -> void*;
+		friend class FRDGParameterResolver;
+		RENDERCORE_API auto GetDeclaredAttachment(std::string_view FieldPath) const -> FRDGAttachmentView;
 
 		const FRDGBuilder& Graph;
 		uint32 PassIndex = 0;
@@ -626,9 +689,22 @@ namespace Durin
 			ERHIRenderTargetStoreAction::Store;
 		bool bPassManagedTransition = false;
 		ERHIAccess ResultAccess = ERHIAccess::None;
+		ERHIAccess Access = ERHIAccess::None;
+		bool bGraphBoundary = false;
 
 		explicit operator bool() const { return Texture != nullptr; }
 	};
+
+	// Owns an exact native view until BeginRenderPass records its own references.
+	struct FRDGNativeAttachmentBinding final
+	{
+		FTextureViewRHIRef View;
+		FRHIAttachmentLayout Layout;
+		RENDERCORE_API auto BindColor(FRHIRenderPassInfo& Pass, uint32 Index) const -> void;
+		RENDERCORE_API auto BindDepthStencil(FRHIRenderPassInfo& Pass) const -> void;
+	};
+	RENDERCORE_API auto MakeRDGNativeAttachmentBinding(const FRDGAttachmentView& Attachment)
+		-> FRDGNativeAttachmentBinding;
 
 	// Resolves only wrapper objects that are members of the executing pass's
 	// immutable parameter allocation. Raw graph handles are intentionally absent.
@@ -644,6 +720,10 @@ namespace Durin
 
 		auto GetTexture(const FRDGTextureParameter& Parameter) const
 			-> FRHITexture*;
+		auto GetColorAttachment(const FRDGColorAttachmentBinding& Parameter) const -> FRDGAttachmentView;
+		auto GetColorAttachment(const std::optional<FRDGColorAttachmentBinding>& Parameter) const -> FRDGAttachmentView;
+		auto GetDepthStencilAttachment(const FRDGDepthStencilAttachmentBinding& Parameter) const -> FRDGAttachmentView;
+		auto GetDepthStencilAttachment(const std::optional<FRDGDepthStencilAttachmentBinding>& Parameter) const -> FRDGAttachmentView;
 		auto GetTexture(const FRDGTextureAccess& Parameter) const -> FRHITexture*;
 		auto GetTexture(const std::optional<FRDGTextureAccess>& Parameter) const
 			-> FRHITexture*;
@@ -731,6 +811,9 @@ namespace Durin
 			ERDGParameterMemberKind ExpectedKind,
 			ERDGParameterMemberKind AlternateKind,
 			bool bOptional) const -> const FRDGParameterMemberMetadata&;
+		auto FindElement(const void* Address, ERDGParameterMemberKind ExpectedKind,
+			ERDGParameterMemberKind AlternateKind, bool bOptional) const
+			-> const FRDGParameterLayoutElement&;
 
 		const FRDGPassResources& Resources;
 		const FRDGParameterLayout* Layout = nullptr;

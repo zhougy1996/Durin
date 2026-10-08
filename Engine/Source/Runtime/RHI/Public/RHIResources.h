@@ -2124,6 +2124,12 @@ namespace Durin
 
 		auto GetTexture() const -> FRHITexture* { return Texture.GetReference(); }
 		auto GetDesc() const -> const FRHITextureViewDesc& { return Desc; }
+		auto GetExtent() const -> FIntPoint
+		{
+			const uint32 Shift = std::min(Desc.Range.FirstMip, 31u);
+			return FIntPoint(std::max(1u, Texture->GetSizeX() >> Shift),
+				std::max(1u, Texture->GetSizeY() >> Shift));
+		}
 
 	protected:
 		TRefCountPtr<FRHITexture> Texture;
