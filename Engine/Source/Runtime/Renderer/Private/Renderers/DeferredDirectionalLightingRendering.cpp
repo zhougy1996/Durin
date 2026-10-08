@@ -156,17 +156,8 @@ namespace Durin
 				.Value = *Inputs.CloudShadow.Completion};
 		Parameters->Completion = {
 			.Value = DeferredDirectionalLightingCompletion};
-		std::vector<FRDGTextureHandle> DeclaredPersistentInputs;
-		auto AssignRead = [&DeclaredPersistentInputs](auto& Parameter, const auto& Handle,
-			FRHITexture* Physical) {
-			if (!Handle || !Physical
-				|| std::ranges::contains(DeclaredPersistentInputs, *Handle)) return;
-			DeclaredPersistentInputs.push_back(*Handle);
-			Parameter = FRDGTextureParameter{*Handle,
-				{GetTextureAspects(Physical->GetFormat()), 0,
-					Physical->GetNumMips(), 0, Physical->GetArraySize()}};
-		};
-		AssignRead(Parameters->Resources.DirectionalShadow,
+		SceneTextureGroups::FPersistentTextureReads PersistentReads;
+		PersistentReads.Assign(Parameters->Resources.DirectionalShadow,
 			Inputs.DirectionalShadow.Shadow, DirectionalShadowTexture);
 		if (Inputs.GBuffer.Textures)
 		{
@@ -194,18 +185,18 @@ namespace Durin
 			Parameters->Resources.CloudShadowCompute = {
 				*Inputs.CloudShadow.Compute,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		AssignRead(Parameters->Resources.DefaultWhite, Inputs.DefaultWhite,
+		PersistentReads.Assign(Parameters->Resources.DefaultWhite, Inputs.DefaultWhite,
 			Inputs.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
-		AssignRead(Parameters->Resources.DefaultShadowArray,
+		PersistentReads.Assign(Parameters->Resources.DefaultShadowArray,
 			Inputs.DefaultShadowArray,
 			Inputs.DefaultTextures.GetArray_RenderThread());
-		AssignRead(Parameters->Resources.EnvironmentIrradiance,
+		PersistentReads.Assign(Parameters->Resources.EnvironmentIrradiance,
 			Inputs.Environment.Irradiance,
 			Inputs.Environment.SelectedIrradiance);
-		AssignRead(Parameters->Resources.EnvironmentPrefiltered,
+		PersistentReads.Assign(Parameters->Resources.EnvironmentPrefiltered,
 			Inputs.Environment.Prefiltered,
 			Inputs.Environment.SelectedPrefiltered);
-		AssignRead(Parameters->Resources.EnvironmentBrdfLut,
+		PersistentReads.Assign(Parameters->Resources.EnvironmentBrdfLut,
 			Inputs.Environment.BrdfLut,
 			Inputs.Environment.SelectedBrdfLut);
 		if (IsolatedDeferred)

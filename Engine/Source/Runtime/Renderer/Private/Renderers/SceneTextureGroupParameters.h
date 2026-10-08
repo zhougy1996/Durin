@@ -8,6 +8,24 @@
 
 namespace Durin::SceneTextureGroups
 {
+	// Declares each persistent handle once, including shared fallback textures.
+	class FPersistentTextureReads final
+	{
+	public:
+		auto Assign(std::optional<FRDGTextureParameter>& Parameter,
+			const std::optional<FRDGTextureHandle>& Handle, FRHITexture* Physical) -> void
+		{
+			if (!Handle || !Physical || std::ranges::contains(Declared, *Handle)) return;
+			Declared.push_back(*Handle);
+			Parameter = FRDGTextureParameter{*Handle,
+				{GetTextureAspects(Physical->GetFormat()), 0,
+					Physical->GetNumMips(), 0, Physical->GetArraySize()}};
+		}
+
+	private:
+		std::vector<FRDGTextureHandle> Declared;
+	};
+
 	// These helpers borrow the original parameter members; resolver authority is address-based.
 	template<typename Wrapper>
 	auto ResolveTexture(const FRDGParameterResolver& Resolver,
