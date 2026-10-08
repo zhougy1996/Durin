@@ -38,8 +38,8 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
 #endif
-			Device.GetRHI().GetDebugUtils().NameObject(BufferView,
-				std::format("{}.BufferView", Buffer->GetDebugName()));
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(BufferView,
+				[&] { return std::format("{}.BufferView", Buffer->GetDebugName()); });
 		}
 		catch (...)
 		{
@@ -97,8 +97,8 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
 #endif
-			Device.GetRHI().GetDebugUtils().NameObject(ImageView,
-				std::format("{}.ImageView", Texture->GetDebugName()));
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(ImageView,
+				[&] { return std::format("{}.ImageView", Texture->GetDebugName()); });
 		}
 		catch (...)
 		{

@@ -253,8 +253,8 @@ namespace Durin::VulkanRHI
 
 		const vk::DescriptorSetLayout Result =
 			Device.GetHandle().createDescriptorSetLayout(LayoutInfo);
-		Device.GetRHI().GetDebugUtils().NameObject(Result,
-			Device.GetRHI().GetDebugUtils().MakeInternalName("DescriptorSetLayout"));
+		Device.GetRHI().GetDebugUtils().NameObjectLazy(Result,
+			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("DescriptorSetLayout"); });
 		return Result;
 	}
 
@@ -495,12 +495,12 @@ namespace Durin::VulkanRHI
 					CandidateLayout->GetDescriptorSetsLayout().GetLayoutHandles().size(),
 					PushConstantRanges.size()));
 			}
-			const std::string BaseName = DebugName.empty()
-				? Device.GetRHI().GetDebugUtils().MakeInternalName("GraphicsPipeline")
-				: std::string(DebugName);
-			Device.GetRHI().GetDebugUtils().NameObject(CandidatePipeline, BaseName);
-			Device.GetRHI().GetDebugUtils().NameObject(CandidatePipelineLayout,
-				std::format("{}.PipelineLayout", BaseName));
+			const std::string BaseName = Device.GetRHI().GetDebugUtils().CanNameObjects()
+				? (DebugName.empty() ? Device.GetRHI().GetDebugUtils().MakeInternalName("GraphicsPipeline")
+					: std::string(DebugName)) : std::string{};
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidatePipeline, [&] { return std::string_view(BaseName); });
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidatePipelineLayout,
+				[&] { return std::format("{}.PipelineLayout", BaseName); });
 		}
 		catch (...)
 		{
@@ -622,12 +622,12 @@ namespace Durin::VulkanRHI
 			if (Creation.result != vk::Result::eSuccess)
 				throw vk::SystemError(vk::make_error_code(Creation.result), std::format("result={}",
 					vk::to_string(Creation.result)));
-			const std::string BaseName = DebugName.empty()
-				? Device.GetRHI().GetDebugUtils().MakeInternalName("ComputePipeline")
-				: std::string(DebugName);
-			Device.GetRHI().GetDebugUtils().NameObject(CandidatePipeline, BaseName);
-			Device.GetRHI().GetDebugUtils().NameObject(CandidatePipelineLayout,
-				std::format("{}.PipelineLayout", BaseName));
+			const std::string BaseName = Device.GetRHI().GetDebugUtils().CanNameObjects()
+				? (DebugName.empty() ? Device.GetRHI().GetDebugUtils().MakeInternalName("ComputePipeline")
+					: std::string(DebugName)) : std::string{};
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidatePipeline, [&] { return std::string_view(BaseName); });
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidatePipelineLayout,
+				[&] { return std::format("{}.PipelineLayout", BaseName); });
 		}
 		catch (...)
 		{
@@ -1206,7 +1206,14 @@ namespace Durin::VulkanRHI
 			using TResult = std::conditional_t<Graphics, FGraphicsPipelineStateRHIRef, FComputePipelineStateRHIRef>;
 			constexpr std::string_view Kind = Graphics ? "graphics pipeline" : "compute pipeline";
 			if (RHI.RHIIsPipelineCreationClosed()) return nullptr;
-			const auto Name = DebugName.ToString();
+			char NameBuffer[FName::StringBufferSize];
+			std::string_view Name = DebugName.GetPlainNameView();
+			if (DebugName.HasNumber())
+			{
+				size_t Length = 0;
+				require(DebugName.TryWriteString(NameBuffer, Length));
+				Name = std::string_view(NameBuffer, Length);
+			}
 			if (!IsPipelineCreationPayloadBounded(Initializer, Name)) return nullptr;
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 			FVulkanCreationTimingScope TimingScope(!Graphics);

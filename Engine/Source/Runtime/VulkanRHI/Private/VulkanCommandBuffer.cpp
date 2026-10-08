@@ -122,8 +122,8 @@ namespace Durin::VulkanRHI
 			.setLevel(vk::CommandBufferLevel::ePrimary);
 
 		Handle = Device.GetHandle().allocateCommandBuffers(AllocInfo)[0];
-		Device.GetRHI().GetDebugUtils().NameObject(Handle,
-			Device.GetRHI().GetDebugUtils().MakeInternalName("CommandBuffer"));
+		Device.GetRHI().GetDebugUtils().NameObjectLazy(Handle,
+			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("CommandBuffer"); });
 
 		State = EState::ReadyForBegin;
 	}
@@ -165,9 +165,8 @@ namespace Durin::VulkanRHI
 		check(State == EState::IsInsideBegin);
 		if (!DebugName.IsNone())
 		{
-			const std::string LabelName = DebugName.ToString();
 			bRenderPassDebugLabelOpen =
-				Device.GetRHI().GetDebugUtils().BeginLabel(Handle, LabelName);
+				Device.GetRHI().GetDebugUtils().BeginNameLabel(Handle, DebugName);
 		}
 		vk::RenderPassBeginInfo BeginInfo;
 
@@ -247,8 +246,8 @@ namespace Durin::VulkanRHI
 			.setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
 
 		Handle = Device.GetHandle().createCommandPool(CmdPoolInfo);
-		Device.GetRHI().GetDebugUtils().NameObject(Handle,
-			Device.GetRHI().GetDebugUtils().MakeInternalName("CommandPool"));
+		Device.GetRHI().GetDebugUtils().NameObjectLazy(Handle,
+			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("CommandPool"); });
 	}
 
 	auto FVulkanCommandBufferPool::Create() -> FVulkanCommandBuffer*

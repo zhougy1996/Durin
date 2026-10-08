@@ -123,8 +123,8 @@ namespace Durin::VulkanRHI
 			++Statistics.AllocationFailureCount;
 			return false;
 		}
-		Device.GetRHI().GetDebugUtils().NameObject(Page.Handle,
-			std::format("Durin.TimestampQueryPool.{}", Pages.size()));
+		Device.GetRHI().GetDebugUtils().NameObjectLazy(Page.Handle,
+			[&] { return std::format("Durin.TimestampQueryPool.{}", Pages.size()); });
 		Pages.push_back(std::move(Page));
 		Statistics.AllocatedPages = Pages.size();
 		return true;

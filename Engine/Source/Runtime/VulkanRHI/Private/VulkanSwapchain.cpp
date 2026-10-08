@@ -236,8 +236,8 @@ namespace Durin::VulkanRHI
 		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Swapchain);
 #endif
 		Swapchain = Device.GetHandle().createSwapchainKHR(SwapchainInfo);
-		Device.GetRHI().GetDebugUtils().NameObject(Swapchain,
-			Device.GetRHI().GetDebugUtils().MakeInternalName("Swapchain"));
+		Device.GetRHI().GetDebugUtils().NameObjectLazy(Swapchain,
+			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("Swapchain"); });
 		bOutNativeSwapchainCreated = true;
 
 		try

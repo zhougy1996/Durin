@@ -231,6 +231,37 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Statistics.NamingFailureCount, 0u);
 	}
 
+	TEST(FVulkanDebugUtilsTests, UnavailableNamingDoesNotEvaluateNameFactories)
+	{
+		FVulkanDebugUtils DebugUtils;
+		bool bEvaluated = false;
+		auto MakeName = [&]() -> std::string {
+			bEvaluated = true;
+			throw std::logic_error("Unavailable diagnostics must not generate names.");
+		};
+		DebugUtils.NameObjectLazy(vk::Buffer{}, MakeName);
+		EXPECT_EQ(DebugUtils.Snapshot().NamingAttemptCount, 0u);
+		EXPECT_NO_THROW(DebugUtils.NameObjectLazy(
+			vk::Buffer(reinterpret_cast<VkBuffer>(uintptr_t{1})), MakeName));
+		EXPECT_FALSE(bEvaluated);
+		const auto Statistics = DebugUtils.Snapshot();
+		EXPECT_EQ(Statistics.NamingAttemptCount, 1u);
+		EXPECT_EQ(Statistics.NamingUnavailableSkipCount, 1u);
+		EXPECT_EQ(Statistics.NamingFailureCount, 0u);
+	}
+
+	TEST(FVulkanDebugUtilsTests, UnavailableNameLabelsAreCountedAndNonFatal)
+	{
+		FVulkanDebugUtils DebugUtils;
+		const auto CommandBuffer = vk::CommandBuffer(
+			reinterpret_cast<VkCommandBuffer>(uintptr_t{1}));
+		EXPECT_FALSE(DebugUtils.BeginNameLabel(CommandBuffer, FName{}));
+		EXPECT_EQ(DebugUtils.Snapshot().LabelUnavailableSkipCount, 0u);
+		EXPECT_FALSE(DebugUtils.BeginNameLabel(CommandBuffer, FName("Pass_42")));
+		EXPECT_EQ(DebugUtils.Snapshot().LabelUnavailableSkipCount, 1u);
+		EXPECT_EQ(DebugUtils.Snapshot().LabelBeginCount, 0u);
+	}
+
 	TEST(FVulkanGPUTimingTests, ConvertsMaskedWrappedAndFractionalDurations)
 	{
 		bool bOverflow = false;
@@ -819,7 +850,7 @@ namespace Durin::VulkanRHI
 			auto* Context = static_cast<FVulkanCommandListContext*>(
 				GDynamicRHI->RHIGetDefaultContext());
 			Context->RHIBeginDiagnosticRegion("Stage2OutsidePass");
-			Context->RHIBeginRenderPass(PassInfo, "Stage2RenderPass");
+			Context->RHIBeginRenderPass(PassInfo, "Stage2RenderPass_42");
 			Context->RHIEndRenderPass();
 			Context->RHIEndDiagnosticRegion();
 		});
@@ -832,7 +863,7 @@ namespace Durin::VulkanRHI
 				LabelEvents.emplace_back("End");
 		}
 		EXPECT_EQ(LabelEvents, (std::vector<std::string>{
-			"Begin:Stage2OutsidePass", "Begin:Stage2RenderPass", "End", "End"}));
+			"Begin:Stage2OutsidePass", "Begin:Stage2RenderPass_42", "End", "End"}));
 
 		Buffer = nullptr;
 		RenderTarget = nullptr;

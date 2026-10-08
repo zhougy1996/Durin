@@ -113,8 +113,9 @@ namespace Durin::VulkanRHI
 		, Format(ToVulkan_PixelFormat(InCreateDesc.Format))
 		, CreateFlags(InCreateDesc.Flags)
 		, StateTracker(InCreateDesc.NumMips, InCreateDesc.ArraySize)
-		, DebugName(InCreateDesc.DebugName ? InCreateDesc.DebugName :
-			Device.GetRHI().GetDebugUtils().MakeInternalName("Image"))
+		, DebugName(Device.GetRHI().GetDebugUtils().CanNameObjects()
+			? (InCreateDesc.DebugName ? std::string(InCreateDesc.DebugName)
+				: Device.GetRHI().GetDebugUtils().MakeInternalName("Image")) : std::string{})
 	{
 		const vk::Extent3D ImageExtent = ToVulkan_Extent3D(InCreateDesc.GetSize());
 
@@ -141,7 +142,7 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
 #endif
-			Device.GetRHI().GetDebugUtils().NameObject(Image, DebugName);
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(Image, [&] { return std::string_view(DebugName); });
 		}
 		catch (...)
 		{
@@ -157,10 +158,11 @@ namespace Durin::VulkanRHI
 		, OwnerType(EImageOwnerType::ExternalOwner)
 		, CreateFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource)
 		, StateTracker(1, 1)
-		, DebugName(Device.GetRHI().GetDebugUtils().MakeInternalName("SwapchainImage"))
+		, DebugName(Device.GetRHI().GetDebugUtils().CanNameObjects()
+			? Device.GetRHI().GetDebugUtils().MakeInternalName("SwapchainImage") : std::string{})
 	{
 		Flags = CreateFlags;
-		Device.GetRHI().GetDebugUtils().NameObject(Image, DebugName);
+		Device.GetRHI().GetDebugUtils().NameObjectLazy(Image, [&] { return std::string_view(DebugName); });
 	}
 
 	FVulkanTexture::~FVulkanTexture()
@@ -227,8 +229,8 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
 #endif
-			Device.GetRHI().GetDebugUtils().NameObject(Sampler,
-				Device.GetRHI().GetDebugUtils().MakeInternalName("Sampler"));
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(Sampler,
+				[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("Sampler"); });
 		}
 		catch (...)
 		{

@@ -49,7 +49,15 @@ namespace Durin
 			using TKey = std::conditional_t<Graphics, FGraphicsPipelineStateKey, FComputePipelineStateKey>;
 			using TPipeline = std::conditional_t<Graphics, FGraphicsPipelineState, FComputePipelineState>;
 			using TResult = std::expected<std::shared_ptr<TPipeline>, ERHIPipelineRequestRejection>;
-			if (!IsPipelineCreationPayloadBounded(Initializer, Name.ToString()))
+			char NameBuffer[FName::StringBufferSize];
+			std::string_view NameView = Name.GetPlainNameView();
+			if (Name.HasNumber())
+			{
+				size_t Length = 0;
+				require(Name.TryWriteString(NameBuffer, Length));
+				NameView = std::string_view(NameBuffer, Length);
+			}
+			if (!IsPipelineCreationPayloadBounded(Initializer, NameView))
 				return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
 			auto Valid = [&] {
 				if constexpr (Graphics) return BuildGraphicsPipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities());

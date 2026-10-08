@@ -207,7 +207,15 @@ namespace Durin
 			auto* Cache = GDynamicRHI->RHIGetPipelineStateCache();
 			if (!Cache) return std::unexpected(GDynamicRHI->RHIIsPipelineCreationClosed()
 				? ERHIPipelineRequestRejection::Closed : ERHIPipelineRequestRejection::Unsupported);
-			return Cache->GetGraphics(Initializer, Name.ToString());
+			char NameBuffer[FName::StringBufferSize];
+			std::string_view NameView = Name.GetPlainNameView();
+			if (Name.HasNumber())
+			{
+				size_t Length = 0;
+				require(Name.TryWriteString(NameBuffer, Length));
+				NameView = std::string_view(NameBuffer, Length);
+			}
+			return Cache->GetGraphics(Initializer, NameView);
 		}
 		auto GetAndOrCreateComputePipelineState(const FComputePipelineStateInitializer& Initializer, FName Name)
 			-> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection>
@@ -216,7 +224,15 @@ namespace Durin
 			auto* Cache = GDynamicRHI->RHIGetPipelineStateCache();
 			if (!Cache) return std::unexpected(GDynamicRHI->RHIIsPipelineCreationClosed()
 				? ERHIPipelineRequestRejection::Closed : ERHIPipelineRequestRejection::Unsupported);
-			return Cache->GetCompute(Initializer, Name.ToString());
+			char NameBuffer[FName::StringBufferSize];
+			std::string_view NameView = Name.GetPlainNameView();
+			if (Name.HasNumber())
+			{
+				size_t Length = 0;
+				require(Name.TryWriteString(NameBuffer, Length));
+				NameView = std::string_view(NameBuffer, Length);
+			}
+			return Cache->GetCompute(Initializer, NameView);
 		}
 		auto PrecacheGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer, FName Name)
 			-> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection>

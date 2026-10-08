@@ -77,6 +77,22 @@ namespace Durin::VulkanRHI
 			NameObjectRaw(HandleType::objectType, Value, Name);
 		}
 
+		// Factories run only when native naming is available.
+		template<typename HandleType, typename NameFactory>
+		auto NameObjectLazy(HandleType Handle, NameFactory&& MakeName) -> void
+		{
+			if (!Handle) return;
+			if (!CanNameObjects())
+			{
+				Increment(NamingAttemptCount);
+				Increment(NamingUnavailableSkipCount);
+				return;
+			}
+			NameObject(Handle, std::invoke(std::forward<NameFactory>(MakeName)));
+		}
+
+		auto CanNameObjects() const -> bool { return Device && SetObjectName; }
+		auto BeginNameLabel(vk::CommandBuffer CommandBuffer, FName Name) -> bool;
 		auto BeginLabel(vk::CommandBuffer CommandBuffer,
 			std::string_view Name) -> bool;
 		auto EndLabel(vk::CommandBuffer CommandBuffer) -> void;

@@ -192,8 +192,8 @@ namespace Durin::VulkanRHI
 		try
 		{
 			RenderPass = Device.GetHandle().createRenderPass(CreateInfo);
-			Device.GetRHI().GetDebugUtils().NameObject(RenderPass,
-				Device.GetRHI().GetDebugUtils().MakeInternalName("RenderPass"));
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(RenderPass,
+				[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("RenderPass"); });
 		}
 		catch (...)
 		{

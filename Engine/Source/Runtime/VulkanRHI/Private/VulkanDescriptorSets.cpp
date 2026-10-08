@@ -73,8 +73,8 @@ namespace Durin::VulkanRHI
 		NewEntry.Handle = Device.GetHandle().createDescriptorSetLayout(CreateInfo);
 		try
 		{
-			Device.GetRHI().GetDebugUtils().NameObject(NewEntry.Handle,
-				Device.GetRHI().GetDebugUtils().MakeInternalName("DescriptorSetLayout"));
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(NewEntry.Handle,
+				[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("DescriptorSetLayout"); });
 			const auto [InsertedIt, bInserted] = DLayoutMap.emplace(Layout, NewEntry);
 			check(bInserted);
 		}
@@ -150,8 +150,8 @@ namespace Durin::VulkanRHI
 			EVulkanCreateFailurePoint::DescriptorPool);
 #endif
 		DescriptorPool = Device->GetHandle().createDescriptorPool(CreateInfo);
-		Device->GetRHI().GetDebugUtils().NameObject(DescriptorPool,
-			Device->GetRHI().GetDebugUtils().MakeInternalName("DescriptorPool"));
+		Device->GetRHI().GetDebugUtils().NameObjectLazy(DescriptorPool,
+			[&] { return Device->GetRHI().GetDebugUtils().MakeInternalName("DescriptorPool"); });
 		GVulkanMemoryBaselineTracker.RecordDescriptorPoolCreated(MaxDescriptorSets);
 	}
 

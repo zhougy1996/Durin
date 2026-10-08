@@ -134,9 +134,9 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
 #endif
-			Device.GetRHI().GetDebugUtils().NameObject(ShaderModule,
-				InCreateDesc.DebugName ? InCreateDesc.DebugName
-						: Device.GetRHI().GetDebugUtils().MakeInternalName("ShaderModule"));
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(ShaderModule,
+				[&] { return InCreateDesc.DebugName ? InCreateDesc.DebugName
+						: Device.GetRHI().GetDebugUtils().MakeInternalName("ShaderModule"); });
 		}
 		catch (...)
 		{

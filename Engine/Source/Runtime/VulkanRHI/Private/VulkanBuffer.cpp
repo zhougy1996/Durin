@@ -37,8 +37,9 @@ namespace Durin::VulkanRHI
 		: FRHIBuffer(InCreateDesc)
 		, Device(InDevice)
 		, StateTracker(InCreateDesc.Size)
-		, DebugName(InCreateDesc.DebugName ? InCreateDesc.DebugName :
-			Device.GetRHI().GetDebugUtils().MakeInternalName("Buffer"))
+		, DebugName(Device.GetRHI().GetDebugUtils().CanNameObjects()
+			? (InCreateDesc.DebugName ? std::string(InCreateDesc.DebugName)
+				: Device.GetRHI().GetDebugUtils().MakeInternalName("Buffer")) : std::string{})
 	{
 		vk::BufferCreateInfo BufferInfo;
 		BufferInfo.setSize(InCreateDesc.Size);
@@ -79,7 +80,7 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
 #endif
-			Device.GetRHI().GetDebugUtils().NameObject(Buffer, DebugName);
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(Buffer, [&] { return std::string_view(DebugName); });
 		}
 		catch (...)
 		{

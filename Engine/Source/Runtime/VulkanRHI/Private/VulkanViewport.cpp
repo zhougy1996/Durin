@@ -121,8 +121,8 @@ namespace Durin::VulkanRHI
 				InWindowHandle, FVulkanDynamicRHI::Get().RHIGetVkInstance());
 		try
 		{
-			Device.GetRHI().GetDebugUtils().NameObject(Surface,
-				Device.GetRHI().GetDebugUtils().MakeInternalName("Surface"));
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(Surface,
+				[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("Surface"); });
 			bSwapchainNeedsRecreate = true;
 			bSwapchainRetryEligible = true;
 			PrepareSwapchain();
@@ -420,8 +420,8 @@ namespace Durin::VulkanRHI
 			CandidateImages = CandidateSwapchain->GetImages();
 			for (uint32 ImageIndex = 0; ImageIndex < CandidateImages.size(); ++ImageIndex)
 			{
-				Device.GetRHI().GetDebugUtils().NameObject(CandidateImages[ImageIndex],
-					std::format("Durin.SwapchainImage.{}", ImageIndex));
+				Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidateImages[ImageIndex],
+					[&] { return std::format("Durin.SwapchainImage.{}", ImageIndex); });
 			}
 
 			vk::ImageViewCreateInfo ImageViewCreateInfo;
@@ -437,8 +437,8 @@ namespace Durin::VulkanRHI
 #endif
 				ImageViewCreateInfo.setImage(Image);
 				CandidateViews.emplace_back(Image, Device.GetHandle().createImageView(ImageViewCreateInfo));
-				Device.GetRHI().GetDebugUtils().NameObject(CandidateViews.back().ImageView,
-					std::format("Durin.SwapchainImageView.{}", ImageIndex));
+				Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidateViews.back().ImageView,
+					[&] { return std::format("Durin.SwapchainImageView.{}", ImageIndex); });
 			}
 
 			CandidateFrameResources.resize(CandidateImages.size());
@@ -454,8 +454,8 @@ namespace Durin::VulkanRHI
 					ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::SwapchainFence);
 #endif
 					FrameResource.PresentFence = Device.GetHandle().createFence(vk::FenceCreateInfo());
-					Device.GetRHI().GetDebugUtils().NameObject(FrameResource.PresentFence,
-						Device.GetRHI().GetDebugUtils().MakeInternalName("PresentFence"));
+					Device.GetRHI().GetDebugUtils().NameObjectLazy(FrameResource.PresentFence,
+						[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("PresentFence"); });
 				}
 			}
 		}
