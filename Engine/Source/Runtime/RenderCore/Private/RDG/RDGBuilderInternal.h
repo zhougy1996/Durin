@@ -47,6 +47,8 @@ namespace Durin
 			const FRDGParameterizedPassExecute* ParameterizedExecute = nullptr;
 			const FRDGRecordingPassExecute* RecordingExecute = nullptr;
 			ERDGRecordingPolicy RecordingPolicy = ERDGRecordingPolicy::Serial;
+			// A recording wave must start at or after this predecessor boundary.
+			uint32 PrerequisiteEnd = 0;
 			uint64 BufferUploadBytes = 0;
 			const FRDGParameterLayout* ParameterLayout = nullptr;
 			const void* Parameters = nullptr;

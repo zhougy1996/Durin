@@ -378,18 +378,6 @@ namespace Durin
 	auto FRDGBuilder::RecordPasses(FRHICommandListImmediate& CommandList,
 		const FExecutionContext& Context) -> FRDGPreparationResult
 	{
-		uint32 DeclarationCount = 0;
-		for (const auto& Pass : Compiled->Passes) DeclarationCount = std::max(DeclarationCount, Pass.DeclarationIndex + 1);
-		std::vector<uint32> DeclarationToCompiled(DeclarationCount, UINT32_MAX);
-		for (uint32 Index = 0; Index < Compiled->Passes.size(); ++Index)
-			DeclarationToCompiled[Compiled->Passes[Index].DeclarationIndex] = Index;
-		std::vector<uint32> PrerequisiteEnd(Compiled->Passes.size(), 0);
-		for (const auto& Edge : Compiled->Dependencies)
-		{
-			const uint32 Before = DeclarationToCompiled[Edge.BeforePass], After = DeclarationToCompiled[Edge.AfterPass];
-			require(Before != UINT32_MAX && After != UINT32_MAX && Before < After);
-			PrerequisiteEnd[After] = std::max(PrerequisiteEnd[After], Before + 1);
-		}
 		auto RecordOwned = [this](uint32 Index) {
 			FRHICommandList Recorded;
 			const auto& Pass = Compiled->Passes[Index];
@@ -411,7 +399,7 @@ namespace Durin
 			uint32 End = First + 1;
 			if (IsTaskSchedulerRunning() && Eligible(First))
 				while (End < Compiled->Passes.size() && End - First < 8
-					&& Eligible(End) && PrerequisiteEnd[End] <= First) ++End;
+					&& Eligible(End) && Compiled->RuntimePasses[End].PrerequisiteEnd <= First) ++End;
 			if (End == First + 1)
 			{
 				ReadyRecordings.push_back(RecordOwned(First));

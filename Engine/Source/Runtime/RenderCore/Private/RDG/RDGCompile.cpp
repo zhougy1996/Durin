@@ -972,6 +972,14 @@ namespace Durin
 			std::vector<uint32> DeclarationToSubmission(PassCount, UINT32_MAX);
 			for (uint32 Index = 0; Index < ScheduledCount; ++Index)
 				DeclarationToSubmission[CompiledState->Passes[Index].DeclarationIndex] = Index;
+			for (const auto& Edge : CompiledState->Dependencies)
+			{
+				const uint32 Before = DeclarationToSubmission[Edge.BeforePass];
+				const uint32 After = DeclarationToSubmission[Edge.AfterPass];
+				require(Before != UINT32_MAX && After != UINT32_MAX && Before < After);
+				auto& Boundary = CompiledState->RuntimePasses[After].PrerequisiteEnd;
+				Boundary = std::max(Boundary, Before + 1);
+			}
 			std::vector<std::array<uint32, 2>> RangeUsers(Cells.Ranges.size(), {UINT32_MAX, UINT32_MAX});
 			std::optional<FRDGLimitError> TransitionError;
 			const bool bTraversed = TraverseExecutionStates(Cells, State->Resources,

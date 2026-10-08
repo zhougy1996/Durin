@@ -1942,6 +1942,15 @@ namespace Durin
 		FRHICommandListExecutor Executor(Backend);
 		auto& Commands = Executor.GetImmediateCommandList();
 		FRDGBuilder Builder;
+		Builder.EnablePassCulling();
+		auto AddCulledPass = [&](std::string_view Name) {
+			Builder.AddRecordingPass(Name, ERDGPassType::Copy,
+				Builder.AllocParameters<FFirstLifetimeGraphParameters>(),
+				[](FRHICommandList&, const FFirstLifetimeGraphParameters&, const FRDGParameterResolver&) {
+					ADD_FAILURE() << "Unreachable recording callback ran";
+				}, ERDGRecordingPolicy::Parallel);
+		};
+		AddCulledPass("CulledPrefix");
 		const auto Value = Builder.CreateValue<FTypedValuePayload>("ParallelValue", "parallel-value");
 		auto Write = Builder.AllocParameters<FTypedValueWriteParameters>();
 		Write->Output = {Value};
@@ -1951,6 +1960,7 @@ namespace Durin
 				Resolver.WriteValue(Parameters.Output).Value = 73;
 				Recorded.EnqueueLambda([&Replay] { Replay.push_back(1); });
 			}, ERDGRecordingPolicy::Parallel);
+		AddCulledPass("CulledGap");
 		const auto Independent = Builder.AddRecordingPass("Independent", ERDGPassType::Copy,
 			Builder.AllocParameters<FFirstLifetimeGraphParameters>(),
 			[&](FRHICommandList& Recorded, const FFirstLifetimeGraphParameters&, const FRDGParameterResolver&) {
@@ -1968,6 +1978,8 @@ namespace Durin
 		Builder.AddPassDependency(Independent, Consumer);
 		Builder.MarkPassRoot(Consumer);
 		ASSERT_TRUE(Builder.Execute(Commands));
+		EXPECT_EQ(Builder.GetStatistics().ScheduledPasses, 3u);
+		EXPECT_EQ(Builder.GetStatistics().CulledPasses, 2u);
 		for (uint32 Worker : WorkerThreads) { EXPECT_NE(Worker, 0u); EXPECT_NE(Worker, GGameThreadId); }
 		EXPECT_TRUE(Replay.empty());
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
