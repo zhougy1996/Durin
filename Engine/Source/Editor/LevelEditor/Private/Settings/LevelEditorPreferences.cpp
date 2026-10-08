@@ -47,6 +47,7 @@ namespace Durin::Editor::Level
 		bChanged |= ImGui::Checkbox("Show world grid", &Next.bGrid);
 		bChanged |= ImGui::Checkbox("Show viewport statistics", &Next.bStatistics);
 		ImGui::SeparatorText("Transform snapping");
+		ImGui::TextDisabled("Hold Ctrl while dragging for temporary snapping.");
 		bChanged |= ImGui::Checkbox("Enable snapping", &Next.Snap.bEnabled);
 		ImGui::SetNextItemWidth(MonaImGui::ScaleUI(220.0f));
 		bChanged |= ImGui::DragFloat("Translation step", &Next.Snap.Translation, 0.05f, 0.001f, 10000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);

@@ -39,8 +39,9 @@ missing or pending allocations show a placeholder instead of source thumbnails.
 
 ## Compile, Apply, and Save
 
-The toolbar exposes Compile, Apply, and a user-scoped Auto Compile preference,
-enabled by default. Opening a base material applies the preference to its working
+The toolbar exposes Compile and Apply. The user-scoped Auto Compile preference
+is edited in Settings > Editor > Material Editor, reached directly through the
+material Window menu, and is enabled by default. Opening a base material applies the preference to its working
 copy's Engine edit policy. Automatic edits wait for a
 400 ms quiet period before compiler-input construction. Each subsequent semantic
 edit restarts the deadline. Switching to manual removes scheduled submission;

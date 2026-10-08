@@ -637,14 +637,6 @@ namespace Durin::Editor::Material
 					ImGui::SameLine();
 				}
 				if (ImGui::Button("Compile") && FinishActivePropertyEdit(false)) Base->CompileEdits();
-				ImGui::SameLine();
-				if (ImGui::Checkbox("Auto Compile", &SessionSettings->bAutoCompile))
-				{
-					SetAutoCompile(SessionSettings->bAutoCompile);
-					SessionSettings->Save();
-				}
-				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip("Compile after editing pauses. Disable to compile changes manually.");
 				if (Session && Session->HasUnappliedChanges())
 				{
 					ImGui::SameLine();
@@ -693,6 +685,9 @@ namespace Durin::Editor::Material
 			ImGui::MenuItem("Diagnostics", nullptr, &SessionSettings->bDiagnosticsVisible);
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
+			ImGui::Separator();
+			if (ImGui::MenuItem("Material Editor Preferences..."))
+				FEditorSettingsRegistry::Get().RequestOpen("editor.material");
 			ImGui::EndPopup();
 		}
 	}

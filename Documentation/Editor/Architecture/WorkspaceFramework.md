@@ -65,6 +65,15 @@ window geometry, per-level cameras, browser navigation and pane widths, material
 graph viewports, and unrelated settings. Project settings do not expose an
 automatic reset action.
 
+Low-frequency preference editing is centralized in this window. The browser's
+view-options popup links to Content Browser preferences; the material Window
+menu links to Material Editor preferences; rendering diagnostics reports VSync
+read-only and links to Display. Right-clicking the viewport snap button or using
+its overflow menu opens Viewport and Controls instead of a separate snap editor.
+High-frequency contextual controls remain local: view switching, panel visibility,
+camera speed, grid/statistics visibility, snap enablement, and Ctrl-wheel thumbnail
+resizing. These controls continue to share the same state as their settings pages.
+
 ## Startup Bootstrap
 
 `MainFrame` constructs and owns a lightweight native shell before loading

@@ -309,7 +309,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle selection details");
 			ImGui::SameLine();
 			if (DrawToolbarIconButton(Icons::Gear, "ContentBrowserSettings")) ImGui::OpenPopup("ContentBrowserSettingsPopup");
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Content Browser settings");
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("View filters and browser preferences");
 			if (ImGui::BeginPopup("ContentBrowserSettingsPopup"))
 			{
 				if (!bFullLayout)
@@ -320,20 +320,12 @@ namespace Durin::Editor::ContentBrowser::Private
 						Model.SetTypeFilter(static_cast<EContentBrowserTypeFilter>(TypeFilter));
 					ImGui::Separator();
 				}
-				bool bShowHiddenFiles = Model.IsShowingHiddenFiles();
-				if (ImGui::Checkbox("Show hidden files and folders", &bShowHiddenFiles))
-					Model.SetShowHiddenFiles(bShowHiddenFiles);
 				bool bShowRedirectors = Model.IsShowingRedirectors();
 				if (ImGui::Checkbox("Show redirectors", &bShowRedirectors))
 					Model.SetShowRedirectors(bShowRedirectors);
 				ImGui::Separator();
-				ImGui::TextDisabled("Thumbnail size");
-				ImGui::SetNextItemWidth(-FLT_MIN);
-				ImGui::SliderFloat("##ContentIconSize", &IconSize,
-					::Durin::Editor::ContentBrowser::FPresentationSettings::MinimumIconSize,
-					::Durin::Editor::ContentBrowser::FPresentationSettings::MaximumIconSize,
-					"%.0f px");
-				ImGui::Checkbox("Lock Ctrl + wheel resizing", &bIconSizeLocked);
+				if (ImGui::MenuItem("Browser Preferences..."))
+					FEditorSettingsRegistry::Get().RequestOpen("editor.content-browser");
 				ImGui::EndPopup();
 			}
 		};

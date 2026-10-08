@@ -14,6 +14,7 @@
 #include "LevelEditorViewportEditing.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorUILayout.h"
+#include "Settings/EditorSettings.h"
 
 namespace Durin::Editor::Level
 {
@@ -614,7 +615,7 @@ namespace Durin::Editor::Level
 			return Result;
 		}
 
-		auto DrawSnapButton(const ImVec2& Position, float Width, float Height, bool bEnabled, bool bPopupOpen) -> FSplitButtonResult
+		auto DrawSnapButton(const ImVec2& Position, float Width, float Height, bool bEnabled) -> FSplitButtonResult
 		{
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
 			const ImVec2 Max(Position.x + Width, Position.y + Height);
@@ -624,9 +625,9 @@ namespace Durin::Editor::Level
 			const bool bSecondaryPressed = ImGui::IsItemClicked(ImGuiMouseButton_Right);
 			const bool bHovered = ImGui::IsItemHovered();
 			const bool bHeld = ImGui::IsItemActive();
-			DrawToolbarButtonBackground(DrawList, Position, Max, bEnabled || bPopupOpen, false, bHovered, bHeld);
+			DrawToolbarButtonBackground(DrawList, Position, Max, bEnabled, false, bHovered, bHeld);
 
-			const ImU32 TextColor = ImGui::GetColorU32(bEnabled || bPopupOpen || bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+			const ImU32 TextColor = ImGui::GetColorU32(bEnabled || bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 			const float IconScale = ImGui::GetFontSize() / 15.0f;
 			const ImU32 SnapIconColor = bEnabled ? ImGui::GetColorU32(ImGuiCol_CheckMark) : TextColor;
 			DrawToolbarIcon(DrawList, EViewportToolbarIcon::SnapGrid, ImVec2(Position.x + Width * 0.5f, Position.y + Height * 0.5f), SnapIconColor, IconScale);
@@ -634,7 +635,7 @@ namespace Durin::Editor::Level
 			{
 				ImGui::BeginTooltip();
 				ImGui::TextUnformatted("Left-click: toggle snapping");
-				ImGui::TextUnformatted("Right-click: snapping settings");
+				ImGui::TextUnformatted("Right-click: viewport preferences");
 				ImGui::EndTooltip();
 			}
 			return {bPrimaryPressed, bSecondaryPressed};
@@ -1193,11 +1194,9 @@ namespace Durin::Editor::Level
 		X += Layout.ToolButtonGap;
 		ToolbarButton("##ScaleMode", nullptr, EViewportToolbarIcon::Scale, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Scale, "Scale tool (R)", [&] { Gizmo.SetMode(ETransformGizmoMode::Scale); });
 		X += Layout.ToolButtonGap;
-		ImVec2 SnapPopupPosition(X, Y);
 		if (Layout.bOverflow)
 		{
 			const ImVec2 OverflowPosition(X, Y);
-			SnapPopupPosition = OverflowPosition;
 			ToolbarButton("##ViewportOverflow", "...", EViewportToolbarIcon::None, Layout.DropDownWidth, false, "More viewport tools", [&] { ImGui::OpenPopup("ViewportToolsOverflow"); });
 			SetNextToolbarPopupPosition(OverflowPosition, ImVec2(Layout.DropDownWidth, Layout.Height));
 			if (ImGui::BeginPopup("ViewportToolsOverflow"))
@@ -1222,40 +1221,11 @@ namespace Durin::Editor::Level
 				DrawTransformSpaceOptions();
 				ImGui::EndPopup();
 			}
-			SnapPopupPosition = ImVec2(X, Y);
-			const FSplitButtonResult SnapResult = DrawSnapButton(ImVec2(X, Y), Layout.SnapButtonWidth, Layout.Height, Gizmo.GetSnapSettings().bEnabled, ImGui::IsPopupOpen("GizmoSnapSettings"));
+			const FSplitButtonResult SnapResult = DrawSnapButton(ImVec2(X, Y), Layout.SnapButtonWidth, Layout.Height, Gizmo.GetSnapSettings().bEnabled);
 			if (SnapResult.bPrimaryPressed) Gizmo.GetSnapSettings().bEnabled = !Gizmo.GetSnapSettings().bEnabled;
 			if (SnapResult.bSecondaryPressed) bOpenSnapSettings = true;
 		}
-		if (bOpenSnapSettings) ImGui::OpenPopup("GizmoSnapSettings");
-		SetNextToolbarPopupPosition(SnapPopupPosition, ImVec2(Layout.SnapButtonWidth, Layout.Height));
-		ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(270.0f), 0.0f), ImGuiCond_Appearing);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(MonaImGui::ScaleUI(12.0f), MonaImGui::ScaleUI(12.0f)));
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(MonaImGui::ScaleUI(8.0f), MonaImGui::ScaleUI(7.0f)));
-		if (ImGui::BeginPopup("GizmoSnapSettings"))
-		{
-			FTransformGizmoSnapSettings& Settings = Gizmo.GetSnapSettings();
-			ImGui::TextUnformatted("Snapping");
-			ImGui::SameLine();
-			ImGui::TextColored(Settings.bEnabled ? ImGui::GetStyleColorVec4(ImGuiCol_CheckMark) : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), Settings.bEnabled ? "Enabled" : "Disabled");
-			ImGui::Separator();
-			ImGui::Checkbox("Enabled", &Settings.bEnabled);
-			ImGui::Spacing();
-			ImGui::TextDisabled("Step size");
-			ImGui::TextUnformatted("Move");
-			ImGui::SetNextItemWidth(-FLT_MIN);
-			ImGui::DragFloat("##TranslationSnap", &Settings.Translation, 0.05f, 0.001f, 10000.0f, "%.3f units");
-			ImGui::TextUnformatted("Rotate");
-			ImGui::SetNextItemWidth(-FLT_MIN);
-			ImGui::DragFloat("##RotationSnap", &Settings.RotationDegrees, 1.0f, 0.1f, 180.0f, "%.1f deg");
-			ImGui::TextUnformatted("Scale");
-			ImGui::SetNextItemWidth(-FLT_MIN);
-			ImGui::DragFloat("##ScaleSnap", &Settings.Scale, 0.01f, 0.001f, 10.0f, "%.3f");
-			ImGui::Separator();
-			ImGui::TextDisabled("Hold Ctrl for temporary snapping.");
-			ImGui::EndPopup();
-		}
-		ImGui::PopStyleVar(2);
+		if (bOpenSnapSettings) FEditorSettingsRegistry::Get().RequestOpen("editor.viewport");
 		if (!Capabilities.bCanEditScene) ImGui::EndDisabled();
 
 		const bool bPaused = bPlaying && GEditor->IsPlaySessionPaused();

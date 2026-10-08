@@ -12,6 +12,7 @@
 #include "Application/MonaApplication.h"
 #include "Rendering/MonaRenderer.h"
 #include "Widgets/MWindow.h"
+#include "Settings/EditorSettings.h"
 
 namespace Durin::Editor::Level
 {
@@ -207,14 +208,14 @@ namespace Durin::Editor::Level
 		auto& Application = Mona::FMonaApplication::Get();
 		if (auto* Renderer = Application.GetRenderer())
 		{
-			bool bVSync = Renderer->GetPresentationPolicyOverride()
+			const bool bVSync = Renderer->GetPresentationPolicyOverride()
 				.value_or(EViewportPresentationPolicy::FramePaced) != EViewportPresentationPolicy::Unsynchronized;
-			if (ImGui::Checkbox("Vertical sync", &bVSync))
-				Renderer->SetPresentationPolicyOverride(bVSync
-					? EViewportPresentationPolicy::FramePaced : EViewportPresentationPolicy::Unsynchronized);
+			ImGui::TextDisabled("Vertical sync: %s", bVSync ? "Enabled" : "Disabled");
 			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("Applies to all editor windows and is saved in editor preferences. "
-					"Disabling requests immediate presentation; the actual mode depends on platform support.");
+				ImGui::SetTooltip("Requested presentation policy. The actual mode depends on platform support.");
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Display Settings..."))
+				FEditorSettingsRegistry::Get().RequestOpen("editor.display");
 			if (DrawMetricTableBegin("OverviewPresentation"))
 			{
 				for (const auto& Window : Application.GetWindows())

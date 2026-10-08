@@ -72,6 +72,11 @@ Presentation state lives in `ContentBrowserSettings.yaml`. When the file is
 absent, the browser uses defaults and writes the new file; the retired Level
 Editor browser keys are intentionally neither read nor migrated.
 
+Settings > Editor > Content Browser owns hidden-file visibility, thumbnail size,
+and Ctrl-wheel resize locking. The browser view-options popup links to that page
+and keeps contextual type/redirector filters. Grid/list switching, selection
+details, and unlocked Ctrl-wheel thumbnail resizing remain local browser controls.
+
 ## Content Model
 
 The model caches its normalized mount snapshot by `FMountPaths` registry
