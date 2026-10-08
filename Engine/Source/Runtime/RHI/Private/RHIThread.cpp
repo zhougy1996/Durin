@@ -94,6 +94,7 @@ namespace Durin
 				try
 				{
 					DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.Execute");
+					DURIN_PROFILE_CPU_ZONE_TEXT(std::format("serial={} batches={} payloadBytes={}", Entry.Serial, Entry.Work.BatchCount, Entry.Work.PayloadBytes));
 					if (!Entry.Work.IsReady || Entry.Work.IsReady()) Result = Entry.Work.Execute();
 				}
 				catch (const std::exception& Exception)
@@ -404,7 +405,9 @@ namespace Durin
 			return {.Result = ERHIThreadEnqueueResult::SerialExhausted};
 		}
 
+		DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Enqueue.Admit");
 		const uint64 Serial = ++State->LastSubmittedSerial;
+		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("serial={} queuedEntries={} batches={} payloadBytes={}", Serial, State->Queue.size(), Work.BatchCount, Work.PayloadBytes));
 		++State->OutstandingEntryCount;
 		State->OutstandingBatchCount += Work.BatchCount;
 		State->OutstandingFrameCount += Work.FrameCount;
@@ -471,7 +474,9 @@ namespace Durin
 		}
 
 		State->AdmissionState = ERHIThreadAdmissionState::Draining;
+		DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Enqueue.Admit");
 		const uint64 Serial = ++State->LastSubmittedSerial;
+		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("serial={} queuedEntries={} batches={} payloadBytes={}", Serial, State->Queue.size(), Work.BatchCount, Work.PayloadBytes));
 		++State->OutstandingEntryCount;
 		State->OutstandingBatchCount += Work.BatchCount;
 		State->OutstandingFrameCount += Work.FrameCount;

@@ -1,4 +1,6 @@
 #include "VulkanDescriptorSets.h"
+
+#include "Profiling/Profiling.h"
 #include "Backend/RHICompletionBackend.h"
 
 #include "VulkanDevice.h"
@@ -249,6 +251,7 @@ namespace Durin::VulkanRHI
 		const FVulkanDescriptorRequirements& Requirements
 	) -> std::vector<vk::DescriptorSet>
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.Allocate");
 		if (Layouts.empty())
 		{
 			return {};

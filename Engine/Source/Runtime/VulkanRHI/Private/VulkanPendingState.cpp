@@ -10,6 +10,7 @@
 #include "VulkanTexture.h"
 #include "VulkanView.h"
 #include "Backend/RHIShaderParameterValidationInternal.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::VulkanRHI
 {
@@ -17,6 +18,7 @@ namespace Durin::VulkanRHI
 		std::span<const FRHIShaderParameterResource> Resources,
 		std::span<const vk::DescriptorSet> DescriptorSets, uint32 FirstSet = 0) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.Update");
 		// Vulkan write descriptors store pointers into these arrays until updateDescriptorSets returns.
 		std::vector<vk::DescriptorBufferInfo> BufferInfos;
 		std::vector<vk::DescriptorImageInfo> ImageInfos;
@@ -97,7 +99,10 @@ namespace Durin::VulkanRHI
 			DescriptorWrites.push_back(DescriptorWrite);
 		}
 
-		Device.GetHandle().updateDescriptorSets(DescriptorWrites, {});
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.UpdateNative");
+			Device.GetHandle().updateDescriptorSets(DescriptorWrites, {});
+		}
 	}
 
 	auto FVulkanPendingComputeState::SetComputePipelineState(
@@ -312,6 +317,7 @@ namespace Durin::VulkanRHI
 		if (!CachedDescriptorSets.empty())
 		{
 			InContext.GetCommandBuffer();
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Compute.BindDescriptorSets");
 			InContext.RetainAllocation(Device.GetGlobalDescriptorPool().GetAllocationOwner());
 			InContext.GetCommandBuffer()->GetHandle().bindDescriptorSets(
 				vk::PipelineBindPoint::eCompute,
@@ -458,12 +464,14 @@ namespace Durin::VulkanRHI
 	auto FVulkanGraphicsPipelineDescriptorState::ResolveDeferredBuffers(
 		FVulkanDevice& Device, FVulkanCommandListContext& Context) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.ResolveDeferredBuffers");
 		const auto Resolved = DeferredBindings.Resolve(Device, Context, ERHIPipeline::Graphics);
 		if (!Resolved.empty()) SetShaderParameters(nullptr, Resolved, true);
 	}
 
 	auto FVulkanPendingGraphicsState::PrepareForDraw(FVulkanCommandListContext& InContext) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.Prepare");
 		check(CurrentPipelineState);
 		check(CurrentDescriptorState);
 		CurrentDescriptorState->ResolveDeferredBuffers(Device, InContext);
@@ -483,6 +491,7 @@ namespace Durin::VulkanRHI
 		FVulkanGraphicsPipelineDescriptorState::FDescriptorSetsForDraw DescriptorSetsForDraw = CurrentDescriptorState->GetOrCreateDescriptorSetsForDraw(Device, *CurrentPipelineState);
 		if (DescriptorSetsForDraw.DescriptorSets && !DescriptorSetsForDraw.DescriptorSets->empty())
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.BindDescriptorSets");
 			InContext.RetainAllocation(Device.GetGlobalDescriptorPool().GetAllocationOwner());
 			CmdBuffer->GetHandle().bindDescriptorSets(
 				vk::PipelineBindPoint::eGraphics,
@@ -572,6 +581,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanGraphicsPipelineDescriptorState::GetOrCreateDescriptorSetsForDraw(FVulkanDevice& Device, FVulkanGraphicsPipelineState& PipelineState) -> FDescriptorSetsForDraw
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.ForDraw");
 		const FVulkanDescriptorSetsLayout& DescriptorSetsLayout = PipelineState.GetDescriptorSetsLayout();
 		const std::vector<vk::DescriptorSetLayout>& LayoutHandles = DescriptorSetsLayout.GetLayoutHandles();
 		if (LayoutHandles.empty())
@@ -709,6 +719,7 @@ namespace Durin::VulkanRHI
 		std::span<const FRHIShaderParameterResource> Resources,
 		const FVulkanDescriptorRequirements& Requirements, uint32 SetIndex) -> std::shared_ptr<FDescriptorEntry>
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.ResolveCache");
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		GVulkanDescriptorHashCount.fetch_add(1, std::memory_order_relaxed);
 #endif

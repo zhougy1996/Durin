@@ -1600,6 +1600,8 @@ namespace Durin
 
 			auto Replay(FRHICommandReplayContext& ReplayContext) -> void
 			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Batch.Replay");
+				DURIN_PROFILE_CPU_ZONE_TEXT(std::format("commands={} payloadBytes={}", GetCommandCount(), GetPayloadBytes()));
 				check(State == EState::Submitted);
 				Storage->Replay(ReplayContext);
 				State = EState::Consumed;
