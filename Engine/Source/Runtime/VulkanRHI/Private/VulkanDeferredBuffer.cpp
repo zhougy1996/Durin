@@ -170,6 +170,7 @@ namespace Durin::VulkanRHI
 				if (It != Bindings.end() && It->Logical.GetReference() == Parameter.Resource)
 				{
 					It->Parameter = Parameter;
+					It->bDirty = true;
 					continue;
 				}
 				FBinding Binding{Parameter, static_cast<FRHIBufferView*>(Parameter.Resource), {}};
@@ -181,14 +182,15 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanDeferredBufferBindings::Resolve(FVulkanDevice& Device,
-		FVulkanCommandListContext& Context, ERHIPipeline Pipeline) -> std::vector<FRHIShaderParameterResource>
+		FVulkanCommandListContext& Context) -> std::vector<FRHIShaderParameterResource>
 	{
 		std::vector<FRHIShaderParameterResource> Result;
 		Result.reserve(Bindings.size());
 		for (auto& Binding : Bindings)
 		{
+			if (!Binding.bDirty) continue;
 			const auto Snapshot = FRHIDeferredBufferBackend::ResolveSnapshot(*Binding.Logical->GetBuffer());
-			auto Resolved = Binding.Resolved.lock();
+			auto Resolved = Binding.Resolved;
 			if (!Resolved || Resolved->Snapshot != Snapshot)
 			{
 				Resolved.reset();
@@ -230,7 +232,22 @@ namespace Durin::VulkanRHI
 				Resolved->View = new FVulkanBufferView(Device, Backing->Buffer, ViewDesc);
 				Binding.Resolved = Resolved;
 			}
-			// Each queue submission owns the exact version, even after a later update/rebind.
+			Binding.bDirty = false;
+			auto Parameter = Binding.Parameter;
+			Parameter.Resource = Resolved->View.GetReference();
+			Result.push_back(Parameter);
+		}
+		return Result;
+	}
+
+	auto FVulkanDeferredBufferBindings::PrepareForUse(
+		FVulkanCommandListContext& Context, ERHIPipeline Pipeline) -> void
+	{
+		for (const auto& Binding : Bindings)
+		{
+			const auto& Resolved = Binding.Resolved;
+			check(Resolved && !Binding.bDirty);
+			// A new submission must retain the captured allocation even without a rebind.
 			auto* Buffer = FVulkanBuffer::Cast(Resolved->View->GetBuffer());
 			const bool bUniform = Binding.Logical->GetDesc().Type == ERHIBufferViewType::Uniform;
 			// Read-to-read changes need no memory dependency for immutable host-initialized data.
@@ -239,10 +256,6 @@ namespace Durin::VulkanRHI
 				: (bUniform ? ERHIAccess::GraphicsUniformRead : ERHIAccess::GraphicsShaderRead));
 			Context.RetainAllocation(Resolved->Lease);
 			Context.RetainAllocation(Resolved);
-			auto Parameter = Binding.Parameter;
-			Parameter.Resource = Resolved->View.GetReference();
-			Result.push_back(Parameter);
 		}
-		return Result;
 	}
 }

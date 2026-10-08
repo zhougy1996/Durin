@@ -207,12 +207,18 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	auto FVulkanPendingComputeState::ResolveDeferredBuffers(FVulkanCommandListContext& Context) -> void
+	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.ResolveDeferredBuffers");
+		const auto Resolved = DeferredBindings.Resolve(Device, Context);
+		if (!Resolved.empty()) SetShaderParameters(nullptr, Resolved, true);
+	}
+
 	auto FVulkanPendingComputeState::PrepareDescriptors(
 		FVulkanCommandListContext& InContext) -> void
 	{
 		check(CurrentPipelineState);
-		const auto Resolved = DeferredBindings.Resolve(Device, InContext, ERHIPipeline::Compute);
-		if (!Resolved.empty()) SetShaderParameters(nullptr, Resolved, true);
+		DeferredBindings.PrepareForUse(InContext, ERHIPipeline::Compute);
 		const uint64 Generation = Device.GetGlobalDescriptorPool().GetGeneration();
 		if (DescriptorPoolGeneration != Generation)
 		{
@@ -245,7 +251,7 @@ namespace Durin::VulkanRHI
 			}
 			return true;
 		};
-		std::vector<uint32> DynamicOffsets;
+		DynamicOffsets.clear();
 		for (const FRHIShaderParameterResource& Resource : PendingResources)
 		{
 			if (Resource.Type == ERHIBindingType::UniformBuffer
@@ -464,9 +470,15 @@ namespace Durin::VulkanRHI
 	auto FVulkanGraphicsPipelineDescriptorState::ResolveDeferredBuffers(
 		FVulkanDevice& Device, FVulkanCommandListContext& Context) -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.ResolveDeferredBuffers");
-		const auto Resolved = DeferredBindings.Resolve(Device, Context, ERHIPipeline::Graphics);
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.ResolveDeferredBuffers");
+		const auto Resolved = DeferredBindings.Resolve(Device, Context);
 		if (!Resolved.empty()) SetShaderParameters(nullptr, Resolved, true);
+	}
+
+	auto FVulkanPendingGraphicsState::ResolveDeferredBuffers(FVulkanCommandListContext& Context) -> void
+	{
+		check(CurrentDescriptorState);
+		CurrentDescriptorState->ResolveDeferredBuffers(Device, Context);
 	}
 
 	auto FVulkanPendingGraphicsState::PrepareForDraw(FVulkanCommandListContext& InContext) -> void
@@ -474,7 +486,7 @@ namespace Durin::VulkanRHI
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.Prepare");
 		check(CurrentPipelineState);
 		check(CurrentDescriptorState);
-		CurrentDescriptorState->ResolveDeferredBuffers(Device, InContext);
+		CurrentDescriptorState->DeferredBindings.PrepareForUse(InContext, ERHIPipeline::Graphics);
 		const uint64 Generation = Device.GetGlobalDescriptorPool().GetGeneration();
 		if (DescriptorPoolGeneration != Generation)
 		{
@@ -544,6 +556,7 @@ namespace Durin::VulkanRHI
 		DrawValidationResourceIndices.clear();
 		PendingSets.clear();
 		ResolvedDescriptorSets.clear();
+		DynamicOffsets.clear();
 	}
 
 	auto FVulkanPendingGraphicsState::SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void
@@ -655,7 +668,7 @@ namespace Durin::VulkanRHI
 #endif
 			bStructureValidated = true;
 		}
-		std::vector<uint32> DynamicOffsets;
+		DynamicOffsets.clear();
 		DynamicOffsets.reserve(DrawValidationResourceIndices.size());
 		for (const size_t Index : DrawValidationResourceIndices)
 		{
@@ -712,7 +725,7 @@ namespace Durin::VulkanRHI
 			}
 			ResolvedDescriptorSets[SetIndex] = Entry->DescriptorSet;
 		}
-		return {&ResolvedDescriptorSets, std::move(DynamicOffsets)};
+		return {&ResolvedDescriptorSets, DynamicOffsets};
 	}
 
 	auto FVulkanPendingGraphicsState::ResolveDescriptorSet(vk::DescriptorSetLayout Layout,

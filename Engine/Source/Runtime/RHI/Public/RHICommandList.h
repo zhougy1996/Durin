@@ -156,6 +156,8 @@ namespace Durin
 		RHI_API auto CreateStorageBuffer(const FRHIBufferDesc& Desc,
 			ERHIBufferLifetimeUsage Usage, FByteView InitialData)
 			-> TRefCountPtr<FRHIBuffer>;
+		// Updates are ordered on replay. Rebind shader parameters to select the new contents;
+		// existing bindings retain the physical contents captured at their last bind.
 		RHI_API auto UpdateUniformBuffer(FRHIUniformBuffer* Buffer, FByteView Data,
 			std::span<FRHIResource* const> References = {})
 			-> void;

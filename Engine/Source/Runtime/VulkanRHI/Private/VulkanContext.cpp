@@ -1090,8 +1090,15 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		if (InShader && InShader->GetFrequency() == EShaderFrequency::Compute)
+		{
 			PendingComputeState->SetShaderParameters(InShader, InResourceParameters);
-		else PendingGfxState->SetShaderParameters(InShader, InResourceParameters);
+			PendingComputeState->ResolveDeferredBuffers(*this);
+		}
+		else
+		{
+			PendingGfxState->SetShaderParameters(InShader, InResourceParameters);
+			PendingGfxState->ResolveDeferredBuffers(*this);
+		}
 	}
 
 	auto FVulkanCommandListContext::RHIDispatch(uint32 GroupCountX,

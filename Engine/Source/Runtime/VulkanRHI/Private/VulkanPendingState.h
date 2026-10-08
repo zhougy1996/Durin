@@ -29,6 +29,7 @@ namespace Durin::VulkanRHI
 			vk::CommandBuffer InCmdBuffer) -> void;
 		auto SetShaderParameters(FRHIShader* InShader,
 			std::span<const FRHIShaderParameterResource> InResourceParameters, bool bResolvingDeferred = false) -> void;
+		auto ResolveDeferredBuffers(FVulkanCommandListContext& Context) -> void;
 		auto PushConstants(FVulkanCommandListContext& InContext,
 			EShaderStageFlags StageFlags, uint32 Offset, uint32 Size,
 			const void* Data) -> void;
@@ -54,6 +55,7 @@ namespace Durin::VulkanRHI
 		std::vector<FRHIShaderParameterResource> CachedResources;
 		std::vector<TRefCountPtr<FRHIResource>> CachedOwners;
 		std::vector<vk::DescriptorSet> CachedDescriptorSets;
+		std::vector<uint32> DynamicOffsets;
 		uint64 DescriptorPoolGeneration = 0;
 	};
 
@@ -62,11 +64,11 @@ namespace Durin::VulkanRHI
 	{
 	public:
 		explicit FVulkanGraphicsPipelineDescriptorState(FVulkanPendingGraphicsState& InOwner) : Owner(InOwner) {}
-		// Retains resolved descriptor sets and dynamic offsets for one draw submission.
+		// Borrows persistent descriptor handles and offsets until the next preparation.
 		struct FDescriptorSetsForDraw
 		{
 			const std::vector<vk::DescriptorSet>* DescriptorSets = nullptr;
-			std::vector<uint32> DynamicOffsets;
+			std::span<const uint32> DynamicOffsets;
 		};
 
 		~FVulkanGraphicsPipelineDescriptorState() { Reset(); }
@@ -106,6 +108,7 @@ namespace Durin::VulkanRHI
 		std::vector<size_t> DrawValidationResourceIndices;
 		std::vector<FPendingSet> PendingSets;
 		std::vector<vk::DescriptorSet> ResolvedDescriptorSets;
+		std::vector<uint32> DynamicOffsets;
 		FVulkanPendingGraphicsState& Owner;
 
 		friend class FVulkanPendingGraphicsState;
@@ -121,6 +124,7 @@ namespace Durin::VulkanRHI
 
 		// Switches the active PSO and descriptor state, then binds the Vulkan pipeline.
 		auto SetGraphicsPipelineState(FVulkanGraphicsPipelineState& InPipelineState, vk::CommandBuffer InCmdBuffer) -> void;
+		auto ResolveDeferredBuffers(FVulkanCommandListContext& Context) -> void;
 
 		auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 

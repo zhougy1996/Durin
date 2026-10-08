@@ -32,6 +32,9 @@ namespace Durin
 			}
 		};
 
+		using FBoundBufferSnapshots = std::map<std::tuple<uint32, uint32, uint32>,
+			std::shared_ptr<const FRHIDeferredBufferSnapshot>>;
+
 		class FMetalCommandContextImpl final : public FMetalCommandContext
 		{
 		public:
@@ -66,6 +69,7 @@ namespace Durin
 				Active.emplace(std::move(Submission));
 				ComputePipeline = nullptr;
 				ComputeParameters.clear();
+				ComputeBufferSnapshots.clear();
 				ComputeParameterOwners.clear();
 				ComputePushConstants.clear();
 				ComputePushConstantWritten.clear();
@@ -73,6 +77,7 @@ namespace Durin
 				BoundVertexStreams = 0;
 				IndexBuffer = nullptr;
 				GraphicsParameters.clear();
+				GraphicsBufferSnapshots.clear();
 				GraphicsParameterOwners.clear();
 				for (auto& Bytes : GraphicsPushConstants) Bytes.clear();
 				for (auto& Written : GraphicsPushConstantWritten) Written.clear();
@@ -303,6 +308,7 @@ namespace Durin
 				BoundVertexStreams = 0;
 				IndexBuffer = nullptr;
 				GraphicsParameters.clear();
+				GraphicsBufferSnapshots.clear();
 				GraphicsParameterOwners.clear();
 				for (auto& Bytes : GraphicsPushConstants) Bytes.clear();
 				for (auto& Written : GraphicsPushConstantWritten) Written.clear();
@@ -436,6 +442,7 @@ namespace Durin
 					"Metal graphics pipeline does not match the active render pass.");
 				GraphicsPipeline = Pipeline;
 				GraphicsParameters.clear();
+				GraphicsBufferSnapshots.clear();
 				GraphicsParameterOwners.clear();
 				for (auto& Bytes : GraphicsPushConstants) Bytes.clear();
 				for (auto& Written : GraphicsPushConstantWritten) Written.clear();
@@ -457,6 +464,7 @@ namespace Durin
 					"Metal compute pipeline requires an active submission outside a render pass.");
 				ComputePipeline = &State;
 				ComputeParameters.clear();
+				ComputeBufferSnapshots.clear();
 				ComputeParameterOwners.clear();
 				ComputePushConstants.clear();
 				ComputePushConstantWritten.clear();
@@ -1084,6 +1092,7 @@ namespace Durin
 									&& Item.BindingIndex == Parameter.BindingIndex
 									&& Item.ArrayElement == Parameter.ArrayElement;
 							});
+						CaptureBufferSnapshot(Parameter, GraphicsBufferSnapshots);
 						if (Existing == GraphicsParameters.end())
 							GraphicsParameters.push_back(Parameter);
 						else *Existing = Parameter;
@@ -1113,6 +1122,7 @@ namespace Durin
 								&& Item.BindingIndex == Parameter.BindingIndex
 								&& Item.ArrayElement == Parameter.ArrayElement;
 						});
+					CaptureBufferSnapshot(Parameter, ComputeBufferSnapshots);
 					if (Existing == ComputeParameters.end())
 						ComputeParameters.push_back(Parameter);
 					else *Existing = Parameter;
@@ -1197,7 +1207,7 @@ namespace Durin
 							== ERHIResourceType::BufferView,
 							"Metal compute buffer binding requires a buffer view.");
 						auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
-						const auto Buffer = ResolveBufferBinding(View);
+						const auto Buffer = ResolveBufferBinding(View, Parameter, ComputeBufferSnapshots);
 						const bool bStorage = Parameter.Type
 							== ERHIBindingType::StorageBuffer;
 						requiref(bStorage
@@ -1381,13 +1391,32 @@ namespace Durin
 				uint64 Size;
 			};
 
-			auto ResolveBufferBinding(FRHIBufferView* View) -> FBufferBinding
+			static auto CaptureBufferSnapshot(const FRHIShaderParameterResource& Parameter,
+				FBoundBufferSnapshots& Snapshots) -> void
+			{
+				const auto Key = std::tuple(Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement);
+				if (Parameter.Resource->GetResourceType() == ERHIResourceType::BufferView)
+				{
+					auto* Buffer = static_cast<FRHIBufferView*>(Parameter.Resource)->GetBuffer();
+					if (IsCPUAuthoredBuffer(Buffer))
+					{
+						Snapshots[Key] = FRHIDeferredBufferBackend::ResolveSnapshot(*Buffer);
+						return;
+					}
+				}
+				Snapshots.erase(Key);
+			}
+
+			auto ResolveBufferBinding(FRHIBufferView* View,
+				const FRHIShaderParameterResource& Parameter,
+				const FBoundBufferSnapshots& Snapshots) -> FBufferBinding
 			{
 				auto* Logical = View->GetBuffer();
 				if (IsCPUAuthoredBuffer(Logical))
 				{
 					// Reuse one immutable native copy for each ordered content version.
-					const auto Snapshot = FRHIDeferredBufferBackend::ResolveSnapshot(*Logical);
+					const auto& Snapshot = Snapshots.at(std::tuple(
+						Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement));
 					auto Backing = std::static_pointer_cast<FMetalDeferredBacking>(
 						FRHIDeferredBufferBackend::GetBacking(*Snapshot, State.get()));
 					if (!Backing)
@@ -1518,7 +1547,7 @@ namespace Durin
 								== ERHIResourceType::BufferView,
 								"Metal graphics buffer binding requires a view.");
 							auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
-							const auto Buffer = ResolveBufferBinding(View);
+							const auto Buffer = ResolveBufferBinding(View, Parameter, GraphicsBufferSnapshots);
 							const bool bStorage = Parameter.Type
 								== ERHIBindingType::StorageBuffer;
 							requiref(bStorage
@@ -1571,6 +1600,7 @@ namespace Durin
 				RenderEncoder.reset();
 				ComputePipeline = nullptr;
 				ComputeParameters.clear();
+				ComputeBufferSnapshots.clear();
 				ComputeParameterOwners.clear();
 				ComputePushConstants.clear();
 				ComputePushConstantWritten.clear();
@@ -1578,6 +1608,7 @@ namespace Durin
 				BoundVertexStreams = 0;
 				IndexBuffer = nullptr;
 				GraphicsParameters.clear();
+				GraphicsBufferSnapshots.clear();
 				GraphicsParameterOwners.clear();
 				for (auto& Bytes : GraphicsPushConstants) Bytes.clear();
 				for (auto& Written : GraphicsPushConstantWritten) Written.clear();
@@ -1604,11 +1635,13 @@ namespace Durin
 			FBufferRHIRef IndexBuffer;
 			uint32 IndexBufferOffset = 0;
 			std::vector<FRHIShaderParameterResource> GraphicsParameters;
+			FBoundBufferSnapshots GraphicsBufferSnapshots;
 			std::vector<TRefCountPtr<FRHIResource>> GraphicsParameterOwners;
 			std::array<std::vector<std::byte>, 2> GraphicsPushConstants;
 			std::array<std::vector<uint8>, 2> GraphicsPushConstantWritten;
 			TRefCountPtr<FRHIComputePipelineState> ComputePipeline;
 			std::vector<FRHIShaderParameterResource> ComputeParameters;
+			FBoundBufferSnapshots ComputeBufferSnapshots;
 			std::vector<TRefCountPtr<FRHIResource>> ComputeParameterOwners;
 			std::vector<std::byte> ComputePushConstants;
 			std::vector<uint8> ComputePushConstantWritten;

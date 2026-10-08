@@ -100,14 +100,16 @@ whole-device idle wait is not an ordinary recycling mechanism.
 
 CPU-authored uniform/storage bindings through ordinary buffer views materialize
 an immutable mapped range on
-first draw/dispatch use. A CPU snapshot weakly caches one backing per physical
+shader-parameter binding. A CPU snapshot weakly caches one backing per physical
 queue, so independent queues do not share exclusive native ownership. Host
 writes are flushed before submission; later read-to-read pipeline changes need
 no write dependency. Each consuming payload retains the exact snapshot and
 physical view, including uniform sidecars, until completion or safe cancellation.
-Updates produce a new range and invalidate descriptor selection; an older
-submission keeps its original contents. Physical buffers use ordinary counted
-deletion and queue-qualified retirement.
+Updates publish new contents; rebinding resolves their range and invalidates
+descriptor selection. Existing bindings and older submissions keep their original
+contents. Bound descriptor state retains the captured backing between submissions;
+each consuming payload independently retains it through completion. Physical buffers
+use ordinary counted deletion and queue-qualified retirement.
 Native buffer/view downcasts enforce native content mode; logical views must
 first resolve to the selected version's native backing and descriptor.
 

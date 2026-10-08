@@ -863,7 +863,7 @@ namespace Durin
 		EXPECT_NE(ExplicitFirst.GetReference(), ExplicitSecond.GetReference());
 	}
 
-	TEST(FVulkanTextureSamplingTests, DeferredVersionsSurvivePreparedDrawsAndDispatches)
+	TEST(FVulkanTextureSamplingTests, DeferredBindingsCaptureVersionsUntilExplicitRebind)
 	{
 		FShaderCompileOptions Options;
 		Options.EntryPoints = {"ComputeMain", "VertexMain", "FragmentMain"};
@@ -901,7 +901,7 @@ namespace Durin
 			ASSERT_TRUE(BuildPipelineLayoutFromReflection(Reflections, Layout));
 			if (!bCompute) Layout.BindingLayouts[0].BindingLayouts[0].Type = ERHIBindingType::UniformBufferDynamic;
 			const auto Output = GDynamicRHI->RHICreateTexture(Commands,
-				FRHITextureCreateDesc::Create2D("DeferredOutput", 2, 1, EPixelFormat::RGBA8_UNORM)
+				FRHITextureCreateDesc::Create2D("DeferredOutput", 4, 1, EPixelFormat::RGBA8_UNORM)
 					.SetFlags(ETextureCreateFlags::CPUReadback | ETextureCreateFlags::ShaderResource
 						| (bCompute ? ETextureCreateFlags::Storage : ETextureCreateFlags::RenderTargetable)));
 			ASSERT_TRUE(Output);
@@ -968,10 +968,10 @@ namespace Durin
 				Pass.ColorRenderTargets[0] = Output;
 				Commands.BeginRenderPass(Pass, FName("DeferredVersions"));
 				Commands.SetGraphicsPipelineState(*Graphics);
-				Commands.SetViewport(0, 0, 0, 2, 1, 1);
+				Commands.SetViewport(0, 0, 0, 4, 1, 1);
 			}
 			Commands.SetPreparedShaderParameters(Batch);
-			for (uint32 Pixel = 0; Pixel < 2; ++Pixel)
+			for (uint32 Pixel = 0; Pixel < 4; ++Pixel)
 			{
 				if (Pixel == 1)
 				{
@@ -980,7 +980,10 @@ namespace Durin
 					const uint32 Green = 40;
 					Commands.UpdateBuffer(Storage, 4, std::as_bytes(std::span{&Green, 1}));
 				}
-				// No rebind: the second draw/dispatch must notice the changed version.
+				// Updating keeps the captured binding. Rebinding selects the new contents.
+				if (Pixel == 2) Commands.SetShaderParameters(Shaders[bCompute ? 0 : 2],
+					std::span(Parameters).first(1));
+				if (Pixel == 3) Commands.SetPreparedShaderParameters(Batch);
 				if (bCompute)
 				{
 					Commands.PushConstants(EShaderStageFlags::Compute, 0, sizeof(Pixel), &Pixel);
@@ -993,6 +996,8 @@ namespace Durin
 			FByteBuffer Pixels;
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Output, 0, 0, Pixels));
 			EXPECT_EQ(Pixels, (FByteBuffer{std::byte{10}, std::byte{30}, std::byte{50}, std::byte{255},
+				std::byte{10}, std::byte{30}, std::byte{50}, std::byte{255},
+				std::byte{20}, std::byte{30}, std::byte{50}, std::byte{255},
 				std::byte{20}, std::byte{40}, std::byte{50}, std::byte{255}}));
 		}
 	}

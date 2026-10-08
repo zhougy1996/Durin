@@ -59,8 +59,10 @@ counted resource owner retains the typed uniform beyond the creating command
 list's lifetime. Explicit native ranges may remain borrowed until recording
 canonicalizes them into counted views. CPU-authored bindings create ordinary `FRHIBufferView`
 objects without native creation. Prepared
-batches retain those views; every draw/dispatch resolves the current version,
-including an update after binding. View factories check the active device's
+batches retain those views. Executing a shader-parameter bind captures the current
+physical contents; draw/dispatch reuses that binding. Updates do not rewrite existing
+bindings: execute another parameter bind (including reusing a prepared batch) to
+select the updated contents. View factories check the active device's
 range/offset limits; dynamic uniform offsets are checked during canonicalization.
 Vulkan backing and submission ownership follow
 [the memory contract](VulkanMemoryAndGPUCompletion.md#logical-buffer-versions).

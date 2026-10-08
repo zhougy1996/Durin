@@ -54,13 +54,14 @@ namespace Durin::VulkanRHI
 		std::map<uint32, TRefCountPtr<FVulkanBuffer>> Buffers;
 	};
 
-	// Keeps logical bindings separate from the physical descriptor snapshot.
+	// Captures physical buffer bindings when shader parameters are bound. Updates require rebinding.
 	class FVulkanDeferredBufferBindings
 	{
 	public:
 		auto Update(std::span<const FRHIShaderParameterResource> Parameters) -> void;
-		auto Resolve(FVulkanDevice& Device, FVulkanCommandListContext& Context, ERHIPipeline Pipeline)
+		auto Resolve(FVulkanDevice& Device, FVulkanCommandListContext& Context)
 			-> std::vector<FRHIShaderParameterResource>;
+		auto PrepareForUse(FVulkanCommandListContext& Context, ERHIPipeline Pipeline) -> void;
 		auto Clear() -> void { Bindings.clear(); }
 	private:
 		struct FResolved
@@ -74,7 +75,8 @@ namespace Durin::VulkanRHI
 		{
 			FRHIShaderParameterResource Parameter;
 			TRefCountPtr<FRHIBufferView> Logical;
-			std::weak_ptr<FResolved> Resolved;
+			std::shared_ptr<FResolved> Resolved;
+			bool bDirty = true;
 		};
 		std::vector<FBinding> Bindings;
 	};
