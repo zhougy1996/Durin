@@ -176,13 +176,15 @@ namespace Durin::VulkanRHI
 			if (It == PendingResources.end()) PendingResources.push_back(Parameter);
 			else *It = Parameter;
 		}
-		PendingOwners.clear();
-		PendingOwners.reserve(PendingResources.size());
+		// Unchanged bindings may have no owner outside the pending state.
+		// Acquire the replacement owners before releasing the previous snapshot.
+		std::vector<TRefCountPtr<FRHIResource>> NewOwners;
+		NewOwners.reserve(PendingResources.size());
 		for (FRHIShaderParameterResource& Resource : PendingResources)
 		{
-			PendingOwners.emplace_back(Resource.Resource);
-			Resource.Resource = PendingOwners.back().GetReference();
+			NewOwners.emplace_back(Resource.Resource);
 		}
+		PendingOwners = std::move(NewOwners);
 	}
 
 	auto FVulkanPendingComputeState::PushConstants(

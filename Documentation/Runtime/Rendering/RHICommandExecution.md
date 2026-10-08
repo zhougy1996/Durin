@@ -69,6 +69,13 @@ submissions and work recorded without `SubmitToGPU`. Clearing the active
 replay owner does not clear pending or in-flight payload leases. CPU-only
 contexts need no GPU retention.
 
+Backend pending shader bindings also retain their resource views independently
+of command storage. A partial parameter update preserves unchanged bindings.
+When rebuilding the pending owner snapshot, acquire the new references before
+releasing the old snapshot; an unchanged explicit view may have no other owner.
+Descriptor cache or in-flight submission ownership must not be required to keep
+an undispatched pending binding alive.
+
 Explicit GPU submission replay resolves `RHIGetQueueContext` from the default
 context. Pipeline and non-pipeline commands use that selected context until
 the matching end restores the default context. Pipeline switches change the

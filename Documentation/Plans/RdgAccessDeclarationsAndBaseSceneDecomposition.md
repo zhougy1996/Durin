@@ -9,8 +9,17 @@ Completed:
 
 ## Current Status
 
-Design recorded; implementation has not started. Stage 0 is the next stage.
-This document authorizes no implementation or qualification by itself.
+Stage 0 is in progress under the user's 2026-10-08 execution request. The source
+inventory, API decisions and pass boundary table below are frozen before runtime
+migration. Baseline execution at reference
+`4bc5d8c033920eaa5c2d77696403dea29ae9d29b` exposed an existing compute view lifetime
+defect, now fixed with an independently reproduced regression. Full Vulkan
+integration passes 114/114 and affected validation passes 8/8 targets; three
+preserved Release GBuffer runs pass on GTX 1060.
+The [diagnostic receipt](../Development/Build/RenderingPerformanceBaselineReceipt20261008.md)
+records exact evidence and authority. Stage 0 remains open for complete route
+captures and an accepted timing baseline; GTX 1060 observations do not replace
+named RTX 3090 gates. Stages 1-5 have not started; no GPU acceptance gate is closed.
 
 The source review includes the current `BaseSceneRendering`, `SceneColorRendering`,
 RDG parameter lowering, RHI attachment contracts, and the locally installed UE
@@ -223,6 +232,182 @@ post-process/editor results publish transactional output. Earlier recorded work
 is not rolled back on a later failure; extraction and view-state publication
 retain their existing successful-execution gates.
 
+## Stage 0 Decision Record (2026-10-08)
+
+#### Change inventory and ownership
+
+The workspace declares `Engine`, `Sandbox`, and `RoadWeaver`. A symbol search of
+their source/test roots finds direct parameter wrapper consumers in Engine only;
+the two game projects remain shared API build consumers. The inventory is scoped
+by the symbols below, rather than by every file using an RHI layout.
+
+| Owner/source under `Engine/Source/Runtime` | Symbols and required migration |
+| --- | --- |
+| `RenderCore/Public/RDG/RDGDefinitions.h`, `RDGParameters.h` | `ERDGParameterMemberKind`, texture/buffer wrappers, attachment wrappers, `FRDGParameterMemberMetadata`, `FRDGAttachmentView`, `FRDGParameterResolver`, resource/read/UAV/indirect/attachment metadata factories and shader decoration |
+| `RenderCore/Private/RDG/RDGParameters.cpp` | Wrapper size/shape validation, flattened optional/array layout, shader authority and address-based resolver extraction |
+| `RenderCore/Private/RDG/RDG.cpp` | `LowerParameterUse`, submission snapshot and buffer upload declarations; normalize instance semantics before authoring is sealed |
+| `RenderCore/Private/RDG/RDGInternal.h`, `RDGCompile.cpp`, `RDGDiagnostics.cpp`, `RDGExecution.cpp` | Canonical `FGraphUse`, content validity, retained dependencies, barriers, captures and recording; consume normalized uses without reading mutable parameter values |
+| `RenderCore/Private/Shader/ShaderParameters.cpp` | Reflected binding composition and descriptor authority for newly supported categories |
+| `Renderer/Private/Renderers/BaseSceneRendering.h/.cpp`, `SceneColorRendering.h/.cpp` | Four managed depth alternatives, native raster recorders, typed results, translucency and finalization |
+| `Renderer/Private/Renderers/DeferredDirectionalLightingRendering.h/.cpp`, `SceneTextureGroupParameters.h` | `FProductionDeferredParameters`, producer outcomes, resource groups and persistent fallback alias authority |
+| `Renderer/Private/Renderers/DeferredDirectionalLightingRenderer.cpp`, `StaticMeshRenderer.cpp`, `SkyBoxRenderer.cpp` | Production/deferred, retained/translucent and sky pipeline initialization must use the same attachment layout as recording |
+| `Renderer/Private/Resources/RenderTargetLayouts.h/.cpp` | Scene, GBuffer, isolated deferred, hybrid bootstrap/deferred/retained/translucency layouts; add explicit graph-boundary helpers while preserving unmigrated helpers |
+| `RHI/Public/RHIResources.h`, `RHI/Private/RHIResources.cpp` | `FRHIRenderPassInfo` texture views, layout validation/equality/hash and graphics pipeline keys; preserve exact compatibility including load/store and entry/exit state |
+| `VulkanRHI/Private/VulkanRenderPass.cpp`, `VulkanFramebuffer.cpp`, `VulkanResourceState.cpp`, `VulkanPipeline.cpp`; `MetalRHI` attachment execution | Native render-pass/framebuffer views, state validation and commitment, pipeline layouts; qualify any semantic changes on each supported backend |
+
+Other parameter consumers that must continue to compile and preserve behavior:
+`EnvironmentLightingResources`, `DirectionalShadowRendering`, `GBufferRendering`,
+`AmbientOcclusionRendering`, `ContactShadowVisibilityRendering`,
+`VolumetricCloudRendering`, `PostProcessRendering`, and
+`EditorAssistanceRendering`. `HitProxyRenderer` uses the legacy scene layout and
+must not acquire a new boundary implicitly. Ordinary static reads/UAV/indirect
+uses remain ordinary. AO/cloud multi-operation managed declarations, legacy
+attachment result access, and other unmigrated managed users retain their
+explicit entry/exit contracts. The new ordinary wrappers expose no result access.
+
+Test owners are `RenderCoreTests/Private/RDGTests.cpp`,
+`EngineTests/Private/RendererSceneContractTests.cpp`,
+`RendererRenderTargetLayoutTests.cpp`, `VolumetricCloudSceneContractTests.cpp`,
+`GBufferQualificationTests.cpp`, and RHI/Vulkan/Metal transition and replay tests
+under `Engine/Tests/Native`. Test target selection uses the registry, not these
+filenames. Shared API stages require an `all` build including both game projects.
+
+#### Frozen instance API and lowering boundary
+
+- Add `FRDGTextureAccess` and `FRDGBufferAccess`, with handle, exact range,
+  `ERDGUse Use`, `ERHIAccess Access`, and `bool bDiscard`. Texture ranges use
+  `FRHITextureSubresourceRange`; buffers use byte offset and size. New explicit
+  member categories and typed metadata constructors validate these concrete
+  wrappers, including optional and fixed-array forms. Arbitrary nested types
+  remain nested metadata, not resource declarations.
+- Preserve the source-compatible static metadata constructors and existing
+  wrappers. Both static and dynamic forms supply one canonical use initializer
+  before normal submission validation. Static metadata owns its static access;
+  dynamic metadata owns category/shape only. Never store instance values in
+  `FRDGParameterLayout` or its shared cache.
+- A read cannot contain write access or discard. A write/read-write requires a
+  legal write access for its resource and pass domain. Reject `None`, invalid
+  access combinations, foreign handles, invalid ranges and illegal content
+  intent before culling. Reuse the existing legal-access vocabulary and reject
+  unsupported combinations rather than inventing implicit conversions.
+- Add `FRDGColorAttachmentBinding` and `FRDGDepthStencilAttachmentBinding` as
+  distinct runtime declarations. They contain handle/range and load/store
+  actions; depth/stencil intent is explicit. Preserve the old attachment wrappers
+  and their managed metadata factories for unmigrated paths. Stage 4 removes all
+  Base Scene and Scene Color uses of those managed contracts.
+- Keep conservative `DepthStencilReadWrite` for depth attachments in this plan,
+  even when a draw disables depth writes. Do not add read-only DSV state or map
+  sampled depth to attachment access. The migrated scene uses D32 depth only;
+  reject unsupported stencil intent instead of claiming independent stencil
+  support. Preserve aspect-specific content rules for supported formats.
+- RenderCore owns a single attachment lowering helper used by submission and
+  native binding construction. It derives use/discard from load intent and
+  native layout entry/exit from attachment access. `Load` reads and writes prior
+  content; `Clear`/`DontCare` starts new content without dropping execution
+  hazards; store `DontCare` invalidates only the covered aspect/range.
+- Resolver overloads accept the original submitted members and return normalized
+  attachment views; native pass construction verifies declared handle/range,
+  load/store and state. Exact non-default mip/layer ranges bind RHI texture views
+  through the existing `FRHIRenderPassInfo` view fields. No silent whole-texture
+  binding is allowed. Reject unrepresentable views explicitly.
+- Use that same lowering policy for pipeline layouts. Existing layout hashing
+  includes load/store and initial/final access, so changing only recording is
+  insufficient. Preserve legacy helpers; migrate both pipeline and recording
+  consumers to the graph helper together. RHI validates and commits physical
+  states during replay; normalization itself never mutates them.
+- Capture includes normalized runtime values and absent optional fields.
+  Shader decoration is opt-in and cannot widen access. Copied/foreign parameter
+  addresses remain unauthorized; fallback alias deduplication must preserve each
+  declared field's resolver authority.
+
+#### Frozen route and attachment boundaries
+
+Diagnostic names are `Scene.Forward`, `Scene.HybridBootstrap`,
+`Scene.ProductionDeferred`, `Scene.RetainedForward`, and `Scene.Color` (existing
+Scene Color completion/publication boundary). Preserve `Scene.BaseValue` as the
+public final Base Scene result. Each hybrid stage writes a typed result; a later
+stage reads and preserves a predecessor failure before recording GPU work.
+
+| Route/stage | Color load/store and boundary access | Depth load/store and boundary access |
+| --- | --- | --- |
+| Forward: non-Lit or non-Solid | Clear/Store, ColorAttachmentReadWrite in/out | Clear/Store, DepthStencilReadWrite in/out, even after diagnostic GBuffer |
+| GBuffer feeding hybrid | Existing GBuffer color Clear/Store; sampled consumers transition through RDG | Clear/Store depth attachment; RDG transitions into later sampled or attachment uses |
+| Hybrid bootstrap: Lit + Solid | Clear/Store, ColorAttachmentReadWrite in/out | Load/Store, DepthStencilReadWrite in/out |
+| Production deferred | Load/Store, ColorAttachmentReadWrite in/out | Sampled GraphicsShaderRead; no DSV binding |
+| Retained forward | Load/Store, ColorAttachmentReadWrite in/out | Load/Store, DepthStencilReadWrite in/out |
+| Sorted translucency | Load/Store on selected scene/cloud-composite color, ColorAttachmentReadWrite in/out | Load/Store, DepthStencilReadWrite in/out |
+| Postprocess/cloud/debug/editor consumers | Declare actual sampled/attachment usage; RDG owns intervening transitions | Declare actual sampled/attachment usage; preserve editor/hit-proxy legacy boundaries until migrated |
+
+The exact feature selection remains `BuildSceneFrameFeaturePlan` in
+`SceneRenderPreparation.cpp`: production deferred is Lit + Solid; debug or
+qualification can independently request isolated deferred; AO is requested by
+production settings, debug, or qualification; GBuffer is requested by its own
+debug/qualification or by `RequiresDeferredInputs()`. Contact visibility requires
+production deferred, enabled contact shadows and an enabled selected shadow.
+Cloud shadow additionally requires a prepared cloud and directional light;
+cloud spatial requires production deferred plus prepared base/detail density.
+Route selection continues through the existing capability/readiness policy.
+Postprocess remains production. Debug/qualification does not force production.
+
+Record these combinations independently: forward; forward with diagnostic
+GBuffer; hybrid opaque/masked plus retained non-GBuffer/unlit geometry; isolated
+deferred only; production plus isolated deferred; full/half AO and disabled AO;
+compute/fragment contact and cloud visibility; cloud spatial/composite disabled
+and enabled; sorted translucency; offscreen/present; editor sampled depth.
+Captures/readbacks for this matrix are still an open evidence task.
+
+Preserve view clear color, viewport/scissor and reverse-Z clear (0 versus 1).
+Forward sky failure returns `RequiredEnvironmentUnavailable` before finalization.
+Hybrid missing/failed deferred increments `HybridDeferredUnavailableViews` once;
+bootstrap sky failure returns its environment failure. Retained work must not
+execute after either failure. Forward finalizes geometry in
+`RenderForwardScene_RenderThread`; hybrid finalizes after sorted translucency in
+`RenderSceneTranslucency_RenderThread`, which also increments
+`HybridDeferredEnabledViews`. `ReduceStaticMeshTelemetry` stays at successful
+Scene Color completion. Keep Base Scene timing spanning the equivalent forward
+or complete hybrid interval, and deferred/retained/sorted timing sinks exactly
+once each. No extra attempts, successes or transactional publications are added.
+
+#### Baseline selection and comparison gates
+
+Reference: `4bc5d8c033920eaa5c2d77696403dea29ae9d29b`, Windows x64 MSVC
+14.44.35207, `Win64-Release-DurinEditor`, Tracy explicitly off and verified
+`DURIN_WITH_TRACY=0`. The user confirmed an exclusive quiet GPU lane. Use the
+registered `GBufferQualificationTests` case
+`FGBufferQualificationTests.StaticAndSplinePassMeetsFrozenRTX3090TimingAndMemoryGates`
+for three consecutive runs with distinct reports, preserving its 1920x1080,
+30 warm-up and 120 measured frames. Hardware identity, runtime options, raw logs,
+XML reports and actual outcomes must be recorded before baseline acceptance.
+The fixture's named RTX 3090/Vulkan 1.4.325 gates remain device-qualified;
+another adapter does not inherit them.
+
+For identical reference/candidate environments, investigate median CPU
+author/compile/record or total GPU cost above +5%, and p95 above +10%, across
+three runs; no acceptance from unstable samples. Preserve existing stricter
+fixture correctness/memory gates. Require no added queue submissions and no
+unexplained transition or retained-memory increase; explain graph pass growth
+from decomposition explicitly. These relative investigation thresholds are
+selected for this migration, not new cross-adapter fixture budgets. CPU timing,
+submission/transition counts and memory not emitted by the selected fixture
+require additional capture evidence before closing their gates.
+
+Windows Vulkan is the available qualification environment. Metal compilation
+and runtime qualification require a supported macOS host and remain outstanding
+until receipts exist. Correctness validation-on replay and graphics-only/async
+handoff selections run separately from validation-off timing acceptance.
+
+Baseline execution exposed an existing blocker before runtime migration:
+`FRHIResource::AddRef` rejects a deleted `BufferView` in both Release and Debug.
+A Debug debugger stack locates the call in
+`FVulkanPendingComputeState::SetShaderParameters`: clearing `PendingOwners`
+before rebuilding owners from partially updated `PendingResources` can drop the
+last strong reference to an unchanged view. Stage 0 includes a prerequisite
+lifetime fix and an independent regression before attempting baseline acceptance.
+This repairs the comparison environment; it does not implement any Stage 1-4 API.
+Original failed reference receipts remain preserved. Debugger runs also load OBS
+and NVIDIA capture hooks; all current runs are diagnostic, pending removal of
+capture instrumentation and successful qualification.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze contracts and comparison evidence
@@ -230,15 +415,15 @@ retain their existing successful-execution gates.
 Depends on: current source and the four prerequisite simplification commits.
 Outcome: an implementable API/boundary decision record and a reproducible baseline.
 
-- [ ] Inventory all wrappers, metadata constructors, resolver methods, layout
+- [x] Inventory all wrappers, metadata constructors, resolver methods, layout
   helpers, pipeline cache consumers, and graph uses affected across all workspace
   projects; distinguish ordinary and pass-managed transitions.
 - [ ] Record the exact forward/hybrid/debug/qualification feature matrix and
   graph captures, rendered output, clear/load/store semantics, failure results,
   timing scopes, and geometry/telemetry finalization sites.
-- [ ] Freeze explicit-access and attachment types, use/access validation, static
+- [x] Freeze explicit-access and attachment types, use/access validation, static
   convenience routing, shared lowering ownership, and read-only depth scope.
-- [ ] Specify every migrated pass's actual color/depth states and remove any
+- [x] Specify every migrated pass's actual color/depth states and remove any
   assumption that shader-readable depth also denotes depth attachment usage.
 - [ ] Define numeric regression thresholds and a quiet-lane baseline using the
   [rendering baseline protocol](../Development/Build/RenderingPerformanceBaseline.md).

@@ -22,6 +22,8 @@
 #include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
 #include "VulkanView.h"
+#include "VulkanDevice.h"
+#include "VulkanContext.h"
 #include "VulkanRHITestEnvironment.h"
 
 namespace Durin
@@ -861,6 +863,64 @@ namespace Durin
 		ASSERT_TRUE(ExplicitFirst);
 		ASSERT_TRUE(ExplicitSecond);
 		EXPECT_NE(ExplicitFirst.GetReference(), ExplicitSecond.GetReference());
+	}
+
+	TEST(FVulkanTextureSamplingTests, ComputePartialRebindRetainsUnchangedExplicitViews)
+	{
+		VulkanRHI::FInlineRHITestScope Scope;
+		FShaderCompileOptions Options;
+		Options.EntryPoints = {"ComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Compute};
+		const auto Compiled = FSlangShaderCompiler().Compile(
+			(std::filesystem::path(DURIN_TEST_DATA_DIR) / "DeferredBufferVersions.slang").string(), Options);
+		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
+		ASSERT_EQ(Compiled.CompiledShaders.size(), 1u);
+		ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestInitializationContext()));
+		auto& Commands = FRHICommandListImmediate::Get();
+		const auto& Source = Compiled.CompiledShaders[0];
+		auto ShaderDesc = FRHIShaderCreateDesc::Create(Source.DebugName.c_str(),
+			Source.Frequency, *Source.Code, Source.Hash);
+		ShaderDesc.SetEntryPoint(Source.BinaryEntryPoint.c_str());
+		FShaderRHIRef Shader = GDynamicRHI->RHICreateShader(ShaderDesc);
+		ASSERT_TRUE(Shader);
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader;
+		ASSERT_TRUE(BuildPipelineLayoutFromReflection(
+			std::array{Source.Reflection}, Initializer.PipelineLayout));
+		FComputePipelineStateRHIRef Pipeline = GDynamicRHI->RHICreateComputePipelineState(
+			"ComputePartialRebind", Initializer);
+		ASSERT_TRUE(Pipeline);
+		FBufferRHIRef Uniform = GDynamicRHI->RHICreateBuffer(Commands,
+			FRHIBufferCreateDesc::Create("PartialRebindUniform", 16, 0,
+				EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Dynamic));
+		FBufferRHIRef Storage = GDynamicRHI->RHICreateBuffer(Commands,
+			FRHIBufferCreateDesc::Create("PartialRebindStorage", 16, 16,
+				EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ShaderResource));
+		ASSERT_TRUE(Uniform && Storage);
+		FBufferViewRHIRef UniformView = GDynamicRHI->RHICreateBufferView(
+			Uniform, MakeDefaultBufferViewDesc(*Uniform, ERHIBufferViewType::Uniform));
+		FBufferViewRHIRef StorageView = GDynamicRHI->RHICreateBufferView(
+			Storage, MakeDefaultBufferViewDesc(*Storage, ERHIBufferViewType::StructuredStorage));
+		ASSERT_TRUE(UniformView && StorageView);
+		auto* Vulkan = static_cast<VulkanRHI::FVulkanDynamicRHI*>(GDynamicRHI);
+		static_cast<VulkanRHI::IVulkanDynamicRHI*>(Vulkan)->RHIExecuteCommandBufferForBackendIntegration([&](vk::CommandBuffer) {
+			auto* Context = static_cast<IRHICommandContext*>(Vulkan->GetDeviceForTesting()->GetImmediateContext());
+			Context->RHISetComputePipelineState(*Pipeline);
+			const std::array Parameters{
+				FRHIShaderParameterResource{.Resource = UniformView.GetReference(),
+					.BindingIndex = 0, .Type = ERHIBindingType::UniformBuffer},
+				FRHIShaderParameterResource{.Resource = StorageView.GetReference(),
+					.BindingIndex = 1, .Type = ERHIBindingType::StorageBuffer}};
+			Context->RHISetShaderParameters(Shader, Parameters);
+			auto* RetainedView = StorageView.GetReference();
+			StorageView = nullptr;
+			ASSERT_EQ(RetainedView->GetRefCount(), 1u);
+			// No dispatch/cache or command-storage owner masks the last pending reference.
+			Context->RHISetShaderParameters(Shader, std::span(Parameters).first(1));
+			EXPECT_EQ(RetainedView->GetRefCount(), 1u);
+			Context->RHISetShaderParameters(Shader, std::span(Parameters).last(1));
+			EXPECT_EQ(RetainedView->GetRefCount(), 1u);
+		});
 	}
 
 	TEST(FVulkanTextureSamplingTests, DeferredBindingsCaptureVersionsUntilExplicitRebind)
