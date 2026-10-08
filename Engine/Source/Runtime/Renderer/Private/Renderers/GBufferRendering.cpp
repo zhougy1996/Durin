@@ -381,7 +381,7 @@ namespace Durin
 				*IndirectArguments, 0, GPUCullingPlan->Arguments.size()
 					* sizeof(FRHIDrawIndexedIndirectArguments)};
 		}
-		(void)Graph.AddPass(GBufferPassName, ERDGPassType::Graphics,
+		const auto GBufferPass = Graph.AddPass(GBufferPassName, ERDGPassType::Graphics,
 			std::move(Parameters),
 			[&Renderer = Inputs.Renderer,
 				&StaticMeshes = Inputs.StaticMeshes,
@@ -414,6 +414,8 @@ namespace Durin
 					bWantsIsolatedDeferred, GPUCullingPlan, ArgumentBuffer,
 					VisibleBuffer, TransformBuffer);
 			});
+		if (GetGBufferCaptureSink() || GetGBufferTimingQuerySink())
+			Graph.MarkPassRoot(GBufferPass, "GBuffer qualification observation");
 		return {.Completion = GBufferCompletion,
 			.Textures = GBuffer, .Depth = Inputs.Depth};
 	}

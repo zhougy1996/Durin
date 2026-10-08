@@ -6,7 +6,6 @@
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Resources/RenderTargetLayouts.h"
 #include "SceneView.h"
 
 namespace Durin
@@ -15,15 +14,10 @@ namespace Durin
 		-> const FRDGParametersMetadata*
 	{
 		using FParameters = FSceneColorPassResources;
-		#define DURIN_MANAGED(Field, Entry, Discard, Result) \
-		MakeRDGManagedTextureMetadata<FParameters, decltype(FParameters::Field)>( \
-			#Field, offsetof(FParameters, Field), Entry, Discard, Result)
 		static const std::array Members = {
-			DURIN_MANAGED(SceneColorManaged, ERHIAccess::ColorAttachmentReadWrite,
-				false, ERHIAccess::GraphicsShaderRead),
-			DURIN_MANAGED(SceneDepthManaged, ERHIAccess::GraphicsShaderRead,
-				false, ERHIAccess::DepthStencilReadWrite)};
-		#undef DURIN_MANAGED
+			MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneColorOutput)>("SceneColorOutput", offsetof(FParameters, SceneColorOutput)),
+			MakeRDGDepthStencilAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneDepthOutput)>("SceneDepthOutput", offsetof(FParameters, SceneDepthOutput))
+		};
 		static const auto Metadata = MakeInlineRDGParametersMetadata<
 			FParameters>("FSceneColorPassResources", Members);
 		return &Metadata;
@@ -34,19 +28,17 @@ namespace Durin
 	{
 		using FParameters = FSceneColorPassParameters;
 		static const std::array Members = {
-			MakeRDGValueParameterMemberMetadata<FParameters,
-				decltype(FParameters::BaseScene), FSceneColorPassResult>(
-					"BaseScene", offsetof(FParameters, BaseScene)),
-			MakeRDGValueParameterMemberMetadata<FParameters,
-				decltype(FParameters::VolumetricCloud), FVolumetricCloudPassResult>(
-					"VolumetricCloud", offsetof(FParameters, VolumetricCloud)),
-			MakeRDGValueParameterMemberMetadata<FParameters,
-				decltype(FParameters::Completion), FSceneColorPassResult>(
-					"Completion", offsetof(FParameters, Completion)),
-			MakeRDGNestedParameterMemberMetadata<FParameters,
-				decltype(FParameters::Resources)>("Resources",
-					offsetof(FParameters, Resources),
-					FSceneColorPassResources::GetRDGParametersMetadata())};
+			MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::BaseScene), FSceneColorPassResult>(
+				"BaseScene", offsetof(FParameters, BaseScene)
+			),
+			MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::VolumetricCloud), FVolumetricCloudPassResult>(
+				"VolumetricCloud", offsetof(FParameters, VolumetricCloud)
+			),
+			MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::Completion), FSceneColorPassResult>(
+				"Completion", offsetof(FParameters, Completion)
+			),
+			MakeRDGNestedParameterMemberMetadata<FParameters, decltype(FParameters::Resources)>("Resources", offsetof(FParameters, Resources), FSceneColorPassResources::GetRDGParametersMetadata())
+		};
 		static const auto Metadata = MakeInlineRDGParametersMetadata<
 			FParameters>("FSceneColorPassParameters", Members);
 		return &Metadata;
@@ -61,92 +53,94 @@ namespace Durin
 			FResolvedSceneResources& ResolvedSceneResources;
 
 			auto RenderSceneTranslucency_RenderThread(
-				FRHICommandListImmediate&, const FSceneGeometryRecordInputs&,
-				FRHITexture*, FRHITexture*, const FSceneColorPassResult&,
-				const FVolumetricCloudPassResult&) -> FSceneColorPassResult;
+				FRHICommandListImmediate&, const FSceneGeometryRecordInputs&, const FRHIRenderPassInfo&, const FSceneColorPassResult&, const FVolumetricCloudPassResult&
+			) -> FSceneColorPassResult;
 		};
 	} // namespace
 
 	auto AddSceneColorPasses(
-		FRDGBuilder& Graph, const FSceneColorFeatureInputs& Inputs) -> FSceneColorGraphOutput
+		FRDGBuilder& Graph, const FSceneColorFeatureInputs& Inputs
+	) -> FSceneColorGraphOutput
 	{
-		FSceneColorRecorder Recorder{Inputs.StaticMeshes,
-			Inputs.Telemetry, Inputs.Resolved};
+		FSceneColorRecorder Recorder{Inputs.StaticMeshes, Inputs.Telemetry, Inputs.Resolved};
 		const auto RecordInputs = Inputs.Record;
+		const auto Failure = GetRendererQualificationPolicy().RasterFailure;
 		const bool bRequiresDeferredOpaque =
 			Inputs.DeferredFeature.HasPurpose(ESceneFeaturePurpose::Production);
 		const bool bVolumetricCloudComposite = Inputs.CloudFeature.Decision.Route
-			!= FVolumetricCloudRenderer::ERoute::Disabled;
+											   != FVolumetricCloudRenderer::ERoute::Disabled;
 		const auto SceneColorCompletion = Graph.CreateValue<FSceneColorPassResult>(
-			"Scene.ColorValue", "scene-color-result");
+			"Scene.ColorValue", "scene-color-result"
+		);
 		auto Parameters = Graph.AllocParameters<FSceneColorPassParameters>();
 		Parameters->BaseScene = {.Value = Inputs.BaseScene.Completion};
 		if (Inputs.VolumetricCloud.Completion)
 			Parameters->VolumetricCloud = TRDGValueRead<FVolumetricCloudPassResult>{
-				.Value = *Inputs.VolumetricCloud.Completion};
+				.Value = *Inputs.VolumetricCloud.Completion
+			};
 		Parameters->Completion = {.Value = SceneColorCompletion};
 		if (bRequiresDeferredOpaque)
 		{
 			const FRDGTextureHandle Color =
 				bVolumetricCloudComposite
-					&& Inputs.VolumetricCloud.Composite
-				? *Inputs.VolumetricCloud.Composite
-				: Inputs.BaseScene.Color;
-			Parameters->Resources.SceneColorManaged = {
+						&& Inputs.VolumetricCloud.Composite ?
+					*Inputs.VolumetricCloud.Composite :
+					Inputs.BaseScene.Color;
+			Parameters->Resources.SceneColorOutput = {
 				.Texture = Color,
-				.Range = {ERHITextureAspect::Color, 0, 1, 0, 1}};
-			Parameters->Resources.SceneDepthManaged = {
+				.Range = {ERHITextureAspect::Color, 0, 1, 0, 1}
+			};
+			Parameters->Resources.SceneDepthOutput = {
 				.Texture = Inputs.BaseScene.Depth,
-				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
+				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}
+			};
 		}
-		(void)Graph.AddPass(SceneColorPassName, ERDGPassType::Graphics, std::move(Parameters),
-			[Recorder, &Publication = Inputs.Publication,
-				RecordInputs, bVolumetricCloudComposite,
-				bRequiresDeferredOpaque](
-				FRHICommandListImmediate& Commands,
-				const FSceneColorPassParameters& PassParameters,
-				const FRDGParameterResolver& Resolver) mutable {
-				auto& SceneColorResult = Resolver.WriteValue(
-					PassParameters.Completion);
-				const auto& BaseSceneResult = Resolver.ReadValue(
-					PassParameters.BaseScene);
-				const auto* VolumetricCloudValue = Resolver.ReadValue(
-					PassParameters.VolumetricCloud);
-				const auto VolumetricCloudResult = VolumetricCloudValue
-					? *VolumetricCloudValue : FVolumetricCloudPassResult{};
-				if (!bRequiresDeferredOpaque)
-					SceneColorResult = BaseSceneResult;
-				else
+		(void)Graph.AddPass(SceneColorPassName, ERDGPassType::Graphics, std::move(Parameters), [Recorder, &Publication = Inputs.Publication, RecordInputs, bVolumetricCloudComposite, Failure, bRequiresDeferredOpaque](FRHICommandListImmediate& Commands, const FSceneColorPassParameters& PassParameters, const FRDGParameterResolver& Resolver) mutable {
+			auto& SceneColorResult = Resolver.WriteValue(
+				PassParameters.Completion
+			);
+			const auto& BaseSceneResult = Resolver.ReadValue(
+				PassParameters.BaseScene
+			);
+			const auto* VolumetricCloudValue = Resolver.ReadValue(
+				PassParameters.VolumetricCloud
+			);
+			const auto VolumetricCloudResult = VolumetricCloudValue ? *VolumetricCloudValue : FVolumetricCloudPassResult{};
+			if (!bRequiresDeferredOpaque)
+				SceneColorResult = BaseSceneResult;
+			else
+			{
+				FSceneColorPassResult Input = BaseSceneResult;
+				if (Input.IsSuccess() && bVolumetricCloudComposite
+					&& !VolumetricCloudResult.bCompositeOutputValid)
+					Input.Result = ERenderViewResult::RendererResourcesUnavailable;
+				if (Input.IsSuccess() && Failure == ESceneRasterFailure::SortedTranslucency) Input = {};
+				SceneColorResult = Input;
+				if (Input.IsSuccess())
 				{
-					FSceneColorPassResult Input = BaseSceneResult;
-					if (bVolumetricCloudComposite
-						&& !VolumetricCloudResult.bCompositeOutputValid)
-						Input.Result = ERenderViewResult::RendererResourcesUnavailable;
-					FRHITexture* Color = Resolver.GetTexture(
-						PassParameters.Resources.SceneColorManaged);
-					SceneColorResult = Recorder.RenderSceneTranslucency_RenderThread(
-						Commands,
-						RecordInputs,
-						Color,
-						Resolver.GetTexture(
-							PassParameters.Resources.SceneDepthManaged), Input,
-						VolumetricCloudResult);
+					FRHIRenderPassInfo Native;
+					const auto Color = MakeRDGNativeAttachmentBinding(Resolver.GetColorAttachment(PassParameters.Resources.SceneColorOutput));
+					const auto Depth = MakeRDGNativeAttachmentBinding(Resolver.GetDepthStencilAttachment(PassParameters.Resources.SceneDepthOutput));
+					Native.RenderTargetLayout.NumColorRenderTargets = 1;
+					Native.RenderTargetLayout.ColorAttachments[0].RenderTarget = Color.Layout;
+					Native.RenderTargetLayout.bHasDepthStencil = true;
+					Native.RenderTargetLayout.DepthStencilAttachment = Depth.Layout;
+					Color.BindColor(Native, 0);
+					Depth.BindDepthStencil(Native);
+					SceneColorResult = Recorder.RenderSceneTranslucency_RenderThread(Commands, RecordInputs, Native, Input, VolumetricCloudResult);
 				}
-				Publication = SceneColorResult;
-				if (!SceneColorResult.IsSuccess()) return;
-				ReduceStaticMeshTelemetry(RecordInputs.Receiver.StaticMeshes,
-					Recorder.ResolvedSceneResources.Receiver.StaticMeshes, Recorder.Telemetry.View);
-			});
-		return {.Completion = SceneColorCompletion,
-			.Color = Inputs.BaseScene.Color, .Depth = Inputs.BaseScene.Depth,
-			.CloudComposite = Inputs.VolumetricCloud.Composite};
+			}
+			Publication = SceneColorResult;
+			if (!SceneColorResult.IsSuccess()) return;
+			ReduceStaticMeshTelemetry(RecordInputs.Receiver.StaticMeshes, Recorder.ResolvedSceneResources.Receiver.StaticMeshes, Recorder.Telemetry.View);
+		});
+		return {.Completion = SceneColorCompletion, .Color = Inputs.BaseScene.Color, .Depth = Inputs.BaseScene.Depth, .CloudComposite = Inputs.VolumetricCloud.Composite};
 	}
 
 	auto FSceneColorRecorder::RenderSceneTranslucency_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneGeometryRecordInputs& Inputs,
-		FRHITexture* SceneColor,
-		FRHITexture* Depth,
+		const FRHIRenderPassInfo& Native,
 		const FSceneColorPassResult& BaseScene,
 		const FVolumetricCloudPassResult& VolumetricCloud
 	) -> FSceneColorPassResult
@@ -158,18 +152,20 @@ namespace Durin
 		if (View.Settings.Mode.RenderMode != ERenderMode::Lit
 			|| View.Settings.Mode.RasterMode != ERasterMode::Solid)
 			return BaseScene;
-		if (SceneColor == nullptr || Depth == nullptr) return {};
+		if (Native.ColorRenderTargets[0] == nullptr || Native.DepthStencilRenderTarget == nullptr) return {};
 		auto SetViewRect = [&CommandList, &View]() {
 			CommandList.SetViewport(
 				static_cast<float>(View.ViewportX),
 				static_cast<float>(View.ViewportY), 0.0f,
 				static_cast<float>(View.ViewportX + View.ViewportWidth),
-				static_cast<float>(View.ViewportY + View.ViewportHeight), 1.0f);
+				static_cast<float>(View.ViewportY + View.ViewportHeight), 1.0f
+			);
 			CommandList.SetScissor(
 				static_cast<float>(View.ViewportX),
 				static_cast<float>(View.ViewportY),
 				static_cast<float>(View.ViewportWidth),
-				static_cast<float>(View.ViewportHeight));
+				static_cast<float>(View.ViewportHeight)
+			);
 		};
 		const FSortedTranslucencyTimingQuerySink SortedTranslucencyTimingSink =
 			GetSortedTranslucencyTimingQuerySink();
@@ -177,14 +173,7 @@ namespace Durin
 			CommandList, SortedTranslucencyTimingSink
 		);
 
-		FRHIRenderPassInfo SortedTranslucency{};
-		SortedTranslucency.RenderTargetLayout =
-			RenderTargetLayouts::MakeHybridSortedTranslucency();
-		SortedTranslucency.ColorRenderTargets[0] = SceneColor;
-		SortedTranslucency.DepthStencilRenderTarget = Depth;
-		CommandList.BeginRenderPass(
-			SortedTranslucency, "HybridSortedTranslucencyRenderPass"
-		);
+		CommandList.BeginRenderPass(Native, "HybridSortedTranslucencyRenderPass");
 		SetViewRect();
 		FMeshDrawBindingGroup TranslucentBindings;
 		for (const FPreparedTranslucentSceneDraw& Draw :
@@ -205,12 +194,14 @@ namespace Durin
 		// lighting, so the retained-forward attempted count intentionally does not
 		// equal every prepared section as it does in the all-forward finalizer.
 		StaticMeshRenderer.FinalizeExecution_RenderThread(
-			ResolvedSceneResources.Receiver.StaticMeshes);
+			ResolvedSceneResources.Receiver.StaticMeshes
+		);
 		++Telemetry.View.Deferred.HybridDeferredEnabledViews;
 		return {
 			.Result = ERenderViewResult::Success,
 			.bUsesVolumetricCloudComposite =
 				VolumetricCloud.bCompositeOutputValid,
-			.VolumetricCloud = VolumetricCloud};
+			.VolumetricCloud = VolumetricCloud
+		};
 	}
 } // namespace Durin

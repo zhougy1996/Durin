@@ -143,7 +143,7 @@ namespace Durin
 
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
-					RenderTargetLayouts::MakeSceneTargets();
+					RenderTargetLayouts::MakeGraphSceneTargets();
 				Initializer.BoundShaders.VertexShader =
 					VertexRHI;
 				Initializer.BoundShaders.FragmentShader =
@@ -159,7 +159,7 @@ namespace Durin
 						Initializer
 					);
 				Initializer.RenderTargetLayout =
-					RenderTargetLayouts::MakeHybridSceneBootstrap();
+					RenderTargetLayouts::MakeGraphHybridSceneBootstrap();
 				Candidate.HybridBootstrapPipelineState =
 					FRenderPipelineRequestScope::Graphics(
 						"SkyBoxHybridBootstrapPipeline", Initializer

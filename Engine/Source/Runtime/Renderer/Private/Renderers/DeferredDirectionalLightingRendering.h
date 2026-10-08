@@ -17,10 +17,6 @@ namespace Durin
 	struct FSceneRenderTelemetry;
 	struct FSceneView;
 
-	// Graph-owned binding payload; textures remain owned and declared separately.
-	using FProductionDeferredParameters =
-		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>;
-
 	struct FDeferredDirectionalLightingPassResources final
 	{
 		std::optional<FRDGTextureParameter> DirectionalShadow;
@@ -36,31 +32,73 @@ namespace Durin
 		std::optional<FRDGTextureParameter> EnvironmentIrradiance;
 		std::optional<FRDGTextureParameter> EnvironmentPrefiltered;
 		std::optional<FRDGTextureParameter> EnvironmentBrdfLut;
-		std::optional<FRDGColorAttachmentParameter> IsolatedDeferredOutput;
 
 		static RENDERER_API auto GetRDGParametersMetadata()
 			-> const FRDGParametersMetadata*;
 	};
 
-	struct FDeferredDirectionalLightingPassParameters final
+	struct FDeferredLightingInputParameters final
 	{
 		TRDGValueRead<FDirectionalShadowPassResult> DirectionalShadow;
 		std::optional<TRDGValueRead<FGBufferPassResult>> GBufferCompletion;
 		std::optional<TRDGValueRead<FGroundTruthAmbientOcclusionPassResult>> AmbientOcclusion;
 		std::optional<TRDGValueRead<FContactShadowVisibilityPassResult>> ContactShadow;
 		std::optional<TRDGValueRead<FVolumetricCloudShadowPassResult>> CloudShadow;
-		TRDGValueWrite<FIsolatedDeferredPassResult> Completion;
-		TRDGValueWrite<FProductionDeferredParameters> ProductionParameters;
 		FDeferredDirectionalLightingPassResources Resources;
 
 		static RENDERER_API auto GetRDGParametersMetadata()
 			-> const FRDGParametersMetadata*;
 	};
 
+	struct FDeferredLightingPersistentInputs final
+	{
+		std::optional<FRDGTextureHandle> DirectionalShadow;
+		std::optional<FRDGTextureHandle> White;
+		std::optional<FRDGTextureHandle> ShadowArray;
+		std::optional<FRDGTextureHandle> Irradiance;
+		std::optional<FRDGTextureHandle> Prefiltered;
+		std::optional<FRDGTextureHandle> BrdfLut;
+	};
+
+	struct FDeferredLightingPolicy final
+	{
+		FDeferredLightingPersistentInputs PersistentAliases;
+		FRHISampler* EnvironmentSampler = nullptr;
+		FRHISampler* DirectionalShadowSampler = nullptr;
+		EGroundTruthAmbientOcclusionQuality AmbientOcclusionQuality{};
+		bool bProduction = false;
+		bool bRetainedResourcesReady = false;
+	};
+
+	struct FDeferredDirectionalLightingPassParameters final
+	{
+		FDeferredLightingInputParameters Inputs;
+		TRDGValueWrite<FIsolatedDeferredPassResult> Completion;
+		std::optional<FRDGColorAttachmentParameter> IsolatedDeferredOutput;
+		static RENDERER_API auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*;
+	};
+
+	struct FDeferredLightingOutcomes final
+	{
+		FDirectionalShadowPassResult DirectionalShadow;
+		FGBufferPassResult GBuffer;
+		FGroundTruthAmbientOcclusionPassResult AmbientOcclusion;
+		FContactShadowVisibilityPassResult ContactShadow;
+		FVolumetricCloudShadowPassResult CloudShadow;
+	};
+
+	RENDERER_API auto ResolveDeferredLightingResources(const FRDGParameterResolver& Resolver, const FDeferredDirectionalLightingPassResources& Resources, const FDeferredLightingOutcomes& Outcomes, const FDeferredLightingPolicy& Policy, const FSceneView& View, const FSceneViewRenderOptions& Options, const FRHIUniformBufferRange& Lighting)
+		-> std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>;
+
+	// Resolves only the executing callback's original declared members.
+	RENDERER_API auto ResolveDeferredLightingParameters(const FRDGParameterResolver& Resolver, const FDeferredLightingInputParameters& Inputs, const FDeferredLightingPolicy& Policy, const FSceneView& View, const FSceneViewRenderOptions& Options, const FRHIUniformBufferRange& Lighting)
+		-> std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>;
+
 	struct FDeferredLightingGraphOutput final
 	{
-		TRDGValueHandle<FIsolatedDeferredPassResult> Completion;
-		TRDGValueHandle<FProductionDeferredParameters> ProductionParameters;
+		std::optional<TRDGValueHandle<FIsolatedDeferredPassResult>> Completion;
+		FDeferredLightingInputParameters Inputs;
+		FDeferredLightingPolicy Policy;
 		std::optional<FRDGTextureHandle> Isolated;
 	};
 

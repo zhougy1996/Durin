@@ -139,6 +139,8 @@ namespace Durin::VulkanRHI
 	};
 
 	extern std::atomic<uint64> GVulkanRenderPassEntryCount;
+	// Successful native queue calls, independent of logical RDG batches or tokens.
+	VULKANRHI_API auto GetVulkanNativeSubmissionCountForTesting() -> uint64;
 	extern std::atomic<uint64> GVulkanFramebufferEntryCount;
 	extern std::atomic<uint64> GVulkanDescriptorSetLayoutEntryCount;
 	extern std::atomic<uint64> GVulkanPipelineLayoutEntryCount;

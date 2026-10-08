@@ -449,15 +449,17 @@ TEST(FRendererSceneContractTests, QualificationPolicyIsLexicallyScoped)
 		Durin::FScopedRendererQualificationPolicy Outer({.bEnableGBuffer = true});
 		EXPECT_TRUE(Durin::GetRendererQualificationPolicy().bEnableGBuffer);
 		{
-			Durin::FScopedRendererQualificationPolicy Inner({.bForceFragmentVolumetricCloud = true});
+			Durin::FScopedRendererQualificationPolicy Inner({.bForceFragmentVolumetricCloud = true, .RasterFailure = Durin::ESceneRasterFailure::HybridBootstrap});
 			const auto InnerPolicy =
 				Durin::GetRendererQualificationPolicy();
 			EXPECT_FALSE(InnerPolicy.bEnableGBuffer);
 			EXPECT_TRUE(InnerPolicy.bForceFragmentVolumetricCloud);
+			EXPECT_EQ(InnerPolicy.RasterFailure, Durin::ESceneRasterFailure::HybridBootstrap);
 		}
 		EXPECT_TRUE(Durin::GetRendererQualificationPolicy().bEnableGBuffer);
 	}
 	EXPECT_FALSE(Durin::GetRendererQualificationPolicy().bEnableGBuffer);
+	EXPECT_EQ(Durin::GetRendererQualificationPolicy().RasterFailure, Durin::ESceneRasterFailure::None);
 }
 
 TEST(FRendererSceneContractTests, TypedPassResultsSeparateGraphOwnedResources)
@@ -522,7 +524,7 @@ namespace
 TEST(FRendererSceneContractTests, OptionalVisibilityResultsRetainOnlyRequestedProducers)
 {
 	using namespace Durin;
-	const auto* DeferredMetadata = FDeferredDirectionalLightingPassParameters::GetRDGParametersMetadata();
+	const auto* DeferredMetadata = FDeferredLightingInputParameters::GetRDGParametersMetadata();
 	for (const auto Name : {"AmbientOcclusion", "ContactShadow", "CloudShadow"})
 	{
 		const auto Member = std::ranges::find_if(DeferredMetadata->Members,
@@ -584,6 +586,136 @@ TEST(FRendererSceneContractTests, OptionalVisibilityResultsRetainOnlyRequestedPr
 		EXPECT_EQ(ConsumerCalls, 1u);
 		EXPECT_EQ(Graph.GetStatistics().ScheduledPasses, bRequested ? 2u : 1u);
 	}
+}
+
+namespace
+{
+	struct FDeferredResourceTestParameters final
+	{
+		Durin::TRDGValueRead<Durin::FDirectionalShadowPassResult> DirectionalShadow;
+		std::optional<Durin::TRDGValueRead<Durin::FGBufferPassResult>> GBufferCompletion;
+		std::optional<Durin::TRDGValueRead<Durin::FGroundTruthAmbientOcclusionPassResult>> AmbientOcclusion;
+		std::optional<Durin::TRDGValueRead<Durin::FContactShadowVisibilityPassResult>> ContactShadow;
+		std::optional<Durin::TRDGValueRead<Durin::FVolumetricCloudShadowPassResult>> CloudShadow;
+		Durin::FDeferredDirectionalLightingPassResources Resources;
+		static auto GetRDGParametersMetadata() -> const Durin::FRDGParametersMetadata*
+		{
+			using namespace Durin;
+			using FParameters = FDeferredResourceTestParameters;
+			#define DURIN_TEST_VALUE(Field, Type) MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::Field), Type>(#Field, offsetof(FParameters, Field))
+			static const std::array Members{
+				DURIN_TEST_VALUE(DirectionalShadow, FDirectionalShadowPassResult),
+				DURIN_TEST_VALUE(GBufferCompletion, FGBufferPassResult),
+				DURIN_TEST_VALUE(AmbientOcclusion, FGroundTruthAmbientOcclusionPassResult),
+				DURIN_TEST_VALUE(ContactShadow, FContactShadowVisibilityPassResult),
+				DURIN_TEST_VALUE(CloudShadow, FVolumetricCloudShadowPassResult),
+				MakeRDGNestedParameterMemberMetadata<FParameters, decltype(Resources)>("Resources", offsetof(FParameters, Resources), FDeferredDirectionalLightingPassResources::GetRDGParametersMetadata())};
+			#undef DURIN_TEST_VALUE
+			static const auto Metadata = MakeInlineRDGParametersMetadata<FParameters>("FDeferredResourceTestParameters", Members);
+			return &Metadata;
+		}
+	};
+}
+
+TEST(FRendererSceneContractTests, DeferredLightingResolvesDeclaredAliasesAndFailedOptionalProducersLocally)
+{
+	using namespace Durin;
+	for (const bool bProduction : {false, true})
+		for (const bool bOptionalProducers : {false, true})
+		{
+			FRHICommandListExecutor Executor;
+			FRDGBuilder Graph;
+			Graph.EnablePassCulling();
+			std::vector<FTextureRHIRef> Textures;
+			const auto Import = [&](const char* Name, bool bDepth = false) {
+				auto Texture = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(Name, 8, 8,
+					bDepth ? EPixelFormat::D32 : EPixelFormat::RGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::ShaderResource));
+				Textures.push_back(Texture);
+				return Graph.RegisterExternalTexture(Texture, Name, ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+			};
+			auto Parameters = Graph.AllocParameters<FDeferredResourceTestParameters>();
+			for (size_t Index = 0; Index < 4; ++Index)
+			{
+				const auto Name = "GBuffer" + std::to_string(Index);
+				Parameters->Resources.GBuffer[Index] = {Import(Name.c_str()), {ERHITextureAspect::Color, 0, 1, 0, 1}};
+			}
+			Parameters->Resources.SceneDepth = {Import("Depth", true), {ERHITextureAspect::Depth, 0, 1, 0, 1}};
+			const auto White = Import("White");
+			const auto ShadowArray = Import("ShadowArray");
+			const auto Cube = Import("CubeFallback");
+			const auto Black = Import("Black");
+			Parameters->Resources.DefaultWhite = {White, {ERHITextureAspect::Color, 0, 1, 0, 1}};
+			Parameters->Resources.DefaultShadowArray = {ShadowArray, {ERHITextureAspect::Color, 0, 1, 0, 1}};
+			Parameters->Resources.EnvironmentIrradiance = {Cube, {ERHITextureAspect::Color, 0, 1, 0, 1}};
+			Parameters->Resources.EnvironmentBrdfLut = {Black, {ERHITextureAspect::Color, 0, 1, 0, 1}};
+			const auto Shadow = Graph.CreateValue<FDirectionalShadowPassResult>("Shadow", "directional-shadow-result");
+			const auto GBuffer = Graph.CreateValue<FGBufferPassResult>("GBuffer", "gbuffer-result");
+			const auto Ambient = Graph.CreateValue<FGroundTruthAmbientOcclusionPassResult>("Ambient", "ambient-occlusion-result");
+			const auto Contact = Graph.CreateValue<FContactShadowVisibilityPassResult>("Contact", "contact-shadow-result");
+			const auto Cloud = Graph.CreateValue<FVolumetricCloudShadowPassResult>("Cloud", "cloud-shadow-result");
+			const auto Required = FRDGBuilderTestAccessor::AddPass(Graph, "Required", ERDGPassType::Graphics,
+				[&](FRHICommandListImmediate&, const FRDGPassResources& Resources) {
+					Resources.WriteValue(Shadow).Status = EScenePassStatus::Failed;
+					Resources.WriteValue(GBuffer).Status = EScenePassStatus::Complete;
+				});
+			FRDGBuilderTestAccessor::UseValue(Graph, Required, Shadow, ERDGUse::Write);
+			FRDGBuilderTestAccessor::UseValue(Graph, Required, GBuffer, ERDGUse::Write);
+			uint32 OptionalCalls = 0;
+			const auto Optional = FRDGBuilderTestAccessor::AddPass(Graph, "Optional", ERDGPassType::Graphics,
+				[&](FRHICommandListImmediate&, const FRDGPassResources& Resources) {
+					++OptionalCalls;
+					Resources.WriteValue(Ambient).Status = EScenePassStatus::Failed;
+					Resources.WriteValue(Contact).Status = EScenePassStatus::Failed;
+					Resources.WriteValue(Cloud).Status = EScenePassStatus::Failed;
+				});
+			FRDGBuilderTestAccessor::UseValue(Graph, Optional, Ambient, ERDGUse::Write);
+			FRDGBuilderTestAccessor::UseValue(Graph, Optional, Contact, ERDGUse::Write);
+			FRDGBuilderTestAccessor::UseValue(Graph, Optional, Cloud, ERDGUse::Write);
+			Parameters->DirectionalShadow = {Shadow};
+			Parameters->GBufferCompletion = TRDGValueRead<FGBufferPassResult>{GBuffer};
+			if (bOptionalProducers)
+			{
+				Parameters->AmbientOcclusion = TRDGValueRead<FGroundTruthAmbientOcclusionPassResult>{Ambient};
+				Parameters->ContactShadow = TRDGValueRead<FContactShadowVisibilityPassResult>{Contact};
+				Parameters->CloudShadow = TRDGValueRead<FVolumetricCloudShadowPassResult>{Cloud};
+			}
+			const FDeferredLightingPolicy Policy{.PersistentAliases = {std::nullopt, White, ShadowArray, Cube, Cube, Black},
+				.bProduction = bProduction, .bRetainedResourcesReady = true};
+			const auto Consumer = Graph.AddPass("Lighting", ERDGPassType::Graphics, std::move(Parameters),
+				[&](FRHICommandListImmediate&, const FDeferredResourceTestParameters& Pass, const FRDGParameterResolver& Resolver) {
+					FSceneView View;
+					FSceneViewRenderOptions Options;
+					Options.DeferredDirectionalDebugMode = EDeferredDirectionalDebugMode::Disabled;
+					const FDeferredLightingOutcomes Outcomes{
+						.DirectionalShadow = Resolver.ReadValue(Pass.DirectionalShadow),
+						.GBuffer = *Resolver.ReadValue(Pass.GBufferCompletion),
+						.AmbientOcclusion = bOptionalProducers ? *Resolver.ReadValue(Pass.AmbientOcclusion) : FGroundTruthAmbientOcclusionPassResult{},
+						.ContactShadow = bOptionalProducers ? *Resolver.ReadValue(Pass.ContactShadow) : FContactShadowVisibilityPassResult{},
+						.CloudShadow = bOptionalProducers ? *Resolver.ReadValue(Pass.CloudShadow) : FVolumetricCloudShadowPassResult{}};
+					const auto Physical = ResolveDeferredLightingResources(Resolver, Pass.Resources, Outcomes, Policy, View, Options, {});
+					ASSERT_TRUE(Physical);
+					EXPECT_EQ(Physical->Material, Textures[0].GetReference());
+					EXPECT_EQ(Physical->Depth, Textures[4].GetReference());
+					EXPECT_EQ(Physical->EnvironmentIrradiance, Textures[7].GetReference());
+					EXPECT_EQ(Physical->EnvironmentPrefiltered, Physical->EnvironmentIrradiance);
+					EXPECT_EQ(Physical->EnvironmentBrdfLut, Textures[8].GetReference());
+					EXPECT_EQ(Physical->DirectionalShadowTexture, Textures[6].GetReference());
+					EXPECT_EQ(Physical->ContactVisibility, Textures[5].GetReference());
+					EXPECT_EQ(Physical->VolumetricCloudVisibility, Physical->ContactVisibility);
+					EXPECT_EQ(Physical->GroundTruthAmbientOcclusionResolved, Physical->ContactVisibility);
+					EXPECT_FALSE(Physical->bGroundTruthAmbientOcclusionEnabled);
+					EXPECT_FALSE(Physical->bContactVisibilityEnabled);
+					EXPECT_FALSE(Physical->bVolumetricCloudVisibilityEnabled);
+					auto Unready = Policy;
+					Unready.bRetainedResourcesReady = false;
+					EXPECT_EQ(ResolveDeferredLightingResources(Resolver, Pass.Resources, Outcomes, Unready, View, Options, {}).has_value(), !bProduction);
+				});
+			Graph.MarkPassRoot(Consumer);
+			const auto Execution = Graph.Execute(Executor.GetImmediateCommandList());
+			ASSERT_TRUE(Execution) << ToString(Execution.error());
+			EXPECT_EQ(OptionalCalls, bOptionalProducers ? 1u : 0u);
+		}
 }
 
 TEST(FRendererSceneContractTests, ContactShadowPilotsComposeExactGraphicsAndComputeShaderAuthority)
@@ -3485,28 +3617,14 @@ namespace Durin
 			ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Graph).has_value());
 			EXPECT_EQ(Graph.GetPasses().back().Name, "Caller.ReadScene");
 			const auto Capture = Graph.Capture();
-			const auto Payload = std::ranges::find_if(Capture.Resources, [](const auto& Resource) {
+			EXPECT_FALSE(std::ranges::any_of(Capture.Resources, [](const auto& Resource) {
 				return Resource.Name == "Scene.ProductionDeferredParameters";
-			});
-			ASSERT_NE(Payload, Capture.Resources.end());
-			const auto FindPass = [&](std::string_view Name) {
-				return std::ranges::find_if(Graph.GetPasses(), [&](const auto& Pass) { return Pass.Name == Name; });
-			};
-			const auto Deferred = FindPass(DeferredDirectionalLightingPassName);
-			const auto Base = FindPass(BaseScenePassName);
-			ASSERT_NE(Deferred, Graph.GetPasses().end());
-			ASSERT_NE(Base, Graph.GetPasses().end());
-			for (const auto& [PassIndex, Use] : {
-				std::pair{Deferred->DeclarationIndex, ERDGUse::Write},
-				std::pair{Base->DeclarationIndex, ERDGUse::Read}})
-				EXPECT_TRUE(std::ranges::any_of(Capture.Uses, [&](const auto& Candidate) {
-					return Candidate.ResourceId == Payload->ResourceId
-						&& Candidate.PassDeclarationIndex == PassIndex && Candidate.Use == Use;
-				}));
-			EXPECT_TRUE(std::ranges::any_of(Graph.GetDependencies(), [&](const auto& Edge) {
-				return Edge.BeforePass == Deferred->DeclarationIndex && Edge.AfterPass == Base->DeclarationIndex
-					&& Edge.Kind == ERDGDependencyKind::Value && Edge.Cause == Payload->Name;
 			}));
+			const auto Base = std::ranges::find_if(Graph.GetPasses(), [](const auto& Pass) { return Pass.Name == BaseScenePassName; });
+			ASSERT_NE(Base, Graph.GetPasses().end());
+			for (const auto& Parameter : Capture.Parameters)
+				if (Parameter.PassDeclarationIndex == Base->DeclarationIndex)
+					EXPECT_FALSE(Parameter.bPassManagedTransition) << Parameter.FieldPath;
 			FRejectAllocation Allocator;
 			EXPECT_FALSE(Graph.Execute(Commands, &Allocator).has_value());
 			EXPECT_EQ(Context.Transaction.Composition.SceneColorPublication.Result, ERenderViewResult::InvalidOutput);

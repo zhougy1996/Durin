@@ -98,7 +98,7 @@ namespace Durin
 		) -> bool;
 		auto RenderProduction_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FRHITexture* SceneColor,
+			const FRHIRenderPassInfo& Pass,
 			const FRenderParameters& Parameters
 		) -> bool;
 		auto ReleaseResources_RenderThread() -> void;
@@ -108,7 +108,8 @@ namespace Durin
 			FRHICommandListImmediate& CommandList,
 			FRHITexture* SceneColor,
 			const FRenderParameters& Parameters,
-			bool bProduction
+			bool bProduction,
+			const FRHIRenderPassInfo* ProductionPass = nullptr
 		) -> bool;
 		struct FState;
 

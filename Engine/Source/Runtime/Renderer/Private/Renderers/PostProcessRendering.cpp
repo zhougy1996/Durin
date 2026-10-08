@@ -119,8 +119,8 @@ namespace Durin
 				"Scene.GBuffer.Debug");
 		auto Parameters = Graph.AllocParameters<FPostProcessPassParameters>();
 		Parameters->SceneColor = {.Value = Inputs.SceneColor.Completion};
-		Parameters->DeferredLighting = {
-			.Value = Inputs.Deferred.Completion};
+		if (Inputs.Deferred.Completion)
+			Parameters->DeferredLighting = TRDGValueRead<FIsolatedDeferredPassResult>{*Inputs.Deferred.Completion};
 		Parameters->Completion = {.Value = PostProcessCompletion};
 		Parameters->Resources.SceneColor = {Inputs.SceneColor.Color,
 			{ERHITextureAspect::Color, 0, 1, 0, 1}};
@@ -183,7 +183,8 @@ namespace Durin
 					Resolver, PassParameters.Resources.GBuffer);
 				FRHITexture* IsolatedDeferredOutput = nullptr;
 				if (PassParameters.Resources.IsolatedDeferred
-					&& Resolver.ReadValue(PassParameters.DeferredLighting).bOutputValid)
+					&& Resolver.ReadValue(PassParameters.DeferredLighting)
+					&& Resolver.ReadValue(PassParameters.DeferredLighting)->bOutputValid)
 					IsolatedDeferredOutput = Resolver.GetTexture(
 						PassParameters.Resources.IsolatedDeferred);
 				FRHITexture* Output = Resolver.GetColorAttachment(

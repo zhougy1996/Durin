@@ -40,6 +40,7 @@
 #include "StaticMesh/StaticMeshResources.h"
 #include <vulkan/vulkan.hpp>
 #include "VulkanDynamicRHI.h"
+#include "RDG/RDG.h"
 
 
 #include <gtest/gtest.h>
@@ -77,6 +78,18 @@ namespace
 	Durin::FByteBuffer* GSpecularAASurfacePixels = nullptr;
 	std::array<Durin::FByteBuffer, 4>* GGPUCullingGBufferPixels = nullptr;
 	Durin::FViewRenderTelemetry GLastTelemetry;
+	std::vector<uint64>* GGraphAuthoringDurations = nullptr;
+	std::vector<Durin::FRDGStatistics>* GGraphCPUStatistics = nullptr;
+	std::vector<uint32>* GGraphBatchCounts = nullptr;
+	auto CaptureGraphAuthoring(uint64 Nanoseconds) -> void
+	{
+		if (GGraphAuthoringDurations) GGraphAuthoringDurations->push_back(Nanoseconds);
+	}
+	auto CaptureGraphCPU(const Durin::FRDGCapture& Capture) -> void
+	{
+		if (GGraphCPUStatistics) GGraphCPUStatistics->push_back(Capture.Statistics);
+		if (GGraphBatchCounts) GGraphBatchCounts->push_back(static_cast<uint32>(Capture.ExecutionPlan.Batches.size()));
+	}
 
 	class FGBufferQualificationEnvironment final : public testing::Environment
 	{
@@ -1659,6 +1672,50 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	bEnableProductionContactShadows = false;
 	bForceProductionFragmentContact = false;
 	bEnableProductionAsyncCompute = false;
+	// Measure CPU phases separately so capture generation does not perturb the
+	// existing GPU timing population. Both reference and candidate use this probe.
+	std::vector<uint64> AuthoringDurations;
+	std::vector<Durin::FRDGStatistics> CPUStatistics;
+	std::vector<uint32> BatchCounts;
+	GGraphAuthoringDurations = &AuthoringDurations;
+	GGraphCPUStatistics = &CPUStatistics;
+	GGraphBatchCounts = &BatchCounts;
+	Durin::SetSceneGraphAuthoringTimingSink(CaptureGraphAuthoring);
+	Durin::SetSceneRenderGraphCaptureSink(CaptureGraphCPU);
+	bEnableProductionAmbientOcclusion = true;
+	ProductionAmbientOcclusionQuality = Durin::EGroundTruthAmbientOcclusionQuality::HalfResolution;
+	RenderProductionFrames(WarmupFrames + MeasuredFrames);
+	Durin::SetSceneRenderGraphCaptureSink(nullptr);
+	Durin::SetSceneGraphAuthoringTimingSink(nullptr);
+	GGraphAuthoringDurations = nullptr;
+	GGraphCPUStatistics = nullptr;
+	GGraphBatchCounts = nullptr;
+	ASSERT_EQ(AuthoringDurations.size(), WarmupFrames + MeasuredFrames);
+	ASSERT_EQ(CPUStatistics.size(), AuthoringDurations.size());
+	ASSERT_EQ(BatchCounts.size(), AuthoringDurations.size());
+	std::vector<uint64> AuthoringSamples, CompileSamples, RecordSamples;
+	for (uint32 Index = WarmupFrames; Index < AuthoringDurations.size(); ++Index)
+	{
+		AuthoringSamples.push_back(AuthoringDurations[Index]);
+		CompileSamples.push_back(CPUStatistics[Index].CompileMicroseconds);
+		RecordSamples.push_back(CPUStatistics[Index].Phases.RecordingMicroseconds);
+		EXPECT_EQ(BatchCounts[Index], BatchCounts[WarmupFrames]);
+	}
+	std::ranges::sort(AuthoringSamples);
+	std::ranges::sort(CompileSamples);
+	std::ranges::sort(RecordSamples);
+	std::cout << "RDG_SCENE_CPU_QUALIFICATION authority=observation,resolution=1920x1080,warmup_frames=" << WarmupFrames
+		<< ",measured_frames=" << MeasuredFrames
+		<< ",author_median_ns=" << Median(AuthoringSamples) << ",author_p95_ns=" << Percentile95(AuthoringSamples)
+		<< ",compile_median_us=" << Median(CompileSamples) << ",compile_p95_us=" << Percentile95(CompileSamples)
+		<< ",record_median_us=" << Median(RecordSamples) << ",record_p95_us=" << Percentile95(RecordSamples)
+		<< ",submission_batches=" << BatchCounts[WarmupFrames] << '\n';
+	RecordProperty("scene_author_median_ns", std::to_string(Median(AuthoringSamples)));
+	RecordProperty("scene_author_p95_ns", std::to_string(Percentile95(AuthoringSamples)));
+	RecordProperty("scene_compile_median_us", std::to_string(Median(CompileSamples)));
+	RecordProperty("scene_compile_p95_us", std::to_string(Percentile95(CompileSamples)));
+	RecordProperty("scene_record_median_us", std::to_string(Median(RecordSamples)));
+	RecordProperty("scene_record_p95_us", std::to_string(Percentile95(RecordSamples)));
 	std::vector<uint64> ProductionTotalDurations;
 	ASSERT_EQ(
 		ProductionGBufferDurations.size(), MeasuredFrames);

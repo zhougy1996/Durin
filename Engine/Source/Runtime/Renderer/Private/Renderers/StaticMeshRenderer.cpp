@@ -390,9 +390,9 @@ namespace Durin
 					: (Identity.bHybridRetained
 						? (Identity.Material.ShaderMap.BlendMode
 								== EMaterialBlendMode::Translucent
-							? RenderTargetLayouts::MakeHybridSortedTranslucency()
-							: RenderTargetLayouts::MakeHybridRetainedForward())
-						: RenderTargetLayouts::MakeSceneTargets());
+							? RenderTargetLayouts::MakeGraphSortedTranslucency()
+							: RenderTargetLayouts::MakeGraphHybridRetainedForward())
+						: RenderTargetLayouts::MakeGraphSceneTargets());
 				Initializer.BoundShaders.VertexShader = Candidate.VertexShader->GetRHIShader();
 				Initializer.BoundShaders.FragmentShader = bShadowDepth ? (Identity.Material.ShaderMap.BlendMode
 																				  == EMaterialBlendMode::Masked ?

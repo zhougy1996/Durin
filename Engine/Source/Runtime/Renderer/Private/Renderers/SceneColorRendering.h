@@ -13,8 +13,8 @@ namespace Durin
 
 	struct FSceneColorPassResources final
 	{
-		std::optional<FRDGManagedTextureParameter> SceneColorManaged;
-		std::optional<FRDGManagedTextureParameter> SceneDepthManaged;
+		std::optional<FRDGColorAttachmentBinding> SceneColorOutput;
+		std::optional<FRDGDepthStencilAttachmentBinding> SceneDepthOutput;
 
 		static RENDERER_API auto GetRDGParametersMetadata()
 			-> const FRDGParametersMetadata*;

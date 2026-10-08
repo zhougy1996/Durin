@@ -1533,8 +1533,8 @@ namespace Durin
 				const auto Result = Graph.Execute(Commands);
 				ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
 				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::None);
-				ASSERT_EQ(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph).size(), 4u);
-				for (uint32 Index = 0; Index < 3; ++Index)
+				ASSERT_EQ(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph).size(), 3u);
+				for (uint32 Index = 0; Index < 2; ++Index)
 					EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph)[Index]).Queue, Queues.Compute);
 			}
 			if (!*QueuePolicy)

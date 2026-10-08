@@ -11,6 +11,14 @@
 
 namespace Durin::VulkanRHI
 {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+	namespace { std::atomic<uint64> GNativeSubmissionCount = 0; }
+	auto GetVulkanNativeSubmissionCountForTesting() -> uint64
+	{
+		return GNativeSubmissionCount.load(std::memory_order_relaxed);
+	}
+#endif
+
 	FVulkanQueue::FVulkanQueue(FVulkanDevice* InDevice, uint32 InFamilyIndex,
 		uint32 InQueueIndex, FRHIQueueId InId)
 		: Device(InDevice)
@@ -137,6 +145,9 @@ namespace Durin::VulkanRHI
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Submission.QueueSubmit");
 				Queue.submit(SubmitInfos, Fence->GetHandle());
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				GNativeSubmissionCount.fetch_add(1, std::memory_order_relaxed);
+#endif
 			}
 		}
 		catch (const vk::SystemError& Error)

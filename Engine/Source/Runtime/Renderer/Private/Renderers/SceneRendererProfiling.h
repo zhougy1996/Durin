@@ -12,6 +12,16 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 	class FRHITexture;
+	// Development-only recording failures exercise outcome propagation and abort.
+	enum class ESceneRasterFailure : uint8
+	{
+		None,
+		Forward,
+		HybridBootstrap,
+		ProductionDeferred,
+		RetainedForward,
+		SortedTranslucency,
+	};
 	// Feature-bounded development routes. This type is Renderer-private so
 	// production submissions cannot request qualification-only execution.
 	struct FRendererQualificationPolicy
@@ -21,6 +31,7 @@ namespace Durin
 		bool bEnableGroundTruthAmbientOcclusion = false;
 		bool bForceFragmentContactVisibility = false;
 		bool bForceFragmentVolumetricCloud = false;
+		ESceneRasterFailure RasterFailure = ESceneRasterFailure::None;
 	};
 
 	// Installs one render-thread qualification policy for the lexical duration
@@ -126,6 +137,9 @@ namespace Durin
 		bool bFiltered);
 	using FSceneRenderGraphCaptureSink = void (*)(
 		const FRDGCapture& Capture);
+	using FSceneGraphAuthoringTimingSink = void (*)(uint64 Nanoseconds);
+	RENDERER_API auto SetSceneGraphAuthoringTimingSink(FSceneGraphAuthoringTimingSink Sink) -> void;
+	auto GetSceneGraphAuthoringTimingSink() -> FSceneGraphAuthoringTimingSink;
 
 	// Development seam receiving each explicitly requested Scene Color GPU interval.
 	RENDERER_API auto SetSceneColorTimingQuerySink(

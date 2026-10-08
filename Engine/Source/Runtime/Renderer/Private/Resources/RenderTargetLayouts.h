@@ -39,15 +39,9 @@ namespace Durin::RenderTargetLayouts
 	// One cleared R8_UNORM raw visibility target published for sampling/capture.
 	RENDERER_API auto MakeGroundTruthAmbientOcclusionOutput()
 		-> FRHIRenderTargetLayout;
-	// Clears/loads the authoritative hybrid Scene Color while preserving
-	// GBuffer depth across sky bootstrap, deferred lighting, and retained forward.
-	RENDERER_API auto MakeHybridSceneBootstrap() -> FRHIRenderTargetLayout;
-	RENDERER_API auto MakeHybridDeferredOutput() -> FRHIRenderTargetLayout;
-	RENDERER_API auto MakeHybridRetainedForward() -> FRHIRenderTargetLayout;
-	RENDERER_API auto MakeHybridSortedTranslucency() -> FRHIRenderTargetLayout;
 	// Graph-owned raster boundaries. Entry and exit remain in attachment access;
-	// RDG supplies all inter-pass transitions. Legacy helpers above retain their
-	// managed publication contracts until their callers migrate together.
+	// RDG supplies inter-pass transitions. The legacy scene/GBuffer and feature
+	// helpers above retain their explicitly managed publication contracts.
 	RENDERER_API auto MakeGraphSceneTargets() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeGraphGBufferTargets() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeGraphHybridSceneBootstrap() -> FRHIRenderTargetLayout;

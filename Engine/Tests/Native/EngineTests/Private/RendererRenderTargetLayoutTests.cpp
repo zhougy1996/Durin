@@ -515,10 +515,10 @@ namespace Durin
 
 	TEST(FRendererRenderTargetLayoutTests, HybridProductionLayoutsPreserveGBufferDepthAndLoadSceneColor)
 	{
-		const FRHIRenderTargetLayout Bootstrap = MakeHybridSceneBootstrap();
-		const FRHIRenderTargetLayout Deferred = MakeHybridDeferredOutput();
-		const FRHIRenderTargetLayout Retained = MakeHybridRetainedForward();
-		const FRHIRenderTargetLayout Translucency = MakeHybridSortedTranslucency();
+		const FRHIRenderTargetLayout Bootstrap = MakeGraphHybridSceneBootstrap();
+		const FRHIRenderTargetLayout Deferred = MakeGraphHybridDeferredOutput();
+		const FRHIRenderTargetLayout Retained = MakeGraphHybridRetainedForward();
+		const FRHIRenderTargetLayout Translucency = MakeGraphSortedTranslucency();
 		ASSERT_TRUE(Bootstrap.IsValid());
 		ASSERT_TRUE(Deferred.IsValid());
 		ASSERT_TRUE(Retained.IsValid());
@@ -527,17 +527,17 @@ namespace Durin
 		EXPECT_EQ(Bootstrap.ColorAttachments[0].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Clear);
 		EXPECT_TRUE(Bootstrap.bHasDepthStencil);
 		EXPECT_EQ(Bootstrap.DepthStencilAttachment.LoadAction, ERHIRenderTargetLoadAction::Load);
-		EXPECT_EQ(Bootstrap.DepthStencilAttachment.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Bootstrap.DepthStencilAttachment.FinalLayout, ERHITextureLayout::DepthStencilAttachment);
 		EXPECT_EQ(Deferred.NumColorRenderTargets, 1u);
 		EXPECT_FALSE(Deferred.bHasDepthStencil);
 		EXPECT_EQ(Deferred.ColorAttachments[0].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Load);
 		EXPECT_TRUE(Retained.bHasDepthStencil);
 		EXPECT_EQ(Retained.DepthStencilAttachment.LoadAction, ERHIRenderTargetLoadAction::Load);
-		EXPECT_EQ(Retained.DepthStencilAttachment.FinalLayout, ERHITextureLayout::ShaderReadOnly);
-		EXPECT_EQ(Retained.DepthStencilAttachment.FinalAccess, ERHIAccess::GraphicsShaderRead);
-		EXPECT_EQ(Retained.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Retained.DepthStencilAttachment.FinalLayout, ERHITextureLayout::DepthStencilAttachment);
+		EXPECT_EQ(Retained.DepthStencilAttachment.FinalAccess, ERHIAccess::DepthStencilReadWrite);
+		EXPECT_EQ(Retained.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ColorAttachment);
 		EXPECT_EQ(Translucency.DepthStencilAttachment.FinalLayout, ERHITextureLayout::DepthStencilAttachment);
-		EXPECT_EQ(Translucency.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Translucency.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ColorAttachment);
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, ScenePostProcessLeavesColorReadyForEditorAssistance)

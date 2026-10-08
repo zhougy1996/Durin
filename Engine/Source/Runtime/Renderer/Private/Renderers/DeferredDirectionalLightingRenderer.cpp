@@ -179,7 +179,7 @@ namespace Durin
 						"DeferredDirectionalLightingPipeline", Initializer
 					);
 				Initializer.RenderTargetLayout =
-					RenderTargetLayouts::MakeHybridDeferredOutput();
+					RenderTargetLayouts::MakeGraphHybridDeferredOutput();
 				Initializer.BoundShaders.FragmentShader = ProductionFragmentRHI;
 				Candidate.ProductionPipelineState =
 					FRenderPipelineRequestScope::Graphics(
@@ -240,12 +240,12 @@ namespace Durin
 
 	auto FDeferredDirectionalLightingRenderer::RenderProduction_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FRHITexture* SceneColor,
+		const FRHIRenderPassInfo& Pass,
 		const FRenderParameters& Parameters
 	) -> bool
 	{
 		return RenderInternal_RenderThread(
-			CommandList, SceneColor, Parameters, true
+			CommandList, Pass.ColorRenderTargets[0], Parameters, true, &Pass
 		);
 	}
 
@@ -253,7 +253,8 @@ namespace Durin
 		FRHICommandListImmediate& CommandList,
 		FRHITexture* SceneColor,
 		const FRenderParameters& Parameters,
-		bool bProduction
+		bool bProduction,
+		const FRHIRenderPassInfo* ProductionPass
 	) -> bool
 	{
 		check(IsInRenderingThread());
@@ -324,12 +325,13 @@ namespace Durin
 			return false;
 
 		FRHIRenderPassInfo PassInfo{};
-		PassInfo.RenderTargetLayout = bProduction ? RenderTargetLayouts::MakeHybridDeferredOutput() : RenderTargetLayouts::MakeDeferredDirectionalOutput();
+		PassInfo.RenderTargetLayout = bProduction ? RenderTargetLayouts::MakeGraphHybridDeferredOutput() : RenderTargetLayouts::MakeDeferredDirectionalOutput();
 		PassInfo.ColorRenderTargets[0] = SceneColor;
 		PassInfo.ColorClearValues[0] = FClearValueBinding(
 			View->ClearColor.r, View->ClearColor.g,
 			View->ClearColor.b, View->ClearColor.a
 		);
+		if (ProductionPass) PassInfo = *ProductionPass;
 		CommandList.BeginRenderPass(PassInfo, bProduction ? "DeferredProductionLightingRenderPass" : "DeferredDirectionalQualificationRenderPass");
 		CommandList.SetGraphicsPipelineState(*Pipeline);
 		CommandList.SetViewport(

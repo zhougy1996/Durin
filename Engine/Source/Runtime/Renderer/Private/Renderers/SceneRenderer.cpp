@@ -14,6 +14,7 @@
 #include "Renderers/VolumetricCloudRendering.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
+#include "Misc/Time.h"
 #include "RHICommandList.h"
 #include "Resources/RenderTargetLayouts.h"
 
@@ -35,6 +36,8 @@ namespace Durin
 
 	auto FSceneRenderer::Render(FRDGBuilder& Graph) -> void
 	{
+		const auto AuthoringSink = GetSceneGraphAuthoringTimingSink();
+		const uint64 AuthoringStarted = AuthoringSink ? FTime::Nanoseconds() : 0;
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ComposeGraph");
 		check(!bAuthored && Context.Logical.PreparedView.has_value());
 		bAuthored = true;
@@ -143,8 +146,7 @@ namespace Durin
 			.DefaultWhite = GraphResources.DefaultWhite,
 			.DefaultShadowArray = GraphResources.DefaultShadowArray,
 			.Environment = GraphResources.Environment,
-			.DeferredFeature = Features.Deferred,
-			.GBufferFeature = Features.GBuffer});
+			.DeferredFeature = Features.Deferred});
 		const FVolumetricCloudRecordInputs CloudInputs{
 			PreparedRenderView, VolumetricCloud};
 		const auto CloudSpatialOutput =
@@ -195,6 +197,7 @@ namespace Durin
 			.Publication = Composition.PostProcessPublication,
 			.Feature = Features.EditorAssistance,
 			.bPresentOutput = bPresentOutput});
+		if (AuthoringSink) AuthoringSink(FTime::Nanoseconds() - AuthoringStarted);
 	}
 
 	auto FSceneRenderer::PrepareGraphResources(FRDGBuilder& Graph) -> FGraphResources
@@ -223,6 +226,17 @@ namespace Durin
 			.MaxCompileMicroseconds = 5000,
 			.MaxExecuteMicroseconds = 250000,
 		};
+		if (Features.RequiresProductionDeferred())
+		{
+			// Measured scene routes: three Base Scene stages replace one callback;
+			// production-only routes also omit the obsolete binding preparation pass.
+			const bool bIsolated = Features.RequiresIsolatedDeferred();
+			SceneRenderBudget.RegressionMaxPasses += bIsolated ? 2 : 1;
+			SceneRenderBudget.RegressionMaxDependencies += bIsolated ? 10 : 1;
+			// Seven previously native handoffs become explicit graph barriers; the
+			// fragment cloud route adds two depth attachment/sample handoffs.
+			SceneRenderBudget.RegressionMaxTextureTransitions += 9;
+		}
 		if (Features.ContactVisibility.HasPurpose(ESceneFeaturePurpose::Production)
 			&& Features.ContactVisibility.Decision.Route
 				== FContactShadowVisibilityRenderer::ERoute::Compute)

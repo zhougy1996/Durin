@@ -21,6 +21,7 @@ namespace Durin
 		const FSceneView& View;
 		const FPreparedEnvironment* Environment = nullptr;
 		const FPreparedReceiverGeometry& Receiver;
+		bool bRequireEnvironmentTexture = false;
 	};
 
 	struct FBaseScenePassResources final
@@ -31,11 +32,9 @@ namespace Durin
 		std::optional<FRDGTextureParameter> EnvironmentIrradiance;
 		std::optional<FRDGTextureParameter> EnvironmentPrefiltered;
 		std::optional<FRDGTextureParameter> EnvironmentBrdfLut;
-		std::optional<FRDGColorAttachmentParameter> SceneColorOutput;
-		std::optional<FRDGManagedTextureParameter> SceneDepthGraphicsToGraphics;
-		std::optional<FRDGManagedTextureParameter> SceneDepthGraphicsToDepth;
-		std::optional<FRDGManagedTextureParameter> SceneDepthDepthToGraphics;
-		std::optional<FRDGManagedTextureParameter> SceneDepthDepthToDepth;
+		std::optional<FRDGTextureParameter> EnvironmentSky;
+		std::optional<FRDGColorAttachmentBinding> SceneColorOutput;
+		std::optional<FRDGDepthStencilAttachmentBinding> SceneDepthOutput;
 
 		static RENDERER_API auto GetRDGParametersMetadata()
 			-> const FRDGParametersMetadata*;
@@ -43,12 +42,22 @@ namespace Durin
 
 	struct FBaseScenePassParameters final
 	{
-		TRDGValueRead<FProductionDeferredParameters> DeferredLighting;
+		std::optional<TRDGValueRead<FGBufferPassResult>> GBufferCompletion;
+		std::optional<TRDGValueRead<FSceneColorPassResult>> Predecessor;
 		TRDGValueWrite<FSceneColorPassResult> Completion;
 		FBaseScenePassResources Resources;
 
 		static RENDERER_API auto GetRDGParametersMetadata()
 			-> const FRDGParametersMetadata*;
+	};
+
+	struct FProductionDeferredPassParameters final
+	{
+		FDeferredLightingInputParameters Inputs;
+		TRDGValueRead<FSceneColorPassResult> Predecessor;
+		TRDGValueWrite<FSceneColorPassResult> Completion;
+		FRDGColorAttachmentBinding SceneColorOutput;
+		static RENDERER_API auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*;
 	};
 
 	struct FBaseSceneGraphOutput final
@@ -76,10 +85,12 @@ namespace Durin
 		std::optional<FRDGTextureHandle> DefaultShadowArray;
 		FSceneEnvironmentInputs Environment;
 		const FSceneFeatureDecision& DeferredFeature;
-		const FSceneFeatureDecision& GBufferFeature;
 	};
 
-	inline constexpr std::string_view BaseScenePassName = "Scene.Base";
+	inline constexpr std::string_view BaseScenePassName = "Scene.Forward";
+	inline constexpr std::string_view HybridBootstrapPassName = "Scene.HybridBootstrap";
+	inline constexpr std::string_view ProductionDeferredPassName = "Scene.ProductionDeferred";
+	inline constexpr std::string_view RetainedForwardPassName = "Scene.RetainedForward";
 	auto AddBaseScenePasses(FRDGBuilder& Graph, const FBaseSceneFeatureInputs& Inputs)
 		-> FBaseSceneGraphOutput;
 } // namespace Durin

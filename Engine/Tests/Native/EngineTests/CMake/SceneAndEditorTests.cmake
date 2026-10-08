@@ -369,7 +369,10 @@ if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
 		TIMEOUT 900
 		SOURCES Private/VolumetricCloudSceneVulkanTests.cpp
 		LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
-		INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+		COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+		INCLUDE_DIRECTORIES
+			${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+			${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 		REQUIRES editor
 		REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 		ENVIRONMENTS authored-shaders

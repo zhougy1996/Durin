@@ -1,6 +1,7 @@
 #include "Threading/Task.h"
 #include <gtest/gtest.h>
 #include "VulkanEngineTestSupport.h"
+#include "VulkanRHIPrivate.h"
 
 #include "Application/GenericApplication.h"
 #include "ApplicationCoreGlobals.h"
@@ -215,14 +216,15 @@ namespace Durin
 		auto RenderOffscreen = [&Renderer, Scene](
 								   bool bForceFragment, bool bAmbientOcclusion = true,
 			EGroundTruthAmbientOcclusionQuality AOQuality = EGroundTruthAmbientOcclusionQuality::HalfResolution,
-			ERenderMode RenderMode = ERenderMode::Lit
+			ERenderMode RenderMode = ERenderMode::Lit,
+			ESceneRasterFailure Failure = ESceneRasterFailure::None
 							   ) {
 			auto Pixels = std::make_shared<Durin::FByteBuffer>();
 			auto Result = std::make_shared<ERenderViewResult>(
 				ERenderViewResult::RendererResourcesUnavailable
 			);
 			EnqueueRenderCommand<FSceneCloudRender>(
-				[&Renderer, Scene, Pixels, Result, bForceFragment, bAmbientOcclusion, AOQuality, RenderMode](
+				[&Renderer, Scene, Pixels, Result, bForceFragment, bAmbientOcclusion, AOQuality, RenderMode, Failure](
 					FRHICommandListImmediate& CommandList
 				) {
 					constexpr uint32 Width = 96;
@@ -235,6 +237,8 @@ namespace Durin
 										 .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback)
 					);
 					if (!Output) return;
+					CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+					const uint64 NativeBefore = VulkanRHI::GetVulkanNativeSubmissionCountForTesting();
 					++GRenderFrameCounterRenderThread;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 					FSceneView View = MakeSceneCloudView(Width, Height);
@@ -242,19 +246,27 @@ namespace Durin
 					View.Settings.AmbientOcclusion.bEnabled = bAmbientOcclusion;
 					View.Settings.AmbientOcclusion.Quality = AOQuality;
 					FScopedRendererQualificationPolicy Qualification({
-						.bForceFragmentVolumetricCloud = bForceFragment});
+						.bForceFragmentVolumetricCloud = bForceFragment, .RasterFailure = Failure});
 					*Result = Renderer.RenderView(
 						CommandList, Scene, View, Output, false, {}
 					);
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 					CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-					GDynamicRHI->RHIReadTexture2D(
-						CommandList, Output, 0, 0, *Pixels
-					);
+					if (*Result == ERenderViewResult::Success)
+					{
+						const uint64 NativeSubmissions = VulkanRHI::GetVulkanNativeSubmissionCountForTesting() - NativeBefore;
+						EXPECT_EQ(NativeSubmissions, 1u);
+						std::cout << "RDG_SCENE_NATIVE submissions=" << NativeSubmissions
+							<< ",cloud_fragment=" << bForceFragment << '\n';
+						GDynamicRHI->RHIReadTexture2D(CommandList, Output, 0, 0, *Pixels);
+					}
 				}
 			);
 			FlushRenderingCommands();
-			EXPECT_EQ(*Result, ERenderViewResult::Success);
+			const auto Expected = Failure == ESceneRasterFailure::HybridBootstrap || Failure == ESceneRasterFailure::Forward
+				? ERenderViewResult::RequiredEnvironmentUnavailable
+				: Failure != ESceneRasterFailure::None ? ERenderViewResult::RendererResourcesUnavailable : ERenderViewResult::Success;
+			EXPECT_EQ(*Result, Expected);
 			return Pixels;
 		};
 
@@ -337,18 +349,46 @@ namespace Durin
 		// Contact shadows are disabled throughout; absent cloud inputs also omit
 		// the cloud-shadow producer and its completion dependencies.
 		// Shadow recording declares three layer passes and one typed consumer.
-		const std::array<uint32, 6> ExpectedPasses{10, 10, 13, 13, 13, 13};
-		const std::array<uint32, 6> ExpectedDependencies{19, 19, 29, 29, 29, 29};
+		// Three visible Base Scene stages replace the callback plus its old
+		// production-binding preparation pass: one net pass and one net edge.
+		const std::array<uint32, 6> ExpectedPasses{11, 11, 14, 14, 14, 14};
+		const std::array<uint32, 6> ExpectedDependencies{20, 20, 30, 30, 30, 30};
 		// RDG also emits entry handoffs for discarded render-pass attachments and
 		// same-state writes; render-pass-owned final transitions do not replace them.
 		// Logical handoffs preserve each of the three directional-shadow layers.
-		const std::array<uint32, 6> ExpectedTextureSubresources{15, 15, 32, 18, 32, 18};
+		// Former native-pass transitions now appear as graph barriers. Fragment
+		// cloud visibility also needs two explicit depth handoffs around raster work.
+		const std::array<uint32, 6> ExpectedTextureSubresources{22, 22, 39, 27, 39, 27};
 		// Each independent shadow list now has its own entry barrier.
-		const std::array<uint32, 6> ExpectedTextureTransitions{15, 15, 32, 18, 32, 18};
+		const std::array<uint32, 6> ExpectedTextureTransitions{22, 22, 39, 27, 39, 27};
 		for (size_t Index = 0; Index < GSceneCloudGraphCaptures.size(); ++Index)
 		{
 			const auto& Statistics = GSceneCloudGraphCaptures[Index].Statistics;
 			const auto& Capture = GSceneCloudGraphCaptures[Index];
+			EXPECT_FALSE(std::ranges::any_of(Capture.Resources, [](const auto& Resource) {
+				return Resource.Name == "Scene.ProductionDeferredParameters";
+			}));
+			EXPECT_FALSE(std::ranges::any_of(Capture.Passes, [](const auto& Pass) {
+				return Pass.Name == "Scene.DeferredDirectionalLighting";
+			}));
+			for (const auto Name : {"Scene.HybridBootstrap", "Scene.ProductionDeferred", "Scene.RetainedForward", "Scene.Color"})
+			{
+				const auto Pass = std::ranges::find(Capture.Passes, Name, &FRDGPassCapture::Name);
+				ASSERT_NE(Pass, Capture.Passes.end()) << Name;
+				for (const auto& Parameter : Capture.Parameters)
+					if (Parameter.PassDeclarationIndex == Pass->DeclarationIndex)
+						EXPECT_FALSE(Parameter.bPassManagedTransition) << Name << ':' << Parameter.FieldPath;
+			}
+			const auto Lighting = std::ranges::find(Capture.Passes, "Scene.ProductionDeferred", &FRDGPassCapture::Name);
+			for (const auto Name : {"Scene.GBuffer.Material", "Scene.GBuffer.Normals", "Scene.GBuffer.Surface", "Scene.GBuffer.Emissive", "Scene.Depth"})
+			{
+				const auto Resource = std::ranges::find(Capture.Resources, Name, &FRDGResourceCapture::Name);
+				ASSERT_NE(Resource, Capture.Resources.end());
+				EXPECT_TRUE(std::ranges::any_of(Capture.Uses, [&](const auto& Use) {
+					return Use.PassDeclarationIndex == Lighting->DeclarationIndex && Use.ResourceId == Resource->ResourceId
+						&& Use.Use == ERDGUse::Read && Use.Access == ERHIAccess::GraphicsShaderRead;
+				})) << Name;
+			}
 			const auto Shadow = std::ranges::find(Capture.Resources, "Scene.DirectionalShadow", &FRDGResourceCapture::Name);
 			ASSERT_NE(Shadow, Capture.Resources.end());
 			for (uint16 Layer = 0; Layer < 3; ++Layer)
@@ -404,9 +444,15 @@ namespace Durin
 			EXPECT_EQ(Statistics.TextureTransitionSubresources, ExpectedTextureSubresources[Index]) << Index;
 			EXPECT_EQ(Statistics.TextureTransitions,
 				ExpectedTextureTransitions[Index]) << Index << '\n' << GSceneCloudGraphCaptures[Index].Dump;
+			EXPECT_LE(Capture.ExecutionPlan.Batches.size(), 4u) << Index;
 			// Wall-clock RDG timings vary with host contention and cold driver work.
 			// Keep them diagnostic; performance gates belong in qualification tests.
 			std::cout << "RDG_SCENE_TIMING capture=" << Index
+				<< ",passes=" << Statistics.ScheduledPasses
+				<< ",dependencies=" << Statistics.Dependencies
+				<< ",texture_transitions=" << Statistics.TextureTransitions
+				<< ",submission_batches=" << Capture.ExecutionPlan.Batches.size()
+				<< ",record_us=" << Statistics.Phases.RecordingMicroseconds
 				<< ",compile_us=" << Statistics.CompileMicroseconds
 				<< ",execute_us=" << Statistics.ExecuteMicroseconds
 				<< ",compile_budget_exceeded=" << Statistics.bCompileBudgetExceeded
@@ -438,7 +484,7 @@ namespace Durin
 		RenderOffscreen(false, false);
 		ASSERT_EQ(GSceneCloudGraphCaptures.size(), 7u);
 		const auto& WithoutAO = GSceneCloudGraphCaptures.back();
-		EXPECT_EQ(WithoutAO.Statistics.DeclaredPasses, 12u);
+		EXPECT_EQ(WithoutAO.Statistics.DeclaredPasses, 13u);
 		EXPECT_FALSE(std::ranges::any_of(WithoutAO.Passes, [](const auto& Pass) {
 			return Pass.Name == "Scene.AmbientOcclusion";
 		}));
@@ -480,6 +526,13 @@ namespace Durin
 		}));
 		EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GBufferEnabledViews, 0u);
 		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudDisabledViews, 1u);
+
+		// Each injected raster failure executes the real authored route and must
+		// survive later cloud/sorted stages without becoming a successful publication.
+		for (const auto Failure : {ESceneRasterFailure::HybridBootstrap, ESceneRasterFailure::ProductionDeferred,
+			ESceneRasterFailure::RetainedForward, ESceneRasterFailure::SortedTranslucency})
+			RenderOffscreen(false, true, EGroundTruthAmbientOcclusionQuality::HalfResolution, ERenderMode::Lit, Failure);
+		RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution, ERenderMode::Unlit, ESceneRasterFailure::Forward);
 
 		SetSceneRenderGraphCaptureSink(nullptr);
 		SetViewRenderTelemetrySink(nullptr);

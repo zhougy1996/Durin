@@ -16,6 +16,7 @@ namespace Durin::RDGPrivate
 	};
 
 	inline constexpr uint32 MaxUploadBatchCount = 64;
+	inline constexpr uint32 MaxPassesPerSubmission = 8;
 	inline constexpr uint64 MaxUploadBatchBytes = 16ull * 1024 * 1024;
 
 	struct FGraphResource

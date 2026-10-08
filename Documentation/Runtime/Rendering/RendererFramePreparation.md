@@ -428,11 +428,16 @@ stay local. Pure viewport fitting lives in `FitSceneViewToOutput`.
    target bundle if the production or qualification route requires it.
 6. Build typed deferred inputs and run GTAO, contact visibility, cloud-shadow
    visibility, and explicit isolated debug/qualification branches.
-7. Produce opaque Scene Color, then render cloud spatial work through its
-   preselected compute or graphics domain and reconstruct/composite the result.
+7. Author `Scene.Forward` with color/depth clear/store, or the three hybrid
+   raster passes `Scene.HybridBootstrap`, `Scene.ProductionDeferred`, and
+   `Scene.RetainedForward`. Bootstrap clears color and loads GBuffer depth;
+   production loads color and samples depth; retained geometry loads both
+   attachments. Then render cloud spatial work through its preselected compute
+   or graphics domain and reconstruct/composite the result.
    Graph declarations own every color/depth handoff between these passes.
 8. Render combined translucent geometry in the prepared stable order; its
-   managed attachment declarations publish the final color/depth access.
+   ordinary load/store attachment declarations preserve color and depth; RDG
+   transitions subsequent sampled consumers.
 9. The frame finalization stage selects debug or Scene Color output,
    performs post process, optional editor assistance, restores the output
    viewport/scissor, and finishes in `Present` for window output or
@@ -445,6 +450,23 @@ transient targets, and typed results. They do not build a second frame model or
 execute an alternate production scheduler.
 
 ## Typed Results and Failure Policy
+
+The development qualification policy can inject a failure at Forward,
+HybridBootstrap, ProductionDeferred, RetainedForward or SortedTranslucency.
+Authoring snapshots this policy; the default is no injection. Vulkan regressions
+use these real callbacks to check predecessor failure preservation and final
+transactional publication without reading failed output.
+GBuffer authoring marks its raster pass as a root when a capture or timing
+observer is installed. These external effects must survive culling even when
+forward rendering does not consume GBuffer textures. Unobserved optional work
+continues to rely on resource/value consumers for retention.
+
+The private graph-authoring timing sink measures `FSceneRenderer::Render`,
+including graph-resource preparation and pass composition, after view/resource
+resolution. No clock is read when the sink is absent. Qualification collects
+30 warm-up and 120 measured CPU samples separately from the GPU timing
+populations; RDG statistics supply compile and recording microseconds while
+authoring reports nanoseconds.
 
 Each producer creates its own graph-owned typed completion value and returns
 its `TRDGValueHandle<TResult>` in a feature-specific output. The
@@ -484,19 +506,40 @@ values. `FGBufferPassResult` establishes completeness and whether any geometry
 was rendered directly from execution outcomes; no correctness branch derives
 either fact from counters. GTAO, contact visibility, and cloud-shadow execution
 return independent results and never mutate a shared deferred parameter block.
-After all producers finish, one `BuildDeferredParameters` boundary constructs
-the complete binding set from their outputs or documented white/array
-fallbacks. Isolated diagnostics receive a copy, production receives a separate
-copy with production diagnostic policy, and cloud composition receives cloud-
-shadow visibility explicitly rather than through executor member state. Scene
-Color and post process return explicit output/result values instead of
-rewriting caller-owned texture variables.
+Each executing lighting callback reads logical producer outcomes and resolves
+its own declared resource group through `ResolveDeferredLightingParameters` and
+`ResolveDeferredLightingResources`. The authored bundle contains graph handles,
+typed reads and immutable selection policy. It never transports physical texture
+or buffer bindings through a graph-owned value. Production and isolated callbacks
+construct separate local `FRenderParameters`; production fixes diagnostic mode to
+zero and additionally requires retained-geometry readiness. Isolated diagnostics
+keep their independent debug policy and do not require production readiness.
+Unrequested isolated lighting creates no pass, completion value or output target;
+postprocess declares an optional read only when that branch exists.
 
-The production deferred binding payload is a separate graph-owned typed value.
-Base Scene declares and reads that value, so the payload itself establishes its
-producer dependency. Its physical bindings borrow graph-retained resources;
-texture uses remain separate declarations. Composition stores no intermediate
-deferred parameter blocks.
+All candidate GBuffer, depth, AO, contact/cloud visibility and persistent fallback
+textures are declared in the consuming callback. Persistent aliases retain one
+range declaration and resolve through that original member: shared irradiance and
+prefiltered fallback cubes do not cause overlapping uses or raw-pointer fallback.
+Cloud composition receives cloud-shadow visibility explicitly. Scene Color and
+postprocess return explicit output/result values instead of rewriting caller-owned
+texture variables.
+
+Every hybrid stage writes a typed Scene Color result. Production reads bootstrap;
+retained geometry reads production; Scene Color reads the final `Scene.BaseValue`.
+A predecessor failure is preserved before any raster work, including when cloud
+composition also fails. Missing production inputs and failed production lighting
+increment the unavailable counter once; bootstrap environment failure retains its
+specific result. Forward finalizes geometry inside its callback; hybrid finalizes
+only after sorted translucency. Telemetry reduction remains at successful Scene
+Color completion. The Base Scene timing interval spans bootstrap through retained
+geometry, with one deferred and one retained timing interval; sorted timing remains
+owned by Scene Color. Timing coordination carries no resource bindings.
+
+Sky selection is frozen during authoring, including procedural/default-cube
+fallbacks. Forward and bootstrap resolve their own declared sky member (or a
+same-handle persistent alias); recording never queries an undeclared fallback.
+Explicit environment overrides preserve their required-texture failure policy.
 
 Scene Color and post-process callbacks copy only their final transactional
 publication into `FSceneRenderGraphComposition`; intermediate payloads never
@@ -575,8 +618,14 @@ pass merging, and PSO centralization remain separate measured decisions.
 ## Scene Budgets and Capture
 
 `FSceneRenderer::PrepareGraphResources` sets observational regression ceilings of 15 declared
-passes, 36 dependencies, and 34 physical texture transitions. These include
-independent shadow-layer passes and their typed observation consumer. Structural limits
+passes, 36 dependencies, and 34 physical texture transitions before route
+adjustments. These include independent shadow-layer passes and their typed
+observation consumer. Hybrid production adds one pass and one dependency when
+isolated lighting is absent, or two passes and up to ten dependencies with an
+isolated branch. Nine additional physical barriers cover exposed attachment/sample
+handoffs, including the fragment cloud route. Compute contact visibility retains
+its separate ten-barrier adjustment. These are observational shape ceilings;
+they do not waive performance, submission-count or hardware acceptance gates. Structural limits
 are 256 passes and 4096 dependencies, buffer transitions, and texture
 transitions. No cross-pass buffers are currently declared, so no measured buffer
 regression ceiling is selected. Debug CPU ceilings are 5 milliseconds to compile

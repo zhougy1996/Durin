@@ -1,6 +1,7 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialCookedProgramTestSupport.h"
 #include "MaterialProgramTestFixture.h"
+#include "Shader/ShaderDiagnostics.h"
 
 namespace
 {
@@ -125,6 +126,8 @@ TEST(FMaterialVertexEvaluationTests, VertexResourcesAndPixelInterpolationCompile
 	EXPECT_NE(Normalized.Identity, Compiled.Identity);
 }
 
+// Match ShaderBuilder's host target policy; unsupported hosts still test rejection.
+#if defined(__APPLE__)
 TEST(FMaterialCompilerTests, MetalMaterialProgramCompilesAndCooks)
 {
 	using namespace Durin;
@@ -158,6 +161,28 @@ TEST(FMaterialCompilerTests, MetalMaterialProgramCompilesAndCooks)
 	ASSERT_TRUE(Decoded);
 	EXPECT_EQ(Decoded->Identity, Compiled.Identity);
 }
+
+#else
+TEST(FMaterialCompilerTests, MetalMaterialProgramIsRejectedOnUnsupportedHosts)
+{
+	using namespace Durin;
+	auto Input = MakeSyntheticMaterialCompilerInput();
+	FMaterialCompilerEnvironment CurrentEnvironment;
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(CurrentEnvironment));
+	Input.Environment.CompilerIdentity = CurrentEnvironment.CompilerIdentity;
+	Input.Environment.Target = "metal-msl-2.0";
+	const auto Compiled = MIR::Compile(Input);
+	ASSERT_FALSE(Compiled);
+	EXPECT_TRUE(Compiled.CompiledShaders.empty());
+	ASSERT_EQ(Compiled.Diagnostics.size(), 1u);
+	const auto& Diagnostic = Compiled.Diagnostics.front();
+	EXPECT_EQ(Diagnostic.Category, EMaterialProgramDiagnosticCategory::Compile);
+	EXPECT_EQ(Diagnostic.Error.Code,
+		FMaterialError::FCode(EMaterialCompileError::ShaderCompilerFailed));
+	EXPECT_EQ(Diagnostic.Error.ExternalDiagnostic,
+		FormatShaderError({.Code = EShaderError::InvalidCompileRequest}));
+}
+#endif
 
 TEST(FMaterialVertexEvaluationTests, ReachableInterpolatorsHaveABoundedInterface)
 {

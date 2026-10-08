@@ -195,87 +195,35 @@ namespace Durin::RenderTargetLayouts
 		return Layout;
 	}
 
-	auto MakeHybridSceneBootstrap() -> FRHIRenderTargetLayout
+	auto MakeGraphHybridDeferredOutput() -> FRHIRenderTargetLayout
 	{
 		FRHIRenderTargetLayout Layout;
 		Layout.NumColorRenderTargets = 1;
-		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
-			EPixelFormat::RGBA16_FLOAT,
-			ERHIRenderTargetLoadAction::Clear,
-			ERHITextureLayout::Undefined,
-			ERHIAccess::None,
-			ERHITextureLayout::ColorAttachment,
-			ERHIAccess::ColorAttachmentReadWrite
-		);
+		Layout.ColorAttachments[0].RenderTarget = MakeRDGAttachmentLayout(
+			EPixelFormat::RGBA16_FLOAT, ERHIAccess::ColorAttachmentReadWrite, ERHIRenderTargetLoadAction::Load);
+		return Layout;
+	}
+
+	auto MakeGraphHybridRetainedForward() -> FRHIRenderTargetLayout
+	{
+		auto Layout = MakeGraphHybridDeferredOutput();
 		Layout.bHasDepthStencil = true;
-		Layout.DepthStencilAttachment.Format = EPixelFormat::D32;
-		Layout.DepthStencilAttachment.LoadAction =
-			ERHIRenderTargetLoadAction::Load;
-		Layout.DepthStencilAttachment.StoreAction =
-			ERHIRenderTargetStoreAction::Store;
-		Layout.DepthStencilAttachment.InitialLayout =
-			ERHITextureLayout::ShaderReadOnly;
-		Layout.DepthStencilAttachment.InitialAccess =
-			ERHIAccess::GraphicsShaderRead;
-		Layout.DepthStencilAttachment.FinalLayout =
-			ERHITextureLayout::ShaderReadOnly;
-		Layout.DepthStencilAttachment.FinalAccess =
-			ERHIAccess::GraphicsShaderRead;
+		Layout.DepthStencilAttachment = MakeRDGAttachmentLayout(
+			EPixelFormat::D32, ERHIAccess::DepthStencilReadWrite, ERHIRenderTargetLoadAction::Load);
 		return Layout;
 	}
 
-	auto MakeHybridDeferredOutput() -> FRHIRenderTargetLayout
+	auto MakeGraphHybridSceneBootstrap() -> FRHIRenderTargetLayout
 	{
-		FRHIRenderTargetLayout Layout;
-		Layout.NumColorRenderTargets = 1;
-		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
-			EPixelFormat::RGBA16_FLOAT,
-			ERHIRenderTargetLoadAction::Load,
-			ERHITextureLayout::ColorAttachment,
-			ERHIAccess::ColorAttachmentReadWrite,
-			ERHITextureLayout::ColorAttachment,
-			ERHIAccess::ColorAttachmentReadWrite
-		);
+		auto Layout = MakeGraphHybridRetainedForward();
+		Layout.ColorAttachments[0].RenderTarget = MakeRDGAttachmentLayout(
+			EPixelFormat::RGBA16_FLOAT, ERHIAccess::ColorAttachmentReadWrite, ERHIRenderTargetLoadAction::Clear);
 		return Layout;
 	}
 
-	auto MakeHybridRetainedForward() -> FRHIRenderTargetLayout
+	auto MakeGraphSortedTranslucency() -> FRHIRenderTargetLayout
 	{
-		FRHIRenderTargetLayout Layout;
-		Layout.NumColorRenderTargets = 1;
-		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
-			EPixelFormat::RGBA16_FLOAT,
-			ERHIRenderTargetLoadAction::Load,
-			ERHITextureLayout::ColorAttachment,
-			ERHIAccess::ColorAttachmentReadWrite,
-			ERHITextureLayout::ShaderReadOnly,
-			ERHIAccess::GraphicsShaderRead
-		);
-		Layout.bHasDepthStencil = true;
-		Layout.DepthStencilAttachment.Format = EPixelFormat::D32;
-		Layout.DepthStencilAttachment.LoadAction =
-			ERHIRenderTargetLoadAction::Load;
-		Layout.DepthStencilAttachment.StoreAction =
-			ERHIRenderTargetStoreAction::Store;
-		Layout.DepthStencilAttachment.InitialLayout =
-			ERHITextureLayout::ShaderReadOnly;
-		Layout.DepthStencilAttachment.InitialAccess =
-			ERHIAccess::GraphicsShaderRead;
-		Layout.DepthStencilAttachment.FinalLayout =
-			ERHITextureLayout::ShaderReadOnly;
-		Layout.DepthStencilAttachment.FinalAccess =
-			ERHIAccess::GraphicsShaderRead;
-		return Layout;
-	}
-
-	auto MakeHybridSortedTranslucency() -> FRHIRenderTargetLayout
-	{
-		FRHIRenderTargetLayout Layout = MakeHybridRetainedForward();
-		Layout.DepthStencilAttachment.FinalLayout =
-			ERHITextureLayout::DepthStencilAttachment;
-		Layout.DepthStencilAttachment.FinalAccess =
-			ERHIAccess::DepthStencilReadWrite;
-		return Layout;
+		return MakeGraphHybridRetainedForward();
 	}
 
 	namespace
@@ -300,10 +248,6 @@ namespace Durin::RenderTargetLayouts
 
 	auto MakeGraphSceneTargets() -> FRHIRenderTargetLayout { return MakeGraphBoundary(MakeSceneTargets()); }
 	auto MakeGraphGBufferTargets() -> FRHIRenderTargetLayout { return MakeGraphBoundary(MakeGBufferTargets()); }
-	auto MakeGraphHybridSceneBootstrap() -> FRHIRenderTargetLayout { return MakeGraphBoundary(MakeHybridSceneBootstrap()); }
-	auto MakeGraphHybridDeferredOutput() -> FRHIRenderTargetLayout { return MakeGraphBoundary(MakeHybridDeferredOutput()); }
-	auto MakeGraphHybridRetainedForward() -> FRHIRenderTargetLayout { return MakeGraphBoundary(MakeHybridRetainedForward()); }
-	auto MakeGraphSortedTranslucency() -> FRHIRenderTargetLayout { return MakeGraphBoundary(MakeHybridSortedTranslucency()); }
 
 	auto MakeScenePostProcessOutput(EPixelFormat OutputFormat)
 		-> FRHIRenderTargetLayout

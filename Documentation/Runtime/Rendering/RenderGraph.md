@@ -515,6 +515,15 @@ their managed publication contracts. Pipeline and recording callers must select
 the same helper; full layout equality and pipeline cache keys include actions
 and entry/exit state, so the two policies are distinct cache entries.
 
+Forward, hybrid bootstrap, production deferred, retained forward, and sorted
+translucency use ordinary graph attachment bindings. Each callback owns one
+native raster pass and retains its exact native view owners until recording.
+Sampled depth is a separate declared read in the production lighting callback;
+no attachment access is selected from a predecessor's runtime route. Legacy
+GBuffer, AO/cloud multi-operation callbacks and hit-proxy layouts retain their
+explicit managed contracts. Their declared result access remains an input to
+the compiler's subsequent ordinary attachment/sample transitions.
+
 ### Reflected Shader Composition
 
 A texture or buffer parameter member may additionally declare one reflected
@@ -611,9 +620,16 @@ error codes or error transport. Console-command messages and Core modular-featur
 retirement messages likewise remain owned by their separate contracts.
 
 `GetExecutionPlan()` exposes immutable logical submission records. Each
-retained pass occupies one batch, except bounded groups of consecutive upload
-helpers on the same logical queue. These share one batch, followed by an
-epilogue batch when the graph has work. Empty graphs create no synthetic batch.
+bounded group contains at most eight consecutive ordinary passes on one logical
+queue. If the first batch is ordinary, its single pass remains independent so
+early RHI replay can begin while later passes are still recording. Upload
+helpers retain their separate byte/count-bounded grouping and
+never mix with ordinary passes. A cross-queue producer ends its ordinary batch;
+a consumer with an external queue dependency or ownership acquire starts one.
+This preserves fork/join frontiers instead of moving waits earlier or signals
+later across independent work. Pass callbacks, raster boundaries and prologue
+barriers remain distinct and ordered inside the batch. An epilogue batch follows
+when the graph has work. Empty graphs create no synthetic batch.
 Batch pass intervals index the compact scheduled pass array, not declaration
 indices; culling therefore cannot leave a dangling submission reference.
 `SetPassAsyncComputeEligible` marks only compute passes owned by the builder;

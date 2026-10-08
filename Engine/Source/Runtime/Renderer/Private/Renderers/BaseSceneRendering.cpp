@@ -7,57 +7,67 @@
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Resources/RenderTargetLayouts.h"
 #include "SceneView.h"
 
 namespace Durin
 {
-	#define DURIN_TEXTURE(Field) \
-		MakeRDGTextureReadMetadata<FParameters, decltype(FParameters::Field)>( \
-			#Field, offsetof(FParameters, Field))
-	#define DURIN_MANAGED_TEXTURE(Field, EntryAccess, Discard, ResultAccess) \
-		MakeRDGManagedTextureMetadata<FParameters, decltype(FParameters::Field)>( \
-			#Field, offsetof(FParameters, Field), EntryAccess, Discard, ResultAccess)
-	#define DURIN_DEFINE_METADATA(TypeName, ...) \
-		auto TypeName::GetRDGParametersMetadata() -> const FRDGParametersMetadata* \
-		{ using FParameters = TypeName; static const std::array Members = {__VA_ARGS__}; \
-		static const auto Metadata = MakeInlineRDGParametersMetadata<FParameters>( \
-			#TypeName, Members); return &Metadata; }
+#define DURIN_TEXTURE(Field) \
+	MakeRDGTextureReadMetadata<FParameters, decltype(FParameters::Field)>(#Field, offsetof(FParameters, Field))
+#define DURIN_VALUE(Field, Type) \
+	MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::Field), Type>(#Field, offsetof(FParameters, Field))
+#define DURIN_NESTED(Field, Type) \
+	MakeRDGNestedParameterMemberMetadata<FParameters, decltype(FParameters::Field)>(#Field, offsetof(FParameters, Field), Type::GetRDGParametersMetadata())
+#define DURIN_DEFINE_METADATA(TypeName, ...)                                                           \
+	auto TypeName::GetRDGParametersMetadata() -> const FRDGParametersMetadata*                         \
+	{                                                                                                  \
+		using FParameters = TypeName;                                                                  \
+		static const std::array Members = {__VA_ARGS__};                                               \
+		static const auto Metadata = MakeInlineRDGParametersMetadata<FParameters>(#TypeName, Members); \
+		return &Metadata;                                                                              \
+	}
 
-	DURIN_DEFINE_METADATA(FBaseScenePassResources,
-		DURIN_TEXTURE(DirectionalShadow), DURIN_TEXTURE(DefaultWhite),
-		DURIN_TEXTURE(DefaultShadowArray), DURIN_TEXTURE(EnvironmentIrradiance),
-		DURIN_TEXTURE(EnvironmentPrefiltered), DURIN_TEXTURE(EnvironmentBrdfLut),
-		MakeRDGAttachmentMetadata<FParameters, decltype(FParameters::SceneColorOutput)>(
-			"SceneColorOutput", offsetof(FParameters, SceneColorOutput), ERHIRenderTargetLoadAction::Clear,
-			ERHIRenderTargetStoreAction::Store, ERHIAccess::GraphicsShaderRead),
-		DURIN_MANAGED_TEXTURE(SceneDepthGraphicsToGraphics,
-			ERHIAccess::GraphicsShaderRead, false, ERHIAccess::GraphicsShaderRead),
-		DURIN_MANAGED_TEXTURE(SceneDepthGraphicsToDepth,
-			ERHIAccess::GraphicsShaderRead, false, ERHIAccess::DepthStencilReadWrite),
-		DURIN_MANAGED_TEXTURE(SceneDepthDepthToGraphics,
-			ERHIAccess::DepthStencilReadWrite, true, ERHIAccess::GraphicsShaderRead),
-		DURIN_MANAGED_TEXTURE(SceneDepthDepthToDepth,
-			ERHIAccess::DepthStencilReadWrite, true, ERHIAccess::DepthStencilReadWrite));
-
-	DURIN_DEFINE_METADATA(FBaseScenePassParameters,
-		MakeRDGValueParameterMemberMetadata<FParameters,
-			decltype(FParameters::DeferredLighting), FProductionDeferredParameters>(
-				"DeferredLighting", offsetof(FParameters, DeferredLighting)),
-		MakeRDGValueParameterMemberMetadata<FParameters,
-			decltype(FParameters::Completion), FSceneColorPassResult>(
-				"Completion", offsetof(FParameters, Completion)),
-		MakeRDGNestedParameterMemberMetadata<FParameters,
-			decltype(FParameters::Resources)>("Resources",
-				offsetof(FParameters, Resources),
-				FBaseScenePassResources::GetRDGParametersMetadata()));
-
-	#undef DURIN_DEFINE_METADATA
-	#undef DURIN_MANAGED_TEXTURE
-	#undef DURIN_TEXTURE
+	DURIN_DEFINE_METADATA(FBaseScenePassResources, DURIN_TEXTURE(DirectionalShadow), DURIN_TEXTURE(DefaultWhite), DURIN_TEXTURE(DefaultShadowArray), DURIN_TEXTURE(EnvironmentIrradiance), DURIN_TEXTURE(EnvironmentPrefiltered), DURIN_TEXTURE(EnvironmentBrdfLut), DURIN_TEXTURE(EnvironmentSky), MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneColorOutput)>("SceneColorOutput", offsetof(FParameters, SceneColorOutput)), MakeRDGDepthStencilAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneDepthOutput)>("SceneDepthOutput", offsetof(FParameters, SceneDepthOutput)));
+	DURIN_DEFINE_METADATA(FBaseScenePassParameters, DURIN_VALUE(GBufferCompletion, FGBufferPassResult), DURIN_VALUE(Predecessor, FSceneColorPassResult), DURIN_VALUE(Completion, FSceneColorPassResult), DURIN_NESTED(Resources, FBaseScenePassResources));
+	DURIN_DEFINE_METADATA(FProductionDeferredPassParameters, DURIN_NESTED(Inputs, FDeferredLightingInputParameters), DURIN_VALUE(Predecessor, FSceneColorPassResult), DURIN_VALUE(Completion, FSceneColorPassResult), MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneColorOutput)>("SceneColorOutput", offsetof(FParameters, SceneColorOutput)));
+#undef DURIN_DEFINE_METADATA
+#undef DURIN_NESTED
+#undef DURIN_VALUE
+#undef DURIN_TEXTURE
 
 	namespace
 	{
+		auto SetViewRect(FRHICommandListImmediate& Commands, const FSceneView& View) -> void
+		{
+			Commands.SetViewport(static_cast<float>(View.ViewportX), static_cast<float>(View.ViewportY), 0.0f, static_cast<float>(View.ViewportX + View.ViewportWidth), static_cast<float>(View.ViewportY + View.ViewportHeight), 1.0f);
+			Commands.SetScissor(static_cast<float>(View.ViewportX), static_cast<float>(View.ViewportY), static_cast<float>(View.ViewportWidth), static_cast<float>(View.ViewportHeight));
+		}
+
+		struct FGraphRasterPass final
+		{
+			FRHIRenderPassInfo Pass;
+			FRDGNativeAttachmentBinding Color;
+			FRDGNativeAttachmentBinding Depth;
+		};
+
+		struct FBaseSceneTiming final
+		{
+			FGPUTimingQueryRHIRef Query;
+			FSceneColorTimingQuerySink Sink = GetSceneColorTimingQuerySink();
+			auto Begin(FRHICommandListImmediate& Commands) -> void
+			{
+				if (!Sink || !GDynamicRHI) return;
+				Query = GDynamicRHI->RHICreateGPUTimingQuery();
+				if (Query) Commands.BeginGPUTimingQuery(Query);
+			}
+			auto End(FRHICommandListImmediate& Commands) -> void
+			{
+				if (!Query) return;
+				Commands.EndGPUTimingQuery(Query);
+				Sink(Query);
+				Query = nullptr;
+			}
+		};
+
 		struct FBaseSceneRecorder final
 		{
 			FDeferredDirectionalLightingRenderer& DeferredDirectionalLightingRenderer;
@@ -65,224 +75,176 @@ namespace Durin
 			FSkyBoxRenderer& SkyBoxRenderer;
 			FSceneRenderTelemetry& Telemetry;
 			FResolvedSceneResources& ResolvedSceneResources;
-
-			auto RenderBaseScene_RenderThread(FRHICommandListImmediate&,
-				const FSceneGeometryRecordInputs&, FRHITexture*, FRHITexture*,
-				const FDeferredDirectionalLightingRenderer::FRenderParameters*)
-				-> FSceneColorPassResult;
-			auto RenderForwardScene_RenderThread(FRHICommandListImmediate&,
-				const FSceneGeometryRecordInputs&, FRHITexture*) -> bool;
+			auto RenderBootstrap(FRHICommandListImmediate&, const FSceneGeometryRecordInputs&, const FRHIRenderPassInfo&) -> FSceneColorPassResult;
+			auto RenderRetained(FRHICommandListImmediate&, const FSceneGeometryRecordInputs&, const FRHIRenderPassInfo&) -> FSceneColorPassResult;
+			auto RenderForwardScene_RenderThread(FRHICommandListImmediate&, const FSceneGeometryRecordInputs&, FRHITexture*) -> bool;
 		};
 	} // namespace
 
-	auto AddBaseScenePasses(
-		FRDGBuilder& Graph, const FBaseSceneFeatureInputs& Inputs) -> FBaseSceneGraphOutput
+	auto AddBaseScenePasses(FRDGBuilder& Graph, const FBaseSceneFeatureInputs& Inputs) -> FBaseSceneGraphOutput
 	{
-		FBaseSceneRecorder Recorder{Inputs.DeferredRenderer,
-			Inputs.StaticMeshes,
-			Inputs.SkyBox, Inputs.Telemetry, Inputs.Resolved};
-		const auto RecordInputs = Inputs.Record;
-		const bool bRequiresDeferredOpaque =
-			Inputs.DeferredFeature.HasPurpose(ESceneFeaturePurpose::Production);
-		const bool bNeedsGBuffer = Inputs.GBufferFeature.IsEnabled();
-		const auto BaseSceneCompletion = Graph.CreateValue<FSceneColorPassResult>(
-			"Scene.BaseValue", "scene-color-result");
-		auto Parameters = Graph.AllocParameters<FBaseScenePassParameters>();
-		Parameters->DeferredLighting = {
-			.Value = Inputs.Deferred.ProductionParameters};
-		Parameters->Completion = {.Value = BaseSceneCompletion};
-		SceneTextureGroups::FPersistentTextureReads PersistentReads;
-		PersistentReads.Assign(Parameters->Resources.DirectionalShadow,
-			Inputs.DirectionalShadow.Shadow,
-			Inputs.DirectionalShadowRenderer.GetTexture_RenderThread());
-		PersistentReads.Assign(Parameters->Resources.DefaultWhite, Inputs.DefaultWhite,
-			Inputs.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
-		PersistentReads.Assign(Parameters->Resources.DefaultShadowArray,
-			Inputs.DefaultShadowArray,
-			Inputs.DefaultTextures.GetArray_RenderThread());
-		PersistentReads.Assign(Parameters->Resources.EnvironmentIrradiance,
-			Inputs.Environment.Irradiance,
-			Inputs.Environment.SelectedIrradiance);
-		PersistentReads.Assign(Parameters->Resources.EnvironmentPrefiltered,
-			Inputs.Environment.Prefiltered,
-			Inputs.Environment.SelectedPrefiltered);
-		PersistentReads.Assign(Parameters->Resources.EnvironmentBrdfLut,
-			Inputs.Environment.BrdfLut,
-			Inputs.Environment.SelectedBrdfLut);
-		Parameters->Resources.SceneColorOutput = {
-			.Texture = Inputs.SceneColor,
-			.Range = {ERHITextureAspect::Color, 0, 1, 0, 1}};
-		FRDGManagedTextureParameter Depth{
-			.Texture = Inputs.SceneDepth,
-			.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
-		if (bNeedsGBuffer && bRequiresDeferredOpaque)
-			Parameters->Resources.SceneDepthGraphicsToGraphics = Depth;
-		else if (bNeedsGBuffer)
-			Parameters->Resources.SceneDepthGraphicsToDepth = Depth;
-		else if (bRequiresDeferredOpaque)
-			Parameters->Resources.SceneDepthDepthToGraphics = Depth;
-		else
-			Parameters->Resources.SceneDepthDepthToDepth = Depth;
-		(void)Graph.AddPass(BaseScenePassName, ERDGPassType::Graphics, std::move(Parameters),
-			[Recorder, RecordInputs](
-				FRHICommandListImmediate& Commands,
-				const FBaseScenePassParameters& PassParameters,
-				const FRDGParameterResolver& Resolver) mutable {
-				FPostProcessRenderer::FSceneTargets SceneTargets{
-					.Color = Resolver.GetColorAttachment(
-						PassParameters.Resources.SceneColorOutput).Texture,
-					.Depth = Resolver.GetTexture(
-						PassParameters.Resources.SceneDepthGraphicsToGraphics)};
-				if (SceneTargets.Depth == nullptr)
-					SceneTargets.Depth = Resolver.GetTexture(
-						PassParameters.Resources.SceneDepthGraphicsToDepth);
-				if (SceneTargets.Depth == nullptr)
-					SceneTargets.Depth = Resolver.GetTexture(
-						PassParameters.Resources.SceneDepthDepthToGraphics);
-				if (SceneTargets.Depth == nullptr)
-					SceneTargets.Depth = Resolver.GetTexture(
-						PassParameters.Resources.SceneDepthDepthToDepth);
-				const FSceneColorTimingQuerySink TimingSink =
-					GetSceneColorTimingQuerySink();
-				TScopedRendererGPUTimingQuery Timing(Commands, TimingSink);
-				const auto& ProductionDeferredParameters = Resolver.ReadValue(
-					PassParameters.DeferredLighting);
-				Resolver.WriteValue(PassParameters.Completion) = Recorder.RenderBaseScene_RenderThread(
-					Commands,
-					RecordInputs,
-					SceneTargets.Color, SceneTargets.Depth,
-					ProductionDeferredParameters
-						? &*ProductionDeferredParameters : nullptr);
+		FBaseSceneRecorder Recorder{Inputs.DeferredRenderer, Inputs.StaticMeshes, Inputs.SkyBox, Inputs.Telemetry, Inputs.Resolved};
+		auto RecordInputs = Inputs.Record;
+		RecordInputs.bRequireEnvironmentTexture = RecordInputs.Environment && RecordInputs.Environment->Texture;
+		const bool bHybrid = Inputs.DeferredFeature.HasPurpose(ESceneFeaturePurpose::Production);
+		const auto Failure = GetRendererQualificationPolicy().RasterFailure;
+		const auto Completion = Graph.CreateValue<FSceneColorPassResult>("Scene.BaseValue", "scene-color-result");
+		std::optional<FRDGTextureHandle> Sky;
+		FRHITexture* SkyTexture = nullptr;
+		if (Inputs.Record.Environment)
+		{
+			SkyTexture = Inputs.Record.Environment->Texture;
+			if (!SkyTexture && Inputs.Record.Environment->SkyBox.TextureReference)
+				SkyTexture = Inputs.Record.Environment->SkyBox.TextureReference->GetReferencedTexture_RenderThread();
+			if (!SkyTexture) SkyTexture = Inputs.DefaultTextures.GetCube_RenderThread();
+			if (SkyTexture)
+				Sky = Graph.RegisterExternalTexture(FTextureRHIRef(SkyTexture), "Scene.Environment.Sky", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		}
+		const auto MakeGeometryParameters = [&](TRDGValueHandle<FSceneColorPassResult> Result, bool bClearColor, bool bClearDepth) {
+			auto Parameters = Graph.AllocParameters<FBaseScenePassParameters>();
+			Parameters->Completion = {.Value = Result};
+			Parameters->Resources.SceneColorOutput = {Inputs.SceneColor, {ERHITextureAspect::Color, 0, 1, 0, 1}, bClearColor ? ERHIRenderTargetLoadAction::Clear : ERHIRenderTargetLoadAction::Load};
+			Parameters->Resources.SceneDepthOutput = {Inputs.SceneDepth, {ERHITextureAspect::Depth, 0, 1, 0, 1}, bClearDepth ? ERHIRenderTargetLoadAction::Clear : ERHIRenderTargetLoadAction::Load};
+			if (!bHybrid || !bClearColor)
+			{
+				SceneTextureGroups::FPersistentTextureReads Reads;
+				Reads.Assign(Parameters->Resources.DirectionalShadow, Inputs.DirectionalShadow.Shadow, Inputs.DirectionalShadowRenderer.GetTexture_RenderThread());
+				Reads.Assign(Parameters->Resources.DefaultWhite, Inputs.DefaultWhite, Inputs.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
+				Reads.Assign(Parameters->Resources.DefaultShadowArray, Inputs.DefaultShadowArray, Inputs.DefaultTextures.GetArray_RenderThread());
+				Reads.Assign(Parameters->Resources.EnvironmentIrradiance, Inputs.Environment.Irradiance, Inputs.Environment.SelectedIrradiance);
+				Reads.Assign(Parameters->Resources.EnvironmentPrefiltered, Inputs.Environment.Prefiltered, Inputs.Environment.SelectedPrefiltered);
+				Reads.Assign(Parameters->Resources.EnvironmentBrdfLut, Inputs.Environment.BrdfLut, Inputs.Environment.SelectedBrdfLut);
+			}
+			return Parameters;
+		};
+		const auto MakePassInfo = [](const FBaseScenePassParameters& Parameters, const FRDGParameterResolver& Resolver, const FSceneView& View) {
+			FGraphRasterPass Result;
+			Result.Color = MakeRDGNativeAttachmentBinding(Resolver.GetColorAttachment(Parameters.Resources.SceneColorOutput));
+			Result.Depth = MakeRDGNativeAttachmentBinding(Resolver.GetDepthStencilAttachment(Parameters.Resources.SceneDepthOutput));
+			auto& Pass = Result.Pass;
+			Pass.RenderTargetLayout.NumColorRenderTargets = 1;
+			Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget = Result.Color.Layout;
+			Pass.RenderTargetLayout.bHasDepthStencil = true;
+			Pass.RenderTargetLayout.DepthStencilAttachment = Result.Depth.Layout;
+			Result.Color.BindColor(Pass, 0);
+			Result.Depth.BindDepthStencil(Pass);
+			Pass.ColorClearValues[0] = FClearValueBinding(View.ClearColor.r, View.ClearColor.g, View.ClearColor.b, View.ClearColor.a);
+			Pass.DepthStencilClearValue = FClearValueBinding(View.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.0f : 1.0f, 0u);
+			return Result;
+		};
+		if (!bHybrid)
+		{
+			auto Parameters = MakeGeometryParameters(Completion, true, true);
+			// Sky can alias a declared environment fallback; retain one range declaration.
+			SceneTextureGroups::AssignSkyRead(Parameters->Resources, Sky, SkyTexture);
+			(void)Graph.AddPass(BaseScenePassName, ERDGPassType::Graphics, std::move(Parameters), [Recorder, RecordInputs, MakePassInfo, Sky, Failure](FRHICommandListImmediate& Commands, const FBaseScenePassParameters& Pass, const FRDGParameterResolver& Resolver) mutable {
+				TScopedRendererGPUTimingQuery Timing(Commands, GetSceneColorTimingQuerySink());
+				auto Environment = SceneTextureGroups::ResolveSky(Resolver, Pass.Resources, Sky, RecordInputs.Environment);
+				auto Record = RecordInputs;
+				Record.Environment = Environment ? &*Environment : nullptr;
+				const auto Native = MakePassInfo(Pass, Resolver, RecordInputs.View);
+				Commands.BeginRenderPass(Native.Pass, "SceneColorRenderPass");
+				const bool bRendered = Failure != ESceneRasterFailure::Forward && Recorder.RenderForwardScene_RenderThread(Commands, Record, Resolver.GetColorAttachment(Pass.Resources.SceneColorOutput).Texture);
+				Commands.EndRenderPass();
+				Resolver.WriteValue(Pass.Completion) = {.Result = bRendered ? ERenderViewResult::Success : ERenderViewResult::RequiredEnvironmentUnavailable};
 				Timing.Commit();
 			});
-		return {.Completion = BaseSceneCompletion,
-			.Color = Inputs.SceneColor, .Depth = Inputs.SceneDepth};
+		}
+		else
+		{
+			const auto Bootstrap = Graph.CreateValue<FSceneColorPassResult>("Scene.Base.BootstrapValue", "scene-color-result");
+			const auto Deferred = Graph.CreateValue<FSceneColorPassResult>("Scene.Base.DeferredValue", "scene-color-result");
+			auto Timing = std::make_shared<FBaseSceneTiming>();
+			auto Parameters = MakeGeometryParameters(Bootstrap, true, false);
+			Parameters->GBufferCompletion = Inputs.Deferred.Inputs.GBufferCompletion;
+			SceneTextureGroups::AssignSkyRead(Parameters->Resources, Sky, SkyTexture);
+			(void)Graph.AddPass(HybridBootstrapPassName, ERDGPassType::Graphics, std::move(Parameters), [Recorder, RecordInputs, MakePassInfo, Sky, Timing, Failure, Policy = Inputs.Deferred.Policy](FRHICommandListImmediate& Commands, const FBaseScenePassParameters& Pass, const FRDGParameterResolver& Resolver) mutable {
+				Timing->Begin(Commands);
+				const auto* GBuffer = Resolver.ReadValue(Pass.GBufferCompletion);
+				if (!GBuffer || !GBuffer->IsComplete() || !Policy.bRetainedResourcesReady)
+				{
+					++Recorder.Telemetry.View.Deferred.HybridDeferredUnavailableViews;
+					Resolver.WriteValue(Pass.Completion) = {};
+					return;
+				}
+				auto Environment = SceneTextureGroups::ResolveSky(Resolver, Pass.Resources, Sky, RecordInputs.Environment);
+				auto Record = RecordInputs;
+				Record.Environment = Environment ? &*Environment : nullptr;
+				const auto Native = MakePassInfo(Pass, Resolver, RecordInputs.View);
+				Resolver.WriteValue(Pass.Completion) = Failure == ESceneRasterFailure::HybridBootstrap
+						? FSceneColorPassResult{.Result = ERenderViewResult::RequiredEnvironmentUnavailable}
+						: Recorder.RenderBootstrap(Commands, Record, Native.Pass);
+			});
+			auto Lighting = Graph.AllocParameters<FProductionDeferredPassParameters>();
+			Lighting->Inputs = Inputs.Deferred.Inputs;
+			Lighting->Predecessor = {.Value = Bootstrap};
+			Lighting->Completion = {.Value = Deferred};
+			Lighting->SceneColorOutput = {Inputs.SceneColor, {ERHITextureAspect::Color, 0, 1, 0, 1}};
+			(void)Graph.AddPass(ProductionDeferredPassName, ERDGPassType::Graphics, std::move(Lighting), [Recorder, RecordInputs, Failure, Policy = Inputs.Deferred.Policy](FRHICommandListImmediate& Commands, const FProductionDeferredPassParameters& Pass, const FRDGParameterResolver& Resolver) mutable {
+				auto& Result = Resolver.WriteValue(Pass.Completion);
+				Result = Resolver.ReadValue(Pass.Predecessor);
+				if (!Result.IsSuccess()) return;
+				const auto Physical = ResolveDeferredLightingParameters(Resolver, Pass.Inputs, Policy, RecordInputs.View, FSceneViewRenderOptions{}, Recorder.ResolvedSceneResources.Lighting.UniformBuffer);
+				FRHIRenderPassInfo Native;
+				const auto ColorBinding = MakeRDGNativeAttachmentBinding(Resolver.GetColorAttachment(Pass.SceneColorOutput));
+				Native.RenderTargetLayout.NumColorRenderTargets = 1;
+				Native.RenderTargetLayout.ColorAttachments[0].RenderTarget = ColorBinding.Layout;
+				ColorBinding.BindColor(Native, 0);
+				TScopedRendererGPUTimingQuery Timing(Commands, GetDeferredDirectionalTimingQuerySink());
+				const bool bRendered = Failure != ESceneRasterFailure::ProductionDeferred && Physical && Recorder.DeferredDirectionalLightingRenderer.RenderProduction_RenderThread(Commands, Native, *Physical);
+				Timing.Commit();
+				if (!bRendered)
+				{
+					++Recorder.Telemetry.View.Deferred.HybridDeferredUnavailableViews;
+					Result = {};
+				}
+			});
+			auto Retained = MakeGeometryParameters(Completion, false, false);
+			Retained->Predecessor = TRDGValueRead<FSceneColorPassResult>{Deferred};
+			(void)Graph.AddPass(RetainedForwardPassName, ERDGPassType::Graphics, std::move(Retained), [Recorder, RecordInputs, MakePassInfo, Timing, Failure](FRHICommandListImmediate& Commands, const FBaseScenePassParameters& Pass, const FRDGParameterResolver& Resolver) mutable {
+				auto& Result = Resolver.WriteValue(Pass.Completion);
+				Result = *Resolver.ReadValue(Pass.Predecessor);
+				if (Result.IsSuccess())
+				{
+					TScopedRendererGPUTimingQuery RetainedTiming(Commands, GetRetainedOpaqueTimingQuerySink());
+					const auto Native = MakePassInfo(Pass, Resolver, RecordInputs.View);
+					Result = Failure == ESceneRasterFailure::RetainedForward
+							? FSceneColorPassResult{} : Recorder.RenderRetained(Commands, RecordInputs, Native.Pass);
+					RetainedTiming.Commit();
+				}
+				Timing->End(Commands);
+			});
+		}
+		return {.Completion = Completion, .Color = Inputs.SceneColor, .Depth = Inputs.SceneDepth};
 	}
 
-	auto FBaseSceneRecorder::RenderBaseScene_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		const FSceneGeometryRecordInputs& Inputs,
-		FRHITexture* SceneColor,
-		FRHITexture* Depth,
-		const FDeferredDirectionalLightingRenderer::FRenderParameters*
-			DeferredParameters
-	) -> FSceneColorPassResult
+	auto FBaseSceneRecorder::RenderBootstrap(FRHICommandListImmediate& CommandList, const FSceneGeometryRecordInputs& Inputs, const FRHIRenderPassInfo& Pass) -> FSceneColorPassResult
 	{
-		check(IsInRenderingThread());
-		check(!CommandList.IsInsideRenderPass());
-		const FSceneView& View = Inputs.View;
-		if (SceneColor == nullptr || Depth == nullptr)
-			return {};
-		if (View.Settings.Mode.RenderMode != ERenderMode::Lit
-			|| View.Settings.Mode.RasterMode != ERasterMode::Solid)
-		{
-			FRHIRenderPassInfo ScenePassInfo{};
-			ScenePassInfo.RenderTargetLayout =
-				RenderTargetLayouts::MakeSceneTargets();
-			ScenePassInfo.ColorRenderTargets[0] = SceneColor;
-			ScenePassInfo.DepthStencilRenderTarget = Depth;
-			ScenePassInfo.ColorClearValues[0] = FClearValueBinding(
-				View.ClearColor.r, View.ClearColor.g,
-				View.ClearColor.b, View.ClearColor.a
-			);
-			ScenePassInfo.DepthStencilClearValue = FClearValueBinding(
-				View.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.0f : 1.0f,
-				0u
-			);
-			CommandList.BeginRenderPass(ScenePassInfo, "SceneColorRenderPass");
-			const bool bRendered = RenderForwardScene_RenderThread(
-				CommandList, Inputs, SceneColor
-			);
-			CommandList.EndRenderPass();
-			return {
-				.Result = bRendered ? ERenderViewResult::Success
-					: ERenderViewResult::RequiredEnvironmentUnavailable};
-		}
-		if (DeferredParameters == nullptr)
-		{
-			++Telemetry.View.Deferred.HybridDeferredUnavailableViews;
-			return {};
-		}
-
-		auto SetViewRect = [&CommandList, &View]() {
-			CommandList.SetViewport(
-				static_cast<float>(View.ViewportX),
-				static_cast<float>(View.ViewportY), 0.0f,
-				static_cast<float>(View.ViewportX + View.ViewportWidth),
-				static_cast<float>(View.ViewportY + View.ViewportHeight), 1.0f
-			);
-			CommandList.SetScissor(
-				static_cast<float>(View.ViewportX),
-				static_cast<float>(View.ViewportY),
-				static_cast<float>(View.ViewportWidth),
-				static_cast<float>(View.ViewportHeight)
-			);
-		};
-
-		FRHIRenderPassInfo Bootstrap{};
-		Bootstrap.RenderTargetLayout = RenderTargetLayouts::MakeHybridSceneBootstrap();
-		Bootstrap.ColorRenderTargets[0] = SceneColor;
-		Bootstrap.DepthStencilRenderTarget = Depth;
-		Bootstrap.ColorClearValues[0] = FClearValueBinding(
-			View.ClearColor.r, View.ClearColor.g,
-			View.ClearColor.b, View.ClearColor.a
-		);
-		CommandList.BeginRenderPass(Bootstrap, "HybridSceneBootstrapRenderPass");
-		SetViewRect();
+		const auto& View = Inputs.View;
+		CommandList.BeginRenderPass(Pass, "HybridSceneBootstrapRenderPass");
+		SetViewRect(CommandList, View);
 		bool bBootstrapRendered = true;
-		if (Inputs.Environment != nullptr)
+		if (Inputs.Environment)
 		{
-			if (Inputs.Environment->Texture != nullptr)
-			{
-				bBootstrapRendered = SkyBoxRenderer.DrawTexture_RenderThread(
-					CommandList, View, Inputs.Environment->Texture,
-					Inputs.Environment->SkyBox, true
-				);
-			}
-			else
-			{
-				SkyBoxRenderer.Draw_RenderThread(
-					CommandList, View, Inputs.Environment->SkyBox, true
-				);
-			}
+			const bool bSkyRendered = SkyBoxRenderer.DrawTexture_RenderThread(CommandList, View, Inputs.Environment->Texture, Inputs.Environment->SkyBox, true);
+			bBootstrapRendered = bSkyRendered || !Inputs.bRequireEnvironmentTexture;
 		}
 		CommandList.EndRenderPass();
 		if (!bBootstrapRendered)
 		{
 			return {
-				.Result = ERenderViewResult::RequiredEnvironmentUnavailable};
+				.Result = ERenderViewResult::RequiredEnvironmentUnavailable
+			};
 		}
 
-		const FDeferredDirectionalTimingQuerySink DeferredTimingSink =
-			GetDeferredDirectionalTimingQuerySink();
-		TScopedRendererGPUTimingQuery DeferredTiming(
-			CommandList, DeferredTimingSink
-		);
-		const bool bDeferredRendered =
-			DeferredDirectionalLightingRenderer.RenderProduction_RenderThread(
-				CommandList, SceneColor, *DeferredParameters
-			);
-		DeferredTiming.Commit();
-		if (!bDeferredRendered)
-		{
-			++Telemetry.View.Deferred.HybridDeferredUnavailableViews;
-			return {};
-		}
-		const FRetainedOpaqueTimingQuerySink RetainedOpaqueTimingSink =
-			GetRetainedOpaqueTimingQuerySink();
-		TScopedRendererGPUTimingQuery RetainedOpaqueTiming(
-			CommandList, RetainedOpaqueTimingSink
-		);
+		return {.Result = ERenderViewResult::Success};
+	}
 
-		FRHIRenderPassInfo RetainedOpaque{};
-		RetainedOpaque.RenderTargetLayout =
-			RenderTargetLayouts::MakeHybridRetainedForward();
-		RetainedOpaque.ColorRenderTargets[0] = SceneColor;
-		RetainedOpaque.DepthStencilRenderTarget = Depth;
-		CommandList.BeginRenderPass(
-			RetainedOpaque, "HybridRetainedOpaqueRenderPass"
-		);
-		SetViewRect();
+	auto FBaseSceneRecorder::RenderRetained(FRHICommandListImmediate& CommandList, const FSceneGeometryRecordInputs& Inputs, const FRHIRenderPassInfo& Pass) -> FSceneColorPassResult
+	{
+		const auto& View = Inputs.View;
+		CommandList.BeginRenderPass(Pass, "HybridRetainedOpaqueRenderPass");
+		SetViewRect(CommandList, View);
 		FMeshDrawBindingGroup RetainedBindings;
 		for (const EMeshBasePass Pass : {
 				 EMeshBasePass::Opaque, EMeshBasePass::Masked
@@ -290,8 +252,7 @@ namespace Durin
 		{
 			const auto& StaticDraws = Pass == EMeshBasePass::Opaque ? Inputs.Receiver.StaticMeshes.Opaque : Inputs.Receiver.StaticMeshes.Masked;
 			for (const FPreparedStaticMeshDraw& Draw : StaticDraws)
-				if (!Draw.Command->bSupportsGBuffer || Draw.Command->Material.PlanningPassIdentity.ShaderMap.ShadingModel
-					!= EMaterialShadingModel::Lit)
+				if (!Draw.Command->bSupportsGBuffer || Draw.Command->Material.PlanningPassIdentity.ShaderMap.ShadingModel != EMaterialShadingModel::Lit)
 				{
 					StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
 						CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
@@ -302,10 +263,8 @@ namespace Durin
 				}
 		}
 		CommandList.EndRenderPass();
-		RetainedOpaqueTiming.Commit();
 		return {.Result = ERenderViewResult::Success};
 	}
-
 	auto FBaseSceneRecorder::RenderForwardScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneGeometryRecordInputs& Inputs,
@@ -338,26 +297,10 @@ namespace Durin
 			static_cast<float>(Height)
 		);
 
-		if (Inputs.Environment != nullptr)
+		if (Inputs.Environment)
 		{
-			if (Inputs.Environment->Texture != nullptr)
-			{
-				if (!SkyBoxRenderer.DrawTexture_RenderThread(
-						CommandList,
-						View,
-						Inputs.Environment->Texture,
-						Inputs.Environment->SkyBox
-					))
-				{
-					return false;
-				}
-			}
-			else
-			{
-				SkyBoxRenderer.Draw_RenderThread(
-					CommandList, View, Inputs.Environment->SkyBox
-				);
-			}
+			const bool bSkyRendered = SkyBoxRenderer.DrawTexture_RenderThread(CommandList, View, Inputs.Environment->Texture, Inputs.Environment->SkyBox);
+			if (!bSkyRendered && Inputs.bRequireEnvironmentTexture) return false;
 		}
 
 		for (const EMeshBasePass Pass : {

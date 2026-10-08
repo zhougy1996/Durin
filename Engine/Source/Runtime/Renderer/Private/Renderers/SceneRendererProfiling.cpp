@@ -23,6 +23,7 @@ namespace Durin
 		std::atomic<FDeferredDirectionalCaptureSink> GDeferredDirectionalCaptureSink = nullptr;
 		std::atomic<FGroundTruthAmbientOcclusionCaptureSink> GGroundTruthAmbientOcclusionCaptureSink = nullptr;
 		std::atomic<FSceneRenderGraphCaptureSink> GSceneRenderGraphCaptureSink = nullptr;
+		std::atomic<FSceneGraphAuthoringTimingSink> GSceneGraphAuthoringTimingSink = nullptr;
 	}
 
 	FScopedRendererQualificationPolicy::FScopedRendererQualificationPolicy(
@@ -162,6 +163,15 @@ namespace Durin
 	auto SetSceneRenderGraphCaptureSink(FSceneRenderGraphCaptureSink Sink) -> void
 	{
 		GSceneRenderGraphCaptureSink.store(Sink, std::memory_order_release);
+	}
+
+	auto SetSceneGraphAuthoringTimingSink(FSceneGraphAuthoringTimingSink Sink) -> void
+	{
+		GSceneGraphAuthoringTimingSink.store(Sink, std::memory_order_release);
+	}
+	auto GetSceneGraphAuthoringTimingSink() -> FSceneGraphAuthoringTimingSink
+	{
+		return GSceneGraphAuthoringTimingSink.load(std::memory_order_acquire);
 	}
 
 	auto PublishSceneRenderGraphCapture(

@@ -28,13 +28,25 @@ Affected validation passes 96/98 targets in its first batch; ContentBrowserWorkf
 passes on a subsequent direct whole-target run. The remaining
 `FMaterialCompilerTests.MetalMaterialProgramCompilesAndCooks` failure reproduces
 alone: unchanged `ShaderBuilder.cpp::IsActiveCompilerTarget` rejects Metal on
-non-Apple hosts before compilation. This host-policy/test mismatch remains an
-explicit validation exception, not a waived or passed Metal gate. Stage 2 now
+non-Apple hosts before compilation. This host-policy/test mismatch was corrected in the subsequent test-only
+follow-up recorded under Stage 5; it does not satisfy the Metal runtime gate. Stage 2 now
 implements frozen runtime attachment declarations, exact native view binding,
 and graph-boundary layout helpers. Stage 2 is implemented and validated on
 Windows/Vulkan, with Metal compilation/runtime acceptance explicitly outstanding.
-Stages 3-5 have not started. Execution is paused after Stage 2 at the user's
-request. No named hardware acceptance gate is closed. The user confirmed an
+Execution resumed on 2026-10-08 at the user's request. Stage 3 replaces the
+physical production-binding value with authored input parameters, graph handles,
+logical producer outcomes and immutable policy. Production and isolated callbacks
+resolve their own original declared members, including deduplicated fallback aliases.
+Stage 4 now authors the frozen Forward or HybridBootstrap/ProductionDeferred/
+RetainedForward route and ordinary Scene Color attachments; all four predecessor-
+dependent depth fields and their resolver chain are removed. Stage 5 validation
+passed the required all build and 97/98 affected targets. The sole failure,
+an unconditional Metal-success expectation on Windows, is now corrected; the
+changed MaterialCompilerTests target and isolated rejection regression pass.
+Two matched six-run Release cohorts preserve CPU/GPU cost, memory and
+submission observations. Native submissions remain one per successful offscreen
+frame; timing tails remain unstable and CPU authoring thresholds require further
+attribution. No named hardware acceptance gate is closed. The user confirmed an
 exclusive quiet GPU lane for measurements on 2026-10-08.
 
 The source review includes the current `BaseSceneRendering`, `SceneColorRendering`,
@@ -42,9 +54,10 @@ RDG parameter lowering, RHI attachment contracts, and the locally installed UE
 source described below. Existing commits `8fc5a9dde`, `8f39560d6`, `c4b063fa7`, and
 `fe82280ee` simplify uploads, persistent reads, intermediate binding storage, and
 recording prerequisites. They are prerequisites to preserve, not completion
-evidence for this plan. In particular, `FProductionDeferredParameters` is still
-a graph-owned payload containing physical bindings; moving that payload into
-graph storage did not make its texture accesses visible to the compiler.
+evidence for this plan. At the initial review, `FProductionDeferredParameters`
+was a graph-owned payload containing physical bindings; moving that payload into
+graph storage had not made its texture accesses visible to the compiler. Stage 3
+removes that transport.
 
 ## Goal
 
@@ -551,69 +564,173 @@ in `20261008-190918-853942-13008-ctest.log`; scene contracts in
 Depends on: Stages 1-2; retain current Base Scene execution until Stage 4.
 Outcome: production bindings are resolved locally from declared resources.
 
-- [ ] Replace `FProductionDeferredParameters` transport with graph input bundles
+- [x] Replace `FProductionDeferredParameters` transport with graph input bundles
   and logical producer outcomes; update isolated/production consumers together.
-- [ ] Declare all candidate sampled resources and fallback aliases, then build
+- [x] Declare all candidate sampled resources and fallback aliases, then build
   physical `FRenderParameters` inside the executing lighting callback.
-- [ ] Preserve diagnostic versus production policy, optional producer failures,
+- [x] Preserve diagnostic versus production policy, optional producer failures,
   resource readiness checks, and the existing fallback selection.
-- [ ] Test missing/failed optional producers, disabled production, isolated-only
+- [x] Test missing/failed optional producers, disabled production, isolated-only
   diagnostics, fallback aliasing, and consumer-driven culling.
 
 Gate: RendererSceneContractTests and VolumetricCloudSceneContractTests pass;
 capture proves production resources are explicitly declared. No cross-pass
 binding payload carries physical graph texture/buffer pointers in this path.
 
+Stage 3 implementation evidence (2026-10-08): the production graph no longer
+contains `Scene.ProductionDeferredParameters`; unrequested isolated lighting
+creates no pass or completion value. Postprocess reads an optional isolated result.
+`DeferredLightingResolvesDeclaredAliasesAndFailedOptionalProducersLocally` passes
+independently in `Build/.agent-state/logs/20261008-200425-300330-59044-RendererSceneContractTests.log`.
+It exercises absent/failed optional producers, failed directional shadows, shared
+irradiance/prefiltered fallbacks, diagnostic versus production readiness, and
+consumer-driven culling. The physical resource composition helper accepts only
+original declared texture members and logical outcome snapshots. Typed-value
+identity and metadata stay in the same binary module in this regression.
+
 ### Stage 4: Decompose Base Scene and migrate depth continuity
 
 Depends on: Stages 2-3.
 Outcome: forward or bootstrap/deferred/retained raster stages are graph-visible.
 
-- [ ] Extract single-raster-stage recorders and author route-specific passes from
+- [x] Extract single-raster-stage recorders and author route-specific passes from
   the feature plan, retaining the existing public Base Scene graph output shape
   where practical.
-- [ ] Remove all four managed depth fields and the predecessor-based selection
+- [x] Remove all four managed depth fields and the predecessor-based selection
   and resolver fallback chain. Do not replace them with a state-pair enum.
-- [ ] Migrate Scene Color/translucency to ordinary attachment bindings and audit
+- [x] Migrate Scene Color/translucency to ordinary attachment bindings and audit
   GBuffer, cloud, debug, and editor consumers for required depth transitions.
-- [ ] Make resource uses and typed outcomes establish dependencies; verify dead
+- [x] Make resource uses and typed outcomes establish dependencies; verify dead
   optional stages can be culled without removing required external effects.
-- [ ] Preserve failure propagation, final transactional publication, clear colors,
+- [x] Preserve failure propagation, final transactional publication, clear colors,
   reverse-Z, geometry finalization, telemetry, and feature timing query behavior.
-- [ ] Update capture/budget expectations from measured route shapes, explaining
+- [x] Update capture/budget expectations from measured route shapes, explaining
   the extra graph passes without increasing regression limits blindly.
 
 Gate: route matrix CPU contracts pass; targeted GPU captures/readbacks match the
 Stage 0 baseline and show graph-derived attachment/sample transitions. Base Scene
 and migrated translucency contain no pass-managed depth state pairs.
 
+Stage 4 diagnostic observations (2026-10-08): Vulkan offscreen/present cloud
+routes render successfully before updated graph-count assertions. Measured
+production-only shapes are 11 passes/20 dependencies without clouds and
+14 passes/30 dependencies with clouds, versus 10/19 and 13/29 previously.
+The obsolete production preparation pass disappears while Base Scene gains two
+raster boundaries. Executable texture barriers change from 15 to 22 without clouds,
+32 to 39 for compute clouds, and 18 to 27 for fragment clouds. These expose native
+handoffs and two extra depth handoffs in the fragment route. Capture assertions
+now require declared GBuffer/depth reads and reject managed boundaries in all
+four migrated callbacks. Geometry pipeline layouts switch with recording.
+
+Before the scope extension, the executor assigned one logical submission batch
+per non-upload pass. The net pass growth increased planned batches by one; this
+was not a native `vkQueueSubmit` measurement, because Vulkan can coalesce payloads.
+Submission batching
+belongs to the multi-queue execution contract. On 2026-10-08 the user explicitly
+expanded this execution's scope to implement and validate submission batch
+coalescing so decomposition does not increase submissions. Preserve distinct
+graph/raster passes, declaration order, async opt-in, split barriers, terminal
+joins and allocation retirement. This extends submission grouping only; it does
+not accept or close the multi-queue plan's independent hardware gates.
+The implementation now groups at most eight consecutive ordinary passes on one
+logical queue, preserves cross-queue producer/consumer frontiers and keeps upload
+groups separate. The first ordinary batch remains a single pass to preserve
+early RHI dispatch; its native replay regression passes independently. RenderContractTests passes 218/218; the three new callback-order,
+fork/late-join and exact consumer-barrier regressions also pass independently
+under isolation. Same-queue split coverage crosses the bounded group boundary.
+Vulkan scene captures retain 11/14 graph passes but compile to four batches;
+the successful offscreen routes each measure one native submit before readback.
+The Vulkan scene regression now injects failures into Forward, HybridBootstrap,
+ProductionDeferred, RetainedForward and SortedTranslucency, checks the original
+failure result and transactional publication, and avoids reading failed output.
+Optional-producer culling and fallback composition have independent CPU coverage.
+The matched output assertions, memory and native-submission comparison pass.
+Stable timing and hardware/backend acceptance remain open; observation budgets
+do not waive those acceptance conditions.
+
 ### Stage 5: Qualify, document, and remove migration scaffolding
 
 Depends on: Stages 1-4.
 Outcome: accepted implementation with permanent contracts and measured costs.
 
-- [ ] Remove temporary adapters and obsolete helpers/types in the migrated scope;
+- [x] Remove temporary adapters and obsolete helpers/types in the migrated scope;
   retain only explicitly documented managed users outside that scope.
-- [ ] Run affected CPU contracts, including RenderContractTests,
+- [x] Run affected CPU contracts, including RenderContractTests,
   RendererSceneContractTests, VolumetricCloudSceneContractTests and
   RendererRDGAllocatorTests; run changed regressions independently.
-- [ ] Run selected VulkanRHIIntegrationTests, GBufferQualificationTests and scene
+- [x] Run selected VulkanRHIIntegrationTests, GBufferQualificationTests and scene
   GPU cases covering forward/debug, hybrid retained geometry, AO/visibility,
   clouds, translucency, offscreen/present and editor depth consumers.
-- [ ] Exercise existing graphics-only fallback and explicitly enabled async
+- [x] Exercise existing graphics-only fallback and explicitly enabled async
   resource handoffs. Preserve queue terminal joins, extraction, and pool reuse.
-- [ ] Compare output correctness, CPU author/compile/record cost, GPU time,
+- [x] Compare output correctness, CPU author/compile/record cost, GPU time,
   transition/submission counts, and retained memory against the Stage 0 baseline.
   Investigate any threshold breach; do not require unchanged pass counts.
-- [ ] Complete the required `all` build and affected project validation. Record
-  Metal compilation/runtime evidence on a supported host according to changed
-  semantics; do not report Windows-only validation as Metal qualification.
-- [ ] Update the permanent contracts listed below, validate documentation and
-  plans, and record exact acceptance receipts before completing this plan.
+- [x] Complete the required `all` build and affected project validation, retaining
+  the independently reproduced Windows Metal target-policy exception.
+- [ ] Record Metal compilation/runtime evidence on a supported host according to
+  changed semantics; do not report Windows-only validation as Metal qualification.
+- [x] Update the permanent contracts listed below and validate documentation and plans.
+- [ ] Record stable performance and required backend/hardware acceptance receipts
+  before completing this plan.
 
 Gate: required evidence is recorded with environment, selected cases and results.
 Unavailable GPU/backend gates remain open until satisfied or explicitly changed
 by the user; optional unrelated qualifications do not block intermediate stages.
+
+Local qualification receipt (2026-10-08):
+
+The [matched receipt](../Development/Build/RenderingPerformanceBaselineReceipt20261008.md#resumed-execution-matched-rtx-3090-observations)
+records candidate `92366a6cc9e14cb85e3ac98e2d8882e1874dafb4`, reference
+`32bbb237222e3fc3c1d60904d59ae779d0611e1a` and the identical diagnostic probe.
+Six alternating pairs pass correctness/memory; CPU author median/p95 investigation
+thresholds are exceeded and GPU p95 remains unstable in both cohorts. No timing
+gate is closed. The named Vulkan 1.4.325 and supported Metal receipts remain
+unavailable; the user confirmed that no macOS environment is currently available.
+
+- The final required `all` build succeeds; raw log:
+  `Build/.agent-state/logs/20261008-210756-286263-24752-cmake.log`.
+- Final affected validation passes 97/98 targets, including editor layout/depth,
+  RendererSceneContractTests, cloud contracts, allocator and Vulkan scene cases;
+  report `Build/NativeTestResults/Win64-Debug-DurinEditor/RdgAccessBatchingVerified.xml`,
+  raw log `Build/.agent-state/logs/20261008-210846-022736-46680-ctest.log`.
+  The sole failure is the previously isolated Windows Metal target-policy mismatch
+  in `FMaterialCompilerTests.MetalMaterialProgramCompilesAndCooks`.
+- RenderContractTests passes 218/218, RHIResourceTransitionValidationTests 8/8,
+  RHICommandListTests 118/118 and VulkanRHIIntegrationTests 115/115;
+  report `Build/NativeTestResults/Win64-Debug-DurinEditor/RdgAccessBatchingVerified.xml`.
+  The Vulkan raw log contains no validation errors or VUID diagnostics.
+- The declared-alias/optional-producer regression passes independently; the real
+  Vulkan scene failure regression passes independently in
+  `Build/.agent-state/logs/20261008-201247-109332-22888-VolumetricCloudSceneVulkanTests.log`
+  and again in final affected validation.
+- Obsolete hybrid layout helpers and physical-binding transport are deleted.
+  Legacy managed layouts remain only for unmigrated GBuffer, cloud/AO and editor
+  paths, as specified by the permanent contracts.
+- Release qualification initially exposed GBuffer observation being culled after
+  removal of the old preparation pass. GBuffer now explicitly roots an installed
+  capture/timing observer. Three consecutive candidate GBuffer qualifications
+  pass after this fix; the failure log is
+  `Build/.agent-state/logs/20261008-202210-138465-15296-ctest.log`.
+  Current hardware reports RTX 3090 / Vulkan 1.4.351, differing from the original
+  GTX 1060 receipt. The named fixture remains in `observation` mode because its
+  frozen Vulkan patch is 325; no cross-device performance comparison is claimed.
+
+Test-only host-policy follow-up (2026-10-08):
+
+- `MetalMaterialProgramCompilesAndCooks` is registered only on Apple hosts,
+  matching `ShaderBuilder::IsActiveCompilerTarget`. Non-Apple hosts instead run
+  `MetalMaterialProgramIsRejectedOnUnsupportedHosts`, asserting compile-stage
+  rejection, the provider's invalid-request diagnostic and no compiled shaders.
+- The new case passes independently under serial isolation in
+  `Build/NativeTestResults/Win64-Debug-DurinEditor/MetalHostPolicyIsolated.xml`;
+  raw log `Build/.agent-state/logs/20261008-232237-100759-15560-ctest.log`.
+- The entire affected MaterialCompilerTests target passes in
+  `Build/NativeTestResults/Win64-Debug-DurinEditor/MetalHostPolicyAffected.xml`;
+  raw log `Build/.agent-state/logs/20261008-232305-644850-24220-ctest.log`.
+  This is the bounded follow-up to the earlier 97/98 run, not a rerun of all 98.
+  Compiler behavior is unchanged. Supported-host Metal compilation/runtime
+  acceptance remains outstanding.
 
 ## Risks and Acceptance Boundaries
 

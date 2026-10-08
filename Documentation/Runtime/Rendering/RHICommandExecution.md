@@ -220,6 +220,13 @@ calls remain creation-only factories. Vulkan retains a thread-safe bounded
 working set of these automatic views, refreshes entries on use, and removes
 entries after 120 unused frames or capacity pressure. A cache miss remains one
 fallible synchronous native creation; a hit performs no RHI-thread round trip.
+Graph raster callbacks lower their frozen attachment declarations with
+`MakeRDGNativeAttachmentBinding`, retaining the view owners until `BeginRenderPass`
+records its own references. Native color/depth binding validates the full declared
+layout. Forward, bootstrap, deferred, retained and sorted-translucency pipeline
+layouts use the same graph-boundary policy; they leave attachments in attachment
+access and rely on RDG for subsequent sampled transitions.
+
 Texture identity includes the native backing image and its backing-set
 generation. Stable swapchain back-buffer wrappers therefore reuse one view per
 image while swapchain recreation cannot expose a stale view.

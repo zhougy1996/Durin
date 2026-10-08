@@ -1068,21 +1068,50 @@ namespace Durin
 			if (!bTraversed) return std::unexpected(TransitionError.value_or(Work.Error()));
 			CompactTextureBarriers(CompiledState->Passes, CompiledState->FinalBarriers, Execution);
 
+			const auto QueueForPass = [&](uint32 Index) {
+				if (Index == ScheduledCount) return ERDGQueueAssignment::Graphics;
+				const auto Declaration = CompiledState->Passes[Index].DeclarationIndex;
+				return State->bAsyncComputeEnabled && Passes[Declaration].bAsyncComputeEligible
+					? ERDGQueueAssignment::AsyncCompute : ERDGQueueAssignment::Graphics;
+			};
+			// Keep cross-queue fork/join points at submission boundaries: moving a
+			// wait earlier or a signal later would serialize independent work.
+			std::vector<bool> CrossQueueIncoming(ScheduledCount, false);
+			std::vector<bool> CrossQueueOutgoing(ScheduledCount, false);
+			const auto PreserveQueueBoundary = [&](uint32 Before, uint32 After) {
+				if (QueueForPass(Before) == QueueForPass(After)) return;
+				CrossQueueOutgoing[Before] = true;
+				if (After < ScheduledCount) CrossQueueIncoming[After] = true;
+			};
+			for (const auto& Edge : CompiledState->Dependencies)
+				PreserveQueueBoundary(DeclarationToSubmission[Edge.BeforePass], DeclarationToSubmission[Edge.AfterPass]);
+			for (const auto& Handoff : Execution.Handoffs)
+			{
+				if (Handoff.Consumer.Index < ScheduledCount && Handoff.SourceQueue != QueueForPass(Handoff.Consumer.Index))
+					CrossQueueIncoming[Handoff.Consumer.Index] = true;
+				for (const auto Producer : Handoff.GetProducers())
+					PreserveQueueBoundary(Producer.Index, Handoff.Consumer.Index);
+			}
+
 			Execution.Batches.reserve(ScheduledCount + (ScheduledCount != 0));
 			std::vector<uint32> PassToSubmission(ScheduledCount + 1, UINT32_MAX);
 			uint64 UploadBatchBytes = 0;
 			for (uint32 Index = 0; Index < ScheduledCount; ++Index)
 			{
-				const auto Declaration = CompiledState->Passes[Index].DeclarationIndex;
-				const bool bAsync = State->bAsyncComputeEnabled && Passes[Declaration].bAsyncComputeEligible;
-				const auto Queue = bAsync ? ERDGQueueAssignment::AsyncCompute : ERDGQueueAssignment::Graphics;
+				const auto Queue = QueueForPass(Index);
 				const uint64 UploadBytes = CompiledState->RuntimePasses[Index].BufferUploadBytes;
-				const bool bJoin = UploadBytes != 0 && UploadBatchBytes != 0
+				const bool bJoinUploads = UploadBytes != 0 && UploadBatchBytes != 0
 					&& Execution.Batches.back().Queue == Queue
 					&& Execution.Batches.back().NumPasses < MaxUploadBatchCount
 					&& UploadBatchBytes <= MaxUploadBatchBytes
 					&& UploadBytes <= MaxUploadBatchBytes - UploadBatchBytes;
-				if (bJoin)
+				const bool bJoinPasses = Index != 0 && UploadBytes == 0 && UploadBatchBytes == 0
+					// Preserve prompt dispatch of the first ordinary pass to the RHI thread.
+					&& Execution.Batches.size() > 1
+					&& Execution.Batches.back().Queue == Queue
+					&& Execution.Batches.back().NumPasses < MaxPassesPerSubmission
+					&& !CrossQueueIncoming[Index] && !CrossQueueOutgoing[Index - 1];
+				if (bJoinUploads || bJoinPasses)
 				{
 					++Execution.Batches.back().NumPasses;
 					UploadBatchBytes += UploadBytes;
