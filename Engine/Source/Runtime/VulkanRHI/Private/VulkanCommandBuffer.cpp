@@ -7,6 +7,7 @@
 #include "VulkanRenderPass.h"
 #include "VulkanFramebuffer.h"
 #include "VulkanRHIPrivate.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::VulkanRHI
 {
@@ -33,6 +34,9 @@ namespace Durin::VulkanRHI
 		check(State == EState::ReadyForBegin);
 		vk::CommandBufferBeginInfo BeginInfo;
 		Handle.begin(BeginInfo);
+		RecordedPipelines = {};
+		RecordedVertexBuffers.clear();
+		RecordedIndexBuffer.reset();
 		RecordedViewport.reset();
 		RecordedScissor.reset();
 		RecordedDepthBias.reset();
@@ -43,6 +47,61 @@ namespace Durin::VulkanRHI
 			Binding.DynamicOffsets.clear();
 		}
 		State = EState::IsInsideBegin;
+	}
+
+	auto FVulkanCommandBuffer::BindPipeline(vk::PipelineBindPoint BindPoint, vk::Pipeline Pipeline) -> void
+	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.Pipeline");
+		CheckVulkanRHIThread();
+		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
+		check(BindPoint == vk::PipelineBindPoint::eGraphics || BindPoint == vk::PipelineBindPoint::eCompute);
+		auto& Recorded = RecordedPipelines[BindPoint == vk::PipelineBindPoint::eGraphics ? 0 : 1];
+		if (Recorded == Pipeline) return;
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.PipelineNative");
+			Handle.bindPipeline(BindPoint, Pipeline);
+		}
+		Recorded = Pipeline;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanPipelineBindCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+	}
+
+	auto FVulkanCommandBuffer::BindVertexBuffer(uint32 Stream, vk::Buffer Buffer, vk::DeviceSize Offset) -> void
+	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.VertexBuffer");
+		CheckVulkanRHIThread();
+		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
+		check(Stream < Device.GetGpuProperties().limits.maxVertexInputBindings);
+		if (RecordedVertexBuffers.size() <= Stream) RecordedVertexBuffers.resize(Stream + 1);
+		auto& Recorded = RecordedVertexBuffers[Stream];
+		const auto Binding = std::make_tuple(Buffer, Offset);
+		if (Recorded == Binding) return;
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.VertexBufferNative");
+			Handle.bindVertexBuffers(Stream, Buffer, {Offset});
+		}
+		Recorded = Binding;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanVertexBufferBindCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+	}
+
+	auto FVulkanCommandBuffer::BindIndexBuffer(vk::Buffer Buffer, vk::DeviceSize Offset, vk::IndexType Type) -> void
+	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.IndexBuffer");
+		CheckVulkanRHIThread();
+		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
+		const auto Binding = std::make_tuple(Buffer, Offset, Type);
+		if (RecordedIndexBuffer && *RecordedIndexBuffer == Binding) return;
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.IndexBufferNative");
+			Handle.bindIndexBuffer(Buffer, Offset, Type);
+		}
+		RecordedIndexBuffer = Binding;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanIndexBufferBindCount.fetch_add(1, std::memory_order_relaxed);
+#endif
 	}
 
 	auto FVulkanCommandBuffer::SetGraphicsDynamicState(const vk::Viewport& Viewport,

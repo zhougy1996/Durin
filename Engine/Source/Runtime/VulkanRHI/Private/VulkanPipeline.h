@@ -16,6 +16,7 @@
 namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
+	class FVulkanCommandBuffer;
 	class FVulkanRenderPass;
 	class FVulkanCommandListContext;
 	class FVulkanShader;
@@ -42,7 +43,7 @@ namespace Durin::VulkanRHI
 			FVulkanPipelineDependencies Dependencies);
 		~FVulkanComputePipelineState() override;
 
-		auto Bind(vk::CommandBuffer InCmdBuffer) -> void;
+		auto Bind(FVulkanCommandBuffer& InCmdBuffer) -> void;
 		auto GetPipelineLayout() const -> vk::PipelineLayout { return PipelineLayout; }
 		auto GetDescriptorSetsLayout() const -> const FVulkanDescriptorSetsLayout&;
 		auto GetKey() const -> const FComputePipelineStateKey& { return Key; }
@@ -70,7 +71,7 @@ namespace Durin::VulkanRHI
 
 		~FVulkanGraphicsPipelineState() override;
 
-		auto Bind(vk::CommandBuffer InCmdBuffer) -> void;
+		auto Bind(FVulkanCommandBuffer& InCmdBuffer) -> void;
 
 		auto GetPipelineLayout() const -> vk::PipelineLayout { return PipelineLayout; }
 

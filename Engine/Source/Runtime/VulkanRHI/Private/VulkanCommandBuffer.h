@@ -25,6 +25,9 @@ namespace Durin::VulkanRHI
 		~FVulkanCommandBuffer();
 
 		auto Begin() -> void;
+		auto BindPipeline(vk::PipelineBindPoint BindPoint, vk::Pipeline Pipeline) -> void;
+		auto BindVertexBuffer(uint32 Stream, vk::Buffer Buffer, vk::DeviceSize Offset) -> void;
+		auto BindIndexBuffer(vk::Buffer Buffer, vk::DeviceSize Offset, vk::IndexType Type) -> void;
 
 		// Cached state belongs to one recording and is invalidated by Begin().
 		auto SetGraphicsDynamicState(const vk::Viewport& Viewport, const vk::Rect2D& Scissor,
@@ -76,6 +79,9 @@ namespace Durin::VulkanRHI
 		double SubmittedTime = 0.0;
 
 		vk::CommandBuffer Handle;
+		std::array<vk::Pipeline, 2> RecordedPipelines{};
+		std::vector<std::tuple<vk::Buffer, vk::DeviceSize>> RecordedVertexBuffers;
+		std::optional<std::tuple<vk::Buffer, vk::DeviceSize, vk::IndexType>> RecordedIndexBuffer;
 		std::optional<vk::Viewport> RecordedViewport;
 		std::optional<vk::Rect2D> RecordedScissor;
 		std::optional<std::array<float, 3>> RecordedDepthBias;

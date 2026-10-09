@@ -258,6 +258,9 @@ namespace Durin::VulkanRHI
 		uint64 ViewportWrites = 0;
 		uint64 ScissorWrites = 0;
 		uint64 DepthBiasWrites = 0;
+		uint64 PipelineBinds = 0;
+		uint64 VertexBufferBinds = 0;
+		uint64 IndexBufferBinds = 0;
 		uint64 DescriptorBinds = 0;
 
 		uint64 DescriptorOwnerRebuilds = 0;
@@ -284,6 +287,9 @@ namespace Durin::VulkanRHI
 	extern std::atomic<uint64> GVulkanViewportWriteCount;
 	extern std::atomic<uint64> GVulkanScissorWriteCount;
 	extern std::atomic<uint64> GVulkanDepthBiasWriteCount;
+	extern std::atomic<uint64> GVulkanPipelineBindCount;
+	extern std::atomic<uint64> GVulkanVertexBufferBindCount;
+	extern std::atomic<uint64> GVulkanIndexBufferBindCount;
 	extern std::atomic<uint64> GVulkanDescriptorBindCount;
 	extern std::atomic<uint64> GVulkanDescriptorOwnerRebuildCount;
 	extern std::atomic<uint64> GVulkanDescriptorOccupancyVerificationVisitCount;

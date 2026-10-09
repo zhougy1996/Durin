@@ -543,10 +543,10 @@ namespace Durin::VulkanRHI
 			FDeferredDeletionQueue::EType::PipelineLayout, PipelineLayout);
 	}
 
-	auto FVulkanGraphicsPipelineState::Bind(vk::CommandBuffer CmdBuffer) -> void
+	auto FVulkanGraphicsPipelineState::Bind(FVulkanCommandBuffer& CmdBuffer) -> void
 	{
 		check(Pipeline);
-		CmdBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, Pipeline);
+		CmdBuffer.BindPipeline(vk::PipelineBindPoint::eGraphics, Pipeline);
 	}
 
 	auto FVulkanGraphicsPipelineState::GetDescriptorSetsLayout() const -> const FVulkanDescriptorSetsLayout&
@@ -652,9 +652,9 @@ namespace Durin::VulkanRHI
 			FDeferredDeletionQueue::EType::PipelineLayout, PipelineLayout);
 	}
 
-	auto FVulkanComputePipelineState::Bind(vk::CommandBuffer CmdBuffer) -> void
+	auto FVulkanComputePipelineState::Bind(FVulkanCommandBuffer& CmdBuffer) -> void
 	{
-		CmdBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, Pipeline);
+		CmdBuffer.BindPipeline(vk::PipelineBindPoint::eCompute, Pipeline);
 	}
 
 	auto FVulkanComputePipelineState::GetDescriptorSetsLayout() const

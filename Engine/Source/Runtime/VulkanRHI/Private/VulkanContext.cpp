@@ -351,6 +351,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIBeginRenderPass(const FRHIRenderPassInfo& InRenderPassInfo, FName DebugName) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.RenderPass.Begin");
 		CheckVulkanRHIThread();
 		FRHIRenderPassInfo CanonicalInfo = InRenderPassInfo;
 		std::array<FTextureViewRHIRef, MaxSimultaneousRenderTargets> ColorViews;
@@ -426,6 +427,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIEndRenderPass() -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.RenderPass.End");
 		CheckVulkanRHIThread();
 		Device.GetRenderPassManager().EndRenderPass(GetCommandBuffer());
 		for (const FPendingAttachmentState& State : PendingAttachmentStates)
@@ -620,7 +622,7 @@ namespace Durin::VulkanRHI
 		const auto* Previous = PendingGfxState->GetPipelineState();
 		if (!Previous || Previous->GetKey().PipelineLayout != static_cast<FVulkanGraphicsPipelineState&>(GraphicsPipelineState).GetKey().PipelineLayout)
 			GraphicsPushConstants.clear();
-		PendingGfxState->SetGraphicsPipelineState(static_cast<FVulkanGraphicsPipelineState&>(GraphicsPipelineState), GetCommandBuffer()->GetHandle());
+		PendingGfxState->SetGraphicsPipelineState(static_cast<FVulkanGraphicsPipelineState&>(GraphicsPipelineState), *GetCommandBuffer());
 	}
 
 	auto FVulkanCommandListContext::RHISetComputePipelineState(
@@ -632,7 +634,7 @@ namespace Durin::VulkanRHI
 			ComputePushConstants.clear();
 		PendingComputeState->SetComputePipelineState(
 			static_cast<FVulkanComputePipelineState&>(ComputePipelineState),
-			GetCommandBuffer()->GetHandle());
+			*GetCommandBuffer());
 	}
 
 	auto FVulkanCommandListContext::RHIBindVertexBuffer(uint32 StreamIndex, FRHIBuffer* InVertexBuffer, uint32 Offset) -> void
@@ -649,7 +651,7 @@ namespace Durin::VulkanRHI
 			"Bound vertex buffer offset exceeds the resource.");
 		BoundVertexBuffers[StreamIndex] = {InVertexBuffer, Offset};
 		vk::Buffer BufferHandle = FVulkanBuffer::Cast(InVertexBuffer)->GetHandle();
-		GetCommandBuffer()->GetHandle().bindVertexBuffers(StreamIndex, BufferHandle, {Offset});
+		GetCommandBuffer()->BindVertexBuffer(StreamIndex, BufferHandle, Offset);
 	}
 
 	static constexpr auto DeduceIndexType(uint32 Stride) -> vk::IndexType
@@ -678,13 +680,14 @@ namespace Durin::VulkanRHI
 		BoundIndexBuffer = InIndexBuffer;
 		BoundIndexBufferOffset = Offset;
 		const FVulkanBuffer* IndexBuffer = FVulkanBuffer::Cast(InIndexBuffer);
-		GetCommandBuffer()->GetHandle().bindIndexBuffer(IndexBuffer->GetHandle(), Offset,
+		GetCommandBuffer()->BindIndexBuffer(IndexBuffer->GetHandle(), Offset,
 			DeduceIndexType(IndexBuffer->GetStride()));
 	}
 
 	auto FVulkanCommandListContext::RHITransitionBuffers(
 		std::span<const FRHIBufferTransition> Transitions) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Barriers.Buffers");
 		CheckVulkanRHIThread();
 		for (const auto& Transition : Transitions)
 			requiref(FVulkanBuffer::Cast(Transition.Buffer)->GetStateTracker().GetOwnership().CanUse(
@@ -771,6 +774,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHITransitionTextures(
 		std::span<const FRHITextureTransition> Transitions) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Barriers.Textures");
 		CheckVulkanRHIThread();
 		for (const auto& Transition : Transitions)
 			requiref(static_cast<FVulkanTexture*>(Transition.Texture)->GetStateTracker().CanUseOwnership(
@@ -1066,6 +1070,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.PushConstants");
 		CheckVulkanRHIThread();
 		require(Data && Size && Offset % 4 == 0 && Size % 4 == 0
 			&& uint64(Offset) + Size <= Device.GetGpuProperties().limits.maxPushConstantsSize);
@@ -1092,6 +1097,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHISetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.ShaderParameters");
 		CheckVulkanRHIThread();
 		if (InShader && InShader->GetFrequency() == EShaderFrequency::Compute)
 		{
@@ -1108,6 +1114,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIDispatch(uint32 GroupCountX,
 		uint32 GroupCountY, uint32 GroupCountZ) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Compute.Dispatch");
 		CheckVulkanRHIThread();
 		check(PendingComputeState->GetPipelineState());
 		const FRHICapabilities* Capabilities = RHI->RHIGetCapabilities();
@@ -1123,6 +1130,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIDispatchIndirect(
 		FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Compute.DispatchIndirect");
 		CheckVulkanRHIThread();
 		check(PendingComputeState->GetPipelineState());
 		const auto* Buffer = FVulkanBuffer::Cast(ArgumentBuffer);
@@ -1138,6 +1146,7 @@ namespace Durin::VulkanRHI
 		uint32 InstanceCount, uint32 FirstVertex, uint32 FirstInstance,
 		bool bIndexed) const -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.ValidateBindings");
 		const FVulkanGraphicsPipelineState* PipelineState =
 			PendingGfxState->GetPipelineState();
 		checkf(PipelineState, "Draw requires an active graphics pipeline.");
@@ -1188,52 +1197,64 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIDraw(const FRHIDrawArguments& Arguments) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.Direct");
 		CheckVulkanRHIThread();
 		if (Arguments.VertexCount == 0 || Arguments.InstanceCount == 0) return;
 		ValidateDrawBindings(Arguments.VertexCount, Arguments.InstanceCount,
 			Arguments.FirstVertex, Arguments.FirstInstance, false);
 		PendingGfxState->PrepareForDraw(*this);
-		GetCommandBuffer()->GetHandle().draw(Arguments.VertexCount,
-			Arguments.InstanceCount, Arguments.FirstVertex, Arguments.FirstInstance);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.DirectNative");
+			GetCommandBuffer()->GetHandle().draw(Arguments.VertexCount,
+				Arguments.InstanceCount, Arguments.FirstVertex, Arguments.FirstInstance);
+		}
 	}
 
 	auto FVulkanCommandListContext::RHIDrawIndexed(
 		const FRHIDrawIndexedArguments& Arguments) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.Indexed");
 		CheckVulkanRHIThread();
 		if (Arguments.IndexCount == 0 || Arguments.InstanceCount == 0) return;
 		checkf(BoundIndexBuffer, "Indexed draw requires a bound index buffer.");
-		const uint64 AvailableIndices =
-			(BoundIndexBuffer->GetSize() - BoundIndexBufferOffset)
-			/ BoundIndexBuffer->GetStride();
-		checkf(static_cast<uint64>(Arguments.FirstIndex) + Arguments.IndexCount
-			<= AvailableIndices, "Indexed draw range exceeds the bound index buffer.");
-		const auto* VulkanIndexBuffer =
-			FVulkanBuffer::Cast(BoundIndexBuffer.GetReference());
-		const uint64 IndexValidationOffset = BoundIndexBufferOffset
-			+ static_cast<uint64>(Arguments.FirstIndex)
-				* BoundIndexBuffer->GetStride();
-		const uint64 IndexValidationSize =
-			static_cast<uint64>(Arguments.IndexCount)
-				* BoundIndexBuffer->GetStride();
-		ERHIAccess Tracked = ERHIAccess::None;
-		checkf(VulkanIndexBuffer->GetStateTracker().Validate(
-			IndexValidationOffset,
-			IndexValidationSize,
-			ERHIAccess::IndexBufferRead, Tracked),
-			"Indexed draw range [{}, {}) is not in IndexBufferRead access.",
-			IndexValidationOffset, IndexValidationOffset + IndexValidationSize);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.ValidateIndexRange");
+			const uint64 AvailableIndices =
+				(BoundIndexBuffer->GetSize() - BoundIndexBufferOffset)
+				/ BoundIndexBuffer->GetStride();
+			checkf(static_cast<uint64>(Arguments.FirstIndex) + Arguments.IndexCount
+				<= AvailableIndices, "Indexed draw range exceeds the bound index buffer.");
+			const auto* VulkanIndexBuffer =
+				FVulkanBuffer::Cast(BoundIndexBuffer.GetReference());
+			const uint64 IndexValidationOffset = BoundIndexBufferOffset
+				+ static_cast<uint64>(Arguments.FirstIndex)
+					* BoundIndexBuffer->GetStride();
+			const uint64 IndexValidationSize =
+				static_cast<uint64>(Arguments.IndexCount)
+					* BoundIndexBuffer->GetStride();
+			ERHIAccess Tracked = ERHIAccess::None;
+			checkf(VulkanIndexBuffer->GetStateTracker().Validate(
+				IndexValidationOffset,
+				IndexValidationSize,
+				ERHIAccess::IndexBufferRead, Tracked),
+				"Indexed draw range [{}, {}) is not in IndexBufferRead access.",
+				IndexValidationOffset, IndexValidationOffset + IndexValidationSize);
+		}
 		ValidateDrawBindings(Arguments.IndexCount, Arguments.InstanceCount, 0,
 			Arguments.FirstInstance, true);
 		PendingGfxState->PrepareForDraw(*this);
-		GetCommandBuffer()->GetHandle().drawIndexed(Arguments.IndexCount,
-			Arguments.InstanceCount, Arguments.FirstIndex, Arguments.VertexOffset,
-			Arguments.FirstInstance);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.IndexedNative");
+			GetCommandBuffer()->GetHandle().drawIndexed(Arguments.IndexCount,
+				Arguments.InstanceCount, Arguments.FirstIndex, Arguments.VertexOffset,
+				Arguments.FirstInstance);
+		}
 	}
 
 	auto FVulkanCommandListContext::RHIDrawIndirect(
 		FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.Indirect");
 		CheckVulkanRHIThread();
 		checkf(PendingGfxState->GetPipelineState(),
 			"Indirect draw requires an active graphics pipeline.");
@@ -1244,13 +1265,17 @@ namespace Durin::VulkanRHI
 			ERHIAccess::IndirectArgumentRead, Tracked),
 			"Indirect draw record is not in IndirectArgumentRead access.");
 		PendingGfxState->PrepareForDraw(*this);
-		GetCommandBuffer()->GetHandle().drawIndirect(Buffer->GetHandle(), Offset,
-			1, sizeof(FRHIDrawIndirectArguments));
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.IndirectNative");
+			GetCommandBuffer()->GetHandle().drawIndirect(Buffer->GetHandle(), Offset,
+				1, sizeof(FRHIDrawIndirectArguments));
+		}
 	}
 
 	auto FVulkanCommandListContext::RHIDrawIndexedIndirect(
 		FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.IndexedIndirect");
 		CheckVulkanRHIThread();
 		checkf(PendingGfxState->GetPipelineState(),
 			"Indexed indirect draw requires an active graphics pipeline.");
@@ -1263,8 +1288,11 @@ namespace Durin::VulkanRHI
 			ERHIAccess::IndirectArgumentRead, Tracked),
 			"Indexed indirect draw record is not in IndirectArgumentRead access.");
 		PendingGfxState->PrepareForDraw(*this);
-		GetCommandBuffer()->GetHandle().drawIndexedIndirect(Buffer->GetHandle(),
-			Offset, 1, sizeof(FRHIDrawIndexedIndirectArguments));
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.IndexedIndirectNative");
+			GetCommandBuffer()->GetHandle().drawIndexedIndirect(Buffer->GetHandle(),
+				Offset, 1, sizeof(FRHIDrawIndexedIndirectArguments));
+		}
 	}
 
 	auto FVulkanCommandListContext::GetCommandBuffer() -> FVulkanCommandBuffer*
@@ -1403,7 +1431,7 @@ namespace Durin::VulkanRHI
 		const auto Commands = NewCmdBuffer->GetHandle();
 		auto RestorePipeline = [&](auto* Pipeline, const auto& Words) {
 			if (!Pipeline) return;
-			Pipeline->Bind(Commands);
+			Pipeline->Bind(*NewCmdBuffer);
 			for (const auto& Word : Words)
 				Commands.pushConstants(Pipeline->GetPipelineLayout(),
 					ToVulkan_ShaderStageFlags(Word.Stages), Word.Offset, 4, Word.Data.data());
@@ -1411,9 +1439,9 @@ namespace Durin::VulkanRHI
 		RestorePipeline(PendingGfxState->GetPipelineState(), GraphicsPushConstants);
 		RestorePipeline(PendingComputeState->GetPipelineState(), ComputePushConstants);
 		for (const auto& [Stream, Binding] : BoundVertexBuffers)
-			Commands.bindVertexBuffers(Stream, FVulkanBuffer::Cast(Binding.Buffer.GetReference())->GetHandle(), {Binding.Offset});
+			NewCmdBuffer->BindVertexBuffer(Stream, FVulkanBuffer::Cast(Binding.Buffer.GetReference())->GetHandle(), Binding.Offset);
 		if (BoundIndexBuffer)
-			Commands.bindIndexBuffer(FVulkanBuffer::Cast(BoundIndexBuffer.GetReference())->GetHandle(),
+			NewCmdBuffer->BindIndexBuffer(FVulkanBuffer::Cast(BoundIndexBuffer.GetReference())->GetHandle(),
 				BoundIndexBufferOffset, DeduceIndexType(BoundIndexBuffer->GetStride()));
 	}
 

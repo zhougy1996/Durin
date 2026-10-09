@@ -13,6 +13,7 @@ namespace Durin::VulkanRHI
 {
 	struct FVulkanDescriptorRequirements;
 	class FVulkanCommandListContext;
+	class FVulkanCommandBuffer;
 	class FVulkanDevice;
 	class FVulkanGraphicsPipelineState;
 	class FVulkanPendingGraphicsState;
@@ -35,7 +36,7 @@ namespace Durin::VulkanRHI
 			: Device(InDevice) {}
 
 		auto SetComputePipelineState(FVulkanComputePipelineState& InPipelineState,
-			vk::CommandBuffer InCmdBuffer) -> void;
+			FVulkanCommandBuffer& InCmdBuffer) -> void;
 		auto SetShaderParameters(FRHIShader* InShader,
 			std::span<const FRHIShaderParameterResource> InResourceParameters, bool bResolvingDeferred = false) -> void;
 		auto ResolveDeferredBuffers(FVulkanCommandListContext& Context) -> void;
@@ -133,7 +134,7 @@ namespace Durin::VulkanRHI
 		~FVulkanPendingGraphicsState() { Reset(); }
 
 		// Switches the active PSO and descriptor state, then binds the Vulkan pipeline.
-		auto SetGraphicsPipelineState(FVulkanGraphicsPipelineState& InPipelineState, vk::CommandBuffer InCmdBuffer) -> void;
+		auto SetGraphicsPipelineState(FVulkanGraphicsPipelineState& InPipelineState, FVulkanCommandBuffer& InCmdBuffer) -> void;
 		auto ResolveDeferredBuffers(FVulkanCommandListContext& Context) -> void;
 
 		auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;

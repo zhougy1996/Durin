@@ -133,7 +133,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPendingComputeState::SetComputePipelineState(
 		FVulkanComputePipelineState& InPipelineState,
-		vk::CommandBuffer InCmdBuffer) -> void
+		FVulkanCommandBuffer& InCmdBuffer) -> void
 	{
 		if (CurrentPipelineState != &InPipelineState)
 		{
@@ -246,6 +246,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanPendingComputeState::PrepareDescriptors(
 		FVulkanCommandListContext& InContext) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Compute.PrepareDescriptors");
 		check(CurrentPipelineState);
 		DeferredBindings.PrepareForUse(InContext, ERHIPipeline::Compute);
 		const uint64 Generation = Device.GetGlobalDescriptorPool().GetGeneration();
@@ -364,6 +365,7 @@ namespace Durin::VulkanRHI
 		uint32 GroupCountX, uint32 GroupCountY, uint32 GroupCountZ) -> void
 	{
 		PrepareDescriptors(InContext);
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Compute.DispatchNative");
 		InContext.GetCommandBuffer()->GetHandle().dispatch(
 			GroupCountX, GroupCountY, GroupCountZ);
 	}
@@ -373,6 +375,7 @@ namespace Durin::VulkanRHI
 		uint64 Offset) -> void
 	{
 		PrepareDescriptors(InContext);
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Compute.DispatchIndirectNative");
 		InContext.GetCommandBuffer()->GetHandle().dispatchIndirect(
 			ArgumentBuffer, Offset);
 	}
@@ -384,7 +387,7 @@ namespace Durin::VulkanRHI
 		bFullDescriptorValidation = Validation && std::string_view(Validation) == "on";
 	}
 
-	auto FVulkanPendingGraphicsState::SetGraphicsPipelineState(FVulkanGraphicsPipelineState& InPipelineState, vk::CommandBuffer InCmdBuffer) -> void
+	auto FVulkanPendingGraphicsState::SetGraphicsPipelineState(FVulkanGraphicsPipelineState& InPipelineState, FVulkanCommandBuffer& InCmdBuffer) -> void
 	{
 		CurrentPipelineState = &InPipelineState;
 		CurrentDescriptorState = &FindOrAddDescriptorState(InPipelineState);

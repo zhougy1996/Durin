@@ -1190,14 +1190,20 @@ namespace Durin::VulkanRHI
 
 	TEST_F(FVulkanPublicRHIConformanceTests, DynamicStateCacheResetsForNewCommandBufferRecording)
 	{
-		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		bool bPassed = false;
-		auto& Commands = FRHICommandListImmediate::Get();
-		Commands.EnqueueLambda([&] { bPassed = TestVulkanCommandBufferStateCache(); });
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-		EXPECT_TRUE(bPassed);
-		RHIExit();
-		ExpectVulkanModuleUnloaded();
+		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			SCOPED_TRACE(Mode);
+			_putenv_s("DURIN_RHI_EXECUTION", Mode);
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+			bool bPassed = false;
+			auto& Commands = FRHICommandListImmediate::Get();
+			Commands.EnqueueLambda([&] { bPassed = TestVulkanCommandBufferStateCache(); });
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			EXPECT_TRUE(bPassed);
+			RHIExit();
+			ExpectVulkanModuleUnloaded();
+		}
 	}
 
 	TEST_F(FVulkanPublicRHIConformanceTests, DynamicOffsetsReuseSparseArrayDescriptorsAndSelectCorrectPixels)
@@ -1457,6 +1463,7 @@ namespace Durin::VulkanRHI
 				Commands.SetPreparedShaderParameters(Green);
 				Commands.Draw({.VertexCount = 3});
 				Commands.SetGraphicsPipelineState(*Compatible);
+				Commands.SetGraphicsPipelineState(*Compatible);
 				Commands.SetViewport(4, 0, 0, 6, 8, 1);
 				Commands.SetPreparedShaderParameters(AlternateCommon);
 				Commands.SetPreparedShaderParameters(AlternateRed);
@@ -1479,6 +1486,7 @@ namespace Durin::VulkanRHI
 				}
 				const auto Work = GetVulkanHotPathWorkTestStats();
 				EXPECT_EQ(Work.DescriptorHashes, 10u);
+				EXPECT_EQ(Work.PipelineBinds, 3u);
 				EXPECT_EQ(Work.DescriptorOwnerRebuilds, 7u);
 				FRHIDiagnosticSnapshot Snapshot;
 				GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
