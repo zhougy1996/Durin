@@ -1,7 +1,7 @@
 {
     "ModuleName": "AssetTools",
     "LinkType": "Shared",
-    "PCH": "SharedPCH_DObject",
+    "PCH": "SharedPCH_Engine",
     "PrivateDependencies": [
         "DurinEd",
         "AssetMaintenance"
