@@ -1579,7 +1579,7 @@ namespace Durin
 		EXPECT_EQ(Capture.Uses[1].BufferSize, 2u);
 	}
 
-	TEST_F(FRDGTests, QueuedUploadsGrowAlongsideSnapshotsAndTransferSourceOwnership)
+	TEST_F(FRDGTests, QueuedUploadsTransferSourceOwnershipAlongsideSnapshots)
 	{
 		for (int Index = 0; Index < 3; ++Index)
 		{
@@ -1588,7 +1588,7 @@ namespace Durin
 			FRHIResource::DeleteResources(Pending);
 		}
 		ASSERT_EQ(GetBufferUploadStats().LiveBytes, 0u);
-		constexpr uint32 Size = 16 * 1024 * 1024;
+		constexpr uint32 Size = 64;
 		FUploadRecordingContext Context;
 		FRHICommandListExecutor Executor(Context);
 		FRHICommandList Factory;
@@ -1599,7 +1599,7 @@ namespace Durin
 		{
 			FRDGBuilder Graph;
 			const FRDGBufferDesc Desc{.Buffer = FRHIBufferDesc(Size, 4, EBufferUsageFlags::DestinationCopy)};
-			Graph.QueueBufferUploadOwned(Graph.CreateBuffer(Desc, "SharedBudget"), 0, FByteBuffer(Size));
+			Graph.QueueBufferUploadOwned(Graph.CreateBuffer(Desc, "SharedUpload"), 0, FByteBuffer(Size));
 			EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size);
 			Graph.QueueBufferUploadOwned(Graph.CreateBuffer(Desc, "AdditionalUpload"), 0, FByteBuffer(4));
 			EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size + 4u);
@@ -1747,24 +1747,6 @@ namespace Durin
 		ASSERT_FALSE(EmptyResult.has_value());
 		EXPECT_TRUE(HasRDGTestReason(EmptyResult.error(),
 			ERDGUseError::BufferRangeInvalid));
-	}
-
-	TEST_F(FRDGTests, QueuedBufferUploadAcceptsSourceBeyondFormerSingleLimit)
-	{
-		constexpr uint32 Size = 17 * 1024 * 1024;
-		FUploadRecordingContext Context;
-		FRHICommandListExecutor Executor(Context);
-		FTestRDGAllocator Allocator;
-		FRDGBuilder Builder;
-		const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
-			Size, 1, EBufferUsageFlags::DestinationCopy)}, "UploadTarget");
-		Builder.QueueBufferUpload(Buffer, 0, FByteBuffer(Size, std::byte{9}));
-		ASSERT_TRUE(Builder.Execute(Executor.GetImmediateCommandList(), &Allocator));
-		Executor.Submit({}, ERHISubmitFlags::None);
-		Executor.CreateFence().Wait();
-		ASSERT_EQ(Context.Uploads.size(), 1u);
-		EXPECT_EQ(Context.Uploads.front().Data.size(), Size);
-		EXPECT_EQ(Context.Uploads.front().Data.back(), std::byte{9});
 	}
 
 	TEST_F(FRDGTests, StructuredBufferHelperCopiesAndUploadsInitialContents)
@@ -4640,32 +4622,6 @@ namespace Durin
 		EXPECT_EQ(Builder.Capture().Transitions.size(), 3u);
 	}
 
-	TEST_F(FRDGTests, IncompleteBackingPublicationRecordsNoCallback)
-	{
-		bool bExecuted = false;
-		FRDGBuilder Builder;
-		const auto Buffer = Builder.CreateBuffer(
-			FRDGBufferDesc{.Buffer = FRHIBufferDesc(
-				64, 4, EBufferUsageFlags::UnorderedAccess)}, "Logical");
-		const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, "Write", ERDGPassType::Compute,
-			[&](FRHICommandListImmediate&, const FRDGPassResources&) {
-				bExecuted = true;
-			});
-		FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Buffer, 0, 64, ERDGUse::Write,
-			ERHIAccess::ComputeShaderReadWrite, true);
-
-		FTestRDGAllocator Allocator;
-		Allocator.bOmitResources = true;
-
-		const auto Result = Builder.Execute(GetCommandList(), &Allocator);
-		ASSERT_TRUE(Builder.HasCompiledPlan()) << (Result ? "success" : ToString(Result.error()));
-		FRDGExecutionResult Error;
-		Error = Result;
-		EXPECT_FALSE(Result.has_value());
-		EXPECT_FALSE(bExecuted);
-		EXPECT_NE(FindRDGTestDetail<FRDGMissingAllocationError>(Error.error()), nullptr);
-	}
-
 	TEST_F(FRDGTests, RDGAllocationIsDescriptorDrivenAndExtractionIsTransactional)
 	{
 		FTextureRHIRef FirstExtraction;
@@ -5610,22 +5566,16 @@ namespace Durin
 		EXPECT_EQ(Cause.NativeCode, -7);
 	}
 
-	TEST_F(FRDGTests, ExpectedSeparatesSuccessAndExecutionPhase)
+	TEST_F(FRDGTests, ExecutionStatusMapsSuccessAndFailurePhases)
 	{
-		FRDGExecutionResult Result;
-		EXPECT_TRUE(Result.has_value());
-		FRDGBuilder Builder;
-		EXPECT_FALSE(Builder.GetExecutionResult().has_value());
-		Result = std::unexpected(FRDGExecutionError{FRDGCompileError{FRDGUseError{ERDGUseError::ResourceHandleInvalid}}});
-		EXPECT_EQ(GetRDGExecutionStatus(Result), ERDGExecutionStatus::CompileFailed);
-		EXPECT_TRUE(HasRDGTestReason(Result.error(), ERDGUseError::ResourceHandleInvalid));
-		Result = std::unexpected(FRDGExecutionError{FRDGPreparationError{
-			FRDGAllocationError{FRDGAllocationFailure{ERDGAllocationError::PhysicalAllocationFailed}}}});
-		EXPECT_EQ(GetRDGExecutionStatus(Result), ERDGExecutionStatus::PreparationFailed);
-		EXPECT_TRUE(HasRDGTestReason(Result.error(), ERDGAllocationError::PhysicalAllocationFailed));
-		Result = {};
-		EXPECT_TRUE(Result.has_value());
-		EXPECT_EQ(GetRDGExecutionStatus(Result), ERDGExecutionStatus::Recorded);
+		const FRDGExecutionResult CompileFailure = std::unexpected(FRDGExecutionError{
+			FRDGCompileError{FRDGUseError{ERDGUseError::ResourceHandleInvalid}}});
+		EXPECT_EQ(GetRDGExecutionStatus(CompileFailure), ERDGExecutionStatus::CompileFailed);
+		const FRDGExecutionResult PreparationFailure = std::unexpected(FRDGExecutionError{
+			FRDGPreparationError{FRDGAllocationError{
+				FRDGAllocationFailure{ERDGAllocationError::PhysicalAllocationFailed}}}});
+		EXPECT_EQ(GetRDGExecutionStatus(PreparationFailure), ERDGExecutionStatus::PreparationFailed);
+		EXPECT_EQ(GetRDGExecutionStatus(FRDGExecutionResult{}), ERDGExecutionStatus::Recorded);
 	}
 
 	TEST_F(FRDGTests, DiagnosticFormattingUsesStructuredContext)

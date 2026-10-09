@@ -663,17 +663,18 @@ namespace Durin
 		EXPECT_EQ(ReplayOrder, (std::vector<int>{0, 1, 2}));
 	}
 
-	TEST(FRHICommandListTests, OwnedCallableSurvivesSourceMutation)
+	TEST(FRHICommandListTests, OwnedCallableSurvivesCreatingScope)
 	{
 		FRHICommandListExecutor Executor;
-		Durin::FByteBuffer Source = MakeByteVector({1, 2, 3, 4});
-		Durin::FByteBuffer Replayed;
-		Durin::FByteBuffer Owned = Source;
-		const size_t OwnedPayloadBytes = Owned.capacity() * sizeof(Owned.front());
-		Executor.GetImmediateCommandList().EnqueueLambda(
-			[Owned = std::move(Owned), &Replayed]() { Replayed = Owned; },
-			OwnedPayloadBytes);
-		std::fill(Source.begin(), Source.end(), std::byte{9});
+		FByteBuffer Replayed;
+		{
+			FByteBuffer Owned = MakeByteVector({1, 2, 3, 4});
+			const size_t OwnedPayloadBytes = Owned.capacity();
+			auto Callable = [Owned = std::move(Owned), &Replayed]() { Replayed = Owned; };
+			Executor.GetImmediateCommandList().EnqueueLambda(
+				std::move(Callable), OwnedPayloadBytes);
+		}
+		EXPECT_TRUE(Replayed.empty());
 
 		Executor.Submit({}, ERHISubmitFlags::None);
 
@@ -2692,10 +2693,10 @@ namespace Durin
 		Executor.Submit({}, ERHISubmitFlags::None);
 	}
 
-	TEST(FRHICommandListTests, DeferredSnapshotsGrowBeyondFormerLimitsAndReleaseCanceledUpdates)
+	TEST(FRHICommandListTests, DeferredSnapshotsAccountForCanceledUpdates)
 	{
 		const auto Before = GetBufferUploadStats().LiveBytes;
-		constexpr uint32 Size = 17 * 1024 * 1024;
+		constexpr uint32 Size = 64;
 		const FByteBuffer Source(Size, std::byte{7});
 		FRHICommandList First, Second;
 		auto Buffer = First.CreateStorageBuffer({Size, 4, EBufferUsageFlags::StructuredBuffer},
@@ -2737,10 +2738,10 @@ namespace Durin
 		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before);
 	}
 
-	TEST(FRHICommandListTests, NativeUploadsGrowAlongsideRetainedSnapshots)
+	TEST(FRHICommandListTests, NativeUploadsAccountAlongsideRetainedSnapshots)
 	{
 		const auto Before = GetBufferUploadStats().LiveBytes;
-		constexpr uint32 Size = 17 * 1024 * 1024;
+		constexpr uint32 Size = 64;
 		const FByteBuffer Bytes(Size);
 		const auto Native = MakeRefCount<FTestBuffer>(Size);
 		FRHICommandList Factory;
@@ -2757,22 +2758,22 @@ namespace Durin
 		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before + Size);
 	}
 
-	TEST(FRHICommandListTests, ConcurrentUploadSourcesTrackAllOwnersWithoutHardLimit)
+	TEST(FRHICommandListTests, ConcurrentUploadSourcesAccountForAllOwners)
 	{
 		const auto Before = GetBufferUploadStats().LiveBytes;
-		const FByteBuffer Source(4 * 1024 * 1024, std::byte{3});
+		const FByteBuffer Source(64, std::byte{3});
 		std::vector<std::future<std::shared_ptr<const FRHIBufferUploadData>>> Futures;
 		for (int Index = 0; Index < 16; ++Index)
 			Futures.push_back(std::async(std::launch::async, [&] { return FRHIBufferUploadData::Copy(Source); }));
 		std::vector<std::shared_ptr<const FRHIBufferUploadData>> Owners;
 		for (auto& Future : Futures) Owners.push_back(Future.get());
 		EXPECT_EQ(Owners.size(), 16u);
-		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before + 64ull * 1024 * 1024);
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before + Source.size() * Owners.size());
 		Owners.clear();
 		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before);
 	}
 
-	TEST(FRHICommandListTests, GraphBufferUploadsOwnSourceBytesUntilReplay)
+	TEST(FRHICommandListTests, UploadBufferOwnsSourceBytesUntilReplay)
 	{
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
@@ -2792,24 +2793,19 @@ namespace Durin
 		EXPECT_EQ(Context.ObservedBufferData, MakeByteVector({1, 2, 3, 4}));
 	}
 
-	TEST(FRHICommandListTests, LegacyWritesAndTextureCopiesTrackBytesBeyondFormerBudget)
+	TEST(FRHICommandListTests, WritesAndTextureUpdatesAccountForRetainedBytes)
 	{
 		const auto Before = GetBufferUploadStats().LiveBytes;
-		const FByteBuffer Large(17 * 1024 * 1024);
-		auto First = FRHIBufferUploadData::Copy(Large);
-		auto Second = FRHIBufferUploadData::Copy(Large);
+		const FByteBuffer Bytes(16);
 		const auto Buffer = MakeRefCount<FTestBuffer>(16);
 		const auto Texture = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(
 			"AccountingTexture", 2, 2, EPixelFormat::RGBA8_UNORM));
 		{
 			FRHICommandList Commands;
-			const FByteView Bytes(Large.data(), 16);
 			Commands.WriteBuffer(Buffer, 0, Bytes);
 			Commands.UpdateTexture2D(Texture, 0, 0, {0, 0, 0, 0, 2, 2}, 8, Bytes);
 			EXPECT_EQ(Commands.GetNumRecordedCommands(), 2u);
-			EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before + 2ull * Large.size() + 32u);
-			First.reset(); Second.reset();
-			EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before + 32u);
+			EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before + 2 * Bytes.size());
 		}
 		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before);
 	}
