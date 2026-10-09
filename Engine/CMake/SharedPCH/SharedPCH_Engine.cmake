@@ -1,4 +1,4 @@
-# Shared PCH for modules that consume Engine's reflected types and RHI resources.
+# Shared PCH for modules that consume Engine's reflected actor/component types.
 
 include_guard(GLOBAL)
 
