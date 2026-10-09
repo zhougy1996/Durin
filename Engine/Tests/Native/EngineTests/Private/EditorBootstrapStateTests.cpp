@@ -5,35 +5,7 @@
 
 namespace Durin::Editor::Host
 {
-	TEST(FEditorBootstrapStateTests, AllowsOnlyDocumentedForwardTransitions)
-	{
-		EXPECT_TRUE(IsValidBootstrapTransition(
-			EBootstrapState::ConstructingShell,
-			EBootstrapState::WaitingForFirstPresent));
-		EXPECT_TRUE(IsValidBootstrapTransition(
-			EBootstrapState::WaitingForFirstPresent,
-			EBootstrapState::LoadingWorkspace));
-		EXPECT_TRUE(IsValidBootstrapTransition(
-			EBootstrapState::WaitingForFirstPresent,
-			EBootstrapState::Ready));
-		EXPECT_TRUE(IsValidBootstrapTransition(
-			EBootstrapState::LoadingWorkspace,
-			EBootstrapState::WorkspaceReady));
-		EXPECT_TRUE(IsValidBootstrapTransition(
-			EBootstrapState::WorkspaceReady,
-			EBootstrapState::LoadingDefaultDocument));
-		EXPECT_TRUE(IsValidBootstrapTransition(
-			EBootstrapState::LoadingDefaultDocument,
-			EBootstrapState::Ready));
-		EXPECT_TRUE(IsValidBootstrapTransition(
-			EBootstrapState::LoadingDefaultDocument,
-			EBootstrapState::Failed));
-		EXPECT_TRUE(IsValidBootstrapTransition(
-			EBootstrapState::LoadingWorkspace,
-			EBootstrapState::Failed));
-	}
-
-	TEST(FEditorBootstrapStateTests, RejectsSkippedBackwardAndTerminalTransitions)
+	TEST(FEditorBootstrapStateTests, ValidatesEveryStatePairAgainstDocumentedTransitions)
 	{
 		constexpr std::array States{
 			EBootstrapState::ConstructingShell,

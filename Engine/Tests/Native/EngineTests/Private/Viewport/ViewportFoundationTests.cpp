@@ -440,32 +440,13 @@ TEST(FViewportStatisticsOverlayTests, AlignsWithHudSurfaceAndSuppressesUnreadabl
 	ImGui::DestroyContext(Context);
 }
 
-TEST(FEditorTransactionManagerTests, ExecutesUndoesRedoesAndClearsRedoBranch)
-{
-	int Value = 0;
-	Durin::Tests::FTestTransactorOwner Manager;
-	ASSERT_TRUE(Manager->Execute(std::make_unique<FCountingTransaction>(Value)));
-	EXPECT_EQ(Value, 1);
-	EXPECT_TRUE(Manager->CanUndo());
-	EXPECT_EQ(Manager->GetUndoDescription(), "Counting");
-	ASSERT_TRUE(Manager->Undo());
-	EXPECT_EQ(Value, 0);
-	EXPECT_TRUE(Manager->CanRedo());
-	ASSERT_TRUE(Manager->Redo());
-	EXPECT_EQ(Value, 1);
-	ASSERT_TRUE(Manager->Undo());
-	ASSERT_TRUE(Manager->Execute(std::make_unique<FCountingTransaction>(Value, 2)));
-	EXPECT_EQ(Value, 2);
-	EXPECT_FALSE(Manager->CanRedo());
-	Manager->Reset();
-	EXPECT_FALSE(Manager->CanUndo());
-}
-
 TEST(FEditorTransactionManagerTests, UsesStableIdsAndRejectsStaleUndoRequests)
 {
 	int Value = 0;
 	Durin::Tests::FTestTransactorOwner Manager;
 	ASSERT_TRUE(Manager->Execute(std::make_unique<FCountingTransaction>(Value)));
+	EXPECT_TRUE(Manager->CanUndo());
+	EXPECT_EQ(Manager->GetUndoDescription(), "Counting");
 	const Durin::Editor::FTransactionId FirstId = Manager->GetUndoId();
 	ASSERT_NE(FirstId, 0);
 	ASSERT_TRUE(Manager->Execute(std::make_unique<FCountingTransaction>(Value)));
@@ -476,6 +457,7 @@ TEST(FEditorTransactionManagerTests, UsesStableIdsAndRejectsStaleUndoRequests)
 	EXPECT_EQ(Value, 2);
 	ASSERT_TRUE(Manager->Undo(SecondId));
 	EXPECT_EQ(Value, 1);
+	EXPECT_TRUE(Manager->CanRedo());
 	EXPECT_TRUE(Manager->GetRedoId() == SecondId);
 	ASSERT_TRUE(Manager->Redo(SecondId));
 	EXPECT_EQ(Value, 2);
@@ -525,9 +507,12 @@ TEST(FEditorTransactionManagerTests, ClearsRedoBranchAndPendingEventsOnNewCommit
 	int Value = 0;
 	Durin::Tests::FTestTransactorOwner Manager;
 	ASSERT_TRUE(Manager->Execute(std::make_unique<FCountingTransaction>(Value)));
+	EXPECT_EQ(Value, 1);
 	const Durin::Editor::FTransactionId OldId = Manager->GetUndoId();
 	ASSERT_TRUE(Manager->Undo(OldId));
+	EXPECT_EQ(Value, 0);
 	ASSERT_TRUE(Manager->Execute(std::make_unique<FCountingTransaction>(Value, 2)));
+	EXPECT_EQ(Value, 2);
 	EXPECT_FALSE(Manager->CanRedo());
 	EXPECT_FALSE(Manager->Redo(OldId));
 
