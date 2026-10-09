@@ -1,4 +1,5 @@
 #include "MaterialGraphEditSession.h"
+#include "Materials/Material.h"
 #include "DObject/Class.h"
 #include "DObject/Property.h"
 #include "DObject/Package.h"

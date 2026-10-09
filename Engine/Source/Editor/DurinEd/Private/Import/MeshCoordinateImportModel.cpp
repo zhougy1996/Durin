@@ -1,4 +1,5 @@
 #include "Import/MeshCoordinateImportModel.h"
+#include "StaticMesh/StaticMeshImportSettings.h"
 
 #include "MonaImGui.h"
 

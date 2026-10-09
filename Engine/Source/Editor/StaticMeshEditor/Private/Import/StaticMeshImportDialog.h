@@ -4,7 +4,6 @@
 
 #include "Import/ImportDialogSupport.h"
 #include "Import/MeshCoordinateImportModel.h"
-#include "StaticMesh/StaticMesh.h"
 
 namespace Durin::Editor::StaticMesh
 {

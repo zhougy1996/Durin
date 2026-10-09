@@ -7,7 +7,6 @@
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialProgramTypes.h"
 #include "Materials/MaterialExpressions.h"
-#include "Texture/Texture2D.h"
 
 #include "Materials/MaterialGraphChanges.h"
 
@@ -15,6 +14,7 @@
 
 namespace Durin
 {
+	class DTexture2D;
 	class IObjectReplacementParticipant;
 	// Rebinds native parameter-schema texture references alongside reflected graph owners.
 	ENGINE_API auto MakeMaterialReferenceReplacementParticipant() -> std::shared_ptr<IObjectReplacementParticipant>;

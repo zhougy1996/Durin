@@ -1,4 +1,5 @@
 #include "Graph/MaterialGraphCanvas.h"
+#include "Materials/Material.h"
 #include "MaterialGraphDocument.h"
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Transactions/Transaction.h"

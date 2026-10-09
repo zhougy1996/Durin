@@ -4,7 +4,7 @@
 
 #include "RenderCoreAPI.h"
 #include "Misc/Guid.h"
-#include "RHIResources.h"
+#include "RHIDefinitions.h"
 
 namespace Durin
 {

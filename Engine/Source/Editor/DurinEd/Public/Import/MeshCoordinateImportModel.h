@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "DurinEdAPI.h"
-#include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshImportSettings.h"
 
 namespace Durin::Editor
 {

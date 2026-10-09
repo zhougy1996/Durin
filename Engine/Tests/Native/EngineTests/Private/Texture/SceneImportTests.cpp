@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "StaticMesh/StaticMeshImportSettings.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/FunctionPortTestFixture.h"
 #include "Misc/MountPathTestSupport.h"

@@ -1,4 +1,5 @@
 #include "Asset/AssetCompilingManager.h"
+#include "StaticMesh/StaticMeshImportSettings.h"
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Texture/TextureCubeFactoryTestSupport.h"

@@ -5,11 +5,12 @@
 #include "Materials/MaterialExpressions.h"
 
 #include "MaterialEditorAPI.h"
-#include "Materials/Material.h"
+#include "Materials/MaterialProgramTypes.h"
 #include "DObject/WeakObjectPtr.h"
 
 namespace Durin
 {
+	class DMaterial;
 	class DTransactor;
 }
 

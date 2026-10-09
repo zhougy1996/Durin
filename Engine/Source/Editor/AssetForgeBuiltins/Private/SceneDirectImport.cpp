@@ -1,4 +1,5 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
+#include "StaticMesh/StaticMeshImportSettings.h"
 #include "AssetForge/Builtins/SceneImport.h"
 #include "AssetForge/Builtins/SceneImportData.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"

@@ -1,4 +1,5 @@
 #include "MaterialExpressionParameters.h"
+#include "Materials/Material.h"
 #include "Materials/MaterialExpressionBuild.h"
 #include "MaterialGraphEditInternals.h"
 #include "MaterialGraphDocument.h"

@@ -2,7 +2,7 @@
 
 #include "DObject/Class.h"
 #include "Asset/SourceHint.h"
-#include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshImportSettings.h"
 #include "Texture/Texture2DCompilationTypes.h"
 #include "Threading/RunnableThread.h"
 

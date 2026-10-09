@@ -1,4 +1,5 @@
 #include "MaterialGraphCanvas.h"
+#include "Materials/Material.h"
 #include "Widgets/MaterialDetailsStyle.h"
 #include "MaterialGraphDocument.h"
 #include "MaterialGraphEditSession.h"

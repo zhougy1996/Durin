@@ -1,4 +1,5 @@
 #include "MaterialGraphDocument.h"
+#include "Materials/Material.h"
 
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Asset/AssetPicker.h"

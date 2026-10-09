@@ -4,7 +4,7 @@
 
 #include "AssetForgeBuiltinsAPI.h"
 #include "Asset/AssetImportData.h"
-#include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshImportSettings.h"
 
 #include "StaticMeshImportData.gen.h"
 

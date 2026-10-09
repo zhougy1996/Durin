@@ -5,7 +5,6 @@
 #include "Import/ImportDialogSupport.h"
 #include "Import/MeshCoordinateImportModel.h"
 #include "AssetForge/Builtins/AssetImport.h"
-#include "StaticMesh/StaticMesh.h"
 
 namespace Durin::Editor
 {

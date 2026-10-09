@@ -4,7 +4,7 @@
 
 #include "AssetForge/Builtins/AssetImportTypes.h"
 #include "AssetForgeBuiltinsAPI.h"
-#include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshImportSettings.h"
 
 namespace Durin
 {

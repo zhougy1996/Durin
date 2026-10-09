@@ -1,4 +1,5 @@
 #include "StaticMesh/StaticMeshAttributes.h"
+#include "StaticMesh/StaticMeshImportSettings.h"
 #include "Runtime/Engine/Private/Physics/PhysicsCookDerivedDataKey.h"
 #include "../../../../Source/Developer/DerivedDataCache/Private/DerivedDataCacheStorage.h"
 #include "Physics/PhysicsDerivedData.h"

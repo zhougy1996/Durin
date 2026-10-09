@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "MaterialGraphDocument.h"
+#include "Materials/Material.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectGlobals.h"
 

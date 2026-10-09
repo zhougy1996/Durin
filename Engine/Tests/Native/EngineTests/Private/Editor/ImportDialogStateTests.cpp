@@ -1,4 +1,5 @@
 #include "Misc/MountPathTestSupport.h"
+#include "StaticMesh/StaticMeshImportSettings.h"
 #include "Import/ImportDialogSupport.h"
 #include "Import/MeshCoordinateImportModel.h"
 

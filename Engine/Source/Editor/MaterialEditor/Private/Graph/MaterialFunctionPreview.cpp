@@ -1,4 +1,5 @@
 #include "Materials/MaterialExpressionBuild.h"
+#include "Materials/Material.h"
 #include "MaterialFunctionPreview.h"
 #include "MaterialGraphEditInternals.h"
 #include "MaterialGraphEditSession.h"
