@@ -1,7 +1,7 @@
 {
     "ModuleName": "ContentBrowser",
     "LinkType": "Shared",
-    "PCH": "SharedPCH_MonaEditor",
+    "PCH": "SharedPCH_DurinEd",
     "PrivateDependencies": [
 		"Core",
 		"AssetRegistry",
