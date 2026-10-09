@@ -4,7 +4,6 @@
 
 namespace Durin
 {
-	struct FRHIRenderTargetsInfo;
 	struct FRHITextureDesc;
 	struct FRHITextureCreateDesc;
 	struct FRHIBufferCreateDesc;

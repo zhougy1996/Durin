@@ -1,6 +1,7 @@
 #include "../../RDGTestAccess.h"
 #include "RDG/RDG.h"
 #include "RDGParameterTestSupport.h"
+#include "RDGCompileTestSupport.h"
 #include <gtest/gtest.h>
 
 namespace Durin
@@ -32,18 +33,8 @@ namespace Durin
 	TEST(FRDGQualificationTests, DumpIsDeterministicAndSyntheticCompileCostIsBounded)
 	{
 		auto CompileFixture = [] {
-			static const auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
-				"Fixture", 512, 4, EBufferUsageFlags::UnorderedAccess
-			));
 			FRDGBuilder Builder;
-			const auto Work = Builder.CreateBuffer({.Buffer = Buffer->GetDesc()}, "Fixture");
-			for (uint32 Index = 0; Index < 128; ++Index)
-			{
-				const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, "Pass" + std::to_string(Index),
-					ERDGPassType::Compute);
-				FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Work, 0, 512, ERDGUse::Write,
-					ERHIAccess::ComputeShaderReadWrite, Index == 0);
-			}
+			PopulateRDGSyntheticCompileGraph(Builder);
 			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
 			EXPECT_TRUE(Result.has_value()) << ToString(Result.error());
 			return Builder.Capture();

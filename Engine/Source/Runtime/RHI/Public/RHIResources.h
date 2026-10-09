@@ -1152,16 +1152,6 @@ namespace Durin
 		}
 	};
 
-	// Collects live render-target resources used to derive a compatible layout.
-	struct FRHIRenderTargetsInfo
-	{
-		FRHITexture* ColorRenderTargets[MaxSimultaneousRenderTargets]{};
-		FRHITexture* ColorResolveTargets[MaxSimultaneousRenderTargets]{};
-		FRHITexture* DepthStencilRenderTarget = nullptr;
-		int32 NumColorRenderTargets = 0;
-		bool bClearColor = false;
-	};
-
 	// Binds a render-target layout to concrete attachments and clear values for one pass.
 	struct FRHIRenderPassInfo
 	{
