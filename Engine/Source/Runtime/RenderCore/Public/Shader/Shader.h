@@ -5,14 +5,15 @@
 #include "Shader/ShaderDiagnostics.h"
 
 #include "RenderCoreAPI.h"
-#include "RHICommandList.h"
 #include "RHIResources.h"
+#include "RHIShaderParameters.h"
 #include "RDG/RDGParameters.h"
 
 #include "ShaderCompilerCore.h"
 
 namespace Durin
 {
+	class FRHICommandListBase;
 	class FShaderType;
 	class FShader;
 	class FShaderMapBase;

@@ -1,4 +1,7 @@
 #include "Shader/Shader.h"
+
+#include "DynamicRHI.h"
+#include "RHICommandList.h"
 #include "ShaderBindingInternal.h"
 
 namespace Durin

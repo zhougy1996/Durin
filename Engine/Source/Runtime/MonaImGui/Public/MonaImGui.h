@@ -8,12 +8,12 @@
 #include "Widgets/MonaImGuiPropertyTable.h"
 #include "Widgets/MonaImGuiWidgets.h"
 #include "Math/MathFwd.h"
-#include "RHIResources.h"
 // ReSharper disable once CppUnusedIncludeDirective
 #include "ImGui/ImGuiCommon.h"
 
 namespace Durin
 {
+	class FRHITexture;
 	class MWindow;
 
 	namespace MonaImGui
