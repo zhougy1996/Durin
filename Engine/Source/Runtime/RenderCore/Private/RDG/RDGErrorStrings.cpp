@@ -77,7 +77,7 @@ namespace Durin
 		case ERDGIdentityError::ResourceNameEmpty: return "resource name empty";
 		case ERDGIdentityError::PhysicalResourceMissing: return "physical resource missing";
 		case ERDGIdentityError::ExternalFinalAccessMissing: return "external final access missing";
-		case ERDGIdentityError::ExternalBufferUpdatePolicyInvalid: return "external buffer requires native GPU updates";
+		case ERDGIdentityError::ExternalBufferTypeInvalid: return "external buffer requires native GPU updates";
 		case ERDGIdentityError::ResourceNameDuplicate: return "resource name duplicate";
 		case ERDGIdentityError::PassNameEmpty: return "pass name empty";
 		case ERDGIdentityError::PassNameDuplicate: return "pass name duplicate";

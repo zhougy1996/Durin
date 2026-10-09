@@ -370,8 +370,8 @@ namespace Durin
 		-> std::expected<void, ERHIIndirectCommandError>
 	{
 		if (!Buffer) return std::unexpected(ERHIIndirectCommandError::NullBuffer);
-		if (IsSnapshotStorageBuffer(Buffer))
-			return std::unexpected(ERHIIndirectCommandError::SnapshotStorageBuffer);
+		if (IsStorageBuffer(Buffer))
+			return std::unexpected(ERHIIndirectCommandError::StorageBuffer);
 		if (!EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::DrawIndirect))
 			return std::unexpected(ERHIIndirectCommandError::MissingIndirectUsage);
 		if ((Offset & 3u) != 0)

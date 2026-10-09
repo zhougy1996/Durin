@@ -4,7 +4,8 @@
 #include "RHIContext.h"
 #include "DynamicRHI.h"
 #include "Backend/RHIShaderParameterValidationInternal.h"
-#include "Backend/RHIStorageBufferBackend.h"
+#include "RHIBufferUploadData.h"
+#include "Backend/RHIStorageBuffer.h"
 #include "RHIThread.h"
 #include "Threading/ThreadEvent.h"
 #include "Threading/RunnableThread.h"
@@ -67,13 +68,6 @@ namespace Durin
 			}
 		};
 
-		class FNativeTestStorageBuffer final : public FRHIStorageBuffer
-		{
-		public:
-			FNativeTestStorageBuffer()
-				: FRHIStorageBuffer(FRHIBufferCreateDesc::Create(
-					"NativeStorage", 16, 4, EBufferUsageFlags::StructuredBuffer)) {}
-		};
 		class FTestShader final : public FRHIShader
 		{
 		public:
@@ -2487,17 +2481,7 @@ namespace Durin
 		EXPECT_EQ(Context.ObservedBufferData, MakeByteVector({1, 2, 3, 4}));
 	}
 
-	TEST(FRHICommandListTests, NativeStorageUsesPhysicalBufferValidation)
-	{
-		const auto Storage = MakeRefCount<FNativeTestStorageBuffer>();
-		EXPECT_EQ(Storage->GetResourceType(), ERHIResourceType::StorageBuffer);
-		EXPECT_EQ(Storage->GetUpdatePolicy(), ERHIStorageBufferUpdatePolicy::Native);
-		EXPECT_TRUE(IsBufferResource(Storage));
-		EXPECT_FALSE(IsSnapshotStorageBuffer(Storage));
-		EXPECT_FALSE(IsLogicalBufferBindingResource(Storage));
-		EXPECT_TRUE(ValidateBufferViewDesc(Storage, {0, 16, ERHIBufferViewType::StructuredStorage}));
-	}
-	TEST(FRHICommandListTests, SnapshotStorageBuffersRejectNativeOperations)
+	TEST(FRHICommandListTests, StorageBuffersRejectNativeOperations)
 	{
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
@@ -2508,9 +2492,8 @@ namespace Durin
 			ERHIBufferLifetimeUsage::SingleDraw, FByteBuffer(16));
 		ASSERT_TRUE(Storage && Uniform);
 		const auto Native = MakeRefCount<FTestBuffer>(16);
-		EXPECT_FALSE(IsSnapshotStorageBuffer(Native));
+		EXPECT_FALSE(IsStorageBuffer(Native));
 		EXPECT_EQ(Storage->GetResourceType(), ERHIResourceType::StorageBuffer);
-		EXPECT_EQ(Storage->GetUpdatePolicy(), ERHIStorageBufferUpdatePolicy::Snapshot);
 		EXPECT_TRUE(IsLogicalBufferBindingResource(Storage));
 		EXPECT_EQ(Uniform->GetLayout().ConstantBufferSize, 16u);
 		EXPECT_EQ(Uniform->GetLifetimeUsage(), ERHIBufferLifetimeUsage::SingleDraw);
@@ -2537,7 +2520,7 @@ namespace Durin
 		EXPECT_EQ(Commands.GetNumRecordedCommands(), 0u);
 	}
 
-	TEST(FRHICommandListTests, DeferredStorageVersionsFollowReplayOrderAcrossLists)
+	TEST(FRHICommandListTests, StoragePartialUpdatesFollowReplayOrderAcrossLists)
 	{
 		for (const bool bThreaded : {false, true})
 		{
@@ -2561,9 +2544,10 @@ namespace Durin
 				std::fill(Source.begin(), Source.end(), std::byte{0});
 				EXPECT_EQ(Creator.GetNumRecordedCommands(), 0u);
 			}
-			std::vector<std::shared_ptr<const FRHIStorageBufferSnapshot>> Observed;
+			std::vector<FByteBuffer> Observed;
 			auto Observe = [Buffer, &Observed]() {
-				Observed.push_back(FRHIStorageBufferBackend::ResolveSnapshot(*Buffer));
+				const auto Bytes = static_cast<FRHIStorageBuffer*>(Buffer.GetReference())->GetContents();
+				Observed.emplace_back(Bytes.begin(), Bytes.end());
 			};
 			Executor->GetImmediateCommandList().EnqueueLambda(Observe, 0);
 			FRHICommandList First;
@@ -2586,9 +2570,7 @@ namespace Durin
 				MakeByteVector({9, 8, 3, 4, 5, 6, 7, 8})};
 			for (size_t Index = 0; Index < Observed.size(); ++Index)
 			{
-				const auto Bytes = Observed[Index]->GetData();
-				EXPECT_EQ(FByteBuffer(Bytes.begin(), Bytes.end()), Expected[Index]);
-				EXPECT_EQ(Observed[Index]->GetVersion(), Index);
+				EXPECT_EQ(Observed[Index], Expected[Index]);
 			}
 		}
 	}
@@ -2751,7 +2733,7 @@ namespace Durin
 		Executor.Submit({}, ERHISubmitFlags::None);
 	}
 
-	TEST(FRHICommandListTests, DeferredSnapshotsAccountForCanceledUpdates)
+	TEST(FRHICommandListTests, StorageUpdatesOwnOnlyTheirPatchBytes)
 	{
 		const auto Before = GetBufferUploadStats().LiveBytes;
 		constexpr uint32 Size = 64;
@@ -2763,10 +2745,12 @@ namespace Durin
 			FRHICommandList Canceled;
 			Canceled.UpdateBuffer(Buffer, 0, Source);
 			Second.UpdateBuffer(Buffer, 0, MakeByteVector({1}));
-			EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before + 3ull * Size);
+			EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before + 2ull * Size + 1);
 			EXPECT_EQ(Second.GetNumRecordedCommands(), 1u);
+			const auto Contents = static_cast<FRHIStorageBuffer*>(Buffer.GetReference())->GetContents();
+			EXPECT_EQ(FByteBuffer(Contents.begin(), Contents.end()), Source);
 		}
-		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before + 2ull * Size);
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before + Size + 1);
 	}
 
 	TEST(FRHICommandListTests, SharedUploadDataChargesCapacityUntilLastCommandIsCanceled)
@@ -2796,7 +2780,7 @@ namespace Durin
 		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before);
 	}
 
-	TEST(FRHICommandListTests, NativeUploadsAccountAlongsideRetainedSnapshots)
+	TEST(FRHICommandListTests, NativeUploadsAccountAlongsideStorageContents)
 	{
 		const auto Before = GetBufferUploadStats().LiveBytes;
 		constexpr uint32 Size = 64;

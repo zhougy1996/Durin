@@ -1,4 +1,4 @@
-#include "Backend/RHIStorageBufferBackend.h"
+#include "Backend/RHIStorageBuffer.h"
 #include "RHICommandList.h"
 #include "DynamicRHI.h"
 
@@ -62,7 +62,7 @@ namespace Durin
 			BackingLiveBytes.load(), BackingPeakBytes.load(), BackingCapacity.load()};
 	}
 
-	auto FRHIStorageBufferBackend::RecordAdmission(uint64 Bytes, uint64 Capacity, bool bAcquire) -> void
+	auto FRHIBufferUploadAccounting::RecordBackingAdmission(uint64 Bytes, uint64 Capacity, bool bAcquire) -> void
 	{
 		if (!bAcquire)
 		{
@@ -116,75 +116,32 @@ namespace Durin
 		return Result;
 	}
 
-	FRHIStorageBufferSnapshot::FRHIStorageBufferSnapshot(uint32 InSize)
-		: Data(std::make_unique<std::byte[]>(InSize)), Size(InSize) {}
-
-	FRHIStorageBufferSnapshot::~FRHIStorageBufferSnapshot()
+	FRHIStorageBuffer::FRHIStorageBuffer(const FRHIBufferDesc& InDesc,
+		ERHIBufferLifetimeUsage Usage, FByteView InitialData)
+		: FRHIBuffer(InDesc, ERHIResourceType::StorageBuffer), LifetimeUsage(Usage),
+		Accounting(FRHIBufferUploadAccounting::Track(InDesc.Size)),
+		Contents(InitialData.begin(), InitialData.end())
 	{
-		Data.reset();
+		require(InitialData.size() == InDesc.Size);
 	}
 
-	auto FRHIStorageBufferSnapshot::Allocate(const FRHIBufferDesc& Desc)
-		-> std::shared_ptr<FRHIStorageBufferSnapshot>
-	{
-		auto Accounting = FRHIBufferUploadAccounting::Track(Desc.Size);
-		auto Admission = GDynamicRHI ? GDynamicRHI->RHIReserveBufferBacking(Desc) : std::shared_ptr<void>{};
-		auto Result = std::shared_ptr<FRHIStorageBufferSnapshot>(new FRHIStorageBufferSnapshot(Desc.Size));
-		Result->BackingAdmission = std::move(Admission);
-		Result->OwnedBytes = Desc.Size;
-		Result->Accounting = std::move(Accounting);
-		return Result;
-	}
-
-
-	auto FRHIStorageBuffer::ApplyUpdate(std::shared_ptr<FRHIStorageBufferSnapshot> Next,
-		uint32 Offset, uint32 Size) -> void
+	auto FRHIStorageBuffer::UpdateContents(uint32 Offset, FByteView Data) -> void
 	{
 		require(IsExecutingRHICommands());
-		// Preserve bytes from the replay-visible predecessor, never recording order.
-		if (Offset != 0) std::memcpy(Next->Data.get(), Current->Data.get(), Offset);
-		const uint32 End = Offset + Size;
-		if (End < Desc.Size)
-			std::memcpy(Next->Data.get() + End, Current->Data.get() + End, Desc.Size - End);
-		require(Current->Version != UINT64_MAX);
-		Next->Version = Current->Version + 1;
-		Current = std::move(Next);
-	}
-
-	auto FRHIStorageBufferBackend::ResolveSnapshot(const FRHIBuffer& Buffer)
-		-> std::shared_ptr<const FRHIStorageBufferSnapshot>
-	{
-		require(IsExecutingRHICommands() && IsSnapshotStorageBuffer(&Buffer));
-		return static_cast<const FRHIStorageBuffer&>(Buffer).Current;
-	}
-
-	auto FRHIStorageBufferBackend::GetBacking(const FRHIStorageBufferSnapshot& Snapshot,
-		const void* Context) -> std::shared_ptr<void>
-	{
-		require(IsExecutingRHICommands());
-		const auto It = Snapshot.Backings.find(Context);
-		return It == Snapshot.Backings.end() ? nullptr : It->second.lock();
-	}
-
-	auto FRHIStorageBufferBackend::SetBacking(const FRHIStorageBufferSnapshot& Snapshot,
-		const void* Context, std::shared_ptr<void> Backing) -> void
-	{
-		require(IsExecutingRHICommands() && Context && Backing);
-		require(Snapshot.Backings[Context].expired());
-		Snapshot.Backings[Context] = std::move(Backing);
+		require(!Data.empty() && Offset <= GetSize() && Data.size() <= GetSize() - Offset);
+		std::memcpy(Contents.data() + Offset, Data.data(), Data.size());
 	}
 
 	auto FRHICommandListBase::CreateStorageBuffer(const FRHIBufferDesc& Desc,
 		ERHIBufferLifetimeUsage Usage, FByteView InitialData)
-		-> TRefCountPtr<FRHIStorageBuffer>
+		-> TRefCountPtr<FRHIBuffer>
 	{
 		require(IsRecording());
 		requiref(ValidateDeferredDescriptor(Desc, Usage), "Invalid upload buffer descriptor or lifetime usage.");
 		require(InitialData.size() == Desc.Size);
 		require(!EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer));
-		auto Snapshot = FRHIStorageBufferSnapshot::Allocate(Desc);
-		std::memcpy(Snapshot->Data.get(), InitialData.data(), Desc.Size);
-		return TRefCountPtr<FRHIStorageBuffer>(new FRHIStorageBuffer(Desc, Usage, std::move(Snapshot)));
+		return GDynamicRHI ? GDynamicRHI->RHICreateStorageBuffer(Desc, Usage, InitialData)
+			: TRefCountPtr<FRHIBuffer>(new FRHIStorageBuffer(Desc, Usage, InitialData));
 	}
 
 	auto FRHICommandListBase::CreateUniformBufferRange(const void* Data, uint32 Size) -> FRHIUniformBufferRange
@@ -224,6 +181,12 @@ namespace Durin
 		for (auto* Reference : References) PendingReferences.emplace_back(Reference);
 	}
 
+	auto FDynamicRHI::RHICreateStorageBuffer(const FRHIBufferDesc& Desc,
+		ERHIBufferLifetimeUsage Usage, FByteView InitialData) -> TRefCountPtr<FRHIBuffer>
+	{
+		return new FRHIStorageBuffer(Desc, Usage, InitialData);
+	}
+
 	auto FDynamicRHI::RHICreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
 		ERHIBufferLifetimeUsage Usage, FByteView InitialData, std::span<FRHIResource* const> References)
 		-> TRefCountPtr<FRHIUniformBuffer>
@@ -255,33 +218,23 @@ namespace Durin
 	auto FRHICommandListBase::UpdateBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
 		-> void
 	{
-		require(IsRecording());
-		require(Buffer && !EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::UniformBuffer));
-		UpdateSnapshotStorageBuffer(Buffer, Offset, Data);
-	}
-
-	auto FRHICommandListBase::UpdateSnapshotStorageBuffer(FRHIBuffer* Buffer,
-		uint32 Offset, FByteView Data)
-		-> void
-	{
-		require(IsRecording());
-		require(Buffer);
-		require(IsSnapshotStorageBuffer(Buffer));
+		require(IsRecording() && IsStorageBuffer(Buffer));
 		const auto& Desc = Buffer->GetDesc();
 		require(!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset);
 		require(!EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer));
-		auto Snapshot = FRHIStorageBufferSnapshot::Allocate(Desc);
-		std::memcpy(Snapshot->Data.get() + Offset, Data.data(), Data.size());
-		const auto OwnedBytes = Snapshot->GetOwnedPayloadBytes();
-		EnqueueLambda([Buffer = TRefCountPtr<FRHIBuffer>(Buffer),
-			Next = std::move(Snapshot), Offset, Size = static_cast<uint32>(Data.size())]() mutable {
-			static_cast<FRHIStorageBuffer*>(Buffer.GetReference())->ApplyUpdate(std::move(Next), Offset, Size);
+		auto Upload = FRHIBufferUploadData::Copy(Data);
+		const auto OwnedBytes = Upload->GetOwnedPayloadBytes();
+		EnqueueLambda([Buffer = TRefCountPtr<FRHIStorageBuffer>(static_cast<FRHIStorageBuffer*>(Buffer)),
+			Upload = std::move(Upload), Offset]() mutable {
+			Buffer->UpdateContents(Offset, Upload->GetData());
+			Upload.reset();
+			Buffer = nullptr;
 		}, OwnedBytes);
 	}
 
 	auto FRHIBufferView::CanCreate(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc) -> bool
 	{
-		if (!IsSnapshotStorageBuffer(Buffer) || !ValidateBufferViewDesc(Buffer->GetDesc(), Desc)) return false;
+		if (!IsStorageBuffer(Buffer) || !ValidateBufferViewDesc(Buffer->GetDesc(), Desc)) return false;
 		if (const auto* Caps = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr)
 		{
 			const bool bUniform = Desc.Type == ERHIBufferViewType::Uniform;
@@ -295,7 +248,7 @@ namespace Durin
 	auto FRHIBufferView::Create(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc)
 		-> TRefCountPtr<FRHIBufferView>
 	{
-		requiref(CanCreate(Buffer, Desc), "Invalid CPU-authored buffer view description or parent.");
+		requiref(CanCreate(Buffer, Desc), "Invalid Storage buffer view description or parent.");
 		return TRefCountPtr<FRHIBufferView>(new FRHIBufferView(Buffer, Desc));
 	}
 }

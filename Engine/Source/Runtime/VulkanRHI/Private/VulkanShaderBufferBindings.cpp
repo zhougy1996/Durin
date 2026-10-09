@@ -1,4 +1,6 @@
 #include "VulkanShaderBufferBindings.h"
+#include "VulkanStorageBuffer.h"
+#include "RHIBufferUploadData.h"
 #include "VulkanBuffer.h"
 #include "VulkanContext.h"
 #include "VulkanDevice.h"
@@ -21,13 +23,13 @@ namespace Durin::VulkanRHI
 		for (const auto& Slot : Slots)
 		{
 			Pages[Slot.Page].Used.erase(Slot.Offset);
-			FRHIStorageBufferBackend::RecordAdmission(Slot.Size, 0, false);
+			FRHIBufferUploadAccounting::RecordBackingAdmission(Slot.Size, 0, false);
 		}
 	}
 
 	FVulkanBindingAdmission::~FVulkanBindingAdmission()
 	{
-		FRHIStorageBufferBackend::RecordAdmission(0, Capacity, false);
+		FRHIBufferUploadAccounting::RecordBackingAdmission(0, Capacity, false);
 	}
 
 	auto FVulkanBindingAdmission::Reserve(uint64 Size) -> std::shared_ptr<FReservation>
@@ -36,50 +38,39 @@ namespace Durin::VulkanRHI
 		Size = (Size + Alignment - 1) / Alignment * Alignment;
 		auto Result = std::make_shared<FReservation>();
 		Result->Owner = shared_from_this();
-		Result->Slots.reserve(Queues.size());
 		std::lock_guard Lock(Mutex);
-		for (const auto Queue : Queues)
+		for (uint32 Index = 0; Index < Pages.size(); ++Index)
 		{
-			bool bFound = false;
-			for (uint32 Index = 0; Index < Pages.size(); ++Index)
+			auto& Page = Pages[Index];
+			if (Page.Size < Size) continue;
+			uint64 Offset = 0;
+			for (const auto& [Start, Length] : Page.Used)
 			{
-				auto& Page = Pages[Index];
-				if (Page.Queue != Queue || Page.Size < Size) continue;
-				uint64 Offset = 0;
-				for (const auto& [Start, Length] : Page.Used)
-				{
-					if (Size <= Start - Offset) break;
-					Offset = Start + Length;
-				}
-				if (Size > Page.Size - Offset) continue;
-				Page.Used.emplace(Offset, Size);
-				Result->Slots.push_back({Index, Page.Size, Queue, Offset, Size});
-				FRHIStorageBufferBackend::RecordAdmission(Size, 0, true);
-				bFound = true;
-				break;
+				if (Size <= Start - Offset) break;
+				Offset = Start + Length;
 			}
-			if (bFound) continue;
-			const uint64 PageSize = std::max<uint64>(4ull * 1024 * 1024, Size);
-			Pages.push_back({PageSize, Queue, {{0, Size}}});
-			Capacity += PageSize;
-			Result->Slots.push_back({static_cast<uint32>(Pages.size() - 1), PageSize, Queue, 0, Size});
-			FRHIStorageBufferBackend::RecordAdmission(Size, PageSize, true);
+			if (Size > Page.Size - Offset) continue;
+			Page.Used.emplace(Offset, Size);
+			Result->Slots.push_back({Index, Page.Size, Offset, Size});
+			FRHIBufferUploadAccounting::RecordBackingAdmission(Size, 0, true);
+			return Result;
 		}
+		const uint64 PageSize = std::max<uint64>(4ull * 1024 * 1024, Size);
+		Pages.push_back({PageSize, {{0, Size}}});
+		Capacity += PageSize;
+		Result->Slots.push_back({static_cast<uint32>(Pages.size() - 1), PageSize, 0, Size});
+		FRHIBufferUploadAccounting::RecordBackingAdmission(Size, PageSize, true);
 		return Result;
 	}
 
 	auto TestVulkanBindingAdmission() -> bool
 	{
 		constexpr uint64 PageSize = 4ull * 1024 * 1024;
-		const auto& QueueInfos = FVulkanDynamicRHI::Get().GetDeviceForTesting()->GetQueueCapabilities().Queues;
-		std::vector<FRHIQueueId> Queues;
-		for (const auto& Queue : QueueInfos) Queues.push_back(Queue.Id);
-		auto Admission = std::make_shared<FVulkanBindingAdmission>(256, Queues);
+		auto Admission = std::make_shared<FVulkanBindingAdmission>(256);
 		auto A = Admission->Reserve(1), B = Admission->Reserve(1), Tail = Admission->Reserve(PageSize - 512);
-		if (!A || !B || !Tail || A->Slots.size() != Queues.size()) return false;
-		for (size_t Index = 0; Index < Queues.size(); ++Index)
-			if (A->Slots[Index].Queue != Queues[Index] || A->Slots[Index].Offset != 0
-				|| B->Slots[Index].Offset != 256 || Tail->Slots[Index].Offset != 512) return false;
+		if (!A || !B || !Tail || A->Slots.size() != 1) return false;
+		if (A->Slots.front().Offset != 0 || B->Slots.front().Offset != 256
+			|| Tail->Slots.front().Offset != 512) return false;
 		// Fragmented pages grow without waiting; released adjacent intervals are reused.
 		B.reset();
 		auto Grown = Admission->Reserve(512);
@@ -100,13 +91,8 @@ namespace Durin::VulkanRHI
 		: Device(InDevice), bUniform(bInUniform)
 	{
 		const auto& Limits = Device.GetGpuProperties().limits;
-		std::vector<FRHIQueueId> Queues;
-		for (const auto& Queue : Device.GetQueueCapabilities().Queues) Queues.push_back(Queue.Id);
-		// Uniform pages are immutable and concurrently shared; one interval serves every queue.
-		if (bUniform) Queues.resize(1);
 		Admission = std::make_shared<FVulkanBindingAdmission>(std::max<uint64>({16, Limits.nonCoherentAtomSize,
-			bUniform ? Limits.minUniformBufferOffsetAlignment : Limits.minStorageBufferOffsetAlignment}),
-			std::move(Queues));
+			bUniform ? Limits.minUniformBufferOffsetAlignment : Limits.minStorageBufferOffsetAlignment}));
 	}
 
 	FVulkanBindingPool::~FVulkanBindingPool()
@@ -116,14 +102,13 @@ namespace Durin::VulkanRHI
 			if (Buffer) GVulkanMemoryBaselineTracker.RecordArenaPageFreed(EVulkanAllocationClassCandidate::DynamicUpload, Buffer->GetSize());
 	}
 
-	auto FVulkanBindingPool::Resolve(const std::shared_ptr<void>& Reservation, FRHIQueueId Queue)
+	auto FVulkanBindingPool::Resolve(const std::shared_ptr<void>& Reservation)
 		-> std::pair<TRefCountPtr<FVulkanBuffer>, uint64>
 	{
 		CheckVulkanRHIThread();
 		const auto Ticket = std::static_pointer_cast<FVulkanBindingAdmission::FReservation>(Reservation);
 		require(Ticket && Ticket->Owner == Admission);
-		const auto Slot = bUniform ? Ticket->Slots.begin()
-			: std::ranges::find(Ticket->Slots, Queue, &FVulkanBindingAdmission::FSlot::Queue);
+		const auto Slot = Ticket->Slots.begin();
 		require(Slot != Ticket->Slots.end());
 		auto& Buffer = Buffers[Slot->Page];
 		if (!Buffer)
@@ -131,7 +116,7 @@ namespace Durin::VulkanRHI
 			const auto Usage = EBufferUsageFlags::Dynamic | (bUniform ? EBufferUsageFlags::UniformBuffer
 				: EBufferUsageFlags::ShaderResource | EBufferUsageFlags::ByteAddressBuffer);
 			Buffer = new FVulkanBuffer(Device, FRHIBufferCreateDesc::Create("AdmittedBindingPage",
-				static_cast<uint32>(Slot->PageSize), 0, Usage), bUniform);
+				static_cast<uint32>(Slot->PageSize), 0, Usage), true);
 			GVulkanMemoryBaselineTracker.RecordArenaPageAllocated(EVulkanAllocationClassCandidate::DynamicUpload, Slot->PageSize);
 		}
 		return {Buffer, Slot->Offset};
@@ -141,21 +126,6 @@ namespace Durin::VulkanRHI
 		-> std::shared_ptr<void>
 	{
 		return Device->GetBindingPool(EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer)).Reserve(Desc.Size);
-	}
-
-	namespace
-	{
-		struct FDeferredBacking
-		{
-			TRefCountPtr<FVulkanBuffer> Buffer;
-			std::shared_ptr<void> Lease;
-			uint64 Offset = 0;
-			uint64 Size = 0;
-			~FDeferredBacking()
-			{
-				if (Size) GVulkanMemoryBaselineTracker.RecordArenaRangeReclaimed(EVulkanAllocationClassCandidate::DynamicUpload, Size);
-			}
-		};
 	}
 
 	auto FVulkanShaderBufferBindings::Update(
@@ -194,7 +164,6 @@ namespace Durin::VulkanRHI
 			if (!Binding.bDirty) continue;
 			const bool bUniformResource = Binding.Logical->GetResourceType() == ERHIResourceType::UniformBuffer;
 			const bool bDynamic = Binding.Parameter.Type == ERHIBindingType::UniformBufferDynamic;
-			std::shared_ptr<const FRHIStorageBufferSnapshot> Snapshot;
 			std::shared_ptr<void> Backing, Lease;
 			TRefCountPtr<FVulkanBuffer> Buffer;
 			uint64 AllocationOffset = 0;
@@ -211,26 +180,7 @@ namespace Durin::VulkanRHI
 			else
 			{
 				auto* Logical = static_cast<FRHIBufferView*>(Binding.Logical.GetReference());
-				Snapshot = FRHIStorageBufferBackend::ResolveSnapshot(*Logical->GetBuffer());
-				const auto& Desc = Logical->GetBuffer()->GetDesc();
-				auto Storage = std::static_pointer_cast<FDeferredBacking>(
-					FRHIStorageBufferBackend::GetBacking(*Snapshot, Context.GetQueue()));
-				if (!Storage)
-				{
-					const auto [Page, Offset] = Device.GetBindingPool(false).Resolve(
-						Snapshot->GetBackingAdmission(), Context.GetQueue()->GetId());
-					Storage = std::make_shared<FDeferredBacking>();
-					Storage->Buffer = Page;
-					Storage->Offset = Offset;
-					Storage->Lease = Snapshot->GetBackingAdmission();
-					Page->InitializeDeferredReadOnly(Snapshot->GetData(), static_cast<uint32>(Offset));
-					const auto& Limits = Device.GetGpuProperties().limits;
-					const uint64 Alignment = std::max<uint64>({16, Limits.nonCoherentAtomSize, Limits.minStorageBufferOffsetAlignment});
-					Storage->Size = (Desc.Size + Alignment - 1) / Alignment * Alignment;
-					GVulkanMemoryBaselineTracker.RecordArenaRangeAllocated(
-						EVulkanAllocationClassCandidate::DynamicUpload, Storage->Size, false, false);
-					FRHIStorageBufferBackend::SetBacking(*Snapshot, Context.GetQueue(), Storage);
-				}
+				const auto& Storage = static_cast<FVulkanStorageBuffer*>(Logical->GetBuffer())->GetAllocation();
 				Backing = Storage;
 				Lease = Storage->Lease;
 				Buffer = Storage->Buffer;
@@ -245,7 +195,6 @@ namespace Durin::VulkanRHI
 				|| Resolved->PhysicalOffset != PhysicalOffset || Resolved->View->GetDesc() != ViewDesc)
 			{
 				Resolved = std::make_shared<FResolved>();
-				Resolved->Snapshot = std::move(Snapshot);
 				Resolved->Backing = std::move(Backing);
 				Resolved->Lease = std::move(Lease);
 				Resolved->PhysicalOffset = PhysicalOffset;

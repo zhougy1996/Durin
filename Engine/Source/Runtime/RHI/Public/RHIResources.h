@@ -13,12 +13,9 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 	class FRHIBuffer;
-	class FRHIStorageBuffer;
-	class FRHIStorageBufferSnapshot;
 	class FRHIUniformBuffer;
 	class FRHIBufferUploadData;
 	class FRHICommandListBase;
-	class FRHIStorageBufferBackend;
 	class FRHITextureView;
 	class FDynamicRHI;
 	struct FRHICapabilities;
@@ -1738,7 +1735,7 @@ namespace Durin
 	enum class ERHIIndirectCommandError : uint8
 	{
 		NullBuffer,
-		SnapshotStorageBuffer,
+		StorageBuffer,
 		MissingIndirectUsage,
 		MisalignedOffset,
 		RangeOutOfBounds,
@@ -1955,8 +1952,6 @@ namespace Durin
 		const char* DebugName = nullptr;
 	};
 
-	// Snapshot storage rebuilds immutable contents; native storage uses GPU-ordered operations.
-	enum class ERHIStorageBufferUpdatePolicy : uint8 { Native, Snapshot };
 	enum class ERHIBufferLifetimeUsage : uint8 { SingleDraw, SingleFrame, MultiFrame };
 	struct FRHIUniformBufferLayout { uint32 ConstantBufferSize = 0; };
 	struct FRHIBufferUploadStats
@@ -1996,30 +1991,6 @@ namespace Durin
 		FRHIBufferDesc Desc;
 	};
 
-	// Shader storage with an explicit update policy. Only snapshot storage keeps a CPU copy.
-	class FRHIStorageBuffer : public FRHIBuffer
-	{
-	public:
-		auto GetUpdatePolicy() const -> ERHIStorageBufferUpdatePolicy { return UpdatePolicy; }
-		auto GetLifetimeUsage() const -> ERHIBufferLifetimeUsage { return LifetimeUsage; }
-	protected:
-		// Native backend subclasses supply physical storage and ordinary GPU synchronization.
-		explicit FRHIStorageBuffer(const FRHIBufferCreateDesc& Desc)
-			: FRHIBuffer(Desc, ERHIResourceType::StorageBuffer) {}
-	private:
-		friend class FRHICommandListBase;
-		friend class FRHIStorageBufferBackend;
-		FRHIStorageBuffer(const FRHIBufferDesc& Desc, ERHIBufferLifetimeUsage Usage,
-			std::shared_ptr<const FRHIStorageBufferSnapshot> Initial)
-			: FRHIBuffer(Desc, ERHIResourceType::StorageBuffer),
-			UpdatePolicy(ERHIStorageBufferUpdatePolicy::Snapshot), LifetimeUsage(Usage), Current(std::move(Initial)) {}
-		RHI_API auto ApplyUpdate(std::shared_ptr<FRHIStorageBufferSnapshot> Next,
-			uint32 Offset, uint32 Size) -> void;
-		const ERHIStorageBufferUpdatePolicy UpdatePolicy = ERHIStorageBufferUpdatePolicy::Native;
-		const ERHIBufferLifetimeUsage LifetimeUsage = ERHIBufferLifetimeUsage::MultiFrame;
-		std::shared_ptr<const FRHIStorageBufferSnapshot> Current;
-	};
-
 	// Layout-defined shader parameters. Native backends own the current allocation;
 	// pending initial bytes survive an unsubmitted preparation list.
 	class FRHIUniformBuffer : public FRHIResource
@@ -2045,10 +2016,9 @@ namespace Durin
 		std::vector<TRefCountPtr<FRHIResource>> PendingReferences;
 	};
 
-	inline auto IsSnapshotStorageBuffer(const FRHIBuffer* Buffer) -> bool
+	inline auto IsStorageBuffer(const FRHIBuffer* Buffer) -> bool
 	{
-		return Buffer && Buffer->GetResourceType() == ERHIResourceType::StorageBuffer
-			&& static_cast<const FRHIStorageBuffer*>(Buffer)->GetUpdatePolicy() == ERHIStorageBufferUpdatePolicy::Snapshot;
+		return Buffer && Buffer->GetResourceType() == ERHIResourceType::StorageBuffer;
 	}
 
 	inline auto IsBufferResource(const FRHIResource* Resource) -> bool
@@ -2130,13 +2100,13 @@ namespace Durin
 		FRHIBufferViewDesc Desc;
 	};
 
-	inline auto IsSnapshotStorageBufferResource(const FRHIResource* Resource) -> bool
+	inline auto IsStorageBufferResource(const FRHIResource* Resource) -> bool
 	{
 		if (!Resource) return false;
 		if (IsBufferResource(Resource))
-			return IsSnapshotStorageBuffer(static_cast<const FRHIBuffer*>(Resource));
+			return IsStorageBuffer(static_cast<const FRHIBuffer*>(Resource));
 		if (Resource->GetResourceType() == ERHIResourceType::BufferView)
-			return IsSnapshotStorageBuffer(static_cast<const FRHIBufferView*>(Resource)->GetBuffer());
+			return IsStorageBuffer(static_cast<const FRHIBufferView*>(Resource)->GetBuffer());
 		return false;
 	}
 
@@ -2144,7 +2114,7 @@ namespace Durin
 	inline auto IsLogicalBufferBindingResource(const FRHIResource* Resource) -> bool
 	{
 		return Resource && (Resource->GetResourceType() == ERHIResourceType::UniformBuffer
-			|| IsSnapshotStorageBufferResource(Resource));
+			|| IsStorageBufferResource(Resource));
 	}
 
 	// Retains a texture allocation together with one validated immutable subresource identity.

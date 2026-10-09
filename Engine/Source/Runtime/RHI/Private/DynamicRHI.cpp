@@ -158,7 +158,7 @@ namespace Durin
 		FRHIBuffer* Buffer,
 		const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView>
 	{
-		if (IsSnapshotStorageBuffer(Buffer)) return nullptr;
+		if (IsStorageBuffer(Buffer)) return nullptr;
 		if (!ValidateBufferViewDesc(Buffer, Desc)) return nullptr;
 		return new FRHIBufferView(Buffer, Desc);
 	}
@@ -175,7 +175,7 @@ namespace Durin
 		FRHIBuffer* Buffer,
 		const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView>
 	{
-		if (IsSnapshotStorageBuffer(Buffer)) return nullptr;
+		if (IsStorageBuffer(Buffer)) return nullptr;
 		return RHICreateBufferView(Buffer, Desc);
 	}
 

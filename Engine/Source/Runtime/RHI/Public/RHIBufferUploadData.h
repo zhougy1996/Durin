@@ -6,13 +6,14 @@
 
 namespace Durin
 {
-	// Shared across CPU-authored snapshots and owned native upload sources.
+	// Accounts for retained Storage contents and owned command upload sources.
 	class FRHIBufferUploadAccounting final
 	{
 	public:
 		RHI_API static auto Track(uint64 Bytes)
 			-> std::shared_ptr<const FRHIBufferUploadAccounting>;
 		RHI_API ~FRHIBufferUploadAccounting();
+		RHI_API static auto RecordBackingAdmission(uint64 Bytes, uint64 Capacity, bool bAcquire) -> void;
 		FRHIBufferUploadAccounting(const FRHIBufferUploadAccounting&) = delete;
 		auto operator=(const FRHIBufferUploadAccounting&) -> FRHIBufferUploadAccounting& = delete;
 		auto GetBytes() const -> uint64 { return Bytes; }

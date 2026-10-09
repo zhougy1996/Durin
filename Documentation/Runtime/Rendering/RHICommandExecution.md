@@ -202,7 +202,7 @@ Buffer and texture uploads are recorded and own their source bytes.
 the written range in `TransferWrite` for a graph-managed next barrier.
 `WriteBuffer` keeps its canonical-access restoration contract. Write-only buffer
 locks allocate CPU staging and record `WriteBuffer` at unlock; they do not
-provide native mappings. Uniform resources use `UpdateUniformBuffer`; snapshot storage uses
+provide native mappings. Uniform resources use `UpdateUniformBuffer`; Storage uses
 `UpdateBuffer` instead of the native write/upload/lock surfaces. Operations
 that must return a completed result—texture readback,
 back-buffer acquisition, GPU-idle waits, resource creation, viewport resize,
@@ -271,7 +271,7 @@ first-location, and base-vertex arguments. See
 Single-command indirect operations retain their GPU-authored argument buffer
 and copied byte offset through replay. `DrawIndirect`,
 `DrawIndexedIndirect`, and `DispatchIndirect` return void and reject invalid
-recording through enforced preconditions: a null or snapshot storage buffer,
+recording through enforced preconditions: a null or Storage buffer,
 missing `DrawIndirect` usage, non-four-byte alignment,
 an undersized record range, unsupported capability, wrong pipeline/render-pass
 domain, missing PSO, or dependency-admission failure before recording. Invalid
@@ -300,7 +300,8 @@ pressure when applicable. Queue statistics expose current/peak queued frames
 and frame-pressure wait count/duration separately from generic backpressure.
 Uniform objects own pending initial bytes and a backend allocation; updates
 copy payloads into commands and replace the allocation on ordered replay.
-snapshot storage retains replay-visible snapshots. Native pages are
+Storage retains a mutable CPU copy for partial updates and directly owns its
+current backend allocation. Commands own only their patch bytes. Native pages are
 materialized on the RHI thread.
 There is no render-thread mapped producer, frame-slot reset, or synchronous
 upload overflow allocation. The old dynamic allocation APIs and untyped uniform
@@ -311,8 +312,8 @@ creates a typed uniform resource and returns a logical range with counted
 ownership, so preparation state can outlive the creating list. Callers needing
 a separately typed resource use `CreateUniformBuffer`. Both require valid
 input and allocate contents on demand without caller-managed upload quotas.
-Shader recording retains logical resources, and backend bindings retain exact
-versions through GPU completion. Snapshot storage ranges must not enter explicit
+Shader recording retains logical resources, and backend bindings retain captured
+allocations through GPU completion. Storage ranges must not enter explicit
 native-buffer state transitions. See
 [resource contracts](RHIResourceViewsAndTransfers.md#uniform-and-storage-buffers).
 

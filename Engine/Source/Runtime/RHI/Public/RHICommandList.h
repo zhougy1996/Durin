@@ -155,7 +155,7 @@ namespace Durin
 			-> TRefCountPtr<FRHIUniformBuffer>;
 		RHI_API auto CreateStorageBuffer(const FRHIBufferDesc& Desc,
 			ERHIBufferLifetimeUsage Usage, FByteView InitialData)
-			-> TRefCountPtr<FRHIStorageBuffer>;
+			-> TRefCountPtr<FRHIBuffer>;
 		// Updates are ordered on replay. Rebind shader parameters to select the new contents;
 		// existing bindings retain the physical contents captured at their last bind.
 		RHI_API auto UpdateUniformBuffer(FRHIUniformBuffer* Buffer, FByteView Data,
@@ -182,8 +182,6 @@ namespace Durin
 		auto ValidateIndirectDrawRecording(const char* OperationName, FRHIBuffer* ArgumentBuffer,
 			uint64 Offset, size_t ArgumentSize) -> void;
 		auto CountRecordedDrawCommand() -> void;
-		auto UpdateSnapshotStorageBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
-			-> void;
 
 		enum class ERecordingState : uint8
 		{

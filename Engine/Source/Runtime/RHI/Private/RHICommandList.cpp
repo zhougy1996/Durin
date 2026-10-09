@@ -120,7 +120,7 @@ namespace Durin
 							return Fail("Uniform parameter range exceeds native binding limits.");
 						continue;
 					}
-					if (IsSnapshotStorageBufferResource(Parameter.Resource))
+					if (IsStorageBufferResource(Parameter.Resource))
 					{
 						const bool bDynamic = Parameter.Type == ERHIBindingType::UniformBufferDynamic;
 						const bool bUniform = Parameter.Type != ERHIBindingType::StorageBuffer;
@@ -2161,7 +2161,7 @@ namespace Durin
 
 	auto FRHICommandListBase::BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void
 	{
-		require(!IsSnapshotStorageBuffer(VertexBuffer));
+		require(!IsStorageBuffer(VertexBuffer));
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
 			"BindVertexBuffer requires an active graphics pipeline while recording.");
 		RecordCommand<FBindVertexBufferCommand>(StreamIndex, VertexBuffer, Offset);
@@ -2169,7 +2169,7 @@ namespace Durin
 
 	auto FRHICommandListBase::BindIndexBuffer(FRHIBuffer* Buffer, uint32 Offset) -> void
 	{
-		require(!IsSnapshotStorageBuffer(Buffer));
+		require(!IsStorageBuffer(Buffer));
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
 			"BindIndexBuffer requires an active graphics pipeline while recording.");
 		RecordCommand<FBindIndexBufferCommand>(Buffer, Offset);
@@ -2180,7 +2180,7 @@ namespace Durin
 	{
 		for (const auto& Transition : Transitions)
 		{
-			require(!IsSnapshotStorageBuffer(Transition.Buffer));
+			require(!IsStorageBuffer(Transition.Buffer));
 			for (const auto& Active : ActiveTransitions)
 				for (const auto& Pending : Active->GetBufferTransitions())
 					requiref(!BufferTransitionsOverlap(Transition, Pending),
@@ -2253,8 +2253,8 @@ namespace Durin
 	auto FRHICommandListBase::CopyBuffer(FRHIBuffer* Source, FRHIBuffer* Destination,
 		std::span<const FRHIBufferCopyRegion> Regions) -> void
 	{
-		require(!IsSnapshotStorageBuffer(Source));
-		require(!IsSnapshotStorageBuffer(Destination));
+		require(!IsStorageBuffer(Source));
+		require(!IsStorageBuffer(Destination));
 		if (Regions.empty()) return;
 		checkf(!bInsideRenderPass, "Buffer copies cannot be recorded inside a render pass.");
 #if DO_CHECK
@@ -2268,7 +2268,7 @@ namespace Durin
 	auto FRHICommandListBase::CopyBufferToTexture(FRHIBuffer* Source, FRHITexture* Destination,
 		std::span<const FRHIBufferTextureCopyRegion> Regions) -> void
 	{
-		require(!IsSnapshotStorageBuffer(Source));
+		require(!IsStorageBuffer(Source));
 		if (Regions.empty()) return;
 		checkf(!bInsideRenderPass, "Buffer-to-texture copies cannot be recorded inside a render pass.");
 #if DO_CHECK
@@ -2282,7 +2282,7 @@ namespace Durin
 	auto FRHICommandListBase::CopyTextureToBuffer(FRHITexture* Source, FRHIBuffer* Destination,
 		std::span<const FRHIBufferTextureCopyRegion> Regions) -> void
 	{
-		require(!IsSnapshotStorageBuffer(Destination));
+		require(!IsStorageBuffer(Destination));
 		if (Regions.empty()) return;
 		checkf(!bInsideRenderPass, "Texture-to-buffer copies cannot be recorded inside a render pass.");
 #if DO_CHECK
@@ -2449,7 +2449,7 @@ namespace Durin
 	auto FRHICommandListBase::WriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void
 	{
 		require(IsRecording());
-		require(Buffer && !IsSnapshotStorageBuffer(Buffer));
+		require(Buffer && !IsStorageBuffer(Buffer));
 		require(!Data.empty() && Offset <= Buffer->GetSize() && Data.size() <= Buffer->GetSize() - Offset);
 		auto Owned = FRHIBufferUploadData::Copy(Data);
 		RecordCommand<FWriteBufferCommand>(TRefCountPtr<FRHIBuffer>(Buffer), Offset, std::move(Owned));
@@ -2458,7 +2458,7 @@ namespace Durin
 	auto FRHICommandListBase::UploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void
 	{
 		require(IsRecording());
-		require(Buffer && !IsSnapshotStorageBuffer(Buffer));
+		require(Buffer && !IsStorageBuffer(Buffer));
 		require(!Data.empty() && Offset <= Buffer->GetSize() && Data.size() <= Buffer->GetSize() - Offset);
 		UploadBuffer(Buffer, Offset, FRHIBufferUploadData::Copy(Data));
 	}
@@ -2466,7 +2466,7 @@ namespace Durin
 	auto FRHICommandListBase::UploadBuffer(FRHIBuffer* Buffer, uint32 Offset,
 		std::shared_ptr<const FRHIBufferUploadData> Data) -> void
 	{
-		require(Buffer && !IsSnapshotStorageBuffer(Buffer) && Data);
+		require(Buffer && !IsStorageBuffer(Buffer) && Data);
 		require(Offset <= Buffer->GetSize() && Data->GetData().size() <= Buffer->GetSize() - Offset);
 		RecordCommand<FUploadBufferCommand>(TRefCountPtr<FRHIBuffer>(Buffer), Offset, std::move(Data));
 	}
@@ -2609,7 +2609,7 @@ namespace Durin
 
 	auto FRHICommandListImmediate::LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
 	{
-		require(!IsSnapshotStorageBuffer(Buffer));
+		require(!IsStorageBuffer(Buffer));
 		check(Buffer);
 		checkf(LockMode == EResourceLockMode::WriteOnly,
 			"Recorded buffer locks currently support WriteOnly mode.");

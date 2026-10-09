@@ -106,14 +106,16 @@ An allocation is immutable after publication. Uniform pages use concurrent
 sharing across provisioned queue families, so every consuming queue reads the
 same allocation without per-queue copies or ownership transfers.
 
-snapshot storage retains its snapshot path. A snapshot weakly caches one
-native backing per physical queue, preserving exclusive ownership. Storage
-snapshots reserve queue-partitioned intervals before creation/update returns;
-uniform intervals are reserved on replay. Both pools use 4 MiB normal pages,
-grow on demand, and use dedicated larger pages when needed. Allocation offsets
-and padded sizes respect binding and noncoherent atom alignment. Pool growth
-never requires submitting an active render pass. Native allocation failure is
-terminal. Native page capacity stays charged through teardown.
+`FVulkanStorageBuffer` directly owns its current `FVulkanStorageAllocation`.
+Its CPU copy preserves partial updates; command lists own only modified ranges.
+Initial allocation is lazy on first binding and updates replace it on ordered
+RHI replay. Immutable Storage and Uniform pages use concurrent sharing across
+provisioned queue families, so one allocation serves every queue. No per-queue
+content cache, snapshot version, or recording-lane reservation is needed.
+Both pools use 4 MiB normal pages, grow on demand, and use dedicated larger pages
+when needed. Offsets and padded sizes respect binding and noncoherent atom
+alignment. Pool growth never submits an active render pass. Native allocation
+failure is terminal. Native page capacity stays charged through teardown.
 
 Shader-parameter binding captures the selected physical allocation and view.
 Rebinding reads the resource's current allocation; draw/dispatch performs no
@@ -126,13 +128,13 @@ and immutable read-to-read pipeline changes need no write dependency.
 
 Payload allocation owners use a hash set keyed by retained pointer identity.
 Physical buffers use counted deletion and queue-qualified retirement. Native
-buffer/view downcasts enforce native update policy; shader bindings must resolve
+buffer/view downcasts enforce native resource types; shader bindings must resolve
 logical resources before producing native descriptors. Logical range offsets
 never expose native page placement. Dynamic descriptors name the page at offset
 zero and select the allocation through their dynamic offset.
 
 `DynamicUpload` arena gauges include materialized binding pages and allocation
-ranges. Pending uniform uploads, storage snapshots, graph sources, native buffer
+ranges. Pending uniform uploads, Storage CPU contents, graph sources, native buffer
 writes/uploads, and packed texture command arrays share observational CPU byte
 accounting described in
 [resource views](RHIResourceViewsAndTransfers.md#uniform-and-storage-buffers).
@@ -202,7 +204,7 @@ graphics context end-frame sync point for the two-slot pacing policy. Reusing
 a frame waits that point and its explicit GPU dependencies; unrelated compute
 work does not become a frame-wide CPU wait. Frame slots do not authorize resource
 recycling: payload completion and allocation leases retain their complete
-queue-qualified prerequisites. Upload allocations do not use those slots: retained allocation and snapshot
+queue-qualified prerequisites. Upload allocations do not use those slots: retained allocation and binding
 admission and exact payload ownership govern their reuse.
 
 `Vulkan.BeginFrame.FrameSlotWait` includes completion processing as well as any

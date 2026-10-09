@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "MetalAutoreleasePool.h"
 #include "RHIResources.h"
+#include "Backend/RHIStorageBuffer.h"
 #include "MetalResourceState.h"
 
 #include <Metal/Metal.hpp>
@@ -33,6 +34,30 @@ namespace Durin
 	private:
 		NS::SharedPtr<MTL::Device> Device;
 		std::shared_ptr<FMetalUniformAllocation> Allocation;
+	};
+
+	struct FMetalStorageAllocation
+	{
+		NS::SharedPtr<MTL::Buffer> Handle;
+		~FMetalStorageAllocation()
+		{
+			const FMetalAutoreleasePool Pool;
+			Handle.reset();
+		}
+	};
+
+	class FMetalStorageBuffer final : public FRHIStorageBuffer
+	{
+	public:
+		FMetalStorageBuffer(MTL::Device* InDevice, const FRHIBufferDesc& Desc,
+			ERHIBufferLifetimeUsage Usage, FByteView Data)
+			: FRHIStorageBuffer(Desc, Usage, Data), Device(NS::RetainPtr(InDevice)) {}
+		auto UpdateContents(uint32 Offset, FByteView Data) -> void override;
+		auto GetAllocation() -> const std::shared_ptr<FMetalStorageAllocation>&;
+	private:
+		auto AllocateContents() -> void;
+		NS::SharedPtr<MTL::Device> Device;
+		std::shared_ptr<FMetalStorageAllocation> Allocation;
 	};
 
 	class FMetalBuffer final : public FRHIBuffer

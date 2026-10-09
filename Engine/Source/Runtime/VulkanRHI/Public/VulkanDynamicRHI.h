@@ -41,6 +41,8 @@ namespace Durin::VulkanRHI
 
 		static auto Get() -> FVulkanDynamicRHI& { return *GetDynamicRHI<FVulkanDynamicRHI>(); }
 
+		auto RHICreateStorageBuffer(const FRHIBufferDesc& Desc,
+			ERHIBufferLifetimeUsage Usage, FByteView InitialData) -> TRefCountPtr<FRHIBuffer> override;
 		auto RHICreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
 			ERHIBufferLifetimeUsage Usage, FByteView InitialData,
 			std::span<FRHIResource* const> References) -> TRefCountPtr<FRHIUniformBuffer> override;

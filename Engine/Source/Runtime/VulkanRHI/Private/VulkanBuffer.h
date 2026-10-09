@@ -22,12 +22,12 @@ namespace Durin::VulkanRHI
 	public:
 		static auto Cast(FRHIBuffer* Resource) -> FVulkanBuffer*
 		{
-			require(Resource && !IsSnapshotStorageBufferResource(Resource));
+			require(Resource && !IsStorageBufferResource(Resource));
 			return static_cast<FVulkanBuffer*>(Resource);
 		}
 		static auto Cast(const FRHIBuffer* Resource) -> const FVulkanBuffer*
 		{
-			require(Resource && !IsSnapshotStorageBufferResource(Resource));
+			require(Resource && !IsStorageBufferResource(Resource));
 			return static_cast<const FVulkanBuffer*>(Resource);
 		}
 		FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc,

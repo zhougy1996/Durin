@@ -9,7 +9,7 @@ namespace Durin
 		switch (Code)
 		{
 		case ERHIIndirectCommandError::NullBuffer: return "Indirect argument buffer is null.";
-		case ERHIIndirectCommandError::SnapshotStorageBuffer: return "Indirect arguments require a GPU buffer.";
+		case ERHIIndirectCommandError::StorageBuffer: return "Indirect arguments require a GPU buffer.";
 		case ERHIIndirectCommandError::MissingIndirectUsage: return "Indirect argument buffer is missing DrawIndirect usage.";
 		case ERHIIndirectCommandError::MisalignedOffset: return "Indirect argument offset must be four-byte aligned.";
 		case ERHIIndirectCommandError::RangeOutOfBounds: return "Indirect argument record exceeds the buffer.";

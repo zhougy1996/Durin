@@ -31,7 +31,7 @@ namespace Durin::VulkanRHI
 		auto Next = std::make_shared<FVulkanUniformAllocation>();
 		Next->Lease = Device.GetBindingPool(true).Reserve(GetSize());
 		const auto [Buffer, Offset] = Device.GetBindingPool(true).Resolve(
-			Next->Lease, Device.GetQueueCapabilities().Graphics);
+			Next->Lease);
 		Next->Buffer = Buffer;
 		Next->Offset = Offset;
 		for (auto* Reference : References) Next->References.emplace_back(Reference);

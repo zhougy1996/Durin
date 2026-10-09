@@ -5,7 +5,6 @@
 #include "RHI.h"
 
 #include "RHIShaderParameters.h"
-#include "Backend/RHIStorageBufferBackend.h"
 #include "VulkanUniformBuffer.h"
 
 namespace Durin::VulkanRHI
@@ -18,24 +17,22 @@ namespace Durin::VulkanRHI
 	class FVulkanBindingAdmission : public std::enable_shared_from_this<FVulkanBindingAdmission>
 	{
 	public:
-		struct FSlot { uint32 Page; uint64 PageSize; FRHIQueueId Queue; uint64 Offset; uint64 Size; };
+		struct FSlot { uint32 Page; uint64 PageSize; uint64 Offset; uint64 Size; };
 		struct FReservation
 		{
 			std::shared_ptr<FVulkanBindingAdmission> Owner;
 			std::vector<FSlot> Slots;
 			~FReservation();
 		};
-		FVulkanBindingAdmission(uint64 InAlignment, std::vector<FRHIQueueId> InQueues)
-			: Alignment(InAlignment), Queues(std::move(InQueues)) {}
+		explicit FVulkanBindingAdmission(uint64 InAlignment) : Alignment(InAlignment) {}
 		~FVulkanBindingAdmission();
 		auto Reserve(uint64 Size) -> std::shared_ptr<FReservation>;
 	private:
-		struct FPage { uint64 Size; FRHIQueueId Queue; std::map<uint64, uint64> Used; };
+		struct FPage { uint64 Size; std::map<uint64, uint64> Used; };
 		auto Release(const std::vector<FSlot>& Slots) -> void;
 		std::mutex Mutex;
 		uint64 Alignment;
 		uint64 Capacity = 0;
-		std::vector<FRHIQueueId> Queues;
 		std::vector<FPage> Pages;
 	};
 
@@ -46,7 +43,7 @@ namespace Durin::VulkanRHI
 		FVulkanBindingPool(FVulkanDevice& InDevice, bool bInUniform);
 		~FVulkanBindingPool();
 		auto Reserve(uint64 Size) -> std::shared_ptr<void> { return Admission->Reserve(Size); }
-		auto Resolve(const std::shared_ptr<void>& Reservation, FRHIQueueId Queue)
+		auto Resolve(const std::shared_ptr<void>& Reservation)
 			-> std::pair<TRefCountPtr<FVulkanBuffer>, uint64>;
 	private:
 		FVulkanDevice& Device;
@@ -67,7 +64,6 @@ namespace Durin::VulkanRHI
 	private:
 		struct FResolved
 		{
-			std::shared_ptr<const FRHIStorageBufferSnapshot> Snapshot;
 			TRefCountPtr<FRHIBufferView> View;
 			std::shared_ptr<void> Backing;
 			std::shared_ptr<void> Lease;

@@ -399,7 +399,7 @@ namespace Durin::VulkanRHI
 		FRHIBuffer* Buffer,
 		const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
 	{
-		if (IsSnapshotStorageBuffer(Buffer)) return nullptr;
+		if (IsStorageBuffer(Buffer)) return nullptr;
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::BufferView);
 #endif
@@ -467,7 +467,7 @@ namespace Durin::VulkanRHI
 		FRHIBuffer* Buffer,
 		const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
 	{
-		if (IsSnapshotStorageBuffer(Buffer)) return nullptr;
+		if (IsStorageBuffer(Buffer)) return nullptr;
 		const uint64 FrameNumber = GCommandListExecutor.GetFrameNumber();
 		if (FBufferViewRHIRef Cached = ViewCache->FindBufferView(
 			Buffer, Desc, FrameNumber))

@@ -20,6 +20,30 @@
 
 namespace Durin
 {
+	auto FMetalStorageBuffer::AllocateContents() -> void
+	{
+		require(IsExecutingRHICommands());
+		const FMetalAutoreleasePool Pool;
+		auto Next = std::make_shared<FMetalStorageAllocation>();
+		const auto Data = GetContents();
+		Next->Handle = NS::TransferPtr(Device->newBuffer(Data.data(), Data.size(), MTL::ResourceStorageModeShared));
+		requiref(static_cast<bool>(Next->Handle), "Metal storage allocation failed.");
+		Allocation = std::move(Next);
+	}
+
+	auto FMetalStorageBuffer::UpdateContents(uint32 Offset, FByteView Data) -> void
+	{
+		FRHIStorageBuffer::UpdateContents(Offset, Data);
+		AllocateContents();
+	}
+
+	auto FMetalStorageBuffer::GetAllocation() -> const std::shared_ptr<FMetalStorageAllocation>&
+	{
+		require(IsExecutingRHICommands());
+		if (!Allocation) AllocateContents();
+		return Allocation;
+	}
+
 	auto FMetalUniformBuffer::UpdateContents(FByteView Data, std::span<FRHIResource* const> References) -> void
 	{
 		require(IsExecutingRHICommands() && Data.size() == GetSize());
@@ -50,6 +74,9 @@ namespace Durin
 		class FMetalDynamicRHI final : public FDynamicRHI
 		{
 		public:
+			auto RHICreateStorageBuffer(const FRHIBufferDesc& Desc,
+				ERHIBufferLifetimeUsage Usage, FByteView Data) -> TRefCountPtr<FRHIBuffer> override
+			{ return new FMetalStorageBuffer(Device.get(), Desc, Usage, Data); }
 			auto RHICreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
 				ERHIBufferLifetimeUsage Usage, FByteView Data, std::span<FRHIResource* const> References)
 				-> TRefCountPtr<FRHIUniformBuffer> override
@@ -484,7 +511,7 @@ namespace Durin
 			auto RHICreateBufferView(FRHIBuffer* Buffer,
 			const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView> override
 			{
-				if (!Buffer || IsSnapshotStorageBuffer(Buffer)
+				if (!Buffer || IsStorageBuffer(Buffer)
 					|| !ValidateBufferViewDesc(Buffer, Desc)
 					|| Desc.Type == ERHIBufferViewType::Formatted)
 					return nullptr;

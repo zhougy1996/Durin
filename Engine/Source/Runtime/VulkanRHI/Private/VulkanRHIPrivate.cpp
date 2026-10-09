@@ -534,8 +534,7 @@ namespace Durin::VulkanRHI
 			.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
 			.PageSize = 256, .MaxPageCount = 1, .DebugName = "DelayedComputeTransfer"});
 		constexpr uint64 AdmissionPage = 4ull * 1024 * 1024;
-		auto TestUniforms = std::make_shared<FVulkanBindingAdmission>(256,
-			std::vector<FRHIQueueId>{Graphics.GetId(), Compute.GetId()});
+		auto TestUniforms = std::make_shared<FVulkanBindingAdmission>(256);
 		auto UniformOwner = TestUniforms->Reserve(AdmissionPage);
 		require(UniformOwner);
 		const auto UniformSlots = UniformOwner->Slots;
@@ -612,8 +611,7 @@ namespace Durin::VulkanRHI
 			Result.bTransferReuseBlocked = !TestTransfers.Acquire(256, 16, Producer).Range;
 			UniformOwner.reset();
 			const auto ConcurrentUniform = TestUniforms->Reserve(AdmissionPage);
-			Result.bUniformReuseBlocked = ConcurrentUniform->Slots[0].Page != UniformSlots[0].Page
-				&& ConcurrentUniform->Slots[1].Page != UniformSlots[1].Page;
+			Result.bUniformReuseBlocked = ConcurrentUniform->Slots[0].Page != UniformSlots[0].Page;
 			std::weak_ptr<void> PoolOwner = TestPools.GetAllocationOwner();
 			TestPools.RetireUsedPools();
 			TestPools.PrepareForUse();
@@ -634,10 +632,9 @@ namespace Durin::VulkanRHI
 				&& Compute.GetCompletionTracker().WaitForSyncPoint(Producer, 1'000'000'000) == ERHIGPUWaitResult::Complete
 				&& Uses.IsRetirementEligible();
 			auto ReusedUniform = TestUniforms->Reserve(AdmissionPage);
-			Result.bUniformReusedAfterCompletion = ReusedUniform && ReusedUniform->Slots.size() == 2
+			Result.bUniformReusedAfterCompletion = ReusedUniform && ReusedUniform->Slots.size() == 1
 				&& ReusedUniform->Slots[0].Page == UniformSlots[0].Page
-				&& ReusedUniform->Slots[1].Page == UniformSlots[1].Page
-				&& ReusedUniform->Slots[0].Offset == 0 && ReusedUniform->Slots[1].Offset == 0;
+				&& ReusedUniform->Slots[0].Offset == 0;
 			TestPools.PrepareForUse();
 			Result.bDescriptorReusedAfterCompletion = TestPools.GetActiveBatchIndexForTesting() == 0;
 			require(TestPools.AllocateDescriptorSets(Layouts, Requirements).size() == 1);
