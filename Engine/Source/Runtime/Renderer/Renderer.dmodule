@@ -1,7 +1,7 @@
 {
     "ModuleName": "Renderer",
     "LinkType": "Shared",
-    "PCH": "SharedPCH_Core",
+    "PCH": "SharedPCH_Engine",
     "PrivateDependencies": [
         "Core",
         "RHI",
