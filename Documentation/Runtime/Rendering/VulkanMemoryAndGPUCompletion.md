@@ -106,7 +106,7 @@ An allocation is immutable after publication. Uniform pages use concurrent
 sharing across provisioned queue families, so every consuming queue reads the
 same allocation without per-queue copies or ownership transfers.
 
-CPU-authored storage retains its snapshot path. A snapshot weakly caches one
+snapshot storage retains its snapshot path. A snapshot weakly caches one
 native backing per physical queue, preserving exclusive ownership. Storage
 snapshots reserve queue-partitioned intervals before creation/update returns;
 uniform intervals are reserved on replay. Both pools use 4 MiB normal pages,
@@ -126,7 +126,7 @@ and immutable read-to-read pipeline changes need no write dependency.
 
 Payload allocation owners use a hash set keyed by retained pointer identity.
 Physical buffers use counted deletion and queue-qualified retirement. Native
-buffer/view downcasts enforce native content mode; shader bindings must resolve
+buffer/view downcasts enforce native update policy; shader bindings must resolve
 logical resources before producing native descriptors. Logical range offsets
 never expose native page placement. Dynamic descriptors name the page at offset
 zero and select the allocation through their dynamic offset.
@@ -135,7 +135,7 @@ zero and select the allocation through their dynamic offset.
 ranges. Pending uniform uploads, storage snapshots, graph sources, native buffer
 writes/uploads, and packed texture command arrays share observational CPU byte
 accounting described in
-[resource views](RHIResourceViewsAndTransfers.md#logical-cpu-authored-buffers).
+[resource views](RHIResourceViewsAndTransfers.md#uniform-and-storage-buffers).
 
 ## Allocation Classes
 

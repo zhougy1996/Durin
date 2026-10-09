@@ -5,7 +5,7 @@
 #include "RHI.h"
 
 #include "RHIShaderParameters.h"
-#include "Backend/RHIDeferredBufferBackend.h"
+#include "Backend/RHIStorageBufferBackend.h"
 #include "VulkanUniformBuffer.h"
 
 namespace Durin::VulkanRHI

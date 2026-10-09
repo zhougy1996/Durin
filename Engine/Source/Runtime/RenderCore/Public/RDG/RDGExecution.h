@@ -32,7 +32,7 @@ namespace Durin
 		ResourceNameEmpty,
 		PhysicalResourceMissing,
 		ExternalFinalAccessMissing,
-		ExternalBufferContentModeInvalid,
+		ExternalBufferUpdatePolicyInvalid,
 		ResourceNameDuplicate,
 		PassNameEmpty,
 		PassNameDuplicate,

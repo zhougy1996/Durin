@@ -7,7 +7,7 @@
 #include "VulkanPlatform.h"
 
 #include "RHIShaderParameters.h"
-#include "VulkanDeferredBuffer.h"
+#include "VulkanShaderBufferBindings.h"
 
 namespace Durin::VulkanRHI
 {

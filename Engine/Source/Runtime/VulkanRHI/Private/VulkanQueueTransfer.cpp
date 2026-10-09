@@ -91,7 +91,7 @@ namespace Durin::VulkanRHI
 	{
 		require(Source != Destination && Device.FindQueue(Source) && Device.FindQueue(Destination));
 		require(!Buffers.empty() || !Textures.empty());
-		for (const auto& Transition : Buffers) require(!IsCPUAuthoredBuffer(Transition.Buffer));
+		for (const auto& Transition : Buffers) require(!IsSnapshotStorageBuffer(Transition.Buffer));
 		const auto BufferResult = ValidateBufferTransitions(Buffers);
 		requiref(BufferResult, "{}", ToString(BufferResult.error()));
 		const auto TextureResult = ValidateTextureTransitions(Textures);

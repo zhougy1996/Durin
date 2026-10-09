@@ -8,7 +8,7 @@
 
 #include "VulkanDevice.h"
 #include "VulkanBuffer.h"
-#include "VulkanDeferredBuffer.h"
+#include "VulkanShaderBufferBindings.h"
 #include "VulkanDescriptorSets.h"
 #include "VulkanSubmission.h"
 #include "VulkanCommandBuffer.h"

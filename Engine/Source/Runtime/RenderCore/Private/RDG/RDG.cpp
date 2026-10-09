@@ -441,10 +441,10 @@ namespace Durin
 		ERHIAccess FinalAccess) -> FRDGBufferHandle
 	{
 		RequireBuilding();
-		if (IsCPUAuthoredBuffer(Buffer))
+		if (IsSnapshotStorageBuffer(Buffer))
 		{
 			State->DeclarationErrors.push_back(FRDGIdentityError{
-				ERDGIdentityError::ExternalBufferContentModeInvalid,
+				ERDGIdentityError::ExternalBufferUpdatePolicyInvalid,
 				FRDGIdentityErrorContext{.Name = std::string(Name)}});
 			return {};
 		}

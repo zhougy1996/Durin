@@ -31,7 +31,7 @@ fallible and publish a complete counted view or null. Vulkan creates a native
 buffer view only for formatted buffers and an exact native image view for each
 texture description. Native view destruction uses the deferred deletion path.
 
-## Logical CPU-Authored Buffers
+## Uniform and Storage Buffers
 
 `FRHIUniformBuffer` derives directly from `FRHIResource`, independently of
 `FRHIBuffer`. It owns an immutable constant-size layout and a lifetime usage
@@ -41,27 +41,33 @@ storage; the creator list may be discarded before another list consumes the
 resource. First replay binding materializes the initial allocation and releases
 the pending CPU bytes. Uniform layout size is a nonzero multiple of 16.
 
-`CreateStorageBuffer` returns a CPU-authored `FRHIBuffer`. Storage selects
+`CreateStorageBuffer` returns `FRHIStorageBuffer`, derived from `FRHIBuffer` with
+a dedicated resource tag and `Snapshot` update policy. It owns the current
+immutable CPU snapshot; backend-only `FRHIStorageBufferBackend` resolves its
+queue-local backing during replay. Generic `FRHIBuffer` has no CPU content state.
+Storage selects
 structured (nonzero stride dividing size) or byte-address (stride four, size
 multiple of four), optionally with `ShaderResource`. Other storage flags are
-rejected. Native buffers retain `Native` content mode. Lifetime usage hints
+rejected. Native storage subclasses use the `Native` update policy and GPU-ordered operations;
+the existing native buffer creation path remains available for GPU storage usage.
+Lifetime usage hints
 never authorize frame-age reuse or limit lifetime.
 
 `UpdateUniformBuffer` copies complete replacement bytes and resource references
 into the command list. Ordered RHI replay replaces the backend allocation;
 uniform updates do not create CPU content snapshots or poll generations.
-`UpdateBuffer` accepts only CPU-authored storage, publishes an immutable snapshot
+`UpdateBuffer` accepts only snapshot storage, publishes an immutable snapshot
 on replay, and preserves the predecessor's untouched bytes for partial updates.
-Storage accepts no sidecars. Uniform resources, CPU-authored buffers, and their
+Storage accepts no sidecars. Uniform resources, snapshot storage buffers, and their
 views are rejected as sidecars to prevent ownership cycles. Canceled commands
 do not change visible contents. Backend-only `ResolveSnapshot` applies to
-CPU-authored storage and requires replay.
+snapshot storage and requires replay.
 
 `FRHIUniformBufferRange` represents a typed uniform resource or a native buffer
 range. `CreateUniformBufferRange` supplies counted ownership across preparation
 and recording lists. Uniform parameter objects remain direct resources in
 prepared batches; recording validates their ranges without creating a logical
-buffer view. Native ranges and CPU-authored storage are canonicalized into
+buffer view. Native ranges and snapshot storage are canonicalized into
 counted views. Executing a parameter bind captures the current physical
 allocation; draw/dispatch reuses that binding. Updates do not rewrite existing
 bindings: execute another parameter bind, including reusing a prepared batch,
@@ -69,21 +75,21 @@ to select updated contents. Range and offset checks use active-device limits.
 Vulkan allocation and submission ownership follow
 [the memory contract](VulkanMemoryAndGPUCompletion.md#logical-buffer-versions).
 
-`FRHIBufferView::Create` creates logical CPU-authored views and enforces parent,
+`FRHIBufferView::Create` creates logical snapshot storage views and enforces parent,
 description, and active-device range/offset preconditions. `CanCreate` checks
 those conditions without allocation or diagnostics for parameter-batch soft
 admission. CPU allocation failures propagate normally; there is no separate
 upload-error translation. Logical view creation is independent of command-list
 recording and has no command-list forwarding API. Native view factories and
-their cache paths reject CPU-authored parents before backend work. Binding canonicalization selects the
-correct path from the parent's mode. Native write/upload, lock, vertex/index,
-copy, and transition operations reject CPU-authored buffers with enforced
-preconditions; versioned updates use the CPU-authored APIs above. RDG external
-buffer imports reject CPU-authored parents as declaration errors because
+their cache paths reject snapshot storage parents before backend work. Binding canonicalization selects the
+correct path from the parent's update policy. Native write/upload, lock, vertex/index,
+copy, and transition operations reject snapshot storage buffers with enforced
+preconditions; versioned updates use the Storage update APIs above. RDG external
+buffer imports reject snapshot storage parents as declaration errors because
 their backing changes independently of graph access tracking. Graph-owned
 upload helpers continue to allocate native graph resources.
 
-CPU-authored snapshots, RDG sources, native buffer write/upload payloads,
+Storage snapshots, RDG sources, native buffer write/upload payloads,
 and packed texture command arrays allocate CPU storage on demand. There is no
 fixed per-upload size or process-wide CPU payload budget. Diagnostics track
 live and peak owned bytes, plus aligned backing ranges and retained page
@@ -95,7 +101,7 @@ allocations retain their resource references for the lifetime of captured bindin
 
 `CreateUniformBuffer` and `CreateStorageBuffer` return counted resources;
 `UpdateUniformBuffer`, `UpdateBuffer`, `WriteBuffer`, and `UploadBuffer` return
-void. Invalid descriptors, ranges, content modes, or sidecar ownership violate
+void. Invalid descriptors, ranges, update policies, or sidecar ownership violate
 enforced preconditions. Allocation failures follow ordinary allocation or
 terminal replay failure handling rather than a caller-managed budget result.
 Texture commands likewise own their exact packed bytes before recording.

@@ -1,6 +1,6 @@
 #include "MetalCommandContext.h"
 #include "Backend/RHICompletionBackend.h"
-#include "Backend/RHIDeferredBufferBackend.h"
+#include "Backend/RHIStorageBufferBackend.h"
 #include "MetalAutoreleasePool.h"
 #include "MetalBuffer.h"
 #include "MetalPipeline.h"
@@ -488,7 +488,7 @@ namespace Durin
 					BoundVertexStreams &= ~uint16(1u << Stream);
 					return;
 				}
-				requiref(Resource->GetResourceType() == ERHIResourceType::Buffer
+				requiref(IsBufferResource(Resource)
 					&& EnumHasAnyFlags(Resource->GetUsage(),
 						EBufferUsageFlags::VertexBuffer)
 					&& Offset <= Resource->GetSize(),
@@ -505,7 +505,7 @@ namespace Durin
 			{
 				const FMetalAutoreleasePool Pool;
 				requiref(RenderEncoder && Resource
-					&& Resource->GetResourceType() == ERHIResourceType::Buffer
+					&& IsBufferResource(Resource)
 					&& EnumHasAnyFlags(Resource->GetUsage(),
 						EBufferUsageFlags::IndexBuffer)
 					&& (Resource->GetStride() == 2 || Resource->GetStride() == 4)
@@ -1421,9 +1421,9 @@ namespace Durin
 				if (Parameter.Resource->GetResourceType() == ERHIResourceType::BufferView)
 				{
 					auto* Buffer = static_cast<FRHIBufferView*>(Parameter.Resource)->GetBuffer();
-					if (IsCPUAuthoredBuffer(Buffer))
+					if (IsSnapshotStorageBuffer(Buffer))
 					{
-						Snapshots[Key] = {FRHIDeferredBufferBackend::ResolveSnapshot(*Buffer), {}};
+						Snapshots[Key] = {FRHIStorageBufferBackend::ResolveSnapshot(*Buffer), {}};
 						return;
 					}
 				}
@@ -1435,13 +1435,13 @@ namespace Durin
 				const FBoundBufferSnapshots& Snapshots) -> FBufferBinding
 			{
 				auto* Logical = View->GetBuffer();
-				if (IsCPUAuthoredBuffer(Logical))
+				if (IsSnapshotStorageBuffer(Logical))
 				{
 					// Reuse one immutable native copy for each ordered content version.
 					const auto& Snapshot = Snapshots.at(std::tuple(
 						Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement)).Snapshot;
 					auto Backing = std::static_pointer_cast<FMetalDeferredBacking>(
-						FRHIDeferredBufferBackend::GetBacking(*Snapshot, State.get()));
+						FRHIStorageBufferBackend::GetBacking(*Snapshot, State.get()));
 					if (!Backing)
 					{
 						const auto Data = Snapshot->GetData();
@@ -1452,7 +1452,7 @@ namespace Durin
 							Data.data(), Data.size(), MTL::ResourceStorageModeShared));
 						requiref(static_cast<bool>(Backing->Handle),
 							"Metal deferred buffer allocation failed.");
-						FRHIDeferredBufferBackend::SetBacking(
+						FRHIStorageBufferBackend::SetBacking(
 							*Snapshot, State.get(), Backing);
 					}
 					Active->StorageOwners.push_back(Backing);

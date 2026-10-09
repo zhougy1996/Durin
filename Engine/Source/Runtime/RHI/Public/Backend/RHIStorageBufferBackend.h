@@ -7,7 +7,7 @@
 
 namespace Durin
 {
-	class FRHICPUAuthoredBuffer;
+	class FRHIStorageBuffer;
 
 	// Storage-only contents, immutable after publication; partial updates preserve replay order.
 	class FRHIStorageBufferSnapshot final
@@ -21,8 +21,8 @@ namespace Durin
 
 	private:
 		friend class FRHICommandListBase;
-		friend class FRHICPUAuthoredBuffer;
-		friend class FRHIDeferredBufferBackend;
+		friend class FRHIStorageBuffer;
+		friend class FRHIStorageBufferBackend;
 		static auto Allocate(const FRHIBufferDesc& Desc)
 			-> std::shared_ptr<FRHIStorageBufferSnapshot>;
 		FRHIStorageBufferSnapshot(uint32 InSize);
@@ -35,21 +35,7 @@ namespace Durin
 		mutable std::unordered_map<const void*, std::weak_ptr<void>> Backings;
 	};
 
-	// CPU-authored storage owns snapshots; ordinary native buffers carry no CPU content state.
-	class FRHICPUAuthoredBuffer final : public FRHIBuffer
-	{
-	private:
-		friend class FRHICommandListBase;
-		friend class FRHIDeferredBufferBackend;
-		FRHICPUAuthoredBuffer(const FRHIBufferDesc& Desc, ERHIBufferLifetimeUsage Usage,
-			std::shared_ptr<const FRHIStorageBufferSnapshot> Initial)
-			: FRHIBuffer(Desc, Usage), Current(std::move(Initial)) {}
-		RHI_API auto ApplyUpdate(std::shared_ptr<FRHIStorageBufferSnapshot> Next,
-			uint32 Offset, uint32 Size) -> void;
-		std::shared_ptr<const FRHIStorageBufferSnapshot> Current;
-	};
-
-	class FRHIDeferredBufferBackend final
+	class FRHIStorageBufferBackend final
 	{
 	public:
 		RHI_API static auto RecordAdmission(uint64 Bytes, uint64 Capacity, bool bAcquire) -> void;

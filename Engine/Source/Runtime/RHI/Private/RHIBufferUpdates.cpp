@@ -1,4 +1,4 @@
-#include "Backend/RHIDeferredBufferBackend.h"
+#include "Backend/RHIStorageBufferBackend.h"
 #include "RHICommandList.h"
 #include "DynamicRHI.h"
 
@@ -49,11 +49,7 @@ namespace Durin
 			for (const auto* Reference : References)
 			{
 				// Sidecars retain physical resources, not a potentially cyclic logical graph.
-				if (Reference && (Reference->GetResourceType() == ERHIResourceType::UniformBuffer
-					|| (Reference->GetResourceType() == ERHIResourceType::Buffer
-					&& static_cast<const FRHIBuffer*>(Reference)->GetContentMode() == ERHIBufferContentMode::CPUAuthored)
-					|| (Reference->GetResourceType() == ERHIResourceType::BufferView
-					&& static_cast<const FRHIBufferView*>(Reference)->GetBuffer()->GetContentMode() == ERHIBufferContentMode::CPUAuthored))) return false;
+				if (IsLogicalBufferBindingResource(Reference)) return false;
 			}
 			return true;
 		}
@@ -66,7 +62,7 @@ namespace Durin
 			BackingLiveBytes.load(), BackingPeakBytes.load(), BackingCapacity.load()};
 	}
 
-	auto FRHIDeferredBufferBackend::RecordAdmission(uint64 Bytes, uint64 Capacity, bool bAcquire) -> void
+	auto FRHIStorageBufferBackend::RecordAdmission(uint64 Bytes, uint64 Capacity, bool bAcquire) -> void
 	{
 		if (!bAcquire)
 		{
@@ -141,7 +137,7 @@ namespace Durin
 	}
 
 
-	auto FRHICPUAuthoredBuffer::ApplyUpdate(std::shared_ptr<FRHIStorageBufferSnapshot> Next,
+	auto FRHIStorageBuffer::ApplyUpdate(std::shared_ptr<FRHIStorageBufferSnapshot> Next,
 		uint32 Offset, uint32 Size) -> void
 	{
 		require(IsExecutingRHICommands());
@@ -155,14 +151,14 @@ namespace Durin
 		Current = std::move(Next);
 	}
 
-	auto FRHIDeferredBufferBackend::ResolveSnapshot(const FRHIBuffer& Buffer)
+	auto FRHIStorageBufferBackend::ResolveSnapshot(const FRHIBuffer& Buffer)
 		-> std::shared_ptr<const FRHIStorageBufferSnapshot>
 	{
-		require(IsExecutingRHICommands() && Buffer.GetContentMode() == ERHIBufferContentMode::CPUAuthored);
-		return static_cast<const FRHICPUAuthoredBuffer&>(Buffer).Current;
+		require(IsExecutingRHICommands() && IsSnapshotStorageBuffer(&Buffer));
+		return static_cast<const FRHIStorageBuffer&>(Buffer).Current;
 	}
 
-	auto FRHIDeferredBufferBackend::GetBacking(const FRHIStorageBufferSnapshot& Snapshot,
+	auto FRHIStorageBufferBackend::GetBacking(const FRHIStorageBufferSnapshot& Snapshot,
 		const void* Context) -> std::shared_ptr<void>
 	{
 		require(IsExecutingRHICommands());
@@ -170,7 +166,7 @@ namespace Durin
 		return It == Snapshot.Backings.end() ? nullptr : It->second.lock();
 	}
 
-	auto FRHIDeferredBufferBackend::SetBacking(const FRHIStorageBufferSnapshot& Snapshot,
+	auto FRHIStorageBufferBackend::SetBacking(const FRHIStorageBufferSnapshot& Snapshot,
 		const void* Context, std::shared_ptr<void> Backing) -> void
 	{
 		require(IsExecutingRHICommands() && Context && Backing);
@@ -180,15 +176,15 @@ namespace Durin
 
 	auto FRHICommandListBase::CreateStorageBuffer(const FRHIBufferDesc& Desc,
 		ERHIBufferLifetimeUsage Usage, FByteView InitialData)
-		-> TRefCountPtr<FRHIBuffer>
+		-> TRefCountPtr<FRHIStorageBuffer>
 	{
 		require(IsRecording());
-		requiref(ValidateDeferredDescriptor(Desc, Usage), "Invalid CPU-authored buffer descriptor or lifetime usage.");
+		requiref(ValidateDeferredDescriptor(Desc, Usage), "Invalid upload buffer descriptor or lifetime usage.");
 		require(InitialData.size() == Desc.Size);
 		require(!EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer));
 		auto Snapshot = FRHIStorageBufferSnapshot::Allocate(Desc);
 		std::memcpy(Snapshot->Data.get(), InitialData.data(), Desc.Size);
-		return TRefCountPtr<FRHIBuffer>(new FRHICPUAuthoredBuffer(Desc, Usage, std::move(Snapshot)));
+		return TRefCountPtr<FRHIStorageBuffer>(new FRHIStorageBuffer(Desc, Usage, std::move(Snapshot)));
 	}
 
 	auto FRHICommandListBase::CreateUniformBufferRange(const void* Data, uint32 Size) -> FRHIUniformBufferRange
@@ -205,7 +201,7 @@ namespace Durin
 	{
 		require(IsRecording());
 		const FRHIBufferDesc Desc{Layout.ConstantBufferSize, 0, EBufferUsageFlags::UniformBuffer};
-		requiref(ValidateDeferredDescriptor(Desc, Usage), "Invalid CPU-authored buffer descriptor or lifetime usage.");
+		requiref(ValidateDeferredDescriptor(Desc, Usage), "Invalid upload buffer descriptor or lifetime usage.");
 		require(InitialData.size() == Desc.Size);
 		require(ValidateDeferredReferences(Desc, References));
 		return GDynamicRHI ? GDynamicRHI->RHICreateUniformBuffer(Layout, Usage, InitialData, References)
@@ -261,16 +257,16 @@ namespace Durin
 	{
 		require(IsRecording());
 		require(Buffer && !EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::UniformBuffer));
-		UpdateCPUAuthoredStorageBuffer(Buffer, Offset, Data);
+		UpdateSnapshotStorageBuffer(Buffer, Offset, Data);
 	}
 
-	auto FRHICommandListBase::UpdateCPUAuthoredStorageBuffer(FRHIBuffer* Buffer,
+	auto FRHICommandListBase::UpdateSnapshotStorageBuffer(FRHIBuffer* Buffer,
 		uint32 Offset, FByteView Data)
 		-> void
 	{
 		require(IsRecording());
 		require(Buffer);
-		require(Buffer->GetContentMode() == ERHIBufferContentMode::CPUAuthored);
+		require(IsSnapshotStorageBuffer(Buffer));
 		const auto& Desc = Buffer->GetDesc();
 		require(!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset);
 		require(!EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer));
@@ -279,13 +275,13 @@ namespace Durin
 		const auto OwnedBytes = Snapshot->GetOwnedPayloadBytes();
 		EnqueueLambda([Buffer = TRefCountPtr<FRHIBuffer>(Buffer),
 			Next = std::move(Snapshot), Offset, Size = static_cast<uint32>(Data.size())]() mutable {
-			static_cast<FRHICPUAuthoredBuffer*>(Buffer.GetReference())->ApplyUpdate(std::move(Next), Offset, Size);
+			static_cast<FRHIStorageBuffer*>(Buffer.GetReference())->ApplyUpdate(std::move(Next), Offset, Size);
 		}, OwnedBytes);
 	}
 
 	auto FRHIBufferView::CanCreate(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc) -> bool
 	{
-		if (!IsCPUAuthoredBuffer(Buffer) || !ValidateBufferViewDesc(Buffer->GetDesc(), Desc)) return false;
+		if (!IsSnapshotStorageBuffer(Buffer) || !ValidateBufferViewDesc(Buffer->GetDesc(), Desc)) return false;
 		if (const auto* Caps = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr)
 		{
 			const bool bUniform = Desc.Type == ERHIBufferViewType::Uniform;

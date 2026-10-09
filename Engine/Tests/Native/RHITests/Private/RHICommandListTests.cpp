@@ -4,7 +4,7 @@
 #include "RHIContext.h"
 #include "DynamicRHI.h"
 #include "Backend/RHIShaderParameterValidationInternal.h"
-#include "Backend/RHIDeferredBufferBackend.h"
+#include "Backend/RHIStorageBufferBackend.h"
 #include "RHIThread.h"
 #include "Threading/ThreadEvent.h"
 #include "Threading/RunnableThread.h"
@@ -67,6 +67,13 @@ namespace Durin
 			}
 		};
 
+		class FNativeTestStorageBuffer final : public FRHIStorageBuffer
+		{
+		public:
+			FNativeTestStorageBuffer()
+				: FRHIStorageBuffer(FRHIBufferCreateDesc::Create(
+					"NativeStorage", 16, 4, EBufferUsageFlags::StructuredBuffer)) {}
+		};
 		class FTestShader final : public FRHIShader
 		{
 		public:
@@ -2480,7 +2487,17 @@ namespace Durin
 		EXPECT_EQ(Context.ObservedBufferData, MakeByteVector({1, 2, 3, 4}));
 	}
 
-	TEST(FRHICommandListTests, CPUAuthoredBuffersRejectNativeOperations)
+	TEST(FRHICommandListTests, NativeStorageUsesPhysicalBufferValidation)
+	{
+		const auto Storage = MakeRefCount<FNativeTestStorageBuffer>();
+		EXPECT_EQ(Storage->GetResourceType(), ERHIResourceType::StorageBuffer);
+		EXPECT_EQ(Storage->GetUpdatePolicy(), ERHIStorageBufferUpdatePolicy::Native);
+		EXPECT_TRUE(IsBufferResource(Storage));
+		EXPECT_FALSE(IsSnapshotStorageBuffer(Storage));
+		EXPECT_FALSE(IsLogicalBufferBindingResource(Storage));
+		EXPECT_TRUE(ValidateBufferViewDesc(Storage, {0, 16, ERHIBufferViewType::StructuredStorage}));
+	}
+	TEST(FRHICommandListTests, SnapshotStorageBuffersRejectNativeOperations)
 	{
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
@@ -2491,8 +2508,10 @@ namespace Durin
 			ERHIBufferLifetimeUsage::SingleDraw, FByteBuffer(16));
 		ASSERT_TRUE(Storage && Uniform);
 		const auto Native = MakeRefCount<FTestBuffer>(16);
-		EXPECT_EQ(Native->GetContentMode(), ERHIBufferContentMode::Native);
-		EXPECT_EQ(Storage->GetContentMode(), ERHIBufferContentMode::CPUAuthored);
+		EXPECT_FALSE(IsSnapshotStorageBuffer(Native));
+		EXPECT_EQ(Storage->GetResourceType(), ERHIResourceType::StorageBuffer);
+		EXPECT_EQ(Storage->GetUpdatePolicy(), ERHIStorageBufferUpdatePolicy::Snapshot);
+		EXPECT_TRUE(IsLogicalBufferBindingResource(Storage));
 		EXPECT_EQ(Uniform->GetLayout().ConstantBufferSize, 16u);
 		EXPECT_EQ(Uniform->GetLifetimeUsage(), ERHIBufferLifetimeUsage::SingleDraw);
 		EXPECT_DEATH_IF_SUPPORTED(Commands.UpdateBuffer(Native, 0, FByteBuffer(16)), "");
@@ -2544,7 +2563,7 @@ namespace Durin
 			}
 			std::vector<std::shared_ptr<const FRHIStorageBufferSnapshot>> Observed;
 			auto Observe = [Buffer, &Observed]() {
-				Observed.push_back(FRHIDeferredBufferBackend::ResolveSnapshot(*Buffer));
+				Observed.push_back(FRHIStorageBufferBackend::ResolveSnapshot(*Buffer));
 			};
 			Executor->GetImmediateCommandList().EnqueueLambda(Observe, 0);
 			FRHICommandList First;

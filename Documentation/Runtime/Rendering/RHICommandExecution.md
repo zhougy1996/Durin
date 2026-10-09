@@ -202,7 +202,7 @@ Buffer and texture uploads are recorded and own their source bytes.
 the written range in `TransferWrite` for a graph-managed next barrier.
 `WriteBuffer` keeps its canonical-access restoration contract. Write-only buffer
 locks allocate CPU staging and record `WriteBuffer` at unlock; they do not
-provide native mappings. Uniform resources use `UpdateUniformBuffer`; CPU-authored storage uses
+provide native mappings. Uniform resources use `UpdateUniformBuffer`; snapshot storage uses
 `UpdateBuffer` instead of the native write/upload/lock surfaces. Operations
 that must return a completed result—texture readback,
 back-buffer acquisition, GPU-idle waits, resource creation, viewport resize,
@@ -254,10 +254,10 @@ later caller-defined or Renderer-generation retry may create a fresh candidate.
 
 These readiness postconditions apply to native factories. The ordinary
 `CreateUniformBuffer` and `CreateStorageBuffer` command-list APIs instead
-return CPU-authored resource identities with owned initial contents;
+return dedicated uniform and storage resource identities with owned initial contents;
 their native backing is resolved during consuming replay. They enforce input preconditions and allocate CPU contents and
 backend placement on demand. Native allocation failure during consuming replay
-follows terminal replay failure rather than a recoverable native-factory result. See [resource views](RHIResourceViewsAndTransfers.md#logical-cpu-authored-buffers).
+follows terminal replay failure rather than a recoverable native-factory result. See [resource views](RHIResourceViewsAndTransfers.md#uniform-and-storage-buffers).
 
 Graphics-pipeline initialization owns complete portable rasterizer,
 multisample, depth/stencil, per-active-attachment blend/write-mask, structural
@@ -271,7 +271,7 @@ first-location, and base-vertex arguments. See
 Single-command indirect operations retain their GPU-authored argument buffer
 and copied byte offset through replay. `DrawIndirect`,
 `DrawIndexedIndirect`, and `DispatchIndirect` return void and reject invalid
-recording through enforced preconditions: a null or CPU-authored buffer,
+recording through enforced preconditions: a null or snapshot storage buffer,
 missing `DrawIndirect` usage, non-four-byte alignment,
 an undersized record range, unsupported capability, wrong pipeline/render-pass
 domain, missing PSO, or dependency-admission failure before recording. Invalid
@@ -300,7 +300,7 @@ pressure when applicable. Queue statistics expose current/peak queued frames
 and frame-pressure wait count/duration separately from generic backpressure.
 Uniform objects own pending initial bytes and a backend allocation; updates
 copy payloads into commands and replace the allocation on ordered replay.
-CPU-authored storage retains replay-visible snapshots. Native pages are
+snapshot storage retains replay-visible snapshots. Native pages are
 materialized on the RHI thread.
 There is no render-thread mapped producer, frame-slot reset, or synchronous
 upload overflow allocation. The old dynamic allocation APIs and untyped uniform
@@ -312,9 +312,9 @@ ownership, so preparation state can outlive the creating list. Callers needing
 a separately typed resource use `CreateUniformBuffer`. Both require valid
 input and allocate contents on demand without caller-managed upload quotas.
 Shader recording retains logical resources, and backend bindings retain exact
-versions through GPU completion. CPU-authored ranges must not enter explicit
+versions through GPU completion. Snapshot storage ranges must not enter explicit
 native-buffer state transitions. See
-[resource contracts](RHIResourceViewsAndTransfers.md#logical-cpu-authored-buffers).
+[resource contracts](RHIResourceViewsAndTransfers.md#uniform-and-storage-buffers).
 
 Ordinary end-of-frame dispatch is not a GPU-idle boundary. `SubmitToGPU`,
 `EndFrame`, present-related context work, and `DeleteResources` remain ordered

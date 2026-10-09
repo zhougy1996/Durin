@@ -1,5 +1,5 @@
 #include "VulkanUniformBuffer.h"
-#include "VulkanDeferredBuffer.h"
+#include "VulkanShaderBufferBindings.h"
 #include "VulkanDevice.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanDynamicRHI.h"

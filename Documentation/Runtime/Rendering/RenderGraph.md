@@ -146,8 +146,8 @@ execution state. Compilation never mutates a command list.
   agree. The first name and declaration order remain canonical. A conflicting
   repeat records one deterministic declaration error naming both stable
   contracts; null imports retain the ordinary missing-resource failure and do
-  not become identity keys. CPU-authored buffers are rejected with
-  `ExternalBufferContentModeInvalid` at declaration, because changing content
+  not become identity keys. Snapshot storage buffers are rejected with
+  `ExternalBufferUpdatePolicyInvalid` at declaration, because changing content
   versions do not satisfy this physical-identity access contract. Use
   graph-created buffers and owned graph uploads for graph-managed contents.
 - Graph-created resources begin at `ERHIAccess::Discard`, require a stored

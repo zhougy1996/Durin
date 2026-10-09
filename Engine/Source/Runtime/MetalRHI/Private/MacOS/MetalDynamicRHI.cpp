@@ -484,7 +484,7 @@ namespace Durin
 			auto RHICreateBufferView(FRHIBuffer* Buffer,
 			const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView> override
 			{
-				if (!Buffer || IsCPUAuthoredBuffer(Buffer)
+				if (!Buffer || IsSnapshotStorageBuffer(Buffer)
 					|| !ValidateBufferViewDesc(Buffer, Desc)
 					|| Desc.Type == ERHIBufferViewType::Formatted)
 					return nullptr;

@@ -19,13 +19,13 @@ namespace Durin::VulkanRHI
 		static auto Cast(FRHIResource* Resource) -> FVulkanBufferView*
 		{
 			require(Resource && Resource->GetResourceType() == ERHIResourceType::BufferView
-				&& !IsCPUAuthoredBufferResource(Resource));
+				&& !IsSnapshotStorageBufferResource(Resource));
 			return static_cast<FVulkanBufferView*>(Resource);
 		}
 		static auto Cast(const FRHIResource* Resource) -> const FVulkanBufferView*
 		{
 			require(Resource && Resource->GetResourceType() == ERHIResourceType::BufferView
-				&& !IsCPUAuthoredBufferResource(Resource));
+				&& !IsSnapshotStorageBufferResource(Resource));
 			return static_cast<const FVulkanBufferView*>(Resource);
 		}
 		FVulkanBufferView(FVulkanDevice& InDevice, FRHIBuffer* InBuffer,

@@ -13,10 +13,12 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 	class FRHIBuffer;
+	class FRHIStorageBuffer;
+	class FRHIStorageBufferSnapshot;
 	class FRHIUniformBuffer;
 	class FRHIBufferUploadData;
 	class FRHICommandListBase;
-	class FRHIDeferredBufferBackend;
+	class FRHIStorageBufferBackend;
 	class FRHITextureView;
 	class FDynamicRHI;
 	struct FRHICapabilities;
@@ -58,6 +60,7 @@ namespace Durin
 	{
 		Viewport,
 		Buffer,
+		StorageBuffer,
 		UniformBuffer,
 		BufferView,
 		Texture,
@@ -1735,7 +1738,7 @@ namespace Durin
 	enum class ERHIIndirectCommandError : uint8
 	{
 		NullBuffer,
-		CPUAuthoredBuffer,
+		SnapshotStorageBuffer,
 		MissingIndirectUsage,
 		MisalignedOffset,
 		RangeOutOfBounds,
@@ -1952,8 +1955,8 @@ namespace Durin
 		const char* DebugName = nullptr;
 	};
 
-	// CPU-authored resources expose immutable content versions, never native handles.
-	enum class ERHIBufferContentMode : uint8 { Native, CPUAuthored };
+	// Snapshot storage rebuilds immutable contents; native storage uses GPU-ordered operations.
+	enum class ERHIStorageBufferUpdatePolicy : uint8 { Native, Snapshot };
 	enum class ERHIBufferLifetimeUsage : uint8 { SingleDraw, SingleFrame, MultiFrame };
 	struct FRHIUniformBufferLayout { uint32 ConstantBufferSize = 0; };
 	struct FRHIBufferUploadStats
@@ -1966,7 +1969,7 @@ namespace Durin
 	};
 	RHI_API auto GetBufferUploadStats() -> FRHIBufferUploadStats;
 
-	// Stable buffer identity; CPU-authored backing is resolved only during replay.
+	// Common buffer description; content ownership and update policy belong to specialized resources.
 	class FRHIBuffer : public FRHIResource
 	{
 	public:
@@ -1977,8 +1980,6 @@ namespace Durin
 		}
 
 		auto GetDesc() const -> FRHIBufferDesc const& { return Desc; }
-		auto GetContentMode() const -> ERHIBufferContentMode { return ContentMode; }
-		auto GetLifetimeUsage() const -> ERHIBufferLifetimeUsage { return LifetimeUsage; }
 
 		/** @return The number of bytes in the buffer. */
 		auto GetSize() const -> uint32 { return Desc.Size; }
@@ -1990,13 +1991,33 @@ namespace Durin
 		auto GetUsage() const -> EBufferUsageFlags { return Desc.Usage; }
 
 	protected:
-		FRHIBuffer(const FRHIBufferDesc& InDesc, ERHIBufferLifetimeUsage InUsage)
-			: FRHIResource(ERHIResourceType::Buffer), Desc(InDesc),
-			ContentMode(ERHIBufferContentMode::CPUAuthored), LifetimeUsage(InUsage) {}
+		FRHIBuffer(const FRHIBufferDesc& InDesc, ERHIResourceType Type)
+			: FRHIResource(Type), Desc(InDesc) {}
 		FRHIBufferDesc Desc;
+	};
+
+	// Shader storage with an explicit update policy. Only snapshot storage keeps a CPU copy.
+	class FRHIStorageBuffer : public FRHIBuffer
+	{
+	public:
+		auto GetUpdatePolicy() const -> ERHIStorageBufferUpdatePolicy { return UpdatePolicy; }
+		auto GetLifetimeUsage() const -> ERHIBufferLifetimeUsage { return LifetimeUsage; }
+	protected:
+		// Native backend subclasses supply physical storage and ordinary GPU synchronization.
+		explicit FRHIStorageBuffer(const FRHIBufferCreateDesc& Desc)
+			: FRHIBuffer(Desc, ERHIResourceType::StorageBuffer) {}
 	private:
-		const ERHIBufferContentMode ContentMode = ERHIBufferContentMode::Native;
+		friend class FRHICommandListBase;
+		friend class FRHIStorageBufferBackend;
+		FRHIStorageBuffer(const FRHIBufferDesc& Desc, ERHIBufferLifetimeUsage Usage,
+			std::shared_ptr<const FRHIStorageBufferSnapshot> Initial)
+			: FRHIBuffer(Desc, ERHIResourceType::StorageBuffer),
+			UpdatePolicy(ERHIStorageBufferUpdatePolicy::Snapshot), LifetimeUsage(Usage), Current(std::move(Initial)) {}
+		RHI_API auto ApplyUpdate(std::shared_ptr<FRHIStorageBufferSnapshot> Next,
+			uint32 Offset, uint32 Size) -> void;
+		const ERHIStorageBufferUpdatePolicy UpdatePolicy = ERHIStorageBufferUpdatePolicy::Native;
 		const ERHIBufferLifetimeUsage LifetimeUsage = ERHIBufferLifetimeUsage::MultiFrame;
+		std::shared_ptr<const FRHIStorageBufferSnapshot> Current;
 	};
 
 	// Layout-defined shader parameters. Native backends own the current allocation;
@@ -2024,9 +2045,16 @@ namespace Durin
 		std::vector<TRefCountPtr<FRHIResource>> PendingReferences;
 	};
 
-	inline auto IsCPUAuthoredBuffer(const FRHIBuffer* Buffer) -> bool
+	inline auto IsSnapshotStorageBuffer(const FRHIBuffer* Buffer) -> bool
 	{
-		return Buffer && Buffer->GetContentMode() == ERHIBufferContentMode::CPUAuthored;
+		return Buffer && Buffer->GetResourceType() == ERHIResourceType::StorageBuffer
+			&& static_cast<const FRHIStorageBuffer*>(Buffer)->GetUpdatePolicy() == ERHIStorageBufferUpdatePolicy::Snapshot;
+	}
+
+	inline auto IsBufferResource(const FRHIResource* Resource) -> bool
+	{
+		return Resource && (Resource->GetResourceType() == ERHIResourceType::Buffer
+			|| Resource->GetResourceType() == ERHIResourceType::StorageBuffer);
 	}
 
 	// Selects the shader-visible interpretation of one immutable buffer range.
@@ -2102,13 +2130,13 @@ namespace Durin
 		FRHIBufferViewDesc Desc;
 	};
 
-	inline auto IsCPUAuthoredBufferResource(const FRHIResource* Resource) -> bool
+	inline auto IsSnapshotStorageBufferResource(const FRHIResource* Resource) -> bool
 	{
 		if (!Resource) return false;
-		if (Resource->GetResourceType() == ERHIResourceType::Buffer)
-			return IsCPUAuthoredBuffer(static_cast<const FRHIBuffer*>(Resource));
+		if (IsBufferResource(Resource))
+			return IsSnapshotStorageBuffer(static_cast<const FRHIBuffer*>(Resource));
 		if (Resource->GetResourceType() == ERHIResourceType::BufferView)
-			return IsCPUAuthoredBuffer(static_cast<const FRHIBufferView*>(Resource)->GetBuffer());
+			return IsSnapshotStorageBuffer(static_cast<const FRHIBufferView*>(Resource)->GetBuffer());
 		return false;
 	}
 
@@ -2116,7 +2144,7 @@ namespace Durin
 	inline auto IsLogicalBufferBindingResource(const FRHIResource* Resource) -> bool
 	{
 		return Resource && (Resource->GetResourceType() == ERHIResourceType::UniformBuffer
-			|| IsCPUAuthoredBufferResource(Resource));
+			|| IsSnapshotStorageBufferResource(Resource));
 	}
 
 	// Retains a texture allocation together with one validated immutable subresource identity.

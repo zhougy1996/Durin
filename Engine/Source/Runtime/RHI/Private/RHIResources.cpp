@@ -370,8 +370,8 @@ namespace Durin
 		-> std::expected<void, ERHIIndirectCommandError>
 	{
 		if (!Buffer) return std::unexpected(ERHIIndirectCommandError::NullBuffer);
-		if (IsCPUAuthoredBuffer(Buffer))
-			return std::unexpected(ERHIIndirectCommandError::CPUAuthoredBuffer);
+		if (IsSnapshotStorageBuffer(Buffer))
+			return std::unexpected(ERHIIndirectCommandError::SnapshotStorageBuffer);
 		if (!EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::DrawIndirect))
 			return std::unexpected(ERHIIndirectCommandError::MissingIndirectUsage);
 		if ((Offset & 3u) != 0)
@@ -913,7 +913,7 @@ namespace Durin
 	auto ValidateBufferTransition(const FRHIBufferTransition& Transition) -> std::expected<void, ERHIBufferTransitionError>
 	{
 		if (Transition.Buffer == nullptr) return std::unexpected(ERHIBufferTransitionError::NullResource);
-		if (Transition.Buffer->GetResourceType() != ERHIResourceType::Buffer) return std::unexpected(ERHIBufferTransitionError::InvalidResourceType);
+		if (!IsBufferResource(Transition.Buffer)) return std::unexpected(ERHIBufferTransitionError::InvalidResourceType);
 		if (Transition.Size == 0) return std::unexpected(ERHIBufferTransitionError::EmptyRange);
 		const uint64 ResourceSize = Transition.Buffer->GetSize();
 		if (Transition.Offset > ResourceSize || Transition.Size > ResourceSize - Transition.Offset)
@@ -1049,7 +1049,7 @@ namespace Durin
 		const FRHIBufferViewDesc& Desc) -> std::expected<void, ERHIBufferViewError>
 	{
 		if (Buffer == nullptr) return std::unexpected(ERHIBufferViewError::NullParent);
-		if (Buffer->GetResourceType() != ERHIResourceType::Buffer) return std::unexpected(ERHIBufferViewError::InvalidParentType);
+		if (!IsBufferResource(Buffer)) return std::unexpected(ERHIBufferViewError::InvalidParentType);
 		return ValidateBufferViewDesc(Buffer->GetDesc(), Desc);
 	}
 

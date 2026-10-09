@@ -4421,18 +4421,18 @@ namespace Durin
 		EXPECT_TRUE(Builder.GetCullingDecisions()[2].bCulled);
 	}
 
-	TEST_F(FRDGTests, RejectsCPUAuthoredExternalBuffersBeforeRecording)
+	TEST_F(FRDGTests, RejectsSnapshotStorageExternalBuffersBeforeRecording)
 	{
 		FRHICommandList Commands;
 		auto Buffer = Commands.CreateStorageBuffer({16, 4, EBufferUsageFlags::StructuredBuffer},
 			ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(16));
 		ASSERT_TRUE(Buffer);
 		FRDGBuilder Builder;
-		Builder.RegisterExternalBuffer(Buffer, "CPUAuthored", ERHIAccess::ComputeShaderRead,
+		Builder.RegisterExternalBuffer(Buffer, "SnapshotStorage", ERHIAccess::ComputeShaderRead,
 			ERHIAccess::ComputeShaderRead);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
 		ASSERT_FALSE(Result);
-		EXPECT_TRUE(HasRDGTestReason(Result.error(), ERDGIdentityError::ExternalBufferContentModeInvalid));
+		EXPECT_TRUE(HasRDGTestReason(Result.error(), ERDGIdentityError::ExternalBufferUpdatePolicyInvalid));
 		EXPECT_EQ(Commands.GetNumRecordedCommands(), 0u);
 	}
 

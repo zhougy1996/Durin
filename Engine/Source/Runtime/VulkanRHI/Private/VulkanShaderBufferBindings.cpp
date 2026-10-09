@@ -1,4 +1,4 @@
-#include "VulkanDeferredBuffer.h"
+#include "VulkanShaderBufferBindings.h"
 #include "VulkanBuffer.h"
 #include "VulkanContext.h"
 #include "VulkanDevice.h"
@@ -21,13 +21,13 @@ namespace Durin::VulkanRHI
 		for (const auto& Slot : Slots)
 		{
 			Pages[Slot.Page].Used.erase(Slot.Offset);
-			FRHIDeferredBufferBackend::RecordAdmission(Slot.Size, 0, false);
+			FRHIStorageBufferBackend::RecordAdmission(Slot.Size, 0, false);
 		}
 	}
 
 	FVulkanBindingAdmission::~FVulkanBindingAdmission()
 	{
-		FRHIDeferredBufferBackend::RecordAdmission(0, Capacity, false);
+		FRHIStorageBufferBackend::RecordAdmission(0, Capacity, false);
 	}
 
 	auto FVulkanBindingAdmission::Reserve(uint64 Size) -> std::shared_ptr<FReservation>
@@ -54,7 +54,7 @@ namespace Durin::VulkanRHI
 				if (Size > Page.Size - Offset) continue;
 				Page.Used.emplace(Offset, Size);
 				Result->Slots.push_back({Index, Page.Size, Queue, Offset, Size});
-				FRHIDeferredBufferBackend::RecordAdmission(Size, 0, true);
+				FRHIStorageBufferBackend::RecordAdmission(Size, 0, true);
 				bFound = true;
 				break;
 			}
@@ -63,7 +63,7 @@ namespace Durin::VulkanRHI
 			Pages.push_back({PageSize, Queue, {{0, Size}}});
 			Capacity += PageSize;
 			Result->Slots.push_back({static_cast<uint32>(Pages.size() - 1), PageSize, Queue, 0, Size});
-			FRHIDeferredBufferBackend::RecordAdmission(Size, PageSize, true);
+			FRHIStorageBufferBackend::RecordAdmission(Size, PageSize, true);
 		}
 		return Result;
 	}
@@ -211,10 +211,10 @@ namespace Durin::VulkanRHI
 			else
 			{
 				auto* Logical = static_cast<FRHIBufferView*>(Binding.Logical.GetReference());
-				Snapshot = FRHIDeferredBufferBackend::ResolveSnapshot(*Logical->GetBuffer());
+				Snapshot = FRHIStorageBufferBackend::ResolveSnapshot(*Logical->GetBuffer());
 				const auto& Desc = Logical->GetBuffer()->GetDesc();
 				auto Storage = std::static_pointer_cast<FDeferredBacking>(
-					FRHIDeferredBufferBackend::GetBacking(*Snapshot, Context.GetQueue()));
+					FRHIStorageBufferBackend::GetBacking(*Snapshot, Context.GetQueue()));
 				if (!Storage)
 				{
 					const auto [Page, Offset] = Device.GetBindingPool(false).Resolve(
@@ -229,7 +229,7 @@ namespace Durin::VulkanRHI
 					Storage->Size = (Desc.Size + Alignment - 1) / Alignment * Alignment;
 					GVulkanMemoryBaselineTracker.RecordArenaRangeAllocated(
 						EVulkanAllocationClassCandidate::DynamicUpload, Storage->Size, false, false);
-					FRHIDeferredBufferBackend::SetBacking(*Snapshot, Context.GetQueue(), Storage);
+					FRHIStorageBufferBackend::SetBacking(*Snapshot, Context.GetQueue(), Storage);
 				}
 				Backing = Storage;
 				Lease = Storage->Lease;
