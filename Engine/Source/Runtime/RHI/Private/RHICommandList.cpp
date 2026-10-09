@@ -105,6 +105,21 @@ namespace Durin
 					|| Parameter.Type == ERHIBindingType::UniformBufferDynamic
 					|| Parameter.Type == ERHIBindingType::StorageBuffer)
 				{
+					if (Parameter.Resource->GetResourceType() == ERHIResourceType::UniformBuffer)
+					{
+						if (Parameter.Type == ERHIBindingType::StorageBuffer)
+							return Fail("Uniform parameters cannot be bound as storage.");
+						const auto* Buffer = static_cast<const FRHIUniformBuffer*>(Parameter.Resource);
+						if (Parameter.Offset > Buffer->GetSize()) return Fail("Uniform offset exceeds its size.");
+						if (!Parameter.Size) Parameter.Size = Buffer->GetSize() - Parameter.Offset;
+						const auto* Caps = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr;
+						const auto Alignment = std::max(16u, Caps ? Caps->MinUniformBufferOffsetAlignment : 0u);
+						if (!Parameter.Size || Parameter.Size % 16 != 0 || Parameter.Offset % Alignment != 0
+							|| Parameter.Size > Buffer->GetSize() - Parameter.Offset
+							|| (Caps && Caps->MaxUniformBufferRange && Parameter.Size > Caps->MaxUniformBufferRange))
+							return Fail("Uniform parameter range exceeds native binding limits.");
+						continue;
+					}
 					if (IsCPUAuthoredBufferResource(Parameter.Resource))
 					{
 						const bool bDynamic = Parameter.Type == ERHIBindingType::UniformBufferDynamic;

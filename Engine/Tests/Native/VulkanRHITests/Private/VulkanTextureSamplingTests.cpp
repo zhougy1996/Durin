@@ -625,7 +625,7 @@ namespace Durin
 			RHICmdList.CreateUniformBufferRange(
 				SmallUniformData.data(),
 				static_cast<uint32>(SmallUniformData.size()));
-		EXPECT_EQ(SecondSlotUniformRange.Buffer->GetContentMode(), ERHIBufferContentMode::CPUAuthored);
+		EXPECT_EQ(SecondSlotUniformRange.Buffer->GetResourceType(), ERHIResourceType::UniformBuffer);
 		EXPECT_EQ(SecondSlotUniformRange.Offset, 0u);
 		EndFrame();
 		EXPECT_EQ(
@@ -636,7 +636,7 @@ namespace Durin
 			RHICmdList.CreateUniformBufferRange(
 				SmallUniformData.data(),
 				static_cast<uint32>(SmallUniformData.size()));
-		EXPECT_EQ(ReusedFirstSlotUniformRange.Buffer->GetContentMode(), ERHIBufferContentMode::CPUAuthored);
+		EXPECT_EQ(ReusedFirstSlotUniformRange.Buffer->GetResourceType(), ERHIResourceType::UniformBuffer);
 		EXPECT_EQ(ReusedFirstSlotUniformRange.Offset, 0u);
 		EndFrame();
 		EXPECT_EQ(

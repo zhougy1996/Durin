@@ -7,34 +7,46 @@
 
 namespace Durin
 {
-	// Immutable after publication. Retaining a snapshot retains its bytes and sidecars.
-	class FRHIDeferredBufferSnapshot final
+	class FRHICPUAuthoredBuffer;
+
+	// Storage-only contents, immutable after publication; partial updates preserve replay order.
+	class FRHIStorageBufferSnapshot final
 	{
 	public:
-		RHI_API ~FRHIDeferredBufferSnapshot();
+		RHI_API ~FRHIStorageBufferSnapshot();
 		auto GetData() const -> FByteView { return {Data.get(), Size}; }
-		auto GetReferences() const -> std::span<const TRefCountPtr<FRHIResource>>
-		{ return {References.get(), ReferenceCount}; }
 		auto GetVersion() const -> uint64 { return Version; }
 		auto GetOwnedPayloadBytes() const -> uint64 { return OwnedBytes; }
 		auto GetBackingAdmission() const -> const std::shared_ptr<void>& { return BackingAdmission; }
 
 	private:
 		friend class FRHICommandListBase;
-		friend class FRHIBuffer;
+		friend class FRHICPUAuthoredBuffer;
 		friend class FRHIDeferredBufferBackend;
-		static auto Allocate(const FRHIBufferDesc& Desc, std::span<FRHIResource* const> References)
-			-> std::shared_ptr<FRHIDeferredBufferSnapshot>;
-		FRHIDeferredBufferSnapshot(uint32 InSize, size_t InReferenceCount);
+		static auto Allocate(const FRHIBufferDesc& Desc)
+			-> std::shared_ptr<FRHIStorageBufferSnapshot>;
+		FRHIStorageBufferSnapshot(uint32 InSize);
 		std::unique_ptr<std::byte[]> Data;
-		std::unique_ptr<TRefCountPtr<FRHIResource>[]> References;
 		uint32 Size;
-		size_t ReferenceCount;
 		uint64 Version = 0;
 		uint64 OwnedBytes = 0;
 		std::shared_ptr<const FRHIBufferUploadAccounting> Accounting;
 		std::shared_ptr<void> BackingAdmission;
 		mutable std::unordered_map<const void*, std::weak_ptr<void>> Backings;
+	};
+
+	// CPU-authored storage owns snapshots; ordinary native buffers carry no CPU content state.
+	class FRHICPUAuthoredBuffer final : public FRHIBuffer
+	{
+	private:
+		friend class FRHICommandListBase;
+		friend class FRHIDeferredBufferBackend;
+		FRHICPUAuthoredBuffer(const FRHIBufferDesc& Desc, ERHIBufferLifetimeUsage Usage,
+			std::shared_ptr<const FRHIStorageBufferSnapshot> Initial)
+			: FRHIBuffer(Desc, Usage), Current(std::move(Initial)) {}
+		RHI_API auto ApplyUpdate(std::shared_ptr<FRHIStorageBufferSnapshot> Next,
+			uint32 Offset, uint32 Size) -> void;
+		std::shared_ptr<const FRHIStorageBufferSnapshot> Current;
 	};
 
 	class FRHIDeferredBufferBackend final
@@ -43,11 +55,11 @@ namespace Durin
 		RHI_API static auto RecordAdmission(uint64 Bytes, uint64 Capacity, bool bAcquire) -> void;
 		// Only ordered RHI replay may observe the current content version.
 		RHI_API static auto ResolveSnapshot(const FRHIBuffer& Buffer)
-			-> std::shared_ptr<const FRHIDeferredBufferSnapshot>;
+			-> std::shared_ptr<const FRHIStorageBufferSnapshot>;
 		// Replay-owned cache, partitioned by queue context to preserve exclusive ownership.
-		RHI_API static auto GetBacking(const FRHIDeferredBufferSnapshot& Snapshot,
+		RHI_API static auto GetBacking(const FRHIStorageBufferSnapshot& Snapshot,
 			const void* Context) -> std::shared_ptr<void>;
-		RHI_API static auto SetBacking(const FRHIDeferredBufferSnapshot& Snapshot,
+		RHI_API static auto SetBacking(const FRHIStorageBufferSnapshot& Snapshot,
 			const void* Context, std::shared_ptr<void> Backing) -> void;
 	};
 }

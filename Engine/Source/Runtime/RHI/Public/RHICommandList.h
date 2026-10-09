@@ -182,8 +182,7 @@ namespace Durin
 		auto ValidateIndirectDrawRecording(const char* OperationName, FRHIBuffer* ArgumentBuffer,
 			uint64 Offset, size_t ArgumentSize) -> void;
 		auto CountRecordedDrawCommand() -> void;
-		auto UpdateCPUAuthoredBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data,
-			std::span<FRHIResource* const> References)
+		auto UpdateCPUAuthoredStorageBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
 			-> void;
 
 		enum class ERecordingState : uint8

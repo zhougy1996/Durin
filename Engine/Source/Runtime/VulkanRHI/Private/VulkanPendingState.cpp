@@ -166,7 +166,7 @@ namespace Durin::VulkanRHI
 		}
 		for (const FRHIShaderParameterResource& Parameter : InResourceParameters)
 		{
-			if (!bResolvingDeferred && IsCPUAuthoredBufferResource(Parameter.Resource)) continue;
+			if (!bResolvingDeferred && IsLogicalBufferBindingResource(Parameter.Resource)) continue;
 			const auto It = std::ranges::find_if(PendingResources,
 				[&](const FRHIShaderParameterResource& Existing) {
 					return Existing.SetIndex == Parameter.SetIndex
@@ -454,7 +454,7 @@ namespace Durin::VulkanRHI
 		for (const auto& ResourceParameter : InResourceParameters)
 		{
 			// Resolve logical updates before deciding whether native descriptor contents changed.
-			if (!bResolvingDeferred && IsCPUAuthoredBufferResource(ResourceParameter.Resource)) continue;
+			if (!bResolvingDeferred && IsLogicalBufferBindingResource(ResourceParameter.Resource)) continue;
 			if (PendingSets.size() <= ResourceParameter.SetIndex)
 				PendingSets.resize(static_cast<size_t>(ResourceParameter.SetIndex) + 1);
 			auto& Set = PendingSets[ResourceParameter.SetIndex];

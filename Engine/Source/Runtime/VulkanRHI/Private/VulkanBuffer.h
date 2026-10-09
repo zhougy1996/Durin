@@ -30,7 +30,8 @@ namespace Durin::VulkanRHI
 			require(Resource && !IsCPUAuthoredBufferResource(Resource));
 			return static_cast<const FVulkanBuffer*>(Resource);
 		}
-		FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc);
+		FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc,
+			bool bConcurrentReadOnly = false);
 
 		~FVulkanBuffer() override;
 

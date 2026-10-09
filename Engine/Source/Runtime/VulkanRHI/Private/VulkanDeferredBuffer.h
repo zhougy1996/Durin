@@ -6,6 +6,7 @@
 
 #include "RHIShaderParameters.h"
 #include "Backend/RHIDeferredBufferBackend.h"
+#include "VulkanUniformBuffer.h"
 
 namespace Durin::VulkanRHI
 {
@@ -55,7 +56,7 @@ namespace Durin::VulkanRHI
 	};
 
 	// Captures physical buffer bindings when shader parameters are bound. Updates require rebinding.
-	class FVulkanDeferredBufferBindings
+	class FVulkanShaderBufferBindings
 	{
 	public:
 		auto Update(std::span<const FRHIShaderParameterResource> Parameters) -> void;
@@ -66,7 +67,7 @@ namespace Durin::VulkanRHI
 	private:
 		struct FResolved
 		{
-			std::shared_ptr<const FRHIDeferredBufferSnapshot> Snapshot;
+			std::shared_ptr<const FRHIStorageBufferSnapshot> Snapshot;
 			TRefCountPtr<FRHIBufferView> View;
 			std::shared_ptr<void> Backing;
 			std::shared_ptr<void> Lease;
@@ -76,7 +77,7 @@ namespace Durin::VulkanRHI
 		struct FBinding
 		{
 			FRHIShaderParameterResource Parameter;
-			TRefCountPtr<FRHIBufferView> Logical;
+			TRefCountPtr<FRHIResource> Logical;
 			std::shared_ptr<FResolved> Resolved;
 			bool bDirty = true;
 		};

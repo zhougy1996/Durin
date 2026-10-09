@@ -304,8 +304,14 @@ namespace Durin::RendererPrivate
 			}
 			if (Range)
 			{
-				if (!Range->Buffer || Range->Size == 0 || Range->Offset > Range->Buffer->GetSize()
-					|| Range->Size > Range->Buffer->GetSize() - Range->Offset) return false;
+				if (!Range->Buffer || Range->Size == 0) return false;
+				uint32 BufferSize = 0;
+				if (Range->Buffer->GetResourceType() == ERHIResourceType::UniformBuffer)
+					BufferSize = static_cast<const FRHIUniformBuffer*>(Range->Buffer)->GetSize();
+				else if (Range->Buffer->GetResourceType() == ERHIResourceType::Buffer)
+					BufferSize = static_cast<const FRHIBuffer*>(Range->Buffer)->GetSize();
+				else return false;
+				if (Range->Offset > BufferSize || Range->Size > BufferSize - Range->Offset) return false;
 				Resource.Resource = Range->Buffer;
 				Resource.Offset = Range->Offset;
 				Resource.Size = Range->Size;

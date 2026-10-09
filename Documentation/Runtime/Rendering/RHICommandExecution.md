@@ -202,7 +202,7 @@ Buffer and texture uploads are recorded and own their source bytes.
 the written range in `TransferWrite` for a graph-managed next barrier.
 `WriteBuffer` keeps its canonical-access restoration contract. Write-only buffer
 locks allocate CPU staging and record `WriteBuffer` at unlock; they do not
-provide native mappings. CPU-authored buffers use `UpdateUniformBuffer` or
+provide native mappings. Uniform resources use `UpdateUniformBuffer`; CPU-authored storage uses
 `UpdateBuffer` instead of the native write/upload/lock surfaces. Operations
 that must return a completed result—texture readback,
 back-buffer acquisition, GPU-idle waits, resource creation, viewport resize,
@@ -298,8 +298,10 @@ The render thread dispatches this boundary asynchronously through
 The `RHI.BeginFrame.Dispatch` scope measures dispatch, including bounded queue
 pressure when applicable. Queue statistics expose current/peak queued frames
 and frame-pressure wait count/duration separately from generic backpressure.
-Uniform and CPU-authored storage use CPU-only creation/update admission and
-replay-visible snapshots, with native pages materialized on the RHI thread.
+Uniform objects own pending initial bytes and a backend allocation; updates
+copy payloads into commands and replace the allocation on ordered replay.
+CPU-authored storage retains replay-visible snapshots. Native pages are
+materialized on the RHI thread.
 There is no render-thread mapped producer, frame-slot reset, or synchronous
 upload overflow allocation. The old dynamic allocation APIs and untyped uniform
 update overload have been removed.

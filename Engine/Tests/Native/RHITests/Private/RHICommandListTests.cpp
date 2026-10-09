@@ -2496,7 +2496,7 @@ namespace Durin
 		EXPECT_EQ(Uniform->GetLayout().ConstantBufferSize, 16u);
 		EXPECT_EQ(Uniform->GetLifetimeUsage(), ERHIBufferLifetimeUsage::SingleDraw);
 		EXPECT_DEATH_IF_SUPPORTED(Commands.UpdateBuffer(Native, 0, FByteBuffer(16)), "");
-		EXPECT_DEATH_IF_SUPPORTED(Commands.UpdateBuffer(Uniform, 0, FByteBuffer(16)), "");
+		static_assert(!std::is_base_of_v<FRHIBuffer, FRHIUniformBuffer>);
 		EXPECT_FALSE(FRHIBufferView::CanCreate(nullptr, {0, 16, ERHIBufferViewType::StructuredStorage}));
 		EXPECT_FALSE(FRHIBufferView::CanCreate(Native, {0, 16, ERHIBufferViewType::StructuredStorage}));
 		EXPECT_DEATH_IF_SUPPORTED(FRHIBufferView::Create(Native, {0, 16, ERHIBufferViewType::StructuredStorage}), "");
@@ -2542,7 +2542,7 @@ namespace Durin
 				std::fill(Source.begin(), Source.end(), std::byte{0});
 				EXPECT_EQ(Creator.GetNumRecordedCommands(), 0u);
 			}
-			std::vector<std::shared_ptr<const FRHIDeferredBufferSnapshot>> Observed;
+			std::vector<std::shared_ptr<const FRHIStorageBufferSnapshot>> Observed;
 			auto Observe = [Buffer, &Observed]() {
 				Observed.push_back(FRHIDeferredBufferBackend::ResolveSnapshot(*Buffer));
 			};
@@ -2574,7 +2574,43 @@ namespace Durin
 		}
 	}
 
-	TEST(FRHICommandListTests, DeferredUniformVersionsRetainTheirOwnResourceReferences)
+	TEST(FRHICommandListTests, UniformUpdatesFollowSubmissionOrderAcrossLists)
+	{
+		for (const bool bThreaded : {false, true})
+		{
+			SCOPED_TRACE(bThreaded);
+			FRecordingCommandContext Context;
+			FRHIThread Thread;
+			if (bThreaded) ASSERT_TRUE(Thread.Start());
+			auto Executor = bThreaded
+				? std::make_unique<FRHICommandListExecutor>(Context, Thread)
+				: std::make_unique<FRHICommandListExecutor>(Context);
+			TRefCountPtr<FRHIUniformBuffer> Buffer;
+			{
+				FRHICommandList Creator;
+				Buffer = Creator.CreateUniformBuffer({16}, ERHIBufferLifetimeUsage::MultiFrame,
+					FByteBuffer(16, std::byte{1}));
+			}
+			std::vector<std::byte> Observed;
+			auto Observe = [Buffer, &Observed] { Observed.push_back(Buffer->GetPendingData()->GetData()[0]); };
+			Executor->GetImmediateCommandList().EnqueueLambda(Observe, 0);
+			FRHICommandList First, Second;
+			FByteBuffer Source(16, std::byte{2});
+			First.UpdateUniformBuffer(Buffer, Source);
+			First.EnqueueLambda(Observe, 0);
+			std::fill(Source.begin(), Source.end(), std::byte{3});
+			Second.UpdateUniformBuffer(Buffer, Source);
+			Second.EnqueueLambda(Observe, 0);
+			std::fill(Source.begin(), Source.end(), std::byte{0});
+			First.FinishRecording();
+			Second.FinishRecording();
+			Executor->Submit({&Second, &First}, ERHISubmitFlags::None);
+			Executor->CreateFence().Wait();
+			EXPECT_EQ(Observed, (std::vector<std::byte>{std::byte{1}, std::byte{3}, std::byte{2}}));
+		}
+	}
+
+	TEST(FRHICommandListTests, UniformUpdatesCopyBytesAndRetainTheirOwnResourceReferences)
 	{
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
@@ -2587,9 +2623,15 @@ namespace Durin
 			ERHIBufferLifetimeUsage::MultiFrame, Data, References);
 		ASSERT_TRUE(Created);
 		auto Buffer = std::move(Created);
-		std::vector<std::shared_ptr<const FRHIDeferredBufferSnapshot>> Versions;
+		struct FObservedUniform
+		{
+			std::shared_ptr<const FRHIBufferUploadData> Data;
+			std::vector<TRefCountPtr<FRHIResource>> References;
+		};
+		std::vector<FObservedUniform> Versions;
 		auto Observe = [Buffer, &Versions]() {
-			Versions.push_back(FRHIDeferredBufferBackend::ResolveSnapshot(*Buffer));
+			Versions.push_back({Buffer->GetPendingData(),
+				{Buffer->GetPendingReferences().begin(), Buffer->GetPendingReferences().end()}});
 		};
 		Commands.EnqueueLambda(Observe, 0);
 		References[0] = ReferenceB;
@@ -2600,15 +2642,14 @@ namespace Durin
 		Commands.EnqueueLambda(Observe, 0);
 		Executor.Submit({}, ERHISubmitFlags::None);
 		ASSERT_EQ(Versions.size(), 2u);
-		EXPECT_EQ(Versions[0]->GetData()[0], std::byte{1});
-		EXPECT_EQ(Versions[1]->GetData()[0], std::byte{2});
-		ASSERT_EQ(Versions[0]->GetReferences().size(), 1u);
-		ASSERT_EQ(Versions[1]->GetReferences().size(), 1u);
-		EXPECT_EQ(Versions[0]->GetOwnedPayloadBytes(), 16u + sizeof(TRefCountPtr<FRHIResource>));
-		EXPECT_EQ(Versions[0]->GetReferences()[0].GetReference(), ReferenceA.GetReference());
-		EXPECT_EQ(Versions[1]->GetReferences()[0].GetReference(), ReferenceB.GetReference());
+		EXPECT_EQ(Versions[0].Data->GetData()[0], std::byte{1});
+		EXPECT_EQ(Versions[1].Data->GetData()[0], std::byte{2});
+		ASSERT_EQ(Versions[0].References.size(), 1u);
+		ASSERT_EQ(Versions[1].References.size(), 1u);
+		EXPECT_EQ(Versions[0].References[0].GetReference(), ReferenceA.GetReference());
+		EXPECT_EQ(Versions[1].References[0].GetReference(), ReferenceB.GetReference());
 		EXPECT_EQ(ReferenceA->GetRefCount(), 2u);
-		Versions[0].reset();
+		Versions[0] = {};
 		EXPECT_EQ(ReferenceA->GetRefCount(), 1u);
 	}
 
@@ -2629,18 +2670,18 @@ namespace Durin
 		EXPECT_DEATH_IF_SUPPORTED(Commands.CreateUniformBuffer(Layout,
 			ERHIBufferLifetimeUsage::MultiFrame, FByteView(Data.data(), 8)), "");
 		EXPECT_DEATH_IF_SUPPORTED(Commands.UpdateUniformBuffer(Buffer, FByteView(Data.data(), 8)), "");
-		EXPECT_DEATH_IF_SUPPORTED(Commands.UpdateBuffer(Buffer, UINT32_MAX, Data), "");
 		std::array<FRHIResource*, 1> CyclicReferences{Buffer.GetReference()};
 		EXPECT_DEATH_IF_SUPPORTED(Commands.UpdateUniformBuffer(Buffer, Data, CyclicReferences), "");
-		EXPECT_FALSE(FRHIBufferView::CanCreate(Buffer, {UINT64_MAX, 16, ERHIBufferViewType::Uniform}));
-		EXPECT_FALSE(FRHIBufferView::CanCreate(Buffer, {0, 8, ERHIBufferViewType::Uniform}));
-		EXPECT_DEATH_IF_SUPPORTED(FRHIBufferView::Create(Buffer, {UINT64_MAX, 16, ERHIBufferViewType::Uniform}), "");
-		EXPECT_DEATH_IF_SUPPORTED(FRHIBufferView::Create(Buffer, {0, 8, ERHIBufferViewType::Uniform}), "");
-		auto View = FRHIBufferView::Create(Buffer, {0, 16, ERHIBufferViewType::Uniform});
+		EXPECT_EQ(Buffer->GetResourceType(), ERHIResourceType::UniformBuffer);
+		EXPECT_EQ(Buffer->GetLayout().ConstantBufferSize, 16u);
+		auto Storage = Commands.CreateStorageBuffer({16, 4, EBufferUsageFlags::StructuredBuffer},
+			ERHIBufferLifetimeUsage::MultiFrame, Data);
+		EXPECT_DEATH_IF_SUPPORTED(Commands.UpdateBuffer(Storage, UINT32_MAX, Data), "");
+		EXPECT_FALSE(FRHIBufferView::CanCreate(Storage, {UINT64_MAX, 16, ERHIBufferViewType::StructuredStorage}));
+		auto View = FRHIBufferView::Create(Storage, {0, 16, ERHIBufferViewType::StructuredStorage});
 		ASSERT_TRUE(View);
-		EXPECT_EQ(View->GetResourceType(), ERHIResourceType::BufferView);
-		Buffer = nullptr;
-		EXPECT_EQ(View->GetBuffer()->GetDesc().Size, 16u);
+		Storage = nullptr;
+		EXPECT_EQ(View->GetBuffer()->GetSize(), 16u);
 		EXPECT_EQ(Commands.GetNumRecordedCommands(), 0u);
 	}
 
@@ -2655,7 +2696,7 @@ namespace Durin
 			.Type = ERHIBindingType::UniformBufferDynamic, .Offset = 16, .Size = 16};
 		auto Batch = FRHIShaderParameterBatch::Create(Shader, std::span{&Parameter, 1});
 		ASSERT_TRUE(Batch);
-		EXPECT_EQ(Batch->GetParameters()[0].Resource->GetResourceType(), ERHIResourceType::BufferView);
+		EXPECT_EQ(Batch->GetParameters()[0].Resource->GetResourceType(), ERHIResourceType::UniformBuffer);
 		Parameter.Offset = 4;
 		EXPECT_FALSE(FRHIShaderParameterBatch::Create(Shader, std::span{&Parameter, 1}));
 		Parameter.Offset = 32;
@@ -2686,9 +2727,7 @@ namespace Durin
 		}
 		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before);
 		Commands.EnqueueLambda([Buffer]() {
-			const auto Snapshot = FRHIDeferredBufferBackend::ResolveSnapshot(*Buffer);
-			EXPECT_EQ(Snapshot->GetVersion(), 0u);
-			EXPECT_EQ(Snapshot->GetData()[0], std::byte{1});
+			EXPECT_EQ(Buffer->GetPendingData()->GetData()[0], std::byte{1});
 		}, 0);
 		Executor.Submit({}, ERHISubmitFlags::None);
 	}
@@ -2877,11 +2916,11 @@ namespace Durin
 			Range = Producer.CreateUniformBufferRange(Bytes.data(), Bytes.size());
 		}
 		ASSERT_TRUE(Range.ResourceOwner);
-		ASSERT_EQ(Range.Buffer->GetContentMode(), ERHIBufferContentMode::CPUAuthored);
+		ASSERT_EQ(Range.Buffer->GetResourceType(), ERHIResourceType::UniformBuffer);
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
 		Executor.GetImmediateCommandList().EnqueueLambda([Buffer = Range.ResourceOwner] {
-			EXPECT_EQ(FRHIDeferredBufferBackend::ResolveSnapshot(*static_cast<FRHIBuffer*>(Buffer.GetReference()))->GetData().size(), 16u);
+			EXPECT_EQ(static_cast<FRHIUniformBuffer*>(Buffer.GetReference())->GetPendingData()->GetData().size(), 16u);
 		}, 0);
 		Range = {};
 		Executor.Submit({}, ERHISubmitFlags::DeleteResources);

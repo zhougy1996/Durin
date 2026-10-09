@@ -70,8 +70,8 @@ namespace Durin
 		uint32 Size = 0;
 	};
 
-	// Counted physical or logical views retained by an immutable batch. Logical
-	// views choose their content version at draw/dispatch replay. Creation is fallible.
+	// Counted resources and views retained by an immutable batch. Logical resources
+	// choose their allocation at shader-parameter bind replay. Creation is fallible.
 	class FRHIShaderParameterBatch final
 	{
 	public:

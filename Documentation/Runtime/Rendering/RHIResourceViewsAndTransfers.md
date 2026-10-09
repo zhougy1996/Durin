@@ -33,38 +33,40 @@ texture description. Native view destruction uses the deferred deletion path.
 
 ## Logical CPU-Authored Buffers
 
-`CreateUniformBuffer` returns `FRHIUniformBuffer`, a final `FRHIBuffer`
-subclass with an immutable constant-size layout. `CreateStorageBuffer`
-returns an ordinary `FRHIBuffer`. Both own complete initial bytes without
-recording a creation command or allocating native storage. Their immutable
-content mode is `CPUAuthored`; backend buffers retain `Native` mode. Resolving
-a backing version does not change a resource's content mode. The creator list
-may be discarded before another list consumes the object. Uniform layout size
-is a nonzero multiple of 16; storage selects structured (nonzero stride
-dividing size) or byte-address (stride four, size multiple of four), optionally
-with `ShaderResource`. Other storage flags are rejected. Lifetime usage hints
+`FRHIUniformBuffer` derives directly from `FRHIResource`, independently of
+`FRHIBuffer`. It owns an immutable constant-size layout and a lifetime usage
+hint. Vulkan and Metal subclasses own the current native allocation. Initial
+bytes and native-resource references are copied into pending initialization
+storage; the creator list may be discarded before another list consumes the
+resource. First replay binding materializes the initial allocation and releases
+the pending CPU bytes. Uniform layout size is a nonzero multiple of 16.
+
+`CreateStorageBuffer` returns a CPU-authored `FRHIBuffer`. Storage selects
+structured (nonzero stride dividing size) or byte-address (stride four, size
+multiple of four), optionally with `ShaderResource`. Other storage flags are
+rejected. Native buffers retain `Native` content mode. Lifetime usage hints
 never authorize frame-age reuse or limit lifetime.
 
-`UpdateUniformBuffer` and `UpdateBuffer` copy input before returning and
-publish a new immutable snapshot during ordered RHI replay. The former
-replaces all uniform bytes and native-resource sidecars; the latter accepts
-only CPU-authored storage and preserves the preceding version's untouched
-bytes. Storage accepts no sidecars. CPU-authored buffers and their views are
-rejected as sidecars to prevent ownership cycles. Canceled commands do not
-change visible contents. The backend-only `ResolveSnapshot` requires replay
-and returns a retained version, including its bytes and references.
-Ordinary uniform/storage ranges and shader macros represent both native and
-CPU-authored resources. `CreateUniformBufferRange` returns a range whose optional
-counted resource owner retains the typed uniform beyond the creating command
-list's lifetime. Explicit native ranges may remain borrowed until recording
-canonicalizes them into counted views. CPU-authored bindings create ordinary `FRHIBufferView`
-objects without native creation. Prepared
-batches retain those views. Executing a shader-parameter bind captures the current
-physical contents; draw/dispatch reuses that binding. Updates do not rewrite existing
-bindings: execute another parameter bind (including reusing a prepared batch) to
-select the updated contents. View factories check the active device's
-range/offset limits; dynamic uniform offsets are checked during canonicalization.
-Vulkan backing and submission ownership follow
+`UpdateUniformBuffer` copies complete replacement bytes and resource references
+into the command list. Ordered RHI replay replaces the backend allocation;
+uniform updates do not create CPU content snapshots or poll generations.
+`UpdateBuffer` accepts only CPU-authored storage, publishes an immutable snapshot
+on replay, and preserves the predecessor's untouched bytes for partial updates.
+Storage accepts no sidecars. Uniform resources, CPU-authored buffers, and their
+views are rejected as sidecars to prevent ownership cycles. Canceled commands
+do not change visible contents. Backend-only `ResolveSnapshot` applies to
+CPU-authored storage and requires replay.
+
+`FRHIUniformBufferRange` represents a typed uniform resource or a native buffer
+range. `CreateUniformBufferRange` supplies counted ownership across preparation
+and recording lists. Uniform parameter objects remain direct resources in
+prepared batches; recording validates their ranges without creating a logical
+buffer view. Native ranges and CPU-authored storage are canonicalized into
+counted views. Executing a parameter bind captures the current physical
+allocation; draw/dispatch reuses that binding. Updates do not rewrite existing
+bindings: execute another parameter bind, including reusing a prepared batch,
+to select updated contents. Range and offset checks use active-device limits.
+Vulkan allocation and submission ownership follow
 [the memory contract](VulkanMemoryAndGPUCompletion.md#logical-buffer-versions).
 
 `FRHIBufferView::Create` creates logical CPU-authored views and enforces parent,
@@ -87,8 +89,9 @@ fixed per-upload size or process-wide CPU payload budget. Diagnostics track
 live and peak owned bytes, plus aligned backing ranges and retained page
 capacity. Copying a span owns its exact bytes; taking a vector tracks its
 capacity. Shared graph and command owners count one source allocation until
-its last owner releases it. Each logical update owns its complete destination
-snapshot plus reference-array storage, including partial storage updates.
+its last owner releases it. Storage updates own a complete destination snapshot, including partial updates.
+Uniform commands own their upload bytes until replay or cancellation; native
+allocations retain their resource references for the lifetime of captured bindings.
 
 `CreateUniformBuffer` and `CreateStorageBuffer` return counted resources;
 `UpdateUniformBuffer`, `UpdateBuffer`, `WriteBuffer`, and `UploadBuffer` return

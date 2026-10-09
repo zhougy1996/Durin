@@ -33,7 +33,8 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	FVulkanBuffer::FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc)
+	FVulkanBuffer::FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc,
+		bool bConcurrentReadOnly)
 		: FRHIBuffer(InCreateDesc)
 		, Device(InDevice)
 		, StateTracker(InCreateDesc.Size)
@@ -45,6 +46,15 @@ namespace Durin::VulkanRHI
 		BufferInfo.setSize(InCreateDesc.Size);
 		BufferInfo.setUsage(ToVulkan_BufferUsageFlags(InCreateDesc.Usage));
 		BufferInfo.setSharingMode(vk::SharingMode::eExclusive);
+		std::vector<uint32> QueueFamilies;
+		if (bConcurrentReadOnly)
+		{
+			for (const auto& Queue : Device.GetQueueCapabilities().Queues)
+				if (std::ranges::find(QueueFamilies, Queue.OwnershipDomain) == QueueFamilies.end())
+					QueueFamilies.push_back(Queue.OwnershipDomain);
+			if (QueueFamilies.size() > 1)
+				BufferInfo.setSharingMode(vk::SharingMode::eConcurrent).setQueueFamilyIndices(QueueFamilies);
+		}
 
 		EVulkanAllocationClassCandidate AllocationCandidate =
 			EVulkanAllocationClassCandidate::DeviceLocal;

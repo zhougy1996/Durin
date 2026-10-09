@@ -3514,6 +3514,19 @@ TEST(FRendererSceneContractTests, PreparedSurfaceBindingsClearPreviousPayloadOnF
 		{Buffer.GetReference(), 48, 32}, {}, {}, {}, {}, Bindings));
 	EXPECT_EQ(Bindings.GetShader(), nullptr);
 	EXPECT_TRUE(Bindings.GetResources().empty());
+	FRHICommandList Commands;
+	const auto Uniform = Commands.CreateUniformBuffer({64}, ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(64));
+	ASSERT_TRUE(Uniform);
+	ASSERT_TRUE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
+		{Uniform.GetReference(), 16, 32}, {}, {}, {}, {}, Bindings));
+	ASSERT_EQ(Bindings.GetResources().size(), 1u);
+	EXPECT_EQ(Bindings.GetResources()[0].Resource, Uniform.GetReference());
+	EXPECT_EQ(Bindings.GetResources()[0].Offset, 16u);
+	EXPECT_EQ(Bindings.GetResources()[0].Size, 32u);
+	EXPECT_FALSE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
+		{Uniform.GetReference(), 48, 32}, {}, {}, {}, {}, Bindings));
+	EXPECT_EQ(Bindings.GetShader(), nullptr);
+	EXPECT_TRUE(Bindings.GetResources().empty());
 }
 
 TEST(FRendererSceneContractTests, ResolvesRegisteredMeshFactoriesWithoutFamilyDispatch)

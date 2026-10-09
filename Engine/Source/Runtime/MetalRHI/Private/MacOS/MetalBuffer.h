@@ -9,6 +9,32 @@
 
 namespace Durin
 {
+	// Immutable native parameter data retained by bindings and GPU submissions.
+	struct FMetalUniformAllocation
+	{
+		NS::SharedPtr<MTL::Buffer> Handle;
+		std::vector<TRefCountPtr<FRHIResource>> References;
+		~FMetalUniformAllocation()
+		{
+			const FMetalAutoreleasePool Pool;
+			Handle.reset();
+		}
+	};
+
+	// Uniform updates replace the allocation; bindings retain the allocation they captured.
+	class FMetalUniformBuffer final : public FRHIUniformBuffer
+	{
+	public:
+		FMetalUniformBuffer(MTL::Device* InDevice, const FRHIUniformBufferLayout& Layout,
+			ERHIBufferLifetimeUsage Usage, FByteView Data, std::span<FRHIResource* const> References)
+			: FRHIUniformBuffer(Layout, Usage, Data, References), Device(NS::RetainPtr(InDevice)) {}
+		auto UpdateContents(FByteView Data, std::span<FRHIResource* const> References) -> void override;
+		auto GetAllocation() -> const std::shared_ptr<FMetalUniformAllocation>&;
+	private:
+		NS::SharedPtr<MTL::Device> Device;
+		std::shared_ptr<FMetalUniformAllocation> Allocation;
+	};
+
 	class FMetalBuffer final : public FRHIBuffer
 	{
 	public:

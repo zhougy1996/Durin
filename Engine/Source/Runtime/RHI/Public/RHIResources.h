@@ -14,8 +14,8 @@ namespace Durin
 	class FRHICommandListImmediate;
 	class FRHIBuffer;
 	class FRHIUniformBuffer;
+	class FRHIBufferUploadData;
 	class FRHICommandListBase;
-	class FRHIDeferredBufferSnapshot;
 	class FRHIDeferredBufferBackend;
 	class FRHITextureView;
 	class FDynamicRHI;
@@ -58,6 +58,7 @@ namespace Durin
 	{
 		Viewport,
 		Buffer,
+		UniformBuffer,
 		BufferView,
 		Texture,
 		TextureView,
@@ -1293,10 +1294,11 @@ namespace Durin
 		auto operator==(const FPipelineLayoutDesc&) const -> bool = default;
 	};
 
-	// Logical uniform range. Factories retain ownership across preparation/recording lists.
+	// Uniform parameter range, backed by a uniform resource or a native buffer.
+	// Factories retain ownership across preparation/recording lists.
 	struct FRHIUniformBufferRange
 	{
-		FRHIBuffer* Buffer = nullptr;
+		FRHIResource* Buffer = nullptr;
 		uint32 Offset = 0;
 		uint32 Size = 0;
 		TRefCountPtr<FRHIResource> ResourceOwner;
@@ -1988,31 +1990,38 @@ namespace Durin
 		auto GetUsage() const -> EBufferUsageFlags { return Desc.Usage; }
 
 	protected:
-		RHI_API FRHIBuffer(const FRHIBufferDesc& InDesc, ERHIBufferLifetimeUsage InUsage,
-			std::shared_ptr<const FRHIDeferredBufferSnapshot> Initial);
+		FRHIBuffer(const FRHIBufferDesc& InDesc, ERHIBufferLifetimeUsage InUsage)
+			: FRHIResource(ERHIResourceType::Buffer), Desc(InDesc),
+			ContentMode(ERHIBufferContentMode::CPUAuthored), LifetimeUsage(InUsage) {}
 		FRHIBufferDesc Desc;
 	private:
-		friend class FRHICommandListBase;
-		friend class FRHIDeferredBufferBackend;
-		RHI_API auto ApplyUpdate(std::shared_ptr<FRHIDeferredBufferSnapshot> Next,
-			uint32 Offset, uint32 Size) -> void;
 		const ERHIBufferContentMode ContentMode = ERHIBufferContentMode::Native;
 		const ERHIBufferLifetimeUsage LifetimeUsage = ERHIBufferLifetimeUsage::MultiFrame;
-		// Initial publication is immutable; subsequent access is replay-only.
-		std::shared_ptr<const FRHIDeferredBufferSnapshot> Current;
 	};
 
-	class FRHIUniformBuffer final : public FRHIBuffer
+	// Layout-defined shader parameters. Native backends own the current allocation;
+	// pending initial bytes survive an unsubmitted preparation list.
+	class FRHIUniformBuffer : public FRHIResource
 	{
 	public:
+		RHI_API FRHIUniformBuffer(const FRHIUniformBufferLayout& InLayout,
+			ERHIBufferLifetimeUsage Usage, FByteView InitialData,
+			std::span<FRHIResource* const> References);
 		auto GetLayout() const -> const FRHIUniformBufferLayout& { return Layout; }
+		auto GetSize() const -> uint32 { return Layout.ConstantBufferSize; }
+		auto GetLifetimeUsage() const -> ERHIBufferLifetimeUsage { return LifetimeUsage; }
+		// Ordered RHI replay only. Updating does not refresh existing shader bindings.
+		RHI_API virtual auto UpdateContents(FByteView Data,
+			std::span<FRHIResource* const> References) -> void;
+		auto GetPendingData() const -> const std::shared_ptr<const FRHIBufferUploadData>& { return PendingData; }
+		auto GetPendingReferences() const -> std::span<const TRefCountPtr<FRHIResource>> { return PendingReferences; }
+	protected:
+		auto ReleasePendingData() -> void { PendingData.reset(); PendingReferences.clear(); }
 	private:
-		friend class FRHICommandListBase;
-		FRHIUniformBuffer(const FRHIUniformBufferLayout& InLayout, ERHIBufferLifetimeUsage Usage,
-			std::shared_ptr<const FRHIDeferredBufferSnapshot> Initial)
-			: FRHIBuffer({InLayout.ConstantBufferSize, 0, EBufferUsageFlags::UniformBuffer},
-				Usage, std::move(Initial)), Layout(InLayout) {}
 		const FRHIUniformBufferLayout Layout;
+		const ERHIBufferLifetimeUsage LifetimeUsage;
+		std::shared_ptr<const FRHIBufferUploadData> PendingData;
+		std::vector<TRefCountPtr<FRHIResource>> PendingReferences;
 	};
 
 	inline auto IsCPUAuthoredBuffer(const FRHIBuffer* Buffer) -> bool
@@ -2101,6 +2110,13 @@ namespace Durin
 		if (Resource->GetResourceType() == ERHIResourceType::BufferView)
 			return IsCPUAuthoredBuffer(static_cast<const FRHIBufferView*>(Resource)->GetBuffer());
 		return false;
+	}
+
+	// Shader bindings for these resources must resolve their current physical storage on replay.
+	inline auto IsLogicalBufferBindingResource(const FRHIResource* Resource) -> bool
+	{
+		return Resource && (Resource->GetResourceType() == ERHIResourceType::UniformBuffer
+			|| IsCPUAuthoredBufferResource(Resource));
 	}
 
 	// Retains a texture allocation together with one validated immutable subresource identity.

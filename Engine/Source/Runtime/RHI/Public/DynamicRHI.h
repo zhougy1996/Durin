@@ -236,6 +236,10 @@ namespace Durin
 			uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult;
 		RHI_API auto RHIGetCapabilities() const -> const FRHICapabilities*;
 		// CPU-only backend placement reservation, before a version becomes visible to recording.
+		// Creates a parameter resource without native allocation on the recording lane.
+		RHI_API virtual auto RHICreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
+			ERHIBufferLifetimeUsage Usage, FByteView InitialData,
+			std::span<FRHIResource* const> References) -> TRefCountPtr<FRHIUniformBuffer>;
 		virtual auto RHIReserveBufferBacking(const FRHIBufferDesc& Desc)
 			-> std::shared_ptr<void> { return std::shared_ptr<void>{}; }
 		// Counters accumulate for the device lifetime until explicitly reset.

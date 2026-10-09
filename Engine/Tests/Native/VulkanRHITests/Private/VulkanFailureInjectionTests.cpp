@@ -1272,7 +1272,6 @@ namespace Durin::VulkanRHI
 				auto* Bytes = Deferred ? nullptr : static_cast<std::byte*>(GDynamicRHI->RHILockBuffer(Commands, Buffer, 0, Stride * 3, EResourceLockMode::WriteOnly));
 				ASSERT_TRUE(Deferred || Bytes);
 				std::array<FRHIUniformBufferRange, 3> Uniforms;
-				std::array<FBufferViewRHIRef, 3> OffsetViews;
 				for (uint32 Index = 0; Index < Colors.size(); ++Index)
 				{
 					if (Variant == 2)
@@ -1281,8 +1280,7 @@ namespace Durin::VulkanRHI
 						std::memcpy(Data.data() + Stride * 2, Colors[Index].data(), sizeof(Colors[Index]));
 						auto Logical = Commands.CreateUniformBuffer({Stride * 3}, ERHIBufferLifetimeUsage::SingleFrame, Data);
 						ASSERT_TRUE(Logical);
-						OffsetViews[Index] = FRHIBufferView::Create(Logical, {Stride, 16, ERHIBufferViewType::Uniform});
-						Uniforms[Index] = {Logical.GetReference(), Stride, 0, Logical.GetReference()};
+						Uniforms[Index] = {Logical.GetReference(), Stride * 2, 16, Logical.GetReference()};
 					}
 					else if (Deferred) Uniforms[Index] = Commands.CreateUniformBufferRange(Colors[Index].data(), sizeof(Colors[Index]));
 					else
@@ -1299,11 +1297,11 @@ namespace Durin::VulkanRHI
 				}
 				std::array<FRHIShaderParameterResource, 2> Parameters;
 				for (uint32 Index = 0; Index < Parameters.size(); ++Index)
-					Parameters[1 - Index] = {.Resource = Variant == 2 ? static_cast<FRHIResource*>(OffsetViews[Index].GetReference()) : Uniforms[Index].Buffer, .SetIndex = 2, .BindingIndex = 5,
+					Parameters[1 - Index] = {.Resource = Uniforms[Index].Buffer, .SetIndex = 2, .BindingIndex = 5,
 						.ArrayElement = Index, .Type = ERHIBindingType::UniformBufferDynamic,
 						.Offset = Uniforms[Index].Offset, .Size = Uniforms[Index].Size};
 				auto First = FRHIShaderParameterBatch::Create(Fragment, Parameters);
-				Parameters[1].Resource = Variant == 2 ? static_cast<FRHIResource*>(OffsetViews[2].GetReference()) : Uniforms[2].Buffer;
+				Parameters[1].Resource = Uniforms[2].Buffer;
 				Parameters[1].Offset = Uniforms[2].Offset;
 				auto Second = FRHIShaderParameterBatch::Create(Fragment, Parameters);
 				ASSERT_TRUE(First && Second);
@@ -1324,11 +1322,10 @@ namespace Durin::VulkanRHI
 				Commands.SetPreparedShaderParameters(Second);
 				Commands.Draw({.VertexCount = 3});
 				Commands.EndRenderPass();
-				// Submitted commands must own the logical snapshots and their upload allocations.
+				// Submitted commands must retain the captured allocations after producer owners release them.
 				First.reset();
 				Second.reset();
 				Uniforms = {};
-				OffsetViews = {};
 				FByteBuffer Pixels;
 				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Target, 0, 0, Pixels));
 				ASSERT_EQ(Pixels.size(), 256u);

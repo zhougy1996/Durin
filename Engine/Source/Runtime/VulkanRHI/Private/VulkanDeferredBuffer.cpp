@@ -102,6 +102,8 @@ namespace Durin::VulkanRHI
 		const auto& Limits = Device.GetGpuProperties().limits;
 		std::vector<FRHIQueueId> Queues;
 		for (const auto& Queue : Device.GetQueueCapabilities().Queues) Queues.push_back(Queue.Id);
+		// Uniform pages are immutable and concurrently shared; one interval serves every queue.
+		if (bUniform) Queues.resize(1);
 		Admission = std::make_shared<FVulkanBindingAdmission>(std::max<uint64>({16, Limits.nonCoherentAtomSize,
 			bUniform ? Limits.minUniformBufferOffsetAlignment : Limits.minStorageBufferOffsetAlignment}),
 			std::move(Queues));
@@ -120,7 +122,8 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		const auto Ticket = std::static_pointer_cast<FVulkanBindingAdmission::FReservation>(Reservation);
 		require(Ticket && Ticket->Owner == Admission);
-		const auto Slot = std::ranges::find(Ticket->Slots, Queue, &FVulkanBindingAdmission::FSlot::Queue);
+		const auto Slot = bUniform ? Ticket->Slots.begin()
+			: std::ranges::find(Ticket->Slots, Queue, &FVulkanBindingAdmission::FSlot::Queue);
 		require(Slot != Ticket->Slots.end());
 		auto& Buffer = Buffers[Slot->Page];
 		if (!Buffer)
@@ -128,7 +131,7 @@ namespace Durin::VulkanRHI
 			const auto Usage = EBufferUsageFlags::Dynamic | (bUniform ? EBufferUsageFlags::UniformBuffer
 				: EBufferUsageFlags::ShaderResource | EBufferUsageFlags::ByteAddressBuffer);
 			Buffer = new FVulkanBuffer(Device, FRHIBufferCreateDesc::Create("AdmittedBindingPage",
-				static_cast<uint32>(Slot->PageSize), 0, Usage));
+				static_cast<uint32>(Slot->PageSize), 0, Usage), bUniform);
 			GVulkanMemoryBaselineTracker.RecordArenaPageAllocated(EVulkanAllocationClassCandidate::DynamicUpload, Slot->PageSize);
 		}
 		return {Buffer, Slot->Offset};
@@ -155,7 +158,7 @@ namespace Durin::VulkanRHI
 		};
 	}
 
-	auto FVulkanDeferredBufferBindings::Update(
+	auto FVulkanShaderBufferBindings::Update(
 		std::span<const FRHIShaderParameterResource> Parameters) -> void
 	{
 		for (const auto& Parameter : Parameters)
@@ -165,7 +168,7 @@ namespace Durin::VulkanRHI
 					&& Binding.Parameter.BindingIndex == Parameter.BindingIndex
 					&& Binding.Parameter.ArrayElement == Parameter.ArrayElement;
 			});
-			if (IsCPUAuthoredBufferResource(Parameter.Resource))
+			if (IsLogicalBufferBindingResource(Parameter.Resource))
 			{
 				if (It != Bindings.end() && It->Logical.GetReference() == Parameter.Resource)
 				{
@@ -173,7 +176,7 @@ namespace Durin::VulkanRHI
 					It->bDirty = true;
 					continue;
 				}
-				FBinding Binding{Parameter, static_cast<FRHIBufferView*>(Parameter.Resource), {}};
+				FBinding Binding{Parameter, Parameter.Resource, {}};
 				if (It == Bindings.end()) Bindings.push_back(std::move(Binding));
 				else *It = std::move(Binding);
 			}
@@ -181,7 +184,7 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDeferredBufferBindings::Resolve(FVulkanDevice& Device,
+	auto FVulkanShaderBufferBindings::Resolve(FVulkanDevice& Device,
 		FVulkanCommandListContext& Context) -> std::vector<FRHIShaderParameterResource>
 	{
 		std::vector<FRHIShaderParameterResource> Result;
@@ -189,55 +192,68 @@ namespace Durin::VulkanRHI
 		for (auto& Binding : Bindings)
 		{
 			if (!Binding.bDirty) continue;
-			const auto Snapshot = FRHIDeferredBufferBackend::ResolveSnapshot(*Binding.Logical->GetBuffer());
+			const bool bUniformResource = Binding.Logical->GetResourceType() == ERHIResourceType::UniformBuffer;
 			const bool bDynamic = Binding.Parameter.Type == ERHIBindingType::UniformBufferDynamic;
-			auto Resolved = Binding.Resolved;
-			if (!Resolved || Resolved->Snapshot != Snapshot || Resolved->bDynamic != bDynamic)
+			std::shared_ptr<const FRHIStorageBufferSnapshot> Snapshot;
+			std::shared_ptr<void> Backing, Lease;
+			TRefCountPtr<FVulkanBuffer> Buffer;
+			uint64 AllocationOffset = 0;
+			FRHIBufferViewDesc ViewDesc;
+			if (bUniformResource)
 			{
-				Resolved.reset();
-				const auto& Desc = Binding.Logical->GetBuffer()->GetDesc();
-				auto Backing = std::static_pointer_cast<FDeferredBacking>(
+				const auto& Allocation = static_cast<FVulkanUniformBuffer*>(Binding.Logical.GetReference())->GetAllocation();
+				Backing = Allocation;
+				Lease = Allocation->Lease;
+				Buffer = Allocation->Buffer;
+				AllocationOffset = Allocation->Offset;
+				ViewDesc = {bDynamic ? 0 : Binding.Parameter.Offset, Binding.Parameter.Size, ERHIBufferViewType::Uniform};
+			}
+			else
+			{
+				auto* Logical = static_cast<FRHIBufferView*>(Binding.Logical.GetReference());
+				Snapshot = FRHIDeferredBufferBackend::ResolveSnapshot(*Logical->GetBuffer());
+				const auto& Desc = Logical->GetBuffer()->GetDesc();
+				auto Storage = std::static_pointer_cast<FDeferredBacking>(
 					FRHIDeferredBufferBackend::GetBacking(*Snapshot, Context.GetQueue()));
-				if (!Backing)
+				if (!Storage)
 				{
-					const auto [Buffer, Offset] = Device.GetBindingPool(
-						EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer)).Resolve(
+					const auto [Page, Offset] = Device.GetBindingPool(false).Resolve(
 						Snapshot->GetBackingAdmission(), Context.GetQueue()->GetId());
-					Backing = std::make_shared<FDeferredBacking>();
-					Backing->Buffer = Buffer;
-					Backing->Offset = Offset;
-					Backing->Lease = Snapshot->GetBackingAdmission();
-					Backing->Buffer->InitializeDeferredReadOnly(Snapshot->GetData(), static_cast<uint32>(Offset));
+					Storage = std::make_shared<FDeferredBacking>();
+					Storage->Buffer = Page;
+					Storage->Offset = Offset;
+					Storage->Lease = Snapshot->GetBackingAdmission();
+					Page->InitializeDeferredReadOnly(Snapshot->GetData(), static_cast<uint32>(Offset));
 					const auto& Limits = Device.GetGpuProperties().limits;
-					const uint64 Alignment = std::max<uint64>({16, Limits.nonCoherentAtomSize,
-						EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer)
-							? Limits.minUniformBufferOffsetAlignment : Limits.minStorageBufferOffsetAlignment});
-					Backing->Size = (Desc.Size + Alignment - 1) / Alignment * Alignment;
-					GVulkanMemoryBaselineTracker.RecordArenaRangeAllocated(EVulkanAllocationClassCandidate::DynamicUpload,
-						Backing->Size, false, false);
-					FRHIDeferredBufferBackend::SetBacking(*Snapshot, Context.GetQueue(), Backing);
+					const uint64 Alignment = std::max<uint64>({16, Limits.nonCoherentAtomSize, Limits.minStorageBufferOffsetAlignment});
+					Storage->Size = (Desc.Size + Alignment - 1) / Alignment * Alignment;
+					GVulkanMemoryBaselineTracker.RecordArenaRangeAllocated(
+						EVulkanAllocationClassCandidate::DynamicUpload, Storage->Size, false, false);
+					FRHIDeferredBufferBackend::SetBacking(*Snapshot, Context.GetQueue(), Storage);
 				}
-				auto ViewDesc = Binding.Logical->GetDesc();
-				ViewDesc.Offset += Backing->Offset;
-				const auto& Limits = Device.GetGpuProperties().limits;
-				const bool bUniform = ViewDesc.Type == ERHIBufferViewType::Uniform;
-				const uint64 Alignment = bUniform ? Limits.minUniformBufferOffsetAlignment
-					: Limits.minStorageBufferOffsetAlignment;
-				const uint64 MaxRange = bUniform ? Limits.maxUniformBufferRange : Limits.maxStorageBufferRange;
-				if ((Alignment && ViewDesc.Offset % Alignment != 0) || ViewDesc.Size > MaxRange)
-					throw std::runtime_error("Deferred buffer view exceeds native binding limits.");
+				Backing = Storage;
+				Lease = Storage->Lease;
+				Buffer = Storage->Buffer;
+				AllocationOffset = Storage->Offset;
+				ViewDesc = Logical->GetDesc();
+			}
+			ViewDesc.Offset += AllocationOffset;
+			const uint64 PhysicalOffset = ViewDesc.Offset;
+			if (bDynamic) ViewDesc.Offset = 0;
+			auto Resolved = Binding.Resolved;
+			if (!Resolved || Resolved->Backing != Backing || Resolved->bDynamic != bDynamic
+				|| Resolved->PhysicalOffset != PhysicalOffset || Resolved->View->GetDesc() != ViewDesc)
+			{
 				Resolved = std::make_shared<FResolved>();
-				Resolved->Snapshot = Snapshot;
-				Resolved->Backing = Backing;
-				Resolved->Lease = Backing->Lease;
-				Resolved->PhysicalOffset = ViewDesc.Offset;
+				Resolved->Snapshot = std::move(Snapshot);
+				Resolved->Backing = std::move(Backing);
+				Resolved->Lease = std::move(Lease);
+				Resolved->PhysicalOffset = PhysicalOffset;
 				Resolved->bDynamic = bDynamic;
-				// The descriptor names the upload page; the binding selects its immutable allocation.
-				if (bDynamic) ViewDesc.Offset = 0;
 				Resolved->View = bDynamic
-					? Device.GetRHI().RHIGetOrCreateBufferView(Backing->Buffer, ViewDesc)
-					: TRefCountPtr<FRHIBufferView>(new FVulkanBufferView(Device, Backing->Buffer, ViewDesc));
-				requiref(Resolved->View, "Could not create a deferred buffer descriptor view.");
+					? Device.GetRHI().RHIGetOrCreateBufferView(Buffer, ViewDesc)
+					: TRefCountPtr<FRHIBufferView>(new FVulkanBufferView(Device, Buffer, ViewDesc));
+				requiref(Resolved->View, "Could not create a shader buffer descriptor view.");
 				Binding.Resolved = Resolved;
 			}
 			Binding.bDirty = false;
@@ -254,7 +270,7 @@ namespace Durin::VulkanRHI
 		return Result;
 	}
 
-	auto FVulkanDeferredBufferBindings::PrepareForUse(
+	auto FVulkanShaderBufferBindings::PrepareForUse(
 		FVulkanCommandListContext& Context, ERHIPipeline Pipeline) -> void
 	{
 		for (const auto& Binding : Bindings)
@@ -263,7 +279,7 @@ namespace Durin::VulkanRHI
 			check(Resolved && !Binding.bDirty);
 			// A new submission must retain the captured allocation even without a rebind.
 			auto* Buffer = FVulkanBuffer::Cast(Resolved->View->GetBuffer());
-			const bool bUniform = Binding.Logical->GetDesc().Type == ERHIBufferViewType::Uniform;
+			const bool bUniform = Binding.Parameter.Type != ERHIBindingType::StorageBuffer;
 			// Read-to-read changes need no memory dependency for immutable host-initialized data.
 			const uint64 Offset = Resolved->PhysicalOffset
 				+ (Resolved->bDynamic ? Binding.Parameter.Offset : 0);

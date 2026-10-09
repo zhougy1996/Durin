@@ -969,11 +969,20 @@ namespace Durin
 		for (uint32 Index = 0; Index < 3; ++Index)
 		{
 			const auto& Parameter = Batch->GetParameters()[Index];
-			ASSERT_EQ(Parameter.Resource->GetResourceType(), ERHIResourceType::BufferView);
-			const auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
-			EXPECT_EQ(View->GetBuffer(), Index == 0 ? Uniform.GetReference() : Storage.GetReference());
-			EXPECT_EQ(View->GetDesc().Offset, Index == 2 ? 16u : 0u);
-			EXPECT_EQ(Parameter.Offset, Index == 0 ? 16u : 0u);
+			if (Index == 0)
+			{
+				EXPECT_EQ(Parameter.Resource, Uniform.GetReference());
+				EXPECT_EQ(Parameter.Offset, 16u);
+				EXPECT_EQ(Parameter.Size, 16u);
+			}
+			else
+			{
+				ASSERT_EQ(Parameter.Resource->GetResourceType(), ERHIResourceType::BufferView);
+				const auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
+				EXPECT_EQ(View->GetBuffer(), Storage.GetReference());
+				EXPECT_EQ(View->GetDesc().Offset, Index == 2 ? 16u : 0u);
+				EXPECT_EQ(Parameter.Offset, 0u);
+			}
 		}
 		EXPECT_EQ(Commands.GetNumRecordedCommands(), 0u);
 		EXPECT_FALSE(PrepareShaderParametersImpl(Shader, ParametersMetadata, Bindings, &Parameters));

@@ -23,7 +23,7 @@ namespace Durin
 
 		struct FMetalDeferredBacking
 		{
-			std::shared_ptr<const FRHIDeferredBufferSnapshot> Snapshot;
+			std::shared_ptr<const FRHIStorageBufferSnapshot> Snapshot;
 			NS::SharedPtr<MTL::Buffer> Handle;
 			~FMetalDeferredBacking()
 			{
@@ -32,8 +32,12 @@ namespace Durin
 			}
 		};
 
-		using FBoundBufferSnapshots = std::map<std::tuple<uint32, uint32, uint32>,
-			std::shared_ptr<const FRHIDeferredBufferSnapshot>>;
+		struct FBoundBuffer
+		{
+			std::shared_ptr<const FRHIStorageBufferSnapshot> Snapshot;
+			std::shared_ptr<FMetalUniformAllocation> Uniform;
+		};
+		using FBoundBufferSnapshots = std::map<std::tuple<uint32, uint32, uint32>, FBoundBuffer>;
 
 		class FMetalCommandContextImpl final : public FMetalCommandContext
 		{
@@ -1206,6 +1210,17 @@ namespace Durin
 						|| Parameter.Type == ERHIBindingType::UniformBuffer
 						|| Parameter.Type == ERHIBindingType::UniformBufferDynamic)
 					{
+						if (Parameter.Resource->GetResourceType() == ERHIResourceType::UniformBuffer)
+						{
+							const auto& Allocation = ComputeBufferSnapshots.at(std::tuple(
+								Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement)).Uniform;
+							require(Allocation && Allocation->Handle);
+							Active->StorageOwners.push_back(Allocation);
+							Active->NativeResources.push_back(NS::RetainPtr(Allocation->Handle.get()));
+							Encoder->setBuffer(Allocation->Handle.get(), Parameter.Offset, Slot);
+							Active->ResourceOwners.emplace_back(Parameter.Resource);
+							continue;
+						}
 						requiref(Parameter.Resource->GetResourceType()
 							== ERHIResourceType::BufferView,
 							"Metal compute buffer binding requires a buffer view.");
@@ -1398,12 +1413,17 @@ namespace Durin
 				FBoundBufferSnapshots& Snapshots) -> void
 			{
 				const auto Key = std::tuple(Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement);
+				if (Parameter.Resource->GetResourceType() == ERHIResourceType::UniformBuffer)
+				{
+					Snapshots[Key] = {{}, static_cast<FMetalUniformBuffer*>(Parameter.Resource)->GetAllocation()};
+					return;
+				}
 				if (Parameter.Resource->GetResourceType() == ERHIResourceType::BufferView)
 				{
 					auto* Buffer = static_cast<FRHIBufferView*>(Parameter.Resource)->GetBuffer();
 					if (IsCPUAuthoredBuffer(Buffer))
 					{
-						Snapshots[Key] = FRHIDeferredBufferBackend::ResolveSnapshot(*Buffer);
+						Snapshots[Key] = {FRHIDeferredBufferBackend::ResolveSnapshot(*Buffer), {}};
 						return;
 					}
 				}
@@ -1419,7 +1439,7 @@ namespace Durin
 				{
 					// Reuse one immutable native copy for each ordered content version.
 					const auto& Snapshot = Snapshots.at(std::tuple(
-						Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement));
+						Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement)).Snapshot;
 					auto Backing = std::static_pointer_cast<FMetalDeferredBacking>(
 						FRHIDeferredBufferBackend::GetBacking(*Snapshot, State.get()));
 					if (!Backing)
@@ -1546,6 +1566,19 @@ namespace Durin
 							|| Parameter.Type == ERHIBindingType::UniformBufferDynamic
 							|| Parameter.Type == ERHIBindingType::StorageBuffer)
 						{
+							if (Parameter.Resource->GetResourceType() == ERHIResourceType::UniformBuffer)
+							{
+								const auto& Allocation = GraphicsBufferSnapshots.at(std::tuple(
+									Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement)).Uniform;
+								require(Allocation && Allocation->Handle);
+								Active->StorageOwners.push_back(Allocation);
+								Active->NativeResources.push_back(NS::RetainPtr(Allocation->Handle.get()));
+								if (Stage == EShaderStageFlags::Vertex)
+									RenderEncoder->setVertexBuffer(Allocation->Handle.get(), Parameter.Offset, Slot);
+								else RenderEncoder->setFragmentBuffer(Allocation->Handle.get(), Parameter.Offset, Slot);
+								Active->ResourceOwners.emplace_back(Parameter.Resource);
+								continue;
+							}
 							requiref(Parameter.Resource->GetResourceType()
 								== ERHIResourceType::BufferView,
 								"Metal graphics buffer binding requires a view.");

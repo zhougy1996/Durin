@@ -98,52 +98,44 @@ whole-device idle wait is not an ordinary recycling mechanism.
 
 ## Logical Buffer Versions
 
-CPU-authored uniform/storage bindings through ordinary buffer views materialize
-an immutable mapped range on
-shader-parameter binding. A CPU snapshot weakly caches one backing per physical
-queue, so independent queues do not share exclusive native ownership. Host
-writes are flushed before submission; later read-to-read pipeline changes need
-no write dependency. Each consuming payload retains the exact snapshot and
-physical view, including uniform sidecars, until completion or safe cancellation.
-Updates publish new contents; rebinding resolves their range and invalidates
-descriptor selection. Existing bindings and older submissions keep their original
-contents. Bound descriptor state retains the captured backing between submissions;
-each consuming payload independently retains it through completion. Payload allocation owners use a
-hash set keyed by the retained pointer identity, avoiding linear scans for repeated
-retention and retirement queries. Physical buffers
-use ordinary counted deletion and queue-qualified retirement.
-Native buffer/view downcasts enforce native content mode; logical views must
-first resolve to the selected version's native backing and descriptor.
+`FVulkanUniformBuffer` directly owns its current `FVulkanUniformAllocation`:
+a mapped page buffer, offset, padded size, interval lease, and native-resource
+references. Initialization is lazy on first binding; subsequent updates replace
+the allocation during ordered RHI replay and release the command's CPU bytes.
+An allocation is immutable after publication. Uniform pages use concurrent
+sharing across provisioned queue families, so every consuming queue reads the
+same allocation without per-queue copies or ownership transfers.
 
-Uniform and storage binding pools use 4 MiB normal pages and grow on demand,
-including larger dedicated pages. Each snapshot reserves aligned intervals on
-every provisioned physical queue before create/update returns. Reservations
-are CPU-only and thread-safe; they neither create native resources nor wait
-for RHI replay. When retained ranges or fragmentation leave no suitable
-interval, the pool adds a page without exposing a capacity failure to callers.
-Queue copies are reserved conservatively even if never consumed.
+CPU-authored storage retains its snapshot path. A snapshot weakly caches one
+native backing per physical queue, preserving exclusive ownership. Storage
+snapshots reserve queue-partitioned intervals before creation/update returns;
+uniform intervals are reserved on replay. Both pools use 4 MiB normal pages,
+grow on demand, and use dedicated larger pages when needed. Allocation offsets
+and padded sizes respect binding and noncoherent atom alignment. Pool growth
+never requires submitting an active render pass. Native allocation failure is
+terminal. Native page capacity stays charged through teardown.
 
-Replay lazily materializes each reserved page and uses its predetermined offset.
-Both offset and padded size respect native binding and noncoherent atom alignment.
-No binding allocation can require submitting an active render pass. Native
-allocation failure is still terminal, and reservations from another device
-generation cannot be used. Native page capacity stays charged through teardown.
+Shader-parameter binding captures the selected physical allocation and view.
+Rebinding reads the resource's current allocation; draw/dispatch performs no
+uniform generation polling. Existing bindings and older submissions keep their
+original contents. Each consuming payload independently retains the captured
+allocation through completion, cancellation, or failure quarantine. Interval
+leases are reusable only after all resource, binding, and submission owners
+release them; frame age plays no role. Host writes are flushed before submission,
+and immutable read-to-read pipeline changes need no write dependency.
 
-Bindings and snapshots keep weak native-resolution caches partitioned by physical
-queue. Consuming payloads retain the snapshot, view, and reservation, including
-failure quarantine. A snapshot's virtual intervals remain reserved for its entire
-lifetime, including while only the logical resource retains its CPU contents.
-Completion of one queue cannot release intervals still held by another queue.
-Once every snapshot owner releases it, admission can reuse its intervals; frame
-age plays no role. Rematerializing a retained snapshot uses the same admitted
-interval. Logical view offsets never expose native page placement.
+Payload allocation owners use a hash set keyed by retained pointer identity.
+Physical buffers use counted deletion and queue-qualified retirement. Native
+buffer/view downcasts enforce native content mode; shader bindings must resolve
+logical resources before producing native descriptors. Logical range offsets
+never expose native page placement. Dynamic descriptors name the page at offset
+zero and select the allocation through their dynamic offset.
 
-`DynamicUpload` arena gauges include materialized binding pages and backing
-ranges. CPU snapshots, graph sources, native buffer writes/uploads, and packed
-texture command arrays share the observational CPU byte accounting described in
+`DynamicUpload` arena gauges include materialized binding pages and allocation
+ranges. Pending uniform uploads, storage snapshots, graph sources, native buffer
+writes/uploads, and packed texture command arrays share observational CPU byte
+accounting described in
 [resource views](RHIResourceViewsAndTransfers.md#logical-cpu-authored-buffers).
-The old mapped uniform/storage producer APIs and frame-slot allocators have
-been removed; ordinary consumers use admitted CPU-authored resources.
 
 ## Allocation Classes
 
@@ -210,7 +202,7 @@ graphics context end-frame sync point for the two-slot pacing policy. Reusing
 a frame waits that point and its explicit GPU dependencies; unrelated compute
 work does not become a frame-wide CPU wait. Frame slots do not authorize resource
 recycling: payload completion and allocation leases retain their complete
-queue-qualified prerequisites. Upload versions do not use those slots: snapshot
+queue-qualified prerequisites. Upload allocations do not use those slots: retained allocation and snapshot
 admission and exact payload ownership govern their reuse.
 
 `Vulkan.BeginFrame.FrameSlotWait` includes completion processing as well as any

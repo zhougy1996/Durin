@@ -61,7 +61,7 @@ namespace Durin::VulkanRHI
 		FVulkanDescriptorWriteScratch DescriptorWriteScratch;
 		FVulkanComputePipelineState* CurrentPipelineState = nullptr;
 		std::vector<FRHIShaderParameterResource> PendingResources;
-		FVulkanDeferredBufferBindings DeferredBindings;
+		FVulkanShaderBufferBindings DeferredBindings;
 		std::vector<TRefCountPtr<FRHIResource>> PendingOwners;
 		std::vector<FRHIShaderParameterResource> CachedResources;
 		std::vector<TRefCountPtr<FRHIResource>> CachedOwners;
@@ -113,7 +113,7 @@ namespace Durin::VulkanRHI
 		};
 
 		std::vector<FRHIShaderParameterResource> PendingShaderResources;
-		FVulkanDeferredBufferBindings DeferredBindings;
+		FVulkanShaderBufferBindings DeferredBindings;
 		bool bPendingResourcesSorted = true;
 		bool bStructureValidated = false;
 		std::vector<size_t> DrawValidationResourceIndices;

@@ -49,7 +49,8 @@ namespace Durin
 			for (const auto* Reference : References)
 			{
 				// Sidecars retain physical resources, not a potentially cyclic logical graph.
-				if (Reference && ((Reference->GetResourceType() == ERHIResourceType::Buffer
+				if (Reference && (Reference->GetResourceType() == ERHIResourceType::UniformBuffer
+					|| (Reference->GetResourceType() == ERHIResourceType::Buffer
 					&& static_cast<const FRHIBuffer*>(Reference)->GetContentMode() == ERHIBufferContentMode::CPUAuthored)
 					|| (Reference->GetResourceType() == ERHIResourceType::BufferView
 					&& static_cast<const FRHIBufferView*>(Reference)->GetBuffer()->GetContentMode() == ERHIBufferContentMode::CPUAuthored))) return false;
@@ -119,44 +120,28 @@ namespace Durin
 		return Result;
 	}
 
-	FRHIDeferredBufferSnapshot::FRHIDeferredBufferSnapshot(uint32 InSize, size_t InReferenceCount)
-		: Data(std::make_unique<std::byte[]>(InSize)),
-		References(InReferenceCount ? std::make_unique<TRefCountPtr<FRHIResource>[]>(InReferenceCount) : nullptr),
-		Size(InSize), ReferenceCount(InReferenceCount) {}
+	FRHIStorageBufferSnapshot::FRHIStorageBufferSnapshot(uint32 InSize)
+		: Data(std::make_unique<std::byte[]>(InSize)), Size(InSize) {}
 
-	FRHIDeferredBufferSnapshot::~FRHIDeferredBufferSnapshot()
+	FRHIStorageBufferSnapshot::~FRHIStorageBufferSnapshot()
 	{
-		// Release owned allocations before updating the live-byte accounting.
-		References.reset();
 		Data.reset();
 	}
 
-	auto FRHIDeferredBufferSnapshot::Allocate(const FRHIBufferDesc& Desc,
-		std::span<FRHIResource* const> References)
-		-> std::shared_ptr<FRHIDeferredBufferSnapshot>
+	auto FRHIStorageBufferSnapshot::Allocate(const FRHIBufferDesc& Desc)
+		-> std::shared_ptr<FRHIStorageBufferSnapshot>
 	{
-		require(References.size() <= (UINT64_MAX - Desc.Size) / sizeof(TRefCountPtr<FRHIResource>));
-		const uint64 Bytes = Desc.Size + References.size() * sizeof(TRefCountPtr<FRHIResource>);
-		auto Accounting = FRHIBufferUploadAccounting::Track(Bytes);
+		auto Accounting = FRHIBufferUploadAccounting::Track(Desc.Size);
 		auto Admission = GDynamicRHI ? GDynamicRHI->RHIReserveBufferBacking(Desc) : std::shared_ptr<void>{};
-		auto Result = std::shared_ptr<FRHIDeferredBufferSnapshot>(
-			new FRHIDeferredBufferSnapshot(Desc.Size, References.size()));
+		auto Result = std::shared_ptr<FRHIStorageBufferSnapshot>(new FRHIStorageBufferSnapshot(Desc.Size));
 		Result->BackingAdmission = std::move(Admission);
-		Result->OwnedBytes = Bytes;
+		Result->OwnedBytes = Desc.Size;
 		Result->Accounting = std::move(Accounting);
-		for (size_t Index = 0; Index < References.size(); ++Index)
-			Result->References[Index] = References[Index];
 		return Result;
 	}
 
-	FRHIBuffer::FRHIBuffer(const FRHIBufferDesc& InDesc,
-		ERHIBufferLifetimeUsage InUsage, std::shared_ptr<const FRHIDeferredBufferSnapshot> Initial)
-		: FRHIResource(ERHIResourceType::Buffer), Desc(InDesc),
-		ContentMode(ERHIBufferContentMode::CPUAuthored), LifetimeUsage(InUsage),
-		Current(std::move(Initial)) {}
 
-
-	auto FRHIBuffer::ApplyUpdate(std::shared_ptr<FRHIDeferredBufferSnapshot> Next,
+	auto FRHICPUAuthoredBuffer::ApplyUpdate(std::shared_ptr<FRHIStorageBufferSnapshot> Next,
 		uint32 Offset, uint32 Size) -> void
 	{
 		require(IsExecutingRHICommands());
@@ -171,13 +156,13 @@ namespace Durin
 	}
 
 	auto FRHIDeferredBufferBackend::ResolveSnapshot(const FRHIBuffer& Buffer)
-		-> std::shared_ptr<const FRHIDeferredBufferSnapshot>
+		-> std::shared_ptr<const FRHIStorageBufferSnapshot>
 	{
 		require(IsExecutingRHICommands() && Buffer.GetContentMode() == ERHIBufferContentMode::CPUAuthored);
-		return Buffer.Current;
+		return static_cast<const FRHICPUAuthoredBuffer&>(Buffer).Current;
 	}
 
-	auto FRHIDeferredBufferBackend::GetBacking(const FRHIDeferredBufferSnapshot& Snapshot,
+	auto FRHIDeferredBufferBackend::GetBacking(const FRHIStorageBufferSnapshot& Snapshot,
 		const void* Context) -> std::shared_ptr<void>
 	{
 		require(IsExecutingRHICommands());
@@ -185,7 +170,7 @@ namespace Durin
 		return It == Snapshot.Backings.end() ? nullptr : It->second.lock();
 	}
 
-	auto FRHIDeferredBufferBackend::SetBacking(const FRHIDeferredBufferSnapshot& Snapshot,
+	auto FRHIDeferredBufferBackend::SetBacking(const FRHIStorageBufferSnapshot& Snapshot,
 		const void* Context, std::shared_ptr<void> Backing) -> void
 	{
 		require(IsExecutingRHICommands() && Context && Backing);
@@ -201,9 +186,9 @@ namespace Durin
 		requiref(ValidateDeferredDescriptor(Desc, Usage), "Invalid CPU-authored buffer descriptor or lifetime usage.");
 		require(InitialData.size() == Desc.Size);
 		require(!EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer));
-		auto Snapshot = FRHIDeferredBufferSnapshot::Allocate(Desc, {});
+		auto Snapshot = FRHIStorageBufferSnapshot::Allocate(Desc);
 		std::memcpy(Snapshot->Data.get(), InitialData.data(), Desc.Size);
-		return TRefCountPtr<FRHIBuffer>(new FRHIBuffer(Desc, Usage, std::move(Snapshot)));
+		return TRefCountPtr<FRHIBuffer>(new FRHICPUAuthoredBuffer(Desc, Usage, std::move(Snapshot)));
 	}
 
 	auto FRHICommandListBase::CreateUniformBufferRange(const void* Data, uint32 Size) -> FRHIUniformBufferRange
@@ -223,16 +208,52 @@ namespace Durin
 		requiref(ValidateDeferredDescriptor(Desc, Usage), "Invalid CPU-authored buffer descriptor or lifetime usage.");
 		require(InitialData.size() == Desc.Size);
 		require(ValidateDeferredReferences(Desc, References));
-		auto Snapshot = FRHIDeferredBufferSnapshot::Allocate(Desc, References);
-		std::memcpy(Snapshot->Data.get(), InitialData.data(), Desc.Size);
-		return TRefCountPtr<FRHIUniformBuffer>(new FRHIUniformBuffer(Layout, Usage, std::move(Snapshot)));
+		return GDynamicRHI ? GDynamicRHI->RHICreateUniformBuffer(Layout, Usage, InitialData, References)
+			: TRefCountPtr<FRHIUniformBuffer>(new FRHIUniformBuffer(Layout, Usage, InitialData, References));
+	}
+
+	FRHIUniformBuffer::FRHIUniformBuffer(const FRHIUniformBufferLayout& InLayout,
+		ERHIBufferLifetimeUsage Usage, FByteView InitialData, std::span<FRHIResource* const> References)
+		: FRHIResource(ERHIResourceType::UniformBuffer), Layout(InLayout), LifetimeUsage(Usage),
+		PendingData(FRHIBufferUploadData::Copy(InitialData))
+	{
+		for (auto* Reference : References) PendingReferences.emplace_back(Reference);
+	}
+
+	auto FRHIUniformBuffer::UpdateContents(FByteView Data, std::span<FRHIResource* const> References) -> void
+	{
+		require(IsExecutingRHICommands());
+		PendingData = FRHIBufferUploadData::Copy(Data);
+		PendingReferences.clear();
+		for (auto* Reference : References) PendingReferences.emplace_back(Reference);
+	}
+
+	auto FDynamicRHI::RHICreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
+		ERHIBufferLifetimeUsage Usage, FByteView InitialData, std::span<FRHIResource* const> References)
+		-> TRefCountPtr<FRHIUniformBuffer>
+	{
+		return new FRHIUniformBuffer(Layout, Usage, InitialData, References);
 	}
 
 	auto FRHICommandListBase::UpdateUniformBuffer(FRHIUniformBuffer* Buffer,
 		FByteView Data, std::span<FRHIResource* const> References)
 		-> void
 	{
-		UpdateCPUAuthoredBuffer(Buffer, 0, Data, References);
+		require(IsRecording() && Buffer && Data.size() == Buffer->GetSize());
+		require(ValidateDeferredReferences({Buffer->GetSize(), 0, EBufferUsageFlags::UniformBuffer}, References));
+		auto Upload = FRHIBufferUploadData::Copy(Data);
+		std::vector<TRefCountPtr<FRHIResource>> Owners;
+		for (auto* Reference : References) Owners.emplace_back(Reference);
+		const auto Bytes = Data.size() + Owners.size() * sizeof(TRefCountPtr<FRHIResource>);
+		EnqueueLambda([Buffer = TRefCountPtr<FRHIUniformBuffer>(Buffer),
+			Upload = std::move(Upload), Owners = std::move(Owners)]() mutable {
+			std::vector<FRHIResource*> References;
+			for (const auto& Owner : Owners) References.push_back(Owner.GetReference());
+			Buffer->UpdateContents(Upload->GetData(), References);
+			Upload.reset();
+			Owners.clear();
+			Buffer = nullptr;
+		}, Bytes);
 	}
 
 	auto FRHICommandListBase::UpdateBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
@@ -240,11 +261,11 @@ namespace Durin
 	{
 		require(IsRecording());
 		require(Buffer && !EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::UniformBuffer));
-		UpdateCPUAuthoredBuffer(Buffer, Offset, Data, {});
+		UpdateCPUAuthoredStorageBuffer(Buffer, Offset, Data);
 	}
 
-	auto FRHICommandListBase::UpdateCPUAuthoredBuffer(FRHIBuffer* Buffer,
-		uint32 Offset, FByteView Data, std::span<FRHIResource* const> References)
+	auto FRHICommandListBase::UpdateCPUAuthoredStorageBuffer(FRHIBuffer* Buffer,
+		uint32 Offset, FByteView Data)
 		-> void
 	{
 		require(IsRecording());
@@ -252,15 +273,13 @@ namespace Durin
 		require(Buffer->GetContentMode() == ERHIBufferContentMode::CPUAuthored);
 		const auto& Desc = Buffer->GetDesc();
 		require(!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset);
-		require(!EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer)
-			|| (Offset == 0 && Data.size() == Desc.Size));
-		require(ValidateDeferredReferences(Desc, References));
-		auto Snapshot = FRHIDeferredBufferSnapshot::Allocate(Desc, References);
+		require(!EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer));
+		auto Snapshot = FRHIStorageBufferSnapshot::Allocate(Desc);
 		std::memcpy(Snapshot->Data.get() + Offset, Data.data(), Data.size());
 		const auto OwnedBytes = Snapshot->GetOwnedPayloadBytes();
 		EnqueueLambda([Buffer = TRefCountPtr<FRHIBuffer>(Buffer),
 			Next = std::move(Snapshot), Offset, Size = static_cast<uint32>(Data.size())]() mutable {
-			Buffer->ApplyUpdate(std::move(Next), Offset, Size);
+			static_cast<FRHICPUAuthoredBuffer*>(Buffer.GetReference())->ApplyUpdate(std::move(Next), Offset, Size);
 		}, OwnedBytes);
 	}
 

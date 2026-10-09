@@ -3,6 +3,7 @@
 #include "Backend/RHICompletionBackend.h"
 #include "MetalAutoreleasePool.h"
 #include "MetalBuffer.h"
+#include "RHIBufferUploadData.h"
 #include "MetalCommandContext.h"
 #include "MetalCppDevice.h"
 #include "MetalPipeline.h"
@@ -19,11 +20,40 @@
 
 namespace Durin
 {
+	auto FMetalUniformBuffer::UpdateContents(FByteView Data, std::span<FRHIResource* const> References) -> void
+	{
+		require(IsExecutingRHICommands() && Data.size() == GetSize());
+		const FMetalAutoreleasePool Pool;
+		auto Next = std::make_shared<FMetalUniformAllocation>();
+		Next->Handle = NS::TransferPtr(Device->newBuffer(Data.data(), Data.size(), MTL::ResourceStorageModeShared));
+		requiref(static_cast<bool>(Next->Handle), "Metal uniform allocation failed.");
+		for (auto* Reference : References) Next->References.emplace_back(Reference);
+		Allocation = std::move(Next);
+		ReleasePendingData();
+	}
+
+	auto FMetalUniformBuffer::GetAllocation() -> const std::shared_ptr<FMetalUniformAllocation>&
+	{
+		require(IsExecutingRHICommands());
+		if (!Allocation)
+		{
+			require(GetPendingData());
+			std::vector<FRHIResource*> References;
+			for (const auto& Reference : GetPendingReferences()) References.push_back(Reference.GetReference());
+			UpdateContents(GetPendingData()->GetData(), References);
+		}
+		return Allocation;
+	}
+
 	namespace
 	{
 		class FMetalDynamicRHI final : public FDynamicRHI
 		{
 		public:
+			auto RHICreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
+				ERHIBufferLifetimeUsage Usage, FByteView Data, std::span<FRHIResource* const> References)
+				-> TRefCountPtr<FRHIUniformBuffer> override
+			{ return new FMetalUniformBuffer(Device.get(), Layout, Usage, Data, References); }
 			~FMetalDynamicRHI() override
 			{
 				// Also cover partially initialized instances after factory exceptions.
