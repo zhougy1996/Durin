@@ -39,9 +39,10 @@ namespace Durin
 			.AddInput("Reconciliation", "CapturedReconciliation");
 		return std::move(Builder).Build();
 	}
-	auto GetStaticMeshBuildDescriptor(uint32 FunctionVersion, uint32 OutputVersion) -> DerivedData::FBuildFunctionDescriptor
+	auto GetStaticMeshBuildDescriptor() -> DerivedData::FBuildFunctionDescriptor
 	{
-		return {"Durin.StaticMesh.Render", FunctionVersion, 2, "StaticMesh.RenderOutput", OutputVersion,
+		return {"Durin.StaticMesh.Render", StaticMeshRenderBuildFunctionVersion, StaticMeshRenderConstantsSchemaVersion,
+			std::string(StaticMeshRenderOutputType), StaticMeshRenderOutputSchemaVersion,
 			DerivedData::FCacheBucket::FromString("StaticMesh")};
 	}
 

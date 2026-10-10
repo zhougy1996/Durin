@@ -38,7 +38,10 @@ namespace Durin::Testing
 		auto Request = MakeStaticMeshSessionDefinition(Input.MaterialSlotCount, Input.BuilderVersion);
 		if (!Request) return std::unexpected(FStaticMeshBuildKeyError{.Code = EStaticMeshBuildKeyError::Archive,
 			.TargetPlatform = Input.TargetPlatform, .ArchiveCode = EArchiveFailureCode::InvalidData});
-		FBuildActionBuilder Builder(*Request, GetStaticMeshBuildDescriptor(Input.FunctionVersion, Input.OutputSchemaVersion));
+		auto Descriptor = GetStaticMeshBuildDescriptor();
+		Descriptor.Version = Input.FunctionVersion;
+		Descriptor.OutputSchema = Input.OutputSchemaVersion;
+		FBuildActionBuilder Builder(*Request, std::move(Descriptor));
 		Builder.AddInput({"Source", Input.SourceHash, "StaticMeshSource", StaticMeshSourceGeometryIdentityVersion, "StaticMesh.AuthoredGeometry", 1})
 			.AddInput({"Reconciliation", Input.ReconciliationHash, "StaticMeshReconciliation", 1, "StaticMesh.MaterialSlots", 1});
 		auto Definition = std::move(Builder).Build();

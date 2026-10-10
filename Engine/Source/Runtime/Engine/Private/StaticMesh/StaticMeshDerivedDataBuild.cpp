@@ -120,9 +120,7 @@ namespace Durin
 		for (const auto& Slot : Request.Settings.MaterialSlots)
 		{
 			if (Slot.Name.IsNone() || !SlotNames.insert(Slot.Name).second
-#if DURIN_WITH_EDITORONLY_DATA
 				|| Slot.SourceName.size() > 4096 || !SourceIndices.insert(Slot.SourceMaterialIndex).second
-#endif
 				)
 				return std::unexpected(FStaticMeshBuildFailure{"StaticMesh requires bounded, uniquely named material slots with unambiguous source indices.", EStaticMeshBuildStage::Render});
 		}

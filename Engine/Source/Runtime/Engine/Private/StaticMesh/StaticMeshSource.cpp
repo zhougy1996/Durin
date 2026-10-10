@@ -402,12 +402,7 @@ namespace Durin
 	auto FStaticMeshSource::GetIdentity() const -> FXxHash128
 	{
 		if (!IsValid()) return {};
-		FXxHash128Builder Builder;
-		Builder.UpdateValue(StaticMeshSourceGeometryIdentityVersion);
-		Builder.UpdateValue(MaterialSlotCount);
-		Builder.UpdateValue(MeshCount);
-		Builder.UpdateValue(Geometry.GetPayloadId());
-		return Builder.Finalize();
+		return StaticMeshPrivate::BuildSourceIdentity(MaterialSlotCount, MeshCount, Geometry.GetPayloadId());
 	}
 
 }

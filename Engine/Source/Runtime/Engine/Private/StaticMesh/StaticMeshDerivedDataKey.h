@@ -12,6 +12,8 @@
 namespace Durin
 {
 	inline constexpr uint32 StaticMeshRenderBuildFunctionVersion = 1;
+	inline constexpr uint32 StaticMeshRenderConstantsSchemaVersion = 2;
+	inline constexpr std::string_view StaticMeshRenderOutputType = "StaticMesh.RenderOutput";
 	inline constexpr uint32 StaticMeshRenderOutputSchemaVersion = 2;
 
 	ENGINE_API auto BuildStaticMeshReconciliationHash(
@@ -21,7 +23,7 @@ namespace Durin
 		std::span<const FStaticMeshBuildMaterialSlot> MaterialSlots, float NormalizedSize) -> FXxHash128;
 	ENGINE_API auto MakeStaticMeshSessionDefinition(uint32 MaterialSlotCount, uint64 BuilderVersion)
 		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>;
-	ENGINE_API auto GetStaticMeshBuildDescriptor(uint32 FunctionVersion = StaticMeshRenderBuildFunctionVersion, uint32 OutputVersion = StaticMeshRenderOutputSchemaVersion)
+	ENGINE_API auto GetStaticMeshBuildDescriptor()
 		-> DerivedData::FBuildFunctionDescriptor;
 
 }

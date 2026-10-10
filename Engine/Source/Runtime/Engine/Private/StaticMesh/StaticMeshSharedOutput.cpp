@@ -1,6 +1,7 @@
 #include "StaticMeshSharedOutput.h"
 #if DURIN_WITH_EDITOR
 #include "StaticMeshPayloadValidation.h"
+#include "StaticMeshDerivedDataKey.h"
 #include "Asset/CookedAsset.h"
 #include "Serialization/BinaryFormat.h"
 
@@ -57,31 +58,13 @@ namespace Durin::StaticMeshPrivate
 				return FSharedByteBuffer::TakeNative(std::move(Values));
 			}
 		};
-		struct FSections
-		{
-			FSharedByteBuffer Block;
-			std::vector<FBox> GeometryBounds;
-			auto size() const -> size_t { return Block.GetSize() / SectionBytes; }
-			auto empty() const -> bool { return size() == 0; }
-			auto operator[](size_t Index) const -> FStaticMeshPayloadSection
-			{
-				FBinaryReader Reader(Block.GetBytes().subspan(Index * SectionBytes, SectionBytes));
-				FStaticMeshPayloadSection Result;
-				Reader.ReadU32(Result.FirstIndex); Reader.ReadU32(Result.IndexCount);
-				Reader.ReadU32(Result.MinVertexIndex); Reader.ReadU32(Result.MaxVertexIndex); Reader.ReadU32(Result.MaterialSlotIndex);
-				// Bounds validity is checked by the common validator, including the valid bit.
-				Result.LocalBounds.bIsValid = ReadBounds(Reader, Result.LocalBounds);
-				if (!GeometryBounds.empty()) Result.LocalBounds = GeometryBounds[Index];
-				return Result;
-			}
-		};
 		struct FLOD
 		{
 			FStream<FVector3f> Positions, Normals;
 			FStream<FVector4f> Tangents, Colors;
 			FStream<uint32> Indices;
 			std::array<FStream<FVector2f>, MaxStaticMeshUVChannels> TexCoords;
-			FSections Sections;
+			std::vector<FStaticMeshPayloadSection> Sections;
 			FBox LocalBounds;
 			float ScreenSize = 0;
 			uint32 NumTexCoords = 0;
@@ -103,7 +86,7 @@ namespace Durin::StaticMeshPrivate
 		auto ReadLayout(const FBuildOutput& Output, const std::function<bool()>& ShouldCancel) -> std::expected<FLayout, std::string>
 		{
 			AssetPrivate::FPayloadBuildControl Control{ShouldCancel}; Control.Check();
-			if (Output.GetSchema() != "StaticMesh.RenderOutput" || Output.GetSchemaVersion() != 2
+			if (Output.GetSchema() != StaticMeshRenderOutputType || Output.GetSchemaVersion() != StaticMeshRenderOutputSchemaVersion
 				|| !Output.CheckLimits({.MaximumTotalBytes = MaximumStaticMeshPayloadBytes}))
 				return std::unexpected("StaticMesh output schema or size is invalid.");
 			FBinaryReader Reader(GetBuildMetadataPayload(Output).GetBytes(), {.MaximumTotalBytes = 64 + MaximumStaticMeshLODs * 72});
@@ -140,11 +123,16 @@ namespace Durin::StaticMeshPrivate
 				const auto* SectionValue = Output.FindValue(StreamId(Index, 5 + MaxStaticMeshUVChannels));
 				if (!SectionValue || SectionValue->GetRawSize() != uint64(Sections) * SectionBytes)
 					return std::unexpected("StaticMesh output section table is invalid.");
-				LOD.Sections.Block = SectionValue->GetData();
-				for (size_t SectionIndex = 0; SectionIndex < LOD.Sections.size(); ++SectionIndex)
+				FBinaryReader SectionReader(SectionValue->GetData().GetBytes());
+				LOD.Sections.resize(Sections);
+				for (auto& Section : LOD.Sections)
 				{
 					Control.Tick();
-					if (LOD.Sections[SectionIndex].IndexCount % 3 != 0)
+					if (!SectionReader.ReadU32(Section.FirstIndex) || !SectionReader.ReadU32(Section.IndexCount)
+						|| !SectionReader.ReadU32(Section.MinVertexIndex) || !SectionReader.ReadU32(Section.MaxVertexIndex)
+						|| !SectionReader.ReadU32(Section.MaterialSlotIndex) || !ReadBounds(SectionReader, Section.LocalBounds))
+						return std::unexpected("StaticMesh output section descriptor is invalid.");
+					if (Section.IndexCount % 3 != 0)
 						return std::unexpected("StaticMesh output section is not a triangle list.");
 				}
 			}
@@ -156,7 +144,8 @@ namespace Durin::StaticMeshPrivate
 			for (size_t Index = 0; Index < Layout.LODs.size(); ++Index)
 			{
 				Layout.LODs[Index].LocalBounds = Bounds.LODs[Index].LocalBounds;
-				Layout.LODs[Index].Sections.GeometryBounds = std::move(Bounds.LODs[Index].Sections);
+				for (size_t SectionIndex = 0; SectionIndex < Layout.LODs[Index].Sections.size(); ++SectionIndex)
+					Layout.LODs[Index].Sections[SectionIndex].LocalBounds = Bounds.LODs[Index].Sections[SectionIndex];
 			}
 			Control.Check();
 			return Layout;
@@ -172,7 +161,7 @@ namespace Durin::StaticMeshPrivate
 	{
 		if (!Product || !IsValidBounds(Product->LocalBounds) || Product->LODResources.empty() || Product->LODResources.size() > MaximumStaticMeshLODs)
 			return std::unexpected("StaticMesh output LOD count is invalid.");
-		FBuildOutputBuilder Output("StaticMesh.RenderOutput", 2, {.MaximumTotalBytes = MaximumStaticMeshPayloadBytes});
+		FBuildOutputBuilder Output(std::string(StaticMeshRenderOutputType), StaticMeshRenderOutputSchemaVersion, {.MaximumTotalBytes = MaximumStaticMeshPayloadBytes});
 		FBinaryWriter Metadata({.MaximumTotalBytes = 64 + MaximumStaticMeshLODs * 72});
 		Metadata.WriteU32(uint32(ECookTargetPlatform::Win64)); Metadata.WriteU32(uint32(ECookTargetProfile::Game));
 		Metadata.WriteU32(MaterialSlotCount); Metadata.WriteU32(uint32(Product->LODResources.size())); WriteBounds(Metadata, Product->LocalBounds);

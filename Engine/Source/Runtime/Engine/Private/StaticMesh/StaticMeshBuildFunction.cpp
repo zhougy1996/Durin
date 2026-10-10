@@ -15,13 +15,6 @@ namespace Durin::StaticMeshPrivate
 		constexpr uint64 MaximumReconciliationBytes = uint64(MaximumMeshMaterialSlots) * (8192 + 32) + 8;
 		auto Error(std::string Message) -> FBuildInputError { return {std::move(Message)}; }
 		auto Cancelled() -> FBuildInputError { return Error("StaticMesh build was cancelled."); }
-		auto SourceIdentity(uint32 Slots, uint32 Meshes, FXxHash128 PayloadId) -> FXxHash128
-		{
-			FXxHash128Builder Hash;
-			Hash.UpdateValue(StaticMeshSourceGeometryIdentityVersion); Hash.UpdateValue(Slots);
-			Hash.UpdateValue(Meshes); Hash.UpdateValue(PayloadId);
-			return Hash.Finalize();
-		}
 		auto SourceReference(FXxHash128 Identity) -> FBuildInputReference
 		{ return {"Source", Identity, "StaticMeshSource", StaticMeshSourceGeometryIdentityVersion, "StaticMesh.AuthoredGeometry", 1}; }
 		auto ReconciliationReference(FXxHash128 Identity) -> FBuildInputReference
@@ -68,7 +61,7 @@ namespace Durin::StaticMeshPrivate
 				if (!Payload) return std::unexpected(Error(FormatStaticMeshSourceError(
 					{.Code = EStaticMeshSourceError::Read, .ReadCause = Payload})));
 				if (Payload->GetSize() != Geometry.GetPayloadSize() || Payload->GetSize() > MaximumStaticMeshSourceBytes
-					|| SourceIdentity(SlotCount, MeshCount, FXxHash128::HashBuffer(Payload->GetBytes())) != SourceHash)
+					|| BuildSourceIdentity(SlotCount, MeshCount, FXxHash128::HashBuffer(Payload->GetBytes())) != SourceHash)
 					return std::unexpected(Error("StaticMesh source bytes do not match captured identity."));
 				FBinaryWriter SourceMetadata; SourceMetadata.WriteU32(SlotCount); SourceMetadata.WriteU32(MeshCount);
 				FBinaryWriter Settings({.MaximumTotalBytes = MaximumReconciliationBytes});
@@ -121,7 +114,7 @@ namespace Durin::StaticMeshPrivate
 				if (!Metadata.ReadU32(SlotCount) || !Metadata.ReadU32(MeshCount) || !Metadata.IsAtEnd())
 					return Fail("StaticMesh source metadata is invalid.");
 				const auto Bytes = Source->Values[0].Data.GetBytes();
-				if (SourceIdentity(SlotCount, MeshCount, FXxHash128::HashBuffer(Bytes)) != Source->Identity.Identity)
+				if (BuildSourceIdentity(SlotCount, MeshCount, FXxHash128::HashBuffer(Bytes)) != Source->Identity.Identity)
 					return Fail("StaticMesh source semantic identity is invalid.");
 				FAssetBuildMemoryEstimate Memory{Context.GetMaximumWorkingSetBytes()};
 				if (!Memory.Add(Bytes.size(), 8) || !Memory.Add(MeshCount, sizeof(FMeshDescriptionSection)) || !Memory.Add(SlotCount, 32768) || !Memory.Add(*Count, 32768))
@@ -153,8 +146,6 @@ namespace Durin::StaticMeshPrivate
 					.Control = {.ShouldCancel = ShouldCancel, .MaximumWorkingSetBytes = Context.GetMaximumWorkingSetBytes()}});
 				if (ShouldCancel()) return Fail(Cancelled().Description);
 				if (!bBuilt) return Fail("StaticMesh render construction failed; see MeshBuilder logs for details.");
-				if (Product->LODResources.empty() || !Product->LocalBounds.bIsValid)
-					return Fail("StaticMesh builder returned invalid render data.");
 				auto Output = MakeSharedOutput(std::move(Product), *Count, ShouldCancel);
 				if (ShouldCancel()) return Fail(Cancelled().Description);
 				if (!Output) return Fail(std::move(Output.error()));
