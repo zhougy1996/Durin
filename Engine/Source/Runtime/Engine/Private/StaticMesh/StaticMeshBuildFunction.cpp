@@ -1,4 +1,5 @@
 #include "StaticMeshBuildFunction.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #if DURIN_WITH_EDITOR
 #include "DerivedDataBuildSession.h"
 #include "StaticMeshDerivedDataKey.h"
@@ -169,7 +170,7 @@ namespace Durin::StaticMeshPrivate
 	auto RegisterBuildFunction() -> void
 	{
 		static std::once_flag Once;
-		std::call_once(Once, [&] {
+		std::call_once(Once, [] {
 			if (!GetBuild().Register(MakeRenderBuildFunction()))
 				throw std::runtime_error("Failed to register the static-mesh derived-data build function.");
 		});

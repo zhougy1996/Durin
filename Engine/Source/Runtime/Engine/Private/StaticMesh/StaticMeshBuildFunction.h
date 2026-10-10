@@ -2,8 +2,10 @@
 
 #include "CoreMinimal.h"
 #if DURIN_WITH_EDITOR
+#include "EngineAPI.h"
 #include "DerivedDataBuildFunction.h"
-#include "StaticMesh/StaticMeshBuild.h"
+
+namespace Durin { struct FStaticMeshBuildRequest; }
 
 namespace Durin::StaticMeshPrivate
 {

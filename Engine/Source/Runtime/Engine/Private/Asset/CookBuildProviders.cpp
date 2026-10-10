@@ -2,6 +2,7 @@
 #if DURIN_WITH_EDITORONLY_DATA
 #include "StaticMesh/IMeshBuilderModule.h"
 #include "StaticMesh/StaticMeshDerivedDataKey.h"
+#include "StaticMesh/StaticMeshDerivedData.h"
 #include "Texture/ITextureBuildModule.h"
 #endif
 #include "Physics/PhysicsCookHelper.h"

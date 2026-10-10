@@ -109,16 +109,6 @@ namespace Durin
 
 	ENGINE_API auto FormatStaticMeshPayloadError(const FStaticMeshPayloadError& Error) -> std::string;
 
-	enum class EArchiveFailureCode : uint8;
-	enum class EStaticMeshBuildKeyError : uint8 { None, UnsupportedTarget, Archive };
-	struct FStaticMeshBuildKeyError
-	{
-		EStaticMeshBuildKeyError Code = EStaticMeshBuildKeyError::None;
-		EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Unknown;
-		std::optional<EArchiveFailureCode> ArchiveCode;
-		std::string ArchivePath;
-	};
-
 	// Copies serializable CPU data from runtime render data into the explicit payload model.
 	ENGINE_API auto MakeStaticMeshPayloadData(
 		const FStaticMeshRenderData& RenderData,

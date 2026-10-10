@@ -208,8 +208,8 @@ reading and written as zero. Algorithm changes therefore invalidate DDC entries
 without rejecting compatible cooked payloads. StaticMesh cook recipe dependencies
 encode the render builder identity, adapter function version, shared-output schema,
 Payload schema, and `PhysicsCookBuilderVersion`.
-Only the built-in MeshBuilder consumes the algorithm revision; other consumers use the module identity contract. Render/collision key factories return typed key or byte results,
-retaining rejected target and Archive code/path. Failed results contain no key
+The algorithm revision header lives in MeshBuilder/Private/StaticMesh; Engine consumers use only the module identity contract. Render/collision key factories return typed key or byte results,
+with render-key errors owned by the private DDC key interface rather than the public Payload interface. Failures retain rejected targets and codec diagnostics. Failed results contain no key
 or partial bytes; execution boundaries format explicitly. Private cache codecs return a rejection message to the
 cache boundary, where decode rejection triggers rebuilding. Public payload validators
 retain typed failures for cooked loading and other non-cache callers. Public derived-data builds return

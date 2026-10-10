@@ -44,21 +44,7 @@ namespace Durin
 	auto GetStaticMeshBuildDescriptor(uint32 FunctionVersion, uint32 OutputVersion) -> DerivedData::FBuildFunctionDescriptor
 	{
 		return {"Durin.StaticMesh.Render", FunctionVersion, 2, "StaticMesh.RenderOutput", OutputVersion,
-			DerivedData::FCacheBucket::FromString(StaticMeshCacheBucket)};
-	}
-
-	auto FormatStaticMeshBuildKeyError(const FStaticMeshBuildKeyError& Error) -> std::string
-	{
-		switch (Error.Code)
-		{
-		case EStaticMeshBuildKeyError::None: return {};
-		case EStaticMeshBuildKeyError::UnsupportedTarget:
-			return std::format("StaticMesh derived-data target {} is unsupported.", static_cast<uint32>(Error.TargetPlatform));
-		case EStaticMeshBuildKeyError::Archive:
-			return std::format("StaticMesh derived-data key encoding failed (Archive code {}, path '{}').",
-				Error.ArchiveCode ? static_cast<int>(*Error.ArchiveCode) : -1, Error.ArchivePath);
-		}
-		return {};
+			DerivedData::FCacheBucket::FromString("StaticMesh")};
 	}
 
 	auto MakeStaticMeshBuildAction(const FStaticMeshBuildKeyInput& Input)
