@@ -101,6 +101,7 @@ namespace
 			.SourceHash = Mesh.GetSource().GetIdentity(),
 			.ReconciliationHash = Durin::BuildStaticMeshReconciliationHash(
 				Mesh.GetMaterialSlots(), Mesh.GetNormalizedSize()),
+			.BuilderVersion = Durin::IMeshBuilderModule::Get()->GetBuildVersion(),
 			.MaterialSlotCount = uint32(Mesh.GetMaterialSlots().size()),
 			.TargetPlatform = Durin::EAssetPayloadTargetPlatform::Win64}).value();
 		EXPECT_TRUE(Key.IsValid());
@@ -1941,7 +1942,7 @@ TEST(FStaticMeshAuthoredCompilationTests, DiagnosticsExposeColdWarmAndPersistenc
 	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, FailedCache.Status);
 	EXPECT_TRUE(HasCacheError(CacheLog, "write"));
 	EXPECT_FALSE(FailedCache.Error);
-	EXPECT_EQ(FailedCache.RenderBuilderVersion, StaticMeshBuilderVersion);
+	EXPECT_EQ(FailedCache.RenderBuilderVersion, IMeshBuilderModule::Get()->GetBuildVersion());
 	EXPECT_LE(FormatStaticMeshCompilationDiagnostic(FailedCache).size(), 4096u);
 	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
 	const auto Synchronous = Fixture.Mesh->Build(EStaticMeshBuildMode::Synchronous);
@@ -2406,11 +2407,13 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 	ASSERT_TRUE((Render = BuildRenderForTest(Request, {}, &RenderCacheLog)));
 	ASSERT_TRUE(std::filesystem::remove(GetObjectPath(Fixture, BuildStaticMeshDerivedDataKey({.SourceHash = Request.Source.GetIdentity(),
 		.ReconciliationHash = BuildStaticMeshReconciliationHash(Request.Reconciliation.MaterialSlots, Request.Reconciliation.NormalizedSize),
+		.BuilderVersion = IMeshBuilderModule::Get()->GetBuildVersion(),
 		.MaterialSlotCount = uint32(Request.Reconciliation.MaterialSlots.size()),
 		.TargetPlatform = EAssetPayloadTargetPlatform::Win64}).value().ToString())));
 	const std::array<std::byte, 4> Invalid{};
 	const auto SeedKey = BuildStaticMeshDerivedDataKey({.SourceHash = Request.Source.GetIdentity(),
 		.ReconciliationHash = BuildStaticMeshReconciliationHash(Request.Reconciliation.MaterialSlots, Request.Reconciliation.NormalizedSize),
+		.BuilderVersion = IMeshBuilderModule::Get()->GetBuildVersion(),
 		.MaterialSlotCount = uint32(Request.Reconciliation.MaterialSlots.size()),
 		.TargetPlatform = EAssetPayloadTargetPlatform::Win64}).value();
 	ASSERT_TRUE(DerivedData::GetCacheStorage().Put({*SeedKey.AsCacheKey(), Invalid, MaximumStaticMeshPayloadBytes}));
@@ -2452,7 +2455,7 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 	{
 	public:
 		bool bFail = false;
-		auto GetRenderBuilderVersion() const -> uint32 override
+		auto GetBuildVersion() const -> uint64 override
 		{
 			return 777;
 		}
@@ -3426,4 +3429,38 @@ TEST(FStaticMeshBuildModuleTests, GeneratedNormalsRemainSmoothAcrossUVInstances)
 	EXPECT_EQ(Normals[1], Normals[5]);
 	EXPECT_GT(Normals[0].y, 0.0f);
 	EXPECT_GT(Normals[0].z, 0.0f);
+}
+
+TEST(FStaticMeshDerivedDataCacheTests, BuildFunctionRejectsMismatchedBuilderIdentity)
+{
+	using namespace Durin;
+	using namespace Durin::DerivedData;
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	const auto* Module = IMeshBuilderModule::Get();
+	ASSERT_NE(Module, nullptr);
+	const auto Version = Module->GetBuildVersion();
+	EXPECT_NE(Version, 0u);
+	EXPECT_EQ(Version, Module->GetBuildVersion());
+	FStaticMeshSource Source;
+	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
+	FStaticMeshBuildRequest Request{
+		.Reconciliation = {.MaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())},
+		.Source = Source};
+	auto Definition = MakeStaticMeshSessionDefinition(uint32(Request.Reconciliation.MaterialSlots.size()), Version ^ 1ull);
+	ASSERT_TRUE(Definition);
+	auto Service = CreateBuild();
+	ASSERT_TRUE(Service->Register(StaticMeshPrivate::MakeRenderBuildFunction()));
+	auto Session = Service->CreateSession();
+	ASSERT_TRUE(Session);
+	std::optional<FBuildCompleteParams> Result;
+	FBuildRequestOptions Options{.Policy = {.QueryCache = false, .StoreOnBuild = false}};
+	Options.InputResolver = StaticMeshPrivate::MakeRenderInputResolver(Request);
+	ASSERT_TRUE((*Session)->Build(*Definition, [&](auto Value) { Result = std::move(Value); }, {}, Options));
+	ASSERT_TRUE(Result);
+	EXPECT_EQ(Result->GetStatus(), EStatus::Error);
+	ASSERT_NE(Result->GetOutput(), nullptr);
+	EXPECT_TRUE(Result->GetOutput()->GetValues().empty());
+	const auto Messages = Result->GetOutput()->GetMessages();
+	ASSERT_EQ(Messages.size(), 1u);
+	EXPECT_NE(Messages.front().Text.find("identity does not match"), std::string::npos);
 }

@@ -18,8 +18,8 @@ namespace Durin
 		ENGINE_API auto StartupModule() -> void override;
 		// Borrow the active implementation. Consumers drain work before editor shutdown.
 		ENGINE_API static auto Get() -> IMeshBuilderModule*;
-		// The builder version is immutable for the editor lifetime.
-		virtual auto GetRenderBuilderVersion() const -> uint32 = 0;
+		// Nonzero opaque identity combining implementation, algorithm, and dependency versions. Immutable for the editor lifetime.
+		virtual auto GetBuildVersion() const -> uint64 = 0;
 		// Synchronous CPU construction. Failure/cancellation preserves the uninitialized output.
 		// Build failures are logged by the module; cancellation is observed through Parameters.Control.
 		virtual auto BuildRender(FStaticMeshRenderData& OutRenderData,

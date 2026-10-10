@@ -11,6 +11,7 @@
 
 namespace Durin
 {
+	inline constexpr uint32 StaticMeshRenderBuildFunctionVersion = 1;
 	inline constexpr uint32 StaticMeshRenderOutputSchemaVersion = 2;
 	inline constexpr std::string_view StaticMeshCacheBucket = "StaticMesh";
 
@@ -20,16 +21,17 @@ namespace Durin
 		float NormalizedSize) -> FXxHash128;
 	ENGINE_API auto BuildStaticMeshReconciliationHash(
 		std::span<const FStaticMeshBuildMaterialSlot> MaterialSlots, float NormalizedSize) -> FXxHash128;
-	ENGINE_API auto MakeStaticMeshSessionDefinition(uint32 MaterialSlotCount)
+	ENGINE_API auto MakeStaticMeshSessionDefinition(uint32 MaterialSlotCount, uint64 BuilderVersion)
 		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>;
-	ENGINE_API auto GetStaticMeshBuildDescriptor(uint32 BuilderVersion, uint32 OutputVersion = StaticMeshRenderOutputSchemaVersion)
+	ENGINE_API auto GetStaticMeshBuildDescriptor(uint32 FunctionVersion = StaticMeshRenderBuildFunctionVersion, uint32 OutputVersion = StaticMeshRenderOutputSchemaVersion)
 		-> DerivedData::FBuildFunctionDescriptor;
 	// Canonical Engine-owned identity for one StaticMesh render-data value.
 	struct FStaticMeshBuildKeyInput
 	{
 		FXxHash128 SourceHash;
 		FXxHash128 ReconciliationHash;
-		uint32 BuilderVersion = StaticMeshBuilderVersion;
+		uint64 BuilderVersion = 0;
+		uint32 FunctionVersion = StaticMeshRenderBuildFunctionVersion;
 		uint32 OutputSchemaVersion = StaticMeshRenderOutputSchemaVersion;
 		uint32 MaterialSlotCount = 1;
 		EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Unknown;

@@ -192,13 +192,23 @@ absolute filename plus the exact source hash, Assimp importer version, and
 import axes. Source organization is independent of the StaticMesh package
 path. Reimport reads the persisted file without copying, replacing, relocating,
 or deleting it. Legacy package-relative source fields are rejected. The
-render DDC action uses canonical schema 2, builder version 4, shared-output schema
-1, material-slot count and target, with separate source/reconciliation identities.
-Package/Cook render payloads retain schema 5. `StaticMeshBuildVersion.h` defines the single `StaticMeshBuilderVersion`
-returned by the built-in module and used by DDC keys and payload compatibility.
-The StaticMesh cook recipe dependency encodes only this render builder version
-and `PhysicsCookBuilderVersion`; it has no module-name or producer-identity field.
-The algorithm builder header is private to MeshBuilder; consumers use the module contract. Render/collision key factories return typed key or byte results,
+render DDC action uses canonical schema 2, adapter function version 1, constants schema
+2, and shared-output schema 2. Its named `BuilderVersion` constant is the nonzero
+opaque `uint64` returned by `IMeshBuilderModule::GetBuildVersion()`. The built-in
+module hashes a stable implementation identifier, `StaticMeshBuilderVersion`, and GLM version
+using canonical binary encoding and XXH3-64; future output-affecting library
+versions belong in that composition. The identity is immutable for the editor
+lifetime and is compared for equality, never ordered. Adapter logic changes bump
+`StaticMeshRenderBuildFunctionVersion` independently. Material-slot count and
+target are constants, with separate source/reconciliation input identities.
+Before invoking the builder, the adapter verifies its identity against the action.
+Package/Cook render payloads retain schema 5. Format compatibility depends only on
+`StaticMeshPayloadSchemaVersion`; the historical producer word is ignored when
+reading and written as zero. Algorithm changes therefore invalidate DDC entries
+without rejecting compatible cooked payloads. StaticMesh cook recipe dependencies
+encode the render builder identity, adapter function version, shared-output schema,
+Payload schema, and `PhysicsCookBuilderVersion`.
+Only the built-in MeshBuilder consumes the algorithm revision; other consumers use the module identity contract. Render/collision key factories return typed key or byte results,
 retaining rejected target and Archive code/path. Failed results contain no key
 or partial bytes; execution boundaries format explicitly. Private cache codecs return a rejection message to the
 cache boundary, where decode rejection triggers rebuilding. Public payload validators

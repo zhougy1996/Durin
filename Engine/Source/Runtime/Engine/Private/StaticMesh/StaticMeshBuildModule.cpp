@@ -10,7 +10,7 @@ namespace Durin
 	auto IMeshBuilderModule::StartupModule() -> void
 	{
 #if DURIN_WITH_EDITOR
-		StaticMeshPrivate::RegisterBuildFunction(*this);
+		StaticMeshPrivate::RegisterBuildFunction();
 #endif
 	}
 

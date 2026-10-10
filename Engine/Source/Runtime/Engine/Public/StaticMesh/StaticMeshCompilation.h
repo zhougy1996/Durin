@@ -24,7 +24,7 @@ namespace Durin
 		EStaticMeshCompilationPhase Phase = EStaticMeshCompilationPhase::Queued;
 		uint64 ReservedBytes = 0;
 		FXxHash128 SourceIdentity;
-		uint32 RenderBuilderVersion = 0;
+		uint64 RenderBuilderVersion = 0;
 		std::optional<FStaticMeshBuildFailure> Error;
 	};
 	ENGINE_API auto FormatStaticMeshCompilationDiagnostic(const FStaticMeshCompilationDiagnostic& Diagnostic) -> std::string;

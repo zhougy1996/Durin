@@ -1,6 +1,7 @@
 #include "CookBuildProviders.h"
 #if DURIN_WITH_EDITORONLY_DATA
 #include "StaticMesh/IMeshBuilderModule.h"
+#include "StaticMesh/StaticMeshDerivedDataKey.h"
 #include "Texture/ITextureBuildModule.h"
 #endif
 #include "Physics/PhysicsCookHelper.h"
@@ -39,10 +40,13 @@ namespace Durin::AssetPrivate
 #if DURIN_WITH_EDITORONLY_DATA
 			const auto Module = IMeshBuilderModule::Get();
 			if (!Module) return false;
-			const uint32 BuilderVersion = Module->GetRenderBuilderVersion();
+			const uint64 BuilderVersion = Module->GetBuildVersion();
 			if (BuilderVersion == 0) return false;
 			FBinaryWriter Writer;
-			Writer.WriteU32(BuilderVersion);
+			Writer.WriteU64(BuilderVersion);
+			Writer.WriteU32(StaticMeshRenderBuildFunctionVersion);
+			Writer.WriteU32(StaticMeshRenderOutputSchemaVersion);
+			Writer.WriteU32(StaticMeshPayloadSchemaVersion);
 			Writer.WriteU32(PhysicsCookBuilderVersion);
 			Out = Writer.TakeBytes();
 			return true;

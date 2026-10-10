@@ -1,6 +1,9 @@
 #include "StaticMesh/IMeshBuilderModule.h"
 #include "StaticMesh/StaticMeshBuilder.h"
 #include "StaticMesh/StaticMeshBuildVersion.h"
+#include "Hash/XxHash.h"
+#include "Serialization/BinaryFormat.h"
+#include <glm/detail/setup.hpp>
 
 namespace Durin
 {
@@ -8,9 +11,18 @@ namespace Durin
 	{
 		// Resident until normal editor shutdown; dynamic reloading is unsupported.
 
-		auto GetRenderBuilderVersion() const -> uint32 override
+		auto GetBuildVersion() const -> uint64 override
 		{
-			return StaticMeshBuilderVersion;
+			static const uint64 Version = [] {
+				FBinaryWriter Writer;
+				Writer.WriteString("Durin.MeshBuilder.StaticMesh");
+				Writer.WriteU32(StaticMeshBuilderVersion);
+				Writer.WriteU32(GLM_VERSION_MAJOR);
+				Writer.WriteU32(GLM_VERSION_MINOR);
+				Writer.WriteU32(GLM_VERSION_PATCH);
+				return FXxHash64::HashBuffer(Writer.TakeBytes()).HashValue;
+			}();
+			return Version;
 		}
 
 		auto BuildRender(FStaticMeshRenderData& OutRenderData,

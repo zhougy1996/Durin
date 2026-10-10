@@ -6,6 +6,6 @@
 
 namespace Durin
 {
-	// Shared producer version for the built-in builder, DDC identity, and payload compatibility.
+	// Algorithm revision of the built-in builder; combined into its build identity.
 	inline constexpr uint32 StaticMeshBuilderVersion = 5;
 }

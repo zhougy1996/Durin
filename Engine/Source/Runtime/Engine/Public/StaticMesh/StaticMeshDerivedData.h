@@ -5,7 +5,6 @@
 #include "EngineAPI.h"
 #include "Asset/PayloadTargetPlatform.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuildVersion.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin

@@ -112,7 +112,9 @@ namespace Durin
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FStaticMeshBuildFailure{"StaticMesh build orchestration is unavailable outside editor builds.", EStaticMeshBuildStage::Render});
 #else
-		auto Definition = MakeStaticMeshSessionDefinition(uint32(Request.Reconciliation.MaterialSlots.size()));
+		const auto* Module = IMeshBuilderModule::Get();
+		if (!Module) return std::unexpected(FStaticMeshBuildFailure{"The MeshBuilder module is unavailable.", EStaticMeshBuildStage::Render});
+		auto Definition = MakeStaticMeshSessionDefinition(uint32(Request.Reconciliation.MaterialSlots.size()), Module->GetBuildVersion());
 		if (!Definition) return std::unexpected(FStaticMeshBuildFailure{
 			"StaticMesh build definition is invalid.", EStaticMeshBuildStage::Source});
 		auto Inputs = StaticMeshPrivate::MakeRenderInputResolver(Request);

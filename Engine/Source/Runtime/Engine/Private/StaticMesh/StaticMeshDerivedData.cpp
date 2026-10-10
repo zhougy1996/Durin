@@ -507,9 +507,9 @@ namespace Durin
 				return;
 			}
 			const auto& Header = Container.HeaderWords;
-			if (Header[1] != StaticMeshPayloadSchemaVersion || Header[2] != StaticMeshBuilderVersion)
+			if (Header[1] != StaticMeshPayloadSchemaVersion)
 			{
-				Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Static-mesh payload schema or builder version is unsupported.");
+				Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Static-mesh payload schema is unsupported.");
 				return;
 			}
 			if (Header[3] != static_cast<uint32>(TargetPlatform))
@@ -544,7 +544,7 @@ namespace Durin
 			Inputs[Index] = {.Type = Index + 1, .Flags = ChunkedPayloadRequiredFlag,
 				.Bytes = Buffers[Index], .DecodedSize = Buffers[Index].size()};
 		FByteBuffer Bytes;
-		const auto Result = EncodeChunkedPayload({0, StaticMeshPayloadSchemaVersion, StaticMeshBuilderVersion,
+		const auto Result = EncodeChunkedPayload({0, StaticMeshPayloadSchemaVersion, 0, // Legacy producer word is ignored by schema-5 readers.
 			static_cast<uint32>(TargetPlatform), 0, StaticMeshPayloadHeaderSize, 6, 0},
 			Inputs, GetStaticMeshChunkedPayloadFormat(), Bytes);
 		Control.Check();

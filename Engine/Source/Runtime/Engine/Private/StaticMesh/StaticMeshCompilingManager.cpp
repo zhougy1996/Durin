@@ -208,7 +208,7 @@ namespace Durin
 					return Reject(std::format("StaticMesh compilation admission budget exhausted ({} / {} records, {} reserved bytes, {} requested bytes).", Records.size(), MaximumRecords, ReservedBytes, Bytes));
 				auto Module = IMeshBuilderModule::Get();
 				if (!Module) return Reject("StaticMesh compilation requires the build module.");
-				const uint32 BuilderVersion = Module->GetRenderBuilderVersion();
+				const uint64 BuilderVersion = Module->GetBuildVersion();
 				if (BuilderVersion == 0)
 					return Reject("StaticMesh compilation requires a nonzero render builder version.");
 				auto Record = std::make_shared<FRecord>();

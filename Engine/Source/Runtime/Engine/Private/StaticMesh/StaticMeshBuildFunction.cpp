@@ -99,14 +99,18 @@ namespace Durin::StaticMeshPrivate
 		class FRenderFunction final : public IBuildFunction
 		{
 		public:
-			explicit FRenderFunction(IMeshBuilderModule& Module) : Version(Module.GetRenderBuilderVersion()) {}
 			auto GetName() const -> std::string_view override { return "Durin.StaticMesh.Render"; }
-			auto GetVersion() const -> uint32 override { return Version; }
+			auto GetVersion() const -> uint32 override { return StaticMeshRenderBuildFunctionVersion; }
 			auto Configure(FBuildConfigContext& Context) const -> void override
-			{ const auto D = GetStaticMeshBuildDescriptor(Version); Context.SetConstantsSchema(D.ConstantsSchema); Context.SetOutput(D.OutputType, D.OutputSchema); Context.SetCacheBucket(D.Bucket); }
+			{ const auto D = GetStaticMeshBuildDescriptor(); Context.SetConstantsSchema(D.ConstantsSchema); Context.SetOutput(D.OutputType, D.OutputSchema); Context.SetCacheBucket(D.Bucket); }
 			auto Build(FBuildContext& Context) const -> void override
 			{
 				auto Fail = [&](std::string Text) { Context.AddError(std::move(Text)); };
+				auto* Module = IMeshBuilderModule::Get();
+				if (!Module) return Fail("The MeshBuilder module is unavailable.");
+				const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
+				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != Module->GetBuildVersion())
+					return Fail("StaticMesh builder identity does not match the action.");
 				bool bCancelled = false;
 				const auto ShouldCancel = [&] { return bCancelled = bCancelled || Context.IsCancelled(); };
 				auto Count = MaterialCount(Context); if (!Count) return Fail(std::move(Count.error()));
@@ -145,8 +149,6 @@ namespace Durin::StaticMeshPrivate
 
 				auto Geometry = DecodeSourceGeometry(Bytes, SlotCount, MeshCount, ShouldCancel);
 				if (!Geometry) return Fail(Geometry.error().Code == EStaticMeshSourceError::Cancelled ? Cancelled().Description : FormatStaticMeshSourceError(Geometry.error()));
-				auto* Module = IMeshBuilderModule::Get();
-				if (!Module) return Fail("The MeshBuilder module is unavailable.");
 				auto Product = std::make_unique<FStaticMeshRenderData>();
 				const bool bBuilt = Module->BuildRender(*Product, {.Geometry = std::move(*Geometry), .MaterialSlots = Slots, .NormalizedSize = Size,
 					.Control = {.ShouldCancel = ShouldCancel, .MaximumWorkingSetBytes = Context.GetMaximumWorkingSetBytes()}});
@@ -160,17 +162,15 @@ namespace Durin::StaticMeshPrivate
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);
 			}
-		private:
-			uint32 Version;
 		};
 	}
-	auto MakeRenderBuildFunction(IMeshBuilderModule& Module) -> std::shared_ptr<const IBuildFunction>
-	{ return std::make_shared<FRenderFunction>(Module); }
-	auto RegisterBuildFunction(IMeshBuilderModule& Module) -> void
+	auto MakeRenderBuildFunction() -> std::shared_ptr<const IBuildFunction>
+	{ return std::make_shared<FRenderFunction>(); }
+	auto RegisterBuildFunction() -> void
 	{
 		static std::once_flag Once;
 		std::call_once(Once, [&] {
-			if (!GetBuild().Register(MakeRenderBuildFunction(Module)))
+			if (!GetBuild().Register(MakeRenderBuildFunction()))
 				throw std::runtime_error("Failed to register the static-mesh derived-data build function.");
 		});
 	}

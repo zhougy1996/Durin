@@ -419,8 +419,8 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 {
 	const std::array Fixtures{MakeSingleSectionFixture(), MakeMultiMaterialFixture()};
 	const std::array<std::string_view, 2> ExpectedPayloadHashes{
-		"cb11d5161a1c7db169faaa74204de942",
-		"9822b5ad5d0469d312f252ba596a987c"};
+		"2712890c9c2bb6db92b943e4848fc3a9",
+		"afbf34c6361f5a3d7a2f2c6b9bf785c8"};
 	const std::array<size_t, 2> ExpectedPayloadSizes{556, 824};
 	for (size_t FixtureIndex = 0; FixtureIndex < Fixtures.size(); ++FixtureIndex)
 	{
@@ -845,7 +845,6 @@ TEST(FStaticMeshPayloadCodecTests, RejectsInvalidEnvelopeAndChunkRanges)
 	};
 
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 0, 1); });
-	Mutate([](auto& Bytes) { WriteU32(Bytes, 8, StaticMeshBuilderVersion + 1); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 12, 0); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 16, 2); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 28, 1); });
@@ -1809,4 +1808,21 @@ TEST(FStaticMeshPayloadCodecTests, RenderDataInitializationRemainsValidAfterPosi
 	EXPECT_TRUE(Ready);
 	EXPECT_EQ(Position.GetNumVertices(), 3u);
 	EXPECT_TRUE(Position.GetPositions().empty());
+}
+
+TEST(FStaticMeshPayloadCodecTests, LegacyProducerVersionDoesNotControlFormatCompatibility)
+{
+	const auto Fixture = MakeSingleSectionFixture();
+	const auto Valid = Encode(Fixture);
+	EXPECT_EQ(ReadU32(Valid, 8), 0u);
+	for (const uint32 Producer : {0u, 4u, 5u, std::numeric_limits<uint32>::max()})
+	{
+		auto Bytes = Valid;
+		WriteU32(Bytes, 8, Producer);
+		Rehash(Bytes);
+		FStaticMeshPayloadData Decoded;
+		const auto Result = DecodePayload(Bytes, EAssetPayloadTargetPlatform::Win64, Decoded);
+		ASSERT_TRUE(Result) << Result.error().Message;
+		ExpectEquivalent(Decoded, Fixture);
+	}
 }

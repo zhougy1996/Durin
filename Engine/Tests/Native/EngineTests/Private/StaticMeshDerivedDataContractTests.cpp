@@ -16,6 +16,7 @@ namespace
 		Input.ReconciliationHash = Durin::FXxHash128{
 			0x1111111111111111ull,
 			0x2222222222222222ull};
+		Input.BuilderVersion = 0xfedcba9876543210ull;
 		Input.TargetPlatform = Durin::EAssetPayloadTargetPlatform::Win64;
 		return Input;
 	}
@@ -43,7 +44,7 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input).value().ToString(),
-		"4ec2f97b91195250c7cd6f89775afa86");
+		"25cd6eb330cce3d04e44d2d0912d25c8");
 }
 
 TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
@@ -72,6 +73,8 @@ TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
 	ExpectChanged([](auto& Value) { ++Value.SourceHash.HashLow; });
 	ExpectChanged([](auto& Value) { ++Value.ReconciliationHash.HashLow; });
 	ExpectChanged([](auto& Value) { ++Value.BuilderVersion; });
+	ExpectChanged([](auto& Value) { Value.BuilderVersion ^= uint64{1} << 63; });
+	ExpectChanged([](auto& Value) { ++Value.FunctionVersion; });
 	ExpectChanged([](auto& Value) { ++Value.OutputSchemaVersion; });
 	ExpectChanged([](auto& Value) { ++Value.MaterialSlotCount; });
 	ExpectChanged([](auto& Value) { Value.TargetPlatform = Durin::EAssetPayloadTargetPlatform::Unknown; });
@@ -156,4 +159,28 @@ TEST(FStaticMeshDerivedDataContractTests, KeyRejectionOwnsTargetAndHasNoPartialO
 	const auto Valid = MakePhysicsCookBuildAction(Collision);
 	ASSERT_TRUE(Valid);
 	EXPECT_TRUE(Valid->GetKey().IsValid());
+}
+
+TEST(FStaticMeshDerivedDataContractTests, BuilderIdentityIsAConstantIndependentOfFunctionVersion)
+{
+	using namespace Durin;
+	const auto Input = MakeKeyInput();
+	const auto Baseline = MakeStaticMeshBuildAction(Input);
+	ASSERT_TRUE(Baseline);
+	EXPECT_EQ(Baseline->GetFunction().Version, StaticMeshRenderBuildFunctionVersion);
+	const auto Constants = Baseline->GetConstants();
+	const auto It = std::ranges::find(Constants, "BuilderVersion", &DerivedData::FBuildConstant::Name);
+	ASSERT_NE(It, Constants.end());
+	const auto* Identity = std::get_if<uint64>(&It->Value);
+	ASSERT_NE(Identity, nullptr);
+	EXPECT_EQ(*Identity, Input.BuilderVersion);
+	auto Changed = Input;
+	Changed.BuilderVersion ^= uint64{1} << 63;
+	const auto Other = MakeStaticMeshBuildAction(Changed);
+	ASSERT_TRUE(Other);
+	EXPECT_EQ(Other->GetFunction(), Baseline->GetFunction());
+	EXPECT_NE(Other->GetKey(), Baseline->GetKey());
+	Changed.BuilderVersion = 0;
+	EXPECT_FALSE(MakeStaticMeshSessionDefinition(1, 0));
+	EXPECT_FALSE(MakeStaticMeshBuildAction(Changed));
 }
