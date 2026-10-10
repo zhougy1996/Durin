@@ -19,12 +19,6 @@ namespace Durin
 		return {.Error = {.Code = EShaderError::BuildModuleUnavailable}};
 	}
 
-	auto GetShaderCompilerEnvironmentIdentity() -> std::string
-	{
-		if (auto* Module = IShaderBuildModule::Get()) return Module->GetCompilerEnvironmentIdentity();
-		return {};
-	}
-
 	auto BuildShaderSourceDependencyManifest(
 		std::string_view VirtualShaderPath,
 		const FShaderCompileOptions& Options,

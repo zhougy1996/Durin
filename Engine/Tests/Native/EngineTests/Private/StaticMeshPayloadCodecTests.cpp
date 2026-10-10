@@ -234,7 +234,7 @@ namespace
 
 	auto Rehash(Durin::FByteBuffer& Bytes) -> void
 	{
-		WriteU64(Bytes, 56, FXxHash64::HashBuffer(Durin::FByteView(Bytes).subspan(64)).HashValue);
+		WriteU64(Bytes, 52, FXxHash64::HashBuffer(Durin::FByteView(Bytes).subspan(StaticMeshPayloadHeaderSize)).HashValue);
 	}
 
 	auto ExpectDecodeFailure(
@@ -317,12 +317,12 @@ namespace
 
 	auto AddUnknownOptionalChunk(Durin::FByteBuffer Bytes, bool bRequired) -> Durin::FByteBuffer
 	{
-		constexpr size_t NewEntryOffset = 64 + 6 * 32;
+		constexpr size_t NewEntryOffset = StaticMeshPayloadHeaderSize + 6 * 32;
 		Bytes.insert(Bytes.begin() + static_cast<ptrdiff_t>(NewEntryOffset),
 			32, std::byte{0});
 		for (uint32 ChunkIndex = 0; ChunkIndex < 6; ++ChunkIndex)
 		{
-			const size_t EntryOffset = 64 + ChunkIndex * 32;
+			const size_t EntryOffset = StaticMeshPayloadHeaderSize + ChunkIndex * 32;
 			WriteU64(Bytes, EntryOffset + 8, ReadU64(Bytes, EntryOffset + 8) + 32);
 		}
 		WriteU32(Bytes, NewEntryOffset, 0x7fffffffu);
@@ -333,8 +333,8 @@ namespace
 		WriteU64(Bytes, NewEntryOffset + 8, AlignedEnd);
 		WriteU64(Bytes, NewEntryOffset + 16, 0);
 		WriteU64(Bytes, NewEntryOffset + 24, 0);
-		WriteU32(Bytes, 24, 7);
-		WriteU64(Bytes, 48, Bytes.size());
+		WriteU32(Bytes, 20, 7);
+		WriteU64(Bytes, 44, Bytes.size());
 		Rehash(Bytes);
 		return Bytes;
 	}
@@ -389,7 +389,7 @@ TEST(FStaticMeshCookedProductTests, DetachedCodecMatchesBaselineAndClassifiesTru
 	EXPECT_EQ(Result.Error.Code, Durin::ECookedMeshProductError::RenderArchive);
 
 	Durin::FByteBuffer Oversized = Bytes;
-	const uint64 LODChunkOffset = ReadU64(Oversized, 64 + 2 * 32 + 8);
+	const uint64 LODChunkOffset = ReadU64(Oversized, StaticMeshPayloadHeaderSize + 2 * 32 + 8);
 	WriteU32(Oversized, static_cast<size_t>(LODChunkOffset + 4),
 		MaximumStaticMeshVerticesPerLOD + 1);
 	Rehash(Oversized);
@@ -401,10 +401,10 @@ TEST(FStaticMeshCookedProductTests, DetachedCodecMatchesBaselineAndClassifiesTru
 	EXPECT_EQ(Result.Error.Code, Durin::ECookedMeshProductError::RenderArchive);
 
 	Durin::FByteBuffer Compressed = Bytes;
-	WriteU32(Compressed, 16, 1);
-	WriteU32(Compressed, 64 + 4, 1 | (1 << 8));
-	WriteU64(Compressed, 64 + 16, 1);
-	WriteU64(Compressed, 64 + 24, 65);
+	WriteU32(Compressed, 12, 1);
+	WriteU32(Compressed, StaticMeshPayloadHeaderSize + 4, 1 | (1 << 8));
+	WriteU64(Compressed, StaticMeshPayloadHeaderSize + 16, 1);
+	WriteU64(Compressed, StaticMeshPayloadHeaderSize + 24, 65);
 	Rehash(Compressed);
 	EXPECT_FALSE(Result = Durin::DecodeStaticMeshCookedProduct(
 		Compressed, {}, Slots,
@@ -419,8 +419,8 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 {
 	const std::array Fixtures{MakeSingleSectionFixture(), MakeMultiMaterialFixture()};
 	const std::array<std::string_view, 2> ExpectedPayloadHashes{
-		"2712890c9c2bb6db92b943e4848fc3a9",
-		"afbf34c6361f5a3d7a2f2c6b9bf785c8"};
+		"09d929409c8b55395fc9d7d238899888",
+		"c839b9e89eb579eec81db74bb9df0335"};
 	const std::array<size_t, 2> ExpectedPayloadSizes{556, 824};
 	for (size_t FixtureIndex = 0; FixtureIndex < Fixtures.size(); ++FixtureIndex)
 	{
@@ -431,7 +431,7 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 		EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), ExpectedPayloadHashes[FixtureIndex]);
 		EXPECT_EQ(First.size(), ExpectedPayloadSizes[FixtureIndex]);
 		EXPECT_EQ(ReadU32(First, 0), 0u);
-		EXPECT_EQ(ReadU64(First, 48), First.size());
+		EXPECT_EQ(ReadU64(First, 44), First.size());
 
 		FStaticMeshPayloadData Decoded;
 		const std::expected<void, FArchiveFailure> DecodeResult =
@@ -845,12 +845,12 @@ TEST(FStaticMeshPayloadCodecTests, RejectsInvalidEnvelopeAndChunkRanges)
 	};
 
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 0, 1); });
-	Mutate([](auto& Bytes) { WriteU32(Bytes, 12, 0); });
-	Mutate([](auto& Bytes) { WriteU32(Bytes, 16, 2); });
-	Mutate([](auto& Bytes) { WriteU32(Bytes, 28, 1); });
-	Mutate([](auto& Bytes) { WriteU64(Bytes, 64 + 8, std::numeric_limits<uint64>::max() - 8); });
-	Mutate([](auto& Bytes) { WriteU64(Bytes, 64 + 32 + 8, ReadU64(Bytes, 64 + 8)); });
-	Mutate([](auto& Bytes) { WriteU64(Bytes, 64 + 8, ReadU64(Bytes, 64 + 8) + 1); });
+	Mutate([](auto& Bytes) { WriteU32(Bytes, 8, 0); });
+	Mutate([](auto& Bytes) { WriteU32(Bytes, 12, 2); });
+	Mutate([](auto& Bytes) { WriteU32(Bytes, 24, 1); });
+	Mutate([](auto& Bytes) { WriteU64(Bytes, StaticMeshPayloadHeaderSize + 8, std::numeric_limits<uint64>::max() - 8); });
+	Mutate([](auto& Bytes) { WriteU64(Bytes, StaticMeshPayloadHeaderSize + 32 + 8, ReadU64(Bytes, StaticMeshPayloadHeaderSize + 8)); });
+	Mutate([](auto& Bytes) { WriteU64(Bytes, StaticMeshPayloadHeaderSize + 8, ReadU64(Bytes, StaticMeshPayloadHeaderSize + 8) + 1); });
 
 	Durin::FByteBuffer PreviousSchema = Valid;
 	WriteU32(PreviousSchema, 4, StaticMeshPayloadSchemaVersion - 1);
@@ -865,7 +865,7 @@ TEST(FStaticMeshPayloadCodecTests, RejectsInvalidEnvelopeAndChunkRanges)
 TEST(FStaticMeshPayloadCodecTests, RejectsLimitsCompressionBombAndInvalidEnumValues)
 {
 	const Durin::FByteBuffer Valid = Encode(MakeSingleSectionFixture());
-	const uint64 LODChunkOffset = ReadU64(Valid, 64 + 2 * 32 + 8);
+	const uint64 LODChunkOffset = ReadU64(Valid, StaticMeshPayloadHeaderSize + 2 * 32 + 8);
 	auto Mutate = [&](auto Callback)
 	{
 		Durin::FByteBuffer Bytes = Valid;
@@ -880,22 +880,22 @@ TEST(FStaticMeshPayloadCodecTests, RejectsLimitsCompressionBombAndInvalidEnumVal
 		static_cast<std::byte>(MaxStaticMeshUVChannels + 1); });
 	Mutate([&](auto& Bytes) { Bytes[static_cast<size_t>(LODChunkOffset + 17)] =
 		std::byte{2}; });
-	Mutate([](auto& Bytes) { WriteU32(Bytes, 64 + 4, 1 | (2 << 8)); });
+	Mutate([](auto& Bytes) { WriteU32(Bytes, StaticMeshPayloadHeaderSize + 4, 1 | (2 << 8)); });
 	Mutate([](auto& Bytes)
 	{
-		WriteU32(Bytes, 16, 1);
-		WriteU32(Bytes, 64 + 4, 1 | (1 << 8));
-		WriteU64(Bytes, 64 + 16, 1);
-		WriteU64(Bytes, 64 + 24, 65);
+		WriteU32(Bytes, 12, 1);
+		WriteU32(Bytes, StaticMeshPayloadHeaderSize + 4, 1 | (1 << 8));
+		WriteU64(Bytes, StaticMeshPayloadHeaderSize + 16, 1);
+		WriteU64(Bytes, StaticMeshPayloadHeaderSize + 24, 65);
 	});
 }
 
 TEST(FStaticMeshPayloadCodecTests, RejectsInvalidGeometryAndNonFiniteValues)
 {
 	const Durin::FByteBuffer Valid = Encode(MakeSingleSectionFixture());
-	const uint64 SectionChunkOffset = ReadU64(Valid, 64 + 3 * 32 + 8);
-	const uint64 VertexChunkOffset = ReadU64(Valid, 64 + 4 * 32 + 8);
-	const uint64 IndexChunkOffset = ReadU64(Valid, 64 + 5 * 32 + 8);
+	const uint64 SectionChunkOffset = ReadU64(Valid, StaticMeshPayloadHeaderSize + 3 * 32 + 8);
+	const uint64 VertexChunkOffset = ReadU64(Valid, StaticMeshPayloadHeaderSize + 4 * 32 + 8);
+	const uint64 IndexChunkOffset = ReadU64(Valid, StaticMeshPayloadHeaderSize + 5 * 32 + 8);
 	auto Mutate = [&](auto Callback)
 	{
 		Durin::FByteBuffer Bytes = Valid;
@@ -904,19 +904,19 @@ TEST(FStaticMeshPayloadCodecTests, RejectsInvalidGeometryAndNonFiniteValues)
 		ExpectDecodeFailure(Bytes);
 	};
 
-	Mutate([&](auto& Bytes) { WriteU32(Bytes, static_cast<size_t>(ReadU64(Bytes, 64 + 2 * 32 + 8) + 4), 0); });
+	Mutate([&](auto& Bytes) { WriteU32(Bytes, static_cast<size_t>(ReadU64(Bytes, StaticMeshPayloadHeaderSize + 2 * 32 + 8) + 4), 0); });
 	Mutate([&](auto& Bytes) { WriteU32(Bytes, static_cast<size_t>(IndexChunkOffset), 3); });
 	Mutate([&](auto& Bytes) { WriteU32(Bytes, static_cast<size_t>(SectionChunkOffset + 8), 4); });
 	Mutate([&](auto& Bytes) { WriteU32(Bytes, static_cast<size_t>(SectionChunkOffset + 20), 1); });
 	Mutate([&](auto& Bytes) { WriteU32(Bytes, static_cast<size_t>(VertexChunkOffset), 0x7fc00000u); });
-	Mutate([&](auto& Bytes) { WriteU32(Bytes, static_cast<size_t>(ReadU64(Bytes, 64 + 8)), 0x7f800000u); });
+	Mutate([&](auto& Bytes) { WriteU32(Bytes, static_cast<size_t>(ReadU64(Bytes, StaticMeshPayloadHeaderSize + 8)), 0x7f800000u); });
 }
 
 TEST(FStaticMeshPayloadCodecTests,
 	RejectsMalformedLODPoliciesTransactionally)
 {
 	const Durin::FByteBuffer Valid = Encode(MakeMultiLODFixture(3));
-	const uint64 LODChunkOffset = ReadU64(Valid, 64 + 2 * 32 + 8);
+	const uint64 LODChunkOffset = ReadU64(Valid, StaticMeshPayloadHeaderSize + 2 * 32 + 8);
 	auto Mutate = [&](auto Callback)
 	{
 		Durin::FByteBuffer Bytes = Valid;
@@ -1020,13 +1020,13 @@ TEST(FStaticMeshPayloadCodecTests, ArchiveReplacesOptionalStreamsAndPreservesSav
 	EXPECT_NE(Cancelled.GetError().find("cancelled"), std::string_view::npos);
 
 	FByteBuffer Oversized = Bytes;
-	WriteU64(Oversized, 48, MaximumStaticMeshPayloadBytes + 1);
+	WriteU64(Oversized, 44, MaximumStaticMeshPayloadBytes + 1);
 	FCanonicalMemoryReader Limits(Oversized, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	FStaticMeshPayloadData Discarded;
 	Discarded.Serialize(Limits);
 	ASSERT_TRUE(Limits.IsError());
 	EXPECT_EQ(Limits.GetFailure()->Code, EArchiveFailureCode::LimitExceeded);
-	EXPECT_EQ(Limits.Tell(), 64u);
+	EXPECT_EQ(Limits.Tell(), StaticMeshPayloadHeaderSize);
 	EXPECT_TRUE(Discarded.LODs.empty());
 }
 
@@ -1866,21 +1866,4 @@ TEST(FStaticMeshPayloadCodecTests, RenderDataInitializationRemainsValidAfterPosi
 	EXPECT_TRUE(Ready);
 	EXPECT_EQ(Position.GetNumVertices(), 3u);
 	EXPECT_TRUE(Position.GetPositions().empty());
-}
-
-TEST(FStaticMeshPayloadCodecTests, LegacyProducerVersionDoesNotControlFormatCompatibility)
-{
-	const auto Fixture = MakeSingleSectionFixture();
-	const auto Valid = Encode(Fixture);
-	EXPECT_EQ(ReadU32(Valid, 8), 0u);
-	for (const uint32 Producer : {0u, 4u, 5u, std::numeric_limits<uint32>::max()})
-	{
-		auto Bytes = Valid;
-		WriteU32(Bytes, 8, Producer);
-		Rehash(Bytes);
-		FStaticMeshPayloadData Decoded;
-		const auto Result = DecodePayload(Bytes, EAssetPayloadTargetPlatform::Win64, Decoded);
-		ASSERT_TRUE(Result) << Result.error().Message;
-		ExpectEquivalent(Decoded, Fixture);
-	}
 }

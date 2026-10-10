@@ -593,7 +593,7 @@ artifacts follow ShaderBuild's cache-miss/repair contract.
 
 Cook requires current successful Win64 Game results and never substitutes
 ErrorMaterial. Authored expression collections and their owned descendants are stripped from cooked packages. One
-DMAT v12 family per material or instance in the
+DMAT v13 family per material or instance in the
 `DMaterialInterface::ProgramData` BulkData field stores six exact configurations:
 Low and High quality crossed with ES3_1, SM5, and SM6, each using that owner's
 effective static-bool values. Each entry retains its configuration, exact
@@ -616,8 +616,8 @@ opaque 64-bit identity. `GetMaterialCompileAdapterVersion()` independently
 versions request/result adaptation. Both are captured in the compiler environment
 and program digest; execution rejects a stale producer or adapter before generation.
 The MIR version remains a contract for live typed IR, not compiled DMAT admission.
-DMAT v12 preserves its three historical IR/generator/envelope words, writes zero,
-and ignores their values when reading. Payload schema, runtime pass ABI, target,
+DMAT v13 contains no IR/generator/compiler producer version words. Older payload
+schemas require recook; algorithm upgrades alone do not change the payload schema. Payload schema, runtime pass ABI, target,
 layout, bindings, shader hashes and configuration remain admission checks.
 Loading rejects a missing configuration, truncated, corrupt, trailing,
 wrong-target, wrong-profile, wrong-version, invalid-stage, or package/payload
@@ -934,7 +934,7 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current compatibility versions are DMAT 12, MIR 7, layout 4, pass contract 8,
+Current compatibility versions are DMAT 13, MIR 7, layout 4, pass contract 8,
 and material Cook contributor 5. The independent compile adapter is version 11;
 normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.

@@ -10,8 +10,8 @@ namespace Durin
 	struct FTextureCubePlatformData;
 	struct FVolumeTexturePlatformData;
 
-	inline constexpr uint32 TexturePayloadSchemaVersion = 2;
-	inline constexpr uint32 TexturePayloadHeaderSize = 80;
+	inline constexpr uint32 TexturePayloadSchemaVersion = 3;
+	inline constexpr uint32 TexturePayloadHeaderSize = 76;
 	inline constexpr uint32 TexturePayloadRecordSize = 40;
 	inline constexpr uint32 TexturePayloadAlignment = 16;
 	inline constexpr uint32 MaximumTexture2DDimension = 16'384;

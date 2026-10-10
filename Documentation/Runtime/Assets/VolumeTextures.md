@@ -81,7 +81,7 @@ dimensions, and malformed progression before result application.
 PlatformData uses one bidirectional Archive customization with explicit stable
 target context. The shared texture container borrows its declared body extent,
 checks the bounded record count before allocation, and retains the existing
-80-byte header, 40-byte records, alignment and checksum. Loading fills the
+76-byte header, 40-byte records, alignment and checksum. Loading fills the
 caller-owned destination in place; callers discard failure and check exact
 completion before resource publication. Buffer callers construct a canonical
 memory Archive with target context and call the same customization; replacement
@@ -156,7 +156,7 @@ locks the field and decodes transactionally into
 `FVolumeTexturePlatformData`; no common descriptor or provider translation
 participates.
 
-The owner-selected texture payload schema 2 uses dimension value 3. Stable pixel
+The owner-selected texture payload schema 3 uses dimension value 3. Stable pixel
 format identifiers 8 through 12 were appended for the five portable formats;
 existing 2D and cube identifiers retain their meanings. Volume records reuse
 the fixed 40-byte record layout and store depth and depth pitch in fields whose
@@ -166,8 +166,7 @@ three axes before allocation.
 
 The private volume algorithm revision is part of its opaque module build identity;
 see [texture build identities](DerivedDataBuild.md#family-boundaries). TXPL compatibility
-depends on schema 2, with the historical producer word ignored on read and written
-as zero. The primary cooked payload ID is
+depends on schema 3, with no producer word. Older payload schemas require recook. The primary cooked payload ID is
 `672b164e-4e19-4871-a7b8-41dfe3208b15`. Cook accepts Win64/Game and MacOS/Game and emits
 one uncompressed field value. Cooked loading requires valid field metadata and
 payload, strips authored source by default, does not query DDC or invoke an

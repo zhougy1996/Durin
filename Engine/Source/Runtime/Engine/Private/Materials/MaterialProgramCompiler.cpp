@@ -608,7 +608,7 @@ namespace Durin
 		if (OutBytes.size() > MaterialProgramMaxCanonicalBytes)
 		{
 			OutBytes.clear();
-			return {EMaterialIRError::CanonicalBytesExceedVersion2Bound};
+			return {EMaterialIRError::CanonicalBytesExceedSupportedBound};
 		}
 		return {};
 	}

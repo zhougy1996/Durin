@@ -1540,23 +1540,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	ASSERT_TRUE((Error = Testing::EncodeMaterialCookedProgramFamilyForTest(*Cooked, CookedProperties,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Reencoded)));
 	EXPECT_EQ(Reencoded, CookedBytes);
-	for (uint32 Word = 2; Word <= 4; ++Word)
-	{
-		for (const uint32 Producer : {0u, 1u, 7u, 11u, 0xffffffffu})
-		{
-			auto Historical = CookedBytes;
-			uint32 WrittenProducer = 1;
-			ASSERT_TRUE(Testing::SetMaterialCookedProgramArtifactWordForTest(
-				Historical, Word, Producer, &WrittenProducer));
-			EXPECT_EQ(WrittenProducer, 0u);
-			ASSERT_TRUE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(Historical,
-				ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled,
-				CookedProperties, Cooked))) << FormatMaterialError(Error.Error);
-			EXPECT_EQ(Cooked->Identity, Compiled.Identity);
-			EXPECT_EQ(Cooked->CompiledShaders.front().Hash, Compiled.CompiledShaders.front().Hash);
-		}
-	}
-	for (const uint32 Word : {1u, 5u})
+	for (const uint32 Word : {1u, 2u})
 	{
 		auto Incompatible = CookedBytes;
 		ASSERT_TRUE(Testing::SetMaterialCookedProgramArtifactWordForTest(Incompatible, Word, 0xffffffffu));

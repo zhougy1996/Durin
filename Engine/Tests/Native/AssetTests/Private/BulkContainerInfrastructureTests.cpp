@@ -15,9 +15,9 @@ namespace
 	auto MakeChunkedPayloadFormat() -> Durin::FChunkedPayloadFormat
 	{
 		return {
-			.HeaderSizeWordIndex = 5,
-			.ChunkCountWordIndex = 6,
-			.GlobalFlagsWordIndex = 4,
+			.HeaderSizeWordIndex = 4,
+			.ChunkCountWordIndex = 5,
+			.GlobalFlagsWordIndex = 3,
 			.GlobalCompressedFlag = 1,
 			.RequiredChunkCount = 2,
 			.MaximumChunkCount = 4,
@@ -46,7 +46,7 @@ namespace
 
 	auto RefreshChunkedPayloadHash(Durin::FByteBuffer& Bytes) -> void
 	{
-		WriteU64(Bytes, 56, FXxHash64::HashBuffer(std::span(Bytes).subspan(64)).HashValue);
+		WriteU64(Bytes, 52, FXxHash64::HashBuffer(std::span(Bytes).subspan(ChunkedPayloadHeaderSize)).HashValue);
 	}
 }
 
@@ -222,7 +222,7 @@ TEST(FChunkedPayloadCodecTests, RoundTripsRequiredAndUnknownOptionalChunksDeterm
 		FChunkedPayloadInput{99, 0, Optional, Optional.size()}};
 	Durin::FByteBuffer Bytes;
 	ASSERT_TRUE(EncodeChunkedPayload(
-		{0x12345678, 4, 3, 1, 0, 0, 0, 0}, Chunks,
+		{0x12345678, 4, 1, 0, 0, 0, 0}, Chunks,
 		MakeChunkedPayloadFormat(), Bytes));
 
 	FDecodedChunkedPayload Decoded;
@@ -245,7 +245,7 @@ TEST(FChunkedPayloadCodecTests, RejectsPaddingDuplicateRequiredAndCompressionCom
 		FChunkedPayloadInput{2, ChunkedPayloadRequiredFlag, Second, Second.size()}};
 	Durin::FByteBuffer Bytes;
 	ASSERT_TRUE(EncodeChunkedPayload(
-		{0x12345678, 4, 3, 1, 0, 0, 0, 0}, Chunks,
+		{0x12345678, 4, 1, 0, 0, 0, 0}, Chunks,
 		MakeChunkedPayloadFormat(), Bytes));
 
 	FDecodedChunkedPayload Sentinel;
@@ -259,17 +259,17 @@ TEST(FChunkedPayloadCodecTests, RejectsPaddingDuplicateRequiredAndCompressionCom
 	EXPECT_EQ(Sentinel.HeaderWords[0], 77u);
 
 	Durin::FByteBuffer Duplicate = Bytes;
-	WriteU32(Duplicate, 64 + ChunkedPayloadEntrySize, 1);
+	WriteU32(Duplicate, ChunkedPayloadHeaderSize + ChunkedPayloadEntrySize, 1);
 	RefreshChunkedPayloadHash(Duplicate);
 	const FChunkedPayloadResult DuplicateResult = DecodeChunkedPayload(
 		Duplicate, MakeChunkedPayloadFormat(), Sentinel);
 	EXPECT_EQ(DuplicateResult.Failure, EChunkedPayloadFailure::MissingRequiredChunk);
 
 	Durin::FByteBuffer Compressed = Bytes;
-	WriteU32(Compressed, 16, 1);
-	WriteU32(Compressed, 68, ChunkedPayloadRequiredFlag | (1u << 8));
-	WriteU64(Compressed, 40, 195);
-	WriteU64(Compressed, 88, 192);
+	WriteU32(Compressed, 12, 1);
+	WriteU32(Compressed, ChunkedPayloadHeaderSize + 4, ChunkedPayloadRequiredFlag | (1u << 8));
+	WriteU64(Compressed, 36, 195);
+	WriteU64(Compressed, ChunkedPayloadHeaderSize + 24, 192);
 	RefreshChunkedPayloadHash(Compressed);
 	const FChunkedPayloadResult CompressionResult = DecodeChunkedPayload(
 		Compressed, MakeChunkedPayloadFormat(), Sentinel);
@@ -286,7 +286,7 @@ TEST(FChunkedPayloadCodecTests, DoesNotPublishFailedEncodeOrDecodeCandidates)
 		FChunkedPayloadInput{2, ChunkedPayloadRequiredFlag, Oversized, Oversized.size()}};
 	Durin::FByteBuffer Published{std::byte{9}, std::byte{9}};
 	EXPECT_FALSE(EncodeChunkedPayload(
-		{0x12345678, 4, 3, 1, 0, 0, 0, 0}, Chunks,
+		{0x12345678, 4, 1, 0, 0, 0, 0}, Chunks,
 		MakeChunkedPayloadFormat(), Published));
 	EXPECT_EQ(Published, (Durin::FByteBuffer{std::byte{9}, std::byte{9}}));
 

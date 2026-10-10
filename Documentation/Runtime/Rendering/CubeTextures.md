@@ -152,7 +152,7 @@ moving or deleting a package does not affect potentially shared source files.
 
 Builder identity covers the active source layout and hashes, face dimension,
 finite exposure, sRGB policy, schema versions, target platform, and profile.
-Texture payload schema 2 uses exactly six matching slices in the frozen
+Texture payload schema 3 uses exactly six matching slices in the frozen
 `+X/-X/+Y/-Y/+Z/-Z` order. Cook strips source provenance
 and publishes the payload under stable ID
 `d52878ce-8f50-48c7-a3c7-ff846e2c4c5a`. Cook projects the same TXPL value into
@@ -276,9 +276,9 @@ GPU sampling and never modifies stored radiance.
 
 The HDR DDC key contains the canonical panorama identity, requested dimension,
 exposure, linear color policy and recipe versions; it cannot alias the LDR face
-recipe. Builder version 4 and projection version 3 invalidate prior derived
-results. TXPL schema 2 adds stable pixel-format ID 13 for RGBA32F without changing
-its record layout; existing IDs retain their meanings. Ordinary package source,
+recipe. The opaque Cube builder identity includes its private projection/recipe revisions
+and invalidates prior derived results when they change. TXPL schema 3 retains stable
+pixel-format ID 13 for RGBA32F and removes the producer word; existing IDs retain their meanings. Ordinary package source,
 lazy cooked platform data and upload share the existing texture mechanisms.
 
 The following LDR scalar cases are golden ground truth. Decimal intermediates are

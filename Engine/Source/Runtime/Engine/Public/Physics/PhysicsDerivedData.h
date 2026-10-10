@@ -10,9 +10,9 @@
 namespace Durin
 {
 	class FArchive;
-	inline constexpr uint32 PhysicsCollisionPayloadSchemaVersion = 2;
+	inline constexpr uint32 PhysicsCollisionPayloadSchemaVersion = 3;
 	inline constexpr uint32 PhysicsCollisionPayloadAlignment = 16;
-	inline constexpr uint32 PhysicsCollisionPayloadHeaderSize = 64;
+	inline constexpr uint32 PhysicsCollisionPayloadHeaderSize = 60;
 	inline constexpr uint32 PhysicsCollisionPayloadChunkEntrySize = 32;
 	inline constexpr uint32 MaximumPhysicsCollisionPayloadChunks = 8;
 	inline constexpr uint32 MaximumPhysicsCollisionVertices = 100'000'000;

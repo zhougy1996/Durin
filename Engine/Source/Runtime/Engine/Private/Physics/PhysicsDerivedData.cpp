@@ -217,8 +217,7 @@ namespace Durin
 		if (!ResolvePhysicsTarget(Ar, TargetPlatform)) return;
 
 		uint32 Reserved0 = 0, Schema = PhysicsCollisionPayloadSchemaVersion;
-		// Historical producer word is retained in the wire layout, not a compatibility gate.
-		uint32 ProducerVersion = 0, Platform = static_cast<uint32>(TargetPlatform);
+		uint32 Platform = static_cast<uint32>(TargetPlatform);
 		uint32 Header = PhysicsCollisionPayloadHeaderSize, ChunkCount = 4;
 		uint32 Alignment = PhysicsCollisionPayloadAlignment, Mode = 0, Policy = 0, Reserved = 0;
 		uint64 StoredSize = 0, LogicalBytes = 0, Checksum = 0;
@@ -259,7 +258,7 @@ namespace Durin
 		{
 			// Bound all serialization scratch before geometry validation or ordering.
 			Counts = {Positions.size(), Indices.size(), SourceOrdinals.size(), Nodes.size()};
-			StoredSize = 64 + 4 * PhysicsCollisionPayloadChunkEntrySize;
+			StoredSize = PhysicsCollisionPayloadHeaderSize + 4 * PhysicsCollisionPayloadChunkEntrySize;
 			for (uint32 Chunk = 0; Chunk < 4; ++Chunk)
 			{
 				if (Counts[Chunk] > MaximumPhysicsCollisionPayloadBytes / ElementSizes[Chunk])
@@ -300,29 +299,29 @@ namespace Durin
 			for (uint32 Chunk = 0; Chunk < 4; ++Chunk)
 				Streams[Chunk] = std::make_unique<FCanonicalMemoryWriter>(Buffers[Chunk]);
 			TransferStreams();
-			Body.reserve(static_cast<size_t>(StoredSize - 64));
+			Body.reserve(static_cast<size_t>(StoredSize - PhysicsCollisionPayloadHeaderSize));
 			FCanonicalMemoryWriter BodyAr(Body);
 			TransferTable(BodyAr);
 			for (uint32 Chunk = 0; Chunk < 4; ++Chunk)
 			{
-				while (BodyAr.Tell() + 64 < Offsets[Chunk]) { uint8 Zero = 0; BodyAr << Zero; }
+				while (BodyAr.Tell() + PhysicsCollisionPayloadHeaderSize < Offsets[Chunk]) { uint8 Zero = 0; BodyAr << Zero; }
 				BodyAr.WriteBytes(Buffers[Chunk]);
 			}
 			if (BodyAr.IsError()) return Reject(BodyAr.GetFailure()->Code, BodyAr.GetError());
 			Checksum = FXxHash64::HashBuffer(Body).HashValue;
 		}
 
-		Ar << Reserved0 << Schema << ProducerVersion << Platform << Header << ChunkCount << Alignment << Mode
+		Ar << Reserved0 << Schema << Platform << Header << ChunkCount << Alignment << Mode
 			<< StoredSize << LogicalBytes << Checksum << Policy << Reserved;
 		if (Ar.IsError()) return;
 		if (Schema != PhysicsCollisionPayloadSchemaVersion)
 			return Reject(EArchiveFailureCode::UnsupportedVersion, "DCOL schema is unsupported.");
 		if (Platform != static_cast<uint32>(TargetPlatform))
 			return Reject(EArchiveFailureCode::UnsupportedTarget, "DCOL target platform does not match.");
-		if (Reserved0 != 0 || Header != 64 || ChunkCount != 4
+		if (Reserved0 != 0 || Header != PhysicsCollisionPayloadHeaderSize || ChunkCount != 4
 			|| Alignment != PhysicsCollisionPayloadAlignment || Mode != 0 || Policy != 0 || Reserved != 0)
 			return Reject(EArchiveFailureCode::InvalidData, "DCOL header layout is invalid.");
-		if (StoredSize < 64 + 4 * PhysicsCollisionPayloadChunkEntrySize
+		if (StoredSize < PhysicsCollisionPayloadHeaderSize + 4 * PhysicsCollisionPayloadChunkEntrySize
 			|| StoredSize > MaximumPhysicsCollisionPayloadBytes)
 			return Reject(EArchiveFailureCode::LimitExceeded, "DCOL stored size exceeds its limit.");
 		if (Ar.IsSaving())
@@ -332,13 +331,13 @@ namespace Durin
 			return;
 		}
 		FByteView Region;
-		if (!Ar.ReadRegion(StoredSize - 64, Region)) return;
+		if (!Ar.ReadRegion(StoredSize - PhysicsCollisionPayloadHeaderSize, Region)) return;
 		if (FXxHash64::HashBuffer(Region).HashValue != Checksum)
 			return Reject(EArchiveFailureCode::InvalidData, "DCOL checksum does not match.");
 		FCanonicalMemoryReader TableAr(Region.first(4 * PhysicsCollisionPayloadChunkEntrySize));
 		TransferTable(TableAr);
 		if (TableAr.IsError()) return Reject(TableAr.GetFailure()->Code, TableAr.GetError());
-		uint64 PreviousEnd = 64 + 4 * PhysicsCollisionPayloadChunkEntrySize, Total = 0;
+		uint64 PreviousEnd = PhysicsCollisionPayloadHeaderSize + 4 * PhysicsCollisionPayloadChunkEntrySize, Total = 0;
 		for (uint32 Chunk = 0; Chunk < 4; ++Chunk)
 		{
 			if (Counts[Chunk] > std::numeric_limits<uint64>::max() / ElementSizes[Chunk])
@@ -350,11 +349,11 @@ namespace Durin
 			for (uint64 Offset = PreviousEnd; Offset < Offsets[Chunk]; ++Offset)
 			{
 				Control.Tick();
-				if (Region[static_cast<size_t>(Offset - 64)] != std::byte{0})
+				if (Region[static_cast<size_t>(Offset - PhysicsCollisionPayloadHeaderSize)] != std::byte{0})
 					return Reject(EArchiveFailureCode::NonZeroPadding, "DCOL padding is nonzero.");
 			}
 			Streams[Chunk] = std::make_unique<FCanonicalMemoryReader>(Region.subspan(
-				static_cast<size_t>(Offsets[Chunk] - 64), static_cast<size_t>(Sizes[Chunk])));
+				static_cast<size_t>(Offsets[Chunk] - PhysicsCollisionPayloadHeaderSize), static_cast<size_t>(Sizes[Chunk])));
 			PreviousEnd = Offsets[Chunk] + Sizes[Chunk];
 			Total += Sizes[Chunk];
 		}

@@ -283,15 +283,14 @@ an independent function version (initially 1); constants schemas are 2 for 2D,
 3 for Cube, and 2 for Volume. Shared-output schemas remain 2. Cook recipe
 dependencies include the builder identity, adapter function/constants versions,
 shared-output schema, and payload schema. Algorithms and adapters independently
-invalidate DDC/Cook production identity. TXPL compatibility remains schema 2:
-the historical producer word is written as zero and ignored when reading,
-including compatible existing cooked payloads.
+invalidate DDC/Cook production identity. TXPL schema 3 removes the producer word. Older payload schemas require recook;
+algorithm identity does not participate in payload admission.
 PhysicsCore similarly owns `FCollisionCookedData::GetBuildVersion()` for the linked
 collision cooker. Engine's collision adapter uses its own function version 1,
 constants schema 2 and shared-output schema 2. A nonzero 64-bit `BuilderVersion`
 constant carries the cooker identity and is checked before recipe decoding.
-DCOL compatibility uses payload schema 2, independent of algorithm identity;
-the historical producer word is written as zero and ignored on read. StaticMesh
+DCOL compatibility uses payload schema 3, independent of algorithm identity;
+the producer word is absent and older payload schemas require recook. StaticMesh
 Cook dependencies include the cooker identity, adapter schemas and DCOL schema.
 
 HDR Cube and Volume builders return complete products through `std::expected`,
@@ -327,8 +326,8 @@ compiler dependencies. A named `BuilderVersion` constant is checked before recip
 decoding; adapter version 3, constants schema 2 and output schema 6 are separate.
 The output binds fixed entry IDs and Compact Binary metadata to the virtual shader
 path. Cook production identity includes those versions, the library producer revision
-and DSHD/DSLB schemas. Both runtime codecs keep schema 4 and ignore their historical
-producer words, allowing algorithm upgrades without rejecting compatible cooked data. Shader counters derive from completion status and build-status facts.
+and DSHD/DSLB schemas. Both runtime codecs use schema 5 with no producer
+version word, allowing algorithm upgrades without rejecting compatible cooked data. Shader counters derive from completion status and build-status facts.
 
 Cache success never means an asset is current, applied, GPU-ready, or
 physics-ready. Family generation/latest-wins and object application checks remain

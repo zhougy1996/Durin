@@ -111,8 +111,8 @@ Engine includes it as the named `BuilderVersion` action constant and validates i
 before recipe decoding. The adapter version and constants/output schemas are separate.
 All contribute to the package cook fingerprint alongside the DCOL schema.
 Algorithm upgrades invalidate cached builds without rejecting compatible cooked data.
-DCOL schema 2 remains unchanged; its historical producer word is written as zero and
-ignored on read. Schema, target, layout, bounds and checksum remain compatibility gates.
+DCOL schema 3 uses a 60-byte header with no producer word; older payload schemas
+require recook. Schema, target, layout, bounds and checksum remain compatibility gates.
 Physics input preparation, cooking and admission return `FPhysicsCookFailure`,
 with typed cancellation and bounded text. Recoverable cache issues are logged once
 at execution with function, key, operation and bounded original cause; cook results

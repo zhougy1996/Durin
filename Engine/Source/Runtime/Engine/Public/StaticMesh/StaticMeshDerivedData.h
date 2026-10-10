@@ -10,9 +10,9 @@
 namespace Durin
 {
 	class FArchive;
-	inline constexpr uint32 StaticMeshPayloadSchemaVersion = 5;
+	inline constexpr uint32 StaticMeshPayloadSchemaVersion = 6;
 	inline constexpr uint32 StaticMeshPayloadAlignment = 16;
-	inline constexpr uint32 StaticMeshPayloadHeaderSize = 64;
+	inline constexpr uint32 StaticMeshPayloadHeaderSize = 60;
 	inline constexpr uint32 StaticMeshPayloadChunkEntrySize = 32;
 	inline constexpr uint32 MaximumStaticMeshPayloadChunks = 64;
 	inline constexpr uint32 MaximumStaticMeshLODs = 8;

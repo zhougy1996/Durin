@@ -158,13 +158,7 @@ namespace Durin
 		{
 			uint32 Magic = MaterialCookedProgramMagic;
 			uint32 SchemaVersion = MaterialCookedProgramPayloadSchemaVersion;
-			// Historical producer words retained for schema 12 layout compatibility.
-			// DMAT contains compiled stages, not MIR or a compiler request.
-			uint32 IRVersion = 0;
-			uint32 GeneratorVersion = 0;
-			uint32 EnvelopeVersion = 0;
-			Ar << Magic << SchemaVersion << IRVersion
-				<< GeneratorVersion << EnvelopeVersion
+			Ar << Magic << SchemaVersion
 				<< Program.PassContractVersion << TargetPlatform << TargetProfile;
 			if (Ar.IsLoading() && !Ar.IsError()
 				&& (Magic != MaterialCookedProgramMagic

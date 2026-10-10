@@ -144,7 +144,7 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 
 TEST(FStaticMeshDerivedDataContractTests, FormatConstantsRemainWithinReaderLimits)
 {
-	EXPECT_EQ(Durin::StaticMeshPayloadHeaderSize, 64u);
+	EXPECT_EQ(Durin::StaticMeshPayloadHeaderSize, 60u);
 	EXPECT_EQ(Durin::StaticMeshPayloadChunkEntrySize, 32u);
 	EXPECT_EQ(Durin::StaticMeshPayloadAlignment, 16u);
 	EXPECT_GE(Durin::MaximumStaticMeshPayloadChunks, 6u);

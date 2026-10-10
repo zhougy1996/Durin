@@ -26,9 +26,9 @@ namespace Durin
 
 		auto IsFormatValid(const FChunkedPayloadFormat& Format) -> bool
 		{
-			return Format.HeaderSizeWordIndex < 8
-				&& Format.ChunkCountWordIndex < 8
-				&& (Format.GlobalFlagsWordIndex < 8
+			return Format.HeaderSizeWordIndex < 7
+				&& Format.ChunkCountWordIndex < 7
+				&& (Format.GlobalFlagsWordIndex < 7
 					|| Format.GlobalFlagsWordIndex == std::numeric_limits<uint32>::max())
 				&& Format.MaximumChunkCount >= Format.RequiredChunkCount
 				&& Format.MaximumBytes >= ChunkedPayloadHeaderSize
@@ -40,7 +40,7 @@ namespace Durin
 
 		auto ReadHeader(
 			BulkContainer::FBoundedReader& Reader,
-			std::array<uint32, 8>& OutWords,
+			std::array<uint32, 7>& OutWords,
 			uint64& OutTableOffset,
 			uint64& OutDecodedSize,
 			uint64& OutStoredSize,
@@ -56,7 +56,7 @@ namespace Durin
 	}
 
 	auto EncodeChunkedPayload(
-		std::array<uint32, 8> HeaderWords,
+		std::array<uint32, 7> HeaderWords,
 		std::span<const FChunkedPayloadInput> Chunks,
 		const FChunkedPayloadFormat& Format,
 		FByteBuffer& OutBytes) -> FChunkedPayloadResult
@@ -236,7 +236,7 @@ namespace Durin
 			return ChunkedPayloadFail(EChunkedPayloadFailure::DecodedSizeMismatch);
 		if (std::ranges::any_of(RequiredIndices, [](int32 Index) { return Index < 0; }))
 			return ChunkedPayloadFail(EChunkedPayloadFailure::MissingRequiredChunk);
-		if (Format.GlobalFlagsWordIndex < 8
+		if (Format.GlobalFlagsWordIndex < 7
 			&& HasCompressedChunk != ((Candidate.HeaderWords[Format.GlobalFlagsWordIndex]
 				& Format.GlobalCompressedFlag) != 0))
 			return ChunkedPayloadFail(EChunkedPayloadFailure::CompressionFlagsMismatch);

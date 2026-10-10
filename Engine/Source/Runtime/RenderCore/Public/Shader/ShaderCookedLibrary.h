@@ -10,7 +10,7 @@
 namespace Durin
 {
 	class FShaderType;
-	inline constexpr uint32 ShaderCookedLibrarySchemaVersion = 4;
+	inline constexpr uint32 ShaderCookedLibrarySchemaVersion = 5;
 	inline constexpr std::string_view ShaderCookedLibraryRelativePath =
 		"Shaders/ShaderLibrary.dslb";
 

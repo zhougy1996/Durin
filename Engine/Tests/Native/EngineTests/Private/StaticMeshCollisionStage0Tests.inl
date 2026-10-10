@@ -23,11 +23,11 @@ namespace
 {
 	using namespace Durin;
 
-	inline constexpr uint32 CollisionPayloadSchemaVersion = 2;
-	inline constexpr uint32 CollisionBuilderVersion = 2;
+	inline constexpr uint32 CollisionPayloadSchemaVersion = PhysicsCollisionPayloadSchemaVersion;
+	inline constexpr uint32 CollisionAlgorithmRevision = 2;
 	inline constexpr uint32 CollisionKeySchemaVersion = 2;
 	inline constexpr uint32 CollisionPayloadAlignment = 16;
-	inline constexpr uint32 CollisionPayloadHeaderSize = 64;
+	inline constexpr uint32 CollisionPayloadHeaderSize = PhysicsCollisionPayloadHeaderSize;
 	inline constexpr uint32 CollisionPayloadChunkEntrySize = 32;
 	inline constexpr uint32 MaximumCollisionPayloadChunks = 8;
 	inline constexpr uint64 MaximumCollisionPayloadBytes = 256ull * 1024ull * 1024ull;
@@ -552,7 +552,7 @@ namespace
 		AppendLittleEndian<uint8>(Bytes, static_cast<uint8>(Mode));
 		AppendLittleEndian<uint8>(Bytes, static_cast<uint8>(Policy));
 		AppendLittleEndian<uint32>(Bytes, WeldToleranceBits);
-		AppendLittleEndian<uint32>(Bytes, CollisionBuilderVersion);
+		AppendLittleEndian<uint32>(Bytes, CollisionAlgorithmRevision);
 		AppendLittleEndian<uint32>(Bytes, CollisionPayloadSchemaVersion);
 		AppendLittleEndian<uint32>(Bytes, TargetPlatform);
 		return Bytes;
@@ -596,11 +596,10 @@ namespace
 			+ Chunks.size() * CollisionPayloadChunkEntrySize, std::byte{0});
 		WriteLittleEndian<uint32>(Bytes, 0, 0);
 		WriteLittleEndian<uint32>(Bytes, 4, CollisionPayloadSchemaVersion);
-		WriteLittleEndian<uint32>(Bytes, 8, CollisionBuilderVersion);
-		WriteLittleEndian<uint32>(Bytes, 12, 1u); // Win64
-		WriteLittleEndian<uint32>(Bytes, 16, CollisionPayloadHeaderSize);
-		WriteLittleEndian<uint32>(Bytes, 20, static_cast<uint32>(Chunks.size()));
-		WriteLittleEndian<uint32>(Bytes, 24, CollisionPayloadAlignment);
+		WriteLittleEndian<uint32>(Bytes, 8, 1u); // Win64
+		WriteLittleEndian<uint32>(Bytes, 12, CollisionPayloadHeaderSize);
+		WriteLittleEndian<uint32>(Bytes, 16, static_cast<uint32>(Chunks.size()));
+		WriteLittleEndian<uint32>(Bytes, 20, CollisionPayloadAlignment);
 		for (size_t ChunkIndex = 0; ChunkIndex < Chunks.size(); ++ChunkIndex)
 		{
 			const size_t Aligned = (Bytes.size() + CollisionPayloadAlignment - 1)
@@ -615,10 +614,10 @@ namespace
 			WriteLittleEndian<uint64>(Bytes, Entry + 24, Chunks[ChunkIndex].Count);
 			Bytes.insert(Bytes.end(), Chunks[ChunkIndex].Data.begin(), Chunks[ChunkIndex].Data.end());
 		}
-		WriteLittleEndian<uint64>(Bytes, 32, Bytes.size());
-		WriteLittleEndian<uint64>(Bytes, 40, Facts.LogicalRetainedBytes);
-		WriteLittleEndian<uint64>(Bytes, 48,
-			FXxHash64::HashBuffer(FByteView(Bytes).subspan(64)).HashValue);
+		WriteLittleEndian<uint64>(Bytes, 28, Bytes.size());
+		WriteLittleEndian<uint64>(Bytes, 36, Facts.LogicalRetainedBytes);
+		WriteLittleEndian<uint64>(Bytes, 44,
+			FXxHash64::HashBuffer(FByteView(Bytes).subspan(CollisionPayloadHeaderSize)).HashValue);
 		return Bytes;
 	}
 
@@ -627,13 +626,13 @@ namespace
 		if (Bytes.size() < CollisionPayloadHeaderSize
 			|| ReadLittleEndian<uint32>(Bytes, 0) != 0
 			|| ReadLittleEndian<uint32>(Bytes, 4) != CollisionPayloadSchemaVersion
-			|| ReadLittleEndian<uint32>(Bytes, 12) != 1u
-			|| ReadLittleEndian<uint32>(Bytes, 16) != CollisionPayloadHeaderSize
-			|| ReadLittleEndian<uint32>(Bytes, 24) != CollisionPayloadAlignment
-			|| ReadLittleEndian<uint64>(Bytes, 32) != Bytes.size()
-			|| ReadLittleEndian<uint64>(Bytes, 48)
-				!= FXxHash64::HashBuffer(Bytes.subspan(64)).HashValue) return false;
-		const uint32 ChunkCount = ReadLittleEndian<uint32>(Bytes, 20);
+			|| ReadLittleEndian<uint32>(Bytes, 8) != 1u
+			|| ReadLittleEndian<uint32>(Bytes, 12) != CollisionPayloadHeaderSize
+			|| ReadLittleEndian<uint32>(Bytes, 20) != CollisionPayloadAlignment
+			|| ReadLittleEndian<uint64>(Bytes, 28) != Bytes.size()
+			|| ReadLittleEndian<uint64>(Bytes, 44)
+				!= FXxHash64::HashBuffer(Bytes.subspan(CollisionPayloadHeaderSize)).HashValue) return false;
+		const uint32 ChunkCount = ReadLittleEndian<uint32>(Bytes, 16);
 		if (ChunkCount != 4 || ChunkCount > MaximumCollisionPayloadChunks
 			|| CollisionPayloadHeaderSize + static_cast<uint64>(ChunkCount)
 				* CollisionPayloadChunkEntrySize > Bytes.size()) return false;
@@ -847,7 +846,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage0Tests, Fre
 		std::bit_cast<uint32>(1.0e-5f), "Assimp", 602, {5, 0, 2}, 1);
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First.size(), 75u);
-	EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), "90a7dc1e16f761812d2975e56988d120");
+	EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), "8901fada8d8476a3ffe90381c64a753a");
 	const std::string BaselineHash = FXxHash128::HashBuffer(First).ToString();
 	auto ExpectKeyChanged = [&](auto&& Bytes) {
 		EXPECT_NE(FXxHash128::HashBuffer(Bytes).ToString(), BaselineHash);
@@ -885,7 +884,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage0Tests, Fre
 	ASSERT_FALSE(Payload.empty());
 	EXPECT_TRUE(ValidatePrototypePayload(Payload));
 	EXPECT_EQ(Payload.size(), 336u);
-	EXPECT_EQ(FXxHash128::HashBuffer(Payload).ToString(), "b43434e49ae8c9c62ea8ef4024b54159");
+	EXPECT_EQ(FXxHash128::HashBuffer(Payload).ToString(), "fd9b1d8ebeb683486f5347cffcea4884");
 	auto ExpectCorrupt = [&](size_t Offset) {
 		Durin::FByteBuffer Corrupt = Payload;
 		Corrupt[Offset] ^= std::byte{0x40};
@@ -893,14 +892,14 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage0Tests, Fre
 	};
 	ExpectCorrupt(0); // magic
 	ExpectCorrupt(4); // schema
-	ExpectCorrupt(12); // platform
-	ExpectCorrupt(20); // chunk count
-	ExpectCorrupt(24); // alignment
-	ExpectCorrupt(32); // declared size
-	ExpectCorrupt(48); // checksum
-	ExpectCorrupt(64 + 8); // first range
+	ExpectCorrupt(8); // platform
+	ExpectCorrupt(16); // chunk count
+	ExpectCorrupt(20); // alignment
+	ExpectCorrupt(28); // declared size
+	ExpectCorrupt(44); // checksum
+	ExpectCorrupt(CollisionPayloadHeaderSize + 8); // first range
 	ExpectCorrupt(Payload.size() - 1); // data checksum
-	EXPECT_EQ(CollisionPayloadHeaderSize, 64u);
+	EXPECT_EQ(CollisionPayloadHeaderSize, 60u);
 	EXPECT_EQ(CollisionPayloadChunkEntrySize, 32u);
 	EXPECT_EQ(CollisionPayloadAlignment, 16u);
 	EXPECT_GE(MaximumCollisionPayloadChunks, 6u);
@@ -1035,8 +1034,8 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	EXPECT_EQ(Parent.GetRemainingPayloadBytes(), First.size());
 	EXPECT_FALSE(RequireArchiveEnd(Parent));
 	FByteBuffer OverflowBytes = First;
-	WriteLittleEndian<uint64>(OverflowBytes, 64 + 24, std::numeric_limits<uint64>::max());
-	WriteLittleEndian<uint64>(OverflowBytes, 48, FXxHash64::HashBuffer(FByteView(OverflowBytes).subspan(64)).HashValue);
+	WriteLittleEndian<uint64>(OverflowBytes, CollisionPayloadHeaderSize + 24, std::numeric_limits<uint64>::max());
+	WriteLittleEndian<uint64>(OverflowBytes, 44, FXxHash64::HashBuffer(FByteView(OverflowBytes).subspan(CollisionPayloadHeaderSize)).HashValue);
 	FCanonicalMemoryReader OverflowReader(OverflowBytes,
 		EArchivePurpose::DerivedDataPayload,
 		{.Target = {"Win64", "Game"}});
@@ -1046,7 +1045,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	EXPECT_EQ(OverflowReader.GetFailure()->Code, EArchiveFailureCode::Overflow);
 	EXPECT_TRUE(Discarded.Positions.empty());
 
-	EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), "bb25d52dae03f550a1167eb7b9a3528b");
+	EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), "fd9b1d8ebeb683486f5347cffcea4884");
 	FPhysicsCollisionPayloadData Decoded;
 	ASSERT_TRUE(DecodeCollisionPayload(
 		First, EAssetPayloadTargetPlatform::Win64, Decoded));
@@ -1054,20 +1053,6 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	ASSERT_TRUE(MakePhysicsCollisionGeometry(Decoded, RoundTrip));
 	EXPECT_EQ(RoundTrip.GetTriangleCount(), Geometry.GetTriangleCount());
 	EXPECT_EQ(RoundTrip.GetNodeCount(), Geometry.GetNodeCount());
-	EXPECT_EQ(ReadLittleEndian<uint32>(First, 8), 0u);
-	// Old and future algorithm identities do not affect schema-compatible DCOL admission.
-	for (const uint32 Producer : {0u, 1u, 2u, 0xffffffffu})
-	{
-		FByteBuffer Compatible = First;
-		WriteLittleEndian<uint32>(Compatible, 8, Producer);
-		FPhysicsCollisionPayloadData Legacy;
-		ASSERT_TRUE(DecodeCollisionPayload(Compatible, EAssetPayloadTargetPlatform::Win64, Legacy));
-		EXPECT_EQ(Legacy.Indices, Decoded.Indices);
-		EXPECT_EQ(Legacy.SourceOrdinals, Decoded.SourceOrdinals);
-		FCollisionGeometryRef LegacyGeometry;
-		ASSERT_TRUE(MakePhysicsCollisionGeometry(Legacy, LegacyGeometry));
-		EXPECT_EQ(LegacyGeometry.GetTriangleCount(), Geometry.GetTriangleCount());
-	}
 	for (const uint32 Schema : {PhysicsCollisionPayloadSchemaVersion - 1, PhysicsCollisionPayloadSchemaVersion + 1})
 	{
 		FByteBuffer Incompatible = First;

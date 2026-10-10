@@ -181,17 +181,17 @@ namespace Durin
 		ASSERT_TRUE((Error = ShaderCompiledOutput::Encode(Options, Expected, Second))) << FormatShaderError(Error.error());
 		EXPECT_EQ(First, Second);
 		EXPECT_EQ(ToHex(First),
-			"4453484404000000000000000403020100000000010000000100000001000000010000000000000000000000020000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000000000000000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e650100000000000000010000000000000001000000010000000100000000000000100000000000000000000000ffffffff000000000000000000000000000000000c00000000000000467261676d656e744d61696e04000000000000006d61696e01000000010000000000000000000000000000001100000000000000467261676d656e744d61696e446562756776835ac38ce6e7a67c3015d75a3a6f26140000000000000003022307000501000000000002000000000000000100000005000000000000005363656e650200000000000000020000000000000001000000010000000200000000000000100000000000000000000000ffffffff00000000000000000000000000000000");
+			"44534844050000000403020100000000010000000100000001000000010000000000000000000000020000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000000000000000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e650100000000000000010000000000000001000000010000000100000000000000100000000000000000000000ffffffff000000000000000000000000000000000c00000000000000467261676d656e744d61696e04000000000000006d61696e01000000010000000000000000000000000000001100000000000000467261676d656e744d61696e446562756776835ac38ce6e7a67c3015d75a3a6f26140000000000000003022307000501000000000002000000000000000100000005000000000000005363656e650200000000000000020000000000000001000000010000000200000000000000100000000000000000000000ffffffff00000000000000000000000000000000");
 		ASSERT_GE(First.size(), 24u);
 		uint32 Magic = 0;
 		uint32 Schema = 0;
-		uint32 Builder = 0;
+		uint32 Marker = 0;
 		EXPECT_TRUE(ReadLittleEndianAt<uint32>(First, 0, Magic));
 		EXPECT_TRUE(ReadLittleEndianAt<uint32>(First, 4, Schema));
-		EXPECT_TRUE(ReadLittleEndianAt<uint32>(First, 8, Builder));
+		EXPECT_TRUE(ReadLittleEndianAt<uint32>(First, 8, Marker));
 		EXPECT_EQ(Magic, ShaderCompiledOutput::PayloadMagic);
 		EXPECT_EQ(Schema, ShaderCompiledOutput::PayloadSchemaVersion);
-		EXPECT_EQ(Builder, 0u);
+		EXPECT_EQ(Marker, BinaryFormatMarker);
 
 		FShaderCompilerOutput Loaded;
 		ASSERT_TRUE((Error = ShaderCompiledOutput::Decode(First, Options, Loaded))) << FormatShaderError(Error.error());
@@ -214,21 +214,6 @@ namespace Durin
 		}
 	}
 
-	TEST_F(FShaderDerivedDataTests, CompatiblePayloadIgnoresHistoricalProducerVersion)
-	{
-		const auto Options = MakeOptions();
-		FByteBuffer Bytes;
-		ASSERT_TRUE(ShaderCompiledOutput::Encode(Options, MakeOutput(), Bytes));
-		for (const uint32 Producer : {0u, 1u, 4u, 0xffffffffu})
-		{
-			auto Compatible = Bytes;
-			WriteU32At(Compatible, 8, Producer);
-			FShaderCompilerOutput Loaded;
-			ASSERT_TRUE(ShaderCompiledOutput::Decode(Compatible, Options, Loaded));
-			ASSERT_EQ(Loaded.CompiledShaders.size(), 2u);
-			EXPECT_EQ(Loaded.CompiledShaders[0].Hash, MakeOutput().CompiledShaders[0].Hash);
-		}
-	}
 
 	TEST_F(FShaderDerivedDataTests, SessionRejectsMismatchedIdentityBeforeOptionsDecoding)
 	{
@@ -271,7 +256,7 @@ namespace Durin
 		FShaderOperationResult Error;
 		ASSERT_TRUE((Error = ShaderCompiledOutput::Encode(Options, Output, Bytes))) << FormatShaderError(Error.error());
 		EXPECT_EQ(ToHex(Bytes),
-			"4453484404000000000000000403020100000000010000000100000001000000010000000000000000000000010000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000000000000000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e650100000000000000010000000000000001000000010000000100000000000000100000000000000000000000ffffffff00000000000000000000000000000000");
+			"44534844050000000403020100000000010000000100000001000000010000000000000000000000010000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000000000000000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e650100000000000000010000000000000001000000010000000100000000000000100000000000000000000000ffffffff00000000000000000000000000000000");
 	}
 
 	TEST_F(FShaderDerivedDataTests, MetalComputeThreadGroupSurvivesBothPayloads)
@@ -337,7 +322,7 @@ namespace Durin
 		BadMagic[0] = std::byte{0};
 		ExpectRejected(std::move(BadMagic), EShaderError::PayloadHeaderInvalid);
 		Durin::FByteBuffer BadMarker = Bytes;
-		BadMarker[12] ^= std::byte{0x40};
+		BadMarker[8] ^= std::byte{0x40};
 		ExpectRejected(std::move(BadMarker), EShaderError::PayloadHeaderInvalid);
 		Durin::FByteBuffer BadVersion = Bytes;
 		WriteU32At(BadVersion, 4,
@@ -348,13 +333,13 @@ namespace Durin
 			ShaderCompiledOutput::PayloadSchemaVersion - 1);
 		ExpectRejected(std::move(LegacyVersion), EShaderError::PayloadHeaderInvalid);
 		Durin::FByteBuffer Reserved = Bytes;
-		Reserved[16] = std::byte{1};
+		Reserved[12] = std::byte{1};
 		ExpectRejected(std::move(Reserved), EShaderError::PayloadHeaderInvalid);
 		Durin::FByteBuffer WrongTarget = Bytes;
-		WriteU32At(WrongTarget, 20, uint32(EShaderTargetPlatform::MacOS));
+		WriteU32At(WrongTarget, 16, uint32(EShaderTargetPlatform::MacOS));
 		ExpectRejected(std::move(WrongTarget), EShaderError::PayloadHeaderInvalid);
 		Durin::FByteBuffer WrongOutputFormat = Bytes;
-		WriteU32At(WrongOutputFormat, 32, uint32(EShaderCodeFormat::Msl20Source));
+		WriteU32At(WrongOutputFormat, 28, uint32(EShaderCodeFormat::Msl20Source));
 		ExpectRejected(std::move(WrongOutputFormat), EShaderError::PayloadHeaderInvalid);
 		Durin::FByteBuffer Truncated = Bytes;
 		Truncated.pop_back();
@@ -370,17 +355,17 @@ namespace Durin
 		*It.begin() = std::byte{0};
 		ExpectRejected(std::move(CorruptCode), EShaderError::PayloadSpirvInvalid);
 		Durin::FByteBuffer BadFrequency = Bytes;
-		WriteU32At(BadFrequency, 78,
+		WriteU32At(BadFrequency, 74,
 			static_cast<uint32>(EShaderFrequency::RayMiss) + 1);
 		ExpectRejected(std::move(BadFrequency), EShaderError::PayloadEntryInvalid);
 		Durin::FByteBuffer BadFormat = Bytes;
-		WriteU32At(BadFormat, 82, uint32(EShaderCodeFormat::Msl20Source));
+		WriteU32At(BadFormat, 78, uint32(EShaderCodeFormat::Msl20Source));
 		ExpectRejected(std::move(BadFormat), EShaderError::PayloadEntryInvalid);
 		Durin::FByteBuffer BadHash = Bytes;
-		BadHash[121] ^= std::byte{1};
+		BadHash[117] ^= std::byte{1};
 		ExpectRejected(std::move(BadHash), EShaderError::PayloadSpirvHashMismatch);
 		Durin::FByteBuffer BadBindingCount = Bytes;
-		WriteU32At(BadBindingCount, 165, 65537);
+		WriteU32At(BadBindingCount, 161, 65537);
 		ExpectRejected(std::move(BadBindingCount), EShaderError::PayloadBindingCountInvalid);
 
 		FShaderCompileOptions WrongRequest = Options;

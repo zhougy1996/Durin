@@ -149,49 +149,6 @@ namespace Durin
 			Record.Output.CompiledShaders[0].Code->GetBytes()));
 	}
 
-	TEST(FShaderCookedLibraryTests, CompatibleLibraryIgnoresHistoricalProducerVersions)
-	{
-		const auto Request = MakeRequest();
-		const FShaderCookedLibraryRecord Record{.Request = Request, .ProductionIdentity = {17, 29}, .Output = MakeOutput()};
-		FByteBuffer Bytes;
-		ASSERT_TRUE(EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), Bytes));
-		const uint64 PayloadOffset = ReadU64At(Bytes, 56);
-		auto Rehash = [&](FByteBuffer& Candidate) {
-			const auto PayloadDigest = FXxHash128::HashBuffer(FByteView(Candidate).subspan(PayloadOffset));
-			WriteU64At(Candidate, 144, PayloadDigest.HashLow);
-			WriteU64At(Candidate, 152, PayloadDigest.HashHigh);
-			FXxHash128Builder Digest;
-			constexpr std::array<std::byte, 16> Zeros{};
-			Digest.Update(FByteView(Candidate).first(96)); Digest.Update(Zeros);
-			Digest.Update(FByteView(Candidate).subspan(112));
-			const auto FileDigest = Digest.Finalize();
-			WriteU64At(Candidate, 96, FileDigest.HashLow);
-			WriteU64At(Candidate, 104, FileDigest.HashHigh);
-		};
-		for (const uint32 Producer : {0u, 1u, 3u, 4u, 0xffffffffu})
-		{
-			auto Compatible = Bytes;
-			for (const size_t Offset : {size_t{8}, size_t(PayloadOffset + 8)})
-				for (size_t Byte = 0; Byte < 4; ++Byte) Compatible[Offset + Byte] = std::byte((Producer >> (Byte * 8)) & 0xffu);
-			Rehash(Compatible);
-			FShaderCookedLibrary Library;
-			ASSERT_TRUE(FShaderCookedLibrary::OpenBytes(std::make_shared<const FByteBuffer>(Compatible),
-				EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Request, 1), Library));
-			FShaderCompilerOutput Loaded;
-			ASSERT_TRUE(Library.Load(Request, Loaded));
-			ASSERT_EQ(Loaded.CompiledShaders.size(), 2u);
-			EXPECT_EQ(Loaded.CompiledShaders[0].Hash, Record.Output.CompiledShaders[0].Hash);
-		}
-		for (const size_t Offset : {size_t{4}, size_t{12}})
-		{
-			auto Invalid = Bytes; Invalid[Offset] ^= std::byte{0x40}; Rehash(Invalid);
-			FShaderCookedLibrary Library;
-			const auto Result = FShaderCookedLibrary::OpenBytes(std::make_shared<const FByteBuffer>(Invalid),
-				EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Request, 1), Library);
-			ASSERT_FALSE(Result);
-			EXPECT_EQ(Result.error().Code, EShaderError::LibraryHeaderInvalid);
-		}
-	}
 
 	TEST(FShaderCookedLibraryTests,
 		RejectsWrongTargetMissingRequestAndCorruptBytes)
@@ -205,6 +162,18 @@ namespace Durin
 		Durin::FByteBuffer Bytes;
 		FShaderOperationResult Error;
 		ASSERT_TRUE((Error = EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), Bytes))) << FormatShaderError(Error.error());
+
+		for (const size_t Offset : {size_t{4}, size_t{8}})
+		{
+			auto Invalid = Bytes;
+			Invalid[Offset] ^= std::byte{0x40};
+			FShaderCookedLibrary Rejected;
+			const auto Result = FShaderCookedLibrary::OpenBytes(
+				std::make_shared<const FByteBuffer>(Invalid), EShaderTargetPlatform::Win64,
+				EShaderTargetProfile::Game, std::span(&Request, 1), Rejected);
+			ASSERT_FALSE(Result);
+			EXPECT_EQ(Result.error().Code, EShaderError::LibraryHeaderInvalid);
+		}
 
 		FShaderCookedLibrary Library;
 		EXPECT_FALSE((Error = FShaderCookedLibrary::OpenBytes(std::make_shared<const Durin::FByteBuffer>(Bytes), EShaderTargetPlatform::Win64, EShaderTargetProfile::EditorValidation, {}, Library)));
@@ -241,7 +210,7 @@ namespace Durin
 		EXPECT_EQ(Loaded.CompiledShaders[0].BindingRemapIdentity,
 			Output.CompiledShaders[0].BindingRemapIdentity);
 		FByteBuffer Corrupt = Bytes;
-		const uint64 PayloadOffset = ReadU64At(Corrupt, 56);
+		const uint64 PayloadOffset = ReadU64At(Corrupt, 52);
 		ASSERT_LT(PayloadOffset, Corrupt.size());
 		const std::string_view Marker = "#include <metal_stdlib>";
 		const auto Found = std::ranges::search(Corrupt.begin() + PayloadOffset,
@@ -251,16 +220,16 @@ namespace Durin
 		*Found.begin() = std::byte{'X'};
 		const FXxHash128 PayloadDigest = FXxHash128::HashBuffer(
 			std::span(Corrupt).subspan(PayloadOffset));
-		WriteU64At(Corrupt, 144, PayloadDigest.HashLow);
-		WriteU64At(Corrupt, 152, PayloadDigest.HashHigh);
+		WriteU64At(Corrupt, 140, PayloadDigest.HashLow);
+		WriteU64At(Corrupt, 148, PayloadDigest.HashHigh);
 		constexpr std::array<std::byte, 16> Zeros{};
 		FXxHash128Builder FileDigest;
-		FileDigest.Update(std::span(Corrupt).first(96));
+		FileDigest.Update(std::span(Corrupt).first(92));
 		FileDigest.Update(Zeros);
-		FileDigest.Update(std::span(Corrupt).subspan(112));
+		FileDigest.Update(std::span(Corrupt).subspan(108));
 		const FXxHash128 NewFileDigest = FileDigest.Finalize();
-		WriteU64At(Corrupt, 96, NewFileDigest.HashLow);
-		WriteU64At(Corrupt, 104, NewFileDigest.HashHigh);
+		WriteU64At(Corrupt, 92, NewFileDigest.HashLow);
+		WriteU64At(Corrupt, 100, NewFileDigest.HashHigh);
 		EXPECT_FALSE((Error = FShaderCookedLibrary::OpenBytes(
 			std::make_shared<const FByteBuffer>(Corrupt), EShaderTargetPlatform::MacOS,
 			EShaderTargetProfile::Game, std::span(&Request, 1), Library)));

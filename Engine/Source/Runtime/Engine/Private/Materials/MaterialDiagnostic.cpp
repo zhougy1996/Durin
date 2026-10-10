@@ -218,7 +218,7 @@ namespace Durin
 				case EMaterialIRError::OpcodePayloadMismatch: return "Material IR opcode and immediate payload do not agree.";
 				case EMaterialIRError::AggregateSurfaceRootExpressionInvalid: return "Material IR aggregate Surface Root expression is invalid.";
 				case EMaterialIRError::PerPropertySurfaceRootInputInvalid: return "Material IR per-property Surface Root input is invalid.";
-				case EMaterialIRError::CanonicalBytesExceedVersion2Bound: return "Material IR canonical bytes exceed the version-2 bound.";
+				case EMaterialIRError::CanonicalBytesExceedSupportedBound: return "Material IR canonical bytes exceed the supported byte bound.";
 				case EMaterialIRError::InvalidMaterialIRSlangGeneration: return "Invalid material IR for Slang generation.";
 				case EMaterialIRError::AggregateSurfaceRootExpressionOutBounds: return "Aggregate Surface Root expression is out of bounds.";
 				case EMaterialIRError::PerPropertySurfaceRootExpressionOutBounds: return "Per-property Surface Root expression is out of bounds.";

@@ -174,7 +174,7 @@ namespace Durin
 		OpcodePayloadMismatch,
 		AggregateSurfaceRootExpressionInvalid,
 		PerPropertySurfaceRootInputInvalid,
-		CanonicalBytesExceedVersion2Bound,
+		CanonicalBytesExceedSupportedBound,
 		InvalidMaterialIRSlangGeneration,
 		AggregateSurfaceRootExpressionOutBounds,
 		PerPropertySurfaceRootExpressionOutBounds,

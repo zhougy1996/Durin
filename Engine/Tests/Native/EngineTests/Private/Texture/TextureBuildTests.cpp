@@ -1012,22 +1012,13 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	Platform.Serialize(Writer);
 	ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Bytes).ToString(),
-		"96dc9b5ebe4e1bfe756c419472994b94");
+		"a418f4892e88c766cfe502c9a91adf84");
 	EXPECT_EQ(Bytes.size(), 177u);
 	Durin::FVolumeTexturePlatformData Decoded;
 	Durin::FCanonicalMemoryReader Reader(Bytes, Durin::EArchivePurpose::DerivedDataPayload,
 		{.Target = {"Win64", "Game"}});
 	Decoded.Serialize(Reader);
 	ASSERT_TRUE(Durin::RequireArchiveEnd(Reader)) << Reader.GetError();
-	EXPECT_TRUE(std::ranges::equal(Decoded.Mips.back().Voxels, Platform.Mips.back().Voxels));
-	auto DifferentProducer = Bytes;
-	for (uint32 Byte = 0; Byte < 4; ++Byte)
-		DifferentProducer[8 + Byte] = static_cast<std::byte>(
-			17u >> (Byte * 8));
-	Durin::FCanonicalMemoryReader CompatibleReader(DifferentProducer,
-		Durin::EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
-	Decoded.Serialize(CompatibleReader);
-	ASSERT_TRUE(Durin::RequireArchiveEnd(CompatibleReader)) << CompatibleReader.GetError();
 	EXPECT_TRUE(std::ranges::equal(Decoded.Mips.back().Voxels, Platform.Mips.back().Voxels));
 	Bytes.back() ^= std::byte{1};
 	Durin::FVolumeTexturePlatformData Discarded;
@@ -2579,7 +2570,7 @@ TEST(FVolumeTextureTests, ArchiveBoundsReplacementAndSaveImmutability)
 	auto Oversized = Bytes;
 	const uint64 Size = MaximumTexturePayloadBytes + 1;
 	for (uint32 Index = 0; Index < 8; ++Index)
-		Oversized[56 + Index] = static_cast<std::byte>(Size >> (Index * 8));
+		Oversized[52 + Index] = static_cast<std::byte>(Size >> (Index * 8));
 	FCanonicalMemoryReader OversizedReader(Oversized, EArchivePurpose::DerivedDataPayload, Context);
 	FVolumeTexturePlatformData Discarded;
 	Discarded.Serialize(OversizedReader);

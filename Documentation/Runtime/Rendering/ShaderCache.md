@@ -114,8 +114,8 @@ Recovered imports are rechecked against the caller's virtual-prefix allowlist.
 
 ## Package compiled-output payload
 
-The separate `DSHD` schema-4 little-endian package codec contains the complete
-ordered `FShaderCompilerOutput`. The header contains magic, schema, a historical producer word,
+The separate `DSHD` schema-5 little-endian package codec contains the complete
+ordered `FShaderCompilerOutput`. The header contains magic, schema,
 endianness marker, a zero reserved field, and entry count. Each entry contains:
 
 1. length-prefixed UTF-8 source and binary entry points;
@@ -235,7 +235,7 @@ ShaderBuild to resolve each exact request through the ordinary memory/DDC/
 compiler path. It publishes `Shaders/ShaderLibrary.dslb` in the same Cook
 transaction as packages and records it in `CookManifest.bin`.
 
-`DSLB` schema 4 is exact for one target/profile. Its sorted directory maps a
+`DSLB` schema 5 is exact for one target/profile. Its sorted directory maps a
 source-independent runtime request identity to one complete embedded `DSHD`
 value and records production identity and payload digests. RenderCore preflights
 the full header, directory, bounds, alignment, target/profile, inventory closure
@@ -250,8 +250,8 @@ or a compiler module. Material `ProgramData` remains package-owned.
 
 ## Compatibility
 
-DSHD and DSLB keep their current schema 4 and wire layout. Writers set the historical
-producer word to zero; readers ignore it. Algorithm or compiler upgrades invalidate
+DSHD and DSLB schema 5 omit the producer version word. DSLB uses a 108-byte
+header; older payloads and libraries require recook. Algorithm or compiler upgrades invalidate
 build/Cook identity without rejecting compatible existing payloads or libraries.
 Magic, schema, byte-order marker, target/code format, request membership, reflection
 and binding-remap semantics, bounds and content digests remain validation gates.

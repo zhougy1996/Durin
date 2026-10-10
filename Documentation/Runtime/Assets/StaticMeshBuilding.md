@@ -210,9 +210,8 @@ lifetime and is compared for equality, never ordered. Adapter logic changes bump
 `StaticMeshRenderBuildFunctionVersion` independently. Material-slot count and
 target are constants, with separate source/reconciliation input identities.
 Before invoking the builder, the adapter verifies its identity against the action.
-Package/Cook render payloads retain schema 5. Format compatibility depends only on
-`StaticMeshPayloadSchemaVersion`; the historical producer word is ignored when
-reading and written as zero. Algorithm changes therefore invalidate DDC entries
+Package/Cook render payloads use schema 6 with a 60-byte header and no producer
+word. Format compatibility depends only on `StaticMeshPayloadSchemaVersion`. Algorithm changes therefore invalidate DDC entries
 without rejecting compatible cooked payloads. StaticMesh cook recipe dependencies
 encode the render builder identity, adapter function version, shared-output schema,
 payload schema, plus the PhysicsCore cooker identity, collision adapter versions
@@ -298,7 +297,7 @@ reports retain independent lifecycle and partial-effect states.
 These observations do not change cache fallback or publication. A valid warm DDC object can load from persisted identity while source
 and Assimp are unavailable.
 
-The schema-5 payload is little-endian and checksummed, with bounded chunks for
+The schema-6 payload is little-endian and checksummed, with bounded chunks for
 bounds, material-slot count, per-LOD geometry and screen-size policy, sections,
 vertex streams, and indices. Readers validate counts, ranges, numeric data, and
 indices, and skip only optional unknown chunks. Cook strips source/import
@@ -314,15 +313,15 @@ resizing. Offset tables and body hashes retain bounded output staging; collision
 save additionally orders indices by leaf ordinal in local scratch without
 changing the source. None of these scratch values owns live publication.
 
-StaticMesh render schema 5 stores each LOD's `ScreenSize` beside its geometry and retains
+StaticMesh render schema 6 stores each LOD's `ScreenSize` beside its geometry and retains
 the schema-3 bounded material-slot count rather than slot GUIDs.
 Every decoded section index is validated against that count; package metadata
 then restores editor/runtime slot names and imported source indices by stable
-position. Schema 4 and older payloads are incompatible, and builder version 4
-invalidates prior derived data. The render and collision session actions encode shared-output schema 2
+position. Schema 5 and older payloads require recook. The opaque builder identity
+invalidates derived data when algorithms or build dependencies change. The render and collision session actions encode shared-output schema 2
 independently of their cooked payload schemas, together with their applicable
 builder versions. Source-backed assets and stale
-DDC entries rebuild; cooked/runtime-only schema-4-or-older content must be recooked and
+DDC entries rebuild; cooked/runtime-only schema-5-or-older content must be recooked and
 is never silently reinterpreted. Encode reads semantic data back from the named buffer resources;
 decode constructs them from the payload's position, normal, tangent, UV,
 color, index, and LOD-policy data. Decode and render-data reconstruction publish

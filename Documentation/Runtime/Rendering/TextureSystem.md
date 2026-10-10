@@ -102,7 +102,7 @@ Request-local decoded pixels and platform mip vectors are not persisted in the
 authored object field tree.
 
 Source image encoding belongs to the ordinary source file and decoder. Texture
-payload schema 2 belongs to the owning asset, DDC values are rebuildable
+payload schema 3 belongs to the owning asset, DDC values are rebuildable
 canonical platform data, and cooked `PlatformData` fields are immutable
 deployment data loaded through package resources. Request input, decoded recipe
 data, platform mips, and RHI resources have independent downstream lifetimes.
@@ -132,8 +132,8 @@ state; the Texture Editor requires an explicit Wait for Build or Cancel Build
 decision instead of serializing a pending candidate.
 
 The DDC path is derived entirely from the key; `.dasset` never stores a cache
-file path or byte offset. Owner-selected texture payload schema 2 uses an
-80-byte header, 40-byte records, 16-byte aligned non-overlapping ranges, explicit BC format,
+file path or byte offset. Owner-selected texture payload schema 3 uses an
+76-byte header, 40-byte records, 16-byte aligned non-overlapping ranges, explicit BC format,
 dimension, mip and slice counts, target platform/profile, and XXH3-128
 checksums. Texture2D has exactly one slice and TextureCube has six ordered
 slices. The selected cross-asset storage and cooked companion contract is documented in
@@ -141,7 +141,7 @@ slices. The selected cross-asset storage and cooked companion contract is docume
 
 ## Cooking and Runtime Loading
 
-Texture2D producer version 4 contributes its validated TXPL schema-2 value as
+Texture2D contributes its validated TXPL schema-3 value as
 the cooked `PlatformData` BulkData field. Cook serializes runtime settings and
 the detached field, strips source provenance and editor fingerprints, and
 publishes large bytes in the package's headerless raw segment.
@@ -155,7 +155,7 @@ the family dispatch boundary. Cube-specific and volume-specific payload rules
 remain in [Cube Textures](CubeTextures.md) and
 [Volume Textures](../Assets/VolumeTextures.md).
 
-Cooked-runtime package mode accepts only Win64/Game and schema 2. Metadata load
+Cooked-runtime package mode accepts only Win64/Game and schema 3. Metadata load
 attaches the field without reading its range; first platform-data/resource
 access locks and decodes it. Decode validates every mip
 dimension, block row pitch, byte range, padding, format, checksum, and allocation

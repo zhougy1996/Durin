@@ -6,7 +6,7 @@
 
 namespace Durin
 {
-	inline constexpr uint32 ChunkedPayloadHeaderSize = 64;
+	inline constexpr uint32 ChunkedPayloadHeaderSize = 60;
 	inline constexpr uint32 ChunkedPayloadEntrySize = 32;
 	inline constexpr uint32 ChunkedPayloadRequiredFlag = 1;
 
@@ -80,7 +80,7 @@ namespace Durin
 
 	struct FDecodedChunkedPayload
 	{
-		std::array<uint32, 8> HeaderWords{};
+		std::array<uint32, 7> HeaderWords{};
 		std::vector<FChunkedPayloadView> Chunks;
 		std::vector<FByteView> RequiredChunks;
 	};
@@ -93,10 +93,10 @@ namespace Durin
 		explicit operator bool() const { return Failure == EChunkedPayloadFailure::None; }
 	};
 
-	// Encodes the shared 64-byte header and 32-byte chunk-directory envelope.
-	// Format-specific callers own the first eight header words and chunk contents.
+	// Encodes the shared 60-byte header and 32-byte chunk-directory envelope.
+	// Format-specific callers own the first seven header words and chunk contents.
 	ENGINE_API auto EncodeChunkedPayload(
-		std::array<uint32, 8> HeaderWords,
+		std::array<uint32, 7> HeaderWords,
 		std::span<const FChunkedPayloadInput> Chunks,
 		const FChunkedPayloadFormat& Format,
 		FByteBuffer& OutBytes) -> FChunkedPayloadResult;

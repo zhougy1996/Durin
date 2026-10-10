@@ -182,13 +182,13 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 		Durin::EPixelFormat::BC7_UNORM,
 		Durin::EPixelFormat::BC7_UNORM_SRGB};
 	constexpr std::array<std::string_view, 7> ExpectedPayloadHashes{
-		"037213ec92cdcb29e5a54f6ce150ad32",
-		"9fc5810f854086f300b158977a415150",
-		"d3e0a4077a489491c7b8045b8f0cf3df",
-		"e1aea6ba0121c521411342b0eee57df4",
-		"24bca48ecde72bd32180c1f212642b4e",
-		"d6992f17084c0144677a926503031a40",
-		"56ab1bd515b19ef7eaddb3db92406de8"};
+		"a8e2b397ee1ad4c43f25bc202f399512",
+		"15dd7cf0346cf3bdb005d93ef5137fe8",
+		"696716d05ccf7d9da6632ee08273f45c",
+		"004dc7b972b5292dd04458a5c5c63138",
+		"de07f34618ed7b648f5f15e3816e3004",
+		"1b769912daf4462da602ade63ede1069",
+		"b017ad206cdb86e1cefd2c293b905706"};
 	for (size_t FormatIndex = 0; FormatIndex < Formats.size(); ++FormatIndex)
 	{
 		const Durin::EPixelFormat Format = Formats[FormatIndex];
@@ -204,7 +204,6 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 			<< "format index " << FormatIndex;
 		if (FormatIndex == 0) EXPECT_EQ(First.size(), 264u);
 		ASSERT_GE(First.size(), Durin::TexturePayloadHeaderSize);
-		EXPECT_TRUE(std::ranges::all_of(std::span(First).subspan(8, 4), [](std::byte Byte) { return Byte == std::byte{0}; }));
 
 		std::unique_ptr<Durin::FTexturePlatformData> Actual;
 		const std::expected<void, Durin::FArchiveFailure> DecodeResult =
@@ -243,7 +242,7 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 	Durin::FTexturePlatformData* ExistingAddress = Existing.get();
 
 	auto WrongProfile = Bytes;
-	WriteU32(WrongProfile, 16, static_cast<uint32>(Durin::ECookTargetProfile::EditorValidation));
+	WriteU32(WrongProfile, 12, static_cast<uint32>(Durin::ECookTargetProfile::EditorValidation));
 	std::expected<void, Durin::FArchiveFailure> DecodeResult = LoadPlatformDataValue(WrongProfile, Existing);
 	ASSERT_FALSE(DecodeResult);
 	EXPECT_EQ(DecodeResult.error().Code, Durin::EArchiveFailureCode::UnsupportedTarget);
@@ -270,11 +269,6 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 	EXPECT_EQ(DecodeResult.error().Code, Durin::EArchiveFailureCode::UnsupportedVersion);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
-	auto DifferentBuilder = Bytes;
-	WriteU32(DifferentBuilder, 8, 17u);
-	DecodeResult = LoadPlatformDataValue(DifferentBuilder, Existing);
-	EXPECT_TRUE(DecodeResult) << DecodeResult.error().Message;
-	EXPECT_NE(Existing.get(), ExistingAddress);
 }
 
 TEST(FTextureDerivedDataTests, CubeKeysCoverCanonicalSourceLayoutAndBuilderIdentity)
@@ -434,7 +428,7 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	ASSERT_FALSE(SecondWriter.IsError());
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(First).ToString(),
-		"1b9fc09cc976efcff195a4678cb33dae");
+		"3155774c591c8544b61cb7c4e75f0dae");
 	EXPECT_EQ(First.size(), 1376u);
 
 	Durin::FTextureCubePlatformData Actual;
@@ -444,12 +438,6 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	for (size_t FaceIndex = 0; FaceIndex < Expected.Faces.size(); ++FaceIndex)
 		ExpectPlatformDataEqual(Actual.Faces[FaceIndex], Expected.Faces[FaceIndex]);
 
-	auto DifferentProducer = First;
-	WriteU32(DifferentProducer, 8, 17u);
-	Durin::FCanonicalMemoryReader CompatibleReader(
-		DifferentProducer, Durin::EArchivePurpose::DerivedDataPayload, Context);
-	Actual.Serialize(CompatibleReader);
-	EXPECT_FALSE(CompatibleReader.IsError()) << CompatibleReader.GetError();
 
 	auto WrongOrder = First;
 	WriteU32(WrongOrder, Durin::TexturePayloadHeaderSize, 1);
@@ -530,7 +518,7 @@ TEST(FTextureDerivedDataTests, ArchivesReplaceSequencesAndBoundAdjacentPayloads)
 			ASSERT_TRUE(Truncated.IsError()) << Size;
 		}
 		auto Excessive = Bytes;
-		WriteU32(Excessive, 40, std::numeric_limits<uint32>::max());
+		WriteU32(Excessive, 36, std::numeric_limits<uint32>::max());
 		FCanonicalMemoryReader Limited(Excessive, EArchivePurpose::DerivedDataPayload, Context);
 		Loaded.Serialize(Limited);
 		ASSERT_TRUE(Limited.IsError());

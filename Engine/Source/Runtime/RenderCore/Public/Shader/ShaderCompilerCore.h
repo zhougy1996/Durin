@@ -177,7 +177,6 @@ namespace Durin
 
 	// Produces value-owned compiler and reachable-source identity without
 	// exposing physical cache paths to higher-level compilers.
-	RENDERCORE_API auto GetShaderCompilerEnvironmentIdentity() -> std::string;
 	RENDERCORE_API auto BuildShaderSourceDependencyManifest(
 		std::string_view VirtualShaderPath,
 		const FShaderCompileOptions& Options,

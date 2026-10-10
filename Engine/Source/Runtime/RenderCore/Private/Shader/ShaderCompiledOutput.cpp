@@ -125,8 +125,9 @@ namespace Durin::ShaderCompiledOutput
 			return std::unexpected(FShaderError{.Code = EShaderError::PayloadRequestInvalid});
 
 		FBinaryWriter Writer;
-		// Preserve the historical producer word without coupling it to compatibility.
-		Writer.WriteHeader({PayloadMagic, PayloadSchemaVersion, 0});
+		Writer.WriteU32(PayloadMagic);
+		Writer.WriteU32(PayloadSchemaVersion);
+		Writer.WriteU32(BinaryFormatMarker);
 		Writer.WriteU32(0);
 		WriteTarget(Writer, Options.Target);
 		Writer.WriteU32(static_cast<uint32>(Output.CompiledShaders.size()));
@@ -243,12 +244,11 @@ namespace Durin::ShaderCompiledOutput
 		uint32 Reserved = 0;
 		uint32 EntryCount = 0;
 		FShaderTargetIdentity Target;
-		// The historical FormatVersion word records a producer, not a format gate.
-		FBinaryFormatHeader Header;
-		if (!Reader.ReadU32(Header.Magic) || !Reader.ReadU32(Header.SchemaVersion)
-			|| !Reader.ReadU32(Header.FormatVersion) || !Reader.ReadU32(Header.Marker)
-			|| Header.Magic != PayloadMagic || Header.SchemaVersion != PayloadSchemaVersion
-			|| Header.Marker != BinaryFormatMarker
+		uint32 Magic = 0, Schema = 0, Marker = 0;
+		if (!Reader.ReadU32(Magic) || !Reader.ReadU32(Schema)
+			|| !Reader.ReadU32(Marker)
+			|| Magic != PayloadMagic || Schema != PayloadSchemaVersion
+			|| Marker != BinaryFormatMarker
 			|| !Reader.ReadU32(Reserved) || Reserved != 0
 			|| !ReadTarget(Reader, Target) || Target != Options.Target
 			|| !Reader.ReadU32(EntryCount)

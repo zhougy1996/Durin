@@ -182,21 +182,21 @@ namespace Durin
 		auto ReadMeshRegion(FArchive& Ar, uint32 SizeOffset, uint64 MaximumBytes, FByteView& Bytes) -> bool
 		{
 			FByteView Header;
-			if (!Ar.ReadRegion(64, Header)) return false;
+			if (!Ar.ReadRegion(StaticMeshPayloadHeaderSize, Header)) return false;
 			uint64 Size = 0;
 			if (!ReadLittleEndianAt(Header, SizeOffset, Size))
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData, "Mesh payload stored size is outside its header.");
 				return false;
 			}
-			if (Size < 64 || Size > MaximumBytes)
+			if (Size < StaticMeshPayloadHeaderSize || Size > MaximumBytes)
 			{
 				Ar.Fail(EArchiveFailureCode::LimitExceeded, "Mesh payload stored size is outside its limit.");
 				return false;
 			}
 			FByteView Body;
-			if (!Ar.ReadRegion(Size - 64, Body)) return false;
-			if (Body.data() != Header.data() + 64)
+			if (!Ar.ReadRegion(Size - StaticMeshPayloadHeaderSize, Body)) return false;
+			if (Body.data() != Header.data() + StaticMeshPayloadHeaderSize)
 			{
 				Ar.Fail(EArchiveFailureCode::UnsupportedCapability, "Mesh payload requires contiguous borrowed regions.");
 				return false;
@@ -225,9 +225,9 @@ namespace Durin
 			static_assert(StaticMeshPayloadHeaderSize == ChunkedPayloadHeaderSize);
 			static_assert(StaticMeshPayloadChunkEntrySize == ChunkedPayloadEntrySize);
 			return {
-				.HeaderSizeWordIndex = 5,
-				.ChunkCountWordIndex = 6,
-				.GlobalFlagsWordIndex = 4,
+				.HeaderSizeWordIndex = 4,
+				.ChunkCountWordIndex = 5,
+				.GlobalFlagsWordIndex = 3,
 				.GlobalCompressedFlag = StaticMeshPayloadFlagCompressed,
 				.RequiredChunkCount = StaticMeshPayloadRequiredChunkCount,
 				.MaximumChunkCount = MaximumStaticMeshPayloadChunks,
@@ -498,7 +498,7 @@ namespace Durin
 		else
 		{
 			FByteView Bytes;
-			if (!ReadMeshRegion(Ar, 48, MaximumStaticMeshPayloadBytes, Bytes)) return;
+			if (!ReadMeshRegion(Ar, 44, MaximumStaticMeshPayloadBytes, Bytes)) return;
 			const auto Result = DecodeChunkedPayload(Bytes, GetStaticMeshChunkedPayloadFormat(), Container);
 			if (!Result)
 			{
@@ -512,13 +512,13 @@ namespace Durin
 				Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Static-mesh payload schema is unsupported.");
 				return;
 			}
-			if (Header[3] != static_cast<uint32>(TargetPlatform))
+			if (Header[2] != static_cast<uint32>(TargetPlatform))
 			{
 				Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Static-mesh payload target does not match.");
 				return;
 			}
-			if (Header[0] != 0 || Header[7] != 0
-				|| (Header[4] & ~StaticMeshPayloadFlagCompressed) != 0)
+			if (Header[0] != 0 || Header[6] != 0
+				|| (Header[3] & ~StaticMeshPayloadFlagCompressed) != 0)
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData, "Static-mesh reserved header fields are nonzero.");
 				return;
@@ -544,8 +544,8 @@ namespace Durin
 			Inputs[Index] = {.Type = Index + 1, .Flags = ChunkedPayloadRequiredFlag,
 				.Bytes = Buffers[Index], .DecodedSize = Buffers[Index].size()};
 		FByteBuffer Bytes;
-		const auto Result = EncodeChunkedPayload({0, StaticMeshPayloadSchemaVersion, 0, // Legacy producer word is ignored by schema-5 readers.
-			static_cast<uint32>(TargetPlatform), 0, StaticMeshPayloadHeaderSize, 6, 0},
+		const auto Result = EncodeChunkedPayload({0, StaticMeshPayloadSchemaVersion, static_cast<uint32>(TargetPlatform),
+			0, StaticMeshPayloadHeaderSize, 6, 0},
 			Inputs, GetStaticMeshChunkedPayloadFormat(), Bytes);
 		Control.Check();
 		if (!Result)
