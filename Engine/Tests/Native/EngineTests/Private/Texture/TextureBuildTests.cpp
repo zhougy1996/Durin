@@ -21,6 +21,8 @@
 #include "Texture/VolumeTextureBuild.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture/TextureBuildOperations.h"
+#include "Texture/TextureCubeBuildOperations.h"
+#include "Texture/VolumeTextureBuildOperations.h"
 #include "Texture/VolumeTextureBuilder.h"
 #include "DObject/DefaultDeltaPlan.h"
 #include "Asset/EditorBulkDataStorage.h"
@@ -879,6 +881,76 @@ TEST(FVolumeTextureTests, RejectsInvalidMipFilterBeforeSourceReplacement)
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), Identity);
 	EXPECT_EQ(Texture->GetBuildSettings().MipFilter, Durin::EVolumeTextureMipFilter::Box);
 	EXPECT_EQ(Texture->GetPlatformData(), nullptr);
+}
+
+TEST(FTextureCubeTests, RecipeReturnsValuesAndLogsFailuresOnce)
+{
+	InitializeDObjectSystem();
+	FCacheLogCapture BuildLog("TextureBuild");
+	Durin::FTextureCubeFaceImages Faces;
+	const Durin::FTextureCubeBuildInput LDRRequest{
+		.Pixels = Durin::FTextureCubeLDRBuildInput{.FaceImages = std::cref(Faces)}};
+	EXPECT_FALSE(Durin::BuildTextureCube(LDRRequest));
+	ASSERT_EQ(BuildLog.size(), 1u);
+	EXPECT_EQ(BuildLog.front().Message, "TextureCube build failed: TextureCube canonical build request is invalid.");
+
+	BuildLog.Reset();
+	const Durin::Image::FImage InvalidPanorama;
+	EXPECT_FALSE(Durin::BuildTextureCube({.Pixels = Durin::FTextureCubeHDRBuildInput{
+		.Panorama = std::cref(InvalidPanorama), .FaceDimension = 1}}));
+	ASSERT_EQ(BuildLog.size(), 1u);
+	EXPECT_EQ(BuildLog.front().Message, "TextureCube build failed: HDR cube requires a single linear RGBA32F panorama.");
+
+	BuildLog.Reset();
+	for (auto& Face : Faces.Faces)
+	{
+		auto Image = Durin::Image::FImage::TryCreate({.Width = 2, .Height = 2,
+			.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(16, std::byte{255}));
+		ASSERT_TRUE(Image);
+		Face = std::move(*Image);
+	}
+	Faces.SourceChannelCount = 4;
+	auto LDR = Durin::BuildTextureCube(LDRRequest);
+	ASSERT_TRUE(LDR);
+	EXPECT_TRUE(LDR->IsValid());
+	EXPECT_EQ(LDR->Faces[0].Mips.size(), 2u);
+	EXPECT_TRUE(BuildLog.empty());
+
+	auto Panorama = Durin::Image::FImage::TryCreate({.Width = 4, .Height = 2,
+		.Format = Durin::Image::ERawImageFormat::RGBA32F,
+		.GammaSpace = Durin::Image::EImageGammaSpace::Linear}, Durin::FByteBuffer(4 * 2 * 16));
+	ASSERT_TRUE(Panorama);
+	auto HDR = Durin::BuildTextureCube({.Pixels = Durin::FTextureCubeHDRBuildInput{
+		.Panorama = std::cref(*Panorama), .FaceDimension = 1}});
+	ASSERT_TRUE(HDR);
+	EXPECT_TRUE(HDR->IsValid());
+	EXPECT_TRUE(BuildLog.empty());
+}
+
+TEST(FVolumeTextureTests, RecipeReturnsValuesAndLogsFailuresOnce)
+{
+	InitializeDObjectSystem();
+	FCacheLogCapture BuildLog("TextureBuild");
+	Durin::FVolumeTextureSourceData Source;
+	EXPECT_FALSE(Durin::BuildVolumeTexture({.SourceData = std::cref(Source)}));
+	ASSERT_EQ(BuildLog.size(), 1u);
+	EXPECT_EQ(BuildLog.front().Message, "VolumeTexture build failed: Volume texture build source, settings, or target is incompatible.");
+
+	Source.Width = Source.Height = Source.Depth = 2;
+	ASSERT_TRUE(Source.SetVoxelBytes(Durin::FByteBuffer(8, std::byte{42})));
+	BuildLog.Reset();
+	EXPECT_FALSE(Durin::BuildVolumeTexture({.SourceData = std::cref(Source),
+		.Settings = {.MipFilter = static_cast<Durin::EVolumeTextureMipFilter>(255)}}));
+	ASSERT_EQ(BuildLog.size(), 1u);
+	EXPECT_EQ(BuildLog.front().Message, "VolumeTexture build failed: Volume texture build requires valid source with matching output format and box filtering.");
+
+	BuildLog.Reset();
+	auto Built = Durin::BuildVolumeTexture({.SourceData = std::cref(Source)});
+	ASSERT_TRUE(Built);
+	EXPECT_TRUE(Built->IsValid());
+	ASSERT_EQ(Built->Mips.size(), 2u);
+	EXPECT_EQ(Built->Mips.back().Voxels.GetBytes()[0], std::byte{42});
+	EXPECT_TRUE(BuildLog.empty());
 }
 
 TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)

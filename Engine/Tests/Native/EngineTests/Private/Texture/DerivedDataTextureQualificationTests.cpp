@@ -12,6 +12,9 @@
 #include "Texture/VolumeTextureBuildOperations.h"
 #include "Texture/TextureDerivedData.h"
 #include "Runtime/Engine/Private/Texture/TextureBuildDiagnostics.h"
+#include "Runtime/Engine/Private/Texture/TextureBuildSession.h"
+#include "Runtime/Engine/Private/Texture/TextureCubeBuildFunction.h"
+#include "Runtime/Engine/Private/Texture/VolumeTextureBuildFunction.h"
 #include <gtest/gtest.h>
 
 namespace
@@ -26,7 +29,7 @@ namespace
 	public:
 		std::vector<FByteView> ReturnedBlocks;
 		uint64 BuildCalls = 0;
-		std::function<void()> OnTexture2DBuildCompleted;
+		std::function<void()> OnRecipeCompleted;
 		auto ResetObservation() -> void { ReturnedBlocks.clear(); BuildCalls = 0; }
 		auto GetTexture2DBuilderVersion() const -> uint32 override { return Texture2DBuilderVersion; }
 		auto GetTextureCubeBuilderVersion() const -> uint32 override { return TextureCubeBuilderVersion; }
@@ -44,7 +47,7 @@ namespace
 			if (Built)
 			{
 				Observe(Built->PlatformData);
-				if (OnTexture2DBuildCompleted) OnTexture2DBuildCompleted();
+				if (OnRecipeCompleted) OnRecipeCompleted();
 			}
 			return Built;
 		}
@@ -54,19 +57,27 @@ namespace
 			return Durin::NormalizeTextureCube(Request);
 		}
 		auto BuildTextureCube(const FTextureCubeBuildInput& Request)
-			-> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError> override
+			-> std::optional<FTextureCubePlatformData> override
 		{
 			++BuildCalls;
 			auto Built = Durin::BuildTextureCube(Request);
-			if (Built) for (const auto& Face : (*Built)->Faces) Observe(Face);
+			if (Built)
+			{
+				for (const auto& Face : Built->Faces) Observe(Face);
+				if (OnRecipeCompleted) OnRecipeCompleted();
+			}
 			return Built;
 		}
 		auto BuildVolumeTexture(const FVolumeTextureBuildInput& Request)
-			-> std::expected<std::unique_ptr<FVolumeTexturePlatformData>, FTextureBuildError> override
+			-> std::optional<FVolumeTexturePlatformData> override
 		{
 			++BuildCalls;
 			auto Built = Durin::BuildVolumeTexture(Request);
-			if (Built) for (const auto& Mip : (*Built)->Mips) ReturnedBlocks.emplace_back(Mip.Voxels);
+			if (Built)
+			{
+				for (const auto& Mip : Built->Mips) ReturnedBlocks.emplace_back(Mip.Voxels);
+				if (OnRecipeCompleted) OnRecipeCompleted();
+			}
 			return Built;
 		}
 		auto CountTransferBytes(std::span<const FByteView> FinalBlocks) const -> uint64
@@ -116,10 +127,33 @@ namespace
 		}
 		auto TearDown() -> void override
 		{
-			if (Provider) Provider->OnTexture2DBuildCompleted = {};
+			if (Provider) Provider->OnRecipeCompleted = {};
 			FPaths::SetDerivedDataCacheDirForTests(PreviousRoot);
 			Log.reset();
 			Testing::RemoveTestWorkDirectory(Root);
+		}
+		auto CheckCancellation(std::string_view Fixture, const DerivedData::FBuildDefinition& Definition,
+			std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver) -> void
+		{
+			FPaths::SetDerivedDataCacheDirForTests((Root / Fixture).generic_string());
+			Provider->ResetObservation();
+			std::atomic<bool> bCancelled = false;
+			Provider->OnRecipeCompleted = [&] { bCancelled.store(true); };
+			DerivedData::FBuildRequestOptions Options;
+			Options.Cancellation = DerivedData::FBuildCancellation([&] { return bCancelled.load(); });
+			auto Canceled = TexturePrivate::Build(Definition, Resolver, std::move(Options));
+			ASSERT_TRUE(Canceled);
+			EXPECT_EQ(Canceled->GetStatus(), DerivedData::EStatus::Canceled);
+			EXPECT_EQ(Canceled->GetOutput(), nullptr);
+			EXPECT_EQ(Provider->BuildCalls, 1u);
+			EXPECT_FALSE(Provider->ReturnedBlocks.empty());
+
+			Provider->OnRecipeCompleted = {};
+			auto Retried = TexturePrivate::Build(Definition, std::move(Resolver));
+			ASSERT_TRUE(Retried);
+			EXPECT_EQ(Retried->GetStatus(), DerivedData::EStatus::Ok);
+			EXPECT_NE(Retried->GetOutput(), nullptr);
+			EXPECT_EQ(Provider->BuildCalls, 2u);
 		}
 		template<typename TBuild>
 		auto Measure(std::string_view Fixture, TBuild&& Build, const std::function<void()>& Prepare = {}) -> void
@@ -211,7 +245,7 @@ TEST_F(FDerivedDataTextureQualificationTests, CancellationDiscardsCompletedRecip
 	Provider->ResetObservation();
 	std::atomic<bool> bCancelled = false;
 	// Cancellation arrives after the synchronous recipe has produced valid data.
-	Provider->OnTexture2DBuildCompleted = [&] { bCancelled.store(true); };
+	Provider->OnRecipeCompleted = [&] { bCancelled.store(true); };
 	const FTexture2DBuildExecutionControl Control{.ShouldCancel = [&] { return bCancelled.load(); }};
 	FTexturePlatformData Product;
 	FTexture2DBuildInputIdentity Identity;
@@ -224,11 +258,43 @@ TEST_F(FDerivedDataTextureQualificationTests, CancellationDiscardsCompletedRecip
 	EXPECT_NE(Identity.BuilderVersion, 0u);
 
 	// Canceled products must not be applied or persisted as a cache hit.
-	Provider->OnTexture2DBuildCompleted = {};
+	Provider->OnRecipeCompleted = {};
 	bCancelled.store(false);
 	ASSERT_TRUE(BuildTexture2DPlatformData(*Request, Product, Identity, &Control));
 	EXPECT_TRUE(Product.IsValid());
 	EXPECT_EQ(Provider->BuildCalls, 2u);
+}
+
+TEST_F(FDerivedDataTextureQualificationTests, CubeCancellationDiscardsCompletedRecipeProduct)
+{
+	FTextureCubeFaceImages Faces;
+	for (auto& Face : Faces.Faces)
+	{
+		auto Image = Image::FImage::TryCreate({.Width = 2, .Height = 2,
+			.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(16, std::byte{255}));
+		ASSERT_TRUE(Image);
+		Face = std::move(*Image);
+	}
+	Faces.SourceChannelCount = 4;
+	auto Source = PrepareTextureCubeSource(Faces);
+	ASSERT_TRUE(Source);
+	auto Definition = TexturePrivate::MakeTextureCubeSessionDefinition({
+		.CanonicalSourceIdentity = Source->GetIdentity(), .bSRGB = false,
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game});
+	ASSERT_TRUE(Definition);
+	CheckCancellation("CanceledCube", *Definition, TexturePrivate::MakeTextureCubeInputResolver(*Source, nullptr));
+}
+
+TEST_F(FDerivedDataTextureQualificationTests, VolumeCancellationDiscardsCompletedRecipeProduct)
+{
+	FVolumeTextureSourceData Voxels{.Width = 2, .Height = 2, .Depth = 2};
+	ASSERT_TRUE(Voxels.SetVoxelBytes(FByteBuffer(8, std::byte{42})));
+	auto Source = PrepareVolumeTextureSource(Voxels);
+	ASSERT_TRUE(Source);
+	const FVolumeTextureBuildRequest Request{.Source = std::move(*Source)};
+	auto Definition = TexturePrivate::MakeVolumeTextureSessionDefinition(Request);
+	ASSERT_TRUE(Definition);
+	CheckCancellation("CanceledVolume", *Definition, TexturePrivate::MakeVolumeTextureInputResolver(Request.Source));
 }
 
 TEST_F(FDerivedDataTextureQualificationTests, Texture2DColdAndWarm)

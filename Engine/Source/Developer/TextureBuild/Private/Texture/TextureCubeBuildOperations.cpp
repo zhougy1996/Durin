@@ -1,5 +1,6 @@
 #include "Texture/TextureCubeBuildOperations.h"
 
+#include "Logging/LogMacros.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture/TextureCubeBuilder.h"
 
@@ -125,20 +126,23 @@ namespace Durin
 		}, Panorama.Image);
 	}
 
-	auto BuildTextureCube(const FTextureCubeBuildInput& Request) -> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError>
+	auto BuildTextureCube(const FTextureCubeBuildInput& Request) -> std::optional<FTextureCubePlatformData>
 	{
+		auto Fail = [](std::string_view Reason) -> std::optional<FTextureCubePlatformData>
+		{
+			DURIN_ERROR_CATEGORY("TextureBuild", "TextureCube build failed: {}", Reason);
+			return std::nullopt;
+		};
 		if (const auto* HDR = std::get_if<FTextureCubeHDRBuildInput>(&Request.Pixels))
 		{
 			if ((Request.TargetPlatform != ECookTargetPlatform::Win64
 					&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
 				|| Request.TargetProfile != ECookTargetProfile::Game)
-			{
-				return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
-					"HDR cube build target or color space is invalid."});
-			}
-			auto PlatformData = std::make_unique<FTextureCubePlatformData>();
+				return Fail("HDR cube build target or color space is invalid.");
+			FTextureCubePlatformData PlatformData;
 			if (auto Result = TextureCubeBuilder::BuildHDRTextureCube(HDR->Panorama.get(),
-				{.FaceDimension = HDR->FaceDimension, .ExposureEV = HDR->ExposureEV, .Output = ETextureCubeOutput::HDR}, *PlatformData); !Result) return std::unexpected(std::move(Result.error()));
+				{.FaceDimension = HDR->FaceDimension, .ExposureEV = HDR->ExposureEV, .Output = ETextureCubeOutput::HDR}, PlatformData); !Result)
+				return Fail(Result.error().Diagnostic);
 			return PlatformData;
 		}
 		const auto& LDR = std::get<FTextureCubeLDRBuildInput>(Request.Pixels);
@@ -146,13 +150,10 @@ namespace Durin
 				&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
 			|| Request.TargetProfile != ECookTargetProfile::Game
 			|| !LDR.FaceImages.get().IsValid())
-		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
-				"TextureCube canonical build request is invalid."});
-		}
+			return Fail("TextureCube canonical build request is invalid.");
 		const FTextureCubeFaceImages& SourceData = LDR.FaceImages.get();
 		const auto PixelFormat = TextureBuilder::SelectPixelFormat(ETextureUsage::Color, LDR.bSRGB, SourceData.TransparencyMask != 0);
-		auto PlatformData = std::make_unique<FTextureCubePlatformData>();
+		FTextureCubePlatformData PlatformData;
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
 			auto BuildResult = TextureBuilder::BuildMipChain({
@@ -160,19 +161,12 @@ namespace Durin
 				.Settings = {.bSRGB = LDR.bSRGB},
 				.PixelFormat = PixelFormat});
 			if (!BuildResult)
-			{
-				return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
-					std::format("{} face platform build failed: {}",
-					FaceNames[Index], BuildResult.error())});
-			}
-			PlatformData->Faces[Index] = std::move(BuildResult->PlatformData);
+				return Fail(std::format("{} face platform build failed: {}", FaceNames[Index], BuildResult.error()));
+			PlatformData.Faces[Index] = std::move(BuildResult->PlatformData);
 		}
-		PlatformData->PixelFormat = PlatformData->Faces[0].PixelFormat;
-		if (!PlatformData->IsValid())
-		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
-				"Cube texture platform data is inconsistent."});
-		}
+		PlatformData.PixelFormat = PlatformData.Faces[0].PixelFormat;
+		if (!PlatformData.IsValid())
+			return Fail("Cube texture platform data is inconsistent.");
 		return PlatformData;
 	}
 }

@@ -90,9 +90,9 @@ namespace Durin::TexturePrivate
 				if (!Module) return Fail("The TextureBuild module is unavailable.");
 				auto Built = Module->BuildVolumeTexture({.SourceData = std::cref(Source), .Settings = Constants->Settings,
 					.TargetPlatform = Constants->TargetPlatform, .TargetProfile = Constants->TargetProfile});
-				if (!Built) return Fail(Built.error().Diagnostic);
-				if (!*Built) return Fail("Volume recipe returned no product.");
-				auto Output = MakeVolumeTextureSharedOutput(**Built, Constants->TargetPlatform, Constants->TargetProfile);
+				if (Context.IsCancelled()) return;
+				if (!Built) return Fail("VolumeTexture build failed; see TextureBuild logs for details.");
+				auto Output = MakeVolumeTextureSharedOutput(*Built, Constants->TargetPlatform, Constants->TargetProfile);
 				if (!Output) return Fail(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);

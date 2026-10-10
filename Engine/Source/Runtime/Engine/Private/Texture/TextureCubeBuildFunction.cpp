@@ -156,9 +156,9 @@ namespace Durin::TexturePrivate
 				if (HDR) Request.Pixels = FTextureCubeHDRBuildInput{.Panorama = std::cref(Panorama),
 					.FaceDimension = Options->FaceDimension, .ExposureEV = Options->ExposureEV};
 				auto Built = Module->BuildTextureCube(Request);
-				if (!Built) return Fail(Built.error().Diagnostic);
-				if (!*Built) return Fail("Cube recipe returned no product.");
-				auto Output = MakeTextureCubeSharedOutput(**Built, Options->TargetPlatform, Options->TargetProfile);
+				if (Context.IsCancelled()) return;
+				if (!Built) return Fail("TextureCube build failed; see TextureBuild logs for details.");
+				auto Output = MakeTextureCubeSharedOutput(*Built, Options->TargetPlatform, Options->TargetProfile);
 				if (!Output) return Fail(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);

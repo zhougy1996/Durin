@@ -28,10 +28,12 @@ namespace Durin
 			-> std::optional<FTexture2DBuildOutput> = 0;
 		virtual auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request)
 			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> = 0;
+		// Synchronous and non-cancelable. Failure is logged by TextureBuild.
 		virtual auto BuildTextureCube(const FTextureCubeBuildInput& Request)
-			-> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError> = 0;
+			-> std::optional<FTextureCubePlatformData> = 0;
+		// Synchronous and non-cancelable. Failure is logged by TextureBuild.
 		virtual auto BuildVolumeTexture(const FVolumeTextureBuildInput& Request)
-			-> std::expected<std::unique_ptr<FVolumeTexturePlatformData>, FTextureBuildError> = 0;
+			-> std::optional<FVolumeTexturePlatformData> = 0;
 	};
 }
 

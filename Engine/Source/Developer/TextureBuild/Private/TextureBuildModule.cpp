@@ -38,12 +38,12 @@ namespace Durin
 			return Durin::NormalizeTextureCube(Request);
 		}
 		auto BuildTextureCube(const FTextureCubeBuildInput& Request)
-			-> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError> override
+			-> std::optional<FTextureCubePlatformData> override
 		{
 			return Durin::BuildTextureCube(Request);
 		}
 		auto BuildVolumeTexture(const FVolumeTextureBuildInput& Request)
-			-> std::expected<std::unique_ptr<FVolumeTexturePlatformData>, FTextureBuildError> override
+			-> std::optional<FVolumeTexturePlatformData> override
 		{
 			return Durin::BuildVolumeTexture(Request);
 		}

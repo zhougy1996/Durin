@@ -89,8 +89,12 @@ transactions belong to the publishing caller.
 
 ## Deterministic build and cache
 
-TextureBuild owns the pure volume build operation through `ITextureBuildModule`. It consumes normalized voxels,
-uses a three-axis box filter in linear numeric space, and deterministically
+TextureBuild owns the volume build operation through `ITextureBuildModule`.
+`BuildVolumeTexture` returns `std::optional<FVolumeTexturePlatformData>` by value,
+logs failures inside the module, and accepts no cancellation control. The external
+build system owns cancellation and discards completed results for canceled requests.
+It consumes normalized voxels, uses a three-axis box filter in linear numeric
+space, and deterministically
 builds the complete chain for all five formats. Odd extents include each valid
 source voxel exactly once in the corresponding clamped two-texel footprint;
 floating inputs must be finite. Numeric filtering explicitly converts at the

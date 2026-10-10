@@ -173,7 +173,10 @@ failure reasons.
 `std::optional<FTexture2DBuildOutput>` by value. It logs a failure once inside
 TextureBuild and returns no partial product. The synchronous recipe accepts no
 cancellation control; Engine adapters own derived-data policy and cancellation.
-Detailed recipe failure reasons remain in module logs.
+`BuildTextureCube` and `BuildVolumeTexture` follow the same contract, returning
+`std::optional<FTextureCubePlatformData>` and
+`std::optional<FVolumeTexturePlatformData>` without pointer wrappers. Detailed
+recipe failure reasons remain in module logs.
 Compilation submission and synchronous build return
 `std::expected<void, FTexture2DCompilationError>`, retaining actionable input
 reasons, input causes, object identity, and expected/actual source identities.
@@ -230,7 +233,7 @@ closes. Every callback is GameThread-only and the compiling manager's request
 serial and input-identity comparison prevent stale publication.
 
 Cancellation is checked by the external build system before and after recipe
-execution. An admitted Texture2D recipe finishes mip processing and compression;
+execution. An admitted texture recipe finishes processing;
 a canceled request discards its result before output publication or persistence.
 New requests and accepted authored edits cancel older work. Unload, destruction,
 document close, failed startup unwind, and normal shutdown cancel outstanding work. Shutdown stops admission, cancels the

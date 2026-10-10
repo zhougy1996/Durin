@@ -7,6 +7,7 @@
 
 namespace Durin
 {
+	// Logs failures and returns no partial product; cancellation belongs to the caller.
 	TEXTUREBUILD_API auto BuildVolumeTexture(
-		const FVolumeTextureBuildInput& Request) -> std::expected<std::unique_ptr<FVolumeTexturePlatformData>, FTextureBuildError>;
+		const FVolumeTextureBuildInput& Request) -> std::optional<FVolumeTexturePlatformData>;
 }
