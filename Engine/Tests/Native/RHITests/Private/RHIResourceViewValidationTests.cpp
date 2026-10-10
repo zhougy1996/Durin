@@ -1,9 +1,26 @@
 #include "RHIResources.h"
+#include "Backend/RHIValidation.h"
 
 #include <gtest/gtest.h>
 
 namespace Durin
 {
+	TEST(FRHIResourceViewValidationTests, ByteAddressBuffersUseNativeIdentityAndAlignedViews)
+	{
+		FRHIBuffer Buffer(FRHIBufferCreateDesc::Create("ByteAddress", 32, 4,
+			EBufferUsageFlags::ByteAddressBuffer | EBufferUsageFlags::ShaderResource
+			| EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy
+			| EBufferUsageFlags::DrawIndirect));
+		EXPECT_EQ(Buffer.GetResourceType(), ERHIResourceType::Buffer);
+		EXPECT_FALSE(IsUniformBufferResource(&Buffer));
+		EXPECT_TRUE(ValidateBufferViewDesc(&Buffer, {4, 12, ERHIBufferViewType::ByteAddressStorage}));
+		EXPECT_FALSE(ValidateBufferViewDesc(&Buffer, {2, 12, ERHIBufferViewType::ByteAddressStorage}));
+		EXPECT_FALSE(ValidateBufferViewDesc(&Buffer, {4, 6, ERHIBufferViewType::ByteAddressStorage}));
+		EXPECT_FALSE(ValidateBufferViewDesc(&Buffer, {28, 8, ERHIBufferViewType::ByteAddressStorage}));
+		EXPECT_FALSE(ValidateBufferViewDesc(&Buffer, {0, 16, ERHIBufferViewType::StructuredStorage}));
+		EXPECT_TRUE(ValidateIndirectArgumentBuffer(&Buffer, 0, sizeof(FRHIDrawIndirectArguments), true));
+	}
+
 	TEST(FRHIResourceViewValidationTests, TextureViewExtentUsesSelectedMip)
 	{
 		auto Texture = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(

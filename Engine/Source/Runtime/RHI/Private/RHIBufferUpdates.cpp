@@ -1,4 +1,4 @@
-#include "Backend/RHIStorageBuffer.h"
+#include "RHIBufferUploadData.h"
 #include "RHICommandList.h"
 #include "DynamicRHI.h"
 
@@ -16,40 +16,23 @@ namespace Durin
 			~FPayloadAccountingGuard() { LivePayloadBytes.fetch_sub(Bytes, std::memory_order_relaxed); }
 		};
 
-		auto ValidateDeferredDescriptor(const FRHIBufferDesc& Desc,
+		auto ValidateUniformBufferLayout(const FRHIUniformBufferLayout& Layout,
 			ERHIBufferLifetimeUsage Usage) -> bool
 		{
 			if (Usage != ERHIBufferLifetimeUsage::SingleDraw
 				&& Usage != ERHIBufferLifetimeUsage::SingleFrame
 				&& Usage != ERHIBufferLifetimeUsage::MultiFrame)
 				return false;
-			constexpr auto Allowed = EBufferUsageFlags::UniformBuffer
-				| EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ByteAddressBuffer
-				| EBufferUsageFlags::ShaderResource;
-			if (EnumHasAnyFlags(Desc.Usage, ~Allowed))
-				return false;
-			const bool bUniform = EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer);
-			const bool bStructured = EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::StructuredBuffer);
-			const bool bByteAddress = EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::ByteAddressBuffer);
-			if (static_cast<int>(bUniform) + bStructured + bByteAddress != 1)
-				return false;
-			if (Desc.Size == 0
-				|| (bUniform && (Desc.Size % 16 != 0 || Desc.Stride != 0))
-				|| (bStructured && (Desc.Stride == 0 || Desc.Size % Desc.Stride != 0))
-				|| (bByteAddress && (Desc.Size % 4 != 0 || Desc.Stride != 4)))
-				return false;
+			if (Layout.ConstantBufferSize == 0 || Layout.ConstantBufferSize % 16 != 0) return false;
 			return true;
 		}
 
-		auto ValidateDeferredReferences(const FRHIBufferDesc& Desc,
-			std::span<FRHIResource* const> References) -> bool
+		auto ValidateUniformBufferReferences(std::span<FRHIResource* const> References) -> bool
 		{
-			if (!References.empty() && !EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer))
-				return false;
 			for (const auto* Reference : References)
 			{
-				// Sidecars retain physical resources, not a potentially cyclic logical graph.
-				if (IsLogicalBufferBindingResource(Reference)) return false;
+				// Uniform sidecars retain GPU resources, never a cyclic uniform graph.
+				if (IsUniformBufferResource(Reference)) return false;
 			}
 			return true;
 		}
@@ -116,34 +99,6 @@ namespace Durin
 		return Result;
 	}
 
-	FRHIStorageBuffer::FRHIStorageBuffer(const FRHIBufferDesc& InDesc,
-		ERHIBufferLifetimeUsage Usage, FByteView InitialData)
-		: FRHIBuffer(InDesc, ERHIResourceType::StorageBuffer), LifetimeUsage(Usage),
-		Accounting(FRHIBufferUploadAccounting::Track(InDesc.Size)),
-		Contents(InitialData.begin(), InitialData.end())
-	{
-		require(InitialData.size() == InDesc.Size);
-	}
-
-	auto FRHIStorageBuffer::UpdateContents(uint32 Offset, FByteView Data) -> void
-	{
-		require(IsExecutingRHICommands());
-		require(!Data.empty() && Offset <= GetSize() && Data.size() <= GetSize() - Offset);
-		std::memcpy(Contents.data() + Offset, Data.data(), Data.size());
-	}
-
-	auto FRHICommandListBase::CreateStorageBuffer(const FRHIBufferDesc& Desc,
-		ERHIBufferLifetimeUsage Usage, FByteView InitialData)
-		-> TRefCountPtr<FRHIBuffer>
-	{
-		require(IsRecording());
-		requiref(ValidateDeferredDescriptor(Desc, Usage), "Invalid upload buffer descriptor or lifetime usage.");
-		require(InitialData.size() == Desc.Size);
-		require(!EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer));
-		return GDynamicRHI ? GDynamicRHI->RHICreateStorageBuffer(Desc, Usage, InitialData)
-			: TRefCountPtr<FRHIBuffer>(new FRHIStorageBuffer(Desc, Usage, InitialData));
-	}
-
 	auto FRHICommandListBase::CreateUniformBufferRange(const void* Data, uint32 Size) -> FRHIUniformBufferRange
 	{
 		require(Data);
@@ -157,10 +112,9 @@ namespace Durin
 		-> TRefCountPtr<FRHIUniformBuffer>
 	{
 		require(IsRecording());
-		const FRHIBufferDesc Desc{Layout.ConstantBufferSize, 0, EBufferUsageFlags::UniformBuffer};
-		requiref(ValidateDeferredDescriptor(Desc, Usage), "Invalid upload buffer descriptor or lifetime usage.");
-		require(InitialData.size() == Desc.Size);
-		require(ValidateDeferredReferences(Desc, References));
+		requiref(ValidateUniformBufferLayout(Layout, Usage), "Invalid uniform buffer layout or lifetime usage.");
+		require(InitialData.size() == Layout.ConstantBufferSize);
+		require(ValidateUniformBufferReferences(References));
 		return GDynamicRHI ? GDynamicRHI->RHICreateUniformBuffer(Layout, Usage, InitialData, References)
 			: TRefCountPtr<FRHIUniformBuffer>(new FRHIUniformBuffer(Layout, Usage, InitialData, References));
 	}
@@ -181,12 +135,6 @@ namespace Durin
 		for (auto* Reference : References) PendingReferences.emplace_back(Reference);
 	}
 
-	auto FDynamicRHI::RHICreateStorageBuffer(const FRHIBufferDesc& Desc,
-		ERHIBufferLifetimeUsage Usage, FByteView InitialData) -> TRefCountPtr<FRHIBuffer>
-	{
-		return new FRHIStorageBuffer(Desc, Usage, InitialData);
-	}
-
 	auto FDynamicRHI::RHICreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
 		ERHIBufferLifetimeUsage Usage, FByteView InitialData, std::span<FRHIResource* const> References)
 		-> TRefCountPtr<FRHIUniformBuffer>
@@ -199,7 +147,7 @@ namespace Durin
 		-> void
 	{
 		require(IsRecording() && Buffer && Data.size() == Buffer->GetSize());
-		require(ValidateDeferredReferences({Buffer->GetSize(), 0, EBufferUsageFlags::UniformBuffer}, References));
+		require(ValidateUniformBufferReferences(References));
 		auto Upload = FRHIBufferUploadData::Copy(Data);
 		std::vector<TRefCountPtr<FRHIResource>> Owners;
 		for (auto* Reference : References) Owners.emplace_back(Reference);
@@ -215,40 +163,4 @@ namespace Durin
 		}, Bytes);
 	}
 
-	auto FRHICommandListBase::UpdateBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
-		-> void
-	{
-		require(IsRecording() && IsStorageBuffer(Buffer));
-		const auto& Desc = Buffer->GetDesc();
-		require(!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset);
-		require(!EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::UniformBuffer));
-		auto Upload = FRHIBufferUploadData::Copy(Data);
-		const auto OwnedBytes = Upload->GetOwnedPayloadBytes();
-		EnqueueLambda([Buffer = TRefCountPtr<FRHIStorageBuffer>(static_cast<FRHIStorageBuffer*>(Buffer)),
-			Upload = std::move(Upload), Offset]() mutable {
-			Buffer->UpdateContents(Offset, Upload->GetData());
-			Upload.reset();
-			Buffer = nullptr;
-		}, OwnedBytes);
-	}
-
-	auto FRHIBufferView::CanCreate(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc) -> bool
-	{
-		if (!IsStorageBuffer(Buffer) || !ValidateBufferViewDesc(Buffer->GetDesc(), Desc)) return false;
-		if (const auto* Caps = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr)
-		{
-			const bool bUniform = Desc.Type == ERHIBufferViewType::Uniform;
-			const uint32 Alignment = bUniform ? Caps->MinUniformBufferOffsetAlignment : Caps->MinStorageBufferOffsetAlignment;
-			const uint32 Limit = bUniform ? Caps->MaxUniformBufferRange : Caps->MaxStorageBufferRange;
-			if ((Alignment && Desc.Offset % Alignment != 0) || (Limit && Desc.Size > Limit)) return false;
-		}
-		return true;
-	}
-
-	auto FRHIBufferView::Create(FRHIBuffer* Buffer, const FRHIBufferViewDesc& Desc)
-		-> TRefCountPtr<FRHIBufferView>
-	{
-		requiref(CanCreate(Buffer, Desc), "Invalid Storage buffer view description or parent.");
-		return TRefCountPtr<FRHIBufferView>(new FRHIBufferView(Buffer, Desc));
-	}
 }

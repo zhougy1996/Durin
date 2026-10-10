@@ -443,7 +443,7 @@ namespace Durin
 			Attachment.Access == ERHIAccess::ColorAttachmentReadWrite
 				? ERHITextureViewUsage::ColorAttachment : ERHITextureViewUsage::DepthStencilAttachment);
 		Desc.Range = Attachment.Range;
-		requiref(ValidateTextureViewDesc(Attachment.Texture, Desc).has_value(),
+		requiref(IsTextureViewDescValid(Attachment.Texture, Desc),
 			"Graph attachment has an unrepresentable exact native view.");
 		FTextureViewRHIRef View = GDynamicRHI
 			? GDynamicRHI->RHIGetOrCreateTextureView(Attachment.Texture, Desc)

@@ -127,7 +127,7 @@ thread. It composes each existing authority once and never waits for GPU work:
 | Executor | existing command executor counters, serials, backlog, and queue peaks |
 | Graphics cache | existing capacities, occupancy, hits/misses, native creation, eviction/failure, descriptor and persistence observations |
 | Memory | existing allocation classes, heap budgets, transfer/wait pressure, arena gauges, and native retirement |
-| Completion | submitted/completed tokens and pending submissions, plus retirement values composed from Memory |
+| Completion | submitted/completed tokens and pending submissions; retirement values are available only in Memory |
 | Messages | saturating severity/type, truncation, and recursion-drop counters |
 | Naming/regions | naming/label attempts, failures/skips, invalid regions, active depth, and high-water |
 | Timing | fixed capacity, allocated pages, live/pending/ready intervals, high-water, failure/reuse/poll/result/overflow counters |

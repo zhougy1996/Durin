@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Backend/RHIValidation.h"
 
 #include "RHIShaderParameters.h"
 

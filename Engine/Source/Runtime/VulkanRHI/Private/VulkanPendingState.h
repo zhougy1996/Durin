@@ -7,7 +7,7 @@
 #include "VulkanPlatform.h"
 
 #include "RHIShaderParameters.h"
-#include "VulkanShaderBufferBindings.h"
+#include "VulkanUniformBufferBindings.h"
 
 namespace Durin::VulkanRHI
 {
@@ -38,8 +38,8 @@ namespace Durin::VulkanRHI
 		auto SetComputePipelineState(FVulkanComputePipelineState& InPipelineState,
 			FVulkanCommandBuffer& InCmdBuffer) -> void;
 		auto SetShaderParameters(FRHIShader* InShader,
-			std::span<const FRHIShaderParameterResource> InResourceParameters, bool bResolvingDeferred = false) -> void;
-		auto ResolveDeferredBuffers(FVulkanCommandListContext& Context) -> void;
+			std::span<const FRHIShaderParameterResource> InResourceParameters, bool bResolvingUniforms = false) -> void;
+		auto ResolveUniformBuffers() -> void;
 		auto PushConstants(FVulkanCommandListContext& InContext,
 			EShaderStageFlags StageFlags, uint32 Offset, uint32 Size,
 			const void* Data) -> void;
@@ -61,7 +61,7 @@ namespace Durin::VulkanRHI
 		FVulkanDescriptorWriteScratch DescriptorWriteScratch;
 		FVulkanComputePipelineState* CurrentPipelineState = nullptr;
 		std::vector<FRHIShaderParameterResource> PendingResources;
-		FVulkanShaderBufferBindings DeferredBindings;
+		FVulkanUniformBufferBindings UniformBindings;
 		std::vector<TRefCountPtr<FRHIResource>> PendingOwners;
 		std::vector<FRHIShaderParameterResource> CachedResources;
 		std::vector<TRefCountPtr<FRHIResource>> CachedOwners;
@@ -84,8 +84,8 @@ namespace Durin::VulkanRHI
 
 		~FVulkanGraphicsPipelineDescriptorState() { Reset(); }
 
-		auto SetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters, bool bResolvingDeferred = false) -> void;
-		auto ResolveDeferredBuffers(FVulkanDevice& Device, FVulkanCommandListContext& Context) -> void;
+		auto SetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters, bool bResolvingUniforms = false) -> void;
+		auto ResolveUniformBuffers(FVulkanDevice& Device) -> void;
 
 		auto GetOrCreateDescriptorSetsForDraw(FVulkanDevice& Device, FVulkanGraphicsPipelineState& PipelineState) -> FDescriptorSetsForDraw;
 
@@ -113,7 +113,7 @@ namespace Durin::VulkanRHI
 		};
 
 		std::vector<FRHIShaderParameterResource> PendingShaderResources;
-		FVulkanShaderBufferBindings DeferredBindings;
+		FVulkanUniformBufferBindings UniformBindings;
 		bool bPendingResourcesSorted = true;
 		bool bStructureValidated = false;
 		std::vector<size_t> DrawValidationResourceIndices;
@@ -135,7 +135,7 @@ namespace Durin::VulkanRHI
 
 		// Switches the active PSO and descriptor state, then binds the Vulkan pipeline.
 		auto SetGraphicsPipelineState(FVulkanGraphicsPipelineState& InPipelineState, FVulkanCommandBuffer& InCmdBuffer) -> void;
-		auto ResolveDeferredBuffers(FVulkanCommandListContext& Context) -> void;
+		auto ResolveUniformBuffers() -> void;
 
 		auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 

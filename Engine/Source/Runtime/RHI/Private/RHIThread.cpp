@@ -35,7 +35,7 @@ namespace Durin
 		uint64 FramePressureWaitCount = 0;
 		uint64 FramePressureWaitNanoseconds = 0;
 		uint64 RejectedWorkCount = 0;
-		FRHIThreadError Failure;
+		std::string FailureDiagnostic;
 		bool bConsumerReady = false;
 		mutable std::mutex Mutex;
 		mutable std::condition_variable WorkCV;
@@ -90,20 +90,23 @@ namespace Durin
 					State.Queue.pop_front();
 				}
 
-				FRHIThreadWorkResult Result;
+				bool bFailed = false;
+				std::string FailureDiagnostic;
 				try
 				{
 					DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.Execute");
 					DURIN_PROFILE_CPU_ZONE_TEXT(std::format("serial={} batches={} payloadBytes={}", Entry.Serial, Entry.Work.BatchCount, Entry.Work.PayloadBytes));
-					if (!Entry.Work.IsReady || Entry.Work.IsReady()) Result = Entry.Work.Execute();
+					if (!Entry.Work.IsReady || Entry.Work.IsReady()) Entry.Work.Execute();
 				}
 				catch (const std::exception& Exception)
 				{
-					Result = FRHIThreadWorkResult::FromExternalException(Exception.what());
+					bFailed = true;
+					FailureDiagnostic = std::string_view(Exception.what()).substr(0, 4096);
 				}
 				catch (...)
 				{
-					Result = FRHIThreadWorkResult::Failure(ERHIThreadFailure::UnknownException);
+					bFailed = true;
+					FailureDiagnostic = "RHI thread work failed with an unknown exception.";
 				}
 
 				const uint32 CompletedFrameCount = Entry.Work.FrameCount;
@@ -119,9 +122,9 @@ namespace Durin
 					ReleaseCapacity(CompletedBatchCount, CompletedPayloadBytes, CompletedFrameCount);
 					if (State.FailedSerial != 0)
 					{
-						Result.Error.Code = ERHIThreadFailure::PriorFailure;
+						bFailed = true;
 					}
-					if (Result.IsSuccess())
+					if (!bFailed)
 					{
 						State.CompletedSerial = Entry.Serial;
 					}
@@ -130,7 +133,7 @@ namespace Durin
 						if (State.FailedSerial == 0)
 						{
 							State.FailedSerial = Entry.Serial;
-							State.Failure = std::move(Result.Error);
+							State.FailureDiagnostic = std::move(FailureDiagnostic);
 						}
 						State.AdmissionState = ERHIThreadAdmissionState::Draining;
 						RejectedEntries = std::move(State.Queue);
@@ -146,7 +149,7 @@ namespace Durin
 				RejectedEntries.clear();
 				State.CompletionCV.notify_all();
 				State.WorkCV.notify_all();
-				if (!Result.IsSuccess())
+				if (bFailed)
 				{
 					break;
 				}
@@ -189,18 +192,6 @@ namespace Durin
 		FState& State;
 	};
 
-	auto FRHIThreadWorkResult::Success() -> FRHIThreadWorkResult
-	{
-		return {};
-	}
-
-	auto FRHIThreadWorkResult::FromExternalException(std::string_view Diagnostic)
-		-> FRHIThreadWorkResult
-	{
-		return {{ERHIThreadFailure::ExternalException, std::string(Diagnostic.substr(0, 4096))}};
-	}
-
-
 	FRHIThread::FRHIThread()
 		: State(std::make_shared<FState>())
 	{
@@ -241,7 +232,7 @@ namespace Durin
 			State->FramePressureWaitCount = 0;
 			State->FramePressureWaitNanoseconds = 0;
 			State->RejectedWorkCount = 0;
-			State->Failure = {};
+			State->FailureDiagnostic.clear();
 			State->bConsumerReady = false;
 		}
 
@@ -301,7 +292,7 @@ namespace Durin
 			if (State->FailedSerial != 0) return;
 			State->FailedSerial = State->CompletedSerial == std::numeric_limits<uint64>::max()
 				? State->CompletedSerial : State->CompletedSerial + 1;
-			State->Failure = FRHIThreadWorkResult::FromExternalException(Diagnostic).Error;
+			State->FailureDiagnostic = Diagnostic.substr(0, 4096);
 			State->AdmissionState = ERHIThreadAdmissionState::Draining;
 			Rejected.swap(State->Queue);
 			for (const auto& Entry : Rejected)
@@ -513,12 +504,6 @@ namespace Durin
 		{
 			Result.WaitResult = WaitForSerial(Result.Submission.Serial);
 		}
-		if (Result.Submission.Result == ERHIThreadEnqueueResult::Failed
-			|| Result.WaitResult == ERHIThreadWaitResult::Failed)
-		{
-			std::lock_guard Lock(State->Mutex);
-			Result.Error = State->Failure;
-		}
 		return Result;
 	}
 
@@ -581,7 +566,7 @@ namespace Durin
 			.FramePressureWaitCount = State->FramePressureWaitCount,
 			.FramePressureWaitNanoseconds = State->FramePressureWaitNanoseconds,
 			.RejectedWorkCount = State->RejectedWorkCount,
-			.Error = State->Failure,
+			.FailureDiagnostic = State->FailureDiagnostic,
 		};
 	}
 } // namespace Durin

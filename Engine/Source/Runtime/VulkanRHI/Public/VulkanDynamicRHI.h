@@ -41,13 +41,9 @@ namespace Durin::VulkanRHI
 
 		static auto Get() -> FVulkanDynamicRHI& { return *GetDynamicRHI<FVulkanDynamicRHI>(); }
 
-		auto RHICreateStorageBuffer(const FRHIBufferDesc& Desc,
-			ERHIBufferLifetimeUsage Usage, FByteView InitialData) -> TRefCountPtr<FRHIBuffer> override;
 		auto RHICreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
 			ERHIBufferLifetimeUsage Usage, FByteView InitialData,
 			std::span<FRHIResource* const> References) -> TRefCountPtr<FRHIUniformBuffer> override;
-		auto RHIReserveBufferBacking(const FRHIBufferDesc& Desc)
-			-> std::shared_ptr<void> override;
 		auto Init(const FRHIInitializationContext& Context) -> void override;
 		auto Shutdown() -> void override;
 		auto RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities& override;
@@ -156,6 +152,9 @@ namespace Durin::VulkanRHI
 			bool bRequirePresentation) -> void;
 
 	private:
+		// Releases native ownership after failed initialization or normal shutdown.
+		auto ReleaseNativeResources() -> void;
+
 		// Internal support query for structurally validated, normalized descriptions.
 		auto IsNormalizedTextureSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool;
 

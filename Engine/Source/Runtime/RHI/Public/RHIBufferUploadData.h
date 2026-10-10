@@ -6,7 +6,7 @@
 
 namespace Durin
 {
-	// Accounts for retained Storage contents and owned command upload sources.
+	// Accounts for owned CPU upload sources and Uniform reservation capacity.
 	class FRHIBufferUploadAccounting final
 	{
 	public:

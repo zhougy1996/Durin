@@ -1,4 +1,5 @@
 #include "VulkanDescriptorSets.h"
+#include "Backend/RHICreation.h"
 
 #include "Profiling/Profiling.h"
 #include "Backend/RHICompletionBackend.h"

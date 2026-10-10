@@ -100,7 +100,7 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanBuffer::InitializeDeferredReadOnly(FByteView Data, uint32 Offset) -> void
+	auto FVulkanBuffer::InitializeUniformRange(FByteView Data, uint32 Offset) -> void
 	{
 		CheckVulkanRHIThread();
 		require(Offset <= GetSize() && Data.size() <= GetSize() - Offset && GetMappedPointer());
@@ -108,7 +108,7 @@ namespace Durin::VulkanRHI
 		FlushMappedMemory(Offset, static_cast<uint32>(Data.size()));
 		// A new immutable allocation is first read after submission; flushed host writes
 		// are made available by queue submission, including when recorded in a render pass.
-		bDeferredReadOnly = true;
+		bUniformBacking = true;
 	}
 
 	FVulkanBuffer::~FVulkanBuffer()
@@ -145,7 +145,7 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		check(!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset);
-		require(!bDeferredReadOnly);
+		require(!bUniformBacking);
 		if (void* MappedData = Allocation.GetMappedData(); MappedData != nullptr)
 		{
 			std::memcpy(static_cast<std::byte*>(MappedData) + Offset, Data.data(), Data.size());

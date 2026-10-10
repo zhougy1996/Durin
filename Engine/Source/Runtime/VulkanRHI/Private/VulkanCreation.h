@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Backend/RHICreation.h"
 
 #include "RHI.h"
 

@@ -1,4 +1,5 @@
 #include "PipelineStateCache.h"
+#include "Backend/RHICreation.h"
 #include "Backend/RHIPipelineStateCacheBackend.h"
 #include "PipelineCompileQueue.h"
 #include "DynamicRHI.h"

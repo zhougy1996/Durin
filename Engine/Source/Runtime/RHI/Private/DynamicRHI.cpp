@@ -1,4 +1,5 @@
 #include "DynamicRHI.h"
+#include "Backend/RHIValidation.h"
 #include "PipelineStateCache.h"
 #include "Backend/RHICompletionBackend.h"
 
@@ -102,10 +103,10 @@ namespace Durin
 			S.Executor.RecordedCommandCount, S.Executor.PendingBatchCount,
 			S.Executor.PendingPayloadBytes, S.Completion.LastSubmittedToken,
 			S.Completion.CompletedToken, S.Completion.PendingSubmissions,
-			S.Completion.RetirementPendingCount,
-			S.Completion.RetirementHighWater,
-			S.Completion.RetirementReleasedCount,
-			S.Completion.RetirementMaxTokenLag,
+			S.Memory.RetirementPendingCount,
+			S.Memory.RetirementHighWater,
+			S.Memory.RetirementReleasedCount,
+			S.Memory.RetirementMaxTokenLag,
 			S.Messages.Total, S.Messages.Warning, S.Messages.Error,
 			S.Naming.NamingAttempts, S.Naming.NamingFailures,
 			S.Naming.LabelBegins, S.Naming.LabelEnds,
@@ -134,14 +135,6 @@ namespace Durin
 		Result.Executor = GCommandListExecutor.GetStats();
 		Result.PipelineCache = RHIGetPipelineCacheStatistics();
 		Result.Memory = RHIGetMemoryStatistics();
-		Result.Completion.RetirementPendingCount =
-			Result.Memory.RetirementPendingCount;
-		Result.Completion.RetirementHighWater =
-			Result.Memory.RetirementHighWater;
-		Result.Completion.RetirementReleasedCount =
-			Result.Memory.RetirementReleasedCount;
-		Result.Completion.RetirementMaxTokenLag =
-			Result.Memory.RetirementMaxTokenLag;
 		Result.Naming.InvalidRegionCount =
 			FRHICommandListBase::GetInvalidDiagnosticRegionCount();
 		return Result;
@@ -158,7 +151,6 @@ namespace Durin
 		FRHIBuffer* Buffer,
 		const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView>
 	{
-		if (IsStorageBuffer(Buffer)) return nullptr;
 		if (!ValidateBufferViewDesc(Buffer, Desc)) return nullptr;
 		return new FRHIBufferView(Buffer, Desc);
 	}
@@ -175,7 +167,6 @@ namespace Durin
 		FRHIBuffer* Buffer,
 		const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView>
 	{
-		if (IsStorageBuffer(Buffer)) return nullptr;
 		return RHICreateBufferView(Buffer, Desc);
 	}
 

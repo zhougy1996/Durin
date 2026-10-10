@@ -1,4 +1,5 @@
 #include "VulkanRenderPass.h"
+#include "Backend/RHICreation.h"
 
 #include "VulkanCommandBuffer.h"
 #include "VulkanDevice.h"

@@ -1,4 +1,5 @@
 #include "DynamicRHI.h"
+#include "Backend/RHIValidation.h"
 #include "MacOS/MacOSPresentationTarget.h"
 #include "Backend/RHICompletionBackend.h"
 #include "MetalAutoreleasePool.h"
@@ -20,29 +21,6 @@
 
 namespace Durin
 {
-	auto FMetalStorageBuffer::AllocateContents() -> void
-	{
-		require(IsExecutingRHICommands());
-		const FMetalAutoreleasePool Pool;
-		auto Next = std::make_shared<FMetalStorageAllocation>();
-		const auto Data = GetContents();
-		Next->Handle = NS::TransferPtr(Device->newBuffer(Data.data(), Data.size(), MTL::ResourceStorageModeShared));
-		requiref(static_cast<bool>(Next->Handle), "Metal storage allocation failed.");
-		Allocation = std::move(Next);
-	}
-
-	auto FMetalStorageBuffer::UpdateContents(uint32 Offset, FByteView Data) -> void
-	{
-		FRHIStorageBuffer::UpdateContents(Offset, Data);
-		AllocateContents();
-	}
-
-	auto FMetalStorageBuffer::GetAllocation() -> const std::shared_ptr<FMetalStorageAllocation>&
-	{
-		require(IsExecutingRHICommands());
-		if (!Allocation) AllocateContents();
-		return Allocation;
-	}
 
 	auto FMetalUniformBuffer::UpdateContents(FByteView Data, std::span<FRHIResource* const> References) -> void
 	{
@@ -74,9 +52,6 @@ namespace Durin
 		class FMetalDynamicRHI final : public FDynamicRHI
 		{
 		public:
-			auto RHICreateStorageBuffer(const FRHIBufferDesc& Desc,
-				ERHIBufferLifetimeUsage Usage, FByteView Data) -> TRefCountPtr<FRHIBuffer> override
-			{ return new FMetalStorageBuffer(Device.get(), Desc, Usage, Data); }
 			auto RHICreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
 				ERHIBufferLifetimeUsage Usage, FByteView Data, std::span<FRHIResource* const> References)
 				-> TRefCountPtr<FRHIUniformBuffer> override
@@ -96,78 +71,86 @@ namespace Durin
 			auto Init(const FRHIInitializationContext& Context) -> void override
 			{
 				const FMetalAutoreleasePool Pool;
-				if (const auto& Target = Context.GetPresentationTarget())
+				try
 				{
-					const auto* NativeTarget = dynamic_cast<const FMacOSPresentationTarget*>(Target->PlatformTarget.get());
-					StartupLayer = NativeTarget ? NS::RetainPtr(NativeTarget->GetMetalLayer()) : nullptr;
-					if (!StartupLayer)
-						throw std::runtime_error("Metal presentation requires a CAMetalLayer.");
-					StartupWindow = Target->GetNativeWindowHandle();
-				}
-				auto Native = CreateMetalCppDeviceAndQueue();
-				Device = std::move(Native.Device);
-				Queue = std::move(Native.Queue);
-				State = std::make_shared<FMetalSubmissionState>();
-				State->Queue = Queue;
-				State->Generation = AllocateRHIDeviceGeneration();
-				State->Timeline = std::make_unique<FRHIGPUQueueTimeline>(
-					State->Generation, FRHIQueueId{0});
-				QueueCapabilities.DeviceGeneration = State->Generation;
-				QueueCapabilities.Queues = {{.Id = {0}, .OwnershipDomain = 0,
-					.bGraphics = true, .bCompute = true, .bCopy = true}};
-				QueueCapabilities.Graphics = {0};
-				QueueCapabilities.Compute = {0};
-				CommandContext->Configure(State);
-				FRHICapabilities Supported;
-				Supported.SupportedTextureDimensions =
-					ERHITextureDimensionFlags::Texture2D | ERHITextureDimensionFlags::TextureCube;
-				Supported.MaxTextureDimension2D = 8192;
-				Supported.MaxTextureDimensionCube = 16384;
-				Supported.MaxTextureArrayLayers = TextureCubeFaceCount;
-				Supported.ColorSampleCounts = ERHISampleCountFlags::Samples1;
-				Supported.DepthSampleCounts = ERHISampleCountFlags::Samples1;
-				Supported.MaxColorAttachments = 4;
-				Supported.MinStorageBufferOffsetAlignment = 16;
-				Supported.MaxStorageBufferRange = 1u << 27;
-				Supported.MaxFragmentSampledImages = 16;
-				Supported.MaxFragmentSamplers = 16;
-				Supported.MaxFragmentUniformBuffers = 16;
-				Supported.MaxFragmentResources = 31;
-				Supported.MaxUniformBufferRange = 65536;
-				Supported.MinUniformBufferOffsetAlignment = 16;
-				Supported.MaxComputeWorkGroupCount = {65535, 65535, 65535};
-				Supported.bSupportsIndirectDraw = true;
-				Supported.bSupportsIndirectDispatch = true;
-				Supported.bSupportsSkyLighting = Device->supports32BitFloatFiltering();
-				if (Device->supportsCounterSampling(MTL::CounterSamplingPointAtStageBoundary))
-				{
-					auto* Sets = Device->counterSets();
-					for (NS::UInteger Index = 0; Sets && Index < Sets->count(); ++Index)
+					if (const auto& Target = Context.GetPresentationTarget())
 					{
-						auto* Set = Sets->object<MTL::CounterSet>(Index);
-						if (!Set->name()->isEqualToString(MTL::CommonCounterSetTimestamp)) continue;
-						auto Desc = NS::TransferPtr(MTL::CounterSampleBufferDescriptor::alloc()->init());
-						Desc->setCounterSet(Set);
-						Desc->setSampleCount(FMetalGPUTimingPool::Capacity * 2);
-						Desc->setStorageMode(MTL::StorageModeShared);
-						NS::Error* Error = nullptr;
-						auto Buffer = NS::TransferPtr(Device->newCounterSampleBuffer(Desc.get(), &Error));
-						auto Marker = NS::TransferPtr(Device->newBuffer(4, MTL::ResourceStorageModeShared));
-						mach_timebase_info_data_t Timebase{};
-						if (!Buffer || !Marker || mach_timebase_info(&Timebase) != KERN_SUCCESS || !Timebase.denom) break;
-						State->TimingPool = std::make_shared<FMetalGPUTimingPool>();
-						State->TimingPool->Buffer = std::move(Buffer);
-						State->TimingPool->Marker = std::move(Marker);
-						State->TimingPool->Generation = State->Generation;
-						// The admitted Apple GPUs use the mach_absolute_time clock for counters.
-						State->TimingPool->NanosecondsPerTick = double(Timebase.numer) / Timebase.denom;
-						Supported.bSupportsGPUTimestamps = true;
-						Supported.GPUTimestampNanosecondsPerTick = State->TimingPool->NanosecondsPerTick;
-						break;
+						const auto* NativeTarget = dynamic_cast<const FMacOSPresentationTarget*>(Target->PlatformTarget.get());
+						StartupLayer = NativeTarget ? NS::RetainPtr(NativeTarget->GetMetalLayer()) : nullptr;
+						if (!StartupLayer)
+							throw std::runtime_error("Metal presentation requires a CAMetalLayer.");
+						StartupWindow = Target->GetNativeWindowHandle();
 					}
+					auto Native = CreateMetalCppDeviceAndQueue();
+					Device = std::move(Native.Device);
+					Queue = std::move(Native.Queue);
+					State = std::make_shared<FMetalSubmissionState>();
+					State->Queue = Queue;
+					State->Generation = AllocateRHIDeviceGeneration();
+					State->Timeline = std::make_unique<FRHIGPUQueueTimeline>(
+						State->Generation, FRHIQueueId{0});
+					QueueCapabilities.DeviceGeneration = State->Generation;
+					QueueCapabilities.Queues = {{.Id = {0}, .OwnershipDomain = 0,
+						.bGraphics = true, .bCompute = true, .bCopy = true}};
+					QueueCapabilities.Graphics = {0};
+					QueueCapabilities.Compute = {0};
+					CommandContext->Configure(State);
+					FRHICapabilities Supported;
+					Supported.SupportedTextureDimensions =
+						ERHITextureDimensionFlags::Texture2D | ERHITextureDimensionFlags::TextureCube;
+					Supported.MaxTextureDimension2D = 8192;
+					Supported.MaxTextureDimensionCube = 16384;
+					Supported.MaxTextureArrayLayers = TextureCubeFaceCount;
+					Supported.ColorSampleCounts = ERHISampleCountFlags::Samples1;
+					Supported.DepthSampleCounts = ERHISampleCountFlags::Samples1;
+					Supported.MaxColorAttachments = 4;
+					Supported.MinStorageBufferOffsetAlignment = 16;
+					Supported.MaxStorageBufferRange = 1u << 27;
+					Supported.MaxFragmentSampledImages = 16;
+					Supported.MaxFragmentSamplers = 16;
+					Supported.MaxFragmentUniformBuffers = 16;
+					Supported.MaxFragmentResources = 31;
+					Supported.MaxUniformBufferRange = 65536;
+					Supported.MinUniformBufferOffsetAlignment = 16;
+					Supported.MaxComputeWorkGroupCount = {65535, 65535, 65535};
+					Supported.bSupportsIndirectDraw = true;
+					Supported.bSupportsIndirectDispatch = true;
+					Supported.bSupportsSkyLighting = Device->supports32BitFloatFiltering();
+					if (Device->supportsCounterSampling(MTL::CounterSamplingPointAtStageBoundary))
+					{
+						auto* Sets = Device->counterSets();
+						for (NS::UInteger Index = 0; Sets && Index < Sets->count(); ++Index)
+						{
+							auto* Set = Sets->object<MTL::CounterSet>(Index);
+							if (!Set->name()->isEqualToString(MTL::CommonCounterSetTimestamp)) continue;
+							auto Desc = NS::TransferPtr(MTL::CounterSampleBufferDescriptor::alloc()->init());
+							Desc->setCounterSet(Set);
+							Desc->setSampleCount(FMetalGPUTimingPool::Capacity * 2);
+							Desc->setStorageMode(MTL::StorageModeShared);
+							NS::Error* Error = nullptr;
+							auto Buffer = NS::TransferPtr(Device->newCounterSampleBuffer(Desc.get(), &Error));
+							auto Marker = NS::TransferPtr(Device->newBuffer(4, MTL::ResourceStorageModeShared));
+							mach_timebase_info_data_t Timebase{};
+							if (!Buffer || !Marker || mach_timebase_info(&Timebase) != KERN_SUCCESS || !Timebase.denom) break;
+							State->TimingPool = std::make_shared<FMetalGPUTimingPool>();
+							State->TimingPool->Buffer = std::move(Buffer);
+							State->TimingPool->Marker = std::move(Marker);
+							State->TimingPool->Generation = State->Generation;
+							// The admitted Apple GPUs use the mach_absolute_time clock for counters.
+							State->TimingPool->NanosecondsPerTick = double(Timebase.numer) / Timebase.denom;
+							Supported.bSupportsGPUTimestamps = true;
+							Supported.GPUTimestampNanosecondsPerTick = State->TimingPool->NanosecondsPerTick;
+							break;
+						}
+					}
+					PublishCapabilities(std::move(Supported));
+					PipelineCreationClosed = false;
 				}
-				PublishCapabilities(std::move(Supported));
-				PipelineCreationClosed = false;
+				catch (...)
+				{
+					ResetDeviceState();
+					throw;
+				}
 			}
 			auto RHICreateGPUTimingQuery() -> FGPUTimingQueryRHIRef override
 			{
@@ -255,14 +238,7 @@ namespace Durin
 				}
 				// Callback/context releases may enqueue RHI deletes after the outer shutdown marker.
 				RHIFlushDeferredResources();
-				CommandContext->Configure({});
-				State.reset();
-				ClearCapabilities();
-				QueueCapabilities = {};
-				Queue.reset();
-				Device.reset();
-				StartupLayer.reset();
-				StartupWindow = nullptr;
+				ResetDeviceState();
 			}
 			auto RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities& override
 			{ return QueueCapabilities; }
@@ -511,7 +487,7 @@ namespace Durin
 			auto RHICreateBufferView(FRHIBuffer* Buffer,
 			const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView> override
 			{
-				if (!Buffer || IsStorageBuffer(Buffer)
+				if (!Buffer
 					|| !ValidateBufferViewDesc(Buffer, Desc)
 					|| Desc.Type == ERHIBufferViewType::Formatted)
 					return nullptr;
@@ -554,6 +530,19 @@ namespace Durin
 				return new FRHITextureView(Texture, Desc);
 			}
 		private:
+			auto ResetDeviceState() -> void
+			{
+				CommandContext->Configure({});
+				State.reset();
+				ClearCapabilities();
+				QueueCapabilities = {};
+				Queue.reset();
+				Device.reset();
+				StartupLayer.reset();
+				StartupWindow = nullptr;
+				PipelineCreationClosed = true;
+			}
+
 			static auto UnsupportedCreation() -> FRHICreationError
 			{
 				return {.Failure = ERHIResourceCreationFailure::UnsupportedDescriptor,

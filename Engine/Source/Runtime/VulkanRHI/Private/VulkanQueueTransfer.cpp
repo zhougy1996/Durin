@@ -1,4 +1,5 @@
 #include "VulkanQueueTransfer.h"
+#include "Backend/RHIValidation.h"
 #include "VulkanBuffer.h"
 #include "VulkanTexture.h"
 #include "VulkanDevice.h"
@@ -91,7 +92,7 @@ namespace Durin::VulkanRHI
 	{
 		require(Source != Destination && Device.FindQueue(Source) && Device.FindQueue(Destination));
 		require(!Buffers.empty() || !Textures.empty());
-		for (const auto& Transition : Buffers) require(!IsStorageBuffer(Transition.Buffer));
+
 		const auto BufferResult = ValidateBufferTransitions(Buffers);
 		requiref(BufferResult, "{}", ToString(BufferResult.error()));
 		const auto TextureResult = ValidateTextureTransitions(Textures);

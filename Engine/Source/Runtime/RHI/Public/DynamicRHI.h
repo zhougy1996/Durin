@@ -164,10 +164,6 @@ namespace Durin
 		uint64 LastSubmittedToken = 0;
 		uint64 CompletedToken = 0;
 		uint64 PendingSubmissions = 0;
-		uint64 RetirementPendingCount = 0;
-		uint64 RetirementHighWater = 0;
-		uint64 RetirementReleasedCount = 0;
-		uint64 RetirementMaxTokenLag = 0;
 	};
 
 	struct FRHIGPUTimingStatistics
@@ -217,6 +213,8 @@ namespace Durin
 		RHI_API virtual ~FDynamicRHI();
 
 		// Initializes the backend from one complete context on the RHI execution thread.
+		// On failure the backend releases partial state before propagating the exception.
+		// The RHI owner destroys failed backends without calling runtime Shutdown.
 		virtual auto Init(const FRHIInitializationContext& Context) -> void = 0;
 		virtual auto Shutdown() -> void = 0;
 		RHI_API virtual auto RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities&;
@@ -236,13 +234,9 @@ namespace Durin
 			uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult;
 		RHI_API auto RHIGetCapabilities() const -> const FRHICapabilities*;
 		// Creates a parameter resource without native allocation on the recording lane.
-		RHI_API virtual auto RHICreateStorageBuffer(const FRHIBufferDesc& Desc,
-			ERHIBufferLifetimeUsage Usage, FByteView InitialData) -> TRefCountPtr<FRHIBuffer>;
 		RHI_API virtual auto RHICreateUniformBuffer(const FRHIUniformBufferLayout& Layout,
 			ERHIBufferLifetimeUsage Usage, FByteView InitialData,
 			std::span<FRHIResource* const> References) -> TRefCountPtr<FRHIUniformBuffer>;
-		virtual auto RHIReserveBufferBacking(const FRHIBufferDesc& Desc)
-			-> std::shared_ptr<void> { return std::shared_ptr<void>{}; }
 		// Counters accumulate for the device lifetime until explicitly reset.
 		RHI_API virtual auto RHIGetPipelineCacheStatistics() const
 			-> FRHIPipelineCacheStatistics;

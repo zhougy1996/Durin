@@ -153,15 +153,10 @@ namespace Durin
 			ERHIBufferLifetimeUsage Usage, FByteView InitialData,
 			std::span<FRHIResource* const> References = {})
 			-> TRefCountPtr<FRHIUniformBuffer>;
-		RHI_API auto CreateStorageBuffer(const FRHIBufferDesc& Desc,
-			ERHIBufferLifetimeUsage Usage, FByteView InitialData)
-			-> TRefCountPtr<FRHIBuffer>;
 		// Updates are ordered on replay. Rebind shader parameters to select the new contents;
 		// existing bindings retain the physical contents captured at their last bind.
 		RHI_API auto UpdateUniformBuffer(FRHIUniformBuffer* Buffer, FByteView Data,
 			std::span<FRHIResource* const> References = {})
-			-> void;
-		RHI_API auto UpdateBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data)
 			-> void;
 		RHI_API auto InitializeTexture(FRHITexture* Texture) -> void;
 		RHI_API auto UpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void;
@@ -235,6 +230,8 @@ namespace Durin
 		RHI_API auto CommitCommand(void* Node, size_t OwnedPayloadBytes) -> void;
 		static auto RecordInvalidDiagnosticRegion() -> void;
 		auto TryAddPipelineDependency(const FRHIPipelineCreationRequest& Request) -> bool;
+		auto RecordBufferUpload(FRHIBuffer* Buffer, uint32 Offset,
+			std::shared_ptr<const FRHIBufferUploadData> Data, bool bRestoreCanonicalAccess) -> void;
 		auto DetachStorage() -> std::unique_ptr<FRHICommandStorage>;
 		auto IsFinished() const -> bool;
 		auto MarkAdmitted() -> void;
@@ -322,22 +319,6 @@ namespace Durin
 			return Result == ERHICommandListSubmitResult::Accepted;
 		}
 	};
-
-	// Only explicit creation failures may leave the executor usable. Device and
-	// invariant failures must not derive from this type.
-	class FRHIRecoverableCreationError : public std::exception
-	{
-	public:
-		explicit FRHIRecoverableCreationError(FRHICreationError InError) : Error(InError)
-		{ check(Error.HasError()); }
-		auto what() const noexcept -> const char* override { return "Recoverable RHI creation failure"; }
-		FRHICreationError Error;
-	};
-
-	// Executes immediately on the caller; never schedules, acquires a context, or waits.
-	// Only explicitly recoverable creation errors become failed results.
-	RHI_API auto ExecuteFallibleRHICreationOperation(const std::function<void()>& Operation)
-		-> FRHICreationError;
 
 	// Owns the primary timeline and immediate-only coordination operations.
 	class FRHICommandListImmediate final : public FRHICommandList

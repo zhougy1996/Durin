@@ -1,5 +1,5 @@
 #include "VulkanUniformBuffer.h"
-#include "VulkanShaderBufferBindings.h"
+#include "VulkanUniformBufferPool.h"
 #include "VulkanDevice.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanDynamicRHI.h"
@@ -29,13 +29,13 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		require(Data.size() == GetSize());
 		auto Next = std::make_shared<FVulkanUniformAllocation>();
-		Next->Lease = Device.GetBindingPool(true).Reserve(GetSize());
-		const auto [Buffer, Offset] = Device.GetBindingPool(true).Resolve(
-			Next->Lease);
+		Next->Reservation = Device.GetUniformBufferPool().Reserve(GetSize());
+		const auto [Buffer, Offset] = Device.GetUniformBufferPool().Resolve(
+			Next->Reservation);
 		Next->Buffer = Buffer;
 		Next->Offset = Offset;
 		for (auto* Reference : References) Next->References.emplace_back(Reference);
-		Buffer->InitializeDeferredReadOnly(Data, static_cast<uint32>(Offset));
+		Buffer->InitializeUniformRange(Data, static_cast<uint32>(Offset));
 		const auto& Limits = Device.GetGpuProperties().limits;
 		const uint64 Alignment = std::max<uint64>({16, Limits.nonCoherentAtomSize,
 			Limits.minUniformBufferOffsetAlignment});

@@ -1,4 +1,5 @@
 #include "Backend/RHIPipelineStateCacheBackend.h"
+#include "Backend/RHICreation.h"
 #include "VulkanCreation.h"
 #include "VulkanCreationTiming.h"
 #include "VulkanPipeline.h"

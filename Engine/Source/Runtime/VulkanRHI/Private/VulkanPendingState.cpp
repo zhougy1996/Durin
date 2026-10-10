@@ -1,4 +1,5 @@
 #include "VulkanPendingState.h"
+#include "Backend/RHIValidation.h"
 
 #include "VulkanBuffer.h"
 #include "VulkanCommandBuffer.h"
@@ -138,7 +139,7 @@ namespace Durin::VulkanRHI
 		if (CurrentPipelineState != &InPipelineState)
 		{
 			PendingResources.clear();
-			DeferredBindings.Clear();
+			UniformBindings.Clear();
 			PendingOwners.clear();
 			ClearDescriptorSetCache();
 		}
@@ -147,12 +148,12 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanPendingComputeState::SetShaderParameters(FRHIShader* InShader,
-		std::span<const FRHIShaderParameterResource> InResourceParameters, bool bResolvingDeferred) -> void
+		std::span<const FRHIShaderParameterResource> InResourceParameters, bool bResolvingUniforms) -> void
 	{
-		check(CurrentPipelineState && (InShader || bResolvingDeferred));
-		if (!bResolvingDeferred)
+		check(CurrentPipelineState && (InShader || bResolvingUniforms));
+		if (!bResolvingUniforms)
 		{
-			DeferredBindings.Update(InResourceParameters);
+			UniformBindings.Update(InResourceParameters);
 			const FComputePipelineStateKey& Key = CurrentPipelineState->GetKey();
 			checkf(InShader->GetFrequency() == EShaderFrequency::Compute
 				&& InShader->GetHash() == Key.ComputeShaderHash,
@@ -166,7 +167,7 @@ namespace Durin::VulkanRHI
 		}
 		for (const FRHIShaderParameterResource& Parameter : InResourceParameters)
 		{
-			if (!bResolvingDeferred && IsLogicalBufferBindingResource(Parameter.Resource)) continue;
+			if (!bResolvingUniforms && IsUniformBufferResource(Parameter.Resource)) continue;
 			const auto It = std::ranges::find_if(PendingResources,
 				[&](const FRHIShaderParameterResource& Existing) {
 					return Existing.SetIndex == Parameter.SetIndex
@@ -230,16 +231,16 @@ namespace Durin::VulkanRHI
 		{
 			CurrentPipelineState = nullptr;
 			PendingResources.clear();
-			DeferredBindings.Clear();
+			UniformBindings.Clear();
 			PendingOwners.clear();
 			ClearDescriptorSetCache();
 		}
 	}
 
-	auto FVulkanPendingComputeState::ResolveDeferredBuffers(FVulkanCommandListContext& Context) -> void
+	auto FVulkanPendingComputeState::ResolveUniformBuffers() -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.ResolveDeferredBuffers");
-		const auto Resolved = DeferredBindings.Resolve(Device, Context);
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.ResolveUniformBuffers");
+		const auto Resolved = UniformBindings.Resolve(Device);
 		if (!Resolved.empty()) SetShaderParameters(nullptr, Resolved, true);
 	}
 
@@ -248,7 +249,7 @@ namespace Durin::VulkanRHI
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Compute.PrepareDescriptors");
 		check(CurrentPipelineState);
-		DeferredBindings.PrepareForUse(InContext, ERHIPipeline::Compute);
+		UniformBindings.PrepareForUse(InContext, ERHIPipeline::Compute);
 		const uint64 Generation = Device.GetGlobalDescriptorPool().GetGeneration();
 		if (DescriptorPoolGeneration != Generation)
 		{
@@ -288,7 +289,8 @@ namespace Durin::VulkanRHI
 				const auto* View = FVulkanBufferView::Cast(Resource.Resource);
 				const auto* Buffer = FVulkanBuffer::Cast(View->GetBuffer());
 				const ERHIAccess Expected = Resource.Type == ERHIBindingType::StorageBuffer
-					? (Buffer->IsDeferredReadOnly() ? ERHIAccess::ComputeShaderRead : ERHIAccess::ComputeShaderReadWrite)
+					? (EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::UnorderedAccess)
+						? ERHIAccess::ComputeShaderReadWrite : ERHIAccess::ComputeShaderRead)
 					: ERHIAccess::ComputeUniformRead;
 				ERHIAccess Tracked = ERHIAccess::None;
 				const uint64 Offset = View->GetDesc().Offset
@@ -448,13 +450,13 @@ namespace Durin::VulkanRHI
 		CurrentDescriptorState->SetShaderParameters(InShader, InResourceParameters);
 	}
 
-	auto FVulkanGraphicsPipelineDescriptorState::SetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters, bool bResolvingDeferred) -> void
+	auto FVulkanGraphicsPipelineDescriptorState::SetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters, bool bResolvingUniforms) -> void
 	{
-		if (!bResolvingDeferred) DeferredBindings.Update(InResourceParameters);
+		if (!bResolvingUniforms) UniformBindings.Update(InResourceParameters);
 		for (const auto& ResourceParameter : InResourceParameters)
 		{
 			// Resolve logical updates before deciding whether native descriptor contents changed.
-			if (!bResolvingDeferred && IsLogicalBufferBindingResource(ResourceParameter.Resource)) continue;
+			if (!bResolvingUniforms && IsUniformBufferResource(ResourceParameter.Resource)) continue;
 			if (PendingSets.size() <= ResourceParameter.SetIndex)
 				PendingSets.resize(static_cast<size_t>(ResourceParameter.SetIndex) + 1);
 			auto& Set = PendingSets[ResourceParameter.SetIndex];
@@ -499,18 +501,18 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanGraphicsPipelineDescriptorState::ResolveDeferredBuffers(
-		FVulkanDevice& Device, FVulkanCommandListContext& Context) -> void
+	auto FVulkanGraphicsPipelineDescriptorState::ResolveUniformBuffers(
+		FVulkanDevice& Device) -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.ResolveDeferredBuffers");
-		const auto Resolved = DeferredBindings.Resolve(Device, Context);
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.ResolveUniformBuffers");
+		const auto Resolved = UniformBindings.Resolve(Device);
 		if (!Resolved.empty()) SetShaderParameters(nullptr, Resolved, true);
 	}
 
-	auto FVulkanPendingGraphicsState::ResolveDeferredBuffers(FVulkanCommandListContext& Context) -> void
+	auto FVulkanPendingGraphicsState::ResolveUniformBuffers() -> void
 	{
 		check(CurrentDescriptorState);
-		CurrentDescriptorState->ResolveDeferredBuffers(Device, Context);
+		CurrentDescriptorState->ResolveUniformBuffers(Device);
 	}
 
 	auto FVulkanPendingGraphicsState::PrepareForDraw(FVulkanCommandListContext& InContext) -> void
@@ -518,7 +520,7 @@ namespace Durin::VulkanRHI
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.Prepare");
 		check(CurrentPipelineState);
 		check(CurrentDescriptorState);
-		CurrentDescriptorState->DeferredBindings.PrepareForUse(InContext, ERHIPipeline::Graphics);
+		CurrentDescriptorState->UniformBindings.PrepareForUse(InContext, ERHIPipeline::Graphics);
 		const uint64 Generation = Device.GetGlobalDescriptorPool().GetGeneration();
 		if (DescriptorPoolGeneration != Generation)
 		{
@@ -579,7 +581,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanGraphicsPipelineDescriptorState::Reset() -> void
 	{
 		PendingShaderResources.clear();
-		DeferredBindings.Clear();
+		UniformBindings.Clear();
 		bPendingResourcesSorted = true;
 		bStructureValidated = false;
 		DrawValidationResourceIndices.clear();

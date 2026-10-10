@@ -1,4 +1,5 @@
 #include "VulkanContext.h"
+#include "Backend/RHIValidation.h"
 #include "Backend/RHICompletionBackend.h"
 
 #include "RHIResources.h"
@@ -1102,12 +1103,12 @@ namespace Durin::VulkanRHI
 		if (InShader && InShader->GetFrequency() == EShaderFrequency::Compute)
 		{
 			PendingComputeState->SetShaderParameters(InShader, InResourceParameters);
-			PendingComputeState->ResolveDeferredBuffers(*this);
+			PendingComputeState->ResolveUniformBuffers();
 		}
 		else
 		{
 			PendingGfxState->SetShaderParameters(InShader, InResourceParameters);
-			PendingGfxState->ResolveDeferredBuffers(*this);
+			PendingGfxState->ResolveUniformBuffers();
 		}
 	}
 

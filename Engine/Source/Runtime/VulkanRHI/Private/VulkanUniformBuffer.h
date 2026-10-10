@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "RHIResources.h"
 #include "VulkanBuffer.h"
+#include "VulkanUniformBufferPool.h"
 
 namespace Durin::VulkanRHI
 {
@@ -10,7 +11,7 @@ namespace Durin::VulkanRHI
 	struct FVulkanUniformAllocation
 	{
 		TRefCountPtr<FVulkanBuffer> Buffer;
-		std::shared_ptr<void> Lease;
+		std::shared_ptr<FVulkanUniformBufferAdmission::FReservation> Reservation;
 		uint64 Offset = 0;
 		uint64 Size = 0;
 		std::vector<TRefCountPtr<FRHIResource>> References;

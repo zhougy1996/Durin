@@ -350,7 +350,7 @@ namespace Durin
 							View = GDynamicRHI->RHIGetOrCreateTextureView(Texture, Desc);
 						else
 						{
-							if (ValidateTextureViewDesc(Texture, Desc))
+							if (IsTextureViewDescValid(Texture, Desc))
 								View = new FRHITextureView(Texture, Desc);
 						}
 						checkf(View,

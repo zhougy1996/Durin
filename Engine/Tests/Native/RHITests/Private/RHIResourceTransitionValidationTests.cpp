@@ -1,4 +1,5 @@
 #include "RHIResources.h"
+#include "Backend/RHIValidation.h"
 
 #include <gtest/gtest.h>
 

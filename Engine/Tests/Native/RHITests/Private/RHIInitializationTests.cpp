@@ -12,12 +12,15 @@ namespace Durin
 		struct FInitializationObservation
 		{
 			uint32 InitCount = 0;
+			uint32 InitCleanupCount = 0;
 			uint32 ShutdownCount = 0;
 			uint32 DestructionCount = 0;
 			bool bInitOnRHIThread = false;
+			bool bInitCleanupOnRHIThread = false;
 			bool bShutdownOnRHIThread = false;
 			bool bCapabilitiesClearedAtShutdown = false;
 			bool bFailShutdown = false;
+			bool bUnknownInitFailure = false;
 			FRHIInitializationContext InitializationContext =
 				FRHIInitializationContext::Headless();
 		};
@@ -45,6 +48,10 @@ namespace Durin
 				Observation.bInitOnRHIThread = IsInRHIThread();
 				if (bFailInit)
 				{
+					++Observation.InitCleanupCount;
+					Observation.bInitCleanupOnRHIThread = IsInRHIThread();
+					ClearCapabilities();
+					if (Observation.bUnknownInitFailure) throw 42;
 					throw std::runtime_error("intentional backend init failure");
 				}
 				FRHICapabilities Capabilities;
@@ -128,7 +135,7 @@ namespace Durin
 	}
 
 	TEST(FRHIInitializationTests,
-		BackendInitFailureRollsBackOnRHIThread)
+		BackendOwnsInitFailureCleanupOnRHIThread)
 	{
 		FInitializationObservation Observation;
 		EXPECT_FALSE(RHIInitWithBackendForTests(
@@ -137,13 +144,32 @@ namespace Durin
 
 		EXPECT_EQ(GDynamicRHI, nullptr);
 		EXPECT_EQ(Observation.InitCount, 1u);
-		EXPECT_EQ(Observation.ShutdownCount, 1u);
+		EXPECT_EQ(Observation.InitCleanupCount, 1u);
+		EXPECT_EQ(Observation.ShutdownCount, 0u);
 		EXPECT_EQ(Observation.DestructionCount, 1u);
 		EXPECT_TRUE(Observation.bInitOnRHIThread);
-		EXPECT_TRUE(Observation.bShutdownOnRHIThread);
+		EXPECT_TRUE(Observation.bInitCleanupOnRHIThread);
 	}
 
-	TEST(FRHIInitializationTests, RollbackFailureStillReleasesBackend)
+	TEST(FRHIInitializationTests, UnknownInitFailureCleansUpAndReleasesBackend)
+	{
+		for (const bool bThreaded : {false, true})
+		{
+			FInitializationObservation Observation;
+			Observation.bUnknownInitFailure = true;
+			EXPECT_FALSE(RHIInitWithBackendForTests(
+				new FFailingDynamicRHI(Observation), bThreaded, false,
+				FRHIInitializationContext::Headless()));
+			EXPECT_EQ(Observation.InitCount, 1u);
+			EXPECT_EQ(Observation.InitCleanupCount, 1u);
+			EXPECT_EQ(Observation.ShutdownCount, 0u);
+			EXPECT_EQ(Observation.DestructionCount, 1u);
+			EXPECT_EQ(Observation.bInitCleanupOnRHIThread, bThreaded);
+			EXPECT_EQ(GDynamicRHI, nullptr);
+		}
+	}
+
+	TEST(FRHIInitializationTests, InitFailureDoesNotInvokeRuntimeShutdown)
 	{
 		for (const bool bThreaded : {false, true})
 		{
@@ -152,7 +178,8 @@ namespace Durin
 			EXPECT_FALSE(RHIInitWithBackendForTests(
 				new FFailingDynamicRHI(Observation), bThreaded, false,
 				FRHIInitializationContext::Headless()));
-			EXPECT_EQ(Observation.ShutdownCount, 1u);
+			EXPECT_EQ(Observation.InitCleanupCount, 1u);
+			EXPECT_EQ(Observation.ShutdownCount, 0u);
 			EXPECT_EQ(Observation.DestructionCount, 1u);
 			EXPECT_EQ(GDynamicRHI, nullptr);
 		}

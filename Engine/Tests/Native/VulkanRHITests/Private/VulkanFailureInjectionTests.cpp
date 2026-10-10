@@ -1,4 +1,6 @@
 #include "VulkanPipelinePrecacheTestSupport.h"
+#include "Backend/RHIValidation.h"
+#include "Backend/RHICreation.h"
 #include <gtest/gtest.h>
 
 #include "Modules/ModuleManager.h"
@@ -695,6 +697,40 @@ namespace Durin::VulkanRHI
 	}
 
 	TEST_F(FVulkanCreateFailureInjectionTests,
+		BackendInitReleasesNativeOwnershipBeforeThrowing)
+	{
+		auto* Module = FModuleManager::LoadModule<IDynamicRHIModule>("VulkanRHI");
+		ASSERT_NE(Module, nullptr);
+		const std::array FailureCases = {
+			EVulkanCreateFailurePoint::Instance,
+			EVulkanCreateFailurePoint::Device,
+			EVulkanCreateFailurePoint::Allocator,
+		};
+		for (const auto FailurePoint : FailureCases)
+		{
+			SCOPED_TRACE(static_cast<int>(FailurePoint));
+			ResetVulkanDebugMessengerTestStats();
+			ArmVulkanCreateFailure(FailurePoint);
+			std::unique_ptr<FDynamicRHI> Backend(Module->CreateRHI());
+			ASSERT_TRUE(Backend);
+			GDynamicRHI = Backend.get();
+			EXPECT_THROW(Backend->Init(FRHIInitializationContext::Headless()), std::exception);
+			GDynamicRHI = nullptr;
+			EXPECT_FALSE(ConsumeVulkanCreateFailure(FailurePoint));
+			EXPECT_FALSE(static_cast<bool>(static_cast<IVulkanDynamicRHI*>(Backend.get())->RHIGetVkInstance()));
+			EXPECT_EQ(Backend->RHIGetPipelineStateCache(), nullptr);
+			EXPECT_EQ(Backend->RHIGetCapabilities(), nullptr);
+			const auto Stats = GetVulkanDebugMessengerTestStats();
+			EXPECT_EQ(Stats.ActiveCount, 0u);
+			EXPECT_EQ(Stats.CreatedCount, Stats.DestroyedCount);
+			if (Stats.CreatedCount != 0)
+				EXPECT_LT(Stats.LastMessengerDestroySequence, Stats.LastInstanceDestroySequence);
+			if (FailurePoint != EVulkanCreateFailurePoint::Instance)
+				EXPECT_GT(Stats.LastInstanceDestroySequence, 0u);
+		}
+	}
+
+	TEST_F(FVulkanCreateFailureInjectionTests,
 		InitializationFailuresRollbackAndReleaseTheBackendModule)
 	{
 		const std::array FailureCases = {
@@ -1117,10 +1153,8 @@ namespace Durin::VulkanRHI
 			Before.Completion.LastSubmittedToken);
 		EXPECT_EQ(After.Completion.PendingSubmissions,
 			Before.Completion.PendingSubmissions);
-		EXPECT_EQ(After.Completion.RetirementPendingCount,
-			Before.Completion.RetirementPendingCount);
-		EXPECT_EQ(After.Completion.RetirementPendingCount,
-			After.Memory.RetirementPendingCount);
+		EXPECT_EQ(After.Memory.RetirementPendingCount,
+			Before.Memory.RetirementPendingCount);
 		for (uint32 ClassIndex = 0;
 			ClassIndex < FRHIMemoryStatistics::AllocationClassCount; ++ClassIndex)
 		{

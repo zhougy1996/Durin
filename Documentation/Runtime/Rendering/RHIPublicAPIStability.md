@@ -4,7 +4,7 @@ Summary: Define the source and semantic stability boundary of public RHI headers
 
 Modules: RHI, RenderCore, VulkanRHI, MetalRHI
 
-Last reviewed: 2026-10-05
+Last reviewed: 2026-10-09
 
 ## Directory Contract
 
@@ -24,6 +24,13 @@ the affected operation is identified below and callers must include the
 experimental header transitively or directly. New experimental families should
 prefer a complete header boundary rather than adding unrelated unstable members
 to a stable type.
+
+Detailed parameter-validation errors and validators live in
+`Backend/RHIValidation.h`, and creation-exception translation lives in
+`Backend/RHICreation.h`. Recording and execution report those diagnostics inside
+RHI. Ordinary consumers use resource descriptions and commands, or the boolean
+`IsTextureViewDescValid` query when selecting attachment views. Conformance
+fixtures may inspect the backend-only error codes and context.
 
 ## Frozen Meaning
 
@@ -88,6 +95,14 @@ extensions live in platform headers and are consumed only by the matching
 backend and native fixtures. Common RHI consumers forward the target without
 interpreting its platform payload. Retaining target metadata does not extend the
 native window's lifetime.
+
+The unified buffer migration removes the former logical Storage creation and
+update APIs. Structured and byte-address data now use native buffer factories,
+views, and ordered uploads. Existing bindings do not preserve old ordinary
+buffer contents; callers needing immutable alternatives retain separate buffers.
+The [resource-view contract](RHIResourceViewsAndTransfers.md#uniform-and-storage-buffers)
+owns this behavior; [the selected migration plan](../../Plans/UnifiedRhiBuffers.md)
+records implementation and acceptance evidence.
 
 ## Current Experimental Families
 

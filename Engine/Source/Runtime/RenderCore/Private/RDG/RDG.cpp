@@ -441,13 +441,6 @@ namespace Durin
 		ERHIAccess FinalAccess) -> FRDGBufferHandle
 	{
 		RequireBuilding();
-		if (IsStorageBuffer(Buffer))
-		{
-			State->DeclarationErrors.push_back(FRDGIdentityError{
-				ERDGIdentityError::ExternalBufferTypeInvalid,
-				FRDGIdentityErrorContext{.Name = std::string(Name)}});
-			return {};
-		}
 
 		FGraphResource Resource;
 		Resource.Name = Name;

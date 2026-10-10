@@ -1,4 +1,5 @@
 #include "VulkanDynamicRHI.h"
+#include "Backend/RHIValidation.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanPresentationSupport.h"
 #include "VulkanPresentationCandidate.h"
@@ -48,111 +49,119 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::Init(const FRHIInitializationContext& Context) -> void
 	{
-		CheckVulkanRHIThread();
-		const std::optional<FRHIPresentationTarget>& PresentationTarget =
-			Context.GetPresentationTarget();
-		FVulkanSurfaceRequirementsResult SurfaceRequirements;
-		if (PresentationTarget)
+		try
 		{
-			SurfaceRequirements = GetVulkanSurfaceRequirements();
-			if (!SurfaceRequirements.Succeeded())
+			CheckVulkanRHIThread();
+			const std::optional<FRHIPresentationTarget>& PresentationTarget =
+				Context.GetPresentationTarget();
+			FVulkanSurfaceRequirementsResult SurfaceRequirements;
+			if (PresentationTarget)
 			{
-				throw std::runtime_error(std::format(
-					"Vulkan initialization failed to obtain native surface requirements: {}",
-					SurfaceRequirements.Diagnostic));
+				SurfaceRequirements = GetVulkanSurfaceRequirements();
+				if (!SurfaceRequirements.Succeeded())
+				{
+					throw std::runtime_error(std::format(
+						"Vulkan initialization failed to obtain native surface requirements: {}",
+						SurfaceRequirements.Diagnostic));
+				}
 			}
-		}
-		CreateInstance(SurfaceRequirements.RequiredInstanceExtensions);
-		VULKAN_HPP_DEFAULT_DISPATCHER.init(Instance);
-		CreateDebugMessenger();
-		DebugUtils.SetExtensionActive(
-			DiagnosticAvailability.bDebugUtilsActive);
-		if (const std::optional<FRHIPresentationTarget>& Target =
-			Context.GetPresentationTarget())
-		{
-			const vk::SurfaceKHR Surface = FVulkanGenericPlatform::CreateSurface(
-				Target->GetNativeWindowHandle(), Instance);
-			if (!Surface)
-				throw std::runtime_error(
-					"Vulkan initialization failed to create the startup presentation surface.");
-			InitializationPresentationCandidate =
-				std::make_unique<FVulkanPresentationCandidate>(
-					Instance, *Target, Surface);
-		}
-		SelectDevice(
-			InitializationPresentationCandidate
-				? InitializationPresentationCandidate->GetSurfaceForAdmission()
-				: VK_NULL_HANDLE,
-			!Context.IsHeadless());
-		DebugUtils.NameObject(Instance, "Durin.Instance");
-		VULKAN_HPP_DEFAULT_DISPATCHER.init(Device->GetHandle());
+			CreateInstance(SurfaceRequirements.RequiredInstanceExtensions);
+			VULKAN_HPP_DEFAULT_DISPATCHER.init(Instance);
+			CreateDebugMessenger();
+			DebugUtils.SetExtensionActive(
+				DiagnosticAvailability.bDebugUtilsActive);
+			if (const std::optional<FRHIPresentationTarget>& Target =
+				Context.GetPresentationTarget())
+			{
+				const vk::SurfaceKHR Surface = FVulkanGenericPlatform::CreateSurface(
+					Target->GetNativeWindowHandle(), Instance);
+				if (!Surface)
+					throw std::runtime_error(
+						"Vulkan initialization failed to create the startup presentation surface.");
+				InitializationPresentationCandidate =
+					std::make_unique<FVulkanPresentationCandidate>(
+						Instance, *Target, Surface);
+			}
+			SelectDevice(
+				InitializationPresentationCandidate
+					? InitializationPresentationCandidate->GetSurfaceForAdmission()
+					: VK_NULL_HANDLE,
+				!Context.IsHeadless());
+			DebugUtils.NameObject(Instance, "Durin.Instance");
+			VULKAN_HPP_DEFAULT_DISPATCHER.init(Device->GetHandle());
 
-		auto ToRHISampleCounts = [](vk::SampleCountFlags Flags) {
-			ERHISampleCountFlags Result = ERHISampleCountFlags::None;
-			if (Flags & vk::SampleCountFlagBits::e1) Result |= ERHISampleCountFlags::Samples1;
-			if (Flags & vk::SampleCountFlagBits::e2) Result |= ERHISampleCountFlags::Samples2;
-			if (Flags & vk::SampleCountFlagBits::e4) Result |= ERHISampleCountFlags::Samples4;
-			if (Flags & vk::SampleCountFlagBits::e8) Result |= ERHISampleCountFlags::Samples8;
-			if (Flags & vk::SampleCountFlagBits::e16) Result |= ERHISampleCountFlags::Samples16;
-			return Result;
-		};
-		const vk::PhysicalDeviceLimits& Limits = Device->GetGpuProperties().limits;
-		FRHICapabilities CapabilityCandidate;
-		CapabilityCandidate.FeatureLevel = ERHIFeatureLevel::ES3_1;
-		CapabilityCandidate.SupportedTextureDimensions =
-			ERHITextureDimensionFlags::Texture2D
-			| ERHITextureDimensionFlags::Texture2DArray
-			| ERHITextureDimensionFlags::Texture3D
-			| ERHITextureDimensionFlags::TextureCube;
-		CapabilityCandidate.MaxTextureDimension2D = Limits.maxImageDimension2D;
-		CapabilityCandidate.MaxTextureDimension3D = Limits.maxImageDimension3D;
-		CapabilityCandidate.MaxTextureDimensionCube = Limits.maxImageDimensionCube;
-		CapabilityCandidate.MaxTextureArrayLayers = Limits.maxImageArrayLayers;
-		CapabilityCandidate.ColorSampleCounts = ToRHISampleCounts(
-			Limits.framebufferColorSampleCounts & Limits.sampledImageColorSampleCounts);
-		CapabilityCandidate.DepthSampleCounts = ToRHISampleCounts(
-			Limits.framebufferDepthSampleCounts & Limits.sampledImageDepthSampleCounts);
-		CapabilityCandidate.MaxColorAttachments = Limits.maxColorAttachments;
-		CapabilityCandidate.MinStorageBufferOffsetAlignment = static_cast<uint32>(
-			std::max<vk::DeviceSize>(16, Limits.minStorageBufferOffsetAlignment));
-		CapabilityCandidate.MaxStorageBufferRange = Limits.maxStorageBufferRange;
-		CapabilityCandidate.MaxFragmentSampledImages = std::min(
-			Limits.maxPerStageDescriptorSampledImages, Limits.maxDescriptorSetSampledImages);
-		CapabilityCandidate.MaxFragmentSamplers = std::min(
-			Limits.maxPerStageDescriptorSamplers, Limits.maxDescriptorSetSamplers);
-		CapabilityCandidate.MaxFragmentUniformBuffers = std::min(
-			Limits.maxPerStageDescriptorUniformBuffers, Limits.maxDescriptorSetUniformBuffers);
-		CapabilityCandidate.MaxFragmentResources = Limits.maxPerStageResources;
-		CapabilityCandidate.MaxUniformBufferRange = Limits.maxUniformBufferRange;
-		CapabilityCandidate.MinUniformBufferOffsetAlignment = static_cast<uint32>(Limits.minUniformBufferOffsetAlignment);
-		CapabilityCandidate.MaxComputeWorkGroupCount = {
-			Limits.maxComputeWorkGroupCount[0],
-			Limits.maxComputeWorkGroupCount[1],
-			Limits.maxComputeWorkGroupCount[2]};
-		CapabilityCandidate.bSupportsIndirectDraw = true;
-		CapabilityCandidate.bSupportsIndirectDispatch = true;
-		const auto Float32 = Device->GetGpu().getFormatProperties(vk::Format::eR32G32B32A32Sfloat).optimalTilingFeatures;
-        const auto Float16 = Device->GetGpu().getFormatProperties(vk::Format::eR16G16B16A16Sfloat).optimalTilingFeatures;
-        const auto Sampled = vk::FormatFeatureFlagBits::eSampledImage | vk::FormatFeatureFlagBits::eSampledImageFilterLinear;
-        CapabilityCandidate.bSupportsSkyLighting = (Float32 & Sampled) == Sampled
-            && (Float16 & (Sampled | vk::FormatFeatureFlagBits::eStorageImage)) == (Sampled | vk::FormatFeatureFlagBits::eStorageImage)
-            && Limits.maxComputeWorkGroupInvocations >= 64 && Limits.maxComputeWorkGroupSize[0] >= 8
-            && Limits.maxComputeWorkGroupSize[1] >= 8 && Limits.maxImageDimensionCube >= 512;
-        const vk::PhysicalDeviceFeatures Features = Device->GetGpu().getFeatures();
-		CapabilityCandidate.bSupportsNonSolidFill = Features.fillModeNonSolid == vk::True;
-		CapabilityCandidate.bSupportsDepthClamp = Features.depthClamp == vk::True;
-		CapabilityCandidate.bSupportsWideLines = Features.wideLines == vk::True;
-		CapabilityCandidate.bSupportsSynchronization2 = Device->SupportsSynchronization2();
-		const uint32 GraphicsFamily =
-			Device->GetGraphicsQueue()->GetFamilyIndex();
-		const uint32 TimestampValidBits =
-			Device->GetQueueFamilyProperties(GraphicsFamily).timestampValidBits;
-		const double TimestampPeriod = static_cast<double>(Limits.timestampPeriod);
-		CapabilityCandidate.bSupportsGPUTimestamps = TimestampValidBits != 0
-			&& std::isfinite(TimestampPeriod) && TimestampPeriod > 0.0;
-		CapabilityCandidate.GPUTimestampNanosecondsPerTick =
-			CapabilityCandidate.bSupportsGPUTimestamps ? TimestampPeriod : 0.0;
-		PublishCapabilities(std::move(CapabilityCandidate));
+			auto ToRHISampleCounts = [](vk::SampleCountFlags Flags) {
+				ERHISampleCountFlags Result = ERHISampleCountFlags::None;
+				if (Flags & vk::SampleCountFlagBits::e1) Result |= ERHISampleCountFlags::Samples1;
+				if (Flags & vk::SampleCountFlagBits::e2) Result |= ERHISampleCountFlags::Samples2;
+				if (Flags & vk::SampleCountFlagBits::e4) Result |= ERHISampleCountFlags::Samples4;
+				if (Flags & vk::SampleCountFlagBits::e8) Result |= ERHISampleCountFlags::Samples8;
+				if (Flags & vk::SampleCountFlagBits::e16) Result |= ERHISampleCountFlags::Samples16;
+				return Result;
+			};
+			const vk::PhysicalDeviceLimits& Limits = Device->GetGpuProperties().limits;
+			FRHICapabilities CapabilityCandidate;
+			CapabilityCandidate.FeatureLevel = ERHIFeatureLevel::ES3_1;
+			CapabilityCandidate.SupportedTextureDimensions =
+				ERHITextureDimensionFlags::Texture2D
+				| ERHITextureDimensionFlags::Texture2DArray
+				| ERHITextureDimensionFlags::Texture3D
+				| ERHITextureDimensionFlags::TextureCube;
+			CapabilityCandidate.MaxTextureDimension2D = Limits.maxImageDimension2D;
+			CapabilityCandidate.MaxTextureDimension3D = Limits.maxImageDimension3D;
+			CapabilityCandidate.MaxTextureDimensionCube = Limits.maxImageDimensionCube;
+			CapabilityCandidate.MaxTextureArrayLayers = Limits.maxImageArrayLayers;
+			CapabilityCandidate.ColorSampleCounts = ToRHISampleCounts(
+				Limits.framebufferColorSampleCounts & Limits.sampledImageColorSampleCounts);
+			CapabilityCandidate.DepthSampleCounts = ToRHISampleCounts(
+				Limits.framebufferDepthSampleCounts & Limits.sampledImageDepthSampleCounts);
+			CapabilityCandidate.MaxColorAttachments = Limits.maxColorAttachments;
+			CapabilityCandidate.MinStorageBufferOffsetAlignment = static_cast<uint32>(
+				std::max<vk::DeviceSize>(16, Limits.minStorageBufferOffsetAlignment));
+			CapabilityCandidate.MaxStorageBufferRange = Limits.maxStorageBufferRange;
+			CapabilityCandidate.MaxFragmentSampledImages = std::min(
+				Limits.maxPerStageDescriptorSampledImages, Limits.maxDescriptorSetSampledImages);
+			CapabilityCandidate.MaxFragmentSamplers = std::min(
+				Limits.maxPerStageDescriptorSamplers, Limits.maxDescriptorSetSamplers);
+			CapabilityCandidate.MaxFragmentUniformBuffers = std::min(
+				Limits.maxPerStageDescriptorUniformBuffers, Limits.maxDescriptorSetUniformBuffers);
+			CapabilityCandidate.MaxFragmentResources = Limits.maxPerStageResources;
+			CapabilityCandidate.MaxUniformBufferRange = Limits.maxUniformBufferRange;
+			CapabilityCandidate.MinUniformBufferOffsetAlignment = static_cast<uint32>(Limits.minUniformBufferOffsetAlignment);
+			CapabilityCandidate.MaxComputeWorkGroupCount = {
+				Limits.maxComputeWorkGroupCount[0],
+				Limits.maxComputeWorkGroupCount[1],
+				Limits.maxComputeWorkGroupCount[2]};
+			CapabilityCandidate.bSupportsIndirectDraw = true;
+			CapabilityCandidate.bSupportsIndirectDispatch = true;
+			const auto Float32 = Device->GetGpu().getFormatProperties(vk::Format::eR32G32B32A32Sfloat).optimalTilingFeatures;
+	        const auto Float16 = Device->GetGpu().getFormatProperties(vk::Format::eR16G16B16A16Sfloat).optimalTilingFeatures;
+	        const auto Sampled = vk::FormatFeatureFlagBits::eSampledImage | vk::FormatFeatureFlagBits::eSampledImageFilterLinear;
+	        CapabilityCandidate.bSupportsSkyLighting = (Float32 & Sampled) == Sampled
+	            && (Float16 & (Sampled | vk::FormatFeatureFlagBits::eStorageImage)) == (Sampled | vk::FormatFeatureFlagBits::eStorageImage)
+	            && Limits.maxComputeWorkGroupInvocations >= 64 && Limits.maxComputeWorkGroupSize[0] >= 8
+	            && Limits.maxComputeWorkGroupSize[1] >= 8 && Limits.maxImageDimensionCube >= 512;
+	        const vk::PhysicalDeviceFeatures Features = Device->GetGpu().getFeatures();
+			CapabilityCandidate.bSupportsNonSolidFill = Features.fillModeNonSolid == vk::True;
+			CapabilityCandidate.bSupportsDepthClamp = Features.depthClamp == vk::True;
+			CapabilityCandidate.bSupportsWideLines = Features.wideLines == vk::True;
+			CapabilityCandidate.bSupportsSynchronization2 = Device->SupportsSynchronization2();
+			const uint32 GraphicsFamily =
+				Device->GetGraphicsQueue()->GetFamilyIndex();
+			const uint32 TimestampValidBits =
+				Device->GetQueueFamilyProperties(GraphicsFamily).timestampValidBits;
+			const double TimestampPeriod = static_cast<double>(Limits.timestampPeriod);
+			CapabilityCandidate.bSupportsGPUTimestamps = TimestampValidBits != 0
+				&& std::isfinite(TimestampPeriod) && TimestampPeriod > 0.0;
+			CapabilityCandidate.GPUTimestampNanosecondsPerTick =
+				CapabilityCandidate.bSupportsGPUTimestamps ? TimestampPeriod : 0.0;
+			PublishCapabilities(std::move(CapabilityCandidate));
+		}
+		catch (...)
+		{
+			ReleaseNativeResources();
+			throw;
+		}
 	}
 
 	auto FVulkanDynamicRHI::IsInstanceExtensionEnabled(const char* ExtensionName) const -> bool
@@ -178,7 +187,6 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		RHIStopPipelineCreation();
 		RHIRetirePipelineCreationResults();
-		ClearCapabilities();
 		ViewCache->Clear();
 		if (const char* CaptureBaseline =
 			std::getenv("DURIN_VULKAN_MEMORY_BASELINE");
@@ -189,6 +197,12 @@ namespace Durin::VulkanRHI
 					GetVulkanMemoryBaselineStatistics()));
 		}
 		// Render thread should already be stopped at this point.
+		ReleaseNativeResources();
+	}
+
+	auto FVulkanDynamicRHI::ReleaseNativeResources() -> void
+	{
+		ClearCapabilities();
 		delete Device;
 		Device = nullptr;
 		InitializationPresentationCandidate.reset();
@@ -360,10 +374,6 @@ namespace Durin::VulkanRHI
 				.LastSubmittedToken = Completion.GetLastSubmittedToken(),
 				.CompletedToken = Completion.GetCompletedToken(),
 				.PendingSubmissions = Completion.GetPendingSubmissionCount(),
-				.RetirementPendingCount = Result.Memory.RetirementPendingCount,
-				.RetirementHighWater = Result.Memory.RetirementHighWater,
-				.RetirementReleasedCount = Result.Memory.RetirementReleasedCount,
-				.RetirementMaxTokenLag = Result.Memory.RetirementMaxTokenLag,
 		};
 		const FVulkanDebugMessageStatistics Messages =
 			DebugCallbackState.Snapshot();

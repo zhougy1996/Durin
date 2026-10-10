@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-10-08
+Last reviewed: 2026-10-09
 
 ## Reading and Calling the Graph
 
@@ -146,10 +146,9 @@ execution state. Compilation never mutates a command list.
   agree. The first name and declaration order remain canonical. A conflicting
   repeat records one deterministic declaration error naming both stable
   contracts; null imports retain the ordinary missing-resource failure and do
-  not become identity keys. Storage resources are rejected with
-  `ExternalBufferTypeInvalid` at declaration, because changing content
-  versions do not satisfy this physical-identity access contract. Use
-  graph-created buffers and owned graph uploads for graph-managed contents.
+  not become identity keys. Structured and byte-address buffers use ordinary
+  physical buffer identity and can be imported with the same access contract.
+  Use graph-created buffers and owned graph uploads for graph-managed contents.
 - Graph-created resources begin at `ERHIAccess::Discard`, require a stored
   producer before any read or load, and default to no final state (`ERHIAccess::None`). Renderer frame-local
   targets use that default; consumers declare their next access on the pass.
@@ -263,7 +262,7 @@ callback with a pass-scoped resource view, and then records final batches.
 buffer. Each creates a Copy recording pass with an exact `TransferWrite` byte
 use and an RHI `UploadBuffer` command. The destination must declare
 `DestinationCopy`. Upload sources allocate on demand and share observational
-CPU byte accounting with retained Storage CPU contents and native upload commands.
+CPU byte accounting with pending uniform data and native upload commands.
 There is no per-upload, per-builder, or global fixed CPU payload quota.
 Invalid ranges or missing copy usage fail compilation before any upload
 command is recorded.

@@ -713,8 +713,6 @@ namespace Durin
 			ChurnSnapshot = GDynamicRHI->RHIGetDiagnosticSnapshot();
 		});
 		EXPECT_EQ(ChurnSnapshot.Executor.PendingBatchCount, 0u);
-		EXPECT_EQ(ChurnSnapshot.Completion.RetirementPendingCount,
-			ChurnSnapshot.Memory.RetirementPendingCount);
 		EXPECT_LE(ChurnSnapshot.Memory.RetirementPendingCount, 64u);
 		EXPECT_LE(ChurnSnapshot.Memory.RetirementPendingCount,
 			ChurnSnapshot.Memory.RetirementHighWater);
@@ -922,7 +920,7 @@ namespace Durin
 		});
 	}
 
-	TEST(FVulkanTextureSamplingTests, DeferredBindingsCaptureVersionsUntilExplicitRebind)
+	TEST(FVulkanTextureSamplingTests, UniformBindingsCaptureVersionsAndStorageUsesExplicitBuffers)
 	{
 		FShaderCompileOptions Options;
 		Options.EntryPoints = {"ComputeMain", "VertexMain", "FragmentMain"};
@@ -995,20 +993,33 @@ namespace Durin
 			}
 			std::array<uint32, 4> UniformData{10, 0, 0, 0};
 			std::array<uint32, 4> StorageData{0, 30, 50, 0};
-			const uint64 Before = GCommandListExecutor.GetStats().SynchronousOperationCount;
 			auto Uniform = Commands.CreateUniformBuffer({16},
 				ERHIBufferLifetimeUsage::MultiFrame, std::as_bytes(std::span{UniformData}));
-			auto Storage = Commands.CreateStorageBuffer({16, 16, EBufferUsageFlags::StructuredBuffer},
-				ERHIBufferLifetimeUsage::MultiFrame, std::as_bytes(std::span{StorageData}));
+			auto StorageDesc = FRHIBufferCreateDesc::Create("StorageOriginal", 16, 16,
+				EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ShaderResource | EBufferUsageFlags::DestinationCopy);
+			StorageDesc.InitialData = {StorageData.data(), sizeof(StorageData)};
+			auto Storage = GDynamicRHI->RHICreateBuffer(Commands, StorageDesc);
+			StorageDesc.DebugName = "StorageReplacement";
+			auto Replacement = GDynamicRHI->RHICreateBuffer(Commands, StorageDesc);
+			ASSERT_TRUE(Replacement);
+			const uint32 Green = 40;
+			Commands.UploadBuffer(Replacement, 4, std::as_bytes(std::span{&Green, 1}));
+			const auto StorageAccess = bCompute ? ERHIAccess::ComputeShaderRead : ERHIAccess::GraphicsShaderRead;
+			Commands.TransitionBuffers(std::array{FRHIBufferTransition{Replacement, 4, 4,
+				ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead}});
+			if (bCompute) Commands.TransitionBuffers(std::array{
+				FRHIBufferTransition{Storage, 0, 16, ERHIAccess::GraphicsShaderRead, StorageAccess},
+				FRHIBufferTransition{Replacement, 0, 16, ERHIAccess::GraphicsShaderRead, StorageAccess}});
 			ASSERT_TRUE(Uniform && Storage);
 			const FRHIBufferViewDesc StorageView{0, 16, ERHIBufferViewType::StructuredStorage};
-			EXPECT_FALSE(GDynamicRHI->RHICreateBufferView(Storage, StorageView));
-			EXPECT_FALSE(GDynamicRHI->RHIGetOrCreateBufferView(Storage, StorageView));
+			EXPECT_TRUE(GDynamicRHI->RHICreateBufferView(Storage, StorageView));
+			EXPECT_TRUE(GDynamicRHI->RHIGetOrCreateBufferView(Storage, StorageView));
 			const std::array Parameters{
 				FRHIShaderParameterResource{.Resource = Uniform.GetReference(), .BindingIndex = 0,
 					.Type = bDynamic ? ERHIBindingType::UniformBufferDynamic : ERHIBindingType::UniformBuffer, .Size = 16},
 				FRHIShaderParameterResource{.Resource = Storage.GetReference(), .BindingIndex = 1,
 					.Type = ERHIBindingType::StorageBuffer, .Size = 16}};
+			const uint64 Before = GCommandListExecutor.GetStats().SynchronousOperationCount;
 			auto Batch = FRHIShaderParameterBatch::Create(Shaders[bCompute ? 0 : 2], Parameters);
 			ASSERT_TRUE(Batch);
 			EXPECT_EQ(GCommandListExecutor.GetStats().SynchronousOperationCount, Before);
@@ -1038,13 +1049,16 @@ namespace Durin
 				{
 					UniformData[0] = 20;
 					Commands.UpdateUniformBuffer(Uniform, std::as_bytes(std::span{UniformData}));
-					const uint32 Green = 40;
-					Commands.UpdateBuffer(Storage, 4, std::as_bytes(std::span{&Green, 1}));
 				}
-				// Updating keeps the captured binding. Rebinding selects the new contents.
+				// Uniform updates preserve captured contents; Storage replacement is explicit.
 				if (Pixel == 2) Commands.SetShaderParameters(Shaders[bCompute ? 0 : 2],
 					std::span(Parameters).first(1));
-				if (Pixel == 3) Commands.SetPreparedShaderParameters(Batch);
+				if (Pixel == 3)
+				{
+					auto Updated = Parameters;
+					Updated[1].Resource = Replacement;
+					Commands.SetShaderParameters(Shaders[bCompute ? 0 : 2], Updated);
+				}
 				if (bCompute)
 				{
 					Commands.PushConstants(EShaderStageFlags::Compute, 0, sizeof(Pixel), &Pixel);

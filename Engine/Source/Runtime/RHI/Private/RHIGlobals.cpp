@@ -40,42 +40,6 @@ namespace Durin
 			return DynamicRHIModule->CreateRHI();
 		}
 
-		auto RollbackBackendInitialization() -> void
-		{
-			try
-			{
-				GDynamicRHI->Shutdown();
-			}
-			catch (const std::exception& Exception)
-			{
-				DURIN_ERROR("Backend initialization rollback failed: {}", Exception.what());
-			}
-			catch (...)
-			{
-				DURIN_ERROR("Backend initialization rollback failed with an unknown exception.");
-			}
-		}
-
-		auto InitializeBackendWithRollback(
-			const FRHIInitializationContext& Context) -> FRHIThreadWorkResult
-		{
-			try
-			{
-				GDynamicRHI->Init(Context);
-				return FRHIThreadWorkResult::Success();
-			}
-			catch (const std::exception& Exception)
-			{
-				RollbackBackendInitialization();
-				return FRHIThreadWorkResult::FromExternalException(Exception.what());
-			}
-			catch (...)
-			{
-				RollbackBackendInitialization();
-				return FRHIThreadWorkResult::Failure(ERHIThreadFailure::UnknownException);
-			}
-		}
-
 		auto ReleaseFailedInitialization(bool bUnloadBackendModule) -> void
 		{
 			if (RHIThreadOwner)
@@ -132,7 +96,7 @@ namespace Durin
 				}
 				FRHIThreadWork InitWork;
 				InitWork.Execute = [Context]() {
-					return InitializeBackendWithRollback(Context);
+					GDynamicRHI->Init(Context);
 				};
 				const FRHIThreadSynchronousResult InitResult =
 					RHIThreadOwner->EnqueueSynchronous(InitWork);
@@ -140,7 +104,7 @@ namespace Durin
 				{
 					DURIN_ERROR(
 						"Failed to initialize dynamic RHI on RHI thread: {}",
-						ToString(InitResult.Error));
+						RHIThreadOwner->GetStats().FailureDiagnostic);
 					ReleaseFailedInitialization(bOwnsBackendModule);
 					return false;
 				}
@@ -149,13 +113,21 @@ namespace Durin
 			}
 			else
 			{
-				const FRHIThreadWorkResult InitResult =
-					InitializeBackendWithRollback(Context);
-				if (!InitResult.IsSuccess())
+				try
+				{
+					GDynamicRHI->Init(Context);
+				}
+				catch (const std::exception& Exception)
 				{
 					DURIN_ERROR(
 						"Failed to initialize dynamic RHI inline: {}",
-						ToString(InitResult.Error));
+						std::string_view(Exception.what()).substr(0, 4096));
+					ReleaseFailedInitialization(bOwnsBackendModule);
+					return false;
+				}
+				catch (...)
+				{
+					DURIN_ERROR("Failed to initialize dynamic RHI inline with an unknown exception.");
 					ReleaseFailedInitialization(bOwnsBackendModule);
 					return false;
 				}
@@ -285,7 +257,6 @@ namespace Durin
 				checkf(FRHIResource::GetNumPendingDeletes() == 0,
 					"RHI shutdown marker found pending RHI resource deletions.");
 				GDynamicRHI->Shutdown();
-				return FRHIThreadWorkResult::Success();
 			};
 			const FRHIThreadSubmission ShutdownSubmission =
 				RHIThreadOwner->EnqueueTerminal(ShutdownWork);

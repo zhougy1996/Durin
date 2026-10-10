@@ -75,7 +75,6 @@ namespace Durin::VulkanRHI
 		const FVulkanPhysicalDeviceCandidateInput& Left,
 		const FVulkanPhysicalDeviceCandidateInput& Right) -> bool;
 
-
 	class FVulkanDevice;
 	class FVulkanDynamicRHI;
 	class FVulkanQueue;
@@ -89,7 +88,7 @@ namespace Durin::VulkanRHI
 	class FVulkanDescriptorSetLayoutCache;
 	class FVulkanCompletionTracker;
 	class FVulkanTransferArena;
-	class FVulkanBindingPool;
+	class FVulkanUniformBufferPool;
 	class FVulkanGPUTimingManager;
 
 	// Defers destruction of Vulkan handles until their queue completion token retires.
@@ -235,8 +234,8 @@ namespace Durin::VulkanRHI
 		// Graphics-only compatibility path for consumers not yet migrated to use sets.
 		auto GetCompletionTracker() const -> FVulkanCompletionTracker&;
 		auto GetUploadArena() -> FVulkanTransferArena& { return *UploadArena; }
-		auto GetBindingPool(bool bUniform) -> FVulkanBindingPool&
-		{ return bUniform ? *UniformBindingPool : *StorageBindingPool; }
+		auto GetUniformBufferPool() -> FVulkanUniformBufferPool&
+		{ return *UniformBufferPool; }
 		auto GetReadbackArena() -> FVulkanTransferArena& { return *ReadbackArena; }
 		auto GetGPUTimingManager() -> FVulkanGPUTimingManager& { return *GPUTimingManager; }
 
@@ -247,7 +246,6 @@ namespace Durin::VulkanRHI
 		auto GetDescriptorSetLayoutCache() const -> FVulkanDescriptorSetLayoutCache& { return *DescriptorSetCache; }
 
 		auto GetDeferredDeletionQueue() -> FDeferredDeletionQueue& { return DeferredDeletionQueue; }
-
 
 		auto GetCurrentFrame() -> FVulkanFrame&;
 		auto SetCurrentFrameIndex(uint32 FrameIndex) -> void;
@@ -276,7 +274,6 @@ namespace Durin::VulkanRHI
 		auto ResetPipelineCacheStatistics() -> void;
 		VULKANRHI_API auto ReserveCacheMetadata(uint64 Bytes) -> std::shared_ptr<void>;
 		auto GetCacheMetadataBytes() const -> uint64 { return CacheMetadata.GetUsedBytes(); }
-
 
 		auto NotifyDeleted_Image(vk::Image Image) -> void;
 		auto NotifyDeleted_GraphicsPipeline(
@@ -314,8 +311,7 @@ namespace Durin::VulkanRHI
 		// Owns each physical queue once; role pointers may alias these entries.
 		std::vector<FVulkanQueue*> PhysicalQueues;
 		FVulkanTransferArena* UploadArena = nullptr;
-		FVulkanBindingPool* UniformBindingPool = nullptr;
-		FVulkanBindingPool* StorageBindingPool = nullptr;
+		FVulkanUniformBufferPool* UniformBufferPool = nullptr;
 		FVulkanTransferArena* ReadbackArena = nullptr;
 		FVulkanGPUTimingManager* GPUTimingManager = nullptr;
 
@@ -326,7 +322,6 @@ namespace Durin::VulkanRHI
 		FVulkanGlobalDescriptorPool* GlobalDescriptorPool = nullptr;
 
 		FVulkanDescriptorSetLayoutCache* DescriptorSetCache = nullptr;
-
 
 		std::array<FVulkanFrame*, FrameInFlight> Frames = {};
 		uint32 CurrentFrameIndex = 0;

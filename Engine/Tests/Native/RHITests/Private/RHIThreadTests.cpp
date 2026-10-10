@@ -7,18 +7,6 @@
 
 namespace Durin
 {
-	TEST(FRHIThreadResultTests, SeparatesUnknownFailuresFromBoundedExternalDiagnostics)
-	{
-		const auto Unknown = FRHIThreadWorkResult::Failure(ERHIThreadFailure::UnknownException);
-		EXPECT_FALSE(Unknown.IsSuccess());
-		EXPECT_EQ(Unknown.Error.Code, ERHIThreadFailure::UnknownException);
-		EXPECT_TRUE(Unknown.Error.ExternalDiagnostic.empty());
-		const auto External = FRHIThreadWorkResult::FromExternalException(std::string(8192, 'x'));
-		EXPECT_EQ(External.Error.Code, ERHIThreadFailure::ExternalException);
-		EXPECT_EQ(External.Error.ExternalDiagnostic.size(), 4096u);
-		EXPECT_TRUE(FRHIThreadWorkResult::Success().IsSuccess());
-	}
-
 	namespace
 	{
 		class FRHIThreadTestGuard
@@ -39,6 +27,35 @@ namespace Durin
 		};
 	}
 
+	TEST(FRHIThreadTests, CapturesUnknownExceptionsAndBoundsDiagnostics)
+	{
+		for (uint32 Case = 0; Case < 3; ++Case)
+		{
+			FRHIThread Thread;
+			FRHIThreadTestGuard Guard(Thread);
+			ASSERT_TRUE(Thread.Start());
+			FRHIThreadWork Work;
+			Work.Execute = [Case]() {
+				if (Case == 0) throw 42;
+				if (Case == 1) throw std::runtime_error(std::string(8192, 'x'));
+				throw std::runtime_error("");
+			};
+			const auto Result = Thread.EnqueueSynchronous(Work);
+			EXPECT_EQ(ERHIThreadWaitResult::Failed, Result.WaitResult);
+			const auto Stats = Thread.GetStats();
+			EXPECT_EQ(Result.Submission.Serial, Stats.FailedSerial);
+			EXPECT_EQ(0u, Stats.CompletedSerial);
+			if (Case == 0)
+				EXPECT_EQ("RHI thread work failed with an unknown exception.", Stats.FailureDiagnostic);
+			else if (Case == 1)
+				EXPECT_EQ(std::string(4096, 'x'), Stats.FailureDiagnostic);
+			else
+				EXPECT_TRUE(Stats.FailureDiagnostic.empty());
+			Thread.ReportExternalFailure("later failure");
+			EXPECT_EQ(Stats.FailureDiagnostic, Thread.GetStats().FailureDiagnostic);
+		}
+	}
+
 	TEST(FRHIThreadTests, StartsNamedRoleAndPublishesSynchronousResult)
 	{
 		FRHIThread Thread;
@@ -57,7 +74,6 @@ namespace Durin
 			bObservedAffinity = IsInRHIThread();
 			bObservedGlobalOwner = GetCurrentThread() == GRHIThread;
 			Value = 42;
-			return FRHIThreadWorkResult::Success();
 		};
 
 		const FRHIThreadSynchronousResult Result = Thread.EnqueueSynchronous(Work);
@@ -86,7 +102,6 @@ namespace Durin
 			ReleaseFirst.Wait();
 			std::lock_guard Lock(OrderMutex);
 			Order.push_back(1);
-			return FRHIThreadWorkResult::Success();
 		};
 		const FRHIThreadSubmission FirstSubmission = Thread.Enqueue(First);
 		ASSERT_TRUE(FirstSubmission.IsAccepted());
@@ -96,7 +111,6 @@ namespace Durin
 		Second.Execute = [&]() {
 			std::lock_guard Lock(OrderMutex);
 			Order.push_back(2);
-			return FRHIThreadWorkResult::Success();
 		};
 		const FRHIThreadSubmission SecondSubmission = Thread.Enqueue(Second);
 		ASSERT_TRUE(SecondSubmission.IsAccepted());
@@ -118,14 +132,14 @@ namespace Durin
 		struct FReleaseOnExit { FThreadEvent& Event; ~FReleaseOnExit() { Event.Trigger(); } } ReleaseGuard{Release};
 		FRHIThreadWork First;
 		First.FrameCount = 1;
-		First.Execute = [&] { Started.Trigger(); Release.Wait(); return FRHIThreadWorkResult::Success(); };
+		First.Execute = [&] { Started.Trigger(); Release.Wait(); };
 		ASSERT_TRUE(Thread.Enqueue(First).IsAccepted());
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		for (int Index = 0; Index < 2; ++Index)
 		{
 			FRHIThreadWork Next;
 			Next.FrameCount = 1;
-			Next.Execute = [] { return FRHIThreadWorkResult::Success(); };
+			Next.Execute = [] {};
 			EXPECT_TRUE(Thread.Enqueue(Next).IsAccepted());
 		}
 		EXPECT_EQ(Thread.GetStats().OutstandingFrameCount, 3u);
@@ -134,7 +148,7 @@ namespace Durin
 		std::thread Producer([&] {
 			FRHIThreadWork Fourth;
 			Fourth.FrameCount = 1;
-			Fourth.Execute = [] { return FRHIThreadWorkResult::Success(); };
+			Fourth.Execute = [] {};
 			Accepted = Thread.Enqueue(Fourth).IsAccepted();
 		});
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
@@ -169,7 +183,6 @@ namespace Durin
 		First.Execute = [&]() {
 			FirstStarted.Trigger();
 			ReleaseFirst.Wait();
-			return FRHIThreadWorkResult::Success();
 		};
 		ASSERT_TRUE(Thread.Enqueue(First).IsAccepted());
 		if (!FirstStarted.WaitFor(1.0))
@@ -182,7 +195,7 @@ namespace Durin
 		FRHIThreadWork Second;
 		Second.BatchCount = 1;
 		Second.PayloadBytes = 64;
-		Second.Execute = []() { return FRHIThreadWorkResult::Success(); };
+		Second.Execute = []() {};
 		std::thread Producer([&]() {
 			bSecondAccepted.store(
 				Thread.Enqueue(Second).IsAccepted(), std::memory_order::release);
@@ -225,7 +238,6 @@ namespace Durin
 		First.Execute = [&]() {
 			FirstStarted.Trigger();
 			ReleaseFirst.Wait();
-			return FRHIThreadWorkResult::Success();
 		};
 		ASSERT_TRUE(Thread.Enqueue(First).IsAccepted());
 		if (!FirstStarted.WaitFor(1.0))
@@ -238,7 +250,7 @@ namespace Durin
 		FRHIThreadWork Second;
 		Second.BatchCount = 1;
 		Second.PayloadBytes = 64;
-		Second.Execute = []() { return FRHIThreadWorkResult::Success(); };
+		Second.Execute = []() {};
 		std::thread Producer([&]() {
 			bSecondAccepted.store(
 				Thread.Enqueue(Second).IsAccepted(), std::memory_order::release);
@@ -273,14 +285,14 @@ namespace Durin
 
 		FRHIThreadWork Oversized;
 		Oversized.BatchCount = Limits.MaxBatches + 1;
-		Oversized.Execute = []() { return FRHIThreadWorkResult::Success(); };
+		Oversized.Execute = []() {};
 		EXPECT_EQ(ERHIThreadEnqueueResult::Oversized,
 			Thread.Enqueue(Oversized).Result);
 		EXPECT_TRUE(static_cast<bool>(Oversized.Execute));
 
 		Thread.BeginDrain();
 		FRHIThreadWork Late;
-		Late.Execute = []() { return FRHIThreadWorkResult::Success(); };
+		Late.Execute = []() {};
 		EXPECT_FALSE(Thread.Enqueue(Late).IsAccepted());
 		EXPECT_TRUE(static_cast<bool>(Late.Execute));
 	}
@@ -304,7 +316,6 @@ namespace Durin
 		First.Execute = [&]() {
 			FirstStarted.Trigger();
 			ReleaseFirst.Wait();
-			return FRHIThreadWorkResult::Success();
 		};
 		ASSERT_TRUE(Thread.Enqueue(First).IsAccepted());
 		ASSERT_TRUE(FirstStarted.WaitFor(1.0));
@@ -314,7 +325,7 @@ namespace Durin
 		FRHIThreadWork Blocked;
 		Blocked.BatchCount = 1;
 		Blocked.PayloadBytes = 64;
-		Blocked.Execute = []() { return FRHIThreadWorkResult::Success(); };
+		Blocked.Execute = []() {};
 		std::thread Producer([&]() {
 			BlockedResult = Thread.Enqueue(Blocked).Result;
 		});
@@ -331,7 +342,6 @@ namespace Durin
 		FRHIThreadWork Terminal;
 		Terminal.Execute = [&]() {
 			bTerminalExecuted = true;
-			return FRHIThreadWorkResult::Success();
 		};
 		const FRHIThreadSubmission TerminalSubmission =
 			Thread.EnqueueTerminal(Terminal);
@@ -375,7 +385,6 @@ namespace Durin
 		FRHIThreadWork Accepted;
 		Accepted.PayloadBytes = 8;
 		Accepted.Execute = [Tracked = std::make_shared<FTrackedCapture>(AcceptedDestroyedCount)]() {
-			return FRHIThreadWorkResult::Success();
 		};
 		EXPECT_TRUE(Thread.EnqueueSynchronous(Accepted).IsCompleted());
 		EXPECT_EQ(1u, AcceptedDestroyedCount.load(std::memory_order::acquire));
@@ -383,7 +392,6 @@ namespace Durin
 		FRHIThreadWork Rejected;
 		Rejected.BatchCount = Limits.MaxBatches + 1;
 		Rejected.Execute = [Tracked = std::make_shared<FTrackedCapture>(RejectedDestroyedCount)]() {
-			return FRHIThreadWorkResult::Success();
 		};
 		EXPECT_EQ(ERHIThreadEnqueueResult::Oversized,
 			Thread.Enqueue(Rejected).Result);
@@ -402,7 +410,6 @@ namespace Durin
 		FRHIThreadWork Work;
 		Work.Execute = [&]() {
 			ObservedWaitResult = Thread.WaitForSerial(1);
-			return FRHIThreadWorkResult::Success();
 		};
 		EXPECT_TRUE(Thread.EnqueueSynchronous(Work).IsCompleted());
 		EXPECT_EQ(ERHIThreadWaitResult::SelfWait, ObservedWaitResult);
@@ -419,10 +426,9 @@ namespace Durin
 		FRHIThreadWork Work;
 		Work.Execute = [&]() {
 			FRHIThreadWork Nested;
-			Nested.Execute = []() { return FRHIThreadWorkResult::Success(); };
+			Nested.Execute = []() {};
 			ObservedResult = Thread.Enqueue(Nested).Result;
 			bNestedWorkRetained = static_cast<bool>(Nested.Execute);
-			return FRHIThreadWorkResult::Success();
 		};
 		EXPECT_TRUE(Thread.EnqueueSynchronous(Work).IsCompleted());
 		EXPECT_EQ(ERHIThreadEnqueueResult::SelfEnqueue, ObservedResult);
@@ -453,7 +459,7 @@ namespace Durin
 		Failing.Execute = [&]() {
 			FailureStarted.Trigger();
 			ReleaseFailure.Wait();
-			return FRHIThreadWorkResult::FromExternalException("fake executor failure");
+			throw std::runtime_error("fake executor failure");
 		};
 		const FRHIThreadSubmission FailingSubmission = Thread.Enqueue(Failing);
 		ASSERT_TRUE(FailingSubmission.IsAccepted());
@@ -461,7 +467,6 @@ namespace Durin
 
 		FRHIThreadWork Queued;
 		Queued.Execute = [Tracked = std::make_shared<FTrackedCapture>(DestroyedCount)]() {
-			return FRHIThreadWorkResult::Success();
 		};
 		Queued.FrameCount = 1;
 		const FRHIThreadSubmission QueuedSubmission = Thread.Enqueue(Queued);
@@ -472,32 +477,30 @@ namespace Durin
 			Thread.WaitForSerial(QueuedSubmission.Serial));
 		const FRHIThreadStats Stats = Thread.GetStats();
 		EXPECT_EQ(FailingSubmission.Serial, Stats.FailedSerial);
-		EXPECT_EQ(ERHIThreadFailure::ExternalException, Stats.Error.Code);
-		EXPECT_EQ("fake executor failure", Stats.Error.ExternalDiagnostic);
+		EXPECT_EQ("fake executor failure", Stats.FailureDiagnostic);
 		EXPECT_EQ(1u, Stats.RejectedWorkCount);
 		EXPECT_EQ(0u, Stats.OutstandingEntryCount);
 		EXPECT_EQ(0u, Stats.OutstandingFrameCount);
 		EXPECT_EQ(1u, DestroyedCount.load(std::memory_order::acquire));
 	}
 
-	TEST(FRHIThreadTests, SynchronousFailurePreservesErrorOnExecutionAndRejection)
+	TEST(FRHIThreadTests, SynchronousFailurePreservesDiagnosticOnExecutionAndRejection)
 	{
 		FRHIThread Thread;
 		FRHIThreadTestGuard Guard(Thread);
 		ASSERT_TRUE(Thread.Start());
 		FRHIThreadWork Work;
 		Work.Execute = []() {
-			return FRHIThreadWorkResult::FromExternalException("original failure");
+			throw std::runtime_error("original failure");
 		};
 		const auto Failed = Thread.EnqueueSynchronous(Work);
 		EXPECT_EQ(ERHIThreadWaitResult::Failed, Failed.WaitResult);
-		EXPECT_EQ(ERHIThreadFailure::ExternalException, Failed.Error.Code);
-		EXPECT_EQ("original failure", Failed.Error.ExternalDiagnostic);
-		Work.Execute = []() { return FRHIThreadWorkResult::Success(); };
+		const auto FailureDiagnostic = Thread.GetStats().FailureDiagnostic;
+		EXPECT_EQ("original failure", FailureDiagnostic);
+		Work.Execute = []() {};
 		const auto Rejected = Thread.EnqueueSynchronous(Work);
 		EXPECT_EQ(ERHIThreadEnqueueResult::Failed, Rejected.Submission.Result);
-		EXPECT_EQ(Failed.Error.Code, Rejected.Error.Code);
-		EXPECT_EQ(Failed.Error.ExternalDiagnostic, Rejected.Error.ExternalDiagnostic);
+		EXPECT_EQ(FailureDiagnostic, Thread.GetStats().FailureDiagnostic);
 	}
 
 	TEST(FRHIThreadTests, FailedLaunchRestoresStoppedState)
@@ -520,7 +523,7 @@ namespace Durin
 		FThreadEvent Started, Release;
 		FRHIThreadWork Running;
 		Running.FrameCount = 1;
-		Running.Execute = [&] { Started.Trigger(); Release.Wait(); return FRHIThreadWorkResult::Success(); };
+		Running.Execute = [&] { Started.Trigger(); Release.Wait(); };
 		const auto First = Thread.Enqueue(Running);
 		EXPECT_TRUE(Started.WaitFor(1.0));
 		std::atomic<bool> Replayed = false;
@@ -528,7 +531,7 @@ namespace Durin
 		Queued.BatchCount = 1;
 		Queued.PayloadBytes = 512;
 		Queued.FrameCount = 1;
-		Queued.Execute = [&] { Replayed = true; return FRHIThreadWorkResult::Success(); };
+		Queued.Execute = [&] { Replayed = true; };
 		const auto Second = Thread.Enqueue(Queued);
 		Thread.ReportExternalFailure("background device lost");
 		EXPECT_EQ(Thread.WaitForSerial(First.Serial), ERHIThreadWaitResult::Failed);
@@ -551,7 +554,7 @@ namespace Durin
 		ASSERT_TRUE(Thread.Start());
 		Thread.ReportExternalFailure("device lost before first batch");
 		FRHIThreadWork Work;
-		Work.Execute = [] { return FRHIThreadWorkResult::Success(); };
+		Work.Execute = [] {};
 		EXPECT_EQ(Thread.Enqueue(Work).Result, ERHIThreadEnqueueResult::Failed);
 		EXPECT_TRUE(Work.Execute);
 	}

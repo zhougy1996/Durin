@@ -1579,7 +1579,7 @@ namespace Durin
 		EXPECT_EQ(Capture.Uses[1].BufferSize, 2u);
 	}
 
-	TEST_F(FRDGTests, QueuedUploadsTransferSourceOwnershipAlongsideSnapshots)
+	TEST_F(FRDGTests, QueuedUploadsTransferSourceOwnershipWithoutCpuShadows)
 	{
 		for (int Index = 0; Index < 3; ++Index)
 		{
@@ -1591,27 +1591,22 @@ namespace Durin
 		constexpr uint32 Size = 64;
 		FUploadRecordingContext Context;
 		FRHICommandListExecutor Executor(Context);
-		FRHICommandList Factory;
-		auto Logical = Factory.CreateStorageBuffer({Size, 4, EBufferUsageFlags::StructuredBuffer},
-			ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(Size));
-		ASSERT_TRUE(Logical);
 		FTestRDGAllocator Allocator;
 		{
 			FRDGBuilder Graph;
 			const FRDGBufferDesc Desc{.Buffer = FRHIBufferDesc(Size, 4, EBufferUsageFlags::DestinationCopy)};
 			Graph.QueueBufferUploadOwned(Graph.CreateBuffer(Desc, "SharedUpload"), 0, FByteBuffer(Size));
-			EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size);
+			EXPECT_EQ(GetBufferUploadStats().LiveBytes, Size);
 			Graph.QueueBufferUploadOwned(Graph.CreateBuffer(Desc, "AdditionalUpload"), 0, FByteBuffer(4));
-			EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size + 4u);
+			EXPECT_EQ(GetBufferUploadStats().LiveBytes, Size + 4u);
 			ASSERT_TRUE(Graph.Execute(Executor.GetImmediateCommandList(), &Allocator));
 			// Recording transfers the source owners without copying their bytes.
-			EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size + 4u);
+			EXPECT_EQ(GetBufferUploadStats().LiveBytes, Size + 4u);
 		}
-		EXPECT_EQ(GetBufferUploadStats().LiveBytes, 2ull * Size + 4u);
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Size + 4u);
 		Executor.Submit({}, ERHISubmitFlags::None);
 		Executor.CreateFence().Wait();
-		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Size);
-		Logical = nullptr;
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, 0u);
 		std::vector<FRHIResource*> Pending;
 		FRHIResource::GatherResourcesToDelete(Pending);
 		FRHIResource::DeleteResources(Pending);
@@ -4421,18 +4416,16 @@ namespace Durin
 		EXPECT_TRUE(Builder.GetCullingDecisions()[2].bCulled);
 	}
 
-	TEST_F(FRDGTests, RejectsLogicalStorageExternalBuffersBeforeRecording)
+	TEST_F(FRDGTests, AcceptsStructuredExternalBuffersBeforeRecording)
 	{
 		FRHICommandList Commands;
-		auto Buffer = Commands.CreateStorageBuffer({16, 4, EBufferUsageFlags::StructuredBuffer},
-			ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(16));
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("ExternalStorage", 16, 4, EBufferUsageFlags::StructuredBuffer));
 		ASSERT_TRUE(Buffer);
 		FRDGBuilder Builder;
-		Builder.RegisterExternalBuffer(Buffer, "LogicalStorage", ERHIAccess::ComputeShaderRead,
+		Builder.RegisterExternalBuffer(Buffer, "ExternalStorage", ERHIAccess::ComputeShaderRead,
 			ERHIAccess::ComputeShaderRead);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
-		ASSERT_FALSE(Result);
-		EXPECT_TRUE(HasRDGTestReason(Result.error(), ERDGIdentityError::ExternalBufferTypeInvalid));
+		ASSERT_TRUE(Result) << ToString(Result.error());
 		EXPECT_EQ(Commands.GetNumRecordedCommands(), 0u);
 	}
 

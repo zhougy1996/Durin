@@ -1,4 +1,5 @@
 #include "VulkanRHIPrivate.h"
+#include "Backend/RHICreation.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanGPUTiming.h"
 #include "VulkanCreationTiming.h"
@@ -8,7 +9,7 @@
 
 #include "VulkanDevice.h"
 #include "VulkanBuffer.h"
-#include "VulkanShaderBufferBindings.h"
+#include "VulkanUniformBufferPool.h"
 #include "VulkanDescriptorSets.h"
 #include "VulkanSubmission.h"
 #include "VulkanCommandBuffer.h"
@@ -534,10 +535,10 @@ namespace Durin::VulkanRHI
 			.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
 			.PageSize = 256, .MaxPageCount = 1, .DebugName = "DelayedComputeTransfer"});
 		constexpr uint64 AdmissionPage = 4ull * 1024 * 1024;
-		auto TestUniforms = std::make_shared<FVulkanBindingAdmission>(256);
+		auto TestUniforms = std::make_shared<FVulkanUniformBufferAdmission>(256);
 		auto UniformOwner = TestUniforms->Reserve(AdmissionPage);
 		require(UniformOwner);
-		const auto UniformSlots = UniformOwner->Slots;
+		const auto UniformSlot = UniformOwner->Slot;
 		auto Submit = [&](FVulkanQueue& Queue, const FRHIGPUSyncPointRef& Wait, std::shared_ptr<void> Owner = {}, FVulkanGPUTimingQuery* Timing = nullptr) {
 			auto& Tracker = Queue.GetCompletionTracker();
 			std::unique_ptr<FVulkanPayload> Payload;
@@ -611,7 +612,7 @@ namespace Durin::VulkanRHI
 			Result.bTransferReuseBlocked = !TestTransfers.Acquire(256, 16, Producer).Range;
 			UniformOwner.reset();
 			const auto ConcurrentUniform = TestUniforms->Reserve(AdmissionPage);
-			Result.bUniformReuseBlocked = ConcurrentUniform->Slots[0].Page != UniformSlots[0].Page;
+			Result.bUniformReuseBlocked = ConcurrentUniform->Slot.Page != UniformSlot.Page;
 			std::weak_ptr<void> PoolOwner = TestPools.GetAllocationOwner();
 			TestPools.RetireUsedPools();
 			TestPools.PrepareForUse();
@@ -632,9 +633,9 @@ namespace Durin::VulkanRHI
 				&& Compute.GetCompletionTracker().WaitForSyncPoint(Producer, 1'000'000'000) == ERHIGPUWaitResult::Complete
 				&& Uses.IsRetirementEligible();
 			auto ReusedUniform = TestUniforms->Reserve(AdmissionPage);
-			Result.bUniformReusedAfterCompletion = ReusedUniform && ReusedUniform->Slots.size() == 1
-				&& ReusedUniform->Slots[0].Page == UniformSlots[0].Page
-				&& ReusedUniform->Slots[0].Offset == 0;
+			Result.bUniformReusedAfterCompletion = ReusedUniform
+				&& ReusedUniform->Slot.Page == UniformSlot.Page
+				&& ReusedUniform->Slot.Offset == 0;
 			TestPools.PrepareForUse();
 			Result.bDescriptorReusedAfterCompletion = TestPools.GetActiveBatchIndexForTesting() == 0;
 			require(TestPools.AllocateDescriptorSets(Layouts, Requirements).size() == 1);
@@ -990,7 +991,7 @@ namespace Durin::VulkanRHI
 			auto Payload = MakePayload();
 			Result.Signals[Index] = FRHIGPUSyncPoint::Create();
 			require(Payload->AttachSignal(Result.Signals[Index]));
-			auto Owner = Device.GetBindingPool(true).Reserve(256);
+			auto Owner = Device.GetUniformBufferPool().Reserve(256);
 			require(Owner);
 			Result.Owners[Index] = Owner;
 			Payload->RetainAllocation(std::move(Owner));

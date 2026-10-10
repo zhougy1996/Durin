@@ -41,72 +41,62 @@ storage; the creator list may be discarded before another list consumes the
 resource. First replay binding materializes the initial allocation and releases
 the pending CPU bytes. Uniform layout size is a nonzero multiple of 16.
 
-`CreateStorageBuffer` returns ordinary `FRHIBuffer` ownership. Its internal
-`Backend/RHIStorageBuffer.h` base carries a logical resource tag and CPU update
-state; application-facing headers expose no separate Storage resource class.
-The resource retains one mutable CPU copy for partial
-updates; backend subclasses directly own their current immutable GPU allocation.
-There is no Storage snapshot type, version counter, or update-policy enum.
-Storage selects structured (nonzero stride dividing size) or byte-address
-(stride four, size multiple of four), optionally with `ShaderResource`.
-Other storage flags are rejected. Native GPU-written storage continues to use
-ordinary buffers and Storage views. Lifetime usage hints never authorize
-frame-age reuse or limit lifetime.
+Structured and byte-address shader data use ordinary `FRHIBuffer` resources
+created through `RHICreateBuffer`/`RHITryCreateBuffer` with
+`FRHIBufferCreateDesc`. Usage flags select supported operations; buffer views
+select an exact range and its structured, byte-address, uniform, or formatted
+interpretation. Storage is a shader binding category, not a resource subclass
+or separate resource identity. `FRHIStorageBufferRange` remains a shader
+parameter range over an ordinary buffer.
 
-`UpdateUniformBuffer` copies complete replacement bytes and resource references
-into the command list. `UpdateBuffer` accepts only resources created by
-`CreateStorageBuffer` and copies
-the modified byte range into the command list. Ordered RHI replay applies the
-patch to the resource's CPU copy and replaces its backend allocation with the
-complete contents. Untouched bytes follow submission order, not recording order.
-Canceled updates release their payload without modifying the resource.
-Storage accepts no sidecars. Uniform resources, Storage resources, and their
-logical views are rejected as sidecars to prevent ownership cycles.
+`UploadBuffer` copies a patch into command-owned storage and applies it during
+ordered replay, leaving the written range in `TransferWrite`. The consumer
+records the appropriate transition before shader reads or other uses.
+`WriteBuffer` is the convenience path that restores canonical access after
+writing. Both preserve untouched GPU bytes and retain upload bytes through
+replay or cancellation. Neither maintains a full CPU shadow or replaces the
+buffer allocation. Canceled commands release their payload without writing.
+Initial data in a native creation descriptor uses the native initialization
+path; callers cannot rely on discarding an initialization command list while
+retaining its initialized contents.
+
+Ordinary buffer bindings name the retained resource and view. Updating that
+resource does not preserve earlier bound contents: visibility follows ordered
+GPU writes, transitions, and submission dependencies. Callers requiring both
+old and new contents create distinct buffers and retain them through GPU
+completion. Native buffers participate in copies, transitions, queue transfers,
+vertex/index binding, and RDG external imports according to their descriptors
+and the applicable access contracts.
+
+`UpdateUniformBuffer` still copies complete replacement bytes and resource
+references into the command list. Uniform binding captures the current
+immutable physical allocation during replay; subsequent updates do not rewrite
+existing bindings. Rebind parameters, including a prepared batch, to select the
+new uniform allocation. Uniform sidecars may retain ordinary GPU resources and
+views, but uniform resources are rejected to prevent ownership cycles.
 
 `FRHIUniformBufferRange` represents a typed uniform resource or a native buffer
 range. `CreateUniformBufferRange` supplies counted ownership across preparation
-and recording lists. Uniform parameter objects remain direct resources in
-prepared batches; recording validates their ranges without creating a logical
-buffer view. Native ranges and Storage are canonicalized into
-counted views. Executing a parameter bind captures the current physical
-allocation; draw/dispatch reuses that binding. Updates do not rewrite existing
-bindings: execute another parameter bind, including reusing a prepared batch,
-to select updated contents. Range and offset checks use active-device limits.
-Vulkan allocation and submission ownership follow
-[the memory contract](VulkanMemoryAndGPUCompletion.md#logical-buffer-versions).
+and recording lists. Native buffer ranges are canonicalized into counted native
+views through backend factories and caches. Range and offset validation uses
+active-device limits. There is no logical Storage view creation path.
+Vulkan uniform allocation ownership follows
+[the memory contract](VulkanMemoryAndGPUCompletion.md#logical-uniform-allocations).
 
-`FRHIBufferView::Create` creates logical Storage views and enforces parent,
-description, and active-device range/offset preconditions. `CanCreate` checks
-those conditions without allocation or diagnostics for parameter-batch soft
-admission. CPU allocation failures propagate normally; there is no separate
-upload-error translation. Logical view creation is independent of command-list
-recording and has no command-list forwarding API. Native view factories and
-their cache paths reject Storage parents before backend work. Binding canonicalization selects the
-correct path from the parent's resource type. Native write/upload, lock, vertex/index,
-copy, and transition operations reject Storage buffers with enforced
-preconditions; ordered data updates use the RHI APIs above. RDG external
-buffer imports reject Storage parents as declaration errors because
-their backing changes independently of graph access tracking. Graph-owned
-upload helpers continue to allocate native graph resources.
-
-Storage CPU contents, RDG sources, native buffer write/upload payloads,
-and packed texture command arrays allocate CPU storage on demand. There is no
-fixed per-upload size or process-wide CPU payload budget. Diagnostics track
-live and peak owned bytes, plus aligned backing ranges and retained page
+RDG sources, native buffer upload payloads, pending uniform data, and packed
+texture command arrays allocate CPU storage on demand. Diagnostics track live
+and peak owned bytes, aligned uniform backing ranges, and retained page
 capacity. Copying a span owns its exact bytes; taking a vector tracks its
-capacity. Shared graph and command owners count one source allocation until
-its last owner releases it. Storage retains one full CPU copy; update commands own only their patch bytes.
-Uniform commands own their upload bytes until replay or cancellation; native
-allocations retain their resource references for the lifetime of captured bindings.
+capacity. Shared graph and command owners count one source allocation until its
+last owner releases it. Ordinary buffers retain no permanent CPU upload copy.
 
-`CreateUniformBuffer` and `CreateStorageBuffer` return counted resources;
-`UpdateUniformBuffer`, `UpdateBuffer`, `WriteBuffer`, and `UploadBuffer` return
-void. Invalid descriptors, ranges, resource types, or sidecar ownership violate
-enforced preconditions. Allocation failures follow ordinary allocation or
-terminal replay failure handling rather than a caller-managed budget result.
-Texture commands likewise own their exact packed bytes before recording.
-Executor queue and frame backpressure remains at the submission boundary;
-a single payload beyond the queue byte threshold runs alone.
+`CreateUniformBuffer` returns a counted resource; `UpdateUniformBuffer`,
+`WriteBuffer`, and `UploadBuffer` return void. Invalid ranges, resource types,
+or uniform sidecar ownership violate enforced preconditions. Native creation
+uses its existing recoverable result contract. Allocation failures during
+replay follow terminal replay failure handling. Executor backpressure remains
+at the submission boundary; a single payload beyond the queue byte threshold
+runs alone.
 
 ## Binding and Attachment Ownership
 

@@ -96,34 +96,36 @@ synchronous result, reuse after a declared bound is exhausted, frame pacing
 that targets an exact token, or orderly shutdown. These waits are counted; a
 whole-device idle wait is not an ordinary recycling mechanism.
 
-## Logical Buffer Versions
+## Logical Uniform Allocations
 
 `FVulkanUniformBuffer` directly owns its current `FVulkanUniformAllocation`:
-a mapped page buffer, offset, padded size, interval lease, and native-resource
-references. Initialization is lazy on first binding; subsequent updates replace
+a mapped page buffer, offset, padded size, typed interval reservation, and
+native-resource references. Initialization is lazy on first binding; subsequent updates replace
 the allocation during ordered RHI replay and release the command's CPU bytes.
 An allocation is immutable after publication. Uniform pages use concurrent
 sharing across provisioned queue families, so every consuming queue reads the
 same allocation without per-queue copies or ownership transfers.
 
-`FVulkanStorageBuffer` directly owns its current `FVulkanStorageAllocation`.
-Its CPU copy preserves partial updates; command lists own only modified ranges.
-Initial allocation is lazy on first binding and updates replace it on ordered
-RHI replay. Immutable Storage and Uniform pages use concurrent sharing across
-provisioned queue families, so one allocation serves every queue. No per-queue
-content cache, snapshot version, or recording-lane reservation is needed.
-Both pools use 4 MiB normal pages, grow on demand, and use dedicated larger pages
-when needed. Offsets and padded sizes respect binding and noncoherent atom
-alignment. Pool growth never submits an active render pass. Native allocation
-failure is terminal. Native page capacity stays charged through teardown.
+Uniform pools use 4 MiB normal pages, grow on demand, and use dedicated larger
+pages when needed. Offsets and padded sizes respect binding and noncoherent
+atom alignment. Pool growth never submits an active render pass. Native
+allocation failure is terminal. Native page capacity stays charged through
+teardown. Ordinary structured and byte-address buffers use native allocations
+and ordered uploads; there is no separate Storage binding pool or CPU shadow.
 
-Shader-parameter binding captures the selected physical allocation and view.
+`FVulkanUniformBufferAdmission` owns thread-safe interval reservations; each
+reservation contains one slot. `FVulkanUniformBufferPool` materializes native
+pages on the RHI lane. `FVulkanUniformBufferBindings` resolves captured allocations
+into descriptors. Reservation probes are private Vulkan test helpers and are
+not part of the portable RHI interface.
+
+Uniform shader-parameter binding captures the selected physical allocation and view.
 Rebinding reads the resource's current allocation; draw/dispatch performs no
 uniform generation polling. Existing bindings and older submissions keep their
-original contents. Each consuming payload independently retains the captured
-allocation through completion, cancellation, or failure quarantine. Interval
-leases are reusable only after all resource, binding, and submission owners
-release them; frame age plays no role. Host writes are flushed before submission,
+original contents. Each consuming payload retains its resolved binding, which
+owns the immutable allocation and its single reservation, through completion,
+cancellation, or failure quarantine. Reservations are reusable only after all
+resource, binding, and submission owners release them; frame age plays no role. Host writes are flushed before submission,
 and immutable read-to-read pipeline changes need no write dependency.
 
 Payload allocation owners use a hash set keyed by retained pointer identity.
@@ -134,7 +136,7 @@ never expose native page placement. Dynamic descriptors name the page at offset
 zero and select the allocation through their dynamic offset.
 
 `DynamicUpload` arena gauges include materialized binding pages and allocation
-ranges. Pending uniform uploads, Storage CPU contents, graph sources, native buffer
+ranges. Pending uniform uploads, graph sources, native buffer
 writes/uploads, and packed texture command arrays share observational CPU byte
 accounting described in
 [resource views](RHIResourceViewsAndTransfers.md#uniform-and-storage-buffers).
@@ -212,7 +214,7 @@ GPU wait. Nested `Vulkan.Completion.Poll`, `WaitForSyncPoint`, `WaitFenceNative`
 `ObserveThrough`, `ResolveResults`, and `ReleaseCompleted` zones distinguish
 native fence blocking from CPU result processing and recycling. `WaitForSyncPoint`
 attaches the physical queue index and target token while Tracy is connected.
-Public uniform/storage ranges remain logical buffer/offset/size values, and
+Public uniform/storage ranges remain resource/offset/size values, and
 native backing offsets stay private.
 
 Descriptor allocation rotates between at most two pool batches. Every graphics

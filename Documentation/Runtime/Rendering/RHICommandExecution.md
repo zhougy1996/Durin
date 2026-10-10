@@ -13,17 +13,28 @@ direct backend-call path.
 
 ## Results and diagnostics
 
-RHI validation uses operation-specific `std::expected<T, E>` errors without a
-global error union. Retain typed context only where callers consume it; internal
-checks may use `bool`, and pipeline admission may report `InvalidDescription`.
+Detailed resource, transfer, transition, indirect-command, and shader-binding
+validation belongs to `Backend/RHIValidation.h`. RHI recording and backend
+execution own the checks and diagnostics; ordinary consumers do not receive
+operation-specific validation errors. Attachment selection may query
+`IsTextureViewDescValid` without consuming diagnostic details. Pipeline admission
+may report `InvalidDescription`.
 `ToString` formats at presentation boundaries; semantic tests assert codes and
 context, never classify by text. Formatting lives in `RHIErrorStrings.cpp`.
 
 `FRHICreationError` preserves recovery class, source, and native status.
 `RHITryCreateTexture`/`RHITryCreateBuffer` return a non-null resource or that error
-without logging; nullable adapters log recoverable failures once. Executor state
-retains typed errors and bounded external exception text; rollback diagnostics
-do not replace the primary failure. Device/invariant failures stay terminal.
+without logging; nullable adapters log recoverable failures once. Thread work
+callbacks return `void`; the consumer catches exceptions, retains the first
+failure's diagnostic text (at most 4096 bytes), stops admission, releases queued
+work, and wakes waiters. `FailedSerial` is the failure authority even when the
+exception text is empty. Stats expose the text only for diagnostics; synchronous
+submission returns admission and completion status without an error payload.
+Backend `Init` owns partial-state cleanup before propagating its original
+exception to the thread boundary or inline initialization handler. The RHI owner
+then destroys the failed backend and releases its module; it does not call
+runtime `Shutdown` on a partially initialized backend. Device/invariant failures
+stay terminal.
 Vulkan startup and swapchain configuration may use local human-readable reasons;
 success follows result state and native retry policy follows `vk::Result`.
 
@@ -245,6 +256,10 @@ successfully so its serial and later admitted work remain valid. Inline mode
 returns the same result directly. A Vulkan factory already executing on the RHI
 thread catches at the same boundary without enqueueing and waiting on itself.
 
+The creation exception and direct exception-translation helper are declared in
+`Backend/RHICreation.h`; they are implementation facilities rather than ordinary
+command-recording APIs.
+
 Nullable runtime factories translate only that operation-failure result into a
 null RHI reference. Buffer, texture, shader, graphics-pipeline, compute-pipeline, sampler, and
 vertex-declaration factories must otherwise publish a complete resource; a
@@ -252,12 +267,14 @@ non-null wrapper with an invalid native handle or allocation is forbidden.
 Partially built native candidates clean up immediately on the RHI thread, and a
 later caller-defined or Renderer-generation retry may create a fresh candidate.
 
-These readiness postconditions apply to native factories. The ordinary
-`CreateUniformBuffer` and `CreateStorageBuffer` command-list APIs instead
-return dedicated uniform and storage resource identities with owned initial contents;
-their native backing is resolved during consuming replay. They enforce input preconditions and allocate CPU contents and
-backend placement on demand. Native allocation failure during consuming replay
-follows terminal replay failure rather than a recoverable native-factory result. See [resource views](RHIResourceViewsAndTransfers.md#uniform-and-storage-buffers).
+These readiness postconditions apply to all native buffer factories, including
+structured and byte-address buffers. `CreateUniformBuffer` returns a dedicated
+layout-defined resource with owned initial contents; its native backing is
+resolved during consuming replay. It enforces input preconditions and allocates
+pending contents and backend placement on demand. Uniform native allocation
+failure during consuming replay follows terminal replay failure rather than a
+recoverable native-factory result. See
+[resource views](RHIResourceViewsAndTransfers.md#uniform-and-storage-buffers).
 
 Graphics-pipeline initialization owns complete portable rasterizer,
 multisample, depth/stencil, per-active-attachment blend/write-mask, structural

@@ -1,6 +1,6 @@
 #include "RHIResources.h"
+#include "Backend/RHIValidation.h"
 #include "RHIShaderParameters.h"
-#include "RHIThread.h"
 
 namespace Durin
 {
@@ -9,7 +9,6 @@ namespace Durin
 		switch (Code)
 		{
 		case ERHIIndirectCommandError::NullBuffer: return "Indirect argument buffer is null.";
-		case ERHIIndirectCommandError::StorageBuffer: return "Indirect arguments require a GPU buffer.";
 		case ERHIIndirectCommandError::MissingIndirectUsage: return "Indirect argument buffer is missing DrawIndirect usage.";
 		case ERHIIndirectCommandError::MisalignedOffset: return "Indirect argument offset must be four-byte aligned.";
 		case ERHIIndirectCommandError::RangeOutOfBounds: return "Indirect argument record exceeds the buffer.";
@@ -405,17 +404,6 @@ namespace Durin
 		std::string Text = std::format("{}: {}", Source, Reason);
 		if (Error.NativeCode) Text += std::format(" native={}", *Error.NativeCode);
 		return Text;
-	}
-	auto ToString(const FRHIThreadError& Error) -> std::string
-	{
-		switch (Error.Code)
-		{
-		case ERHIThreadFailure::None: return {};
-		case ERHIThreadFailure::ExternalException: return Error.ExternalDiagnostic;
-		case ERHIThreadFailure::UnknownException: return "RHI thread work failed with an unknown exception.";
-		case ERHIThreadFailure::PriorFailure: return "RHI thread already failed.";
-		}
-		return {};
 	}
 
 }

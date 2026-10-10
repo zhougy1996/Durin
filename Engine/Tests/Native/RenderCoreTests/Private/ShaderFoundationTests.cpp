@@ -956,8 +956,7 @@ namespace Durin
 		FRHICommandList Commands;
 		auto Uniform = Commands.CreateUniformBuffer({64},
 			ERHIBufferLifetimeUsage::MultiFrame, FByteBuffer(64));
-		auto Storage = Commands.CreateStorageBuffer({32, 4, EBufferUsageFlags::StructuredBuffer},
-			ERHIBufferLifetimeUsage::SingleFrame, FByteBuffer(32));
+		auto Storage = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("ShaderStorage", 32, 4, EBufferUsageFlags::StructuredBuffer));
 		ASSERT_TRUE(Uniform && Storage);
 		FParameters Parameters{{Uniform.GetReference(), 16, 16},
 			{{{Storage.GetReference(), 0, 16}, {Storage.GetReference(), 16, 16}}}};

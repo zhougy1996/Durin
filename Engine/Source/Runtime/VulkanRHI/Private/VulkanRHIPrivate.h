@@ -196,7 +196,8 @@ namespace Durin::VulkanRHI
 	};
 	VULKANRHI_API auto TestVulkanSealedPressure() -> FVulkanSealedPressureTestResult;
 	VULKANRHI_API auto TestVulkanSealedPressureDependency() -> bool;
-	VULKANRHI_API auto TestVulkanBindingAdmission() -> bool;
+	VULKANRHI_API auto TestVulkanUniformBufferAdmission() -> bool;
+	VULKANRHI_API auto ReserveVulkanUniformBufferBackingForTest(uint32 Size) -> std::shared_ptr<void>;
 	struct FVulkanCrossQueueWaitTestResult
 	{
 		bool bConsumerBlocked = false;

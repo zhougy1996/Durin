@@ -1,4 +1,5 @@
 #include "MetalResourceState.h"
+#include "Backend/RHIValidation.h"
 #include "MetalBuffer.h"
 #include "MetalTexture.h"
 

@@ -1,4 +1,5 @@
 #include "RHIPipelineCreation.h"
+#include "Backend/RHICreation.h"
 #include "PipelineCompileQueue.h"
 
 #include "DynamicRHI.h"

@@ -1,4 +1,5 @@
 #include "MetalCommandContext.h"
+#include "Backend/RHIValidation.h"
 #include "Backend/RHICompletionBackend.h"
 #include "MetalAutoreleasePool.h"
 #include "MetalBuffer.h"
@@ -20,12 +21,8 @@ namespace Durin
 		auto MetalBytesPerTexel(EPixelFormat Format) -> NS::UInteger
 		{ return GetPixelFormatInfo(Format).BytesPerBlock; }
 
-		struct FBoundBuffer
-		{
-			std::shared_ptr<FMetalStorageAllocation> Storage;
-			std::shared_ptr<FMetalUniformAllocation> Uniform;
-		};
-		using FBoundBufferAllocations = std::map<std::tuple<uint32, uint32, uint32>, FBoundBuffer>;
+		using FBoundBufferAllocations = std::map<std::tuple<uint32, uint32, uint32>,
+			std::shared_ptr<FMetalUniformAllocation>>;
 
 		class FMetalCommandContextImpl final : public FMetalCommandContext
 		{
@@ -1201,7 +1198,7 @@ namespace Durin
 						if (Parameter.Resource->GetResourceType() == ERHIResourceType::UniformBuffer)
 						{
 							const auto& Allocation = ComputeBufferAllocations.at(std::tuple(
-								Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement)).Uniform;
+								Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement));
 							require(Allocation && Allocation->Handle);
 							Active->StorageOwners.push_back(Allocation);
 							Active->NativeResources.push_back(NS::RetainPtr(Allocation->Handle.get()));
@@ -1213,7 +1210,7 @@ namespace Durin
 							== ERHIResourceType::BufferView,
 							"Metal compute buffer binding requires a buffer view.");
 						auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
-						const auto Buffer = ResolveBufferBinding(View, Parameter, ComputeBufferAllocations);
+						const auto Buffer = ResolveBufferBinding(View);
 						const bool bStorage = Parameter.Type
 							== ERHIBindingType::StorageBuffer;
 						requiref(bStorage
@@ -1403,35 +1400,15 @@ namespace Durin
 				const auto Key = std::tuple(Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement);
 				if (Parameter.Resource->GetResourceType() == ERHIResourceType::UniformBuffer)
 				{
-					Snapshots[Key] = {{}, static_cast<FMetalUniformBuffer*>(Parameter.Resource)->GetAllocation()};
+					Snapshots[Key] = static_cast<FMetalUniformBuffer*>(Parameter.Resource)->GetAllocation();
 					return;
-				}
-				if (Parameter.Resource->GetResourceType() == ERHIResourceType::BufferView)
-				{
-					auto* Buffer = static_cast<FRHIBufferView*>(Parameter.Resource)->GetBuffer();
-					if (IsStorageBuffer(Buffer))
-					{
-						Snapshots[Key] = {static_cast<FMetalStorageBuffer*>(Buffer)->GetAllocation(), {}};
-						return;
-					}
 				}
 				Snapshots.erase(Key);
 			}
 
-			auto ResolveBufferBinding(FRHIBufferView* View,
-				const FRHIShaderParameterResource& Parameter,
-				const FBoundBufferAllocations& Snapshots) -> FBufferBinding
+			auto ResolveBufferBinding(FRHIBufferView* View) -> FBufferBinding
 			{
-				auto* Logical = View->GetBuffer();
-				if (IsStorageBuffer(Logical))
-				{
-					const auto& Allocation = Snapshots.at(std::tuple(
-						Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement)).Storage;
-					Active->StorageOwners.push_back(Allocation);
-					Active->NativeResources.push_back(NS::RetainPtr(Allocation->Handle.get()));
-					return {Allocation->Handle.get(), Logical->GetSize()};
-				}
-				auto* Buffer = dynamic_cast<FMetalBuffer*>(Logical);
+				auto* Buffer = dynamic_cast<FMetalBuffer*>(View->GetBuffer());
 				requiref(Buffer && Buffer->GetHandle(),
 					"Metal buffer binding has no native buffer.");
 				Active->NativeResources.push_back(NS::RetainPtr(Buffer->GetHandle()));
@@ -1541,7 +1518,7 @@ namespace Durin
 							if (Parameter.Resource->GetResourceType() == ERHIResourceType::UniformBuffer)
 							{
 								const auto& Allocation = GraphicsBufferAllocations.at(std::tuple(
-									Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement)).Uniform;
+									Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement));
 								require(Allocation && Allocation->Handle);
 								Active->StorageOwners.push_back(Allocation);
 								Active->NativeResources.push_back(NS::RetainPtr(Allocation->Handle.get()));
@@ -1555,7 +1532,7 @@ namespace Durin
 								== ERHIResourceType::BufferView,
 								"Metal graphics buffer binding requires a view.");
 							auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
-							const auto Buffer = ResolveBufferBinding(View, Parameter, GraphicsBufferAllocations);
+							const auto Buffer = ResolveBufferBinding(View);
 							const bool bStorage = Parameter.Type
 								== ERHIBindingType::StorageBuffer;
 							requiref(bStorage

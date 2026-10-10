@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "Backend/RHICreation.h"
 
 #include "RenderResourceCreation.h"
 #include "DynamicRHI.h"

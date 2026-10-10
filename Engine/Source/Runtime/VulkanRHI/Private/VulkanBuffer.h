@@ -22,12 +22,12 @@ namespace Durin::VulkanRHI
 	public:
 		static auto Cast(FRHIBuffer* Resource) -> FVulkanBuffer*
 		{
-			require(Resource && !IsStorageBufferResource(Resource));
+			require(Resource);
 			return static_cast<FVulkanBuffer*>(Resource);
 		}
 		static auto Cast(const FRHIBuffer* Resource) -> const FVulkanBuffer*
 		{
-			require(Resource && !IsStorageBufferResource(Resource));
+			require(Resource);
 			return static_cast<const FVulkanBuffer*>(Resource);
 		}
 		FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc,
@@ -54,8 +54,7 @@ namespace Durin::VulkanRHI
 
 		auto Write(FVulkanCommandListContext& Context, uint32 Offset, FByteView Data) -> void;
 		auto Upload(FVulkanCommandListContext& Context, uint32 Offset, FByteView Data) -> void;
-		auto InitializeDeferredReadOnly(FByteView Data, uint32 Offset = 0) -> void;
-		auto IsDeferredReadOnly() const -> bool { return bDeferredReadOnly; }
+		auto InitializeUniformRange(FByteView Data, uint32 Offset = 0) -> void;
 
 		auto GetStateTracker() -> FVulkanBufferStateTracker& { return StateTracker; }
 		auto GetStateTracker() const -> const FVulkanBufferStateTracker& { return StateTracker; }
@@ -71,7 +70,7 @@ namespace Durin::VulkanRHI
 
 		FVulkanBufferStateTracker StateTracker;
 		std::string DebugName;
-		bool bDeferredReadOnly = false;
+		bool bUniformBacking = false;
 
 	};
 

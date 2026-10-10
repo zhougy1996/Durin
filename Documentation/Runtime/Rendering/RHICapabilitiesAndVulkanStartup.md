@@ -247,6 +247,14 @@ initialization do not depend on that query.
 If initialization or shutdown occurs before adoption, that RAII owner destroys
 the surface before the instance.
 
+Each backend's `Init` releases partial native ownership before propagating a
+failure. Vulkan releases the device candidate, startup surface, debug messenger,
+and instance in dependency order; Metal detaches the command context and
+releases its submission state, queue, device, and presentation references without
+waiting for runtime work. Capabilities remain unpublished after failed
+initialization. The common RHI owner destroys the failed backend and unloads its
+module without invoking runtime `Shutdown`.
+
 The startup viewport requests the one allowed transfer with
 `FRHIViewportCreateInfo::bAdoptInitializationPresentationCandidate`. The stored
 native handle rejects an accidental wrong-window adoption but is not a generic

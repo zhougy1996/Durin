@@ -32,7 +32,6 @@ namespace Durin
 		ResourceNameEmpty,
 		PhysicalResourceMissing,
 		ExternalFinalAccessMissing,
-		ExternalBufferTypeInvalid,
 		ResourceNameDuplicate,
 		PassNameEmpty,
 		PassNameDuplicate,
@@ -188,7 +187,6 @@ namespace Durin
 	};
 	RENDERCORE_API auto ToString(const FRDGPreparationError& Error) -> std::string;
 	using FRDGPreparationResult = std::expected<void, FRDGPreparationError>;
-
 
 	// Records one immutable dependency edge in compiler diagnostics.
 	struct FRDGDependency final

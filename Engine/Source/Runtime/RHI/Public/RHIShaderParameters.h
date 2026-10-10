@@ -87,37 +87,4 @@ namespace Durin
 		std::vector<TRefCountPtr<FRHIResource>> Resources;
 	};
 
-	enum class ERHIShaderBindingError : uint8
-	{
-		InvalidStage,
-		SetOutOfRange,
-		IncompatibleBinding,
-		MissingBinding,
-		UnexpectedBinding,
-		NullResource,
-		TypeMismatch,
-		ArrayElementOutOfRange,
-		StageMismatch,
-	};
-
-	RHI_API auto ToString(ERHIShaderBindingError Error) -> std::string_view;
-
-	struct FRHIShaderBindingError
-	{
-		ERHIShaderBindingError Code;
-		std::optional<uint32> Index;
-		std::optional<uint32> SetIndex;
-		std::optional<uint32> BindingIndex;
-		std::optional<uint32> ArrayElement;
-		std::optional<ERHIBindingType> ExpectedBindingType;
-		std::optional<ERHIBindingType> ActualBindingType;
-	};
-
-	RHI_API auto ToString(const FRHIShaderBindingError& Error) -> std::string;
-
-	RHI_API auto ValidateShaderParameterUpdate(const FPipelineLayoutDesc& Layout,
-		EShaderStageFlags ShaderStage,
-		std::span<const FRHIShaderParameterResource> Resources) -> std::expected<void, FRHIShaderBindingError>;
-	RHI_API auto ValidateShaderBindingCompleteness(const FPipelineLayoutDesc& Layout,
-		std::span<const FRHIShaderParameterResource> Resources) -> std::expected<void, FRHIShaderBindingError>;
 } // namespace Durin

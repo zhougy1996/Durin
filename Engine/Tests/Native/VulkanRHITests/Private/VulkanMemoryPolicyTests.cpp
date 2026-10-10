@@ -173,16 +173,16 @@ namespace Durin::VulkanRHI
 		EXPECT_TRUE(Result.bTimingDiscarded);
 	}
 
-	TEST(FVulkanCompletionIntegrationTests, BindingReservationsGrowAndReuseReleasedIntervals)
+	TEST(FVulkanCompletionIntegrationTests, UniformReservationsGrowAndReuseReleasedIntervals)
 	{
 		FInlineRHITestScope Scope;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		EXPECT_TRUE(TestVulkanBindingAdmission());
+		EXPECT_TRUE(TestVulkanUniformBufferAdmission());
 		std::vector<std::shared_ptr<void>> Reservations;
-		const FRHIBufferDesc Desc{17u * 1024 * 1024, 0, EBufferUsageFlags::UniformBuffer};
+		constexpr uint32 Size = 17u * 1024 * 1024;
 		for (int Index = 0; Index < 8; ++Index)
-			Reservations.push_back(GDynamicRHI->RHIReserveBufferBacking(Desc));
-		EXPECT_GE(GetBufferUploadStats().BackingLiveBytes, 8ull * Desc.Size);
+			Reservations.push_back(ReserveVulkanUniformBufferBackingForTest(Size));
+		EXPECT_GE(GetBufferUploadStats().BackingLiveBytes, 8ull * Size);
 		FRHICommandList Commands;
 		const std::array<std::byte, 16> Bytes{};
 		auto Buffer = Commands.CreateUniformBuffer({16}, ERHIBufferLifetimeUsage::SingleDraw, Bytes);

@@ -1,4 +1,4 @@
-#include "VulkanShaderBufferBindings.h"
+#include "VulkanUniformBufferPool.h"
 #include "VulkanDevice.h"
 #include "PipelineStateCache.h"
 #include "Backend/RHICompletionBackend.h"
@@ -152,7 +152,6 @@ namespace Durin::VulkanRHI
 				std::numeric_limits<uint32>::max() - Right.ApiVersion,
 				Right.VendorId, Right.DeviceId, Right.DeviceName};
 	}
-
 
 	FDeferredDeletionQueue::FDeferredDeletionQueue(FVulkanDevice* InDevice)
 		: Device(InDevice)
@@ -368,8 +367,7 @@ namespace Durin::VulkanRHI
 			.MaxPageCount = 2,
 			.DebugName = "VulkanReadbackArena"});
 
-		UniformBindingPool = new FVulkanBindingPool(*this, true);
-		StorageBindingPool = new FVulkanBindingPool(*this, false);
+		UniformBufferPool = new FVulkanUniformBufferPool(*this);
 		ImmediateContext = new FVulkanCommandListContext(RHI, *this, GraphicsQueue);
 		SubmissionCoordinator = std::make_unique<FVulkanSubmissionCoordinator>(*this);
 		if (ComputeQueue != GraphicsQueue)
@@ -740,16 +738,13 @@ namespace Durin::VulkanRHI
 			Frame = nullptr;
 		}
 		delete ReadbackArena;
-		delete UniformBindingPool;
-		UniformBindingPool = nullptr;
-		delete StorageBindingPool;
-		StorageBindingPool = nullptr;
+		delete UniformBufferPool;
+		UniformBufferPool = nullptr;
 		ReadbackArena = nullptr;
 		delete UploadArena;
 		UploadArena = nullptr;
 		delete GlobalDescriptorPool;
 		GlobalDescriptorPool = nullptr;
-
 
 		delete DescriptorSetCache;
 		DescriptorSetCache = nullptr;

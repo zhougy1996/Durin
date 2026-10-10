@@ -1,4 +1,5 @@
 #include "RHIResources.h"
+#include "Backend/RHIValidation.h"
 #include "Backend/RHIShaderParameterValidationInternal.h"
 
 #include "RHI.h"
@@ -370,8 +371,6 @@ namespace Durin
 		-> std::expected<void, ERHIIndirectCommandError>
 	{
 		if (!Buffer) return std::unexpected(ERHIIndirectCommandError::NullBuffer);
-		if (IsStorageBuffer(Buffer))
-			return std::unexpected(ERHIIndirectCommandError::StorageBuffer);
 		if (!EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::DrawIndirect))
 			return std::unexpected(ERHIIndirectCommandError::MissingIndirectUsage);
 		if ((Offset & 3u) != 0)
@@ -380,6 +379,12 @@ namespace Durin
 			return std::unexpected(ERHIIndirectCommandError::RangeOutOfBounds);
 		if (!bSupported) return std::unexpected(ERHIIndirectCommandError::Unsupported);
 		return {};
+	}
+
+	auto IsTextureViewDescValid(const FRHITexture* Texture,
+		const FRHITextureViewDesc& Desc) -> bool
+	{
+		return ValidateTextureViewDesc(Texture, Desc).has_value();
 	}
 
 	auto ValidateShaderParameterUpdate(const FPipelineLayoutDesc& Layout,
@@ -1490,7 +1495,6 @@ namespace Durin
 
 	auto ValidateTextureCreateDesc(const FRHITextureCreateDesc& CreateDesc) -> std::expected<void, ERHITextureCreateError>
 	{
-
 		if (CreateDesc.Extent.x <= 0 || CreateDesc.Extent.y <= 0) return std::unexpected(ERHITextureCreateError::EmptyExtent);
 		if (CreateDesc.Depth == 0) return std::unexpected(ERHITextureCreateError::EmptyDepth);
 		if (CreateDesc.ArraySize == 0) return std::unexpected(ERHITextureCreateError::EmptyArray);
@@ -1576,7 +1580,6 @@ namespace Durin
 		uint32 SourcePitch
 	) -> std::expected<void, ERHITextureUploadError>
 	{
-
 		if (MipIndex >= TextureDesc.NumMips) return std::unexpected(ERHITextureUploadError::MipOutOfBounds);
 		if (ArraySlice >= TextureDesc.ArraySize) return std::unexpected(ERHITextureUploadError::LayerOutOfBounds);
 		if (UpdateRegion.SrcX < 0 || UpdateRegion.SrcY < 0) return std::unexpected(ERHITextureUploadError::NegativeOffset);

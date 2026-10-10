@@ -44,23 +44,6 @@ namespace Durin
 		uint32 MaxFrames = 3;
 	};
 
-	enum class ERHIThreadFailure : uint8 { None, ExternalException, UnknownException, PriorFailure };
-	struct FRHIThreadError
-	{
-		ERHIThreadFailure Code = ERHIThreadFailure::None;
-		// Opaque exception-boundary text only; bounded by FromExternalException.
-		std::string ExternalDiagnostic;
-	};
-	RHI_API auto ToString(const FRHIThreadError& Error) -> std::string;
-	struct FRHIThreadWorkResult
-	{
-		FRHIThreadError Error;
-		auto IsSuccess() const -> bool { return Error.Code == ERHIThreadFailure::None; }
-		RHI_API static auto Success() -> FRHIThreadWorkResult;
-		RHI_API static auto FromExternalException(std::string_view Diagnostic) -> FRHIThreadWorkResult;
-		static auto Failure(ERHIThreadFailure Code) -> FRHIThreadWorkResult { return {{Code}}; }
-	};
-
 	struct FRHIThreadWork
 	{
 		FRHIThreadWork() = default;
@@ -72,7 +55,8 @@ namespace Durin
 		// Optional output set under the queue lock on admission, before replay can start.
 		// Enqueue consumes and clears this pointer; its storage need only outlive Enqueue.
 		uint64* AdmissionNanoseconds = nullptr;
-		std::function<FRHIThreadWorkResult()> Execute;
+		// The consumer owns exception capture and the first failure diagnostic.
+		std::function<void()> Execute;
 		// A pending head stays queued; later serials never bypass it.
 		std::function<bool()> IsReady;
 		uint32 BatchCount = 0;
@@ -95,8 +79,6 @@ namespace Durin
 	{
 		FRHIThreadSubmission Submission;
 		ERHIThreadWaitResult WaitResult = ERHIThreadWaitResult::Stopped;
-		// Populated when admission or execution fails because the thread failed.
-		FRHIThreadError Error;
 
 		auto IsCompleted() const -> bool
 		{
@@ -124,7 +106,8 @@ namespace Durin
 		uint64 FramePressureWaitCount = 0;
 		uint64 FramePressureWaitNanoseconds = 0;
 		uint64 RejectedWorkCount = 0;
-		FRHIThreadError Error;
+		// Bounded text for diagnostics only; FailedSerial is the failure authority.
+		std::string FailureDiagnostic;
 	};
 
 	// Owns the single FIFO consumer used by threaded RHI execution.
