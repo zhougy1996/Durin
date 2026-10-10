@@ -26,6 +26,7 @@ namespace
 	public:
 		std::vector<FByteView> ReturnedBlocks;
 		uint64 BuildCalls = 0;
+		std::function<void()> OnTexture2DBuildCompleted;
 		auto ResetObservation() -> void { ReturnedBlocks.clear(); BuildCalls = 0; }
 		auto GetTexture2DBuilderVersion() const -> uint32 override { return Texture2DBuilderVersion; }
 		auto GetTextureCubeBuilderVersion() const -> uint32 override { return TextureCubeBuilderVersion; }
@@ -35,12 +36,16 @@ namespace
 		{
 			for (const auto& Mip : Platform.Mips) ReturnedBlocks.emplace_back(Mip.Pixels);
 		}
-		auto BuildTexture2D(const FTexture2DBuildInput& Request, const FTexture2DBuildControl* Control)
-			-> std::expected<FTexture2DBuildOutput, FTexture2DBuildError> override
+		auto BuildTexture2D(const FTexture2DBuildInput& Request)
+			-> std::optional<FTexture2DBuildOutput> override
 		{
 			++BuildCalls;
-			auto Built = Durin::BuildTexture2D(Request, Control);
-			if (Built) Observe(Built->PlatformData);
+			auto Built = Durin::BuildTexture2D(Request);
+			if (Built)
+			{
+				Observe(Built->PlatformData);
+				if (OnTexture2DBuildCompleted) OnTexture2DBuildCompleted();
+			}
 			return Built;
 		}
 		auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request)
@@ -111,6 +116,7 @@ namespace
 		}
 		auto TearDown() -> void override
 		{
+			if (Provider) Provider->OnTexture2DBuildCompleted = {};
 			FPaths::SetDerivedDataCacheDirForTests(PreviousRoot);
 			Log.reset();
 			Testing::RemoveTestWorkDirectory(Root);
@@ -189,6 +195,40 @@ namespace
 		for (const auto& Mip : Data.Mips) { Hash.Update(Mip.Pixels); Bytes += Mip.Pixels.size(); }
 		return Bytes;
 	}
+}
+
+TEST_F(FDerivedDataTextureQualificationTests, CancellationDiscardsCompletedRecipeProduct)
+{
+	auto Image = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+		.Format = Image::ERawImageFormat::RGBA8}, MakePixels(4 * 4 * 4));
+	ASSERT_TRUE(Image);
+	const auto View = Image->GetView();
+	auto Source = PrepareTexture2DSourceMipChain(std::span(&View, 1), 4, 1);
+	ASSERT_TRUE(Source);
+	const auto Request = MakeTexture2DBuildRequest(*Source);
+	ASSERT_TRUE(Request);
+	FPaths::SetDerivedDataCacheDirForTests((Root / "CanceledRecipe").generic_string());
+	Provider->ResetObservation();
+	std::atomic<bool> bCancelled = false;
+	// Cancellation arrives after the synchronous recipe has produced valid data.
+	Provider->OnTexture2DBuildCompleted = [&] { bCancelled.store(true); };
+	const FTexture2DBuildExecutionControl Control{.ShouldCancel = [&] { return bCancelled.load(); }};
+	FTexturePlatformData Product;
+	FTexture2DBuildInputIdentity Identity;
+	const auto Built = BuildTexture2DPlatformData(*Request, Product, Identity, &Control);
+	ASSERT_FALSE(Built);
+	EXPECT_EQ(Built.error().Code, ETexture2DBuildError::Cancelled);
+	EXPECT_EQ(Provider->BuildCalls, 1u);
+	EXPECT_FALSE(Provider->ReturnedBlocks.empty());
+	EXPECT_FALSE(Product.IsValid());
+	EXPECT_NE(Identity.BuilderVersion, 0u);
+
+	// Canceled products must not be applied or persisted as a cache hit.
+	Provider->OnTexture2DBuildCompleted = {};
+	bCancelled.store(false);
+	ASSERT_TRUE(BuildTexture2DPlatformData(*Request, Product, Identity, &Control));
+	EXPECT_TRUE(Product.IsValid());
+	EXPECT_EQ(Provider->BuildCalls, 2u);
 }
 
 TEST_F(FDerivedDataTextureQualificationTests, Texture2DColdAndWarm)

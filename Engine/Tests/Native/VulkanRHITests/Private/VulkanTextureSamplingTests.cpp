@@ -192,7 +192,7 @@ namespace Durin
 					.PixelFormat = TextureBuilder::SelectPixelFormat(Usage, bSrgb, bHasTransparency)});
 				if (!BuildResult)
 				{
-					ADD_FAILURE() << Durin::FormatTexture2DBuildError(BuildResult.error());
+					ADD_FAILURE() << BuildResult.error();
 					return {};
 				}
 				const auto& Built = BuildResult->PlatformData;

@@ -15,19 +15,11 @@ namespace Durin::TextureBuilder
 			{ return {Pixels, Width, Height, RowPitch}; }
 		};
 
-
-		auto IsCancellationRequested(const FBuildExecutionControl* ExecutionControl) -> bool
-		{
-			return ExecutionControl && ExecutionControl->ShouldCancel
-				&& ExecutionControl->ShouldCancel();
-		}
-
 		auto BuildNextMip(
 			const FReadOnlyMip& Source,
 			ETextureUsage Usage,
 			bool bSRGB,
-			FMutableMip& OutResult,
-			const FBuildExecutionControl* ExecutionControl) -> bool
+			FMutableMip& OutResult) -> void
 		{
 			FMutableMip Result;
 			Result.Width = std::max(Source.Width / 2, 1u);
@@ -37,8 +29,6 @@ namespace Durin::TextureBuilder
 
 			for (uint32 DestY = 0; DestY < Result.Height; ++DestY)
 			{
-				if (DestY % CancellationScanlineInterval == 0
-					&& IsCancellationRequested(ExecutionControl)) return false;
 				const uint32 BeginY = DestY * Source.Height / Result.Height;
 				const uint32 EndY = (DestY + 1) * Source.Height / Result.Height;
 				for (uint32 DestX = 0; DestX < Result.Width; ++DestX)
@@ -99,22 +89,18 @@ namespace Durin::TextureBuilder
 				}
 			}
 			OutResult = std::move(Result);
-			return true;
 		}
 
 		auto CalculateAlphaCoverage(
 			const FReadOnlyMip& Mip,
 			float Threshold,
 			double Scale,
-			double& OutCoverage,
-			const FBuildExecutionControl* ExecutionControl) -> bool
+			double& OutCoverage) -> void
 		{
 			const uint8 EncodedThreshold = ColorConvert::QuantizeUNorm8(Threshold);
 			uint64 CoveredPixelCount = 0;
 			for (uint32 Y = 0; Y < Mip.Height; ++Y)
 			{
-				if (Y % CancellationScanlineInterval == 0
-					&& IsCancellationRequested(ExecutionControl)) return false;
 				for (uint32 X = 0; X < Mip.Width; ++X)
 				{
 					const size_t Offset = static_cast<size_t>(Y) * Mip.RowPitch + X * ChannelCount + 3;
@@ -125,36 +111,30 @@ namespace Durin::TextureBuilder
 			}
 			OutCoverage = static_cast<double>(CoveredPixelCount)
 				/ (static_cast<uint64>(Mip.Width) * Mip.Height);
-			return true;
 		}
 
 		auto PreserveAlphaCoverage(
 			FMutableMip& Mip,
 			float Threshold,
-			double TargetCoverage,
-			const FBuildExecutionControl* ExecutionControl) -> bool
+			double TargetCoverage) -> void
 		{
 			double LowScale = 0.0;
 			double HighScale = 1.0;
 			double Coverage = 0.0;
-			if (!CalculateAlphaCoverage(
-				Mip, Threshold, HighScale, Coverage, ExecutionControl)) return false;
+			CalculateAlphaCoverage(Mip, Threshold, HighScale, Coverage);
 			while (Coverage < TargetCoverage && HighScale < 256.0)
 			{
 				HighScale *= 2.0;
-				if (!CalculateAlphaCoverage(
-					Mip, Threshold, HighScale, Coverage, ExecutionControl)) return false;
+				CalculateAlphaCoverage(Mip, Threshold, HighScale, Coverage);
 			}
 
 			double BestScale = 1.0;
-			if (!CalculateAlphaCoverage(
-				Mip, Threshold, 1.0, Coverage, ExecutionControl)) return false;
+			CalculateAlphaCoverage(Mip, Threshold, 1.0, Coverage);
 			double BestError = std::abs(Coverage - TargetCoverage);
 			for (uint32 Iteration = 0; Iteration < 16; ++Iteration)
 			{
 				const double Scale = (LowScale + HighScale) * 0.5;
-				if (!CalculateAlphaCoverage(
-					Mip, Threshold, Scale, Coverage, ExecutionControl)) return false;
+				CalculateAlphaCoverage(Mip, Threshold, Scale, Coverage);
 				const double Error = std::abs(Coverage - TargetCoverage);
 				if (Error < BestError)
 				{
@@ -167,8 +147,6 @@ namespace Durin::TextureBuilder
 
 			for (uint32 Y = 0; Y < Mip.Height; ++Y)
 			{
-				if (Y % CancellationScanlineInterval == 0
-					&& IsCancellationRequested(ExecutionControl)) return false;
 				for (uint32 X = 0; X < Mip.Width; ++X)
 				{
 					const size_t Offset = static_cast<size_t>(Y) * Mip.RowPitch + X * ChannelCount + 3;
@@ -176,12 +154,11 @@ namespace Durin::TextureBuilder
 						static_cast<double>(std::to_integer<uint8>(Mip.Pixels[Offset])) / 255.0 * BestScale));
 				}
 			}
-			return true;
 		}
 
 		auto GenerateMipChain(const FBuildMipChainRequest& Request,
-			FTexture2DBuildTimings& Metrics, const FBuildExecutionControl* ExecutionControl)
-			-> std::expected<std::vector<Image::FImage>, FTexture2DBuildError>
+			FTexture2DBuildTimings& Metrics)
+			-> std::expected<std::vector<Image::FImage>, std::string>
 		{
 			using FClock = std::chrono::steady_clock;
 			const auto SourceMips = Request.SourceMips;
@@ -198,47 +175,22 @@ namespace Durin::TextureBuilder
 			const bool bPreserveAlphaCoverage = Usage == ETextureUsage::Color
 				&& bHasTransparency && AlphaMipMode == ETextureAlphaMipMode::PreserveCoverage;
 			double SourceAlphaCoverage = 0.0;
-			if (bPreserveAlphaCoverage
-				&& !CalculateAlphaCoverage(
-					BaseMip,
-					AlphaCoverageThreshold,
-					1.0,
-					SourceAlphaCoverage,
-					ExecutionControl))
-			{
-				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-			}
+			if (bPreserveAlphaCoverage)
+				CalculateAlphaCoverage(BaseMip, AlphaCoverageThreshold, 1.0, SourceAlphaCoverage);
 			const FClock::time_point MipStart = FClock::now();
 			while (SourceMips.size() == 1
 				&& (UncompressedMips.back().GetInfo().Width > 1 || UncompressedMips.back().GetInfo().Height > 1))
 			{
-				if (IsCancellationRequested(ExecutionControl))
-				{
-					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-				}
 				FMutableMip NextMip;
-				if (!BuildNextMip(
-					UncompressedMips.back(), Usage, bSRGB, NextMip, ExecutionControl))
-				{
-					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-				}
+				BuildNextMip(UncompressedMips.back(), Usage, bSRGB, NextMip);
 				if (bPreserveAlphaCoverage)
-				{
-					if (!PreserveAlphaCoverage(
-						NextMip,
-						AlphaCoverageThreshold,
-						SourceAlphaCoverage,
-						ExecutionControl))
-					{
-						return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-					}
-				}
+					PreserveAlphaCoverage(NextMip, AlphaCoverageThreshold, SourceAlphaCoverage);
 				auto ImageResult1 = Image::FImage::TryCreate({.Width = NextMip.Width, .Height = NextMip.Height,
 					.Format = Image::ERawImageFormat::RGBA8,
 					.GammaSpace = SourceMips.front().GetInfo().GammaSpace}, std::move(NextMip.Pixels));
 				if (!ImageResult1)
 				{
-					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidMipLayout});
+					return std::unexpected(std::string("Generated texture mip layout is invalid."));
 				}
 				auto FrozenMip = std::move(*ImageResult1);
 				UncompressedMips.push_back(std::move(FrozenMip));
@@ -269,8 +221,7 @@ namespace Durin::TextureBuilder
 		}
 	}
 
-	auto AnalyzeTransparency(std::span<const Image::FImage> SourceMips,
-		const FBuildExecutionControl* Control) -> std::expected<bool, FTexture2DBuildError>
+	auto AnalyzeTransparency(std::span<const Image::FImage> SourceMips) -> bool
 	{
 		bool bHasTransparency = false;
 		// Supplied lower mips may contain alpha even when the base mip is opaque.
@@ -280,8 +231,6 @@ namespace Durin::TextureBuilder
 			const uint32 Width = Mip.GetInfo().Width;
 			for (uint32 Y = 0; Y < Mip.GetInfo().Height && !bHasTransparency; ++Y)
 			{
-				if (Y % CancellationScanlineInterval == 0 && IsCancellationRequested(Control))
-					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 				const size_t Row = static_cast<size_t>(Y) * Width * ChannelCount;
 				for (uint32 X = 0; X < Width; ++X)
 					if (Pixels[Row + static_cast<size_t>(X) * ChannelCount + 3] != std::byte{255})
@@ -296,7 +245,7 @@ namespace Durin::TextureBuilder
 	}
 
 	auto BuildMipChain(const FBuildMipChainRequest& Request,
-		const FBuildExecutionControl* ExecutionControl) -> std::expected<FTexture2DBuildOutput, FTexture2DBuildError>
+		const FBuildExecutionOptions* ExecutionOptions) -> std::expected<FTexture2DBuildOutput, std::string>
 	{
 		using FClock = std::chrono::steady_clock;
 		const auto SourceMips = Request.SourceMips;
@@ -305,19 +254,17 @@ namespace Durin::TextureBuilder
 		const auto CompressionQuality = Settings.CompressionQuality;
 		FTexture2DBuildOutput Product;
 		auto& OutPlatformData = Product.PlatformData;
-		// A single observer type is also the metrics value returned to production.
-		auto& Metrics = ExecutionControl && ExecutionControl->DiagnosticMetrics
-			? *ExecutionControl->DiagnosticMetrics : Product.Metrics;
-		Metrics = {};
+		// Metrics belong to the completed product.
+		auto& Metrics = Product.Metrics;
 		check(ValidateTexture2DSourceMips(SourceMips).has_value());
 		check(ValidateTexture2DBuildSettings(Settings).has_value());
 		check(Settings.bSRGB.has_value());
 		OutPlatformData.PixelFormat = Request.PixelFormat;
 		if (OutPlatformData.PixelFormat == EPixelFormat::Unknown)
 		{
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::UnsupportedPixelFormat});
+			return std::unexpected(std::string("Selected pixel format is unsupported by the texture encoder."));
 		}
-		auto Generated = GenerateMipChain(Request, Metrics, ExecutionControl);
+		auto Generated = GenerateMipChain(Request, Metrics);
 		if (!Generated) return std::unexpected(Generated.error());
 		auto UncompressedMips = std::move(*Generated);
 		size_t FirstMipIndex = 0;
@@ -334,17 +281,13 @@ namespace Durin::TextureBuilder
 		const FClock::time_point CompressionStart = FClock::now();
 		for (size_t MipIndex = FirstMipIndex; MipIndex < UncompressedMips.size(); ++MipIndex)
 		{
-			if (IsCancellationRequested(ExecutionControl))
-			{
-				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-			}
 			FTexture2DMipData& CompressedMip = OutPlatformData.Mips.emplace_back();
-			const std::expected<void, FTexture2DBuildError> CompressionResult = CompressTextureMip(
+			const std::expected<void, std::string> CompressionResult = CompressTextureMip(
 				UncompressedMips[MipIndex], OutPlatformData.PixelFormat,
-				CompressionQuality, CompressedMip, ExecutionControl);
+				CompressionQuality, CompressedMip, ExecutionOptions);
 			if (!CompressionResult)
 			{
-				return std::unexpected(CompressionResult.error());
+				return std::unexpected(std::format("Mip {} compression failed: {}", MipIndex, CompressionResult.error()));
 			}
 		}
 		Metrics.CompressionNanoseconds = static_cast<uint64>(
@@ -353,9 +296,8 @@ namespace Durin::TextureBuilder
 
 		if (OutPlatformData.IsValid())
 		{
-			Product.Metrics = Metrics;
 			return Product;
 		}
-		return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidPlatformData});
+		return std::unexpected(std::string("Failed to build texture platform data."));
 	}
 }

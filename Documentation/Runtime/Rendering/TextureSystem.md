@@ -170,9 +170,10 @@ fallback.
 rejected settings, mip index, image descriptors and accumulated bytes with distinct
 failure reasons.
 `ITextureBuildModule::BuildTexture2D` returns
-`std::expected<FTexture2DBuildOutput, FTexture2DBuildError>` with typed input
-causes and compression task state. The module owns pure synchronous construction;
-Engine adapters own derived-data policy and diagnostic translation.
+`std::optional<FTexture2DBuildOutput>` by value. It logs a failure once inside
+TextureBuild and returns no partial product. The synchronous recipe accepts no
+cancellation control; Engine adapters own derived-data policy and cancellation.
+Detailed recipe failure reasons remain in module logs.
 Compilation submission and synchronous build return
 `std::expected<void, FTexture2DCompilationError>`, retaining actionable input
 reasons, input causes, object identity, and expected/actual source identities.
@@ -228,10 +229,11 @@ Shutdown likewise drains all callbacks before the process task scheduler
 closes. Every callback is GameThread-only and the compiling manager's request
 serial and input-identity comparison prevent stale publication.
 
-Cancellation is checked every eight generated or alpha-processing scanlines,
-between mips, and every 64 compression blocks. New requests and accepted
-authored edits cancel older work. Unload, destruction, document close, failed startup unwind, and
-normal shutdown cancel outstanding work. Shutdown stops admission, cancels the
+Cancellation is checked by the external build system before and after recipe
+execution. An admitted Texture2D recipe finishes mip processing and compression;
+a canceled request discards its result before output publication or persistence.
+New requests and accepted authored edits cancel older work. Unload, destruction,
+document close, failed startup unwind, and normal shutdown cancel outstanding work. Shutdown stops admission, cancels the
 queued and running set, waits for worker quiescence, drains GameThread
 completions, and then destroys the manager-owned queue. Request state and
 completion history are manager-owned and bounded to 256 records; source image

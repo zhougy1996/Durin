@@ -10,11 +10,6 @@ namespace Durin::TextureBuilder
 	{
 		constexpr uint32 BlockWidth = 4;
 
-		auto IsCancellationRequested(const FBuildExecutionControl* Control) -> bool
-		{
-			return Control && Control->ShouldCancel && Control->ShouldCancel();
-		}
-
 		auto GatherTextureBlock(const FReadOnlyMip& Source, uint32 BlockX, uint32 BlockY,
 			std::array<uint8, BlockWidth * BlockWidth * ChannelCount>& OutPixels) -> void
 		{
@@ -46,20 +41,20 @@ namespace Durin::TextureBuilder
 	auto CompressTextureMip(const FReadOnlyMip& Source, EPixelFormat Format,
 		ETextureCompressionQuality Quality,
 		FTexture2DMipData& OutMip,
-		const FBuildExecutionControl* ExecutionControl) -> std::expected<void, FTexture2DBuildError>
+		const FBuildExecutionOptions* ExecutionOptions) -> std::expected<void, std::string>
 	{
 		const FPixelFormatLayout Layout = GetPixelFormatLayout(Format, Source.Width, Source.Height);
 		if (Layout.DataSize == 0 || Layout.RowPitch > std::numeric_limits<uint32>::max()
 			|| Layout.DataSize > std::numeric_limits<size_t>::max())
 		{
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::CompressedLayoutOverflow});
+			return std::unexpected(std::string("Compressed texture mip layout exceeds supported limits."));
 		}
 
 		if (Format != EPixelFormat::BC1_UNORM && Format != EPixelFormat::BC1_UNORM_SRGB
 			&& Format != EPixelFormat::BC3_UNORM && Format != EPixelFormat::BC3_UNORM_SRGB
 			&& Format != EPixelFormat::BC5_UNORM && Format != EPixelFormat::BC7_UNORM
 			&& Format != EPixelFormat::BC7_UNORM_SRGB)
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::UnsupportedPixelFormat});
+			return std::unexpected(std::string("Selected pixel format is unsupported by the texture encoder."));
 
 		static std::once_flag EncoderInitFlag;
 		std::call_once(EncoderInitFlag, [] {
@@ -88,24 +83,14 @@ namespace Durin::TextureBuilder
 			BC7Params.m_uber_level = 2;
 			break;
 		default:
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput,
-				.InputCause = FTexture2DInputError{.Code = ETexture2DInputError::InvalidCompressionQuality,
-					.Settings = {.CompressionQuality = Quality}}});
+			return std::unexpected(FormatTexture2DInputError({.Code = ETexture2DInputError::InvalidCompressionQuality, .Settings = {.CompressionQuality = Quality}}));
 		}
 		const uint32 CompressionLevel = GetCompressionLevel(Quality);
 		const uint32 AlphaSearchRadius = Quality == ETextureCompressionQuality::Low ? 1
 			: Quality == ETextureCompressionQuality::High ? 5 : rgbcx::BC4_DEFAULT_SEARCH_RAD;
 
-		// Rows write disjoint output ranges. Keep cancellation callbacks serialized:
-		// callers are not required to provide a concurrently callable predicate.
-		std::mutex CancellationMutex;
-		bool bCancelled = false;
-		auto ShouldCancel = [&] {
-			std::lock_guard Lock(CancellationMutex);
-			bCancelled = bCancelled || IsCancellationRequested(ExecutionControl);
-			return bCancelled;
-		};
-		const bool bParallel = !ExecutionControl || ExecutionControl->bParallelCompression;
+		// Rows write disjoint output ranges; ParallelFor drains before returning.
+		const bool bParallel = !ExecutionOptions || ExecutionOptions->bParallelCompression;
 		// A 4096-block batching threshold, no more than eight chunks per mip.
 		const uint64 RowsPerChunk = std::max<uint64>(
 			(4096ull + Layout.BlocksWide - 1) / Layout.BlocksWide,
@@ -113,15 +98,9 @@ namespace Durin::TextureBuilder
 		const auto Compression = ParallelFor("Texture.CompressRows", Layout.BlocksHigh,
 			[&](uint64 Row) {
 			const uint32 BlockY = static_cast<uint32>(Row);
-			if (ShouldCancel()) return;
 			std::array<uint8, BlockWidth * BlockWidth * ChannelCount> BlockPixels{};
 			for (uint32 BlockX = 0; BlockX < Layout.BlocksWide; ++BlockX)
 			{
-				if (BlockX != 0 && BlockX % CancellationBlockInterval == 0
-					&& ShouldCancel())
-				{
-					return;
-				}
 				GatherTextureBlock(Source, BlockX, BlockY, BlockPixels);
 				uint8* DestBlock = reinterpret_cast<uint8*>(Pixels.data())
 					+ static_cast<size_t>(BlockY) * OutMip.RowPitch
@@ -149,10 +128,8 @@ namespace Durin::TextureBuilder
 				}
 			}
 		}, {.MinBatchSize = bParallel ? RowsPerChunk : std::numeric_limits<uint64>::max()});
-		if (bCancelled)
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 		if (Compression.State != ETaskState::Succeeded)
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::CompressionTaskFailed, .TaskState = Compression.State});
+			return std::unexpected(std::format("Texture compression task failed (state {}).", static_cast<int>(Compression.State)));
 		OutMip.Pixels = FSharedByteBuffer::Take(std::move(Pixels));
 		return {};
 	}

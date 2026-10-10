@@ -9,7 +9,7 @@
 class FCacheLogCapture
 {
 public:
-	FCacheLogCapture()
+	explicit FCacheLogCapture(std::string_view InCategory = "DerivedData") : Category(InCategory)
 	{
 		if (ActiveCaptures == 0)
 		{
@@ -32,7 +32,7 @@ public:
 	{
 		Durin::FLogger::Get().Flush();
 		auto Records = Durin::FLogger::Get().ReadRecords(Cursor, 5000).Records;
-		std::erase_if(Records, [](const auto& Record) { return Record.GetCategory() != "DerivedData"; });
+		std::erase_if(Records, [this](const auto& Record) { return Record.GetCategory() != Category; });
 		return Records;
 	}
 	auto Has(std::string_view Operation) const -> bool
@@ -47,4 +47,5 @@ public:
 private:
 	inline static uint32 ActiveCaptures = 0;
 	uint64 Cursor = 0;
+	std::string Category;
 };

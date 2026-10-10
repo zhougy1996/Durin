@@ -263,8 +263,11 @@ Texture2D and LDR Cube share a resolved mip request and private BC encoding;
 Cube selects one format for all six faces. A single RGBA8 source mip generates
 the complete chain, while supplied chains remain intact. Shared mip recipes
 return detached platform data and metrics only on success, and compression tasks
-drain before borrowed source storage is released. In-progress metrics observation
-is diagnostic only. HDR Cube and Volume retain their distinct filtering recipes.
+drain before borrowed source storage is released. Texture2D returns an optional
+complete product by value and logs failures inside TextureBuild; it accepts no
+cancellation control. The external build system owns cancellation and discards
+completed products for canceled requests. HDR Cube and Volume retain their
+distinct filtering recipes.
 Cube recipe and canonical pixel inputs distinguish LDR faces from HDR panorama
 alternatives; HDR output mode, linear color policy, and panorama layout follow
 the alternative rather than optional flags. Authoring metadata remains available

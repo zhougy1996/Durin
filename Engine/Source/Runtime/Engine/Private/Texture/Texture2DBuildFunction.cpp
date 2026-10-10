@@ -119,11 +119,11 @@ namespace Durin::TexturePrivate
 				if (auto Valid = ValidateTexture2DSourceMips(Mips); !Valid)
 					return Fail(FormatTexture2DInputError(Valid.error()));
 				Input->SourceMips = Mips;
-				FTexture2DBuildControl Control{.ShouldCancel = [&] { return Context.IsCancelled(); }};
 				auto* Module = ITextureBuildModule::Get();
 				if (!Module) return Fail("The TextureBuild module is unavailable.");
-				auto Built = Module->BuildTexture2D(*Input, &Control);
-				if (!Built) return Fail(FormatTexture2DBuildError(Built.error()));
+				auto Built = Module->BuildTexture2D(*Input);
+				if (Context.IsCancelled()) return;
+				if (!Built) return Fail("Texture2D build failed; see TextureBuild logs for details.");
 				auto Output = MakeTexture2DSharedOutput(Built->PlatformData,
 					Input->TargetPlatform, Input->TargetProfile);
 				if (!Output) return Fail(std::move(Output.error()));

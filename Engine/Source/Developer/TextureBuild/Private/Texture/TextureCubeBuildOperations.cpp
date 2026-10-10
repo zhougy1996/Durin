@@ -163,7 +163,7 @@ namespace Durin
 			{
 				return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
 					std::format("{} face platform build failed: {}",
-					FaceNames[Index], Durin::FormatTexture2DBuildError(BuildResult.error()))});
+					FaceNames[Index], BuildResult.error())});
 			}
 			PlatformData->Faces[Index] = std::move(BuildResult->PlatformData);
 		}

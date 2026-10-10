@@ -290,7 +290,7 @@ TEST(FTextureSourceTests, Texture2DPreservesSuppliedMipChainForBuild)
 	Durin::FTexturePlatformData Platform;
 	auto BuildResult = Durin::BuildTexture2D({.SourceMips = DecodeRequestMips(Input),
 		.Settings = {.bSRGB = true}});
-	ASSERT_TRUE(BuildResult) << Durin::FormatTexture2DBuildError(BuildResult.error());
+	ASSERT_TRUE(BuildResult);
 	Platform = std::move(BuildResult->PlatformData);
 	EXPECT_EQ(Platform.Mips.size(), 3u);
 	EXPECT_EQ(Platform.Mips.back().Width, 1u);
@@ -309,7 +309,7 @@ TEST(FTextureSourceTests, ImageBuildRetainsAlphaPresentOnlyInSuppliedLowerMip)
 	Mips[1] = std::move(*ImageResult9);
 	Durin::FTexturePlatformData Platform;
 	auto Result = Durin::BuildTexture2D({.SourceMips = Mips, .Settings = {.bSRGB = true}});
-	ASSERT_TRUE(Result) << Durin::FormatTexture2DBuildError(Result.error());
+	ASSERT_TRUE(Result);
 	Platform = std::move(Result->PlatformData);
 	EXPECT_EQ(Platform.PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
 	ASSERT_EQ(Platform.Mips.size(), 2u);
@@ -1923,13 +1923,13 @@ TEST(FTexture2DTests, PreservesMaskedAlphaCoverageWithoutChangingColor)
 	auto AverageResult = Durin::BuildTexture2D({.SourceMips = std::span(&Source, 1),
 		.Settings = {.CompressionQuality = Durin::ETextureCompressionQuality::High,
 			.AlphaMipMode = Durin::ETextureAlphaMipMode::Average, .bSRGB = false}});
-	ASSERT_TRUE(AverageResult) << Durin::FormatTexture2DBuildError(AverageResult.error());
+	ASSERT_TRUE(AverageResult);
 	Average = std::move(AverageResult->PlatformData);
 	EXPECT_TRUE(AverageResult.has_value());
 	auto PreservedResult = Durin::BuildTexture2D({.SourceMips = std::span(&Source, 1),
 		.Settings = {.CompressionQuality = Durin::ETextureCompressionQuality::High,
 			.AlphaMipMode = Durin::ETextureAlphaMipMode::PreserveCoverage, .bSRGB = false}});
-	ASSERT_TRUE(PreservedResult) << Durin::FormatTexture2DBuildError(PreservedResult.error());
+	ASSERT_TRUE(PreservedResult);
 	Preserved = std::move(PreservedResult->PlatformData);
 	ASSERT_GE(Average.Mips.size(), 2u);
 	ASSERT_EQ(Preserved.Mips.size(), Average.Mips.size());
@@ -1978,26 +1978,38 @@ TEST(FTexture2DTests, CompressedLayoutsCoverNpotAndTailMips)
 	EXPECT_FALSE(Mip.IsValid(Durin::EPixelFormat::BC1_UNORM));
 }
 
-TEST(FTexture2DTests, CooperativeBuildCancellationUsesFrozenCheckpointIntervals)
+TEST(FTexture2DTests, RecipeFailureLogsOnceAndReturnsNoProduct)
 {
-	static_assert(Durin::TextureBuilder::CancellationBlockInterval == 64);
-	static_assert(Durin::TextureBuilder::CancellationScanlineInterval == 8);
-	auto ImageResult25 = Durin::Image::FImage::TryCreate({.Width = 512, .Height = 512,
-		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(512 * 512 * 4, std::byte{127}));
-	ASSERT_TRUE(ImageResult25);
-	auto Source = std::move(*ImageResult25);
-	uint32 CheckpointCount = 0;
-	const Durin::TextureBuilder::FBuildExecutionControl Control{
-		.ShouldCancel = [&] { return ++CheckpointCount == 20; }};
-	const auto BuildResult = Durin::TextureBuilder::BuildMipChain({
-		.SourceMips = std::span(&Source, 1),
-		.Settings = {.Usage = Durin::ETextureUsage::DataMask,
-			.CompressionQuality = Durin::ETextureCompressionQuality::High, .bSRGB = false},
-		.PixelFormat = Durin::EPixelFormat::BC7_UNORM}, &Control);
-	EXPECT_FALSE(BuildResult);
-	EXPECT_EQ(CheckpointCount, 20u);
-	ASSERT_FALSE(BuildResult);
-	EXPECT_EQ(BuildResult.error().Code, Durin::ETexture2DBuildError::Cancelled);
+	InitializeDObjectSystem();
+	FCacheLogCapture BuildLog("TextureBuild");
+	auto Source = Durin::Image::FImage::TryCreate({.Width = 2, .Height = 2,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(16, std::byte{255}));
+	ASSERT_TRUE(Source);
+	const Durin::Image::FImage InvalidSource;
+	const std::array<Durin::FTexture2DBuildInput, 4> Requests{{
+		{.SourceMips = std::span(&*Source, 1), .Settings = {.Usage = static_cast<Durin::ETextureUsage>(255)}},
+		{},
+		{.SourceMips = std::span(&InvalidSource, 1)},
+		{.SourceMips = std::span(&*Source, 1), .TargetPlatform = Durin::ECookTargetPlatform::Invalid},
+	}};
+	const std::array<std::string_view, 4> Reasons{
+		"Texture2D build settings are invalid.", "Texture2D source mip chain is empty.",
+		"Texture2D source mip chain is invalid.", "Texture2D build target is unsupported."};
+	for (size_t Index = 0; Index < Requests.size(); ++Index)
+	{
+		BuildLog.Reset();
+		const auto Built = Durin::BuildTexture2D(Requests[Index]);
+		EXPECT_FALSE(Built);
+		const auto Records = BuildLog.Records();
+		ASSERT_EQ(Records.size(), 1u);
+		EXPECT_EQ(Records.front().Level, Durin::ELogLevel::Error);
+		EXPECT_EQ(Records.front().Message, std::string("Texture2D build failed: ") + std::string(Reasons[Index]));
+	}
+	BuildLog.Reset();
+	const auto Built = Durin::BuildTexture2D({.SourceMips = std::span(&*Source, 1)});
+	ASSERT_TRUE(Built);
+	EXPECT_TRUE(Built->PlatformData.IsValid());
+	EXPECT_TRUE(BuildLog.empty());
 }
 
 TEST(FTexture2DTests, SharedSourceSlicesStayImmutableDuringWorkerBuild)
@@ -2062,7 +2074,7 @@ TEST(FTexture2DTests, ParallelCompressionMatchesSerialBytes)
 	{
 		if (Transparent && Usage != ETextureUsage::Color) continue;
 		FTexturePlatformData Serial, Parallel;
-		const TextureBuilder::FBuildExecutionControl Control{.bParallelCompression = false};
+		const TextureBuilder::FBuildExecutionOptions Control{.bParallelCompression = false};
 		const TextureBuilder::FBuildMipChainRequest Request{
 			.SourceMips = std::span(&Source, 1), .Settings = {.Usage = Usage, .CompressionQuality = Quality, .bSRGB = false},
 			.PixelFormat = TextureBuilder::SelectPixelFormat(Usage, false, Transparent)};
@@ -2082,46 +2094,6 @@ TEST(FTexture2DTests, ParallelCompressionMatchesSerialBytes)
 			EXPECT_TRUE(std::ranges::equal(Serial.Mips[Index].Pixels, Parallel.Mips[Index].Pixels));
 		}
 	}
-}
-
-TEST(FTexture2DTests, WorkerCompressionCancellationDrainsAndDiscardsOutput)
-{
-	InitializeDObjectSystem();
-	using namespace Durin;
-	auto ImageResult29 = Image::FImage::TryCreate({.Width = 512, .Height = 512,
-		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(512 * 512 * 4, std::byte{127}));
-	ASSERT_TRUE(ImageResult29);
-	auto Source = std::move(*ImageResult29);
-	FTexture2DBuildTimings Metrics;
-	uint32 CompressionCheckpoints = 0;
-	const TextureBuilder::FBuildExecutionControl Control{
-		.ShouldCancel = [&] {
-			return Metrics.MipGenerationNanoseconds && ++CompressionCheckpoints == 20;
-		}, .DiagnosticMetrics = &Metrics};
-	std::expected<FTexture2DBuildOutput, FTexture2DBuildError> Result;
-	auto Task = Tasks::LaunchTask("Test.TextureCompressionCancellation", [&] {
-		Result = TextureBuilder::BuildMipChain({.SourceMips = std::span(&Source, 1),
-			.Settings = {.Usage = ETextureUsage::DataMask, .bSRGB = false},
-			.PixelFormat = EPixelFormat::BC7_UNORM}, &Control);
-	});
-	ASSERT_EQ(WaitTask(Task.GetCompletion().GetTaskHandle()).TaskState, ETaskState::Succeeded);
-	ASSERT_FALSE(Result);
-	EXPECT_EQ(Result.error().Code, ETexture2DBuildError::Cancelled);
-	EXPECT_EQ(CompressionCheckpoints, 20u);
-}
-
-TEST(FTexture2DTests, ValidationFailureIsNotReclassifiedAsCancellation)
-{
-	Durin::Image::FImage InvalidSource;
-	const Durin::FTexture2DBuildControl Control{
-		.ShouldCancel = [] { return true; }};
-	const auto BuildResult = Durin::BuildTexture2D({
-		.SourceMips = std::span(&InvalidSource, 1), .Settings = {.bSRGB = true}}, &Control);
-
-	ASSERT_FALSE(BuildResult);
-	EXPECT_EQ(BuildResult.error().Code, Durin::ETexture2DBuildError::InvalidInput);
-	ASSERT_TRUE(BuildResult.error().InputCause);
-	EXPECT_EQ(BuildResult.error().InputCause->Code, Durin::ETexture2DInputError::InvalidImage);
 }
 
 TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)

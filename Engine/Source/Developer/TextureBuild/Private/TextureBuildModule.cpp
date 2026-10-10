@@ -27,11 +27,10 @@ namespace Durin
 		{
 			return VolumeTextureBuilderVersion;
 		}
-		auto BuildTexture2D(const FTexture2DBuildInput& Request,
-			const FTexture2DBuildControl* Control)
-			-> std::expected<FTexture2DBuildOutput, FTexture2DBuildError> override
+		auto BuildTexture2D(const FTexture2DBuildInput& Request)
+			-> std::optional<FTexture2DBuildOutput> override
 		{
-			return Durin::BuildTexture2D(Request, Control);
+			return Durin::BuildTexture2D(Request);
 		}
 		auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request)
 			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> override

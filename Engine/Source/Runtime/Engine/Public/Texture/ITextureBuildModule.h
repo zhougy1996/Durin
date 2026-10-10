@@ -23,9 +23,9 @@ namespace Durin
 		virtual auto GetTextureCubeBuilderVersion() const -> uint32 = 0;
 		virtual auto GetTextureCubeProjectionVersion() const -> uint32 = 0;
 		virtual auto GetVolumeTextureBuilderVersion() const -> uint32 = 0;
-		virtual auto BuildTexture2D(const FTexture2DBuildInput& Request,
-			const FTexture2DBuildControl* Control = nullptr)
-			-> std::expected<FTexture2DBuildOutput, FTexture2DBuildError> = 0;
+		// Synchronous and non-cancelable. Failure is logged by TextureBuild.
+		virtual auto BuildTexture2D(const FTexture2DBuildInput& Request)
+			-> std::optional<FTexture2DBuildOutput> = 0;
 		virtual auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request)
 			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> = 0;
 		virtual auto BuildTextureCube(const FTextureCubeBuildInput& Request)

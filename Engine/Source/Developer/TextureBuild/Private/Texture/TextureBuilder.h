@@ -8,19 +8,14 @@
 namespace Durin::TextureBuilder
 {
 	// Execution options do not participate in deterministic recipe identity.
-	struct FBuildExecutionControl
+	struct FBuildExecutionOptions
 	{
-		std::function<bool()> ShouldCancel;
-		// Diagnostic observation during synchronous execution; never needed by production.
-		FTexture2DBuildTimings* DiagnosticMetrics = nullptr;
 		// Diagnostic/reference execution; production uses bounded scheduler parallelism.
 		bool bParallelCompression = true;
 	};
 
 	inline constexpr uint32 ChannelCount = 4;
 	inline constexpr uint32 MaxDimension = 16384;
-	inline constexpr uint32 CancellationBlockInterval = 64;
-	inline constexpr uint32 CancellationScanlineInterval = 8;
 
 	TEXTUREBUILD_API auto SelectPixelFormat(ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat;
 
@@ -34,13 +29,12 @@ namespace Durin::TextureBuilder
 	};
 
 	// Requires source mips validated by ValidateTexture2DSourceMips.
-	TEXTUREBUILD_API auto AnalyzeTransparency(std::span<const Image::FImage> SourceMips,
-		const FBuildExecutionControl* Control = nullptr) -> std::expected<bool, FTexture2DBuildError>;
+	TEXTUREBUILD_API auto AnalyzeTransparency(std::span<const Image::FImage> SourceMips) -> bool;
 
 	// Requires validated source mips/settings and resolved Settings.bSRGB.
 	// A single source mip generates a complete chain; supplied chains remain intact.
-	// Failure returns no partial product. Diagnostic metrics may describe completed work.
+	// Failure returns no partial product. Errors are reported by the family entrypoint.
 	TEXTUREBUILD_API auto BuildMipChain(const FBuildMipChainRequest& Request,
-		const FBuildExecutionControl* Control = nullptr) -> std::expected<FTexture2DBuildOutput, FTexture2DBuildError>;
+		const FBuildExecutionOptions* Control = nullptr) -> std::expected<FTexture2DBuildOutput, std::string>;
 
 }

@@ -14,24 +14,17 @@ namespace Durin
 	auto FormatTexture2DBuildError(const FTexture2DBuildError& Error) -> std::string
 	{
 		if (!Error.Description.empty()) return Error.Description;
-		if (Error.ArchiveCause) return std::format("Archive code {} at {}: {}", static_cast<int>(Error.ArchiveCause->Code), Error.ArchiveCause->Path, Error.ArchiveCause->Message);
 		if (Error.InputCause) return FormatTexture2DInputError(*Error.InputCause);
 		switch (Error.Code)
 		{
 		case ETexture2DBuildError::None: return {};
 		case ETexture2DBuildError::InvalidInput: return "Texture build input is invalid.";
-		case ETexture2DBuildError::CompressionTaskFailed: return "Texture compression task failed.";
 		case ETexture2DBuildError::MissingSourceIdentity: return "Texture2D source identity is missing.";
 		case ETexture2DBuildError::AuthoredBuildUnavailable: return "Texture2D authored build orchestration is unavailable outside editor builds.";
 		case ETexture2DBuildError::InvalidBuilderVersion: return "The Texture2D builder descriptor is invalid.";
 		case ETexture2DBuildError::Cancelled: return "Texture2D build was cancelled.";
 		case ETexture2DBuildError::InvalidBuilderProduct: return "Texture2D builder returned invalid platform data.";
 		case ETexture2DBuildError::ModuleUnavailable: return "The TextureBuild module is unavailable.";
-		case ETexture2DBuildError::UnsupportedTarget: return "Texture2D build target is unsupported.";
-		case ETexture2DBuildError::CompressedLayoutOverflow: return "Compressed texture mip layout exceeds supported limits.";
-		case ETexture2DBuildError::UnsupportedPixelFormat: return "Selected pixel format is not supported by the current RHI backend.";
-		case ETexture2DBuildError::InvalidMipLayout: return "Generated texture mip layout is invalid.";
-		case ETexture2DBuildError::InvalidPlatformData: return "Failed to build texture platform data.";
 		}
 		return {};
 	}

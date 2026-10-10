@@ -7,7 +7,7 @@
 
 namespace Durin
 {
+	// Logs failures and returns no partial product; cancellation belongs to the caller.
 	TEXTUREBUILD_API auto BuildTexture2D(
-		const FTexture2DBuildInput& Request,
-		const FTexture2DBuildControl* ExecutionControl = nullptr) -> std::expected<FTexture2DBuildOutput, FTexture2DBuildError>;
+		const FTexture2DBuildInput& Request) -> std::optional<FTexture2DBuildOutput>;
 }

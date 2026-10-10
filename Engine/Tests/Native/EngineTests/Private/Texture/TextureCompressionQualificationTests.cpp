@@ -29,7 +29,7 @@ TEST(FTextureCompressionQualificationTests, SerialAndParallelCompression)
 		for (int Order = 0; Order < 2; ++Order)
 		{
 			const int Mode = (Round + Order) % 2;
-			const TextureBuilder::FBuildExecutionControl Control{
+			const TextureBuilder::FBuildExecutionOptions Control{
 				.bParallelCompression = Mode != 0};
 			auto Built = TextureBuilder::BuildMipChain({.SourceMips = std::span(&Source, 1),
 				.Settings = {.Usage = Usage, .bSRGB = false},

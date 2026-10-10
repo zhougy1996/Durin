@@ -5,8 +5,6 @@
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
 
-#include "Serialization/Archive.h"
-
 #include "EngineAPI.h"
 #include "Texture/Texture2DData.h"
 
@@ -65,28 +63,20 @@ namespace Durin
 	};
 
 	enum class ETaskState : uint8;
+	// Engine orchestration diagnostics; recipes report failures through module logs.
 	enum class ETexture2DBuildError : uint8
 	{
-		None, InvalidInput, CompressionTaskFailed,
+		None, InvalidInput,
 		MissingSourceIdentity, AuthoredBuildUnavailable, InvalidBuilderVersion, Cancelled,
-		InvalidBuilderProduct, ModuleUnavailable, UnsupportedTarget,
-		CompressedLayoutOverflow, UnsupportedPixelFormat,
-		InvalidMipLayout, InvalidPlatformData,
+		InvalidBuilderProduct, ModuleUnavailable,
 	};
 	struct FTexture2DBuildError
 	{
 		ETexture2DBuildError Code = ETexture2DBuildError::None;
 		std::optional<FTexture2DInputError> InputCause;
-		std::optional<ETaskState> TaskState;
-		std::optional<FArchiveFailure> ArchiveCause;
 		std::string Description; // Already formatted at the generic build boundary.
 	};
 	ENGINE_API auto FormatTexture2DBuildError(const FTexture2DBuildError& Error) -> std::string;
-
-	struct FTexture2DBuildControl
-	{
-		std::function<bool()> ShouldCancel;
-	};
 
 	ENGINE_API auto ValidateTexture2DSourceMips(
 		std::span<const Image::FImage> Mips) -> std::expected<void, FTexture2DInputError>;
