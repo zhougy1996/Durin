@@ -5,6 +5,7 @@
 #endif
 #include "StaticMeshBuildFunction.h"
 #include "StaticMeshSharedOutput.h"
+#include "StaticMeshRenderPreparation.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshDerivedDataKey.h"
 
@@ -147,7 +148,7 @@ namespace Durin
 		if (!Product) return std::unexpected(FStaticMeshBuildFailure{std::move(Product.error()), EStaticMeshBuildStage::Validation});
 		if (auto Metadata = RestoreRuntimeMetadata(Request.Settings.MaterialSlots, **Product); !Metadata)
 			return std::unexpected(FStaticMeshBuildFailure{std::move(Metadata.error()), EStaticMeshBuildStage::Validation});
-		if (auto Valid = FinalizeStaticMeshRenderData(**Product, Control); !Valid) return std::unexpected(std::move(Valid.error()));
+		if (auto Valid = StaticMeshPrivate::PrepareValidatedRenderData(**Product, Control); !Valid) return std::unexpected(std::move(Valid.error()));
 		return std::move(*Product);
 #endif
 	}

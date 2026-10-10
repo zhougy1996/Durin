@@ -2452,6 +2452,61 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
 }
 
+TEST(FStaticMeshDerivedDataCacheTests, ColdAndWarmAssemblyRepairFiniteIncorrectBounds)
+{
+	using namespace Durin;
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	auto Info = FModuleManager::Get().FindModule("MeshBuilder");
+	struct FRestoreImplementation
+	{
+		FModuleManager::FModuleInfoPtr Info;
+		std::unique_ptr<IModuleInterface> Original;
+		~FRestoreImplementation()
+		{
+			FAssetCompilingManager::Get().FinishAllCompilation();
+			Info->Module = std::move(Original);
+		}
+	} Restore{Info, std::move(Info->Module)};
+	class FIncorrectBoundsModule final : public IMeshBuilderModule
+	{
+	public:
+		IMeshBuilderModule& Original;
+		uint32 BuildCount = 0;
+		explicit FIncorrectBoundsModule(IMeshBuilderModule& InOriginal) : Original(InOriginal) {}
+		auto GetBuildVersion() const -> uint64 override { return 778; }
+		auto BuildRender(FStaticMeshRenderData& Render, const FStaticMeshBuildParameters& Parameters) -> bool override
+		{
+			++BuildCount;
+			if (!Original.BuildRender(Render, Parameters)) return false;
+			Render.LocalBounds = FBox(FVector3(100), FVector3(101));
+			for (auto& LOD : Render.LODResources)
+			{
+				LOD.LocalBounds = Render.LocalBounds;
+				for (auto& Section : LOD.Sections) Section.LocalBounds = Render.LocalBounds;
+			}
+			return true;
+		}
+	};
+	auto Implementation = std::make_unique<FIncorrectBoundsModule>(static_cast<IMeshBuilderModule&>(*Restore.Original));
+	auto& Module = *Implementation;
+	Info->Module = std::move(Implementation);
+	const FScopedDerivedDataCacheRestore CacheRestore;
+	FPaths::SetDerivedDataCacheDirForTests((Testing::GetTestWorkDirectory() / "IncorrectBoundsCache").generic_string());
+	FStaticMeshSource Source;
+	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
+	for (uint32 Attempt = 0; Attempt < 2; ++Attempt)
+	{
+		auto Render = BuildRenderForTest({.Source = Source});
+		ASSERT_TRUE(Render) << Render.error().ToString();
+		EXPECT_EQ((*Render)->LocalBounds.Min, FVector3(-0.75, -0.75, 0));
+		EXPECT_EQ((*Render)->LocalBounds.Max, FVector3(0.75, 0.75, 0));
+		EXPECT_EQ((*Render)->LODResources.front().LocalBounds.Min, (*Render)->LocalBounds.Min);
+		EXPECT_EQ((*Render)->LODResources.front().Sections.front().LocalBounds.Max, (*Render)->LocalBounds.Max);
+	}
+	EXPECT_EQ(Module.BuildCount, 1u);
+}
+
 TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndCancellation)
 {
 	using namespace Durin;

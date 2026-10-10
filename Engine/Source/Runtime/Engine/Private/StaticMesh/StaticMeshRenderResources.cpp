@@ -617,10 +617,10 @@ namespace Durin
 					}
 				}
 			}
-			for (const FVector3f& Position : Positions)
+			if (LOD.LocalBounds.bIsValid)
 			{
-				if (IsCancelled()) return false;
-				LocalBounds.AddPoint(FVector3(Position));
+				LocalBounds.AddPoint(LOD.LocalBounds.Min);
+				LocalBounds.AddPoint(LOD.LocalBounds.Max);
 			}
 		}
 		return !ShouldCancel || !ShouldCancel();
