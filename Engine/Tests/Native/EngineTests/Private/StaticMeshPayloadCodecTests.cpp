@@ -419,8 +419,8 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 {
 	const std::array Fixtures{MakeSingleSectionFixture(), MakeMultiMaterialFixture()};
 	const std::array<std::string_view, 2> ExpectedPayloadHashes{
-		"38eca74fe55840b7496a5a7ce640a9c8",
-		"22b719d486a6e9c288ede84204ab5ab6"};
+		"cb11d5161a1c7db169faaa74204de942",
+		"9822b5ad5d0469d312f252ba596a987c"};
 	const std::array<size_t, 2> ExpectedPayloadSizes{556, 824};
 	for (size_t FixtureIndex = 0; FixtureIndex < Fixtures.size(); ++FixtureIndex)
 	{

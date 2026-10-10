@@ -43,7 +43,7 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input).value().ToString(),
-		"99e5d7ba219a5a117ea74d151845fcef");
+		"4ec2f97b91195250c7cd6f89775afa86");
 }
 
 TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)

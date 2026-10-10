@@ -12,7 +12,6 @@ namespace Durin
 		{
 			std::vector<FStaticMeshSection> Sections;
 			FBox LocalBounds;
-			float ScreenSize = 0.0f;
 			uint8 NumTexCoords = 0;
 			bool bHasColorVertexData = false;
 		};
@@ -50,7 +49,7 @@ namespace Durin
 			return SafeNormalize(Math::Cross(Axis, Normal), FVector3f(1.0f, 0.0f, 0.0f));
 		}
 
-		auto BuildNormals(const std::vector<FVector3f>& Positions, const std::vector<uint32>& Indices, FBuildControl& Control) -> std::vector<FVector3f>
+		auto BuildNormals(std::span<const FVector3f> Positions, std::span<const uint32> Indices, FBuildControl& Control) -> std::vector<FVector3f>
 		{
 			std::vector<FVector3f> Normals(Positions.size(), FVector3f(0.0f));
 			for (size_t Index = 0; Index + 2 < Indices.size(); Index += 3)
@@ -74,10 +73,10 @@ namespace Durin
 		}
 
 		auto BuildTangents(
-			const std::vector<FVector3f>& Positions,
-			const std::vector<FVector3f>& Normals,
-			const std::vector<FVector2f>& UV0,
-			const std::vector<uint32>& Indices, FBuildControl& Control) -> std::vector<FVector4f>
+			std::span<const FVector3f> Positions,
+			std::span<const FVector3f> Normals,
+			std::span<const FVector2f> UV0,
+			std::span<const uint32> Indices, FBuildControl& Control) -> std::vector<FVector4f>
 		{
 			std::vector<FVector3f> TangentAccum(Positions.size(), FVector3f(0.0f));
 			std::vector<FVector3f> BitangentAccum(Positions.size(), FVector3f(0.0f));
@@ -122,7 +121,7 @@ namespace Durin
 			return Tangents;
 		}
 
-		auto HasValidNormals(const std::vector<FVector3f>& Normals, size_t NumVertices, FBuildControl& Control) -> bool
+		auto HasValidNormals(std::span<const FVector3f> Normals, size_t NumVertices, FBuildControl& Control) -> bool
 		{
 			return Normals.size() == NumVertices && std::ranges::all_of(Normals, [&Control](const FVector3f& Normal) {
 				Control.Tick();
@@ -130,7 +129,7 @@ namespace Durin
 			});
 		}
 
-		auto HasValidTangents(const std::vector<FVector4f>& Tangents, size_t NumVertices, FBuildControl& Control) -> bool
+		auto HasValidTangents(std::span<const FVector4f> Tangents, size_t NumVertices, FBuildControl& Control) -> bool
 		{
 			return Tangents.size() == NumVertices && std::ranges::all_of(Tangents, [&Control](const FVector4f& Tangent) {
 				Control.Tick();
@@ -139,13 +138,13 @@ namespace Durin
 			});
 		}
 
-		auto ValidateImportedMesh(const FMeshDescriptionSection& Mesh, FBuildControl& Control) -> bool
+		auto ValidateImportedMesh(const FMeshDescriptionSection& Mesh, std::span<const FVector3f> Positions, FBuildControl& Control) -> bool
 		{
-			if (Mesh.Positions.size() > std::numeric_limits<uint32>::max())
+			if (Positions.size() > std::numeric_limits<uint32>::max())
 			{
 				Control.Check();
 				DURIN_ERROR("StaticMesh render build: mesh '{}' exceeds the uint32 vertex limit (actual {}, expected {}).",
-					Mesh.Name, Mesh.Positions.size(), std::numeric_limits<uint32>::max());
+					Mesh.Name, Positions.size(), std::numeric_limits<uint32>::max());
 				return false;
 			}
 			if (Mesh.Indices.size() % 3 != 0)
@@ -154,12 +153,12 @@ namespace Durin
 				DURIN_ERROR("StaticMesh render build: mesh '{}' index count {} is not a triangle list.", Mesh.Name, Mesh.Indices.size());
 				return false;
 			}
-			for (size_t Vertex = 0; Vertex < Mesh.Positions.size(); ++Vertex)
+			for (size_t Vertex = 0; Vertex < Positions.size(); ++Vertex)
 			{
 				Control.Tick();
-				if (Math::IsFinite(Mesh.Positions[Vertex])) continue;
+				if (Math::IsFinite(Positions[Vertex])) continue;
 				Control.Check();
-				const auto& Position = Mesh.Positions[Vertex];
+				const auto& Position = Positions[Vertex];
 				DURIN_ERROR("StaticMesh render build: mesh '{}' has non-finite position {} ({}, {}, {}).",
 					Mesh.Name, Vertex, Position.x, Position.y, Position.z);
 				return false;
@@ -167,10 +166,10 @@ namespace Durin
 			for (size_t Offset = 0; Offset < Mesh.Indices.size(); ++Offset)
 			{
 				Control.Tick();
-				if (Mesh.Indices[Offset] < Mesh.Positions.size()) continue;
+				if (Mesh.Indices[Offset] < Positions.size()) continue;
 				Control.Check();
 				DURIN_ERROR("StaticMesh render build: mesh '{}' contains an out-of-range index (index {}, actual {}, expected {}).",
-					Mesh.Name, Offset, Mesh.Indices[Offset], Mesh.Positions.size());
+					Mesh.Name, Offset, Mesh.Indices[Offset], Positions.size());
 				return false;
 			}
 			return true;
@@ -226,7 +225,6 @@ namespace Durin
 				}
 			}
 
-			LOD.ScreenSize = GenerateDefaultStaticMeshLODScreenSizes(1).front();
 			auto& Positions = LOD.Positions;
 			auto& Normals = LOD.Normals;
 			auto& Tangents = LOD.Tangents;
@@ -238,12 +236,11 @@ namespace Durin
 			{
 				Control.Tick();
 				// Split source vertices at instance boundaries before generating render streams.
-				std::optional<FMeshDescriptionSection> Expanded;
+				std::vector<FVector3f> ExpandedPositions;
+				std::span<const FVector3f> MeshPositions = SourceMesh.Positions;
 				if (!SourceMesh.VertexInstanceVertices.empty())
 				{
-					Expanded = SourceMesh;
-					Expanded->Positions.clear();
-					Expanded->Positions.reserve(SourceMesh.GetVertexInstanceCount());
+					ExpandedPositions.reserve(SourceMesh.GetVertexInstanceCount());
 					for (uint32 Vertex : SourceMesh.VertexInstanceVertices)
 					{
 						Control.Tick();
@@ -254,19 +251,18 @@ namespace Durin
 								SourceMesh.Name, Vertex, SourceMesh.Positions.size());
 							return false;
 						}
-						Expanded->Positions.push_back(SourceMesh.Positions[Vertex]);
+						ExpandedPositions.push_back(SourceMesh.Positions[Vertex]);
 					}
-					Expanded->VertexInstanceVertices.clear();
+					MeshPositions = ExpandedPositions;
 				}
-				const auto& ImportedMesh = Expanded ? *Expanded : SourceMesh;
-				if (ImportedMesh.Positions.empty() || ImportedMesh.Indices.empty()) continue;
-				if (!ValidateImportedMesh(ImportedMesh, Control)) return false;
-				if (Positions.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Positions.size()
-					|| Indices.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Indices.size())
+				if (MeshPositions.empty() || SourceMesh.Indices.empty()) continue;
+				if (!ValidateImportedMesh(SourceMesh, MeshPositions, Control)) return false;
+				if (Positions.size() > std::numeric_limits<uint32>::max() - MeshPositions.size()
+					|| Indices.size() > std::numeric_limits<uint32>::max() - SourceMesh.Indices.size())
 				{
 					Control.Check();
 					DURIN_ERROR("StaticMesh render build: mesh '{}' exceeds uint32 render limits ({} vertices, {} indices, limit {}).",
-						ImportedMesh.Name, Positions.size() + ImportedMesh.Positions.size(), Indices.size() + ImportedMesh.Indices.size(),
+						SourceMesh.Name, Positions.size() + MeshPositions.size(), Indices.size() + SourceMesh.Indices.size(),
 						std::numeric_limits<uint32>::max());
 					return false;
 				}
@@ -275,12 +271,19 @@ namespace Durin
 				const uint32 FirstIndex = static_cast<uint32>(Indices.size());
 				Positions.insert(
 					Positions.end(),
-					ImportedMesh.Positions.begin(),
-					ImportedMesh.Positions.end());
+					MeshPositions.begin(),
+					MeshPositions.end());
 
 				std::vector<FVector3f> MeshNormals;
-				if (HasValidNormals(ImportedMesh.Normals, ImportedMesh.Positions.size(), Control))
-					MeshNormals = ImportedMesh.Normals;
+				if (HasValidNormals(SourceMesh.Normals, MeshPositions.size(), Control))
+				{
+					MeshNormals = SourceMesh.Normals;
+					for (FVector3f& Normal : MeshNormals)
+					{
+						Control.Tick();
+						Normal = SafeNormalize(Normal, FVector3f(0.0f, 0.0f, 1.0f));
+					}
+				}
 				else if (!SourceMesh.VertexInstanceVertices.empty())
 				{
 					// UV splits alone must not turn a shared geometric vertex into a hard normal seam.
@@ -299,82 +302,73 @@ namespace Durin
 						MeshNormals.push_back(VertexNormals[Vertex]);
 					}
 				}
-				else MeshNormals = BuildNormals(ImportedMesh.Positions, ImportedMesh.Indices, Control);
-				for (FVector3f& Normal : MeshNormals)
-				{
-					Control.Tick();
-					Normal = SafeNormalize(Normal, FVector3f(0.0f, 0.0f, 1.0f));
-				}
+				else MeshNormals = BuildNormals(MeshPositions, SourceMesh.Indices, Control);
 				Normals.insert(
 					Normals.end(), MeshNormals.begin(), MeshNormals.end());
 
-				std::array<std::vector<FVector2f>, MaxStaticMeshUVChannels> MeshTexCoords;
 				for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
 				{
 					Control.Tick();
-					const auto& ImportedTexCoords = ImportedMesh.UVChannels[Channel];
-					const bool bValidChannel = ImportedTexCoords.size() == ImportedMesh.Positions.size()
+					const auto& ImportedTexCoords = SourceMesh.UVChannels[Channel];
+					const bool bValidChannel = ImportedTexCoords.size() == MeshPositions.size()
 						&& std::ranges::all_of(ImportedTexCoords, [&Control](const FVector2f& UV) { Control.Tick(); return Math::IsFinite(UV); });
 					if (bValidChannel)
 					{
-						MeshTexCoords[Channel] = ImportedTexCoords;
+						TexCoords[Channel].insert(TexCoords[Channel].end(), ImportedTexCoords.begin(), ImportedTexCoords.end());
 						LOD.NumTexCoords = static_cast<uint8>(std::max<uint32>(LOD.NumTexCoords, Channel + 1));
 					}
 					else
 					{
-						MeshTexCoords[Channel].assign(ImportedMesh.Positions.size(), FVector2f(0.0f));
+						TexCoords[Channel].insert(TexCoords[Channel].end(), MeshPositions.size(), FVector2f(0.0f));
 					}
-					TexCoords[Channel].insert(
-						TexCoords[Channel].end(),
-						MeshTexCoords[Channel].begin(),
-						MeshTexCoords[Channel].end());
 				}
 
 				std::vector<FVector4f> MeshTangents;
-				if (HasValidTangents(ImportedMesh.Tangents, ImportedMesh.Positions.size(), Control))
+				if (HasValidTangents(SourceMesh.Tangents, MeshPositions.size(), Control))
 				{
-					MeshTangents.reserve(ImportedMesh.Tangents.size());
-					for (size_t VertexIndex = 0; VertexIndex < ImportedMesh.Tangents.size(); ++VertexIndex)
+					MeshTangents.reserve(SourceMesh.Tangents.size());
+					for (size_t VertexIndex = 0; VertexIndex < SourceMesh.Tangents.size(); ++VertexIndex)
 					{
 						Control.Tick();
 						const FVector3f& Normal = MeshNormals[VertexIndex];
-						const FVector3f SourceTangent(ImportedMesh.Tangents[VertexIndex]);
+						const FVector3f SourceTangent(SourceMesh.Tangents[VertexIndex]);
 						const FVector3f Tangent = SafeNormalize(SourceTangent - Normal * Math::Dot(Normal, SourceTangent), MakeStableTangent(Normal));
-						MeshTangents.emplace_back(Tangent, ImportedMesh.Tangents[VertexIndex].w < 0.0f ? -1.0f : 1.0f);
+						MeshTangents.emplace_back(Tangent, SourceMesh.Tangents[VertexIndex].w < 0.0f ? -1.0f : 1.0f);
 					}
 				}
 				else
 				{
-					MeshTangents = BuildTangents(ImportedMesh.Positions, MeshNormals, MeshTexCoords[0], ImportedMesh.Indices, Control);
+					const auto UV0 = std::span<const FVector2f>(TexCoords[0]).subspan(BaseVertexIndex, MeshPositions.size());
+					MeshTangents = BuildTangents(MeshPositions, MeshNormals, UV0, SourceMesh.Indices, Control);
 				}
 				Tangents.insert(
 					Tangents.end(),
 					MeshTangents.begin(),
 					MeshTangents.end());
 
-				const bool bValidColors = ImportedMesh.Colors.size() == ImportedMesh.Positions.size()
-					&& std::ranges::all_of(ImportedMesh.Colors, [&Control](const FVector4f& Color) { Control.Tick(); return Math::IsFinite(Color); });
+				const bool bValidColors = SourceMesh.Colors.size() == MeshPositions.size()
+					&& std::ranges::all_of(SourceMesh.Colors, [&Control](const FVector4f& Color) { Control.Tick(); return Math::IsFinite(Color); });
 				if (bValidColors)
 				{
 					Colors.insert(
 						Colors.end(),
-						ImportedMesh.Colors.begin(),
-						ImportedMesh.Colors.end());
+						SourceMesh.Colors.begin(),
+						SourceMesh.Colors.end());
 					LOD.bHasColorVertexData = true;
 				}
 				else
 				{
 					Colors.insert(
 						Colors.end(),
-						ImportedMesh.Positions.size(),
+						MeshPositions.size(),
 						FVector4f(1.0f));
 				}
 
 				Indices.reserve(
-					Indices.size() + ImportedMesh.Indices.size());
+					Indices.size() + SourceMesh.Indices.size());
 				uint32 MinimumIndex = std::numeric_limits<uint32>::max();
 				uint32 MaximumIndex = 0;
-				for (uint32 Index : ImportedMesh.Indices)
+				for (uint32 Index : SourceMesh.Indices)
 				{
 					Control.Tick();
 					MinimumIndex = std::min(MinimumIndex, Index);
@@ -383,17 +377,17 @@ namespace Durin
 				}
 
 				FStaticMeshSection Section;
-				Section.Name = MakeUniqueSectionName(ImportedMesh.Name, static_cast<uint32>(LOD.Sections.size()), SectionNameCounts);
+				Section.Name = MakeUniqueSectionName(SourceMesh.Name, static_cast<uint32>(LOD.Sections.size()), SectionNameCounts);
 				Section.FirstIndex = FirstIndex;
-				Section.IndexCount = static_cast<uint32>(ImportedMesh.Indices.size());
+				Section.IndexCount = static_cast<uint32>(SourceMesh.Indices.size());
 				Section.MinVertexIndex = BaseVertexIndex + MinimumIndex;
 				Section.MaxVertexIndex = BaseVertexIndex + MaximumIndex;
-				const auto Slot = SourceToStableSlot.find(ImportedMesh.SourceMaterialIndex);
+				const auto Slot = SourceToStableSlot.find(SourceMesh.SourceMaterialIndex);
 				if (Slot == SourceToStableSlot.end())
 				{
 					Control.Check();
 					DURIN_ERROR("StaticMesh render build: mesh '{}' section '{}' references missing source material {}.",
-						ImportedMesh.Name, Section.Name, ImportedMesh.SourceMaterialIndex);
+						SourceMesh.Name, Section.Name, SourceMesh.SourceMaterialIndex);
 					return false;
 				}
 				Section.MaterialSlotIndex = Slot->second;
@@ -481,7 +475,7 @@ namespace Durin
 			LOD.IndexBuffer.Init(std::move(Source.Indices));
 			LOD.Sections = std::move(Source.Sections);
 			LOD.LocalBounds = Source.LocalBounds;
-			LOD.ScreenSize = Source.ScreenSize;
+			LOD.ScreenSize = GenerateDefaultStaticMeshLODScreenSizes(1).front();
 			LOD.NumTexCoords = Source.NumTexCoords;
 			LOD.bHasColorVertexData = Source.bHasColorVertexData;
 			Buffers.Finalize(LOD.NumTexCoords, LOD.bHasColorVertexData);

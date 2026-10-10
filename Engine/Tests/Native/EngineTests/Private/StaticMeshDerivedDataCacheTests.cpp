@@ -1,4 +1,5 @@
 #include "StaticMesh/StaticMeshAttributes.h"
+#include "Math/Operations.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
 #include "Runtime/Engine/Private/Physics/PhysicsCookDerivedDataKey.h"
 #include "../../../../Source/Developer/DerivedDataCache/Private/DerivedDataCacheStorage.h"
@@ -3333,6 +3334,76 @@ TEST(FStaticMeshAuthoredCompilationTests, CurrentSourceBuildUsesExplicitModeAndC
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	EXPECT_EQ(AsyncCompletions, 1u);
 	EXPECT_EQ(Mesh->GetSource().GetIdentity(), Identity);
+}
+
+TEST(FStaticMeshBuildModuleTests, PositionExpansionRejectsInvalidMappingAndHonorsCancellation)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	FCacheLogCapture LogSession;
+	for (uint32 Scenario = 0; Scenario < 2; ++Scenario)
+	{
+		auto Geometry = MakeResidencyGeometry();
+		auto& Mapping = Geometry.Sections.front().VertexInstanceVertices;
+		if (Scenario == 0) Mapping = {0, 1, 99};
+		else Mapping.assign(1024, 0);
+		FStaticMeshRenderData Product;
+		Product.MaterialSlots.push_back({"Previous", 7});
+		uint32 Checks = 0;
+		FAssetBuildTaskContext Control;
+		if (Scenario == 1) Control.ShouldCancel = [&] { return ++Checks == 2; };
+		EXPECT_FALSE(IMeshBuilderModule::Get()->BuildRender(Product, {
+			.Geometry = std::make_shared<const FMeshDescription>(std::move(Geometry)),
+			.MaterialSlots = std::array{FStaticMeshBuildMaterialSlot{FName("Material"), "Material", 0}},
+			.Control = Control}));
+		if (Scenario == 1) EXPECT_EQ(Checks, 2u);
+		EXPECT_TRUE(Product.LODResources.empty());
+		ASSERT_EQ(Product.MaterialSlots.size(), 1u);
+		EXPECT_EQ(Product.MaterialSlots.front().Name, "Previous");
+	}
+}
+
+TEST(FStaticMeshBuildModuleTests, SectionUVStreamsKeepLocalTangentCoordinatesAndFallbacks)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	auto Geometry = MakeResidencyGeometry();
+	Geometry.Sections.front().UVChannels[0] = {{0, 0}, {1, 0}, {0, 1}};
+	Geometry.Sections.front().Normals.assign(3, FVector3f(0, 0, 2));
+	auto Second = Geometry.Sections.front();
+	Second.Name = "Second";
+	Second.Normals.clear();
+	Second.UVChannels[0] = {{0, 0}, {0, 1}, {1, 0}};
+	Second.UVChannels[1] = {{2, 2}, {3, 2}, {2, 3}};
+	auto Third = Second;
+	Third.Name = "Fallback";
+	Third.UVChannels[0][0].x = std::numeric_limits<float>::quiet_NaN();
+	Third.UVChannels[1].clear();
+	Geometry.Sections.push_back(std::move(Second));
+	Geometry.Sections.push_back(std::move(Third));
+	FStaticMeshRenderData Product;
+	ASSERT_TRUE(IMeshBuilderModule::Get()->BuildRender(Product, {
+		.Geometry = std::make_shared<const FMeshDescription>(std::move(Geometry)),
+		.MaterialSlots = std::array{FStaticMeshBuildMaterialSlot{FName("Material"), "Material", 0}}}));
+	const auto& LOD = Product.LODResources.front();
+	const auto& Buffers = LOD.VertexBuffers.StaticMeshVertexBuffer;
+	const auto UVs = Buffers.TexCoordVertexBuffer.GetTexCoords();
+	const auto Normals = Buffers.TangentsVertexBuffer.GetNormals();
+	const auto Tangents = Buffers.TangentsVertexBuffer.GetTangents();
+	ASSERT_EQ(Tangents.size(), 9u);
+	EXPECT_EQ(LOD.NumTexCoords, 2u);
+	EXPECT_EQ(UVs[0][1], FVector2f(1, 0));
+	EXPECT_EQ(UVs[0][4], FVector2f(0, 1));
+	EXPECT_EQ(UVs[1][3], FVector2f(2, 2));
+	for (size_t Index = 0; Index < 9; ++Index)
+	{
+		EXPECT_EQ(Normals[Index], FVector3f(0, 0, 1));
+		EXPECT_TRUE(Math::IsFinite(Tangents[Index]));
+		if (Index < 3) EXPECT_EQ(FVector3f(Tangents[Index]), FVector3f(1, 0, 0));
+		else if (Index < 6) EXPECT_EQ(FVector3f(Tangents[Index]), FVector3f(0, 1, 0));
+		else EXPECT_EQ(UVs[0][Index], FVector2f(0));
+		if (Index < 3 || Index >= 6) EXPECT_EQ(UVs[1][Index], FVector2f(0));
+	}
 }
 
 TEST(FStaticMeshBuildModuleTests, GeneratedNormalsRemainSmoothAcrossUVInstances)

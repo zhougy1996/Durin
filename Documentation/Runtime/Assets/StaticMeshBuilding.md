@@ -36,7 +36,9 @@ Compact descriptions retain version-1 canonical bytes, XXH3-128 hashing and sour
 identity. Version 2 appends the explicit instance mapping to each section; readers
 accept both formats. The identity envelope remains version 1, with the bulk hash
 distinguishing the extended topology. Render expands instances into render vertices;
-collision maps triangle instances back to geometric vertices. Both use all source
+collision maps triangle instances back to geometric vertices. Render borrows
+section attributes and indices, allocating only expanded positions before
+constructing output streams. Both use all source
 positions for identical normalization. Derived keys use the
 [shared build-action schema](DerivedDataBuild.md); render and collision have
 independent identities and separate registered shared-output sessions. Collision
