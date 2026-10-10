@@ -33,7 +33,7 @@ namespace Durin::TextureCubeBuilder
 		auto DecodeResult = Image::DecodeImageFromFile(FixturePath("AnalyticalLDR.tga"));
 		ASSERT_TRUE(DecodeResult) << Durin::Image::ToString(DecodeResult.error());
 		auto Decoded = std::move(*DecodeResult);
-		FTexturePanoramaImage Panorama{.Pixels = std::move(Decoded.Pixels),
+		FTextureCubePanoramaImage Panorama{.Pixels = std::move(Decoded.Pixels),
 			.Width = Decoded.Width, .Height = Decoded.Height,
 			.SourceChannelCount = Decoded.SourceChannelCount,
 			.bHasTransparency = Decoded.bHasTransparency};
@@ -56,7 +56,7 @@ namespace Durin::TextureCubeBuilder
 
 	TEST(FEquirectangularTextureCubeTests, InterpolatesLDRInLinearSpaceAndWrapsTheLongitudeSeam)
 	{
-		FTexturePanoramaImage Panorama;
+		FTextureCubePanoramaImage Panorama;
 		Panorama.Width = 2;
 		Panorama.Height = 1;
 		Panorama.SourceChannelCount = 4;
@@ -79,7 +79,7 @@ namespace Durin::TextureCubeBuilder
 		std::string Error;
 		auto Decoded = Image::DecodeRadianceHDRFromFile(FixturePath("AnalyticalHDR.hdr"));
 		ASSERT_TRUE(Decoded) << Image::ToString(Decoded.error());
-		FTexturePanoramaFloatImage Panorama{.Pixels = std::move(Decoded->Pixels),
+		FTextureCubePanoramaFloatImage Panorama{.Pixels = std::move(Decoded->Pixels),
 			.Width = Decoded->Width, .Height = Decoded->Height};
 
 		FEquirectangularTextureCubeProjectionSettings Settings;
@@ -122,11 +122,11 @@ namespace Durin::TextureCubeBuilder
 		Error = ImageResult1 ? std::string{} : ImageResult1.error().ToString();
 		ASSERT_TRUE(ImageResult1) << Error;
 		auto Panorama = std::move(*ImageResult1);
-		FTextureCubePlatformData Cube;
 		const auto BuiltCube = BuildHDRTextureCube(Panorama,
-			{.FaceDimension = 8, .ExposureEV = 1.0f, .Output = ETextureCubeOutput::HDR}, Cube);
+			{.FaceDimension = 8, .ExposureEV = 1.0f, .Output = ETextureCubeOutput::HDR});
 		Error = BuiltCube ? std::string{} : BuiltCube.error().Diagnostic;
 		ASSERT_TRUE(BuiltCube) << Error;
+		const auto& Cube = *BuiltCube;
 		for (const auto& Face : Cube.Faces)
 		{
 			ASSERT_EQ(Face.Mips.size(), 4u);
@@ -139,17 +139,15 @@ namespace Durin::TextureCubeBuilder
 				}
 		}
 		const auto Oversized = BuildHDRTextureCube(Panorama,
-			{.FaceDimension = 513, .Output = ETextureCubeOutput::HDR}, Cube);
+			{.FaceDimension = 513, .Output = ETextureCubeOutput::HDR});
 		Error = Oversized ? std::string{} : Oversized.error().Diagnostic;
 		ASSERT_FALSE(Oversized) << Error;
 		EXPECT_EQ(Oversized.error().Code, ETextureBuildFailure::BuildFailed);
 		EXPECT_EQ(Oversized.error().Stage, ETextureBuildStage::Build);
-		EXPECT_FALSE(Cube.IsValid());
 		const auto Overexposed = BuildHDRTextureCube(Panorama,
-			{.FaceDimension = 8, .ExposureEV = 16, .Output = ETextureCubeOutput::HDR}, Cube);
+			{.FaceDimension = 8, .ExposureEV = 16, .Output = ETextureCubeOutput::HDR});
 		Error = Overexposed ? std::string{} : Overexposed.error().Diagnostic;
 		EXPECT_FALSE(Overexposed) << Error;
-		EXPECT_FALSE(Cube.IsValid());
 	}
 
 	TEST(FEquirectangularTextureCubeTests, RejectsInvalidDimensionsStorageExposureAndAllocationLimits)
@@ -169,12 +167,12 @@ namespace Durin::TextureCubeBuilder
 		ASSERT_FALSE(OverBudget);
 		EXPECT_EQ(OverBudget.error().CubeInputCause, ETextureCubeInputError::PixelLimit);
 
-		Settings.FaceDimension = MaximumProjectedCubeFaceDimension + 1;
+		Settings.FaceDimension = MaximumProjectedTextureCubeFaceDimension + 1;
 		const auto OversizedFace = ValidateEquirectangularTextureCubeProjection(8, 4, Settings, false, FaceDimension);
 		ASSERT_FALSE(OversizedFace);
 		EXPECT_EQ(OversizedFace.error().CubeInputCause, ETextureCubeInputError::FaceDimensionLimit);
 
-		FTexturePanoramaImage LDR;
+		FTextureCubePanoramaImage LDR;
 		LDR.Width = 8;
 		LDR.Height = 4;
 		FTextureCubeFaceImages Cube;
@@ -183,7 +181,7 @@ namespace Durin::TextureCubeBuilder
 		EXPECT_FALSE(Cube.Faces[0].IsValid());
 		EXPECT_EQ(InvalidLDR.error().CubeInputCause, ETextureCubeInputError::PixelStorage);
 
-		FTexturePanoramaFloatImage HDR;
+		FTextureCubePanoramaFloatImage HDR;
 		HDR.Width = 2;
 		HDR.Height = 1;
 		HDR.Pixels.assign(6, 1.0f);
@@ -242,7 +240,7 @@ namespace Durin::TextureCubeBuilder
 
 	TEST(FEquirectangularTextureCubeTests, PropagatesProjectedTransparency)
 	{
-		FTexturePanoramaImage Panorama;
+		FTextureCubePanoramaImage Panorama;
 		Panorama.Width = 2;
 		Panorama.Height = 1;
 		Panorama.SourceChannelCount = 4;
@@ -259,4 +257,49 @@ namespace Durin::TextureCubeBuilder
 		EXPECT_NE(Cube.TransparencyMask, 0u);
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::PositiveX)[3], 128u);
 	}
+	// Frozen before the cleanup: nonuniform inputs exercise every face, alpha,
+	// exposure, and every ordinary HDR mip, rather than only principal-axis pixels.
+	TEST(FEquirectangularTextureCubeTests, PreservesCompleteProjectionAndHDRMipBytes)
+	{
+		FTextureCubePanoramaImage LDR{.Width = 8, .Height = 4, .SourceChannelCount = 4};
+		LDR.Pixels.resize(8 * 4 * 4);
+		for (size_t Index = 0; Index < LDR.Pixels.size(); ++Index)
+			LDR.Pixels[Index] = static_cast<std::byte>((Index * 37 + 19) & 255);
+		FTextureCubePanoramaFloatImage HDR{.Width = 8, .Height = 4};
+		HDR.Pixels.resize(8 * 4 * 3);
+		for (size_t Index = 0; Index < HDR.Pixels.size(); ++Index)
+			HDR.Pixels[Index] = 0.25f + static_cast<float>((Index * 13) % 31) / 8.0f;
+		FTextureCubeFaceImages LDRCube, ToneMappedCube;
+		ASSERT_TRUE(ProjectEquirectangularTextureCube(LDR, {.FaceDimension = 3}, LDRCube));
+		ASSERT_TRUE(ProjectEquirectangularTextureCube(HDR, {.FaceDimension = 3, .ExposureEV = -1}, ToneMappedCube));
+		std::array<float, 8 * 4 * 4> Pixels;
+		for (size_t Index = 0; Index < 32; ++Index)
+		{
+			std::copy_n(HDR.Pixels.data() + Index * 3, 3, Pixels.data() + Index * 4);
+			Pixels[Index * 4 + 3] = std::numeric_limits<float>::quiet_NaN();
+		}
+		const auto Bytes = std::as_bytes(std::span(Pixels));
+		auto Panorama = Image::FImage::TryCreate({.Width = 8, .Height = 4,
+			.Format = Image::ERawImageFormat::RGBA32F, .GammaSpace = Image::EImageGammaSpace::Linear},
+			FByteBuffer(Bytes.begin(), Bytes.end()));
+		ASSERT_TRUE(Panorama);
+		auto BuiltRadiance = BuildHDRTextureCube(*Panorama,
+			{.FaceDimension = 4, .ExposureEV = 1, .Output = ETextureCubeOutput::HDR});
+		ASSERT_TRUE(BuiltRadiance);
+		const auto& RadianceCube = *BuiltRadiance;
+		FXxHash128Builder LDRHash, ToneMappedHash, RadianceHash;
+		for (size_t Face = 0; Face < TextureCubeFaceCount; ++Face)
+		{
+			LDRHash.Update(LDRCube.Faces[Face].GetPixels());
+			ToneMappedHash.Update(ToneMappedCube.Faces[Face].GetPixels());
+			ASSERT_EQ(RadianceCube.Faces[Face].Mips.size(), 3u);
+			for (const auto& Mip : RadianceCube.Faces[Face].Mips) RadianceHash.Update(Mip.Pixels);
+		}
+		EXPECT_EQ(LDRHash.Finalize().ToString(), "3ea360b814c8e9bb0b44ffafbfe5bdbf");
+		EXPECT_EQ(ToneMappedHash.Finalize().ToString(), "690fd93a171527a3d147d76ed9099565");
+		EXPECT_EQ(RadianceHash.Finalize().ToString(), "60752cfba5b12d62052544a217f03e38");
+		EXPECT_EQ(LDRCube.TransparencyMask, 0x3f);
+		EXPECT_EQ(ToneMappedCube.TransparencyMask, 0);
+	}
+
 }

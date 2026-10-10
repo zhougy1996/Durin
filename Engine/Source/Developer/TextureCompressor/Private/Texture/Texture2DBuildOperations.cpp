@@ -1,6 +1,7 @@
 #include "Texture/Texture2DBuildOperations.h"
 
 #include "Logging/LogMacros.h"
+#include "Texture/TextureBuildTarget.h"
 #include "Texture/TextureMipBuilder.h"
 
 namespace Durin
@@ -14,9 +15,7 @@ namespace Durin
 		};
 		if (const auto Validation = ValidateTexture2DBuildSettings(Request.Settings); !Validation)
 			return Fail(FormatTexture2DInputError(Validation.error()));
-		if ((Request.TargetPlatform != ECookTargetPlatform::Win64
-				&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
-			|| Request.TargetProfile != ECookTargetProfile::Game)
+		if (!TextureCompressorPrivate::IsSupportedBuildTarget(Request.TargetPlatform, Request.TargetProfile))
 			return Fail("Texture2D build target is unsupported.");
 
 		if (const auto Validation = ValidateTexture2DSourceMips(Request.SourceMips); !Validation)

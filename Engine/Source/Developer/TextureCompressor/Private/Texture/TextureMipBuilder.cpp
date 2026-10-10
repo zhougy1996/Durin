@@ -2,6 +2,7 @@
 
 #include "Math/Color.h"
 #include "Texture/TextureBCEncoder.h"
+#include "Texture/TextureMipView.h"
 
 namespace Durin::TextureMipBuilder
 {

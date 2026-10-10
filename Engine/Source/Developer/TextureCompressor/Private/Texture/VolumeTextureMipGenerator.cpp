@@ -104,10 +104,8 @@ namespace Durin::VolumeTextureMipGenerator
 	}
 
 	auto GenerateMipChain(const FVolumeTextureSourceData& SourceData,
-		const FVolumeTextureBuildSettings& Settings,
-		FVolumeTexturePlatformData& OutPlatformData) -> std::expected<void, FTextureBuildError>
+		const FVolumeTextureBuildSettings& Settings) -> std::expected<FVolumeTexturePlatformData, FTextureBuildError>
 	{
-		OutPlatformData = {};
 		if (!SourceData.IsValid() || SourceData.Format != Settings.OutputFormat
 			|| Settings.MipFilter != EVolumeTextureMipFilter::Box)
 		{
@@ -198,7 +196,6 @@ namespace Durin::VolumeTextureMipGenerator
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
 				"Volume texture builder produced invalid platform data."});
 		}
-		OutPlatformData = std::move(Candidate);
-		return {};
+		return Candidate;
 	}
 }

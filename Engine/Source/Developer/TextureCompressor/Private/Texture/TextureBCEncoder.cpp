@@ -1,4 +1,6 @@
 #include "Texture/TextureBCEncoder.h"
+#include "Texture/TextureMipBuilder.h"
+#include "Texture/TextureMipView.h"
 
 #include "Threading/Task.h"
 #include <bc7enc.h>

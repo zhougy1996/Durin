@@ -4,7 +4,7 @@ Summary: Define cube-texture assets, source capture, platform payloads, upload, 
 
 Modules: Engine, AssetForgeBuiltins, TextureCompressor, Renderer, RHI
 
-Last reviewed: 2026-10-03
+Last reviewed: 2026-10-10
 
 This document defines the coordinate, face-order, and source-image orientation
 contract shared by cube-texture import, the RHI, VulkanRHI, and sky rendering.
@@ -262,7 +262,12 @@ channels to 16384. Invalid values fail before publication. There is no filmic
 curve, sRGB encoding or BC compression in this recipe. The import dialog exposes
 **Preserve HDR radiance**, and ordinary reimport preserves the selected mode.
 
-HDR projection bypasses legacy RGBA8 imported-face scratch data. Mip zero samples
+HDR projection bypasses legacy RGBA8 imported-face scratch data and borrows the
+canonical RGBA32F panorama without allocating a packed RGB copy. Validation and
+sampling read RGB only; stored alpha is ignored and output alpha remains one.
+LDR and tone-mapped HDR projection share face traversal, seam wrapping, and
+bilinear sample coordinates while retaining distinct color conversion kernels.
+Projection adapters still clear their face output on failure. Mip zero samples
 panorama directions at cube pixel centers. Each lower ordinary mip integrates an
 8-by-8 grid over its angular footprint directly from the original panorama,
 weighted by the cube solid-angle Jacobian. These are radiance texture mips, not

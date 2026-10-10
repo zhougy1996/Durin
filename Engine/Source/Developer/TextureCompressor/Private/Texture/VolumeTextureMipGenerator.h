@@ -11,6 +11,5 @@ namespace Durin::VolumeTextureMipGenerator
 	// Deterministically builds a complete three-axis box-filtered mip chain.
 	TEXTURECOMPRESSOR_API auto GenerateMipChain(
 		const FVolumeTextureSourceData& SourceData,
-		const FVolumeTextureBuildSettings& Settings,
-		FVolumeTexturePlatformData& OutPlatformData) -> std::expected<void, FTextureBuildError>;
+		const FVolumeTextureBuildSettings& Settings) -> std::expected<FVolumeTexturePlatformData, FTextureBuildError>;
 }

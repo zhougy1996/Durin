@@ -15,7 +15,6 @@ namespace Durin::TextureMipBuilder
 	};
 
 	inline constexpr uint32 ChannelCount = 4;
-	inline constexpr uint32 MaxDimension = 16384;
 
 	TEXTURECOMPRESSOR_API auto SelectPixelFormat(ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat;
 

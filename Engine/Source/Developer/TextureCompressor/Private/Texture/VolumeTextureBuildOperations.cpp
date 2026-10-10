@@ -1,6 +1,7 @@
 #include "Texture/VolumeTextureBuildOperations.h"
 
 #include "Logging/LogMacros.h"
+#include "Texture/TextureBuildTarget.h"
 #include "Texture/VolumeTextureMipGenerator.h"
 
 namespace Durin
@@ -13,15 +14,12 @@ namespace Durin
 			return std::nullopt;
 		};
 		const FVolumeTextureSourceData& SourceData = Request.SourceData.get();
-		if ((Request.TargetPlatform != ECookTargetPlatform::Win64
-				&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
-			|| Request.TargetProfile != ECookTargetProfile::Game
+		if (!TextureCompressorPrivate::IsSupportedBuildTarget(Request.TargetPlatform, Request.TargetProfile)
 			|| !SourceData.IsValid()
 			|| SourceData.Format != Request.Settings.OutputFormat)
 			return Fail("Volume texture build source, settings, or target is incompatible.");
-		FVolumeTexturePlatformData PlatformData;
-		if (auto Result = VolumeTextureMipGenerator::GenerateMipChain(SourceData, Request.Settings, PlatformData); !Result)
-			return Fail(Result.error().Diagnostic);
-		return PlatformData;
+		auto Result = VolumeTextureMipGenerator::GenerateMipChain(SourceData, Request.Settings);
+		if (!Result) return Fail(Result.error().Diagnostic);
+		return std::move(*Result);
 	}
 }

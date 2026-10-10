@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Texture/Texture2DBuildTypes.h"
+#include "Image/Image.h"
 
 namespace Durin::TextureMipBuilder
 {

@@ -964,15 +964,15 @@ TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)
 	for (size_t Index = 0; Index < Voxels.size(); ++Index)
 		Voxels[Index] = static_cast<std::byte>(Index);
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
-	Durin::FVolumeTexturePlatformData First;
-	Durin::FVolumeTexturePlatformData Second;
 	const Durin::FVolumeTextureBuildSettings Settings{};
 	const auto FirstBuild = Durin::VolumeTextureMipGenerator::GenerateMipChain(
-		Source, Settings, First);
+		Source, Settings);
 	ASSERT_TRUE(FirstBuild) << FirstBuild.error().Diagnostic;
 	const auto SecondBuild = Durin::VolumeTextureMipGenerator::GenerateMipChain(
-		Source, Settings, Second);
+		Source, Settings);
 	ASSERT_TRUE(SecondBuild) << SecondBuild.error().Diagnostic;
+	const auto& First = *FirstBuild;
+	const auto& Second = *SecondBuild;
 	ASSERT_EQ(First.Mips.size(), 2u);
 	EXPECT_EQ(First.Mips[1].Width, 1u);
 	EXPECT_EQ(First.Mips[1].Height, 1u);
@@ -1002,10 +1002,10 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	const std::array Voxels{std::byte{0}, std::byte{32}, std::byte{64}, std::byte{96},
 		std::byte{128}, std::byte{160}, std::byte{192}, std::byte{255}};
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
-	Durin::FVolumeTexturePlatformData Platform;
 	const auto MipBuild = Durin::VolumeTextureMipGenerator::GenerateMipChain(
-		Source, {}, Platform);
+		Source, {});
 	ASSERT_TRUE(MipBuild) << MipBuild.error().Diagnostic;
+	auto Platform = std::move(*MipBuild);
 	Durin::FByteBuffer Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataPayload,
 		{.Target = {"Win64", "Game"}});
@@ -1276,11 +1276,11 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 		Voxels[Index] = static_cast<std::byte>((Index * 37) & 0xff);
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 
-	Durin::FVolumeTexturePlatformData Platform;
 	std::string Error;
 	const auto MipBuild = Durin::VolumeTextureMipGenerator::GenerateMipChain(
-		Source, {}, Platform);
+		Source, {});
 	ASSERT_TRUE(MipBuild) << MipBuild.error().Diagnostic;
+	auto Platform = std::move(*MipBuild);
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TextureImportTests/LargeVolumeBlob", AssetPath));
@@ -1446,12 +1446,12 @@ TEST(FVolumeTextureTests, BuildsAllPortableFormatsAcrossDegenerateAxes)
 		ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 		Durin::FVolumeTextureBuildSettings Settings;
 		Settings.OutputFormat = Formats[Index];
-		Durin::FVolumeTexturePlatformData Platform;
 		std::string Error;
 		const auto MipBuild = Durin::VolumeTextureMipGenerator::GenerateMipChain(
-			Source, Settings, Platform);
+			Source, Settings);
 		Error = MipBuild ? std::string{} : MipBuild.error().Diagnostic;
 		ASSERT_TRUE(MipBuild) << Error;
+		auto Platform = std::move(*MipBuild);
 		ASSERT_EQ(Platform.Mips.size(), 3u);
 		const std::array<uint32, 3> MiddleExtent{
 			Platform.Mips[1].Width, Platform.Mips[1].Height, Platform.Mips[1].Depth};

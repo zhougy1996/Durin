@@ -268,6 +268,11 @@ Naming follows the [UE texture compressor interface](https://dev.epicgames.com/d
 `BuildTextureMips` includes mip generation and compression, `GenerateMipChain`
 generates uncompressed Volume mips, and `CompressTextureMip` encodes one BC mip.
 Build entrypoints and builder versions retain their recipe/product meaning.
+HDR Cube and Volume builders return complete products through `std::expected`,
+so failed candidates remain local. Family entrypoints share one target-support
+predicate, while panorama limits and decoded image types come directly from
+Engine's recipe contracts. The BC encoder header depends on output data and
+forward declarations rather than the mip-builder interface.
 Texture2D and LDR Cube share a resolved mip request and private BC encoding;
 Cube selects one format for all six faces. A single RGBA8 source mip generates
 the complete chain, while supplied chains remain intact. Shared mip recipes

@@ -1,6 +1,7 @@
 #include "Texture/TextureCubeBuildOperations.h"
 
 #include "Logging/LogMacros.h"
+#include "Texture/TextureBuildTarget.h"
 #include "Texture/TextureMipBuilder.h"
 #include "Texture/TextureCubeBuilder.h"
 
@@ -15,9 +16,7 @@ namespace Durin
 	auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request) -> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError>
 	{
 		FTextureCubeCanonicalBuildInput CanonicalInput;
-		if ((Request.TargetPlatform != ECookTargetPlatform::Win64
-				&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
-			|| Request.TargetProfile != ECookTargetProfile::Game)
+		if (!TextureCompressorPrivate::IsSupportedBuildTarget(Request.TargetPlatform, Request.TargetProfile))
 		{
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize,
 				"TextureCube build target is unsupported."});
@@ -135,20 +134,15 @@ namespace Durin
 		};
 		if (const auto* HDR = std::get_if<FTextureCubeHDRBuildInput>(&Request.Pixels))
 		{
-			if ((Request.TargetPlatform != ECookTargetPlatform::Win64
-					&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
-				|| Request.TargetProfile != ECookTargetProfile::Game)
+			if (!TextureCompressorPrivate::IsSupportedBuildTarget(Request.TargetPlatform, Request.TargetProfile))
 				return Fail("HDR cube build target or color space is invalid.");
-			FTextureCubePlatformData PlatformData;
-			if (auto Result = TextureCubeBuilder::BuildHDRTextureCube(HDR->Panorama.get(),
-				{.FaceDimension = HDR->FaceDimension, .ExposureEV = HDR->ExposureEV, .Output = ETextureCubeOutput::HDR}, PlatformData); !Result)
-				return Fail(Result.error().Diagnostic);
-			return PlatformData;
+			auto Result = TextureCubeBuilder::BuildHDRTextureCube(HDR->Panorama.get(),
+				{.FaceDimension = HDR->FaceDimension, .ExposureEV = HDR->ExposureEV, .Output = ETextureCubeOutput::HDR});
+			if (!Result) return Fail(Result.error().Diagnostic);
+			return std::move(*Result);
 		}
 		const auto& LDR = std::get<FTextureCubeLDRBuildInput>(Request.Pixels);
-		if ((Request.TargetPlatform != ECookTargetPlatform::Win64
-				&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
-			|| Request.TargetProfile != ECookTargetProfile::Game
+		if (!TextureCompressorPrivate::IsSupportedBuildTarget(Request.TargetPlatform, Request.TargetProfile)
 			|| !LDR.FaceImages.get().IsValid())
 			return Fail("TextureCube canonical build request is invalid.");
 		const FTextureCubeFaceImages& SourceData = LDR.FaceImages.get();
