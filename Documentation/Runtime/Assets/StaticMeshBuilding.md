@@ -80,9 +80,9 @@ The builder moves CPU streams into uninitialized vertex/index buffers. Engine
 freezes those allocations into shared DDC outputs without copying; GPU resource
 initialization and material object binding remain with Engine.
 MeshBuilder logs construction failures with mesh/section identity, rejected
-indices/values and budget facts. Detailed construction errors remain private to
-the module. Cooperative cancellation checks stop construction without an error
-log. Physics cooking is independent of the render build module. Derived-data
+indices/values and budget facts directly at the failure site, without an error
+object crossing the module contract. Cooperative cancellation checks stop
+construction without an error log. Physics cooking is independent of the render build module. Derived-data
 orchestration checks its latched cancellation state before interpreting `false`
 as a generic construction failure and never publishes canceled output.
 A warm hit

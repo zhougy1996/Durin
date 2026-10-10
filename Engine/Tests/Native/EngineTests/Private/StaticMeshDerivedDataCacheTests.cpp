@@ -820,6 +820,54 @@ TEST(FStaticMeshBuildModuleTests, CancellationDuringConstructionPreservesOutputW
 		EXPECT_FALSE(Record.Module == "MeshBuilder" && Record.Level == ELogLevel::Error) << Record.Message;
 }
 
+TEST(FStaticMeshBuildModuleTests, ResolvesReorderedMaterialSlotsAndSkipsEmptySections)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	auto Geometry = MakeResidencyGeometry();
+	Geometry.PolygonGroups.push_back({.Name = "Second", .SourceMaterialIndex = 7});
+	auto Second = Geometry.Sections.front();
+	Second.Name = "Second";
+	Second.SourceMaterialIndex = 7;
+	Geometry.Sections.push_back(std::move(Second));
+	Geometry.Sections.insert(Geometry.Sections.begin(), {.Name = "Empty"});
+	FStaticMeshRenderData Product;
+	ASSERT_TRUE(IMeshBuilderModule::Get()->BuildRender(Product, {
+		.Geometry = std::make_shared<const FMeshDescription>(std::move(Geometry)),
+		.MaterialSlots = std::array{FStaticMeshBuildMaterialSlot{FName("Second"), "Second", 7},
+			FStaticMeshBuildMaterialSlot{FName("First"), "First", 0}}}));
+	ASSERT_EQ(Product.LODResources.size(), 1u);
+	const auto& LOD = Product.LODResources.front();
+	ASSERT_EQ(LOD.Sections.size(), 2u);
+	EXPECT_EQ(LOD.Sections[0].MaterialSlotIndex, 1u);
+	EXPECT_EQ(LOD.Sections[1].MaterialSlotIndex, 0u);
+	EXPECT_EQ(LOD.Sections[0].FirstIndex, 0u);
+	EXPECT_EQ(LOD.Sections[1].FirstIndex, 3u);
+	EXPECT_EQ(LOD.VertexBuffers.PositionVertexBuffer.GetNumVertices(), 6u);
+}
+
+TEST(FStaticMeshBuildModuleTests, RejectsDuplicateAndMissingSourceMaterialsWithoutChangingOutput)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	FCacheLogCapture LogSession;
+	for (uint32 Scenario = 0; Scenario < 3; ++Scenario)
+	{
+		auto Geometry = MakeResidencyGeometry();
+		if (Scenario == 0) Geometry.PolygonGroups.push_back(Geometry.PolygonGroups.front());
+		if (Scenario == 1) Geometry.PolygonGroups.front().SourceMaterialIndex = 7;
+		if (Scenario == 2) Geometry.Sections.front().SourceMaterialIndex = 7;
+		FStaticMeshRenderData Product;
+		Product.MaterialSlots.push_back({"Previous", 7});
+		EXPECT_FALSE(IMeshBuilderModule::Get()->BuildRender(Product, {
+			.Geometry = std::make_shared<const FMeshDescription>(std::move(Geometry)),
+			.MaterialSlots = std::array{FStaticMeshBuildMaterialSlot{FName("Material"), "Material", 0}}})) << Scenario;
+		EXPECT_TRUE(Product.LODResources.empty());
+		ASSERT_EQ(Product.MaterialSlots.size(), 1u);
+		EXPECT_EQ(Product.MaterialSlots.front().Name, "Previous");
+	}
+}
+
 TEST(FStaticMeshSourceResidencyTests, SharesConcurrentReadsAndSurvivesReleaseCopyAndReplacement)
 {
 	using namespace Durin;
