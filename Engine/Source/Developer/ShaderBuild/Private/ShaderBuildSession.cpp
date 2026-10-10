@@ -1,4 +1,5 @@
 #include "ShaderBuildSession.h"
+#include "ShaderBuildVersion.h"
 #include "ShaderSharedOutput.h"
 #include "ShaderCaptureLimits.h"
 #include "SlangShaderCompiler.h"
@@ -8,6 +9,11 @@
 
 namespace Durin
 {
+	auto GetShaderBuildDescriptor() -> DerivedData::FBuildFunctionDescriptor
+	{
+		return {"Durin.Shader.Compile", ShaderCompileBuildFunctionVersion, ShaderCompileConstantsSchemaVersion,
+			"Shader.Output", ShaderCompileOutputSchemaVersion, DerivedData::FCacheBucket::FromString("Shader")};
+	}
 	using namespace DerivedData;
 	namespace
 	{
@@ -22,10 +28,9 @@ namespace Durin
 		}
 		auto Boundary(FShaderError Error) -> FBuildInputError { return {FormatShaderError(Error)}; }
 		auto Invalid() -> FBuildInputError { return Boundary({.Code = EShaderError::CaptureInputInvalid}); }
-		auto Descriptor() -> FBuildFunctionDescriptor
-			{ return {"Durin.Shader.Compile", 6, 1, "Shader.Output", 6, FCacheBucket::FromString("Shader")}; }
+		auto Descriptor() -> FBuildFunctionDescriptor { return GetShaderBuildDescriptor(); }
 		auto Reference(const FShaderVariantKey& Variant) -> FBuildInputReference
-			{ return {"Closure", Variant.Value, "ShaderVariant", 7, "Shader.SourceClosure", 2}; }
+			{ return {"Closure", Variant.Value, "ShaderVariant", 8, "Shader.SourceClosure", 2}; }
 		struct FOptions
 		{
 			FShaderCompileOptions Value;
@@ -150,6 +155,7 @@ namespace Durin
 		{
 			FSlangShaderCompiler Compiler;
 			const std::string Environment = Compiler.GetEnvironmentIdentity();
+			const uint64 BuildVersion = ShaderBuildPrivate::BuildVersion(Environment);
 			std::function<void(std::string_view)> BeforeGeneratedCompile;
 		};
 		class FFunction final : public IBuildFunction
@@ -157,12 +163,15 @@ namespace Durin
 		public:
 			explicit FFunction(std::shared_ptr<FCompilerService> InService) : Service(std::move(InService)) {}
 			auto GetName() const -> std::string_view override { return "Durin.Shader.Compile"; }
-			auto GetVersion() const -> uint32 override { return 3; }
+			auto GetVersion() const -> uint32 override { return ShaderCompileBuildFunctionVersion; }
 			auto Configure(FBuildConfigContext& Context) const -> void override
 			{ const auto D = Descriptor(); Context.SetConstantsSchema(D.ConstantsSchema); Context.SetOutput(D.OutputType, D.OutputSchema); Context.SetCacheBucket(D.Bucket); }
 			auto Build(FBuildContext& Context) const -> void override
 			{
 				auto Fail = [&](std::string Text) { Context.AddError(std::move(Text)); };
+				const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
+				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != Service->BuildVersion)
+					return Fail("Shader builder identity does not match the build request.");
 				auto Options = ReadOptions(Context); const auto* InputPtr = Context.FindInput("Closure");
 				if (!Options || !InputPtr) return Fail(Invalid().Description);
 				Options->Bind(); const auto& Input = *InputPtr;
@@ -220,7 +229,7 @@ namespace Durin
 		private: std::shared_ptr<FCompilerService> Service;
 		};
 	}
-	auto MakeShaderSessionRequest(const FShaderCompileOptions& Options, const FShaderVariantKey& Variant,
+	auto MakeShaderSessionRequest(const FShaderCompileOptions& Options, const FShaderVariantKey& Variant, uint64 BuilderVersion,
 		std::vector<FShaderPortableDependency> Dependencies, std::optional<std::string> GeneratedSource, FShaderArtifactResolver Resolve)
 		-> std::expected<FShaderSessionRequest, FShaderError>
 	{
@@ -234,7 +243,7 @@ namespace Durin
 			std::string Virtual;
 			if (FShaderPaths::TryMakeVirtualSourcePath(Root.ends_with('/') ? Root : Root + '/', Virtual)) Root = std::move(Virtual);
 		}
-		if (Options.VirtualShaderPath.empty() || Options.VirtualShaderPath.size() > ShaderCaptureLimits::MaximumPathBytes
+		if (!BuilderVersion || Options.VirtualShaderPath.empty() || Options.VirtualShaderPath.size() > ShaderCaptureLimits::MaximumPathBytes
 			|| Options.EntryPoints.empty() || Options.EntryPoints.size() > 32 || Options.EntryPoints.size() != Options.Frequencies.size()
 			|| Macros.size() > 512 || Roots.size() > 256 || Variant.Value.IsZero() || !Resolve)
 			return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
@@ -268,6 +277,7 @@ namespace Durin
 		if (Writer.HasError() || Options.CompilerEnvironment.size() > 32768) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
 		const auto Encoded = Writer.TakeBytes();
 		FBuildDefinitionBuilder DefinitionBuilder("Durin.Shader.Compile");
+		DefinitionBuilder.AddConstant("BuilderVersion", BuilderVersion);
 		DefinitionBuilder.AddConstant("Options", std::string(reinterpret_cast<const char*>(Encoded.data()), Encoded.size()))
 			.AddInput("Closure", "CapturedShaderClosure");
 		auto Definition = std::move(DefinitionBuilder).Build();
@@ -294,6 +304,7 @@ namespace Durin
 		auto Session = State->Service->CreateSession(); require(Session); State->Session = std::move(*Session);
 	}
 	FShaderBuildService::~FShaderBuildService() { Close(); }
+	auto FShaderBuildService::GetBuildVersion() const -> uint64 { return State->Compiler->BuildVersion; }
 	auto FShaderBuildService::GetCompilerEnvironmentIdentity() const -> const std::string& { return State->Environment; }
 	auto FShaderBuildService::Execute(FShaderSessionRequest Request, FBuildRequestOptions Options)
 		-> FBuildCompleteParams

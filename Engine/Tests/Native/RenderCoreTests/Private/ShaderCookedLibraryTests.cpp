@@ -149,6 +149,50 @@ namespace Durin
 			Record.Output.CompiledShaders[0].Code->GetBytes()));
 	}
 
+	TEST(FShaderCookedLibraryTests, CompatibleLibraryIgnoresHistoricalProducerVersions)
+	{
+		const auto Request = MakeRequest();
+		const FShaderCookedLibraryRecord Record{.Request = Request, .ProductionIdentity = {17, 29}, .Output = MakeOutput()};
+		FByteBuffer Bytes;
+		ASSERT_TRUE(EncodeShaderCookedLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Record, 1), Bytes));
+		const uint64 PayloadOffset = ReadU64At(Bytes, 56);
+		auto Rehash = [&](FByteBuffer& Candidate) {
+			const auto PayloadDigest = FXxHash128::HashBuffer(FByteView(Candidate).subspan(PayloadOffset));
+			WriteU64At(Candidate, 144, PayloadDigest.HashLow);
+			WriteU64At(Candidate, 152, PayloadDigest.HashHigh);
+			FXxHash128Builder Digest;
+			constexpr std::array<std::byte, 16> Zeros{};
+			Digest.Update(FByteView(Candidate).first(96)); Digest.Update(Zeros);
+			Digest.Update(FByteView(Candidate).subspan(112));
+			const auto FileDigest = Digest.Finalize();
+			WriteU64At(Candidate, 96, FileDigest.HashLow);
+			WriteU64At(Candidate, 104, FileDigest.HashHigh);
+		};
+		for (const uint32 Producer : {0u, 1u, 3u, 4u, 0xffffffffu})
+		{
+			auto Compatible = Bytes;
+			for (const size_t Offset : {size_t{8}, size_t(PayloadOffset + 8)})
+				for (size_t Byte = 0; Byte < 4; ++Byte) Compatible[Offset + Byte] = std::byte((Producer >> (Byte * 8)) & 0xffu);
+			Rehash(Compatible);
+			FShaderCookedLibrary Library;
+			ASSERT_TRUE(FShaderCookedLibrary::OpenBytes(std::make_shared<const FByteBuffer>(Compatible),
+				EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Request, 1), Library));
+			FShaderCompilerOutput Loaded;
+			ASSERT_TRUE(Library.Load(Request, Loaded));
+			ASSERT_EQ(Loaded.CompiledShaders.size(), 2u);
+			EXPECT_EQ(Loaded.CompiledShaders[0].Hash, Record.Output.CompiledShaders[0].Hash);
+		}
+		for (const size_t Offset : {size_t{4}, size_t{12}})
+		{
+			auto Invalid = Bytes; Invalid[Offset] ^= std::byte{0x40}; Rehash(Invalid);
+			FShaderCookedLibrary Library;
+			const auto Result = FShaderCookedLibrary::OpenBytes(std::make_shared<const FByteBuffer>(Invalid),
+				EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Request, 1), Library);
+			ASSERT_FALSE(Result);
+			EXPECT_EQ(Result.error().Code, EShaderError::LibraryHeaderInvalid);
+		}
+	}
+
 	TEST(FShaderCookedLibraryTests,
 		RejectsWrongTargetMissingRequestAndCorruptBytes)
 	{

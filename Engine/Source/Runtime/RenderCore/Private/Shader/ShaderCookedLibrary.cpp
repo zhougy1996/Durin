@@ -11,8 +11,7 @@ namespace Durin
 	namespace
 	{
 		constexpr uint32 LibraryMagic = 0x424c5344; // DSLB
-		constexpr uint32 LibrarySchemaVersion = 4;
-		constexpr uint32 LibraryBuilderVersion = 3;
+		constexpr uint32 LibrarySchemaVersion = ShaderCookedLibrarySchemaVersion;
 		constexpr uint32 LibraryHeaderSize = 112;
 		constexpr uint32 LibraryDirectoryRecordSize = 80;
 		constexpr uint64 LibraryAlignment = 16;
@@ -504,7 +503,7 @@ namespace Durin
 
 		FBinaryWriter Writer;
 		Writer.WriteHeader({LibraryMagic, LibrarySchemaVersion,
-			LibraryBuilderVersion});
+			0});
 		Writer.WriteU32(static_cast<uint32>(TargetPlatform));
 		Writer.WriteU32(static_cast<uint32>(TargetProfile));
 		Writer.WriteU32(LibraryHeaderSize);
@@ -590,8 +589,12 @@ namespace Durin
 		uint64 FileSize = 0;
 		FXxHash128 InventoryDigest;
 		FXxHash128 FileDigest;
-		if (!Reader.ReadAndValidateHeader(LibraryMagic, LibrarySchemaVersion,
-				LibraryBuilderVersion)
+		// The historical FormatVersion word does not determine library compatibility.
+		FBinaryFormatHeader Header;
+		if (!Reader.ReadU32(Header.Magic) || !Reader.ReadU32(Header.SchemaVersion)
+			|| !Reader.ReadU32(Header.FormatVersion) || !Reader.ReadU32(Header.Marker)
+			|| Header.Magic != LibraryMagic || Header.SchemaVersion != LibrarySchemaVersion
+			|| Header.Marker != BinaryFormatMarker
 			|| !Reader.ReadU32(Platform) || !Reader.ReadU32(Profile)
 			|| !Reader.ReadU32(HeaderSize)
 			|| !Reader.ReadU32(DirectoryRecordSize)

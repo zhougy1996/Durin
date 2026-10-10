@@ -1,4 +1,5 @@
 #include "ShaderBuilder.h"
+#include "ShaderBuildVersion.h"
 #include "Hash/CanonicalHash.h"
 
 #include "ShaderCompileUtilities.h"
@@ -34,6 +35,7 @@ namespace Durin
 			UpdateCanonicalHashString(Builder, "DurinShaderCompileRequest_v2");
 			UpdateCanonicalHashString(Builder, VirtualShaderPath);
 			UpdateCanonicalHashString(Builder, Options.CompilerEnvironment);
+			UpdateCanonicalHash(Builder, ShaderBuildPrivate::BuildVersion(Options.CompilerEnvironment));
 			UpdateCanonicalHash(Builder, Options.Target.Platform);
 			UpdateCanonicalHash(Builder, Options.Target.Backend);
 			UpdateCanonicalHash(Builder, Options.Target.IntermediateFormat);
@@ -157,6 +159,8 @@ namespace Durin
 	{
 		FileFingerprintCache.Clear();
 	}
+
+	auto FShaderBuilder::GetBuildVersion() const -> uint64 { return BuildService->GetBuildVersion(); }
 
 	auto FShaderBuilder::GetCompilerEnvironmentIdentity() const -> const std::string&
 	{
@@ -631,7 +635,7 @@ namespace Durin
 				return Found->second.Output;
 			}
 		}
-		auto Request = MakeShaderSessionRequest(Options, VariantKey, std::move(Dependencies), std::move(GeneratedSource), std::move(Resolve));
+		auto Request = MakeShaderSessionRequest(Options, VariantKey, GetBuildVersion(), std::move(Dependencies), std::move(GeneratedSource), std::move(Resolve));
 		if (!Request) return {.Error = std::move(Request.error())};
 		FBuildRequestOptions Execution;
 		Execution.Policy.ForceBuild = Options.bForceRecompile;

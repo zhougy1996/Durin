@@ -68,7 +68,7 @@ immutable bytecode. Slang adopts its copied blob buffer; its reflection word
 conversion remains a separate recipe cost. Package decoding adopts decoded
 bytes without changing the package format.
 
-ShaderBuild also provides the private `Shader.Output` schema-1 representation.
+ShaderBuild also provides the private `Shader.Output` schema-6 representation.
 Bounded metadata describes ordered source/binary entries, frequencies and hashes;
 `Entry/<n>/Code` retains code storage and `Entry/<n>/Reflection` holds canonical
 binding and push-constant descriptors. Validation checks the representation
@@ -85,16 +85,26 @@ roots, timestamps, cache locations, dependency discovery order, and worker order
 Equivalent source closures mounted from different physical roots therefore have
 the same portable identity.
 
-The variant identity additionally includes explicit key version, Slang backend,
-SPIR-V target/profile, compiler-environment identity, root virtual path, portable
-source-tree signature, and normalized macros. A schema-2 action binds that variant as `Shader.SourceClosure` version 2,
-registered function version 2 and `Shader.Output` version 1. The explicit `Options` byte constant has a 1 MiB bound and schema 1: version,
-root virtual path, compiler environment, generated-source flag, ordered
-entry-point/frequency pairs, normalized macro name/value-presence/value triples,
-and ordered virtual search roots. Counts and integers are fixed-width little
-endian; strings are length-prefixed. This is a canonical field codec, never a
-native struct image. Force policy remains outside its identity. `bForceRecompile` is execution policy and never enters production
-identity.
+ShaderBuild's `IShaderBuildModule::GetBuildVersion()` returns a nonzero opaque
+64-bit producer identity, stable until shutdown and compared for equality only.
+It combines private compile/reflection revisions with the Slang build tag and,
+on macOS, the SPIRV-Cross dependency and private Metal translation revision.
+Compiler environment text identifies the toolchain; algorithm revisions remain
+private to ShaderBuild. Variant (version 8), dependency (version 3), request and
+memory-cache identities include the composed build identity.
+
+The session carries a named 64-bit `BuilderVersion` constant and verifies it
+against the compiler service before decoding recipe options. Adapter function
+version 3, constants schema 2 and `Shader.Output` schema 6 have independent
+ownership. `GetCompileAdapterVersion()` exposes those contracts to authored
+Material fingerprints separately from the build identity. One descriptor supplies
+registration and test action construction.
+The explicit `Options` byte constant has a 1 MiB bound and schema 2: version,
+root virtual path, compiler environment, target/backend/code formats, Metal language
+and binding-remap schemas, generated-source flag, ordered entry-point/frequency
+pairs, normalized macro name/value-presence/value triples, and ordered virtual
+search roots. Counts and integers are fixed-width little endian; strings are
+length-prefixed. Force policy remains outside production identity.
 
 Generated Shader roots add the generated source-content hash to the portable
 source-tree signature. Imported files still use sorted registered virtual paths
@@ -104,8 +114,8 @@ Recovered imports are rechecked against the caller's virtual-prefix allowlist.
 
 ## Package compiled-output payload
 
-The separate `DSHD` schema-1, builder-1 little-endian package codec contains the complete
-ordered `FShaderCompilerOutput`. The header contains magic, schema, builder,
+The separate `DSHD` schema-4 little-endian package codec contains the complete
+ordered `FShaderCompilerOutput`. The header contains magic, schema, a historical producer word,
 endianness marker, a zero reserved field, and entry count. Each entry contains:
 
 1. length-prefixed UTF-8 source and binary entry points;
@@ -225,7 +235,7 @@ ShaderBuild to resolve each exact request through the ordinary memory/DDC/
 compiler path. It publishes `Shaders/ShaderLibrary.dslb` in the same Cook
 transaction as packages and records it in `CookManifest.bin`.
 
-`DSLB` schema 1 is exact for one target/profile. Its sorted directory maps a
+`DSLB` schema 4 is exact for one target/profile. Its sorted directory maps a
 source-independent runtime request identity to one complete embedded `DSHD`
 value and records production identity and payload digests. RenderCore preflights
 the full header, directory, bounds, alignment, target/profile, inventory closure
@@ -239,6 +249,15 @@ a bounded content failure and never falls back to source, manifests, DDC, Slang,
 or a compiler module. Material `ProgramData` remains package-owned.
 
 ## Compatibility
+
+DSHD and DSLB keep their current schema 4 and wire layout. Writers set the historical
+producer word to zero; readers ignore it. Algorithm or compiler upgrades invalidate
+build/Cook identity without rejecting compatible existing payloads or libraries.
+Magic, schema, byte-order marker, target/code format, request membership, reflection
+and binding-remap semantics, bounds and content digests remain validation gates.
+Cook input and library production identities include the compile build identity,
+private library production revision, adapter version/constants/output schemas,
+DSHD and DSLB schemas, plus the appropriate sources or runtime requests.
 
 The former variant directories, per-entry-point `.spv` files, and
 `.reflect.json` sidecars are neither read nor migrated. Disposable old data is a

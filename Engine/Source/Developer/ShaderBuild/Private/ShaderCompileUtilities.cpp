@@ -1,4 +1,5 @@
 #include "ShaderCompileUtilities.h"
+#include "ShaderBuildVersion.h"
 #include "ShaderCaptureLimits.h"
 #include "Hash/CanonicalHash.h"
 
@@ -13,8 +14,8 @@ namespace Durin::ShaderCompileUtilities
 	namespace
 	{
 		constexpr std::string_view GShaderSourceTreeSignatureVersion = "DurinShaderPortableSourceTree_v1";
-		constexpr std::string_view GShaderVariantKeyVersion = "DurinShaderVariantKey_v7";
-		constexpr std::string_view GShaderDependencyKeyVersion = "DurinShaderDependencyKey_v2";
+		constexpr std::string_view GShaderVariantKeyVersion = "DurinShaderVariantKey_v8";
+		constexpr std::string_view GShaderDependencyKeyVersion = "DurinShaderDependencyKey_v3";
 		auto HashTarget(FXxHash128Builder& Builder, const FShaderTargetIdentity& Target) -> void
 		{
 			UpdateCanonicalHash(Builder, Target.Platform);
@@ -157,6 +158,7 @@ namespace Durin::ShaderCompileUtilities
 		UpdateCanonicalHashString(Builder, FSlangSessionEnvironment::TargetProfileName);
 		HashTarget(Builder, Target);
 		UpdateCanonicalHashString(Builder, CompilerEnvironment);
+		UpdateCanonicalHash(Builder, ShaderBuildPrivate::BuildVersion(CompilerEnvironment));
 		UpdateCanonicalHashString(Builder, VirtualShaderPath);
 		UpdateCanonicalHash(Builder, MetaData.SourceTreeSignature);
 
@@ -189,6 +191,7 @@ namespace Durin::ShaderCompileUtilities
 		HashTarget(Builder, Target);
 		UpdateCanonicalHashString(Builder, VirtualShaderPath);
 		UpdateCanonicalHashString(Builder, CompilerEnvironment);
+		UpdateCanonicalHash(Builder, ShaderBuildPrivate::BuildVersion(CompilerEnvironment));
 		UpdateCanonicalHash(Builder, static_cast<uint64>(Macros.size()));
 		for (const FShaderMacroDefinition& Macro : Macros)
 		{

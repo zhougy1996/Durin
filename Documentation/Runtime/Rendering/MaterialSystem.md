@@ -343,7 +343,7 @@ and [Material Graph Canvas](../../Editor/Architecture/MaterialGraphCanvas.md).
 
 The persisted program is authored state, not a render artifact. GameThread can
 snapshot it, parameter declarations, code-affecting static properties, target,
-compiler identity, and virtual dependency fingerprints into a detached value
+Shader build identity, and virtual dependency fingerprints into a detached value
 request. Normalization starts only from connected Surface inputs,
 removes dead and presentation-only state, canonicalizes
 commutative inputs and numeric bytes, and produces versioned typed IR plus a
@@ -604,6 +604,11 @@ immutable artifacts by identity. The family is uncompressed, 16-byte aligned,
 bounded to 8 MiB, and protected by an internal checksum plus the DAST field range
 and raw-segment extent/hash contract. Metadata load is range-free; first
 render-layer construction locks and decodes the exact requested configuration.
+The default compiler environment records ShaderBuild's opaque build identity and
+separate adapter function/constants/output versions in its existing
+`CompilerIdentity` provenance string, so compiler/algorithm upgrades
+change authored program fingerprints. Cooked DMAT admission does not compare that
+producer with a live editor compiler; compatible old artifacts remain readable.
 Loading rejects a missing configuration, truncated, corrupt, trailing,
 wrong-target, wrong-profile, wrong-version, invalid-stage, or package/payload
 static-property mismatch before publishing an immutable result. Runtime loading

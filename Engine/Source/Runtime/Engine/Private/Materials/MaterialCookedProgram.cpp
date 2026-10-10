@@ -1,6 +1,5 @@
 #include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialRenderTypes.h"
-#include "Asset/Load.h"
 
 #include "Serialization/Archive.h"
 
@@ -214,7 +213,7 @@ namespace Durin
 			const FMaterialCompilerResult& Program,
 			const FMaterialStaticProperties& StaticProperties,
 			ECookTargetPlatform TargetPlatform,
-			bool bRequireCurrentEnvironment) -> FMaterialOperationResult
+			bool bRequireTarget) -> FMaterialOperationResult
 		{
 			const bool bMetal = TargetPlatform == ECookTargetPlatform::MacOS;
 			const FShaderTargetIdentity ExpectedTarget = bMetal
@@ -237,19 +236,10 @@ namespace Durin
 					|| (Index && Program.StaticBools[Index - 1].DeclarationId
 						== Program.StaticBools[Index].DeclarationId))
 					return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
-			if (bRequireCurrentEnvironment && Program.Target != ExpectedName)
+			if (bRequireTarget && Program.Target != ExpectedName)
 				return {EMaterialCookError::CookedProgramTargetIncompatible};
-			// Cooked execution has no compiler provider. Versions, target, layout,
-			// stage contracts and byte hashes validate its source-independent ABI.
-			if (bRequireCurrentEnvironment && !GetAssetRuntimeConfiguration().IsCooked())
-			{
-				const std::string CurrentCompilerIdentity =
-					GetShaderCompilerEnvironmentIdentity();
-				if (CurrentCompilerIdentity.empty()
-					|| Program.CompilerIdentity != CurrentCompilerIdentity
-					|| Program.Target != ExpectedName)
-					return {EMaterialCookError::CookedProgramCompilerTargetIdentityIncompatible};
-			}
+			// Producer identity is provenance. Target, pass ABI, layouts and code hashes
+			// determine compatibility even when an editor compiler is available.
 			if (const auto Validation = ValidateMaterialStaticProperties(StaticProperties); !Validation) return Validation;
 			if (Program.ActiveParameters.size() > MaterialProgramMaxReferencedParameterCount)
 				return {EMaterialCookError::ActiveParameterCountExceedsLimit};

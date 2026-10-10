@@ -9962,6 +9962,8 @@ namespace
 	{
 	public:
 		uint32 Libraries = 0;
+		auto GetBuildVersion() const -> uint64 override { return 0x123456789abcdef0ull; }
+		auto GetCompileAdapterVersion() const -> Durin::FShaderCompileAdapterVersion override { return {3, 2, 6}; }
 		auto CompileMounted(std::string_view, const Durin::FShaderCompileOptions&) -> Durin::FShaderCompilerOutput override { return {}; }
 		auto CompileGenerated(const Durin::FGeneratedShaderCompileRequest&) -> Durin::FShaderCompilerOutput override { return {}; }
 		auto GetCompilerEnvironmentIdentity() -> std::string override { return "cook-fixture-compiler-v1"; }

@@ -181,7 +181,7 @@ namespace Durin
 		ASSERT_TRUE((Error = ShaderCompiledOutput::Encode(Options, Expected, Second))) << FormatShaderError(Error.error());
 		EXPECT_EQ(First, Second);
 		EXPECT_EQ(ToHex(First),
-			"4453484404000000040000000403020100000000010000000100000001000000010000000000000000000000020000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000000000000000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e650100000000000000010000000000000001000000010000000100000000000000100000000000000000000000ffffffff000000000000000000000000000000000c00000000000000467261676d656e744d61696e04000000000000006d61696e01000000010000000000000000000000000000001100000000000000467261676d656e744d61696e446562756776835ac38ce6e7a67c3015d75a3a6f26140000000000000003022307000501000000000002000000000000000100000005000000000000005363656e650200000000000000020000000000000001000000010000000200000000000000100000000000000000000000ffffffff00000000000000000000000000000000");
+			"4453484404000000000000000403020100000000010000000100000001000000010000000000000000000000020000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000000000000000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e650100000000000000010000000000000001000000010000000100000000000000100000000000000000000000ffffffff000000000000000000000000000000000c00000000000000467261676d656e744d61696e04000000000000006d61696e01000000010000000000000000000000000000001100000000000000467261676d656e744d61696e446562756776835ac38ce6e7a67c3015d75a3a6f26140000000000000003022307000501000000000002000000000000000100000005000000000000005363656e650200000000000000020000000000000001000000010000000200000000000000100000000000000000000000ffffffff00000000000000000000000000000000");
 		ASSERT_GE(First.size(), 24u);
 		uint32 Magic = 0;
 		uint32 Schema = 0;
@@ -191,7 +191,7 @@ namespace Durin
 		EXPECT_TRUE(ReadLittleEndianAt<uint32>(First, 8, Builder));
 		EXPECT_EQ(Magic, ShaderCompiledOutput::PayloadMagic);
 		EXPECT_EQ(Schema, ShaderCompiledOutput::PayloadSchemaVersion);
-		EXPECT_EQ(Builder, ShaderCompiledOutput::BuilderVersion);
+		EXPECT_EQ(Builder, 0u);
 
 		FShaderCompilerOutput Loaded;
 		ASSERT_TRUE((Error = ShaderCompiledOutput::Decode(First, Options, Loaded))) << FormatShaderError(Error.error());
@@ -214,6 +214,52 @@ namespace Durin
 		}
 	}
 
+	TEST_F(FShaderDerivedDataTests, CompatiblePayloadIgnoresHistoricalProducerVersion)
+	{
+		const auto Options = MakeOptions();
+		FByteBuffer Bytes;
+		ASSERT_TRUE(ShaderCompiledOutput::Encode(Options, MakeOutput(), Bytes));
+		for (const uint32 Producer : {0u, 1u, 4u, 0xffffffffu})
+		{
+			auto Compatible = Bytes;
+			WriteU32At(Compatible, 8, Producer);
+			FShaderCompilerOutput Loaded;
+			ASSERT_TRUE(ShaderCompiledOutput::Decode(Compatible, Options, Loaded));
+			ASSERT_EQ(Loaded.CompiledShaders.size(), 2u);
+			EXPECT_EQ(Loaded.CompiledShaders[0].Hash, MakeOutput().CompiledShaders[0].Hash);
+		}
+	}
+
+	TEST_F(FShaderDerivedDataTests, SessionRejectsMismatchedIdentityBeforeOptionsDecoding)
+	{
+		FShaderBuildService Service;
+		const uint64 Version = Service.GetBuildVersion();
+		EXPECT_NE(Version, 0u);
+		EXPECT_EQ(Version, Service.GetBuildVersion());
+		auto Options = MakeOptions();
+		Options.CompilerEnvironment = Service.GetCompilerEnvironmentIdentity();
+		const FShaderVariantKey Variant{.Value = {17, 29}};
+		auto Request = MakeShaderSessionRequest(Options, Variant, Version ^ (uint64{1} << 63), {}, std::nullopt,
+			[]() -> std::expected<std::shared_ptr<const FShaderSourceArtifacts>, FShaderError> {
+				return std::make_shared<const FShaderSourceArtifacts>(std::map<std::string, FSharedByteBuffer>{});
+			});
+		ASSERT_TRUE(Request);
+		DerivedData::FBuildDefinitionBuilder Definition("Durin.Shader.Compile");
+		Definition.AddConstant("BuilderVersion", Version ^ (uint64{1} << 63))
+			.AddConstant("Options", std::string("invalid"))
+			.AddInput("Closure", "CapturedShaderClosure");
+		auto InvalidOptions = std::move(Definition).Build();
+		ASSERT_TRUE(InvalidOptions);
+		Request->Definition = std::move(*InvalidOptions);
+		const auto Result = Service.Execute(std::move(*Request), {.Policy = {.QueryCache = false, .StoreOnBuild = false}});
+		EXPECT_EQ(Result.GetStatus(), DerivedData::EStatus::Error);
+		ASSERT_NE(Result.GetOutput(), nullptr);
+		EXPECT_TRUE(Result.GetOutput()->GetValues().empty());
+		const auto Messages = Result.GetOutput()->GetMessages();
+		ASSERT_EQ(Messages.size(), 1u);
+		EXPECT_NE(Messages.front().Text.find("identity does not match"), std::string::npos);
+	}
+
 	TEST_F(FShaderDerivedDataTests, SingleStagePayloadMatchesGoldenBytes)
 	{
 		FShaderCompileOptions Options = MakeOptions();
@@ -225,7 +271,7 @@ namespace Durin
 		FShaderOperationResult Error;
 		ASSERT_TRUE((Error = ShaderCompiledOutput::Encode(Options, Output, Bytes))) << FormatShaderError(Error.error());
 		EXPECT_EQ(ToHex(Bytes),
-			"4453484404000000040000000403020100000000010000000100000001000000010000000000000000000000010000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000000000000000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e650100000000000000010000000000000001000000010000000100000000000000100000000000000000000000ffffffff00000000000000000000000000000000");
+			"4453484404000000000000000403020100000000010000000100000001000000010000000000000000000000010000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000000000000000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e650100000000000000010000000000000001000000010000000100000000000000100000000000000000000000ffffffff00000000000000000000000000000000");
 	}
 
 	TEST_F(FShaderDerivedDataTests, MetalComputeThreadGroupSurvivesBothPayloads)
@@ -290,6 +336,9 @@ namespace Durin
 		Durin::FByteBuffer BadMagic = Bytes;
 		BadMagic[0] = std::byte{0};
 		ExpectRejected(std::move(BadMagic), EShaderError::PayloadHeaderInvalid);
+		Durin::FByteBuffer BadMarker = Bytes;
+		BadMarker[12] ^= std::byte{0x40};
+		ExpectRejected(std::move(BadMarker), EShaderError::PayloadHeaderInvalid);
 		Durin::FByteBuffer BadVersion = Bytes;
 		WriteU32At(BadVersion, 4,
 			ShaderCompiledOutput::PayloadSchemaVersion + 1);
@@ -359,20 +408,25 @@ namespace Durin
 				"00112233445566778899aabbccddeeff"),
 			.Hex = "00112233445566778899aabbccddeeff"};
 		FShaderCompileOptions Options = MakeOptions();
-		auto Key = [&](const FShaderCompileOptions& RequestOptions) -> DerivedData::FCacheKey {
-			auto Request = MakeShaderSessionRequest(RequestOptions, Variant, {}, std::nullopt,
+		auto Key = [&](const FShaderCompileOptions& RequestOptions, uint64 BuilderVersion = 0x123456789abcdef0ull,
+			uint32 FunctionVersion = ShaderCompileBuildFunctionVersion) -> DerivedData::FCacheKey {
+			auto Request = MakeShaderSessionRequest(RequestOptions, Variant, BuilderVersion, {}, std::nullopt,
 				[]() -> std::expected<std::shared_ptr<const FShaderSourceArtifacts>, FShaderError> { return std::make_shared<const FShaderSourceArtifacts>(std::map<std::string, FSharedByteBuffer>{}); });
 			if (!Request) return {};
 			const auto Identities = Request->Resolver->Describe(Request->Definition.GetSources(), {});
 			if (!Identities) return {};
-			DerivedData::FBuildActionBuilder Builder(Request->Definition,
-				{"Durin.Shader.Compile", 6, 1, "Shader.Output", 6, DerivedData::FCacheBucket::FromString("Shader")});
+			auto Descriptor = GetShaderBuildDescriptor();
+			Descriptor.Version = FunctionVersion;
+			DerivedData::FBuildActionBuilder Builder(Request->Definition, Descriptor);
 			for (const auto& Identity : *Identities) Builder.AddInput(Identity);
 			auto Action = std::move(Builder).Build();
 			return Action ? Action->GetKey() : DerivedData::FCacheKey{};
 		};
 		const auto First = Key(Options);
 		ASSERT_TRUE(First.IsValid());
+		EXPECT_NE(Key(Options, 0x123456789abcdef0ull ^ (uint64{1} << 63)), First);
+		EXPECT_NE(Key(Options, 0x123456789abcdef0ull, ShaderCompileBuildFunctionVersion + 1), First);
+		EXPECT_FALSE(Key(Options, 0).IsValid());
 		// New action identity cannot alias the frozen pre-session key.
 		EXPECT_NE(First.ToString(), "34e7cc7d296f3588e078eec6cd12b469");
 		Options.bForceRecompile = true;

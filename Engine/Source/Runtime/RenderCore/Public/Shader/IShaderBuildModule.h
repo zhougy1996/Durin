@@ -9,6 +9,14 @@
 
 namespace Durin
 {
+	// Session adapter contracts, independent of producer algorithms and package codecs.
+	struct FShaderCompileAdapterVersion
+	{
+		uint32 FunctionVersion = 0;
+		uint32 ConstantsSchema = 0;
+		uint32 OutputSchema = 0;
+	};
+
 	// Reports live-build cache reuse and actual compiler work.
 	struct FShaderBuildStats
 	{
@@ -28,6 +36,10 @@ namespace Durin
 	public:
 		// Borrow the active implementation; consumers drain work before shutdown.
 		RENDERCORE_API static auto Get() -> IShaderBuildModule*;
+		// Nonzero opaque producer identity, stable until module shutdown; equality only.
+		// Includes compiler dependencies and algorithms, independent of payload schemas.
+		virtual auto GetBuildVersion() const -> uint64 = 0;
+		virtual auto GetCompileAdapterVersion() const -> FShaderCompileAdapterVersion = 0;
 
 		virtual auto CompileMounted(
 			std::string_view VirtualShaderPath,

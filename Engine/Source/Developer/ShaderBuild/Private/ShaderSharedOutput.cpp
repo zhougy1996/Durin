@@ -1,4 +1,5 @@
 #include "ShaderSharedOutput.h"
+#include "ShaderBuildSession.h"
 #include "Shader/ShaderCompiledOutput.h"
 #include "Serialization/BinaryFormat.h"
 
@@ -164,7 +165,7 @@ namespace Durin::ShaderSharedOutput
 			if (Cancel && Cancel()) return Failure(EShaderError::Cancelled);
 			if (!ValidRequest(Options)) return Failure(EShaderError::PayloadRequestInvalid);
 			const auto Metadata = GetBuildMetadataPayload(Output);
-			if (Output.GetSchema() != "Shader.Output" || Output.GetSchemaVersion() != 6
+			if (Output.GetSchema() != "Shader.Output" || Output.GetSchemaVersion() != ShaderCompileOutputSchemaVersion
 				|| Metadata.size() > MaximumMetadataBytes
 				|| !Output.CheckLimits({.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes}))
 				return Failure(EShaderError::PayloadHeaderInvalid);
@@ -216,7 +217,7 @@ namespace Durin::ShaderSharedOutput
 	{
 		if (!Product || !ValidRequest(Options) || Product.CompiledShaders.size() != Options.EntryPoints.size())
 			return Failure(EShaderError::PayloadRequestInvalid);
-		FBuildOutputBuilder Output("Shader.Output", 6, {.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes});
+		FBuildOutputBuilder Output("Shader.Output", ShaderCompileOutputSchemaVersion, {.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes});
 		uint64 DataBytes = 0;
 		FBinaryWriter Metadata({.MaximumTotalBytes = MaximumMetadataBytes});
 		Metadata.WriteU32(uint32(Product.CompiledShaders.size())); Metadata.WriteString(Options.VirtualShaderPath);

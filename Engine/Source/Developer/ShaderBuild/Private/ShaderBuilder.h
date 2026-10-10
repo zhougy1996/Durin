@@ -20,6 +20,8 @@ namespace Durin
 
 		~FShaderBuilder();
 
+		auto GetBuildVersion() const -> uint64;
+
 		auto GetCompilerEnvironmentIdentity() const -> const std::string&;
 
 		auto BuildSourceDependencyManifest(

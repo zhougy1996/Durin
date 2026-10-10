@@ -751,9 +751,9 @@ namespace Durin
 		auto GlobalSession = GlobalSessions.Acquire();
 		const char* BuildTag = GlobalSession->getBuildTagString();
 		return std::format(
-			"{}:{};target={};profile={};reflection=3"
+			"{}:{};target={};profile={}"
 		#if defined(__APPLE__)
-			";spirv-cross=6c09849fe88c48eaed08413aa022aaa136a3a057;metal-clip-y=1"
+			";spirv-cross=" DURIN_SHADER_SPIRV_CROSS_REVISION
 		#endif
 			,
 			FSlangSessionEnvironment::BackendName,

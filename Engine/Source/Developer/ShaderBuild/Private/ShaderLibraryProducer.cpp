@@ -1,4 +1,7 @@
 #include "ShaderLibraryProducer.h"
+#include "Hash/CanonicalHash.h"
+#include "ShaderBuildVersion.h"
+#include "Shader/ShaderCompiledOutput.h"
 
 #include "Shader/Shader.h"
 #include "ShaderBuilder.h"
@@ -67,6 +70,14 @@ namespace Durin
 			Production.Update("DurinCookedShaderProduction_v1");
 			Production.UpdateValue(RuntimeIdentity);
 			Production.Update(Builder.GetCompilerEnvironmentIdentity());
+			UpdateCanonicalHash(Production, Builder.GetBuildVersion());
+			UpdateCanonicalHash(Production, ShaderBuildPrivate::LibraryProductionRevision);
+			const auto Descriptor = GetShaderBuildDescriptor();
+			UpdateCanonicalHash(Production, Descriptor.Version);
+			UpdateCanonicalHash(Production, Descriptor.ConstantsSchema);
+			UpdateCanonicalHash(Production, Descriptor.OutputSchema);
+			UpdateCanonicalHash(Production, ShaderCompiledOutput::PayloadSchemaVersion);
+			UpdateCanonicalHash(Production, ShaderCookedLibrarySchemaVersion);
 			for (const FCompiledShader& Shader : Output.CompiledShaders)
 				Production.UpdateValue(Shader.Hash);
 			Records.push_back({Request, Production.Finalize(), std::move(Output)});

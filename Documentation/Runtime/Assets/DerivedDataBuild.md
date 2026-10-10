@@ -322,9 +322,13 @@ validation protect different trust boundaries and remain separate.
 ShaderBuild captures immutable dependency metadata into request inputs, reuses
 one persistent service session, and keeps its compiler single-flight, LRU,
 waiter cancellation, filesystem bounds, and dependency-content verification.
-Its schema-3 output binds fixed entry IDs and Compact Binary metadata to the
-virtual shader path; schema 2 was an implementation-only intermediate and is
-cold-invalidated. Shader counters derive from completion status and build-status facts.
+Its nonzero opaque 64-bit build identity composes private producer revisions and
+compiler dependencies. A named `BuilderVersion` constant is checked before recipe
+decoding; adapter version 3, constants schema 2 and output schema 6 are separate.
+The output binds fixed entry IDs and Compact Binary metadata to the virtual shader
+path. Cook production identity includes those versions, the library producer revision
+and DSHD/DSLB schemas. Both runtime codecs keep schema 4 and ignore their historical
+producer words, allowing algorithm upgrades without rejecting compatible cooked data. Shader counters derive from completion status and build-status facts.
 
 Cache success never means an asset is current, applied, GPU-ready, or
 physics-ready. Family generation/latest-wins and object application checks remain

@@ -1,3 +1,6 @@
+#include "ShaderBuildSession.h"
+#include "ShaderBuildVersion.h"
+#include "Shader/ShaderCompiledOutput.h"
 #include "ShaderCaptureLimits.h"
 #include "Modules/ModuleManager.h"
 #include "Shader/IShaderBuildModule.h"
@@ -40,6 +43,12 @@ namespace Durin
 			return Builder->GetOrCompileGenerated(Request);
 		}
 
+		auto GetBuildVersion() const -> uint64 override { return Builder->GetBuildVersion(); }
+		auto GetCompileAdapterVersion() const -> FShaderCompileAdapterVersion override
+		{
+			const auto Descriptor = GetShaderBuildDescriptor();
+			return {Descriptor.Version, Descriptor.ConstantsSchema, Descriptor.OutputSchema};
+		}
 		auto GetCompilerEnvironmentIdentity() -> std::string override
 		{
 			return Builder->GetCompilerEnvironmentIdentity();
@@ -127,6 +136,14 @@ namespace Durin
 				if (Error) { return std::unexpected(FShaderError::FromFileSystem(FailurePath, Error)); }
 			}
 			FBinaryWriter Identity;
+			Identity.WriteU64(GetBuildVersion());
+			Identity.WriteU32(ShaderBuildPrivate::LibraryProductionRevision);
+			const auto Descriptor = GetShaderBuildDescriptor();
+			Identity.WriteU32(Descriptor.Version);
+			Identity.WriteU32(Descriptor.ConstantsSchema);
+			Identity.WriteU32(Descriptor.OutputSchema);
+			Identity.WriteU32(ShaderCompiledOutput::PayloadSchemaVersion);
+			Identity.WriteU32(ShaderCookedLibrarySchemaVersion);
 			Identity.WriteString(GetCompilerEnvironmentIdentity());
 			Identity.WriteU32(static_cast<uint32>(SearchRoots.size()));
 			for (const auto& Root : SearchRoots) Identity.WriteString(Root);

@@ -938,17 +938,19 @@ TEST(FMaterialCompileLifecycleTests,
 		*Material->GetAcceptedCompiledProgram(), DecodedProperties, DecodedProgram)));
 	Durin::FMaterialCompilerResult WrongEnvironment =
 		*Material->GetAcceptedCompiledProgram();
-	WrongEnvironment.CompilerIdentity = "incompatible-compiler";
+	WrongEnvironment.CompilerIdentity = "historical-shader-build";
 	Durin::FByteBuffer WrongEnvironmentBytes;
 	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(
 		WrongEnvironment, Material->GetStaticProperties(),
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
 		WrongEnvironmentBytes))) << Durin::FormatMaterialError(Error.Error);
-	EXPECT_FALSE((Error = Durin::Testing::DecodeMaterialCookedProgramFamilyForTest(
+	ASSERT_TRUE((Error = Durin::Testing::DecodeMaterialCookedProgramFamilyForTest(
 		WrongEnvironmentBytes, Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
-		WrongEnvironment, DecodedProperties, DecodedProgram)));
+		WrongEnvironment, DecodedProperties, DecodedProgram))) << Durin::FormatMaterialError(Error.Error);
+	ASSERT_NE(DecodedProgram, nullptr);
+	EXPECT_EQ(DecodedProgram->CompilerIdentity, "historical-shader-build");
 	WrongEnvironment = *Material->GetAcceptedCompiledProgram();
 	WrongEnvironment.Target = "wrong-target";
 	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(

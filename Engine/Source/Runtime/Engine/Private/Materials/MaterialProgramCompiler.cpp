@@ -2,6 +2,7 @@
 
 #include "Materials/MaterialRenderTypes.h"
 #include "Shader/ShaderCompilerCore.h"
+#include "Shader/IShaderBuildModule.h"
 #include "DynamicRHI.h"
 #include "RHIGlobals.h"
 
@@ -170,8 +171,14 @@ namespace Durin
 			Limits.StageResources = std::min(Limits.StageResources, Capabilities->MaxFragmentResources);
 			Limits.UniformBufferBytes = std::min(Limits.UniformBufferBytes, Capabilities->MaxUniformBufferRange);
 		}
-		Environment.CompilerIdentity =
-			GetShaderCompilerEnvironmentIdentity();
+		const auto* ShaderBuild = IShaderBuildModule::Get();
+		const uint64 ShaderBuildVersion = ShaderBuild ? ShaderBuild->GetBuildVersion() : 0;
+		if (!ShaderBuildVersion)
+			return {FMaterialError::FromExternal(EMaterialCompileError::ShaderEnvironmentUnavailable,
+				"Shader build identity is unavailable.")};
+		const auto Adapter = ShaderBuild->GetCompileAdapterVersion();
+		Environment.CompilerIdentity = std::format("ShaderBuild:{:016x};adapter={}:{}:{}",
+			ShaderBuildVersion, Adapter.FunctionVersion, Adapter.ConstantsSchema, Adapter.OutputSchema);
 		Environment.Dependencies.push_back({
 			.VirtualPath = std::move(SourceTree.VirtualPath),
 			.ContentHash = SourceTree.ContentHash});
