@@ -222,7 +222,7 @@ namespace Durin
 				case EMaterialIRError::InvalidMaterialIRSlangGeneration: return "Invalid material IR for Slang generation.";
 				case EMaterialIRError::AggregateSurfaceRootExpressionOutBounds: return "Aggregate Surface Root expression is out of bounds.";
 				case EMaterialIRError::PerPropertySurfaceRootExpressionOutBounds: return "Per-property Surface Root expression is out of bounds.";
-				case EMaterialIRError::GeneratedMaterialSlangExceedsVersion1ByteBound: return "Generated material Slang exceeds the version-1 byte bound.";
+				case EMaterialIRError::GeneratedMaterialSlangExceedsSupportedByteBound: return "Generated material Slang exceeds the supported byte bound.";
 				case EMaterialIRError::ParameterDeclarationCountExceedsBound: return "IR parameter declaration count exceeds its bound.";
 				case EMaterialIRError::ParameterDeclarationInvalidDuplicated: return "IR parameter declaration is invalid or duplicated.";
 				case EMaterialIRError::OpcodeResultTypeInputCountInvalid: return "Material IR opcode, result type, or input count is invalid.";

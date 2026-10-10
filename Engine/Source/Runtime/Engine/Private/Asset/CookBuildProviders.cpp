@@ -60,6 +60,7 @@ namespace Durin::AssetPrivate
 			FBinaryWriter Writer;
 			Writer.WriteU64(BuilderVersion);
 			Writer.WriteU32(StaticMeshRenderBuildFunctionVersion);
+			Writer.WriteU32(StaticMeshRenderConstantsSchemaVersion);
 			Writer.WriteU32(StaticMeshRenderOutputSchemaVersion);
 			Writer.WriteU32(StaticMeshPayloadSchemaVersion);
 			const auto PhysicsDescriptor = GetPhysicsCookBuildDescriptor();

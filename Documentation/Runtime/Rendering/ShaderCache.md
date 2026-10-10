@@ -250,6 +250,9 @@ or a compiler module. Material `ProgramData` remains package-owned.
 
 ## Compatibility
 
+Runtime request identity has its own hash version, independent of the DSLB file
+schema. Changing the container layout does not change request membership keys.
+
 DSHD and DSLB schema 5 omit the producer version word. DSLB uses a 108-byte
 header; older payloads and libraries require recook. Algorithm or compiler upgrades invalidate
 build/Cook identity without rejecting compatible existing payloads or libraries.

@@ -1,15 +1,15 @@
 # Static Mesh Derived-Data Fixtures
 
-These fixtures are the canonical logical inputs for DMSH schema version 2.
-Stage 2 encodes them into payload bytes and compares deterministic output.
+These fixtures are the canonical logical inputs for DMSH schema version 6.
+The codec encodes them into payload bytes and compares deterministic output.
 Coordinates, stream elements, slot ids, and ordering are exact.
 
-The schema-version-two Win64 encodings are frozen as:
+The schema-version-six Win64 encodings are frozen as:
 
 | Fixture | Stored bytes | XXH3-128 of complete object |
 | --- | ---: | --- |
-| `SingleSection` | 572 | `31c37f86ed5caa8a579bb2f7c2a1a7cb` |
-| `MultiMaterialStreams` | 856 | `da830a88b13fea4311711b14cbf4c573` |
+| `SingleSection` | 556 | `09d929409c8b55395fc9d7d238899888` |
+| `MultiMaterialStreams` | 824 | `c839b9e89eb579eec81db74bb9df0335` |
 
 ## `SingleSection`
 
@@ -42,7 +42,7 @@ The schema-version-two Win64 encodings are frozen as:
 
 ## Malformed payload derivations
 
-Stage 2 derives malformed bytes from the deterministic `SingleSection` encoding:
+Tests derive malformed bytes from the deterministic `SingleSection` encoding:
 
 - every truncation length from zero through the final byte;
 - one flipped byte in the checksummed chunk region;
@@ -52,4 +52,4 @@ Stage 2 derives malformed bytes from the deterministic `SingleSection` encoding:
 - a stored/uncompressed ratio greater than `64:1`;
 - index `3` for the three-vertex fixture;
 - one unknown required chunk and one unknown optional chunk;
-- schema version `2`, target platform `Unknown`, and invalid enum values.
+- unsupported schema versions, target platform `Unknown`, and invalid enum values.

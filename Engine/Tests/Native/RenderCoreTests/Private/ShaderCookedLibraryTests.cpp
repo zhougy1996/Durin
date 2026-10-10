@@ -92,6 +92,14 @@ namespace Durin
 		}
 	}
 
+	TEST(FShaderRuntimeInventoryTests, RequestIdentityRemainsStableAcrossContainerChanges)
+	{
+		FXxHash128 Identity;
+		const auto Result = BuildShaderRuntimeRequestIdentity(MakeRequest(), Identity);
+		ASSERT_TRUE(Result) << FormatShaderError(Result.error());
+		EXPECT_EQ(Identity.ToString(), "59028fd192e6cbbe8ec1fa7dea3f0817");
+	}
+
 	TEST(FShaderRuntimeInventoryTests,
 		CanonicalFreezeFiltersEditorAndRejectsTargetReplacement)
 	{

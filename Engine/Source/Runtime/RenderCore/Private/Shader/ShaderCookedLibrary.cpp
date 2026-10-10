@@ -12,6 +12,9 @@ namespace Durin
 	{
 		constexpr uint32 LibraryMagic = 0x424c5344; // DSLB
 		constexpr uint32 LibrarySchemaVersion = ShaderCookedLibrarySchemaVersion;
+		// Request hashing evolves independently of the DSLB wire layout.
+		// Retain the existing hash domain so current request identities stay stable.
+		constexpr uint32 RuntimeRequestIdentityVersion = 5;
 		constexpr uint32 LibraryHeaderSize = 108;
 		constexpr uint32 LibraryDirectoryRecordSize = 80;
 		constexpr uint64 LibraryAlignment = 16;
@@ -228,7 +231,7 @@ namespace Durin
 		}
 		FXxHash128Builder Builder;
 		UpdateString(Builder, "DurinShaderRuntimeRequest");
-		Builder.UpdateValue(LibrarySchemaVersion);
+		Builder.UpdateValue(RuntimeRequestIdentityVersion);
 		Builder.UpdateValue(static_cast<uint32>(Request.TargetPlatform));
 		Builder.UpdateValue(static_cast<uint32>(Request.TargetProfile));
 		Builder.UpdateValue(static_cast<uint32>(Request.Category));

@@ -178,7 +178,7 @@ namespace Durin
 		InvalidMaterialIRSlangGeneration,
 		AggregateSurfaceRootExpressionOutBounds,
 		PerPropertySurfaceRootExpressionOutBounds,
-		GeneratedMaterialSlangExceedsVersion1ByteBound,
+		GeneratedMaterialSlangExceedsSupportedByteBound,
 		ParameterDeclarationCountExceedsBound,
 		ParameterDeclarationInvalidDuplicated,
 		OpcodeResultTypeInputCountInvalid,

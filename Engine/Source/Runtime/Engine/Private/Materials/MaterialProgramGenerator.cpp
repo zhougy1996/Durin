@@ -691,7 +691,7 @@ float4 FragmentMain(
 		if (OutSource.size() > MaterialProgramMaxCanonicalBytes)
 		{
 			OutSource.clear();
-			return {EMaterialIRError::GeneratedMaterialSlangExceedsVersion1ByteBound};
+			return {EMaterialIRError::GeneratedMaterialSlangExceedsSupportedByteBound};
 		}
 		return {};
 	}

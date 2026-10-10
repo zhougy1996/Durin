@@ -1,6 +1,7 @@
 # Texture Platform-Payload Logical Fixtures
 
-These fixtures freeze TXPL schema version 1 and texture key schema version 1.
+These fixtures describe logical inputs for TXPL schema 3. Texture keys use the
+canonical schema-2 build action with independent producer and adapter versions.
 Tests build native payload bytes directly from the values below. They never
 invoke a source decoder, panorama projector, BC compressor, RHI, or window.
 
@@ -10,7 +11,7 @@ test data. It is not intended to describe a meaningful rendered block.
 ## `Texture2D`
 
 - Dimension: `Texture2D(1)`.
-- Builder/schema/platform/profile: `2/1/Win64(1)/Game(1)`.
+- Payload schema/platform/profile: `3/Win64(1)/Game(1)`.
 - Format: `BC1_UNORM_SRGB(2)`.
 - Base dimensions: `4x4`; one slice and three mips (`4x4`, `2x2`, `1x1`).
 - Every mip row pitch is `8`.
@@ -24,7 +25,7 @@ test data. It is not intended to describe a meaningful rendered block.
 ## `SixFaceCube`
 
 - Dimension: `TextureCube(2)`.
-- Builder/schema/projection/platform/profile: `1/1/1/Win64(1)/Game(1)`.
+- Payload schema/platform/profile: `3/Win64(1)/Game(1)`.
 - Format: `BC1_UNORM_SRGB(2)`.
 - Base dimensions: `4x4`; six slices and three mips per slice.
 - Every row pitch is `8`.
@@ -53,14 +54,14 @@ schema. Its key inputs differ:
 - Requested face dimension: `4`.
 - Exposure EV: `1.0` (`0x3f800000`).
 - sRGB: `1`.
-- Builder/schema/projection/platform/profile: `1/1/1/Win64(1)/Game(1)`.
+- Payload schema/platform/profile: `3/Win64(1)/Game(1)`.
 
 ## Malformed derivations
 
 Readers and key tests derive:
 
 - every truncation length from zero through the final TXPL byte;
-- bad magic, schema, builder policy, platform, profile, dimension, format,
+- bad magic, schema, platform, profile, dimension, format,
   header size, record size, and checksum;
 - nonzero reserved header, record, gap, or trailing-padding bytes;
 - zero or excess slices, mips, records, dimensions, and stored bytes;
@@ -73,5 +74,5 @@ Readers and key tests derive:
 - Texture2D with six slices and TextureCube with one slice;
 - base dimension and complete payload one unit above their limits;
 - NaN, infinity, negative zero, and out-of-range float key inputs;
-- key changes for every semantic setting, builder/schema/projection version,
+- key changes for every semantic setting, producer identity and adapter schemas,
   target platform/profile, source hash, cube face, face order, and layout.

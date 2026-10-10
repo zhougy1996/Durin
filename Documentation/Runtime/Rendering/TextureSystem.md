@@ -45,7 +45,7 @@ data, payload validation, resource publication, and compilation readiness querie
   GameThread result-application context. Rebuilds preserve the existing source;
   import/reimport commits the retained candidate only after a successful build
   whose identity matches that candidate.
-- Texture2D builder version 4 analyzes alpha from the input image when selecting
+- The Texture2D builder analyzes alpha from the input image when selecting
   its platform format. Cube builds retain their whole-cube transparency override
   so all six faces use one format.
 - `FTexturePlatformData` is rebuilt from source data. It contains a complete,

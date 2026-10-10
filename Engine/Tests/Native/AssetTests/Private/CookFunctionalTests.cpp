@@ -469,9 +469,27 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	for (const auto& Path : Paths)
 		EXPECT_TRUE(std::ranges::any_of(State.Entries, [&](const auto& Entry) { return Entry.VirtualPackagePath == Path.GetView(); })) << Path.GetView();
 	uint32 MaterialRecipes = 0;
+	uint32 MeshRecipes = 0;
 	for (auto& Entry : State.Entries)
 	{
 		if (Entry.Contributor != "generic-package") EXPECT_FALSE(Entry.BuildDependencies.empty());
+		if (Entry.Contributor == "static-mesh")
+		{
+			++MeshRecipes;
+			const auto Recipe = std::ranges::find(Entry.BuildDependencies,
+				"recipe/static-mesh", &FCookBuildDependency::LogicalName);
+			ASSERT_NE(Recipe, Entry.BuildDependencies.end());
+			// Render and physics each contribute one producer ID and four independent versions.
+			ASSERT_EQ(Recipe->Value.size(), 48u);
+			FBinaryReader Reader(Recipe->Value);
+			uint64 BuilderVersion = 0;
+			uint32 FunctionVersion = 0, ConstantsSchema = 0;
+			ASSERT_TRUE(Reader.ReadU64(BuilderVersion) && Reader.ReadU32(FunctionVersion)
+				&& Reader.ReadU32(ConstantsSchema));
+			EXPECT_EQ(ConstantsSchema, 2u);
+			// A prior adapter constants layout must recook even when algorithms stay unchanged.
+			Recipe->Value[12] ^= std::byte{1};
+		}
 		if (Entry.Contributor == "material" || Entry.Contributor == "material-instance")
 		{
 			++MaterialRecipes;
@@ -491,11 +509,13 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 		}
 	}
 	ASSERT_EQ(MaterialRecipes, 4u);
+	ASSERT_EQ(MeshRecipes, 1u);
 	ASSERT_TRUE(EncodeCookState(State, StateBytes));
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(StateBytes, Output / "CookState.bin"));
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	for (const auto& Package : Result.Packages)
-		if (Package.Contributor == "material" || Package.Contributor == "material-instance")
+		if (Package.Contributor == "material" || Package.Contributor == "material-instance"
+			|| Package.Contributor == "static-mesh")
 			EXPECT_NE(Package.Status, ECookPackageStatus::CookHit);
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	for (const auto& Package : Result.Packages) EXPECT_EQ(Package.Status, ECookPackageStatus::CookHit);
