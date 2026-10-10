@@ -1121,6 +1121,14 @@ float4 FragmentMain(
 		Result.FeatureLevel = Input.Environment.FeatureLevel;
 		Result.StaticBools = Input.Environment.StaticBools;
 		Result.Timings.NormalizationMicroseconds = Input.NormalizationMicroseconds;
+		if (Input.Environment.BuilderVersion != GetMaterialBuildVersion()
+			|| Input.Environment.AdapterVersion != GetMaterialCompileAdapterVersion())
+		{
+			Result.Diagnostics.push_back(MakeDiagnostic(
+				EMaterialProgramDiagnosticCategory::Compile,
+				EMaterialIRError::InvalidCompilerEnvironment));
+			return Result;
+		}
 		const auto GenerateBegin = std::chrono::steady_clock::now();
 		const auto& Normalized = Input.Normalized;
 		if (!Normalized)

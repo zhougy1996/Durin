@@ -23,6 +23,8 @@
 #include "Texture/VolumeTexture.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "Materials/MaterialCookedProgram.h"
+#include "Serialization/BinaryFormat.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Threading/Task.h"
 
@@ -466,8 +468,38 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	ASSERT_EQ(State.Entries.size(), Paths.size());
 	for (const auto& Path : Paths)
 		EXPECT_TRUE(std::ranges::any_of(State.Entries, [&](const auto& Entry) { return Entry.VirtualPackagePath == Path.GetView(); })) << Path.GetView();
-	for (const auto& Entry : State.Entries)
+	uint32 MaterialRecipes = 0;
+	for (auto& Entry : State.Entries)
+	{
 		if (Entry.Contributor != "generic-package") EXPECT_FALSE(Entry.BuildDependencies.empty());
+		if (Entry.Contributor == "material" || Entry.Contributor == "material-instance")
+		{
+			++MaterialRecipes;
+			const auto Recipe = std::ranges::find(Entry.BuildDependencies,
+				"recipe/material", &FCookBuildDependency::LogicalName);
+			ASSERT_NE(Recipe, Entry.BuildDependencies.end());
+			EXPECT_EQ(Recipe->Kind, ECookBuildDependencyKind::SchemaProducerVersion);
+			FBinaryWriter Writer;
+			Writer.WriteU64(GetMaterialBuildVersion());
+			Writer.WriteU32(GetMaterialCompileAdapterVersion());
+			Writer.WriteU32(MIR::CurrentVersion);
+			Writer.WriteU32(MaterialCookedProgramPayloadSchemaVersion);
+			Writer.WriteU32(CurrentMaterialPassContractVersion);
+			EXPECT_EQ(Recipe->Value, Writer.TakeBytes());
+			// Simulate a prior Material producer in otherwise valid incremental state.
+			Recipe->Value[7] ^= std::byte{1};
+		}
+	}
+	ASSERT_EQ(MaterialRecipes, 4u);
+	ASSERT_TRUE(EncodeCookState(State, StateBytes));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(StateBytes, Output / "CookState.bin"));
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
+	for (const auto& Package : Result.Packages)
+		if (Package.Contributor == "material" || Package.Contributor == "material-instance")
+			EXPECT_NE(Package.Status, ECookPackageStatus::CookHit);
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
+	for (const auto& Package : Result.Packages) EXPECT_EQ(Package.Status, ECookPackageStatus::CookHit);
+	EXPECT_EQ(Inventory(Output / "Game"), First);
 	Request.IncrementalPolicy = ECookIncrementalPolicy::Disabled;
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	EXPECT_EQ(Inventory(Output / "Game"), First);

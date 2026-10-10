@@ -9,6 +9,7 @@
 #include "Physics/PhysicsCookDerivedDataKey.h"
 #endif
 #include "Collision/CollisionGeometry.h"
+#include "Materials/MaterialCookedProgram.h"
 #include "Serialization/BinaryFormat.h"
 
 namespace Durin::AssetPrivate
@@ -16,6 +17,17 @@ namespace Durin::AssetPrivate
 	auto GetCookBuildProviderInput(std::string_view Family, FByteBuffer& Out) -> bool
 	{
 		Out.clear();
+		if (Family == "material")
+		{
+			FBinaryWriter Writer;
+			Writer.WriteU64(GetMaterialBuildVersion());
+			Writer.WriteU32(GetMaterialCompileAdapterVersion());
+			Writer.WriteU32(MIR::CurrentVersion);
+			Writer.WriteU32(MaterialCookedProgramPayloadSchemaVersion);
+			Writer.WriteU32(CurrentMaterialPassContractVersion);
+			Out = Writer.TakeBytes();
+			return true;
+		}
 		if (Family == "texture2d" || Family == "texture-cube" || Family == "volume-texture")
 		{
 #if DURIN_WITH_EDITORONLY_DATA

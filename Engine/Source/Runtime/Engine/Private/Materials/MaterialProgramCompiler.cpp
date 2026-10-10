@@ -1,4 +1,8 @@
 #include "Materials/MaterialProgramCompiler.h"
+#include "MaterialBuildVersion.h"
+#include "Hash/XxHash.h"
+#include "Serialization/BinaryFormat.h"
+#include <glm/detail/setup.hpp>
 
 #include "Materials/MaterialRenderTypes.h"
 #include "Shader/ShaderCompilerCore.h"
@@ -8,6 +12,27 @@
 
 namespace Durin
 {
+	auto GetMaterialBuildVersion() -> uint64
+	{
+		static const uint64 Version = [] {
+			FBinaryWriter Writer;
+			Writer.WriteString("Durin.Engine.MaterialProgram");
+			Writer.WriteU32(MaterialBuildPrivate::NormalizationAlgorithmRevision);
+			Writer.WriteU32(MaterialBuildPrivate::GeneratorAlgorithmRevision);
+			Writer.WriteU32(GLM_VERSION_MAJOR);
+			Writer.WriteU32(GLM_VERSION_MINOR);
+			Writer.WriteU32(GLM_VERSION_PATCH);
+			const uint64 Hash = FXxHash64::HashBuffer(Writer.TakeBytes()).HashValue;
+			return Hash ? Hash : uint64{1};
+		}();
+		return Version;
+	}
+
+	auto GetMaterialCompileAdapterVersion() -> uint32
+	{
+		return MaterialBuildPrivate::CompileAdapterVersion;
+	}
+
 	namespace
 	{
 		template <typename TValue, bool = std::is_enum_v<TValue>>
@@ -31,7 +56,7 @@ namespace Durin
 			EMaterialSurfaceOutput::Emissive,
 			EMaterialSurfaceOutput::Opacity,
 			EMaterialSurfaceOutput::OpacityMask};
-		inline constexpr uint32 MaterialProgramIdentitySchemaVersion = 6;
+		inline constexpr uint32 MaterialProgramIdentitySchemaVersion = 7;
 
 		auto IsCommutative(EMaterialProgramOpcode Opcode) -> bool
 		{
@@ -198,6 +223,8 @@ namespace Durin
 			return Result;
 		}
 		if (Input.Environment.CompilerIdentity.empty()
+			|| Input.Environment.BuilderVersion == 0
+			|| Input.Environment.AdapterVersion == 0
 			|| Input.Environment.Target.empty()
 			|| Input.Environment.CompilerIdentity.size()
 				> MaterialProgramMaxStringBytes
@@ -619,8 +646,8 @@ namespace Durin
 			ShaderProperties.OpacityMaskThreshold));
 		AppendLittleEndian(Bytes, MaterialProgramIdentitySchemaVersion);
 		AppendLittleEndian(Bytes, MIR::CurrentVersion);
-		AppendLittleEndian(Bytes, CurrentMaterialGeneratorVersion);
-		AppendLittleEndian(Bytes, CurrentMaterialCompilerEnvelopeVersion);
+		AppendLittleEndian(Bytes, Input.Environment.BuilderVersion);
+		AppendLittleEndian(Bytes, Input.Environment.AdapterVersion);
 		AppendString(Bytes, Input.Environment.CompilerIdentity);
 		AppendString(Bytes, Input.Environment.Target);
 		AppendLittleEndian(Bytes, Layout.Identity.Version);

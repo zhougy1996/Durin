@@ -20,8 +20,9 @@ namespace Durin
 	{
 		inline constexpr uint32 CurrentVersion = 7;
 	}
-	inline constexpr uint32 CurrentMaterialGeneratorVersion = 11;
-	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 11;
+	// Opaque producer identity; algorithm changes invalidate builds, not DMAT admission.
+	ENGINE_API auto GetMaterialBuildVersion() -> uint64;
+	ENGINE_API auto GetMaterialCompileAdapterVersion() -> uint32;
 	inline constexpr uint32 CurrentMaterialPassContractVersion = 8;
 	inline constexpr std::array<std::string_view, 7> MaterialCompiledEntryPoints{
 		"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain",
@@ -45,6 +46,8 @@ namespace Durin
 			auto operator<=>(const FStaticBoolValue&) const = default;
 		};
 		std::string CompilerIdentity;
+		uint64 BuilderVersion = GetMaterialBuildVersion();
+		uint32 AdapterVersion = GetMaterialCompileAdapterVersion();
 		std::string Target = "vulkan-spirv-1.5";
 		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
 		EMaterialQualityLevel Quality = EMaterialQualityLevel::High;

@@ -1190,6 +1190,12 @@ TEST(FMaterialProgramNormalizationTests,
 	Durin::MIR::FCompilerInput CompilerChange = BaselineInput;
 	CompilerChange.Environment.CompilerIdentity += ";revision=2";
 	ExpectDifferent(std::move(CompilerChange));
+	Durin::MIR::FCompilerInput BuilderChange = BaselineInput;
+	BuilderChange.Environment.BuilderVersion ^= uint64{1} << 48;
+	ExpectDifferent(std::move(BuilderChange));
+	Durin::MIR::FCompilerInput AdapterChange = BaselineInput;
+	AdapterChange.Environment.AdapterVersion++;
+	ExpectDifferent(std::move(AdapterChange));
 	Durin::MIR::FCompilerInput TargetChange = BaselineInput;
 	TargetChange.Environment.Target = "vulkan-spirv-1.6";
 	ExpectDifferent(std::move(TargetChange));
@@ -1458,6 +1464,25 @@ TEST(FMaterialProgramCompilerTests, CompiledLayoutsAreTypedDeterministicAndDevic
 	EXPECT_FALSE(CompileMaterialLayout(Parameters));
 }
 
+TEST(FMaterialProgramCompilerTests, StaleProducerRequestsRejectBeforeGeneration)
+{
+	const auto Baseline = MakeSyntheticMaterialCompilerInput();
+	ASSERT_NE(Durin::GetMaterialBuildVersion(), uint64{0});
+	for (int Mutation = 0; Mutation < 2; ++Mutation)
+	{
+		auto Input = Baseline;
+		if (Mutation == 0) Input.Environment.BuilderVersion ^= uint64{1} << 48;
+		else Input.Environment.AdapterVersion++;
+		const auto Result = Durin::MIR::Compile(Input);
+		EXPECT_FALSE(Result);
+		EXPECT_TRUE(Result.GeneratedSource.empty());
+		EXPECT_TRUE(Result.CompiledShaders.empty());
+		ASSERT_FALSE(Result.Diagnostics.empty());
+		EXPECT_EQ(Result.Diagnostics.front().Error.Code,
+			Durin::FMaterialError::FCode(Durin::EMaterialIRError::InvalidCompilerEnvironment));
+	}
+}
+
 TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsCompileWithTheirLayouts)
 {
 	using namespace Durin;
@@ -1515,6 +1540,34 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	ASSERT_TRUE((Error = Testing::EncodeMaterialCookedProgramFamilyForTest(*Cooked, CookedProperties,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Reencoded)));
 	EXPECT_EQ(Reencoded, CookedBytes);
+	for (uint32 Word = 2; Word <= 4; ++Word)
+	{
+		for (const uint32 Producer : {0u, 1u, 7u, 11u, 0xffffffffu})
+		{
+			auto Historical = CookedBytes;
+			uint32 WrittenProducer = 1;
+			ASSERT_TRUE(Testing::SetMaterialCookedProgramArtifactWordForTest(
+				Historical, Word, Producer, &WrittenProducer));
+			EXPECT_EQ(WrittenProducer, 0u);
+			ASSERT_TRUE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(Historical,
+				ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled,
+				CookedProperties, Cooked))) << FormatMaterialError(Error.Error);
+			EXPECT_EQ(Cooked->Identity, Compiled.Identity);
+			EXPECT_EQ(Cooked->CompiledShaders.front().Hash, Compiled.CompiledShaders.front().Hash);
+		}
+	}
+	for (const uint32 Word : {1u, 5u})
+	{
+		auto Incompatible = CookedBytes;
+		ASSERT_TRUE(Testing::SetMaterialCookedProgramArtifactWordForTest(Incompatible, Word, 0xffffffffu));
+		EXPECT_FALSE((Error = Testing::DecodeMaterialCookedProgramFamilyForTest(Incompatible,
+			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled,
+			CookedProperties, Cooked)));
+		if (Word == 1)
+			EXPECT_EQ(Error.Error.Code, FMaterialError::FCode(EMaterialCookError::IncompatiblePayloadFormat));
+		else
+			EXPECT_EQ(Error.Error.ArchiveCode, EArchiveFailureCode::UnsupportedVersion);
+	}
 	for (uint32 Mutation = 0; Mutation < 5; ++Mutation)
 	{
 		auto Invalid = Compiled;

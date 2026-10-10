@@ -82,6 +82,12 @@ namespace Durin
 						}
 						if constexpr (std::is_base_of_v<DMaterialInterface, T>)
 						{
+							FByteBuffer MaterialVersion;
+							if (!AssetPrivate::GetCookBuildProviderInput("material", MaterialVersion))
+								return FCookContributionResult{.Error = ECookContributionError::RecipeProvider,
+									.Provider = "material"};
+							Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
+								"recipe/material", {}, std::move(MaterialVersion)});
 							const auto Identity = Request.ShaderBuildIdentity;
 							if (Identity.empty()) return FCookContributionResult{.Error = ECookContributionError::ShaderInputs,
 								.VirtualPath = Request.Package.ToString(), .TargetPlatform = Request.TargetPlatform,

@@ -205,8 +205,8 @@ validation reject nonfinite values before they can reach render publication.
   so a pipeline-only change does not rebuild the shader map.
   `CanonicalizeMaterialShaderProperties` uses cutoff `0.333f` outside Masked,
   normalizes Masked signed zero, and excludes culling/depth from compiler input
-  identity. Authored inactive cutoffs remain unchanged. IR version 4/compiler
-  envelope 9 invalidate old keys; generated cutoff macros, accepted renderer
+  identity. Authored inactive cutoffs remain unchanged. Material's opaque build
+  identity invalidates old algorithm keys; generated cutoff macros, accepted renderer
   shader keys and Cook metadata comparison use the same canonical semantics.
 - Opaque sections disable blending; Masked sections additionally discard the
   saturated OpacityMask constant/texture product only when it is strictly below
@@ -343,7 +343,8 @@ and [Material Graph Canvas](../../Editor/Architecture/MaterialGraphCanvas.md).
 
 The persisted program is authored state, not a render artifact. GameThread can
 snapshot it, parameter declarations, code-affecting static properties, target,
-Shader build identity, and virtual dependency fingerprints into a detached value
+Material build identity, compile adapter version, Shader build identity, and
+virtual dependency fingerprints into a detached value
 request. Normalization starts only from connected Surface inputs,
 removes dead and presentation-only state, canonicalizes
 commutative inputs and numeric bytes, and produces versioned typed IR plus a
@@ -592,11 +593,11 @@ artifacts follow ShaderBuild's cache-miss/repair contract.
 
 Cook requires current successful Win64 Game results and never substitutes
 ErrorMaterial. Authored expression collections and their owned descendants are stripped from cooked packages. One
-DMAT v9 family per material or instance in the
+DMAT v12 family per material or instance in the
 `DMaterialInterface::ProgramData` BulkData field stores six exact configurations:
 Low and High quality crossed with ES3_1, SM5, and SM6, each using that owner's
 effective static-bool values. Each entry retains its configuration, exact
-compiler/target/pass/version envelope, program identity, canonical shader
+compiler provenance, target, runtime pass contract and payload schema, program identity, canonical shader
 properties and separate pipeline metadata, active declaration contract, compiled
 layout, active collection asset paths, schemas, layouts and default fallbacks,
 and complete shader code/reflection set. Equivalent selected programs may share
@@ -609,6 +610,15 @@ separate adapter function/constants/output versions in its existing
 `CompilerIdentity` provenance string, so compiler/algorithm upgrades
 change authored program fingerprints. Cooked DMAT admission does not compare that
 producer with a live editor compiler; compatible old artifacts remain readable.
+Material's own `GetMaterialBuildVersion()` composes private normalization and
+Slang-generation algorithm revisions with the GLM dependency into a nonzero
+opaque 64-bit identity. `GetMaterialCompileAdapterVersion()` independently
+versions request/result adaptation. Both are captured in the compiler environment
+and program digest; execution rejects a stale producer or adapter before generation.
+The MIR version remains a contract for live typed IR, not compiled DMAT admission.
+DMAT v12 preserves its three historical IR/generator/envelope words, writes zero,
+and ignores their values when reading. Payload schema, runtime pass ABI, target,
+layout, bindings, shader hashes and configuration remain admission checks.
 Loading rejects a missing configuration, truncated, corrupt, trailing,
 wrong-target, wrong-profile, wrong-version, invalid-stage, or package/payload
 static-property mismatch before publishing an immutable result. Runtime loading
@@ -635,8 +645,11 @@ Cook checks current owner/dependency state and rejects stale/error results.
 Each instance owns its payload and retains ordinary parent package dependencies;
 children never append data to the root package. Equal payload bytes may repeat
 across packages; this is separate from in-process immutable result sharing.
-Older DMAT outputs require recook; material recipe versions invalidate incremental
-outputs. Cooked runtime never compiles. Existing transient owners can select an
+Incompatible DMAT schemas require recook; algorithm upgrades invalidate incremental
+outputs without rejecting compatible old payloads. Both material and instance Cook
+contributors declare `recipe/material`, containing Material build identity,
+adapter version, MIR schema, DMAT schema and runtime pass ABI, in addition to
+ShaderBuild's production dependency. Cooked runtime never compiles. Existing transient owners can select an
 exact compatible parent program without compiling; this does not provide the
 separate M8 runtime-instance API. Missing/broken parent chains retire live child
 state with a dependency diagnostic and ErrorMaterial.
@@ -921,8 +934,9 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current versions are compiler envelope 10, DMAT 9, IR 6, layout 4, generator 9,
-pass contract 6, and material Cook contributor 5. Time uses `MaterialView`;
+Current compatibility versions are DMAT 12, MIR 7, layout 4, pass contract 8,
+and material Cook contributor 5. The independent compile adapter is version 11;
+normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v10
 default-relative owned-object serialization, with no material-specific serializer
