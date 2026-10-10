@@ -1,6 +1,6 @@
 #include "EngineTestSupport.h"
 #include <gtest/gtest.h>
-#include "Texture/TextureBuilder.h"
+#include "Texture/TextureMipBuilder.h"
 
 // Explicit CPU qualification only; no latency assertions in correctness suites.
 TEST(FTextureCompressionQualificationTests, SerialAndParallelCompression)
@@ -29,11 +29,11 @@ TEST(FTextureCompressionQualificationTests, SerialAndParallelCompression)
 		for (int Order = 0; Order < 2; ++Order)
 		{
 			const int Mode = (Round + Order) % 2;
-			const TextureBuilder::FBuildExecutionOptions Control{
+			const TextureMipBuilder::FBuildExecutionOptions Control{
 				.bParallelCompression = Mode != 0};
-			auto Built = TextureBuilder::BuildMipChain({.SourceMips = std::span(&Source, 1),
+			auto Built = TextureMipBuilder::BuildTextureMips({.SourceMips = std::span(&Source, 1),
 				.Settings = {.Usage = Usage, .bSRGB = false},
-				.PixelFormat = TextureBuilder::SelectPixelFormat(Usage, false, false)}, &Control);
+				.PixelFormat = TextureMipBuilder::SelectPixelFormat(Usage, false, false)}, &Control);
 			ASSERT_TRUE(Built);
 			const auto& Platform = Built->PlatformData;
 			const auto& Metrics = Built->Metrics;

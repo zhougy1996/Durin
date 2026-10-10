@@ -1,7 +1,7 @@
-#include "Texture/TextureBuildOperations.h"
+#include "Texture/Texture2DBuildOperations.h"
 
 #include "Logging/LogMacros.h"
-#include "Texture/TextureBuilder.h"
+#include "Texture/TextureMipBuilder.h"
 
 namespace Durin
 {
@@ -21,11 +21,11 @@ namespace Durin
 
 		if (const auto Validation = ValidateTexture2DSourceMips(Request.SourceMips); !Validation)
 			return Fail(FormatTexture2DInputError(Validation.error()));
-		const bool bHasTransparency = TextureBuilder::AnalyzeTransparency(Request.SourceMips);
+		const bool bHasTransparency = TextureMipBuilder::AnalyzeTransparency(Request.SourceMips);
 		auto Settings = Request.Settings;
 		Settings.bSRGB = ResolveTexture2DSRGB(Settings);
-		auto Built = TextureBuilder::BuildMipChain({.SourceMips = Request.SourceMips, .Settings = Settings,
-			.PixelFormat = TextureBuilder::SelectPixelFormat(Settings.Usage, *Settings.bSRGB, bHasTransparency)});
+		auto Built = TextureMipBuilder::BuildTextureMips({.SourceMips = Request.SourceMips, .Settings = Settings,
+			.PixelFormat = TextureMipBuilder::SelectPixelFormat(Settings.Usage, *Settings.bSRGB, bHasTransparency)});
 		if (!Built) return Fail(Built.error());
 		return std::move(*Built);
 	}

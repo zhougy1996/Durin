@@ -1,9 +1,9 @@
-#include "Texture/TextureBuilder.h"
+#include "Texture/TextureMipBuilder.h"
 
 #include "Math/Color.h"
 #include "Texture/TextureBCEncoder.h"
 
-namespace Durin::TextureBuilder
+namespace Durin::TextureMipBuilder
 {
 	namespace
 	{
@@ -11,12 +11,12 @@ namespace Durin::TextureBuilder
 		{
 			FByteBuffer Pixels;
 			uint32 Width = 0, Height = 0, RowPitch = 0;
-			operator FReadOnlyMip() const
+			operator FReadOnlyMipView() const
 			{ return {Pixels, Width, Height, RowPitch}; }
 		};
 
 		auto BuildNextMip(
-			const FReadOnlyMip& Source,
+			const FReadOnlyMipView& Source,
 			ETextureUsage Usage,
 			bool bSRGB,
 			FMutableMip& OutResult) -> void
@@ -92,7 +92,7 @@ namespace Durin::TextureBuilder
 		}
 
 		auto CalculateAlphaCoverage(
-			const FReadOnlyMip& Mip,
+			const FReadOnlyMipView& Mip,
 			float Threshold,
 			double Scale,
 			double& OutCoverage) -> void
@@ -156,7 +156,7 @@ namespace Durin::TextureBuilder
 			}
 		}
 
-		auto GenerateMipChain(const FBuildMipChainRequest& Request,
+		auto GenerateMipChain(const FBuildTextureMipsRequest& Request,
 			FTexture2DBuildTimings& Metrics)
 			-> std::expected<std::vector<Image::FImage>, std::string>
 		{
@@ -244,7 +244,7 @@ namespace Durin::TextureBuilder
 		return bHasTransparency;
 	}
 
-	auto BuildMipChain(const FBuildMipChainRequest& Request,
+	auto BuildTextureMips(const FBuildTextureMipsRequest& Request,
 		const FBuildExecutionOptions* ExecutionOptions) -> std::expected<FTexture2DBuildOutput, std::string>
 	{
 		using FClock = std::chrono::steady_clock;

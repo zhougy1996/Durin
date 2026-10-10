@@ -6,10 +6,10 @@
 #include "Texture/TextureBuildOutcome.h"
 #include "Texture/VolumeTextureData.h"
 
-namespace Durin::VolumeTextureBuilder
+namespace Durin::VolumeTextureMipGenerator
 {
 	// Deterministically builds a complete three-axis box-filtered mip chain.
-	TEXTURECOMPRESSOR_API auto BuildMipChain(
+	TEXTURECOMPRESSOR_API auto GenerateMipChain(
 		const FVolumeTextureSourceData& SourceData,
 		const FVolumeTextureBuildSettings& Settings,
 		FVolumeTexturePlatformData& OutPlatformData) -> std::expected<void, FTextureBuildError>;

@@ -19,11 +19,11 @@
 #include "Diagnostics/TexturePayloadInspection.h"
 #include "Texture/VolumeTexture.h"
 #include "Texture/VolumeTextureBuild.h"
-#include "Texture/TextureBuilder.h"
-#include "Texture/TextureBuildOperations.h"
+#include "Texture/TextureMipBuilder.h"
+#include "Texture/Texture2DBuildOperations.h"
 #include "Texture/TextureCubeBuildOperations.h"
 #include "Texture/VolumeTextureBuildOperations.h"
-#include "Texture/VolumeTextureBuilder.h"
+#include "Texture/VolumeTextureMipGenerator.h"
 #include "DObject/DefaultDeltaPlan.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "Threading/TaskComposition.h"
@@ -967,10 +967,10 @@ TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)
 	Durin::FVolumeTexturePlatformData First;
 	Durin::FVolumeTexturePlatformData Second;
 	const Durin::FVolumeTextureBuildSettings Settings{};
-	const auto FirstBuild = Durin::VolumeTextureBuilder::BuildMipChain(
+	const auto FirstBuild = Durin::VolumeTextureMipGenerator::GenerateMipChain(
 		Source, Settings, First);
 	ASSERT_TRUE(FirstBuild) << FirstBuild.error().Diagnostic;
-	const auto SecondBuild = Durin::VolumeTextureBuilder::BuildMipChain(
+	const auto SecondBuild = Durin::VolumeTextureMipGenerator::GenerateMipChain(
 		Source, Settings, Second);
 	ASSERT_TRUE(SecondBuild) << SecondBuild.error().Diagnostic;
 	ASSERT_EQ(First.Mips.size(), 2u);
@@ -1003,7 +1003,7 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 		std::byte{128}, std::byte{160}, std::byte{192}, std::byte{255}};
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 	Durin::FVolumeTexturePlatformData Platform;
-	const auto MipBuild = Durin::VolumeTextureBuilder::BuildMipChain(
+	const auto MipBuild = Durin::VolumeTextureMipGenerator::GenerateMipChain(
 		Source, {}, Platform);
 	ASSERT_TRUE(MipBuild) << MipBuild.error().Diagnostic;
 	Durin::FByteBuffer Bytes;
@@ -1278,7 +1278,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 
 	Durin::FVolumeTexturePlatformData Platform;
 	std::string Error;
-	const auto MipBuild = Durin::VolumeTextureBuilder::BuildMipChain(
+	const auto MipBuild = Durin::VolumeTextureMipGenerator::GenerateMipChain(
 		Source, {}, Platform);
 	ASSERT_TRUE(MipBuild) << MipBuild.error().Diagnostic;
 	Durin::FPackagePath AssetPath;
@@ -1448,7 +1448,7 @@ TEST(FVolumeTextureTests, BuildsAllPortableFormatsAcrossDegenerateAxes)
 		Settings.OutputFormat = Formats[Index];
 		Durin::FVolumeTexturePlatformData Platform;
 		std::string Error;
-		const auto MipBuild = Durin::VolumeTextureBuilder::BuildMipChain(
+		const auto MipBuild = Durin::VolumeTextureMipGenerator::GenerateMipChain(
 			Source, Settings, Platform);
 		Error = MipBuild ? std::string{} : MipBuild.error().Diagnostic;
 		ASSERT_TRUE(MipBuild) << Error;
@@ -2146,12 +2146,12 @@ TEST(FTexture2DTests, ParallelCompressionMatchesSerialBytes)
 	{
 		if (Transparent && Usage != ETextureUsage::Color) continue;
 		FTexturePlatformData Serial, Parallel;
-		const TextureBuilder::FBuildExecutionOptions Control{.bParallelCompression = false};
-		const TextureBuilder::FBuildMipChainRequest Request{
+		const TextureMipBuilder::FBuildExecutionOptions Control{.bParallelCompression = false};
+		const TextureMipBuilder::FBuildTextureMipsRequest Request{
 			.SourceMips = std::span(&Source, 1), .Settings = {.Usage = Usage, .CompressionQuality = Quality, .bSRGB = false},
-			.PixelFormat = TextureBuilder::SelectPixelFormat(Usage, false, Transparent)};
-		auto SerialResult = TextureBuilder::BuildMipChain(Request, &Control);
-		auto ParallelResult = TextureBuilder::BuildMipChain(Request);
+			.PixelFormat = TextureMipBuilder::SelectPixelFormat(Usage, false, Transparent)};
+		auto SerialResult = TextureMipBuilder::BuildTextureMips(Request, &Control);
+		auto ParallelResult = TextureMipBuilder::BuildTextureMips(Request);
 		ASSERT_TRUE(SerialResult);
 		ASSERT_TRUE(ParallelResult);
 		Serial = std::move(SerialResult->PlatformData);

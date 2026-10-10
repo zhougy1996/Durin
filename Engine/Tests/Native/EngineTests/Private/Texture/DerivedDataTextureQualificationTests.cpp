@@ -7,7 +7,7 @@
 #include "Texture/TextureCubeBuild.h"
 #include "Texture/VolumeTextureBuild.h"
 #include "Texture/ITextureCompressorModule.h"
-#include "Texture/TextureBuildOperations.h"
+#include "Texture/Texture2DBuildOperations.h"
 #include "Texture/TextureCubeBuildOperations.h"
 #include "Texture/VolumeTextureBuildOperations.h"
 #include "Texture/TextureDerivedData.h"

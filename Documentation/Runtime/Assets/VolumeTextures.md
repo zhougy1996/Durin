@@ -227,7 +227,7 @@ for every exact format and usage combination.
 - `Engine/Source/Runtime/Engine/Public/Texture/VolumeTexture.h`
 - `Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureDerivedData.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureRenderResource.cpp`
-- `Engine/Source/Developer/TextureCompressor/Private/Texture/VolumeTextureBuilder.cpp`
+- `Engine/Source/Developer/TextureCompressor/Private/Texture/VolumeTextureMipGenerator.cpp`
 - `Engine/Source/Editor/AssetForgeBuiltins/Private/VolumeTextureImport.cpp`
 - `Engine/Source/Runtime/RHI/Public/RHIResources.h`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp`

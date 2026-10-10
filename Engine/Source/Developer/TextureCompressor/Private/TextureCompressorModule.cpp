@@ -1,5 +1,5 @@
 #include "Texture/ITextureCompressorModule.h"
-#include "Texture/TextureBuildOperations.h"
+#include "Texture/Texture2DBuildOperations.h"
 #include "Texture/TextureCubeBuildOperations.h"
 #include "Texture/TextureDerivedData.h"
 #include "Texture/VolumeTextureBuildOperations.h"

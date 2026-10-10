@@ -1,7 +1,7 @@
 #include "Texture/VolumeTextureBuildOperations.h"
 
 #include "Logging/LogMacros.h"
-#include "Texture/VolumeTextureBuilder.h"
+#include "Texture/VolumeTextureMipGenerator.h"
 
 namespace Durin
 {
@@ -20,7 +20,7 @@ namespace Durin
 			|| SourceData.Format != Request.Settings.OutputFormat)
 			return Fail("Volume texture build source, settings, or target is incompatible.");
 		FVolumeTexturePlatformData PlatformData;
-		if (auto Result = VolumeTextureBuilder::BuildMipChain(SourceData, Request.Settings, PlatformData); !Result)
+		if (auto Result = VolumeTextureMipGenerator::GenerateMipChain(SourceData, Request.Settings, PlatformData); !Result)
 			return Fail(Result.error().Diagnostic);
 		return PlatformData;
 	}

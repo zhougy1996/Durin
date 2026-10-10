@@ -1,7 +1,7 @@
 #include "Texture/TextureCubeBuildOperations.h"
 
 #include "Logging/LogMacros.h"
-#include "Texture/TextureBuilder.h"
+#include "Texture/TextureMipBuilder.h"
 #include "Texture/TextureCubeBuilder.h"
 
 namespace Durin
@@ -152,11 +152,11 @@ namespace Durin
 			|| !LDR.FaceImages.get().IsValid())
 			return Fail("TextureCube canonical build request is invalid.");
 		const FTextureCubeFaceImages& SourceData = LDR.FaceImages.get();
-		const auto PixelFormat = TextureBuilder::SelectPixelFormat(ETextureUsage::Color, LDR.bSRGB, SourceData.TransparencyMask != 0);
+		const auto PixelFormat = TextureMipBuilder::SelectPixelFormat(ETextureUsage::Color, LDR.bSRGB, SourceData.TransparencyMask != 0);
 		FTextureCubePlatformData PlatformData;
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
-			auto BuildResult = TextureBuilder::BuildMipChain({
+			auto BuildResult = TextureMipBuilder::BuildTextureMips({
 				.SourceMips = std::span(&SourceData.Faces[Index], 1),
 				.Settings = {.bSRGB = LDR.bSRGB},
 				.PixelFormat = PixelFormat});

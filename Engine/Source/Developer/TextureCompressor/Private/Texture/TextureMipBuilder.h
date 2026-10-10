@@ -5,7 +5,7 @@
 #include "TextureCompressorAPI.h"
 #include "Texture/Texture2DBuildTypes.h"
 
-namespace Durin::TextureBuilder
+namespace Durin::TextureMipBuilder
 {
 	// Execution options do not participate in deterministic recipe identity.
 	struct FBuildExecutionOptions
@@ -21,7 +21,7 @@ namespace Durin::TextureBuilder
 
 	// Borrows source storage until all compression tasks drain. Family entrypoints
 	// resolve Settings.bSRGB and choose PixelFormat for the entire texture.
-	struct FBuildMipChainRequest
+	struct FBuildTextureMipsRequest
 	{
 		std::span<const Image::FImage> SourceMips;
 		FTexture2DBuildSettings Settings;
@@ -34,7 +34,7 @@ namespace Durin::TextureBuilder
 	// Requires validated source mips/settings and resolved Settings.bSRGB.
 	// A single source mip generates a complete chain; supplied chains remain intact.
 	// Failure returns no partial product. Errors are reported by the family entrypoint.
-	TEXTURECOMPRESSOR_API auto BuildMipChain(const FBuildMipChainRequest& Request,
-		const FBuildExecutionOptions* Control = nullptr) -> std::expected<FTexture2DBuildOutput, std::string>;
+	TEXTURECOMPRESSOR_API auto BuildTextureMips(const FBuildTextureMipsRequest& Request,
+		const FBuildExecutionOptions* ExecutionOptions = nullptr) -> std::expected<FTexture2DBuildOutput, std::string>;
 
 }

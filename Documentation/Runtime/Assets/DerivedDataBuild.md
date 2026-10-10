@@ -259,6 +259,15 @@ version-2 shared-output schemas use fixed indexed value IDs and Compact Binary
 metadata; package/Cook serialization is unchanged.
 
 TextureCompressor family entrypoints validate recipe values and select output formats.
+Internally, `TextureMipBuilder` generates and compresses the shared 2D/LDR Cube
+mip chain, `TextureCubeBuilder` owns panorama projection and HDR Cube filtering,
+and `VolumeTextureMipGenerator` generates uncompressed three-axis mips. The
+family entrypoint files are `Texture2DBuildOperations`, `TextureCubeBuildOperations`,
+and `VolumeTextureBuildOperations`; `TextureBCEncoder` owns BC block encoding.
+Naming follows the [UE texture compressor interface](https://dev.epicgames.com/documentation/unreal-engine/API/Developer/TextureCompressor/ITextureCompressorModule):
+`BuildTextureMips` includes mip generation and compression, `GenerateMipChain`
+generates uncompressed Volume mips, and `CompressTextureMip` encodes one BC mip.
+Build entrypoints and builder versions retain their recipe/product meaning.
 Texture2D and LDR Cube share a resolved mip request and private BC encoding;
 Cube selects one format for all six faces. A single RGBA8 source mip generates
 the complete chain, while supplied chains remain intact. Shared mip recipes

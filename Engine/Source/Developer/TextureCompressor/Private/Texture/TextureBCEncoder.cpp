@@ -4,13 +4,13 @@
 #include <bc7enc.h>
 #include <rgbcx.h>
 
-namespace Durin::TextureBuilder
+namespace Durin::TextureMipBuilder
 {
 	namespace
 	{
 		constexpr uint32 BlockWidth = 4;
 
-		auto GatherTextureBlock(const FReadOnlyMip& Source, uint32 BlockX, uint32 BlockY,
+		auto GatherTextureBlock(const FReadOnlyMipView& Source, uint32 BlockX, uint32 BlockY,
 			std::array<uint8, BlockWidth * BlockWidth * ChannelCount>& OutPixels) -> void
 		{
 			for (uint32 Y = 0; Y < BlockWidth; ++Y)
@@ -38,7 +38,7 @@ namespace Durin::TextureBuilder
 		}
 	}
 
-	auto CompressTextureMip(const FReadOnlyMip& Source, EPixelFormat Format,
+	auto CompressTextureMip(const FReadOnlyMipView& Source, EPixelFormat Format,
 		ETextureCompressionQuality Quality,
 		FTexture2DMipData& OutMip,
 		const FBuildExecutionOptions* ExecutionOptions) -> std::expected<void, std::string>

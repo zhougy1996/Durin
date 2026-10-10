@@ -1,6 +1,6 @@
-#include "Texture/VolumeTextureBuilder.h"
+#include "Texture/VolumeTextureMipGenerator.h"
 
-namespace Durin::VolumeTextureBuilder
+namespace Durin::VolumeTextureMipGenerator
 {
 	namespace
 	{
@@ -103,7 +103,7 @@ namespace Durin::VolumeTextureBuilder
 		}
 	}
 
-	auto BuildMipChain(const FVolumeTextureSourceData& SourceData,
+	auto GenerateMipChain(const FVolumeTextureSourceData& SourceData,
 		const FVolumeTextureBuildSettings& Settings,
 		FVolumeTexturePlatformData& OutPlatformData) -> std::expected<void, FTextureBuildError>
 	{

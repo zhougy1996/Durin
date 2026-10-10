@@ -15,7 +15,7 @@
 #include "SlangShaderCompiler.h"
 #include "Shader/Shader.h"
 #if DURIN_WITH_EDITOR
-#include "Texture/TextureBuilder.h"
+#include "Texture/TextureMipBuilder.h"
 #endif
 #include "VulkanDynamicRHI.h"
 #include "VulkanDiagnostics.h"
@@ -187,9 +187,9 @@ namespace Durin
 				if (!ImageResult1) return {};
 				auto Source = std::move(*ImageResult1);
 
-				auto BuildResult = TextureBuilder::BuildMipChain({.SourceMips = std::span(&Source, 1),
+				auto BuildResult = TextureMipBuilder::BuildTextureMips({.SourceMips = std::span(&Source, 1),
 					.Settings = {.Usage = Usage, .bSRGB = bSrgb},
-					.PixelFormat = TextureBuilder::SelectPixelFormat(Usage, bSrgb, bHasTransparency)});
+					.PixelFormat = TextureMipBuilder::SelectPixelFormat(Usage, bSrgb, bHasTransparency)});
 				if (!BuildResult)
 				{
 					ADD_FAILURE() << BuildResult.error();
