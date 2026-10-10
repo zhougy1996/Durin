@@ -147,12 +147,14 @@ namespace Durin::StaticMeshPrivate
 				if (!Geometry) return Fail(Geometry.error().Code == EStaticMeshSourceError::Cancelled ? Cancelled().Description : FormatStaticMeshSourceError(Geometry.error()));
 				auto* Module = IMeshBuilderModule::Get();
 				if (!Module) return Fail("The MeshBuilder module is unavailable.");
-				auto Product = Module->BuildRender({.Geometry = std::move(*Geometry), .MaterialSlots = Slots, .NormalizedSize = Size},
-					{.ShouldCancel = ShouldCancel, .MaximumWorkingSetBytes = Context.GetMaximumWorkingSetBytes()});
-				if (!Product) return Fail(Product.error().Code == EStaticMeshRenderBuildError::Cancelled ? Cancelled().Description : FormatStaticMeshRenderBuildError(Product.error()));
-				if (!(*Product) || (*Product)->LODResources.empty() || !(*Product)->LocalBounds.bIsValid)
+				auto Product = std::make_unique<FStaticMeshRenderData>();
+				const bool bBuilt = Module->BuildRender(*Product, {.Geometry = std::move(*Geometry), .MaterialSlots = Slots, .NormalizedSize = Size,
+					.Control = {.ShouldCancel = ShouldCancel, .MaximumWorkingSetBytes = Context.GetMaximumWorkingSetBytes()}});
+				if (ShouldCancel()) return Fail(Cancelled().Description);
+				if (!bBuilt) return Fail("StaticMesh render construction failed; see MeshBuilder logs for details.");
+				if (Product->LODResources.empty() || !Product->LocalBounds.bIsValid)
 					return Fail("StaticMesh builder returned invalid render data.");
-				auto Output = MakeSharedOutput(std::move(*Product), *Count, ShouldCancel);
+				auto Output = MakeSharedOutput(std::move(Product), *Count, ShouldCancel);
 				if (ShouldCancel()) return Fail(Cancelled().Description);
 				if (!Output) return Fail(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());

@@ -20,9 +20,10 @@ namespace Durin
 		ENGINE_API static auto Get() -> IMeshBuilderModule*;
 		// The builder version is immutable for the editor lifetime.
 		virtual auto GetRenderBuilderVersion() const -> uint32 = 0;
-		virtual auto BuildRender(const FStaticMeshRenderBuildRequest& Request,
-			const FAssetBuildTaskContext& Control = {})
-			-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshRenderBuildError> = 0;
+		// Synchronous CPU construction. Failure/cancellation preserves the uninitialized output.
+		// Build failures are logged by the module; cancellation is observed through Parameters.Control.
+		virtual auto BuildRender(FStaticMeshRenderData& OutRenderData,
+			const FStaticMeshBuildParameters& Parameters) -> bool = 0;
 	};
 }
 

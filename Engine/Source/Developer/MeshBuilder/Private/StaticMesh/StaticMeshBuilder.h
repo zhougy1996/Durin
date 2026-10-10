@@ -11,8 +11,7 @@ namespace Durin
 	class FStaticMeshBuilder
 	{
 	public:
-		static auto Build(
-			const FStaticMeshRenderBuildRequest& Request,
-			const FAssetBuildTaskContext& Control = {}) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshRenderBuildError>;
+		static auto Build(FStaticMeshRenderData& OutRenderData,
+			const FStaticMeshBuildParameters& Parameters) -> bool;
 	};
 }

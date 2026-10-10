@@ -13,11 +13,10 @@ namespace Durin
 			return StaticMeshBuilderVersion;
 		}
 
-		auto BuildRender(const FStaticMeshRenderBuildRequest& Request,
-			const FAssetBuildTaskContext& Control)
-			-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshRenderBuildError> override
+		auto BuildRender(FStaticMeshRenderData& OutRenderData,
+			const FStaticMeshBuildParameters& Parameters) -> bool override
 		{
-			return FStaticMeshBuilder::Build(Request, Control);
+			return FStaticMeshBuilder::Build(OutRenderData, Parameters);
 		}
 	};
 

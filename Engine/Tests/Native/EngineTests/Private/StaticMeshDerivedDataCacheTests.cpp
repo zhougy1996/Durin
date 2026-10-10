@@ -760,10 +760,10 @@ TEST(FStaticMeshBuildModuleTests, ReturnsDetachedCPUStreamsAndDiscardsCancelledP
 	std::string Error;
 	auto Module = IMeshBuilderModule::Get();
 	ASSERT_TRUE(Module);
-	const auto Result = Module->BuildRender({.Geometry = Source,
+	FStaticMeshRenderData Product;
+	const auto Result = Module->BuildRender(Product, {.Geometry = Source,
 		.MaterialSlots = std::array{FStaticMeshBuildMaterialSlot{FName("Material"), "Material", 0}}, .NormalizedSize = 2.0f});
 	ASSERT_TRUE(Result);
-	const auto& Product = **Result;
 	Source.reset();
 	ASSERT_EQ(Product.LODResources.size(), 1u);
 	EXPECT_FALSE(Product.LODResources.front().VertexBuffers.PositionVertexBuffer.IsInitialized());
@@ -790,10 +790,34 @@ TEST(FStaticMeshBuildModuleTests, ReturnsDetachedCPUStreamsAndDiscardsCancelledP
 	EXPECT_EQ(LOD.Sections[0].Name, "Fixture");
 	EXPECT_EQ(LOD.Sections[0].LocalBounds.Min, FVector3(-1, -1, 0));
 	EXPECT_EQ(Product.LocalBounds.Max, FVector3(1, 1, 0));
-	const auto Cancelled = Module->BuildRender({}, {.ShouldCancel = [] { return true; }});
+	const auto Cancelled = Module->BuildRender(Product, {.Control = {.ShouldCancel = [] { return true; }}});
 	ASSERT_FALSE(Cancelled);
-	EXPECT_EQ(Cancelled.error().Code, EStaticMeshRenderBuildError::Cancelled);
 	EXPECT_EQ(Product.LODResources.size(), 1u);
+}
+
+TEST(FStaticMeshBuildModuleTests, CancellationDuringConstructionPreservesOutputWithoutErrorLog)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	FCacheLogCapture LogSession;
+	const auto Cursor = FLogger::Get().ReadRecords(0, 1).NewestAvailableSequence + 1;
+	auto Geometry = MakeResidencyGeometry();
+	for (uint32 Index = 0; Index < 1000; ++Index)
+		Geometry.Sections.front().Indices.insert(Geometry.Sections.front().Indices.end(), {0, 1, 2});
+	FStaticMeshRenderData Product;
+	Product.MaterialSlots.push_back({"Previous", 7});
+	uint32 Checks = 0;
+	EXPECT_FALSE(IMeshBuilderModule::Get()->BuildRender(Product, {
+		.Geometry = std::make_shared<const FMeshDescription>(std::move(Geometry)),
+		.MaterialSlots = std::array{FStaticMeshBuildMaterialSlot{FName("Material"), "Material", 0}},
+		.Control = {.ShouldCancel = [&] { return ++Checks == 3; }}}));
+	EXPECT_EQ(Checks, 3u);
+	EXPECT_TRUE(Product.LODResources.empty());
+	ASSERT_EQ(Product.MaterialSlots.size(), 1u);
+	EXPECT_EQ(Product.MaterialSlots.front().Name, "Previous");
+	FLogger::Get().Flush();
+	for (const auto& Record : FLogger::Get().ReadRecords(Cursor).Records)
+		EXPECT_FALSE(Record.Module == "MeshBuilder" && Record.Level == ELogLevel::Error) << Record.Message;
 }
 
 TEST(FStaticMeshSourceResidencyTests, SharesConcurrentReadsAndSurvivesReleaseCopyAndReplacement)
@@ -2188,7 +2212,7 @@ TEST(FStaticMeshReplacementTests, CollisionConfigurationCanPrecedeCpuData)
 	MarkObjectHierarchyAsGarbage(Mesh);
 }
 
-TEST(FStaticMeshRenderBuildTests, RejectionOwnsMeshIndexWithoutProduct)
+TEST(FStaticMeshRenderBuildTests, RejectionLogsMeshIndexAndPreservesOutput)
 {
 	using namespace Durin;
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
@@ -2197,15 +2221,32 @@ TEST(FStaticMeshRenderBuildTests, RejectionOwnsMeshIndexWithoutProduct)
 	Source->Sections[0].Indices[1] = 99;
 	const auto Module = IMeshBuilderModule::Get();
 	ASSERT_TRUE(Module);
-	const auto Result = Module->BuildRender({.Geometry = Source,
+	FCacheLogCapture LogSession;
+	const auto Cursor = FLogger::Get().ReadRecords(0, 1).NewestAvailableSequence + 1;
+	FStaticMeshRenderData Product;
+	ASSERT_TRUE(Module->BuildRender(Product, {.Geometry = std::make_shared<const FMeshDescription>(MakeResidencyGeometry()),
+		.MaterialSlots = std::array{FStaticMeshBuildMaterialSlot{FName("Material"), "Material", 0}}}));
+	const auto* Positions = Product.LODResources.front().VertexBuffers.PositionVertexBuffer.GetPositions().data();
+	const auto Bounds = Product.LocalBounds;
+	const auto Result = Module->BuildRender(Product, {.Geometry = Source,
 		.MaterialSlots = std::array{FStaticMeshBuildMaterialSlot{FName("Material"), "Material", 0}}});
 	EXPECT_FALSE(Result);
 	Source.reset();
-	EXPECT_EQ(Result.error().Code, EStaticMeshRenderBuildError::IndexRange);
-	EXPECT_EQ(Result.error().MeshName, "RejectedMesh");
-	EXPECT_EQ(Result.error().Index, 1u);
-	EXPECT_EQ(Result.error().Actual, 99u);
-	EXPECT_EQ(Result.error().Expected, 3u);
+	ASSERT_EQ(Product.LODResources.size(), 1u);
+	EXPECT_EQ(Product.LODResources.front().VertexBuffers.PositionVertexBuffer.GetPositions().data(), Positions);
+	EXPECT_EQ(Product.LocalBounds.Min, Bounds.Min);
+	EXPECT_EQ(Product.LocalBounds.Max, Bounds.Max);
+	ASSERT_EQ(Product.MaterialSlots.size(), 1u);
+	EXPECT_EQ(Product.MaterialSlots.front().Name, "Material");
+	FLogger::Get().Flush();
+	const auto Records = FLogger::Get().ReadRecords(Cursor).Records;
+	const auto Record = std::ranges::find_if(Records, [](const auto& Value) {
+		return Value.Module == "MeshBuilder" && Value.Level == ELogLevel::Error;
+	});
+	ASSERT_NE(Record, Records.end());
+	EXPECT_TRUE(Record->Message.contains("out-of-range index"));
+	EXPECT_TRUE(Record->Message.contains("RejectedMesh"));
+	EXPECT_TRUE(Record->Message.contains("index 1, actual 99, expected 3"));
 }
 
 TEST(FPhysicsCookTests, InvalidInputCancellationAndBudgetFailWithoutInstallingGeometry)
@@ -2361,16 +2402,15 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 	class FInvalidProductModule final : public IMeshBuilderModule
 	{
 	public:
-		bool bCancel = false;
+		bool bFail = false;
 		auto GetRenderBuilderVersion() const -> uint32 override
 		{
 			return 777;
 		}
-		auto BuildRender(const FStaticMeshRenderBuildRequest&,
-			const FAssetBuildTaskContext&) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshRenderBuildError> override
+		auto BuildRender(FStaticMeshRenderData&,
+			const FStaticMeshBuildParameters&) -> bool override
 		{
-			if (bCancel) return std::unexpected(FStaticMeshRenderBuildError{.Code = EStaticMeshRenderBuildError::Cancelled});
-			return std::make_unique<FStaticMeshRenderData>();
+			return !bFail;
 		}
 	};
 	const FScopedDerivedDataCacheRestore CacheRestore;
@@ -2425,10 +2465,18 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 	const auto Synchronous = Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous, {.Source = Source});
 	ASSERT_FALSE(Synchronous);
 	EXPECT_EQ(Durin::FormatStaticMeshBuildMessages(Synchronous.error()), Authored.error().ToString());
-	Module.bCancel = true;
-	const auto Cancelled = Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous, {.Source = Source});
+	Module.bFail = true;
+	// Use a distinct build key so the session cannot reuse the previous invalid-product completion.
+	const auto Failed = BuildStaticMeshRenderData({.Reconciliation = {
+		.MaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .NormalizedSize = 2.0f},
+		.Source = Source, .bPersistDerivedData = false});
+	ASSERT_FALSE(Failed);
+	EXPECT_FALSE(Failed.error().IsCancelled());
+	EXPECT_NE(Failed.error().ToString().find("see MeshBuilder logs"), std::string::npos) << Failed.error().ToString();
+	const auto Cancelled = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false},
+		{.ShouldCancel = [] { return true; }});
 	ASSERT_FALSE(Cancelled);
-	EXPECT_FALSE(Cancelled.error().empty());
+	EXPECT_TRUE(Cancelled.error().IsCancelled());
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 	EXPECT_FALSE(HasPendingStaticMeshCompilation(*Mesh));
 }
@@ -3249,11 +3297,11 @@ TEST(FStaticMeshBuildModuleTests, GeneratedNormalsRemainSmoothAcrossUVInstances)
 	Section.VertexInstanceVertices = {0, 1, 2, 0, 3, 1};
 	Section.Indices = {0, 1, 2, 3, 4, 5};
 	FStaticMeshAttributes(Description).GetVertexInstanceUVs(0, 0) = {{0, 0}, {1, 0}, {0, 1}, {1, 1}, {0, 1}, {0, 0}};
-	const auto Product = IMeshBuilderModule::Get()->BuildRender({
+	FStaticMeshRenderData Product;
+	ASSERT_TRUE(IMeshBuilderModule::Get()->BuildRender(Product, {
 		.Geometry = std::make_shared<const FMeshDescription>(Description),
-		.MaterialSlots = std::array{FStaticMeshBuildMaterialSlot{FName("Material"), "Material", 0}}});
-	ASSERT_TRUE(Product);
-	const auto Normals = (*Product)->LODResources.front().VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.GetNormals();
+		.MaterialSlots = std::array{FStaticMeshBuildMaterialSlot{FName("Material"), "Material", 0}}}));
+	const auto Normals = Product.LODResources.front().VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.GetNormals();
 	ASSERT_EQ(Normals.size(), 6u);
 	EXPECT_EQ(Normals[0], Normals[3]);
 	EXPECT_EQ(Normals[1], Normals[5]);

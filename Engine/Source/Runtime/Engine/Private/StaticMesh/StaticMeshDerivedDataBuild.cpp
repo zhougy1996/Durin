@@ -10,33 +10,6 @@
 
 namespace Durin
 {
-#if DURIN_WITH_EDITORONLY_DATA
-	auto FormatStaticMeshRenderBuildError(const FStaticMeshRenderBuildError& Error) -> std::string
-	{
-		std::string_view Reason;
-		switch (Error.Code)
-		{
-		case EStaticMeshRenderBuildError::None: return {};
-		case EStaticMeshRenderBuildError::MissingGeometry: Reason = "requires decoded geometry."; break;
-		case EStaticMeshRenderBuildError::VertexLimit: Reason = "exceeds the uint32 vertex limit."; break;
-		case EStaticMeshRenderBuildError::TriangleList: Reason = "index count is not a triangle list."; break;
-		case EStaticMeshRenderBuildError::NonFinitePosition: Reason = "contains a non-finite position."; break;
-		case EStaticMeshRenderBuildError::IndexRange: Reason = "contains an out-of-range index."; break;
-		case EStaticMeshRenderBuildError::WorkingSet: Reason = "predicted working set exceeds its reservation."; break;
-		case EStaticMeshRenderBuildError::DuplicateMaterial: Reason = "has a duplicate imported source material index."; break;
-		case EStaticMeshRenderBuildError::RenderLimits: Reason = "exceeds uint32 render-data limits."; break;
-		case EStaticMeshRenderBuildError::MissingMaterial: Reason = "references a missing source material."; break;
-		case EStaticMeshRenderBuildError::EmptyGeometry: Reason = "source has no renderable geometry."; break;
-		case EStaticMeshRenderBuildError::Bounds: Reason = "source has invalid bounds."; break;
-		case EStaticMeshRenderBuildError::Cancelled: Reason = "build was cancelled."; break;
-		}
-		return std::format("StaticMesh render build: {} (mesh '{}', section '{}', index {}, actual {}, expected {}).",
-			Reason,
-			Error.MeshName, Error.SectionName, Error.Index, Error.Actual, Error.Expected);
-	}
-
-#endif
-
 #if DURIN_WITH_EDITOR
 	namespace
 	{

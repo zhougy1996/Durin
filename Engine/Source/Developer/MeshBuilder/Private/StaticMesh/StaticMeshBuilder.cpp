@@ -7,6 +7,50 @@ namespace Durin
 {
 	namespace
 	{
+		// Detailed construction diagnostics stay inside MeshBuilder and are emitted once on failure.
+		enum class EStaticMeshRenderBuildError : uint8
+		{
+			None, MissingGeometry, VertexLimit, TriangleList, NonFinitePosition, IndexRange,
+			WorkingSet, DuplicateMaterial, RenderLimits, MissingMaterial, EmptyGeometry,
+			Bounds
+		};
+		struct FStaticMeshRenderBuildError
+		{
+			EStaticMeshRenderBuildError Code = EStaticMeshRenderBuildError::None;
+			std::string MeshName;
+			std::string SectionName;
+			uint64 Index = 0;
+			uint64 Actual = 0;
+			uint64 Expected = 0;
+			uint64 VertexCount = 0;
+			uint64 IndexCount = 0;
+			FVector3f Position = FVector3f(0);
+			FBox Bounds;
+		};
+
+		auto FormatStaticMeshRenderBuildError(const FStaticMeshRenderBuildError& Error) -> std::string
+		{
+			std::string_view Reason;
+			switch (Error.Code)
+			{
+			case EStaticMeshRenderBuildError::None: return {};
+			case EStaticMeshRenderBuildError::MissingGeometry: Reason = "requires decoded geometry."; break;
+			case EStaticMeshRenderBuildError::VertexLimit: Reason = "exceeds the uint32 vertex limit."; break;
+			case EStaticMeshRenderBuildError::TriangleList: Reason = "index count is not a triangle list."; break;
+			case EStaticMeshRenderBuildError::NonFinitePosition: Reason = "contains a non-finite position."; break;
+			case EStaticMeshRenderBuildError::IndexRange: Reason = "contains an out-of-range index."; break;
+			case EStaticMeshRenderBuildError::WorkingSet: Reason = "predicted working set exceeds its reservation."; break;
+			case EStaticMeshRenderBuildError::DuplicateMaterial: Reason = "has a duplicate imported source material index."; break;
+			case EStaticMeshRenderBuildError::RenderLimits: Reason = "exceeds uint32 render-data limits."; break;
+			case EStaticMeshRenderBuildError::MissingMaterial: Reason = "references a missing source material."; break;
+			case EStaticMeshRenderBuildError::EmptyGeometry: Reason = "source has no renderable geometry."; break;
+			case EStaticMeshRenderBuildError::Bounds: Reason = "source has invalid bounds."; break;
+			}
+			return std::format("StaticMesh render build: {} (mesh '{}', section '{}', index {}, actual {}, expected {}).",
+				Reason,
+				Error.MeshName, Error.SectionName, Error.Index, Error.Actual, Error.Expected);
+		}
+
 		// Mutable scratch retained only while building the candidate.
 		struct FBuildLOD : FStaticMeshVertexData
 		{
@@ -451,7 +495,7 @@ namespace Durin
 	}
 
 	static auto BuildRenderInternal(
-		const FStaticMeshRenderBuildRequest& Request,
+		const FStaticMeshBuildParameters& Request,
 		FStaticMeshRenderData& OutData,
 		FStaticMeshRenderBuildError& OutError, FBuildControl& Control) -> bool
 	{
@@ -486,22 +530,28 @@ namespace Durin
 		return true;
 	}
 
-	auto FStaticMeshBuilder::Build(const FStaticMeshRenderBuildRequest& Request,
-		const FAssetBuildTaskContext& Execution) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshRenderBuildError>
+	auto FStaticMeshBuilder::Build(FStaticMeshRenderData& OutRenderData,
+		const FStaticMeshBuildParameters& Parameters) -> bool
 	{
-		auto Product = std::make_unique<FStaticMeshRenderData>();
+		check(OutRenderData.GetNumInitializedResources() == 0 && OutRenderData.LODVertexFactories.empty());
+		FStaticMeshRenderData Product;
 		FStaticMeshRenderBuildError Error;
-		FBuildControl Control{Execution};
+		FBuildControl Control{Parameters.Control};
 		try
 		{
-			const bool bSucceeded = BuildRenderInternal(Request, *Product, Error, Control);
+			const bool bSucceeded = BuildRenderInternal(Parameters, Product, Error, Control);
 			Control.Check();
-			if (bSucceeded) return Product;
-			return std::unexpected(std::move(Error));
+			if (!bSucceeded)
+			{
+				DURIN_ERROR("{}", FormatStaticMeshRenderBuildError(Error));
+				return false;
+			}
+			OutRenderData = std::move(Product);
+			return true;
 		}
 		catch (const FBuildCancelled&)
 		{
-			return std::unexpected(FStaticMeshRenderBuildError{.Code = EStaticMeshRenderBuildError::Cancelled});
+			return false;
 		}
 	}
 

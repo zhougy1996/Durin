@@ -192,11 +192,11 @@ TEST(FStaticMeshBuildQualificationTests, TypedStorageTransferAlternatives)
 	const std::array<FStaticMeshBuildMaterialSlot, 1> Slots{{{.Name = FName("Material"), .SourceName = "Material"}}};
 	auto* Module = IMeshBuilderModule::Get();
 	ASSERT_NE(Module, nullptr);
-	auto Product = Module->BuildRender({.Geometry = *Read, .MaterialSlots = Slots});
-	ASSERT_TRUE(Product) << FormatStaticMeshRenderBuildError(Product.error());
+	FStaticMeshRenderData Product;
+	ASSERT_TRUE(Module->BuildRender(Product, {.Geometry = *Read, .MaterialSlots = Slots}));
 	FTransferAccounting MeshAccounting;
 	uint64 MeshFixtureSnapshotBytes = 0;
-	for (auto& LOD : (*Product)->LODResources)
+	for (auto& LOD : Product.LODResources)
 	{
 		// Position resources expose a borrowed span, so report this fixture copy separately.
 		const auto Positions = LOD.VertexBuffers.PositionVertexBuffer.GetPositions();

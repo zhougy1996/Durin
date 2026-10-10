@@ -4,11 +4,11 @@ Summary: Define StaticMesh source ownership, detached builds, payload validation
 
 Modules: Engine
 
-Last reviewed: 2026-10-03
+Last reviewed: 2026-10-10
 
 ## Source ownership and publication
 
-Source, construction, application, payload, key, and derived-build APIs return
+Source, application, payload, key, and derived-build APIs return
 `std::expected<T, E>` directly, with operation-owned failure context and no
 redundant success flag. Commands and conversions retaining caller-owned outputs
 return `std::expected<void, E>` and preserve their documented output behavior.
@@ -69,14 +69,22 @@ Fresh standalone/Scene import initializes source once before Engine DDC lookup.
 Initialization returns `std::expected<void, FStaticMeshSourceError>`, retaining owned validation,
 Archive encoding and Bulk-update errors.
 Rejection preserves the source identity, canonical bytes and existing readers.
-The module-private Developer `FStaticMeshBuilder::Build` receives an owning decoded handle and build settings.
-`IMeshBuilderModule::BuildRender` returns detached render data as
-`std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshRenderBuildError>`.
+The module-private Developer `FStaticMeshBuilder::Build` receives
+`FStaticMeshBuildParameters` with an owning decoded handle, fixed material slots,
+normalization and borrowed cancellation/memory controls.
+`IMeshBuilderModule::BuildRender(FStaticMeshRenderData& OutRenderData,
+const FStaticMeshBuildParameters& Parameters)` synchronously writes detached CPU
+render data and returns `bool`. The output must have no initialized GPU resources
+or vertex factories; failure or cancellation preserves its previous CPU data.
 The builder moves CPU streams into uninitialized vertex/index buffers. Engine
 freezes those allocations into shared DDC outputs without copying; GPU resource
 initialization and material object binding remain with Engine.
-Errors own mesh/section identity, rejected indices/values, budget facts and
-cancellation. Physics cooking is independent of the render build module. Failed or canceled builds return no product. Derived-data orchestration translates construction failures once into a bounded pipeline failure, preserving cancellation.
+MeshBuilder logs construction failures with mesh/section identity, rejected
+indices/values and budget facts. Detailed construction errors remain private to
+the module. Cooperative cancellation checks stop construction without an error
+log. Physics cooking is independent of the render build module. Derived-data
+orchestration checks its latched cancellation state before interpreting `false`
+as a generic construction failure and never publishes canceled output.
 A warm hit
 uses source identity even with unreadable canonical bulk; a miss resolves the
 captured canonical bytes and decodes them inside the registered function.

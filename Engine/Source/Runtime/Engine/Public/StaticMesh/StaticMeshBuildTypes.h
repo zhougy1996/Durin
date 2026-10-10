@@ -5,35 +5,12 @@
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
 
-#include "EngineAPI.h"
 #include "Asset/AssetBuildTaskContext.h"
 #include "StaticMesh/StaticMeshGeometry.h"
 #include "StaticMesh/StaticMeshData.h"
 
 namespace Durin
 {
-	enum class EStaticMeshRenderBuildError : uint8
-	{
-		None, MissingGeometry, VertexLimit, TriangleList, NonFinitePosition, IndexRange,
-		WorkingSet, DuplicateMaterial, RenderLimits, MissingMaterial, EmptyGeometry,
-		Bounds, Cancelled
-	};
-	struct FStaticMeshRenderBuildError
-	{
-		EStaticMeshRenderBuildError Code = EStaticMeshRenderBuildError::None;
-		std::string MeshName;
-		std::string SectionName;
-		uint64 Index = 0;
-		uint64 Actual = 0;
-		uint64 Expected = 0;
-		uint64 VertexCount = 0;
-		uint64 IndexCount = 0;
-		FVector3f Position = FVector3f(0);
-		FBox Bounds;
-	};
-
-	ENGINE_API auto FormatStaticMeshRenderBuildError(const FStaticMeshRenderBuildError& Error) -> std::string;
-
 	// Fixed slot metadata only; material object bindings remain with the operation owner.
 	struct FStaticMeshBuildMaterialSlot
 	{
@@ -42,11 +19,13 @@ namespace Durin
 		uint32 SourceMaterialIndex = 0;
 	};
 
-	struct FStaticMeshRenderBuildRequest
+	// Borrowed settings and controls for one synchronous detached build.
+	struct FStaticMeshBuildParameters
 	{
 		FMeshDescriptionReadHandle Geometry;
 		std::span<const FStaticMeshBuildMaterialSlot> MaterialSlots;
 		float NormalizedSize = 1.5f;
+		FAssetBuildTaskContext Control;
 	};
 
 }
