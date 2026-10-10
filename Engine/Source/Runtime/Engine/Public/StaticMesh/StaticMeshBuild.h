@@ -38,8 +38,6 @@ namespace Durin
 		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
 #endif
 
-	ENGINE_API auto FinalizeStaticMeshRenderData(FStaticMeshRenderData& Render,
-		const FAssetBuildTaskContext& Control = {}) -> std::expected<void, FStaticMeshBuildFailure>;
 #if DURIN_WITH_EDITORONLY_DATA
 	ENGINE_API auto CaptureStaticMeshReconciliation(const DStaticMesh& Mesh)
 		-> FStaticMeshReconciliationSnapshot;

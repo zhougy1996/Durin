@@ -2708,6 +2708,37 @@ TEST(FStaticMeshAuthoredCompilationTests, SynchronousFailureExposesOwnedMessage)
 	EXPECT_FALSE(HasPendingStaticMeshCompilation(*Mesh));
 }
 
+TEST(FStaticMeshReplacementTests, ReplacementRepairsBoundsRestoresSlotsAndRejectsInvalidScreenSize)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("ReplacementPreparation"));
+	FStaticMeshSource Source;
+	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
+	auto Render = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false});
+	ASSERT_TRUE(Render) << Render.error().ToString();
+	(*Render)->LocalBounds = FBox(FVector3(100), FVector3(101));
+	(*Render)->LODResources.front().LocalBounds = (*Render)->LocalBounds;
+	(*Render)->LODResources.front().Sections.front().LocalBounds = (*Render)->LocalBounds;
+	(*Render)->MaterialSlots.front() = {};
+	std::vector<FMeshMaterialSlotDefinition> Slots{{.Name = FName("Authored"), .SourceMaterialIndex = 7}};
+	const auto Replaced = FStaticMeshTestAccess::ReplaceRenderData(Mesh, std::move(*Render), Slots);
+	ASSERT_TRUE(Replaced) << FormatStaticMeshReplacementError(Replaced.error());
+	ASSERT_NE(Mesh->GetRenderData(), nullptr);
+	EXPECT_EQ(Mesh->GetRenderData()->LocalBounds.Min, FVector3(-0.75, -0.75, 0));
+	EXPECT_EQ(Mesh->GetRenderData()->LocalBounds.Max, FVector3(0.75, 0.75, 0));
+	EXPECT_EQ(Mesh->GetRenderData()->MaterialSlots.front().Name, "Authored");
+	EXPECT_EQ(Mesh->GetRenderData()->MaterialSlots.front().SourceMaterialIndex, 7u);
+	Render = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false});
+	ASSERT_TRUE(Render) << Render.error().ToString();
+	(*Render)->LODResources.front().ScreenSize = 0.5f;
+	const auto Rejected = FStaticMeshTestAccess::ReplaceRenderData(Mesh, std::move(*Render), Slots);
+	ASSERT_FALSE(Rejected);
+	EXPECT_EQ(Rejected.error().Code, EStaticMeshReplacementError::Payload);
+	ASSERT_TRUE(Rejected.error().PayloadCause);
+	EXPECT_EQ(Rejected.error().PayloadCause->Code, EStaticMeshPayloadError::FinalScreenSize);
+}
+
 TEST(FStaticMeshReplacementTests, ErrorsOwnRejectedSourceSlotAndUVValues)
 {
 	using namespace Durin;

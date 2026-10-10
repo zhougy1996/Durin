@@ -1,4 +1,5 @@
 #include "StaticMesh/StaticMeshResources.h"
+#include "StaticMeshRenderPreparation.h"
 
 #include "DynamicRHI.h"
 #include "RenderingThread.h"
@@ -575,6 +576,25 @@ namespace Durin
 	auto FStaticMeshRenderData::RecalculateBounds() -> void
 	{
 		RecalculateBounds({});
+	}
+
+	auto StaticMeshPrivate::PrepareRenderRayQueries(FStaticMeshRenderData& Render,
+		const std::function<bool()>& ShouldCancel) -> bool
+	{
+		if (ShouldCancel && ShouldCancel()) return false;
+#if DURIN_WITH_EDITOR
+		bool bCancelled = false;
+		const std::function<bool()> IsCancelled = [&] {
+			bCancelled = bCancelled || (ShouldCancel && ShouldCancel());
+			return bCancelled;
+		};
+		for (auto& LOD : Render.LODResources)
+		{
+			LOD.RayQueryAcceleration = BuildStaticMeshRayQueryAcceleration(LOD, IsCancelled);
+			if (bCancelled) return false;
+		}
+#endif
+		return !ShouldCancel || !ShouldCancel();
 	}
 
 	auto FStaticMeshRenderData::RecalculateBounds(const std::function<bool()>& ShouldCancel) -> bool

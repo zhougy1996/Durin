@@ -1,4 +1,5 @@
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMeshRenderPreparation.h"
 
 #include "Asset/CookedMeshLoadManager.h"
 
@@ -631,7 +632,8 @@ namespace Durin
 		LOD.VertexBuffers.Finalize(
 			LOD.NumTexCoords, LOD.bHasColorVertexData);
 		LOD.Sections.push_back({"Default", 0, 3, 0, 2, 0, {}});
-		if (!FinalizeStaticMeshRenderData(*RenderData)) { MarkAsGarbage(Mesh); return nullptr; }
+		RenderData->RecalculateBounds();
+		StaticMeshPrivate::PrepareRenderRayQueries(*RenderData);
 		if (const auto Published = Mesh->CommitPreparedMeshData(
 			std::move(RenderData), nullptr); !Published)
 		{
@@ -754,13 +756,17 @@ namespace Durin
 				return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::UVChannels,
 					.Actual = LOD.NumTexCoords, .Expected = MaxStaticMeshUVChannels, .Index = Index});
 		}
-		FStaticMeshPayloadData ValidatedPayload;
-		if (const auto Result = MakeStaticMeshPayloadData(*InRenderData, ValidatedPayload); !Result)
+		if (const auto Result = ValidateStaticMeshRenderData(*InRenderData); !Result)
 		{
 			return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::Payload, .PayloadCause = std::make_shared<FStaticMeshPayloadError>(Result.error())});
 		}
-		if (const auto Finalized = FinalizeStaticMeshRenderData(*InRenderData); !Finalized)
-			return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::Publication, .PublicationCause = std::make_shared<FStaticMeshBuildFailure>(Finalized.error())});
+		for (size_t Index = 0; Index < InMaterialSlots.size(); ++Index)
+		{
+			InRenderData->MaterialSlots[Index].Name = InMaterialSlots[Index].Name.ToString();
+			InRenderData->MaterialSlots[Index].SourceMaterialIndex = InMaterialSlots[Index].SourceMaterialIndex;
+		}
+		InRenderData->RecalculateBounds();
+		StaticMeshPrivate::PrepareRenderRayQueries(*InRenderData);
 		if (const auto Published = CommitPreparedMeshData(std::move(InRenderData), &InMaterialSlots); !Published)
 		{
 			return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::Publication, .PublicationCause = std::make_shared<FStaticMeshBuildFailure>(Published.error())});

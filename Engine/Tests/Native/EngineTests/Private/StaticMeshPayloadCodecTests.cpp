@@ -14,7 +14,6 @@
 #include "RenderingThread.h"
 #include "Serialization/Archive.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
-#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshSharedOutput.h"
 
 namespace
@@ -1830,22 +1829,22 @@ TEST(FStaticMeshPayloadCodecTests, PositionBufferReleasesSharedOwnerAndPreserves
 	EXPECT_EQ(Retained.GetNumVertices(), 1u);
 }
 
-TEST(FStaticMeshPayloadCodecTests, FinalizationRepairsBoundsAcrossLODsAndRetainsScreenSizeValidation)
+TEST(FStaticMeshPayloadCodecTests, BoundsRecalculationIncludesAllLODsAndScreenSizeValidationRejectsInvalidPolicy)
 {
 	using namespace Durin;
 	auto Payload = MakeMultiLODFixture(2);
 	for (auto& Position : Payload.LODs.back().Positions) Position += FVector3f(-5, 7, 2);
 	auto Render = MakeRecipeRenderData(std::move(Payload));
 	Render->MaterialSlots = {{.Name = "First"}, {.Name = "Second"}};
-	const auto Finalized = FinalizeStaticMeshRenderData(*Render);
-	ASSERT_TRUE(Finalized) << Finalized.error().ToString();
+	Render->RecalculateBounds();
+	ASSERT_TRUE(ValidateStaticMeshRenderData(*Render));
 	EXPECT_EQ(Render->LODResources.back().LocalBounds.Min, FVector3(-5, 7, 2));
 	EXPECT_EQ(Render->LODResources.back().LocalBounds.Max, FVector3(-4.5, 7.5, 2));
 	EXPECT_EQ(Render->LODResources.back().Sections.front().LocalBounds.Min, FVector3(-5, 7, 2));
 	EXPECT_EQ(Render->LocalBounds.Min, FVector3(-5, -1, 0));
 	EXPECT_EQ(Render->LocalBounds.Max, FVector3(1, 7.5, 2));
 	Render->LODResources.back().ScreenSize = Render->LODResources.front().ScreenSize;
-	EXPECT_FALSE(FinalizeStaticMeshRenderData(*Render));
+	EXPECT_FALSE(ValidateStaticMeshRenderData(*Render));
 }
 
 TEST(FStaticMeshPayloadCodecTests, RenderDataInitializationRemainsValidAfterPositionDiscard)

@@ -50,6 +50,28 @@ namespace Durin
 			return std::move(*Completion);
 		}
 
+		auto CheckRenderPreparationBudget(const FStaticMeshRenderData& Render, const FAssetBuildTaskContext& Control)
+			-> std::expected<void, FStaticMeshBuildFailure>
+		{
+			const auto Fail = [](FStaticMeshBuildFailure Error) { return std::unexpected(std::move(Error)); };
+			const auto BudgetFailure = [&](std::string_view Reason, const FAssetBuildMemoryEstimate& Memory) {
+				return Fail(FStaticMeshBuildFailure{std::format("{} Limit {}, accumulated {}, rejected {} x {} bytes.",
+					Reason, Memory.Limit, Memory.Bytes, Memory.RejectedCount, Memory.RejectedWidth), EStaticMeshBuildStage::Validation});
+			};
+			FAssetBuildMemoryEstimate Memory{Control.MaximumWorkingSetBytes};
+			if (!Memory.Add(1, 1024 * 1024) || !Memory.Add(Render.MaterialSlots.capacity(), 32768)
+				|| !Memory.Add(Render.LODResources.capacity(), sizeof(FStaticMeshLODResources)))
+				return BudgetFailure("StaticMesh render metadata exceeds its reservation.", Memory);
+			for (const auto& LOD : Render.LODResources)
+			{
+				if (!Memory.Add(LOD.VertexBuffers.PositionVertexBuffer.GetPositionCapacity(), 512)
+					|| !Memory.Add(LOD.IndexBuffer.GetIndicesCapacity(), 192)
+					|| !Memory.Add(LOD.Sections.capacity(), sizeof(FStaticMeshSection)))
+					return BudgetFailure("StaticMesh predicted ray preparation working set exceeds its reservation.", Memory);
+			}
+			return {};
+		}
+
 		auto RestoreRuntimeMetadata(
 			std::span<const FStaticMeshBuildMaterialSlot> MaterialSlots,
 			FStaticMeshRenderData& RenderData) -> std::expected<void, std::string>
@@ -148,7 +170,9 @@ namespace Durin
 		if (!Product) return std::unexpected(FStaticMeshBuildFailure{std::move(Product.error()), EStaticMeshBuildStage::Validation});
 		if (auto Metadata = RestoreRuntimeMetadata(Request.Settings.MaterialSlots, **Product); !Metadata)
 			return std::unexpected(FStaticMeshBuildFailure{std::move(Metadata.error()), EStaticMeshBuildStage::Validation});
-		if (auto Valid = StaticMeshPrivate::PrepareValidatedRenderData(**Product, Control); !Valid) return std::unexpected(std::move(Valid.error()));
+		if (auto Budget = CheckRenderPreparationBudget(**Product, Control); !Budget) return std::unexpected(std::move(Budget.error()));
+		if (!StaticMeshPrivate::PrepareRenderRayQueries(**Product, IsCancelled))
+			return std::unexpected(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, "StaticMesh ray build was cancelled."));
 		return std::move(*Product);
 #endif
 	}
