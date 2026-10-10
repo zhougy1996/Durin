@@ -133,6 +133,14 @@ source readers may cache until `ReleaseGeometry`. Neither release nor successful
 publication removes unsaved authoritative bulk bytes. Cooked projection strips
 source, and cooked loading uses neither source acquisition nor a build module.
 
+Worker requests own `FStaticMeshBuildSettings`: material name/source/index values
+and normalization size. `MakeStaticMeshBuildSettings` captures these once from
+owner-side material slots. Publication reconciliation snapshots retain live
+material bindings and source identity separately; neither enters the worker
+settings. The DDC resolver copies already captured slot values without converting
+owner descriptors again. Shared-output construction has one always-validating
+entrypoint; assembly and finalization retain their existing validation boundaries.
+
 ## Payload results and cancellation
 
 Source acquisition returns `std::expected<FMeshDescriptionReadHandle, FStaticMeshSourceError>`, retaining resource-read causes, Archive code/path and owned validation
@@ -208,8 +216,12 @@ reading and written as zero. Algorithm changes therefore invalidate DDC entries
 without rejecting compatible cooked payloads. StaticMesh cook recipe dependencies
 encode the render builder identity, adapter function version, shared-output schema,
 Payload schema, and `PhysicsCookBuilderVersion`.
-The algorithm revision header lives in MeshBuilder/Private/StaticMesh; Engine consumers use only the module identity contract. Render/collision key factories return typed key or byte results,
-with render-key errors owned by the private DDC key interface rather than the public Payload interface. Failures retain rejected targets and codec diagnostics. Failed results contain no key
+The algorithm revision header lives in MeshBuilder/Private/StaticMesh; Engine
+consumers use only the module identity contract. StaticMesh production submits
+definitions through the shared DDC session; standalone render key factories and
+their input/error structures live only in native test support. Collision key
+factories return typed results. Failures retain rejected targets and codec
+diagnostics. Failed results contain no key
 or partial bytes; execution boundaries format explicitly. Private cache codecs return a rejection message to the
 cache boundary, where decode rejection triggers rebuilding. Public payload validators
 retain typed failures for cooked loading and other non-cache callers. Public derived-data builds return

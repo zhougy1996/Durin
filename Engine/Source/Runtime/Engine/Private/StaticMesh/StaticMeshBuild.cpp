@@ -11,6 +11,16 @@
 namespace Durin
 {
 #if DURIN_WITH_EDITORONLY_DATA
+	auto MakeStaticMeshBuildSettings(std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
+		float NormalizedSize) -> FStaticMeshBuildSettings
+	{
+		FStaticMeshBuildSettings Settings{.NormalizedSize = NormalizedSize};
+		Settings.MaterialSlots.reserve(MaterialSlots.size());
+		for (const auto& Slot : MaterialSlots)
+			Settings.MaterialSlots.push_back({Slot.Name, Slot.SourceName, Slot.SourceMaterialIndex});
+		return Settings;
+	}
+
 	auto CaptureStaticMeshReconciliation(const DStaticMesh& Mesh)
 		-> FStaticMeshReconciliationSnapshot
 	{
@@ -137,9 +147,8 @@ namespace Durin
 			return std::unexpected(std::vector<std::string>{"StaticMesh build requires valid canonical source metadata."});
 		CancelStaticMeshCompilation(Mesh);
 		const auto Snapshot = CaptureStaticMeshReconciliation(Mesh);
-		auto Input = Snapshot;
-		if (Request.PreparedMaterialSlots) Input.MaterialSlots = *Request.PreparedMaterialSlots;
-		auto Render = BuildStaticMeshRenderData({.Reconciliation = Input, .Source = Request.Source,
+		const auto& Slots = Request.PreparedMaterialSlots ? *Request.PreparedMaterialSlots : Snapshot.MaterialSlots;
+		auto Render = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(Slots, Snapshot.NormalizedSize), .Source = Request.Source,
 			.bPersistDerivedData = Request.bPersistDerivedData});
 		if (!Render) return std::unexpected(std::vector<std::string>{Render.error().ToString()});
 		DAssetImportData* PreparedImportData = nullptr;

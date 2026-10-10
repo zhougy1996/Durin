@@ -1,3 +1,5 @@
+#include "StaticMesh/StaticMeshDerivedDataKeyTestSupport.h"
+
 #include "Runtime/Engine/Private/Physics/PhysicsCookDerivedDataKey.h"
 #include <gtest/gtest.h>
 
@@ -5,11 +7,13 @@
 #include "Runtime/Engine/Private/StaticMesh/StaticMeshDerivedDataKey.h"
 #include "StaticMesh/StaticMeshResources.h"
 
+using namespace Durin::Testing;
+
 namespace
 {
-	auto MakeKeyInput() -> Durin::FStaticMeshBuildKeyInput
+	auto MakeKeyInput() -> Durin::Testing::FStaticMeshBuildKeyInput
 	{
-		Durin::FStaticMeshBuildKeyInput Input;
+		Durin::Testing::FStaticMeshBuildKeyInput Input;
 		Input.SourceHash = Durin::FXxHash128{
 			0x0123456789abcdefull,
 			0xfedcba9876543210ull};
@@ -34,34 +38,34 @@ namespace
 
 TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic)
 {
-	const Durin::FStaticMeshBuildKeyInput Input = MakeKeyInput();
+	const Durin::Testing::FStaticMeshBuildKeyInput Input = MakeKeyInput();
 	const Durin::FByteBuffer First =
-		Durin::BuildStaticMeshDerivedDataKeyBytes(Input).value();
+		Durin::Testing::BuildStaticMeshDerivedDataKeyBytes(Input).value();
 	ASSERT_FALSE(First.empty());
 	const Durin::FByteBuffer Second =
-		Durin::BuildStaticMeshDerivedDataKeyBytes(Input).value();
+		Durin::Testing::BuildStaticMeshDerivedDataKeyBytes(Input).value();
 
 
 	EXPECT_EQ(First, Second);
-	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input).value().ToString(),
+	EXPECT_EQ(Durin::Testing::BuildStaticMeshDerivedDataKey(Input).value().ToString(),
 		"25cd6eb330cce3d04e44d2d0912d25c8");
 }
 
 TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
 {
-	const Durin::FStaticMeshBuildKeyInput Baseline = MakeKeyInput();
+	const Durin::Testing::FStaticMeshBuildKeyInput Baseline = MakeKeyInput();
 	const Durin::FCacheKeyProxy BaselineKey =
-		Durin::BuildStaticMeshDerivedDataKey(Baseline).value();
+		Durin::Testing::BuildStaticMeshDerivedDataKey(Baseline).value();
 
 	auto ExpectChanged = [&](auto Mutate)
 	{
-		Durin::FStaticMeshBuildKeyInput Changed = Baseline;
+		Durin::Testing::FStaticMeshBuildKeyInput Changed = Baseline;
 		Mutate(Changed);
-		const auto Key = Durin::BuildStaticMeshDerivedDataKey(Changed);
+		const auto Key = Durin::Testing::BuildStaticMeshDerivedDataKey(Changed);
 		if (Changed.TargetPlatform == Durin::EAssetPayloadTargetPlatform::Unknown)
 		{
 			ASSERT_FALSE(Key);
-			EXPECT_EQ(Key.error().Code, Durin::EStaticMeshBuildKeyError::UnsupportedTarget);
+			EXPECT_EQ(Key.error().Code, Durin::Testing::EStaticMeshBuildKeyError::UnsupportedTarget);
 		}
 		else
 		{

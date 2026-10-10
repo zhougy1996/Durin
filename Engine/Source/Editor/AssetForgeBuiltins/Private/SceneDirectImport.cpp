@@ -637,7 +637,7 @@ auto FAssetImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 				                  FormatStaticMeshSourceError(Initialized.error()), Descriptor.StableIdentity);
 				return;
 			}
-			FStaticMeshBuildRequest Request{.Reconciliation = {.MaterialSlots = Output.StaticMeshMaterialSlots},
+			FStaticMeshBuildRequest Request{.Settings = MakeStaticMeshBuildSettings(Output.StaticMeshMaterialSlots),
 				.Source = Output.StaticMeshSource};
 			auto Outcome = BuildStaticMeshRenderData(std::move(Request),
 			    {.ShouldCancel = IsCancellationRequested});

@@ -40,8 +40,8 @@ namespace StaticMeshBuildTestSupport
 		const Durin::FAssetBuildTaskContext& Control = {},
 		FCacheLogCapture* Capture = nullptr)
 	{
-		if (Request.Reconciliation.MaterialSlots.empty() && Request.Source.IsValid())
-			Request.Reconciliation.MaterialSlots = {{.Name = Durin::FName("Material"), .SourceName = "Material", .SourceMaterialIndex = 0}};
+		if (Request.Settings.MaterialSlots.empty() && Request.Source.IsValid())
+			Request.Settings.MaterialSlots = {{.Name = Durin::FName("Material"), .SourceName = "Material", .SourceMaterialIndex = 0}};
 		if (Capture) Capture->Reset();
 		return Durin::BuildStaticMeshRenderData(std::move(Request), Control);
 	}
@@ -254,7 +254,7 @@ namespace StaticMeshBuildTestSupport
 		const auto Snapshot = CaptureStaticMeshReconciliation(*Mesh);
 		auto Input = Snapshot;
 		Input.MaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry());
-		auto Request = FStaticMeshBuildRequest{.Reconciliation = Input, .Source = Source};
+		auto Request = FStaticMeshBuildRequest{.Settings = MakeStaticMeshBuildSettings(Input.MaterialSlots, Input.NormalizedSize), .Source = Source};
 		Request.bPersistDerivedData = false;
 		FAssetBuildTaskMetrics Metrics;
 		const auto Start = std::chrono::steady_clock::now();
@@ -288,7 +288,7 @@ namespace StaticMeshBuildTestSupport
 		for (const uint64 StopAfter : {Metrics.CancellationCheckpoints / 4,
 			Metrics.CancellationCheckpoints / 2, Metrics.CancellationCheckpoints * 3 / 4})
 		{
-			auto CancelRequest = FStaticMeshBuildRequest{.Reconciliation = Input, .Source = Source};
+			auto CancelRequest = FStaticMeshBuildRequest{.Settings = MakeStaticMeshBuildSettings(Input.MaterialSlots, Input.NormalizedSize), .Source = Source};
 			CancelRequest.bPersistDerivedData = false;
 			uint64 Checks = 0;
 			bool bRequested = false;

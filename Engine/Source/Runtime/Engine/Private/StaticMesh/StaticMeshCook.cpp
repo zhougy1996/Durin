@@ -111,7 +111,7 @@ namespace Durin
 #if DURIN_WITH_EDITORONLY_DATA
 			if (GetSource().IsValid())
 			{
-				FStaticMeshBuildRequest Request{.Reconciliation = CaptureStaticMeshReconciliation(*this), .Source = GetSource()};
+				FStaticMeshBuildRequest Request{.Settings = MakeStaticMeshBuildSettings(GetMaterialSlots(), GetNormalizedSize()), .Source = GetSource()};
 				Request.bPersistDerivedData = false;
 				auto Built = BuildStaticMeshRenderData(std::move(Request));
 				if (!Built)

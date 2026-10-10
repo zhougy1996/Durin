@@ -24,10 +24,13 @@ namespace Durin
 	// Detached Engine request; cache policy is not forwarded to build code.
 	struct FStaticMeshBuildRequest
 	{
-		FStaticMeshReconciliationSnapshot Reconciliation;
+		FStaticMeshBuildSettings Settings;
 		FStaticMeshSource Source;
 		bool bPersistDerivedData = true;
 	};
+
+	ENGINE_API auto MakeStaticMeshBuildSettings(std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
+		float NormalizedSize = 1.5f) -> FStaticMeshBuildSettings;
 
 	// Worker-safe execution using the resident MeshBuilder module.
 	ENGINE_API auto BuildStaticMeshRenderData(FStaticMeshBuildRequest Request,

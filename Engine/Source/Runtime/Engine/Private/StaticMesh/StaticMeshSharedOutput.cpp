@@ -158,8 +158,8 @@ namespace Durin::StaticMeshPrivate
 	try { auto Layout = ReadLayout(Output, ShouldCancel); if (!Layout) return std::unexpected(std::move(Layout.error())); return {}; }
 	catch (const AssetPrivate::FPayloadBuildCancelled&) { return std::unexpected("StaticMesh output validation was cancelled."); }
 
-	auto MakeSharedOutputImpl(std::unique_ptr<FStaticMeshRenderData> Product, uint32 MaterialSlotCount,
-		const std::function<bool()>& ShouldCancel, bool bValidate) -> std::expected<FBuildOutput, std::string>
+	auto MakeSharedOutput(std::unique_ptr<FStaticMeshRenderData> Product, uint32 MaterialSlotCount,
+		const std::function<bool()>& ShouldCancel) -> std::expected<FBuildOutput, std::string>
 	{
 		if (!Product || !IsValidBounds(Product->LocalBounds) || Product->LODResources.empty() || Product->LODResources.size() > MaximumStaticMeshLODs)
 			return std::unexpected("StaticMesh output LOD count is invalid.");
@@ -206,13 +206,9 @@ namespace Durin::StaticMeshPrivate
 		auto Meta = MakeBuildMetadata(FSharedByteBuffer::Take(Metadata.TakeBytes()));
 		if (!Meta || !Output.AddMeta(FValueId::FromName("Metadata"), std::move(*Meta))) return std::unexpected("StaticMesh metadata is invalid.");
 		auto Built = std::move(Output).Build(); if (!Built) return Built;
-		if (bValidate)
-			if (auto Valid = ValidateSharedOutput(*Built, ShouldCancel); !Valid) return std::unexpected(std::move(Valid.error()));
+		if (auto Valid = ValidateSharedOutput(*Built, ShouldCancel); !Valid) return std::unexpected(std::move(Valid.error()));
 		return Built;
 	}
-	auto MakeSharedOutput(std::unique_ptr<FStaticMeshRenderData> Product, uint32 MaterialSlotCount,
-		const std::function<bool()>& ShouldCancel) -> std::expected<FBuildOutput, std::string>
-	{ return MakeSharedOutputImpl(std::move(Product), MaterialSlotCount, ShouldCancel, true); }
 
 	auto AssembleSharedOutput(const FBuildOutput& Output, const std::function<bool()>& ShouldCancel)
 		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string>

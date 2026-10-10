@@ -19,6 +19,13 @@ namespace Durin
 		uint32 SourceMaterialIndex = 0;
 	};
 
+	// Owned worker settings contain no material object bindings or publication identity.
+	struct FStaticMeshBuildSettings
+	{
+		std::vector<FStaticMeshBuildMaterialSlot> MaterialSlots;
+		float NormalizedSize = 1.5f;
+	};
+
 	// Borrowed settings and controls for one synchronous detached build.
 	struct FStaticMeshBuildParameters
 	{

@@ -3,9 +3,7 @@
 #if DURIN_WITH_EDITOR
 
 #include "DerivedDataBuildDefinition.h"
-#include "StaticMesh/StaticMeshSource.h"
 
-#include "Serialization/Archive.h"
 #include "Hash/CanonicalHash.h"
 
 namespace Durin
@@ -47,35 +45,6 @@ namespace Durin
 			DerivedData::FCacheBucket::FromString("StaticMesh")};
 	}
 
-	auto MakeStaticMeshBuildAction(const FStaticMeshBuildKeyInput& Input)
-		-> std::expected<DerivedData::FBuildAction, FStaticMeshBuildKeyError>
-	{
-		using namespace DerivedData;
-		if (Input.TargetPlatform != EAssetPayloadTargetPlatform::Win64)
-			return std::unexpected(FStaticMeshBuildKeyError{.Code = EStaticMeshBuildKeyError::UnsupportedTarget, .TargetPlatform = Input.TargetPlatform});
-		auto Request = MakeStaticMeshSessionDefinition(Input.MaterialSlotCount, Input.BuilderVersion);
-		if (!Request) return std::unexpected(FStaticMeshBuildKeyError{.Code = EStaticMeshBuildKeyError::Archive,
-			.TargetPlatform = Input.TargetPlatform, .ArchiveCode = EArchiveFailureCode::InvalidData});
-		FBuildActionBuilder Builder(*Request, GetStaticMeshBuildDescriptor(Input.FunctionVersion, Input.OutputSchemaVersion));
-		Builder.AddInput({"Source", Input.SourceHash, "StaticMeshSource", StaticMeshSourceGeometryIdentityVersion, "StaticMesh.AuthoredGeometry", 1})
-			.AddInput({"Reconciliation", Input.ReconciliationHash, "StaticMeshReconciliation", 1, "StaticMesh.MaterialSlots", 1});
-		auto Definition = std::move(Builder).Build();
-		if (!Definition) return std::unexpected(FStaticMeshBuildKeyError{.Code = EStaticMeshBuildKeyError::Archive,
-			.TargetPlatform = Input.TargetPlatform, .ArchiveCode = EArchiveFailureCode::InvalidData});
-		return std::move(*Definition);
-	}
 
-	auto BuildStaticMeshDerivedDataKeyBytes(const FStaticMeshBuildKeyInput& Input) -> std::expected<FByteBuffer, FStaticMeshBuildKeyError>
-	{
-		auto Definition = MakeStaticMeshBuildAction(Input);
-		if (!Definition) return std::unexpected(Definition.error());
-		return FByteBuffer(Definition->GetCanonicalBytes().begin(), Definition->GetCanonicalBytes().end());
-	}
-	auto BuildStaticMeshDerivedDataKey(const FStaticMeshBuildKeyInput& Input) -> std::expected<FCacheKeyProxy, FStaticMeshBuildKeyError>
-	{
-		auto Definition = MakeStaticMeshBuildAction(Input);
-		if (!Definition) return std::unexpected(Definition.error());
-		return FCacheKeyProxy(Definition->GetKey());
-	}
 }
 #endif

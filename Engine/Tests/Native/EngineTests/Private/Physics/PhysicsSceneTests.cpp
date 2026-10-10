@@ -1300,7 +1300,7 @@ TEST(FPhysicsWorldTests, QualifiedBoxUsesGeometryNotificationsAndRenderPublicati
 	ASSERT_TRUE(Component->GetPhysicsActorHandle().IsValid());
 	const auto Generation = Component->GetPhysicsRegistrationGeneration();
 	const auto BodyRevision = Mesh->GetBodySetup()->GetRevision();
-	auto Render = BuildStaticMeshRenderData({.Reconciliation = CaptureStaticMeshReconciliation(*Mesh), .Source = Mesh->GetSource()});
+	auto Render = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(Mesh->GetMaterialSlots(), Mesh->GetNormalizedSize()), .Source = Mesh->GetSource()});
 	ASSERT_TRUE(Render);
 	ASSERT_TRUE(PublishStaticMeshRenderData(*Mesh, std::move(*Render)));
 	EXPECT_EQ(Component->GetPhysicsRegistrationGeneration(), Generation);

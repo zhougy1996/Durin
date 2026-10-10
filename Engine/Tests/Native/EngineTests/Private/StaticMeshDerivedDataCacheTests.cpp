@@ -1,3 +1,5 @@
+#include "StaticMesh/StaticMeshDerivedDataKeyTestSupport.h"
+
 #include "StaticMesh/StaticMeshAttributes.h"
 #include "Math/Operations.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
@@ -57,6 +59,8 @@
 
 using namespace StaticMeshBuildTestSupport;
 
+using namespace Durin::Testing;
+
 namespace
 {
 	inline auto GetCollisionKey(const Durin::FStaticMeshRenderData& Render,
@@ -97,7 +101,7 @@ namespace
 
 	auto GetStaticMeshKey(const Durin::DStaticMesh& Mesh) -> std::string
 	{
-		const Durin::FCacheKeyProxy Key = Durin::BuildStaticMeshDerivedDataKey({
+		const Durin::FCacheKeyProxy Key = Durin::Testing::BuildStaticMeshDerivedDataKey({
 			.SourceHash = Mesh.GetSource().GetIdentity(),
 			.ReconciliationHash = Durin::BuildStaticMeshReconciliationHash(
 				Mesh.GetMaterialSlots(), Mesh.GetNormalizedSize()),
@@ -246,7 +250,7 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	ASSERT_NE(Fixture.Mesh, nullptr);
 	const std::string BaselineKey = GetStaticMeshKey(*Fixture.Mesh);
 	FStaticMeshBuildRequest Request{
-		.Reconciliation = CaptureStaticMeshReconciliation(*Fixture.Mesh),
+		.Settings = MakeStaticMeshBuildSettings(Fixture.Mesh->GetMaterialSlots(), Fixture.Mesh->GetNormalizedSize()),
 		.Source = Fixture.Mesh->GetSource()};
 	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Product;
 	FCacheLogCapture RenderCacheLog;
@@ -264,7 +268,7 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	EXPECT_TRUE(Request.Source.IsValid());
 	EXPECT_TRUE(HasCacheError(RenderCacheLog, "read"));
 	EXPECT_TRUE(Error.empty());
-	Request.Reconciliation.MaterialSlots.clear();
+	Request.Settings.MaterialSlots.clear();
 	EXPECT_FALSE(BuildStaticMeshRenderData(Request));
 
 	std::expected<FPhysicsCookResult, FPhysicsCookFailure> ColdCollision;
@@ -319,7 +323,7 @@ TEST(FStaticMeshDerivedDataCacheTests, InvalidDetachedReplacementInvalidatesLive
 	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Result;
 	std::string Error;
 	ASSERT_TRUE((Result = BuildRenderForTest({
-		.Reconciliation = CaptureStaticMeshReconciliation(*Fixture.Mesh),
+		.Settings = MakeStaticMeshBuildSettings(Fixture.Mesh->GetMaterialSlots(), Fixture.Mesh->GetNormalizedSize()),
 		.Source = Fixture.Mesh->GetSource()}))) << Error;
 	ASSERT_FALSE((*Result)->LODResources.empty());
 	(*Result)->LODResources.front().IndexBuffer.GetMutableIndices().front() =
@@ -1019,7 +1023,7 @@ TEST(FStaticMeshSourceResidencyTests, WarmCacheSkipsUnreadableBulkAndMissReturns
 	const auto Fixture = ImportCacheFixture("StaticMeshUnreadableResidency");
 	ASSERT_NE(Fixture.Mesh, nullptr);
 	EXPECT_FALSE(Fixture.Mesh->GetSource().IsGeometryResident());
-	FStaticMeshBuildRequest Request{.Reconciliation = CaptureStaticMeshReconciliation(*Fixture.Mesh),
+	FStaticMeshBuildRequest Request{.Settings = MakeStaticMeshBuildSettings(Fixture.Mesh->GetMaterialSlots(), Fixture.Mesh->GetNormalizedSize()),
 		.Source = Fixture.Mesh->GetSource()};
 	const auto Resource = AttachResidencyProbe(Request.Source, true);
 	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Product;
@@ -1251,7 +1255,7 @@ TEST(FStaticMeshAuthoredCompilationTests, PreparedRenderPublishesWithoutRebuildi
 	Mesh->GetBodySetup()->FinishPhysicsMeshes();
 	const auto PhysicsRevision = Mesh->GetBodySetup()->GetRevision();
 	const auto Snapshot = CaptureStaticMeshReconciliation(*Mesh);
-	auto Built = BuildStaticMeshRenderData({.Reconciliation = Snapshot, .Source = Mesh->GetSource()});
+	auto Built = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(Snapshot.MaterialSlots, Snapshot.NormalizedSize), .Source = Mesh->GetSource()});
 	ASSERT_TRUE(Built) << Built.error().ToString();
 	auto Candidate = std::move(*Built);
 	const auto Ray = Candidate->LODResources.front().RayQueryAcceleration;
@@ -1278,7 +1282,7 @@ TEST(FStaticMeshAuthoredCompilationTests, CancelledAndStaleRenderPreservesLiveSt
 	for (const uint32 Scenario : {0u, 1u})
 	{
 		const auto Snapshot = CaptureStaticMeshReconciliation(*Mesh);
-		auto Built = BuildStaticMeshRenderData({.Reconciliation = Snapshot, .Source = Mesh->GetSource()});
+		auto Built = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(Snapshot.MaterialSlots, Snapshot.NormalizedSize), .Source = Mesh->GetSource()});
 		ASSERT_TRUE(Built) << Built.error().ToString();
 		auto Candidate = std::move(*Built);
 		if (Scenario == 1) ASSERT_TRUE(Mesh->RenameMaterialSlot(0, FName("Changed")));
@@ -1455,7 +1459,7 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationDiscardsPayloadAndFinaliza
 
 	FStaticMeshBuildRequest CachedRequest;
 	CachedRequest.Source = Source;
-	CachedRequest.Reconciliation.MaterialSlots = FStaticMeshTestAccess::MakeSlots(Source);
+	CachedRequest.Settings = MakeStaticMeshBuildSettings(FStaticMeshTestAccess::MakeSlots(Source));
 	Checks = 0;
 	const auto& CancelledRender = (Render = BuildRenderForTest(CachedRequest,
 		{.ShouldCancel = [&] { return ++Checks == 8; }}));
@@ -2231,7 +2235,7 @@ TEST(FStaticMeshReplacementTests, FailureDropsDerivedDataAndValidSourceCanBeRebu
 
 	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Product;
 	ASSERT_TRUE((Product = BuildRenderForTest({
-		.Reconciliation = CaptureStaticMeshReconciliation(*Mesh),
+		.Settings = MakeStaticMeshBuildSettings(Mesh->GetMaterialSlots(), Mesh->GetNormalizedSize()),
 		.Source = Source}))) << Error;
 	Durin::FStaticMeshTestAccess::ReplaceSourceRenderData(Mesh, Source, std::move((*Product)),
 		CaptureStaticMeshReconciliation(*Mesh).MaterialSlots, Mesh->GetNormalizedSize());
@@ -2399,22 +2403,22 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 	const FScopedDerivedDataCacheRestore CacheRestore;
 	FStaticMeshCacheFixture Fixture = ImportCacheFixture("StaticMeshTypedCacheRejection");
 	ASSERT_NE(Fixture.Mesh, nullptr);
-	FStaticMeshBuildRequest Request{.Reconciliation = CaptureStaticMeshReconciliation(*Fixture.Mesh),
+	FStaticMeshBuildRequest Request{.Settings = MakeStaticMeshBuildSettings(Fixture.Mesh->GetMaterialSlots(), Fixture.Mesh->GetNormalizedSize()),
 		.Source = Fixture.Mesh->GetSource()};
 	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Render;
 	FCacheLogCapture RenderCacheLog;
 	std::string Error;
 	ASSERT_TRUE((Render = BuildRenderForTest(Request, {}, &RenderCacheLog)));
 	ASSERT_TRUE(std::filesystem::remove(GetObjectPath(Fixture, BuildStaticMeshDerivedDataKey({.SourceHash = Request.Source.GetIdentity(),
-		.ReconciliationHash = BuildStaticMeshReconciliationHash(Request.Reconciliation.MaterialSlots, Request.Reconciliation.NormalizedSize),
+		.ReconciliationHash = BuildStaticMeshReconciliationHash(Request.Settings.MaterialSlots, Request.Settings.NormalizedSize),
 		.BuilderVersion = IMeshBuilderModule::Get()->GetBuildVersion(),
-		.MaterialSlotCount = uint32(Request.Reconciliation.MaterialSlots.size()),
+		.MaterialSlotCount = uint32(Request.Settings.MaterialSlots.size()),
 		.TargetPlatform = EAssetPayloadTargetPlatform::Win64}).value().ToString())));
 	const std::array<std::byte, 4> Invalid{};
 	const auto SeedKey = BuildStaticMeshDerivedDataKey({.SourceHash = Request.Source.GetIdentity(),
-		.ReconciliationHash = BuildStaticMeshReconciliationHash(Request.Reconciliation.MaterialSlots, Request.Reconciliation.NormalizedSize),
+		.ReconciliationHash = BuildStaticMeshReconciliationHash(Request.Settings.MaterialSlots, Request.Settings.NormalizedSize),
 		.BuilderVersion = IMeshBuilderModule::Get()->GetBuildVersion(),
-		.MaterialSlotCount = uint32(Request.Reconciliation.MaterialSlots.size()),
+		.MaterialSlotCount = uint32(Request.Settings.MaterialSlots.size()),
 		.TargetPlatform = EAssetPayloadTargetPlatform::Win64}).value();
 	ASSERT_TRUE(DerivedData::GetCacheStorage().Put({*SeedKey.AsCacheKey(), Invalid, MaximumStaticMeshPayloadBytes}));
 	ASSERT_TRUE((Render = BuildRenderForTest(Request, {}, &RenderCacheLog))) << Error;
@@ -2494,7 +2498,7 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 	EXPECT_EQ(Outcome.error().GetStage(), EStaticMeshBuildStage::Render);
 	EXPECT_FALSE(Outcome.error().ToString().empty());
 	EXPECT_FALSE(Product);
-	const auto Authored = BuildStaticMeshRenderData({.Reconciliation = {.MaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())},
+	const auto Authored = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())),
 		.Source = Source, .bPersistDerivedData = false});
 	ASSERT_FALSE(Authored);
 	EXPECT_EQ(Authored.error().GetStage(), EStaticMeshBuildStage::Render);
@@ -2519,8 +2523,7 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 	EXPECT_EQ(Durin::FormatStaticMeshBuildMessages(Synchronous.error()), Authored.error().ToString());
 	Module.bFail = true;
 	// Use a distinct build key so the session cannot reuse the previous invalid-product completion.
-	const auto Failed = BuildStaticMeshRenderData({.Reconciliation = {
-		.MaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .NormalizedSize = 2.0f},
+	const auto Failed = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), 2.0f),
 		.Source = Source, .bPersistDerivedData = false});
 	ASSERT_FALSE(Failed);
 	EXPECT_FALSE(Failed.error().IsCancelled());
@@ -2569,9 +2572,9 @@ TEST(FStaticMeshAuthoredCompilationTests, BuildErrorsOwnInputAndRejectedReservat
 	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
 	FStaticMeshBuildRequest Request{.Source = Source};
-	Request.Reconciliation.NormalizedSize = std::numeric_limits<float>::quiet_NaN();
+	Request.Settings.NormalizedSize = std::numeric_limits<float>::quiet_NaN();
 	const auto Invalid = BuildStaticMeshRenderData(Request);
-	Request.Reconciliation.NormalizedSize = 1.5f;
+	Request.Settings.NormalizedSize = 1.5f;
 	ASSERT_FALSE(Invalid);
 	EXPECT_EQ(Invalid.error().GetStage(), EStaticMeshBuildStage::Source);
 	EXPECT_NE(Invalid.error().ToString().find("normalization is invalid"), std::string::npos);
@@ -3444,9 +3447,9 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildFunctionRejectsMismatchedBuilderIden
 	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
 	FStaticMeshBuildRequest Request{
-		.Reconciliation = {.MaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())},
+		.Settings = MakeStaticMeshBuildSettings(FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())),
 		.Source = Source};
-	auto Definition = MakeStaticMeshSessionDefinition(uint32(Request.Reconciliation.MaterialSlots.size()), Version ^ 1ull);
+	auto Definition = MakeStaticMeshSessionDefinition(uint32(Request.Settings.MaterialSlots.size()), Version ^ 1ull);
 	ASSERT_TRUE(Definition);
 	auto Service = CreateBuild();
 	ASSERT_TRUE(Service->Register(StaticMeshPrivate::MakeRenderBuildFunction()));
@@ -3463,4 +3466,18 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildFunctionRejectsMismatchedBuilderIden
 	const auto Messages = Result->GetOutput()->GetMessages();
 	ASSERT_EQ(Messages.size(), 1u);
 	EXPECT_NE(Messages.front().Text.find("identity does not match"), std::string::npos);
+}
+
+TEST(FStaticMeshDerivedDataCacheTests, WorkerSettingsCaptureOwnedValuesAndPreserveIdentity)
+{
+	using namespace Durin;
+	auto Slots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry());
+	const auto Expected = BuildStaticMeshReconciliationHash(Slots, 2.0f);
+	const auto Settings = MakeStaticMeshBuildSettings(Slots, 2.0f);
+	Slots.front().Name = FName("ChangedOwnerSlot");
+	Slots.front().SourceName = "ChangedOwnerSource";
+	Slots.front().SourceMaterialIndex = 99;
+	EXPECT_EQ(Settings.NormalizedSize, 2.0f);
+	EXPECT_EQ(BuildStaticMeshReconciliationHash(Settings.MaterialSlots, Settings.NormalizedSize), Expected);
+	EXPECT_NE(BuildStaticMeshReconciliationHash(Slots, Settings.NormalizedSize), Expected);
 }

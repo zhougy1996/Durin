@@ -221,12 +221,10 @@ namespace Durin
 				Record->Completion = std::move(Completion);
 				Record->PreparePublication = std::move(Request.PreparePublication);
 				Record->Work = std::make_shared<FWork>();
-				auto Input = Snapshot;
 				Record->PreparedMaterialSlots = std::move(Request.PreparedMaterialSlots);
-				if (Record->PreparedMaterialSlots) Input.MaterialSlots = *Record->PreparedMaterialSlots;
-				// Workers retain only value metadata; material object bindings stay in Snapshot.
-				for (auto& Slot : Input.MaterialSlots) Slot.DefaultMaterial = nullptr;
-				Record->Work->Render().Request = {.Reconciliation = std::move(Input), .Source = std::move(Request.Source)};
+				const auto& Slots = Record->PreparedMaterialSlots ? *Record->PreparedMaterialSlots : Snapshot.MaterialSlots;
+				Record->Work->Render().Request = {.Settings = MakeStaticMeshBuildSettings(Slots, Snapshot.NormalizedSize),
+					.Source = std::move(Request.Source)};
 				Record->Work->Render().Request.Source.ReleaseGeometry();
 				Record->Work->ReservedBytes = Bytes;
 				Record->Work->Render().Request.bPersistDerivedData = Request.bPersistDerivedData;

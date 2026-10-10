@@ -40,10 +40,8 @@ namespace Durin::StaticMeshPrivate
 			explicit FRenderResolver(const FStaticMeshBuildRequest& Request)
 				: Geometry(Request.Source.GetGeometryBulk()), SourceHash(Request.Source.GetIdentity()),
 				SlotCount(Request.Source.GetMaterialSlotCount()), MeshCount(Request.Source.GetMeshCount()),
-				NormalizedSize(Request.Reconciliation.NormalizedSize)
+				NormalizedSize(Request.Settings.NormalizedSize), Slots(Request.Settings.MaterialSlots)
 			{
-				for (const auto& Slot : Request.Reconciliation.MaterialSlots)
-					Slots.push_back({Slot.Name, Slot.SourceName, Slot.SourceMaterialIndex});
 				ReconciliationHash = BuildStaticMeshReconciliationHash(Slots, NormalizedSize);
 			}
 			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation&) const
