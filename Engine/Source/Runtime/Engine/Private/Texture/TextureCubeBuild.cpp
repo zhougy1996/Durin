@@ -36,14 +36,13 @@ namespace Durin
 			return std::unexpected(std::move(Normalized.error()));
 		}
 		auto CanonicalInput = std::move(*Normalized);
-		const bool bHDR = CanonicalInput.Output == ETextureCubeOutput::HDR;
-		if ((!bHDR && !CanonicalInput.FaceImages.IsValid())
-			|| (CanonicalInput.Output != ETextureCubeOutput::LDR && !bHDR)
-			|| (bHDR && (!CanonicalInput.AuthoredPanorama.IsValid() || CanonicalInput.bSRGB
-				|| CanonicalInput.AuthoredPanorama.GetInfo().Format != Image::ERawImageFormat::RGBA32F
-				|| CanonicalInput.SourceLayout != ETextureCubeSourceLayout::EquirectangularPanorama))
-			|| (CanonicalInput.SourceLayout != ETextureCubeSourceLayout::SixFaces
-				&& CanonicalInput.SourceLayout != ETextureCubeSourceLayout::EquirectangularPanorama)
+		const bool bHDR = CanonicalInput.GetOutput() == ETextureCubeOutput::HDR;
+		const auto* LDR = std::get_if<FTextureCubeLDRCanonicalInput>(&CanonicalInput.Pixels);
+		if ((LDR && !LDR->FaceImages.IsValid())
+			|| (bHDR && (!CanonicalInput.GetAuthoredPanorama().IsValid()
+				|| CanonicalInput.GetAuthoredPanorama().GetInfo().Format != Image::ERawImageFormat::RGBA32F))
+			|| (CanonicalInput.GetSourceLayout() != ETextureCubeSourceLayout::SixFaces
+				&& CanonicalInput.GetSourceLayout() != ETextureCubeSourceLayout::EquirectangularPanorama)
 			|| !std::isfinite(CanonicalInput.PanoramaExposureEV)
 			|| CanonicalInput.PanoramaExposureEV < MinimumTextureCubePanoramaExposureEV
 			|| CanonicalInput.PanoramaExposureEV > MaximumTextureCubePanoramaExposureEV
@@ -52,11 +51,11 @@ namespace Durin
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Normalize, "TextureCube normalization returned invalid canonical input."});
 		}
 		auto Source = bHDR
-			? PrepareTextureCubePanoramaSource(CanonicalInput.AuthoredPanorama.GetView(), 4, 0)
-			: PrepareTextureCubeSource(CanonicalInput.FaceImages);
+			? PrepareTextureCubePanoramaSource(CanonicalInput.GetAuthoredPanorama().GetView(), 4, 0)
+			: PrepareTextureCubeSource(LDR->FaceImages);
 		if (!Source) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput,
 			ETextureBuildStage::Normalize, Source.error()});
-		auto Product = TexturePrivate::BuildTextureCubeSource(*Source, CanonicalInput.bSRGB,
+		auto Product = TexturePrivate::BuildTextureCubeSource(*Source, CanonicalInput.GetSRGB(),
 			CanonicalInput.PanoramaFaceDimension, CanonicalInput.PanoramaExposureEV,
 			Request.TargetPlatform, Request.TargetProfile, Request.bPersistDerivedData, &CanonicalInput);
 		if (!Product) return std::unexpected(std::move(Product.error()));
@@ -98,22 +97,23 @@ namespace Durin
 #else
 			require(Product != nullptr);
 			// The build boundary has already validated these value contracts.
-			check(CanonicalInput.FaceImages.IsValid() || CanonicalInput.Output == ETextureCubeOutput::HDR);
+			const auto* LDR = std::get_if<FTextureCubeLDRCanonicalInput>(&CanonicalInput.Pixels);
+			check(!LDR || LDR->FaceImages.IsValid());
 			check(Product->IsValid());
 			auto PlatformData = std::move(Product);
 			if (!Context.bPreserveSource)
 			{
-				auto Source = CanonicalInput.AuthoredPanorama.IsValid()
-					? PrepareTextureCubePanoramaSource(CanonicalInput.AuthoredPanorama.GetView(),
-						Image::GetRawImageFormatInfo(CanonicalInput.AuthoredPanorama.GetInfo().Format).ChannelCount, 0)
-					: PrepareTextureCubeSource(CanonicalInput.FaceImages);
+				auto Source = CanonicalInput.GetAuthoredPanorama().IsValid()
+					? PrepareTextureCubePanoramaSource(CanonicalInput.GetAuthoredPanorama().GetView(),
+						Image::GetRawImageFormatInfo(CanonicalInput.GetAuthoredPanorama().GetInfo().Format).ChannelCount, 0)
+					: PrepareTextureCubeSource(LDR->FaceImages);
 				if (!Source) return std::unexpected(FTextureBuildError{ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply,
 					Source.error()});
 				Texture.SetSource(std::move(*Source));
 			}
-			Texture.SetBuildSettings(CanonicalInput.SourceLayout, CanonicalInput.PanoramaFaceDimension,
+			Texture.SetBuildSettings(CanonicalInput.GetSourceLayout(), CanonicalInput.PanoramaFaceDimension,
 				CanonicalInput.PanoramaExposureEV, CanonicalInput.OriginalSourceWidth,
-				CanonicalInput.OriginalSourceHeight, CanonicalInput.bSRGB, CanonicalInput.Output);
+				CanonicalInput.OriginalSourceHeight, CanonicalInput.GetSRGB(), CanonicalInput.GetOutput());
 			Texture.SetPlatformData(std::move(PlatformData));
 			Texture.UpdateResource();
 			if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();

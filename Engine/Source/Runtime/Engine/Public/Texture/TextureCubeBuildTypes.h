@@ -72,29 +72,66 @@ namespace Durin
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 	};
 
-	// Engine-owned canonical authoring state produced while normalizing panorama input.
-	struct FTextureCubeCanonicalBuildInput
+	// LDR processing retains six faces and optionally the original panorama for saving.
+	struct FTextureCubeLDRCanonicalInput
 	{
 		FTextureCubeFaceImages FaceImages;
 		Image::FImage AuthoredPanorama;
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
+		bool bSRGB = true;
+	};
+
+	// HDR processing retains a linear float panorama instead of RGBA8 scratch faces.
+	struct FTextureCubeHDRCanonicalInput
+	{
+		Image::FImage AuthoredPanorama;
+	};
+
+	// Engine-owned canonical pixels and authoring metadata; output mode follows the
+	// pixel alternative, so HDR cannot carry LDR faces or an sRGB flag.
+	struct FTextureCubeCanonicalBuildInput
+	{
+		std::variant<FTextureCubeLDRCanonicalInput, FTextureCubeHDRCanonicalInput> Pixels;
 		uint32 OriginalSourceWidth = 0;
 		uint32 OriginalSourceHeight = 0;
 		uint32 PanoramaFaceDimension = 0;
 		float PanoramaExposureEV = 0.0f;
+
+		auto GetOutput() const -> ETextureCubeOutput
+		{ return std::holds_alternative<FTextureCubeHDRCanonicalInput>(Pixels) ? ETextureCubeOutput::HDR : ETextureCubeOutput::LDR; }
+		auto GetSourceLayout() const -> ETextureCubeSourceLayout
+		{
+			const auto* LDR = std::get_if<FTextureCubeLDRCanonicalInput>(&Pixels);
+			return LDR ? LDR->SourceLayout : ETextureCubeSourceLayout::EquirectangularPanorama;
+		}
+		auto GetSRGB() const -> bool
+		{
+			const auto* LDR = std::get_if<FTextureCubeLDRCanonicalInput>(&Pixels);
+			return LDR && LDR->bSRGB;
+		}
+		auto GetAuthoredPanorama() const -> const Image::FImage&
+		{ return std::visit([](const auto& Input) -> const Image::FImage& { return Input.AuthoredPanorama; }, Pixels); }
+	};
+
+	// Recipe alternatives borrow immutable pixels for one synchronous invocation.
+	struct FTextureCubeLDRBuildInput
+	{
+		std::reference_wrapper<const FTextureCubeFaceImages> FaceImages;
 		bool bSRGB = true;
-		ETextureCubeOutput Output = ETextureCubeOutput::LDR;
+	};
+
+	struct FTextureCubeHDRBuildInput
+	{
+		std::reference_wrapper<const Image::FImage> Panorama;
+		uint32 FaceDimension = 0;
+		float ExposureEV = 0.0f;
 	};
 
 	struct FTextureCubeBuildInput
 	{
-		std::reference_wrapper<const FTextureCubeFaceImages> FaceImages;
-		bool bSRGB = true;
+		std::variant<FTextureCubeLDRBuildInput, FTextureCubeHDRBuildInput> Pixels;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
-		// Borrowed only for this synchronous invocation; HDR bypasses RGBA8 scratch faces.
-		const Image::FImage* HDRPanorama = nullptr;
-		FTextureCubePanoramaBuildSettings PanoramaSettings;
 	};
 
 }

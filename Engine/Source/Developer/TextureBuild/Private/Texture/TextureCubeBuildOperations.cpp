@@ -36,13 +36,12 @@ namespace Durin
 				|| Faces->OriginalSourceWidth == 0 || Faces->OriginalSourceHeight == 0)
 				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
 					ETextureBuildStage::Normalize, "TextureCube source layout, dimensions, or exposure are invalid."});
-			CanonicalInput = {.FaceImages = Faces->FaceImages,
-				.SourceLayout = Faces->SourceLayout,
+			CanonicalInput = {.Pixels = FTextureCubeLDRCanonicalInput{.FaceImages = Faces->FaceImages,
+					.SourceLayout = Faces->SourceLayout, .bSRGB = Faces->Settings.bSRGB},
 				.OriginalSourceWidth = Faces->OriginalSourceWidth,
 				.OriginalSourceHeight = Faces->OriginalSourceHeight,
 				.PanoramaFaceDimension = Faces->PanoramaFaceDimension,
-				.PanoramaExposureEV = Faces->PanoramaExposureEV,
-				.bSRGB = Faces->Settings.bSRGB};
+				.PanoramaExposureEV = Faces->PanoramaExposureEV};
 			return CanonicalInput;
 		}
 
@@ -112,58 +111,61 @@ namespace Durin
 					ImageResult1.error().ToString()});
 			}
 			auto AuthoredPanorama = std::move(*ImageResult1);
-			CanonicalInput = {.FaceImages = std::move(SourceData),
-				.AuthoredPanorama = std::move(AuthoredPanorama),
-				.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama,
-				.OriginalSourceWidth = Image.Width,
-				.OriginalSourceHeight = Image.Height,
-				.PanoramaFaceDimension = Panorama.Settings.FaceDimension,
-				.PanoramaExposureEV = Panorama.Settings.ExposureEV,
-				.bSRGB = !bHDR, .Output = Panorama.Settings.Output};
+			if (bHDR)
+				CanonicalInput.Pixels = FTextureCubeHDRCanonicalInput{.AuthoredPanorama = std::move(AuthoredPanorama)};
+			else
+				CanonicalInput.Pixels = FTextureCubeLDRCanonicalInput{.FaceImages = std::move(SourceData),
+					.AuthoredPanorama = std::move(AuthoredPanorama),
+					.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama, .bSRGB = true};
+			CanonicalInput.OriginalSourceWidth = Image.Width;
+			CanonicalInput.OriginalSourceHeight = Image.Height;
+			CanonicalInput.PanoramaFaceDimension = Panorama.Settings.FaceDimension;
+			CanonicalInput.PanoramaExposureEV = Panorama.Settings.ExposureEV;
 			return std::move(CanonicalInput);
 		}, Panorama.Image);
 	}
 
 	auto BuildTextureCube(const FTextureCubeBuildInput& Request) -> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError>
 	{
-		if (Request.HDRPanorama != nullptr)
+		if (const auto* HDR = std::get_if<FTextureCubeHDRBuildInput>(&Request.Pixels))
 		{
 			if ((Request.TargetPlatform != ECookTargetPlatform::Win64
 					&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
-				|| Request.TargetProfile != ECookTargetProfile::Game || Request.bSRGB)
+				|| Request.TargetProfile != ECookTargetProfile::Game)
 			{
 				return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
 					"HDR cube build target or color space is invalid."});
 			}
 			auto PlatformData = std::make_unique<FTextureCubePlatformData>();
-			if (auto Result = TextureCubeBuilder::BuildHDRTextureCube(*Request.HDRPanorama,
-				Request.PanoramaSettings, *PlatformData); !Result) return std::unexpected(std::move(Result.error()));
+			if (auto Result = TextureCubeBuilder::BuildHDRTextureCube(HDR->Panorama.get(),
+				{.FaceDimension = HDR->FaceDimension, .ExposureEV = HDR->ExposureEV, .Output = ETextureCubeOutput::HDR}, *PlatformData); !Result) return std::unexpected(std::move(Result.error()));
 			return PlatformData;
 		}
+		const auto& LDR = std::get<FTextureCubeLDRBuildInput>(Request.Pixels);
 		if ((Request.TargetPlatform != ECookTargetPlatform::Win64
 				&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
 			|| Request.TargetProfile != ECookTargetProfile::Game
-			|| !Request.FaceImages.get().IsValid())
+			|| !LDR.FaceImages.get().IsValid())
 		{
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
 				"TextureCube canonical build request is invalid."});
 		}
-		const FTextureCubeFaceImages& SourceData = Request.FaceImages.get();
-		const bool bHasTransparency = SourceData.TransparencyMask != 0;
+		const FTextureCubeFaceImages& SourceData = LDR.FaceImages.get();
+		const auto PixelFormat = TextureBuilder::SelectPixelFormat(ETextureUsage::Color, LDR.bSRGB, SourceData.TransparencyMask != 0);
 		auto PlatformData = std::make_unique<FTextureCubePlatformData>();
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
-			const std::expected<void, FTexture2DBuildError> BuildResult = TextureBuilder::BuildMipChain(
-				std::span(&SourceData.Faces[Index], 1), ETextureUsage::Color,
-				Request.bSRGB, PlatformData->Faces[Index], 0,
-				ETextureCompressionQuality::Normal, ETextureAlphaMipMode::Average,
-				0.5f, nullptr, bHasTransparency);
+			auto BuildResult = TextureBuilder::BuildMipChain({
+				.SourceMips = std::span(&SourceData.Faces[Index], 1),
+				.Settings = {.bSRGB = LDR.bSRGB},
+				.PixelFormat = PixelFormat});
 			if (!BuildResult)
 			{
 				return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
 					std::format("{} face platform build failed: {}",
 					FaceNames[Index], Durin::FormatTexture2DBuildError(BuildResult.error()))});
 			}
+			PlatformData->Faces[Index] = std::move(BuildResult->PlatformData);
 		}
 		PlatformData->PixelFormat = PlatformData->Faces[0].PixelFormat;
 		if (!PlatformData->IsValid())

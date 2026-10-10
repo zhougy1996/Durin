@@ -8,7 +8,6 @@ namespace Durin
 		const FTexture2DBuildInput& Request,
 		const FTexture2DBuildControl* ExecutionControl) -> std::expected<FTexture2DBuildOutput, FTexture2DBuildError>
 	{
-		FTexture2DBuildOutput Product;
 		if (const auto Validation = ValidateTexture2DBuildSettings(Request.Settings); !Validation)
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
 		if ((Request.TargetPlatform != ECookTargetPlatform::Win64
@@ -18,22 +17,15 @@ namespace Durin
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::UnsupportedTarget});
 		}
 
-		TextureBuilder::FBuildMipChainMetrics BuildMetrics;
+		if (const auto Validation = ValidateTexture2DSourceMips(Request.SourceMips); !Validation)
+			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
 		const TextureBuilder::FBuildExecutionControl Control{
-			.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel
-				: std::function<bool()>{},
-			.Metrics = &BuildMetrics};
-		const std::expected<void, FTexture2DBuildError> BuildResult = TextureBuilder::BuildMipChain(
-			Request.SourceMips, Request.Settings.Usage,
-			ResolveTexture2DSRGB(Request.Settings), Product.PlatformData,
-			Request.Settings.MaxResolution, Request.Settings.CompressionQuality,
-			Request.Settings.AlphaMipMode, Request.Settings.AlphaCoverageThreshold,
-			&Control);
-		if (!BuildResult) return std::unexpected(BuildResult.error());
-		Product.Metrics = {
-			.MipGenerationNanoseconds = BuildMetrics.MipGenerationNanoseconds,
-			.CompressionNanoseconds = BuildMetrics.CompressionNanoseconds,
-			.PeakIntermediateBytes = BuildMetrics.PeakIntermediateBytes};
-		return Product;
+			.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel : std::function<bool()>{}};
+		const auto Transparency = TextureBuilder::AnalyzeTransparency(Request.SourceMips, &Control);
+		if (!Transparency) return std::unexpected(Transparency.error());
+		auto Settings = Request.Settings;
+		Settings.bSRGB = ResolveTexture2DSRGB(Settings);
+		return TextureBuilder::BuildMipChain({.SourceMips = Request.SourceMips, .Settings = Settings,
+			.PixelFormat = TextureBuilder::SelectPixelFormat(Settings.Usage, *Settings.bSRGB, *Transparency)}, &Control);
 	}
 }

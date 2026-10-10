@@ -1,180 +1,25 @@
 #include "Texture/TextureBuilder.h"
 
 #include "Math/Color.h"
-#include "Threading/Task.h"
-
-#include <bc7enc.h>
-#include <rgbcx.h>
+#include "Texture/TextureBCEncoder.h"
 
 namespace Durin::TextureBuilder
 {
 	namespace
 	{
-		constexpr uint32 BlockWidth = 4;
-
 		struct FMutableMip
 		{
 			FByteBuffer Pixels;
 			uint32 Width = 0, Height = 0, RowPitch = 0;
+			operator FReadOnlyMip() const
+			{ return {Pixels, Width, Height, RowPitch}; }
 		};
 
-		// Borrowed only within synchronous build helpers. The mip-chain FImages
-		// retain shared immutable storage until all compression tasks have drained.
-		struct FReadOnlyMip
-		{
-			FByteView Pixels;
-			uint32 Width, Height, RowPitch;
-			FReadOnlyMip(const Image::FImage& Image)
-				: Pixels(Image.GetPixels()), Width(Image.GetInfo().Width),
-				Height(Image.GetInfo().Height), RowPitch(Width * ChannelCount) {}
-			FReadOnlyMip(const FMutableMip& Mip)
-				: Pixels(Mip.Pixels), Width(Mip.Width), Height(Mip.Height), RowPitch(Mip.RowPitch) {}
-		};
 
 		auto IsCancellationRequested(const FBuildExecutionControl* ExecutionControl) -> bool
 		{
 			return ExecutionControl && ExecutionControl->ShouldCancel
 				&& ExecutionControl->ShouldCancel();
-		}
-		auto GatherTextureBlock(const FReadOnlyMip& Source, uint32 BlockX, uint32 BlockY,
-			std::array<uint8, BlockWidth * BlockWidth * ChannelCount>& OutPixels) -> void
-		{
-			for (uint32 Y = 0; Y < BlockWidth; ++Y)
-			{
-				const uint32 SourceY = std::min(BlockY * BlockWidth + Y, Source.Height - 1);
-				for (uint32 X = 0; X < BlockWidth; ++X)
-				{
-					const uint32 SourceX = std::min(BlockX * BlockWidth + X, Source.Width - 1);
-					const size_t SourceOffset = static_cast<size_t>(SourceY) * Source.RowPitch + SourceX * ChannelCount;
-					const size_t DestOffset = (Y * BlockWidth + X) * ChannelCount;
-					std::memcpy(OutPixels.data() + DestOffset, Source.Pixels.data() + SourceOffset, ChannelCount);
-				}
-			}
-		}
-
-		auto GetCompressionLevel(ETextureCompressionQuality Quality) -> uint32
-		{
-			switch (Quality)
-			{
-			case ETextureCompressionQuality::Low: return 4;
-			case ETextureCompressionQuality::Normal: return 10;
-			case ETextureCompressionQuality::High: return 18;
-			default: return 10;
-			}
-		}
-
-		auto CompressTextureMip(const FReadOnlyMip& Source, EPixelFormat Format,
-			ETextureCompressionQuality Quality,
-			FTexture2DMipData& OutMip,
-			const FBuildExecutionControl* ExecutionControl) -> std::expected<void, FTexture2DBuildError>
-		{
-			const FPixelFormatLayout Layout = GetPixelFormatLayout(Format, Source.Width, Source.Height);
-			if (Layout.DataSize == 0 || Layout.RowPitch > std::numeric_limits<uint32>::max()
-				|| Layout.DataSize > std::numeric_limits<size_t>::max())
-			{
-				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::CompressedLayoutOverflow});
-			}
-
-			if (Format != EPixelFormat::BC1_UNORM && Format != EPixelFormat::BC1_UNORM_SRGB
-				&& Format != EPixelFormat::BC3_UNORM && Format != EPixelFormat::BC3_UNORM_SRGB
-				&& Format != EPixelFormat::BC5_UNORM && Format != EPixelFormat::BC7_UNORM
-				&& Format != EPixelFormat::BC7_UNORM_SRGB)
-				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::UnsupportedPixelFormat});
-
-			static std::once_flag EncoderInitFlag;
-			std::call_once(EncoderInitFlag, [] {
-				rgbcx::init(rgbcx::bc1_approx_mode::cBC1Ideal);
-				bc7enc_compress_block_init();
-			});
-
-			OutMip.Width = Source.Width;
-			OutMip.Height = Source.Height;
-			OutMip.RowPitch = static_cast<uint32>(Layout.RowPitch);
-			FByteBuffer Pixels(static_cast<size_t>(Layout.DataSize));
-
-			bc7enc_compress_block_params BC7Params;
-			bc7enc_compress_block_params_init(&BC7Params);
-			if (!GetPixelFormatInfo(Format).bIsSRGB)
-				bc7enc_compress_block_params_init_linear_weights(&BC7Params);
-			switch (Quality)
-			{
-			case ETextureCompressionQuality::Low:
-				BC7Params.m_max_partitions = 16;
-				BC7Params.m_try_least_squares = false;
-				break;
-			case ETextureCompressionQuality::Normal:
-				break;
-			case ETextureCompressionQuality::High:
-				BC7Params.m_uber_level = 2;
-				break;
-			default:
-				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput,
-					.InputCause = FTexture2DInputError{.Code = ETexture2DInputError::InvalidCompressionQuality,
-						.Settings = {.CompressionQuality = Quality}}});
-			}
-			const uint32 CompressionLevel = GetCompressionLevel(Quality);
-			const uint32 AlphaSearchRadius = Quality == ETextureCompressionQuality::Low ? 1
-				: Quality == ETextureCompressionQuality::High ? 5 : rgbcx::BC4_DEFAULT_SEARCH_RAD;
-
-			// Rows write disjoint output ranges. Keep cancellation callbacks serialized:
-			// callers are not required to provide a concurrently callable predicate.
-			std::mutex CancellationMutex;
-			bool bCancelled = false;
-			auto ShouldCancel = [&] {
-				std::lock_guard Lock(CancellationMutex);
-				bCancelled = bCancelled || IsCancellationRequested(ExecutionControl);
-				return bCancelled;
-			};
-			const bool bParallel = !ExecutionControl || ExecutionControl->bParallelCompression;
-			// A 4096-block batching threshold, no more than eight chunks per mip.
-			const uint64 RowsPerChunk = std::max<uint64>(
-				(4096ull + Layout.BlocksWide - 1) / Layout.BlocksWide,
-				(Layout.BlocksHigh + 7ull) / 8);
-			const auto Compression = ParallelFor("Texture.CompressRows", Layout.BlocksHigh,
-				[&](uint64 Row) {
-				const uint32 BlockY = static_cast<uint32>(Row);
-				if (ShouldCancel()) return;
-				std::array<uint8, BlockWidth * BlockWidth * ChannelCount> BlockPixels{};
-				for (uint32 BlockX = 0; BlockX < Layout.BlocksWide; ++BlockX)
-				{
-					if (BlockX != 0 && BlockX % CancellationBlockInterval == 0
-						&& ShouldCancel())
-					{
-						return;
-					}
-					GatherTextureBlock(Source, BlockX, BlockY, BlockPixels);
-					uint8* DestBlock = reinterpret_cast<uint8*>(Pixels.data())
-						+ static_cast<size_t>(BlockY) * OutMip.RowPitch
-						+ static_cast<size_t>(BlockX) * GetPixelFormatInfo(Format).BytesPerBlock;
-					switch (Format)
-					{
-					case EPixelFormat::BC1_UNORM:
-					case EPixelFormat::BC1_UNORM_SRGB:
-						// Four-color mode keeps opaque textures opaque when sampled.
-						rgbcx::encode_bc1(CompressionLevel, DestBlock, BlockPixels.data(), false, false);
-						break;
-					case EPixelFormat::BC3_UNORM:
-					case EPixelFormat::BC3_UNORM_SRGB:
-						rgbcx::encode_bc3_hq(CompressionLevel, DestBlock, BlockPixels.data(), AlphaSearchRadius);
-						break;
-					case EPixelFormat::BC5_UNORM:
-						rgbcx::encode_bc5_hq(DestBlock, BlockPixels.data(), 0, 1, 4, AlphaSearchRadius);
-						break;
-					case EPixelFormat::BC7_UNORM:
-					case EPixelFormat::BC7_UNORM_SRGB:
-						bc7enc_compress_block(DestBlock, BlockPixels.data(), &BC7Params);
-						break;
-					default:
-						break; // Format was validated before task admission.
-					}
-				}
-			}, {.MinBatchSize = bParallel ? RowsPerChunk : std::numeric_limits<uint64>::max()});
-			if (bCancelled)
-				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-			if (Compression.State != ETaskState::Succeeded)
-				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::CompressionTaskFailed, .TaskState = Compression.State});
-			OutMip.Pixels = FSharedByteBuffer::Take(std::move(Pixels));
-			return {};
 		}
 
 		auto BuildNextMip(
@@ -333,6 +178,79 @@ namespace Durin::TextureBuilder
 			}
 			return true;
 		}
+
+		auto GenerateMipChain(const FBuildMipChainRequest& Request,
+			FTexture2DBuildTimings& Metrics, const FBuildExecutionControl* ExecutionControl)
+			-> std::expected<std::vector<Image::FImage>, FTexture2DBuildError>
+		{
+			using FClock = std::chrono::steady_clock;
+			const auto SourceMips = Request.SourceMips;
+			const auto& Settings = Request.Settings;
+			const auto Usage = Settings.Usage;
+			const bool bSRGB = *Settings.bSRGB;
+			const auto AlphaMipMode = Settings.AlphaMipMode;
+			const auto AlphaCoverageThreshold = Settings.AlphaCoverageThreshold;
+			const bool bHasTransparency = Request.PixelFormat == EPixelFormat::BC3_UNORM
+				|| Request.PixelFormat == EPixelFormat::BC3_UNORM_SRGB;
+			// FImage copies share the source allocation; no writable source copy is needed.
+			std::vector<Image::FImage> UncompressedMips(SourceMips.begin(), SourceMips.end());
+			const Image::FImage& BaseMip = UncompressedMips.front();
+			const bool bPreserveAlphaCoverage = Usage == ETextureUsage::Color
+				&& bHasTransparency && AlphaMipMode == ETextureAlphaMipMode::PreserveCoverage;
+			double SourceAlphaCoverage = 0.0;
+			if (bPreserveAlphaCoverage
+				&& !CalculateAlphaCoverage(
+					BaseMip,
+					AlphaCoverageThreshold,
+					1.0,
+					SourceAlphaCoverage,
+					ExecutionControl))
+			{
+				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
+			}
+			const FClock::time_point MipStart = FClock::now();
+			while (SourceMips.size() == 1
+				&& (UncompressedMips.back().GetInfo().Width > 1 || UncompressedMips.back().GetInfo().Height > 1))
+			{
+				if (IsCancellationRequested(ExecutionControl))
+				{
+					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
+				}
+				FMutableMip NextMip;
+				if (!BuildNextMip(
+					UncompressedMips.back(), Usage, bSRGB, NextMip, ExecutionControl))
+				{
+					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
+				}
+				if (bPreserveAlphaCoverage)
+				{
+					if (!PreserveAlphaCoverage(
+						NextMip,
+						AlphaCoverageThreshold,
+						SourceAlphaCoverage,
+						ExecutionControl))
+					{
+						return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
+					}
+				}
+				auto ImageResult1 = Image::FImage::TryCreate({.Width = NextMip.Width, .Height = NextMip.Height,
+					.Format = Image::ERawImageFormat::RGBA8,
+					.GammaSpace = SourceMips.front().GetInfo().GammaSpace}, std::move(NextMip.Pixels));
+				if (!ImageResult1)
+				{
+					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidMipLayout});
+				}
+				auto FrozenMip = std::move(*ImageResult1);
+				UncompressedMips.push_back(std::move(FrozenMip));
+			}
+			const FClock::time_point MipFinish = FClock::now();
+			Metrics.MipGenerationNanoseconds = static_cast<uint64>(
+				std::chrono::duration_cast<std::chrono::nanoseconds>(MipFinish - MipStart).count());
+			// Shared source bytes are already accounted as decoded input by the caller.
+			for (size_t Index = SourceMips.size(); Index < UncompressedMips.size(); ++Index)
+				Metrics.PeakIntermediateBytes += UncompressedMips[Index].GetPixels().size();
+			return UncompressedMips;
+		}
 	}
 
 	auto SelectPixelFormat(ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat
@@ -351,123 +269,57 @@ namespace Durin::TextureBuilder
 		}
 	}
 
-	auto BuildMipChain(std::span<const Image::FImage> SourceMips, ETextureUsage Usage, bool bSRGB,
-		FTexturePlatformData& OutPlatformData, uint32 MaxResolution,
-		ETextureCompressionQuality CompressionQuality, ETextureAlphaMipMode AlphaMipMode,
-		float AlphaCoverageThreshold, const FBuildExecutionControl* ExecutionControl,
-		std::optional<bool> TransparencyOverride) -> std::expected<void, FTexture2DBuildError>
+	auto AnalyzeTransparency(std::span<const Image::FImage> SourceMips,
+		const FBuildExecutionControl* Control) -> std::expected<bool, FTexture2DBuildError>
+	{
+		bool bHasTransparency = false;
+		// Supplied lower mips may contain alpha even when the base mip is opaque.
+		for (const Image::FImage& Mip : SourceMips)
+		{
+			const auto Pixels = Mip.GetPixels();
+			const uint32 Width = Mip.GetInfo().Width;
+			for (uint32 Y = 0; Y < Mip.GetInfo().Height && !bHasTransparency; ++Y)
+			{
+				if (Y % CancellationScanlineInterval == 0 && IsCancellationRequested(Control))
+					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
+				const size_t Row = static_cast<size_t>(Y) * Width * ChannelCount;
+				for (uint32 X = 0; X < Width; ++X)
+					if (Pixels[Row + static_cast<size_t>(X) * ChannelCount + 3] != std::byte{255})
+					{
+						bHasTransparency = true;
+						break;
+					}
+			}
+			if (bHasTransparency) break;
+		}
+		return bHasTransparency;
+	}
+
+	auto BuildMipChain(const FBuildMipChainRequest& Request,
+		const FBuildExecutionControl* ExecutionControl) -> std::expected<FTexture2DBuildOutput, FTexture2DBuildError>
 	{
 		using FClock = std::chrono::steady_clock;
-		auto IsCancelled = [ExecutionControl] {
-			return ExecutionControl && ExecutionControl->ShouldCancel
-				&& ExecutionControl->ShouldCancel();
-		};
-		if (ExecutionControl && ExecutionControl->Metrics)
-			*ExecutionControl->Metrics = {};
-		OutPlatformData = {};
-		if (const auto Validation = ValidateTexture2DSourceMips(SourceMips); !Validation)
-		{
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
-		}
-		const FTexture2DBuildSettings Settings{
-			.Usage = Usage, .CompressionQuality = CompressionQuality,
-			.AlphaMipMode = AlphaMipMode, .AlphaCoverageThreshold = AlphaCoverageThreshold};
-		if (const auto Validation = ValidateTexture2DBuildSettings(Settings); !Validation)
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
-		bool bHasTransparency = TransparencyOverride.value_or(false);
-		if (!TransparencyOverride)
-		{
-			// Supplied lower mips may contain alpha even when the base mip is opaque.
-			for (const Image::FImage& Mip : SourceMips)
-			{
-				const auto Pixels = Mip.GetPixels();
-				const uint32 Width = Mip.GetInfo().Width;
-				for (uint32 Y = 0; Y < Mip.GetInfo().Height && !bHasTransparency; ++Y)
-				{
-					if (Y % CancellationScanlineInterval == 0 && IsCancelled())
-						return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-					const size_t Row = static_cast<size_t>(Y) * Width * ChannelCount;
-					for (uint32 X = 0; X < Width; ++X)
-						if (Pixels[Row + static_cast<size_t>(X) * ChannelCount + 3] != std::byte{255})
-						{
-							bHasTransparency = true;
-							break;
-						}
-				}
-				if (bHasTransparency) break;
-			}
-		}
-		OutPlatformData.PixelFormat = SelectPixelFormat(Usage, bSRGB, bHasTransparency);
+		const auto SourceMips = Request.SourceMips;
+		const auto& Settings = Request.Settings;
+		const auto MaxResolution = Settings.MaxResolution;
+		const auto CompressionQuality = Settings.CompressionQuality;
+		FTexture2DBuildOutput Product;
+		auto& OutPlatformData = Product.PlatformData;
+		// A single observer type is also the metrics value returned to production.
+		auto& Metrics = ExecutionControl && ExecutionControl->DiagnosticMetrics
+			? *ExecutionControl->DiagnosticMetrics : Product.Metrics;
+		Metrics = {};
+		check(ValidateTexture2DSourceMips(SourceMips).has_value());
+		check(ValidateTexture2DBuildSettings(Settings).has_value());
+		check(Settings.bSRGB.has_value());
+		OutPlatformData.PixelFormat = Request.PixelFormat;
 		if (OutPlatformData.PixelFormat == EPixelFormat::Unknown)
 		{
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::UnsupportedPixelFormat});
 		}
-		// FImage copies share the source allocation; no writable source copy is needed.
-		std::vector<Image::FImage> UncompressedMips(SourceMips.begin(), SourceMips.end());
-		const Image::FImage& BaseMip = UncompressedMips.front();
-		const bool bPreserveAlphaCoverage = Usage == ETextureUsage::Color
-			&& bHasTransparency && AlphaMipMode == ETextureAlphaMipMode::PreserveCoverage;
-		double SourceAlphaCoverage = 0.0;
-		if (bPreserveAlphaCoverage
-			&& !CalculateAlphaCoverage(
-				BaseMip,
-				AlphaCoverageThreshold,
-				1.0,
-				SourceAlphaCoverage,
-				ExecutionControl))
-		{
-			OutPlatformData = {};
-			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-		}
-		const FClock::time_point MipStart = FClock::now();
-		while (SourceMips.size() == 1
-			&& (UncompressedMips.back().GetInfo().Width > 1 || UncompressedMips.back().GetInfo().Height > 1))
-		{
-			if (IsCancelled())
-			{
-				OutPlatformData = {};
-				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-			}
-			FMutableMip NextMip;
-			if (!BuildNextMip(
-				UncompressedMips.back(), Usage, bSRGB, NextMip, ExecutionControl))
-			{
-				OutPlatformData = {};
-				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-			}
-			if (bPreserveAlphaCoverage)
-			{
-				if (!PreserveAlphaCoverage(
-					NextMip,
-					AlphaCoverageThreshold,
-					SourceAlphaCoverage,
-					ExecutionControl))
-				{
-					OutPlatformData = {};
-					return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
-				}
-			}
-			auto ImageResult1 = Image::FImage::TryCreate({.Width = NextMip.Width, .Height = NextMip.Height,
-				.Format = Image::ERawImageFormat::RGBA8,
-				.GammaSpace = SourceMips.front().GetInfo().GammaSpace}, std::move(NextMip.Pixels));
-			if (!ImageResult1)
-			{
-				OutPlatformData = {};
-				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidMipLayout});
-			}
-			auto FrozenMip = std::move(*ImageResult1);
-			UncompressedMips.push_back(std::move(FrozenMip));
-		}
-		const FClock::time_point MipFinish = FClock::now();
-		if (ExecutionControl && ExecutionControl->Metrics)
-		{
-			FBuildMipChainMetrics& Metrics = *ExecutionControl->Metrics;
-			Metrics.MipGenerationNanoseconds = static_cast<uint64>(
-				std::chrono::duration_cast<std::chrono::nanoseconds>(MipFinish - MipStart).count());
-			// Shared source bytes are already accounted as decoded input by the caller.
-			for (size_t Index = SourceMips.size(); Index < UncompressedMips.size(); ++Index)
-				Metrics.PeakIntermediateBytes += UncompressedMips[Index].GetPixels().size();
-		}
+		auto Generated = GenerateMipChain(Request, Metrics, ExecutionControl);
+		if (!Generated) return std::unexpected(Generated.error());
+		auto UncompressedMips = std::move(*Generated);
 		size_t FirstMipIndex = 0;
 		if (MaxResolution > 0)
 		{
@@ -482,9 +334,8 @@ namespace Durin::TextureBuilder
 		const FClock::time_point CompressionStart = FClock::now();
 		for (size_t MipIndex = FirstMipIndex; MipIndex < UncompressedMips.size(); ++MipIndex)
 		{
-			if (IsCancelled())
+			if (IsCancellationRequested(ExecutionControl))
 			{
-				OutPlatformData = {};
 				return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 			}
 			FTexture2DMipData& CompressedMip = OutPlatformData.Mips.emplace_back();
@@ -493,21 +344,18 @@ namespace Durin::TextureBuilder
 				CompressionQuality, CompressedMip, ExecutionControl);
 			if (!CompressionResult)
 			{
-				OutPlatformData = {};
-				return CompressionResult;
+				return std::unexpected(CompressionResult.error());
 			}
 		}
-		if (ExecutionControl && ExecutionControl->Metrics)
-		{
-			ExecutionControl->Metrics->CompressionNanoseconds = static_cast<uint64>(
-				std::chrono::duration_cast<std::chrono::nanoseconds>(
-					FClock::now() - CompressionStart).count());
-		}
+		Metrics.CompressionNanoseconds = static_cast<uint64>(
+			std::chrono::duration_cast<std::chrono::nanoseconds>(
+				FClock::now() - CompressionStart).count());
+
 		if (OutPlatformData.IsValid())
 		{
-			return {};
+			Product.Metrics = Metrics;
+			return Product;
 		}
-		OutPlatformData = {};
 		return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidPlatformData});
 	}
 }

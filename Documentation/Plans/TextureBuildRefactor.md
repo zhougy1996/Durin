@@ -4,15 +4,73 @@ Summary: Clarify texture recipe inputs, shared mip processing, and format encodi
 
 Last reviewed: 2026-10-10
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-10
 
 ## Current Status
 
-Planning only. No implementation stages have started. Static review identified
-a positional shared mip-build API, duplicated metrics and control adaptation,
-Cube-specific transparency overrides, and overlapping LDR/HDR Cube input states.
-The module remains named `TextureBuild` throughout this plan.
+Stages 0-4 are complete. The module remains named `TextureBuild`. Shared mip
+requests/results, private BC encoding, one metrics value type, and distinct
+LDR/HDR Cube alternatives are implemented. Module registration, source/payload
+representations, builder/projection versions, and DDC key definitions are unchanged.
+
+Final validation on Win64-Debug-DurinEditor:
+
+- TextureTests: 136/136 passed, including the new prepared-HDR alternative
+  rejection case; it also passed alone after its target settings were corrected.
+- TextureImportWorkflowTests: 23/23 passed.
+- DerivedDataTextureQualificationTests: 5/5 passed after completing the private
+  session dependency in the existing same-owner qualification seam.
+- TextureCompressionQualificationTests: passed. All three output hashes and
+  generated intermediate storage exactly match the baseline below. Final
+  serial/parallel medians in milliseconds were Color 1712.28/684.528,
+  Normal 7767.55/3073.18, and DataMask 5504.72/2169.9. Parallel changes were
+  approximately +0.3%, +0.5%, and -2.2%; no material throughput regression was observed.
+- The extracted BC encoder function matched the baseline token-for-token,
+  ignoring whitespace and its enclosing namespace.
+- Final `all` build passed for the workspace, including Engine, Sandbox,
+  RoadWeaver, and StudioCubeGenerate. VulkanRHIIntegrationTests compiled the
+  migrated VulkanTextureSamplingTests fixture successfully; GPU execution was
+  not required because GPU behavior is unchanged.
+- Changed-document and all-plan validation passed; final completion metadata is
+  checked again before commit. Lasting recipe boundaries are documented in the
+  [build protocol](../Runtime/Assets/DerivedDataBuild.md#family-boundaries).
+
+Consumer inventory: TextureBuild's 2D and LDR Cube entrypoints, TextureTests,
+TextureCompressionQualificationTests, and Vulkan texture sampling fixtures call
+the shared mip recipe. Cube canonical values additionally cross Engine's build
+adapter/resolver/application and AssetForgeBuiltins import validation. Searches
+of Engine, Sandbox, and RoadWeaver found no other direct recipe consumers.
+
+Frozen behavior: a single source mip generates to 1x1; supplied chains are kept
+as supplied. Color selects BC1/BC3 using alpha across all supplied mips, normals
+select BC5, and data masks select BC7. Cube uses one alpha decision for six faces.
+MaxResolution selects a mip-aligned retained base. Filtering retains linear-light
+sRGB handling, normal renormalization, and alpha coverage. Cancellation checks
+remain at 64 blocks and 8 scanlines, predicates are serialized during compression,
+and all tasks drain before borrowed storage is released. Validation precedes
+cancellation. Failed recipes return no usable partial platform product.
+
+Baseline: TextureTests passed 135/135 on Win64-Debug-DurinEditor.
+TextureCompressionQualificationTests passed with generated intermediate storage
+of 1,398,100 bytes for every usage. The deterministic 1024x1024 output hashes were
+Color `0ad3be03b506f8e86ab773d0f0f042bc`, Normal
+`05f144218335d14bde46d2eb51883234`, and DataMask
+`323fd237eaaca1d8575aa82bf3c6fb1f`. Serial/parallel medians in milliseconds were
+1903.32/682.666, 8446.77/3057.85, and 5908.09/2217.99 respectively.
+The compression-cancellation fixture observes mip completion through timing;
+retain that observation through an explicitly diagnostic metrics sink of the
+same type as returned production metrics.
+
+The initial sandbox build reported MSVC C1902 (PDB manager mismatch); rebuilding
+through DevTool outside the sandbox passed. Qualification requires the explicit
+`--mode qualification` selection on this checkout.
+
+Validation adjustment: DerivedDataTextureQualificationTests directly compiles
+the private Cube source entrypoint, but omitted its non-exported texture session
+dependency and failed to link. Include that specific private implementation in
+the same-owner qualification seam and update its rationale rather than exporting
+a production symbol solely for the test. No production session policy changes.
 
 ## Goal
 
@@ -63,17 +121,17 @@ of typed family entrypoints and share algorithms where their semantics match.
 
 Dependency: none.
 
-- [ ] Inventory recipe APIs and direct helper consumers in the source and test
+- [x] Inventory recipe APIs and direct helper consumers in the source and test
   roots of Engine, Sandbox, and RoadWeaver declared by `Durin.dworkspace`.
-- [ ] Record current single-source mip generation versus supplied-chain behavior,
+- [x] Record current single-source mip generation versus supplied-chain behavior,
   including that supplied chains are retained rather than automatically completed.
-- [ ] Record format selection, whole-Cube alpha handling, MaxResolution selection,
+- [x] Record format selection, whole-Cube alpha handling, MaxResolution selection,
   sRGB filtering, normal normalization, and alpha-coverage behavior.
-- [ ] Record failure-output guarantees, validation-before-cancellation precedence,
+- [x] Record failure-output guarantees, validation-before-cancellation precedence,
   callback serialization, task draining, and frozen cancellation checkpoint intervals.
-- [ ] Identify existing CPU correctness and compression qualification coverage;
+- [x] Identify existing CPU correctness and compression qualification coverage;
   add characterization only for behavior needed by this refactor and not covered.
-- [ ] Confirm how diagnostic tests observe metrics while work is running and
+- [x] Confirm how diagnostic tests observe metrics while work is running and
   select the minimal replacement for those observations before changing the API.
 
 Completion: a bounded consumer and invariant inventory is recorded here; relevant
@@ -83,15 +141,15 @@ existing baseline tests pass or pre-existing failures are documented separately.
 
 Dependency: Stage 0.
 
-- [ ] Introduce the internal resolved mip request and expected result; avoid
+- [x] Introduce the internal resolved mip request and expected result; avoid
   introducing a second complete copy of public family settings.
-- [ ] Move 2D and LDR Cube format selection into their entrypoints and replace
+- [x] Move 2D and LDR Cube format selection into their entrypoints and replace
   the transparency override with an explicit selected format.
-- [ ] Use local candidate output and migrate direct consumers, including native
+- [x] Use local candidate output and migrate direct consumers, including native
   tests and Vulkan sampling fixtures; remove the positional API after migration.
-- [ ] Consolidate metrics and control adaptation while preserving required
+- [x] Consolidate metrics and control adaptation while preserving required
   diagnostic observations, cancellation cadence, and failure classification.
-- [ ] Remove repeated validation only where a validated private call path and
+- [x] Remove repeated validation only where a validated private call path and
   explicit preconditions replace it; keep public entrypoints safe to invoke directly.
 
 Completion: all discovered consumers compile; affected correctness tests pass;
@@ -101,14 +159,14 @@ serial and parallel output bytes, mip layouts, and failure guarantees match base
 
 Dependency: Stage 1.
 
-- [ ] Extract BC initialization, quality parameters, block gathering, and row
+- [x] Extract BC initialization, quality parameters, block gathering, and row
   encoding into a private encoder implementation with a narrow image-view API.
-- [ ] Keep mip filtering, normal handling, and alpha coverage together in the
+- [x] Keep mip filtering, normal handling, and alpha coverage together in the
   processing layer; make the top-level recipe read as a short sequence of stages.
-- [ ] Keep bounded Core task parallelism and serialized cancellation predicates
+- [x] Keep bounded Core task parallelism and serialized cancellation predicates
   intact; drain compression work before returning or releasing borrowed storage.
-- [ ] Retain shared immutable source storage and avoid new source-buffer copies.
-- [ ] Keep Operations entrypoints where they own target validation or family
+- [x] Retain shared immutable source storage and avoid new source-buffer copies.
+- [x] Keep Operations entrypoints where they own target validation or family
   policy; collapse forwarding code and duplicate adapters that add no contract.
 
 Completion: encoded bytes remain identical across supported usage, quality, and
@@ -119,15 +177,15 @@ Qualification shows no unexplained throughput or intermediate-memory regression.
 
 Dependency: Stage 2.
 
-- [ ] Replace the required Faces plus optional HDR pointer recipe input with
+- [x] Replace the required Faces plus optional HDR pointer recipe input with
   alternatives that contain only the data required by each path.
-- [ ] Make normalization results expose their LDR/HDR alternative explicitly,
+- [x] Make normalization results expose their LDR/HDR alternative explicitly,
   retaining source layout, dimensions, exposure, and authored panorama metadata.
-- [ ] Migrate module contracts, Engine build adapters, result application,
+- [x] Migrate module contracts, Engine build adapters, result application,
   PostLoad paths, and all discovered test doubles and consumers.
-- [ ] Preserve source representations, serialized payloads, build constants,
+- [x] Preserve source representations, serialized payloads, build constants,
   projection versions, builder versions, and DDC identity.
-- [ ] Verify six-face consistency, LDR panorama projection, HDR exposure and
+- [x] Verify six-face consistency, LDR panorama projection, HDR exposure and
   radiance limits, angular mip behavior, and normalization failure handling.
 
 Completion: invalid cross-path states are excluded by the recipe types; existing
@@ -138,19 +196,19 @@ Cube integration and cache tests pass; a shared Engine API migration receives an
 
 Dependency: Stages 1-3.
 
-- [ ] Validate affected CPU recipe, Cube, Volume, and DDC integration coverage
+- [x] Validate affected CPU recipe, Cube, Volume, and DDC integration coverage
   using the registered selections described in [Testing](../Agents/Testing.md).
-- [ ] Compile changed Vulkan sampling consumers; GPU execution is required only
+- [x] Compile changed Vulkan sampling consumers; GPU execution is required only
   if GPU behavior changes, following the testing workflow.
-- [ ] Follow [Build And Run](../Agents/BuildAndRun.md), validate affected project
+- [x] Follow [Build And Run](../Agents/BuildAndRun.md), validate affected project
   targets, and complete the required `all` build for shared Engine API changes.
-- [ ] Review deterministic outputs and key identities against Stage 0 evidence.
+- [x] Review deterministic outputs and key identities against Stage 0 evidence.
   Do not bump recipe versions for an output-preserving structural refactor.
   Any intended output change requires a recorded plan revision and invalidation policy.
-- [ ] Update lasting ownership or recipe contracts in their authoritative
+- [x] Update lasting ownership or recipe contracts in their authoritative
   documentation, including [Volume textures](../Runtime/Assets/VolumeTextures.md)
   only where its implemented contract changes.
-- [ ] Record validation evidence and update lifecycle metadata/checklists through
+- [x] Record validation evidence and update lifecycle metadata/checklists through
   completion, following [plan lifecycle rules](AGENTS.md#status-maintenance).
 
 Completion: all required gates pass, final evidence is recorded, and no obsolete

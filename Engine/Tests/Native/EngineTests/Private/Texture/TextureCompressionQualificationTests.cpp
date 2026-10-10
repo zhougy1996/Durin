@@ -29,13 +29,14 @@ TEST(FTextureCompressionQualificationTests, SerialAndParallelCompression)
 		for (int Order = 0; Order < 2; ++Order)
 		{
 			const int Mode = (Round + Order) % 2;
-			TextureBuilder::FBuildMipChainMetrics Metrics;
 			const TextureBuilder::FBuildExecutionControl Control{
-				.Metrics = &Metrics, .bParallelCompression = Mode != 0};
-			FTexturePlatformData Platform;
-			ASSERT_TRUE(TextureBuilder::BuildMipChain(std::span(&Source, 1), Usage, false,
-				Platform, 0, ETextureCompressionQuality::Normal,
-				ETextureAlphaMipMode::Average, 0.5f, &Control, false));
+				.bParallelCompression = Mode != 0};
+			auto Built = TextureBuilder::BuildMipChain({.SourceMips = std::span(&Source, 1),
+				.Settings = {.Usage = Usage, .bSRGB = false},
+				.PixelFormat = TextureBuilder::SelectPixelFormat(Usage, false, false)}, &Control);
+			ASSERT_TRUE(Built);
+			const auto& Platform = Built->PlatformData;
+			const auto& Metrics = Built->Metrics;
 			PeakIntermediateBytes = std::max(PeakIntermediateBytes, Metrics.PeakIntermediateBytes);
 			uint64 Bytes = 0;
 			FXxHash128Builder Hash;

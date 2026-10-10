@@ -42,6 +42,7 @@ namespace Durin
 	};
 	ENGINE_API auto FormatTexture2DInputError(const FTexture2DInputError& Error) -> std::string;
 
+	// Recipe-local timing and generated storage; excludes shared source/output bytes.
 	struct FTexture2DBuildTimings
 	{
 		uint64 MipGenerationNanoseconds = 0;

@@ -608,7 +608,7 @@ TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 	ASSERT_TRUE(BuildResult2) << (BuildResult2 ? std::string{} : FormatTextureBuildOperationError(BuildResult2.error()));
 	ASSERT_NE(Cached, nullptr);
 	EXPECT_TRUE(std::ranges::equal(Cached->Faces[0].Mips[0].Pixels, Initial->Faces[0].Mips[0].Pixels));
-	EXPECT_TRUE(CachedCanonical.FaceImages.IsValid());
+	EXPECT_TRUE(std::get<Durin::FTextureCubeLDRCanonicalInput>(CachedCanonical.Pixels).FaceImages.IsValid());
 	ASSERT_NE(Cached, nullptr);
 	EXPECT_TRUE(Cached->IsValid());
 

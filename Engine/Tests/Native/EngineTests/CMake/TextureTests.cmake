@@ -45,8 +45,9 @@ durin_add_native_test(DerivedDataTextureQualificationTests
 		Private/Texture/DerivedDataTextureQualificationTests.cpp
 	PRIVATE_SOURCES
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/Engine/Private/Texture/TextureCubeSourceBuild.cpp
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/Engine/Private/Texture/TextureBuildSession.cpp
 	PRIVATE_SOURCE_OWNER Engine
-	PRIVATE_SOURCE_RATIONALE "Measures the Engine-owned captured Cube source boundary without exporting a test-only DLL symbol."
+	PRIVATE_SOURCE_RATIONALE "Measures the Engine-owned captured Cube source boundary and its private session dependency without exporting test-only DLL symbols."
 	INCLUDE_DIRECTORIES ${_durin_texture_test_include_directories}
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/Engine/Private
 	LIBRARIES Core CoreDObject Engine TextureBuild MeshBuilder DerivedDataCache

@@ -816,13 +816,14 @@ TEST(FTexturePlatformSessionTests, PreparedCubeBlocksMustMatchCapturedCanonicalI
 	using namespace Durin;
 	using namespace Durin::DerivedData;
 	FTextureCubeCanonicalBuildInput Prepared;
-	Prepared.FaceImages.SourceChannelCount = 4;
+	auto& Faces = std::get<FTextureCubeLDRCanonicalInput>(Prepared.Pixels).FaceImages;
+	Faces.SourceChannelCount = 4;
 	std::array<Image::FImageView, 6> Views;
 	for (size_t Face = 0; Face < Views.size(); ++Face)
 	{
-		Prepared.FaceImages.Faces[Face] = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+		Faces.Faces[Face] = Image::FImage::TryCreate({.Width = 4, .Height = 4,
 			.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64, std::byte{42})).value();
-		Views[Face] = Prepared.FaceImages.Faces[Face].GetView();
+		Views[Face] = Faces.Faces[Face].GetView();
 	}
 	FTextureSource Source;
 	ASSERT_TRUE(Source.InitCube(Views, 4));
@@ -833,7 +834,7 @@ TEST(FTexturePlatformSessionTests, PreparedCubeBlocksMustMatchCapturedCanonicalI
 	auto Resolved = Valid->Resolve(Identities, {});
 	ASSERT_TRUE(Resolved);
 	EXPECT_TRUE(Resolved->front().Values[0].Data.SharesStorageWith(Views[0].GetBuffer()));
-	Prepared.FaceImages.Faces[0] = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+	Faces.Faces[0] = Image::FImage::TryCreate({.Width = 4, .Height = 4,
 		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64, std::byte{43})).value();
 	auto Invalid = TexturePrivate::MakeTextureCubeInputResolver(Source, &Prepared);
 	ASSERT_TRUE(Invalid->Describe(Definition.GetSources(), {}));
@@ -841,6 +842,34 @@ TEST(FTexturePlatformSessionTests, PreparedCubeBlocksMustMatchCapturedCanonicalI
 	ASSERT_FALSE(Rejected);
 	EXPECT_FALSE(Rejected.error().Description.empty());
 	// The first resolver retained the original blocks independently of the caller.
+	EXPECT_TRUE(Valid->Resolve(Identities, {}));
+	Prepared.Pixels = FTextureCubeHDRCanonicalInput{.AuthoredPanorama = Faces.Faces[0]};
+	auto WrongMode = TexturePrivate::MakeTextureCubeInputResolver(Source, &Prepared);
+	EXPECT_FALSE(WrongMode->Resolve(Identities, {}));
+}
+
+TEST(FTexturePlatformSessionTests, PreparedHDRCubeRejectsLDRAlternativeWithMatchingPanorama)
+{
+	using namespace Durin;
+	using namespace Durin::DerivedData;
+	const auto Panorama = Image::FImage::TryCreate({.Width = 4, .Height = 2,
+		.Format = Image::ERawImageFormat::RGBA32F, .GammaSpace = Image::EImageGammaSpace::Linear},
+		FByteBuffer(4 * 2 * 16)).value();
+	const auto Source = PrepareTextureCubePanoramaSource(Panorama.GetView(), 4, 0);
+	ASSERT_TRUE(Source);
+	const auto Definition = TexturePrivate::MakeTextureCubeSessionDefinition({
+		.SourceLayout = ETextureCubeBuildSourceLayout::EquirectangularPanorama,
+		.CanonicalSourceIdentity = Source->GetIdentity(), .FaceDimension = 1, .bSRGB = false,
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}).value();
+	FTextureCubeCanonicalBuildInput Prepared{.Pixels = FTextureCubeHDRCanonicalInput{.AuthoredPanorama = Panorama}};
+	const auto Valid = TexturePrivate::MakeTextureCubeInputResolver(*Source, &Prepared);
+	const auto Identities = Valid->Describe(Definition.GetSources(), {}).value();
+	ASSERT_TRUE(Valid->Resolve(Identities, {}));
+	// Matching authored bytes do not authorize a different recipe alternative.
+	Prepared.Pixels = FTextureCubeLDRCanonicalInput{.AuthoredPanorama = Panorama,
+		.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama, .bSRGB = false};
+	const auto WrongMode = TexturePrivate::MakeTextureCubeInputResolver(*Source, &Prepared);
+	EXPECT_FALSE(WrongMode->Resolve(Identities, {}));
 	EXPECT_TRUE(Valid->Resolve(Identities, {}));
 }
 

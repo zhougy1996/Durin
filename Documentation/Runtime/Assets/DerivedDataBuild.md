@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-10-03
+Last reviewed: 2026-10-10
 
 ## Ownership
 
@@ -257,6 +257,18 @@ key and hit fact. Recipe timing stays inside producer-local qualification paths;
 it is not part of DDC output or Engine request diagnostics. Their
 version-2 shared-output schemas use fixed indexed value IDs and Compact Binary
 metadata; package/Cook serialization is unchanged.
+
+TextureBuild family entrypoints validate recipe values and select output formats.
+Texture2D and LDR Cube share a resolved mip request and private BC encoding;
+Cube selects one format for all six faces. A single RGBA8 source mip generates
+the complete chain, while supplied chains remain intact. Shared mip recipes
+return detached platform data and metrics only on success, and compression tasks
+drain before borrowed source storage is released. In-progress metrics observation
+is diagnostic only. HDR Cube and Volume retain their distinct filtering recipes.
+Cube recipe and canonical pixel inputs distinguish LDR faces from HDR panorama
+alternatives; HDR output mode, linear color policy, and panorama layout follow
+the alternative rather than optional flags. Authoring metadata remains available
+for source preservation and application without changing cached representations.
 
 StaticMesh render and physics collision each use a family-owned session with
 separate definitions/actions and request inputs. Source/reconciliation identity,

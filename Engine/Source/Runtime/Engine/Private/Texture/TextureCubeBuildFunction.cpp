@@ -44,13 +44,16 @@ namespace Durin::TexturePrivate
 			{
 				if (!Prepared) return;
 				const bool HDR = Source.GetKind() == ETextureSourceKind::LongLatCube;
-				PreparedValid = HDR ? Prepared->AuthoredPanorama.IsValid() : Prepared->FaceImages.IsValid();
-				if (!HDR) PreparedValid = PreparedValid && Prepared->FaceImages.TransparencyMask == Source.GetTransparencyMask()
-					&& Prepared->FaceImages.SourceChannelCount == Source.GetSourceChannelCount();
+				const auto* LDR = std::get_if<FTextureCubeLDRCanonicalInput>(&Prepared->Pixels);
+				PreparedValid = HDR ? !LDR && Prepared->GetAuthoredPanorama().IsValid()
+					: LDR && LDR->FaceImages.IsValid();
+				if (!PreparedValid) return;
+				if (!HDR) PreparedValid = LDR->FaceImages.TransparencyMask == Source.GetTransparencyMask()
+					&& LDR->FaceImages.SourceChannelCount == Source.GetSourceChannelCount();
 				Captured.emplace();
 				for (uint32 Index = 0; Index < (HDR ? 1u : TextureCubeFaceCount); ++Index)
 				{
-					const auto& Image = HDR ? Prepared->AuthoredPanorama : Prepared->FaceImages.Faces[Index];
+					const auto& Image = HDR ? Prepared->GetAuthoredPanorama() : LDR->FaceImages.Faces[Index];
 					const auto& Info = Image.GetInfo();
 					PreparedValid = PreparedValid && Info.Width == Source.GetWidth() && Info.Height == Source.GetHeight()
 						&& Info.Depth == 1 && Info.SliceCount == 1 && Info.Format == (HDR ? Image::ERawImageFormat::RGBA32F : Image::ERawImageFormat::RGBA8);
@@ -148,10 +151,11 @@ namespace Durin::TexturePrivate
 				Faces.SourceChannelCount = static_cast<uint8>(Channels); Faces.TransparencyMask = static_cast<uint8>(Transparency);
 				auto* Module = ITextureBuildModule::Get();
 				if (!Module) return Fail("The TextureBuild module is unavailable.");
-				auto Built = Module->BuildTextureCube({.FaceImages = std::cref(Faces), .bSRGB = Options->bSRGB,
-					.TargetPlatform = Options->TargetPlatform, .TargetProfile = Options->TargetProfile, .HDRPanorama = HDR ? &Panorama : nullptr,
-					.PanoramaSettings = {.FaceDimension = Options->FaceDimension, .ExposureEV = Options->ExposureEV,
-						.Output = HDR ? ETextureCubeOutput::HDR : ETextureCubeOutput::LDR}});
+				FTextureCubeBuildInput Request{.Pixels = FTextureCubeLDRBuildInput{.FaceImages = std::cref(Faces), .bSRGB = Options->bSRGB},
+					.TargetPlatform = Options->TargetPlatform, .TargetProfile = Options->TargetProfile};
+				if (HDR) Request.Pixels = FTextureCubeHDRBuildInput{.Panorama = std::cref(Panorama),
+					.FaceDimension = Options->FaceDimension, .ExposureEV = Options->ExposureEV};
+				auto Built = Module->BuildTextureCube(Request);
 				if (!Built) return Fail(Built.error().Diagnostic);
 				if (!*Built) return Fail("Cube recipe returned no product.");
 				auto Output = MakeTextureCubeSharedOutput(**Built, Options->TargetPlatform, Options->TargetProfile);

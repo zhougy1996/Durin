@@ -187,16 +187,15 @@ namespace Durin
 				if (!ImageResult1) return {};
 				auto Source = std::move(*ImageResult1);
 
-				FTexturePlatformData Built;
-				const std::expected<void, FTexture2DBuildError> BuildResult = TextureBuilder::BuildMipChain(
-					std::span(&Source, 1), Usage, bSrgb, Built, 0,
-					ETextureCompressionQuality::Normal, ETextureAlphaMipMode::Average,
-					0.5f, nullptr, bHasTransparency);
+				auto BuildResult = TextureBuilder::BuildMipChain({.SourceMips = std::span(&Source, 1),
+					.Settings = {.Usage = Usage, .bSRGB = bSrgb},
+					.PixelFormat = TextureBuilder::SelectPixelFormat(Usage, bSrgb, bHasTransparency)});
 				if (!BuildResult)
 				{
 					ADD_FAILURE() << Durin::FormatTexture2DBuildError(BuildResult.error());
 					return {};
 				}
+				const auto& Built = BuildResult->PlatformData;
 				if (MipIndex == 0)
 				{
 					Combined.PixelFormat = Built.PixelFormat;

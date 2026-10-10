@@ -7,18 +7,12 @@
 
 namespace Durin::TextureBuilder
 {
-	struct FBuildMipChainMetrics
-	{
-		uint64 MipGenerationNanoseconds = 0;
-		uint64 CompressionNanoseconds = 0;
-		// Generated uncompressed mip storage; excludes shared source and output bytes.
-		uint64 PeakIntermediateBytes = 0;
-	};
-
+	// Execution options do not participate in deterministic recipe identity.
 	struct FBuildExecutionControl
 	{
 		std::function<bool()> ShouldCancel;
-		FBuildMipChainMetrics* Metrics = nullptr;
+		// Diagnostic observation during synchronous execution; never needed by production.
+		FTexture2DBuildTimings* DiagnosticMetrics = nullptr;
 		// Diagnostic/reference execution; production uses bounded scheduler parallelism.
 		bool bParallelCompression = true;
 	};
@@ -30,14 +24,23 @@ namespace Durin::TextureBuilder
 
 	TEXTUREBUILD_API auto SelectPixelFormat(ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat;
 
-	// Builds and platform-compresses the complete mip chain. Cube callers override
-	// transparency so every face uses the format selected for the entire cube.
-	TEXTUREBUILD_API auto BuildMipChain(std::span<const Image::FImage> SourceMips, ETextureUsage Usage, bool bSRGB,
-		FTexturePlatformData& OutPlatformData, uint32 MaxResolution = 0,
-		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal,
-		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average,
-		float AlphaCoverageThreshold = 0.5f,
-		const FBuildExecutionControl* ExecutionControl = nullptr,
-		std::optional<bool> TransparencyOverride = {}) -> std::expected<void, FTexture2DBuildError>;
+	// Borrows source storage until all compression tasks drain. Family entrypoints
+	// resolve Settings.bSRGB and choose PixelFormat for the entire texture.
+	struct FBuildMipChainRequest
+	{
+		std::span<const Image::FImage> SourceMips;
+		FTexture2DBuildSettings Settings;
+		EPixelFormat PixelFormat = EPixelFormat::Unknown;
+	};
+
+	// Requires source mips validated by ValidateTexture2DSourceMips.
+	TEXTUREBUILD_API auto AnalyzeTransparency(std::span<const Image::FImage> SourceMips,
+		const FBuildExecutionControl* Control = nullptr) -> std::expected<bool, FTexture2DBuildError>;
+
+	// Requires validated source mips/settings and resolved Settings.bSRGB.
+	// A single source mip generates a complete chain; supplied chains remain intact.
+	// Failure returns no partial product. Diagnostic metrics may describe completed work.
+	TEXTUREBUILD_API auto BuildMipChain(const FBuildMipChainRequest& Request,
+		const FBuildExecutionControl* Control = nullptr) -> std::expected<FTexture2DBuildOutput, FTexture2DBuildError>;
 
 }

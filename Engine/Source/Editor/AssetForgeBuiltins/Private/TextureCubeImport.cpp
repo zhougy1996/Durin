@@ -185,7 +185,7 @@ namespace Durin::AssetForge::Builtins
 			const std::unique_ptr<FTextureCubePlatformData>& Product, bool bHDR)
 			-> FTextureCubeImportValidation
 		{
-			return {.bValid = true, .SourceLayout = CanonicalInput.SourceLayout,
+			return {.bValid = true, .SourceLayout = CanonicalInput.GetSourceLayout(),
 				.SourceWidth = CanonicalInput.OriginalSourceWidth,
 				.SourceHeight = CanonicalInput.OriginalSourceHeight,
 				.Dimension = Product->Faces[0].Mips[0].Width,
