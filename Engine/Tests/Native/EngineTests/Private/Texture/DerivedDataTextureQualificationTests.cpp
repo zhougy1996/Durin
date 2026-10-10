@@ -6,7 +6,7 @@
 #include "Texture/Texture2DBuild.h"
 #include "Texture/TextureCubeBuild.h"
 #include "Texture/VolumeTextureBuild.h"
-#include "Texture/ITextureBuildModule.h"
+#include "Texture/ITextureCompressorModule.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureCubeBuildOperations.h"
 #include "Texture/VolumeTextureBuildOperations.h"
@@ -24,7 +24,7 @@ namespace
 	// Executes the real recipes through the production module interface, observing
 	// their returned allocations. Comparing them to the eventual product measures
 	// payload copies after the recipe; it does not count recipe scratch or codecs.
-	class FObservedTextureBuildModule final : public ITextureBuildModule
+	class FObservedTextureCompressorModule final : public ITextureCompressorModule
 	{
 	public:
 		std::vector<FByteView> ReturnedBlocks;
@@ -110,7 +110,7 @@ namespace
 		std::string PreviousRoot;
 		std::filesystem::path Root;
 		std::unique_ptr<Testing::FQualificationLogSession> Log;
-		FObservedTextureBuildModule* Provider = nullptr;
+		FObservedTextureCompressorModule* Provider = nullptr;
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
@@ -118,11 +118,11 @@ namespace
 			Root = Testing::CreateTestFixtureDirectory("DerivedDataTextureBaseline");
 			Log = std::make_unique<Testing::FQualificationLogSession>((Root / "Logs").generic_string());
 			ASSERT_TRUE(Log->IsStarted());
-			static auto* Installed = static_cast<FObservedTextureBuildModule*>(FModuleTestHarness::InstallStartedModule(
-				FName("TextureBuild"), std::make_unique<FObservedTextureBuildModule>()));
+			static auto* Installed = static_cast<FObservedTextureCompressorModule*>(FModuleTestHarness::InstallStartedModule(
+				FName("TextureCompressor"), std::make_unique<FObservedTextureCompressorModule>()));
 			Provider = Installed;
 			ASSERT_NE(Provider, nullptr);
-			ASSERT_EQ(ITextureBuildModule::Get(), Provider);
+			ASSERT_EQ(ITextureCompressorModule::Get(), Provider);
 			FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 		}
 		auto TearDown() -> void override

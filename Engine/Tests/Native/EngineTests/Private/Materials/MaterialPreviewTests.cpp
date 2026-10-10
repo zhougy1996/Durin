@@ -95,7 +95,7 @@ TEST(FMaterialPreviewTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageColl
 	FScopedPreviewMeshCompiler MeshCompiler;
 	ASSERT_TRUE(Durin::GetStaticMeshCompilationManagerDiagnostics().bAcceptingRequests);
 	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
-	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	FMaterialPreviewHarness Harness;
 	Durin::Testing::FScopedMountRegistryFixture MountRegistry;

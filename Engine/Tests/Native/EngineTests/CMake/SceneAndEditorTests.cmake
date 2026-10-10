@@ -1,7 +1,7 @@
 durin_add_native_test(SplineTests
 	KIND feature
 	DOMAINS spline
-	MODULES asset-tools engine level-editor static-mesh-build texture-build asset-forge-builtins
+	MODULES asset-tools engine level-editor static-mesh-build texture-compressor asset-forge-builtins
 	STACKS editor
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -31,7 +31,7 @@ durin_add_native_test(SplineTests
 		AssetTools
 		DurinEd
 		MeshBuilder
-		TextureBuild
+		TextureCompressor
 		AssetForgeBuiltins
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 	INCLUDE_DIRECTORIES
@@ -84,7 +84,7 @@ durin_add_native_test(SkyBoxTests
 durin_add_native_test(SkyBoxVulkanIntegrationTests
 	KIND ${_durin_vulkan_integration_kind}
 	DOMAINS sky-box
-	MODULES asset-tools engine static-mesh-build texture-build renderer asset-forge-builtins
+	MODULES asset-tools engine static-mesh-build texture-compressor renderer asset-forge-builtins
 	BACKENDS vulkan
 	STACKS editor renderer
 	TIMEOUT 900
@@ -98,7 +98,7 @@ durin_add_native_test(SkyBoxVulkanIntegrationTests
 		ApplicationCore
 		AssetTools
 		MeshBuilder
-		TextureBuild
+		TextureCompressor
 		AssetForgeBuiltins
 		RenderCore
 		Renderer
@@ -106,7 +106,7 @@ durin_add_native_test(SkyBoxVulkanIntegrationTests
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
-		${DURIN_PROJECT_ROOT_DIR}/Source/Developer/TextureBuild/Private
+		${DURIN_PROJECT_ROOT_DIR}/Source/Developer/TextureCompressor/Private
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -274,7 +274,7 @@ durin_add_native_test(VolumetricCloudQualificationTests
 durin_add_native_test(EditorRenderingTests
 	KIND feature
 	DOMAINS renderer
-	MODULES asset-tools durin-ed engine renderer static-mesh-build texture-build asset-forge-builtins
+	MODULES asset-tools durin-ed engine renderer static-mesh-build texture-compressor asset-forge-builtins
 	STACKS editor renderer
 	SOURCES
 		Private/EditorGridRenderingTests.cpp
@@ -306,7 +306,7 @@ durin_add_native_test(EditorRenderingTests
 		DurinEd
 		MaterialEditor
 		MeshBuilder
-		TextureBuild
+		TextureCompressor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -393,13 +393,13 @@ endif()
 durin_add_native_test(AssetPackageReloadVulkanTests
 	KIND qualification
 	DOMAINS asset-package renderer
-	MODULES durin-ed engine renderer texture-build
+	MODULES durin-ed engine renderer texture-compressor
 	BACKENDS vulkan
 	STACKS editor renderer
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this offscreen test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/AssetPackageReloadVulkanTests.cpp
-	LIBRARIES Core CoreDObject Engine DurinEd TextureBuild RenderCore Renderer MeshBuilder
+	LIBRARIES Core CoreDObject Engine DurinEd TextureCompressor RenderCore Renderer MeshBuilder
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -411,10 +411,10 @@ durin_add_native_test(AssetPackageReloadVulkanTests
 durin_add_native_test(AssetPackageReloadTests
 	KIND feature
 	DOMAINS asset-package editor-shell
-	MODULES durin-ed engine texture-build shader-build
+	MODULES durin-ed engine texture-compressor shader-build
 	STACKS editor
 	SOURCES Private/AssetPackageReloadTests.cpp
-	LIBRARIES Core CoreDObject Engine DurinEd TextureBuild ShaderBuild MeshBuilder
+	LIBRARIES Core CoreDObject Engine DurinEd TextureCompressor ShaderBuild MeshBuilder
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	HEAVY_RUNTIME_RATIONALE
@@ -502,7 +502,7 @@ durin_add_native_test(TextureCookIntegrationTests
 		Engine
 		AssetTools
 		MeshBuilder
-		TextureBuild
+		TextureCompressor
 		AssetForgeBuiltins
 		RenderCore
 		Renderer

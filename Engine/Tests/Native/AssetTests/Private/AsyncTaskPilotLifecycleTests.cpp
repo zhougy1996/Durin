@@ -30,7 +30,7 @@ namespace
 		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 2, .MaxNonterminalTasks = 8}));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor({.MaxQueuedEntries = 1, .MaxQueuedPayloadBytes = 64, .MaxPayloadBytesPerEntry = 64}));
 		ASSERT_TRUE(InitializeAssetCompilingManager());
-		FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		auto Root = Tasks::LaunchTask("TextureSaturationRoot", [] {}).GetCompletion().GetTaskHandle();
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
 		auto Deferred = Tasks::Then(Tasks::FTaskCompletion(Root), Tasks::ETaskExecutor::GameThreadDeferred, {}, [] {}).GetCompletion().GetTaskHandle();

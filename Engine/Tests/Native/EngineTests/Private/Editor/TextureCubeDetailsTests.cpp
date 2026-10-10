@@ -20,7 +20,7 @@ namespace Durin::Editor::Texture
 	TEST(FTextureCubeDetailsTests, InspectsTextureCubeDetailsWithoutLoadingPackage)
 	{
 		InitializeDObjectSystem();
-		FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		const std::filesystem::path Root =
 			Testing::GetTestWorkDirectory() / "ContentBrowserTextureCubeDetails";
 		std::error_code Error;

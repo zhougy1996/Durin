@@ -3,7 +3,7 @@
 Summary: Define source import, normalized data, deterministic build, cooked payload,
 and owned GPU-resource update contracts for package-backed volume textures.
 
-Modules: Engine, TextureBuild, AssetForgeBuiltins, RHI, VulkanRHI
+Modules: Engine, TextureCompressor, AssetForgeBuiltins, RHI, VulkanRHI
 
 Last reviewed: 2026-10-03
 
@@ -89,7 +89,7 @@ transactions belong to the publishing caller.
 
 ## Deterministic build and cache
 
-TextureBuild owns the volume build operation through `ITextureBuildModule`.
+TextureCompressor owns the volume build operation through `ITextureCompressorModule`.
 `BuildVolumeTexture` returns `std::optional<FVolumeTexturePlatformData>` by value,
 logs failures inside the module, and accepts no cancellation control. The external
 build system owns cancellation and discards completed results for canceled requests.
@@ -110,7 +110,7 @@ the asset's last-known-good CPU or GPU result. Engine supplies a definition and 
 [shared build protocol](DerivedDataBuild.md). Requests retain a torn-off source;
 PostLoad queries from metadata before acquiring voxels. A valid hit reads no
 source payload. Only misses invoke the volume recipe, with best-effort persistence
-and GameThread result application. TextureBuild never receives cache policy or mutates a
+and GameThread result application. TextureCompressor never receives cache policy or mutates a
 `DVolumeTexture`.
 
 ## Authored source bulk data
@@ -227,7 +227,7 @@ for every exact format and usage combination.
 - `Engine/Source/Runtime/Engine/Public/Texture/VolumeTexture.h`
 - `Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureDerivedData.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureRenderResource.cpp`
-- `Engine/Source/Developer/TextureBuild/Private/Texture/VolumeTextureBuilder.cpp`
+- `Engine/Source/Developer/TextureCompressor/Private/Texture/VolumeTextureBuilder.cpp`
 - `Engine/Source/Editor/AssetForgeBuiltins/Private/VolumeTextureImport.cpp`
 - `Engine/Source/Runtime/RHI/Public/RHIResources.h`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp`

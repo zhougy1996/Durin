@@ -12,7 +12,7 @@ integration boundaries, and explicit process-exit ordering.
 Engine starts its object-aware asset-compilation aggregate after the task
 system. Material and Texture2D use built-in typed compiling managers routed from
 their reflected asset classes;
-editor and headless authoring roots may load TextureBuild's typed synchronous
+editor and headless authoring roots may load TextureCompressor's typed synchronous
 Texture2D, VolumeTexture, and TextureCube recipes without transferring task,
 PostLoad, object, or publication ownership. Launch
 pumps the aggregate while dependent objects are alive and shuts it down before

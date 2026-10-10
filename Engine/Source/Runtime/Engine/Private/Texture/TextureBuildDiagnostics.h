@@ -6,7 +6,7 @@
 
 #include "Texture/TextureBuildOperation.h"
 #include "Texture/TextureCubeBuild.h"
-#include "Texture/ITextureBuildModule.h"
+#include "Texture/ITextureCompressorModule.h"
 
 namespace Durin::TexturePrivate
 {

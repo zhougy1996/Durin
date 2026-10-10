@@ -115,10 +115,10 @@ new module to the `DurinEditor` root and `Source/Developer`, while the project
 descriptor roots and dependency closure still decide whether that module is
 present. Developer modules required by headless programs are selected
 explicitly by those programs; `DurinGame` does not gain a Developer branch.
-The Engine editor currently selects `DerivedDataCache`, `ShaderBuild`, `TextureBuild`,
+The Engine editor currently selects `DerivedDataCache`, `ShaderBuild`, `TextureCompressor`,
 and `MeshBuilder`. Package audit, storage inventory, and
 canonical-resave dry-run select no Developer module. Canonical-resave apply
-explicitly loads `MeshBuilder`, `TextureBuild`, and
+explicitly loads `MeshBuilder`, `TextureCompressor`, and
 `AssetForgeBuiltins` so uncooked PostLoad
 recovery can reach family-owned readiness before the canonical save.
 

@@ -65,7 +65,7 @@ namespace
 			Testing::InitializeDObjectSystemForTests();
 			ASSERT_TRUE(InitializeTaskScheduler(2));
 			ASSERT_TRUE(InitializeAssetCompilingManager());
-			FModuleManager::Get().LoadModuleChecked("TextureBuild");
+			FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 			FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 			static const FGlobalShaderSetRegistration Shaders("CookFixture", "CookFixture.Minimal",
 				EShaderRequestEligibility::GameAndEditor, {&FCookFixtureShader::StaticType()});

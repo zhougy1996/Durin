@@ -1,6 +1,6 @@
 #include "VolumeTextureBuildFunction.h"
 #if DURIN_WITH_EDITOR
-#include "Texture/ITextureBuildModule.h"
+#include "Texture/ITextureCompressorModule.h"
 #include "TexturePlatformSharedOutput.h"
 #include "TextureDerivedDataKey.h"
 
@@ -63,7 +63,7 @@ namespace Durin::TexturePrivate
 		class FVolumeFunction final : public IBuildFunction
 		{
 		public:
-			explicit FVolumeFunction(ITextureBuildModule& Module) : Version(Module.GetVolumeTextureBuilderVersion()) {}
+			explicit FVolumeFunction(ITextureCompressorModule& Module) : Version(Module.GetVolumeTextureBuilderVersion()) {}
 			auto GetName() const -> std::string_view override { return "Durin.VolumeTexture"; }
 			auto GetVersion() const -> uint32 override { return Version; }
 			auto Configure(FBuildConfigContext& Context) const -> void override
@@ -86,12 +86,12 @@ namespace Durin::TexturePrivate
 				FVolumeTextureSourceData Source{.Width = Width, .Height = Height, .Depth = Depth, .Format = Constants->Settings.OutputFormat};
 				Source.CanonicalSourceIdentity = SourceInput->Identity.Identity;
 				if (!Source.Voxels.UpdatePayload(SourceInput->Values[0].Data) || !Source.IsValid()) return Fail("Volume voxel byte count is invalid.");
-				auto* Module = ITextureBuildModule::Get();
-				if (!Module) return Fail("The TextureBuild module is unavailable.");
+				auto* Module = ITextureCompressorModule::Get();
+				if (!Module) return Fail("The TextureCompressor module is unavailable.");
 				auto Built = Module->BuildVolumeTexture({.SourceData = std::cref(Source), .Settings = Constants->Settings,
 					.TargetPlatform = Constants->TargetPlatform, .TargetProfile = Constants->TargetProfile});
 				if (Context.IsCancelled()) return;
-				if (!Built) return Fail("VolumeTexture build failed; see TextureBuild logs for details.");
+				if (!Built) return Fail("VolumeTexture build failed; see TextureCompressor logs for details.");
 				auto Output = MakeVolumeTextureSharedOutput(*Built, Constants->TargetPlatform, Constants->TargetProfile);
 				if (!Output) return Fail(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
@@ -101,7 +101,7 @@ namespace Durin::TexturePrivate
 			uint32 Version;
 		};
 	}
-	auto MakeVolumeTextureBuildFunction(ITextureBuildModule& Module) -> std::shared_ptr<const IBuildFunction>
+	auto MakeVolumeTextureBuildFunction(ITextureCompressorModule& Module) -> std::shared_ptr<const IBuildFunction>
 	{ return std::make_shared<FVolumeFunction>(Module); }
 	auto MakeVolumeTextureInputResolver(const FTextureSource& Source) -> std::shared_ptr<const IBuildInputResolver>
 	{ return std::make_shared<FVolumeResolver>(Source); }

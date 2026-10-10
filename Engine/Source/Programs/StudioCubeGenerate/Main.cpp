@@ -90,7 +90,7 @@ auto main(int Count, char** Args) -> int
 		return 1;
 	}
 	InitializeAssetManager();
-	FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	if (!RefreshAssetRegistry()) return 1;
 

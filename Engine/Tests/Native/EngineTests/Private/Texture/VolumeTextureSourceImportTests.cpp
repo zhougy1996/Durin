@@ -344,7 +344,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 {
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
-	FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	ASSERT_TRUE(EnsureTextureCompilingManager());
 	const std::filesystem::path SourceDirectory =
 		Testing::GetTestWorkDirectory() / "TextureImports/Content/VolumeSource";
@@ -482,7 +482,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 {
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
-	FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	ASSERT_TRUE(EnsureTextureCompilingManager());
 	std::string Error;
 	FScopedDerivedDataCacheRoot CacheRoot(

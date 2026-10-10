@@ -79,7 +79,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	MountDefinitions.push_back({.VirtualRoot = "/SkyBoxAssetTests/", .Owner = Durin::EMountOwner::Test, .Root = AssetRoot, .bAutoScan = true, .bContentWritable = true});
 	Durin::Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
-	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");

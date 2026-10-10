@@ -18,9 +18,9 @@ namespace Durin
 		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
 			ETextureBuildStage::Module, "TextureCube authoring is unavailable."});
 #else
-		auto* Module = ITextureBuildModule::Get();
+		auto* Module = ITextureCompressorModule::Get();
 		if (!Module) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
-			ETextureBuildStage::Module, "The TextureBuild module is unavailable."});
+			ETextureBuildStage::Module, "The TextureCompressor module is unavailable."});
 		const bool bHDR = Source.GetKind() == ETextureSourceKind::LongLatCube;
 		if (!Source.IsValid() || Source.GetOwner()
 			|| (!bHDR && (Source.GetKind() != ETextureSourceKind::TextureCube || Source.GetFormat() != ETextureSourceFormat::RGBA8))

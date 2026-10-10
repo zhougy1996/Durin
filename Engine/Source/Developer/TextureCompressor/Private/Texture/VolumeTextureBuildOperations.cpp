@@ -9,7 +9,7 @@ namespace Durin
 	{
 		auto Fail = [](std::string_view Reason) -> std::optional<FVolumeTexturePlatformData>
 		{
-			DURIN_ERROR_CATEGORY("TextureBuild", "VolumeTexture build failed: {}", Reason);
+			DURIN_ERROR_CATEGORY("TextureCompressor", "VolumeTexture build failed: {}", Reason);
 			return std::nullopt;
 		};
 		const FVolumeTextureSourceData& SourceData = Request.SourceData.get();

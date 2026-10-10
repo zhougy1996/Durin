@@ -1022,7 +1022,7 @@ int main(int ArgC, char** ArgV)
 	EditorServices.bStarted = true;
 	{
 		Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
-		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		if (Options.Operation == EOperation::Cook)
 		{

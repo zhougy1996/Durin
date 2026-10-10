@@ -4,7 +4,7 @@
 #include "Texture2DBuildDiagnostics.h"
 
 #include "Texture/Texture2DBuild.h"
-#include "Texture/ITextureBuildModule.h"
+#include "Texture/ITextureCompressorModule.h"
 
 #include "DObject/DObjectGlobals.h"
 #include "Threading/RunnableThread.h"
@@ -93,7 +93,7 @@ namespace Durin
 			RequestState->Request = std::move(Request);
 			if (!RequestState->Request.PlatformCache)
 			{
-				if (!ITextureBuildModule::Get()) return 0;
+				if (!ITextureCompressorModule::Get()) return 0;
 			}
 			RequestState->Completion = std::move(Completion);
 			RequestState->EstimatedBytes = EstimateBuildBytes(RequestState->Request);

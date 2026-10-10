@@ -35,10 +35,10 @@ durin_add_native_test(WorldTests
 durin_add_native_test(PhysicsSceneTests
 	KIND feature
 	DOMAINS physics
-	MODULES physics engine static-mesh-build texture-build
+	MODULES physics engine static-mesh-build texture-compressor
 	STACKS editor
 	SOURCES Private/Physics/PhysicsSceneTests.cpp Private/Physics/PhysicsQueryObservabilityTests.cpp
-	LIBRARIES Core CoreDObject Engine PhysicsCore Physics MeshBuilder TextureBuild
+	LIBRARIES Core CoreDObject Engine PhysicsCore Physics MeshBuilder TextureCompressor
 	INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."

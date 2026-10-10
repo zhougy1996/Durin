@@ -65,7 +65,7 @@ durin_add_native_test(VulkanRHIIntegrationTests
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/RenderCore/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
-		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/TextureBuild/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/TextureCompressor/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Public
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Private
 	LIBRARIES
@@ -78,7 +78,7 @@ durin_add_native_test(VulkanRHIIntegrationTests
 		VulkanRHI
 		Vulkan::Vulkan
 		Slang_Imported
-		TextureBuild
+		TextureCompressor
 	RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
 	HEAVY_RUNTIME_RATIONALE "Failure-injection tests must share the test-only state compiled into VulkanRHI."
 	DATA_DIRECTORIES

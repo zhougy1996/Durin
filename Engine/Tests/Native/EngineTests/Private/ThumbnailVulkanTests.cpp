@@ -74,7 +74,7 @@ namespace
 		auto SetUp() -> void override
 		{
 			Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
-			Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+			Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 			InitializeDObjectSystem();
 			Durin::FMountPaths::InitDefaultMountPoints();
 			const auto Root = Durin::Testing::CreateTestFixtureDirectory("ThumbnailVulkan");

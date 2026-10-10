@@ -49,7 +49,7 @@ TEST(FMetalSkyLightingTests, CapturedAndSpecifiedSourcesMatchEnergyAcrossBackend
     ASSERT_TRUE(InitializeAssetCompilingManager());
     ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
     ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
-    ASSERT_TRUE(FModuleManager::Get().LoadModule("TextureBuild"));
+    ASSERT_TRUE(FModuleManager::Get().LoadModule("TextureCompressor"));
     for (const char* BackendName : {"metal", "vulkan"})
     for (const char* Mode : {"inline", "threaded"})
     {

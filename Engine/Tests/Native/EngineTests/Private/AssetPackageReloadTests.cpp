@@ -66,7 +66,7 @@ namespace
 		{
 			ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 			Durin::Testing::InitializeDObjectSystemForTests();
-			Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+			Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 			Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 		}

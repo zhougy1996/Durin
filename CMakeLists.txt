@@ -39,19 +39,19 @@ add_durin_workspace()
 if(TARGET Engine)
 	durin_assert_target_dependency_closure_excludes(Engine
 		MeshBuilder
-		TextureBuild
+		TextureCompressor
 		AssetForgeBuiltins
 		assimp::assimp
 	)
 endif()
 
-if(TARGET TextureBuild)
-	durin_assert_target_dependency_closure_includes(TextureBuild
+if(TARGET TextureCompressor)
+	durin_assert_target_dependency_closure_includes(TextureCompressor
 		DerivedDataCache
 		Engine
 		bc7enc_rdo::bc7enc_rdo
 	)
-	durin_assert_target_dependency_closure_excludes(TextureBuild
+	durin_assert_target_dependency_closure_excludes(TextureCompressor
 		MeshBuilder
 		AssetForgeBuiltins
 		assimp::assimp
@@ -64,7 +64,7 @@ if(TARGET MeshBuilder)
 		Engine
 	)
 	durin_assert_target_dependency_closure_excludes(MeshBuilder
-		TextureBuild
+		TextureCompressor
 		AssetForgeBuiltins
 		assimp::assimp
 		bc7enc_rdo::bc7enc_rdo
@@ -79,7 +79,7 @@ if(TARGET DerivedDataCache)
 	durin_assert_target_dependency_closure_excludes(DerivedDataCache
 		Engine
 		MeshBuilder
-		TextureBuild
+		TextureCompressor
 		DurinEd
 		RHI
 		assimp::assimp
@@ -94,7 +94,7 @@ if(TARGET AssetForgeBuiltins)
 		assimp::assimp
 	)
 	durin_assert_target_dependency_closure_excludes(AssetForgeBuiltins
-		TextureBuild
+		TextureCompressor
 	)
 endif()
 
@@ -111,7 +111,7 @@ if(DURIN_RUNTIME_VARIANT STREQUAL "DurinGame")
 		# Derived builders and offline compressors.
 		MeshBuilder
 		DerivedDataCache
-		TextureBuild
+		TextureCompressor
 		bc7enc_rdo::bc7enc_rdo
 		rgbcx
 		# Concrete source translators and their SDKs.

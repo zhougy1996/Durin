@@ -46,7 +46,7 @@ inline auto EnsureTextureCompilingManager() -> bool
 {
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests()
 		&& !Durin::InitializeAssetCompilingManager()) return false;
-	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	return true;
 }

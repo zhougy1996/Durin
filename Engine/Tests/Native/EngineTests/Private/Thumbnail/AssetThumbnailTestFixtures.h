@@ -317,7 +317,7 @@ namespace Durin::Tests
 	inline auto RegisterAssetThumbnailFixtureMount() -> std::filesystem::path
 	{
 		InitializeDObjectSystem();
-		FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 		const std::filesystem::path Root = GetAssetThumbnailFixtureRoot();
 		Testing::RegisterMountPointForTests(

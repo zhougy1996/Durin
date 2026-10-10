@@ -123,7 +123,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
-	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;

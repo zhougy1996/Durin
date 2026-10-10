@@ -9,7 +9,7 @@ namespace Durin
 	{
 		auto Fail = [](std::string_view Reason) -> std::optional<FTexture2DBuildOutput>
 		{
-			DURIN_ERROR_CATEGORY("TextureBuild", "Texture2D build failed: {}", Reason);
+			DURIN_ERROR_CATEGORY("TextureCompressor", "Texture2D build failed: {}", Reason);
 			return std::nullopt;
 		};
 		if (const auto Validation = ValidateTexture2DBuildSettings(Request.Settings); !Validation)

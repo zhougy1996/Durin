@@ -9,7 +9,7 @@ durin_add_native_test(RoadGraphContractTests
 set(_road_scene_editor_libraries)
 set(_road_scene_rationale)
 if(DURIN_WITH_EDITOR)
-	set(_road_scene_editor_libraries AssetForgeBuiltins TextureBuild)
+	set(_road_scene_editor_libraries AssetForgeBuiltins TextureCompressor)
 	set(_road_scene_rationale HEAVY_RUNTIME_RATIONALE "Loads the checked-in RoadWeaver level and its editor import metadata.")
 endif()
 

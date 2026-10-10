@@ -1,7 +1,7 @@
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/Texture2DBuild.h"
-#include "Texture/ITextureBuildModule.h"
+#include "Texture/ITextureCompressorModule.h"
 
 #include "Texture/TextureDerivedData.h"
 #include "TextureBuildSession.h"
@@ -24,7 +24,7 @@ namespace Durin
 		case ETexture2DBuildError::InvalidBuilderVersion: return "The Texture2D builder descriptor is invalid.";
 		case ETexture2DBuildError::Cancelled: return "Texture2D build was cancelled.";
 		case ETexture2DBuildError::InvalidBuilderProduct: return "Texture2D builder returned invalid platform data.";
-		case ETexture2DBuildError::ModuleUnavailable: return "The TextureBuild module is unavailable.";
+		case ETexture2DBuildError::ModuleUnavailable: return "The TextureCompressor module is unavailable.";
 		}
 		return {};
 	}
@@ -126,7 +126,7 @@ namespace Durin
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::AuthoredBuildUnavailable});
 #else
-		auto* Module = ITextureBuildModule::Get();
+		auto* Module = ITextureCompressorModule::Get();
 		if (!Module) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable});
 		OutIdentity.BuilderVersion = Module->GetTexture2DBuilderVersion();
 		if (!OutIdentity.BuilderVersion)

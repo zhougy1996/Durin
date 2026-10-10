@@ -7,11 +7,11 @@
 
 namespace Durin
 {
-	class ITextureBuildModule;
+	class ITextureCompressorModule;
 	struct FTexture2DBuildKeyInput;
 	namespace TexturePrivate
 	{
-		ENGINE_API auto MakeTexture2DBuildFunction(ITextureBuildModule& Module)
+		ENGINE_API auto MakeTexture2DBuildFunction(ITextureCompressorModule& Module)
 			-> std::shared_ptr<const DerivedData::IBuildFunction>;
 		ENGINE_API auto MakeTexture2DInputResolver(const FTextureSource& Source)
 			-> std::shared_ptr<const DerivedData::IBuildInputResolver>;

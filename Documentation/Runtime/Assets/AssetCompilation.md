@@ -2,7 +2,7 @@
 
 Summary: Define the Engine-owned object-aware compilation aggregate, class routing, and compiler lifetime contract.
 
-Modules: Engine, Launch, TextureBuild, MeshBuilder
+Modules: Engine, Launch, TextureCompressor, MeshBuilder
 
 Last reviewed: 2026-10-05
 
@@ -37,9 +37,9 @@ The built-in compilers are `Durin.Material`, routed from `DMaterial` and `DMater
 `Durin.Texture`, routed from `DTexture`, and `Durin.StaticMesh`, routed from
 `DStaticMesh`. Optional modules may register additional
 compilers and class routes while the aggregate is accepting requests. Runtime Engine does not require
-TextureBuild or DerivedDataCache in Game: editor-enabled Engine optionally links
-DDC, and authoring targets load `TextureBuild` through the Engine-declared
-`ITextureBuildModule` contract. Game deployments retain Engine runtime assets
+TextureCompressor or DerivedDataCache in Game: editor-enabled Engine optionally links
+DDC, and authoring targets load `TextureCompressor` through the Engine-declared
+`ITextureCompressorModule` contract. Game deployments retain Engine runtime assets
 without admitting authored texture builds.
 
 ## Compiler Registration Contract
@@ -109,7 +109,7 @@ concurrency and memory bounds, mailboxes, diagnostics, and timeout policy. The
 aggregate does not add a compilation thread pool. Process shutdown completes
 the aggregate before Core closes task admission.
 
-TextureBuild does not own those scopes or return asynchronous tasks.
+TextureCompressor does not own those scopes or return asynchronous tasks.
 Engine calls its fixed module interface for synchronous value-only build operations.
 The interface includes `Texture2DBuildTypes.h`, `TextureCubeBuildTypes.h`, and
 `VolumeTextureBuildTypes.h`; Cube and Volume CPU data live in their respective
@@ -125,11 +125,11 @@ projection version. DDC keys and Cook inputs retain these versions without a
 producer descriptor or identity string. Volume detached construction returns its
 Engine build product directly, without a separate value wrapper.
 Texture2D and TextureCube PostLoad place build operation work on an Engine-owned worker;
-VolumeTexture remains synchronous. TextureBuild stays resident throughout the editor
+VolumeTexture remains synchronous. TextureCompressor stays resident throughout the editor
 lifetime, so queue entries, platform-cache inputs and scene import workers need no
 module sessions. Consumers stop admission and drain workers before normal module
 shutdown. Texture2D and TextureCube execute shared-output build sessions inline within
-those workers; Volume uses the same protocol synchronously. TextureBuild registers
+those workers; Volume uses the same protocol synchronously. TextureCompressor registers
 the Engine function adapters during module startup. Engine lazily creates the
 texture-family session from the process-wide production `GetBuild()` service;
 there is no explicit Engine asset-build service initialization. Consumers stop

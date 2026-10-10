@@ -19,11 +19,11 @@ the inline adapter executes on the caller, while the task adapter borrows
 the running Core task system. Neither adapter acquires asset memory reservations.
 
 Engine owns the Texture2D, TextureCube, VolumeTexture, StaticMesh render, and
-physics collision function implementations. TextureBuild and MeshBuilder
+physics collision function implementations. TextureCompressor and MeshBuilder
 register their Engine function adapters during module startup; physics registers
 on first use. ShaderBuild owns its shader function.
 Each family owns typed assembly, business-error translation, scheduling,
-reservations, latest-wins checks, and publication. TextureBuild and MeshBuilder
+reservations, latest-wins checks, and publication. TextureCompressor and MeshBuilder
 remain pure recipe modules; ShaderBuild retains compiler scheduling, LRU, and
 single-flight.
 
@@ -258,14 +258,14 @@ it is not part of DDC output or Engine request diagnostics. Their
 version-2 shared-output schemas use fixed indexed value IDs and Compact Binary
 metadata; package/Cook serialization is unchanged.
 
-TextureBuild family entrypoints validate recipe values and select output formats.
+TextureCompressor family entrypoints validate recipe values and select output formats.
 Texture2D and LDR Cube share a resolved mip request and private BC encoding;
 Cube selects one format for all six faces. A single RGBA8 source mip generates
 the complete chain, while supplied chains remain intact. Shared mip recipes
 return detached platform data and metrics only on success, and compression tasks
 drain before borrowed source storage is released. Texture2D, TextureCube, and
 VolumeTexture return optional complete products by value and log failures inside
-TextureBuild; they accept no cancellation control. The external build system owns
+TextureCompressor; they accept no cancellation control. The external build system owns
 cancellation and discards completed products for canceled requests. HDR Cube and Volume retain their
 distinct filtering recipes.
 Cube recipe and canonical pixel inputs distinguish LDR faces from HDR panorama

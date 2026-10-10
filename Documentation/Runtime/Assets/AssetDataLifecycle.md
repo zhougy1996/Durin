@@ -2,7 +2,7 @@
 
 Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
 
-Modules: Engine, RenderCore, DerivedDataCache, MeshBuilder, TextureBuild, AssetForgeBuiltins
+Modules: Engine, RenderCore, DerivedDataCache, MeshBuilder, TextureCompressor, AssetForgeBuiltins
 
 Last reviewed: 2026-10-03
 
@@ -107,7 +107,7 @@ private loading; the caller owns candidate cleanup and PostLoad policy.
 Persistent values use the common archive protocol rather than paired
 direction-named codecs. Runtime `Engine` values own their bidirectional
 `Serialize(FArchive&)` field order and validation for DDC and cooked payloads;
-Developer `TextureBuild` and `MeshBuilder` own normalized
+Developer `TextureCompressor` and `MeshBuilder` own normalized
 source-independent recipes. Engine owns family identity fields, payload codecs,
 editor-only cache policy, diagnostics, and typed application. Texture2D, Cube and Volume use registered shared-output sessions with captured
 byte resolvers and immutable mip/face/voxel blocks. StaticMesh render and physics collision also use separate shared-output sessions;
@@ -154,7 +154,7 @@ using the same sessions to store shared SPIR-V and reflection blocks in
 Machine-local dependency manifests do not enter portable values; see
 [Shader Cache](../Rendering/ShaderCache.md).
 
-MeshBuilder and TextureBuild expose explicit build module interfaces.
+MeshBuilder and TextureCompressor expose explicit build module interfaces.
 Build implementations own algorithm metrics and producer versions.
 Engine owns keys, runtime serialization, DDC policy, and object application;
 recipes retain no cache keys, origin, persistence diagnostics, or live assets.
@@ -296,11 +296,11 @@ payload bytes, but only an explicit cook places them under `Cooked/` ownership.
 ### Optional Asset Operation Boundaries
 
 Runtime Engine owns asset state and typed optional operation contracts:
-`IMeshBuilderModule` and `ITextureBuildModule`.
+`IMeshBuilderModule` and `ITextureCompressorModule`.
 Texture consumers call one fixed module implementation. A missing module is an
 explicit unavailable result.
 
-MeshBuilder and TextureBuild remain resident throughout the editor lifetime.
+MeshBuilder and TextureCompressor remain resident throughout the editor lifetime.
 Consumers borrow the active interfaces directly, including on worker threads;
 normal shutdown stops admission and drains work before shutting down the modules.
 See [Static mesh building](StaticMeshBuilding.md) and
@@ -357,7 +357,7 @@ select synchronous or asynchronous execution. Detached consumers use
 [Static Mesh build contract](StaticMeshBuilding.md).
 `AssetForgeBuiltins` owns only explicit import/reimport providers and editor
 save-readiness policy; Engine, Build, and Cook consumers do not acquire an
-importer dependency. MeshBuilder and TextureBuild remain resident throughout the
+importer dependency. MeshBuilder and TextureCompressor remain resident throughout the
 editor lifetime; consumers stop admission and drain work before module shutdown.
 
 ## Derived Data Cache Objects

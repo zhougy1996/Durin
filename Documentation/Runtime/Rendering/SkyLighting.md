@@ -2,7 +2,7 @@
 
 Summary: Scene-owned Sky Lights consume ordinary HDR cubes or capture a bounded procedural sky and generate transient diffuse/specular lighting on the GPU.
 
-Modules: Engine, Renderer, RenderCore, VulkanRHI, MetalRHI, TextureBuild, DurinEd, Launch
+Modules: Engine, Renderer, RenderCore, VulkanRHI, MetalRHI, TextureCompressor, DurinEd, Launch
 
 Last reviewed: 2026-10-05
 
@@ -108,7 +108,7 @@ contributes neutral black with a diagnostic.
 Checked-in levels, newly created levels, asset previews, and thumbnails use
 normal Sky Light component references. Renderer startup does not load a fixed
 environment asset. `StudioCubeGenerate <Engine/Content>` reproducibly builds
-the retained analytic panorama and ordinary cube using TextureBuild. The sole
+the retained analytic panorama and ordinary cube using TextureCompressor. The sole
 argument selects the output content root; generation writes the Studio cube
 package there. Assign it through the normal Sky Light authoring workflow.
 The one-time level migration command has been removed after content migration
@@ -129,7 +129,7 @@ The former Launch runtime smoke and its per-frame timing hooks have been removed
 Cooked Game establishes the cooked asset domain before asset loading and maps
 normal virtual content roots to read-only directories beneath the executable's
 Cook root. It loads shader libraries and material bytecode without ShaderBuild,
-TextureBuild, or importer modules. Material compiler identity is retained as
+TextureCompressor, or importer modules. Material compiler identity is retained as
 provenance; cooked compatibility checks versions, target, stage/layout contracts,
 and byte hashes. Explicit Cook roots must include runtime-selected defaults
 and native gameplay assets in addition to the level's serialized dependencies.

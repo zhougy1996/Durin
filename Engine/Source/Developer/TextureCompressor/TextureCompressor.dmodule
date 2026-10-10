@@ -1,5 +1,5 @@
 {
-    "ModuleName": "TextureBuild",
+    "ModuleName": "TextureCompressor",
     "LinkType": "Shared",
     "PCH": "SharedPCH_DObject",
     "PrivateDependencies": [

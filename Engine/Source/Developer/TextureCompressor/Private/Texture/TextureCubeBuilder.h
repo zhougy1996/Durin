@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "TextureBuildAPI.h"
+#include "TextureCompressorAPI.h"
 #include "Texture/TextureBuildOutcome.h"
 #include "Texture/TextureCubeBuildTypes.h"
 
@@ -18,10 +18,10 @@ namespace Durin::TextureCubeBuilder
 	using FTexturePanoramaFloatImage = FTextureCubePanoramaFloatImage;
 
 	// Validates linear radiance and the bounded HDR output envelope before allocation.
-	TEXTUREBUILD_API auto ValidateHDRTextureCubePanorama(const FTexturePanoramaFloatImage& Panorama,
+	TEXTURECOMPRESSOR_API auto ValidateHDRTextureCubePanorama(const FTexturePanoramaFloatImage& Panorama,
 		const FTextureCubePanoramaBuildSettings& Settings) -> std::expected<void, FTextureBuildError>;
 	// Builds ordinary radiance mips directly from the retained panorama, without RGBA8 scratch data.
-	TEXTUREBUILD_API auto BuildHDRTextureCube(const Image::FImage& Panorama,
+	TEXTURECOMPRESSOR_API auto BuildHDRTextureCube(const Image::FImage& Panorama,
 		const FTextureCubePanoramaBuildSettings& Settings,
 		FTextureCubePlatformData& OutData) -> std::expected<void, FTextureBuildError>;
 
@@ -34,17 +34,17 @@ namespace Durin::TextureCubeBuilder
 	};
 
 	// Validates the shared 2:1 and allocation contract and resolves the output face dimension.
-	TEXTUREBUILD_API auto ValidateEquirectangularTextureCubeProjection(uint32 Width, uint32 Height,
+	TEXTURECOMPRESSOR_API auto ValidateEquirectangularTextureCubeProjection(uint32 Width, uint32 Height,
 		const FEquirectangularTextureCubeProjectionSettings& Settings, bool bHDR,
 		uint32& OutFaceDimension) -> std::expected<void, FTextureBuildError>;
 
 	// Projects top-left-origin sRGB RGBA8 panorama pixels into the canonical six-face source boundary.
-	TEXTUREBUILD_API auto ProjectEquirectangularTextureCube(const FTexturePanoramaImage& Panorama,
+	TEXTURECOMPRESSOR_API auto ProjectEquirectangularTextureCube(const FTexturePanoramaImage& Panorama,
 		const FEquirectangularTextureCubeProjectionSettings& Settings,
 		FTextureCubeFaceImages& OutSourceData) -> std::expected<void, FTextureBuildError>;
 
 	// Applies exposure and the fixed filmic curve while projecting a linear Radiance HDR panorama.
-	TEXTUREBUILD_API auto ProjectEquirectangularTextureCube(const FTexturePanoramaFloatImage& Panorama,
+	TEXTURECOMPRESSOR_API auto ProjectEquirectangularTextureCube(const FTexturePanoramaFloatImage& Panorama,
 		const FEquirectangularTextureCubeProjectionSettings& Settings,
 		FTextureCubeFaceImages& OutSourceData) -> std::expected<void, FTextureBuildError>;
 }

@@ -40,8 +40,8 @@ if(DURIN_WITH_EDITOR)
 	durin_add_native_test(CookFunctionalTests
 		KIND feature
 		DOMAINS asset-cook
-		MODULES engine texture-build static-mesh-build shader-build
-		LIBRARIES Core CoreDObject Engine TextureBuild MeshBuilder ShaderBuild
+		MODULES engine texture-compressor static-mesh-build shader-build
+		LIBRARIES Core CoreDObject Engine TextureCompressor MeshBuilder ShaderBuild
 		TIMEOUT 600
 		SOURCES Private/CookFunctionalTests.cpp
 	)
@@ -56,8 +56,8 @@ if(DURIN_WITH_EDITOR)
 	durin_add_native_test(AsyncTaskPilotLifecycleTests
 		KIND integration
 		DOMAINS async-task-pilot
-		MODULES engine texture-build
-		LIBRARIES Core CoreDObject Engine TextureBuild MeshBuilder
+		MODULES engine texture-compressor
+		LIBRARIES Core CoreDObject Engine TextureCompressor MeshBuilder
 		SOURCES Private/AsyncTaskPilotLifecycleTests.cpp
 	)
 
@@ -66,8 +66,8 @@ if(DURIN_WITH_EDITOR)
 		durin_add_native_test(AsyncTaskPilotQualificationTests
 			KIND qualification
 			DOMAINS async-task-pilot
-			MODULES engine texture-build
-			LIBRARIES Core CoreDObject Engine TextureBuild MeshBuilder
+			MODULES engine texture-compressor
+			LIBRARIES Core CoreDObject Engine TextureCompressor MeshBuilder
 			SOURCES Private/AsyncTaskPilotQualificationTests.cpp
 		)
 	else()

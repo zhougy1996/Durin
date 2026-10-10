@@ -126,7 +126,7 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(InitializeAssetCompilingManager());
-	FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	Testing::FScopedMountRegistryFixture Mounts;
 	Testing::RegisterMountPointForTests("/Engine/", FPaths::EngineContentDir());
 	const auto Root = Testing::CreateTestFixtureDirectory("ReloadSceneAssets");

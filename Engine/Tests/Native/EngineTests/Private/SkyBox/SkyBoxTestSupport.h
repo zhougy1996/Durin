@@ -120,7 +120,7 @@ namespace
 		InitializeDObjectSystem();
 		if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 			EXPECT_TRUE(Durin::InitializeAssetCompilingManager());
-		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SkyBoxAssets";
 		static std::unordered_set<std::filesystem::path> InitializedRoots;

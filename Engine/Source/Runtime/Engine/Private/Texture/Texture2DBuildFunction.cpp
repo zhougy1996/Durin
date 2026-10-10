@@ -1,6 +1,6 @@
 #include "Texture2DBuildFunction.h"
 #if DURIN_WITH_EDITOR
-#include "Texture/ITextureBuildModule.h"
+#include "Texture/ITextureCompressorModule.h"
 #include "Texture/TextureDerivedData.h"
 #include "TextureDerivedDataKey.h"
 #include "Texture2DSharedOutput.h"
@@ -85,7 +85,7 @@ namespace Durin::TexturePrivate
 		class FTexture2DFunction final : public IBuildFunction
 		{
 		public:
-			explicit FTexture2DFunction(ITextureBuildModule& Module) : Version(Module.GetTexture2DBuilderVersion()) {}
+			explicit FTexture2DFunction(ITextureCompressorModule& Module) : Version(Module.GetTexture2DBuilderVersion()) {}
 			auto GetName() const -> std::string_view override { return "Durin.Texture2D"; }
 			auto GetVersion() const -> uint32 override { return Version; }
 			auto Configure(FBuildConfigContext& Context) const -> void override
@@ -119,11 +119,11 @@ namespace Durin::TexturePrivate
 				if (auto Valid = ValidateTexture2DSourceMips(Mips); !Valid)
 					return Fail(FormatTexture2DInputError(Valid.error()));
 				Input->SourceMips = Mips;
-				auto* Module = ITextureBuildModule::Get();
-				if (!Module) return Fail("The TextureBuild module is unavailable.");
+				auto* Module = ITextureCompressorModule::Get();
+				if (!Module) return Fail("The TextureCompressor module is unavailable.");
 				auto Built = Module->BuildTexture2D(*Input);
 				if (Context.IsCancelled()) return;
-				if (!Built) return Fail("Texture2D build failed; see TextureBuild logs for details.");
+				if (!Built) return Fail("Texture2D build failed; see TextureCompressor logs for details.");
 				auto Output = MakeTexture2DSharedOutput(Built->PlatformData,
 					Input->TargetPlatform, Input->TargetProfile);
 				if (!Output) return Fail(std::move(Output.error()));
@@ -134,7 +134,7 @@ namespace Durin::TexturePrivate
 			uint32 Version;
 		};
 	}
-	auto MakeTexture2DBuildFunction(ITextureBuildModule& Module) -> std::shared_ptr<const IBuildFunction>
+	auto MakeTexture2DBuildFunction(ITextureCompressorModule& Module) -> std::shared_ptr<const IBuildFunction>
 	{ return std::make_shared<FTexture2DFunction>(Module); }
 	auto MakeTexture2DInputResolver(const FTextureSource& Source) -> std::shared_ptr<const IBuildInputResolver>
 	{ return std::make_shared<FTexture2DResolver>(Source); }

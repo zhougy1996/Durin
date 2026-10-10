@@ -90,7 +90,7 @@ outer scope. Identity supplies attribution, not resource ownership.
   modules. It leaves libraries mapped for operating-system reclamation.
 
 `SupportsDynamicReloading()` defaults to `false`. Shutdown during process exit is
-independent of this capability. MeshBuilder and TextureBuild explicitly opt in
+independent of this capability. MeshBuilder and TextureCompressor explicitly opt in
 because their external build sessions retain code leases. ShaderBuild opts in
 to support switching from the drained compiler provider to cooked shader data.
 VulkanRHI opts in because RHI teardown

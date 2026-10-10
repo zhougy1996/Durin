@@ -130,7 +130,7 @@ namespace Durin
 	{
 		auto Fail = [](std::string_view Reason) -> std::optional<FTextureCubePlatformData>
 		{
-			DURIN_ERROR_CATEGORY("TextureBuild", "TextureCube build failed: {}", Reason);
+			DURIN_ERROR_CATEGORY("TextureCompressor", "TextureCube build failed: {}", Reason);
 			return std::nullopt;
 		};
 		if (const auto* HDR = std::get_if<FTextureCubeHDRBuildInput>(&Request.Pixels))

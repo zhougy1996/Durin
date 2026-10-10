@@ -30,7 +30,7 @@
         "AssetForgeBuiltins": "Source/Editor/AssetForgeBuiltins",
         "MeshBuilder": "Source/Developer/MeshBuilder",
         "DerivedDataCache": "Source/Developer/DerivedDataCache",
-        "TextureBuild": "Source/Developer/TextureBuild",
+        "TextureCompressor": "Source/Developer/TextureCompressor",
         "AssetMaintenance": "Source/Developer/AssetMaintenance",
         "ShaderBuild": "Source/Developer/ShaderBuild"
     },
@@ -54,7 +54,7 @@
                 "AssetForgeBuiltins",
                 "MeshBuilder",
                 "DerivedDataCache",
-                "TextureBuild",
+                "TextureCompressor",
                 "AssetMaintenance",
                 "ShaderBuild"
             ]

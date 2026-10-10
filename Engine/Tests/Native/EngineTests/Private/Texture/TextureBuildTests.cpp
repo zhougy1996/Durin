@@ -12,7 +12,7 @@
 #include "Modules/ModuleTestSupport.h"
 #include "Texture/Texture2DBuild.h"
 #include "Texture/Texture2DCompilationTestSupport.h"
-#include "Texture/ITextureBuildModule.h"
+#include "Texture/ITextureCompressorModule.h"
 #include "Texture/TextureCubeBuild.h"
 #include "Texture/TextureDerivedData.h"
 #include "Runtime/Engine/Private/Texture/TextureDerivedDataKey.h"
@@ -538,8 +538,8 @@ TEST(FTexturePlatformDataTests, EnsureDoesNotBuildMissingAuthoredData)
 
 TEST(FTexture2DBuildModuleTests, KeepsProductsValueOwned)
 {
-	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
-	const auto Module = Durin::ITextureBuildModule::Get();
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
+	const auto Module = Durin::ITextureCompressorModule::Get();
 	ASSERT_TRUE(Module);
 	EXPECT_TRUE(Module->GetTexture2DBuilderVersion() != 0);
 	Durin::FTexture2DBuildRequest Request;
@@ -862,7 +862,7 @@ TEST(FTexture2DTests, SamePathReplacementCannotReceiveDestroyedOwnerCompletion)
 TEST(FVolumeTextureTests, RejectsInvalidMipFilterBeforeSourceReplacement)
 {
 	InitializeDObjectSystem();
-	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	Durin::FVolumeTextureSourceData Source{
 		.Width = 1, .Height = 1, .Depth = 1,
 		.Format = Durin::EVolumeTextureFormat::R8_UNORM};
@@ -886,7 +886,7 @@ TEST(FVolumeTextureTests, RejectsInvalidMipFilterBeforeSourceReplacement)
 TEST(FTextureCubeTests, RecipeReturnsValuesAndLogsFailuresOnce)
 {
 	InitializeDObjectSystem();
-	FCacheLogCapture BuildLog("TextureBuild");
+	FCacheLogCapture BuildLog("TextureCompressor");
 	Durin::FTextureCubeFaceImages Faces;
 	const Durin::FTextureCubeBuildInput LDRRequest{
 		.Pixels = Durin::FTextureCubeLDRBuildInput{.FaceImages = std::cref(Faces)}};
@@ -930,7 +930,7 @@ TEST(FTextureCubeTests, RecipeReturnsValuesAndLogsFailuresOnce)
 TEST(FVolumeTextureTests, RecipeReturnsValuesAndLogsFailuresOnce)
 {
 	InitializeDObjectSystem();
-	FCacheLogCapture BuildLog("TextureBuild");
+	FCacheLogCapture BuildLog("TextureCompressor");
 	Durin::FVolumeTextureSourceData Source;
 	EXPECT_FALSE(Durin::BuildVolumeTexture({.SourceData = std::cref(Source)}));
 	ASSERT_EQ(BuildLog.size(), 1u);
@@ -1146,7 +1146,7 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 {
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
-	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "VolumeTextureAssetDdc");
 	Durin::FVolumeTextureSourceData Source{
@@ -1263,7 +1263,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 {
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
-	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "VolumeTextureLargeBlobDdc");
 	Durin::FVolumeTextureSourceData Source;
@@ -2053,7 +2053,7 @@ TEST(FTexture2DTests, CompressedLayoutsCoverNpotAndTailMips)
 TEST(FTexture2DTests, RecipeFailureLogsOnceAndReturnsNoProduct)
 {
 	InitializeDObjectSystem();
-	FCacheLogCapture BuildLog("TextureBuild");
+	FCacheLogCapture BuildLog("TextureCompressor");
 	auto Source = Durin::Image::FImage::TryCreate({.Width = 2, .Height = 2,
 		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(16, std::byte{255}));
 	ASSERT_TRUE(Source);

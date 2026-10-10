@@ -144,7 +144,7 @@ durin_add_native_test(MaterialThumbnailTests
 durin_add_native_test(TextureThumbnailTests
 	KIND feature
 	DOMAINS texture thumbnail
-	MODULES engine texture-build texture-editor
+	MODULES engine texture-compressor texture-editor
 	STACKS editor renderer
 	TIMEOUT 600
 	SOURCES Private/TextureAssetThumbnailTests.cpp
@@ -158,7 +158,7 @@ durin_add_native_test(TextureThumbnailTests
 		DurinEd
 		AssetTools
 		MeshBuilder
-		TextureBuild
+		TextureCompressor
 		AssetForgeBuiltins
 		TextureEditor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -223,7 +223,7 @@ durin_add_native_test(ThumbnailVulkanTests
 		renderer
 		static-mesh-build
 		static-mesh-editor
-		texture-build
+		texture-compressor
 		texture-editor
 		vulkan-rhi
 	BACKENDS vulkan
@@ -260,7 +260,7 @@ durin_add_native_test(ThumbnailVulkanTests
 		StaticMeshEditor
 		TextureEditor
 		MeshBuilder
-		TextureBuild
+		TextureCompressor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."

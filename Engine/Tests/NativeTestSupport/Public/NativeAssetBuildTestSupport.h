@@ -10,7 +10,7 @@ namespace Durin::Testing
 	// Opt-in process-root module setup for native fixtures that execute authored builds.
 	inline auto LoadAssetBuildModulesForTests() -> void
 	{
-		FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	}
 	class FAssetBuildTestEnvironment final : public testing::Environment

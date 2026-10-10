@@ -208,7 +208,7 @@ namespace
 		FQualificationLifetime Lifetime;
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		ASSERT_TRUE(InitializeAssetCompilingManager());
-		FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 
 		(void)StartMeasurement();
 		void* CounterProbe = ::operator new(129);

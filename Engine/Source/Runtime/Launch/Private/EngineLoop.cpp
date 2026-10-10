@@ -126,7 +126,7 @@ namespace Durin
 			return false;
 		}
 #if DURIN_WITH_EDITOR
-		if (!FModuleManager::Get().LoadModule("TextureBuild")
+		if (!FModuleManager::Get().LoadModule("TextureCompressor")
 			|| !FModuleManager::Get().LoadModule("MeshBuilder"))
 		{
 			DURIN_ERROR("Engine pre-initialization failed because asset producer modules could not start.");

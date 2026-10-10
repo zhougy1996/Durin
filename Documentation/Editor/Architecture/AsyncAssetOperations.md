@@ -2,7 +2,7 @@
 
 Summary: Define completion, compensation, and UI ownership for nonblocking editor asset mutations.
 
-Modules: TextureBuild, AssetForgeBuiltins, DurinEd, TextureEditor, StaticMeshEditor, Engine
+Modules: TextureCompressor, AssetForgeBuiltins, DurinEd, TextureEditor, StaticMeshEditor, Engine
 
 Last reviewed: 2026-10-05
 
@@ -129,7 +129,7 @@ on success and preserves the existing object/garbage-collection ownership.
 For direct Texture2D source selection:
 
 - AssetForgeBuiltins captures the selected file without mutating it.
-- TextureBuild prepares a detached Texture2D platform-data candidate.
+- TextureCompressor prepares a detached Texture2D platform-data candidate.
 - Engine rechecks request/object/source/settings identity before the first live
   mutation, then applies explicit source/settings/platform setters and calls
   `DTexture::UpdateResource()`.

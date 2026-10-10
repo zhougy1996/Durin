@@ -3,7 +3,7 @@
 #include "Runtime/Engine/Private/Texture/VolumeTextureBuildFunction.h"
 #include "Runtime/Engine/Private/Texture/Texture2DBuildFunction.h"
 #include "DerivedDataBuildSession.h"
-#include "Texture/ITextureBuildModule.h"
+#include "Texture/ITextureCompressorModule.h"
 #include "Texture/Texture2DBuildTypes.h"
 #include "TextureTestSupport.h"
 

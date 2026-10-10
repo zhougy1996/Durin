@@ -209,7 +209,7 @@ installation remains a separate owner transaction.
 
 DurinEditor and Cook-capable tools select ShaderBuild. Its resident
 `IShaderBuildModule` is the only live-build path; module absence is an explicit
-authored failure. Like MeshBuilder and TextureBuild, it does not support runtime
+authored failure. Like MeshBuilder and TextureCompressor, it does not support runtime
 unloading. Consumers drain their work before normal module shutdown releases
 compiler and Shader-data state. The module owns a private `FShaderBuilder`;
 its instance contains compiler/cache state and is also passed to cooked-library

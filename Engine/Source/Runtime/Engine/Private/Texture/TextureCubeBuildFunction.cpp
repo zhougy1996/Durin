@@ -1,6 +1,6 @@
 #include "TextureCubeBuildFunction.h"
 #if DURIN_WITH_EDITOR
-#include "Texture/ITextureBuildModule.h"
+#include "Texture/ITextureCompressorModule.h"
 #include "Texture/TextureCube.h"
 #include "TexturePlatformSharedOutput.h"
 
@@ -115,7 +115,7 @@ namespace Durin::TexturePrivate
 		class FCubeFunction final : public IBuildFunction
 		{
 		public:
-			explicit FCubeFunction(ITextureBuildModule& Module) : Version(Module.GetTextureCubeBuilderVersion()), Projection(Module.GetTextureCubeProjectionVersion()) {}
+			explicit FCubeFunction(ITextureCompressorModule& Module) : Version(Module.GetTextureCubeBuilderVersion()), Projection(Module.GetTextureCubeProjectionVersion()) {}
 			auto GetName() const -> std::string_view override { return "Durin.TextureCube"; }
 			auto GetVersion() const -> uint32 override { return Version; }
 			auto Configure(FBuildConfigContext& Context) const -> void override
@@ -149,15 +149,15 @@ namespace Durin::TexturePrivate
 					if (HDR) Panorama = std::move(*Image); else Faces.Faces[Index] = std::move(*Image);
 				}
 				Faces.SourceChannelCount = static_cast<uint8>(Channels); Faces.TransparencyMask = static_cast<uint8>(Transparency);
-				auto* Module = ITextureBuildModule::Get();
-				if (!Module) return Fail("The TextureBuild module is unavailable.");
+				auto* Module = ITextureCompressorModule::Get();
+				if (!Module) return Fail("The TextureCompressor module is unavailable.");
 				FTextureCubeBuildInput Request{.Pixels = FTextureCubeLDRBuildInput{.FaceImages = std::cref(Faces), .bSRGB = Options->bSRGB},
 					.TargetPlatform = Options->TargetPlatform, .TargetProfile = Options->TargetProfile};
 				if (HDR) Request.Pixels = FTextureCubeHDRBuildInput{.Panorama = std::cref(Panorama),
 					.FaceDimension = Options->FaceDimension, .ExposureEV = Options->ExposureEV};
 				auto Built = Module->BuildTextureCube(Request);
 				if (Context.IsCancelled()) return;
-				if (!Built) return Fail("TextureCube build failed; see TextureBuild logs for details.");
+				if (!Built) return Fail("TextureCube build failed; see TextureCompressor logs for details.");
 				auto Output = MakeTextureCubeSharedOutput(*Built, Options->TargetPlatform, Options->TargetProfile);
 				if (!Output) return Fail(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
@@ -167,7 +167,7 @@ namespace Durin::TexturePrivate
 			uint32 Version, Projection;
 		};
 	}
-	auto MakeTextureCubeBuildFunction(ITextureBuildModule& Module) -> std::shared_ptr<const IBuildFunction>
+	auto MakeTextureCubeBuildFunction(ITextureCompressorModule& Module) -> std::shared_ptr<const IBuildFunction>
 	{ return std::make_shared<FCubeFunction>(Module); }
 	auto MakeTextureCubeInputResolver(const FTextureSource& Source, const FTextureCubeCanonicalBuildInput* Prepared) -> std::shared_ptr<const IBuildInputResolver>
 	{ return std::make_shared<FCubeResolver>(Source, Prepared); }

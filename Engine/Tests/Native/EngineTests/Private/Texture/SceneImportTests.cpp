@@ -89,7 +89,7 @@ namespace
 		-> FSceneFixture
 	{
 		InitializeDObjectSystem();
-		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 		auto RenderingThread =

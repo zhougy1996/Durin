@@ -9,7 +9,10 @@ Completed: 2026-10-10
 
 ## Current Status
 
-Stages 0-4 are complete. The module remains named `TextureBuild`. Shared mip
+Stages 0-4 are complete. At completion, the module remained named `TextureBuild`.
+A subsequent rename changed the module and its interface to `TextureCompressor`
+and `ITextureCompressorModule`; the decisions and validation below retain their
+historical names. Shared mip
 requests/results, private BC encoding, one metrics value type, and distinct
 LDR/HDR Cube alternatives are implemented. Module registration, source/payload
 representations, builder/projection versions, and DDC key definitions are unchanged.

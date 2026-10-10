@@ -1,7 +1,7 @@
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/TextureCubeBuild.h"
-#include "Texture/ITextureBuildModule.h"
+#include "Texture/ITextureCompressorModule.h"
 
 #include "Texture/TextureDerivedData.h"
 #include "TextureDerivedDataKey.h"
@@ -21,9 +21,9 @@ namespace Durin
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Module, "TextureCube authored build orchestration is unavailable outside editor builds."});
 #else
-		auto* Module = ITextureBuildModule::Get();
+		auto* Module = ITextureCompressorModule::Get();
 		if (!Module) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
-			ETextureBuildStage::Module, "The TextureBuild module is unavailable."});
+			ETextureBuildStage::Module, "The TextureCompressor module is unavailable."});
 		const uint32 BuilderVersion = Module->GetTextureCubeBuilderVersion();
 		if (BuilderVersion == 0 || Module->GetTextureCubeProjectionVersion() == 0)
 		{

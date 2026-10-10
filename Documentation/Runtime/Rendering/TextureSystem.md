@@ -169,9 +169,9 @@ fallback.
 `std::expected<void, FTexture2DInputError>` without diagnostic outputs. Errors own
 rejected settings, mip index, image descriptors and accumulated bytes with distinct
 failure reasons.
-`ITextureBuildModule::BuildTexture2D` returns
+`ITextureCompressorModule::BuildTexture2D` returns
 `std::optional<FTexture2DBuildOutput>` by value. It logs a failure once inside
-TextureBuild and returns no partial product. The synchronous recipe accepts no
+TextureCompressor and returns no partial product. The synchronous recipe accepts no
 cancellation control; Engine adapters own derived-data policy and cancellation.
 `BuildTextureCube` and `BuildVolumeTexture` follow the same contract, returning
 `std::optional<FTextureCubePlatformData>` and
@@ -192,8 +192,8 @@ Engine registers `DTexture` to the `Durin.Texture` manager in its
 Engine captures definitions and immutable inputs, then executes the texture-family
 shared-output session. DDC owns record lookup, integrity validation, fallback,
 and best-effort persistence; Engine owns typed output assembly and application.
-Registered Engine functions invoke TextureBuild's pure synchronous module on a
-cache miss. TextureBuild stays resident until editor shutdown; consumers drain
+Registered Engine functions invoke TextureCompressor's pure synchronous module on a
+cache miss. TextureCompressor stays resident until editor shutdown; consumers drain
 work before module unload. See the
 [shared build protocol](../Assets/DerivedDataBuild.md#family-boundaries).
 `FTextureCompilingManager` directly owns two

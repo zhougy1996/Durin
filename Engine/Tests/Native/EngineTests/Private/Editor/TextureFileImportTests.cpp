@@ -71,7 +71,7 @@ TEST(FTextureFileImportTests, ImportsNormalSavesAndChoosesAvailableNames)
 {
 	InitializeDObjectSystem();
 	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
-	FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	const auto Root = Testing::GetTestWorkDirectory() / "TextureFileImport";
 	std::filesystem::create_directories(Root / "Content");
 	Testing::RegisterMountPointForTests("/TextureFileImport/", (Root / "Content").generic_string() + "/");
@@ -182,7 +182,7 @@ namespace
 			if (!GetGameThreadDeferredWorkQueueDiagnostics().bInstalled) ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 			PackageSavePrivate::SetAsyncSaveAdmission(true);
 			if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
-			FModuleManager::Get().LoadModuleChecked("TextureBuild");
+			FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 			const std::string TestName = testing::UnitTest::GetInstance()->current_test_info()->name();
 			Root = Testing::CreateTestFixtureDirectory(TestName);
 			Destination = "/" + TestName + "/";

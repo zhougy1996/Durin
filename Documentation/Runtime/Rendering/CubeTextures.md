@@ -2,7 +2,7 @@
 
 Summary: Define cube-texture assets, source capture, platform payloads, upload, and rendering use.
 
-Modules: Engine, AssetForgeBuiltins, TextureBuild, Renderer, RHI
+Modules: Engine, AssetForgeBuiltins, TextureCompressor, Renderer, RHI
 
 Last reviewed: 2026-10-03
 
@@ -14,19 +14,19 @@ values, serialization, editor-only DDC orchestration, Cooked loading, detached r
 resources. `AssetForge/Builtins/TextureCubeImport.h` owns validation,
 format admission, typed source translation, direct import/reimport, package
 save, and failure handling. One immutable source capture supplies the
-bytes, hash, size, path, and fingerprint used by each operation. TextureBuild
+bytes, hash, size, path, and fingerprint used by each operation. TextureCompressor
 owns source-independent face/panorama recipes and recipe versions behind
-`ITextureBuildModule`. Engine owns typed request variants, canonical
+`ITextureCompressorModule`. Engine owns typed request variants, canonical
 decoded values, DDC keys and Get/Put policy, derived-only result validation,
 uncooked PostLoad, object result application, diagnostics, and resource invalidation. AssetForgeBuiltins captures
 and translates physical sources through Engine contracts and has no compile-time
-TextureBuild dependency.
+TextureCompressor dependency.
 
 Six-face decoding, LDR panorama projection, and recipe requests use
 `FTextureCubeFaceImages`: six shared RGBA8 images, one common source channel
 count, and a per-face transparency mask, with a 512 MiB aggregate pixel limit.
 Import translation rejects channel-count mismatches before producing this value.
-The image collection and texture-build module interface are available only with
+The image collection and `ITextureCompressorModule` interface are available only with
 `DURIN_WITH_EDITORONLY_DATA`; cooked runtime consumes platform data. The collection
 has no reflected fields, bulk storage, schema, or independent content identity. `ReadTextureCubeFaces`
 reads the installed `FTextureSource` and returns images sharing its decoded

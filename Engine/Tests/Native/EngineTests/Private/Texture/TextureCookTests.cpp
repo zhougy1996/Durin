@@ -126,7 +126,7 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
-	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	std::string Error;
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureColdAuthoredCook";

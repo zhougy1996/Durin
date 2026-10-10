@@ -1,0 +1,3 @@
+add_durin_module(TextureCompressor)
+
+target_link_libraries(TextureCompressor PRIVATE bc7enc_rdo::bc7enc_rdo)

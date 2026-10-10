@@ -156,7 +156,7 @@ durin_add_native_test(TextureImportWorkflowTests
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private
-	LIBRARIES Core CoreDObject Engine AssetTools AssetForgeBuiltins DurinEd TextureBuild MeshBuilder
+	LIBRARIES Core CoreDObject Engine AssetTools AssetForgeBuiltins DurinEd TextureCompressor MeshBuilder
 		bc7enc_rdo::bc7enc_rdo
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Exercises editor-only texture factories and import policy."
@@ -206,7 +206,7 @@ durin_add_native_test(ContentBrowserWorkflowTests
 		DurinEd
 		AssetTools
 		MeshBuilder
-		TextureBuild
+		TextureCompressor
 		AssetForgeBuiltins
 		bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -676,7 +676,7 @@ durin_add_native_test(MaterialPackageTests
 		StaticMeshEditor
 		TextureEditor
 		MeshBuilder
-		TextureBuild
+		TextureCompressor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -745,7 +745,7 @@ durin_add_native_test(StaticMeshTests
 		Engine
 		AssetTools
 		MeshBuilder
-		TextureBuild
+		TextureCompressor
 		AssetForgeBuiltins
 		RenderCore
 		Renderer
@@ -788,7 +788,7 @@ durin_add_native_test(StaticMeshMaterialTests
 		Engine
 		AssetTools
 		MeshBuilder
-		TextureBuild
+		TextureCompressor
 		AssetForgeBuiltins
 		RenderCore
 		Renderer
@@ -818,7 +818,7 @@ durin_add_native_test(StaticMeshBuildQualificationTests
 	STACKS renderer
 	TIMEOUT 600
 	SOURCES Private/StaticMeshBuildQualificationTests.cpp
-	LIBRARIES Core CoreDObject Engine MeshBuilder TextureBuild AssetForgeBuiltins RenderCore Renderer
+	LIBRARIES Core CoreDObject Engine MeshBuilder TextureCompressor AssetForgeBuiltins RenderCore Renderer
 	INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -830,7 +830,7 @@ durin_add_native_test(StaticMeshBuildQualificationTests
 set(_durin_texture_test_include_directories
 	${CMAKE_CURRENT_SOURCE_DIR}/Private
 	${DURIN_PROJECT_ROOT_DIR}/Source
-	${DURIN_PROJECT_ROOT_DIR}/Source/Developer/TextureBuild/Private
+	${DURIN_PROJECT_ROOT_DIR}/Source/Developer/TextureCompressor/Private
 	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetForgeBuiltins/Private
 )
 set(_durin_texture_test_libraries
@@ -839,7 +839,7 @@ set(_durin_texture_test_libraries
 	AssetTools
 	Engine
 	MeshBuilder
-	TextureBuild
+	TextureCompressor
 	AssetForgeBuiltins
 	TextureEditor
 	RenderCore

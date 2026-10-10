@@ -25,7 +25,7 @@ namespace Durin::TexturePrivate
 		}
 	}
 
-	auto RegisterBuildFunctions(ITextureBuildModule& Module) -> void
+	auto RegisterBuildFunctions(ITextureCompressorModule& Module) -> void
 	{
 		static std::once_flag Once;
 		std::call_once(Once, [&] {
@@ -45,7 +45,7 @@ namespace Durin::TexturePrivate
 		const std::string FunctionName(Definition.GetFunctionName());
 		auto Reject = [&](std::string_view Description) -> std::optional<DerivedData::FBuildCompleteParams>
 		{
-			DURIN_ERROR_CATEGORY("TextureBuild", "{} request failed: {}", FunctionName, Description);
+			DURIN_ERROR_CATEGORY("TextureCompressor", "{} request failed: {}", FunctionName, Description);
 			return std::nullopt;
 		};
 		if (Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(

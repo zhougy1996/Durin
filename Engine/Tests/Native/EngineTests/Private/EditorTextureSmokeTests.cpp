@@ -74,7 +74,7 @@ namespace Durin
 		OrdinaryGraphRendersReloadsAndResavesDeterministically)
 	{
 		InitializeDObjectSystem();
-		FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 		FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		InitRenderingThread();
@@ -263,7 +263,7 @@ namespace Durin
 		MaterialSnapshotSurvivesTextureReplacementProxyClosureAndAssetUnload)
 	{
 		InitializeDObjectSystem();
-		FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 		FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		InitRenderingThread();
@@ -418,7 +418,7 @@ namespace Durin
 		TextureUnloadBehindQueuedCommandReturnsResourceCountsToBaseline)
 	{
 		InitializeDObjectSystem();
-		FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		InitRenderingThread();
 		const size_t InitialRenderResourceCount =
 			GetNumInitializedRenderResources();

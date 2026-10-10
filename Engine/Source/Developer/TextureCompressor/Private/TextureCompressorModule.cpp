@@ -1,4 +1,4 @@
-#include "Texture/ITextureBuildModule.h"
+#include "Texture/ITextureCompressorModule.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureCubeBuildOperations.h"
 #include "Texture/TextureDerivedData.h"
@@ -6,7 +6,7 @@
 
 namespace Durin
 {
-	class FTextureBuildModule final : public ITextureBuildModule
+	class FTextureCompressorModule final : public ITextureCompressorModule
 	{
 	public:
 		// Resident until normal editor shutdown; dynamic reloading is unsupported.
@@ -49,5 +49,5 @@ namespace Durin
 		}
 	};
 
-	IMPLEMENT_MODULE(FTextureBuildModule, TextureBuild)
+	IMPLEMENT_MODULE(FTextureCompressorModule, TextureCompressor)
 }

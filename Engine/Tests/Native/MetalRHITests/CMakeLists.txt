@@ -38,11 +38,11 @@ durin_add_native_test(MetalRHIHeadlessTests
 durin_add_native_test(MetalSkyLightingTests
     KIND qualification
     DOMAINS renderer sky-box
-    MODULES renderer engine texture-build
+    MODULES renderer engine texture-compressor
     BACKENDS metal vulkan
     STACKS editor renderer
     SOURCES Private/MetalSkyLightingTests.cpp
-    LIBRARIES Core CoreDObject Engine RenderCore Renderer TextureBuild AssetTools MetalRHI VulkanRHI
+    LIBRARIES Core CoreDObject Engine RenderCore Renderer TextureCompressor AssetTools MetalRHI VulkanRHI
     INCLUDE_DIRECTORIES
         "${CMAKE_SOURCE_DIR}/Engine/Tests/Native/EngineTests/Private"
         "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private"

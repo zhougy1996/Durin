@@ -1,10 +1,10 @@
 durin_add_native_test(TextureTests
 	REQUIRES editor
 	REQUIREMENT_RATIONALE
-		"Texture processing and scene import require TextureBuild and AssetForgeBuiltins editor services."
+		"Texture processing and scene import require TextureCompressor and AssetForgeBuiltins editor services."
 	KIND feature
 	DOMAINS asset-workflow texture
-	MODULES asset-tools engine texture-build static-mesh-build asset-forge-builtins texture-editor
+	MODULES asset-tools engine texture-compressor static-mesh-build asset-forge-builtins texture-editor
 	STACKS editor
 	TIMEOUT 600
 	SOURCES
@@ -27,11 +27,11 @@ durin_add_native_test(TextureTests
 durin_add_native_test(TextureCompressionQualificationTests
 	KIND qualification
 	DOMAINS texture
-	MODULES texture-build
+	MODULES texture-compressor
 	STACKS editor
 	SOURCES Private/Texture/TextureCompressionQualificationTests.cpp
 	INCLUDE_DIRECTORIES ${_durin_texture_test_include_directories}
-	LIBRARIES Core CoreDObject Engine TextureBuild
+	LIBRARIES Core CoreDObject Engine TextureCompressor
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Measures the editor-only CPU texture compression provider."
 	TIMEOUT 600
@@ -40,7 +40,7 @@ durin_add_native_test(TextureCompressionQualificationTests
 durin_add_native_test(DerivedDataTextureQualificationTests
 	KIND qualification
 	DOMAINS texture derived-data
-	MODULES engine texture-build
+	MODULES engine texture-compressor
 	SOURCES
 		Private/Texture/DerivedDataTextureQualificationTests.cpp
 	PRIVATE_SOURCES
@@ -50,7 +50,7 @@ durin_add_native_test(DerivedDataTextureQualificationTests
 	PRIVATE_SOURCE_RATIONALE "Measures the Engine-owned captured Cube source boundary and its private session dependency without exporting test-only DLL symbols."
 	INCLUDE_DIRECTORIES ${_durin_texture_test_include_directories}
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/Engine/Private
-	LIBRARIES Core CoreDObject Engine TextureBuild MeshBuilder DerivedDataCache
+	LIBRARIES Core CoreDObject Engine TextureCompressor MeshBuilder DerivedDataCache
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Measures cold and warm authored texture build boundaries using isolated caches."
 	TIMEOUT 600
@@ -59,15 +59,15 @@ durin_add_native_test(DerivedDataTextureQualificationTests
 durin_add_native_test(SceneImportTests
 	REQUIRES editor
 	REQUIREMENT_RATIONALE
-		"Texture processing and scene import require TextureBuild and AssetForgeBuiltins editor services."
+		"Texture processing and scene import require TextureCompressor and AssetForgeBuiltins editor services."
 	KIND integration
 	DOMAINS asset-import
-	MODULES engine texture-build asset-forge-builtins content-browser
+	MODULES engine texture-compressor asset-forge-builtins content-browser
 	STACKS editor
 	TIMEOUT 600
 	SOURCES Private/Texture/SceneImportTests.cpp
 	INCLUDE_DIRECTORIES ${_durin_texture_test_include_directories}
-	LIBRARIES ShaderBuild ${_durin_texture_test_libraries} TextureBuild ContentBrowser bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ShaderBuild ${_durin_texture_test_libraries} TextureCompressor ContentBrowser bc7enc_rdo::bc7enc_rdo
 	HEAVY_RUNTIME_RATIONALE
 		"Exercises editor scene-import publication and rollback across runtime asset families."
 	DATA_DIRECTORIES "${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport"
