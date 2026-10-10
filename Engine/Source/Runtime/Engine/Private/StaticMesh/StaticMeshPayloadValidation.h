@@ -37,8 +37,22 @@ namespace Durin::StaticMeshPrivate
 			&& static_cast<double>(static_cast<float>(Bounds.Max.z)) == Bounds.Max.z;
 	}
 
+	struct FStaticMeshPayloadBounds
+	{
+		struct FLOD
+		{
+			FBox LocalBounds;
+			std::vector<FBox> Sections;
+		};
+		FBox LocalBounds;
+		std::vector<FLOD> LODs;
+	};
+
+	// Optional geometry bounds are computed within the validation scans. Callers
+	// may consume them only after validation succeeds.
 	template<typename TPayload>
-	auto ValidatePayload(const TPayload& Payload, AssetPrivate::FPayloadBuildControl& Control) -> std::expected<void, FStaticMeshPayloadError>
+	auto ValidatePayload(const TPayload& Payload, AssetPrivate::FPayloadBuildControl& Control,
+		FStaticMeshPayloadBounds* Bounds = nullptr) -> std::expected<void, FStaticMeshPayloadError>
 	{
 		FStaticMeshPayloadError Error;
 		const auto Reject = [&](EStaticMeshPayloadError Code, uint64 Actual = 0, uint64 Expected = 0) {
@@ -53,6 +67,11 @@ namespace Durin::StaticMeshPrivate
 			return Reject(EStaticMeshPayloadError::MaterialSlotCount, Payload.MaterialSlotCount, MaximumMeshMaterialSlots);
 		if (Payload.LODs.empty() || Payload.LODs.size() > MaximumStaticMeshLODs)
 			return Reject(EStaticMeshPayloadError::LODCount, Payload.LODs.size(), MaximumStaticMeshLODs);
+		if (Bounds)
+		{
+			*Bounds = {};
+			Bounds->LODs.resize(Payload.LODs.size());
+		}
 
 		uint64 EncodedSizeUpperBound = StaticMeshPayloadHeaderSize
 			+ StaticMeshPayloadRequiredChunkCount * StaticMeshPayloadChunkEntrySize
@@ -78,6 +97,8 @@ namespace Durin::StaticMeshPrivate
 				return Reject(EStaticMeshPayloadError::IndexCount, IndexCount, MaximumStaticMeshIndicesPerLOD);
 			if (LOD.Sections.empty() || LOD.Sections.size() > MaximumStaticMeshSectionsPerLOD)
 				return Reject(EStaticMeshPayloadError::SectionCount, LOD.Sections.size(), MaximumStaticMeshSectionsPerLOD);
+			auto* LODBounds = Bounds ? &Bounds->LODs[LODIndex] : nullptr;
+			if (LODBounds) LODBounds->Sections.resize(LOD.Sections.size());
 			if (LOD.NumTexCoords > MaxStaticMeshUVChannels)
 				return Reject(EStaticMeshPayloadError::UVChannelCount, LOD.NumTexCoords, MaxStaticMeshUVChannels);
 			const uint64 LODPayloadBytes = 4ull + static_cast<uint64>(LOD.Sections.size()) * 44ull
@@ -105,14 +126,19 @@ namespace Durin::StaticMeshPrivate
 			}
 			if (LOD.Colors.size() != (LOD.bHasVertexColors ? VertexCount : 0))
 				return Reject(EStaticMeshPayloadError::ColorStreamCount, LOD.Colors.size(), LOD.bHasVertexColors ? VertexCount : 0);
-			const auto CheckStream = [&](const auto& Values, EStaticMeshPayloadStream Stream) {
+			const auto CheckStream = [&](const auto& Values, EStaticMeshPayloadStream Stream, FBox* StreamBounds = nullptr) {
 				for (size_t Index = 0; Index < Values.size(); ++Index)
 				{
 					Control.Tick();
-					if (IsFinite(Values[Index])) continue;
+					const auto Value = Values[Index];
+					if (IsFinite(Value))
+					{
+						if constexpr (std::is_same_v<std::remove_cvref_t<decltype(Value)>, FVector3f>)
+							if (StreamBounds) StreamBounds->AddPoint(FVector3(Value));
+						continue;
+					}
 					Error.Stream = Stream;
 					Error.ElementIndex = Index;
-					const auto& Value = Values[Index];
 					Error.Value = FVector4(Value.x, Value.y, 0, 0);
 					if constexpr (requires { Value.z; }) Error.Value.z = Value.z;
 					if constexpr (requires { Value.w; }) Error.Value.w = Value.w;
@@ -120,7 +146,7 @@ namespace Durin::StaticMeshPrivate
 				}
 				return true;
 			};
-			if (!CheckStream(LOD.Positions, EStaticMeshPayloadStream::Position)
+			if (!CheckStream(LOD.Positions, EStaticMeshPayloadStream::Position, LODBounds ? &LODBounds->LocalBounds : nullptr)
 				|| !CheckStream(LOD.Normals, EStaticMeshPayloadStream::Normal)
 				|| !CheckStream(LOD.Tangents, EStaticMeshPayloadStream::Tangent)
 				|| !CheckStream(LOD.Colors, EStaticMeshPayloadStream::Color))
@@ -168,8 +194,10 @@ namespace Durin::StaticMeshPrivate
 				for (uint64 IndexOffset = Section.FirstIndex; IndexOffset < SectionEnd; ++IndexOffset)
 				{
 					Control.Tick();
-					ActualMinimum = std::min(ActualMinimum, LOD.Indices[static_cast<size_t>(IndexOffset)]);
-					ActualMaximum = std::max(ActualMaximum, LOD.Indices[static_cast<size_t>(IndexOffset)]);
+					const uint32 VertexIndex = LOD.Indices[static_cast<size_t>(IndexOffset)];
+					ActualMinimum = std::min(ActualMinimum, VertexIndex);
+					ActualMaximum = std::max(ActualMaximum, VertexIndex);
+					if (LODBounds) LODBounds->Sections[SectionIndex].AddPoint(FVector3(LOD.Positions[VertexIndex]));
 				}
 				if (ActualMinimum != Section.MinVertexIndex || ActualMaximum != Section.MaxVertexIndex)
 				{
@@ -183,6 +211,11 @@ namespace Durin::StaticMeshPrivate
 			Error.Section.reset();
 			if (CoveredIndices != IndexCount)
 				return Reject(EStaticMeshPayloadError::IncompleteCoverage, CoveredIndices, IndexCount);
+			if (LODBounds)
+			{
+				Bounds->LocalBounds.AddPoint(LODBounds->LocalBounds.Min);
+				Bounds->LocalBounds.AddPoint(LODBounds->LocalBounds.Max);
+			}
 		}
 		if (Payload.LODs.back().ScreenSize != 0.0f) return Reject(EStaticMeshPayloadError::FinalScreenSize);
 		return {};

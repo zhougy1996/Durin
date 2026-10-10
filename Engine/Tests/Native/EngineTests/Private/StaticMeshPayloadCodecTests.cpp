@@ -1411,6 +1411,46 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRetainsEveryColdStreamAndOutlives
 	EXPECT_EQ(Again.IndexBuffer.GetIndices().data(), Indices);
 }
 
+TEST(FStaticMeshPayloadCodecTests, SharedOutputRepairsBoundsDuringValidationForNativeAndSerializedStreams)
+{
+	for (bool Serialized : {false, true})
+	{
+		auto Payload = MakeMultiLODFixture(2);
+		auto& Lowest = Payload.LODs.back();
+		// LOD and mesh bounds include unreferenced vertices; section bounds do not.
+		Lowest.Positions.push_back(FVector3f(9, -8, 4));
+		Lowest.Normals.push_back(Lowest.Normals.front());
+		Lowest.Tangents.push_back(Lowest.Tangents.front());
+		Lowest.TexCoords[0].push_back(Lowest.TexCoords[0].front());
+		auto Product = MakeRecipeRenderData(std::move(Payload));
+		Product->LocalBounds = FBox(FVector3(100), FVector3(101));
+		for (auto& LOD : Product->LODResources)
+		{
+			LOD.LocalBounds = Product->LocalBounds;
+			for (auto& Section : LOD.Sections) Section.LocalBounds = Product->LocalBounds;
+		}
+		auto Output = StaticMeshPrivate::MakeSharedOutput(std::move(Product), 2);
+		ASSERT_TRUE(Output) << Output.error();
+		if (Serialized)
+		{
+			auto Copy = CopyOutputDescriptors(*Output);
+			for (auto& [Id, Value] : Copy.Values) Value = FSharedByteBuffer::Copy(Value.GetBytes());
+			Output = std::move(Copy).Build();
+			ASSERT_TRUE(Output) << Output.error();
+		}
+		auto Render = StaticMeshPrivate::AssembleSharedOutput(*Output);
+		ASSERT_TRUE(Render) << Render.error();
+		EXPECT_EQ((*Render)->LocalBounds.Min, FVector3(-1, -8, 0));
+		EXPECT_EQ((*Render)->LocalBounds.Max, FVector3(9, 1, 4));
+		const auto& LowestLOD = (*Render)->LODResources.back();
+		EXPECT_EQ(LowestLOD.LocalBounds.Min, FVector3(0, -8, 0));
+		EXPECT_EQ(LowestLOD.LocalBounds.Max, FVector3(9, 0.5, 4));
+		EXPECT_EQ(LowestLOD.Sections.front().LocalBounds.Min, FVector3(0));
+		EXPECT_EQ(LowestLOD.Sections.front().LocalBounds.Max, FVector3(0.5, 0.5, 0));
+		EXPECT_EQ((*Render)->LODResources.front().Sections.front().LocalBounds.Max, FVector3(0, 1, 0));
+	}
+}
+
 TEST(FStaticMeshPayloadCodecTests, IndependentlyBuiltOutputIsValidatedDuringAssembly)
 {
 	using namespace DerivedData;

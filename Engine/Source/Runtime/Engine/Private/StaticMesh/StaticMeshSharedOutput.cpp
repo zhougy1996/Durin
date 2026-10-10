@@ -60,6 +60,7 @@ namespace Durin::StaticMeshPrivate
 		struct FSections
 		{
 			FSharedByteBuffer Block;
+			std::vector<FBox> GeometryBounds;
 			auto size() const -> size_t { return Block.GetSize() / SectionBytes; }
 			auto empty() const -> bool { return size() == 0; }
 			auto operator[](size_t Index) const -> FStaticMeshPayloadSection
@@ -70,6 +71,7 @@ namespace Durin::StaticMeshPrivate
 				Reader.ReadU32(Result.MinVertexIndex); Reader.ReadU32(Result.MaxVertexIndex); Reader.ReadU32(Result.MaterialSlotIndex);
 				// Bounds validity is checked by the common validator, including the valid bit.
 				Result.LocalBounds.bIsValid = ReadBounds(Reader, Result.LocalBounds);
+				if (!GeometryBounds.empty()) Result.LocalBounds = GeometryBounds[Index];
 				return Result;
 			}
 		};
@@ -148,7 +150,14 @@ namespace Durin::StaticMeshPrivate
 			}
 			if (!Reader.IsAtEnd() || Output.GetValues().size() != ValueCount)
 				return std::unexpected("StaticMesh output contains extra metadata or streams.");
-			if (auto Valid = ValidatePayload(Layout, Control); !Valid) return std::unexpected(FormatStaticMeshPayloadError(Valid.error()));
+			FStaticMeshPayloadBounds Bounds;
+			if (auto Valid = ValidatePayload(Layout, Control, &Bounds); !Valid) return std::unexpected(FormatStaticMeshPayloadError(Valid.error()));
+			Layout.LocalBounds = Bounds.LocalBounds;
+			for (size_t Index = 0; Index < Layout.LODs.size(); ++Index)
+			{
+				Layout.LODs[Index].LocalBounds = Bounds.LODs[Index].LocalBounds;
+				Layout.LODs[Index].Sections.GeometryBounds = std::move(Bounds.LODs[Index].Sections);
+			}
 			Control.Check();
 			return Layout;
 		}

@@ -11,7 +11,7 @@ namespace Durin
 
 	namespace StaticMeshPrivate
 	{
-		// Requires geometry validated by shared-output assembly and restored runtime metadata.
+		// Requires geometry and bounds prepared by shared-output assembly and restored runtime metadata.
 		auto PrepareValidatedRenderData(FStaticMeshRenderData& Render,
 			const FAssetBuildTaskContext& Control) -> std::expected<void, FStaticMeshBuildFailure>;
 	}

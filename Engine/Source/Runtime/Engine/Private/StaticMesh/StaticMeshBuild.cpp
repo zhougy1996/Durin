@@ -39,7 +39,7 @@ namespace Durin
 
 	namespace
 	{
-		auto PrepareRenderBounds(FStaticMeshRenderData& Render, const FAssetBuildTaskContext& Control)
+		auto CheckRenderPreparationBudget(const FStaticMeshRenderData& Render, const FAssetBuildTaskContext& Control)
 			-> std::expected<void, FStaticMeshBuildFailure>
 		{
 			const auto Fail = [](FStaticMeshBuildFailure Error) { return std::unexpected(std::move(Error)); };
@@ -58,8 +58,6 @@ namespace Durin
 					|| !Memory.Add(LOD.Sections.capacity(), sizeof(FStaticMeshSection)))
 					return BudgetFailure("StaticMesh predicted finalization working set exceeds its reservation.", Memory);
 			}
-			if (!Render.RecalculateBounds([&] { return Control.IsCancelled(); }))
-				return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, "StaticMesh bounds build was cancelled."));
 			return {};
 		}
 
@@ -88,9 +86,8 @@ namespace Durin
 	auto StaticMeshPrivate::PrepareValidatedRenderData(FStaticMeshRenderData& Render,
 		const FAssetBuildTaskContext& Control) -> std::expected<void, FStaticMeshBuildFailure>
 	{
-		// Shared-output assembly has already validated the geometry. Rebuild bounds to
-		// preserve repair of finite cached bounds that do not match their vertices.
-		if (auto Prepared = PrepareRenderBounds(Render, Control); !Prepared) return Prepared;
+		// Shared-output validation already computed and repaired geometry bounds.
+		if (auto Budget = CheckRenderPreparationBudget(Render, Control); !Budget) return Budget;
 		return PrepareRenderAcceleration(Render, Control);
 	}
 
@@ -117,12 +114,14 @@ namespace Durin
 				return Fail(FStaticMeshBuildFailure{std::format(
 					"StaticMesh render LOD {} has {} UV channels; maximum {}.", Index, LOD.NumTexCoords, MaxStaticMeshUVChannels), EStaticMeshBuildStage::Validation});
 		}
-		if (auto Prepared = PrepareRenderBounds(Render, Control); !Prepared) return Prepared;
+		if (auto Budget = CheckRenderPreparationBudget(Render, Control); !Budget) return Budget;
 		bool bCancelled = false;
 		const std::function<bool()> ShouldCancel = [&] {
 			bCancelled = bCancelled || Control.IsCancelled();
 			return bCancelled;
 		};
+		if (!Render.RecalculateBounds(ShouldCancel))
+			return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, "StaticMesh bounds build was cancelled."));
 		if (const auto Result = ValidateStaticMeshRenderData(Render, ShouldCancel); !Result)
 			return Fail(Result.error().Code == EStaticMeshPayloadError::Cancelled
 				? FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Validation, FormatStaticMeshPayloadError(Result.error()))
