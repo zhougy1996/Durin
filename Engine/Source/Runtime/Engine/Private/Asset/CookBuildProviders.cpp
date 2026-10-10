@@ -6,8 +6,9 @@
 #include "Texture/ITextureCompressorModule.h"
 #include "Texture/TextureDerivedDataKey.h"
 #include "DerivedDataBuildDefinition.h"
+#include "Physics/PhysicsCookDerivedDataKey.h"
 #endif
-#include "Physics/PhysicsCookHelper.h"
+#include "Collision/CollisionGeometry.h"
 #include "Serialization/BinaryFormat.h"
 
 namespace Durin::AssetPrivate
@@ -49,7 +50,12 @@ namespace Durin::AssetPrivate
 			Writer.WriteU32(StaticMeshRenderBuildFunctionVersion);
 			Writer.WriteU32(StaticMeshRenderOutputSchemaVersion);
 			Writer.WriteU32(StaticMeshPayloadSchemaVersion);
-			Writer.WriteU32(PhysicsCookBuilderVersion);
+			const auto PhysicsDescriptor = GetPhysicsCookBuildDescriptor();
+			Writer.WriteU64(FCollisionCookedData::GetBuildVersion());
+			Writer.WriteU32(PhysicsDescriptor.Version);
+			Writer.WriteU32(PhysicsDescriptor.ConstantsSchema);
+			Writer.WriteU32(PhysicsDescriptor.OutputSchema);
+			Writer.WriteU32(PhysicsCollisionPayloadSchemaVersion);
 			Out = Writer.TakeBytes();
 			return true;
 #else

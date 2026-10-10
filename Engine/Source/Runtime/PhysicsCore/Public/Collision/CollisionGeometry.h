@@ -118,6 +118,9 @@ namespace Durin
 	class FCollisionCookedData
 	{
 	public:
+		// Nonzero opaque identity of the linked cooker, stable for the process lifetime.
+		// Compare for equality only; this does not describe serialized payload compatibility.
+		PHYSICSCORE_API static auto GetBuildVersion() -> uint64;
 		FCollisionCookedData() = default;
 		// Checks array semantics without constructing geometry or converting serialized arrays.
 		PHYSICSCORE_API static auto ValidateBlocks(const FCollisionCookedBlocks& Blocks,

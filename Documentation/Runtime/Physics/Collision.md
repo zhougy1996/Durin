@@ -105,9 +105,14 @@ and module lifetime do not affect physics cooking. Editor
 cooks retain collision DDC reads/writes; non-editor explicit cooking uses the
 linked geometry implementation without DDC. Async admission snapshots the settings first, and the worker fills
 `TriangleMeshDesc` after preparation, before cooking. Neither data structure
-contains executable preparation logic. `FPhysicsCookResult` owns only the cooked geometry. `PhysicsCookBuilderVersion` owns cooker compatibility
-and contributes to collision DDC/payload versions and the package cook fingerprint.
-The version remains 2 because the geometry algorithm and serialized format are unchanged.
+contains executable preparation logic. `FPhysicsCookResult` owns only the cooked geometry. PhysicsCore's `FCollisionCookedData::GetBuildVersion()` returns the linked cooker's
+nonzero opaque 64-bit identity, hashing its private algorithm revision and GLM version.
+Engine includes it as the named `BuilderVersion` action constant and validates it
+before recipe decoding. The adapter version and constants/output schemas are separate.
+All contribute to the package cook fingerprint alongside the DCOL schema.
+Algorithm upgrades invalidate cached builds without rejecting compatible cooked data.
+DCOL schema 2 remains unchanged; its historical producer word is written as zero and
+ignored on read. Schema, target, layout, bounds and checksum remain compatibility gates.
 Physics input preparation, cooking and admission return `FPhysicsCookFailure`,
 with typed cancellation and bounded text. Recoverable cache issues are logged once
 at execution with function, key, operation and bounded original cause; cook results

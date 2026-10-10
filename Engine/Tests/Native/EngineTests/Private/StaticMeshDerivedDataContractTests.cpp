@@ -32,6 +32,7 @@ namespace
 			.SourceMode = Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 			.QueryPolicy = Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
 			.WeldToleranceBits = 0x3a83126fu,
+			.BuilderVersion = 0x123456789abcdef0ull,
 			.TargetPlatform = Durin::EAssetPayloadTargetPlatform::Win64};
 	}
 }
@@ -96,8 +97,17 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 	const auto Repeated = Durin::MakePhysicsCookBuildAction(Baseline);
 	ASSERT_TRUE(Repeated);
 	EXPECT_TRUE(std::ranges::equal(Bytes, Repeated->GetCanonicalBytes()));
+	EXPECT_EQ(Action->GetFunction().Version, Durin::PhysicsCollisionBuildFunctionVersion);
+	const auto Constants = Action->GetConstants();
+	const auto Identity = std::ranges::find(Constants, "BuilderVersion", &Durin::DerivedData::FBuildConstant::Name);
+	ASSERT_NE(Identity, Constants.end());
+	ASSERT_NE(std::get_if<uint64>(&Identity->Value), nullptr);
+	EXPECT_EQ(*std::get_if<uint64>(&Identity->Value), Baseline.BuilderVersion);
+	auto MissingIdentity = Baseline;
+	MissingIdentity.BuilderVersion = 0;
+	EXPECT_FALSE(Durin::MakePhysicsCookBuildAction(MissingIdentity));
 	const auto BaselineKey = Action->GetKey();
-	EXPECT_EQ(BaselineKey.ToString(), "0c1836c76d6968f748cc33a0d91f5ead");
+	EXPECT_EQ(BaselineKey.ToString(), "cdec1d091eb8a105ef12b62bf1ef0975");
 
 	auto ExpectChanged = [&](auto Mutate)
 	{
@@ -124,6 +134,8 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 	});
 	ExpectChanged([](auto& Value) { ++Value.WeldToleranceBits; });
 	ExpectChanged([](auto& Value) { ++Value.BuilderVersion; });
+	ExpectChanged([](auto& Value) { Value.BuilderVersion ^= uint64{1} << 63; });
+	ExpectChanged([](auto& Value) { ++Value.FunctionVersion; });
 	ExpectChanged([](auto& Value) { ++Value.OutputSchemaVersion; });
 	ExpectChanged([](auto& Value) {
 		Value.TargetPlatform = Durin::EAssetPayloadTargetPlatform::Unknown;

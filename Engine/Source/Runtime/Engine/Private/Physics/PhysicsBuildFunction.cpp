@@ -60,6 +60,9 @@ namespace Durin::PhysicsPrivate
 			auto Build(FBuildContext& Context) const -> void override
 			{
 				auto Fail = [&](std::string Text) { Context.AddError(std::move(Text)); };
+				const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
+				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != FCollisionCookedData::GetBuildVersion())
+					return Fail("Physics cooker identity does not match the build request.");
 				bool bCancelled = false;
 				const auto Cancel = [&] { return bCancelled = bCancelled || Context.IsCancelled(); };
 				auto Config = Settings(Context); if (!Config) return Fail(std::move(Config.error()));

@@ -78,6 +78,7 @@ namespace
 		for (auto Index : Indices) Bytes.WriteU32(Index);
 		return MakePhysicsCookBuildAction({.GeometryHash = FXxHash128::HashBuffer(Bytes.GetBytes()),
 			.SourceMode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, .QueryPolicy = Policy,
+			.BuilderVersion = FCollisionCookedData::GetBuildVersion(),
 			.TargetPlatform = EAssetPayloadTargetPlatform::Win64}).value().GetKey();
 	}
 
@@ -3566,4 +3567,37 @@ TEST(FStaticMeshDerivedDataCacheTests, WorkerSettingsCaptureOwnedValuesAndPreser
 	EXPECT_EQ(Settings.NormalizedSize, 2.0f);
 	EXPECT_EQ(BuildStaticMeshReconciliationHash(Settings.MaterialSlots, Settings.NormalizedSize), Expected);
 	EXPECT_NE(BuildStaticMeshReconciliationHash(Slots, Settings.NormalizedSize), Expected);
+}
+
+TEST(FPhysicsCookTests, BuildFunctionRejectsMismatchedIdentityBeforeRecipeDecoding)
+{
+	using namespace Durin;
+	using namespace Durin::DerivedData;
+	const uint64 Version = FCollisionCookedData::GetBuildVersion();
+	EXPECT_NE(Version, 0u);
+	EXPECT_EQ(Version, FCollisionCookedData::GetBuildVersion());
+	FCookBodySetupInfo Info{
+		.TriangleMeshDesc = {{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {0, 1, 2}},
+		.Mode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0};
+	const auto Input = FPhysicsCookHelper::Capture(std::move(Info));
+	ASSERT_TRUE(Input);
+	// None is invalid for an executable cook; identity must be checked first.
+	auto Definition = MakePhysicsCookSessionDefinition(EBodySetupCollisionSourceMode::None,
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Version ^ (uint64{1} << 63));
+	ASSERT_TRUE(Definition);
+	auto Service = CreateBuild();
+	ASSERT_TRUE(Service->Register(PhysicsPrivate::MakeCollisionBuildFunction()));
+	auto Session = Service->CreateSession();
+	ASSERT_TRUE(Session);
+	std::optional<FBuildCompleteParams> Result;
+	FBuildRequestOptions Options{.Policy = {.QueryCache = false, .StoreOnBuild = false}};
+	Options.InputResolver = PhysicsPrivate::MakeCollisionInputResolver(*Input);
+	ASSERT_TRUE((*Session)->Build(*Definition, [&](auto Value) { Result = std::move(Value); }, {}, Options));
+	ASSERT_TRUE(Result);
+	EXPECT_EQ(Result->GetStatus(), EStatus::Error);
+	ASSERT_NE(Result->GetOutput(), nullptr);
+	EXPECT_TRUE(Result->GetOutput()->GetValues().empty());
+	const auto Messages = Result->GetOutput()->GetMessages();
+	ASSERT_EQ(Messages.size(), 1u);
+	EXPECT_NE(Messages.front().Text.find("identity does not match"), std::string::npos);
 }

@@ -286,6 +286,14 @@ shared-output schema, and payload schema. Algorithms and adapters independently
 invalidate DDC/Cook production identity. TXPL compatibility remains schema 2:
 the historical producer word is written as zero and ignored when reading,
 including compatible existing cooked payloads.
+PhysicsCore similarly owns `FCollisionCookedData::GetBuildVersion()` for the linked
+collision cooker. Engine's collision adapter uses its own function version 1,
+constants schema 2 and shared-output schema 2. A nonzero 64-bit `BuilderVersion`
+constant carries the cooker identity and is checked before recipe decoding.
+DCOL compatibility uses payload schema 2, independent of algorithm identity;
+the historical producer word is written as zero and ignored on read. StaticMesh
+Cook dependencies include the cooker identity, adapter schemas and DCOL schema.
+
 HDR Cube and Volume builders return complete products through `std::expected`,
 so failed candidates remain local. Family entrypoints share one target-support
 predicate, while panorama limits and decoded image types come directly from

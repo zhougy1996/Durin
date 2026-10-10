@@ -5,7 +5,6 @@
 #include "Asset/PayloadTargetPlatform.h"
 #include "Misc/Guid.h"
 #include "Physics/BodySetupTypes.h"
-#include "Physics/PhysicsCookVersion.h"
 #include "Collision/CollisionGeometry.h"
 
 namespace Durin

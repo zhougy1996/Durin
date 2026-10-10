@@ -217,7 +217,8 @@ namespace Durin
 		if (!ResolvePhysicsTarget(Ar, TargetPlatform)) return;
 
 		uint32 Reserved0 = 0, Schema = PhysicsCollisionPayloadSchemaVersion;
-		uint32 Builder = PhysicsCookBuilderVersion, Platform = static_cast<uint32>(TargetPlatform);
+		// Historical producer word is retained in the wire layout, not a compatibility gate.
+		uint32 ProducerVersion = 0, Platform = static_cast<uint32>(TargetPlatform);
 		uint32 Header = PhysicsCollisionPayloadHeaderSize, ChunkCount = 4;
 		uint32 Alignment = PhysicsCollisionPayloadAlignment, Mode = 0, Policy = 0, Reserved = 0;
 		uint64 StoredSize = 0, LogicalBytes = 0, Checksum = 0;
@@ -311,11 +312,11 @@ namespace Durin
 			Checksum = FXxHash64::HashBuffer(Body).HashValue;
 		}
 
-		Ar << Reserved0 << Schema << Builder << Platform << Header << ChunkCount << Alignment << Mode
+		Ar << Reserved0 << Schema << ProducerVersion << Platform << Header << ChunkCount << Alignment << Mode
 			<< StoredSize << LogicalBytes << Checksum << Policy << Reserved;
 		if (Ar.IsError()) return;
-		if (Schema != PhysicsCollisionPayloadSchemaVersion || Builder != PhysicsCookBuilderVersion)
-			return Reject(EArchiveFailureCode::UnsupportedVersion, "DCOL schema or builder version is unsupported.");
+		if (Schema != PhysicsCollisionPayloadSchemaVersion)
+			return Reject(EArchiveFailureCode::UnsupportedVersion, "DCOL schema is unsupported.");
 		if (Platform != static_cast<uint32>(TargetPlatform))
 			return Reject(EArchiveFailureCode::UnsupportedTarget, "DCOL target platform does not match.");
 		if (Reserved0 != 0 || Header != 64 || ChunkCount != 4

@@ -1,8 +1,27 @@
 #include "Collision/CollisionGeometry.h"
 #include "Physics/PhysicsTypes.h"
+#include "CollisionCookBuildVersion.h"
+#include "Hash/XxHash.h"
+#include "Serialization/BinaryFormat.h"
+#include <glm/detail/setup.hpp>
 
 namespace Durin
 {
+	auto FCollisionCookedData::GetBuildVersion() -> uint64
+	{
+		static const uint64 Version = [] {
+			FBinaryWriter Writer;
+			Writer.WriteString("Durin.PhysicsCore.CollisionCook");
+			Writer.WriteU32(PhysicsCorePrivate::CollisionCookAlgorithmRevision);
+			Writer.WriteU32(GLM_VERSION_MAJOR);
+			Writer.WriteU32(GLM_VERSION_MINOR);
+			Writer.WriteU32(GLM_VERSION_PATCH);
+			const uint64 Hash = FXxHash64::HashBuffer(Writer.TakeBytes()).HashValue;
+			return Hash ? Hash : uint64{1};
+		}();
+		return Version;
+	}
+
 	class FCollisionGeometry
 	{
 	public:

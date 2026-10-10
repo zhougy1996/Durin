@@ -100,7 +100,7 @@ namespace Durin
 			Input.GetIndices().GetRetainedCapacityBytes() / sizeof(uint32), Control.MaximumWorkingSetBytes))
 			return std::unexpected(FPhysicsCookFailure{"Physics cook input and working set exceed the reservation."});
 #if DURIN_WITH_EDITOR
-		auto Definition = MakePhysicsCookSessionDefinition(Input.GetMode(), Input.GetPolicy());
+		auto Definition = MakePhysicsCookSessionDefinition(Input.GetMode(), Input.GetPolicy(), FCollisionCookedData::GetBuildVersion());
 		if (!Definition) return std::unexpected(FPhysicsCookFailure{"Physics build definition is invalid."});
 		DerivedData::FBuildRequestOptions Options;
 		Options.Policy.StoreOnBuild = Input.ShouldPersist();

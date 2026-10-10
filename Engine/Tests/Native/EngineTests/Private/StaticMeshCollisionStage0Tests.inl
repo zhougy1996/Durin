@@ -973,15 +973,16 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 		.SourceMode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		.QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex,
 		.WeldToleranceBits = std::bit_cast<uint32>(1.0e-5f),
+		.BuilderVersion = 0x123456789abcdef0ull,
 		.TargetPlatform = EAssetPayloadTargetPlatform::Win64};
 	std::string Error;
 	const auto Action = MakePhysicsCookBuildAction(KeyInput);
 	ASSERT_TRUE(Action);
 	const auto KeyBytes = Action->GetCanonicalBytes();
-	EXPECT_EQ(KeyBytes.size(), 372u);
-	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "2be640ab5144a5170dfe1aea9d80d2df");
+	EXPECT_EQ(KeyBytes.size(), 403u);
+	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "ad3ff9ba267b947d547f185c5dd391b2");
 	EXPECT_EQ(Action->GetKey().ToString(),
-		"2be640ab5144a5170dfe1aea9d80d2df");
+		"ad3ff9ba267b947d547f185c5dd391b2");
 
 	const FCollisionSourceFixture Tetra = MakeTetrahedron();
 	std::vector<FVector3> Positions;
@@ -1045,7 +1046,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	EXPECT_EQ(OverflowReader.GetFailure()->Code, EArchiveFailureCode::Overflow);
 	EXPECT_TRUE(Discarded.Positions.empty());
 
-	EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), "b43434e49ae8c9c62ea8ef4024b54159");
+	EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), "bb25d52dae03f550a1167eb7b9a3528b");
 	FPhysicsCollisionPayloadData Decoded;
 	ASSERT_TRUE(DecodeCollisionPayload(
 		First, EAssetPayloadTargetPlatform::Win64, Decoded));
@@ -1053,6 +1054,30 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	ASSERT_TRUE(MakePhysicsCollisionGeometry(Decoded, RoundTrip));
 	EXPECT_EQ(RoundTrip.GetTriangleCount(), Geometry.GetTriangleCount());
 	EXPECT_EQ(RoundTrip.GetNodeCount(), Geometry.GetNodeCount());
+	EXPECT_EQ(ReadLittleEndian<uint32>(First, 8), 0u);
+	// Old and future algorithm identities do not affect schema-compatible DCOL admission.
+	for (const uint32 Producer : {0u, 1u, 2u, 0xffffffffu})
+	{
+		FByteBuffer Compatible = First;
+		WriteLittleEndian<uint32>(Compatible, 8, Producer);
+		FPhysicsCollisionPayloadData Legacy;
+		ASSERT_TRUE(DecodeCollisionPayload(Compatible, EAssetPayloadTargetPlatform::Win64, Legacy));
+		EXPECT_EQ(Legacy.Indices, Decoded.Indices);
+		EXPECT_EQ(Legacy.SourceOrdinals, Decoded.SourceOrdinals);
+		FCollisionGeometryRef LegacyGeometry;
+		ASSERT_TRUE(MakePhysicsCollisionGeometry(Legacy, LegacyGeometry));
+		EXPECT_EQ(LegacyGeometry.GetTriangleCount(), Geometry.GetTriangleCount());
+	}
+	for (const uint32 Schema : {PhysicsCollisionPayloadSchemaVersion - 1, PhysicsCollisionPayloadSchemaVersion + 1})
+	{
+		FByteBuffer Incompatible = First;
+		WriteLittleEndian<uint32>(Incompatible, 4, Schema);
+		FPhysicsCollisionPayloadData Rejected;
+		FCanonicalMemoryReader Reader(Incompatible, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+		Rejected.Serialize(Reader);
+		ASSERT_TRUE(Reader.IsError());
+		EXPECT_EQ(Reader.GetFailure()->Code, EArchiveFailureCode::UnsupportedVersion);
+	}
 	Durin::FByteBuffer Corrupt = First;
 	Corrupt.back() ^= std::byte{0x80};
 	FPhysicsCollisionPayloadData Preserved = Decoded;
@@ -1084,7 +1109,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage5Tests, Ins
 	EXPECT_GT(Inspection.Nodes, 0u);
 	EXPECT_TRUE(Inspection.Bounds.has_value());
 	EXPECT_GT(Inspection.RuntimeBytes, 0u);
-	EXPECT_EQ(Inspection.BuilderVersion, PhysicsCookBuilderVersion);
+	EXPECT_EQ(Inspection.BuilderVersion, FCollisionCookedData::GetBuildVersion());
 	EXPECT_EQ(Inspection.SchemaVersion, PhysicsCollisionPayloadSchemaVersion);
 	EXPECT_GT(Inspection.BuildRevision, 0u);
 	EXPECT_FALSE(Inspection.bRevisionCoherent);

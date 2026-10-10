@@ -362,7 +362,7 @@ namespace Durin::Editor::StaticMesh
 				? std::to_string(Collision.RemovedTriangles) : "Unavailable");
 			DrawInfoRow("BVH nodes", std::to_string(Collision.Nodes));
 			DrawInfoRow("Runtime bytes", std::to_string(Collision.RuntimeBytes));
-			DrawInfoRow("Builder / schema", std::format("{} / {}", Collision.BuilderVersion, Collision.SchemaVersion));
+			DrawInfoRow("Current cooker / schema", std::format("{} / {}", Collision.BuilderVersion, Collision.SchemaVersion));
 			DrawInfoRow("Build revision", std::to_string(Collision.BuildRevision));
 			DrawInfoRow("Revision coherence", Collision.bRevisionCoherent ? "Coherent" : "Unavailable");
 			if (Collision.Bounds)

@@ -23,7 +23,8 @@ namespace Durin
 		uint32 Nodes = 0;
 		std::optional<FBox> Bounds;
 		uint64 RuntimeBytes = 0;
-		uint32 BuilderVersion = 0;
+		// Current linked cooker identity; does not identify the producer of resident data.
+		uint64 BuilderVersion = 0;
 		uint32 SchemaVersion = 0;
 		uint64 BuildRevision = 0;
 		// No stored source correspondence exists; a revision alone cannot prove coherence.

@@ -215,7 +215,9 @@ Package/Cook render payloads retain schema 5. Format compatibility depends only 
 reading and written as zero. Algorithm changes therefore invalidate DDC entries
 without rejecting compatible cooked payloads. StaticMesh cook recipe dependencies
 encode the render builder identity, adapter function version, shared-output schema,
-Payload schema, and `PhysicsCookBuilderVersion`.
+payload schema, plus the PhysicsCore cooker identity, collision adapter versions
+and DCOL payload schema. Collision algorithm changes invalidate production identity
+without rejecting schema-compatible DCOL payloads.
 The algorithm revision header lives in MeshBuilder/Private/StaticMesh; Engine
 consumers use only the module identity contract. StaticMesh production submits
 definitions through the shared DDC session; standalone render key factories and
