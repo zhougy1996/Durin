@@ -24,8 +24,8 @@ namespace Durin
 		auto* Module = ITextureCompressorModule::Get();
 		if (!Module) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
 			ETextureBuildStage::Module, "The TextureCompressor module is unavailable."});
-		const uint32 BuilderVersion = Module->GetTextureCubeBuilderVersion();
-		if (BuilderVersion == 0 || Module->GetTextureCubeProjectionVersion() == 0)
+		const uint64 BuilderVersion = Module->GetBuildVersion(ETextureBuildKind::TextureCube);
+		if (BuilderVersion == 0)
 		{
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Module, "The TextureCube builder version is invalid."});
 		}

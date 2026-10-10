@@ -52,6 +52,8 @@ namespace Durin::TexturePayloadContainer
 		const auto ExpectedPlatform = Context.TargetPlatform;
 		const auto ExpectedProfile = Context.TargetProfile;
 
+		// Retain the historical producer word without making it a compatibility gate.
+		uint32 Producer = 0;
 		uint32 Reserved0 = 0, Schema = TexturePayloadSchemaVersion;
 		uint32 HeaderSize = TexturePayloadHeaderSize, RecordSize = TexturePayloadRecordSize;
 		uint32 RecordCount = Ar.IsSaving() ? static_cast<uint32>(Records.size()) : 0;
@@ -100,7 +102,7 @@ namespace Durin::TexturePayloadContainer
 			StoredHash = FXxHash64::HashBuffer(Body).HashValue;
 		}
 
-		Ar << Reserved0 << Schema << Descriptor.ProducerVersion << Descriptor.TargetPlatform
+		Ar << Reserved0 << Schema << Producer << Descriptor.TargetPlatform
 			<< Descriptor.TargetProfile << Descriptor.Dimension << Descriptor.StableFormat
 			<< Descriptor.SliceCount << Descriptor.MipCount << HeaderSize << RecordCount
 			<< RecordSize << TableOffset << StoredSize << StoredHash << Reserved;

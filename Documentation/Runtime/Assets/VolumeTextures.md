@@ -102,7 +102,8 @@ floating inputs must be finite. Numeric filtering explicitly converts at the
 `uint8` platform representation and byte identity.
 
 The canonical DDC key includes the canonical voxel identity and dimensions,
-source/output format, mip filter, builder and payload schema versions, and
+source/output format, mip filter, opaque builder identity, adapter and shared-output
+schema versions, and
 Win64/Game target identity. It excludes source hints and physical files. A
 validated cache hit and a rebuild apply the same platform value.
 Corrupt or incompatible entries are misses; a failed candidate never replaces
@@ -163,7 +164,10 @@ interpretation is selected by the dimension. Ranges are 16-byte aligned,
 non-overlapping, checksummed with XXH3-128, bounded, and validated across all
 three axes before allocation.
 
-The volume producer version is 3 and the primary cooked payload ID is
+The private volume algorithm revision is part of its opaque module build identity;
+see [texture build identities](DerivedDataBuild.md#family-boundaries). TXPL compatibility
+depends on schema 2, with the historical producer word ignored on read and written
+as zero. The primary cooked payload ID is
 `672b164e-4e19-4871-a7b8-41dfe3208b15`. Cook accepts Win64/Game and MacOS/Game and emits
 one uncompressed field value. Cooked loading requires valid field metadata and
 payload, strips authored source by default, does not query DDC or invoke an

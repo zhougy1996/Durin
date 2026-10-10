@@ -78,7 +78,8 @@ namespace Durin
 	auto FTexture2DBuildKeyInput::IsValid(FArchiveFailure* OutFailure) const -> bool
 	{
 		if (OutFailure) *OutFailure = {};
-		if (!IsSupportedTarget(TargetPlatform, TargetProfile)
+		if (!BuilderVersion || !FunctionVersion || !OutputSchemaVersion
+			|| !IsSupportedTarget(TargetPlatform, TargetProfile)
 			|| !IsValidTextureUsage(Usage)
 			|| !IsValidTextureCompressionQuality(CompressionQuality)
 			|| !IsValidTextureAlphaMipMode(AlphaMipMode)
@@ -94,7 +95,8 @@ namespace Durin
 	{
 		if (OutFailure) *OutFailure = {};
 
-		if (!IsSupportedTarget(TargetPlatform, TargetProfile))
+		if (!BuilderVersion || !FunctionVersion || !OutputSchemaVersion
+			|| !IsSupportedTarget(TargetPlatform, TargetProfile))
 		{
 			return InvalidBuildKey(OutFailure, EArchiveFailureCode::InvalidData,
 				"TextureCube derived-data target is unsupported.");
@@ -123,7 +125,8 @@ namespace Durin
 	auto FVolumeTextureBuildKeyInput::IsValid(FArchiveFailure* OutFailure) const -> bool
 	{
 		if (OutFailure) *OutFailure = {};
-		if (Width == 0 || Height == 0 || Depth == 0
+		if (!BuilderVersion || !FunctionVersion || !OutputSchemaVersion
+			|| Width == 0 || Height == 0 || Depth == 0
 			|| Width > MaximumVolumeTextureDimension
 			|| Height > MaximumVolumeTextureDimension
 			|| Depth > MaximumVolumeTextureDimension
@@ -137,6 +140,24 @@ namespace Durin
 	}
 
 #if DURIN_WITH_EDITOR
+	auto GetTextureBuildDescriptor(ETextureBuildKind TextureKind) -> DerivedData::FBuildFunctionDescriptor
+	{
+		using namespace DerivedData;
+		switch (TextureKind)
+		{
+		case ETextureBuildKind::Texture2D:
+			return {"Durin.Texture2D", Texture2DBuildFunctionVersion, 2,
+				"Texture2D.Output", TextureBuildOutputSchemaVersion, FCacheBucket::FromString(Texture2DCacheBucket)};
+		case ETextureBuildKind::TextureCube:
+			return {"Durin.TextureCube", TextureCubeBuildFunctionVersion, 3,
+				"TextureCube.Output", TextureBuildOutputSchemaVersion, FCacheBucket::FromString(TextureCubeCacheBucket)};
+		case ETextureBuildKind::VolumeTexture:
+			return {"Durin.VolumeTexture", VolumeTextureBuildFunctionVersion, 2,
+				"VolumeTexture.Output", TextureBuildOutputSchemaVersion, FCacheBucket::FromString(VolumeTextureCacheBucket)};
+		}
+		return {};
+	}
+
 	auto MakeTexture2DBuildAction(const FTexture2DBuildKeyInput& Input)
 		-> std::expected<DerivedData::FBuildAction, DerivedData::FBuildDefinitionError>
 	{
@@ -145,8 +166,10 @@ namespace Durin
 			return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "Texture2D"});
 		auto Definition = TexturePrivate::MakeTexture2DSessionDefinition(Input);
 		if (!Definition) return std::unexpected(std::move(Definition.error()));
-		FBuildActionBuilder ActionBuilder(*Definition, {"Durin.Texture2D", Input.BuilderVersion, 1,
-			"Texture2D.Output", Input.OutputSchemaVersion, FCacheBucket::FromString(Texture2DCacheBucket)});
+		auto Descriptor = GetTextureBuildDescriptor(ETextureBuildKind::Texture2D);
+		Descriptor.Version = Input.FunctionVersion;
+		Descriptor.OutputSchema = Input.OutputSchemaVersion;
+		FBuildActionBuilder ActionBuilder(*Definition, Descriptor);
 		ActionBuilder.AddInput({"Source", Input.SourceIdentity, "TextureSource", TextureSourceSchemaVersion, "Texture2D.RGBA8", 1});
 		return std::move(ActionBuilder).Build();
 	}
@@ -157,8 +180,10 @@ namespace Durin
 		auto Definition = TexturePrivate::MakeTextureCubeSessionDefinition(Input);
 		if (!Definition) return std::unexpected(std::move(Definition.error()));
 		const bool Panorama = Input.SourceLayout == ETextureCubeBuildSourceLayout::EquirectangularPanorama;
-		FBuildActionBuilder Builder(*Definition, {"Durin.TextureCube", Input.BuilderVersion, 2,
-			"TextureCube.Output", Input.OutputSchemaVersion, FCacheBucket::FromString(TextureCubeCacheBucket)});
+		auto Descriptor = GetTextureBuildDescriptor(ETextureBuildKind::TextureCube);
+		Descriptor.Version = Input.FunctionVersion;
+		Descriptor.OutputSchema = Input.OutputSchemaVersion;
+		FBuildActionBuilder Builder(*Definition, Descriptor);
 		Builder.AddInput({"Source", Input.CanonicalSourceIdentity, "TextureSource", TextureSourceSchemaVersion,
 			Panorama ? "Panorama.RGBA32F" : "Cube.RGBA8", 1});
 		return std::move(Builder).Build();
@@ -172,8 +197,10 @@ namespace Durin
 			return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "VolumeTexture"});
 		auto Definition = TexturePrivate::MakeVolumeTextureSessionDefinition(Input);
 		if (!Definition) return std::unexpected(std::move(Definition.error()));
-		FBuildActionBuilder ActionBuilder(*Definition, {"Durin.VolumeTexture", Input.BuilderVersion, 1,
-			"VolumeTexture.Output", 2, FCacheBucket::FromString(VolumeTextureCacheBucket)});
+		auto Descriptor = GetTextureBuildDescriptor(ETextureBuildKind::VolumeTexture);
+		Descriptor.Version = Input.FunctionVersion;
+		Descriptor.OutputSchema = Input.OutputSchemaVersion;
+		FBuildActionBuilder ActionBuilder(*Definition, Descriptor);
 		ActionBuilder.AddInput({"Source", Input.CanonicalSourceIdentity, "TextureSource", TextureSourceSchemaVersion, "Volume.Voxels", 1});
 		return std::move(ActionBuilder).Build();
 	}
@@ -252,7 +279,7 @@ namespace Durin
 		auto Reject = [&](EArchiveFailureCode Code, std::string_view Message) { Ar.Fail(Code, Message); };
 		if (Ar.IsError()) return;
 		TexturePayloadContainer::FDescriptor Descriptor{
-			.ProducerVersion = Texture2DPayloadProducerVersion, .TargetPlatform = Context.TargetPlatform,
+			.TargetPlatform = Context.TargetPlatform,
 			.TargetProfile = Context.TargetProfile, .Dimension = ETexturePayloadDimension::Texture2D,
 			.SliceCount = 1};
 		std::vector<TexturePayloadContainer::FPayloadRecord> Records;
@@ -332,7 +359,7 @@ namespace Durin
 		auto Reject = [&](EArchiveFailureCode Code, std::string_view Message) { Ar.Fail(Code, Message); };
 		if (Ar.IsError()) return;
 		TexturePayloadContainer::FDescriptor Descriptor{
-			.ProducerVersion = TextureCubeBuilderVersion, .TargetPlatform = Context.TargetPlatform,
+			.TargetPlatform = Context.TargetPlatform,
 			.TargetProfile = Context.TargetProfile, .Dimension = ETexturePayloadDimension::TextureCube,
 			.SliceCount = TextureCubeFaceCount};
 		std::vector<TexturePayloadContainer::FPayloadRecord> Records;

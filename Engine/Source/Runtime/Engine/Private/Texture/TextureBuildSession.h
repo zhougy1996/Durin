@@ -6,10 +6,9 @@
 
 namespace Durin
 {
-	class ITextureCompressorModule;
 	namespace TexturePrivate
 	{
-		auto RegisterBuildFunctions(ITextureCompressorModule& Module) -> void;
+		auto RegisterBuildFunctions() -> void;
 		auto Build(DerivedData::FBuildDefinition Definition,
 			std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
 			DerivedData::FBuildRequestOptions Options = {})

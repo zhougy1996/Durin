@@ -10,7 +10,7 @@ namespace Durin
 	class ITextureCompressorModule;
 	namespace TexturePrivate
 	{
-		ENGINE_API auto MakeTextureCubeBuildFunction(ITextureCompressorModule& Module) -> std::shared_ptr<const DerivedData::IBuildFunction>;
+		ENGINE_API auto MakeTextureCubeBuildFunction() -> std::shared_ptr<const DerivedData::IBuildFunction>;
 		ENGINE_API auto MakeTextureCubeInputResolver(const FTextureSource& Source, const FTextureCubeCanonicalBuildInput* Prepared)
 			-> std::shared_ptr<const DerivedData::IBuildInputResolver>;
 		ENGINE_API auto MakeTextureCubeSessionDefinition(const FTextureCubeBuildKeyInput& Input)

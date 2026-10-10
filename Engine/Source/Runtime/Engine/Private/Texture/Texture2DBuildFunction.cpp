@@ -85,14 +85,18 @@ namespace Durin::TexturePrivate
 		class FTexture2DFunction final : public IBuildFunction
 		{
 		public:
-			explicit FTexture2DFunction(ITextureCompressorModule& Module) : Version(Module.GetTexture2DBuilderVersion()) {}
 			auto GetName() const -> std::string_view override { return "Durin.Texture2D"; }
-			auto GetVersion() const -> uint32 override { return Version; }
+			auto GetVersion() const -> uint32 override { return Texture2DBuildFunctionVersion; }
 			auto Configure(FBuildConfigContext& Context) const -> void override
-			{ Context.SetConstantsSchema(1); Context.SetOutput("Texture2D.Output", 2); Context.SetCacheBucket(FCacheBucket::FromString(Texture2DCacheBucket)); }
+			{ const auto D = GetTextureBuildDescriptor(ETextureBuildKind::Texture2D); Context.SetConstantsSchema(D.ConstantsSchema); Context.SetOutput(D.OutputType, D.OutputSchema); Context.SetCacheBucket(D.Bucket); }
 			auto Build(FBuildContext& Context) const -> void override
 			{
 				auto Fail = [&](std::string Text) { Context.AddError(std::move(Text)); };
+				auto* Module = ITextureCompressorModule::Get();
+				if (!Module) return Fail("The TextureCompressor module is unavailable.");
+				const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
+				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != Module->GetBuildVersion(ETextureBuildKind::Texture2D))
+					return Fail("Texture2D builder identity does not match the action.");
 				auto Input = ReadSettings(Context); if (!Input) return Fail(std::move(Input.error()));
 				const auto* Source = Context.FindInput("Source");
 				if (!Source || Source->Identity.IdentityScheme != "TextureSource" || Source->Identity.IdentityVersion != TextureSourceSchemaVersion
@@ -119,8 +123,6 @@ namespace Durin::TexturePrivate
 				if (auto Valid = ValidateTexture2DSourceMips(Mips); !Valid)
 					return Fail(FormatTexture2DInputError(Valid.error()));
 				Input->SourceMips = Mips;
-				auto* Module = ITextureCompressorModule::Get();
-				if (!Module) return Fail("The TextureCompressor module is unavailable.");
 				auto Built = Module->BuildTexture2D(*Input);
 				if (Context.IsCancelled()) return;
 				if (!Built) return Fail("Texture2D build failed; see TextureCompressor logs for details.");
@@ -130,29 +132,31 @@ namespace Durin::TexturePrivate
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);
 			}
-		private:
-			uint32 Version;
 		};
 	}
-	auto MakeTexture2DBuildFunction(ITextureCompressorModule& Module) -> std::shared_ptr<const IBuildFunction>
-	{ return std::make_shared<FTexture2DFunction>(Module); }
+	auto MakeTexture2DBuildFunction() -> std::shared_ptr<const IBuildFunction>
+	{ return std::make_shared<FTexture2DFunction>(); }
 	auto MakeTexture2DInputResolver(const FTextureSource& Source) -> std::shared_ptr<const IBuildInputResolver>
 	{ return std::make_shared<FTexture2DResolver>(Source); }
 	auto MakeTexture2DSessionDefinition(const FTexture2DBuildRequest& Request)
 		-> std::expected<FBuildDefinition, FBuildDefinitionError>
 	{
+		auto* Module = ITextureCompressorModule::Get();
+		if (!Module) return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "BuilderVersion"});
 		const auto& S = Request.Settings;
 		return MakeTexture2DSessionDefinition(FTexture2DBuildKeyInput{
 			.Usage = S.Usage, .bSRGB = ResolveTexture2DSRGB(S),
 			.CompressionQuality = S.CompressionQuality, .AlphaMipMode = S.AlphaMipMode,
 			.MaximumResolution = S.MaxResolution, .AlphaCoverageThreshold = S.AlphaCoverageThreshold,
+			.BuilderVersion = Module->GetBuildVersion(ETextureBuildKind::Texture2D),
 			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
 	}
 	auto MakeTexture2DSessionDefinition(const FTexture2DBuildKeyInput& Input)
 		-> std::expected<FBuildDefinition, FBuildDefinitionError>
 	{
+		if (!Input.BuilderVersion) return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "BuilderVersion"});
 		FBuildDefinitionBuilder Builder("Durin.Texture2D");
-		Builder.AddConstant("Usage", uint64(Input.Usage)).AddConstant("SRGB", Input.bSRGB)
+		Builder.AddConstant("BuilderVersion", Input.BuilderVersion).AddConstant("Usage", uint64(Input.Usage)).AddConstant("SRGB", Input.bSRGB)
 			.AddConstant("Quality", uint64(Input.CompressionQuality)).AddConstant("AlphaMode", uint64(Input.AlphaMipMode))
 			.AddConstant("MaximumResolution", uint64(Input.MaximumResolution)).AddConstant("AlphaThreshold", Input.AlphaCoverageThreshold)
 			.AddConstant("TargetPlatform", uint64(Input.TargetPlatform)).AddConstant("TargetProfile", uint64(Input.TargetProfile))

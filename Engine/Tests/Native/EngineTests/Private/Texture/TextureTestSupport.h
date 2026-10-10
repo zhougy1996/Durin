@@ -16,6 +16,7 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Texture/Texture2D.h"
+#include "Texture/ITextureCompressorModule.h"
 #include "Texture/Texture2DCompilation.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "AssetForge/Builtins/Texture2DFactory.h"
@@ -200,6 +201,7 @@ namespace
 			.CompressionQuality = Request.Settings.CompressionQuality,
 			.AlphaMipMode = Request.Settings.AlphaMipMode, .MaximumResolution = Request.Settings.MaxResolution,
 			.AlphaCoverageThreshold = Request.Settings.AlphaCoverageThreshold,
+			.BuilderVersion = Durin::ITextureCompressorModule::Get()->GetBuildVersion(Durin::ETextureBuildKind::Texture2D),
 			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile}).ToString();
 	}
 

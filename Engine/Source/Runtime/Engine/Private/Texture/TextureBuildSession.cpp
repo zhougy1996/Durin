@@ -25,14 +25,14 @@ namespace Durin::TexturePrivate
 		}
 	}
 
-	auto RegisterBuildFunctions(ITextureCompressorModule& Module) -> void
+	auto RegisterBuildFunctions() -> void
 	{
 		static std::once_flag Once;
-		std::call_once(Once, [&] {
+		std::call_once(Once, [] {
 			auto& Build = DerivedData::GetBuild();
-			if (!Build.Register(MakeTexture2DBuildFunction(Module))
-				|| !Build.Register(MakeVolumeTextureBuildFunction(Module))
-				|| !Build.Register(MakeTextureCubeBuildFunction(Module)))
+			if (!Build.Register(MakeTexture2DBuildFunction())
+				|| !Build.Register(MakeVolumeTextureBuildFunction())
+				|| !Build.Register(MakeTextureCubeBuildFunction()))
 				throw std::runtime_error("Failed to register texture derived-data build functions.");
 		});
 	}

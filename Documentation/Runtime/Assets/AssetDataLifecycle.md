@@ -155,7 +155,9 @@ Machine-local dependency manifests do not enter portable values; see
 [Shader Cache](../Rendering/ShaderCache.md).
 
 MeshBuilder and TextureCompressor expose explicit build module interfaces.
-Build implementations own algorithm metrics and producer versions.
+Build implementations own algorithm metrics and opaque build identities; Engine
+owns adapter versions and payload compatibility. Texture identity composition is
+defined by the [build protocol](DerivedDataBuild.md#family-boundaries).
 Engine owns keys, runtime serialization, DDC policy, and object application;
 recipes retain no cache keys, origin, persistence diagnostics, or live assets.
 

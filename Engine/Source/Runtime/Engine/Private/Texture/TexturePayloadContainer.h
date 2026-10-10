@@ -17,7 +17,6 @@ namespace Durin::TexturePayloadContainer
 
 	struct FDescriptor
 	{
-		uint32 ProducerVersion = 0;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		ETexturePayloadDimension Dimension = static_cast<ETexturePayloadDimension>(0);

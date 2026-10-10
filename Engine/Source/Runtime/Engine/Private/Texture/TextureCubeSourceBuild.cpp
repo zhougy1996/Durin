@@ -26,7 +26,7 @@ namespace Durin
 			|| (!bHDR && (Source.GetKind() != ETextureSourceKind::TextureCube || Source.GetFormat() != ETextureSourceFormat::RGBA8))
 			|| (bHDR && (Source.GetFormat() != ETextureSourceFormat::RGBA32_FLOAT || bSRGB
 				|| Source.GetSourceChannelCount() != 4 || Source.HasTransparency()))
-			|| !Module->GetTextureCubeProjectionVersion())
+			|| !Module->GetBuildVersion(ETextureBuildKind::TextureCube))
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
 				ETextureBuildStage::Normalize, "TextureCube source is not canonical."});
 		const auto Hash = Source.GetIdentity();
@@ -34,8 +34,8 @@ namespace Durin
 			.SourceLayout = bHDR ? ETextureCubeBuildSourceLayout::EquirectangularPanorama : ETextureCubeBuildSourceLayout::SixFaces,
 			.CanonicalSourceIdentity = Hash,
 			.FaceDimension = bHDR ? FaceDimension : 0, .ExposureEV = bHDR && Exposure != 0.0f ? Exposure : 0.0f,
-			.bSRGB = bSRGB, .BuilderVersion = Module->GetTextureCubeBuilderVersion(),
-			.ProjectionVersion = Module->GetTextureCubeProjectionVersion(), .TargetPlatform = Platform, .TargetProfile = Profile});
+			.bSRGB = bSRGB, .BuilderVersion = Module->GetBuildVersion(ETextureBuildKind::TextureCube),
+			.TargetPlatform = Platform, .TargetProfile = Profile});
 		if (!Definition) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
 			ETextureBuildStage::Normalize, "Invalid TextureCube build definition."});
 		DerivedData::FBuildRequestOptions Options;

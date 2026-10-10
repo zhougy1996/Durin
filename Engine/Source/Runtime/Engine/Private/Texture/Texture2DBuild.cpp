@@ -128,7 +128,7 @@ namespace Durin
 #else
 		auto* Module = ITextureCompressorModule::Get();
 		if (!Module) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable});
-		OutIdentity.BuilderVersion = Module->GetTexture2DBuilderVersion();
+		OutIdentity.BuilderVersion = Module->GetBuildVersion(ETextureBuildKind::Texture2D);
 		if (!OutIdentity.BuilderVersion)
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderVersion});
 		auto Definition = TexturePrivate::MakeTexture2DSessionDefinition(Request);

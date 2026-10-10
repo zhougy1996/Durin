@@ -36,7 +36,7 @@ namespace Durin
 		FTexture2DBuildSettings Settings;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
-		uint32 BuilderVersion = 0;
+		uint64 BuilderVersion = 0;
 
 		auto operator==(const FTexture2DBuildInputIdentity&) const -> bool = default;
 	};

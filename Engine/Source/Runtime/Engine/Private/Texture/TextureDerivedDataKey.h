@@ -7,12 +7,18 @@
 
 #include "Asset/DerivedDataCacheKeyProxy.h"
 #include "Texture/TextureDerivedData.h"
+#include "Texture/ITextureCompressorModule.h"
 #include "Texture/VolumeTexture.h"
 
 namespace Durin
 {
-	namespace DerivedData { class FBuildAction; struct FBuildDefinitionError; }
+	namespace DerivedData { class FBuildAction; struct FBuildDefinitionError; struct FBuildFunctionDescriptor; }
 	struct FArchiveFailure;
+
+	inline constexpr uint32 Texture2DBuildFunctionVersion = 1;
+	inline constexpr uint32 TextureCubeBuildFunctionVersion = 1;
+	inline constexpr uint32 VolumeTextureBuildFunctionVersion = 1;
+	inline constexpr uint32 TextureBuildOutputSchemaVersion = 2;
 
 	inline constexpr std::string_view Texture2DCacheBucket = "Texture2D";
 	inline constexpr std::string_view TextureCubeCacheBucket = "TextureCube";
@@ -27,8 +33,9 @@ namespace Durin
 		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average;
 		uint32 MaximumResolution = 0;
 		float AlphaCoverageThreshold = 0.5f;
-		uint32 BuilderVersion = Texture2DBuilderVersion;
-		uint32 OutputSchemaVersion = 2;
+		uint64 BuilderVersion = 0;
+		uint32 FunctionVersion = Texture2DBuildFunctionVersion;
+		uint32 OutputSchemaVersion = TextureBuildOutputSchemaVersion;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		// Optionally reports the first invalid field; success clears the supplied failure.
@@ -49,9 +56,9 @@ namespace Durin
 		uint32 FaceDimension = 0;
 		float ExposureEV = 0.0f;
 		bool bSRGB = true;
-		uint32 BuilderVersion = TextureCubeBuilderVersion;
-		uint32 OutputSchemaVersion = 2;
-		uint32 ProjectionVersion = TextureCubeProjectionVersion;
+		uint64 BuilderVersion = 0;
+		uint32 FunctionVersion = TextureCubeBuildFunctionVersion;
+		uint32 OutputSchemaVersion = TextureBuildOutputSchemaVersion;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		// Optionally reports the first invalid field; success clears the supplied failure.
@@ -65,7 +72,9 @@ namespace Durin
 		uint32 Height = 0;
 		uint32 Depth = 0;
 		FVolumeTextureBuildSettings Settings;
-		uint32 BuilderVersion = VolumeTextureBuilderVersion;
+		uint64 BuilderVersion = 0;
+		uint32 FunctionVersion = VolumeTextureBuildFunctionVersion;
+		uint32 OutputSchemaVersion = TextureBuildOutputSchemaVersion;
 		uint32 SourcePayloadSchemaVersion = VolumeTextureSourcePayloadSchemaVersion;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
@@ -74,6 +83,8 @@ namespace Durin
 	};
 
 #if DURIN_WITH_EDITOR
+	ENGINE_API auto GetTextureBuildDescriptor(ETextureBuildKind TextureKind)
+		-> DerivedData::FBuildFunctionDescriptor;
 	ENGINE_API auto MakeTexture2DBuildAction(const FTexture2DBuildKeyInput& Input)
 		-> std::expected<DerivedData::FBuildAction, DerivedData::FBuildDefinitionError>;
 	ENGINE_API auto MakeTextureCubeBuildAction(const FTextureCubeBuildKeyInput& Input)

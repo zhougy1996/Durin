@@ -114,7 +114,7 @@ Compact Binary objects.
 | Producer | Request input | Identity-specific fields |
 | --- | --- | --- |
 | Texture2D | Torn-off `FTextureSource`; shared mip blocks materialize after a miss | Usage, resolved sRGB, quality, alpha policy, maximum resolution, target/profile |
-| TextureCube | Canonical faces or HDR panorama retained by capture | Layout, sRGB, projection version, dimension/exposure, target/profile |
+| TextureCube | Canonical faces or HDR panorama retained by capture | Layout, sRGB, builder identity, dimension/exposure, target/profile |
 | VolumeTexture | Torn-off volume source; voxel view materializes after a miss | Shape, format/filter, source schema, target/profile |
 | StaticMesh render | Captured authored bulk and reconciliation metadata | Source/reconciliation identities, slot count, producer/output versions, target |
 | Physics collision | Owned positions/indices captured before the request | Mode, query policy, weld settings, producer/output versions, target |
@@ -267,7 +267,25 @@ and `VolumeTextureBuildOperations`; `TextureBCEncoder` owns BC block encoding.
 Naming follows the [UE texture compressor interface](https://dev.epicgames.com/documentation/unreal-engine/API/Developer/TextureCompressor/ITextureCompressorModule):
 `BuildTextureMips` includes mip generation and compression, `GenerateMipChain`
 generates uncompressed Volume mips, and `CompressTextureMip` encodes one BC mip.
-Build entrypoints and builder versions retain their recipe/product meaning.
+`ITextureCompressorModule::GetBuildVersion(ETextureBuildKind)` returns an opaque
+nonzero `uint64` identity for each of Texture2D, TextureCube, and VolumeTexture.
+Identities are immutable for the editor lifetime and compared only for equality.
+Private recipe revisions and stable implementation identifiers are canonically
+encoded and hashed with XXH3-64. Texture2D and Cube additionally include shared
+color/mip revisions, GLM version, and the managed bc7enc/rgbcx source revision;
+Cube includes its private projection revision. Volume remains independent of
+BC encoder revisions. Future output-affecting dependencies belong in the relevant
+composition, not in Engine's public payload contract.
+
+Engine records the identity as a `BuilderVersion` action constant and checks it
+against the active module before invoking any recipe. Each Engine adapter has
+an independent function version (initially 1); constants schemas are 2 for 2D,
+3 for Cube, and 2 for Volume. Shared-output schemas remain 2. Cook recipe
+dependencies include the builder identity, adapter function/constants versions,
+shared-output schema, and payload schema. Algorithms and adapters independently
+invalidate DDC/Cook production identity. TXPL compatibility remains schema 2:
+the historical producer word is written as zero and ignored when reading,
+including compatible existing cooked payloads.
 HDR Cube and Volume builders return complete products through `std::expected`,
 so failed candidates remain local. Family entrypoints share one target-support
 predicate, while panorama limits and decoded image types come directly from

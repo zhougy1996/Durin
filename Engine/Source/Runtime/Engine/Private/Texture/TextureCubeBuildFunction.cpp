@@ -19,18 +19,18 @@ namespace Durin::TexturePrivate
 			const auto* Dimension = Context.FindConstant<uint64>("FaceDimension");
 			const auto* Exposure = Context.FindConstant<float>("ExposureEV");
 			const auto* SRGB = Context.FindConstant<bool>("SRGB");
-			const auto* Projection = Context.FindConstant<uint64>("ProjectionVersion");
+			const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
 			const auto* Platform = Context.FindConstant<uint64>("TargetPlatform");
 			const auto* Profile = Context.FindConstant<uint64>("TargetProfile");
-			if (!Layout || !Dimension || !Exposure || !SRGB || !Projection || !Platform || !Profile
-				|| *Layout > 1 || *Dimension > MaximumTextureCubeDimension || !*Projection || *Projection > UINT32_MAX
+			if (!Layout || !Dimension || !Exposure || !SRGB || !BuilderVersion || !*BuilderVersion || !Platform || !Profile
+				|| *Layout > 1 || *Dimension > MaximumTextureCubeDimension
 				|| (*Platform != static_cast<uint64>(ECookTargetPlatform::Win64)
 					&& *Platform != static_cast<uint64>(ECookTargetPlatform::MacOS))
 				|| *Profile != static_cast<uint64>(ECookTargetProfile::Game))
 				return std::unexpected("Cube build constants are invalid.");
 			FTextureCubeBuildKeyInput Result{.SourceLayout = static_cast<ETextureCubeBuildSourceLayout>(*Layout),
 				.FaceDimension = static_cast<uint32>(*Dimension), .ExposureEV = *Exposure, .bSRGB = *SRGB,
-				.ProjectionVersion = static_cast<uint32>(*Projection), .TargetPlatform = static_cast<ECookTargetPlatform>(*Platform),
+				.BuilderVersion = *BuilderVersion, .TargetPlatform = static_cast<ECookTargetPlatform>(*Platform),
 				.TargetProfile = static_cast<ECookTargetProfile>(*Profile)};
 			if (!Result.IsValid() || (*Layout == 0 && (*Dimension != 0 || *Exposure != 0)) || (*Layout == 1 && *SRGB))
 				return std::unexpected("Cube normalization constants are invalid.");
@@ -115,18 +115,22 @@ namespace Durin::TexturePrivate
 		class FCubeFunction final : public IBuildFunction
 		{
 		public:
-			explicit FCubeFunction(ITextureCompressorModule& Module) : Version(Module.GetTextureCubeBuilderVersion()), Projection(Module.GetTextureCubeProjectionVersion()) {}
 			auto GetName() const -> std::string_view override { return "Durin.TextureCube"; }
-			auto GetVersion() const -> uint32 override { return Version; }
+			auto GetVersion() const -> uint32 override { return TextureCubeBuildFunctionVersion; }
 			auto Configure(FBuildConfigContext& Context) const -> void override
-			{ Context.SetConstantsSchema(2); Context.SetOutput("TextureCube.Output", 2); Context.SetCacheBucket(FCacheBucket::FromString(TextureCubeCacheBucket)); }
+			{ const auto D = GetTextureBuildDescriptor(ETextureBuildKind::TextureCube); Context.SetConstantsSchema(D.ConstantsSchema); Context.SetOutput(D.OutputType, D.OutputSchema); Context.SetCacheBucket(D.Bucket); }
 			auto Build(FBuildContext& Context) const -> void override
 			{
 				auto Fail = [&](std::string Text) { Context.AddError(std::move(Text)); };
+				auto* Module = ITextureCompressorModule::Get();
+				if (!Module) return Fail("The TextureCompressor module is unavailable.");
+				const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
+				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != Module->GetBuildVersion(ETextureBuildKind::TextureCube))
+					return Fail("TextureCube builder identity does not match the action.");
 				auto Options = Settings(Context); if (!Options) return Fail(std::move(Options.error()));
 				const bool HDR = Options->SourceLayout == ETextureCubeBuildSourceLayout::EquirectangularPanorama;
 				const auto* Source = Context.FindInput("Source");
-				if (Options->ProjectionVersion != Projection || !Source || Source->Identity.IdentityScheme != "TextureSource" || Source->Identity.IdentityVersion != TextureSourceSchemaVersion
+				if (!Source || Source->Identity.IdentityScheme != "TextureSource" || Source->Identity.IdentityVersion != TextureSourceSchemaVersion
 					|| Source->Identity.Representation != (HDR ? "Panorama.RGBA32F" : "Cube.RGBA8") || Source->Identity.RepresentationVersion != 1
 					|| Source->Values.size() != (HDR ? 1u : TextureCubeFaceCount)) return Fail("Cube input representation is invalid.");
 				FBinaryReader Metadata(Source->Metadata.GetBytes(), {.MaximumTotalBytes = 16});
@@ -149,8 +153,6 @@ namespace Durin::TexturePrivate
 					if (HDR) Panorama = std::move(*Image); else Faces.Faces[Index] = std::move(*Image);
 				}
 				Faces.SourceChannelCount = static_cast<uint8>(Channels); Faces.TransparencyMask = static_cast<uint8>(Transparency);
-				auto* Module = ITextureCompressorModule::Get();
-				if (!Module) return Fail("The TextureCompressor module is unavailable.");
 				FTextureCubeBuildInput Request{.Pixels = FTextureCubeLDRBuildInput{.FaceImages = std::cref(Faces), .bSRGB = Options->bSRGB},
 					.TargetPlatform = Options->TargetPlatform, .TargetProfile = Options->TargetProfile};
 				if (HDR) Request.Pixels = FTextureCubeHDRBuildInput{.Panorama = std::cref(Panorama),
@@ -163,12 +165,10 @@ namespace Durin::TexturePrivate
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);
 			}
-		private:
-			uint32 Version, Projection;
 		};
 	}
-	auto MakeTextureCubeBuildFunction(ITextureCompressorModule& Module) -> std::shared_ptr<const IBuildFunction>
-	{ return std::make_shared<FCubeFunction>(Module); }
+	auto MakeTextureCubeBuildFunction() -> std::shared_ptr<const IBuildFunction>
+	{ return std::make_shared<FCubeFunction>(); }
 	auto MakeTextureCubeInputResolver(const FTextureSource& Source, const FTextureCubeCanonicalBuildInput* Prepared) -> std::shared_ptr<const IBuildInputResolver>
 	{ return std::make_shared<FCubeResolver>(Source, Prepared); }
 	auto MakeTextureCubeSessionDefinition(const FTextureCubeBuildKeyInput& Input) -> std::expected<FBuildDefinition, FBuildDefinitionError>
@@ -176,9 +176,9 @@ namespace Durin::TexturePrivate
 		if (!Input.IsValid()) return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "TextureCube"});
 		const bool HDR = Input.SourceLayout == ETextureCubeBuildSourceLayout::EquirectangularPanorama;
 		FBuildDefinitionBuilder Builder("Durin.TextureCube");
-		Builder.AddConstant("Layout", uint64(Input.SourceLayout)).AddConstant("SRGB", Input.bSRGB)
+		Builder.AddConstant("BuilderVersion", Input.BuilderVersion).AddConstant("Layout", uint64(Input.SourceLayout)).AddConstant("SRGB", Input.bSRGB)
 			.AddConstant("FaceDimension", uint64(HDR ? Input.FaceDimension : 0)).AddConstant("ExposureEV", HDR ? Input.ExposureEV : 0.0f)
-			.AddConstant("ProjectionVersion", uint64(Input.ProjectionVersion)).AddConstant("TargetPlatform", uint64(Input.TargetPlatform))
+			.AddConstant("TargetPlatform", uint64(Input.TargetPlatform))
 			.AddConstant("TargetProfile", uint64(Input.TargetProfile)).AddInput("Source", "CapturedSource");
 		return std::move(Builder).Build();
 	}

@@ -15,6 +15,9 @@ namespace Durin::TexturePrivate
 		auto ReadConstants(const FBuildContext& Context) -> std::expected<FVolumeTextureBuildKeyInput, std::string>
 		{
 			FVolumeTextureBuildKeyInput Result;
+			const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
+			if (!BuilderVersion || !*BuilderVersion) return std::unexpected("Volume builder identity is invalid.");
+			Result.BuilderVersion = *BuilderVersion;
 			auto Read = [&](std::string_view Name, uint32& Value) {
 				const auto* Integer = Context.FindConstant<uint64>(Name); if (!Integer || *Integer > UINT32_MAX) return false; Value = static_cast<uint32>(*Integer); return true;
 			};
@@ -63,14 +66,18 @@ namespace Durin::TexturePrivate
 		class FVolumeFunction final : public IBuildFunction
 		{
 		public:
-			explicit FVolumeFunction(ITextureCompressorModule& Module) : Version(Module.GetVolumeTextureBuilderVersion()) {}
 			auto GetName() const -> std::string_view override { return "Durin.VolumeTexture"; }
-			auto GetVersion() const -> uint32 override { return Version; }
+			auto GetVersion() const -> uint32 override { return VolumeTextureBuildFunctionVersion; }
 			auto Configure(FBuildConfigContext& Context) const -> void override
-			{ Context.SetConstantsSchema(1); Context.SetOutput("VolumeTexture.Output", 2); Context.SetCacheBucket(FCacheBucket::FromString(VolumeTextureCacheBucket)); }
+			{ const auto D = GetTextureBuildDescriptor(ETextureBuildKind::VolumeTexture); Context.SetConstantsSchema(D.ConstantsSchema); Context.SetOutput(D.OutputType, D.OutputSchema); Context.SetCacheBucket(D.Bucket); }
 			auto Build(FBuildContext& Context) const -> void override
 			{
 				auto Fail = [&](std::string Text) { Context.AddError(std::move(Text)); };
+				auto* Module = ITextureCompressorModule::Get();
+				if (!Module) return Fail("The TextureCompressor module is unavailable.");
+				const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
+				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != Module->GetBuildVersion(ETextureBuildKind::VolumeTexture))
+					return Fail("VolumeTexture builder identity does not match the action.");
 				auto Constants = ReadConstants(Context); if (!Constants) return Fail(std::move(Constants.error()));
 				const auto* SourceInput = Context.FindInput("Source");
 				if (!SourceInput || SourceInput->Identity.IdentityScheme != "TextureSource" || SourceInput->Identity.IdentityVersion != TextureSourceSchemaVersion || SourceInput->Identity.Representation != "Volume.Voxels"
@@ -86,8 +93,6 @@ namespace Durin::TexturePrivate
 				FVolumeTextureSourceData Source{.Width = Width, .Height = Height, .Depth = Depth, .Format = Constants->Settings.OutputFormat};
 				Source.CanonicalSourceIdentity = SourceInput->Identity.Identity;
 				if (!Source.Voxels.UpdatePayload(SourceInput->Values[0].Data) || !Source.IsValid()) return Fail("Volume voxel byte count is invalid.");
-				auto* Module = ITextureCompressorModule::Get();
-				if (!Module) return Fail("The TextureCompressor module is unavailable.");
 				auto Built = Module->BuildVolumeTexture({.SourceData = std::cref(Source), .Settings = Constants->Settings,
 					.TargetPlatform = Constants->TargetPlatform, .TargetProfile = Constants->TargetProfile});
 				if (Context.IsCancelled()) return;
@@ -97,26 +102,28 @@ namespace Durin::TexturePrivate
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);
 			}
-		private:
-			uint32 Version;
 		};
 	}
-	auto MakeVolumeTextureBuildFunction(ITextureCompressorModule& Module) -> std::shared_ptr<const IBuildFunction>
-	{ return std::make_shared<FVolumeFunction>(Module); }
+	auto MakeVolumeTextureBuildFunction() -> std::shared_ptr<const IBuildFunction>
+	{ return std::make_shared<FVolumeFunction>(); }
 	auto MakeVolumeTextureInputResolver(const FTextureSource& Source) -> std::shared_ptr<const IBuildInputResolver>
 	{ return std::make_shared<FVolumeResolver>(Source); }
 	auto MakeVolumeTextureSessionDefinition(const FVolumeTextureBuildRequest& Request) -> std::expected<FBuildDefinition, FBuildDefinitionError>
 	{
+		auto* Module = ITextureCompressorModule::Get();
+		if (!Module) return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "BuilderVersion"});
 		return MakeVolumeTextureSessionDefinition(FVolumeTextureBuildKeyInput{
 			.Width = Request.Source.GetWidth(), .Height = Request.Source.GetHeight(),
 			.Depth = Request.Source.GetDepth(), .Settings = Request.Settings,
+			.BuilderVersion = Module->GetBuildVersion(ETextureBuildKind::VolumeTexture),
 			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
 	}
 	auto MakeVolumeTextureSessionDefinition(const FVolumeTextureBuildKeyInput& Input)
 		-> std::expected<FBuildDefinition, FBuildDefinitionError>
 	{
+		if (!Input.IsValid()) return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidConstant, "VolumeTexture"});
 		FBuildDefinitionBuilder Builder("Durin.VolumeTexture");
-		Builder.AddConstant("Width", uint64(Input.Width)).AddConstant("Height", uint64(Input.Height))
+		Builder.AddConstant("BuilderVersion", Input.BuilderVersion).AddConstant("Width", uint64(Input.Width)).AddConstant("Height", uint64(Input.Height))
 			.AddConstant("Depth", uint64(Input.Depth)).AddConstant("Format", uint64(Input.Settings.OutputFormat))
 			.AddConstant("MipFilter", uint64(Input.Settings.MipFilter)).AddConstant("SourceSchema", uint64(Input.SourcePayloadSchemaVersion))
 			.AddConstant("TargetPlatform", uint64(Input.TargetPlatform)).AddConstant("TargetProfile", uint64(Input.TargetProfile))

@@ -12,6 +12,8 @@
 
 namespace Durin
 {
+	enum class ETextureBuildKind : uint8 { Texture2D, TextureCube, VolumeTexture };
+
 	// Fixed Developer module contract. Builds return detached CPU values only.
 	class ITextureCompressorModule : public IModuleInterface
 	{
@@ -19,10 +21,10 @@ namespace Durin
 		ENGINE_API auto StartupModule() -> void override;
 		// Borrow the active implementation. Consumers drain work before editor shutdown.
 		ENGINE_API static auto Get() -> ITextureCompressorModule*;
-		virtual auto GetTexture2DBuilderVersion() const -> uint32 = 0;
-		virtual auto GetTextureCubeBuilderVersion() const -> uint32 = 0;
-		virtual auto GetTextureCubeProjectionVersion() const -> uint32 = 0;
-		virtual auto GetVolumeTextureBuilderVersion() const -> uint32 = 0;
+		// Nonzero opaque identity combining implementation, algorithm, and dependency versions.
+		// Each kind has an independent identity, immutable for the editor lifetime; compare only for equality.
+		// Unsupported kinds return zero.
+		virtual auto GetBuildVersion(ETextureBuildKind TextureKind) const -> uint64 = 0;
 		// Synchronous and non-cancelable. Failure is logged by TextureCompressor.
 		virtual auto BuildTexture2D(const FTexture2DBuildInput& Request)
 			-> std::optional<FTexture2DBuildOutput> = 0;

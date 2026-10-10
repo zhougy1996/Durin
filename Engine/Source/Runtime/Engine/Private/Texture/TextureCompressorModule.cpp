@@ -10,7 +10,7 @@ namespace Durin
 	auto ITextureCompressorModule::StartupModule() -> void
 	{
 #if DURIN_WITH_EDITOR
-		TexturePrivate::RegisterBuildFunctions(*this);
+		TexturePrivate::RegisterBuildFunctions();
 #endif
 	}
 

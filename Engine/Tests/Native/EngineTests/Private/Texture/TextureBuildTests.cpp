@@ -138,13 +138,13 @@ TEST(FTextureSourceTests, ZstdRecompressionPreservesIdentityBuffersAndRollback)
 		const auto Identity = Source.GetIdentity();
 		const auto Instance = Source.GetBulkData().GetInstanceId();
 		const auto Prior = Source.GetMipData().GetData();
-		const auto Key = BuildTexture2DDerivedDataKey({.SourceIdentity = Identity,
+		const auto Key = BuildTexture2DDerivedDataKey({.SourceIdentity = Identity, .BuilderVersion = 0x123456789abcdef0ull,
 			.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game});
 		ASSERT_TRUE(Source.Recompress());
 		EXPECT_EQ(Source.GetCompression(), ETextureSourceCompression::Zstd);
 		EXPECT_EQ(Source.GetIdentity(), Identity);
 		EXPECT_EQ(Source.GetBulkData().GetInstanceId(), Instance);
-		EXPECT_EQ(BuildTexture2DDerivedDataKey({.SourceIdentity = Source.GetIdentity(),
+		EXPECT_EQ(BuildTexture2DDerivedDataKey({.SourceIdentity = Source.GetIdentity(), .BuilderVersion = 0x123456789abcdef0ull,
 			.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}), Key);
 		EXPECT_TRUE(std::ranges::equal(Prior.GetBytes(), Pixels));
 		Source.ReleaseSourceMemory();
@@ -541,7 +541,7 @@ TEST(FTexture2DBuildModuleTests, KeepsProductsValueOwned)
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	const auto Module = Durin::ITextureCompressorModule::Get();
 	ASSERT_TRUE(Module);
-	EXPECT_TRUE(Module->GetTexture2DBuilderVersion() != 0);
+	EXPECT_TRUE(Module->GetBuildVersion(Durin::ETextureBuildKind::Texture2D) != 0);
 	Durin::FTexture2DBuildRequest Request;
 	Durin::Image::FImage SourceDataImage;
 	auto ImageResult18 = Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
@@ -1012,7 +1012,7 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	Platform.Serialize(Writer);
 	ASSERT_FALSE(Writer.IsError()) << Writer.GetError();
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Bytes).ToString(),
-		"3653410e7207268f7089e69dfa0f3d38");
+		"96dc9b5ebe4e1bfe756c419472994b94");
 	EXPECT_EQ(Bytes.size(), 177u);
 	Durin::FVolumeTexturePlatformData Decoded;
 	Durin::FCanonicalMemoryReader Reader(Bytes, Durin::EArchivePurpose::DerivedDataPayload,
@@ -1023,7 +1023,7 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	auto DifferentProducer = Bytes;
 	for (uint32 Byte = 0; Byte < 4; ++Byte)
 		DifferentProducer[8 + Byte] = static_cast<std::byte>(
-			(Durin::VolumeTextureBuilderVersion + 17) >> (Byte * 8));
+			17u >> (Byte * 8));
 	Durin::FCanonicalMemoryReader CompatibleReader(DifferentProducer,
 		Durin::EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	Decoded.Serialize(CompatibleReader);
@@ -1061,18 +1061,18 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	EXPECT_FALSE(BuildResult3) << (BuildResult3 ? std::string{} : FormatTextureBuildOperationError(BuildResult3.error()));
 	EXPECT_FALSE(SchemaError.empty());
 	Source.PayloadSchemaVersion = Durin::VolumeTextureSourcePayloadSchemaVersion;
-	const Durin::FVolumeTextureBuildKeyInput GoldenKeyInput{
+	const Durin::FVolumeTextureBuildKeyInput KeyInput{
 		.CanonicalSourceIdentity = Source.GetIdentity(),
 		.Width = Source.Width,
 		.Height = Source.Height,
 		.Depth = Source.Depth,
 		.Settings = {},
+		.BuilderVersion = Durin::ITextureCompressorModule::Get()->GetBuildVersion(Durin::ETextureBuildKind::VolumeTexture),
 		.TargetPlatform = Durin::ECookTargetPlatform::Win64,
 		.TargetProfile = Durin::ECookTargetProfile::Game};
-	std::string GoldenKeyError;
-	EXPECT_EQ(Durin::BuildVolumeTextureDerivedDataKey(
-		GoldenKeyInput, GoldenKeyError).ToString(),
-		"bfbf9400c1623720ab05c0d507c42899") << GoldenKeyError;
+	std::string KeyError;
+	EXPECT_TRUE(Durin::BuildVolumeTextureDerivedDataKey(
+		KeyInput, KeyError).IsValid()) << KeyError;
 	std::unique_ptr<Durin::FVolumeTexturePlatformData> First;
 	std::unique_ptr<Durin::FVolumeTexturePlatformData> Second;
 	std::string Error;
@@ -1094,7 +1094,7 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	Second = BuildResult5 ? std::move(*BuildResult5) : std::unique_ptr<Durin::FVolumeTexturePlatformData>{};
 	ASSERT_TRUE(BuildResult5) << (BuildResult5 ? std::string{} : FormatTextureBuildOperationError(BuildResult5.error()));
 	EXPECT_TRUE(std::ranges::equal(First->Mips.front().Voxels, Second->Mips.front().Voxels));
-	const auto Key = Durin::BuildVolumeTextureDerivedDataKey(GoldenKeyInput, GoldenKeyError);
+	const auto Key = Durin::BuildVolumeTextureDerivedDataKey(KeyInput, KeyError);
 	EXPECT_EQ(Probe->GetReadStats().RequestCount, 1u);
 
 	const auto CachePath = std::filesystem::path(Durin::FPaths::DerivedDataCacheDir())

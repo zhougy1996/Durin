@@ -17,7 +17,6 @@ namespace Durin
 		};
 		if (Ar.IsError()) return;
 		TexturePayloadContainer::FDescriptor Descriptor{
-			.ProducerVersion = VolumeTextureBuilderVersion,
 			.TargetPlatform = Context.TargetPlatform,
 			.TargetProfile = Context.TargetProfile,
 			.Dimension = ETexturePayloadDimension::Texture3D,

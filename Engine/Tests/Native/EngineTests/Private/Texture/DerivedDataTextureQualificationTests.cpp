@@ -31,10 +31,13 @@ namespace
 		uint64 BuildCalls = 0;
 		std::function<void()> OnRecipeCompleted;
 		auto ResetObservation() -> void { ReturnedBlocks.clear(); BuildCalls = 0; }
-		auto GetTexture2DBuilderVersion() const -> uint32 override { return Texture2DBuilderVersion; }
-		auto GetTextureCubeBuilderVersion() const -> uint32 override { return TextureCubeBuilderVersion; }
-		auto GetTextureCubeProjectionVersion() const -> uint32 override { return TextureCubeProjectionVersion; }
-		auto GetVolumeTextureBuilderVersion() const -> uint32 override { return VolumeTextureBuilderVersion; }
+		auto GetBuildVersion(ETextureBuildKind Kind) const -> uint64 override
+		{
+			const auto Index = static_cast<size_t>(Kind);
+			return Index < Versions.size() ? Versions[Index] : 0;
+		}
+		// This observing implementation has its own stable identities, distinct from the built-in module.
+		const std::array<uint64, 3> Versions{0x1234000000000001ull, 0x1234000000000002ull, 0x1234000000000003ull};
 		auto Observe(const FTexturePlatformData& Platform) -> void
 		{
 			for (const auto& Mip : Platform.Mips) ReturnedBlocks.emplace_back(Mip.Pixels);
@@ -280,6 +283,7 @@ TEST_F(FDerivedDataTextureQualificationTests, CubeCancellationDiscardsCompletedR
 	ASSERT_TRUE(Source);
 	auto Definition = TexturePrivate::MakeTextureCubeSessionDefinition({
 		.CanonicalSourceIdentity = Source->GetIdentity(), .bSRGB = false,
+		.BuilderVersion = Provider->GetBuildVersion(ETextureBuildKind::TextureCube),
 		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game});
 	ASSERT_TRUE(Definition);
 	CheckCancellation("CanceledCube", *Definition, TexturePrivate::MakeTextureCubeInputResolver(*Source, nullptr));

@@ -126,12 +126,13 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 		.AlphaMipMode = Durin::ETextureAlphaMipMode::Average,
 		.MaximumResolution = 2048,
 		.AlphaCoverageThreshold = 0.5f,
+		.BuilderVersion = 0x123456789abcdef0ull,
 		.TargetPlatform = Durin::ECookTargetPlatform::Win64,
 		.TargetProfile = Durin::ECookTargetProfile::Game};
 	const Durin::FCacheKeyProxy Baseline =
 		Durin::BuildTexture2DDerivedDataKey(Input);
 	// Canonical schema-2 action includes the flat resource-family bucket.
-	EXPECT_EQ(Baseline.ToString(), "c1e5ae84ceac07b699aa9a507f8d466d");
+	EXPECT_EQ(Baseline.ToString(), "19aa99d9f174f3af413675c83f12056e");
 	EXPECT_EQ(Baseline.ToString().size(), 32u);
 
 	auto ExpectChange = [&Baseline](const Durin::FTexture2DBuildKeyInput& Changed) {
@@ -181,13 +182,13 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 		Durin::EPixelFormat::BC7_UNORM,
 		Durin::EPixelFormat::BC7_UNORM_SRGB};
 	constexpr std::array<std::string_view, 7> ExpectedPayloadHashes{
-		"54385c3a0cb5b3a1f3f826f4405e8296",
-		"5430c7ce42654d5444a8cd715c48c42a",
-		"1c767b7f843e08dc041676d001e2398f",
-		"9fd75a4d3107d7fca52ea4a73baa5eb2",
-		"89086e0fa07650ad7bdc6390c873873b",
-		"4d53f58d9c8a4c8db6ac7e6a7fc0fc00",
-		"55e8358b0d284ca4c6be60939edf97dd"};
+		"037213ec92cdcb29e5a54f6ce150ad32",
+		"9fc5810f854086f300b158977a415150",
+		"d3e0a4077a489491c7b8045b8f0cf3df",
+		"e1aea6ba0121c521411342b0eee57df4",
+		"24bca48ecde72bd32180c1f212642b4e",
+		"d6992f17084c0144677a926503031a40",
+		"56ab1bd515b19ef7eaddb3db92406de8"};
 	for (size_t FormatIndex = 0; FormatIndex < Formats.size(); ++FormatIndex)
 	{
 		const Durin::EPixelFormat Format = Formats[FormatIndex];
@@ -203,6 +204,7 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 			<< "format index " << FormatIndex;
 		if (FormatIndex == 0) EXPECT_EQ(First.size(), 264u);
 		ASSERT_GE(First.size(), Durin::TexturePayloadHeaderSize);
+		EXPECT_TRUE(std::ranges::all_of(std::span(First).subspan(8, 4), [](std::byte Byte) { return Byte == std::byte{0}; }));
 
 		std::unique_ptr<Durin::FTexturePlatformData> Actual;
 		const std::expected<void, Durin::FArchiveFailure> DecodeResult =
@@ -269,25 +271,26 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto DifferentBuilder = Bytes;
-	WriteU32(DifferentBuilder, 8, Durin::Texture2DPayloadProducerVersion + 17);
+	WriteU32(DifferentBuilder, 8, 17u);
 	DecodeResult = LoadPlatformDataValue(DifferentBuilder, Existing);
 	EXPECT_TRUE(DecodeResult) << DecodeResult.error().Message;
 	EXPECT_NE(Existing.get(), ExistingAddress);
 }
 
-TEST(FTextureDerivedDataTests, CubeKeysCoverCanonicalSourceLayoutAndProjectionInputs)
+TEST(FTextureDerivedDataTests, CubeKeysCoverCanonicalSourceLayoutAndBuilderIdentity)
 {
 	Durin::FTextureCubeBuildKeyInput Input{
 		.SourceLayout = Durin::ETextureCubeBuildSourceLayout::SixFaces,
 		.CanonicalSourceIdentity = {1, 101},
 		.bSRGB = true,
+		.BuilderVersion = 0x123456789abcdef0ull,
 		.TargetPlatform = Durin::ECookTargetPlatform::Win64,
 		.TargetProfile = Durin::ECookTargetProfile::Game};
 	Durin::FCacheKeyProxy Baseline;
 	std::string Error;
 	Baseline = Durin::BuildTextureCubeDerivedDataKey(Input, Error);
 	ASSERT_TRUE(Baseline.IsValid()) << Error;
-	EXPECT_EQ(Baseline.ToString(), "cb1afc899dee59d3ba90e9829e322928");
+	EXPECT_EQ(Baseline.ToString(), "abe54a5afacefa2141915fd85690e3a2");
 	EXPECT_EQ(Baseline.ToString().size(), 32u);
 
 	auto Changed = Input;
@@ -302,12 +305,13 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverCanonicalSourceLayoutAndProjectionIn
 	ASSERT_TRUE(Key.IsValid()) << Error;
 	EXPECT_NE(Key, Baseline);
 	Changed = Input;
-	++Changed.ProjectionVersion;
+	++Changed.BuilderVersion;
 	Key = Durin::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_TRUE(Key.IsValid()) << Error;
 	EXPECT_NE(Key, Baseline);
 
 	Changed = {};
+	Changed.BuilderVersion = 0x123456789abcdef0ull;
 	Changed.SourceLayout = Durin::ETextureCubeBuildSourceLayout::EquirectangularPanorama;
 	Changed.CanonicalSourceIdentity = {7, 11};
 	Changed.FaceDimension = 512;
@@ -316,7 +320,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverCanonicalSourceLayoutAndProjectionIn
 	Changed.TargetProfile = Durin::ECookTargetProfile::Game;
 	Baseline = Durin::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_TRUE(Baseline.IsValid()) << Error;
-	EXPECT_EQ(Baseline.ToString(), "7de0792e245cfa14b745e869132ac67e");
+	EXPECT_EQ(Baseline.ToString(), "a73ee615228247195a69b3289c34a728");
 	auto ChangedPanorama = Changed;
 	ChangedPanorama.FaceDimension = 256;
 	Key = Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
@@ -351,6 +355,7 @@ TEST(FTextureDerivedDataTests, TextureKeyValidationRejectsInvalidInputs)
 		}
 	};
 	FTexture2DBuildKeyInput Texture{
+		.BuilderVersion = 0x123456789abcdef0ull,
 		.TargetPlatform = ECookTargetPlatform::Win64,
 		.TargetProfile = ECookTargetProfile::Game};
 	EXPECT_TRUE(Texture.IsValid());
@@ -366,6 +371,7 @@ TEST(FTextureDerivedDataTests, TextureKeyValidationRejectsInvalidInputs)
 	ExpectInvalid(InvalidTexture);
 	FVolumeTextureBuildKeyInput Volume{
 		.Width = 4, .Height = 4, .Depth = 4,
+		.BuilderVersion = 0x123456789abcdef0ull,
 		.TargetPlatform = ECookTargetPlatform::Win64,
 		.TargetProfile = ECookTargetProfile::Game};
 	EXPECT_TRUE(Volume.IsValid());
@@ -381,6 +387,7 @@ TEST(FTextureDerivedDataTests, InvalidCubeKeyInputsFailBeforeWriting)
 {
 	using namespace Durin;
 	FTextureCubeBuildKeyInput Input{
+		.BuilderVersion = 0x123456789abcdef0ull,
 		.TargetPlatform = ECookTargetPlatform::Win64,
 		.TargetProfile = ECookTargetProfile::Game};
 	FArchiveFailure Failure{.Message = "previous failure"};
@@ -427,7 +434,7 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	ASSERT_FALSE(SecondWriter.IsError());
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(First).ToString(),
-		"7ce2cb929232337de973aeddcfbb32d5");
+		"1b9fc09cc976efcff195a4678cb33dae");
 	EXPECT_EQ(First.size(), 1376u);
 
 	Durin::FTextureCubePlatformData Actual;
@@ -438,7 +445,7 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 		ExpectPlatformDataEqual(Actual.Faces[FaceIndex], Expected.Faces[FaceIndex]);
 
 	auto DifferentProducer = First;
-	WriteU32(DifferentProducer, 8, Durin::TextureCubeBuilderVersion + 17);
+	WriteU32(DifferentProducer, 8, 17u);
 	Durin::FCanonicalMemoryReader CompatibleReader(
 		DifferentProducer, Durin::EArchivePurpose::DerivedDataPayload, Context);
 	Actual.Serialize(CompatibleReader);
@@ -594,6 +601,7 @@ TEST(FTextureDerivedDataTests, CubeCanonicalSourceIdentityIncludesFaceOrder)
 	ASSERT_TRUE(Reordered.InitCube(Faces, 4));
 	EXPECT_NE(Original.GetIdentity(), Reordered.GetIdentity());
 	FTextureCubeBuildKeyInput Input{.CanonicalSourceIdentity = Original.GetIdentity(),
+		.BuilderVersion = 0x123456789abcdef0ull,
 		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
 	std::string Error;
 	const auto OriginalKey = BuildTextureCubeDerivedDataKey(Input, Error);
@@ -828,6 +836,7 @@ TEST(FTexturePlatformSessionTests, PreparedCubeBlocksMustMatchCapturedCanonicalI
 	FTextureSource Source;
 	ASSERT_TRUE(Source.InitCube(Views, 4));
 	auto Definition = TexturePrivate::MakeTextureCubeSessionDefinition({.CanonicalSourceIdentity = Source.GetIdentity(),
+			.BuilderVersion = 0x123456789abcdef0ull,
 			.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}).value();
 	auto Valid = TexturePrivate::MakeTextureCubeInputResolver(Source, &Prepared);
 	auto Identities = Valid->Describe(Definition.GetSources(), {}).value();
@@ -860,6 +869,7 @@ TEST(FTexturePlatformSessionTests, PreparedHDRCubeRejectsLDRAlternativeWithMatch
 	const auto Definition = TexturePrivate::MakeTextureCubeSessionDefinition({
 		.SourceLayout = ETextureCubeBuildSourceLayout::EquirectangularPanorama,
 		.CanonicalSourceIdentity = Source->GetIdentity(), .FaceDimension = 1, .bSRGB = false,
+		.BuilderVersion = 0x123456789abcdef0ull,
 		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}).value();
 	FTextureCubeCanonicalBuildInput Prepared{.Pixels = FTextureCubeHDRCanonicalInput{.AuthoredPanorama = Panorama}};
 	const auto Valid = TexturePrivate::MakeTextureCubeInputResolver(*Source, &Prepared);
@@ -879,4 +889,127 @@ TEST(FTexturePlatformSessionTests, CancellationPreservesOperationStatus)
 	const auto Error = TexturePrivate::ReportBuildFailure({ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "cancelled"});
 	EXPECT_EQ(Error.Code, ETextureBuildOperationFailure::Canceled);
 	EXPECT_TRUE(Error.InputReason.empty());
+}
+
+
+TEST(FTextureDerivedDataTests, ModuleBuildIdentitiesAreStableAndIndependent)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModuleChecked("TextureCompressor");
+	const auto* Module = ITextureCompressorModule::Get();
+	ASSERT_NE(Module, nullptr);
+	std::array<uint64, 3> Identities;
+	for (const auto Kind : {ETextureBuildKind::Texture2D, ETextureBuildKind::TextureCube, ETextureBuildKind::VolumeTexture})
+	{
+		const auto Identity = Module->GetBuildVersion(Kind);
+		EXPECT_NE(Identity, 0u);
+		EXPECT_EQ(Identity, Module->GetBuildVersion(Kind));
+		Identities[static_cast<size_t>(Kind)] = Identity;
+	}
+	EXPECT_NE(Identities[0], Identities[1]);
+	EXPECT_NE(Identities[0], Identities[2]);
+	EXPECT_NE(Identities[1], Identities[2]);
+	EXPECT_EQ(Module->GetBuildVersion(static_cast<ETextureBuildKind>(255)), 0u);
+}
+
+TEST(FTextureDerivedDataTests, BuilderIdentityAndAdapterVersionIndependentlyInvalidateKeys)
+{
+	using namespace Durin;
+	auto Check = [](auto Input, auto MakeAction) {
+		const auto Baseline = MakeAction(Input);
+		ASSERT_TRUE(Baseline);
+		const auto Constants = Baseline->GetConstants();
+		const auto It = std::ranges::find(Constants, "BuilderVersion", &DerivedData::FBuildConstant::Name);
+		ASSERT_NE(It, Constants.end());
+		const auto* Identity = std::get_if<uint64>(&It->Value);
+		ASSERT_NE(Identity, nullptr);
+		EXPECT_EQ(*Identity, Input.BuilderVersion);
+		auto Changed = Input;
+		Changed.BuilderVersion ^= uint64{1} << 63;
+		const auto DifferentBuilder = MakeAction(Changed);
+		ASSERT_TRUE(DifferentBuilder);
+		EXPECT_EQ(DifferentBuilder->GetFunction(), Baseline->GetFunction());
+		EXPECT_NE(DifferentBuilder->GetKey(), Baseline->GetKey());
+		Changed = Input;
+		++Changed.FunctionVersion;
+		const auto DifferentAdapter = MakeAction(Changed);
+		ASSERT_TRUE(DifferentAdapter);
+		EXPECT_NE(DifferentAdapter->GetKey(), Baseline->GetKey());
+		EXPECT_EQ(DifferentAdapter->GetFunction().Version, Changed.FunctionVersion);
+		Changed = Input;
+		++Changed.OutputSchemaVersion;
+		const auto DifferentOutput = MakeAction(Changed);
+		ASSERT_TRUE(DifferentOutput);
+		EXPECT_NE(DifferentOutput->GetKey(), Baseline->GetKey());
+		Changed = Input;
+		Changed.BuilderVersion = 0;
+		EXPECT_FALSE(MakeAction(Changed));
+		Changed = Input;
+		Changed.FunctionVersion = 0;
+		EXPECT_FALSE(MakeAction(Changed));
+	};
+	Check(FTexture2DBuildKeyInput{.SourceIdentity = {1, 2}, .BuilderVersion = 0x123456789abcdef0ull,
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}, MakeTexture2DBuildAction);
+	Check(FTextureCubeBuildKeyInput{.CanonicalSourceIdentity = {1, 2}, .BuilderVersion = 0x123456789abcdef0ull,
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}, MakeTextureCubeBuildAction);
+	Check(FVolumeTextureBuildKeyInput{.CanonicalSourceIdentity = {1, 2}, .Width = 1, .Height = 1, .Depth = 1,
+		.BuilderVersion = 0x123456789abcdef0ull,
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}, MakeVolumeTextureBuildAction);
+}
+
+TEST(FTextureDerivedDataTests, AdaptersRejectMismatchedBuilderIdentityBeforeReadingRecipeInputs)
+{
+	using namespace Durin;
+	using namespace Durin::DerivedData;
+	// Well-formed generic inputs intentionally have no recipe metadata. Identity
+	// rejection must happen before a recipe attempts to interpret these bytes.
+	class FResolver final : public IBuildInputResolver
+	{
+	public:
+		explicit FResolver(std::span<const FBuildInputReference> Inputs) : Inputs(Inputs.begin(), Inputs.end()) {}
+		auto Describe(std::span<const FBuildSourceReference>, const FBuildCancellation&) const
+			-> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override { return Inputs; }
+		auto Resolve(std::span<const FBuildInputReference> Requested, const FBuildCancellation&) const
+			-> std::expected<std::vector<FBuildInput>, FBuildInputError> override
+		{
+			std::vector<FBuildInput> Result;
+			for (const auto& Input : Requested)
+				Result.push_back({.Identity = Input, .Values = {{"Dummy", FSharedByteBuffer::Take(FByteBuffer{std::byte{1}})}}});
+			return Result;
+		}
+	private:
+		std::vector<FBuildInputReference> Inputs;
+	};
+	FModuleManager::Get().LoadModuleChecked("TextureCompressor");
+	const auto* Module = ITextureCompressorModule::Get();
+	ASSERT_NE(Module, nullptr);
+	auto Check = [](const auto& Action, const auto& Function) {
+		ASSERT_TRUE(Action);
+		auto Service = CreateBuild();
+		ASSERT_TRUE(Service->Register(Function));
+		auto Session = Service->CreateSession();
+		ASSERT_TRUE(Session);
+		FBuildRequestOptions Options{.Policy = {.QueryCache = false, .StoreOnBuild = false}};
+		Options.InputResolver = std::make_shared<FResolver>(Action->GetInputs());
+		std::optional<FBuildCompleteParams> Result;
+		auto Request = (*Session)->Build(*Action, [&](auto Value) { Result = std::move(Value); }, {}, Options);
+		ASSERT_TRUE(Request);
+		EXPECT_EQ(Request->Wait(), EBuildWaitResult::Completed);
+		ASSERT_TRUE(Result);
+		EXPECT_EQ(Result->GetStatus(), EStatus::Error);
+		ASSERT_NE(Result->GetOutput(), nullptr);
+		EXPECT_TRUE(Result->GetOutput()->GetValues().empty());
+		const auto Messages = Result->GetOutput()->GetMessages();
+		ASSERT_EQ(Messages.size(), 1u);
+		EXPECT_NE(Messages.front().Text.find("identity does not match"), std::string::npos);
+	};
+	Check(MakeTexture2DBuildAction({.SourceIdentity = {1, 2},
+		.BuilderVersion = Module->GetBuildVersion(ETextureBuildKind::Texture2D) ^ 1ull,
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}), TexturePrivate::MakeTexture2DBuildFunction());
+	Check(MakeTextureCubeBuildAction({.CanonicalSourceIdentity = {1, 2},
+		.BuilderVersion = Module->GetBuildVersion(ETextureBuildKind::TextureCube) ^ 1ull,
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}), TexturePrivate::MakeTextureCubeBuildFunction());
+	Check(MakeVolumeTextureBuildAction({.CanonicalSourceIdentity = {1, 2}, .Width = 1, .Height = 1, .Depth = 1,
+		.BuilderVersion = Module->GetBuildVersion(ETextureBuildKind::VolumeTexture) ^ 1ull,
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}), TexturePrivate::MakeVolumeTextureBuildFunction());
 }
