@@ -6,10 +6,12 @@
 
 namespace Durin::DerivedData
 {
+	enum class ECacheStorageNamespace : uint8 { Legacy, Records, Values };
 	struct FCacheStorageGetRequest
 	{
 		FCacheKey Key;
 		uint64 MaximumValueBytes = 0;
+		ECacheStorageNamespace Namespace = ECacheStorageNamespace::Legacy;
 	};
 
 	using FCacheStorageGetResult =
@@ -20,11 +22,12 @@ namespace Durin::DerivedData
 		FCacheKey Key;
 		FByteView Value;
 		uint64 MaximumValueBytes = 0;
+		ECacheStorageNamespace Namespace = ECacheStorageNamespace::Legacy;
 	};
 
 	using FCacheStoragePutResult = std::expected<void, FCacheError>;
 
-	// Private bounded byte persistence; the record codec owns content integrity.
+	// Private bounded byte persistence; manifest and blob codecs own integrity.
 	class FCacheStorage
 	{
 	public:

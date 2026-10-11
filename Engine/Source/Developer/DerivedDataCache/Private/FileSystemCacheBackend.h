@@ -14,8 +14,8 @@ namespace Durin::DerivedData
 		auto Put(const FCacheStoragePutRequest& Request) const -> FCacheStoragePutResult;
 
 	private:
-		auto GetBucketDirectory(const FCacheBucket& Bucket) const -> FFilePath;
-		auto GetEntryPath(const FCacheKey& Key) const
+		auto GetBucketDirectory(const FCacheBucket& Bucket, ECacheStorageNamespace Namespace) const -> FFilePath;
+		auto GetEntryPath(const FCacheKey& Key, ECacheStorageNamespace Namespace) const
 			-> std::expected<FFilePath, FCacheError>;
 	};
 }

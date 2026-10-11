@@ -69,7 +69,7 @@ namespace Durin::DerivedData::Private
 			if (Policy.QueryCache && !Policy.ForceBuild)
 			{
 				FCacheGetResult Stored = std::optional<FCacheRecord>{};
-				try { Stored = (Service.Cache ? *Service.Cache : GetCache()).Get({Action.GetKey(), Policy.OutputLimits, Policy.MaximumEncodedBytes}); } catch (...) { Stored = std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache query threw."}); }
+				try { Stored = (Service.Cache ? *Service.Cache : GetCache()).Get({Action.GetKey(), Policy.OutputLimits, Policy.MaximumEncodedBytes, Policy.MaximumWorkingSetBytes}); } catch (...) { Stored = std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache query threw."}); }
 				if (Cancel.IsCancelled()) return Canceled(); if (!Stored) CacheFailure("read", Stored.error());
 				else if (*Stored) { auto Output = (**Stored).ToOutput(Action.GetKey(), Policy.OutputLimits); if (!Output) CacheFailure("read", Output.error()); else { Status |= EBuildStatus::CacheQueryHit; return FBuildCompletionAccess::Ok(std::move(*Output), Action.GetKey(), Status); } }
 			}
@@ -99,7 +99,7 @@ namespace Durin::DerivedData::Private
 					else
 					{
 						auto Put = (Service.Cache ? *Service.Cache : GetCache()).Put(
-							{std::move(*Record), Policy.MaximumEncodedBytes});
+							{std::move(*Record), Policy.MaximumEncodedBytes, Policy.OutputLimits.MaximumTotalBytes, Policy.MaximumWorkingSetBytes});
 						if (!Put) CacheFailure("write", Put.error());
 					}
 				}

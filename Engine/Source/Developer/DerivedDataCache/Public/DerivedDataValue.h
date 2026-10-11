@@ -40,6 +40,10 @@ namespace Durin::DerivedData
 	public:
 		FValue() = default;
 		DERIVEDDATACACHE_API explicit FValue(FSharedByteBuffer Data);
+		static auto FromReference(FXxHash128 Hash, uint64 Size) -> FValue
+		{
+			FValue Result; Result.RawHash = Hash; Result.RawSize = Size; return Result;
+		}
 		// A reference retains identity and size but has no resident payload.
 		auto RemoveData() const -> FValue
 		{

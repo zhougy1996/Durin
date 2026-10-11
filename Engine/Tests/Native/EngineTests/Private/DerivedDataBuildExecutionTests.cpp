@@ -26,6 +26,7 @@ namespace
 	{
 		mutable uint32 Gets = 0, Puts = 0;
 		mutable bool Corrupt = false;
+		bool FailPut = false;
 		mutable std::optional<FCacheRecord> Stored;
 		auto Get(const FCacheGetRequest&) const -> FCacheGetResult override
 		{
@@ -39,7 +40,9 @@ namespace
 		}
 		auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
 		{
-			++Puts; Stored = Request.Record; return {};
+			++Puts;
+			if (FailPut) return std::unexpected(FCacheError{ECacheError::StorageFailure, "fixture write failure"});
+			Stored = Request.Record; return {};
 		}
 	};
 	struct FHarness
@@ -88,6 +91,17 @@ TEST(FBuildExecutionTests, DescriptorOnlyRecordFallsBackAndIsReplacedByCompleteO
 	EXPECT_TRUE(H.Cache->Stored->ToOutput(*Result.GetCacheKey()));
 	EXPECT_TRUE(HasBuildStatus(H.Run().GetBuildStatus(), EBuildStatus::CacheQueryHit));
 	EXPECT_EQ(H.Function->Builds, 2u);
+}
+
+TEST(FBuildExecutionTests, PersistenceFailurePreservesSuccessfulLocalOutput)
+{
+	FHarness H; H.Cache->FailPut = true;
+	auto Result = H.Run(); ASSERT_EQ(Result.GetStatus(), EStatus::Ok);
+	ASSERT_NE(Result.GetOutput(), nullptr);
+	EXPECT_TRUE(Result.GetOutput()->CheckLimits());
+	EXPECT_EQ(Result.GetOutput()->GetValues().size(), 1u);
+	EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Cache->Puts, 1u);
+	EXPECT_FALSE(H.Cache->Stored);
 }
 
 TEST(FBuildExecutionTests, TransientLogsPreventCacheStorage)

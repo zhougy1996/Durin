@@ -142,7 +142,7 @@ namespace
 
 	auto GetObjectPath(const FStaticMeshCacheFixture& Fixture, std::string_view Key) -> std::filesystem::path
 	{
-		return Fixture.CacheRoot / "StaticMesh"
+		return Fixture.CacheRoot / "records" / "v3" / "StaticMesh"
 			/ std::string(Key.substr(0, 2)) / (std::string(Key) + ".bin");
 	}
 
@@ -281,7 +281,7 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex)))) << Error;
-	const auto CollisionPath = Fixture.CacheRoot / "StaticMeshCollision"
+	const auto CollisionPath = Fixture.CacheRoot / "records" / "v3" / "StaticMeshCollision"
 		/ GetCollisionKey(*Fixture.Mesh->GetRenderData()).ToString().substr(0, 2)
 		/ (GetCollisionKey(*Fixture.Mesh->GetRenderData()).ToString() + ".bin");
 	ASSERT_TRUE(std::filesystem::remove(CollisionPath));
@@ -2421,12 +2421,12 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 		.BuilderVersion = IMeshBuilderModule::Get()->GetBuildVersion(),
 		.MaterialSlotCount = uint32(Request.Settings.MaterialSlots.size()),
 		.TargetPlatform = EAssetPayloadTargetPlatform::Win64}).value();
-	ASSERT_TRUE(DerivedData::GetCacheStorage().Put({*SeedKey.AsCacheKey(), Invalid, MaximumStaticMeshPayloadBytes}));
+	ASSERT_TRUE(DerivedData::GetCacheStorage().Put({*SeedKey.AsCacheKey(), Invalid, MaximumStaticMeshPayloadBytes, DerivedData::ECacheStorageNamespace::Records}));
 	ASSERT_TRUE((Render = BuildRenderForTest(Request, {}, &RenderCacheLog))) << Error;
 	ASSERT_EQ(RenderCacheLog.size(), 1u);
 	const auto RenderRejection = RenderCacheLog.front();
 	EXPECT_NE(RenderRejection.Message.find("cache read"), std::string::npos);
-	EXPECT_NE(RenderRejection.Message.find("record"), std::string::npos);
+	EXPECT_NE(RenderRejection.Message.find("manifest"), std::string::npos);
 	ASSERT_TRUE((Render = BuildRenderForTest(Request, {}, &RenderCacheLog)));
 	EXPECT_TRUE(RenderCacheLog.empty());
 
@@ -2436,10 +2436,10 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex))));
 	const auto Key = GetCollisionKey(*Fixture.Mesh->GetRenderData());
-	const auto Path = Fixture.CacheRoot / "StaticMeshCollision"
+	const auto Path = Fixture.CacheRoot / "records" / "v3" / "StaticMeshCollision"
 		/ Key.ToString().substr(0, 2) / (Key.ToString() + ".bin");
 	ASSERT_TRUE(std::filesystem::remove(Path));
-	ASSERT_TRUE(DerivedData::GetCacheStorage().Put({Key, Invalid, MaximumPhysicsCollisionPayloadBytes}));
+	ASSERT_TRUE(DerivedData::GetCacheStorage().Put({Key, Invalid, MaximumPhysicsCollisionPayloadBytes, DerivedData::ECacheStorageNamespace::Records}));
 	CollisionLog.Reset();
 	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
@@ -2448,7 +2448,7 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 	const auto CollisionRejection = CollisionLog.front();
 	Collision = {};
 	EXPECT_NE(CollisionRejection.Message.find("cache read"), std::string::npos);
-	EXPECT_NE(CollisionRejection.Message.find("record"), std::string::npos);
+	EXPECT_NE(CollisionRejection.Message.find("manifest"), std::string::npos);
 	EXPECT_NE(RenderRejection.Message.find("cache read"), std::string::npos);
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
 }
@@ -3039,7 +3039,7 @@ TEST(FStaticMeshSeparatedBuildTests, IndependentCollisionHonorsPersistenceAndPre
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	const auto Key = GetCollisionKey(*Mesh->GetRenderData()).ToString();
-	const auto CollisionPath = Cache / "StaticMeshCollision" / Key.substr(0, 2) / (Key + ".bin");
+	const auto CollisionPath = Cache / "records" / "v3" / "StaticMeshCollision" / Key.substr(0, 2) / (Key + ".bin");
 	EXPECT_FALSE(std::filesystem::exists(CollisionPath));
 	Mesh->RebuildCollision();
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);

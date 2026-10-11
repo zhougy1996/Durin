@@ -155,19 +155,56 @@ cache-store failure cannot discard an already validated local output; completion
 remains successful and DDC logs the store failure. Fresh invalid producer output
 and outputs containing transient logs never reach persistence.
 
-Record envelope schema 2 is the only reader and writer. It persists the action
-key, output type/schema, ordered 12-byte value and metadata IDs, value size/hash,
-Compact Binary metadata size/hash, ordered messages, payloads, and an envelope
-hash. Raw decode retains views into the record allocation; compressed decode
-owns one inflated allocation. Schema-1 records are cold misses; there is no
-compatibility reader or rewrite path.
+Persistent cache requests use `records/v3/<bucket>/<prefix>/<action-hash>.bin`
+manifests and `values/v1/Content/<prefix>/<raw-hash>.bin` content blobs. Values
+share storage across records and buckets. The `DDBM` manifest schema 1 stores the
+action key, output schema/version, ordered value IDs with raw size/hash, owned CB
+metadata, deterministic messages, and an envelope hash. It contains no value
+payloads. Decoding validates ordering, IDs, schema, metadata, messages, and total
+logical raw output limits before requesting blobs. Full-record Get resolves and
+validates every value before returning; missing required blobs are rejected and
+follow the normal build fallback path.
 
-The filesystem backend atomically stores encoded record bytes directly, with
-path containment and byte limits but no separate size/hash envelope. The record
-codec owns envelope and value/metadata integrity checks. Compressed records retain
-both the compressed envelope hash and the raw record hash; decoding validates the
-compressed envelope before inflation and the raw record afterward. Legacy filesystem
-envelopes are rejected and use the normal cache-failure rebuild path.
+Each immutable `DDBV` blob schema 1 stores codec format (raw or Zstd level 3), raw
+XXH3-128 identity, raw size, encoded payload size, payload, and an envelope hash.
+Small, incompressible, or compression-workspace-limited values may use the raw
+format. Envelope and frame bounds are checked before inflation; raw identity is
+checked afterward, even when the envelope hash is valid. Raw values retain views
+into blob allocations; compressed values own independently inflated allocations.
+An explicit empty value is resident and has a blob with zero raw payload bytes.
+Codec format and parameters do not participate in action identity.
+
+The filesystem backend atomically stores bounded bytes with path containment.
+Put publishes every complete blob before atomically publishing the manifest.
+Concurrent same-content writers may replace a blob with another valid encoding
+of identical raw content; Put also repairs damaged blobs by atomic replacement.
+A failed write never publishes a manifest referencing that incomplete write.
+Existing manifests remain visible when a replacement fails. Already published
+blobs from a failed request may remain orphaned.
+
+Raw, encoded, and payload/codec working-set limits are separate. Raw limits count
+logical output values, metadata, and message bytes. Encoded limits count the
+manifest plus each referenced blob (conservatively counting duplicate references).
+Persistence workspace counts distinct retained source buffer capacities, resident
+messages, the manifest, candidate/final encoding buffers, and estimated Zstd
+context memory. Read workspace counts the retained manifest, already resolved
+values, the current encoded blob, inflation storage, and decompression context.
+These byte budgets exclude descriptor/container/control-block overhead and are
+not a process RSS limit. Build policies pass their raw and working-set budgets
+through to cache requests. Store failures retain a successful local output.
+
+Automatic reclamation is disabled: neither Get nor Put deletes blobs or
+manifests. This retain-only policy protects live references and concurrent
+readers/writers. A future collector must use exclusive ownership or a publication
+epoch/lease protocol covering the blob-before-manifest interval, retained readers,
+and the complete set of live manifests; a naive reference scan followed by deletion
+is unsafe. Until such a collector is implemented and tested, cache clearing must
+occur only with all readers, writers, and editors stopped. Orphan-retention,
+publication-failure, and concurrent read/write tests cover the current policy.
+
+Legacy namespaces are cold misses with no compatibility read or rewrite path.
+The schema-2 record codec remains available for explicit in-memory codec users
+and tests; normal cache Get/Put no longer uses whole-record compression.
 
 An output containing an error message is a deterministic negative result: its
 values are discarded, it completes with `EStatus::Error`, and it is persisted

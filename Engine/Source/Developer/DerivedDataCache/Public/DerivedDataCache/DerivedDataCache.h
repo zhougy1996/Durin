@@ -10,7 +10,10 @@ namespace Durin::DerivedData
 	{
 		FCacheKey Key;
 		FBuildOutputLimits OutputLimits;
+		// Manifest plus each referenced blob, including repeated references.
 		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
+		// Retained payload/codec storage; excludes descriptor and allocator overhead.
+		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
 	};
 
 	using FCacheGetResult = std::expected<std::optional<FCacheRecord>, FCacheError>;
@@ -19,6 +22,9 @@ namespace Durin::DerivedData
 	{
 		FCacheRecord Record;
 		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
+		// Logical output value, metadata, and message bytes before compression.
+		uint64 MaximumRawBytes = 2ull * 1024 * 1024 * 1024;
+		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
 	};
 
 	using FCachePutResult = std::expected<void, FCacheError>;

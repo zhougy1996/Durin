@@ -9,20 +9,34 @@ Completed:
 
 ## Current Status
 
-Stages 0 and 1 are complete. Stage 2 is next: independent compressed values and
-content-addressed blob storage. Stage 1 preserves schema-2 whole-record persistence
-and synchronous cache requests, while separating record state from complete outputs.
+Stages 0 through 2 are complete. Stage 3 is next: selective value queries and a
+Texture2D consumer. Independent compressed values and content-addressed blob
+storage now use
+`records/v3` manifests and globally shared `values/v1/Content` blobs. Full-record
+queries remain synchronous and resolve every required value.
 Conversion copies bounded descriptor tables but shares immutable payload and CB
 allocations; it does not copy or rehash payload bytes.
 
-Validation on 2026-10-11: the Win64-Debug-DurinEditor all build passed, and
-affected tests passed for DerivedDataBuildTests, DerivedDataCacheTests,
-RenderShaderBuilderTests, and RenderShaderCacheTests. The report is at
-`Build/NativeTestResults/Win64-Debug-DurinEditor/affected.xml`. Changed-document
-validation and all-plan validation passed. Shared API consumers were searched
-across Engine, Sandbox, and RoadWeaver source/test roots; the latter two have no
-direct consumers requiring migration. The first sandboxed build encountered
-MSVC C1902; the same all build and affected tests passed outside the sandbox.
+Stage 2 validation on 2026-10-11: the final Win64-Debug-DurinEditor all build
+passed, and `@module=derived-data-cache` passed all four ordinary targets:
+DerivedDataBuildTests, DerivedDataCacheTests, RenderShaderBuilderTests, and
+RenderShaderCacheTests. The final report is
+`Build/NativeTestResults/Win64-Debug-DurinEditor/module-derived-data-cache.xml`.
+TextureTests passed 140 cases and StaticMeshTests passed 169 cases. The existing
+symlink cache test remains skipped when the host cannot create symlinks.
+TextureCookIntegrationTests compiled with the migrated cold-cache fixture;
+GPU execution was not run because storage changes do not alter GPU behavior.
+Changed-document and all-plan validation passed.
+
+Shared API and storage-layout consumers were searched across Engine, Sandbox,
+and RoadWeaver source/test roots. Shader, Texture, StaticMesh, and collision test
+fixtures now address the new manifest namespace; the latter two projects have
+no direct consumers requiring migration. Initial affected execution identified
+two stale Shader path assertions, corrected before final validation. A shared
+test-support header causes `affected` to select all Engine targets, so the
+bounded module selection plus Texture/StaticMesh targets supplies task-specific
+coverage. Builds/tests use the host toolchain outside the sandbox because Stage 1
+confirmed the sandbox's MSVC PDB service restriction.
 
 ## Goal
 
@@ -49,6 +63,12 @@ ownership boundaries and complete typed build results.
   cold-invalidate without an online conversion service.
 - Selection policy belongs to cache requests. Asset consumers determine required
   value IDs; DDC retains generic validation and no asset policy.
+- Stage 2 selects retain-only orphan safety, with automatic reclamation disabled.
+  Failure and concurrent-reader tests verify requests never delete content.
+  A future collector must introduce and validate exclusive ownership or epochs/leases
+  before any automatic deletion; reference scanning alone cannot cover the
+  blob-before-manifest publication interval. This avoids introducing unrequested
+  eviction policy into the storage migration.
 
 ## Implementation Stages
 
@@ -78,18 +98,21 @@ than wrapping a build output, while existing full-record persistence remains usa
 
 Depends on Stage 1. Outcome: action-key manifests reference reusable content blobs.
 
-- [ ] Add an immutable compressed-buffer codec with explicit raw identity, size,
+- [x] Add an immutable compressed-buffer codec with explicit raw identity, size,
   codec/version, bounded validation, and a raw fallback for incompressible data.
-- [ ] Replace whole-record compression with versioned manifest and blob namespaces.
-- [ ] Implement atomic blob publication followed by manifest publication;
+- [x] Replace whole-record compression with versioned manifest and blob namespaces.
+- [x] Implement atomic blob publication followed by manifest publication;
   handle concurrent same-content writers and corruption repair.
-- [ ] Preserve successful local results on persistence failures; bound total raw,
+- [x] Preserve successful local results on persistence failures; bound total raw,
   encoded, and compression working-set memory separately.
-- [ ] Verify reuse across records, missing/damaged blobs, interrupted publication,
+- [x] Verify reuse across records, missing/damaged blobs, interrupted publication,
   empty values, concurrent writers, and full cold/warm output equivalence.
-- [ ] Specify and test safe orphan collection before enabling automatic reclamation;
-  account for live manifests, active readers/writers, and publication races.
-- [ ] Pass affected native tests and an all build; document the new storage contract.
+- [x] Specify and test retain-only orphan handling with automatic reclamation
+  disabled; document collector prerequisites covering live manifests, active
+  readers/writers, and publication races in the owning build protocol.
+- [x] Pass the bounded affected-consumer selection and an all build; document the
+  new storage contract. Tests additionally cover aggregate encoded-byte limits,
+  retained backing-capacity limits, and failed replacement preserving a manifest.
 
 ### Stage 3: Add selective value queries and a Texture2D consumer
 

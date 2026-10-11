@@ -5,21 +5,23 @@
 
 namespace Durin::DerivedData
 {
-	auto FFileSystemCacheBackend::GetBucketDirectory(const FCacheBucket& Bucket) const
+	auto FFileSystemCacheBackend::GetBucketDirectory(const FCacheBucket& Bucket, ECacheStorageNamespace Namespace) const
 		-> FFilePath
 	{
-		return (FFilePath(FPaths::DerivedDataCacheDir())
-			/ std::string(Bucket.ToString())).lexically_normal();
+		auto Root = FFilePath(FPaths::DerivedDataCacheDir());
+		if (Namespace == ECacheStorageNamespace::Records) Root /= "records/v3";
+		else if (Namespace == ECacheStorageNamespace::Values) Root /= "values/v1";
+		return (Root / std::string(Bucket.ToString())).lexically_normal();
 	}
 
-	auto FFileSystemCacheBackend::GetEntryPath(const FCacheKey& Key) const
+	auto FFileSystemCacheBackend::GetEntryPath(const FCacheKey& Key, ECacheStorageNamespace Namespace) const
 		-> std::expected<FFilePath, FCacheError>
 	{
-		if (!Key.IsValid())
+		if (!Key.IsValid() || Namespace > ECacheStorageNamespace::Values)
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest,
 				"Cache key is invalid."});
 		const FCacheBucket& Bucket = Key.GetBucket();
-		const FFilePath Directory = GetBucketDirectory(Bucket);
+		const FFilePath Directory = GetBucketDirectory(Bucket, Namespace);
 		const std::string KeyText = Key.ToString();
 		// The bucket directory is already normalized. A sealed binary key produces
 		// only hex path components; checking that alphabet proves containment without
@@ -39,7 +41,7 @@ namespace Durin::DerivedData
 	{
 		if (Request.MaximumValueBytes == 0)
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache get request is invalid."});
-		auto EntryPath = GetEntryPath(Request.Key);
+		auto EntryPath = GetEntryPath(Request.Key, Request.Namespace);
 		if (!EntryPath) return std::unexpected(std::move(EntryPath.error()));
 		FFilePath Path = std::move(*EntryPath);
 
@@ -76,7 +78,7 @@ namespace Durin::DerivedData
 			return std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache entry is not a regular file."});
 		FFilePath ResolvedPath;
 		if (!FPaths::TryResolveContainedPath(
-			Path, GetBucketDirectory(Request.Key.GetBucket()), ResolvedPath, ErrorCode))
+			Path, GetBucketDirectory(Request.Key.GetBucket(), Request.Namespace), ResolvedPath, ErrorCode))
 			return std::unexpected(FCacheError{ECacheError::StorageFailure,
 				"Cache entry resolves outside its configured bucket."});
 		const uint64 FileSize = std::filesystem::file_size(ResolvedPath, ErrorCode);
@@ -107,14 +109,14 @@ namespace Durin::DerivedData
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache put request is invalid."});
 		if (Request.Value.size() > Request.MaximumValueBytes)
 			return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Cache entry exceeds its configured size limit."});
-		auto EntryPath = GetEntryPath(Request.Key);
+		auto EntryPath = GetEntryPath(Request.Key, Request.Namespace);
 		if (!EntryPath) return std::unexpected(std::move(EntryPath.error()));
 		FFilePath Path = std::move(*EntryPath);
 
 		std::error_code ErrorCode;
 		FFilePath ResolvedPath;
 		const FFilePath BucketDirectory =
-			GetBucketDirectory(Request.Key.GetBucket());
+			GetBucketDirectory(Request.Key.GetBucket(), Request.Namespace);
 		if (!FPaths::TryResolveContainedPath(Path, BucketDirectory, ResolvedPath, ErrorCode))
 			return std::unexpected(FCacheError{ECacheError::StorageFailure, ErrorCode
 				? std::format("Failed to resolve cache entry path: {}", ErrorCode.message())
