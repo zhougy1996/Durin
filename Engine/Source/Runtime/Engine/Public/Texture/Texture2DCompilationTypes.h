@@ -29,11 +29,12 @@ namespace Durin
 		Interactive,
 	};
 
-	// Records worker timing and conservative versus observed retained bytes.
+	// Records wall-clock build timing and conservative versus observed retained bytes.
 	struct FTexture2DCompilationMetrics
 	{
 		uint64 PreparationNanoseconds = 0;
-		uint64 WorkerNanoseconds = 0;
+		// Dispatch start to build completion, including asynchronous cache I/O.
+		uint64 BuildElapsedNanoseconds = 0;
 		uint64 CompletionNanoseconds = 0;
 		uint64 EstimatedBytes = 0;
 		uint64 ResultBytes = 0;

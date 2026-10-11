@@ -36,7 +36,8 @@ namespace Durin
 	struct FStaticMeshCompilationManagerDiagnostics
 	{
 		uint32 OutstandingRecords = 0;
-		uint32 RunningWorkers = 0;
+		// Includes render requests suspended on cache I/O.
+		uint32 AdmittedBuildCount = 0;
 		uint32 RetainedDiagnostics = 0;
 		uint64 ReservedBytes = 0;
 		bool bAcceptingRequests = false;

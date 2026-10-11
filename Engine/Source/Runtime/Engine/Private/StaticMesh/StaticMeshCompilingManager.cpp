@@ -116,9 +116,9 @@ namespace Durin
 					.RequestGeneration = Body ? Body->GetPhysicsMeshRequestGeneration() : 0};
 			}
 		};
-		struct FWorkerState
+		struct FAdmissionState
 		{
-			std::atomic<uint32> Running = 0;
+			std::atomic<uint32> AdmittedBuildCount = 0;
 			std::mutex Mutex;
 			std::condition_variable Changed;
 		};
@@ -431,7 +431,7 @@ namespace Durin
 			auto Diagnostics() const -> FStaticMeshCompilationManagerDiagnostics
 			{
 				CheckOwnerThread();
-				return {static_cast<uint32>(Records.size()), Workers->Running.load(),
+				return {static_cast<uint32>(Records.size()), AdmissionState->AdmittedBuildCount.load(),
 					static_cast<uint32>(History.size()), ReservedBytes, bAccepting};
 			}
 			std::function<void(uint64, EStaticMeshCompilationPhase)> PhaseHook;
@@ -461,7 +461,7 @@ namespace Durin
 				if (!Record->Work->IsCollision()) Options.Priority = Record->Priority == EStaticMeshCompilationPriority::Interactive
 					? ETaskPriority::High : ETaskPriority::Low;
 				Record->Task = Tasks::LaunchTask("StaticMesh.Build",
-					[Work = Record->Work, State = Workers, Hook = PhaseHook, Id = Record->Diagnostic.RequestId,
+					[Work = Record->Work, State = AdmissionState, Hook = PhaseHook, Id = Record->Diagnostic.RequestId,
 					 BuilderVersion = Record->Diagnostic.RenderBuilderVersion, bDispatch](const FTaskCancellationToken& Token) {
 						try
 						{
@@ -494,13 +494,13 @@ namespace Durin
 						catch (...) { Work->Fail("Asset build worker failed with an exception."); }
 						Work->ReleaseInput();
 						Work->Done.store(true, std::memory_order_release);
-						State->Running.fetch_sub(1);
+						State->AdmittedBuildCount.fetch_sub(1);
 						State->Changed.notify_all();
 					}, Options).GetCompletion().GetTaskHandle();
 			}
 			auto Admit() -> void
 			{
-				while (!bShutdown && Workers->Running.load() < 2)
+				while (!bShutdown && AdmissionState->AdmittedBuildCount.load() < 2)
 				{
 					std::shared_ptr<FRecord> Background, Interactive;
 					for (const auto& Record : Records)
@@ -516,7 +516,7 @@ namespace Durin
 					if (PhaseHook) PhaseHook(Record->Diagnostic.RequestId, EStaticMeshCompilationPhase::Queued);
 					Record->bStarted = true;
 					Record->Diagnostic.Phase = EStaticMeshCompilationPhase::Building;
-					Workers->Running.fetch_add(1);
+					AdmissionState->AdmittedBuildCount.fetch_add(1);
 					Launch(Record, true);
 
 				}
@@ -659,8 +659,8 @@ namespace Durin
 					Record->Work->Fail("Asset build task retired before worker completion.");
 					Record->Work->ReleaseInput();
 					Record->Work->Done.store(true, std::memory_order_release);
-					Workers->Running.fetch_sub(1);
-					Workers->Changed.notify_all();
+					AdmissionState->AdmittedBuildCount.fetch_sub(1);
+					AdmissionState->Changed.notify_all();
 				}
 				Admit();
 				const auto Pending = Records; // Callbacks may submit, cancel, or shut down this manager.
@@ -757,8 +757,8 @@ namespace Durin
 						Batch.SuccessfullyCompiledAssets.begin(), Batch.SuccessfullyCompiledAssets.end());
 					if (Batch.ProcessedCompletionCount == 0)
 					{
-						std::unique_lock Lock(Workers->Mutex);
-						Workers->Changed.wait_for(Lock, std::chrono::milliseconds(1));
+						std::unique_lock Lock(AdmissionState->Mutex);
+						AdmissionState->Changed.wait_for(Lock, std::chrono::milliseconds(1));
 					}
 				}
 				return Result;
@@ -766,7 +766,7 @@ namespace Durin
 
 			std::vector<std::shared_ptr<FRecord>> Records;
 			std::deque<FStaticMeshCompilationDiagnostic> History;
-			std::shared_ptr<FWorkerState> Workers = std::make_shared<FWorkerState>();
+			std::shared_ptr<FAdmissionState> AdmissionState = std::make_shared<FAdmissionState>();
 			FTaskScope Scope;
 			FObjectKey PublishingOwner;
 			uint64 NextRequest = 1;

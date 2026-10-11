@@ -74,7 +74,7 @@ namespace Durin
 			std::atomic<bool> bCancellationRequested = false;
 			uint64 EstimatedBytes = 0;
 			uint64 EnqueueNanoseconds = 0;
-			uint64 WorkerStartNanoseconds = 0;
+			uint64 BuildStartNanoseconds = 0;
 			mutable std::mutex Mutex;
 		};
 
@@ -221,7 +221,6 @@ namespace Durin
 			auto Admission = Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, Options,
 				[Self, RequestState](Tasks::FTaskContext& Context) {
 					auto Result = Self->RunWorker(RequestState, Context.GetCancellationToken());
-					if (!RequestState->BuildOwner) Self->UpdateDiagnostic(RequestState, Result);
 					return Result;
 				});
 			std::lock_guard Lock(Mutex);
@@ -275,13 +274,14 @@ namespace Durin
 			const std::shared_ptr<FRequestState>& RequestState,
 			const FTaskCancellationToken& Token) -> FTexture2DCompilationWorkResult
 		{
+			require(RequestState->BuildOwner != nullptr);
 			FTexture2DCompilationWorkResult Result = MakeFailureResult(
 				*RequestState, ETexture2DCompilationPhase::Failed, {});
-			const uint64 WorkerStart = NowNanoseconds();
+			const uint64 BuildStart = NowNanoseconds();
 			{
 				std::lock_guard RequestStateLock(RequestState->Mutex);
-				RequestState->WorkerStartNanoseconds = WorkerStart;
-				RequestState->Diagnostic.QueuedNanoseconds = WorkerStart - RequestState->EnqueueNanoseconds;
+				RequestState->BuildStartNanoseconds = BuildStart;
+				RequestState->Diagnostic.QueuedNanoseconds = BuildStart - RequestState->EnqueueNanoseconds;
 			}
 			const auto Cancel = [&] { return IsCancelled(RequestState, Token); };
 			if (Cancel())
@@ -299,7 +299,7 @@ namespace Durin
 				RequestState->bAsyncDispatched = true;
 				RequestState->Request.PlatformCache->Dispatch(*RequestState->BuildOwner,
 					[Self, RequestState, Token] { return Self->IsCancelled(RequestState, Token); },
-					[Self, RequestState, PendingResult = std::make_shared<FTexture2DCompilationWorkResult>(std::move(Result)), WorkerStart]
+					[Self, RequestState, PendingResult = std::make_shared<FTexture2DCompilationWorkResult>(std::move(Result)), BuildStart]
 					(std::unique_ptr<FTexturePlatformCacheResult> Product) mutable {
 						auto& Result = *PendingResult;
 						try
@@ -310,7 +310,7 @@ namespace Durin
 								Result.Error = {.Code = Result.Phase == ETexture2DCompilationPhase::Cancelled
 									? ETexture2DCompilationError::Cancelled : ETexture2DCompilationError::BuildFailed};
 							Result.PlatformCache = std::move(Product);
-							Result.Metrics.WorkerNanoseconds = NowNanoseconds() - WorkerStart;
+							Result.Metrics.BuildElapsedNanoseconds = NowNanoseconds() - BuildStart;
 							Self->UpdateDiagnostic(RequestState, Result);
 						}
 						catch (...) { Result = MakeFailureResult(*RequestState, ETexture2DCompilationPhase::Failed, {.Code = ETexture2DCompilationError::WorkerFailed}); }
@@ -329,47 +329,43 @@ namespace Durin
 			FTexture2DBuildRequest BuildRequest = std::move(RequestState->Request.Build);
 			Result.Metrics.PreparationNanoseconds = NowNanoseconds() - PreparationStart;
 			SetPhase(RequestState, ETexture2DCompilationPhase::Building);
-			if (RequestState->BuildOwner)
-			{
-				const auto Self = shared_from_this();
-				RequestState->bAsyncDispatched = true;
-				TexturePrivate::BuildTexture2DAsync(std::move(BuildRequest), *RequestState->BuildOwner,
-					[Self, RequestState, Token] { return Self->IsCancelled(RequestState, Token); },
-					[Self, RequestState, PendingResult = std::make_shared<FTexture2DCompilationWorkResult>(std::move(Result)), WorkerStart]
-					(std::expected<FTexturePlatformData, FTexture2DBuildError> Product,
-						FTexture2DBuildInputIdentity Identity) mutable {
-						auto& Result = *PendingResult;
-						try
+			const auto Self = shared_from_this();
+			RequestState->bAsyncDispatched = true;
+			TexturePrivate::BuildTexture2DAsync(std::move(BuildRequest), *RequestState->BuildOwner,
+				[Self, RequestState, Token] { return Self->IsCancelled(RequestState, Token); },
+				[Self, RequestState, PendingResult = std::make_shared<FTexture2DCompilationWorkResult>(std::move(Result)), BuildStart]
+				(std::expected<FTexturePlatformData, FTexture2DBuildError> Product,
+					FTexture2DBuildInputIdentity Identity) mutable {
+					auto& Result = *PendingResult;
+					try
+					{
+						Result.InputIdentity = std::move(Identity);
+						if (Product)
 						{
-							Result.InputIdentity = std::move(Identity);
-							if (Product)
-							{
-								Result.Metrics.ResultBytes = PlatformDataBytes(*Product);
-								Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(*Product));
-								Result.Phase = ETexture2DCompilationPhase::UploadPending;
-							}
-							else
-							{
-								Result.BuildCause = Product.error();
-								Result.Error = TexturePrivate::MakeCompilationBuildFailure(Product.error());
-								Result.Phase = Product.error().Code == ETexture2DBuildError::Cancelled
-									? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::Failed;
-							}
-							Result.Metrics.WorkerNanoseconds = NowNanoseconds() - WorkerStart;
-							Self->UpdateDiagnostic(RequestState, Result);
+							Result.Metrics.ResultBytes = PlatformDataBytes(*Product);
+							Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(*Product));
+							Result.Phase = ETexture2DCompilationPhase::UploadPending;
 						}
-						catch (...)
+						else
 						{
-							Result = MakeFailureResult(*RequestState, ETexture2DCompilationPhase::Failed,
-								{.Code = ETexture2DCompilationError::WorkerFailed});
+							Result.BuildCause = Product.error();
+							Result.Error = TexturePrivate::MakeCompilationBuildFailure(Product.error());
+							Result.Phase = Product.error().Code == ETexture2DBuildError::Cancelled
+								? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::Failed;
 						}
-						std::lock_guard Lock(Self->Mutex);
-						RequestState->TerminalResult.emplace(std::move(Result));
-					});
-				// Only the callback's mailbox result is consumed on this route.
-				return {};
-			}
-			throw std::logic_error("Texture2D compilation requires an asynchronous build owner.");
+						Result.Metrics.BuildElapsedNanoseconds = NowNanoseconds() - BuildStart;
+						Self->UpdateDiagnostic(RequestState, Result);
+					}
+					catch (...)
+					{
+						Result = MakeFailureResult(*RequestState, ETexture2DCompilationPhase::Failed,
+							{.Code = ETexture2DCompilationError::WorkerFailed});
+					}
+					std::lock_guard Lock(Self->Mutex);
+					RequestState->TerminalResult.emplace(std::move(Result));
+				});
+			// Only the callback's mailbox result is consumed on this route.
+			return {};
 		}
 
 		auto CompleteWithoutWorker(
@@ -394,8 +390,8 @@ namespace Durin
 				RequestState->Diagnostic.BuildCause = Result.BuildCause;
 				RequestState->Diagnostic.Metrics = Result.Metrics;
 				RequestState->Diagnostic.bSourceDecoderInvoked = Result.bSourceDecoderInvoked;
-				RequestState->Diagnostic.QueuedNanoseconds = RequestState->WorkerStartNanoseconds != 0
-					? RequestState->WorkerStartNanoseconds - RequestState->EnqueueNanoseconds
+				RequestState->Diagnostic.QueuedNanoseconds = RequestState->BuildStartNanoseconds != 0
+					? RequestState->BuildStartNanoseconds - RequestState->EnqueueNanoseconds
 					: NowNanoseconds() - RequestState->EnqueueNanoseconds;
 			}
 			NotifyPhaseHook(RequestState->Diagnostic.RequestId, Result.Phase);
@@ -619,12 +615,12 @@ namespace Durin
 		FTexture2DCompilationDiagnostic Result = RequestState->Diagnostic;
 		if (Result.Phase == ETexture2DCompilationPhase::Queued)
 			Result.QueuedNanoseconds = NowNanoseconds() - RequestState->EnqueueNanoseconds;
-		else if (RequestState->WorkerStartNanoseconds != 0
+		else if (RequestState->BuildStartNanoseconds != 0
 			&& Result.Phase != ETexture2DCompilationPhase::UploadPending
 			&& Result.Phase != ETexture2DCompilationPhase::Ready
 			&& Result.Phase != ETexture2DCompilationPhase::Failed
 			&& Result.Phase != ETexture2DCompilationPhase::Cancelled)
-			Result.Metrics.WorkerNanoseconds = NowNanoseconds() - RequestState->WorkerStartNanoseconds;
+			Result.Metrics.BuildElapsedNanoseconds = NowNanoseconds() - RequestState->BuildStartNanoseconds;
 		return Result;
 	}
 

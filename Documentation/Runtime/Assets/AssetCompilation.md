@@ -160,7 +160,9 @@ completion application, and exactly-once completion callbacks. Active records ar
 failure state, and bounded terminal diagnostics. Active work ends at terminal
 delivery, while completed asset diagnostics remain under a separate bound.
 The deterministic input/builder identity remains separate from request serials
-and GPU resource readiness.
+and GPU resource readiness. `BuildElapsedNanoseconds` measures wall time from
+worker dispatch start to build completion, including asynchronous cache I/O;
+it is not CPU execution time. Queue wait and owner completion timing are separate.
 
 Texture2D and TextureCube dispatch run in a unique `Tasks::TTask` on the CPU executor and submit
 to a persistent task-scheduled build session. Interactive/background priority is
@@ -347,7 +349,7 @@ without decoding on the owner thread. Source-less resident captures reserve
 working-set bound, and builders enforce construction envelopes. Canceled
 records keep their count and byte charges until their build callbacks, CPU tasks
 and retained products retire. Render slots remain occupied during cache I/O;
-`RunningWorkers` counts admitted builds, including suspended render requests.
+`AdmittedBuildCount` counts admitted builds, including suspended render requests.
 Collision-only work never changes render resource revision.
 
 Background and interactive queues are FIFO with at most four interactive dispatches

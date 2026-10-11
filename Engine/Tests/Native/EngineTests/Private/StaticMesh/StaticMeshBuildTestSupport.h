@@ -371,7 +371,7 @@ namespace StaticMeshBuildTestSupport
 		}
 		ASSERT_TRUE(Barrier.Wait(2, std::chrono::seconds(bMeasure ? 30 : 5)));
 		const auto Held = GetStaticMeshCompilationManagerDiagnostics();
-		EXPECT_EQ(2u, Held.RunningWorkers);
+		EXPECT_EQ(2u, Held.AdmittedBuildCount);
 		EXPECT_EQ(2u, Held.OutstandingRecords);
 		EXPECT_LE(Held.ReservedBytes, 1024ull * 1024 * 1024);
 #if defined(__APPLE__)
