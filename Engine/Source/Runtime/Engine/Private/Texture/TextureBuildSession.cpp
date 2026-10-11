@@ -17,7 +17,7 @@ namespace Durin::TexturePrivate
 			std::lock_guard Lock(SessionMutex);
 			if (!Session)
 			{
-				auto Created = DerivedData::GetBuild().CreateSession();
+				auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateInlineBuildScheduler());
 				if (!Created) return {};
 				Session = std::move(*Created);
 			}

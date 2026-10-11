@@ -1,5 +1,8 @@
 #include "DerivedDataBuildSession.h"
 #include "DerivedDataBuildExecutionPrivate.h"
+#include "DerivedDataCache/DerivedDataCacheAsync.h"
+#include "Threading/TaskComposition.h"
+#include "Logging/LogMacros.h"
 
 namespace Durin::DerivedData
 {
@@ -70,9 +73,11 @@ namespace Durin::DerivedData
 			FBuildInputs Inputs;
 			FBuildRequestOptions Options;
 			std::shared_ptr<FSessionResources> Resources;
+			std::shared_ptr<FCacheRequestOwner> CacheOwner;
+			std::optional<FBuildCompleteParams> LocalCompletion;
 		};
 		enum class ERequestState { PendingDispatch, Queued, Running, Completing, Done };
-		struct FBuildRequestState
+		struct FBuildRequestState : std::enable_shared_from_this<FBuildRequestState>
 		{
 			std::mutex Mutex;
 			std::atomic<bool> Canceled = false;
@@ -81,6 +86,8 @@ namespace Durin::DerivedData
 			bool Dispatching = true, CompletionReleased = false, OwnerReleased = false;
 			std::shared_ptr<FBuildRequestOwnerState> Group;
 			std::shared_ptr<IBuildScheduledWork> Scheduled;
+			uint64 ScheduleRevision = 0;
+			bool StageDispatching = false;
 			EBuildPriority Priority = EBuildPriority::Normal;
 			uint64 Id = 0;
 			std::weak_ptr<FBuildSessionState> Owner;
@@ -113,21 +120,18 @@ namespace Durin::DerivedData
 			{
 				for (auto* Scope = CurrentScope; Scope; Scope = Scope->Previous)
 					if (Scope->Request == this) return EBuildWaitResult::WouldBlock;
-				std::shared_ptr<IBuildScheduledWork> Work;
+				for (;;)
 				{
+					std::shared_ptr<IBuildScheduledWork> Work; uint64 Revision;
+					{
+						std::unique_lock Lock(Mutex); Changed.wait(Lock, [&] { return !Dispatching && (!StageDispatching || CompletionReleased); });
+						if (CompletionReleased) return EBuildWaitResult::Completed;
+						Work = Scheduled; Revision = ScheduleRevision;
+					}
+					if (Work && Work->Wait() != EBuildWaitResult::Completed) return EBuildWaitResult::WouldBlock;
 					std::unique_lock Lock(Mutex);
-					Changed.wait(Lock, [&] { return !Dispatching; });
-					if (CompletionReleased) return EBuildWaitResult::Completed;
-					Work = Scheduled;
+					Changed.wait(Lock, [&] { return CompletionReleased || ScheduleRevision != Revision; });
 				}
-				if (Work)
-				{
-					const auto Result = Work->Wait();
-					if (Result != EBuildWaitResult::Completed) return Result;
-				}
-				std::unique_lock Lock(Mutex);
-				Changed.wait(Lock, [&] { return CompletionReleased; });
-				return EBuildWaitResult::Completed;
 			}
 
 			auto Finish(FBuildCompleteParams Completion) -> void
@@ -143,8 +147,8 @@ namespace Durin::DerivedData
 					Notify = std::move(Callback);
 					Retired = std::move(Data);
 				}
-				Retired.reset();
 				FExecutionScope Scope(Session.get(), this, Group.get());
+				Retired.reset();
 				try { if (Notify) Notify(std::move(Completion)); } catch (...) {}
 				Notify = {};
 				{ std::lock_guard Lock(Mutex); State = ERequestState::Done; }
@@ -155,14 +159,111 @@ namespace Durin::DerivedData
 			auto Cancel() -> bool
 			{
 				bool Complete = false;
+				std::shared_ptr<FCacheRequestOwner> CacheOwner;
 				{
 					std::lock_guard Lock(Mutex);
 					if (State == ERequestState::Completing || State == ERequestState::Done) return false;
 					Canceled.store(true);
 					Complete = State == ERequestState::Queued;
+					if (Data) CacheOwner = Data->CacheOwner;
 				}
+				if (CacheOwner) CacheOwner->Cancel();
 				if (Complete) Run();
 				return true;
+			}
+			auto BeginScheduledStage() -> uint64
+			{
+				uint64 Revision;
+				{ std::lock_guard Lock(Mutex); Scheduled.reset(); StageDispatching = true; Revision = ++ScheduleRevision; }
+				Changed.notify_all(); return Revision;
+			}
+			auto ResumeLocal() -> void;
+			auto CacheFailure(std::string_view Operation, const FCacheError& Error) noexcept -> void
+			{
+				try
+				{
+					auto Work = Data; const auto& Action = std::get<FBuildAction>(Work->Request);
+					DURIN_WARN_CATEGORY("DerivedData", "{} cache {} [{}]: {}", Action.GetFunction().Name, Operation, Action.GetKey().ToString(), Error.Diagnostic);
+				}
+				catch (...) {}
+			}
+			auto InfrastructureFailure(bool IsCanceled = false) -> void
+			{
+				std::optional<FCacheKey> Key;
+				{ std::lock_guard Lock(Mutex); if (Data) if (const auto* Action = std::get_if<FBuildAction>(&Data->Request)) Key = Action->GetKey(); }
+				Finish(IsCanceled ? FBuildCompleteParams::Canceled(Key, EBuildStatus::None) : FBuildCompleteParams::Error(Key, EBuildStatus::None));
+			}
+			auto StartAsync(std::shared_ptr<FRequestData> Work) -> void
+			{
+				auto Action = PrepareBuildAction(Work->Request, Work->Resources->Registry,
+					Work->Options.InputResolver ? Work->Options.InputResolver : Work->Resources->Resolver, Work->Inputs, Work->Options.Cancellation);
+				if (!Action) { Finish(std::move(Action.error())); return; }
+				Work->Request = std::move(*Action); Work->CacheOwner = std::make_shared<FCacheRequestOwner>(Priority);
+				{ std::lock_guard Lock(Mutex); Data = std::move(Work); }
+				const auto Policy = Data->Options.Policy;
+				if (!Policy.QueryCache || Policy.ForceBuild) { ContinueLocal(); return; }
+				const std::array Requests{FCacheGetRequest{.Key = std::get<FBuildAction>(Data->Request).GetKey(), .OutputLimits = Policy.OutputLimits,
+					.MaximumEncodedBytes = Policy.MaximumEncodedBytes, .MaximumWorkingSetBytes = Policy.MaximumWorkingSetBytes,
+					.ShouldCancel = [Cancel = Data->Options.Cancellation] { return Cancel.IsCancelled(); }}};
+				auto Cache = Data->Resources->Service.AsyncCache; auto CacheOwner = Data->CacheOwner;
+				auto Self = shared_from_this(); const auto Revision = BeginScheduledStage();
+				auto Submitted = Cache->Get(Requests, *CacheOwner,
+					[Self](uint32, FCacheGetResult Result, FCacheQueryStats) { Self->ReceiveCache(std::move(Result)); });
+				if (!Submitted) ReceiveCache(std::unexpected(std::move(Submitted.error())));
+				else SetScheduledIfCurrent(std::move(*Submitted), Revision);
+			}
+			auto SetScheduledIfCurrent(std::shared_ptr<IBuildScheduledWork> Work, uint64 Revision) -> void
+			{
+				{ std::lock_guard Lock(Mutex); if (ScheduleRevision != Revision || State == ERequestState::Done) return; Scheduled = std::move(Work); StageDispatching = false; }
+				Changed.notify_all();
+			}
+			auto ReceiveCache(FCacheGetResult Result) -> void
+			try
+			{
+				auto Session = Owner.lock(); FExecutionScope Scope(Session.get(), this, Group.get());
+				auto Work = Data;
+				const auto Key = std::get<FBuildAction>(Work->Request).GetKey();
+				if (Work->Options.Cancellation.IsCancelled()) { Work.reset(); Finish(FBuildCompleteParams::Canceled(Key, EBuildStatus::None)); return; }
+				if (Result && *Result)
+				{
+					auto Output = (**Result).ToOutput(Key, Work->Options.Policy.OutputLimits);
+					if (Output) { Work.reset(); Finish(FBuildCompletionAccess::Ok(std::move(*Output), Key, EBuildStatus::CacheQueryHit)); return; }
+					Result = std::unexpected(std::move(Output.error()));
+				}
+				if (!Result) CacheFailure("read", Result.error());
+				Work.reset(); ContinueLocal();
+			}
+			catch (...) { InfrastructureFailure(); }
+			auto ContinueLocal() -> void;
+			auto StoreLocal(std::shared_ptr<FRequestData> Work, FBuildCompleteParams Completion) -> void
+			try
+			{
+				const auto* Output = Completion.GetOutput();
+				if (!Output || !Work->Options.Policy.StoreOnBuild || Output->HasLogs()) { Work.reset(); Finish(std::move(Completion)); return; }
+				const auto Policy = Work->Options.Policy;
+				Work->LocalCompletion = std::move(Completion);
+				auto Record = FCacheRecord::FromOutput(*Work->LocalCompletion->GetCacheKey(), *Work->LocalCompletion->GetOutput(), Policy.PersistenceLimits);
+				if (!Record) { Work.reset(); ReceiveStore(std::unexpected(std::move(Record.error()))); return; }
+				const std::array Requests{FCachePutRequest{std::move(*Record), Policy.MaximumEncodedBytes, Policy.OutputLimits.MaximumTotalBytes, Policy.MaximumWorkingSetBytes,
+					[Cancel = Work->Options.Cancellation] { return Cancel.IsCancelled(); }}};
+				auto Cache = Work->Resources->Service.AsyncCache; auto CacheOwner = Work->CacheOwner; Work.reset();
+				auto Self = shared_from_this(); const auto Revision = BeginScheduledStage();
+				auto Saved = Cache->Put(Requests, *CacheOwner,
+					[Self](uint32, FCachePutResult Result) { Self->ReceiveStore(std::move(Result)); });
+				if (!Saved) ReceiveStore(std::unexpected(std::move(Saved.error())));
+				else SetScheduledIfCurrent(std::move(*Saved), Revision);
+			}
+			catch (...) { Work.reset(); ReceiveStore(std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache persistence threw."})); }
+			auto ReceiveStore(FCachePutResult Result) -> void
+			{
+				auto Session = Owner.lock(); FExecutionScope Scope(Session.get(), this, Group.get());
+				if (!Data || !Data->LocalCompletion) return;
+				if (!Result) CacheFailure("write", Result.error());
+				auto Completion = std::move(*Data->LocalCompletion);
+				Data->LocalCompletion.reset();
+				try { if (Data->Options.Cancellation.IsCancelled()) Completion = FBuildCompletionAccess::Canceled(std::move(Completion)); }
+				catch (...) { Completion = FBuildCompleteParams::Error(*Completion.GetCacheKey(), Completion.GetBuildStatus()); }
+				Finish(std::move(Completion));
 			}
 			auto Run() -> void
 			{
@@ -180,10 +281,13 @@ namespace Durin::DerivedData
 				try
 				{
 					FBuildCancellation ExternalCancellation = std::move(Work->Options.Cancellation);
-					FBuildCancellation Token([&, ExternalCancellation = std::move(ExternalCancellation)] {
-						return Canceled.load() || ExternalCancellation.IsCancelled();
+					FBuildCancellation Token([Weak = weak_from_this(), ExternalCancellation = std::move(ExternalCancellation)] {
+						auto Self = Weak.lock(); return !Self || Self->Canceled.load() || ExternalCancellation.IsCancelled();
 					});
 					Work->Options.Cancellation = std::move(Token);
+					if (Work->Resources->Scheduler && Work->Resources->Service.AsyncCache
+						&& (!Work->Resources->Scheduler->SupportsContinuations() || IsTaskSchedulerRunning()))
+					{ StartAsync(std::move(Work)); return; }
 					Completion = ExecuteBuild(Work->Request, Work->Resources->Registry,
 						Work->Options.InputResolver ? Work->Options.InputResolver : Work->Resources->Resolver, Work->Inputs, Work->Options,
 						Work->Resources->Service);
@@ -226,6 +330,42 @@ namespace Durin::DerivedData
 				return true;
 			}
 		};
+		struct FContinuationTicket
+		{
+			std::shared_ptr<FBuildRequestState> Request;
+			bool Started = false;
+			~FContinuationTicket() { if (!Started) Request->InfrastructureFailure(true); }
+			auto Run() -> void { Started = true; Request->ResumeLocal(); }
+		};
+		auto FBuildRequestState::ContinueLocal() -> void
+		try
+		{
+			auto Work = Data;
+			if (Work->Options.Cancellation.IsCancelled()) { const auto Key = std::get<FBuildAction>(Work->Request).GetKey(); Work.reset(); Finish(FBuildCompleteParams::Canceled(Key, EBuildStatus::None)); return; }
+			auto Scheduler = Work->Resources->Scheduler;
+			const auto Function = std::get<FBuildAction>(Work->Request).GetFunction().Name;
+			const auto Budget = Work->Options.Policy.MaximumWorkingSetBytes; Work.reset();
+			auto Ticket = std::make_shared<FContinuationTicket>(); Ticket->Request = shared_from_this();
+			const auto Revision = BeginScheduledStage();
+			auto Accepted = Scheduler->Schedule({Function, Priority, Budget}, [Ticket] { Ticket->Run(); });
+			if (!Accepted) InfrastructureFailure();
+			else SetScheduledIfCurrent(std::move(*Accepted), Revision);
+		}
+		catch (...) { InfrastructureFailure(); }
+		auto FBuildRequestState::ResumeLocal() -> void
+		{
+			auto Session = Owner.lock(); FExecutionScope Scope(Session.get(), this, Group.get());
+			auto Work = Data;
+			try
+			{
+				auto Options = Work->Options; Options.Policy.QueryCache = false; Options.Policy.StoreOnBuild = false;
+				auto Completion = ExecuteBuild(Work->Request, Work->Resources->Registry,
+					Options.InputResolver ? Options.InputResolver : Work->Resources->Resolver, Work->Inputs, Options, Work->Resources->Service);
+				Options = {}; Work->Inputs = {}; Work->Options.InputResolver.reset();
+				StoreLocal(std::move(Work), std::move(Completion));
+			}
+			catch (...) { Work.reset(); InfrastructureFailure(); }
+		}
 		auto FBuildSessionState::Close() -> void
 		{
 			decltype(Requests) Pending;
@@ -260,7 +400,9 @@ namespace Durin::DerivedData
 		struct FDispatchTicket
 		{
 			std::shared_ptr<FBuildRequestState> Request;
-			~FDispatchTicket() { Request->Cancel(); }
+			bool Started = false;
+			~FDispatchTicket() { if (!Started) Request->Cancel(); }
+			auto Run() -> void { Started = true; Request->Run(); }
 		};
 		struct FDispatchReturnScope
 		{
@@ -273,6 +415,7 @@ namespace Durin::DerivedData
 			bool Closed = false;
 			FBuildRegistry Registry;
 			FBuildServiceOptions Options;
+			std::shared_ptr<IAsyncCache> DefaultAsyncCache;
 			std::vector<std::weak_ptr<FBuildSessionState>> Sessions;
 		};
 	}
@@ -302,9 +445,15 @@ namespace Durin::DerivedData
 			if (State->Closed) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Closed, "Build service is closed."});
 			auto Snapshot = State->Registry.Freeze();
 			if (!Snapshot) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InternalFailure, std::move(Snapshot.error())});
+			auto SessionOptions = State->Options;
+			if (Scheduler && Scheduler->SupportsContinuations() && !SessionOptions.AsyncCache)
+			{
+				if (!State->DefaultAsyncCache) State->DefaultAsyncCache = CreateAsyncCache(State->Options.Cache);
+				SessionOptions.AsyncCache = State->DefaultAsyncCache;
+			}
 			auto SessionState = std::make_shared<Private::FBuildSessionState>();
 			SessionState->Resources = std::make_shared<Private::FSessionResources>(
-				std::move(*Snapshot), std::move(Resolver), std::move(Scheduler), State->Options);
+				std::move(*Snapshot), std::move(Resolver), std::move(Scheduler), std::move(SessionOptions));
 			std::erase_if(State->Sessions, [](const auto& Weak) { return Weak.expired(); });
 			if (State->Sessions.size() >= 4096)
 				return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Capacity, "Build service session capacity is exhausted."});
@@ -482,9 +631,10 @@ namespace Durin::DerivedData
 			const auto& Data = *Request->Data;
 			const std::string FunctionName(std::holds_alternative<FBuildDefinition>(Data.Request)
 				? std::get<FBuildDefinition>(Data.Request).GetFunctionName() : std::get<FBuildAction>(Data.Request).GetFunction().Name);
+			const auto Revision = Request->BeginScheduledStage();
 			auto Accepted = Scheduler->Schedule({FunctionName, Request->Priority, Data.Options.Policy.MaximumWorkingSetBytes},
-				[Ticket] { Ticket->Request->Run(); });
-			if (Accepted) { std::lock_guard Lock(Request->Mutex); Request->Scheduled = std::move(*Accepted); }
+				[Ticket] { Ticket->Run(); });
+			if (Accepted) Request->SetScheduledIfCurrent(std::move(*Accepted), Revision);
 			Ticket.reset();
 			if (!Accepted && Request->RejectDispatch())
 			{

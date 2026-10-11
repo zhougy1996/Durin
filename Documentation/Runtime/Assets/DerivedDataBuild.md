@@ -286,6 +286,60 @@ Core cooperative waiting, including single-worker nested builds. A stopped
 Core scheduler rejects admission without completion; the adapter does not start
 or stop Core. Core scope closure remains a caller lifetime responsibility.
 
+Schedulers opt into automatic
+cache continuations with `SupportsContinuations`; custom schedulers may inject an
+`IAsyncCache` through service options. Task sessions share one default
+async cache per build service without changing existing or later inline sessions.
+Inline sessions keep synchronous cache calls unless the service explicitly
+injects an async adapter.
+
+`IAsyncCache` admits Get/Put batches atomically. Rejected batches invoke no
+callbacks; every accepted item delivers exactly one indexed result, including
+backend exceptions, scheduling rejection, cancellation, and dropped work.
+Completion order need not match input order. Selection IDs are copied and records
+retain immutable storage; async Get ignores borrowed Stats pointers and returns
+statistics by value in its callback. Captured cancellation and callback state must
+remain valid until the request owner drains. Callers stop submitting before owner
+destruction. An owner retains immutable priority, cancels current/future work,
+and waits through callbacks and request-buffer/callable release. Same-owner and
+pending same-cache waits anywhere in a nested completion stack return `WouldBlock`;
+reentrant destruction still cancels and leaves shared accounting alive.
+
+The default async adapter uses Core BlockingIO, creates no threads, and admits
+at most 4,096 pending/active items with two active operations. Configurable
+concurrency is clamped to 1..64 and capacity to 1..4096. Active slots cover I/O,
+compression/decompression, and completion callbacks; queued owners are selected
+by priority with FIFO ties. Each request retains its existing encoded/raw/workspace
+budgets. This controls operation concurrency, not a new global asset memory
+reservation. `Close` stops admission and cancels accepted items; `Drain` waits
+for them without closing admission itself. Adapter destruction closes and drains;
+drain from its completion stack returns `WouldBlock`. Cooperative cancellation
+cannot interrupt an already running filesystem or Zstd call. Put checks between
+values and before manifest publication; canceled replacements preserve the old
+manifest and may leave retain-only orphan blobs. A final atomic write already
+started may finish after cancellation.
+
+Content reads with the same cache root, bucket/hash, and encoded bound share an
+in-flight immutable blob allocation. The read is forgotten immediately after
+completion, including failures; this is not a resident hot cache. Each consumer
+still validates the blob and inflates under its own budget. Query read-byte
+statistics charge physical reads to the leader; followers charge zero blob-read
+bytes while still counting logical value resolution/decoded bytes and their
+conservative retained workspace.
+
+Scheduled builds prepare action identity, submit a full async Get, and release
+the Worker task. A usable full hit completes directly; misses/rejections resume
+resolution and production on the captured producer scheduler. Metadata description
+runs once, full output conversion remains mandatory, and priority/budget are
+preserved across continuations. A valid local output is retained through async
+Put; write admission, serialization, dispatch, backend failure, or a dropped write
+cannot discard it. Request cancellation still clears the final output. Wait handles
+follow each stage and use Core helping; close/drain spans every stage and callback.
+Callbacks have no fixed thread affinity. Infrastructure failures after action
+preparation retain the known key; deterministic messages and cache diagnostics
+preserve their existing format. Request inputs/resolvers are released after local
+production, before persistence completion.
+
 A scheduler rejects without invoking or retaining its thunk, or accepts it for
 at-most-once execution. Dropping accepted work completes it as canceled. Request
 handles can cancel pending/running work. `FBuildRequest::Wait` waits for callback
@@ -317,13 +371,17 @@ callbacks, dispatch return, and callable-owner release. Calling drain from the
 same session execution/completion stack returns `WouldBlock`. Completed handles
 and stale thunks retain no producer/resolver owners.
 
-Engine asset families submit directly through their own synchronous, inline
-sessions because their callers are already admitted owner workers. ShaderBuild
-does the same through its isolated session. Each synchronous caller owns a
+Engine asset families submit directly through their own inline sessions.
+ShaderBuild does the same through its isolated service. Each synchronous caller owns a
 request group and waits explicitly before typed assembly; it never assumes
 that completion happened before `Build` returned. Captured input description
-runs inside the accepted request. There is no cross-family submission bridge
-or second public executor.
+runs inside the accepted request. Producer scheduling carries the already-admitted
+owner budget and adds no second asset reservation. These synchronous wrappers
+retain their existing execution contract: scheduling continuations back onto an
+already occupied asset worker can nest unrelated asset tasks and violate their
+mailbox/barrier protocol. Task-scheduled build sessions release producer workers
+while cache work runs on BlockingIO; migrating asset wrappers requires an
+asynchronous bridge at the asset-compilation owner boundary.
 
 ## Family boundaries
 

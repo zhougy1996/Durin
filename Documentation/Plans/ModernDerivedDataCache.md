@@ -9,13 +9,44 @@ Completed:
 
 ## Current Status
 
-Stages 0 through 3 are complete. Stage 4 is next: asynchronous cache I/O.
+Stages 0 through 4 are complete. Stage 4 adds asynchronous cache I/O
+and build execution continuations. The implementation uses bounded
+batch queues on Core BlockingIO, owned request data, and Worker continuations;
+inline callers retain synchronous compatibility. No concrete byte-range consumer
+has been selected, so the conditional block/range task is not activated.
+Integration validation rejected switching synchronous asset wrappers to Worker
+continuations: cooperative waits can nest sibling asset tasks and violate their
+mailbox/barrier protocol. Texture, StaticMesh, collision, and Shader wrappers now
+explicitly retain inline scheduling. Automatic async adapters are shared only by
+task sessions; existing and later inline sessions keep their synchronous contract.
+An async bridge at the asset-compilation owner boundary is a separate follow-up.
+Stage 5 is next: structured manifests and metadata/identity evolution.
+
+Stage 4 validation on 2026-10-11: the final Win64-Debug-DurinEditor all build
+passed. `@module=derived-data-cache` passed all four ordinary targets, including
+batch ownership/capacity/priority, callback reentrancy, in-flight read coalescing,
+canceled manifest replacement, shutdown, slow-I/O worker availability, partial-hit
+fallback, persistence failure, and dropped continuation coverage. Tests reproduce
+and guard the later-stage handle publication race and automatic-adapter isolation
+from existing/later inline sessions. TextureTests passed 142 cases, StaticMeshTests
+169, PhysicsSceneTests 49, RenderShaderContractTests 55, and
+RenderShaderCookIntegrationTests 1. The existing symlink case remains skipped
+when this host cannot create symlinks. Final reports are
+`Build/NativeTestResults/Win64-Debug-DurinEditor/module-derived-data-cache.xml`
+and the corresponding target XML files. No GPU execution was required by this
+cache/scheduler change. Changed-document and all-plan validation passed.
+
+The slow-backend test holds a cache read while a single Core Worker executes
+unrelated producer work, then verifies cancellation and drain through callback
+release. This verifies execution-slot availability; it is not a throughput or
+latency benchmark. Default limits are two active operations and 4,096 accepted
+items per adapter; I/O, codec work, and callbacks share the active-operation bound.
 Stage 3 adds metadata-only, selected-value, and full-record requests, cooperative
 cancellation, bounded query statistics, and the editor-only
 `ReadTexture2DCachedMips` consumer. Full build sessions still require complete
 outputs. Independent compressed values and content-addressed blob storage use
 `records/v3` manifests and globally shared `values/v1/Content` blobs. Full-record
-queries remain synchronous and resolve every required value.
+queries still resolve every required value; task sessions now use async requests.
 Stage 3 scope now uses complete values as the read unit. Texture2D consumers need
 selected complete mips, not sub-mip byte ranges. Independently compressed blocks
 and range reads move to Stage 4 as a separately validated prerequisite for a
@@ -176,16 +207,16 @@ Depends on Stage 2. Outcome: selected mip queries avoid fetching unrelated blobs
 
 Depends on Stage 3. Outcome: slow cache I/O does not occupy producer execution slots.
 
-- [ ] When a concrete byte-range consumer is selected, add independently compressed
-  blocks and range reads; test offsets, bounds, block integrity, cancellation, and
-  pinned-file lifetime across concurrent atomic replacement. This is separate from
-  the completed-value selection gate in Stage 3.
-- [ ] Add batched asynchronous cache requests using request owners and Core scheduling.
-- [ ] Convert build execution to continuations; define exactly-once completion,
+- [x] Assess the conditional byte-range task: no concrete consumer is selected.
+  Keep independent blocks/range reads as a follow-up trigger requiring offsets,
+  bounds, block integrity, cancellation, and pinned-file lifetime tests across
+  concurrent atomic replacement. Stage 3 complete-value selection remains sufficient.
+- [x] Add batched asynchronous cache requests using request owners and Core scheduling.
+- [x] Convert build execution to continuations; define exactly-once completion,
   cancellation, priority, shutdown draining, and buffer lifetime.
-- [ ] Coalesce blob fetches and bound I/O, compression, and decompression concurrency.
-- [ ] Verify slow backend behavior, shutdown, cancellation, and local-result preservation.
-- [ ] Pass affected native tests and an all build before adding remote backends.
+- [x] Coalesce blob fetches and bound I/O, compression, and decompression concurrency.
+- [x] Verify slow backend behavior, shutdown, cancellation, and local-result preservation.
+- [x] Pass affected native tests and an all build before adding remote backends.
 
 ### Stage 5: Complete structured metadata and identity evolution
 

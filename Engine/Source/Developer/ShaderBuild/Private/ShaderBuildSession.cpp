@@ -301,7 +301,7 @@ namespace Durin
 		State->Compiler->BeforeGeneratedCompile = std::move(Hook);
 		State->Service = CreateBuild();
 		const auto Registered = State->Service->Register(std::make_shared<FFunction>(State->Compiler)); require(Registered);
-		auto Session = State->Service->CreateSession(); require(Session); State->Session = std::move(*Session);
+		auto Session = State->Service->CreateSession({}, CreateInlineBuildScheduler()); require(Session); State->Session = std::move(*Session);
 	}
 	FShaderBuildService::~FShaderBuildService() { Close(); }
 	auto FShaderBuildService::GetBuildVersion() const -> uint64 { return State->Compiler->BuildVersion; }

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "DerivedDataCache/DerivedDataCache.h"
+#include "DerivedDataCache/DerivedDataCacheAsync.h"
 #include "../../../../Source/Developer/DerivedDataCache/Private/DerivedDataCacheStorage.h"
 #include "../../../../Source/Developer/DerivedDataCache/Private/CompressedCacheValue.h"
 #include "Asset/DerivedDataCacheKeyProxy.h"
@@ -8,6 +9,7 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "Serialization/BinaryFormat.h"
+#include "Threading/TaskComposition.h"
 
 #include <latch>
 #if defined(_WIN32)
@@ -68,6 +70,178 @@ namespace
 	{ return FCacheKey::FromHash(FCacheBucket::FromString("Content"), Value.GetRawHash()); }
 	auto EntryPath(const FScopedCacheDirectory& Directory, const FCacheKey& Key, std::string_view Namespace) -> std::filesystem::path
 	{ return Directory.Root / Namespace / Key.GetBucket().ToString() / Key.ToString().substr(0, 2) / (Key.ToString() + ".bin"); }
+}
+
+namespace
+{
+	class FCacheQueueScheduler final : public IBuildScheduler
+	{
+	public:
+		std::deque<std::function<void()>> Work;
+		std::vector<EBuildPriority> Priorities;
+		bool Reject = false;
+		auto Schedule(const FBuildScheduleParams& Params, std::function<void()> Task)
+			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
+		{
+			if (Reject) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::DispatchRejected, "test rejection"});
+			Priorities.push_back(Params.Priority); Work.push_back(std::move(Task)); return std::shared_ptr<IBuildScheduledWork>{};
+		}
+		auto Run() -> void { auto Task = std::move(Work.front()); Work.pop_front(); Task(); }
+	};
+	class FAsyncFixtureCache final : public ICache
+	{
+	public:
+		mutable uint32 Gets = 0, Puts = 0;
+		mutable std::vector<FValueId> ObservedIds;
+		bool Throw = false;
+		auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult override
+		{
+			++Gets; if (Throw) throw std::runtime_error("fixture");
+			ObservedIds.assign(Request.RequiredValues.begin(), Request.RequiredValues.end());
+			if (Request.Stats) Request.Stats->ReadBytes = 17;
+			return std::optional<FCacheRecord>{};
+		}
+		auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
+		{ ++Puts; return Request.Record.ToOutput(Request.Record.GetKey()).transform([](auto&&) {}); }
+	};
+}
+
+TEST(FAsyncCacheTests, OwnsBatchSelectionsAndBoundsConcurrencyAndAdmission)
+{
+	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
+	auto Async = CreateAsyncCache(Backend, Scheduler, 1, 3); FCacheRequestOwner Owner(EBuildPriority::High);
+	const auto Key = MakeKey(FCacheBucket::FromString("Async"), 'a');
+	std::vector<FValueId> Ids{FValueId::FromName("Selected")}; const auto Original = Ids;
+	std::array Requests{FCacheGetRequest{.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Ids}, FCacheGetRequest{.Key = Key}};
+	uint32 Callbacks = 0; uint32 Indices = 0; FCacheQueryStats Borrowed; Requests[0].Stats = &Borrowed;
+	ASSERT_TRUE(Async->Get(Requests, Owner, [&](uint32 Index, auto Result, auto Stats) { EXPECT_TRUE(Result); EXPECT_EQ(Stats.ReadBytes, 17u); ++Callbacks; Indices |= 1 << Index; }));
+	Ids.clear(); Requests = {}; EXPECT_FALSE(Owner.Poll()); EXPECT_EQ(Scheduler->Work.size(), 1u);
+	std::array Extra{FCacheGetRequest{Key}, FCacheGetRequest{Key}};
+	EXPECT_FALSE(Async->Get(Extra, Owner, [&](auto, auto, auto) { ADD_FAILURE(); })); // Entire batch is rejected.
+	Scheduler->Run(); EXPECT_EQ(Backend->ObservedIds, Original); EXPECT_EQ(Scheduler->Work.size(), 1u);
+	Scheduler->Run(); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Indices, 3u); EXPECT_EQ(Borrowed.ReadBytes, 0u);
+	EXPECT_EQ(Owner.Wait(), EBuildWaitResult::Completed); EXPECT_EQ(Async->Drain(), EBuildWaitResult::Completed);
+	for (auto Priority : Scheduler->Priorities) EXPECT_EQ(Priority, EBuildPriority::High);
+}
+
+TEST(FAsyncCacheTests, PrioritizesQueuedOwnersAndDetectsNestedCallbackWaits)
+{
+	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
+	auto Async = CreateAsyncCache(Backend, Scheduler, 1, 4); FCacheRequestOwner Low(EBuildPriority::Low), High(EBuildPriority::High);
+	const auto Key = MakeKey(FCacheBucket::FromString("Async"), 'e'); const std::array Requests{FCacheGetRequest{Key}, FCacheGetRequest{Key}};
+	ASSERT_TRUE(Async->Get(Requests, Low, [](auto, auto, auto) {})); ASSERT_TRUE(Async->Get(Requests, High, [](auto, auto, auto) {}));
+	while (!Scheduler->Work.empty()) Scheduler->Run();
+	EXPECT_EQ(Scheduler->Priorities, (std::vector{EBuildPriority::Low, EBuildPriority::High, EBuildPriority::High, EBuildPriority::Low}));
+	auto Outer = CreateAsyncCache(Backend, CreateInlineBuildScheduler()); auto Inner = CreateAsyncCache(Backend, CreateInlineBuildScheduler());
+	FCacheRequestOwner OuterOwner, InnerOwner; uint32 Callbacks = 0; const std::array One{FCacheGetRequest{Key}};
+	ASSERT_TRUE(Outer->Get(One, OuterOwner, [&](auto, auto, auto) {
+		ASSERT_TRUE(Inner->Get(One, InnerOwner, [&](auto, auto, auto) { EXPECT_EQ(OuterOwner.Wait(), EBuildWaitResult::WouldBlock); EXPECT_EQ(Outer->Drain(), EBuildWaitResult::WouldBlock); ++Callbacks; }));
+		++Callbacks;
+	}));
+	EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(OuterOwner.Wait(), EBuildWaitResult::Completed); EXPECT_EQ(InnerOwner.Wait(), EBuildWaitResult::Completed);
+}
+
+TEST(FAsyncCacheTests, CancellationDropsExceptionsAndReentrantDestructionCompleteExactlyOnce)
+{
+	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
+	auto Async = CreateAsyncCache(Backend, Scheduler, 1); const std::array Requests{FCacheGetRequest{MakeKey(FCacheBucket::FromString("Async"), 'b')}};
+	uint32 Callbacks = 0;
+	{
+		FCacheRequestOwner Owner;
+		ASSERT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) { ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::Canceled); ++Callbacks; }));
+		Owner.Cancel(); Scheduler->Run(); EXPECT_EQ(Backend->Gets, 0u); EXPECT_EQ(Owner.Wait(), EBuildWaitResult::Completed);
+	}
+	{
+		FCacheRequestOwner Owner;
+		ASSERT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) { EXPECT_FALSE(Result); ++Callbacks; }));
+		Scheduler->Work.clear(); EXPECT_TRUE(Owner.Poll());
+	}
+	{
+		Backend->Throw = true; auto Owner = std::make_unique<FCacheRequestOwner>();
+		ASSERT_TRUE(Async->Get(Requests, *Owner, [&](auto, auto Result, auto) {
+			ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::StorageFailure);
+			EXPECT_EQ(Owner->Wait(), EBuildWaitResult::WouldBlock); EXPECT_EQ(Async->Drain(), EBuildWaitResult::WouldBlock);
+			Owner.reset(); ++Callbacks; throw std::runtime_error("callback");
+		}));
+		Scheduler->Run(); EXPECT_FALSE(Owner);
+	}
+	EXPECT_EQ(Callbacks, 3u); EXPECT_EQ(Async->Drain(), EBuildWaitResult::Completed);
+	FCacheRequestOwner Owner; Scheduler->Reject = true;
+	ASSERT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) { EXPECT_FALSE(Result); ++Callbacks; }));
+	EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Callbacks, 4u);
+	Async->Close(); EXPECT_FALSE(Async->Get(Requests, Owner, [&](auto, auto, auto) { ADD_FAILURE(); }));
+}
+
+TEST(FAsyncCacheTests, CloseDrainsAcceptedBatchAndRetainsPutPayloads)
+{
+	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
+	auto Async = CreateAsyncCache(Backend, Scheduler, 1); FCacheRequestOwner Owner;
+	const auto Key = MakeKey(FCacheBucket::FromString("Async"), 'c');
+	std::array Requests{FCachePutRequest{RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2}))})}};
+	uint32 Callbacks = 0;
+	ASSERT_TRUE(Async->Put(Requests, Owner, [&](auto, auto Result) { EXPECT_TRUE(Result); ++Callbacks; }));
+	Requests = {}; Scheduler->Run(); EXPECT_EQ(Backend->Puts, 1u);
+	const std::array Reads{FCacheGetRequest{Key}, FCacheGetRequest{Key}};
+	ASSERT_TRUE(Async->Get(Reads, Owner, [&](auto, auto Result, auto) { ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::Canceled); ++Callbacks; }));
+	Async->Close(); while (!Scheduler->Work.empty()) Scheduler->Run();
+	EXPECT_EQ(Callbacks, 3u); EXPECT_EQ(Backend->Gets, 0u); EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Async->Drain(), EBuildWaitResult::Completed);
+}
+
+TEST(FAsyncCacheTests, CoreShutdownDrainsRunningAndPendingAcceptedRequests)
+{
+	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
+	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
+	class FBlockingCache final : public ICache
+	{
+	public:
+		std::promise<void> Entered;
+		std::shared_future<void> Release;
+		mutable std::atomic<uint32> Gets = 0;
+		auto Get(const FCacheGetRequest&) const -> FCacheGetResult override
+		{ if (++Gets == 1) const_cast<FBlockingCache*>(this)->Entered.set_value(); Release.wait(); return std::optional<FCacheRecord>{}; }
+		auto Put(const FCachePutRequest&) const -> FCachePutResult override { return {}; }
+	};
+	std::promise<void> Release; auto Cache = std::make_shared<FBlockingCache>(); Cache->Release = Release.get_future().share();
+	auto Entered = Cache->Entered.get_future(); auto Async = CreateAsyncCache(Cache, {}, 1); FCacheRequestOwner Owner;
+	const auto Key = MakeKey(FCacheBucket::FromString("Async"), 'd'); const std::array Requests{FCacheGetRequest{Key}, FCacheGetRequest{Key}};
+	std::atomic<uint32> Callbacks = 0;
+	ASSERT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) { EXPECT_FALSE(Result); ++Callbacks; }));
+	const auto Started = Entered.wait_for(std::chrono::seconds(5));
+	Async->Close(); Release.set_value(); ShutdownTaskScheduler(false);
+	EXPECT_EQ(Started, std::future_status::ready); EXPECT_EQ(Owner.Wait(), EBuildWaitResult::Completed);
+	EXPECT_EQ(Async->Drain(), EBuildWaitResult::Completed); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Cache->Gets, 1u);
+}
+
+TEST(FAsyncCacheTests, CoalescesOnlyInflightBlobReadsAndReleasesFailures)
+{
+	FCacheReadCoalescer Coalescer; std::latch Entered(1), Release(1);
+	uint64 FirstBytes = 0, SecondBytes = 0; std::atomic<uint32> Reads = 0;
+	auto Read = [&]() -> FCacheStorageGetResult { if (++Reads == 1) Entered.count_down(); Release.wait(); return std::optional{FSharedByteBuffer::Take(Bytes({1, 2, 3}))}; };
+	auto First = std::async(std::launch::async, [&] { return Coalescer.Get("blob", Read, &FirstBytes); }); Entered.wait();
+	auto Second = std::async(std::launch::async, [&] { return Coalescer.Get("blob", Read, &SecondBytes); });
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (!Coalescer.GetCoalescedReadCount() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+	const bool Joined = Coalescer.GetCoalescedReadCount() == 1; Release.count_down();
+	auto A = First.get(); auto B = Second.get(); ASSERT_TRUE(Joined); ASSERT_TRUE(A && *A && B && *B);
+	EXPECT_EQ(Reads, 1u); EXPECT_EQ(FirstBytes, 3u); EXPECT_EQ(SecondBytes, 0u); EXPECT_TRUE((**A).SharesStorageWith(**B));
+	auto Failure = Coalescer.Get("blob", []() -> FCacheStorageGetResult { throw std::runtime_error("read"); }); EXPECT_FALSE(Failure);
+	auto Retry = Coalescer.Get("blob", []() -> FCacheStorageGetResult { return std::optional{FSharedByteBuffer::Take(Bytes({4}))}; }); ASSERT_TRUE(Retry && *Retry);
+	EXPECT_EQ((**Retry).GetSize(), 1u);
+}
+
+TEST(FAsyncCacheTests, CanceledPersistenceNeverPublishesReplacementManifest)
+{
+	FScopedCacheDirectory Directory("canceled-persistence"); const auto Key = MakeKey(FCacheBucket::FromString("Cancel"), 'a');
+	const auto Original = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1}))}); ASSERT_TRUE(GetCache().Put({Original}));
+	const auto Replacement = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({2})), FSharedByteBuffer::Take(Bytes({3}))});
+	for (uint32 StopAt : {1u, 2u, 3u, 4u, 5u, 6u})
+	{
+		uint32 Checks = 0;
+		auto Saved = GetCache().Put({.Record = Replacement, .ShouldCancel = [&] { return ++Checks == StopAt; }});
+		ASSERT_FALSE(Saved); EXPECT_EQ(Saved.error().Code, ECacheError::Canceled);
+		auto Found = GetCache().Get({Key}); ASSERT_TRUE(Found && *Found); EXPECT_EQ((**Found).GetValues().size(), 1u);
+		EXPECT_EQ((**Found).GetValues()[0].Value.GetRawHash(), Original.GetValues()[0].Value.GetRawHash());
+	}
 }
 
 TEST(FCacheSelectionTests, MetadataAndSelectionLeaveOtherValuesAsReferences)

@@ -22,7 +22,7 @@ namespace Durin
 			std::lock_guard Lock(BuildSessionMutex);
 			if (!BuildSession)
 			{
-				auto Created = DerivedData::GetBuild().CreateSession();
+				auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateInlineBuildScheduler());
 				if (!Created) return {};
 				BuildSession = std::move(*Created);
 			}

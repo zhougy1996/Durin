@@ -25,7 +25,7 @@ namespace Durin
 					if (!DerivedData::GetBuild().Register(PhysicsPrivate::MakeCollisionBuildFunction()))
 						throw std::runtime_error("Failed to register the physics derived-data build function.");
 				});
-				auto Created = DerivedData::GetBuild().CreateSession();
+				auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateInlineBuildScheduler());
 				if (!Created) return {};
 				PhysicsBuildSession = std::move(*Created);
 			}

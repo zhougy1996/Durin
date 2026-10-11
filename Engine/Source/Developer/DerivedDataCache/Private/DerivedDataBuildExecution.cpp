@@ -28,6 +28,45 @@ namespace Durin::DerivedData::Private
 	auto FBuildCompletionAccess::Canceled(FBuildCompleteParams Completion) -> FBuildCompleteParams
 	{ Completion.Status = EStatus::Canceled; Completion.Output.reset(); return Completion; }
 
+	auto PrepareBuildAction(const std::variant<FBuildDefinition, FBuildAction>& Request,
+		const FBuildRegistrySnapshot& Registry, const std::shared_ptr<const IBuildInputResolver>& Resolver,
+		const FBuildInputs& Inputs, const FBuildCancellation& Cancel)
+		-> std::expected<FBuildAction, FBuildCompleteParams>
+	{
+		const auto Name = std::holds_alternative<FBuildDefinition>(Request) ? std::get<FBuildDefinition>(Request).GetFunctionName() : std::get<FBuildAction>(Request).GetFunction().Name;
+		auto Failure = [&](std::string_view Message) -> std::expected<FBuildAction, FBuildCompleteParams>
+		{
+			DURIN_ERROR_CATEGORY("DerivedData", "{} action preparation failed: {}", Name, Message);
+			return std::unexpected(FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None));
+		};
+		auto Canceled = [] { return std::unexpected(FBuildCompleteParams::Canceled(std::nullopt, EBuildStatus::None)); };
+		try
+		{
+			if (Cancel.IsCancelled()) return Canceled();
+			const auto Entry = Registry.Find(Name); if (!Entry) return Failure("Build function is not registered.");
+			if (const auto* Existing = std::get_if<FBuildAction>(&Request))
+			{
+				if (Existing->GetFunction() != Entry->Descriptor) return Failure("Build action does not match the registered function.");
+				return *Existing;
+			}
+			const auto& Definition = std::get<FBuildDefinition>(Request); std::vector<FBuildInputReference> Identities;
+			if (Inputs.IsValid()) Identities.assign(Inputs.GetIdentities().begin(), Inputs.GetIdentities().end());
+			else if (!Definition.GetSources().empty())
+			{
+				if (!Resolver) return Failure("No build input resolver is available.");
+				auto Described = Resolver->Describe(Definition.GetSources(), Cancel);
+				if (Cancel.IsCancelled()) return Canceled(); if (!Described) return Failure(Described.error().Description);
+				Identities = std::move(*Described);
+			}
+			FBuildActionBuilder Builder(Definition, Entry->Descriptor);
+			for (auto& Identity : Identities) Builder.AddInput(std::move(Identity));
+			auto Created = std::move(Builder).Build(); if (!Created) return Failure("Resolved metadata does not match the build definition.");
+			return std::move(*Created);
+		}
+		catch (const std::exception& E) { return Failure(E.what()); }
+		catch (...) { return Failure("Action preparation threw."); }
+	}
+
 	auto ExecuteBuild(const std::variant<FBuildDefinition, FBuildAction>& Request,
 		const FBuildRegistrySnapshot& Registry, const std::shared_ptr<const IBuildInputResolver>& SessionResolver,
 		const FBuildInputs& RequestInputs, const FBuildRequestOptions& Options,
@@ -56,15 +95,8 @@ namespace Durin::DerivedData::Private
 		{
 			if (Cancel.IsCancelled()) return Canceled();
 			const auto Entry = Registry.Find(FunctionName); if (!Entry) return Failed("Build function is not registered.");
-			std::optional<FBuildAction> ActionStorage;
-			if (const auto* Existing = std::get_if<FBuildAction>(&Request)) { if (Existing->GetFunction() != Entry->Descriptor) return Failed("Build action does not match the registered function."); ActionStorage = *Existing; }
-			else
-			{
-				const auto& Definition = std::get<FBuildDefinition>(Request); std::vector<FBuildInputReference> Identities;
-				if (RequestInputs.IsValid()) Identities.assign(RequestInputs.GetIdentities().begin(), RequestInputs.GetIdentities().end());
-				else if (!Definition.GetSources().empty()) { if (!SessionResolver) return Failed("No build input resolver is available."); auto Described = SessionResolver->Describe(Definition.GetSources(), Cancel); if (Cancel.IsCancelled()) return Canceled(); if (!Described) return Failed(Described.error().Description); Identities = std::move(*Described); }
-				FBuildActionBuilder ActionBuilder(Definition, Entry->Descriptor); for (auto& Identity : Identities) ActionBuilder.AddInput(std::move(Identity)); auto Created = std::move(ActionBuilder).Build(); if (!Created) return Failed("Resolved metadata does not match the build definition."); ActionStorage = std::move(*Created);
-			}
+			auto ActionStorage = PrepareBuildAction(Request, Registry, SessionResolver, RequestInputs, Cancel);
+			if (!ActionStorage) return std::move(ActionStorage.error());
 			const FBuildAction& Action = *ActionStorage; CacheKey = Action.GetKey();
 			if (Policy.QueryCache && !Policy.ForceBuild)
 			{
@@ -101,7 +133,8 @@ namespace Durin::DerivedData::Private
 					else
 					{
 						auto Put = (Service.Cache ? *Service.Cache : GetCache()).Put(
-							{std::move(*Record), Policy.MaximumEncodedBytes, Policy.OutputLimits.MaximumTotalBytes, Policy.MaximumWorkingSetBytes});
+							{std::move(*Record), Policy.MaximumEncodedBytes, Policy.OutputLimits.MaximumTotalBytes, Policy.MaximumWorkingSetBytes,
+								[&] { return Cancel.IsCancelled(); }});
 						if (!Put) CacheFailure("write", Put.error());
 					}
 				}

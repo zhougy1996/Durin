@@ -3,6 +3,7 @@
 #include "DerivedDataCacheStorage.h"
 #include "FileSystemCacheBackend.h"
 #include "CompressedCacheValue.h"
+#include "Misc/Paths.h"
 
 namespace Durin::DerivedData
 {
@@ -86,12 +87,13 @@ namespace Durin::DerivedData
 					if (EncodedBytes == Request.MaximumEncodedBytes || ResidentBytes == Request.MaximumWorkingSetBytes)
 						return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "No budget remains for referenced value data."});
 					const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("Content"), Item.Value.GetRawHash());
+					uint64 ReadBytes = 0;
 					auto Blob = GCacheStorage.Get({Key, std::min(Request.MaximumEncodedBytes - EncodedBytes,
-						Request.MaximumWorkingSetBytes - ResidentBytes), ECacheStorageNamespace::Values});
+						Request.MaximumWorkingSetBytes - ResidentBytes), ECacheStorageNamespace::Values, &ReadBytes});
 					if (!Blob) return std::unexpected(std::move(Blob.error()));
 					if (!*Blob) return std::unexpected(FCacheError{Request.Mode == ECacheGetMode::SelectedValues ? ECacheError::MissingValue : ECacheError::Corrupt, "Manifest references a missing value blob."});
 					const uint64 BlobBytes = (**Blob).GetSize(); EncodedBytes += BlobBytes;
-					Stats.ReadBytes += BlobBytes; ++Stats.ValuesRead;
+					Stats.ReadBytes += ReadBytes; ++Stats.ValuesRead;
 					Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, ResidentBytes + BlobBytes);
 					if (Canceled()) return CancelError();
 					auto Compressed = FCompressedCacheValue::Load(std::move(**Blob), Item.Value.GetRawSize(), BlobBytes);
@@ -117,6 +119,9 @@ namespace Durin::DerivedData
 			auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
 			try
 			{
+				const auto Canceled = [&] { return Request.ShouldCancel && Request.ShouldCancel(); };
+				const auto CancelError = [] { return std::unexpected(FCacheError{ECacheError::Canceled, "Cache persistence canceled."}); };
+				if (Canceled()) return CancelError();
 				if (!Request.Record.IsValid())
 					return std::unexpected(FCacheError{ECacheError::InvalidRequest,
 						"Cache put request has no record."});
@@ -149,15 +154,18 @@ namespace Durin::DerivedData
 				uint64 EncodedBytes = Manifest->GetSize();
 				for (const auto& Item : Request.Record.GetValues())
 				{
+					if (Canceled()) return CancelError();
 					auto Blob = FCompressedCacheValue::Compress(Item.Value, Request.MaximumEncodedBytes - EncodedBytes,
 						Request.MaximumWorkingSetBytes - ResidentBytes - Manifest->GetSize());
 					if (!Blob) return std::unexpected(std::move(Blob.error()));
+					if (Canceled()) return CancelError();
 					EncodedBytes += Blob->GetEncoded().GetSize();
 					const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("Content"), Item.Value.GetRawHash());
 					auto Saved = GCacheStorage.Put({Key, Blob->GetEncoded().GetBytes(), Blob->GetEncoded().GetSize(), ECacheStorageNamespace::Values});
 					if (!Saved) return std::unexpected(std::move(Saved.error()));
 				}
 				// All required content is complete before the manifest becomes visible.
+				if (Canceled()) return CancelError();
 				return GCacheStorage.Put({Request.Record.GetKey(), Manifest->GetBytes(), Manifest->GetSize(), ECacheStorageNamespace::Records});
 			}
 			catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache write allocation failed."}); }
@@ -248,7 +256,45 @@ namespace Durin::DerivedData
 	auto FCacheStorage::Get(const FCacheStorageGetRequest& Request) const
 		-> FCacheStorageGetResult
 	{
-		return FFileSystemCacheBackend().Get(Request);
+		if (Request.ReadBytes) *Request.ReadBytes = 0;
+		auto Read = [&]
+		{
+			auto Result = FFileSystemCacheBackend().Get(Request);
+			if (Request.ReadBytes && Result && *Result) *Request.ReadBytes = (**Result).GetSize();
+			return Result;
+		};
+		if (Request.Namespace != ECacheStorageNamespace::Values) return Read();
+		static FCacheReadCoalescer Coalescer;
+		const auto Root = FPaths::DerivedDataCacheDir(); const auto Bucket = Request.Key.GetBucket().ToString();
+		const auto Identity = std::format("{}:{}|{}:{}|{}|{}", Root.size(), Root, Bucket.size(), Bucket,
+			Request.Key.ToString(), Request.MaximumValueBytes);
+		return Coalescer.Get(Identity, Read, Request.ReadBytes);
+	}
+	auto FCacheReadCoalescer::Get(std::string Key, std::function<FCacheStorageGetResult()> Read, uint64* ReadBytes) -> FCacheStorageGetResult
+	{
+		if (ReadBytes) *ReadBytes = 0;
+		std::shared_future<FCacheStorageGetResult> Future;
+		std::promise<FCacheStorageGetResult> Promise;
+		bool Leader;
+		{
+			std::lock_guard Lock(Mutex);
+			const auto Existing = Pending.find(Key); Leader = Existing == Pending.end();
+			if (Leader) { Future = Promise.get_future().share(); Pending.emplace(Key, Future); }
+			else { Future = Existing->second; ++CoalescedReads; }
+		}
+		if (Leader)
+		{
+			try
+			{
+				auto Result = Read();
+				if (ReadBytes && Result && *Result) *ReadBytes = (**Result).GetSize();
+				Promise.set_value(std::move(Result));
+			}
+			catch (...) { Promise.set_exception(std::current_exception()); }
+			{ std::lock_guard Lock(Mutex); Pending.erase(Key); }
+		}
+		try { return Future.get(); }
+		catch (...) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Coalesced cache read threw."}); }
 	}
 
 	auto FCacheStorage::Put(const FCacheStoragePutRequest& Request) const

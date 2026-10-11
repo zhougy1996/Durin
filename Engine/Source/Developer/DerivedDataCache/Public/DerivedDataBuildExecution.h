@@ -47,8 +47,10 @@ namespace Durin::DerivedData
 		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
 		uint64 MaximumWorkingSetBytes = std::numeric_limits<uint64>::max();
 	};
+	class IAsyncCache;
 	struct FBuildServiceOptions
 	{
 		std::shared_ptr<ICache> Cache;
+		std::shared_ptr<IAsyncCache> AsyncCache;
 	};
 }

@@ -37,6 +37,7 @@ namespace Durin::DerivedData
 	{
 	public:
 		virtual ~IBuildScheduler() = default;
+		virtual auto SupportsContinuations() const -> bool { return false; }
 		// Reject without invoking/retaining Work, or accept at-most-once execution.
 		// A null wait handle permits externally driven work; dropped work cancels.
 		virtual auto Schedule(const FBuildScheduleParams& Params, std::function<void()> Work)
@@ -45,4 +46,5 @@ namespace Durin::DerivedData
 	DERIVEDDATACACHE_API auto CreateInlineBuildScheduler() -> std::shared_ptr<IBuildScheduler>;
 	// Borrows the running Core task system; creates no threads or memory reservations.
 	DERIVEDDATACACHE_API auto CreateTaskBuildScheduler() -> std::shared_ptr<IBuildScheduler>;
+	DERIVEDDATACACHE_API auto CreateTaskCacheScheduler() -> std::shared_ptr<IBuildScheduler>;
 }

@@ -43,6 +43,7 @@ namespace Durin::DerivedData
 		// Logical output value, metadata, and message bytes before compression.
 		uint64 MaximumRawBytes = 2ull * 1024 * 1024 * 1024;
 		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
+		std::function<bool()> ShouldCancel;
 	};
 
 	using FCachePutResult = std::expected<void, FCacheError>;

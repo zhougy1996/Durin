@@ -51,6 +51,10 @@ namespace Durin::DerivedData::Private
 		std::unique_ptr<FState> State;
 	};
 
+	auto PrepareBuildAction(const std::variant<FBuildDefinition, FBuildAction>& Request,
+		const FBuildRegistrySnapshot& Registry, const std::shared_ptr<const IBuildInputResolver>& Resolver,
+		const FBuildInputs& Inputs, const FBuildCancellation& Cancel)
+		-> std::expected<FBuildAction, FBuildCompleteParams>;
 	auto ExecuteBuild(const std::variant<FBuildDefinition, FBuildAction>& Request,
 		const FBuildRegistrySnapshot& Registry,
 		const std::shared_ptr<const IBuildInputResolver>& SessionResolver,
