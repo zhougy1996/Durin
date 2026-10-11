@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureCompressor, MeshBuilder
 
-Last reviewed: 2026-10-05
+Last reviewed: 2026-10-12
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -128,8 +128,9 @@ Texture2D and TextureCube PostLoad place build operation work on an Engine-owned
 VolumeTexture remains synchronous. TextureCompressor stays resident throughout the editor
 lifetime, so queue entries, platform-cache inputs and scene import workers need no
 module sessions. Consumers stop admission and drain workers before normal module
-shutdown. Texture2D and TextureCube execute shared-output build sessions inline within
-those workers; Volume uses the same protocol synchronously. TextureCompressor registers
+shutdown. Texture2D owners dispatch task-scheduled shared-output builds, releasing
+their worker during cache I/O; TextureCube executes inline within its worker and
+Volume uses the same protocol synchronously. TextureCompressor registers
 the Engine function adapters during module startup. Engine lazily creates the
 texture-family session from the process-wide production `GetBuild()` service;
 there is no explicit Engine asset-build service initialization. Consumers stop
@@ -161,27 +162,34 @@ delivery, while completed asset diagnostics remain under a separate bound.
 The deterministic input/builder identity remains separate from request serials
 and GPU resource readiness.
 
-Texture2D compute returns a unique `Tasks::TTask` result on the CPU executor,
-with interactive/background priority forwarded to Core. LaunchTask accepts valid
-work directly; manager request and memory limits remain separate from scheduler
-queueing. The manager retains the
-task in its request state and checks completion during owner-thread processing.
-Success, framework failure and cancellation reach
-domain handling on GameThread without submitting another deferred task. Task
-completion means background computation has ended; asset completion is published
-by the manager after result application. Diagnostics retain neither task handles
-nor input/result payloads after delivery.
+Texture2D dispatch runs in a unique `Tasks::TTask` on the CPU executor and submits
+to a persistent task-scheduled build session. Interactive/background priority is
+forwarded to both Core dispatch and the build request owner. LaunchTask accepts
+valid work directly; manager request and memory limits remain separate from
+scheduler queueing. Dispatch returns without waiting for cache I/O or a producer.
+The build callback assembles detached platform data and publishes a mailbox result.
+Owner readiness requires dispatch completion, terminal result publication and
+`FBuildRequestOwner::Poll()`, including callback/capture retirement. Dispatch
+failure or cancellation before its body starts also reaches terminal delivery.
+The GameThread pump applies results and invokes observers without another deferred
+task. Diagnostics retain no task handles, build owners or input/result payloads
+after delivery. Synchronous detached/import/Cook adapters retain inline sessions.
 
 The default manager allows two active computes with a 1 GiB estimated working
 budget and an oversized-single-compute rule. This is a scheduling estimate, not
-a hard allocator limit. At most 1,024 requests may be pending, counting queued
+a hard allocator limit. An admitted compute retains its slot and estimated bytes
+through cache query, producer continuation, persistence and callback retirement,
+even while no worker is occupied. At most 1,024 requests may be pending, counting queued
 inputs, running computes, results awaiting application and callbacks in progress.
 The count is released after delivery returns; there is no separate retained-result
 byte reservation. Owner processing and explicit waits reap completed computes
 and admit the next requests with the existing interactive/background fairness.
 Timed waits poll compute readiness and advance scheduling without applying
 unrelated results. Shutdown stops admission, cancels queued and running work,
-pumps all terminal results and joins the scope. Even a task canceled before its
+pumps all terminal results and joins the scope. Build cancellation runs outside
+the queue mutex because queued builds may finish synchronously during cancellation.
+Shutdown drains both dispatch tasks and asynchronous build owners before module
+unload. Even a task canceled before its
 body starts is finalized by the manager. Completed request records release their
 module sessions while retaining bounded diagnostics.
 

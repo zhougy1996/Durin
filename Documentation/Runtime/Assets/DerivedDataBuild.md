@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-10-11
+Last reviewed: 2026-10-12
 
 ## Ownership
 
@@ -306,8 +306,13 @@ callbacks, dispatch return, and callable-owner release. Calling drain from the
 same session execution/completion stack returns `WouldBlock`. Completed handles
 and stale thunks retain no producer/resolver owners.
 
-Engine asset families submit directly through their own inline sessions.
-ShaderBuild does the same through its isolated service. Each synchronous caller owns a
+Texture2D compilation owners submit through a persistent task-scheduled session.
+They release their dispatch worker immediately and retain a build request owner
+until callback retirement, then apply its detached result on GameThread. Owner
+priority follows the request; concurrency and estimated memory stay reserved
+across asynchronous stages. See [Asset Compilation](AssetCompilation.md#initial-compiling-managers).
+Other Engine asset families and synchronous texture adapters submit through inline
+sessions; ShaderBuild does the same through its isolated service. Each synchronous caller owns a
 request group and waits explicitly before typed assembly; it never assumes
 that completion happened before `Build` returned. Captured input description
 runs inside the accepted request. Producer scheduling carries the already-admitted
@@ -315,16 +320,18 @@ owner budget and adds no second asset reservation. These synchronous wrappers
 retain their existing execution contract: scheduling continuations back onto an
 already occupied asset worker can nest unrelated asset tasks and violate their
 mailbox/barrier protocol. Task-scheduled build sessions release producer workers
-while cache work runs on BlockingIO; migrating asset wrappers requires an
-asynchronous bridge at the asset-compilation owner boundary.
+while cache work runs on BlockingIO. Further family migrations require the same
+asynchronous bridge at their asset-compilation owner boundary.
 
 ## Family boundaries
 
-Texture2D, TextureCube, and VolumeTexture use one texture-owned session for import,
-detached build, manager work, PostLoad, and Cook. Completion supplies the cache
+Texture2D, TextureCube, and VolumeTexture use a texture-owned inline session for
+import, detached build and Cook. Texture2D owner work (including authored PostLoad
+and editor rebuilds) uses a separate task-scheduled session. Cube owner work remains
+inline. Completion supplies the cache
 key and hit fact. Recipe timing stays inside producer-local qualification paths;
 it is not part of DDC output or Engine request diagnostics. Their
-version-2 shared-output schemas use fixed indexed value IDs and Compact Binary
+shared-output schemas use fixed indexed value IDs and Compact Binary
 metadata; package/Cook serialization is unchanged.
 
 TextureCompressor family entrypoints validate recipe values and select output formats.

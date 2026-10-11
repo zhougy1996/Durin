@@ -4,6 +4,7 @@
 #include "TextureCubeBuildFunction.h"
 #include "VolumeTextureBuildFunction.h"
 #include "Logging/LogMacros.h"
+#include "Texture/Texture2DCompilationTestSupport.h"
 
 namespace Durin::TexturePrivate
 {
@@ -11,6 +12,8 @@ namespace Durin::TexturePrivate
 	{
 		std::mutex SessionMutex;
 		std::shared_ptr<DerivedData::FBuildSession> Session;
+		std::shared_ptr<DerivedData::FBuildSession> AsyncSession;
+		std::shared_ptr<DerivedData::IBuild> TestBuild;
 
 		auto GetSession() -> std::shared_ptr<DerivedData::FBuildSession>
 		{
@@ -23,6 +26,41 @@ namespace Durin::TexturePrivate
 			}
 			return Session;
 		}
+	}
+
+	auto SetAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void
+	{
+		std::lock_guard Lock(SessionMutex);
+		if (AsyncSession) require(AsyncSession->Drain() == DerivedData::EBuildDrainResult::Drained);
+		AsyncSession.reset();
+		TestBuild.reset();
+		if (!Cache) return;
+		TestBuild = DerivedData::CreateBuild({.Cache = std::move(Cache)});
+		require(TestBuild->Register(MakeTexture2DBuildFunction()).has_value());
+		auto Created = TestBuild->CreateSession({}, DerivedData::CreateTaskBuildScheduler());
+		require(Created.has_value());
+		AsyncSession = std::move(*Created);
+	}
+
+	auto BuildAsync(DerivedData::FBuildDefinition Definition,
+		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
+		DerivedData::FBuildRequestOwner& Owner,
+		DerivedData::FBuildCompletionCallback Completion,
+		DerivedData::FBuildRequestOptions Options) -> bool
+	{
+		std::shared_ptr<DerivedData::FBuildSession> Persistent;
+		{
+			std::lock_guard Lock(SessionMutex);
+			if (!AsyncSession)
+			{
+				auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateTaskBuildScheduler());
+				if (!Created) return false;
+				AsyncSession = std::move(*Created);
+			}
+			Persistent = AsyncSession;
+		}
+		Options.InputResolver = std::move(Resolver);
+		return Persistent->Build(std::move(Definition), Owner, std::move(Completion), {}, std::move(Options)).has_value();
 	}
 
 	auto RegisterBuildFunctions() -> void
@@ -62,6 +100,14 @@ namespace Durin::TexturePrivate
 		require(Owner.Wait() == DerivedData::EBuildWaitResult::Completed);
 		if (!Completion) return Reject("Texture build completion is unavailable.");
 		return std::move(*Completion);
+	}
+}
+
+namespace Durin::AssetPrivate
+{
+	auto SetTexture2DAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void
+	{
+		TexturePrivate::SetAsyncCacheForTests(std::move(Cache));
 	}
 }
 #endif

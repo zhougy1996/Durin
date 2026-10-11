@@ -2,6 +2,7 @@
 #if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/TextureCompilingManager.h"
 #include "Texture2DBuildDiagnostics.h"
+#include "Texture2DBuildAsync.h"
 
 #include "Texture/Texture2DBuild.h"
 #include "Texture/ITextureCompressorModule.h"
@@ -65,7 +66,9 @@ namespace Durin
 			FTexture2DCompilationWorkCompletion Completion;
 			FTexture2DCompilationDiagnostic Diagnostic;
 			Tasks::TTask<FTexture2DCompilationWorkResult> Task;
-			std::optional<FTexture2DCompilationWorkResult> RejectedResult;
+			std::shared_ptr<DerivedData::FBuildRequestOwner> BuildOwner;
+			bool bAsyncDispatched = false;
+			std::optional<FTexture2DCompilationWorkResult> TerminalResult;
 			bool bDelivered = false;
 			bool bAdmitted = false;
 			std::atomic<bool> bCancellationRequested = false;
@@ -142,7 +145,15 @@ namespace Durin
 
 		static auto IsReady(const FRequestState& RequestState) -> bool
 		{
-			return RequestState.bDelivered || RequestState.RejectedResult.has_value()
+			if (RequestState.BuildOwner)
+			{
+				// Dispatch finishing does not imply that I/O, producer or callback has retired.
+				if (!RequestState.Task.IsValid() || !RequestState.Task.GetCompletion().IsReady()
+					|| !RequestState.BuildOwner->Poll()) return false;
+				return !RequestState.bAsyncDispatched || RequestState.TerminalResult.has_value()
+					|| RequestState.Task.GetState() != ETaskState::Succeeded;
+			}
+			return RequestState.bDelivered || RequestState.TerminalResult.has_value()
 				|| (RequestState.Task.IsValid() && RequestState.Task.GetCompletion().IsReady());
 		}
 
@@ -195,6 +206,13 @@ namespace Durin
 
 		auto Launch(const std::shared_ptr<FRequestState>& RequestState) -> void
 		{
+			if (!RequestState->Request.PlatformCache)
+			{
+				std::lock_guard Lock(Mutex);
+				RequestState->BuildOwner = std::make_shared<DerivedData::FBuildRequestOwner>(
+					RequestState->Request.Priority == ETexture2DCompilationPriority::Interactive
+						? DerivedData::EBuildPriority::High : DerivedData::EBuildPriority::Low);
+			}
 			const std::shared_ptr<FQueueState> Self = shared_from_this();
 			Tasks::FTaskGroup Group(Scope.GetToken());
 			Tasks::FTaskExecutionOptions Options;
@@ -205,7 +223,7 @@ namespace Durin
 			auto Admission = Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, Options,
 				[Self, RequestState](Tasks::FTaskContext& Context) {
 					auto Result = Self->RunWorker(RequestState, Context.GetCancellationToken());
-					Self->UpdateDiagnostic(RequestState, Result);
+					if (!RequestState->BuildOwner) Self->UpdateDiagnostic(RequestState, Result);
 					return Result;
 				});
 			std::lock_guard Lock(Mutex);
@@ -298,26 +316,47 @@ namespace Durin
 			FTexture2DBuildRequest BuildRequest = std::move(RequestState->Request.Build);
 			Result.Metrics.PreparationNanoseconds = NowNanoseconds() - PreparationStart;
 			SetPhase(RequestState, ETexture2DCompilationPhase::Building);
-			const FTexture2DBuildExecutionControl Control{
-				.ShouldCancel = Cancel};
-			FTexturePlatformData Product;
-			const std::expected<void, FTexture2DBuildError> BuildResult = BuildTexture2DPlatformData(BuildRequest, Product, Result.InputIdentity, &Control);
-			if (!BuildResult)
+			if (RequestState->BuildOwner)
 			{
-				Result.BuildCause = BuildResult.error();
-				Result.Error = TexturePrivate::MakeCompilationBuildFailure(BuildResult.error());
-				Result.Phase = BuildResult.error().Code == ETexture2DBuildError::Cancelled
-					? ETexture2DCompilationPhase::Cancelled
-					: ETexture2DCompilationPhase::Failed;
-				return Result;
+				const auto Self = shared_from_this();
+				RequestState->bAsyncDispatched = true;
+				TexturePrivate::BuildTexture2DAsync(std::move(BuildRequest), *RequestState->BuildOwner,
+					[Self, RequestState, Token] { return Self->IsCancelled(RequestState, Token); },
+					[Self, RequestState, PendingResult = std::make_shared<FTexture2DCompilationWorkResult>(std::move(Result)), WorkerStart]
+					(std::expected<FTexturePlatformData, FTexture2DBuildError> Product,
+						FTexture2DBuildInputIdentity Identity) mutable {
+						auto& Result = *PendingResult;
+						try
+						{
+							Result.InputIdentity = std::move(Identity);
+							if (Product)
+							{
+								Result.Metrics.ResultBytes = PlatformDataBytes(*Product);
+								Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(*Product));
+								Result.Phase = ETexture2DCompilationPhase::UploadPending;
+							}
+							else
+							{
+								Result.BuildCause = Product.error();
+								Result.Error = TexturePrivate::MakeCompilationBuildFailure(Product.error());
+								Result.Phase = Product.error().Code == ETexture2DBuildError::Cancelled
+									? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::Failed;
+							}
+							Result.Metrics.WorkerNanoseconds = NowNanoseconds() - WorkerStart;
+							Self->UpdateDiagnostic(RequestState, Result);
+						}
+						catch (...)
+						{
+							Result = MakeFailureResult(*RequestState, ETexture2DCompilationPhase::Failed,
+								{.Code = ETexture2DCompilationError::WorkerFailed});
+						}
+						std::lock_guard Lock(Self->Mutex);
+						RequestState->TerminalResult.emplace(std::move(Result));
+					});
+				// Only the callback's mailbox result is consumed on this route.
+				return {};
 			}
-			Result.Metrics.ResultBytes = PlatformDataBytes(Product);
-			Result.bSourceDecoderInvoked = RequestState->Request.bSourceDecoderInvoked;
-			Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product));
-			Result.Error = {};
-			Result.Phase = Cancel() ? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::UploadPending;
-			Result.Metrics.WorkerNanoseconds = NowNanoseconds() - WorkerStart;
-			return Result;
+			throw std::logic_error("Texture2D compilation requires an asynchronous build owner.");
 		}
 
 		auto CompleteWithoutWorker(
@@ -328,7 +367,7 @@ namespace Durin
 			auto Result = MakeFailureResult(*RequestState, Phase, std::move(Error));
 			UpdateDiagnostic(RequestState, Result);
 			std::lock_guard Lock(Mutex);
-			RequestState->RejectedResult.emplace(std::move(Result));
+			RequestState->TerminalResult.emplace(std::move(Result));
 		}
 
 		auto UpdateDiagnostic(
@@ -351,10 +390,18 @@ namespace Durin
 
 		auto Cancel(uint64 RequestId) -> bool
 		{
-			std::lock_guard Lock(Mutex);
-			const auto Iterator = Requests.find(RequestId);
-			if (Iterator == Requests.end() || Iterator->second->bDelivered) return false;
-			return !Iterator->second->bCancellationRequested.exchange(true, std::memory_order_acq_rel);
+			std::shared_ptr<DerivedData::FBuildRequestOwner> Owner;
+			bool Changed;
+			{
+				std::lock_guard Lock(Mutex);
+				const auto Iterator = Requests.find(RequestId);
+				if (Iterator == Requests.end() || Iterator->second->bDelivered) return false;
+				Changed = !Iterator->second->bCancellationRequested.exchange(true, std::memory_order_acq_rel);
+				Owner = Iterator->second->BuildOwner;
+			}
+			// Cancel may synchronously finish a queued build and publish its mailbox result.
+			if (Owner) Owner->Cancel();
+			return Changed;
 		}
 
 		auto Pump(uint32 MaximumCount,
@@ -380,7 +427,7 @@ namespace Durin
 					Ready->bDelivered = true;
 				}
 				auto Result = [&]() -> FTexture2DCompilationWorkResult {
-					if (Ready->RejectedResult) return std::move(*Ready->RejectedResult);
+					if (Ready->TerminalResult) return std::move(*Ready->TerminalResult);
 					if (Ready->Task.GetState() == ETaskState::Succeeded) return std::move(Ready->Task).TakeResult();
 					const bool bCanceled = Ready->Task.GetState() == ETaskState::Canceled
 						|| Ready->bCancellationRequested.load();
@@ -405,7 +452,8 @@ namespace Durin
 				{
 					std::lock_guard Lock(Mutex);
 					Ready->Task = {};
-					Ready->RejectedResult.reset();
+					Ready->BuildOwner.reset();
+					Ready->TerminalResult.reset();
 					Ready->Request.Build = {};
 					Ready->Request.PlatformCache.reset();
 					require(PendingRequestCount > 0);
@@ -469,15 +517,21 @@ namespace Durin
 		auto Shutdown() -> void
 		{
 			std::vector<std::shared_ptr<FRequestState>> Queued;
+			std::vector<std::shared_ptr<DerivedData::FBuildRequestOwner>> BuildOwners;
 			{
 				std::lock_guard Lock(Mutex);
 				if (bShutdown) return;
 				bAcceptingRequests = false;
 				bShutdown = true;
-				for (const auto& [RequestId, RequestState] : Requests) RequestState->bCancellationRequested.store(true, std::memory_order_release);
+				for (const auto& [RequestId, RequestState] : Requests)
+				{
+					RequestState->bCancellationRequested.store(true, std::memory_order_release);
+					if (RequestState->BuildOwner) BuildOwners.push_back(RequestState->BuildOwner);
+				}
 				while (!InteractiveQueue.empty()) { Queued.push_back(std::move(InteractiveQueue.front())); InteractiveQueue.pop_front(); }
 				while (!BackgroundQueue.empty()) { Queued.push_back(std::move(BackgroundQueue.front())); BackgroundQueue.pop_front(); }
 			}
+			for (const auto& Owner : BuildOwners) Owner->Cancel();
 			for (const auto& RequestState : Queued)
 				CompleteWithoutWorker(RequestState, ETexture2DCompilationPhase::Cancelled, {.Code = ETexture2DCompilationError::CancelledDuringShutdown});
 			Scope.Close(ETaskScopeCloseMode::Cancel);
