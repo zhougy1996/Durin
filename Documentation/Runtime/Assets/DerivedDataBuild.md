@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-10-10
+Last reviewed: 2026-10-11
 
 ## Ownership
 
@@ -61,10 +61,10 @@ identity.
 Action encoding uses explicit little-endian widths, length-prefixed strings,
 constant tags, and sorted names. Negative float zero is normalized; non-finite
 floats, zero versions/hashes, invalid names, duplicates, and excessive tables
-are rejected. The migration does not change action schema 2 or family function
-versions. Texture, StaticMesh, and physics output schemas move from version 1
-to version 2 because value IDs and metadata encoding change. Shader moves to
-version 3 to bind its request path as well. These transitions intentionally
+are rejected. Action encoding remains schema 2. Texture2D uses function version
+2 and output schema 3 for structured mip metadata; other Texture, StaticMesh,
+and physics output schemas use version 2. Shader uses version 3 to bind its
+request path as well. These transitions intentionally
 cold-invalidate old records while authored and Cook payload bytes remain
 unchanged.
 
@@ -118,6 +118,17 @@ Such a record cannot convert to a complete build output or encode with the
 schema-2 codec; full-record cache requests continue to return resident values.
 Metadata is keyed by `FValueId` and stored as owned bounded
 Compact Binary objects.
+Assembly metadata is deterministic and persisted. `AddObservation` records
+optional bounded CB measurements in a separate table returned by
+`GetObservations`; they do not enter cache records, manifests, action identity,
+or warm output assembly. IDs use a separate key space, with at most 128 objects
+and 1 MiB of canonical CB bytes by default; output total-byte limits still apply.
+Transient diagnostic logs retain their separate non-cacheable contract.
+Texture2D metadata exposes `Platform`, `Profile`, stable `Format`, and a `Mips`
+array of `Width`, `Height`, `RowPitch`, and raw `Size`. Full and selected mip
+consumers validate these fields directly without unpacking a binary wrapper.
+Other families keep bounded binary metadata where assembly consumes its whole
+typed product.
 
 | Producer | Request input | Identity-specific fields |
 | --- | --- | --- |
@@ -155,87 +166,10 @@ cache-store failure cannot discard an already validated local output; completion
 remains successful and DDC logs the store failure. Fresh invalid producer output
 and outputs containing transient logs never reach persistence.
 
-Persistent cache requests use `records/v3/<bucket>/<prefix>/<action-hash>.bin`
-manifests and `values/v1/Content/<prefix>/<raw-hash>.bin` content blobs. Values
-share storage across records and buckets. The `DDBM` manifest schema 1 stores the
-action key, output schema/version, ordered value IDs with raw size/hash, owned CB
-metadata, deterministic messages, and an envelope hash. It contains no value
-payloads. Decoding validates ordering, IDs, schema, metadata, messages, and total
-logical raw output limits before requesting blobs. Full-record Get resolves and
-validates every value before returning; missing required blobs are rejected and
-follow the normal build fallback path.
-
-Synchronous Get defaults to `FullRecord`. `MetadataOnly` returns the manifest,
-including all value descriptors, without opening blobs. `SelectedValues` accepts
-unique non-null required IDs in any order, resolves only those blobs, and leaves
-other values as references. An empty selection is equivalent to metadata-only.
-Unknown required IDs or missing selected blobs return `MissingValue`; an absent
-manifest remains a normal miss. Invalid or duplicate selections fail before I/O.
-All modes validate the entire manifest against logical output limits; selection
-narrows physical reads and resident data, not the output schema's validity bounds.
-Partial records cannot convert to complete build outputs. Build execution always
-requests a full record and retains its existing rejected-record rebuild fallback.
-
-Get cooperatively checks borrowed cancellation at entry, between manifest/blob
-reads, and after decoding. It returns `Canceled` without publishing a partial
-result; a synchronous filesystem read or Zstd call already in progress finishes
-before the next check. Optional borrowed `FCacheQueryStats` receives successful
-read bytes, validated raw bytes, values read, elapsed nanoseconds, and peak
-accounted payload/codec storage on success, miss, cancellation, or error. The
-working-set metric includes estimated Zstd context bytes and excludes descriptor,
-allocator, and other process memory; it is not RSS. Encoded and working-set
-budgets apply to the manifest plus requested values only.
-
-Engine's editor-only `ReadTexture2DCachedMips` takes an opaque cache key, selected
-mip indices, target, budgets, and cancellation. It performs a cache-only selected
-value query with no source resolver or build fallback, validates the complete
-Texture2D metadata/layout and deterministic error messages, and returns selected
-immutable mip buffers with their original indices, format, and original mip count.
-Indices are unique, bounded, and returned in ascending order. The result is a
-separate `FTexture2DCachedMips`, never an incomplete `FTexturePlatformData` or a
-successful partial build output. Missing required mips and target/schema failures
-are explicit errors. Blob encoding and storage namespaces remain unchanged.
-
-Each immutable `DDBV` blob schema 1 stores codec format (raw or Zstd level 3), raw
-XXH3-128 identity, raw size, encoded payload size, payload, and an envelope hash.
-Small, incompressible, or compression-workspace-limited values may use the raw
-format. Envelope and frame bounds are checked before inflation; raw identity is
-checked afterward, even when the envelope hash is valid. Raw values retain views
-into blob allocations; compressed values own independently inflated allocations.
-An explicit empty value is resident and has a blob with zero raw payload bytes.
-Codec format and parameters do not participate in action identity.
-
-The filesystem backend atomically stores bounded bytes with path containment.
-Put publishes every complete blob before atomically publishing the manifest.
-Concurrent same-content writers may replace a blob with another valid encoding
-of identical raw content; Put also repairs damaged blobs by atomic replacement.
-A failed write never publishes a manifest referencing that incomplete write.
-Existing manifests remain visible when a replacement fails. Already published
-blobs from a failed request may remain orphaned.
-
-Raw, encoded, and payload/codec working-set limits are separate. Raw limits count
-logical output values, metadata, and message bytes. Encoded limits count the
-manifest plus each requested blob (conservatively counting duplicate references).
-Persistence workspace counts distinct retained source buffer capacities, resident
-messages, the manifest, candidate/final encoding buffers, and estimated Zstd
-context memory. Read workspace counts the retained manifest, already resolved
-values, the current encoded blob, inflation storage, and decompression context.
-These byte budgets exclude descriptor/container/control-block overhead and are
-not a process RSS limit. Build policies pass their raw and working-set budgets
-through to cache requests. Store failures retain a successful local output.
-
-Automatic reclamation is disabled: neither Get nor Put deletes blobs or
-manifests. This retain-only policy protects live references and concurrent
-readers/writers. A future collector must use exclusive ownership or a publication
-epoch/lease protocol covering the blob-before-manifest interval, retained readers,
-and the complete set of live manifests; a naive reference scan followed by deletion
-is unsafe. Until such a collector is implemented and tested, cache clearing must
-occur only with all readers, writers, and editors stopped. Orphan-retention,
-publication-failure, and concurrent read/write tests cover the current policy.
-
-Legacy namespaces are cold misses with no compatibility read or rewrite path.
-The schema-2 record codec remains available for explicit in-memory codec users
-and tests; normal cache Get/Put no longer uses whole-record compression.
+The [cache storage contract](DerivedDataCacheStorage.md) owns the canonical CB
+manifest, versioned attachment identities, full/metadata/selected queries,
+byte/codec budgets, integrity validation, and retain-only atomic publication.
+Build sessions retain complete-output validation and local-result preservation.
 
 An output containing an error message is a deterministic negative result: its
 values are discarded, it completes with `EStatus::Error`, and it is persisted
@@ -259,8 +193,9 @@ messages. Message and log text is display data, never control-flow identity. Typ
 assemblers reparse and revalidate immutable output at their trust boundary.
 
 The completion independently exposes its cache key and two `EBuildStatus` facts:
-cache hit and local build. It contains no query/store bookkeeping, execution
-report, cache error, metric, timing, or internal phase identifier.
+cache hit and local build. Its fields contain no query/store bookkeeping,
+execution report, cache error, metric, timing, or internal phase identifier.
+Optional observations live only in the returned cold output.
 
 Deterministic producer errors are bounded output messages. Non-deterministic
 producer logs have their own category, severity, and text and make the output
@@ -413,8 +348,9 @@ composition, not in Engine's public payload contract.
 
 Engine records the identity as a `BuilderVersion` action constant and checks it
 against the active module before invoking any recipe. Each Engine adapter has
-an independent function version (initially 1); constants schemas are 2 for 2D,
-3 for Cube, and 2 for Volume. Shared-output schemas remain 2. Cook recipe
+an independent function version (2 for 2D, 1 for Cube/Volume); constants schemas
+are 2 for 2D, 3 for Cube, and 2 for Volume. Shared-output schemas are 3 for 2D
+and 2 for Cube/Volume. Cook recipe
 dependencies include the builder identity, adapter function/constants versions,
 shared-output schema, and payload schema. Algorithms and adapters independently
 invalidate DDC/Cook production identity. TXPL schema 3 removes the producer word. Older payload schemas require recook;

@@ -4,7 +4,6 @@
 
 #if DURIN_WITH_EDITOR
 #include "DerivedDataBuildOutput.h"
-#include "Serialization/BinaryFormat.h"
 #include "TexturePlatformFormat.h"
 
 namespace Durin::TexturePrivate
@@ -31,33 +30,34 @@ namespace Durin::TexturePrivate
 		if ((Platform != ECookTargetPlatform::Win64
 				&& Platform != ECookTargetPlatform::MacOS)
 			|| (Profile != ECookTargetProfile::Game && Profile != ECookTargetProfile::EditorValidation)
-			|| Output.GetSchema() != "Texture2D.Output" || Output.GetSchemaVersion() != 2)
+			|| Output.GetSchema() != "Texture2D.Output" || Output.GetSchemaVersion() != 3)
 			return std::unexpected("Texture output schema or target is unsupported.");
-		const auto Metadata = DerivedData::GetBuildMetadataPayload(Output);
-		FBinaryReader Reader(Metadata.GetBytes(), {.MaximumTotalBytes = 16 + MaximumTextureMipCount * 20});
-		uint32 StoredPlatform = 0, StoredProfile = 0, Format = 0;
+		const auto Metadata = Output.FindMeta(DerivedData::FValueId::FromName("Metadata"));
+		const auto Format = Metadata.Find("Format").AsUInt64(); const auto Mips = Metadata.Find("Mips").AsArray();
 		FTexture2DOutputLayout Layout;
-		if (!Reader.ReadU32(StoredPlatform) || !Reader.ReadU32(StoredProfile)
-			|| !Reader.ReadU32(Format) || !Reader.ReadU32(Layout.Count)
-			|| StoredPlatform != static_cast<uint32>(Platform) || StoredProfile != static_cast<uint32>(Profile)
-			|| !FromStablePixelFormat(Format, Layout.Format) || Layout.Count == 0
-			|| Layout.Count > MaximumTextureMipCount || Output.GetValues().size() != Layout.Count)
+		if (!Metadata.IsValid() || Metadata.Num() != 4 || !Format || *Format > UINT32_MAX
+			|| Metadata.Find("Platform").AsUInt64() != static_cast<uint32>(Platform)
+			|| Metadata.Find("Profile").AsUInt64() != static_cast<uint32>(Profile)
+			|| !FromStablePixelFormat(uint32(*Format), Layout.Format) || !Mips.IsValid() || Mips.Num() == 0
+			|| Mips.Num() > MaximumTextureMipCount || Output.GetValues().size() != Mips.Num())
 			return std::unexpected("Texture output header is invalid.");
-		uint64 Total = Metadata.GetSize();
+		Layout.Count = Mips.Num(); const auto Fields = Mips.GetFields(); uint64 Total = 0;
+		for (const auto& Item : Output.GetMetadata()) Total += Item.Object.GetBytes().GetSize();
 		for (uint32 Index = 0; Index < Layout.Count; ++Index)
 		{
 			auto& Mip = Layout.Mips[Index];
-			uint64 Size = 0;
-			if (!Reader.ReadU32(Mip.Width) || !Reader.ReadU32(Mip.Height)
-				|| !Reader.ReadU32(Mip.RowPitch) || !Reader.ReadU64(Size)
-				|| Mip.Width == 0 || Mip.Height == 0 || Mip.Width > MaximumTexture2DDimension
-				|| Mip.Height > MaximumTexture2DDimension || Size > MaximumTexturePayloadBytes - Total)
+			const auto Descriptor = Fields[Index].AsObject(); const auto Width = Descriptor.Find("Width").AsUInt64();
+			const auto Height = Descriptor.Find("Height").AsUInt64(); const auto Pitch = Descriptor.Find("RowPitch").AsUInt64();
+			const auto Size = Descriptor.Find("Size").AsUInt64();
+			if (Descriptor.Num() != 4 || !Width || !Height || !Pitch || !Size || *Width == 0 || *Height == 0
+				|| *Width > MaximumTexture2DDimension || *Height > MaximumTexture2DDimension || *Pitch > UINT32_MAX
+				|| Total > MaximumTexturePayloadBytes || *Size > MaximumTexturePayloadBytes - Total)
 				return std::unexpected("Texture output mip extent is invalid.");
-			Total += Size;
+			Mip.Width = uint32(*Width); Mip.Height = uint32(*Height); Mip.RowPitch = uint32(*Pitch); Total += *Size;
 			Mip.Value = Output.FindValue(DerivedData::FValueId::FromName("Durin.Texture2D.Mip").MakeIndexed(Index));
 			const auto Expected = GetPixelFormatLayout(Layout.Format, Mip.Width, Mip.Height);
-			if (!Mip.Value || Expected.DataSize == 0 || Size != Expected.DataSize
-				|| Mip.Value->GetRawSize() != Size || Mip.RowPitch != Expected.RowPitch)
+			if (!Mip.Value || Expected.DataSize == 0 || *Size != Expected.DataSize
+				|| Mip.Value->GetRawSize() != *Size || Mip.RowPitch != Expected.RowPitch)
 				return std::unexpected("Texture output mip block does not match its layout.");
 			if (Index)
 			{
@@ -68,7 +68,7 @@ namespace Durin::TexturePrivate
 					return std::unexpected("Texture output mip chain is invalid.");
 			}
 		}
-		if (!Reader.IsAtEnd() || Layout.Mips[Layout.Count - 1].Width != 1
+		if (Layout.Mips[Layout.Count - 1].Width != 1
 			|| Layout.Mips[Layout.Count - 1].Height != 1)
 			return std::unexpected("Texture output is incomplete or has trailing metadata.");
 		return Layout;
@@ -82,19 +82,20 @@ namespace Durin::TexturePrivate
 		if (!Product.IsValid() || Product.Mips.size() > MaximumTextureMipCount
 			|| !ToStablePixelFormat(Product.PixelFormat, Format))
 			return std::unexpected("Texture product cannot form a complete output.");
-		FBinaryWriter Metadata({.MaximumTotalBytes = 16 + MaximumTextureMipCount * 20});
-		Metadata.WriteU32(static_cast<uint32>(Platform)); Metadata.WriteU32(static_cast<uint32>(Profile));
-		Metadata.WriteU32(static_cast<uint32>(Format)); Metadata.WriteU32(static_cast<uint32>(Product.Mips.size()));
-		DerivedData::FBuildOutputBuilder Output("Texture2D.Output", 2, {.MaximumTotalBytes = MaximumTexturePayloadBytes});
+		FCbWriter Metadata, Mips;
+		Metadata.AddUInt64(static_cast<uint32>(Platform), "Platform"); Metadata.AddUInt64(static_cast<uint32>(Profile), "Profile");
+		Metadata.AddUInt64(static_cast<uint32>(Format), "Format");
+		DerivedData::FBuildOutputBuilder Output("Texture2D.Output", 3, {.MaximumTotalBytes = MaximumTexturePayloadBytes});
 		for (size_t Index = 0; Index < Product.Mips.size(); ++Index)
 		{
 			const auto& Mip = Product.Mips[Index];
-			Metadata.WriteU32(Mip.Width); Metadata.WriteU32(Mip.Height); Metadata.WriteU32(Mip.RowPitch);
-			Metadata.WriteU64(Mip.Pixels.GetSize());
+			FCbWriter Descriptor; Descriptor.AddUInt64(Mip.Width, "Width"); Descriptor.AddUInt64(Mip.Height, "Height");
+			Descriptor.AddUInt64(Mip.RowPitch, "RowPitch"); Descriptor.AddUInt64(Mip.Pixels.GetSize(), "Size");
+			auto Object = Descriptor.SaveObject(); if (!Object || !Mips.AddObject(std::move(*Object))) return std::unexpected("Texture mip metadata is invalid.");
 			Output.AddValue(DerivedData::FValueId::FromName("Durin.Texture2D.Mip").MakeIndexed(Index), Mip.Pixels);
 		}
-		if (Metadata.HasError()) return std::unexpected("Texture output metadata exceeds its limit.");
-		auto Meta = DerivedData::MakeBuildMetadata(FSharedByteBuffer::Take(Metadata.TakeBytes()));
+		auto Array = Mips.SaveArray(); if (!Array || !Metadata.AddArray(std::move(*Array), "Mips")) return std::unexpected("Texture mip table is invalid.");
+		auto Meta = Metadata.SaveObject();
 		if (!Meta || !Output.AddMeta(DerivedData::FValueId::FromName("Metadata"), std::move(*Meta))) return std::unexpected("Texture output metadata is invalid.");
 		auto Built = std::move(Output).Build();
 		if (!Built) return Built;

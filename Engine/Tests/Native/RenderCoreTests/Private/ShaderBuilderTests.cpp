@@ -169,7 +169,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Builder.reset();
 
 		const std::filesystem::path Bucket = GetBuilderTestRoot()
-			/ "DDC" / "records" / "v3" / "Shader";
+			/ "DDC" / "records" / "v4" / "Shader";
 		std::vector<std::filesystem::path> Entries;
 		std::error_code Error;
 		for (std::filesystem::recursive_directory_iterator It(Bucket, Error), End;
@@ -945,7 +945,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		uint32 DdcFiles = 0;
 		std::error_code ErrorCode;
 		for (std::filesystem::recursive_directory_iterator It(
-			Root / "DDC" / "records" / "v3" / "Shader", ErrorCode),
+			Root / "DDC" / "records" / "v4" / "Shader", ErrorCode),
 			End; !ErrorCode && It != End; It.increment(ErrorCode))
 		{
 			if (!It->is_regular_file()) continue;

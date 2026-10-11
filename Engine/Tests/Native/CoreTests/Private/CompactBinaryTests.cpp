@@ -15,6 +15,19 @@ namespace
 	}
 }
 
+TEST(FCompactBinaryTests, ChildViewsPreserveValidatedCustomLimitsAndStorage)
+{
+	FCbLimits Limits{.MaximumFields = 10000}; FCbWriter Items(Limits);
+	for (uint32 Index = 0; Index < 5000; ++Index) ASSERT_TRUE(Items.AddUInt64(Index));
+	auto Array = Items.SaveArray(); ASSERT_TRUE(Array); FCbWriter Root(Limits); ASSERT_TRUE(Root.AddArray(*Array, "Items"));
+	auto Object = Root.SaveObject(); ASSERT_TRUE(Object);
+	EXPECT_FALSE(FCbObject::TryLoad(Object->GetBytes()));
+	auto Loaded = FCbObject::TryLoad(Object->GetBytes(), Limits); ASSERT_TRUE(Loaded);
+	const auto Child = Loaded->GetView().Find("Items").AsArray(); ASSERT_TRUE(Child.IsValid()); EXPECT_EQ(Child.Num(), 5000u);
+	const auto Fields = Child.GetFields(); ASSERT_EQ(Fields.size(), 5000u); EXPECT_EQ(Fields.back().AsUInt64(), 4999u);
+	EXPECT_TRUE(Fields.back().GetBytes().SharesStorageWith(Loaded->GetBytes()));
+}
+
 TEST(FCompactBinaryTests, CanonicalObjectHasGoldenLittleEndianBytes)
 {
 	FCbWriter Writer;

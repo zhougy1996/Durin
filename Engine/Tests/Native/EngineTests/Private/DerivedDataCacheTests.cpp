@@ -442,7 +442,7 @@ TEST(FCacheTests, FailedPublicationRetainsOrphansAndExistingReaders)
 	EXPECT_TRUE(std::filesystem::is_regular_file(EntryPath(Directory, BlobKey(Record.GetValues()[0].Value), "values/v1")));
 	EXPECT_TRUE(GetCache().Get({ExistingKey}).value().has_value());
 	const auto ManifestBlockedKey = MakeKey(FCacheBucket::FromString("ManifestBlocked"), 'e');
-	std::filesystem::create_directories(EntryPath(Directory, ManifestBlockedKey, "records/v3"));
+	std::filesystem::create_directories(EntryPath(Directory, ManifestBlockedKey, "records/v4"));
 	EXPECT_FALSE(GetCache().Put({RecordWith(ManifestBlockedKey, {Existing.GetValues()[0].Value.GetData()})}));
 	EXPECT_TRUE(GetCache().Get({ExistingKey}).value().has_value());
 }

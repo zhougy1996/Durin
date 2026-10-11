@@ -108,26 +108,26 @@ namespace Durin
 			}
 			return false;
 		}
-		auto Children(const FCbFieldView& Field) -> std::vector<FCbFieldView>
+	}
+	auto FCbFieldView::GetChildren() const -> std::vector<FCbFieldView>
+	{
+		std::vector<FCbFieldView> Result;
+		FParts P; if (!Parse(Bytes.GetBytes(), P) || P.PayloadSize < 4) return Result;
+		const auto Payload = Bytes.MakeView(P.PayloadOffset, P.PayloadSize);
+		uint32 Count; std::memcpy(&Count, Payload.data(), 4);
+		if constexpr (std::endian::native == std::endian::big) Count = std::byteswap(Count);
+		uint64 Offset = 4; Result.reserve(Count);
+		for (uint32 I = 0; I < Count; ++I)
 		{
-			std::vector<FCbFieldView> Result;
-			FParts P; if (!Parse(Field.GetBytes().GetBytes(), P) || P.PayloadSize < 4) return Result;
-			const auto Payload = Field.GetBytes().MakeView(P.PayloadOffset, P.PayloadSize);
-			uint32 Count; std::memcpy(&Count, Payload.data(), 4);
-			if constexpr (std::endian::native == std::endian::big) Count = std::byteswap(Count);
-			uint64 Offset = 4; Result.reserve(Count);
-			for (uint32 I = 0; I < Count; ++I)
-			{
-				FByteView Tail = Payload.GetBytes().subspan(Offset); FParts C{};
-				std::memcpy(&C.NameSize, Tail.data() + 1, 4); std::memcpy(&C.PayloadSize, Tail.data() + 5, 8);
-				if constexpr (std::endian::native == std::endian::big) { C.NameSize = std::byteswap(C.NameSize); C.PayloadSize = std::byteswap(C.PayloadSize); }
-				const uint64 Size = HeaderSize + C.NameSize + C.PayloadSize;
-				auto Child = FCbField::TryLoad(Payload.MakeView(Offset, Size));
-				if (!Child) return {};
-				Result.push_back(Child->GetView()); Offset += Size;
-			}
-			return Result;
+			FByteView Tail = Payload.GetBytes().subspan(Offset); FParts C{};
+			std::memcpy(&C.NameSize, Tail.data() + 1, 4); std::memcpy(&C.PayloadSize, Tail.data() + 5, 8);
+			if constexpr (std::endian::native == std::endian::big) { C.NameSize = std::byteswap(C.NameSize); C.PayloadSize = std::byteswap(C.PayloadSize); }
+			const uint64 Size = HeaderSize + C.NameSize + C.PayloadSize;
+			// The immutable parent was validated with its caller's limits. Do not
+			// reload children with narrower default limits or revalidate subtrees.
+			Result.push_back(FCbFieldView(Payload.MakeView(Offset, Size))); Offset += Size;
 		}
+		return Result;
 	}
 
 	auto FCbField::TryLoad(FSharedByteBuffer Bytes, FCbLimits Limits) -> std::expected<FCbField, std::string>
@@ -171,8 +171,8 @@ namespace Durin
 	auto FCbFieldView::AsObjectId() const -> std::optional<FCbObjectId> { FParts P; if (!Parse(Bytes.GetBytes(), P) || P.Type != ECbFieldType::ObjectId) return {}; FCbObjectId V; std::memcpy(V.Bytes.data(), Bytes.data() + P.PayloadOffset, 12); return V; }
 	auto FCbFieldView::AsObject() const -> FCbObjectView { return GetType() == ECbFieldType::Object ? FCbObjectView(*this) : FCbObjectView{}; }
 	auto FCbFieldView::AsArray() const -> FCbArrayView { return GetType() == ECbFieldType::Array ? FCbArrayView(*this) : FCbArrayView{}; }
-	auto FCbObjectView::GetFields() const -> std::vector<FCbFieldView> { return IsValid() ? Children(Field) : std::vector<FCbFieldView>{}; }
-	auto FCbArrayView::GetFields() const -> std::vector<FCbFieldView> { return IsValid() ? Children(Field) : std::vector<FCbFieldView>{}; }
+	auto FCbObjectView::GetFields() const -> std::vector<FCbFieldView> { return IsValid() ? Field.GetChildren() : std::vector<FCbFieldView>{}; }
+	auto FCbArrayView::GetFields() const -> std::vector<FCbFieldView> { return IsValid() ? Field.GetChildren() : std::vector<FCbFieldView>{}; }
 	auto FCbObjectView::Num() const -> uint32 { return static_cast<uint32>(GetFields().size()); }
 	auto FCbArrayView::Num() const -> uint32 { return static_cast<uint32>(GetFields().size()); }
 	auto FCbObjectView::Find(std::string_view Name) const -> FCbFieldView { auto Fields = GetFields(); const auto It = std::ranges::lower_bound(Fields, Name, {}, &FCbFieldView::GetName); return It != Fields.end() && It->GetName() == Name ? *It : FCbFieldView{}; }

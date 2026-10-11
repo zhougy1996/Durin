@@ -15,6 +15,68 @@ namespace
 	}
 }
 
+TEST(FDerivedDataBuildOutputTests, ObservationsStayBoundedAndNeverEnterCacheRecords)
+{
+	auto Make = [](uint64 Time) {
+		FCbWriter Observation; Observation.AddUInt64(Time, "DurationNanoseconds");
+		FBuildOutputBuilder Builder("Fixture.Output", 2); Builder.AddValue(FValueId::FromName("Data"), Bytes("same"));
+		Builder.AddObservation(FValueId::FromName("Timing"), Observation.SaveObject().value()); return std::move(Builder).Build().value();
+	};
+	const auto First = Make(1), Second = Make(2); ASSERT_EQ(First.GetObservations().size(), 1u);
+	EXPECT_FALSE(First.CheckLimits({.MaximumObservationBytes = 1})); EXPECT_FALSE(First.CheckLimits({.MaximumObservations = 0}));
+	auto A = FCacheRecord::FromOutput(Key(), First).value(), B = FCacheRecord::FromOutput(Key(), Second).value();
+	EXPECT_TRUE(std::ranges::equal(A.EncodeManifest()->GetBytes(), B.EncodeManifest()->GetBytes()));
+	EXPECT_TRUE(std::ranges::equal(A.Encode()->GetBytes(), B.Encode()->GetBytes()));
+	EXPECT_TRUE(A.ToOutput(Key())->GetObservations().empty());
+	const auto Encoded = A.EncodeManifest().value(); auto Loaded = FCacheRecord::DecodeManifest(Key(), Encoded); ASSERT_TRUE(Loaded);
+	EXPECT_FALSE(Loaded->ToOutput(Key())); // Values are attachments until resolved.
+	FBuildOutputBuilder Limited("Fixture.Output", 2, {.MaximumObservations = 0}); FCbWriter Empty;
+	EXPECT_FALSE(Limited.AddObservation(FValueId::FromName("Timing"), Empty.SaveObject().value()));
+}
+
+TEST(FDerivedDataBuildOutputTests, StructuredManifestPreservesLargeTablesAndRejectsUnknownIdentities)
+{
+	FBuildOutputBuilder Builder("Fixture.Output", 2);
+	for (uint32 I = 0; I < 600; ++I) ASSERT_TRUE(Builder.AddValue(FValueId::FromName("Data").MakeIndexed(I), Bytes("same")));
+	FCbWriter Metadata; Metadata.AddString("owned", "Name"); ASSERT_TRUE(Builder.AddMeta(FValueId::FromName("Meta"), Metadata.SaveObject().value()));
+	const auto Record = FCacheRecord::FromOutput(Key(), std::move(Builder).Build().value()).value();
+	const auto Encoded = Record.EncodeManifest().value(); auto Loaded = FCacheRecord::DecodeManifest(Key(), Encoded); ASSERT_TRUE(Loaded);
+	const auto MetadataLimit = Record.GetMetadata()[0].Object.GetBytes().GetSize();
+	EXPECT_TRUE(FCacheRecord::DecodeManifest(Key(), Encoded, {.MaximumMetadataBytes = MetadataLimit}));
+	EXPECT_FALSE(FCacheRecord::DecodeManifest(Key(), Encoded, {.MaximumMetadataBytes = MetadataLimit - 1}));
+	const auto Resolved = Loaded->WithValues(Record.GetValues()).value();
+	EXPECT_TRUE(std::ranges::equal(Record.Encode()->GetBytes(), Resolved.Encode()->GetBytes()));
+	EXPECT_TRUE(FCacheRecord::Decode(Key(), Resolved.Encode().value(), {.MaximumMetadataBytes = MetadataLimit}));
+	ASSERT_EQ(Loaded->GetValues().size(), 600u); EXPECT_TRUE(Loaded->GetMetadata()[0].Object.GetBytes().SharesStorageWith(Encoded));
+	EXPECT_TRUE(std::ranges::equal(Encoded.GetBytes(), Loaded->EncodeManifest()->GetBytes()));
+	EXPECT_TRUE(Record.EncodeManifest(Encoded.GetSize())); EXPECT_FALSE(Record.EncodeManifest(Encoded.GetSize() - 1));
+	EXPECT_FALSE(Record.EncodeManifest(UINT64_MAX, 1));
+	FCbLimits Limits{.MaximumEncodedBytes = 8 * 1024 * 1024, .MaximumDepth = 40, .MaximumFields = 700000};
+	const auto Root = FCbObject::TryLoad(Encoded.MakeView(16, Encoded.GetSize() - 32), Limits).value().GetView();
+	ASSERT_EQ(Root.Find("Values").AsArray().Num(), 600u);
+	for (uint32 Case = 0; Case < 5; ++Case)
+	{
+		FCbWriter Values(Limits), Changed(Limits);
+		for (const auto& Field : Root.Find("Values").AsArray().GetFields())
+		{
+			const auto Value = Field.AsObject(); const auto Original = Value.Find("Attachment").AsObject(); FCbWriter Attachment, Descriptor;
+			Attachment.AddUInt64(Case == 0 ? 2 : 1, "Version"); Attachment.AddString(Case == 1 ? "sha256" : "xxh3-128", "Algorithm");
+			Attachment.AddString(Case == 2 ? "../escape" : "values/v1", "Namespace"); Attachment.AddBinary(*Original.Find("Hash").AsBinary(), "Hash");
+			Descriptor.AddObjectId(*Value.Find("Id").AsObjectId(), "Id"); Descriptor.AddUInt64(*Value.Find("RawSize").AsUInt64(), "RawSize");
+			Descriptor.AddObject(Attachment.SaveObject().value(), "Attachment"); Values.AddObject(Descriptor.SaveObject().value());
+		}
+		Changed.AddArray(Values.SaveArray().value(), "Values");
+		Changed.AddArray(FCbArray::TryLoad(Root.Find("Metadata").GetBytes()).value(), "Metadata");
+		Changed.AddArray(FCbArray::TryLoad(Root.Find("Messages").GetBytes()).value(), "Messages");
+		Changed.AddString(std::string(*Root.Find("Bucket").AsString()), "Bucket"); Changed.AddBinary(*Root.Find("Key").AsBinary(), "Key");
+		Changed.AddString(std::string(*Root.Find("OutputSchema").AsString()), "OutputSchema"); Changed.AddUInt64(*Root.Find("OutputVersion").AsUInt64(), "OutputVersion");
+		if (Case == 3) Changed.AddNull("Unknown");
+		FBinaryWriter Wire; Wire.WriteHeader({0x4d424444, Case == 4 ? 1u : 2u, 0}); Wire.WriteBytes(Changed.SaveObject()->GetBytes().GetBytes());
+		Wire.WriteHash128(FXxHash128::HashBuffer(Wire.GetBytes()));
+		EXPECT_FALSE(FCacheRecord::DecodeManifest(Key(), FSharedByteBuffer::Take(Wire.TakeBytes()))) << Case;
+	}
+}
+
 TEST(FDerivedDataBuildOutputTests, ValueIdsAreFixedStableAndIndexed)
 {
 	static_assert(sizeof(FValueId) == 12); const auto A = FValueId::FromName("Stable.Name"); EXPECT_FALSE(A.IsNull()); EXPECT_EQ(A, FValueId::FromName("Stable.Name")); EXPECT_NE(A, FValueId::FromName("Other")); EXPECT_NE(A.MakeIndexed(1), A.MakeIndexed(2)); EXPECT_TRUE(A.MakeIndexed(FValueId::MaximumIndex + 1).IsNull());

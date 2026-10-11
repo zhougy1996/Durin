@@ -147,7 +147,7 @@ namespace Durin
 		{
 		case ETextureBuildKind::Texture2D:
 			return {"Durin.Texture2D", Texture2DBuildFunctionVersion, 2,
-				"Texture2D.Output", TextureBuildOutputSchemaVersion, FCacheBucket::FromString(Texture2DCacheBucket)};
+				"Texture2D.Output", Texture2DOutputSchemaVersion, FCacheBucket::FromString(Texture2DCacheBucket)};
 		case ETextureBuildKind::TextureCube:
 			return {"Durin.TextureCube", TextureCubeBuildFunctionVersion, 3,
 				"TextureCube.Output", TextureBuildOutputSchemaVersion, FCacheBucket::FromString(TextureCubeCacheBucket)};

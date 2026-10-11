@@ -149,7 +149,7 @@ namespace Durin::DerivedData
 						return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Resident messages exceed persistence workspace."});
 					ResidentBytes += Message.Text.capacity();
 				}
-				auto Manifest = Request.Record.EncodeManifest(std::min(Request.MaximumEncodedBytes, Request.MaximumWorkingSetBytes - ResidentBytes));
+				auto Manifest = Request.Record.EncodeManifest(Request.MaximumEncodedBytes, Request.MaximumWorkingSetBytes - ResidentBytes);
 				if (!Manifest) return std::unexpected(std::move(Manifest.error()));
 				uint64 EncodedBytes = Manifest->GetSize();
 				for (const auto& Item : Request.Record.GetValues())

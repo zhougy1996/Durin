@@ -4,12 +4,12 @@ Summary: Evolve Durin's structured cache toward independently stored values, sel
 
 Last reviewed: 2026-10-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-11
 
 ## Current Status
 
-Stages 0 through 4 are complete. Stage 4 adds asynchronous cache I/O
+Stages 0 through 5 are complete. Stage 4 adds asynchronous cache I/O
 and build execution continuations. The implementation uses bounded
 batch queues on Core BlockingIO, owned request data, and Worker continuations;
 inline callers retain synchronous compatibility. No concrete byte-range consumer
@@ -20,7 +20,49 @@ mailbox/barrier protocol. Texture, StaticMesh, collision, and Shader wrappers no
 explicitly retain inline scheduling. Automatic async adapters are shared only by
 task sessions; existing and later inline sessions keep their synchronous contract.
 An async bridge at the asset-compilation owner boundary is a separate follow-up.
-Stage 5 is next: structured manifests and metadata/identity evolution.
+Stage 5 completes structured manifests and metadata/identity evolution.
+The implemented format is a Durin CB object in `records/v4`, wrapped by DDBM
+schema 2 and an integrity trailer. Value attachments explicitly identify
+`values/v1`, identity version 1, and XXH3-128; unknown versions fail closed.
+Current storage remains trusted/local. Shared or untrusted storage requires a
+new cryptographic blob-identity version and namespace before admission; it must
+not reinterpret existing action/source hashes. Texture2D layout metadata moves
+to named fields with output/function version bumps. Binary wrappers remain for
+other families whose assembly still consumes a complete binary product.
+Optional observation metadata is kept separate from persisted assembly
+metadata, deterministic messages, and action identity.
+
+Stage 5 validation on 2026-10-11: the final Win64-Debug-DurinEditor all build
+passed, including the migrated Texture Cook fixture. `@module=derived-data-cache`
+passed all four targets; CoreUtilityTests passed 122 cases, TextureTests 142,
+StaticMeshTests 169, PhysicsSceneTests 49, RenderShaderContractTests 55, and
+RenderShaderCookIntegrationTests 1. New coverage verifies 600-value manifests,
+5,000-field CB child views, unknown identity/schema/extra-field rejection,
+exact metadata and encoded budgets, conservative CB workspace admission,
+canonical legacy codec reuse, and observation-independent persistence bytes.
+Texture layout corruption tests now mutate named mip fields. The existing
+symlink case remains skipped on this host. Reports are in
+`Build/NativeTestResults/Win64-Debug-DurinEditor`; the DDC module receipt is
+`module-derived-data-cache.xml`, and direct target receipts use their target names.
+Changed-document and all-plan validation passed.
+
+Shared API and namespace searches covered every source/test root in
+`Durin.dworkspace`; Sandbox and RoadWeaver have no direct consumers requiring
+migration. Texture, StaticMesh, collision, and Shader cache fixtures now address
+`records/v4`. No GPU behavior changed; TextureCookIntegrationTests compiled in
+the all build, with GPU execution omitted. `affected --explain` selects broad
+Engine/GPU targets through shared headers, so explicit owning-module and CPU
+consumer selections provide the task-specific coverage.
+
+Lasting rules live in the [build protocol](../Runtime/Assets/DerivedDataBuild.md)
+and [cache storage contract](../Runtime/Assets/DerivedDataCacheStorage.md). The
+storage contract was split at the build document's growth boundary because
+manifest/codec/query work has a distinct task trigger. Historical Stage 2/3
+namespace descriptions and measurements below describe their validated format;
+current persistence uses `records/v4`. Conditional sub-value range reads,
+StaticMesh selection, asset-owner asynchronous bridging, garbage collection,
+and shared/untrusted backends remain separate follow-ups; none is an unmet
+acceptance gate of this completed local-cache plan.
 
 Stage 4 validation on 2026-10-11: the final Win64-Debug-DurinEditor all build
 passed. `@module=derived-data-cache` passed all four ordinary targets, including
@@ -222,13 +264,13 @@ Depends on Stage 3. Outcome: slow cache I/O does not occupy producer execution s
 
 Depends on Stage 2; may proceed alongside later consumer work after Stage 2 acceptance.
 
-- [ ] Express manifests as CB objects with attachment references; specify the
+- [x] Express manifests as CB objects with attachment references; specify the
   Durin format explicitly rather than claiming compatibility from matching API names.
-- [ ] Migrate binary metadata wrappers to structured fields where consumers benefit.
-- [ ] Separate deterministic assembly metadata from optional observational metadata.
-- [ ] Decide whether shared/untrusted blob storage requires a stronger hash and
+- [x] Migrate binary metadata wrappers to structured fields where consumers benefit.
+- [x] Separate deterministic assembly metadata from optional observational metadata.
+- [x] Decide whether shared/untrusted blob storage requires a stronger hash and
   introduce a versioned blob identity without silently changing action/source identity.
-- [ ] Update lasting contracts, pass affected tests and an all build, and complete
+- [x] Update lasting contracts, pass affected tests and an all build, and complete
   the plan only after every required gate above is satisfied.
 
 ## Validation and Handoff

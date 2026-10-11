@@ -34,6 +34,8 @@ namespace Durin::DerivedData
 		uint32 MaximumMetadata = 4096;
 		uint32 MaximumMessages = 128;
 		uint32 MaximumLogs = 128;
+		uint32 MaximumObservations = 128;
+		uint64 MaximumObservationBytes = 1024 * 1024;
 	};
 
 	class FBuildOutput
@@ -50,6 +52,8 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API auto GetSchemaVersion() const -> uint32;
 		DERIVEDDATACACHE_API auto GetValues() const -> std::span<const FValueWithId>;
 		DERIVEDDATACACHE_API auto GetMetadata() const -> std::span<const FBuildOutputMeta>;
+		// Optional measurements are returned only for this build, never persisted.
+		DERIVEDDATACACHE_API auto GetObservations() const -> std::span<const FBuildOutputMeta>;
 		DERIVEDDATACACHE_API auto GetMessages() const -> std::span<const FBuildOutputMessage>;
 		DERIVEDDATACACHE_API auto GetLogs() const -> std::span<const FBuildOutputLog>;
 		DERIVEDDATACACHE_API auto FindValue(FValueId Id) const -> const FValue*;
@@ -71,6 +75,7 @@ namespace Durin::DerivedData
 		auto operator=(const FBuildOutputBuilder&) -> FBuildOutputBuilder& = delete;
 		DERIVEDDATACACHE_API auto AddValue(FValueId Id, FSharedByteBuffer Data) -> bool;
 		DERIVEDDATACACHE_API auto AddMeta(FValueId Id, FCbObject Object) -> bool;
+		DERIVEDDATACACHE_API auto AddObservation(FValueId Id, FCbObject Object) -> bool;
 		DERIVEDDATACACHE_API auto AddMessage(EBuildMessageSeverity Severity, std::string Text) -> bool;
 		DERIVEDDATACACHE_API auto AddLog(std::string Category, EBuildLogSeverity Severity,
 			std::string Text) -> bool;
@@ -94,7 +99,8 @@ namespace Durin::DerivedData
 			FBuildOutputLimits Limits = {}) const -> std::expected<FBuildOutput, FCacheError>;
 		// Retains descriptors and metadata; cannot be assembled as a complete output.
 		DERIVEDDATACACHE_API auto RemoveValueData() const -> FCacheRecord;
-		DERIVEDDATACACHE_API auto EncodeManifest(uint64 MaximumBytes = DefaultMaximumEncodedBytes) const -> std::expected<FSharedByteBuffer, FCacheError>;
+		DERIVEDDATACACHE_API auto EncodeManifest(uint64 MaximumBytes = DefaultMaximumEncodedBytes,
+			uint64 MaximumWorkingBytes = UINT64_MAX) const -> std::expected<FSharedByteBuffer, FCacheError>;
 		DERIVEDDATACACHE_API static auto DecodeManifest(const FCacheKey& ExpectedKey, FSharedByteBuffer Bytes,
 			FBuildOutputLimits Limits = {}, uint64 MaximumBytes = DefaultMaximumEncodedBytes) -> std::expected<FCacheRecord, FCacheError>;
 		DERIVEDDATACACHE_API auto WithValues(std::span<const FValueWithId> Values) const -> std::expected<FCacheRecord, FCacheError>;
@@ -109,6 +115,7 @@ namespace Durin::DerivedData
 			FBuildOutputLimits Limits = {}, uint64 MaximumEncodedBytes = DefaultMaximumEncodedBytes) -> std::expected<FCacheRecord, FCacheError>;
 		auto IsValid() const -> bool { return State != nullptr; }
 		DERIVEDDATACACHE_API auto GetKey() const -> FCacheKey;
+		DERIVEDDATACACHE_API auto FindMeta(FValueId Id) const -> FCbObjectView;
 		DERIVEDDATACACHE_API auto GetSchema() const -> std::string_view;
 		DERIVEDDATACACHE_API auto GetSchemaVersion() const -> uint32;
 		DERIVEDDATACACHE_API auto GetMetadata() const -> std::span<const FBuildOutputMeta>;

@@ -47,6 +47,7 @@ namespace Durin::DerivedData
 	}
 	auto FBuildContext::AddValue(FValueId Id, FSharedByteBuffer Data) -> bool { return Output.AddValue(Id, std::move(Data)); }
 	auto FBuildContext::AddMeta(FValueId Id, FCbObject Object) -> bool { return Output.AddMeta(Id, std::move(Object)); }
+	auto FBuildContext::AddObservation(FValueId Id, FCbObject Object) -> bool { return Output.AddObservation(Id, std::move(Object)); }
 	auto FBuildContext::AddMessage(std::string Text) -> bool { return Output.AddMessage(EBuildMessageSeverity::Note, std::move(Text)); }
 	auto FBuildContext::AddWarning(std::string Text) -> bool { return Output.AddMessage(EBuildMessageSeverity::Warning, std::move(Text)); }
 	auto FBuildContext::AddError(std::string Text) -> bool { return Output.AddMessage(EBuildMessageSeverity::Error, std::move(Text)); }

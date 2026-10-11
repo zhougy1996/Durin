@@ -94,6 +94,7 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API auto FindInput(std::string_view Name) const -> const FBuildInput*;
 		DERIVEDDATACACHE_API auto AddValue(FValueId Id, FSharedByteBuffer Data) -> bool;
 		DERIVEDDATACACHE_API auto AddMeta(FValueId Id, FCbObject Object) -> bool;
+		DERIVEDDATACACHE_API auto AddObservation(FValueId Id, FCbObject Object) -> bool;
 		DERIVEDDATACACHE_API auto AddMessage(std::string Text) -> bool;
 		DERIVEDDATACACHE_API auto AddWarning(std::string Text) -> bool;
 		DERIVEDDATACACHE_API auto AddError(std::string Text) -> bool;

@@ -214,12 +214,13 @@ namespace
 		std::string Schema;
 		uint32 SchemaVersion = 0;
 		Durin::FSharedByteBuffer Metadata;
+		Durin::FCbObject StructuredMetadata;
 		std::vector<std::pair<Durin::DerivedData::FValueId, Durin::FSharedByteBuffer>> Values;
 		auto Build() && -> std::expected<Durin::DerivedData::FBuildOutput, std::string>
 		{
 			using namespace Durin::DerivedData;
 			FBuildOutputBuilder Builder(std::move(Schema), SchemaVersion);
-			auto Object = MakeBuildMetadata(Metadata);
+			auto Object = StructuredMetadata.IsValid() ? std::expected<Durin::FCbObject, std::string>(StructuredMetadata) : MakeBuildMetadata(Metadata);
 			if (!Object || !Builder.AddMeta(FValueId::FromName("Metadata"), std::move(*Object)))
 				return std::unexpected("Invalid test metadata.");
 			for (auto& [Id, Data] : Values) if (!Builder.AddValue(Id, std::move(Data)))
@@ -231,6 +232,8 @@ namespace
 	{
 		FMutableTextureOutput Copy{.Schema = std::string(Output.GetSchema()), .SchemaVersion = Output.GetSchemaVersion(),
 			.Metadata = Durin::DerivedData::GetBuildMetadataPayload(Output)};
+		if (Output.GetSchema() == "Texture2D.Output" && Output.GetSchemaVersion() == 3)
+			Copy.StructuredMetadata = Output.GetMetadata()[0].Object;
 		for (const auto& Value : Output.GetValues()) Copy.Values.emplace_back(Value.Id, Value.Value.GetData());
 		return Copy;
 	}
@@ -252,7 +255,7 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 	const Durin::FCacheKeyProxy Baseline =
 		Durin::BuildTexture2DDerivedDataKey(Input);
 	// Canonical schema-2 action includes the flat resource-family bucket.
-	EXPECT_EQ(Baseline.ToString(), "19aa99d9f174f3af413675c83f12056e");
+	EXPECT_EQ(Baseline.ToString(), "061daf175d2ac98fb6a6c18bb12f36cd");
 	EXPECT_EQ(Baseline.ToString().size(), 32u);
 
 	auto ExpectChange = [&Baseline](const Durin::FTexture2DBuildKeyInput& Changed) {
@@ -776,18 +779,31 @@ TEST(FTextureDerivedDataTests, SharedOutputRejectsMalformedLayoutWithoutAssembly
 		auto Data = Copy();
 		switch (Case)
 		{
-		case 0: Data.SchemaVersion = 3; break;
+		case 0: ++Data.SchemaVersion; break;
 		case 1: Data.Values.pop_back(); break;
 		case 2: Data.Values[0].first = DerivedData::FValueId::FromName("Invalid.Mip"); break;
 		case 3: Data.Values[0].second = FSharedByteBuffer::Take(FByteBuffer(1)); break;
 		default:
 		{
-			FByteBuffer Metadata(Data.Metadata.begin(), Data.Metadata.end());
-			if (Case == 4) WriteU32(Metadata, 16, MaximumTexture2DDimension + 1);
-			if (Case == 5) WriteU32(Metadata, 24, 1);
-			if (Case == 6) Metadata.push_back(std::byte{0});
-			if (Case == 7) WriteU32(Metadata, 12, MaximumTextureMipCount + 1);
-			Data.Metadata = FSharedByteBuffer::Take(std::move(Metadata));
+			FCbWriter Metadata, Mips; const auto Original = Data.StructuredMetadata.GetView();
+			const auto OriginalMips = Original.Find("Mips").AsArray().GetFields();
+			for (uint32 Index = 0; Index < (Case == 7 ? MaximumTextureMipCount + 1 : OriginalMips.size()); ++Index)
+			{
+				FCbWriter Mip;
+				for (const auto& Field : OriginalMips[Index % OriginalMips.size()].AsObject().GetFields())
+				{
+					auto Value = *Field.AsUInt64();
+					if (Index == 0 && Case == 4 && Field.GetName() == "Width") Value = MaximumTexture2DDimension + 1;
+					if (Index == 0 && Case == 5 && Field.GetName() == "RowPitch") Value = 1;
+					Mip.AddUInt64(Value, std::string(Field.GetName()));
+				}
+				Mips.AddObject(Mip.SaveObject().value());
+			}
+			for (const auto& Field : Original.GetFields())
+				if (Field.GetName() != "Mips") Metadata.AddUInt64(*Field.AsUInt64(), std::string(Field.GetName()));
+			Metadata.AddArray(Mips.SaveArray().value(), "Mips");
+			if (Case == 6) Metadata.AddNull("Unexpected");
+			Data.StructuredMetadata = Metadata.SaveObject().value();
 		}
 		}
 		auto Invalid = std::move(Data).Build();

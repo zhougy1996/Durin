@@ -15,10 +15,11 @@ namespace Durin
 	namespace DerivedData { class FBuildAction; struct FBuildDefinitionError; struct FBuildFunctionDescriptor; }
 	struct FArchiveFailure;
 
-	inline constexpr uint32 Texture2DBuildFunctionVersion = 1;
+	inline constexpr uint32 Texture2DBuildFunctionVersion = 2;
 	inline constexpr uint32 TextureCubeBuildFunctionVersion = 1;
 	inline constexpr uint32 VolumeTextureBuildFunctionVersion = 1;
 	inline constexpr uint32 TextureBuildOutputSchemaVersion = 2;
+	inline constexpr uint32 Texture2DOutputSchemaVersion = 3;
 
 	inline constexpr std::string_view Texture2DCacheBucket = "Texture2D";
 	inline constexpr std::string_view TextureCubeCacheBucket = "TextureCube";
@@ -35,7 +36,7 @@ namespace Durin
 		float AlphaCoverageThreshold = 0.5f;
 		uint64 BuilderVersion = 0;
 		uint32 FunctionVersion = Texture2DBuildFunctionVersion;
-		uint32 OutputSchemaVersion = TextureBuildOutputSchemaVersion;
+		uint32 OutputSchemaVersion = Texture2DOutputSchemaVersion;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		// Optionally reports the first invalid field; success clears the supplied failure.

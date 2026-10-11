@@ -1,4 +1,5 @@
 #include "Texture2DBuildFunction.h"
+#include "Serialization/BinaryFormat.h"
 #if DURIN_WITH_EDITOR
 #include "Texture/ITextureCompressorModule.h"
 #include "Texture/TextureDerivedData.h"

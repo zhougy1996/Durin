@@ -103,6 +103,7 @@ namespace Durin
 		friend class FCbField;
 		friend class FCbObjectView;
 		friend class FCbArrayView;
+		CORE_API auto GetChildren() const -> std::vector<FCbFieldView>;
 		explicit FCbFieldView(FSharedByteBuffer InBytes) : Bytes(std::move(InBytes)) {}
 		FSharedByteBuffer Bytes;
 	};
