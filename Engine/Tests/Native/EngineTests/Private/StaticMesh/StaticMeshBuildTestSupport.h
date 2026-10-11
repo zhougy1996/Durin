@@ -81,8 +81,10 @@ namespace StaticMeshBuildTestSupport
 		std::condition_variable Changed;
 		uint32 Entered = 0;
 		bool bReleased = false;
+		bool bPumpContinuations = false;
 		explicit FStaticMeshWorkerBarrier(Durin::EStaticMeshCompilationPhase Selected = Durin::EStaticMeshCompilationPhase::Building, bool bFirstOnly = false)
 		{
+			bPumpContinuations = Selected == Durin::EStaticMeshCompilationPhase::Mailbox;
 			Durin::AssetPrivate::SetStaticMeshCompilationPhaseHookForTests([this, Selected, bFirstOnly](uint64, Durin::EStaticMeshCompilationPhase Phase) {
 				if (Phase != Selected) return;
 				EXPECT_FALSE(Durin::IsInGameThread());
@@ -95,8 +97,15 @@ namespace StaticMeshBuildTestSupport
 		}
 		auto Wait(uint32 Count, std::chrono::seconds Timeout = std::chrono::seconds(5)) -> bool
 		{
-			std::unique_lock Lock(Mutex);
-			return Changed.wait_for(Lock, Timeout, [&] { return Entered >= Count; });
+			const auto Deadline = std::chrono::steady_clock::now() + Timeout;
+			while (std::chrono::steady_clock::now() < Deadline)
+			{
+				if (bPumpContinuations) Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
+				std::unique_lock Lock(Mutex);
+				if (Entered >= Count) return true;
+				Changed.wait_for(Lock, std::chrono::milliseconds(1));
+			}
+			return false;
 		}
 		auto Release() -> void
 		{

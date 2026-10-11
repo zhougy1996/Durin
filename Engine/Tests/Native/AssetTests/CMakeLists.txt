@@ -55,8 +55,8 @@ if(DURIN_WITH_EDITOR)
 	# Separate process ownership: the aggregate cannot restart after terminal shutdown.
 	durin_add_native_test(AsyncTaskPilotLifecycleTests
 		KIND integration
-		DOMAINS async-task-pilot
-		MODULES engine texture-compressor derived-data-cache
+		DOMAINS async-task-pilot static-mesh
+		MODULES engine texture-compressor static-mesh-build derived-data-cache
 		LIBRARIES Core CoreDObject Engine TextureCompressor MeshBuilder DerivedDataCache
 		SOURCES Private/AsyncTaskPilotLifecycleTests.cpp
 	)

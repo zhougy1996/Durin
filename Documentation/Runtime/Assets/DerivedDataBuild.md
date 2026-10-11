@@ -391,8 +391,14 @@ the alternative rather than optional flags. Authoring metadata remains available
 for source preservation and application without changing cached representations.
 
 StaticMesh render and physics collision each use a family-owned session with
-separate definitions/actions and request inputs. Source/reconciliation identity,
-working-set admission, generation checks, typed construction, collision editor
+separate definitions/actions and request inputs. StaticMesh render owners use a
+persistent task-backed session; synchronous Build, detached import and Cook retain
+an inline session. Both share input validation, request limits and typed output
+consumption. Owner callbacks retain detached build completions, and the GameThread
+pump dispatches CPU assembly and ray preparation after build-owner retirement.
+The captured builder version defines the asynchronous request. Physics keeps its
+independent synchronous session and collision worker path. Source/reconciliation
+identity, working-set admission, generation checks, typed construction, collision editor
 gating, and publication remain unchanged. Serialized and native physics
 validation protect different trust boundaries and remain separate.
 

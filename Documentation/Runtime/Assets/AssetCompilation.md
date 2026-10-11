@@ -298,6 +298,16 @@ assets. `FinishStaticMeshCompilation` can select Render, Collision, or All;
 wait for collision. Shutdown stops
 admission, cancels both kinds and drains workers before releasing storage.
 
+Render owners dispatch a persistent asynchronous DDC session and release their
+Core worker during cache reads and persistence. Each record owns a build request
+group carrying its captured priority and cancellation. DDC callbacks publish only
+detached completion data. The owner pump waits for callback retirement, then
+schedules output assembly, metadata restoration and ray-query preparation on a
+Core worker. Explicit finish drives the same pump; no render worker waits for
+cache I/O or another render task. Shutdown drains these suspended requests before
+closing the manager scope. Queued records cancel without dispatch if Core has
+already stopped.
+
 Render workers own detached source and slot metadata, without material object
 bindings. The owner snapshot retains bindings and provenance until publication.
 Application rechecks source identity, normalization, slot bindings and provenance.
@@ -328,15 +338,17 @@ bodies immediately; accepted collision installation refreshes them again.
 Authored primitives survive render replacement. Installing/clearing geometry does
 not recursively schedule a request or invalidate render work.
 
-The manager allows two workers, 32 outstanding records, 1 GiB total reservation
+The manager allows two admitted builds, 32 outstanding records, 1 GiB total reservation
 and 512 MiB per request. Render admission uses checked arithmetic for
 `1 MiB + 64 * canonical bytes + 1024 * mesh count + 32768 * slot count`.
 Authored collision reserves `1 MiB + 64 * canonical bytes + 1024 * mesh count`
 without decoding on the owner thread. Source-less resident captures reserve
 `1 MiB + 512 * positions + 192 * indices`. Provider captures declare the complete
 working-set bound, and builders enforce construction envelopes. Canceled
-records keep their count and byte charges until their task and retained products
-retire. Collision-only work never changes render resource revision.
+records keep their count and byte charges until their build callbacks, CPU tasks
+and retained products retire. Render slots remain occupied during cache I/O;
+`RunningWorkers` counts admitted builds, including suspended render requests.
+Collision-only work never changes render resource revision.
 
 Background and interactive queues are FIFO with at most four interactive dispatches
 before eligible background work. Each pump processes at most two terminals within

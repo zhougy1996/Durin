@@ -1,5 +1,6 @@
 #include "Threading/TaskComposition.h"
 #include "StaticMesh/StaticMeshCompilation.h"
+#include "StaticMeshBuildAsync.h"
 
 #include "CoreGlobals.h"
 #include "Logging/LogMacros.h"
@@ -28,6 +29,12 @@ namespace Durin
 		{
 #if DURIN_WITH_EDITORONLY_DATA
 			FStaticMeshBuildRequest Request;
+#if DURIN_WITH_EDITOR
+			std::shared_ptr<DerivedData::FBuildRequestOwner> BuildOwner;
+			std::optional<DerivedData::FBuildCompleteParams> Completion;
+			std::atomic<bool> CompletionReady = false;
+			std::atomic<bool> AsyncDispatched = false;
+#endif
 #else
 			std::monostate Request;
 #endif
@@ -36,7 +43,12 @@ namespace Durin
 			auto Build(const FAssetBuildTaskContext& Control) -> void
 			{
 #if DURIN_WITH_EDITORONLY_DATA
+#if DURIN_WITH_EDITOR
+				if (Completion) Outcome = StaticMeshPrivate::ConsumeRenderBuild(Request.Settings, std::move(*Completion), Control);
+				Completion.reset();
+#else
 				Outcome = BuildStaticMeshRenderData(std::move(Request), Control);
+#endif
 #else
 				Outcome = std::unexpected(FStaticMeshBuildFailure{"Authored mesh builds require editor-only data."});
 #endif
@@ -229,6 +241,10 @@ namespace Durin
 				Record->Work->ReservedBytes = Bytes;
 				Record->Work->Render().Request.bPersistDerivedData = Request.bPersistDerivedData;
 				Record->Priority = Request.Priority;
+#if DURIN_WITH_EDITOR
+				Record->Work->Render().BuildOwner = std::make_shared<DerivedData::FBuildRequestOwner>(
+					Request.Priority == EStaticMeshCompilationPriority::Interactive ? DerivedData::EBuildPriority::High : DerivedData::EBuildPriority::Low);
+#endif
 				Record->bMarkPackageDirty = Request.bMarkPackageDirty;
 				Record->bPersistDerivedData = Request.bPersistDerivedData;
 				Record->Diagnostic = {.RequestId = NextRequest++, .Owner = FObjectKey(&Mesh), .ReservedBytes = Bytes};
@@ -321,9 +337,9 @@ namespace Durin
 				bAccepting = false;
 				bShutdown = true;
 				for (const auto& Record : Records) Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
-				// Cooperative flags cancel builds. Drain the scope so every launched body publishes its mailbox.
-				if (Scope.IsValid()) { Scope.Close(ETaskScopeCloseMode::Drain); Scope.Wait(); }
+				// Pump suspended cache requests before closing the scope borrowed by their continuations.
 				FinishAllCompilation();
+				if (Scope.IsValid()) { Scope.Close(ETaskScopeCloseMode::Drain); Scope.Wait(); }
 			}
 			~FStaticMeshCompilingManager() override { Shutdown(); }
 
@@ -429,11 +445,58 @@ namespace Durin
 					if (auto* Body = Cast<DBodySetup>(ResolveObjectKey(Record.Diagnostic.Owner)))
 						Body->CancelPhysicsMeshes(Record.CollisionSnapshot().RequestGeneration);
 				Record.Work->Cancelled.store(true, std::memory_order_release);
+#if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
+				if (!Record.Work->IsCollision() && Record.Work->Render().BuildOwner) Record.Work->Render().BuildOwner->Cancel();
+#endif
 				if (!Record.bStarted)
 				{
 					Record.Work->ReleaseInput();
 					Record.Work->Done.store(true, std::memory_order_release);
 				}
+			}
+			auto Launch(const std::shared_ptr<FRecord>& Record, bool bDispatch) -> void
+			{
+				Tasks::FTaskExecutionOptions Options;
+				Options.Scope = Scope.GetToken();
+				if (!Record->Work->IsCollision()) Options.Priority = Record->Priority == EStaticMeshCompilationPriority::Interactive
+					? ETaskPriority::High : ETaskPriority::Low;
+				Record->Task = Tasks::LaunchTask("StaticMesh.Build",
+					[Work = Record->Work, State = Workers, Hook = PhaseHook, Id = Record->Diagnostic.RequestId,
+					 BuilderVersion = Record->Diagnostic.RenderBuilderVersion, bDispatch](const FTaskCancellationToken& Token) {
+						try
+						{
+							if (bDispatch && Hook) Hook(Id, EStaticMeshCompilationPhase::Building);
+#if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
+							if (bDispatch && !Work->IsCollision())
+							{
+								Work->Render().AsyncDispatched.store(true, std::memory_order_release);
+								auto Dispatched = StaticMeshPrivate::DispatchRenderBuild(Work->Render().Request, BuilderVersion,
+									*Work->Render().BuildOwner, [Work] { return Work->Cancelled.load(std::memory_order_acquire); },
+									Work->ReservedBytes, [Work](auto Completion) {
+										try { Work->Render().Completion.emplace(std::move(Completion)); }
+										catch (...) { Work->Fail("StaticMesh cache completion could not be retained."); }
+										Work->Render().CompletionReady.store(true, std::memory_order_release);
+									});
+								if (Dispatched) return; // Owner retains its slot while cache I/O is suspended.
+								Work->Render().AsyncDispatched.store(false, std::memory_order_release);
+								Work->Render().Outcome = std::unexpected(std::move(Dispatched.error()));
+							}
+							else
+#endif
+							{
+								const FAssetBuildTaskContext Control{
+									.ShouldCancel = [&] { return Work->Cancelled.load(std::memory_order_acquire) || Token.IsCancellationRequested(); },
+									.MaximumWorkingSetBytes = Work->ReservedBytes};
+								Work->Build(Control);
+							}
+							if (Hook) Hook(Id, EStaticMeshCompilationPhase::Mailbox);
+						}
+						catch (...) { Work->Fail("Asset build worker failed with an exception."); }
+						Work->ReleaseInput();
+						Work->Done.store(true, std::memory_order_release);
+						State->Running.fetch_sub(1);
+						State->Changed.notify_all();
+					}, Options).GetCompletion().GetTaskHandle();
 			}
 			auto Admit() -> void
 			{
@@ -448,32 +511,13 @@ namespace Durin
 					}
 					auto Record = Interactive && (!Background || InteractiveBurst < 4) ? Interactive : Background;
 					if (!Record) return;
+					if (!IsTaskSchedulerRunning()) { Terminate(*Record, EStaticMeshCompilationStatus::Cancelled); continue; }
 					if (Record == Interactive) ++InteractiveBurst; else InteractiveBurst = 0;
 					if (PhaseHook) PhaseHook(Record->Diagnostic.RequestId, EStaticMeshCompilationPhase::Queued);
 					Record->bStarted = true;
 					Record->Diagnostic.Phase = EStaticMeshCompilationPhase::Building;
 					Workers->Running.fetch_add(1);
-					Tasks::FTaskExecutionOptions Options;
-					Options.Scope = Scope.GetToken();
-					Record->Task = Tasks::LaunchTask("StaticMesh.Build",
-						[Work = Record->Work, State = Workers, Hook = PhaseHook, Id = Record->Diagnostic.RequestId](const FTaskCancellationToken& Token) {
-							try
-							{
-								if (Hook) Hook(Id, EStaticMeshCompilationPhase::Building);
-								const FAssetBuildTaskContext Control{
-									.ShouldCancel = [&] { return Work->Cancelled.load(std::memory_order_acquire) || Token.IsCancellationRequested(); },
-									.MaximumWorkingSetBytes = Work->ReservedBytes};
-								Work->Build(Control);
-								if (Hook) Hook(Id, EStaticMeshCompilationPhase::Mailbox);
-							}
-							catch (...) {
-								Work->Fail("Asset build worker failed with an exception.");
-							}
-							Work->ReleaseInput();
-							Work->Done.store(true, std::memory_order_release);
-							State->Running.fetch_sub(1);
-							State->Changed.notify_all();
-						}, Options).GetCompletion().GetTaskHandle();
+					Launch(Record, true);
 
 				}
 			}
@@ -591,11 +635,27 @@ namespace Durin
 #if DURIN_WITH_EDITORONLY_DATA
 				std::vector<std::pair<FObjectKey, FStaticMeshCompilationRequest>> Requeues;
 #endif
-				// Scheduler cancellation may retire a task without entering its body.
+				// Completed dispatch tasks may await DDC callbacks; other dropped tasks publish failure.
 				for (const auto& Record : Records)
 				{
 					if (!Record->Task.IsValid() || !Record->Task.IsComplete()
 						|| Record->Work->Done.load(std::memory_order_acquire)) continue;
+#if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
+					if (!Record->Work->IsCollision() && Record->Work->Render().AsyncDispatched.load(std::memory_order_acquire))
+					{
+						auto& Render = Record->Work->Render();
+						if (!Render.CompletionReady.load(std::memory_order_acquire) || !Render.BuildOwner->Poll()) continue;
+						Render.AsyncDispatched.store(false, std::memory_order_release);
+						if (!Record->Work->Cancelled.load(std::memory_order_acquire) && IsTaskSchedulerRunning())
+						{
+							Launch(Record, false);
+							continue;
+						}
+						Render.Completion.reset();
+						Render.Outcome = std::unexpected(FStaticMeshBuildFailure::Cancelled());
+					}
+					else
+#endif
 					Record->Work->Fail("Asset build task retired before worker completion.");
 					Record->Work->ReleaseInput();
 					Record->Work->Done.store(true, std::memory_order_release);

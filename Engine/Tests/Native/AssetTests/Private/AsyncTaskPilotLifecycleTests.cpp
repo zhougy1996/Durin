@@ -13,6 +13,8 @@
 #include "Texture/Texture2DCompilationTestSupport.h"
 #include "DerivedDataCache/DerivedDataCache.h"
 #include "Texture/TextureCube.h"
+#include "StaticMesh/StaticMeshCompilation.h"
+#include "StaticMesh/StaticMeshCompilationTestSupport.h"
 #include "../../EngineTests/Private/DerivedDataBuildTestSupport.h"
 
 namespace
@@ -46,6 +48,138 @@ namespace
 			return {};
 		}
 	};
+
+	auto MakeBridgeMeshSource() -> FStaticMeshSource
+	{
+		FMeshDescription Geometry;
+		Geometry.PolygonGroups.push_back({"Material", 0, "Material"});
+		auto& Section = Geometry.Sections.emplace_back();
+		Section.Name = "Bridge";
+		Section.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+		Section.Indices = {0, 1, 2};
+		FStaticMeshSource Source;
+		require(Source.Initialize(std::move(Geometry)).has_value());
+		Source.ReleaseGeometry();
+		return Source;
+	}
+	auto SubmitBridgeMesh(DStaticMesh& Mesh, FStaticMeshSource Source,
+		FStaticMeshCompilationCompletion Completion = {}) -> std::expected<void, std::vector<std::string>>
+	{
+		return Mesh.BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = std::move(Source),
+			.PreparedMaterialSlots = std::vector<FMeshMaterialSlotDefinition>{{.Name = FName("Material"), .SourceName = "Material"}}},
+			std::move(Completion));
+	}
+	auto ExerciseStaticMeshOwnerBridge() -> void
+	{
+		auto Cache = std::make_shared<FHeldTextureCache>();
+		Cache->bHoldWrites = true;
+		Cache->bRetainRecords = true;
+		AssetPrivate::SetStaticMeshAsyncCacheForTests(Cache);
+		FThreadEvent MailboxEntered, ReleaseMailbox, CallbackEntered, ReleaseCallback;
+		AssetPrivate::SetStaticMeshBuildCompletionHookForTests([&] {
+			CallbackEntered.Trigger(); ReleaseCallback.WaitFor(10.0);
+		});
+		AssetPrivate::SetStaticMeshCompilationPhaseHookForTests([&](uint64, EStaticMeshCompilationPhase Phase) {
+			if (Phase == EStaticMeshCompilationPhase::Mailbox) {
+				EXPECT_FALSE(IsInGameThread()); MailboxEntered.Trigger(); ReleaseMailbox.WaitFor(10.0);
+			}
+		});
+		struct FDrainMeshRequests
+		{
+			std::shared_ptr<FHeldTextureCache> Cache;
+			FThreadEvent& Mailbox;
+			FThreadEvent& Callback;
+			~FDrainMeshRequests() {
+				Cache->Release.Trigger(); Cache->ReleaseWrites.Trigger(); Mailbox.Trigger(); Callback.Trigger();
+				FAssetCompilingManager::Get().FinishAllCompilation();
+				AssetPrivate::SetStaticMeshCompilationPhaseHookForTests({});
+				AssetPrivate::SetStaticMeshBuildCompletionHookForTests({});
+				AssetPrivate::SetStaticMeshAsyncCacheForTests({});
+			}
+		} Drain{Cache, ReleaseMailbox, ReleaseCallback};
+		std::array<DStaticMesh*, 3> Meshes{};
+		std::array<uint32, 3> Completed{};
+		auto Source = MakeBridgeMeshSource();
+		auto Probe = Testing::AttachBuildSourceReadProbe(Source, Source.GetGeometryBulk(), "Geometry");
+		ASSERT_TRUE(Probe);
+		for (uint32 Index = 0; Index < Meshes.size(); ++Index)
+		{
+			FPackagePath Path;
+			ASSERT_TRUE(FPackagePath::TryCreate("/AsyncPilot/MeshBridge" + std::to_string(Index), Path));
+			ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Meshes[Index]));
+			ASSERT_TRUE(SubmitBridgeMesh(*Meshes[Index], Source, [&, Index](const auto& Result) {
+				EXPECT_TRUE(IsInGameThread()); ++Completed[Index];
+				EXPECT_EQ(Index == 0 ? EStaticMeshCompilationStatus::Cancelled : EStaticMeshCompilationStatus::Succeeded, Result.Status);
+			}));
+		}
+		const auto ReadDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (Cache->Reads.load() < 2 && std::chrono::steady_clock::now() < ReadDeadline) std::this_thread::yield();
+		ASSERT_EQ(2u, Cache->Reads.load());
+		const auto Held = GetStaticMeshCompilationManagerDiagnostics();
+		EXPECT_EQ(2u, Held.RunningWorkers);
+		EXPECT_EQ(3u, Held.OutstandingRecords);
+		EXPECT_GT(Held.ReservedBytes, 0u);
+		auto Marker = Tasks::LaunchTask("MeshOwnerReleasedWorkers", [] {});
+		const auto MarkerDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+		while (!Marker.GetCompletion().IsReady() && std::chrono::steady_clock::now() < MarkerDeadline) std::this_thread::yield();
+		ASSERT_TRUE(Marker.GetCompletion().IsReady());
+		EXPECT_EQ(ETaskState::Succeeded, Marker.GetState());
+		CancelStaticMeshCompilation(*Meshes[0]);
+		FAssetCompilingManager::Get().ProcessAsyncTasks();
+		EXPECT_EQ(Held.ReservedBytes, GetStaticMeshCompilationManagerDiagnostics().ReservedBytes);
+		EXPECT_EQ(3u, GetStaticMeshCompilationManagerDiagnostics().OutstandingRecords);
+		Cache->Release.Trigger();
+		const auto WriteDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (Cache->Writes.load() == 0 && std::chrono::steady_clock::now() < WriteDeadline) std::this_thread::yield();
+		ASSERT_EQ(1u, Cache->Writes.load());
+		FAssetCompilingManager::Get().ProcessAsyncTasks();
+		EXPECT_EQ(nullptr, Meshes[1]->GetRenderData());
+		EXPECT_EQ(0u, Completed[1]);
+		Cache->ReleaseWrites.Trigger();
+		ASSERT_TRUE(CallbackEntered.WaitFor(5.0));
+		FAssetCompilingManager::Get().ProcessAsyncTasks();
+		EXPECT_FALSE(MailboxEntered.WaitFor(0.01));
+		EXPECT_EQ(nullptr, Meshes[1]->GetRenderData());
+		EXPECT_EQ(0u, Completed[1]);
+		EXPECT_GT(GetStaticMeshCompilationManagerDiagnostics().ReservedBytes, 0u);
+		ReleaseCallback.Trigger();
+		const auto MailboxDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (!MailboxEntered.WaitFor(0.001) && std::chrono::steady_clock::now() < MailboxDeadline)
+			FAssetCompilingManager::Get().ProcessAsyncTasks();
+		ASSERT_TRUE(MailboxEntered.WaitFor(0.01));
+		FAssetCompilingManager::Get().ProcessAsyncTasks();
+		EXPECT_EQ(nullptr, Meshes[1]->GetRenderData());
+		EXPECT_EQ(0u, Completed[1]);
+		ReleaseMailbox.Trigger();
+		FinishStaticMeshCompilation(*Meshes[1], EStaticMeshCompilationProducts::Render);
+		EXPECT_NE(nullptr, Meshes[1]->GetRenderData());
+		EXPECT_EQ(nullptr, Meshes[2]->GetRenderData());
+		EXPECT_EQ(0u, Completed[2]);
+		FAssetCompilingManager::Get().FinishAllCompilation();
+		EXPECT_EQ((std::array<uint32, 3>{1, 1, 1}), Completed);
+		EXPECT_EQ(nullptr, Meshes[0]->GetRenderData());
+		EXPECT_NE(nullptr, Meshes[2]->GetRenderData());
+		const auto SourceReads = Probe->GetReadStats().RequestCount;
+		const auto Writes = Cache->Writes.load();
+		ASSERT_TRUE(Meshes[1]->Build(EStaticMeshBuildMode::Asynchronous));
+		FinishStaticMeshCompilation(*Meshes[1], EStaticMeshCompilationProducts::Render);
+		EXPECT_EQ(SourceReads, Probe->GetReadStats().RequestCount);
+		EXPECT_EQ(Writes, Cache->Writes.load());
+		Cache->Release.Reset();
+		const auto SupersedeReads = Cache->Reads.load();
+		ASSERT_TRUE(Meshes[1]->Build(EStaticMeshBuildMode::Asynchronous));
+		const auto FirstId = GetStaticMeshCompilationDiagnostic(*Meshes[1]).RequestId;
+		const auto SupersedeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (Cache->Reads.load() == SupersedeReads && std::chrono::steady_clock::now() < SupersedeDeadline) std::this_thread::yield();
+		ASSERT_GT(Cache->Reads.load(), SupersedeReads);
+		ASSERT_TRUE(Meshes[1]->Build(EStaticMeshBuildMode::Asynchronous));
+		Cache->Release.Trigger();
+		FinishStaticMeshCompilation(*Meshes[1], EStaticMeshCompilationProducts::Render);
+		EXPECT_EQ(EStaticMeshCompilationStatus::Superseded, GetStaticMeshCompilationDiagnostic(FirstId).Status);
+		EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, GetStaticMeshCompilationDiagnostic(*Meshes[1]).Status);
+		FAssetCompilingManager::Get().FinishAllCompilation();
+		EXPECT_EQ(0u, GetStaticMeshCompilationManagerDiagnostics().ReservedBytes);
+	}
 
 	auto ExerciseCubeOwnerBridge() -> void
 	{
@@ -192,7 +326,7 @@ namespace
 		Testing::FScopedMountRegistryFixture Mounts;
 		ASSERT_TRUE(Mounts.IsValid());
 		FPilotLifecycle Lifetime;
-		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 2, .MaxNonterminalTasks = 8}));
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 2, .MaxNonterminalTasks = 8, .NumBlockingIOThreads = 3}));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor({.MaxQueuedEntries = 1, .MaxQueuedPayloadBytes = 64, .MaxPayloadBytesPerEntry = 64}));
 		ASSERT_TRUE(InitializeAssetCompilingManager());
 		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
@@ -201,6 +335,7 @@ namespace
 		auto Deferred = Tasks::Then(Tasks::FTaskCompletion(Root), Tasks::ETaskExecutor::GameThreadDeferred, {}, [] {}).GetCompletion().GetTaskHandle();
 		ASSERT_TRUE(Deferred.IsValid());
 		Testing::RegisterMountPointForTests("/AsyncPilot/", (Testing::GetTestWorkDirectory() / "LargeContent").generic_string() + "/");
+		ExerciseStaticMeshOwnerBridge();
 		ExerciseCubeOwnerBridge();
 		{
 			auto Cache = std::make_shared<FHeldTextureCache>();
@@ -367,6 +502,25 @@ namespace
 		while (ShutdownCache->Reads.load() < 2 && std::chrono::steady_clock::now() < CubeReadDeadline) std::this_thread::yield();
 		ASSERT_EQ(2u, ShutdownCache->Reads.load());
 
+		auto ShutdownMeshCache = std::make_shared<FHeldTextureCache>();
+		AssetPrivate::SetStaticMeshAsyncCacheForTests(ShutdownMeshCache);
+		FReleaseShutdownCache ReleaseShutdownMeshCache{ShutdownMeshCache};
+		std::array<DStaticMesh*, 3> ShutdownMeshes{};
+		std::array<uint32, 3> MeshShutdownCompleted{};
+		for (uint32 Index = 0; Index < ShutdownMeshes.size(); ++Index)
+		{
+			FPackagePath Path;
+			ASSERT_TRUE(FPackagePath::TryCreate("/AsyncPilot/ShutdownMesh" + std::to_string(Index), Path));
+			ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, ShutdownMeshes[Index]));
+			ASSERT_TRUE(SubmitBridgeMesh(*ShutdownMeshes[Index], MakeBridgeMeshSource(), [&, Index](const auto& Result) {
+				EXPECT_EQ(EStaticMeshCompilationStatus::Cancelled, Result.Status); ++MeshShutdownCompleted[Index];
+			}));
+		}
+		const auto MeshReadDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (ShutdownMeshCache->Reads.load() == 0 && std::chrono::steady_clock::now() < MeshReadDeadline) std::this_thread::yield();
+		ASSERT_EQ(1u, ShutdownMeshCache->Reads.load());
+		EXPECT_EQ(3u, GetStaticMeshCompilationManagerDiagnostics().OutstandingRecords);
+
 		FThreadEvent StartedA, StartedB, Release;
 		std::array<FTaskHandle, 8> Blockers;
 		uint32 SaturatedCompleted = 0;
@@ -448,6 +602,7 @@ namespace
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*HeldCube);
 		EXPECT_EQ(0u, HeldCompleted);
 		ShutdownCache->Release.Trigger();
+		ShutdownMeshCache->Release.Trigger();
 		// Exercise native cancellation without relying on a producer body or deferred callback.
 		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
 		ShutdownAssetCompilingManager();
@@ -456,6 +611,12 @@ namespace
 		EXPECT_FALSE(HeldCube->HasPlatformData());
 		EXPECT_TRUE(HeldCube->IsAsyncCacheComplete());
 		AssetPrivate::SetTextureAsyncCacheForTests({});
+		AssetPrivate::SetStaticMeshAsyncCacheForTests({});
+		for (uint32 Index = 0; Index < ShutdownMeshes.size(); ++Index) {
+			EXPECT_EQ(1u, MeshShutdownCompleted[Index]);
+			EXPECT_EQ(nullptr, ShutdownMeshes[Index]->GetRenderData());
+		}
+		EXPECT_EQ(0u, GetStaticMeshCompilationManagerDiagnostics().ReservedBytes);
 		for (uint32 Count : Completed) EXPECT_EQ(1u, Count);
 		EXPECT_EQ(1u, SaturatedCompleted);
 		Release.Trigger();
