@@ -31,5 +31,5 @@ namespace Durin::DerivedData
 	}
 
 	FValue::FValue(FSharedByteBuffer InData)
-		: RawHash(FXxHash128::HashBuffer(InData.GetBytes())), RawSize(InData.GetSize()), Data(std::move(InData)) {}
+		: RawHash(FXxHash128::HashBuffer(InData.GetBytes())), RawSize(InData.GetSize()), Data(std::move(InData)), DataPresent(true) {}
 }

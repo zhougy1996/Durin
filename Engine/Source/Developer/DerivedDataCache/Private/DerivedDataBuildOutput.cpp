@@ -62,7 +62,8 @@ namespace Durin::DerivedData
 		for (const auto& Item : Data.Values)
 		{
 			if (Item.Id.IsNull() || (!Previous.IsNull() && Previous >= Item.Id)
-				|| Item.Value.GetRawHash().IsZero() || Item.Value.GetRawSize() != Item.Value.GetData().GetSize())
+				|| !Item.Value.HasData() || Item.Value.GetRawHash().IsZero()
+				|| Item.Value.GetRawSize() != Item.Value.GetData().GetSize())
 				return std::unexpected("Build output value is invalid or duplicated.");
 			Previous = Item.Id;
 			if (!Add(Item.Value.GetRawSize())) return std::unexpected("Build output byte limit exceeded.");
@@ -172,26 +173,58 @@ namespace Durin::DerivedData
 	auto FBuildOutput::FindValue(FValueId Id) const -> const FValue* { const auto Values = GetValues(); const auto It = std::ranges::lower_bound(Values, Id, {}, &FValueWithId::Id); return It != Values.end() && It->Id == Id ? &It->Value : nullptr; }
 	auto FBuildOutput::FindMeta(FValueId Id) const -> FCbObjectView { const auto Meta = GetMetadata(); const auto It = std::ranges::lower_bound(Meta, Id, {}, &FBuildOutputMeta::Id); return It != Meta.end() && It->Id == Id ? It->Object.GetView() : FCbObjectView{}; }
 
-	struct FCacheRecord::FState { FCacheKey Key; FBuildOutput Output; };
+	struct FCacheRecord::FState
+	{
+		FCacheKey Key;
+		std::string Schema;
+		uint32 SchemaVersion = 0;
+		std::vector<FValueWithId> Values;
+		std::vector<FBuildOutputMeta> Metadata;
+		std::vector<FBuildOutputMessage> Messages;
+	};
 	auto FCacheRecord::FromOutput(const FCacheKey& Key, const FBuildOutput& Output, FBuildOutputLimits Limits) -> std::expected<FCacheRecord, FCacheError>
 	{
 		if (!Key.IsValid() || !Output.IsValid()) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache record requires a key and output."});
 		if (Output.HasLogs()) return std::unexpected(FCacheError{ECacheError::InvalidRequest,
 			"Build outputs with transient logs cannot be cached."});
 		if (auto Valid = Output.CheckLimits(Limits); !Valid) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, std::move(Valid.error())});
-		FCacheRecord Result; Result.State = std::make_shared<FState>(Key, Output); return Result;
+		auto Data = std::make_shared<FState>();
+		Data->Key = Key;
+		Data->Schema = Output.State->Schema;
+		Data->SchemaVersion = Output.State->SchemaVersion;
+		Data->Values = Output.State->Values;
+		Data->Metadata = Output.State->Metadata;
+		Data->Messages = Output.State->Messages;
+		FCacheRecord Result; Result.State = std::move(Data); return Result;
 	}
 	auto FCacheRecord::ToOutput(const FCacheKey& ExpectedKey, FBuildOutputLimits Limits) const -> std::expected<FBuildOutput, FCacheError>
 	{
 		if (!State || State->Key != ExpectedKey) return std::unexpected(FCacheError{ECacheError::Corrupt, "Cache record key mismatch."});
-		if (auto Valid = State->Output.CheckLimits(Limits); !Valid) return std::unexpected(FCacheError{ECacheError::Corrupt, std::move(Valid.error())});
-		return State->Output;
+		if (std::ranges::any_of(State->Values, [](const auto& Item) { return !Item.Value.HasData(); }))
+			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache record has unresolved value references."});
+		auto Data = std::make_shared<FBuildOutput::FState>();
+		Data->Schema = State->Schema;
+		Data->SchemaVersion = State->SchemaVersion;
+		Data->Values = State->Values;
+		Data->Metadata = State->Metadata;
+		Data->Messages = State->Messages;
+		if (auto Valid = Validate(*Data, Limits); !Valid) return std::unexpected(FCacheError{ECacheError::Corrupt, std::move(Valid.error())});
+		FBuildOutput Output; Output.State = std::move(Data); return Output;
+	}
+	auto FCacheRecord::RemoveValueData() const -> FCacheRecord
+	{
+		if (!State) return {};
+		auto Data = std::make_shared<FState>(*State);
+		for (auto& Item : Data->Values) Item.Value = Item.Value.RemoveData();
+		FCacheRecord Result; Result.State = std::move(Data); return Result;
 	}
 	auto FCacheRecord::Encode(uint64 MaximumBytes) const -> std::expected<FSharedByteBuffer, FCacheError>
 	try
 	{
 		if (!State) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache record is empty."});
-		const auto& Output = *State->Output.State;
+		if (std::ranges::any_of(State->Values, [](const auto& Item) { return !Item.Value.HasData(); }))
+			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Schema-2 encoding requires resident value data."});
+		const auto& Output = *State;
 		FBinaryWriter W({.MaximumTotalBytes = MaximumBytes}); W.WriteHeader({CacheRecordMagic, CacheRecordSchema, 0});
 		W.WriteString(State->Key.GetBucket().ToString()); W.WriteHash128(State->Key.GetHash()); W.WriteString(Output.Schema); W.WriteU32(Output.SchemaVersion);
 		W.WriteU32(uint32(Output.Values.size())); W.WriteU32(uint32(Output.Metadata.size())); W.WriteU32(uint32(Output.Messages.size()));
@@ -258,9 +291,9 @@ namespace Durin::DerivedData
 	catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Allocation"}); }
 
 	auto FCacheRecord::GetKey() const -> FCacheKey { return State ? State->Key : FCacheKey{}; }
-	auto FCacheRecord::GetSchema() const -> std::string_view { return State ? State->Output.GetSchema() : std::string_view{}; }
-	auto FCacheRecord::GetSchemaVersion() const -> uint32 { return State ? State->Output.GetSchemaVersion() : 0; }
-	auto FCacheRecord::GetMetadata() const -> std::span<const FBuildOutputMeta> { return State ? State->Output.GetMetadata() : std::span<const FBuildOutputMeta>{}; }
-	auto FCacheRecord::GetMessages() const -> std::span<const FBuildOutputMessage> { return State ? State->Output.GetMessages() : std::span<const FBuildOutputMessage>{}; }
-	auto FCacheRecord::GetValues() const -> std::span<const FValueWithId> { return State ? State->Output.GetValues() : std::span<const FValueWithId>{}; }
+	auto FCacheRecord::GetSchema() const -> std::string_view { return State ? State->Schema : std::string_view{}; }
+	auto FCacheRecord::GetSchemaVersion() const -> uint32 { return State ? State->SchemaVersion : 0; }
+	auto FCacheRecord::GetMetadata() const -> std::span<const FBuildOutputMeta> { return State ? std::span(State->Metadata) : std::span<const FBuildOutputMeta>{}; }
+	auto FCacheRecord::GetMessages() const -> std::span<const FBuildOutputMessage> { return State ? std::span(State->Messages) : std::span<const FBuildOutputMessage>{}; }
+	auto FCacheRecord::GetValues() const -> std::span<const FValueWithId> { return State ? std::span(State->Values) : std::span<const FValueWithId>{}; }
 }

@@ -26,6 +26,72 @@ TEST(FDerivedDataBuildOutputTests, BuilderCanonicalizesAndRetainsBuffers)
 	EXPECT_FALSE(Builder.AddValue(FValueId::FromName("Late"), Bytes("late")));
 }
 
+TEST(FDerivedDataBuildOutputTests, ValueReferencesDistinguishEmptyDataFromAbsentData)
+{
+	EXPECT_FALSE(FValue{}.HasData());
+	for (const auto& Data : {Bytes("value"), FSharedByteBuffer{}})
+	{
+		const FValue Value(Data);
+		ASSERT_TRUE(Value.HasData());
+		const auto Reference = Value.RemoveData();
+		EXPECT_FALSE(Reference.HasData());
+		EXPECT_TRUE(Reference.GetData().IsEmpty());
+		EXPECT_EQ(Reference.GetRawHash(), Value.GetRawHash());
+		EXPECT_EQ(Reference.GetRawSize(), Value.GetRawSize());
+		EXPECT_TRUE(Value.HasData());
+	}
+}
+
+TEST(FDerivedDataBuildOutputTests, DescriptorOnlyRecordsCannotBecomeCompleteOutputs)
+{
+	FBuildOutputBuilder Builder("Fixture.Output", 2);
+	ASSERT_TRUE(Builder.AddValue(FValueId::FromName("Empty"), {}));
+	ASSERT_TRUE(Builder.AddValue(FValueId::FromName("Data"), Bytes("value")));
+	auto Built = std::move(Builder).Build(); ASSERT_TRUE(Built);
+	auto Record = FCacheRecord::FromOutput(Key(), *Built); ASSERT_TRUE(Record);
+	const auto Reference = Record->RemoveValueData();
+	ASSERT_TRUE(Reference.IsValid());
+	EXPECT_EQ(Reference.GetKey(), Key());
+	EXPECT_EQ(Reference.GetSchema(), Built->GetSchema());
+	EXPECT_EQ(Reference.GetSchemaVersion(), Built->GetSchemaVersion());
+	ASSERT_EQ(Reference.GetValues().size(), Record->GetValues().size());
+	for (size_t Index = 0; Index < Reference.GetValues().size(); ++Index)
+	{
+		const auto& Before = Record->GetValues()[Index];
+		const auto& After = Reference.GetValues()[Index];
+		EXPECT_EQ(After.Id, Before.Id);
+		EXPECT_EQ(After.Value.GetRawHash(), Before.Value.GetRawHash());
+		EXPECT_EQ(After.Value.GetRawSize(), Before.Value.GetRawSize());
+		EXPECT_FALSE(After.Value.HasData());
+		EXPECT_TRUE(Before.Value.HasData());
+	}
+	const auto Incomplete = Reference.ToOutput(Key()); ASSERT_FALSE(Incomplete);
+	EXPECT_EQ(Incomplete.error().Code, ECacheError::InvalidRequest);
+	const auto Encoded = Reference.Encode(); ASSERT_FALSE(Encoded);
+	EXPECT_EQ(Encoded.error().Code, ECacheError::InvalidRequest);
+	EXPECT_TRUE(Record->ToOutput(Key()));
+	EXPECT_TRUE(Record->Encode());
+	EXPECT_FALSE(FCacheRecord{}.RemoveValueData().IsValid());
+}
+
+TEST(FDerivedDataBuildOutputTests, IndependentRecordsRetainPayloadsMetadataAndMessages)
+{
+	auto Built = Output();
+	const auto Backing = Built.FindValue(FValueId::FromName("A"))->GetData();
+	auto Record = FCacheRecord::FromOutput(Key(), Built); ASSERT_TRUE(Record);
+	Built = {};
+	const auto Reference = Record->RemoveValueData();
+	ASSERT_EQ(Reference.GetMetadata().size(), 1u);
+	EXPECT_TRUE(Reference.GetMetadata()[0].Object.GetBytes().SharesStorageWith(Record->GetMetadata()[0].Object.GetBytes()));
+	ASSERT_EQ(Reference.GetMessages().size(), 1u);
+	EXPECT_EQ(Reference.GetMessages()[0].Text, "warning");
+	auto Loaded = Record->ToOutput(Key()); ASSERT_TRUE(Loaded);
+	Record = FCacheRecord{};
+	EXPECT_TRUE(Loaded->FindValue(FValueId::FromName("A"))->GetData().SharesStorageWith(Backing));
+	EXPECT_EQ(GetBuildMetadataPayload(*Loaded).GetSize(), 4u);
+	EXPECT_EQ(Loaded->GetMessages()[0].Text, "warning");
+}
+
 TEST(FDerivedDataBuildOutputTests, RejectsDuplicatesNullIdsAndLimits)
 {
 	FBuildOutputBuilder Duplicate("Fixture.Output", 1); const auto Id = FValueId::FromName("Data"); EXPECT_TRUE(Duplicate.AddValue(Id, Bytes("a"))); EXPECT_FALSE(Duplicate.AddValue(Id, Bytes("b")));

@@ -89,6 +89,8 @@ namespace Durin::DerivedData
 			FBuildOutputLimits Limits = {}) -> std::expected<FCacheRecord, FCacheError>;
 		DERIVEDDATACACHE_API auto ToOutput(const FCacheKey& ExpectedKey,
 			FBuildOutputLimits Limits = {}) const -> std::expected<FBuildOutput, FCacheError>;
+		// Retains descriptors and metadata; cannot be assembled as a complete output.
+		DERIVEDDATACACHE_API auto RemoveValueData() const -> FCacheRecord;
 		DERIVEDDATACACHE_API auto Encode(uint64 MaximumBytes = DefaultMaximumEncodedBytes) const -> std::expected<FSharedByteBuffer, FCacheError>;
 		DERIVEDDATACACHE_API static auto CompressEncoded(const FSharedByteBuffer& RawRecord,
 			uint64 MaximumBytes = DefaultMaximumEncodedBytes) -> std::expected<FSharedByteBuffer, FCacheError>;

@@ -40,15 +40,24 @@ namespace Durin::DerivedData
 	public:
 		FValue() = default;
 		DERIVEDDATACACHE_API explicit FValue(FSharedByteBuffer Data);
+		// A reference retains identity and size but has no resident payload.
+		auto RemoveData() const -> FValue
+		{
+			auto Result = *this;
+			Result.Data = {};
+			Result.DataPresent = false;
+			return Result;
+		}
 		auto GetRawHash() const -> FXxHash128 { return RawHash; }
 		auto GetRawSize() const -> uint64 { return RawSize; }
-		auto HasData() const -> bool { return !Data.IsEmpty() || RawSize == 0; }
+		auto HasData() const -> bool { return DataPresent; }
 		auto GetData() const -> FSharedByteBuffer { return Data; }
 	private:
 		friend class FCacheRecord;
 		FXxHash128 RawHash;
 		uint64 RawSize = 0;
 		FSharedByteBuffer Data;
+		bool DataPresent = false;
 	};
 
 	struct FValueWithId

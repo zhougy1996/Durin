@@ -71,6 +71,25 @@ TEST(FBuildExecutionTests, CorruptRecordFallsBackOnce)
 	FHarness H; H.Cache->Corrupt = true; auto Result = H.Run(); EXPECT_EQ(Result.GetStatus(), EStatus::Ok); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Cache->Gets, 1u); EXPECT_EQ(H.Cache->Puts, 1u);
 }
 
+TEST(FBuildExecutionTests, DescriptorOnlyRecordFallsBackAndIsReplacedByCompleteOutput)
+{
+	FHarness H;
+	ASSERT_EQ(H.Run().GetStatus(), EStatus::Ok);
+	ASSERT_TRUE(H.Cache->Stored);
+	H.Cache->Stored = H.Cache->Stored->RemoveValueData();
+	auto Result = H.Run();
+	ASSERT_EQ(Result.GetStatus(), EStatus::Ok);
+	EXPECT_FALSE(HasBuildStatus(Result.GetBuildStatus(), EBuildStatus::CacheQueryHit));
+	EXPECT_EQ(H.Function->Builds, 2u);
+	EXPECT_EQ(H.Resolver->Resolves, 2u);
+	EXPECT_EQ(H.Cache->Puts, 2u);
+	ASSERT_TRUE(H.Cache->Stored);
+	ASSERT_NE(Result.GetCacheKey(), nullptr);
+	EXPECT_TRUE(H.Cache->Stored->ToOutput(*Result.GetCacheKey()));
+	EXPECT_TRUE(HasBuildStatus(H.Run().GetBuildStatus(), EBuildStatus::CacheQueryHit));
+	EXPECT_EQ(H.Function->Builds, 2u);
+}
+
 TEST(FBuildExecutionTests, TransientLogsPreventCacheStorage)
 {
 	FHarness H; H.Function->Log = true; auto Result = H.Run(); ASSERT_EQ(Result.GetStatus(), EStatus::Ok); ASSERT_NE(Result.GetOutput(), nullptr); EXPECT_TRUE(Result.GetOutput()->HasLogs()); EXPECT_EQ(H.Cache->Puts, 0u);

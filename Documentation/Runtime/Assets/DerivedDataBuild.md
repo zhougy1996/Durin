@@ -105,9 +105,17 @@ Outputs use `FValueId`, a stable 12-byte identity derived from a name or hash.
 `MakeIndexed` reserves the final 24 bits for indices `0..0x00ffffff`. Production
 families derive every output ID from a fixed family base and index; persisted
 records contain no debug-name dependency. `FValue` owns raw XXH3-128, raw size,
-and immutable data. Value construction computes the hash once; persisted decode
+and optional immutable data. A default value has no data; a constructed empty
+payload has data even though its size is zero. `RemoveData` retains hash and size
+as a descriptor-only reference. Complete build outputs require resident data for
+every value. Value construction computes the hash once; persisted decode
 compares that hash with the value descriptor. Output limit checks and record/output
 conversions validate structure and budgets without rehashing immutable values.
+Cache records own independent immutable schema, value, metadata, and message
+tables, retaining shared payload allocations rather than wrapping build outputs.
+`RemoveValueData` produces a descriptor-only record without changing its source.
+Such a record cannot convert to a complete build output or encode with the
+schema-2 codec; full-record cache requests continue to return resident values.
 Metadata is keyed by `FValueId` and stored as owned bounded
 Compact Binary objects.
 

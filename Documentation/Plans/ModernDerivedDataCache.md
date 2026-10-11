@@ -1,0 +1,142 @@
+# Modern Derived Data Cache Plan
+
+Summary: Evolve Durin's structured cache toward independently stored values, selective reads, and asynchronous cache requests.
+
+Last reviewed: 2026-10-11
+
+Status: Active
+Completed:
+
+## Current Status
+
+Stages 0 and 1 are complete. Stage 2 is next: independent compressed values and
+content-addressed blob storage. Stage 1 preserves schema-2 whole-record persistence
+and synchronous cache requests, while separating record state from complete outputs.
+Conversion copies bounded descriptor tables but shares immutable payload and CB
+allocations; it does not copy or rehash payload bytes.
+
+Validation on 2026-10-11: the Win64-Debug-DurinEditor all build passed, and
+affected tests passed for DerivedDataBuildTests, DerivedDataCacheTests,
+RenderShaderBuilderTests, and RenderShaderCacheTests. The report is at
+`Build/NativeTestResults/Win64-Debug-DurinEditor/affected.xml`. Changed-document
+validation and all-plan validation passed. Shared API consumers were searched
+across Engine, Sandbox, and RoadWeaver source/test roots; the latter two have no
+direct consumers requiring migration. The first sandboxed build encountered
+MSVC C1902; the same all build and affected tests passed outside the sandbox.
+
+## Goal
+
+Align with modern UE DDC capabilities, without promising UE wire compatibility:
+independent cache records, content-addressed compressed values, selective queries,
+and bounded asynchronous I/O. Preserve the [build protocol](../Runtime/Assets/DerivedDataBuild.md)
+ownership boundaries and complete typed build results.
+
+## Selected Decisions
+
+- A cache value can be a descriptor without resident data. A build output must
+  contain every value required by its complete output contract. Partial cache
+  records must never become successful complete build outputs.
+- Keep cold producer allocations raw and shared; persistence must not introduce
+  a compulsory compress/decompress round trip into cold assembly.
+- Preserve canonical action encoding, 12-byte value IDs, asset payload codecs,
+  deterministic messages, and transient-log exclusion during the initial migration.
+- Start with Zstd and XXH3-128. Stronger blob identity is a separate versioned
+  decision before introducing untrusted/shared storage, not a global identity migration.
+- Publish blobs before atomically publishing their manifest. Readers validate
+  required references; missing required blobs fall through to the existing rebuild path.
+- Separate storage-format versions from action and family semantic versions.
+  Introduce new storage namespaces in Stage 2; old schema-2 cache entries may
+  cold-invalidate without an online conversion service.
+- Selection policy belongs to cache requests. Asset consumers determine required
+  value IDs; DDC retains generic validation and no asset policy.
+
+## Implementation Stages
+
+### Stage 0: Select boundaries and acceptance gates
+
+- [x] Inspect current cache, codec, execution, and asset value consumers.
+- [x] Select the record/value separation, complete-output invariant, and rollout order.
+- [x] Validate this plan with the all-plan validator (7 active, 5 completed,
+  and 402 archived plans on 2026-10-11).
+
+### Stage 1: Separate cache records from complete build outputs
+
+Depends on Stage 0. Outcome: cache records own immutable descriptor tables rather
+than wrapping a build output, while existing full-record persistence remains usable.
+
+- [x] Make value data presence explicit; support descriptor-only references,
+  including zero-length values without conflating them with absent data.
+- [x] Give cache records independent schema, value, metadata, and message state.
+- [x] Support stripping resident value data without modifying the source record.
+- [x] Reject descriptor-only records at complete-output conversion and schema-2 encoding.
+- [x] Preserve shared payload allocations and avoid rehashing immutable values during conversion.
+- [x] Add focused reference, conversion, lifetime, and incomplete-record tests,
+  including execution fallback and replacement of an incomplete cache record.
+- [x] Update the implemented build protocol and pass relevant native tests and an all build.
+
+### Stage 2: Store independent compressed values and manifests
+
+Depends on Stage 1. Outcome: action-key manifests reference reusable content blobs.
+
+- [ ] Add an immutable compressed-buffer codec with explicit raw identity, size,
+  codec/version, bounded validation, and a raw fallback for incompressible data.
+- [ ] Replace whole-record compression with versioned manifest and blob namespaces.
+- [ ] Implement atomic blob publication followed by manifest publication;
+  handle concurrent same-content writers and corruption repair.
+- [ ] Preserve successful local results on persistence failures; bound total raw,
+  encoded, and compression working-set memory separately.
+- [ ] Verify reuse across records, missing/damaged blobs, interrupted publication,
+  empty values, concurrent writers, and full cold/warm output equivalence.
+- [ ] Specify and test safe orphan collection before enabling automatic reclamation;
+  account for live manifests, active readers/writers, and publication races.
+- [ ] Pass affected native tests and an all build; document the new storage contract.
+
+### Stage 3: Add selective value queries and a Texture2D consumer
+
+Depends on Stage 2. Outcome: selected mip queries avoid fetching unrelated blobs.
+
+- [ ] Add metadata-only, selected-value, and full-record request modes with explicit
+  required-value and missing-data results.
+- [ ] Preserve full-output build-session behavior; introduce an asset-level path
+  that explicitly requests and assembles a selected Texture2D mip set.
+- [ ] Measure actual read bytes, decoded bytes, peak memory, and full-hit latency;
+  verify a single-mip query never reads or inflates other mip payloads.
+- [ ] Add independently compressed blocks and range reads only after value-level
+  selection works; test offsets, bounds, block integrity, and cancellation.
+- [ ] Extend selection to StaticMesh LOD/streams where a concrete consumer needs it;
+  leave Shader and Physics rollout driven by actual requirements.
+- [ ] Pass affected native tests and an all build; record comparative measurements.
+
+### Stage 4: Introduce asynchronous cache I/O
+
+Depends on Stage 3. Outcome: slow cache I/O does not occupy producer execution slots.
+
+- [ ] Add batched asynchronous cache requests using request owners and Core scheduling.
+- [ ] Convert build execution to continuations; define exactly-once completion,
+  cancellation, priority, shutdown draining, and buffer lifetime.
+- [ ] Coalesce blob fetches and bound I/O, compression, and decompression concurrency.
+- [ ] Verify slow backend behavior, shutdown, cancellation, and local-result preservation.
+- [ ] Pass affected native tests and an all build before adding remote backends.
+
+### Stage 5: Complete structured metadata and identity evolution
+
+Depends on Stage 2; may proceed alongside later consumer work after Stage 2 acceptance.
+
+- [ ] Express manifests as CB objects with attachment references; specify the
+  Durin format explicitly rather than claiming compatibility from matching API names.
+- [ ] Migrate binary metadata wrappers to structured fields where consumers benefit.
+- [ ] Separate deterministic assembly metadata from optional observational metadata.
+- [ ] Decide whether shared/untrusted blob storage requires a stronger hash and
+  introduce a versioned blob identity without silently changing action/source identity.
+- [ ] Update lasting contracts, pass affected tests and an all build, and complete
+  the plan only after every required gate above is satisfied.
+
+## Validation and Handoff
+
+Follow [Testing](../Agents/Testing.md), [Build and Run](../Agents/BuildAndRun.md),
+and [Documentation](../Agents/Documentation.md). Validate changed documents and
+all plans on creation/lifecycle changes. Each implementation commit updates this
+plan with observed evidence and exact Plan/Stage trailers. Shared API changes
+require consumer searches across every project in `Durin.dworkspace` and an all
+build before handoff. Performance claims require measurements; no numerical
+improvement is assumed in advance.
