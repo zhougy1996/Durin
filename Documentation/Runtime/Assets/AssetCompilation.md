@@ -128,9 +128,9 @@ Texture2D and TextureCube PostLoad place build operation work on an Engine-owned
 VolumeTexture remains synchronous. TextureCompressor stays resident throughout the editor
 lifetime, so queue entries, platform-cache inputs and scene import workers need no
 module sessions. Consumers stop admission and drain workers before normal module
-shutdown. Texture2D owners dispatch task-scheduled shared-output builds, releasing
-their worker during cache I/O; TextureCube executes inline within its worker and
-Volume uses the same protocol synchronously. TextureCompressor registers
+shutdown. Texture2D and TextureCube owners dispatch task-scheduled shared-output
+builds, releasing their worker during cache I/O; Volume uses the protocol
+synchronously. TextureCompressor registers
 the Engine function adapters during module startup. Engine lazily creates the
 texture-family session from the process-wide production `GetBuild()` service;
 there is no explicit Engine asset-build service initialization. Consumers stop
@@ -162,7 +162,7 @@ delivery, while completed asset diagnostics remain under a separate bound.
 The deterministic input/builder identity remains separate from request serials
 and GPU resource readiness.
 
-Texture2D dispatch runs in a unique `Tasks::TTask` on the CPU executor and submits
+Texture2D and TextureCube dispatch run in a unique `Tasks::TTask` on the CPU executor and submit
 to a persistent task-scheduled build session. Interactive/background priority is
 forwarded to both Core dispatch and the build request owner. LaunchTask accepts
 valid work directly; manager request and memory limits remain separate from
@@ -174,6 +174,14 @@ failure or cancellation before its body starts also reaches terminal delivery.
 The GameThread pump applies results and invokes observers without another deferred
 task. Diagnostics retain no task handles, build owners or input/result payloads
 after delivery. Synchronous detached/import/Cook adapters retain inline sessions.
+
+Cube platform-cache inputs dispatch through the same build request owner. Canonical
+six-face and HDR panorama sources can query cache before reading pixels.
+Noncanonical panoramas acquire source bytes and normalize on the dispatch worker,
+then submit their canonical source to the asynchronous session. Source validation,
+normalization and output assembly are shared with synchronous Cube adapters;
+`RebuildPlatformData` remains a synchronous explicit boundary. Cube result objects
+carry cancellation or diagnostics and apply only to the matching live generation.
 
 The default manager allows two active computes with a 1 GiB estimated working
 budget and an oversized-single-compute rule. This is a scheduling estimate, not
@@ -192,6 +200,8 @@ Shutdown drains both dispatch tasks and asynchronous build owners before module
 unload. Even a task canceled before its
 body starts is finalized by the manager. Completed request records release their
 module sessions while retaining bounded diagnostics.
+If Core task scheduling has already stopped, processing cancels queued requests
+instead of attempting a new dispatch. Normal shutdown still drains owners before Core.
 
 Build operations, DDC ownership, and typed build application are defined by
 [Asset Data Lifecycle](AssetDataLifecycle.md#serialization-and-production-ownership).

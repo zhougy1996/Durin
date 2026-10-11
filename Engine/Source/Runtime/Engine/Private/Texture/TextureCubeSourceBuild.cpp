@@ -6,18 +6,15 @@
 #include "TextureBuildSession.h"
 #include "TextureDerivedDataKey.h"
 #include "Texture/TextureDerivedData.h"
+#include "TextureCubeBuildAsync.h"
 
 namespace Durin
 {
-	auto TexturePrivate::BuildTextureCubeSource(const FTextureSource& Source, bool bSRGB,
-		uint32 FaceDimension, float Exposure, ECookTargetPlatform Platform, ECookTargetProfile Profile, bool bPersist,
-		const FTextureCubeCanonicalBuildInput* PreparedInput)
-		-> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError>
+#if DURIN_WITH_EDITOR
+	static auto PrepareCubeDefinition(const FTextureSource& Source, bool bSRGB,
+		uint32 FaceDimension, float Exposure, ECookTargetPlatform Platform, ECookTargetProfile Profile)
+		-> std::expected<DerivedData::FBuildDefinition, FTextureBuildError>
 	{
-#if !DURIN_WITH_EDITOR
-		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
-			ETextureBuildStage::Module, "TextureCube authoring is unavailable."});
-#else
 		auto* Module = ITextureCompressorModule::Get();
 		if (!Module) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
 			ETextureBuildStage::Module, "The TextureCompressor module is unavailable."});
@@ -30,7 +27,7 @@ namespace Durin
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
 				ETextureBuildStage::Normalize, "TextureCube source is not canonical."});
 		const auto Hash = Source.GetIdentity();
-		auto Definition = MakeTextureCubeSessionDefinition({
+		auto Definition = TexturePrivate::MakeTextureCubeSessionDefinition({
 			.SourceLayout = bHDR ? ETextureCubeBuildSourceLayout::EquirectangularPanorama : ETextureCubeBuildSourceLayout::SixFaces,
 			.CanonicalSourceIdentity = Hash,
 			.FaceDimension = bHDR ? FaceDimension : 0, .ExposureEV = bHDR && Exposure != 0.0f ? Exposure : 0.0f,
@@ -38,17 +35,22 @@ namespace Durin
 			.TargetPlatform = Platform, .TargetProfile = Profile});
 		if (!Definition) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
 			ETextureBuildStage::Normalize, "Invalid TextureCube build definition."});
+		return std::move(*Definition);
+	}
+	static auto CubeBuildOptions(bool bPersist) -> DerivedData::FBuildRequestOptions
+	{
 		DerivedData::FBuildRequestOptions Options;
 		Options.Policy.StoreOnBuild = bPersist;
 		Options.Policy.InputLimits.MaximumTotalBytes = MaximumTextureSourceBytes + 16;
 		Options.Policy.OutputLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumTexturePayloadBytes;
 		Options.Policy.MaximumEncodedBytes = MaximumTexturePayloadBytes;
-		auto Built = TexturePrivate::Build(std::move(*Definition),
-			MakeTextureCubeInputResolver(Source, PreparedInput), std::move(Options));
-		if (!Built) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
-			ETextureBuildStage::Module, "TextureCube build session is unavailable."});
-		auto& Completion = *Built;
+		return Options;
+	}
+	static auto ConsumeCubeBuild(const DerivedData::FBuildCompleteParams& Completion,
+		ECookTargetPlatform Platform, ECookTargetProfile Profile)
+		-> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError>
+	{
 		if (Completion.GetStatus() == DerivedData::EStatus::Canceled)
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "Texture build was cancelled."});
 		if (Completion.GetStatus() == DerivedData::EStatus::Error)
@@ -59,9 +61,63 @@ namespace Durin
 			return std::unexpected(FTextureBuildError{Completion.GetOutput() ? ETextureBuildFailure::InvalidBuilderOutput : ETextureBuildFailure::Unavailable,
 				Completion.GetOutput() ? ETextureBuildStage::Build : ETextureBuildStage::Module, std::move(Description)});
 		}
-		auto Product = AssembleTextureCubeSharedOutput(*Completion.GetOutput(), Platform, Profile);
+		if (!Completion.GetOutput()) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput,
+			ETextureBuildStage::Build, "TextureCube build returned no output."});
+		auto Product = TexturePrivate::AssembleTextureCubeSharedOutput(*Completion.GetOutput(), Platform, Profile);
 		if (!Product) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput, ETextureBuildStage::Build, std::move(Product.error())});
 		return std::move(*Product);
+	}
+#endif
+
+#if DURIN_WITH_EDITOR
+	auto TexturePrivate::BuildTextureCubeSourceAsync(const FTextureSource& Source, bool bSRGB,
+		uint32 FaceDimension, float Exposure, DerivedData::FBuildRequestOwner& Owner,
+		std::function<bool()> ShouldCancel, FCubeSourceCompletion Completion,
+		const FTextureCubeCanonicalBuildInput* PreparedInput) -> void
+	{
+		if (Owner.IsCanceled() || (ShouldCancel && ShouldCancel()))
+		{
+			Completion(std::unexpected(FTextureBuildError{ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "Texture build was cancelled."}));
+			return;
+		}
+		auto Definition = PrepareCubeDefinition(Source, bSRGB, FaceDimension, Exposure,
+			ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+		if (!Definition) { Completion(std::unexpected(std::move(Definition.error()))); return; }
+		auto Options = CubeBuildOptions(true);
+		Options.Cancellation = DerivedData::FBuildCancellation(std::move(ShouldCancel));
+		auto Callback = [Completion](DerivedData::FBuildCompleteParams Result) mutable {
+			auto Product = [&]() -> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError> {
+				try { return ConsumeCubeBuild(Result, ECookTargetPlatform::Win64, ECookTargetProfile::Game); }
+				catch (...) { return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput,
+					ETextureBuildStage::Build, "TextureCube output assembly failed."}); }
+			}();
+			Completion(std::move(Product));
+		};
+		if (!BuildAsync(std::move(*Definition), MakeTextureCubeInputResolver(Source, PreparedInput), Owner,
+			std::move(Callback), std::move(Options)))
+			Completion(std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
+				ETextureBuildStage::Module, "TextureCube build session is unavailable."}));
+	}
+#endif
+
+	auto TexturePrivate::BuildTextureCubeSource(const FTextureSource& Source, bool bSRGB,
+		uint32 FaceDimension, float Exposure, ECookTargetPlatform Platform, ECookTargetProfile Profile, bool bPersist,
+		const FTextureCubeCanonicalBuildInput* PreparedInput)
+		-> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError>
+	{
+#if !DURIN_WITH_EDITOR
+		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
+			ETextureBuildStage::Module, "TextureCube authoring is unavailable."});
+#else
+		auto Definition = PrepareCubeDefinition(Source, bSRGB, FaceDimension, Exposure, Platform, Profile);
+		if (!Definition) return std::unexpected(std::move(Definition.error()));
+		auto Options = CubeBuildOptions(bPersist);
+		auto Built = TexturePrivate::Build(std::move(*Definition),
+			MakeTextureCubeInputResolver(Source, PreparedInput), std::move(Options));
+		if (!Built) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
+			ETextureBuildStage::Module, "TextureCube build session is unavailable."});
+		auto& Completion = *Built;
+		return ConsumeCubeBuild(Completion, Platform, Profile);
 #endif
 	}
 

@@ -94,10 +94,7 @@ namespace Durin
 				|| Request.Build.Source.GetIdentity().IsZero()) return 0;
 			auto RequestState = std::make_shared<FRequestState>();
 			RequestState->Request = std::move(Request);
-			if (!RequestState->Request.PlatformCache)
-			{
-				if (!ITextureCompressorModule::Get()) return 0;
-			}
+			if (!ITextureCompressorModule::Get()) return 0;
 			RequestState->Completion = std::move(Completion);
 			RequestState->EstimatedBytes = EstimateBuildBytes(RequestState->Request);
 			RequestState->EnqueueNanoseconds = NowNanoseconds();
@@ -161,6 +158,7 @@ namespace Durin
 		{
 			std::vector<std::shared_ptr<FRequestState>> Admitted;
 			std::vector<std::shared_ptr<FRequestState>> Cancelled;
+			const bool bSchedulerRunning = IsTaskSchedulerRunning();
 			{
 				std::lock_guard Lock(Mutex);
 				for (const auto& [Id, RequestState] : Requests)
@@ -171,11 +169,11 @@ namespace Durin
 					--RunningCount;
 					InFlightEstimatedBytes -= RequestState->EstimatedBytes;
 				}
-				while (!bShutdown && RunningCount < Config.MaxWorkers)
+				while (!bShutdown && (RunningCount < Config.MaxWorkers || !bSchedulerRunning))
 				{
 					std::shared_ptr<FRequestState> RequestState = SelectNextRequestLocked();
 					if (!RequestState) break;
-					if (RequestState->bCancellationRequested.load(std::memory_order_acquire))
+					if (!bSchedulerRunning || RequestState->bCancellationRequested.load(std::memory_order_acquire))
 					{
 						Cancelled.push_back(std::move(RequestState));
 						continue;
@@ -200,13 +198,13 @@ namespace Durin
 				}
 			}
 			for (const std::shared_ptr<FRequestState>& RequestState : Cancelled)
-				CompleteWithoutWorker(RequestState, ETexture2DCompilationPhase::Cancelled, {.Code = ETexture2DCompilationError::CancelledBeforeAdmission});
+				CompleteWithoutWorker(RequestState, ETexture2DCompilationPhase::Cancelled, {.Code = bSchedulerRunning
+					? ETexture2DCompilationError::CancelledBeforeAdmission : ETexture2DCompilationError::CancelledDuringShutdown});
 			for (const std::shared_ptr<FRequestState>& RequestState : Admitted) Launch(RequestState);
 		}
 
 		auto Launch(const std::shared_ptr<FRequestState>& RequestState) -> void
 		{
-			if (!RequestState->Request.PlatformCache)
 			{
 				std::lock_guard Lock(Mutex);
 				RequestState->BuildOwner = std::make_shared<DerivedData::FBuildRequestOwner>(
@@ -297,14 +295,29 @@ namespace Durin
 			if (RequestState->Request.PlatformCache)
 			{
 				Result.InputIdentity.SourceIdentity = RequestState->Request.Build.Source.GetIdentity();
-				Result.PlatformCache = RequestState->Request.PlatformCache->Build();
-				Result.Phase = Cancel() ? ETexture2DCompilationPhase::Cancelled
-					: Result.PlatformCache && Result.PlatformCache->Error.empty()
-						? ETexture2DCompilationPhase::UploadPending : ETexture2DCompilationPhase::Failed;
-				if (Result.Phase == ETexture2DCompilationPhase::Failed)
-					Result.Error = {.Code = ETexture2DCompilationError::BuildFailed};
-				Result.Metrics.WorkerNanoseconds = NowNanoseconds() - WorkerStart;
-				return Result;
+				const auto Self = shared_from_this();
+				RequestState->bAsyncDispatched = true;
+				RequestState->Request.PlatformCache->Dispatch(*RequestState->BuildOwner,
+					[Self, RequestState, Token] { return Self->IsCancelled(RequestState, Token); },
+					[Self, RequestState, PendingResult = std::make_shared<FTexture2DCompilationWorkResult>(std::move(Result)), WorkerStart]
+					(std::unique_ptr<FTexturePlatformCacheResult> Product) mutable {
+						auto& Result = *PendingResult;
+						try
+						{
+							Result.Phase = Product && Product->bCanceled ? ETexture2DCompilationPhase::Cancelled
+								: Product && Product->Error.empty() ? ETexture2DCompilationPhase::UploadPending : ETexture2DCompilationPhase::Failed;
+							if (Result.Phase != ETexture2DCompilationPhase::UploadPending)
+								Result.Error = {.Code = Result.Phase == ETexture2DCompilationPhase::Cancelled
+									? ETexture2DCompilationError::Cancelled : ETexture2DCompilationError::BuildFailed};
+							Result.PlatformCache = std::move(Product);
+							Result.Metrics.WorkerNanoseconds = NowNanoseconds() - WorkerStart;
+							Self->UpdateDiagnostic(RequestState, Result);
+						}
+						catch (...) { Result = MakeFailureResult(*RequestState, ETexture2DCompilationPhase::Failed, {.Code = ETexture2DCompilationError::WorkerFailed}); }
+						std::lock_guard Lock(Self->Mutex);
+						RequestState->TerminalResult.emplace(std::move(Result));
+					});
+				return {};
 			}
 			if (Cancel())
 			{

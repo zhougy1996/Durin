@@ -226,7 +226,7 @@ struct FAssetState
 			const bool bSucceeded = Result.Phase == ETexture2DCompilationPhase::UploadPending
 				&& Texture->GetSource().GetIdentity() == ExpectedInput.SourceIdentity;
 			if (bSucceeded) Result.PlatformCache->Apply(*Texture);
-			else if (!Result.PlatformCache->Error.empty())
+			else if (Result.Phase != ETexture2DCompilationPhase::Cancelled && !Result.PlatformCache->Error.empty())
 				DURIN_ERROR("Texture cache failed for {}: {}", Result.AssetIdentity, Result.PlatformCache->Error);
 			if (bSucceeded) SetTerminalStatus(ETexture2DCompilationPhase::Ready);
 			else if (Result.Phase == ETexture2DCompilationPhase::Cancelled)

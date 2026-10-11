@@ -12,6 +12,8 @@
 #include "Texture/Texture2DCompilation.h"
 #include "Texture/Texture2DCompilationTestSupport.h"
 #include "DerivedDataCache/DerivedDataCache.h"
+#include "Texture/TextureCube.h"
+#include "../../EngineTests/Private/DerivedDataBuildTestSupport.h"
 
 namespace
 {
@@ -24,20 +26,160 @@ namespace
 		mutable FThreadEvent Release;
 		mutable FThreadEvent ReleaseWrites;
 		bool bHoldWrites = false;
-		auto Get(const DerivedData::FCacheGetRequest&) const -> DerivedData::FCacheGetResult override
+		bool bRetainRecords = false;
+		mutable std::mutex RecordMutex;
+		mutable std::unordered_map<std::string, DerivedData::FCacheRecord> Records;
+		auto Get(const DerivedData::FCacheGetRequest& Request) const -> DerivedData::FCacheGetResult override
 		{
 			++Reads;
 			// Model an uninterruptible physical read; cancellation must retain its owner.
 			Release.WaitFor(10.0);
+			std::lock_guard Lock(RecordMutex);
+			if (const auto It = Records.find(Request.Key.ToString()); It != Records.end()) return std::optional{It->second};
 			return std::optional<DerivedData::FCacheRecord>{};
 		}
-		auto Put(const DerivedData::FCachePutRequest&) const -> DerivedData::FCachePutResult override
+		auto Put(const DerivedData::FCachePutRequest& Request) const -> DerivedData::FCachePutResult override
 		{
 			++Writes;
 			if (bHoldWrites) ReleaseWrites.WaitFor(10.0);
+			if (bRetainRecords) { std::lock_guard Lock(RecordMutex); Records.insert_or_assign(Request.Record.GetKey().ToString(), Request.Record); }
 			return {};
 		}
 	};
+
+	auto ExerciseCubeOwnerBridge() -> void
+	{
+		auto Cache = std::make_shared<FHeldTextureCache>();
+		Cache->bHoldWrites = true;
+		Cache->bRetainRecords = true;
+		std::shared_ptr<Testing::FBuildSourceReadProbe> HDRProbe;
+		FThreadEvent CallbackEntered, ReleaseCallback;
+		AssetPrivate::SetTextureAsyncCacheForTests(Cache);
+		AssetPrivate::SetTexture2DCompilationPhaseHookForTests([&](uint64, ETexture2DCompilationPhase Phase) {
+			if (Phase == ETexture2DCompilationPhase::UploadPending) {
+				CallbackEntered.Trigger();
+				ReleaseCallback.WaitFor(10.0);
+			}
+		});
+		struct FDrainCubeRequests
+		{
+			std::shared_ptr<FHeldTextureCache> Cache;
+			FThreadEvent& Callback;
+			~FDrainCubeRequests() {
+				Cache->Release.Trigger(); Cache->ReleaseWrites.Trigger(); Callback.Trigger();
+				FAssetCompilingManager::Get().FinishAllCompilation();
+				AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
+				AssetPrivate::SetTextureAsyncCacheForTests({});
+			}
+		} Drain{Cache, ReleaseCallback};
+		std::array<DTextureCube*, 3> Cubes{};
+		for (uint32 Index = 0; Index < Cubes.size(); ++Index)
+		{
+			FPackagePath Path;
+			ASSERT_TRUE(FPackagePath::TryCreate("/AsyncPilot/CubeBridge" + std::to_string(Index), Path));
+			ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Cubes[Index]));
+			if (Index == 0)
+			{
+				FTextureCubeFaceImages Faces;
+				Faces.SourceChannelCount = 4;
+				for (auto& Face : Faces.Faces)
+				{
+					auto Image = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+						.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64, std::byte{255}));
+					ASSERT_TRUE(Image);
+					Face = std::move(*Image);
+				}
+				auto Source = PrepareTextureCubeSource(Faces);
+				ASSERT_TRUE(Source);
+				Cubes[Index]->SetSource(std::move(*Source));
+				Cubes[Index]->SetBuildSettings(ETextureCubeSourceLayout::SixFaces, 0, 0.0f, 4, 4, true);
+			}
+			else
+			{
+				const bool HDR = Index == 1;
+				auto Image = Image::FImage::TryCreate({.Width = 8, .Height = 4,
+					.Format = HDR ? Image::ERawImageFormat::RGBA32F : Image::ERawImageFormat::RGBA8,
+					.GammaSpace = HDR ? Image::EImageGammaSpace::Linear : Image::EImageGammaSpace::Unknown},
+					FByteBuffer(8 * 4 * (HDR ? 16 : 4), HDR ? std::byte{0} : std::byte{255}));
+				ASSERT_TRUE(Image);
+				auto Source = PrepareTextureCubePanoramaSource(Image->GetView(), 4, 0);
+				ASSERT_TRUE(Source);
+				if (HDR)
+				{
+					Source->ReleaseSourceMemory();
+					HDRProbe = Testing::AttachBuildSourceReadProbe(*Source, Source->GetBulkData(), "Payload");
+					ASSERT_TRUE(HDRProbe);
+				}
+				Cubes[Index]->SetSource(std::move(*Source));
+				Cubes[Index]->SetBuildSettings(ETextureCubeSourceLayout::EquirectangularPanorama,
+					2, 0.0f, 8, 4, !HDR, HDR ? ETextureCubeOutput::HDR : ETextureCubeOutput::LDR);
+			}
+			Cubes[Index]->BeginCachePlatformData();
+		}
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (Cache->Reads.load() < 2 && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+		ASSERT_EQ(2u, Cache->Reads.load());
+		// Two suspended Cube owners retain their slots; the third stays queued.
+		EXPECT_EQ(3u, FAssetCompilingManager::Get().GetNumRemainingAssets());
+		auto Marker = Tasks::LaunchTask("CubeOwnerReleasedWorkers", [] {});
+		const auto MarkerDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+		while (!Marker.GetCompletion().IsReady() && std::chrono::steady_clock::now() < MarkerDeadline) std::this_thread::yield();
+		ASSERT_TRUE(Marker.GetCompletion().IsReady());
+		EXPECT_EQ(ETaskState::Succeeded, Marker.GetState());
+		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Cubes[0]);
+		FAssetCompilingManager::Get().ProcessAsyncTasks();
+		EXPECT_FALSE(Cubes[0]->IsAsyncCacheComplete());
+		Cache->Release.Trigger();
+		const auto WriteDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (Cache->Writes.load() == 0 && std::chrono::steady_clock::now() < WriteDeadline) std::this_thread::yield();
+		ASSERT_EQ(1u, Cache->Writes.load());
+		EXPECT_FALSE(Cubes[1]->HasPlatformData());
+		Cache->ReleaseWrites.Trigger();
+		ASSERT_TRUE(CallbackEntered.WaitFor(5.0));
+		FAssetCompilingManager::Get().ProcessAsyncTasks();
+		EXPECT_FALSE(Cubes[1]->HasPlatformData());
+		EXPECT_FALSE(Cubes[1]->IsAsyncCacheComplete());
+		ReleaseCallback.Trigger();
+		ASSERT_TRUE(Cubes[1]->FinishCachePlatformData());
+		EXPECT_EQ(2u, Cubes[1]->GetBuiltFaceDimension());
+		EXPECT_FALSE(Cubes[2]->HasPlatformData());
+		EXPECT_FALSE(Cubes[2]->IsAsyncCacheComplete());
+		FAssetCompilingManager::Get().FinishAllCompilation();
+		EXPECT_FALSE(Cubes[0]->HasPlatformData());
+		EXPECT_TRUE(Cubes[0]->IsAsyncCacheComplete());
+		EXPECT_TRUE(Cubes[2]->HasPlatformData());
+		EXPECT_EQ(2u, Cubes[2]->GetBuiltFaceDimension());
+		EXPECT_EQ(3u, Cache->Reads.load());
+		EXPECT_EQ(2u, Cache->Writes.load());
+		EXPECT_EQ(0u, FAssetCompilingManager::Get().GetNumRemainingAssets());
+		ASSERT_TRUE(HDRProbe);
+		EXPECT_EQ(1u, HDRProbe->GetReadStats().RequestCount);
+		auto WarmSource = Cubes[1]->GetSource().CopyTornOff();
+		WarmSource.ReleaseSourceMemory();
+		Cubes[1]->SetSource(std::move(WarmSource));
+		Cubes[1]->BeginCachePlatformData();
+		ASSERT_TRUE(Cubes[1]->FinishCachePlatformData());
+		EXPECT_EQ(4u, Cache->Reads.load());
+		EXPECT_EQ(2u, Cache->Writes.load());
+		EXPECT_EQ(1u, HDRProbe->GetReadStats().RequestCount);
+		Cache->Release.Reset();
+		Cubes[1]->SetSource(Cubes[1]->GetSource().CopyTornOff());
+		Cubes[1]->BeginCachePlatformData();
+		const auto SupersedeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (Cache->Reads.load() < 5 && std::chrono::steady_clock::now() < SupersedeDeadline) std::this_thread::yield();
+		ASSERT_EQ(5u, Cache->Reads.load());
+		Cubes[1]->SetBuildSettings(ETextureCubeSourceLayout::EquirectangularPanorama, 4, 0.0f, 8, 4, false, ETextureCubeOutput::HDR);
+		Cubes[1]->BeginCachePlatformData();
+		const auto ReplacementDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (Cache->Reads.load() < 6 && std::chrono::steady_clock::now() < ReplacementDeadline) std::this_thread::yield();
+		ASSERT_EQ(6u, Cache->Reads.load());
+		Cache->Release.Trigger();
+		ASSERT_TRUE(Cubes[1]->FinishCachePlatformData());
+		EXPECT_EQ(4u, Cubes[1]->GetBuiltFaceDimension());
+		FAssetCompilingManager::Get().FinishAllCompilation();
+		EXPECT_EQ(4u, Cubes[1]->GetBuiltFaceDimension());
+		EXPECT_EQ(3u, Cache->Writes.load());
+	}
 	// The aggregate has terminal shutdown, so this target owns one full lifecycle.
 	struct FPilotLifecycle
 	{
@@ -59,6 +201,7 @@ namespace
 		auto Deferred = Tasks::Then(Tasks::FTaskCompletion(Root), Tasks::ETaskExecutor::GameThreadDeferred, {}, [] {}).GetCompletion().GetTaskHandle();
 		ASSERT_TRUE(Deferred.IsValid());
 		Testing::RegisterMountPointForTests("/AsyncPilot/", (Testing::GetTestWorkDirectory() / "LargeContent").generic_string() + "/");
+		ExerciseCubeOwnerBridge();
 		{
 			auto Cache = std::make_shared<FHeldTextureCache>();
 			Cache->bHoldWrites = true;
@@ -69,7 +212,7 @@ namespace
 					ReleaseCallback.WaitFor(10.0);
 				}
 			});
-			AssetPrivate::SetTexture2DAsyncCacheForTests(Cache);
+			AssetPrivate::SetTextureAsyncCacheForTests(Cache);
 			struct FReleaseCache
 			{
 				std::shared_ptr<FHeldTextureCache> Cache;
@@ -80,7 +223,7 @@ namespace
 					ReleaseCallback.Trigger();
 					FAssetCompilingManager::Get().FinishAllCompilation();
 					AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
-					AssetPrivate::SetTexture2DAsyncCacheForTests({});
+					AssetPrivate::SetTextureAsyncCacheForTests({});
 				}
 			} ReleaseCache{Cache, ReleaseCallback};
 			std::array<DTexture2D*, 2> Owners{};
@@ -185,7 +328,7 @@ namespace
 
 		// Keep an accepted asynchronous build suspended when the owner and Core shut down.
 		auto ShutdownCache = std::make_shared<FHeldTextureCache>();
-		AssetPrivate::SetTexture2DAsyncCacheForTests(ShutdownCache);
+		AssetPrivate::SetTextureAsyncCacheForTests(ShutdownCache);
 		struct FReleaseShutdownCache
 		{
 			std::shared_ptr<FHeldTextureCache> Cache;
@@ -206,6 +349,23 @@ namespace
 		const auto ReadDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 		while (ShutdownCache->Reads.load() == 0 && std::chrono::steady_clock::now() < ReadDeadline) std::this_thread::yield();
 		ASSERT_EQ(1u, ShutdownCache->Reads.load());
+		FPackagePath HeldCubePath;
+		ASSERT_TRUE(FPackagePath::TryCreate("/AsyncPilot/HeldShutdownCube", HeldCubePath));
+		DTextureCube* HeldCube = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(HeldCubePath, HeldCube));
+		FTextureCubeFaceImages HeldFaces;
+		HeldFaces.SourceChannelCount = 4;
+		for (auto& Face : HeldFaces.Faces)
+			Face = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+				.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64, std::byte{255})).value();
+		auto HeldCubeSource = PrepareTextureCubeSource(HeldFaces);
+		ASSERT_TRUE(HeldCubeSource);
+		HeldCube->SetSource(std::move(*HeldCubeSource));
+		HeldCube->SetBuildSettings(ETextureCubeSourceLayout::SixFaces, 0, 0.0f, 4, 4, true);
+		HeldCube->BeginCachePlatformData();
+		const auto CubeReadDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (ShutdownCache->Reads.load() < 2 && std::chrono::steady_clock::now() < CubeReadDeadline) std::this_thread::yield();
+		ASSERT_EQ(2u, ShutdownCache->Reads.load());
 
 		FThreadEvent StartedA, StartedB, Release;
 		std::array<FTaskHandle, 8> Blockers;
@@ -285,6 +445,7 @@ namespace
 		EXPECT_TRUE(Tasks::LaunchTask("SaturatedTextureShutdown", [] {}).GetCompletion().GetTaskHandle().IsValid());
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(PendingTextures);
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*HeldTexture);
+		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*HeldCube);
 		EXPECT_EQ(0u, HeldCompleted);
 		ShutdownCache->Release.Trigger();
 		// Exercise native cancellation without relying on a producer body or deferred callback.
@@ -292,7 +453,9 @@ namespace
 		ShutdownAssetCompilingManager();
 		EXPECT_EQ(1u, HeldCompleted);
 		EXPECT_FALSE(HeldTexture->HasPlatformData());
-		AssetPrivate::SetTexture2DAsyncCacheForTests({});
+		EXPECT_FALSE(HeldCube->HasPlatformData());
+		EXPECT_TRUE(HeldCube->IsAsyncCacheComplete());
+		AssetPrivate::SetTextureAsyncCacheForTests({});
 		for (uint32 Count : Completed) EXPECT_EQ(1u, Count);
 		EXPECT_EQ(1u, SaturatedCompleted);
 		Release.Trigger();

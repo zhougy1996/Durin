@@ -16,6 +16,7 @@
 #include "Texture/TextureDerivedData.h"
 #include "Threading/RunnableThread.h"
 #include "Texture/TexturePlatformCache.h"
+#include "TextureCubeBuildAsync.h"
 
 namespace Durin
 {
@@ -49,7 +50,8 @@ namespace Durin
 			float Exposure;
 			bool bSRGB;
 			ETextureCubeOutput Output;
-			auto Build() const -> std::unique_ptr<FTexturePlatformCacheResult> override;
+			auto Dispatch(DerivedData::FBuildRequestOwner& Owner, std::function<bool()> ShouldCancel,
+				std::function<void(std::unique_ptr<FTexturePlatformCacheResult>)> Completion) const -> void override;
 		};
 
 		auto MakeTextureCubeBuildRequest(const FCubeCacheInput& Input,
@@ -112,10 +114,28 @@ namespace Durin
 			return true;
 		}
 
-		auto FCubeCacheInput::Build() const -> std::unique_ptr<FTexturePlatformCacheResult>
+		auto FCubeCacheInput::Dispatch(DerivedData::FBuildRequestOwner& Owner,
+			std::function<bool()> ShouldCancel,
+			std::function<void(std::unique_ptr<FTexturePlatformCacheResult>)> Completion) const -> void
 		{
-			auto Result = std::make_unique<FCubeCacheResult>();
 #if DURIN_WITH_EDITOR
+			auto Complete = [Completion](std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError> Built) {
+				std::unique_ptr<FTexturePlatformCacheResult> Result;
+				try
+				{
+					auto Cube = std::make_unique<FCubeCacheResult>();
+					if (Built) Cube->Data = std::move(*Built);
+					else { Cube->Error = Built.error().Diagnostic; Cube->bCanceled = Built.error().Code == ETextureBuildFailure::Canceled; }
+					Result = std::move(Cube);
+				}
+				catch (...) {}
+				Completion(std::move(Result));
+			};
+			if (Owner.IsCanceled() || (ShouldCancel && ShouldCancel()))
+			{
+				Complete(std::unexpected(FTextureBuildError{ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "Cube build was cancelled."}));
+				return;
+			}
 			// Existing canonical six-face and HDR panorama identities can query DDC
 			// before reading pixels. Noncanonical panorama input still normalizes on the worker.
 			const bool bHDR = Source.GetKind() == ETextureSourceKind::LongLatCube
@@ -123,23 +143,29 @@ namespace Durin
 				&& !Source.HasTransparency() && Source.GetFormat() == ETextureSourceFormat::RGBA32_FLOAT;
 			if (Source.GetKind() == ETextureSourceKind::TextureCube || bHDR)
 			{
-				auto Built = TexturePrivate::BuildTextureCubeSource(Source, bSRGB, FaceDimension, Exposure,
-					ECookTargetPlatform::Win64, ECookTargetProfile::Game, true);
-				if (Built) Result->Data = std::move(*Built);
-				else Result->Error = Built.error().Diagnostic;
-				return Result;
+				TexturePrivate::BuildTextureCubeSourceAsync(Source, bSRGB, FaceDimension, Exposure,
+					Owner, std::move(ShouldCancel), std::move(Complete));
+				return;
 			}
-#endif
 			FTextureCubeBuildRequest Request;
-			if (!MakeTextureCubeBuildRequest(*this, Request, Result->Error))
+			std::string Error;
+			if (!MakeTextureCubeBuildRequest(*this, Request, Error))
 			{
-				if (Result->Error.empty()) Result->Error = "Invalid cube source payload.";
-				return Result;
+				Complete(std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
+					ETextureBuildStage::Normalize, Error.empty() ? "Invalid cube source payload." : std::move(Error)}));
+				return;
 			}
-			auto Built = TexturePrivate::BuildTextureCubeWithDiagnostic(Request);
-			if (Built) Result->Data = std::move(Built->PlatformData);
-			else Result->Error = Built.error().Diagnostic.empty() ? "Cube platform build failed." : Built.error().Diagnostic;
-			return Result;
+			auto Prepared = TexturePrivate::PrepareTextureCubeBuild(Request);
+			if (!Prepared) { Complete(std::unexpected(std::move(Prepared.error()))); return; }
+			auto& Canonical = Prepared->CanonicalInput;
+			TexturePrivate::BuildTextureCubeSourceAsync(Prepared->Source, Canonical.GetSRGB(),
+				Canonical.PanoramaFaceDimension, Canonical.PanoramaExposureEV,
+				Owner, std::move(ShouldCancel), std::move(Complete), &Canonical);
+#else
+			auto Result = std::make_unique<FCubeCacheResult>();
+			Result->Error = "TextureCube authoring is unavailable.";
+			Completion(std::move(Result));
+#endif
 		}
 #endif
 

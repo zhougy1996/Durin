@@ -13,8 +13,8 @@ namespace Durin
 
 	namespace AssetPrivate
 	{
-		// Replace only while compilation is quiescent; null restores the production session.
-		ENGINE_API auto SetTexture2DAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void;
+		// Shared Texture2D/Cube session. Replace only while quiescent; null restores production.
+		ENGINE_API auto SetTextureAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void;
 		// Bounded internal snapshot for qualification and regression tests.
 		struct FTexture2DCompilationDiagnostic
 		{

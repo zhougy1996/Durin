@@ -37,6 +37,7 @@ namespace Durin::TexturePrivate
 		if (!Cache) return;
 		TestBuild = DerivedData::CreateBuild({.Cache = std::move(Cache)});
 		require(TestBuild->Register(MakeTexture2DBuildFunction()).has_value());
+		require(TestBuild->Register(MakeTextureCubeBuildFunction()).has_value());
 		auto Created = TestBuild->CreateSession({}, DerivedData::CreateTaskBuildScheduler());
 		require(Created.has_value());
 		AsyncSession = std::move(*Created);
@@ -105,7 +106,7 @@ namespace Durin::TexturePrivate
 
 namespace Durin::AssetPrivate
 {
-	auto SetTexture2DAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void
+	auto SetTextureAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void
 	{
 		TexturePrivate::SetAsyncCacheForTests(std::move(Cache));
 	}

@@ -15,8 +15,8 @@ namespace Durin
 		auto ApplyTextureCubeBuildResult(DTextureCube& Texture, FTextureCubeCanonicalBuildInput CanonicalInput, std::unique_ptr<FTextureCubePlatformData> Product, const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>;
 	}
 
-	auto TexturePrivate::BuildTextureCubeWithDiagnostic(const FTextureCubeBuildRequest& Request)
-		-> std::expected<FTextureCubeBuildValue, FTextureBuildError>
+	auto TexturePrivate::PrepareTextureCubeBuild(const FTextureCubeBuildRequest& Request)
+		-> std::expected<FPreparedTextureCubeBuild, FTextureBuildError>
 	{
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable, ETextureBuildStage::Module, "TextureCube authored build orchestration is unavailable outside editor builds."});
@@ -55,12 +55,21 @@ namespace Durin
 			: PrepareTextureCubeSource(LDR->FaceImages);
 		if (!Source) return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput,
 			ETextureBuildStage::Normalize, Source.error()});
-		auto Product = TexturePrivate::BuildTextureCubeSource(*Source, CanonicalInput.GetSRGB(),
+		return FPreparedTextureCubeBuild{std::move(CanonicalInput), std::move(*Source)};
+#endif
+	}
+
+	auto TexturePrivate::BuildTextureCubeWithDiagnostic(const FTextureCubeBuildRequest& Request)
+		-> std::expected<FTextureCubeBuildValue, FTextureBuildError>
+	{
+		auto Prepared = PrepareTextureCubeBuild(Request);
+		if (!Prepared) return std::unexpected(std::move(Prepared.error()));
+		auto& CanonicalInput = Prepared->CanonicalInput;
+		auto Product = BuildTextureCubeSource(Prepared->Source, CanonicalInput.GetSRGB(),
 			CanonicalInput.PanoramaFaceDimension, CanonicalInput.PanoramaExposureEV,
 			Request.TargetPlatform, Request.TargetProfile, Request.bPersistDerivedData, &CanonicalInput);
 		if (!Product) return std::unexpected(std::move(Product.error()));
 		return FTextureCubeBuildValue{std::move(CanonicalInput), std::move(*Product)};
-#endif
 	}
 
 	auto BuildTextureCubeDetached(const FTextureCubeBuildRequest& Request)

@@ -10,6 +10,13 @@
 
 namespace Durin::TexturePrivate
 {
+	struct FPreparedTextureCubeBuild
+	{
+		FTextureCubeCanonicalBuildInput CanonicalInput;
+		FTextureSource Source;
+	};
+	auto PrepareTextureCubeBuild(const FTextureCubeBuildRequest& Request)
+		-> std::expected<FPreparedTextureCubeBuild, FTextureBuildError>;
 	// Internal worker seam: the platform-cache coordinator owns reporting.
 	auto BuildTextureCubeWithDiagnostic(const FTextureCubeBuildRequest& Request)
 		-> std::expected<FTextureCubeBuildValue, FTextureBuildError>;

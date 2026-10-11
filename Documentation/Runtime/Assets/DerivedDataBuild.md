@@ -306,7 +306,7 @@ callbacks, dispatch return, and callable-owner release. Calling drain from the
 same session execution/completion stack returns `WouldBlock`. Completed handles
 and stale thunks retain no producer/resolver owners.
 
-Texture2D compilation owners submit through a persistent task-scheduled session.
+Texture2D and TextureCube compilation owners submit through a persistent task-scheduled session.
 They release their dispatch worker immediately and retain a build request owner
 until callback retirement, then apply its detached result on GameThread. Owner
 priority follows the request; concurrency and estimated memory stay reserved
@@ -327,8 +327,9 @@ asynchronous bridge at their asset-compilation owner boundary.
 
 Texture2D, TextureCube, and VolumeTexture use a texture-owned inline session for
 import, detached build and Cook. Texture2D owner work (including authored PostLoad
-and editor rebuilds) uses a separate task-scheduled session. Cube owner work remains
-inline. Completion supplies the cache
+and editor rebuilds) and Cube platform-cache owner work use a separate task-scheduled
+session. Noncanonical Cube inputs normalize before submission on the dispatch worker.
+Completion supplies the cache
 key and hit fact. Recipe timing stays inside producer-local qualification paths;
 it is not part of DDC output or Engine request diagnostics. Their
 shared-output schemas use fixed indexed value IDs and Compact Binary
