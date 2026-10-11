@@ -165,6 +165,37 @@ logical raw output limits before requesting blobs. Full-record Get resolves and
 validates every value before returning; missing required blobs are rejected and
 follow the normal build fallback path.
 
+Synchronous Get defaults to `FullRecord`. `MetadataOnly` returns the manifest,
+including all value descriptors, without opening blobs. `SelectedValues` accepts
+unique non-null required IDs in any order, resolves only those blobs, and leaves
+other values as references. An empty selection is equivalent to metadata-only.
+Unknown required IDs or missing selected blobs return `MissingValue`; an absent
+manifest remains a normal miss. Invalid or duplicate selections fail before I/O.
+All modes validate the entire manifest against logical output limits; selection
+narrows physical reads and resident data, not the output schema's validity bounds.
+Partial records cannot convert to complete build outputs. Build execution always
+requests a full record and retains its existing rejected-record rebuild fallback.
+
+Get cooperatively checks borrowed cancellation at entry, between manifest/blob
+reads, and after decoding. It returns `Canceled` without publishing a partial
+result; a synchronous filesystem read or Zstd call already in progress finishes
+before the next check. Optional borrowed `FCacheQueryStats` receives successful
+read bytes, validated raw bytes, values read, elapsed nanoseconds, and peak
+accounted payload/codec storage on success, miss, cancellation, or error. The
+working-set metric includes estimated Zstd context bytes and excludes descriptor,
+allocator, and other process memory; it is not RSS. Encoded and working-set
+budgets apply to the manifest plus requested values only.
+
+Engine's editor-only `ReadTexture2DCachedMips` takes an opaque cache key, selected
+mip indices, target, budgets, and cancellation. It performs a cache-only selected
+value query with no source resolver or build fallback, validates the complete
+Texture2D metadata/layout and deterministic error messages, and returns selected
+immutable mip buffers with their original indices, format, and original mip count.
+Indices are unique, bounded, and returned in ascending order. The result is a
+separate `FTexture2DCachedMips`, never an incomplete `FTexturePlatformData` or a
+successful partial build output. Missing required mips and target/schema failures
+are explicit errors. Blob encoding and storage namespaces remain unchanged.
+
 Each immutable `DDBV` blob schema 1 stores codec format (raw or Zstd level 3), raw
 XXH3-128 identity, raw size, encoded payload size, payload, and an envelope hash.
 Small, incompressible, or compression-workspace-limited values may use the raw
@@ -184,7 +215,7 @@ blobs from a failed request may remain orphaned.
 
 Raw, encoded, and payload/codec working-set limits are separate. Raw limits count
 logical output values, metadata, and message bytes. Encoded limits count the
-manifest plus each referenced blob (conservatively counting duplicate references).
+manifest plus each requested blob (conservatively counting duplicate references).
 Persistence workspace counts distinct retained source buffer capacities, resident
 messages, the manifest, candidate/final encoding buffers, and estimated Zstd
 context memory. Read workspace counts the retained manifest, already resolved

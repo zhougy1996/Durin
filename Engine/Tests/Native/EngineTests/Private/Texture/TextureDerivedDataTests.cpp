@@ -13,6 +13,126 @@
 #include "Runtime/Engine/Private/Texture/TextureDerivedDataKey.h"
 #include "Texture/TextureCube.h"
 #include "Serialization/Archive.h"
+#include "Texture/Texture2DCache.h"
+#include "DerivedDataCache/DerivedDataCache.h"
+
+namespace
+{
+	class FScopedSelectedTextureCache
+	{
+	public:
+		FScopedSelectedTextureCache() : Previous(Durin::FPaths::DerivedDataCacheDir()),
+			Root(Durin::Testing::GetTestWorkDirectory() / "selected-texture-cache")
+		{
+			Durin::Testing::RemoveTestWorkDirectory(Root);
+			Durin::FPaths::SetDerivedDataCacheDirForTests(Root.generic_string());
+		}
+		~FScopedSelectedTextureCache()
+		{
+			Durin::FPaths::SetDerivedDataCacheDirForTests(Previous);
+			Durin::Testing::RemoveTestWorkDirectory(Root);
+		}
+		std::string Previous; std::filesystem::path Root;
+	};
+}
+
+TEST(FTexture2DCacheTests, ReadsSelectedMipsWithOriginalIndicesAndMeasuresQueryCosts)
+{
+	using namespace Durin; using namespace Durin::DerivedData;
+	FScopedSelectedTextureCache Directory;
+	FTexturePlatformData Product; Product.PixelFormat = EPixelFormat::BC3_UNORM_SRGB;
+	for (uint32 Dimension = 512; Dimension; Dimension /= 2)
+	{
+		const auto Layout = GetPixelFormatLayout(Product.PixelFormat, Dimension, Dimension);
+		Product.Mips.push_back({.Pixels = FSharedByteBuffer::Take(FByteBuffer(Layout.DataSize, std::byte(Dimension & 255))),
+			.Width = Dimension, .Height = Dimension, .RowPitch = uint32(Layout.RowPitch)});
+	}
+	const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("Texture2D"), {123, 456});
+	auto Output = TexturePrivate::MakeTexture2DSharedOutput(Product, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(Output) << Output.error(); auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
+	ASSERT_TRUE(GetCache().Put({*Record}));
+	const std::array<uint32, 2> Mips{8, 2};
+	auto Selected = ReadTexture2DCachedMips({FCacheKeyProxy(Key), Mips}); ASSERT_TRUE(Selected && *Selected);
+	EXPECT_EQ((**Selected).OriginalMipCount, 10u); EXPECT_EQ((**Selected).PixelFormat, Product.PixelFormat);
+	ASSERT_EQ((**Selected).Mips.size(), 2u);
+	for (size_t I = 0; I < 2; ++I)
+	{
+		const uint32 Index = I == 0 ? 2 : 8;
+		EXPECT_EQ((**Selected).Mips[I].MipIndex, Index);
+		EXPECT_TRUE(std::ranges::equal((**Selected).Mips[I].Data.Pixels.GetBytes(), Product.Mips[Index].Pixels.GetBytes()));
+		EXPECT_TRUE((**Selected).Mips[I].Data.IsValid(Product.PixelFormat));
+	}
+	const std::array Ids{FValueId::FromName("Durin.Texture2D.Mip").MakeIndexed(2)};
+	FCacheQueryStats FullStats, SelectedStats; uint64 FullTime = 0, SelectedTime = 0;
+	// Warm file-system cache, then collect comparative observations without timing assertions.
+	for (uint32 Iteration = 0; Iteration < 33; ++Iteration)
+	{
+		auto Full = GetCache().Get({.Key = Key, .Stats = &FullStats}); ASSERT_TRUE(Full && *Full);
+		auto Partial = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Ids, .Stats = &SelectedStats});
+		ASSERT_TRUE(Partial && *Partial);
+		if (Iteration) { FullTime += FullStats.DurationNanoseconds; SelectedTime += SelectedStats.DurationNanoseconds; }
+	}
+	EXPECT_EQ(FullStats.ValuesRead, 10u); EXPECT_EQ(SelectedStats.ValuesRead, 1u);
+	EXPECT_EQ(SelectedStats.DecodedBytes, Product.Mips[2].Pixels.GetSize());
+	EXPECT_LT(SelectedStats.ReadBytes, FullStats.ReadBytes);
+	EXPECT_LT(SelectedStats.PeakWorkingSetBytes, FullStats.PeakWorkingSetBytes);
+	RecordProperty("full_read_bytes", std::to_string(FullStats.ReadBytes));
+	RecordProperty("selected_read_bytes", std::to_string(SelectedStats.ReadBytes));
+	RecordProperty("full_decoded_bytes", std::to_string(FullStats.DecodedBytes));
+	RecordProperty("selected_decoded_bytes", std::to_string(SelectedStats.DecodedBytes));
+	RecordProperty("full_peak_payload_codec_bytes", std::to_string(FullStats.PeakWorkingSetBytes));
+	RecordProperty("selected_peak_payload_codec_bytes", std::to_string(SelectedStats.PeakWorkingSetBytes));
+	RecordProperty("full_mean_ns", std::to_string(FullTime / 32));
+	RecordProperty("selected_mean_ns", std::to_string(SelectedTime / 32));
+	// Removing every unselected blob proves the asset consumer has no hidden full read.
+	for (const auto& Value : Record->GetValues())
+	{
+		if (Value.Id == Ids[0]) continue;
+		const auto Hash = Value.Value.GetRawHash().ToString();
+		std::filesystem::remove(Directory.Root / "values/v1/Content" / Hash.substr(0, 2) / (Hash + ".bin"));
+	}
+	const std::array<uint32, 1> OneMip{2};
+	Selected = ReadTexture2DCachedMips({FCacheKeyProxy(Key), OneMip}); ASSERT_TRUE(Selected && *Selected);
+	EXPECT_FALSE(GetCache().Get({Key}));
+}
+
+TEST(FTexture2DCacheTests, RejectsIncompleteOrIncompatibleSelectionsAndHandlesMissAndCancel)
+{
+	using namespace Durin; using namespace Durin::DerivedData;
+	FScopedSelectedTextureCache Directory;
+	const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("Texture2D"), {234, 567});
+	const std::array<uint32, 1> Selected{0};
+	FTexture2DCacheRequest Request{FCacheKeyProxy(Key), Selected};
+	auto Miss = ReadTexture2DCachedMips(Request); ASSERT_TRUE(Miss); EXPECT_FALSE(*Miss);
+	FTexturePlatformData Product; Product.PixelFormat = EPixelFormat::BC3_UNORM_SRGB;
+	Product.Mips.push_back({.Pixels = FSharedByteBuffer::Take(FByteBuffer(16, std::byte{1})), .Width = 1, .Height = 1, .RowPitch = 16});
+	auto Output = TexturePrivate::MakeTexture2DSharedOutput(Product, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(Output); auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record); ASSERT_TRUE(GetCache().Put({*Record}));
+	const std::array<uint32, 2> Duplicate{0, 0}; Request.MipIndices = Duplicate;
+	auto Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::InvalidRequest);
+	const std::array<uint32, 1> OutOfBounds{MaximumTextureMipCount}; Request.MipIndices = OutOfBounds;
+	Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::InvalidRequest);
+	const std::array<uint32, 1> Absent{1}; Request.MipIndices = Absent;
+	Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::MissingValue);
+	Request.MipIndices = Selected; Request.TargetProfile = ECookTargetProfile::EditorValidation;
+	Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::InvalidOutput);
+	Request.TargetProfile = ECookTargetProfile::Game; Request.ShouldCancel = [] { return true; };
+	Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::Canceled);
+	Request.ShouldCancel = {}; Request.MaximumEncodedBytes = 1;
+	Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::CacheFailure);
+	Request.MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
+	const auto Hash = Record->GetValues()[0].Value.GetRawHash().ToString();
+	std::filesystem::remove(Directory.Root / "values/v1/Content" / Hash.substr(0, 2) / (Hash + ".bin"));
+	Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::MissingValue);
+	FBuildOutputBuilder Failed("Texture2D.Output", 2);
+	for (const auto& Value : Output->GetValues()) Failed.AddValue(Value.Id, Value.Value.GetData());
+	for (const auto& Meta : Output->GetMetadata()) Failed.AddMeta(Meta.Id, Meta.Object);
+	Failed.AddMessage(EBuildMessageSeverity::Error, "fixture failure");
+	auto FailedOutput = std::move(Failed).Build(); ASSERT_TRUE(FailedOutput);
+	ASSERT_TRUE(GetCache().Put({FCacheRecord::FromOutput(Key, *FailedOutput).value()}));
+	// Failed build outputs discard values by contract, so a required mip is missing.
+	Result = ReadTexture2DCachedMips(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ETexture2DCacheError::MissingValue);
+}
 
 namespace
 {

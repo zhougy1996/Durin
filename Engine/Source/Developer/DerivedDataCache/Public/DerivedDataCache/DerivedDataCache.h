@@ -6,14 +6,32 @@
 
 namespace Durin::DerivedData
 {
+	enum class ECacheGetMode : uint8 { FullRecord, MetadataOnly, SelectedValues };
+	struct FCacheQueryStats
+	{
+		// Successful physical reads, validated raw bytes, and peak accounted payload/
+		// codec storage (including estimated Zstd context), excluding container overhead.
+		uint64 ReadBytes = 0;
+		uint64 DecodedBytes = 0;
+		uint64 PeakWorkingSetBytes = 0;
+		uint64 DurationNanoseconds = 0;
+		uint32 ValuesRead = 0;
+	};
 	struct FCacheGetRequest
 	{
 		FCacheKey Key;
 		FBuildOutputLimits OutputLimits;
-		// Manifest plus each referenced blob, including repeated references.
+		// Manifest plus each requested blob, including repeated references.
 		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
 		// Retained payload/codec storage; excludes descriptor and allocator overhead.
 		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
+		ECacheGetMode Mode = ECacheGetMode::FullRecord;
+		// SelectedValues accepts unique IDs in any order. Empty means descriptors only.
+		// Other modes require an empty list. All selected IDs are required.
+		std::span<const FValueId> RequiredValues;
+		std::function<bool()> ShouldCancel;
+		// Borrowed for this synchronous call; records actual completed I/O and codec work.
+		FCacheQueryStats* Stats = nullptr;
 	};
 
 	using FCacheGetResult = std::expected<std::optional<FCacheRecord>, FCacheError>;

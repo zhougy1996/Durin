@@ -69,7 +69,9 @@ namespace Durin::DerivedData::Private
 			if (Policy.QueryCache && !Policy.ForceBuild)
 			{
 				FCacheGetResult Stored = std::optional<FCacheRecord>{};
-				try { Stored = (Service.Cache ? *Service.Cache : GetCache()).Get({Action.GetKey(), Policy.OutputLimits, Policy.MaximumEncodedBytes, Policy.MaximumWorkingSetBytes}); } catch (...) { Stored = std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache query threw."}); }
+				try { Stored = (Service.Cache ? *Service.Cache : GetCache()).Get({.Key = Action.GetKey(), .OutputLimits = Policy.OutputLimits,
+					.MaximumEncodedBytes = Policy.MaximumEncodedBytes, .MaximumWorkingSetBytes = Policy.MaximumWorkingSetBytes,
+					.ShouldCancel = [&] { return Cancel.IsCancelled(); }}); } catch (...) { Stored = std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache query threw."}); }
 				if (Cancel.IsCancelled()) return Canceled(); if (!Stored) CacheFailure("read", Stored.error());
 				else if (*Stored) { auto Output = (**Stored).ToOutput(Action.GetKey(), Policy.OutputLimits); if (!Output) CacheFailure("read", Output.error()); else { Status |= EBuildStatus::CacheQueryHit; return FBuildCompletionAccess::Ok(std::move(*Output), Action.GetKey(), Status); } }
 			}

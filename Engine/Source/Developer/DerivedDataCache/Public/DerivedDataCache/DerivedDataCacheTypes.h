@@ -44,7 +44,9 @@ namespace Durin::DerivedData
 		InvalidRequest,
 		ValueTooLarge,
 		Corrupt,
-		StorageFailure
+		StorageFailure,
+		MissingValue,
+		Canceled
 	};
 
 	struct FCacheError

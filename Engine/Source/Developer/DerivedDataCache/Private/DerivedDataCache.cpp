@@ -39,36 +39,76 @@ namespace Durin::DerivedData
 			auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult override
 			try
 			{
+				FCacheQueryStats Stats;
+				const auto Start = std::chrono::steady_clock::now();
+				struct FPublishStats
+				{
+					FCacheQueryStats& Stats; FCacheQueryStats* Destination;
+					std::chrono::steady_clock::time_point Start;
+					~FPublishStats()
+					{
+						Stats.DurationNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Start).count();
+						if (Destination) *Destination = Stats;
+					}
+				} Publish{Stats, Request.Stats, Start};
+				const auto Canceled = [&] { return Request.ShouldCancel && Request.ShouldCancel(); };
+				const auto CancelError = [] { return std::unexpected(FCacheError{ECacheError::Canceled, "Cache query canceled."}); };
+				if (Request.Mode > ECacheGetMode::SelectedValues
+					|| (Request.Mode != ECacheGetMode::SelectedValues && !Request.RequiredValues.empty())
+					|| Request.RequiredValues.size() > std::min<uint32>(Request.OutputLimits.MaximumValues, 4096))
+					return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache query mode or selection count is invalid."});
+				std::vector<FValueId> Required(Request.RequiredValues.begin(), Request.RequiredValues.end());
+				std::ranges::sort(Required);
+				if (std::ranges::any_of(Required, [](const auto& Id) { return Id.IsNull(); })
+					|| std::adjacent_find(Required.begin(), Required.end()) != Required.end())
+					return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Selected value IDs must be valid and unique."});
+				if (Canceled()) return CancelError();
 				auto Stored = GCacheStorage.Get({Request.Key,
 					std::min(Request.MaximumEncodedBytes, Request.MaximumWorkingSetBytes), ECacheStorageNamespace::Records});
+				if (Stored && *Stored) Stats.ReadBytes = Stats.PeakWorkingSetBytes = (**Stored).GetSize();
+				if (Canceled()) return CancelError();
 				if (!Stored) return std::unexpected(std::move(Stored.error()));
 				if (!*Stored) return std::optional<FCacheRecord>{};
 				const uint64 ManifestBytes = (**Stored).GetSize();
 				auto Record = FCacheRecord::DecodeManifest(Request.Key, std::move(**Stored),
 					Request.OutputLimits, Request.MaximumEncodedBytes);
 				if (!Record) return std::unexpected(std::move(Record.error()));
+				if (Canceled()) return CancelError();
+				for (const auto& Id : Required)
+					if (!Record->FindValue(Id)) return std::unexpected(FCacheError{ECacheError::MissingValue, "Required value is absent from manifest."});
 				uint64 EncodedBytes = ManifestBytes, ResidentBytes = ManifestBytes;
 				std::vector<FValueWithId> Values;
 				for (const auto& Item : Record->GetValues())
 				{
+					if (Request.Mode == ECacheGetMode::MetadataOnly
+						|| (Request.Mode == ECacheGetMode::SelectedValues && !std::ranges::binary_search(Required, Item.Id))) continue;
+					if (Canceled()) return CancelError();
 					if (EncodedBytes == Request.MaximumEncodedBytes || ResidentBytes == Request.MaximumWorkingSetBytes)
 						return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "No budget remains for referenced value data."});
 					const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("Content"), Item.Value.GetRawHash());
 					auto Blob = GCacheStorage.Get({Key, std::min(Request.MaximumEncodedBytes - EncodedBytes,
 						Request.MaximumWorkingSetBytes - ResidentBytes), ECacheStorageNamespace::Values});
 					if (!Blob) return std::unexpected(std::move(Blob.error()));
-					if (!*Blob) return std::unexpected(FCacheError{ECacheError::Corrupt, "Manifest references a missing value blob."});
+					if (!*Blob) return std::unexpected(FCacheError{Request.Mode == ECacheGetMode::SelectedValues ? ECacheError::MissingValue : ECacheError::Corrupt, "Manifest references a missing value blob."});
 					const uint64 BlobBytes = (**Blob).GetSize(); EncodedBytes += BlobBytes;
+					Stats.ReadBytes += BlobBytes; ++Stats.ValuesRead;
+					Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, ResidentBytes + BlobBytes);
+					if (Canceled()) return CancelError();
 					auto Compressed = FCompressedCacheValue::Load(std::move(**Blob), Item.Value.GetRawSize(), BlobBytes);
 					if (!Compressed) return std::unexpected(std::move(Compressed.error()));
 					if (Compressed->GetRawHash() != Item.Value.GetRawHash() || Compressed->GetRawSize() != Item.Value.GetRawSize())
 						return std::unexpected(FCacheError{ECacheError::Corrupt, "Blob identity differs from manifest."});
+					if (Compressed->GetDecompressionWorkingBytes() > Request.MaximumWorkingSetBytes - ResidentBytes - BlobBytes)
+						return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Decompression exceeds query workspace."});
+					Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, ResidentBytes + BlobBytes + Compressed->GetDecompressionWorkingBytes());
 					auto Value = Compressed->Decompress(Request.MaximumWorkingSetBytes - ResidentBytes - BlobBytes);
 					if (!Value) return std::unexpected(std::move(Value.error()));
+					Stats.DecodedBytes += Value->GetRawSize();
+					if (Canceled()) return CancelError();
 					ResidentBytes += Compressed->IsCompressed() ? Value->GetRawSize() : BlobBytes;
 					Values.push_back({Item.Id, std::move(*Value)});
 				}
-				auto Complete = Record->WithValues(Values);
+				auto Complete = Request.Mode == ECacheGetMode::FullRecord ? Record->WithValues(Values) : Record->WithSelectedValues(Values);
 				if (!Complete) return std::unexpected(std::move(Complete.error()));
 				return std::optional<FCacheRecord>{std::move(*Complete)};
 			}

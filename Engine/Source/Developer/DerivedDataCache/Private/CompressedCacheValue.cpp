@@ -90,4 +90,6 @@ namespace Durin::DerivedData
 		FValue Value(std::move(Raw)); if (Value.GetRawHash() != RawHash) return Corrupt(); return Value;
 	}
 	catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Value decompression allocation failed."}); }
+	auto FCompressedCacheValue::GetDecompressionWorkingBytes() const -> uint64
+	{ return Compressed ? RawSize + ZSTD_estimateDCtxSize() : 0; }
 }

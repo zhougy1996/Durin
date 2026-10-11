@@ -9,13 +9,56 @@ Completed:
 
 ## Current Status
 
-Stages 0 through 2 are complete. Stage 3 is next: selective value queries and a
-Texture2D consumer. Independent compressed values and content-addressed blob
-storage now use
+Stages 0 through 3 are complete. Stage 4 is next: asynchronous cache I/O.
+Stage 3 adds metadata-only, selected-value, and full-record requests, cooperative
+cancellation, bounded query statistics, and the editor-only
+`ReadTexture2DCachedMips` consumer. Full build sessions still require complete
+outputs. Independent compressed values and content-addressed blob storage use
 `records/v3` manifests and globally shared `values/v1/Content` blobs. Full-record
 queries remain synchronous and resolve every required value.
+Stage 3 scope now uses complete values as the read unit. Texture2D consumers need
+selected complete mips, not sub-mip byte ranges. Independently compressed blocks
+and range reads move to Stage 4 as a separately validated prerequisite for a
+concrete byte-range consumer; this avoids changing the blob format without a
+consumer or measured need. StaticMesh selection remains conditional on a concrete
+LOD/stream consumer.
 Conversion copies bounded descriptor tables but shares immutable payload and CB
 allocations; it does not copy or rehash payload bytes.
+
+Stage 3 validation on 2026-10-11: the Win64-Debug-DurinEditor all build passed.
+`@module=derived-data-cache` passed all four ordinary targets (including the
+selection/cancellation/limit tests and complete-session fallback); TextureTests
+passed 142 cases and StaticMeshTests passed 169 cases. The existing symlink case
+remains skipped on this host. Final reports are
+`Build/NativeTestResults/Win64-Debug-DurinEditor/module-derived-data-cache.xml`,
+`TextureTests.xml`, and `StaticMeshTests.xml` in the same directory. Engine API
+changes make `affected` select broad Engine/GPU targets, so the task-specific
+module selection and Texture/StaticMesh targets were used. No GPU behavior
+changes; GPU execution was not required. Searches covered Engine, Sandbox, and
+RoadWeaver source/test roots; no additional project consumers need migration.
+Changed-document validation passed for both updated documents; all-plan validation
+passed (7 active, 5 completed, and 402 archived plans).
+
+Comparative observations from `FTexture2DCacheTests` use a synthetic constant-byte
+512x512 BC3 mip chain with 10 independently stored mips, querying only mip 2
+(128x128). One warmup is followed by 32 sequential full/selected pairs on this
+host; this is an observation, not a performance acceptance threshold:
+
+| Metric | Full record | Selected mip 2 |
+| --- | ---: | ---: |
+| Successful file-read bytes | 1,612 | 821 |
+| Validated raw bytes | 349,552 | 16,384 |
+| Peak accounted payload/codec bytes | 446,597 | 113,173 |
+| Mean elapsed time | 5.721 ms | 1.045 ms |
+
+The peak includes estimated Zstd context storage and excludes descriptor,
+allocator, and other process memory; process RSS is not measured. Timings depend
+on filesystem cache state and this debug host. Removing every unselected blob
+still permits the selected asset query while full Get fails, independently proving
+that unrelated payloads are neither read nor inflated. Tests also cover misses,
+missing/corrupt unselected blobs, absent/duplicate/null IDs, empty selections,
+resident empty values, exact budgets, cancellation boundaries, target mismatches,
+negative cache entries, and preservation of original mip indices.
 
 Stage 2 validation on 2026-10-11: the final Win64-Debug-DurinEditor all build
 passed, and `@module=derived-data-cache` passed all four ordinary targets:
@@ -118,22 +161,25 @@ Depends on Stage 1. Outcome: action-key manifests reference reusable content blo
 
 Depends on Stage 2. Outcome: selected mip queries avoid fetching unrelated blobs.
 
-- [ ] Add metadata-only, selected-value, and full-record request modes with explicit
+- [x] Add metadata-only, selected-value, and full-record request modes with explicit
   required-value and missing-data results.
-- [ ] Preserve full-output build-session behavior; introduce an asset-level path
+- [x] Preserve full-output build-session behavior; introduce an asset-level path
   that explicitly requests and assembles a selected Texture2D mip set.
-- [ ] Measure actual read bytes, decoded bytes, peak memory, and full-hit latency;
+- [x] Measure actual read bytes, decoded bytes, accounted peak payload/codec memory, and full-hit latency;
   verify a single-mip query never reads or inflates other mip payloads.
-- [ ] Add independently compressed blocks and range reads only after value-level
-  selection works; test offsets, bounds, block integrity, and cancellation.
-- [ ] Extend selection to StaticMesh LOD/streams where a concrete consumer needs it;
-  leave Shader and Physics rollout driven by actual requirements.
-- [ ] Pass affected native tests and an all build; record comparative measurements.
+- [x] Assess StaticMesh LOD/stream consumers: current assembly requires a complete
+  product, so no selection migration is warranted yet. Leave Shader and Physics
+  rollout driven by actual requirements.
+- [x] Pass task-specific affected native tests and an all build; record comparative measurements.
 
 ### Stage 4: Introduce asynchronous cache I/O
 
 Depends on Stage 3. Outcome: slow cache I/O does not occupy producer execution slots.
 
+- [ ] When a concrete byte-range consumer is selected, add independently compressed
+  blocks and range reads; test offsets, bounds, block integrity, cancellation, and
+  pinned-file lifetime across concurrent atomic replacement. This is separate from
+  the completed-value selection gate in Stage 3.
 - [ ] Add batched asynchronous cache requests using request owners and Core scheduling.
 - [ ] Convert build execution to continuations; define exactly-once completion,
   cancellation, priority, shutdown draining, and buffer lifetime.

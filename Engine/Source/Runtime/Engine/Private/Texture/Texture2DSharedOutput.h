@@ -23,7 +23,8 @@ namespace Durin::TexturePrivate
 
 	// Reads bounded descriptors only. No source resolution, archive payload or
 	// disposable platform product is required for semantic validation.
-	inline auto ReadTexture2DOutputLayout(const DerivedData::FBuildOutput& Output,
+	template <typename TOutput>
+	inline auto ReadTexture2DOutputLayout(const TOutput& Output,
 		ECookTargetPlatform Platform, ECookTargetProfile Profile)
 		-> std::expected<FTexture2DOutputLayout, std::string>
 	{

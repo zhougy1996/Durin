@@ -70,6 +70,100 @@ namespace
 	{ return Directory.Root / Namespace / Key.GetBucket().ToString() / Key.ToString().substr(0, 2) / (Key.ToString() + ".bin"); }
 }
 
+TEST(FCacheSelectionTests, MetadataAndSelectionLeaveOtherValuesAsReferences)
+{
+	FScopedCacheDirectory Directory("cache-selection");
+	const auto Key = MakeKey(FCacheBucket::FromString("Selection"), 'a');
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(FByteBuffer(8192, std::byte{1})),
+		FSharedByteBuffer::Take(Bytes({2, 3})), FSharedByteBuffer{}});
+	ASSERT_TRUE(GetCache().Put({Record}));
+	FCacheQueryStats Stats;
+	auto Metadata = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::MetadataOnly, .Stats = &Stats});
+	ASSERT_TRUE(Metadata && *Metadata); EXPECT_EQ(Stats.ValuesRead, 0u); EXPECT_EQ(Stats.DecodedBytes, 0u);
+	EXPECT_EQ(Stats.ReadBytes, Record.EncodeManifest()->GetSize());
+	EXPECT_EQ(GetBuildMetadataPayload(**Metadata).GetSize(), 2u);
+	EXPECT_FALSE((**Metadata).ToOutput(Key));
+	for (const auto& Item : (**Metadata).GetValues()) EXPECT_FALSE(Item.Value.HasData());
+	const std::array Selected{FValueId::FromName("Block").MakeIndexed(2), FValueId::FromName("Block").MakeIndexed(1)};
+	auto Partial = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected, .Stats = &Stats});
+	ASSERT_TRUE(Partial && *Partial); EXPECT_EQ(Stats.ValuesRead, 2u); EXPECT_EQ(Stats.DecodedBytes, 2u);
+	EXPECT_FALSE((**Partial).FindValue(FValueId::FromName("Block").MakeIndexed(0))->HasData());
+	EXPECT_TRUE((**Partial).FindValue(Selected[0])->HasData()); // Empty data remains resident.
+	EXPECT_TRUE((**Partial).FindValue(Selected[1])->HasData());
+	EXPECT_FALSE((**Partial).ToOutput(Key));
+	auto Full = GetCache().Get({Key}); ASSERT_TRUE(Full && *Full); EXPECT_TRUE((**Full).ToOutput(Key));
+	std::vector<FValueId> All;
+	for (const auto& Value : Record.GetValues()) All.push_back(Value.Id);
+	auto AllSelected = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = All});
+	ASSERT_TRUE(AllSelected && *AllSelected); EXPECT_TRUE((**AllSelected).ToOutput(Key));
+	auto EmptySelected = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .Stats = &Stats});
+	ASSERT_TRUE(EmptySelected && *EmptySelected); EXPECT_EQ(Stats.ValuesRead, 0u);
+}
+
+TEST(FCacheSelectionTests, RejectsInvalidSelectionAndDistinguishesMissFromMissingValue)
+{
+	FScopedCacheDirectory Directory("cache-selection-errors");
+	const auto Key = MakeKey(FCacheBucket::FromString("Selection"), 'b');
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1})), FSharedByteBuffer::Take(Bytes({2}))});
+	const std::array Selected{Record.GetValues()[0].Id};
+	auto Miss = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected});
+	ASSERT_TRUE(Miss); EXPECT_FALSE(*Miss);
+	ASSERT_TRUE(GetCache().Put({Record}));
+	const std::array Duplicate{Selected[0], Selected[0]};
+	const std::array Null{FValueId{}};
+	for (const auto& Request : {FCacheGetRequest{.Key = Key, .RequiredValues = Selected},
+		FCacheGetRequest{.Key = Key, .Mode = ECacheGetMode::MetadataOnly, .RequiredValues = Selected},
+		FCacheGetRequest{.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Duplicate},
+		FCacheGetRequest{.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Null}})
+	{
+		auto Result = GetCache().Get(Request); ASSERT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::InvalidRequest);
+	}
+	const std::array Unknown{FValueId::FromName("Unknown")}; FCacheQueryStats Stats;
+	auto Missing = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Unknown, .Stats = &Stats});
+	ASSERT_FALSE(Missing); EXPECT_EQ(Missing.error().Code, ECacheError::MissingValue); EXPECT_EQ(Stats.ValuesRead, 0u);
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes({9}), EntryPath(Directory, BlobKey(Record.GetValues()[1].Value), "values/v1")));
+	auto Undamaged = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected});
+	ASSERT_TRUE(Undamaged && *Undamaged); EXPECT_FALSE(GetCache().Get({Key}));
+	std::filesystem::remove(EntryPath(Directory, BlobKey(Record.GetValues()[1].Value), "values/v1"));
+	auto Partial = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected});
+	ASSERT_TRUE(Partial && *Partial); EXPECT_FALSE(GetCache().Get({Key}));
+	std::filesystem::remove(EntryPath(Directory, BlobKey(Record.GetValues()[0].Value), "values/v1"));
+	Missing = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected});
+	ASSERT_FALSE(Missing); EXPECT_EQ(Missing.error().Code, ECacheError::MissingValue);
+	auto Metadata = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::MetadataOnly}); ASSERT_TRUE(Metadata && *Metadata);
+}
+
+TEST(FCacheSelectionTests, EnforcesSelectedBudgetsAndCooperativeCancellation)
+{
+	FScopedCacheDirectory Directory("cache-selection-budget");
+	const auto Key = MakeKey(FCacheBucket::FromString("Selection"), 'c');
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(FByteBuffer(1024 * 1024, std::byte{1})),
+		FSharedByteBuffer::Take(Bytes({2}))}); ASSERT_TRUE(GetCache().Put({Record}));
+	const std::array Selected{FValueId::FromName("Block").MakeIndexed(1)};
+	// Logical output bounds still validate every descriptor, not only resident values.
+	EXPECT_FALSE(GetCache().Get({.Key = Key, .OutputLimits = {.MaximumTotalBytes = 1024},
+		.Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected}));
+	FCacheQueryStats Stats;
+	auto Partial = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected, .Stats = &Stats});
+	ASSERT_TRUE(Partial && *Partial);
+	EXPECT_TRUE(GetCache().Get({.Key = Key, .MaximumEncodedBytes = Stats.ReadBytes,
+		.MaximumWorkingSetBytes = Stats.PeakWorkingSetBytes, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected}));
+	EXPECT_FALSE(GetCache().Get({.Key = Key, .MaximumEncodedBytes = Stats.ReadBytes - 1,
+		.Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected}));
+	EXPECT_FALSE(GetCache().Get({.Key = Key, .MaximumWorkingSetBytes = Stats.PeakWorkingSetBytes}));
+	for (uint32 StopAt : {1u, 2u, 3u, 4u, 5u, 6u})
+	{
+		uint32 Checks = 0;
+		auto Canceled = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected,
+			.ShouldCancel = [&] { return ++Checks == StopAt; }, .Stats = &Stats});
+		ASSERT_FALSE(Canceled); EXPECT_EQ(Canceled.error().Code, ECacheError::Canceled);
+		if (StopAt == 1) EXPECT_EQ(Stats.ReadBytes, 0u);
+		if (StopAt <= 4) EXPECT_EQ(Stats.ValuesRead, 0u);
+		if (StopAt == 5) EXPECT_EQ(Stats.DecodedBytes, 0u);
+		if (StopAt == 6) EXPECT_EQ(Stats.DecodedBytes, 1u);
+	}
+}
+
 TEST(FCacheValueTests, CompressesLargeValuesAndStoresSmallOrIncompressibleValuesRaw)
 {
 	FByteBuffer Random(8192); uint32 State = 123;

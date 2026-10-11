@@ -44,6 +44,13 @@ namespace Durin::DerivedData
 	{ FCbWriter Writer; Writer.AddBinary(std::move(Payload), "Payload"); return Writer.SaveObject(); }
 	auto GetBuildMetadataPayload(const FBuildOutput& Output, FValueId Id) -> FSharedByteBuffer
 	{ const auto Field = Output.FindMeta(Id).Find("Payload"); const auto Payload = Field.AsBinary(); return Payload ? *Payload : FSharedByteBuffer{}; }
+	auto GetBuildMetadataPayload(const FCacheRecord& Record, FValueId Id) -> FSharedByteBuffer
+	{
+		const auto Metadata = Record.GetMetadata();
+		const auto It = std::ranges::lower_bound(Metadata, Id, {}, &FBuildOutputMeta::Id);
+		if (It == Metadata.end() || It->Id != Id) return {};
+		return It->Object.GetView().Find("Payload").AsBinary().value_or(FSharedByteBuffer{});
+	}
 
 	template<typename T>
 	static auto Validate(const T& Data, FBuildOutputLimits Limits, bool RequireData = true)
@@ -303,15 +310,27 @@ namespace Durin::DerivedData
 	{
 		if (!State || Values.size() != State->Values.size())
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Record resolution requires all values."});
-		for (size_t I = 0; I < Values.size(); ++I)
+		return WithSelectedValues(Values);
+	}
+	auto FCacheRecord::WithSelectedValues(std::span<const FValueWithId> Values) const -> std::expected<FCacheRecord, FCacheError>
+	{
+		if (!State) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Record is empty."});
+		auto Data = std::make_shared<FState>(*State); FValueId Previous;
+		for (const auto& Actual : Values)
 		{
-			const auto& Expected = State->Values[I]; const auto& Actual = Values[I];
-			if (Expected.Id != Actual.Id || !Actual.Value.HasData() || Expected.Value.GetRawHash() != Actual.Value.GetRawHash()
-				|| Expected.Value.GetRawSize() != Actual.Value.GetRawSize())
+			const auto It = std::ranges::lower_bound(Data->Values, Actual.Id, {}, &FValueWithId::Id);
+			if (Actual.Id.IsNull() || (!Previous.IsNull() && Previous >= Actual.Id) || It == Data->Values.end()
+				|| It->Id != Actual.Id || !Actual.Value.HasData() || It->Value.GetRawHash() != Actual.Value.GetRawHash()
+				|| It->Value.GetRawSize() != Actual.Value.GetRawSize())
 				return std::unexpected(FCacheError{ECacheError::Corrupt, "Resolved value identity mismatch."});
+			Previous = Actual.Id; It->Value = Actual.Value;
 		}
-		auto Data = std::make_shared<FState>(*State); Data->Values.assign(Values.begin(), Values.end());
 		FCacheRecord Record; Record.State = std::move(Data); return Record;
+	}
+	auto FCacheRecord::FindValue(FValueId Id) const -> const FValue*
+	{
+		const auto Values = GetValues(); const auto It = std::ranges::lower_bound(Values, Id, {}, &FValueWithId::Id);
+		return It != Values.end() && It->Id == Id ? &It->Value : nullptr;
 	}
 
 	auto FCacheRecord::Encode(uint64 MaximumBytes) const -> std::expected<FSharedByteBuffer, FCacheError>
