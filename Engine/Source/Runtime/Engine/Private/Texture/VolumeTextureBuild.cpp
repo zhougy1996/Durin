@@ -60,7 +60,7 @@ namespace Durin
 		auto Built = TexturePrivate::Build(std::move(*Definition),
 			TexturePrivate::MakeVolumeTextureInputResolver(Source), std::move(Options));
 		if (!Built) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
-			ETextureBuildStage::Module, "VolumeTexture build session is unavailable."});
+			ETextureBuildStage::Module, Built.error().Description});
 		auto& Completion = *Built;
 		if (Completion.GetStatus() == DerivedData::EStatus::Canceled)
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "Texture build was cancelled."});

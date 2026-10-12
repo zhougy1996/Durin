@@ -4,6 +4,7 @@
 
 #if DURIN_WITH_EDITOR
 #include "DerivedDataBuildSession.h"
+#include "Asset/ResourceBuildSessions.h"
 #endif
 #include "StaticMeshBuildFunction.h"
 #include "StaticMeshSharedOutput.h"
@@ -16,44 +17,9 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 	namespace
 	{
-		std::mutex BuildSessionMutex;
-		std::shared_ptr<DerivedData::FBuildSession> BuildSession;
-		std::shared_ptr<DerivedData::FBuildSession> AsyncSession;
-		std::shared_ptr<DerivedData::IBuild> TestBuild;
+		AssetPrivate::FResourceBuildSessions Sessions;
+		std::mutex CompletionHookMutex;
 		std::function<void()> CompletionHookForTests;
-
-		auto GetBuildSession() -> std::shared_ptr<DerivedData::FBuildSession>
-		{
-			std::lock_guard Lock(BuildSessionMutex);
-			if (!BuildSession)
-			{
-				auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateInlineBuildScheduler());
-				if (!Created) return {};
-				BuildSession = std::move(*Created);
-			}
-			return BuildSession;
-		}
-
-		auto BuildRenderDefinition(DerivedData::FBuildDefinition Definition,
-			std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
-			DerivedData::FBuildRequestOptions Options)
-			-> std::optional<DerivedData::FBuildCompleteParams>
-		{
-			if (Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
-				std::nullopt, DerivedData::EBuildStatus::None);
-			auto Session = GetBuildSession();
-			if (!Session) return std::nullopt;
-			Options.InputResolver = std::move(Resolver);
-			DerivedData::FRequestOwner Owner;
-			std::optional<DerivedData::FBuildCompleteParams> Completion;
-			auto Admitted = Session->Build(std::move(Definition), Owner, [&](auto Value) {
-				Completion = std::move(Value);
-			}, {}, std::move(Options));
-			if (!Admitted) return std::nullopt;
-			require(Owner.Wait() == DerivedData::ERequestWaitResult::Completed);
-			if (!Completion) return std::nullopt;
-			return std::move(*Completion);
-		}
 
 		auto CheckRenderPreparationBudget(const FStaticMeshRenderData& Render, const FAssetBuildTaskContext& Control)
 			-> std::expected<void, FStaticMeshBuildFailure>
@@ -187,19 +153,13 @@ namespace Durin
 			auto Options = MakeRenderOptions(Request.bPersistDerivedData, MaximumWorkingSetBytes, std::move(ShouldCancel));
 			Options.InputResolver = MakeRenderInputResolver(Request);
 			Request.Source.ReleaseGeometry();
-			std::shared_ptr<DerivedData::FBuildSession> Session;
+			auto Session = Sessions.Get(DerivedData::EBuildCacheExecution::Task);
+			if (!Session) return std::unexpected(FStaticMeshBuildFailure{Session.error().Description});
 			std::function<void()> CompletionHook;
 			{
-				std::lock_guard Lock(BuildSessionMutex);
+				std::lock_guard Lock(CompletionHookMutex);
 				CompletionHook = CompletionHookForTests;
-				if (!AsyncSession)
-				{
-					auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::EBuildCacheExecution::Task);
-					if (Created) AsyncSession = std::move(*Created);
-				}
-				Session = AsyncSession;
 			}
-			if (!Session) return std::unexpected(FStaticMeshBuildFailure{"StaticMesh asynchronous build session is unavailable."});
 			if (CompletionHook)
 			{
 				Completion = [Callback = std::move(Completion), Hook = std::move(CompletionHook)](auto Value) {
@@ -208,29 +168,33 @@ namespace Durin
 					if (bSuccess) Hook();
 				};
 			}
-			auto Admitted = Session->Build(std::move(*Definition), Owner, std::move(Completion), {}, std::move(Options));
+			auto Admitted = (*Session)->Build(std::move(*Definition), Owner, std::move(Completion), {}, std::move(Options));
 			if (!Admitted) return std::unexpected(FStaticMeshBuildFailure{Admitted.error().Description});
 			return {};
 		}
+	}
+	namespace StaticMeshPrivate
+	{
+		auto OpenBuildSessions() -> void { Sessions.Open(); }
+		auto ShutdownBuildSessions() -> void
+		{ require(Sessions.Close() == DerivedData::EBuildDrainResult::Drained); }
 	}
 	namespace AssetPrivate
 	{
 		auto SetStaticMeshBuildCompletionHookForTests(std::function<void()> Hook) -> void
 		{
-			std::lock_guard Lock(BuildSessionMutex);
+			std::lock_guard Lock(CompletionHookMutex);
 			CompletionHookForTests = std::move(Hook);
 		}
 		auto SetStaticMeshAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void
 		{
-			std::lock_guard Lock(BuildSessionMutex);
-			if (AsyncSession) require(AsyncSession->Drain() == DerivedData::EBuildDrainResult::Drained);
-			AsyncSession.reset(); TestBuild.reset();
-			if (!Cache) return;
-			TestBuild = DerivedData::CreateBuild({.Cache = std::move(Cache)});
-			require(TestBuild->Register(StaticMeshPrivate::MakeRenderBuildFunction()).has_value());
-			auto Created = TestBuild->CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::EBuildCacheExecution::Task);
-			require(Created.has_value());
-			AsyncSession = std::move(*Created);
+			std::shared_ptr<DerivedData::IBuild> Service;
+			if (Cache)
+			{
+				Service = DerivedData::CreateBuild({.Cache = std::move(Cache)});
+				require(Service->Register(StaticMeshPrivate::MakeRenderBuildFunction()).has_value());
+			}
+			require(Sessions.SetTaskService(std::move(Service)) == DerivedData::EBuildDrainResult::Drained);
 		}
 	}
 #endif
@@ -261,9 +225,9 @@ namespace Durin
 		// The resolver retains canonical bulk, not the request's optional decoded residency.
 		Request.Source.ReleaseGeometry();
 		auto Options = StaticMeshPrivate::MakeRenderOptions(Request.bPersistDerivedData, Control.MaximumWorkingSetBytes, IsCancelled);
-		auto Built = BuildRenderDefinition(std::move(*Definition), std::move(Inputs), std::move(Options));
+		auto Built = Sessions.Build(std::move(*Definition), std::move(Inputs), std::move(Options));
 		if (!Built) return std::unexpected(FStaticMeshBuildFailure{
-			"StaticMesh build session is unavailable.", EStaticMeshBuildStage::Render});
+			Built.error().Description, EStaticMeshBuildStage::Render});
 		return StaticMeshPrivate::ConsumeRenderBuild(Request.Settings, std::move(*Built), Control);
 #endif
 	}

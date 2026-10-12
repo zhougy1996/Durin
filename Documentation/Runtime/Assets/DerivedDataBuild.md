@@ -27,10 +27,15 @@ reservations, latest-wins checks, and publication. TextureCompressor and MeshBui
 remain pure recipe modules; ShaderBuild retains compiler scheduling, LRU, and
 single-flight.
 
-Texture, StaticMesh, and physics each lazily create a family-owned session from
-the DDC production build. There is no Engine integration service or explicit
-asset-build lifecycle. ShaderBuild creates an isolated service/session for its
-module lifetime. Asset compilation is drained before producer modules unload.
+Texture, StaticMesh, and physics each own a small `FResourceBuildSessions` holder
+that lazily acquires sessions from the DDC production build; it adds no build
+service or worker pool. TextureCompressor and MeshBuilder close/drain their family
+sessions at module shutdown; Engine does the same for physics. Asset compilation
+finishes before producer modules unload. Holder close stops acquisition, drains
+outside its lock, and retains sessions after a reentrant `WouldBlock` until a later
+external drain. Startup reopens a previously drained holder. ShaderBuild retains
+its isolated service/session so compiler environment and registration lifetime
+remain tied to its module, independently of Engine resource holders.
 
 ## Definitions, actions, and identity
 
@@ -424,6 +429,12 @@ already occupied asset worker can nest unrelated asset tasks and violate their
 mailbox/barrier protocol. Task-scheduled build sessions release producer workers
 while cache work runs on BlockingIO. Further family migrations require the same
 asynchronous bridge at their asset-compilation owner boundary.
+Engine family wrappers share inline submission through their holder and preserve
+`FBuildAdmissionError` until business-error translation. Texture task submission
+also preserves typed rejection instead of returning bool. Native fixture guards
+scope task-cache overrides through owner retirement; replacement services register
+their functions before publication and old sessions/services drain outside the
+acquisition lock. Test overrides do not replace synchronous production sessions.
 
 ## Family boundaries
 

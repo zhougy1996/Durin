@@ -9,9 +9,8 @@ Completed:
 
 ## Current Status
 
-Stages 0 through 2 are complete with the recorded integration-validation exception
-below; Stage 3A is complete, Stage 3B is next, and subsequent stages have not
-started. The 2026-10-13
+Stages 0 through 3 are complete with the recorded integration-validation exception
+below; Stage 4 is next and subsequent stages have not started. The 2026-10-13
 architecture review revised Stage 3 to simplify dispatch policy and public
 integration before adding further infrastructure. Stage 2 completion records
 validated behavior, not a requirement to retain every implementation mechanism.
@@ -89,6 +88,38 @@ Stage 3A evidence (Win64-Debug-DurinEditor, 2026-10-13):
   Build log: `Build/.agent-state/logs/20261013-043730-135398-63944-cmake.log`.
   Module log: `Build/.agent-state/logs/20261013-043752-522377-27620-ctest.log`.
   Isolated service log: `Build/.agent-state/logs/20261013-043812-774228-72668-ctest.log`.
+  Reports remain in `Build/NativeTestResults/Win64-Debug-DurinEditor/`.
+
+Stage 3B evidence (Win64-Debug-DurinEditor, 2026-10-13):
+
+- Texture, StaticMesh, and physics now share the private Engine
+  FResourceBuildSessions holder for acquisition, synchronous submission, and
+  close/drain. Producer-module shutdown drains Texture/Mesh sessions; Engine
+  shutdown drains physics sessions. Registration remains at its existing family
+  boundary and session snapshots remain immutable.
+- Texture wrappers return typed admission errors; resource adapters preserve their
+  diagnostic at business translation, and Shader admission failure retains its
+  diagnostic. Shader keeps its independent compiler/service lifetime.
+- Injected test services register functions before replacement and drain retired
+  dependencies outside holder locks. Existing fixture owner-drain guards retain
+  scoped restoration; no additional public test-guard API was introduced.
+- DerivedDataCacheTests: 61 passed, one existing symlink platform skip. All three
+  new holder cases also passed in isolated processes: nested inline completion and
+  typed rejection across reopen, reentrant close followed by external drain, and
+  service replacement with callback acquisition during drain.
+- DerivedDataBuildTests: all 78 passed. TextureTests: all 142 passed.
+  StaticMeshTests: all 169 passed, including collision cold/warm integration.
+  AsyncTaskPilotLifecycleTests and RenderShaderCacheTests passed. Shader Builder
+  retains only the recorded dependency-count fixture failure (22/23 passed).
+- Workspace consumer audit found no affected Sandbox/RoadWeaver callers. The final
+  all build passed; affected analysis expands the shared Engine integration changes
+  to unrelated rendering/GPU targets, so validation uses the DDC module set plus
+  TextureTests and StaticMeshTests rather than executing unrelated GPU coverage.
+- Final build: `Build/.agent-state/logs/20261013-044942-875202-6028-cmake.log`.
+  Module: `Build/.agent-state/logs/20261013-045008-365614-70052-ctest.log`.
+  Isolated holder cases: `Build/.agent-state/logs/20261013-044927-294893-66284-ctest.log`.
+  Texture: `Build/.agent-state/logs/20261013-044531-947087-67352-TextureTests.log`.
+  Mesh: `Build/.agent-state/logs/20261013-044844-959776-78696-StaticMeshTests.log`.
   Reports remain in `Build/NativeTestResults/Win64-Debug-DurinEditor/`.
 
 ## Goal
@@ -246,14 +277,22 @@ Execute 3A before 3B; each step must be independently reviewable and validated.
 
 3B: consolidate resource integration only after 3A passes.
 
-- [ ] Consolidate duplicated session registration, submission, and shutdown/drain
+Selected integration decision: existing native fixture owner-drain guards already
+scope cache overrides. Retain their low-level test setters instead of adding a
+second public guard API; make the family holder own each injected service and
+detach it before draining outside the acquisition lock. Shader retains its
+isolated compiler service; do not introduce a cross-module lifecycle framework
+solely to share its small synchronous wrapper.
+
+- [x] Consolidate duplicated session registration, submission, and shutdown/drain
   glue using existing ownership facilities; introduce a small lifecycle holder
   only when concrete duplicated behavior requires it.
-- [ ] Reuse submission logic while preserving immediate inline and nested
+- [x] Reuse submission logic while preserving immediate inline and nested
   synchronous completion; keep asynchronous task admission independent.
-- [ ] Preserve typed admission errors instead of collapsing them to bool/nullopt.
-- [ ] Move test injection to scoped dependencies and drain outside holder locks.
-- [ ] Decide and document Shader's isolated compiler/service lifetime explicitly.
+- [x] Preserve typed admission errors instead of collapsing them to bool/nullopt.
+- [x] Keep test overrides scoped to fixture owner-drain guards, retain service
+  dependencies in the family holder, and drain outside holder locks.
+- [x] Decide and document Shader's isolated compiler/service lifetime explicitly.
 
 Acceptance for 3A: multiple task sessions still share one concurrency and admission
 domain; inline completion is independent of task saturation and never executes

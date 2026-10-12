@@ -94,10 +94,11 @@ namespace Durin
 			}();
 			Completion(std::move(Product));
 		};
-		if (!BuildAsync(std::move(*Definition), MakeTextureCubeInputResolver(Source, PreparedInput), Owner,
-			std::move(Callback), std::move(Options)))
+		auto Admitted = BuildAsync(std::move(*Definition), MakeTextureCubeInputResolver(Source, PreparedInput), Owner,
+			std::move(Callback), std::move(Options));
+		if (!Admitted)
 			Completion(std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
-				ETextureBuildStage::Module, "TextureCube build session is unavailable."}));
+				ETextureBuildStage::Module, Admitted.error().Description}));
 	}
 #endif
 
@@ -116,7 +117,7 @@ namespace Durin
 		auto Built = TexturePrivate::Build(std::move(*Definition),
 			MakeTextureCubeInputResolver(Source, PreparedInput), std::move(Options));
 		if (!Built) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
-			ETextureBuildStage::Module, "TextureCube build session is unavailable."});
+			ETextureBuildStage::Module, Built.error().Description});
 		auto& Completion = *Built;
 		return ConsumeCubeBuild(Completion, Platform, Profile);
 #endif

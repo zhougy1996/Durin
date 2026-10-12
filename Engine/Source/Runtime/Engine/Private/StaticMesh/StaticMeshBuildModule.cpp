@@ -3,6 +3,7 @@
 #include "StaticMesh/IMeshBuilderModule.h"
 #if DURIN_WITH_EDITOR
 #include "StaticMeshBuildFunction.h"
+#include "StaticMeshBuildAsync.h"
 #endif
 
 namespace Durin
@@ -11,6 +12,13 @@ namespace Durin
 	{
 #if DURIN_WITH_EDITOR
 		StaticMeshPrivate::RegisterBuildFunction();
+		StaticMeshPrivate::OpenBuildSessions();
+#endif
+	}
+	auto IMeshBuilderModule::ShutdownModule() -> void
+	{
+#if DURIN_WITH_EDITOR
+		StaticMeshPrivate::ShutdownBuildSessions();
 #endif
 	}
 

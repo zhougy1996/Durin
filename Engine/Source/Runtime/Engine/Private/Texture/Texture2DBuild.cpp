@@ -190,9 +190,10 @@ namespace Durin
 			}();
 			Completion(std::move(Product), std::move(Identity));
 		};
-		if (!BuildAsync(std::move(*Definition), MakeTexture2DInputResolver(Request.Source), Owner,
-			std::move(Callback), MakeTexture2DBuildOptions(Request, std::move(ShouldCancel))))
-			Completion(std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable}), std::move(Identity));
+		auto Admitted = BuildAsync(std::move(*Definition), MakeTexture2DInputResolver(Request.Source), Owner,
+			std::move(Callback), MakeTexture2DBuildOptions(Request, std::move(ShouldCancel)));
+		if (!Admitted) Completion(std::unexpected(FTexture2DBuildError{
+			.Code = ETexture2DBuildError::ModuleUnavailable, .Description = Admitted.error().Description}), std::move(Identity));
 	}
 #endif
 
@@ -209,7 +210,7 @@ namespace Durin
 		auto Built = TexturePrivate::Build(std::move(*Definition),
 			TexturePrivate::MakeTexture2DInputResolver(Request.Source), std::move(Options));
 		if (!Built) return std::unexpected(FTexture2DBuildError{
-			.Code = ETexture2DBuildError::ModuleUnavailable});
+			.Code = ETexture2DBuildError::ModuleUnavailable, .Description = Built.error().Description});
 		auto Product = ConsumeTexture2DBuild(*Built, Request.TargetPlatform, Request.TargetProfile);
 		if (!Product) return std::unexpected(Product.error());
 		OutPlatformData = std::move(*Product);

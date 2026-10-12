@@ -13,6 +13,12 @@ namespace Durin
 		TexturePrivate::RegisterBuildFunctions();
 #endif
 	}
+	auto ITextureCompressorModule::ShutdownModule() -> void
+	{
+#if DURIN_WITH_EDITOR
+		TexturePrivate::ShutdownBuildSessions();
+#endif
+	}
 
 	auto ITextureCompressorModule::Get() -> ITextureCompressorModule*
 	{

@@ -3,65 +3,41 @@
 #include "Texture2DBuildFunction.h"
 #include "TextureCubeBuildFunction.h"
 #include "VolumeTextureBuildFunction.h"
-#include "Logging/LogMacros.h"
+#include "Asset/ResourceBuildSessions.h"
 #include "Texture/Texture2DCompilationTestSupport.h"
 
 namespace Durin::TexturePrivate
 {
 	namespace
 	{
-		std::mutex SessionMutex;
-		std::shared_ptr<DerivedData::FBuildSession> Session;
-		std::shared_ptr<DerivedData::FBuildSession> AsyncSession;
-		std::shared_ptr<DerivedData::IBuild> TestBuild;
-
-		auto GetSession() -> std::shared_ptr<DerivedData::FBuildSession>
-		{
-			std::lock_guard Lock(SessionMutex);
-			if (!Session)
-			{
-				auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateInlineBuildScheduler());
-				if (!Created) return {};
-				Session = std::move(*Created);
-			}
-			return Session;
-		}
+		AssetPrivate::FResourceBuildSessions Sessions;
 	}
 
 	auto SetAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void
 	{
-		std::lock_guard Lock(SessionMutex);
-		if (AsyncSession) require(AsyncSession->Drain() == DerivedData::EBuildDrainResult::Drained);
-		AsyncSession.reset();
-		TestBuild.reset();
-		if (!Cache) return;
-		TestBuild = DerivedData::CreateBuild({.Cache = std::move(Cache)});
-		require(TestBuild->Register(MakeTexture2DBuildFunction()).has_value());
-		require(TestBuild->Register(MakeTextureCubeBuildFunction()).has_value());
-		auto Created = TestBuild->CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::EBuildCacheExecution::Task);
-		require(Created.has_value());
-		AsyncSession = std::move(*Created);
+		std::shared_ptr<DerivedData::IBuild> Service;
+		if (Cache)
+		{
+			Service = DerivedData::CreateBuild({.Cache = std::move(Cache)});
+			require(Service->Register(MakeTexture2DBuildFunction()).has_value());
+			require(Service->Register(MakeTextureCubeBuildFunction()).has_value());
+			require(Service->Register(MakeVolumeTextureBuildFunction()).has_value());
+		}
+		require(Sessions.SetTaskService(std::move(Service)) == DerivedData::EBuildDrainResult::Drained);
 	}
 
 	auto BuildAsync(DerivedData::FBuildDefinition Definition,
 		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
 		DerivedData::IRequestOwner& Owner,
 		DerivedData::FBuildCompletionCallback Completion,
-		DerivedData::FBuildRequestOptions Options) -> bool
+		DerivedData::FBuildRequestOptions Options) -> std::expected<void, DerivedData::FBuildAdmissionError>
 	{
-		std::shared_ptr<DerivedData::FBuildSession> Persistent;
-		{
-			std::lock_guard Lock(SessionMutex);
-			if (!AsyncSession)
-			{
-				auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::EBuildCacheExecution::Task);
-				if (!Created) return false;
-				AsyncSession = std::move(*Created);
-			}
-			Persistent = AsyncSession;
-		}
+		auto Persistent = Sessions.Get(DerivedData::EBuildCacheExecution::Task);
+		if (!Persistent) return std::unexpected(std::move(Persistent.error()));
 		Options.InputResolver = std::move(Resolver);
-		return Persistent->Build(std::move(Definition), Owner, std::move(Completion), {}, std::move(Options)).has_value();
+		auto Admitted = (*Persistent)->Build(std::move(Definition), Owner, std::move(Completion), {}, std::move(Options));
+		if (!Admitted) return std::unexpected(std::move(Admitted.error()));
+		return {};
 	}
 
 	auto RegisterBuildFunctions() -> void
@@ -74,33 +50,17 @@ namespace Durin::TexturePrivate
 				|| !Build.Register(MakeTextureCubeBuildFunction()))
 				throw std::runtime_error("Failed to register texture derived-data build functions.");
 		});
+		Sessions.Open();
 	}
+	auto ShutdownBuildSessions() -> void
+	{ require(Sessions.Close() == DerivedData::EBuildDrainResult::Drained); }
 
 	auto Build(DerivedData::FBuildDefinition Definition,
 		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
 		DerivedData::FBuildRequestOptions Options)
-		-> std::optional<DerivedData::FBuildCompleteParams>
+		-> std::expected<DerivedData::FBuildCompleteParams, DerivedData::FBuildAdmissionError>
 	{
-		const std::string FunctionName(Definition.GetFunctionName());
-		auto Reject = [&](std::string_view Description) -> std::optional<DerivedData::FBuildCompleteParams>
-		{
-			DURIN_ERROR_CATEGORY("TextureCompressor", "{} request failed: {}", FunctionName, Description);
-			return std::nullopt;
-		};
-		if (Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
-			std::nullopt, DerivedData::EBuildStatus::None);
-		auto Persistent = GetSession();
-		if (!Persistent) return Reject("Texture build session is unavailable.");
-		Options.InputResolver = std::move(Resolver);
-		DerivedData::FRequestOwner Owner;
-		std::optional<DerivedData::FBuildCompleteParams> Completion;
-		auto Admitted = Persistent->Build(std::move(Definition), Owner, [&](auto Value) {
-			Completion = std::move(Value);
-		}, {}, std::move(Options));
-		if (!Admitted) return Reject(Admitted.error().Description);
-		require(Owner.Wait() == DerivedData::ERequestWaitResult::Completed);
-		if (!Completion) return Reject("Texture build completion is unavailable.");
-		return std::move(*Completion);
+		return Sessions.Build(std::move(Definition), std::move(Resolver), std::move(Options));
 	}
 }
 

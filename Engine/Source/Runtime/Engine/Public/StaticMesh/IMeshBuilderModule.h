@@ -16,6 +16,7 @@ namespace Durin
 	{
 	public:
 		ENGINE_API auto StartupModule() -> void override;
+		ENGINE_API auto ShutdownModule() -> void override;
 		// Borrow the active implementation. Consumers drain work before editor shutdown.
 		ENGINE_API static auto Get() -> IMeshBuilderModule*;
 		// Nonzero opaque identity combining implementation, algorithm, and dependency versions. Immutable for the editor lifetime.

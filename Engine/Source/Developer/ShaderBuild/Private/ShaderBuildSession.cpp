@@ -322,7 +322,7 @@ namespace Durin
 		auto Admitted = Persistent->Build(std::move(Request.Definition), Owner, [&](auto Result) {
 			Completion = std::move(Result);
 		}, {}, std::move(Options));
-		if (!Admitted) return FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None);
+		if (!Admitted) return FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None, Admitted.error().Description);
 		require(Owner.Wait() == ERequestWaitResult::Completed);
 		if (!Completion) return FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None);
 		return std::move(*Completion);

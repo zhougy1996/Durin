@@ -6,6 +6,7 @@
 #include "Physics/PhysicsCookHelper.h"
 namespace Durin::PhysicsPrivate
 {
+	auto ShutdownBuildSessions() -> void;
 	ENGINE_API auto MakeCollisionBuildFunction() -> std::shared_ptr<const DerivedData::IBuildFunction>;
 	ENGINE_API auto MakeCollisionInputResolver(FPhysicsCookInput Input) -> std::shared_ptr<const DerivedData::IBuildInputResolver>;
 }

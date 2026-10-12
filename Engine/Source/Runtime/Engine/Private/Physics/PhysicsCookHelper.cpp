@@ -2,6 +2,7 @@
 #include "PhysicsCookInputPrivate.h"
 #if DURIN_WITH_EDITOR
 #include "DerivedDataBuildSession.h"
+#include "Asset/ResourceBuildSessions.h"
 #include "PhysicsCookDerivedDataKey.h"
 #include "PhysicsBuildFunction.h"
 #include "PhysicsSharedOutput.h"
@@ -12,46 +13,25 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 	namespace
 	{
-		std::mutex PhysicsBuildSessionMutex;
-		std::shared_ptr<DerivedData::FBuildSession> PhysicsBuildSession;
-
-		auto GetPhysicsBuildSession() -> std::shared_ptr<DerivedData::FBuildSession>
-		{
-			std::lock_guard Lock(PhysicsBuildSessionMutex);
-			if (!PhysicsBuildSession)
-			{
-				static std::once_flag RegisterOnce;
-				std::call_once(RegisterOnce, [] {
-					if (!DerivedData::GetBuild().Register(PhysicsPrivate::MakeCollisionBuildFunction()))
-						throw std::runtime_error("Failed to register the physics derived-data build function.");
-				});
-				auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateInlineBuildScheduler());
-				if (!Created) return {};
-				PhysicsBuildSession = std::move(*Created);
-			}
-			return PhysicsBuildSession;
-		}
+		AssetPrivate::FResourceBuildSessions PhysicsSessions;
 
 		auto BuildPhysicsDefinition(DerivedData::FBuildDefinition Definition,
 			std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
 			DerivedData::FBuildRequestOptions Options)
-			-> std::optional<DerivedData::FBuildCompleteParams>
+			-> std::expected<DerivedData::FBuildCompleteParams, DerivedData::FBuildAdmissionError>
 		{
-			if (Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
-				std::nullopt, DerivedData::EBuildStatus::None);
-			auto Session = GetPhysicsBuildSession();
-			if (!Session) return std::nullopt;
-			Options.InputResolver = std::move(Resolver);
-			DerivedData::FRequestOwner Owner;
-			std::optional<DerivedData::FBuildCompleteParams> Completion;
-			auto Admitted = Session->Build(std::move(Definition), Owner, [&](auto Value) {
-				Completion = std::move(Value);
-			}, {}, std::move(Options));
-			if (!Admitted) return std::nullopt;
-			require(Owner.Wait() == DerivedData::ERequestWaitResult::Completed);
-			if (!Completion) return std::nullopt;
-			return std::move(*Completion);
+			static std::once_flag RegisterOnce;
+			std::call_once(RegisterOnce, [] {
+				if (!DerivedData::GetBuild().Register(PhysicsPrivate::MakeCollisionBuildFunction()))
+					throw std::runtime_error("Failed to register the physics derived-data build function.");
+			});
+			return PhysicsSessions.Build(std::move(Definition), std::move(Resolver), std::move(Options));
 		}
+	}
+	namespace PhysicsPrivate
+	{
+		auto ShutdownBuildSessions() -> void
+		{ require(PhysicsSessions.Close() == DerivedData::EBuildDrainResult::Drained); }
 	}
 #endif
 
@@ -113,7 +93,7 @@ namespace Durin
 		auto Built = BuildPhysicsDefinition(std::move(*Definition),
 			PhysicsPrivate::MakeCollisionInputResolver(Input), std::move(Options));
 		if (!Built) return std::unexpected(FPhysicsCookFailure{
-			"Physics build session is unavailable.", EPhysicsCookStage::Cook});
+			Built.error().Description, EPhysicsCookStage::Cook});
 		auto& Completion = *Built;
 		if (Cancel() || Completion.GetStatus() == DerivedData::EStatus::Canceled)
 			return std::unexpected(FPhysicsCookFailure::Cancelled());

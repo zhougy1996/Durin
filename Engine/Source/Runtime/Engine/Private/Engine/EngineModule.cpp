@@ -1,6 +1,9 @@
 #include "Modules/ModuleManager.h"
 #include "Collision/CollisionDebugSubsystem.h"
 #include "Materials/MaterialParameterCollection.h"
+#if DURIN_WITH_EDITOR
+#include "Physics/PhysicsBuildFunction.h"
+#endif
 
 namespace Durin
 {
@@ -19,6 +22,9 @@ namespace Durin
 		}
 		auto ShutdownModule() -> void override
 		{
+#if DURIN_WITH_EDITOR
+			PhysicsPrivate::ShutdownBuildSessions();
+#endif
 			MaterialParameterCollections.reset();
 			CollisionDebug.reset();
 		}

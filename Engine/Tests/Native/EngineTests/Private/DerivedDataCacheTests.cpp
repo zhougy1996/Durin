@@ -6,6 +6,7 @@
 #include "../../../../Source/Developer/DerivedDataCache/Private/CompressedCacheValue.h"
 #include "Asset/DerivedDataCacheKeyProxy.h"
 #include "../../../../Source/Runtime/Engine/Private/Asset/AssetCompilationOperation.h"
+#include "../../../../Source/Runtime/Engine/Private/Asset/ResourceBuildSessions.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
@@ -675,6 +676,104 @@ TEST(FAsyncCacheTests, QueuedDataBudgetCoversMetadataAndRecoversAfterDispatchRej
 	Scheduler->Reject = false;
 	ASSERT_TRUE(Exact->Put(Writes, Owner, [](auto, auto Result) { EXPECT_TRUE(Result); }));
 	Scheduler->Run(); EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Backend->Puts, 1u);
+}
+
+namespace
+{
+	class FResourceSessionFunction final : public IBuildFunction
+	{
+	public:
+		auto GetName() const -> std::string_view override { return "Resource.SessionFixture"; }
+		auto GetVersion() const -> uint32 override { return 1; }
+		auto Configure(FBuildConfigContext& Context) const -> void override
+		{ Context.SetConstantsSchema(1); Context.SetOutput("Fixture.Output", 1); Context.SetCacheBucket(FCacheBucket::FromString("ResourceSession")); }
+		auto Build(FBuildContext& Context) const -> void override
+		{ Context.AddValue(FValueId::FromName("Data"), FSharedByteBuffer::Take(Bytes({1}))); }
+	};
+	auto ResourceDefinition() -> FBuildDefinition
+	{
+		static std::once_flag Once;
+		std::call_once(Once, [] { require(GetBuild().Register(std::make_shared<FResourceSessionFunction>())); });
+		return std::move(FBuildDefinitionBuilder("Resource.SessionFixture")).Build().value();
+	}
+	auto ResourceOptions() -> FBuildRequestOptions
+	{ return {.Policy = {.QueryCache = false, .StoreOnBuild = false}}; }
+}
+
+TEST(FResourceBuildSessionTests, InlineNestedBuildAndTypedAdmissionSurviveCloseAndReopen)
+{
+	AssetPrivate::FResourceBuildSessions Sessions;
+	const auto Definition = ResourceDefinition();
+	auto Session = Sessions.Get(EBuildCacheExecution::Inline); ASSERT_TRUE(Session);
+	FRequestOwner Owner; uint32 Calls = 0;
+	ASSERT_TRUE((*Session)->Build(Definition, Owner, [&](auto Result) {
+		EXPECT_EQ(Result.GetStatus(), EStatus::Ok); ++Calls;
+		auto Nested = Sessions.Build(Definition, {}, ResourceOptions());
+		ASSERT_TRUE(Nested); EXPECT_EQ(Nested->GetStatus(), EStatus::Ok); ++Calls;
+	}, {}, ResourceOptions()));
+	EXPECT_EQ(Calls, 2u); EXPECT_TRUE(Owner.Poll());
+	auto Unknown = Sessions.Build(std::move(FBuildDefinitionBuilder("Resource.Unknown")).Build().value(), {}, ResourceOptions());
+	ASSERT_FALSE(Unknown); EXPECT_EQ(Unknown.error().Reason, EBuildAdmissionReason::MissingFunction);
+	EXPECT_EQ(Sessions.Close(), EBuildDrainResult::Drained);
+	auto Closed = Sessions.Build(Definition, {}, ResourceOptions());
+	ASSERT_FALSE(Closed); EXPECT_EQ(Closed.error().Reason, EBuildAdmissionReason::Closed);
+	Sessions.Open(); ASSERT_TRUE(Sessions.Build(Definition, {}, ResourceOptions()));
+	EXPECT_EQ(Sessions.Close(), EBuildDrainResult::Drained);
+}
+
+TEST(FResourceBuildSessionTests, ReentrantCloseRetainsSessionsUntilExternalDrain)
+{
+	AssetPrivate::FResourceBuildSessions Sessions;
+	const auto Definition = ResourceDefinition();
+	auto Session = Sessions.Get(EBuildCacheExecution::Inline); ASSERT_TRUE(Session);
+	FRequestOwner Owner;
+	ASSERT_TRUE((*Session)->Build(Definition, Owner, [&](auto) {
+		EXPECT_EQ(Sessions.Close(), EBuildDrainResult::WouldBlock);
+		auto Closed = Sessions.Get(EBuildCacheExecution::Inline);
+		ASSERT_FALSE(Closed); EXPECT_EQ(Closed.error().Reason, EBuildAdmissionReason::Closed);
+	}, {}, ResourceOptions()));
+	EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Sessions.Close(), EBuildDrainResult::Drained);
+}
+
+TEST(FResourceBuildSessionTests, ReplacingScopedTaskServiceDrainsOutsideAcquisitionLock)
+{
+	EnsureCacheTaskGameThread();
+	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
+	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
+	AssetPrivate::FResourceBuildSessions Sessions;
+	const auto Definition = ResourceDefinition();
+	const auto MakeService = [] {
+		auto Service = CreateBuild(); require(Service->Register(std::make_shared<FResourceSessionFunction>())); return Service;
+	};
+	ASSERT_EQ(Sessions.SetTaskService(MakeService()), EBuildDrainResult::Drained);
+	auto Old = Sessions.Get(EBuildCacheExecution::Task); ASSERT_TRUE(Old);
+	FRequestOwner Owner;
+	FThreadEvent Entered, Release; std::atomic<bool> Reenter = true;
+	struct FRelease { FThreadEvent& Event; ~FRelease() { Event.Trigger(); } } ReleaseOnExit{Release};
+	ASSERT_TRUE((*Old)->Build(Definition, Owner, [&](auto) {
+		Entered.Trigger(); Release.Wait();
+		if (Reenter) EXPECT_TRUE(Sessions.Get(EBuildCacheExecution::Task));
+	}, {}, ResourceOptions()));
+	ASSERT_TRUE(Entered.WaitFor(5.0));
+	auto Replacement = std::async(std::launch::async, [&] { return Sessions.SetTaskService(MakeService()); });
+	auto Acquisition = std::async(std::launch::async, [&] {
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (std::chrono::steady_clock::now() < Deadline) {
+			auto Current = Sessions.Get(EBuildCacheExecution::Task);
+			if (!Current || *Current != *Old) return Current.has_value();
+			std::this_thread::yield();
+		}
+		return false;
+	});
+	const auto Status = Acquisition.wait_for(std::chrono::seconds(5));
+	Reenter = Status == std::future_status::ready;
+	EXPECT_EQ(Status, std::future_status::ready);
+	EXPECT_EQ(Replacement.wait_for(std::chrono::milliseconds(0)), std::future_status::timeout);
+	Release.Trigger();
+	EXPECT_TRUE(Acquisition.get()); EXPECT_EQ(Replacement.get(), EBuildDrainResult::Drained);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Sessions.SetTaskService({}), EBuildDrainResult::Drained);
+	EXPECT_EQ(Sessions.Close(), EBuildDrainResult::Drained);
 }
 
 TEST(FAsyncCacheTests, ItemAndByteCapacityAreDistinctFromBackendFailure)

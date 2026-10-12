@@ -7,6 +7,8 @@
 
 namespace Durin::StaticMeshPrivate
 {
+	auto OpenBuildSessions() -> void;
+	auto ShutdownBuildSessions() -> void;
 	using FRenderBuildResult = std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
 	// Detached inputs only; cancellation is owned across cache callbacks.
 	auto DispatchRenderBuild(FStaticMeshBuildRequest& Request, uint64 BuilderVersion,
