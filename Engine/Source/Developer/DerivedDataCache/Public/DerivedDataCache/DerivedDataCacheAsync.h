@@ -24,8 +24,9 @@ namespace Durin::DerivedData
 		virtual auto Close() -> void = 0;
 		virtual auto Drain() -> ERequestWaitResult = 0;
 	};
-	// Concurrency bounds the whole I/O + codec operation; capacity bounds accepted items.
+	// Limits bound I/O concurrency and retained accepted requests through retirement.
+	// Callable captures and backend/codec workspace are excluded from retained bytes.
 	DERIVEDDATACACHE_API auto CreateAsyncCache(std::shared_ptr<ICache> Cache = {},
-		std::shared_ptr<IBuildScheduler> Scheduler = {}, uint32 Concurrency = 2, uint32 Capacity = 4096)
+		std::shared_ptr<IBuildScheduler> Scheduler = {}, FCacheDispatchLimits Limits = {})
 		-> std::shared_ptr<IAsyncCache>;
 }

@@ -16,6 +16,9 @@ namespace Durin::DerivedData::Private
 		FCacheGetCallback GetCallback;
 		FCachePutCallback PutCallback;
 		uint32 Index = 0;
+		uint32 Bypasses = 0; // Protected by Cache->Mutex.
+		uint64 RetainedBytes = 0;
+		bool Admitted = false; // Protected by Cache->Mutex.
 		auto IsCanceled() const -> bool { return Canceled.load() || Group->IsCanceled(); }
 		auto OnRetired() -> void override;
 		auto RequestCancel() -> bool override;
@@ -27,6 +30,8 @@ namespace Durin::DerivedData::Private
 		std::mutex Mutex;
 		bool Closed = false, Pumping = false;
 		uint32 Active = 0, Concurrency = 2, Capacity = 4096;
+		uint32 MaximumPriorityBypass = 32;
+		uint64 RetainedBytes = 0, MaximumRetainedBytes = 512ull * 1024 * 1024;
 		std::shared_ptr<ICache> Backend;
 		std::shared_ptr<IBuildScheduler> Scheduler;
 		std::vector<std::shared_ptr<FCacheOperation>> Pending, All;
@@ -37,6 +42,7 @@ namespace Durin::DerivedData::Private
 	{
 		std::lock_guard Lock(Cache->Mutex);
 		std::erase_if(Cache->All, [&](const auto& Op) { return Op.get() == this; });
+		if (Admitted) { Cache->RetainedBytes -= RetainedBytes; Admitted = false; }
 	}
 	auto FCacheOperation::Finish(FCacheGetResult GetResult, FCachePutResult PutResult, FCacheQueryStats Stats) -> void
 	{
@@ -47,7 +53,7 @@ namespace Durin::DerivedData::Private
 				if (GetCallback) GetCallback(Index, std::move(GetResult), Stats);
 				else if (PutCallback) PutCallback(Index, std::move(PutResult));
 			} catch (...) {}
-			GetCallback = {}; PutCallback = {}; GetRequest = {}; Ids.clear(); PutRequest.reset();
+			GetCallback = {}; PutCallback = {}; GetRequest = {}; std::vector<FValueId>().swap(Ids); PutRequest.reset();
 			{ std::lock_guard Lock(Cache->Mutex); if (Active) { --Cache->Active; Active = false; } }
 		}, Cache->Scheduler->IsInline() ? nullptr : Cache.get());
 		// Inline dispatch returns to the existing pump, which advances the batch.
@@ -102,8 +108,11 @@ namespace Durin::DerivedData::Private
 			{
 				std::lock_guard Lock(Mutex);
 				if ((!Inline && Active == Concurrency) || Pending.empty()) { if (!Inline) Pumping = false; return; }
-				const auto Next = std::ranges::min_element(Pending, {}, [](const auto& Item) { return Item->Group->GetPriority(); });
+				// Oldest protected item wins; otherwise retain stable priority order.
+				auto Next = std::ranges::find_if(Pending, [&](const auto& Item) { return Item->Bypasses >= MaximumPriorityBypass; });
+				if (Next == Pending.end()) Next = std::ranges::min_element(Pending, {}, [](const auto& Item) { return Item->Group->GetPriority(); });
 				Op = std::move(*Next); Pending.erase(Next); ++Active; Op->Active = true;
+				for (const auto& Item : Pending) if (Item->Bypasses < MaximumPriorityBypass) ++Item->Bypasses;
 			}
 			try
 			{
@@ -137,12 +146,14 @@ namespace Durin::DerivedData::Private
 	{
 	public:
 		std::shared_ptr<FAsyncCacheState> State;
-		FAsyncCache(std::shared_ptr<ICache> Cache, std::shared_ptr<IBuildScheduler> Scheduler, uint32 Concurrency, uint32 Capacity)
+		FAsyncCache(std::shared_ptr<ICache> Cache, std::shared_ptr<IBuildScheduler> Scheduler, FCacheDispatchLimits Limits)
 			: State(std::make_shared<FAsyncCacheState>())
 		{
 			State->Backend = Cache ? std::move(Cache) : std::shared_ptr<ICache>(&GetCache(), [](ICache*) {});
 			State->Scheduler = Scheduler ? std::move(Scheduler) : CreateTaskCacheScheduler();
-			State->Concurrency = std::clamp(Concurrency, 1u, 64u); State->Capacity = std::clamp(Capacity, 1u, 4096u);
+			State->Concurrency = std::clamp(Limits.Concurrency, 1u, 64u); State->Capacity = std::clamp(Limits.Capacity, 1u, 4096u);
+			State->MaximumRetainedBytes = Limits.MaximumRetainedBytes;
+			State->MaximumPriorityBypass = Limits.MaximumPriorityBypass;
 			State->Pending.reserve(State->Capacity); State->All.reserve(State->Capacity);
 		}
 		~FAsyncCache() override { Close(); Drain(); }
@@ -150,11 +161,39 @@ namespace Durin::DerivedData::Private
 			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FCacheError>
 		{
 			auto Handle = std::make_shared<FCacheBatchWork>();
+			uint64 BatchBytes = 0;
+			for (auto& Op : Operations)
+			{
+				const auto Charge = [&](uint64 Bytes) {
+					if (Bytes > State->MaximumRetainedBytes - BatchBytes) return false;
+					BatchBytes += Bytes; Op->RetainedBytes += Bytes; return true;
+				};
+				if (!Charge(sizeof(FCacheOperation)) || !Charge(Op->Ids.capacity() * sizeof(FValueId)))
+					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-request byte capacity exhausted."});
+				if (!Op->PutRequest) continue;
+				const auto& Record = Op->PutRequest->Record;
+				if (!Charge(Record.GetSchema().size()) || !Charge(Record.GetValues().size() * sizeof(FValueWithId))
+					|| !Charge(Record.GetMetadata().size() * sizeof(FBuildOutputMeta))
+					|| !Charge(Record.GetMessages().size() * sizeof(FBuildOutputMessage)))
+					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-record byte capacity exhausted."});
+				std::vector<FSharedByteBuffer> Backings;
+				const auto Retain = [&](FSharedByteBuffer Buffer) {
+					if (std::ranges::any_of(Backings, [&](const auto& Other) { return Buffer.SharesStorageWith(Other); })) return true;
+					if (!Charge(Buffer.GetRetainedCapacityBytes())) return false;
+					Backings.push_back(std::move(Buffer)); return true;
+				};
+				for (const auto& Value : Record.GetValues()) if (!Retain(Value.Value.GetData()))
+					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-payload byte capacity exhausted."});
+				for (const auto& Meta : Record.GetMetadata()) if (!Retain(Meta.Object.GetBytes()))
+					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-metadata byte capacity exhausted."});
+				for (const auto& Message : Record.GetMessages()) if (!Charge(Message.Text.capacity()))
+					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-message byte capacity exhausted."});
+			}
 			{
 				std::unique_lock Lock(State->Mutex);
 				if (State->Closed) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Asynchronous cache is closed."});
-				if (Operations.size() > State->Capacity - State->All.size())
-					return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Asynchronous cache request capacity exhausted."});
+				if (Operations.size() > State->Capacity - State->All.size() || BatchBytes > State->MaximumRetainedBytes - State->RetainedBytes)
+					return std::unexpected(FCacheError{ECacheError::Capacity, "Asynchronous cache request capacity exhausted."});
 				Handle->Operations.assign(Operations.begin(), Operations.end());
 				try { for (auto& Op : Operations)
 				{
@@ -170,6 +209,8 @@ namespace Durin::DerivedData::Private
 					for (auto& Op : Operations) if (Op->Group) { Op->DispatchReturned(); Op->Complete(); }
 					throw;
 				}
+				State->RetainedBytes += BatchBytes;
+				for (auto& Op : Operations) Op->Admitted = true;
 			}
 			for (auto& Op : Operations) if (Op->IsCanceled()) Op->RequestCancel();
 			State->Pump(); return Handle;
@@ -178,8 +219,10 @@ namespace Durin::DerivedData::Private
 			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FCacheError> override
 		try
 		{
-			if (Requests.empty() || Requests.size() > State->Capacity || !Callback)
+			if (Requests.empty() || !Callback)
 				return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Invalid asynchronous cache batch."});
+			if (Requests.size() > State->Capacity)
+				return std::unexpected(FCacheError{ECacheError::Capacity, "Asynchronous cache batch exceeds capacity."});
 			std::vector<std::shared_ptr<FCacheOperation>> Ops; Ops.reserve(Requests.size());
 			for (uint32 I = 0; I < Requests.size(); ++I)
 			{
@@ -195,8 +238,10 @@ namespace Durin::DerivedData::Private
 			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FCacheError> override
 		try
 		{
-			if (Requests.empty() || Requests.size() > State->Capacity || !Callback)
+			if (Requests.empty() || !Callback)
 				return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Invalid asynchronous cache batch."});
+			if (Requests.size() > State->Capacity)
+				return std::unexpected(FCacheError{ECacheError::Capacity, "Asynchronous cache batch exceeds capacity."});
 			std::vector<std::shared_ptr<FCacheOperation>> Ops; Ops.reserve(Requests.size());
 			for (uint32 I = 0; I < Requests.size(); ++I)
 			{ auto Op = std::make_shared<FCacheOperation>(); Op->Index = I; Op->PutRequest = Requests[I]; Op->PutCallback = Callback; Ops.push_back(std::move(Op)); }
@@ -220,6 +265,6 @@ namespace Durin::DerivedData::Private
 
 namespace Durin::DerivedData
 {
-	auto CreateAsyncCache(std::shared_ptr<ICache> Cache, std::shared_ptr<IBuildScheduler> Scheduler, uint32 Concurrency, uint32 Capacity) -> std::shared_ptr<IAsyncCache>
-	{ return std::make_shared<Private::FAsyncCache>(std::move(Cache), std::move(Scheduler), Concurrency, Capacity); }
+	auto CreateAsyncCache(std::shared_ptr<ICache> Cache, std::shared_ptr<IBuildScheduler> Scheduler, FCacheDispatchLimits Limits) -> std::shared_ptr<IAsyncCache>
+	{ return std::make_shared<Private::FAsyncCache>(std::move(Cache), std::move(Scheduler), Limits); }
 }

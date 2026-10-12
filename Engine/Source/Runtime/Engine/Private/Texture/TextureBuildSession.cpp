@@ -38,7 +38,7 @@ namespace Durin::TexturePrivate
 		TestBuild = DerivedData::CreateBuild({.Cache = std::move(Cache)});
 		require(TestBuild->Register(MakeTexture2DBuildFunction()).has_value());
 		require(TestBuild->Register(MakeTextureCubeBuildFunction()).has_value());
-		auto Created = TestBuild->CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::CreateTaskCacheScheduler());
+		auto Created = TestBuild->CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::EBuildCacheExecution::Task);
 		require(Created.has_value());
 		AsyncSession = std::move(*Created);
 	}
@@ -54,7 +54,7 @@ namespace Durin::TexturePrivate
 			std::lock_guard Lock(SessionMutex);
 			if (!AsyncSession)
 			{
-				auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::CreateTaskCacheScheduler());
+				auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::EBuildCacheExecution::Task);
 				if (!Created) return false;
 				AsyncSession = std::move(*Created);
 			}

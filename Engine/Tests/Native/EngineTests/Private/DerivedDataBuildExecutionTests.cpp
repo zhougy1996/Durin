@@ -218,7 +218,7 @@ TEST(FBuildExecutionTests, QueuedProducerUsesOnePreparationAndSkipsProductionOnW
 	};
 	FHarness H;
 	auto Producer = std::make_shared<FQueuedScheduler>();
-	auto Session = H.Service->CreateSession({}, Producer, CreateInlineBuildScheduler()).value();
+	auto Session = H.Service->CreateSession({}, Producer).value();
 	FRequestOwner Owner;
 	uint32 Calls = 0;
 	for (uint32 Round = 0; Round < 2; ++Round)

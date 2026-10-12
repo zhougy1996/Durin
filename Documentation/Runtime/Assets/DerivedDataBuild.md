@@ -237,11 +237,20 @@ owns no cache policy. Skipping the query runs local production on the initial
 producer dispatch without submitting a redundant task. Cold reads resume local
 production on the selected producer scheduler; warm hits skip it.
 
-`CreateSession` accepts separate producer and cache schedulers. Both default to
-inline adapters; Task consumers explicitly select `CreateTaskBuildScheduler` and
-`CreateTaskCacheScheduler` for Worker and BlockingIO dispatch. Service options may
-inject a shared `IAsyncCache`, which takes precedence over the cache scheduler.
-There is no scheduler capability switch or running-Core mode selection.
+`CreateSession` accepts a producer scheduler and explicit `EBuildCacheExecution`.
+Both default to inline execution. Task consumers select `CreateTaskBuildScheduler`
+and `EBuildCacheExecution::Task`; all task-cache sessions of an `IBuild` share one
+service-owned dispatcher. `FBuildServiceOptions::CacheScheduler` configures that
+dispatcher, defaulting to Core BlockingIO; an inline scheduler is rejected for
+Task cache execution. There is no running-Core mode selection.
+Inline sessions share a separate service-owned inline dispatcher over the same
+backend. Its item/byte admission is independent of the task queue; synchronous
+callers never wait on task saturation or help execute sibling asset work. Inline
+dispatch does not apply the task concurrency limit and permits synchronous nested
+submissions. It retains the same bounded item/byte admission through retirement.
+Injected `IAsyncCache` takes precedence over either cache mode and remains
+caller-configured. Session Close cancels only its own requests; service Close/Drain
+also closes/drains its owned dispatchers, without globally closing an injected cache.
 
 `IAsyncCache` admits Get/Put batches atomically. Rejected batches invoke no
 callbacks; every accepted item delivers exactly one indexed result, including
@@ -260,11 +269,26 @@ pending same-cache waits anywhere in a nested completion stack return `WouldBloc
 reentrant destruction still cancels and leaves shared accounting alive.
 
 Standalone `CreateAsyncCache` without a scheduler uses Core BlockingIO, creates no threads, and admits
-at most 4,096 pending/active items with two active operations. Configurable
-concurrency is clamped to 1..64 and capacity to 1..4096. Active slots cover I/O,
-compression/decompression, and completion callbacks; queued owners are selected
-by priority with FIFO ties. Each request retains its existing encoded/raw/workspace
-budgets. This controls operation concurrency, not a new global asset memory
+at most 4,096 pending/active items with two active operations.
+`FCacheDispatchLimits` configures concurrency (clamped to 1..64), capacity
+(clamped to 1..4096), retained request bytes (512 MiB by default), and maximum
+priority bypass (32 dispatch turns by default). Active slots cover I/O,
+compression/decompression, and completion callbacks. Priority selection has FIFO
+ties; after the bypass threshold, the oldest protected item wins. An admitted
+pending item is dispatched within threshold plus capacity further dispatch turns,
+provided active work retires. Mutable owner priority is sampled at dispatch.
+Atomic item/byte admission rejection returns `ECacheError::Capacity`, distinct
+from backend `StorageFailure`, without callbacks or owner accounting.
+
+Retained-byte charges cover request structures, copied selection capacity, record
+table lengths, schema bytes, message capacity, and distinct payload/metadata backing
+capacities within each Put record. A slice charges its entire retained allocation;
+shared allocations across separate requests are charged conservatively per request.
+Charges remain through callbacks and dispatch publication and are released on request
+retirement. Opaque callable captures, allocator/container spare capacity, backend
+result data, and active codec workspace are excluded; this is not an RSS bound.
+Each request retains its existing encoded/raw/workspace budgets. This controls
+operation concurrency and retained admission, not a new global asset memory
 reservation. `Close` stops admission and cancels accepted items; `Drain` waits
 for them without closing admission itself. Adapter destruction closes and drains;
 drain from its completion stack returns `WouldBlock`. Cooperative cancellation

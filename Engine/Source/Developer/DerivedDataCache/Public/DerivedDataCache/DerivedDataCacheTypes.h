@@ -46,7 +46,16 @@ namespace Durin::DerivedData
 		Corrupt,
 		StorageFailure,
 		MissingValue,
-		Canceled
+		Canceled,
+		Capacity
+	};
+
+	struct FCacheDispatchLimits
+	{
+		uint32 Concurrency = 2;
+		uint32 Capacity = 4096;
+		uint64 MaximumRetainedBytes = 512ull * 1024 * 1024;
+		uint32 MaximumPriorityBypass = 32;
 	};
 
 	struct FCacheError

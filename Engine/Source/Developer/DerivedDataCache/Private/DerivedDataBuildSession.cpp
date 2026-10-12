@@ -328,6 +328,7 @@ namespace Durin::DerivedData
 			bool Closed = false;
 			FBuildRegistry Registry;
 			FBuildServiceOptions Options;
+			std::shared_ptr<IAsyncCache> InlineCache, TaskCache;
 			std::vector<std::weak_ptr<FBuildSessionState>> Sessions;
 		};
 	}
@@ -351,17 +352,28 @@ namespace Durin::DerivedData
 			return {};
 		}
 		auto CreateSession(std::shared_ptr<const IBuildInputResolver> Resolver,
-			std::shared_ptr<IBuildScheduler> Scheduler, std::shared_ptr<IBuildScheduler> CacheScheduler) -> std::expected<std::shared_ptr<FBuildSession>, FBuildAdmissionError> override
+			std::shared_ptr<IBuildScheduler> Scheduler, EBuildCacheExecution CacheExecution) -> std::expected<std::shared_ptr<FBuildSession>, FBuildAdmissionError> override
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (State->Closed) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Closed, "Build service is closed."});
+			if (CacheExecution > EBuildCacheExecution::Task)
+				return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Invalid cache execution mode."});
+			if (!State->Options.AsyncCache && CacheExecution == EBuildCacheExecution::Task
+				&& State->Options.CacheScheduler && State->Options.CacheScheduler->IsInline())
+				return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Task cache execution requires a non-inline service scheduler."});
 			auto Snapshot = State->Registry.Freeze();
 			if (!Snapshot) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InternalFailure, std::move(Snapshot.error())});
 			auto SessionOptions = State->Options;
 			if (!Scheduler) Scheduler = CreateInlineBuildScheduler();
 			if (!SessionOptions.AsyncCache)
-				SessionOptions.AsyncCache = CreateAsyncCache(SessionOptions.Cache,
-					CacheScheduler ? std::move(CacheScheduler) : CreateInlineBuildScheduler());
+			{
+				auto& Cache = CacheExecution == EBuildCacheExecution::Inline ? State->InlineCache : State->TaskCache;
+				if (!Cache) Cache = CreateAsyncCache(SessionOptions.Cache,
+					CacheExecution == EBuildCacheExecution::Inline ? CreateInlineBuildScheduler()
+						: SessionOptions.CacheScheduler ? SessionOptions.CacheScheduler : CreateTaskCacheScheduler(),
+					SessionOptions.CacheDispatchLimits);
+				SessionOptions.AsyncCache = Cache;
+			}
 			auto SessionState = std::make_shared<Private::FBuildSessionState>();
 			SessionState->Resources = std::make_shared<Private::FSessionResources>(
 				std::move(*Snapshot), std::move(Resolver), std::move(Scheduler), std::move(SessionOptions));
@@ -375,23 +387,30 @@ namespace Durin::DerivedData
 		auto Close() -> void override
 		{
 			std::vector<std::shared_ptr<Private::FBuildSessionState>> Sessions;
+			std::array<std::shared_ptr<IAsyncCache>, 2> Caches;
 			{
 				std::lock_guard Lock(State->Mutex);
 				State->Closed = true;
+				Caches = {State->InlineCache, State->TaskCache};
 				for (auto& Weak : State->Sessions) if (auto Session = Weak.lock()) Sessions.push_back(std::move(Session));
 			}
 			for (const auto& Session : Sessions) Session->Close();
+			for (const auto& Cache : Caches) if (Cache) Cache->Close();
 		}
 		auto Drain() -> EBuildDrainResult override
 		{
 			Close();
 			std::vector<std::shared_ptr<Private::FBuildSessionState>> Sessions;
+			std::array<std::shared_ptr<IAsyncCache>, 2> Caches;
 			{
 				std::lock_guard Lock(State->Mutex);
+				Caches = {State->InlineCache, State->TaskCache};
 				for (auto& Weak : State->Sessions) if (auto Session = Weak.lock()) Sessions.push_back(std::move(Session));
 			}
 			for (const auto& Session : Sessions)
 				if (Session->Drain() == EBuildDrainResult::WouldBlock) return EBuildDrainResult::WouldBlock;
+			for (const auto& Cache : Caches) if (Cache && Cache->Drain() == ERequestWaitResult::WouldBlock)
+				return EBuildDrainResult::WouldBlock;
 			return EBuildDrainResult::Drained;
 		}
 	private:

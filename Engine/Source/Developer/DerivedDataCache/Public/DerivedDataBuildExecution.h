@@ -52,9 +52,13 @@ namespace Durin::DerivedData
 		uint64 MaximumWorkingSetBytes = std::numeric_limits<uint64>::max();
 	};
 	class IAsyncCache;
+	class IBuildScheduler;
 	struct FBuildServiceOptions
 	{
 		std::shared_ptr<ICache> Cache;
 		std::shared_ptr<IAsyncCache> AsyncCache;
+		// One shared task dispatcher per service; injected AsyncCache takes precedence.
+		std::shared_ptr<IBuildScheduler> CacheScheduler;
+		FCacheDispatchLimits CacheDispatchLimits;
 	};
 }

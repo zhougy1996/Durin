@@ -194,7 +194,7 @@ namespace Durin
 				CompletionHook = CompletionHookForTests;
 				if (!AsyncSession)
 				{
-					auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::CreateTaskCacheScheduler());
+					auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::EBuildCacheExecution::Task);
 					if (Created) AsyncSession = std::move(*Created);
 				}
 				Session = AsyncSession;
@@ -228,7 +228,7 @@ namespace Durin
 			if (!Cache) return;
 			TestBuild = DerivedData::CreateBuild({.Cache = std::move(Cache)});
 			require(TestBuild->Register(StaticMeshPrivate::MakeRenderBuildFunction()).has_value());
-			auto Created = TestBuild->CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::CreateTaskCacheScheduler());
+			auto Created = TestBuild->CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::EBuildCacheExecution::Task);
 			require(Created.has_value());
 			AsyncSession = std::move(*Created);
 		}

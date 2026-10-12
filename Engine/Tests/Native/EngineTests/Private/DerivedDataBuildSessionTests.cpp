@@ -14,6 +14,7 @@ namespace
 		mutable std::atomic<uint32> Builds = 0;
 		std::function<void()> OnBuild;
 		bool FailExecution = false;
+		uint32 DataBytes = 32;
 		auto GetName() const -> std::string_view override { return "Session.Fixture"; }
 		auto GetVersion() const -> uint32 override { return 1; }
 		auto Configure(FBuildConfigContext& Context) const -> void override
@@ -22,7 +23,7 @@ namespace
 		{
 			++Builds; if (OnBuild) OnBuild();
 			if (FailExecution) return Context.FailExecution("temporary execution failure");
-			Context.AddValue(FValueId::FromName("Data"), FSharedByteBuffer::Take(FByteBuffer(32, std::byte{7})));
+			Context.AddValue(FValueId::FromName("Data"), FSharedByteBuffer::Take(FByteBuffer(DataBytes, std::byte{7})));
 		}
 	};
 	struct FSecondFunction final : IBuildFunction
@@ -111,7 +112,7 @@ TEST(FBuildContinuationTests, ExplicitCacheSchedulerDoesNotChangeInlineSessions)
 	auto Cache = std::make_shared<FContinuationCache>(); auto Service = CreateBuild({.Cache = Cache});
 	auto Function = std::make_shared<FFunction>(); ASSERT_TRUE(Service->Register(Function));
 	auto ExistingInline = Service->CreateSession({}, CreateInlineBuildScheduler()).value();
-	auto TaskSession = Service->CreateSession({}, CreateTaskBuildScheduler(), CreateTaskCacheScheduler()).value();
+	auto TaskSession = Service->CreateSession({}, CreateTaskBuildScheduler(), EBuildCacheExecution::Task).value();
 	auto LaterInline = Service->CreateSession({}, CreateInlineBuildScheduler()).value();
 	const auto Caller = std::this_thread::get_id(); uint32 Callbacks = 0;
 	Function->OnBuild = [&] { EXPECT_EQ(std::this_thread::get_id(), Caller); };
@@ -127,10 +128,119 @@ TEST(FBuildContinuationTests, ExplicitCacheSchedulerDoesNotChangeInlineSessions)
 	EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained);
 }
 
+TEST(FBuildContinuationTests, ServiceTaskSessionsShareAdmissionPriorityAndKeepInlineIndependent)
+{
+	auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>(); Cache->Hit = true;
+	auto Service = CreateBuild({.Cache = Cache, .CacheScheduler = IO, .CacheDispatchLimits = {.Concurrency = 1, .Capacity = 3}});
+	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
+	auto First = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value();
+	auto Second = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value();
+	FRequestOwner Low(ERequestPriority::Low), High(ERequestPriority::High), Rejected;
+	uint32 Calls = 0;
+	const auto Complete = [&](auto Result) { EXPECT_EQ(Result.GetStatus(), EStatus::Ok); ++Calls; };
+	ASSERT_TRUE(First->Build(Definition(), Low, Complete));
+	ASSERT_TRUE(First->Build(Definition(), Low, Complete));
+	ASSERT_TRUE(Second->Build(Definition(), High, Complete));
+	EXPECT_EQ(IO->Work.size(), 1u); EXPECT_EQ(Cache->Gets, 0u);
+	auto Overflow = Second->Build(Definition(), Rejected, [&](auto Result) {
+		EXPECT_EQ(Result.GetStatus(), EStatus::Error); EXPECT_FALSE(Result.GetOutput()); ++Calls;
+	}, {}, {.Policy = {.BuildLocal = false}});
+	ASSERT_TRUE(Overflow); EXPECT_TRUE(Overflow->IsComplete()); EXPECT_TRUE(Rejected.Poll());
+	// Task capacity does not force inline callers to help queued asset work.
+	auto Inline = Service->CreateSession().value();
+	auto InlineRequest = Inline->Build(Definition(), Complete);
+	ASSERT_TRUE(InlineRequest); EXPECT_TRUE(InlineRequest->IsComplete());
+	EXPECT_EQ(Cache->Gets, 1u); EXPECT_EQ(IO->Work.size(), 1u);
+	while (!IO->Work.empty()) IO->Run();
+	EXPECT_EQ(IO->Priorities, (std::vector{ERequestPriority::Low, ERequestPriority::High, ERequestPriority::Low}));
+	EXPECT_EQ(Calls, 5u); EXPECT_EQ(Low.Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(High.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained);
+}
+
+TEST(FBuildContinuationTests, SessionCloseDoesNotCancelOtherSessionsAndServiceCloseRetiresAll)
+{
+	auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>(); Cache->Hit = true;
+	auto Service = CreateBuild({.Cache = Cache, .CacheScheduler = IO, .CacheDispatchLimits = {.Concurrency = 1}});
+	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
+	auto First = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value();
+	auto Second = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value();
+	uint32 Canceled = 0, Completed = 0;
+	ASSERT_TRUE(First->Build(Definition(), [&](auto Result) { EXPECT_EQ(Result.GetStatus(), EStatus::Canceled); ++Canceled; }));
+	ASSERT_TRUE(Second->Build(Definition(), [&](auto Result) { EXPECT_EQ(Result.GetStatus(), EStatus::Ok); ++Completed; }));
+	First->Close(); EXPECT_EQ(Canceled, 1u);
+	while (!IO->Work.empty()) IO->Run();
+	EXPECT_EQ(Completed, 1u); EXPECT_EQ(Cache->Gets, 1u);
+	ASSERT_TRUE(Second->Build(Definition(), [&](auto Result) { EXPECT_EQ(Result.GetStatus(), EStatus::Canceled); ++Canceled; }));
+	Service->Close(); while (!IO->Work.empty()) IO->Run();
+	EXPECT_EQ(Canceled, 2u); EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained);
+}
+
+TEST(FBuildContinuationTests, ServiceRetainedByteAdmissionPreservesLocalOutputAndRecoversAfterRetirement)
+{
+	auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>();
+	auto Service = CreateBuild({.Cache = Cache, .CacheScheduler = IO,
+		.CacheDispatchLimits = {.Concurrency = 1, .MaximumRetainedBytes = 14000}});
+	auto Function = std::make_shared<FFunction>(); Function->DataBytes = 8192; ASSERT_TRUE(Service->Register(Function));
+	auto First = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value();
+	auto Second = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value(); uint32 Calls = 0;
+	const auto Complete = [&](auto Result) { EXPECT_EQ(Result.GetStatus(), EStatus::Ok); ASSERT_TRUE(Result.GetOutput()); ++Calls; };
+	FBuildRequestOptions Options; Options.Policy.QueryCache = false;
+	ASSERT_TRUE(First->Build(Definition(), Complete, {}, Options)); EXPECT_EQ(IO->Work.size(), 1u);
+	auto Overflow = Second->Build(Definition(), Complete, {}, Options);
+	ASSERT_TRUE(Overflow); EXPECT_TRUE(Overflow->IsComplete()); EXPECT_EQ(Calls, 1u); EXPECT_EQ(IO->Work.size(), 1u);
+	IO->Run(); EXPECT_EQ(Calls, 2u);
+	ASSERT_TRUE(Second->Build(Definition(), Complete, {}, Options)); EXPECT_EQ(IO->Work.size(), 1u);
+	IO->Run(); EXPECT_EQ(Calls, 3u); EXPECT_EQ(Cache->Puts, 2u);
+}
+
+TEST(FBuildContinuationTests, ServiceDoesNotCloseInjectedCacheUsedByOtherOwners)
+{
+	auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>();
+	auto Async = CreateAsyncCache(Cache, IO); auto Service = CreateBuild({.AsyncCache = Async});
+	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>())); auto Session = Service->CreateSession().value();
+	ASSERT_TRUE(Session->Build(Definition(), [](auto Result) { EXPECT_EQ(Result.GetStatus(), EStatus::Canceled); }));
+	EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained);
+	FRequestOwner External; uint32 Calls = 0;
+	const std::array Requests{FCacheGetRequest{.Key = FCacheKey::FromHash(FCacheBucket::FromString("External"), FXxHash128::HashBuffer("key"))}};
+	ASSERT_TRUE(Async->Get(Requests, External, [&](auto, auto Result, auto) { EXPECT_TRUE(Result); ++Calls; }));
+	while (!IO->Work.empty()) IO->Run();
+	EXPECT_EQ(Calls, 1u); EXPECT_EQ(External.Wait(), ERequestWaitResult::Completed);
+}
+
+TEST(FBuildContinuationTests, SharedTaskDispatcherCompletesAcrossSessionsWithOneCoreWorker)
+{
+	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
+	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
+	auto Cache = std::make_shared<FContinuationCache>(); Cache->Hit = true;
+	auto Service = CreateBuild({.Cache = Cache, .CacheDispatchLimits = {.Concurrency = 1}});
+	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
+	auto First = Service->CreateSession({}, CreateTaskBuildScheduler(), EBuildCacheExecution::Task).value();
+	auto Second = Service->CreateSession({}, CreateTaskBuildScheduler(), EBuildCacheExecution::Task).value();
+	std::atomic<uint32> Calls = 0;
+	auto Parent = Tasks::LaunchTask("SharedCacheSingleWorker", [&] {
+		FRequestOwner Owner;
+		const auto Complete = [&](auto Result) { EXPECT_EQ(Result.GetStatus(), EStatus::Ok); ++Calls; };
+		ASSERT_TRUE(First->Build(Definition(), Owner, Complete));
+		ASSERT_TRUE(Second->Build(Definition(), Owner, Complete));
+		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	});
+	EXPECT_EQ(Parent.Wait().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_EQ(Calls.load(), 2u); EXPECT_EQ(Cache->Gets, 2u);
+	EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained);
+}
+
+TEST(FBuildContinuationTests, TaskCacheModeRejectsInlineServiceScheduler)
+{
+	auto Service = CreateBuild({.CacheScheduler = CreateInlineBuildScheduler()});
+	auto Rejected = Service->CreateSession({}, {}, EBuildCacheExecution::Task);
+	ASSERT_FALSE(Rejected); EXPECT_EQ(Rejected.error().Reason, EBuildAdmissionReason::InvalidRequest);
+	EXPECT_TRUE(Service->CreateSession());
+}
+
 TEST(FBuildContinuationTests, IOReleasesProducerQueueAndStoreFailurePreservesLocalOutput)
 {
 	auto Producer = std::make_shared<FStageScheduler>(); auto IO = std::make_shared<FStageScheduler>();
-	auto Cache = std::make_shared<FContinuationCache>(); auto Async = CreateAsyncCache(Cache, IO, 1);
+	auto Cache = std::make_shared<FContinuationCache>(); auto Async = CreateAsyncCache(Cache, IO, {.Concurrency = 1});
 	auto Service = CreateBuild({.Cache = Cache, .AsyncCache = Async}); auto Function = std::make_shared<FFunction>();
 	ASSERT_TRUE(Service->Register(Function)); auto Session = Service->CreateSession({}, Producer).value();
 	FRequestOwner Owner(ERequestPriority::High); uint32 FirstCallbacks = 0, OtherCallbacks = 0;
@@ -300,7 +410,7 @@ TEST(FBuildContinuationTests, SlowCoreIOLeavesSingleWorkerAvailableAndDrainWaits
 	auto Released = Release.get_future().share(); auto Started = Entered.get_future(); auto Progress = WorkerProgress.get_future();
 	Cache->BeforeGet = [&] { Entered.set_value(); Released.wait(); };
 	auto Service = CreateBuild({.Cache = Cache}); ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
-	auto Session = Service->CreateSession({}, CreateTaskBuildScheduler(), CreateTaskCacheScheduler()).value(); std::atomic<uint32> Callbacks = 0;
+	auto Session = Service->CreateSession({}, CreateTaskBuildScheduler(), EBuildCacheExecution::Task).value(); std::atomic<uint32> Callbacks = 0;
 	auto Request = Session->Build(Definition(), [&](auto Completion) { EXPECT_EQ(Completion.GetStatus(), EStatus::Canceled); ++Callbacks; }); ASSERT_TRUE(Request);
 	const auto StartStatus = Started.wait_for(std::chrono::seconds(5));
 	auto Other = Tasks::LaunchTask("DDCWorkerProgress", [&] { WorkerProgress.set_value(); });
@@ -316,7 +426,7 @@ TEST(FBuildContinuationTests, BuildAndCacheShareOwnerAcrossNestedCallbacks)
 	auto Producer = std::make_shared<FStageScheduler>();
 	auto IO = std::make_shared<FStageScheduler>();
 	auto Cache = std::make_shared<FContinuationCache>();
-	auto Async = CreateAsyncCache(Cache, IO, 1);
+	auto Async = CreateAsyncCache(Cache, IO, {.Concurrency = 1});
 	auto Service = CreateBuild({.Cache = Cache, .AsyncCache = Async});
 	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
 	auto Session = Service->CreateSession({}, Producer).value();
@@ -719,7 +829,7 @@ TEST(FBuildSessionTests, TaskSchedulerWaitHelpsNestedBuildWithOneWorker)
 	ASSERT_TRUE(InitializeTaskScheduler(1));
 	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
 	FFixture Fixture;
-	auto Session = Fixture.Service->CreateSession({}, CreateTaskBuildScheduler(), CreateTaskCacheScheduler()).value();
+	auto Session = Fixture.Service->CreateSession({}, CreateTaskBuildScheduler(), EBuildCacheExecution::Task).value();
 	std::atomic<uint32> Calls = 0;
 	auto Parent = Tasks::LaunchTask("NestedDerivedData", [&] {
 		FRequestOwner Owner(ERequestPriority::High);
@@ -740,7 +850,7 @@ TEST(FBuildSessionTests, TaskSchedulerRejectsWhenCoreIsStoppedWithoutCallback)
 {
 	ShutdownTaskScheduler(false);
 	FFixture Fixture;
-	auto Session = Fixture.Service->CreateSession({}, CreateTaskBuildScheduler(), CreateTaskCacheScheduler()).value();
+	auto Session = Fixture.Service->CreateSession({}, CreateTaskBuildScheduler(), EBuildCacheExecution::Task).value();
 	FRequestOwner Owner;
 	uint32 Calls = 0;
 	auto Request = Session->Build(Definition(), Owner, [&](auto) { ++Calls; }, {}, Options());
@@ -778,7 +888,7 @@ TEST(FBuildSessionTests, CanceledOwnerDoesNotScheduleNewWork)
 {
 	ShutdownTaskScheduler(false);
 	FFixture Fixture;
-	auto Session = Fixture.Service->CreateSession({}, CreateTaskBuildScheduler(), CreateTaskCacheScheduler()).value();
+	auto Session = Fixture.Service->CreateSession({}, CreateTaskBuildScheduler(), EBuildCacheExecution::Task).value();
 	FRequestOwner Owner; Owner.Cancel();
 	uint32 Calls = 0;
 	auto Request = Session->Build(Definition(), Owner, [&](FBuildCompleteParams Result) {

@@ -9,8 +9,8 @@ Completed:
 
 ## Current Status
 
-Stages 0 and 1 are complete with the recorded integration-validation exception
-below; subsequent stages have not started. This plan continues the completed
+Stages 0 through 2 are complete with the recorded integration-validation exception
+below; Stage 3 is next and subsequent stages have not started. This plan continues the completed
 [Modern Derived Data Cache plan](ModernDerivedDataCache.md) without reopening its
 record/value format or asset-publication decisions.
 
@@ -32,6 +32,33 @@ Stage 1 evidence (Win64-Debug-DurinEditor, 2026-10-13):
   `Build/.agent-state/logs/20261013-033612-746999-35132-RenderShaderBuilderTests.log`.
 - The restricted build encountered MSVC C1902; authorized elevated launcher
   execution compiled successfully. Documentation and all-plan validation passed.
+
+Stage 2 evidence (Win64-Debug-DurinEditor, 2026-10-13):
+
+- Migrated CreateSession and CreateAsyncCache consumers across Engine source/tests;
+  the declared Sandbox and RoadWeaver source/test roots have no affected callers.
+  The all build passed after the final shared API changes.
+- Full DerivedDataBuildTests passed, including shared cross-session concurrency,
+  priority/capacity, inline independence under task saturation, owner/session/service
+  cancellation, retained-byte recovery, injected-cache lifetime, and single-worker
+  cooperative waiting. All six new service cases also passed in isolated processes.
+- DerivedDataCacheTests passed (56 passed, one existing platform skip), including
+  byte/item atomic rejection, underlying allocation charging, per-record backing
+  reuse, copied selection charges, callback retirement, cancellation, and priority
+  starvation protection. Existing inline depth/nested and lifecycle tests remain green.
+- TextureTests passed all 142 cases; StaticMeshTests passed all 169 cases.
+  AsyncTaskPilotLifecycleTests and RenderShaderCacheTests passed. Shader Builder
+  retains only the Stage 1 dependency-count baseline failure (22/23 passed).
+- Bounded module selection was used after affected analysis expanded mechanical
+  Engine call-site changes into unrelated engine/rendering targets. Reports are
+  `Build/NativeTestResults/Win64-Debug-DurinEditor/module-derived-data-cache.xml`,
+  `DerivedDataBuildTests.xml` (isolated new cases), `DerivedDataCacheTests.xml`,
+  `TextureTests.xml`, and `StaticMeshTests.xml` in that same report directory.
+- Build evidence: `Build/.agent-state/logs/20261013-040522-140247-70836-cmake.log`.
+  Final module test log:
+  `Build/.agent-state/logs/20261013-040544-608808-76332-ctest.log`.
+  Documentation validation passed. The existing Shader fixture exception does not
+  introduce a new DDC regression and remains outside this stage's scope.
 
 ## Goal
 
@@ -116,12 +143,26 @@ Boundary: the production cache service owns shared I/O admission and queues; ses
 retain their input resolver, registry snapshot, and producer scheduler. Explicit
 injected caches and inline compatibility remain supported.
 
-- [ ] Replace default task-session-local cache queues with service-owned dispatch.
-- [ ] Define service-wide concurrency, queue capacity, retained-byte admission,
+Selected Stage 2 decisions: cache scheduler and dispatch limits are service
+configuration; sessions explicitly select Inline (default) or Task cache execution.
+All task sessions share one dispatcher. Inline sessions share a separate bounded
+dispatcher over the same backend and do not wait on task admission or execute
+queued task work. Limits account for retained request structures, copied selection
+IDs, and distinct Put payload/metadata backing capacities within each record;
+cross-request shared allocations are charged conservatively for each request.
+Opaque callable captures, allocator overhead, and active backend/codec workspace
+are excluded; per-request workspace budgets remain separate. Queue priority uses
+a configurable bypass threshold followed by oldest protected request selection,
+bounding starvation by threshold plus configured capacity in dispatch turns.
+Injected IAsyncCache remains caller-configured and is not closed globally by the
+build service. Closing a session cancels only that session's requests.
+
+- [x] Replace default task-session-local cache queues with service-owned dispatch.
+- [x] Define service-wide concurrency, queue capacity, retained-byte admission,
   priority fairness, and cancellation ownership.
-- [ ] Specify how inline and task callers share storage without changing inline
+- [x] Specify how inline and task callers share storage without changing inline
   completion or introducing cooperative sibling-asset execution.
-- [ ] Keep capacity rejection distinct from backend failure.
+- [x] Keep capacity rejection distinct from backend failure.
 
 Acceptance: multiple sessions obey one configured task-I/O limit and byte admission
 limit; cross-session priority has a starvation bound; canceling one owner does not

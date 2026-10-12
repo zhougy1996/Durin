@@ -9,6 +9,7 @@ namespace Durin::DerivedData
 	namespace Private { struct FBuildRequestState; struct FBuildSessionState; struct FBuildServiceState; }
 
 	using FBuildCompletionCallback = std::function<void(FBuildCompleteParams)>;
+	enum class EBuildCacheExecution : uint8 { Inline, Task };
 
 	struct FBuildRequestOptions
 	{
@@ -77,10 +78,11 @@ namespace Durin::DerivedData
 		{ return FBuildOutputBuilder(std::move(Schema), SchemaVersion, Limits); }
 		virtual auto Register(std::shared_ptr<const IBuildFunction> Function)
 			-> std::expected<void, FBuildAdmissionError> = 0;
-		// Both schedulers default to inline. An injected AsyncCache overrides CacheScheduler.
+		// Producer and cache execution default to inline. Task sessions share the
+		// service dispatcher; an injected AsyncCache overrides either cache mode.
 		virtual auto CreateSession(std::shared_ptr<const IBuildInputResolver> Resolver = {},
 			std::shared_ptr<IBuildScheduler> Scheduler = {},
-			std::shared_ptr<IBuildScheduler> CacheScheduler = {})
+			EBuildCacheExecution CacheExecution = EBuildCacheExecution::Inline)
 			-> std::expected<std::shared_ptr<FBuildSession>, FBuildAdmissionError> = 0;
 		virtual auto Close() -> void = 0;
 		virtual auto Drain() -> EBuildDrainResult = 0;
