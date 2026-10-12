@@ -327,36 +327,27 @@ generation; previously recorded consumers retain their own resource references.
 Frame-transient targets use the Renderer-private RDG allocator described by
 [Renderer Frame Preparation and Render Graph Execution](RendererFramePreparation.md).
 Allocation publishes only after every retained texture or buffer resolves.
-Device or manual invalidation and bounded transient-failure retries make later
-construction eligible without moving shaders, PSOs, samplers, or committed
-view history into transient ownership.
+Each graph execution attempts missing allocations once, without moving shaders,
+PSOs, samplers, or committed view history into transient ownership.
 
 The graph frame executor derives one immutable requirements value after logical
 preparation and persistent-resource resolution, then the single-use graph builder sends
 one retained descriptor batch to `FRDGAllocator` before the first consuming
 pass. The pool key contains the complete allocation-compatible descriptor and
 excludes diagnostic names, observation tags, and feature identity. Texture and
-buffer requests share whole-batch reservation, retry admission, pre-allocation
+buffer requests share whole-batch reservation, pre-allocation
 eviction, rollback, publication, and error reporting; only typed RHI creation
-differs. Nullable texture and buffer factories also expose typed candidate
-failures through the optional error output of `RHICreateTexture` and
-`RHICreateBuffer`. Ordinary callers only inspect the nullable resource. Vulkan
-preserves memory exhaustion, resource exhaustion, and unsupported-description categories
-across both inline and threaded creation boundaries. Device loss and invariant
-failures remain terminal; no retry policy catches them.
+differs. `RHICreateTexture` and `RHICreateBuffer` return complete resources or
+null; backend logs retain the native creation diagnostic. RDG reports the failed
+resource identity without transporting a backend cause or classifying failures.
+Device loss and invariant failures remain terminal.
 
-A failed batch rolls back every newly materialized candidate, including a retry
-of an existing empty entry, drops unreserved idle cache, and publishes no graph
-allocation or extraction destination. Before creating any candidate, the whole
-batch is checked for suppressed descriptors, so a late unavailable resource
-cannot repeatedly allocate and roll back an earlier prefix.
+A failed batch rolls back every newly materialized candidate, drops unreserved
+idle cache, and publishes no graph allocation or extraction destination. The
+graph returns a preparation failure before recording any pass.
 
-Unsupported descriptors remain suppressed until device or manual generation
-changes. Memory/resource exhaustion and unclassified nullable failures retry
-on later demand after 100 ms exponential backoff capped at 2 seconds, without
-a maximum attempt count. A pool-wide cooldown also throttles new descriptors
-and other views under pressure; reuse-only batches remain eligible. Device or
-manual generation changes bypass cooldown, while shader changes do not.
+The allocator retains no failed-descriptor cache, retry counter, or cooldown.
+A later graph execution may immediately attempt missing allocations again.
 Before a later creation attempt, RHI collects completed retirement without
 prematurely deleting in-flight resources. A new attempt always needs a newly
 authored builder. Compile or preparation failure consumes the current builder; retrying the same builder returns

@@ -40,23 +40,22 @@ namespace Durin
 			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&)
 				-> FVertexDeclarationRHIRef override { return {}; }
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return true; }
-			auto RHITryCreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc) -> std::expected<FTextureRHIRef, FRHICreationError> override
+			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc) -> FTextureRHIRef override
 			{
 				++CreationCount;
 				bCreatedOnRenderThread &= IsInRenderingThread();
 				// Exercise the same immediate-list lock guard as Vulkan creation.
 				const auto Result = GCommandListExecutor.ExecuteFallibleSynchronousOperation(false, [] {});
-				if (Result.HasError()) return std::unexpected(Result);
-				if (bFailCreation) return std::unexpected(FRHICreationError{
-					ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull});
+				if (Result.HasError()) return {};
+				if (bFailCreation) return {};
 				return FTextureRHIRef(new FViewportTestTexture(Desc));
 			}
 			auto RHICreateSampler(const FRHISamplerDesc&) -> FSamplerRHIRef override { return {}; }
 			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
-			auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
-				-> std::expected<FBufferRHIRef, FRHICreationError> override
+			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
+				-> FBufferRHIRef override
 			{
-				return std::unexpected(FRHICreationError{ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull});
+				return {};
 			}
 			auto RHIBeginDiagnosticRegion(std::string_view) -> void override {}
 			auto RHIEndDiagnosticRegion() -> void override {}

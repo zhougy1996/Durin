@@ -43,13 +43,11 @@ namespace Durin::VulkanRHI
 		Swapchain,
 		SwapchainImageView,
 		SwapchainSemaphore,
-		SwapchainFence,
 		Allocator,
 		Image,
 		ImageView,
 		BufferView,
 		RenderPass,
-		FramebufferImageView,
 		Framebuffer,
 		DescriptorPool,
 		DescriptorSetLayout,
@@ -58,7 +56,6 @@ namespace Durin::VulkanRHI
 		PipelineLayout,
 		GraphicsPipeline,
 		Sampler,
-		VertexDeclaration,
 		QueryPool,
 		MappedMemoryFlush,
 		MappedMemoryInvalidate,
@@ -315,6 +312,7 @@ namespace Durin::VulkanRHI
 	// constructing or invoking this callback never accesses the executor or waits.
 	VULKANRHI_API auto MakeVulkanCreationOperation(std::function<void()> Operation)
 		-> std::function<void()>;
+	VULKANRHI_API auto GetRecoverableVulkanCreationError(vk::Result Result) -> FRHICreationError;
 
 	auto ToVulkan_Extent3D(const FIntVector& Size) -> vk::Extent3D;
 	auto ToVulkan_TextureDimension(ETextureDimension Dimension) -> vk::ImageViewType;

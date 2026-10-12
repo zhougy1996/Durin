@@ -1751,17 +1751,17 @@ namespace
 			return MakeRefCount<FPositionBufferTestDeclaration>(Elements);
 		}
 		auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return false; }
-		auto RHITryCreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&) -> std::expected<FTextureRHIRef, FRHICreationError> override
+		auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&) -> FTextureRHIRef override
 		{
-			return std::unexpected(FRHICreationError{ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull});
+			return {};
 		}
 		auto RHICreateSampler(const FRHISamplerDesc&) -> FSamplerRHIRef override { return {}; }
 		auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
-		auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc) -> std::expected<FBufferRHIRef, FRHICreationError> override
+		auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc) -> FBufferRHIRef override
 		{
 			++Creates;
 			if (bFailCreation)
-				return std::unexpected(FRHICreationError{ERHIResourceCreationFailure::OutOfMemory, ERHICreationFailureSource::NativeBackend});
+				return {};
 			const auto* Bytes = static_cast<const std::byte*>(Desc.InitialData.Data);
 			Uploaded.assign(Bytes, Bytes + Desc.InitialData.Size);
 			return MakeRefCount<FRHIBuffer>(Desc);

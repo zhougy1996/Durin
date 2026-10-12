@@ -97,21 +97,21 @@ namespace Durin
 				-> TRefCountPtr<FRHIVertexDeclaration> override { return {}; }
 			auto RHIIsTextureSupported(
 				const FRHITextureCreateDesc&) const -> bool override { return false; }
-			auto RHITryCreateTexture(
+			auto RHICreateTexture(
 				FRHICommandListBase&, const FRHITextureCreateDesc&)
-				-> std::expected<FTextureRHIRef, FRHICreationError> override
+				-> FTextureRHIRef override
 			{
-				return std::unexpected(FRHICreationError{ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull});
+				return {};
 			}
 			auto RHICreateSampler(const FRHISamplerDesc&)
 				-> TRefCountPtr<FRHISampler> override { return {}; }
 			auto RHICreateShader(const FRHIShaderCreateDesc&)
 				-> TRefCountPtr<FRHIShader> override { return {}; }
-			auto RHITryCreateBuffer(
+			auto RHICreateBuffer(
 				FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
-				-> std::expected<FBufferRHIRef, FRHICreationError> override
+				-> FBufferRHIRef override
 			{
-				return std::unexpected(FRHICreationError{ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull});
+				return {};
 			}
 
 		private:
@@ -251,8 +251,6 @@ namespace Durin
 		const FRHIDiagnosticSnapshot Snapshot = Backend->RHIGetDiagnosticSnapshot();
 		EXPECT_FALSE(Snapshot.Availability.bRequested);
 		EXPECT_EQ(Snapshot.Timing.IntervalCapacity, 0u);
-		EXPECT_NE(FormatRHIDiagnosticSnapshot(Snapshot).find("availability("),
-			std::string::npos);
 		Backend->RHIResetDiagnosticStatistics();
 
 		Backend->Shutdown();

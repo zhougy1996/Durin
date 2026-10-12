@@ -50,7 +50,6 @@
 
 #include <gtest/gtest.h>
 
-
 #if !defined(DURIN_RENDERER_RDG_ALLOCATOR_TESTS)
 namespace
 {
@@ -2846,7 +2845,6 @@ namespace Durin::Tests
 			}
 			uint64 LiveBytes = 0, PeakBytes = 0;
 			uint32 Creates = 0, Collections = 0;
-			ERHIResourceCreationFailure Failure = ERHIResourceCreationFailure::None;
 			uint32 FailOnCreate = 0;
 			auto Init(const FRHIInitializationContext&) -> void override {}
 			auto Shutdown() -> void override {}
@@ -2863,17 +2861,17 @@ namespace Durin::Tests
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return true; }
 			auto RHICreateSampler(const FRHISamplerDesc&) -> TRefCountPtr<FRHISampler> override { return {}; }
 			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
-			auto RHITryCreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc) -> std::expected<FTextureRHIRef, FRHICreationError> override
+			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc) -> FTextureRHIRef override
 			{
-				if (auto Failure = CheckCreation(); !Failure) return std::unexpected(Failure.error());
+				if (!CheckCreation()) return {};
 				auto Resource = MakeRefCount<TAccountedRDGResource<FRHITexture>>(
 					Desc, uint64(Desc.Extent.x) * Desc.Extent.y * 4, LiveBytes);
 				PeakBytes = std::max(PeakBytes, LiveBytes);
 				return Resource;
 			}
-			auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc) -> std::expected<FBufferRHIRef, FRHICreationError> override
+			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc) -> FBufferRHIRef override
 			{
-				if (auto Failure = CheckCreation(); !Failure) return std::unexpected(Failure.error());
+				if (!CheckCreation()) return {};
 				auto Resource = MakeRefCount<TAccountedRDGResource<FRHIBuffer>>(
 					Desc, Desc.Size, LiveBytes);
 				PeakBytes = std::max(PeakBytes, LiveBytes);
@@ -2885,13 +2883,8 @@ namespace Durin::Tests
 				RHIFlushDeferredResources();
 			}
 		private:
-			auto CheckCreation() -> std::expected<void, FRHICreationError>
-			{
-				if (++Creates == FailOnCreate)
-					return std::unexpected(FRHICreationError{.Failure = Failure,
-						.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -7});
-				return {};
-			}
+			auto CheckCreation() -> bool
+			{ return ++Creates != FailOnCreate; }
 			FDynamicRHI* Previous;
 		};
 
@@ -2933,16 +2926,6 @@ namespace Durin::Tests
 			bool bTexture;
 			uint32 Megabytes;
 			bool bExtracted = false;
-		};
-
-		struct FManualRDGAllocationClock final
-		{
-			using FClock = FRendererRDGAllocator::FClock;
-
-			auto Now() const -> FClock::time_point { return CurrentTime; }
-			auto Advance(FClock::duration Duration) -> void { CurrentTime += Duration; }
-
-			FClock::time_point CurrentTime{};
 		};
 
 		auto ExecuteAllocationBatch(FRDGAllocator& Allocator,
@@ -2997,16 +2980,16 @@ namespace Durin::Tests
 	}
 
 #if defined(DURIN_RENDERER_RDG_ALLOCATOR_TESTS)
-	TEST(FRendererRDGAllocatorTests, NativeFailureAndSuppressedRetryPreserveCause)
+	TEST(FRendererRDGAllocatorTests, CreationFailureAbortsGraphAndNextExecutionCanSucceed)
 	{
 		FAllocatorRenderingThreadScope RenderingThread;
-		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate& CommandList) {
+		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			RHI.FailOnCreate = 1;
-			RHI.Failure = ERHIResourceCreationFailure::UnsupportedDescriptor;
 			FRendererResourceCoordinator Coordinator;
 			FRendererRDGAllocator Allocator(Coordinator);
 			auto Execute = [&] {
+				FRHICommandListExecutor Executor;
 				FRDGBuilder Builder;
 				const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(64, 4,
 					EBufferUsageFlags::UnorderedAccess)}, "RejectedBuffer");
@@ -3014,21 +2997,13 @@ namespace Durin::Tests
 				FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Buffer, 0, 64, ERDGUse::Write,
 					ERHIAccess::ComputeShaderReadWrite, true);
 
-				return Builder.Execute(CommandList, &Allocator);
+				return Builder.Execute(Executor.GetImmediateCommandList(), &Allocator);
 			};
 			const auto First = Execute();
 			const auto Retry = Execute();
 			EXPECT_TRUE(HasRDGTestReason(First.error(), ERDGAllocationError::PhysicalAllocationFailed));
-			EXPECT_TRUE(HasRDGTestReason(Retry.error(), ERDGAllocationError::AllocationRetrySuppressed));
-			EXPECT_EQ(RHI.Creates, 1u);
-			for (const auto* Result : {&First, &Retry})
-			{
-				const auto* Cause = FindRDGTestDetail<FRHICreationError>(Result->error());
-				ASSERT_NE(Cause, nullptr);
-				EXPECT_EQ(Cause->Failure, ERHIResourceCreationFailure::UnsupportedDescriptor);
-				EXPECT_EQ(Cause->Source, ERHICreationFailureSource::NativeBackend);
-				EXPECT_EQ(Cause->NativeCode, -7);
-			}
+			EXPECT_TRUE(Retry);
+			EXPECT_EQ(RHI.Creates, 2u);
 		});
 		FlushRenderingCommands();
 	}
@@ -3213,33 +3188,30 @@ namespace Durin::Tests
 		FlushRenderingCommands();
 	}
 
-	TEST(FRendererRDGAllocatorTests, RetryRollbackReindexesEmptyAndFailedBucketMembers)
+	TEST(FRendererRDGAllocatorTests, FailedBatchReindexesPoolAndAllowsReuse)
 	{
 		FAllocatorRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
 			FRendererRDGAllocator Allocator(Coordinator);
-			RHI.Failure = ERHIResourceCreationFailure::UnsupportedDescriptor;
 			RHI.FailOnCreate = 1;
 			ExecuteAllocationBatch(Allocator, {{true, 1}});
-			Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::ManualRetry, {});
 			RHI.FailOnCreate = 4;
 			const auto Failed = ExecuteAllocationBatch(Allocator,
 				{{true, 1}, {true, 1}, {false, 2}});
 			EXPECT_EQ(Failed.AllocationStatistics.RetainedResources, 0u);
 			ExecuteAllocationBatch(Allocator, {{false, 2}});
-			EXPECT_EQ(RHI.Creates, 4u);
-			Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::ManualRetry, {});
+			EXPECT_EQ(RHI.Creates, 5u);
 			const auto Recovered = ExecuteAllocationBatch(Allocator, {{true, 1}, {true, 1}});
 			ASSERT_EQ(Recovered.AllocationStatistics.ActiveResources, 2u);
-			EXPECT_EQ(Recovered.Resources[0].PhysicalAllocationId, 1u);
+			EXPECT_GT(Recovered.Resources[0].PhysicalAllocationId, 1u);
 			EXPECT_GT(Recovered.Resources[1].PhysicalAllocationId, 1u);
 			const auto Reused = ExecuteAllocationBatch(Allocator, {{true, 1}, {true, 1}});
 			ASSERT_EQ(Reused.AllocationStatistics.ActiveResources, 2u);
 			EXPECT_EQ(Reused.Resources[0].PhysicalAllocationId, Recovered.Resources[0].PhysicalAllocationId);
 			EXPECT_EQ(Reused.Resources[1].PhysicalAllocationId, Recovered.Resources[1].PhysicalAllocationId);
-			EXPECT_EQ(RHI.Creates, 6u);
+			EXPECT_EQ(RHI.Creates, 7u);
 		});
 		FlushRenderingCommands();
 	}
@@ -3268,26 +3240,18 @@ namespace Durin::Tests
 		FlushRenderingCommands();
 	}
 
-	TEST(FRendererRDGAllocatorTests, TemporaryFailureRetriesWithoutInvalidationAndSuppressesWholeBatch)
+	TEST(FRendererRDGAllocatorTests, FailedBatchRollsBackAndNextExecutionAllocatesImmediately)
 	{
 		FAllocatorRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
-			FManualRDGAllocationClock Clock;
-			FRendererRDGAllocator Allocator(Coordinator, [&Clock] { return Clock.Now(); });
-			RHI.Failure = ERHIResourceCreationFailure::OutOfMemory;
+			FRendererRDGAllocator Allocator(Coordinator);
 			RHI.FailOnCreate = 2;
 			const auto Failed = ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
 			EXPECT_EQ(Failed.AllocationStatistics.ActiveBytes, 0u);
 			EXPECT_EQ(Failed.AllocationStatistics.RetainedBytes, 0u);
-			ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
-			ExecuteAllocationBatch(Allocator, {{true, 2}});
 			EXPECT_EQ(RHI.Creates, 2u);
-			Clock.Advance(std::chrono::milliseconds(99));
-			ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
-			EXPECT_EQ(RHI.Creates, 2u);
-			Clock.Advance(std::chrono::milliseconds(1));
 			const auto Recovered = ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
 			EXPECT_EQ(Recovered.AllocationStatistics.ActiveBytes, 2 * MiB);
 			EXPECT_EQ(RHI.Creates, 4u);
@@ -3297,39 +3261,14 @@ namespace Durin::Tests
 		FlushRenderingCommands();
 	}
 
-	TEST(FRendererRDGAllocatorTests, UnsupportedDescriptorRequiresRelevantInvalidation)
+	TEST(FRendererRDGAllocatorTests, FailedBatchPreservesExistingReusableResources)
 	{
 		FAllocatorRenderingThreadScope RenderingThread;
 		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
 			FRDGAllocationTestRHI RHI;
 			FRendererResourceCoordinator Coordinator;
-			FManualRDGAllocationClock Clock;
-			FRendererRDGAllocator Allocator(Coordinator, [&Clock] { return Clock.Now(); });
-			RHI.Failure = ERHIResourceCreationFailure::UnsupportedDescriptor;
-			RHI.FailOnCreate = 1;
-			ExecuteAllocationBatch(Allocator, {{true, 1}});
-			Clock.Advance(std::chrono::seconds(10));
-			ExecuteAllocationBatch(Allocator, {{true, 1}});
-			Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::ShaderChanged, {});
-			ExecuteAllocationBatch(Allocator, {{true, 1}});
-			EXPECT_EQ(RHI.Creates, 1u);
-			Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::ManualRetry, {});
-			const auto Recovered = ExecuteAllocationBatch(Allocator, {{true, 1}});
-			EXPECT_EQ(Recovered.AllocationStatistics.ActiveBytes, MiB);
-			EXPECT_EQ(RHI.Creates, 2u);
-		});
-		FlushRenderingCommands();
-	}
-	TEST(FRendererRDGAllocatorTests, RollsBackMaterializedRetryAndAllowsReuseDuringCooldown)
-	{
-		FAllocatorRenderingThreadScope RenderingThread;
-		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
-			FRDGAllocationTestRHI RHI;
-			FRendererResourceCoordinator Coordinator;
-			FManualRDGAllocationClock Clock;
-			FRendererRDGAllocator Allocator(Coordinator, [&Clock] { return Clock.Now(); });
+			FRendererRDGAllocator Allocator(Coordinator);
 			ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
-			RHI.Failure = ERHIResourceCreationFailure::OutOfMemory;
 			RHI.FailOnCreate = 3;
 			const auto Failed = ExecuteAllocationBatch(Allocator, {{true, 1}, {true, 2}});
 			EXPECT_EQ(Failed.AllocationStatistics.RetainedBytes, MiB);
@@ -3337,13 +3276,11 @@ namespace Durin::Tests
 			const auto Reused = ExecuteAllocationBatch(Allocator, {{true, 1}});
 			EXPECT_EQ(Reused.AllocationStatistics.ActiveBytes, MiB);
 			EXPECT_EQ(RHI.Creates, 3u);
-			Clock.Advance(std::chrono::milliseconds(100));
 			RHI.FailOnCreate = 5;
 			const auto RetryFailed = ExecuteAllocationBatch(Allocator, {{true, 2}, {false, 2}});
 			EXPECT_EQ(RHI.Creates, 5u);
 			EXPECT_EQ(RetryFailed.AllocationStatistics.RetainedBytes, 0u);
 			EXPECT_EQ(RetryFailed.AllocationStatistics.ActiveBytes, 0u);
-			Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::ManualRetry, {});
 			const auto Recovered = ExecuteAllocationBatch(Allocator, {{true, 2}, {false, 2}});
 			EXPECT_EQ(Recovered.AllocationStatistics.ActiveBytes, 4 * MiB);
 			EXPECT_EQ(RHI.LiveBytes, 4 * MiB);

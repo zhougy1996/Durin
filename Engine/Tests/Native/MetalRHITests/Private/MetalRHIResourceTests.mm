@@ -100,12 +100,12 @@ TEST(FMetalRHIBufferTests, UploadThenCopyRetainsBuffersUntilGPUCompletion)
 			SourceDesc.InitialData = {.Data = Initial, .Size = Size};
 			const auto DestinationDesc = Durin::FRHIBufferCreateDesc::Create("Metal destination", Size, 1,
 				Durin::EBufferUsageFlags::DestinationCopy | Durin::EBufferUsageFlags::KeepCPUAccessible);
-			auto SourceResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, SourceDesc);
-			auto DestinationResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, DestinationDesc);
-			ASSERT_TRUE(SourceResult.has_value());
-			ASSERT_TRUE(DestinationResult.has_value());
-			auto Source = std::move(*SourceResult);
-			auto Destination = std::move(*DestinationResult);
+			auto SourceResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, SourceDesc);
+			auto DestinationResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, DestinationDesc);
+			ASSERT_TRUE(SourceResult);
+			ASSERT_TRUE(DestinationResult);
+			auto Source = std::move(SourceResult);
+			auto Destination = std::move(DestinationResult);
 			const auto* InitialBytes = static_cast<const uint8_t*>(
 				static_cast<Durin::FMetalBuffer*>(Source.GetReference())->GetHandle()->contents());
 			ASSERT_NE(InitialBytes, nullptr);
@@ -188,12 +188,12 @@ TEST(FMetalRHIBufferTests, RepeatedCppOwnersSurvivePoolDrainAndReleaseAtShutdown
 						Durin::EBufferUsageFlags::SourceCopy
 							| Durin::EBufferUsageFlags::DestinationCopy
 							| Durin::EBufferUsageFlags::KeepCPUAccessible);
-					auto SourceResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, Desc);
-					auto DestinationResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, Desc);
+					auto SourceResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, Desc);
+					auto DestinationResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, Desc);
 					ASSERT_TRUE(SourceResult);
 					ASSERT_TRUE(DestinationResult);
-					auto Source = std::move(*SourceResult);
-					Destination = std::move(*DestinationResult);
+					auto Source = std::move(SourceResult);
+					Destination = std::move(DestinationResult);
 					SourceNative = (__bridge id<MTLBuffer>)static_cast<void*>(
 						static_cast<Durin::FMetalBuffer*>(Source.GetReference())->GetHandle());
 					DestinationNative = (__bridge id<MTLBuffer>)static_cast<void*>(
@@ -279,13 +279,13 @@ TEST(FMetalRHIBufferTests, DeferredUniformVersionsReachSeparateDispatches)
 				Durin::EBufferUsageFlags::StructuredBuffer
 					| Durin::EBufferUsageFlags::UnorderedAccess
 					| Durin::EBufferUsageFlags::KeepCPUAccessible);
-			auto Result = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, ResultDesc);
-			ASSERT_TRUE(Result.has_value());
+			auto Result = Durin::GDynamicRHI->RHICreateBuffer(Commands, ResultDesc);
+			ASSERT_TRUE(Result);
 			const Durin::FRHIBufferViewDesc ViewDesc{
 				.Offset = 0, .Size = 8,
 				.Type = Durin::ERHIBufferViewType::StructuredStorage};
 			auto View = Durin::GDynamicRHI->RHICreateBufferView(
-				Result->GetReference(), ViewDesc);
+				Result.GetReference(), ViewDesc);
 			ASSERT_TRUE(View);
 			const std::array<Durin::FRHIShaderParameterResource, 2> Parameters{{
 				{.Resource = Uniform.GetReference(), .SetIndex = 0,
@@ -311,7 +311,7 @@ TEST(FMetalRHIBufferTests, DeferredUniformVersionsReachSeparateDispatches)
 			ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
 				Durin::ERHIGPUWaitResult::Complete);
 			const auto* Output = static_cast<const uint32_t*>(
-				static_cast<Durin::FMetalBuffer*>(Result->GetReference())->GetHandle()->contents());
+				static_cast<Durin::FMetalBuffer*>(Result.GetReference())->GetHandle()->contents());
 			ASSERT_NE(Output, nullptr);
 			EXPECT_EQ(Output[0], 7u);
 			EXPECT_EQ(Output[1], 13u);
@@ -330,10 +330,8 @@ TEST(FMetalRHIBufferTests, InvalidDescriptorsReturnRecoverableErrors)
 		auto& Commands = Durin::FRHICommandListImmediate::Get();
 		const auto Empty = Durin::FRHIBufferCreateDesc::Create("Empty", 0, 1,
 			Durin::EBufferUsageFlags::SourceCopy);
-		const auto Result = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, Empty);
-		ASSERT_FALSE(Result.has_value());
-		EXPECT_EQ(Result.error().Failure,
-			Durin::ERHIResourceCreationFailure::UnsupportedDescriptor);
+		const auto Result = Durin::GDynamicRHI->RHICreateBuffer(Commands, Empty);
+		ASSERT_FALSE(Result);
 		Durin::RHIExit();
 	}
 }
@@ -376,9 +374,9 @@ TEST(FMetalRHIBufferTests, BufferViewsValidateRangesAndRetainParent)
 		auto& Commands = Durin::FRHICommandListImmediate::Get();
 		const auto Desc = Durin::FRHIBufferCreateDesc::Create("Uniform", 64, 16,
 			Durin::EBufferUsageFlags::UniformBuffer);
-		auto BufferResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, Desc);
-		ASSERT_TRUE(BufferResult.has_value());
-		auto Buffer = std::move(*BufferResult);
+		auto BufferResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, Desc);
+		ASSERT_TRUE(BufferResult);
+		auto Buffer = std::move(BufferResult);
 		const Durin::FRHIBufferViewDesc ViewDesc{
 			.Offset = 16, .Size = 32, .Type = Durin::ERHIBufferViewType::Uniform};
 		auto View = Durin::GDynamicRHI->RHICreateBufferView(Buffer.GetReference(), ViewDesc);
@@ -446,10 +444,10 @@ TEST(FMetalRHIComputeTests, RecordedDispatchWritesStructuredBufferInBothExecutio
 				Durin::EBufferUsageFlags::StructuredBuffer
 					| Durin::EBufferUsageFlags::UnorderedAccess
 					| Durin::EBufferUsageFlags::KeepCPUAccessible);
-			auto BufferResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+			auto BufferResult = Durin::GDynamicRHI->RHICreateBuffer(
 				Commands, BufferDesc);
-			ASSERT_TRUE(BufferResult.has_value());
-			auto Buffer = std::move(*BufferResult);
+			ASSERT_TRUE(BufferResult);
+			auto Buffer = std::move(BufferResult);
 			const Durin::FRHIBufferViewDesc ViewDesc{.Offset = 16, .Size = 32,
 				.Type = Durin::ERHIBufferViewType::StructuredStorage};
 			auto View = Durin::GDynamicRHI->RHICreateBufferView(
@@ -485,10 +483,10 @@ TEST(FMetalRHIComputeTests, RecordedDispatchWritesStructuredBufferInBothExecutio
 				sizeof(uint32_t), Durin::EBufferUsageFlags::DrawIndirect);
 			ArgsDesc.InitialData = {.Data = &DispatchArgs,
 				.Size = sizeof(DispatchArgs)};
-			auto ArgsResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+			auto ArgsResult = Durin::GDynamicRHI->RHICreateBuffer(
 				Commands, ArgsDesc);
-			ASSERT_TRUE(ArgsResult.has_value());
-			auto ArgsBuffer = std::move(*ArgsResult);
+			ASSERT_TRUE(ArgsResult);
+			auto ArgsBuffer = std::move(ArgsResult);
 			const auto IndirectSignal = Commands.BeginGPUSubmission(
 				{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Compute});
 			Commands.SwitchPipeline(Durin::ERHIPipeline::Compute);
@@ -529,10 +527,10 @@ TEST(FMetalRHIComputeTests, StorageWriteThenSampleUsesNativeTextureAndSamplerVie
 				| Durin::ETextureCreateFlags::ShaderResource
 				| Durin::ETextureCreateFlags::CPUReadback);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIIsTextureSupported(TextureDesc));
-			auto TextureResult = Durin::GDynamicRHI->RHITryCreateTexture(
+			auto TextureResult = Durin::GDynamicRHI->RHICreateTexture(
 				Commands, TextureDesc);
-			ASSERT_TRUE(TextureResult.has_value());
-			auto Texture = std::move(*TextureResult);
+			ASSERT_TRUE(TextureResult);
+			auto Texture = std::move(TextureResult);
 			const Durin::FRHITextureViewDesc StorageDesc{
 				.Usage = Durin::ERHITextureViewUsage::Storage,
 				.Dimension = Durin::ERHITextureViewDimension::Texture2D,
@@ -554,10 +552,10 @@ TEST(FMetalRHIComputeTests, StorageWriteThenSampleUsesNativeTextureAndSamplerVie
 				Durin::EBufferUsageFlags::StructuredBuffer
 					| Durin::EBufferUsageFlags::UnorderedAccess
 					| Durin::EBufferUsageFlags::KeepCPUAccessible);
-			auto BufferResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+			auto BufferResult = Durin::GDynamicRHI->RHICreateBuffer(
 				Commands, BufferDesc);
-			ASSERT_TRUE(BufferResult.has_value());
-			auto Buffer = std::move(*BufferResult);
+			ASSERT_TRUE(BufferResult);
+			auto Buffer = std::move(BufferResult);
 			const Durin::FRHIBufferViewDesc BufferViewDesc{.Offset = 0,
 				.Size = 4, .Type = Durin::ERHIBufferViewType::StructuredStorage};
 			auto BufferView = Durin::GDynamicRHI->RHICreateBufferView(
@@ -707,10 +705,10 @@ TEST(FMetalRHIComputeTests, StorageWriteThenSampleUsesNativeTextureAndSamplerVie
 				"Metal sampled color", 4, 4, Durin::EPixelFormat::RGBA8_UNORM);
 			ColorDesc.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
 				| Durin::ETextureCreateFlags::CPUReadback);
-			auto ColorResult = Durin::GDynamicRHI->RHITryCreateTexture(
+			auto ColorResult = Durin::GDynamicRHI->RHICreateTexture(
 				Commands, ColorDesc);
-			ASSERT_TRUE(ColorResult.has_value());
-			auto Color = std::move(*ColorResult);
+			ASSERT_TRUE(ColorResult);
+			auto Color = std::move(ColorResult);
 			Durin::FRHIRenderPassInfo Pass;
 			Pass.RenderTargetLayout.NumColorRenderTargets = 1;
 			Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format =
@@ -743,10 +741,10 @@ TEST(FMetalRHIComputeTests, StorageWriteThenSampleUsesNativeTextureAndSamplerVie
 				"Metal fragment uniform", sizeof(Factor), sizeof(Factor),
 				Durin::EBufferUsageFlags::UniformBuffer);
 			UniformDesc.InitialData = {.Data = Factor, .Size = sizeof(Factor)};
-			auto UniformResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+			auto UniformResult = Durin::GDynamicRHI->RHICreateBuffer(
 				Commands, UniformDesc);
-			ASSERT_TRUE(UniformResult.has_value());
-			auto Uniform = std::move(*UniformResult);
+			ASSERT_TRUE(UniformResult);
+			auto Uniform = std::move(UniformResult);
 			const Durin::FRHIBufferViewDesc UniformViewDesc{.Offset = 0,
 				.Size = sizeof(Factor), .Type = Durin::ERHIBufferViewType::Uniform};
 			auto UniformView = Durin::GDynamicRHI->RHICreateBufferView(
@@ -825,9 +823,9 @@ TEST(FMetalRHITextureTests, CppViewAndSourceSurvivePoolDrainWithDelayedNativeWor
 						"Metal retained source", 4, 4, Durin::EPixelFormat::RGBA8_UNORM);
 					Desc.SetFlags(Durin::ETextureCreateFlags::ShaderResource
 						| Durin::ETextureCreateFlags::CPUReadback);
-					auto Result = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
+					auto Result = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
 					ASSERT_TRUE(Result);
-					auto Texture = std::move(*Result);
+					auto Texture = std::move(Result);
 					const Durin::FRHITextureViewDesc ViewDesc{
 						.Usage = Durin::ERHITextureViewUsage::Sampled,
 						.Dimension = Durin::ERHITextureViewDimension::Texture2D,
@@ -922,16 +920,14 @@ TEST(FMetalRHITextureTests, RecordedBufferTextureRoundTripCompletesOnGPU)
 			auto UnsupportedDesc = TextureDesc;
 			UnsupportedDesc.AddFlags(Durin::ETextureCreateFlags::ResolveTargetable);
 			EXPECT_FALSE(Durin::GDynamicRHI->RHIIsTextureSupported(UnsupportedDesc));
-			const auto Unsupported = Durin::GDynamicRHI->RHITryCreateTexture(Commands, UnsupportedDesc);
-			ASSERT_FALSE(Unsupported.has_value());
-			EXPECT_EQ(Unsupported.error().Failure,
-				Durin::ERHIResourceCreationFailure::UnsupportedDescriptor);
-			auto FirstTextureResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, TextureDesc);
-			auto SecondTextureResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, TextureDesc);
-			ASSERT_TRUE(FirstTextureResult.has_value());
-			ASSERT_TRUE(SecondTextureResult.has_value());
-			auto FirstTexture = std::move(*FirstTextureResult);
-			auto SecondTexture = std::move(*SecondTextureResult);
+			const auto Unsupported = Durin::GDynamicRHI->RHICreateTexture(Commands, UnsupportedDesc);
+			ASSERT_FALSE(Unsupported);
+			auto FirstTextureResult = Durin::GDynamicRHI->RHICreateTexture(Commands, TextureDesc);
+			auto SecondTextureResult = Durin::GDynamicRHI->RHICreateTexture(Commands, TextureDesc);
+			ASSERT_TRUE(FirstTextureResult);
+			ASSERT_TRUE(SecondTextureResult);
+			auto FirstTexture = std::move(FirstTextureResult);
+			auto SecondTexture = std::move(SecondTextureResult);
 			const Durin::FRHITextureViewDesc ViewDesc{
 				.Usage = Durin::ERHITextureViewUsage::TransferSource,
 				.Dimension = Durin::ERHITextureViewDimension::Texture2D,
@@ -949,12 +945,12 @@ TEST(FMetalRHITextureTests, RecordedBufferTextureRoundTripCompletesOnGPU)
 			SourceDesc.InitialData = {.Data = Pattern, .Size = ByteCount};
 			const auto DestinationDesc = Durin::FRHIBufferCreateDesc::Create("Texture readback", ByteCount, 1,
 				Durin::EBufferUsageFlags::DestinationCopy | Durin::EBufferUsageFlags::KeepCPUAccessible);
-			auto SourceResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, SourceDesc);
-			auto DestinationResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, DestinationDesc);
-			ASSERT_TRUE(SourceResult.has_value());
-			ASSERT_TRUE(DestinationResult.has_value());
-			auto Source = std::move(*SourceResult);
-			auto Destination = std::move(*DestinationResult);
+			auto SourceResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, SourceDesc);
+			auto DestinationResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, DestinationDesc);
+			ASSERT_TRUE(SourceResult);
+			ASSERT_TRUE(DestinationResult);
+			auto Source = std::move(SourceResult);
+			auto Destination = std::move(DestinationResult);
 			const Durin::FRHIBufferTextureCopyRegion BufferRegion{
 				.TextureExtent = {.Width = Width, .Height = Height, .Depth = 1}};
 			const Durin::FRHITextureCopyRegion TextureRegion{
@@ -1020,9 +1016,9 @@ TEST(FMetalRHITextureTests, RecordedColorClearIsReadableAfterGPUCompletion)
 			Desc.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
 				| Durin::ETextureCreateFlags::CPUReadback);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIIsTextureSupported(Desc));
-			auto Created = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
-			ASSERT_TRUE(Created.has_value());
-			auto Texture = std::move(*Created);
+			auto Created = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
+			ASSERT_TRUE(Created);
+			auto Texture = std::move(Created);
 			Durin::FRHIRenderPassInfo Pass;
 			Pass.RenderTargetLayout.NumColorRenderTargets = 1;
 			Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format =
@@ -1287,9 +1283,9 @@ TEST(FMetalRHITextureTests, ProductionFallbackDescriptorsAdmitShaderOnlyUsage)
 			.SetFormat(Durin::EPixelFormat::RGBA8_UNORM)
 			.SetFlags(Durin::ETextureCreateFlags::ShaderResource);
 		ASSERT_TRUE(Durin::GDynamicRHI->RHIIsTextureSupported(CubeDesc));
-		auto CubeResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, CubeDesc);
-		ASSERT_TRUE(CubeResult.has_value());
-		auto Cube = std::move(*CubeResult);
+		auto CubeResult = Durin::GDynamicRHI->RHICreateTexture(Commands, CubeDesc);
+		ASSERT_TRUE(CubeResult);
+		auto Cube = std::move(CubeResult);
 		auto CubeView = Durin::GDynamicRHI->RHICreateTextureView(
 			Cube.GetReference(), Durin::MakeDefaultTextureViewDesc(
 				*Cube, Durin::ERHITextureViewUsage::Sampled));
@@ -1307,10 +1303,10 @@ TEST(FMetalRHITextureTests, ProductionFallbackDescriptorsAdmitShaderOnlyUsage)
 			.SetFormat(Durin::EPixelFormat::D32)
 			.SetFlags(Durin::ETextureCreateFlags::ShaderResource);
 		ASSERT_TRUE(Durin::GDynamicRHI->RHIIsTextureSupported(ShadowDesc));
-		auto ShadowResult = Durin::GDynamicRHI->RHITryCreateTexture(
+		auto ShadowResult = Durin::GDynamicRHI->RHICreateTexture(
 			Commands, ShadowDesc);
-		ASSERT_TRUE(ShadowResult.has_value());
-		auto Shadow = std::move(*ShadowResult);
+		ASSERT_TRUE(ShadowResult);
+		auto Shadow = std::move(ShadowResult);
 		auto ShadowView = Durin::GDynamicRHI->RHICreateTextureView(
 			Shadow.GetReference(), Durin::MakeDefaultTextureViewDesc(
 				*Shadow, Durin::ERHITextureViewUsage::Sampled));
@@ -1356,14 +1352,14 @@ TEST(FMetalRHITextureTests, ProductionFallbackDescriptorsAdmitShaderOnlyUsage)
 			16, 16, Durin::EBufferUsageFlags::StructuredBuffer
 				| Durin::EBufferUsageFlags::UnorderedAccess
 				| Durin::EBufferUsageFlags::KeepCPUAccessible);
-		auto ResultBuffer = Durin::GDynamicRHI->RHITryCreateBuffer(
+		auto ResultBuffer = Durin::GDynamicRHI->RHICreateBuffer(
 			Commands, ResultDesc);
-		ASSERT_TRUE(ResultBuffer.has_value());
+		ASSERT_TRUE(ResultBuffer);
 		const Durin::FRHIBufferViewDesc ResultViewDesc{
 			.Offset = 0, .Size = 16,
 			.Type = Durin::ERHIBufferViewType::StructuredStorage};
 		auto ResultView = Durin::GDynamicRHI->RHICreateBufferView(
-			ResultBuffer->GetReference(), ResultViewDesc);
+			ResultBuffer.GetReference(), ResultViewDesc);
 		ASSERT_TRUE(ResultView);
 		const std::array<Durin::FRHIShaderParameterResource, 2> Parameters{{
 			{.Resource = CubeView.GetReference(), .SetIndex = 0,
@@ -1382,7 +1378,7 @@ TEST(FMetalRHITextureTests, ProductionFallbackDescriptorsAdmitShaderOnlyUsage)
 		ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(
 			Signal, 1'000'000'000), Durin::ERHIGPUWaitResult::Complete);
 		const auto* Result = static_cast<const float*>(
-			static_cast<Durin::FMetalBuffer*>(ResultBuffer->GetReference())
+			static_cast<Durin::FMetalBuffer*>(ResultBuffer.GetReference())
 				->GetHandle()->contents());
 		ASSERT_NE(Result, nullptr);
 		EXPECT_FLOAT_EQ(Result[0], 1.0f);
@@ -1397,10 +1393,10 @@ TEST(FMetalRHITextureTests, ProductionFallbackDescriptorsAdmitShaderOnlyUsage)
 				| Durin::ETextureCreateFlags::Storage
 				| Durin::ETextureCreateFlags::CPUReadback);
 		ASSERT_TRUE(Durin::GDynamicRHI->RHIIsTextureSupported(RadianceDesc));
-		auto RadianceResult = Durin::GDynamicRHI->RHITryCreateTexture(
+		auto RadianceResult = Durin::GDynamicRHI->RHICreateTexture(
 			Commands, RadianceDesc);
-		ASSERT_TRUE(RadianceResult.has_value());
-		auto Radiance = std::move(*RadianceResult);
+		ASSERT_TRUE(RadianceResult);
+		auto Radiance = std::move(RadianceResult);
 		auto FaceDesc = Durin::MakeDefaultTextureViewDesc(
 			*Radiance, Durin::ERHITextureViewUsage::Storage);
 		FaceDesc.Dimension = Durin::ERHITextureViewDimension::Texture2D;
@@ -1483,9 +1479,9 @@ TEST(FMetalRHITextureTests, BC1SrgbCubeUploadsAndReadsBlockRowsAndMipTail)
 			UnsupportedCopy.SetFlags(Durin::ETextureCreateFlags::ShaderResource
 				| Durin::ETextureCreateFlags::SourceCopy);
 			EXPECT_FALSE(Durin::GDynamicRHI->RHIIsTextureSupported(UnsupportedCopy));
-			auto Created = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
-			ASSERT_TRUE(Created.has_value());
-			auto Cube = std::move(*Created);
+			auto Created = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
+			ASSERT_TRUE(Created);
+			auto Cube = std::move(Created);
 			const std::array<std::byte, 8> GrayBlock{
 				std::byte{0x10}, std::byte{0x84}, std::byte{0x10}, std::byte{0x84},
 				std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
@@ -1565,13 +1561,13 @@ TEST(FMetalRHITextureTests, BC1SrgbCubeUploadsAndReadsBlockRowsAndMipTail)
 				Durin::EBufferUsageFlags::StructuredBuffer
 					| Durin::EBufferUsageFlags::UnorderedAccess
 					| Durin::EBufferUsageFlags::KeepCPUAccessible);
-			auto Result = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, ResultDesc);
-			ASSERT_TRUE(Result.has_value());
+			auto Result = Durin::GDynamicRHI->RHICreateBuffer(Commands, ResultDesc);
+			ASSERT_TRUE(Result);
 			const Durin::FRHIBufferViewDesc ResultViewDesc{
 				.Offset = 0, .Size = 16,
 				.Type = Durin::ERHIBufferViewType::StructuredStorage};
 			auto ResultView = Durin::GDynamicRHI->RHICreateBufferView(
-				Result->GetReference(), ResultViewDesc);
+				Result.GetReference(), ResultViewDesc);
 			ASSERT_TRUE(ResultView);
 			const std::array<Durin::FRHIShaderParameterResource, 2> Parameters{{
 				{.Resource = CubeView.GetReference(), .SetIndex = 0,
@@ -1590,7 +1586,7 @@ TEST(FMetalRHITextureTests, BC1SrgbCubeUploadsAndReadsBlockRowsAndMipTail)
 			ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(SampleSignal, 1'000'000'000),
 				Durin::ERHIGPUWaitResult::Complete);
 			const auto* Color = static_cast<const float*>(
-				static_cast<Durin::FMetalBuffer*>(Result->GetReference())->GetHandle()->contents());
+				static_cast<Durin::FMetalBuffer*>(Result.GetReference())->GetHandle()->contents());
 			ASSERT_NE(Color, nullptr);
 			// BC1 expands 0x8410 to (16/31, 32/63, 16/31) in sRGB space.
 			EXPECT_NEAR(Color[0], 0.2307f, 0.01f);
@@ -1645,17 +1641,17 @@ TEST(FMetalRHITextureTests, BC5AndBC7UploadPitchedBlockRowsAndMipTails)
 						auto Unsupported = Desc;
 						Unsupported.SetFlags(Desc.Flags | Flag);
 						EXPECT_FALSE(Durin::GDynamicRHI->RHIIsTextureSupported(Unsupported));
-						EXPECT_FALSE(Durin::GDynamicRHI->RHITryCreateTexture(Commands,
-							Unsupported).has_value());
+						EXPECT_FALSE(Durin::GDynamicRHI->RHICreateTexture(Commands,
+							Unsupported));
 					}
-					auto Created = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
+					auto Created = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
 					if (!bSupportsBC)
 					{
-						EXPECT_FALSE(Created.has_value());
+						EXPECT_FALSE(Created);
 						continue;
 					}
-					ASSERT_TRUE(Created.has_value());
-					auto Texture = std::move(*Created);
+					ASSERT_TRUE(Created);
+					auto Texture = std::move(Created);
 					EXPECT_EQ(static_cast<Durin::FMetalTexture*>(Texture.GetReference())
 						->GetHandle()->pixelFormat(), NativeFormat);
 					auto View = Durin::GDynamicRHI->RHICreateTextureView(Texture.GetReference(),
@@ -1736,9 +1732,9 @@ TEST(FMetalRHITextureTests, DepthArrayLayersDrawIndependentlyInBothExecutionMode
 					| Durin::ETextureCreateFlags::ShaderResource
 					| Durin::ETextureCreateFlags::CPUReadback);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIIsTextureSupported(Desc));
-			auto TargetResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
-			ASSERT_TRUE(TargetResult.has_value());
-			auto Target = std::move(*TargetResult);
+			auto TargetResult = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
+			ASSERT_TRUE(TargetResult);
+			auto Target = std::move(TargetResult);
 			const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\n"
 				"vertex float4 depthMain(uint id [[vertex_id]]) { "
 				"float2 p[3]={float2(-1,-1),float2(3,-1),float2(-1,3)}; "
@@ -1844,9 +1840,9 @@ TEST(FMetalRHITextureTests, PitchedUploadWorksInsideAndOutsideSubmission)
 				"Pitched upload", 5, 3, Durin::EPixelFormat::RGBA8_UNORM);
 			Desc.SetFlags(Durin::ETextureCreateFlags::DestinationCopy
 				| Durin::ETextureCreateFlags::CPUReadback);
-			auto TextureResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
-			ASSERT_TRUE(TextureResult.has_value());
-			auto Texture = std::move(*TextureResult);
+			auto TextureResult = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
+			ASSERT_TRUE(TextureResult);
+			auto Texture = std::move(TextureResult);
 			constexpr uint32_t SourcePitch = 8 * 4;
 			uint8_t Source[SourcePitch * 5];
 			const Durin::FUpdateTextureRegion2D Region(0, 0, 2, 1, 5, 3);
@@ -1902,9 +1898,9 @@ TEST(FMetalRHITextureTests, ShutdownCancelsUnsubmittedReadback)
 			"Canceled readback", 4, 4, Durin::EPixelFormat::RGBA8_UNORM);
 		Desc.SetFlags(Durin::ETextureCreateFlags::DestinationCopy
 			| Durin::ETextureCreateFlags::CPUReadback);
-		auto TextureResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
-		ASSERT_TRUE(TextureResult.has_value());
-		auto Texture = std::move(*TextureResult);
+		auto TextureResult = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
+		ASSERT_TRUE(TextureResult);
+		auto Texture = std::move(TextureResult);
 		const auto Signal = Commands.BeginGPUSubmission(
 			{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 		auto Request = Commands.EnqueueTextureReadback(Texture.GetReference());
@@ -1941,15 +1937,15 @@ TEST(FMetalRHITextureTests, BufferTextureCopiesRespectOffsetAndRowPitch)
 			"Pitched buffer texture", 5, 3, Durin::EPixelFormat::RGBA8_UNORM);
 		TextureDesc.SetFlags(Durin::ETextureCreateFlags::SourceCopy
 			| Durin::ETextureCreateFlags::DestinationCopy);
-		auto SourceResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, SourceDesc);
-		auto DestinationResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, DestinationDesc);
-		auto TextureResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, TextureDesc);
-		ASSERT_TRUE(SourceResult.has_value());
-		ASSERT_TRUE(DestinationResult.has_value());
-		ASSERT_TRUE(TextureResult.has_value());
-		auto Source = std::move(*SourceResult);
-		auto Destination = std::move(*DestinationResult);
-		auto Texture = std::move(*TextureResult);
+		auto SourceResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, SourceDesc);
+		auto DestinationResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, DestinationDesc);
+		auto TextureResult = Durin::GDynamicRHI->RHICreateTexture(Commands, TextureDesc);
+		ASSERT_TRUE(SourceResult);
+		ASSERT_TRUE(DestinationResult);
+		ASSERT_TRUE(TextureResult);
+		auto Source = std::move(SourceResult);
+		auto Destination = std::move(DestinationResult);
+		auto Texture = std::move(TextureResult);
 		const Durin::FRHIBufferTextureCopyRegion Region{
 			.BufferOffset = 4, .BufferRowLength = 8, .BufferImageHeight = 5,
 			.TextureExtent = {.Width = 5, .Height = 3, .Depth = 1}};
@@ -2015,9 +2011,9 @@ TEST(FMetalRHITextureTests, RequiredColorFormatsPreserveTransferBytes)
 					| Durin::ETextureCreateFlags::DestinationCopy
 					| Durin::ETextureCreateFlags::CPUReadback);
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIIsTextureSupported(TextureDesc));
-				auto TextureResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, TextureDesc);
-				ASSERT_TRUE(TextureResult.has_value());
-				auto Texture = std::move(*TextureResult);
+				auto TextureResult = Durin::GDynamicRHI->RHICreateTexture(Commands, TextureDesc);
+				ASSERT_TRUE(TextureResult);
+				auto Texture = std::move(TextureResult);
 				auto SourceDesc = Durin::FRHIBufferCreateDesc::Create("Color source", ByteCount,
 					1, Durin::EBufferUsageFlags::SourceCopy);
 				SourceDesc.InitialData = {.Data = Pattern.data(), .Size = ByteCount};
@@ -2025,12 +2021,12 @@ TEST(FMetalRHITextureTests, RequiredColorFormatsPreserveTransferBytes)
 					"Color destination", ByteCount, 1,
 					Durin::EBufferUsageFlags::DestinationCopy
 						| Durin::EBufferUsageFlags::KeepCPUAccessible);
-				auto SourceResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, SourceDesc);
-				auto DestinationResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, DestinationDesc);
-				ASSERT_TRUE(SourceResult.has_value());
-				ASSERT_TRUE(DestinationResult.has_value());
-				auto Source = std::move(*SourceResult);
-				auto Destination = std::move(*DestinationResult);
+				auto SourceResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, SourceDesc);
+				auto DestinationResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, DestinationDesc);
+				ASSERT_TRUE(SourceResult);
+				ASSERT_TRUE(DestinationResult);
+				auto Source = std::move(SourceResult);
+				auto Destination = std::move(DestinationResult);
 				const Durin::FRHIBufferTextureCopyRegion Region{
 					.TextureExtent = {.Width = Width, .Height = Height, .Depth = 1}};
 				const auto Signal = Commands.BeginGPUSubmission(
@@ -2083,12 +2079,12 @@ TEST(FMetalRHITextureTests, CubeFaceMipCopiesPreserveTwoLayers)
 					| Durin::ETextureCreateFlags::DestinationCopy
 					| Durin::ETextureCreateFlags::CPUReadback);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIIsTextureSupported(Desc));
-			auto FirstResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
-			auto SecondResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
-			ASSERT_TRUE(FirstResult.has_value());
-			ASSERT_TRUE(SecondResult.has_value());
-			auto First = std::move(*FirstResult);
-			auto Second = std::move(*SecondResult);
+			auto FirstResult = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
+			auto SecondResult = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
+			ASSERT_TRUE(FirstResult);
+			ASSERT_TRUE(SecondResult);
+			auto First = std::move(FirstResult);
+			auto Second = std::move(SecondResult);
 			const Durin::FRHITextureViewDesc CubeViewDesc{
 				.Usage = Durin::ERHITextureViewUsage::TransferSource,
 				.Dimension = Durin::ERHITextureViewDimension::TextureCube,
@@ -2108,12 +2104,12 @@ TEST(FMetalRHITextureTests, CubeFaceMipCopiesPreserveTwoLayers)
 				"Cube destination", Pattern.size(), 1,
 				Durin::EBufferUsageFlags::DestinationCopy
 					| Durin::EBufferUsageFlags::KeepCPUAccessible);
-			auto SourceResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, SourceDesc);
-			auto DestinationResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, DestinationDesc);
-			ASSERT_TRUE(SourceResult.has_value());
-			ASSERT_TRUE(DestinationResult.has_value());
-			auto Source = std::move(*SourceResult);
-			auto Destination = std::move(*DestinationResult);
+			auto SourceResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, SourceDesc);
+			auto DestinationResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, DestinationDesc);
+			ASSERT_TRUE(SourceResult);
+			ASSERT_TRUE(DestinationResult);
+			auto Source = std::move(SourceResult);
+			auto Destination = std::move(DestinationResult);
 			const Durin::FRHIBufferTextureCopyRegion Upload{
 				.TextureMip = 1, .TextureFirstArrayLayer = 2, .TextureNumArrayLayers = 2,
 				.TextureExtent = {.Width = 4, .Height = 4, .Depth = 1}};
@@ -2180,12 +2176,12 @@ TEST(FMetalRHITextureTests, ArrayLayersCopyAcrossCubeBoundary)
 					| Durin::ETextureCreateFlags::DestinationCopy
 					| Durin::ETextureCreateFlags::CPUReadback);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIIsTextureSupported(Desc));
-			auto FirstResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
-			auto SecondResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
-			ASSERT_TRUE(FirstResult.has_value());
-			ASSERT_TRUE(SecondResult.has_value());
-			auto First = std::move(*FirstResult);
-			auto Second = std::move(*SecondResult);
+			auto FirstResult = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
+			auto SecondResult = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
+			ASSERT_TRUE(FirstResult);
+			ASSERT_TRUE(SecondResult);
+			auto First = std::move(FirstResult);
+			auto Second = std::move(SecondResult);
 			const auto View = Durin::MakeDefaultTextureViewDesc(
 				*First, Durin::ERHITextureViewUsage::TransferSource);
 			EXPECT_EQ(View.Dimension, bCubeArray
@@ -2204,12 +2200,12 @@ TEST(FMetalRHITextureTests, ArrayLayersCopyAcrossCubeBoundary)
 				"Array destination", sizeof(Pattern), 1,
 				Durin::EBufferUsageFlags::DestinationCopy
 					| Durin::EBufferUsageFlags::KeepCPUAccessible);
-			auto SourceResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, SourceDesc);
-			auto DestinationResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, DestinationDesc);
-			ASSERT_TRUE(SourceResult.has_value());
-			ASSERT_TRUE(DestinationResult.has_value());
-			auto Source = std::move(*SourceResult);
-			auto Destination = std::move(*DestinationResult);
+			auto SourceResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, SourceDesc);
+			auto DestinationResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, DestinationDesc);
+			ASSERT_TRUE(SourceResult);
+			ASSERT_TRUE(DestinationResult);
+			auto Source = std::move(SourceResult);
+			auto Destination = std::move(DestinationResult);
 			const uint32_t FirstLayer = bCubeArray ? 5 : 1;
 			const uint32_t LastLayer = bCubeArray ? 8 : 2;
 			const Durin::FRHIBufferTextureCopyRegion Upload{
@@ -2251,9 +2247,9 @@ TEST(FMetalRHITextureTests, ArrayLayersCopyAcrossCubeBoundary)
 				"Array layer source", 4, 4, Durin::EPixelFormat::RGBA8_UNORM)
 				.SetFlags(Durin::ETextureCreateFlags::SourceCopy
 					| Durin::ETextureCreateFlags::DestinationCopy);
-			auto PlaneResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, PlaneDesc);
-			ASSERT_TRUE(PlaneResult.has_value());
-			auto Plane = std::move(*PlaneResult);
+			auto PlaneResult = Durin::GDynamicRHI->RHICreateTexture(Commands, PlaneDesc);
+			ASSERT_TRUE(PlaneResult);
+			auto Plane = std::move(PlaneResult);
 			const Durin::FRHIBufferTextureCopyRegion PlaneUpload{
 				.TextureExtent = {4, 4, 1}};
 			const Durin::FRHITextureCopyRegion CrossDimensionCopy{
@@ -2299,12 +2295,12 @@ TEST(FMetalRHITextureTests, VolumeMipCopiesPreserveDepthSlices)
 					| Durin::ETextureCreateFlags::DestinationCopy
 					| Durin::ETextureCreateFlags::ShaderResource);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIIsTextureSupported(Desc));
-			auto FirstResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
-			auto SecondResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
-			ASSERT_TRUE(FirstResult.has_value());
-			ASSERT_TRUE(SecondResult.has_value());
-			auto First = std::move(*FirstResult);
-			auto Second = std::move(*SecondResult);
+			auto FirstResult = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
+			auto SecondResult = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
+			ASSERT_TRUE(FirstResult);
+			ASSERT_TRUE(SecondResult);
+			auto First = std::move(FirstResult);
+			auto Second = std::move(SecondResult);
 			const Durin::FRHITextureViewDesc VolumeViewDesc{
 				.Usage = Durin::ERHITextureViewUsage::TransferSource,
 				.Dimension = Durin::ERHITextureViewDimension::Texture3D,
@@ -2329,12 +2325,12 @@ TEST(FMetalRHITextureTests, VolumeMipCopiesPreserveDepthSlices)
 			const auto DestinationDesc = Durin::FRHIBufferCreateDesc::Create("Volume destination",
 				ByteCount, 1, Durin::EBufferUsageFlags::DestinationCopy
 					| Durin::EBufferUsageFlags::KeepCPUAccessible);
-			auto SourceResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, SourceDesc);
-			auto DestinationResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, DestinationDesc);
-			ASSERT_TRUE(SourceResult.has_value());
-			ASSERT_TRUE(DestinationResult.has_value());
-			auto Source = std::move(*SourceResult);
-			auto Destination = std::move(*DestinationResult);
+			auto SourceResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, SourceDesc);
+			auto DestinationResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, DestinationDesc);
+			ASSERT_TRUE(SourceResult);
+			ASSERT_TRUE(DestinationResult);
+			auto Source = std::move(SourceResult);
+			auto Destination = std::move(DestinationResult);
 			const std::string ShaderSource =
 				"#include <metal_stdlib>\nusing namespace metal;\n"
 				"kernel void sampleVolume(texture3d<float, access::sample> volume [[texture(0)]], "
@@ -2373,13 +2369,13 @@ TEST(FMetalRHITextureTests, VolumeMipCopiesPreserveDepthSlices)
 				4, 4, Durin::EBufferUsageFlags::StructuredBuffer
 					| Durin::EBufferUsageFlags::UnorderedAccess
 					| Durin::EBufferUsageFlags::KeepCPUAccessible);
-			auto ResultBuffer = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, ResultDesc);
-			ASSERT_TRUE(ResultBuffer.has_value());
+			auto ResultBuffer = Durin::GDynamicRHI->RHICreateBuffer(Commands, ResultDesc);
+			ASSERT_TRUE(ResultBuffer);
 			const Durin::FRHIBufferViewDesc ResultViewDesc{
 				.Offset = 0, .Size = 4,
 				.Type = Durin::ERHIBufferViewType::StructuredStorage};
 			auto ResultView = Durin::GDynamicRHI->RHICreateBufferView(
-				ResultBuffer->GetReference(), ResultViewDesc);
+				ResultBuffer.GetReference(), ResultViewDesc);
 			ASSERT_TRUE(ResultView);
 			const std::array<Durin::FRHIShaderParameterResource, 2> Parameters{{
 				{.Resource = SampledView.GetReference(), .SetIndex = 0,
@@ -2416,7 +2412,7 @@ TEST(FMetalRHITextureTests, VolumeMipCopiesPreserveDepthSlices)
 			ASSERT_NE(Bytes, nullptr);
 			EXPECT_EQ(std::memcmp(Bytes, Pattern, ByteCount), 0);
 			const auto* SampledValue = static_cast<const uint32_t*>(
-				static_cast<Durin::FMetalBuffer*>(ResultBuffer->GetReference())
+				static_cast<Durin::FMetalBuffer*>(ResultBuffer.GetReference())
 					->GetHandle()->contents());
 			ASSERT_NE(SampledValue, nullptr);
 			EXPECT_EQ(*SampledValue, 4u);
@@ -2442,9 +2438,9 @@ TEST(FMetalRHITextureTests, PitchedVolumeUploadPreservesVoxelBox)
 				.SetExtent(4, 4).SetDepth(4).SetFormat(Durin::EPixelFormat::RGBA8_UNORM)
 				.SetFlags(Durin::ETextureCreateFlags::SourceCopy
 					| Durin::ETextureCreateFlags::DestinationCopy);
-			auto TextureResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, Desc);
-			ASSERT_TRUE(TextureResult.has_value());
-			auto Texture = std::move(*TextureResult);
+			auto TextureResult = Durin::GDynamicRHI->RHICreateTexture(Commands, Desc);
+			ASSERT_TRUE(TextureResult);
+			auto Texture = std::move(TextureResult);
 			constexpr uint32_t RowPitch = 4 * 4;
 			constexpr uint32_t DepthPitch = RowPitch * 4;
 			constexpr uint32_t OutputSize = 2 * 2 * 2 * 4;
@@ -2469,9 +2465,9 @@ TEST(FMetalRHITextureTests, PitchedVolumeUploadPreservesVoxelBox)
 					"Volume upload readback", OutputSize, 1,
 					Durin::EBufferUsageFlags::DestinationCopy
 						| Durin::EBufferUsageFlags::KeepCPUAccessible);
-				auto BufferResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, BufferDesc);
-				ASSERT_TRUE(BufferResult.has_value());
-				auto Buffer = std::move(*BufferResult);
+				auto BufferResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, BufferDesc);
+				ASSERT_TRUE(BufferResult);
+				auto Buffer = std::move(BufferResult);
 				Durin::FRHIGPUSyncPointRef Signal;
 				if (bExplicitSubmission)
 					Signal = Commands.BeginGPUSubmission(
@@ -2651,16 +2647,16 @@ TEST(FMetalRHISubmissionTests, DelayedGPUCompletionRetainsPayloadAndShutdownDrai
 				Durin::EBufferUsageFlags::StructuredBuffer | Durin::EBufferUsageFlags::UnorderedAccess
 					| Durin::EBufferUsageFlags::KeepCPUAccessible | Durin::EBufferUsageFlags::SourceCopy);
 			BufferDesc.InitialData = {.Data = &Zero, .Size = sizeof(Zero)};
-			auto OutputResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, BufferDesc);
+			auto OutputResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, BufferDesc);
 			ASSERT_TRUE(OutputResult);
-			auto Output = std::move(*OutputResult);
+			auto Output = std::move(OutputResult);
 			WeakOutput = (__bridge id<MTLBuffer>)static_cast<void*>(
 				static_cast<Durin::FMetalBuffer*>(Output.GetReference())->GetHandle());
 			const auto DestinationDesc = Durin::FRHIBufferCreateDesc::Create("delayed result", 4, 4,
 				Durin::EBufferUsageFlags::DestinationCopy | Durin::EBufferUsageFlags::KeepCPUAccessible);
-			auto DestinationResult = Durin::GDynamicRHI->RHITryCreateBuffer(Commands, DestinationDesc);
+			auto DestinationResult = Durin::GDynamicRHI->RHICreateBuffer(Commands, DestinationDesc);
 			ASSERT_TRUE(DestinationResult);
-			Destination = std::move(*DestinationResult);
+			Destination = std::move(DestinationResult);
 			const Durin::FRHIBufferViewDesc ViewDesc{.Offset = 0, .Size = 4,
 				.Type = Durin::ERHIBufferViewType::StructuredStorage};
 			auto OutputView = Durin::GDynamicRHI->RHICreateBufferView(Output.GetReference(), ViewDesc);
@@ -2672,9 +2668,9 @@ TEST(FMetalRHISubmissionTests, DelayedGPUCompletionRetainsPayloadAndShutdownDrai
 				Durin::EPixelFormat::RGBA8_UNORM);
 			TextureDesc.SetFlags(Durin::ETextureCreateFlags::DestinationCopy
 				| Durin::ETextureCreateFlags::CPUReadback);
-			auto TextureResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, TextureDesc);
+			auto TextureResult = Durin::GDynamicRHI->RHICreateTexture(Commands, TextureDesc);
 			ASSERT_TRUE(TextureResult);
-			auto Texture = std::move(*TextureResult);
+			auto Texture = std::move(TextureResult);
 			const Durin::FByteBuffer Pixels{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
 			Commands.UpdateTexture2D(Texture.GetReference(), 0, 0, {0, 0, 0, 0, 1, 1}, 4, Pixels);
 			Commands.BlockUntilGPUIdle();
@@ -2879,7 +2875,7 @@ TEST(FMetalRHITransitionTests, ExactRangesAndRejectedBatchesPreserveStateInBothE
 		ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
 		FScopedRHIExit Exit;
 		auto& Commands = FRHICommandListImmediate::Get();
-		auto Buffer = GDynamicRHI->RHITryCreateBuffer(Commands, FRHIBufferCreateDesc::Create(
+		auto Buffer = GDynamicRHI->RHICreateBuffer(Commands, FRHIBufferCreateDesc::Create(
 			"transition ranges", 64, 1, EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy));
 		ASSERT_TRUE(Buffer);
 		auto TextureDesc = FRHITextureCreateDesc::Create2D("transition subresources", 4, 4, EPixelFormat::RGBA8_UNORM);
@@ -2887,20 +2883,20 @@ TEST(FMetalRHITransitionTests, ExactRangesAndRejectedBatchesPreserveStateInBothE
 		TextureDesc.ArraySize = 2;
 		TextureDesc.NumMips = 2;
 		TextureDesc.SetFlags(ETextureCreateFlags::SourceCopy | ETextureCreateFlags::DestinationCopy);
-		auto Texture = GDynamicRHI->RHITryCreateTexture(Commands, TextureDesc);
+		auto Texture = GDynamicRHI->RHICreateTexture(Commands, TextureDesc);
 		ASSERT_TRUE(Texture);
-		auto* NativeBuffer = static_cast<FMetalBuffer*>(Buffer->GetReference());
-		auto* NativeTexture = static_cast<FMetalTexture*>(Texture->GetReference());
+		auto* NativeBuffer = static_cast<FMetalBuffer*>(Buffer.GetReference());
+		auto* NativeTexture = static_cast<FMetalTexture*>(Texture.GetReference());
 		const FRHITextureSubresourceRange First{ERHITextureAspect::Color, 0, 1, 0, 1};
 		const FRHITextureSubresourceRange Last{ERHITextureAspect::Color, 1, 1, 1, 1};
 		Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 		const std::array BufferTransitions{
-			FRHIBufferTransition{Buffer->GetReference(), 0, 16, ERHIAccess::None, ERHIAccess::TransferWrite},
-			FRHIBufferTransition{Buffer->GetReference(), 32, 16, ERHIAccess::None, ERHIAccess::TransferRead}};
+			FRHIBufferTransition{Buffer.GetReference(), 0, 16, ERHIAccess::None, ERHIAccess::TransferWrite},
+			FRHIBufferTransition{Buffer.GetReference(), 32, 16, ERHIAccess::None, ERHIAccess::TransferRead}};
 		Commands.TransitionBuffers(BufferTransitions);
 		const std::array TextureTransitions{
-			FRHITextureTransition{Texture->GetReference(), First, ERHIAccess::None, ERHIAccess::TransferWrite},
-			FRHITextureTransition{Texture->GetReference(), Last, ERHIAccess::None, ERHIAccess::TransferRead}};
+			FRHITextureTransition{Texture.GetReference(), First, ERHIAccess::None, ERHIAccess::TransferWrite},
+			FRHITextureTransition{Texture.GetReference(), Last, ERHIAccess::None, ERHIAccess::TransferRead}};
 		Commands.TransitionTextures(TextureTransitions);
 		Commands.EndGPUSubmission();
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
@@ -2910,8 +2906,8 @@ TEST(FMetalRHITransitionTests, ExactRangesAndRejectedBatchesPreserveStateInBothE
 			EXPECT_FALSE(NativeBuffer->GetStateTracker().Validate(0, 64, ERHIAccess::TransferWrite, Tracked));
 			EXPECT_TRUE(NativeBuffer->GetStateTracker().Validate(0, 64, ERHIAccess::Discard, Tracked));
 			const std::array InvalidBuffers{
-				FRHIBufferTransition{Buffer->GetReference(), 16, 16, ERHIAccess::None, ERHIAccess::TransferWrite},
-				FRHIBufferTransition{Buffer->GetReference(), 32, 16, ERHIAccess::None, ERHIAccess::TransferWrite}};
+				FRHIBufferTransition{Buffer.GetReference(), 16, 16, ERHIAccess::None, ERHIAccess::TransferWrite},
+				FRHIBufferTransition{Buffer.GetReference(), 32, 16, ERHIAccess::None, ERHIAccess::TransferWrite}};
 			const auto BufferError = ApplyMetalBufferTransitions(InvalidBuffers);
 			ASSERT_TRUE(BufferError);
 			EXPECT_NE(BufferError->find("offset=32"), std::string::npos);
@@ -2920,21 +2916,21 @@ TEST(FMetalRHITransitionTests, ExactRangesAndRejectedBatchesPreserveStateInBothE
 			const FRHITextureSubresourceRange Untouched{ERHITextureAspect::Color, 1, 1, 0, 1};
 			EXPECT_TRUE(NativeTexture->ValidateAccess(Untouched, ERHIAccess::None, Tracked));
 			const std::array InvalidTextures{
-				FRHITextureTransition{Texture->GetReference(), Untouched, ERHIAccess::None, ERHIAccess::TransferWrite},
-				FRHITextureTransition{Texture->GetReference(), Last, ERHIAccess::None, ERHIAccess::TransferWrite, true}};
+				FRHITextureTransition{Texture.GetReference(), Untouched, ERHIAccess::None, ERHIAccess::TransferWrite},
+				FRHITextureTransition{Texture.GetReference(), Last, ERHIAccess::None, ERHIAccess::TransferWrite, true}};
 			const auto TextureError = ApplyMetalTextureTransitions(InvalidTextures);
 			ASSERT_TRUE(TextureError);
 			EXPECT_NE(TextureError->find("layer=1+1"), std::string::npos);
 			// Content discard does not waive ExpectedBefore; no earlier entry was published.
 			EXPECT_TRUE(NativeTexture->ValidateAccess(Untouched, ERHIAccess::None, Tracked));
 			EXPECT_TRUE(NativeTexture->ValidateAccess(Last, ERHIAccess::TransferRead, Tracked));
-			const std::array Reset{FRHITextureTransition{Texture->GetReference(),
+			const std::array Reset{FRHITextureTransition{Texture.GetReference(),
 				{ERHITextureAspect::Color, 0, 2, 0, 2}, ERHIAccess::Discard, ERHIAccess::TransferRead}};
 			EXPECT_FALSE(ApplyMetalTextureTransitions(Reset));
 			EXPECT_TRUE(NativeTexture->ValidateAccess({ERHITextureAspect::Color, 0, 2, 0, 2}, ERHIAccess::TransferRead, Tracked));
 		});
-		*Buffer = nullptr;
-		*Texture = nullptr;
+		Buffer = nullptr;
+		Texture = nullptr;
 		RHIExit();
 	}
 }

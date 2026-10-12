@@ -192,6 +192,12 @@ retries. The sync point is a producer locator, not an independent reuse authorit
 Normal pressure does not wait for unrelated device work. Arena teardown
 drains submitted queues before destroying native pages.
 
+Arena acquisition reports recoverable native allocation failures as `vk::Result`
+without retaining exception objects. `eErrorOutOfPoolMemory` also represents the
+configured per-allocation limit. Upload consumers raise a terminal error;
+readback consumers may reject the request. Device loss and unknown native
+failures propagate directly rather than becoming allocation results.
+
 Static device-local buffer writes and texture updates use upload ranges while
 retaining the public transition/copy authority. Scoped texture readback uses a
 readback range, submits its producing payload through the coordinator, waits its exact sync point,

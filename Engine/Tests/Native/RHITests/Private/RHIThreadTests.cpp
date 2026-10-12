@@ -27,32 +27,20 @@ namespace Durin
 		};
 	}
 
-	TEST(FRHIThreadTests, CapturesUnknownExceptionsAndBoundsDiagnostics)
+	TEST(FRHIThreadDeathTest, UnhandledWorkExceptionsTerminate)
 	{
-		for (uint32 Case = 0; Case < 3; ++Case)
+		for (const bool bUnknown : {false, true})
 		{
-			FRHIThread Thread;
-			FRHIThreadTestGuard Guard(Thread);
-			ASSERT_TRUE(Thread.Start());
-			FRHIThreadWork Work;
-			Work.Execute = [Case]() {
-				if (Case == 0) throw 42;
-				if (Case == 1) throw std::runtime_error(std::string(8192, 'x'));
-				throw std::runtime_error("");
-			};
-			const auto Result = Thread.EnqueueSynchronous(Work);
-			EXPECT_EQ(ERHIThreadWaitResult::Failed, Result.WaitResult);
-			const auto Stats = Thread.GetStats();
-			EXPECT_EQ(Result.Submission.Serial, Stats.FailedSerial);
-			EXPECT_EQ(0u, Stats.CompletedSerial);
-			if (Case == 0)
-				EXPECT_EQ("RHI thread work failed with an unknown exception.", Stats.FailureDiagnostic);
-			else if (Case == 1)
-				EXPECT_EQ(std::string(4096, 'x'), Stats.FailureDiagnostic);
-			else
-				EXPECT_TRUE(Stats.FailureDiagnostic.empty());
-			Thread.ReportExternalFailure("later failure");
-			EXPECT_EQ(Stats.FailureDiagnostic, Thread.GetStats().FailureDiagnostic);
+			EXPECT_DEATH(([] (bool bUnknown) {
+				FRHIThread Thread;
+				if (!Thread.Start()) std::exit(0);
+				FRHIThreadWork Work;
+				Work.Execute = [bUnknown] {
+					if (bUnknown) throw 42;
+					throw std::runtime_error("unhandled RHI work failure");
+				};
+				Thread.EnqueueSynchronous(Work);
+			}(bUnknown)), "");
 		}
 	}
 
@@ -435,7 +423,7 @@ namespace Durin
 		EXPECT_TRUE(bNestedWorkRetained);
 	}
 
-	TEST(FRHIThreadTests, FailureWakesWaitersRejectsQueuedWorkAndDestroysPayloads)
+	TEST(FRHIThreadTests, ExternalFailureWakesWaitersRejectsQueuedWorkAndDestroysPayloads)
 	{
 		FRHIThread Thread;
 		FRHIThreadTestGuard Guard(Thread);
@@ -459,7 +447,7 @@ namespace Durin
 		Failing.Execute = [&]() {
 			FailureStarted.Trigger();
 			ReleaseFailure.Wait();
-			throw std::runtime_error("fake executor failure");
+			Thread.ReportExternalFailure();
 		};
 		const FRHIThreadSubmission FailingSubmission = Thread.Enqueue(Failing);
 		ASSERT_TRUE(FailingSubmission.IsAccepted());
@@ -475,32 +463,32 @@ namespace Durin
 
 		EXPECT_EQ(ERHIThreadWaitResult::Failed,
 			Thread.WaitForSerial(QueuedSubmission.Serial));
+		Thread.Stop();
 		const FRHIThreadStats Stats = Thread.GetStats();
 		EXPECT_EQ(FailingSubmission.Serial, Stats.FailedSerial);
-		EXPECT_EQ("fake executor failure", Stats.FailureDiagnostic);
 		EXPECT_EQ(1u, Stats.RejectedWorkCount);
 		EXPECT_EQ(0u, Stats.OutstandingEntryCount);
 		EXPECT_EQ(0u, Stats.OutstandingFrameCount);
 		EXPECT_EQ(1u, DestroyedCount.load(std::memory_order::acquire));
 	}
 
-	TEST(FRHIThreadTests, SynchronousFailurePreservesDiagnosticOnExecutionAndRejection)
+	TEST(FRHIThreadTests, ExternalFailurePreservesFailedSerialOnExecutionAndRejection)
 	{
 		FRHIThread Thread;
 		FRHIThreadTestGuard Guard(Thread);
 		ASSERT_TRUE(Thread.Start());
 		FRHIThreadWork Work;
-		Work.Execute = []() {
-			throw std::runtime_error("original failure");
+		Work.Execute = [&Thread]() {
+			Thread.ReportExternalFailure();
 		};
 		const auto Failed = Thread.EnqueueSynchronous(Work);
 		EXPECT_EQ(ERHIThreadWaitResult::Failed, Failed.WaitResult);
-		const auto FailureDiagnostic = Thread.GetStats().FailureDiagnostic;
-		EXPECT_EQ("original failure", FailureDiagnostic);
+		const auto FailedSerial = Thread.GetStats().FailedSerial;
+		EXPECT_EQ(Failed.Submission.Serial, FailedSerial);
 		Work.Execute = []() {};
 		const auto Rejected = Thread.EnqueueSynchronous(Work);
 		EXPECT_EQ(ERHIThreadEnqueueResult::Failed, Rejected.Submission.Result);
-		EXPECT_EQ(FailureDiagnostic, Thread.GetStats().FailureDiagnostic);
+		EXPECT_EQ(FailedSerial, Thread.GetStats().FailedSerial);
 	}
 
 	TEST(FRHIThreadTests, FailedLaunchRestoresStoppedState)
@@ -533,7 +521,7 @@ namespace Durin
 		Queued.FrameCount = 1;
 		Queued.Execute = [&] { Replayed = true; };
 		const auto Second = Thread.Enqueue(Queued);
-		Thread.ReportExternalFailure("background device lost");
+		Thread.ReportExternalFailure();
 		EXPECT_EQ(Thread.WaitForSerial(First.Serial), ERHIThreadWaitResult::Failed);
 		EXPECT_EQ(Thread.WaitForSerial(Second.Serial), ERHIThreadWaitResult::Failed);
 		EXPECT_EQ(Thread.GetStats().OutstandingEntryCount, 1u);
@@ -552,7 +540,7 @@ namespace Durin
 		FRHIThread Thread;
 		FRHIThreadTestGuard Guard(Thread);
 		ASSERT_TRUE(Thread.Start());
-		Thread.ReportExternalFailure("device lost before first batch");
+		Thread.ReportExternalFailure();
 		FRHIThreadWork Work;
 		Work.Execute = [] {};
 		EXPECT_EQ(Thread.Enqueue(Work).Result, ERHIThreadEnqueueResult::Failed);

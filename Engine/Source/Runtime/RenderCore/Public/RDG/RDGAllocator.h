@@ -10,9 +10,7 @@ namespace Durin
 	enum class ERDGAllocationError : uint8
 	{
 		AllocatorFailure,
-		AllocationRetrySuppressed,
 		AllocationKindInvalid,
-		AllocationRetryDeferred,
 		AllocationRetirementPending,
 		PhysicalAllocationFailed,
 		AllocationPublicationFailed,
@@ -29,7 +27,6 @@ namespace Durin
 	{
 		ERDGAllocationError Reason;
 		uint32 ResourceId = UINT32_MAX;
-		FRHICreationError Cause;
 	};
 	RENDERCORE_API auto ToString(const FRDGAllocationFailure& Error) -> std::string;
 

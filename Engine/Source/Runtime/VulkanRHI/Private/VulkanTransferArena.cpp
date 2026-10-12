@@ -133,7 +133,7 @@ namespace Durin::VulkanRHI
 			|| SyncPoint.GetState() == ERHIGPUSubmissionState::Complete);
 		ReclaimCompleted();
 		if (Config.MaxAllocation && Size > Config.MaxAllocation)
-			return {.bAllocationFailed = true};
+			return {.AllocationResult = vk::Result::eErrorOutOfPoolMemory};
 		if (Config.AllocationClass == EVulkanAllocationClassCandidate::DynamicUpload)
 		{
 			for (const auto& Page : OversizePages)
@@ -161,7 +161,7 @@ namespace Durin::VulkanRHI
 			catch (const vk::SystemError& Error)
 			{
 				if (!IsRecoverableVulkanCreationError(static_cast<vk::Result>(Error.code().value()))) throw;
-				return {.bAllocationFailed = true, .AllocationFailure = std::current_exception()};
+				return {.AllocationResult = static_cast<vk::Result>(Error.code().value())};
 			}
 		}
 
@@ -192,7 +192,7 @@ namespace Durin::VulkanRHI
 			catch (const vk::SystemError& Error)
 			{
 				if (!IsRecoverableVulkanCreationError(static_cast<vk::Result>(Error.code().value()))) throw;
-				return {.bAllocationFailed = true, .AllocationFailure = std::current_exception()};
+				return {.AllocationResult = static_cast<vk::Result>(Error.code().value())};
 			}
 		}
 

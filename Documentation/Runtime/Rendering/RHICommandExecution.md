@@ -23,18 +23,26 @@ may report `InvalidDescription`.
 context, never classify by text. Formatting lives in `RHIErrorStrings.cpp`.
 
 `FRHICreationError` preserves recovery class, source, and native status.
-`RHITryCreateTexture`/`RHITryCreateBuffer` return a non-null resource or that error
-without logging; nullable adapters log recoverable failures once. Thread work
-callbacks return `void`; the consumer catches exceptions, retains the first
-failure's diagnostic text (at most 4096 bytes), stops admission, releases queued
-work, and wakes waiters. `FailedSerial` is the failure authority even when the
-exception text is empty. Stats expose the text only for diagnostics; synchronous
-submission returns admission and completion status without an error payload.
+Cache-capacity failures share the `CacheCapacity` source; resource context and
+identity remain available at the render-resource diagnostic boundary.
+`RHICreateTexture`/`RHICreateBuffer` return a complete resource or null;
+backends log recoverable creation failures locally. Thread work
+callbacks return `void`; the queue does not catch execution exceptions. An
+exception escaping the RHI worker terminates the process; inline execution
+propagates it to the caller. Explicit external failure notification stops
+admission, releases queued work, and wakes waiters. `FailedSerial` records that
+terminal state without retaining exception text. Synchronous submission returns
+admission and completion status without an error payload.
 Backend `Init` owns partial-state cleanup before propagating its original
-exception to the thread boundary or inline initialization handler. The RHI owner
+exception to the initialization operation's handler. The RHI owner
 then destroys the failed backend and releases its module; it does not call
 runtime `Shutdown` on a partially initialized backend. Device/invariant failures
 stay terminal.
+Vulkan startup propagates original enumeration and native-creation exceptions
+to that initialization boundary. Direct native resource factories translate
+recoverable failures into null resources; ordered synchronous factories
+retain the narrow creation-exception boundary described below. Unpublished
+buffer, image, and view candidates use scope ownership for failure cleanup.
 Vulkan startup and swapchain configuration may use local human-readable reasons;
 success follows result state and native retry policy follows `vk::Result`.
 
@@ -213,8 +221,8 @@ Buffer and texture uploads are recorded and own their source bytes.
 the written range in `TransferWrite` for a graph-managed next barrier.
 `WriteBuffer` keeps its canonical-access restoration contract. Write-only buffer
 locks allocate CPU staging and record `WriteBuffer` at unlock; they do not
-provide native mappings. Uniform resources use `UpdateUniformBuffer`; Storage uses
-`UpdateBuffer` instead of the native write/upload/lock surfaces. Operations
+provide native mappings. Uniform resources use `UpdateUniformBuffer`; ordinary
+buffers use ordered `WriteBuffer`/`UploadBuffer` commands. Operations
 that must return a completed result—texture readback,
 back-buffer acquisition, GPU-idle waits, resource creation, viewport resize,
 and backend-dependent allocation—use declared synchronous executor operations.
@@ -266,6 +274,8 @@ vertex-declaration factories must otherwise publish a complete resource; a
 non-null wrapper with an invalid native handle or allocation is forbidden.
 Partially built native candidates clean up immediately on the RHI thread, and a
 later caller-defined or Renderer-generation retry may create a fresh candidate.
+Vulkan vertex declarations only copy CPU metadata and are created directly,
+without native-failure translation or RHI-thread replay.
 
 These readiness postconditions apply to all native buffer factories, including
 structured and byte-address buffers. `CreateUniformBuffer` returns a dedicated

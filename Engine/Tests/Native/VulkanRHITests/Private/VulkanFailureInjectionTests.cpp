@@ -174,7 +174,7 @@ namespace Durin::VulkanRHI
 	{
 	};
 
-	TEST_F(FVulkanCreateFailureInjectionTests, RecoveryFactorySeparatesValuesErrorsAndDiagnostics)
+	TEST_F(FVulkanCreateFailureInjectionTests, NullableFactoryReturnsResourcesAndLogsCreationFailureOnce)
 	{
 		auto& Logger = FLogger::Get();
 		ASSERT_TRUE(Logger.Initialize({}));
@@ -184,18 +184,11 @@ namespace Durin::VulkanRHI
 		auto Fail = []() -> std::shared_ptr<int> {
 			throw vk::OutOfDeviceMemoryError("expected allocation failure");
 		};
-		const auto Failed = TryCreateVulkanResource(Fail);
-		ASSERT_FALSE(Failed);
-		EXPECT_EQ(Failed.error().Failure, ERHIResourceCreationFailure::OutOfMemory);
-		EXPECT_EQ(Failed.error().Source, ERHICreationFailureSource::NativeBackend);
-		EXPECT_EQ(Failed.error().NativeCode, static_cast<int32>(vk::Result::eErrorOutOfDeviceMemory));
-		const auto Resource = TryCreateVulkanResource([] { return std::make_shared<int>(42); });
+		const auto Resource = CreateVulkanResource([] { return std::make_shared<int>(42); }, "test resource");
 		ASSERT_TRUE(Resource);
-		ASSERT_TRUE(*Resource);
-		EXPECT_EQ(**Resource, 42);
-		const auto Null = TryCreateVulkanResource([] { return std::shared_ptr<int>{}; });
+		EXPECT_EQ(*Resource, 42);
+		const auto Null = CreateVulkanResource([] { return std::shared_ptr<int>{}; }, "test resource");
 		ASSERT_FALSE(Null);
-		EXPECT_EQ(Null.error().Source, ERHICreationFailureSource::BackendReturnedNull);
 		Logger.Flush();
 		EXPECT_TRUE(Logger.ReadRecords(Cursor).Records.empty());
 
@@ -214,12 +207,6 @@ namespace Durin::VulkanRHI
 		EXPECT_THROW(CreateVulkanResource([]() -> std::shared_ptr<int> {
 			throw std::logic_error("internal invariant failure");
 		}, "test resource"), std::logic_error);
-		EXPECT_THROW(TryCreateVulkanResource([]() -> std::shared_ptr<int> {
-			throw vk::DeviceLostError("terminal device loss");
-		}), vk::DeviceLostError);
-		EXPECT_THROW(TryCreateVulkanResource([]() -> std::shared_ptr<int> {
-			throw std::logic_error("internal invariant failure");
-		}), std::logic_error);
 	}
 
 	TEST(FVulkanDebugUtilsTests, UnavailableNamingIsCountedAndNonFatal)
@@ -662,38 +649,25 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Disabled.Get(), nullptr);
 	}
 
-	TEST_F(FVulkanCreateFailureInjectionTests, ArmedBoundaryFailsExactlyOnce)
-	{
-		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Image);
-
-		EXPECT_TRUE(ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::Image));
-		EXPECT_FALSE(ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::Image));
-	}
-
-	TEST_F(FVulkanCreateFailureInjectionTests, ArmedBoundariesRemainIndependent)
+	TEST_F(FVulkanCreateFailureInjectionTests, ArmedBoundariesAreIndependentAndFailOnce)
 	{
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Device);
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer);
 
 		EXPECT_FALSE(ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::Swapchain));
 		EXPECT_TRUE(ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer));
-		EXPECT_TRUE(ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::Device));
-	}
-
-	TEST_F(FVulkanCreateFailureInjectionTests, NativeBoundaryReportsInjectedOutOfMemory)
-	{
-		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Instance);
+		EXPECT_FALSE(ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer));
 
 		try
 		{
-			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Instance);
+			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Device);
 			FAIL() << "Expected the armed native creation boundary to throw.";
 		}
 		catch (const vk::SystemError& Error)
 		{
 			EXPECT_EQ(Error.code().value(), static_cast<int>(vk::Result::eErrorOutOfDeviceMemory));
 		}
-		EXPECT_NO_THROW(ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Instance));
+		EXPECT_NO_THROW(ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Device));
 	}
 
 	TEST_F(FVulkanCreateFailureInjectionTests,
@@ -1111,10 +1085,8 @@ namespace Durin::VulkanRHI
 		FRHIDiagnosticSnapshot Before;
 		FRHIDiagnosticSnapshot Repeated;
 		FRHIDiagnosticSnapshot After;
-		std::string Formatted;
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
 			Before = GDynamicRHI->RHIGetDiagnosticSnapshot();
-			Formatted = FormatRHIDiagnosticSnapshot(Before);
 			Repeated = GDynamicRHI->RHIGetDiagnosticSnapshot();
 			GDynamicRHI->RHIResetDiagnosticStatistics();
 			After = GDynamicRHI->RHIGetDiagnosticSnapshot();
@@ -1129,7 +1101,6 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Before.Timing.LiveIntervals, 1u);
 		EXPECT_EQ(Before.Executor.Mode, ERHICommandListExecutorMode::Threaded);
 		EXPECT_GT(Before.Naming.NamingAttempts, 0u);
-		EXPECT_NE(Formatted.find("timing(pages=1,live=1"), std::string::npos);
 		EXPECT_EQ(Repeated.Executor.RecordedCommandCount,
 			Before.Executor.RecordedCommandCount);
 		EXPECT_EQ(Repeated.Executor.SynchronousOperationCount,
@@ -1903,15 +1874,13 @@ namespace Durin::VulkanRHI
 			Elements[0].Offset = 4;
 			EXPECT_EQ(Declaration->GetElements()[0].Offset, 0);
 			EXPECT_EQ(Declaration->GetElements()[0].Stride, 12);
-			ArmVulkanCreateFailure(EVulkanCreateFailurePoint::VertexDeclaration);
-			EXPECT_FALSE(GDynamicRHI->RHICreateVertexDeclaration(Elements));
-			auto Recovered = GDynamicRHI->RHICreateVertexDeclaration(Elements);
-			ASSERT_TRUE(Recovered);
-			EXPECT_EQ(Recovered->GetElements()[0].Offset, 4);
+			auto Updated = GDynamicRHI->RHICreateVertexDeclaration(Elements);
+			ASSERT_TRUE(Updated);
+			EXPECT_EQ(Updated->GetElements()[0].Offset, 4);
 			const auto After = GCommandListExecutor.GetStats();
 			EXPECT_EQ(After.SynchronousOperationCount, Before.SynchronousOperationCount);
 			EXPECT_EQ(GCommandListExecutor.GetLastSubmittedSerial(), BeforeSerial);
-			Recovered = nullptr;
+			Updated = nullptr;
 			Declaration = nullptr;
 			RHIExit();
 		}
@@ -2363,21 +2332,14 @@ namespace Durin::VulkanRHI
 		ASSERT_TRUE(Sampler);
 
 		FVertexDeclarationElementList Elements;
-		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::VertexDeclaration);
-		EXPECT_FALSE(GDynamicRHI->RHICreateVertexDeclaration(Elements));
 		FVertexDeclarationRHIRef VertexDeclaration =
 			GDynamicRHI->RHICreateVertexDeclaration(Elements);
 		ASSERT_TRUE(VertexDeclaration);
-		bool bRHIThreadLocalFailureReturnedNull = false;
 		FVertexDeclarationRHIRef RHIThreadLocalVertexDeclaration;
-		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::VertexDeclaration);
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-			bRHIThreadLocalFailureReturnedNull =
-				!GDynamicRHI->RHICreateVertexDeclaration(Elements);
 			RHIThreadLocalVertexDeclaration =
 				GDynamicRHI->RHICreateVertexDeclaration(Elements);
 		});
-		EXPECT_TRUE(bRHIThreadLocalFailureReturnedNull);
 		ASSERT_TRUE(RHIThreadLocalVertexDeclaration);
 
 		const std::filesystem::path ShaderPath =
@@ -2721,7 +2683,6 @@ namespace Durin::VulkanRHI
 			EXPECT_EQ(GetVulkanStructuralCacheTestStats().FramebufferEntryCount,
 				StatsBeforeFramebuffer.FramebufferEntryCount);
 		};
-		ExpectFramebufferFailure(EVulkanCreateFailurePoint::FramebufferImageView);
 		ExpectFramebufferFailure(EVulkanCreateFailurePoint::Framebuffer);
 		const FVulkanStructuralCacheTestStats StatsAfterFramebufferFailure =
 			GetVulkanStructuralCacheTestStats();

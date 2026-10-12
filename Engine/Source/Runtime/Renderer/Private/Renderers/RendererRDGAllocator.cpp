@@ -132,15 +132,11 @@ namespace Durin
 			std::shared_ptr<const FRDGAllocationRetirement> Retirement;
 			uint64 Sequence = 0;
 			uint64 LogicalBytes = 0;
-			std::optional<FRenderResourceGeneration> FailedGeneration;
-			FRHICreationError Failure;
-			uint32 RetryFailures = 0;
-			std::chrono::steady_clock::time_point NextRetryTime{};
 			uint32 ObservationTag = 0;
 		};
 
 		// Stable compaction preserves sequence order. All indices are rebuilt once
-		// after compaction; ordered bucket members also support retrying old entries.
+		// after compaction; ordered bucket members preserve allocation order.
 		template<typename Descriptor, typename Resource>
 		struct TPool final
 		{
@@ -148,8 +144,6 @@ namespace Durin
 			struct FBucket final
 			{
 				std::set<size_t> Physical;
-				std::set<size_t> Empty;
-				std::set<size_t> Failed;
 			};
 			std::vector<FEntry> Entries;
 			std::unordered_map<Descriptor, FBucket, FDescriptorHash> Buckets;
@@ -172,10 +166,7 @@ namespace Durin
 				const auto& Entry = Entries[Index];
 				AllocationIndices.emplace(Entry.Sequence + 1, Index);
 				auto& Bucket = Buckets[Entry.Key];
-				auto& Members = Entry.Physical ? Bucket.Physical : Bucket.Empty;
-				Members.insert(Members.end(), Index);
-				if (!Entry.Physical && Entry.FailedGeneration)
-					Bucket.Failed.insert(Bucket.Failed.end(), Index);
+				Bucket.Physical.insert(Bucket.Physical.end(), Index);
 			}
 
 			auto RebuildIndices() -> void
@@ -198,36 +189,17 @@ namespace Durin
 				return It == AllocationIndices.end() ? nullptr : &Entries[It->second];
 			}
 
-			auto FindEmpty(const Descriptor& Key) -> FEntry*
-			{
-				const auto It = Buckets.find(Key);
-				return It == Buckets.end() || It->second.Empty.empty()
-					? nullptr : &Entries[*It->second.Empty.begin()];
-			}
-
 			auto Add(FEntry Entry) -> FEntry*
 			{
 				Entries.push_back(std::move(Entry));
 				IndexEntry(Entries.size() - 1);
 				return &Entries.back();
 			}
-
-			auto Materialize(FEntry& Entry, Resource Physical) -> void
-			{
-				const size_t Index = AllocationIndices.at(Entry.Sequence + 1);
-				auto& Bucket = Buckets.at(Entry.Key);
-				Bucket.Empty.erase(Index);
-				Bucket.Failed.erase(Index);
-				Bucket.Physical.insert(Bucket.Physical.end(), Index);
-				Entry.Physical = std::move(Physical);
-			}
 		};
 		TPool<FTextureDescriptorKey, FTextureRHIRef> Textures;
 		TPool<FBufferDescriptorKey, FBufferRHIRef> Buffers;
 		std::optional<uint64> DeviceGeneration;
 		uint64 NextSequence = 0;
-		std::optional<FRenderResourceGeneration> RetryGeneration;
-		std::chrono::steady_clock::time_point NextRetryTime{};
 		bool bNeedsCollection = false;
 		uint64 PeakActiveBytes = 0;
 		uint64 ReuseHits = 0;
@@ -239,12 +211,10 @@ namespace Durin
 	};
 
 	FRendererRDGAllocator::FRendererRDGAllocator(
-		FRendererResourceCoordinator& InCoordinator,
-		FNowFunction InNow)
-		: Coordinator(InCoordinator), Now(std::move(InNow)),
+		FRendererResourceCoordinator& InCoordinator)
+		: Coordinator(InCoordinator),
 		  State(std::make_unique<FState>())
 	{
-		check(Now);
 	}
 
 	FRendererRDGAllocator::~FRendererRDGAllocator() = default;
@@ -272,8 +242,6 @@ namespace Durin
 		State->Buffers.clear();
 		State->DeviceGeneration.reset();
 		State->NextSequence = 0;
-		State->RetryGeneration.reset();
-		State->NextRetryTime = {};
 		State->bNeedsCollection = false;
 		State->RetainedBytes = 0;
 		State->RetainedResources = 0;
@@ -291,15 +259,6 @@ namespace Durin
 		{
 			Release_RenderThread();
 			State->DeviceGeneration = Generation.Device;
-		}
-		const FClock::time_point CurrentTime = Now();
-		constexpr auto RetryDependencies = ERenderResourceGenerationDependency::Device
-			| ERenderResourceGenerationDependency::Manual;
-		if (!State->RetryGeneration || HasSelectedRenderResourceGenerationChanged(
-			*State->RetryGeneration, Generation, RetryDependencies))
-		{
-			State->NextRetryTime = {};
-			State->RetryGeneration = Generation;
 		}
 		auto PublishStatistics = [&](uint64 ActiveBytes, uint32 ActiveResources) {
 			State->PeakActiveBytes = std::max(State->PeakActiveBytes, ActiveBytes);
@@ -353,37 +312,26 @@ namespace Durin
 		Candidates.reserve(Requests.size());
 		std::unordered_set<uint64> ActiveAllocationIds;
 		ActiveAllocationIds.reserve(Requests.size());
-		std::unordered_set<uint64> CreatedAllocationIds;
 		const uint64 FirstNewSequence = State->NextSequence;
 
-		auto RemoveNewEntries = [&](auto& Entries, uint64 PreserveSequence) {
-			// A successful retry can materialize an entry older than this batch.
-			for (auto& Entry : Entries)
-				if (Entry.Physical && CreatedAllocationIds.contains(Entry.Sequence + 1))
-				{
-					State->RetainedBytes -= Entry.LogicalBytes;
-					--State->RetainedResources;
-					Entry.Physical = {};
-				}
-			std::erase_if(Entries.Entries, [&](const auto& Entry) {
-				return Entry.Sequence >= FirstNewSequence
-					&& Entry.Sequence != PreserveSequence;
+		auto RemoveNewEntries = [&](auto& Entries) {
+			Entries.EraseIf([&](const auto& Entry) {
+				if (Entry.Sequence < FirstNewSequence) return false;
+				State->RetainedBytes -= Entry.LogicalBytes;
+				--State->RetainedResources;
+				return true;
 			});
-			// Physical state can change even when no entry was removed.
-			Entries.RebuildIndices();
 		};
-		auto Rollback = [&](uint64 PreserveSequence =
-			std::numeric_limits<uint64>::max()) {
-			RemoveNewEntries(State->Textures, PreserveSequence);
-			RemoveNewEntries(State->Buffers, PreserveSequence);
+		auto Rollback = [&] {
+			RemoveNewEntries(State->Textures);
+			RemoveNewEntries(State->Buffers);
 		};
 		using FAllocationStepResult = std::expected<void, FRDGAllocationFailure>;
-		auto Fail = [&](ERDGAllocationError Reason, uint32 ResourceId = UINT32_MAX, FRHICreationError Cause = {},
-			uint64 PreserveSequence = std::numeric_limits<uint64>::max()) -> std::unexpected<FRDGAllocationFailure> {
-			Rollback(PreserveSequence);
+		auto Fail = [&](ERDGAllocationError Reason, uint32 ResourceId = UINT32_MAX) -> std::unexpected<FRDGAllocationFailure> {
+			Rollback();
 			++State->Failures;
 			PublishStatistics(0, 0);
-			return std::unexpected(FRDGAllocationFailure{Reason, ResourceId, std::move(Cause)});
+			return std::unexpected(FRDGAllocationFailure{Reason, ResourceId});
 		};
 
 		// Reserve the entire reusable set before eviction, including later requests
@@ -394,7 +342,7 @@ namespace Durin
 		// Cursors live only during planning, before any bucket can be mutated.
 		std::unordered_map<const void*, std::set<size_t>::const_iterator> BucketCursors;
 		auto PlanCandidate = [&](const auto& Entries, const auto& Key,
-			uint64 LogicalBytes, uint32 ResourceId) -> FAllocationStepResult {
+			uint64 LogicalBytes) -> void {
 			const auto BucketIt = Entries.Buckets.find(Key);
 			if (BucketIt != Entries.Buckets.end())
 			{
@@ -412,45 +360,30 @@ namespace Durin
 					const uint64 Id = Entries.Entries[*Cursor++].Sequence + 1;
 					PlannedAllocationIds.push_back(Id);
 					ActiveAllocationIds.insert(Id);
-					return {};
-				}
-				if (!Bucket.Failed.empty())
-				{
-					const auto& Failed = Entries.Entries[*Bucket.Failed.begin()];
-					if (!HasSelectedRenderResourceGenerationChanged(
-						*Failed.FailedGeneration, Generation, RetryDependencies)
-						&& (Failed.Failure.Failure == ERHIResourceCreationFailure::UnsupportedDescriptor
-							|| CurrentTime < Failed.NextRetryTime))
-						return Fail(ERDGAllocationError::AllocationRetrySuppressed,
-							ResourceId, Failed.Failure);
+					return;
 				}
 			}
 			PlannedAllocationIds.push_back(0);
 			MissingBytes = AddSaturated(MissingBytes, LogicalBytes);
-			return {};
 		};
 		for (size_t RequestIndex = 0; RequestIndex < Requests.size(); ++RequestIndex)
 		{
 			const auto& Request = Requests[RequestIndex];
 			const uint64 LogicalBytes = RequestLogicalBytes[RequestIndex];
-			FAllocationStepResult PlanResult;
 			if (Request.Kind == ERDGResourceKind::Texture)
 			{
 				auto Desc = FRHITextureCreateDesc::Create("RDGPlan", Request.TextureDesc.Dimension);
 				static_cast<FRHITextureDesc&>(Desc) = Request.TextureDesc;
-				PlanResult = PlanCandidate(State->Textures, MakeDescriptorKey(Desc),
-					LogicalBytes, Request.ResourceId);
+				PlanCandidate(State->Textures, MakeDescriptorKey(Desc),
+					LogicalBytes);
 			}
 			else if (Request.Kind == ERDGResourceKind::Buffer)
-				PlanResult = PlanCandidate(State->Buffers,
+				PlanCandidate(State->Buffers,
 					FBufferDescriptorKey{Request.BufferDesc.Size, Request.BufferDesc.Stride,
-						Request.BufferDesc.Usage}, LogicalBytes, Request.ResourceId);
+						Request.BufferDesc.Usage}, LogicalBytes);
 			else return Fail(ERDGAllocationError::AllocationKindInvalid,
 				Request.ResourceId);
-			if (!PlanResult.has_value()) return PlanResult;
 		}
-		if (MissingBytes != 0 && CurrentTime < State->NextRetryTime)
-			return Fail(ERDGAllocationError::AllocationRetryDeferred);
 
 		auto EvictUntil = [&](uint64 Limit) {
 			if (State->RetainedBytes <= Limit) return;
@@ -518,37 +451,12 @@ namespace Durin
 			else ++State->ReuseMisses;
 			if (!It)
 			{
-				It = Entries.FindEmpty(Key);
-				if (!It)
-					It = Entries.Add(
-						typename std::remove_reference_t<decltype(Entries)>::FEntry{
-							.Key = Key, .Sequence = State->NextSequence++,
-							.LogicalBytes = LogicalBytes, .ObservationTag = Request.ObservationTag});
-				if (It->FailedGeneration && HasSelectedRenderResourceGenerationChanged(
-					*It->FailedGeneration, Generation, RetryDependencies))
-					It->RetryFailures = 0;
 				auto Physical = CreatePhysical();
 				if (!Physical)
-				{
-					const auto& Failure = Physical.error();
-					It->FailedGeneration = Generation;
-					It->Failure = Failure;
-					if (Failure.Failure != ERHIResourceCreationFailure::UnsupportedDescriptor)
-					{
-						It->RetryFailures = std::min(It->RetryFailures + 1, 6u);
-						const auto Delay = std::chrono::milliseconds(
-							std::min(100u << (It->RetryFailures - 1), 2000u));
-						It->NextRetryTime = Now() + Delay;
-						State->NextRetryTime = It->NextRetryTime;
-					}
-					return Fail(ERDGAllocationError::PhysicalAllocationFailed,
-						Request.ResourceId, Failure, It->Sequence);
-				}
-				CreatedAllocationIds.insert(It->Sequence + 1);
-				Entries.Materialize(*It, std::move(*Physical));
-				It->FailedGeneration.reset();
-				It->RetryFailures = 0;
-				It->Failure = {};
+					return Fail(ERDGAllocationError::PhysicalAllocationFailed, Request.ResourceId);
+				It = Entries.Add(typename std::remove_reference_t<decltype(Entries)>::FEntry{
+					.Key = Key, .Physical = std::move(Physical), .Sequence = State->NextSequence++,
+					.LogicalBytes = LogicalBytes, .ObservationTag = Request.ObservationTag});
 				State->RetainedBytes = AddSaturated(
 					State->RetainedBytes, It->LogicalBytes);
 				++State->RetainedResources;
@@ -577,7 +485,7 @@ namespace Durin
 				ReserveResult = ReserveCandidate(State->Textures,
 					MakeDescriptorKey(Desc), LogicalBytes,
 					Request, [&] {
-						return GDynamicRHI->RHITryCreateTexture(
+						return GDynamicRHI->RHICreateTexture(
 							FRHICommandListImmediate::Get(), Desc);
 					},
 					[](FCandidate& OutCandidate, const FTextureRHIRef& Texture) {
@@ -591,7 +499,7 @@ namespace Durin
 				ReserveResult = ReserveCandidate(State->Buffers, Key,
 					LogicalBytes, Request,
 					[&] {
-						return GDynamicRHI->RHITryCreateBuffer(FRHICommandListImmediate::Get(),
+						return GDynamicRHI->RHICreateBuffer(FRHICommandListImmediate::Get(),
 							FRHIBufferCreateDesc::Create("RDGBuffer", Request.BufferDesc));
 					},
 					[](FCandidate& OutCandidate, const FBufferRHIRef& Buffer) {

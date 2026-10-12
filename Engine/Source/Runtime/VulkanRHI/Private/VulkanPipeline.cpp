@@ -774,7 +774,7 @@ namespace Durin::VulkanRHI
 			if (Victim == GraphicsPipelineMap.end())
 			{
 				++Stats.FailedCandidates;
-				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::GraphicsPipelineCache});
+				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::CacheCapacity});
 			}
 			// Extraction reserves the slot: concurrent hits cannot pin this victim
 			// after selection. Keep its node and resource alive for failure rollback.
@@ -845,7 +845,7 @@ namespace Durin::VulkanRHI
 			if (Victim == ComputePipelineMap.end())
 			{
 				++Stats.FailedCandidates;
-				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::ComputePipelineCache});
+				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::CacheCapacity});
 			}
 			// Extraction reserves the slot: concurrent hits cannot pin this victim
 			// after selection. Keep its node and resource alive for failure rollback.
@@ -924,7 +924,7 @@ namespace Durin::VulkanRHI
 		}))
 		{
 			++Stats.FailedCandidates;
-			throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::PipelineLayoutCache});
+			throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::CacheCapacity});
 		}
 
 		StatsAccess.unlock();
@@ -1189,8 +1189,8 @@ namespace Durin::VulkanRHI
 #endif
 			return Result;
 		};
-		Backend.PublishTerminalFailure = [](std::exception_ptr Failure) {
-			GCommandListExecutor.ReportExternalFailure(Failure);
+		Backend.PublishTerminalFailure = [](std::exception_ptr) {
+			GCommandListExecutor.ReportExternalFailure();
 		};
 		Backend.ReserveMetadata = [this](uint64 Bytes) { return ReserveCacheMetadata(Bytes); };
 		return Backend;

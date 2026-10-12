@@ -601,18 +601,19 @@ A retained result remains usable after graph destruction.
 
 `FRDGAllocator::Allocate` returns `FRDGAllocationResult`. Its error distinguishes
 a byte-budget failure from `FRDGAllocationFailure`, which carries a resource
-identity, allocation reason, and concrete `FRHICreationError` cause. Local
+identity and allocation reason. Local
 allocation steps use only the latter error; aggregation occurs on return from
 the allocator. It does not carry unrelated Shader or RenderResource error
 alternatives. Its output
 table also carries allocation statistics on failure; the output parameter is
 retained for that diagnostic contract. Preparation adds backing compatibility
-and queue preparation failures, while preserving allocation causes and domain
+and queue preparation failures, while preserving allocation identities and domain
 reasons.
-Renderer allocation retains native status even when a later attempt is
-suppressed, and publishes a complete batch only after all resources validate.
-The retry, rollback, retirement, extraction, and execution-state rules apply.
-Native causes format through the RHI formatter at the RDG presentation boundary.
+Renderer allocation publishes a complete batch only after all resources validate.
+A null resource aborts preparation before pass recording; backend logs own the
+native cause. RDG keeps no failure classification or retry state. Later graph
+executions may attempt allocation again. Rollback, retirement, extraction, and
+execution-state rules still apply.
 Capture dependency `Cause` strings, allocation
 observation tags, and resource names describe graph identities; they are not
 error codes or error transport. Console-command messages and Core modular-feature

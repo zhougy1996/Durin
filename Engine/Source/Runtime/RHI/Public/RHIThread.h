@@ -55,7 +55,7 @@ namespace Durin
 		// Optional output set under the queue lock on admission, before replay can start.
 		// Enqueue consumes and clears this pointer; its storage need only outlive Enqueue.
 		uint64* AdmissionNanoseconds = nullptr;
-		// The consumer owns exception capture and the first failure diagnostic.
+		// Exceptions escaping work are fatal; the queue does not translate them.
 		std::function<void()> Execute;
 		// A pending head stays queued; later serials never bypass it.
 		std::function<bool()> IsReady;
@@ -106,8 +106,6 @@ namespace Durin
 		uint64 FramePressureWaitCount = 0;
 		uint64 FramePressureWaitNanoseconds = 0;
 		uint64 RejectedWorkCount = 0;
-		// Bounded text for diagnostics only; FailedSerial is the failure authority.
-		std::string FailureDiagnostic;
 	};
 
 	// Owns the single FIFO consumer used by threaded RHI execution.
@@ -122,7 +120,8 @@ namespace Durin
 
 		RHI_API auto Start(const FRHIThreadQueueLimits& InLimits = {}) -> bool;
 		RHI_API auto BeginDrain() -> void;
-		RHI_API auto ReportExternalFailure(std::string Diagnostic) -> void;
+		// Explicit terminal notification cancels queued work and wakes waiters.
+		RHI_API auto ReportExternalFailure() -> void;
 		RHI_API auto GetWakeCallback() const -> std::function<void()>;
 		RHI_API auto Stop() -> void;
 

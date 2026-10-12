@@ -3080,10 +3080,9 @@ namespace Durin
 				? State->RHIThread->GetStats()
 				: FRHIThreadStats{};
 			DURIN_FATAL(
-				"RHI command-list submission rejected (result {}, state {}, failure '{}').",
+				"RHI command-list submission rejected (result {}, state {}).",
 				static_cast<uint32>(Submission.Result),
-				static_cast<uint32>(ThreadStats.AdmissionState),
-				ThreadStats.FailureDiagnostic);
+				static_cast<uint32>(ThreadStats.AdmissionState));
 			std::terminate();
 		}
 		return Submission.Serial;
@@ -3309,19 +3308,15 @@ namespace Durin
 		return GetCompletedSerial() >= Serial;
 	}
 
-	auto FRHICommandListExecutor::ReportExternalFailure(std::exception_ptr Failure) -> void
+	auto FRHICommandListExecutor::ReportExternalFailure() -> void
 	{
-		std::string Diagnostic;
-		try { if (Failure) std::rethrow_exception(Failure); }
-		catch (const std::exception& Error) { try { Diagnostic = Error.what(); } catch (...) {} }
-		catch (...) {}
 		{
 			std::lock_guard Lock(State->CompletionMutex);
 			if (State->FailedSerial.load()) return;
 			const auto Completed = GetCompletedSerial();
 			State->FailedSerial.store(Completed == std::numeric_limits<uint64>::max() ? Completed : Completed + 1);
 		}
-		if (State->RHIThread) State->RHIThread->ReportExternalFailure(std::move(Diagnostic));
+		if (State->RHIThread) State->RHIThread->ReportExternalFailure();
 		State->CompletionCV.notify_all();
 	}
 

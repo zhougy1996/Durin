@@ -43,12 +43,8 @@ namespace Durin
 	class RENDERER_API FRendererRDGAllocator final : public FRDGAllocator
 	{
 	public:
-		using FClock = std::chrono::steady_clock;
-		using FNowFunction = std::function<FClock::time_point()>;
-
 		explicit FRendererRDGAllocator(
-			FRendererResourceCoordinator& InCoordinator,
-			FNowFunction InNow = [] { return FClock::now(); });
+			FRendererResourceCoordinator& InCoordinator);
 		~FRendererRDGAllocator();
 		auto SupportsAsyncCompute() const -> bool override { return true; }
 
@@ -62,7 +58,6 @@ namespace Durin
 	private:
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
-		FNowFunction Now;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

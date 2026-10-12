@@ -392,11 +392,7 @@ namespace Durin
 		case ERHICreationFailureSource::None: Source = "unspecified"; break;
 		case ERHICreationFailureSource::NativeBackend: Source = "native backend"; break;
 		case ERHICreationFailureSource::MetadataBudget: Source = "pipeline CPU metadata budget"; break;
-		case ERHICreationFailureSource::GraphicsPipelineCache: Source = "graphics pipeline cache"; break;
-		case ERHICreationFailureSource::ComputePipelineCache: Source = "compute pipeline cache"; break;
-		case ERHICreationFailureSource::PipelineLayoutCache: Source = "pipeline layout cache"; break;
-		case ERHICreationFailureSource::DescriptorLayoutCache: Source = "descriptor layout cache"; break;
-		case ERHICreationFailureSource::RenderPassCache: Source = "render-pass cache"; break;
+		case ERHICreationFailureSource::CacheCapacity: Source = "cache capacity"; break;
 		case ERHICreationFailureSource::RequestNotAdmitted: Source = "pipeline request not admitted"; break;
 		case ERHICreationFailureSource::ObserverFailed: Source = "pipeline observer failed"; break;
 		case ERHICreationFailureSource::BackendReturnedNull: Source = "backend returned no pipeline"; break;

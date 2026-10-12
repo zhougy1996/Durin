@@ -35,7 +35,6 @@ namespace Durin
 		uint64 FramePressureWaitCount = 0;
 		uint64 FramePressureWaitNanoseconds = 0;
 		uint64 RejectedWorkCount = 0;
-		std::string FailureDiagnostic;
 		bool bConsumerReady = false;
 		mutable std::mutex Mutex;
 		mutable std::condition_variable WorkCV;
@@ -90,23 +89,10 @@ namespace Durin
 					State.Queue.pop_front();
 				}
 
-				bool bFailed = false;
-				std::string FailureDiagnostic;
-				try
 				{
 					DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.Execute");
 					DURIN_PROFILE_CPU_ZONE_TEXT(std::format("serial={} batches={} payloadBytes={}", Entry.Serial, Entry.Work.BatchCount, Entry.Work.PayloadBytes));
 					if (!Entry.Work.IsReady || Entry.Work.IsReady()) Entry.Work.Execute();
-				}
-				catch (const std::exception& Exception)
-				{
-					bFailed = true;
-					FailureDiagnostic = std::string_view(Exception.what()).substr(0, 4096);
-				}
-				catch (...)
-				{
-					bFailed = true;
-					FailureDiagnostic = "RHI thread work failed with an unknown exception.";
 				}
 
 				const uint32 CompletedFrameCount = Entry.Work.FrameCount;
@@ -116,37 +102,16 @@ namespace Durin
 					DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.ReleaseWork");
 					Entry.Work = {};
 				}
-				std::deque<FRHIThreadQueueEntry> RejectedEntries;
+				bool bFailed;
 				{
 					std::lock_guard Lock(State.Mutex);
 					ReleaseCapacity(CompletedBatchCount, CompletedPayloadBytes, CompletedFrameCount);
-					if (State.FailedSerial != 0)
-					{
-						bFailed = true;
-					}
+					bFailed = State.FailedSerial != 0;
 					if (!bFailed)
 					{
 						State.CompletedSerial = Entry.Serial;
 					}
-					else
-					{
-						if (State.FailedSerial == 0)
-						{
-							State.FailedSerial = Entry.Serial;
-							State.FailureDiagnostic = std::move(FailureDiagnostic);
-						}
-						State.AdmissionState = ERHIThreadAdmissionState::Draining;
-						RejectedEntries = std::move(State.Queue);
-						for (const FRHIThreadQueueEntry& RejectedEntry : RejectedEntries)
-						{
-							ReleaseCapacity(
-								RejectedEntry.Work.BatchCount,
-								RejectedEntry.Work.PayloadBytes, RejectedEntry.Work.FrameCount);
-						}
-						State.RejectedWorkCount += RejectedEntries.size();
-					}
 				}
-				RejectedEntries.clear();
 				State.CompletionCV.notify_all();
 				State.WorkCV.notify_all();
 				if (bFailed)
@@ -232,7 +197,6 @@ namespace Durin
 			State->FramePressureWaitCount = 0;
 			State->FramePressureWaitNanoseconds = 0;
 			State->RejectedWorkCount = 0;
-			State->FailureDiagnostic.clear();
 			State->bConsumerReady = false;
 		}
 
@@ -284,7 +248,7 @@ namespace Durin
 		RunnableOwner.reset();
 	}
 
-	auto FRHIThread::ReportExternalFailure(std::string Diagnostic) -> void
+	auto FRHIThread::ReportExternalFailure() -> void
 	{
 		std::deque<FRHIThreadQueueEntry> Rejected;
 		{
@@ -292,7 +256,6 @@ namespace Durin
 			if (State->FailedSerial != 0) return;
 			State->FailedSerial = State->CompletedSerial == std::numeric_limits<uint64>::max()
 				? State->CompletedSerial : State->CompletedSerial + 1;
-			State->FailureDiagnostic = Diagnostic.substr(0, 4096);
 			State->AdmissionState = ERHIThreadAdmissionState::Draining;
 			Rejected.swap(State->Queue);
 			for (const auto& Entry : Rejected)
@@ -566,7 +529,6 @@ namespace Durin
 			.FramePressureWaitCount = State->FramePressureWaitCount,
 			.FramePressureWaitNanoseconds = State->FramePressureWaitNanoseconds,
 			.RejectedWorkCount = State->RejectedWorkCount,
-			.FailureDiagnostic = State->FailureDiagnostic,
 		};
 	}
 } // namespace Durin

@@ -450,9 +450,6 @@ namespace Durin::VulkanRHI
 				FrameResource.RenderingDoneSemaphore = new FVulkanSemaphore(Device);
 				if (Device.SupportsSwapchainMaintenance1())
 				{
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-					ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::SwapchainFence);
-#endif
 					FrameResource.PresentFence = Device.GetHandle().createFence(vk::FenceCreateInfo());
 					Device.GetRHI().GetDebugUtils().NameObjectLazy(FrameResource.PresentFence,
 						[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("PresentFence"); });

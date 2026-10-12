@@ -184,8 +184,8 @@ namespace Durin
 						const FMetalAutoreleasePool Pool;
 						return RHICreateComputePipelineState(FName(Inputs.DebugName), Inputs.Initializer);
 					};
-					Backend.PublishTerminalFailure = [](std::exception_ptr Failure) {
-						GCommandListExecutor.ReportExternalFailure(Failure);
+					Backend.PublishTerminalFailure = [](std::exception_ptr) {
+						GCommandListExecutor.ReportExternalFailure();
 					};
 					PipelineCache = std::make_unique<FRHIPipelineStateCache>(
 						*RHIGetCapabilities(), std::move(Backend));
@@ -422,20 +422,26 @@ namespace Durin
 					&& (static_cast<uint64>(Desc.Flags)
 						& ~static_cast<uint64>(SupportedFlags)) == 0;
 			}
-			auto RHITryCreateTexture(FRHICommandListBase&,
+			auto RHICreateTexture(FRHICommandListBase&,
 			const FRHITextureCreateDesc& Desc)
-			-> std::expected<FTextureRHIRef, FRHICreationError> override
+			-> FTextureRHIRef override
 			{
 				const FMetalAutoreleasePool Pool;
 				if (!RHIIsTextureSupported(Desc))
-					return std::unexpected(UnsupportedCreation());
+				{
+					DURIN_ERROR("Failed to create Metal texture '{}': unsupported description",
+						Desc.DebugName ? Desc.DebugName : "<unnamed>");
+					return {};
+				}
 				auto Native = MakeMetalTextureDescriptor(Desc);
 				auto Texture = Native ? NS::TransferPtr(Device->newTexture(Native.get()))
 					: NS::SharedPtr<MTL::Texture>{};
 				if (!Texture)
-					return std::unexpected(FRHICreationError{
-						.Failure = ERHIResourceCreationFailure::OutOfMemory,
-						.Source = ERHICreationFailureSource::NativeBackend});
+				{
+					DURIN_ERROR("Failed to create Metal texture '{}': native allocation failed",
+						Desc.DebugName ? Desc.DebugName : "<unnamed>");
+					return {};
+				}
 				return FTextureRHIRef(new FMetalTexture(Desc, std::move(Texture)));
 			}
 			auto RHICreateSampler(const FRHISamplerDesc& Desc)
@@ -452,26 +458,34 @@ namespace Durin
 			auto RHICreateShader(const FRHIShaderCreateDesc& Desc)
 			-> TRefCountPtr<FRHIShader> override
 			{ return CreateMetalShader(Device.get(), Desc); }
-			auto RHITryCreateBuffer(FRHICommandListImmediate&,
+			auto RHICreateBuffer(FRHICommandListImmediate&,
 			const FRHIBufferCreateDesc& Desc)
-			-> std::expected<FBufferRHIRef, FRHICreationError> override
+			-> FBufferRHIRef override
 			{
 				const FMetalAutoreleasePool Pool;
 				if (!Device || Desc.Size == 0 || Desc.Usage == EBufferUsageFlags::None
 					|| EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::NullResource)
 					|| (Desc.InitialData.Size != 0 && !Desc.InitialData.Data)
 					|| Desc.InitialData.Size > Desc.Size)
-					return std::unexpected(UnsupportedCreation());
+				{
+					DURIN_ERROR("Failed to create Metal buffer '{}': unsupported description",
+						Desc.DebugName ? Desc.DebugName : "<unnamed>");
+					return {};
+				}
 				if (Desc.Size > Device->maxBufferLength())
-					return std::unexpected(FRHICreationError{
-						.Failure = ERHIResourceCreationFailure::ResourceExhausted,
-						.Source = ERHICreationFailureSource::NativeBackend});
+				{
+					DURIN_ERROR("Failed to create Metal buffer '{}': size exceeds device limit",
+						Desc.DebugName ? Desc.DebugName : "<unnamed>");
+					return {};
+				}
 				auto Buffer = NS::TransferPtr(Device->newBuffer(
 					Desc.Size, MTL::ResourceStorageModeShared));
 				if (!Buffer)
-					return std::unexpected(FRHICreationError{
-						.Failure = ERHIResourceCreationFailure::OutOfMemory,
-						.Source = ERHICreationFailureSource::NativeBackend});
+				{
+					DURIN_ERROR("Failed to create Metal buffer '{}': native allocation failed",
+						Desc.DebugName ? Desc.DebugName : "<unnamed>");
+					return {};
+				}
 				if (Desc.InitialData.Data && Desc.InitialData.Size)
 					std::memcpy(Buffer->contents(), Desc.InitialData.Data, Desc.InitialData.Size);
 				auto Result = FBufferRHIRef(new FMetalBuffer(Desc, std::move(Buffer)));
@@ -543,11 +557,6 @@ namespace Durin
 				PipelineCreationClosed = true;
 			}
 
-			static auto UnsupportedCreation() -> FRHICreationError
-			{
-				return {.Failure = ERHIResourceCreationFailure::UnsupportedDescriptor,
-					.Source = ERHICreationFailureSource::NativeBackend};
-			}
 			NS::SharedPtr<MTL::Device> Device;
 			NS::SharedPtr<MTL::CommandQueue> Queue;
 			NS::SharedPtr<CA::MetalLayer> StartupLayer;

@@ -131,14 +131,14 @@ namespace Durin
 			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&)
 				-> FVertexDeclarationRHIRef override { return {}; }
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return false; }
-			auto RHITryCreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&)
-				-> std::expected<FTextureRHIRef, FRHICreationError> override
-			{ return std::unexpected(FRHICreationError{}); }
+			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&)
+				-> FTextureRHIRef override
+			{ return {}; }
 			auto RHICreateSampler(const FRHISamplerDesc&) -> FSamplerRHIRef override { return {}; }
 			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
-			auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
-				-> std::expected<FBufferRHIRef, FRHICreationError> override
-			{ return std::unexpected(FRHICreationError{}); }
+			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
+				-> FBufferRHIRef override
+			{ return {}; }
 		};
 
 		class FPipelineCacheTestRHI final : public FIndirectTestRHI
@@ -1650,8 +1650,8 @@ namespace Durin
 		ASSERT_TRUE(RHIThread.Start());
 		FRHICommandListExecutor Executor(Context, RHIThread);
 		FRHIThreadWork FailingWork;
-		FailingWork.Execute = []() {
-			throw std::runtime_error("intentional consumer failure");
+		FailingWork.Execute = [&RHIThread]() {
+			RHIThread.ReportExternalFailure();
 		};
 		const FRHIThreadSubmission FailureSubmission =
 			RHIThread.Enqueue(FailingWork);

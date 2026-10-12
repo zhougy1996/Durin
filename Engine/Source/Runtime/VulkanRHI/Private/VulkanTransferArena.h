@@ -4,8 +4,6 @@
 
 #include "RHI.h"
 
-#include <exception>
-
 #include "VulkanCompletion.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanRHIAPI.h"
@@ -73,9 +71,8 @@ namespace Durin::VulkanRHI
 		FVulkanTransferRange Range;
 		FRHIGPUSyncPointRef WaitSyncPoint;
 		std::weak_ptr<void> WaitOwner;
-		bool bAllocationFailed = false;
-		// Recoverable native failures retain their original type and diagnostic.
-		std::exception_ptr AllocationFailure;
+		// eErrorOutOfPoolMemory also represents the configured per-allocation limit.
+		vk::Result AllocationResult = vk::Result::eSuccess;
 	};
 
 	// Owns bounded mapped pages; range reuse follows CPU and payload lease release.

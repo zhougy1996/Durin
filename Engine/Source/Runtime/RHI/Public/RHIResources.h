@@ -34,9 +34,8 @@ namespace Durin
 	// Shared recoverable failure details for resource and pipeline creation.
 	enum class ERHICreationFailureSource : uint8
 	{
-		None, NativeBackend, MetadataBudget, GraphicsPipelineCache,
-		ComputePipelineCache, PipelineLayoutCache, DescriptorLayoutCache,
-		RenderPassCache, RequestNotAdmitted, ObserverFailed, BackendReturnedNull,
+		None, NativeBackend, MetadataBudget, CacheCapacity,
+		RequestNotAdmitted, ObserverFailed, BackendReturnedNull,
 	};
 
 	struct FRHICreationError

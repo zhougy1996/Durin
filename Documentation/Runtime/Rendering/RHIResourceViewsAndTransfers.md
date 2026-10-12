@@ -42,7 +42,7 @@ resource. First replay binding materializes the initial allocation and releases
 the pending CPU bytes. Uniform layout size is a nonzero multiple of 16.
 
 Structured and byte-address shader data use ordinary `FRHIBuffer` resources
-created through `RHICreateBuffer`/`RHITryCreateBuffer` with
+created through `RHICreateBuffer` with
 `FRHIBufferCreateDesc`. Usage flags select supported operations; buffer views
 select an exact range and its structured, byte-address, uniform, or formatted
 interpretation. Storage is a shader binding category, not a resource subclass

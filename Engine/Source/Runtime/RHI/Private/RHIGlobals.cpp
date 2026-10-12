@@ -85,6 +85,11 @@ namespace Durin
 			}
 
 			GDynamicRHI = Backend;
+			std::exception_ptr InitFailure;
+			auto InitializeBackend = [&] {
+				try { GDynamicRHI->Init(Context); }
+				catch (...) { InitFailure = std::current_exception(); }
+			};
 			if (bThreaded)
 			{
 				RHIThreadOwner = std::make_unique<FRHIThread>();
@@ -95,45 +100,45 @@ namespace Durin
 					return false;
 				}
 				FRHIThreadWork InitWork;
-				InitWork.Execute = [Context]() {
-					GDynamicRHI->Init(Context);
-				};
+				InitWork.Execute = InitializeBackend;
 				const FRHIThreadSynchronousResult InitResult =
 					RHIThreadOwner->EnqueueSynchronous(InitWork);
 				if (!InitResult.IsCompleted())
 				{
-					DURIN_ERROR(
-						"Failed to initialize dynamic RHI on RHI thread: {}",
-						RHIThreadOwner->GetStats().FailureDiagnostic);
+					DURIN_ERROR("RHI thread rejected backend initialization.");
 					ReleaseFailedInitialization(bOwnsBackendModule);
 					return false;
 				}
-				GCommandListExecutor.SetThreadedMode(*RHIThreadOwner);
 				DURIN_DEBUG("RHI execution mode: threaded");
 			}
 			else
 			{
+				InitializeBackend();
+				DURIN_DEBUG("RHI execution mode: inline");
+			}
+			if (InitFailure)
+			{
 				try
 				{
-					GDynamicRHI->Init(Context);
+					std::rethrow_exception(InitFailure);
 				}
 				catch (const std::exception& Exception)
 				{
 					DURIN_ERROR(
-						"Failed to initialize dynamic RHI inline: {}",
+						"Failed to initialize dynamic RHI: {}",
 						std::string_view(Exception.what()).substr(0, 4096));
-					ReleaseFailedInitialization(bOwnsBackendModule);
-					return false;
 				}
 				catch (...)
 				{
-					DURIN_ERROR("Failed to initialize dynamic RHI inline with an unknown exception.");
-					ReleaseFailedInitialization(bOwnsBackendModule);
-					return false;
+					DURIN_ERROR("Failed to initialize dynamic RHI with an unknown exception.");
 				}
-				DURIN_DEBUG("RHI execution mode: inline");
+				// Destroy backend-defined exceptions before unloading their module.
+				InitFailure = nullptr;
+				ReleaseFailedInitialization(bOwnsBackendModule);
+				return false;
 			}
 
+			if (bThreaded) GCommandListExecutor.SetThreadedMode(*RHIThreadOwner);
 			// The command list exists before the backend; bind its default pipeline
 			// only after the context is valid.
 			FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::Graphics);

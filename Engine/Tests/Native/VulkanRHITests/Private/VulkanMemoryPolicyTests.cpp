@@ -559,7 +559,7 @@ namespace Durin::VulkanRHI
 		EXPECT_FALSE(Pressure.Range);
 		EXPECT_EQ(Pressure.WaitOwner.lock(), LeaseA);
 		EXPECT_EQ(Arena.GetCapacity(), 768u);
-		EXPECT_TRUE(Arena.Acquire(513, 16, Signal).bAllocationFailed);
+		EXPECT_EQ(Arena.Acquire(513, 16, Signal).AllocationResult, vk::Result::eErrorOutOfPoolMemory);
 		const auto NextSignal = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 		Commands.EndGPUSubmission();
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
@@ -646,19 +646,8 @@ namespace Durin::VulkanRHI
 			{
 				ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer);
 				auto Failed = FailingArena.Acquire(Size, 16, SyncPoint);
-				EXPECT_TRUE(Failed.bAllocationFailed);
+				EXPECT_EQ(Failed.AllocationResult, vk::Result::eErrorOutOfDeviceMemory);
 				EXPECT_FALSE(Failed.Range);
-				ASSERT_TRUE(Failed.AllocationFailure);
-				try
-				{
-					std::rethrow_exception(Failed.AllocationFailure);
-					FAIL() << "Expected the original native allocation exception.";
-				}
-				catch (const vk::SystemError& Error)
-				{
-					EXPECT_EQ(Error.code().value(), static_cast<int>(vk::Result::eErrorOutOfDeviceMemory));
-					EXPECT_NE(std::string_view(Error.what()).find("Vulkan buffer allocation failed"), std::string_view::npos);
-				}
 				for (auto Result : {vk::Result::eErrorDeviceLost, vk::Result::eErrorUnknown})
 				{
 					ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer, Result);

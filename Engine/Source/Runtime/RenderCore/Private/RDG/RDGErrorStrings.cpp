@@ -143,9 +143,7 @@ namespace Durin
 		switch (Reason)
 		{
 		case ERDGAllocationError::AllocatorFailure: return "allocator failure";
-		case ERDGAllocationError::AllocationRetrySuppressed: return "allocation retry suppressed";
 		case ERDGAllocationError::AllocationKindInvalid: return "allocation kind invalid";
-		case ERDGAllocationError::AllocationRetryDeferred: return "allocation retry deferred";
 		case ERDGAllocationError::AllocationRetirementPending: return "allocation retirement pending";
 		case ERDGAllocationError::PhysicalAllocationFailed: return "physical allocation failed";
 		case ERDGAllocationError::AllocationPublicationFailed: return "allocation publication failed";
@@ -269,9 +267,7 @@ namespace Durin
 	}
 	auto ToString(const FRDGAllocationFailure& Error) -> std::string
 	{
-		auto Text = FormatDetail(Error);
-		if (Error.Cause.HasError()) Text += ": " + ToString(Error.Cause);
-		return Text;
+		return FormatDetail(Error);
 	}
 	auto ToString(const FRDGCompileError& Error) -> std::string
 	{ return std::visit([](const auto& Detail) { return std::string(ToString(Detail)); }, Error.Detail); }

@@ -107,10 +107,10 @@ TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProduct
 				"Authored ImGui vertices", sizeof(Vertices), sizeof(FImGuiVertex),
 				Durin::EBufferUsageFlags::VertexBuffer);
 			VertexDesc.InitialData = {.Data = Vertices, .Size = sizeof(Vertices)};
-			auto VertexResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+			auto VertexResult = Durin::GDynamicRHI->RHICreateBuffer(
 				Commands, VertexDesc);
-			ASSERT_TRUE(VertexResult.has_value());
-			auto VertexBuffer = std::move(*VertexResult);
+			ASSERT_TRUE(VertexResult);
+			auto VertexBuffer = std::move(VertexResult);
 			Durin::FVertexDeclarationElementList Elements{};
 			Elements[0] = {0, 0, Durin::EVertexElementType::Float2, 0,
 				sizeof(FImGuiVertex)};
@@ -124,9 +124,9 @@ TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProduct
 			auto FontDesc = Durin::FRHITextureCreateDesc::Create2D(
 				"Authored ImGui font", 1, 1, Durin::EPixelFormat::RGBA8_UNORM);
 			FontDesc.SetFlags(Durin::ETextureCreateFlags::ShaderResource);
-			auto FontResult = Durin::GDynamicRHI->RHITryCreateTexture(Commands, FontDesc);
-			ASSERT_TRUE(FontResult.has_value());
-			auto Font = std::move(*FontResult);
+			auto FontResult = Durin::GDynamicRHI->RHICreateTexture(Commands, FontDesc);
+			ASSERT_TRUE(FontResult);
+			auto Font = std::move(FontResult);
 			Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Font.GetReference(),
 				0, 0, Durin::FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 4,
 				std::as_bytes(std::span(FontPixel)));
@@ -142,10 +142,10 @@ TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProduct
 				"Authored ImGui projection", sizeof(Projection), sizeof(Projection),
 				Durin::EBufferUsageFlags::UniformBuffer);
 			UniformDesc.InitialData = {.Data = Projection, .Size = sizeof(Projection)};
-			auto UniformResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+			auto UniformResult = Durin::GDynamicRHI->RHICreateBuffer(
 				Commands, UniformDesc);
-			ASSERT_TRUE(UniformResult.has_value());
-			auto Uniform = std::move(*UniformResult);
+			ASSERT_TRUE(UniformResult);
+			auto Uniform = std::move(UniformResult);
 			auto UniformView = Durin::GDynamicRHI->RHICreateBufferView(
 				Uniform.GetReference(), {.Offset = 0, .Size = sizeof(Projection),
 					.Type = Durin::ERHIBufferViewType::Uniform});
@@ -154,10 +154,10 @@ TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProduct
 				"Authored ImGui target", 4, 4, Durin::EPixelFormat::RGBA8_UNORM);
 			ColorDesc.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
 				| Durin::ETextureCreateFlags::CPUReadback);
-			auto ColorResult = Durin::GDynamicRHI->RHITryCreateTexture(
+			auto ColorResult = Durin::GDynamicRHI->RHICreateTexture(
 				Commands, ColorDesc);
-			ASSERT_TRUE(ColorResult.has_value());
-			auto Color = std::move(*ColorResult);
+			ASSERT_TRUE(ColorResult);
+			auto Color = std::move(ColorResult);
 			Durin::FRHIRenderPassInfo Pass;
 			Pass.RenderTargetLayout.NumColorRenderTargets = 1;
 			Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format =
@@ -282,10 +282,10 @@ TEST(FMetalRHIHeadlessTests, AuthoredHitProxyIdsMatchVulkanThroughProductionRHI)
 				"Authored hit-proxy vertices", sizeof(Vertices), sizeof(FHitVertex),
 				Durin::EBufferUsageFlags::VertexBuffer);
 			VertexDesc.InitialData = {.Data = Vertices, .Size = sizeof(Vertices)};
-			auto VertexResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+			auto VertexResult = Durin::GDynamicRHI->RHICreateBuffer(
 				Commands, VertexDesc);
-			ASSERT_TRUE(VertexResult.has_value());
-			auto VertexBuffer = std::move(*VertexResult);
+			ASSERT_TRUE(VertexResult);
+			auto VertexBuffer = std::move(VertexResult);
 			Durin::FVertexDeclarationElementList Elements{};
 			Elements[0] = {0, 0, Durin::EVertexElementType::Float4, 0,
 				sizeof(FHitVertex)};
@@ -298,10 +298,10 @@ TEST(FMetalRHIHeadlessTests, AuthoredHitProxyIdsMatchVulkanThroughProductionRHI)
 				"Authored hit-proxy ID", sizeof(HitId), sizeof(HitId),
 				Durin::EBufferUsageFlags::UniformBuffer);
 			UniformDesc.InitialData = {.Data = HitId, .Size = sizeof(HitId)};
-			auto UniformResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+			auto UniformResult = Durin::GDynamicRHI->RHICreateBuffer(
 				Commands, UniformDesc);
-			ASSERT_TRUE(UniformResult.has_value());
-			auto Uniform = std::move(*UniformResult);
+			ASSERT_TRUE(UniformResult);
+			auto Uniform = std::move(UniformResult);
 			auto UniformView = Durin::GDynamicRHI->RHICreateBufferView(
 				Uniform.GetReference(), {.Offset = 0, .Size = sizeof(HitId),
 					.Type = Durin::ERHIBufferViewType::Uniform});
@@ -310,10 +310,10 @@ TEST(FMetalRHIHeadlessTests, AuthoredHitProxyIdsMatchVulkanThroughProductionRHI)
 				"Authored hit-proxy target", 4, 4, Durin::EPixelFormat::RG32_UINT);
 			ColorDesc.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
 				| Durin::ETextureCreateFlags::CPUReadback);
-			auto ColorResult = Durin::GDynamicRHI->RHITryCreateTexture(
+			auto ColorResult = Durin::GDynamicRHI->RHICreateTexture(
 				Commands, ColorDesc);
-			ASSERT_TRUE(ColorResult.has_value());
-			auto Color = std::move(*ColorResult);
+			ASSERT_TRUE(ColorResult);
+			auto Color = std::move(ColorResult);
 			Durin::FRHIRenderPassInfo Pass;
 			Pass.RenderTargetLayout.NumColorRenderTargets = 1;
 			Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format =
@@ -634,10 +634,10 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			Durin::EBufferUsageFlags::VertexBuffer);
 		VertexBufferDesc.InitialData = {.Data = Positions,
 			.Size = sizeof(Positions)};
-		auto VertexBufferResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+		auto VertexBufferResult = Durin::GDynamicRHI->RHICreateBuffer(
 			Commands, VertexBufferDesc);
-		ASSERT_TRUE(VertexBufferResult.has_value());
-		auto VertexBuffer = std::move(*VertexBufferResult);
+		ASSERT_TRUE(VertexBufferResult);
+		auto VertexBuffer = std::move(VertexBufferResult);
 		// Exercise an upload recorded before any explicit GPU submission.
 		Commands.WriteBuffer(VertexBuffer.GetReference(), Positions,
 			sizeof(Positions), 0);
@@ -645,9 +645,9 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			"Metal triangle target", 8, 8, Durin::EPixelFormat::RGBA8_UNORM);
 		TextureDesc.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
 			| Durin::ETextureCreateFlags::CPUReadback);
-		auto Created = Durin::GDynamicRHI->RHITryCreateTexture(Commands, TextureDesc);
-		ASSERT_TRUE(Created.has_value());
-		auto Texture = std::move(*Created);
+		auto Created = Durin::GDynamicRHI->RHICreateTexture(Commands, TextureDesc);
+		ASSERT_TRUE(Created);
+		auto Texture = std::move(Created);
 		Durin::FRHIRenderPassInfo Pass;
 		Pass.RenderTargetLayout.NumColorRenderTargets = 1;
 		Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format =
@@ -693,10 +693,10 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			Durin::EBufferUsageFlags::VertexBuffer);
 		LineBufferDesc.InitialData = {.Data = LinePositions,
 			.Size = sizeof(LinePositions)};
-		auto LineBufferResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+		auto LineBufferResult = Durin::GDynamicRHI->RHICreateBuffer(
 			Commands, LineBufferDesc);
-		ASSERT_TRUE(LineBufferResult.has_value());
-		auto LineBuffer = std::move(*LineBufferResult);
+		ASSERT_TRUE(LineBufferResult);
+		auto LineBuffer = std::move(LineBufferResult);
 		auto LineInitializer = Initializer;
 		LineInitializer.PrimitiveTopology =
 			Durin::FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList;
@@ -760,10 +760,10 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			"Metal triangle indices", sizeof(Indices), sizeof(uint16_t),
 			Durin::EBufferUsageFlags::IndexBuffer);
 		IndexDesc.InitialData = {.Data = Indices, .Size = sizeof(Indices)};
-		auto IndexResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+		auto IndexResult = Durin::GDynamicRHI->RHICreateBuffer(
 			Commands, IndexDesc);
-		ASSERT_TRUE(IndexResult.has_value());
-		auto IndexBuffer = std::move(*IndexResult);
+		ASSERT_TRUE(IndexResult);
+		auto IndexBuffer = std::move(IndexResult);
 		const auto IndexedSignal = Commands.BeginGPUSubmission(
 			{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 		Commands.BeginRenderPass(Pass, "MetalIndexedTriangle");
@@ -795,10 +795,10 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			"Metal indirect draw arguments", sizeof(DrawArgs), sizeof(uint32_t),
 			Durin::EBufferUsageFlags::DrawIndirect);
 		DrawArgsDesc.InitialData = {.Data = &DrawArgs, .Size = sizeof(DrawArgs)};
-		auto DrawArgsResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+		auto DrawArgsResult = Durin::GDynamicRHI->RHICreateBuffer(
 			Commands, DrawArgsDesc);
-		ASSERT_TRUE(DrawArgsResult.has_value());
-		auto DrawArgsBuffer = std::move(*DrawArgsResult);
+		ASSERT_TRUE(DrawArgsResult);
+		auto DrawArgsBuffer = std::move(DrawArgsResult);
 		const auto IndirectSignal = Commands.BeginGPUSubmission(
 			{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 		Commands.BeginRenderPass(Pass, "MetalIndirectTriangle");
@@ -828,10 +828,10 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			sizeof(uint32_t), Durin::EBufferUsageFlags::DrawIndirect);
 		IndexedArgsDesc.InitialData = {.Data = &IndexedArgs,
 			.Size = sizeof(IndexedArgs)};
-		auto IndexedArgsResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+		auto IndexedArgsResult = Durin::GDynamicRHI->RHICreateBuffer(
 			Commands, IndexedArgsDesc);
-		ASSERT_TRUE(IndexedArgsResult.has_value());
-		auto IndexedArgsBuffer = std::move(*IndexedArgsResult);
+		ASSERT_TRUE(IndexedArgsResult);
+		auto IndexedArgsBuffer = std::move(IndexedArgsResult);
 		const auto IndexedIndirectSignal = Commands.BeginGPUSubmission(
 			{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 		Commands.BeginRenderPass(Pass, "MetalIndexedIndirectTriangle");
@@ -873,10 +873,10 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			sizeof(uint32_t), Durin::EBufferUsageFlags::DrawIndirect
 				| Durin::EBufferUsageFlags::StructuredBuffer
 				| Durin::EBufferUsageFlags::UnorderedAccess);
-		auto GpuArgsResult = Durin::GDynamicRHI->RHITryCreateBuffer(
+		auto GpuArgsResult = Durin::GDynamicRHI->RHICreateBuffer(
 			Commands, GpuArgsDesc);
-		ASSERT_TRUE(GpuArgsResult.has_value());
-		auto GpuArgs = std::move(*GpuArgsResult);
+		ASSERT_TRUE(GpuArgsResult);
+		auto GpuArgs = std::move(GpuArgsResult);
 		const Durin::FRHIBufferViewDesc GpuArgsViewDesc{
 			.Offset = 0, .Size = sizeof(IndexedArgs),
 			.Type = Durin::ERHIBufferViewType::StructuredStorage};
@@ -1027,28 +1027,28 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 		}
 		auto MrtFragment = MakeShader("mrtMain", Durin::EShaderFrequency::Fragment);
 		ASSERT_TRUE(MrtFragment);
-		auto SecondTextureResult = Durin::GDynamicRHI->RHITryCreateTexture(
+		auto SecondTextureResult = Durin::GDynamicRHI->RHICreateTexture(
 			Commands, TextureDesc);
-		auto ThirdTextureResult = Durin::GDynamicRHI->RHITryCreateTexture(
+		auto ThirdTextureResult = Durin::GDynamicRHI->RHICreateTexture(
 			Commands, TextureDesc);
 		auto EmissiveDesc = TextureDesc;
 		EmissiveDesc.Format = Durin::EPixelFormat::R11G11B10_FLOAT;
-		auto EmissiveResult = Durin::GDynamicRHI->RHITryCreateTexture(
+		auto EmissiveResult = Durin::GDynamicRHI->RHICreateTexture(
 			Commands, EmissiveDesc);
 		auto GBufferDepthDesc = Durin::FRHITextureCreateDesc::Create2D(
 			"Metal GBuffer depth", 8, 8, Durin::EPixelFormat::D32);
 		GBufferDepthDesc.SetFlags(Durin::ETextureCreateFlags::DepthStencilTargetable
 			| Durin::ETextureCreateFlags::CPUReadback);
-		auto GBufferDepthResult = Durin::GDynamicRHI->RHITryCreateTexture(
+		auto GBufferDepthResult = Durin::GDynamicRHI->RHICreateTexture(
 			Commands, GBufferDepthDesc);
-		ASSERT_TRUE(SecondTextureResult.has_value());
-		ASSERT_TRUE(ThirdTextureResult.has_value());
-		ASSERT_TRUE(EmissiveResult.has_value());
-		ASSERT_TRUE(GBufferDepthResult.has_value());
-		auto SecondTexture = std::move(*SecondTextureResult);
-		auto ThirdTexture = std::move(*ThirdTextureResult);
-		auto Emissive = std::move(*EmissiveResult);
-		auto GBufferDepth = std::move(*GBufferDepthResult);
+		ASSERT_TRUE(SecondTextureResult);
+		ASSERT_TRUE(ThirdTextureResult);
+		ASSERT_TRUE(EmissiveResult);
+		ASSERT_TRUE(GBufferDepthResult);
+		auto SecondTexture = std::move(SecondTextureResult);
+		auto ThirdTexture = std::move(ThirdTextureResult);
+		auto Emissive = std::move(EmissiveResult);
+		auto GBufferDepth = std::move(GBufferDepthResult);
 		auto MrtPass = Pass;
 		MrtPass.RenderTargetLayout.NumColorRenderTargets = 4;
 		for (uint32_t Index = 1; Index < 4; ++Index)
@@ -1143,10 +1143,10 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			auto FormatDesc = TextureDesc;
 			FormatDesc.Format = Format;
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIIsTextureSupported(FormatDesc));
-			auto FormatTargetResult = Durin::GDynamicRHI->RHITryCreateTexture(
+			auto FormatTargetResult = Durin::GDynamicRHI->RHICreateTexture(
 				Commands, FormatDesc);
-			ASSERT_TRUE(FormatTargetResult.has_value());
-			auto FormatTarget = std::move(*FormatTargetResult);
+			ASSERT_TRUE(FormatTargetResult);
+			auto FormatTarget = std::move(FormatTargetResult);
 			auto FormatPass = Pass;
 			FormatPass.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = Format;
 			FormatPass.ColorRenderTargets[0] = FormatTarget.GetReference();
@@ -1271,14 +1271,14 @@ TEST(FMetalRHIHeadlessTests, D32DepthRejectsFarDrawInBothExecutionModes)
 		DepthDesc.SetFlags(Durin::ETextureCreateFlags::DepthStencilTargetable
 			| Durin::ETextureCreateFlags::CPUReadback);
 		ASSERT_TRUE(Durin::GDynamicRHI->RHIIsTextureSupported(DepthDesc));
-		auto ColorResult = Durin::GDynamicRHI->RHITryCreateTexture(
+		auto ColorResult = Durin::GDynamicRHI->RHICreateTexture(
 			Commands, ColorDesc);
-		auto DepthResult = Durin::GDynamicRHI->RHITryCreateTexture(
+		auto DepthResult = Durin::GDynamicRHI->RHICreateTexture(
 			Commands, DepthDesc);
-		ASSERT_TRUE(ColorResult.has_value());
-		ASSERT_TRUE(DepthResult.has_value());
-		auto Color = std::move(*ColorResult);
-		auto Depth = std::move(*DepthResult);
+		ASSERT_TRUE(ColorResult);
+		ASSERT_TRUE(DepthResult);
+		auto Color = std::move(ColorResult);
+		auto Depth = std::move(DepthResult);
 		Durin::FRHIRenderPassInfo Pass;
 		Pass.RenderTargetLayout.NumColorRenderTargets = 1;
 		Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format =

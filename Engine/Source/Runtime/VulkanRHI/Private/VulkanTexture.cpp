@@ -1,4 +1,5 @@
 #include "VulkanCreation.h"
+#include "VulkanCreationGuard.h"
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICreation.h"
 #include "VulkanCreationTiming.h"
@@ -139,19 +140,12 @@ namespace Durin::VulkanRHI
 				vk::to_string(ImageResult), ImageExtent.width, ImageExtent.height,
 				ImageExtent.depth, vk::to_string(Format)));
 		}
-		try
-		{
+		TVulkanCreationGuard Candidate([&] { MemoryManager.DestroyImage(Allocation, Image); });
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
+		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
 #endif
-			Device.GetRHI().GetDebugUtils().NameObjectLazy(Image, [&] { return std::string_view(DebugName); });
-		}
-		catch (...)
-		{
-			MemoryManager.DestroyImage(Allocation, Image);
-			Image = nullptr;
-			throw;
-		}
+		Device.GetRHI().GetDebugUtils().NameObjectLazy(Image, [&] { return std::string_view(DebugName); });
+		Candidate.Commit();
 	}
 
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage)
@@ -252,9 +246,9 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDynamicRHI::RHITryCreateTexture(FRHICommandListBase& RHICmdList,
+	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandListBase& RHICmdList,
 		const FRHITextureCreateDesc& CreateDesc)
-		-> std::expected<FTextureRHIRef, FRHICreationError>
+		-> FTextureRHIRef
 	{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Texture);
@@ -267,17 +261,17 @@ namespace Durin::VulkanRHI
 		const FRHITextureCreateDesc NormalizedDesc = NormalizeTextureCreateDesc(CreateDesc);
 		if (!IsNormalizedTextureSupported(NormalizedDesc))
 		{
-			return std::unexpected(FRHICreationError{
-				.Failure = ERHIResourceCreationFailure::UnsupportedDescriptor,
-				.Source = ERHICreationFailureSource::NativeBackend});
+			DURIN_ERROR("Failed to create Vulkan texture '{}': unsupported format or usage",
+				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>");
+			return {};
 		}
-		auto Texture = TryCreateVulkanResource([&]() -> FTextureRHIRef {
+		auto Texture = CreateVulkanResource([&]() -> FTextureRHIRef {
 			return new FVulkanTexture(*Device, NormalizedDesc);
-		});
-		if (!Texture) return std::unexpected(Texture.error());
+		}, "texture", CreateDesc.DebugName ? CreateDesc.DebugName : "");
+		if (!Texture) return {};
 		if (EnumHasAnyFlags(NormalizedDesc.Flags, ETextureCreateFlags::Storage))
 		{
-			RHICmdList.InitializeTexture(Texture->GetReference());
+			RHICmdList.InitializeTexture(Texture.GetReference());
 		}
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Texture;

@@ -60,7 +60,7 @@ namespace Durin::VulkanRHI
 			return FoundEntry.Handle;
 		}
 		if (DLayoutMap.size() >= 4096)
-			throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::DescriptorLayoutCache});
+			throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::CacheCapacity});
 		// Resident entries remain valid until all creation tasks have joined.
 		vk::DescriptorSetLayoutCreateInfo CreateInfo{};
 		CreateInfo.setBindings(Layout.LayoutBindings);

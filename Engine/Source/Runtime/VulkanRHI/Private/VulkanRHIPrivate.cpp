@@ -23,6 +23,16 @@
 
 namespace Durin::VulkanRHI
 {
+	auto GetRecoverableVulkanCreationError(vk::Result Result) -> FRHICreationError
+	{
+		check(IsRecoverableVulkanCreationError(Result));
+		const auto Failure = Result == vk::Result::eErrorFormatNotSupported
+			? ERHIResourceCreationFailure::UnsupportedDescriptor
+			: Result == vk::Result::eErrorOutOfHostMemory || Result == vk::Result::eErrorOutOfDeviceMemory
+				? ERHIResourceCreationFailure::OutOfMemory : ERHIResourceCreationFailure::ResourceExhausted;
+		return {Failure, ERHICreationFailureSource::NativeBackend, static_cast<int32>(Result)};
+	}
+
 	auto MakeVulkanCreationOperation(std::function<void()> Operation)
 		-> std::function<void()>
 	{
@@ -49,13 +59,7 @@ namespace Durin::VulkanRHI
 				if (!IsRecoverableVulkanCreationError(
 					static_cast<vk::Result>(Exception.code().value()))) throw;
 				const auto NativeResult = static_cast<vk::Result>(Exception.code().value());
-				const auto Failure = NativeResult == vk::Result::eErrorFormatNotSupported
-					? ERHIResourceCreationFailure::UnsupportedDescriptor
-					: NativeResult == vk::Result::eErrorOutOfHostMemory
-						|| NativeResult == vk::Result::eErrorOutOfDeviceMemory
-						? ERHIResourceCreationFailure::OutOfMemory
-						: ERHIResourceCreationFailure::ResourceExhausted;
-				throw FRHIRecoverableCreationError({Failure, ERHICreationFailureSource::NativeBackend, static_cast<int32>(NativeResult)});
+				throw FRHIRecoverableCreationError(GetRecoverableVulkanCreationError(NativeResult));
 			}
 		};
 	}

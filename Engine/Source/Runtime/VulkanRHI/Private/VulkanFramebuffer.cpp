@@ -48,10 +48,6 @@ namespace Durin::VulkanRHI
 		vk::Framebuffer CandidateFramebuffer;
 		try
 		{
-		#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ThrowIfVulkanNativeCreateFailureIsArmed(
-				EVulkanCreateFailurePoint::FramebufferImageView);
-		#endif
 			for (uint32 Index = 0; Index < NumColorRenderTargets; ++Index)
 			{
 				ColorRenderTargetImages[Index] = GetImage(RPInfo.ColorRenderTargets[Index]);

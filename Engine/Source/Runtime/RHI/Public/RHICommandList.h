@@ -427,7 +427,7 @@ namespace Durin
 		RHI_API auto SetThreadedMode(FRHIThread& InRHIThread) -> void;
 		RHI_API auto SetInlineMode() -> void;
 		// Called before a background device fault is captured by Core.
-		RHI_API auto ReportExternalFailure(std::exception_ptr Failure) -> void;
+		RHI_API auto ReportExternalFailure() -> void;
 		// Runs one ordered operation on the active replay owner. Threaded callers
 		// block for the exact queue serial; inline diagnostics execute locally.
 		// Callers report heap storage exclusively owned by the queued callback so

@@ -46,15 +46,15 @@ namespace Durin
 			auto RHIGetViewportBackBuffer(FRHIViewport*) -> FTextureRHIRef override { return {}; }
 			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&) -> FVertexDeclarationRHIRef override { return {}; }
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return false; }
-			auto RHITryCreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&) -> std::expected<FTextureRHIRef, FRHICreationError> override
+			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&) -> FTextureRHIRef override
 			{
-				return std::unexpected(FRHICreationError{ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull});
+				return {};
 			}
 			auto RHICreateSampler(const FRHISamplerDesc&) -> FSamplerRHIRef override { return {}; }
 			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
-			auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&) -> std::expected<FBufferRHIRef, FRHICreationError> override
+			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&) -> FBufferRHIRef override
 			{
-				return std::unexpected(FRHICreationError{ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull});
+				return {};
 			}
 			auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache* override
 			{

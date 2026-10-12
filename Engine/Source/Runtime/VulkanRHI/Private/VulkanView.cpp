@@ -1,5 +1,6 @@
 #include "VulkanCreationTiming.h"
 #include "VulkanView.h"
+#include "VulkanCreationGuard.h"
 
 #include "VulkanBuffer.h"
 #include "VulkanDevice.h"
@@ -33,20 +34,13 @@ namespace Durin::VulkanRHI
 #endif
 			return Device.GetHandle().createBufferView(CreateInfo);
 		}();
-		try
-		{
+		TVulkanCreationGuard Candidate([&] { Device.GetHandle().destroyBufferView(BufferView); });
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
+		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
 #endif
-			Device.GetRHI().GetDebugUtils().NameObjectLazy(BufferView,
-				[&] { return std::format("{}.BufferView", Buffer->GetDebugName()); });
-		}
-		catch (...)
-		{
-			Device.GetHandle().destroyBufferView(BufferView);
-			BufferView = nullptr;
-			throw;
-		}
+		Device.GetRHI().GetDebugUtils().NameObjectLazy(BufferView,
+			[&] { return std::format("{}.BufferView", Buffer->GetDebugName()); });
+		Candidate.Commit();
 	}
 
 	FVulkanBufferView::~FVulkanBufferView()
@@ -92,22 +86,15 @@ namespace Durin::VulkanRHI
 #endif
 			return Device.GetHandle().createImageView(CreateInfo);
 		}();
-		try
-		{
+		TVulkanCreationGuard Candidate([&] { Device.GetHandle().destroyImageView(ImageView); });
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
+		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
 #endif
-			Device.GetRHI().GetDebugUtils().NameObjectLazy(ImageView,
-				[&] { return std::format("{}.ImageView", Texture->GetDebugName()); });
-		}
-		catch (...)
-		{
-			Device.GetHandle().destroyImageView(ImageView);
-			ImageView = nullptr;
-			throw;
-		}
+		Device.GetRHI().GetDebugUtils().NameObjectLazy(ImageView,
+			[&] { return std::format("{}.ImageView", Texture->GetDebugName()); });
 		DebugIdentity = GVulkanImageViewHandleIdCounter.fetch_add(
 			1, std::memory_order_relaxed) + 1;
+		Candidate.Commit();
 	}
 
 	FVulkanTextureView::~FVulkanTextureView()

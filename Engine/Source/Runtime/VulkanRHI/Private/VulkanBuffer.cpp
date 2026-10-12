@@ -1,4 +1,5 @@
 #include "VulkanCreation.h"
+#include "VulkanCreationGuard.h"
 #include "VulkanCreationTiming.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanBuffer.h"
@@ -85,19 +86,12 @@ namespace Durin::VulkanRHI
 				vk::to_string(Result), BufferInfo.size,
 				vk::to_string(BufferInfo.usage), static_cast<uint32>(AllocationCandidate)));
 		}
-		try
-		{
+		TVulkanCreationGuard Candidate([&] { MemoryManager.DestroyBuffer(Allocation, Buffer); });
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
+		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
 #endif
-			Device.GetRHI().GetDebugUtils().NameObjectLazy(Buffer, [&] { return std::string_view(DebugName); });
-		}
-		catch (...)
-		{
-			MemoryManager.DestroyBuffer(Allocation, Buffer);
-			Buffer = nullptr;
-			throw;
-		}
+		Device.GetRHI().GetDebugUtils().NameObjectLazy(Buffer, [&] { return std::string_view(DebugName); });
+		Candidate.Commit();
 	}
 
 	auto FVulkanBuffer::InitializeUniformRange(FByteView Data, uint32 Offset) -> void
@@ -227,9 +221,9 @@ namespace Durin::VulkanRHI
 		Device.GetMemoryManager().Invalidate(Allocation, Offset, InvalidateSize);
 	}
 
-	auto FVulkanDynamicRHI::RHITryCreateBuffer(FRHICommandListImmediate& RHICmdList,
+	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList,
 		const FRHIBufferCreateDesc& CreateDesc)
-		-> std::expected<FBufferRHIRef, FRHICreationError>
+		-> FBufferRHIRef
 	{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Buffer);
@@ -240,11 +234,11 @@ namespace Durin::VulkanRHI
 		{
 			NormalizedDesc.Usage |= EBufferUsageFlags::DestinationCopy;
 		}
-		auto Result = TryCreateVulkanResource([&]() -> FBufferRHIRef {
+		auto Result = CreateVulkanResource([&]() -> FBufferRHIRef {
 			return new FVulkanBuffer(*Device, NormalizedDesc);
-		});
-		if (!Result) return std::unexpected(Result.error());
-		auto* CreatedBuffer = FVulkanBuffer::Cast(Result->GetReference());
+		}, "buffer", CreateDesc.DebugName ? CreateDesc.DebugName : "");
+		if (!Result) return {};
+		auto* CreatedBuffer = FVulkanBuffer::Cast(Result.GetReference());
 		auto& InitialData = CreateDesc.InitialData;
 		if (InitialData.Data)
 		{

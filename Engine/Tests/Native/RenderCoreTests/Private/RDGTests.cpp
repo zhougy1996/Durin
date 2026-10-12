@@ -221,14 +221,14 @@ namespace Durin
 			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&)
 				-> TRefCountPtr<FRHIVertexDeclaration> override { return {}; }
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return false; }
-			auto RHITryCreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&)
-				-> std::expected<FTextureRHIRef, FRHICreationError> override
-			{ return std::unexpected(FRHICreationError{}); }
+			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&)
+				-> FTextureRHIRef override
+			{ return {}; }
 			auto RHICreateSampler(const FRHISamplerDesc&) -> TRefCountPtr<FRHISampler> override { return {}; }
 			auto RHICreateShader(const FRHIShaderCreateDesc&) -> TRefCountPtr<FRHIShader> override { return {}; }
-			auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
-				-> std::expected<FBufferRHIRef, FRHICreationError> override
-			{ return std::unexpected(FRHICreationError{}); }
+			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
+				-> FBufferRHIRef override
+			{ return {}; }
 		private:
 			FRHIQueueCapabilities Queues;
 		};
@@ -868,7 +868,6 @@ namespace Durin
 				return &Metadata;
 			}
 		};
-
 
 		struct FComputeResolutionParameters final
 		{
@@ -1844,15 +1843,14 @@ namespace Durin
 
 	TEST_F(FRDGTests, FailedPreparationRetainsCaptureAndNeverPublishesExtraction)
 	{
-		for (int Failure = 0; Failure < 4; ++Failure)
+		for (int Failure = 0; Failure < 3; ++Failure)
 		{
 			FRDGCapture Capture;
 			int Destructions = 0;
 			{
 				FRDGBuilder Builder;
 				FTestRDGAllocator Allocator;
-				Allocator.bFail = Failure == 0 || Failure == 3;
-				if (Failure == 3) Allocator.Failure.Reason = ERDGAllocationError::AllocationRetrySuppressed;
+				Allocator.bFail = Failure == 0;
 				Allocator.bOmitResources = Failure == 1;
 				if (Failure == 2)
 					Allocator.BufferOverride = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
@@ -1879,8 +1877,7 @@ namespace Durin
 					else if (Failure == 2)
 						EXPECT_NE(FindRDGTestDetail<FRDGBufferAllocationError>(Report.error()), nullptr);
 					else
-						EXPECT_TRUE(HasRDGTestReason(Report.error(), Failure == 3
-							? ERDGAllocationError::AllocationRetrySuppressed : ERDGAllocationError::AllocatorFailure));
+						EXPECT_TRUE(HasRDGTestReason(Report.error(), ERDGAllocationError::AllocatorFailure));
 				};
 				ExpectFailure(Result);
 				EXPECT_FALSE(Result.has_value());
@@ -4665,7 +4662,6 @@ namespace Durin
 			Capture.Resources[1].PhysicalAllocationId);
 	}
 
-
 	TEST_F(FRDGTests, AllocationRequestsDistinguishExportsFromTransientResources)
 	{
 		FTextureRHIRef ExportedTexture;
@@ -5532,7 +5528,7 @@ namespace Durin
 		EXPECT_EQ(Context.ResourceIndex, 0u);
 	}
 
-	TEST_F(FRDGTests, AllocationCauseSurvivesAllocatorAndGraphDestruction)
+	TEST_F(FRDGTests, AllocationFailureContextSurvivesAllocatorAndGraphDestruction)
 	{
 		FRDGExecutionResult Result;
 		{
@@ -5544,19 +5540,12 @@ namespace Durin
 				ERHIAccess::ComputeShaderReadWrite, true);
 			FTestRDGAllocator Allocator;
 			Allocator.bFail = true;
-			Allocator.Failure = {ERDGAllocationError::PhysicalAllocationFailed,
-				0,
-				FRHICreationError{.Failure = ERHIResourceCreationFailure::OutOfMemory,
-					.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -7}};
+			Allocator.Failure = {ERDGAllocationError::PhysicalAllocationFailed, 0};
 
 			Result = Builder.Execute(GetCommandList(), &Allocator);
 		}
 		EXPECT_TRUE(HasRDGTestReason(Result.error(), ERDGAllocationError::PhysicalAllocationFailed));
 		EXPECT_EQ((*FindRDGTestDetail<FRDGAllocationFailure>(Result.error())).ResourceId, 0u);
-		const auto& Cause = (*FindRDGTestDetail<FRHICreationError>(Result.error()));
-		EXPECT_EQ(Cause.Failure, ERHIResourceCreationFailure::OutOfMemory);
-		EXPECT_EQ(Cause.Source, ERHICreationFailureSource::NativeBackend);
-		EXPECT_EQ(Cause.NativeCode, -7);
 	}
 
 	TEST_F(FRDGTests, ExecutionStatusMapsSuccessAndFailurePhases)
@@ -5581,8 +5570,8 @@ namespace Durin
 	{
 		const FRDGMissingAllocationError Missing{3};
 		EXPECT_EQ(ToString(Missing), "allocation missing: resource=3");
-		EXPECT_EQ(ToString(FRDGAllocationFailure{ERDGAllocationError::AllocationRetryDeferred}),
-			"allocation retry deferred");
+		EXPECT_EQ(ToString(FRDGAllocationFailure{ERDGAllocationError::PhysicalAllocationFailed, 3}),
+			"physical allocation failed: resource=3");
 		EXPECT_EQ(ToString(FRDGAllocationError{FRDGAllocationBudgetError{128, 64}}),
 			"allocation budget exceeded: allocation-bytes actual=128 limit=64");
 		const FRDGPreparationError Mismatch{FRDGBufferAllocationError{.ResourceId = 3,
@@ -5590,16 +5579,6 @@ namespace Durin
 				.Actual = FRHIBufferDesc(32, 4, EBufferUsageFlags::None)}};
 		EXPECT_EQ(ToString(Mismatch),
 			"buffer allocation incompatible: resource=3 expected=(size=64,stride=4,usage=0) actual=(size=32,stride=4,usage=0)");
-	}
-
-	TEST_F(FRDGTests, DiagnosticFormattingPreservesNativeCause)
-	{
-		const auto Native = FRHICreationError{
-			.Failure = ERHIResourceCreationFailure::OutOfMemory,
-			.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -7};
-		const FRDGAllocationFailure Error{ERDGAllocationError::PhysicalAllocationFailed,
-			3, Native};
-		EXPECT_NE(ToString(Error).find(ToString(Native)), std::string::npos);
 	}
 
 	TEST_F(FRDGTests, EnforcesDeterministicStructuralBudgets)

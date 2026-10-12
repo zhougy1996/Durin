@@ -476,29 +476,13 @@ namespace Durin::VulkanRHI
 			DeviceInfo.setPNext(&TimelineFeatures);
 		}
 
-		try
-		{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Device);
+		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Device);
 #endif
-			Device = Gpu.createDevice(DeviceInfo);
-			RHI->GetDebugUtils().InitializeDevice(Device);
-			RHI->GetDebugUtils().NameObject(Device, "Durin.LogicalDevice");
-			RHI->GetDebugUtils().NameObject(Gpu, "Durin.PhysicalDevice");
-		}
-		catch (const vk::SystemError& err)
-		{
-			throw std::runtime_error(std::format(
-				"Vulkan logical-device creation failed: result={}, queueFamilies={}, extensions={}, error={}",
-				vk::to_string(static_cast<vk::Result>(err.code().value())),
-				QueueCreateInfos.size(), DeviceExtensions.size(), err.what()));
-		}
-		catch (const std::runtime_error& err)
-		{
-			throw std::runtime_error(std::format(
-				"Vulkan logical-device creation failed: result=unavailable, queueFamilies={}, extensions={}, error={}",
-				QueueCreateInfos.size(), DeviceExtensions.size(), err.what()));
-		}
+		Device = Gpu.createDevice(DeviceInfo);
+		RHI->GetDebugUtils().InitializeDevice(Device);
+		RHI->GetDebugUtils().NameObject(Device, "Durin.LogicalDevice");
+		RHI->GetDebugUtils().NameObject(Gpu, "Durin.PhysicalDevice");
 
 		PhysicalQueues.reserve(2);
 		GraphicsQueue = new FVulkanQueue(this, GraphicsQueueFamilyIndex, 0, {0});

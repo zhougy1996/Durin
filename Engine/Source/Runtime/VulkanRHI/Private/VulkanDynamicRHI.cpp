@@ -474,19 +474,11 @@ namespace Durin::VulkanRHI
 		const FEngineVersion& EngineVersion = GetEngineVersion();
 		const uint32 PackedEngineVersion = VK_MAKE_API_VERSION(0, EngineVersion.Major, EngineVersion.Minor, EngineVersion.Patch);
 		FVulkanInstanceNegotiationInput NegotiationInput;
-		try
-		{
-			NegotiationInput.LoaderApiVersion = vk::enumerateInstanceVersion();
-			for (const vk::ExtensionProperties& Extension : vk::enumerateInstanceExtensionProperties())
-				NegotiationInput.AvailableExtensions.emplace_back(Extension.extensionName.data());
-			for (const vk::LayerProperties& Layer : vk::enumerateInstanceLayerProperties())
-				NegotiationInput.AvailableLayers.emplace_back(Layer.layerName.data());
-		}
-		catch (const std::exception& Exception)
-		{
-			throw std::runtime_error(std::format(
-				"Vulkan instance requirement enumeration failed: {}", Exception.what()));
-		}
+		NegotiationInput.LoaderApiVersion = vk::enumerateInstanceVersion();
+		for (const vk::ExtensionProperties& Extension : vk::enumerateInstanceExtensionProperties())
+			NegotiationInput.AvailableExtensions.emplace_back(Extension.extensionName.data());
+		for (const vk::LayerProperties& Layer : vk::enumerateInstanceLayerProperties())
+			NegotiationInput.AvailableLayers.emplace_back(Layer.layerName.data());
 		FVulkanInstanceExtensionRequestInput ExtensionRequestInput;
 		for (const std::string& RequiredExtension :
 			SurfaceProviderRequiredExtensions)
@@ -575,24 +567,14 @@ namespace Durin::VulkanRHI
 			NegotiationInput.AvailableLayers, "VK_LAYER_KHRONOS_validation");
 		AvailabilityCandidate.bValidationLayerActive = std::ranges::contains(
 			Negotiation.EnabledLayers, "VK_LAYER_KHRONOS_validation");
-		try
-		{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Instance);
+		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Instance);
 #endif
-			vk::Instance InstanceCandidate = vk::createInstance(InstanceInfo);
-			InstanceExtensions = std::move(Negotiation.EnabledExtensions);
-			InstanceLayers = std::move(Negotiation.EnabledLayers);
-			DiagnosticAvailability = AvailabilityCandidate;
-			Instance = InstanceCandidate;
-		}
-		catch (const vk::SystemError& err)
-		{
-			throw std::runtime_error(std::format(
-				"Vulkan instance creation failed: result={}, extensions={}, layers={}, error={}",
-				vk::to_string(static_cast<vk::Result>(err.code().value())),
-				ExtensionNames.size(), LayerNames.size(), err.what()));
-		}
+		vk::Instance InstanceCandidate = vk::createInstance(InstanceInfo);
+		InstanceExtensions = std::move(Negotiation.EnabledExtensions);
+		InstanceLayers = std::move(Negotiation.EnabledLayers);
+		DiagnosticAvailability = AvailabilityCandidate;
+		Instance = InstanceCandidate;
 	}
 
 	auto FVulkanDynamicRHI::CreateDebugMessenger() -> void
