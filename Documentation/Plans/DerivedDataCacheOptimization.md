@@ -10,7 +10,11 @@ Completed:
 ## Current Status
 
 Stages 0 through 2 are complete with the recorded integration-validation exception
-below; Stage 3 is next and subsequent stages have not started. This plan continues the completed
+below; Stage 3 is next and subsequent stages have not started. The 2026-10-13
+architecture review revised Stage 3 to simplify dispatch policy and public
+integration before adding further infrastructure. Stage 2 completion records
+validated behavior, not a requirement to retain every implementation mechanism.
+This plan continues the completed
 [Modern Derived Data Cache plan](ModernDerivedDataCache.md) without reopening its
 record/value format or asset-publication decisions.
 
@@ -143,7 +147,7 @@ Boundary: the production cache service owns shared I/O admission and queues; ses
 retain their input resolver, registry snapshot, and producer scheduler. Explicit
 injected caches and inline compatibility remain supported.
 
-Selected Stage 2 decisions: cache scheduler and dispatch limits are service
+Implemented Stage 2 decisions (mechanisms may be simplified in Stage 3): cache scheduler and dispatch limits are service
 configuration; sessions explicitly select Inline (default) or Task cache execution.
 All task sessions share one dispatcher. Inline sessions share a separate bounded
 dispatcher over the same backend and do not wait on task admission or execute
@@ -169,27 +173,83 @@ limit; cross-session priority has a starvation bound; canceling one owner does n
 cancel another. Overflow rejects atomically without callbacks. Single-worker waits,
 shutdown, injected services, and inline compatibility pass deterministic tests.
 
-### Stage 3: Consolidate resource session integration
+### Stage 3: Simplify cache policy and resource session integration
 
 Dependencies: Stage 2.
 
-Boundary: module-owned integration holds sessions and registration lifetime;
+Boundary: the cache service owns dispatch, queue budgets, and fairness policy;
+resource callers select their required synchronous or asynchronous completion
+contract without configuring cache scheduling algorithms. Module-owned integration
+holds sessions and registration lifetime;
 Texture, StaticMesh, Physics, and Shader keep capture, recipes, semantic assembly,
 reservations, and publication. Shader compiler scheduling/LRU remain ShaderBuild-owned.
 
-- [ ] Introduce a small lifecycle holder with explicit registration, submission,
-  and shutdown/drain ordering rather than duplicated global session glue.
-- [ ] Reuse submission logic for synchronous wrappers through a wait adapter that
-  preserves existing inline scheduling requirements.
+Selected revision: adopt UE's concentrated cache/request ownership as a boundary
+reference, not its full feature set. Preserve service-wide task admission and
+correct request retirement. Treat inline dispatch as a compatibility adapter with
+its existing immediate, nested completion contract; a generic asynchronous
+submit-and-Wait wrapper is not an acceptable replacement. Do not expose fairness
+algorithm parameters merely to make tests configurable. Keep one explicit cache
+dependency injection seam and remove redundant production configuration only
+after auditing consumers across the workspace.
+
+Execute 3A before 3B; each step must be independently reviewable and validated.
+
+3A: simplify Stage 2 mechanisms without weakening its behavioral guarantees.
+
+- [ ] Replace detailed object/container accounting with a documented coarse
+  queued-request budget for retained payload/metadata backing and variable-size
+  copied request data, alongside request-count admission. Preserve protection
+  against oversized selections and overflow; do not describe this as total DDC
+  memory accounting. Keep producer reservations and codec workspace limits under
+  their existing owners. Centralize the accounting calculation and retain buffer
+  lifetime coverage through callback retirement.
+- [ ] Make fairness an internal bounded policy; remove the public bypass tuning
+  knob and the per-dispatch update of every waiting request's bypass counter.
+  Preserve cross-session priority, live owner priority changes, and a documented
+  starvation bound. Prefer the smallest policy that satisfies deterministic tests.
+- [ ] Audit AsyncCache injection, CacheScheduler, dispatch limits, and session
+  execution selection; reduce overlapping configuration and keep test control at
+  the cache/scheduler boundary. Keep service concurrency and admission limits
+  explicit, with no new execution modes or generic scheduling framework.
+- [ ] Keep synchronous backend details and inline compatibility behind the cache
+  integration boundary where practical. Avoid an unconditional public ICache API
+  rewrite solely to resemble UE; any remaining split must have a stated owner.
+- [ ] Update runtime contracts and migrate every affected workspace consumer.
+
+3B: consolidate resource integration only after 3A passes.
+
+- [ ] Consolidate duplicated session registration, submission, and shutdown/drain
+  glue using existing ownership facilities; introduce a small lifecycle holder
+  only when concrete duplicated behavior requires it.
+- [ ] Reuse submission logic while preserving immediate inline and nested
+  synchronous completion; keep asynchronous task admission independent.
 - [ ] Preserve typed admission errors instead of collapsing them to bool/nullopt.
 - [ ] Move test injection to scoped dependencies and drain outside holder locks.
 - [ ] Decide and document Shader's isolated compiler/service lifetime explicitly.
 
-Acceptance: producer services outlive callbacks and unload only after drain;
+Acceptance for 3A: multiple task sessions still share one concurrency and admission
+domain; inline completion is independent of task saturation and never executes
+sibling asset work to make progress. Item and byte rejection remain atomic and
+distinct from backend failure, with no callback or owner registration on rejection.
+Budgets cover retained buffers through callbacks and recover after cancellation,
+completion, and dispatch failure. Priority updates take effect and sustained high
+priority arrivals cannot starve older work under the documented bound. Canceling
+one session does not cancel another, injected caches retain caller ownership, and
+single-worker shutdown/drain remains live. Existing Stage 1 schema and nested
+inline regressions remain passing. Validate DerivedDataCacheTests,
+DerivedDataBuildTests, and affected integration targets; measure admission and
+dispatch behavior on a maximum-capacity queue to confirm reduced accounting and
+bookkeeping rather than merely moving the same complexity behind another helper.
+
+Acceptance for 3B: producer services outlive callbacks and unload only after drain;
 registration snapshots remain predictable. Reentrant callbacks and shutdown do not
 deadlock. Texture2D/Cube/Volume, mesh render, collision, and Shader cold/warm results
 remain equivalent. Validate affected consumers; any shared Engine API migration
-requires an all build under repository rules.
+requires an all build under repository rules. Stage 3 completes only after both
+3A and 3B pass; do not add DAGs, remote workers, new cache tiers, or storage-format
+changes in this stage. The recorded Shader manifest fixture exception remains
+the only permitted existing integration failure.
 
 ### Stage 4: Reuse blob work and separate result delivery from persistence
 
