@@ -273,12 +273,13 @@ namespace Durin
 		auto FailureResults = std::make_shared<
 			std::array<ERenderViewResult, 2>>();
 		auto FailurePixelsBefore = std::make_shared<Durin::FByteBuffer>();
+		auto FailurePixelsOnFailure = std::make_shared<Durin::FByteBuffer>();
 		auto FailurePixelsAfter = std::make_shared<Durin::FByteBuffer>();
 		VulkanRHI::ArmVulkanCreateFailure(
 			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline
 		);
 		EnqueueRenderCommand<FFailDisplayPayloadContract>(
-			[&Renderer, FailureResults, FailurePixelsBefore, FailurePixelsAfter](
+			[&Renderer, FailureResults, FailurePixelsBefore, FailurePixelsOnFailure, FailurePixelsAfter](
 				FRHICommandListImmediate& CommandList
 			) {
 				GRenderFrameCounterRenderThread++;
@@ -312,6 +313,9 @@ namespace Durin
 				(*FailureResults)[0] = Renderer.RenderView(
 					CommandList, nullptr, View, Output, false, {}
 				);
+				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+					CommandList, Output, 0, 0, *FailurePixelsOnFailure
+				));
 				(*FailureResults)[1] = Renderer.RenderView(
 					CommandList, nullptr, View, Output, false, {}
 				);
@@ -323,8 +327,9 @@ namespace Durin
 		);
 		FlushRenderingCommands();
 		EXPECT_EQ((*FailureResults)[0], ERenderViewResult::RendererResourcesUnavailable);
-		EXPECT_EQ((*FailureResults)[1], ERenderViewResult::RendererResourcesUnavailable);
-		EXPECT_EQ(*FailurePixelsAfter, *FailurePixelsBefore);
+		EXPECT_EQ(*FailurePixelsOnFailure, *FailurePixelsBefore);
+		EXPECT_EQ((*FailureResults)[1], ERenderViewResult::Success);
+		EXPECT_NE(*FailurePixelsAfter, *FailurePixelsBefore);
 		EXPECT_TRUE(FConsoleCommandRegistry::Get().Execute(
 													  "renderer.retry-resources"
 		)
@@ -774,7 +779,7 @@ namespace Durin
 				(*PipelineResults)[2] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) == nullptr;
 				(*PipelineResults)[3] =
-					GBuffer.EnsurePipeline_RenderThread(LocalRequest) == nullptr;
+					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
@@ -980,7 +985,7 @@ namespace Durin
 					FRendererResourceInvalidationTargets{}
 				);
 				(*Results)[10] = !RenderRaw();
-				(*Results)[11] = !RenderRaw();
+				(*Results)[11] = RenderRaw();
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
@@ -1157,12 +1162,12 @@ namespace Durin
 					FVector3(0.0, 0.0, -1.0), 65, 33, {});
 				(*Results)[14] = FailedCompute.Route
 					== FContactShadowVisibilityRenderer::ERoute::Fragment;
-				const auto SuppressedRetry = ContactVisibility.Render_RenderThread(
+				const auto AutomaticRetry = ContactVisibility.Render_RenderThread(
 					CommandList, true, &*FragmentTargets, &*FailureComputeTargets,
 					Material, Normals, Surface, Emissive, Depth, View,
 					FVector3(0.0, 0.0, -1.0), 65, 33, {});
-				(*Results)[15] = SuppressedRetry.Route
-					== FContactShadowVisibilityRenderer::ERoute::Fragment;
+				(*Results)[15] = AutomaticRetry.Route
+					== FContactShadowVisibilityRenderer::ERoute::Compute;
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{});
@@ -1319,7 +1324,7 @@ namespace Durin
 					FRendererResourceInvalidationTargets{}
 				);
 				(*Results)[6] = !Deferred.EnsureResources_RenderThread(CommandList);
-				(*Results)[7] = !Deferred.EnsureResources_RenderThread(CommandList);
+				(*Results)[7] = Deferred.EnsureResources_RenderThread(CommandList);
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
