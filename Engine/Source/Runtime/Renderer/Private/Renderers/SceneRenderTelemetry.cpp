@@ -170,6 +170,10 @@ namespace Durin
 		Telemetry.StaticMesh.StaticMeshAttemptedDraws = Resolved.Observations.AttemptedDraws;
 		Telemetry.StaticMesh.StaticMeshSuccessfulDraws = Resolved.Observations.SuccessfulDraws;
 		Telemetry.StaticMesh.StaticMeshRejectedDraws = Resolved.Observations.RejectedDraws;
+		Telemetry.StaticMesh.PersistentCommandHits = Resolved.Observations.PersistentCommandHits;
+		Telemetry.StaticMesh.PersistentCommandMisses = Resolved.Observations.PersistentCommandMisses;
+		Telemetry.StaticMesh.PrimitiveUniformUploads = Resolved.Observations.PrimitiveUniformUploads;
+		Telemetry.StaticMesh.SurfaceMaterialPreparations = Resolved.Observations.SurfaceMaterialPreparations;
 	}
 
 

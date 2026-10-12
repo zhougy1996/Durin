@@ -4,7 +4,7 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-10-12
+Last reviewed: 2026-10-13
 
 SplineMesh is a distinct primitive/deformation domain that borrows these
 StaticMesh LOD resources and uses the same material/pass/LOD/lighting policy.
@@ -343,6 +343,13 @@ resources never enter the persistent command. Input publication, transform,
 material publication, textures/samplers, or pipeline changes rebuild the
 affected command. Renderer release or coordinator generation changes clear
 the caches. Runtime command and uniform caches each retain at most 512 entries.
+Once the current pass pipelines are resolved, command lookup precedes primitive
+uniform construction and surface-material preparation. A hit compares the
+published draw/input identity and complete primitive transform/bounds inputs,
+then checks each texture reference's current target (including null-to-default
+fallback) and sampler against the retained surface. Hits reuse stable uniforms
+and bindings while refreshing forward environment/shadow resources and set-0
+camera, lighting, and time parameters for the current pass.
 Spline deformation and materials with parameter collections use the uncached
 binding path. This contract introduces no GPUScene, dynamic instancing, or
 staggered cascade updates.

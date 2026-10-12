@@ -74,6 +74,10 @@ namespace Durin
 		size_t StaticMeshAttemptedDraws = 0;
 		size_t StaticMeshSuccessfulDraws = 0;
 		size_t StaticMeshRejectedDraws = 0;
+		size_t PersistentCommandHits = 0;
+		size_t PersistentCommandMisses = 0;
+		size_t PrimitiveUniformUploads = 0;
+		size_t SurfaceMaterialPreparations = 0;
 	};
 
 	struct FSplineMeshRenderTelemetry

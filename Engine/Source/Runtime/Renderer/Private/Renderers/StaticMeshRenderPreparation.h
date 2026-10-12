@@ -229,6 +229,7 @@ namespace Durin
 		size_t PersistentCommandHits = 0;
 		size_t PersistentCommandMisses = 0;
 		size_t MaterialUniformUploads = 0;
+		size_t SurfaceMaterialPreparations = 0;
 		size_t PreparedSurfaceBindingBatches = 0;
 		size_t SurfaceBindingBatchReuses = 0;
 		size_t ResourcePreparationAttemptedDraws = 0;
@@ -261,6 +262,8 @@ namespace Durin
 			std::vector<FRHIUniformBufferRange> CollectionUniforms;
 		};
 		std::vector<FResolvedMeshDrawRecord> Draws;
+		// Selected before uniform/surface preparation; stable bindings survive into recording.
+		std::vector<bool> PersistentCommandsReused;
 		// Dense primitive/material indices avoid per-draw pointer-keyed lookups.
 		std::vector<FRHIUniformBufferRange> PrimitiveUniforms;
 		std::array<FRHIUniformBufferRange, 3> ViewUniforms;

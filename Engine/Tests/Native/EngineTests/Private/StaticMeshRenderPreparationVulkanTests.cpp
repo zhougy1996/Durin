@@ -1940,12 +1940,173 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	RHIExit();
 }
 
-TEST(FMaterialAnimationVulkanTests, MaterialTimeChangesPixelsWithoutReplacingCachedCommands)
+TEST(FMaterialAnimationVulkanTests, EarlyCommandsInvalidateOnTextureMaterialAndTransformChanges)
 {
 	using namespace Durin;
 	using namespace Durin::Tests;
 	InitializeDObjectSystem();
 	ASSERT_TRUE(InitializeAssetCompilingManager());
+	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
+	ASSERT_TRUE(InitializeAssetManager());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("EarlyMeshCommands");
+	Lifecycle.Start(Renderer);
+	{
+		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+		TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Sample(
+			NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None));
+		Sample->Id = FGuid::NewGuid();
+		Sample->Metadata = {.Id = FGuid::NewGuid(), .Name = "EarlyCommandTexture"};
+		TStrongObjectPtr<DMaterialExpressionScalarParameter> Brightness(
+			NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
+		Brightness->Id = FGuid::NewGuid();
+		Brightness->Metadata = {.Id = FGuid::NewGuid(), .Name = "EarlyCommandBrightness"};
+		Brightness->DefaultValue = 1.0f;
+		TStrongObjectPtr<DMaterialExpressionMultiply> Product(NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None));
+		Product->Id = FGuid::NewGuid();
+		Product->ResultType = EMaterialProgramValueType::Float3;
+		Product->A = {Sample->Id, 1};
+		Product->B = {Brightness->Id};
+		FMaterialExpressionSurfaceOutputs Outputs;
+		Outputs.BaseColor = {Product->Id};
+		const std::array<DMaterialExpression*, 3> Expressions{Sample.Get(), Brightness.Get(), Product.Get()};
+		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+		ASSERT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Ready);
+		FSceneTestOwner Owner;
+		FProceduralGeometry Geometry;
+		std::array<FMeshGeometryRecord::FRef, 2> Publications;
+		FMaterialRenderData Data;
+		FTextureReference Reference;
+		std::array<FTextureRHIRef, 2> Textures;
+		const auto MaterialProxy = Material->GetMaterialRenderProxy();
+		const FGuid TextureParameterId = Sample->Metadata.Id;
+		const FGuid BrightnessParameterId = Brightness->Metadata.Id;
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			const std::array<std::array<uint8, 4>, 2> Colors{{{255, 0, 0, 255}, {0, 255, 0, 255}}};
+			for (size_t Index = 0; Index < Textures.size(); ++Index)
+			{
+				Textures[Index] = GDynamicRHI->RHICreateTexture(Commands,
+					FRHITextureCreateDesc::Create2D("EarlyCommandTexture", 1, 1, EPixelFormat::RGBA8_UNORM)
+						.SetFlags(ETextureCreateFlags::ShaderResource));
+				ASSERT_TRUE(Textures[Index]);
+				GDynamicRHI->RHIUpdateTexture2D(Commands, Textures[Index], 0, 0,
+					{0, 0, 0, 0, 1, 1}, 4, std::as_bytes(std::span(Colors[Index])));
+			}
+			Reference.SetReferencedTexture_RenderThread(Textures[0]);
+			Data = MaterialProxy->Resolve_RenderThread();
+			FMaterialRenderRepresentationBuilder Builder(Data.Representation);
+			ASSERT_TRUE(Builder.SetTexture(TextureParameterId, Reference.GetTextureReferenceRHI()));
+			FMaterialRenderValidationDiagnostic Diagnostic;
+			ASSERT_TRUE(Builder.Build(Data.Representation, Diagnostic));
+			FProceduralProxy Proxy;
+			Proxy.Geometry = FProceduralGeometry::Create(Commands, 1, false);
+			Proxy.Materials = {Data, Data};
+			ASSERT_TRUE(Proxy.PublishGeometry());
+			Geometry = Proxy.Geometry;
+			Publications = Proxy.Publications;
+		});
+		FlushRenderingCommands();
+		FMatrix Transform(1.0);
+		auto Publish = [&](bool bVisible = true) {
+			auto Proxy = std::make_unique<FProceduralProxy>();
+			Proxy->Geometry = Geometry;
+			Proxy->Publications = Publications;
+			Proxy->Materials = {Data, Data};
+			EXPECT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Owner,
+				FPrimitiveComponentId(410), std::move(Proxy), Transform, bVisible));
+			FlushRenderingCommands();
+		};
+		Publish();
+		std::array<FByteBuffer, 12> Pixels;
+		static FViewRenderTelemetry Telemetry;
+		for (size_t Frame = 0; Frame < Pixels.size(); ++Frame)
+		{
+			if (Frame == 5)
+			{
+				FMaterialRenderRepresentationBuilder Builder(Data.Representation);
+				ASSERT_TRUE(Builder.SetScalar(BrightnessParameterId, 0.25f));
+				FMaterialRenderValidationDiagnostic Diagnostic;
+				ASSERT_TRUE(Builder.Build(Data.Representation, Diagnostic));
+				Publish();
+			}
+			if (Frame == 6) { Transform = Math::ScaleMatrix(FVector3(0.5)); Publish(); }
+			if (Frame == 8) Publish(false);
+			if (Frame == 9) Publish();
+			if (Frame == 10)
+			{
+				FMaterialRenderRepresentationBuilder Builder(Data.Representation);
+				FMaterialSamplerState Sampler;
+				Sampler.MagFilter = EMaterialSamplerMagFilter::Nearest;
+				ASSERT_TRUE(Builder.SetTexture(TextureParameterId, Reference.GetTextureReferenceRHI(), Sampler));
+				FMaterialRenderValidationDiagnostic Diagnostic;
+				ASSERT_TRUE(Builder.Build(Data.Representation, Diagnostic));
+				Publish();
+			}
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+				if (Frame == 2) Reference.SetReferencedTexture_RenderThread(Textures[1]);
+				if (Frame == 4) Reference.Clear_RenderThread();
+				FSceneView View;
+				View.ViewportWidth = 192; View.ViewportHeight = 108;
+				View.Settings.Mode.RenderMode = ERenderMode::Unlit;
+				View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+				View.MaterialTimeSeconds = Frame;
+				const auto Target = GDynamicRHI->RHICreateTexture(Commands,
+					FRHITextureCreateDesc::Create2D("EarlyCommandOutput", 192, 108, EPixelFormat::SRGBA8_UNORM)
+						.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy));
+				SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Telemetry = Value; });
+				++GRenderFrameCounterRenderThread;
+				GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+				const auto Result = Renderer.RenderView(Commands, &*Owner, View, Target, false, {});
+				SetViewRenderTelemetrySink(nullptr);
+				ASSERT_EQ(Result, ERenderViewResult::Success);
+				ReadGeometryTexture(Commands, Target, Pixels[Frame]);
+				GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+			});
+			FlushRenderingCommands();
+			if (Frame == 8)
+			{
+				EXPECT_EQ(Telemetry.StaticMesh.StaticMeshSuccessfulDraws, 0u);
+				EXPECT_NE(Pixels[Frame], Pixels[Frame - 1]);
+			}
+			else if (Frame == 1 || Frame == 3 || Frame == 7 || Frame == 9 || Frame == 11)
+			{
+				EXPECT_EQ(Telemetry.StaticMesh.PersistentCommandHits, 2u) << Frame;
+				EXPECT_EQ(Telemetry.StaticMesh.PersistentCommandMisses, 0u) << Frame;
+				EXPECT_EQ(Telemetry.StaticMesh.PrimitiveUniformUploads, 0u) << Frame;
+				EXPECT_EQ(Telemetry.StaticMesh.SurfaceMaterialPreparations, 0u) << Frame;
+				EXPECT_EQ(Pixels[Frame], Pixels[Frame == 9 ? 7 : Frame - 1]) << Frame;
+			}
+			else
+			{
+				EXPECT_EQ(Telemetry.StaticMesh.PersistentCommandMisses, 2u) << Frame;
+				EXPECT_GT(Telemetry.StaticMesh.SurfaceMaterialPreparations, 0u) << Frame;
+				if (Frame == 10) EXPECT_EQ(Pixels[Frame], Pixels[Frame - 1]);
+				else if (Frame != 0) EXPECT_NE(Pixels[Frame], Pixels[Frame - 1]) << Frame;
+			}
+			if (Frame == 6) EXPECT_EQ(Telemetry.StaticMesh.PrimitiveUniformUploads, 2u);
+		}
+		Owner.Reset();
+		FlushRenderingCommands();
+	}
+	FlushRenderingCommands();
+	Lifecycle.Shutdown();
+	ShutdownRenderingThread();
+	RHIExit();
+}
+
+TEST(FMaterialAnimationVulkanTests, MaterialTimeChangesPixelsWithoutReplacingCachedCommands)
+{
+	using namespace Durin;
+	using namespace Durin::Tests;
+	InitializeDObjectSystem();
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(InitializeAssetCompilingManager());
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(InitializeAssetManager());
 	ASSERT_TRUE(RefreshAssetRegistry());

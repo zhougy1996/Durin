@@ -23,20 +23,31 @@ namespace Durin
 
 	struct FStaticMeshRenderer::FState
 	{
+		struct FPrimitiveState
+		{
+			FMatrix LocalToWorld;
+			FMatrix WorldToLocal;
+			FMatrix4f NormalToWorld;
+			FVector3 BoundsCenter;
+			auto operator==(const FPrimitiveState&) const -> bool = default;
+		};
+		static auto CapturePrimitiveState(const FPreparedStaticMeshPrimitive& Primitive) -> FPrimitiveState
+		{
+			return {Primitive.LocalToWorld, Primitive.WorldToLocal, Primitive.NormalToWorld, Primitive.BoundsCenter};
+		}
 		// A complete stable draw, independent of the owning camera/cascade pass.
 		struct FMeshDrawCommand
 		{
 			std::shared_ptr<const FMeshDrawDescription> Description;
 			std::shared_ptr<const FVertexFactoryInputBinding> Input;
 			FRHIUniformBufferRange PrimitiveUniform;
-			FRHIUniformBufferRange MaterialUniform;
-			std::vector<FRHITexture*> Textures;
-			std::vector<FRHISampler*> Samplers;
 			FResolvedMeshDrawRecord Record;
+			FPrimitiveState PrimitiveState;
+			std::array<std::optional<FResolvedStaticMeshView::FMaterialUniform>, 3> Materials;
 		};
 		struct FPrimitiveUniform
 		{
-			FStaticMeshTransformUniform Value;
+			FPrimitiveState Value;
 			FRHIUniformBufferRange Range;
 			uint64 LastUsed = 0;
 		};
@@ -67,6 +78,18 @@ namespace Durin
 		std::map<std::pair<uint64, uint64>, FPrimitiveUniform> PrimitiveUniforms;
 		std::map<uint64, FMaterialUniform> MaterialUniforms;
 		using FDrawKey = std::array<uint64, 7>;
+		static auto MakeDrawKey(const FPreparedStaticMeshDraw& Draw,
+			const FPreparedStaticMeshPrimitive& Primitive, const FResolvedMeshDrawRecord& Record) -> FDrawKey
+		{
+			return {reinterpret_cast<uint64>(Draw.Command.get()), Primitive.PrimitiveId.Value, Primitive.BatchId,
+				reinterpret_cast<uint64>(Record.Pipeline.get()), reinterpret_cast<uint64>(Record.HybridPipeline.get()),
+				reinterpret_cast<uint64>(Record.GBufferPipeline.get()), reinterpret_cast<uint64>(Record.GBufferGPUCullingPipeline.get())};
+		}
+		auto IsCacheable(const FPreparedStaticMeshDraw& Draw, const FPreparedStaticMeshPrimitive& Primitive) const -> bool
+		{
+			return bPersistentDraws && Primitive.GeometryRecord && Primitive.VertexDomain == EVertexDeformationDomain::Local
+				&& (!Draw.Command->Material.CompiledProgram || Draw.Command->Material.CompiledProgram->ActiveCollections.empty());
+		}
 		std::map<FDrawKey, FCommandEntry> DrawCommands;
 		auto ResetDrawCommands() -> void
 		{
@@ -522,50 +545,21 @@ namespace Durin
 			State->DrawGeneration = Generation;
 		}
 		ResolvedView.PrimitiveUniforms.clear();
-		ResolvedView.PrimitiveUniforms.reserve(PreparedView.Primitives.size());
-		for (const auto& Primitive : PreparedView.Primitives)
-		{
-			const auto Value = BuildMeshTransformUniform(Primitive);
-			const auto Key = std::make_pair(Primitive.PrimitiveId.Value, Primitive.BatchId);
-			const bool bCacheable = State->bPersistentDraws && Primitive.GeometryRecord
-				&& Primitive.VertexDomain == EVertexDeformationDomain::Local;
-			auto Existing = State->PrimitiveUniforms.find(Key);
-			FRHIUniformBufferRange Range;
-			if (bCacheable && Existing != State->PrimitiveUniforms.end()
-				&& Existing->second.Value.LocalToWorld == Value.LocalToWorld
-				&& Existing->second.Value.WorldToLocal == Value.WorldToLocal
-				&& Existing->second.Value.NormalToWorld == Value.NormalToWorld
-				&& Existing->second.Value.BoundsCenter == Value.BoundsCenter
-				&& Existing->second.Value.TransformParams == Value.TransformParams
-				&& Existing->second.Value.WorldOriginHigh == Value.WorldOriginHigh
-				&& Existing->second.Value.WorldOriginLow == Value.WorldOriginLow)
-			{
-				Range = Existing->second.Range;
-				Existing->second.LastUsed = ++State->CacheSerial;
-				++ResolvedView.Observations.PrimitiveUniformReuses;
-			}
-			else
-			{
-				Range = CommandList.CreateUniformBufferRange(&Value, sizeof(Value));
-				if (!Range.Buffer) return false;
-				++ResolvedView.Observations.PrimitiveUniformUploads;
-				if (bCacheable)
-				{
-					State->PrimitiveUniforms.insert_or_assign(Key, FState::FPrimitiveUniform{Value, Range, ++State->CacheSerial});
-					FState::TrimCache(State->PrimitiveUniforms);
-				}
-			}
-			ResolvedView.PrimitiveUniforms.push_back(std::move(Range));
-		}
+		ResolvedView.PrimitiveUniforms.resize(PreparedView.Primitives.size());
+		ResolvedView.PersistentCommandsReused.assign(PreparedView.GetNumSections(), false);
 		ResolvedView.MaterialUniforms.clear();
 		ResolvedView.MaterialUniforms.resize(PreparedView.MaterialUniformGroups.size());
+		ResolvedView.Observations.SurfaceMaterialPreparations = 0;
 		std::vector<std::array<bool, 3>> Requests(PreparedView.MaterialUniformGroups.size());
+		std::vector<bool> DynamicMaterialGroups(PreparedView.MaterialUniformGroups.size(), false);
 		std::map<FGuid, FRHIUniformBufferRange> CollectionUniforms;
 		ForEachBasePassBucket(PreparedView, [&](const auto& Bucket, EMeshBasePass Pass) {
 			for (const auto& Draw : Bucket)
 			{
 				if (!ResolvedView.IsReady(Draw)) continue;
 				auto& Required = Requests[Draw.MaterialUniformIndex];
+				DynamicMaterialGroups[Draw.MaterialUniformIndex] = DynamicMaterialGroups[Draw.MaterialUniformIndex]
+					|| (Draw.Command->Material.CompiledProgram && !Draw.Command->Material.CompiledProgram->ActiveCollections.empty());
 				if (bShadow) Required[2] = true;
 				else
 				{
@@ -576,6 +570,75 @@ namespace Durin
 				}
 			}
 		});
+		// Probe complete stable commands before constructing uniforms or resolving surfaces.
+		// Pipelines already reflect the current pass policy and resource generation.
+		for (uint32 Index = 0; Index < PreparedView.GetNumSections(); ++Index)
+		{
+			const auto& Draw = PreparedView.GetDraw(Index);
+			const auto* Primitive = PreparedView.GetPrimitive(Draw);
+			if (!ResolvedView.IsReady(Draw) || !Primitive || !State->IsCacheable(Draw, *Primitive)
+				|| DynamicMaterialGroups[Draw.MaterialUniformIndex]) continue;
+			auto& Record = ResolvedView.Draws[Draw.ResolvedIndex];
+			const auto Existing = State->DrawCommands.find(FState::MakeDrawKey(Draw, *Primitive, Record));
+			if (Existing == State->DrawCommands.end()) continue;
+			const auto& Cached = *Existing->second.Command;
+			if (Cached.Input != Primitive->CollectedBinding
+				|| Cached.PrimitiveState != FState::CapturePrimitiveState(*Primitive)) continue;
+			const auto& Required = Requests[Draw.MaterialUniformIndex];
+			bool bCurrent = true;
+			for (uint32 Pass = 0; Pass < 3; ++Pass)
+				if (Required[Pass] && (!Cached.Materials[Pass]
+					|| !SurfaceMaterials.AreStableResourcesCurrent_RenderThread(Cached.Materials[Pass]->Surface)))
+					bCurrent = false;
+			if (!bCurrent) continue;
+			Record = Cached.Record;
+			ResolvedView.PersistentCommandsReused[Draw.ResolvedIndex] = true;
+			ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex] = Cached.PrimitiveUniform;
+			for (uint32 Pass = 0; Pass < 3; ++Pass)
+			{
+				auto& Material = ResolvedView.MaterialUniforms[Draw.MaterialUniformIndex][Pass];
+				if (!Required[Pass] || Material) continue;
+				Material = Cached.Materials[Pass];
+				if (!SurfaceMaterials.RefreshPassResources_RenderThread(
+					Pass == 0 ? ESurfaceMaterialPass::Forward : ESurfaceMaterialPass::GBuffer,
+					ResolvedView.DirectionalShadowTexture, ResolvedView.DirectionalShadowSampler, Material->Surface)) return false;
+			}
+			Existing->second.LastUsed = ++State->CacheSerial;
+		}
+		for (uint32 Index = 0; Index < PreparedView.Primitives.size(); ++Index)
+		{
+			if (ResolvedView.PrimitiveUniforms[Index].Buffer)
+			{
+				++ResolvedView.Observations.PrimitiveUniformReuses;
+				continue;
+			}
+			const auto& Primitive = PreparedView.Primitives[Index];
+			const auto Value = FState::CapturePrimitiveState(Primitive);
+			const auto Key = std::make_pair(Primitive.PrimitiveId.Value, Primitive.BatchId);
+			const bool bCacheable = State->bPersistentDraws && Primitive.GeometryRecord
+				&& Primitive.VertexDomain == EVertexDeformationDomain::Local;
+			const auto Existing = State->PrimitiveUniforms.find(Key);
+			FRHIUniformBufferRange Range;
+			if (bCacheable && Existing != State->PrimitiveUniforms.end() && Existing->second.Value == Value)
+			{
+				Range = Existing->second.Range;
+				Existing->second.LastUsed = ++State->CacheSerial;
+				++ResolvedView.Observations.PrimitiveUniformReuses;
+			}
+			else
+			{
+				const auto Uniform = BuildMeshTransformUniform(Primitive);
+				Range = CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
+				if (!Range.Buffer) return false;
+				++ResolvedView.Observations.PrimitiveUniformUploads;
+				if (bCacheable)
+				{
+					State->PrimitiveUniforms.insert_or_assign(Key, FState::FPrimitiveUniform{Value, Range, ++State->CacheSerial});
+					FState::TrimCache(State->PrimitiveUniforms);
+				}
+			}
+			ResolvedView.PrimitiveUniforms[Index] = std::move(Range);
+		}
 		for (uint32 Pass = 0; Pass < 3; ++Pass)
 		{
 			if (!std::ranges::any_of(Requests, [Pass](const auto& Required) { return Required[Pass]; })) continue;
@@ -585,6 +648,10 @@ namespace Durin
 		}
 		for (uint32 Group = 0; Group < Requests.size(); ++Group)
 		{
+			bool bNeedsPreparation = false;
+			for (uint32 Pass = 0; Pass < 3; ++Pass)
+				bNeedsPreparation |= Requests[Group][Pass] && !ResolvedView.MaterialUniforms[Group][Pass];
+			if (!bNeedsPreparation) continue;
 			if (!std::ranges::any_of(Requests[Group], [](bool bRequired) {
 				return bRequired;
 			})) continue;
@@ -625,8 +692,9 @@ namespace Durin
 				}
 			for (uint32 Pass = 0; Pass < 3; ++Pass)
 			{
-				if (!Requests[Group][Pass]) continue;
+				if (!Requests[Group][Pass] || ResolvedView.MaterialUniforms[Group][Pass]) continue;
 				FPreparedStaticMeshSurfaceMaterial Material;
+				++ResolvedView.Observations.SurfaceMaterialPreparations;
 				if (!FStaticMeshSurfaceMaterialPreparer(CommandList, SurfaceMaterials, Binding)
 					.Prepare(Pass == 0 ? ESurfaceMaterialPass::Forward : Pass == 1 ? ESurfaceMaterialPass::GBuffer : ESurfaceMaterialPass::MaskedShadow,
 						Pass == 0 ? ResolvedView.DirectionalShadowTexture : nullptr,
@@ -663,8 +731,10 @@ namespace Durin
 		std::map<std::tuple<uint32, uint32, uint32, FRHIShader*>, std::shared_ptr<const FRHIShaderParameterBatch>> VertexBatches;
 		ResolvedView.Observations.PreparedSurfaceBindingBatches = 0;
 		ResolvedView.Observations.SurfaceBindingBatchReuses = 0;
-		for (auto& Record : ResolvedView.Draws)
+		for (uint32 Index = 0; Index < ResolvedView.Draws.size(); ++Index)
 		{
+			if (ResolvedView.PersistentCommandsReused[Index]) continue;
+			auto& Record = ResolvedView.Draws[Index];
 			Record.VertexBindings.reset();
 			Record.HybridVertexBindings.reset();
 			Record.GBufferVertexBindings.reset();
@@ -725,16 +795,8 @@ namespace Durin
 			const uint32 CommandPass = bShadow ? 2u : Record.GBufferPipeline ? 1u : 0u;
 			const auto& CommandMaterial = ResolvedView.MaterialUniforms[Draw.MaterialUniformIndex][CommandPass];
 			if (!CommandMaterial) { DURIN_ERROR("Mesh command has no material slot {}", CommandPass); return false; }
-			const bool bCacheable = State->bPersistentDraws && Primitive->GeometryRecord
-				&& Primitive->VertexDomain == EVertexDeformationDomain::Local
-				&& (!Draw.Command->Material.CompiledProgram || Draw.Command->Material.CompiledProgram->ActiveCollections.empty());
-			const FState::FDrawKey CommandKey{
-				reinterpret_cast<uint64>(Draw.Command.get()), Primitive->PrimitiveId.Value, Primitive->BatchId,
-				reinterpret_cast<uint64>(Record.Pipeline.get()), reinterpret_cast<uint64>(Record.HybridPipeline.get()),
-				reinterpret_cast<uint64>(Record.GBufferPipeline.get()), reinterpret_cast<uint64>(Record.GBufferGPUCullingPipeline.get())};
-			auto SameRange = [](const FRHIUniformBufferRange& A, const FRHIUniformBufferRange& B) {
-				return A.Buffer == B.Buffer && A.Offset == B.Offset && A.Size == B.Size;
-			};
+			const bool bCacheable = State->IsCacheable(Draw, *Primitive);
+			const auto CommandKey = FState::MakeDrawKey(Draw, *Primitive, Record);
 			auto PreparePasses = [&]() {
 				auto Vertex = [&](const std::shared_ptr<const FMeshVertexShaderBinding>& Shader, uint32 Pass, FBindings& Out) {
 					if (!Shader || !Shader->GetReflection()) return false;
@@ -775,23 +837,12 @@ namespace Durin
 				}
 				return true;
 			};
-			if (bCacheable)
-				if (const auto Existing = State->DrawCommands.find(CommandKey); Existing != State->DrawCommands.end())
-				{
-					const auto& Cached = *Existing->second.Command;
-					if (Cached.Input == Primitive->CollectedBinding
-						&& SameRange(Cached.PrimitiveUniform, ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex])
-						&& SameRange(Cached.MaterialUniform, CommandMaterial->Uniform)
-						&& Cached.Textures == CommandMaterial->Surface.CompiledTextures
-						&& Cached.Samplers == CommandMaterial->Surface.CompiledSamplers)
-					{
-						Record = Cached.Record;
-						Existing->second.LastUsed = ++State->CacheSerial;
-						++ResolvedView.Observations.PersistentCommandHits;
-						if (!PreparePasses()) return false;
-						continue;
-					}
-				}
+			if (ResolvedView.PersistentCommandsReused[Draw.ResolvedIndex])
+			{
+				++ResolvedView.Observations.PersistentCommandHits;
+				if (!PreparePasses()) return false;
+				continue;
+			}
 			++ResolvedView.Observations.PersistentCommandMisses;
 			auto PublishCommand = [&]() {
 				if (!PreparePasses()) return false;
@@ -800,10 +851,9 @@ namespace Durin
 				Command->Description = Draw.Command;
 				Command->Input = Primitive->CollectedBinding;
 				Command->PrimitiveUniform = ResolvedView.PrimitiveUniforms[Draw.PrimitiveIndex];
-				Command->MaterialUniform = CommandMaterial->Uniform;
-				Command->Textures = CommandMaterial->Surface.CompiledTextures;
-				Command->Samplers = CommandMaterial->Surface.CompiledSamplers;
 				Command->Record = Record;
+				Command->PrimitiveState = FState::CapturePrimitiveState(*Primitive);
+				Command->Materials = ResolvedView.MaterialUniforms[Draw.MaterialUniformIndex];
 				Command->Record.VertexPassBindings.reset();
 				Command->Record.HybridVertexPassBindings.reset();
 				Command->Record.GBufferVertexPassBindings.reset();

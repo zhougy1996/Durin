@@ -147,7 +147,51 @@ namespace Durin::RendererPrivate
 		}
 		else return false;
 
-		if (Pass != ESurfaceMaterialPass::Forward) return true;
+		return RefreshPassResources_RenderThread(Pass, DirectionalShadowTexture,
+			DirectionalShadowSampler, OutMaterial);
+	}
+
+	auto FSurfaceMaterialResources::AreStableResourcesCurrent_RenderThread(
+		const FResolvedSurfaceMaterial& Material) const -> bool
+	{
+		check(IsInRenderingThread());
+		const auto& Binding = Material.PublishedBinding;
+		const auto Generation = Coordinator.GetGeneration_RenderThread();
+		if (!Material.bCompiledLayout || Binding.CompiledTextures.size() != Material.CompiledTextures.size()
+			|| Binding.CompiledSamplers.size() != Material.CompiledSamplers.size()
+			|| Binding.CompiledTextureFallbacks.size() != Binding.CompiledTextures.size()) return false;
+		for (size_t Index = 0; Index < Binding.CompiledTextures.size(); ++Index)
+		{
+			const auto* Entry = State->Samplers.Find(Binding.CompiledSamplers[Index]);
+			if (!Entry || HasSelectedRenderResourceGenerationChanged(Entry->Slot.GetPayloadGeneration(),
+				Generation, ERenderResourceGenerationDependency::Device) || !Entry->Slot.GetPayload()
+				|| Entry->Slot.GetPayload()->GetReference() != Material.CompiledSamplers[Index]) return false;
+			FRHITexture* Texture = Binding.CompiledTextures[Index]
+				? Binding.CompiledTextures[Index]->GetReferencedTexture_RenderThread() : nullptr;
+			if (!Texture)
+			{
+				EDefaultTexture Fallback;
+				switch (Binding.CompiledTextureFallbacks[Index])
+				{
+				case EMaterialTextureFallback::White: Fallback = EDefaultTexture::White; break;
+				case EMaterialTextureFallback::Black: Fallback = EDefaultTexture::Black; break;
+				case EMaterialTextureFallback::FlatRGNormal: Fallback = EDefaultTexture::FlatNormal; break;
+				default: return false;
+				}
+				Texture = DefaultTextures.Get_RenderThread(Fallback);
+			}
+			if (!Texture || Texture != Material.CompiledTextures[Index]) return false;
+		}
+		return true;
+	}
+
+	auto FSurfaceMaterialResources::RefreshPassResources_RenderThread(
+		ESurfaceMaterialPass Pass, FRHITexture* DirectionalShadowTexture,
+		FRHISampler* DirectionalShadowSampler, FResolvedSurfaceMaterial& OutMaterial) const -> bool
+	{
+		check(IsInRenderingThread());
+		if (Pass != ESurfaceMaterialPass::Forward || OutMaterial.PublishedBinding.bError) return true;
+		const auto Generation = Coordinator.GetGeneration_RenderThread();
 		FRHISampler* FallbackSampler = nullptr;
 		if (OutMaterial.bCompiledLayout)
 		{
