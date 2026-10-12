@@ -358,9 +358,6 @@ namespace Durin::DerivedData
 			if (State->Closed) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Closed, "Build service is closed."});
 			if (CacheExecution > EBuildCacheExecution::Task)
 				return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Invalid cache execution mode."});
-			if (!State->Options.AsyncCache && CacheExecution == EBuildCacheExecution::Task
-				&& State->Options.CacheScheduler && State->Options.CacheScheduler->IsInline())
-				return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Task cache execution requires a non-inline service scheduler."});
 			auto Snapshot = State->Registry.Freeze();
 			if (!Snapshot) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InternalFailure, std::move(Snapshot.error())});
 			auto SessionOptions = State->Options;
@@ -370,7 +367,7 @@ namespace Durin::DerivedData
 				auto& Cache = CacheExecution == EBuildCacheExecution::Inline ? State->InlineCache : State->TaskCache;
 				if (!Cache) Cache = CreateAsyncCache(SessionOptions.Cache,
 					CacheExecution == EBuildCacheExecution::Inline ? CreateInlineBuildScheduler()
-						: SessionOptions.CacheScheduler ? SessionOptions.CacheScheduler : CreateTaskCacheScheduler(),
+						: CreateTaskCacheScheduler(),
 					SessionOptions.CacheDispatchLimits);
 				SessionOptions.AsyncCache = Cache;
 			}

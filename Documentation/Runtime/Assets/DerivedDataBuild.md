@@ -240,9 +240,10 @@ production on the selected producer scheduler; warm hits skip it.
 `CreateSession` accepts a producer scheduler and explicit `EBuildCacheExecution`.
 Both default to inline execution. Task consumers select `CreateTaskBuildScheduler`
 and `EBuildCacheExecution::Task`; all task-cache sessions of an `IBuild` share one
-service-owned dispatcher. `FBuildServiceOptions::CacheScheduler` configures that
-dispatcher, defaulting to Core BlockingIO; an inline scheduler is rejected for
-Task cache execution. There is no running-Core mode selection.
+service-owned dispatcher using Core BlockingIO. Scheduler injection belongs to
+`CreateAsyncCache`; services accept that configured `IAsyncCache` as one explicit
+dependency instead of exposing a second cache-scheduler override. There is no
+running-Core mode selection.
 Inline sessions share a separate service-owned inline dispatcher over the same
 backend. Its item/byte admission is independent of the task queue; synchronous
 callers never wait on task saturation or help execute sibling asset work. Inline
@@ -271,22 +272,26 @@ reentrant destruction still cancels and leaves shared accounting alive.
 Standalone `CreateAsyncCache` without a scheduler uses Core BlockingIO, creates no threads, and admits
 at most 4,096 pending/active items with two active operations.
 `FCacheDispatchLimits` configures concurrency (clamped to 1..64), capacity
-(clamped to 1..4096), retained request bytes (512 MiB by default), and maximum
-priority bypass (32 dispatch turns by default). Active slots cover I/O,
+(clamped to 1..4096), and queued data bytes (512 MiB by default). Active slots cover I/O,
 compression/decompression, and completion callbacks. Priority selection has FIFO
-ties; after the bypass threshold, the oldest protected item wins. An admitted
-pending item is dispatched within threshold plus capacity further dispatch turns,
+ties; after 32 dispatch turns of waiting, the oldest pending item wins. This
+fairness policy is internal, using admission/dispatch turn differences rather
+than updating every queued item. An admitted pending item is dispatched within
+32 plus capacity further dispatch turns,
 provided active work retires. Mutable owner priority is sampled at dispatch.
 Atomic item/byte admission rejection returns `ECacheError::Capacity`, distinct
 from backend `StorageFailure`, without callbacks or owner accounting.
 
-Retained-byte charges cover request structures, copied selection capacity, record
-table lengths, schema bytes, message capacity, and distinct payload/metadata backing
-capacities within each Put record. A slice charges its entire retained allocation;
+Queued-data charges cover copied selection bytes, schema/message lengths, and
+distinct payload/metadata backing capacities within each Put record. Fixed
+request overhead uses item admission; record tables use existing record limits.
+A selection-free Get therefore needs no queued-data bytes even when this budget
+is zero. A slice charges its entire retained allocation;
 shared allocations across separate requests are charged conservatively per request.
 Charges remain through callbacks and dispatch publication and are released on request
-retirement. Opaque callable captures, allocator/container spare capacity, backend
-result data, and active codec workspace are excluded; this is not an RSS bound.
+retirement. Request objects, record tables, opaque callable captures,
+allocator/container spare capacity, backend result data, and active codec workspace
+are excluded; this is a coarse queued-data budget, not an RSS bound.
 Each request retains its existing encoded/raw/workspace budgets. This controls
 operation concurrency and retained admission, not a new global asset memory
 reservation. `Close` stops admission and cancels accepted items; `Drain` waits

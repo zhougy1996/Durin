@@ -10,7 +10,8 @@ Completed:
 ## Current Status
 
 Stages 0 through 2 are complete with the recorded integration-validation exception
-below; Stage 3 is next and subsequent stages have not started. The 2026-10-13
+below; Stage 3A is complete, Stage 3B is next, and subsequent stages have not
+started. The 2026-10-13
 architecture review revised Stage 3 to simplify dispatch policy and public
 integration before adding further infrastructure. Stage 2 completion records
 validated behavior, not a requirement to retain every implementation mechanism.
@@ -63,6 +64,32 @@ Stage 2 evidence (Win64-Debug-DurinEditor, 2026-10-13):
   `Build/.agent-state/logs/20261013-040544-608808-76332-ctest.log`.
   Documentation validation passed. The existing Shader fixture exception does not
   introduce a new DDC regression and remains outside this stage's scope.
+
+Stage 3A evidence (Win64-Debug-DurinEditor, 2026-10-13):
+
+- Removed service CacheScheduler overrides and the public priority bypass knob;
+  scheduler test control uses an injected IAsyncCache. Kept explicit inline/task
+  completion requirements and synchronous backend ownership behind service dispatch.
+- Queued data accounting now omits request/table object sizes and container spare
+  capacities, retaining copied selections, schema/messages, and distinct retained
+  payload/metadata allocations. One admission calculation owns these charges.
+- Admission timestamps replace per-item bypass updates. A maximum-capacity queue
+  regression fills all 4096 slots, sustains high-priority arrivals, and confirms
+  oldest progress after 32 waiting turns. For a 4096-item FIFO batch, the removed
+  counter loop previously visited 8,386,560 pending items; the new policy updates
+  one service turn per dispatch and checks one oldest timestamp. This is a
+  deterministic bookkeeping comparison, not a wall-clock performance claim.
+- DerivedDataCacheTests: 58 passed, one existing symlink platform skip.
+  DerivedDataBuildTests: all 78 passed; three migrated service cases also passed
+  in isolated processes. Added exact metadata/message budget and dispatch-rejection
+  recovery coverage. Existing mutable-priority, callback-retirement, cancellation,
+  schema, and nested inline regressions remain passing.
+- The all build passed. The five-target DDC module selection passed except for the
+  already recorded Shader dependency-count fixture (22/23 Shader Builder cases).
+  Build log: `Build/.agent-state/logs/20261013-043730-135398-63944-cmake.log`.
+  Module log: `Build/.agent-state/logs/20261013-043752-522377-27620-ctest.log`.
+  Isolated service log: `Build/.agent-state/logs/20261013-043812-774228-72668-ctest.log`.
+  Reports remain in `Build/NativeTestResults/Win64-Debug-DurinEditor/`.
 
 ## Goal
 
@@ -197,25 +224,25 @@ Execute 3A before 3B; each step must be independently reviewable and validated.
 
 3A: simplify Stage 2 mechanisms without weakening its behavioral guarantees.
 
-- [ ] Replace detailed object/container accounting with a documented coarse
+- [x] Replace detailed object/container accounting with a documented coarse
   queued-request budget for retained payload/metadata backing and variable-size
   copied request data, alongside request-count admission. Preserve protection
   against oversized selections and overflow; do not describe this as total DDC
   memory accounting. Keep producer reservations and codec workspace limits under
   their existing owners. Centralize the accounting calculation and retain buffer
   lifetime coverage through callback retirement.
-- [ ] Make fairness an internal bounded policy; remove the public bypass tuning
+- [x] Make fairness an internal bounded policy; remove the public bypass tuning
   knob and the per-dispatch update of every waiting request's bypass counter.
   Preserve cross-session priority, live owner priority changes, and a documented
   starvation bound. Prefer the smallest policy that satisfies deterministic tests.
-- [ ] Audit AsyncCache injection, CacheScheduler, dispatch limits, and session
+- [x] Audit AsyncCache injection, CacheScheduler, dispatch limits, and session
   execution selection; reduce overlapping configuration and keep test control at
   the cache/scheduler boundary. Keep service concurrency and admission limits
   explicit, with no new execution modes or generic scheduling framework.
-- [ ] Keep synchronous backend details and inline compatibility behind the cache
+- [x] Keep synchronous backend details and inline compatibility behind the cache
   integration boundary where practical. Avoid an unconditional public ICache API
   rewrite solely to resemble UE; any remaining split must have a stated owner.
-- [ ] Update runtime contracts and migrate every affected workspace consumer.
+- [x] Update runtime contracts and migrate every affected workspace consumer.
 
 3B: consolidate resource integration only after 3A passes.
 

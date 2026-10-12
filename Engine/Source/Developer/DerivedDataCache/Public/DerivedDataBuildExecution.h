@@ -57,8 +57,7 @@ namespace Durin::DerivedData
 	{
 		std::shared_ptr<ICache> Cache;
 		std::shared_ptr<IAsyncCache> AsyncCache;
-		// One shared task dispatcher per service; injected AsyncCache takes precedence.
-		std::shared_ptr<IBuildScheduler> CacheScheduler;
+		// Applies to service-owned dispatchers; injected AsyncCache owns its policy.
 		FCacheDispatchLimits CacheDispatchLimits;
 	};
 }

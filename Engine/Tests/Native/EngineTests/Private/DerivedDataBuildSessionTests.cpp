@@ -107,7 +107,7 @@ namespace
 	};
 }
 
-TEST(FBuildContinuationTests, ExplicitCacheSchedulerDoesNotChangeInlineSessions)
+TEST(FBuildContinuationTests, TaskSessionsDoNotChangeInlineSessions)
 {
 	auto Cache = std::make_shared<FContinuationCache>(); auto Service = CreateBuild({.Cache = Cache});
 	auto Function = std::make_shared<FFunction>(); ASSERT_TRUE(Service->Register(Function));
@@ -130,18 +130,28 @@ TEST(FBuildContinuationTests, ExplicitCacheSchedulerDoesNotChangeInlineSessions)
 
 TEST(FBuildContinuationTests, ServiceTaskSessionsShareAdmissionPriorityAndKeepInlineIndependent)
 {
-	auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>(); Cache->Hit = true;
-	auto Service = CreateBuild({.Cache = Cache, .CacheScheduler = IO, .CacheDispatchLimits = {.Concurrency = 1, .Capacity = 3}});
+	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
+	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
+	FThreadEvent Entered, Release;
+	std::atomic<bool> BlockFirst = true;
+	std::atomic<uint32> Calls = 0;
+	std::mutex OrderMutex; std::vector<ERequestPriority> Order;
+	auto Cache = std::make_shared<FContinuationCache>(); Cache->Hit = true;
+	Cache->BeforeGet = [&] { if (BlockFirst.exchange(false)) { Entered.Trigger(); Release.Wait(); } };
+	auto Service = CreateBuild({.Cache = Cache, .CacheDispatchLimits = {.Concurrency = 1, .Capacity = 3}});
 	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
 	auto First = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value();
 	auto Second = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value();
 	FRequestOwner Low(ERequestPriority::Low), High(ERequestPriority::High), Rejected;
-	uint32 Calls = 0;
 	const auto Complete = [&](auto Result) { EXPECT_EQ(Result.GetStatus(), EStatus::Ok); ++Calls; };
-	ASSERT_TRUE(First->Build(Definition(), Low, Complete));
-	ASSERT_TRUE(First->Build(Definition(), Low, Complete));
-	ASSERT_TRUE(Second->Build(Definition(), High, Complete));
-	EXPECT_EQ(IO->Work.size(), 1u); EXPECT_EQ(Cache->Gets, 0u);
+	const auto RecordLow = [&](auto Result) { Complete(std::move(Result)); std::lock_guard Lock(OrderMutex); Order.push_back(ERequestPriority::Low); };
+	const auto RecordHigh = [&](auto Result) { Complete(std::move(Result)); std::lock_guard Lock(OrderMutex); Order.push_back(ERequestPriority::High); };
+	struct FRelease { FThreadEvent& Event; ~FRelease() { Event.Trigger(); } } ReleaseOnExit{Release};
+	ASSERT_TRUE(First->Build(Definition(), Low, RecordLow));
+	ASSERT_TRUE(Entered.WaitFor(5.0));
+	ASSERT_TRUE(First->Build(Definition(), Low, RecordLow));
+	ASSERT_TRUE(Second->Build(Definition(), High, RecordHigh));
+	EXPECT_EQ(Cache->Gets, 1u);
 	auto Overflow = Second->Build(Definition(), Rejected, [&](auto Result) {
 		EXPECT_EQ(Result.GetStatus(), EStatus::Error); EXPECT_FALSE(Result.GetOutput()); ++Calls;
 	}, {}, {.Policy = {.BuildLocal = false}});
@@ -150,17 +160,18 @@ TEST(FBuildContinuationTests, ServiceTaskSessionsShareAdmissionPriorityAndKeepIn
 	auto Inline = Service->CreateSession().value();
 	auto InlineRequest = Inline->Build(Definition(), Complete);
 	ASSERT_TRUE(InlineRequest); EXPECT_TRUE(InlineRequest->IsComplete());
-	EXPECT_EQ(Cache->Gets, 1u); EXPECT_EQ(IO->Work.size(), 1u);
-	while (!IO->Work.empty()) IO->Run();
-	EXPECT_EQ(IO->Priorities, (std::vector{ERequestPriority::Low, ERequestPriority::High, ERequestPriority::Low}));
-	EXPECT_EQ(Calls, 5u); EXPECT_EQ(Low.Wait(), ERequestWaitResult::Completed);
-	EXPECT_EQ(High.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained);
+	EXPECT_EQ(Cache->Gets, 2u); EXPECT_EQ(Calls.load(), 2u);
+	Release.Trigger();
+	EXPECT_EQ(Low.Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(High.Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Order, (std::vector{ERequestPriority::Low, ERequestPriority::High, ERequestPriority::Low}));
+	EXPECT_EQ(Calls.load(), 5u); EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained);
 }
 
 TEST(FBuildContinuationTests, SessionCloseDoesNotCancelOtherSessionsAndServiceCloseRetiresAll)
 {
 	auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>(); Cache->Hit = true;
-	auto Service = CreateBuild({.Cache = Cache, .CacheScheduler = IO, .CacheDispatchLimits = {.Concurrency = 1}});
+	auto Service = CreateBuild({.AsyncCache = CreateAsyncCache(Cache, IO, {.Concurrency = 1})});
 	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
 	auto First = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value();
 	auto Second = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value();
@@ -178,8 +189,8 @@ TEST(FBuildContinuationTests, SessionCloseDoesNotCancelOtherSessionsAndServiceCl
 TEST(FBuildContinuationTests, ServiceRetainedByteAdmissionPreservesLocalOutputAndRecoversAfterRetirement)
 {
 	auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>();
-	auto Service = CreateBuild({.Cache = Cache, .CacheScheduler = IO,
-		.CacheDispatchLimits = {.Concurrency = 1, .MaximumRetainedBytes = 14000}});
+	auto Service = CreateBuild({.AsyncCache = CreateAsyncCache(Cache, IO,
+		{.Concurrency = 1, .MaximumRetainedBytes = 14000})});
 	auto Function = std::make_shared<FFunction>(); Function->DataBytes = 8192; ASSERT_TRUE(Service->Register(Function));
 	auto First = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value();
 	auto Second = Service->CreateSession({}, {}, EBuildCacheExecution::Task).value(); uint32 Calls = 0;
@@ -229,10 +240,10 @@ TEST(FBuildContinuationTests, SharedTaskDispatcherCompletesAcrossSessionsWithOne
 	EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained);
 }
 
-TEST(FBuildContinuationTests, TaskCacheModeRejectsInlineServiceScheduler)
+TEST(FBuildContinuationTests, InvalidCacheExecutionIsRejected)
 {
-	auto Service = CreateBuild({.CacheScheduler = CreateInlineBuildScheduler()});
-	auto Rejected = Service->CreateSession({}, {}, EBuildCacheExecution::Task);
+	auto Service = CreateBuild();
+	auto Rejected = Service->CreateSession({}, {}, static_cast<EBuildCacheExecution>(255));
 	ASSERT_FALSE(Rejected); EXPECT_EQ(Rejected.error().Reason, EBuildAdmissionReason::InvalidRequest);
 	EXPECT_TRUE(Service->CreateSession());
 }

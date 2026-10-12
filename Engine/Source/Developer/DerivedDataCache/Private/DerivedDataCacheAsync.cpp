@@ -16,7 +16,7 @@ namespace Durin::DerivedData::Private
 		FCacheGetCallback GetCallback;
 		FCachePutCallback PutCallback;
 		uint32 Index = 0;
-		uint32 Bypasses = 0; // Protected by Cache->Mutex.
+		uint64 QueuedTurn = 0; // Protected by Cache->Mutex.
 		uint64 RetainedBytes = 0;
 		bool Admitted = false; // Protected by Cache->Mutex.
 		auto IsCanceled() const -> bool { return Canceled.load() || Group->IsCanceled(); }
@@ -30,7 +30,7 @@ namespace Durin::DerivedData::Private
 		std::mutex Mutex;
 		bool Closed = false, Pumping = false;
 		uint32 Active = 0, Concurrency = 2, Capacity = 4096;
-		uint32 MaximumPriorityBypass = 32;
+		uint64 DispatchTurn = 0;
 		uint64 RetainedBytes = 0, MaximumRetainedBytes = 512ull * 1024 * 1024;
 		std::shared_ptr<ICache> Backend;
 		std::shared_ptr<IBuildScheduler> Scheduler;
@@ -108,11 +108,13 @@ namespace Durin::DerivedData::Private
 			{
 				std::lock_guard Lock(Mutex);
 				if ((!Inline && Active == Concurrency) || Pending.empty()) { if (!Inline) Pumping = false; return; }
-				// Oldest protected item wins; otherwise retain stable priority order.
-				auto Next = std::ranges::find_if(Pending, [&](const auto& Item) { return Item->Bypasses >= MaximumPriorityBypass; });
-				if (Next == Pending.end()) Next = std::ranges::min_element(Pending, {}, [](const auto& Item) { return Item->Group->GetPriority(); });
+				// FIFO admission means only the oldest item's age needs checking.
+				// Unsigned turn subtraction also preserves age across counter wrap.
+				auto Next = Pending.begin();
+				if (DispatchTurn - (*Next)->QueuedTurn < 32)
+					Next = std::ranges::min_element(Pending, {}, [](const auto& Item) { return Item->Group->GetPriority(); });
 				Op = std::move(*Next); Pending.erase(Next); ++Active; Op->Active = true;
-				for (const auto& Item : Pending) if (Item->Bypasses < MaximumPriorityBypass) ++Item->Bypasses;
+				++DispatchTurn;
 			}
 			try
 			{
@@ -153,7 +155,6 @@ namespace Durin::DerivedData::Private
 			State->Scheduler = Scheduler ? std::move(Scheduler) : CreateTaskCacheScheduler();
 			State->Concurrency = std::clamp(Limits.Concurrency, 1u, 64u); State->Capacity = std::clamp(Limits.Capacity, 1u, 4096u);
 			State->MaximumRetainedBytes = Limits.MaximumRetainedBytes;
-			State->MaximumPriorityBypass = Limits.MaximumPriorityBypass;
 			State->Pending.reserve(State->Capacity); State->All.reserve(State->Capacity);
 		}
 		~FAsyncCache() override { Close(); Drain(); }
@@ -168,13 +169,13 @@ namespace Durin::DerivedData::Private
 					if (Bytes > State->MaximumRetainedBytes - BatchBytes) return false;
 					BatchBytes += Bytes; Op->RetainedBytes += Bytes; return true;
 				};
-				if (!Charge(sizeof(FCacheOperation)) || !Charge(Op->Ids.capacity() * sizeof(FValueId)))
+				// Fixed request/table overhead is bounded by item and record limits.
+				// This budget covers queued data, not total allocation overhead.
+				if (!Charge(Op->Ids.size() * sizeof(FValueId)))
 					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-request byte capacity exhausted."});
 				if (!Op->PutRequest) continue;
 				const auto& Record = Op->PutRequest->Record;
-				if (!Charge(Record.GetSchema().size()) || !Charge(Record.GetValues().size() * sizeof(FValueWithId))
-					|| !Charge(Record.GetMetadata().size() * sizeof(FBuildOutputMeta))
-					|| !Charge(Record.GetMessages().size() * sizeof(FBuildOutputMessage)))
+				if (!Charge(Record.GetSchema().size()))
 					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-record byte capacity exhausted."});
 				std::vector<FSharedByteBuffer> Backings;
 				const auto Retain = [&](FSharedByteBuffer Buffer) {
@@ -186,7 +187,7 @@ namespace Durin::DerivedData::Private
 					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-payload byte capacity exhausted."});
 				for (const auto& Meta : Record.GetMetadata()) if (!Retain(Meta.Object.GetBytes()))
 					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-metadata byte capacity exhausted."});
-				for (const auto& Message : Record.GetMessages()) if (!Charge(Message.Text.capacity()))
+				for (const auto& Message : Record.GetMessages()) if (!Charge(Message.Text.size()))
 					return std::unexpected(FCacheError{ECacheError::Capacity, "Cache retained-message byte capacity exhausted."});
 			}
 			{
@@ -197,7 +198,8 @@ namespace Durin::DerivedData::Private
 				Handle->Operations.assign(Operations.begin(), Operations.end());
 				try { for (auto& Op : Operations)
 				{
-					Op->Cache = State; Op->WaitDomain = State->Scheduler->IsInline() ? nullptr : State.get();
+					Op->Cache = State; Op->QueuedTurn = State->DispatchTurn;
+					Op->WaitDomain = State->Scheduler->IsInline() ? nullptr : State.get();
 					{ std::lock_guard OperationLock(Op->Mutex); Op->Group = Owner.Begin(Op); }
 					State->All.push_back(Op); State->Pending.push_back(Op);
 				} }
