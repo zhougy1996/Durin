@@ -40,6 +40,215 @@ namespace Durin
 	static_assert(std::is_same_v<Tasks::FTask, Tasks::TTask<void>>);
 	static_assert(std::is_move_constructible_v<Tasks::FTask>);
 	static_assert(!std::is_copy_constructible_v<Tasks::FTask>);
+	static_assert(std::is_copy_constructible_v<Tasks::FTaskEvent>);
+
+	TEST(FTaskCompositionTests, NestedCompletionReleasesWorkerAndDefersResultPublication)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent Gate("NestedGate");
+		auto Parent = Tasks::LaunchTask("NestedParent", [&] {
+			const FTaskHandle Prerequisites[] = {Gate.GetCompletion().GetTaskHandle()};
+			Tasks::FTaskExecutionOptions Options; Options.Prerequisites = Prerequisites;
+			auto Child = Tasks::LaunchTask("NestedChild", [] { return 21; }, Options);
+			Tasks::AddNested(Child);
+			Tasks::AddNested(Gate);
+			return 42;
+		});
+		// On one worker this can finish only after the parent body has returned.
+		auto Probe = Tasks::LaunchTask("FreeWorkerProbe", [] {});
+		EXPECT_EQ(Probe.Wait().WaitStatus, ETaskWaitStatus::Completed);
+		EXPECT_FALSE(Parent.IsCompleted());
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().ExecutorStorage[0].CurrentRunningBodies, 0u);
+		Gate.Trigger();
+		EXPECT_EQ(std::move(Parent).TakeResult(), 42);
+	}
+
+	TEST(FTaskCompositionTests, TaskEventJoinsCompletionWithoutPropagatingFailureOrCancellation)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent First("FirstSignal"), Second("SecondSignal"), Join("JoinedSignal");
+		auto Failed = Tasks::LaunchTask("FailedPrerequisite", [] { throw std::runtime_error("expected child failure"); });
+		EXPECT_EQ(Failed.Wait().TaskState, ETaskState::Failed);
+		Join.AddPrerequisites(Failed);
+		const Tasks::FTaskCompletion Inputs[] = {First.GetCompletion(), Second.GetCompletion()};
+		Join.AddPrerequisites(Inputs);
+		Join.AddPrerequisites(std::span(Inputs));
+		Join.Trigger();
+		EXPECT_FALSE(Join.IsCompleted());
+		First.Trigger();
+		EXPECT_FALSE(Join.IsCompleted());
+		EXPECT_TRUE(Tasks::Cancel(Second.GetCompletion()));
+		EXPECT_FALSE(Second.IsCompleted());
+		Second.Trigger();
+		EXPECT_EQ(Second.Wait().TaskState, ETaskState::Canceled);
+		EXPECT_EQ(Join.Wait().TaskState, ETaskState::Succeeded);
+	}
+
+	TEST(FTaskCompositionTests, NestedParentCancellationWaitsForSignalAndDiscardsResult)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent Signal("CancellationSignal");
+		std::weak_ptr<int> Weak;
+		auto Parent = Tasks::LaunchTask("CanceledNestedParent", [&] {
+			Tasks::AddNested(Signal);
+			auto Value = std::make_shared<int>(7); Weak = Value;
+			return Value;
+		});
+		auto Probe = Tasks::LaunchTask("BodyReturned", [] {});
+		EXPECT_EQ(Probe.Wait().WaitStatus, ETaskWaitStatus::Completed);
+		EXPECT_FALSE(Weak.expired());
+		EXPECT_TRUE(Tasks::Cancel(Parent.GetCompletion()));
+		EXPECT_FALSE(Parent.IsCompleted());
+		EXPECT_FALSE(Private::FTaskRuntimeAccess::IsCancellationRequested(Signal.GetCompletion().GetTaskHandle()));
+		Signal.Trigger();
+		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Canceled);
+		EXPECT_TRUE(Weak.expired());
+	}
+
+	TEST(FTaskCompositionTests, NestedParentFailureStillDrainsChildren)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent Signal("FailureSignal");
+		auto Parent = Tasks::LaunchTask("FailedNestedParent", [&] {
+			Tasks::AddNested(Signal);
+			throw std::runtime_error("parent failure");
+		});
+		auto Probe = Tasks::LaunchTask("FailureBodyReturned", [] {});
+		EXPECT_EQ(Probe.Wait().WaitStatus, ETaskWaitStatus::Completed);
+		EXPECT_FALSE(Parent.IsCompleted());
+		Tasks::Cancel(Parent.GetCompletion());
+		Signal.Trigger();
+		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Failed);
+	}
+
+	TEST(FTaskCompositionTests, NestedEventKeepsCanceledGroupAliveUntilExternalAcknowledgement)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskGroup Group;
+		Tasks::FTaskEvent Signal("GroupSignal");
+		auto Parent = Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, {}, [&] { Tasks::AddNested(Signal); });
+		auto Probe = Tasks::LaunchTask("GroupBodyReturned", [] {});
+		EXPECT_EQ(Probe.Wait().WaitStatus, ETaskWaitStatus::Completed);
+		Group.Close(ETaskScopeCloseMode::Cancel);
+		EXPECT_FALSE(Group.JoinAsync().IsReady());
+		Signal.Trigger();
+		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Canceled);
+		EXPECT_EQ(WaitForTaskGroupForTest(Group, 2.0), ETaskScopeWaitResult::Quiescent);
+	}
+
+	TEST(FTaskCompositionTests, NestedDependenciesPreserveGameThreadWaitPolicy)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		auto Parent = Tasks::LaunchTask("DeferredNestedParent", [] {
+			auto Child = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {}, [] {});
+			Tasks::AddNested(Child);
+		});
+		auto Probe = Tasks::LaunchTask("DeferredBodyReturned", [] {});
+		EXPECT_EQ(Probe.Wait().WaitStatus, ETaskWaitStatus::Completed);
+		EXPECT_EQ(Parent.Wait().WaitStatus, ETaskWaitStatus::UnsupportedThread);
+		PumpGameThreadDeferredWork();
+		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
+	}
+
+	TEST(FTaskCompositionTests, CompletionDependencyCyclesAndInvalidNestedContextAreRejected)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent First("CycleFirst"), Second("CycleSecond");
+		First.AddPrerequisites(Second);
+		const auto Cycle = Private::FTaskRuntimeAccess::AddCompletionDependency(Second.GetCompletion().GetTaskHandle(), First.GetCompletion().GetTaskHandle());
+		ASSERT_TRUE(Cycle);
+		EXPECT_EQ(Cycle->Code, Tasks::ETaskAdmissionErrorCode::DependencyCycle);
+		const auto Context = Private::FTaskRuntimeAccess::AddNested(First.GetCompletion().GetTaskHandle());
+		ASSERT_TRUE(Context);
+		EXPECT_EQ(Context->Code, Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract);
+		First.Trigger(); Second.Trigger();
+		EXPECT_EQ(First.Wait().TaskState, ETaskState::Succeeded);
+	}
+
+	TEST(FTaskCompositionTests, NestedEventCompletionRacesBodyReturn)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(2));
+		for (int Index = 0; Index != 64; ++Index)
+		{
+			Tasks::FTaskEvent Signal("RacingSignal");
+			FThreadEvent Bound;
+			auto Parent = Tasks::LaunchTask("RacingNestedParent", [&] { Tasks::AddNested(Signal); Bound.Trigger(); return 42; });
+			const bool Registered = Bound.WaitFor(2.0);
+			EXPECT_TRUE(Registered);
+			Signal.Trigger();
+			EXPECT_EQ(std::move(Parent).TakeResult(), 42);
+		}
+	}
+
+	TEST(FTaskCompositionTests, TaskEventEnforcesSharedOneShotSignalAndExplicitLifetime)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent Signal("SharedSignal");
+		{
+			auto Copy = Signal;
+			EXPECT_EQ(Copy.GetCompletion().GetTaskHandle().GetTaskId(), Signal.GetCompletion().GetTaskHandle().GetTaskId());
+		}
+		EXPECT_DEATH({ Tasks::AddNested(Signal); }, "Task construction failed");
+		Signal.Trigger();
+		EXPECT_TRUE(Signal.IsCompleted());
+		EXPECT_DEATH({ Signal.Trigger(); }, "only be triggered once");
+		EXPECT_DEATH({ Signal.AddPrerequisites(Signal); }, "before Trigger");
+		EXPECT_DEATH({ Tasks::FTaskEvent Unsignaled("Unsignaled"); }, "must be triggered");
+	}
+
+	TEST(FTaskCompositionTests, NestedAlreadyCanceledExecutionBackEdgeDoesNotFormCycle)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		FThreadEvent Published;
+		FTaskHandle ParentHandle;
+		auto Parent = Tasks::LaunchTask("CompletedBackEdgeParent", [&] {
+			Published.Wait();
+			const FTaskHandle Inputs[] = {ParentHandle};
+			Tasks::FTaskExecutionOptions Options; Options.Prerequisites = Inputs;
+			auto Child = Tasks::LaunchTask("CanceledBackEdgeChild", [] { ADD_FAILURE(); }, Options);
+			EXPECT_TRUE(Tasks::Cancel(Child.GetCompletion()));
+			EXPECT_TRUE(Child.IsCompleted());
+			Tasks::AddNested(Child);
+			return 42;
+		});
+		ParentHandle = Parent.GetCompletion().GetTaskHandle();
+		Published.Trigger();
+		EXPECT_EQ(std::move(Parent).TakeResult(), 42);
+	}
+
+	TEST(FTaskCompositionTests, ExternalCompletionDoesNotAuthorizeRootAdmissionDuringDrain)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskGroup Group;
+		FTaskLaunchOptions Options;
+		Options.Scope = Group.GetToken();
+		Options.bUseExplicitScope = true;
+		Options.bExternalCompletion = true;
+		auto Admission = Private::TryLaunchCancelableTaskWithCompletion("ExternalCompletion", [](const FTaskCancellationToken&) {}, {}, Options);
+		ASSERT_TRUE(Admission.HasValue());
+		auto Completion = std::move(Admission).TakeValue();
+		Group.Close(ETaskScopeCloseMode::Drain);
+		Options.bExternalCompletion = false;
+		auto Root = Private::TryLaunchCancelableTaskWithCompletion("RootDuringDrain", [](const FTaskCancellationToken&) {}, {}, Options);
+		EXPECT_FALSE(Root.HasValue());
+		EXPECT_FALSE(Group.JoinAsync().IsReady());
+		Private::FTaskRuntimeAccess::CompleteExternal(Completion, ETaskState::Succeeded);
+		EXPECT_EQ(WaitForTaskGroupForTest(Group, 5.0), ETaskScopeWaitResult::Quiescent);
+	}
 
 	TEST(FTaskCompositionTests, InheritedExecutorAdmissionRemainsAChildDuringDrain)
 	{

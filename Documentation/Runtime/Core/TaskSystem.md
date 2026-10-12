@@ -4,7 +4,7 @@ Summary: Define accepted CPU work, typed ownership, dependencies, cancellation, 
 
 Modules: Core
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-10-12
 
 ## Construction And Acceptance
 
@@ -22,6 +22,16 @@ responsibility. Group construction requires a running scheduler.
 for a selected executor. Nested submissions count as children of the executing
 task. Package payload reads use this form to retain caller ownership while
 dispatching file work to BlockingIO.
+Domain queues use the native fallible admission API with an explicitly captured
+scope. An external completion task can reserve scope lifetime while a request
+remains outside Core, but does not authorize root admission after scope closure.
+During Drain, only an executing task in that scope can admit its children.
+Asset compilation uses explicit operation completion dependencies as
+defined in [Derived Data Build](../Assets/DerivedDataBuild.md).
+Launching a child with `LaunchTask` inherits scope admission but does not add a
+parent completion dependency. Use `AddNested` when parent completion must include
+that child.
+
 `FTaskScopeToken::CanLaunchFromCurrentContext()` exposes context compatibility
 for domain admission: ordinary caller threads and tasks already executing in
 that scope are compatible; a foreign executing task is not. This read-only
@@ -172,6 +182,35 @@ new task. Source scope/known-requirement construction also supports internal
 composition such as empty fan-in and dynamically bound inner tasks.
 
 ## Dependencies, Waiting And CPU Policy
+
+`Tasks::AddNested(Task)` adds a completion dependency to the currently executing
+task. It must be called from a running, non-independent task body, accepts typed
+tasks, events, or a handle-backed `FTaskCompletion`, and rejects cycles and foreign
+schedulers. The parent publishes its result and terminal state only after its
+body and all registered children finish. Its worker is available after the body
+returns. Failure in the parent still waits for child retirement; cancellation
+while awaiting children remains a request until they complete. Child failure or
+cancellation does not change the parent's outcome, and this edge does not forward
+cancellation. Scope cancellation remains a separate owner policy.
+
+`Tasks::FTaskEvent(DebugName)` is a shared, explicit one-shot signal with no worker
+body or result storage. `GetCompletion()` supplies an execution prerequisite or
+nested completion dependency. `AddPrerequisites` accepts handle-backed completions
+before `Trigger()`; the event completes only after it is triggered and every
+prerequisite finishes, regardless of prerequisite outcomes. Copies share one
+signal, triggering twice is invalid, and the last handle must be triggered before
+release. Cancellation does not trigger an event. External producers must signal
+after their callbacks and captures have retired. Events default to unknown external
+execution requirements. Passing `false` as the constructor's second argument
+declares that signaling never requires GameThread or unknown external progress;
+transitive prerequisite wait restrictions still apply.
+
+Events participate in scheduler lifetime without implicitly capturing the current
+scope. Nest an event into a scoped producer to keep that producer counted until
+external acknowledgement. GameThread wait restrictions and cycle detection inspect
+the completion dependencies as well as execution prerequisites. DDC owners use
+events for explicit asset producer nesting; managers retain cancellation authority
+and drain their owners before Core shutdown.
 
 Prerequisites must be valid in the same scheduler lifetime. Success dependencies
 release once after every prerequisite succeeds; failure/cancellation skips the

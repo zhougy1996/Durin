@@ -598,6 +598,8 @@ namespace Durin
 		struct FTaskRuntimeAccess
 		{
 			CORE_API static auto GetCurrentTaskId() -> uint64;
+			CORE_API static auto GetCurrentScope() -> FTaskScopeToken;
+			CORE_API static auto GetCancellation(const FTaskHandle& Task) -> FTaskCancellationToken;
 			CORE_API static auto IsExecutingIndependentCPU() -> bool;
 			CORE_API static auto GroupState(const FTaskScopeToken& Scope) -> ETaskState;
 			CORE_API static auto CloseGroup(const FTaskScopeToken& Scope, ETaskScopeCloseMode Mode) -> ETaskScopeCloseResult;
@@ -611,6 +613,8 @@ namespace Durin
 			CORE_API static auto GetAttribution(const FTaskHandle& Task) -> FTaskAttribution;
 			CORE_API static auto BindTerminal(const FTaskHandle& Task, std::shared_ptr<FTaskTerminalHook> Hook) -> void;
 			CORE_API static auto CompleteExternal(const FTaskHandle& Task, ETaskState State) -> void;
+			CORE_API static auto AddCompletionDependency(const FTaskHandle& Parent, const FTaskHandle& Child) -> std::optional<Tasks::FTaskAdmissionError>;
+			CORE_API static auto AddNested(const FTaskHandle& Child) -> std::optional<Tasks::FTaskAdmissionError>;
 			CORE_API static auto BindDynamicDependency(const FTaskHandle& Task, const FTaskHandle& Inner, bool bCancelInner = true) -> std::optional<Tasks::FTaskAdmissionError>;
 		};
 	}
@@ -631,6 +635,8 @@ namespace Durin
 		bool bQueueOnSaturation = false;
 		// Internal completion sources stay counted until producer acknowledgement.
 		uint64 ExpectedParentTaskId = 0;
+		// Explicit captured dispatch must not inherit the dispatching thread scope.
+		bool bUseExplicitScope = false;
 		bool bExternalCompletion = false;
 		bool bUnknownExecutionRequirement = true;
 		// Independent CPU leaves may be joined by RenderingThread. No task

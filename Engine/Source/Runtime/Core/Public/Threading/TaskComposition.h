@@ -92,6 +92,32 @@ namespace Durin::Tasks
 	CORE_API auto Wait(const FTaskCompletion& Completion) -> FTaskWaitResult;
 	CORE_API auto Cancel(const FTaskCompletion& Completion) -> bool;
 
+	// Completion dependency only: does not forward cancellation or failure to either task.
+	// Must be called from a running task body; its worker is free after the body returns.
+	CORE_API auto AddNested(const FTaskCompletion& Completion) -> void;
+	template<typename T> requires requires(const T& Task) { Task.GetCompletion(); }
+	auto AddNested(const T& Task) -> void { AddNested(Task.GetCompletion()); }
+
+	// Explicit one-shot signal, optionally joined with other completion dependencies.
+	// Copies share one signal. The last handle must not be destroyed before Trigger().
+	class FTaskEvent
+	{
+	public:
+		// Set false only when signaling never needs GameThread or unknown external progress.
+		CORE_API explicit FTaskEvent(const char* DebugName, bool bUnknownExecutionRequirement = true);
+		CORE_API auto GetCompletion() const -> FTaskCompletion;
+		auto IsCompleted() const -> bool { return GetCompletion().IsReady(); }
+		auto Wait() const -> FTaskWaitResult { return Tasks::Wait(GetCompletion()); }
+		CORE_API auto AddPrerequisites(std::span<const FTaskCompletion> Prerequisites) -> void;
+		auto AddPrerequisites(const FTaskCompletion& Prerequisite) -> void { AddPrerequisites(std::span(&Prerequisite, 1)); }
+		template<typename T> requires requires(const T& Task) { Task.GetCompletion(); }
+		auto AddPrerequisites(const T& Task) -> void { AddPrerequisites(Task.GetCompletion()); }
+		CORE_API auto Trigger() -> void;
+	private:
+		struct FState;
+		std::shared_ptr<FState> State;
+	};
+
 	// Owns admission lifetime; owners explicitly close and join before destroying captures.
 	class FTaskGroup
 	{

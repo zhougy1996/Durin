@@ -367,6 +367,7 @@ namespace Durin
 		std::atomic<uint64> GNextTaskId = 1;
 		std::atomic<uint64> GNextTaskScopeId = 1;
 		std::mutex GTaskSchedulerMutex;
+		std::mutex GTaskDependencyMutex;
 		std::condition_variable GTaskSchedulerCV;
 		std::shared_ptr<FTaskScheduler> GTaskScheduler;
 		ETaskSchedulerLifetime GTaskSchedulerLifetime = ETaskSchedulerLifetime::Stopped;
@@ -681,7 +682,7 @@ namespace Durin
 		auto IsRunningBody() const -> bool
 		{
 			std::lock_guard Lock(Mutex);
-			return State == ETaskState::Running && !bExternalCompletion;
+			return State == ETaskState::Running && !bExternalCompletion && !DeferredExecution;
 		}
 		auto IsExternal() const -> bool { return bExternalCompletion; }
 		auto BindTerminal(std::shared_ptr<Private::FTaskTerminalHook> Hook) -> void
@@ -778,6 +779,8 @@ namespace Durin
 				std::lock_guard Lock(Mutex);
 				PendingPrerequisites.reserve(Prerequisites.size() + 1);
 				if (DynamicPrerequisite) PendingPrerequisites.emplace_back(DynamicPrerequisite);
+				for (const auto& Nested : NestedPrerequisites)
+					if (auto Pinned = Nested.lock()) PendingPrerequisites.emplace_back(std::move(Pinned));
 				for (const std::weak_ptr<FTaskStateData>& Prerequisite : Prerequisites)
 				{
 					if (std::shared_ptr<FTaskStateData> PinnedPrerequisite = Prerequisite.lock())
@@ -803,6 +806,8 @@ namespace Durin
 
 				std::lock_guard Lock(Prerequisite->Mutex);
 				if (Prerequisite->DynamicPrerequisite) PendingPrerequisites.emplace_back(Prerequisite->DynamicPrerequisite);
+				for (const auto& Nested : Prerequisite->NestedPrerequisites)
+					if (auto Pinned = Nested.lock()) PendingPrerequisites.emplace_back(std::move(Pinned));
 				for (const std::weak_ptr<FTaskStateData>& TransitivePrerequisite : Prerequisite->Prerequisites)
 				{
 					if (std::shared_ptr<FTaskStateData> PinnedPrerequisite = TransitivePrerequisite.lock())
@@ -831,7 +836,7 @@ namespace Durin
 				const auto& Current = Inline[Index];
 				std::lock_guard Lock(Current->Mutex);
 				if (IsTerminalState(Current->State) && Current->bTerminalPublicationFinished) continue;
-				if ((!bOnlyUnknown && Current->Target == ETaskTarget::GameThreadDeferred) || Current->bUnknownExecutionRequirement) return true;
+				if ((!bOnlyUnknown && !Current->DeferredExecution && Current->Target == ETaskTarget::GameThreadDeferred) || Current->bUnknownExecutionRequirement) return true;
 				auto Add = [&](std::shared_ptr<const FTaskStateData> Prerequisite) {
 					if (!Prerequisite) return;
 					for (size_t Seen = 0; Seen < Count; ++Seen)
@@ -840,6 +845,7 @@ namespace Durin
 					Inline[Count++] = std::move(Prerequisite);
 				};
 				Add(Current->DynamicPrerequisite);
+				for (const auto& Nested : Current->NestedPrerequisites) Add(Nested.lock());
 				for (const auto& Weak : Current->Prerequisites) Add(Weak.lock());
 			}
 			if (!bOverflow) return false;
@@ -852,8 +858,10 @@ namespace Durin
 				if (!Visited.emplace(Current.get()).second) continue;
 				std::lock_guard Lock(Current->Mutex);
 				if (IsTerminalState(Current->State) && Current->bTerminalPublicationFinished) continue;
-				if ((!bOnlyUnknown && Current->Target == ETaskTarget::GameThreadDeferred) || Current->bUnknownExecutionRequirement) return true;
+				if ((!bOnlyUnknown && !Current->DeferredExecution && Current->Target == ETaskTarget::GameThreadDeferred) || Current->bUnknownExecutionRequirement) return true;
 				if (Current->DynamicPrerequisite) Pending.emplace_back(Current->DynamicPrerequisite);
+				for (const auto& Nested : Current->NestedPrerequisites)
+					if (auto Pinned = Nested.lock()) Pending.emplace_back(std::move(Pinned));
 				for (const auto& WeakPrerequisite : Current->Prerequisites)
 				{
 					if (auto Prerequisite = WeakPrerequisite.lock())
@@ -864,6 +872,7 @@ namespace Durin
 		}
 
 		auto RequestCancellation(std::string InDiagnostic, ETaskTerminalReason InReason = ETaskTerminalReason::CancellationRequested, uint64 InDirectBlockingTaskId = 0) -> bool;
+		auto OnNestedCompleted() -> void;
 		auto MarkSucceeded() -> void;
 		auto MarkFailed(std::string InDiagnostic) -> void;
 		auto MarkCanceled(std::string InDiagnostic) -> void;
@@ -981,6 +990,15 @@ namespace Durin
 
 	private:
 		auto PublishTerminal(ETaskState TerminalState, std::string InDiagnostic, ETaskTerminalReason InReason = ETaskTerminalReason::None, uint64 InDirectBlockingTaskId = 0) -> bool;
+		friend struct Private::FTaskRuntimeAccess;
+		struct FDeferredExecution
+		{
+			ETaskState TerminalState;
+			std::string Diagnostic;
+			ETaskTerminalReason Reason;
+			uint64 DirectBlockingTaskId;
+		};
+		std::optional<FDeferredExecution> DeferredExecution;
 		auto PublishTerminalLocked(ETaskState TerminalState, std::string InDiagnostic, std::vector<std::shared_ptr<FTaskStateData>>& OutDependents, Private::FTaskCompletionFunction& OutCompletionFunction, std::unique_ptr<Private::FMoveOnlyTaskFunction>& OutPendingFunction, ETaskTerminalReason InReason = ETaskTerminalReason::None, uint64 InDirectBlockingTaskId = 0) -> bool;
 		auto FinishTerminalPublication(ETaskState TerminalState, std::vector<std::shared_ptr<FTaskStateData>>&& Dependents) -> void;
 
@@ -999,6 +1017,9 @@ namespace Durin
 		size_t ReservedDependents = 0;
 		bool bTerminalHooksFinished = false;
 		bool bExternalCompletion = false;
+		uint32 PendingNestedCount = 0;
+		std::vector<std::weak_ptr<FTaskStateData>> NestedPrerequisites;
+		std::vector<std::weak_ptr<FTaskStateData>> CompletionParents;
 		bool bUnknownExecutionRequirement = false;
 		std::shared_ptr<Private::FTaskTerminalHook> TerminalHooks;
 		std::shared_ptr<FTaskStateData> DynamicPrerequisite;
@@ -1435,7 +1456,7 @@ namespace Durin
 					PrerequisiteStates.emplace_back(Prerequisite.State);
 				}
 				SelectedScope = Options.Scope.State;
-				if (!bScopeSelectedByPrimaryPredecessor && GCurrentTaskState && GCurrentTaskScheduler == this)
+				if (!bScopeSelectedByPrimaryPredecessor && !Options.bUseExplicitScope && GCurrentTaskState && GCurrentTaskScheduler == this)
 				{
 					const std::shared_ptr<FTaskScopeState>& InheritedScope = GCurrentTaskState->GetScope();
 					if (InheritedScope && SelectedScope && SelectedScope != InheritedScope)
@@ -1689,21 +1710,31 @@ namespace Durin
 			GExecutingBlockingIOPool = PreviousBlockingIOPool || State->GetTarget() == ETaskTarget::BlockingIO;
 			GCurrentTaskState = State.get();
 			GCurrentTaskScheduler = this;
+			bool bBodyStorageReleased = false;
+			auto ReleaseBodyStorage = [&] {
+				if (bBodyStorageReleased) return;
+				std::lock_guard Lock(Mutex);
+				--ExecutorStorage[static_cast<size_t>(State->GetTarget())].CurrentRunningBodies;
+				bBodyStorageReleased = true;
+			};
 
 			try
 			{
 				(*Function)(State->MakeCancellationToken());
 				Function = {};
+				ReleaseBodyStorage();
 				State->MarkSucceeded();
 			}
 			catch (const std::exception& Exception)
 			{
 				Function = {};
+				ReleaseBodyStorage();
 				State->MarkFailed(Exception.what());
 			}
 			catch (...)
 			{
 				Function = {};
+				ReleaseBodyStorage();
 				State->MarkFailed("Task callable threw an unknown exception.");
 			}
 
@@ -1822,9 +1853,7 @@ namespace Durin
 			std::lock_guard Lock(Mutex);
 			if (State->GetTarget() == ETaskTarget::BlockingIO) { require(BlockingIOReservations > 0); --BlockingIOReservations; }
 			auto& Storage = ExecutorStorage[static_cast<size_t>(State->GetTarget())];
-			if (Task.StateBeforeTerminal == ETaskState::Running && !State->IsExternal())
-				--Storage.CurrentRunningBodies;
-			else
+			if (Task.StateBeforeTerminal != ETaskState::Running || State->IsExternal())
 			{
 				--Storage.CurrentPendingNodes;
 				Storage.CurrentPendingBytes -= State->GetSchedulerStorageBytes();
@@ -2726,6 +2755,19 @@ namespace Durin
 		std::unique_ptr<Private::FMoveOnlyTaskFunction> PendingFunction;
 		{
 			std::lock_guard Lock(Mutex);
+			if (IsTerminalState(State) || DeferredExecution) return false;
+			if (PendingNestedCount != 0)
+			{
+				DeferredExecution.emplace(FDeferredExecution{TerminalState, std::move(InDiagnostic), InReason, InDirectBlockingTaskId});
+				return true;
+			}
+			if (TerminalState == ETaskState::Succeeded && (IsCancellationRequested() || (SharedCancellationState && SharedCancellationState->IsCancellationRequested())))
+			{
+				TerminalState = ETaskState::Canceled;
+				InDiagnostic = CancellationDiagnostic.empty() ? "Task returned after cancellation was requested." : CancellationDiagnostic;
+				InReason = CancellationReason;
+				InDirectBlockingTaskId = CancellationDirectBlockingTaskId;
+			}
 			if (!PublishTerminalLocked(TerminalState, std::move(InDiagnostic), DependentsToNotify, Function, PendingFunction, InReason, InDirectBlockingTaskId))
 			{
 				return false;
@@ -2751,8 +2793,9 @@ namespace Durin
 			{
 				std::lock_guard Lock(Mutex);
 				Hooks = std::move(TerminalHooks);
-				if (!Hooks) { bTerminalHooksFinished = true; break; }
+				if (!Hooks) bTerminalHooksFinished = true;
 			}
+			if (!Hooks) break;
 			while (Hooks)
 			{
 				auto Hook = std::move(Hooks);
@@ -2760,6 +2803,7 @@ namespace Durin
 				Hook->Function(TerminalState);
 			}
 		}
+		std::vector<std::weak_ptr<FTaskStateData>> Parents;
 		{
 			std::lock_guard Lock(Mutex);
 			require(!bTerminalLifetimeCharged);
@@ -2772,12 +2816,16 @@ namespace Durin
 				if (Scope) Scope->ChargeRetainedResult();
 			}
 			bTerminalPublicationFinished = true;
+			Parents = std::move(CompletionParents);
+			NestedPrerequisites.clear();
 		}
 		CV.notify_all();
 		for (const std::shared_ptr<FTaskStateData>& Dependent : Dependents)
 		{
 			Dependent->OnPrerequisiteTerminal(TerminalState, TaskId);
 		}
+		for (const auto& Parent : Parents)
+			if (auto Pinned = Parent.lock()) Pinned->OnNestedCompleted();
 		if (Scope)
 		{
 			Scope->ReleaseTask(TaskId, TerminalState);
@@ -2933,37 +2981,22 @@ namespace Durin
 		return true;
 	}
 
-	auto FTaskStateData::MarkSucceeded() -> void
+	auto FTaskStateData::OnNestedCompleted() -> void
 	{
-		std::vector<std::shared_ptr<FTaskStateData>> DependentsToNotify;
-		Private::FTaskCompletionFunction Function;
-		std::unique_ptr<Private::FMoveOnlyTaskFunction> PendingFunction;
-		ETaskState TerminalState = ETaskState::Succeeded;
+		std::optional<FDeferredExecution> Execution;
 		{
 			std::lock_guard Lock(Mutex);
-			if (State != ETaskState::Running)
-			{
-				return;
-			}
-			if (bCancellationRequested || (SharedCancellationState && SharedCancellationState->IsCancellationRequested()))
-			{
-				TerminalState = ETaskState::Canceled;
-			}
-			PublishTerminalLocked(
-				TerminalState,
-				TerminalState == ETaskState::Canceled ? (CancellationDiagnostic.empty() ? "Task returned after cancellation was requested." : CancellationDiagnostic) : std::string{},
-				DependentsToNotify,
-				Function,
-				PendingFunction,
-				TerminalState == ETaskState::Canceled ? CancellationReason : ETaskTerminalReason::None,
-				TerminalState == ETaskState::Canceled ? CancellationDirectBlockingTaskId : 0
-			);
+			require(PendingNestedCount != 0);
+			if (--PendingNestedCount != 0) return;
+			Execution = std::move(DeferredExecution);
+			DeferredExecution.reset();
 		}
-		InvokeTaskTerminalPublicationTestHook(TaskId);
-		if (Function) Function(TerminalState);
-		Function = {};
-		PendingFunction.reset();
-		FinishTerminalPublication(TerminalState, std::move(DependentsToNotify));
+		if (Execution) PublishTerminal(Execution->TerminalState, std::move(Execution->Diagnostic), Execution->Reason, Execution->DirectBlockingTaskId);
+	}
+
+	auto FTaskStateData::MarkSucceeded() -> void
+	{
+		PublishTerminal(ETaskState::Succeeded, {});
 	}
 
 	auto FTaskStateData::MarkFailed(std::string InDiagnostic) -> void
@@ -3664,6 +3697,8 @@ namespace Durin
 		auto FTaskRuntimeAccess::GetAttribution(const FTaskHandle& Task) -> FTaskAttribution { return Task.State ? Task.State->GetAttribution() : FTaskAttribution{}; }
 
 		auto FTaskRuntimeAccess::IsExecutingIndependentCPU() -> bool { return GCurrentTaskState && GCurrentTaskState->IsIndependentCPU(); }
+		auto FTaskRuntimeAccess::GetCancellation(const FTaskHandle& Task) -> FTaskCancellationToken { return Task.State ? Task.State->MakeCancellationToken() : FTaskCancellationToken{}; }
+		auto FTaskRuntimeAccess::GetCurrentScope() -> FTaskScopeToken { return GCurrentTaskState ? GCurrentTaskState->GetScopeToken() : FTaskScopeToken{}; }
 		auto FTaskRuntimeAccess::GetCurrentTaskId() -> uint64 { return GCurrentTaskState && GCurrentTaskState->IsRunningBody() ? GCurrentTaskState->GetTaskId() : 0; }
 
 		auto FTaskRuntimeAccess::GroupState(const FTaskScopeToken& Scope) -> ETaskState
@@ -3720,7 +3755,6 @@ namespace Durin
 			require(Task.State && Hook && Hook->Function);
 			Task.State->BindTerminal(std::move(Hook));
 		}
-
 		auto FTaskRuntimeAccess::CompleteExternal(const FTaskHandle& Task, ETaskState Terminal) -> void
 		{
 			require(Task.State && Task.State->IsExternal());
@@ -3736,9 +3770,8 @@ namespace Durin
 			-> std::optional<Tasks::FTaskAdmissionError>
 		{
 			// Serializes dynamic edge insertion and cycle checks across concurrent sources.
-			static std::mutex DependencyMutex;
 			{
-				std::lock_guard Lock(DependencyMutex);
+				std::lock_guard Lock(GTaskDependencyMutex);
 				if (!Task.State || !Inner.State || Task.State->PinScheduler() != Inner.State->PinScheduler())
 					return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidPrerequisite, Inner.GetTaskId()};
 				if (Task.State->IsIndependentCPU())
@@ -3751,6 +3784,44 @@ namespace Durin
 			if (bCancelInner && Task.State->IsCancellationRequested())
 				Inner.State->RequestCancellation("Outer task cancellation preceded inner binding.");
 			return {};
+		}
+
+		auto FTaskRuntimeAccess::AddCompletionDependency(const FTaskHandle& Parent, const FTaskHandle& Child)
+			-> std::optional<Tasks::FTaskAdmissionError>
+		{
+			std::lock_guard GraphLock(GTaskDependencyMutex);
+			if (!Parent.State || !Child.State || Parent.State->PinScheduler() != Child.State->PinScheduler())
+				return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidPrerequisite, Child.GetTaskId()};
+			if (Parent.State->IsIndependentCPU())
+				return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract};
+			// A completed child imposes no dependency, including an already-canceled back-edge.
+			if (IsTerminalState(Child.State->GetState()))
+			{
+				std::lock_guard Lock(Parent.State->Mutex);
+				if (Parent.State->State != ETaskState::Running || Parent.State->DeferredExecution)
+					return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract};
+				return {};
+			}
+			if (Parent.State == Child.State || Child.State->DependsOn(Parent.State.get()))
+				return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::DependencyCycle, Child.GetTaskId()};
+			std::scoped_lock Lock(Parent.State->Mutex, Child.State->Mutex);
+			if (Parent.State->State != ETaskState::Running || Parent.State->DeferredExecution)
+				return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract};
+			if (IsTerminalState(Child.State->State) && Child.State->bTerminalPublicationFinished) return {};
+			// Reserve both sides before publishing the edge so allocation failure cannot leave a half-edge.
+			Parent.State->NestedPrerequisites.reserve(Parent.State->NestedPrerequisites.size() + 1);
+			Child.State->CompletionParents.reserve(Child.State->CompletionParents.size() + 1);
+			Parent.State->NestedPrerequisites.emplace_back(Child.State);
+			Child.State->CompletionParents.emplace_back(Parent.State);
+			++Parent.State->PendingNestedCount;
+			return {};
+		}
+
+		auto FTaskRuntimeAccess::AddNested(const FTaskHandle& Child) -> std::optional<Tasks::FTaskAdmissionError>
+		{
+			if (!GCurrentTaskState || !GCurrentTaskState->IsRunningBody())
+				return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract};
+			return AddCompletionDependency(FTaskHandle(GCurrentTaskState->shared_from_this()), Child);
 		}
 
 		auto FTaskRuntimeAccess::IsCancellationRequested(const FTaskHandle& Task) -> bool

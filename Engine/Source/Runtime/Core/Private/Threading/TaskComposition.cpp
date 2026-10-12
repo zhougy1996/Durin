@@ -31,6 +31,65 @@ namespace Durin::Tasks
 		}
 	}
 
+	auto AddNested(const FTaskCompletion& Completion) -> void
+	{
+		if (auto Error = Durin::Private::FTaskRuntimeAccess::AddNested(Completion.GetTaskHandle()))
+			Detail::FailConstruction(*Error);
+	}
+
+	struct FTaskEvent::FState
+	{
+		FTaskHandle Handle;
+		std::mutex Mutex;
+		bool Triggered = false;
+		~FState() { requiref(Triggered, "Task events must be triggered before their last handle is released."); }
+	};
+
+	FTaskEvent::FTaskEvent(const char* DebugName, bool bUnknownExecutionRequirement)
+	{
+		FTaskLaunchOptions Options;
+		Options.bExternalCompletion = true;
+		Options.bUnknownExecutionRequirement = bUnknownExecutionRequirement;
+		Options.bUseExplicitScope = true;
+		Options.bQueueOnSaturation = true;
+		auto Admission = Durin::Private::TryLaunchCancelableTaskWithCompletion(DebugName, [](const FTaskCancellationToken&) {}, {}, Options);
+		if (!Admission.HasValue()) Detail::FailConstruction(Admission.GetError());
+		try { State = std::make_shared<FState>(); }
+		catch (...)
+		{
+			Durin::Private::FTaskRuntimeAccess::CompleteExternal(std::move(Admission).TakeValue(), ETaskState::Failed);
+			throw;
+		}
+		State->Handle = std::move(Admission).TakeValue();
+	}
+
+	auto FTaskEvent::GetCompletion() const -> FTaskCompletion
+	{
+		require(State);
+		return FTaskCompletion(State->Handle);
+	}
+
+	auto FTaskEvent::AddPrerequisites(std::span<const FTaskCompletion> Prerequisites) -> void
+	{
+		require(State);
+		std::lock_guard Lock(State->Mutex);
+		requiref(!State->Triggered, "Task event prerequisites must be added before Trigger.");
+		for (const auto& Prerequisite : Prerequisites)
+			if (auto Error = Durin::Private::FTaskRuntimeAccess::AddCompletionDependency(State->Handle, Prerequisite.GetTaskHandle()))
+				Detail::FailConstruction(*Error);
+	}
+
+	auto FTaskEvent::Trigger() -> void
+	{
+		require(State);
+		{
+			std::lock_guard Lock(State->Mutex);
+			requiref(!State->Triggered, "Task events may only be triggered once.");
+			State->Triggered = true;
+		}
+		Durin::Private::FTaskRuntimeAccess::CompleteExternal(State->Handle, ETaskState::Succeeded);
+	}
+
 	FTaskGroup::FTaskGroup() : Scope(Detail::CreateGroupScope())
 	{
 		requiref(Scope.IsValid(), "Task group requires a running scheduler.");
