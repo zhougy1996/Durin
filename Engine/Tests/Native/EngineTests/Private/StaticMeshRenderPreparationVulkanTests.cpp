@@ -683,7 +683,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			FirstView.Settings.Mode.TranslucentSortPolicy = Durin::ETranslucentSortPolicy::Distance;
 			FirstView.ViewLocation = Durin::FVector3(0.0, 0.0, -10.0);
 			Durin::FStaticMeshPreparationCache SharedFacts;
-			Durin::FStaticMeshDrawCommandCache Commands;
+			Durin::FMeshDrawDescriptionCache Commands;
 			Commands.BeginSubmission();
 			SharedFacts.Commands = &Commands;
 			const Durin::FPreparedStaticMeshView First =
@@ -697,7 +697,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			ASSERT_EQ(First.Opaque.size(), 2u);
 			ASSERT_EQ(First.Masked.size(), 1u);
 			ASSERT_EQ(First.Translucent.size(), 1u);
-			EXPECT_EQ(First.CommandTemplateBuilds, First.GetNumSections());
+			EXPECT_EQ(First.DrawDescriptionBuilds, First.GetNumSections());
 			Commands.EndSubmission();
 			Commands.BeginSubmission();
 			Durin::FStaticMeshPreparationCache NextFrameFacts;
@@ -707,8 +707,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			const auto Warm = Durin::PrepareStaticMeshView_RenderThread(CommandList,
 				Scene.GetPrimitiveSceneInfos(), MovedView, Durin::ERasterMode::Wireframe,
 				Durin::ERenderPreparationMode::Full, &NextFrameFacts);
-			EXPECT_EQ(Warm.CommandTemplateBuilds, 0u);
-			EXPECT_EQ(Warm.CommandTemplateReuses, First.GetNumSections());
+			EXPECT_EQ(Warm.DrawDescriptionBuilds, 0u);
+			EXPECT_EQ(Warm.DrawDescriptionReuses, First.GetNumSections());
 			ASSERT_EQ(Warm.Translucent.size(), 1u);
 			EXPECT_EQ(Warm.Translucent[0].Command, First.Translucent[0].Command);
 			EXPECT_NE(Warm.Translucent[0].TranslucentSortDepth, First.Translucent[0].TranslucentSortDepth);
@@ -742,16 +742,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 			Durin::FResolvedStaticMeshView Uniforms;
 			const auto& Draw = First.Opaque.front();
-			ASSERT_TRUE(Durin::RendererPrivate::PrepareStaticMeshPrimitiveUniforms(CommandList, FirstView, First, Uniforms));
+			ASSERT_TRUE(Durin::RendererPrivate::PrepareStaticMeshPrimitiveUniforms(CommandList, First, Uniforms));
 			const auto A = Uniforms.PrimitiveUniforms[Draw.PrimitiveIndex];
 			const auto B = Uniforms.PrimitiveUniforms[First.Masked.front().PrimitiveIndex];
 			EXPECT_NE(A.Buffer, nullptr);
 			EXPECT_EQ(A.Buffer, B.Buffer);
 			EXPECT_EQ(A.Offset, B.Offset);
 			EXPECT_EQ(Uniforms.Observations.PrimitiveUniformUploads, First.Primitives.size());
-			Durin::FSceneView CascadeView = FirstView;
-			CascadeView.ViewProjectionMatrix[3][0] += 1.0;
-			ASSERT_TRUE(Durin::RendererPrivate::PrepareStaticMeshPrimitiveUniforms(CommandList, CascadeView, First, Uniforms));
+			ASSERT_TRUE(Durin::RendererPrivate::PrepareStaticMeshPrimitiveUniforms(CommandList, First, Uniforms));
 			const auto C = Uniforms.PrimitiveUniforms[Draw.PrimitiveIndex];
 			EXPECT_TRUE(C.Buffer != A.Buffer || C.Offset != A.Offset);
 			EXPECT_EQ(Uniforms.Observations.PrimitiveUniformUploads, 2 * First.Primitives.size());
@@ -1501,7 +1499,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		const auto CapturedPublished = CollectStaticMeshView_RenderThread(CommandList, PublishedInfos, View, ERasterMode::Solid);
 		const auto QueriesBeforeReplay = FQualificationFactory::SupportQueries.load(std::memory_order_relaxed);
 		FStaticMeshPreparationCache FrozenCache;
-		FStaticMeshDrawCommandCache TemplateCache;
+		FMeshDrawDescriptionCache TemplateCache;
 		TemplateCache.BeginSubmission();
 		FrozenCache.Commands = &TemplateCache;
 		FrozenInput = ResolveCollectedStaticMeshView_RenderThread(CommandList, CapturedPublished, &FrozenCache);
@@ -1724,7 +1722,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 			ASSERT_EQ(Actual.GetNumSections(), FrozenExpected.GetNumSections());
 			EXPECT_EQ(Actual.SubmissionOutcomes, FrozenExpected.SubmissionOutcomes);
 			EXPECT_EQ(Actual.SelectedTriangles, FrozenExpected.SelectedTriangles);
-			EXPECT_EQ(Actual.CommandTemplateBuilds, FrozenExpected.CommandTemplateBuilds);
+			EXPECT_EQ(Actual.DrawDescriptionBuilds, FrozenExpected.DrawDescriptionBuilds);
 			EXPECT_EQ(Actual.VisibleCandidates, FrozenExpected.VisibleCandidates);
 			EXPECT_EQ(Actual.RequestedLODHistogram, FrozenExpected.RequestedLODHistogram);
 			EXPECT_EQ(Actual.SelectedLODHistogram, FrozenExpected.SelectedLODHistogram);
@@ -1991,7 +1989,7 @@ TEST(FMaterialAnimationVulkanTests, MaterialTimeChangesPixelsWithoutReplacingCac
 					.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy));
 			std::array<FByteBuffer, 3> Pixels;
 			FPreparedStaticMeshView First;
-			FStaticMeshDrawCommandCache Templates;
+			FMeshDrawDescriptionCache Templates;
 			const std::array Times{0.125, 0.75, 0.125};
 			for (size_t Frame = 0; Frame < Times.size(); ++Frame)
 			{

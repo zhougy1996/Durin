@@ -18,7 +18,7 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 
-	class FStaticMeshDrawCommandCache;
+	class FMeshDrawDescriptionCache;
 	struct FMeshViewPreparationInput
 	{
 		FBox WorldBounds;
@@ -40,7 +40,7 @@ namespace Durin
 	// Command-local facts only. Providers still collect independently for each view/LOD.
 	struct FStaticMeshPreparationCache
 	{
-		FStaticMeshDrawCommandCache* Commands = nullptr;
+		FMeshDrawDescriptionCache* Commands = nullptr;
 		struct FTransform
 		{
 			FMatrix LocalToWorld{1.0};
@@ -100,7 +100,7 @@ namespace Durin
 	};
 
 	// View-independent interpretation of one published element and pass policy.
-	struct FStaticMeshDrawCommandTemplate
+	struct FMeshDrawDescription
 	{
 		uint64 SectionIndex = 0;
 		FGeometryDrawRange Geometry;
@@ -115,28 +115,27 @@ namespace Durin
 		std::shared_ptr<const FMeshGeometryRecord> GeometryOwner;
 	};
 
-	// Cache retention is bounded to the templates touched by one submission.
-	// Old frames independently retain their immutable selected templates.
-	class FStaticMeshDrawCommandCache
+	// Retain idle descriptions across visibility changes; evict unused entries above 512.
+	class FMeshDrawDescriptionCache
 	{
 	public:
 		using FKey = std::array<uint64, 4>;
 		RENDERER_API auto BeginSubmission() -> void;
 		RENDERER_API auto EndSubmission() -> void;
 		RENDERER_API auto Find(const FKey& Key, const FMaterialRenderData& Material)
-			-> std::shared_ptr<const FStaticMeshDrawCommandTemplate>;
-		RENDERER_API auto Store(const FKey& Key, std::shared_ptr<const FStaticMeshDrawCommandTemplate> Command) -> void;
+			-> std::shared_ptr<const FMeshDrawDescription>;
+		RENDERER_API auto Store(const FKey& Key, std::shared_ptr<const FMeshDrawDescription> Command) -> void;
 		auto Num() const -> size_t { return Entries.size(); }
 		auto Reset() -> void { Entries.clear(); }
 	private:
-		struct FEntry { std::shared_ptr<const FStaticMeshDrawCommandTemplate> Command; bool bUsed = false; };
+		struct FEntry { std::shared_ptr<const FMeshDrawDescription> Command; bool bUsed = false; };
 		std::map<FKey, FEntry> Entries;
 	};
 
-	// Compact per-view references; all stable state belongs to the template.
+	// Compact per-view references; stable planning state belongs to the description.
 	struct FPreparedStaticMeshDraw
 	{
-		std::shared_ptr<const FStaticMeshDrawCommandTemplate> Command;
+		std::shared_ptr<const FMeshDrawDescription> Command;
 		FVisibleMeshDrawSortKey SortKey;
 		std::optional<std::array<float, 3>> RasterBias;
 		uint32 ResolvedIndex = 0;
@@ -199,8 +198,8 @@ namespace Durin
 		size_t SharedSectionFactBuilds = 0;
 		size_t DynamicGeometryInputValidations = 0;
 		size_t PublishedGeometryElements = 0;
-		size_t CommandTemplateBuilds = 0;
-		size_t CommandTemplateReuses = 0;
+		size_t DrawDescriptionBuilds = 0;
+		size_t DrawDescriptionReuses = 0;
 
 		auto GetDraw(uint32 Index) const -> const FPreparedStaticMeshDraw&
 		{
@@ -226,6 +225,9 @@ namespace Durin
 	{
 		bool bRecordedOnWorker = false;
 		size_t PrimitiveUniformUploads = 0;
+		size_t PrimitiveUniformReuses = 0;
+		size_t PersistentCommandHits = 0;
+		size_t PersistentCommandMisses = 0;
 		size_t MaterialUniformUploads = 0;
 		size_t PreparedSurfaceBindingBatches = 0;
 		size_t SurfaceBindingBatchReuses = 0;
@@ -328,7 +330,7 @@ namespace Durin
 	{
 		struct FElement
 		{
-			std::shared_ptr<const FStaticMeshDrawCommandTemplate> Command;
+			std::shared_ptr<const FMeshDrawDescription> Command;
 			uint32 MaterialUniformIndex = 0;
 			bool bTemplateReused = false;
 		};

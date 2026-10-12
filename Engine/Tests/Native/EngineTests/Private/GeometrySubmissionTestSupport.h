@@ -179,6 +179,7 @@ namespace Durin::Tests
 	public:
 		DURIN_BEGIN_SHADER_PARAMETERS(FQualificationVertexShader)
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialView);
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Deformation);
 		DURIN_END_SHADER_PARAMETERS();
 		DURIN_DECLARE_MESH_MATERIAL_SHADER(FQualificationVertexShader, FMeshMaterialShader,
@@ -189,6 +190,7 @@ namespace Durin::Tests
 	{
 	public:
 		explicit FQualificationShaderBinding(const FMaterialShaderMap& Map) : Shader(Map) {}
+		auto GetReflection() const -> const FShaderReflectionData* override { return Shader ? &Shader.GetShader()->GetReflection() : nullptr; }
 		auto GetRHIShader(bool bRequired) const -> FRHIShader* override { return Shader.GetRHIShader(bRequired); }
 		auto Prepare(FRHICommandListImmediate& CommandList, const FRHIUniformBufferRange& Transform,
 			const FVertexFactoryBinding& Binding) const -> std::shared_ptr<const FRHIShaderParameterBatch> override
@@ -199,7 +201,7 @@ namespace Durin::Tests
 			FQualificationVertexShader::FParameters Parameters;
 			Parameters.Transform = Transform;
 			Parameters.Deformation = CommandList.CreateUniformBufferRange(&Typed->DisplacementScale, sizeof(Typed->DisplacementScale));
-			return PrepareShaderParameters(Shader, Parameters);
+			return RendererPrivate::PrepareMeshVertexFactoryParameters(Shader, Parameters);
 		}
 	private:
 		TMaterialShaderRef<FQualificationVertexShader> Shader;
@@ -235,6 +237,47 @@ namespace Durin::Tests
 {
 	inline constexpr std::string_view QualificationVertexSource = R"SLANG(
 module GeometryQualification;
+struct MaterialViewUniform
+{
+    float4 Parameters;
+    float4 CameraWorldPosition;
+    float4 Viewport;
+    float4 ReciprocalViewport;
+    float4x4 WorldToView;
+    float4x4 ViewToWorld;
+    float4x4 WorldToClip;
+    float4 WorldOriginHigh;
+    float4 WorldOriginLow;
+};
+
+struct MaterialPrimitiveUniform
+{
+    float4x4 LocalToWorld;
+    float4x4 NormalToWorld;
+    float4x4 WorldToLocal;
+    float4 BoundsCenter;
+    float4 TransformParams;
+    float4 WorldOriginHigh;
+    float4 WorldOriginLow;
+};
+
+// Keep the stable primitive origin independent of every camera and cascade.
+// Subtract the high parts before adding the low parts to preserve local detail.
+MaterialPrimitiveUniform TranslateMaterialPrimitive(
+    MaterialPrimitiveUniform primitive, MaterialViewUniform view)
+{
+    float3 origin = (primitive.WorldOriginHigh.xyz - view.WorldOriginHigh.xyz)
+        + (primitive.WorldOriginLow.xyz - view.WorldOriginLow.xyz);
+    primitive.LocalToWorld[0][3] = origin.x;
+    primitive.LocalToWorld[1][3] = origin.y;
+    primitive.LocalToWorld[2][3] = origin.z;
+    float3 inverseOrigin = -mul((float3x3)primitive.WorldToLocal, origin);
+    primitive.WorldToLocal[0][3] = inverseOrigin.x;
+    primitive.WorldToLocal[1][3] = inverseOrigin.y;
+    primitive.WorldToLocal[2][3] = inverseOrigin.z;
+    primitive.BoundsCenter.xyz += origin;
+    return primitive;
+}
 struct Input {
  float3 position: POSITION; float4 normal: NORMAL; float4 tangent: TANGENT;
  float2 uv0:TEXCOORD0; float2 uv1:TEXCOORD1; float2 uv2:TEXCOORD2; float2 uv3:TEXCOORD3; float4 color:COLOR; float4 instanceOffset:TEXCOORD4;
@@ -244,15 +287,16 @@ struct Output {
  float3 worldNormal:TEXCOORD1; float4 worldTangent:TEXCOORD2;
  float2 uv0:TEXCOORD3; float2 uv1:TEXCOORD4; float2 uv2:TEXCOORD5; float2 uv3:TEXCOORD6;
 };
-struct TransformData { float4x4 LocalToClip; float4x4 LocalToWorld; float4x4 NormalToWorld; float4x4 WorldToLocal; float4 BoundsCenter; float4 TransformParams; };
 struct DeformationData { float4 displacementScale; };
-[[vk::binding(0,1)]] ConstantBuffer<TransformData> Transform;
+[[vk::binding(0,1)]] ConstantBuffer<MaterialPrimitiveUniform> Transform;
+[[vk::binding(0,0)]] ConstantBuffer<MaterialViewUniform> MaterialView;
 [[vk::binding(24,1)]] ConstantBuffer<DeformationData> Deformation;
 [shader("vertex")]
 Output VertexMain(Input input) {
  float3 p = input.position * Deformation.displacementScale.w + Deformation.displacementScale.xyz + input.instanceOffset.xyz;
- Output o; o.pos=mul(Transform.LocalToClip,float4(p,1)); o.color=input.color;
- o.worldPosition=mul(Transform.LocalToWorld,float4(p,1)).xyz;
+ MaterialPrimitiveUniform primitive = TranslateMaterialPrimitive(Transform, MaterialView);
+ Output o; o.pos=mul(MaterialView.WorldToClip,mul(primitive.LocalToWorld,float4(p,1))); o.color=input.color;
+ o.worldPosition=mul(primitive.LocalToWorld,float4(p,1)).xyz;
  o.worldNormal=mul(Transform.NormalToWorld,float4(input.normal.xyz,0)).xyz;
  o.worldTangent=float4(mul(Transform.LocalToWorld,float4(input.tangent.xyz,0)).xyz,input.tangent.w*Transform.TransformParams.x);
  o.uv0=input.uv0; o.uv1=input.uv1; o.uv2=input.uv2; o.uv3=input.uv3; return o;

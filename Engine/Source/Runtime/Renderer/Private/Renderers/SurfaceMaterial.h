@@ -47,6 +47,12 @@ namespace Durin
 			RENDERER_API explicit FCompiledSurfaceBindingLayout(const FShaderReflectionData& Reflection);
 			auto IsValid() const -> bool { return bValid; }
 			auto GetEntries() const -> std::span<const FEntry> { return Entries; }
+			auto ForSet(uint32 SetIndex) const -> FCompiledSurfaceBindingLayout
+			{
+				auto Result = *this;
+				std::erase_if(Result.Entries, [SetIndex](const auto& Entry) { return Entry.SetIndex != SetIndex; });
+				return Result;
+			}
 		private:
 			bool bValid = false;
 			std::vector<FEntry> Entries;

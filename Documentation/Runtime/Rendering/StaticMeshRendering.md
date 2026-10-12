@@ -4,7 +4,7 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-10-12
 
 SplineMesh is a distinct primitive/deformation domain that borrows these
 StaticMesh LOD resources and uses the same material/pass/LOD/lighting policy.
@@ -320,6 +320,32 @@ sort facts. The input snapshot retains vertex declarations and streams instead
 of borrowing LOD/section/factory objects. Execution binds those resources and
 forwards direct indexed/non-indexed RHI arguments without rescanning scene
 membership or reading an implicit LOD 0.
+
+`FMeshDrawDescription` owns these logical collection facts; it replaces
+`FStaticMeshDrawCommandTemplate`. Visible records reference descriptions rather
+than copying stable payloads. The description cache retains unused entries
+across visibility changes and evicts unused entries when it exceeds 512;
+descriptions selected by the current submission remain owned independently.
+
+Primitive uniforms contain view-independent transforms, bounds, determinant
+parity, and a split high/low world origin. Pass set 0 contains camera/cascade
+projection, translated view matrices, camera origin, viewport, and material
+time. `Material.MeshUniforms` reconstructs translated primitive coordinates in
+the shader by subtracting high origin parts before adding low parts. The
+primitive uniform has no `LocalToClip` matrix. Camera movement and cascade
+selection therefore do not invalidate primitive uploads.
+
+The render-thread `FMeshDrawCommand` cache retains resolved pipelines, geometry
+owners, vertex-factory inputs, and prepared set-1 vertex/material batches.
+Static local geometry reuses primitive and material uniforms across frames and
+passes. Each pass prepares and binds its set-0 resources independently; these
+resources never enter the persistent command. Input publication, transform,
+material publication, textures/samplers, or pipeline changes rebuild the
+affected command. Renderer release or coordinator generation changes clear
+the caches. Runtime command and uniform caches each retain at most 512 entries.
+Spline deformation and materials with parameter collections use the uncached
+binding path. This contract introduces no GPUScene, dynamic instancing, or
+staggered cascade updates.
 
 View-local telemetry conserves visible candidates against prepared plus rejected
 primitives. Requested and selected LOD histograms each sum to prepared

@@ -10,6 +10,7 @@ import Lighting.ForwardLightingUniform;
 import Lighting.SurfaceLighting;
 import Material.SpecularAntialiasing;
 import Material.SurfaceMaterial;
+import Material.MeshUniforms;
 
 // Shared geometry vertex stage and independent error material fragments.
 
@@ -28,16 +29,7 @@ struct VSOutput
 
 
 
-struct MaterialPrimitiveUniform
-{
-    float4x4 LocalToClip;
-    float4x4 LocalToWorld;
-    float4x4 NormalToWorld;
-    float4x4 WorldToLocal;
-    float4 BoundsCenter;
-    // x: determinant sign; remaining components reserved.
-    float4 TransformParams;
-};
+[[vk::binding(0, 0)]] ConstantBuffer<MaterialViewUniform> MaterialView;
 
 #if DURIN_GPU_CULLING
 [[vk::binding(28, 1)]] StructuredBuffer<uint> VisibleInstances;
@@ -60,12 +52,13 @@ VSOutput EvaluateFixedGeometry(FLocalVertexFactoryInput input, uint instanceId)
 #endif
     VSOutput output;
 #if DURIN_GPU_CULLING
-    const MaterialPrimitiveUniform selectedMaterialPrimitive =
-        InstanceTransforms[VisibleInstances[instanceId]];
+    const MaterialPrimitiveUniform selectedMaterialPrimitive = TranslateMaterialPrimitive(
+        InstanceTransforms[VisibleInstances[instanceId]], MaterialView);
 #else
-    const MaterialPrimitiveUniform selectedMaterialPrimitive = MaterialPrimitive;
+    const MaterialPrimitiveUniform selectedMaterialPrimitive = TranslateMaterialPrimitive(MaterialPrimitive, MaterialView);
 #endif
-    output.pos = mul(selectedMaterialPrimitive.LocalToClip, float4(vertex.localPosition, 1.0));
+    output.pos = mul(MaterialView.WorldToClip,
+        mul(selectedMaterialPrimitive.LocalToWorld, float4(vertex.localPosition, 1.0)));
     output.color = vertex.color;
     output.worldPosition = mul(selectedMaterialPrimitive.LocalToWorld, float4(vertex.localPosition, 1.0)).xyz;
     output.worldNormal = mul(selectedMaterialPrimitive.NormalToWorld, float4(vertex.localNormal, 0.0)).xyz;

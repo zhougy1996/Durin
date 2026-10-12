@@ -6,7 +6,7 @@
 
 namespace Durin::RendererPrivate
 {
-	RENDERER_API auto BuildMeshTransformUniform(const FSceneView& View,
+	RENDERER_API auto BuildMeshTransformUniform(
 		const FPreparedStaticMeshPrimitive& Primitive) -> FStaticMeshTransformUniform;
 
 	// Uniform ranges shared by every pass that draws one prepared primitive.
@@ -57,10 +57,9 @@ namespace Durin::RendererPrivate
 	{
 	public:
 		FStaticMeshPrimitiveUniformPreparer(
-			FRHICommandListImmediate& InCommandList,
-			const FSceneView& InView
+			FRHICommandListImmediate& InCommandList
 		)
-			: CommandList(InCommandList), View(InView)
+			: CommandList(InCommandList)
 		{
 		}
 
@@ -69,13 +68,12 @@ namespace Durin::RendererPrivate
 
 	private:
 		FRHICommandListImmediate& CommandList;
-		const FSceneView& View;
 	};
 
 	auto PrepareMeshViewUniform(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bLighting) -> FRHIUniformBufferRange;
 
 	RENDERER_API auto PrepareStaticMeshPrimitiveUniforms(FRHICommandListImmediate& CommandList,
-		const FSceneView& View, const FPreparedStaticMeshView& Prepared,
+		const FPreparedStaticMeshView& Prepared,
 		FResolvedStaticMeshView& Resolved) -> bool;
 
 	// Validates, binds, and submits the geometry referenced by one prepared draw.

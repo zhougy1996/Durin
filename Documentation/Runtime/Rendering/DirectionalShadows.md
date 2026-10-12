@@ -277,6 +277,12 @@ selected-LOD, and section fact builds/reuses. A build means the current cascade 
 that logical work; a reuse means a selected frame-local shared owner supplied
 it. Zero reuse is therefore meaningful and does not imply a missing sample.
 
+Resource counters also distinguish primitive uniform uploads/reuses and
+persistent mesh command hits/misses. They sum cascade draw membership, not
+unique scene primitives. Pass projection/view data remains cascade-local while
+stable primitive and material bindings can be reused across all cascades and
+subsequent frames.
+
 ## Qualification and Decision Evidence
 
 `DirectionalShadowBaselineVulkanTests` owns disabled/Unlit parity,
@@ -291,6 +297,30 @@ artifacts; fixed historical image hashes are not acceptance gates for lighting
 tuning. CPU contracts own split ordering, overlap,
 selection, and degenerate inputs; RHI/Vulkan coverage owns array/layer views,
 transitions, comparison sampling, creation failure, release, and retry.
+
+`ProfilesFiveBoxesWithPersistentDrawCommands` measures five actual cube meshes
+at 1920x1080 with 30 warmup and 120 measured frames per shadow candidate. It
+reports disjoint CPU resource preparation, CPU submission recording, and GPU
+Shadow Depth durations. `DURIN_MESH_DRAW_CACHE=off` disables the runtime command
+and uniform caches for a same-binary comparison; logical description caching
+remains enabled. Timings are diagnostic, not FPS acceptance gates. Hot cached
+frames require zero primitive uploads and complete command hits for their
+shadow draw membership.
+
+An isolated same-binary run on 2026-10-12 (Win64 Debug, Vulkan validation,
+GeForce GTX 1060 6GB) measured the following ThreeCascades medians:
+
+| Duration | Cache off | Cache on |
+| --- | ---: | ---: |
+| CPU shadow resource preparation | 0.729 ms | 0.508 ms |
+| CPU whole-view submission recording | 5.597 ms | 5.127 ms |
+| GPU Shadow Depth | 0.081 ms | 0.081 ms |
+
+The five boxes had ten cascade draw memberships. Hot cached frames reported
+ten command hits, zero misses, and zero primitive uploads. These are fixture
+diagnostics; they do not measure the editor scene's FPS or isolate every CPU
+cost of removing a mesh.
+
 Production timing gates are listed in
 [Deferred Directional Lighting](DeferredDirectionalLighting.md#memory-and-qualification).
 

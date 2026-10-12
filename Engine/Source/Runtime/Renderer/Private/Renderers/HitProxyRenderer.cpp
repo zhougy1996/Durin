@@ -138,7 +138,7 @@ namespace Durin
 				Pipeline.PipelineLayout = Item.ShaderMap.GetPipelineLayout();
 				Item.Pipeline = FRenderPipelineRequestScope::Graphics("HitProxy", Pipeline);
 				if (!Item.Pipeline) { bReady = false; break; }
-				Item.Transform = FStaticMeshPrimitiveUniformPreparer(Commands, View).Prepare(*Item.Primitive).Transform;
+				Item.Transform = FStaticMeshPrimitiveUniformPreparer(Commands).Prepare(*Item.Primitive).Transform;
 				const auto It = Ids.find(Item.Primitive->PrimitiveId.Value);
 				struct FIdUniform { std::array<uint32, 4> Id; FVector4f ViewOrigin; };
 				const FIdUniform Id{{It == Ids.end() ? 0u : It->second, 0, 0, 0}, FVector4f(0.f)};

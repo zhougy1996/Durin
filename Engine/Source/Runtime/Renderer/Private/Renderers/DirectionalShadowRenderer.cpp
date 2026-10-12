@@ -259,6 +259,10 @@ namespace Durin
 			Observations.AttemptedDraws += Counts[CascadeIndex].AttemptedDraws;
 			Observations.SuccessfulDraws += Counts[CascadeIndex].SuccessfulDraws;
 			Observations.RejectedDraws += Counts[CascadeIndex].RejectedDraws;
+			Telemetry.DirectionalShadow.ShadowPrimitiveUniformUploads += Observations.PrimitiveUniformUploads;
+			Telemetry.DirectionalShadow.ShadowPrimitiveUniformReuses += Observations.PrimitiveUniformReuses;
+			Telemetry.DirectionalShadow.ShadowPersistentCommandHits += Observations.PersistentCommandHits;
+			Telemetry.DirectionalShadow.ShadowPersistentCommandMisses += Observations.PersistentCommandMisses;
 			auto& CascadeTelemetry = Telemetry.DirectionalShadow.ShadowCascades[CascadeIndex];
 			CascadeTelemetry.AttemptedDraws =
 				ResolvedShadow.StaticMeshes[CascadeIndex].Observations.AttemptedDraws;

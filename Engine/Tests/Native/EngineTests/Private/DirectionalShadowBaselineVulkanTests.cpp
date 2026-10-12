@@ -360,6 +360,34 @@ namespace
 		return Data;
 	}
 
+	std::vector<Durin::FGPUTimingQueryRHIRef>* GPreparationTimingQueries = nullptr;
+	auto CapturePreparationTiming(const Durin::FGPUTimingQueryRHIRef& Query) -> void
+	{
+		if (GPreparationTimingQueries) GPreparationTimingQueries->push_back(Query);
+	}
+
+	auto MakeBoxRenderData() -> std::unique_ptr<Durin::FStaticMeshRenderData>
+	{
+		auto Data = MakeQuadRenderData();
+		auto& LOD = Data->LODResources[0];
+		LOD.VertexBuffers.PositionVertexBuffer.Init({
+			{-1,-1,-1}, {1,-1,-1}, {1,1,-1}, {-1,1,-1},
+			{-1,-1,1}, {1,-1,1}, {1,1,1}, {-1,1,1}});
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.Init(
+			std::vector<Durin::FVector3f>(8, {0,0,1}), std::vector<Durin::FVector4f>(8, {1,0,0,1}));
+		std::array<std::vector<Durin::FVector2f>, Durin::MaxStaticMeshUVChannels> UVs;
+		UVs[0].resize(8);
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.Init(std::move(UVs), 8, 1);
+		LOD.VertexBuffers.ColorVertexBuffer.Init(std::vector<Durin::FVector4f>(8, Durin::FVector4f(1)), 8);
+		LOD.IndexBuffer.Init({0,2,1,0,3,2,4,5,6,4,6,7,0,1,5,0,5,4,3,7,6,3,6,2,0,4,7,0,7,3,1,2,6,1,6,5});
+		LOD.Sections[0].IndexCount = 36;
+		LOD.Sections[0].MaxVertexIndex = 7;
+		LOD.LocalBounds = Durin::FBox({-1,-1,-1},{1,1,1});
+		LOD.Sections[0].LocalBounds = LOD.LocalBounds;
+		Data->RecalculateBounds();
+		return Data;
+	}
+
 	auto MakeMaterial(Durin::EMaterialBlendMode BlendMode, const Durin::FVector3& BaseColor, Durin::EMaterialShadingModel ShadingModel = Durin::EMaterialShadingModel::Lit, const Durin::FVector3& Emissive = Durin::FVector3(0.0), float Opacity = 1.0f)
 		-> Durin::FMaterialRenderProxyRef
 	{
@@ -1211,8 +1239,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 	Durin::RHIExit();
 }
 
-TEST(FDirectionalShadowBaselineVulkanTests,
-	ProfilesFrozenHighOverlapPreparationFixture)
+static void ProfileShadowPreparation(size_t PrimitiveCount, bool bBoxes)
 {
 	if (!Durin::GIsGameThreadIdInitialized)
 	{
@@ -1230,7 +1257,7 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	RendererLifecycle.Start(Renderer);
 	Durin::SetViewRenderTelemetrySink(CaptureTelemetry);
 
-	auto Quad = MakeQuadRenderData();
+	auto Quad = bBoxes ? MakeBoxRenderData() : MakeQuadRenderData();
 	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			ASSERT_TRUE(Quad->InitResources(CommandList));
@@ -1239,7 +1266,6 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	auto Opaque = MakeMaterial(
 		Durin::EMaterialBlendMode::Opaque, {0.72, 0.72, 0.72});
 
-	constexpr size_t PrimitiveCount = 128u;
 	constexpr size_t WarmupFrames = 30u;
 	constexpr size_t MeasuredFrames = 120u;
 	Durin::FSceneTestOwner SceneOwner;
@@ -1252,8 +1278,8 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 			std::make_unique<Durin::FStaticMeshSceneProxy>(
 				Quad.get(),
 				std::vector<Durin::FMaterialRenderProxyRef>{Opaque}),
-			MakeTransform({.Translation = {100.0, Offset, 0.0},
-				.Scale = {100.0, 100.0, 1.0}}));
+			MakeTransform({.Translation = bBoxes ? Durin::FVector3{24.0 + Index * 3.0, -4.0 + Index * 2.0, 0.0} : Durin::FVector3{100.0, Offset, 0.0},
+				.Scale = bBoxes ? Durin::FVector3{1.0} : Durin::FVector3{100.0, 100.0, 1.0}}));
 	}
 	Durin::FDirectionalLightSceneData Directional;
 	Directional.Direction = {-1.0, 0.2, -0.25};
@@ -1267,12 +1293,18 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	struct FProfile
 	{
 		std::vector<uint64> Logical;
+		std::vector<uint64> Resources;
+		std::vector<uint64> Submission;
+		std::vector<uint64> GPU;
+		std::vector<Durin::FGPUTimingQueryRHIRef> Queries;
 		std::vector<uint64> Discovery;
 		std::vector<uint64> StaticSpline;
 		Durin::FViewRenderTelemetry LastTelemetry;
 	};
 	auto ProfileCandidate = [&](Durin::EDirectionalShadowCandidate Candidate) {
 		auto Profile = std::make_shared<FProfile>();
+		GPreparationTimingQueries = &Profile->Queries;
+		Durin::SetShadowDepthTimingQuerySink(CapturePreparationTiming);
 		Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
 			[&Renderer, &Scene, Candidate, Profile](
 				Durin::FRHICommandListImmediate& CommandList) {
@@ -1311,12 +1343,15 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 					View.Settings.DirectionalShadow.FilterQuality =
 						Durin::EDirectionalShadowFilterQuality::Medium;
 					View.Settings.DirectionalShadow.bEnableContactShadows = false;
+					const auto SubmissionStart = std::chrono::steady_clock::now();
 					ASSERT_EQ(Renderer.RenderView(
 						CommandList, &Scene, View, Target, false, {}),
 						Durin::ERenderViewResult::Success);
 					Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 					if (Frame >= WarmupFrames)
 					{
+						Profile->Submission.push_back(static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - SubmissionStart).count()));
+						Profile->Resources.push_back(GLastTelemetry.DirectionalShadow.ShadowResourcePreparationNanoseconds);
 						Profile->Logical.push_back(
 							GLastTelemetry.DirectionalShadow.ShadowLogicalPreparationNanoseconds);
 						Profile->Discovery.push_back(
@@ -1328,6 +1363,29 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 				Profile->LastTelemetry = GLastTelemetry;
 			});
 		Durin::FlushRenderingCommands();
+		Durin::SetShadowDepthTimingQuerySink(nullptr);
+		GPreparationTimingQueries = nullptr;
+		for (uint32 Attempt = 0; Attempt < 100; ++Attempt)
+		{
+			if (std::ranges::all_of(Profile->Queries, [](const auto& Query) {
+				return Query->GetResult().State == Durin::ERHIGPUTimingResultState::Ready;
+			})) break;
+			Durin::EnqueueRenderCommand<FShadowBaselineCommand>([](Durin::FRHICommandListImmediate& Commands) {
+				++Durin::GRenderFrameCounterRenderThread;
+				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+				Durin::GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+			});
+			Durin::FlushRenderingCommands();
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		EXPECT_EQ(Profile->Queries.size(), WarmupFrames + MeasuredFrames);
+		for (size_t Index = WarmupFrames; Index < Profile->Queries.size(); ++Index)
+		{
+			const auto Result = Profile->Queries[Index]->GetResult();
+			EXPECT_EQ(Result.State, Durin::ERHIGPUTimingResultState::Ready);
+			if (Result.State == Durin::ERHIGPUTimingResultState::Ready) Profile->GPU.push_back(Result.DurationNanoseconds);
+		}
+		Profile->Queries.clear();
 		return *Profile;
 	};
 
@@ -1355,9 +1413,7 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	EXPECT_EQ(
 		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowCascadeClassificationTests,
 		UniqueEligible * Durin::DirectionalShadowCascadeCount);
-	EXPECT_GE(
-		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowMembershipPopcount * 2u,
-		UniqueEligible * 3u);
+	if (!bBoxes) EXPECT_GE(ThreeCascades.LastTelemetry.DirectionalShadow.ShadowMembershipPopcount * 2u, UniqueEligible * 3u);
 	EXPECT_EQ(
 		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowStaticSplinePrimitiveFactBuilds,
 		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowMembershipPopcount);
@@ -1371,8 +1427,16 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	EXPECT_GT(CascadeLogical.MedianNanoseconds, 0u);
 	EXPECT_GT(CascadeDiscovery.MedianNanoseconds, 0u);
 	EXPECT_GT(CascadeStatic.MedianNanoseconds, 0u);
+	const char* CacheSetting = std::getenv("DURIN_MESH_DRAW_CACHE");
+	if (bBoxes && (!CacheSetting || std::string_view(CacheSetting) != "off"))
+	{
+		EXPECT_EQ(ThreeCascades.LastTelemetry.DirectionalShadow.ShadowPrimitiveUniformUploads, 0u);
+		EXPECT_GT(ThreeCascades.LastTelemetry.DirectionalShadow.ShadowPrimitiveUniformReuses, 0u);
+		EXPECT_GT(ThreeCascades.LastTelemetry.DirectionalShadow.ShadowPersistentCommandHits, 0u);
+		EXPECT_EQ(ThreeCascades.LastTelemetry.DirectionalShadow.ShadowPersistentCommandMisses, 0u);
+	}
 	std::cout
-		<< "Directional shadow preparation qualification: single_median_ns="
+		<< "Directional shadow preparation qualification: primitives=" << PrimitiveCount << ",boxes=" << bBoxes << ",single_median_ns="
 		<< SingleLogical.MedianNanoseconds
 		<< ",single_p95_ns=" << SingleLogical.P95Nanoseconds
 		<< ",cascade_median_ns=" << CascadeLogical.MedianNanoseconds
@@ -1381,6 +1445,14 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 		<< ",discovery_p95_ns=" << CascadeDiscovery.P95Nanoseconds
 		<< ",static_median_ns=" << CascadeStatic.MedianNanoseconds
 		<< ",static_p95_ns=" << CascadeStatic.P95Nanoseconds
+		<< ",resource_median_ns=" << SummarizeTimings(ThreeCascades.Resources).MedianNanoseconds
+		<< ",resource_p95_ns=" << SummarizeTimings(ThreeCascades.Resources).P95Nanoseconds
+		<< ",submission_median_ns=" << SummarizeTimings(ThreeCascades.Submission).MedianNanoseconds
+		<< ",shadow_gpu_median_ns=" << SummarizeTimings(ThreeCascades.GPU).MedianNanoseconds
+		<< ",uploads=" << ThreeCascades.LastTelemetry.DirectionalShadow.ShadowPrimitiveUniformUploads
+		<< ",reuses=" << ThreeCascades.LastTelemetry.DirectionalShadow.ShadowPrimitiveUniformReuses
+		<< ",command_hits=" << ThreeCascades.LastTelemetry.DirectionalShadow.ShadowPersistentCommandHits
+		<< ",command_misses=" << ThreeCascades.LastTelemetry.DirectionalShadow.ShadowPersistentCommandMisses
 		<< ",unique=" << UniqueEligible
 		<< ",membership="
 		<< ThreeCascades.LastTelemetry.DirectionalShadow.ShadowMembershipPopcount << '\n';
@@ -1393,6 +1465,16 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
+}
+
+TEST(FDirectionalShadowBaselineVulkanTests, ProfilesFrozenHighOverlapPreparationFixture)
+{
+	ProfileShadowPreparation(128u, false);
+}
+
+TEST(FDirectionalShadowBaselineVulkanTests, ProfilesFiveBoxesWithPersistentDrawCommands)
+{
+	ProfileShadowPreparation(5u, true);
 }
 
 TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearFieldBounded)

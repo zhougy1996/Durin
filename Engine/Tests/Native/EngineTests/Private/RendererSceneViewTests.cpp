@@ -50,13 +50,16 @@ namespace Durin
 		Primitive.LocalToWorld = Math::TranslationMatrix(View.ViewLocation + Offset);
 		ASSERT_TRUE(Math::TryInverse(Primitive.LocalToWorld, Primitive.WorldToLocal));
 		Primitive.BoundsCenter = View.ViewLocation + Offset;
-		const auto Uniform = RendererPrivate::BuildMeshTransformUniform(View, Primitive);
-		const FVector4f Relative = glm::transpose(Uniform.LocalToWorld) * FVector4f(0, 0, 0, 1);
+		const auto Uniform = RendererPrivate::BuildMeshTransformUniform(Primitive);
+		const FVector3f ViewHigh(View.ViewLocation);
+		const FVector3f ViewLow(View.ViewLocation - FVector3(ViewHigh));
+		const FVector3f Origin = (FVector3f(Uniform.WorldOriginHigh) - ViewHigh)
+			+ (FVector3f(Uniform.WorldOriginLow) - ViewLow);
+		const FVector4f Relative(Origin, 1.0f);
 		EXPECT_EQ(FVector3f(Relative), FVector3f(Offset));
-		EXPECT_EQ(FVector3f(Uniform.BoundsCenter), FVector3f(Offset));
-		const FVector4f Local = glm::transpose(Uniform.WorldToLocal) * Relative;
+		EXPECT_EQ(FVector3f(Uniform.BoundsCenter) + Origin, FVector3f(Offset));
+		const FVector4f Local = glm::transpose(Uniform.WorldToLocal) * FVector4f(FVector3f(Relative) - Origin, 1.0f);
 		EXPECT_EQ(FVector3f(Local), FVector3f(0.0f));
-		EXPECT_EQ(glm::transpose(Uniform.LocalToClip) * FVector4f(0, 0, 0, 1), Relative);
 
 		FPreparedLightView Lights;
 		Lights.Local.push_back({.Id = FLightComponentId{}, .Position = View.ViewLocation + Offset, .Range = 4.0f});
@@ -67,8 +70,15 @@ namespace Durin
 		FSceneView OtherView = View;
 		OtherView.ViewLocation += FVector3{1.0, 2.0, 3.0};
 		OtherView.ViewMatrix = Math::TranslationMatrix(-OtherView.ViewLocation);
-		const auto Other = RendererPrivate::BuildMeshTransformUniform(OtherView, Primitive);
-		EXPECT_EQ(FVector3f(Other.BoundsCenter), FVector3f(Offset - FVector3{1.0, 2.0, 3.0}));
+		const auto Other = RendererPrivate::BuildMeshTransformUniform(Primitive);
+		EXPECT_EQ(Other.LocalToWorld, Uniform.LocalToWorld);
+		EXPECT_EQ(Other.WorldOriginHigh, Uniform.WorldOriginHigh);
+		EXPECT_EQ(Other.WorldOriginLow, Uniform.WorldOriginLow);
+		const FVector3f OtherHigh(OtherView.ViewLocation);
+		const FVector3f OtherLow(OtherView.ViewLocation - FVector3(OtherHigh));
+		const FVector3f OtherOrigin = (FVector3f(Other.WorldOriginHigh) - OtherHigh)
+			+ (FVector3f(Other.WorldOriginLow) - OtherLow);
+		EXPECT_EQ(FVector3f(Other.BoundsCenter) + OtherOrigin, FVector3f(Offset - FVector3{1.0, 2.0, 3.0}));
 		EXPECT_EQ(Primitive.BoundsCenter, View.ViewLocation + Offset);
 	}
 

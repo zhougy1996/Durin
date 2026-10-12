@@ -923,7 +923,7 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
 		.WorldBounds = FBox(FVector3(-2.0), FVector3(2.0)),
 		.BoundsCenter = FVector3(3.0, 4.0, 5.0)});
 	Prepared.Primitives[0].WorldToLocal[0][0] = 2.0f;
-	auto Command = std::make_shared<FStaticMeshDrawCommandTemplate>();
+	auto Command = std::make_shared<FMeshDrawDescription>();
 	Command->bSupportsGBuffer = true;
 	Command->Geometry = {.bIndexed = true, .ElementCount = 36,
 		.FirstElement = 7, .VertexOffset = -2};
@@ -3322,14 +3322,14 @@ TEST(FRendererSceneContractTests, CompiledSurfaceLayoutsRejectUnsupportedContrac
 	}
 }
 
-TEST(FRendererSceneContractTests, CommandTemplatesInvalidatePolicyAndRetireUnseenEntries)
+TEST(FRendererSceneContractTests, CommandDescriptionsInvalidatePolicyAndRetainUnseenEntries)
 {
 	using namespace Durin;
-	FStaticMeshDrawCommandCache Cache;
+	FMeshDrawDescriptionCache Cache;
 	Cache.BeginSubmission();
-	auto Command = std::make_shared<FStaticMeshDrawCommandTemplate>();
+	auto Command = std::make_shared<FMeshDrawDescription>();
 	Command->Material = GetErrorMaterialRenderData();
-	const FStaticMeshDrawCommandCache::FKey Key{11, 2, Command->Material.Representation.GetRecordId(), 0};
+	const FMeshDrawDescriptionCache::FKey Key{11, 2, Command->Material.Representation.GetRecordId(), 0};
 	Cache.Store(Key, Command);
 	Cache.EndSubmission();
 	Cache.BeginSubmission();
@@ -3345,10 +3345,14 @@ TEST(FRendererSceneContractTests, CommandTemplatesInvalidatePolicyAndRetireUnsee
 	}
 	Cache.EndSubmission();
 	EXPECT_EQ(Cache.Num(), 1u);
-	std::weak_ptr<const FStaticMeshDrawCommandTemplate> Weak = Command;
+	std::weak_ptr<const FMeshDrawDescription> Weak = Command;
 	Cache.BeginSubmission();
 	Cache.EndSubmission();
-	EXPECT_EQ(Cache.Num(), 0u);
+	EXPECT_EQ(Cache.Num(), 1u);
+	Cache.BeginSubmission();
+	EXPECT_EQ(Cache.Find(Key, Command->Material), Command);
+	Cache.EndSubmission();
+	Cache.Reset();
 	EXPECT_FALSE(Weak.expired());
 	Command.reset();
 	EXPECT_TRUE(Weak.expired());
@@ -3364,7 +3368,7 @@ TEST(FRendererSceneContractTests, CompactOrderingMatchesFullKeysAndRetainsTempla
 	Original.SelectedLODIndex = 1;
 	Original.SectionIndex = 4;
 	auto MakeVisible = [](const FMeshDrawSortKey& Full) {
-		auto Owner = std::make_shared<FStaticMeshDrawCommandTemplate>();
+		auto Owner = std::make_shared<FMeshDrawDescription>();
 		Owner->SortKey = Full;
 		FVisibleMeshDrawSortKey Visible;
 		Visible.State = {Owner, &Owner->SortKey};

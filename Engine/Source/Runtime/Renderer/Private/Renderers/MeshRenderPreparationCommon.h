@@ -157,6 +157,12 @@ namespace Durin
 		std::shared_ptr<const FRHIShaderParameterBatch> VertexBindings;
 		std::shared_ptr<const FRHIShaderParameterBatch> HybridVertexBindings;
 		std::shared_ptr<const FRHIShaderParameterBatch> GBufferVertexBindings;
+		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> VertexPassBindings;
+		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> HybridVertexPassBindings;
+		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> GBufferVertexPassBindings;
+		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> FragmentPassBindings;
+		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> HybridFragmentPassBindings;
+		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> GBufferFragmentPassBindings;
 		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> SurfaceBindings;
 		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> HybridSurfaceBindings;
 		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> GBufferBindings;

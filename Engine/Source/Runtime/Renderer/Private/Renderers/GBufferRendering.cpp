@@ -120,7 +120,7 @@ namespace Durin
 						.ArgumentIndex = ArgumentIndex,
 						.BoundsMax = Group[GroupIndex].BoundsMax,
 						.TransformIndex = Index});
-					const auto Transform = RendererPrivate::BuildMeshTransformUniform(View, Primitive);
+					const auto Transform = RendererPrivate::BuildMeshTransformUniform(Primitive);
 					Plan->Transforms.push_back(Transform);
 				}
 			}

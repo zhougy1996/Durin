@@ -120,7 +120,7 @@ namespace Durin
 		FSceneViewStateRegistry ViewStates;
 		// Used only during serial render-thread preparation; retains candidate capacity.
 		FSceneVisibilityResult VisibilityScratch;
-		FStaticMeshDrawCommandCache MeshCommandCache;
+		FMeshDrawDescriptionCache MeshCommandCache;
 		uint64 RenderSubmissionSerial = 0;
 		FSceneRenderGraphWarnings RenderGraphWarnings;
 	};

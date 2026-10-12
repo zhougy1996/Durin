@@ -23,7 +23,7 @@ namespace Durin
 	// Opaque producer identity; algorithm changes invalidate builds, not DMAT admission.
 	ENGINE_API auto GetMaterialBuildVersion() -> uint64;
 	ENGINE_API auto GetMaterialCompileAdapterVersion() -> uint32;
-	inline constexpr uint32 CurrentMaterialPassContractVersion = 8;
+	inline constexpr uint32 CurrentMaterialPassContractVersion = 9;
 	inline constexpr std::array<std::string_view, 7> MaterialCompiledEntryPoints{
 		"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain",
 		"VertexMain", "SplineVertexMain", "GPUCullingVertexMain"};

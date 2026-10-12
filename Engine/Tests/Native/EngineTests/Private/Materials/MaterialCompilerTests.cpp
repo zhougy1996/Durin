@@ -505,8 +505,8 @@ TEST(FMaterialProgramGeneratorTests, ContextAndSpatialTransformsCompileWithExact
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
 		: FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));
-	for (const std::string_view Text : {"MaterialView.CameraWorldPosition", "MaterialPrimitive.BoundsCenter",
-		"MaterialView.Viewport", "MaterialPrimitive.WorldToLocal", "MaterialTangentToWorld(input)"})
+	for (const std::string_view Text : {"MaterialView.CameraWorldPosition", "GetMaterialPrimitive().BoundsCenter",
+		"MaterialView.Viewport", "GetMaterialPrimitive().WorldToLocal", "MaterialTangentToWorld(input)"})
 		EXPECT_NE(Compiled.GeneratedSource.find(Text), std::string::npos) << Text;
 	EXPECT_TRUE(Compiled.Requirements.bMaterialView);
 	EXPECT_TRUE(Compiled.Requirements.bMaterialPrimitive);

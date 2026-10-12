@@ -116,10 +116,22 @@ namespace Durin::RendererPrivate
 			.bCreateRHIShaders = true}, OutShaderMap);
 	}
 
+	// The factory owns set 1; camera/cascade set 0 is supplied by the pass.
+	template<typename TShader>
+	auto PrepareMeshVertexFactoryParameters(const TMaterialShaderRef<TShader>& Shader,
+		const typename TShader::FParameters& Parameters) -> std::shared_ptr<const FRHIShaderParameterBatch>
+	{
+		const auto* Content = Shader.GetShader();
+		if (!Content || !Shader.GetRHIShader(false)) return {};
+		std::vector<FShaderParameterBinding> Bindings(Content->GetParameterBindings().begin(), Content->GetParameterBindings().end());
+		std::erase_if(Bindings, [](const auto& Parameter) { return Parameter.SetIndex == 0; });
+		return PrepareShaderParametersImpl(Shader.GetRHIShader(false), *TShader::GetParametersMetadata(), Bindings, &Parameters);
+	}
+
 	inline auto PrepareMeshVertexMaterial(const FMeshVertexShaderBinding& Shader,
 		std::shared_ptr<const FRHIShaderParameterBatch> Base,
 		const FResolvedSurfaceMaterial& Material, const FRHIUniformBufferRange& Uniform,
-		const FRHIUniformBufferRange& View, std::span<const FRHIUniformBufferRange> Collections = {})
+		const FRHIUniformBufferRange& View, std::span<const FRHIUniformBufferRange> Collections = {}, bool bStableOnly = false)
 		-> std::shared_ptr<const FRHIShaderParameterBatch>
 	{
 		if (!Base) return {};
@@ -127,6 +139,7 @@ namespace Durin::RendererPrivate
 		if (!Reflection) return Base;
 		auto Remaining = *Reflection;
 		std::erase_if(Remaining.ResourceBindings, [&](const auto& Binding) {
+			if (bStableOnly && Binding.SetIndex == 0) return true;
 			return std::ranges::any_of(Base->GetParameters(), [&](const auto& Resource) {
 				return Resource.SetIndex == Binding.SetIndex && Resource.BindingIndex == Binding.BindingIndex;
 			});
@@ -146,6 +159,7 @@ namespace Durin::RendererPrivate
 	public:
 		DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshVertexShader)
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialPrimitive);
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
 		DURIN_END_SHADER_PARAMETERS();
 
 		DURIN_DECLARE_MESH_MATERIAL_SHADER(
@@ -167,6 +181,7 @@ namespace Durin::RendererPrivate
 		}
 		DURIN_BEGIN_SHADER_PARAMETERS(FSplineMeshVertexShader)
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialPrimitive);
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(SplineMesh);
 		DURIN_END_SHADER_PARAMETERS();
 		DURIN_DECLARE_MESH_MATERIAL_SHADER(FSplineMeshVertexShader, FMeshMaterialShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "SplineVertexMain");
@@ -175,12 +190,13 @@ namespace Durin::RendererPrivate
 
 	struct FStaticMeshTransformUniform
 	{
-		FMatrix4f LocalToClip{1.0f};
 		FMatrix4f LocalToWorld{1.0f};
 		FMatrix4f NormalToWorld{1.0f};
 		FMatrix4f WorldToLocal{1.0f};
 		FVector4f BoundsCenter{0.0f};
 		FVector4f TransformParams{1.0f, 0.0f, 0.0f, 0.0f};
+		FVector4f WorldOriginHigh{0.0f};
+		FVector4f WorldOriginLow{0.0f};
 	};
 
 	struct FMaterialViewUniform
@@ -191,6 +207,9 @@ namespace Durin::RendererPrivate
 		FVector4f ReciprocalViewport{0.0f};
 		FMatrix4f WorldToView{1.0f};
 		FMatrix4f ViewToWorld{1.0f};
+		FMatrix4f WorldToClip{1.0f};
+		FVector4f WorldOriginHigh{0.0f};
+		FVector4f WorldOriginLow{0.0f};
 	};
 
 	struct FSplineMeshUniform
@@ -352,7 +371,7 @@ namespace Durin::RendererPrivate
 
 	inline auto MakeStaticMeshDrawSortKey(
 		const FPreparedStaticMeshPrimitive& Primitive,
-		const FStaticMeshDrawCommandTemplate& Draw
+		const FMeshDrawDescription& Draw
 	) -> FMeshDrawSortKey
 	{
 		const auto Elements = Primitive.CollectedBinding != nullptr ? Primitive.CollectedBinding->DeclarationElements : FVertexDeclarationElementList{};

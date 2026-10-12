@@ -12,6 +12,7 @@ namespace Durin::RendererPrivate
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferLocalVertexShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialPrimitive);
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferLocalVertexShader, FMeshMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Vertex,
@@ -27,6 +28,7 @@ namespace Durin::RendererPrivate
 			}
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferSplineVertexShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialPrimitive);
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(SplineMesh);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferSplineVertexShader, FMeshMaterialShader,
@@ -45,6 +47,7 @@ namespace Durin::RendererPrivate
 			}
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferGPUCullingVertexShader)
 				DURIN_SHADER_PARAMETER_STORAGE_BUFFER(VisibleInstances);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
 				DURIN_SHADER_PARAMETER_STORAGE_BUFFER(InstanceTransforms);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferGPUCullingVertexShader,
@@ -80,7 +83,7 @@ namespace Durin::RendererPrivate
 					Parameters.SplineMesh = CommandList.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
 				}
 				else if (Binding.GetLayoutKey() != FStaticMeshBatchBinding{}.GetLayoutKey()) return {};
-				return PrepareShaderParameters(Shader, Parameters);
+				return RendererPrivate::PrepareMeshVertexFactoryParameters(Shader, Parameters);
 			}
 		private:
 			TMaterialShaderRef<TShader> Shader;
@@ -108,7 +111,7 @@ namespace Durin::RendererPrivate
 				FGBufferGPUCullingVertexShader::FParameters Parameters;
 				Parameters.VisibleInstances = VisibleInstances;
 				Parameters.InstanceTransforms = InstanceTransforms;
-				return PrepareShaderParameters(Shader, Parameters);
+				return RendererPrivate::PrepareMeshVertexFactoryParameters(Shader, Parameters);
 			}
 		private:
 			TMaterialShaderRef<FGBufferGPUCullingVertexShader> Shader;

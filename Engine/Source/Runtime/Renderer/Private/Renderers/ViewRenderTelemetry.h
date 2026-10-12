@@ -135,6 +135,10 @@ namespace Durin
 		uint64 ShadowSortingBatchingNanoseconds = 0;
 		uint64 ShadowLogicalPreparationNanoseconds = 0;
 		uint64 ShadowResourcePreparationNanoseconds = 0;
+		size_t ShadowPrimitiveUniformUploads = 0;
+		size_t ShadowPrimitiveUniformReuses = 0;
+		size_t ShadowPersistentCommandHits = 0;
+		size_t ShadowPersistentCommandMisses = 0;
 		size_t ShadowPreparedStaticMeshCasters = 0;
 		size_t ShadowPreparedSplineMeshCasters = 0;
 		size_t ShadowPreparedTriangles = 0;

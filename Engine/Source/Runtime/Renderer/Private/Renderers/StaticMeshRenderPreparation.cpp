@@ -83,18 +83,23 @@ namespace Durin
 		}
 	}
 
-	auto FStaticMeshDrawCommandCache::BeginSubmission() -> void
+	auto FMeshDrawDescriptionCache::BeginSubmission() -> void
 	{
 		for (auto& [Key, Entry] : Entries) Entry.bUsed = false;
 	}
 
-	auto FStaticMeshDrawCommandCache::EndSubmission() -> void
+	auto FMeshDrawDescriptionCache::EndSubmission() -> void
 	{
-		std::erase_if(Entries, [](const auto& Pair) { return !Pair.second.bUsed; });
+		while (Entries.size() > 512)
+		{
+			const auto Unused = std::ranges::find_if(Entries, [](const auto& Pair) { return !Pair.second.bUsed; });
+			if (Unused == Entries.end()) break;
+			Entries.erase(Unused);
+		}
 	}
 
-	auto FStaticMeshDrawCommandCache::Find(const FKey& Key, const FMaterialRenderData& Material)
-		-> std::shared_ptr<const FStaticMeshDrawCommandTemplate>
+	auto FMeshDrawDescriptionCache::Find(const FKey& Key, const FMaterialRenderData& Material)
+		-> std::shared_ptr<const FMeshDrawDescription>
 	{
 		const auto It = Entries.find(Key);
 		if (It == Entries.end() || It->second.Command->Material.PlanningPassIdentity != Material.PlanningPassIdentity
@@ -103,7 +108,7 @@ namespace Durin
 		return It->second.Command;
 	}
 
-	auto FStaticMeshDrawCommandCache::Store(const FKey& Key, std::shared_ptr<const FStaticMeshDrawCommandTemplate> Command) -> void
+	auto FMeshDrawDescriptionCache::Store(const FKey& Key, std::shared_ptr<const FMeshDrawDescription> Command) -> void
 	{
 		Entries.insert_or_assign(Key, FEntry{std::move(Command), true});
 	}
@@ -317,7 +322,7 @@ namespace Durin
 						| (static_cast<uint64>(Mode) << 16)
 						| (static_cast<uint64>(Determinant < 0.0) << 24)
 						| (static_cast<uint64>(bSplineMesh) << 25);
-					const FStaticMeshDrawCommandCache::FKey Key{
+					const FMeshDrawDescriptionCache::FKey Key{
 						Batch.GeometryRecord ? Batch.GeometryRecord->GetRecordId() : 0,
 						ElementIndex, Material.Representation.GetRecordId(), Policy};
 					if (Batch.GeometryRecord && Cache.Commands)
@@ -325,7 +330,7 @@ namespace Durin
 					if (Item.Command) Item.bTemplateReused = true;
 					else
 					{
-						auto Candidate = std::make_shared<FStaticMeshDrawCommandTemplate>();
+						auto Candidate = std::make_shared<FMeshDrawDescription>();
 						Candidate->Material = Material;
 						Candidate->GeometryOwner = Batch.GeometryRecord;
 						Candidate->SectionIndex = SectionIndex;
@@ -510,8 +515,8 @@ namespace Durin
 					if (!FrozenElement.Command) continue;
 					Item.Command = FrozenElement.Command;
 					Item.MaterialUniformIndex = FrozenElement.MaterialUniformIndex;
-					if (FrozenElement.bTemplateReused) ++Result.CommandTemplateReuses;
-					else ++Result.CommandTemplateBuilds;
+					if (FrozenElement.bTemplateReused) ++Result.DrawDescriptionReuses;
+					else ++Result.DrawDescriptionBuilds;
 					Item.SortKey.State = {Item.Command, &Item.Command->SortKey};
 					Item.PrimitiveIndex = PrimitiveIndex;
 					Item.SortKey.PrimitiveId = Primitive.Id.Value;
@@ -849,8 +854,8 @@ namespace Durin
 			Result.SharedSectionFactBuilds += Chunk.Output.SharedSectionFactBuilds;
 			Result.DynamicGeometryInputValidations += Chunk.Output.DynamicGeometryInputValidations;
 			Result.PublishedGeometryElements += Chunk.Output.PublishedGeometryElements;
-			Result.CommandTemplateBuilds += Chunk.Output.CommandTemplateBuilds;
-			Result.CommandTemplateReuses += Chunk.Output.CommandTemplateReuses;
+			Result.DrawDescriptionBuilds += Chunk.Output.DrawDescriptionBuilds;
+			Result.DrawDescriptionReuses += Chunk.Output.DrawDescriptionReuses;
 		}
 		FinalizeStaticMeshPreparation(Result, Inputs->MaterialCount);
 		return Result;

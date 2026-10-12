@@ -33,7 +33,7 @@ namespace Durin
 		Service.MeshCommandCache.BeginSubmission();
 		struct FEndCommandSubmission
 		{
-			FStaticMeshDrawCommandCache& Cache;
+			FMeshDrawDescriptionCache& Cache;
 			~FEndCommandSubmission() { Cache.EndSubmission(); }
 		} EndCommandSubmission{Service.MeshCommandCache};
 		MeshPreparationCache.Commands = &Service.MeshCommandCache;
