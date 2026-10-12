@@ -478,6 +478,65 @@ TEST(FAsyncCacheTests, AssetOperationExceptionalProducerStillJoinsQueuedRetireme
 	EXPECT_FALSE(Busy.Poll()); Scheduler->Run();
 }
 
+TEST(FAsyncCacheTests, MaximumInlineBatchesKeepDispatchDepthConstant)
+{
+	class FDepthScheduler final : public IBuildScheduler
+	{
+	public:
+		uint32 Depth = 0, MaximumDepth = 0;
+		auto IsInline() const -> bool override { return true; }
+		auto Schedule(const FBuildScheduleParams&, std::function<void()> Work)
+			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
+		{
+			++Depth; MaximumDepth = std::max(MaximumDepth, Depth);
+			Work(); --Depth; return std::shared_ptr<IBuildScheduledWork>{};
+		}
+	};
+	auto Scheduler = std::make_shared<FDepthScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
+	auto Async = CreateAsyncCache(Backend, Scheduler); FRequestOwner Owner;
+	const auto Key = MakeKey(FCacheBucket::FromString("InlineBatch"), 'a');
+	std::vector<FCacheGetRequest> Gets(4096, FCacheGetRequest{.Key = Key});
+	std::vector<uint32> Calls(Gets.size());
+	auto Read = Async->Get(Gets, Owner, [&](uint32 Index, auto Result, auto) {
+		EXPECT_TRUE(Result); ASSERT_LT(Index, Calls.size()); ++Calls[Index];
+	});
+	ASSERT_TRUE(Read); EXPECT_EQ((*Read)->Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Scheduler->MaximumDepth, 1u); EXPECT_EQ(Backend->Gets, 4096u);
+	for (auto Count : Calls) EXPECT_EQ(Count, 1u);
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2}))});
+	std::vector<FCachePutRequest> Puts(4096, FCachePutRequest{Record});
+	std::ranges::fill(Calls, 0u);
+	auto Write = Async->Put(Puts, Owner, [&](uint32 Index, auto Result) {
+		EXPECT_TRUE(Result); ASSERT_LT(Index, Calls.size()); ++Calls[Index];
+	});
+	ASSERT_TRUE(Write); EXPECT_EQ((*Write)->Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Scheduler->MaximumDepth, 1u); EXPECT_EQ(Backend->Puts, 4096u);
+	for (auto Count : Calls) EXPECT_EQ(Count, 1u);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Async->Drain(), ERequestWaitResult::Completed);
+}
+
+TEST(FAsyncCacheTests, SameCacheInlineSubmissionCompletesInsideCallback)
+{
+	auto Backend = std::make_shared<FAsyncFixtureCache>();
+	auto Async = CreateAsyncCache(Backend, CreateInlineBuildScheduler());
+	FRequestOwner OuterOwner, InnerOwner;
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("InlineNested"), 'b')}};
+	uint32 Calls = 0;
+	auto Outer = Async->Get(Requests, OuterOwner, [&](auto, auto Result, auto) {
+		EXPECT_TRUE(Result); ++Calls;
+		auto Inner = Async->Get(Requests, InnerOwner, [&](auto, auto NestedResult, auto) {
+			EXPECT_TRUE(NestedResult); ++Calls;
+			EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::WouldBlock);
+		});
+		ASSERT_TRUE(Inner); EXPECT_EQ((*Inner)->Wait(), ERequestWaitResult::Completed);
+		EXPECT_EQ(InnerOwner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Calls, 2u);
+	});
+	ASSERT_TRUE(Outer); EXPECT_EQ((*Outer)->Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Calls, 2u); EXPECT_EQ(OuterOwner.Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Async->Drain(), ERequestWaitResult::Completed);
+}
+
 TEST(FAsyncCacheTests, OwnsBatchSelectionsAndBoundsConcurrencyAndAdmission)
 {
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();

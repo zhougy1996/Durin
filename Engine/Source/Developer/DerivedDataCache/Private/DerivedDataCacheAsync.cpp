@@ -50,7 +50,9 @@ namespace Durin::DerivedData::Private
 			GetCallback = {}; PutCallback = {}; GetRequest = {}; Ids.clear(); PutRequest.reset();
 			{ std::lock_guard Lock(Cache->Mutex); if (Active) { --Cache->Active; Active = false; } }
 		}, Cache->Scheduler->IsInline() ? nullptr : Cache.get());
-		Cache->Pump();
+		// Inline dispatch returns to the existing pump, which advances the batch.
+		// Explicit nested submissions still pump synchronously from Admit.
+		if (!Cache->Scheduler->IsInline()) Cache->Pump();
 	}
 	auto FCacheOperation::RequestCancel() -> bool
 	{

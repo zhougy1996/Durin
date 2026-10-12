@@ -155,7 +155,12 @@ namespace Durin::DerivedData
 				if (Work->Options.Cancellation.IsCancelled()) { Work.reset(); Finish(FBuildCompleteParams::Canceled(Key, EBuildStatus::None)); return; }
 				if (Result && *Result)
 				{
-					auto Output = (**Result).ToOutput(Key, Work->Options.Policy.OutputLimits);
+					const auto& Function = std::get<FBuildAction>(Work->Request).GetFunction();
+					auto Output = (**Result).GetSchema() == Function.OutputType
+						&& (**Result).GetSchemaVersion() == Function.OutputSchema
+						? (**Result).ToOutput(Key, Work->Options.Policy.OutputLimits)
+						: std::expected<FBuildOutput, FCacheError>(std::unexpected(FCacheError{
+							ECacheError::Corrupt, "Cache output schema does not match the build function."}));
 					if (Output) { Work.reset(); Finish(FBuildCompletionAccess::Ok(std::move(*Output), Key, EBuildStatus::CacheQueryHit)); return; }
 					Result = std::unexpected(std::move(Output.error()));
 				}

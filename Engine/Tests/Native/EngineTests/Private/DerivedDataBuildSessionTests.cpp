@@ -84,11 +84,16 @@ namespace
 	public:
 		mutable std::atomic<uint32> Gets = 0, Puts = 0;
 		bool Hit = false, Partial = false, ThrowPut = false;
+		std::string OutputSchema = "Fixture.Output";
+		uint32 OutputVersion = 1;
+		bool Negative = false;
 		std::function<void()> BeforeGet;
 		auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult override
 		{
 			++Gets; if (BeforeGet) BeforeGet(); if (!Hit) return std::optional<FCacheRecord>{};
-			FBuildOutputBuilder Builder("Fixture.Output", 1); Builder.AddValue(FValueId::FromName("Data"), FSharedByteBuffer::Take(FByteBuffer(32, std::byte{7})));
+			FBuildOutputBuilder Builder(OutputSchema, OutputVersion);
+			if (Negative) Builder.AddMessage(EBuildMessageSeverity::Error, "deterministic fixture failure");
+			else Builder.AddValue(FValueId::FromName("Data"), FSharedByteBuffer::Take(FByteBuffer(32, std::byte{7})));
 			auto Record = FCacheRecord::FromOutput(Request.Key, std::move(Builder).Build().value()).value();
 			return std::optional{Partial ? Record.RemoveValueData() : Record};
 		}
@@ -159,6 +164,46 @@ TEST(FBuildContinuationTests, FullHitsSkipProducerAndPartialHitsRebuildOnce)
 	auto Partial = Session->Build(Definition(), [&](auto Completion) { EXPECT_EQ(Completion.GetStatus(), EStatus::Ok); EXPECT_TRUE(HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::BuildLocal)); ++Callbacks; }); ASSERT_TRUE(Partial);
 	Producer->Run(); IO->Run(); Producer->Run(); IO->Run(); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Function->Builds, 1u);
 	EXPECT_EQ(Partial->Wait(), ERequestWaitResult::Completed);
+}
+
+TEST(FBuildContinuationTests, SchemaMismatchRejectsPositiveAndNegativeHits)
+{
+	for (bool WrongType : {false, true}) for (bool Negative : {false, true}) for (bool BuildLocal : {false, true})
+	{
+		SCOPED_TRACE(std::format("WrongType={}, Negative={}, BuildLocal={}", WrongType, Negative, BuildLocal));
+		auto Cache = std::make_shared<FContinuationCache>(); Cache->Hit = true; Cache->Negative = Negative;
+		if (WrongType) Cache->OutputSchema = "Other.Output"; else Cache->OutputVersion = 2;
+		auto Service = CreateBuild({.Cache = Cache}); auto Function = std::make_shared<FFunction>();
+		ASSERT_TRUE(Service->Register(Function)); auto Session = Service->CreateSession().value();
+		uint32 Calls = 0;
+		auto Request = Session->Build(Definition(), [&](auto Completion) {
+			++Calls; EXPECT_FALSE(HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::CacheQueryHit));
+			EXPECT_EQ(Completion.GetStatus(), BuildLocal ? EStatus::Ok : EStatus::Error);
+			EXPECT_EQ(HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::BuildLocal), BuildLocal);
+			if (BuildLocal) {
+				ASSERT_TRUE(Completion.GetOutput()); EXPECT_EQ(Completion.GetOutput()->GetSchema(), "Fixture.Output");
+				EXPECT_EQ(Completion.GetOutput()->GetSchemaVersion(), 1u);
+			} else EXPECT_FALSE(Completion.GetOutput());
+		}, {}, {.Policy = {.BuildLocal = BuildLocal}});
+		ASSERT_TRUE(Request); EXPECT_EQ(Request->Wait(), ERequestWaitResult::Completed);
+		EXPECT_EQ(Calls, 1u); EXPECT_EQ(Cache->Gets, 1u);
+		EXPECT_EQ(Function->Builds, BuildLocal ? 1u : 0u); EXPECT_EQ(Cache->Puts, BuildLocal ? 1u : 0u);
+	}
+}
+
+TEST(FBuildContinuationTests, MatchingNegativeSchemaRemainsCacheHit)
+{
+	auto Cache = std::make_shared<FContinuationCache>(); Cache->Hit = true; Cache->Negative = true;
+	auto Service = CreateBuild({.Cache = Cache}); auto Function = std::make_shared<FFunction>();
+	ASSERT_TRUE(Service->Register(Function)); auto Session = Service->CreateSession().value(); uint32 Calls = 0;
+	auto Request = Session->Build(Definition(), [&](auto Completion) {
+		++Calls; EXPECT_EQ(Completion.GetStatus(), EStatus::Error); ASSERT_TRUE(Completion.GetOutput());
+		EXPECT_TRUE(Completion.GetOutput()->HasError());
+		EXPECT_TRUE(HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::CacheQueryHit));
+		EXPECT_FALSE(HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::BuildLocal));
+	});
+	ASSERT_TRUE(Request); EXPECT_EQ(Request->Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Calls, 1u); EXPECT_EQ(Function->Builds, 0u); EXPECT_EQ(Cache->Puts, 0u);
 }
 
 TEST(FBuildContinuationTests, CancellationCloseAndDroppedContinuationCompleteOnce)

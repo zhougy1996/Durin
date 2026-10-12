@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-10-12
+Last reviewed: 2026-10-13
 
 ## Ownership
 
@@ -158,7 +158,11 @@ Cache lookup returns `expected<optional<FCacheRecord>, FCacheError>`.
 An empty optional is a normal miss and emits no diagnostic. Backend failure is a
 real error and is never labeled corruption. When policy allows local build, a
 miss, rejected record, or cache infrastructure failure falls through once to
-resolution/build. The cache validates and decodes persisted bytes before
+resolution/build. Before accepting either a positive or deterministic negative
+hit, the session compares its output schema name and version with the prepared
+action's function descriptor. A mismatch rejects the record and takes the same
+fallback path; cache-only requests fail without production or persistence.
+The cache validates and decodes persisted bytes before
 returning a record. Cache-query failures are logged by DDC before the build falls
 back; their internal reason is not returned as completion data.
 
@@ -242,9 +246,13 @@ There is no scheduler capability switch or running-Core mode selection.
 `IAsyncCache` admits Get/Put batches atomically. Rejected batches invoke no
 callbacks; every accepted item delivers exactly one indexed result, including
 backend exceptions, scheduling rejection, cancellation, and dropped work.
-Completion order need not match input order. Selection IDs are copied and records
-retain immutable storage; async Get ignores borrowed Stats pointers and returns
-statistics by value in its callback. Captured cancellation and callback state must
+Completion order need not match input order. Ordinary inline batches advance
+iteratively from their dispatch pump rather than recursively pumping from each
+completion. Explicit nested inline submissions still complete synchronously before
+returning to the outer callback.
+Selection IDs are copied and records retain immutable storage; async Get ignores
+borrowed Stats pointers and returns statistics by value in its callback.
+Captured cancellation and callback state must
 remain valid until the request owner drains. Callers stop submitting before owner
 destruction. Build and Cache accept the same `IRequestOwner`. An owner retains mutable priority, cancels current/future work,
 and waits through callbacks and request-buffer/callable release. Same-owner and
