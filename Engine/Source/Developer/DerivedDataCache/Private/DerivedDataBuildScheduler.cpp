@@ -1,5 +1,5 @@
 #include "DerivedDataBuildScheduler.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin::DerivedData
 {
@@ -8,6 +8,7 @@ namespace Durin::DerivedData
 		class FInlineScheduler final : public IBuildScheduler
 		{
 		public:
+			auto IsInline() const -> bool override { return true; }
 			auto Schedule(const FBuildScheduleParams&, std::function<void()> Work)
 				-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
 			{ Work(); return std::shared_ptr<IBuildScheduledWork>{}; }
@@ -15,18 +16,19 @@ namespace Durin::DerivedData
 		class FTaskWork final : public IBuildScheduledWork
 		{
 		public:
-			Tasks::FTask Task;
-			auto Wait() const -> EBuildWaitResult override
+			FTaskHandle Task;
+			auto GetTaskHandle() const -> FTaskHandle override { return Task; }
+			auto RequestCancel() const -> void override { CancelTask(Task); }
+			auto Wait() const -> ERequestWaitResult override
 			{
-				return Task.Wait().WaitStatus == ETaskWaitStatus::Completed
-					? EBuildWaitResult::Completed : EBuildWaitResult::WouldBlock;
+				return WaitTask(Task).WaitStatus == ETaskWaitStatus::Completed
+					? ERequestWaitResult::Completed : ERequestWaitResult::WouldBlock;
 			}
 		};
 		class FTaskScheduler final : public IBuildScheduler
 		{
 		public:
 			explicit FTaskScheduler(bool IO = false) : IO(IO) {}
-			auto SupportsContinuations() const -> bool override { return !IO; }
 			auto Schedule(const FBuildScheduleParams& Params, std::function<void()> Work)
 				-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
 			{
@@ -34,12 +36,18 @@ namespace Durin::DerivedData
 					return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::DispatchRejected,
 						"Core task scheduler is not running."});
 				auto Scheduled = std::make_shared<FTaskWork>();
-				Tasks::FTaskExecutionOptions Options;
-				Options.DebugName = IO ? "DerivedDataCacheIO" : "DerivedDataBuild";
-				Options.Priority = Params.Priority == EBuildPriority::High ? ETaskPriority::High
-					: Params.Priority == EBuildPriority::Low ? ETaskPriority::Low : ETaskPriority::Normal;
-				Scheduled->Task = Tasks::LaunchTask(IO ? Tasks::ETaskExecutor::BlockingIO : Tasks::ETaskExecutor::Worker, Options,
-					[Work = std::move(Work)] { Work(); });
+				FTaskLaunchOptions Options;
+				const char* Name = IO ? "DerivedDataCacheIO" : "DerivedDataBuild";
+				// The DDC owner owns work lifetime; queue pumps must not donate their Core scope.
+				Options.bUseExplicitScope = true;
+				Options.bQueueOnSaturation = true;
+				Options.Target = IO ? ETaskTarget::BlockingIO : ETaskTarget::AnyWorker;
+				Options.Priority = Params.Priority == ERequestPriority::High ? ETaskPriority::High
+					: Params.Priority == ERequestPriority::Low ? ETaskPriority::Low : ETaskPriority::Normal;
+				auto Admission = Durin::Private::TryLaunchCancelableTaskWithCompletion(Name,
+					[Work = std::move(Work)](const FTaskCancellationToken&) { Work(); }, {}, Options);
+				if (!Admission.HasValue()) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::DispatchRejected, "Core rejected request task admission."});
+				Scheduled->Task = std::move(Admission).TakeValue();
 				return Scheduled;
 			}
 		private:

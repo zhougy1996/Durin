@@ -653,6 +653,7 @@ namespace Durin
 		if (Completion.GetStatus() == EStatus::Error)
 		{
 			std::string Description = "Shader derived-data build failed.";
+			if (!Completion.GetDiagnostic().empty()) Description = Completion.GetDiagnostic();
 			if (const auto* Output = Completion.GetOutput(); Output && !Output->GetMessages().empty()) Description = Output->GetMessages().back().Text;
 			else if (const auto* Output = Completion.GetOutput(); Output && !Output->GetLogs().empty()) Description = Output->GetLogs().back().Text;
 			return {.Error = FShaderError::FromBuildDiagnostic(EShaderError::InvalidCompileRequest, Description, 0)};

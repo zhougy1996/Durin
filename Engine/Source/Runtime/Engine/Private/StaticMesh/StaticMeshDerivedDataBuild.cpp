@@ -44,13 +44,13 @@ namespace Durin
 			auto Session = GetBuildSession();
 			if (!Session) return std::nullopt;
 			Options.InputResolver = std::move(Resolver);
-			DerivedData::FBuildRequestOwner Owner;
+			DerivedData::FRequestOwner Owner;
 			std::optional<DerivedData::FBuildCompleteParams> Completion;
 			auto Admitted = Session->Build(std::move(Definition), Owner, [&](auto Value) {
 				Completion = std::move(Value);
 			}, {}, std::move(Options));
 			if (!Admitted) return std::nullopt;
-			require(Owner.Wait() == DerivedData::EBuildWaitResult::Completed);
+			require(Owner.Wait() == DerivedData::ERequestWaitResult::Completed);
 			if (!Completion) return std::nullopt;
 			return std::move(*Completion);
 		}
@@ -118,7 +118,8 @@ namespace Durin
 			FAssetBuildMemoryEstimate SourceMemory{Control.MaximumWorkingSetBytes};
 			if (!SourceMemory.Add(Request.Source.GetGeometryBulk().GetPayloadSize(), 8)
 				|| !SourceMemory.Add(Request.Source.GetMeshCount(), sizeof(FMeshDescriptionSection))
-				|| !SourceMemory.Add(Request.Source.GetMaterialSlotCount(), 32768))
+				|| !SourceMemory.Add(Request.Source.GetMaterialSlotCount(), 32768)
+				|| !SourceMemory.Add(Request.Settings.MaterialSlots.size(), 32768))
 				return std::unexpected(FStaticMeshBuildFailure{"StaticMesh decoded source exceeds its reservation.", EStaticMeshBuildStage::Validation});
 			if (Request.Settings.MaterialSlots.size() > MaximumMeshMaterialSlots)
 				return std::unexpected(FStaticMeshBuildFailure{"StaticMesh material-slot input exceeds the slot limit.", EStaticMeshBuildStage::Render});
@@ -160,6 +161,7 @@ namespace Durin
 			if (Completion.GetStatus() == DerivedData::EStatus::Error)
 			{
 				std::string Description = "StaticMesh derived-data build failed.";
+				if (!Completion.GetDiagnostic().empty()) Description = Completion.GetDiagnostic();
 				if (const auto* Output = Completion.GetOutput(); Output && !Output->GetMessages().empty()) Description = Output->GetMessages().back().Text;
 				else if (const auto* Output = Completion.GetOutput(); Output && !Output->GetLogs().empty()) Description = Output->GetLogs().back().Text;
 				return std::unexpected(FStaticMeshBuildFailure{std::move(Description), EStaticMeshBuildStage::Render});
@@ -175,7 +177,7 @@ namespace Durin
 			return std::move(*Product);
 		}
 		auto DispatchRenderBuild(FStaticMeshBuildRequest& Request, uint64 BuilderVersion,
-			DerivedData::FBuildRequestOwner& Owner, std::function<bool()> ShouldCancel, uint64 MaximumWorkingSetBytes,
+			DerivedData::IRequestOwner& Owner, std::function<bool()> ShouldCancel, uint64 MaximumWorkingSetBytes,
 			DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, FStaticMeshBuildFailure>
 		{
 			const FAssetBuildTaskContext Control{.ShouldCancel = ShouldCancel, .MaximumWorkingSetBytes = MaximumWorkingSetBytes};
@@ -192,7 +194,7 @@ namespace Durin
 				CompletionHook = CompletionHookForTests;
 				if (!AsyncSession)
 				{
-					auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateTaskBuildScheduler());
+					auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::CreateTaskCacheScheduler());
 					if (Created) AsyncSession = std::move(*Created);
 				}
 				Session = AsyncSession;
@@ -226,7 +228,7 @@ namespace Durin
 			if (!Cache) return;
 			TestBuild = DerivedData::CreateBuild({.Cache = std::move(Cache)});
 			require(TestBuild->Register(StaticMeshPrivate::MakeRenderBuildFunction()).has_value());
-			auto Created = TestBuild->CreateSession({}, DerivedData::CreateTaskBuildScheduler());
+			auto Created = TestBuild->CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::CreateTaskCacheScheduler());
 			require(Created.has_value());
 			AsyncSession = std::move(*Created);
 		}

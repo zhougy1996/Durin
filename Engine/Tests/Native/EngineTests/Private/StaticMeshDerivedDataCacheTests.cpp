@@ -3548,11 +3548,8 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildFunctionRejectsMismatchedBuilderIden
 	ASSERT_TRUE((*Session)->Build(*Definition, [&](auto Value) { Result = std::move(Value); }, {}, Options));
 	ASSERT_TRUE(Result);
 	EXPECT_EQ(Result->GetStatus(), EStatus::Error);
-	ASSERT_NE(Result->GetOutput(), nullptr);
-	EXPECT_TRUE(Result->GetOutput()->GetValues().empty());
-	const auto Messages = Result->GetOutput()->GetMessages();
-	ASSERT_EQ(Messages.size(), 1u);
-	EXPECT_NE(Messages.front().Text.find("identity does not match"), std::string::npos);
+	EXPECT_EQ(Result->GetOutput(), nullptr);
+	EXPECT_NE(Result->GetDiagnostic().find("identity does not match"), std::string_view::npos);
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, WorkerSettingsCaptureOwnedValuesAndPreserveIdentity)
@@ -3595,9 +3592,6 @@ TEST(FPhysicsCookTests, BuildFunctionRejectsMismatchedIdentityBeforeRecipeDecodi
 	ASSERT_TRUE((*Session)->Build(*Definition, [&](auto Value) { Result = std::move(Value); }, {}, Options));
 	ASSERT_TRUE(Result);
 	EXPECT_EQ(Result->GetStatus(), EStatus::Error);
-	ASSERT_NE(Result->GetOutput(), nullptr);
-	EXPECT_TRUE(Result->GetOutput()->GetValues().empty());
-	const auto Messages = Result->GetOutput()->GetMessages();
-	ASSERT_EQ(Messages.size(), 1u);
-	EXPECT_NE(Messages.front().Text.find("identity does not match"), std::string::npos);
+	EXPECT_EQ(Result->GetOutput(), nullptr);
+	EXPECT_NE(Result->GetDiagnostic().find("identity does not match"), std::string_view::npos);
 }

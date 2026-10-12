@@ -15,9 +15,9 @@ namespace Durin
 	namespace DerivedData { class FBuildAction; struct FBuildDefinitionError; struct FBuildFunctionDescriptor; }
 	struct FArchiveFailure;
 
-	inline constexpr uint32 Texture2DBuildFunctionVersion = 2;
-	inline constexpr uint32 TextureCubeBuildFunctionVersion = 1;
-	inline constexpr uint32 VolumeTextureBuildFunctionVersion = 1;
+	inline constexpr uint32 Texture2DBuildFunctionVersion = 3;
+	inline constexpr uint32 TextureCubeBuildFunctionVersion = 2;
+	inline constexpr uint32 VolumeTextureBuildFunctionVersion = 2;
 	inline constexpr uint32 TextureBuildOutputSchemaVersion = 2;
 	inline constexpr uint32 Texture2DOutputSchemaVersion = 3;
 

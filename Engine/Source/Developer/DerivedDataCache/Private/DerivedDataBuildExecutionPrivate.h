@@ -11,8 +11,8 @@ namespace Durin::DerivedData::Private
 			-> std::expected<std::vector<FBuildInput>, FBuildInputError>;
 		static auto Configure(const IBuildFunction& Function) -> FBuildFunctionDescriptor;
 		static auto MakeContext(const FBuildAction& Action, std::span<const FBuildInput> Inputs,
-			FBuildOutputBuilder& Output, FBuildCancellation Cancel,
-			uint64 MaximumWorkingSetBytes) -> FBuildContext;
+			FBuildOutputBuilder& Output, FBuildCancellation Cancel) -> FBuildContext;
+		static auto GetExecutionFailure(const FBuildContext& Context) -> const std::optional<std::string>& { return Context.ExecutionFailure; }
 		static auto MakeOutputBuilder(std::string Schema, uint32 SchemaVersion,
 			FBuildOutputLimits Limits) -> FBuildOutputBuilder;
 	};
@@ -55,10 +55,9 @@ namespace Durin::DerivedData::Private
 		const FBuildRegistrySnapshot& Registry, const std::shared_ptr<const IBuildInputResolver>& Resolver,
 		const FBuildInputs& Inputs, const FBuildCancellation& Cancel)
 		-> std::expected<FBuildAction, FBuildCompleteParams>;
-	auto ExecuteBuild(const std::variant<FBuildDefinition, FBuildAction>& Request,
+	auto ExecuteBuildLocal(const FBuildAction& Action,
 		const FBuildRegistrySnapshot& Registry,
 		const std::shared_ptr<const IBuildInputResolver>& SessionResolver,
-		const FBuildInputs& RequestInputs, const FBuildRequestOptions& Options,
-		const FBuildServiceOptions& Service)
+		const FBuildInputs& RequestInputs, const FBuildRequestOptions& Options)
 		-> FBuildCompleteParams;
 }

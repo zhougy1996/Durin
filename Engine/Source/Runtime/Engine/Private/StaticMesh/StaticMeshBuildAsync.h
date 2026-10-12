@@ -10,7 +10,7 @@ namespace Durin::StaticMeshPrivate
 	using FRenderBuildResult = std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
 	// Detached inputs only; cancellation is owned across cache callbacks.
 	auto DispatchRenderBuild(FStaticMeshBuildRequest& Request, uint64 BuilderVersion,
-		DerivedData::FBuildRequestOwner& Owner, std::function<bool()> ShouldCancel, uint64 MaximumWorkingSetBytes,
+		DerivedData::IRequestOwner& Owner, std::function<bool()> ShouldCancel, uint64 MaximumWorkingSetBytes,
 		DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, FStaticMeshBuildFailure>;
 	// CPU consumption runs on a worker after the build callback has retired.
 	auto ConsumeRenderBuild(const FStaticMeshBuildSettings& Settings, DerivedData::FBuildCompleteParams Completion,

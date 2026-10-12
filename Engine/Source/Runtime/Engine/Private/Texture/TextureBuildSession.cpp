@@ -38,14 +38,14 @@ namespace Durin::TexturePrivate
 		TestBuild = DerivedData::CreateBuild({.Cache = std::move(Cache)});
 		require(TestBuild->Register(MakeTexture2DBuildFunction()).has_value());
 		require(TestBuild->Register(MakeTextureCubeBuildFunction()).has_value());
-		auto Created = TestBuild->CreateSession({}, DerivedData::CreateTaskBuildScheduler());
+		auto Created = TestBuild->CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::CreateTaskCacheScheduler());
 		require(Created.has_value());
 		AsyncSession = std::move(*Created);
 	}
 
 	auto BuildAsync(DerivedData::FBuildDefinition Definition,
 		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
-		DerivedData::FBuildRequestOwner& Owner,
+		DerivedData::IRequestOwner& Owner,
 		DerivedData::FBuildCompletionCallback Completion,
 		DerivedData::FBuildRequestOptions Options) -> bool
 	{
@@ -54,7 +54,7 @@ namespace Durin::TexturePrivate
 			std::lock_guard Lock(SessionMutex);
 			if (!AsyncSession)
 			{
-				auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateTaskBuildScheduler());
+				auto Created = DerivedData::GetBuild().CreateSession({}, DerivedData::CreateTaskBuildScheduler(), DerivedData::CreateTaskCacheScheduler());
 				if (!Created) return false;
 				AsyncSession = std::move(*Created);
 			}
@@ -92,13 +92,13 @@ namespace Durin::TexturePrivate
 		auto Persistent = GetSession();
 		if (!Persistent) return Reject("Texture build session is unavailable.");
 		Options.InputResolver = std::move(Resolver);
-		DerivedData::FBuildRequestOwner Owner;
+		DerivedData::FRequestOwner Owner;
 		std::optional<DerivedData::FBuildCompleteParams> Completion;
 		auto Admitted = Persistent->Build(std::move(Definition), Owner, [&](auto Value) {
 			Completion = std::move(Value);
 		}, {}, std::move(Options));
 		if (!Admitted) return Reject(Admitted.error().Description);
-		require(Owner.Wait() == DerivedData::EBuildWaitResult::Completed);
+		require(Owner.Wait() == DerivedData::ERequestWaitResult::Completed);
 		if (!Completion) return Reject("Texture build completion is unavailable.");
 		return std::move(*Completion);
 	}

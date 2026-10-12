@@ -42,13 +42,13 @@ namespace Durin
 			auto Session = GetPhysicsBuildSession();
 			if (!Session) return std::nullopt;
 			Options.InputResolver = std::move(Resolver);
-			DerivedData::FBuildRequestOwner Owner;
+			DerivedData::FRequestOwner Owner;
 			std::optional<DerivedData::FBuildCompleteParams> Completion;
 			auto Admitted = Session->Build(std::move(Definition), Owner, [&](auto Value) {
 				Completion = std::move(Value);
 			}, {}, std::move(Options));
 			if (!Admitted) return std::nullopt;
-			require(Owner.Wait() == DerivedData::EBuildWaitResult::Completed);
+			require(Owner.Wait() == DerivedData::ERequestWaitResult::Completed);
 			if (!Completion) return std::nullopt;
 			return std::move(*Completion);
 		}
@@ -120,6 +120,7 @@ namespace Durin
 		if (Completion.GetStatus() == DerivedData::EStatus::Error)
 		{
 			std::string Description = "Physics derived-data build failed.";
+			if (!Completion.GetDiagnostic().empty()) Description = Completion.GetDiagnostic();
 			if (const auto* Output = Completion.GetOutput(); Output && !Output->GetMessages().empty()) Description = Output->GetMessages().back().Text;
 			else if (const auto* Output = Completion.GetOutput(); Output && !Output->GetLogs().empty()) Description = Output->GetLogs().back().Text;
 			return std::unexpected(FPhysicsCookFailure{std::move(Description), EPhysicsCookStage::Cook});

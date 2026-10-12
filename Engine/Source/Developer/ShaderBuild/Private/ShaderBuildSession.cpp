@@ -171,7 +171,7 @@ namespace Durin
 				auto Fail = [&](std::string Text) { Context.AddError(std::move(Text)); };
 				const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
 				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != Service->BuildVersion)
-					return Fail("Shader builder identity does not match the build request.");
+					return Context.FailExecution("Shader builder identity does not match the build request.");
 				auto Options = ReadOptions(Context); const auto* InputPtr = Context.FindInput("Closure");
 				if (!Options || !InputPtr) return Fail(Invalid().Description);
 				Options->Bind(); const auto& Input = *InputPtr;
@@ -220,9 +220,9 @@ namespace Durin
 				auto Product = Options->Generated
 					? Service->Compiler.CompileSource(Options->Value.VirtualShaderPath.substr(1), Options->Value.VirtualShaderPath, Generated, Options->Value, Service->BeforeGeneratedCompile)
 					: Service->Compiler.Compile(Options->Value.VirtualShaderPath, Options->Value);
-				if (!Product) return Fail(FormatShaderError(std::move(Product.Error)));
+				if (!Product) return Context.FailExecution(FormatShaderError(std::move(Product.Error)));
 				auto Output = ShaderSharedOutput::Make(Options->Value, Product, [&] { return Context.IsCancelled(); });
-				if (!Output) return Fail(FormatShaderError(std::move(Output.error())));
+				if (!Output) return Context.FailExecution(FormatShaderError(std::move(Output.error())));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& MetaValue : Output->GetMetadata()) Context.AddMeta(MetaValue.Id, MetaValue.Object);
 			}
@@ -316,14 +316,14 @@ namespace Durin
 				return FBuildCompleteParams::Canceled(std::nullopt, EBuildStatus::None);
 			Persistent = State->Session;
 		}
-		FBuildRequestOwner Owner;
+		FRequestOwner Owner;
 		Options.InputResolver = std::move(Request.Resolver);
 		std::optional<FBuildCompleteParams> Completion;
 		auto Admitted = Persistent->Build(std::move(Request.Definition), Owner, [&](auto Result) {
 			Completion = std::move(Result);
 		}, {}, std::move(Options));
 		if (!Admitted) return FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None);
-		require(Owner.Wait() == EBuildWaitResult::Completed);
+		require(Owner.Wait() == ERequestWaitResult::Completed);
 		if (!Completion) return FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None);
 		return std::move(*Completion);
 	}

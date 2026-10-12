@@ -10,7 +10,7 @@ namespace Durin::TexturePrivate
 {
 	// The caller retains Owner through callback retirement. All outcomes invoke Completion once.
 	auto BuildTexture2DAsync(FTexture2DBuildRequest Request,
-		DerivedData::FBuildRequestOwner& Owner, std::function<bool()> ShouldCancel,
+		DerivedData::IRequestOwner& Owner, std::function<bool()> ShouldCancel,
 		std::function<void(std::expected<FTexturePlatformData, FTexture2DBuildError>,
 			FTexture2DBuildInputIdentity)> Completion) -> void;
 }

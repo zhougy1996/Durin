@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "DerivedDataBuildExecution.h"
+#include "Threading/Task.h"
+#include "DerivedDataRequest.h"
 
 namespace Durin::DerivedData
 {
@@ -17,27 +19,26 @@ namespace Durin::DerivedData
 		auto BoundDescription() -> void
 		{ if (Description.size() > MaximumDescriptionBytes) Description.resize(MaximumDescriptionBytes); }
 	};
-	enum class EBuildWaitResult : uint8 { Completed, WouldBlock, InvalidRequest };
-	enum class EBuildPriority : uint8 { High, Normal, Low };
 	struct FBuildScheduleParams
 	{
 		std::string_view FunctionName;
-		EBuildPriority Priority = EBuildPriority::Normal;
-		// Already-admitted owner budget, not another reservation request.
-		uint64 MaximumWorkingSetBytes = std::numeric_limits<uint64>::max();
+		ERequestPriority Priority = ERequestPriority::Normal;
 	};
 	class IBuildScheduledWork
 	{
 	public:
 		virtual ~IBuildScheduledWork() = default;
 		// May help execute tasks. Completed includes executing or dropping the thunk.
-		virtual auto Wait() const -> EBuildWaitResult = 0;
+		virtual auto Wait() const -> ERequestWaitResult = 0;
+		virtual auto RequestCancel() const -> void {}
+		// Native dispatch completion includes destruction of the scheduled thunk's captures.
+		virtual auto GetTaskHandle() const -> FTaskHandle { return {}; }
 	};
 	class IBuildScheduler
 	{
 	public:
 		virtual ~IBuildScheduler() = default;
-		virtual auto SupportsContinuations() const -> bool { return false; }
+		virtual auto IsInline() const -> bool { return false; }
 		// Reject without invoking/retaining Work, or accept at-most-once execution.
 		// A null wait handle permits externally driven work; dropped work cancels.
 		virtual auto Schedule(const FBuildScheduleParams& Params, std::function<void()> Work)

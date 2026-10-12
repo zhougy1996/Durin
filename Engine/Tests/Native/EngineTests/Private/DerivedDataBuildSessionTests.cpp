@@ -13,6 +13,7 @@ namespace
 	{
 		mutable std::atomic<uint32> Builds = 0;
 		std::function<void()> OnBuild;
+		bool FailExecution = false;
 		auto GetName() const -> std::string_view override { return "Session.Fixture"; }
 		auto GetVersion() const -> uint32 override { return 1; }
 		auto Configure(FBuildConfigContext& Context) const -> void override
@@ -20,6 +21,7 @@ namespace
 		auto Build(FBuildContext& Context) const -> void override
 		{
 			++Builds; if (OnBuild) OnBuild();
+			if (FailExecution) return Context.FailExecution("temporary execution failure");
 			Context.AddValue(FValueId::FromName("Data"), FSharedByteBuffer::Take(FByteBuffer(32, std::byte{7})));
 		}
 	};
@@ -66,14 +68,13 @@ namespace
 	{
 	public:
 		std::deque<std::function<void()>> Work;
-		std::vector<EBuildPriority> Priorities;
-		std::vector<uint64> Budgets;
+		std::vector<ERequestPriority> Priorities;
 		bool Reject = false;
 		auto Schedule(const FBuildScheduleParams& Params, std::function<void()> Task)
 			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
 		{
 			if (Reject) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::DispatchRejected, "fixture reject"});
-			Priorities.push_back(Params.Priority); Budgets.push_back(Params.MaximumWorkingSetBytes);
+			Priorities.push_back(Params.Priority);
 			Work.push_back(std::move(Task)); return std::shared_ptr<IBuildScheduledWork>{};
 		}
 		auto Run() -> void { auto Task = std::move(Work.front()); Work.pop_front(); Task(); }
@@ -100,12 +101,12 @@ namespace
 	};
 }
 
-TEST(FBuildContinuationTests, AutomaticAsyncAdapterDoesNotChangeInlineSessions)
+TEST(FBuildContinuationTests, ExplicitCacheSchedulerDoesNotChangeInlineSessions)
 {
 	auto Cache = std::make_shared<FContinuationCache>(); auto Service = CreateBuild({.Cache = Cache});
 	auto Function = std::make_shared<FFunction>(); ASSERT_TRUE(Service->Register(Function));
 	auto ExistingInline = Service->CreateSession({}, CreateInlineBuildScheduler()).value();
-	auto TaskSession = Service->CreateSession({}, CreateTaskBuildScheduler()).value();
+	auto TaskSession = Service->CreateSession({}, CreateTaskBuildScheduler(), CreateTaskCacheScheduler()).value();
 	auto LaterInline = Service->CreateSession({}, CreateInlineBuildScheduler()).value();
 	const auto Caller = std::this_thread::get_id(); uint32 Callbacks = 0;
 	Function->OnBuild = [&] { EXPECT_EQ(std::this_thread::get_id(), Caller); };
@@ -115,7 +116,7 @@ TEST(FBuildContinuationTests, AutomaticAsyncAdapterDoesNotChangeInlineSessions)
 			EXPECT_EQ(std::this_thread::get_id(), Caller); EXPECT_EQ(Completion.GetStatus(), EStatus::Ok);
 			EXPECT_TRUE(Completion.GetOutput()); ++Callbacks;
 		});
-		ASSERT_TRUE(Request); EXPECT_EQ(Request->Wait(), EBuildWaitResult::Completed);
+		ASSERT_TRUE(Request); EXPECT_EQ(Request->Wait(), ERequestWaitResult::Completed);
 	}
 	EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Cache->Gets, 2u); EXPECT_EQ(Cache->Puts, 2u);
 	EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained);
@@ -127,25 +128,24 @@ TEST(FBuildContinuationTests, IOReleasesProducerQueueAndStoreFailurePreservesLoc
 	auto Cache = std::make_shared<FContinuationCache>(); auto Async = CreateAsyncCache(Cache, IO, 1);
 	auto Service = CreateBuild({.Cache = Cache, .AsyncCache = Async}); auto Function = std::make_shared<FFunction>();
 	ASSERT_TRUE(Service->Register(Function)); auto Session = Service->CreateSession({}, Producer).value();
-	FBuildRequestOwner Owner(EBuildPriority::High); uint32 FirstCallbacks = 0, OtherCallbacks = 0;
+	FRequestOwner Owner(ERequestPriority::High); uint32 FirstCallbacks = 0, OtherCallbacks = 0;
 	auto First = Session->Build(Definition(), Owner, [&](auto Completion) {
 		EXPECT_EQ(Completion.GetStatus(), EStatus::Ok); EXPECT_TRUE(Completion.GetOutput());
 		EXPECT_TRUE(HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::BuildLocal));
-		EXPECT_EQ(Owner.Wait(), EBuildWaitResult::WouldBlock); ++FirstCallbacks;
+		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock); ++FirstCallbacks;
 	}, {}, {.Policy = {.MaximumWorkingSetBytes = 123456}});
 	ASSERT_TRUE(First); Producer->Run(); EXPECT_EQ(Function->Builds, 0u); EXPECT_EQ(IO->Work.size(), 1u);
 	auto Other = Session->Build(Definition(), [&](auto Completion) { EXPECT_EQ(Completion.GetStatus(), EStatus::Ok); ++OtherCallbacks; }, {}, Options()); ASSERT_TRUE(Other);
 	while (!Producer->Work.empty()) Producer->Run(); EXPECT_EQ(OtherCallbacks, 1u); EXPECT_EQ(FirstCallbacks, 0u);
 	IO->Run(); EXPECT_EQ(Producer->Work.size(), 1u); EXPECT_EQ(FirstCallbacks, 0u);
 	Producer->Run(); EXPECT_EQ(Function->Builds, 2u); EXPECT_EQ(IO->Work.size(), 1u); EXPECT_EQ(FirstCallbacks, 0u);
-	IO->Run(); EXPECT_EQ(FirstCallbacks, 1u); EXPECT_EQ(First->Wait(), EBuildWaitResult::Completed);
+	IO->Run(); EXPECT_EQ(FirstCallbacks, 1u); EXPECT_EQ(First->Wait(), ERequestWaitResult::Completed);
 	EXPECT_EQ(Cache->Gets, 1u); EXPECT_EQ(Cache->Puts, 1u);
 	Cache->ThrowPut = true;
 	auto Throwing = Session->Build(Definition(), Owner, [&](auto Completion) { EXPECT_EQ(Completion.GetStatus(), EStatus::Ok); EXPECT_TRUE(Completion.GetOutput()); ++FirstCallbacks; }, {}, {.Policy = {.QueryCache = false, .MaximumWorkingSetBytes = 123456}});
-	ASSERT_TRUE(Throwing); Producer->Run(); Producer->Run(); IO->Run(); EXPECT_EQ(FirstCallbacks, 2u);
+	ASSERT_TRUE(Throwing); Producer->Run(); IO->Run(); EXPECT_EQ(FirstCallbacks, 2u);
 	EXPECT_EQ(Session->Drain(), EBuildDrainResult::Drained);
-	for (auto Priority : IO->Priorities) EXPECT_EQ(Priority, EBuildPriority::High);
-	EXPECT_EQ(Producer->Budgets.front(), 123456u); EXPECT_EQ(Producer->Budgets.back(), 123456u);
+	for (auto Priority : IO->Priorities) EXPECT_EQ(Priority, ERequestPriority::High);
 }
 
 TEST(FBuildContinuationTests, FullHitsSkipProducerAndPartialHitsRebuildOnce)
@@ -158,7 +158,7 @@ TEST(FBuildContinuationTests, FullHitsSkipProducerAndPartialHitsRebuildOnce)
 	Cache->Partial = true;
 	auto Partial = Session->Build(Definition(), [&](auto Completion) { EXPECT_EQ(Completion.GetStatus(), EStatus::Ok); EXPECT_TRUE(HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::BuildLocal)); ++Callbacks; }); ASSERT_TRUE(Partial);
 	Producer->Run(); IO->Run(); Producer->Run(); IO->Run(); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Function->Builds, 1u);
-	EXPECT_EQ(Partial->Wait(), EBuildWaitResult::Completed);
+	EXPECT_EQ(Partial->Wait(), ERequestWaitResult::Completed);
 }
 
 TEST(FBuildContinuationTests, CancellationCloseAndDroppedContinuationCompleteOnce)
@@ -173,7 +173,7 @@ TEST(FBuildContinuationTests, CancellationCloseAndDroppedContinuationCompleteOnc
 	EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Function->Builds, 0u);
 	auto Closed = Session->Build(Definition(), Callback); ASSERT_TRUE(Closed); Producer->Run(); Service->Close(); IO->Work.clear();
 	EXPECT_EQ(Callbacks, 3u); EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained);
-	EXPECT_EQ(Closed->Wait(), EBuildWaitResult::Completed);
+	EXPECT_EQ(Closed->Wait(), ERequestWaitResult::Completed);
 }
 
 TEST(FBuildContinuationTests, ReleasesCapturedResolverBeforePersistenceCompletionAndHandlesRejectedResume)
@@ -191,10 +191,10 @@ TEST(FBuildContinuationTests, ReleasesCapturedResolverBeforePersistenceCompletio
 	std::weak_ptr<int> Lease = Resolver->Lease; uint32 Callbacks = 0;
 	auto Request = Session->Build(Definition(), [&](auto Completion) { EXPECT_EQ(Completion.GetStatus(), EStatus::Ok); EXPECT_TRUE(Lease.expired()); ++Callbacks; }, {},
 		{.Policy = {.QueryCache = false}, .InputResolver = Resolver}); ASSERT_TRUE(Request); Resolver.reset();
-	Producer->Run(); EXPECT_FALSE(Lease.expired()); Producer->Run(); EXPECT_TRUE(Lease.expired());
+	Producer->Run(); EXPECT_TRUE(Lease.expired());
 	EXPECT_EQ(Callbacks, 0u); IO->Run(); EXPECT_EQ(Callbacks, 1u);
 	auto Rejected = Session->Build(Definition(), [&](auto Completion) { EXPECT_EQ(Completion.GetStatus(), EStatus::Error); EXPECT_NE(Completion.GetCacheKey(), nullptr); ++Callbacks; }); ASSERT_TRUE(Rejected);
-	Producer->Run(); Producer->Reject = true; IO->Run(); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Rejected->Wait(), EBuildWaitResult::Completed);
+	Producer->Run(); Producer->Reject = true; IO->Run(); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Rejected->Wait(), ERequestWaitResult::Completed);
 }
 
 TEST(FBuildContinuationTests, LaterStageHandleWinsWhenEarlierDispatchReturnsDuringResumeSubmission)
@@ -204,7 +204,7 @@ TEST(FBuildContinuationTests, LaterStageHandleWinsWhenEarlierDispatchReturnsDuri
 	public:
 		mutable std::once_flag Once;
 		mutable std::function<void()> Work;
-		auto Wait() const -> EBuildWaitResult override { std::call_once(Once, [&] { Work(); Work = {}; }); return EBuildWaitResult::Completed; }
+		auto Wait() const -> ERequestWaitResult override { std::call_once(Once, [&] { Work(); Work = {}; }); return ERequestWaitResult::Completed; }
 	};
 	class FDelayedProducer final : public IBuildScheduler
 	{
@@ -243,7 +243,7 @@ TEST(FBuildContinuationTests, LaterStageHandleWinsWhenEarlierDispatchReturnsDuri
 	const auto Status = Wait.wait_for(std::chrono::seconds(5));
 	// On regression, release the queued producer manually so diagnostics can finish.
 	if (Status != std::future_status::ready) Producer->Resume->Wait();
-	EXPECT_EQ(Status, std::future_status::ready); EXPECT_EQ(Wait.get(), EBuildWaitResult::Completed); EXPECT_EQ(Callbacks, 1u);
+	EXPECT_EQ(Status, std::future_status::ready); EXPECT_EQ(Wait.get(), ERequestWaitResult::Completed); EXPECT_EQ(Callbacks, 1u);
 	IO->Thread.join(); EXPECT_EQ(Session->Drain(), EBuildDrainResult::Drained);
 }
 
@@ -255,15 +255,79 @@ TEST(FBuildContinuationTests, SlowCoreIOLeavesSingleWorkerAvailableAndDrainWaits
 	auto Released = Release.get_future().share(); auto Started = Entered.get_future(); auto Progress = WorkerProgress.get_future();
 	Cache->BeforeGet = [&] { Entered.set_value(); Released.wait(); };
 	auto Service = CreateBuild({.Cache = Cache}); ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
-	auto Session = Service->CreateSession({}, CreateTaskBuildScheduler()).value(); std::atomic<uint32> Callbacks = 0;
+	auto Session = Service->CreateSession({}, CreateTaskBuildScheduler(), CreateTaskCacheScheduler()).value(); std::atomic<uint32> Callbacks = 0;
 	auto Request = Session->Build(Definition(), [&](auto Completion) { EXPECT_EQ(Completion.GetStatus(), EStatus::Canceled); ++Callbacks; }); ASSERT_TRUE(Request);
 	const auto StartStatus = Started.wait_for(std::chrono::seconds(5));
 	auto Other = Tasks::LaunchTask("DDCWorkerProgress", [&] { WorkerProgress.set_value(); });
 	const auto ProgressStatus = Progress.wait_for(std::chrono::seconds(5));
 	Service->Close(); EXPECT_FALSE(Request->IsComplete()); Release.set_value();
 	EXPECT_EQ(StartStatus, std::future_status::ready); EXPECT_EQ(ProgressStatus, std::future_status::ready);
-	EXPECT_EQ(Request->Wait(), EBuildWaitResult::Completed); EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained); EXPECT_EQ(Callbacks, 1u);
+	EXPECT_EQ(Request->Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Service->Drain(), EBuildDrainResult::Drained); EXPECT_EQ(Callbacks, 1u);
 	Other.Wait();
+}
+
+TEST(FBuildContinuationTests, BuildAndCacheShareOwnerAcrossNestedCallbacks)
+{
+	auto Producer = std::make_shared<FStageScheduler>();
+	auto IO = std::make_shared<FStageScheduler>();
+	auto Cache = std::make_shared<FContinuationCache>();
+	auto Async = CreateAsyncCache(Cache, IO, 1);
+	auto Service = CreateBuild({.Cache = Cache, .AsyncCache = Async});
+	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
+	auto Session = Service->CreateSession({}, Producer).value();
+	FRequestOwner Owner;
+	uint32 Calls = 0;
+	auto Build = Session->Build(Definition(), Owner, [&](auto Result) {
+		EXPECT_EQ(Result.GetStatus(), EStatus::Ok);
+		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock);
+		const std::array Reads{FCacheGetRequest{*Result.GetCacheKey()}};
+		EXPECT_TRUE(Async->Get(Reads, Owner, [&](auto, auto, auto) {
+			EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock);
+			++Calls;
+		}));
+		++Calls;
+	});
+	ASSERT_TRUE(Build);
+	Producer->Run();
+	EXPECT_FALSE(Owner.Poll());
+	IO->Run();
+	Producer->Run();
+	IO->Run();
+	EXPECT_FALSE(Owner.Poll());
+	IO->Run();
+	EXPECT_EQ(Calls, 2u);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	EXPECT_TRUE(Owner.Poll());
+}
+
+TEST(FBuildContinuationTests, ExecutionFailureDoesNotSubmitAsyncPutAndCanRetry)
+{
+	auto Producer = std::make_shared<FStageScheduler>();
+	auto IO = std::make_shared<FStageScheduler>();
+	auto Cache = std::make_shared<FContinuationCache>();
+	auto Function = std::make_shared<FFunction>();
+	Function->FailExecution = true;
+	auto Service = CreateBuild({.Cache = Cache, .AsyncCache = CreateAsyncCache(Cache, IO)});
+	ASSERT_TRUE(Service->Register(Function));
+	auto Session = Service->CreateSession({}, Producer).value();
+	FRequestOwner Owner;
+	uint32 Calls = 0;
+	ASSERT_TRUE(Session->Build(Definition(), Owner, [&](auto Result) {
+		EXPECT_EQ(Result.GetStatus(), EStatus::Error);
+		EXPECT_EQ(Result.GetOutput(), nullptr);
+		++Calls;
+	}));
+	Producer->Run(); IO->Run(); Producer->Run();
+	EXPECT_EQ(Cache->Puts.load(), 0u);
+	EXPECT_TRUE(IO->Work.empty());
+	EXPECT_TRUE(Owner.Poll());
+	Function->FailExecution = false;
+	ASSERT_TRUE(Session->Build(Definition(), Owner, [&](auto Result) { EXPECT_EQ(Result.GetStatus(), EStatus::Ok); ++Calls; }));
+	Producer->Run(); IO->Run(); Producer->Run(); IO->Run();
+	EXPECT_EQ(Calls, 2u);
+	EXPECT_EQ(Function->Builds.load(), 2u);
+	EXPECT_EQ(Cache->Puts.load(), 1u);
+	EXPECT_TRUE(Owner.Poll());
 }
 
 TEST(FBuildSessionTests, RegistrationOnlyAffectsSessionsCreatedAfterIt)
@@ -516,7 +580,7 @@ TEST(FBuildSessionTests, RequestWaitIncludesCallbackAndDispatchReturn)
 	FFixture Fixture;
 	FThreadEvent CallbackStarted, ReleaseCallback, DispatchStarted, ReleaseDispatch, WaitReturned;
 	std::function<void()> Queued;
-	FBuildRequestOwner Owner;
+	FRequestOwner Owner;
 	auto Session = Fixture.Session([&](auto Work) -> std::expected<void, FBuildAdmissionError> {
 		Queued = std::move(Work);
 		DispatchStarted.Trigger();
@@ -529,12 +593,12 @@ TEST(FBuildSessionTests, RequestWaitIncludesCallbackAndDispatchReturn)
 			EXPECT_TRUE(ReleaseCallback.WaitFor(2.0));
 		}, {}, Options());
 		ASSERT_TRUE(Request);
-		EXPECT_EQ(Request->Wait(), EBuildWaitResult::Completed);
+		EXPECT_EQ(Request->Wait(), ERequestWaitResult::Completed);
 	});
 	ASSERT_TRUE(DispatchStarted.WaitFor(2.0));
 	std::jthread Worker([&] { Queued(); });
 	ASSERT_TRUE(CallbackStarted.WaitFor(2.0));
-	std::jthread Waiter([&] { EXPECT_EQ(Owner.Wait(), EBuildWaitResult::Completed); WaitReturned.Trigger(); });
+	std::jthread Waiter([&] { EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); WaitReturned.Trigger(); });
 	EXPECT_FALSE(WaitReturned.WaitFor(0.05));
 	ReleaseCallback.Trigger();
 	Worker.join();
@@ -553,7 +617,7 @@ TEST(FBuildSessionTests, OwnerCancellationCoversExistingAndFutureRequestsAcrossS
 	std::vector<std::function<void()>> Queue;
 	auto First = Fixture.Session([&](auto Work) -> std::expected<void, FBuildAdmissionError> { Queue.push_back(std::move(Work)); return {}; });
 	auto Second = Fixture.Session();
-	FBuildRequestOwner Owner;
+	FRequestOwner Owner;
 	uint32 Calls = 0;
 	auto Completed = [&](FBuildCompleteParams Result) { ++Calls; EXPECT_EQ(Result.GetStatus(), EStatus::Canceled); };
 	auto Request = First->Build(Definition(), Owner, Completed, {}, Options());
@@ -561,7 +625,7 @@ TEST(FBuildSessionTests, OwnerCancellationCoversExistingAndFutureRequestsAcrossS
 	EXPECT_FALSE(Owner.Poll());
 	Owner.Cancel();
 	ASSERT_TRUE(Second->Build(Definition(), Owner, Completed, {}, Options()));
-	EXPECT_EQ(Owner.Wait(), EBuildWaitResult::Completed);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 	EXPECT_TRUE(Owner.IsCanceled());
 	EXPECT_EQ(Calls, 2u);
 	EXPECT_EQ(Fixture.Function->Builds.load(), 0u);
@@ -575,7 +639,7 @@ TEST(FBuildSessionTests, OwnerDestructionCancelsQueuedWorkAndRejectionLeavesNoAc
 	auto Session = Fixture.Session([&](auto Work) -> std::expected<void, FBuildAdmissionError> { Stale = std::move(Work); return {}; });
 	uint32 Calls = 0;
 	{
-		FBuildRequestOwner Owner;
+		FRequestOwner Owner;
 		EXPECT_FALSE(Session->Build(Definition("Missing"), Owner, [](auto) {}, {}, Options()));
 		EXPECT_TRUE(Owner.Poll());
 		ASSERT_TRUE(Session->Build(Definition(), Owner, [&](FBuildCompleteParams Result) {
@@ -592,38 +656,16 @@ TEST(FBuildSessionTests, RequestAndOwnerSelfWaitReturnWouldBlock)
 	FFixture Fixture;
 	std::function<void()> Queued;
 	auto Session = Fixture.Session([&](auto Work) -> std::expected<void, FBuildAdmissionError> { Queued = std::move(Work); return {}; });
-	FBuildRequestOwner Owner;
+	FRequestOwner Owner;
 	FBuildRequest Handle;
 	auto Request = Session->Build(Definition(), Owner, [&](auto) {
-		EXPECT_EQ(Handle.Wait(), EBuildWaitResult::WouldBlock);
-		EXPECT_EQ(Owner.Wait(), EBuildWaitResult::WouldBlock);
+		EXPECT_EQ(Handle.Wait(), ERequestWaitResult::WouldBlock);
+		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock);
 	}, {}, Options());
 	ASSERT_TRUE(Request); Handle = *Request;
 	Queued();
-	EXPECT_EQ(Handle.Wait(), EBuildWaitResult::Completed);
-	EXPECT_EQ(Owner.Wait(), EBuildWaitResult::Completed);
-}
-
-TEST(FBuildSessionTests, BarrierProtectsSubmissionAfterOwnerTemporarilyBecomesIdle)
-{
-	FFixture Fixture;
-	auto Session = Fixture.Session();
-	FBuildRequestOwner Owner;
-	FThreadEvent BarrierOpened, AllowSubmission, WaitReturned;
-	std::jthread Submitter([&] {
-		FBuildRequestBarrier Barrier(Owner);
-		EXPECT_EQ(Owner.Wait(), EBuildWaitResult::WouldBlock);
-		BarrierOpened.Trigger();
-		EXPECT_TRUE(AllowSubmission.WaitFor(2.0));
-		ASSERT_TRUE(Session->Build(Definition(), Owner, [](auto) {}, {}, Options()));
-	});
-	ASSERT_TRUE(BarrierOpened.WaitFor(2.0));
-	EXPECT_FALSE(Owner.Poll());
-	std::jthread Waiter([&] { EXPECT_EQ(Owner.Wait(), EBuildWaitResult::Completed); WaitReturned.Trigger(); });
-	EXPECT_FALSE(WaitReturned.WaitFor(0.05));
-	AllowSubmission.Trigger(); Submitter.join(); Waiter.join();
-	EXPECT_EQ(Fixture.Function->Builds.load(), 1u);
-	EXPECT_TRUE(Owner.Poll());
+	EXPECT_EQ(Handle.Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 }
 
 TEST(FBuildSessionTests, TaskSchedulerWaitHelpsNestedBuildWithOneWorker)
@@ -632,16 +674,16 @@ TEST(FBuildSessionTests, TaskSchedulerWaitHelpsNestedBuildWithOneWorker)
 	ASSERT_TRUE(InitializeTaskScheduler(1));
 	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
 	FFixture Fixture;
-	auto Session = Fixture.Service->CreateSession({}, CreateTaskBuildScheduler()).value();
+	auto Session = Fixture.Service->CreateSession({}, CreateTaskBuildScheduler(), CreateTaskCacheScheduler()).value();
 	std::atomic<uint32> Calls = 0;
 	auto Parent = Tasks::LaunchTask("NestedDerivedData", [&] {
-		FBuildRequestOwner Owner(EBuildPriority::High);
+		FRequestOwner Owner(ERequestPriority::High);
 		auto Request = Session->Build(Definition(), Owner, [&](FBuildCompleteParams Result) {
 			EXPECT_EQ(Result.GetStatus(), EStatus::Ok); ++Calls;
 		}, {}, Options());
 		ASSERT_TRUE(Request);
-		EXPECT_EQ(Owner.GetPriority(), EBuildPriority::High);
-		EXPECT_EQ(Owner.Wait(), EBuildWaitResult::Completed);
+		EXPECT_EQ(Owner.GetPriority(), ERequestPriority::High);
+		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 		EXPECT_TRUE(Request->IsComplete());
 	});
 	EXPECT_EQ(Parent.Wait().WaitStatus, ETaskWaitStatus::Completed);
@@ -653,18 +695,18 @@ TEST(FBuildSessionTests, TaskSchedulerRejectsWhenCoreIsStoppedWithoutCallback)
 {
 	ShutdownTaskScheduler(false);
 	FFixture Fixture;
-	auto Session = Fixture.Service->CreateSession({}, CreateTaskBuildScheduler()).value();
-	FBuildRequestOwner Owner;
+	auto Session = Fixture.Service->CreateSession({}, CreateTaskBuildScheduler(), CreateTaskCacheScheduler()).value();
+	FRequestOwner Owner;
 	uint32 Calls = 0;
 	auto Request = Session->Build(Definition(), Owner, [&](auto) { ++Calls; }, {}, Options());
 	ASSERT_FALSE(Request);
 	EXPECT_EQ(Request.error().Reason, EBuildAdmissionReason::DispatchRejected);
 	EXPECT_EQ(Calls, 0u);
 	EXPECT_TRUE(Owner.Poll());
-	EXPECT_EQ(Owner.Wait(), EBuildWaitResult::Completed);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 }
 
-TEST(FBuildSessionTests, SchedulerReceivesOwnerPriorityAndExistingWorkingSetBudget)
+TEST(FBuildSessionTests, SchedulerReceivesOwnerPriority)
 {
 	class FRecordingScheduler final : public IBuildScheduler
 	{
@@ -673,43 +715,32 @@ TEST(FBuildSessionTests, SchedulerReceivesOwnerPriorityAndExistingWorkingSetBudg
 			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
 		{
 			EXPECT_EQ(Params.FunctionName, "Session.Fixture");
-			EXPECT_EQ(Params.Priority, EBuildPriority::Low);
-			EXPECT_EQ(Params.MaximumWorkingSetBytes, 12345u);
+			EXPECT_EQ(Params.Priority, ERequestPriority::Low);
+
 			Work();
 			return std::shared_ptr<IBuildScheduledWork>{};
 		}
 	};
 	FFixture Fixture;
 	auto Session = Fixture.Service->CreateSession({}, std::make_shared<FRecordingScheduler>()).value();
-	FBuildRequestOwner Owner(EBuildPriority::Low);
+	FRequestOwner Owner(ERequestPriority::Low);
 	auto Policy = Options(); Policy.Policy.MaximumWorkingSetBytes = 12345;
 	ASSERT_TRUE(Session->Build(Definition(), Owner, [](auto) {}, {}, std::move(Policy)));
-	EXPECT_EQ(Owner.Wait(), EBuildWaitResult::Completed);
-}
-
-TEST(FBuildSessionTests, BarrierMayBeReleasedOnAnotherThread)
-{
-	FBuildRequestOwner Owner;
-	auto Barrier = std::make_unique<FBuildRequestBarrier>(Owner);
-	EXPECT_FALSE(Owner.Poll());
-	std::jthread Releaser([Barrier = std::move(Barrier)]() mutable { Barrier.reset(); });
-	Releaser.join();
-	EXPECT_TRUE(Owner.Poll());
-	EXPECT_EQ(Owner.Wait(), EBuildWaitResult::Completed);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 }
 
 TEST(FBuildSessionTests, CanceledOwnerDoesNotScheduleNewWork)
 {
 	ShutdownTaskScheduler(false);
 	FFixture Fixture;
-	auto Session = Fixture.Service->CreateSession({}, CreateTaskBuildScheduler()).value();
-	FBuildRequestOwner Owner; Owner.Cancel();
+	auto Session = Fixture.Service->CreateSession({}, CreateTaskBuildScheduler(), CreateTaskCacheScheduler()).value();
+	FRequestOwner Owner; Owner.Cancel();
 	uint32 Calls = 0;
 	auto Request = Session->Build(Definition(), Owner, [&](FBuildCompleteParams Result) {
 		++Calls; EXPECT_EQ(Result.GetStatus(), EStatus::Canceled);
 	}, {}, Options());
 	ASSERT_TRUE(Request);
-	EXPECT_EQ(Owner.Wait(), EBuildWaitResult::Completed);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 	EXPECT_EQ(Calls, 1u);
 	EXPECT_EQ(Fixture.Function->Builds.load(), 0u);
 }
@@ -718,20 +749,75 @@ TEST(FBuildSessionTests, InvalidRequestWaitDoesNotReportCompletion)
 {
 	FBuildRequest Request;
 	EXPECT_FALSE(Request.IsComplete());
-	EXPECT_EQ(Request.Wait(), EBuildWaitResult::InvalidRequest);
+	EXPECT_EQ(Request.Wait(), ERequestWaitResult::InvalidRequest);
 }
 
-TEST(FBuildSessionTests, OwnerMayBeDestroyedInsideItsCompletion)
+TEST(FBuildSessionTests, OwnerMayRequestCancellationInsideItsCompletion)
 {
 	FFixture Fixture;
 	auto Session = Fixture.Session();
-	auto Owner = std::make_unique<FBuildRequestOwner>();
+	auto Owner = std::make_unique<FRequestOwner>();
 	uint32 Calls = 0;
 	auto Request = Session->Build(Definition(), *Owner, [&](auto) {
-		++Calls; Owner.reset();
+		++Calls; Owner->RequestCancel();
 	}, {}, Options());
 	ASSERT_TRUE(Request);
 	EXPECT_EQ(Calls, 1u);
-	EXPECT_EQ(Request->Wait(), EBuildWaitResult::Completed);
+	EXPECT_EQ(Request->Wait(), ERequestWaitResult::Completed);
 	EXPECT_EQ(Session->Drain(), EBuildDrainResult::Drained);
+}
+
+TEST(FBuildSessionDeathTests, OwnerDestructionInsideCompletionIsRejected)
+{
+	EXPECT_DEATH({
+		FFixture Fixture; auto Session = Fixture.Session(); auto Owner = std::make_unique<FRequestOwner>();
+		(void)Session->Build(Definition(), *Owner, [&](auto) { Owner.reset(); }, {}, Options());
+	}, "must be drained");
+}
+
+TEST(FBuildContinuationTests, InlineNestedBuildCompletesBeforeOuterCallbackReturns)
+{
+	auto Cache = std::make_shared<FContinuationCache>(); auto Service = CreateBuild({.Cache = Cache});
+	ASSERT_TRUE(Service->Register(std::make_shared<FFunction>()));
+	auto Session = Service->CreateSession().value(); FRequestOwner Owner; uint32 Calls = 0;
+	auto Outer = Session->Build(Definition(), Owner, [&](auto Completion) {
+		EXPECT_EQ(Completion.GetStatus(), EStatus::Ok); ++Calls;
+		auto Inner = Session->Build(Definition(), Owner, [&](auto Result) { EXPECT_EQ(Result.GetStatus(), EStatus::Ok); ++Calls; });
+		ASSERT_TRUE(Inner); EXPECT_TRUE(Inner->IsComplete()); EXPECT_EQ(Inner->Wait(), ERequestWaitResult::Completed);
+		EXPECT_EQ(Calls, 2u);
+	});
+	ASSERT_TRUE(Outer); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Calls, 2u);
+}
+
+TEST(FBuildContinuationTests, CancelRetiresQueuedContinuationWithoutProducerProgress)
+{
+	auto Producer = std::make_shared<FStageScheduler>(); auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>();
+	auto Service = CreateBuild({Cache, CreateAsyncCache(Cache, IO)}); auto Function = std::make_shared<FFunction>(); ASSERT_TRUE(Service->Register(Function));
+	auto Session = Service->CreateSession({}, Producer).value(); FRequestOwner Owner; uint32 Calls = 0;
+	auto Request = Session->Build(Definition(), Owner, [&](auto Completion) { EXPECT_EQ(Completion.GetStatus(), EStatus::Canceled); ++Calls; });
+	ASSERT_TRUE(Request); Producer->Run(); IO->Run(); ASSERT_EQ(Producer->Work.size(), 1u);
+	Owner.Cancel(); EXPECT_EQ(Calls, 1u); EXPECT_TRUE(Owner.Poll()); EXPECT_TRUE(Request->IsComplete());
+	Producer->Run(); EXPECT_EQ(Calls, 1u); EXPECT_EQ(Function->Builds, 0u);
+}
+
+TEST(FBuildSessionTests, SynchronousCancelWaitsForRunningCallbackAndCaptureRelease)
+{
+	FFixture Fixture; std::function<void()> Queued;
+	auto Session = Fixture.Session([&](auto Work) -> std::expected<void, FBuildAdmissionError> { Queued = std::move(Work); return {}; });
+	FThreadEvent Entered, Release, CancelStarted, CancelReturned;
+	auto Capture = std::make_shared<int>(1); std::weak_ptr<int> Weak = Capture;
+	auto Request = Session->Build(Definition(), [Capture, &Entered, &Release](auto) { Entered.Trigger(); EXPECT_TRUE(Release.WaitFor(5.0)); }, {}, Options());
+	ASSERT_TRUE(Request); Capture.reset(); std::jthread Worker([&] { Queued(); });
+	ASSERT_TRUE(Entered.WaitFor(5.0));
+	std::jthread Canceler([&] { CancelStarted.Trigger(); Request->Cancel(); EXPECT_TRUE(Weak.expired()); EXPECT_TRUE(Request->IsComplete()); CancelReturned.Trigger(); });
+	ASSERT_TRUE(CancelStarted.WaitFor(5.0)); EXPECT_FALSE(CancelReturned.WaitFor(0.05));
+	Release.Trigger(); Worker.join(); Canceler.join(); EXPECT_TRUE(CancelReturned.WaitFor(0.0));
+}
+
+TEST(FBuildSessionDeathTests, SynchronousOwnerCancellationInsideCallbackIsRejected)
+{
+	EXPECT_DEATH({
+		FFixture Fixture; auto Session = Fixture.Session(); FRequestOwner Owner;
+		(void)Session->Build(Definition(), Owner, [&](auto) { Owner.Cancel(); }, {}, Options());
+	}, "use RequestCancel");
 }

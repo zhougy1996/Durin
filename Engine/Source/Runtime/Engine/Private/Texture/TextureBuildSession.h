@@ -11,7 +11,7 @@ namespace Durin
 		auto RegisterBuildFunctions() -> void;
 		auto BuildAsync(DerivedData::FBuildDefinition Definition,
 			std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
-			DerivedData::FBuildRequestOwner& Owner,
+			DerivedData::IRequestOwner& Owner,
 			DerivedData::FBuildCompletionCallback Completion,
 			DerivedData::FBuildRequestOptions Options = {}) -> bool;
 		auto Build(DerivedData::FBuildDefinition Definition,

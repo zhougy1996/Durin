@@ -74,10 +74,10 @@ namespace Durin::TexturePrivate
 			{
 				auto Fail = [&](std::string Text) { Context.AddError(std::move(Text)); };
 				auto* Module = ITextureCompressorModule::Get();
-				if (!Module) return Fail("The TextureCompressor module is unavailable.");
+				if (!Module) return Context.FailExecution("The TextureCompressor module is unavailable.");
 				const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
 				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != Module->GetBuildVersion(ETextureBuildKind::VolumeTexture))
-					return Fail("VolumeTexture builder identity does not match the action.");
+					return Context.FailExecution("VolumeTexture builder identity does not match the action.");
 				auto Constants = ReadConstants(Context); if (!Constants) return Fail(std::move(Constants.error()));
 				const auto* SourceInput = Context.FindInput("Source");
 				if (!SourceInput || SourceInput->Identity.IdentityScheme != "TextureSource" || SourceInput->Identity.IdentityVersion != TextureSourceSchemaVersion || SourceInput->Identity.Representation != "Volume.Voxels"
@@ -96,9 +96,9 @@ namespace Durin::TexturePrivate
 				auto Built = Module->BuildVolumeTexture({.SourceData = std::cref(Source), .Settings = Constants->Settings,
 					.TargetPlatform = Constants->TargetPlatform, .TargetProfile = Constants->TargetProfile});
 				if (Context.IsCancelled()) return;
-				if (!Built) return Fail("VolumeTexture build failed; see TextureCompressor logs for details.");
+				if (!Built) return Context.FailExecution("VolumeTexture build failed; see TextureCompressor logs for details.");
 				auto Output = MakeVolumeTextureSharedOutput(*Built, Constants->TargetPlatform, Constants->TargetProfile);
-				if (!Output) return Fail(std::move(Output.error()));
+				if (!Output) return Context.FailExecution(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);
 			}

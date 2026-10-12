@@ -255,7 +255,7 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 	const Durin::FCacheKeyProxy Baseline =
 		Durin::BuildTexture2DDerivedDataKey(Input);
 	// Canonical schema-2 action includes the flat resource-family bucket.
-	EXPECT_EQ(Baseline.ToString(), "061daf175d2ac98fb6a6c18bb12f36cd");
+	EXPECT_EQ(Baseline.ToString(), "7014571435cc2c28465c9687d9a7f67f");
 	EXPECT_EQ(Baseline.ToString().size(), 32u);
 
 	auto ExpectChange = [&Baseline](const Durin::FTexture2DBuildKeyInput& Changed) {
@@ -407,7 +407,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverCanonicalSourceLayoutAndBuilderIdent
 	std::string Error;
 	Baseline = Durin::BuildTextureCubeDerivedDataKey(Input, Error);
 	ASSERT_TRUE(Baseline.IsValid()) << Error;
-	EXPECT_EQ(Baseline.ToString(), "abe54a5afacefa2141915fd85690e3a2");
+	EXPECT_EQ(Baseline.ToString(), "bae81a49513303336ec715c063042cfb");
 	EXPECT_EQ(Baseline.ToString().size(), 32u);
 
 	auto Changed = Input;
@@ -437,7 +437,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverCanonicalSourceLayoutAndBuilderIdent
 	Changed.TargetProfile = Durin::ECookTargetProfile::Game;
 	Baseline = Durin::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_TRUE(Baseline.IsValid()) << Error;
-	EXPECT_EQ(Baseline.ToString(), "a73ee615228247195a69b3289c34a728");
+	EXPECT_EQ(Baseline.ToString(), "a658456c071254176a0eac20e823c123");
 	auto ChangedPanorama = Changed;
 	ChangedPanorama.FaceDimension = 256;
 	Key = Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
@@ -1118,14 +1118,11 @@ TEST(FTextureDerivedDataTests, AdaptersRejectMismatchedBuilderIdentityBeforeRead
 		std::optional<FBuildCompleteParams> Result;
 		auto Request = (*Session)->Build(*Action, [&](auto Value) { Result = std::move(Value); }, {}, Options);
 		ASSERT_TRUE(Request);
-		EXPECT_EQ(Request->Wait(), EBuildWaitResult::Completed);
+		EXPECT_EQ(Request->Wait(), ERequestWaitResult::Completed);
 		ASSERT_TRUE(Result);
 		EXPECT_EQ(Result->GetStatus(), EStatus::Error);
-		ASSERT_NE(Result->GetOutput(), nullptr);
-		EXPECT_TRUE(Result->GetOutput()->GetValues().empty());
-		const auto Messages = Result->GetOutput()->GetMessages();
-		ASSERT_EQ(Messages.size(), 1u);
-		EXPECT_NE(Messages.front().Text.find("identity does not match"), std::string::npos);
+		EXPECT_EQ(Result->GetOutput(), nullptr);
+		EXPECT_NE(Result->GetDiagnostic().find("identity does not match"), std::string_view::npos);
 	};
 	Check(MakeTexture2DBuildAction({.SourceIdentity = {1, 2},
 		.BuilderVersion = Module->GetBuildVersion(ETextureBuildKind::Texture2D) ^ 1ull,

@@ -238,11 +238,8 @@ namespace Durin
 		Request->Definition = std::move(*InvalidOptions);
 		const auto Result = Service.Execute(std::move(*Request), {.Policy = {.QueryCache = false, .StoreOnBuild = false}});
 		EXPECT_EQ(Result.GetStatus(), DerivedData::EStatus::Error);
-		ASSERT_NE(Result.GetOutput(), nullptr);
-		EXPECT_TRUE(Result.GetOutput()->GetValues().empty());
-		const auto Messages = Result.GetOutput()->GetMessages();
-		ASSERT_EQ(Messages.size(), 1u);
-		EXPECT_NE(Messages.front().Text.find("identity does not match"), std::string::npos);
+		EXPECT_EQ(Result.GetOutput(), nullptr);
+		EXPECT_NE(Result.GetDiagnostic().find("identity does not match"), std::string_view::npos);
 	}
 
 	TEST_F(FShaderDerivedDataTests, SingleStagePayloadMatchesGoldenBytes)

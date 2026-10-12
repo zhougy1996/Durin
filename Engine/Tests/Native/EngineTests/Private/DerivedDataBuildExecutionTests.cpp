@@ -16,11 +16,11 @@ namespace
 	};
 	struct FFunction final : IBuildFunction
 	{
-		mutable uint32 Builds = 0; bool Fail = false, Throw = false, Log = false;
+		mutable uint32 Builds = 0; bool Fail = false, Throw = false, Log = false, ExecutionFail = false;
 		auto GetName() const -> std::string_view override { return "Execution.Fixture"; }
 		auto GetVersion() const -> uint32 override { return 1; }
 		auto Configure(FBuildConfigContext& C) const -> void override { C.SetConstantsSchema(1); C.SetOutput("Fixture.Output", 1); C.SetCacheBucket(FCacheBucket::FromString("Execution")); }
-		auto Build(FBuildContext& C) const -> void override { ++Builds; if (Throw) throw std::runtime_error("fixture exception"); if (Fail) return C.AddError("deterministic failure"), void(); const auto* I = C.FindInput("Source"); if (!I) return C.AddError("missing input"), void(); C.AddValue(FValueId::FromName("Data"), I->Values[0].Data); if (Log) C.AddLog("Fixture", EBuildLogSeverity::Warning, "transient warning"); }
+		auto Build(FBuildContext& C) const -> void override { ++Builds; if (ExecutionFail) return C.FailExecution("temporary resource failure"); if (Throw) throw std::runtime_error("fixture exception"); if (Fail) return C.AddError("deterministic failure"), void(); const auto* I = C.FindInput("Source"); if (!I) return C.AddError("missing input"), void(); C.AddValue(FValueId::FromName("Data"), I->Values[0].Data); if (Log) C.AddLog("Fixture", EBuildLogSeverity::Warning, "transient warning"); }
 	};
 	struct FMemoryCache final : ICache
 	{
@@ -56,17 +56,17 @@ namespace
 		}
 		auto Run(FBuildRequestOptions O = {}) -> FBuildCompleteParams
 		{
-			O.InputResolver = Resolver; FBuildRequestOwner Owner; std::optional<FBuildCompleteParams> Result;
+			O.InputResolver = Resolver; FRequestOwner Owner; std::optional<FBuildCompleteParams> Result;
 			Session->Build(Definition(), Owner, [&](auto V) { Result = std::move(V); }, {}, std::move(O)).value();
-			require(Owner.Wait() == EBuildWaitResult::Completed); return std::move(*Result);
+			require(Owner.Wait() == ERequestWaitResult::Completed); return std::move(*Result);
 		}
 	};
 }
 
 TEST(FBuildExecutionTests, ColdBuildPersistsAndWarmHitAvoidsResolve)
 {
-	FHarness H; auto Cold = H.Run(); ASSERT_EQ(Cold.GetStatus(), EStatus::Ok); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u); EXPECT_EQ(H.Cache->Puts, 1u);
-	auto Warm = H.Run(); ASSERT_EQ(Warm.GetStatus(), EStatus::Ok); EXPECT_TRUE(HasBuildStatus(Warm.GetBuildStatus(), EBuildStatus::CacheQueryHit)); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u);
+	FHarness H; auto Cold = H.Run(); ASSERT_EQ(Cold.GetStatus(), EStatus::Ok); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u); EXPECT_EQ(H.Cache->Puts, 1u); EXPECT_EQ(H.Resolver->Describes, 1u);
+	auto Warm = H.Run(); ASSERT_EQ(Warm.GetStatus(), EStatus::Ok); EXPECT_TRUE(HasBuildStatus(Warm.GetBuildStatus(), EBuildStatus::CacheQueryHit)); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u); EXPECT_EQ(H.Resolver->Describes, 2u);
 }
 
 TEST(FBuildExecutionTests, CorruptRecordFallsBackOnce)
@@ -125,6 +125,29 @@ TEST(FBuildExecutionTests, ProducerExceptionIsInfrastructureFailureAndIsNotCache
 	FHarness H; H.Function->Throw = true; auto Result = H.Run(); EXPECT_EQ(Result.GetStatus(), EStatus::Error); EXPECT_EQ(Result.GetOutput(), nullptr); EXPECT_EQ(H.Cache->Puts, 0u);
 }
 
+TEST(FBuildExecutionTests, ExecutionFailureCanRetryWithSameIdentityAndLargerCacheBudget)
+{
+	FHarness H;
+	H.Function->ExecutionFail = true;
+	FBuildRequestOptions Limited;
+	Limited.Policy.MaximumWorkingSetBytes = 1024;
+	auto Failed = H.Run(Limited);
+	EXPECT_EQ(Failed.GetStatus(), EStatus::Error);
+	EXPECT_EQ(Failed.GetOutput(), nullptr);
+	EXPECT_FALSE(Failed.GetDiagnostic().empty());
+	ASSERT_NE(Failed.GetCacheKey(), nullptr);
+	EXPECT_EQ(H.Cache->Puts, 0u);
+	H.Function->ExecutionFail = false;
+	auto Recovered = H.Run();
+	EXPECT_EQ(Recovered.GetStatus(), EStatus::Ok);
+	EXPECT_TRUE(Recovered.GetDiagnostic().empty());
+	ASSERT_NE(Recovered.GetCacheKey(), nullptr);
+	EXPECT_EQ(*Failed.GetCacheKey(), *Recovered.GetCacheKey());
+	EXPECT_EQ(H.Function->Builds, 2u);
+	EXPECT_EQ(H.Cache->Puts, 1u);
+	EXPECT_TRUE(HasBuildStatus(H.Run().GetBuildStatus(), EBuildStatus::CacheQueryHit));
+}
+
 TEST(FBuildExecutionTests, RequestDescriptionFailureCompletesWithoutProducerOrCacheQuery)
 {
 	FHarness H; H.Resolver->FailDescribe = true;
@@ -154,7 +177,7 @@ TEST(FBuildExecutionTests, AdmissionRejectsAmbiguousInputsWithoutCompletion)
 	FHarness H;
 	auto D = Definition();
 	auto Inputs = std::move(FBuildInputsBuilder(D.GetSources(), H.Resolver)).Build().value();
-	FBuildRequestOwner Owner;
+	FRequestOwner Owner;
 	FBuildRequestOptions Options; Options.InputResolver = H.Resolver;
 	uint32 Calls = 0;
 	auto Request = H.Session->Build(std::move(D), Owner, [&](auto) { ++Calls; },
@@ -170,12 +193,50 @@ TEST(FBuildExecutionTests, CompletionAndRetainedHandleDoNotPinCapturedResolver)
 	FHarness H;
 	std::weak_ptr<const IBuildInputResolver> Captured = H.Resolver;
 	FBuildRequestOptions Options; Options.InputResolver = std::move(H.Resolver);
-	FBuildRequestOwner Owner;
+	FRequestOwner Owner;
 	auto Request = H.Session->Build(Definition(), Owner, [&](FBuildCompleteParams Result) {
 		EXPECT_EQ(Result.GetStatus(), EStatus::Ok);
 		EXPECT_TRUE(Captured.expired());
 	}, {}, std::move(Options));
 	ASSERT_TRUE(Request);
-	EXPECT_EQ(Owner.Wait(), EBuildWaitResult::Completed);
+	EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
 	EXPECT_TRUE(Captured.expired());
+}
+
+TEST(FBuildExecutionTests, QueuedProducerUsesOnePreparationAndSkipsProductionOnWarmHit)
+{
+	class FQueuedScheduler final : public IBuildScheduler
+	{
+	public:
+		std::deque<std::function<void()>> Queue;
+		uint32 Submissions = 0;
+		auto Schedule(const FBuildScheduleParams&, std::function<void()> Work)
+			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
+		{ ++Submissions; Queue.push_back(std::move(Work)); return std::shared_ptr<IBuildScheduledWork>{}; }
+		auto Run() -> void
+		{ while (!Queue.empty()) { auto Work = std::move(Queue.front()); Queue.pop_front(); Work(); } }
+	};
+	FHarness H;
+	auto Producer = std::make_shared<FQueuedScheduler>();
+	auto Session = H.Service->CreateSession({}, Producer, CreateInlineBuildScheduler()).value();
+	FRequestOwner Owner;
+	uint32 Calls = 0;
+	for (uint32 Round = 0; Round < 2; ++Round)
+	{
+		auto Request = Session->Build(Definition(), Owner, [&](auto Result) {
+			EXPECT_EQ(Result.GetStatus(), EStatus::Ok);
+			EXPECT_EQ(HasBuildStatus(Result.GetBuildStatus(), EBuildStatus::CacheQueryHit), Round == 1);
+			++Calls;
+		}, {}, {.InputResolver = H.Resolver});
+		ASSERT_TRUE(Request);
+		EXPECT_EQ(Calls, Round);
+		Producer->Run();
+		EXPECT_EQ(Request->Wait(), ERequestWaitResult::Completed);
+		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	}
+	EXPECT_EQ(Calls, 2u);
+	EXPECT_EQ(H.Resolver->Describes, 2u);
+	EXPECT_EQ(H.Resolver->Resolves, 1u);
+	EXPECT_EQ(H.Function->Builds, 1u);
+	EXPECT_EQ(H.Cache->Puts, 1u);
 }

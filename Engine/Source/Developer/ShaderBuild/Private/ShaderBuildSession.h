@@ -7,7 +7,7 @@
 
 namespace Durin
 {
-	inline constexpr uint32 ShaderCompileBuildFunctionVersion = 3;
+	inline constexpr uint32 ShaderCompileBuildFunctionVersion = 4;
 	inline constexpr uint32 ShaderCompileConstantsSchemaVersion = 2;
 	inline constexpr uint32 ShaderCompileOutputSchemaVersion = 6;
 	SHADERBUILD_API auto GetShaderBuildDescriptor() -> DerivedData::FBuildFunctionDescriptor;

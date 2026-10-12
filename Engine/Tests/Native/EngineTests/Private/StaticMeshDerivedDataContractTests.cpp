@@ -49,7 +49,7 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(Durin::Testing::BuildStaticMeshDerivedDataKey(Input).value().ToString(),
-		"25cd6eb330cce3d04e44d2d0912d25c8");
+		"e6830bda4127c0172c165b78d9082bce");
 }
 
 TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
@@ -107,7 +107,7 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 	MissingIdentity.BuilderVersion = 0;
 	EXPECT_FALSE(Durin::MakePhysicsCookBuildAction(MissingIdentity));
 	const auto BaselineKey = Action->GetKey();
-	EXPECT_EQ(BaselineKey.ToString(), "cdec1d091eb8a105ef12b62bf1ef0975");
+	EXPECT_EQ(BaselineKey.ToString(), "0d2616c67fd7f2718d886f732d3c9e3e");
 
 	auto ExpectChanged = [&](auto Mutate)
 	{

@@ -50,7 +50,7 @@ namespace Durin
 			float Exposure;
 			bool bSRGB;
 			ETextureCubeOutput Output;
-			auto Dispatch(DerivedData::FBuildRequestOwner& Owner, std::function<bool()> ShouldCancel,
+			auto Dispatch(DerivedData::IRequestOwner& Owner, std::function<bool()> ShouldCancel,
 				std::function<void(std::unique_ptr<FTexturePlatformCacheResult>)> Completion) const -> void override;
 		};
 
@@ -114,7 +114,7 @@ namespace Durin
 			return true;
 		}
 
-		auto FCubeCacheInput::Dispatch(DerivedData::FBuildRequestOwner& Owner,
+		auto FCubeCacheInput::Dispatch(DerivedData::IRequestOwner& Owner,
 			std::function<bool()> ShouldCancel,
 			std::function<void(std::unique_ptr<FTexturePlatformCacheResult>)> Completion) const -> void
 		{

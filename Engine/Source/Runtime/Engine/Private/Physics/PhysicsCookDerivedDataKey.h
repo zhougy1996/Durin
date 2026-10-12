@@ -9,7 +9,7 @@
 namespace Durin
 {
 	inline constexpr uint32 PhysicsCollisionOutputSchemaVersion = 2;
-	inline constexpr uint32 PhysicsCollisionBuildFunctionVersion = 1;
+	inline constexpr uint32 PhysicsCollisionBuildFunctionVersion = 2;
 	inline constexpr uint32 PhysicsCollisionConstantsSchemaVersion = 2;
 	// Bucket identity is stable; definition keys intentionally invalidate old entries.
 	inline constexpr std::string_view PhysicsCollisionCacheBucket =

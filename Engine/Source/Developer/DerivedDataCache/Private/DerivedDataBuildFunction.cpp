@@ -14,8 +14,8 @@ namespace Durin::DerivedData
 		FBuildConfigContext Context; Context.Descriptor.Name = std::string(Function.GetName()); Context.Descriptor.Version = Function.GetVersion(); Function.Configure(Context); return std::move(Context.Descriptor);
 	}
 	auto Private::FBuildExecutionAccess::MakeContext(const FBuildAction& Action, std::span<const FBuildInput> Inputs,
-		FBuildOutputBuilder& Output, FBuildCancellation Cancel, uint64 MaximumWorkingSetBytes) -> FBuildContext
-	{ return FBuildContext(Action, Inputs, Output, std::move(Cancel), MaximumWorkingSetBytes); }
+		FBuildOutputBuilder& Output, FBuildCancellation Cancel) -> FBuildContext
+	{ return FBuildContext(Action, Inputs, Output, std::move(Cancel)); }
 	auto Private::FBuildExecutionAccess::MakeOutputBuilder(std::string Schema, uint32 SchemaVersion,
 		FBuildOutputLimits Limits) -> FBuildOutputBuilder
 	{ return FBuildOutputBuilder(std::move(Schema), SchemaVersion, Limits); }
@@ -51,6 +51,8 @@ namespace Durin::DerivedData
 	auto FBuildContext::AddMessage(std::string Text) -> bool { return Output.AddMessage(EBuildMessageSeverity::Note, std::move(Text)); }
 	auto FBuildContext::AddWarning(std::string Text) -> bool { return Output.AddMessage(EBuildMessageSeverity::Warning, std::move(Text)); }
 	auto FBuildContext::AddError(std::string Text) -> bool { return Output.AddMessage(EBuildMessageSeverity::Error, std::move(Text)); }
+	auto FBuildContext::FailExecution(std::string Text) -> void
+	{ Text.resize(std::min<size_t>(Text.size(), 4096)); ExecutionFailure = std::move(Text); }
 	auto FBuildContext::AddLog(std::string Category, EBuildLogSeverity Severity,
 		std::string Text) -> bool
 	{ return Output.AddLog(std::move(Category), Severity, std::move(Text)); }

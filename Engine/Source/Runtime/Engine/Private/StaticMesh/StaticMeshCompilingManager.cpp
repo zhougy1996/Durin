@@ -1,6 +1,9 @@
 #include "Threading/TaskComposition.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMeshBuildAsync.h"
+#if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
+#include "Asset/AssetCompilationOperation.h"
+#endif
 
 #include "CoreGlobals.h"
 #include "Logging/LogMacros.h"
@@ -30,7 +33,7 @@ namespace Durin
 #if DURIN_WITH_EDITORONLY_DATA
 			FStaticMeshBuildRequest Request;
 #if DURIN_WITH_EDITOR
-			std::shared_ptr<DerivedData::FBuildRequestOwner> BuildOwner;
+			std::shared_ptr<FAssetCompilationOperation> BuildOperation;
 			std::optional<DerivedData::FBuildCompleteParams> Completion;
 			std::atomic<bool> CompletionReady = false;
 			std::atomic<bool> AsyncDispatched = false;
@@ -242,8 +245,8 @@ namespace Durin
 				Record->Work->Render().Request.bPersistDerivedData = Request.bPersistDerivedData;
 				Record->Priority = Request.Priority;
 #if DURIN_WITH_EDITOR
-				Record->Work->Render().BuildOwner = std::make_shared<DerivedData::FBuildRequestOwner>(
-					Request.Priority == EStaticMeshCompilationPriority::Interactive ? DerivedData::EBuildPriority::High : DerivedData::EBuildPriority::Low);
+				Record->Work->Render().BuildOperation = std::make_shared<FAssetCompilationOperation>(
+					Request.Priority == EStaticMeshCompilationPriority::Interactive ? DerivedData::ERequestPriority::High : DerivedData::ERequestPriority::Low);
 #endif
 				Record->bMarkPackageDirty = Request.bMarkPackageDirty;
 				Record->bPersistDerivedData = Request.bPersistDerivedData;
@@ -446,7 +449,7 @@ namespace Durin
 						Body->CancelPhysicsMeshes(Record.CollisionSnapshot().RequestGeneration);
 				Record.Work->Cancelled.store(true, std::memory_order_release);
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
-				if (!Record.Work->IsCollision() && Record.Work->Render().BuildOwner) Record.Work->Render().BuildOwner->Cancel();
+				if (!Record.Work->IsCollision() && Record.Work->Render().BuildOperation) Record.Work->Render().BuildOperation->RequestCancel();
 #endif
 				if (!Record.bStarted)
 				{
@@ -471,13 +474,18 @@ namespace Durin
 							{
 								Work->Render().AsyncDispatched.store(true, std::memory_order_release);
 								auto Dispatched = StaticMeshPrivate::DispatchRenderBuild(Work->Render().Request, BuilderVersion,
-									*Work->Render().BuildOwner, [Work] { return Work->Cancelled.load(std::memory_order_acquire); },
+									*Work->Render().BuildOperation, [Work] { return Work->Cancelled.load(std::memory_order_acquire); },
 									Work->ReservedBytes, [Work](auto Completion) {
 										try { Work->Render().Completion.emplace(std::move(Completion)); }
 										catch (...) { Work->Fail("StaticMesh cache completion could not be retained."); }
 										Work->Render().CompletionReady.store(true, std::memory_order_release);
 									});
-								if (Dispatched) return; // Owner retains its slot while cache I/O is suspended.
+								if (Dispatched)
+								{
+									Tasks::AddNested(Work->Render().BuildOperation->GetCompletionEvent());
+									Work->Render().BuildOperation->CloseSubmission();
+									return; // Owner retains its slot while cache I/O is suspended.
+								}
 								Work->Render().AsyncDispatched.store(false, std::memory_order_release);
 								Work->Render().Outcome = std::unexpected(std::move(Dispatched.error()));
 							}
@@ -492,6 +500,13 @@ namespace Durin
 							if (Hook) Hook(Id, EStaticMeshCompilationPhase::Mailbox);
 						}
 						catch (...) { Work->Fail("Asset build worker failed with an exception."); }
+#if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
+						if (!Work->IsCollision())
+						{
+							Tasks::AddNested(Work->Render().BuildOperation->GetCompletionEvent());
+							Work->Render().BuildOperation->CloseSubmission();
+						}
+#endif
 						Work->ReleaseInput();
 						Work->Done.store(true, std::memory_order_release);
 						State->AdmittedBuildCount.fetch_sub(1);
@@ -635,7 +650,7 @@ namespace Durin
 #if DURIN_WITH_EDITORONLY_DATA
 				std::vector<std::pair<FObjectKey, FStaticMeshCompilationRequest>> Requeues;
 #endif
-				// Completed dispatch tasks may await DDC callbacks; other dropped tasks publish failure.
+				// Nested operation completion retires DDC before dispatch tasks become ready.
 				for (const auto& Record : Records)
 				{
 					if (!Record->Task.IsValid() || !Record->Task.IsComplete()
@@ -644,7 +659,7 @@ namespace Durin
 					if (!Record->Work->IsCollision() && Record->Work->Render().AsyncDispatched.load(std::memory_order_acquire))
 					{
 						auto& Render = Record->Work->Render();
-						if (!Render.CompletionReady.load(std::memory_order_acquire) || !Render.BuildOwner->Poll()) continue;
+						if (!Render.CompletionReady.load(std::memory_order_acquire)) continue;
 						Render.AsyncDispatched.store(false, std::memory_order_release);
 						if (!Record->Work->Cancelled.load(std::memory_order_acquire) && IsTaskSchedulerRunning())
 						{

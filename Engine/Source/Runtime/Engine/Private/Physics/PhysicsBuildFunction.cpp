@@ -62,7 +62,7 @@ namespace Durin::PhysicsPrivate
 				auto Fail = [&](std::string Text) { Context.AddError(std::move(Text)); };
 				const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
 				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != FCollisionCookedData::GetBuildVersion())
-					return Fail("Physics cooker identity does not match the build request.");
+					return Context.FailExecution("Physics cooker identity does not match the build request.");
 				bool bCancelled = false;
 				const auto Cancel = [&] { return bCancelled = bCancelled || Context.IsCancelled(); };
 				auto Config = Settings(Context); if (!Config) return Fail(std::move(Config.error()));
@@ -77,7 +77,7 @@ namespace Durin::PhysicsPrivate
 				if (!Positions || !Indices || Positions->size() % sizeof(FVector3f) || Indices->size() % sizeof(uint32))
 					return Fail("Physics source arrays are malformed.");
 				const auto PositionCount = Positions->size() / sizeof(FVector3f), IndexCount = Indices->size() / sizeof(uint32);
-				if (auto Valid = CheckCookInput(PositionCount, IndexCount, Config->Mode, Config->Policy, Context.GetMaximumWorkingSetBytes()); !Valid)
+				if (auto Valid = CheckCookInput(PositionCount, IndexCount, Config->Mode, Config->Policy, std::numeric_limits<uint64>::max()); !Valid)
 					return Fail(Valid.error().ToString());
 				const auto Identity = HashInput(Positions->GetBytes(), Indices->GetBytes(), Cancel);
 				if (!Identity) return Fail(Cancelled().Description);
@@ -106,10 +106,10 @@ namespace Durin::PhysicsPrivate
 					? FCollisionCookedData::BuildConvexHull(ConvertedPositions, &Diagnostics, Cancel)
 					: FCollisionCookedData::BuildTriangleMesh(ConvertedPositions, *NativeIndices, &Diagnostics, Cancel);
 				if (Cancel() || Diagnostics.Status == ECollisionGeometryBuildStatus::Cancelled) return Fail(Cancelled().Description);
-				if (!Cooked) return Fail(std::format("Physics geometry construction failed (status {}).", int(Diagnostics.Status)));
+				if (!Cooked) return Context.FailExecution(std::format("Physics geometry construction failed (status {}).", int(Diagnostics.Status)));
 				auto Output = MakeSharedOutput(std::move(Cooked), Config->Mode, Config->Policy, Cancel);
 				if (Cancel()) return Fail(Cancelled().Description);
-				if (!Output) return Fail(std::move(Output.error()));
+				if (!Output) return Context.FailExecution(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);
 			}

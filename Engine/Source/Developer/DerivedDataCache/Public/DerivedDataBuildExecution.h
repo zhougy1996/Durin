@@ -24,19 +24,22 @@ namespace Durin::DerivedData
 	{
 	public:
 		DERIVEDDATACACHE_API static auto Error(std::optional<FCacheKey> Key,
-			EBuildStatus BuildStatus) -> FBuildCompleteParams;
+			EBuildStatus BuildStatus, std::string Diagnostic = {}) -> FBuildCompleteParams;
 		DERIVEDDATACACHE_API static auto Canceled(std::optional<FCacheKey> Key,
 			EBuildStatus BuildStatus) -> FBuildCompleteParams;
 		auto GetStatus() const -> EStatus { return Status; }
 		auto GetBuildStatus() const -> EBuildStatus { return BuildStatus; }
 		auto GetCacheKey() const -> const FCacheKey* { return CacheKey ? &*CacheKey : nullptr; }
 		auto GetOutput() const -> const FBuildOutput* { return Output ? &*Output : nullptr; }
+		// Execution diagnostics are completion-only and never enter a cache record.
+		auto GetDiagnostic() const -> std::string_view { return Diagnostic; }
 	private:
 		friend struct Private::FBuildCompletionAccess;
 		EStatus Status = EStatus::Canceled;
 		EBuildStatus BuildStatus = EBuildStatus::None;
 		std::optional<FCacheKey> CacheKey;
 		std::optional<FBuildOutput> Output;
+		std::string Diagnostic;
 	};
 
 	struct FBuildPolicy
@@ -45,6 +48,7 @@ namespace Durin::DerivedData
 		bool ForceBuild = false;
 		FBuildOutputLimits InputLimits, OutputLimits, PersistenceLimits;
 		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
+		// Cache payload/codec workspace only; producer reservations belong to the asset scheduler.
 		uint64 MaximumWorkingSetBytes = std::numeric_limits<uint64>::max();
 	};
 	class IAsyncCache;

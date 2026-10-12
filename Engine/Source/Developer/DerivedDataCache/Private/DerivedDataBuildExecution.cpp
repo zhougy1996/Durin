@@ -12,8 +12,8 @@ namespace Durin::DerivedData
 			return Key ? Status : EBuildStatus::None;
 		}
 	}
-	auto FBuildCompleteParams::Error(std::optional<FCacheKey> Key, EBuildStatus Status) -> FBuildCompleteParams
-	{ FBuildCompleteParams Result; Result.Status = EStatus::Error; Result.CacheKey = std::move(Key); Result.BuildStatus = NormalizeStatus(Result.CacheKey, Status); return Result; }
+	auto FBuildCompleteParams::Error(std::optional<FCacheKey> Key, EBuildStatus Status, std::string Diagnostic) -> FBuildCompleteParams
+	{ FBuildCompleteParams Result; Result.Status = EStatus::Error; Result.CacheKey = std::move(Key); Result.BuildStatus = NormalizeStatus(Result.CacheKey, Status); Diagnostic.resize(std::min<size_t>(Diagnostic.size(), 4096)); Result.Diagnostic = std::move(Diagnostic); return Result; }
 	auto FBuildCompleteParams::Canceled(std::optional<FCacheKey> Key, EBuildStatus Status) -> FBuildCompleteParams
 	{ FBuildCompleteParams Result; Result.Status = EStatus::Canceled; Result.CacheKey = std::move(Key); Result.BuildStatus = NormalizeStatus(Result.CacheKey, Status); return Result; }
 }
@@ -26,7 +26,7 @@ namespace Durin::DerivedData::Private
 		FBuildCompleteParams Result; Result.Status = Output.HasError() ? EStatus::Error : EStatus::Ok; Result.CacheKey = std::move(Key); Result.BuildStatus = NormalizeStatus(Result.CacheKey, Status); Result.Output = std::move(Output); return Result;
 	}
 	auto FBuildCompletionAccess::Canceled(FBuildCompleteParams Completion) -> FBuildCompleteParams
-	{ Completion.Status = EStatus::Canceled; Completion.Output.reset(); return Completion; }
+	{ Completion.Status = EStatus::Canceled; Completion.Output.reset(); Completion.Diagnostic.clear(); return Completion; }
 
 	auto PrepareBuildAction(const std::variant<FBuildDefinition, FBuildAction>& Request,
 		const FBuildRegistrySnapshot& Registry, const std::shared_ptr<const IBuildInputResolver>& Resolver,
@@ -37,7 +37,7 @@ namespace Durin::DerivedData::Private
 		auto Failure = [&](std::string_view Message) -> std::expected<FBuildAction, FBuildCompleteParams>
 		{
 			DURIN_ERROR_CATEGORY("DerivedData", "{} action preparation failed: {}", Name, Message);
-			return std::unexpected(FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None));
+			return std::unexpected(FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None, std::string(Message)));
 		};
 		auto Canceled = [] { return std::unexpected(FBuildCompleteParams::Canceled(std::nullopt, EBuildStatus::None)); };
 		try
@@ -67,46 +67,26 @@ namespace Durin::DerivedData::Private
 		catch (...) { return Failure("Action preparation threw."); }
 	}
 
-	auto ExecuteBuild(const std::variant<FBuildDefinition, FBuildAction>& Request,
+	auto ExecuteBuildLocal(const FBuildAction& Action,
 		const FBuildRegistrySnapshot& Registry, const std::shared_ptr<const IBuildInputResolver>& SessionResolver,
-		const FBuildInputs& RequestInputs, const FBuildRequestOptions& Options,
-		const FBuildServiceOptions& Service) -> FBuildCompleteParams
+		const FBuildInputs& RequestInputs, const FBuildRequestOptions& Options) -> FBuildCompleteParams
 	{
-		const FBuildPolicy& Policy = Options.Policy;
-		const FBuildCancellation& Cancel = Options.Cancellation;
+		const auto& Policy = Options.Policy;
+		const auto& Cancel = Options.Cancellation;
+		const auto CacheKey = Action.GetKey();
 		EBuildStatus Status = EBuildStatus::None;
-		std::optional<FCacheKey> CacheKey;
-		const std::string_view FunctionName = std::holds_alternative<FBuildDefinition>(Request)
-			? std::get<FBuildDefinition>(Request).GetFunctionName()
-			: std::get<FBuildAction>(Request).GetFunction().Name;
 		auto Canceled = [&] { return FBuildCompleteParams::Canceled(CacheKey, Status); };
-		auto CacheFailure = [&](std::string_view Operation, const FCacheError& Error) noexcept
-		{
-			DURIN_WARN_CATEGORY("DerivedData", "{} cache {} [{}]: {}", FunctionName,
-				Operation, CacheKey ? CacheKey->ToString() : std::string("unkeyed"), Error.Diagnostic);
-		};
 		auto Failed = [&](std::string_view Message)
 		{
-			DURIN_ERROR_CATEGORY("DerivedData", "{} build failed [{}]: {}", FunctionName,
-				CacheKey ? CacheKey->ToString() : std::string("unkeyed"), Message);
-			return FBuildCompleteParams::Error(CacheKey, Status);
+			DURIN_ERROR_CATEGORY("DerivedData", "{} build failed [{}]: {}", Action.GetFunction().Name,
+				CacheKey.ToString(), Message);
+			return FBuildCompleteParams::Error(CacheKey, Status, std::string(Message));
 		};
 		try
 		{
 			if (Cancel.IsCancelled()) return Canceled();
-			const auto Entry = Registry.Find(FunctionName); if (!Entry) return Failed("Build function is not registered.");
-			auto ActionStorage = PrepareBuildAction(Request, Registry, SessionResolver, RequestInputs, Cancel);
-			if (!ActionStorage) return std::move(ActionStorage.error());
-			const FBuildAction& Action = *ActionStorage; CacheKey = Action.GetKey();
-			if (Policy.QueryCache && !Policy.ForceBuild)
-			{
-				FCacheGetResult Stored = std::optional<FCacheRecord>{};
-				try { Stored = (Service.Cache ? *Service.Cache : GetCache()).Get({.Key = Action.GetKey(), .OutputLimits = Policy.OutputLimits,
-					.MaximumEncodedBytes = Policy.MaximumEncodedBytes, .MaximumWorkingSetBytes = Policy.MaximumWorkingSetBytes,
-					.ShouldCancel = [&] { return Cancel.IsCancelled(); }}); } catch (...) { Stored = std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache query threw."}); }
-				if (Cancel.IsCancelled()) return Canceled(); if (!Stored) CacheFailure("read", Stored.error());
-				else if (*Stored) { auto Output = (**Stored).ToOutput(Action.GetKey(), Policy.OutputLimits); if (!Output) CacheFailure("read", Output.error()); else { Status |= EBuildStatus::CacheQueryHit; return FBuildCompletionAccess::Ok(std::move(*Output), Action.GetKey(), Status); } }
-			}
+			const auto Entry = Registry.Find(Action.GetFunction().Name);
+			if (!Entry) return Failed("Build function is not registered.");
 			if (!Policy.BuildLocal) return Failed("No usable cache value is available and local build is disabled.");
 			std::expected<std::vector<FBuildInput>, FBuildInputError> Inputs = std::vector<FBuildInput>{};
 			if (!Action.GetInputs().empty()) { if (RequestInputs.IsValid()) Inputs = FBuildExecutionAccess::Resolve(RequestInputs, Cancel); else if (SessionResolver) Inputs = SessionResolver->Resolve(Action.GetInputs(), Cancel); else Inputs = std::unexpected(FBuildInputError{"Build input payloads are unavailable."}); }
@@ -122,29 +102,9 @@ namespace Durin::DerivedData::Private
 				for (const auto& Value : Input.Values) { if (!Private::IsBuildValueIdentifier(Value.Name) || (!Previous.empty() && Previous >= Value.Name)) return Failed("Resolved input has invalid or duplicate value names."); Previous = Value.Name; if (Value.Data.GetSize() > Policy.InputLimits.MaximumTotalBytes - Total) return Failed("Resolved input byte budget exceeded."); Total += Value.Data.GetSize(); }
 			}
 			Status |= EBuildStatus::BuildLocal;
-			FBuildOutputBuilder Builder = FBuildExecutionAccess::MakeOutputBuilder(Entry->Descriptor.OutputType, Entry->Descriptor.OutputSchema, Policy.OutputLimits); auto Context = FBuildExecutionAccess::MakeContext(Action, *Inputs, Builder, Cancel, Policy.MaximumWorkingSetBytes); Entry->Function->Build(Context); if (Cancel.IsCancelled()) return Canceled(); Inputs->clear(); auto Output = std::move(Builder).Build(); if (!Output) return Failed(Output.error());
-			if (Policy.StoreOnBuild && !Output->HasLogs())
-			{
-				try
-				{
-					auto Record = FCacheRecord::FromOutput(
-						Action.GetKey(), *Output, Policy.PersistenceLimits);
-					if (!Record) CacheFailure("write", Record.error());
-					else
-					{
-						auto Put = (Service.Cache ? *Service.Cache : GetCache()).Put(
-							{std::move(*Record), Policy.MaximumEncodedBytes, Policy.OutputLimits.MaximumTotalBytes, Policy.MaximumWorkingSetBytes,
-								[&] { return Cancel.IsCancelled(); }});
-						if (!Put) CacheFailure("write", Put.error());
-					}
-				}
-				catch (...)
-				{
-					CacheFailure("write",
-						{ECacheError::StorageFailure, "Cache persistence threw."});
-				}
-			}
-			if (Cancel.IsCancelled()) return Canceled(); return FBuildCompletionAccess::Ok(std::move(*Output), Action.GetKey(), Status);
+			FBuildOutputBuilder Builder = FBuildExecutionAccess::MakeOutputBuilder(Entry->Descriptor.OutputType, Entry->Descriptor.OutputSchema, Policy.OutputLimits); auto Context = FBuildExecutionAccess::MakeContext(Action, *Inputs, Builder, Cancel); Entry->Function->Build(Context); if (Cancel.IsCancelled()) return Canceled(); if (const auto& Failure = FBuildExecutionAccess::GetExecutionFailure(Context); Failure) return Failed(*Failure); Inputs->clear(); auto Output = std::move(Builder).Build(); if (!Output) return Failed(Output.error());
+			if (Cancel.IsCancelled()) return Canceled();
+			return FBuildCompletionAccess::Ok(std::move(*Output), CacheKey, Status);
 		}
 		catch (const std::exception& E) { return Failed(E.what()); }
 		catch (...) { return Failed("Build execution threw an exception."); }

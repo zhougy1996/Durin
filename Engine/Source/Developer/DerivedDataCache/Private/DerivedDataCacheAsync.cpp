@@ -1,55 +1,24 @@
 #include "DerivedDataCache/DerivedDataCacheAsync.h"
+#include "RequestOwnerPrivate.h"
 
 namespace Durin::DerivedData::Private
 {
 	struct FCacheOperation;
-	struct FCacheOwnerState
-	{
-		std::mutex Mutex;
-		std::atomic<bool> Canceled = false;
-		EBuildPriority Priority = EBuildPriority::Normal;
-		std::vector<std::shared_ptr<FCacheOperation>> Operations;
-	};
 	struct FAsyncCacheState;
-	struct FCacheCallbackScope;
-	thread_local FCacheCallbackScope* CurrentCacheScope = nullptr;
-	struct FCacheCallbackScope
+	struct FCacheOperation : FRequestCompletion
 	{
-		FCacheOwnerState* Owner;
-		FAsyncCacheState* Cache;
-		FCacheCallbackScope* Previous = CurrentCacheScope;
-		FCacheCallbackScope(FCacheOwnerState* Owner, FAsyncCacheState* Cache) : Owner(Owner), Cache(Cache) { CurrentCacheScope = this; }
-		~FCacheCallbackScope() { CurrentCacheScope = Previous; }
-	};
-	struct FCacheOperation
-	{
-		std::mutex Mutex;
-		std::condition_variable Changed;
-		bool Dispatching = true, Released = false;
 		std::atomic<bool> Started = false, Completing = false, Canceled = false;
-		std::shared_ptr<IBuildScheduledWork> Scheduled;
+		bool Active = false; // Protected by Cache->Mutex.
 		std::shared_ptr<FAsyncCacheState> Cache;
-		std::shared_ptr<FCacheOwnerState> Owner;
 		FCacheGetRequest GetRequest;
 		std::vector<FValueId> Ids;
 		std::optional<FCachePutRequest> PutRequest;
 		FCacheGetCallback GetCallback;
 		FCachePutCallback PutCallback;
 		uint32 Index = 0;
-		auto IsCanceled() const -> bool { return Canceled.load() || Owner->Canceled.load(); }
-		auto Wait() -> EBuildWaitResult
-		{
-			std::shared_ptr<IBuildScheduledWork> Work;
-			{
-				std::unique_lock Lock(Mutex);
-				Changed.wait(Lock, [&] { return !Dispatching || Released; });
-				if (Released) return EBuildWaitResult::Completed;
-				Work = Scheduled;
-			}
-			if (Work && Work->Wait() != EBuildWaitResult::Completed) return EBuildWaitResult::WouldBlock;
-			std::unique_lock Lock(Mutex); Changed.wait(Lock, [&] { return Released; });
-			return EBuildWaitResult::Completed;
-		}
+		auto IsCanceled() const -> bool { return Canceled.load() || Group->IsCanceled(); }
+		auto OnRetired() -> void override;
+		auto RequestCancel() -> bool override;
 		auto Finish(FCacheGetResult GetResult, FCachePutResult PutResult, FCacheQueryStats Stats = {}) -> void;
 		auto Run() -> void;
 	};
@@ -64,23 +33,35 @@ namespace Durin::DerivedData::Private
 		auto Pump() -> void;
 	};
 	auto CanceledError() -> FCacheError { return {ECacheError::Canceled, "Asynchronous cache request canceled or dropped."}; }
+	auto FCacheOperation::OnRetired() -> void
+	{
+		std::lock_guard Lock(Cache->Mutex);
+		std::erase_if(Cache->All, [&](const auto& Op) { return Op.get() == this; });
+	}
 	auto FCacheOperation::Finish(FCacheGetResult GetResult, FCachePutResult PutResult, FCacheQueryStats Stats) -> void
 	{
 		if (Completing.exchange(true)) return;
 		if (IsCanceled()) { GetResult = std::unexpected(CanceledError()); PutResult = std::unexpected(CanceledError()); }
-		FCacheCallbackScope Scope(Owner.get(), Cache.get());
-		try
-		{
-			if (GetCallback) GetCallback(Index, std::move(GetResult), Stats);
-			else if (PutCallback) PutCallback(Index, std::move(PutResult));
-		}
-		catch (...) {}
-		GetCallback = {}; PutCallback = {}; GetRequest = {}; Ids.clear(); PutRequest.reset();
-		{ std::lock_guard Lock(Owner->Mutex); std::erase_if(Owner->Operations, [&](const auto& Op) { return Op.get() == this; }); }
-		{ std::lock_guard Lock(Mutex); Released = true; }
-		Changed.notify_all();
-		{ std::lock_guard Lock(Cache->Mutex); std::erase_if(Cache->All, [&](const auto& Op) { return Op.get() == this; }); --Cache->Active; }
+		Complete([&] {
+			try {
+				if (GetCallback) GetCallback(Index, std::move(GetResult), Stats);
+				else if (PutCallback) PutCallback(Index, std::move(PutResult));
+			} catch (...) {}
+			GetCallback = {}; PutCallback = {}; GetRequest = {}; Ids.clear(); PutRequest.reset();
+			{ std::lock_guard Lock(Cache->Mutex); if (Active) { --Cache->Active; Active = false; } }
+		}, Cache->Scheduler->IsInline() ? nullptr : Cache.get());
 		Cache->Pump();
+	}
+	auto FCacheOperation::RequestCancel() -> bool
+	{
+		const bool Changed = !Canceled.exchange(true);
+		bool Pending = false, CompleteNow = false;
+		{ std::lock_guard Lock(Cache->Mutex); Pending = std::erase_if(Cache->Pending, [&](const auto& Op) { return Op.get() == this; }) != 0; CompleteNow = (Pending || Active) && !Started.exchange(true); }
+		if (CompleteNow) { if (Pending) DispatchReturned(); Finish(std::unexpected(CanceledError()), std::unexpected(CanceledError())); }
+		std::shared_ptr<IBuildScheduledWork> Work;
+		{ std::lock_guard Lock(Mutex); Work = Scheduled; }
+		if (Work) Work->RequestCancel();
+		return Changed;
 	}
 	auto FCacheOperation::Run() -> void
 	{
@@ -90,7 +71,8 @@ namespace Durin::DerivedData::Private
 		FCacheQueryStats Stats;
 		try
 		{
-			if (!IsCanceled())
+			const auto& External = PutRequest ? PutRequest->ShouldCancel : GetRequest.ShouldCancel;
+			if (!IsCanceled() && !(External && External()))
 			{
 				if (PutRequest)
 				{
@@ -108,63 +90,46 @@ namespace Durin::DerivedData::Private
 		catch (...) { Result = std::unexpected(FCacheError{ECacheError::StorageFailure, "Asynchronous cache backend threw."}); Saved = std::unexpected(Result.error()); }
 		Finish(std::move(Result), std::move(Saved), Stats);
 	}
-	struct FCacheDispatchTicket
-	{
-		std::shared_ptr<FCacheOperation> Operation;
-		~FCacheDispatchTicket()
-		{
-			if (!Operation->Started.load()) Operation->Finish(std::unexpected(CanceledError()), std::unexpected(CanceledError()));
-		}
-	};
 	auto FAsyncCacheState::Pump() -> void
 	{
-		{ std::lock_guard Lock(Mutex); if (Pumping) return; Pumping = true; }
+		const bool Inline = Scheduler->IsInline();
+		{ std::lock_guard Lock(Mutex); if (!Inline && Pumping) return; if (!Inline) Pumping = true; }
 		for (;;)
 		{
 			std::shared_ptr<FCacheOperation> Op;
 			{
 				std::lock_guard Lock(Mutex);
-				if (Active == Concurrency || Pending.empty()) { Pumping = false; return; }
-				const auto Next = std::ranges::min_element(Pending, {}, [](const auto& Item) { return Item->Owner->Priority; });
-				Op = std::move(*Next); Pending.erase(Next); ++Active;
+				if ((!Inline && Active == Concurrency) || Pending.empty()) { if (!Inline) Pumping = false; return; }
+				const auto Next = std::ranges::min_element(Pending, {}, [](const auto& Item) { return Item->Group->GetPriority(); });
+				Op = std::move(*Next); Pending.erase(Next); ++Active; Op->Active = true;
 			}
 			try
 			{
-				auto Ticket = std::make_shared<FCacheDispatchTicket>(); Ticket->Operation = Op;
-				const auto Budget = Op->PutRequest ? Op->PutRequest->MaximumWorkingSetBytes : Op->GetRequest.MaximumWorkingSetBytes;
-				auto Accepted = Scheduler->Schedule({"DerivedDataCacheIO", Op->Owner->Priority, Budget}, [Ticket] { Ticket->Operation->Run(); });
+				auto Accepted = Op->Group->LaunchTask(Op.get(), *Scheduler, "DerivedDataCacheIO", [Op] { Op->Run(); },
+					[Op] { Op->RequestCancel(); });
 				if (!Accepted) Op->Finish(std::unexpected(FCacheError{ECacheError::StorageFailure, Accepted.error().Description}),
 					std::unexpected(FCacheError{ECacheError::StorageFailure, Accepted.error().Description}));
-				{ std::lock_guard Lock(Op->Mutex); if (Accepted) Op->Scheduled = std::move(*Accepted); Op->Dispatching = false; }
-				Op->Changed.notify_all();
+				{ std::lock_guard Lock(Op->Mutex); if (Accepted) Op->Scheduled = *Accepted; }
+				if (Accepted && *Accepted && Op->IsCanceled()) (*Accepted)->RequestCancel();
+				Op->DispatchReturned();
 			}
 			catch (...)
 			{
 				Op->Finish(std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache dispatch threw."}),
 					std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache dispatch threw."}));
+				Op->DispatchReturned();
 			}
 		}
 	}
-	auto WaitOwner(const std::shared_ptr<FCacheOwnerState>& State) -> EBuildWaitResult
-	{
-		for (auto* Scope = CurrentCacheScope; Scope; Scope = Scope->Previous)
-			if (Scope->Owner == State.get()) return EBuildWaitResult::WouldBlock;
-		for (;;)
-		{
-			std::shared_ptr<FCacheOperation> Op;
-			{ std::lock_guard Lock(State->Mutex); if (State->Operations.empty()) return EBuildWaitResult::Completed; Op = State->Operations.front(); }
-			// Completion holds an active slot until the callback returns. Waiting on
-			// another owner in this cache can otherwise exhaust all available slots.
-			for (auto* Scope = CurrentCacheScope; Scope; Scope = Scope->Previous)
-				if (Scope->Cache == Op->Cache.get()) return EBuildWaitResult::WouldBlock;
-			if (Op->Wait() != EBuildWaitResult::Completed) return EBuildWaitResult::WouldBlock;
-		}
-	}
-	class FCacheOwnerWork final : public IBuildScheduledWork
+	class FCacheBatchWork final : public IBuildScheduledWork
 	{
 	public:
-		std::shared_ptr<FCacheOwnerState> Owner;
-		auto Wait() const -> EBuildWaitResult override { return WaitOwner(Owner); }
+		std::vector<std::weak_ptr<FCacheOperation>> Operations;
+		auto RequestCancel() const -> void override { for (const auto& Weak : Operations) if (auto Op = Weak.lock()) Op->RequestCancel(); }
+		auto Wait() const -> ERequestWaitResult override {
+			for (const auto& Weak : Operations) if (const auto Op = Weak.lock(); Op && Op->Wait() != ERequestWaitResult::Completed) return ERequestWaitResult::WouldBlock;
+			return ERequestWaitResult::Completed;
+		}
 	};
 	class FAsyncCache final : public IAsyncCache
 	{
@@ -179,25 +144,35 @@ namespace Durin::DerivedData::Private
 			State->Pending.reserve(State->Capacity); State->All.reserve(State->Capacity);
 		}
 		~FAsyncCache() override { Close(); Drain(); }
-		auto Admit(std::vector<std::shared_ptr<FCacheOperation>> Operations, FCacheRequestOwner& Owner)
+		auto Admit(std::vector<std::shared_ptr<FCacheOperation>> Operations, IRequestOwner& Owner)
 			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FCacheError>
 		{
-			auto Handle = std::make_shared<FCacheOwnerWork>(); Handle->Owner = Owner.State;
+			auto Handle = std::make_shared<FCacheBatchWork>();
 			{
-				std::scoped_lock Lock(State->Mutex, Owner.State->Mutex);
+				std::unique_lock Lock(State->Mutex);
 				if (State->Closed) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Asynchronous cache is closed."});
-				if (Operations.size() > State->Capacity - State->All.size() || Operations.size() > 4096 - Owner.State->Operations.size())
+				if (Operations.size() > State->Capacity - State->All.size())
 					return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Asynchronous cache request capacity exhausted."});
-				Owner.State->Operations.reserve(Owner.State->Operations.size() + Operations.size());
-				for (auto& Op : Operations)
+				Handle->Operations.assign(Operations.begin(), Operations.end());
+				try { for (auto& Op : Operations)
 				{
-					Op->Owner = Owner.State; Op->Cache = State;
-					State->All.push_back(Op); State->Pending.push_back(Op); Owner.State->Operations.push_back(Op);
+					Op->Cache = State; Op->WaitDomain = State->Scheduler->IsInline() ? nullptr : State.get();
+					{ std::lock_guard OperationLock(Op->Mutex); Op->Group = Owner.Begin(Op); }
+					State->All.push_back(Op); State->Pending.push_back(Op);
+				} }
+				catch (...) {
+					for (auto& Op : Operations) {
+						std::erase(State->All, Op); std::erase(State->Pending, Op);
+					}
+					Lock.unlock();
+					for (auto& Op : Operations) if (Op->Group) { Op->DispatchReturned(); Op->Complete(); }
+					throw;
 				}
 			}
+			for (auto& Op : Operations) if (Op->IsCanceled()) Op->RequestCancel();
 			State->Pump(); return Handle;
 		}
-		auto Get(std::span<const FCacheGetRequest> Requests, FCacheRequestOwner& Owner, FCacheGetCallback Callback)
+		auto Get(std::span<const FCacheGetRequest> Requests, IRequestOwner& Owner, FCacheGetCallback Callback)
 			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FCacheError> override
 		try
 		{
@@ -214,7 +189,7 @@ namespace Durin::DerivedData::Private
 			return Admit(std::move(Ops), Owner);
 		}
 		catch (...) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache batch admission failed."}); }
-		auto Put(std::span<const FCachePutRequest> Requests, FCacheRequestOwner& Owner, FCachePutCallback Callback)
+		auto Put(std::span<const FCachePutRequest> Requests, IRequestOwner& Owner, FCachePutCallback Callback)
 			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FCacheError> override
 		try
 		{
@@ -227,16 +202,15 @@ namespace Durin::DerivedData::Private
 		}
 		catch (...) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache batch admission failed."}); }
 		auto Close() -> void override
-		{ std::lock_guard Lock(State->Mutex); State->Closed = true; for (const auto& Op : State->All) Op->Canceled = true; }
-		auto Drain() -> EBuildWaitResult override
+		{ std::vector<std::shared_ptr<FCacheOperation>> Snapshot; { std::lock_guard Lock(State->Mutex); State->Closed = true; Snapshot = State->All; } for (const auto& Op : Snapshot) Op->RequestCancel(); }
+		auto Drain() -> ERequestWaitResult override
 		{
-			for (auto* Scope = CurrentCacheScope; Scope; Scope = Scope->Previous)
-				if (Scope->Cache == State.get()) return EBuildWaitResult::WouldBlock;
+			if (FRequestOwnerScope::Blocks(nullptr, State.get())) return ERequestWaitResult::WouldBlock;
 			for (;;)
 			{
 				std::shared_ptr<FCacheOperation> Op;
-				{ std::lock_guard Lock(State->Mutex); if (State->All.empty()) return EBuildWaitResult::Completed; Op = State->All.front(); }
-				if (Op->Wait() != EBuildWaitResult::Completed) return EBuildWaitResult::WouldBlock;
+				{ std::lock_guard Lock(State->Mutex); if (State->All.empty()) return ERequestWaitResult::Completed; Op = State->All.front(); }
+				if (Op->Wait() != ERequestWaitResult::Completed) return ERequestWaitResult::WouldBlock;
 			}
 		}
 	};
@@ -244,11 +218,6 @@ namespace Durin::DerivedData::Private
 
 namespace Durin::DerivedData
 {
-	FCacheRequestOwner::FCacheRequestOwner(EBuildPriority Priority) : State(std::make_shared<Private::FCacheOwnerState>()) { State->Priority = Priority; }
-	FCacheRequestOwner::~FCacheRequestOwner() { Cancel(); Wait(); }
-	auto FCacheRequestOwner::Cancel() -> void { State->Canceled = true; }
-	auto FCacheRequestOwner::Wait() const -> EBuildWaitResult { return Private::WaitOwner(State); }
-	auto FCacheRequestOwner::Poll() const -> bool { std::lock_guard Lock(State->Mutex); return State->Operations.empty(); }
 	auto CreateAsyncCache(std::shared_ptr<ICache> Cache, std::shared_ptr<IBuildScheduler> Scheduler, uint32 Concurrency, uint32 Capacity) -> std::shared_ptr<IAsyncCache>
 	{ return std::make_shared<Private::FAsyncCache>(std::move(Cache), std::move(Scheduler), Concurrency, Capacity); }
 }

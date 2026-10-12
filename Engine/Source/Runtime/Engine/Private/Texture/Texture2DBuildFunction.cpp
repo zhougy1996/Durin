@@ -94,10 +94,10 @@ namespace Durin::TexturePrivate
 			{
 				auto Fail = [&](std::string Text) { Context.AddError(std::move(Text)); };
 				auto* Module = ITextureCompressorModule::Get();
-				if (!Module) return Fail("The TextureCompressor module is unavailable.");
+				if (!Module) return Context.FailExecution("The TextureCompressor module is unavailable.");
 				const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
 				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != Module->GetBuildVersion(ETextureBuildKind::Texture2D))
-					return Fail("Texture2D builder identity does not match the action.");
+					return Context.FailExecution("Texture2D builder identity does not match the action.");
 				auto Input = ReadSettings(Context); if (!Input) return Fail(std::move(Input.error()));
 				const auto* Source = Context.FindInput("Source");
 				if (!Source || Source->Identity.IdentityScheme != "TextureSource" || Source->Identity.IdentityVersion != TextureSourceSchemaVersion
@@ -126,10 +126,10 @@ namespace Durin::TexturePrivate
 				Input->SourceMips = Mips;
 				auto Built = Module->BuildTexture2D(*Input);
 				if (Context.IsCancelled()) return;
-				if (!Built) return Fail("Texture2D build failed; see TextureCompressor logs for details.");
+				if (!Built) return Context.FailExecution("Texture2D build failed; see TextureCompressor logs for details.");
 				auto Output = MakeTexture2DSharedOutput(Built->PlatformData,
 					Input->TargetPlatform, Input->TargetProfile);
-				if (!Output) return Fail(std::move(Output.error()));
+				if (!Output) return Context.FailExecution(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& Meta : Output->GetMetadata()) Context.AddMeta(Meta.Id, Meta.Object);
 			}

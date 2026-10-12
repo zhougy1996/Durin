@@ -6,7 +6,7 @@
 
 namespace Durin
 {
-	namespace DerivedData { class FBuildRequestOwner; }
+	namespace DerivedData { class IRequestOwner; }
 #if DURIN_WITH_EDITORONLY_DATA
 	// Engine-owned values only. Dispatch starts on a worker; Apply executes on GameThread.
 	struct FTexturePlatformCacheResult
@@ -22,7 +22,7 @@ namespace Durin
 		FTextureSource Source;
 		uint64 EstimatedBytes = 0;
 		// Complete once on any execution thread. The owner outlives callback retirement.
-		virtual auto Dispatch(DerivedData::FBuildRequestOwner& Owner,
+		virtual auto Dispatch(DerivedData::IRequestOwner& Owner,
 			std::function<bool()> ShouldCancel,
 			std::function<void(std::unique_ptr<FTexturePlatformCacheResult>)> Completion) const -> void = 0;
 	};

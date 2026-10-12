@@ -156,6 +156,7 @@ namespace Durin
 		if (Result.GetStatus() == DerivedData::EStatus::Error || !Result.GetOutput())
 		{
 			FTexture2DBuildError Error{.Code = Result.GetOutput() ? ETexture2DBuildError::InvalidBuilderProduct : ETexture2DBuildError::ModuleUnavailable};
+			if (!Result.GetDiagnostic().empty()) Error.Description = Result.GetDiagnostic();
 			if (const auto* Output = Result.GetOutput(); Output && !Output->GetMessages().empty()) Error.Description = Output->GetMessages().back().Text;
 			else if (const auto* Output = Result.GetOutput(); Output && !Output->GetLogs().empty()) Error.Description = Output->GetLogs().back().Text;
 			return std::unexpected(std::move(Error));
@@ -166,7 +167,7 @@ namespace Durin
 	}
 
 	auto TexturePrivate::BuildTexture2DAsync(FTexture2DBuildRequest Request,
-		DerivedData::FBuildRequestOwner& Owner, std::function<bool()> ShouldCancel,
+		DerivedData::IRequestOwner& Owner, std::function<bool()> ShouldCancel,
 		std::function<void(std::expected<FTexturePlatformData, FTexture2DBuildError>, FTexture2DBuildInputIdentity)> Completion) -> void
 	{
 		FTexture2DBuildInputIdentity Identity;

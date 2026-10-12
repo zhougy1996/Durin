@@ -170,8 +170,10 @@ forwarded to both Core dispatch and the build request owner. LaunchTask accepts
 valid work directly; manager request and memory limits remain separate from
 scheduler queueing. Dispatch returns without waiting for cache I/O or a producer.
 The build callback assembles detached platform data and publishes a mailbox result.
-Owner readiness requires dispatch completion, terminal result publication and
-`FBuildRequestOwner::Poll()`, including callback/capture retirement. Dispatch
+Readiness requires dispatch completion and terminal result publication. The
+dispatch nests the asset operation's `FTaskEvent`, which includes callback and
+native dispatch capture retirement; see [Derived Data Build](DerivedDataBuild.md#ownership).
+Dispatch
 failure or cancellation before its body starts also reaches terminal delivery.
 The GameThread pump applies results and invokes observers without another deferred
 task. Diagnostics retain no task handles, build owners or input/result payloads
@@ -301,8 +303,9 @@ wait for collision. Shutdown stops
 admission, cancels both kinds and drains workers before releasing storage.
 
 Render owners dispatch a persistent asynchronous DDC session and release their
-Core worker during cache reads and persistence. Each record owns a build request
-group carrying its captured priority and cancellation. DDC callbacks publish only
+Core worker during cache reads and persistence. Each record owns an asset operation
+that forwards priority and cancellation to its DDC owner and bridges retirement
+into a nested `FTaskEvent`. DDC callbacks publish only
 detached completion data. The owner pump waits for callback retirement, then
 schedules output assembly, metadata restoration and ray-query preparation on a
 Core worker. Explicit finish drives the same pump; no render worker waits for
