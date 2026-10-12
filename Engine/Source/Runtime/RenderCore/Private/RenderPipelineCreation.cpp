@@ -30,7 +30,7 @@ namespace Durin
 			(void)Request->Wait();
 			if (Request->GetState() == ERHIPipelineRequestState::Pending)
 				return ERenderPipelinePreparationWait::WaitUnavailable;
-			(void)Request->GetCreationError(); // Preserve terminal creator exceptions.
+			(void)Request->GetResult(); // Preserve terminal creator exceptions.
 			bReady = Request->GetState() == ERHIPipelineRequestState::Ready && bReady;
 		}
 		return bReady ? ERenderPipelinePreparationWait::Ready : ERenderPipelinePreparationWait::Failed;
@@ -125,8 +125,6 @@ namespace Durin
 			Current->MarkPending();
 			FRenderPipelinePreparationBatch::Add(Pipeline);
 		}
-		const auto Error = Pipeline->GetCreationError();
-		if (Error.HasError() && !Current->Failure.HasError()) Current->Failure = Error;
 		return Pipeline->GetRHIPipeline();
 	}
 	auto FRenderPipelineRequestScope::Compute(FName Name, const FComputePipelineStateInitializer& Initializer)
@@ -149,8 +147,6 @@ namespace Durin
 			Current->MarkPending();
 			FRenderPipelinePreparationBatch::Add(Pipeline);
 		}
-		const auto Error = Pipeline->GetCreationError();
-		if (Error.HasError() && !Current->Failure.HasError()) Current->Failure = Error;
 		return Pipeline->GetRHIPipeline();
 	}
 }

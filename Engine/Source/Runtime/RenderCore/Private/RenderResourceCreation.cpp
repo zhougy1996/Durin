@@ -12,15 +12,12 @@ namespace Durin
 		Add(RetryDependencies); Add(Cause.index());
 		if (const auto* Shader = std::get_if<FShaderError>(&Cause))
 			Add(Shader->GetSemanticFingerprint());
-		else if (const auto* RHI = std::get_if<FRHICreationError>(&Cause))
-			Add(RHI->GetSemanticFingerprint());
 		return Fingerprint;
 	}
 
 	auto FormatRenderResourceCreateError(const FRenderResourceCreateError& Error) -> std::string
 	{
 		if (const auto* Shader = std::get_if<FShaderError>(&Error.Cause)) return FormatShaderError(*Shader);
-		if (const auto* RHI = std::get_if<FRHICreationError>(&Error.Cause)) return ToString(*RHI);
 		switch (Error.Reason)
 		{
 		case ERenderResourceCreateErrorReason::Unspecified: return "Renderer resource creation failed.";

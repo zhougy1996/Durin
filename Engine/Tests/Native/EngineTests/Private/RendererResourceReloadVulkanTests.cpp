@@ -463,7 +463,7 @@ float4 FragmentMain() : SV_Target
 								return FResult::Failure(MakeReloadError(
 									ERenderResourceCreateErrorCategory::
 										GraphicsPipeline,
-									FRHICreationError{.Failure = ERHIResourceCreationFailure::Unknown, .Source = ERHICreationFailureSource::BackendReturnedNull}));
+									std::monostate{}));
 							}
 							return FResult::Success(
 								std::move(Candidate));
@@ -700,7 +700,7 @@ float4 FragmentMain() : SV_Target
 					Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Vertex, 0, 4});
 					auto Candidate = FRenderPipelineRequestScope::Graphics("AsyncReloadPrewarm", Initializer);
 					if (Candidate) return FResult::Success(std::move(Candidate));
-					return FResult::Failure(MakeReloadError(ERenderResourceCreateErrorCategory::GraphicsPipeline, FRHICreationError{.Failure = ERHIResourceCreationFailure::Unknown, .Source = ERHICreationFailureSource::BackendReturnedNull}));
+					return FResult::Failure(MakeReloadError(ERenderResourceCreateErrorCategory::GraphicsPipeline, std::monostate{}));
 				}, [](const auto&) { ADD_FAILURE() << "Pending must not report a candidate failure"; });
 				if (Ready) PreparedPipeline = *Ready;
 			});

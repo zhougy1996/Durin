@@ -1327,59 +1327,35 @@ namespace Durin
 	}
 
 	TEST(FRHICommandListTests,
-		FallibleSynchronousOperationFailureIsRecoverableInline)
+		SynchronousOperationContinuesInline)
 	{
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
-		FRHISynchronousOperationTiming Timing;
-		const FRHICreationError Failure =
-			Executor.ExecuteFallibleSynchronousOperation(false, []() {
-				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::OutOfMemory, ERHICreationFailureSource::NativeBackend, -2});
-			}, 0, &Timing);
+		Executor.ExecuteSynchronousOperation(false, [] {});
 
 		bool bLaterWorkExecuted = false;
-		const FRHICreationError Success =
-			Executor.ExecuteFallibleSynchronousOperation(false,
+			Executor.ExecuteSynchronousOperation(false,
 				[&bLaterWorkExecuted]() { bLaterWorkExecuted = true; });
 
-		EXPECT_EQ(Timing.Admitted, 0u);
-		EXPECT_EQ(Timing.WaitBegin, 0u);
-		EXPECT_EQ(Timing.WaitEnd, 0u);
-		EXPECT_TRUE(Failure.HasError());
-		EXPECT_EQ(Failure.Failure, ERHIResourceCreationFailure::OutOfMemory);
-		EXPECT_EQ(Failure.NativeCode, -2);
-		EXPECT_FALSE(Success.HasError());
 		EXPECT_TRUE(bLaterWorkExecuted);
 		EXPECT_EQ(Executor.GetStats().SynchronousOperationCount, 2u);
 	}
 
 	TEST(FRHICommandListTests,
-		FallibleSynchronousOperationFailureIsRecoverableThreaded)
+		SynchronousOperationContinuesThreaded)
 	{
 		FRecordingCommandContext Context;
 		FRHIThread RHIThread;
 		ASSERT_TRUE(RHIThread.Start());
 		FRHICommandListExecutor Executor(Context, RHIThread);
 
-		FRHISynchronousOperationTiming Timing;
-		const FRHICreationError Failure =
-			Executor.ExecuteFallibleSynchronousOperation(false, []() {
-				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::OutOfMemory, ERHICreationFailureSource::NativeBackend, -2});
-			}, 0, &Timing);
+		Executor.ExecuteSynchronousOperation(false, [] {});
 		bool bLaterWorkExecutedOnRHIThread = false;
-		const FRHICreationError Success =
-			Executor.ExecuteFallibleSynchronousOperation(false,
+			Executor.ExecuteSynchronousOperation(false,
 				[&bLaterWorkExecutedOnRHIThread]() {
 					bLaterWorkExecutedOnRHIThread = IsInRHIThread();
 				});
 
-		EXPECT_GT(Timing.Admitted, 0u);
-		EXPECT_GE(Timing.WaitBegin, Timing.Admitted);
-		EXPECT_GE(Timing.WaitEnd, Timing.WaitBegin);
-		EXPECT_TRUE(Failure.HasError());
-		EXPECT_EQ(Failure.Failure, ERHIResourceCreationFailure::OutOfMemory);
-		EXPECT_EQ(Failure.NativeCode, -2);
-		EXPECT_FALSE(Success.HasError());
 		EXPECT_TRUE(bLaterWorkExecutedOnRHIThread);
 		const FRHICommandListExecutorStats Stats = Executor.GetStats();
 		EXPECT_EQ(Stats.SynchronousOperationCount, 2u);
@@ -1390,14 +1366,14 @@ namespace Durin
 		RHIThread.Stop();
 	}
 
-	TEST(FRHICommandListTests, FallibleOperationPreservesTerminalExceptionsInline)
+	TEST(FRHICommandListTests, SynchronousOperationPreservesTerminalExceptionsInline)
 	{
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
-		EXPECT_THROW(Executor.ExecuteFallibleSynchronousOperation(false, [] {
+		EXPECT_THROW(Executor.ExecuteSynchronousOperation(false, [] {
 			throw std::logic_error("invariant failure");
 		}), std::logic_error);
-		EXPECT_THROW(Executor.ExecuteFallibleSynchronousOperation(false, [] {
+		EXPECT_THROW(Executor.ExecuteSynchronousOperation(false, [] {
 			throw 7;
 		}), int);
 	}
@@ -1513,9 +1489,9 @@ namespace Durin
 			Capabilities.MaxComputeWorkGroupCount = {65535, 65535, 65535};
 			FRHIPipelineCompileBackend Backend;
 			Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
-			Backend.CreateCompute = [&](const auto&, const auto&) {
+			Backend.CreateCompute = [&](const auto&, const auto&) -> FComputePipelineStateRHIRef {
 				Entered.Trigger(); Release.Wait();
-				if (Outcome == 2) throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::MetadataBudget});
+				if (Outcome == 2) return {};
 				return MakeRefCount<FRHIComputePipelineState>();
 			};
 			Backend.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); };
@@ -1592,7 +1568,7 @@ namespace Durin
 		FRHIPipelineCompileBackend Backend;
 		Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
 		Backend.CreateCompute = [](const auto&, const auto&) -> FComputePipelineStateRHIRef {
-			throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::MetadataBudget});
+			return {};
 		};
 		Backend.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); };
 		FRHIPipelineStateCache Cache(Capabilities, std::move(Backend));
@@ -1636,7 +1612,7 @@ namespace Durin
 			FRHIThread RHIThread;
 			if (!RHIThread.Start()) std::exit(0);
 			FRHICommandListExecutor Executor(Context, RHIThread);
-			Executor.ExecuteFallibleSynchronousOperation(false, [] {
+			Executor.ExecuteSynchronousOperation(false, [] {
 				throw std::logic_error("terminal creation failure");
 			});
 		}()), "");

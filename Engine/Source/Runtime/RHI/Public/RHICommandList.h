@@ -436,13 +436,6 @@ namespace Durin
 			bool bFlushRecordedCommands,
 			std::function<void()> Operation,
 			size_t OwnedPayloadBytes = 0) -> void;
-		// Only FRHIRecoverableCreationError becomes a failed result. Other errors
-		// propagate inline or fail the RHI thread and its waiting caller.
-		RHI_API auto ExecuteFallibleSynchronousOperation(
-			bool bFlushRecordedCommands,
-			std::function<void()> Operation,
-			size_t OwnedPayloadBytes = 0,
-			FRHISynchronousOperationTiming* Timing = nullptr) -> FRHICreationError;
 
 	private:
 		class FState;

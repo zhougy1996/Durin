@@ -26,9 +26,9 @@ hold logical ownership; the backend cache and recorded commands can also retain
 references. Cache eviction selects only entries with no external references.
 
 Vertex declarations copy immutable CPU descriptions directly on the caller.
-Vulkan error translation and the RHI fallible creation boundary execute their
-callback without scheduling or waiting. Context-required public factory entries
-choose their compatibility scheduling explicitly.
+Vulkan nullable factories catch recoverable native creation errors locally and
+log their native status. Texture views of external images retain ordered RHI
+synchronization because swapchain backing can change during replay.
 
 Native graphics/compute PSO candidates receive owned input copies and retained
 shader/declaration references, with render-pass and structural-layout dependencies
@@ -177,7 +177,7 @@ return the same shared identity for an equal normalized key while an owner or
 recorded command retains it. Names are diagnostic only. Admission returns an
 `expected` identity or an explicit request rejection; accepted identities expose
 Pending/Ready/Failed/Canceled, immutable layout metadata, terminal readiness,
-permitted waits, and native failure details. Raw Core completion handles remain
+permitted waits, and nullable pipeline results. Raw Core completion handles remain
 internal because they carry cancellation authority. A failed identity can be
 retried by a later cache acquisition without changing an existing owner's result.
 
@@ -282,25 +282,24 @@ eligible again on the next frame. Device invalidation releases pipelines,
 declarations, atlas resources, and upload buffers before lazy reconstruction;
 shutdown performs the same ordered release.
 
-Each owner tracks independent shader, device, and manual generations. A failed
-attempt records its generation, error category/reason, owned context and identity, typed cause,
-and retry dependencies. Repeated lookup in the same relevant
-generation neither calls the factory nor logs the same failure again. A later
-relevant generation permits one new lazy attempt.
+Each owner tracks independent shader, device, and manual generations. Successful
+payloads remain cached until a relevant generation changes. Shader preparation
+failures retain their owned cause and retry dependencies, suppressing repeated
+attempts until a relevant generation changes. Native resource and pipeline
+creation failures allow another attempt on the next preparation; there is no
+failure classification or generation-based native retry state.
 
-`FRenderResourceCreateError` owns a mutually exclusive Shader or RHI cause.
-`FormatRenderResourceCreateError` is the presentation boundary; factories and
-slots do not store formatted diagnostics. Nullable backend interfaces retain an
-explicit `BackendReturnedNull` cause when no richer error is available. Pipeline
-request scopes retain the original asynchronous `FRHICreationError` and attach
-it to the failed pipeline slot before publication. Material binding validation
-formats its own typed Material error directly at its immediate logging boundary.
+`FRenderResourceCreateError` owns an optional Shader cause plus resource context,
+identity, category and reason. Native error details remain at the backend logging
+boundary. Async pipeline requests publish Failed with an empty pipeline result;
+request scopes do not forward backend causes. `FormatRenderResourceCreateError`
+formats owner diagnostics when they are reported. Material validation formats its
+own typed error at its logging boundary.
 
-Failure fingerprints include category, reason, owner/identity, selected nested
-semantic context and retry dependencies. They exclude
-attempt generations and opaque external diagnostics, so changing compiler prose
-does not change failure identity. Shader paths, native codes, limits, binding
-locations, and numeric conflict ranges remain owned through producer teardown.
+Failure fingerprints include category, reason, owner/identity, Shader semantic
+context and retry dependencies. They exclude attempt generations and opaque
+compiler diagnostics. Repeated failures with the same fingerprint do not emit
+duplicate owner diagnostics; successful creation reports recovery once.
 
 Fallback belongs to the consuming owner, not the creation slot. Material-data
 validation selects the complete ErrorMaterial representation before draw planning;

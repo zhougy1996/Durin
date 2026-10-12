@@ -123,7 +123,7 @@ namespace Durin
 				&& Earlier.Manual != Later.Manual);
 	}
 
-	using FRenderResourceCreateCause = std::variant<std::monostate, FShaderError, FRHICreationError>;
+	using FRenderResourceCreateCause = std::variant<std::monostate, FShaderError>;
 
 	struct FRenderResourceCreateError
 	{
@@ -267,18 +267,19 @@ namespace Durin
 				return &*Payload;
 			}
 
+			const auto PreviousFingerprint = FailureFingerprint;
 			Failure.emplace(Result.TakeError());
-			if (Failure->Category == ERenderResourceCreateErrorCategory::GraphicsPipeline
-				&& PipelineScope.GetFailure().HasError())
-				Failure->Cause = PipelineScope.GetFailure();
 			Failure->AttemptedGeneration = Generation;
 			FailureFingerprint = Failure->GetFingerprint();
 			Availability = ERenderResourceAvailability::Failed;
-			std::forward<DiagnosticReporterType>(ReportDiagnostic)(
-				FRenderResourceCreateDiagnostic{
-					.Kind = ERenderResourceCreateDiagnosticKind::Failure,
-					.Error = Failure,
-				});
+			if (PreviousFingerprint != FailureFingerprint)
+			{
+				std::forward<DiagnosticReporterType>(ReportDiagnostic)(
+					FRenderResourceCreateDiagnostic{
+						.Kind = ERenderResourceCreateDiagnosticKind::Failure,
+						.Error = Failure,
+					});
+			}
 			bFailureReported = true;
 			return nullptr;
 		}
@@ -369,6 +370,11 @@ namespace Durin
 		auto ShouldSuppressAttempt(
 			const FRenderResourceGeneration& Generation) const -> bool
 		{
+			if (Failure && (Failure->Category == ERenderResourceCreateErrorCategory::RHIResource
+				|| Failure->Category == ERenderResourceCreateErrorCategory::GraphicsPipeline
+				|| Failure->Reason == ERenderResourceCreateErrorReason::ShaderCreationFailed
+				|| Failure->Reason == ERenderResourceCreateErrorReason::SamplerCreationFailed))
+				return false;
 			if (!bHasAttempt)
 			{
 				return false;

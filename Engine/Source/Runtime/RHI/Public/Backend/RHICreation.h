@@ -2,24 +2,13 @@
 
 #include "CoreMinimal.h"
 
-#include "RHIResources.h"
 
 namespace Durin
 {
-	// Only explicit creation failures may leave the executor usable. Device and
-	// invariant failures must not derive from this type.
-	class FRHIRecoverableCreationError : public std::exception
+	// Cache capacity is also used for request admission backpressure.
+	class FRHIResourceCapacityError : public std::runtime_error
 	{
 	public:
-		explicit FRHIRecoverableCreationError(FRHICreationError InError) : Error(InError)
-		{ check(Error.HasError()); }
-		auto what() const noexcept -> const char* override { return "Recoverable RHI creation failure"; }
-		FRHICreationError Error;
+		explicit FRHIResourceCapacityError(const char* Message) : std::runtime_error(Message) {}
 	};
-
-	// Executes immediately on the caller; never schedules, acquires a context, or waits.
-	// Only explicitly recoverable creation errors become failed results.
-	RHI_API auto ExecuteFallibleRHICreationOperation(const std::function<void()>& Operation)
-		-> FRHICreationError;
-
-} // namespace Durin
+}

@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include "Backend/RHICreation.h"
 
 #include "RenderResourceCreation.h"
 #include "DynamicRHI.h"
@@ -33,6 +32,7 @@ namespace Durin
 			}
 			~FPipelineSlotTestRHI() override { RHIStopPipelineCreation(); RHIRetirePipelineCreationResults(); }
 			std::function<void(uint32)> BeforeCreate;
+			std::function<bool(uint32)> FailCreate;
 			std::atomic<uint32> Creations = 0;
 			auto Init(const FRHIInitializationContext&) -> void override {}
 			auto Shutdown() -> void override {}
@@ -88,7 +88,9 @@ namespace Durin
 					.CreateGraphics = [](const auto&, const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
 					.CreateCompute = [this](const auto&, const auto& Key) -> FComputePipelineStateRHIRef {
 						++Creations;
-						BeforeCreate(Key.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot);
+						const auto Slot = Key.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot;
+						if (BeforeCreate) BeforeCreate(Slot);
+						if (FailCreate && FailCreate(Slot)) return {};
 						auto Result = MakeRefCount<FRHIComputePipelineState>();
 						std::lock_guard Lock(Mutex);
 						Cache.emplace(Key, Result);
@@ -144,11 +146,10 @@ namespace Durin
 			First = Second;
 			std::get<FShaderError>(Second.Cause).CaptureLimit->Actual = 12;
 			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
-			Second.Cause = FRHICreationError{.Failure = ERHIResourceCreationFailure::OutOfMemory,
-				.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -2};
+			Second.Cause = std::monostate{};
 			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
 			First = Second;
-			std::get<FRHICreationError>(Second.Cause).NativeCode = -3;
+			Second.Reason = ERenderResourceCreateErrorReason::PipelineCreationFailed;
 			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
 		}
 
@@ -193,11 +194,7 @@ namespace Durin
 			struct FCoreGuard { ~FCoreGuard() { GDynamicRHI = nullptr; ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
 			FPipelineSlotTestRHI RHI;
 			GDynamicRHI = &RHI;
-			RHI.BeforeCreate = [](uint32 Slot) {
-				if (Slot == 0) throw FRHIRecoverableCreationError({
-					.Failure = ERHIResourceCreationFailure::OutOfMemory,
-					.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -7});
-			};
+			RHI.FailCreate = [](uint32 Slot) { return Slot == 0; };
 			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 			FComputePipelineStateInitializer Initializer;
 			Initializer.ComputeShader = Shader;
@@ -230,7 +227,7 @@ namespace Durin
 			EXPECT_EQ(RHI.Creations, 2u);
 		}
 
-		TEST(FRenderResourceCreationTests, AsyncPipelineFailurePreservesNativeCause)
+		TEST(FRenderResourceCreationTests, AsyncPipelineFailureHasNoBackendCause)
 		{
 			ASSERT_EQ(GDynamicRHI, nullptr);
 			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
@@ -239,10 +236,7 @@ namespace Durin
 			struct FCoreGuard { ~FCoreGuard() { GDynamicRHI = nullptr; ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
 			FPipelineSlotTestRHI RHI;
 			GDynamicRHI = &RHI;
-			RHI.BeforeCreate = [](uint32) {
-				throw FRHIRecoverableCreationError({.Failure = ERHIResourceCreationFailure::OutOfMemory,
-					.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -7});
-			};
+			RHI.FailCreate = [](uint32) { return true; };
 			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 			FComputePipelineStateInitializer Initializer;
 			Initializer.ComputeShader = Shader;
@@ -255,6 +249,7 @@ namespace Durin
 					if (Pipeline) return FResult::Success(1);
 					auto Error = MakeError();
 					Error.Category = ERenderResourceCreateErrorCategory::GraphicsPipeline;
+					Error.Cause = std::monostate{};
 					Error.Reason = ERenderResourceCreateErrorReason::PipelineCreationFailed;
 					return FResult::Failure(std::move(Error));
 				}, [](const auto&) {});
@@ -266,11 +261,8 @@ namespace Durin
 			}
 			EXPECT_EQ(Resolve(), nullptr);
 			ASSERT_NE(Slot.GetFailure(), nullptr);
-			const auto* Cause = std::get_if<FRHICreationError>(&Slot.GetFailure()->Cause);
-			ASSERT_NE(Cause, nullptr);
-			EXPECT_EQ(Cause->Failure, ERHIResourceCreationFailure::OutOfMemory);
-			EXPECT_EQ(Cause->Source, ERHICreationFailureSource::NativeBackend);
-			EXPECT_EQ(Cause->NativeCode, -7);
+			EXPECT_TRUE(std::holds_alternative<std::monostate>(Slot.GetFailure()->Cause));
+			EXPECT_EQ(Slot.GetFailure()->Reason, ERenderResourceCreateErrorReason::PipelineCreationFailed);
 			Slot.Reset();
 		}
 
@@ -340,6 +332,34 @@ namespace Durin
 			EXPECT_NE(*Slot.GetPayload(), Old);
 			EXPECT_EQ(Diagnostics, 0u);
 			Slot.Reset();
+		}
+
+		TEST(FRenderResourceCreationTests, NativeFailureRetriesNextPreparationAndDeduplicatesDiagnostics)
+		{
+			FSlot Slot(EDependency::Device);
+			int Attempts = 0;
+			std::vector<FRenderResourceCreateDiagnostic> Diagnostics;
+			auto Factory = [&]() {
+				if (++Attempts == 3) return FResult::Success(42);
+				return FResult::Failure({
+					.Category = ERenderResourceCreateErrorCategory::RHIResource,
+					.Reason = ERenderResourceCreateErrorReason::ResourceCreationFailed,
+					.Context = "native resource",
+					.Identity = "candidate",
+					.RetryDependencies = EDependency::Device,
+				});
+			};
+			auto Reporter = [&](const auto& Diagnostic) { Diagnostics.push_back(Diagnostic); };
+			EXPECT_EQ(Slot.Resolve({}, Factory, Reporter), nullptr);
+			EXPECT_EQ(Slot.Resolve({}, Factory, Reporter), nullptr);
+			EXPECT_EQ(Attempts, 2);
+			ASSERT_EQ(Diagnostics.size(), 1u);
+			ASSERT_NE(Slot.Resolve({}, Factory, Reporter), nullptr);
+			EXPECT_EQ(*Slot.GetPayload(), 42);
+			ASSERT_EQ(Diagnostics.size(), 2u);
+			EXPECT_EQ(Diagnostics.back().Kind, ERenderResourceCreateDiagnosticKind::Recovery);
+			EXPECT_NE(Slot.Resolve({}, Factory, Reporter), nullptr);
+			EXPECT_EQ(Attempts, 3);
 		}
 
 		TEST(

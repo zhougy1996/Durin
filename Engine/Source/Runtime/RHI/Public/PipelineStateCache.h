@@ -20,7 +20,7 @@ namespace Durin
 		auto GetState() const -> ERHIPipelineRequestState { return Request.GetState(); }
 		auto IsComplete() const -> bool { return Request.GetCompletion().IsReady(); }
 		auto GetPipelineLayout() const -> std::shared_ptr<const FPipelineLayoutDesc> { return Request.GetPipelineLayout(); }
-		auto GetCreationError() const -> FRHICreationError { return Request.GetResult().Error; }
+		auto GetResult() const -> FRHIPipelineCreationResult { return Request.GetResult(); }
 		auto CanWait() const -> bool { return Request.CanWait(); }
 		auto Wait() const -> bool { return Request.Wait(); }
 	protected:

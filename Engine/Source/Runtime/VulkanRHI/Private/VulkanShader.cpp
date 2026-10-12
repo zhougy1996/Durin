@@ -1,4 +1,5 @@
 #include "VulkanCreation.h"
+#include "VulkanCreationGuard.h"
 #include "VulkanCreationTiming.h"
 #include "VulkanShader.h"
 
@@ -129,21 +130,14 @@ namespace Durin::VulkanRHI
 #endif
 			return Device.GetHandle().createShaderModule(createInfo);
 		}();
-		try
-		{
+		TVulkanCreationGuard Candidate([&] { Device.GetHandle().destroyShaderModule(ShaderModule); });
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
+		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
 #endif
-			Device.GetRHI().GetDebugUtils().NameObjectLazy(ShaderModule,
-				[&] { return InCreateDesc.DebugName ? InCreateDesc.DebugName
-						: Device.GetRHI().GetDebugUtils().MakeInternalName("ShaderModule"); });
-		}
-		catch (...)
-		{
-			Device.GetHandle().destroyShaderModule(ShaderModule);
-			ShaderModule = nullptr;
-			throw;
-		}
+		Device.GetRHI().GetDebugUtils().NameObjectLazy(ShaderModule,
+			[&] { return InCreateDesc.DebugName ? InCreateDesc.DebugName
+					: Device.GetRHI().GetDebugUtils().MakeInternalName("ShaderModule"); });
+		Candidate.Commit();
 	}
 
 	FVulkanShader::~FVulkanShader()

@@ -220,20 +220,13 @@ namespace Durin::VulkanRHI
 #endif
 			return Device.GetHandle().createSampler(SamplerInfo);
 		}();
-		try
-		{
+		TVulkanCreationGuard Candidate([&] { Device.GetHandle().destroySampler(Sampler); });
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
+		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
 #endif
-			Device.GetRHI().GetDebugUtils().NameObjectLazy(Sampler,
-				[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("Sampler"); });
-		}
-		catch (...)
-		{
-			Device.GetHandle().destroySampler(Sampler);
-			Sampler = nullptr;
-			throw;
-		}
+		Device.GetRHI().GetDebugUtils().NameObjectLazy(Sampler,
+			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("Sampler"); });
+		Candidate.Commit();
 	}
 
 	FVulkanSampler::~FVulkanSampler()
@@ -439,20 +432,26 @@ namespace Durin::VulkanRHI
 			return nullptr;
 		}
 		FTextureViewRHIRef Result;
-		auto CreationOperation = MakeVulkanCreationOperation(
-			[this, Texture, Desc, &Result]() {
-				Result = new FVulkanTextureView(*Device, Texture, Desc);
-			});
-		FRHICreationError CreationResult;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		auto* Timing = TimingScope.Get();
+		if (Timing) Timing->Scheduled = VulkanCreationTimestamp();
+#endif
+		auto CreationOperation = [this, Texture, Desc, &Result
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			, Timing
+#endif
+		]() {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			FVulkanCreationBodyTimingScope BodyTiming(Timing);
+#endif
+			Result = CreateVulkanResource([&]() -> FTextureViewRHIRef {
+				return new FVulkanTextureView(*Device, Texture, Desc);
+			}, "texture view");
+		};
 		// Swapchain backing changes on replay; only stable local images are caller-domain factories.
 		if (static_cast<FVulkanTexture*>(Texture)->HasExternalBacking() && GRHIThread && !IsInRHIThread())
-			CreationResult = GCommandListExecutor.ExecuteFallibleSynchronousOperation(false, std::move(CreationOperation));
-		else CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
-		if (CreationResult.HasError())
-		{
-			DURIN_ERROR("Failed to create Vulkan texture view: {}", ToString(CreationResult));
-			return nullptr;
-		}
+			GCommandListExecutor.ExecuteSynchronousOperation(false, std::move(CreationOperation));
+		else CreationOperation();
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
 #endif

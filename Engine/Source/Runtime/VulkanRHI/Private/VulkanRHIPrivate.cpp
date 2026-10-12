@@ -1,5 +1,4 @@
 #include "VulkanRHIPrivate.h"
-#include "Backend/RHICreation.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanGPUTiming.h"
 #include "VulkanCreationTiming.h"
@@ -23,47 +22,6 @@
 
 namespace Durin::VulkanRHI
 {
-	auto GetRecoverableVulkanCreationError(vk::Result Result) -> FRHICreationError
-	{
-		check(IsRecoverableVulkanCreationError(Result));
-		const auto Failure = Result == vk::Result::eErrorFormatNotSupported
-			? ERHIResourceCreationFailure::UnsupportedDescriptor
-			: Result == vk::Result::eErrorOutOfHostMemory || Result == vk::Result::eErrorOutOfDeviceMemory
-				? ERHIResourceCreationFailure::OutOfMemory : ERHIResourceCreationFailure::ResourceExhausted;
-		return {Failure, ERHICreationFailureSource::NativeBackend, static_cast<int32>(Result)};
-	}
-
-	auto MakeVulkanCreationOperation(std::function<void()> Operation)
-		-> std::function<void()>
-	{
-		// Translate only Vulkan creation results whose scope is the candidate.
-		// All other exceptions retain their type and reach the executor failure path.
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		auto* Timing = GetActiveVulkanCreationTiming();
-		if (Timing) Timing->Scheduled = VulkanCreationTimestamp();
-#endif
-		return [Operation = std::move(Operation)
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			, Timing
-#endif
-		]() {
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			FVulkanCreationBodyTimingScope BodyTiming(Timing);
-#endif
-			try
-			{
-				Operation();
-			}
-			catch (const vk::SystemError& Exception)
-			{
-				if (!IsRecoverableVulkanCreationError(
-					static_cast<vk::Result>(Exception.code().value()))) throw;
-				const auto NativeResult = static_cast<vk::Result>(Exception.code().value());
-				throw FRHIRecoverableCreationError(GetRecoverableVulkanCreationError(NativeResult));
-			}
-		};
-	}
-
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 	namespace
 	{

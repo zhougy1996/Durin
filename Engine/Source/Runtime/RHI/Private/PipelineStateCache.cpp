@@ -106,7 +106,7 @@ namespace Durin
 				if (Bytes > 1024 * 1024) return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
 				auto Metadata = [&] {
 					try { return Queue.ReserveCacheMetadata(Bytes); }
-					catch (const FRHIRecoverableCreationError&)
+					catch (const FRHIResourceCapacityError&)
 					{
 						// Weak keys must not consume the device budget indefinitely
 						// when owners have released their identities below entry capacity.
@@ -120,7 +120,7 @@ namespace Durin
 				Entries.emplace(std::move(Key), FEntry{Pipeline, std::move(Metadata)});
 				return TResult(std::move(Pipeline));
 			}
-			catch (const FRHIRecoverableCreationError&) { return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded)); }
+			catch (const FRHIResourceCapacityError&) { return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded)); }
 			catch (const std::bad_alloc&) { return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded)); }
 		}
 

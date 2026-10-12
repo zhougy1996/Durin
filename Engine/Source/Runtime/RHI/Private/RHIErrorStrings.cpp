@@ -374,32 +374,5 @@ namespace Durin
 		return Text;
 	}
 
-	auto ToString(const FRHICreationError& Error) -> std::string
-	{
-		if (!Error.HasError()) return {};
-		std::string_view Reason;
-		switch (Error.Failure)
-		{
-		case ERHIResourceCreationFailure::None: return {};
-		case ERHIResourceCreationFailure::Unknown: Reason = "unknown creation failure"; break;
-		case ERHIResourceCreationFailure::OutOfMemory: Reason = "out of memory"; break;
-		case ERHIResourceCreationFailure::ResourceExhausted: Reason = "resource capacity exhausted"; break;
-		case ERHIResourceCreationFailure::UnsupportedDescriptor: Reason = "unsupported resource descriptor"; break;
-		}
-		std::string_view Source;
-		switch (Error.Source)
-		{
-		case ERHICreationFailureSource::None: Source = "unspecified"; break;
-		case ERHICreationFailureSource::NativeBackend: Source = "native backend"; break;
-		case ERHICreationFailureSource::MetadataBudget: Source = "pipeline CPU metadata budget"; break;
-		case ERHICreationFailureSource::CacheCapacity: Source = "cache capacity"; break;
-		case ERHICreationFailureSource::RequestNotAdmitted: Source = "pipeline request not admitted"; break;
-		case ERHICreationFailureSource::ObserverFailed: Source = "pipeline observer failed"; break;
-		case ERHICreationFailureSource::BackendReturnedNull: Source = "backend returned no pipeline"; break;
-		}
-		std::string Text = std::format("{}: {}", Source, Reason);
-		if (Error.NativeCode) Text += std::format(" native={}", *Error.NativeCode);
-		return Text;
-	}
 
 }

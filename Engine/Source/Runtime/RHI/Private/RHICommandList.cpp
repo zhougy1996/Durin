@@ -1,6 +1,5 @@
 #include "RHICommandList.h"
 #include "Backend/RHIValidation.h"
-#include "Backend/RHICreation.h"
 #include "Backend/RHICompletionBackend.h"
 
 #include "DynamicRHI.h"
@@ -3100,33 +3099,6 @@ namespace Durin
 				Operation();
 			},
 			OwnedPayloadBytes);
-	}
-
-	auto ExecuteFallibleRHICreationOperation(const std::function<void()>& Operation)
-		-> FRHICreationError
-	{
-		check(Operation);
-		FRHICreationError Result;
-		try { Operation(); }
-		catch (const FRHIRecoverableCreationError& Exception)
-		{
-			Result = Exception.Error;
-		}
-		return Result;
-	}
-
-	auto FRHICommandListExecutor::ExecuteFallibleSynchronousOperation(
-		bool bFlushRecordedCommands,
-		std::function<void()> Operation,
-		size_t OwnedPayloadBytes, FRHISynchronousOperationTiming* Timing) -> FRHICreationError
-	{
-		check(Operation);
-		auto Result = std::make_shared<FRHICreationError>();
-		ExecuteSynchronousContextOperation(bFlushRecordedCommands,
-			[Operation = std::move(Operation), Result](IRHICommandContext&) {
-				*Result = ExecuteFallibleRHICreationOperation(Operation);
-			}, OwnedPayloadBytes, Timing);
-		return std::move(*Result);
 	}
 
 	auto FRHICommandListExecutor::ExecuteSynchronousContextOperation(

@@ -45,8 +45,7 @@ namespace Durin
 				++CreationCount;
 				bCreatedOnRenderThread &= IsInRenderingThread();
 				// Exercise the same immediate-list lock guard as Vulkan creation.
-				const auto Result = GCommandListExecutor.ExecuteFallibleSynchronousOperation(false, [] {});
-				if (Result.HasError()) return {};
+				GCommandListExecutor.ExecuteSynchronousOperation(false, [] {});
 				if (bFailCreation) return {};
 				return FTextureRHIRef(new FViewportTestTexture(Desc));
 			}

@@ -132,15 +132,15 @@ namespace Durin
 		FComputePipelineStateInitializer Initializer;
 		Initializer.ComputeShader = Shader;
 		std::atomic<uint32> Calls = 0;
-		FRHIPipelineStateCache Owner(Capabilities(), Backend([&](const auto&, const auto&) {
-			if (++Calls == 1) throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::OutOfMemory, ERHICreationFailureSource::NativeBackend, -7});
+		FRHIPipelineStateCache Owner(Capabilities(), Backend([&](const auto&, const auto&) -> FComputePipelineStateRHIRef {
+			if (++Calls == 1) return {};
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
 		auto& Cache = Owner;
 		auto Failed = Cache.GetCompute(Initializer, "failure");
 		ASSERT_TRUE(Failed);
 		EXPECT_FALSE((*Failed)->Wait());
-		EXPECT_EQ((*Failed)->GetCreationError().NativeCode, -7);
+		EXPECT_FALSE((*Failed)->GetResult().Compute);
 		auto Retried = Cache.GetCompute(Initializer, "retry");
 		ASSERT_TRUE(Retried);
 		EXPECT_NE(*Failed, *Retried);
@@ -174,7 +174,7 @@ namespace Durin
 			if (CacheLeases.fetch_add(1) != 0)
 			{
 				CacheLeases.fetch_sub(1);
-				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::MetadataBudget});
+				throw FRHIResourceCapacityError("pipeline metadata budget exhausted");
 			}
 			return {nullptr, [&](void*) { CacheLeases.fetch_sub(1); }};
 		};
@@ -403,8 +403,8 @@ namespace Durin
 	{
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		std::atomic<bool> Fail = true;
-		FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto& Inputs, const auto&) {
-			if (Inputs.DebugName == "fail" && Fail.exchange(false)) throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::MetadataBudget});
+		FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto& Inputs, const auto&) -> FComputePipelineStateRHIRef {
+			if (Inputs.DebugName == "fail" && Fail.exchange(false)) return {};
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
 		std::vector<FRHIComputePipelineBatchItem> Items(3);
@@ -420,8 +420,6 @@ namespace Durin
 		ASSERT_EQ(Batch.Items.size(), 3u);
 		EXPECT_TRUE(Batch.Items[0].Wait());
 		EXPECT_FALSE(Batch.Items[1].Wait());
-		EXPECT_EQ(Batch.Items[1].GetResult().Error.Failure, ERHIResourceCreationFailure::ResourceExhausted);
-		EXPECT_EQ(Batch.Items[1].GetResult().Error.Source, ERHICreationFailureSource::MetadataBudget);
 		EXPECT_EQ(Batch.Items[2].GetRejection(), ERHIPipelineRequestRejection::InvalidDescription);
 		EXPECT_TRUE(Owner.RequestCompute(Items[1].Initializer, "retry").Wait());
 		Items.resize(257);

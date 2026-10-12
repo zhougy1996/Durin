@@ -1889,28 +1889,21 @@ namespace Durin::VulkanRHI
 	TEST_F(FVulkanCreateFailureInjectionTests,
 		CreationBoundaryPreservesTerminalErrorTypes)
 	{
-		// Exception translation has no device or replay-thread dependency.
-		const auto Recoverable = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
+		EXPECT_FALSE(CreateVulkanResource([]() -> FTextureRHIRef {
 			throw vk::OutOfDeviceMemoryError("expected allocation failure");
-		}));
-		EXPECT_TRUE(Recoverable.HasError());
-		EXPECT_EQ(Recoverable.Failure, ERHIResourceCreationFailure::OutOfMemory);
-		EXPECT_EQ(Recoverable.NativeCode, static_cast<int32>(vk::Result::eErrorOutOfDeviceMemory));
-		EXPECT_EQ(Recoverable.Source, ERHICreationFailureSource::NativeBackend);
-		const auto Unsupported = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
+		}, "test texture"));
+		EXPECT_FALSE(CreateVulkanResource([]() -> FTextureRHIRef {
 			throw vk::FormatNotSupportedError("unsupported descriptor");
-		}));
-		EXPECT_EQ(Unsupported.Failure,
-			ERHIResourceCreationFailure::UnsupportedDescriptor);
-		EXPECT_THROW(ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
+		}, "test texture"));
+		EXPECT_THROW(CreateVulkanResource([]() -> FTextureRHIRef {
 			throw vk::DeviceLostError("terminal device loss");
-		})), vk::DeviceLostError);
-		EXPECT_THROW(ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
+		}, "test texture"), vk::DeviceLostError);
+		EXPECT_THROW(CreateVulkanResource([]() -> FTextureRHIRef {
 			throw std::logic_error("internal invariant failure");
-		})), std::logic_error);
-		EXPECT_THROW(ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
+		}, "test texture"), std::logic_error);
+		EXPECT_THROW(CreateVulkanResource([]() -> FTextureRHIRef {
 			throw 7;
-		})), int);
+		}, "test texture"), int);
 	}
 
 	TEST_F(FVulkanCreateFailureInjectionTests,
@@ -2152,7 +2145,7 @@ namespace Durin::VulkanRHI
 			const auto Used = Device->GetCacheMetadataBytes();
 			EXPECT_GT(Used, 0u);
 			auto Reservation = Device->ReserveCacheMetadata(64ull * 1024 * 1024 - Used);
-			EXPECT_THROW(Device->ReserveCacheMetadata(1), FRHIRecoverableCreationError);
+			EXPECT_THROW(Device->ReserveCacheMetadata(1), FRHIResourceCapacityError);
 			Reservation.reset();
 			EXPECT_EQ(Device->GetCacheMetadataBytes(), Used);
 			Shaders = {};
@@ -2219,7 +2212,7 @@ namespace Durin::VulkanRHI
 					bCompute ? EShaderStageFlags::Compute : EShaderStageFlags::Vertex,
 					Variant, ERHIBindingType::UniformBuffer);
 				TRefCountPtr<FRHIResource> Result;
-				const auto Outcome = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([&] {
+				return CreateVulkanResource([&]() -> TRefCountPtr<FRHIResource> {
 					if (bCompute)
 					{
 						auto Key = BuildComputePipelineStateKey(C, GDynamicRHI->RHIGetCapabilities());
@@ -2234,8 +2227,8 @@ namespace Durin::VulkanRHI
 							throw std::runtime_error(std::string(ToString(Key.error())));
 						Result = Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(G, std::move(*Key), "BackgroundGraphics");
 					}
-				}));
-				return !Outcome.HasError() ? Result : nullptr;
+					return Result;
+				}, "test pipeline");
 			};
 			// PublicAsyncPipelinesShareCreationAndKeepReplayAvailable covers the
 			// public creator's concurrency. Exercise cache admission serially here.

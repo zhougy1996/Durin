@@ -774,7 +774,7 @@ namespace Durin::VulkanRHI
 			if (Victim == GraphicsPipelineMap.end())
 			{
 				++Stats.FailedCandidates;
-				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::CacheCapacity});
+				throw FRHIResourceCapacityError("RHI cache capacity exhausted");
 			}
 			// Extraction reserves the slot: concurrent hits cannot pin this victim
 			// after selection. Keep its node and resource alive for failure rollback.
@@ -845,7 +845,7 @@ namespace Durin::VulkanRHI
 			if (Victim == ComputePipelineMap.end())
 			{
 				++Stats.FailedCandidates;
-				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::CacheCapacity});
+				throw FRHIResourceCapacityError("RHI cache capacity exhausted");
 			}
 			// Extraction reserves the slot: concurrent hits cannot pin this victim
 			// after selection. Keep its node and resource alive for failure rollback.
@@ -924,7 +924,7 @@ namespace Durin::VulkanRHI
 		}))
 		{
 			++Stats.FailedCandidates;
-			throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::CacheCapacity});
+			throw FRHIResourceCapacityError("RHI cache capacity exhausted");
 		}
 
 		StatsAccess.unlock();
@@ -1160,11 +1160,10 @@ namespace Durin::VulkanRHI
 			FVulkanCreationTimingScope TimingScope(false);
 			if (auto* Timing = TimingScope.Get()) { Timing->bBackground = true; Timing->KeyHash = FGraphicsPipelineStateKeyHasher{}(Key); }
 #endif
-			FGraphicsPipelineStateRHIRef Result;
-			MakeVulkanCreationOperation([&] {
-				Result = GetPipelineManager().GetOrCreateGraphicsPipelineState(
+			auto Result = CreateVulkanResource([&]() -> FGraphicsPipelineStateRHIRef {
+				return GetPipelineManager().GetOrCreateGraphicsPipelineState(
 					Inputs.Initializer, Key, Inputs.DebugName);
-			})();
+			}, "graphics pipeline", Inputs.DebugName);
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 			if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
 #endif
@@ -1179,11 +1178,10 @@ namespace Durin::VulkanRHI
 			FVulkanCreationTimingScope TimingScope(true);
 			if (auto* Timing = TimingScope.Get()) { Timing->bBackground = true; Timing->KeyHash = FComputePipelineStateKeyHasher{}(Key); }
 #endif
-			FComputePipelineStateRHIRef Result;
-			MakeVulkanCreationOperation([&] {
-				Result = GetPipelineManager().GetOrCreateComputePipelineState(
+			auto Result = CreateVulkanResource([&]() -> FComputePipelineStateRHIRef {
+				return GetPipelineManager().GetOrCreateComputePipelineState(
 					Inputs.Initializer, Key, Inputs.DebugName);
-			})();
+			}, "compute pipeline", Inputs.DebugName);
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 			if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
 #endif

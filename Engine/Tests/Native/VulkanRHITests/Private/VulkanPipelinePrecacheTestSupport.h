@@ -16,11 +16,7 @@ namespace Durin
 		auto GetPipelineLayout() const -> std::shared_ptr<const FPipelineLayoutDesc> { return Pipeline->GetPipelineLayout(); }
 		auto GetResult() const -> FRHIPipelineCreationResult
 		{
-			FRHIPipelineCreationResult Result{.State = GetState()};
-			Result.Error = Pipeline->GetCreationError();
-			if (auto Graphics = std::dynamic_pointer_cast<FGraphicsPipelineState>(Pipeline)) Result.Graphics = Graphics->GetRHIPipeline();
-			else Result.Compute = std::static_pointer_cast<FComputePipelineState>(Pipeline)->GetRHIPipeline();
-			return Result;
+			return Pipeline->GetResult();
 		}
 	};
 	template<typename T>

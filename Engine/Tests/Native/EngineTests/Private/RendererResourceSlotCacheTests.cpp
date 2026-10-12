@@ -64,7 +64,7 @@ namespace Durin
 					ERenderResourceCreateErrorCategory::GraphicsPipeline,
 				.Context = "StaticMeshPipeline",
 				.Identity = "test-key",
-				.Cause = FRHICreationError{.Failure = ERHIResourceCreationFailure::OutOfMemory, .Source = ERHICreationFailureSource::NativeBackend},
+				.Cause = std::monostate{},
 				.RetryDependencies =
 					EDependency::Shader
 					| EDependency::Device
@@ -133,7 +133,7 @@ namespace Durin
 
 		TEST(
 			FRendererResourceSlotCacheTests,
-			FailedKeyRetriesAfterRelevantGenerationWithoutPoisoningOtherKey)
+			FailedKeyRetriesOnNextPreparationWithoutPoisoningOtherKey)
 		{
 			FCache Cache(EDependency::Shader | EDependency::Device);
 			FRenderResourceGeneration Generation;
@@ -152,7 +152,7 @@ namespace Durin
 					},
 					Reporter),
 				nullptr);
-			EXPECT_EQ(
+			EXPECT_NE(
 				FirstEntry.Slot.Resolve(
 					Generation,
 					[&]() {
@@ -161,7 +161,7 @@ namespace Durin
 					},
 					Reporter),
 				nullptr);
-			EXPECT_EQ(FirstKeyAttempts, 1);
+			EXPECT_EQ(FirstKeyAttempts, 2);
 
 			auto& SecondEntry = Cache.FindOrAdd(2);
 			ASSERT_NE(
@@ -186,7 +186,7 @@ namespace Durin
 					Reporter),
 				nullptr);
 			EXPECT_EQ(*StableFirstEntry->Slot.GetPayload(), 11);
-			EXPECT_EQ(FirstKeyAttempts, 2);
+			EXPECT_EQ(FirstKeyAttempts, 3);
 			EXPECT_EQ(*Cache.Find(2)->Slot.GetPayload(), 22);
 		}
 
@@ -258,7 +258,7 @@ namespace Durin
 
 		TEST(
 			FRendererResourceSlotCacheTests,
-			FailedSceneTargetCandidateIsNotAReadyTombstoneAndManualRetryRecovers)
+			FailedSceneTargetCandidateRecoversOnNextPreparation)
 		{
 			struct FSceneTargets
 			{
@@ -288,7 +288,7 @@ namespace Durin
 				Entry.Slot.GetAvailability(),
 				ERenderResourceAvailability::Failed);
 
-			EXPECT_EQ(
+			EXPECT_NE(
 				Entry.Slot.Resolve(
 					Generation,
 					[&]() {
@@ -297,7 +297,7 @@ namespace Durin
 					},
 					[](const FRenderResourceCreateDiagnostic&) {}),
 				nullptr);
-			EXPECT_EQ(Attempts, 1);
+			EXPECT_EQ(Attempts, 2);
 
 			Generation.Advance(EDependency::Manual);
 			FSceneTargets* Recovered = Entry.Slot.Resolve(

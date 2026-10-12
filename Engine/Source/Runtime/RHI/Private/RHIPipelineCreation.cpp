@@ -17,7 +17,7 @@ namespace Durin
 		auto Current = Used->load();
 		do
 		{
-			if (Bytes > Capacity - Current) throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::MetadataBudget});
+			if (Bytes > Capacity - Current) throw FRHIResourceCapacityError("pipeline metadata budget exhausted");
 		} while (!Used->compare_exchange_weak(Current, Current + Bytes));
 		// On control-block allocation failure, shared_ptr also invokes this deleter.
 		return std::shared_ptr<void>(nullptr, [Budget = Used, Bytes](void*) { Budget->fetch_sub(Bytes); });
@@ -161,7 +161,7 @@ namespace Durin
 	}
 	auto FRHIPipelineCreationRequest::GetResult() const -> FRHIPipelineCreationResult
 	{
-		if (!State) return {.State = ERHIPipelineRequestState::Failed, .Error = {ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::RequestNotAdmitted}};
+		if (!State) return {.State = ERHIPipelineRequestState::Failed};
 		if (State->Lifetime->Failed.load())
 			std::rethrow_exception(State->Lifetime->TerminalFailure);
 		if (State->Lifetime->Retired.load()) return {.State = ERHIPipelineRequestState::Canceled};
@@ -169,7 +169,7 @@ namespace Durin
 			if (const auto Value = State->Published.Load()) return Value->Snapshot();
 		if (State->Task.GetState() == ETaskState::Canceled) return {.State = ERHIPipelineRequestState::Canceled};
 		if (State->Task.GetState() == ETaskState::Failed)
-			return {.State = ERHIPipelineRequestState::Failed, .Error = {ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::ObserverFailed}};
+			return {.State = ERHIPipelineRequestState::Failed};
 		return {};
 	}
 	auto FRHIPipelineCreationRequest::GetCompletion() const -> Tasks::FTaskCompletion
@@ -333,7 +333,7 @@ namespace Durin
 				return Result;
 			}
 			catch (const std::bad_alloc&) { return Reject(ERHIPipelineRequestRejection::CapacityExceeded); }
-			catch (const FRHIRecoverableCreationError&) { return Reject(ERHIPipelineRequestRejection::CapacityExceeded); }
+			catch (const FRHIResourceCapacityError&) { return Reject(ERHIPipelineRequestRejection::CapacityExceeded); }
 		}
 		auto CompleteEntry(const std::shared_ptr<FEntry>& Entry, const FPublished& Publication) -> void
 		{
@@ -378,20 +378,10 @@ namespace Durin
 					++Statistics.NativeRequests;
 				}
 				FRHIPipelineCreationResult Result;
-				try
-				{
-					if (Entry->Key->index() == 0)
-						Result.Graphics = Backend.CreateGraphics(*std::get<0>(Entry->Inputs), std::get<0>(*Entry->Key));
-					else Result.Compute = Backend.CreateCompute(*std::get<1>(Entry->Inputs), std::get<1>(*Entry->Key));
-					Result.State = Result.Graphics || Result.Compute ? ERHIPipelineRequestState::Ready : ERHIPipelineRequestState::Failed;
-					if (Result.State == ERHIPipelineRequestState::Failed)
-						Result.Error = {ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull};
-				}
-				catch (const FRHIRecoverableCreationError& Error)
-				{
-					Result.State = ERHIPipelineRequestState::Failed;
-					Result.Error = Error.Error;
-				}
+				if (Entry->Key->index() == 0)
+					Result.Graphics = Backend.CreateGraphics(*std::get<0>(Entry->Inputs), std::get<0>(*Entry->Key));
+				else Result.Compute = Backend.CreateCompute(*std::get<1>(Entry->Inputs), std::get<1>(*Entry->Key));
+				Result.State = Result.Graphics || Result.Compute ? ERHIPipelineRequestState::Ready : ERHIPipelineRequestState::Failed;
 				CompleteEntry(Entry, std::make_shared<FPipelinePublication>(std::move(Result)));
 			}
 		}

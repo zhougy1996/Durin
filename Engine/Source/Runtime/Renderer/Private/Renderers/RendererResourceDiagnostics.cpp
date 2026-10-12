@@ -13,13 +13,6 @@ namespace Durin
 		FRenderResourceCreateCause Cause)
 		-> FRenderResourceCreateError
 	{
-		if (std::holds_alternative<std::monostate>(Cause)
-			&& (Reason == ERenderResourceCreateErrorReason::ShaderCreationFailed
-				|| Reason == ERenderResourceCreateErrorReason::ResourceCreationFailed
-				|| Reason == ERenderResourceCreateErrorReason::PipelineCreationFailed
-				|| Reason == ERenderResourceCreateErrorReason::SamplerCreationFailed))
-			Cause = FRHICreationError{.Failure = ERHIResourceCreationFailure::Unknown,
-				.Source = ERHICreationFailureSource::BackendReturnedNull};
 		return {
 			.Category = Category,
 			.Reason = Reason,

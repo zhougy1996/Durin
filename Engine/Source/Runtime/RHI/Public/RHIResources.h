@@ -21,36 +21,6 @@ namespace Durin
 	struct FRHICapabilities;
 	class FTextureReference;
 
-	// Creation failures describe candidate recovery, never executor/device recovery.
-	enum class ERHIResourceCreationFailure : uint8
-	{
-		None,
-		Unknown,
-		OutOfMemory,
-		ResourceExhausted,
-		UnsupportedDescriptor,
-	};
-
-	// Shared recoverable failure details for resource and pipeline creation.
-	enum class ERHICreationFailureSource : uint8
-	{
-		None, NativeBackend, MetadataBudget, CacheCapacity,
-		RequestNotAdmitted, ObserverFailed, BackendReturnedNull,
-	};
-
-	struct FRHICreationError
-	{
-		ERHIResourceCreationFailure Failure = ERHIResourceCreationFailure::None;
-		ERHICreationFailureSource Source = ERHICreationFailureSource::None;
-		// Backend-neutral storage of the native status; no backend headers leak into RHI.
-		std::optional<int32> NativeCode;
-		// In-process diagnostic identity, not a persistent cache key.
-		RHI_API auto GetSemanticFingerprint() const -> size_t;
-		auto HasError() const -> bool { return Failure != ERHIResourceCreationFailure::None; }
-	};
-
-	RHI_API auto ToString(const FRHICreationError& Error) -> std::string;
-
 	// Identifies the concrete resource category tracked by the RHI lifetime system.
 	enum class ERHIResourceType : uint8
 	{

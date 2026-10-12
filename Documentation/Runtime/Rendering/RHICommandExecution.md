@@ -22,9 +22,6 @@ may report `InvalidDescription`.
 `ToString` formats at presentation boundaries; semantic tests assert codes and
 context, never classify by text. Formatting lives in `RHIErrorStrings.cpp`.
 
-`FRHICreationError` preserves recovery class, source, and native status.
-Cache-capacity failures share the `CacheCapacity` source; resource context and
-identity remain available at the render-resource diagnostic boundary.
 `RHICreateTexture`/`RHICreateBuffer` return a complete resource or null;
 backends log recoverable creation failures locally. Thread work
 callbacks return `void`; the queue does not catch execution exceptions. An
@@ -253,27 +250,22 @@ Recorded commands retain their returned view references independently of cache
 eviction, and backend shutdown clears the cache before device teardown so view
 destruction continues through ordinary ordered and GPU-safe retirement.
 
-### Fallible Resource Creation
+### Nullable Resource Creation
 
-`ExecuteFallibleSynchronousOperation` is the narrow exception for expected
-runtime resource-creation failure. It returns `FRHICreationError` directly;
-an empty error indicates success, without a separate result wrapper. In threaded
-mode, the queued wrapper catches the creation exception, records operation
-failure, and completes the queue entry
-successfully so its serial and later admitted work remain valid. Inline mode
-returns the same result directly. A Vulkan factory already executing on the RHI
-thread catches at the same boundary without enqueueing and waiting on itself.
+Runtime resource factories return complete references or null. Vulkan translates
+recoverable native errors locally, logging native status without transporting a
+failure classification through RHI or RenderCore. Cache capacity exceptions remain
+internal to construction and request admission. Device loss and invariant errors
+propagate as terminal exceptions.
 
-The creation exception and direct exception-translation helper are declared in
-`Backend/RHICreation.h`; they are implementation facilities rather than ordinary
-command-recording APIs.
+Buffer, texture, texture-view, shader, graphics-pipeline, compute-pipeline, and
+sampler factories must publish complete resources. A non-null wrapper with an
+invalid native handle or allocation is forbidden. Vertex declarations copy CPU
+descriptions directly. Context-dependent creation uses ordinary synchronous RHI
+execution; the executor does not wrap creation exceptions.
 
-Nullable runtime factories translate only that operation-failure result into a
-null RHI reference. Buffer, texture, shader, graphics-pipeline, compute-pipeline, sampler, and
-vertex-declaration factories must otherwise publish a complete resource; a
-non-null wrapper with an invalid native handle or allocation is forbidden.
-Partially built native candidates clean up immediately on the RHI thread, and a
-later caller-defined or Renderer-generation retry may create a fresh candidate.
+Partially built native candidates clean up immediately in the creation execution
+domain. A later preparation may create a fresh candidate.
 Vulkan vertex declarations only copy CPU metadata and are created directly,
 without native-failure translation or RHI-thread replay.
 

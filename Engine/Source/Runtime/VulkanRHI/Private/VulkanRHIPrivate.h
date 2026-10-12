@@ -308,12 +308,6 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	// Wraps native candidate errors only. The facade selects the execution domain;
-	// constructing or invoking this callback never accesses the executor or waits.
-	VULKANRHI_API auto MakeVulkanCreationOperation(std::function<void()> Operation)
-		-> std::function<void()>;
-	VULKANRHI_API auto GetRecoverableVulkanCreationError(vk::Result Result) -> FRHICreationError;
-
 	auto ToVulkan_Extent3D(const FIntVector& Size) -> vk::Extent3D;
 	auto ToVulkan_TextureDimension(ETextureDimension Dimension) -> vk::ImageViewType;
 

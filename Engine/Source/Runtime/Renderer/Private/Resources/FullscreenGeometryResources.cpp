@@ -63,10 +63,10 @@ namespace Durin
 					return FResult::Failure({
 						.Category =
 							ERenderResourceCreateErrorCategory::RHIResource,
+						.Reason = ERenderResourceCreateErrorReason::ResourceCreationFailed,
 						.Context = "FullscreenGeometryResources",
 						.Identity = "shared-triangle",
-						.Cause = FRHICreationError{.Failure = ERHIResourceCreationFailure::Unknown,
-							.Source = ERHICreationFailureSource::BackendReturnedNull},
+
 						.RetryDependencies =
 							ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual,

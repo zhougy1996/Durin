@@ -58,7 +58,6 @@ namespace Durin
 		ERHIPipelineRequestState State = ERHIPipelineRequestState::Pending;
 		FGraphicsPipelineStateRHIRef Graphics;
 		FComputePipelineStateRHIRef Compute;
-		FRHICreationError Error;
 	};
 
 	// One observer of shared device work. Copying a handle copies that observer;

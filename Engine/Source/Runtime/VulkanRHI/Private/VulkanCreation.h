@@ -18,7 +18,7 @@ namespace Durin::VulkanRHI
 	{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		auto* Timing = GetActiveVulkanCreationTiming();
-		if (Timing) Timing->Scheduled = VulkanCreationTimestamp();
+		if (Timing && !Timing->Scheduled) Timing->Scheduled = VulkanCreationTimestamp();
 		FVulkanCreationBodyTimingScope BodyTiming(Timing);
 #endif
 		try
@@ -33,10 +33,10 @@ namespace Durin::VulkanRHI
 				DebugName.empty() ? "<unnamed>" : DebugName, Error.what(), Error.code().value());
 			return {};
 		}
-		catch (const FRHIRecoverableCreationError& Error)
+		catch (const FRHIResourceCapacityError& Error)
 		{
 			DURIN_ERROR("Failed to create Vulkan {} '{}': {}", Kind,
-				DebugName.empty() ? "<unnamed>" : DebugName, ToString(Error.Error));
+				DebugName.empty() ? "<unnamed>" : DebugName, Error.what());
 			return {};
 		}
 	}

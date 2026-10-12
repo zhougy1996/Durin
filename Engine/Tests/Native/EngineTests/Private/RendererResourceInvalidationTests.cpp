@@ -105,7 +105,7 @@ namespace Durin
 						ERenderResourceCreateErrorCategory::RHIResource,
 					.Context = "DeviceInvalidationTest",
 					.Identity = "payload",
-					.Cause = FRHICreationError{.Failure = ERHIResourceCreationFailure::Unknown, .Source = ERHICreationFailureSource::BackendReturnedNull},
+					.Cause = std::monostate{},
 					.RetryDependencies = EDependency::Manual,
 				});
 			},
