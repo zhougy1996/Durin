@@ -550,7 +550,7 @@ namespace Durin::Editor
 		const bool bReadOnly = Context.bReadOnly || Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
 		ImGui::PushID(Property);
 		ImGui::PushID(static_cast<int>(ArrayIndex));
-		const bool bChanged = EditPropertyValue(Context, Object, Property, Object, ArrayIndex, Label, bReadOnly, FPropertyEditTarget::ForMember(Object, Property, ArrayIndex));
+		const bool bChanged = EditPropertyValue(Context, Object, Property, Object, ArrayIndex, Label, bReadOnly, FPropertyEditTarget::ForMember(Object, Property, ArrayIndex), Options.bShowTransformHeader);
 		ImGui::PopID();
 		ImGui::PopID();
 		return bChanged;
@@ -564,7 +564,7 @@ namespace Durin::Editor
 		uint32 ArrayIndex,
 		const std::string& Label,
 		bool bReadOnly,
-		const FPropertyEditTarget& EditTarget
+		const FPropertyEditTarget& EditTarget, bool bShowTransformHeader
 	) -> bool
 	{
 		bReadOnly |= Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
@@ -582,7 +582,7 @@ namespace Durin::Editor
 		case DurinCodeGen::EPropertyGenFlags::Map:
 			return EditMapProperty(Context, Object, static_cast<FMapProperty*>(Property), Container, ArrayIndex, Label, bReadOnly, EditTarget);
 		default:
-			return SubmitWidgetEdit(Context, EditTarget, EditPropertyWidget(Context, Property, Container, ArrayIndex, Label, bReadOnly));
+			return SubmitWidgetEdit(Context, EditTarget, EditPropertyWidget(Context, Property, Container, ArrayIndex, Label, bReadOnly, bShowTransformHeader));
 		}
 	}
 
@@ -591,7 +591,7 @@ namespace Durin::Editor
 		void* Container,
 		uint32 ArrayIndex,
 		const std::string& Label,
-		bool bReadOnly
+		bool bReadOnly, bool bShowTransformHeader
 	) -> FPropertyWidgetEditResult
 	{
 		FPropertyWidgetEditResult Result;
@@ -630,7 +630,7 @@ namespace Durin::Editor
 		if (Struct == Z_Construct_DStruct_FTransform())
 		{
 			return EditMathStruct.template operator()<FTransform>([&](FTransform& Value, auto& State) {
-				return MonaImGui::PropertyEdit::EditTransform(Label.c_str(), Value, bReadOnly, &State, TypeTooltip.c_str());
+				return MonaImGui::PropertyEdit::EditTransform(Label.c_str(), Value, bReadOnly, &State, TypeTooltip.c_str(), bShowTransformHeader);
 			});
 		}
 
@@ -740,12 +740,12 @@ namespace Durin::Editor
 		void* Container,
 		uint32 ArrayIndex,
 		const std::string& Label,
-		bool bReadOnly
+		bool bReadOnly, bool bShowTransformHeader
 	) -> FPropertyWidgetEditResult
 	{
 		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
 		if (Kind == DurinCodeGen::EPropertyGenFlags::Struct)
-			return EditStructPropertyWidget(Property, Container, ArrayIndex, Label, bReadOnly);
+			return EditStructPropertyWidget(Property, Container, ArrayIndex, Label, bReadOnly, bShowTransformHeader);
 
 		FPropertyWidgetEditResult Result;
 		const std::string TypeTooltip = ReflectedPropertyTypeTooltip(*Property);

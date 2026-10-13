@@ -540,6 +540,17 @@ Details falls back to the Actor. These target transitions continue through
 the property view's owner-context handling so an active preview is committed or
 restored before its owner changes.
 
+Actor Transform categories draw Location, Rotation, and Scale directly using
+`bShowTransformHeader = false`; ordinary component and nested Transform properties
+retain their existing expandable header. The layout preserves the full property
+presentation options and all edits still submit the root transform member target.
+Generic Actor component groups use full-width headers with component names and
+type tooltips. StaticMeshActor declares Static Mesh (mesh and resolved material
+slots), Rendering (visibility), and Collision (expandable Body Instance) categories
+instead of a component wrapper. Category tooltips identify the source component;
+search retains component-name/type keywords and material-slot names. Explicit
+component-tree selection continues to show the complete component page.
+
 Generated components are inspection-only derived state. Selecting one keeps its
 tree row visible but presents a read-only Details view; rename, duplication,
 deletion, reordering, reparenting, drag/drop, and direct property proposals are

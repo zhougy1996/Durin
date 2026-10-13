@@ -68,4 +68,6 @@ namespace Durin::Editor::Level
 	};
 
 	LEVELEDITOR_API auto CreateStaticMeshComponentDetailsCustomization() -> std::shared_ptr<IDetailCustomization>;
+	LEVELEDITOR_API auto AddStaticMeshMaterialSlotDetails(IDetailLayoutBuilder& Builder, DStaticMeshComponent* Component,
+		std::string_view Category = {}) -> void;
 }

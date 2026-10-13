@@ -84,7 +84,9 @@ namespace Durin::Editor
 	{
 		if (!Object || !Property || ArrayIndex >= Property->GetArrayDim()) return;
 		const std::string Label = Options.Label.empty() ? ::Durin::Editor::MakePropertyLabel(*Property, ArrayIndex) : Options.Label;
-		Rows.push_back({Object, Property, ArrayIndex, Label,
+		auto RowOptions = Options;
+		RowOptions.Label = Label;
+		Rows.push_back({Object, Property, ArrayIndex, std::move(RowOptions),
 			std::format("{} {} {}", Property->NamePrivate, Label, SearchKeywords), {}});
 	}
 
@@ -174,12 +176,14 @@ namespace Durin::Editor
 					if (!SearchText.empty()) ImGui::GetStateStorage()->SetInt(ImGui::GetID(CurrentCategory.c_str()), 1);
 					const FCategory* Category = FindCategory(CurrentCategory);
 					bGroupOpen = MonaImGui::PropertyEdit::BeginGroup(CurrentCategory.c_str(), Category->Label.c_str());
+					if (!Category->Tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+						ImGui::SetTooltip("%s", Category->Tooltip.c_str());
 				}
 			}
 			++Result.VisibleRowCount;
 			if (!bGroupOpen) continue;
 			if (Row.Property)
-				Result.bChanged |= PropertyView.EditProperty(ViewContext, Row.Object, Row.Property, Row.ArrayIndex, {.Label = Row.Label});
+				Result.bChanged |= PropertyView.EditProperty(ViewContext, Row.Object, Row.Property, Row.ArrayIndex, Row.Options);
 			else
 				Result.bChanged |= Row.Drawer(PropertyView, ViewContext);
 		}

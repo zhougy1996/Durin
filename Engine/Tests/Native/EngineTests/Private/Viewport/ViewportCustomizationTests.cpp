@@ -378,6 +378,72 @@ TEST(FLevelEditorCustomizationRegistryTests, RejectsDuplicatesFindsBaseClassAndU
 	EXPECT_EQ(Durin::Editor::FDetailCustomizationRegistry::Get().FindDetailCustomization(Durin::DCameraComponent::StaticClass()), DerivedDetails);
 }
 
+TEST(FActorComponentDetailsTests, StaticMeshActorUsesCuratedCategoriesAndKeepsComponentSearch)
+{
+	InitializeDObjectSystem();
+	auto* Actor = Durin::NewObject<Durin::AStaticMeshActor>(nullptr, "CuratedMeshActor");
+	ASSERT_NE(Actor->GetStaticMeshComponent(), nullptr);
+	Durin::Editor::Level::FLevelEditorContext Context;
+	for (const auto& [Search, Expected] : std::array{
+		std::pair{"", 5u}, std::pair{"Transform", 1u}, std::pair{"Location", 1u},
+		std::pair{"Static Mesh", 2u}, std::pair{"Materials", 1u}, std::pair{"Rendering", 1u},
+		std::pair{"Visible", 1u}, std::pair{"Collision", 1u}, std::pair{"Body Instance", 1u},
+		std::pair{"DStaticMeshComponent", 4u}, std::pair{"OverrideMaterials", 0u},
+		std::pair{"ComponentToWorld", 0u}})
+	{
+		Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context, Search);
+		Builder.ApplyCustomization(Actor, *Durin::Editor::Level::CreateStaticMeshActorDetailsCustomization());
+		Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, Builder, Search);
+		EXPECT_EQ(Builder.GetVisibleRowCount(), Expected) << Search;
+		EXPECT_TRUE(Builder.ShouldDrawDefaultProperty(Actor, *Actor->GetStaticMeshComponent()->GetClass()->FindPropertyByName("StaticMesh"), 0));
+		EXPECT_FALSE(Builder.ShouldDrawDefaultProperty(Actor->GetStaticMeshComponent(), *Actor->GetStaticMeshComponent()->GetClass()->FindPropertyByName("StaticMesh"), 0));
+	}
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::CollectGarbage();
+}
+
+TEST(FActorComponentDetailsTests, CuratedActorTransformAndVisibilityPreserveUndoRedo)
+{
+	InitializeDObjectSystem();
+	auto* Actor = Durin::NewObject<Durin::AStaticMeshActor>(nullptr, "CuratedUndoActor");
+	auto* Component = Actor->GetStaticMeshComponent();
+	ASSERT_NE(Component, nullptr);
+	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context);
+	Builder.ApplyCustomization(Actor, *Durin::Editor::Level::CreateStaticMeshActorDetailsCustomization());
+	Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, Builder, {});
+	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Editor::FPropertyView View;
+	const Durin::Editor::FPropertyViewContext ViewContext{.Transactor = Transactions.Get()};
+	ASSERT_TRUE(View.HandleOwnerContext(ViewContext, Actor));
+	auto* Transform = Component->GetClass()->FindPropertyByName("RelativeTransform");
+	ASSERT_NE(Transform, nullptr);
+	const auto Before = Component->GetRelativeTransform();
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(ViewContext, Durin::Editor::FPropertyEditTarget::ForMember(Component, Transform),
+		[](Durin::FProperty* Property, void* Container, uint32 Index) {
+			Property->ContainerPtrToValuePtr<Durin::FTransform>(Container, Index)->Translation = Durin::FVector3(1.0, 2.0, 3.0);
+		}, false));
+	EXPECT_EQ(Component->GetRelativeTransform().Translation, Durin::FVector3(1.0, 2.0, 3.0));
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Component->GetRelativeTransform().Translation, Before.Translation);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Component->GetRelativeTransform().Translation, Durin::FVector3(1.0, 2.0, 3.0));
+	auto* Visible = Component->GetClass()->FindPropertyByName("bVisible");
+	ASSERT_NE(Visible, nullptr);
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(ViewContext, Durin::Editor::FPropertyEditTarget::ForMember(Component, Visible),
+		[](Durin::FProperty* Property, void* Container, uint32 Index) {
+			*Property->ContainerPtrToValuePtr<bool>(Container, Index) = false;
+		}, false));
+	EXPECT_FALSE(*Visible->ContainerPtrToValuePtr<bool>(Component));
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_TRUE(*Visible->ContainerPtrToValuePtr<bool>(Component));
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_FALSE(*Visible->ContainerPtrToValuePtr<bool>(Component));
+	ASSERT_TRUE(Transactions->Reset());
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::CollectGarbage();
+}
+
 TEST(FActorComponentDetailsTests, SearchesNamedComponentsAndKeepsRootTransformSingle)
 {
 	InitializeDObjectSystem();

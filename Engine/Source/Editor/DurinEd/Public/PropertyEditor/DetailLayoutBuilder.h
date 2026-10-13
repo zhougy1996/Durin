@@ -51,7 +51,7 @@ namespace Durin::Editor
 			DObject* Object = nullptr;
 			FProperty* Property = nullptr;
 			uint32 ArrayIndex = 0;
-			std::string Label;
+			FPropertyViewOptions Options;
 			std::string SearchText;
 			FCustomRowDrawer Drawer;
 			std::string Category;
@@ -67,9 +67,11 @@ namespace Durin::Editor
 				const ::Durin::Editor::FPropertyViewOptions& Options, std::string_view SearchKeywords) -> void override;
 			auto AddCustomRow(std::string_view SearchKeywords, FDetailRowDrawer Drawer) -> void override;
 			auto SetSortOrder(int32 InOrder) -> void override { SortOrder = InOrder; }
+			auto SetTooltip(std::string_view InTooltip) -> void override { Tooltip = InTooltip; }
 			FDetailLayoutBuilder& Owner;
 			std::string Name;
 			std::string Label;
+			std::string Tooltip;
 			int32 SortOrder = 0;
 		};
 

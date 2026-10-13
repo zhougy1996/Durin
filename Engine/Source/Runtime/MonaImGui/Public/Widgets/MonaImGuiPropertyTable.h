@@ -110,9 +110,9 @@ namespace Durin::MonaImGui::PropertyEdit
 	// Presents quaternion storage as Euler degrees and normalizes edited results.
 	MONAIMGUI_API auto EditQuat(const char* Label, FQuat& Value, bool bReadOnly = false,
 		FWidgetState* OutState = nullptr, const char* LabelTooltip = nullptr) -> bool;
-	// Draws an expandable Transform property. Must be called inside a property table.
+	// Draws Transform editing rows with an optional expandable header inside a property table.
 	MONAIMGUI_API auto EditTransform(const char* Label, FTransform& Transform, bool bReadOnly = false,
-		FWidgetState* OutState = nullptr, const char* LabelTooltip = nullptr) -> bool;
+		FWidgetState* OutState = nullptr, const char* LabelTooltip = nullptr, bool bShowHeader = true) -> bool;
 	// Edits linear storage through an sRGB-facing picker. Must be called inside a property table.
 	MONAIMGUI_API auto EditColor(const char* Label, FLinearColor& Color, bool bShowAlpha = true,
 		bool bReadOnly = false, FWidgetState* OutState = nullptr, const char* LabelTooltip = nullptr) -> bool;

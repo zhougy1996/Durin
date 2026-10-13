@@ -66,6 +66,8 @@ namespace Durin::Editor
 	struct FPropertyViewOptions
 	{
 		std::string Label;
+		// Shows only the existing Location/Rotation/Scale controls when their category provides the header.
+		bool bShowTransformHeader = true;
 	};
 
 	// Configures filtering and table ownership for an object property view.
@@ -155,7 +157,7 @@ namespace Durin::Editor
 			uint32 ArrayIndex,
 			const std::string& Label,
 			bool bReadOnly,
-			const FPropertyEditTarget& EditTarget
+			const FPropertyEditTarget& EditTarget, bool bShowTransformHeader = true
 		) -> bool;
 		auto EditPropertyWidget(
 			const FPropertyViewContext& Context,
@@ -163,10 +165,10 @@ namespace Durin::Editor
 			void* Container,
 			uint32 ArrayIndex,
 			const std::string& Label,
-			bool bReadOnly
+			bool bReadOnly, bool bShowTransformHeader = true
 		) -> FPropertyWidgetEditResult;
 		auto EditStructPropertyWidget(FProperty* Property, void* Container, uint32 ArrayIndex,
-			const std::string& Label, bool bReadOnly) -> FPropertyWidgetEditResult;
+			const std::string& Label, bool bReadOnly, bool bShowTransformHeader = true) -> FPropertyWidgetEditResult;
 		auto EditStructProperty(const FPropertyViewContext& Context, DObject* Object,
 			FProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label,
 			bool bReadOnly, const FPropertyEditTarget& EditTarget) -> bool;

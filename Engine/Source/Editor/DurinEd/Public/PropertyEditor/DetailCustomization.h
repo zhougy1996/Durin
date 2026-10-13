@@ -22,6 +22,7 @@ namespace Durin::Editor
 			const ::Durin::Editor::FPropertyViewOptions& Options = {}, std::string_view SearchKeywords = {}) -> void = 0;
 		virtual auto AddCustomRow(std::string_view SearchKeywords, FDetailRowDrawer Drawer) -> void = 0;
 		virtual auto SetSortOrder(int32 SortOrder) -> void = 0;
+		virtual auto SetTooltip(std::string_view Tooltip) -> void = 0;
 	};
 
 	// Supplies the inspected object, host services, and declarative layout operations.

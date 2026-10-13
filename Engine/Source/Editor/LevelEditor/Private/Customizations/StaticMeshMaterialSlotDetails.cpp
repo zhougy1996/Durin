@@ -59,22 +59,27 @@ namespace Durin::Editor::Level
 		public:
 			auto CustomizeDetails(IDetailLayoutBuilder& Builder) -> void override
 			{
-				DObject* Object = Builder.GetObject();
-				auto* Component = Cast<DStaticMeshComponent>(Object);
+				AddRows(Builder, Cast<DStaticMeshComponent>(Builder.GetObject()), {});
+			}
+
+			static auto AddRows(IDetailLayoutBuilder& Builder, DStaticMeshComponent* Component, std::string_view Category) -> void
+			{
 				if (!Component) return;
 				if (FProperty* Property = Component->GetClass()->FindPropertyByName("OverrideMaterials")) Builder.HideProperty(Property);
 
 				const FStaticMeshMaterialSlotDetailsModel Model(Component);
-				std::string SearchKeywords = "Materials Material Slots";
+				std::string SearchKeywords = std::format("Materials Material Slots {} {}", Component->GetName(), Component->GetClass()->GetQualifiedName());
 				for (const FStaticMeshMaterialSlotDetailsEntry& Entry : Model.GetCurrentEntries())
 				{
 					SearchKeywords += ' ';
 					SearchKeywords += Entry.SearchKeywords;
 				}
-				Builder.AddCustomRow(SearchKeywords,
+				auto Drawer =
 					[Component](::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
 						return DrawMaterials(Component, PropertyView, ViewContext);
-					});
+					};
+				if (Category.empty()) Builder.AddCustomRow(SearchKeywords, std::move(Drawer));
+				else Builder.EditCategory(Category, "Static Mesh").AddCustomRow(SearchKeywords, std::move(Drawer));
 			}
 
 		private:
@@ -267,6 +272,11 @@ namespace Durin::Editor::Level
 				const auto Resized = static_cast<FArrayProperty*>(ScratchProperty)->Resize(ScratchContainer, 0, ScratchArrayIndex);
 				requiref(Resized.has_value(), "Failed to clear material overrides: {}", ToString(Resized.error()));
 			}, false);
+	}
+
+	auto AddStaticMeshMaterialSlotDetails(IDetailLayoutBuilder& Builder, DStaticMeshComponent* Component, std::string_view Category) -> void
+	{
+		FStaticMeshComponentDetailsCustomization::AddRows(Builder, Component, Category);
 	}
 
 	auto CreateStaticMeshComponentDetailsCustomization() -> std::shared_ptr<IDetailCustomization>

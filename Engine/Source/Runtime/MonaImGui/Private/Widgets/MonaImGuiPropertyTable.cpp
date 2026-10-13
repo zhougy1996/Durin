@@ -314,13 +314,16 @@ namespace Durin::MonaImGui::PropertyEdit
 	}
 
 	auto EditTransform(const char* Label, FTransform& Transform, bool bReadOnly, FWidgetState* OutState,
-		const char* LabelTooltip) -> bool
+		const char* LabelTooltip, bool bShowHeader) -> bool
 	{
-		ImGui::TableNextRow();
-		ImGui::TableSetColumnIndex(0);
-		const bool bOpen = CompactTreeNode(Label, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_LabelSpanAllColumns | ImGuiTreeNodeFlags_FramePadding);
-		ShowLabelTooltip(LabelTooltip, bReadOnly);
-		if (!bOpen) return false;
+		if (bShowHeader)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0);
+			const bool bOpen = CompactTreeNode(Label, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_LabelSpanAllColumns | ImGuiTreeNodeFlags_FramePadding);
+			ShowLabelTooltip(LabelTooltip, bReadOnly);
+			if (!bOpen) return false;
+		}
 
 		auto EditTransformRow = [&](const char* RowLabel, FVector3& Value, double Speed) -> bool {
 			BeginRow(RowLabel, bReadOnly, GetCompactTreeNodeToLabelSpacing(), "Type: Vector3");
@@ -337,7 +340,7 @@ namespace Durin::MonaImGui::PropertyEdit
 			bChanged = true;
 		}
 		bChanged |= EditTransformRow("Scale", Transform.Scale3D, 0.01);
-		ImGui::TreePop();
+		if (bShowHeader) ImGui::TreePop();
 		return bChanged;
 	}
 

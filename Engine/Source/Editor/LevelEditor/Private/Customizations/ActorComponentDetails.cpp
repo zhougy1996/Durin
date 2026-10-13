@@ -3,6 +3,9 @@
 #include "Customizations/ActorComponentDetails.h"
 
 #include "Components/ActorComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Actors/StaticMeshActor.h"
+#include "StaticMeshMaterialSlotDetails.h"
 #include "DObject/Class.h"
 #include "DObject/Property.h"
 #include "Engine/Actor.h"
@@ -15,6 +18,33 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
+		// Presents a StaticMeshActor's primary component through task-oriented categories.
+		class FStaticMeshActorDetailsCustomization final : public IDetailCustomization
+		{
+		public:
+			auto CustomizeDetails(IDetailLayoutBuilder& Builder) -> void override
+			{
+				auto* Actor = Cast<AStaticMeshActor>(Builder.GetObject());
+				if (!Actor) return;
+				GetLevelDetailHostContext(Builder).ComponentDetailsTargets = std::vector<DActorComponent*>{};
+				auto* Component = Actor->GetStaticMeshComponent();
+				if (!Component) return;
+				const std::string Source = std::format("{} {}", Component->GetName(), Component->GetClass()->GetQualifiedName());
+				auto& Mesh = Builder.EditCategory("StaticMesh", "Static Mesh");
+				Mesh.SetSortOrder(-90);
+				Mesh.SetTooltip(Source);
+				Mesh.AddProperty(Component, Component->GetClass()->FindPropertyByName("StaticMesh"), 0, {}, Source);
+				AddStaticMeshMaterialSlotDetails(Builder, Component, "StaticMesh");
+				auto& Rendering = Builder.EditCategory("Rendering");
+				Rendering.SetSortOrder(-80);
+				Rendering.SetTooltip(Source);
+				Rendering.AddProperty(Component, Component->GetClass()->FindPropertyByName("bVisible"), 0, {}, Source);
+				auto& Collision = Builder.EditCategory("Collision");
+				Collision.SetSortOrder(-70);
+				Collision.SetTooltip(Source);
+				Collision.AddProperty(Component, Component->GetClass()->FindPropertyByName("BodyInstance"), 0, {}, Source);
+			}
+		};
 		// Selects the component that supplies a built-in Actor's primary controls.
 		class FActorComponentDetailsCustomization final : public IDetailCustomization
 		{
@@ -41,6 +71,11 @@ namespace Durin::Editor::Level
 		return std::make_shared<FActorComponentDetailsCustomization>(std::move(ResolveComponent));
 	}
 
+	auto CreateStaticMeshActorDetailsCustomization() -> std::shared_ptr<IDetailCustomization>
+	{
+		return std::make_shared<FStaticMeshActorDetailsCustomization>();
+	}
+
 	auto BuildActorComponentDetails(FLevelEditorContext& Context, AActor* Actor,
 		FDetailLayoutBuilder& Builder, std::string_view SearchText) -> void
 	{
@@ -50,8 +85,9 @@ namespace Durin::Editor::Level
 		{
 			auto& TransformCategory = Builder.EditCategory("Transform");
 			TransformCategory.SetSortOrder(-100);
+			TransformCategory.SetTooltip(std::format("{} {}", Root->GetName(), Root->GetClass()->GetQualifiedName()));
 			TransformCategory.AddProperty(Root, Root->GetClass()->FindPropertyByName("RelativeTransform"),
-				0, {.Label = "Transform"}, "Location Rotation Scale");
+				0, {.Label = "Transform", .bShowTransformHeader = false}, "Location Rotation Scale");
 		}
 
 		std::vector<DActorComponent*> Components;
@@ -63,8 +99,9 @@ namespace Durin::Editor::Level
 		{
 			if (!Component || !Actor->OwnsComponent(Component) || !Visited.insert(Component).second
 				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated) continue;
-			const std::string Label = std::format("{} ({})", Component->GetName(), Component->GetClass()->GetName());
-			const bool bMatchesComponent = !SearchText.empty() && StringUtils::ContainsInsensitive(Label, SearchText);
+			const std::string Label = Component->GetName();
+			const std::string TypeName = Component->GetClass()->GetQualifiedName().ToString();
+			const bool bMatchesComponent = !SearchText.empty() && StringUtils::ContainsInsensitive(Label + " " + TypeName, SearchText);
 			auto ComponentBuilder = std::make_shared<FLevelDetailLayoutBuilder>(Context, bMatchesComponent ? std::string_view{} : SearchText);
 			ComponentBuilder->ApplyRegisteredCustomizations(Component);
 			if (!ComponentBuilder->IsReplacingDefaultProperties())
@@ -79,18 +116,17 @@ namespace Durin::Editor::Level
 				});
 			}
 			if (ComponentBuilder->GetVisibleRowCount() == 0) continue;
-			Builder.AddCustomRow(SearchText, [ComponentBuilder, Component, Label, bSearching = !SearchText.empty()](
+			Builder.AddCustomRow(SearchText, [ComponentBuilder, Component, Label, TypeName, bSearching = !SearchText.empty()](
 				::Durin::Editor::FPropertyView& View, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
 				ImGui::PushID(Component);
-				MonaImGui::PropertyEdit::BeginRow("Component", ViewContext.bReadOnly);
 				if (bSearching) ImGui::SetNextItemOpen(true, ImGuiCond_Always);
-				const bool bOpen = ImGui::TreeNodeEx("##ComponentProperties", ImGuiTreeNodeFlags_DefaultOpen, "%s", Label.c_str());
-				MonaImGui::PropertyEdit::EndRow(ViewContext.bReadOnly);
+				const bool bOpen = MonaImGui::PropertyEdit::BeginGroup("##ComponentProperties", Label.c_str());
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", TypeName.c_str());
 				bool bChanged = false;
 				if (bOpen)
 				{
 					bChanged = ComponentBuilder->DrawRows(View, ViewContext).bChanged;
-					ImGui::TreePop();
+					MonaImGui::PropertyEdit::EndGroup();
 				}
 				ImGui::PopID();
 				return bChanged;

@@ -98,7 +98,7 @@ namespace Durin
 		SessionSettings->Load();
 		auto& Registry = FLevelEditorCustomizationRegistry::Get();
 		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(AStaticMeshActor::StaticClass(),
-			CreateActorComponentDetailsCustomization([](AActor* Actor) -> DActorComponent* { return Cast<AStaticMeshActor>(Actor)->GetStaticMeshComponent(); })));
+			CreateStaticMeshActorDetailsCustomization()));
 		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(ACameraActor::StaticClass(),
 			CreateActorComponentDetailsCustomization([](AActor* Actor) -> DActorComponent* { return Cast<ACameraActor>(Actor)->GetCameraComponent(); })));
 		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(ADirectionalLightActor::StaticClass(),
