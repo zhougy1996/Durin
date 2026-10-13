@@ -165,15 +165,16 @@ TEST(FSharedDetailCustomizationTests, DefaultsShareCategoriesAndRemainIdempotent
 	auto* World = Component->GetClass()->FindPropertyByName("ComponentToWorld");
 	ASSERT_NE(Transform, nullptr);
 	ASSERT_NE(World, nullptr);
-	Durin::Editor::FDetailLayoutBuilder Layout("Diagnostics");
-	Layout.EditCategory("Diagnostics").AddCustomRow("Status", [](auto&, const auto&) { return false; });
+	Durin::Editor::FDetailLayoutBuilder Layout("Transform");
+	Layout.EditCategory("Transform").AddCustomRow("Status", [](auto&, const auto&) { return false; });
 	Layout.AddDefaultProperties(Component);
 	EXPECT_EQ(Layout.GetVisibleRowCount(), 2u);
 	EXPECT_TRUE(Layout.IsDefaultPropertyPlaced(Component, *Transform, 0));
-	EXPECT_TRUE(Layout.IsDefaultPropertyPlaced(Component, *World, 0));
+	EXPECT_FALSE(World->HasAnyPropertyFlags(Durin::EPropertyFlags::Edit));
+	EXPECT_FALSE(Layout.IsDefaultPropertyPlaced(Component, *World, 0));
 	Layout.AddDefaultProperties(Component);
 	EXPECT_EQ(Layout.GetVisibleRowCount(), 2u);
-	Layout.HideCategory("Diagnostics");
+	Layout.HideCategory("Transform");
 	EXPECT_EQ(Layout.GetVisibleRowCount(), 0u);
 	Durin::Editor::FDetailLayoutBuilder Authored;
 	Authored.AddDefaultProperties(Component, false);
@@ -182,6 +183,9 @@ TEST(FSharedDetailCustomizationTests, DefaultsShareCategoriesAndRemainIdempotent
 	Hidden.HideProperty(Transform);
 	Hidden.AddDefaultProperties(Component, false);
 	EXPECT_EQ(Hidden.GetVisibleRowCount(), 0u);
+	Durin::Editor::FDetailLayoutBuilder WorldSearch("ComponentToWorld");
+	WorldSearch.AddDefaultProperties(Component);
+	EXPECT_EQ(WorldSearch.GetVisibleRowCount(), 0u);
 	Durin::MarkObjectHierarchyAsGarbage(Component);
 	Durin::CollectGarbage();
 }

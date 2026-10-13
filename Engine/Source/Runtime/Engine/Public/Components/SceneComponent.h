@@ -86,7 +86,7 @@ private:
 		FTransform RelativeTransform;
 
 		// Derived world transform rebuilt from RelativeTransform and the attachment chain.
-		DPROPERTY(Category = "Diagnostics", Edit, ReadOnly, Transient, MetaData="DefaultCollapsed")
+		DPROPERTY(ReadOnly, Transient)
 		FTransform ComponentToWorld;
 
 		auto CanAttachTo(const DSceneComponent* Parent) const -> bool;
