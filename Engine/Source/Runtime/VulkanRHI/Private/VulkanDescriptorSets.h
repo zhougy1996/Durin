@@ -111,15 +111,6 @@ namespace Durin::VulkanRHI
 			}
 		};
 
-		auto GetTypeUsedCount(vk::DescriptorType Type) const -> uint32
-		{
-			if (const auto It = LayoutTypes.find(Type); It != LayoutTypes.end())
-			{
-				return It->second;
-			}
-			return 0;
-		}
-
 		auto GetLayouts() const -> const std::vector<FSetLayout>& { return SetLayouts; }
 
 		auto GetDescriptorRequirements() const -> FVulkanDescriptorRequirements;

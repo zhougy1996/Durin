@@ -160,10 +160,4 @@ namespace Durin::VulkanRHI
 		uint64 AccessSerial = 0;
 	};
 
-	// Owns the driver pipeline cache used to accelerate Vulkan pipeline creation.
-	class FPipelineCache
-	{
-	public:
-		FVulkanDescriptorSetLayoutCache DSetLayoutMap;
-	};
 }

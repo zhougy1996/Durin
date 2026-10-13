@@ -412,45 +412,51 @@ namespace Durin::VulkanRHI
 
 		vk::PipelineLayout CandidatePipelineLayout{};
 		vk::Pipeline CandidatePipeline{};
-		CandidatePipelineLayout =
-			Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
+		try
+		{
+			CandidatePipelineLayout =
+				Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
 
-		vk::GraphicsPipelineCreateInfo pipelineInfo;
-		pipelineInfo
-			.setStages(ShaderStages)
-			.setPDynamicState(&DynamicStateInfo)
-			.setPVertexInputState(&VertexInputInfo)
-			.setPInputAssemblyState(&InputAssemblyInfo)
-			.setPViewportState(&ViewportStateInfo)
-			.setPRasterizationState(&RasterizerInfo)
-			.setPMultisampleState(&MultiSamplingInfo)
-			.setPDepthStencilState(&DepthStencilInfo)
-			.setPColorBlendState(&ColorBlending)
-			.setLayout(CandidatePipelineLayout)
-			.setRenderPass(RenderPass->GetHandle())
-			.setSubpass(0)
-			.setBasePipelineHandle(nullptr)
-			.setBasePipelineIndex(-1);
+			vk::GraphicsPipelineCreateInfo pipelineInfo;
+			pipelineInfo
+				.setStages(ShaderStages)
+				.setPDynamicState(&DynamicStateInfo)
+				.setPVertexInputState(&VertexInputInfo)
+				.setPInputAssemblyState(&InputAssemblyInfo)
+				.setPViewportState(&ViewportStateInfo)
+				.setPRasterizationState(&RasterizerInfo)
+				.setPMultisampleState(&MultiSamplingInfo)
+				.setPDepthStencilState(&DepthStencilInfo)
+				.setPColorBlendState(&ColorBlending)
+				.setLayout(CandidatePipelineLayout)
+				.setRenderPass(RenderPass->GetHandle())
+				.setSubpass(0)
+				.setBasePipelineHandle(nullptr)
+				.setBasePipelineIndex(-1);
 
-		const vk::ResultValue<vk::Pipeline> PipelineCreationResult = Device.GetPipelineManager().CompileGraphicsPipeline(pipelineInfo);
-		CandidatePipeline = PipelineCreationResult.value;
-		if (PipelineCreationResult.result != vk::Result::eSuccess)
+			const vk::ResultValue<vk::Pipeline> PipelineCreationResult = Device.GetPipelineManager().CompileGraphicsPipeline(pipelineInfo);
+			CandidatePipeline = PipelineCreationResult.value;
+			if (PipelineCreationResult.result != vk::Result::eSuccess)
+			{
+				throw vk::SystemError(vk::make_error_code(PipelineCreationResult.result), std::format(
+					"result={}, shaderStages={}, descriptorSetLayouts={}, pushConstantRanges={}",
+					vk::to_string(PipelineCreationResult.result), ShaderStages.size(),
+					CandidateLayout->GetDescriptorSetsLayout().GetLayoutHandles().size(),
+					PushConstantRanges.size()));
+			}
+			const std::string BaseName = Device.GetRHI().GetDebugUtils().CanNameObjects()
+				? (DebugName.empty() ? Device.GetRHI().GetDebugUtils().MakeInternalName("GraphicsPipeline")
+					: std::string(DebugName)) : std::string{};
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidatePipeline, [&] { return std::string_view(BaseName); });
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidatePipelineLayout,
+				[&] { return std::format("{}.PipelineLayout", BaseName); });
+		}
+		catch (...)
 		{
 			if (CandidatePipeline) Device.GetHandle().destroyPipeline(CandidatePipeline);
-			Device.GetHandle().destroyPipelineLayout(CandidatePipelineLayout);
-			throw vk::SystemError(vk::make_error_code(PipelineCreationResult.result), std::format(
-				"result={}, shaderStages={}, descriptorSetLayouts={}, pushConstantRanges={}",
-				vk::to_string(PipelineCreationResult.result), ShaderStages.size(),
-				CandidateLayout->GetDescriptorSetsLayout().GetLayoutHandles().size(),
-				PushConstantRanges.size()));
+			if (CandidatePipelineLayout) Device.GetHandle().destroyPipelineLayout(CandidatePipelineLayout);
+			throw;
 		}
-		const std::string BaseName = Device.GetRHI().GetDebugUtils().CanNameObjects()
-			? (DebugName.empty() ? Device.GetRHI().GetDebugUtils().MakeInternalName("GraphicsPipeline")
-				: std::string(DebugName)) : std::string{};
-		Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidatePipeline, [&] { return std::string_view(BaseName); });
-		Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidatePipelineLayout,
-			[&] { return std::format("{}.PipelineLayout", BaseName); });
-
 		Layout = std::move(CandidateLayout);
 		PipelineLayout = CandidatePipelineLayout;
 		Pipeline = CandidatePipeline;
@@ -513,29 +519,36 @@ namespace Durin::VulkanRHI
 			.setPushConstantRanges(PushConstantRanges);
 		vk::PipelineLayout CandidatePipelineLayout{};
 		vk::Pipeline CandidatePipeline{};
-		CandidatePipelineLayout =
-			Device.GetHandle().createPipelineLayout(PipelineLayoutInfo);
-		vk::PipelineShaderStageCreateInfo StageInfo;
-		StageInfo.setStage(vk::ShaderStageFlagBits::eCompute)
-			.setModule(Shader->GetShaderModule())
-			.setPName(Shader->GetEntryPoint());
-		vk::ComputePipelineCreateInfo PipelineInfo;
-		PipelineInfo.setStage(StageInfo).setLayout(CandidatePipelineLayout);
-		const vk::ResultValue<vk::Pipeline> Creation = Device.GetPipelineManager().CompileComputePipeline(PipelineInfo);
-		CandidatePipeline = Creation.value;
-		if (Creation.result != vk::Result::eSuccess)
+		try
+		{
+			CandidatePipelineLayout =
+				Device.GetHandle().createPipelineLayout(PipelineLayoutInfo);
+			vk::PipelineShaderStageCreateInfo StageInfo;
+			StageInfo.setStage(vk::ShaderStageFlagBits::eCompute)
+				.setModule(Shader->GetShaderModule())
+				.setPName(Shader->GetEntryPoint());
+			vk::ComputePipelineCreateInfo PipelineInfo;
+			PipelineInfo.setStage(StageInfo).setLayout(CandidatePipelineLayout);
+			const vk::ResultValue<vk::Pipeline> Creation = Device.GetPipelineManager().CompileComputePipeline(PipelineInfo);
+			CandidatePipeline = Creation.value;
+			if (Creation.result != vk::Result::eSuccess)
+			{
+				throw vk::SystemError(vk::make_error_code(Creation.result), std::format("result={}",
+					vk::to_string(Creation.result)));
+			}
+			const std::string BaseName = Device.GetRHI().GetDebugUtils().CanNameObjects()
+				? (DebugName.empty() ? Device.GetRHI().GetDebugUtils().MakeInternalName("ComputePipeline")
+					: std::string(DebugName)) : std::string{};
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidatePipeline, [&] { return std::string_view(BaseName); });
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidatePipelineLayout,
+				[&] { return std::format("{}.PipelineLayout", BaseName); });
+		}
+		catch (...)
 		{
 			if (CandidatePipeline) Device.GetHandle().destroyPipeline(CandidatePipeline);
-			Device.GetHandle().destroyPipelineLayout(CandidatePipelineLayout);
-			throw vk::SystemError(vk::make_error_code(Creation.result), std::format("result={}",
-				vk::to_string(Creation.result)));
+			if (CandidatePipelineLayout) Device.GetHandle().destroyPipelineLayout(CandidatePipelineLayout);
+			throw;
 		}
-		const std::string BaseName = Device.GetRHI().GetDebugUtils().CanNameObjects()
-			? (DebugName.empty() ? Device.GetRHI().GetDebugUtils().MakeInternalName("ComputePipeline")
-				: std::string(DebugName)) : std::string{};
-		Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidatePipeline, [&] { return std::string_view(BaseName); });
-		Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidatePipelineLayout,
-			[&] { return std::format("{}.PipelineLayout", BaseName); });
 		Layout = std::move(CandidateLayout);
 		PipelineLayout = CandidatePipelineLayout;
 		Pipeline = CandidatePipeline;
