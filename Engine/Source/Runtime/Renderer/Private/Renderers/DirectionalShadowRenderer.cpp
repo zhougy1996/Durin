@@ -36,6 +36,7 @@ namespace Durin
 			ERenderResourceGenerationDependency::Device
 				| ERenderResourceGenerationDependency::Manual};
 		FRHIUniformBufferRange FallbackLighting;
+		uint32 Resolution = 0;
 	};
 
 	auto SetShadowDepthTimingQuerySink(FShadowDepthTimingQuerySink Sink) -> void
@@ -85,14 +86,21 @@ namespace Durin
 		} PreparationTimingScope{
 			PreparationStart, Telemetry.DirectionalShadow.ShadowResourcePreparationNanoseconds};
 		using FResult = TRenderResourceCreateResult<FState::FResources>;
+		ResolvedShadow.bEnabled = false;
+		if (!Shadow.View.bEnabled) return false;
+		const uint32 Resolution = Shadow.View.Resolution;
+		if (State->Resolution != Resolution)
+		{
+			State->Resources.Reset();
+			State->Resolution = Resolution;
+		}
 		FState::FResources* Resources = State->Resources.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
-			[&CommandList]() -> FResult {
+			[&CommandList, Resolution]() -> FResult {
 				FState::FResources Candidate;
 				FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2DArray(
 					"DirectionalShadowDepthArray")
-					.SetExtent(DirectionalShadowResolution,
-						DirectionalShadowResolution)
+					.SetExtent(Resolution, Resolution)
 					.SetArraySize(DirectionalShadowCascadeCount)
 					.SetFormat(EPixelFormat::D32)
 					.SetFlags(ETextureCreateFlags::DepthStencilTargetable
@@ -129,7 +137,7 @@ namespace Durin
 					|| !bHasAllAttachmentViews || !Candidate.Sampler)
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
-						"DirectionalShadow", "3x2048-D32-array",
+						"DirectionalShadow", "3-layer-D32-array",
 						ERenderResourceCreateErrorReason::ResourceCreationFailed,
 						ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
@@ -139,8 +147,6 @@ namespace Durin
 				CommandList.TransitionTextures(InitialTransition);
 				return FResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnostic);
-		ResolvedShadow.bEnabled = false;
-		if (!Shadow.View.bEnabled) return false;
 		++Telemetry.DirectionalShadow.ShadowResourceAttempts;
 		if (Resources == nullptr)
 		{
@@ -148,7 +154,8 @@ namespace Durin
 			return false;
 		}
 		++Telemetry.DirectionalShadow.ShadowResourceSuccesses;
-		Telemetry.DirectionalShadow.ShadowTargetLogicalBytes = DirectionalShadowLogicalBytes;
+		Telemetry.DirectionalShadow.ShadowTargetLogicalBytes =
+			static_cast<uint64>(Resolution) * Resolution * sizeof(float) * DirectionalShadowCascadeCount;
 		Telemetry.DirectionalShadow.ShadowTargetBackendBytes = static_cast<size_t>(
 			Resources->Target->GetBackendAllocationBytes());
 
@@ -200,9 +207,9 @@ namespace Durin
 		Pass.DepthStencilRenderTargetView = Recording.DepthAttachment;
 		Pass.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);
 		Commands.BeginRenderPass(Pass, "DirectionalShadowCascadeDepthRenderPass");
-		Commands.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(DirectionalShadowResolution),
-			static_cast<float>(DirectionalShadowResolution), 1.0f);
-		Commands.SetScissor(0.0f, 0.0f, static_cast<float>(DirectionalShadowResolution), static_cast<float>(DirectionalShadowResolution));
+		const float Resolution = static_cast<float>(Recording.Target->GetSizeX());
+		Commands.SetViewport(0.0f, 0.0f, 0.0f, Resolution, Resolution, 1.0f);
+		Commands.SetScissor(0.0f, 0.0f, Resolution, Resolution);
 		auto Counts = FStaticMeshRenderer::RecordShadow(Commands, Prepared, Resolved);
 		Commands.EndRenderPass();
 		return Counts;

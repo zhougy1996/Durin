@@ -13,13 +13,13 @@ namespace Durin
 {
 	class FPrimitiveSceneInfo;
 	class FScene;
-	inline constexpr uint32 DirectionalShadowResolution = 2048;
+	inline constexpr uint32 DirectionalShadowResolution = FSceneViewDirectionalShadowSettings::DefaultResolution;
 	inline constexpr uint32 DirectionalShadowCascadeCount = 3;
 	inline constexpr uint64 DirectionalShadowLogicalBytes =
 		static_cast<uint64>(DirectionalShadowResolution)
 		* DirectionalShadowResolution * sizeof(float)
 		* DirectionalShadowCascadeCount;
-	inline constexpr double DirectionalShadowDistance = 256.0;
+	inline constexpr double DirectionalShadowDistance = FSceneViewDirectionalShadowSettings::DefaultMaxDistance;
 	inline constexpr double DirectionalShadowCasterExtrusion = 256.0;
 	inline constexpr double DirectionalShadowSplitLambda = 0.65;
 	inline constexpr double DirectionalShadowTransitionFraction = 0.10;
@@ -95,6 +95,7 @@ namespace Durin
 		EDirectionalShadowCandidate Candidate =
 			EDirectionalShadowCandidate::SingleMap;
 		uint32 CascadeCount = 0;
+		uint32 Resolution = DirectionalShadowResolution;
 		std::array<double, DirectionalShadowCascadeCount + 1> SplitDepths{};
 		FVector4 ViewDepthTransform{0.0};
 		FVector3 LightDirection{0.0, 0.0, -1.0};

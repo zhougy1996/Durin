@@ -795,6 +795,79 @@ namespace Durin
 		EXPECT_DOUBLE_EQ(Cascaded.SplitDepths[3], 256.0);
 	}
 
+	TEST(FRendererSceneViewTests, DirectionalShadowConfiguresResolutionDistanceAndSampling)
+	{
+		for (const bool bPerspective : {false, true})
+		{
+			FSceneView View;
+			View.ProjectionMatrix = bPerspective
+				? MakePerspectiveProjection(60.0, 1.0, 1.0, 300.0)
+				: MakeOrthographicProjection(20.0, 20.0, 1.0, 300.0);
+			View.ViewProjectionMatrix = View.ProjectionMatrix;
+			View.Settings.DirectionalShadow.Resolution = 1024;
+			View.Settings.DirectionalShadow.MaxDistance = 64.0;
+			FPreparedLightView Lights;
+			FPreparedDirectionalLight Light;
+			Light.Id = FLightComponentId(11);
+			Light.Data.Direction = {0.0, 0.0, -1.0};
+			Lights.Directional.push_back(Light);
+			FPreparedDirectionalShadowView Shadow;
+			ASSERT_TRUE(TryPrepareDirectionalShadowView(View, Light.Id, Light.Data, Shadow));
+			EXPECT_EQ(Shadow.Resolution, 1024u);
+			EXPECT_EQ(Shadow.CascadeCount, 3u);
+			EXPECT_DOUBLE_EQ(Shadow.SplitDepths.back(), 64.0);
+			uint32 Primary = 0, Adjacent = 0;
+			double Weight = 0.0;
+			EXPECT_FALSE(SelectDirectionalShadowCascade(Shadow, 65.0, Primary, Adjacent, Weight));
+			const auto Uniform = BuildForwardLightingUniform(Lights, View, &Shadow);
+			for (uint32 Index = 0; Index < Shadow.CascadeCount; ++Index)
+			{
+				const auto& Cascade = Shadow.Cascades[Index];
+				EXPECT_EQ(Cascade.CasterView.ViewportWidth, 1024u);
+				EXPECT_EQ(Cascade.CasterView.ViewportHeight, 1024u);
+				EXPECT_FLOAT_EQ(Uniform.DirectionalShadow.Cascades[Index].Filter.x, 1.0f / 1024.0f);
+				EXPECT_FLOAT_EQ(Uniform.DirectionalShadow.Cascades[Index].ValidRegion.x, 2.0f / 1024.0f);
+			}
+			View.Settings.DirectionalShadow.Resolution = 2048;
+			FPreparedDirectionalShadowView Larger;
+			ASSERT_TRUE(TryPrepareDirectionalShadowView(View, Light.Id, Light.Data, Larger));
+			EXPECT_EQ(Shadow.SplitDepths, Larger.SplitDepths);
+			EXPECT_GT(Shadow.Cascades[0].TexelWorldSize.x, Larger.Cascades[0].TexelWorldSize.x);
+			View.Settings.DirectionalShadow.MaxDistance = 4096.0;
+			ASSERT_TRUE(TryPrepareDirectionalShadowView(View, Light.Id, Light.Data, Larger));
+			EXPECT_NEAR(Larger.SplitDepths.back(), 300.0, 1.0e-8);
+		}
+	}
+
+	TEST(FRendererSceneViewTests, DirectionalShadowBoundsConfigurationAndRestoresInvalidDefaults)
+	{
+		FSceneView View;
+		View.ProjectionMatrix = MakeOrthographicProjection(20.0, 20.0, 0.1, 10000.0);
+		View.ViewProjectionMatrix = View.ProjectionMatrix;
+		FDirectionalLightSceneData Light;
+		Light.Direction = {0.0, 0.0, -1.0};
+		FPreparedDirectionalShadowView Shadow;
+		for (double Distance : {0.0, -1.0, std::numeric_limits<double>::infinity(),
+			std::numeric_limits<double>::quiet_NaN()})
+		{
+			View.Settings.DirectionalShadow.Resolution = 0;
+			View.Settings.DirectionalShadow.MaxDistance = Distance;
+			ASSERT_TRUE(TryPrepareDirectionalShadowView(View, FLightComponentId(11), Light, Shadow));
+			EXPECT_EQ(Shadow.Resolution, 2048u);
+			EXPECT_DOUBLE_EQ(Shadow.SplitDepths.back(), 256.0);
+		}
+		View.Settings.DirectionalShadow.Resolution = 1;
+		View.Settings.DirectionalShadow.MaxDistance = 0.5;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(View, FLightComponentId(11), Light, Shadow));
+		EXPECT_EQ(Shadow.Resolution, FSceneViewDirectionalShadowSettings::MinimumResolution);
+		EXPECT_DOUBLE_EQ(Shadow.SplitDepths.back(), FSceneViewDirectionalShadowSettings::MinimumMaxDistance);
+		View.Settings.DirectionalShadow.Resolution = std::numeric_limits<uint32>::max();
+		View.Settings.DirectionalShadow.MaxDistance = 1.0e20;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(View, FLightComponentId(11), Light, Shadow));
+		EXPECT_EQ(Shadow.Resolution, FSceneViewDirectionalShadowSettings::MaximumResolution);
+		EXPECT_DOUBLE_EQ(Shadow.SplitDepths.back(), FSceneViewDirectionalShadowSettings::MaximumMaxDistance);
+	}
+
 	TEST(FRendererSceneViewTests,
 		DirectionalShadowFilterTiersHaveExactMetadataAndInvalidFallback)
 	{

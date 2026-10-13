@@ -987,6 +987,42 @@ namespace Durin::Editor::Level
 			{
 				if (ImGui::BeginMenu("Directional Shadows"))
 				{
+					if (ImGui::BeginMenu("Resolution"))
+					{
+						constexpr std::array Options = {
+							TViewportModeOption<uint32>{256, "256"},
+							TViewportModeOption<uint32>{512, "512"},
+							TViewportModeOption<uint32>{1024, "1024"},
+							TViewportModeOption<uint32>{2048, "2048 (Default)"},
+							TViewportModeOption<uint32>{4096, "4096"}
+						};
+						DrawModeOptions(RenderSettingsClient->GetViewSettings().DirectionalShadow.Resolution,
+							Options, [RenderSettingsClient](uint32 Resolution) {
+								auto Settings = RenderSettingsClient->GetViewSettings();
+								Settings.DirectionalShadow.Resolution = Resolution;
+								RenderSettingsClient->SetViewSettings(Settings);
+							});
+						ImGui::EndMenu();
+					}
+					if (ImGui::BeginMenu("Distance"))
+					{
+						auto Settings = RenderSettingsClient->GetViewSettings();
+						float Distance = static_cast<float>(Settings.DirectionalShadow.MaxDistance);
+						if (ImGui::DragFloat("Max Distance", &Distance, 1.0f,
+							static_cast<float>(FSceneViewDirectionalShadowSettings::MinimumMaxDistance),
+							static_cast<float>(FSceneViewDirectionalShadowSettings::MaximumMaxDistance),
+							"%.1f", ImGuiSliderFlags_AlwaysClamp))
+						{
+							Settings.DirectionalShadow.MaxDistance = Distance;
+							RenderSettingsClient->SetViewSettings(Settings);
+						}
+						if (ImGui::Button("Reset to Default"))
+						{
+							Settings.DirectionalShadow.MaxDistance = FSceneViewDirectionalShadowSettings::DefaultMaxDistance;
+							RenderSettingsClient->SetViewSettings(Settings);
+						}
+						ImGui::EndMenu();
+					}
 					if (ImGui::BeginMenu("Filter Quality"))
 					{
 						DrawDirectionalShadowQualityOptions(RenderSettingsClient);

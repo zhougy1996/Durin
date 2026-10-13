@@ -100,7 +100,6 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
     float4 rasterBias = cascade.RasterBias;
     float4 filter = cascade.Filter;
     float4 validRegion = cascade.ValidRegion;
-    float4 lightBounds = float4(lightDirection, validRegion.x * 2048.0);
     float3 coordinate = ProjectShadow(worldPosition, worldToShadow);
     if (!IsValidShadowCoordinate(coordinate))
     {
@@ -179,7 +178,7 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
     else if (mode == 5u)
     {
         float2 grid = abs(frac(coordinate.xy * float2(width, height)) - 0.5);
-        float2 guardUv = lightBounds.ww / float2(width, height);
+        float2 guardUv = validRegion.xy;
         bool outsideGuard = any(coordinate.xy < guardUv)
             || any(coordinate.xy > 1.0 - guardUv);
         result.diagnosticColor = outsideGuard ? float3(1.0, 1.0, 0.0)

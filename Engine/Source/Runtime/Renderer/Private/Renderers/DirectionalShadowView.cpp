@@ -132,7 +132,7 @@ namespace Durin
 		}
 
 		auto TryBuildReceiverFrustum(
-			const FSceneView& View, FReceiverFrustum& OutFrustum) -> bool
+			const FSceneView& View, double MaxDistance, FReceiverFrustum& OutFrustum) -> bool
 		{
 			const bool bPerspective = IsPerspectiveProjection(View.ProjectionMatrix);
 			if (!bPerspective && !IsOrthographicProjection(View.ProjectionMatrix))
@@ -184,7 +184,7 @@ namespace Durin
 			OutFrustum.NearDepth = (NearMinimum + NearMaximum) * 0.5;
 			OutFrustum.FittedFarDepth = (FarMinimum + FarMaximum) * 0.5;
 			OutFrustum.FarDepth = std::min(
-				OutFrustum.FittedFarDepth, DirectionalShadowDistance);
+				OutFrustum.FittedFarDepth, MaxDistance);
 			if (OutFrustum.FarDepth <= OutFrustum.NearDepth + MatrixEpsilon)
 				return false;
 			return true;
@@ -192,6 +192,7 @@ namespace Durin
 
 		auto TryBuildLegacyReceiverCorners(
 			const FSceneView& View,
+			double MaxDistance,
 			std::array<FVector3, 8>& OutCorners) -> bool
 		{
 			const bool bPerspective = IsPerspectiveProjection(View.ProjectionMatrix);
@@ -220,7 +221,7 @@ namespace Durin
 				if (!Math::IsFinite(Origin) || !Math::IsFinite(Delta)
 					|| !std::isfinite(Length) || Length <= MatrixEpsilon) return false;
 				const double ClampedLength = std::min(
-					Length, DirectionalShadowDistance);
+					Length, MaxDistance);
 				OutCorners[Corner + 4] = Origin
 					+ Delta * (ClampedLength / Length);
 			}
@@ -289,6 +290,7 @@ namespace Durin
 
 		auto TryFitCascade(
 			const std::array<FVector3, 8>& ReceiverCorners,
+			uint32 Resolution,
 			const FDirectionalShadowFilter& Filter,
 			const FDirectionalLightShadowBiasSettings& BiasSettings,
 			const FVector3& Right,
@@ -327,14 +329,14 @@ namespace Durin
 				|| Maximum.z - Minimum.z <= MatrixEpsilon)
 				return false;
 			const double InnerResolution = static_cast<double>(
-				DirectionalShadowResolution - 2 * Filter.GuardTexels);
-			double HalfX = RawWidth * 0.5 * DirectionalShadowResolution
+				Resolution - 2 * Filter.GuardTexels);
+			double HalfX = RawWidth * 0.5 * Resolution
 				/ InnerResolution;
-			double HalfY = RawHeight * 0.5 * DirectionalShadowResolution
+			double HalfY = RawHeight * 0.5 * Resolution
 				/ InnerResolution;
 			Candidate.TexelWorldSize = {
-				2.0 * HalfX / DirectionalShadowResolution,
-				2.0 * HalfY / DirectionalShadowResolution};
+				2.0 * HalfX / Resolution,
+				2.0 * HalfY / Resolution};
 			Candidate.Bias = CalculateDirectionalShadowBias(
 				Candidate.TexelWorldSize, 1.0, BiasSettings);
 			double CenterX = (Minimum.x + Maximum.x) * 0.5;
@@ -362,8 +364,8 @@ namespace Durin
 			Candidate.CasterView.ProjectionMatrix = Candidate.LightProjectionMatrix;
 			Candidate.CasterView.ViewProjectionMatrix =
 				Candidate.LightViewProjectionMatrix;
-			Candidate.CasterView.ViewportWidth = DirectionalShadowResolution;
-			Candidate.CasterView.ViewportHeight = DirectionalShadowResolution;
+			Candidate.CasterView.ViewportWidth = Resolution;
+			Candidate.CasterView.ViewportHeight = Resolution;
 			Candidate.CasterView.DepthConvention = ESceneDepthConvention::ForwardZ;
 			Candidate.CasterView.Settings.Mode.RasterMode = ERasterMode::Solid;
 			Candidate.bEnabled = true;
@@ -379,6 +381,13 @@ namespace Durin
 		FPreparedDirectionalShadowView& OutShadow) -> bool
 	{
 		FPreparedDirectionalShadowView Candidate;
+		using FSettings = FSceneViewDirectionalShadowSettings;
+		const auto& Settings = View.Settings.DirectionalShadow;
+		Candidate.Resolution = Settings.Resolution == 0 ? FSettings::DefaultResolution
+			: std::clamp(Settings.Resolution, FSettings::MinimumResolution, FSettings::MaximumResolution);
+		const double MaxDistance = !std::isfinite(Settings.MaxDistance) || Settings.MaxDistance <= 0.0
+			? FSettings::DefaultMaxDistance
+			: std::clamp(Settings.MaxDistance, FSettings::MinimumMaxDistance, FSettings::MaximumMaxDistance);
 		FReceiverFrustum ReceiverFrustum;
 		const EDirectionalShadowCandidate RequestedCandidate =
 			View.Settings.DirectionalShadow.Candidate
@@ -392,9 +401,9 @@ namespace Durin
 		std::array<FVector3, 8> LegacyCorners;
 		if (RequestedCandidate == EDirectionalShadowCandidate::ThreeCascades)
 		{
-			if (!TryBuildReceiverFrustum(View, ReceiverFrustum)) return false;
+			if (!TryBuildReceiverFrustum(View, MaxDistance, ReceiverFrustum)) return false;
 		}
-		else if (!TryBuildLegacyReceiverCorners(View, LegacyCorners)) return false;
+		else if (!TryBuildLegacyReceiverCorners(View, MaxDistance, LegacyCorners)) return false;
 
 		Candidate.LightId = LightId;
 		Candidate.Candidate = RequestedCandidate;
@@ -427,7 +436,7 @@ namespace Durin
 			? ReceiverFrustum.NearDepth : 0.0;
 		Candidate.SplitDepths[Candidate.CascadeCount] = RequestedCandidate
 			== EDirectionalShadowCandidate::ThreeCascades
-			? ReceiverFrustum.FarDepth : DirectionalShadowDistance;
+			? ReceiverFrustum.FarDepth : MaxDistance;
 		for (uint32 Boundary = 1; Boundary < Candidate.CascadeCount; ++Boundary)
 		{
 			const double P = static_cast<double>(Boundary)
@@ -463,7 +472,7 @@ namespace Durin
 			const double TransitionStart = CascadeIndex == 0 ? NearDepth
 				: NearDepth - DirectionalShadowTransitionFraction
 					* (FarDepth - NearDepth);
-			if (!TryFitCascade(SliceCorners, Filter, Light.ShadowBias, Right, Up, Forward,
+			if (!TryFitCascade(SliceCorners, Candidate.Resolution, Filter, Light.ShadowBias, Right, Up, Forward,
 					CascadeIndex, NearDepth, FarDepth, TransitionStart,
 					Candidate.Cascades[CascadeIndex])) return false;
 			Candidate.Cascades[CascadeIndex].CasterView.MaterialTimeSeconds = View.MaterialTimeSeconds;

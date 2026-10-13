@@ -4,7 +4,7 @@ Summary: Defines the selected three-cascade directional-light shadow path, deter
 
 Modules: RenderCore, Renderer, Engine, VulkanRHI
 
-Last reviewed: 2026-10-05
+Last reviewed: 2026-10-13
 
 ## Ownership and selection
 
@@ -15,11 +15,17 @@ component, proxy, SceneInfo, and prepared-light path copy this value; render
 code never reads a component. Missing, invalid, disabled, or failed shadow
 state leaves the existing directional light fully unshadowed.
 
-The selected representation is one reusable three-layer 2048x2048 D32
+The selected representation is one reusable three-layer square D32
 `Texture2DArray`, one sampled array view, three exact single-layer 2D depth
 views, and one linear clamp-to-border opaque-white `LessOrEqual` comparison
 sampler. Creation publishes only a complete target/view/sampler aggregate.
-Logical and measured RTX 3090 backend storage are both 50,331,648 bytes. Each
+`FSceneViewSettings.DirectionalShadow.Resolution` sets the common layer size,
+defaulting to 2048. Zero restores that default; other values clamp to 256–4096.
+Changing the resolved size replaces the complete resource aggregate through
+ordinary RHI retirement, without a device wait. Fitting, texel snapping, caster
+LOD, raster viewport, forward filter metadata, and valid-region guards use the
+same resolved size. Logical storage is `3 * Resolution * Resolution * 4` bytes;
+the default is 50,331,648 bytes, matching measured RTX 3090 backend storage. Each
 enabled view regenerates all of its prepared layers before Scene Color; target
 dimensions do not follow viewport resize. `SingleMap` remains a bounded
 per-view comparison candidate and uses layer zero of the same complete array.
@@ -27,7 +33,10 @@ per-view comparison candidate and uses layer zero of the same complete array.
 ## Fitting and caster preparation
 
 The fitted `FSceneView` supplies eight zero-to-one Vulkan clip corners. Receiver
-depth is limited to the nearer camera far extent or 256 world units. Perspective
+depth is limited to the nearer camera far extent or the view's
+`DirectionalShadow.MaxDistance`, defaulting to 256 world units. Non-finite or
+non-positive values restore the default; finite positive values clamp to
+1–4096 world units. Perspective
 views use three practical split intervals with lambda 0.65; orthographic views
 use three uniform intervals. Invalid, non-finite, inverted, or zero-width
 intervals disable the shadow for that view. The
@@ -48,7 +57,7 @@ and stores the result in a bounded membership mask. Cascade-local reserved
 family reference lists are materialized from that table without another scene
 walk. Boundary contact and invalid finite bounds are included conservatively
 and counted per cascade. Static/Spline LOD selection is evaluated against
-the 2048 shadow view.
+the resolved shadow-view resolution.
 The camera's prepared visibility and LOD values are not mutated.
 
 ## Pass and material contract

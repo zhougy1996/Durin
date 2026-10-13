@@ -132,6 +132,17 @@ namespace Durin
 
 	struct FSceneViewDirectionalShadowSettings
 	{
+		static constexpr uint32 DefaultResolution = 2048;
+		static constexpr uint32 MinimumResolution = 256;
+		static constexpr uint32 MaximumResolution = 4096;
+		static constexpr double DefaultMaxDistance = 256.0;
+		static constexpr double MinimumMaxDistance = 1.0;
+		static constexpr double MaximumMaxDistance = 4096.0;
+		// Square depth-map size shared by all three cascades. Zero restores the default.
+		uint32 Resolution = DefaultResolution;
+		// Receiver coverage in world units, capped by camera far depth. Invalid
+		// values restore the default; finite positive values clamp to the limits.
+		double MaxDistance = DefaultMaxDistance;
 		EDirectionalShadowDiagnosticMode DiagnosticMode =
 			EDirectionalShadowDiagnosticMode::Lit;
 		EDirectionalShadowFilterQuality FilterQuality =

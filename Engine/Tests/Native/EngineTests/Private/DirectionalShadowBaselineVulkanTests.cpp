@@ -159,6 +159,8 @@ namespace
 			Durin::EDirectionalShadowCandidate::SingleMap;
 		bool bPerspective = false;
 		const char* RecordingPolicy = "auto";
+		uint32 ShadowResolution = Durin::FSceneViewDirectionalShadowSettings::DefaultResolution;
+		double ShadowDistance = Durin::FSceneViewDirectionalShadowSettings::DefaultMaxDistance;
 	};
 
 	// Workers receive the policy selected before dispatch, never the environment.
@@ -183,6 +185,7 @@ namespace
 	};
 
 	Durin::FViewRenderTelemetry GLastTelemetry;
+	uint32 GExpectedShadowResolution = Durin::FSceneViewDirectionalShadowSettings::DefaultResolution;
 	std::array<Durin::FByteBuffer, Durin::DirectionalShadowCascadeCount>* GDepthLayerCapture = nullptr;
 	Durin::FRDGCapture GLastSceneRenderGraphCapture;
 	bool GReceivedSceneRenderGraphCapture = false;
@@ -921,6 +924,18 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 		Fixtures.push_back(std::move(Fixture));
 	}
 	std::vector<Durin::FByteBuffer> Captures;
+	// Reuse the same renderer while shrinking, changing only distance, and
+	// restoring the target size to exercise runtime resource replacement.
+	for (const auto [Resolution, Distance] : std::array{
+		std::pair{1024u, 128.0}, std::pair{1024u, 64.0},
+		std::pair{512u, 64.0}, std::pair{2048u, 256.0}})
+	{
+		auto Fixture = CascadeFixture;
+		Fixture.Name = std::format("cascades_config_{}_{}", Resolution, Distance);
+		Fixture.ShadowResolution = Resolution;
+		Fixture.ShadowDistance = Distance;
+		Fixtures.push_back(std::move(Fixture));
+	}
 	std::vector<std::array<Durin::FByteBuffer, Durin::DirectionalShadowCascadeCount>> DepthCaptures;
 	std::vector<FCaptureStatistics> Statistics;
 	Captures.reserve(Fixtures.size());
@@ -949,8 +964,12 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 		auto Pixels = std::make_shared<Durin::FByteBuffer>();
 		std::array<Durin::FByteBuffer, Durin::DirectionalShadowCascadeCount> DepthLayers;
 		GDepthLayerCapture = std::string_view(Fixture.RecordingPolicy) == "auto" ? nullptr : &DepthLayers;
-		if (GDepthLayerCapture)
-			Durin::SetShadowDepthCaptureSink(+[](Durin::FRHICommandListImmediate& Commands, Durin::FRHITexture* Depth, uint32 Count) {
+		GExpectedShadowResolution = Fixture.ShadowResolution;
+		Durin::SetShadowDepthCaptureSink(+[](Durin::FRHICommandListImmediate& Commands, Durin::FRHITexture* Depth, uint32 Count) {
+				ASSERT_EQ(Depth->GetSizeX(), GExpectedShadowResolution);
+				ASSERT_EQ(Depth->GetSizeY(), GExpectedShadowResolution);
+				ASSERT_EQ(Depth->GetArraySize(), Durin::DirectionalShadowCascadeCount);
+				if (!GDepthLayerCapture) return;
 				ASSERT_EQ(Count, Durin::DirectionalShadowCascadeCount);
 				for (uint32 Layer = 0; Layer < Count; ++Layer)
 					Durin::Tests::ReadGeometryTexture(Commands, Depth, (*GDepthLayerCapture)[Layer], true, Layer);
@@ -1004,6 +1023,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 				View.Settings.DirectionalShadow.FilterQuality =
 					Fixture.FilterQuality;
 				View.Settings.DirectionalShadow.Candidate = Fixture.Candidate;
+				View.Settings.DirectionalShadow.Resolution = Fixture.ShadowResolution;
+				View.Settings.DirectionalShadow.MaxDistance = Fixture.ShadowDistance;
 				// Contact-shadow supplement stays off for the shadow-map-only baseline.
 				View.Settings.DirectionalShadow.bEnableContactShadows = false;
 				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), Durin::ERenderViewResult::Success);
@@ -1067,7 +1088,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 				EXPECT_EQ(
 					GLastTelemetry.DirectionalShadow.ShadowTransitionComparisonOperations, 18u
 				);
-				EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowTargetLogicalBytes, Durin::DirectionalShadowLogicalBytes);
+				EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowTargetLogicalBytes,
+					static_cast<uint64>(Fixture.ShadowResolution) * Fixture.ShadowResolution
+					* sizeof(float) * Durin::DirectionalShadowCascadeCount);
 				EXPECT_GE(GLastTelemetry.DirectionalShadow.ShadowTargetBackendBytes, GLastTelemetry.DirectionalShadow.ShadowTargetLogicalBytes);
 				EXPECT_LE(GLastTelemetry.DirectionalShadow.ShadowTargetBackendBytes, 64ull * 1024 * 1024);
 				size_t CascadeAttempts = 0;

@@ -4,7 +4,7 @@ Summary: Define Level Editor render controls, the viewport statistics summary, a
 
 Modules: LevelEditor, Engine, RenderCore, Renderer
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-10-13
 
 ## Ownership
 
@@ -24,7 +24,10 @@ actions. Checkbox and radio controls do not close their popup hierarchy,
 allowing repeated A/B changes without reopening the menu.
 
 `Shadows > Directional Shadows` groups shadow controls. `Filter Quality`
-contains the PCF tier, while `Contact Shadows` contains an `Enabled` checkbox
+contains the PCF tier. `Resolution` selects a common 256, 512, 1024, 2048
+(default), or 4096 size for all three cascades; `Distance` edits maximum receiver
+coverage in world units (1–4096, default 256) and offers a default reset. These
+are per-view settings and apply on the next render. `Contact Shadows` contains an `Enabled` checkbox
 and a `Visibility Route` selector. `Auto` preserves compute-first production fallback,
 `Compute Only` suppresses fragment fallback, and `Fragment Only` bypasses
 compute. Its mutually exclusive `Debug Views > Contact Shadow Contribution`

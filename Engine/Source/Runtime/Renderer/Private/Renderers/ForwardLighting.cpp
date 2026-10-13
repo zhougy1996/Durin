@@ -216,14 +216,14 @@ namespace Durin
 					Cascade.Bias.RasterClamp,
 					Cascade.Bias.NormalizedRasterSeparation};
 				Packed.Filter = {
-					1.0f / static_cast<float>(DirectionalShadowResolution),
-					1.0f / static_cast<float>(DirectionalShadowResolution),
+					1.0f / static_cast<float>(Shadow->Resolution),
+					1.0f / static_cast<float>(Shadow->Resolution),
 					static_cast<float>(Cascade.Filter.Quality),
 					Cascade.Filter.FootprintRadiusTexels};
 				const float Guard = Shadow->Candidate
 					== EDirectionalShadowCandidate::ThreeCascades
 					? static_cast<float>(Cascade.Filter.GuardTexels)
-						/ static_cast<float>(DirectionalShadowResolution)
+						/ static_cast<float>(Shadow->Resolution)
 					: 0.0f;
 				Packed.ValidRegion = {Guard, Guard, 1.0f - Guard, 1.0f - Guard};
 			}
