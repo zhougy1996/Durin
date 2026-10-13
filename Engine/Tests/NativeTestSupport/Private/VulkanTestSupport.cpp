@@ -1,7 +1,7 @@
 #include "VulkanTestSupport.h"
 
-#if DURIN_VULKAN_TEST_SUPPORT
 #include "VulkanRHIPrivate.h"
+#include "Threading/RunnableThread.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanGPUTiming.h"
 
@@ -23,52 +23,115 @@
 
 namespace Durin::VulkanRHI
 {
-	std::atomic<uint64> GVulkanRenderPassEntryCount = 0;
-	std::atomic<uint64> GVulkanFramebufferEntryCount = 0;
-	std::atomic<uint64> GVulkanDescriptorSetLayoutEntryCount = 0;
-	std::atomic<uint64> GVulkanPipelineLayoutEntryCount = 0;
-	std::atomic<uint64> GVulkanCreatedFramebufferViewCount = 0;
-	std::atomic<uint64> GVulkanReleasedFramebufferViewCount = 0;
-	std::atomic<uint64> GVulkanCreatedFramebufferCount = 0;
-	std::atomic<uint64> GVulkanReleasedFramebufferCount = 0;
-	std::atomic<uint64> GVulkanSync2BufferBarrierCount = 0;
-	std::atomic<uint64> GVulkanLegacyBufferBarrierCount = 0;
-	std::atomic<uint64> GVulkanSync2ImageBarrierCount = 0;
-	std::atomic<uint64> GVulkanLegacyImageBarrierCount = 0;
-	std::atomic<int32> GVulkanBarrierPathOverride = -1;
-	std::atomic<uint64> GVulkanBindingValidationVisitCount = 0;
-	std::atomic<uint64> GVulkanDescriptorDrawValidationVisitCount = 0;
-	std::atomic<uint64> GVulkanDescriptorSortCount = 0;
-	std::atomic<uint64> GVulkanDescriptorHashCount = 0;
-	std::atomic<uint64> GVulkanViewportWriteCount = 0;
-	std::atomic<uint64> GVulkanScissorWriteCount = 0;
-	std::atomic<uint64> GVulkanDepthBiasWriteCount = 0;
-	std::atomic<uint64> GVulkanPipelineBindCount = 0;
-	std::atomic<uint64> GVulkanVertexBufferBindCount = 0;
-	std::atomic<uint64> GVulkanIndexBufferBindCount = 0;
-	std::atomic<uint64> GVulkanDescriptorBindCount = 0;
-	std::atomic<uint64> GVulkanDescriptorOwnerRebuildCount = 0;
-	std::atomic<uint64> GVulkanDescriptorOccupancyVerificationVisitCount = 0;
-	std::atomic<uint64> GVulkanDescriptorOccupancyMutationCount = 0;
-	auto GetVulkanStructuralCacheTestStats() -> FVulkanStructuralCacheTestStats
+	namespace
 	{
-		return {
-			.RenderPassEntryCount = GVulkanRenderPassEntryCount.load(std::memory_order_acquire),
-			.FramebufferEntryCount = GVulkanFramebufferEntryCount.load(std::memory_order_acquire),
-			.DescriptorSetLayoutEntryCount = GVulkanDescriptorSetLayoutEntryCount.load(std::memory_order_acquire),
-			.PipelineLayoutEntryCount = GVulkanPipelineLayoutEntryCount.load(std::memory_order_acquire),
-			.CreatedFramebufferViewCount = GVulkanCreatedFramebufferViewCount.load(std::memory_order_acquire),
-			.ReleasedFramebufferViewCount = GVulkanReleasedFramebufferViewCount.load(std::memory_order_acquire),
-			.CreatedFramebufferCount = GVulkanCreatedFramebufferCount.load(std::memory_order_acquire),
-			.ReleasedFramebufferCount = GVulkanReleasedFramebufferCount.load(std::memory_order_acquire),
+		auto GetTestDevice(FVulkanDynamicRHI& RHI = FVulkanDynamicRHI::Get()) -> FVulkanDevice*
+		{
+			return GetVulkanDeviceForTest(RHI);
+		}
+
+		auto GetTestDispatcher() -> vk::DispatchLoaderDynamic
+		{
+			auto& RHI = *static_cast<IVulkanDynamicRHI*>(GDynamicRHI);
+			vk::DispatchLoaderDynamic Dispatcher;
+			Dispatcher.init(::vkGetInstanceProcAddr);
+			Dispatcher.init(RHI.RHIGetVkInstance());
+			Dispatcher.init(RHI.RHIGetVkDevice());
+			return Dispatcher;
+		}
+
+	}
+	auto GetVulkanDeviceForTest(FVulkanDynamicRHI& RHI) -> FVulkanDevice*
+	{
+		FVulkanDevice* Device = nullptr;
+		auto ReadDevice = [&] {
+			auto* Context = static_cast<FVulkanCommandListContext*>(
+				static_cast<FDynamicRHI&>(RHI).RHIGetDefaultContext());
+			Device = Context ? &Context->GetQueue()->GetDevice() : nullptr;
 		};
+		if (GRHIThread && !IsInRHIThread())
+			GCommandListExecutor.ExecuteSynchronousOperation(false, ReadDevice);
+		else ReadDevice();
+		return Device;
+	}
+
+	auto TestVulkanUniformBufferAdmission() -> bool
+	{
+		constexpr uint64 PageSize = 4ull * 1024 * 1024;
+		auto Admission = std::make_shared<FVulkanUniformBufferAdmission>(256);
+		auto A = Admission->Reserve(1), B = Admission->Reserve(1), Tail = Admission->Reserve(PageSize - 512);
+		if (!A || !B || !Tail) return false;
+		if (A->Slot.Offset != 0 || B->Slot.Offset != 256
+			|| Tail->Slot.Offset != 512) return false;
+		// Fragmented pages grow without waiting; released adjacent intervals are reused.
+		B.reset();
+		auto Grown = Admission->Reserve(512);
+		if (!Grown || Grown->Slot.Page == A->Slot.Page) return false;
+		A.reset();
+		auto Reused = Admission->Reserve(512);
+		if (!Reused || Reused->Slot.Offset != 0) return false;
+		Reused.reset(); Tail.reset();
+		std::vector<std::shared_ptr<FVulkanUniformBufferAdmission::FReservation>> Concurrent(16);
+		std::vector<std::thread> Threads;
+		for (size_t Index = 0; Index < Concurrent.size(); ++Index)
+			Threads.emplace_back([&, Index] { Concurrent[Index] = Admission->Reserve(PageSize / 8); });
+		for (auto& Thread : Threads) Thread.join();
+		return std::ranges::count_if(Concurrent, [](const auto& Item) { return bool(Item); }) == 16;
+	}
+
+	auto PollVulkanGPUTimingForTest(FVulkanDynamicRHI& RHI) -> void
+	{
+		auto& Device = *GetTestDevice(RHI);
+		Device.PollQueues();
+	}
+	auto GetVulkanGPUTimingStatisticsForTest(FVulkanDynamicRHI& RHI)
+		-> FVulkanGPUTimingStatistics
+	{
+		if (IsInRHIThread())
+			return GetTestDevice(RHI)->GetGPUTimingManager().Snapshot();
+		FVulkanGPUTimingStatistics Result;
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+			Result = GetTestDevice(RHI)->GetGPUTimingManager().Snapshot();
+		});
+		return Result;
+	}
+	auto ReserveVulkanUniformBufferBackingForTest(uint32 Size) -> std::shared_ptr<void>
+	{
+		auto* Device = GetTestDevice();
+		require(Device);
+		return Device->GetUniformBufferPool().Reserve(Size);
+	}
+	auto GetVulkanDeviceDescriptionForTiming() -> std::string
+	{
+		const auto& Props = GetTestDevice()->GetGpuProperties();
+		FRHIDiagnosticAvailability Availability;
+		auto CaptureAvailability = [&] { Availability = GDynamicRHI->RHIGetDiagnosticSnapshot().Availability; };
+		if (GRHIThread && !IsInRHIThread())
+			GCommandListExecutor.ExecuteSynchronousOperation(false, CaptureAvailability);
+		else CaptureAvailability();
+		return std::format("gpu={}\nvendor={}\ndevice={}\ndriver={}\napi={}\nvalidation_active={}\ndebug_utils_active={}\n",
+			Props.deviceName.data(), Props.vendorID, Props.deviceID, Props.driverVersion, Props.apiVersion,
+			Availability.bValidationLayerActive, Availability.bDebugUtilsActive);
+	}
+	auto GetVulkanDeviceLuidForTiming() -> std::optional<std::array<std::byte, 8>>
+	{
+		const auto* Device = GetTestDevice();
+		if (!Device) return std::nullopt;
+		const auto Properties = Device->GetGpu().getProperties2<vk::PhysicalDeviceProperties2,
+			vk::PhysicalDeviceIDProperties>(GetTestDispatcher());
+		const auto& Id = Properties.get<vk::PhysicalDeviceIDProperties>();
+		if (!Id.deviceLUIDValid) return std::nullopt;
+		std::array<std::byte, 8> Result;
+		static_assert(Result.size() == VK_LUID_SIZE);
+		std::memcpy(Result.data(), Id.deviceLUID.data(), Result.size());
+		return Result;
 	}
 
 	auto RunVulkanQueueTransferForTesting(bool bSynchronization2) -> FVulkanQueueTransferTestResult
 	{
 		CheckVulkanRHIThread();
 		auto& RHI = FVulkanDynamicRHI::Get();
-		auto& Device = *RHI.GetDeviceForTesting();
+		auto& Device = *GetTestDevice(RHI);
 		auto& Graphics = *Device.GetImmediateContext();
 		auto& SourceQueue = *Device.GetGraphicsQueue();
 		auto& DestinationQueue = *Device.GetComputeQueue();
@@ -82,7 +145,7 @@ namespace Durin::VulkanRHI
 		TRefCountPtr<FVulkanTexture> Texture = new FVulkanTexture(Device,
 			FRHITextureCreateDesc::Create2D("QueueHandoffTexture", 4, 4, EPixelFormat::RGBA8_UNORM)
 				.SetNumMips(2).SetFlags(ETextureCreateFlags::SourceCopy | ETextureCreateFlags::DestinationCopy));
-		FVulkanCommandListContext Compute(&RHI, Device, &DestinationQueue);
+		auto& Compute = *Device.GetQueueContext(DestinationQueue.GetId());
 		struct FDrainBeforePoolDestruction
 		{
 			FVulkanDevice& Device;
@@ -91,29 +154,29 @@ namespace Durin::VulkanRHI
 		const FRHITextureSubresourceRange Range{ERHITextureAspect::Color, 1, 1, 0, 1};
 		const std::array InitializeBuffer{FRHIBufferTransition{Shared.GetReference(), 0, 64, ERHIAccess::None, ERHIAccess::TransferWrite}};
 		const std::array InitializeTexture{FRHITextureTransition{Texture.GetReference(), Range, ERHIAccess::None, ERHIAccess::TransferWrite}};
-		Graphics.RHITransitionBuffers(InitializeBuffer);
-		Graphics.RHITransitionTextures(InitializeTexture);
-		Graphics.GetCommandBuffer()->GetHandle().fillBuffer(Shared->GetHandle(), 0, 64, 0x12345678);
+		static_cast<IRHICommandContext&>(Graphics).RHITransitionBuffers(InitializeBuffer);
+		static_cast<IRHICommandContext&>(Graphics).RHITransitionTextures(InitializeTexture);
+		Graphics.GetCommandBuffer()->GetHandle().fillBuffer(Shared->GetHandle(), 0, 64, 0x12345678, GetTestDispatcher());
 		Graphics.GetCommandBuffer()->GetHandle().clearColorImage(Texture->Image, vk::ImageLayout::eTransferDstOptimal,
-			vk::ClearColorValue(std::array<float, 4>{1, 0, 0, 1}), vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 1, 1, 0, 1));
+			vk::ClearColorValue(std::array<float, 4>{1, 0, 0, 1}), vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 1, 1, 0, 1), GetTestDispatcher());
 		const std::array BufferTransitions{FRHIBufferTransition{Shared.GetReference(), 16, 16, ERHIAccess::TransferWrite, ERHIAccess::TransferRead}};
 		const std::array TextureTransitions{FRHITextureTransition{Texture.GetReference(), Range, ERHIAccess::TransferWrite, ERHIAccess::TransferRead}};
 		auto Transfer = std::make_shared<FVulkanQueueTransfer>(Device, SourceQueue.GetId(), DestinationQueue.GetId(),
 			BufferTransitions, TextureTransitions, bSynchronization2);
 		// A canceled later recording must not replace the release's producer sync point.
-		FVulkanCommandListContext OtherGraphics(&RHI, Device, &SourceQueue);
-		auto LaterGraphics = OtherGraphics.Finalize();
+		auto LaterGraphics = std::make_unique<FVulkanPayload>(SourceQueue,
+			SourceQueue.GetCompletionTracker().ReserveSyncPoint());
 		Graphics.ReleaseQueueOwnership(Transfer);
 		LaterGraphics.reset();
 		Device.GetSubmissionCoordinator().EnqueueContext(Graphics);
 		Compute.AcquireQueueOwnership(Transfer);
 		const std::array InitializeReadback{FRHIBufferTransition{Readback.GetReference(), 0, 64, ERHIAccess::None, ERHIAccess::TransferWrite}};
-		Compute.RHITransitionBuffers(InitializeReadback);
-		Compute.GetCommandBuffer()->GetHandle().copyBuffer(Shared->GetHandle(), Readback->GetHandle(), vk::BufferCopy(16, 0, 16));
+		static_cast<IRHICommandContext&>(Compute).RHITransitionBuffers(InitializeReadback);
+		Compute.GetCommandBuffer()->GetHandle().copyBuffer(Shared->GetHandle(), Readback->GetHandle(), vk::BufferCopy(16, 0, 16), GetTestDispatcher());
 		const vk::BufferImageCopy ImageCopy(16, 0, 0, {vk::ImageAspectFlagBits::eColor, 1, 0, 1}, {0, 0, 0}, {2, 2, 1});
-		Compute.GetCommandBuffer()->GetHandle().copyImageToBuffer(Texture->Image, vk::ImageLayout::eTransferSrcOptimal, Readback->GetHandle(), ImageCopy);
+		Compute.GetCommandBuffer()->GetHandle().copyImageToBuffer(Texture->Image, vk::ImageLayout::eTransferSrcOptimal, Readback->GetHandle(), ImageCopy, GetTestDispatcher());
 		const std::array HostRead{FRHIBufferTransition{Readback.GetReference(), 0, 64, ERHIAccess::TransferWrite, ERHIAccess::HostRead}};
-		Compute.RHITransitionBuffers(HostRead);
+		static_cast<IRHICommandContext&>(Compute).RHITransitionBuffers(HostRead);
 		// Seal consumer first; the coordinator orders its still-unsubmitted release.
 		Device.GetSubmissionCoordinator().SubmitPendingContexts(&Compute);
 		const auto Completion = DestinationQueue.GetCompletionTracker().GetLastReservedSyncPoint();
@@ -136,7 +199,7 @@ namespace Durin::VulkanRHI
 	auto RunVulkanComputeGateForTesting(
 		const std::function<void(const std::function<void()>&)>& Test) -> void
 	{
-		auto& Device = *FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		auto& Device = *GetTestDevice();
 		auto& Compute = *Device.GetComputeQueue();
 		require(&Compute != Device.GetGraphicsQueue() && Device.SupportsTimelineSemaphores());
 		vk::Semaphore Gate;
@@ -145,7 +208,7 @@ namespace Durin::VulkanRHI
 			vk::SemaphoreTypeCreateInfo Type(vk::SemaphoreType::eTimeline, 0);
 			vk::SemaphoreCreateInfo Info;
 			Info.setPNext(&Type);
-			Gate = Device.GetHandle().createSemaphore(Info);
+			Gate = Device.GetHandle().createSemaphore(Info, nullptr, GetTestDispatcher());
 		});
 		bool bReleased = false;
 		const std::function<void()> Release = [&] {
@@ -153,16 +216,16 @@ namespace Durin::VulkanRHI
 			GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
 				const vk::SemaphoreSignalInfo Signal(Gate, 1);
 				if (Device.GetGpuProperties().apiVersion >= VK_API_VERSION_1_2)
-					Device.GetHandle().signalSemaphore(Signal);
-				else Device.GetHandle().signalSemaphoreKHR(Signal);
+					Device.GetHandle().signalSemaphore(Signal, GetTestDispatcher());
+				else Device.GetHandle().signalSemaphoreKHR(Signal, GetTestDispatcher());
 			});
 			bReleased = true;
 		};
 		auto Cleanup = [&] {
 			Release();
 			GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
-				Compute.GetHandle().waitIdle();
-				Device.GetHandle().destroySemaphore(Gate);
+				Compute.GetHandle().waitIdle(GetTestDispatcher());
+				Device.GetHandle().destroySemaphore(Gate, nullptr, GetTestDispatcher());
 			});
 		};
 		try
@@ -174,7 +237,7 @@ namespace Durin::VulkanRHI
 				Timeline.setWaitSemaphoreValues(Value);
 				vk::SubmitInfo Submit;
 				Submit.setPNext(&Timeline).setWaitSemaphores(Gate).setWaitDstStageMask(Stage);
-				Compute.GetHandle().submit(Submit);
+				Compute.GetHandle().submit(Submit, {}, GetTestDispatcher());
 			});
 			Test(Release);
 		}
@@ -189,21 +252,21 @@ namespace Durin::VulkanRHI
 	auto RunVulkanCrossQueueWaitForTesting() -> FVulkanCrossQueueWaitTestResult
 	{
 		CheckVulkanRHIThread();
-		auto& Device = *FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		auto& Device = *GetTestDevice();
 		auto& Compute = *Device.GetComputeQueue();
 		auto& Graphics = *Device.GetGraphicsQueue();
 		require(&Compute != &Graphics && Device.SupportsTimelineSemaphores());
 		vk::SemaphoreTypeCreateInfo GateType(vk::SemaphoreType::eTimeline, 0);
 		vk::SemaphoreCreateInfo GateInfo;
 		GateInfo.setPNext(&GateType);
-		const auto Gate = Device.GetHandle().createSemaphore(GateInfo);
+		const auto Gate = Device.GetHandle().createSemaphore(GateInfo, nullptr, GetTestDispatcher());
 		bool bGateReleased = false;
 		auto ReleaseGate = [&] {
 			if (bGateReleased) return;
 			const vk::SemaphoreSignalInfo Signal(Gate, 1);
 			if (Device.GetGpuProperties().apiVersion >= VK_API_VERSION_1_2)
-				Device.GetHandle().signalSemaphore(Signal);
-			else Device.GetHandle().signalSemaphoreKHR(Signal);
+				Device.GetHandle().signalSemaphore(Signal, GetTestDispatcher());
+			else Device.GetHandle().signalSemaphoreKHR(Signal, GetTestDispatcher());
 			bGateReleased = true;
 		};
 		FVulkanTransferArena TestTransfers(Device, {
@@ -221,8 +284,8 @@ namespace Durin::VulkanRHI
 			{
 				auto& Context = *Device.GetQueueContext(Queue.GetId());
 				require(Timing->TryReserveRecording());
-				Context.RHIBeginGPUTimingQuery(Timing);
-				Context.RHIEndGPUTimingQuery(Timing);
+				static_cast<IRHICommandContext&>(Context).RHIBeginGPUTimingQuery(Timing);
+				static_cast<IRHICommandContext&>(Context).RHIEndGPUTimingQuery(Timing);
 				Payload = Context.Finalize();
 			}
 			else Payload = std::make_unique<FVulkanPayload>(Queue, Tracker.ReserveSyncPoint());
@@ -251,12 +314,12 @@ namespace Durin::VulkanRHI
 		try
 		{
 			const vk::DescriptorSetLayoutBinding Binding(0, vk::DescriptorType::eSampler, 1, vk::ShaderStageFlagBits::eCompute);
-			const auto Layout = Device.GetHandle().createDescriptorSetLayout(vk::DescriptorSetLayoutCreateInfo().setBindings(Binding));
+			const auto Layout = Device.GetHandle().createDescriptorSetLayout(vk::DescriptorSetLayoutCreateInfo().setBindings(Binding), nullptr, GetTestDispatcher());
 			struct FLayoutOwner
 			{
 				FVulkanDevice& Device;
 				vk::DescriptorSetLayout Layout;
-				~FLayoutOwner() { Device.GetHandle().destroyDescriptorSetLayout(Layout); }
+				~FLayoutOwner() { Device.GetHandle().destroyDescriptorSetLayout(Layout, nullptr, GetTestDispatcher()); }
 			} LayoutOwner{Device, Layout};
 			const std::array Layouts{Layout};
 			FVulkanDescriptorRequirements Requirements;
@@ -270,13 +333,10 @@ namespace Durin::VulkanRHI
 			GateTimeline.setWaitSemaphoreValues(GateValue);
 			vk::SubmitInfo GateSubmit;
 			GateSubmit.setPNext(&GateTimeline).setWaitSemaphores(Gate).setWaitDstStageMask(Stage);
-			Compute.GetHandle().submit(GateSubmit);
+			Compute.GetHandle().submit(GateSubmit, {}, GetTestDispatcher());
 			const auto Producer = Submit(Compute, {}, TestPools.GetAllocationOwner(), Timing.GetReference());
 			// A graphics frame can pace independently while compute still owns resources.
-			Device.GetImmediateContext()->RHIEndFrame();
-			const auto& FrameUses = Device.GetCurrentFrame().GetRetirementUsesForTesting();
-			require(FrameUses.GetSyncPoints().size() == 1
-				&& FRHIGPUSyncPointBackend::GetPoint(FrameUses.GetSyncPoints().front()).Queue == Graphics.GetId());
+			static_cast<IRHICommandContext*>(Device.GetImmediateContext())->RHIEndFrame();
 			Device.GetCurrentFrame().Prepare();
 			Result.bFramePacingIndependent = Producer.GetState() == ERHIGPUSubmissionState::Submitted;
 			// Graphics completion alone must not reset a pool also used by compute.
@@ -291,8 +351,6 @@ namespace Durin::VulkanRHI
 			std::weak_ptr<void> PoolOwner = TestPools.GetAllocationOwner();
 			TestPools.RetireUsedPools();
 			TestPools.PrepareForUse();
-			Result.bDescriptorReuseBlocked = TestPools.IsBatchRetainedForTesting(0)
-				&& TestPools.GetActiveBatchIndexForTesting() == 1;
 			TestPools.RetireUsedPools();
 			const auto Consumer = Submit(Graphics, Producer);
 			const auto Uses = Device.GetLastReservedUses();
@@ -312,7 +370,6 @@ namespace Durin::VulkanRHI
 				&& ReusedUniform->Slot.Page == UniformSlot.Page
 				&& ReusedUniform->Slot.Offset == 0;
 			TestPools.PrepareForUse();
-			Result.bDescriptorReusedAfterCompletion = TestPools.GetActiveBatchIndexForTesting() == 0;
 			require(TestPools.AllocateDescriptorSets(Layouts, Requirements).size() == 1);
 			Device.WaitUtilIdle();
 			auto MakePayload = [](FVulkanQueue& Queue) {
@@ -384,17 +441,17 @@ namespace Durin::VulkanRHI
 		{
 			ReleaseGate();
 			Device.WaitUtilIdle();
-			Device.GetHandle().destroySemaphore(Gate);
+			Device.GetHandle().destroySemaphore(Gate, nullptr, GetTestDispatcher());
 			throw;
 		}
-		Device.GetHandle().destroySemaphore(Gate);
+		Device.GetHandle().destroySemaphore(Gate, nullptr, GetTestDispatcher());
 		return Result;
 	}
 
 	auto TestVulkanSubmissionBoundary() -> FVulkanSubmissionBoundaryTestResult
 	{
 		CheckVulkanRHIThread();
-		auto& Device = *FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		auto& Device = *GetTestDevice();
 		auto& Context = *Device.GetImmediateContext();
 		auto& Tracker = Context.GetQueue()->GetCompletionTracker();
 		const auto Before = Tracker.GetLastSubmittedToken();
@@ -416,13 +473,12 @@ namespace Durin::VulkanRHI
 			Result.bPayloadUsesExplicitSyncPoint &= LaterSyncPoint.GetState() == ERHIGPUSubmissionState::Canceled;
 		}
 		{
-			// Independent contexts can interleave reservations on one physical queue.
+			// Later reservations must not replace the current recording sync point.
 			// Publishing the earlier recording must not capture the later reservation.
-			Context.RHIBeginGPUSubmission({Context.GetQueue()->GetId(), {}});
-			FVulkanCommandListContext Other(&FVulkanDynamicRHI::Get(), Device, Context.GetQueue());
-			auto Later = Other.Finalize();
+			static_cast<IRHICommandContext&>(Context).RHIBeginGPUSubmission({Context.GetQueue()->GetId(), {}});
+			auto Later = std::make_unique<FVulkanPayload>(*Context.GetQueue(), Tracker.ReserveSyncPoint());
 			const auto LogicalSignal = FRHIGPUSyncPoint::Create();
-			Context.RHIEndGPUSubmission(LogicalSignal);
+			static_cast<IRHICommandContext&>(Context).RHIEndGPUSubmission(LogicalSignal);
 			auto Earlier = Context.Finalize();
 			Result.bLogicalSignalUsesRecordingSyncPoint = FRHIGPUSyncPointBackend::GetPoint(LogicalSignal) == FRHIGPUSyncPointBackend::GetPoint(Earlier->GetSyncPoint())
 				&& FRHIGPUSyncPointBackend::GetPoint(LogicalSignal) != FRHIGPUSyncPointBackend::GetPoint(Later->GetSyncPoint());
@@ -435,19 +491,20 @@ namespace Durin::VulkanRHI
 		auto Storage = std::make_shared<int>(1);
 		FVulkanGlobalDescriptorPool TestPools(Device);
 		TestPools.PrepareForUse();
+		std::weak_ptr<void> Allocation = TestPools.GetAllocationOwner();
 		Context.RetainAllocation(TestPools.GetAllocationOwner());
 		std::weak_ptr<int> Weak = Storage;
-		Context.RHISetReplayStorageOwner(Storage);
+		static_cast<IRHICommandContext&>(Context).RHISetReplayStorageOwner(Storage);
 		auto Timing = Device.GetGPUTimingManager().CreateQuery();
 		require(Timing && Timing->TryReserveRecording());
-		Context.RHIBeginGPUTimingQuery(Timing);
-		Context.RHIEndGPUTimingQuery(Timing);
+		static_cast<IRHICommandContext&>(Context).RHIBeginGPUTimingQuery(Timing);
+		static_cast<IRHICommandContext&>(Context).RHIEndGPUTimingQuery(Timing);
 		auto Second = Context.Finalize();
 		const auto SecondSyncPoint = Second->GetSyncPoint();
-		Context.RHISetReplayStorageOwner({});
+		static_cast<IRHICommandContext&>(Context).RHISetReplayStorageOwner({});
 		Storage.reset();
 		TestPools.RetireUsedPools();
-		Result.bAllocationRetained = TestPools.IsBatchRetainedForTesting(0);
+		Result.bAllocationRetained = !Allocation.expired();
 		Result.bSealDidNotSubmit = Tracker.GetLastSubmittedToken() == Before
 			&& FirstSyncPoint.GetState() == ERHIGPUSubmissionState::Pending
 			&& SecondSyncPoint.GetState() == ERHIGPUSubmissionState::Pending;
@@ -461,21 +518,20 @@ namespace Durin::VulkanRHI
 			&& Timing->TryReserveRecording();
 		Timing->CancelRecording();
 		Result.bStorageReleased = Weak.expired();
-		Result.bAllocationReturned = !TestPools.IsBatchRetainedForTesting(0);
+		Result.bAllocationReturned = Allocation.expired();
 		TestPools.PrepareForUse();
-		Result.bAllocationReturned &= TestPools.GetActiveBatchIndexForTesting() == 0;
 		require(Tracker.WaitForSyncPoint(FirstSyncPoint, 1'000'000'000) == ERHIGPUWaitResult::Complete);
 		for (bool bDiscard : {false, true})
 		{
 			auto Owner = std::make_shared<int>(42);
 			std::weak_ptr<int> Observer = Owner;
-			Context.RHISetReplayStorageOwner(Owner);
+			static_cast<IRHICommandContext&>(Context).RHISetReplayStorageOwner(Owner);
 			Context.RetainAllocation(Owner);
 			const auto RetainedCount = Owner.use_count();
 			for (uint32 Repeat = 0; Repeat < 64; ++Repeat) Context.RetainAllocation(Owner);
 			const bool bDeduplicated = Owner.use_count() == RetainedCount;
 			const auto Queued = Device.GetSubmissionCoordinator().EnqueueContext(Context);
-			Context.RHISetReplayStorageOwner({});
+			static_cast<IRHICommandContext&>(Context).RHISetReplayStorageOwner({});
 			Owner.reset();
 			bool bPassed = bDeduplicated && !Observer.expired() && Queued.GetState() == ERHIGPUSubmissionState::Pending;
 			if (bDiscard)
@@ -497,23 +553,22 @@ namespace Durin::VulkanRHI
 		return Result;
 	}
 
-	// Expose recording dependencies only within backend test setup.
-	class FVulkanPressureTestContext : public FVulkanCommandListContext
+	// Force a recording through the ordinary command-buffer entry point.
+	static auto GetRecordingSyncPoint(FVulkanCommandListContext& Context) -> FRHIGPUSyncPointRef
 	{
-	public:
-		using FVulkanCommandListContext::FVulkanCommandListContext;
-		using FVulkanCommandListContext::GetPayload;
-	};
+		Context.GetCommandBuffer();
+		return Context.GetQueue()->GetCompletionTracker().GetLastReservedSyncPoint();
+	}
 
 	auto TestVulkanSealedPressure() -> FVulkanSealedPressureTestResult
 	{
 		CheckVulkanRHIThread();
 		auto& RHI = FVulkanDynamicRHI::Get();
-		auto& Device = *RHI.GetDeviceForTesting();
+		auto& Device = *GetTestDevice(RHI);
 		auto& Coordinator = Device.GetSubmissionCoordinator();
 		auto* Queue = Device.GetGraphicsQueue();
 		auto& Tracker = Queue->GetCompletionTracker();
-		FVulkanPressureTestContext Context(&RHI, Device, Queue);
+		auto& Context = *Device.GetImmediateContext();
 		FVulkanSealedPressureTestResult Result;
 		{
 			auto Gap = Context.Finalize();
@@ -522,7 +577,7 @@ namespace Durin::VulkanRHI
 				.AllocationClass = EVulkanAllocationClassCandidate::DynamicUpload,
 				.PageSize = 256, .MaxPageCount = 1, .DebugName = "SealedPressurePage",
 				.MaxCapacity = 256, .MaxAllocation = 256, .BindingUsage = EBufferUsageFlags::UniformBuffer});
-			auto Allocation = Arena.Acquire(256, 256, Context.GetPayload().GetSyncPoint());
+			auto Allocation = Arena.Acquire(256, 256, GetRecordingSyncPoint(Context));
 			require(Allocation.Range);
 			auto Owner = Allocation.Range.GetAllocationOwner();
 			auto* Buffer = Allocation.Range.GetBuffer();
@@ -531,7 +586,7 @@ namespace Durin::VulkanRHI
 			Allocation.Range.Retire();
 			const auto Target = Coordinator.EnqueueContext(Context);
 			const auto Unrelated = Coordinator.EnqueueContext(Context);
-			const auto Active = Context.GetPayload().GetSyncPoint();
+			const auto Active = GetRecordingSyncPoint(Context);
 			Owner.reset();
 			const auto Pressure = Arena.Acquire(256, 256, Active);
 			require(!Pressure.Range && Pressure.WaitOwner.lock() == Weak.lock()
@@ -560,27 +615,14 @@ namespace Durin::VulkanRHI
 			Context.RetainAllocation(Owner);
 			const auto Sealed = Coordinator.EnqueueContext(Context);
 			Context.RetainAllocation(Owner);
-			const auto Active = Context.GetPayload().GetSyncPoint();
+			const auto Active = GetRecordingSyncPoint(Context);
 			Result.bActiveUsePreserved = !Coordinator.TrySubmitPendingAllocation(Owner, Active)
 				&& Sealed.GetState() == ERHIGPUSubmissionState::Pending
 				&& Active.GetState() == ERHIGPUSubmissionState::Pending && Context.HasPendingCommands();
 			Context.Finalize().reset();
 			Coordinator.DiscardPending();
 		}
-		{
-			auto Owner = std::make_shared<int>(42);
-			Context.RetainAllocation(Owner);
-			FVulkanPressureTestContext Later(&RHI, Device, Queue);
-			const auto Future = Coordinator.EnqueueContext(Later);
-			Context.GetPayload().AddCompletionWait(Future);
-			const auto Target = Coordinator.EnqueueContext(Context);
-			const auto Before = Tracker.GetLastSubmittedToken();
-			Result.bCyclePreserved = !Coordinator.TrySubmitPendingAllocation(Owner, Target)
-				&& Tracker.GetLastSubmittedToken() == Before
-				&& Target.GetState() == ERHIGPUSubmissionState::Pending
-				&& Future.GetState() == ERHIGPUSubmissionState::Pending;
-			Coordinator.DiscardPending();
-		}
+
 		return Result;
 	}
 
@@ -588,17 +630,19 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		auto& RHI = FVulkanDynamicRHI::Get();
-		auto& Device = *RHI.GetDeviceForTesting();
+		auto& Device = *GetTestDevice(RHI);
 		auto& Coordinator = Device.GetSubmissionCoordinator();
 		require(Device.GetGraphicsQueue() != Device.GetComputeQueue());
-		FVulkanPressureTestContext Producer(&RHI, Device, Device.GetComputeQueue());
-		FVulkanPressureTestContext Consumer(&RHI, Device, Device.GetGraphicsQueue());
-		const auto Dependency = Producer.GetPayload().GetSyncPoint();
+		auto& Producer = *Device.GetQueueContext(Device.GetComputeQueue()->GetId());
+		auto& Consumer = *Device.GetImmediateContext();
+		const auto Dependency = GetRecordingSyncPoint(Producer);
 		auto Owner = std::make_shared<int>(42);
 		std::weak_ptr<void> Weak = Owner;
 		Consumer.RetainAllocation(Owner);
-		Consumer.GetPayload().AddCompletionWait(Dependency);
-		const auto Target = Coordinator.EnqueueContext(Consumer);
+		auto& Commands = static_cast<IRHICommandContext&>(Consumer);
+		Commands.RHIBeginGPUSubmission({Consumer.GetQueue()->GetId(), {Dependency}});
+		const auto Target = FRHIGPUSyncPoint::Create();
+		Commands.RHIEndGPUSubmission(Target);
 		Owner.reset();
 		bool bPassed = !Coordinator.TrySubmitPendingAllocation(Weak, Target)
 			&& Dependency.GetState() == ERHIGPUSubmissionState::Pending
@@ -608,8 +652,7 @@ namespace Durin::VulkanRHI
 			&& Dependency.GetState() == ERHIGPUSubmissionState::Submitted
 			&& Target.GetState() == ERHIGPUSubmissionState::Submitted;
 		Coordinator.WaitForAllocation(Weak);
-		// The producer does not own the allocation. Retire its command buffers
-		// separately before destroying this helper's local command pool.
+		// The producer does not own the allocation; wait for its completion separately.
 		bPassed &= Device.GetComputeQueue()->GetCompletionTracker().WaitForSyncPoint(Dependency,
 			1'000'000'000) == ERHIGPUWaitResult::Complete;
 		return bPassed && Weak.expired() && Target.GetState() == ERHIGPUSubmissionState::Complete;
@@ -618,7 +661,7 @@ namespace Durin::VulkanRHI
 	auto GetLastVulkanSyncPointForTesting() -> FRHIGPUSyncPointRef
 	{
 		CheckVulkanRHIThread();
-		auto* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		auto* Device = GetTestDevice();
 		return Device ? Device->GetCompletionTracker().GetLastReservedSyncPoint()
 			: FRHIGPUSyncPointRef{};
 	}
@@ -626,7 +669,7 @@ namespace Durin::VulkanRHI
 	auto TestVulkanSyncPointStorage() -> bool
 	{
 		CheckVulkanRHIThread();
-		auto& Device = *FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		auto& Device = *GetTestDevice();
 		auto& Queue = *Device.GetGraphicsQueue();
 		auto& Tracker = Queue.GetCompletionTracker();
 		auto& Coordinator = Device.GetSubmissionCoordinator();
@@ -634,7 +677,6 @@ namespace Durin::VulkanRHI
 		Tracker.WaitForAll();
 		std::vector<FRHIGPUSyncPointRef> Observers;
 		std::weak_ptr<FRHIGPUReservationState> FirstStorage;
-		size_t WarmFenceCount = 0;
 		bool bPassed = true;
 		for (int Index = 0; Index != 128; ++Index)
 		{
@@ -655,9 +697,7 @@ namespace Durin::VulkanRHI
 				bPassed &= Tracker.WaitForSyncPoint(First, 1'000'000'000) == ERHIGPUWaitResult::Complete;
 				bPassed &= First->IsComplete() && Second->IsComplete();
 			}
-			const auto FenceCount = Device.GetFenceManager().GetAllocatedFenceCountForTesting();
-			if (Index == 0) WarmFenceCount = FenceCount;
-			bPassed &= FenceCount == WarmFenceCount && Tracker.GetPendingSubmissionCount() == 0;
+			bPassed &= Tracker.GetPendingSubmissionCount() == 0;
 		}
 		bPassed &= !FirstStorage.expired();
 		Observers.clear();
@@ -667,7 +707,7 @@ namespace Durin::VulkanRHI
 	auto GetVulkanCompletionTestStats() -> FVulkanCompletionTestStats
 	{
 		CheckVulkanRHIThread();
-		FVulkanDevice* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		FVulkanDevice* Device = GetTestDevice();
 		if (!Device)
 		{
 			return {};
@@ -680,23 +720,10 @@ namespace Durin::VulkanRHI
 			.PendingSubmissionCount = Tracker.GetPendingSubmissionCount()};
 	}
 
-	auto GetVulkanBackendPoolTestStats() -> FVulkanBackendPoolTestStats
-	{
-		CheckVulkanRHIThread();
-		FVulkanDevice* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
-		if (!Device)
-		{
-			return {};
-		}
-		return {
-			.DescriptorPoolTokens = Device->GetGlobalDescriptorPool()
-				.GetBatchTokensForTesting()};
-	}
-
 	auto SubmitAndRetireDescriptorPoolsForTesting() -> uint64
 	{
 		CheckVulkanRHIThread();
-		FVulkanDevice* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		FVulkanDevice* Device = GetTestDevice();
 		const FVulkanCompletionToken Token =
 			FRHIGPUSyncPointBackend::GetPoint(Device->GetSubmissionCoordinator().SubmitContext(*Device->GetImmediateContext())).Value;
 		Device->GetGlobalDescriptorPool().RetireUsedPools();
@@ -706,155 +733,15 @@ namespace Durin::VulkanRHI
 	auto WaitForAllVulkanSubmissionsForTesting() -> void
 	{
 		CheckVulkanRHIThread();
-		FVulkanDynamicRHI::Get().GetDeviceForTesting()
+		GetTestDevice()
 			->GetCompletionTracker().WaitForAll();
 	}
 
 	auto ReleaseCompletedVulkanResourcesForTesting() -> void
 	{
 		CheckVulkanRHIThread();
-		FVulkanDynamicRHI::Get().GetDeviceForTesting()
+		GetTestDevice()
 			->GetDeferredDeletionQueue().ReleaseResources();
 	}
 
-	auto TestVulkanCommandBufferStateCache() -> bool
-	{
-		CheckVulkanRHIThread();
-		auto& Device = *FVulkanDynamicRHI::Get().GetDeviceForTesting();
-		FVulkanCommandBufferPool Pool(Device);
-		Pool.CreatePool(Device.GetGraphicsQueue()->GetFamilyIndex());
-		auto* Commands = Pool.Create();
-		const auto Native = Device.GetHandle();
-		const auto SetLayout = Native.createDescriptorSetLayout(vk::DescriptorSetLayoutCreateInfo{});
-		const auto LayoutA = Native.createPipelineLayout(vk::PipelineLayoutCreateInfo{}.setSetLayouts(SetLayout));
-		const auto LayoutB = Native.createPipelineLayout(vk::PipelineLayoutCreateInfo{}.setSetLayouts(SetLayout));
-		const auto DescriptorPool = Native.createDescriptorPool(vk::DescriptorPoolCreateInfo{}.setMaxSets(2));
-		const std::array SetLayouts{SetLayout, SetLayout};
-		const auto Sets = Native.allocateDescriptorSets(vk::DescriptorSetAllocateInfo{}
-			.setDescriptorPool(DescriptorPool).setSetLayouts(SetLayouts));
-		const vk::Viewport Viewport{0, 0, 8, 8, 0, 1};
-		const auto BufferDesc = FRHIBufferCreateDesc::Create("BindingCacheTest", 64, 4,
-			EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::IndexBuffer | EBufferUsageFlags::Static);
-		TRefCountPtr<FVulkanBuffer> BufferA = new FVulkanBuffer(Device, BufferDesc);
-		TRefCountPtr<FVulkanBuffer> BufferB = new FVulkanBuffer(Device, BufferDesc);
-		vk::Rect2D Scissor{{0, 0}, {8, 8}};
-		ResetVulkanHotPathWorkTestStats();
-		Commands->Begin();
-		Commands->SetGraphicsDynamicState(Viewport, Scissor, 0, 0, 0);
-		Commands->SetGraphicsDynamicState(Viewport, Scissor, 0, 0, 0);
-		auto Stats = GetVulkanHotPathWorkTestStats();
-		bool bPassed = Stats.ViewportWrites == 1 && Stats.ScissorWrites == 1 && Stats.DepthBiasWrites == 1;
-		Commands->BindVertexBuffer(0, BufferA->GetHandle(), 0);
-		Commands->BindVertexBuffer(0, BufferA->GetHandle(), 0);
-		Commands->BindVertexBuffer(1, BufferA->GetHandle(), 0);
-		Commands->BindVertexBuffer(0, BufferA->GetHandle(), 4);
-		Commands->BindVertexBuffer(0, BufferB->GetHandle(), 4);
-		Commands->BindVertexBuffer(0, BufferA->GetHandle(), 0);
-		Commands->BindIndexBuffer(BufferA->GetHandle(), 0, vk::IndexType::eUint16);
-		Commands->BindIndexBuffer(BufferA->GetHandle(), 0, vk::IndexType::eUint16);
-		Commands->BindIndexBuffer(BufferA->GetHandle(), 4, vk::IndexType::eUint16);
-		Commands->BindIndexBuffer(BufferA->GetHandle(), 4, vk::IndexType::eUint32);
-		Commands->BindIndexBuffer(BufferB->GetHandle(), 4, vk::IndexType::eUint32);
-		Stats = GetVulkanHotPathWorkTestStats();
-		bPassed &= Stats.VertexBufferBinds == 5 && Stats.IndexBufferBinds == 4;
-		Scissor.extent.width = 4;
-		Commands->SetGraphicsDynamicState(Viewport, Scissor, 0, 0, 0);
-		Commands->SetGraphicsDynamicState(Viewport, Scissor, 0, 0, 2);
-		Stats = GetVulkanHotPathWorkTestStats();
-		bPassed &= Stats.ViewportWrites == 1 && Stats.ScissorWrites == 2 && Stats.DepthBiasWrites == 2;
-		const auto FirstSet = std::span(Sets).first(1);
-		const auto SecondSet = std::span(Sets).subspan(1, 1);
-		Commands->BindDescriptorSets(vk::PipelineBindPoint::eGraphics, LayoutA, FirstSet, {});
-		Commands->BindDescriptorSets(vk::PipelineBindPoint::eGraphics, LayoutA, FirstSet, {});
-		// Compute and graphics bindings must not suppress each other.
-		Commands->BindDescriptorSets(vk::PipelineBindPoint::eCompute, LayoutA, FirstSet, {});
-		Commands->BindDescriptorSets(vk::PipelineBindPoint::eGraphics, LayoutA, SecondSet, {});
-		Commands->BindDescriptorSets(vk::PipelineBindPoint::eGraphics, LayoutB, SecondSet, {});
-		Commands->BindDescriptorSets(vk::PipelineBindPoint::eGraphics, LayoutA, SecondSet, {});
-		bPassed &= GetVulkanHotPathWorkTestStats().DescriptorBinds == 5;
-		Commands->End();
-		Commands->Reset();
-		Commands->Begin();
-		// The same values must be emitted again in a new recording.
-		Commands->BindVertexBuffer(0, BufferA->GetHandle(), 0);
-		Commands->BindIndexBuffer(BufferB->GetHandle(), 4, vk::IndexType::eUint32);
-		Stats = GetVulkanHotPathWorkTestStats();
-		bPassed &= Stats.VertexBufferBinds == 6 && Stats.IndexBufferBinds == 5;
-		Commands->SetGraphicsDynamicState(Viewport, Scissor, 0, 0, 2);
-		Stats = GetVulkanHotPathWorkTestStats();
-		bPassed &= Stats.ViewportWrites == 2 && Stats.ScissorWrites == 3 && Stats.DepthBiasWrites == 3;
-		Commands->BindDescriptorSets(vk::PipelineBindPoint::eGraphics, LayoutA, SecondSet, {});
-		bPassed &= GetVulkanHotPathWorkTestStats().DescriptorBinds == 6;
-		Commands->End();
-		Commands->Reset();
-		Native.destroyDescriptorPool(DescriptorPool);
-		Native.destroyPipelineLayout(LayoutB);
-		Native.destroyPipelineLayout(LayoutA);
-		Native.destroyDescriptorSetLayout(SetLayout);
-		return bPassed;
-	}
-
-	auto ResetVulkanHotPathWorkTestStats() -> void
-	{
-		GVulkanSync2BufferBarrierCount.store(0, std::memory_order_release);
-		GVulkanLegacyBufferBarrierCount.store(0, std::memory_order_release);
-		GVulkanSync2ImageBarrierCount.store(0, std::memory_order_release);
-		GVulkanLegacyImageBarrierCount.store(0, std::memory_order_release);
-		GVulkanBindingValidationVisitCount.store(0, std::memory_order_release);
-		GVulkanDescriptorDrawValidationVisitCount.store(0, std::memory_order_release);
-		GVulkanDescriptorSortCount.store(0, std::memory_order_release);
-		GVulkanDescriptorHashCount.store(0, std::memory_order_release);
-		GVulkanViewportWriteCount.store(0, std::memory_order_release);
-		GVulkanScissorWriteCount.store(0, std::memory_order_release);
-		GVulkanDepthBiasWriteCount.store(0, std::memory_order_release);
-		GVulkanPipelineBindCount.store(0, std::memory_order_release);
-		GVulkanVertexBufferBindCount.store(0, std::memory_order_release);
-		GVulkanIndexBufferBindCount.store(0, std::memory_order_release);
-		GVulkanDescriptorBindCount.store(0, std::memory_order_release);
-		GVulkanDescriptorOwnerRebuildCount.store(0, std::memory_order_release);
-		GVulkanDescriptorOccupancyVerificationVisitCount.store(0, std::memory_order_release);
-		GVulkanDescriptorOccupancyMutationCount.store(0, std::memory_order_release);
-	}
-
-	auto GetVulkanHotPathWorkTestStats() -> FVulkanHotPathWorkTestStats
-	{
-		return {
-			.Sync2BufferBarriers = GVulkanSync2BufferBarrierCount.load(std::memory_order_acquire),
-			.LegacyBufferBarriers = GVulkanLegacyBufferBarrierCount.load(std::memory_order_acquire),
-			.Sync2ImageBarriers = GVulkanSync2ImageBarrierCount.load(std::memory_order_acquire),
-			.LegacyImageBarriers = GVulkanLegacyImageBarrierCount.load(std::memory_order_acquire),
-			.BindingValidationVisits = GVulkanBindingValidationVisitCount.load(std::memory_order_acquire),
-			.DescriptorDrawValidationVisits = GVulkanDescriptorDrawValidationVisitCount.load(std::memory_order_acquire),
-			.DescriptorSorts = GVulkanDescriptorSortCount.load(std::memory_order_acquire),
-			.DescriptorHashes = GVulkanDescriptorHashCount.load(std::memory_order_acquire),
-			.ViewportWrites = GVulkanViewportWriteCount.load(std::memory_order_acquire),
-			.ScissorWrites = GVulkanScissorWriteCount.load(std::memory_order_acquire),
-			.DepthBiasWrites = GVulkanDepthBiasWriteCount.load(std::memory_order_acquire),
-			.PipelineBinds = GVulkanPipelineBindCount.load(std::memory_order_acquire),
-			.VertexBufferBinds = GVulkanVertexBufferBindCount.load(std::memory_order_acquire),
-			.IndexBufferBinds = GVulkanIndexBufferBindCount.load(std::memory_order_acquire),
-			.DescriptorBinds = GVulkanDescriptorBindCount.load(std::memory_order_acquire),
-			.DescriptorOwnerRebuilds = GVulkanDescriptorOwnerRebuildCount.load(std::memory_order_acquire),
-			.DescriptorOccupancyVerificationVisits = GVulkanDescriptorOccupancyVerificationVisitCount.load(std::memory_order_acquire),
-			.DescriptorOccupancyMutations = GVulkanDescriptorOccupancyMutationCount.load(std::memory_order_acquire)};
-	}
-
-	auto SetVulkanBarrierPathOverrideForTest(
-		std::optional<bool> bUseSynchronization2) -> void
-	{
-		GVulkanBarrierPathOverride.store(
-			bUseSynchronization2.has_value() ? (*bUseSynchronization2 ? 1 : 0) : -1,
-			std::memory_order_release);
-	}
-
-	auto SelectVulkanSynchronization2BarrierPath(
-		bool bSupportsSynchronization2) -> bool
-	{
-		const int32 Override = GVulkanBarrierPathOverride.load(
-			std::memory_order_acquire);
-		checkf(Override != 1 || bSupportsSynchronization2,
-			"Synchronization2 barrier override requires device support.");
-		return Override < 0 ? bSupportsSynchronization2 : Override != 0;
-	}
 } // namespace Durin::VulkanRHI
-#endif

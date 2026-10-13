@@ -1,6 +1,5 @@
 #include "VulkanCreation.h"
 
-#include "VulkanCreationTiming.h"
 #include "VulkanShader.h"
 
 #include "RHICommandList.h"
@@ -120,12 +119,7 @@ namespace Durin::VulkanRHI
 				Code, VertexInputLocations);
 		}
 		createInfo.setCode(Code);
-		ShaderModule = [&] {
-#if DURIN_VULKAN_TEST_SUPPORT
-			FVulkanNativeCreationTimingScope NativeTiming;
-#endif
-			return Device.GetHandle().createShaderModule(createInfo);
-		}();
+		ShaderModule = Device.GetHandle().createShaderModule(createInfo);
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(ShaderModule,
 			[&] { return InCreateDesc.DebugName ? InCreateDesc.DebugName
 					: Device.GetRHI().GetDebugUtils().MakeInternalName("ShaderModule"); });
@@ -149,15 +143,9 @@ namespace Durin::VulkanRHI
 			|| !InCreateDesc.MetalBindings.empty()
 			|| InCreateDesc.MetalPushConstantBufferSlot != UINT32_MAX)
 			return nullptr;
-#if DURIN_VULKAN_TEST_SUPPORT
-		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Shader);
-#endif
 		auto Result = CreateVulkanResource([&]() -> FShaderRHIRef {
 			return new FVulkanShader(*Device, InCreateDesc);
 		}, "shader", InCreateDesc.DebugName ? InCreateDesc.DebugName : "");
-#if DURIN_VULKAN_TEST_SUPPORT
-		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
-#endif
 		return Result;
 	}
 }

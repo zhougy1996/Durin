@@ -22,7 +22,7 @@ namespace Durin::VulkanRHI
 	public:
 		FVulkanCompletionTracker(FVulkanDevice& InDevice, uint64 InDeviceGeneration, FRHIQueueId InQueue);
 
-		auto ReserveSyncPoint() -> FRHIGPUSyncPointRef;
+		VULKANRHI_API auto ReserveSyncPoint() -> FRHIGPUSyncPointRef;
 		auto CancelUnsubmitted(const FRHIGPUSyncPointRef& SyncPoint) -> void;
 		// Allocate ownership storage before vkQueueSubmit; commit never allocates.
 		auto PrepareSubmission(FVulkanFence* Fence,
@@ -31,8 +31,8 @@ namespace Durin::VulkanRHI
 		// Quarantine ambiguous native failure until device teardown, without recycling.
 		auto FailSubmission(bool bDeviceLost = false) -> void;
 		auto ReleaseAfterDeviceStopped() -> void;
-		auto GetLastReservedSyncPoint() const -> FRHIGPUSyncPointRef;
-		auto WaitForSyncPoint(const FRHIGPUSyncPointRef& SyncPoint, uint64 TimeoutNanoseconds)
+		VULKANRHI_API auto GetLastReservedSyncPoint() const -> FRHIGPUSyncPointRef;
+		VULKANRHI_API auto WaitForSyncPoint(const FRHIGPUSyncPointRef& SyncPoint, uint64 TimeoutNanoseconds)
 			-> ERHIGPUWaitResult;
 		auto GetDeviceGeneration() const -> uint64 { return DeviceGeneration; }
 		auto HasFailed() const -> bool { return bFailed; }
@@ -40,13 +40,13 @@ namespace Durin::VulkanRHI
 		auto CanSubmitBatch(std::span<const FRHIGPUSyncPointRef> SyncPoints) const -> bool { return Timeline.CanSubmitBatch(SyncPoints); }
 		auto Poll() -> void;
 		auto WaitForToken(FVulkanCompletionToken Token) -> void;
-		auto WaitForAll() -> void;
+		VULKANRHI_API auto WaitForAll() -> void;
 		auto AppendAllocationUses(const std::shared_ptr<void>& Owner, FRHIRetirementPrerequisites& Uses) const -> void;
 
-		auto GetLastSubmittedToken() const -> FVulkanCompletionToken;
-		auto GetLastReservedToken() const -> FVulkanCompletionToken;
-		auto GetCompletedToken() const -> FVulkanCompletionToken;
-		auto GetPendingSubmissionCount() const -> uint64;
+		VULKANRHI_API auto GetLastSubmittedToken() const -> FVulkanCompletionToken;
+		VULKANRHI_API auto GetLastReservedToken() const -> FVulkanCompletionToken;
+		VULKANRHI_API auto GetCompletedToken() const -> FVulkanCompletionToken;
+		VULKANRHI_API auto GetPendingSubmissionCount() const -> uint64;
 
 	private:
 		struct FSubmission

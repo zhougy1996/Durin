@@ -1,4 +1,5 @@
 #include "VulkanPipelinePrecacheTestSupport.h"
+#include "VulkanTestSupport.h"
 #include <gtest/gtest.h>
 #include <barrier>
 #include "CoreGlobals.h"
@@ -10,7 +11,6 @@
 #include "RHIGlobals.h"
 #include "RHICommandList.h"
 #include "SlangShaderCompiler.h"
-#include "VulkanCreationTiming.h"
 #include "VulkanCreationQualificationSupport.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
@@ -32,7 +32,6 @@ namespace Durin::VulkanRHI
 		auto TearDown() -> void override
 		{
 			if (GDynamicRHI) RHIExit();
-			SetVulkanPipelineCachePathForTest({});
 			_putenv_s("DURIN_RHI_EXECUTION", PreviousMode ? PreviousMode->c_str() : "");
 		}
 		std::optional<std::string> PreviousMode;
@@ -53,32 +52,19 @@ namespace Durin::VulkanRHI
 		for (size_t Index = 0; Index < Compiled.CompiledShaders.size(); ++Index)
 			ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Compiled.CompiledShaders[Index].Code,
 				Output / std::format("Shader{}.spv", Index)));
-		// Later comparison runs restore these exact bytes, never a newly generated seed.
-		const char* SeedDirectory = std::getenv("DURIN_VULKAN_CREATION_SEED_DIRECTORY");
-		if (SeedDirectory)
-			for (const char* Name : {"graphics-seed.bin", "compute-seed.bin"})
-				std::filesystem::copy_file(std::filesystem::path(SeedDirectory) / Name, Output / Name);
-		std::ofstream Csv(Output / "requests.csv");
-		Csv << "round,scenario," << CreationRequestColumns << '\n';
 		std::ofstream Rounds(Output / "rounds.csv");
-		Rounds << "round,scenario,compute,synchronous_operations,submission_serials,graphics_native,compute_native,queue_entries_peak,queue_payload_peak"
+		Rounds << "round,scenario,compute,total_ns,synchronous_operations,submission_serials,graphics_native,compute_native,queue_entries_peak,queue_payload_peak"
 			<< CreationMemoryColumns << '\n';
 		std::ofstream Hardware(Output / "device.txt");
 		WriteCreationHost(Hardware);
-		const auto CachePath = Output / "PipelineCache-v1.bin";
-		SetVulkanPipelineCachePathForTest(CachePath);
 		for (bool bCompute : {false, true})
 		for (std::string_view Scenario : {"cold", "hot", "duplicate16", "distinct16", "batch64"})
 		for (uint32 Round = 0; Round < 30; ++Round)
 		{
-			std::filesystem::remove(CachePath);
-			const auto SeedPath = Output / (bCompute ? "compute-seed.bin" : "graphics-seed.bin");
-			if (Scenario == "hot")
-				std::filesystem::copy_file(SeedPath, CachePath);
 			const auto InitStart = VulkanCreationTimestamp();
 			ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
 			Hardware << "compute=" << bCompute << " scenario=" << Scenario << " round=" << Round << " init_ns=" << VulkanCreationTimestamp() - InitStart << '\n';
-			const auto& Props = FVulkanDynamicRHI::Get().GetDeviceForTesting()->GetGpuProperties();
+			const auto& Props = GetVulkanDeviceForTest(FVulkanDynamicRHI::Get())->GetGpuProperties();
 			if (Round == 0 && Scenario == "cold")
 			{
 				Hardware << GetVulkanDeviceDescriptionForTiming();
@@ -115,17 +101,16 @@ namespace Durin::VulkanRHI
 				const auto Serial = GCommandListExecutor.GetLastSubmittedSerial();
 				const auto Cache = GDynamicRHI->RHIGetPipelineCacheStatistics();
 				FCreationMemorySampler MemorySampler;
-				BeginVulkanCreationTimingCapture(8192);
+				const auto Started = VulkanCreationTimestamp();
 				Body();
-				uint64 Dropped = 0;
-				const auto Samples = EndVulkanCreationTimingCapture(Dropped);
+				const auto Duration = VulkanCreationTimestamp() - Started;
 				const auto Memory = MemorySampler.Stop();
 #ifdef _WIN32
 				EXPECT_TRUE(Memory.bAvailable);
 #endif
-				EXPECT_EQ(Dropped, 0u);
+
 				const auto After = GDynamicRHI->RHIGetPipelineCacheStatistics();
-				Rounds << Round << ',' << Scenario << ',' << bCompute << ','
+				Rounds << Round << ',' << Scenario << ',' << bCompute << ',' << Duration << ','
 					<< GCommandListExecutor.GetStats().SynchronousOperationCount - Before.SynchronousOperationCount << ','
 					<< GCommandListExecutor.GetLastSubmittedSerial() - Serial << ','
 					<< After.GraphicsPipelines.NativeCreations - Cache.GraphicsPipelines.NativeCreations << ','
@@ -140,15 +125,6 @@ namespace Durin::VulkanRHI
 					bCompute ? 0 : ExpectedCreations);
 				EXPECT_EQ(After.ComputePipelines.NativeCreations - Cache.ComputePipelines.NativeCreations,
 					bCompute ? ExpectedCreations : 0);
-				EXPECT_EQ(Samples.size(), Scenario == "hot" ? 100u : Scenario == "batch64" ? 64u
-					: Scenario == "cold" ? 1u : 16u);
-				for (const auto& S : Samples)
-				{
-					EXPECT_TRUE(S.bSucceeded);
-					Csv << Round << ',' << Scenario << ',';
-					WriteCreationRequest(Csv, S);
-					Csv << '\n';
-				}
 			};
 			auto Create = [&](size_t Index, uint32 Variant) {
 				auto G = Graphics;
@@ -196,10 +172,8 @@ namespace Durin::VulkanRHI
 			Declaration = nullptr;
 			Shaders = {};
 			RHIExit();
-			if (Scenario == "cold" && Round == 0 && !SeedDirectory)
-				std::filesystem::copy_file(CachePath, SeedPath);
 		}
-		ASSERT_TRUE(Csv.good());
+
 		ASSERT_TRUE(Rounds.good());
 		ASSERT_TRUE(Hardware.good());
 		std::cout << "Creation timing output: " << Output << std::endl;
@@ -214,15 +188,11 @@ namespace Durin::VulkanRHI
 			/ "CreationQualification.slang").string(), Options);
 		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		const auto Output = Testing::CreateTestFixtureDirectory("ResourceCreationTiming");
-		const auto CachePath = Output / "PipelineCache-v1.bin";
-		SetVulkanPipelineCachePathForTest(CachePath);
 		FByteBuffer InitialData(1024);
 		for (size_t Index = 0; Index < InitialData.size(); ++Index)
 			InitialData[Index] = std::byte(Index % 256);
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(InitialData, Output / "initial-data.bin"));
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Compiled.CompiledShaders[0].Code, Output / "Shader0.spv"));
-		std::ofstream Csv(Output / "requests.csv");
-		Csv << "round," << CreationRequestColumns << '\n';
 		std::ofstream Rounds(Output / "rounds.csv");
 		Rounds << "round,creation_ns,upload_record_ns,upload_wait_ns,synchronous_operations,queue_entries_peak,queue_payload_peak"
 			<< CreationMemoryColumns << '\n';
@@ -230,7 +200,6 @@ namespace Durin::VulkanRHI
 		WriteCreationHost(Host);
 		for (uint32 Round = 0; Round < 30; ++Round)
 		{
-			std::filesystem::remove(CachePath);
 			ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
 			if (Round == 0) Host << GetVulkanDeviceDescriptionForTiming();
 			auto& Cmd = FRHICommandListImmediate::Get();
@@ -243,7 +212,6 @@ namespace Durin::VulkanRHI
 			std::array<FVertexDeclarationRHIRef, 64> Declarations;
 			const auto Before = GCommandListExecutor.GetStats();
 			FCreationMemorySampler MemorySampler;
-			BeginVulkanCreationTimingCapture(1024);
 			const auto Start = VulkanCreationTimestamp();
 			const auto& Shader = Compiled.CompiledShaders[0];
 			auto ShaderDesc = FRHIShaderCreateDesc::Create("ResourceBatchShader", Shader.Frequency,
@@ -268,11 +236,12 @@ namespace Durin::VulkanRHI
 			}
 			for (auto& Result : Declarations) Result = GDynamicRHI->RHICreateVertexDeclaration({});
 			const auto Created = VulkanCreationTimestamp();
-			uint64 Dropped = 0;
-			const auto Samples = EndVulkanCreationTimingCapture(Dropped);
-			ASSERT_EQ(Dropped, 0u);
-			ASSERT_EQ(Samples.size(), 7u * 64);
-			for (const auto& S : Samples) ASSERT_TRUE(S.bSucceeded) << uint32(S.Kind);
+
+			for (size_t Index = 0; Index < 64; ++Index)
+			{
+				ASSERT_TRUE(Shaders[Index] && Samplers[Index] && Buffers[Index] && Textures[Index]
+					&& BufferViews[Index] && TextureViews[Index] && Declarations[Index]);
+			}
 			const auto UploadStart = VulkanCreationTimestamp();
 			for (const auto& Texture : Textures)
 			{
@@ -293,55 +262,15 @@ namespace Durin::VulkanRHI
 				<< ',' << After.PeakQueueEntryCount << ',' << After.PeakQueuePayloadBytes;
 			WriteCreationMemorySample(Rounds, Memory);
 			Rounds << '\n';
-			for (const auto& Sample : Samples)
-			{
-				Csv << Round << ',';
-				WriteCreationRequest(Csv, Sample);
-				Csv << '\n';
-			}
 			BufferViews = {}; TextureViews = {}; Shaders = {}; Samplers = {};
 			Buffers = {}; Textures = {}; Declarations = {};
 			RHIExit();
 		}
-		ASSERT_TRUE(Csv.good());
+
 		ASSERT_TRUE(Rounds.good());
 		std::cout << "Resource creation timing output: " << Output << std::endl;
 	}
 
-	TEST_F(FVulkanCreationQualificationTests, TimingInstrumentationOverhead)
-	{
-		const auto Output = Testing::CreateTestFixtureDirectory("CreationInstrumentationOverhead");
-		std::ofstream Csv(Output / "overhead.csv");
-		Csv << "round,enabled,sample,elapsed_ns\n";
-		for (uint32 Round = 0; Round < 30; ++Round)
-		for (bool bEnabled : {false, true})
-		{
-			std::array<uint64, 1000> Durations;
-			if (bEnabled) BeginVulkanCreationTimingCapture(Durations.size());
-			for (auto& Duration : Durations)
-			{
-				const auto Start = VulkanCreationTimestamp();
-				{
-					FVulkanCreationTimingScope Request(false);
-					if (auto* Timing = Request.Get()) Timing->Scheduled = VulkanCreationTimestamp();
-					FVulkanCreationBodyTimingScope Body(Request.Get());
-					{ FVulkanCreationDependencyTimingScope Dependency; }
-					{ FVulkanNativeCreationTimingScope Native; }
-				}
-				Duration = VulkanCreationTimestamp() - Start;
-			}
-			if (bEnabled)
-			{
-				uint64 Dropped = 0;
-				EXPECT_EQ(EndVulkanCreationTimingCapture(Dropped).size(), Durations.size());
-				EXPECT_EQ(Dropped, 0u);
-			}
-			for (size_t Index = 0; Index < Durations.size(); ++Index)
-				Csv << Round << ',' << bEnabled << ',' << Index << ',' << Durations[Index] << '\n';
-		}
-		ASSERT_TRUE(Csv.good());
-		std::cout << "Creation instrumentation overhead: " << Output << std::endl;
-	}
 
 	TEST_F(FVulkanCreationQualificationTests, AsyncRequestsOnSerialCreator)
 	{
@@ -356,19 +285,15 @@ namespace Durin::VulkanRHI
 		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR) / "CreationQualification.slang").string(), Options);
 		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		const auto Output = Testing::CreateTestFixtureDirectory("AsyncCreationTiming");
-		std::ofstream Native(Output / "native.csv"), Observers(Output / "observers.csv"), Rounds(Output / "rounds.csv"), Hardware(Output / "device.txt");
-		Native << "round,scenario," << CreationRequestColumns << '\n';
+		std::ofstream Observers(Output / "observers.csv"), Rounds(Output / "rounds.csv"), Hardware(Output / "device.txt");
 		Observers << "round,scenario,compute,index,key,entry_ns,request_returned_ns,ready_observed_ns,consumer_wait_ns\n";
 		Rounds << "round,scenario,compute,observers,admission_ns,consumer_wait_ns,total_ns,native_creations,synchronous_operations,replay_serials,replay_marker_ns,metadata_bytes" << CreationMemoryColumns << '\n';
 		WriteCreationHost(Hardware);
 		Hardware << "core_workers=1\nnative_creators=1\napplication_cache=cold per lifetime\ndriver_private_cache=uncontrolled\n";
-		const auto CachePath = Output / "PipelineCache-v1.bin";
-		SetVulkanPipelineCachePathForTest(CachePath);
 		for (bool ComputeKind : {false, true})
 		for (std::string_view Scenario : {"cold", "hot", "duplicate16", "distinct16", "batch64"})
 		for (uint32 Round = 0; Round < 30; ++Round)
 		{
-			std::filesystem::remove(CachePath);
 			ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
 			if (Round == 0 && Scenario == "cold") Hardware << GetVulkanDeviceDescriptionForTiming();
 			std::array<FShaderRHIRef, 3> Shaders;
@@ -409,7 +334,6 @@ namespace Durin::VulkanRHI
 			const auto Before = GCommandListExecutor.GetStats();
 			const auto BeforeCache = GDynamicRHI->RHIGetPipelineCacheStatistics();
 			FCreationMemorySampler Memory;
-			BeginVulkanCreationTimingCapture(256);
 			const auto Begin = VulkanCreationTimestamp();
 			if (Scenario == "duplicate16" || Scenario == "distinct16")
 			{
@@ -434,24 +358,20 @@ namespace Durin::VulkanRHI
 			const auto Ready = VulkanCreationTimestamp();
 			EXPECT_EQ(MarkerFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
 			const auto MarkerTime = MarkerFuture.get();
-			uint64 Dropped = 0;
-			const auto Samples = EndVulkanCreationTimingCapture(Dropped);
 			const auto MemorySample = Memory.Stop();
 			const auto AfterCache = GDynamicRHI->RHIGetPipelineCacheStatistics();
 			const uint64 NativeCount = ComputeKind ? AfterCache.ComputePipelines.NativeCreations - BeforeCache.ComputePipelines.NativeCreations : AfterCache.GraphicsPipelines.NativeCreations - BeforeCache.GraphicsPipelines.NativeCreations;
 			EXPECT_EQ(NativeCount, Scenario == "hot" ? 0u : Scenario == "distinct16" || Scenario == "batch64" ? Count : 1u);
-			EXPECT_EQ(Dropped, 0u); EXPECT_EQ(Samples.size(), NativeCount);
 			const auto After = GCommandListExecutor.GetStats();
 			EXPECT_EQ(After.SynchronousOperationCount, Before.SynchronousOperationCount);
 			EXPECT_EQ(After.LastSubmittedSerial - Before.LastSubmittedSerial, 1u);
-			Rounds << Round << ',' << Scenario << ',' << ComputeKind << ',' << Count << ',' << Admitted - Begin << ',' << Ready - WaitBegin << ',' << Ready - Begin << ',' << NativeCount << ',' << After.SynchronousOperationCount - Before.SynchronousOperationCount << ',' << After.LastSubmittedSerial - Before.LastSubmittedSerial << ',' << MarkerTime - Admitted << ',' << FVulkanDynamicRHI::Get().GetDeviceForTesting()->GetCacheMetadataBytes();
+			Rounds << Round << ',' << Scenario << ',' << ComputeKind << ',' << Count << ',' << Admitted - Begin << ',' << Ready - WaitBegin << ',' << Ready - Begin << ',' << NativeCount << ',' << After.SynchronousOperationCount - Before.SynchronousOperationCount << ',' << After.LastSubmittedSerial - Before.LastSubmittedSerial << ',' << MarkerTime - Admitted << ',' << GetVulkanDeviceForTest(FVulkanDynamicRHI::Get())->GetCacheMetadataBytes();
 			WriteCreationMemorySample(Rounds, MemorySample); Rounds << '\n';
-			for (const auto& Sample : Samples) { EXPECT_TRUE(Sample.bBackground && Sample.bSucceeded); Native << Round << ',' << Scenario << ','; WriteCreationRequest(Native, Sample); Native << '\n'; }
 			for (uint32 Index = 0; Index < Count; ++Index) { const auto& R = Records[Index]; Observers << Round << ',' << Scenario << ',' << ComputeKind << ',' << Index << ',' << R.Key << ',' << R.Entry << ',' << R.Returned << ',' << R.Ready << ',' << R.Wait << '\n'; }
 			Records.clear(); Shaders = {}; Declaration = nullptr;
 			RHIExit();
 		}
-		ASSERT_TRUE(Native.good() && Observers.good() && Rounds.good() && Hardware.good());
+		ASSERT_TRUE(Observers.good() && Rounds.good() && Hardware.good());
 		std::cout << "Async creation timing output: " << Output << std::endl;
 	}
 

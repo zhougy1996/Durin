@@ -7,7 +7,6 @@
 
 #include "RHICommandList.h"
 #include "VulkanRHIPrivate.h"
-#include "VulkanCreationTiming.h"
 
 namespace Durin::VulkanRHI
 {
@@ -16,11 +15,6 @@ namespace Durin::VulkanRHI
 	auto CreateVulkanResource(Factory&& Create, std::string_view Kind,
 		std::string_view DebugName = {}) -> std::invoke_result_t<Factory>
 	{
-#if DURIN_VULKAN_TEST_SUPPORT
-		auto* Timing = GetActiveVulkanCreationTiming();
-		if (Timing && !Timing->Scheduled) Timing->Scheduled = VulkanCreationTimestamp();
-		FVulkanCreationBodyTimingScope BodyTiming(Timing);
-#endif
 		try
 		{
 			return std::forward<Factory>(Create)();

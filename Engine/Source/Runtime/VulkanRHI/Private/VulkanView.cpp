@@ -1,4 +1,3 @@
-#include "VulkanCreationTiming.h"
 #include "VulkanView.h"
 
 #include "VulkanBuffer.h"
@@ -24,12 +23,7 @@ namespace Durin::VulkanRHI
 			.setFormat(ToVulkan_PixelFormat(InDesc.Format))
 			.setOffset(InDesc.Offset)
 			.setRange(InDesc.Size);
-		BufferView = [&] {
-#if DURIN_VULKAN_TEST_SUPPORT
-			FVulkanNativeCreationTimingScope NativeTiming;
-#endif
-			return Device.GetHandle().createBufferView(CreateInfo);
-		}();
+		BufferView = Device.GetHandle().createBufferView(CreateInfo);
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(BufferView,
 			[&] { return std::format("{}.BufferView", Buffer->GetDebugName()); });
 	}
@@ -68,12 +62,7 @@ namespace Durin::VulkanRHI
 				ToVulkanAspectFlags(InDesc.Range.Aspects),
 				InDesc.Range.FirstMip, InDesc.Range.NumMips,
 				InDesc.Range.FirstArrayLayer, InDesc.Range.NumArrayLayers));
-		ImageView = [&] {
-#if DURIN_VULKAN_TEST_SUPPORT
-			FVulkanNativeCreationTimingScope NativeTiming;
-#endif
-			return Device.GetHandle().createImageView(CreateInfo);
-		}();
+		ImageView = Device.GetHandle().createImageView(CreateInfo);
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(ImageView,
 			[&] { return std::format("{}.ImageView", Texture->GetDebugName()); });
 		DebugIdentity = GVulkanImageViewHandleIdCounter.fetch_add(

@@ -1,8 +1,5 @@
 #include "VulkanPendingState.h"
 
-#if DURIN_VULKAN_TEST_SUPPORT
-#include "VulkanTestSupport.h"
-#endif
 #include "Backend/RHIValidation.h"
 
 #include "VulkanBuffer.h"
@@ -494,9 +491,6 @@ namespace Durin::VulkanRHI
 		{
 			auto& Set = PendingSets[SetIndex];
 			if (!Set.bOwnersDirty) continue;
-#if DURIN_VULKAN_TEST_SUPPORT
-			GVulkanDescriptorOwnerRebuildCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 			std::vector<TRefCountPtr<FRHIResource>> NewOwners;
 			for (const auto& Resource : PendingShaderResources)
 				if (Resource.SetIndex == SetIndex) NewOwners.emplace_back(Resource.Resource);
@@ -641,9 +635,6 @@ namespace Durin::VulkanRHI
 		{
 			SortDescriptorResources(PendingShaderResources);
 			bPendingResourcesSorted = true;
-#if DURIN_VULKAN_TEST_SUPPORT
-			GVulkanDescriptorSortCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 		}
 		if (!bStructureValidated || Owner.bFullDescriptorValidation)
 		{
@@ -697,10 +688,6 @@ namespace Durin::VulkanRHI
 							checkf(Resource->GetResourceType() == ERHIResourceType::Sampler,
 								"Sampler descriptor requires a sampler resource.");
 					}, &BindingValidationVisits);
-#if DURIN_VULKAN_TEST_SUPPORT
-			GVulkanBindingValidationVisitCount.fetch_add(
-				BindingValidationVisits, std::memory_order_relaxed);
-#endif
 			bStructureValidated = true;
 		}
 		DynamicOffsets.clear();
@@ -733,9 +720,6 @@ namespace Durin::VulkanRHI
 					Texture->GetDebugName(), Record.SetIndex, Record.BindingIndex, Record.ArrayElement,
 					static_cast<uint32>(Record.Type), static_cast<uint32>(ExpectedAccess), static_cast<uint32>(TrackedAccess));
 			}
-#if DURIN_VULKAN_TEST_SUPPORT
-			GVulkanDescriptorDrawValidationVisitCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 		}
 		ResolvedDescriptorSets.resize(LayoutHandles.size());
 		for (uint32 SetIndex = 0; SetIndex < PendingSets.size(); ++SetIndex)
@@ -769,9 +753,6 @@ namespace Durin::VulkanRHI
 		const FVulkanDescriptorRequirements& Requirements, uint32 SetIndex) -> std::shared_ptr<FDescriptorEntry>
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.ResolveCache");
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanDescriptorHashCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 		uint64 Hash = 0;
 		auto Entry = [&]() -> std::shared_ptr<FDescriptorEntry> {
 			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.Lookup");
@@ -855,9 +836,6 @@ namespace Durin::VulkanRHI
 			<= std::numeric_limits<uint64>::max() - ValueCount);
 		Stats.DescriptorSnapshots.Occupancy += EntryCount;
 		Stats.DescriptorValueOccupancy += ValueCount;
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanDescriptorOccupancyMutationCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 	}
 
 	auto FVulkanPendingGraphicsState::RemoveDescriptorCacheOccupancy(
@@ -873,27 +851,10 @@ namespace Durin::VulkanRHI
 		check(ValueCount <= Stats.DescriptorValueOccupancy);
 		Stats.DescriptorSnapshots.Occupancy -= EntryCount;
 		Stats.DescriptorValueOccupancy -= ValueCount;
-#if DURIN_VULKAN_TEST_SUPPORT
-		if (EntryCount != 0 || ValueCount != 0)
-			GVulkanDescriptorOccupancyMutationCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 	}
 
 	auto FVulkanPendingGraphicsState::VerifyDescriptorCacheOccupancy() const -> void
 	{
-#if DURIN_VULKAN_TEST_SUPPORT
-		uint64 EntryCount = 0;
-		uint64 ValueCount = 0;
-		for (const auto& Entry : DescriptorSetCache)
-		{
-			GVulkanDescriptorOccupancyVerificationVisitCount.fetch_add(1, std::memory_order_relaxed);
-			++EntryCount;
-			ValueCount += Entry->Resources.size();
-		}
-		checkfSlow(EntryCount == DescriptorEntryOccupancy
-			&& ValueCount == DescriptorValueOccupancy,
-			"Incremental descriptor occupancy diverged from owned cache state.");
-#endif
 	}
 
 	auto FVulkanPendingGraphicsState::EnforceDescriptorCacheBudget() -> void

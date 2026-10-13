@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "VulkanCreationTiming.h"
+#include "VulkanTestSupport.h"
 #include "PCH.VulkanRHI.h"
 #include "VulkanExtensions.h"
 #ifdef _WIN32
@@ -15,6 +15,13 @@
 
 namespace Durin::VulkanRHI
 {
+	// Measures the public call or test workload, without backend instrumentation.
+	inline auto VulkanCreationTimestamp() -> uint64
+	{
+		return static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+			std::chrono::steady_clock::now().time_since_epoch()).count());
+	}
+
 	// Bootstrap on the test main thread before measurement. Retain the loader-selected
 	// layer until process exit so allocator state survives repeated RHI owner threads.
 	inline auto PrepareCreationQualificationValidationLayer() -> bool
@@ -215,14 +222,4 @@ namespace Durin::VulkanRHI
 #endif
 	}
 
-	inline constexpr std::string_view CreationRequestColumns =
-		"request,key,compute,success,entry_ns,scheduled_ns,body_start_ns,native_start_ns,native_end_ns,body_end_ns,returned_ns,kind,native_ns,dependency_ns,normalization_ns,preparation_ns,background";
-	inline auto WriteCreationRequest(std::ostream& Stream, const FVulkanCreationTiming& S) -> void
-	{
-		Stream << S.RequestId << ',' << S.KeyHash << ',' << S.bCompute << ',' << S.bSucceeded << ','
-			<< S.Entry << ',' << S.Scheduled << ',' << S.BodyStart << ',' << S.NativeStart << ','
-			<< S.NativeEnd << ',' << S.BodyEnd << ',' << S.Returned << ',' << uint32(S.Kind) << ','
-			<< S.NativeNanoseconds << ',' << S.DependencyNanoseconds
-			<< ',' << S.NormalizationNanoseconds << ',' << S.PreparationNanoseconds << ',' << S.bBackground;
-	}
 }

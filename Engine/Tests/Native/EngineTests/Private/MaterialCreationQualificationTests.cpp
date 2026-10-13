@@ -104,7 +104,6 @@ namespace Durin
 			}
 			auto TearDown() -> void override
 			{
-				VulkanRHI::SetVulkanPipelineCachePathForTest({});
 				ShutdownAssetCompilingManager();
 				_putenv_s("DURIN_RHI_EXECUTION", PreviousMode ? PreviousMode->c_str() : "");
 			}
@@ -116,8 +115,6 @@ namespace Durin
 	{
 		using namespace VulkanRHI;
 		const auto Output = Testing::CreateTestFixtureDirectory("MaterialCreationTiming");
-		const auto CachePath = Output / "PipelineCache-v1.bin";
-		SetVulkanPipelineCachePathForTest(CachePath);
 		std::ofstream Manifest(Output / "scene.txt");
 		Manifest << "schema=1\nscene=one canonical unlit opaque two-sided quad\n"
 			<< "positions=(-1,-1,0),(1,-1,0),(1,1,0),(-1,1,0)\nindices=0,1,2,0,2,3\n"
@@ -127,13 +124,11 @@ namespace Durin
 			<< "output=" << CaptureSize << 'x' << CaptureSize << " SRGBA8_UNORM\n"
 			<< "frames=first+120; frame includes producer enqueue, render/replay, submit and GPU completion\n"
 			<< "prewarm_trigger=accepted material and mesh resources known; baseline has no PSO prewarm\n"
-			<< "application_pipeline_cache=cold per lifetime; driver_private_cache=uncontrolled\n";
+			<< "resident_pipeline_cache=cold per lifetime; persisted_driver_cache=default and uncontrolled\n";
 		WriteCreationHost(Manifest);
 		std::ofstream Frames(Output / "frames.csv");
 		Frames << "round,frame,producer_begin_ns,render_begin_ns,render_end_ns,gpu_complete_ns,producer_complete_ns,prewarm_trigger_ns,synchronous_operations,submission_serials,graphics_native,compute_native,queue_entries_peak,queue_payload_peak"
 			<< CreationMemoryColumns << ",replay_complete_ns\n";
-		std::ofstream Requests(Output / "requests.csv");
-		Requests << "round,frame," << CreationRequestColumns << '\n';
 		std::vector<FByteBuffer> FrozenShaders;
 		std::vector<uint64> FirstFrameNanoseconds;
 		std::vector<uint64> FollowingFrameNanoseconds;
@@ -141,7 +136,6 @@ namespace Durin
 		FollowingFrameNanoseconds.reserve(30 * 120);
 		for (uint32 Round = 0; Round < 30; ++Round)
 		{
-			std::filesystem::remove(CachePath);
 			FMaterialMeasurementLifetime Life;
 			ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
 			if (Round == 0) Manifest << GetVulkanDeviceDescriptionForTiming();
@@ -198,7 +192,6 @@ namespace Durin
 				const auto Before = GCommandListExecutor.GetStats();
 				const auto CacheBefore = GDynamicRHI->RHIGetPipelineCacheStatistics();
 				FCreationMemorySampler MemorySampler;
-				BeginVulkanCreationTimingCapture(8192);
 				const auto ProducerStart = VulkanCreationTimestamp();
 				EnqueueRenderCommand<FMaterialMeasurementCommand>([&](FRHICommandListImmediate& Cmd) {
 					RenderTimes[0] = VulkanCreationTimestamp();
@@ -225,10 +218,8 @@ namespace Durin
 				const uint64 EndToEndNanoseconds = RenderTimes[2] - ProducerStart;
 				(Frame == 0 ? FirstFrameNanoseconds : FollowingFrameNanoseconds)
 					.push_back(EndToEndNanoseconds);
-				uint64 Dropped = 0;
-				const auto Samples = EndVulkanCreationTimingCapture(Dropped);
 				const auto Memory = MemorySampler.Stop();
-				ASSERT_EQ(Dropped, 0u);
+
 #ifdef _WIN32
 				ASSERT_TRUE(Memory.bAvailable);
 #endif
@@ -242,12 +233,6 @@ namespace Durin
 					<< ',' << CacheAfter.ComputePipelines.NativeCreations - CacheBefore.ComputePipelines.NativeCreations
 					<< ',' << After.PeakQueueEntryCount << ',' << After.PeakQueuePayloadBytes;
 				WriteCreationMemorySample(Frames, Memory); Frames << ',' << RenderTimes[3] << '\n';
-				for (const auto& Sample : Samples)
-				{
-					ASSERT_TRUE(Sample.bSucceeded);
-					Requests << Round << ',' << Frame << ',';
-					WriteCreationRequest(Requests, Sample); Requests << '\n';
-				}
 				if (Frame == 0 || Frame == 120)
 				{
 					FByteBuffer Pixels;
@@ -264,7 +249,7 @@ namespace Durin
 				}
 			}
 		}
-		ASSERT_TRUE(Frames.good()); ASSERT_TRUE(Requests.good()); ASSERT_TRUE(Manifest.good());
+		ASSERT_TRUE(Frames.good());  ASSERT_TRUE(Manifest.good());
 		auto Summarize = [](std::vector<uint64> Samples) {
 			std::ranges::sort(Samples);
 			const size_t Middle = Samples.size() / 2;

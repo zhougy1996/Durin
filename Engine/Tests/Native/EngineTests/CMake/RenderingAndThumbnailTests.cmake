@@ -43,6 +43,7 @@ durin_add_native_test(SceneImportVulkanTests
 		DurinEd
 		TextureEditor
 		VulkanRHI
+		VulkanRHITestSupport
 		Vulkan::Vulkan
 		bc7enc_rdo::bc7enc_rdo
 	INCLUDE_DIRECTORIES
@@ -52,7 +53,7 @@ durin_add_native_test(SceneImportVulkanTests
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetForgeBuiltins/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
-	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_SUPPORT=1
+
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
@@ -240,12 +241,13 @@ durin_add_native_test(ThumbnailVulkanTests
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
-	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_SUPPORT=1
+
 	LIBRARIES
 		Core
 		CoreDObject
 		Engine
 		VulkanRHI
+		VulkanRHITestSupport
 		Vulkan::Vulkan
 		ApplicationCore
 		RenderCore

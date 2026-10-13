@@ -1,11 +1,7 @@
 #include "Backend/RHIPipelineStateCacheBackend.h"
 
-#if DURIN_VULKAN_TEST_SUPPORT
-#include "VulkanTestSupport.h"
-#endif
 #include "Backend/RHICreation.h"
 #include "VulkanCreation.h"
-#include "VulkanCreationTiming.h"
 #include "VulkanPipeline.h"
 
 #include "Misc/FileHelper.h"
@@ -25,21 +21,6 @@
 
 namespace Durin::VulkanRHI
 {
-#if DURIN_VULKAN_TEST_SUPPORT
-	namespace
-	{
-		std::atomic<uint64> GDestroyedGraphicsPipelineCount = 0;
-	}
-
-	auto GetVulkanGraphicsPipelineTestStats()
-		-> FVulkanGraphicsPipelineTestStats
-	{
-		return {
-			.DestroyedPipelineCount =
-				GDestroyedGraphicsPipelineCount.load(std::memory_order_acquire),
-		};
-	}
-#endif
 
 	static auto AppendShaderStageCreateInfo(std::vector<vk::PipelineShaderStageCreateInfo>& ShaderStages, vk::ShaderStageFlagBits ShaderStage, const FRHIShader* ShaderRHI) -> void
 	{
@@ -278,9 +259,6 @@ namespace Durin::VulkanRHI
 		// Immutable dependencies and native object creation do not require replay.
 		const auto& Initializer = Inputs.Initializer;
 		const auto& DebugName = Inputs.DebugName;
-#if DURIN_VULKAN_TEST_SUPPORT
-		FVulkanCreationCpuTimingScope PreparationTiming(false);
-#endif
 		checkf(Initializer.RenderTargetLayout.IsValid(), "Graphics pipeline render target layout is invalid.");
 		checkf(Initializer.BoundShaders.VertexShader != nullptr,
 			"Graphics pipeline requires a vertex shader.");
@@ -435,12 +413,7 @@ namespace Durin::VulkanRHI
 		vk::PipelineLayout CandidatePipelineLayout{};
 		vk::Pipeline CandidatePipeline{};
 		CandidatePipelineLayout =
-			[&] {
-#if DURIN_VULKAN_TEST_SUPPORT
-			FVulkanCreationDependencyTimingScope DependencyTiming;
-#endif
-			return Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
-		}();
+			Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
 
 		vk::GraphicsPipelineCreateInfo pipelineInfo;
 		pipelineInfo
@@ -459,15 +432,7 @@ namespace Durin::VulkanRHI
 			.setBasePipelineHandle(nullptr)
 			.setBasePipelineIndex(-1);
 
-#if DURIN_VULKAN_TEST_SUPPORT
-		PreparationTiming.Finish();
-#endif
-		const vk::ResultValue<vk::Pipeline> PipelineCreationResult = [&] {
-#if DURIN_VULKAN_TEST_SUPPORT
-			FVulkanNativeCreationTimingScope NativeTiming;
-#endif
-			return Device.GetPipelineManager().CompileGraphicsPipeline(pipelineInfo);
-		}();
+		const vk::ResultValue<vk::Pipeline> PipelineCreationResult = Device.GetPipelineManager().CompileGraphicsPipeline(pipelineInfo);
 		CandidatePipeline = PipelineCreationResult.value;
 		if (PipelineCreationResult.result != vk::Result::eSuccess)
 		{
@@ -497,9 +462,6 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		check(Pipeline);
 		check(PipelineLayout);
-#if DURIN_VULKAN_TEST_SUPPORT
-		GDestroyedGraphicsPipelineCount.fetch_add(1, std::memory_order_release);
-#endif
 		Device.NotifyDeleted_GraphicsPipeline(this);
 		Device.GetDeferredDeletionQueue().EnqueueResource(
 			FDeferredDeletionQueue::EType::Pipeline, Pipeline);
@@ -535,9 +497,6 @@ namespace Durin::VulkanRHI
 		// Immutable dependencies and native object creation do not require replay.
 		const auto& Initializer = Inputs.Initializer;
 		const auto& DebugName = Inputs.DebugName;
-#if DURIN_VULKAN_TEST_SUPPORT
-		FVulkanCreationCpuTimingScope PreparationTiming(false);
-#endif
 		const auto* Shader = static_cast<const FVulkanShader*>(Initializer.ComputeShader);
 		check(Dependencies.Layout);
 		std::shared_ptr<FVulkanLayout> CandidateLayout = std::move(Dependencies.Layout);
@@ -555,27 +514,14 @@ namespace Durin::VulkanRHI
 		vk::PipelineLayout CandidatePipelineLayout{};
 		vk::Pipeline CandidatePipeline{};
 		CandidatePipelineLayout =
-			[&] {
-#if DURIN_VULKAN_TEST_SUPPORT
-			FVulkanCreationDependencyTimingScope DependencyTiming;
-#endif
-			return Device.GetHandle().createPipelineLayout(PipelineLayoutInfo);
-		}();
+			Device.GetHandle().createPipelineLayout(PipelineLayoutInfo);
 		vk::PipelineShaderStageCreateInfo StageInfo;
 		StageInfo.setStage(vk::ShaderStageFlagBits::eCompute)
 			.setModule(Shader->GetShaderModule())
 			.setPName(Shader->GetEntryPoint());
 		vk::ComputePipelineCreateInfo PipelineInfo;
 		PipelineInfo.setStage(StageInfo).setLayout(CandidatePipelineLayout);
-#if DURIN_VULKAN_TEST_SUPPORT
-		PreparationTiming.Finish();
-#endif
-		const vk::ResultValue<vk::Pipeline> Creation = [&] {
-#if DURIN_VULKAN_TEST_SUPPORT
-			FVulkanNativeCreationTimingScope NativeTiming;
-#endif
-			return Device.GetPipelineManager().CompileComputePipeline(PipelineInfo);
-		}();
+		const vk::ResultValue<vk::Pipeline> Creation = Device.GetPipelineManager().CompileComputePipeline(PipelineInfo);
 		CandidatePipeline = Creation.value;
 		if (Creation.result != vk::Result::eSuccess)
 		{
@@ -636,9 +582,6 @@ namespace Durin::VulkanRHI
 		SaveDriverPipelineCache();
 		GraphicsPipelineMap.clear();
 		ComputePipelineMap.clear();
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanPipelineLayoutEntryCount.fetch_sub(LayoutMap.size(), std::memory_order_release);
-#endif
 		LayoutMap.clear();
 		if (DriverPipelineCache)
 		{
@@ -808,9 +751,6 @@ namespace Durin::VulkanRHI
 	auto FVulkanPipelineManager::AcquireGraphicsDependencies(
 		const FVulkanGraphicsPipelineInputs& Inputs) -> FVulkanPipelineDependencies
 	{
-#if DURIN_VULKAN_TEST_SUPPORT
-		FVulkanCreationDependencyTimingScope DependencyTiming;
-#endif
 		FVulkanPipelineDependencies Result;
 		Result.RenderPass = Device.GetRenderPassManager().GetOrCreateRenderPass(
 			Inputs.Initializer.RenderTargetLayout);
@@ -822,9 +762,6 @@ namespace Durin::VulkanRHI
 	auto FVulkanPipelineManager::AcquireComputeDependencies(
 		const FVulkanComputePipelineInputs& Inputs) -> FVulkanPipelineDependencies
 	{
-#if DURIN_VULKAN_TEST_SUPPORT
-		FVulkanCreationDependencyTimingScope DependencyTiming;
-#endif
 		FVulkanPipelineDependencies Result;
 		Result.Layout = FindOrAddLayout(FVulkanDescriptorSetsLayoutInfo(
 			Inputs.Initializer.PipelineLayout.BindingLayouts));
@@ -870,9 +807,6 @@ namespace Durin::VulkanRHI
 		check(bInserted);
 		++Stats.NativeCreations;
 		Stats.Occupancy = LayoutMap.size();
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanPipelineLayoutEntryCount.fetch_add(1, std::memory_order_release);
-#endif
 		return InsertedIt->second.Layout;
 	}
 
@@ -886,9 +820,6 @@ namespace Durin::VulkanRHI
 				Victim = It;
 		}
 		if (Victim == LayoutMap.end()) return false;
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanPipelineLayoutEntryCount.fetch_sub(1, std::memory_order_release);
-#endif
 		LayoutMap.erase(Victim);
 		auto StatsAccess = Device.AccessPipelineCacheStatistics();
 		auto& Stats = StatsAccess.Get().StructuralLayouts;
@@ -897,14 +828,6 @@ namespace Durin::VulkanRHI
 		return true;
 	}
 
-#if DURIN_VULKAN_TEST_SUPPORT
-	namespace { std::filesystem::path GTestPipelineCachePath; }
-	auto SetVulkanPipelineCachePathForTest(std::filesystem::path Path) -> void
-	{
-		require(!GDynamicRHI);
-		GTestPipelineCachePath = std::move(Path);
-	}
-#endif
 
 	namespace
 	{
@@ -915,9 +838,6 @@ namespace Durin::VulkanRHI
 
 		auto PipelineCachePath() -> std::filesystem::path
 		{
-#if DURIN_VULKAN_TEST_SUPPORT
-			if (!GTestPipelineCachePath.empty()) return GTestPipelineCachePath;
-#endif
 			return std::filesystem::path(FPaths::LaunchSavedDir()) / "Vulkan" / "PipelineCache-v1.bin";
 		}
 
@@ -1067,17 +987,10 @@ namespace Durin::VulkanRHI
 		};
 		Backend.CreateGraphics = [this](const FRHIGraphicsPipelineCreationInputs& Inputs,
 			const FGraphicsPipelineStateKey& Key) -> FGraphicsPipelineStateRHIRef {
-#if DURIN_VULKAN_TEST_SUPPORT
-			FVulkanCreationTimingScope TimingScope(false);
-			if (auto* Timing = TimingScope.Get()) { Timing->bBackground = true; Timing->KeyHash = FGraphicsPipelineStateKeyHasher{}(Key); }
-#endif
 			auto Result = CreateVulkanResource([&]() -> FGraphicsPipelineStateRHIRef {
 				return GetPipelineManager().GetOrCreateGraphicsPipelineState(
 					Inputs.Initializer, Key, Inputs.DebugName);
 			}, "graphics pipeline", Inputs.DebugName);
-#if DURIN_VULKAN_TEST_SUPPORT
-			if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
-#endif
 			return Result;
 		};
 		Backend.FindCompute = [this](const FComputePipelineStateKey& Key) {
@@ -1085,17 +998,10 @@ namespace Durin::VulkanRHI
 		};
 		Backend.CreateCompute = [this](const FRHIComputePipelineCreationInputs& Inputs,
 			const FComputePipelineStateKey& Key) -> FComputePipelineStateRHIRef {
-#if DURIN_VULKAN_TEST_SUPPORT
-			FVulkanCreationTimingScope TimingScope(true);
-			if (auto* Timing = TimingScope.Get()) { Timing->bBackground = true; Timing->KeyHash = FComputePipelineStateKeyHasher{}(Key); }
-#endif
 			auto Result = CreateVulkanResource([&]() -> FComputePipelineStateRHIRef {
 				return GetPipelineManager().GetOrCreateComputePipelineState(
 					Inputs.Initializer, Key, Inputs.DebugName);
 			}, "compute pipeline", Inputs.DebugName);
-#if DURIN_VULKAN_TEST_SUPPORT
-			if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
-#endif
 			return Result;
 		};
 		Backend.PublishTerminalFailure = [](std::exception_ptr) {
@@ -1125,9 +1031,6 @@ namespace Durin::VulkanRHI
 				Name = std::string_view(NameBuffer, Length);
 			}
 			if (!IsPipelineCreationPayloadBounded(Initializer, Name)) return nullptr;
-#if DURIN_VULKAN_TEST_SUPPORT
-			FVulkanCreationTimingScope TimingScope(!Graphics);
-#endif
 			auto ValidationResult = [&] {
 				if constexpr (Graphics) return BuildGraphicsPipelineStateKey(Initializer, RHI.RHIGetCapabilities());
 				else return BuildComputePipelineStateKey(Initializer, RHI.RHIGetCapabilities());
@@ -1145,9 +1048,6 @@ namespace Durin::VulkanRHI
 			}();
 			if (Ready)
 			{
-#if DURIN_VULKAN_TEST_SUPPORT
-				if (auto* Timing = TimingScope.Get()) { Timing->bSucceeded = true; Timing->Scheduled = Timing->BodyStart = Timing->Entry; Timing->BodyEnd = VulkanCreationTimestamp(); }
-#endif
 				return Ready;
 			}
 			TResult Result;
@@ -1172,9 +1072,6 @@ namespace Durin::VulkanRHI
 					else return Manager.GetOrCreateComputePipelineState(Initializer, std::move(Key), Name);
 				}, Kind, Name);
 			}
-#if DURIN_VULKAN_TEST_SUPPORT
-			if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
-#endif
 			return Result;
 		}
 	}

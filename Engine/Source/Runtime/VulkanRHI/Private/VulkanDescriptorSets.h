@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "VulkanRHIAPI.h"
 
 #include "VulkanPlatform.h"
 
@@ -274,23 +275,19 @@ namespace Durin::VulkanRHI
 	class FVulkanGlobalDescriptorPool
 	{
 	public:
-		explicit FVulkanGlobalDescriptorPool(FVulkanDevice& InDevice);
+		VULKANRHI_API explicit FVulkanGlobalDescriptorPool(FVulkanDevice& InDevice);
 
-		~FVulkanGlobalDescriptorPool();
+		VULKANRHI_API ~FVulkanGlobalDescriptorPool();
 
-		auto AllocateDescriptorSets(
+		VULKANRHI_API auto AllocateDescriptorSets(
 			std::span<const vk::DescriptorSetLayout> Layouts,
 			const FVulkanDescriptorRequirements& Requirements
 		) -> std::vector<vk::DescriptorSet>;
 
-		auto PrepareForUse() -> void;
+		VULKANRHI_API auto PrepareForUse() -> void;
 		auto GetAllocationOwner() const -> std::shared_ptr<void> { require(ActiveOwner); return ActiveOwner; }
 		auto GetGeneration() const -> uint64 { return Generation; }
-		auto RetireUsedPools() -> void;
-		auto GetBatchTokensForTesting() const
-			-> std::array<FVulkanCompletionToken, FrameInFlight>;
-		auto IsBatchRetainedForTesting(uint32 Index) const -> bool { return !Batches.at(Index).Owner.expired(); }
-		auto GetActiveBatchIndexForTesting() const -> uint32 { return ActiveBatchIndex; }
+		VULKANRHI_API auto RetireUsedPools() -> void;
 
 	private:
 		struct FPoolBatch

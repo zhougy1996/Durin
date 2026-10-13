@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "VulkanRHIAPI.h"
 
 #include "RHI.h"
 
@@ -28,12 +29,12 @@ namespace Durin::VulkanRHI
 		friend class FVulkanSubmissionCoordinator;
 
 	public:
-		FVulkanPayload(FVulkanQueue& InQueue, FRHIGPUSyncPointRef InSyncPoint);
-		~FVulkanPayload();
+		VULKANRHI_API FVulkanPayload(FVulkanQueue& InQueue, FRHIGPUSyncPointRef InSyncPoint);
+		VULKANRHI_API ~FVulkanPayload();
 		FVulkanPayload(const FVulkanPayload&) = delete;
 		auto operator=(const FVulkanPayload&) -> FVulkanPayload& = delete;
 		auto GetSyncPoint() const -> const FRHIGPUSyncPointRef& { return SyncPoint; }
-		auto AttachSignal(const FRHIGPUSyncPointRef& Signal) -> bool;
+		VULKANRHI_API auto AttachSignal(const FRHIGPUSyncPointRef& Signal) -> bool;
 		auto RetainAllocation(const std::shared_ptr<void>& Owner) -> void
 		{
 			require(Owner);
@@ -70,16 +71,16 @@ namespace Durin::VulkanRHI
 	{
 	public:
 		explicit FVulkanSubmissionCoordinator(FVulkanDevice& InDevice) : Device(InDevice) {}
-		auto EnqueueContext(FVulkanCommandListContext& Context) -> FRHIGPUSyncPointRef;
-		auto DiscardPending() -> void;
-		auto Submit(std::unique_ptr<FVulkanPayload> Payload) -> FRHIGPUSyncPointRef;
-		auto SubmitBatch(std::vector<std::unique_ptr<FVulkanPayload>> Payloads) -> void;
-		auto SubmitContext(FVulkanCommandListContext& Context) -> FRHIGPUSyncPointRef;
-		auto SubmitPendingContexts(FVulkanCommandListContext* CallingContext = nullptr) -> void;
-		auto GetAllocationUses(const std::shared_ptr<void>& Owner) const -> FRHIRetirementPrerequisites;
-		auto WaitForAllocation(const std::weak_ptr<void>& Owner) -> void;
+		VULKANRHI_API auto EnqueueContext(FVulkanCommandListContext& Context) -> FRHIGPUSyncPointRef;
+		VULKANRHI_API auto DiscardPending() -> void;
+		VULKANRHI_API auto Submit(std::unique_ptr<FVulkanPayload> Payload) -> FRHIGPUSyncPointRef;
+		VULKANRHI_API auto SubmitBatch(std::vector<std::unique_ptr<FVulkanPayload>> Payloads) -> void;
+		VULKANRHI_API auto SubmitContext(FVulkanCommandListContext& Context) -> FRHIGPUSyncPointRef;
+		VULKANRHI_API auto SubmitPendingContexts(FVulkanCommandListContext* CallingContext = nullptr) -> void;
+		VULKANRHI_API auto GetAllocationUses(const std::shared_ptr<void>& Owner) const -> FRHIRetirementPrerequisites;
+		VULKANRHI_API auto WaitForAllocation(const std::weak_ptr<void>& Owner) -> void;
 		// Only sealed work is eligible; failure leaves recordings and pending ownership intact.
-		auto TrySubmitPendingAllocation(const std::weak_ptr<void>& Owner, const FRHIGPUSyncPointRef& LatestUse) -> bool;
+		VULKANRHI_API auto TrySubmitPendingAllocation(const std::weak_ptr<void>& Owner, const FRHIGPUSyncPointRef& LatestUse) -> bool;
 	private:
 		auto BuildSubmissionOrder(const std::vector<FVulkanPayload*>& Payloads) -> std::vector<size_t>;
 		auto SubmitNative(std::unique_ptr<FVulkanPayload> Payload) -> void;
@@ -95,12 +96,9 @@ namespace Durin::VulkanRHI
 		explicit FVulkanFrame(FVulkanDevice& Device);
 		~FVulkanFrame() = default;
 
-		auto Prepare() -> void;
+		VULKANRHI_API auto Prepare() -> void;
 
 		auto SetRetirementUses(FRHIRetirementPrerequisites Uses) -> void;
-#if DURIN_VULKAN_TEST_SUPPORT
-		auto GetRetirementUsesForTesting() const -> const FRHIRetirementPrerequisites& { return RetirementUses; }
-#endif
 
 	private:
 		FVulkanDevice& Device;

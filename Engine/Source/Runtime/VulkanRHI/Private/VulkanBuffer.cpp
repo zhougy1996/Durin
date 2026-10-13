@@ -1,5 +1,4 @@
 #include "VulkanCreation.h"
-#include "VulkanCreationTiming.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanBuffer.h"
 
@@ -219,9 +218,6 @@ namespace Durin::VulkanRHI
 		const FRHIBufferCreateDesc& CreateDesc)
 		-> FBufferRHIRef
 	{
-#if DURIN_VULKAN_TEST_SUPPORT
-		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Buffer);
-#endif
 		FRHIBufferCreateDesc NormalizedDesc = CreateDesc;
 		if (EnumHasAnyFlags(NormalizedDesc.Usage, EBufferUsageFlags::Static)
 			|| NormalizedDesc.InitialData.Data != nullptr)
@@ -238,9 +234,6 @@ namespace Durin::VulkanRHI
 		{
 			RHICmdList.WriteBuffer(CreatedBuffer, InitialData.Data, InitialData.Size, 0);
 		}
-#if DURIN_VULKAN_TEST_SUPPORT
-		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
-#endif
 		return Result;
 	}
 

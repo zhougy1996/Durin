@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "VulkanRHIAPI.h"
 
 #include "RHI.h"
 
@@ -28,11 +29,11 @@ namespace Durin::VulkanRHI
 	class FVulkanTexture : public FRHITexture
 	{
 	public:
-		FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc);
+		VULKANRHI_API FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc);
 
-		FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage);
+		VULKANRHI_API FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage);
 
-		~FVulkanTexture() override;
+		VULKANRHI_API ~FVulkanTexture() override;
 
 		auto GetStateTracker() -> FVulkanTextureStateTracker& { return StateTracker; }
 		auto GetStateTracker() const -> const FVulkanTextureStateTracker& { return StateTracker; }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "VulkanRHIAPI.h"
 
 #include "VulkanPlatform.h"
 
@@ -20,11 +21,11 @@ namespace Durin::VulkanRHI
 	class FVulkanCommandBuffer
 	{
 	public:
-		FVulkanCommandBuffer(FVulkanDevice& InDevice, FVulkanCommandBufferPool* InPool);
+		VULKANRHI_API FVulkanCommandBuffer(FVulkanDevice& InDevice, FVulkanCommandBufferPool* InPool);
 
-		~FVulkanCommandBuffer();
+		VULKANRHI_API ~FVulkanCommandBuffer();
 
-		auto Begin() -> void;
+		VULKANRHI_API auto Begin() -> void;
 		auto BindPipeline(vk::PipelineBindPoint BindPoint, vk::Pipeline Pipeline) -> void;
 		auto BindVertexBuffer(uint32 Stream, vk::Buffer Buffer, vk::DeviceSize Offset) -> void;
 		auto BindIndexBuffer(vk::Buffer Buffer, vk::DeviceSize Offset, vk::IndexType Type) -> void;
@@ -103,8 +104,8 @@ namespace Durin::VulkanRHI
 	class FVulkanCommandBufferPool
 	{
 	public:
-		FVulkanCommandBufferPool(FVulkanDevice& InDevice);
-		~FVulkanCommandBufferPool();
+		VULKANRHI_API FVulkanCommandBufferPool(FVulkanDevice& InDevice);
+		VULKANRHI_API ~FVulkanCommandBufferPool();
 
 		auto GetHandle() const -> vk::CommandPool { return Handle; }
 

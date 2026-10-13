@@ -60,3 +60,14 @@ if(APPLE AND DURIN_ENABLE_APPLICATION_TESTS)
 		MACOSX_BUNDLE_GUI_IDENTIFIER "com.durin.tests.application-host"
 	)
 endif()
+
+add_library(VulkanRHITestSupport STATIC EXCLUDE_FROM_ALL
+	Private/VulkanTestSupport.cpp
+)
+durin_target_apply_common_definitions(VulkanRHITestSupport VulkanRHITestSupport)
+target_include_directories(VulkanRHITestSupport PUBLIC
+	"${CMAKE_CURRENT_SOURCE_DIR}/Public"
+	"${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Private"
+)
+target_link_libraries(VulkanRHITestSupport PUBLIC Core RHI RenderCore VulkanRHI Vulkan::Vulkan)
+set_target_properties(VulkanRHITestSupport PROPERTIES FOLDER "Tests/Infrastructure")

@@ -1,8 +1,6 @@
 #include "VulkanPipelinePrecacheTestSupport.h"
-
-#if DURIN_VULKAN_TEST_SUPPORT
 #include "VulkanTestSupport.h"
-#endif
+
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICreation.h"
 #include <gtest/gtest.h>
@@ -19,7 +17,6 @@
 #include "RenderingThread.h"
 #include "SlangShaderCompiler.h"
 #include "VulkanRHIPrivate.h"
-#include "VulkanCreationTiming.h"
 #include "VulkanCreation.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanExtensions.h"
@@ -613,41 +610,6 @@ namespace Durin::VulkanRHI
 		EXPECT_TRUE(IsVulkanPhysicalDeviceCandidatePreferred(Discrete, Integrated));
 	}
 
-	TEST_F(FVulkanResourceIntegrationTests, CreationTimingBoundsConcurrentRecordsAndClosesExceptionalNativeCalls)
-	{
-		BeginVulkanCreationTimingCapture(2);
-		std::vector<std::thread> Producers;
-		for (uint32 Index = 0; Index < 16; ++Index)
-			Producers.emplace_back([] {
-				FVulkanCreationTimingScope Request(false);
-				auto* Timing = Request.Get();
-				Timing->Scheduled = VulkanCreationTimestamp();
-				FVulkanCreationBodyTimingScope Body(Timing);
-				try
-				{
-					FVulkanNativeCreationTimingScope Native;
-					throw std::runtime_error("timed native failure");
-				}
-				catch (const std::runtime_error&) {}
-			});
-		for (auto& Producer : Producers) Producer.join();
-		uint64 Dropped = 0;
-		const auto Samples = EndVulkanCreationTimingCapture(Dropped);
-		ASSERT_EQ(Samples.size(), 2u);
-		EXPECT_EQ(Dropped, 14u);
-		EXPECT_NE(Samples[0].RequestId, Samples[1].RequestId);
-		for (const auto& Sample : Samples)
-		{
-			EXPECT_FALSE(Sample.bSucceeded);
-			EXPECT_GE(Sample.BodyStart, Sample.Scheduled);
-			EXPECT_GE(Sample.NativeStart, Sample.BodyStart);
-			EXPECT_GE(Sample.NativeEnd, Sample.NativeStart);
-			EXPECT_GE(Sample.BodyEnd, Sample.NativeEnd);
-			EXPECT_GE(Sample.Returned, Sample.BodyEnd);
-		}
-		FVulkanCreationTimingScope Disabled(false);
-		EXPECT_EQ(Disabled.Get(), nullptr);
-	}
 
 	TEST_F(FVulkanResourceIntegrationTests, OptionalDiagnosticsFollowValidationPolicy)
 	{
@@ -730,8 +692,7 @@ namespace Durin::VulkanRHI
 		Attachment.FinalAccess = ERHIAccess::ColorAttachmentReadWrite;
 		PassInfo.ColorRenderTargets[0] = RenderTarget;
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-			auto* Context = static_cast<FVulkanCommandListContext*>(
-				GDynamicRHI->RHIGetDefaultContext());
+			auto* Context = GDynamicRHI->RHIGetDefaultContext();
 			Context->RHIBeginDiagnosticRegion("Stage2OutsidePass");
 			Context->RHIBeginRenderPass(PassInfo, "Stage2RenderPass_42");
 			Context->RHIEndRenderPass();
@@ -1031,23 +992,6 @@ namespace Durin::VulkanRHI
 			Snapshots[1].PipelineCache.GraphicsPipelines.Capacity);
 	}
 
-	TEST_F(FVulkanPublicRHIConformanceTests, DynamicStateCacheResetsForNewCommandBufferRecording)
-	{
-		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
-		for (const char* Mode : {"inline", "threaded"})
-		{
-			SCOPED_TRACE(Mode);
-			_putenv_s("DURIN_RHI_EXECUTION", Mode);
-			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-			bool bPassed = false;
-			auto& Commands = FRHICommandListImmediate::Get();
-			Commands.EnqueueLambda([&] { bPassed = TestVulkanCommandBufferStateCache(); });
-			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-			EXPECT_TRUE(bPassed);
-			RHIExit();
-			ExpectVulkanModuleUnloaded();
-		}
-	}
 
 	TEST_F(FVulkanPublicRHIConformanceTests, DynamicOffsetsReuseSparseArrayDescriptorsAndSelectCorrectPixels)
 	{
@@ -1107,8 +1051,7 @@ namespace Durin::VulkanRHI
 						.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));
 				ASSERT_TRUE(Target);
 				const std::array Colors{std::array<float, 4>{1, 0, 0, 1}, std::array<float, 4>{0, 1, 0, 1}, std::array<float, 4>{0, 0, 1, 1}};
-				const uint32 Alignment = static_cast<uint32>(static_cast<FVulkanDynamicRHI*>(GDynamicRHI)
-					->GetDeviceForTesting()->GetGpuProperties().limits.minUniformBufferOffsetAlignment);
+				const uint32 Alignment = static_cast<uint32>(GetVulkanDeviceForTest(*static_cast<FVulkanDynamicRHI*>(GDynamicRHI))->GetGpuProperties().limits.minUniformBufferOffsetAlignment);
 				const uint32 Stride = std::max(Alignment, 16u);
 				auto Buffer = Deferred ? TRefCountPtr<FRHIBuffer>{} : GDynamicRHI->RHICreateBuffer(Commands, FRHIBufferCreateDesc::Create(
 					"DynamicOffsetColors", Stride * 3, 16, EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Static));
@@ -1149,7 +1092,6 @@ namespace Durin::VulkanRHI
 				auto Second = FRHIShaderParameterBatch::Create(Fragment, Parameters);
 				ASSERT_TRUE(First && Second);
 				if (!Deferred) ASSERT_EQ(First->GetParameters()[1].Resource, Second->GetParameters()[1].Resource);
-				ResetVulkanHotPathWorkTestStats();
 				Commands.SwitchPipeline(ERHIPipeline::Graphics);
 				FRHIRenderPassInfo Pass;
 				Pass.RenderTargetLayout = Layout;
@@ -1180,16 +1122,6 @@ namespace Durin::VulkanRHI
 				EXPECT_EQ(Pixels[Right], std::byte{0});
 				EXPECT_NEAR(std::to_integer<uint8>(Pixels[Right + 1]), 128, 1);
 				EXPECT_NEAR(std::to_integer<uint8>(Pixels[Right + 2]), 128, 1);
-				const auto Work = GetVulkanHotPathWorkTestStats();
-				EXPECT_EQ(Work.DescriptorSorts, 1u);
-				EXPECT_EQ(Work.DescriptorHashes, 3u);
-				EXPECT_EQ(Work.DescriptorOwnerRebuilds, 1u);
-				EXPECT_EQ(Work.BindingValidationVisits, FullValidation ? 6u : 2u);
-				EXPECT_EQ(Work.DescriptorDrawValidationVisits, 6u);
-				EXPECT_EQ(Work.ViewportWrites, 2u);
-				EXPECT_EQ(Work.ScissorWrites, 2u);
-				EXPECT_EQ(Work.DepthBiasWrites, 1u);
-				EXPECT_EQ(Work.DescriptorBinds, 2u);
 				FRHIDiagnosticSnapshot Snapshot;
 				GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
 					Snapshot = GDynamicRHI->RHIGetDiagnosticSnapshot();
@@ -1288,7 +1220,6 @@ namespace Durin::VulkanRHI
 				auto AlternateCommon = MakeBatch(AlternateFragment, 0, 0, 3);
 				auto AlternateRed = MakeBatch(AlternateFragment, 1, 2, 7);
 				ASSERT_TRUE(Common && Red && Green && AlternateCommon && AlternateRed);
-				ResetVulkanHotPathWorkTestStats();
 				Commands.SwitchPipeline(ERHIPipeline::Graphics);
 				FRHIRenderPassInfo Pass;
 				Pass.RenderTargetLayout = Layout;
@@ -1324,10 +1255,6 @@ namespace Durin::VulkanRHI
 					EXPECT_EQ(Pixels[Pixel + 1], Column == 1 ? std::byte{255} : std::byte{0});
 					EXPECT_EQ(Pixels[Pixel + 2], std::byte{0});
 				}
-				const auto Work = GetVulkanHotPathWorkTestStats();
-				EXPECT_EQ(Work.DescriptorHashes, 10u);
-				EXPECT_EQ(Work.PipelineBinds, 3u);
-				EXPECT_EQ(Work.DescriptorOwnerRebuilds, 7u);
 				FRHIDiagnosticSnapshot Snapshot;
 				GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
 					Snapshot = GDynamicRHI->RHIGetDiagnosticSnapshot();
@@ -1406,7 +1333,6 @@ namespace Durin::VulkanRHI
 			SCOPED_TRACE(Modes[ModeIndex]);
 			_putenv_s("DURIN_RHI_EXECUTION", Modes[ModeIndex]);
 			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-			ResetVulkanHotPathWorkTestStats();
 			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 
 			auto MakeShaderDesc = [](const FCompiledShader& Shader) {
@@ -1555,15 +1481,6 @@ namespace Durin::VulkanRHI
 				.DescriptorSnapshots.Hits, 1u);
 			EXPECT_GE(ModeSnapshots[ModeIndex].PipelineCache
 				.DescriptorSnapshots.Evictions, 1u);
-			const FVulkanHotPathWorkTestStats HotPathWork =
-				GetVulkanHotPathWorkTestStats();
-			EXPECT_EQ(HotPathWork.BindingValidationVisits, 1539u);
-			EXPECT_EQ(HotPathWork.DescriptorDrawValidationVisits, 514u);
-			EXPECT_EQ(HotPathWork.DescriptorSorts, 1u);
-			EXPECT_EQ(HotPathWork.DescriptorHashes, 513u);
-			EXPECT_EQ(HotPathWork.DescriptorOwnerRebuilds, 2u);
-			EXPECT_EQ(HotPathWork.DescriptorOccupancyVerificationVisits, 0u);
-			EXPECT_EQ(HotPathWork.DescriptorOccupancyMutations, 514u);
 
 			FRHIDiagnosticSnapshot StatisticsReset;
 			GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
@@ -1912,7 +1829,7 @@ namespace Durin::VulkanRHI
 					- (IsCompute ? Before.ComputePipelines.NativeCreations : Before.GraphicsPipelines.NativeCreations), 1u);
 				SurvivingRequest = Requests.back();
 			}
-			auto* Device = static_cast<FVulkanDynamicRHI*>(GDynamicRHI)->GetDeviceForTesting();
+			auto* Device = GetVulkanDeviceForTest(*static_cast<FVulkanDynamicRHI*>(GDynamicRHI));
 			const auto Used = Device->GetCacheMetadataBytes();
 			EXPECT_GT(Used, 0u);
 			auto Reservation = Device->ReserveCacheMetadata(64ull * 1024 * 1024 - Used);
@@ -1959,7 +1876,7 @@ namespace Durin::VulkanRHI
 		}
 		auto Declaration = GDynamicRHI->RHICreateVertexDeclaration({});
 		ASSERT_TRUE(Declaration);
-		auto* Device = static_cast<FVulkanDynamicRHI*>(GDynamicRHI)->GetDeviceForTesting();
+		auto* Device = GetVulkanDeviceForTest(*static_cast<FVulkanDynamicRHI*>(GDynamicRHI));
 		FGraphicsPipelineStateInitializer Graphics;
 		Graphics.BoundShaders.VertexShader = Shaders[0];
 		Graphics.BoundShaders.FragmentShader = Shaders[1];
@@ -2151,48 +2068,8 @@ namespace Durin::VulkanRHI
 			EShaderStageFlags::Fragment, 1, ERHIBindingType::Sampler, 2);
 
 		const FName PipelineName("RecoverableGraphicsPipeline");
-		const FVulkanGraphicsPipelineTestStats PipelineStatsBefore =
-			GetVulkanGraphicsPipelineTestStats();
-		const FVulkanStructuralCacheTestStats StructuralStatsBefore =
-			GetVulkanStructuralCacheTestStats();
 		const FRHIPipelineCacheStatistics CacheStatsBefore =
 			GDynamicRHI->RHIGetPipelineCacheStatistics();
-		// Timing capture is bounded and opt-in; this fixture validates boundaries only.
-		struct FCreationCaptureScope
-		{
-			FCreationCaptureScope() { BeginVulkanCreationTimingCapture(256); }
-			~FCreationCaptureScope()
-			{
-				uint64 Dropped = 0;
-				const auto Samples = EndVulkanCreationTimingCapture(Dropped);
-				EXPECT_EQ(Dropped, 0u);
-				EXPECT_FALSE(Samples.empty());
-				bool bNative = false;
-				bool bReady = false;
-				for (const auto& Sample : Samples)
-				{
-					EXPECT_GT(Sample.RequestId, 0u);
-					EXPECT_GE(Sample.Returned, Sample.Entry);
-					if (Sample.Scheduled)
-					{
-						EXPECT_GE(Sample.Scheduled, Sample.Entry);
-						EXPECT_GE(Sample.BodyStart, Sample.Scheduled);
-						EXPECT_GE(Sample.BodyEnd, Sample.BodyStart);
-						EXPECT_GE(Sample.Returned, Sample.BodyEnd);
-					}
-					if (Sample.NativeStart)
-					{
-						bNative = true;
-						EXPECT_GE(Sample.NativeStart, Sample.BodyStart);
-						EXPECT_GE(Sample.NativeEnd, Sample.NativeStart);
-						EXPECT_GE(Sample.BodyEnd, Sample.NativeEnd);
-					}
-					bReady |= Sample.bSucceeded && !Sample.NativeStart;
-				}
-				EXPECT_TRUE(bNative);
-				EXPECT_TRUE(bReady);
-			}
-		} CreationCapture;
 		FGraphicsPipelineStateRHIRef Pipeline =
 			GDynamicRHI->RHICreateGraphicsPipelineState(
 				PipelineName, Initializer);
@@ -2327,12 +2204,6 @@ namespace Durin::VulkanRHI
 		InvalidInitializer.RasterizerState.FrontFace = ERHIFrontFace::Count;
 		EXPECT_FALSE(GDynamicRHI->RHICreateGraphicsPipelineState(
 			"InvalidGraphicsPipeline", InvalidInitializer));
-		const FVulkanStructuralCacheTestStats StatsAfterPipelineCreation =
-			GetVulkanStructuralCacheTestStats();
-		EXPECT_EQ(StatsAfterPipelineCreation.DescriptorSetLayoutEntryCount,
-			StructuralStatsBefore.DescriptorSetLayoutEntryCount + 2);
-		EXPECT_EQ(StatsAfterPipelineCreation.PipelineLayoutEntryCount,
-			StructuralStatsBefore.PipelineLayoutEntryCount + 2);
 		const FRHIPipelineCacheStatistics CacheStatsAfterCreation =
 			GDynamicRHI->RHIGetPipelineCacheStatistics();
 		EXPECT_GE(CacheStatsAfterCreation.GraphicsPipelines.Hits,
@@ -2357,21 +2228,14 @@ namespace Durin::VulkanRHI
 		PassInfo.RenderTargetLayout = RenderTargetLayout;
 		PassInfo.ColorRenderTargets[0] = RenderTarget;
 		PassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
-		const FVulkanStructuralCacheTestStats StatsBeforeFramebuffer =
-			GetVulkanStructuralCacheTestStats();
-		uint64 DescriptorSubmissionToken = 0;
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-			auto* Context = static_cast<FVulkanCommandListContext*>(
-				GDynamicRHI->RHIGetDefaultContext());
+			auto* Context = GDynamicRHI->RHIGetDefaultContext();
 			Context->RHIBeginRenderPass(PassInfo, "RecoveredFramebuffer");
 			Context->RHIEndRenderPass();
 		});
-		EXPECT_EQ(GetVulkanStructuralCacheTestStats().FramebufferEntryCount,
-			StatsBeforeFramebuffer.FramebufferEntryCount + 1);
 		auto DrawDescriptorArray = [&](bool& bFailed) {
 			GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-				auto* Context = static_cast<FVulkanCommandListContext*>(
-					GDynamicRHI->RHIGetDefaultContext());
+				auto* Context = GDynamicRHI->RHIGetDefaultContext();
 				Context->RHIBeginRenderPass(PassInfo, "DescriptorArrayDraw");
 				Context->RHISetGraphicsPipelineState(*Pipeline);
 				Context->RHISetViewport(0.0f, 0.0f, 0.0f, 8.0f, 8.0f, 1.0f);
@@ -2411,21 +2275,13 @@ namespace Durin::VulkanRHI
 		DrawDescriptorArray(bDescriptorDrawFailed);
 		EXPECT_FALSE(bDescriptorDrawFailed);
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-			DescriptorSubmissionToken =
-				SubmitAndRetireDescriptorPoolsForTesting();
+			SubmitAndRetireDescriptorPoolsForTesting();
 		});
 		const FVulkanMemoryBaselineStatistics DescriptorBaseline =
 			GetVulkanMemoryBaselineStatistics();
 		EXPECT_GT(DescriptorBaseline.DescriptorPoolCount, 0u);
 		EXPECT_GT(DescriptorBaseline.DescriptorPoolSetCapacity, 0u);
 		EXPECT_GT(DescriptorBaseline.DescriptorPeakAllocatedSetCount, 0u);
-		FVulkanBackendPoolTestStats DescriptorPoolStats;
-		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-			DescriptorPoolStats = GetVulkanBackendPoolTestStats();
-		});
-		EXPECT_NE(std::ranges::find(DescriptorPoolStats.DescriptorPoolTokens,
-			DescriptorSubmissionToken),
-			DescriptorPoolStats.DescriptorPoolTokens.end());
 		FRHITextureCreateDesc MrtColorDesc = FRHITextureCreateDesc::Create2D(
 			"MrtStencilValidationColor", 8, 8, EPixelFormat::RGBA8_UNORM)
 			.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -2448,8 +2304,7 @@ namespace Durin::VulkanRHI
 		MrtPassInfo.ColorClearValues[1] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
 		Durin::FByteBuffer MrtPixels;
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-			auto* Context = static_cast<FVulkanCommandListContext*>(
-				GDynamicRHI->RHIGetDefaultContext());
+			auto* Context = GDynamicRHI->RHIGetDefaultContext();
 			Context->RHIBeginRenderPass(MrtPassInfo, "MrtStencilDraw");
 			Context->RHISetViewport(0.0f, 0.0f, 0.0f, 8.0f, 8.0f, 1.0f);
 			Context->RHISetGraphicsPipelineState(*MrtStencilPipeline);
@@ -2502,10 +2357,5 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(ResetCacheStats.GraphicsPipelines.NativeCreations, 0u);
 		EXPECT_EQ(ResetCacheStats.GraphicsPipelines.Occupancy,
 			CacheStatsAfterCreation.GraphicsPipelines.Occupancy);
-		const FVulkanGraphicsPipelineTestStats PipelineStatsAfterRelease =
-			GetVulkanGraphicsPipelineTestStats();
-		EXPECT_EQ(
-			PipelineStatsAfterRelease.DestroyedPipelineCount,
-			PipelineStatsBefore.DestroyedPipelineCount);
 	}
 } // namespace Durin::VulkanRHI

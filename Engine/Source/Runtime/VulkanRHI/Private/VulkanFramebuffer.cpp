@@ -1,8 +1,5 @@
 #include "VulkanFramebuffer.h"
 
-#if DURIN_VULKAN_TEST_SUPPORT
-#include "VulkanTestSupport.h"
-#endif
 
 #include "RHIResources.h"
 #include "VulkanDevice.h"
@@ -78,9 +75,6 @@ namespace Durin::VulkanRHI
 		Framebuffer = Device.GetHandle().createFramebuffer(CreateInfo);
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(Framebuffer,
 			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("Framebuffer"); });
-		#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanCreatedFramebufferCount.fetch_add(1, std::memory_order_release);
-		#endif
 	}
 
 	FVulkanFramebuffer::~FVulkanFramebuffer()
@@ -88,9 +82,6 @@ namespace Durin::VulkanRHI
 		if (Framebuffer)
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Framebuffer, Framebuffer);
-		#if DURIN_VULKAN_TEST_SUPPORT
-			GVulkanReleasedFramebufferCount.fetch_add(1, std::memory_order_release);
-		#endif
 		}
 	}
 

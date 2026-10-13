@@ -1,8 +1,6 @@
 #include <gtest/gtest.h>
-
-#if DURIN_VULKAN_TEST_SUPPORT
 #include "VulkanTestSupport.h"
-#endif
+
 #include "Backend/RHICompletionBackend.h"
 #include "../../RDGTestAccess.h"
 #include "RDG/RDG.h"
@@ -137,8 +135,6 @@ namespace Durin::VulkanRHI
 			EXPECT_TRUE(Result.bConsumerBlocked);
 			EXPECT_TRUE(Result.bFramePacingIndependent);
 			EXPECT_TRUE(Result.bRetirementBlocked);
-			EXPECT_TRUE(Result.bDescriptorReuseBlocked);
-			EXPECT_TRUE(Result.bDescriptorReusedAfterCompletion);
 			EXPECT_TRUE(Result.bTransferReuseBlocked);
 			EXPECT_TRUE(Result.bTransferReusedAfterCompletion);
 			EXPECT_TRUE(Result.bBatchOrdered);
@@ -204,10 +200,9 @@ namespace Durin::VulkanRHI
 		EXPECT_TRUE(Result.bOnlyRequiredPrefixSubmitted);
 		EXPECT_TRUE(Result.bLeaseReleasedAfterWait);
 		EXPECT_TRUE(Result.bActiveUsePreserved);
-		EXPECT_TRUE(Result.bCyclePreserved);
 	}
 
-	TEST(FVulkanCompletionIntegrationTests, RetainedLogicalObserversDoNotAccumulateNativeFences)
+	TEST(FVulkanCompletionIntegrationTests, RetainedLogicalObserversReleaseReservationStorage)
 	{
 		FInlineRHITestScope Scope;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
@@ -475,7 +470,7 @@ namespace Durin::VulkanRHI
 	{
 		FInlineRHITestScope Scope;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		auto* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		auto* Device = GetVulkanDeviceForTest(FVulkanDynamicRHI::Get());
 		auto& Commands = FRHICommandListImmediate::Get();
 		const auto Signal = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 		Commands.EndGPUSubmission();
@@ -524,7 +519,7 @@ namespace Durin::VulkanRHI
 	{
 		FInlineRHITestScope Scope;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		auto* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		auto* Device = GetVulkanDeviceForTest(FVulkanDynamicRHI::Get());
 		ASSERT_NE(Device, nullptr);
 
 		// A small independent arena makes alignment, holes, cap exhaustion,

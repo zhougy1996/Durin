@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "VulkanRHIAPI.h"
 
 #include "RHI.h"
 
@@ -18,10 +19,10 @@ namespace Durin::VulkanRHI
 	class FVulkanQueueTransfer final : public FRHIQueueTransfer
 	{
 	public:
-		FVulkanQueueTransfer(FVulkanDevice& Device, FRHIQueueId Source, FRHIQueueId Destination,
+		VULKANRHI_API FVulkanQueueTransfer(FVulkanDevice& Device, FRHIQueueId Source, FRHIQueueId Destination,
 			std::span<const FRHIBufferTransition> Buffers, std::span<const FRHITextureTransition> Textures,
 			bool bUseSynchronization2 = true);
-		~FVulkanQueueTransfer() override;
+		VULKANRHI_API ~FVulkanQueueTransfer() override;
 		auto RecordRelease(FVulkanQueue& Queue, vk::CommandBuffer Commands,
 			const FRHIGPUSyncPointRef& SyncPoint) -> void;
 		auto RecordAcquire(FVulkanQueue& Queue, vk::CommandBuffer Commands) -> void;

@@ -1,8 +1,6 @@
 #include <gtest/gtest.h>
-
-#if DURIN_VULKAN_TEST_SUPPORT
 #include "VulkanTestSupport.h"
-#endif
+
 #include "Backend/RHICompletionBackend.h"
 #include "../../RDGTestAccess.h"
 #include "RDG/RDG.h"
@@ -901,7 +899,7 @@ namespace Durin
 		ASSERT_TRUE(UniformView && StorageView);
 		auto* Vulkan = static_cast<VulkanRHI::FVulkanDynamicRHI*>(GDynamicRHI);
 		static_cast<VulkanRHI::IVulkanDynamicRHI*>(Vulkan)->RHIExecuteCommandBufferForBackendIntegration([&](vk::CommandBuffer) {
-			auto* Context = static_cast<IRHICommandContext*>(Vulkan->GetDeviceForTesting()->GetImmediateContext());
+			auto* Context = static_cast<IRHICommandContext*>(VulkanRHI::GetVulkanDeviceForTest(*Vulkan)->GetImmediateContext());
 			Context->RHISetComputePipelineState(*Pipeline);
 			const std::array Parameters{
 				FRHIShaderParameterResource{.Resource = UniformView.GetReference(),
@@ -1597,13 +1595,11 @@ namespace Durin
 				Commands.SetShaderParameters(SecondShader, Parameters);
 				// Repeat the same bindings after pool retirement without relying on
 				// BeginFrame to clear the compute cache. Constants/state must survive.
-#if DURIN_VULKAN_TEST_SUPPORT
 				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
 				GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
 					VulkanRHI::SubmitAndRetireDescriptorPoolsForTesting();
 					VulkanRHI::WaitForAllVulkanSubmissionsForTesting();
 				});
-#endif
 				Commands.Dispatch(4, 1, 1);
 				Commands.SwitchPipeline(ERHIPipeline::None);
 				Commands.TransitionTextures(std::array{FRHITextureTransition{
@@ -1666,8 +1662,6 @@ namespace Durin
 			EXPECT_GE(Stats.ComputePipelines.NativeCreations, 1u);
 			EXPECT_GE(Stats.ComputePipelines.Hits, 1u);
 			EXPECT_GE(Stats.DescriptorSnapshots.Hits, 1u);
-#if DURIN_VULKAN_TEST_SUPPORT
-#endif
 		}
 	}
 

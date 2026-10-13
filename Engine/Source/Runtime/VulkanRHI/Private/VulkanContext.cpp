@@ -1,8 +1,5 @@
 #include "VulkanContext.h"
 
-#if DURIN_VULKAN_TEST_SUPPORT
-#include "VulkanTestSupport.h"
-#endif
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICompletionBackend.h"
 
@@ -701,12 +698,7 @@ namespace Durin::VulkanRHI
 		const FRHICapabilities* Capabilities = RHI->RHIGetCapabilities();
 		check(Capabilities);
 		const bool bUseSynchronization2 =
-#if DURIN_VULKAN_TEST_SUPPORT
-			SelectVulkanSynchronization2BarrierPath(
-				Capabilities->bSupportsSynchronization2);
-#else
 			Capabilities->bSupportsSynchronization2;
-#endif
 		if (bUseSynchronization2)
 		{
 			std::vector<vk::BufferMemoryBarrier2> Barriers;
@@ -729,9 +721,6 @@ namespace Durin::VulkanRHI
 					.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
 					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 					.setBuffer(Buffer->GetHandle()).setOffset(Transition.Offset).setSize(Transition.Size));
-#if DURIN_VULKAN_TEST_SUPPORT
-				GVulkanSync2BufferBarrierCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 			}
 			CommandBuffer.pipelineBarrier2(vk::DependencyInfo().setBufferMemoryBarriers(Barriers));
 		}
@@ -758,9 +747,6 @@ namespace Durin::VulkanRHI
 					.setSrcAccessMask(Source.LegacyAccessMask).setDstAccessMask(Destination.LegacyAccessMask)
 					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 					.setBuffer(Buffer->GetHandle()).setOffset(Transition.Offset).setSize(Transition.Size));
-#if DURIN_VULKAN_TEST_SUPPORT
-				GVulkanLegacyBufferBarrierCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 				SourceStages |= Source.LegacyStageMask;
 				DestinationStages |= Destination.LegacyStageMask;
 			}
@@ -788,12 +774,7 @@ namespace Durin::VulkanRHI
 		const FRHICapabilities* Capabilities = RHI->RHIGetCapabilities();
 		check(Capabilities);
 		const bool bUseSynchronization2 =
-#if DURIN_VULKAN_TEST_SUPPORT
-			SelectVulkanSynchronization2BarrierPath(
-				Capabilities->bSupportsSynchronization2);
-#else
 			Capabilities->bSupportsSynchronization2;
-#endif
 		if (bUseSynchronization2)
 		{
 			std::vector<vk::ImageMemoryBarrier2> Barriers;
@@ -822,9 +803,6 @@ namespace Durin::VulkanRHI
 					.setOldLayout(Source.Layout).setNewLayout(Destination.Layout)
 					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 					.setImage(Texture->Image).setSubresourceRange(Range));
-#if DURIN_VULKAN_TEST_SUPPORT
-				GVulkanSync2ImageBarrierCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 			}
 			CommandBuffer.pipelineBarrier2(vk::DependencyInfo().setImageMemoryBarriers(Barriers));
 		}
@@ -857,9 +835,6 @@ namespace Durin::VulkanRHI
 					.setOldLayout(Source.Layout).setNewLayout(Destination.Layout)
 					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 					.setImage(Texture->Image).setSubresourceRange(Range));
-#if DURIN_VULKAN_TEST_SUPPORT
-				GVulkanLegacyImageBarrierCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 				SourceStages |= Source.LegacyStageMask;
 				DestinationStages |= Destination.LegacyStageMask;
 			}

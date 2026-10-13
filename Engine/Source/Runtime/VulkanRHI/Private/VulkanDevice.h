@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "VulkanRHIAPI.h"
 
 #include "RHI.h"
 
@@ -140,7 +141,7 @@ namespace Durin::VulkanRHI
 			EnqueueAllocatedResource(Type, reinterpret_cast<uint64>(RawHandle), Allocation);
 		}
 
-		auto ReleaseResources(bool bDeleteImmediately = false) -> void;
+		VULKANRHI_API auto ReleaseResources(bool bDeleteImmediately = false) -> void;
 
 		// Called from the game thread to clear the queue,
 		// Should only be called when the device is being destroyed at which point the render thread should have already been shut down and all resources should be safe to delete immediately.
@@ -186,9 +187,9 @@ namespace Durin::VulkanRHI
 
 		auto SetupPresentQueue(vk::SurfaceKHR InSurface) -> bool;
 
-		auto WaitUtilIdle() const -> void;
+		VULKANRHI_API auto WaitUtilIdle() const -> void;
 
-		auto GetHandle() const -> vk::Device;
+		VULKANRHI_API auto GetHandle() const -> vk::Device;
 		auto GetRHI() const -> FVulkanDynamicRHI& { return *RHI; }
 		auto GetPipelineStateCache() -> FRHIPipelineStateCache*;
 		auto StopPipelineCreation() -> void;
@@ -196,7 +197,7 @@ namespace Durin::VulkanRHI
 		auto IsPipelineCreationClosed() const -> bool;
 		auto GetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics;
 
-		auto GetGpu() const -> vk::PhysicalDevice;
+		VULKANRHI_API auto GetGpu() const -> vk::PhysicalDevice;
 
 		auto GetGpuProperties() const -> const vk::PhysicalDeviceProperties& { return GpuProps; }
 		auto GetQueueFamilyProperties(uint32 FamilyIndex) const
@@ -209,7 +210,7 @@ namespace Durin::VulkanRHI
 		auto GetRenderPassManager() const -> FVulkanRenderPassManager&;
 
 		auto GetImmediateContext() const -> FVulkanCommandListContext* { return ImmediateContext; }
-		auto GetQueueContext(FRHIQueueId Id) const -> FVulkanCommandListContext*;
+		VULKANRHI_API auto GetQueueContext(FRHIQueueId Id) const -> FVulkanCommandListContext*;
 
 		auto GetPresentQueue() const -> FVulkanQueue* { return PresentQueue; }
 
@@ -222,17 +223,17 @@ namespace Durin::VulkanRHI
 		auto GetQueueCapabilities() const -> const FRHIQueueCapabilities& { return QueueCapabilities; }
 		auto GetDeviceGeneration() const -> uint64 { return DeviceGeneration; }
 		auto FindQueue(FRHIQueueId Id) const -> FVulkanQueue*;
-		auto PollQueues() const -> void;
+		VULKANRHI_API auto PollQueues() const -> void;
 		auto WaitForUses(const FRHIRetirementPrerequisites& Uses) const -> void;
 		auto GetSubmissionCoordinator() const -> FVulkanSubmissionCoordinator& { return *SubmissionCoordinator; }
 		// Conservative native-deletion floor; payload ownership retains exact users.
-		auto GetLastReservedUses() const -> FRHIRetirementPrerequisites;
+		VULKANRHI_API auto GetLastReservedUses() const -> FRHIRetirementPrerequisites;
 
 		auto GetMemoryManager() -> FVulkanMemoryManager& { return MemoryManager; }
 
 		auto GetFenceManager() -> FVulkanFenceManager& { return FenceManager; }
 		// Graphics-only compatibility path for consumers not yet migrated to use sets.
-		auto GetCompletionTracker() const -> FVulkanCompletionTracker&;
+		VULKANRHI_API auto GetCompletionTracker() const -> FVulkanCompletionTracker&;
 		auto GetUploadArena() -> FVulkanTransferArena& { return *UploadArena; }
 		auto GetUniformBufferPool() -> FVulkanUniformBufferPool&
 		{ return *UniformBufferPool; }
@@ -247,7 +248,7 @@ namespace Durin::VulkanRHI
 
 		auto GetDeferredDeletionQueue() -> FDeferredDeletionQueue& { return DeferredDeletionQueue; }
 
-		auto GetCurrentFrame() -> FVulkanFrame&;
+		VULKANRHI_API auto GetCurrentFrame() -> FVulkanFrame&;
 		auto SetCurrentFrameIndex(uint32 FrameIndex) -> void;
 		auto GetCurrentFrameIndex() const -> uint32;
 		auto GetPipelineCacheStatistics() const -> FRHIPipelineCacheStatistics

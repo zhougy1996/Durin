@@ -1,8 +1,5 @@
 #include "VulkanUniformBufferPool.h"
 
-#if DURIN_VULKAN_TEST_SUPPORT
-#include "VulkanTestSupport.h"
-#endif
 #include "RHIBufferUploadData.h"
 #include "VulkanDevice.h"
 #include "VulkanDiagnostics.h"
@@ -59,29 +56,6 @@ namespace Durin::VulkanRHI
 		return Result;
 	}
 
-	auto TestVulkanUniformBufferAdmission() -> bool
-	{
-		constexpr uint64 PageSize = 4ull * 1024 * 1024;
-		auto Admission = std::make_shared<FVulkanUniformBufferAdmission>(256);
-		auto A = Admission->Reserve(1), B = Admission->Reserve(1), Tail = Admission->Reserve(PageSize - 512);
-		if (!A || !B || !Tail) return false;
-		if (A->Slot.Offset != 0 || B->Slot.Offset != 256
-			|| Tail->Slot.Offset != 512) return false;
-		// Fragmented pages grow without waiting; released adjacent intervals are reused.
-		B.reset();
-		auto Grown = Admission->Reserve(512);
-		if (!Grown || Grown->Slot.Page == A->Slot.Page) return false;
-		A.reset();
-		auto Reused = Admission->Reserve(512);
-		if (!Reused || Reused->Slot.Offset != 0) return false;
-		Reused.reset(); Tail.reset();
-		std::vector<std::shared_ptr<FVulkanUniformBufferAdmission::FReservation>> Concurrent(16);
-		std::vector<std::thread> Threads;
-		for (size_t Index = 0; Index < Concurrent.size(); ++Index)
-			Threads.emplace_back([&, Index] { Concurrent[Index] = Admission->Reserve(PageSize / 8); });
-		for (auto& Thread : Threads) Thread.join();
-		return std::ranges::count_if(Concurrent, [](const auto& Item) { return bool(Item); }) == 16;
-	}
 
 	FVulkanUniformBufferPool::FVulkanUniformBufferPool(FVulkanDevice& InDevice)
 		: Device(InDevice)
@@ -115,10 +89,4 @@ namespace Durin::VulkanRHI
 		return {Buffer, Slot.Offset};
 	}
 
-	auto ReserveVulkanUniformBufferBackingForTest(uint32 Size) -> std::shared_ptr<void>
-	{
-		auto* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
-		require(Device);
-		return Device->GetUniformBufferPool().Reserve(Size);
-	}
 }

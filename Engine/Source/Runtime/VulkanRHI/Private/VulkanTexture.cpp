@@ -2,7 +2,6 @@
 
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICreation.h"
-#include "VulkanCreationTiming.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanTexture.h"
 #include "VulkanSubmission.h"
@@ -205,12 +204,7 @@ namespace Durin::VulkanRHI
 			.setBorderColor(ToVulkan_SamplerBorderColor(InDesc.BorderColor))
 			.setUnnormalizedCoordinates(InDesc.bUnnormalizedCoordinates);
 
-		Sampler = [&] {
-#if DURIN_VULKAN_TEST_SUPPORT
-			FVulkanNativeCreationTimingScope NativeTiming;
-#endif
-			return Device.GetHandle().createSampler(SamplerInfo);
-		}();
+		Sampler = Device.GetHandle().createSampler(SamplerInfo);
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(Sampler,
 			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("Sampler"); });
 	}
@@ -229,9 +223,6 @@ namespace Durin::VulkanRHI
 		const FRHITextureCreateDesc& CreateDesc)
 		-> FTextureRHIRef
 	{
-#if DURIN_VULKAN_TEST_SUPPORT
-		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Texture);
-#endif
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureCreateDesc(CreateDesc);
 		checkf(ValidationResult,
@@ -252,9 +243,6 @@ namespace Durin::VulkanRHI
 		{
 			RHICmdList.InitializeTexture(Texture.GetReference());
 		}
-#if DURIN_VULKAN_TEST_SUPPORT
-		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Texture;
-#endif
 		return Texture;
 	}
 
@@ -358,15 +346,9 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler>
 	{
-#if DURIN_VULKAN_TEST_SUPPORT
-		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Sampler);
-#endif
 		auto Result = CreateVulkanResource([&]() -> TRefCountPtr<FRHISampler> {
 			return new FVulkanSampler(*Device, CreateDesc);
 		}, "sampler");
-#if DURIN_VULKAN_TEST_SUPPORT
-		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
-#endif
 		return Result;
 	}
 
@@ -375,9 +357,6 @@ namespace Durin::VulkanRHI
 		const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
 	{
 
-#if DURIN_VULKAN_TEST_SUPPORT
-		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::BufferView);
-#endif
 		const auto ValidationResult = ValidateBufferViewDesc(Buffer, Desc);
 		if (!ValidationResult)
 		{
@@ -398,9 +377,6 @@ namespace Durin::VulkanRHI
 		auto Result = CreateVulkanResource([&]() -> FBufferViewRHIRef {
 			return new FVulkanBufferView(*Device, Buffer, Desc);
 		}, "buffer view");
-#if DURIN_VULKAN_TEST_SUPPORT
-		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
-#endif
 		return Result;
 	}
 
@@ -408,9 +384,6 @@ namespace Durin::VulkanRHI
 		FRHITexture* Texture,
 		const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
 	{
-#if DURIN_VULKAN_TEST_SUPPORT
-		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::TextureView);
-#endif
 		const auto ValidationResult = ValidateTextureViewDesc(Texture, Desc);
 		if (!ValidationResult)
 		{
@@ -418,18 +391,8 @@ namespace Durin::VulkanRHI
 			return nullptr;
 		}
 		FTextureViewRHIRef Result;
-#if DURIN_VULKAN_TEST_SUPPORT
-		auto* Timing = TimingScope.Get();
-		if (Timing) Timing->Scheduled = VulkanCreationTimestamp();
-#endif
 		auto CreationOperation = [this, Texture, Desc, &Result
-#if DURIN_VULKAN_TEST_SUPPORT
-			, Timing
-#endif
 		]() {
-#if DURIN_VULKAN_TEST_SUPPORT
-			FVulkanCreationBodyTimingScope BodyTiming(Timing);
-#endif
 			Result = CreateVulkanResource([&]() -> FTextureViewRHIRef {
 				return new FVulkanTextureView(*Device, Texture, Desc);
 			}, "texture view");
@@ -438,9 +401,6 @@ namespace Durin::VulkanRHI
 		if (static_cast<FVulkanTexture*>(Texture)->HasExternalBacking() && GRHIThread && !IsInRHIThread())
 			GCommandListExecutor.ExecuteSynchronousOperation(false, std::move(CreationOperation));
 		else CreationOperation();
-#if DURIN_VULKAN_TEST_SUPPORT
-		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
-#endif
 		return Result;
 	}
 

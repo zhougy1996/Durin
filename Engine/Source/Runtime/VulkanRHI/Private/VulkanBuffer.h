@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "VulkanRHIAPI.h"
 
 #include "RHI.h"
 
@@ -30,10 +31,10 @@ namespace Durin::VulkanRHI
 			require(Resource);
 			return static_cast<const FVulkanBuffer*>(Resource);
 		}
-		FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc,
+		VULKANRHI_API FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc,
 			bool bConcurrentReadOnly = false);
 
-		~FVulkanBuffer() override;
+		VULKANRHI_API ~FVulkanBuffer() override;
 
 		auto IsDynamic() const -> bool;
 

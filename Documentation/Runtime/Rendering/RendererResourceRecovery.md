@@ -4,7 +4,7 @@ Summary: Define complete-or-null Renderer resource publication, explicit readine
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-10-03
+Last reviewed: 2026-10-13
 
 ## Complete-Or-Null Construction
 
@@ -408,14 +408,13 @@ published. Shutdown follows the same consumer-before-map order.
 
 ## Creation Measurement Boundaries
 
-The opt-in Vulkan creation qualifier records synchronous facade calls and
-background native creation separately. A creator owns its timing record on its
-own thread; it never borrows a caller's TLS record across asynchronous work.
-Ready synchronous cache hits have a caller body and no scheduling interval.
-Async observer admission, creator work, first-consumer waits, and an independent
-replay marker have separate measurements. Sequential caller observation of Ready
-is not the publication timestamp. Creator duration excludes the compile queue;
-zero creator queue fields do not establish zero observer queue latency.
+The opt-in Vulkan creation qualifiers measure public calls and frame workloads
+from the test side. Async observer admission, first-consumer waits, and an
+independent replay marker have separate measurements. Sequential caller
+observation of Ready is not the publication timestamp. These measurements do
+not isolate native driver time or creator queue latency. Resident pipeline
+caches start empty for each device lifetime; the persisted driver cache uses
+the normal runtime path and is not reset by a test-only override.
 
 The selected background configuration has one native creator. Concurrent
 producers can share one normalized key while replay progresses, but background

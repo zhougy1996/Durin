@@ -147,11 +147,12 @@ durin_add_native_test(RendererResourceReloadVulkanTests
 		ShaderBuild
 		Slang_Imported
 		VulkanRHI
+		VulkanRHITestSupport
 		Vulkan::Vulkan
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
-	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_SUPPORT=1
+
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
@@ -167,11 +168,11 @@ durin_add_native_test(StaticMeshRenderPreparationVulkanTests
 	STACKS renderer
 	TIMEOUT 900
 	SOURCES Private/StaticMeshRenderPreparationVulkanTests.cpp
-	LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer ShaderBuild VulkanRHI Vulkan::Vulkan
+	LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer ShaderBuild VulkanRHI VulkanRHITestSupport Vulkan::Vulkan
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
-	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_SUPPORT=1
+
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
@@ -212,7 +213,7 @@ durin_add_native_test(HDRDisplayMappingQualificationTests
 	STACKS renderer
 	TIMEOUT 900
 	SOURCES Private/HDRDisplayMappingQualificationTests.cpp
-	LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI VulkanRHITestSupport Vulkan::Vulkan
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
@@ -240,6 +241,7 @@ durin_add_native_test(GBufferQualificationTests
 		RenderCore
 		Renderer
 		VulkanRHI
+		VulkanRHITestSupport
 		Vulkan::Vulkan
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
@@ -261,7 +263,7 @@ durin_add_native_test(VolumetricCloudQualificationTests
 	STACKS renderer
 	TIMEOUT 900
 	SOURCES Private/VolumetricCloudQualificationTests.cpp
-	LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI VulkanRHITestSupport Vulkan::Vulkan
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
@@ -324,11 +326,11 @@ if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
 		STACKS editor renderer
 		TIMEOUT 900
 		SOURCES Private/EditorGridVulkanTests.cpp
-		LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+		LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI VulkanRHITestSupport Vulkan::Vulkan
 		INCLUDE_DIRECTORIES
 			${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 			${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
-		COMPILE_DEFINITIONS DURIN_VULKAN_TEST_SUPPORT=1
+
 		REQUIRES editor
 		REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 		ENVIRONMENTS authored-shaders
@@ -346,11 +348,11 @@ if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
 		STACKS renderer
 		TIMEOUT 900
 		SOURCES Private/VolumetricCloudVulkanTests.cpp
-		LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+		LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI VulkanRHITestSupport Vulkan::Vulkan
 		INCLUDE_DIRECTORIES
 			${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 			${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
-		COMPILE_DEFINITIONS DURIN_VULKAN_TEST_SUPPORT=1
+
 		REQUIRES editor
 		REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 		ENVIRONMENTS authored-shaders
@@ -368,8 +370,8 @@ if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
 		STACKS renderer
 		TIMEOUT 900
 		SOURCES Private/VolumetricCloudSceneVulkanTests.cpp
-		LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
-		COMPILE_DEFINITIONS DURIN_VULKAN_TEST_SUPPORT=1
+		LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI VulkanRHITestSupport Vulkan::Vulkan
+
 		INCLUDE_DIRECTORIES
 			${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 			${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
@@ -507,12 +509,13 @@ durin_add_native_test(TextureCookIntegrationTests
 		RenderCore
 		Renderer
 		VulkanRHI
+		VulkanRHITestSupport
 		Vulkan::Vulkan
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
-	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_SUPPORT=1
+
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	ENVIRONMENTS authored-shaders
@@ -544,13 +547,14 @@ durin_add_native_test(MaterialCreationQualificationTests
 		RenderCore
 		Renderer
 		VulkanRHI
+		VulkanRHITestSupport
 		Vulkan::Vulkan
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 		${CMAKE_SOURCE_DIR}/Engine/Tests/Native/VulkanRHITests/Private
-	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_SUPPORT=1
+
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	ENVIRONMENTS authored-shaders

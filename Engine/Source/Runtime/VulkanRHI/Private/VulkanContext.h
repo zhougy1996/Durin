@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "VulkanRHIAPI.h"
 
 #include "RHI.h"
 
@@ -42,8 +43,8 @@ namespace Durin::VulkanRHI
 		auto RHIEndGPUSubmission(const FRHIGPUSyncPointRef& Signal) -> void override;
 		auto RHIReleaseQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void override;
 		auto RHIAcquireQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void override;
-		auto ReleaseQueueOwnership(const std::shared_ptr<FVulkanQueueTransfer>& Transfer) -> void;
-		auto AcquireQueueOwnership(const std::shared_ptr<FVulkanQueueTransfer>& Transfer) -> void;
+		VULKANRHI_API auto ReleaseQueueOwnership(const std::shared_ptr<FVulkanQueueTransfer>& Transfer) -> void;
+		VULKANRHI_API auto AcquireQueueOwnership(const std::shared_ptr<FVulkanQueueTransfer>& Transfer) -> void;
 
 		auto RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void override;
 
@@ -127,7 +128,7 @@ namespace Durin::VulkanRHI
 			uint32 GroupCountZ) -> void override;
 		auto RHIDispatchIndirect(FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void override;
 
-		auto GetCommandBuffer() -> FVulkanCommandBuffer*;
+		VULKANRHI_API auto GetCommandBuffer() -> FVulkanCommandBuffer*;
 
 		auto RHISetShaderUniformBuffer(FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FRHIBuffer* InUniformBuffer) -> void;
 
@@ -149,9 +150,9 @@ namespace Durin::VulkanRHI
 			FVulkanComputePipelineState* PipelineState) -> void;
 
 		// Seals and transfers ownership; native submission is coordinator-owned.
-		auto Finalize() -> std::unique_ptr<FVulkanPayload>;
+		VULKANRHI_API auto Finalize() -> std::unique_ptr<FVulkanPayload>;
 		auto HasPendingCommands() const -> bool { return !Payloads.empty(); }
-		auto RetainAllocation(const std::shared_ptr<void>& Owner) -> void;
+		VULKANRHI_API auto RetainAllocation(const std::shared_ptr<void>& Owner) -> void;
 		auto AcquireTransferRange(EVulkanAllocationClassCandidate AllocationClass,
 			uint64 Size, uint64 Alignment) -> FVulkanTransferRange;
 

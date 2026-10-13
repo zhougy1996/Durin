@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "VulkanRHIAPI.h"
 
 #include "RHI.h"
 
@@ -27,9 +28,9 @@ namespace Durin::VulkanRHI
 		auto SubmitPayloads(std::vector<FVulkanPayload*>& Payloads)
 			-> FVulkanCompletionToken;
 
-		auto GetHandle() const -> vk::Queue;
+		VULKANRHI_API auto GetHandle() const -> vk::Queue;
 
-		auto GetFamilyIndex() const -> uint32;
+		VULKANRHI_API auto GetFamilyIndex() const -> uint32;
 
 		auto GetIndex() const -> uint32;
 		auto GetId() const -> FRHIQueueId { return Id; }

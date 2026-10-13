@@ -1,8 +1,5 @@
 #include "VulkanCommandBuffer.h"
 
-#if DURIN_VULKAN_TEST_SUPPORT
-#include "VulkanTestSupport.h"
-#endif
 
 #include "VulkanDevice.h"
 #include "VulkanDynamicRHI.h"
@@ -66,9 +63,6 @@ namespace Durin::VulkanRHI
 			Handle.bindPipeline(BindPoint, Pipeline);
 		}
 		Recorded = Pipeline;
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanPipelineBindCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 	}
 
 	auto FVulkanCommandBuffer::BindVertexBuffer(uint32 Stream, vk::Buffer Buffer, vk::DeviceSize Offset) -> void
@@ -86,9 +80,6 @@ namespace Durin::VulkanRHI
 			Handle.bindVertexBuffers(Stream, Buffer, {Offset});
 		}
 		Recorded = Binding;
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanVertexBufferBindCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 	}
 
 	auto FVulkanCommandBuffer::BindIndexBuffer(vk::Buffer Buffer, vk::DeviceSize Offset, vk::IndexType Type) -> void
@@ -103,9 +94,6 @@ namespace Durin::VulkanRHI
 			Handle.bindIndexBuffer(Buffer, Offset, Type);
 		}
 		RecordedIndexBuffer = Binding;
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanIndexBufferBindCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 	}
 
 	auto FVulkanCommandBuffer::SetGraphicsDynamicState(const vk::Viewport& Viewport,
@@ -118,26 +106,17 @@ namespace Durin::VulkanRHI
 		{
 			Handle.setViewport(0, Viewport);
 			RecordedViewport = Viewport;
-#if DURIN_VULKAN_TEST_SUPPORT
-			GVulkanViewportWriteCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 		}
 		if (!RecordedScissor || *RecordedScissor != Scissor)
 		{
 			Handle.setScissor(0, Scissor);
 			RecordedScissor = Scissor;
-#if DURIN_VULKAN_TEST_SUPPORT
-			GVulkanScissorWriteCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 		}
 		const std::array DepthBias{DepthBiasConstant, DepthBiasClamp, DepthBiasSlope};
 		if (!RecordedDepthBias || *RecordedDepthBias != DepthBias)
 		{
 			Handle.setDepthBias(DepthBiasConstant, DepthBiasClamp, DepthBiasSlope);
 			RecordedDepthBias = DepthBias;
-#if DURIN_VULKAN_TEST_SUPPORT
-			GVulkanDepthBiasWriteCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 		}
 	}
 
@@ -155,9 +134,6 @@ namespace Durin::VulkanRHI
 		Binding.Layout = Layout;
 		Binding.Sets.assign(Sets.begin(), Sets.end());
 		Binding.DynamicOffsets.assign(DynamicOffsets.begin(), DynamicOffsets.end());
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanDescriptorBindCount.fetch_add(1, std::memory_order_relaxed);
-#endif
 	}
 
 	auto FVulkanCommandBuffer::End() -> void

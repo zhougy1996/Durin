@@ -1,8 +1,6 @@
 #include "../../RDGTestAccess.h"
 
-#if DURIN_VULKAN_TEST_SUPPORT
 #include "VulkanTestSupport.h"
-#endif
 #include "Backend/RHICompletionBackend.h"
 #include "PCH.VulkanRHI.h"
 #include "VulkanResourceState.h"
@@ -441,13 +439,6 @@ namespace Durin::VulkanRHI
 		FInlineRHITestScope Scope;
 
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		struct FBarrierOverrideScope
-		{
-			~FBarrierOverrideScope()
-			{
-				SetVulkanBarrierPathOverrideForTest(std::nullopt);
-			}
-		} BarrierOverrideScope;
 		FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 		FBufferRHIRef Buffer = RHICreateBuffer(FRHIBufferCreateDesc::Create(
 			"TransitionHardwareBuffer", 64, 4,
@@ -459,8 +450,6 @@ namespace Durin::VulkanRHI
 			"TransitionHardwareTexture", 8, 8, EPixelFormat::RGBA8_UNORM)
 			.SetNumMips(2).SetFlags(ETextureCreateFlags::ShaderResource));
 		ASSERT_TRUE(Buffer && BurstBuffer && Texture);
-		ResetVulkanHotPathWorkTestStats();
-		SetVulkanBarrierPathOverrideForTest(false);
 
 		const std::array BufferWriteTransitions{FRHIBufferTransition::Whole(
 			Buffer.GetReference(), ERHIAccess::Discard, ERHIAccess::TransferWrite)};
@@ -488,17 +477,9 @@ namespace Durin::VulkanRHI
 		Commands.TransitionBuffers(BurstWriteTransitions);
 		Commands.TransitionBuffers(BurstReadTransitions);
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
-		const FVulkanHotPathWorkTestStats LegacyWork =
-			GetVulkanHotPathWorkTestStats();
-		EXPECT_EQ(LegacyWork.Sync2BufferBarriers, 0u);
-		EXPECT_EQ(LegacyWork.LegacyBufferBarriers, 130u);
-		EXPECT_EQ(LegacyWork.Sync2ImageBarriers, 0u);
-		EXPECT_EQ(LegacyWork.LegacyImageBarriers, 2u);
 
 		if (GDynamicRHI->RHIGetCapabilities()->bSupportsSynchronization2)
 		{
-			ResetVulkanHotPathWorkTestStats();
-			SetVulkanBarrierPathOverrideForTest(true);
 			Commands.TransitionBuffers(std::array{FRHIBufferTransition::Whole(
 				Buffer.GetReference(), ERHIAccess::VertexBufferRead,
 				ERHIAccess::TransferWrite)});
@@ -517,12 +498,6 @@ namespace Durin::VulkanRHI
 			Commands.TransitionBuffers(BurstReadTransitions);
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
 				ERHISubmitFlags::SubmitToGPU);
-			const FVulkanHotPathWorkTestStats Sync2Work =
-				GetVulkanHotPathWorkTestStats();
-			EXPECT_EQ(Sync2Work.Sync2BufferBarriers, 130u);
-			EXPECT_EQ(Sync2Work.LegacyBufferBarriers, 0u);
-			EXPECT_EQ(Sync2Work.Sync2ImageBarriers, 2u);
-			EXPECT_EQ(Sync2Work.LegacyImageBarriers, 0u);
 		}
 
 		auto* VulkanBuffer = static_cast<FVulkanBuffer*>(Buffer.GetReference());

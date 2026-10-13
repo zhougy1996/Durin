@@ -1,4 +1,3 @@
-#include "VulkanCreationTiming.h"
 
 #include "VulkanMemory.h"
 
@@ -96,11 +95,7 @@ namespace Durin::VulkanRHI
 
 		VkImage RawImage = VK_NULL_HANDLE;
 		VkResult Result =
-			[&] {
-#if DURIN_VULKAN_TEST_SUPPORT
-				FVulkanNativeCreationTimingScope NativeTiming;
-#endif
-				return vmaCreateImage(
+			vmaCreateImage(
 			Allocator,
 			reinterpret_cast<const VkImageCreateInfo*>(&ImageCreateInfo),
 			&AllocCreateInfo,
@@ -108,7 +103,6 @@ namespace Durin::VulkanRHI
 			&OutAllocation.Handle,
 			&OutAllocation.Info
 		);
-			}();
 
 		if (Result != VK_SUCCESS)
 		{
@@ -167,11 +161,7 @@ namespace Durin::VulkanRHI
 
 		VkBuffer RawBuffer = VK_NULL_HANDLE;
 		VkResult Result =
-			[&] {
-#if DURIN_VULKAN_TEST_SUPPORT
-				FVulkanNativeCreationTimingScope NativeTiming;
-#endif
-				return vmaCreateBuffer(
+			vmaCreateBuffer(
 			Allocator,
 			reinterpret_cast<const VkBufferCreateInfo*>(&BufferCreateInfo),
 			&AllocCreateInfo,
@@ -179,7 +169,6 @@ namespace Durin::VulkanRHI
 			&OutAllocation.Handle,
 			&OutAllocation.Info
 		);
-			}();
 
 		if (Result != VK_SUCCESS)
 		{

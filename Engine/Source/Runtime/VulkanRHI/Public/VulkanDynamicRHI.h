@@ -106,9 +106,6 @@ namespace Durin::VulkanRHI
 			const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef override;
 		auto RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef override;
 
-		// Internal Vulkan helpers use the device for diagnostics in every runtime variant;
-		// failure-injection tests share the same non-owning access.
-		auto GetDeviceForTesting() const -> FVulkanDevice* { return Device; }
 
 		auto InitializeTexture(FVulkanCommandListContext& Context, FRHITexture* Texture) -> void;
 		auto UpdateTexture2D(

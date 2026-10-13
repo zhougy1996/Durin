@@ -10,23 +10,7 @@
 
 namespace Durin::VulkanRHI
 {
-	auto PollVulkanGPUTimingForTest(FVulkanDynamicRHI& RHI) -> void
-	{
-		auto& Device = *RHI.GetDeviceForTesting();
-		Device.PollQueues();
-	}
 
-	auto GetVulkanGPUTimingStatisticsForTest(FVulkanDynamicRHI& RHI)
-		-> FVulkanGPUTimingStatistics
-	{
-		if (IsInRHIThread())
-			return RHI.GetDeviceForTesting()->GetGPUTimingManager().Snapshot();
-		FVulkanGPUTimingStatistics Result;
-		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-			Result = RHI.GetDeviceForTesting()->GetGPUTimingManager().Snapshot();
-		});
-		return Result;
-	}
 
 	auto ConvertVulkanTimestampDuration(uint64 Begin, uint64 End,
 		uint32 ValidBits, double NanosecondsPerTick, bool& bOutOverflow) -> uint64

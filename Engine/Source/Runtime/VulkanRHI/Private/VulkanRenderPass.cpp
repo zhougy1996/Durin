@@ -1,8 +1,5 @@
 #include "VulkanRenderPass.h"
 
-#if DURIN_VULKAN_TEST_SUPPORT
-#include "VulkanTestSupport.h"
-#endif
 #include "Backend/RHICreation.h"
 
 #include "VulkanCommandBuffer.h"
@@ -214,17 +211,11 @@ namespace Durin::VulkanRHI
 
 	FVulkanRenderPassManager::~FVulkanRenderPassManager()
 	{
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanRenderPassEntryCount.fetch_sub(RenderPasses.size(), std::memory_order_release);
-#endif
 		ReleaseFramebuffers();
 	}
 
 	auto FVulkanRenderPassManager::ReleaseFramebuffers() -> void
 	{
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanFramebufferEntryCount.fetch_sub(FrameBuffers.size(), std::memory_order_release);
-#endif
 		FrameBuffers.clear();
 	}
 
@@ -246,9 +237,6 @@ namespace Durin::VulkanRHI
 		auto [It, bInserted] = RenderPasses.emplace(Key, std::move(Candidate));
 		check(bInserted);
 		It->second->bPublished = true;
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanRenderPassEntryCount.fetch_add(1, std::memory_order_release);
-#endif
 		return It->second.get();
 	}
 
@@ -263,9 +251,6 @@ namespace Durin::VulkanRHI
 		}
 		auto Candidate = std::make_unique<FVulkanFramebuffer>(Device, RPInfo, RenderPass);
 		FrameBuffers.push_back(std::move(Candidate));
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanFramebufferEntryCount.fetch_add(1, std::memory_order_release);
-#endif
 		return FrameBuffers.back().get();
 	}
 
@@ -305,9 +290,5 @@ namespace Durin::VulkanRHI
 			return Framebuffer->ContainsRenderTarget(Image);
 		});
 		FrameBuffers.erase(ToErase.begin(), ToErase.end());
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanFramebufferEntryCount.fetch_sub(
-			PreviousSize - FrameBuffers.size(), std::memory_order_release);
-#endif
 	}
 } // namespace Durin::VulkanRHI

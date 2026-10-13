@@ -1,8 +1,5 @@
 #include "VulkanDescriptorSets.h"
 
-#if DURIN_VULKAN_TEST_SUPPORT
-#include "VulkanTestSupport.h"
-#endif
 #include "Backend/RHICreation.h"
 
 #include "Profiling/Profiling.h"
@@ -49,9 +46,6 @@ namespace Durin::VulkanRHI
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorSetLayout, Entry.Handle);
 		}
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanDescriptorSetLayoutEntryCount.fetch_sub(DLayoutMap.size(), std::memory_order_release);
-#endif
 	}
 
 	auto FVulkanDescriptorSetLayoutCache::GetOrCreateDescriptorSetLayout(const FVulkanDescriptorSetsLayoutInfo::FSetLayout& Layout) -> vk::DescriptorSetLayout
@@ -76,9 +70,6 @@ namespace Durin::VulkanRHI
 			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("DescriptorSetLayout"); });
 		const auto [InsertedIt, bInserted] = DLayoutMap.emplace(Layout, NewEntry);
 		check(bInserted);
-#if DURIN_VULKAN_TEST_SUPPORT
-		GVulkanDescriptorSetLayoutEntryCount.fetch_add(1, std::memory_order_release);
-#endif
 
 		return NewEntry.Handle;
 	}
@@ -355,21 +346,4 @@ namespace Durin::VulkanRHI
 		ActiveBatchIndex = std::numeric_limits<uint32>::max();
 	}
 
-	auto FVulkanGlobalDescriptorPool::GetBatchTokensForTesting() const
-		-> std::array<FVulkanCompletionToken, FrameInFlight>
-	{
-		std::array<FVulkanCompletionToken, FrameInFlight> Result{};
-		for (uint32 Index = 0; Index < Batches.size(); ++Index)
-		{
-			// Compatibility diagnostics project graphics only; never used for reuse.
-			if (const auto Owner = Batches[Index].Owner.lock())
-			{
-				const auto Uses = Device.GetSubmissionCoordinator().GetAllocationUses(Owner);
-				for (const auto& SyncPoint : Uses.GetSyncPoints())
-					if (FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue == Device.GetGraphicsQueue()->GetId())
-						Result[Index] = FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value;
-			}
-		}
-		return Result;
-	}
 } // namespace Durin::VulkanRHI

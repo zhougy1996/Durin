@@ -1,8 +1,6 @@
 #include <gtest/gtest.h>
 
-#if DURIN_VULKAN_TEST_SUPPORT
 #include "VulkanTestSupport.h"
-#endif
 #include "RDG/RDG.h"
 #include "../../RDGTestAccess.h"
 #include "Renderers/RendererRDGAllocator.h"

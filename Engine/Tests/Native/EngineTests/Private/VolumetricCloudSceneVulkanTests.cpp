@@ -1,8 +1,6 @@
 #include "Threading/Task.h"
 
-#if DURIN_VULKAN_TEST_SUPPORT
 #include "VulkanTestSupport.h"
-#endif
 #include <gtest/gtest.h>
 #include "VulkanEngineTestSupport.h"
 #include "VulkanRHIPrivate.h"
@@ -241,7 +239,6 @@ namespace Durin
 					);
 					if (!Output) return;
 					CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-					const uint64 NativeBefore = VulkanRHI::GetVulkanNativeSubmissionCountForTesting();
 					++GRenderFrameCounterRenderThread;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 					FSceneView View = MakeSceneCloudView(Width, Height);
@@ -257,10 +254,6 @@ namespace Durin
 					CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 					if (*Result == ERenderViewResult::Success)
 					{
-						const uint64 NativeSubmissions = VulkanRHI::GetVulkanNativeSubmissionCountForTesting() - NativeBefore;
-						EXPECT_EQ(NativeSubmissions, 1u);
-						std::cout << "RDG_SCENE_NATIVE submissions=" << NativeSubmissions
-							<< ",cloud_fragment=" << bForceFragment << '\n';
 						GDynamicRHI->RHIReadTexture2D(CommandList, Output, 0, 0, *Pixels);
 					}
 				}

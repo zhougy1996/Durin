@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "VulkanRHIAPI.h"
 
 #include "RHI.h"
 
@@ -22,8 +23,6 @@ namespace Durin::VulkanRHI
 	VULKANRHI_API auto ConvertVulkanTimestampDuration(
 		uint64 Begin, uint64 End, uint32 ValidBits, double NanosecondsPerTick,
 		bool& bOutOverflow) -> uint64;
-	VULKANRHI_API auto PollVulkanGPUTimingForTest(
-		FVulkanDynamicRHI& RHI) -> void;
 
 	struct FVulkanGPUTimingStatistics
 	{
@@ -41,8 +40,6 @@ namespace Durin::VulkanRHI
 		uint64 ReadyResultCount = 0;
 		uint64 ConversionOverflowCount = 0;
 	};
-	VULKANRHI_API auto GetVulkanGPUTimingStatisticsForTest(
-		FVulkanDynamicRHI& RHI) -> FVulkanGPUTimingStatistics;
 
 	class FVulkanGPUTimingQuery final : public FRHIGPUTimingQuery
 	{
@@ -85,7 +82,7 @@ namespace Durin::VulkanRHI
 		auto MarkSubmitted(std::span<const TRefCountPtr<FVulkanGPUTimingQuery>> Queries) -> void;
 		auto ResolveCompleted(std::span<const TRefCountPtr<FVulkanGPUTimingQuery>> Queries) -> bool;
 		auto Discard(std::span<const TRefCountPtr<FVulkanGPUTimingQuery>> Queries) -> void;
-		auto Snapshot() const -> FVulkanGPUTimingStatistics;
+		VULKANRHI_API auto Snapshot() const -> FVulkanGPUTimingStatistics;
 		auto ResetStatistics() -> void;
 
 	private:

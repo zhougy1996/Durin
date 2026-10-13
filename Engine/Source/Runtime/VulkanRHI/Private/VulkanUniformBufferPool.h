@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "VulkanRHIAPI.h"
 #include "VulkanBuffer.h"
 
 namespace Durin::VulkanRHI
@@ -16,11 +17,11 @@ namespace Durin::VulkanRHI
 		{
 			std::shared_ptr<FVulkanUniformBufferAdmission> Owner;
 			FSlot Slot{};
-			~FReservation();
+			VULKANRHI_API ~FReservation();
 		};
 		explicit FVulkanUniformBufferAdmission(uint64 InAlignment) : Alignment(InAlignment) {}
-		~FVulkanUniformBufferAdmission();
-		auto Reserve(uint64 Size) -> std::shared_ptr<FReservation>;
+		VULKANRHI_API ~FVulkanUniformBufferAdmission();
+		VULKANRHI_API auto Reserve(uint64 Size) -> std::shared_ptr<FReservation>;
 	private:
 		struct FPage { uint64 Size; std::map<uint64, uint64> Used; };
 		auto Release(const FSlot& Slot) -> void;
@@ -34,8 +35,8 @@ namespace Durin::VulkanRHI
 	class FVulkanUniformBufferPool
 	{
 	public:
-		explicit FVulkanUniformBufferPool(FVulkanDevice& InDevice);
-		~FVulkanUniformBufferPool();
+		VULKANRHI_API explicit FVulkanUniformBufferPool(FVulkanDevice& InDevice);
+		VULKANRHI_API ~FVulkanUniformBufferPool();
 		auto Reserve(uint64 Size) -> std::shared_ptr<FVulkanUniformBufferAdmission::FReservation> { return Admission->Reserve(Size); }
 		auto Resolve(const std::shared_ptr<FVulkanUniformBufferAdmission::FReservation>& Reservation)
 			-> std::pair<TRefCountPtr<FVulkanBuffer>, uint64>;
