@@ -499,8 +499,10 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		);
 
 		ASSERT_EQ(
-			VertexShader.Reflection.ResourceBindings.size(), 1u
+			VertexShader.Reflection.ResourceBindings.size(), 2u
 		);
+		ExpectBinding(VertexShader, "MaterialView", 0,
+			ERHIBindingType::UniformBuffer, EShaderStageFlags::Vertex, 0);
 		ExpectBinding(
 			VertexShader,
 			"MaterialPrimitive",
@@ -514,7 +516,11 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		FShaderOperationResult ErrorMessage;
 		ASSERT_TRUE((ErrorMessage = BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout))) << FormatShaderError(ErrorMessage.error());
 		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 2u);
-		EXPECT_TRUE(PipelineLayout.BindingLayouts[0].BindingLayouts.empty());
+		const auto& ViewLayout = PipelineLayout.BindingLayouts[0].BindingLayouts;
+		ASSERT_EQ(ViewLayout.size(), 1u);
+		EXPECT_EQ(ViewLayout[0].Slot, 0u);
+		EXPECT_EQ(ViewLayout[0].Type, ERHIBindingType::UniformBuffer);
+		EXPECT_EQ(ViewLayout[0].StageFlags, EShaderStageFlags::Vertex);
 		const auto& SetLayout = PipelineLayout.BindingLayouts[1].BindingLayouts;
 		ASSERT_EQ(SetLayout.size(), 1u);
 		EXPECT_EQ(SetLayout[0].Slot, 0u);
