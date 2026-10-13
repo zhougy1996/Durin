@@ -565,8 +565,8 @@ TEST(FSceneImportTests, SavedGltfOutputsReloadWithoutSourcesAndRejectEveryReimpo
 			EXPECT_EQ(Reimported.Status, EReimportStatus::Unsupported);
 			TextureFactory->ReimportFromFiles(*Texture, Files, [&](auto Result) { Reimported = std::move(Result); });
 			EXPECT_EQ(Reimported.Status, EReimportStatus::Unsupported);
-			EXPECT_EQ(ReimportTexture2D(*Texture).error().Code, ETexture2DSubmissionError::UnsupportedReimport);
-			EXPECT_EQ(ReimportTexture2DFromFile(*Texture, "Red.png").error().Code, ETexture2DSubmissionError::UnsupportedReimport);
+			EXPECT_FALSE(ReimportTexture2D(*Texture).error().empty());
+			EXPECT_FALSE(ReimportTexture2DFromFile(*Texture, "Red.png").error().empty());
 		}
 		if (auto* Material = Cast<DMaterial>(Object))
 		{

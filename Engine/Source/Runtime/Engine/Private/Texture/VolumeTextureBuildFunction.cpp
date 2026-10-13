@@ -1,4 +1,4 @@
-#include "VolumeTextureBuildFunction.h"
+#include "TextureDerivedDataBuild.h"
 #if DURIN_WITH_EDITOR
 #include "Texture/ITextureCompressorModule.h"
 #include "TexturePlatformSharedOutput.h"

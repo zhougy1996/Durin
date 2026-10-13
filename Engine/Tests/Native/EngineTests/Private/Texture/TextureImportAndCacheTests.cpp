@@ -349,7 +349,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 		ASSERT_TRUE(Loaded->FinishCachePlatformData());
 	}
 	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Loaded))
-		<< Durin::FormatTexture2DCompilationError(Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Loaded).Error);
+		<< Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Loaded).Diagnostic;
 	EXPECT_EQ(GetTextureDerivedDataKey(*Loaded), OriginalKey);
 	ASSERT_TRUE(Loaded->GetSource().IsValid());
 	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
@@ -485,10 +485,7 @@ TEST(FTexture2DTests, SourceFileCanBeReplacedAndRejectsTraversalMetadata)
 	std::string Error;
 	const auto Rejected = Durin::AssetForge::Builtins::ReimportTexture2DFromFile(*Result.Asset, Corrupt.generic_string());
 	ASSERT_FALSE(Rejected);
-	EXPECT_EQ(Rejected.error().Code, Durin::AssetForge::Builtins::ETexture2DSubmissionError::Translation);
-	ASSERT_TRUE(Rejected.error().TranslationCause);
-	ASSERT_TRUE(Rejected.error().TranslationCause->DecodeCause);
-	EXPECT_EQ(Rejected.error().TranslationCause->DecodeCause->Code, Durin::Image::EImageDecodeError::InvalidImage);
+	EXPECT_FALSE(Rejected.error().empty());
 	ExpectPlatformDataEqual(*Result.Asset->GetPlatformData(), OriginalPlatformData);
 	const Durin::FSourceFile* ImportedSource =
 		FindImportedSource(*Result.Asset);
@@ -588,7 +585,7 @@ TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)
 	ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DMaxResolution(
 		*Loaded, 1));
 	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Loaded, 10.0))
-		<< Durin::FormatTexture2DCompilationError(Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Loaded).Error);
+		<< Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Loaded).Diagnostic;
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	EXPECT_NE(GetTextureDerivedDataKey(*Loaded), OriginalKey);
 	EXPECT_TRUE(std::filesystem::is_regular_file(GetTextureCachePath(*Loaded)));

@@ -176,25 +176,20 @@ or compilation rejection retain their Engine-owned operation causes, including
 settings, import and save context. Texture recipe diagnostics remain in Engine;
 ordinary build failure exposes a status and user-correctable input exposes a concise reason. Remaining internal string producers still require
 migration; the text entry is an explicit transitional contract.
-Texture2D source translation returns `expected<FTextureSource,
-FTexture2DTranslationError>`, retaining Core decode causes and dimension/channel
-context on failure. Preparation returns an expected owned
-`FPreparedTexture2DImport` with typed path/format/capture/translation failures.
-Neither failure branch exposes an output value. String presentation contracts
-format the owned filename and nested causes at their adapters. The factory retains
-`FTexture2DFactoryError`; asynchronous file import transports the typed preparation
-cause to the game-thread presentation boundary before formatting it. Worker
-exception diagnostics remain a separate pending contract. Texture2D source-file
-submission returns expected void for admission and retains typed package/mount/source-hint,
-capture, translation and compilation causes. Factory reimport results retain
-submission or terminal compilation details through the manager callback. Admission
-failure still invokes no compilation completion; accepted requests retain the
-existing asynchronous publication and completion contract. Texture2D reimport
-preserves canceled and superseded outcomes; editor callers do not present them as
-build errors or successful imports. Batch texture import also preserves these
-states: canceled items stop the batch without a failure entry, while superseded
-items are counted separately and leave the asset/package to the newer operation.
-Previously published assets and pending-save retry behavior are preserved.
+Texture2D source translation and preparation return expected owned values with
+an owned diagnostic string on failure. They expose no partial output and do not
+log. Capture and decode failures are formatted at their boundary; factories retain
+that message directly without nested preparation/submission variants. Texture2D
+source-file submission returns `expected<void, string>` for admission only.
+Accepted imports complete with the shared `FTextureOperationResult` after compilation,
+source metadata publication and optional save. Compiler and import callbacks share the same plain status/diagnostic value, but
+publish their terminal state at separate boundaries. Later import/save failure does not
+rewrite successful compiler progress.
+Cancellation is distinct from failure and carries no error-reason code. An
+external cancellation stops the import batch and leaves the resident asset to
+its current owner. Importer teardown cancels, finishes and discards only an
+unfinished asset for which it still owns cleanup. Previously published assets
+and pending-save retry behavior are preserved.
 Texture2D property-setting helpers return `std::expected<void, FTexture2DCompilationError>`
 directly. Invalid usage, quality, alpha mode or threshold retains the requested
 settings in the Engine input cause; unchanged values remain successful no-ops,
@@ -202,22 +197,17 @@ and rebuild rejection preserves its original compilation error.
 
 Volume import settings expose expected-void `Validate()` with an
 AssetForgeBuiltins-owned error code and a copy of the rejected settings. Import format, dimensions, tile-cell
-capacity and atlas/volume budgets are distinct cases. The remaining string-based
-adapters format only at pending contracts. The VolumeTexture factory retains its
-settings or rebuild error as `FVolumeTextureFactoryError`, so AssetTools consumers
-can inspect the nested cause after package cleanup.
+capacity and atlas/volume budgets are distinct cases. The VolumeTexture factory
+formats settings or rebuild failures into one owned `FVolumeTextureFactoryError`
+diagnostic that survives package cleanup, without a variant or nested causes.
 `TranslateVolumeTextureAtlasSource` returns expected owned
-`FVolumeTextureSourceData` with nested settings and Core image-decode causes, owned filename, and expected/actual atlas dimensions.
-Signature, decode, dimensions, bulk publication and normalized-layout failures
-are distinct. Failure has no source value; the rebuild error retains the
-translation cause directly. Volume rebuild and public reimport return expected
-void and retain object/source identity, mount classification, source-hint,
-capture, translation, import-data and save causes. Build failures retain the
-operation disposition and actionable input reason, without the underlying
-provider diagnostic chain. `FReimportResult` retains
-module-owned factory details in `FactoryCause`; persistence failures retain the
-complete asset result in `SaveCause` without replacing other retained context.
-VolumeTexture reimport propagates its concrete rebuild error to the final callback.
+`FVolumeTextureSourceData` with structured settings and Core image-decode causes,
+owned filename, and expected/actual atlas dimensions. Signature, decode,
+dimensions, bulk publication and normalized-layout failures are distinct.
+Failure has no source value. Volume rebuild and public reimport return
+`expected<void, string>`; capture, translation, build, metadata and save failures
+are formatted once at their boundary. Save result effects stay with the save
+operation rather than being nested in a texture rebuild error.
 StaticMesh reimport retains the complete compilation diagnostic through
 `FStaticMeshFactoryError`, including request identity, terminal disposition, phase
 and nested completion causes. Cancellation does not publish new provenance.

@@ -119,7 +119,7 @@ namespace Durin::DerivedData
 			{
 				std::optional<FCacheKey> Key;
 				{ std::lock_guard Lock(Mutex); if (Data) if (const auto* Action = std::get_if<FBuildAction>(&Data->Request)) Key = Action->GetKey(); }
-				Finish(IsCanceled ? FBuildCompleteParams::Canceled(Key, EBuildStatus::None) : FBuildCompleteParams::Error(Key, EBuildStatus::None));
+				Finish(IsCanceled ? FBuildCompleteParams::Canceled(Key, EBuildExecutionFlags::None) : FBuildCompleteParams::Error(Key, EBuildExecutionFlags::None));
 			}
 			auto StartBuild(std::shared_ptr<FRequestData> Work) -> void
 			{
@@ -152,7 +152,7 @@ namespace Durin::DerivedData
 				auto Session = Owner.lock(); FRequestOwnerScope Scope(Group.get(), this, Session.get());
 				auto Work = Data;
 				const auto Key = std::get<FBuildAction>(Work->Request).GetKey();
-				if (Work->Options.Cancellation.IsCancelled()) { Work.reset(); Finish(FBuildCompleteParams::Canceled(Key, EBuildStatus::None)); return; }
+				if (Work->Options.Cancellation.IsCancelled()) { Work.reset(); Finish(FBuildCompleteParams::Canceled(Key, EBuildExecutionFlags::None)); return; }
 				if (Result && *Result)
 				{
 					const auto& Function = std::get<FBuildAction>(Work->Request).GetFunction();
@@ -161,7 +161,7 @@ namespace Durin::DerivedData
 						? (**Result).ToOutput(Key, Work->Options.Policy.OutputLimits)
 						: std::expected<FBuildOutput, FCacheError>(std::unexpected(FCacheError{
 							ECacheError::Corrupt, "Cache output schema does not match the build function."}));
-					if (Output) { Work.reset(); Finish(FBuildCompletionAccess::Ok(std::move(*Output), Key, EBuildStatus::CacheQueryHit)); return; }
+					if (Output) { Work.reset(); Finish(FBuildCompletionAccess::Ok(std::move(*Output), Key, EBuildExecutionFlags::CacheQueryHit)); return; }
 					Result = std::unexpected(std::move(Output.error()));
 				}
 				if (!Result) CacheFailure("read", Result.error());
@@ -196,7 +196,7 @@ namespace Durin::DerivedData
 				auto Completion = std::move(*Data->LocalCompletion);
 				Data->LocalCompletion.reset();
 				try { if (Data->Options.Cancellation.IsCancelled()) Completion = FBuildCompletionAccess::Canceled(std::move(Completion)); }
-				catch (...) { Completion = FBuildCompleteParams::Error(*Completion.GetCacheKey(), Completion.GetBuildStatus()); }
+				catch (...) { Completion = FBuildCompleteParams::Error(*Completion.GetCacheKey(), Completion.GetExecutionFlags()); }
 				Finish(std::move(Completion));
 			}
 			auto Run() -> void
@@ -211,7 +211,7 @@ namespace Durin::DerivedData
 				}
 				FRequestOwnerScope Scope(Group.get(), this, Session.get());
 				FBuildCompleteParams Completion = FBuildCompleteParams::Canceled(
-					std::nullopt, EBuildStatus::None);
+					std::nullopt, EBuildExecutionFlags::None);
 				try
 				{
 					FBuildCancellation ExternalCancellation = std::move(Work->Options.Cancellation);
@@ -224,7 +224,7 @@ namespace Durin::DerivedData
 				}
 				catch (...)
 				{
-					Completion = FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None);
+					Completion = FBuildCompleteParams::Error(std::nullopt, EBuildExecutionFlags::None);
 				}
 				Work.reset();
 				Finish(std::move(Completion));
@@ -263,7 +263,7 @@ namespace Durin::DerivedData
 		try
 		{
 			auto Work = Data;
-			if (Work->Options.Cancellation.IsCancelled()) { const auto Key = std::get<FBuildAction>(Work->Request).GetKey(); Work.reset(); Finish(FBuildCompleteParams::Canceled(Key, EBuildStatus::None)); return; }
+			if (Work->Options.Cancellation.IsCancelled()) { const auto Key = std::get<FBuildAction>(Work->Request).GetKey(); Work.reset(); Finish(FBuildCompleteParams::Canceled(Key, EBuildExecutionFlags::None)); return; }
 			auto Scheduler = Work->Resources->Scheduler;
 			const auto Function = std::get<FBuildAction>(Work->Request).GetFunction().Name;
 			Work.reset();

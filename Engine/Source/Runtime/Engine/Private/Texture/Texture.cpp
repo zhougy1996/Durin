@@ -229,9 +229,15 @@ namespace Durin
 	{
 		CheckGameThread();
 		BlockOnAnyAsyncBuild();
+		AdoptBuildSource(std::move(Value));
+		InvalidateAuthoredBuild();
+	}
+
+	auto DTexture::AdoptBuildSource(FTextureSource Value) -> void
+	{
+		CheckGameThread();
 		Source = std::move(Value);
 		Source.BindOwner(this);
-		InvalidateAuthoredBuild();
 	}
 
 	auto DTexture::InvalidateAuthoredBuild() -> void

@@ -5,12 +5,7 @@
 #include "AssetForgeBuiltinsAPI.h"
 #include "Asset/PackageSerialization.h"
 #include "Image/ImageDecoder.h"
-#include "Asset/SourceHint.h"
-#include "Misc/MountPaths.h"
-#include "Texture/TextureBuildOperation.h"
 #include "Texture/VolumeTexture.h"
-
-namespace Durin { struct FAssetImportDataError; }
 
 namespace Durin::AssetForge::Builtins
 {
@@ -74,27 +69,7 @@ namespace Durin::AssetForge::Builtins
 	ASSETFORGEBUILTINS_API auto FormatVolumeTextureTranslationError(
 		const FVolumeTextureTranslationError& Error) -> std::string;
 
-	struct FEncodedSourceError;
-	enum class EVolumeTextureRebuildError : uint8
-	{
-		None, Package, Mount, SourceHint, SourceFile, Capture, Translation,
-		Build, ImportValidation, ImportAllocation, Save, ImportData, MissingSource
-	};
-	struct FVolumeTextureRebuildError
-	{
-		EVolumeTextureRebuildError Code = EVolumeTextureRebuildError::None;
-		std::string ObjectPath;
-		std::string Filename;
-		EMountPathError MountCause = EMountPathError::None;
-		std::optional<FSourceHintError> SourceHintCause;
-		std::shared_ptr<const FEncodedSourceError> CaptureCause;
-		std::optional<FVolumeTextureTranslationError> TranslationCause;
-		std::optional<FTextureBuildOperationError> BuildCause;
-		std::shared_ptr<const FAssetImportDataError> ImportCause;
-		std::shared_ptr<const FAssetWriteResult> SaveCause;
-	};
-	using FVolumeTextureRebuildResult = std::expected<void, FVolumeTextureRebuildError>;
-	ASSETFORGEBUILTINS_API auto FormatVolumeTextureRebuildError(const FVolumeTextureRebuildError& Error) -> std::string;
+	using FVolumeTextureRebuildResult = std::expected<void, std::string>;
 
 	// Describes source-derived import suggestions without relying on file naming.
 	struct FVolumeTextureAtlasInspection

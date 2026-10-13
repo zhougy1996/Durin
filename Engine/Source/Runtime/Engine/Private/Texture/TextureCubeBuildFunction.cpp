@@ -1,4 +1,4 @@
-#include "TextureCubeBuildFunction.h"
+#include "TextureDerivedDataBuild.h"
 #if DURIN_WITH_EDITOR
 #include "Texture/ITextureCompressorModule.h"
 #include "Texture/TextureCube.h"

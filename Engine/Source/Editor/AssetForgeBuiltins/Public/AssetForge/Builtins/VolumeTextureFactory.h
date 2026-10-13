@@ -14,10 +14,9 @@ namespace Durin::AssetForge::Builtins
 	class ASSETFORGEBUILTINS_API FVolumeTextureFactoryError final : public IFactoryErrorDetail
 	{
 	public:
-		explicit FVolumeTextureFactoryError(FVolumeTextureImportSettingsError Error) : Cause(std::move(Error)) {}
-		explicit FVolumeTextureFactoryError(FVolumeTextureRebuildError Error) : Cause(std::move(Error)) {}
-		auto Format() const -> std::string override;
-		std::variant<FVolumeTextureImportSettingsError, FVolumeTextureRebuildError> Cause;
+		explicit FVolumeTextureFactoryError(std::string Diagnostic) : Diagnostic(std::move(Diagnostic)) {}
+		auto Format() const -> std::string override { return Diagnostic; }
+		std::string Diagnostic;
 	};
 
 	DCLASS()

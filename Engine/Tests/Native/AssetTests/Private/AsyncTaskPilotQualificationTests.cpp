@@ -310,13 +310,13 @@ namespace
 			for (uint32 Index = 0; Index < BatchSize; ++Index)
 			{
 				ASSERT_TRUE(SubmitTexture2DCompilation(*Textures[Index], std::move(Requests[Index]),
-					[&](FTexture2DCompilationResult Result) { ++Completions; Success &= Result.Succeeded(); }));
+					[&](FTextureOperationResult Result) { ++Completions; Success &= Result.Succeeded(); }));
 			}
 			uint64 DeclaredInFlightBytes = 0;
 			for (auto* Object : Textures)
 			{
 				const auto Diagnostic = AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Object);
-				if (Diagnostic.Phase == ETexture2DCompilationPhase::Preparing
+				if (Diagnostic.Phase == ETexture2DCompilationPhase::Building
 					|| Diagnostic.Phase == ETexture2DCompilationPhase::Building)
 					DeclaredInFlightBytes += Diagnostic.Metrics.EstimatedBytes;
 			}

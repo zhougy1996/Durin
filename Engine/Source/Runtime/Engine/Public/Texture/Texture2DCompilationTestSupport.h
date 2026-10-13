@@ -20,8 +20,7 @@ namespace Durin
 		{
 			uint64 RequestId = 0;
 			std::string AssetIdentity;
-			FTexture2DCompilationError Error;
-			std::optional<FTexture2DBuildError> BuildCause;
+			std::string Diagnostic;
 			FTexture2DCompilationMetrics Metrics;
 			uint64 QueuedNanoseconds = 0;
 			ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::None;

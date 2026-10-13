@@ -4,11 +4,10 @@
 #include "Texture/ITextureCompressorModule.h"
 
 #include "Texture/TextureDerivedData.h"
-#include "VolumeTextureBuildFunction.h"
+#include "TextureDerivedDataBuild.h"
 #include "TexturePlatformSharedOutput.h"
-#include "TextureBuildSession.h"
 #include "TextureDerivedDataKey.h"
-#include "TextureBuildDiagnostics.h"
+#include "TextureBuildInternal.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -59,9 +58,7 @@ namespace Durin
 		Options.Policy.MaximumEncodedBytes = MaximumTexturePayloadBytes;
 		auto Built = TexturePrivate::Build(std::move(*Definition),
 			TexturePrivate::MakeVolumeTextureInputResolver(Source), std::move(Options));
-		if (!Built) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
-			ETextureBuildStage::Module, Built.error().Description});
-		auto& Completion = *Built;
+		auto& Completion = Built;
 		if (Completion.GetStatus() == DerivedData::EStatus::Canceled)
 			return std::unexpected(FTextureBuildError{ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "Texture build was cancelled."});
 		if (Completion.GetStatus() == DerivedData::EStatus::Error)

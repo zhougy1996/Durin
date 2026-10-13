@@ -157,21 +157,34 @@ typed asset state, worker admission, priority fairness, memory budget,
 cancellation, the completion mailbox, per-texture mutation barriers, GameThread
 completion application, and exactly-once completion callbacks. Active records are keyed by
 `FObjectKey`; the manager owns active/last request ids,
-failure state, and bounded terminal diagnostics. Active work ends at terminal
+failure state, and bounded terminal diagnostics. Active work is erased after terminal
 delivery, while completed asset diagnostics remain under a separate bound.
-The deterministic input/builder identity remains independent of object identity
-and GPU resource readiness. `BuildElapsedNanoseconds` measures wall time from
+The work record and object share one progress snapshot; final application writes
+its phase and diagnostic before notifying the observer. Texture2D validates the
+complete candidate, then commits source/settings/platform data through a private
+member without reopening the public setter mutation barrier.
+Builder identity and target/profile remain at the DDC boundary. Object completion
+carries only the selected source identity and settings needed for application,
+independently of GPU resource readiness. `BuildElapsedNanoseconds` measures wall time from
 worker dispatch start to build completion, including asynchronous cache I/O;
 it is not CPU execution time. Queue wait and owner completion timing are separate.
+Working-set estimates read dimensions from captured source metadata. There is no
+preparation timer around the move of that request value. Synchronous platform-data
+builds return a complete product or an error without output parameters. The
+texture DDC session seam returns `FBuildCompleteParams` directly, translating an
+admission failure into `EStatus::Error` rather than wrapping completion in another
+expected result.
 
-Texture2D and TextureCube dispatch run in a unique `Tasks::TTask` on the CPU executor and submit
+Texture2D and TextureCube dispatch run in a unique `Tasks::TTask<void>` on the CPU executor and submit
 to a persistent task-scheduled build session. Interactive/background priority is
 forwarded to both Core dispatch and the build request owner. LaunchTask accepts
 valid work directly; manager request and memory limits remain separate from
 scheduler queueing. Dispatch returns without waiting for cache I/O or a producer.
-The task owns its pending CPU candidate; the build callback fills it and publishes
-a mailbox result. Work results explicitly carry status, a product and diagnostics.
-Readiness requires dispatch completion and terminal result publication. The
+The callback owns its pending CPU candidate; the build callback fills it and publishes
+a mailbox result. Application transfers that same candidate allocation to the texture. Work results explicitly carry status, a product and diagnostics.
+All work results travel through the mailbox; dispatch tasks return no product.
+The GameThread also reaps skipped or failed dispatch bodies into that mailbox
+after task completion. Posting a result alone does not permit delivery. The
 dispatch nests the asset operation's `FTaskEvent`, which includes callback and
 native dispatch capture retirement; see [Derived Data Build](DerivedDataBuild.md#ownership).
 Dispatch
@@ -179,6 +192,14 @@ failure or cancellation before its body starts also reaches terminal delivery.
 The GameThread pump applies results and invokes observers without another deferred
 task. Diagnostics retain no task handles, build owners or input/result payloads
 after delivery. Synchronous detached/import/Cook adapters retain inline sessions.
+
+Retirement has two boundaries. Compute slots and estimated working bytes are
+released only after dispatch completion, including nested DDC callbacks and native
+capture retirement. Pending-request capacity remains charged through the
+GameThread observer callback; its return retires the request's retained inputs,
+mailbox product, task handle and build owner. Cancellation requests neither imply
+quiescence nor bypass these boundaries. Mutation waits for the selected request
+to pass both boundaries before changing the texture.
 
 Cube platform-cache inputs dispatch through the same build request owner. Canonical
 six-face and HDR panorama sources can query cache before reading pixels.
@@ -242,13 +263,14 @@ Cache-hit/build flags remain execution facts, not success or failure outcomes.
 The GameThread validates the owner and active request, then applies successful
 work. One finalization path records the object terminal result before notifying
 the observer. A successful worker can still fail object validation or application.
-`UploadPending` is the UI projection of successful work awaiting application;
-`Ready` requires successful application. Cancellation is a separate terminal
+`Building` includes worker preparation and DDC execution. `AwaitingApply` means
+a work result is posted, including failed or canceled work; terminal phases are
+published only by the GameThread owner. `Ready` requires successful application. Cancellation is a separate terminal
 outcome. A texture has at most one active request; replacing a request first
 cancels, waits for callback retirement, and delivers its canceled terminal result.
 
-`FTexture2DCompilationResult` identifies one terminal outcome as `Succeeded`,
-`Failed`, or `Canceled` and carries a bounded diagnostic. An
+`FTextureOperationResult` identifies one terminal outcome with
+`DerivedData::EStatus` (`Ok`, `Error`, or `Canceled`) and one owned diagnostic. An
 accepted request invokes its `FTexture2DCompilationCompletion` exactly once on
 GameThread. Rejection before acceptance is returned synchronously without
 invoking completion.
@@ -262,9 +284,9 @@ means CPU platform data was applied, not GPU readiness.
 
 Source/settings setters and synchronous builds use `DTexture::BlockOnAnyAsyncBuild`
 before mutation. The barrier cancels and finishes only that texture, delivers the
-old observer as `Canceled`, and retires its request before returning. The
-`CancelledForMutation` cause distinguishes this from explicit user cancellation;
-import adapters retain resident assets when mutation cancels their build.
+old observer as `Canceled`, and retires its request before returning. Cancellation is not an error and carries no cancellation-reason code.
+Import adapters retain resident assets after external cancellation; an importer
+only discards its still-owned unfinished asset during its own teardown.
 Same-owner submissions from inside this barrier are rejected. New submissions
 then start with no active predecessor; no latest-wins serial is needed. Storage-only
 source recompression preserves semantic identity and retained read handles.

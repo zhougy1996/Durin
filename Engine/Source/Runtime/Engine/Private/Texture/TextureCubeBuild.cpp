@@ -5,7 +5,7 @@
 
 #include "Texture/TextureDerivedData.h"
 #include "TextureDerivedDataKey.h"
-#include "TextureBuildDiagnostics.h"
+#include "TextureBuildInternal.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin

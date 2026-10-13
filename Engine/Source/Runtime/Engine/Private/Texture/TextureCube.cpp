@@ -11,12 +11,11 @@
 #include "Misc/Paths.h"
 #include "Serialization/Archive.h"
 #include "Texture/TextureCubeBuild.h"
-#include "TextureBuildDiagnostics.h"
+#include "TextureBuildInternal.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureDerivedData.h"
 #include "Threading/RunnableThread.h"
 #include "Texture/TexturePlatformCache.h"
-#include "TextureCubeBuildAsync.h"
 
 namespace Durin
 {
@@ -51,7 +50,7 @@ namespace Durin
 			bool bSRGB;
 			ETextureCubeOutput Output;
 			auto Dispatch(DerivedData::IRequestOwner& Owner, std::function<bool()> ShouldCancel,
-				std::function<void(std::unique_ptr<FTexturePlatformCacheResult>)> Completion) const -> void override;
+				std::function<void(DerivedData::EStatus, std::unique_ptr<FTexturePlatformCacheResult>, std::string)> Completion) const -> void override;
 		};
 
 		auto MakeTextureCubeBuildRequest(const FCubeCacheInput& Input,
@@ -116,33 +115,32 @@ namespace Durin
 
 		auto FCubeCacheInput::Dispatch(DerivedData::IRequestOwner& Owner,
 			std::function<bool()> ShouldCancel,
-			std::function<void(std::unique_ptr<FTexturePlatformCacheResult>)> Completion) const -> void
+			std::function<void(DerivedData::EStatus, std::unique_ptr<FTexturePlatformCacheResult>, std::string)> Completion) const -> void
 		{
 #if DURIN_WITH_EDITOR
-			auto Complete = [Completion](std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError> Built) {
+			auto Complete = [Completion](DerivedData::EStatus Status,
+				std::unique_ptr<FTextureCubePlatformData> Product, std::string Diagnostic) {
 				std::unique_ptr<FTexturePlatformCacheResult> Result;
 				try
 				{
-					auto Cube = std::make_unique<FCubeCacheResult>();
-					if (Built)
+					if (Status == DerivedData::EStatus::Ok)
 					{
-						Cube->Data = std::move(*Built);
-						Cube->Status = DerivedData::EStatus::Ok;
+						require(Product != nullptr);
+						auto Cube = std::make_unique<FCubeCacheResult>();
+						Cube->Data = std::move(Product);
+						Result = std::move(Cube);
 					}
-					else
-					{
-						Cube->Diagnostic = Built.error().Diagnostic;
-						Cube->Status = Built.error().Code == ETextureBuildFailure::Canceled
-							? DerivedData::EStatus::Canceled : DerivedData::EStatus::Error;
-					}
-					Result = std::move(Cube);
 				}
-				catch (...) {}
-				Completion(std::move(Result));
+				catch (...)
+				{
+					Status = DerivedData::EStatus::Error;
+					Diagnostic = "TextureCube build output could not be assembled.";
+				}
+				Completion(Status, std::move(Result), std::move(Diagnostic));
 			};
 			if (Owner.IsCanceled() || (ShouldCancel && ShouldCancel()))
 			{
-				Complete(std::unexpected(FTextureBuildError{ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "Cube build was cancelled."}));
+				Complete(DerivedData::EStatus::Canceled, {}, {});
 				return;
 			}
 			// Existing canonical six-face and HDR panorama identities can query DDC
@@ -160,20 +158,17 @@ namespace Durin
 			std::string Error;
 			if (!MakeTextureCubeBuildRequest(*this, Request, Error))
 			{
-				Complete(std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
-					ETextureBuildStage::Normalize, Error.empty() ? "Invalid cube source payload." : std::move(Error)}));
+				Complete(DerivedData::EStatus::Error, {}, Error.empty() ? "Invalid cube source payload." : std::move(Error));
 				return;
 			}
 			auto Prepared = TexturePrivate::PrepareTextureCubeBuild(Request);
-			if (!Prepared) { Complete(std::unexpected(std::move(Prepared.error()))); return; }
+			if (!Prepared) { Complete(DerivedData::EStatus::Error, {}, std::move(Prepared.error().Diagnostic)); return; }
 			auto& Canonical = Prepared->CanonicalInput;
 			TexturePrivate::BuildTextureCubeSourceAsync(Prepared->Source, Canonical.GetSRGB(),
 				Canonical.PanoramaFaceDimension, Canonical.PanoramaExposureEV,
 				Owner, std::move(ShouldCancel), std::move(Complete), &Canonical);
 #else
-			auto Result = std::make_unique<FCubeCacheResult>();
-			Result->Error = "TextureCube authoring is unavailable.";
-			Completion(std::move(Result));
+			Completion(DerivedData::EStatus::Error, {}, "TextureCube authoring is unavailable.");
 #endif
 		}
 #endif

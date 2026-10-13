@@ -11,10 +11,8 @@
 #include "Texture/TextureCubeBuildOperations.h"
 #include "Texture/VolumeTextureBuildOperations.h"
 #include "Texture/TextureDerivedData.h"
-#include "Runtime/Engine/Private/Texture/TextureBuildDiagnostics.h"
-#include "Runtime/Engine/Private/Texture/TextureBuildSession.h"
-#include "Runtime/Engine/Private/Texture/TextureCubeBuildFunction.h"
-#include "Runtime/Engine/Private/Texture/VolumeTextureBuildFunction.h"
+#include "Runtime/Engine/Private/Texture/TextureBuildInternal.h"
+#include "Runtime/Engine/Private/Texture/TextureDerivedDataBuild.h"
 #include <gtest/gtest.h>
 
 namespace
@@ -145,17 +143,16 @@ namespace
 			DerivedData::FBuildRequestOptions Options;
 			Options.Cancellation = DerivedData::FBuildCancellation([&] { return bCancelled.load(); });
 			auto Canceled = TexturePrivate::Build(Definition, Resolver, std::move(Options));
-			ASSERT_TRUE(Canceled);
-			EXPECT_EQ(Canceled->GetStatus(), DerivedData::EStatus::Canceled);
-			EXPECT_EQ(Canceled->GetOutput(), nullptr);
+			EXPECT_EQ(Canceled.GetStatus(), DerivedData::EStatus::Canceled);
+			EXPECT_EQ(Canceled.GetOutput(), nullptr);
 			EXPECT_EQ(Provider->BuildCalls, 1u);
 			EXPECT_FALSE(Provider->ReturnedBlocks.empty());
 
 			Provider->OnRecipeCompleted = {};
 			auto Retried = TexturePrivate::Build(Definition, std::move(Resolver));
-			ASSERT_TRUE(Retried);
-			EXPECT_EQ(Retried->GetStatus(), DerivedData::EStatus::Ok);
-			EXPECT_NE(Retried->GetOutput(), nullptr);
+			ASSERT_EQ(Retried.GetStatus(), DerivedData::EStatus::Ok);
+			EXPECT_EQ(Retried.GetStatus(), DerivedData::EStatus::Ok);
+			EXPECT_NE(Retried.GetOutput(), nullptr);
 			EXPECT_EQ(Provider->BuildCalls, 2u);
 		}
 		template<typename TBuild>
@@ -250,21 +247,18 @@ TEST_F(FDerivedDataTextureQualificationTests, CancellationDiscardsCompletedRecip
 	// Cancellation arrives after the synchronous recipe has produced valid data.
 	Provider->OnRecipeCompleted = [&] { bCancelled.store(true); };
 	const FTexture2DBuildExecutionControl Control{.ShouldCancel = [&] { return bCancelled.load(); }};
-	FTexturePlatformData Product;
-	FTexture2DBuildInputIdentity Identity;
-	const auto Built = BuildTexture2DPlatformData(*Request, Product, Identity, &Control);
+	const auto Built = BuildTexture2DPlatformData(*Request, &Control);
 	ASSERT_FALSE(Built);
 	EXPECT_EQ(Built.error().Code, ETexture2DBuildError::Cancelled);
 	EXPECT_EQ(Provider->BuildCalls, 1u);
 	EXPECT_FALSE(Provider->ReturnedBlocks.empty());
-	EXPECT_FALSE(Product.IsValid());
-	EXPECT_NE(Identity.BuilderVersion, 0u);
 
 	// Canceled products must not be applied or persisted as a cache hit.
 	Provider->OnRecipeCompleted = {};
 	bCancelled.store(false);
-	ASSERT_TRUE(BuildTexture2DPlatformData(*Request, Product, Identity, &Control));
-	EXPECT_TRUE(Product.IsValid());
+	const auto Rebuilt = BuildTexture2DPlatformData(*Request, &Control);
+	ASSERT_TRUE(Rebuilt);
+	EXPECT_TRUE(Rebuilt->IsValid());
 	EXPECT_EQ(Provider->BuildCalls, 2u);
 }
 
@@ -318,16 +312,15 @@ TEST_F(FDerivedDataTextureQualificationTests, Texture2DColdAndWarm)
 		auto Effective = *Request;
 		Effective.bPersistDerivedData = bWrite;
 		const auto Before = Probe->GetReadStats().RequestCount;
-		FTexturePlatformData Product;
-		FTexture2DBuildInputIdentity Identity;
-		if (!BuildTexture2DPlatformData(Effective, Product, Identity)) return {};
+		const auto Product = BuildTexture2DPlatformData(Effective);
+		if (!Product) return {};
 		FXxHash128Builder Hash;
-		const auto Bytes = HashMips(Product, Hash);
+		const auto Bytes = HashMips(*Product, Hash);
 		const bool bHit = Provider->BuildCalls == 0;
 		const auto Requests = Probe->GetReadStats().RequestCount - Before;
 		EXPECT_EQ(Requests, bHit ? 0u : 1u);
 		std::vector<FByteView> Blocks;
-		for (const auto& Mip : Product.Mips) Blocks.emplace_back(Mip.Pixels);
+		for (const auto& Mip : Product->Mips) Blocks.emplace_back(Mip.Pixels);
 		return FTextureBaselineValue{Hash.Finalize(), Bytes, bHit, Requests, true, Provider->CountTransferBytes(Blocks)};
 	}, [&] { Request->Source.ReleaseSourceMemory(); });
 }

@@ -16,7 +16,7 @@
         "ApplicationCore",
         "Mona"
     ],
-    "OptionalPrivateDependencies": [
+    "OptionalPublicDependencies": [
 		"DerivedDataCache"
 	],
     "ReflectHeaders": [

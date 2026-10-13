@@ -28,18 +28,6 @@ namespace Durin
 	ENGINE_API auto ValidateTexture2DBuildSource(const FTextureSource& Source)
 		-> std::expected<void, FTexture2DInputError>;
 
-	// Captured normalized build settings and producer identity for assembly and diagnostics.
-	struct FTexture2DBuildInputIdentity
-	{
-		FXxHash128 SourceIdentity;
-		FTexture2DBuildSettings Settings;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
-		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
-		uint64 BuilderVersion = 0;
-
-		auto operator==(const FTexture2DBuildInputIdentity&) const -> bool = default;
-	};
-
 	// This cancellation value is borrowed only for the duration of Build.
 	struct FTexture2DBuildExecutionControl
 	{
@@ -52,14 +40,10 @@ namespace Durin
 		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr)
 		-> std::expected<FTexturePlatformData, FTextureBuildOperationError>;
 
-	// Diagnostic seam for the Engine compiling manager. Invokes the build module
-	// gate. The returned platform data and identity contain only Engine-owned values.
-	// Failure clears OutPlatformData; OutIdentity retains observed input/builder
-	// identity for compilation diagnostics even when the build fails.
+	// Returns a complete value-owned CPU product; failures expose no partial product.
 	ENGINE_API auto BuildTexture2DPlatformData(const FTexture2DBuildRequest& Request,
-		FTexturePlatformData& OutPlatformData,
-		FTexture2DBuildInputIdentity& OutIdentity,
-		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr) -> std::expected<void, FTexture2DBuildError>;
+		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr)
+		-> std::expected<FTexturePlatformData, FTexture2DBuildError>;
 }
 
 #endif

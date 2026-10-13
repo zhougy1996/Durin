@@ -15,6 +15,8 @@ namespace Durin
 	struct FTexture2DBuildRequest;
 	struct FTexture2DBuildSettings;
 	struct FTexture2DInputError;
+	struct FTexture2DCompilationError;
+	struct FTexture2DResultApplicationContext;
 
 	class DTexture2D;
 	class FTextureCompilingManager;
@@ -89,6 +91,15 @@ namespace Durin
 
 	private:
 		friend class FTextureCompilingManager;
+
+#if DURIN_WITH_EDITORONLY_DATA
+		friend ENGINE_API auto BuildTexture2DSynchronously(DTexture2D& Texture,
+			FTexture2DBuildRequest Request, const FTexture2DResultApplicationContext& Context)
+			-> std::expected<void, FTexture2DCompilationError>;
+		auto ApplyBuildResult(FXxHash128 SourceIdentity, const FTexture2DBuildSettings& Settings,
+			std::unique_ptr<FTexturePlatformData> Product, const FTexture2DResultApplicationContext& Context)
+			-> std::expected<void, FTexture2DCompilationError>;
+#endif
 
 		auto ResetPlatformData() -> void override { PlatformData.reset(); }
 		auto BuildPlatformDataForLoad() -> void override;

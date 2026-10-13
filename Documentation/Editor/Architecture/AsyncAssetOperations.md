@@ -120,13 +120,15 @@ may use typed weak object references but cannot make the generic coordinator
 retain a reflected object implicitly.
 
 `PrepareTexture2DImport` and texture source translation return `std::expected`
-with owned detached values and typed domain errors. Failure exposes no prepared
+with owned detached values and diagnostic strings. Failure exposes no prepared
 value; decoding and validation remain silent. Texture2D reimport submission
-returns `expected<void, FTexture2DSubmissionError>` for admission only. Final
-application and save results still arrive through the existing completion
-callback. StaticMesh and VolumeTexture rebuild errors retain nested completion
-and save causes, including observed write effects; an error does not undo live
-state already applied. Transient mesh creation returns the created object pointer
+returns `expected<void, string>` for admission only. Its import completion carries
+`DerivedData::EStatus` and a diagnostic after source metadata publication and
+optional save. A metadata or save failure does not rewrite the compiler result.
+VolumeTexture rebuild returns an owned diagnostic on failure; structured settings
+and translation errors remain at validation boundaries. StaticMesh rebuild errors
+retain nested completion and save causes, including observed write effects.
+An error does not undo live state already applied. Transient mesh creation returns the created object pointer
 on success and preserves the existing object/garbage-collection ownership.
 
 For direct Texture2D source selection:
@@ -134,8 +136,8 @@ For direct Texture2D source selection:
 - AssetForgeBuiltins captures the selected file without mutating it.
 - TextureCompressor prepares a detached Texture2D platform-data candidate.
 - Engine rechecks request/object/source/settings identity before the first live
-  mutation, then applies explicit source/settings/platform setters and calls
-  `DTexture::UpdateResource()`.
+  mutation, then commits the validated source/settings/platform candidate through
+  its private application seam and calls `DTexture::UpdateResource()`.
 - TextureEditor owns Dirty and save sequencing after successful application.
 - A pre-application failure preserves the live asset; save failure leaves the
   valid applied state Dirty for retry.

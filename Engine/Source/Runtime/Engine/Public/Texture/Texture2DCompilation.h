@@ -5,31 +5,15 @@
 #if DURIN_WITH_EDITORONLY_DATA
 
 #include "Texture/Texture2DCompilationTypes.h"
+#include "Texture/TextureBuildOperation.h"
 #include "Texture/Texture2DBuild.h"
 
 namespace Durin
 {
-	// Identifies the terminal outcome of one accepted object-level compilation.
-	enum class ETexture2DCompilationStatus : uint8
-	{
-		Succeeded,
-		Failed,
-		Canceled
-	};
 
-	struct FTexture2DCompilationResult
-	{
-		ETexture2DCompilationStatus Status = ETexture2DCompilationStatus::Failed;
-		FTexture2DCompilationError Error;
-
-		auto Succeeded() const -> bool
-		{
-			return Status == ETexture2DCompilationStatus::Succeeded;
-		}
-	};
 
 	// Accepted requests invoke their completion exactly once on the GameThread.
-	using FTexture2DCompilationCompletion = std::function<void(FTexture2DCompilationResult)>;
+	using FTexture2DCompilationCompletion = std::function<void(FTextureOperationResult)>;
 
 	struct FTexture2DResultApplicationContext
 	{

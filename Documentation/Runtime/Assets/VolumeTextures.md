@@ -36,7 +36,9 @@ Image::FImageDecodeError>`. An inspection without a confident layout is successf
 and retains its dimensions and suggestions. Settings validation returns expected
 void; translation returns owned `FVolumeTextureSourceData` or a typed translation
 error retaining settings, dimensions and decode causes. Read error details only
-on the failure branch; a failed result contains no source value.
+on the failure branch; a failed result contains no source value. Rebuild and
+reimport return expected void with an owned diagnostic string. Factory diagnostics
+retain that text after package cleanup, without nested rebuild or save causes.
 
 The VolumeTexture factory supports one `PNG Row-Major Atlas`: each tile is one
 Z slice, tiles advance left-to-right and then top-to-bottom, and unused cells

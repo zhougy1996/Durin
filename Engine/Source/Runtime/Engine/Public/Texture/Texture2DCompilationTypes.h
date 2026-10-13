@@ -7,6 +7,7 @@
 
 #include "EngineAPI.h"
 #include "Texture/Texture2DBuildTypes.h"
+#include "DerivedDataStatus.h"
 
 namespace Durin
 {
@@ -15,12 +16,11 @@ namespace Durin
 	{
 		None,
 		Queued,
-		Preparing,
 		Building,
-		UploadPending,
+		AwaitingApply,
 		Ready,
 		Failed,
-		Cancelled,
+		Canceled,
 	};
 
 	enum class ETexture2DCompilationPriority : uint8
@@ -32,7 +32,6 @@ namespace Durin
 	// Records wall-clock build timing and conservative versus observed retained bytes.
 	struct FTexture2DCompilationMetrics
 	{
-		uint64 PreparationNanoseconds = 0;
 		// Dispatch start to build completion, including asynchronous cache I/O.
 		uint64 BuildElapsedNanoseconds = 0;
 		uint64 CompletionNanoseconds = 0;
@@ -42,25 +41,19 @@ namespace Durin
 
 	enum class ETexture2DCompilationError : uint8
 	{
-		None, BuildFailed, WorkerFailed, Cancelled, CancelledBeforeAdmission, CancelledDuringShutdown, CancelledForMutation,
+		None, BuildFailed,
 		InvalidSource, MissingSourceIdentity, ManagerUnavailable, ManagerNotStarted, InvalidOwner,
 		AdmissionRejected, MissingPackage, InvalidProduct, SourceMismatch, InvalidSettings,
-		ImportValidation, ImportAllocation, Save,
 	};
-	struct FAssetImportDataError;
-	struct FAssetWriteResult;
 	struct FTexture2DCompilationError
 	{
 		ETexture2DCompilationError Code = ETexture2DCompilationError::None;
-		// Concise actionable input reason; internal build causes stay in diagnostics.
-		std::string InputReason;
-		std::optional<ETaskState> TaskState;
+		// Synchronous admission/application failure; asynchronous results carry diagnostics directly.
+		std::string Diagnostic;
 		std::optional<FTexture2DInputError> InputCause;
 		std::string ObjectPath;
 		FXxHash128 ExpectedSourceIdentity{};
 		FXxHash128 ActualSourceIdentity{};
-		std::shared_ptr<const FAssetImportDataError> ImportCause;
-		std::shared_ptr<const FAssetWriteResult> SaveCause;
 		auto HasError() const -> bool { return Code != ETexture2DCompilationError::None; }
 	};
 	ENGINE_API auto FormatTexture2DCompilationError(const FTexture2DCompilationError& Error) -> std::string;

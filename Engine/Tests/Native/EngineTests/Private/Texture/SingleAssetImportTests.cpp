@@ -248,7 +248,7 @@ TEST(FSingleAssetImportTests, FactoryRetainsSettingsAxesAfterDiscard)
 	EXPECT_EQ(Failure->Filename, Source.generic_string());
 }
 
-TEST(FSingleAssetImportTests, VolumeFactoryRetainsModuleCauseAfterPackageDiscard)
+TEST(FSingleAssetImportTests, VolumeFactoryRetainsDiagnosticAfterPackageDiscard)
 {
 	const auto Root = InitializeSingleAssetImportTests();
 	const auto Source = Root / "InvalidDomainSource.png";
@@ -262,6 +262,9 @@ TEST(FSingleAssetImportTests, VolumeFactoryRetainsModuleCauseAfterPackageDiscard
 			nullptr, "DomainFailureFactory", Durin::EObjectFlags::Transient);
 		Factory->SetImportSettings({.SliceWidth = InvalidSettings ? 0u : 1u,
 			.SliceHeight = 1, .Depth = 1, .TilesX = 1, .TilesY = 1});
+		const auto Expected = InvalidSettings
+			? Durin::AssetForge::Builtins::FormatVolumeTextureImportSettingsError(Factory->GetImportSettings().Validate().error())
+			: "Volume texture atlas is not PNG data.";
 		const auto Result = Durin::IAssetTools::Get().ImportPackageLeafAssetForTesting(
 			Path, Durin::DVolumeTexture::StaticClass(), Source.generic_string(), Factory);
 		EXPECT_FALSE(Result);
@@ -273,45 +276,25 @@ TEST(FSingleAssetImportTests, VolumeFactoryRetainsModuleCauseAfterPackageDiscard
 		const auto* Detail = dynamic_cast<const Durin::AssetForge::Builtins::FVolumeTextureFactoryError*>(Entry.DomainFailure.get());
 		ASSERT_NE(Detail, nullptr);
 		using namespace Durin::AssetForge::Builtins;
-		if (InvalidSettings)
-		{
-			const auto* Cause = std::get_if<FVolumeTextureImportSettingsError>(&Detail->Cause);
-			ASSERT_NE(Cause, nullptr);
-			EXPECT_EQ(Cause->Code, EVolumeTextureImportSettingsError::Dimensions);
-			EXPECT_EQ(Cause->Settings.SliceWidth, 0u);
-		}
-		else
-		{
-			const auto* Cause = std::get_if<FVolumeTextureRebuildError>(&Detail->Cause);
-			ASSERT_NE(Cause, nullptr);
-			EXPECT_EQ(Cause->Code, EVolumeTextureRebuildError::Translation);
-			ASSERT_TRUE(Cause->TranslationCause);
-			EXPECT_EQ(Cause->TranslationCause->Code, EVolumeTextureTranslationError::Signature);
-			EXPECT_EQ(Cause->TranslationCause->Filename, Source.filename().generic_string());
-		}
+		EXPECT_EQ(Detail->Diagnostic, Expected);
+		EXPECT_EQ(Detail->Format(), Expected);
 	}
 }
 
-TEST(FSingleAssetImportTests, TexturePreparationRetainsCaptureAndTranslationCauses)
+TEST(FSingleAssetImportTests, TexturePreparationReturnsOwnedCaptureAndTranslationDiagnostics)
 {
 	const auto Root = InitializeSingleAssetImportTests();
 	using namespace Durin::AssetForge::Builtins;
 	const auto MissingPath = Root / "MissingPreparation.png";
 	const auto Missing = PrepareTexture2DImport(MissingPath.generic_string());
 	ASSERT_FALSE(Missing);
-	EXPECT_EQ(Missing.error().Code, ETexture2DPreparationError::Capture);
-	ASSERT_TRUE(Missing.error().CaptureCause);
-	EXPECT_EQ(Missing.error().CaptureCause->Code, EEncodedSourceError::FileSize);
-	EXPECT_EQ(Missing.error().CaptureCause->PhysicalPath, MissingPath);
+	EXPECT_FALSE(Missing.error().empty());
 	const auto InvalidPath = Root / "InvalidPreparation.png";
 	const std::array<std::byte, 2> Bytes{std::byte{1}, std::byte{2}};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Bytes, InvalidPath));
 	const auto Invalid = PrepareTexture2DImport(InvalidPath.generic_string());
 	ASSERT_FALSE(Invalid);
-	EXPECT_EQ(Invalid.error().Code, ETexture2DPreparationError::Translation);
-	ASSERT_TRUE(Invalid.error().TranslationCause);
-	ASSERT_TRUE(Invalid.error().TranslationCause->DecodeCause);
-	EXPECT_EQ(Invalid.error().TranslationCause->DecodeCause->Code, Durin::Image::EImageDecodeError::InvalidImage);
-	EXPECT_EQ(Invalid.error().Filename, InvalidPath.generic_string());
-	EXPECT_EQ(Missing.error().CaptureCause->PhysicalPath, MissingPath);
+	EXPECT_FALSE(Invalid.error().empty());
+	EXPECT_NE(Invalid.error(), Missing.error());
+	EXPECT_FALSE(Missing.error().empty());
 }

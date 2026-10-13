@@ -18,7 +18,7 @@ namespace Durin::Editor::Texture
 		bool HasPackage = false;
 		bool HasSource = false;
 		std::optional<FTexture2DInputError> InputCause;
-		std::optional<FTexture2DCompilationError> CompilationCause;
+		std::string Diagnostic;
 		TEXTUREEDITOR_API auto Format() const -> std::string override;
 	};
 

@@ -1,12 +1,10 @@
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
-#include "TextureBuildDiagnostics.h"
-#include "TextureCubeBuildFunction.h"
+#include "TextureBuildInternal.h"
+#include "TextureDerivedDataBuild.h"
 #include "TexturePlatformSharedOutput.h"
-#include "TextureBuildSession.h"
 #include "TextureDerivedDataKey.h"
 #include "Texture/TextureDerivedData.h"
-#include "TextureCubeBuildAsync.h"
 
 namespace Durin
 {
@@ -73,32 +71,42 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 	auto TexturePrivate::BuildTextureCubeSourceAsync(const FTextureSource& Source, bool bSRGB,
 		uint32 FaceDimension, float Exposure, DerivedData::IRequestOwner& Owner,
-		std::function<bool()> ShouldCancel, FCubeSourceCompletion Completion,
+		std::function<bool()> ShouldCancel, std::function<void(DerivedData::EStatus, std::unique_ptr<FTextureCubePlatformData>, std::string)> Completion,
 		const FTextureCubeCanonicalBuildInput* PreparedInput) -> void
 	{
 		if (Owner.IsCanceled() || (ShouldCancel && ShouldCancel()))
 		{
-			Completion(std::unexpected(FTextureBuildError{ETextureBuildFailure::Canceled, ETextureBuildStage::Build, "Texture build was cancelled."}));
+			Completion(DerivedData::EStatus::Canceled, {}, {});
 			return;
 		}
 		auto Definition = PrepareCubeDefinition(Source, bSRGB, FaceDimension, Exposure,
 			ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-		if (!Definition) { Completion(std::unexpected(std::move(Definition.error()))); return; }
+		if (!Definition) { Completion(DerivedData::EStatus::Error, {}, std::move(Definition.error().Diagnostic)); return; }
 		auto Options = CubeBuildOptions(true);
 		Options.Cancellation = DerivedData::FBuildCancellation(std::move(ShouldCancel));
 		auto Callback = [Completion](DerivedData::FBuildCompleteParams Result) mutable {
-			auto Product = [&]() -> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError> {
-				try { return ConsumeCubeBuild(Result, ECookTargetPlatform::Win64, ECookTargetProfile::Game); }
-				catch (...) { return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidBuilderOutput,
-					ETextureBuildStage::Build, "TextureCube output assembly failed."}); }
-			}();
-			Completion(std::move(Product));
+			const auto Status = Result.GetStatus();
+			if (Status == DerivedData::EStatus::Canceled)
+			{
+				Completion(Status, {}, {});
+				return;
+			}
+			std::unique_ptr<FTextureCubePlatformData> Product;
+			std::string Diagnostic;
+			try
+			{
+				auto Built = ConsumeCubeBuild(Result, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+				if (Built) Product = std::move(*Built);
+				else Diagnostic = std::move(Built.error().Diagnostic);
+			}
+			catch (...) { Diagnostic = "TextureCube output assembly failed."; }
+			const auto FinalStatus = Product ? DerivedData::EStatus::Ok : DerivedData::EStatus::Error;
+			Completion(FinalStatus, std::move(Product), std::move(Diagnostic));
 		};
 		auto Admitted = BuildAsync(std::move(*Definition), MakeTextureCubeInputResolver(Source, PreparedInput), Owner,
 			std::move(Callback), std::move(Options));
 		if (!Admitted)
-			Completion(std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
-				ETextureBuildStage::Module, Admitted.error().Description}));
+			Completion(DerivedData::EStatus::Error, {}, Admitted.error().Description);
 	}
 #endif
 
@@ -116,9 +124,7 @@ namespace Durin
 		auto Options = CubeBuildOptions(bPersist);
 		auto Built = TexturePrivate::Build(std::move(*Definition),
 			MakeTextureCubeInputResolver(Source, PreparedInput), std::move(Options));
-		if (!Built) return std::unexpected(FTextureBuildError{ETextureBuildFailure::Unavailable,
-			ETextureBuildStage::Module, Built.error().Description});
-		auto& Completion = *Built;
+		auto& Completion = Built;
 		return ConsumeCubeBuild(Completion, Platform, Profile);
 #endif
 	}

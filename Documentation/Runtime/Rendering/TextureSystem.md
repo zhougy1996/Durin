@@ -210,12 +210,16 @@ lookup use source metadata and content identity only. Explicit edit requests can
 carry decoded images; authored PostLoad defers payload recovery until a worker
 cache miss. Workers consume those images to generate mips, compress,
 validate, and request best-effort DDC persistence before placing a move-only result
-in the manager mailbox. Worker results retain `FTexture2DCompilationError` with
-input causes and task state; diagnostic snapshots separately retain the internal
-`BuildCause`. Public completion errors do not carry that internal cause;
-UI and pending edit/import adapters call `FormatTexture2DCompilationError`.
+in the manager mailbox. Worker and object completion results use `DerivedData::EStatus` with one owned
+diagnostic string. Input validation retains structured field errors at synchronous
+admission boundaries; asynchronous completion does not nest build or task errors.
+The request and texture share one progress snapshot. Retired work records are
+erased; only bounded object diagnostics remain.
 The Texture compiling manager commits on the GameThread
 after validating request id, weak object identity, and the selected source.
+Texture2D result application uses one validated private commit; public setters
+retain the selected mutation barrier. Completion and import callbacks use the
+plain `FTextureOperationResult`, with independent terminal publication.
 Source/settings mutation and new submissions cancel, finish and retire the previous
 request before proceeding. This selected blocking boundary follows UE texture
 mutation ownership and replaces latest-wins request serials.

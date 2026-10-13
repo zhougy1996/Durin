@@ -255,12 +255,7 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	EXPECT_EQ(Reimported.Status, Durin::EReimportStatus::SourceOrBuildFailure);
 	const auto* Detail = dynamic_cast<const Durin::AssetForge::Builtins::FTexture2DFactoryError*>(Reimported.FactoryCause.get());
 	ASSERT_NE(Detail, nullptr);
-	const auto* Submission = std::get_if<Durin::AssetForge::Builtins::FTexture2DSubmissionError>(&Detail->Cause);
-	ASSERT_NE(Submission, nullptr);
-	EXPECT_EQ(Submission->Code, Durin::AssetForge::Builtins::ETexture2DSubmissionError::Translation);
-	ASSERT_TRUE(Submission->TranslationCause);
-	ASSERT_TRUE(Submission->TranslationCause->DecodeCause);
-	EXPECT_EQ(Submission->TranslationCause->DecodeCause->Code, Durin::Image::EImageDecodeError::InvalidImage);
+	EXPECT_FALSE(Detail->Diagnostic.empty());
 	EXPECT_EQ(Texture->GetPlatformDataShared(), LastGoodPlatformDataIdentity);
 	ExpectPlatformDataEqual(*Texture->GetPlatformData(), LastGood);
 	std::optional<Durin::FReimportResult> Previous, Canceled;

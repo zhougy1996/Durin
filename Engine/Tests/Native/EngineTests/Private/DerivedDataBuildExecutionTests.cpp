@@ -66,7 +66,7 @@ namespace
 TEST(FBuildExecutionTests, ColdBuildPersistsAndWarmHitAvoidsResolve)
 {
 	FHarness H; auto Cold = H.Run(); ASSERT_EQ(Cold.GetStatus(), EStatus::Ok); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u); EXPECT_EQ(H.Cache->Puts, 1u); EXPECT_EQ(H.Resolver->Describes, 1u);
-	auto Warm = H.Run(); ASSERT_EQ(Warm.GetStatus(), EStatus::Ok); EXPECT_TRUE(HasBuildStatus(Warm.GetBuildStatus(), EBuildStatus::CacheQueryHit)); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u); EXPECT_EQ(H.Resolver->Describes, 2u);
+	auto Warm = H.Run(); ASSERT_EQ(Warm.GetStatus(), EStatus::Ok); EXPECT_TRUE(HasBuildExecutionFlag(Warm.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit)); EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u); EXPECT_EQ(H.Resolver->Describes, 2u);
 }
 
 TEST(FBuildExecutionTests, CorruptRecordFallsBackOnce)
@@ -82,14 +82,14 @@ TEST(FBuildExecutionTests, DescriptorOnlyRecordFallsBackAndIsReplacedByCompleteO
 	H.Cache->Stored = H.Cache->Stored->RemoveValueData();
 	auto Result = H.Run();
 	ASSERT_EQ(Result.GetStatus(), EStatus::Ok);
-	EXPECT_FALSE(HasBuildStatus(Result.GetBuildStatus(), EBuildStatus::CacheQueryHit));
+	EXPECT_FALSE(HasBuildExecutionFlag(Result.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit));
 	EXPECT_EQ(H.Function->Builds, 2u);
 	EXPECT_EQ(H.Resolver->Resolves, 2u);
 	EXPECT_EQ(H.Cache->Puts, 2u);
 	ASSERT_TRUE(H.Cache->Stored);
 	ASSERT_NE(Result.GetCacheKey(), nullptr);
 	EXPECT_TRUE(H.Cache->Stored->ToOutput(*Result.GetCacheKey()));
-	EXPECT_TRUE(HasBuildStatus(H.Run().GetBuildStatus(), EBuildStatus::CacheQueryHit));
+	EXPECT_TRUE(HasBuildExecutionFlag(H.Run().GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit));
 	EXPECT_EQ(H.Function->Builds, 2u);
 }
 
@@ -112,7 +112,7 @@ TEST(FBuildExecutionTests, TransientLogsPreventCacheStorage)
 TEST(FBuildExecutionTests, DeterministicErrorIsPersistedAndReplayed)
 {
 	FHarness H; H.Function->Fail = true; auto Cold = H.Run(); ASSERT_EQ(Cold.GetStatus(), EStatus::Error); ASSERT_NE(Cold.GetOutput(), nullptr); EXPECT_TRUE(Cold.GetOutput()->HasError()); EXPECT_EQ(H.Cache->Puts, 1u);
-	H.Function->Fail = false; auto Warm = H.Run(); EXPECT_EQ(Warm.GetStatus(), EStatus::Error); EXPECT_TRUE(HasBuildStatus(Warm.GetBuildStatus(), EBuildStatus::CacheQueryHit)); EXPECT_EQ(H.Function->Builds, 1u);
+	H.Function->Fail = false; auto Warm = H.Run(); EXPECT_EQ(Warm.GetStatus(), EStatus::Error); EXPECT_TRUE(HasBuildExecutionFlag(Warm.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit)); EXPECT_EQ(H.Function->Builds, 1u);
 }
 
 TEST(FBuildExecutionTests, CancellationRemainsDistinct)
@@ -145,7 +145,7 @@ TEST(FBuildExecutionTests, ExecutionFailureCanRetryWithSameIdentityAndLargerCach
 	EXPECT_EQ(*Failed.GetCacheKey(), *Recovered.GetCacheKey());
 	EXPECT_EQ(H.Function->Builds, 2u);
 	EXPECT_EQ(H.Cache->Puts, 1u);
-	EXPECT_TRUE(HasBuildStatus(H.Run().GetBuildStatus(), EBuildStatus::CacheQueryHit));
+	EXPECT_TRUE(HasBuildExecutionFlag(H.Run().GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit));
 }
 
 TEST(FBuildExecutionTests, RequestDescriptionFailureCompletesWithoutProducerOrCacheQuery)
@@ -225,7 +225,7 @@ TEST(FBuildExecutionTests, QueuedProducerUsesOnePreparationAndSkipsProductionOnW
 	{
 		auto Request = Session->Build(Definition(), Owner, [&](auto Result) {
 			EXPECT_EQ(Result.GetStatus(), EStatus::Ok);
-			EXPECT_EQ(HasBuildStatus(Result.GetBuildStatus(), EBuildStatus::CacheQueryHit), Round == 1);
+			EXPECT_EQ(HasBuildExecutionFlag(Result.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit), Round == 1);
 			++Calls;
 		}, {}, {.InputResolver = H.Resolver});
 		ASSERT_TRUE(Request);

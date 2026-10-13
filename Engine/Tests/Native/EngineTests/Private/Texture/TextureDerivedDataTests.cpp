@@ -1,7 +1,5 @@
-#include "Runtime/Engine/Private/Texture/TextureBuildDiagnostics.h"
-#include "Runtime/Engine/Private/Texture/TextureCubeBuildFunction.h"
-#include "Runtime/Engine/Private/Texture/VolumeTextureBuildFunction.h"
-#include "Runtime/Engine/Private/Texture/Texture2DBuildFunction.h"
+#include "Runtime/Engine/Private/Texture/TextureBuildInternal.h"
+#include "Runtime/Engine/Private/Texture/TextureDerivedDataBuild.h"
 #include "DerivedDataBuildSession.h"
 #include "Texture/ITextureCompressorModule.h"
 #include "Texture/Texture2DBuildTypes.h"
@@ -1005,6 +1003,34 @@ TEST(FTexturePlatformSessionTests, PreparedHDRCubeRejectsLDRAlternativeWithMatch
 	const auto WrongMode = TexturePrivate::MakeTextureCubeInputResolver(*Source, &Prepared);
 	EXPECT_FALSE(WrongMode->Resolve(Identities, {}));
 	EXPECT_TRUE(Valid->Resolve(Identities, {}));
+}
+
+TEST(FTexturePlatformSessionTests, SyncCompletionCarriesCancellationAndFailureDirectly)
+{
+	using namespace Durin;
+	ASSERT_NE(ITextureCompressorModule::Get(), nullptr);
+	auto Pixels = Image::FImage::TryCreate({.Width = 1, .Height = 1, .Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(4));
+	ASSERT_TRUE(Pixels);
+	FTextureSource Source;
+	ASSERT_TRUE(Source.Init2D(Pixels->GetView(), 4));
+	auto Request = MakeTexture2DBuildRequest(Source);
+	ASSERT_TRUE(Request);
+	auto Definition = TexturePrivate::MakeTexture2DSessionDefinition(*Request);
+	ASSERT_TRUE(Definition);
+	DerivedData::FBuildRequestOptions CancelOptions;
+	CancelOptions.Cancellation = DerivedData::FBuildCancellation([] { return true; });
+	auto Canceled = TexturePrivate::Build(*Definition, {}, std::move(CancelOptions));
+	EXPECT_EQ(Canceled.GetStatus(), DerivedData::EStatus::Canceled);
+	EXPECT_EQ(Canceled.GetOutput(), nullptr);
+	EXPECT_TRUE(Canceled.GetDiagnostic().empty());
+	DerivedData::FBuildRequestOptions Options;
+	Options.Policy.QueryCache = false;
+	Options.Policy.ForceBuild = true;
+	// No resolver is supplied for a definition requiring source inputs.
+	auto Failed = TexturePrivate::Build(*Definition, {}, std::move(Options));
+	EXPECT_EQ(Failed.GetStatus(), DerivedData::EStatus::Error);
+	EXPECT_EQ(Failed.GetOutput(), nullptr);
+	EXPECT_FALSE(Failed.GetDiagnostic().empty());
 }
 
 TEST(FTexturePlatformSessionTests, CancellationPreservesOperationStatus)

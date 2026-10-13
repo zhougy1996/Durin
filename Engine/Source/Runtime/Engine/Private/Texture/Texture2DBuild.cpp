@@ -4,11 +4,10 @@
 #include "Texture/ITextureCompressorModule.h"
 
 #include "Texture/TextureDerivedData.h"
-#include "TextureBuildSession.h"
-#include "Texture2DBuildFunction.h"
+#include "TextureDerivedDataBuild.h"
 #include "TextureDerivedDataKey.h"
 #include "Texture2DSharedOutput.h"
-#include "Texture2DBuildAsync.h"
+#include "TextureBuildInternal.h"
 
 namespace Durin
 {
@@ -108,26 +107,20 @@ namespace Durin
 	}
 
 
-	static auto PrepareTexture2DBuild(const FTexture2DBuildRequest& Request,
-		FTexture2DBuildInputIdentity& OutIdentity) -> std::expected<void, FTexture2DBuildError>
+	static auto ValidateTexture2DBuildRequest(const FTexture2DBuildRequest& Request) -> std::expected<void, FTexture2DBuildError>
 	{
-		OutIdentity = {};
 		if (const auto Validation = ValidateTexture2DBuildSource(Request.Source); !Validation)
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
 		if (const auto Validation = ValidateTexture2DBuildSettings(Request.Settings); !Validation)
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.error()});
 		if (Request.Source.GetOwner() || Request.Source.GetIdentity().IsZero())
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::MissingSourceIdentity});
-		OutIdentity = {.SourceIdentity = Request.Source.GetIdentity(), .Settings = Request.Settings,
-			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile};
-		OutIdentity.Settings.bSRGB = ResolveTexture2DSRGB(Request.Settings);
 #if !DURIN_WITH_EDITOR
 		return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::AuthoredBuildUnavailable});
 #else
 		auto* Module = ITextureCompressorModule::Get();
 		if (!Module) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::ModuleUnavailable});
-		OutIdentity.BuilderVersion = Module->GetBuildVersion(ETextureBuildKind::Texture2D);
-		if (!OutIdentity.BuilderVersion)
+		if (!Module->GetBuildVersion(ETextureBuildKind::Texture2D))
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderVersion});
 		return {};
 #endif
@@ -168,54 +161,59 @@ namespace Durin
 
 	auto TexturePrivate::BuildTexture2DAsync(FTexture2DBuildRequest Request,
 		DerivedData::IRequestOwner& Owner, std::function<bool()> ShouldCancel,
-		std::function<void(std::expected<FTexturePlatformData, FTexture2DBuildError>, FTexture2DBuildInputIdentity)> Completion) -> void
+		std::function<void(DerivedData::EStatus, std::unique_ptr<FTexturePlatformData>, std::string)> Completion) -> void
 	{
-		FTexture2DBuildInputIdentity Identity;
-		if (auto Prepared = PrepareTexture2DBuild(Request, Identity); !Prepared)
+		if (auto Valid = ValidateTexture2DBuildRequest(Request); !Valid)
 		{
-			Completion(std::unexpected(Prepared.error()), std::move(Identity));
+			Completion(DerivedData::EStatus::Error, {}, FormatTexture2DBuildError(Valid.error()));
 			return;
 		}
 		auto Definition = MakeTexture2DSessionDefinition(Request);
 		if (!Definition)
 		{
-			Completion(std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput}), std::move(Identity));
+			Completion(DerivedData::EStatus::Error, {}, "Texture build definition is invalid.");
 			return;
 		}
 		// Keep a fallback copy only until admission returns; accepted requests complete once.
-		auto Callback = [Completion, Identity](DerivedData::FBuildCompleteParams Result) mutable {
-			auto Product = [&]() -> std::expected<FTexturePlatformData, FTexture2DBuildError> {
-				try { return ConsumeTexture2DBuild(Result, Identity.TargetPlatform, Identity.TargetProfile); }
-				catch (...) { return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidBuilderProduct}); }
-			}();
-			Completion(std::move(Product), std::move(Identity));
+		auto Callback = [Completion, Platform = Request.TargetPlatform, Profile = Request.TargetProfile]
+			(DerivedData::FBuildCompleteParams Result) mutable {
+			DerivedData::EStatus Status = DerivedData::EStatus::Error;
+			std::unique_ptr<FTexturePlatformData> Product;
+			std::string Diagnostic;
+			try
+			{
+				auto Built = ConsumeTexture2DBuild(Result, Platform, Profile);
+				if (Built)
+				{
+					Product = std::make_unique<FTexturePlatformData>(std::move(*Built));
+					Status = DerivedData::EStatus::Ok;
+				}
+				else if (Built.error().Code == ETexture2DBuildError::Cancelled) Status = DerivedData::EStatus::Canceled;
+				else Diagnostic = FormatTexture2DBuildError(Built.error());
+			}
+			catch (...) { Diagnostic = "Texture build output could not be assembled."; }
+			Completion(Status, std::move(Product), std::move(Diagnostic));
 		};
 		auto Admitted = BuildAsync(std::move(*Definition), MakeTexture2DInputResolver(Request.Source), Owner,
 			std::move(Callback), MakeTexture2DBuildOptions(Request, std::move(ShouldCancel)));
-		if (!Admitted) Completion(std::unexpected(FTexture2DBuildError{
-			.Code = ETexture2DBuildError::ModuleUnavailable, .Description = Admitted.error().Description}), std::move(Identity));
+		if (!Admitted) Completion(DerivedData::EStatus::Error, {}, Admitted.error().Description);
 	}
 #endif
 
 	auto BuildTexture2DPlatformData(const FTexture2DBuildRequest& Request,
-		FTexturePlatformData& OutPlatformData, FTexture2DBuildInputIdentity& OutIdentity,
-		const FTexture2DBuildExecutionControl* ExecutionControl) -> std::expected<void, FTexture2DBuildError>
+		const FTexture2DBuildExecutionControl* ExecutionControl) -> std::expected<FTexturePlatformData, FTexture2DBuildError>
 	{
-		OutPlatformData = {};
-		if (auto Prepared = PrepareTexture2DBuild(Request, OutIdentity); !Prepared) return Prepared;
+		if (auto Valid = ValidateTexture2DBuildRequest(Request); !Valid) return std::unexpected(std::move(Valid.error()));
 #if DURIN_WITH_EDITOR
 		auto Definition = TexturePrivate::MakeTexture2DSessionDefinition(Request);
 		if (!Definition) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput});
 		auto Options = MakeTexture2DBuildOptions(Request, ExecutionControl ? ExecutionControl->ShouldCancel : std::function<bool()>{});
 		auto Built = TexturePrivate::Build(std::move(*Definition),
 			TexturePrivate::MakeTexture2DInputResolver(Request.Source), std::move(Options));
-		if (!Built) return std::unexpected(FTexture2DBuildError{
-			.Code = ETexture2DBuildError::ModuleUnavailable, .Description = Built.error().Description});
-		auto Product = ConsumeTexture2DBuild(*Built, Request.TargetPlatform, Request.TargetProfile);
-		if (!Product) return std::unexpected(Product.error());
-		OutPlatformData = std::move(*Product);
+		return ConsumeTexture2DBuild(Built, Request.TargetPlatform, Request.TargetProfile);
+#else
+		return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::AuthoredBuildUnavailable});
 #endif
-		return {};
 	}
 }
 

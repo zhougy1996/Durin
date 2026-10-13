@@ -8,11 +8,10 @@
 #include "Asset/SourceHint.h"
 #include "Misc/MountPaths.h"
 #include "Texture/Texture2DCompilation.h"
+#include "Texture/TextureBuildOperation.h"
 
 namespace Durin::AssetForge::Builtins
 {
-	struct FTexture2DPreparationError;
-	struct FEncodedSourceError;
 
 	// Detached source capture. Safe to prepare on a worker; no object or mount access.
 	struct FPreparedTexture2DImport
@@ -24,7 +23,7 @@ namespace Durin::AssetForge::Builtins
 		FTexture2DImportSettings InferredSettings;
 	};
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto PrepareTexture2DImport(std::string_view Filename)
-		-> std::expected<FPreparedTexture2DImport, FTexture2DPreparationError>;
+		-> std::expected<FPreparedTexture2DImport, std::string>;
 
 	// Conservative first-import defaults from the filename's final semantic token,
 	// then optional decoded-source normal detection. Flat colors stay ambiguous.
@@ -35,64 +34,29 @@ namespace Durin::AssetForge::Builtins
 
 	ASSETFORGEBUILTINS_API auto IsTexture2DSourceExtension(
 		std::string_view Extension) -> bool;
-	enum class ETexture2DTranslationError : uint8 { None, Decode, Dimensions, Image, Source };
-	struct FTexture2DTranslationError
-	{
-		ETexture2DTranslationError Code = ETexture2DTranslationError::None;
-		uint32 Width = 0;
-		uint32 Height = 0;
-		uint8 SourceChannelCount = 0;
-		std::optional<Image::FImageDecodeError> DecodeCause;
-	};
-	using FTexture2DTranslationResult = std::expected<FTextureSource, FTexture2DTranslationError>;
-	ASSETFORGEBUILTINS_API auto FormatTexture2DTranslationError(const FTexture2DTranslationError& Error) -> std::string;
+	using FTexture2DTranslationResult = std::expected<FTextureSource, std::string>;
+	using FTexture2DPreparationResult = std::expected<FPreparedTexture2DImport, std::string>;
+	using FTexture2DSubmissionResult = std::expected<void, std::string>;
 
-	enum class ETexture2DPreparationError : uint8 { None, Path, Format, Capture, Translation };
-	struct FTexture2DPreparationError
-	{
-		ETexture2DPreparationError Code = ETexture2DPreparationError::None;
-		std::string Filename;
-		std::error_code SystemError;
-		std::shared_ptr<const FEncodedSourceError> CaptureCause;
-		std::optional<FTexture2DTranslationError> TranslationCause;
-	};
-	using FTexture2DPreparationResult = std::expected<FPreparedTexture2DImport, FTexture2DPreparationError>;
-	ASSETFORGEBUILTINS_API auto FormatTexture2DPreparationError(const FTexture2DPreparationError& Error) -> std::string;
+	// Import completion includes source metadata publication and optional persistence.
+
+	using FTexture2DImportCompletion = std::function<void(FTextureOperationResult)>;
 
 	// Decodes one image into detached authored source, retaining original channel metadata.
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto TranslateTexture2DSource(
 		FByteView EncodedBytes) -> FTexture2DTranslationResult;
 
-	enum class ETexture2DSubmissionError : uint8
-	{
-		None, Package, Mount, SourceHint, SourceFile, Capture, Translation, Compilation, MissingSource, UnsupportedReimport
-	};
-	struct FTexture2DSubmissionError
-	{
-		ETexture2DSubmissionError Code = ETexture2DSubmissionError::None;
-		std::string ObjectPath;
-		std::string Filename;
-		std::string PackagePath;
-		EMountPathError MountCause = EMountPathError::None;
-		std::optional<FSourceHintError> SourceHintCause;
-		std::shared_ptr<const FEncodedSourceError> CaptureCause;
-		std::optional<FTexture2DTranslationError> TranslationCause;
-		std::optional<FTexture2DCompilationError> CompilationCause;
-	};
-	using FTexture2DSubmissionResult = std::expected<void, FTexture2DSubmissionError>;
-	ASSETFORGEBUILTINS_API auto FormatTexture2DSubmissionError(const FTexture2DSubmissionError& Error) -> std::string;
-
 	// Reimports from the retained optional source hint. Completion runs on the
 	// game thread after the detached candidate is either published or rejected.
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportTexture2D(
 		DTexture2D& Texture,
-		FTexture2DCompilationCompletion Completion = {}) -> FTexture2DSubmissionResult;
+		FTexture2DImportCompletion Completion = {}) -> FTexture2DSubmissionResult;
 	// Selects and captures a new source, then atomically publishes canonical
 	// imported data and the new hint only after the detached build succeeds.
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportTexture2DFromFile(
 		DTexture2D& Texture,
 		std::string_view FilePath,
-		FTexture2DCompilationCompletion Completion = {}) -> FTexture2DSubmissionResult;
+		FTexture2DImportCompletion Completion = {}) -> FTexture2DSubmissionResult;
 	// Rebuilds one packaged texture from its resident canonical imported data.
 	ASSETFORGEBUILTINS_API auto RebuildTexture2DFromSource(
 		DTexture2D& Texture,

@@ -313,7 +313,7 @@ namespace Durin
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (State->Closed || !State->Session)
-				return FBuildCompleteParams::Canceled(std::nullopt, EBuildStatus::None);
+				return FBuildCompleteParams::Canceled(std::nullopt, EBuildExecutionFlags::None);
 			Persistent = State->Session;
 		}
 		FRequestOwner Owner;
@@ -322,9 +322,9 @@ namespace Durin
 		auto Admitted = Persistent->Build(std::move(Request.Definition), Owner, [&](auto Result) {
 			Completion = std::move(Result);
 		}, {}, std::move(Options));
-		if (!Admitted) return FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None, Admitted.error().Description);
+		if (!Admitted) return FBuildCompleteParams::Error(std::nullopt, EBuildExecutionFlags::None, Admitted.error().Description);
 		require(Owner.Wait() == ERequestWaitResult::Completed);
-		if (!Completion) return FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None);
+		if (!Completion) return FBuildCompleteParams::Error(std::nullopt, EBuildExecutionFlags::None);
 		return std::move(*Completion);
 	}
 	auto FShaderBuildService::Close() -> void

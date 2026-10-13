@@ -874,7 +874,19 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		ASSERT_TRUE((ManifestError = Builder->BuildSourceDependencyManifest(VirtualPath, Options, SecondManifest)))
 			<< FormatShaderError(ManifestError.error());
 		EXPECT_EQ(FirstManifest, SecondManifest);
-		ASSERT_EQ(FirstManifest.size(), 8u);
+		const std::vector<std::string> ExpectedDependencies{
+			"/M5FixedMaterial/Lighting/DirectionalShadow",
+			"/M5FixedMaterial/Lighting/ForwardLightingUniform",
+			"/M5FixedMaterial/Lighting/PBRLighting",
+			"/M5FixedMaterial/Lighting/SurfaceLighting",
+			"/M5FixedMaterial/Material/MeshUniforms",
+			"/M5FixedMaterial/Material/SpecularAntialiasing",
+			"/M5FixedMaterial/Material/SurfaceMaterial",
+			"/M5FixedMaterial/StaticMeshBasePass",
+			"/M5FixedMaterial/VertexFactory/LocalVertexFactory"};
+		std::vector<std::string> ActualDependencies;
+		for (const auto& Dependency : FirstManifest) ActualDependencies.push_back(Dependency.VirtualPath);
+		ASSERT_EQ(ActualDependencies, ExpectedDependencies);
 		EXPECT_TRUE(std::ranges::is_sorted(FirstManifest, {},
 			&FShaderSourceDependencyFingerprint::VirtualPath));
 		for (const auto& Dependency : FirstManifest)

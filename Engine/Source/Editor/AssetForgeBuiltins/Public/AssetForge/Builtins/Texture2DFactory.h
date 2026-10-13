@@ -14,11 +14,9 @@ namespace Durin::AssetForge::Builtins
 	class ASSETFORGEBUILTINS_API FTexture2DFactoryError final : public IFactoryErrorDetail
 	{
 	public:
-		explicit FTexture2DFactoryError(FTexture2DPreparationError Error) : Cause(std::move(Error)) {}
-		explicit FTexture2DFactoryError(FTexture2DSubmissionError Error) : Cause(std::move(Error)) {}
-		explicit FTexture2DFactoryError(FTexture2DCompilationError Error) : Cause(std::move(Error)) {}
-		auto Format() const -> std::string override;
-		std::variant<FTexture2DPreparationError, FTexture2DSubmissionError, FTexture2DCompilationError> Cause;
+		explicit FTexture2DFactoryError(std::string Diagnostic) : Diagnostic(std::move(Diagnostic)) {}
+		auto Format() const -> std::string override { return Diagnostic; }
+		std::string Diagnostic;
 	};
 
 	DCLASS()
@@ -30,7 +28,7 @@ namespace Durin::AssetForge::Builtins
 		// Prepared imports return an accepted object before compilation completes.
 		// Completion is game-thread-only; save/publish must wait for success.
 		auto SetPreparedImport(std::shared_ptr<const FPreparedTexture2DImport> InPrepared,
-			FTexture2DCompilationCompletion InCompletion) -> void
+			FTexture2DImportCompletion InCompletion) -> void
 		{
 			Prepared = std::move(InPrepared);
 			Completion = std::move(InCompletion);
@@ -76,6 +74,6 @@ namespace Durin::AssetForge::Builtins
 		FTexture2DImportSettings Settings;
 		bool bAutoDetectSettings = false;
 		std::shared_ptr<const FPreparedTexture2DImport> Prepared;
-		FTexture2DCompilationCompletion Completion;
+		FTexture2DImportCompletion Completion;
 	};
 }

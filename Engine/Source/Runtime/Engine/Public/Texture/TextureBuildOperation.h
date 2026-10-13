@@ -1,9 +1,22 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/Build.h"
+#if DURIN_WITH_EDITORONLY_DATA
+#include "DerivedDataStatus.h"
+#endif
 
 namespace Durin
 {
+#if DURIN_WITH_EDITORONLY_DATA
+	struct FTextureOperationResult
+	{
+		DerivedData::EStatus Status = DerivedData::EStatus::Error;
+		std::string Diagnostic;
+		auto Succeeded() const -> bool { return Status == DerivedData::EStatus::Ok; }
+	};
+#endif
+
 	enum class ETextureBuildOperationFailure
 	{
 		Failed,

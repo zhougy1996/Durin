@@ -10,16 +10,13 @@
 #include "DObject/DObjectGlobals.h"
 #include "Threading/RunnableThread.h"
 #include "Texture/TextureCompilingManager.h"
-#include "Texture2DBuildDiagnostics.h"
 
 namespace Durin
 {
 	auto FormatTexture2DCompilationError(const FTexture2DCompilationError& Error) -> std::string
 	{
 		if (Error.InputCause) return FormatTexture2DInputError(*Error.InputCause);
-		if (!Error.InputReason.empty()) return Error.InputReason;
-		if (Error.ImportCause) return FormatAssetImportDataError(*Error.ImportCause);
-		if (Error.SaveCause) return Error.SaveCause->Message;
+		if (!Error.Diagnostic.empty()) return Error.Diagnostic;
 		switch (Error.Code)
 		{
 		case ETexture2DCompilationError::InvalidSource: return "Texture2D compilation submission requires valid normalized source pixels.";
@@ -32,40 +29,19 @@ namespace Durin
 		case ETexture2DCompilationError::InvalidProduct: return "Texture2D result application requires a complete detached product.";
 		case ETexture2DCompilationError::SourceMismatch: return "Texture2D build result does not match the source selected for commit.";
 		case ETexture2DCompilationError::InvalidSettings: return "Texture2D build settings are invalid.";
-		case ETexture2DCompilationError::ImportValidation: return "Texture2D import metadata is invalid.";
-		case ETexture2DCompilationError::ImportAllocation: return "Could not allocate Texture2D import metadata.";
-		case ETexture2DCompilationError::Save: return "Texture2D save failed.";
 		case ETexture2DCompilationError::None: return {};
 		case ETexture2DCompilationError::BuildFailed: return "Texture build failed.";
-		case ETexture2DCompilationError::WorkerFailed: return "Texture build task failed.";
-		case ETexture2DCompilationError::Cancelled: return "Texture build was cancelled.";
-		case ETexture2DCompilationError::CancelledBeforeAdmission: return "Texture build was cancelled before admission.";
-		case ETexture2DCompilationError::CancelledDuringShutdown: return "Texture build was cancelled during shutdown.";
-		case ETexture2DCompilationError::CancelledForMutation: return "Texture build was cancelled before modifying the texture.";
 		}
 		return {};
 	}
 
 	struct FTextureCompilingManager::FCompilationState
 	{
-		struct FTerminalResult
-		{
-			ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::None;
-			FTexture2DCompilationError Error;
-			std::string FailureMessage;
-
-			auto AllowsPlatformData() const -> bool
-			{
-				return Phase == ETexture2DCompilationPhase::None || Phase == ETexture2DCompilationPhase::Ready;
-			}
-		};
-
 		struct FAssetState
 		{
 			TWeakObjectPtr<DTexture> Texture;
 			uint64 ActiveRequestId = 0;
-			uint64 LastRequestId = 0;
-			FTerminalResult Terminal;
+			std::shared_ptr<FTexture2DCompilationProgress> Progress;
 			FTexture2DResultApplicationContext ResultApplicationContext;
 			FXxHash128 SourceIdentity;
 			FTexture2DCompilationCompletion Completion;
@@ -109,11 +85,6 @@ namespace Durin
 	{
 		std::mutex GTextureCompilingManagerMutex;
 		std::weak_ptr<FTextureCompilingManager> GTextureCompilingManager;
-		auto ApplyTexture2DBuildResult(DTexture2D& Texture,
-			FXxHash128 SourceIdentity,
-			const FTexture2DBuildSettings& Settings,
-			FTexturePlatformData Product,
-			const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTexture2DCompilationError>;
 
 		auto GetTextureCompilingManager() -> std::shared_ptr<FTextureCompilingManager>
 		{
@@ -164,72 +135,62 @@ namespace Durin
 		FTexture2DResultApplicationContext ApplicationContext;
 		FTexture2DCompilationCompletion Completion;
 		FXxHash128 ExpectedSource;
+		std::shared_ptr<FTexture2DCompilationProgress> Progress;
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
 			auto* State = CompilationState->FindLocked(Result.Owner);
 			if (!State || State->ActiveRequestId != Result.RequestId) return;
 			ExpectedSource = State->SourceIdentity;
+			Progress = State->Progress;
 			WeakTexture = State->Texture;
 			ApplicationContext = std::move(State->ResultApplicationContext);
 			State->ResultApplicationContext = {};
 			Completion = std::move(State->Completion);
 			State->ActiveRequestId = 0;
-			State->LastRequestId = Result.RequestId;
 			CompilationState->RetainCompletedLocked(Result.Owner);
 		}
 
 		DTexture* Texture = WeakTexture.Get();
-		std::string FailureMessage;
 		// Work completion supplies a CPU product. Object completion includes validation and Apply.
-		const auto Finalize = [&]() -> FTexture2DCompilationResult {
-			if (!Texture || FObjectKey(Texture) != Result.Owner)
-				return {.Error = {.Code = ETexture2DCompilationError::InvalidOwner,
-					.ObjectPath = Result.AssetIdentity}};
+		const auto Finalize = [&]() -> FTextureOperationResult {
 			if (Result.Status != DerivedData::EStatus::Ok)
-			{
-				const bool bCanceled = Result.Status == DerivedData::EStatus::Canceled;
-				if (!bCanceled && !Result.Diagnostic.empty())
-				{
-					FailureMessage = Result.Diagnostic;
-					DURIN_ERROR("Texture cache failed for {}: {}", Result.AssetIdentity, FailureMessage);
-				}
-				return {.Status = bCanceled ? ETexture2DCompilationStatus::Canceled : ETexture2DCompilationStatus::Failed,
-					.Error = Result.Error};
-			}
+				return {.Status = Result.Status, .Diagnostic = std::move(Result.Diagnostic)};
+			if (!Texture || FObjectKey(Texture) != Result.Owner)
+				return {.Diagnostic = "Texture compilation owner is no longer valid."};
 			require(static_cast<bool>(Result.PlatformData) != static_cast<bool>(Result.PlatformCache));
 			if (Result.PlatformCache)
 			{
 				if (Texture->GetSource().GetIdentity() != ExpectedSource)
-					return {.Error = {.Code = ETexture2DCompilationError::SourceMismatch,
-						.ObjectPath = Result.AssetIdentity}};
+					return {.Diagnostic = "Texture2D build result does not match the source selected for commit."};
 				Result.PlatformCache->Apply(*Texture);
 			}
 			else
 			{
-				auto Applied = ApplyTexture2DBuildResult(*Cast<DTexture2D>(Texture),
-					Result.InputIdentity.SourceIdentity, Result.InputIdentity.Settings,
-					std::move(*Result.PlatformData), ApplicationContext);
+				auto Applied = Cast<DTexture2D>(Texture)->ApplyBuildResult(
+					Result.SourceIdentity, Result.Settings,
+					std::move(Result.PlatformData), ApplicationContext);
 				if (!Applied)
 				{
-					DURIN_ERROR("Texture2D compilation result application failed for {}: {}",
-						Result.AssetIdentity, FormatTexture2DCompilationError(Applied.error()));
-					return {.Error = std::move(Applied.error())};
+					return {.Diagnostic = FormatTexture2DCompilationError(Applied.error())};
 				}
 			}
-			return {.Status = ETexture2DCompilationStatus::Succeeded};
+			return {.Status = DerivedData::EStatus::Ok};
 		};
 		auto Terminal = Finalize();
 		const auto Phase = Terminal.Succeeded() ? ETexture2DCompilationPhase::Ready
-			: Terminal.Status == ETexture2DCompilationStatus::Canceled
-				? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::Failed;
-		if (Phase == ETexture2DCompilationPhase::Failed && FailureMessage.empty())
-			FailureMessage = FormatTexture2DCompilationError(Terminal.Error);
+			: Terminal.Status == DerivedData::EStatus::Canceled
+				? ETexture2DCompilationPhase::Canceled : ETexture2DCompilationPhase::Failed;
+		{
+			std::lock_guard Lock(Progress->Mutex);
+			Progress->Diagnostic.Phase = Phase;
+			Progress->Diagnostic.Diagnostic = Terminal.Diagnostic;
+		}
+		if (Terminal.Status == DerivedData::EStatus::Error)
+			DURIN_ERROR("Texture compilation failed for {}: {}", Result.AssetIdentity, Terminal.Diagnostic);
+		if (Terminal.Succeeded())
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
-			if (auto* State = CompilationState->FindLocked(Result.Owner);
-				State && State->LastRequestId == Result.RequestId && State->ActiveRequestId == 0)
-				State->Terminal = {Phase, Terminal.Error, std::move(FailureMessage)};
-			if (Terminal.Succeeded()) CompilationState->SuccessfullyAppliedTextures.emplace_back(Texture);
+			CompilationState->SuccessfullyAppliedTextures.emplace_back(Texture);
 		}
 		// Publish terminal state before user code can submit another request or shut down.
 		if (Completion) Completion(std::move(Terminal));
@@ -350,37 +311,34 @@ namespace Durin
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidOwner,
 				.ObjectPath = Identity});
 		const auto SourceIdentity = Request.Build.Source.GetIdentity();
-		const auto Width = Request.Build.Source.GetWidth();
-		const auto Height = Request.Build.Source.GetHeight();
 		const auto bSourceDecoderInvoked = Request.ResultApplication.bSourceDecoderInvoked;
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
 			auto& State = CompilationState->Assets[Owner];
 			require(State.ActiveRequestId == 0);
 			State.Texture = TWeakObjectPtr<DTexture>(&Texture);
-			State.Terminal = {};
+			State.Progress = std::make_shared<FTexture2DCompilationProgress>();
 			State.SourceIdentity = SourceIdentity;
 			State.ResultApplicationContext = std::move(Request.ResultApplication);
 			State.Completion = std::move(Completion);
 		}
 		const uint64 RequestId = SubmitWork({.AssetIdentity = Identity,
+			.Progress = CompilationState->Assets.at(Owner).Progress,
 			.Build = std::move(Request.Build), .Owner = Owner,
-			.EstimatedWidth = Width, .EstimatedHeight = Height,
 			.Priority = Request.Priority, .bSourceDecoderInvoked = bSourceDecoderInvoked},
 			[this](FTexture2DCompilationWorkResult&& Result) { ApplyCompletion(std::move(Result)); });
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
 			auto& State = CompilationState->Assets.at(Owner);
-			State.ActiveRequestId = State.LastRequestId = RequestId;
+			State.ActiveRequestId = RequestId;
 			if (!RequestId)
 			{
 				State.ResultApplicationContext = {};
 				State.Completion = {};
-				State.Terminal.Phase = ETexture2DCompilationPhase::Failed;
-				State.Terminal.Error = {.Code = ETexture2DCompilationError::AdmissionRejected, .ObjectPath = Identity};
-				State.Terminal.FailureMessage = FormatTexture2DCompilationError(State.Terminal.Error);
+				State.Progress->Diagnostic.Phase = ETexture2DCompilationPhase::Failed;
+				State.Progress->Diagnostic.Diagnostic = "The Texture compiling manager rejected the request.";
 				CompilationState->RetainCompletedLocked(Owner);
-				return std::unexpected(State.Terminal.Error);
+				return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::AdmissionRejected, .ObjectPath = Identity});
 			}
 		}
 		return {};
@@ -390,60 +348,21 @@ namespace Durin
 		-> FTexture2DCompilationDiagnostic
 	{
 		if (!CompilationState) return {};
-		uint64 RequestId = 0;
-		bool bPending = false;
-		ETexture2DCompilationPhase LastPhase = ETexture2DCompilationPhase::None;
-		FTexture2DCompilationError LastError;
+		std::shared_ptr<FTexture2DCompilationProgress> Progress;
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
-			if (const FCompilationState::FAssetState* State =
-				CompilationState->FindLocked(FObjectKey(
-					const_cast<DTexture2D*>(&Texture)));
-				State && State->Texture.Get() == &Texture)
-			{
-				RequestId = State->ActiveRequestId != 0
-					? State->ActiveRequestId : State->LastRequestId;
-				bPending = State->ActiveRequestId != 0;
-				LastPhase = State->Terminal.Phase;
-				LastError = State->Terminal.Error;
-			}
+			if (const auto* State = CompilationState->FindLocked(FObjectKey(const_cast<DTexture2D*>(&Texture)));
+				State && State->Texture.Get() == &Texture) Progress = State->Progress;
 		}
-		FTexture2DCompilationDiagnostic Result = RequestId != 0
-			? GetWorkDiagnostic(RequestId) : FTexture2DCompilationDiagnostic{};
-		if (!bPending)
-		{
-			Result.Phase = LastPhase;
-			Result.Error = std::move(LastError);
-		}
-		return Result;
+		return Progress ? Progress->Read() : FTexture2DCompilationDiagnostic{};
 	}
 
 	auto FTextureCompilingManager::GetBuildStatus(const DTexture2D& Texture) const
 		-> FTexture2DBuildStatus
 	{
-		if (!CompilationState) return {};
-		FTexture2DBuildStatus Status;
-		uint64 ActiveRequestId = 0;
-		{
-			std::lock_guard Lock(CompilationState->Mutex);
-			if (const FCompilationState::FAssetState* State =
-				CompilationState->FindLocked(FObjectKey(
-					const_cast<DTexture2D*>(&Texture)));
-				State && State->Texture.Get() == &Texture)
-			{
-				ActiveRequestId = State->ActiveRequestId;
-				Status.bPending = ActiveRequestId != 0;
-				Status.Phase = State->Terminal.Phase;
-				Status.FailureMessage = State->Terminal.FailureMessage;
-			}
-		}
-		if (ActiveRequestId != 0)
-		{
-			const FTexture2DCompilationDiagnostic Diagnostic = GetWorkDiagnostic(ActiveRequestId);
-			Status.Phase = Diagnostic.Phase;
-			Status.FailureMessage = FormatTexture2DCompilationError(Diagnostic.Error);
-		}
-		return Status;
+		const auto Diagnostic = GetDiagnostic(Texture);
+		return {.Phase = Diagnostic.Phase, .bPending = HasPending(Texture),
+			.FailureMessage = Diagnostic.Diagnostic};
 	}
 
 	auto FTextureCompilingManager::SubmitPlatformCache(DTexture& Texture,
@@ -466,22 +385,21 @@ namespace Durin
 			require(State.ActiveRequestId == 0);
 			State.Texture = TWeakObjectPtr<DTexture>(&Texture);
 			State.SourceIdentity = Input->Source.GetIdentity();
-			State.Terminal = {};
+			State.Progress = std::make_shared<FTexture2DCompilationProgress>();
 		}
 		const uint64 Id = SubmitWork({.AssetIdentity = Texture.GetObjectPath(),
+			.Progress = CompilationState->Assets.at(Owner).Progress,
 			.Build = {.Source = Input->Source.CopyTornOff()}, .Owner = Owner,
 			.PlatformCache = std::move(Input)},
 			[this](FTexture2DCompilationWorkResult&& Result) { ApplyCompletion(std::move(Result)); });
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
 			auto& State = CompilationState->Assets.at(Owner);
-			State.ActiveRequestId = State.LastRequestId = Id;
+			State.ActiveRequestId = Id;
 			if (!Id)
 			{
-				State.Terminal.Phase = ETexture2DCompilationPhase::Failed;
-				State.Terminal.Error = {.Code = ETexture2DCompilationError::AdmissionRejected,
-					.ObjectPath = Texture.GetObjectPath()};
-				State.Terminal.FailureMessage = FormatTexture2DCompilationError(State.Terminal.Error);
+				State.Progress->Diagnostic.Phase = ETexture2DCompilationPhase::Failed;
+				State.Progress->Diagnostic.Diagnostic = "The Texture compiling manager rejected the request.";
 				CompilationState->RetainCompletedLocked(Owner);
 			}
 		}
@@ -536,13 +454,13 @@ namespace Durin
 		} Guard{CompilationState, Owner};
 		if (RequestId)
 		{
-			CancelWork(RequestId, ETexture2DCompilationError::CancelledForMutation);
+			CancelWork(RequestId);
 			require(WaitForWork(RequestId, 300.0));
 			PumpCompletions(1, {}, RequestId);
 		}
 		require(!HasPending(Texture));
 		std::lock_guard Lock(CompilationState->Mutex);
-		if (auto* State = CompilationState->FindLocked(Owner)) State->Terminal = {};
+		if (auto* State = CompilationState->FindLocked(Owner)) State->Progress.reset();
 	}
 
 	auto PrepareTextureForMutation(DTexture& Texture) -> void
@@ -576,7 +494,8 @@ namespace Durin
 			if (State && State->Texture.Get() == &Texture)
 			{
 				RequestId = State->ActiveRequestId;
-				bCanUsePlatformData = State->Terminal.AllowsPlatformData();
+				bCanUsePlatformData = (!State->Progress || State->Progress->Read().Phase == ETexture2DCompilationPhase::None
+					|| State->Progress->Read().Phase == ETexture2DCompilationPhase::Ready);
 			}
 		}
 		if (RequestId == 0)
@@ -587,7 +506,8 @@ namespace Durin
 			std::lock_guard Lock(CompilationState->Mutex);
 			if (const FCompilationState::FAssetState* State =
 				CompilationState->FindLocked(FObjectKey(&Texture)))
-				bCanUsePlatformData = State->Terminal.AllowsPlatformData();
+				bCanUsePlatformData = (!State->Progress || State->Progress->Read().Phase == ETexture2DCompilationPhase::None
+					|| State->Progress->Read().Phase == ETexture2DCompilationPhase::Ready);
 		}
 		return !HasPending(Texture) && bCanUsePlatformData
 			&& Texture.HasPlatformData();
@@ -617,10 +537,8 @@ namespace Durin
 		const FTexture2DBuildExecutionControl* ExecutionControl)
 		-> std::expected<FTexturePlatformData, FTextureBuildOperationError>
 	{
-		FTexturePlatformData Product;
-		FTexture2DBuildInputIdentity Identity;
-		const auto Built = BuildTexture2DPlatformData(Request, Product, Identity, ExecutionControl);
-		if (Built) return Product;
+		auto Built = BuildTexture2DPlatformData(Request, ExecutionControl);
+		if (Built) return std::move(*Built);
 		const auto& Error = Built.error();
 		if (Error.Code == ETexture2DBuildError::Cancelled)
 			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::Canceled});
@@ -638,70 +556,69 @@ namespace Durin
 	{
 		CheckGameThread();
 		Texture.BlockOnAnyAsyncBuild();
-		FTexturePlatformData Product;
-		FTexture2DBuildInputIdentity Identity;
-		const std::expected<void, FTexture2DBuildError> BuildResult = BuildTexture2DPlatformData(
-			Request, Product, Identity);
+		auto BuildResult = BuildTexture2DPlatformData(Request);
 		if (!BuildResult)
 		{
 			if (BuildResult.error().Code != ETexture2DBuildError::Cancelled)
 				DURIN_ERROR_CATEGORY("Texture", "Texture2D build failed for {}: {}",
 					Texture.GetObjectPath(), FormatTexture2DBuildError(BuildResult.error()));
-			return std::unexpected(TexturePrivate::MakeCompilationBuildFailure(BuildResult.error()));
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::BuildFailed,
+				.Diagnostic = FormatTexture2DBuildError(BuildResult.error())});
 		}
-		return ApplyTexture2DBuildResult(Texture, Request.Source.GetIdentity(), Request.Settings,
-			std::move(Product), Context);
+		return Texture.ApplyBuildResult(Request.Source.GetIdentity(), Request.Settings,
+			std::make_unique<FTexturePlatformData>(std::move(*BuildResult)), Context);
 	}
 
-	namespace
-	{
-	auto ApplyTexture2DBuildResult(
-		DTexture2D& Texture,
+	auto DTexture2D::ApplyBuildResult(
 		FXxHash128 SourceIdentity,
 		const FTexture2DBuildSettings& Settings,
-		FTexturePlatformData Product,
+		std::unique_ptr<FTexturePlatformData> Product,
 		const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTexture2DCompilationError>
 	{
 		CheckGameThread();
-		if (!Texture.GetPackage())
+		require(!HasPendingTextureCompilation(*this));
+		if (!GetPackage())
 		{
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::MissingPackage,
-				.ObjectPath = Texture.GetObjectPath()});
+				.ObjectPath = GetObjectPath()});
 		}
-		if (!Product.IsValid())
+		if (!Product || !Product->IsValid())
 		{
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidProduct,
-				.ObjectPath = Texture.GetObjectPath()});
+				.ObjectPath = GetObjectPath()});
 		}
 		const FTextureSource& Source = Context.SourceReplacement
-			? *Context.SourceReplacement : Texture.GetSource();
+			? *Context.SourceReplacement : GetSource();
 		if (!Source.IsValid() || Source.GetIdentity() != SourceIdentity)
 		{
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::SourceMismatch,
-				.ObjectPath = Texture.GetObjectPath(), .ExpectedSourceIdentity = SourceIdentity,
+				.ObjectPath = GetObjectPath(), .ExpectedSourceIdentity = SourceIdentity,
 				.ActualSourceIdentity = Source.GetIdentity()});
 		}
 		if (const auto Validation = ValidateTexture2DBuildSettings(Settings); !Validation)
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidSettings,
-				.InputCause = Validation.error(), .ObjectPath = Texture.GetObjectPath()});
-		auto PlatformData = std::make_unique<FTexturePlatformData>(
-			std::move(Product));
-		if (Context.SourceReplacement) Texture.SetSource(*Context.SourceReplacement);
-		Texture.SetBuildSettings(Settings.Usage, ResolveTexture2DSRGB(Settings),
-				Settings.MaxResolution, Settings.CompressionQuality,
-				Settings.AlphaMipMode, Settings.AlphaCoverageThreshold);
-		Texture.SetPlatformData(std::move(PlatformData));
-		Texture.UpdateResource();
-		if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
+				.InputCause = Validation.error(), .ObjectPath = GetObjectPath()});
+		// Allocate the shared reader lifetime before changing any installed state.
+		std::shared_ptr<FTexturePlatformData> Installed(std::move(Product));
+		if (Context.SourceReplacement) AdoptBuildSource(*Context.SourceReplacement);
+		Usage = Settings.Usage;
+		bSRGB = ResolveTexture2DSRGB(Settings);
+		MaxResolution = Settings.MaxResolution;
+		CompressionQuality = Settings.CompressionQuality;
+		AlphaMipMode = Settings.AlphaMipMode;
+		AlphaCoverageThreshold = Settings.AlphaCoverageThreshold;
+		InvalidateAuthoredBuild();
+		PlatformData = std::move(Installed);
+		UpdateResource();
+		if (Context.bMarkPackageDirty) MarkPackageDirty();
 		if (Context.bReportLoadMutation && Context.SourceReplacement)
 		{
-			ReportAssetLoadMutation(&Texture,
+			ReportAssetLoadMutation(this,
 				"Engine.Texture2D.SourceIdentity",
 				"Texture source identity metadata was reconciled by an uncooked post-load build.");
 		}
 		return {};
 
-	}
 	}
 
 	auto SubmitTexture2DCompilation(

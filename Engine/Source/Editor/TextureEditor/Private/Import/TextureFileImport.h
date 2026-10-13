@@ -41,7 +41,7 @@ namespace Durin::Editor::Texture
 	private:
 		auto AdmitFile(std::string_view Filename, std::string_view Directory,
 			std::shared_ptr<const AssetForge::Builtins::FPreparedTexture2DImport> Prepared = {},
-			FTexture2DCompilationCompletion Completion = {}) -> FAssetOperationResult;
+			AssetForge::Builtins::FTexture2DImportCompletion Completion = {}) -> FAssetOperationResult;
 		auto FinishBatch() -> void;
 		auto Save(const FPackagePath& Path) -> FAssetOperationResult;
 		FImportDialogCallbacks Callbacks;
@@ -54,14 +54,8 @@ namespace Durin::Editor::Texture
 			double PreparationMilliseconds = 0;
 		};
 		static auto PrepareFile(const std::string& Filename) -> FPreparation;
-		struct FCompletion
-		{
-			ETexture2DCompilationStatus Status = ETexture2DCompilationStatus::Failed;
-			std::string Message;
-			ETexture2DCompilationError Cause = ETexture2DCompilationError::None;
-		};
 		std::future<FPreparation> Preparation;
-		std::shared_ptr<std::optional<FCompletion>> Completion;
+		std::shared_ptr<std::optional<FTextureOperationResult>> Completion;
 		TStrongObjectPtr<DTexture2D> Active;
 		std::unique_ptr<FAssetSaveOperation> DiskSave;
 		bool bSaveStarted = false;

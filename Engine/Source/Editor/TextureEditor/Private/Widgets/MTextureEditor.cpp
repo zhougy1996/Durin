@@ -43,12 +43,11 @@ namespace Durin::Editor::Texture
 			switch (Phase)
 			{
 			case ETexture2DCompilationPhase::Queued: return "Queued";
-			case ETexture2DCompilationPhase::Preparing: return "Preparing";
 			case ETexture2DCompilationPhase::Building: return "Building";
-			case ETexture2DCompilationPhase::UploadPending: return "Upload Pending";
+			case ETexture2DCompilationPhase::AwaitingApply: return "Awaiting Apply";
 			case ETexture2DCompilationPhase::Ready: return "Ready";
 			case ETexture2DCompilationPhase::Failed: return "Failed";
-			case ETexture2DCompilationPhase::Cancelled: return "Cancelled";
+			case ETexture2DCompilationPhase::Canceled: return "Cancelled";
 			default: return "Not Submitted";
 			}
 		}

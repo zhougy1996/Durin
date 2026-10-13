@@ -914,7 +914,7 @@ namespace Durin::AssetForge::Builtins
 			.ShouldCancel = IsCancellationRequested};
 		auto Translated = TranslateTexture2DSource(Bytes);
 		if (!Translated)
-		{ OutError = FormatTexture2DTranslationError(Translated.error()); return false; }
+		{ OutError = Translated.error(); return false; }
 		auto Request = MakeTexture2DBuildRequest(
 			*Translated, OutProduct.Settings);
 		if (!Request) { OutError = FormatTexture2DInputError(Request.error()); return false; }

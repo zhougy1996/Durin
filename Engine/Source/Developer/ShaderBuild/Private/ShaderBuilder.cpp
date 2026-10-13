@@ -645,9 +645,9 @@ namespace Durin
 		Execution.Policy.PersistenceLimits = Execution.Policy.OutputLimits;
 		Execution.Policy.MaximumEncodedBytes = ShaderCompiledOutput::MaximumValueBytes + 4ull * 1024 * 1024;
 		auto Completion = BuildService->Execute(std::move(*Request), std::move(Execution));
-		if (HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::BuildLocal))
+		if (HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::BuildLocal))
 			Compilations.fetch_add(1, std::memory_order_relaxed);
-		if (HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::CacheQueryHit))
+		if (HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit))
 			DdcHits.fetch_add(1, std::memory_order_relaxed);
 		if (Completion.GetStatus() == EStatus::Canceled) return {.Error = FShaderError{.Code = EShaderError::Cancelled}};
 		if (Completion.GetStatus() == EStatus::Error)

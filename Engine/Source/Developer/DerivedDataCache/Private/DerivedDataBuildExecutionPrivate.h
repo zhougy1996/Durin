@@ -20,7 +20,7 @@ namespace Durin::DerivedData::Private
 	struct FBuildCompletionAccess
 	{
 		static auto Ok(FBuildOutput Output, FCacheKey Key,
-			EBuildStatus Status) -> FBuildCompleteParams;
+			EBuildExecutionFlags ExecutionFlags) -> FBuildCompleteParams;
 		static auto Canceled(FBuildCompleteParams Completion) -> FBuildCompleteParams;
 	};
 

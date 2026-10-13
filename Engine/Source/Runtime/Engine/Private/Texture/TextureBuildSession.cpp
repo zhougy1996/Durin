@@ -1,8 +1,5 @@
-#include "TextureBuildSession.h"
+#include "TextureDerivedDataBuild.h"
 #if DURIN_WITH_EDITOR
-#include "Texture2DBuildFunction.h"
-#include "TextureCubeBuildFunction.h"
-#include "VolumeTextureBuildFunction.h"
 #include "Asset/ResourceBuildSessions.h"
 #include "Texture/Texture2DCompilationTestSupport.h"
 
@@ -58,9 +55,12 @@ namespace Durin::TexturePrivate
 	auto Build(DerivedData::FBuildDefinition Definition,
 		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
 		DerivedData::FBuildRequestOptions Options)
-		-> std::expected<DerivedData::FBuildCompleteParams, DerivedData::FBuildAdmissionError>
+		-> DerivedData::FBuildCompleteParams
 	{
-		return Sessions.Build(std::move(Definition), std::move(Resolver), std::move(Options));
+		auto Result = Sessions.Build(std::move(Definition), std::move(Resolver), std::move(Options));
+		if (Result) return std::move(*Result);
+		return DerivedData::FBuildCompleteParams::Error(std::nullopt,
+			DerivedData::EBuildExecutionFlags::None, std::move(Result.error().Description));
 	}
 }
 

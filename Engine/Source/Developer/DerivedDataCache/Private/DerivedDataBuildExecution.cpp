@@ -6,24 +6,24 @@ namespace Durin::DerivedData
 {
 	namespace
 	{
-		auto NormalizeStatus(std::optional<FCacheKey>& Key, EBuildStatus Status) -> EBuildStatus
+		auto NormalizeExecutionFlags(std::optional<FCacheKey>& Key, EBuildExecutionFlags ExecutionFlags) -> EBuildExecutionFlags
 		{
 			if (Key && !Key->IsValid()) Key.reset();
-			return Key ? Status : EBuildStatus::None;
+			return Key ? ExecutionFlags : EBuildExecutionFlags::None;
 		}
 	}
-	auto FBuildCompleteParams::Error(std::optional<FCacheKey> Key, EBuildStatus Status, std::string Diagnostic) -> FBuildCompleteParams
-	{ FBuildCompleteParams Result; Result.Status = EStatus::Error; Result.CacheKey = std::move(Key); Result.BuildStatus = NormalizeStatus(Result.CacheKey, Status); Diagnostic.resize(std::min<size_t>(Diagnostic.size(), 4096)); Result.Diagnostic = std::move(Diagnostic); return Result; }
-	auto FBuildCompleteParams::Canceled(std::optional<FCacheKey> Key, EBuildStatus Status) -> FBuildCompleteParams
-	{ FBuildCompleteParams Result; Result.Status = EStatus::Canceled; Result.CacheKey = std::move(Key); Result.BuildStatus = NormalizeStatus(Result.CacheKey, Status); return Result; }
+	auto FBuildCompleteParams::Error(std::optional<FCacheKey> Key, EBuildExecutionFlags ExecutionFlags, std::string Diagnostic) -> FBuildCompleteParams
+	{ FBuildCompleteParams Result; Result.Status = EStatus::Error; Result.CacheKey = std::move(Key); Result.ExecutionFlags = NormalizeExecutionFlags(Result.CacheKey, ExecutionFlags); Diagnostic.resize(std::min<size_t>(Diagnostic.size(), 4096)); Result.Diagnostic = std::move(Diagnostic); return Result; }
+	auto FBuildCompleteParams::Canceled(std::optional<FCacheKey> Key, EBuildExecutionFlags ExecutionFlags) -> FBuildCompleteParams
+	{ FBuildCompleteParams Result; Result.Status = EStatus::Canceled; Result.CacheKey = std::move(Key); Result.ExecutionFlags = NormalizeExecutionFlags(Result.CacheKey, ExecutionFlags); return Result; }
 }
 
 namespace Durin::DerivedData::Private
 {
-	auto FBuildCompletionAccess::Ok(FBuildOutput Output, FCacheKey Key, EBuildStatus Status) -> FBuildCompleteParams
+	auto FBuildCompletionAccess::Ok(FBuildOutput Output, FCacheKey Key, EBuildExecutionFlags ExecutionFlags) -> FBuildCompleteParams
 	{
-		if (!Output.IsValid() || !Key.IsValid()) return FBuildCompleteParams::Error(std::nullopt, Status);
-		FBuildCompleteParams Result; Result.Status = Output.HasError() ? EStatus::Error : EStatus::Ok; Result.CacheKey = std::move(Key); Result.BuildStatus = NormalizeStatus(Result.CacheKey, Status); Result.Output = std::move(Output); return Result;
+		if (!Output.IsValid() || !Key.IsValid()) return FBuildCompleteParams::Error(std::nullopt, ExecutionFlags);
+		FBuildCompleteParams Result; Result.Status = Output.HasError() ? EStatus::Error : EStatus::Ok; Result.CacheKey = std::move(Key); Result.ExecutionFlags = NormalizeExecutionFlags(Result.CacheKey, ExecutionFlags); Result.Output = std::move(Output); return Result;
 	}
 	auto FBuildCompletionAccess::Canceled(FBuildCompleteParams Completion) -> FBuildCompleteParams
 	{ Completion.Status = EStatus::Canceled; Completion.Output.reset(); Completion.Diagnostic.clear(); return Completion; }
@@ -37,9 +37,9 @@ namespace Durin::DerivedData::Private
 		auto Failure = [&](std::string_view Message) -> std::expected<FBuildAction, FBuildCompleteParams>
 		{
 			DURIN_ERROR_CATEGORY("DerivedData", "{} action preparation failed: {}", Name, Message);
-			return std::unexpected(FBuildCompleteParams::Error(std::nullopt, EBuildStatus::None, std::string(Message)));
+			return std::unexpected(FBuildCompleteParams::Error(std::nullopt, EBuildExecutionFlags::None, std::string(Message)));
 		};
-		auto Canceled = [] { return std::unexpected(FBuildCompleteParams::Canceled(std::nullopt, EBuildStatus::None)); };
+		auto Canceled = [] { return std::unexpected(FBuildCompleteParams::Canceled(std::nullopt, EBuildExecutionFlags::None)); };
 		try
 		{
 			if (Cancel.IsCancelled()) return Canceled();
@@ -74,13 +74,13 @@ namespace Durin::DerivedData::Private
 		const auto& Policy = Options.Policy;
 		const auto& Cancel = Options.Cancellation;
 		const auto CacheKey = Action.GetKey();
-		EBuildStatus Status = EBuildStatus::None;
-		auto Canceled = [&] { return FBuildCompleteParams::Canceled(CacheKey, Status); };
+		EBuildExecutionFlags ExecutionFlags = EBuildExecutionFlags::None;
+		auto Canceled = [&] { return FBuildCompleteParams::Canceled(CacheKey, ExecutionFlags); };
 		auto Failed = [&](std::string_view Message)
 		{
 			DURIN_ERROR_CATEGORY("DerivedData", "{} build failed [{}]: {}", Action.GetFunction().Name,
 				CacheKey.ToString(), Message);
-			return FBuildCompleteParams::Error(CacheKey, Status, std::string(Message));
+			return FBuildCompleteParams::Error(CacheKey, ExecutionFlags, std::string(Message));
 		};
 		try
 		{
@@ -101,10 +101,10 @@ namespace Durin::DerivedData::Private
 				Total += Input.Metadata.GetSize();
 				for (const auto& Value : Input.Values) { if (!Private::IsBuildValueIdentifier(Value.Name) || (!Previous.empty() && Previous >= Value.Name)) return Failed("Resolved input has invalid or duplicate value names."); Previous = Value.Name; if (Value.Data.GetSize() > Policy.InputLimits.MaximumTotalBytes - Total) return Failed("Resolved input byte budget exceeded."); Total += Value.Data.GetSize(); }
 			}
-			Status |= EBuildStatus::BuildLocal;
+			ExecutionFlags |= EBuildExecutionFlags::BuildLocal;
 			FBuildOutputBuilder Builder = FBuildExecutionAccess::MakeOutputBuilder(Entry->Descriptor.OutputType, Entry->Descriptor.OutputSchema, Policy.OutputLimits); auto Context = FBuildExecutionAccess::MakeContext(Action, *Inputs, Builder, Cancel); Entry->Function->Build(Context); if (Cancel.IsCancelled()) return Canceled(); if (const auto& Failure = FBuildExecutionAccess::GetExecutionFailure(Context); Failure) return Failed(*Failure); Inputs->clear(); auto Output = std::move(Builder).Build(); if (!Output) return Failed(Output.error());
 			if (Cancel.IsCancelled()) return Canceled();
-			return FBuildCompletionAccess::Ok(std::move(*Output), CacheKey, Status);
+			return FBuildCompletionAccess::Ok(std::move(*Output), CacheKey, ExecutionFlags);
 		}
 		catch (const std::exception& E) { return Failed(E.what()); }
 		catch (...) { return Failed("Build execution threw an exception."); }

@@ -13,8 +13,6 @@ namespace Durin
 	struct FTexturePlatformCacheResult
 	{
 		virtual ~FTexturePlatformCacheResult() = default;
-		DerivedData::EStatus Status = DerivedData::EStatus::Error;
-		std::string Diagnostic;
 		virtual auto Apply(DTexture& Texture) -> void = 0;
 	};
 	struct FTexturePlatformCacheInput
@@ -25,7 +23,7 @@ namespace Durin
 		// Complete once on any execution thread. The owner outlives callback retirement.
 		virtual auto Dispatch(DerivedData::IRequestOwner& Owner,
 			std::function<bool()> ShouldCancel,
-			std::function<void(std::unique_ptr<FTexturePlatformCacheResult>)> Completion) const -> void = 0;
+			std::function<void(DerivedData::EStatus, std::unique_ptr<FTexturePlatformCacheResult>, std::string)> Completion) const -> void = 0;
 	};
 
 	auto SubmitTexturePlatformCache(DTexture& Texture,

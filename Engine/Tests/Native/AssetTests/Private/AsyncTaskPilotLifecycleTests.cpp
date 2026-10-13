@@ -212,7 +212,7 @@ namespace
 		FThreadEvent CallbackEntered, ReleaseCallback;
 		AssetPrivate::SetTextureAsyncCacheForTests(Cache);
 		AssetPrivate::SetTexture2DCompilationPhaseHookForTests([&](uint64, ETexture2DCompilationPhase Phase) {
-			if (Phase == ETexture2DCompilationPhase::UploadPending) {
+			if (Phase == ETexture2DCompilationPhase::AwaitingApply) {
 				CallbackEntered.Trigger();
 				ReleaseCallback.WaitFor(10.0);
 			}
@@ -347,10 +347,9 @@ namespace
 		{
 			auto Cache = std::make_shared<FHeldDerivedDataCache>();
 			Cache->bHoldWrites = true;
-			FThreadEvent CallbackEntered, ReleaseCallback;
+			FThreadEvent ReleaseCallback;
 			AssetPrivate::SetTexture2DCompilationPhaseHookForTests([&](uint64, ETexture2DCompilationPhase Phase) {
-				if (Phase == ETexture2DCompilationPhase::UploadPending) {
-					CallbackEntered.Trigger();
+				if (Phase == ETexture2DCompilationPhase::AwaitingApply) {
 					ReleaseCallback.WaitFor(10.0);
 				}
 			});
@@ -372,8 +371,8 @@ namespace
 				Request.Build = MakeTexture2DBuildRequest(Source).value();
 				Request.ResultApplication.SourceReplacement = Source;
 				Request.Priority = ETexture2DCompilationPriority::Interactive;
-				ASSERT_TRUE(SubmitTexture2DCompilation(*Owners[Index], std::move(Request), [&, Index](FTexture2DCompilationResult Result) {
-					EXPECT_EQ(Index == 0 ? ETexture2DCompilationStatus::Canceled : ETexture2DCompilationStatus::Succeeded, Result.Status);
+				ASSERT_TRUE(SubmitTexture2DCompilation(*Owners[Index], std::move(Request), [&, Index](FTextureOperationResult Result) {
+					EXPECT_EQ(Index == 0 ? DerivedData::EStatus::Canceled : DerivedData::EStatus::Ok, Result.Status);
 					++Deliveries[Index];
 				}));
 			}
@@ -395,9 +394,12 @@ namespace
 			EXPECT_FALSE(WaitForTexture2DCompilation(*Owners[1], 0.0));
 			EXPECT_EQ(0u, Deliveries[1]);
 			Cache->ReleaseWrites.Trigger();
-			ASSERT_TRUE(CallbackEntered.WaitFor(5.0));
-			// The diagnostic can be terminal before its callback/captures retire.
-			EXPECT_EQ(ETexture2DCompilationPhase::UploadPending,
+			ASSERT_TRUE(WaitUntil([&] {
+				return AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Owners[1]).Phase
+					== ETexture2DCompilationPhase::AwaitingApply;
+			}, std::chrono::seconds(5)));
+			// Work can await Apply before its native callback/captures retire.
+			EXPECT_EQ(ETexture2DCompilationPhase::AwaitingApply,
 				AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Owners[1]).Phase);
 			EXPECT_FALSE(WaitForTexture2DCompilation(*Owners[1], 0.0));
 			EXPECT_EQ(0u, Deliveries[1]);
@@ -413,14 +415,14 @@ namespace
 			EXPECT_EQ(0u, FAssetCompilingManager::Get().GetNumRemainingAssets());
 			// A failing internal assembly/publication callback still produces a terminal result.
 			AssetPrivate::SetTexture2DCompilationPhaseHookForTests([](uint64, ETexture2DCompilationPhase Phase) {
-				if (Phase == ETexture2DCompilationPhase::UploadPending) throw std::runtime_error("Texture callback failure");
+				if (Phase == ETexture2DCompilationPhase::AwaitingApply) throw std::runtime_error("Texture callback failure");
 			});
 			FTexture2DCompilationRequest FailingCallback;
 			FailingCallback.Build = MakeTexture2DBuildRequest(Owners[1]->GetSource()).value();
 			FailingCallback.Build.bPersistDerivedData = false;
-			ASSERT_TRUE(SubmitTexture2DCompilation(*Owners[1], std::move(FailingCallback), [&](FTexture2DCompilationResult Result) {
-				EXPECT_EQ(ETexture2DCompilationStatus::Failed, Result.Status);
-				EXPECT_EQ(ETexture2DCompilationError::WorkerFailed, Result.Error.Code);
+			ASSERT_TRUE(SubmitTexture2DCompilation(*Owners[1], std::move(FailingCallback), [&](FTextureOperationResult Result) {
+				EXPECT_EQ(DerivedData::EStatus::Error, Result.Status);
+				EXPECT_EQ(Result.Diagnostic, "Texture build task failed.");
 				++Deliveries[1];
 			}));
 			EXPECT_FALSE(WaitForTexture2DCompilation(*Owners[1], 10.0));
@@ -442,7 +444,7 @@ namespace
 		Request.ResultApplication.SourceReplacement = Source;
 		Request.Build.bPersistDerivedData = false;
 		uint32 LargeCompleted = 0;
-		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), [&](FTexture2DCompilationResult Result) {
+		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), [&](FTextureOperationResult Result) {
 			EXPECT_TRUE(Result.Succeeded()); ++LargeCompleted;
 		}));
 		ASSERT_TRUE(WaitForTexture2DCompilation(*Texture, 10.0));
@@ -484,8 +486,8 @@ namespace
 		FTexture2DCompilationRequest HeldRequest;
 		HeldRequest.Build = MakeTexture2DBuildRequest(Source).value();
 		HeldRequest.ResultApplication.SourceReplacement = Source;
-		ASSERT_TRUE(SubmitTexture2DCompilation(*HeldTexture, std::move(HeldRequest), [&](FTexture2DCompilationResult Result) {
-			EXPECT_EQ(ETexture2DCompilationStatus::Canceled, Result.Status);
+		ASSERT_TRUE(SubmitTexture2DCompilation(*HeldTexture, std::move(HeldRequest), [&](FTextureOperationResult Result) {
+			EXPECT_EQ(DerivedData::EStatus::Canceled, Result.Status);
 			++HeldCompleted;
 		}));
 		ASSERT_TRUE(WaitUntil([&] { return ShutdownCache->Reads.load() != 0; }, std::chrono::seconds(5)));
@@ -542,8 +544,8 @@ namespace
 		SaturatedRequest.Build = Durin::MakeTexture2DBuildRequest(SaturatedSource).value();
 		SaturatedRequest.ResultApplication.SourceReplacement = SaturatedSource;
 		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(SaturatedRequest),
-			[&](FTexture2DCompilationResult Result) {
-				EXPECT_EQ(ETexture2DCompilationStatus::Canceled, Result.Status);
+			[&](FTextureOperationResult Result) {
+				EXPECT_EQ(DerivedData::EStatus::Canceled, Result.Status);
 				++SaturatedCompleted;
 			}));
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
@@ -570,7 +572,7 @@ namespace
 			Request.Build = Durin::MakeTexture2DBuildRequest(Source).value();
 			Request.ResultApplication.SourceReplacement = Source;
 			Request.Build.bPersistDerivedData = false;
-			ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), [&, Index](FTexture2DCompilationResult Result) { EXPECT_EQ(ETexture2DCompilationStatus::Canceled, Result.Status); ++Completed[Index]; }));
+			ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), [&, Index](FTextureOperationResult Result) { EXPECT_EQ(DerivedData::EStatus::Canceled, Result.Status); ++Completed[Index]; }));
 		}
 		// Scheduler thresholds do not reject queued owner work.
 		for (uint32 Index = 2; Index < 6; ++Index)

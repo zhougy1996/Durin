@@ -390,18 +390,10 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	EXPECT_FALSE(Executed.bSucceeded);
 	const auto* FactoryFailure = dynamic_cast<const FVolumeTextureFactoryError*>(Executed.FactoryCause.get());
 	ASSERT_NE(FactoryFailure, nullptr);
-	const auto* RebuildCause = std::get_if<FVolumeTextureRebuildError>(&FactoryFailure->Cause);
-	ASSERT_NE(RebuildCause, nullptr);
-	EXPECT_EQ(RebuildCause->Code, EVolumeTextureRebuildError::Translation);
-	ASSERT_TRUE(RebuildCause->TranslationCause);
-	EXPECT_EQ(RebuildCause->TranslationCause->Code, EVolumeTextureTranslationError::Signature);
-	const auto TypedFailure = Durin::AssetForge::Builtins::ReimportVolumeTexture(*Imported.Asset);
-	ASSERT_FALSE(TypedFailure);
-	EXPECT_EQ(TypedFailure.error().Code, EVolumeTextureRebuildError::Translation);
-	EXPECT_EQ(TypedFailure.error().ObjectPath, Imported.Asset->GetObjectPath());
-	ASSERT_TRUE(TypedFailure.error().TranslationCause);
-	EXPECT_EQ(TypedFailure.error().TranslationCause->Code, EVolumeTextureTranslationError::Signature);
-	EXPECT_TRUE(TypedFailure.error().TranslationCause->Filename.ends_with("VolumeSource/Noise.png"));
+	EXPECT_EQ(FactoryFailure->Diagnostic, "Volume texture atlas is not PNG data.");
+	const auto Failure = Durin::AssetForge::Builtins::ReimportVolumeTexture(*Imported.Asset);
+	ASSERT_FALSE(Failure);
+	EXPECT_EQ(Failure.error(), FactoryFailure->Diagnostic);
 	EXPECT_EQ(Imported.Asset->GetSource().GetBulkData().GetPayloadId(), LastKnownGoodSourceId);
 	EXPECT_TRUE(Imported.Asset->HasPlatformData());
 
@@ -413,7 +405,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	std::filesystem::copy_file(AtlasPath, MovedAtlas,
 		std::filesystem::copy_options::overwrite_existing);
 	const auto Repair = ReimportVolumeTextureFromFile(*Imported.Asset, MovedAtlas.generic_string());
-	ASSERT_TRUE(Repair) << FormatVolumeTextureRebuildError(Repair.error());
+	ASSERT_TRUE(Repair) << Repair.error();
 	ASSERT_NE(Imported.Asset->GetAssetImportData(), nullptr);
 	ImportedSource = Imported.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");
 	ASSERT_NE(ImportedSource, nullptr);

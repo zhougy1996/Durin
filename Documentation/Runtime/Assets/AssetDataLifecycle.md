@@ -309,7 +309,12 @@ See [Static mesh building](StaticMeshBuilding.md) and
 [Asset compilation](AssetCompilation.md).
 
 Build contracts remain owned by Engine, and both build modules publicly depend
-on Engine. `Texture2DData.h` carries source/settings values and CPU platform
+on Engine. Private family preparation and synchronous/asynchronous product seams
+are grouped in `TextureBuildInternal.h`; DDC definitions, input resolvers and
+persistent-session lifecycle are grouped in `TextureDerivedDataBuild.h`. Cube and
+Texture2D asynchronous seams complete once with `DerivedData::EStatus`, a product
+and an owned diagnostic. Cancellation carries no product or error wrapper; the
+request owner remains alive through callback retirement. `Texture2DData.h` carries source/settings values and CPU platform
 mips; `Texture2DBuildTypes.h` exposes recipe values, while
 `Texture2DBuild.h` owns requests, cache identity, persistence controls and
 observations. Texture recipes return `std::expected<Product, Error>` with owned
@@ -317,12 +322,11 @@ recipe products; Cube normalization likewise returns its canonical input by valu
 Texture2D input validation uses `FTexture2DInputError`, recipe failures use
 `FTexture2DBuildError`, and Cube/Volume failures use `FTextureBuildError` with
 their recipe stage and diagnostic. Pure recipes and source preparation do not log.
-Engine records synchronous failures once and retains asynchronous Texture2D recipe
-causes in `FTexture2DCompilationDiagnostic::BuildCause`, separate from completion
-errors. Cube/Volume public orchestration and `BuildTexture2DDetached` return
+Engine records synchronous failures once. Asynchronous Texture2D completion
+formats the build failure once and carries its owned diagnostic with
+`DerivedData::EStatus`; retained progress does not nest a second build cause. Cube/Volume public orchestration and `BuildTexture2DDetached` return
 `FTextureBuildOperationError`: failed, invalid input with a concise reason, or
-canceled. Object-level Texture2D completion errors likewise carry an actionable
-`InputReason` instead of a nested recipe cause. The internal platform-cache worker
+canceled. Object-level Texture2D completion carries the actionable diagnostic directly. The internal platform-cache worker
 passes its diagnostic to the Engine completion owner for reporting.
 
 Synchronous application and submission return expected void; accepted asynchronous

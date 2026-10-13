@@ -625,6 +625,13 @@ TEST_F(FTextureImportQueueTests, FailedBatchSaveRetainsAssetForRetryWithoutSourc
 	EXPECT_TRUE(Importer.HasPendingSaves());
 	EXPECT_EQ(Importer.GetFailedCount(), 1u);
 	EXPECT_EQ(Published, 0);
+	auto* Package = FindPackage(Destination + "wall_normal");
+	ASSERT_NE(Package, nullptr);
+	auto* Texture = Cast<DTexture2D>(Package->FindTopLevelAsset("wall_normal"));
+	ASSERT_NE(Texture, nullptr);
+	const auto BuildStatus = GetTexture2DBuildStatus(*Texture);
+	EXPECT_EQ(BuildStatus.Phase, ETexture2DCompilationPhase::Ready);
+	EXPECT_TRUE(BuildStatus.FailureMessage.empty());
 	ASSERT_TRUE(std::filesystem::remove(Source));
 	PumpGameThreadDeferredWork();
 	Importer.Tick(false);
@@ -672,7 +679,7 @@ TEST_F(FTextureImportQueueTests, TeardownDrainsActiveCompilationAndDiscardsCandi
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content" / "wall_normal.dasset"));
 }
 
-TEST_F(FTextureImportQueueTests, CompilationCancellationIsNotAnImportFailure)
+TEST_F(FTextureImportQueueTests, ExternalCompilationCancellationRetainsResidentAsset)
 {
 	Editor::Texture::FTextureFileImport Importer;
 	ASSERT_TRUE(Importer.Begin({Source.generic_string()}, Destination));
@@ -692,7 +699,8 @@ TEST_F(FTextureImportQueueTests, CompilationCancellationIsNotAnImportFailure)
 	EXPECT_EQ(Importer.GetCanceledCount(), 1u);
 	EXPECT_EQ(Importer.GetFailedCount(), 0u);
 	EXPECT_EQ(Importer.GetSavedCount(), 0u);
-	EXPECT_EQ(FindPackage(Destination + "wall_normal"), nullptr);
+	EXPECT_EQ(FindPackage(Destination + "wall_normal"), Package);
+	EXPECT_TRUE(UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST_F(FTextureImportQueueTests, MutationCanceledImportDoesNotUnloadNewCompilation)
@@ -712,16 +720,52 @@ TEST_F(FTextureImportQueueTests, MutationCanceledImportDoesNotUnloadNewCompilati
 	ASSERT_NE(Texture, nullptr);
 	auto Prepared = PrepareTexture2DImport(Source.generic_string());
 	ASSERT_TRUE(Prepared);
-	std::optional<FTexture2DCompilationResult> Replacement;
+	std::optional<FTextureOperationResult> Replacement;
 	ASSERT_TRUE(SubmitTexture2DCompilation(*Texture,
 		{.Build = MakeTexture2DBuildRequest(Prepared->Source).value(),
 		 .ResultApplication = {.SourceReplacement = Prepared->Source}},
-		[&](FTexture2DCompilationResult Value) { Replacement = std::move(Value); }));
+		[&](FTextureOperationResult Value) { Replacement = std::move(Value); }));
 	Importer.Tick();
 	EXPECT_FALSE(Importer.IsRunning());
 	EXPECT_EQ(Importer.GetCanceledCount(), 1u);
 	EXPECT_EQ(Importer.GetFailedCount(), 0u);
 	EXPECT_EQ(Importer.GetSavedCount(), 0u);
+	EXPECT_EQ(FindPackage(Destination + "wall_normal"), Package);
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	ASSERT_TRUE(Replacement);
+	EXPECT_TRUE(Replacement->Succeeded());
+	EXPECT_TRUE(Texture->HasPlatformData());
+	EXPECT_TRUE(UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST_F(FTextureImportQueueTests, TeardownAfterMutationCancellationRetainsReplacement)
+{
+	auto Importer = std::make_unique<Editor::Texture::FTextureFileImport>();
+	ASSERT_TRUE(Importer->Begin({Source.generic_string()}, Destination));
+	DPackage* Package = nullptr;
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (!Package && std::chrono::steady_clock::now() < Deadline)
+	{
+		Importer->Tick();
+		Package = FindPackage(Destination + "wall_normal");
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	ASSERT_NE(Package, nullptr);
+	auto* Texture = Cast<DTexture2D>(Package->FindTopLevelAsset("wall_normal"));
+	ASSERT_NE(Texture, nullptr);
+	auto Prepared = PrepareTexture2DImport(Source.generic_string());
+	ASSERT_TRUE(Prepared);
+	std::optional<FTextureOperationResult> Replacement;
+	struct FDrainCompilation
+	{
+		~FDrainCompilation() { FAssetCompilingManager::Get().FinishAllCompilation(); }
+	} DrainCompilation;
+	ASSERT_TRUE(SubmitTexture2DCompilation(*Texture,
+		{.Build = MakeTexture2DBuildRequest(Prepared->Source).value(),
+		 .ResultApplication = {.SourceReplacement = Prepared->Source}},
+		[&](FTextureOperationResult Value) { Replacement = std::move(Value); }));
+	// No importer tick occurs between external cancellation and destruction.
+	Importer.reset();
 	EXPECT_EQ(FindPackage(Destination + "wall_normal"), Package);
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	ASSERT_TRUE(Replacement);

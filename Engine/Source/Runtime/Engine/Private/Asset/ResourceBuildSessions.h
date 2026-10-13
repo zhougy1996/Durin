@@ -79,7 +79,7 @@ namespace Durin::AssetPrivate
 			-> std::expected<DerivedData::FBuildCompleteParams, DerivedData::FBuildAdmissionError>
 		{
 			if (Options.Cancellation.IsCancelled()) return DerivedData::FBuildCompleteParams::Canceled(
-				std::nullopt, DerivedData::EBuildStatus::None);
+				std::nullopt, DerivedData::EBuildExecutionFlags::None);
 			auto Session = Get(DerivedData::EBuildCacheExecution::Inline);
 			if (!Session) return std::unexpected(std::move(Session.error()));
 			Options.InputResolver = std::move(Resolver);

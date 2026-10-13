@@ -203,8 +203,9 @@ decide only from status, output presence, and bounded deterministic output
 messages. Message and log text is display data, never control-flow identity. Typed
 assemblers reparse and revalidate immutable output at their trust boundary.
 
-The completion independently exposes its cache key and two `EBuildStatus` facts:
-cache hit and local build. Its fields contain no query/store bookkeeping,
+The completion independently exposes its cache key and two `EBuildExecutionFlags` facts
+through `GetExecutionFlags`: cache hit and local build. These flags record the
+execution path; `EStatus` independently records success, failure or cancellation. Its fields contain no query/store bookkeeping,
 execution report, cache error, metric, timing, or internal phase identifier.
 Optional observations live only in the returned cold output.
 

@@ -9,9 +9,7 @@
 #if DURIN_WITH_EDITOR
 #include "DerivedDataCache/DerivedDataCache.h"
 #include "DerivedDataBuildDefinition.h"
-#include "TextureCubeBuildFunction.h"
-#include "Texture2DBuildFunction.h"
-#include "VolumeTextureBuildFunction.h"
+#include "TextureDerivedDataBuild.h"
 #endif
 
 namespace Durin

@@ -16,13 +16,22 @@ namespace Durin
 {
 	using AssetPrivate::FTexture2DCompilationDiagnostic;
 
+	// Shared progress survives work retirement without retaining task or input payloads.
+	struct FTexture2DCompilationProgress
+	{
+		mutable std::mutex Mutex;
+		FTexture2DCompilationDiagnostic Diagnostic;
+		uint64 EnqueueNanoseconds = 0;
+		uint64 BuildStartNanoseconds = 0;
+		auto Read() const -> FTexture2DCompilationDiagnostic;
+	};
+
 	struct FTexture2DCompilationWork
 	{
 		std::string AssetIdentity;
+		std::shared_ptr<FTexture2DCompilationProgress> Progress;
 		FTexture2DBuildRequest Build;
 		FObjectKey Owner;
-		uint32 EstimatedWidth = 0;
-		uint32 EstimatedHeight = 0;
 		ETexture2DCompilationPriority Priority = ETexture2DCompilationPriority::Background;
 		bool bSourceDecoderInvoked = false;
 		std::shared_ptr<const FTexturePlatformCacheInput> PlatformCache;
@@ -37,22 +46,12 @@ namespace Durin
 		// Task-owned CPU candidates. Ok has exactly one product; Error/Canceled have none.
 		std::unique_ptr<FTexturePlatformData> PlatformData;
 		std::unique_ptr<FTexturePlatformCacheResult> PlatformCache;
-		FTexture2DCompilationError Error;
-		std::optional<FTexture2DBuildError> BuildCause;
 		std::string Diagnostic;
 		FTexture2DCompilationMetrics Metrics;
-		FTexture2DBuildInputIdentity InputIdentity;
+		FXxHash128 SourceIdentity;
+		FTexture2DBuildSettings Settings;
 		bool bSourceDecoderInvoked = false;
 
-		auto GetPhase() const -> ETexture2DCompilationPhase
-		{
-			switch (Status)
-			{
-			case DerivedData::EStatus::Ok: return ETexture2DCompilationPhase::UploadPending;
-			case DerivedData::EStatus::Canceled: return ETexture2DCompilationPhase::Cancelled;
-			default: return ETexture2DCompilationPhase::Failed;
-			}
-		}
 	};
 
 	struct FTextureCompilingManagerConfig
@@ -112,8 +111,7 @@ namespace Durin
 		auto SubmitWork(
 			FTexture2DCompilationWork Work,
 			FTexture2DCompilationWorkCompletion Completion) -> uint64;
-		auto CancelWork(uint64 RequestId, ETexture2DCompilationError Reason = ETexture2DCompilationError::Cancelled) -> bool;
-		auto GetWorkDiagnostic(uint64 RequestId) const -> FTexture2DCompilationDiagnostic;
+		auto CancelWork(uint64 RequestId) -> bool;
 		auto GetQueuedWorkCount() const -> uint32;
 		auto GetRunningWorkCount() const -> uint32;
 		auto PumpWorkCompletions(uint32 MaximumCount,

@@ -257,7 +257,7 @@ TEST(FBuildContinuationTests, IOReleasesProducerQueueAndStoreFailurePreservesLoc
 	FRequestOwner Owner(ERequestPriority::High); uint32 FirstCallbacks = 0, OtherCallbacks = 0;
 	auto First = Session->Build(Definition(), Owner, [&](auto Completion) {
 		EXPECT_EQ(Completion.GetStatus(), EStatus::Ok); EXPECT_TRUE(Completion.GetOutput());
-		EXPECT_TRUE(HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::BuildLocal));
+		EXPECT_TRUE(HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::BuildLocal));
 		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock); ++FirstCallbacks;
 	}, {}, {.Policy = {.MaximumWorkingSetBytes = 123456}});
 	ASSERT_TRUE(First); Producer->Run(); EXPECT_EQ(Function->Builds, 0u); EXPECT_EQ(IO->Work.size(), 1u);
@@ -279,10 +279,10 @@ TEST(FBuildContinuationTests, FullHitsSkipProducerAndPartialHitsRebuildOnce)
 	auto Producer = std::make_shared<FStageScheduler>(); auto IO = std::make_shared<FStageScheduler>(); auto Cache = std::make_shared<FContinuationCache>(); Cache->Hit = true;
 	auto Service = CreateBuild({Cache, CreateAsyncCache(Cache, IO)}); auto Function = std::make_shared<FFunction>(); ASSERT_TRUE(Service->Register(Function));
 	auto Session = Service->CreateSession({}, Producer).value(); uint32 Callbacks = 0;
-	auto Hit = Session->Build(Definition(), [&](auto Completion) { EXPECT_EQ(Completion.GetStatus(), EStatus::Ok); EXPECT_TRUE(HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::CacheQueryHit)); ++Callbacks; }); ASSERT_TRUE(Hit);
+	auto Hit = Session->Build(Definition(), [&](auto Completion) { EXPECT_EQ(Completion.GetStatus(), EStatus::Ok); EXPECT_TRUE(HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit)); ++Callbacks; }); ASSERT_TRUE(Hit);
 	Producer->Run(); IO->Run(); EXPECT_EQ(Function->Builds, 0u); EXPECT_EQ(Callbacks, 1u); EXPECT_TRUE(Producer->Work.empty());
 	Cache->Partial = true;
-	auto Partial = Session->Build(Definition(), [&](auto Completion) { EXPECT_EQ(Completion.GetStatus(), EStatus::Ok); EXPECT_TRUE(HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::BuildLocal)); ++Callbacks; }); ASSERT_TRUE(Partial);
+	auto Partial = Session->Build(Definition(), [&](auto Completion) { EXPECT_EQ(Completion.GetStatus(), EStatus::Ok); EXPECT_TRUE(HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::BuildLocal)); ++Callbacks; }); ASSERT_TRUE(Partial);
 	Producer->Run(); IO->Run(); Producer->Run(); IO->Run(); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Function->Builds, 1u);
 	EXPECT_EQ(Partial->Wait(), ERequestWaitResult::Completed);
 }
@@ -298,9 +298,9 @@ TEST(FBuildContinuationTests, SchemaMismatchRejectsPositiveAndNegativeHits)
 		ASSERT_TRUE(Service->Register(Function)); auto Session = Service->CreateSession().value();
 		uint32 Calls = 0;
 		auto Request = Session->Build(Definition(), [&](auto Completion) {
-			++Calls; EXPECT_FALSE(HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::CacheQueryHit));
+			++Calls; EXPECT_FALSE(HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit));
 			EXPECT_EQ(Completion.GetStatus(), BuildLocal ? EStatus::Ok : EStatus::Error);
-			EXPECT_EQ(HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::BuildLocal), BuildLocal);
+			EXPECT_EQ(HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::BuildLocal), BuildLocal);
 			if (BuildLocal) {
 				ASSERT_TRUE(Completion.GetOutput()); EXPECT_EQ(Completion.GetOutput()->GetSchema(), "Fixture.Output");
 				EXPECT_EQ(Completion.GetOutput()->GetSchemaVersion(), 1u);
@@ -320,8 +320,8 @@ TEST(FBuildContinuationTests, MatchingNegativeSchemaRemainsCacheHit)
 	auto Request = Session->Build(Definition(), [&](auto Completion) {
 		++Calls; EXPECT_EQ(Completion.GetStatus(), EStatus::Error); ASSERT_TRUE(Completion.GetOutput());
 		EXPECT_TRUE(Completion.GetOutput()->HasError());
-		EXPECT_TRUE(HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::CacheQueryHit));
-		EXPECT_FALSE(HasBuildStatus(Completion.GetBuildStatus(), EBuildStatus::BuildLocal));
+		EXPECT_TRUE(HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit));
+		EXPECT_FALSE(HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::BuildLocal));
 	});
 	ASSERT_TRUE(Request); EXPECT_EQ(Request->Wait(), ERequestWaitResult::Completed);
 	EXPECT_EQ(Calls, 1u); EXPECT_EQ(Function->Builds, 0u); EXPECT_EQ(Cache->Puts, 0u);

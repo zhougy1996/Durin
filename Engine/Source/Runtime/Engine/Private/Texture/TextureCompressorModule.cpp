@@ -2,7 +2,7 @@
 #if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/ITextureCompressorModule.h"
 #if DURIN_WITH_EDITOR
-#include "TextureBuildSession.h"
+#include "TextureDerivedDataBuild.h"
 #endif
 
 namespace Durin

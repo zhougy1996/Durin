@@ -21,7 +21,7 @@ namespace Durin::Editor::Texture
 
 	auto FTextureFileImport::AdmitFile(std::string_view Filename, std::string_view Directory,
 		std::shared_ptr<const AssetForge::Builtins::FPreparedTexture2DImport> Prepared,
-		FTexture2DCompilationCompletion Done) -> FAssetOperationResult
+		AssetForge::Builtins::FTexture2DImportCompletion Done) -> FAssetOperationResult
 	{
 		Callbacks.Clear();
 		auto Reject = [this](std::string Message) -> FAssetOperationResult {
@@ -114,10 +114,15 @@ namespace Durin::Editor::Texture
 		if (Active)
 		{
 			auto* Package = Active->GetPackage();
-			FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Active);
-			FAssetCompilingManager::Get().FinishCompilationForObject(*Active);
+			const bool bDiscardOwnedAsset = !Completion || !Completion->has_value()
+				|| Completion->value().Status != DerivedData::EStatus::Canceled;
+			if (bDiscardOwnedAsset)
+			{
+				FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Active);
+				FAssetCompilingManager::Get().FinishCompilationForObject(*Active);
+			}
 			Active.Reset();
-			UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved);
+			if (bDiscardOwnedAsset) UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved);
 		}
 	}
 
@@ -163,20 +168,19 @@ namespace Durin::Editor::Texture
 			if (!Completion || !Completion->has_value()) return;
 			const auto CompilationEnd = bSaveStarted ? SaveStarted : std::chrono::steady_clock::now();
 			auto* Package = Active->GetPackage();
-			if (Completion->value().Status == ETexture2DCompilationStatus::Canceled)
+			if (Completion->value().Status == DerivedData::EStatus::Canceled)
 			{
-				const bool bMutationCanceled = Completion->value().Cause == ETexture2DCompilationError::CancelledForMutation;
+				// External cancellation relinquishes import ownership; retain the resident asset.
 				Active.Reset();
 				Completion.reset();
-				if (!bMutationCanceled) UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved);
-				else { ++CanceledCount; ++Next; } // A mutation barrier may cancel work; retain its resident asset.
+				++CanceledCount; ++Next;
 				FinishBatch();
 				return;
 			}
 			FPackagePath Path;
 			require(FPackagePath::TryCreate(Package->GetPackagePath(), Path));
 			std::optional<FAssetOperationResult> Saved;
-			if ((Completion->value().Status == ETexture2DCompilationStatus::Succeeded) && !SaveOperation)
+			if ((Completion->value().Status == DerivedData::EStatus::Ok) && !SaveOperation)
 			{
 				if (!bSaveStarted)
 				{
@@ -198,7 +202,7 @@ namespace Durin::Editor::Texture
 			}
 			const auto Filename = Files[Next];
 			double SaveMilliseconds = 0;
-			if (Completion->value().Status == ETexture2DCompilationStatus::Succeeded)
+			if (Completion->value().Status == DerivedData::EStatus::Ok)
 			{
 				const auto SaveStart = bSaveStarted ? SaveStarted : std::chrono::steady_clock::now();
 				const auto Result = Saved ? std::move(*Saved) : Save(Path);
@@ -211,7 +215,7 @@ namespace Durin::Editor::Texture
 			}
 			else
 			{
-				Fail(std::move(Completion->value().Message));
+				Fail(std::move(Completion->value().Diagnostic));
 				Active.Reset();
 				UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved);
 			}
@@ -234,13 +238,11 @@ namespace Durin::Editor::Texture
 				Fail(std::move(Prepared.Message));
 				return;
 			}
-			Completion = std::make_shared<std::optional<FCompletion>>();
+			Completion = std::make_shared<std::optional<FTextureOperationResult>>();
 			CompilationStart = std::chrono::steady_clock::now();
 			const auto Result = AdmitFile(Files[Next], Directory, std::move(Prepared.Data),
-				[Cell = Completion](FTexture2DCompilationResult Value) {
-					*Cell = FCompletion{.Status = Value.Status,
-						.Message = Value.Succeeded() ? std::string{} : FormatTexture2DCompilationError(Value.Error),
-						.Cause = Value.Error.Code};
+				[Cell = Completion](FTextureOperationResult Value) {
+					*Cell = std::move(Value);
 				});
 			if (!Result) { Completion.reset(); Fail(Result.Message); return; }
 			Active = Cast<DTexture2D>(Result.Asset);
@@ -262,7 +264,7 @@ namespace Durin::Editor::Texture
 		{
 			auto Prepared = AssetForge::Builtins::PrepareTexture2DImport(Filename);
 			if (!Prepared)
-				Result.Message = AssetForge::Builtins::FormatTexture2DPreparationError(Prepared.error());
+				Result.Message = Prepared.error();
 			else
 				Result.Data = std::make_shared<AssetForge::Builtins::FPreparedTexture2DImport>(std::move(*Prepared));
 		}
