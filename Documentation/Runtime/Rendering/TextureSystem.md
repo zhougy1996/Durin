@@ -205,8 +205,7 @@ larger than the budget runs alone so maximum-dimension textures cannot deadlock
 the queue.
 
 Each request carries owned source mip images or a detached deferred source, content identity, all build
-settings, Win64/Game target identity, scheduling identity,
-and a manager-owned monotonic request serial. Key computation and a warm DDC
+settings, Win64/Game target identity, and scheduling identity. Key computation and a warm DDC
 lookup use source metadata and content identity only. Explicit edit requests can
 carry decoded images; authored PostLoad defers payload recovery until a worker
 cache miss. Workers consume those images to generate mips, compress,
@@ -216,10 +215,10 @@ input causes and task state; diagnostic snapshots separately retain the internal
 `BuildCause`. Public completion errors do not carry that internal cause;
 UI and pending edit/import adapters call `FormatTexture2DCompilationError`.
 The Texture compiling manager commits on the GameThread
-only when request id, serial, weak object identity, and complete captured input
-identity match the manager-owned candidate. Accepted external source or settings
-edits explicitly cancel outstanding work; cancellation plus serial validation is
-the live-object mutation boundary.
+after validating request id, weak object identity, and the selected source.
+Source/settings mutation and new submissions cancel, finish and retire the previous
+request before proceeding. This selected blocking boundary follows UE texture
+mutation ownership and replaces latest-wins request serials.
 
 Runtime Engine and Launch have no Texture2D worker-queue dependency. Launch pumps
 the aggregate with a 64-item normal-frame limit and a shared 2 ms cooperative

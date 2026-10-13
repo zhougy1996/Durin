@@ -13,7 +13,7 @@ namespace Durin::TextureCubeBuilder
 		const FTextureCubePanoramaBuildSettings& Settings) -> std::expected<void, FTextureBuildError>;
 	// Builds ordinary radiance mips directly from the retained panorama, without RGBA8 scratch data.
 	TEXTURECOMPRESSOR_API auto BuildHDRTextureCube(const Image::FImage& Panorama,
-		const FTextureCubePanoramaBuildSettings& Settings) -> std::expected<FTextureCubePlatformData, FTextureBuildError>;
+		const FTextureCubePanoramaBuildSettings& Settings) -> std::expected<FTextureCubePlatformData, std::string>;
 
 	// Selects output resolution and the offline HDR exposure transform.
 	struct FEquirectangularTextureCubeProjectionSettings

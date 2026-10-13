@@ -124,7 +124,7 @@ namespace Durin::TextureCubeBuilder
 		auto Panorama = std::move(*ImageResult1);
 		const auto BuiltCube = BuildHDRTextureCube(Panorama,
 			{.FaceDimension = 8, .ExposureEV = 1.0f, .Output = ETextureCubeOutput::HDR});
-		Error = BuiltCube ? std::string{} : BuiltCube.error().Diagnostic;
+		Error = BuiltCube ? std::string{} : BuiltCube.error();
 		ASSERT_TRUE(BuiltCube) << Error;
 		const auto& Cube = *BuiltCube;
 		for (const auto& Face : Cube.Faces)
@@ -140,13 +140,12 @@ namespace Durin::TextureCubeBuilder
 		}
 		const auto Oversized = BuildHDRTextureCube(Panorama,
 			{.FaceDimension = 513, .Output = ETextureCubeOutput::HDR});
-		Error = Oversized ? std::string{} : Oversized.error().Diagnostic;
+		Error = Oversized ? std::string{} : Oversized.error();
 		ASSERT_FALSE(Oversized) << Error;
-		EXPECT_EQ(Oversized.error().Code, ETextureBuildFailure::BuildFailed);
-		EXPECT_EQ(Oversized.error().Stage, ETextureBuildStage::Build);
+		EXPECT_FALSE(Oversized.error().empty());
 		const auto Overexposed = BuildHDRTextureCube(Panorama,
 			{.FaceDimension = 8, .ExposureEV = 16, .Output = ETextureCubeOutput::HDR});
-		Error = Overexposed ? std::string{} : Overexposed.error().Diagnostic;
+		Error = Overexposed ? std::string{} : Overexposed.error();
 		EXPECT_FALSE(Overexposed) << Error;
 	}
 

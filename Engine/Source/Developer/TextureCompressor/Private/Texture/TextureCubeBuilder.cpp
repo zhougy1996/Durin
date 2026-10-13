@@ -193,23 +193,19 @@ namespace Durin::TextureCubeBuilder
 	}
 
 	auto BuildHDRTextureCube(const Image::FImage& Panorama,
-		const FTextureCubePanoramaBuildSettings& Settings) -> std::expected<FTextureCubePlatformData, FTextureBuildError>
+		const FTextureCubePanoramaBuildSettings& Settings) -> std::expected<FTextureCubePlatformData, std::string>
 	{
 		if (!Panorama.IsValid() || Panorama.GetInfo().Format != Image::ERawImageFormat::RGBA32F
 			|| Panorama.GetInfo().GammaSpace != Image::EImageGammaSpace::Linear
 			|| Panorama.GetInfo().Depth != 1 || Panorama.GetInfo().SliceCount != 1)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
-				"HDR cube requires a single linear RGBA32F panorama."});
+			return std::unexpected(std::string("HDR cube requires a single linear RGBA32F panorama."));
 		}
 		const FReadOnlyHDRPanorama Input{Panorama.GetPixels(), Panorama.GetInfo().Width,
 			Panorama.GetInfo().Height, LDRChannelCount};
 		if (auto Result = ValidateHDRTextureCubePanorama(Input, Settings); !Result)
 		{
-			auto Error = std::move(Result.error());
-			Error.Code = ETextureBuildFailure::BuildFailed;
-			Error.Stage = ETextureBuildStage::Build;
-			return std::unexpected(std::move(Error));
+			return std::unexpected(std::move(Result.error().Diagnostic));
 		}
 		const uint32 BaseDimension = Settings.FaceDimension == 0
 			? std::max(Input.Width / 4, 1u) : Settings.FaceDimension;
@@ -239,7 +235,7 @@ namespace Durin::TextureCubeBuilder
 							{
 								FVector3 Direction;
 								if (!ResolveTextureCubeFacePixelDirection(static_cast<ETextureCubeFace>(Face),
-									X * Grid + SX, Y * Grid + SY, Dimension * Grid, Direction)) return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build, "HDR cube projection failed."});
+									X * Grid + SX, Y * Grid + SY, Dimension * Grid, Direction)) return std::unexpected(std::string("HDR cube projection failed."));
 								const double A = 2.0 * (X + (SX + 0.5) / Grid) / Dimension - 1.0;
 								const double B = 2.0 * (Y + (SY + 0.5) / Grid) / Dimension - 1.0;
 								const double W = std::pow(1.0 + A * A + B * B, -1.5);
@@ -261,7 +257,7 @@ namespace Durin::TextureCubeBuilder
 				if (Dimension == 1) break;
 			}
 		}
-		if (!Candidate.IsValid()) return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build, "HDR cube platform data is invalid."});
+		if (!Candidate.IsValid()) return std::unexpected(std::string("HDR cube platform data is invalid."));
 		return Candidate;
 	}
 

@@ -7,6 +7,20 @@
 
 namespace Durin::TextureMipBuilder
 {
+	// Recipe-local timing and generated storage; excludes shared source/output bytes.
+	struct FBuildTimings
+	{
+		uint64 MipGenerationNanoseconds = 0;
+		uint64 CompressionNanoseconds = 0;
+		uint64 PeakIntermediateBytes = 0;
+	};
+
+	struct FBuildOutput
+	{
+		FTexturePlatformData PlatformData;
+		FBuildTimings Metrics;
+	};
+
 	// Execution options do not participate in deterministic recipe identity.
 	struct FBuildExecutionOptions
 	{
@@ -34,6 +48,6 @@ namespace Durin::TextureMipBuilder
 	// A single source mip generates a complete chain; supplied chains remain intact.
 	// Failure returns no partial product. Errors are reported by the family entrypoint.
 	TEXTURECOMPRESSOR_API auto BuildTextureMips(const FBuildTextureMipsRequest& Request,
-		const FBuildExecutionOptions* ExecutionOptions = nullptr) -> std::expected<FTexture2DBuildOutput, std::string>;
+		const FBuildExecutionOptions* ExecutionOptions = nullptr) -> std::expected<FBuildOutput, std::string>;
 
 }

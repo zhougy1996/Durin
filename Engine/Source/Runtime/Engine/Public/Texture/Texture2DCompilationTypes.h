@@ -42,12 +42,11 @@ namespace Durin
 
 	enum class ETexture2DCompilationError : uint8
 	{
-		None, BuildFailed, WorkerFailed, Cancelled, CancelledBeforeAdmission, CancelledDuringShutdown,
+		None, BuildFailed, WorkerFailed, Cancelled, CancelledBeforeAdmission, CancelledDuringShutdown, CancelledForMutation,
 		InvalidSource, MissingSourceIdentity, ManagerUnavailable, ManagerNotStarted, InvalidOwner,
 		AdmissionRejected, MissingPackage, InvalidProduct, SourceMismatch, InvalidSettings,
-		InputMismatch, Superseded, ImportValidation, ImportAllocation, Save,
+		ImportValidation, ImportAllocation, Save,
 	};
-	struct FTexture2DBuildInputIdentity;
 	struct FAssetImportDataError;
 	struct FAssetWriteResult;
 	struct FTexture2DCompilationError
@@ -60,8 +59,6 @@ namespace Durin
 		std::string ObjectPath;
 		FXxHash128 ExpectedSourceIdentity{};
 		FXxHash128 ActualSourceIdentity{};
-		std::shared_ptr<const FTexture2DBuildInputIdentity> ExpectedInput;
-		std::shared_ptr<const FTexture2DBuildInputIdentity> ActualInput;
 		std::shared_ptr<const FAssetImportDataError> ImportCause;
 		std::shared_ptr<const FAssetWriteResult> SaveCause;
 		auto HasError() const -> bool { return Code != ETexture2DCompilationError::None; }

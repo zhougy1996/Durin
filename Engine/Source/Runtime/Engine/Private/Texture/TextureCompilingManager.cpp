@@ -73,6 +73,7 @@ namespace Durin
 			bool bDelivered = false;
 			bool bAdmitted = false;
 			std::atomic<bool> bCancellationRequested = false;
+			std::atomic<ETexture2DCompilationError> CancellationReason = ETexture2DCompilationError::Cancelled;
 			uint64 EstimatedBytes = 0;
 			uint64 EnqueueNanoseconds = 0;
 			uint64 BuildStartNanoseconds = 0;
@@ -104,7 +105,6 @@ namespace Durin
 				if (!bAcceptingRequests || PendingRequestCount >= Config.MaxPendingRequests) return 0;
 				RequestState->Diagnostic.RequestId = NextRequestId++;
 				++PendingRequestCount;
-				RequestState->Diagnostic.RequestSerial = RequestState->Request.RequestSerial;
 				RequestState->Diagnostic.AssetIdentity = RequestState->Request.AssetIdentity;
 				RequestState->Diagnostic.Phase = ETexture2DCompilationPhase::Queued;
 				RequestState->Diagnostic.Metrics.EstimatedBytes = RequestState->EstimatedBytes;
@@ -198,7 +198,7 @@ namespace Durin
 				}
 			}
 			for (const std::shared_ptr<FRequestState>& RequestState : Cancelled)
-				CompleteWithoutWorker(RequestState, ETexture2DCompilationPhase::Cancelled, {.Code = bSchedulerRunning
+				CompleteWithoutWorker(RequestState, DerivedData::EStatus::Canceled, {.Code = bSchedulerRunning
 					? ETexture2DCompilationError::CancelledBeforeAdmission : ETexture2DCompilationError::CancelledDuringShutdown});
 			for (const std::shared_ptr<FRequestState>& RequestState : Admitted) Launch(RequestState);
 		}
@@ -238,19 +238,17 @@ namespace Durin
 			RequestState->Task = std::move(Admission);
 		}
 
-		static auto MakeFailureResult(
+		static auto MakeIssueResult(
 			const FRequestState& RequestState,
-			ETexture2DCompilationPhase Phase,
-			FTexture2DCompilationError Error) -> FTexture2DCompilationWorkResult
+			DerivedData::EStatus Status, FTexture2DCompilationError Error) -> FTexture2DCompilationWorkResult
 		{
 			return {
 				.RequestId = RequestState.Diagnostic.RequestId,
 				.Owner = RequestState.Request.Owner,
-				.RequestSerial = RequestState.Request.RequestSerial,
 				.AssetIdentity = RequestState.Request.AssetIdentity,
+				.Status = Status,
 				.Error = std::move(Error),
 				.Metrics = {.EstimatedBytes = RequestState.EstimatedBytes},
-				.Phase = Phase,
 				.bSourceDecoderInvoked = RequestState.Request.bSourceDecoderInvoked};
 		}
 
@@ -286,8 +284,8 @@ namespace Durin
 			const FTaskCancellationToken& Token) -> FTexture2DCompilationWorkResult
 		{
 			require(RequestState->BuildOperation != nullptr);
-			FTexture2DCompilationWorkResult Result = MakeFailureResult(
-				*RequestState, ETexture2DCompilationPhase::Failed, {});
+			FTexture2DCompilationWorkResult Result = MakeIssueResult(
+				*RequestState, DerivedData::EStatus::Error, {.Code = ETexture2DCompilationError::WorkerFailed});
 			const uint64 BuildStart = NowNanoseconds();
 			{
 				std::lock_guard RequestStateLock(RequestState->Mutex);
@@ -297,7 +295,7 @@ namespace Durin
 			const auto Cancel = [&] { return IsCancelled(RequestState, Token); };
 			if (Cancel())
 			{
-				Result.Phase = ETexture2DCompilationPhase::Cancelled;
+				Result.Status = DerivedData::EStatus::Canceled;
 				Result.Error = {.Code = ETexture2DCompilationError::Cancelled};
 				return Result;
 			}
@@ -315,16 +313,22 @@ namespace Durin
 						auto& Result = *PendingResult;
 						try
 						{
-							Result.Phase = Product && Product->bCanceled ? ETexture2DCompilationPhase::Cancelled
-								: Product && Product->Error.empty() ? ETexture2DCompilationPhase::UploadPending : ETexture2DCompilationPhase::Failed;
-							if (Result.Phase != ETexture2DCompilationPhase::UploadPending)
-								Result.Error = {.Code = Result.Phase == ETexture2DCompilationPhase::Cancelled
+							Result.Status = Product ? Product->Status : DerivedData::EStatus::Error;
+							if (Result.Status == DerivedData::EStatus::Ok)
+							{
+								Result.Error = {};
+								Result.PlatformCache = std::move(Product);
+							}
+							else
+							{
+								Result.Error = {.Code = Result.Status == DerivedData::EStatus::Canceled
 									? ETexture2DCompilationError::Cancelled : ETexture2DCompilationError::BuildFailed};
-							Result.PlatformCache = std::move(Product);
+								if (Product) Result.Diagnostic = std::move(Product->Diagnostic);
+							}
 							Result.Metrics.BuildElapsedNanoseconds = NowNanoseconds() - BuildStart;
 							Self->UpdateDiagnostic(RequestState, Result);
 						}
-						catch (...) { Result = MakeFailureResult(*RequestState, ETexture2DCompilationPhase::Failed, {.Code = ETexture2DCompilationError::WorkerFailed}); }
+						catch (...) { Result = MakeIssueResult(*RequestState, DerivedData::EStatus::Error, {.Code = ETexture2DCompilationError::WorkerFailed}); }
 						std::lock_guard Lock(Self->Mutex);
 						RequestState->TerminalResult.emplace(std::move(Result));
 					});
@@ -332,7 +336,7 @@ namespace Durin
 			}
 			if (Cancel())
 			{
-				Result.Phase = ETexture2DCompilationPhase::Cancelled;
+				Result.Status = DerivedData::EStatus::Canceled;
 				Result.Error = {.Code = ETexture2DCompilationError::Cancelled};
 				return Result;
 			}
@@ -342,6 +346,7 @@ namespace Durin
 			SetPhase(RequestState, ETexture2DCompilationPhase::Building);
 			const auto Self = shared_from_this();
 			RequestState->bAsyncDispatched = true;
+			Result.PlatformData = std::make_unique<FTexturePlatformData>();
 			TexturePrivate::BuildTexture2DAsync(std::move(BuildRequest), *RequestState->BuildOperation,
 				[Self, RequestState, Token] { return Self->IsCancelled(RequestState, Token); },
 				[Self, RequestState, PendingResult = std::make_shared<FTexture2DCompilationWorkResult>(std::move(Result)), BuildStart]
@@ -354,22 +359,24 @@ namespace Durin
 						if (Product)
 						{
 							Result.Metrics.ResultBytes = PlatformDataBytes(*Product);
-							Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(*Product));
-							Result.Phase = ETexture2DCompilationPhase::UploadPending;
+							*Result.PlatformData = std::move(*Product);
+							Result.Status = DerivedData::EStatus::Ok;
+							Result.Error = {};
 						}
 						else
 						{
-							Result.BuildCause = Product.error();
+							Result.PlatformData.reset();
+							Result.Status = Product.error().Code == ETexture2DBuildError::Cancelled
+								? DerivedData::EStatus::Canceled : DerivedData::EStatus::Error;
 							Result.Error = TexturePrivate::MakeCompilationBuildFailure(Product.error());
-							Result.Phase = Product.error().Code == ETexture2DBuildError::Cancelled
-								? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::Failed;
+							Result.BuildCause = std::move(Product.error());
 						}
 						Result.Metrics.BuildElapsedNanoseconds = NowNanoseconds() - BuildStart;
 						Self->UpdateDiagnostic(RequestState, Result);
 					}
 					catch (...)
 					{
-						Result = MakeFailureResult(*RequestState, ETexture2DCompilationPhase::Failed,
+						Result = MakeIssueResult(*RequestState, DerivedData::EStatus::Error,
 							{.Code = ETexture2DCompilationError::WorkerFailed});
 					}
 					std::lock_guard Lock(Self->Mutex);
@@ -381,10 +388,9 @@ namespace Durin
 
 		auto CompleteWithoutWorker(
 			const std::shared_ptr<FRequestState>& RequestState,
-			ETexture2DCompilationPhase Phase,
-			FTexture2DCompilationError Error) -> void
+			DerivedData::EStatus Status, FTexture2DCompilationError Error) -> void
 		{
-			auto Result = MakeFailureResult(*RequestState, Phase, std::move(Error));
+			auto Result = MakeIssueResult(*RequestState, Status, std::move(Error));
 			UpdateDiagnostic(RequestState, Result);
 			std::lock_guard Lock(Mutex);
 			RequestState->TerminalResult.emplace(std::move(Result));
@@ -396,7 +402,7 @@ namespace Durin
 		{
 			{
 				std::lock_guard RequestStateLock(RequestState->Mutex);
-				RequestState->Diagnostic.Phase = Result.Phase;
+				RequestState->Diagnostic.Phase = Result.GetPhase();
 				RequestState->Diagnostic.Error = Result.Error;
 				RequestState->Diagnostic.BuildCause = Result.BuildCause;
 				RequestState->Diagnostic.Metrics = Result.Metrics;
@@ -405,10 +411,10 @@ namespace Durin
 					? RequestState->BuildStartNanoseconds - RequestState->EnqueueNanoseconds
 					: NowNanoseconds() - RequestState->EnqueueNanoseconds;
 			}
-			NotifyPhaseHook(RequestState->Diagnostic.RequestId, Result.Phase);
+			NotifyPhaseHook(RequestState->Diagnostic.RequestId, Result.GetPhase());
 		}
 
-		auto Cancel(uint64 RequestId) -> bool
+		auto Cancel(uint64 RequestId, ETexture2DCompilationError Reason) -> bool
 		{
 			std::shared_ptr<FAssetCompilationOperation> Owner;
 			bool Changed;
@@ -417,6 +423,9 @@ namespace Durin
 				const auto Iterator = Requests.find(RequestId);
 				if (Iterator == Requests.end() || Iterator->second->bDelivered) return false;
 				Changed = !Iterator->second->bCancellationRequested.exchange(true, std::memory_order_acq_rel);
+				// A subsequent mutation owns the resident asset even if cancellation was requested earlier.
+				if (Changed || Reason == ETexture2DCompilationError::CancelledForMutation)
+					Iterator->second->CancellationReason.store(Reason);
 				Owner = Iterator->second->BuildOperation;
 			}
 			// Signal without joining a producer on GameThread; the pump consumes its mailbox.
@@ -451,14 +460,16 @@ namespace Durin
 					if (Ready->Task.GetState() == ETaskState::Succeeded) return std::move(Ready->Task).TakeResult();
 					const bool bCanceled = Ready->Task.GetState() == ETaskState::Canceled
 						|| Ready->bCancellationRequested.load();
-					return MakeFailureResult(*Ready, bCanceled ? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::Failed,
+					return MakeIssueResult(*Ready, bCanceled ? DerivedData::EStatus::Canceled : DerivedData::EStatus::Error,
 						{.Code = bCanceled ? ETexture2DCompilationError::Cancelled : ETexture2DCompilationError::WorkerFailed,
 						 .TaskState = Ready->Task.GetState()});
 				}();
 				if (Ready->bCancellationRequested.load())
 				{
-					Result.Phase = ETexture2DCompilationPhase::Cancelled;
-					Result.Error = {.Code = ETexture2DCompilationError::Cancelled};
+					Result.Status = DerivedData::EStatus::Canceled;
+					Result.Error = {.Code = Ready->CancellationReason.load(), .ObjectPath = Result.AssetIdentity};
+					Result.PlatformData.reset();
+					Result.PlatformCache.reset();
 				}
 				UpdateDiagnostic(Ready, Result);
 				const uint64 CompletionStart = NowNanoseconds();
@@ -553,7 +564,7 @@ namespace Durin
 			}
 			for (const auto& Owner : BuildOperations) Owner->RequestCancel();
 			for (const auto& RequestState : Queued)
-				CompleteWithoutWorker(RequestState, ETexture2DCompilationPhase::Cancelled, {.Code = ETexture2DCompilationError::CancelledDuringShutdown});
+				CompleteWithoutWorker(RequestState, DerivedData::EStatus::Canceled, {.Code = ETexture2DCompilationError::CancelledDuringShutdown});
 			Scope.Close(ETaskScopeCloseMode::Cancel);
 			// Even tasks canceled before their body runs are consumed by the owner pump.
 			for (;;)
@@ -607,9 +618,9 @@ namespace Durin
 		return QueueState ? QueueState->Submit(std::move(Request), std::move(Completion)) : 0;
 	}
 
-	auto FTextureCompilingManager::CancelWork(uint64 RequestId) -> bool
+	auto FTextureCompilingManager::CancelWork(uint64 RequestId, ETexture2DCompilationError Reason) -> bool
 	{
-		return QueueState && QueueState->Cancel(RequestId);
+		return QueueState && QueueState->Cancel(RequestId, Reason);
 	}
 
 	auto FTextureCompilingManager::GetWorkDiagnostic(uint64 RequestId) const -> FTexture2DCompilationDiagnostic

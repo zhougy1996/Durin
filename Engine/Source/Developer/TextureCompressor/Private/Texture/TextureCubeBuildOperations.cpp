@@ -138,7 +138,7 @@ namespace Durin
 				return Fail("HDR cube build target or color space is invalid.");
 			auto Result = TextureCubeBuilder::BuildHDRTextureCube(HDR->Panorama.get(),
 				{.FaceDimension = HDR->FaceDimension, .ExposureEV = HDR->ExposureEV, .Output = ETextureCubeOutput::HDR});
-			if (!Result) return Fail(Result.error().Diagnostic);
+			if (!Result) return Fail(Result.error());
 			return std::move(*Result);
 		}
 		const auto& LDR = std::get<FTextureCubeLDRBuildInput>(Request.Pixels);

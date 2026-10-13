@@ -112,6 +112,14 @@ namespace Durin
 		return FinishTextureCompilation(*this);
 	}
 
+	auto DTexture::BlockOnAnyAsyncBuild() -> void
+	{
+		CheckGameThread();
+#if DURIN_WITH_EDITORONLY_DATA
+		PrepareTextureForMutation(*this);
+#endif
+	}
+
 	auto DTexture::ContributeToCook(FCookContext& Context,
 		std::string_view VirtualPackagePath) -> FCookContributionResult
 	{
@@ -220,6 +228,7 @@ namespace Durin
 	auto DTexture::SetSource(FTextureSource Value) -> void
 	{
 		CheckGameThread();
+		BlockOnAnyAsyncBuild();
 		Source = std::move(Value);
 		Source.BindOwner(this);
 		InvalidateAuthoredBuild();

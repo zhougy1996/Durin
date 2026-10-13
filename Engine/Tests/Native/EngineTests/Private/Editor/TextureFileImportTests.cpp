@@ -695,7 +695,7 @@ TEST_F(FTextureImportQueueTests, CompilationCancellationIsNotAnImportFailure)
 	EXPECT_EQ(FindPackage(Destination + "wall_normal"), nullptr);
 }
 
-TEST_F(FTextureImportQueueTests, SupersededImportDoesNotUnloadNewCompilation)
+TEST_F(FTextureImportQueueTests, MutationCanceledImportDoesNotUnloadNewCompilation)
 {
 	Editor::Texture::FTextureFileImport Importer;
 	ASSERT_TRUE(Importer.Begin({Source.generic_string()}, Destination));
@@ -719,7 +719,7 @@ TEST_F(FTextureImportQueueTests, SupersededImportDoesNotUnloadNewCompilation)
 		[&](FTexture2DCompilationResult Value) { Replacement = std::move(Value); }));
 	Importer.Tick();
 	EXPECT_FALSE(Importer.IsRunning());
-	EXPECT_EQ(Importer.GetSupersededCount(), 1u);
+	EXPECT_EQ(Importer.GetCanceledCount(), 1u);
 	EXPECT_EQ(Importer.GetFailedCount(), 0u);
 	EXPECT_EQ(Importer.GetSavedCount(), 0u);
 	EXPECT_EQ(FindPackage(Destination + "wall_normal"), Package);

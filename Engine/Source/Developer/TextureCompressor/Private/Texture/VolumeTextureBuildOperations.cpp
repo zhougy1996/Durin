@@ -19,7 +19,7 @@ namespace Durin
 			|| SourceData.Format != Request.Settings.OutputFormat)
 			return Fail("Volume texture build source, settings, or target is incompatible.");
 		auto Result = VolumeTextureMipGenerator::GenerateMipChain(SourceData, Request.Settings);
-		if (!Result) return Fail(Result.error().Diagnostic);
+		if (!Result) return Fail(Result.error());
 		return std::move(*Result);
 	}
 }

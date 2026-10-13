@@ -189,6 +189,7 @@ namespace Durin
 		ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold) -> void
 	{
 		CheckGameThread();
+		BlockOnAnyAsyncBuild();
 		Usage = InUsage;
 		bSRGB = bInSRGB;
 		MaxResolution = InMaxResolution;

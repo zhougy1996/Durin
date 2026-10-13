@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "Texture/Texture.h"
+#include "DerivedDataBuildExecution.h"
 
 namespace Durin
 {
@@ -12,8 +13,8 @@ namespace Durin
 	struct FTexturePlatformCacheResult
 	{
 		virtual ~FTexturePlatformCacheResult() = default;
-		std::string Error;
-		bool bCanceled = false;
+		DerivedData::EStatus Status = DerivedData::EStatus::Error;
+		std::string Diagnostic;
 		virtual auto Apply(DTexture& Texture) -> void = 0;
 	};
 	struct FTexturePlatformCacheInput
@@ -33,4 +34,5 @@ namespace Durin
 
 	auto HasPendingTextureCompilation(const DTexture& Texture) -> bool;
 	auto FinishTextureCompilation(DTexture& Texture) -> bool;
+	auto PrepareTextureForMutation(DTexture& Texture) -> void;
 }

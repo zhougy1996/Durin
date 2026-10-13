@@ -15,7 +15,7 @@ namespace Durin
 {
 	namespace
 	{
-		auto ApplyVolumeTextureBuildResult(DVolumeTexture& Texture, const FTextureSource& Source, const FVolumeTextureBuildSettings& Settings, std::unique_ptr<FVolumeTexturePlatformData> Product, const FVolumeTextureResultApplicationContext& Context) -> std::expected<void, FTextureBuildError>;
+		auto ApplyVolumeTextureBuildResult(DVolumeTexture& Texture, const FTextureSource& Source, const FVolumeTextureBuildSettings& Settings, std::unique_ptr<FVolumeTexturePlatformData> Product, const FVolumeTextureResultApplicationContext& Context) -> void;
 	}
 
 	static auto BuildVolumeTextureWithDiagnostic(const FVolumeTextureBuildRequest& Request)
@@ -90,10 +90,10 @@ namespace Durin
 	auto BuildVolumeTextureSynchronously(DVolumeTexture& Texture, const FVolumeTextureBuildRequest& Request, const FVolumeTextureResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>
 	{
 		CheckGameThread();
+		Texture.BlockOnAnyAsyncBuild();
 		auto Result = BuildVolumeTextureWithDiagnostic(Request);
 		if (!Result) return std::unexpected(TexturePrivate::ReportBuildFailure(Result.error()));
-		auto Applied = ApplyVolumeTextureBuildResult(Texture, Request.Source, Request.Settings, std::move(*Result), Context);
-		if (!Applied) return std::unexpected(TexturePrivate::ReportBuildFailure(Applied.error()));
+		ApplyVolumeTextureBuildResult(Texture, Request.Source, Request.Settings, std::move(*Result), Context);
 		return {};
 	}
 
@@ -105,7 +105,7 @@ namespace Durin
 			const FVolumeTextureBuildSettings& Settings,
 			std::unique_ptr<FVolumeTexturePlatformData> Product,
 			const FVolumeTextureResultApplicationContext& Context
-		) -> std::expected<void, FTextureBuildError>
+		) -> void
 		{
 			CheckGameThread();
 			require(Product != nullptr);
@@ -120,8 +120,6 @@ namespace Durin
 			Texture.SetPlatformData(std::move(Product));
 			Texture.UpdateResource();
 			if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
-			return {};
-
 	}
 	}
 }

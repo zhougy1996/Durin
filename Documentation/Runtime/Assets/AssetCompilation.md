@@ -154,12 +154,12 @@ tokens. Cooked runtime does not submit material compiler work.
 
 Texture compilation is Engine-owned. One `FTextureCompilingManager` owns
 typed asset state, worker admission, priority fairness, memory budget,
-cancellation, the completion mailbox, latest-wins request serials, GameThread
+cancellation, the completion mailbox, per-texture mutation barriers, GameThread
 completion application, and exactly-once completion callbacks. Active records are keyed by
-`FObjectKey`; the manager owns request serials, active/last request ids,
+`FObjectKey`; the manager owns active/last request ids,
 failure state, and bounded terminal diagnostics. Active work ends at terminal
 delivery, while completed asset diagnostics remain under a separate bound.
-The deterministic input/builder identity remains separate from request serials
+The deterministic input/builder identity remains independent of object identity
 and GPU resource readiness. `BuildElapsedNanoseconds` measures wall time from
 worker dispatch start to build completion, including asynchronous cache I/O;
 it is not CPU execution time. Queue wait and owner completion timing are separate.
@@ -169,7 +169,8 @@ to a persistent task-scheduled build session. Interactive/background priority is
 forwarded to both Core dispatch and the build request owner. LaunchTask accepts
 valid work directly; manager request and memory limits remain separate from
 scheduler queueing. Dispatch returns without waiting for cache I/O or a producer.
-The build callback assembles detached platform data and publishes a mailbox result.
+The task owns its pending CPU candidate; the build callback fills it and publishes
+a mailbox result. Work results explicitly carry status, a product and diagnostics.
 Readiness requires dispatch completion and terminal result publication. The
 dispatch nests the asset operation's `FTaskEvent`, which includes callback and
 native dispatch capture retirement; see [Derived Data Build](DerivedDataBuild.md#ownership).
@@ -185,7 +186,8 @@ Noncanonical panoramas acquire source bytes and normalize on the dispatch worker
 then submit their canonical source to the asynchronous session. Source validation,
 normalization and output assembly are shared with synchronous Cube adapters;
 `RebuildPlatformData` remains a synchronous explicit boundary. Cube result objects
-carry cancellation or diagnostics and apply only to the matching live generation.
+apply only after successful work and live-owner validation. Mutations finish the
+previous request before changing source or settings.
 
 The default manager allows two active computes with a 1 GiB estimated working
 budget and an oversized-single-compute rule. This is a scheduling estimate, not
@@ -230,8 +232,23 @@ are ready.
 
 ### Texture2D Completion
 
+Work completion and object completion are distinct boundaries. Texture work uses
+the existing DDC `EStatus` semantics: `Ok` carries a CPU product, `Error` carries
+diagnostics without a product, and `Canceled` discards the product. Error codes
+describe causes; neither diagnostic text nor UI phases determine request status.
+This follows [UE request status](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Developer/DerivedDataCache/UE__DerivedData__EStatus).
+Cache-hit/build flags remain execution facts, not success or failure outcomes.
+
+The GameThread validates the owner and active request, then applies successful
+work. One finalization path records the object terminal result before notifying
+the observer. A successful worker can still fail object validation or application.
+`UploadPending` is the UI projection of successful work awaiting application;
+`Ready` requires successful application. Cancellation is a separate terminal
+outcome. A texture has at most one active request; replacing a request first
+cancels, waits for callback retirement, and delivers its canceled terminal result.
+
 `FTexture2DCompilationResult` identifies one terminal outcome as `Succeeded`,
-`Failed`, `Canceled`, or `Superseded` and carries a bounded diagnostic. An
+`Failed`, or `Canceled` and carries a bounded diagnostic. An
 accepted request invokes its `FTexture2DCompilationCompletion` exactly once on
 GameThread. Rejection before acceptance is returned synchronously without
 invoking completion.
@@ -243,10 +260,15 @@ failure. The detailed compilation snapshot is available only through the
 `AssetPrivate` test hook for qualification and regression coverage. `Ready`
 means CPU platform data was applied, not GPU readiness.
 
-A new request for an object with active work cancels the old worker and
-completes the old observer as `Superseded`. A late worker result for that
-generation cannot publish or complete the observer again. Editor save and
-compensation adapters consume this terminal contract through
+Source/settings setters and synchronous builds use `DTexture::BlockOnAnyAsyncBuild`
+before mutation. The barrier cancels and finishes only that texture, delivers the
+old observer as `Canceled`, and retires its request before returning. The
+`CancelledForMutation` cause distinguishes this from explicit user cancellation;
+import adapters retain resident assets when mutation cancels their build.
+Same-owner submissions from inside this barrier are rejected. New submissions
+then start with no active predecessor; no latest-wins serial is needed. Storage-only
+source recompression preserves semantic identity and retained read handles.
+Editor save and compensation adapters consume this terminal contract through
 [Async Asset Operations](../../Editor/Architecture/AsyncAssetOperations.md).
 
 ## Proven Reuse Boundary
@@ -258,7 +280,7 @@ state object. Reuse stays at these Engine-owned boundaries:
 | --- | --- |
 | Aggregate/compiler contract | Stop admission, process bounded completions, route object operations, finish accepted work, then shut down. |
 | Object identity | Use `FObjectKey` for identity and weak references for deferred owner access; never use an asset path as live-object identity. |
-| Freshness | Carry an independently named per-object completion epoch. Material uses authored/dependency revisions and generation; Texture2D uses request serial plus deterministic input/builder identity. |
+| Freshness | Carry an independently named per-object completion epoch. Material uses authored/dependency revisions and generation; Texture2D finishes the previous request before mutation or replacement. |
 | Detached completion | Workers produce family-owned value envelopes; only the GameThread resolves the owner and attempts result application. |
 | Cancellation and terminal delivery | Cancellation is advisory, late results are consumed, and every accepted consumer reaches one typed terminal outcome. |
 | Lifetime accounting | Active records end with terminal delivery; only explicitly bounded diagnostics or family caches may remain. |

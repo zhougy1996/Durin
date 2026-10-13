@@ -23,7 +23,10 @@ values; `FSceneImportSession` remains a compatibility alias. It does not introdu
 
 Texture2D adapters consume the GameThread terminal result defined by
 [Asset Compilation](../../Runtime/Assets/AssetCompilation.md#texture2d-completion).
-Request identity, cancellation, and supersession remain compilation concerns.
+Request identity and cancellation remain compilation concerns. Texture requests
+are serialized per object: a mutation cancels and finishes its predecessor before
+changing source/settings. That mutation boundary may block; detached preparation
+and the newly submitted build remain asynchronous.
 
 CPU task construction follows the direct-return
 [task contract](../../Runtime/Core/TaskSystem.md): valid ordinary work queues
@@ -70,8 +73,8 @@ at its teardown safe point before module or compiler teardown. Worker captures n
 refer to widgets. The compatibility `ImportSceneAssets` entry point runs the same
 pipeline without yielding for synchronous/headless callers.
 
-Source decoding, product construction, compilation waits and staged writes are
-nonblocking in the interactive path. Material policy checks, individual package
+Source decoding, product construction and staged writes are nonblocking in the
+interactive path. Texture mutation may wait for a canceled predecessor to retire. Material policy checks, individual package
 capture and atomic graph commit remain owner-thread operations; the session does
 not claim a hard frame-time bound for a single large package.
 

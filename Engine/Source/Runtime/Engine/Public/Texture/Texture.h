@@ -53,6 +53,8 @@ namespace Durin
 		ENGINE_API auto IsAsyncCacheComplete() const -> bool;
 		// Explicit blocking boundary. Returns CPU-data success; GPU upload remains asynchronous.
 		ENGINE_API auto FinishCachePlatformData() -> bool;
+		// GameThread mutation barrier: cancel, finish and retire this texture's active build.
+		ENGINE_API auto BlockOnAnyAsyncBuild() -> void;
 		ENGINE_API auto BeginDestroy() -> void override;
 
 #if DURIN_WITH_EDITORONLY_DATA

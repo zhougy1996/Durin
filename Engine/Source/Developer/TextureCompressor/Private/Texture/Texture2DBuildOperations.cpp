@@ -6,9 +6,9 @@
 
 namespace Durin
 {
-	auto BuildTexture2D(const FTexture2DBuildInput& Request) -> std::optional<FTexture2DBuildOutput>
+	auto BuildTexture2D(const FTexture2DBuildInput& Request) -> std::optional<FTexturePlatformData>
 	{
-		auto Fail = [](std::string_view Reason) -> std::optional<FTexture2DBuildOutput>
+		auto Fail = [](std::string_view Reason) -> std::optional<FTexturePlatformData>
 		{
 			DURIN_ERROR_CATEGORY("TextureCompressor", "Texture2D build failed: {}", Reason);
 			return std::nullopt;
@@ -26,6 +26,6 @@ namespace Durin
 		auto Built = TextureMipBuilder::BuildTextureMips({.SourceMips = Request.SourceMips, .Settings = Settings,
 			.PixelFormat = TextureMipBuilder::SelectPixelFormat(Settings.Usage, *Settings.bSRGB, bHasTransparency)});
 		if (!Built) return Fail(Built.error());
-		return std::move(*Built);
+		return std::move(Built->PlatformData);
 	}
 }

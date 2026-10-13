@@ -158,7 +158,7 @@ namespace Durin::TextureMipBuilder
 		}
 
 		auto GenerateMipChain(const FBuildTextureMipsRequest& Request,
-			FTexture2DBuildTimings& Metrics)
+			FBuildTimings& Metrics)
 			-> std::expected<std::vector<Image::FImage>, std::string>
 		{
 			using FClock = std::chrono::steady_clock;
@@ -246,14 +246,14 @@ namespace Durin::TextureMipBuilder
 	}
 
 	auto BuildTextureMips(const FBuildTextureMipsRequest& Request,
-		const FBuildExecutionOptions* ExecutionOptions) -> std::expected<FTexture2DBuildOutput, std::string>
+		const FBuildExecutionOptions* ExecutionOptions) -> std::expected<FBuildOutput, std::string>
 	{
 		using FClock = std::chrono::steady_clock;
 		const auto SourceMips = Request.SourceMips;
 		const auto& Settings = Request.Settings;
 		const auto MaxResolution = Settings.MaxResolution;
 		const auto CompressionQuality = Settings.CompressionQuality;
-		FTexture2DBuildOutput Product;
+		FBuildOutput Product;
 		auto& OutPlatformData = Product.PlatformData;
 		// Metrics belong to the completed product.
 		auto& Metrics = Product.Metrics;

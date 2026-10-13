@@ -128,7 +128,7 @@ namespace Durin::Editor::Texture
 		for (auto& File : InFiles)
 			if (!std::ranges::contains(Files, File)) Files.push_back(std::move(File));
 		Directory = std::move(InDirectory);
-		Next = SavedCount = SupersededCount = 0;
+		Next = SavedCount = CanceledCount = 0;
 		Published.clear(); Errors.clear();
 		TimingDetails.clear();
 		bCancelRequested = false;
@@ -163,15 +163,13 @@ namespace Durin::Editor::Texture
 			if (!Completion || !Completion->has_value()) return;
 			const auto CompilationEnd = bSaveStarted ? SaveStarted : std::chrono::steady_clock::now();
 			auto* Package = Active->GetPackage();
-			if (Completion->value().Status == ETexture2DCompilationStatus::Canceled
-				|| Completion->value().Status == ETexture2DCompilationStatus::Superseded)
+			if (Completion->value().Status == ETexture2DCompilationStatus::Canceled)
 			{
-				const bool bSuperseded = Completion->value().Status == ETexture2DCompilationStatus::Superseded;
+				const bool bMutationCanceled = Completion->value().Cause == ETexture2DCompilationError::CancelledForMutation;
 				Active.Reset();
 				Completion.reset();
-				// A newer operation owns a superseded asset; do not unload its package.
-				if (bSuperseded) { ++SupersededCount; ++Next; }
-				else UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved);
+				if (!bMutationCanceled) UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved);
+				else { ++CanceledCount; ++Next; } // A mutation barrier may cancel work; retain its resident asset.
 				FinishBatch();
 				return;
 			}
@@ -241,7 +239,8 @@ namespace Durin::Editor::Texture
 			const auto Result = AdmitFile(Files[Next], Directory, std::move(Prepared.Data),
 				[Cell = Completion](FTexture2DCompilationResult Value) {
 					*Cell = FCompletion{.Status = Value.Status,
-						.Message = Value.Succeeded() ? std::string{} : FormatTexture2DCompilationError(Value.Error)};
+						.Message = Value.Succeeded() ? std::string{} : FormatTexture2DCompilationError(Value.Error),
+						.Cause = Value.Error.Code};
 				});
 			if (!Result) { Completion.reset(); Fail(Result.Message); return; }
 			Active = Cast<DTexture2D>(Result.Asset);

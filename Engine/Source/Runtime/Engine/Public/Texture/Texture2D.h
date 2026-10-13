@@ -57,7 +57,7 @@ namespace Durin
 		auto GetCompressionQuality() const -> ETextureCompressionQuality { return CompressionQuality; }
 		auto GetAlphaMipMode() const -> ETextureAlphaMipMode { return AlphaMipMode; }
 		auto GetAlphaCoverageThreshold() const -> float { return AlphaCoverageThreshold; }
-		// GameThread only. Assigns validated settings and cancels pending authored builds.
+		// GameThread only. Cancels and finishes pending work before assigning validated settings.
 		ENGINE_API auto SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,
 			uint32 InMaxResolution, ETextureCompressionQuality InCompressionQuality,
 			ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold) -> void;

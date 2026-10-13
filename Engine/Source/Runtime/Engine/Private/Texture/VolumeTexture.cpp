@@ -213,7 +213,7 @@ namespace Durin
 #if DURIN_WITH_EDITORONLY_DATA
 		const auto Result = BuildVolumeTextureSynchronously(*this,
 			{.Source = GetSource().CopyTornOff(), .Settings = BuildSettings},
-			{.bMarkPackageDirty = false, .bSourceDecoderInvoked = false, .bPreserveSource = true});
+			{.bMarkPackageDirty = false, .bPreserveSource = true});
 #else
 		DURIN_ERROR("PostLoad '{}': authored VolumeTexture builds require editor-only data support.", GetObjectPath());
 #endif
@@ -258,6 +258,7 @@ namespace Durin
 		FVolumeTextureBuildSettings Value) -> void
 	{
 		CheckGameThread();
+		BlockOnAnyAsyncBuild();
 		BuildSettings = Value;
 		InvalidateAuthoredBuild();
 	}

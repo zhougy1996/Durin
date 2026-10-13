@@ -28,8 +28,7 @@ namespace Durin::Editor::Texture
 		auto GetTotalCount() const -> size_t { return Files.size(); }
 		auto GetSavedCount() const -> size_t { return SavedCount; }
 		auto GetFailedCount() const -> size_t { return Errors.size(); }
-		auto GetSupersededCount() const -> size_t { return SupersededCount; }
-		auto GetCanceledCount() const -> size_t { return bRunning ? 0 : Files.size() - Next; }
+		auto GetCanceledCount() const -> size_t { return bRunning ? 0 : CanceledCount + Files.size() - Next; }
 		auto GetErrors() const -> const std::vector<std::string>& { return Errors; }
 		auto GetActivity() const -> std::string;
 		auto GetTimingDetails() const -> const std::string& { return TimingDetails; }
@@ -59,6 +58,7 @@ namespace Durin::Editor::Texture
 		{
 			ETexture2DCompilationStatus Status = ETexture2DCompilationStatus::Failed;
 			std::string Message;
+			ETexture2DCompilationError Cause = ETexture2DCompilationError::None;
 		};
 		std::future<FPreparation> Preparation;
 		std::shared_ptr<std::optional<FCompletion>> Completion;
@@ -73,7 +73,7 @@ namespace Durin::Editor::Texture
 		std::string TimingDetails;
 		double PreparationMilliseconds = 0;
 		std::chrono::steady_clock::time_point CompilationStart;
-		size_t Next = 0, SavedCount = 0, SupersededCount = 0;
+		size_t Next = 0, SavedCount = 0, CanceledCount = 0;
 		bool bRunning = false, bCancelRequested = false, bMutationAllowed = true;
 	};
 }

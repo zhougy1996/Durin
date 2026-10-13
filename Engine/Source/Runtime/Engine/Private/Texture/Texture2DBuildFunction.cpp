@@ -127,7 +127,7 @@ namespace Durin::TexturePrivate
 				auto Built = Module->BuildTexture2D(*Input);
 				if (Context.IsCancelled()) return;
 				if (!Built) return Context.FailExecution("Texture2D build failed; see TextureCompressor logs for details.");
-				auto Output = MakeTexture2DSharedOutput(Built->PlatformData,
+				auto Output = MakeTexture2DSharedOutput(*Built,
 					Input->TargetPlatform, Input->TargetProfile);
 				if (!Output) return Context.FailExecution(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());

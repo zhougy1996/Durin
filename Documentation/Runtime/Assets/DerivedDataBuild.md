@@ -23,7 +23,7 @@ physics collision function implementations. TextureCompressor and MeshBuilder
 register their Engine function adapters during module startup; physics registers
 on first use. ShaderBuild owns its shader function.
 Each family owns typed assembly, business-error translation, scheduling,
-reservations, latest-wins checks, and publication. TextureCompressor and MeshBuilder
+reservations, object mutation/freshness checks, and publication. TextureCompressor and MeshBuilder
 remain pure recipe modules; ShaderBuild retains compiler scheduling, LRU, and
 single-flight.
 
@@ -484,17 +484,19 @@ DCOL compatibility uses payload schema 3, independent of algorithm identity;
 the producer word is absent and older payload schemas require recook. StaticMesh
 Cook dependencies include the cooker identity, adapter schemas and DCOL schema.
 
-HDR Cube and Volume builders return complete products through `std::expected`,
-so failed candidates remain local. Family entrypoints share one target-support
+HDR Cube and Volume builders return complete products through `std::expected`
+with diagnostic strings, so failed candidates remain local. Cube normalization
+retains structured input errors. Family entrypoints share one target-support
 predicate, while panorama limits and decoded image types come directly from
 Engine's recipe contracts. The BC encoder header depends on output data and
 forward declarations rather than the mip-builder interface.
 Texture2D and LDR Cube share a resolved mip request and private BC encoding;
 Cube selects one format for all six faces. A single RGBA8 source mip generates
 the complete chain, while supplied chains remain intact. Shared mip recipes
-return detached platform data and metrics only on success, and compression tasks
-drain before borrowed source storage is released. Texture2D, TextureCube, and
-VolumeTexture return optional complete products by value and log failures inside
+return detached platform data and metrics only on success; their result and timing
+types stay private to TextureCompressor. Compression tasks drain before borrowed
+source storage is released. Texture2D, TextureCube, and VolumeTexture module
+entrypoints return optional platform data by value and log failures inside
 TextureCompressor; they accept no cancellation control. The external build system owns
 cancellation and discards completed products for canceled requests. HDR Cube and Volume retain their
 distinct filtering recipes.
@@ -527,8 +529,9 @@ and DSHD/DSLB schemas. Both runtime codecs use schema 5 with no producer
 version word, allowing algorithm upgrades without rejecting compatible cooked data. Shader counters derive from completion status and build-status facts.
 
 Cache success never means an asset is current, applied, GPU-ready, or
-physics-ready. Family generation/latest-wins and object application checks remain
-authoritative. Game uses cooked values and runtime codecs without authoring build
+physics-ready. Family freshness and object application checks remain authoritative;
+textures serialize mutation against their active request, while other families
+retain their own generation rules. Game uses cooked values and runtime codecs without authoring build
 services. See [Asset Data Lifecycle](AssetDataLifecycle.md),
 [Asset Compilation](AssetCompilation.md), [Static Mesh Building](StaticMeshBuilding.md),
 and [Shader Cache](../Rendering/ShaderCache.md).

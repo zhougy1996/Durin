@@ -47,7 +47,7 @@ namespace Durin
 			return 0;
 		}
 		auto BuildTexture2D(const FTexture2DBuildInput& Request)
-			-> std::optional<FTexture2DBuildOutput> override
+			-> std::optional<FTexturePlatformData> override
 		{
 			return Durin::BuildTexture2D(Request);
 		}

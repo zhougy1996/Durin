@@ -104,13 +104,12 @@ namespace Durin::VolumeTextureMipGenerator
 	}
 
 	auto GenerateMipChain(const FVolumeTextureSourceData& SourceData,
-		const FVolumeTextureBuildSettings& Settings) -> std::expected<FVolumeTexturePlatformData, FTextureBuildError>
+		const FVolumeTextureBuildSettings& Settings) -> std::expected<FVolumeTexturePlatformData, std::string>
 	{
 		if (!SourceData.IsValid() || SourceData.Format != Settings.OutputFormat
 			|| Settings.MipFilter != EVolumeTextureMipFilter::Box)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
-				"Volume texture build requires valid source with matching output format and box filtering."});
+			return std::unexpected(std::string("Volume texture build requires valid source with matching output format and box filtering."));
 		}
 		const FFormatLayout Layout = GetLayout(Settings.OutputFormat);
 		const uint32 BytesPerVoxel = Layout.Channels * Layout.BytesPerChannel;
@@ -126,8 +125,7 @@ namespace Durin::VolumeTextureMipGenerator
 		if (SourceVoxels.GetSize()
 			!= static_cast<uint64>(Base.DepthPitch) * Base.Depth)
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
-				"Volume texture authored voxel payload could not be read."});
+			return std::unexpected(std::string("Volume texture authored voxel payload could not be read."));
 		}
 		Base.Voxels = SourceVoxels;
 		// Resolve the retained view once; inner voxel loops do not rebuild subspans.
@@ -138,8 +136,7 @@ namespace Durin::VolumeTextureMipGenerator
 				float Value = 0.0f;
 				if (!ReadChannel(BaseBytes.data() + Offset, Channel, Layout, Value))
 				{
-					return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
-						"Volume texture float source contains a nonfinite channel."});
+					return std::unexpected(std::string("Volume texture float source contains a nonfinite channel."));
 				}
 			}
 
@@ -193,8 +190,7 @@ namespace Durin::VolumeTextureMipGenerator
 		}
 		if (!Candidate.IsValid())
 		{
-			return std::unexpected(FTextureBuildError{ETextureBuildFailure::BuildFailed, ETextureBuildStage::Build,
-				"Volume texture builder produced invalid platform data."});
+			return std::unexpected(std::string("Volume texture builder produced invalid platform data."));
 		}
 		return Candidate;
 	}

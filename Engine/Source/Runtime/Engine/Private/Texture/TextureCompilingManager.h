@@ -10,6 +10,7 @@
 #include "Texture/Texture2DCompilation.h"
 #include "Texture/Texture2DCompilationTestSupport.h"
 #include "Texture/TexturePlatformCache.h"
+#include "DerivedDataBuildExecution.h"
 
 namespace Durin
 {
@@ -20,7 +21,6 @@ namespace Durin
 		std::string AssetIdentity;
 		FTexture2DBuildRequest Build;
 		FObjectKey Owner;
-		uint64 RequestSerial = 0;
 		uint32 EstimatedWidth = 0;
 		uint32 EstimatedHeight = 0;
 		ETexture2DCompilationPriority Priority = ETexture2DCompilationPriority::Background;
@@ -32,16 +32,27 @@ namespace Durin
 	{
 		uint64 RequestId = 0;
 		FObjectKey Owner;
-		uint64 RequestSerial = 0;
 		std::string AssetIdentity;
+		DerivedData::EStatus Status = DerivedData::EStatus::Error;
+		// Task-owned CPU candidates. Ok has exactly one product; Error/Canceled have none.
 		std::unique_ptr<FTexturePlatformData> PlatformData;
+		std::unique_ptr<FTexturePlatformCacheResult> PlatformCache;
 		FTexture2DCompilationError Error;
 		std::optional<FTexture2DBuildError> BuildCause;
+		std::string Diagnostic;
 		FTexture2DCompilationMetrics Metrics;
 		FTexture2DBuildInputIdentity InputIdentity;
-		ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::Failed;
 		bool bSourceDecoderInvoked = false;
-		std::unique_ptr<FTexturePlatformCacheResult> PlatformCache;
+
+		auto GetPhase() const -> ETexture2DCompilationPhase
+		{
+			switch (Status)
+			{
+			case DerivedData::EStatus::Ok: return ETexture2DCompilationPhase::UploadPending;
+			case DerivedData::EStatus::Canceled: return ETexture2DCompilationPhase::Cancelled;
+			default: return ETexture2DCompilationPhase::Failed;
+			}
+		}
 	};
 
 	struct FTextureCompilingManagerConfig
@@ -87,6 +98,7 @@ namespace Durin
 			-> FTexture2DCompilationDiagnostic;
 		auto GetBuildStatus(const DTexture2D& Texture) const -> FTexture2DBuildStatus;
 		auto HasPending(const DTexture& Texture) const -> bool;
+		auto PrepareMutation(DTexture& Texture) -> void;
 		auto Wait(DTexture& Texture, double TimeoutSeconds) -> bool;
 		auto SubmitPlatformCache(DTexture& Texture,
 			std::shared_ptr<const FTexturePlatformCacheInput> Input) -> bool;
@@ -100,7 +112,7 @@ namespace Durin
 		auto SubmitWork(
 			FTexture2DCompilationWork Work,
 			FTexture2DCompilationWorkCompletion Completion) -> uint64;
-		auto CancelWork(uint64 RequestId) -> bool;
+		auto CancelWork(uint64 RequestId, ETexture2DCompilationError Reason = ETexture2DCompilationError::Cancelled) -> bool;
 		auto GetWorkDiagnostic(uint64 RequestId) const -> FTexture2DCompilationDiagnostic;
 		auto GetQueuedWorkCount() const -> uint32;
 		auto GetRunningWorkCount() const -> uint32;

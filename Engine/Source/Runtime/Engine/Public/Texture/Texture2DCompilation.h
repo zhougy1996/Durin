@@ -14,8 +14,7 @@ namespace Durin
 	{
 		Succeeded,
 		Failed,
-		Canceled,
-		Superseded
+		Canceled
 	};
 
 	struct FTexture2DCompilationResult

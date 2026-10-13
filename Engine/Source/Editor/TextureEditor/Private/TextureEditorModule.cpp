@@ -190,10 +190,10 @@ namespace Durin
 						bAllowMutation ? Importer.GetActivity() : "Texture import paused");
 					return;
 				}
-				const auto Summary = std::format("Textures: {} imported, {} failed, {} canceled, {} superseded.",
-					Importer.GetSavedCount(), Importer.GetFailedCount(), Importer.GetCanceledCount(), Importer.GetSupersededCount());
+				const auto Summary = std::format("Textures: {} imported, {} failed, {} canceled.",
+					Importer.GetSavedCount(), Importer.GetFailedCount(), Importer.GetCanceledCount());
 				if (Importer.GetFailedCount()) Notifications.FailProgress(Integration->ImportProgress, Summary);
-				else if ((Importer.GetCanceledCount() || Importer.GetSupersededCount())) Notifications.CancelProgress(Integration->ImportProgress, Summary);
+				else if (Importer.GetCanceledCount()) Notifications.CancelProgress(Integration->ImportProgress, Summary);
 				else Notifications.CompleteProgress(Integration->ImportProgress, Summary);
 				Integration->ImportProgress = 0;
 				std::string Details;
@@ -201,7 +201,7 @@ namespace Durin
 				Details += Importer.GetTimingDetails();
 				Editor::FNotificationDesc Result{
 					.Type = Importer.GetFailedCount() ? Editor::ENotificationType::Warning
-						: (Importer.GetCanceledCount() || Importer.GetSupersededCount()) ? Editor::ENotificationType::Info : Editor::ENotificationType::Success,
+						: Importer.GetCanceledCount() ? Editor::ENotificationType::Info : Editor::ENotificationType::Success,
 					.Message = Summary, .Details = std::move(Details)};
 				if (Importer.HasPendingSaves())
 					Result.Action = Editor::FNotificationAction{

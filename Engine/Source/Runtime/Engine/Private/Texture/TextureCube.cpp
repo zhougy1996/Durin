@@ -124,8 +124,17 @@ namespace Durin
 				try
 				{
 					auto Cube = std::make_unique<FCubeCacheResult>();
-					if (Built) Cube->Data = std::move(*Built);
-					else { Cube->Error = Built.error().Diagnostic; Cube->bCanceled = Built.error().Code == ETextureBuildFailure::Canceled; }
+					if (Built)
+					{
+						Cube->Data = std::move(*Built);
+						Cube->Status = DerivedData::EStatus::Ok;
+					}
+					else
+					{
+						Cube->Diagnostic = Built.error().Diagnostic;
+						Cube->Status = Built.error().Code == ETextureBuildFailure::Canceled
+							? DerivedData::EStatus::Canceled : DerivedData::EStatus::Error;
+					}
 					Result = std::move(Cube);
 				}
 				catch (...) {}
@@ -325,7 +334,7 @@ namespace Durin
 			return false;
 		}
 		const auto Result = BuildTextureCubeSynchronously(*this, Request,
-			{.bSourceDecoderInvoked = false, .bPreserveSource = true});
+			{.bPreserveSource = true});
 		return static_cast<bool>(Result);
 	}
 #endif
@@ -397,6 +406,7 @@ namespace Durin
 		bool bInSRGB, ETextureCubeOutput InOutput) -> void
 	{
 		CheckGameThread();
+		BlockOnAnyAsyncBuild();
 		SourceLayout = InSourceLayout;
 		PanoramaFaceDimension = InPanoramaFaceDimension;
 		PanoramaExposureEV = InPanoramaExposureEV;

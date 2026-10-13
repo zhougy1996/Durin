@@ -28,7 +28,7 @@ namespace Durin
 		virtual auto GetBuildVersion(ETextureBuildKind TextureKind) const -> uint64 = 0;
 		// Synchronous and non-cancelable. Failure is logged by TextureCompressor.
 		virtual auto BuildTexture2D(const FTexture2DBuildInput& Request)
-			-> std::optional<FTexture2DBuildOutput> = 0;
+			-> std::optional<FTexturePlatformData> = 0;
 		virtual auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request)
 			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildError> = 0;
 		// Synchronous and non-cancelable. Failure is logged by TextureCompressor.

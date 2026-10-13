@@ -28,8 +28,7 @@ namespace Durin
 	ENGINE_API auto ValidateTexture2DBuildSource(const FTextureSource& Source)
 		-> std::expected<void, FTexture2DInputError>;
 
-	// Separates deterministic build/DDC identity from the Engine request serial
-	// used to enforce latest-wins result application for one live object.
+	// Captured normalized build settings and producer identity for assembly and diagnostics.
 	struct FTexture2DBuildInputIdentity
 	{
 		FXxHash128 SourceIdentity;

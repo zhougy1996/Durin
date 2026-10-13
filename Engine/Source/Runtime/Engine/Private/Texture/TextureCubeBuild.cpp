@@ -83,6 +83,7 @@ namespace Durin
 	auto BuildTextureCubeSynchronously(DTextureCube& Texture, const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>
 	{
 		CheckGameThread();
+		Texture.BlockOnAnyAsyncBuild();
 		auto Result = TexturePrivate::BuildTextureCubeWithDiagnostic(Request);
 		if (!Result) return std::unexpected(TexturePrivate::ReportBuildFailure(Result.error()));
 		auto Applied = ApplyTextureCubeBuildResult(Texture, std::move(Result->CanonicalInput), std::move(Result->PlatformData), Context);

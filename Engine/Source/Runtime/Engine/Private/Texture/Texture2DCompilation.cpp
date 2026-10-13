@@ -32,8 +32,6 @@ namespace Durin
 		case ETexture2DCompilationError::InvalidProduct: return "Texture2D result application requires a complete detached product.";
 		case ETexture2DCompilationError::SourceMismatch: return "Texture2D build result does not match the source selected for commit.";
 		case ETexture2DCompilationError::InvalidSettings: return "Texture2D build settings are invalid.";
-		case ETexture2DCompilationError::InputMismatch: return "Texture2D build input identity changed before application.";
-		case ETexture2DCompilationError::Superseded: return "Texture2D compilation was superseded by a newer request.";
 		case ETexture2DCompilationError::ImportValidation: return "Texture2D import metadata is invalid.";
 		case ETexture2DCompilationError::ImportAllocation: return "Could not allocate Texture2D import metadata.";
 		case ETexture2DCompilationError::Save: return "Texture2D save failed.";
@@ -43,24 +41,33 @@ namespace Durin
 		case ETexture2DCompilationError::Cancelled: return "Texture build was cancelled.";
 		case ETexture2DCompilationError::CancelledBeforeAdmission: return "Texture build was cancelled before admission.";
 		case ETexture2DCompilationError::CancelledDuringShutdown: return "Texture build was cancelled during shutdown.";
+		case ETexture2DCompilationError::CancelledForMutation: return "Texture build was cancelled before modifying the texture.";
 		}
 		return {};
 	}
 
 	struct FTextureCompilingManager::FCompilationState
 	{
-struct FAssetState
+		struct FTerminalResult
+		{
+			ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::None;
+			FTexture2DCompilationError Error;
+			std::string FailureMessage;
+
+			auto AllowsPlatformData() const -> bool
+			{
+				return Phase == ETexture2DCompilationPhase::None || Phase == ETexture2DCompilationPhase::Ready;
+			}
+		};
+
+		struct FAssetState
 		{
 			TWeakObjectPtr<DTexture> Texture;
-			uint64 RequestSerial = 0;
 			uint64 ActiveRequestId = 0;
 			uint64 LastRequestId = 0;
-			bool bLastRequestFailed = false;
-			ETexture2DCompilationPhase LastPhase = ETexture2DCompilationPhase::None;
-			FTexture2DCompilationError LastError;
-			std::string LastFailureMessage;
+			FTerminalResult Terminal;
 			FTexture2DResultApplicationContext ResultApplicationContext;
-			FTexture2DBuildInputIdentity InputIdentity;
+			FXxHash128 SourceIdentity;
 			FTexture2DCompilationCompletion Completion;
 		};
 
@@ -78,6 +85,7 @@ struct FAssetState
 
 		mutable std::mutex Mutex;
 		std::unordered_map<FObjectKey, FAssetState, FObjectKeyHash> Assets;
+		std::unordered_set<FObjectKey, FObjectKeyHash> MutatingOwners;
 		std::deque<FObjectKey> CompletedOrder;
 		static constexpr size_t MaximumRetainedAssetDiagnostics = 256;
 		std::vector<FWeakObjectPtr> SuccessfullyAppliedTextures;
@@ -124,16 +132,7 @@ struct FAssetState
 				Item.SuccessfullyCompiledAssets.end());
 		}
 
-		auto MatchesRequestedInput(
-			const FTexture2DBuildInputIdentity& Expected,
-			const FTexture2DBuildInputIdentity& Completed) -> bool
-		{
-			return Completed.BuilderVersion != 0
-				&& Expected.SourceIdentity == Completed.SourceIdentity
-				&& Expected.Settings == Completed.Settings
-				&& Expected.TargetPlatform == Completed.TargetPlatform
-				&& Expected.TargetProfile == Completed.TargetProfile;
-		}
+
 	}
 
 	auto FTextureCompilingManager::Start() -> FAssetCompilerStartResult
@@ -162,129 +161,78 @@ struct FAssetState
 	{
 		CheckGameThread();
 		TWeakObjectPtr<DTexture> WeakTexture;
-		FTexture2DResultApplicationContext ResultApplicationContext;
+		FTexture2DResultApplicationContext ApplicationContext;
 		FTexture2DCompilationCompletion Completion;
-		bool bInputMismatch = false;
-		FTexture2DBuildInputIdentity ExpectedInput;
+		FXxHash128 ExpectedSource;
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
-			FCompilationState::FAssetState* State =
-				CompilationState->FindLocked(Result.Owner);
-			if (!State || State->RequestSerial != Result.RequestSerial
-				|| State->ActiveRequestId != Result.RequestId) return;
-			bInputMismatch = !Result.PlatformCache && Result.Phase == ETexture2DCompilationPhase::UploadPending
-				&& !MatchesRequestedInput(State->InputIdentity, Result.InputIdentity);
-			ExpectedInput = State->InputIdentity;
+			auto* State = CompilationState->FindLocked(Result.Owner);
+			if (!State || State->ActiveRequestId != Result.RequestId) return;
+			ExpectedSource = State->SourceIdentity;
 			WeakTexture = State->Texture;
-			ResultApplicationContext = std::move(State->ResultApplicationContext);
+			ApplicationContext = std::move(State->ResultApplicationContext);
 			State->ResultApplicationContext = {};
 			Completion = std::move(State->Completion);
 			State->ActiveRequestId = 0;
 			State->LastRequestId = Result.RequestId;
 			CompilationState->RetainCompletedLocked(Result.Owner);
 		}
-		const auto SetTerminalStatus = [&](ETexture2DCompilationPhase Phase,
-			FTexture2DCompilationError Error = {}, std::string Message = {}) {
-			if (Phase == ETexture2DCompilationPhase::Failed && Message.empty())
-				Message = FormatTexture2DCompilationError(Error);
-			std::lock_guard Lock(CompilationState->Mutex);
-			if (FCompilationState::FAssetState* State = CompilationState->FindLocked(Result.Owner);
-				State && State->RequestSerial == Result.RequestSerial
-				&& State->LastRequestId == Result.RequestId && State->ActiveRequestId == 0)
-			{
-				State->LastPhase = Phase;
-				State->LastError = std::move(Error);
-				State->LastFailureMessage = std::move(Message);
-				State->bLastRequestFailed = Phase != ETexture2DCompilationPhase::Ready;
-			}
-		};
-		DTexture* Texture = WeakTexture.Get();
-		if (!Texture || FObjectKey(Texture) != Result.Owner)
-		{
-			SetTerminalStatus(ETexture2DCompilationPhase::Failed,
-				{.Code = ETexture2DCompilationError::InvalidOwner, .ObjectPath = Result.AssetIdentity});
-			if (Completion) Completion({
-				.Status = ETexture2DCompilationStatus::Failed,
-				.Error = {.Code = ETexture2DCompilationError::InvalidOwner, .ObjectPath = Result.AssetIdentity}});
-			return;
-		}
-		if (bInputMismatch)
-		{
-			const FTexture2DCompilationError Error{
-				.Code = ETexture2DCompilationError::InputMismatch, .ObjectPath = Result.AssetIdentity,
-				.ExpectedInput = std::make_shared<FTexture2DBuildInputIdentity>(ExpectedInput),
-				.ActualInput = std::make_shared<FTexture2DBuildInputIdentity>(Result.InputIdentity)};
-			SetTerminalStatus(ETexture2DCompilationPhase::Failed, Error);
-			if (Completion) Completion({
-				.Status = ETexture2DCompilationStatus::Failed,
-				.Error = Error});
-			return;
-		}
-		if (Result.PlatformCache)
-		{
-#if DURIN_WITH_EDITORONLY_DATA
-			const bool bSucceeded = Result.Phase == ETexture2DCompilationPhase::UploadPending
-				&& Texture->GetSource().GetIdentity() == ExpectedInput.SourceIdentity;
-			if (bSucceeded) Result.PlatformCache->Apply(*Texture);
-			else if (Result.Phase != ETexture2DCompilationPhase::Cancelled && !Result.PlatformCache->Error.empty())
-				DURIN_ERROR("Texture cache failed for {}: {}", Result.AssetIdentity, Result.PlatformCache->Error);
-			if (bSucceeded) SetTerminalStatus(ETexture2DCompilationPhase::Ready);
-			else if (Result.Phase == ETexture2DCompilationPhase::Cancelled)
-				SetTerminalStatus(ETexture2DCompilationPhase::Cancelled, Result.Error);
-			else if (!Result.PlatformCache->Error.empty())
-				SetTerminalStatus(ETexture2DCompilationPhase::Failed,
-					{.Code = ETexture2DCompilationError::BuildFailed, .ObjectPath = Result.AssetIdentity},
-					Result.PlatformCache->Error);
-			else if (Texture->GetSource().GetIdentity() != ExpectedInput.SourceIdentity)
-				SetTerminalStatus(ETexture2DCompilationPhase::Failed,
-					{.Code = ETexture2DCompilationError::SourceMismatch, .ObjectPath = Result.AssetIdentity});
-			else SetTerminalStatus(ETexture2DCompilationPhase::Failed,
-				Result.Error.HasError() ? Result.Error
-					: FTexture2DCompilationError{.Code = ETexture2DCompilationError::BuildFailed,
-						.ObjectPath = Result.AssetIdentity});
-			std::lock_guard Lock(CompilationState->Mutex);
-			if (bSucceeded) CompilationState->SuccessfullyAppliedTextures.emplace_back(Texture);
-#else
-			SetTerminalStatus(ETexture2DCompilationPhase::Failed,
-				{.Code = ETexture2DCompilationError::InvalidProduct, .ObjectPath = Result.AssetIdentity});
-#endif
-			return;
-		}
-		if (Result.Phase != ETexture2DCompilationPhase::UploadPending
-			|| !Result.PlatformData)
-		{
-			const FTexture2DCompilationError Error = Result.Error.HasError() ? Result.Error
-				: FTexture2DCompilationError{.Code = Result.Phase == ETexture2DCompilationPhase::Cancelled
-					? ETexture2DCompilationError::Cancelled : ETexture2DCompilationError::InvalidProduct,
-					.ObjectPath = Result.AssetIdentity};
-			SetTerminalStatus(Result.Phase == ETexture2DCompilationPhase::Cancelled
-				? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::Failed, Error);
-			if (Completion) Completion({
-				.Status = Result.Phase == ETexture2DCompilationPhase::Cancelled
-					? ETexture2DCompilationStatus::Canceled : ETexture2DCompilationStatus::Failed,
-				.Error = Error});
-			return;
-		}
 
-		const FTexture2DBuildSettings& Settings = Result.InputIdentity.Settings;
-		FTexturePlatformData Product = std::move(*Result.PlatformData);
-		if (const auto Applied = ApplyTexture2DBuildResult(*Cast<DTexture2D>(Texture), Result.InputIdentity.SourceIdentity, Settings,
-			std::move(Product), ResultApplicationContext); !Applied)
-		{
-			SetTerminalStatus(ETexture2DCompilationPhase::Failed, Applied.error());
-			DURIN_ERROR("Texture2D compilation result application failed for {}: {}",
-				Result.AssetIdentity, FormatTexture2DCompilationError(Applied.error()));
-			if (Completion) Completion({
-				.Status = ETexture2DCompilationStatus::Failed,
-				.Error = Applied.error()});
-			return;
-		}
-		SetTerminalStatus(ETexture2DCompilationPhase::Ready);
+		DTexture* Texture = WeakTexture.Get();
+		std::string FailureMessage;
+		// Work completion supplies a CPU product. Object completion includes validation and Apply.
+		const auto Finalize = [&]() -> FTexture2DCompilationResult {
+			if (!Texture || FObjectKey(Texture) != Result.Owner)
+				return {.Error = {.Code = ETexture2DCompilationError::InvalidOwner,
+					.ObjectPath = Result.AssetIdentity}};
+			if (Result.Status != DerivedData::EStatus::Ok)
+			{
+				const bool bCanceled = Result.Status == DerivedData::EStatus::Canceled;
+				if (!bCanceled && !Result.Diagnostic.empty())
+				{
+					FailureMessage = Result.Diagnostic;
+					DURIN_ERROR("Texture cache failed for {}: {}", Result.AssetIdentity, FailureMessage);
+				}
+				return {.Status = bCanceled ? ETexture2DCompilationStatus::Canceled : ETexture2DCompilationStatus::Failed,
+					.Error = Result.Error};
+			}
+			require(static_cast<bool>(Result.PlatformData) != static_cast<bool>(Result.PlatformCache));
+			if (Result.PlatformCache)
+			{
+				if (Texture->GetSource().GetIdentity() != ExpectedSource)
+					return {.Error = {.Code = ETexture2DCompilationError::SourceMismatch,
+						.ObjectPath = Result.AssetIdentity}};
+				Result.PlatformCache->Apply(*Texture);
+			}
+			else
+			{
+				auto Applied = ApplyTexture2DBuildResult(*Cast<DTexture2D>(Texture),
+					Result.InputIdentity.SourceIdentity, Result.InputIdentity.Settings,
+					std::move(*Result.PlatformData), ApplicationContext);
+				if (!Applied)
+				{
+					DURIN_ERROR("Texture2D compilation result application failed for {}: {}",
+						Result.AssetIdentity, FormatTexture2DCompilationError(Applied.error()));
+					return {.Error = std::move(Applied.error())};
+				}
+			}
+			return {.Status = ETexture2DCompilationStatus::Succeeded};
+		};
+		auto Terminal = Finalize();
+		const auto Phase = Terminal.Succeeded() ? ETexture2DCompilationPhase::Ready
+			: Terminal.Status == ETexture2DCompilationStatus::Canceled
+				? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::Failed;
+		if (Phase == ETexture2DCompilationPhase::Failed && FailureMessage.empty())
+			FailureMessage = FormatTexture2DCompilationError(Terminal.Error);
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
-			CompilationState->SuccessfullyAppliedTextures.emplace_back(Texture);
+			if (auto* State = CompilationState->FindLocked(Result.Owner);
+				State && State->LastRequestId == Result.RequestId && State->ActiveRequestId == 0)
+				State->Terminal = {Phase, Terminal.Error, std::move(FailureMessage)};
+			if (Terminal.Succeeded()) CompilationState->SuccessfullyAppliedTextures.emplace_back(Texture);
 		}
-		if (Completion) Completion({.Status = ETexture2DCompilationStatus::Succeeded});
+		// Publish terminal state before user code can submit another request or shut down.
+		if (Completion) Completion(std::move(Terminal));
 	}
 
 	auto FTextureCompilingManager::PumpCompletions(uint32 MaximumCount,
@@ -391,97 +339,50 @@ struct FAssetState
 			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidOwner,
 				.ObjectPath = Texture.GetObjectPath()});
 		}
-		const FTexture2DBuildSettings Settings = Request.Build.Settings;
-		const bool bSourceDecoderInvoked =
-			Request.ResultApplication.bSourceDecoderInvoked;
-		const bool bSRGB = ResolveTexture2DSRGB(Settings);
-		const FXxHash128 SourceIdentity =
-			Request.Build.Source.GetIdentity();
-		uint64 RequestSerial = 0;
-		uint64 PreviousRequestId = 0;
-		FTexture2DCompilationCompletion SupersededCompletion;
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
-			FCompilationState::FAssetState& State = CompilationState->Assets[Owner];
-			RequestSerial = ++State.RequestSerial;
-			if (RequestSerial == 0) RequestSerial = ++State.RequestSerial;
-			PreviousRequestId = State.ActiveRequestId;
-			if (PreviousRequestId != 0) SupersededCompletion = std::move(State.Completion);
+			if (CompilationState->MutatingOwners.contains(Owner))
+				return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::AdmissionRejected,
+					.ObjectPath = Identity});
+		}
+		PrepareMutation(Texture);
+		if (!IsValid(&Texture))
+			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::InvalidOwner,
+				.ObjectPath = Identity});
+		const auto SourceIdentity = Request.Build.Source.GetIdentity();
+		const auto Width = Request.Build.Source.GetWidth();
+		const auto Height = Request.Build.Source.GetHeight();
+		const auto bSourceDecoderInvoked = Request.ResultApplication.bSourceDecoderInvoked;
+		{
+			std::lock_guard Lock(CompilationState->Mutex);
+			auto& State = CompilationState->Assets[Owner];
+			require(State.ActiveRequestId == 0);
 			State.Texture = TWeakObjectPtr<DTexture>(&Texture);
-			State.ActiveRequestId = 0;
-			State.bLastRequestFailed = false;
-			State.LastPhase = ETexture2DCompilationPhase::None;
-			State.LastError = {};
-			State.LastFailureMessage.clear();
+			State.Terminal = {};
+			State.SourceIdentity = SourceIdentity;
 			State.ResultApplicationContext = std::move(Request.ResultApplication);
-			State.InputIdentity = {
-					.SourceIdentity = SourceIdentity,
-					.Settings = {
-						.Usage = Settings.Usage,
-						.CompressionQuality = Settings.CompressionQuality,
-						.AlphaMipMode = Settings.AlphaMipMode,
-						.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
-						.MaxResolution = Settings.MaxResolution,
-						.bSRGB = bSRGB},
-					.TargetPlatform = Request.Build.TargetPlatform,
-					.TargetProfile = Request.Build.TargetProfile};
 			State.Completion = std::move(Completion);
 		}
-		if (PreviousRequestId != 0) CancelWork(PreviousRequestId);
-
-		const uint32 Width = Request.Build.Source.GetWidth();
-		const uint32 Height = Request.Build.Source.GetHeight();
-		const uint64 RequestId = SubmitWork({
-			.AssetIdentity = Identity,
-			.Build = std::move(Request.Build),
-			.Owner = Owner,
-			.RequestSerial = RequestSerial,
-			.EstimatedWidth = Width,
-			.EstimatedHeight = Height,
-			.Priority = Request.Priority,
-			.bSourceDecoderInvoked = bSourceDecoderInvoked},
-			[this](FTexture2DCompilationWorkResult&& Result) {
-				ApplyCompletion(std::move(Result));
-			});
-		if (RequestId == 0)
-		{
-			{
-				std::lock_guard Lock(CompilationState->Mutex);
-				if (FCompilationState::FAssetState* State =
-					CompilationState->FindLocked(Owner);
-					State && State->RequestSerial == RequestSerial)
-				{
-					State->ActiveRequestId = 0;
-					State->LastRequestId = 0;
-					State->ResultApplicationContext = {};
-					State->Completion = {};
-					State->bLastRequestFailed = true;
-					State->LastPhase = ETexture2DCompilationPhase::Failed;
-					State->LastError = {.Code = ETexture2DCompilationError::AdmissionRejected,
-						.ObjectPath = Texture.GetObjectPath()};
-					State->LastFailureMessage = FormatTexture2DCompilationError(State->LastError);
-					CompilationState->RetainCompletedLocked(Owner);
-				}
-			}
-			if (SupersededCompletion) SupersededCompletion({
-				.Status = ETexture2DCompilationStatus::Superseded,
-				.Error = {.Code = ETexture2DCompilationError::Superseded, .ObjectPath = Texture.GetObjectPath()}});
-			return std::unexpected(FTexture2DCompilationError{.Code = ETexture2DCompilationError::AdmissionRejected,
-				.ObjectPath = Texture.GetObjectPath()});
-		}
+		const uint64 RequestId = SubmitWork({.AssetIdentity = Identity,
+			.Build = std::move(Request.Build), .Owner = Owner,
+			.EstimatedWidth = Width, .EstimatedHeight = Height,
+			.Priority = Request.Priority, .bSourceDecoderInvoked = bSourceDecoderInvoked},
+			[this](FTexture2DCompilationWorkResult&& Result) { ApplyCompletion(std::move(Result)); });
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
-			FCompilationState::FAssetState* State = CompilationState->FindLocked(Owner);
-			if (State && State->RequestSerial == RequestSerial)
+			auto& State = CompilationState->Assets.at(Owner);
+			State.ActiveRequestId = State.LastRequestId = RequestId;
+			if (!RequestId)
 			{
-				State->ActiveRequestId = RequestId;
-				State->LastRequestId = RequestId;
-				State->bLastRequestFailed = false;
+				State.ResultApplicationContext = {};
+				State.Completion = {};
+				State.Terminal.Phase = ETexture2DCompilationPhase::Failed;
+				State.Terminal.Error = {.Code = ETexture2DCompilationError::AdmissionRejected, .ObjectPath = Identity};
+				State.Terminal.FailureMessage = FormatTexture2DCompilationError(State.Terminal.Error);
+				CompilationState->RetainCompletedLocked(Owner);
+				return std::unexpected(State.Terminal.Error);
 			}
 		}
-		if (SupersededCompletion) SupersededCompletion({
-			.Status = ETexture2DCompilationStatus::Superseded,
-			.Error = {.Code = ETexture2DCompilationError::Superseded, .ObjectPath = Texture.GetObjectPath()}});
 		return {};
 	}
 
@@ -503,8 +404,8 @@ struct FAssetState
 				RequestId = State->ActiveRequestId != 0
 					? State->ActiveRequestId : State->LastRequestId;
 				bPending = State->ActiveRequestId != 0;
-				LastPhase = State->LastPhase;
-				LastError = State->LastError;
+				LastPhase = State->Terminal.Phase;
+				LastError = State->Terminal.Error;
 			}
 		}
 		FTexture2DCompilationDiagnostic Result = RequestId != 0
@@ -532,8 +433,8 @@ struct FAssetState
 			{
 				ActiveRequestId = State->ActiveRequestId;
 				Status.bPending = ActiveRequestId != 0;
-				Status.Phase = State->LastPhase;
-				Status.FailureMessage = State->LastFailureMessage;
+				Status.Phase = State->Terminal.Phase;
+				Status.FailureMessage = State->Terminal.FailureMessage;
 			}
 		}
 		if (ActiveRequestId != 0)
@@ -553,37 +454,34 @@ struct FAssetState
 			|| !Input || !Input->Source.IsValid() || Input->Source.GetOwner()) return false;
 		const FObjectKey Owner(&Texture);
 		if (IsObjectKeyNull(Owner)) return false;
-		uint64 Serial;
-		uint64 PreviousId;
+		{
+			std::lock_guard Lock(CompilationState->Mutex);
+			if (CompilationState->MutatingOwners.contains(Owner)) return false;
+		}
+		PrepareMutation(Texture);
+		if (!IsValid(&Texture)) return false;
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
 			auto& State = CompilationState->Assets[Owner];
-			PreviousId = State.ActiveRequestId;
+			require(State.ActiveRequestId == 0);
 			State.Texture = TWeakObjectPtr<DTexture>(&Texture);
-			Serial = ++State.RequestSerial;
-			State.InputIdentity = {.SourceIdentity = Input->Source.GetIdentity()};
-			State.bLastRequestFailed = false;
-			State.LastPhase = ETexture2DCompilationPhase::None;
-			State.LastError = {};
-			State.LastFailureMessage.clear();
+			State.SourceIdentity = Input->Source.GetIdentity();
+			State.Terminal = {};
 		}
-		if (PreviousId) CancelWork(PreviousId);
 		const uint64 Id = SubmitWork({.AssetIdentity = Texture.GetObjectPath(),
 			.Build = {.Source = Input->Source.CopyTornOff()}, .Owner = Owner,
-			.RequestSerial = Serial, .PlatformCache = std::move(Input)},
+			.PlatformCache = std::move(Input)},
 			[this](FTexture2DCompilationWorkResult&& Result) { ApplyCompletion(std::move(Result)); });
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
-			auto& State = CompilationState->Assets[Owner];
-			State.ActiveRequestId = Id;
-			State.bLastRequestFailed = Id == 0;
+			auto& State = CompilationState->Assets.at(Owner);
+			State.ActiveRequestId = State.LastRequestId = Id;
 			if (!Id)
 			{
-				State.LastRequestId = 0;
-				State.LastPhase = ETexture2DCompilationPhase::Failed;
-				State.LastError = {.Code = ETexture2DCompilationError::AdmissionRejected,
+				State.Terminal.Phase = ETexture2DCompilationPhase::Failed;
+				State.Terminal.Error = {.Code = ETexture2DCompilationError::AdmissionRejected,
 					.ObjectPath = Texture.GetObjectPath()};
-				State.LastFailureMessage = FormatTexture2DCompilationError(State.LastError);
+				State.Terminal.FailureMessage = FormatTexture2DCompilationError(State.Terminal.Error);
 				CompilationState->RetainCompletedLocked(Owner);
 			}
 		}
@@ -619,6 +517,39 @@ struct FAssetState
 		return State && State->Texture.Get() == &Texture && State->ActiveRequestId != 0;
 	}
 
+	auto FTextureCompilingManager::PrepareMutation(DTexture& Texture) -> void
+	{
+		CheckGameThread();
+		if (!CompilationState) return;
+		const FObjectKey Owner(&Texture);
+		uint64 RequestId = 0;
+		{
+			std::lock_guard Lock(CompilationState->Mutex);
+			require(CompilationState->MutatingOwners.emplace(Owner).second);
+			if (const auto* State = CompilationState->FindLocked(Owner)) RequestId = State->ActiveRequestId;
+		}
+		struct FMutationGuard
+		{
+			std::shared_ptr<FCompilationState> State;
+			FObjectKey Owner;
+			~FMutationGuard() { std::lock_guard Lock(State->Mutex); State->MutatingOwners.erase(Owner); }
+		} Guard{CompilationState, Owner};
+		if (RequestId)
+		{
+			CancelWork(RequestId, ETexture2DCompilationError::CancelledForMutation);
+			require(WaitForWork(RequestId, 300.0));
+			PumpCompletions(1, {}, RequestId);
+		}
+		require(!HasPending(Texture));
+		std::lock_guard Lock(CompilationState->Mutex);
+		if (auto* State = CompilationState->FindLocked(Owner)) State->Terminal = {};
+	}
+
+	auto PrepareTextureForMutation(DTexture& Texture) -> void
+	{
+		if (const auto Manager = GetTextureCompilingManager()) Manager->PrepareMutation(Texture);
+	}
+
 	auto FTextureCompilingManager::Cancel(DTexture& Texture) -> bool
 	{
 		if (!CompilationState) return false;
@@ -637,7 +568,7 @@ struct FAssetState
 	{
 		if (!CompilationState) return false;
 		uint64 RequestId = 0;
-		bool bLastRequestFailed = false;
+		bool bCanUsePlatformData = true;
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
 			FCompilationState::FAssetState* State =
@@ -645,20 +576,20 @@ struct FAssetState
 			if (State && State->Texture.Get() == &Texture)
 			{
 				RequestId = State->ActiveRequestId;
-				bLastRequestFailed = State->bLastRequestFailed;
+				bCanUsePlatformData = State->Terminal.AllowsPlatformData();
 			}
 		}
 		if (RequestId == 0)
-			return !bLastRequestFailed && Texture.HasPlatformData();
+			return bCanUsePlatformData && Texture.HasPlatformData();
 		if (!WaitForWork(RequestId, TimeoutSeconds)) return false;
 		FAssetCompilingManager::Get().FinishCompilationForObject(Texture);
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
 			if (const FCompilationState::FAssetState* State =
 				CompilationState->FindLocked(FObjectKey(&Texture)))
-				bLastRequestFailed = State->bLastRequestFailed;
+				bCanUsePlatformData = State->Terminal.AllowsPlatformData();
 		}
-		return !HasPending(Texture) && !bLastRequestFailed
+		return !HasPending(Texture) && bCanUsePlatformData
 			&& Texture.HasPlatformData();
 	}
 
@@ -690,13 +621,14 @@ struct FAssetState
 		FTexture2DBuildInputIdentity Identity;
 		const auto Built = BuildTexture2DPlatformData(Request, Product, Identity, ExecutionControl);
 		if (Built) return Product;
-		const auto Failure = TexturePrivate::MakeCompilationBuildFailure(Built.error());
-		if (Failure.Code == ETexture2DCompilationError::Cancelled)
+		const auto& Error = Built.error();
+		if (Error.Code == ETexture2DBuildError::Cancelled)
 			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::Canceled});
-		DURIN_ERROR_CATEGORY("Texture", "Detached Texture2D build failed: {}", FormatTexture2DBuildError(Built.error()));
-		return std::unexpected(FTextureBuildOperationError{Failure.InputReason.empty()
-			? ETextureBuildOperationFailure::Failed : ETextureBuildOperationFailure::InvalidInput,
-			Failure.InputReason});
+		DURIN_ERROR_CATEGORY("Texture", "Detached Texture2D build failed: {}", FormatTexture2DBuildError(Error));
+		if (Error.InputCause || Error.Code == ETexture2DBuildError::InvalidInput)
+			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::InvalidInput,
+				FormatTexture2DBuildError(Error)});
+		return std::unexpected(FTextureBuildOperationError{});
 	}
 
 	auto BuildTexture2DSynchronously(
@@ -705,6 +637,7 @@ struct FAssetState
 		const FTexture2DResultApplicationContext& Context) -> std::expected<void, FTexture2DCompilationError>
 	{
 		CheckGameThread();
+		Texture.BlockOnAnyAsyncBuild();
 		FTexturePlatformData Product;
 		FTexture2DBuildInputIdentity Identity;
 		const std::expected<void, FTexture2DBuildError> BuildResult = BuildTexture2DPlatformData(

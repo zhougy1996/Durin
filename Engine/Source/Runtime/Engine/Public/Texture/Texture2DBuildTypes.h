@@ -40,26 +40,12 @@ namespace Durin
 	};
 	ENGINE_API auto FormatTexture2DInputError(const FTexture2DInputError& Error) -> std::string;
 
-	// Recipe-local timing and generated storage; excludes shared source/output bytes.
-	struct FTexture2DBuildTimings
-	{
-		uint64 MipGenerationNanoseconds = 0;
-		uint64 CompressionNanoseconds = 0;
-		uint64 PeakIntermediateBytes = 0;
-	};
-
 	struct FTexture2DBuildInput
 	{
 		std::span<const Image::FImage> SourceMips;
 		FTexture2DBuildSettings Settings;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
-	};
-
-	struct FTexture2DBuildOutput
-	{
-		FTexturePlatformData PlatformData;
-		FTexture2DBuildTimings Metrics;
 	};
 
 	enum class ETaskState : uint8;

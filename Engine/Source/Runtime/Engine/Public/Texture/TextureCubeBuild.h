@@ -24,7 +24,6 @@ namespace Durin
 	struct FTextureCubeResultApplicationContext
 	{
 		bool bMarkPackageDirty = true;
-		bool bSourceDecoderInvoked = true;
 		// PostLoad/rebuild consumes the installed source without replacing its storage.
 		bool bPreserveSource = false;
 	};

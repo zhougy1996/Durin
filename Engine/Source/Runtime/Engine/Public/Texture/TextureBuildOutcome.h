@@ -5,8 +5,6 @@
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
 
-#include "Serialization/Archive.h"
-
 namespace Durin
 {
 	enum class ETextureBuildFailure
@@ -40,7 +38,6 @@ namespace Durin
 		ETextureBuildStage Stage = ETextureBuildStage::Module;
 		std::string Diagnostic;
 		std::optional<ETextureCubeInputError> CubeInputCause;
-		std::optional<FArchiveFailure> ArchiveCause;
 	};
 
 } // namespace Durin
