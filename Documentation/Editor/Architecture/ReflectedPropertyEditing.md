@@ -99,6 +99,18 @@ it resolves owner context, dispatches registered customizations, applies an
 optional host layout extension, appends filtered default rows to the layout,
 and draws that layout in one property table. `ShouldDrawDefaultProperty()` applies
 replacement, explicit hiding, category hiding, and exact placement rules.
+Placement uses a hash key `(Object, Property, ArrayIndex)`. Rows refer directly
+to stable category objects, and each frame-local layout reuses its filtered,
+sorted row list until declarations, category labels/order, or category visibility
+change. `GetSearchText()` lets customizations omit expensive search-only models;
+empty searches do not construct per-row search strings. Material-slot drawing
+builds one model shared by all expanded slots, with search keywords omitted;
+collapsed slot arrays do not build a drawing model. Models are rebuilt for each
+draw so preceding mesh edits are reflected immediately. Tracy separates
+`Details.BuildLayout`, `Details.FilterAndSortRows`, `Details.DrawRows`,
+`LevelEditor.Details.ComponentTree`, `LevelEditor.Details.Materials`, and
+`LevelEditor.Details.MaterialModel`.
+
 The result reports owner readiness, table drawing, visible rows, and changes;
 search, table identity, host context, and empty-state presentation are options.
 

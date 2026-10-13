@@ -158,6 +158,7 @@ namespace Durin::Editor::Level
 		if (ImGui::BeginChild("DetailsComponents", ImVec2(0.0f, ComponentHeight),
 			ImGuiChildFlags_AlwaysUseWindowPadding))
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.Details.ComponentTree");
 			ComponentTree.Draw(Context, Actor);
 		}
 		ImGui::EndChild();

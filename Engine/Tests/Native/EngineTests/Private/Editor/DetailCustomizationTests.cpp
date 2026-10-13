@@ -189,3 +189,23 @@ TEST(FSharedDetailCustomizationTests, DefaultsShareCategoriesAndRemainIdempotent
 	Durin::MarkObjectHierarchyAsGarbage(Component);
 	Durin::CollectGarbage();
 }
+
+TEST(FSharedDetailCustomizationTests, CachedRowsFollowDeclarationsAndCategoryLabelChanges)
+{
+	Durin::Editor::FDetailLayoutBuilder Layout("Matching Label");
+	EXPECT_EQ(Layout.GetSearchText(), "Matching Label");
+	auto& Category = Layout.EditCategory("Controls", "Matching Label");
+	Category.AddCustomRow("unrelated", [](auto&, const auto&) { return false; });
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 1u);
+	Layout.EditCategory("Controls", "Other Label");
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 0u);
+	for (uint32 Index = 0; Index < 128; ++Index)
+	{
+		Category.AddCustomRow("Matching Label", [](auto&, const auto&) { return false; });
+		EXPECT_EQ(Layout.GetVisibleRowCount(), Index + 1);
+	}
+	Layout.EditCategory("Controls", "Matching Label");
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 129u);
+	Layout.HideCategory("Controls");
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 0u);
+}

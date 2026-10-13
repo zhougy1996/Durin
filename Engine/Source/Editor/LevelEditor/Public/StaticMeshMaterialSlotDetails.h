@@ -39,7 +39,7 @@ namespace Durin::Editor::Level
 	class FStaticMeshMaterialSlotDetailsModel
 	{
 	public:
-		LEVELEDITOR_API explicit FStaticMeshMaterialSlotDetailsModel(DStaticMeshComponent* InComponent);
+		LEVELEDITOR_API explicit FStaticMeshMaterialSlotDetailsModel(DStaticMeshComponent* InComponent, bool bBuildSearchKeywords = true);
 
 		auto GetComponent() const -> DStaticMeshComponent* { return Component; }
 		auto HasMesh() const -> bool { return bHasMesh; }

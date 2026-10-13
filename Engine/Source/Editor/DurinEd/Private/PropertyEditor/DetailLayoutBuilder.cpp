@@ -1,4 +1,5 @@
 #include "PropertyEditor/DetailLayoutBuilder.h"
+#include "Profiling/Profiling.h"
 #include "PropertyEditor/DetailCustomizationRegistry.h"
 #include "DObject/Class.h"
 
@@ -35,18 +36,16 @@ namespace Durin::Editor
 	}
 
 
-	auto FDetailLayoutBuilder::FindCategory(std::string_view Name) const -> const FCategory*
-	{
-		for (const auto& Category : Categories) if (Category->Name == Name) return Category.get();
-		return nullptr;
-	}
-
 	auto FDetailLayoutBuilder::EditCategory(std::string_view Name, std::string_view DisplayName) -> IDetailCategoryBuilder&
 	{
 		for (const auto& Category : Categories)
 		{
 			if (Category->Name != Name) continue;
-			if (!DisplayName.empty()) Category->Label = DisplayName;
+			if (!DisplayName.empty())
+			{
+				Category->Label = DisplayName;
+				bVisibleRowsDirty = true;
+			}
 			return *Category;
 		}
 		Categories.push_back(std::make_unique<FCategory>(*this, Name, DisplayName.empty() ? Name : DisplayName));
@@ -62,11 +61,12 @@ namespace Durin::Editor
 	auto FDetailLayoutBuilder::HideCategory(std::string_view Name) -> void
 	{
 		HiddenCategories.emplace(Name);
+		bVisibleRowsDirty = true;
 	}
 
 	auto FDetailLayoutBuilder::IsCategoryHidden(std::string_view Name) const -> bool
 	{
-		return HiddenCategories.contains(std::string(Name));
+		return !HiddenCategories.empty() && HiddenCategories.contains(std::string(Name));
 	}
 
 	auto FDetailLayoutBuilder::FCategory::AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex,
@@ -76,7 +76,7 @@ namespace Durin::Editor
 		Owner.AddProperty(Object, Property, ArrayIndex, Options, SearchKeywords);
 		if (Owner.Rows.size() != Before)
 		{
-			Owner.Rows.back().Category = Name;
+			Owner.Rows.back().Category = this;
 		}
 	}
 
@@ -84,7 +84,7 @@ namespace Durin::Editor
 	{
 		const size_t Before = Owner.Rows.size();
 		Owner.AddCustomRow(SearchKeywords, std::move(Drawer));
-		if (Owner.Rows.size() != Before) Owner.Rows.back().Category = Name;
+		if (Owner.Rows.size() != Before) Owner.Rows.back().Category = this;
 	}
 
 	auto FDetailLayoutBuilder::AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex,
@@ -92,22 +92,29 @@ namespace Durin::Editor
 	{
 		if (!Object || !Property || ArrayIndex >= Property->GetArrayDim()) return;
 		const std::string Label = Options.Label.empty() ? ::Durin::Editor::MakePropertyLabel(*Property, ArrayIndex) : Options.Label;
-		const std::string SourceName = Property->GetArrayDim() > 1
-			? std::format("{}[{}]", Property->NamePrivate, ArrayIndex) : Property->NamePrivate.ToString();
 		auto RowOptions = Options;
 		RowOptions.Label = Label;
-		const bool bTransform = Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
-			&& static_cast<const FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_FTransform();
-		Rows.push_back({Object, Property, ArrayIndex, std::move(RowOptions),
-			std::format("{} {} {} {} {} {}", SourceName, Label, SearchKeywords,
+		std::string RowSearchText;
+		if (!SearchText.empty())
+		{
+			const std::string SourceName = Property->GetArrayDim() > 1
+				? std::format("{}[{}]", Property->NamePrivate, ArrayIndex) : Property->NamePrivate.ToString();
+			const bool bTransform = Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
+				&& static_cast<const FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_FTransform();
+			RowSearchText = std::format("{} {} {} {} {} {}", SourceName, Label, SearchKeywords,
 				Property->GetTypedMetadata().Category, Property->GetTypedMetadata().ToolTip,
-				bTransform ? "Location Rotation Scale" : ""), {}});
+				bTransform ? "Location Rotation Scale" : "");
+		}
+		Rows.push_back({Object, Property, ArrayIndex, std::move(RowOptions), std::move(RowSearchText), {}});
+		PlacedProperties.insert({Object, Property, ArrayIndex});
+		bVisibleRowsDirty = true;
 	}
 
 	auto FDetailLayoutBuilder::AddCustomRow(std::string_view SearchKeywords, FCustomRowDrawer Drawer) -> void
 	{
 		if (!Drawer) return;
-		Rows.push_back({nullptr, nullptr, 0, {}, std::string(SearchKeywords), std::move(Drawer)});
+		Rows.push_back({nullptr, nullptr, 0, {}, SearchText.empty() ? std::string{} : std::string(SearchKeywords), std::move(Drawer)});
+		bVisibleRowsDirty = true;
 	}
 
 	auto FDetailLayoutBuilder::HideProperty(FProperty* Property) -> void
@@ -128,9 +135,7 @@ namespace Durin::Editor
 
 	auto FDetailLayoutBuilder::IsDefaultPropertyPlaced(const DObject* Object, const FProperty& Property, uint32 ArrayIndex) const -> bool
 	{
-		return std::ranges::any_of(Rows, [&](const FRow& Row) {
-			return Row.Object == Object && Row.Property == &Property && Row.ArrayIndex == ArrayIndex;
-		});
+		return PlacedProperties.contains({Object, &Property, ArrayIndex});
 	}
 
 	auto FDetailLayoutBuilder::ShouldDrawDefaultProperty(const DObject* Object, const FProperty& Property, uint32 ArrayIndex) const -> bool
@@ -173,44 +178,55 @@ namespace Durin::Editor
 
 	auto FDetailLayoutBuilder::GetVisibleRowCount() const -> uint32
 	{
-		return static_cast<uint32>(std::ranges::count_if(Rows, [this](const FRow& Row) { return IsRowVisible(Row); }));
+		PrepareVisibleRows();
+		return static_cast<uint32>(VisibleRows.size());
 	}
 
 	auto FDetailLayoutBuilder::IsRowVisible(const FRow& Row) const -> bool
 	{
-		if (IsCategoryHidden(Row.Category)) return false;
-		const FCategory* Category = FindCategory(Row.Category);
+		const FCategory* Category = Row.Category;
+		if (IsCategoryHidden(Category ? std::string_view(Category->Name) : std::string_view{})) return false;
 		return MatchesSearch(Row.SearchText) || (Category && (MatchesSearch(Category->Name) || MatchesSearch(Category->Label)));
+	}
+
+	auto FDetailLayoutBuilder::PrepareVisibleRows() const -> void
+	{
+		if (!bVisibleRowsDirty) return;
+		DURIN_PROFILE_CPU_ZONE_NAMED("Details.FilterAndSortRows");
+		VisibleRows.clear();
+		VisibleRows.reserve(Rows.size());
+		for (const FRow& Row : Rows) if (IsRowVisible(Row)) VisibleRows.push_back(&Row);
+		std::stable_sort(VisibleRows.begin(), VisibleRows.end(), [](const FRow* Left, const FRow* Right) {
+			const int32 LeftOrder = Left->Category ? Left->Category->SortOrder : 0;
+			const int32 RightOrder = Right->Category ? Right->Category->SortOrder : 0;
+			const std::string_view LeftName = Left->Category ? std::string_view(Left->Category->Name) : std::string_view{};
+			const std::string_view RightName = Right->Category ? std::string_view(Right->Category->Name) : std::string_view{};
+			return LeftOrder != RightOrder ? LeftOrder < RightOrder : LeftName < RightName;
+		});
+		bVisibleRowsDirty = false;
 	}
 
 	auto FDetailLayoutBuilder::DrawRows(::Durin::Editor::FPropertyView& PropertyView,
 		const ::Durin::Editor::FPropertyViewContext& ViewContext) const -> FDetailLayoutBuilderResult
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Details.DrawRows");
 		FDetailLayoutBuilderResult Result;
-		std::vector<const FRow*> VisibleRows;
-		for (const FRow& Row : Rows) if (IsRowVisible(Row)) VisibleRows.push_back(&Row);
-		std::stable_sort(VisibleRows.begin(), VisibleRows.end(), [this](const FRow* Left, const FRow* Right) {
-			const FCategory* LeftCategory = FindCategory(Left->Category);
-			const FCategory* RightCategory = FindCategory(Right->Category);
-			const int32 LeftOrder = LeftCategory ? LeftCategory->SortOrder : 0;
-			const int32 RightOrder = RightCategory ? RightCategory->SortOrder : 0;
-			return LeftOrder != RightOrder ? LeftOrder < RightOrder : Left->Category < Right->Category;
-		});
-		std::string CurrentCategory;
+		PrepareVisibleRows();
+		const FCategory* CurrentCategory = nullptr;
 		bool bGroupOpen = true;
 		for (const FRow* RowPtr : VisibleRows)
 		{
 			const FRow& Row = *RowPtr;
 			if (Row.Category != CurrentCategory)
 			{
-				if (!CurrentCategory.empty() && bGroupOpen) MonaImGui::PropertyEdit::EndGroup();
+				if (CurrentCategory != nullptr && bGroupOpen) MonaImGui::PropertyEdit::EndGroup();
 				CurrentCategory = Row.Category;
 				bGroupOpen = true;
-				if (!CurrentCategory.empty())
+				if (CurrentCategory != nullptr)
 				{
-					if (!SearchText.empty()) ImGui::GetStateStorage()->SetInt(ImGui::GetID(CurrentCategory.c_str()), 1);
-					const FCategory* Category = FindCategory(CurrentCategory);
-					bGroupOpen = MonaImGui::PropertyEdit::BeginGroup(CurrentCategory.c_str(), Category->Label.c_str(),
+					if (!SearchText.empty()) ImGui::GetStateStorage()->SetInt(ImGui::GetID(CurrentCategory->Name.c_str()), 1);
+					const FCategory* Category = CurrentCategory;
+					bGroupOpen = MonaImGui::PropertyEdit::BeginGroup(CurrentCategory->Name.c_str(), Category->Label.c_str(),
 						Category->bInitiallyCollapsed ? ImGuiTreeNodeFlags_None : ImGuiTreeNodeFlags_DefaultOpen);
 					if (!Category->Tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
 						ImGui::SetTooltip("%s", Category->Tooltip.c_str());
@@ -223,7 +239,7 @@ namespace Durin::Editor
 			else
 				Result.bChanged |= Row.Drawer(PropertyView, ViewContext);
 		}
-		if (!CurrentCategory.empty() && bGroupOpen) MonaImGui::PropertyEdit::EndGroup();
+		if (CurrentCategory != nullptr && bGroupOpen) MonaImGui::PropertyEdit::EndGroup();
 		return Result;
 	}
 

@@ -1,4 +1,5 @@
 #include "StaticMeshMaterialSlotDetails.h"
+#include "Profiling/Profiling.h"
 
 #include "Asset/Asset.h"
 #include "Components/StaticMeshComponent.h"
@@ -67,12 +68,16 @@ namespace Durin::Editor::Level
 				if (!Component) return;
 				if (FProperty* Property = Component->GetClass()->FindPropertyByName("OverrideMaterials")) Builder.HideProperty(Property);
 
-				const FStaticMeshMaterialSlotDetailsModel Model(Component);
-				std::string SearchKeywords = std::format("Materials Material Slots {} {}", Component->GetName(), Component->GetClass()->GetQualifiedName());
-				for (const FStaticMeshMaterialSlotDetailsEntry& Entry : Model.GetCurrentEntries())
+				std::string SearchKeywords;
+				if (!Builder.GetSearchText().empty())
 				{
-					SearchKeywords += ' ';
-					SearchKeywords += Entry.SearchKeywords;
+					const FStaticMeshMaterialSlotDetailsModel Model(Component);
+					SearchKeywords = std::format("Materials Material Slots {} {}", Component->GetName(), Component->GetClass()->GetQualifiedName());
+					for (const FStaticMeshMaterialSlotDetailsEntry& Entry : Model.GetCurrentEntries())
+					{
+						SearchKeywords += ' ';
+						SearchKeywords += Entry.SearchKeywords;
+					}
 				}
 				auto Drawer =
 					[Component](::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
@@ -86,15 +91,18 @@ namespace Durin::Editor::Level
 			static auto DrawMaterials(DStaticMeshComponent* Component, ::Durin::Editor::FPropertyView& PropertyView,
 				const ::Durin::Editor::FPropertyViewContext& Context) -> bool
 			{
-				const FStaticMeshMaterialSlotDetailsModel Model(Component);
+				DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.Details.Materials");
+				const auto* Mesh = Component->GetStaticMesh();
+				const uint64 SlotCount = Mesh ? Mesh->GetMaterialSlots().size() : 0;
 				ImGui::PushID("StaticMeshMaterials");
 				if (!MonaImGui::PropertyEdit::BeginFixedArray(
-					"##Materials", "Materials", static_cast<uint64>(Model.GetCurrentEntries().size())))
+					"##Materials", "Materials", SlotCount))
 				{
 					ImGui::PopID();
 					return false;
 				}
 
+				const FStaticMeshMaterialSlotDetailsModel Model(Component, false);
 				bool bChanged = false;
 				if (Model.GetCurrentEntries().empty())
 				{
@@ -105,7 +113,7 @@ namespace Durin::Editor::Level
 					MonaImGui::PropertyEdit::EndRow(true);
 				}
 				for (const FStaticMeshMaterialSlotDetailsEntry& Entry : Model.GetCurrentEntries())
-					bChanged |= DrawCurrentRow(Component, Entry, PropertyView, Context);
+					bChanged |= DrawCurrentRow(Model, Entry, PropertyView, Context);
 				if (Model.HasStoredOverrides())
 				{
 					MonaImGui::PropertyEdit::BeginRow("Actions", Context.bReadOnly);
@@ -121,10 +129,9 @@ namespace Durin::Editor::Level
 				return bChanged;
 			}
 
-			static auto DrawCurrentRow(DStaticMeshComponent* Component, const FStaticMeshMaterialSlotDetailsEntry& Entry,
+			static auto DrawCurrentRow(const FStaticMeshMaterialSlotDetailsModel& Model, const FStaticMeshMaterialSlotDetailsEntry& Entry,
 				::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& Context) -> bool
 			{
-				FStaticMeshMaterialSlotDetailsModel Model(Component);
 				bool bChanged = false;
 				FPackagePath MaterialPath;
 				const bool bHasMaterialAsset = Entry.Material && Entry.Material->GetPackage()
@@ -178,14 +185,16 @@ namespace Durin::Editor::Level
 		};
 	}
 
-	FStaticMeshMaterialSlotDetailsModel::FStaticMeshMaterialSlotDetailsModel(DStaticMeshComponent* InComponent)
+	FStaticMeshMaterialSlotDetailsModel::FStaticMeshMaterialSlotDetailsModel(DStaticMeshComponent* InComponent, bool bBuildSearchKeywords)
 		: Component(InComponent)
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.Details.MaterialModel");
 		DStaticMesh* Mesh = Component ? Component->GetStaticMesh() : nullptr;
 		bHasMesh = Mesh != nullptr;
 		bHasStoredOverrides = Component && !Component->GetOverrideMaterials().empty();
 		if (Mesh)
 		{
+			CurrentEntries.reserve(Mesh->GetMaterialSlots().size());
 			uint32 Index = 0;
 			for (const FMeshMaterialSlotDefinition& Slot : Mesh->GetMaterialSlots())
 			{
@@ -195,7 +204,7 @@ namespace Durin::Editor::Level
 					: Slot.DefaultMaterial ? EStaticMeshMaterialSource::MeshDefault : EStaticMeshMaterialSource::EngineDefault;
 				const std::string Label = std::format("[{}] {}", Index, Slot.Name);
 				CurrentEntries.push_back({Index, Label,
-					std::format("Materials Material Slot {} {} {}", Index, Slot.Name, GetSourceLabel(Source)),
+					bBuildSearchKeywords ? std::format("Materials Material Slot {} {} {}", Index, Slot.Name, GetSourceLabel(Source)) : std::string{},
 					Resolved, Source, Override != nullptr});
 				++Index;
 			}

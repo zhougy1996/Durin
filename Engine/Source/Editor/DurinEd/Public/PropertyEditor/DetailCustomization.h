@@ -32,6 +32,7 @@ namespace Durin::Editor
 	public:
 		virtual ~IDetailLayoutBuilder() = default;
 		virtual auto GetObject() const -> DObject* = 0;
+		virtual auto GetSearchText() const -> std::string_view = 0;
 		virtual auto GetHostContext() const -> IDetailHostContext* = 0;
 		virtual auto EditCategory(std::string_view Name, std::string_view DisplayName = {}) -> IDetailCategoryBuilder& = 0;
 		virtual auto HideCategory(std::string_view Name) -> void = 0;

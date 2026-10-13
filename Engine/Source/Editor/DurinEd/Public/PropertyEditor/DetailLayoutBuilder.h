@@ -27,6 +27,7 @@ namespace Durin::Editor
 		DURINED_API auto ApplyCustomization(DObject* Object, IDetailCustomization& Customization) -> void;
 		DURINED_API auto ApplyRegisteredCustomizations(DObject* Object) -> void;
 		auto GetObject() const -> DObject* override { return InspectedObject; }
+		auto GetSearchText() const -> std::string_view override { return SearchText; }
 		auto GetHostContext() const -> IDetailHostContext* override { return HostContext; }
 		DURINED_API auto EditCategory(std::string_view Name, std::string_view DisplayName = {}) -> IDetailCategoryBuilder& override;
 		DURINED_API auto HideCategory(std::string_view Name) -> void override;
@@ -47,6 +48,23 @@ namespace Durin::Editor
 			const ::Durin::Editor::FPropertyViewContext& ViewContext) const -> FDetailLayoutBuilderResult;
 
 	private:
+		class FCategory;
+		struct FPropertyRowKey
+		{
+			const DObject* Object;
+			const FProperty* Property;
+			uint32 ArrayIndex;
+			auto operator==(const FPropertyRowKey&) const -> bool = default;
+		};
+		struct FPropertyRowKeyHash
+		{
+			auto operator()(const FPropertyRowKey& Key) const -> size_t
+			{
+				return std::hash<const DObject*>{}(Key.Object) ^ (std::hash<const FProperty*>{}(Key.Property) << 1)
+					^ (std::hash<uint32>{}(Key.ArrayIndex) << 2);
+			}
+		};
+
 		// Stores either one reflected-property row or one custom drawer.
 		struct FRow
 		{
@@ -56,7 +74,7 @@ namespace Durin::Editor
 			FPropertyViewOptions Options;
 			std::string SearchText;
 			FCustomRowDrawer Drawer;
-			std::string Category;
+			const FCategory* Category = nullptr;
 		};
 
 		// Stores category presentation and forwards its rows to the host layout.
@@ -68,7 +86,7 @@ namespace Durin::Editor
 			auto AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex,
 				const ::Durin::Editor::FPropertyViewOptions& Options, std::string_view SearchKeywords) -> void override;
 			auto AddCustomRow(std::string_view SearchKeywords, FDetailRowDrawer Drawer) -> void override;
-			auto SetSortOrder(int32 InOrder) -> void override { SortOrder = InOrder; }
+			auto SetSortOrder(int32 InOrder) -> void override { SortOrder = InOrder; Owner.bVisibleRowsDirty = true; }
 			auto SetTooltip(std::string_view InTooltip) -> void override { Tooltip = InTooltip; }
 			auto SetInitiallyCollapsed(bool bCollapsed) -> void override { bInitiallyCollapsed = bCollapsed; }
 			FDetailLayoutBuilder& Owner;
@@ -81,10 +99,13 @@ namespace Durin::Editor
 
 		auto MatchesSearch(std::string_view Candidate) const -> bool;
 		auto IsRowVisible(const FRow& Row) const -> bool;
-		auto FindCategory(std::string_view Name) const -> const FCategory*;
+		auto PrepareVisibleRows() const -> void;
 
 		std::string SearchText;
 		std::vector<FRow> Rows;
+		std::unordered_set<FPropertyRowKey, FPropertyRowKeyHash> PlacedProperties;
+		mutable std::vector<const FRow*> VisibleRows;
+		mutable bool bVisibleRowsDirty = true;
 		std::unordered_set<FProperty*> HiddenProperties;
 		bool bReplaceDefaultProperties = false;
 		std::vector<std::unique_ptr<FCategory>> Categories;

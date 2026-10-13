@@ -116,19 +116,26 @@ namespace Durin::Editor::Level
 		}
 
 		std::vector<DActorComponent*> Components;
-		auto* Host = dynamic_cast<FLevelDetailHostContext*>(Builder.GetHostContext());
-		if (Host && Host->ComponentDetailsTargets) Components = *Host->ComponentDetailsTargets;
-		else for (const auto& Entry : Actor->GetComponents()) Components.push_back(Entry.Get());
-		std::unordered_set<DActorComponent*> UniqueComponents;
-		for (auto* Component : Components)
-			if (Component && Actor->OwnsComponent(Component) && Component->GetCreationMethod() != EComponentCreationMethod::Generated)
-				UniqueComponents.insert(Component);
-		const bool bShowComponentGroup = UniqueComponents.size() > 1;
+		Components.reserve(Actor->GetComponents().size());
 		std::unordered_set<DActorComponent*> Visited;
+		const auto AddComponent = [&](DActorComponent* Component) {
+			if (Component && Component->GetCreationMethod() != EComponentCreationMethod::Generated
+				&& Visited.insert(Component).second) Components.push_back(Component);
+		};
+		auto* Host = dynamic_cast<FLevelDetailHostContext*>(Builder.GetHostContext());
+		if (Host && Host->ComponentDetailsTargets)
+		{
+			if (Host->ComponentDetailsTargets->empty()) return;
+			std::unordered_set<DActorComponent*> Owned;
+			Owned.reserve(Actor->GetComponents().size());
+			for (const auto& Entry : Actor->GetComponents()) Owned.insert(Entry.Get());
+			for (auto* Component : *Host->ComponentDetailsTargets)
+				if (Owned.contains(Component)) AddComponent(Component);
+		}
+		else for (const auto& Entry : Actor->GetComponents()) AddComponent(Entry.Get());
+		const bool bShowComponentGroup = Components.size() > 1;
 		for (DActorComponent* Component : Components)
 		{
-			if (!Component || !Actor->OwnsComponent(Component) || !Visited.insert(Component).second
-				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated) continue;
 			const std::string Label = Component->GetName();
 			const std::string TypeName = Component->GetClass()->GetQualifiedName().ToString();
 			const bool bMatchesComponent = !SearchText.empty() && StringUtils::ContainsInsensitive(Label + " " + TypeName, SearchText);
