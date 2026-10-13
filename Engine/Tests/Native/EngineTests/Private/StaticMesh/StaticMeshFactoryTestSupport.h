@@ -36,6 +36,7 @@ namespace Durin::AssetForge::Builtins
 		auto* Mesh = Cast<DStaticMesh>(Imported.Asset);
 		if (!Imported || !Mesh)
 			return {false, Imported.Message, Mesh};
+		Mesh->FinishCompilation();
 		const FAssetWriteResult Saved = SavePackage(Imported.Package);
 		return Saved
 			? Durin::Testing::TFactoryImportResult<Durin::DStaticMesh>{true, {}, Mesh}

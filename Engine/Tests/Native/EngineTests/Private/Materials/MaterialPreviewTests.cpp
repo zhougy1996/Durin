@@ -63,8 +63,8 @@ TEST(FMaterialPreviewTests, EditorPreviewMeshOwnerRetainsPreparedMeshesWithoutOp
 	const auto* BoxData = Box->GetRenderData();
 	ASSERT_NE(SphereData, nullptr);
 	ASSERT_NE(BoxData, nullptr);
-	EXPECT_FALSE(Durin::HasPendingStaticMeshCompilation(*Sphere));
-	EXPECT_FALSE(Durin::HasPendingStaticMeshCompilation(*Box));
+	EXPECT_FALSE(Sphere->IsCompiling());
+	EXPECT_FALSE(Box->IsCompiling());
 	for (uint32 Visit = 0; Visit < 3; ++Visit)
 	{
 		Durin::FObjectPath Path;
@@ -130,8 +130,8 @@ TEST(FMaterialPreviewTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageColl
 		// Retention starts asynchronous preparation; a fresh process has no prepared mesh state.
 		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Sphere);
 		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Box);
-		ASSERT_FALSE(Durin::HasPendingStaticMeshCompilation(*Sphere));
-		ASSERT_FALSE(Durin::HasPendingStaticMeshCompilation(*Box));
+		ASSERT_FALSE(Sphere->IsCompiling());
+		ASSERT_FALSE(Box->IsCompiling());
 		ASSERT_NE(Sphere->GetRenderData(), nullptr);
 		ASSERT_NE(Box->GetRenderData(), nullptr);
 		EXPECT_FALSE(Sphere->GetRenderData()->LODResources.empty());

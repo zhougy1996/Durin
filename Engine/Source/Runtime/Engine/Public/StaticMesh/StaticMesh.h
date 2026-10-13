@@ -24,6 +24,9 @@ namespace Durin
 
 	struct FStaticMeshCompilationRequest;
 	struct FStaticMeshCompilationResult;
+	struct FStaticMeshCompilationDiagnostic;
+	struct FAssetCompileProcessResult;
+	enum class EStaticMeshCompilationProducts : uint8 { Render, Collision, All };
 
 	enum class EStaticMeshBuildMode : uint8 { Synchronous, Asynchronous };
 	enum class EStaticMeshCompilationPriority : uint8 { Background, Interactive };
@@ -124,12 +127,29 @@ namespace Durin
 		// Completion runs on the owner thread, before return for synchronous mode.
 		ENGINE_API auto Build(EStaticMeshBuildMode Mode, FStaticMeshBuildOptions Options = {},
 			std::function<void(const FStaticMeshCompilationResult&)> Completion = {})
-			-> std::expected<void, std::vector<std::string>>;
+			-> std::expected<void, std::string>;
 		// Authoring transaction: candidate source/slots/provenance replace live data only on success.
 		ENGINE_API auto BuildFromSource(EStaticMeshBuildMode Mode, FStaticMeshCompilationRequest Request,
 			std::function<void(const FStaticMeshCompilationResult&)> Completion = {})
-			-> std::expected<void, std::vector<std::string>>;
+			-> std::expected<void, std::string>;
 #endif
+
+#if DURIN_WITH_EDITORONLY_DATA
+		// Owner-thread authored import commit. Validates before retiring prior render/collision
+		// work, then installs source/slots/provenance and invalidates old projections together.
+		ENGINE_API auto SetImportedSource(FStaticMeshSource Source,
+			std::vector<FMeshMaterialSlotDefinition> Slots, DAssetImportData& ImportData)
+			-> std::expected<void, std::string>;
+#endif
+		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
+		// Render compilation readiness; collision and GPU readiness remain independent.
+		ENGINE_API auto IsCompiling() const -> bool;
+		ENGINE_API auto GetCompilationDiagnostic() const -> FStaticMeshCompilationDiagnostic;
+		ENGINE_API auto FinishCompilation(EStaticMeshCompilationProducts Products = EStaticMeshCompilationProducts::All)
+			-> FAssetCompileProcessResult;
+		ENGINE_API auto CancelCompilation() -> void;
+		// Cancels and drains both render and collision work before authored mutation.
+		ENGINE_API auto BlockOnAnyAsyncBuild() -> void;
 
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;

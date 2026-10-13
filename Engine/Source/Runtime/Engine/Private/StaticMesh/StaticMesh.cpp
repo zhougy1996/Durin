@@ -10,6 +10,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
+#include "DObject/PropertyChange.h"
 #include "Hash/XxHash.h"
 #include "Logging/LogMacros.h"
 #include "Math/Operations.h"
@@ -573,7 +574,7 @@ namespace Durin
 
 	auto DStaticMesh::BeginDestroy() -> void
 	{
-		CancelStaticMeshCompilation(*this);
+		this->CancelCompilation();
 		if (FCookedMeshLoadManager* Manager = GetCookedMeshLoadManager())
 			Manager->Cancel(FObjectKey(this));
 		const EStaticMeshRenderResourceState State =
@@ -646,9 +647,66 @@ namespace Durin
 		return Mesh;
 	}
 
+#if DURIN_WITH_EDITORONLY_DATA
+	auto DStaticMesh::SetImportedSource(FStaticMeshSource InSource,
+		std::vector<FMeshMaterialSlotDefinition> Slots, DAssetImportData& ImportData)
+		-> std::expected<void, std::string>
+	{
+		CheckStaticMeshUpdateThread();
+		if (AssetPrivate::IsStaticMeshCompilationMutationBlocked(*this))
+			return std::unexpected(std::string("StaticMesh mutation is retiring prior compilation."));
+		if (!InSource.IsValid() || !std::isfinite(NormalizedSize) || NormalizedSize <= 0)
+			return std::unexpected(std::string("StaticMesh import requires valid source and normalization."));
+		if (ImportData.GetOuter() != this)
+			return std::unexpected(std::string("StaticMesh import metadata must be owned by the mesh."));
+		if (const auto Valid = ImportData.Validate(); !Valid)
+			return std::unexpected(FormatAssetImportDataError(Valid.error()));
+		if (Slots.size() > MaximumMeshMaterialSlots)
+			return std::unexpected(std::string("StaticMesh import exceeds the material-slot limit."));
+		std::unordered_set<FName> Names;
+		std::unordered_set<uint32> SourceIndices;
+		for (const auto& Slot : Slots)
+			if (Slot.Name.IsNone() || Slot.SourceName.size() > 4096 || !Names.insert(Slot.Name).second
+				|| !SourceIndices.insert(Slot.SourceMaterialIndex).second)
+				return std::unexpected(std::string("StaticMesh import requires bounded unique material slots and source indices."));
+		{
+			const auto Geometry = InSource.AcquireGeometry();
+			if (!Geometry) return std::unexpected(FormatStaticMeshSourceError(Geometry.error()));
+			for (const auto& Group : (*Geometry)->PolygonGroups)
+				if (!SourceIndices.contains(Group.SourceMaterialIndex))
+					return std::unexpected(std::string("StaticMesh import requires a material slot for every source polygon group."));
+		}
+		BlockOnAnyAsyncBuild();
+		// Consumers must never observe new slots with old render or collision geometry.
+		{
+			FStaticMeshRenderStateRecreateContext Refresh(this);
+			InvalidateRenderData();
+			InSource.ReleaseGeometry();
+			Source = std::move(InSource);
+			MaterialSlots = std::move(Slots);
+			AssetImportData = &ImportData;
+			AcceptedGeometryNormalizedSize = NormalizedSize;
+			RenderDataUpdateError = {};
+		}
+		MarkPackageDirty();
+		return {};
+	}
+#endif
+
+	auto DStaticMesh::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
+	{
+		Super::PostEditChangeProperty(Event);
+#if DURIN_WITH_EDITORONLY_DATA
+		if (Event.MemberProperty || Event.Phase != EPropertyChangePhase::Committed || IsTemplateObject()
+			|| GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
+		if (const auto Admitted = Build(EStaticMeshBuildMode::Asynchronous, {.bMarkPackageDirty = false}); !Admitted)
+			DURIN_ERROR("StaticMesh build admission failed for {}: {}", GetObjectPath(), Admitted.error());
+#endif
+	}
+
 	auto DStaticMesh::InvalidateRenderData() -> void
 	{
-		CancelStaticMeshCompilation(*this);
+		this->CancelCompilation();
 		if (auto* Manager = GetCookedMeshLoadManager()) Manager->Cancel(FObjectKey(this));
 		CookedLoadGeneration.fetch_add(1, std::memory_order_acq_rel);
 		// Superseded cooked bytes must not restore geometry after a failed authored replacement.

@@ -17,10 +17,9 @@ namespace Durin::AssetForge::Builtins
 	class ASSETFORGEBUILTINS_API FStaticMeshFactoryError final : public IFactoryErrorDetail
 	{
 	public:
-		explicit FStaticMeshFactoryError(FStaticMeshCompilationResult Diagnostic) : Cause(std::move(Diagnostic)) {}
-		auto Format() const -> std::string override;
-		explicit FStaticMeshFactoryError(FStaticMeshRebuildError Error) : Cause(std::move(Error)) {}
-		std::variant<FStaticMeshRebuildError, FStaticMeshCompilationResult> Cause;
+		explicit FStaticMeshFactoryError(std::string InDiagnostic) : Diagnostic(std::move(InDiagnostic)) {}
+		auto Format() const -> std::string override { return Diagnostic; }
+		std::string Diagnostic;
 	};
 
 	DCLASS()
@@ -29,12 +28,6 @@ namespace Durin::AssetForge::Builtins
 		GENERATED_BODY()
 
 	public:
-		// Explicit editor adapter; ordinary object-returning factory calls remain synchronous.
-		auto SetAsyncImportCompletion(FStaticMeshCompilationCompletion Completion) -> void
-		{
-			AsyncImportCompletion = std::move(Completion);
-			bAsyncImport = true;
-		}
 		auto SetImportSettings(const FStaticMeshImportSettings& InSettings) -> void
 		{
 			Settings = InSettings;
@@ -69,7 +62,5 @@ namespace Durin::AssetForge::Builtins
 			const FObjectInitializer& ObjectInitializer);
 
 		FStaticMeshImportSettings Settings;
-		FStaticMeshCompilationCompletion AsyncImportCompletion;
-		bool bAsyncImport = false;
 	};
 }

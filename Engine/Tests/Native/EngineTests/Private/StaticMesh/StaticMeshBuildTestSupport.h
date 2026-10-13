@@ -383,10 +383,11 @@ namespace StaticMeshBuildTestSupport
 			<< " default_zone_in_use=" << AllocationStats.size_in_use
 			<< " process_peak_rss_bytes=" << Usage.ru_maxrss << std::endl;
 #endif
-		CancelStaticMeshCompilation(*Meshes[0]);
+		Meshes[0]->CancelCompilation();
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
 		ASSERT_TRUE(Results[0].has_value());
 		EXPECT_EQ(EStaticMeshCompilationStatus::Cancelled, Results[0]->Status);
+		EXPECT_TRUE(Meshes[0]->IsCompiling()); // Cancellation delivery does not retire the held worker.
 		EXPECT_FALSE(Results[1].has_value());
 		EXPECT_EQ(Held.ReservedBytes, GetStaticMeshCompilationManagerDiagnostics().ReservedBytes);
 		EXPECT_EQ(nullptr, Meshes[0]->GetRenderData());
@@ -400,8 +401,8 @@ namespace StaticMeshBuildTestSupport
 		if (bMeasure) std::cout << "concurrent_render_build_allocation sampled_default_zone_peak_bytes="
 			<< SampledAllocationPeak.load() << " sample_interval_ms=1" << std::endl;
 #endif
-		const auto Completed = GetStaticMeshCompilationDiagnostic(*Meshes[1]);
-		EXPECT_EQ(Completed.RequestId, Results[1]->RequestId);
+		const auto Completed = Meshes[1]->GetCompilationDiagnostic();
+		EXPECT_NE(Completed.RequestId, 0u);
 		EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, Completed.Status);
 		FCollisionGeometryRef Collision;
 		EXPECT_TRUE(Meshes[1]->GetBodySetup()->BuildComplexGeometry(Collision));

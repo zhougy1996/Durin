@@ -4,7 +4,7 @@ Summary: Define completion, compensation, and UI ownership for nonblocking edito
 
 Modules: TextureCompressor, AssetForgeBuiltins, DurinEd, TextureEditor, StaticMeshEditor, Engine
 
-Last reviewed: 2026-10-05
+Last reviewed: 2026-10-13
 
 ## Ownership Layers
 
@@ -128,10 +128,12 @@ value; decoding and validation remain silent. Texture2D reimport returns
 or cancellation does not undo the import. Factories do not save; upper-layer
 persistence reports its own failure and leaves committed data Dirty for retry.
 VolumeTexture rebuild returns an owned diagnostic on failure; structured settings
-and translation errors remain at validation boundaries. StaticMesh rebuild errors
-retain nested completion and save causes, including observed write effects.
-An error does not undo live state already applied. Transient mesh creation returns the created object pointer
-on success and preserves the existing object/garbage-collection ownership.
+and translation errors remain at validation boundaries. StaticMesh import and
+build boundaries use owned diagnostic strings; ordinary completion carries Status
+and Diagnostic, while detailed causes stay with compilation diagnostics. Save
+failures belong to the upper-layer persistence result. Transient mesh creation
+returns the authored object before compilation finishes and preserves the existing
+object/garbage-collection ownership.
 
 For direct Texture2D source selection:
 
@@ -166,28 +168,23 @@ discard snapshot was removed; unsaved packages receive an explicit rejection.
 
 ## Standalone StaticMesh Operations
 
-StaticMesh import/reimport captures and decodes physical input into canonical
-values synchronously, then submits Engine compilation. Default object-returning
-factories and bool/save APIs explicitly finish the selected object. The import
-dialog opts into deferred completion; factory reimport uses it by default.
-Neither path finishes unrelated assets or delegates Scene's transaction to the
-manager.
+StaticMesh import/reimport captures and decodes physical input synchronously,
+validates canonical Source and provenance, then retires prior work for the selected
+mesh. Reconciliation reads the current material bindings after cancellation callbacks
+have drained. `SetImportedSource` commits Source, slots and the private import-data
+inner together while clearing old render/collision projections in one consumer
+refresh. `PostEditChange` starts independent render compilation.
 
-Provenance is prepared as a private owned inner. Engine validates it and all
-captured mesh facts before mutation, then installs its pointer with the complete
-source/render/collision candidate before one registered-consumer refresh.
-Cancellation, supersession and failure preserve old provenance and never save.
-Successful application marks the package dirty before the adapter saves it;
-save failure retains the applied state and reports a retryable save failure.
-The dialog's Retry Save performs only persistence, without rebuilding.
+Factories report authored import success with `EReimportResult`; compilation failure,
+cancellation or stale work cannot undo it. `FReimportManager` and the dialog own
+persistence. Save failure retains the Dirty authored object and reports only a save
+cause. Retry Save performs persistence without decoding or rebuilding.
 
-The dialog disables conflicting input/import controls and explicit close while
-its request is pending. It defers persistence when asset mutation is disallowed.
-Its completion captures weak operation state, never a Widget pointer. Destruction
-detaches UI ownership, cancels its own request and explicitly drains the selected
-completion before callback code can unload. Factory reimport callbacks capture
-no factory pointer. This is direct apply-then-save sequencing; it does not use
-the compensating utility or roll back a successfully applied mesh.
+The dialog queries `DStaticMesh::IsCompiling`, explicitly finishes selected work
+before persistence and saves even when DDC failed. It owns no compile callback or
+result cell. Destruction drains selected work and retains the authored import.
+Conflicting controls remain disabled while its object is compiling. Scene's
+multi-output transaction retains its separate prepared publication contract.
 
 ## Related Documentation
 

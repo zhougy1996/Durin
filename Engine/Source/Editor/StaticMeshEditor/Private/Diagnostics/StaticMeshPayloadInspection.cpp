@@ -129,7 +129,7 @@ namespace Durin
 		Result.bCpuResident = Mesh.GetRenderData() != nullptr;
 		Result.CookedLoad = Mesh.GetRenderDataLoadStatus();
 		Result.Gpu = Mesh.GetRenderResourceStatus();
-		Result.Operation = GetStaticMeshCompilationDiagnostic(Mesh);
+		Result.Operation = Mesh.GetCompilationDiagnostic();
 		Result.bOperationSourceMatches = Result.Operation.RequestId != 0
 			&& Result.Operation.SourceIdentity == Source.GetIdentity();
 		Result.Collision = InspectStaticMeshCollision(Mesh);

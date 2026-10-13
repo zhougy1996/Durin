@@ -30,11 +30,11 @@ namespace Durin
 		}
 		static auto BuildCandidate(DStaticMesh* Mesh, FMeshDescription Geometry,
 			std::optional<std::vector<FMeshMaterialSlotDefinition>> Slots = std::nullopt)
-			-> std::expected<void, std::vector<std::string>>
+			-> std::expected<void, std::string>
 		{
 			FStaticMeshSource Source;
 			if (const auto Initialized = Source.Initialize(std::move(Geometry)); !Initialized)
-				return std::unexpected(std::vector<std::string>{FormatStaticMeshSourceError(Initialized.error())});
+				return std::unexpected(FormatStaticMeshSourceError(Initialized.error()));
 			return Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous,
 				{.Source = Source, .PreparedMaterialSlots = std::move(Slots)});
 		}

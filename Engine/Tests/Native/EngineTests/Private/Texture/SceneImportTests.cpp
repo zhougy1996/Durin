@@ -554,8 +554,8 @@ TEST(FSceneImportTests, SavedGltfOutputsReloadWithoutSourcesAndRejectEveryReimpo
 			EXPECT_FALSE(MeshFactory->GetReimportCapabilities(*Mesh).bCanReimportFromFile);
 			MeshFactory->ReimportFromFiles(*Mesh, Files, [&](auto Result) { Reimported = std::move(Result); });
 			EXPECT_EQ(Reimported.Status, EReimportResult::Failed);
-			EXPECT_EQ(ReimportStaticMesh(*Mesh).error().Code, EStaticMeshRebuildError::UnsupportedReimport);
-			EXPECT_EQ(ReimportStaticMeshFromFile(*Mesh, "Triangle.obj").error().Code, EStaticMeshRebuildError::UnsupportedReimport);
+			EXPECT_FALSE(ReimportStaticMesh(*Mesh).Message.empty());
+			EXPECT_FALSE(ReimportStaticMeshFromFile(*Mesh, "Triangle.obj").Message.empty());
 		}
 		if (auto* Texture = Cast<DTexture2D>(Object))
 		{
@@ -616,7 +616,7 @@ TEST(FSceneImportTests, LegacyStandaloneModelReceiptsRemainReadableWithoutReimpo
 		FReimportResult Result;
 		Factory->ReimportFromFiles(*Imported.Asset, Files, [&](auto Value) { Result = std::move(Value); });
 		EXPECT_EQ(Result.Status, EReimportResult::Failed);
-		EXPECT_EQ(ReimportStaticMesh(*Imported.Asset).error().Code, EStaticMeshRebuildError::UnsupportedReimport);
+		EXPECT_FALSE(ReimportStaticMesh(*Imported.Asset).Message.empty());
 		EXPECT_TRUE(Imported.Asset->GetAssetImportData()->Validate());
 		const auto Path = Imported.Asset->GetPackage()->GetPackagePathIdentity();
 		ASSERT_TRUE(UnloadPackage(Path));
@@ -646,7 +646,7 @@ TEST(FSceneImportTests, StandaloneMeshReplacementCannotIntroduceGltfOrFbxSources
 		FReimportResult Result;
 		Factory->ReimportFromFiles(*Imported.Asset, Files, [&](auto Value) { Result = std::move(Value); });
 		EXPECT_EQ(Result.Status, EReimportResult::Failed);
-		EXPECT_EQ(ReimportStaticMeshFromFile(*Imported.Asset, Source).error().Code, EStaticMeshRebuildError::UnsupportedReimport);
+		EXPECT_FALSE(ReimportStaticMeshFromFile(*Imported.Asset, Source).Message.empty());
 	}
 	const auto Dialogs = Factory->GetSourceFileDialogs(*Imported.Asset);
 	ASSERT_EQ(Dialogs.size(), 1u);

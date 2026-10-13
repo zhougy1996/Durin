@@ -4,7 +4,7 @@ Summary: Explain how built-in importers select, persist, reimport, and diagnose 
 
 Modules: AssetTools, DurinEd, AssetForgeBuiltins
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-10-13
 
 Durin imports from ordinary files selected with the platform file chooser.
 Source files do not need to live beneath an Asset mount, and the editor does
@@ -103,11 +103,14 @@ current family import interpretation. The action is available only when every
 required role has a hint. **Reimport From File...** is always available for a
 successfully loaded supported asset and selects a complete replacement source
 set even when no hint exists. Both actions capture once, prepare a detached
-candidate, and commit canonical imported data, settings, derived result, and
-hints together. A resolution, decode, build, or cancellation failure leaves
-both live and persisted state unchanged. A later save failure preserves the
-prior canonical DAST v9 main/raw-bulk closure and leaves the complete new live
-state Dirty for retry.
+candidate, and commit validated imported values. Texture2D and standalone StaticMesh
+commit authored Source, settings/material slots and hints before triggering independent
+compilation. A later DDC failure or cancellation retains those new authored values;
+StaticMesh clears old render/collision projections so they cannot use new material slots.
+TextureCube and VolumeTexture retain their prepared derived-publication boundary.
+Resolution or decoding failure leaves live and persisted values unchanged. Saving
+belongs to the upper-layer editor operation. A save failure preserves the prior
+canonical DAST v9 main/raw-bulk closure and leaves the new live state Dirty for retry.
 
 These actions are class-aware capabilities supplied by the reflected factory
 for the loaded asset; the Content Browser does not maintain a separate family

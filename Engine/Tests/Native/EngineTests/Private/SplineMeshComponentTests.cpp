@@ -56,7 +56,7 @@ namespace
 		Section.SourceMaterialIndex = 0;
 		if (const auto Built = Durin::FStaticMeshTestAccess::Build(Mesh, std::move(Imported)); !Built)
 		{
-			ADD_FAILURE() << Durin::FormatStaticMeshBuildMessages(Built.error());
+			ADD_FAILURE() << Built.error();
 			return nullptr;
 		}
 		return Mesh;
@@ -337,7 +337,7 @@ TEST(FSplineMeshComponentTests, SourcePublicationRecoversUnavailableState)
 	Section.SourceMaterialIndex = 0;
 	std::string Error;
 	const auto SynchronousBuild1 = Durin::FStaticMeshTestAccess::Build(Pending, std::move(Imported));
-	ASSERT_TRUE(SynchronousBuild1) << Durin::FormatStaticMeshBuildMessages(SynchronousBuild1.error());
+	ASSERT_TRUE(SynchronousBuild1) << SynchronousBuild1.error();
 	EXPECT_TRUE(Component->GetDerivedState()->IsValid());
 	EXPECT_FALSE(Component->IsMeshDirty());
 	MarkObjectHierarchyAsGarbage(World);

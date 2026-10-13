@@ -16,8 +16,9 @@ namespace
 		const auto Imported = AssetForge::Builtins::CreateTransientStaticMeshFromFile(
 			SourcePath.generic_string(), nullptr, FGuid::NewGuid().ToString());
 		if (!Imported) return ::testing::AssertionFailure()
-			<< AssetForge::Builtins::FormatStaticMeshRebuildError(Imported.error());
+			<< Imported.error();
 		const auto Source = (*Imported)->GetSource();
+		(*Imported)->BlockOnAnyAsyncBuild();
 		MarkAsGarbage(*Imported);
 		const auto Geometry = Source.AcquireGeometry();
 		if (!Geometry) return ::testing::AssertionFailure() << FormatStaticMeshSourceError(Geometry.error());
@@ -28,7 +29,7 @@ namespace
 		if (!Built)
 		{
 			auto Failure = ::testing::AssertionFailure();
-			for (const auto& Error : Built.error()) Failure << Error << "\n";
+			Failure << Built.error();
 			return Failure;
 		}
 		return ::testing::AssertionSuccess();
@@ -190,7 +191,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 		const std::filesystem::path SourcePath = Root / "Models" / (std::string(Name) + ".gltf");
 		WriteStaticMeshSlotVariant(SourcePath, Materials, Replacement, LastOnly, AppendedMaterialIndex);
 		const auto Reimport = Durin::AssetForge::Builtins::ReimportStaticMesh(*Mesh);
-		if (Reimport || Reimport.error().Code != Durin::AssetForge::Builtins::EStaticMeshRebuildError::UnsupportedReimport)
+		if (Reimport || Reimport.Message.empty())
 			return ::testing::AssertionFailure() << "Expected one-time model reimport rejection";
 		return RebuildMaterialSlotFixture(*Mesh, SourcePath);
 	};
@@ -361,7 +362,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 		MutableSource, R"({ "name": "Blue" }, { "name": "Red" })");
 	const auto Reimport = Durin::AssetForge::Builtins::ReimportStaticMesh(*Component->GetStaticMesh());
 	ASSERT_FALSE(Reimport);
-	EXPECT_EQ(Reimport.error().Code, Durin::AssetForge::Builtins::EStaticMeshRebuildError::UnsupportedReimport);
+	EXPECT_FALSE(Reimport.Message.empty());
 	ASSERT_TRUE(RebuildMaterialSlotFixture(*Component->GetStaticMesh(), MutableSource));
 	ASSERT_EQ(Component->GetStaticMesh()->GetMaterialIndex(Durin::FName("Red")), RedIndex);
 	EXPECT_EQ(Component->GetStaticMesh()->GetMaterialSlot(RedIndex)->SourceMaterialIndex, 1u);

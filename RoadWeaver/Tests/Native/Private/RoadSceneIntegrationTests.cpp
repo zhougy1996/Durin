@@ -76,8 +76,8 @@ TEST(RoadSceneIntegration, LoadedPreviewMeshFinishesCompilationBeforeConstructio
 	auto* Actor = NewObject<ARoadNetActor>(nullptr, "LoadedRoadPreview");
 	Actor->SetPreviewMesh(Mesh);
 	Actor->SetRoadNet(Asset);
-	EXPECT_EQ(GetStaticMeshCompilationDiagnostic(*Mesh).Status, EStaticMeshCompilationStatus::Succeeded)
-		<< FormatStaticMeshCompilationDiagnostic(GetStaticMeshCompilationDiagnostic(*Mesh));
+	EXPECT_EQ(Mesh->GetCompilationDiagnostic().Status, EStaticMeshCompilationStatus::Succeeded)
+		<< FormatStaticMeshCompilationDiagnostic(Mesh->GetCompilationDiagnostic());
 	EXPECT_EQ(Actor->GetGenerationState(), "Ready") << Actor->GetDiagnostic();
 	Actor->PostLoad();
 	const auto Components = Actor->FindComponentsByClass<DSplineMeshComponent>();

@@ -910,8 +910,9 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage0Tests, Cap
 {
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	const auto Created = AssetForge::Builtins::CreateTransientStaticMeshFromFile(Source.generic_string(), nullptr, "M3CollisionSourceFixture");
-	ASSERT_TRUE(Created) << AssetForge::Builtins::FormatStaticMeshRebuildError(Created.error());
+	ASSERT_TRUE(Created) << Created.error();
 	auto* Mesh = *Created;
+	Mesh->FinishCompilation();
 	ASSERT_NE(Mesh, nullptr);
 	const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
 	ASSERT_NE(RenderData, nullptr);
@@ -1075,8 +1076,9 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage5Tests, Ins
 {
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	const auto Created = AssetForge::Builtins::CreateTransientStaticMeshFromFile(Source.generic_string(), nullptr, "M3CollisionInspectionFixture");
-	ASSERT_TRUE(Created) << AssetForge::Builtins::FormatStaticMeshRebuildError(Created.error());
+	ASSERT_TRUE(Created) << Created.error();
 	auto* Mesh = *Created;
+	Mesh->FinishCompilation();
 	ASSERT_NE(Mesh, nullptr);
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);

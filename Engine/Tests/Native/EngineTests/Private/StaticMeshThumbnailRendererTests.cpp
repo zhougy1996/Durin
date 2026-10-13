@@ -192,7 +192,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Mesh = LoadResult.value_or(nullptr);
 	ASSERT_TRUE(LoadResult) << (LoadResult ? std::string{} : LoadResult.error().Message);
 	ASSERT_NE(Mesh, nullptr);
-	ASSERT_TRUE(Durin::HasPendingStaticMeshCompilation(*Mesh));
+	ASSERT_TRUE(Mesh->IsCompiling());
 
 	Durin::Editor::StaticMesh::DStaticMeshThumbnailRenderer Renderer;
 	Durin::Editor::FAssetThumbnailGenerationRequest Request;

@@ -4,7 +4,7 @@ Summary: Define StaticMesh source ownership, detached builds, payload validation
 
 Modules: Engine
 
-Last reviewed: 2026-10-10
+Last reviewed: 2026-10-13
 
 ## Source ownership and publication
 
@@ -105,12 +105,21 @@ collision readiness, or collision scheduling.
 Build consumes fixed material-slot definitions and never reconciles, appends,
 renames or retires asset slots. Import/reimport owns that policy through
 `ReconcileStaticMeshMaterialSlots`, preserving matched bindings and stable positions.
-`PreparedMaterialSlots` remains operation-owned until successful render publication.
-Ordinary rebuilds retain existing slots. Render failure preserves previous state;
+Standalone import/reimport validates and commits Source, reconciled slots and
+owned import metadata through `DStaticMesh::SetImportedSource`, after cancelling
+and retiring prior render/collision work. One consumer refresh clears old derived
+render and collision data before installing the authored values, so new slots
+never coexist with old projections. `PostEditChange` starts the independent render
+build. Import success describes this authored commit; later DDC failure or cancellation
+keeps the new source, slots and metadata. Saving belongs to the editor caller.
+
+Advanced `BuildFromSource` transactions, including Scene publication, retain
+`PreparedMaterialSlots` and provenance until successful render publication.
+Ordinary rebuilds retain existing slots and preserve previous render data on failure;
 the private destructive test replacement retains its explicit destructive behavior.
 
-Authored PostLoad, ordinary Build/BuildFromSource, standalone import/reimport and Scene
-import complete at asset commit. The transaction schedules missing collision as an
+Authored PostLoad, ordinary Build/BuildFromSource and Scene publication complete at
+render commit. The transaction schedules missing collision as an
 independent operation, with its own readiness and error. Collision failure never
 rolls back accepted source, slots, provenance or render data and never changes a
 successful render completion into a failure. Cook independently builds detached
@@ -119,7 +128,8 @@ Cooked decoding validates both existing payloads and prepares bounds/ray data
 before installing them within one consumer refresh boundary, without editor construction.
 Bounds/getters/scene preparation never finish authored work.
 
-Preview/components retain the previous accepted mesh until publication. An
+Ordinary rebuilds retain the previous accepted mesh until publication. Standalone
+imports clear obsolete projections at authored commit. An
 initially empty preview waits for CPU data; thumbnail readiness returns pending
 while authored compilation is active, then requests resources through the
 independent GPU path. Inspector and material preview report pending work without

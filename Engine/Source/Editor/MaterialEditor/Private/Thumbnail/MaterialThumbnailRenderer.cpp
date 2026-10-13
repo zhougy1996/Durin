@@ -268,7 +268,7 @@ namespace Durin::Editor::Material
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
 						.Diagnostic = "The rendered-thumbnail sphere mesh is unavailable."};
 				// PostLoad schedules mesh compilation; asset residency does not imply render data is ready.
-				if (HasPendingStaticMeshCompilation(*Sphere))
+				if (Sphere->IsCompiling())
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 				FStaticMeshRenderResourceStatus SphereStatus =

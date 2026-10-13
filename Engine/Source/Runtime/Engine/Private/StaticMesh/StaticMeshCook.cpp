@@ -291,7 +291,7 @@ namespace Durin
 		if (CanJoinStaticMeshCompilation(*this, GetSource())) return;
 		if (const auto Submitted = Build(EStaticMeshBuildMode::Asynchronous, {.bMarkPackageDirty = false}); !Submitted)
 		{
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatStaticMeshBuildMessages(Submitted.error()));
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Submitted.error());
 			return;
 		}
 #endif

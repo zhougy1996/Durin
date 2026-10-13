@@ -285,7 +285,7 @@ namespace Durin::Editor::Material
 				DStaticMesh* Mesh = GetSelectedMesh();
 				if (Mesh == nullptr || Mesh->GetRenderData() == nullptr)
 				{
-					SceneStatus = Mesh && HasPendingStaticMeshCompilation(*Mesh)
+					SceneStatus = Mesh && Mesh->IsCompiling()
 						? "Building preview mesh..." : "The selected material preview mesh has no render data.";
 					return;
 				}

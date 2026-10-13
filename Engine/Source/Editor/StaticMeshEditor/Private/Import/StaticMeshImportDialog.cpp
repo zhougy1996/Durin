@@ -38,20 +38,14 @@ namespace Durin::Editor::StaticMesh
 	{
 		FObjectKey Owner;
 		FPackagePath Package;
-		std::optional<FStaticMeshCompilationResult> Result;
 		bool bSaveFailed = false;
 	};
 
 	FStaticMeshImportDialog::~FStaticMeshImportDialog()
 	{
-		auto Detached = std::move(Operation);
-		if (Detached && !Detached->Result)
-			if (auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Detached->Owner)))
-			{
-				CancelStaticMeshCompilation(*Mesh);
-				// Module/widget retirement releases the callback code before the owning DLL can unload.
-				FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
-			}
+		if (Operation)
+			if (auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Operation->Owner)))
+				Mesh->FinishCompilation(); // Retire work; the authored import remains committed.
 	}
 
 	auto FStaticMeshImportDialog::Open(std::string_view DestinationDirectory) -> void
@@ -74,17 +68,18 @@ namespace Durin::Editor::StaticMesh
 				| ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 			return;
 
-		if (bAllowAssetMutation && Operation && Operation->Result && !Operation->bSaveFailed && FinishImport())
+		if (bAllowAssetMutation && Operation && !Operation->bSaveFailed && FinishImport())
 		{
 			ImGui::CloseCurrentPopup();
 			ImGui::EndPopup();
 			return;
 		}
-		const bool bBusy = Operation && !Operation->Result;
+		const auto* PendingMesh = Operation ? Cast<DStaticMesh>(ResolveObjectKey(Operation->Owner)) : nullptr;
+		const bool bBusy = PendingMesh && PendingMesh->IsCompiling();
 		if (bBusy) ImGui::TextDisabled("Building mesh...");
 		if (Operation && Operation->bSaveFailed)
 		{
-			ImGui::TextWrapped("The mesh is ready, but its package could not be saved. Retry saving or close and keep the dirty asset.");
+			ImGui::TextWrapped("The mesh was imported, but its package could not be saved. Retry saving or close and keep the dirty asset.");
 			if (ImGui::Button("Retry Save") && bAllowAssetMutation && FinishImport())
 			{
 				ImGui::CloseCurrentPopup();
@@ -162,7 +157,7 @@ namespace Durin::Editor::StaticMesh
 		ImGui::EndDisabled();
 		ImGui::SameLine();
 		ImGui::EndDisabled();
-		ImGui::BeginDisabled(Operation && !Operation->Result);
+		ImGui::BeginDisabled(bBusy);
 		if (MonaImGui::DialogButton("Cancel", true)) { Operation.reset(); ImGui::CloseCurrentPopup(); }
 		ImGui::EndDisabled();
 		ImGui::EndPopup();
@@ -250,9 +245,6 @@ namespace Durin::Editor::StaticMesh
 		Factory->SetImportSettings(Coordinates.GetSettings());
 		Operation = std::make_shared<FOperationState>();
 		Operation->Package = AssetPath;
-		Factory->SetAsyncImportCompletion([Weak = std::weak_ptr<FOperationState>(Operation)](const auto& Result) {
-			if (auto State = Weak.lock()) State->Result = Result;
-		});
 		const FAssetToolsResult Result = IAssetTools::Get().ImportAsset(
 			TopLevelAssetPath, DStaticMesh::StaticClass(),
 			SourcePathBuffer.data(), Factory);
@@ -269,16 +261,11 @@ namespace Durin::Editor::StaticMesh
 
 	auto FStaticMeshImportDialog::FinishImport() -> bool
 	{
-		if (!Operation || !Operation->Result) return false;
-		if (Operation->Result->Status != EStaticMeshCompilationStatus::Succeeded)
-		{
-			const auto Message = Operation->Result->ToString();
-			SetError(Message.empty() ? "StaticMesh import did not complete." : Message);
-			const auto Package = Operation->Package;
-			Operation.reset();
-			UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved);
-			return false;
-		}
+		if (!Operation) return false;
+		auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Operation->Owner));
+		if (!Mesh) { Operation.reset(); SetError("The imported StaticMesh is no longer available."); return false; }
+		if (Mesh->IsCompiling()) return false;
+		Mesh->FinishCompilation(); // Saving waits for collision retirement, not compilation success.
 		const auto AssetPath = Operation->Package;
 		if (const FAssetOperationResult Saved = IAssetTools::Get().SaveAssets({
 				.AssetPaths = {AssetPath},

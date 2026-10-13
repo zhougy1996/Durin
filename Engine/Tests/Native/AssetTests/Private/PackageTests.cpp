@@ -10423,7 +10423,7 @@ TEST(FPackageAssetTests, CookOfflineMeshPreparationDoesNotScheduleEditorCompilat
 		.Contribute = [&](DObject& Object, std::string_view, FCookContext&) -> FCookContributionResult {
 			Contributed = true;
 			EXPECT_FALSE(Object.GetPackage()->IsGraphPrivate());
-			EXPECT_FALSE(HasPendingStaticMeshCompilation(static_cast<DStaticMesh&>(Object)));
+			EXPECT_FALSE(static_cast<DStaticMesh&>(Object).IsCompiling());
 			return {.Error = ECookContributionError::SourceMutation, .ObjectPath = Object.GetObjectPath()};
 		}, .DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult { return {}; }};
 	const auto Handle = RegisterCookContributor(DStaticMesh::StaticClass(), Registration).Handle;

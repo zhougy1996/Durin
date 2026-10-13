@@ -9,9 +9,6 @@ namespace Durin
 {
 	inline constexpr size_t MaximumStaticMeshBuildDiagnosticBytes = 4096;
 
-	enum class EStaticMeshCompilationProducts : uint8 { Render, Collision, All };
-	ENGINE_API auto FinishStaticMeshCompilation(DStaticMesh& Mesh,
-		EStaticMeshCompilationProducts Products = EStaticMeshCompilationProducts::All) -> FAssetCompileProcessResult;
 
 	enum class EStaticMeshCompilationStatus : uint8 { Succeeded, Failed, Cancelled, Superseded };
 	enum class EStaticMeshCompilationPhase : uint8 { Queued, Building, Mailbox, Terminal };
@@ -60,9 +57,8 @@ namespace Durin
 	// Ordinary completion contains no scheduling, cache or provider diagnostics.
 	struct FStaticMeshCompilationResult
 	{
-		uint64 RequestId = 0;
 		EStaticMeshCompilationStatus Status = EStaticMeshCompilationStatus::Failed;
-		std::vector<std::string> Errors;
+		std::string Diagnostic;
 		ENGINE_API auto ToString() const -> std::string;
 	};
 	using FStaticMeshCompilationCompletion = std::function<void(const FStaticMeshCompilationResult&)>;
@@ -72,17 +68,15 @@ namespace Durin
 #endif
 
 	ENGINE_API auto HasPendingStaticMeshSourceMutation(const DStaticMesh& Mesh) -> bool;
-	ENGINE_API auto HasPendingStaticMeshCompilation(const DStaticMesh& Mesh) -> bool;
-	ENGINE_API auto GetStaticMeshCompilationDiagnostic(const DStaticMesh& Mesh) -> FStaticMeshCompilationDiagnostic;
 	// Query a particular completion even after its owner is destroyed or superseded.
 	// Returns RequestId == 0 after the bounded history entry has expired.
 	ENGINE_API auto GetStaticMeshCompilationDiagnostic(uint64 RequestId) -> FStaticMeshCompilationDiagnostic;
 	ENGINE_API auto GetStaticMeshCompilationManagerDiagnostics() -> FStaticMeshCompilationManagerDiagnostics;
-	ENGINE_API auto CancelStaticMeshCompilation(DStaticMesh& Mesh) -> void;
 	ENGINE_API auto NotifyStaticMeshCompilationMutation(DStaticMesh& Mesh) -> void;
 
 	namespace AssetPrivate
 	{
+		auto IsStaticMeshCompilationMutationBlocked(const DStaticMesh& Mesh) -> bool;
 		ENGINE_API auto CreateStaticMeshCompilingManager() -> std::shared_ptr<IAssetCompilingManager>;
 		ENGINE_API auto SetStaticMeshCompilationPhaseHookForTests(
 			std::function<void(uint64, EStaticMeshCompilationPhase)> Hook) -> void;

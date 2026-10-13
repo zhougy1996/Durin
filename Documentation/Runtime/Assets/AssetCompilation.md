@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureCompressor, MeshBuilder
 
-Last reviewed: 2026-10-12
+Last reviewed: 2026-10-13
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -348,11 +348,12 @@ are known.
 
 `Durin.StaticMesh` uses one task scope, bounded queue and owner-thread mailbox
 for separate render and collision records. Ordinary Build/BuildFromSource, PostLoad
-and import complete at asset commit; collision failure is reported through
+complete at render commit; standalone import completes at authored-source commit.
+Collision failure is reported through
 `GetCollisionBuildStatus` and `GetCollisionBuildError`. Pending render work alone
 does not imply pending collision. Render callbacks never wait for collision.
 Asset-level finish drains render records and BodySetup records belonging to selected
-assets. `FinishStaticMeshCompilation` can select Render, Collision, or All;
+assets. `DStaticMesh::FinishCompilation` selects Render, Collision, or All;
 `DBodySetup::FinishPhysicsMeshes` selects only one setup. Render-only barriers never
 wait for collision. Shutdown stops
 admission, cancels both kinds and drains workers before releasing storage.
@@ -376,10 +377,24 @@ and publication do not reread it. MeshBuilder remains resident throughout the ed
 lifetime. Render workers borrow its interface directly; consumers stop admission
 and drain work before normal module shutdown. Source-changing operations are discarded after owner edits,
 without automatic requeue. Current-source rebuilds may requeue stale render facts.
-Synchronous Build cancels older work, builds CPU render data directly and publishes
-it, returning owned error strings. AsyncBuild success means admission only; its
-completion describes the render result. Import publishes source, render, prepared
-slots and provenance in one refresh boundary. Collision failure does not undo it.
+Synchronous Build cancels and retires older work for the selected mesh, builds CPU
+render data directly and publishes it, returning `expected<void, string>`.
+AsyncBuild success means admission only; `FStaticMeshCompilationResult` contains
+only terminal Status and an owned Diagnostic. Detailed request identity and causes
+remain in the bounded diagnostic history. Standalone import commits Source, slots
+and provenance together, clears old render/collision projections, then triggers
+`PostEditChange`. Compilation failure never rolls back that authored commit.
+Advanced source-changing compilation and Scene publication retain their candidate
+transaction until render publication. Collision failure does not undo publication.
+
+`DStaticMesh::IsCompiling` queries render work without pumping, including canceled
+records whose native workers or DDC callbacks have not retired. Collision readiness
+remains a separate BodySetup query. `BlockOnAnyAsyncBuild` cancels and retires the
+selected mesh's render and collision work before authored mutation. The retirement
+barrier rejects same-owner resubmission from callbacks and leaves unrelated assets
+unapplied. `CancelCompilation` requests cancellation; it does not itself wait.
+Object finish uses the aggregate `OnAssetPostCompile` notification for successful
+render publication; canceled, stale and failed work emit no success event.
 
 Collision records belong to BodySetup, not to its mesh. They own a detached
 `FPhysicsMeshInputTask` and `FCookBodySetupInfo` settings snapshot. Source acquisition, normalization
@@ -424,12 +439,12 @@ residency remains a separate manager and invokes no editor build operation.
 The request-ID overload of `GetStaticMeshCompilationDiagnostic` retrieves the exact
 completion even when the owner has newer work or has been destroyed. An expired
 history entry returns request ID zero.
-`GetStaticMeshCompilationDiagnostic` and
+`DStaticMesh::GetCompilationDiagnostic`, the request-ID history lookup and
 `GetStaticMeshCompilationManagerDiagnostics` are owner-thread, value-only reads.
 They neither pump work nor perform source/cache I/O or initialize resources.
 Request ID zero means no available observation, including evicted history.
-A nonzero observation describes its captured source identity, render builder version and module
-generation, not proof that the live asset still matches it. Match these facts
+A nonzero observation describes its captured source identity and render builder
+version, not proof that the live asset still matches it. Match these facts
 before presenting it as current. Cache origin and DDC keys are implementation
 details and are not exposed through completion diagnostics.
 Nonfatal cache failures are logged once at the Engine execution boundary with

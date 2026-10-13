@@ -4,7 +4,7 @@ Summary: Define Factory-backed standalone import, immutable source capture, fami
 
 Modules: CoreDObject, AssetTools, AssetForgeBuiltins, DurinEd
 
-Last reviewed: 2026-10-02
+Last reviewed: 2026-10-13
 
 Durin creates standalone authored assets through `IAssetTools` and reflected
 concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, and StaticMesh
@@ -217,24 +217,18 @@ Failure has no source value. Volume rebuild and public reimport return
 `expected<void, string>`; capture, translation, build, metadata and save failures
 are formatted once at their boundary. Save result effects stay with the save
 operation rather than being nested in a texture rebuild error.
-StaticMesh reimport retains the complete compilation diagnostic through
-`FStaticMeshFactoryError`, including request identity, terminal disposition, phase
-and nested completion causes. Cancellation does not publish new provenance.
-StaticMesh rebuild and public reimport return the expected-void alias
-`FStaticMeshRebuildResult`, preserving settings, mount, source-hint, capture,
-source initialization, import validation, submission and terminal completion
-causes. Synchronous saves retain their asset result within the completion cause.
-Factory import and reimport admission retain this same error through
-`FStaticMeshFactoryError`. Reimport entry checks distinguish object type, missing
-import data/source and source count, retaining object identity and actual count.
-Reimport path resolution and file inspection retain system errors instead of throwing
-past the result boundary. Geometry decoding retains the existing scene diagnostic
-collection; that diagnostic contract remains pending migration. Failed decoding
-leaves resident data and provenance unchanged. Transient creation returns an
-expected `DStaticMesh*` with the same rebuild error; the pointer is available
-only after successful rebuilding. Rejection retains the requested object name and
-source filename, nested rebuild cause and any path/file system error; the failed
-private object is marked as garbage before returning.
+StaticMesh reimport returns `FReimportResult` with `EReimportResult` after the
+authored Source, material slots and owned import metadata commit. Factories never
+save or wait for render success. `PostEditChange` starts the independent derived
+build; failures and cancellation remain compilation diagnostics and do not undo
+import. Public build admission and transient creation use owned diagnostic strings,
+with `FStaticMeshFactoryError` carrying that text through the generic factory
+boundary. Detailed request/cause observations remain with the compiling manager.
+Upper-layer save failure sets `SaveCause`, leaves `FactoryCause` empty and retains
+the committed Dirty object for retry. Decoding/validation failure leaves resident
+values and provenance unchanged. Transient creation returns the authored mesh
+before derived data is ready; render consumers explicitly call `FinishCompilation`
+when needed. Failed private objects are marked as garbage before returning.
 The outer status/message contract remains transitional. Existing publication order
 and save disposition are preserved; save causes retain the full asset result.
 Atlas inspection returns expected `FVolumeTextureAtlasInspection` or a Core

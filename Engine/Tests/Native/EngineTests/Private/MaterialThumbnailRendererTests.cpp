@@ -449,7 +449,7 @@ TEST(FMaterialThumbnailRendererTests,
 	ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
 
 	ASSERT_TRUE(Sphere->Build(EStaticMeshBuildMode::Asynchronous, {.bMarkPackageDirty = false})) << Error;
-	ASSERT_TRUE(Durin::HasPendingStaticMeshCompilation(*Sphere));
+	ASSERT_TRUE(Sphere->IsCompiling());
 	ASSERT_EQ(Sphere->GetRenderResourceStatus().Readiness,
 		Durin::EStaticMeshRenderResourceReadiness::Unavailable);
 	const auto SphereCompiling = (*Session)->PollResources();
@@ -458,7 +458,7 @@ TEST(FMaterialThumbnailRendererTests,
 		<< SphereCompiling.Diagnostic;
 	EXPECT_TRUE(SphereCompiling.Diagnostic.empty());
 	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Sphere);
-	EXPECT_FALSE(Durin::HasPendingStaticMeshCompilation(*Sphere));
+	EXPECT_FALSE(Sphere->IsCompiling());
 	EXPECT_NE(Sphere->GetRenderData(), nullptr);
 
 	Session->reset();

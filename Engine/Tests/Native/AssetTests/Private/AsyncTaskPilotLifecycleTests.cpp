@@ -103,7 +103,7 @@ namespace
 		return Source;
 	}
 	auto SubmitBridgeMesh(DStaticMesh& Mesh, FStaticMeshSource Source,
-		FStaticMeshCompilationCompletion Completion = {}) -> std::expected<void, std::vector<std::string>>
+		FStaticMeshCompilationCompletion Completion = {}) -> std::expected<void, std::string>
 	{
 		return Mesh.BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = std::move(Source),
 			.PreparedMaterialSlots = std::vector<FMeshMaterialSlotDefinition>{{.Name = FName("Material"), .SourceName = "Material"}}},
@@ -150,7 +150,7 @@ namespace
 		ASSERT_TRUE(WaitUntil([&] { return Marker.GetCompletion().IsReady(); }, std::chrono::seconds(2)));
 		ASSERT_TRUE(Marker.GetCompletion().IsReady());
 		EXPECT_EQ(ETaskState::Succeeded, Marker.GetState());
-		CancelStaticMeshCompilation(*Meshes[0]);
+		Meshes[0]->CancelCompilation();
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
 		EXPECT_EQ(Held.ReservedBytes, GetStaticMeshCompilationManagerDiagnostics().ReservedBytes);
 		EXPECT_EQ(3u, GetStaticMeshCompilationManagerDiagnostics().OutstandingRecords);
@@ -174,7 +174,7 @@ namespace
 		EXPECT_EQ(nullptr, Meshes[1]->GetRenderData());
 		EXPECT_EQ(0u, Completed[1]);
 		ReleaseMailbox.Trigger();
-		FinishStaticMeshCompilation(*Meshes[1], EStaticMeshCompilationProducts::Render);
+		Meshes[1]->FinishCompilation(EStaticMeshCompilationProducts::Render);
 		EXPECT_NE(nullptr, Meshes[1]->GetRenderData());
 		EXPECT_EQ(nullptr, Meshes[2]->GetRenderData());
 		EXPECT_EQ(0u, Completed[2]);
@@ -185,20 +185,20 @@ namespace
 		const auto SourceReads = Probe->GetReadStats().RequestCount;
 		const auto Writes = Cache->Writes.load();
 		ASSERT_TRUE(Meshes[1]->Build(EStaticMeshBuildMode::Asynchronous));
-		FinishStaticMeshCompilation(*Meshes[1], EStaticMeshCompilationProducts::Render);
+		Meshes[1]->FinishCompilation(EStaticMeshCompilationProducts::Render);
 		EXPECT_EQ(SourceReads, Probe->GetReadStats().RequestCount);
 		EXPECT_EQ(Writes, Cache->Writes.load());
 		Cache->Release.Reset();
 		const auto SupersedeReads = Cache->Reads.load();
 		ASSERT_TRUE(Meshes[1]->Build(EStaticMeshBuildMode::Asynchronous));
-		const auto FirstId = GetStaticMeshCompilationDiagnostic(*Meshes[1]).RequestId;
+		const auto FirstId = Meshes[1]->GetCompilationDiagnostic().RequestId;
 		ASSERT_TRUE(WaitUntil([&] { return Cache->Reads.load() != SupersedeReads; }, std::chrono::seconds(5)));
 		ASSERT_GT(Cache->Reads.load(), SupersedeReads);
 		ASSERT_TRUE(Meshes[1]->Build(EStaticMeshBuildMode::Asynchronous));
 		Cache->Release.Trigger();
-		FinishStaticMeshCompilation(*Meshes[1], EStaticMeshCompilationProducts::Render);
+		Meshes[1]->FinishCompilation(EStaticMeshCompilationProducts::Render);
 		EXPECT_EQ(EStaticMeshCompilationStatus::Superseded, GetStaticMeshCompilationDiagnostic(FirstId).Status);
-		EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, GetStaticMeshCompilationDiagnostic(*Meshes[1]).Status);
+		EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, Meshes[1]->GetCompilationDiagnostic().Status);
 		FAssetCompilingManager::Get().FinishAllCompilation();
 		EXPECT_EQ(0u, GetStaticMeshCompilationManagerDiagnostics().ReservedBytes);
 	}
