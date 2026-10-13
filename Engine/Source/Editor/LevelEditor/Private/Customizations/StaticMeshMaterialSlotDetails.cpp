@@ -59,7 +59,7 @@ namespace Durin::Editor::Level
 		public:
 			auto CustomizeDetails(IDetailLayoutBuilder& Builder) -> void override
 			{
-				AddRows(Builder, Cast<DStaticMeshComponent>(Builder.GetObject()), {});
+				AddRows(Builder, Cast<DStaticMeshComponent>(Builder.GetObject()), "Static Mesh");
 			}
 
 			static auto AddRows(IDetailLayoutBuilder& Builder, DStaticMeshComponent* Component, std::string_view Category) -> void

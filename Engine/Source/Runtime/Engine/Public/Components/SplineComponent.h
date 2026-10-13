@@ -78,7 +78,7 @@ namespace Durin
 	private:
 		auto TransformSampleToWorld(const FSplineSample& LocalSample) const -> FSplineSample;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Spline", Edit)
 		FSplineCurve SplineCurve;
 
 		std::shared_ptr<const FSplineEvaluationData> EvaluationData;

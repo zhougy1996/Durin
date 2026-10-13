@@ -53,13 +53,13 @@ namespace Durin
 		auto DestroyRenderState() -> void;
 		auto MarkRenderStateDirty() -> void;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Source", Edit)
 		TObjectPtr<DTextureCube> TextureCube;
 
-		DPROPERTY(Edit, MetaData="HideAlpha")
+		DPROPERTY(Category = "Appearance", Edit, MetaData="HideAlpha")
 		FLinearColor Tint{1.0f, 1.0f, 1.0f, 1.0f};
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Appearance", Edit)
 		float Intensity = 1.0f;
 
 		// Non-owning token used only to retire the exact published proxy.

@@ -9,6 +9,7 @@ namespace Durin { class AActor; class DActorComponent; }
 namespace Durin::Editor::Level
 {
 	struct FLevelEditorContext;
+	auto CreateSkyLightDetailsCustomization() -> std::shared_ptr<IDetailCustomization>;
 	auto CreateStaticMeshActorDetailsCustomization() -> std::shared_ptr<IDetailCustomization>;
 
 	auto CreateActorComponentDetailsCustomization(

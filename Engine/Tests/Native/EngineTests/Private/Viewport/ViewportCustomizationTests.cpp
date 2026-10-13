@@ -694,7 +694,7 @@ TEST(FObjectPropertyViewCustomizationTests, CameraDetailsOnlyCustomizeTheCameraC
 
 	Durin::Editor::Level::FLevelDetailLayoutBuilder ComponentBuilder(Context, "camera");
 	ComponentBuilder.ApplyCustomization(Component, *Customization);
-	EXPECT_EQ(ComponentBuilder.GetVisibleRowCount(), 1u);
+	EXPECT_EQ(ComponentBuilder.GetVisibleRowCount(), 2u);
 	EXPECT_FALSE(ComponentBuilder.IsReplacingDefaultProperties());
 	Durin::FProperty* TransformProperty = Component->GetClass()->FindPropertyByName("RelativeTransform");
 	Durin::FProperty* ProjectionProperty = Component->GetClass()->FindPropertyByName("ProjectionSettings");
@@ -1088,5 +1088,40 @@ TEST(FPlayerStartActorVisualizerTests, DrawsSelectableSpawnShapeAndFacingCue)
 	EXPECT_GT(Durin::Math::Dot(ArrowShaft.End - ArrowShaft.Start, Forward), 0.0);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FObjectPropertyViewCustomizationTests, CameraViewDistanceSearchAndUndoUseOriginalMembers)
+{
+	InitializeDObjectSystem();
+	auto* Camera = Durin::NewObject<Durin::DCameraComponent>(nullptr, "ViewDistanceCamera");
+	Durin::Editor::Level::FLevelEditorContext Context;
+	for (const auto Search : {"Projection", "Fade Start", "Render Distance", "View Distance"})
+	{
+		Durin::Editor::Level::FLevelDetailLayoutBuilder Layout(Context, Search);
+		Layout.ApplyCustomization(Camera, *Durin::Editor::Level::CreateCameraDetailsCustomization());
+		Layout.AddDefaultProperties(Camera);
+		EXPECT_EQ(Layout.GetVisibleRowCount(), 1u) << Search;
+	}
+	auto* Root = static_cast<Durin::FStructProperty*>(Camera->GetClass()->FindPropertyByName("ViewDistance"));
+	ASSERT_NE(Root, nullptr);
+	auto* Field = Root->GetStruct()->FindPropertyByName("RenderDistance");
+	ASSERT_NE(Field, nullptr);
+	auto* Settings = Root->ContainerPtrToValuePtr<Durin::FViewDistanceSettings>(Camera);
+	const float Before = Settings->RenderDistance;
+	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Editor::FPropertyView View;
+	const Durin::Editor::FPropertyViewContext ViewContext{.Transactor = Transactions.Get()};
+	ASSERT_TRUE(View.HandleOwnerContext(ViewContext, Camera));
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(ViewContext,
+		Durin::Editor::FPropertyEditTarget::ForMember(Camera, Root).ForStructMember(Field),
+		[](auto* Property, void* Container, uint32 Index) { *Property->template ContainerPtrToValuePtr<float>(Container, Index) = 300000.0f; }, false));
+	EXPECT_EQ(Settings->RenderDistance, 300000.0f);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Settings->RenderDistance, Before);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Settings->RenderDistance, 300000.0f);
+	ASSERT_TRUE(Transactions->Reset());
+	Durin::MarkObjectHierarchyAsGarbage(Camera);
 	Durin::CollectGarbage();
 }

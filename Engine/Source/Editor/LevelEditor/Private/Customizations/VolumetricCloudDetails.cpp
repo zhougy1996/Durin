@@ -77,7 +77,7 @@ namespace Durin::Editor::Level
 				if (FProperty* Eligibility = Component->GetClass()->FindPropertyByName(
 					"EligibilityStatus")) Builder.HideProperty(Eligibility);
 
-				Builder.AddCustomRow(
+				Builder.EditCategory("Diagnostics").AddCustomRow(
 					"Volumetric Cloud Active Ignored Ineligible Eligibility Status",
 					[Component, Level = EditorContext.Level](
 						::Durin::Editor::FPropertyView&,

@@ -106,6 +106,10 @@ TEST(FSharedDetailCustomizationTests, DeduplicatesOnlyThePlacedObjectPropertyAnd
 	Layout.HideProperty(&Values);
 	EXPECT_FALSE(Layout.ShouldDrawDefaultProperty(First, Values, 0));
 	EXPECT_FALSE(Layout.ShouldDrawDefaultProperty(Second, Values, 1));
+	Durin::Editor::FDetailLayoutBuilder IndexedSearch("Values[1]");
+	IndexedSearch.AddProperty(First, &Values, 0, {.Label = "First Slot"});
+	IndexedSearch.AddProperty(First, &Values, 1, {.Label = "Second Slot"});
+	EXPECT_EQ(IndexedSearch.GetVisibleRowCount(), 1u);
 	Durin::MarkObjectHierarchyAsGarbage(First);
 	Durin::MarkObjectHierarchyAsGarbage(Second);
 	Durin::CollectGarbage();
@@ -150,5 +154,34 @@ TEST(FSharedDetailCustomizationTests, SharedPanelKeepsSearchAndCrossObjectDefaul
 	ImGui::DestroyContext(ImContext);
 	Durin::MarkObjectHierarchyAsGarbage(First);
 	Durin::MarkObjectHierarchyAsGarbage(Second);
+	Durin::CollectGarbage();
+}
+
+TEST(FSharedDetailCustomizationTests, DefaultsShareCategoriesAndRemainIdempotent)
+{
+	InitializeDObjectSystem();
+	auto* Component = Durin::NewObject<Durin::DSceneComponent>(nullptr, "UnifiedDefaultRows");
+	auto* Transform = Component->GetClass()->FindPropertyByName("RelativeTransform");
+	auto* World = Component->GetClass()->FindPropertyByName("ComponentToWorld");
+	ASSERT_NE(Transform, nullptr);
+	ASSERT_NE(World, nullptr);
+	Durin::Editor::FDetailLayoutBuilder Layout("Diagnostics");
+	Layout.EditCategory("Diagnostics").AddCustomRow("Status", [](auto&, const auto&) { return false; });
+	Layout.AddDefaultProperties(Component);
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 2u);
+	EXPECT_TRUE(Layout.IsDefaultPropertyPlaced(Component, *Transform, 0));
+	EXPECT_TRUE(Layout.IsDefaultPropertyPlaced(Component, *World, 0));
+	Layout.AddDefaultProperties(Component);
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 2u);
+	Layout.HideCategory("Diagnostics");
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 0u);
+	Durin::Editor::FDetailLayoutBuilder Authored;
+	Authored.AddDefaultProperties(Component, false);
+	EXPECT_EQ(Authored.GetVisibleRowCount(), 1u);
+	Durin::Editor::FDetailLayoutBuilder Hidden;
+	Hidden.HideProperty(Transform);
+	Hidden.AddDefaultProperties(Component, false);
+	EXPECT_EQ(Hidden.GetVisibleRowCount(), 0u);
+	Durin::MarkObjectHierarchyAsGarbage(Component);
 	Durin::CollectGarbage();
 }

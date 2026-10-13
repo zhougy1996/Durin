@@ -42,7 +42,7 @@ namespace Durin
 		auto HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void;
 		auto HandleStaticMeshCollisionDataChanged(DStaticMesh* ChangedMesh) -> void;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Static Mesh", Edit)
 		TObjectPtr<DStaticMesh> StaticMesh;
 
 		friend class DStaticMesh;

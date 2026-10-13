@@ -31,18 +31,18 @@ namespace Durin
 			ClampMin = "1", ClampMax = "179", UIMin = "20", UIMax = "120")
 		float FieldOfViewDegrees = 60.0f;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Projection")
 		float NearClip = 0.1f;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Projection")
 		float FarClip = 500000.0f;
 
 		// Preserve the historical viewport-driven framing unless a camera explicitly opts into a fixed output shape.
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Projection")
 		ECameraAspectRatioMode AspectRatioMode = ECameraAspectRatioMode::Viewport;
 
 		// Used only when AspectRatioMode is Custom.
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Projection")
 		float CustomAspectRatio = 16.0f / 9.0f;
 
 		auto operator==(const FCameraProjectionSettings&) const -> bool = default;
@@ -55,10 +55,10 @@ namespace Durin
 	{
 		GENERATED_BODY()
 
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "View Distance")
 		float FadeStart = 180000.0f;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "View Distance")
 		float RenderDistance = 200000.0f;
 
 		auto operator==(const FViewDistanceSettings&) const -> bool = default;
@@ -103,10 +103,10 @@ namespace Durin
 			FCameraProjectionSettings InProjectionSettings,
 			FViewDistanceSettings InViewDistance) -> void;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "Projection")
 		FCameraProjectionSettings ProjectionSettings;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, Category = "View Distance")
 		FViewDistanceSettings ViewDistance;
 	};
 }

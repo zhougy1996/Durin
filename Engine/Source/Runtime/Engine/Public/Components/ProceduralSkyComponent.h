@@ -38,37 +38,37 @@ namespace Durin
 		ENGINE_API auto CreateSceneProxy() -> std::shared_ptr<const FProceduralSkySceneProxy>;
 		auto Publish() -> void;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Activation", Edit)
 		bool bEnabled = true;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Activation", Edit)
 		int32 Priority = 0;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Sun", Edit)
 		FVector3f SunDirection{-0.4f, 0.5f, 0.75f};
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Appearance", Edit)
 		FVector3f ZenithColor{0.18f, 0.28f, 0.50f};
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Appearance", Edit)
 		FVector3f HorizonColor{0.30f, 0.32f, 0.35f};
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Appearance", Edit)
 		FVector3f GroundColor{0.025f, 0.020f, 0.018f};
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Appearance", Edit)
 		FVector3f HaloColor{0.50f, 0.39f, 0.275f};
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Appearance", Edit)
 		FVector3f Tint{1};
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Appearance", Edit)
 		float HorizonExponent = 1;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Appearance", Edit)
 		float HaloExponent = 16;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Appearance", Edit)
 		float ExposureEV = 0;
 
 		DPROPERTY()

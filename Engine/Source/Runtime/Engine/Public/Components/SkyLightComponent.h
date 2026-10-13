@@ -56,28 +56,28 @@ namespace Durin
 		auto Publish() -> void;
 		auto Remove() -> void;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Activation", Edit)
 		bool bEnabled = true;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Activation", Edit)
 		int32 Priority = 0;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Source", Edit)
 		ESkyLightSourceMode SourceMode = ESkyLightSourceMode::SpecifiedCube;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Source", Edit)
 		TObjectPtr<DTextureCube> TextureCube;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Light", Edit)
 		float Intensity = 1.0f;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Capture", Edit)
 		bool bAutomaticRefresh = true;
 
-		DPROPERTY(Edit, Units = "Seconds")
+		DPROPERTY(Category = "Capture", Edit, Units = "Seconds")
 		float RefreshInterval = 1.0f;
 
-		DPROPERTY(Edit, ReadOnly, Transient)
+		DPROPERTY(Category = "Diagnostics", Edit, ReadOnly, Transient)
 		std::string EligibilityStatus;
 
 		DPROPERTY()

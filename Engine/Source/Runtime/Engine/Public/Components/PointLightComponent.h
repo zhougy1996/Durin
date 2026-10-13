@@ -25,13 +25,13 @@ namespace Durin
 			-> std::unique_ptr<FLightSceneProxy> override;
 
 	private:
-		DPROPERTY(Edit, MetaData="HideAlpha")
+		DPROPERTY(Category = "Light", Edit, MetaData="HideAlpha")
 		FLinearColor Color{1.0f, 1.0f, 1.0f, 1.0f};
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Light", Edit)
 		float Intensity = 1.0f;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Light", Edit)
 		float Range = 10.0f;
 	};
 }

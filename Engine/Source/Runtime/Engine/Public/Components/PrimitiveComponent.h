@@ -94,9 +94,9 @@ namespace Durin
 		FPrimitiveSceneProxy* SceneProxy = nullptr;
 		uint64 PhysicsRegistrationGeneration = 0;
 		mutable FCollisionGeometryRef CachedCollisionGeometry;
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Rendering", Edit)
 		bool bVisible = true;
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Collision", Edit)
 		FBodyInstance BodyInstance;
 
 		friend class FScene;

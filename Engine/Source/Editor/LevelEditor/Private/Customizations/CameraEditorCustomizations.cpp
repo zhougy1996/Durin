@@ -110,10 +110,21 @@ namespace Durin::Editor::Level
 				if (!Camera) return;
 				Builder.HideProperty(Camera->GetClass()->FindPropertyByName("ProjectionSettings"));
 				Builder.HideProperty(Camera->GetClass()->FindPropertyByName("ViewDistance"));
-				Builder.EditCategory("Camera").AddCustomRow(
-					"Camera Projection Field Of View Near Clip Far Clip Aspect Ratio Custom Ratio View Distance",
+				Builder.EditCategory("Projection").AddCustomRow(
+					"Camera Projection Field Of View Near Clip Far Clip Aspect Ratio Custom Ratio",
 					[&Context, Camera](::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
 						return DrawCameraDetails(Context, *Camera, PropertyView, ViewContext);
+					});
+				Builder.EditCategory("View Distance").AddCustomRow(
+					"Camera View Distance Fade Start Render Distance",
+					[Camera](auto& View, const auto& ViewContext) {
+						const FReflection Reflection = ResolveReflection(*Camera);
+						if (!Reflection.IsValid()) return false;
+						DrawViewDistanceValue(View, ViewContext, *Camera, Reflection, "Fade Start", Reflection.FadeStart,
+							100.0f, 0.0f, std::numeric_limits<float>::max(), "%.1f");
+						DrawViewDistanceValue(View, ViewContext, *Camera, Reflection, "Render Distance", Reflection.RenderDistance,
+							100.0f, 0.0f, std::numeric_limits<float>::max(), "%.1f");
+						return false;
 					});
 			}
 

@@ -386,11 +386,10 @@ namespace Durin::Editor::Level
 				auto* Spline = Cast<DSplineComponent>(Object);
 				if (!Spline) return;
 				if (FProperty* SplineCurve = Spline->GetClass()->FindPropertyByName("SplineCurve")) Builder.HideProperty(SplineCurve);
-				Builder.AddCustomRow("Spline Edit Points Segments Length Position Tangents Interpolation Automatic Clamped Aligned Broken Add Duplicate Delete Loop Reorder",
+				Builder.EditCategory("Spline").AddCustomRow("Spline Edit Points Segments Length Position Tangents Interpolation Automatic Clamped Aligned Broken Add Duplicate Delete Loop Reorder",
 					[&Context, Spline](::Durin::Editor::FPropertyView&, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
 					ImGui::PushID(Spline);
 					bool Changed = false;
-					if (MonaImGui::PropertyEdit::BeginGroup("##SplineOverview", "Spline"))
 					{
 						MonaImGui::PropertyEdit::BeginRow("Overview", true);
 						ImGui::Text("%u points  |  %u segments", Spline->GetNumSplinePoints(), Spline->GetNumSplineSegments());
@@ -422,7 +421,6 @@ namespace Durin::Editor::Level
 						}
 						if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Append a control point after the current endpoint.");
 						MonaImGui::PropertyEdit::EndRow(ViewContext.bReadOnly);
-						MonaImGui::PropertyEdit::EndGroup();
 					}
 
 					const std::vector<uint32> Selected = GetSelectedPointIndices(Context, *Spline);
@@ -578,7 +576,7 @@ namespace Durin::Editor::Level
 				auto& Context = GetLevelDetailHostContext(Builder).Context;
 				auto* Actor = Cast<ASplineMeshActor>(Object);
 				if (!Actor) return;
-				Builder.AddCustomRow("Spline Path Generated Segments Diagnostics Edit",
+				Builder.EditCategory("Diagnostics").AddCustomRow("Spline Path Generated Segments Diagnostics Edit",
 					[Actor = TWeakObjectPtr<ASplineMeshActor>(Actor), &Context](
 						::Durin::Editor::FPropertyView&, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
 						auto* Resolved = Actor.Get();

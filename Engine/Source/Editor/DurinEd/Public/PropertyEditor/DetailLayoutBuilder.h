@@ -40,6 +40,8 @@ namespace Durin::Editor
 		DURINED_API auto IsDefaultPropertyPlaced(const DObject* Object, const FProperty& Property, uint32 ArrayIndex) const -> bool;
 		DURINED_API auto ShouldDrawDefaultProperty(const DObject* Object, const FProperty& Property, uint32 ArrayIndex) const -> bool;
 		DURINED_API auto IsReplacingDefaultProperties() const -> bool;
+		// Appends remaining reflected rows to the same category layout as custom rows.
+		DURINED_API auto AddDefaultProperties(DObject* Object, bool bIncludeTransient = true) -> void;
 		DURINED_API auto GetVisibleRowCount() const -> uint32;
 		DURINED_API auto DrawRows(::Durin::Editor::FPropertyView& PropertyView,
 			const ::Durin::Editor::FPropertyViewContext& ViewContext) const -> FDetailLayoutBuilderResult;
@@ -68,11 +70,13 @@ namespace Durin::Editor
 			auto AddCustomRow(std::string_view SearchKeywords, FDetailRowDrawer Drawer) -> void override;
 			auto SetSortOrder(int32 InOrder) -> void override { SortOrder = InOrder; }
 			auto SetTooltip(std::string_view InTooltip) -> void override { Tooltip = InTooltip; }
+			auto SetInitiallyCollapsed(bool bCollapsed) -> void override { bInitiallyCollapsed = bCollapsed; }
 			FDetailLayoutBuilder& Owner;
 			std::string Name;
 			std::string Label;
 			std::string Tooltip;
 			int32 SortOrder = 0;
+			bool bInitiallyCollapsed = false;
 		};
 
 		auto MatchesSearch(std::string_view Candidate) const -> bool;

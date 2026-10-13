@@ -36,34 +36,34 @@ namespace Durin
 		DPROPERTY()
 		TObjectPtr<DSplineComponent> SplineComponent;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Mesh & Materials", Edit)
 		TObjectPtr<DStaticMesh> PathMesh;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Mesh & Materials", Edit)
 		TObjectPtr<DMaterialInterface> PathMaterial;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Deformation", Edit)
 		ESplineMeshAxis ForwardAxis = ESplineMeshAxis::X;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Deformation", Edit)
 		FVector2 PathScale{1.0};
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Deformation", Edit)
 		double PathRollRadians = 0.0;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Deformation", Edit)
 		FVector2 PathOffset{0.0};
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Deformation", Edit)
 		FVector3 FrameUpDirection{0.0, 0.0, 1.0};
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Deformation", Edit)
 		ESplineMeshInterpolation PathInterpolation = ESplineMeshInterpolation::Linear;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Collision", Edit)
 		bool bEnablePathCollision = false;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Rendering", Edit)
 		bool bPathVisible = true;
 
 		uint64 SplineMutationListenerId = 0;

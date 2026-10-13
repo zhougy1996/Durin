@@ -82,11 +82,11 @@ protected:
 
 private:
 		// Authored transform relative to AttachParent, or world-relative when unattached.
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Transform", Edit)
 		FTransform RelativeTransform;
 
 		// Derived world transform rebuilt from RelativeTransform and the attachment chain.
-		DPROPERTY(Edit, ReadOnly, Transient, MetaData="DefaultCollapsed")
+		DPROPERTY(Category = "Diagnostics", Edit, ReadOnly, Transient, MetaData="DefaultCollapsed")
 		FTransform ComponentToWorld;
 
 		auto CanAttachTo(const DSceneComponent* Parent) const -> bool;

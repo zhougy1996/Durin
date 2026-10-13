@@ -27,7 +27,7 @@ namespace Durin
 		ENGINE_API auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool override;
 
 	private:
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Shape", Edit)
 		FVector3 BoxHalfExtent{0.5};
 	};
 
@@ -41,7 +41,7 @@ namespace Durin
 		ENGINE_API auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool override;
 
 	private:
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Shape", Edit)
 		double SphereRadius = 0.5;
 	};
 
@@ -58,10 +58,10 @@ namespace Durin
 		ENGINE_API auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool override;
 
 	private:
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Shape", Edit)
 		double CapsuleRadius = 0.4;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Shape", Edit)
 		double CapsuleHalfHeight = 1.0;
 	};
 }

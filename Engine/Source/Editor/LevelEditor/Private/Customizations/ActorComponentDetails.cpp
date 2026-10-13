@@ -4,6 +4,7 @@
 
 #include "Components/ActorComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SkyLightComponent.h"
 #include "Actors/StaticMeshActor.h"
 #include "StaticMeshMaterialSlotDetails.h"
 #include "DObject/Class.h"
@@ -18,6 +19,25 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
+		class FSkyLightDetailsCustomization final : public IDetailCustomization
+		{
+		public:
+			auto CustomizeDetails(IDetailLayoutBuilder& Builder) -> void override
+			{
+				auto* Component = Cast<DSkyLightComponent>(Builder.GetObject());
+				if (!Component) return;
+				Component->RefreshEligibilityDiagnostic();
+				Builder.EditCategory("Diagnostics").AddProperty(Component,
+					Component->GetClass()->FindPropertyByName("EligibilityStatus"));
+				Builder.EditCategory("Capture").AddCustomRow("Recapture Sky Light", [Component](auto&, const auto& Context) {
+					MonaImGui::PropertyEdit::BeginRow("Recapture", Context.bReadOnly);
+					if (ImGui::Button("Recapture Sky Light") && !Context.bReadOnly) Component->Recapture();
+					MonaImGui::PropertyEdit::EndRow(Context.bReadOnly);
+					return false;
+				});
+			}
+		};
+
 		// Presents a StaticMeshActor's primary component through task-oriented categories.
 		class FStaticMeshActorDetailsCustomization final : public IDetailCustomization
 		{
@@ -71,6 +91,11 @@ namespace Durin::Editor::Level
 		return std::make_shared<FActorComponentDetailsCustomization>(std::move(ResolveComponent));
 	}
 
+	auto CreateSkyLightDetailsCustomization() -> std::shared_ptr<IDetailCustomization>
+	{
+		return std::make_shared<FSkyLightDetailsCustomization>();
+	}
+
 	auto CreateStaticMeshActorDetailsCustomization() -> std::shared_ptr<IDetailCustomization>
 	{
 		return std::make_shared<FStaticMeshActorDetailsCustomization>();
@@ -94,6 +119,11 @@ namespace Durin::Editor::Level
 		auto* Host = dynamic_cast<FLevelDetailHostContext*>(Builder.GetHostContext());
 		if (Host && Host->ComponentDetailsTargets) Components = *Host->ComponentDetailsTargets;
 		else for (const auto& Entry : Actor->GetComponents()) Components.push_back(Entry.Get());
+		std::unordered_set<DActorComponent*> UniqueComponents;
+		for (auto* Component : Components)
+			if (Component && Actor->OwnsComponent(Component) && Component->GetCreationMethod() != EComponentCreationMethod::Generated)
+				UniqueComponents.insert(Component);
+		const bool bShowComponentGroup = UniqueComponents.size() > 1;
 		std::unordered_set<DActorComponent*> Visited;
 		for (DActorComponent* Component : Components)
 		{
@@ -104,21 +134,18 @@ namespace Durin::Editor::Level
 			const bool bMatchesComponent = !SearchText.empty() && StringUtils::ContainsInsensitive(Label + " " + TypeName, SearchText);
 			auto ComponentBuilder = std::make_shared<FLevelDetailLayoutBuilder>(Context, bMatchesComponent ? std::string_view{} : SearchText);
 			ComponentBuilder->ApplyRegisteredCustomizations(Component);
-			if (!ComponentBuilder->IsReplacingDefaultProperties())
-			{
-				Component->GetClass()->ForEachProperty([&](FProperty* Property) {
-					if (!Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit)
-						|| Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
-					if (Component == Root && Property->NamePrivate == "RelativeTransform") return;
-					for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
-						if (ComponentBuilder->ShouldDrawDefaultProperty(Component, *Property, Index))
-							ComponentBuilder->AddProperty(Component, Property, Index, {}, Property->GetTypedMetadata().Category);
-				});
-			}
+			if (Component == Root) ComponentBuilder->HideProperty(Component->GetClass()->FindPropertyByName("RelativeTransform"));
+			ComponentBuilder->AddDefaultProperties(Component, false);
 			if (ComponentBuilder->GetVisibleRowCount() == 0) continue;
-			Builder.AddCustomRow(SearchText, [ComponentBuilder, Component, Label, TypeName, bSearching = !SearchText.empty()](
+			Builder.AddCustomRow(SearchText, [ComponentBuilder, Component, Label, TypeName, bShowComponentGroup, bSearching = !SearchText.empty()](
 				::Durin::Editor::FPropertyView& View, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
 				ImGui::PushID(Component);
+				if (!bShowComponentGroup)
+				{
+					const bool bChanged = ComponentBuilder->DrawRows(View, ViewContext).bChanged;
+					ImGui::PopID();
+					return bChanged;
+				}
 				if (bSearching) ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 				const bool bOpen = MonaImGui::PropertyEdit::BeginGroup("##ComponentProperties", Label.c_str());
 				if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", TypeName.c_str());

@@ -76,13 +76,14 @@ to be rebound to a different owner. Customizations depend on the layout interfac
 while the host owns its concrete renderer and transaction-aware property view. It
 may add a real reflected property from the inspected object or another object,
 add a custom row callback, hide a default property, or replace all default
-rows. The builder owns search matching for those declarations; Details then
-draws the builder rows and appends ordinary properties through `EditObject()`
-in the same property table.
+rows. `AddDefaultProperties()` appends remaining reflected properties to the
+same layout before drawing. Declared and default rows share category grouping,
+sorting, and search, so a category is drawn once even when both contribute rows.
 
 `EditCategory()` returns a stable `IDetailCategoryBuilder` for a named category.
 Categories can contain reflected properties and custom rows, expose a display
-label, and set their sort order. Every explicit property declaration records placement by object, property, and
+label, tooltip, initial collapsed state, and sort order. Transform sorts first;
+Diagnostics sorts last and starts collapsed. Every explicit property declaration records placement by object, property, and
 fixed-array index. Default enumeration omits only that exact row; other objects
 and array indices remain eligible. Placement is independent of search and
 category visibility, so a filtered or hidden declared row does not reappear as a
@@ -95,8 +96,8 @@ properties in that category. `RegisterDetailCustomization()` and
 unregistration. `ApplyRegisteredCustomizations()` binds the inspected object and
 dispatches the shared registry. `DrawDetailPanel()` is the shared host entrypoint:
 it resolves owner context, dispatches registered customizations, applies an
-optional host layout extension, owns the property table, and combines declared
-rows with filtered default enumeration. `ShouldDrawDefaultProperty()` applies
+optional host layout extension, appends filtered default rows to the layout,
+and draws that layout in one property table. `ShouldDrawDefaultProperty()` applies
 replacement, explicit hiding, category hiding, and exact placement rules.
 The result reports owner readiness, table drawing, visible rows, and changes;
 search, table identity, host context, and empty-state presentation are options.
@@ -508,9 +509,9 @@ shutdown before their implementation can unload.
 Level Editor Details owns one property view. It still owns object selection,
 the search input state, class display, customization dispatch, and a shared
 property table used to compose domain rows. Ordinary reflected-property
-enumeration, search matching, fixed-array expansion, and labels are delegated
-to `EditObject()`; Actor transform and registered customizations continue to
-compose through the same view. Static-mesh material assignments are a domain
+enumeration and category/search composition use `FDetailLayoutBuilder`;
+property labels and editing use the shared property view. Actor transform and
+registered customizations compose through that same layout and view. Static-mesh material assignments are a domain
 customization: the mesh controls visible row count and labels, the property-table
 UI presents those slots through shared non-resizable array helpers, and the
 shared asset picker reserves a persistent trailing reset action. Edits still
@@ -518,13 +519,15 @@ submit the stable reflected override root through the host property view.
 
 Ordinary Level Editor Actor selection targets the Actor itself, including
 selecting an already-selected Actor again. The Actor page composes the root's
-Transform and named, collapsible groups of editable authored-component properties.
+Transform and categorized editable authored-component properties. A single
+component has no redundant name wrapper; multiple components retain named groups.
 Actor details customizations can set the Level Editor host context's
 `ComponentDetailsTargets` to select
 their primary components or suppress aggregation with an empty list. Static-mesh,
 camera, directional-light, and volumetric-cloud Actor customizations select their
 primary component. Other Actors default to all authored components. Foreign and
-duplicate targets are ignored. Transient reflected diagnostics are omitted.
+duplicate targets are ignored. Transient default diagnostics are omitted from Actor aggregation; explicit
+custom diagnostic rows remain available.
 Component groups reuse registered component customizations, including material
 slots and camera projection controls; their hidden and replaced properties remain
 respected. Search filters component rows and expands matching groups; a matching
@@ -541,8 +544,8 @@ the property view's owner-context handling so an active preview is committed or
 restored before its owner changes.
 
 Actor Transform categories draw Location, Rotation, and Scale directly using
-`bShowTransformHeader = false`; ordinary component and nested Transform properties
-retain their existing expandable header. The layout preserves the full property
+`bShowTransformHeader = false`; default Transform-category component rows do
+the same. Nested Transform properties retain their expandable header. The layout preserves the full property
 presentation options and all edits still submit the root transform member target.
 Generic Actor component groups use full-width headers with component names and
 type tooltips. StaticMeshActor declares Static Mesh (mesh and resolved material
@@ -550,6 +553,13 @@ slots), Rendering (visibility), and Collision (expandable Body Instance) categor
 instead of a component wrapper. Category tooltips identify the source component;
 search retains component-name/type keywords and material-slot names. Explicit
 component-tree selection continues to show the complete component page.
+
+Natural reflected categories organize light/shadow, sky activation/source/capture,
+spline deformation, mesh/rendering/collision, and RoadNet input/preview/diagnostic
+properties. Camera customization separates Projection and View Distance and
+edits Fade Start and Render Distance through their existing reflected member
+targets. SkyLight customization supplies diagnostic refresh and the Recapture
+operation for both component pages and Actor aggregation.
 
 Generated components are inspection-only derived state. Selecting one keeps its
 tree row visible but presents a read-only Details view; rename, duplication,

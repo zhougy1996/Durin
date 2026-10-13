@@ -103,13 +103,13 @@ namespace Durin
 		auto GetCollisionStateRevision() const -> uint64 override;
 		auto RebuildCollisionGeometryForPublishedState() -> void;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Static Mesh", Edit)
 		TObjectPtr<DStaticMesh> StaticMesh;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Deformation", Edit)
 		FSplineMeshParams SplineMeshParams;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Collision", Edit)
 		ESplineMeshCollisionMode CollisionMode = ESplineMeshCollisionMode::Disabled;
 
 		std::shared_ptr<const FSplineMeshDerivedState> DerivedState;

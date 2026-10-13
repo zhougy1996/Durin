@@ -43,17 +43,17 @@ namespace Durin::RoadNet
 
 	private:
 		auto BindAsset() -> void;
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Road", Edit)
 		TObjectPtr<DRoadNet> RoadNet;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Preview", Edit)
 		TObjectPtr<DStaticMesh> PreviewMesh;
 
 		// Last construction result: Empty, Ready, or Error. Failure discards all generated preview output.
-		DPROPERTY(Edit, ReadOnly, Transient)
+		DPROPERTY(Category = "Diagnostics", Edit, ReadOnly, Transient)
 		std::string GenerationState = "Empty";
 
-		DPROPERTY(Edit, ReadOnly, Transient)
+		DPROPERTY(Category = "Diagnostics", Edit, ReadOnly, Transient)
 		std::string Diagnostic;
 
 		TWeakObjectPtr<DRoadNet> BoundAsset;

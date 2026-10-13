@@ -3,6 +3,8 @@
 #include "DObject/Class.h"
 
 #include "DObject/Property.h"
+#include "DObject/DurinPropertyTypes.h"
+#include "DObject/MathStructs.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
@@ -48,6 +50,12 @@ namespace Durin::Editor
 			return *Category;
 		}
 		Categories.push_back(std::make_unique<FCategory>(*this, Name, DisplayName.empty() ? Name : DisplayName));
+		if (Name == "Transform") Categories.back()->SortOrder = -100;
+		if (Name == "Diagnostics")
+		{
+			Categories.back()->SortOrder = 100;
+			Categories.back()->bInitiallyCollapsed = true;
+		}
 		return *Categories.back();
 	}
 
@@ -84,10 +92,16 @@ namespace Durin::Editor
 	{
 		if (!Object || !Property || ArrayIndex >= Property->GetArrayDim()) return;
 		const std::string Label = Options.Label.empty() ? ::Durin::Editor::MakePropertyLabel(*Property, ArrayIndex) : Options.Label;
+		const std::string SourceName = Property->GetArrayDim() > 1
+			? std::format("{}[{}]", Property->NamePrivate, ArrayIndex) : Property->NamePrivate.ToString();
 		auto RowOptions = Options;
 		RowOptions.Label = Label;
+		const bool bTransform = Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
+			&& static_cast<const FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_FTransform();
 		Rows.push_back({Object, Property, ArrayIndex, std::move(RowOptions),
-			std::format("{} {} {}", Property->NamePrivate, Label, SearchKeywords), {}});
+			std::format("{} {} {} {} {} {}", SourceName, Label, SearchKeywords,
+				Property->GetTypedMetadata().Category, Property->GetTypedMetadata().ToolTip,
+				bTransform ? "Location Rotation Scale" : ""), {}});
 	}
 
 	auto FDetailLayoutBuilder::AddCustomRow(std::string_view SearchKeywords, FCustomRowDrawer Drawer) -> void
@@ -136,6 +150,27 @@ namespace Durin::Editor
 		return SearchText.empty() || StringUtils::ContainsInsensitive(Candidate, SearchText);
 	}
 
+	auto FDetailLayoutBuilder::AddDefaultProperties(DObject* Object, bool bIncludeTransient) -> void
+	{
+		if (!Object || bReplaceDefaultProperties) return;
+		Object->GetClass()->ForEachProperty([&](FProperty* Property) {
+			if (!Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit)
+				|| (!bIncludeTransient && Property->HasAnyPropertyFlags(EPropertyFlags::Transient))) return;
+			const auto& Category = Property->GetTypedMetadata().Category;
+			const auto EnumName = Property->GetMetaData(FName("ArrayIndexEnum"));
+			const DEnum* IndexEnum = Property->GetArrayDim() > 1 && !EnumName.empty()
+				? FindEnumByQualifiedName(FName(EnumName)) : nullptr;
+			for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
+			{
+				if (IndexEnum && !IndexEnum->FindValueRecordByValue(Index)) continue;
+				if (!ShouldDrawDefaultProperty(Object, *Property, Index)) continue;
+				if (Category.empty()) AddProperty(Object, Property, Index);
+				else EditCategory(Category).AddProperty(Object, Property, Index,
+					{.bShowTransformHeader = Category != "Transform"});
+			}
+		});
+	}
+
 	auto FDetailLayoutBuilder::GetVisibleRowCount() const -> uint32
 	{
 		return static_cast<uint32>(std::ranges::count_if(Rows, [this](const FRow& Row) { return IsRowVisible(Row); }));
@@ -175,7 +210,8 @@ namespace Durin::Editor
 				{
 					if (!SearchText.empty()) ImGui::GetStateStorage()->SetInt(ImGui::GetID(CurrentCategory.c_str()), 1);
 					const FCategory* Category = FindCategory(CurrentCategory);
-					bGroupOpen = MonaImGui::PropertyEdit::BeginGroup(CurrentCategory.c_str(), Category->Label.c_str());
+					bGroupOpen = MonaImGui::PropertyEdit::BeginGroup(CurrentCategory.c_str(), Category->Label.c_str(),
+						Category->bInitiallyCollapsed ? ImGuiTreeNodeFlags_None : ImGuiTreeNodeFlags_DefaultOpen);
 					if (!Category->Tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
 						ImGui::SetTooltip("%s", Category->Tooltip.c_str());
 				}

@@ -25,19 +25,19 @@ namespace Durin
 		auto SetLinearVelocity(const FVector3& Velocity) -> void { LinearVelocity = Velocity; }
 
 	private:
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Physics", Edit)
 		bool bSimulatePhysics = true;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Physics", Edit)
 		FVector3 LinearVelocity{0.0};
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Physics", Edit)
 		float GravityScale = 1.0f;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Physics", Edit)
 		float Restitution = 0.25f;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Category = "Physics", Edit)
 		float GroundHeight = 0.0f;
 	};
 }
