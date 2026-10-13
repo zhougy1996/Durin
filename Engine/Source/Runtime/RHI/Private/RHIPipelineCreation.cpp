@@ -183,7 +183,7 @@ namespace Durin
 	auto FRHIPipelineCreationRequest::GetPipelineLayout() const -> std::shared_ptr<const FPipelineLayoutDesc>
 	{
 		if (!State || !State->Identity) return {};
-		return {State->Identity, std::visit([](const auto& Key) { return &Key.PipelineLayout; }, *State->Identity)};
+		return std::visit([](const auto& Key) { return Key.PipelineLayout; }, *State->Identity);
 	}
 	auto FRHIPipelineCreationRequest::Cancel() const -> bool { return State && State->Cancel(); }
 	auto FRHIPipelineCreationRequest::CanWait() const -> bool
@@ -212,6 +212,7 @@ namespace Durin
 			std::variant<std::shared_ptr<const FRHIGraphicsPipelineCreationInputs>,
 				std::shared_ptr<const FRHIComputePipelineCreationInputs>> Inputs;
 			uint64 Bytes = 0;
+			std::shared_ptr<void> Metadata;
 		};
 		struct FDrainLifetime
 		{
@@ -243,6 +244,8 @@ namespace Durin
 			check(false);
 			return {};
 		}
+		auto ReserveInputMetadata(uint64 Bytes) -> std::shared_ptr<void>
+		{ return Backend.ReserveMetadata ? Backend.ReserveMetadata(Bytes) : Lifetime->Metadata.Reserve(Bytes); }
 		auto RetainIdentity(std::shared_ptr<const FKey> Key, uint64 Bytes) -> std::shared_ptr<const FKey>
 		{
 			std::shared_ptr<void> Lease;
@@ -262,12 +265,18 @@ namespace Durin
 			if (Lifetime->Observers.load() >= MaxObservers) return Reject(ERHIPipelineRequestRejection::CapacityExceeded);
 			const uint64 Bytes = DescriptionBytes(Initializer, Name);
 			if (Bytes > MaxDescriptionBytes) return Reject(ERHIPipelineRequestRejection::CapacityExceeded);
-			const uint64 RetainedBytes = Bytes * 2 + sizeof(FEntry) + sizeof(FKey);
+			const uint64 RetainedBytes = Bytes + sizeof(FEntry) + sizeof(FKey);
 			constexpr bool Graphics = std::same_as<T, FGraphicsPipelineStateInitializer>;
 			try
 			{
 				auto Valid = MakeKey();
-				if (!Valid) return Reject(ERHIPipelineRequestRejection::InvalidDescription);
+				if (!Valid)
+				{
+					if constexpr (requires { Valid.error(); })
+						if (Valid.error() == std::remove_cvref_t<decltype(Valid.error())>::CapacityExceeded)
+							return Reject(ERHIPipelineRequestRejection::CapacityExceeded);
+					return Reject(ERHIPipelineRequestRejection::InvalidDescription);
+				}
 				auto& NativeKey = *Valid;
 				FRHIPipelineCreationResult Ready;
 				if constexpr (Graphics) Ready.Graphics = Backend.FindGraphics(NativeKey);
@@ -275,7 +284,7 @@ namespace Durin
 				FRHIPipelineCreationRequest Result;
 				if (Ready.Graphics || Ready.Compute)
 				{
-					auto Identity = RetainIdentity(std::make_shared<const FKey>(std::move(NativeKey)), RetainedBytes);
+					auto Identity = RetainIdentity(std::make_shared<const FKey>(NativeKey), GetPipelineKeyOwnedBytes(NativeKey) + 256);
 					Ready.State = ERHIPipelineRequestState::Ready;
 					Result.State = MakeObserver();
 					Result.State->Identity = std::move(Identity);
@@ -297,7 +306,9 @@ namespace Durin
 					return Reject(ERHIPipelineRequestRejection::CapacityExceeded);
 				auto Ticket = DrainActive ? std::shared_ptr<FDrainLifetime>{} : std::make_shared<FDrainLifetime>(*this);
 				auto Entry = std::make_shared<FEntry>();
-				Key = RetainIdentity(std::move(Key), RetainedBytes);
+				const auto IdentityBytes = std::visit([](const auto& Value) { return GetPipelineKeyOwnedBytes(Value); }, *Key);
+				Key = RetainIdentity(std::move(Key), IdentityBytes + 256);
+				Entry->Metadata = ReserveInputMetadata(Bytes);
 				Entry->Key = Key;
 				Entry->Bytes = RetainedBytes;
 				if constexpr (Graphics) Entry->Inputs = std::make_shared<const FRHIGraphicsPipelineCreationInputs>(Initializer, Name);

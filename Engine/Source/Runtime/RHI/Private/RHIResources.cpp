@@ -1,4 +1,6 @@
 #include "RHIResources.h"
+#include "RHIPipelineCreation.h"
+#include "Backend/RHICreation.h"
 #include "Backend/RHIValidation.h"
 #include "Backend/RHIShaderParameterValidationInternal.h"
 
@@ -573,86 +575,200 @@ namespace Durin
 		return ValidateGraphicsPipelineInitializer(*this, nullptr).has_value();
 	}
 
+
+	namespace
+	{
+		auto SharedDescriptionBudget() -> FRHIPipelineMetadataBudget&
+		{
+			static FRHIPipelineMetadataBudget Budget;
+			return Budget;
+		}
+
+		// Weak indexes retain no description data. Equality checks resolve hash
+		// collisions; live keys retain the canonical object and its budget lease.
+		template<typename T>
+		auto SharePipelineDescription(T Value, uint64 Bytes, uint64 Hash)
+			-> std::shared_ptr<const T>
+		{
+			struct FPool
+			{
+				std::mutex Mutex;
+				std::unordered_multimap<uint64, std::weak_ptr<const T>> Entries;
+			};
+			static FPool Pool;
+			std::lock_guard Lock(Pool.Mutex);
+			const auto [Begin, End] = Pool.Entries.equal_range(Hash);
+			for (auto It = Begin; It != End; ++It)
+				if (auto Existing = It->second.lock(); Existing && *Existing == Value)
+					return Existing;
+			std::erase_if(Pool.Entries, [](const auto& Entry) { return Entry.second.expired(); });
+			if (Pool.Entries.size() >= 4096)
+				throw FRHIResourceCapacityError("shared pipeline description capacity exhausted");
+			struct FOwner { T Value; std::shared_ptr<void> Metadata; };
+			auto Lease = SharedDescriptionBudget().Reserve(Bytes + sizeof(FOwner) + 128);
+			auto Owner = std::make_shared<FOwner>(std::move(Value), std::move(Lease));
+			std::shared_ptr<const T> Result(Owner, &Owner->Value);
+			Pool.Entries.emplace(Hash, Result);
+			return Result;
+		}
+
+		auto HashVertexElements(FXxHash64Builder& Builder,
+			const std::vector<FRHIVertexElementIdentity>& Value) -> void
+		{
+			for (const FRHIVertexElementIdentity& Element : Value)
+			{
+				HashValue(Builder, Element.StreamIndex);
+				HashValue(Builder, Element.Offset);
+				HashValue(Builder, Element.Type);
+				HashValue(Builder, Element.AttributeIndex);
+				HashValue(Builder, Element.Stride);
+				HashValue(Builder, Element.InputRate);
+			}
+			HashValue(Builder, Value.size());
+		}
+		auto HashPipelineLayout(FXxHash64Builder& Builder, const FPipelineLayoutDesc& Value) -> void
+		{
+			HashValue(Builder, Value.BindingLayouts.size());
+			for (const FBindingLayout& Set : Value.BindingLayouts)
+			{
+				HashValue(Builder, Set.BindingLayouts.size());
+				for (const FBindingLayoutItem& Binding : Set.BindingLayouts)
+				{
+					HashValue(Builder, Binding.StageFlags);
+					HashValue(Builder, Binding.Slot);
+					HashValue(Builder, Binding.Type);
+					HashValue(Builder, Binding.ArraySize);
+				}
+			}
+			HashValue(Builder, Value.PushConstantRanges.size());
+			for (const FPushConstantRange& Range : Value.PushConstantRanges)
+			{
+				HashValue(Builder, Range.StageFlags);
+				HashValue(Builder, Range.Offset);
+				HashValue(Builder, Range.Size);
+			}
+		}
+		auto HashColorBlendStates(FXxHash64Builder& Builder,
+			const std::vector<FRHIColorBlendState>& Value) -> void
+		{
+			for (const FRHIColorBlendState& Blend : Value)
+			{
+				HashValue(Builder, Blend.bEnable);
+				HashValue(Builder, Blend.SrcColorFactor);
+				HashValue(Builder, Blend.DstColorFactor);
+				HashValue(Builder, Blend.ColorOp);
+				HashValue(Builder, Blend.SrcAlphaFactor);
+				HashValue(Builder, Blend.DstAlphaFactor);
+				HashValue(Builder, Blend.AlphaOp);
+				HashValue(Builder, Blend.ColorWriteMask);
+			}
+		}
+
+		auto SharePipelineLayout(FPipelineLayoutDesc Value) -> std::shared_ptr<const FPipelineLayoutDesc>
+		{
+			for (auto& Set : Value.BindingLayouts)
+				std::ranges::sort(Set.BindingLayouts, {}, &FBindingLayoutItem::Slot);
+			std::ranges::sort(Value.PushConstantRanges, [](const auto& A, const auto& B) {
+				return std::tie(A.Offset, A.Size, A.StageFlags) < std::tie(B.Offset, B.Size, B.StageFlags);
+			});
+			uint64 Bytes = Value.BindingLayouts.capacity() * sizeof(FBindingLayout)
+				+ Value.PushConstantRanges.capacity() * sizeof(FPushConstantRange);
+			for (const auto& Set : Value.BindingLayouts)
+				Bytes += Set.BindingLayouts.capacity() * sizeof(FBindingLayoutItem);
+			FXxHash64Builder Builder;
+			HashPipelineLayout(Builder, Value);
+			return SharePipelineDescription(std::move(Value), Bytes, Builder.Finalize().HashValue);
+		}
+	}
+
 	auto BuildGraphicsPipelineStateKey(
 		const FGraphicsPipelineStateInitializer& Initializer,
 		const FRHICapabilities* Capabilities) -> std::expected<FGraphicsPipelineStateKey, ERHIGraphicsPipelineError>
 	{
-		if (auto Validation = ValidateGraphicsPipelineInitializer(Initializer, Capabilities); !Validation)
-			return std::unexpected(Validation.error());
-		const auto CanonicalizeNumericFloat = [](float Value) {
-			// Accepted key floats use numeric equality. Collapse both signed-zero
-			// representations so their byte-wise hash has the same identity.
-			return Value == 0.0f ? 0.0f : Value;
-		};
+		try
+		{
+			if (auto Validation = ValidateGraphicsPipelineInitializer(Initializer, Capabilities); !Validation)
+				return std::unexpected(Validation.error());
+			const auto CanonicalizeNumericFloat = [](float Value) {
+				// Accepted key floats use numeric equality. Collapse both signed-zero
+				// representations so their byte-wise hash has the same identity.
+				return Value == 0.0f ? 0.0f : Value;
+			};
 
-		FGraphicsPipelineStateKey Key;
-		Key.Target = Initializer.BoundShaders.VertexShader->GetTarget();
-		Key.CodeFormat = Initializer.BoundShaders.VertexShader->GetCodeFormat();
-		Key.VertexShaderHash = Initializer.BoundShaders.VertexShader->GetHash();
-		Key.FragmentShaderHash = Initializer.BoundShaders.FragmentShader->GetHash();
-		Key.VertexBindingRemapIdentity = Initializer.BoundShaders.VertexShader->GetBindingRemapIdentity();
-		Key.FragmentBindingRemapIdentity = Initializer.BoundShaders.FragmentShader->GetBindingRemapIdentity();
-		Key.VertexEntryPoint = Initializer.BoundShaders.VertexShader->GetEntryPoint();
-		Key.FragmentEntryPoint = Initializer.BoundShaders.FragmentShader->GetEntryPoint();
-		Key.RenderTargetLayout.NumColorRenderTargets =
-			Initializer.RenderTargetLayout.NumColorRenderTargets;
-		for (uint32 Index = 0;
-			Index < Initializer.RenderTargetLayout.NumColorRenderTargets; ++Index)
-			Key.RenderTargetLayout.ColorAttachments[Index] =
-				Initializer.RenderTargetLayout.ColorAttachments[Index];
-		Key.RenderTargetLayout.bHasDepthStencil =
-			Initializer.RenderTargetLayout.bHasDepthStencil;
-		if (Key.RenderTargetLayout.bHasDepthStencil)
-			Key.RenderTargetLayout.DepthStencilAttachment =
-				Initializer.RenderTargetLayout.DepthStencilAttachment;
-		for (const FVertexElement& Element : Initializer.VertexDeclaration->GetElements())
-		{
-			if (Element.Type == EVertexElementType::None) break;
-			Key.VertexElements.push_back({Element.StreamIndex, Element.Offset,
-				Element.Type, Element.AttributeIndex, Element.Stride, Element.InputRate});
-		}
-		Key.PipelineLayout = Initializer.PipelineLayout;
-		for (FBindingLayout& Set : Key.PipelineLayout.BindingLayouts)
-			std::ranges::sort(Set.BindingLayouts, {}, &FBindingLayoutItem::Slot);
-		std::ranges::sort(Key.PipelineLayout.PushConstantRanges,
-			[](const FPushConstantRange& A, const FPushConstantRange& B) {
-				return std::tie(A.Offset, A.Size, A.StageFlags)
-					< std::tie(B.Offset, B.Size, B.StageFlags);
-			});
-		Key.RasterizerState = Initializer.RasterizerState;
-		// Depth-bias values are dynamic draw state. Only whether the pipeline
-		// enables depth bias remains structural pipeline identity.
-		Key.RasterizerState.DepthBiasConstantFactor = 0.0f;
-		Key.RasterizerState.DepthBiasClamp = 0.0f;
-		Key.RasterizerState.DepthBiasSlopeFactor = 0.0f;
-		if (Key.RasterizerState.PolygonMode != ERHIPolygonMode::Line)
-			Key.RasterizerState.LineWidth = 1.0f;
-		Key.RasterizerState.LineWidth = CanonicalizeNumericFloat(
-			Key.RasterizerState.LineWidth);
-		Key.MultisampleState = Initializer.MultisampleState;
-		Key.DepthStencilState = Initializer.DepthStencilState;
-		if (!Key.DepthStencilState.bEnableTest)
-			Key.DepthStencilState.CompareOp = ERHIDepthCompareOp::Less;
-		if (!Key.DepthStencilState.bEnableStencil)
-		{
-			Key.DepthStencilState.FrontFace = {};
-			Key.DepthStencilState.BackFace = {};
-			Key.DepthStencilState.StencilCompareMask = 0xff;
-			Key.DepthStencilState.StencilWriteMask = 0xff;
-			Key.DepthStencilState.StencilReference = 0;
-		}
-		Key.ColorBlendStates.assign(Initializer.ColorBlendStates.begin(),
-			Initializer.ColorBlendStates.begin()
-				+ Initializer.RenderTargetLayout.NumColorRenderTargets);
-		for (FRHIColorBlendState& Blend : Key.ColorBlendStates)
-			if (!Blend.bEnable)
+			FGraphicsPipelineStateKey Key;
+			Key.Target = Initializer.BoundShaders.VertexShader->GetTarget();
+			Key.CodeFormat = Initializer.BoundShaders.VertexShader->GetCodeFormat();
+			Key.VertexShaderHash = Initializer.BoundShaders.VertexShader->GetHash();
+			Key.FragmentShaderHash = Initializer.BoundShaders.FragmentShader->GetHash();
+			Key.VertexBindingRemapIdentity = Initializer.BoundShaders.VertexShader->GetBindingRemapIdentity();
+			Key.FragmentBindingRemapIdentity = Initializer.BoundShaders.FragmentShader->GetBindingRemapIdentity();
+			Key.VertexEntryPoint = Initializer.BoundShaders.VertexShader->GetEntryPoint();
+			Key.FragmentEntryPoint = Initializer.BoundShaders.FragmentShader->GetEntryPoint();
+			Key.RenderTargetLayout.NumColorRenderTargets =
+				Initializer.RenderTargetLayout.NumColorRenderTargets;
+			for (uint32 Index = 0;
+				Index < Initializer.RenderTargetLayout.NumColorRenderTargets; ++Index)
+				Key.RenderTargetLayout.ColorAttachments[Index] =
+					Initializer.RenderTargetLayout.ColorAttachments[Index];
+			Key.RenderTargetLayout.bHasDepthStencil =
+				Initializer.RenderTargetLayout.bHasDepthStencil;
+			if (Key.RenderTargetLayout.bHasDepthStencil)
+				Key.RenderTargetLayout.DepthStencilAttachment =
+					Initializer.RenderTargetLayout.DepthStencilAttachment;
+			std::vector<FRHIVertexElementIdentity> VertexElements;
+			for (const FVertexElement& Element : Initializer.VertexDeclaration->GetElements())
 			{
-				const ERHIColorWriteMask Mask = Blend.ColorWriteMask;
-				Blend = {};
-				Blend.ColorWriteMask = Mask;
+				if (Element.Type == EVertexElementType::None) break;
+				VertexElements.push_back({Element.StreamIndex, Element.Offset,
+					Element.Type, Element.AttributeIndex, Element.Stride, Element.InputRate});
 			}
-		Key.PrimitiveTopology = Initializer.PrimitiveTopology;
-		return Key;
+			FXxHash64Builder VertexHash;
+			HashVertexElements(VertexHash, VertexElements);
+			const auto VertexBytes = VertexElements.capacity() * sizeof(FRHIVertexElementIdentity);
+			Key.VertexElements = SharePipelineDescription(std::move(VertexElements), VertexBytes, VertexHash.Finalize().HashValue);
+			Key.PipelineLayout = SharePipelineLayout(Initializer.PipelineLayout);
+			Key.RasterizerState = Initializer.RasterizerState;
+			// Depth-bias values are dynamic draw state. Only whether the pipeline
+			// enables depth bias remains structural pipeline identity.
+			Key.RasterizerState.DepthBiasConstantFactor = 0.0f;
+			Key.RasterizerState.DepthBiasClamp = 0.0f;
+			Key.RasterizerState.DepthBiasSlopeFactor = 0.0f;
+			if (Key.RasterizerState.PolygonMode != ERHIPolygonMode::Line)
+				Key.RasterizerState.LineWidth = 1.0f;
+			Key.RasterizerState.LineWidth = CanonicalizeNumericFloat(
+				Key.RasterizerState.LineWidth);
+			Key.MultisampleState = Initializer.MultisampleState;
+			Key.DepthStencilState = Initializer.DepthStencilState;
+			if (!Key.DepthStencilState.bEnableTest)
+				Key.DepthStencilState.CompareOp = ERHIDepthCompareOp::Less;
+			if (!Key.DepthStencilState.bEnableStencil)
+			{
+				Key.DepthStencilState.FrontFace = {};
+				Key.DepthStencilState.BackFace = {};
+				Key.DepthStencilState.StencilCompareMask = 0xff;
+				Key.DepthStencilState.StencilWriteMask = 0xff;
+				Key.DepthStencilState.StencilReference = 0;
+			}
+			std::vector<FRHIColorBlendState> ColorBlendStates;
+			ColorBlendStates.assign(Initializer.ColorBlendStates.begin(),
+				Initializer.ColorBlendStates.begin()
+					+ Initializer.RenderTargetLayout.NumColorRenderTargets);
+			for (FRHIColorBlendState& Blend : ColorBlendStates)
+				if (!Blend.bEnable)
+				{
+					const ERHIColorWriteMask Mask = Blend.ColorWriteMask;
+					Blend = {};
+					Blend.ColorWriteMask = Mask;
+				}
+			FXxHash64Builder BlendHash;
+			HashColorBlendStates(BlendHash, ColorBlendStates);
+			const auto BlendBytes = ColorBlendStates.capacity() * sizeof(FRHIColorBlendState);
+			Key.ColorBlendStates = SharePipelineDescription(std::move(ColorBlendStates), BlendBytes, BlendHash.Finalize().HashValue);
+			Key.PrimitiveTopology = Initializer.PrimitiveTopology;
+			return Key;
+		}
+		catch (const FRHIResourceCapacityError&) { return std::unexpected(ERHIGraphicsPipelineError::CapacityExceeded); }
+		catch (const std::bad_alloc&) { return std::unexpected(ERHIGraphicsPipelineError::CapacityExceeded); }
 	}
 
 	auto FGraphicsPipelineStateKeyHasher::operator()(
@@ -678,35 +794,8 @@ namespace Durin
 		HashValue(Builder, Key.RenderTargetLayout.bHasDepthStencil);
 		if (Key.RenderTargetLayout.bHasDepthStencil)
 			HashAttachment(Builder, Key.RenderTargetLayout.DepthStencilAttachment);
-		for (const FRHIVertexElementIdentity& Element : Key.VertexElements)
-		{
-			HashValue(Builder, Element.StreamIndex);
-			HashValue(Builder, Element.Offset);
-			HashValue(Builder, Element.Type);
-			HashValue(Builder, Element.AttributeIndex);
-			HashValue(Builder, Element.Stride);
-			HashValue(Builder, Element.InputRate);
-		}
-		HashValue(Builder, Key.VertexElements.size());
-		HashValue(Builder, Key.PipelineLayout.BindingLayouts.size());
-		for (const FBindingLayout& Set : Key.PipelineLayout.BindingLayouts)
-		{
-			HashValue(Builder, Set.BindingLayouts.size());
-			for (const FBindingLayoutItem& Binding : Set.BindingLayouts)
-			{
-				HashValue(Builder, Binding.StageFlags);
-				HashValue(Builder, Binding.Slot);
-				HashValue(Builder, Binding.Type);
-				HashValue(Builder, Binding.ArraySize);
-			}
-		}
-		HashValue(Builder, Key.PipelineLayout.PushConstantRanges.size());
-		for (const FPushConstantRange& Range : Key.PipelineLayout.PushConstantRanges)
-		{
-			HashValue(Builder, Range.StageFlags);
-			HashValue(Builder, Range.Offset);
-			HashValue(Builder, Range.Size);
-		}
+		if (Key.VertexElements) HashVertexElements(Builder, *Key.VertexElements);
+		if (Key.PipelineLayout) HashPipelineLayout(Builder, *Key.PipelineLayout);
 		HashValue(Builder, Key.RasterizerState.PolygonMode);
 		HashValue(Builder, Key.RasterizerState.CullMode);
 		HashValue(Builder, Key.RasterizerState.FrontFace);
@@ -733,17 +822,7 @@ namespace Durin
 		HashValue(Builder, Key.DepthStencilState.StencilCompareMask);
 		HashValue(Builder, Key.DepthStencilState.StencilWriteMask);
 		HashValue(Builder, Key.DepthStencilState.StencilReference);
-		for (const FRHIColorBlendState& Blend : Key.ColorBlendStates)
-		{
-			HashValue(Builder, Blend.bEnable);
-			HashValue(Builder, Blend.SrcColorFactor);
-			HashValue(Builder, Blend.DstColorFactor);
-			HashValue(Builder, Blend.ColorOp);
-			HashValue(Builder, Blend.SrcAlphaFactor);
-			HashValue(Builder, Blend.DstAlphaFactor);
-			HashValue(Builder, Blend.AlphaOp);
-			HashValue(Builder, Blend.ColorWriteMask);
-		}
+		if (Key.ColorBlendStates) HashColorBlendStates(Builder, *Key.ColorBlendStates);
 		HashValue(Builder, Key.PrimitiveTopology);
 		return static_cast<size_t>(Builder.Finalize().HashValue);
 	}
@@ -810,25 +889,23 @@ namespace Durin
 		const FComputePipelineStateInitializer& Initializer,
 		const FRHICapabilities* Capabilities) -> std::expected<FComputePipelineStateKey, ERHIComputePipelineError>
 	{
-		if (auto Validation = ValidateComputePipelineInitializer(Initializer, Capabilities); !Validation)
-			return std::unexpected(Validation.error());
+		try
+		{
+			if (auto Validation = ValidateComputePipelineInitializer(Initializer, Capabilities); !Validation)
+				return std::unexpected(Validation.error());
 
-		FComputePipelineStateKey Key;
-		Key.Target = Initializer.ComputeShader->GetTarget();
-		Key.CodeFormat = Initializer.ComputeShader->GetCodeFormat();
-		Key.ComputeShaderHash = Initializer.ComputeShader->GetHash();
-		Key.ComputeThreadGroupSize = Initializer.ComputeShader->GetComputeThreadGroupSize();
-		Key.BindingRemapIdentity = Initializer.ComputeShader->GetBindingRemapIdentity();
-		Key.EntryPoint = Initializer.ComputeShader->GetEntryPoint();
-		Key.PipelineLayout = Initializer.PipelineLayout;
-		for (FBindingLayout& Set : Key.PipelineLayout.BindingLayouts)
-			std::ranges::sort(Set.BindingLayouts, {}, &FBindingLayoutItem::Slot);
-		std::ranges::sort(Key.PipelineLayout.PushConstantRanges,
-			[](const FPushConstantRange& A, const FPushConstantRange& B) {
-				return std::tie(A.Offset, A.Size, A.StageFlags)
-					< std::tie(B.Offset, B.Size, B.StageFlags);
-			});
-		return Key;
+			FComputePipelineStateKey Key;
+			Key.Target = Initializer.ComputeShader->GetTarget();
+			Key.CodeFormat = Initializer.ComputeShader->GetCodeFormat();
+			Key.ComputeShaderHash = Initializer.ComputeShader->GetHash();
+			Key.ComputeThreadGroupSize = Initializer.ComputeShader->GetComputeThreadGroupSize();
+			Key.BindingRemapIdentity = Initializer.ComputeShader->GetBindingRemapIdentity();
+			Key.EntryPoint = Initializer.ComputeShader->GetEntryPoint();
+			Key.PipelineLayout = SharePipelineLayout(Initializer.PipelineLayout);
+			return Key;
+		}
+		catch (const FRHIResourceCapacityError&) { return std::unexpected(ERHIComputePipelineError::CapacityExceeded); }
+		catch (const std::bad_alloc&) { return std::unexpected(ERHIComputePipelineError::CapacityExceeded); }
 	}
 
 	auto FComputePipelineStateKeyHasher::operator()(
@@ -841,25 +918,7 @@ namespace Durin
 		for (uint32 Axis : Key.ComputeThreadGroupSize) HashValue(Builder, Axis);
 		HashValue(Builder, Key.BindingRemapIdentity);
 		HashEntryPoint(Builder, Key.EntryPoint);
-		HashValue(Builder, Key.PipelineLayout.BindingLayouts.size());
-		for (const FBindingLayout& Set : Key.PipelineLayout.BindingLayouts)
-		{
-			HashValue(Builder, Set.BindingLayouts.size());
-			for (const FBindingLayoutItem& Binding : Set.BindingLayouts)
-			{
-				HashValue(Builder, Binding.StageFlags);
-				HashValue(Builder, Binding.Slot);
-				HashValue(Builder, Binding.Type);
-				HashValue(Builder, Binding.ArraySize);
-			}
-		}
-		HashValue(Builder, Key.PipelineLayout.PushConstantRanges.size());
-		for (const FPushConstantRange& Range : Key.PipelineLayout.PushConstantRanges)
-		{
-			HashValue(Builder, Range.StageFlags);
-			HashValue(Builder, Range.Offset);
-			HashValue(Builder, Range.Size);
-		}
+		if (Key.PipelineLayout) HashPipelineLayout(Builder, *Key.PipelineLayout);
 		return static_cast<size_t>(Builder.Finalize().HashValue);
 	}
 

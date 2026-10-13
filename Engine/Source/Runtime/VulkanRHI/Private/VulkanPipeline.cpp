@@ -47,20 +47,10 @@ namespace Durin::VulkanRHI
 		return ShaderStages;
 	}
 
-	// Charge both table and result keys plus fixed object/node overhead. Dynamic
-	// capacities are included; native driver allocations are measured separately.
+	// Table/result keys retain shared descriptions, charged once by RHI.
 	template<typename T> static auto PipelineMetadataBytes(const T& Key) -> uint64
 	{
-		uint64 Bytes = sizeof(T) + 1024;
-		Bytes += Key.PipelineLayout.BindingLayouts.capacity() * sizeof(FBindingLayout);
-		Bytes += Key.PipelineLayout.PushConstantRanges.capacity() * sizeof(FPushConstantRange);
-		for (const auto& Layout : Key.PipelineLayout.BindingLayouts)
-			Bytes += Layout.BindingLayouts.capacity() * sizeof(FBindingLayoutItem);
-		if constexpr (std::same_as<T, FGraphicsPipelineStateKey>)
-		{
-			Bytes += Key.VertexElements.capacity() * sizeof(FRHIVertexElementIdentity);
-			Bytes += Key.ColorBlendStates.capacity() * sizeof(FRHIColorBlendState);
-		}
+		const uint64 Bytes = GetPipelineKeyOwnedBytes(Key) + 1024;
 		return Bytes * 2;
 	}
 
@@ -761,6 +751,35 @@ namespace Durin::VulkanRHI
 			throw;
 		}
 	}
+	auto FVulkanPipelineManager::TrimUnusedPipelineStates() -> void
+	{
+		std::unique_lock CreatorLock(CreationMutex, std::try_to_lock);
+		if (!CreatorLock.owns_lock()) return;
+		auto Access = Device.AccessPipelineCacheStatistics();
+		const auto Trim = [](auto& Map, auto& Stats) {
+			constexpr size_t MaxUnusedPipelines = 64;
+			const size_t Unused = std::ranges::count_if(Map, [](const auto& Entry) {
+				return Entry.second.Pipeline->GetRefCount() == 1;
+			});
+			if (Unused <= MaxUnusedPipelines) return;
+			std::vector<typename std::decay_t<decltype(Map)>::iterator> Candidates;
+			Candidates.reserve(Unused);
+			for (auto It = Map.begin(); It != Map.end(); ++It)
+				if (It->second.Pipeline->GetRefCount() == 1) Candidates.push_back(It);
+			std::ranges::sort(Candidates, [](const auto& A, const auto& B) {
+				return A->second.LastUsed < B->second.LastUsed;
+			});
+			for (size_t Index = 0; Index < Unused - MaxUnusedPipelines; ++Index)
+			{
+				Map.erase(Candidates[Index]);
+				++Stats.Evictions;
+			}
+			Stats.Occupancy = Map.size();
+		};
+		Trim(GraphicsPipelineMap, Access.Get().GraphicsPipelines);
+		Trim(ComputePipelineMap, Access.Get().ComputePipelines);
+	}
+
 	auto FVulkanPipelineManager::AcquireGraphicsDependencies(
 		const FVulkanGraphicsPipelineInputs& Inputs) -> FVulkanPipelineDependencies
 	{
@@ -1044,48 +1063,54 @@ namespace Durin::VulkanRHI
 				Name = std::string_view(NameBuffer, Length);
 			}
 			if (!IsPipelineCreationPayloadBounded(Initializer, Name)) return nullptr;
-			auto ValidationResult = [&] {
-				if constexpr (Graphics) return BuildGraphicsPipelineStateKey(Initializer, RHI.RHIGetCapabilities());
-				else return BuildComputePipelineStateKey(Initializer, RHI.RHIGetCapabilities());
-			}();
-			if (!ValidationResult)
+			try
 			{
-				DURIN_ERROR("Invalid {} '{}': {}", Kind, Name, ToString(ValidationResult.error()));
-				return nullptr;
-			}
-			auto& Key = *ValidationResult;
-			auto& Manager = Device->GetPipelineManager();
-			auto Ready = [&] {
-				if constexpr (Graphics) return Manager.FindGraphicsPipelineState(Key);
-				else return Manager.FindComputePipelineState(Key);
-			}();
-			if (Ready)
-			{
-				return Ready;
-			}
-			TResult Result;
-			if (IsTaskSchedulerRunning())
-			{
-				auto* Cache = RHI.RHIGetPipelineStateCache();
-				if (!Cache) return nullptr;
-				auto Pipeline = [&] {
-					if constexpr (Graphics) return FRHIPipelineStateCacheBackend::GetGraphicsValidated(*Cache, Initializer, Name, std::move(Key));
-					else return FRHIPipelineStateCacheBackend::GetComputeValidated(*Cache, Initializer, Name, std::move(Key));
+				auto ValidationResult = [&] {
+					if constexpr (Graphics) return BuildGraphicsPipelineStateKey(Initializer, RHI.RHIGetCapabilities());
+					else return BuildComputePipelineStateKey(Initializer, RHI.RHIGetCapabilities());
 				}();
-				if (!Pipeline) return nullptr;
-				(*Pipeline)->Wait();
-				// Native publication preserves fatal exceptions; cyclic waits return null.
-				Result = (*Pipeline)->GetRHIPipeline();
+				if (!ValidationResult)
+				{
+					DURIN_ERROR("Invalid {} '{}': {}", Kind, Name, ToString(ValidationResult.error()));
+					return nullptr;
+				}
+				auto& Key = *ValidationResult;
+				auto& Manager = Device->GetPipelineManager();
+				auto Ready = [&] {
+					if constexpr (Graphics) return Manager.FindGraphicsPipelineState(Key);
+					else return Manager.FindComputePipelineState(Key);
+				}();
+				if (Ready)
+				{
+					return Ready;
+				}
+				TResult Result;
+				if (IsTaskSchedulerRunning())
+				{
+					auto* Cache = RHI.RHIGetPipelineStateCache();
+					if (!Cache) return nullptr;
+					auto Pipeline = [&] {
+						if constexpr (Graphics) return FRHIPipelineStateCacheBackend::GetGraphicsValidated(*Cache, Initializer, Name, std::move(Key));
+						else return FRHIPipelineStateCacheBackend::GetComputeValidated(*Cache, Initializer, Name, std::move(Key));
+					}();
+					if (!Pipeline) return nullptr;
+					(*Pipeline)->Wait();
+					// Native publication preserves fatal exceptions; cyclic waits return null.
+					Result = (*Pipeline)->GetRHIPipeline();
+				}
+				else
+				{
+					// Explicit startup compatibility: async admission still requires Core startup.
+					Result = CreateVulkanResource([&]() -> TResult {
+						if constexpr (Graphics) return Manager.GetOrCreateGraphicsPipelineState(Initializer, std::move(Key), Name);
+						else return Manager.GetOrCreateComputePipelineState(Initializer, std::move(Key), Name);
+					}, Kind, Name);
+				}
+				return Result;
 			}
-			else
-			{
-				// Explicit startup compatibility: async admission still requires Core startup.
-				Result = CreateVulkanResource([&]() -> TResult {
-					if constexpr (Graphics) return Manager.GetOrCreateGraphicsPipelineState(Initializer, std::move(Key), Name);
-					else return Manager.GetOrCreateComputePipelineState(Initializer, std::move(Key), Name);
-				}, Kind, Name);
-			}
-			return Result;
+			catch (const FRHIResourceCapacityError& Error)
+			{ DURIN_ERROR("Failed to create Vulkan {}: {}", Kind, Error.what()); return nullptr; }
+
 		}
 	}
 

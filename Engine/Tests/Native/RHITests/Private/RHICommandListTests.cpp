@@ -3014,6 +3014,68 @@ namespace Durin
 		EXPECT_FALSE(Initializer.IsValid());
 	}
 
+	TEST(FRHICommandListTests, PipelineKeysShareImmutableDescriptionsAcrossStatesAndThreads)
+	{
+		FTestShader VertexShader(EShaderFrequency::Vertex, 11);
+		FTestShader FragmentShader(EShaderFrequency::Fragment, 12);
+		FTestVertexDeclaration Declaration;
+		FGraphicsPipelineStateInitializer Initializer;
+		Initializer.BoundShaders = {&VertexShader, &FragmentShader};
+		Initializer.VertexDeclaration = &Declaration;
+		Initializer.RenderTargetLayout.NumColorRenderTargets = 1;
+		Initializer.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::RGBA8_UNORM;
+		auto First = BuildGraphicsPipelineStateKey(Initializer, nullptr);
+		ASSERT_TRUE(First);
+		std::array<std::optional<FGraphicsPipelineStateKey>, 8> Copies;
+		std::vector<std::thread> Threads;
+		for (size_t Index = 0; Index < Copies.size(); ++Index)
+			Threads.emplace_back([&, Index] {
+				auto Key = BuildGraphicsPipelineStateKey(Initializer, nullptr);
+				if (Key) Copies[Index] = std::move(*Key);
+			});
+		for (auto& Thread : Threads) Thread.join();
+		for (const auto& Key : Copies)
+		{
+			ASSERT_TRUE(Key);
+			EXPECT_EQ(*Key, *First);
+			EXPECT_EQ(Key->PipelineLayout, First->PipelineLayout);
+			EXPECT_EQ(Key->VertexElements, First->VertexElements);
+			EXPECT_EQ(Key->ColorBlendStates, First->ColorBlendStates);
+		}
+		Initializer.RasterizerState.CullMode = ERHICullMode::None;
+		auto DifferentState = BuildGraphicsPipelineStateKey(Initializer, nullptr);
+		ASSERT_TRUE(DifferentState);
+		EXPECT_NE(*DifferentState, *First);
+		EXPECT_EQ(DifferentState->PipelineLayout, First->PipelineLayout);
+		EXPECT_EQ(DifferentState->VertexElements, First->VertexElements);
+		EXPECT_EQ(DifferentState->ColorBlendStates, First->ColorBlendStates);
+		Initializer.ColorBlendStates[0].ColorWriteMask = ERHIColorWriteMask::Red;
+		auto DifferentBlend = BuildGraphicsPipelineStateKey(Initializer, nullptr);
+		ASSERT_TRUE(DifferentBlend);
+		EXPECT_NE(DifferentBlend->ColorBlendStates, First->ColorBlendStates);
+		EXPECT_EQ(First->ColorBlendStates->front().ColorWriteMask, ERHIColorWriteMask::All);
+	}
+
+	TEST(FRHICommandListTests, SharedPipelineDescriptionsExpireAfterTheirLastOwner)
+	{
+		FTestShader ComputeShader(EShaderFrequency::Compute, 17);
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = &ComputeShader;
+		FRHICapabilities Capabilities;
+		Capabilities.MaxComputeWorkGroupCount = {65535, 65535, 65535};
+		std::weak_ptr<const FPipelineLayoutDesc> Observer;
+		{
+			auto Key = BuildComputePipelineStateKey(Initializer, &Capabilities);
+			ASSERT_TRUE(Key);
+			Observer = Key->PipelineLayout;
+			auto Copy = *Key;
+			Key = std::unexpected(ERHIComputePipelineError::MissingShader);
+			EXPECT_FALSE(Observer.expired());
+			EXPECT_TRUE(Copy.PipelineLayout->BindingLayouts.empty());
+		}
+		EXPECT_TRUE(Observer.expired());
+	}
+
 	TEST(FRHICommandListTests, GraphicsPipelineKeyCanonicalizesInactiveState)
 	{
 		FTestShader VertexShader(EShaderFrequency::Vertex, 11);

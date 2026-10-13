@@ -265,7 +265,7 @@ namespace Durin
 			EXPECT_EQ(Inputs.Initializer.ComputeShader, ShaderAddress);
 			EXPECT_GT(ShaderAddress->GetRefCount(), 0u);
 			EXPECT_EQ(Inputs.Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot, 3u);
-			EXPECT_EQ(Key.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot, 3u);
+			EXPECT_EQ(Key.PipelineLayout->BindingLayouts[0].BindingLayouts[0].Slot, 3u);
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
 		auto First = Owner.RequestCompute(Initializer, Name);
@@ -332,6 +332,73 @@ namespace Durin
 		EXPECT_EQ(Owner.GetStatistics().UnfinishedDescriptionBytes, 0u);
 	}
 
+	TEST_F(FRHIPipelineCreationTests, SharedDescriptionCapacityRejectsAndRecoversAfterRelease)
+	{
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader;
+		Initializer.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
+			EShaderStageFlags::Compute, 0, ERHIBindingType::UniformBuffer);
+		auto Caps = Capabilities();
+		std::vector<FComputePipelineStateKey> Keys;
+		bool Rejected = false;
+		for (uint32 Index = 0; Index <= 4096; ++Index)
+		{
+			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = Index;
+			auto Key = BuildComputePipelineStateKey(Initializer, &Caps);
+			if (!Key)
+			{
+				EXPECT_EQ(Key.error(), ERHIComputePipelineError::CapacityExceeded);
+				Rejected = true;
+				break;
+			}
+			Keys.push_back(std::move(*Key));
+		}
+		ASSERT_TRUE(Rejected);
+		ASSERT_FALSE(Keys.empty());
+		auto Create = [](const auto&, const auto&) { return MakeRefCount<FRHIComputePipelineState>(); };
+		FPipelineCompileQueue Queue(Caps, Backend(Create));
+		FRHIPipelineStateCache Cache(Caps, Backend(Create));
+		EXPECT_EQ(Queue.RequestCompute(Initializer, "full").GetRejection(), ERHIPipelineRequestRejection::CapacityExceeded);
+		EXPECT_EQ(Cache.GetCompute(Initializer, "full").error(), ERHIPipelineRequestRejection::CapacityExceeded);
+		Keys.clear();
+		auto Request = Queue.RequestCompute(Initializer, "retry");
+		ASSERT_TRUE(Request.IsAccepted());
+		EXPECT_TRUE(Request.Wait());
+		auto Cached = Cache.GetCompute(Initializer, "retry");
+		ASSERT_TRUE(Cached);
+		EXPECT_TRUE((*Cached)->Wait());
+	}
+
+	TEST_F(FRHIPipelineCreationTests, CompiledInputsReleaseBudgetWhileObserversRetainLayout)
+	{
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader;
+		FRHIPipelineMetadataBudget Budget;
+		std::promise<void> Release;
+		auto Released = Release.get_future().share();
+		auto Callbacks = Backend([&](const auto&, const auto&) {
+			Released.wait();
+			return MakeRefCount<FRHIComputePipelineState>();
+		});
+		Callbacks.ReserveMetadata = [&](uint64 Bytes) { return Budget.Reserve(Bytes); };
+		FPipelineCompileQueue Owner(Capabilities(), std::move(Callbacks));
+		auto Request = Owner.RequestCompute(Initializer, std::string(64 * 1024, 'x'));
+		ASSERT_TRUE(Request.IsAccepted());
+		EXPECT_GT(Budget.GetUsedBytes(), 64 * 1024u);
+		auto Layout = Request.GetPipelineLayout();
+		ASSERT_TRUE(Layout);
+		Release.set_value();
+		EXPECT_TRUE(Request.Wait());
+		Owner.StopAndWait();
+		EXPECT_LT(Budget.GetUsedBytes(), 1024u);
+		EXPECT_GT(Budget.GetUsedBytes(), 0u);
+		Request = {};
+		EXPECT_EQ(Budget.GetUsedBytes(), 0u);
+		EXPECT_TRUE(Layout->BindingLayouts.empty());
+	}
+
 	TEST_F(FRHIPipelineCreationTests, UnfinishedPayloadBudgetRejectsBeforeRequestCountLimit)
 	{
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
@@ -347,7 +414,7 @@ namespace Durin
 		}));
 		std::vector<FRHIPipelineCreationRequest> Requests;
 		const std::string Name(900 * 1024, 'x');
-		for (uint32 Index = 0; Index < 16; ++Index)
+		for (uint32 Index = 0; Index < 32; ++Index)
 		{
 			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = Index;
 			auto Request = Owner.RequestCompute(Initializer, Name);
@@ -359,7 +426,7 @@ namespace Durin
 			Requests.push_back(Request);
 		}
 		EXPECT_GT(Requests.size(), 0u);
-		EXPECT_LT(Requests.size(), 16u);
+		EXPECT_LT(Requests.size(), 32u);
 		EXPECT_LE(Owner.GetStatistics().UnfinishedDescriptionBytes, 16ull * 1024 * 1024);
 		Release.set_value();
 		for (const auto& Request : Requests) EXPECT_TRUE(Request.Wait());

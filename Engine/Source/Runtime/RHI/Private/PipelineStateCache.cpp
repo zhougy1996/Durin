@@ -68,6 +68,12 @@ namespace Durin
 			using TPipeline = std::conditional_t<Graphics, FGraphicsPipelineState, FComputePipelineState>;
 			using TResult = std::expected<std::shared_ptr<TPipeline>, ERHIPipelineRequestRejection>;
 			std::lock_guard Lock(Mutex);
+			const auto Now = std::chrono::steady_clock::now();
+			if (Now - LastPrune >= std::chrono::seconds(60))
+			{
+				std::erase_if(Entries, [](const auto& Entry) { return Entry.second.Pipeline.expired(); });
+				LastPrune = Now;
+			}
 			if (Closed || Queue.IsClosed()) return TResult(std::unexpected(ERHIPipelineRequestRejection::Closed));
 			if (Private::FTaskRuntimeAccess::IsExecutingIndependentCPU())
 				return TResult(std::unexpected(ERHIPipelineRequestRejection::Unsupported));
@@ -76,7 +82,13 @@ namespace Durin
 			try
 			{
 				auto Valid = MakeKey();
-				if (!Valid) return TResult(std::unexpected(ERHIPipelineRequestRejection::InvalidDescription));
+				if (!Valid)
+				{
+					if constexpr (requires { Valid.error(); })
+						if (Valid.error() == std::remove_cvref_t<decltype(Valid.error())>::CapacityExceeded)
+							return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
+					return TResult(std::unexpected(ERHIPipelineRequestRejection::InvalidDescription));
+				}
 				FKey Key(std::move(*Valid));
 				if (auto Existing = Entries.find(Key); Existing != Entries.end())
 				{
@@ -91,18 +103,8 @@ namespace Durin
 				if (Entries.size() >= 4096)
 					std::erase_if(Entries, [](const auto& Entry) { return Entry.second.Pipeline.expired(); });
 				if (Entries.size() >= 4096) return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
-				uint64 Bytes = sizeof(FKey) + sizeof(FEntry) + sizeof(TPipeline) + 256;
-				std::visit([&](const auto& Value) {
-					Bytes += Value.PipelineLayout.BindingLayouts.capacity() * sizeof(FBindingLayout);
-					Bytes += Value.PipelineLayout.PushConstantRanges.capacity() * sizeof(FPushConstantRange);
-					for (const auto& Layout : Value.PipelineLayout.BindingLayouts)
-						Bytes += Layout.BindingLayouts.capacity() * sizeof(FBindingLayoutItem);
-					if constexpr (std::same_as<std::decay_t<decltype(Value)>, FGraphicsPipelineStateKey>)
-					{
-						Bytes += Value.VertexElements.capacity() * sizeof(FRHIVertexElementIdentity);
-						Bytes += Value.ColorBlendStates.capacity() * sizeof(FRHIColorBlendState);
-					}
-				}, Key);
+				const uint64 Bytes = sizeof(FEntry) + sizeof(TPipeline) + 256
+					+ std::visit([](const auto& Value) { return GetPipelineKeyOwnedBytes(Value); }, Key);
 				if (Bytes > 1024 * 1024) return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
 				auto Metadata = [&] {
 					try { return Queue.ReserveCacheMetadata(Bytes); }
@@ -128,6 +130,7 @@ namespace Durin
 		FPipelineCompileQueue Queue;
 		std::mutex Mutex;
 		std::unordered_map<FKey, FEntry, FKeyHash> Entries;
+		std::chrono::steady_clock::time_point LastPrune = std::chrono::steady_clock::now();
 		bool Closed = false;
 		std::mutex CloseMutex;
 		bool Stopped = false;

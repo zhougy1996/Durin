@@ -26,12 +26,16 @@ namespace Durin::VulkanRHI
 			ASSERT_TRUE(PrepareCreationQualificationValidationLayer());
 			ASSERT_TRUE(ConfigureCreationQualificationAffinity());
 			ASSERT_TRUE(ConfigureCreationQualificationHighQos());
+			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+			GIsGameThreadIdInitialized = true;
+			ASSERT_TRUE(InitializeTaskScheduler(1));
 			if (const char* Mode = std::getenv("DURIN_RHI_EXECUTION")) PreviousMode = Mode;
 			_putenv_s("DURIN_RHI_EXECUTION", "threaded");
 		}
 		auto TearDown() -> void override
 		{
 			if (GDynamicRHI) RHIExit();
+			ShutdownTaskScheduler();
 			_putenv_s("DURIN_RHI_EXECUTION", PreviousMode ? PreviousMode->c_str() : "");
 		}
 		std::optional<std::string> PreviousMode;
@@ -97,10 +101,10 @@ namespace Durin::VulkanRHI
 			std::vector<FGraphicsPipelineStateRHIRef> GraphicsResults(128);
 			std::vector<FComputePipelineStateRHIRef> ComputeResults(128);
 			auto Measure = [&](auto&& Body) {
+				FCreationMemorySampler MemorySampler;
 				const auto Before = GCommandListExecutor.GetStats();
 				const auto Serial = GCommandListExecutor.GetLastSubmittedSerial();
 				const auto Cache = GDynamicRHI->RHIGetPipelineCacheStatistics();
-				FCreationMemorySampler MemorySampler;
 				const auto Started = VulkanCreationTimestamp();
 				Body();
 				const auto Duration = VulkanCreationTimestamp() - Started;
@@ -274,10 +278,6 @@ namespace Durin::VulkanRHI
 
 	TEST_F(FVulkanCreationQualificationTests, AsyncRequestsOnSerialCreator)
 	{
-		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
-		GIsGameThreadIdInitialized = true;
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-		struct FCoreGuard { ~FCoreGuard() { if (GDynamicRHI) RHIExit(); ShutdownTaskScheduler(); } } CoreGuard;
 		FShaderCompileOptions Options;
 		Options.EntryPoints = {"VertexMain", "FragmentMain", "ComputeMain"};
 		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment, EShaderFrequency::Compute};
@@ -331,9 +331,9 @@ namespace Durin::VulkanRHI
 				EXPECT_TRUE(Records[Index].Request.IsAccepted());
 			};
 			if (Scenario == "hot") { Request(0); ASSERT_TRUE(Records[0].Request.Wait()); }
+			FCreationMemorySampler Memory;
 			const auto Before = GCommandListExecutor.GetStats();
 			const auto BeforeCache = GDynamicRHI->RHIGetPipelineCacheStatistics();
-			FCreationMemorySampler Memory;
 			const auto Begin = VulkanCreationTimestamp();
 			if (Scenario == "duplicate16" || Scenario == "distinct16")
 			{

@@ -1561,7 +1561,8 @@ namespace Durin
 		&& sizeof(FRHIDispatchIndirectArguments) == 12
 		&& alignof(FRHIDispatchIndirectArguments) == alignof(uint32));
 
-	// Canonical immutable identity used by graphics-pipeline caches.
+	// Canonical immutable identity. Shared descriptions are interned by value;
+	// copies retain their CPU-only data independently of backend/device lifetime.
 	struct FGraphicsPipelineStateKey
 	{
 		FShaderTargetIdentity Target;
@@ -1573,12 +1574,12 @@ namespace Durin
 		std::string VertexEntryPoint;
 		std::string FragmentEntryPoint;
 		FRHIRenderTargetLayout RenderTargetLayout;
-		std::vector<FRHIVertexElementIdentity> VertexElements;
-		FPipelineLayoutDesc PipelineLayout;
+		std::shared_ptr<const std::vector<FRHIVertexElementIdentity>> VertexElements;
+		std::shared_ptr<const FPipelineLayoutDesc> PipelineLayout;
 		FRHIRasterizerState RasterizerState;
 		FRHIMultisampleState MultisampleState;
 		FRHIDepthStencilState DepthStencilState;
-		std::vector<FRHIColorBlendState> ColorBlendStates;
+		std::shared_ptr<const std::vector<FRHIColorBlendState>> ColorBlendStates;
 		FGraphicsPipelineStateInitializer::EPrimitiveTopology PrimitiveTopology =
 			FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
 
@@ -1612,6 +1613,7 @@ namespace Durin
 		UnsupportedFillMode,
 		UnsupportedDepthClamp,
 		UnsupportedWideLines,
+		CapacityExceeded,
 	};
 
 	RHI_API auto ToString(ERHIGraphicsPipelineError Error) -> std::string_view;
@@ -1630,7 +1632,7 @@ namespace Durin
 		std::array<uint32, 3> ComputeThreadGroupSize{};
 		FXxHash128 BindingRemapIdentity{};
 		std::string EntryPoint;
-		FPipelineLayoutDesc PipelineLayout;
+		std::shared_ptr<const FPipelineLayoutDesc> PipelineLayout;
 
 		auto operator==(const FComputePipelineStateKey&) const -> bool = default;
 	};
@@ -1639,6 +1641,11 @@ namespace Durin
 	{
 		RHI_API auto operator()(const FComputePipelineStateKey& Key) const -> size_t;
 	};
+
+	inline auto GetPipelineKeyOwnedBytes(const FGraphicsPipelineStateKey& Key) -> uint64
+	{ return sizeof(Key) + Key.VertexEntryPoint.capacity() + Key.FragmentEntryPoint.capacity() + 2; }
+	inline auto GetPipelineKeyOwnedBytes(const FComputePipelineStateKey& Key) -> uint64
+	{ return sizeof(Key) + Key.EntryPoint.capacity() + 1; }
 
 	enum class ERHIComputePipelineError : uint8
 	{
@@ -1649,6 +1656,7 @@ namespace Durin
 		InvalidPushConstants,
 		OverlappingPushConstants,
 		MissingDispatchLimits,
+		CapacityExceeded,
 	};
 
 	RHI_API auto ToString(ERHIComputePipelineError Error) -> std::string_view;

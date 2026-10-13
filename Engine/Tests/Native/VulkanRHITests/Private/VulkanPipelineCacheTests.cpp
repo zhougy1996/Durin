@@ -12,6 +12,7 @@
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
 #include "VulkanPipeline.h"
+#include "VulkanContext.h"
 #include <gtest/gtest.h>
 
 namespace Durin::VulkanRHI
@@ -19,6 +20,46 @@ namespace Durin::VulkanRHI
 	class FVulkanPipelineCacheTests : public FVulkanIntegrationTest
 	{
 	};
+
+	TEST_F(FVulkanPipelineCacheTests, FrameMaintenanceTrimsUnusedPipelinesAndPreservesPinnedEntries)
+	{
+		FShaderCompileOptions Options;
+		Options.EntryPoints = {"ComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Compute};
+		FSlangShaderCompiler Compiler;
+		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR)
+			/ "CreationQualification.slang").string(), Options);
+		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
+		ASSERT_EQ(Compiled.CompiledShaders.size(), 1u);
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		const auto& Input = Compiled.CompiledShaders.front();
+		auto Desc = FRHIShaderCreateDesc::Create(Input.DebugName.c_str(), Input.Frequency, *Input.Code, Input.Hash);
+		Desc.SetEntryPoint(Input.BinaryEntryPoint.c_str());
+		auto Shader = GDynamicRHI->RHICreateShader(Desc);
+		ASSERT_TRUE(Shader);
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader;
+		Initializer.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
+			EShaderStageFlags::Compute, 0, ERHIBindingType::UniformBuffer);
+		FComputePipelineStateRHIRef Pinned;
+		for (uint32 Index = 0; Index < 70; ++Index)
+		{
+			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = Index;
+			auto Pipeline = GDynamicRHI->RHICreateComputePipelineState({}, Initializer);
+			ASSERT_TRUE(Pipeline);
+			if (Index == 0) Pinned = std::move(Pipeline);
+		}
+		EXPECT_EQ(GDynamicRHI->RHIGetPipelineCacheStatistics().ComputePipelines.Occupancy, 70u);
+		auto* Device = GetVulkanDeviceForTest(FVulkanDynamicRHI::Get());
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+			static_cast<IRHICommandContext*>(Device->GetImmediateContext())->RHIBeginFrame({});
+		});
+		const auto Stats = GDynamicRHI->RHIGetPipelineCacheStatistics().ComputePipelines;
+		EXPECT_EQ(Stats.Occupancy, 65u);
+		EXPECT_EQ(Stats.Evictions, 5u);
+		Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 0;
+		EXPECT_EQ(GDynamicRHI->RHICreateComputePipelineState({}, Initializer), Pinned);
+	}
 
 	TEST_F(FVulkanPipelineCacheTests, PublicAsyncPipelinesShareCreationAndRetainOwnedInputs)
 	{

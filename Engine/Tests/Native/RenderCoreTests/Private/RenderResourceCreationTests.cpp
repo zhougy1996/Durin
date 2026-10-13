@@ -88,7 +88,7 @@ namespace Durin
 					.CreateGraphics = [](const auto&, const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
 					.CreateCompute = [this](const auto&, const auto& Key) -> FComputePipelineStateRHIRef {
 						++Creations;
-						const auto Slot = Key.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot;
+						const auto Slot = Key.PipelineLayout->BindingLayouts[0].BindingLayouts[0].Slot;
 						if (BeforeCreate) BeforeCreate(Slot);
 						if (FailCreate && FailCreate(Slot)) return {};
 						auto Result = MakeRefCount<FRHIComputePipelineState>();

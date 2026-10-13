@@ -33,7 +33,7 @@ namespace Durin
 	{
 	public:
 		FMetalComputePipelineState(FRHIShader* InShader,
-			FPipelineLayoutDesc InLayout, NS::SharedPtr<MTL::ComputePipelineState> InPipeline)
+			std::shared_ptr<const FPipelineLayoutDesc> InLayout, NS::SharedPtr<MTL::ComputePipelineState> InPipeline)
 			: Shader(InShader), Layout(std::move(InLayout)), Pipeline(std::move(InPipeline)) {}
 
 		~FMetalComputePipelineState() override
@@ -43,12 +43,12 @@ namespace Durin
 		}
 
 		auto GetPipeline() const -> MTL::ComputePipelineState* { return Pipeline.get(); }
-		auto GetLayout() const -> const FPipelineLayoutDesc& { return Layout; }
+		auto GetLayout() const -> const FPipelineLayoutDesc& { return *Layout; }
 		auto GetShader() const -> FRHIShader* { return Shader.GetReference(); }
 
 	private:
 		FShaderRHIRef Shader;
-		FPipelineLayoutDesc Layout;
+		std::shared_ptr<const FPipelineLayoutDesc> Layout;
 		NS::SharedPtr<MTL::ComputePipelineState> Pipeline;
 	};
 
@@ -72,7 +72,7 @@ namespace Durin
 			FRHIRenderTargetLayout InRenderTargets,
 			FRHIRasterizerState InRasterizer,
 			MTL::PrimitiveType InPrimitiveType,
-			FPipelineLayoutDesc InLayout,
+			std::shared_ptr<const FPipelineLayoutDesc> InLayout,
 			NS::SharedPtr<MTL::DepthStencilState> InDepthStencil)
 			: Vertex(InVertex), Fragment(InFragment), Declaration(InDeclaration),
 				Pipeline(std::move(InPipeline)), RenderTargets(std::move(InRenderTargets)),
@@ -92,7 +92,7 @@ namespace Durin
 		auto GetRasterizer() const -> const FRHIRasterizerState&
 			{ return Rasterizer; }
 		auto GetPrimitiveType() const -> MTL::PrimitiveType { return PrimitiveType; }
-		auto GetLayout() const -> const FPipelineLayoutDesc& { return Layout; }
+		auto GetLayout() const -> const FPipelineLayoutDesc& { return *Layout; }
 		auto GetVertexShader() const -> FRHIShader* { return Vertex.GetReference(); }
 		auto GetFragmentShader() const -> FRHIShader* { return Fragment.GetReference(); }
 		auto GetDepthStencil() const -> MTL::DepthStencilState*
@@ -115,7 +115,7 @@ namespace Durin
 		FRHIRenderTargetLayout RenderTargets;
 		FRHIRasterizerState Rasterizer;
 		MTL::PrimitiveType PrimitiveType;
-		FPipelineLayoutDesc Layout;
+		std::shared_ptr<const FPipelineLayoutDesc> Layout;
 		NS::SharedPtr<MTL::DepthStencilState> DepthStencil;
 	};
 

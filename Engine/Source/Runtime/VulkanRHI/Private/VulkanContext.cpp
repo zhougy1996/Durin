@@ -295,6 +295,7 @@ namespace Durin::VulkanRHI
 		RHIPollTextureReadbacks();
 		PendingGfxState->ClearDescriptorSetCache();
 		PendingComputeState->ClearDescriptorSetCache();
+		Device.GetPipelineManager().TrimUnusedPipelineStates();
 	}
 
 	auto FVulkanCommandListContext::RHISubmitCommands() -> void
@@ -1129,7 +1130,7 @@ namespace Durin::VulkanRHI
 		checkf(PipelineState, "Draw requires an active graphics pipeline.");
 		std::unordered_set<uint32> ValidatedStreams;
 		for (const FRHIVertexElementIdentity& Element :
-			PipelineState->GetKey().VertexElements)
+			*PipelineState->GetKey().VertexElements)
 		{
 			if (!ValidatedStreams.insert(Element.StreamIndex).second) continue;
 			const auto It = BoundVertexBuffers.find(Element.StreamIndex);

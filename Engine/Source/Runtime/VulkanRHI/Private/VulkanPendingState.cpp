@@ -160,7 +160,7 @@ namespace Durin::VulkanRHI
 				&& InShader->GetHash() == Key.ComputeShaderHash,
 				"Shader parameter update does not belong to the active compute pipeline.");
 #if DO_CHECK
-			const auto ValidationResult = ValidateShaderParameterUpdate(Key.PipelineLayout,
+			const auto ValidationResult = ValidateShaderParameterUpdate(*Key.PipelineLayout,
 				EShaderStageFlags::Compute, InResourceParameters);
 			checkf(ValidationResult,
 				"Invalid compute shader parameter update: {}", ToString(ValidationResult.error()));
@@ -199,7 +199,7 @@ namespace Durin::VulkanRHI
 		checkf(Data && Size > 0 && Offset <= std::numeric_limits<uint32>::max() - Size,
 			"Compute push constants require one nonempty valid byte range.");
 		const auto& Ranges = CurrentPipelineState->GetKey()
-			.PipelineLayout.PushConstantRanges;
+			.PipelineLayout->PushConstantRanges;
 		checkf(std::ranges::any_of(Ranges,
 			[&](const FPushConstantRange& Range) {
 				return Range.StageFlags == EShaderStageFlags::Compute
@@ -265,7 +265,7 @@ namespace Durin::VulkanRHI
 			});
 #if DO_CHECK
 		const auto ValidationResult = ValidateShaderBindingCompleteness(
-			CurrentPipelineState->GetKey().PipelineLayout, PendingResources);
+			*CurrentPipelineState->GetKey().PipelineLayout, PendingResources);
 		checkf(ValidationResult,
 			"Invalid compute shader binding snapshot: {}", ToString(ValidationResult.error()));
 #endif
@@ -443,7 +443,7 @@ namespace Durin::VulkanRHI
 		checkf(ShaderStage != EShaderStageFlags::None,
 			"Shader parameter update does not belong to the active graphics pipeline.");
 #if DO_CHECK
-		const auto ValidationResult = ValidateShaderParameterUpdate(Key.PipelineLayout, ShaderStage,
+		const auto ValidationResult = ValidateShaderParameterUpdate(*Key.PipelineLayout, ShaderStage,
 			InResourceParameters);
 		checkf(ValidationResult,
 			"Invalid shader parameter update: {}", ToString(ValidationResult.error()));
@@ -651,7 +651,7 @@ namespace Durin::VulkanRHI
 			DrawValidationResourceIndices.clear();
 			uint64 BindingValidationVisits = 0;
 			RHIShaderParameterValidationInternal::VisitOrderedBindingsChecked(
-				PipelineState.GetKey().PipelineLayout, PendingShaderResources,
+				*PipelineState.GetKey().PipelineLayout, PendingShaderResources,
 				[&](const RHIShaderParameterValidationInternal::FBindingElement& Element,
 					const FRHIShaderParameterResource& ResourceRecord) {
 						const FBindingLayoutItem& Binding = *Element.Binding;

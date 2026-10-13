@@ -115,6 +115,14 @@ namespace Durin::VulkanRHI
 	}
 	auto GetVulkanDeviceLuidForTiming() -> std::optional<std::array<std::byte, 8>>
 	{
+		if (GRHIThread && !IsInRHIThread())
+		{
+			std::optional<std::array<std::byte, 8>> Result;
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+				Result = GetVulkanDeviceLuidForTiming();
+			});
+			return Result;
+		}
 		const auto* Device = GetTestDevice();
 		if (!Device) return std::nullopt;
 		const auto Properties = Device->GetGpu().getProperties2<vk::PhysicalDeviceProperties2,

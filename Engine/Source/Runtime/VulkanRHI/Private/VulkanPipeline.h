@@ -113,6 +113,8 @@ namespace Durin::VulkanRHI
 			-> TRefCountPtr<FVulkanComputePipelineState>;
 
 		auto FindOrAddLayout(const FVulkanDescriptorSetsLayoutInfo& LayoutInfo) -> std::shared_ptr<FVulkanLayout>;
+		// Frame maintenance never waits for an active native creator.
+		auto TrimUnusedPipelineStates() -> void;
 	private:
 		// Candidate constructors are called only by this manager under CreationMutex.
 		// Initialization precedes creation; saving/destruction follow creator shutdown.

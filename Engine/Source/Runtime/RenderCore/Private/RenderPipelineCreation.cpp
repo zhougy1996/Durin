@@ -49,45 +49,46 @@ namespace Durin
 			using TKey = std::conditional_t<Graphics, FGraphicsPipelineStateKey, FComputePipelineStateKey>;
 			using TPipeline = std::conditional_t<Graphics, FGraphicsPipelineState, FComputePipelineState>;
 			using TResult = std::expected<std::shared_ptr<TPipeline>, ERHIPipelineRequestRejection>;
-			char NameBuffer[FName::StringBufferSize];
-			std::string_view NameView = Name.GetPlainNameView();
-			if (Name.HasNumber())
+			try
 			{
-				size_t Length = 0;
-				require(Name.TryWriteString(NameBuffer, Length));
-				NameView = std::string_view(NameBuffer, Length);
+				char NameBuffer[FName::StringBufferSize];
+				std::string_view NameView = Name.GetPlainNameView();
+				if (Name.HasNumber())
+				{
+					size_t Length = 0;
+					require(Name.TryWriteString(NameBuffer, Length));
+					NameView = std::string_view(NameBuffer, Length);
+				}
+				if (!IsPipelineCreationPayloadBounded(Initializer, NameView))
+					return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
+				auto Valid = [&] {
+					if constexpr (Graphics) return BuildGraphicsPipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities());
+					else return BuildComputePipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities());
+				}();
+				if (!Valid)
+				{
+					RetryAdmission = Valid.error() == std::remove_cvref_t<decltype(Valid.error())>::CapacityExceeded;
+					return TResult(std::unexpected(RetryAdmission ? ERHIPipelineRequestRejection::CapacityExceeded
+						: ERHIPipelineRequestRejection::InvalidDescription));
+				}
+				auto& Key = *Valid;
+				for (const auto& Entry : Entries)
+					if (const auto* Existing = std::get_if<TKey>(&Entry.Key); Existing && *Existing == Key) return TResult(std::static_pointer_cast<TPipeline>(Entry.Pipeline));
+				const uint64 Bytes = sizeof(FEntry) - sizeof(TKey) + GetPipelineKeyOwnedBytes(Key);
+				if (Entries.size() >= 256 || Bytes > 1024 * 1024 - KeyBytes)
+					return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
+				TResult Result;
+				if constexpr (Graphics) Result = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer, Name);
+				else Result = PipelineStateCache::PrecacheComputePipelineState(Initializer, Name);
+				RetryAdmission = !Result && Result.error() == ERHIPipelineRequestRejection::CapacityExceeded;
+				if (Result)
+				{
+					Entries.push_back({std::move(Key), *Result});
+					KeyBytes += Bytes;
+				}
+				return Result;
 			}
-			if (!IsPipelineCreationPayloadBounded(Initializer, NameView))
-				return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
-			auto Valid = [&] {
-				if constexpr (Graphics) return BuildGraphicsPipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities());
-				else return BuildComputePipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities());
-			}();
-			if (!Valid) return TResult(std::unexpected(ERHIPipelineRequestRejection::InvalidDescription));
-			auto& Key = *Valid;
-			for (const auto& Entry : Entries)
-				if (const auto* Existing = std::get_if<TKey>(&Entry.Key); Existing && *Existing == Key) return TResult(std::static_pointer_cast<TPipeline>(Entry.Pipeline));
-			uint64 Bytes = sizeof(FEntry);
-			Bytes += Key.PipelineLayout.BindingLayouts.capacity() * sizeof(FBindingLayout);
-			Bytes += Key.PipelineLayout.PushConstantRanges.capacity() * sizeof(FPushConstantRange);
-			for (const auto& Layout : Key.PipelineLayout.BindingLayouts) Bytes += Layout.BindingLayouts.capacity() * sizeof(FBindingLayoutItem);
-			if constexpr (Graphics)
-			{
-				Bytes += Key.VertexElements.capacity() * sizeof(FRHIVertexElementIdentity);
-				Bytes += Key.ColorBlendStates.capacity() * sizeof(FRHIColorBlendState);
-			}
-			if (Entries.size() >= 256 || Bytes > 1024 * 1024 - KeyBytes)
-				return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
-			TResult Result;
-			if constexpr (Graphics) Result = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer, Name);
-			else Result = PipelineStateCache::PrecacheComputePipelineState(Initializer, Name);
-			RetryAdmission = !Result && Result.error() == ERHIPipelineRequestRejection::CapacityExceeded;
-			if (Result)
-			{
-				Entries.push_back({std::move(Key), *Result});
-				KeyBytes += Bytes;
-			}
-			return Result;
+			catch (const std::bad_alloc&) { RetryAdmission = true; return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded)); }
 		}
 	};
 

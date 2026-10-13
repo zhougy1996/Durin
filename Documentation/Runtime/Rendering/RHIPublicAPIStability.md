@@ -4,7 +4,7 @@ Summary: Define the source and semantic stability boundary of public RHI headers
 
 Modules: RHI, RenderCore, VulkanRHI, MetalRHI
 
-Last reviewed: 2026-10-09
+Last reviewed: 2026-10-13
 
 ## Directory Contract
 
@@ -50,6 +50,12 @@ inline implementation, cache organization, capacity constants, Vulkan native
 types, and diagnostic formatting may change without compatibility adapters.
 Durin projects build from one workspace revision and do not load independently
 versioned RHI client binaries.
+
+Pipeline-key description fields retain shared immutable RHI-owned CPU data.
+The validating key builders canonicalize and intern layouts, vertex input, and
+blend descriptions; consumers retain the shared references instead of copying
+or mutating description arrays. Content equality and hashing remain the owning
+[graphics contract](GraphicsStateAndBindings.md#graphics-pipeline-contract).
 
 An enum value, resource flag, shader frequency, or feature level is vocabulary,
 not proof that a backend implements the feature. Runtime support requires a

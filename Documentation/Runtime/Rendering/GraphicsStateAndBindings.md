@@ -15,6 +15,18 @@ state before backend creation. Disabled features and inactive attachments are
 reduced to canonical defaults, so equivalent behavior has equal identity and
 different behavior cannot alias.
 
+Canonical keys retain shared immutable pipeline-layout, vertex-input, and blend
+descriptions interned by content in RHI. Equal descriptions share one CPU owner;
+key copies do not duplicate their dynamic arrays. Structural hashes remain
+content-based. Keys must be obtained through the validating builders; consumers
+read descriptions through their shared const references. The
+[resource recovery contract](RendererResourceRecovery.md#pipeline-cache-and-binding)
+owns description budgets, cache retention, and retirement.
+
+Description-pool exhaustion returns the key builder's `CapacityExceeded` error,
+distinct from an invalid initializer. Request admission preserves this as
+capacity backpressure so preparation can retry after owners release entries.
+
 The backend-only `FRHIPipelineStateCacheBackend` entry points reuse a key
 already validated against the same device's capabilities. They preserve the
 ordinary cache's lifecycle, payload-budget, and task-admission checks. Renderer

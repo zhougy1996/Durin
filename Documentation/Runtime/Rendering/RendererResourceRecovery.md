@@ -154,9 +154,16 @@ Native access returns complete RHI references only for Ready. Device/invariant
 exceptions publish executor failure and wake serial waiters before failing the
 Core creator; native/error access preserves the original terminal exception.
 
-The Vulkan CPU metadata budget is 64 MiB shared by PSO keys/results, structural
-layouts, descriptor-set layouts, and render passes. Reservations charge dynamic
-container capacities and conservative object/node overhead before native
+RHI interns canonical pipeline-layout, vertex-input, and blend descriptions in
+weak CPU-only indexes, capped at 4,096 live descriptions per family. Their shared
+64 MiB budget charges dynamic container capacities once, plus conservative
+object/node overhead. Keys retain immutable shared descriptions; the last strong
+description owner releases its reservation. Descriptions contain no device or
+shader resources and may survive backend shutdown.
+
+The Vulkan device has a separate 64 MiB CPU metadata budget shared by compact
+PSO keys/results, unfinished creation inputs, structural layouts, descriptor-set
+layouts, and render passes. Reservations charge locally owned data before native
 creation. Their ownership follows the retained result until deletion, including
 evicted objects awaiting owner retirement. This is logical cache accounting,
 not an allocator/driver memory measurement. Resident count limits remain 2,048
@@ -190,9 +197,19 @@ internal because they carry cancellation authority. A failed identity can be
 retried by a later cache acquisition without changing an existing owner's result.
 
 The device-owned PipelineStateCache has a weak table capped at 4,096 entries. Keys and
-identity metadata are charged against the existing shared 64 MiB metadata budget;
-individual cache metadata payloads are capped at 1 MiB. Expired identities are
-reclaimed at entry capacity or metadata pressure. The Vulkan cache continues to own complete native reuse.
+identity metadata are charged against the device metadata budget; shared
+descriptions are charged only by their RHI owner. Unfinished initializer/name
+reservations are released when compilation finishes; retained observations pay
+only for their key and observer ownership. Individual cache metadata payloads
+are capped at 1 MiB. Acquisition prunes expired identities every 60 seconds and
+at entry capacity or metadata pressure.
+
+At frame begin, Vulkan retains at most 64 cache-only graphics and 64 cache-only
+compute PSOs, evicting older entries first. Externally retained PSOs remain
+pinned, and existing GPU-aware retirement protects their native destruction.
+Maintenance skips an active creator rather than waiting for native compilation.
+Evicted PSOs can be recreated using the persistent driver pipeline cache; this
+retention policy trades CPU/driver memory for possible future creation latency.
 Cache acquisition rejects independent CPU leaves. Ordinary foreign-scope tasks
 can acquire cold identities: one lazily started admission thread per device
 performs a serialized metadata handoff outside the caller's Core scope. The

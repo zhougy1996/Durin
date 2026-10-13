@@ -58,6 +58,7 @@ namespace Durin
 		case ERHIGraphicsPipelineError::UnsupportedFillMode: return "Graphics pipeline non-solid fill is unsupported by the device.";
 		case ERHIGraphicsPipelineError::UnsupportedDepthClamp: return "Graphics pipeline depth clamp is unsupported by the device.";
 		case ERHIGraphicsPipelineError::UnsupportedWideLines: return "Graphics pipeline wide lines are unsupported by the device.";
+		case ERHIGraphicsPipelineError::CapacityExceeded: return "Shared graphics pipeline description capacity is exhausted.";
 		}
 		return {};
 	}
@@ -73,6 +74,7 @@ namespace Durin
 		case ERHIComputePipelineError::InvalidPushConstants: return "Compute pipeline push-constant layout is structurally invalid.";
 		case ERHIComputePipelineError::OverlappingPushConstants: return "Compute pipeline push-constant ranges overlap.";
 		case ERHIComputePipelineError::MissingDispatchLimits: return "Compute dispatch limits are unavailable.";
+		case ERHIComputePipelineError::CapacityExceeded: return "Shared compute pipeline description capacity is exhausted.";
 		}
 		return {};
 	}
