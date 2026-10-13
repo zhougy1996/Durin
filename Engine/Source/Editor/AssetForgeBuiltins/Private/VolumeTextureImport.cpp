@@ -517,15 +517,15 @@ namespace Durin::AssetForge::Builtins
 		const FSourceFile* Source = Data ? State.SourceData.FindByRole("source") : nullptr;
 		if (!Texture || !Data || !Source || Source->Hint.empty())
 		{
-			if (Completion) Completion({EReimportStatus::MissingSource,
+			if (Completion) Completion({EReimportResult::Failed,
 				"VolumeTexture has no source hint to reimport."});
 			return;
 		}
 		const auto Rebuilt = RebuildVolumeFromFilename(*Texture,
 			Source->Hint, Source->HintBase, MakeImportSettings(State), nullptr);
 		if (Completion) Completion(Rebuilt
-			? FReimportResult{EReimportStatus::Succeeded, {}}
-			: FReimportResult{EReimportStatus::SourceOrBuildFailure, Rebuilt.error(),
+			? FReimportResult{EReimportResult::Succeeded, {}}
+			: FReimportResult{EReimportResult::Failed, Rebuilt.error(),
 				std::make_shared<FVolumeTextureFactoryError>(Rebuilt.error())});
 	}
 
@@ -538,7 +538,7 @@ namespace Durin::AssetForge::Builtins
 			Texture->GetAssetImportData()) : nullptr;
 		if (!Texture || !Data || Filenames.size() != 1 || Filenames.front().empty())
 		{
-			if (Completion) Completion({EReimportStatus::SourceOrBuildFailure,
+			if (Completion) Completion({EReimportResult::Failed,
 				"VolumeTexture reimport requires one source file and current import data."});
 			return;
 		}
@@ -548,8 +548,8 @@ namespace Durin::AssetForge::Builtins
 			ESourceHintBase::AssetRelative,
 			MakeImportSettings(Data->GetVolumeTextureState()), nullptr, Requested);
 		if (Completion) Completion(Rebuilt
-			? FReimportResult{EReimportStatus::Succeeded, {}}
-			: FReimportResult{EReimportStatus::SourceOrBuildFailure, Rebuilt.error(),
+			? FReimportResult{EReimportResult::Succeeded, {}}
+			: FReimportResult{EReimportResult::Failed, Rebuilt.error(),
 				std::make_shared<FVolumeTextureFactoryError>(Rebuilt.error())});
 	}
 

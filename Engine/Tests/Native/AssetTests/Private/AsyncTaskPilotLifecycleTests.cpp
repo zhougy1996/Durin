@@ -387,11 +387,11 @@ namespace
 			FAssetCompilingManager::Get().ProcessAsyncTasks();
 			EXPECT_EQ(2u, FAssetCompilingManager::Get().GetNumRemainingAssets());
 			EXPECT_EQ(0u, Deliveries[0]);
-			EXPECT_FALSE(WaitForTexture2DCompilation(*Owners[0], 0.0));
+			EXPECT_FALSE(Owners[0]->FinishCachePlatformData(0.0));
 			Cache->Release.Trigger();
 			ASSERT_TRUE(WaitUntil([&] { return Cache->Writes.load() >= 1; }, std::chrono::seconds(5)));
 			ASSERT_EQ(1u, Cache->Writes.load());
-			EXPECT_FALSE(WaitForTexture2DCompilation(*Owners[1], 0.0));
+			EXPECT_FALSE(Owners[1]->FinishCachePlatformData(0.0));
 			EXPECT_EQ(0u, Deliveries[1]);
 			Cache->ReleaseWrites.Trigger();
 			ASSERT_TRUE(WaitUntil([&] {
@@ -401,13 +401,13 @@ namespace
 			// Work can await Apply before its native callback/captures retire.
 			EXPECT_EQ(ETexture2DCompilationPhase::AwaitingApply,
 				AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Owners[1]).Phase);
-			EXPECT_FALSE(WaitForTexture2DCompilation(*Owners[1], 0.0));
+			EXPECT_FALSE(Owners[1]->FinishCachePlatformData(0.0));
 			EXPECT_EQ(0u, Deliveries[1]);
 			ReleaseCallback.Trigger();
-			ASSERT_TRUE(WaitForTexture2DCompilation(*Owners[1], 10.0));
+			ASSERT_TRUE(Owners[1]->FinishCachePlatformData(10.0));
 			EXPECT_EQ(1u, Deliveries[1]);
 			EXPECT_EQ(0u, Deliveries[0]);
-			EXPECT_TRUE(HasPendingTexture2DCompilation(*Owners[0]));
+			EXPECT_TRUE(!Owners[0]->IsAsyncCacheComplete());
 			EXPECT_FALSE(Owners[0]->HasPlatformData());
 			FAssetCompilingManager::Get().FinishAllCompilation();
 			EXPECT_EQ(1u, Deliveries[0]);
@@ -425,7 +425,7 @@ namespace
 				EXPECT_EQ(Result.Diagnostic, "Texture build task failed.");
 				++Deliveries[1];
 			}));
-			EXPECT_FALSE(WaitForTexture2DCompilation(*Owners[1], 10.0));
+			EXPECT_FALSE(Owners[1]->FinishCachePlatformData(10.0));
 			EXPECT_EQ(2u, Deliveries[1]);
 			EXPECT_EQ(0u, FAssetCompilingManager::Get().GetNumRemainingAssets());
 		}
@@ -447,7 +447,7 @@ namespace
 		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), [&](FTextureOperationResult Result) {
 			EXPECT_TRUE(Result.Succeeded()); ++LargeCompleted;
 		}));
-		ASSERT_TRUE(WaitForTexture2DCompilation(*Texture, 10.0));
+		ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 		EXPECT_EQ(1u, LargeCompleted);
 		EXPECT_GT(AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).Metrics.ResultBytes, 64u);
 		EXPECT_FALSE(Deferred.IsComplete());

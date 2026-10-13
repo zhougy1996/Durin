@@ -6,6 +6,7 @@
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
+#include "DObject/PropertyChange.h"
 #include "DObject/SoftObjectPtr.h"
 #include "CoreGlobals.h"
 #include "Threading/RunnableThread.h"
@@ -368,6 +369,12 @@ namespace Durin
 	{
 		(void)Proposal;
 		return {};
+	}
+
+	auto DObject::PostEditChange() -> void
+	{
+		CheckGameThread();
+		PostEditChangeProperty({});
 	}
 
 	auto DObject::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

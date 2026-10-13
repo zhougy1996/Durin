@@ -489,7 +489,7 @@ TEST(FTexture2DTests, CompilationAdmissionRetainsInputCauseWithoutPublishing)
 	ASSERT_TRUE(Empty.error().InputCause);
 	EXPECT_EQ(Empty.error().InputCause->Code, Durin::ETexture2DInputError::EmptyMips);
 	EXPECT_EQ(Empty.error().ObjectPath, ObjectPath);
-	EXPECT_FALSE(Durin::HasPendingTexture2DCompilation(*Texture));
+	EXPECT_FALSE(!Texture->IsAsyncCacheComplete());
 	EXPECT_EQ(Completions, 0u);
 	EXPECT_FALSE(Texture->HasPlatformData());
 
@@ -506,7 +506,7 @@ TEST(FTexture2DTests, CompilationAdmissionRetainsInputCauseWithoutPublishing)
 	const auto Missing = Durin::SubmitTexture2DCompilation(*Texture, {.Build = std::move(Request)});
 	EXPECT_FALSE(Missing);
 	EXPECT_EQ(Missing.error().Code, Durin::ETexture2DCompilationError::InvalidSource);
-	EXPECT_FALSE(Durin::HasPendingTexture2DCompilation(*Texture));
+	EXPECT_FALSE(!Texture->IsAsyncCacheComplete());
 
 	const auto Invalid = Durin::BuildTexture2DSynchronously(*Texture,
 		Durin::MakeTexture2DBuildRequest(Source, {.Usage = static_cast<Durin::ETextureUsage>(255)}).value(), {});
@@ -619,9 +619,9 @@ TEST(FTexture2DTests, BuildStatusReportsApplicationFailureAndClearsOnRetry)
 		return Durin::SubmitTexture2DCompilation(*Texture, {.Build = std::move(Build)});
 	};
 	ASSERT_TRUE(Submit());
-	EXPECT_TRUE(Durin::GetTexture2DBuildStatus(*Texture).bPending);
+	EXPECT_TRUE(Texture->GetBuildStatus().bPending);
 	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
-	const auto Failed = Durin::GetTexture2DBuildStatus(*Texture);
+	const auto Failed = Texture->GetBuildStatus();
 	EXPECT_FALSE(Failed.bPending);
 	EXPECT_EQ(Failed.Phase, Durin::ETexture2DCompilationPhase::Failed);
 	EXPECT_EQ(Failed.FailureMessage,
@@ -630,11 +630,11 @@ TEST(FTexture2DTests, BuildStatusReportsApplicationFailureAndClearsOnRetry)
 
 	Texture->SetSource(Source.CopyTornOff());
 	ASSERT_TRUE(Submit());
-	const auto Retrying = Durin::GetTexture2DBuildStatus(*Texture);
+	const auto Retrying = Texture->GetBuildStatus();
 	EXPECT_TRUE(Retrying.bPending);
 	EXPECT_TRUE(Retrying.FailureMessage.empty());
 	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
-	const auto Ready = Durin::GetTexture2DBuildStatus(*Texture);
+	const auto Ready = Texture->GetBuildStatus();
 	EXPECT_FALSE(Ready.bPending);
 	EXPECT_EQ(Ready.Phase, Durin::ETexture2DCompilationPhase::Ready);
 	EXPECT_TRUE(Ready.FailureMessage.empty());
@@ -678,7 +678,7 @@ TEST(FTexture2DTests, DispatchFailureDeliversTerminalResultOnceAndAllowsRetry)
 			[&](Durin::FTextureOperationResult Result) { ++CompletionCount; Terminal = std::move(Result); });
 	};
 	ASSERT_TRUE(Submit());
-	EXPECT_FALSE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	EXPECT_FALSE(Texture->FinishCachePlatformData(10.0));
 	ASSERT_TRUE(Terminal);
 	EXPECT_EQ(Terminal->Status, Durin::DerivedData::EStatus::Error);
 
@@ -689,7 +689,7 @@ TEST(FTexture2DTests, DispatchFailureDeliversTerminalResultOnceAndAllowsRetry)
 	EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetNumRemainingAssets(), 0u);
 	Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
 	ASSERT_TRUE(Submit());
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	ASSERT_TRUE(Terminal);
 	EXPECT_TRUE(Terminal->Succeeded());
 	EXPECT_EQ(CompletionCount, 2u);
@@ -732,9 +732,9 @@ TEST(FTexture2DTests, CancellationAfterWorkCompletionDiscardsProductAndNotifiesO
 		[&](Durin::FTextureOperationResult Result) {
 			++CompletionCount;
 			Terminal = std::move(Result);
-			EXPECT_EQ(Durin::GetTexture2DBuildStatus(*Texture).Phase,
+			EXPECT_EQ(Texture->GetBuildStatus().Phase,
 				Durin::ETexture2DCompilationPhase::Canceled);
-			EXPECT_FALSE(Durin::GetTexture2DBuildStatus(*Texture).bPending);
+			EXPECT_FALSE(Texture->GetBuildStatus().bPending);
 		}));
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 	while (!bWorkCompleted.load() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
@@ -814,7 +814,7 @@ TEST(FTexture2DTests, SourceAndSettingsMutationRetireWorkBeforeChangingInputs)
 				Durin::ETextureCompressionQuality::Normal, Durin::ETextureAlphaMipMode::Average, 0.5f);
 		}
 		EXPECT_EQ(CompletionCount, Mutation + 1);
-		EXPECT_FALSE(Durin::HasPendingTexture2DCompilation(*Texture));
+		EXPECT_FALSE(!Texture->IsAsyncCacheComplete());
 		EXPECT_EQ(Texture->GetPlatformData(), nullptr);
 	}
 }
@@ -920,7 +920,7 @@ TEST(FTexture2DTests, PendingLimitIncludesFinishedComputesUntilDeliveryReturns)
 		ASSERT_TRUE(Durin::SubmitTexture2DCompilation(*Texture, MakeRequest(),
 			[&, Texture](Durin::FTextureOperationResult Result) {
 				EXPECT_EQ(Durin::DerivedData::EStatus::Error, Result.Status);
-				const auto Status = Durin::GetTexture2DBuildStatus(*Texture);
+				const auto Status = Texture->GetBuildStatus();
 				EXPECT_EQ(Status.Phase, Durin::ETexture2DCompilationPhase::Failed);
 				EXPECT_FALSE(Status.bPending);
 				if (++CompletionCount == 1)
@@ -940,7 +940,7 @@ TEST(FTexture2DTests, PendingLimitIncludesFinishedComputesUntilDeliveryReturns)
 		&& std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
 	EXPECT_EQ(Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*FirstSubmitted).Phase,
 		Durin::ETexture2DCompilationPhase::AwaitingApply);
-	EXPECT_TRUE(Durin::GetTexture2DBuildStatus(*FirstSubmitted).bPending);
+	EXPECT_TRUE(FirstSubmitted->GetBuildStatus().bPending);
 	EXPECT_EQ(0u, CompletionCount);
 	const auto Rejected = Durin::SubmitTexture2DCompilation(*Overflow, MakeRequest(), {});
 	EXPECT_FALSE(Rejected);
@@ -1702,7 +1702,7 @@ TEST(FTexture2DTests, DdcStoreFailureKeepsCompleteProductAndReportsDiagnostic)
 		.ResultApplication = {.SourceReplacement = SourceData},
 		.Priority = Durin::ETexture2DCompilationPriority::Interactive},
 		[&](Durin::FTextureOperationResult Result) { ++CompletionCount; Completion = std::move(Result); }));
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	ASSERT_TRUE(Completion);
 	EXPECT_EQ(CompletionCount, 1u);
 	EXPECT_TRUE(Completion->Succeeded());
@@ -1882,9 +1882,9 @@ TEST(FTexture2DTests, CompilationAppliesSerializedNormalizedProduct)
 			++CompletionCount;
 			CompletionResult = std::move(Result);
 		}));
-	EXPECT_TRUE(Durin::HasPendingTexture2DCompilation(*Imported.Asset));
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Imported.Asset, 10.0));
-	EXPECT_FALSE(Durin::HasPendingTexture2DCompilation(*Imported.Asset));
+	EXPECT_TRUE(!Imported.Asset->IsAsyncCacheComplete());
+	ASSERT_TRUE(Imported.Asset->FinishCachePlatformData(10.0));
+	EXPECT_FALSE(!Imported.Asset->IsAsyncCacheComplete());
 	ASSERT_TRUE(CompletionResult.has_value());
 	EXPECT_EQ(CompletionCount, 1);
 	EXPECT_EQ(CompletionResult->Status,
@@ -1936,7 +1936,7 @@ TEST(FTexture2DTests, AsyncCompilationRetiresPreviousRequestBeforeReplacement)
 		[&](Durin::FTextureOperationResult Result) {
 			FailedResult = std::move(Result);
 		}));
-	EXPECT_FALSE(Durin::WaitForTexture2DCompilation(*Imported.Asset, 10.0));
+	EXPECT_FALSE(Imported.Asset->FinishCachePlatformData(10.0));
 	ASSERT_TRUE(FailedResult.has_value());
 	EXPECT_EQ(FailedResult->Status, Durin::DerivedData::EStatus::Error);
 	EXPECT_EQ(FailedResult->Diagnostic, "Texture2D build settings are invalid.");
@@ -1972,7 +1972,7 @@ TEST(FTexture2DTests, AsyncCompilationRetiresPreviousRequestBeforeReplacement)
 	EXPECT_EQ(FirstResult->Status,
 		Durin::DerivedData::EStatus::Canceled);
 	EXPECT_TRUE(FirstResult->Diagnostic.empty());
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Imported.Asset, 10.0));
+	ASSERT_TRUE(Imported.Asset->FinishCachePlatformData(10.0));
 	ASSERT_TRUE(SecondResult.has_value());
 	EXPECT_EQ(SecondResult->Status,
 		Durin::DerivedData::EStatus::Ok);
@@ -2362,7 +2362,7 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 	const Durin::FSharedByteBuffer LinearTail = Loaded->GetPlatformData()->Mips.back().Pixels;
 	std::string Error;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DSRGB(*Loaded, true));
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Loaded, 10.0))
+	ASSERT_TRUE(Loaded->FinishCachePlatformData(10.0))
 		<< Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Loaded).Diagnostic;
 	EXPECT_TRUE(Loaded->IsSRGB());
 	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
@@ -2371,7 +2371,7 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 		Loaded->GetPlatformData()->Mips.back().Pixels), {188, 0, 0, 128});
 	ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DUsage(
 		*Loaded, Durin::ETextureUsage::Normal));
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Loaded, 10.0))
+	ASSERT_TRUE(Loaded->FinishCachePlatformData(10.0))
 		<< Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Loaded).Diagnostic;
 	EXPECT_EQ(Loaded->GetUsage(), Durin::ETextureUsage::Normal);
 	EXPECT_FALSE(Loaded->IsSRGB());
@@ -2465,7 +2465,7 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 
 	const auto InitialPlatformDataIdentity = Texture->GetPlatformDataShared();
 	ASSERT_TRUE(SubmitUsage(Durin::ETextureUsage::Normal)) << Error;
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
 	EXPECT_FALSE(Texture->IsSRGB());
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
@@ -2474,63 +2474,63 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 
 	ASSERT_TRUE(Transactions->Undo());
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
 	EXPECT_TRUE(Texture->IsSRGB());
 	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
 	ASSERT_TRUE(Transactions->Redo());
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
 	EXPECT_FALSE(Texture->IsSRGB());
 
 	ASSERT_TRUE(SubmitSRGB(true)) << Error;
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_TRUE(Texture->IsSRGB());
 	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
 	ASSERT_TRUE(Transactions->Undo());
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_FALSE(Texture->IsSRGB());
 	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
 
 	ASSERT_TRUE(SubmitMaxResolution(1)) << Error;
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_EQ(Texture->GetMaxResolution(), 1u);
 	ASSERT_EQ(Texture->GetPlatformData()->Mips.size(), 1u);
 	EXPECT_EQ(Texture->GetPlatformData()->Mips.front().Width, 1u);
 	ASSERT_TRUE(SubmitCompressionQuality(Durin::ETextureCompressionQuality::High)) << Error;
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_EQ(Texture->GetCompressionQuality(), Durin::ETextureCompressionQuality::High);
 	ASSERT_TRUE(Transactions->Undo());
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_EQ(Texture->GetCompressionQuality(), Durin::ETextureCompressionQuality::Normal);
 	EXPECT_EQ(Texture->GetMaxResolution(), 1u);
 	ASSERT_TRUE(Transactions->Undo());
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_EQ(Texture->GetMaxResolution(), 0u);
 	EXPECT_EQ(Texture->GetPlatformData()->Mips.front().Width, 2u);
 	ASSERT_TRUE(Transactions->Redo());
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_EQ(Texture->GetMaxResolution(), 1u);
 	ASSERT_TRUE(Transactions->Redo());
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_EQ(Texture->GetCompressionQuality(), Durin::ETextureCompressionQuality::High);
 	ASSERT_TRUE(SubmitAlphaMipMode(Durin::ETextureAlphaMipMode::PreserveCoverage)) << Error;
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_EQ(Texture->GetAlphaMipMode(), Durin::ETextureAlphaMipMode::PreserveCoverage);
 	ASSERT_TRUE(SubmitAlphaCoverageThreshold(0.4f)) << Error;
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.4f);
 	ASSERT_TRUE(Transactions->Undo());
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.5f);
 	ASSERT_TRUE(Transactions->Undo());
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_EQ(Texture->GetAlphaMipMode(), Durin::ETextureAlphaMipMode::Average);
 	ASSERT_TRUE(Transactions->Redo());
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_EQ(Texture->GetAlphaMipMode(), Durin::ETextureAlphaMipMode::PreserveCoverage);
 	ASSERT_TRUE(Transactions->Redo());
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.4f);
 
 	Error.clear();
@@ -2625,7 +2625,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 		Texture->GetMaxResolution(), Texture->GetCompressionQuality(),
 		Texture->GetAlphaMipMode(), Texture->GetAlphaCoverageThreshold());
 	Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
-	EXPECT_FALSE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	EXPECT_FALSE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_FALSE(Texture->HasPlatformData());
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
@@ -2656,7 +2656,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	}
 	ASSERT_TRUE(SubmitUsage(Durin::ETextureUsage::DataMask)) << Error;
 	Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::DataMask);
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 	ASSERT_TRUE(Transactions->CanUndo());

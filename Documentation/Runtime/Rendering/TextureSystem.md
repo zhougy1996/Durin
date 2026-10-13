@@ -45,7 +45,8 @@ data, payload validation, resource publication, and compilation readiness querie
   GameThread result-application context. Rebuilds preserve the existing source;
   Texture2D import/reimport commits validated Source, settings and metadata before
   starting independent DDC work. Build failure or cancellation retains the new
-  authored data; saving remains a separate upper-layer operation.
+  authored data; `PostEditChange` triggers independent compilation and saving
+  remains a separate upper-layer operation.
 - The Texture2D builder analyzes alpha from the input image when selecting
   its platform format. Cube builds retain their whole-cube transparency override
   so all six faces use one format.
@@ -230,7 +231,7 @@ Runtime Engine and Launch have no Texture2D worker-queue dependency. Launch pump
 the aggregate with a 64-item normal-frame limit and a shared 2 ms cooperative
 deadline checked between completion applications. The manager mailbox
 remains the durable owner of large move-only results and does not depend on
-deferred-executor admission for wakeup. `WaitForTexture2DCompilation` waits until its
+deferred-executor admission for wakeup. `DTexture::FinishCachePlatformData(TimeoutSeconds)` waits until its
 request reaches the mailbox and then applies only that request without the
 normal-frame budget.
 Shutdown likewise drains all callbacks before the process task scheduler

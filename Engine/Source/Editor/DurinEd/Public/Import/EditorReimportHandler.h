@@ -34,31 +34,28 @@ namespace Durin
 	};
 
 	// Identifies one terminal reimport outcome independently from persistence.
-	enum class EReimportStatus : uint8
+	enum class EReimportResult : uint8
 	{
-		Unsupported,
-		MissingSource,
-		SourceOrBuildFailure,
 		Succeeded,
-		PersistenceFailure,
+		Failed,
 		Canceled,
-		Superseded,
 	};
 
 	struct FReimportResult
 	{
-		EReimportStatus Status = EReimportStatus::Unsupported;
+		EReimportResult Status = EReimportResult::Failed;
 		std::string Message;
 		std::shared_ptr<const IFactoryErrorDetail> FactoryCause;
+		// Set only for upper-layer persistence failure; authored import remains committed.
 		std::shared_ptr<const FAssetWriteResult> SaveCause;
 
 		auto Succeeded() const -> bool
 		{
-			return Status == EReimportStatus::Succeeded;
+			return Status == EReimportResult::Succeeded;
 		}
 		auto Interrupted() const -> bool
 		{
-			return Status == EReimportStatus::Canceled || Status == EReimportStatus::Superseded;
+			return Status == EReimportResult::Canceled;
 		}
 		explicit operator bool() const { return Succeeded(); }
 	};

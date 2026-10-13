@@ -1,4 +1,5 @@
 #include "Texture/Texture.h"
+#include "DObject/PropertyChange.h"
 
 #include "DObject/Package.h"
 #include "DObject/WeakObjectPtr.h"
@@ -90,6 +91,20 @@ namespace Durin
 #endif
 	}
 
+	auto DTexture::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
+	{
+		Super::PostEditChangeProperty(Event);
+#if DURIN_WITH_EDITORONLY_DATA
+		// Named-property edits have their own validation/application path. Its
+		// completion must not reopen compilation after applying the product.
+		if (Event.MemberProperty || Event.Phase != EPropertyChangePhase::Committed || IsTemplateObject()
+			|| GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
+		BlockOnAnyAsyncBuild();
+		InvalidateAuthoredBuild();
+		BeginCachePlatformData();
+#endif
+	}
+
 	auto DTexture::BeginCachePlatformData() -> void
 	{
 		CheckGameThread();
@@ -105,11 +120,11 @@ namespace Durin
 		return !HasPendingTextureCompilation(*this);
 	}
 
-	auto DTexture::FinishCachePlatformData() -> bool
+	auto DTexture::FinishCachePlatformData(double TimeoutSeconds) -> bool
 	{
 		CheckGameThread();
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return EnsurePlatformDataLoadedBlocking();
-		return FinishTextureCompilation(*this);
+		return FinishTextureCompilation(*this, TimeoutSeconds);
 	}
 
 	auto DTexture::BlockOnAnyAsyncBuild() -> void

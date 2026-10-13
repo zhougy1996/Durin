@@ -123,7 +123,8 @@ retain a reflected object implicitly.
 `PrepareTexture2DImport` and texture source translation return `std::expected`
 with owned detached values and diagnostic strings. Failure exposes no prepared
 value; decoding and validation remain silent. Texture2D reimport returns
-`expected<void, string>` after committing its authored candidate. DDC failure
+`FReimportResult` with `EReimportResult` after committing its authored candidate.
+`PostEditChange` triggers the independent derived-data build. DDC failure
 or cancellation does not undo the import. Factories do not save; upper-layer
 persistence reports its own failure and leaves committed data Dirty for retry.
 VolumeTexture rebuild returns an owned diagnostic on failure; structured settings
@@ -137,7 +138,8 @@ For direct Texture2D source selection:
 - AssetForgeBuiltins captures the selected file without mutating it.
 - Engine validates Source, settings and import metadata, drains prior compilation,
   then installs the authored candidate together and marks the package Dirty.
-- Independent TextureCompressor work builds platform data; GameThread application
+- The adapter calls `PostEditChange`; independent TextureCompressor work builds
+  platform data. GameThread application
   installs successful products and calls `DTexture::UpdateResource()`.
 - TextureEditor or the reimport manager owns optional save sequencing.
 - Failure before authored commit preserves the live asset. Later DDC failure keeps

@@ -147,7 +147,7 @@ namespace Durin
 				EXPECT_TRUE(LoadedValue);
 			}
 			if (Texture)
-				EXPECT_TRUE(WaitForTexture2DCompilation(*Texture, 10.0));
+				EXPECT_TRUE(Texture->FinishCachePlatformData(10.0));
 			{
 				auto LoadedValue = LoadObject<DMaterial>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), &MaterialReport);
 				LoadedMaterial = LoadedValue.value_or(nullptr);
@@ -282,7 +282,7 @@ namespace Durin
 		ASSERT_NE(TextureImport.Asset, nullptr);
 		ASSERT_TRUE(TextureImport.Asset->GetSource().IsValid());
 		EXPECT_EQ(TextureImport.Asset->GetSource().GetBulkData().GetPayloadSize(), 8u);
-		ASSERT_TRUE(WaitForTexture2DCompilation(*TextureImport.Asset, 10.0));
+		ASSERT_TRUE(TextureImport.Asset->FinishCachePlatformData(10.0));
 
 		const std::filesystem::path MeshSource = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 		const Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> MeshImport = AssetForge::Builtins::ImportStaticMeshForTest(MeshSource.generic_string(), "/EditorTextureSmoke/Meshes/VisibleMesh");
@@ -345,7 +345,7 @@ namespace Durin
 		std::string RebuildError;
 		ASSERT_TRUE(AssetForge::Builtins::SetTexture2DSRGB(
 			*TextureImport.Asset, !TextureImport.Asset->IsSRGB()));
-		ASSERT_TRUE(WaitForTexture2DCompilation(*TextureImport.Asset, 10.0))
+		ASSERT_TRUE(TextureImport.Asset->FinishCachePlatformData(10.0))
 			<< Durin::FormatTexture2DCompilationError(Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*TextureImport.Asset).Error);
 		FlushRenderingCommands();
 		EXPECT_EQ(

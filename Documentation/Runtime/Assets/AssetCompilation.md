@@ -275,12 +275,20 @@ accepted request invokes its `FTexture2DCompilationCompletion` exactly once on
 GameThread. Rejection before acceptance is returned synchronously without
 invoking completion.
 
-`GetTexture2DBuildStatus` supplies the editor with the current phase, pending
+`DTexture2D::GetBuildStatus` supplies the editor with the current phase, pending
 state and a user-facing failure message. Terminal status reflects GameThread
 result application as well as worker execution; a new request clears the old
 failure. The detailed compilation snapshot is available only through the
 `AssetPrivate` test hook for qualification and regression coverage. `Ready`
-means CPU platform data was applied, not GPU readiness.
+means CPU platform data was applied, not GPU readiness. Object consumers use
+`IsAsyncCacheComplete` for completion (including failure/cancellation), and
+`FinishCachePlatformData(TimeoutSeconds)` for an explicit selected wait and Apply.
+The aggregate `FAssetCompilingManager::OnAssetPostCompile` emits successful
+GameThread applications with compiler name `Durin.Texture` and weak object
+identities. Failure and cancellation publish diagnostics without a success event.
+A full-object `PostEditChange` retires prior work and triggers compilation;
+named-property notifications retain their validated application path and do not
+restart a completed build.
 
 Source/settings setters and synchronous builds use `DTexture::BlockOnAnyAsyncBuild`
 before mutation. The barrier cancels and finishes only that texture, delivers the

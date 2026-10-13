@@ -336,7 +336,7 @@ namespace Durin
 			.Diagnostic = bImportedDataValid
 				? "Canonical imported pixels are authored; the optional source hint was not probed."
 				: "Canonical imported pixels are missing or invalid."});
-		const FTexture2DBuildStatus Compilation = GetTexture2DBuildStatus(Texture);
+		const FTexture2DBuildStatus Compilation = Texture.GetBuildStatus();
 		const FTexturePlatformData* PlatformData =
 			Texture.GetPlatformData();
 		const bool bPlatformReady = PlatformData && PlatformData->IsValid();

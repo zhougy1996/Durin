@@ -419,10 +419,10 @@ namespace Durin
 		return Manager && Manager->HasPending(Texture);
 	}
 
-	auto FinishTextureCompilation(DTexture& Texture) -> bool
+	auto FinishTextureCompilation(DTexture& Texture, double TimeoutSeconds) -> bool
 	{
 		const auto Manager = GetTextureCompilingManager();
-		return Manager ? Manager->Wait(Texture, 300.0) : Texture.HasPlatformData();
+		return Manager ? Manager->Wait(Texture, TimeoutSeconds) : Texture.HasPlatformData();
 	}
 
 	auto FTextureCompilingManager::HasPending(const DTexture& Texture) const -> bool
@@ -643,24 +643,10 @@ namespace Durin
 		return Manager ? Manager->GetDiagnostic(Texture) : FTexture2DCompilationDiagnostic{};
 	}
 
-	auto GetTexture2DBuildStatus(const DTexture2D& Texture) -> FTexture2DBuildStatus
+	auto DTexture2D::GetBuildStatus() const -> FTexture2DBuildStatus
 	{
 		const auto Manager = GetTextureCompilingManager();
-		return Manager ? Manager->GetBuildStatus(Texture) : FTexture2DBuildStatus{};
-	}
-
-	auto HasPendingTexture2DCompilation(const DTexture2D& Texture) -> bool
-	{
-		const auto Manager = GetTextureCompilingManager();
-		return Manager && Manager->HasPending(Texture);
-	}
-
-	auto WaitForTexture2DCompilation(
-		DTexture2D& Texture, double TimeoutSeconds) -> bool
-	{
-		const auto Manager = GetTextureCompilingManager();
-		if (!Manager) return Texture.HasPlatformData();
-		return Manager->Wait(Texture, TimeoutSeconds);
+		return Manager ? Manager->GetBuildStatus(*this) : FTexture2DBuildStatus{};
 	}
 }
 
@@ -669,6 +655,6 @@ namespace Durin
 namespace Durin
 {
 	auto HasPendingTextureCompilation(const DTexture&) -> bool { return false; }
-	auto FinishTextureCompilation(DTexture& Texture) -> bool { return Texture.HasPlatformData(); }
+	auto FinishTextureCompilation(DTexture& Texture, double) -> bool { return Texture.HasPlatformData(); }
 }
 #endif

@@ -638,7 +638,7 @@ TEST_F(FTextureImportQueueTests, FailedBatchSaveRetainsAssetForRetryWithoutSourc
 	ASSERT_NE(Package, nullptr);
 	auto* Texture = Cast<DTexture2D>(Package->FindTopLevelAsset("wall_normal"));
 	ASSERT_NE(Texture, nullptr);
-	const auto BuildStatus = GetTexture2DBuildStatus(*Texture);
+	const auto BuildStatus = Texture->GetBuildStatus();
 	EXPECT_EQ(BuildStatus.Phase, ETexture2DCompilationPhase::Ready);
 	EXPECT_TRUE(BuildStatus.FailureMessage.empty());
 	ASSERT_TRUE(std::filesystem::remove(Source));
@@ -690,7 +690,7 @@ TEST_F(FTextureImportQueueTests, TeardownDrainsCompilationAndRetainsCommittedImp
 	ASSERT_NE(Texture, nullptr);
 	EXPECT_TRUE(Texture->GetSource().IsValid());
 	EXPECT_NE(Texture->GetAssetImportData(), nullptr);
-	EXPECT_FALSE(HasPendingTexture2DCompilation(*Texture));
+	EXPECT_FALSE(!Texture->IsAsyncCacheComplete());
 	EXPECT_TRUE(UnloadPackage(Retained, EAssetPackageUnloadPolicy::DiscardUnsaved));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content" / "wall_normal.dasset"));
 }
@@ -723,7 +723,7 @@ TEST_F(FTextureImportQueueTests, ExternalCompilationCancellationRetainsResidentA
 	EXPECT_EQ(FindPackage(Destination + "wall_normal"), Package);
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), ImportedIdentity);
 	EXPECT_EQ(Texture->GetAssetImportData()->GetState(), Metadata);
-	EXPECT_FALSE(HasPendingTexture2DCompilation(*Texture));
+	EXPECT_FALSE(!Texture->IsAsyncCacheComplete());
 	EXPECT_TRUE(Importer.HasPendingSaves());
 	EXPECT_NE(Importer.GetErrors().front().find("save failed"), std::string::npos);
 	EXPECT_TRUE(UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));

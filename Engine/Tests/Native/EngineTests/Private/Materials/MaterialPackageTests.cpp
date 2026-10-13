@@ -98,7 +98,7 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	ASSERT_TRUE(Loaded->GetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), LoadedTexture));
 	ASSERT_NE(LoadedTexture, nullptr);
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*LoadedTexture, 10.0));
+	ASSERT_TRUE(LoadedTexture->FinishCachePlatformData(10.0));
 	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_EQ(Loaded->GetStaticProperties(), StaticProperties);
 	ExpectColorNear(GetMaterialBinding(Loaded->GetRenderData()).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 1.0f));

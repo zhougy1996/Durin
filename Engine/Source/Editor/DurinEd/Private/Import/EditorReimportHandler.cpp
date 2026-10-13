@@ -82,7 +82,7 @@ namespace Durin
 							"Only packaged assets can be persisted after reimport."};
 					if (!Saved)
 					{
-						Result.Status = EReimportStatus::PersistenceFailure;
+						Result.Status = EReimportResult::Failed;
 						Result.Message = Saved.Message;
 						Result.SaveCause = std::make_shared<FAssetWriteResult>(Saved);
 					}
@@ -176,8 +176,7 @@ namespace Durin
 			FReimportCapabilities FileCapabilities;
 			const bool bCanReimportFromFile =
 				SelectReimportHandler(Object, true, FileCapabilities) != nullptr;
-			if (Completion) Completion({bCanReimportFromFile
-				? EReimportStatus::MissingSource : EReimportStatus::Unsupported,
+			if (Completion) Completion({EReimportResult::Failed,
 				bCanReimportFromFile
 					? std::move(FileCapabilities.Diagnostic)
 					: std::move(Capabilities.Diagnostic)});
@@ -197,7 +196,7 @@ namespace Durin
 			SelectReimportHandler(Object, true, Capabilities);
 		if (!Handler)
 		{
-			if (Completion) Completion({EReimportStatus::Unsupported,
+			if (Completion) Completion({EReimportResult::Failed,
 				std::move(Capabilities.Diagnostic)});
 			return;
 		}

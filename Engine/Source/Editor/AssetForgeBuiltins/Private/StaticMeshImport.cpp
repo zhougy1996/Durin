@@ -438,7 +438,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		if (IsOneTimeModelImportedAsset(Object))
 		{
-			if (Completion) Completion({EReimportStatus::Unsupported, std::string(ModelOneTimeImportDiagnostic)});
+			if (Completion) Completion({EReimportResult::Failed, std::string(ModelOneTimeImportDiagnostic)});
 			return;
 		}
 		auto* Mesh = Cast<DStaticMesh>(&Object);
@@ -452,7 +452,7 @@ namespace Durin::AssetForge::Builtins
 			const FStaticMeshRebuildError Error{
 				.Code = !Mesh ? EStaticMeshRebuildError::ObjectType : !Data ? EStaticMeshRebuildError::ImportData : EStaticMeshRebuildError::MissingSource,
 				.ObjectPath = Object.GetObjectPath()};
-			if (Completion) Completion({EReimportStatus::MissingSource,
+			if (Completion) Completion({EReimportResult::Failed,
 				FormatStaticMeshRebuildError(Error), std::make_shared<FStaticMeshFactoryError>(Error)});
 			return;
 		}
@@ -460,11 +460,11 @@ namespace Durin::AssetForge::Builtins
 			Source->HintBase, State.ImportSettings, nullptr, {},
 			[Completion](const FStaticMeshCompilationResult& Result) {
 				if (Completion) Completion(Result.Status == EStaticMeshCompilationStatus::Succeeded
-					? FReimportResult{EReimportStatus::Succeeded, {}}
-					: FReimportResult{EReimportStatus::SourceOrBuildFailure, Result.ToString(),
+					? FReimportResult{EReimportResult::Succeeded, {}}
+					: FReimportResult{EReimportResult::Failed, Result.ToString(),
 						std::make_shared<FStaticMeshFactoryError>(Result)});
 			}, true);
-		if (!Submitted && Completion) Completion({EReimportStatus::SourceOrBuildFailure, FormatStaticMeshRebuildError(Submitted.error()),
+		if (!Submitted && Completion) Completion({EReimportResult::Failed, FormatStaticMeshRebuildError(Submitted.error()),
 			std::make_shared<FStaticMeshFactoryError>(Submitted.error())});
 	}
 
@@ -474,7 +474,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		if (IsOneTimeModelImportedAsset(Object))
 		{
-			if (Completion) Completion({EReimportStatus::Unsupported, std::string(ModelOneTimeImportDiagnostic)});
+			if (Completion) Completion({EReimportResult::Failed, std::string(ModelOneTimeImportDiagnostic)});
 			return;
 		}
 		auto* Mesh = Cast<DStaticMesh>(&Object);
@@ -486,13 +486,13 @@ namespace Durin::AssetForge::Builtins
 				.Code = !Mesh ? EStaticMeshRebuildError::ObjectType : !Data ? EStaticMeshRebuildError::ImportData
 					: Filenames.size() != 1 ? EStaticMeshRebuildError::SourceCount : EStaticMeshRebuildError::MissingSource,
 				.ObjectPath = Object.GetObjectPath(), .SourceCount = Filenames.size()};
-			if (Completion) Completion({EReimportStatus::SourceOrBuildFailure,
+			if (Completion) Completion({EReimportResult::Failed,
 				FormatStaticMeshRebuildError(Error), std::make_shared<FStaticMeshFactoryError>(Error)});
 			return;
 		}
 		if (IsOneTimeModelSource(Filenames.front()))
 		{
-			if (Completion) Completion({EReimportStatus::Unsupported, std::string(ModelOneTimeImportDiagnostic)});
+			if (Completion) Completion({EReimportResult::Failed, std::string(ModelOneTimeImportDiagnostic)});
 			return;
 		}
 		std::error_code SystemError;
@@ -502,7 +502,7 @@ namespace Durin::AssetForge::Builtins
 		{
 			const FStaticMeshRebuildError Error{.Code = EStaticMeshRebuildError::Path,
 				.ObjectPath = Object.GetObjectPath(), .Filename = Filenames.front(), .SystemError = SystemError};
-			if (Completion) Completion({EReimportStatus::SourceOrBuildFailure,
+			if (Completion) Completion({EReimportResult::Failed,
 				FormatStaticMeshRebuildError(Error), std::make_shared<FStaticMeshFactoryError>(Error)});
 			return;
 		}
@@ -510,11 +510,11 @@ namespace Durin::AssetForge::Builtins
 			Data->GetStaticMeshState().ImportSettings, nullptr, Requested,
 			[Completion](const FStaticMeshCompilationResult& Result) {
 				if (Completion) Completion(Result.Status == EStaticMeshCompilationStatus::Succeeded
-					? FReimportResult{EReimportStatus::Succeeded, {}}
-					: FReimportResult{EReimportStatus::SourceOrBuildFailure, Result.ToString(),
+					? FReimportResult{EReimportResult::Succeeded, {}}
+					: FReimportResult{EReimportResult::Failed, Result.ToString(),
 						std::make_shared<FStaticMeshFactoryError>(Result)});
 			}, true);
-		if (!Submitted && Completion) Completion({EReimportStatus::SourceOrBuildFailure, FormatStaticMeshRebuildError(Submitted.error()),
+		if (!Submitted && Completion) Completion({EReimportResult::Failed, FormatStaticMeshRebuildError(Submitted.error()),
 			std::make_shared<FStaticMeshFactoryError>(Submitted.error())});
 	}
 

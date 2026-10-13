@@ -1806,7 +1806,7 @@ TEST(FStaticMeshAuthoredCompilationTests, FactoryAdmissionRetainsMissingImportDa
 	Factory->Reimport(*Empty, [&](FReimportResult Value) { ++Calls; Result = std::move(Value); });
 	ASSERT_TRUE(Result);
 	EXPECT_EQ(Calls, 1u);
-	EXPECT_EQ(Result->Status, EReimportStatus::MissingSource);
+	EXPECT_EQ(Result->Status, EReimportResult::Failed);
 	const auto* Detail = dynamic_cast<const FStaticMeshFactoryError*>(Result->FactoryCause.get());
 	ASSERT_NE(Detail, nullptr);
 	const auto* Cause = std::get_if<FStaticMeshRebuildError>(&Detail->Cause);

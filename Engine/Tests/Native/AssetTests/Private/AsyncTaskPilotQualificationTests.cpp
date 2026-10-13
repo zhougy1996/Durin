@@ -322,7 +322,7 @@ namespace
 			}
 			Texture.PeakDeclaredInFlightBytes = std::max(
 				Texture.PeakDeclaredInFlightBytes, DeclaredInFlightBytes);
-			for (auto* Object : Textures) ASSERT_TRUE(WaitForTexture2DCompilation(*Object, 10.0));
+			for (auto* Object : Textures) ASSERT_TRUE(Object->FinishCachePlatformData(10.0));
 			FinishMeasurement(Texture, Start, Batch >= WarmupBatches);
 			ASSERT_EQ(Completions, BatchSize);
 			ASSERT_TRUE(Success);

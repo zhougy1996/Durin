@@ -23,6 +23,15 @@ namespace Durin
 		Canceled,
 	};
 
+	// Small object-level snapshot for editor progress and failure presentation.
+	struct FTexture2DBuildStatus
+	{
+		ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::None;
+		bool bPending = false;
+		std::string FailureMessage;
+	};
+
+
 	enum class ETexture2DCompilationPriority : uint8
 	{
 		Background,

@@ -45,6 +45,8 @@ namespace Durin
 		ENGINE_API ~DTexture() override;
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostLoad() -> void override;
+		// Full-object edits retire prior work and begin independent authored compilation.
+		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		// Authored 2D/cube data: schedules cache lookup/build without reading source pixels.
 		// Volume textures currently use the synchronous implementation.
 		// Repeated calls while installed or pending are no-ops. Cooked data stays lazy.
@@ -52,7 +54,7 @@ namespace Durin
 		// CPU compilation completion, including failure; does not imply GPU readiness.
 		ENGINE_API auto IsAsyncCacheComplete() const -> bool;
 		// Explicit blocking boundary. Returns CPU-data success; GPU upload remains asynchronous.
-		ENGINE_API auto FinishCachePlatformData() -> bool;
+		ENGINE_API auto FinishCachePlatformData(double TimeoutSeconds = 300.0) -> bool;
 		// GameThread mutation barrier: cancel, finish and retire this texture's active build.
 		ENGINE_API auto BlockOnAnyAsyncBuild() -> void;
 		ENGINE_API auto BeginDestroy() -> void override;

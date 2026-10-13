@@ -355,8 +355,8 @@ namespace Durin::AssetForge::Builtins
 		}
 		if (!bSucceeded && Error.empty()) Error = "TextureCube source import data is incomplete.";
 		if (Completion) Completion(bSucceeded
-			? FReimportResult{EReimportStatus::Succeeded, {}}
-			: FReimportResult{EReimportStatus::SourceOrBuildFailure, std::move(Error)});
+			? FReimportResult{EReimportResult::Succeeded, {}}
+			: FReimportResult{EReimportResult::Failed, std::move(Error)});
 	}
 
 	auto DTextureCubeFactory::ReimportFromFiles(DObject& Object,
@@ -388,8 +388,8 @@ namespace Durin::AssetForge::Builtins
 		}
 		else Error = "TextureCube reimport sources do not match its source layout.";
 		if (Completion) Completion(bSucceeded
-			? FReimportResult{EReimportStatus::Succeeded, {}}
-			: FReimportResult{EReimportStatus::SourceOrBuildFailure, std::move(Error)});
+			? FReimportResult{EReimportResult::Succeeded, {}}
+			: FReimportResult{EReimportResult::Failed, std::move(Error)});
 	}
 
 	auto IsTextureCubeFaceSourceExtension(std::string_view Extension) -> bool

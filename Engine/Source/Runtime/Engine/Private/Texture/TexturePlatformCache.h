@@ -31,6 +31,6 @@ namespace Durin
 #endif
 
 	auto HasPendingTextureCompilation(const DTexture& Texture) -> bool;
-	auto FinishTextureCompilation(DTexture& Texture) -> bool;
+	auto FinishTextureCompilation(DTexture& Texture, double TimeoutSeconds) -> bool;
 	auto PrepareTextureForMutation(DTexture& Texture) -> void;
 }

@@ -134,9 +134,10 @@ facts in both flows.
 The manager evaluates handlers in descending priority order; reflected Factory
 CDOs are preferred over transient instances at equal priority. Capability
 queries distinguish retained-source Reimport from Reimport From File, including
-the one-file panorama and six-file face layouts of TextureCube. Terminal results
-distinguish unsupported classes, missing retained sources, source/build failure,
-successful live replacement, and persistence failure. Factory handlers publish
+the one-file panorama and six-file face layouts of TextureCube. `EReimportResult`
+has only succeeded, failed and canceled outcomes. Owned diagnostics and factory
+or save causes retain unsupported-class, missing-source, source/build and
+persistence failure context. Factory handlers publish
 only a complete successful candidate and leave the package Dirty; the manager
 then saves only when requested, so a save failure does not erase or misreport
 the valid live replacement.
@@ -181,14 +182,18 @@ Texture2D source translation and preparation return expected owned values with
 an owned diagnostic string on failure. They expose no partial output and do not
 log. Capture and decode failures are formatted at their boundary; factories retain
 that message directly without nested preparation/submission variants. Texture2D
-source-file import returns `expected<void, string>` after a validated GameThread
-commit of Source, settings and import metadata. `DTexture2D::SetImportedSource`
+source-file reimport returns `FReimportResult` wrapping `EReimportResult`
+(`Succeeded`, `Failed`, `Canceled`) after a validated GameThread commit of Source,
+settings and import metadata. Unsupported types and missing/invalid source are
+failure causes, not additional terminal states. `DTexture2D::SetImportedSource`
 drains prior compilation before installing that candidate and marks the package
-Dirty. DDC compilation starts independently; build failure or cancellation keeps
+Dirty. The adapter calls `PostEditChange`, which routes a full-object edit through
+`DTexture::PostEditChangeProperty` and starts independent DDC compilation; build failure or cancellation keeps
 the committed authored data. Imports have no compiler-result mailbox or deferred
 completion callback. Compiler completion still uses `FTextureOperationResult`.
 Factories do not save. `FReimportManager` handles optional persistence and reports
-`PersistenceFailure` with its save cause separately from factory failure.
+`Failed` with `SaveCause` separately from factory failure. `FactoryCause` and the
+owned message retain import diagnostics without a second status enum.
 TextureEditor batches wait for current compilation retirement before save and
 unload, irrespective of its outcome; save failures retain assets for retry.
 Batch cancellation before authored commit discards captured input and skips

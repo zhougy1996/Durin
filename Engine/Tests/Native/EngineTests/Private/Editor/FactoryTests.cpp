@@ -193,14 +193,14 @@ namespace
 		auto Reimport(Durin::DObject&, Durin::FReimportCompletion Completion) const
 			-> void override
 		{
-			if (Completion) Completion({Durin::EReimportStatus::Succeeded,
+			if (Completion) Completion({Durin::EReimportResult::Succeeded,
 				std::to_string(Priority)});
 		}
 
 		auto ReimportFromFiles(Durin::DObject&, std::span<const std::string>,
 			Durin::FReimportCompletion Completion) const -> void override
 		{
-			if (Completion) Completion({Durin::EReimportStatus::Succeeded,
+			if (Completion) Completion({Durin::EReimportResult::Succeeded,
 				std::to_string(Priority)});
 		}
 
@@ -522,7 +522,7 @@ TEST(DFactoryTests, MetadataQueriesDoNotInspectObjectsAndCommandsRevalidate)
 	Durin::FReimportResult Result;
 	Durin::FReimportManager::Reimport(*Object, {.bSave = false},
 		[&](Durin::FReimportResult Completed) { Result = std::move(Completed); });
-	EXPECT_EQ(Result.Status, Durin::EReimportStatus::Unsupported);
+	EXPECT_EQ(Result.Status, Durin::EReimportResult::Failed);
 	EXPECT_GT(Handler.ObjectQueryCount, 0);
 }
 
@@ -880,7 +880,7 @@ TEST(DFactoryTests, ReimportPersistenceFailureRetainsAssetCauseAndCompletesOnce)
 		});
 	EXPECT_EQ(CompletionCount, 1);
 	EXPECT_FALSE(Result);
-	EXPECT_EQ(Result.Status, Durin::EReimportStatus::PersistenceFailure);
+	EXPECT_EQ(Result.Status, Durin::EReimportResult::Failed);
 	ASSERT_TRUE(Result.SaveCause);
 	EXPECT_EQ(Result.SaveCause->Error, Durin::EAssetWriteError::InvalidPath);
 }

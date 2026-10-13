@@ -246,7 +246,7 @@ namespace Durin::Editor::Texture
 	auto MTextureEditor::CanSaveActiveDocument() const -> bool
 	{
 		DTexture2D* Texture = GetActiveTexture();
-		return Texture && !HasPendingTexture2DCompilation(*Texture)
+		return Texture && Texture->IsAsyncCacheComplete()
 			&& Documents.CanSave(Texture);
 	}
 
@@ -327,7 +327,7 @@ namespace Durin::Editor::Texture
 	auto MTextureEditor::SaveTexture(DTexture2D* Texture) -> bool
 	{
 		return Documents.Save(Texture, [this, Texture] {
-			if (!HasPendingTexture2DCompilation(*Texture)) return true;
+			if (Texture->IsAsyncCacheComplete()) return true;
 			SetError(
 				"This texture is still building. Save when the build finishes, "
 				"or cancel it to keep the last successful state.");
@@ -352,7 +352,7 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::DrawToolbar(const ::Durin::Editor::FDocumentTab& Document, DTexture2D* Texture) -> void
 	{
-		const FTexture2DBuildStatus Status = GetTexture2DBuildStatus(*Texture);
+		const FTexture2DBuildStatus Status = Texture->GetBuildStatus();
 		if (Status.bPending) ImGui::BeginDisabled();
 		if (ImGui::Button("Save")) SaveTexture(Texture);
 		if (Status.bPending) ImGui::EndDisabled();
@@ -457,7 +457,7 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::DrawFailureState(DTexture2D* Texture) -> void
 	{
-		const FTexture2DBuildStatus Status = GetTexture2DBuildStatus(*Texture);
+		const FTexture2DBuildStatus Status = Texture->GetBuildStatus();
 		const bool bResourceFailed = Texture->GetResourceUpdateState() == ETextureResourceUpdateState::Failed;
 		if ((Status.bPending || Status.Phase != ETexture2DCompilationPhase::Failed)
 			&& !bResourceFailed) return;

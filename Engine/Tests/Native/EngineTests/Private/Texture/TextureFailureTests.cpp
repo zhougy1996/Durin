@@ -6,6 +6,8 @@
 #include "Import/EditorReimportHandler.h"
 #include "Misc/FileHelper.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/Class.h"
+#include "DObject/PropertyChange.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Texture/Texture2DRenderResource.h"
 #include "Texture/Texture2DCompilationTestSupport.h"
@@ -189,7 +191,7 @@ TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
 		"/TextureImportTests/AsyncUnload", AssetPath));
 	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportTexture2D(
 		*Texture));
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_TRUE(Texture->HasPlatformData());
 	EXPECT_NE(Texture->GetPlatformDataShared(), LastGoodPlatformDataIdentity);
 	EXPECT_FALSE(std::ranges::equal(Texture->GetPlatformData()->Mips.front().Pixels, LastGood.Mips.front().Pixels));
@@ -198,6 +200,71 @@ TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
 	ASSERT_TRUE(Durin::SavePackage(Texture->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
+}
+
+TEST(FTexture2DTests, PostEditChangeUsesObjectQueriesAndManagerNotification)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedDerivedDataCacheRoot CacheRoot(Testing::GetTestWorkDirectory() / "PostEditTextureCache");
+	const auto Input = Testing::GetTestWorkDirectory() / "PostEdit.png";
+	WriteTextureFixture(Input);
+	const auto Imported = AssetForge::Builtins::ImportTexture2DForTest(Input.generic_string(), "/TextureImportTests/PostEdit");
+	ASSERT_TRUE(Imported) << Imported.Message;
+	auto* Texture = Imported.Asset;
+	const auto SourceIdentity = Texture->GetSource().GetIdentity();
+	const auto Metadata = Texture->GetAssetImportData()->GetState();
+	uint32 Notifications = 0;
+	struct FNotificationScope
+	{
+		FDelegateHandle Handle;
+		~FNotificationScope()
+		{
+			FAssetCompilingManager::Get().OnAssetPostCompile().Remove(Handle);
+			AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
+			FAssetCompilingManager::Get().FinishAllCompilation();
+		}
+	} Scope{FAssetCompilingManager::Get().OnAssetPostCompile().AddLambda(
+		[&](const FAssetPostCompileData& Data) {
+			if (Data.CompilerName != FName("Durin.Texture")) return;
+			for (const auto& Asset : Data.Assets)
+			{
+				if (Asset.Get() != Texture) continue;
+				++Notifications;
+				EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+				EXPECT_EQ(Texture->GetBuildStatus().Phase, ETexture2DCompilationPhase::Ready);
+				EXPECT_TRUE(Texture->HasPlatformData());
+			}
+		})};
+	Texture->PostEditChange();
+	EXPECT_FALSE(Texture->IsAsyncCacheComplete());
+	EXPECT_EQ(Notifications, 0u);
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
+	EXPECT_EQ(Notifications, 1u);
+	const auto RequestId = AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).RequestId;
+	const auto* UsageProperty = Texture->GetClass()->FindPropertyByName("Usage");
+	ASSERT_NE(UsageProperty, nullptr);
+	Texture->PostEditChangeProperty({.MemberProperty = UsageProperty});
+	EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+	EXPECT_EQ(AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*Texture).RequestId, RequestId);
+	AssetPrivate::SetTexture2DCompilationPhaseHookForTests([](uint64, ETexture2DCompilationPhase Phase) {
+		if (Phase == ETexture2DCompilationPhase::Building) throw std::runtime_error("Injected PostEdit build failure");
+	});
+	Texture->PostEditChange();
+	EXPECT_FALSE(Texture->FinishCachePlatformData(10.0));
+	EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+	EXPECT_EQ(Texture->GetBuildStatus().Phase, ETexture2DCompilationPhase::Failed);
+	EXPECT_EQ(Notifications, 1u);
+	AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
+	Texture->PostEditChange();
+	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Texture);
+	EXPECT_TRUE(Texture->IsAsyncCacheComplete());
+	EXPECT_EQ(Texture->GetBuildStatus().Phase, ETexture2DCompilationPhase::Canceled);
+	EXPECT_EQ(Notifications, 1u);
+	EXPECT_EQ(Texture->GetSource().GetIdentity(), SourceIdentity);
+	EXPECT_EQ(Texture->GetAssetImportData()->GetState(), Metadata);
+	EXPECT_TRUE(UnloadPackage(Texture->GetPackage()));
 }
 
 TEST(FTexture2DTests, ImportedSourceAndMetadataSurviveDerivedDataFailure)
@@ -238,8 +305,8 @@ TEST(FTexture2DTests, ImportedSourceAndMetadataSurviveDerivedDataFailure)
 	EXPECT_EQ(Source->ByteCount, Prepared->ByteCount);
 	EXPECT_TRUE(Source->Hint.ends_with("Replacement.png"));
 	EXPECT_EQ(Source->DisplayLabel, "Replacement.png");
-	EXPECT_FALSE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
-	EXPECT_EQ(Durin::GetTexture2DBuildStatus(*Texture).Phase, Durin::ETexture2DCompilationPhase::Failed);
+	EXPECT_FALSE(Texture->FinishCachePlatformData(10.0));
+	EXPECT_EQ(Texture->GetBuildStatus().Phase, Durin::ETexture2DCompilationPhase::Failed);
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), Prepared->Source.GetIdentity());
 	EXPECT_EQ(Texture->GetAssetImportData()->GetState(), CommittedMetadata);
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
@@ -273,7 +340,7 @@ TEST(FTexture2DTests, ReimportSaveFailureIsSeparateAndRetainsCommittedData)
 	Durin::FReimportManager::Reimport(*Texture, {},
 		[&](Durin::FReimportResult Result) { Completed = std::move(Result); });
 	ASSERT_TRUE(Completed);
-	EXPECT_EQ(Completed->Status, Durin::EReimportStatus::PersistenceFailure);
+	EXPECT_EQ(Completed->Status, Durin::EReimportResult::Failed);
 	EXPECT_NE(Completed->SaveCause, nullptr);
 	EXPECT_EQ(Completed->FactoryCause, nullptr);
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), Prepared->Source.GetIdentity());
@@ -327,7 +394,7 @@ TEST(FTexture2DTests, ImportedCommitRejectsInvalidMetadataAndRetiresPriorCompila
 	const Durin::FTexture2DBuildSettings Settings{.Usage = Durin::ETextureUsage::DataMask, .bSRGB = false};
 	ASSERT_TRUE(Texture->SetImportedSource(Prepared->Source, Settings, Metadata));
 	EXPECT_EQ(*Retired, 1u);
-	EXPECT_FALSE(Durin::HasPendingTexture2DCompilation(*Texture));
+	EXPECT_FALSE(!Texture->IsAsyncCacheComplete());
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), Prepared->Source.GetIdentity());
 	EXPECT_EQ(Texture->GetAssetImportData()->GetState(), Metadata);
 	EXPECT_EQ(Texture->GetUsage(), Settings.Usage);
@@ -372,7 +439,7 @@ TEST(FTexture2DTests, ReimportManagerSavesOnlyWhenRequested)
 	Durin::FReimportResult Reimported;
 	Durin::FReimportManager::Reimport(*Texture, {},
 		[&](Durin::FReimportResult Result) { Reimported = std::move(Result); });
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	ASSERT_TRUE(Reimported) << Reimported.Message;
 	ASSERT_NE(Texture->GetAssetImportData(), nullptr);
 	ImportedSource = Texture->GetAssetImportData()->GetSourceData().FindByRole("source");
@@ -392,7 +459,7 @@ TEST(FTexture2DTests, ReimportManagerSavesOnlyWhenRequested)
 	const std::array Files{Corrupt.generic_string()};
 	Durin::FReimportManager::ReimportFromFiles(*Texture, Files, {.bSave = false},
 		[&](Durin::FReimportResult Result) { Reimported = std::move(Result); });
-	EXPECT_EQ(Reimported.Status, Durin::EReimportStatus::SourceOrBuildFailure);
+	EXPECT_EQ(Reimported.Status, Durin::EReimportResult::Failed);
 	const auto* Detail = dynamic_cast<const Durin::AssetForge::Builtins::FTexture2DFactoryError*>(Reimported.FactoryCause.get());
 	ASSERT_NE(Detail, nullptr);
 	EXPECT_FALSE(Detail->Diagnostic.empty());
@@ -409,11 +476,11 @@ TEST(FTexture2DTests, ReimportManagerSavesOnlyWhenRequested)
 	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	ASSERT_TRUE(Previous);
 	ASSERT_TRUE(Current);
-	EXPECT_EQ(Previous->Status, Durin::EReimportStatus::Succeeded);
-	EXPECT_EQ(Current->Status, Durin::EReimportStatus::Succeeded);
+	EXPECT_EQ(Previous->Status, Durin::EReimportResult::Succeeded);
+	EXPECT_EQ(Current->Status, Durin::EReimportResult::Succeeded);
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), CommittedIdentity);
 	EXPECT_EQ(Texture->GetAssetImportData()->GetState(), CommittedMetadata);
-	EXPECT_FALSE(Durin::HasPendingTexture2DCompilation(*Texture));
+	EXPECT_FALSE(!Texture->IsAsyncCacheComplete());
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::SavePackage(Texture->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));

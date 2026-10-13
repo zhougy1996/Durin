@@ -513,7 +513,7 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 	Durin::FReimportResult Reimported;
 	Durin::FReimportManager::Reimport(*ReimportMesh.Asset, {}, [&](Durin::FReimportResult Result) { Reimported = std::move(Result); });
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*ReimportMesh.Asset);
-	EXPECT_EQ(Reimported.Status, Durin::EReimportStatus::Unsupported);
+	EXPECT_EQ(Reimported.Status, Durin::EReimportResult::Failed);
 	EXPECT_TRUE(std::ranges::equal(ReimportMesh.Asset->GetMaterialSlots(), Slots));
 
 }
@@ -543,17 +543,17 @@ TEST(FSceneImportTests, SavedGltfOutputsReloadWithoutSourcesAndRejectEveryReimpo
 		EXPECT_FALSE(Capabilities.bCanReimportFromFile);
 		FReimportResult Reimported;
 		FReimportManager::Reimport(*Object, {}, [&](auto Result) { Reimported = std::move(Result); });
-		EXPECT_EQ(Reimported.Status, EReimportStatus::Unsupported);
+		EXPECT_EQ(Reimported.Status, EReimportResult::Failed);
 		const std::array Files{Fixture.Source};
 		FReimportManager::ReimportFromFiles(*Object, Files, {}, [&](auto Result) { Reimported = std::move(Result); });
-		EXPECT_EQ(Reimported.Status, EReimportStatus::Unsupported);
+		EXPECT_EQ(Reimported.Status, EReimportResult::Failed);
 		if (auto* Mesh = Cast<DStaticMesh>(Object))
 		{
 			FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 			EXPECT_NE(Mesh->GetRenderData(), nullptr);
 			EXPECT_FALSE(MeshFactory->GetReimportCapabilities(*Mesh).bCanReimportFromFile);
 			MeshFactory->ReimportFromFiles(*Mesh, Files, [&](auto Result) { Reimported = std::move(Result); });
-			EXPECT_EQ(Reimported.Status, EReimportStatus::Unsupported);
+			EXPECT_EQ(Reimported.Status, EReimportResult::Failed);
 			EXPECT_EQ(ReimportStaticMesh(*Mesh).error().Code, EStaticMeshRebuildError::UnsupportedReimport);
 			EXPECT_EQ(ReimportStaticMeshFromFile(*Mesh, "Triangle.obj").error().Code, EStaticMeshRebuildError::UnsupportedReimport);
 		}
@@ -562,11 +562,11 @@ TEST(FSceneImportTests, SavedGltfOutputsReloadWithoutSourcesAndRejectEveryReimpo
 			EXPECT_TRUE(Texture->GetSource().IsValid());
 			EXPECT_FALSE(TextureFactory->GetReimportCapabilities(*Texture).bCanReimportFromFile);
 			TextureFactory->Reimport(*Texture, [&](auto Result) { Reimported = std::move(Result); });
-			EXPECT_EQ(Reimported.Status, EReimportStatus::Unsupported);
+			EXPECT_EQ(Reimported.Status, EReimportResult::Failed);
 			TextureFactory->ReimportFromFiles(*Texture, Files, [&](auto Result) { Reimported = std::move(Result); });
-			EXPECT_EQ(Reimported.Status, EReimportStatus::Unsupported);
-			EXPECT_FALSE(ReimportTexture2D(*Texture).error().empty());
-			EXPECT_FALSE(ReimportTexture2DFromFile(*Texture, "Red.png").error().empty());
+			EXPECT_EQ(Reimported.Status, EReimportResult::Failed);
+			EXPECT_FALSE(ReimportTexture2D(*Texture).Message.empty());
+			EXPECT_FALSE(ReimportTexture2DFromFile(*Texture, "Red.png").Message.empty());
 		}
 		if (auto* Material = Cast<DMaterial>(Object))
 		{
@@ -615,7 +615,7 @@ TEST(FSceneImportTests, LegacyStandaloneModelReceiptsRemainReadableWithoutReimpo
 		const std::array Files{std::string("Triangle.obj")};
 		FReimportResult Result;
 		Factory->ReimportFromFiles(*Imported.Asset, Files, [&](auto Value) { Result = std::move(Value); });
-		EXPECT_EQ(Result.Status, EReimportStatus::Unsupported);
+		EXPECT_EQ(Result.Status, EReimportResult::Failed);
 		EXPECT_EQ(ReimportStaticMesh(*Imported.Asset).error().Code, EStaticMeshRebuildError::UnsupportedReimport);
 		EXPECT_TRUE(Imported.Asset->GetAssetImportData()->Validate());
 		const auto Path = Imported.Asset->GetPackage()->GetPackagePathIdentity();
@@ -645,7 +645,7 @@ TEST(FSceneImportTests, StandaloneMeshReplacementCannotIntroduceGltfOrFbxSources
 		const std::array Files{std::string(Source)};
 		FReimportResult Result;
 		Factory->ReimportFromFiles(*Imported.Asset, Files, [&](auto Value) { Result = std::move(Value); });
-		EXPECT_EQ(Result.Status, EReimportStatus::Unsupported);
+		EXPECT_EQ(Result.Status, EReimportResult::Failed);
 		EXPECT_EQ(ReimportStaticMeshFromFile(*Imported.Asset, Source).error().Code, EStaticMeshRebuildError::UnsupportedReimport);
 	}
 	const auto Dialogs = Factory->GetSourceFileDialogs(*Imported.Asset);

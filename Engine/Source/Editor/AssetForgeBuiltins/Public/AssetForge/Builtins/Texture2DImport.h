@@ -8,6 +8,7 @@
 #include "Asset/SourceHint.h"
 #include "Misc/MountPaths.h"
 #include "Texture/Texture2DCompilation.h"
+#include "Import/EditorReimportHandler.h"
 #include "Texture/TextureBuildOperation.h"
 
 namespace Durin::AssetForge::Builtins
@@ -44,11 +45,11 @@ namespace Durin::AssetForge::Builtins
 	// GameThread only. Commits authored source/settings/import metadata, then starts
 	// independent DDC compilation. Success does not imply compilation or persistence.
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportTexture2D(
-		DTexture2D& Texture) -> std::expected<void, std::string>;
+		DTexture2D& Texture) -> FReimportResult;
 	// Same commit contract, using a newly selected source file.
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportTexture2DFromFile(
 		DTexture2D& Texture,
-		std::string_view FilePath) -> std::expected<void, std::string>;
+		std::string_view FilePath) -> FReimportResult;
 	// Rebuilds one packaged texture from its resident canonical imported data.
 	ASSETFORGEBUILTINS_API auto RebuildTexture2DFromSource(
 		DTexture2D& Texture,

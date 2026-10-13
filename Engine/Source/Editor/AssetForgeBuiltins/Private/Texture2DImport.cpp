@@ -90,6 +90,13 @@ namespace Durin::AssetForge::Builtins
 			return {};
 		}
 
+		auto MakeReimportResult(std::expected<void, std::string> Result) -> FReimportResult
+		{
+			if (Result) return {EReimportResult::Succeeded, {}};
+			auto Cause = std::make_shared<FTexture2DFactoryError>(Result.error());
+			return {EReimportResult::Failed, std::move(Result.error()), std::move(Cause)};
+		}
+
 		auto CommitTexture2DImport(DTexture2D& Texture, FTextureSource Source,
 			const FTexture2DBuildSettings& Settings, std::string Filename,
 			ESourceHintBase HintBase, std::string DisplayLabel,
@@ -104,7 +111,7 @@ namespace Durin::AssetForge::Builtins
 			if (auto Committed = Texture.SetImportedSource(std::move(Source), Settings, std::move(State)); !Committed)
 				return Committed;
 			// Derived data is rebuildable. Admission/build failure cannot undo the import.
-			Texture.BeginCachePlatformData();
+			Texture.PostEditChange();
 			return {};
 		}
 
@@ -303,56 +310,25 @@ namespace Durin::AssetForge::Builtins
 				: "Texture2D has no source hint to reimport."};
 	}
 
-	auto DTexture2DFactory::Reimport(
-		DObject& Object, FReimportCompletion Completion) const -> void
+	auto DTexture2DFactory::Reimport(DObject& Object, FReimportCompletion Completion) const -> void
 	{
-		if (IsOneTimeModelImportedAsset(Object))
-		{
-			if (Completion) Completion({EReimportStatus::Unsupported, std::string(ModelOneTimeImportDiagnostic)});
-			return;
-		}
 		auto* Texture = Cast<DTexture2D>(&Object);
-		const DAssetImportData* ImportData = Texture ? Texture->GetAssetImportData() : nullptr;
-		const FSourceFile* Source = ImportData
-			? ImportData->GetSourceData().FindByRole("source") : nullptr;
-		if (!Texture || !Source || Source->Hint.empty())
-		{
-			if (Completion) Completion({EReimportStatus::MissingSource,
-				"Texture2D has no source hint to reimport."});
-			return;
-		}
-		const auto Submitted = ImportTexture2DFromFilename(
-			*Texture, Source->Hint, Source->HintBase,
-			MakeTexture2DBuildSettings(*Texture));
-		if (Completion) Completion(Submitted ? FReimportResult{EReimportStatus::Succeeded, {}}
-			: FReimportResult{EReimportStatus::SourceOrBuildFailure, Submitted.error(),
-				std::make_shared<FTexture2DFactoryError>(Submitted.error())});
+		auto Result = Texture ? ReimportTexture2D(*Texture)
+			: FReimportResult{EReimportResult::Failed, "Only Texture2D assets can be reimported."};
+		if (Completion) Completion(std::move(Result));
 	}
 
 	auto DTexture2DFactory::ReimportFromFiles(DObject& Object,
-		std::span<const std::string> Filenames, FReimportCompletion Completion) const
-		-> void
+		std::span<const std::string> Filenames, FReimportCompletion Completion) const -> void
 	{
-		if (IsOneTimeModelImportedAsset(Object))
-		{
-			if (Completion) Completion({EReimportStatus::Unsupported, std::string(ModelOneTimeImportDiagnostic)});
-			return;
-		}
 		auto* Texture = Cast<DTexture2D>(&Object);
-		if (!Texture || Filenames.size() != 1 || Filenames.front().empty())
+		if (!Texture || Filenames.size() != 1)
 		{
-			if (Completion) Completion({EReimportStatus::SourceOrBuildFailure,
-				"Texture2D reimport requires exactly one source file."});
+			if (Completion) Completion({EReimportResult::Failed, "Texture2D reimport requires exactly one source file."});
 			return;
 		}
-		const std::filesystem::path Requested =
-			std::filesystem::absolute(Filenames.front()).lexically_normal();
-		const auto Submitted = ImportTexture2DFromFilename(
-			*Texture, {}, ESourceHintBase::AssetRelative,
-			MakeTexture2DBuildSettings(*Texture), Requested);
-		if (Completion) Completion(Submitted ? FReimportResult{EReimportStatus::Succeeded, {}}
-			: FReimportResult{EReimportStatus::SourceOrBuildFailure, Submitted.error(),
-				std::make_shared<FTexture2DFactoryError>(Submitted.error())});
+		auto Result = ReimportTexture2DFromFile(*Texture, Filenames.front());
+		if (Completion) Completion(std::move(Result));
 	}
 
 	auto IsTexture2DSourceExtension(std::string_view Extension) -> bool
@@ -416,39 +392,39 @@ namespace Durin::AssetForge::Builtins
 	}
 
 	auto ReimportTexture2D(
-		DTexture2D& Texture) -> std::expected<void, std::string>
+		DTexture2D& Texture) -> FReimportResult
 	{
-		if (IsOneTimeModelImportedAsset(Texture)) return std::unexpected(std::string(ModelOneTimeImportDiagnostic));
+		if (IsOneTimeModelImportedAsset(Texture)) return MakeReimportResult(std::unexpected(std::string(ModelOneTimeImportDiagnostic)));
 		const DAssetImportData* ImportData = Texture.GetAssetImportData();
 		const FSourceFile* Source = ImportData
 			? ImportData->GetSourceData().FindByRole("source") : nullptr;
 		if (!Source || Source->Hint.empty())
 		{
-			return std::unexpected(std::string("Texture2D has no source hint to reimport."));
+			return MakeReimportResult(std::unexpected(std::string("Texture2D has no source hint to reimport.")));
 		}
-		return ImportTexture2DFromFilename(
+		return MakeReimportResult(ImportTexture2DFromFilename(
 			Texture, Source->Hint, Source->HintBase,
-			MakeTexture2DBuildSettings(Texture));
+			MakeTexture2DBuildSettings(Texture)));
 	}
 
 	auto ReimportTexture2DFromFile(
 		DTexture2D& Texture,
-		std::string_view FilePath) -> std::expected<void, std::string>
+		std::string_view FilePath) -> FReimportResult
 	{
-		if (IsOneTimeModelImportedAsset(Texture)) return std::unexpected(std::string(ModelOneTimeImportDiagnostic));
+		if (IsOneTimeModelImportedAsset(Texture)) return MakeReimportResult(std::unexpected(std::string(ModelOneTimeImportDiagnostic)));
 		if (FilePath.empty())
 		{
-			return std::unexpected(std::string("Texture2D source file is missing: ") + std::string(FilePath));
+			return MakeReimportResult(std::unexpected(std::string("Texture2D source file is missing: ") + std::string(FilePath)));
 		}
 		const std::filesystem::path Requested =
 			std::filesystem::absolute(FilePath).lexically_normal();
 		if (!std::filesystem::is_regular_file(Requested))
 		{
-			return std::unexpected(std::string("Texture2D source file is missing: ") + std::string(FilePath));
+			return MakeReimportResult(std::unexpected(std::string("Texture2D source file is missing: ") + std::string(FilePath)));
 		}
-		return ImportTexture2DFromFilename(
+		return MakeReimportResult(ImportTexture2DFromFilename(
 			Texture, {}, ESourceHintBase::AssetRelative,
-			MakeTexture2DBuildSettings(Texture), Requested);
+			MakeTexture2DBuildSettings(Texture), Requested));
 	}
 
 	namespace

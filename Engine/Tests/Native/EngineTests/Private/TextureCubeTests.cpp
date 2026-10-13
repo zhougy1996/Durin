@@ -434,7 +434,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 		[&](Durin::FReimportResult ResultValue) {
 			Reimported = std::move(ResultValue);
 		});
-	EXPECT_EQ(Reimported.Status, Durin::EReimportStatus::SourceOrBuildFailure);
+	EXPECT_EQ(Reimported.Status, Durin::EReimportResult::Failed);
 	EXPECT_EQ(Texture->GetSource().GetBulkData().GetPayloadId(), ValidSourceId);
 	EXPECT_EQ(Texture->GetPlatformDataShared(), ValidPlatformDataIdentity);
 	EXPECT_TRUE(Texture->IsSRGB());

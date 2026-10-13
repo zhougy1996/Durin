@@ -160,7 +160,7 @@ namespace Durin::Editor::Texture
 		};
 		if (Active)
 		{
-			if (HasPendingTexture2DCompilation(*Active)) return;
+			if (!Active->IsAsyncCacheComplete()) return;
 			const auto CompilationEnd = bSaveStarted ? SaveStarted : std::chrono::steady_clock::now();
 			auto* Package = Active->GetPackage();
 
