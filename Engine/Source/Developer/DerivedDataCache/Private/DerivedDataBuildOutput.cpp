@@ -14,7 +14,8 @@ namespace Durin::DerivedData
 		{
 			// An owned CB object may be a named field retained from a manifest.
 			// Its logical metadata budget uses the canonical unnamed root size.
-			uint32 NameBytes = 0; ReadLittleEndianAt(Bytes.GetBytes(), 1, NameBytes);
+			uint32 NameBytes = 0;
+			if (!ReadLittleEndianAt(Bytes.GetBytes(), 1, NameBytes)) return Bytes.GetSize();
 			return Bytes.GetSize() - NameBytes;
 		}
 		auto CanonicalObjectEncoding(FSharedByteBuffer Bytes) -> FSharedByteBuffer
