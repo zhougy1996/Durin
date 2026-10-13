@@ -4,7 +4,11 @@ if(APPLE AND NOT DURIN_ENABLE_APPLICATION_TESTS)
 			"macOS Vulkan qualification requires explicitly enabled LaunchServices application tests."
 		SOURCES Private/VulkanRHITestEnvironment.cpp
 			Private/VulkanCreationQualificationTests.cpp
-			Private/VulkanFailureInjectionTests.cpp
+			Private/VulkanStartupTests.cpp
+			Private/VulkanDiagnosticsTests.cpp
+			Private/VulkanResourceCreationTests.cpp
+			Private/VulkanPipelineCacheTests.cpp
+			Private/VulkanPublicRHIConformanceTests.cpp
 			Private/VulkanMemoryPolicyTests.cpp
 			Private/VulkanTextureSamplingTests.cpp
 			Private/VulkanResourceTransitionTests.cpp
@@ -19,7 +23,11 @@ if(NOT DURIN_WITH_EDITOR)
 			"This integration fixture compiles authored Slang test shaders and is therefore excluded from the compiler-free Game closure."
 		SOURCES Private/VulkanRHITestEnvironment.cpp
 			Private/VulkanCreationQualificationTests.cpp
-			Private/VulkanFailureInjectionTests.cpp
+			Private/VulkanStartupTests.cpp
+			Private/VulkanDiagnosticsTests.cpp
+			Private/VulkanResourceCreationTests.cpp
+			Private/VulkanPipelineCacheTests.cpp
+			Private/VulkanPublicRHIConformanceTests.cpp
 			Private/VulkanMemoryPolicyTests.cpp
 			Private/VulkanTextureSamplingTests.cpp
 			Private/VulkanResourceTransitionTests.cpp
@@ -53,7 +61,11 @@ durin_add_native_test(VulkanRHIIntegrationTests
 	PRIVATE_SOURCE_RATIONALE "Owns the ShaderBuild compiler white-box seam used by Vulkan integration coverage."
 	SOURCES
 		Private/VulkanRHITestEnvironment.cpp
-		Private/VulkanFailureInjectionTests.cpp
+		Private/VulkanStartupTests.cpp
+		Private/VulkanDiagnosticsTests.cpp
+		Private/VulkanResourceCreationTests.cpp
+		Private/VulkanPipelineCacheTests.cpp
+		Private/VulkanPublicRHIConformanceTests.cpp
 		Private/VulkanMemoryPolicyTests.cpp
 		Private/VulkanTextureSamplingTests.cpp
 		Private/VulkanResourceTransitionTests.cpp
@@ -81,7 +93,7 @@ durin_add_native_test(VulkanRHIIntegrationTests
 		Slang_Imported
 		TextureCompressor
 	RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
-	HEAVY_RUNTIME_RATIONALE "Failure-injection tests must share the test-only state compiled into VulkanRHI."
+	HEAVY_RUNTIME_RATIONALE "Exercises real Vulkan resource lifetimes, diagnostics, pipeline caches, and rendered output under serialized RHI ownership."
 	DATA_DIRECTORIES
 		"${CMAKE_CURRENT_SOURCE_DIR}/Data"
 		"${DURIN_PROJECT_ROOT_DIR}/Tests/Data/MetalShaderQualification"
@@ -116,7 +128,7 @@ durin_add_native_test(VulkanCreationQualificationTests
 		Slang_Imported
 		${_durin_vulkan_platform_libraries}
 	RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
-	HEAVY_RUNTIME_RATIONALE "Measures real Vulkan creation with the opt-in backend timing seam."
+	HEAVY_RUNTIME_RATIONALE "Measures public Vulkan creation calls and frame workloads on an exclusive GPU lane."
 	DATA_DIRECTORIES
 		"${CMAKE_CURRENT_SOURCE_DIR}/Data"
 		"${DURIN_PROJECT_ROOT_DIR}/Tests/Data/MetalShaderQualification"

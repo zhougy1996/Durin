@@ -6,7 +6,7 @@ and diagnostic shutdown ownership.
 
 Modules: RHI, VulkanRHI, MetalRHI, RenderCore, ApplicationCore
 
-Last reviewed: 2026-10-05
+Last reviewed: 2026-10-13
 
 ## Diagnostic Configuration and Lifetime
 
@@ -200,4 +200,6 @@ same ordering.
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanGPUTiming.h`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanGPUTiming.cpp`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanDynamicRHI.cpp`
-- `Engine/Tests/Native/VulkanRHITests/Private/VulkanFailureInjectionTests.cpp`
+- `Engine/Tests/Native/VulkanRHITests/Private/VulkanStartupTests.cpp`
+- `Engine/Tests/Native/VulkanRHITests/Private/VulkanDiagnosticsTests.cpp`
+- `Engine/Tests/Native/VulkanRHITests/Private/VulkanPublicRHIConformanceTests.cpp`

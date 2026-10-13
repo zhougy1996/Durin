@@ -94,10 +94,13 @@ mapping does not grant concurrent access to the same byte range: mapped writes,
 normalization/flush/invalidation, transfer arenas, state trackers and reclaim
 remain governed by the existing recording/replay owner protocols. Construction
 rollback protects real recoverable native failures, such as pipeline creation
-after layout creation. Naming and container allocation do not receive dedicated
-rollback for terminal exceptions, and no publication-failure injection creates
-an otherwise absent recovery path. Ordinary final release continues through
-GPU-aware owner retirement.
+after layout creation. Pipeline candidates retain rollback through diagnostic
+naming, so exceptions before member ownership destroy both the native pipeline
+and its layout. Other resource naming and container allocation do not receive
+dedicated rollback for
+terminal exceptions, and no publication-failure injection creates an otherwise
+absent recovery path. Ordinary final release continues through GPU-aware owner
+retirement.
 
 Retained synchronous entries have explicit reasons: external/swapchain texture
 views follow mutable replay-owned backing; viewport creation/resize follows
