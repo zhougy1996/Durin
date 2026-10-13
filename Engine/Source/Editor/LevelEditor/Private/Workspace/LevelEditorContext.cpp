@@ -45,7 +45,6 @@ namespace Durin::Editor::Level
 			SelectedActors.emplace_back(Actor);
 			PrimarySelectedActor = Actor;
 			SelectionAnchor = Actor;
-			SelectedComponent = Actor->GetRootComponent();
 		}
 	}
 
@@ -64,12 +63,7 @@ namespace Durin::Editor::Level
 			if (PrimarySelectedActor.Get() == Actor) PrimarySelectedActor = SelectedActors.empty() ? nullptr : SelectedActors.back();
 		}
 		SelectionAnchor = Actor;
-		if (!PrimarySelectedActor || !SelectedComponent || !PrimarySelectedActor->OwnsComponent(SelectedComponent.Get()))
-		{
-			SelectedComponent = nullptr;
-			SelectedSubElement = {};
-			SelectedSubElements.clear();
-		}
+		SelectComponent(nullptr);
 	}
 
 	auto FLevelEditorContext::SelectActorRange(AActor* Actor, const std::vector<AActor*>& VisibleActors) -> void
@@ -97,12 +91,7 @@ namespace Durin::Editor::Level
 		}
 		PrimarySelectedActor = IsActorSelected(PrimaryActor) ? PrimaryActor : (SelectedActors.empty() ? nullptr : SelectedActors.back().Get());
 		SelectionAnchor = PrimarySelectedActor;
-		if (!PrimarySelectedActor || !SelectedComponent || !PrimarySelectedActor->OwnsComponent(SelectedComponent.Get()))
-		{
-			SelectedComponent = nullptr;
-			SelectedSubElement = {};
-			SelectedSubElements.clear();
-		}
+		SelectComponent(nullptr);
 	}
 
 	auto FLevelEditorContext::ClearSelection() -> void

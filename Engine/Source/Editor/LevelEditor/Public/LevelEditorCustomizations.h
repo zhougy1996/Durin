@@ -153,66 +153,11 @@ namespace Durin::Editor::Level
 			FEditorVisualizationCollector& Collector) const -> void = 0;
 	};
 
-	// Summarizes rows and changes produced by an object details builder.
-	struct FObjectPropertyViewBuilderResult
-	{
-		uint32 VisibleRowCount = 0;
-		bool bChanged = false;
-	};
-
-	// Builds searchable reflected and custom rows for one details view.
-	class FObjectPropertyViewBuilder
-	{
-	public:
-		using FCustomRowDrawer = std::function<bool(::Durin::Editor::FPropertyView&, const ::Durin::Editor::FPropertyViewContext&)>;
-
-		LEVELEDITOR_API explicit FObjectPropertyViewBuilder(std::string_view InSearchText = {});
-		LEVELEDITOR_API auto AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex = 0,
-			const ::Durin::Editor::FPropertyViewOptions& Options = {}, std::string_view SearchKeywords = {}) -> void;
-		LEVELEDITOR_API auto AddCustomRow(std::string_view SearchKeywords, FCustomRowDrawer Drawer) -> void;
-		LEVELEDITOR_API auto HideProperty(FProperty* Property) -> void;
-		LEVELEDITOR_API auto ReplaceDefaultProperties() -> void;
-		LEVELEDITOR_API auto IsPropertyHidden(const FProperty& Property) const -> bool;
-		LEVELEDITOR_API auto IsReplacingDefaultProperties() const -> bool;
-		LEVELEDITOR_API auto GetVisibleRowCount() const -> uint32;
-		LEVELEDITOR_API auto DrawRows(::Durin::Editor::FPropertyView& PropertyView,
-			const ::Durin::Editor::FPropertyViewContext& ViewContext) const -> FObjectPropertyViewBuilderResult;
-
-	private:
-		// Stores either one reflected-property row or one custom drawer.
-		struct FRow
-		{
-			DObject* Object = nullptr;
-			FProperty* Property = nullptr;
-			uint32 ArrayIndex = 0;
-			std::string Label;
-			std::string SearchText;
-			FCustomRowDrawer Drawer;
-		};
-
-		auto MatchesSearch(std::string_view Candidate) const -> bool;
-
-		std::string SearchText;
-		std::vector<FRow> Rows;
-		std::unordered_set<FProperty*> HiddenProperties;
-		bool bReplaceDefaultProperties = false;
-	};
-
-	// Defines class-specific contributions to an object details view.
-	class IObjectDetailsCustomization
-	{
-	public:
-		virtual ~IObjectDetailsCustomization() = default;
-		virtual auto CustomizeDetails(FLevelEditorContext& Context, DObject* Object,
-			FObjectPropertyViewBuilder& Builder) -> void = 0;
-	};
-
 	// Distinguishes viewport visualizers from object-details customizations.
 	enum class ELevelEditorCustomizationKind : uint8
 	{
 		ActorVisualizer,
 		ComponentVisualizer,
-		ObjectDetails
 	};
 
 	// Identifies one registered editor customization for later removal.
@@ -230,12 +175,9 @@ namespace Durin::Editor::Level
 		LEVELEDITOR_API static auto Get() -> FLevelEditorCustomizationRegistry&;
 		LEVELEDITOR_API auto RegisterActorVisualizer(DClass* Class, std::shared_ptr<IActorEditorVisualizer> Visualizer) -> FLevelEditorCustomizationHandle;
 		LEVELEDITOR_API auto RegisterComponentVisualizer(DClass* Class, std::shared_ptr<IComponentEditorVisualizer> Visualizer) -> FLevelEditorCustomizationHandle;
-		LEVELEDITOR_API auto RegisterObjectDetails(DClass* Class, std::shared_ptr<IObjectDetailsCustomization> Customization) -> FLevelEditorCustomizationHandle;
 		LEVELEDITOR_API auto Unregister(FLevelEditorCustomizationHandle Handle) -> bool;
 		LEVELEDITOR_API auto FindActorVisualizer(const DClass* Class) const -> std::shared_ptr<IActorEditorVisualizer>;
 		LEVELEDITOR_API auto FindComponentVisualizer(const DClass* Class) const -> std::shared_ptr<IComponentEditorVisualizer>;
-		LEVELEDITOR_API auto FindObjectDetails(const DClass* Class) const -> std::shared_ptr<IObjectDetailsCustomization>;
-		LEVELEDITOR_API auto FindObjectDetailsCustomizations(const DClass* Class) const -> std::vector<std::shared_ptr<IObjectDetailsCustomization>>;
 
 	private:
 		template<typename T>
@@ -249,6 +191,5 @@ namespace Durin::Editor::Level
 		uint64 NextHandleId = 1;
 		std::unordered_map<DClass*, TEntry<IActorEditorVisualizer>> ActorVisualizers;
 		std::unordered_map<DClass*, TEntry<IComponentEditorVisualizer>> ComponentVisualizers;
-		std::unordered_map<DClass*, TEntry<IObjectDetailsCustomization>> ObjectDetails;
 	};
 } // namespace Durin::Editor::Level

@@ -15,6 +15,11 @@
 #include "Settings/ProjectDefaultLevelReferenceStore.h"
 #include "Engine/Level.h"
 #include "Actors/PlayerStart.h"
+#include "Actors/StaticMeshActor.h"
+#include "Actors/CameraActor.h"
+#include "Actors/DirectionalLightActor.h"
+#include "Actors/VolumetricCloudActor.h"
+#include "Customizations/ActorComponentDetails.h"
 #include "Actors/SplineMeshActor.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Widgets/MLevelEditor.h"
@@ -92,18 +97,27 @@ namespace Durin
 		SessionSettings = std::make_unique<FLevelEditorSessionSettings>();
 		SessionSettings->Load();
 		auto& Registry = FLevelEditorCustomizationRegistry::Get();
+		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(AStaticMeshActor::StaticClass(),
+			CreateActorComponentDetailsCustomization([](AActor* Actor) -> DActorComponent* { return Cast<AStaticMeshActor>(Actor)->GetStaticMeshComponent(); })));
+		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(ACameraActor::StaticClass(),
+			CreateActorComponentDetailsCustomization([](AActor* Actor) -> DActorComponent* { return Cast<ACameraActor>(Actor)->GetCameraComponent(); })));
+		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(ADirectionalLightActor::StaticClass(),
+			CreateActorComponentDetailsCustomization([](AActor* Actor) -> DActorComponent* { return Cast<ADirectionalLightActor>(Actor)->GetLightComponent(); })));
+		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(AVolumetricCloudActor::StaticClass(),
+			CreateActorComponentDetailsCustomization([](AActor* Actor) -> DActorComponent* { return Cast<AVolumetricCloudActor>(Actor)->GetVolumetricCloudComponent(); })));
 
 		CustomizationHandles.push_back(Registry.RegisterActorVisualizer(APlayerStart::StaticClass(), CreatePlayerStartActorVisualizer()));
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DCameraComponent::StaticClass(), CreateCameraComponentVisualizer()));
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DDirectionalLightComponent::StaticClass(), CreateDirectionalLightComponentVisualizer()));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DCameraComponent::StaticClass(), CreateCameraDetailsCustomization()));
+		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DCameraComponent::StaticClass(), CreateCameraDetailsCustomization()));
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DSplineComponent::StaticClass(), CreateSplineComponentVisualizer()));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSplineComponent::StaticClass(), CreateSplineDetailsCustomization()));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(ASplineMeshActor::StaticClass(), CreateSplineMeshActorDetailsCustomization()));
+		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DSplineComponent::StaticClass(), CreateSplineDetailsCustomization()));
+		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(ASplineMeshActor::StaticClass(), CreateSplineMeshActorDetailsCustomization()));
 		SplineEditModeHandle = RegisterSplineViewportEditMode();
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization()));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DVolumetricCloudComponent::StaticClass(), CreateVolumetricCloudDetailsCustomization()));
+		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization()));
+		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DVolumetricCloudComponent::StaticClass(), CreateVolumetricCloudDetailsCustomization()));
 		checkf(std::ranges::all_of(CustomizationHandles, [](FLevelEditorCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in customizations must register exactly once");
+		checkf(std::ranges::all_of(DetailCustomizationHandles, [](Editor::FDetailCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in detail customizations must register exactly once");
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
@@ -126,6 +140,8 @@ namespace Durin
 		SplineEditModeHandle = {};
 		for (auto It = CustomizationHandles.rbegin(); It != CustomizationHandles.rend(); ++It) Registry.Unregister(*It);
 		CustomizationHandles.clear();
+		for (auto It = DetailCustomizationHandles.rbegin(); It != DetailCustomizationHandles.rend(); ++It) Editor::FDetailCustomizationRegistry::Get().Unregister(*It);
+		DetailCustomizationHandles.clear();
 		SessionSettings.reset();
 	}
 

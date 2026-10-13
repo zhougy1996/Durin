@@ -1,4 +1,5 @@
 #include "Widgets/MMaterialParameterCollectionEditor.h"
+#include "PropertyEditor/DetailPanel.h"
 
 #include "Asset/Asset.h"
 #include "DObject/Package.h"
@@ -125,8 +126,10 @@ namespace Durin::Editor::Material
 				if (!Collection) return;
 				ImGui::TextDisabled("Up to %u numeric declarations; names are case-insensitively unique.",
 					MaterialParameterCollectionMaxDeclarationCount);
-				const auto Result = PropertyView.EditObject(Context(), Collection,
-					{.PropertyTableId = "MaterialParameterCollectionProperties"});
+				const auto ViewContext = Context();
+				const auto Result = DrawDetailPanel(PropertyView, ViewContext, Collection, {
+					.PropertyTableId = "MaterialParameterCollectionProperties", .bShowEmptyMessage = false});
+				if (!Result.bOwnerReady) return;
 				if (Result.bChanged && !Collection->Validate())
 					Report(Collection->Validate().Message);
 				const auto Layout = Collection->BuildLayout();

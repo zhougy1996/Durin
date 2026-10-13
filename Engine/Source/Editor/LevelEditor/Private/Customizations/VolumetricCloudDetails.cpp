@@ -1,3 +1,5 @@
+#include "LevelDetailCustomization.h"
+#include "PropertyEditor/DetailCustomizationRegistry.h"
 #include "VolumetricCloudDetails.h"
 
 #include "Components/VolumetricCloudComponent.h"
@@ -63,12 +65,13 @@ namespace Durin::Editor::Level
 		}
 
 		class FVolumetricCloudDetailsCustomization final
-			: public IObjectDetailsCustomization
+			: public IDetailCustomization
 		{
 		public:
-			auto CustomizeDetails(FLevelEditorContext& EditorContext, DObject* Object,
-				FObjectPropertyViewBuilder& Builder) -> void override
+			auto CustomizeDetails(IDetailLayoutBuilder& Builder) -> void override
 			{
+				DObject* Object = Builder.GetObject();
+				auto& EditorContext = GetLevelDetailHostContext(Builder).Context;
 				auto* Component = Cast<DVolumetricCloudComponent>(Object);
 				if (!Component) return;
 				if (FProperty* Eligibility = Component->GetClass()->FindPropertyByName(
@@ -89,7 +92,7 @@ namespace Durin::Editor::Level
 	}
 
 	auto CreateVolumetricCloudDetailsCustomization()
-		-> std::shared_ptr<IObjectDetailsCustomization>
+		-> std::shared_ptr<IDetailCustomization>
 	{
 		return std::make_shared<FVolumetricCloudDetailsCustomization>();
 	}

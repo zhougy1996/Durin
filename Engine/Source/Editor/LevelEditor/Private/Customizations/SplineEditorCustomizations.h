@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PropertyEditor/DetailCustomization.h"
 
 #include "LevelEditorCustomizations.h"
 #include "LevelEditorViewportEditing.h"
@@ -13,8 +14,8 @@ namespace Durin
 namespace Durin::Editor::Level
 {
 	auto CreateSplineComponentVisualizer() -> std::shared_ptr<IComponentEditorVisualizer>;
-	auto CreateSplineDetailsCustomization() -> std::shared_ptr<IObjectDetailsCustomization>;
-	auto CreateSplineMeshActorDetailsCustomization() -> std::shared_ptr<IObjectDetailsCustomization>;
+	auto CreateSplineDetailsCustomization() -> std::shared_ptr<IDetailCustomization>;
+	auto CreateSplineMeshActorDetailsCustomization() -> std::shared_ptr<IDetailCustomization>;
 	auto RegisterSplineViewportEditMode() -> FLevelViewportEditModeHandle;
 
 	auto CalculateSplineAppendPosition(const DSplineComponent& Spline) -> FVector3;

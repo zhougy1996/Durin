@@ -5,6 +5,7 @@
 #include "LevelEditorAPI.h"
 #include "Modules/ModuleManager.h"
 #include "LevelEditorCustomizations.h"
+#include "PropertyEditor/DetailCustomizationRegistry.h"
 #include "LevelEditorViewportEditing.h"
 #include "LevelEditorContentBrowserCallbacks.h"
 
@@ -51,6 +52,7 @@ namespace Durin
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<Editor::Level::FLevelEditorSessionSettings> SessionSettings;
 		std::vector<Editor::Level::FLevelEditorCustomizationHandle> CustomizationHandles;
+		std::vector<Editor::FDetailCustomizationHandle> DetailCustomizationHandles;
 		Editor::Level::FLevelViewportEditModeHandle SplineEditModeHandle;
 		std::weak_ptr<Editor::Level::MLevelEditor> LevelEditorWorkspace;
 		std::unique_ptr<::Durin::IAssetReferenceStore>

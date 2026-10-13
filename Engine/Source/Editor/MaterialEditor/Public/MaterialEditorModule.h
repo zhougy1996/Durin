@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PropertyEditor/DetailCustomizationRegistry.h"
 
 #include "MaterialEditorAPI.h"
 #include "Modules/ModuleManager.h"
@@ -21,6 +22,7 @@ namespace Durin
 	public:
 		MATERIALEDITOR_API FMaterialEditorModule();
 		MATERIALEDITOR_API ~FMaterialEditorModule() override;
+		MATERIALEDITOR_API auto StartupModule() -> void override;
 		MATERIALEDITOR_API auto ShutdownModule() -> void override;
 		MATERIALEDITOR_API auto RegisterMaterialEditor(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
@@ -28,6 +30,7 @@ namespace Durin
 		MATERIALEDITOR_API auto UnregisterMaterialEditor() -> void;
 
 	private:
+		Editor::FDetailCustomizationHandle DetailCustomizationRegistration;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> MaterialThumbnailRegistration;
 		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> MaterialInstanceThumbnailRegistration;

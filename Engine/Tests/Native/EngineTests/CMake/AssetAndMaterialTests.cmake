@@ -51,27 +51,34 @@ durin_add_native_test(DerivedDataBuildTests
 	REQUIREMENT_RATIONALE "Exercises authoring-only build definitions and cache execution without Engine."
 )
 
+durin_add_native_test(AssetDetailCustomizationTests
+	KIND feature
+	DOMAINS property-editor asset-workflow
+	MODULES durin-ed texture-editor material-editor
+	STACKS editor
+	SOURCES Private/Editor/AssetDetailCustomizationTests.cpp
+	LIBRARIES Core CoreDObject Engine DurinEd TextureEditor MaterialEditor
+	INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Exercises registered asset layouts through the shared editor property and transaction services."
+	HEAVY_RUNTIME_RATIONALE "Links concrete asset editors to verify their shared layouts and undo behavior."
+)
+
 durin_add_native_test(EditorPropertyTests
 	KIND feature
 	DOMAINS property-editor
-	MODULES durin-ed level-editor
+	MODULES durin-ed
 	STACKS editor
-	PRIVATE_SOURCE_OWNER LevelEditor
-	PRIVATE_SOURCE_RATIONALE
-		"LevelEditor-owned property customization white-box coverage avoids exporting editor implementation symbols."
 	SOURCES
 		Private/ReflectedPropertyViewTests.cpp
+		Private/Editor/DetailCustomizationTests.cpp
 		Private/Editor/ReflectedPropertyEditSessionTests.cpp
 		Private/Editor/ReflectedPropertyTransactionTests.cpp
 		Private/Editor/ReflectedPropertyContainerTests.cpp
-	PRIVATE_SOURCES ${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES Core CoreDObject Engine DurinEd
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinEd/Private
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
-		${_durin_level_editor_private}
-		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
-	COMPILE_DEFINITIONS LEVELEDITOR_EXPORTS
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	HEAVY_RUNTIME_RATIONALE "Exercises DurinEd property customization behavior."

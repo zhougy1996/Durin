@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PropertyEditor/DetailCustomizationRegistry.h"
 
 #include "Modules/ModuleManager.h"
 #include "TextureEditorAPI.h"
@@ -30,6 +31,7 @@ namespace Durin
 			::Durin::Editor::FImportDialogCallbacks ImportCallbacks = {}) -> bool;
 		TEXTUREEDITOR_API auto UnregisterTextureEditor() -> void;
 	private:
+		Editor::FDetailCustomizationHandle DetailCustomizationRegistration;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> Texture2DThumbnailRegistration;
 		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> TextureCubeThumbnailRegistration;

@@ -1,8 +1,12 @@
+#include "LevelDetailCustomization.h"
+#include "PropertyEditor/DetailCustomizationRegistry.h"
 #include "Panels/DetailsPanel.h"
 
 #include "Profiling/Profiling.h"
 #include "Panels/DetailsPanelTargeting.h"
+#include "Customizations/ActorComponentDetails.h"
 #include "PropertyEditor/PropertyView.h"
+#include "PropertyEditor/DetailPanel.h"
 
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -209,39 +213,14 @@ namespace Durin::Editor::Level
 			return;
 		}
 
-		FObjectPropertyViewBuilder Builder(PropertySearchText.data());
-		for (const std::shared_ptr<IObjectDetailsCustomization>& Customization
-			: FLevelEditorCustomizationRegistry::Get().FindObjectDetailsCustomizations(Object->GetClass()))
-		{
-			Customization->CustomizeDetails(Context, Object, Builder);
-		}
-		if (!MonaImGui::PropertyEdit::BeginTable("DetailsPropertyTable"))
-		{
-			ImGui::EndChild();
-			return;
-		}
-
-		const FObjectPropertyViewBuilderResult BuilderResult = Builder.DrawRows(PropertyView, ViewContext);
-		::Durin::Editor::FObjectPropertyViewResult ObjectViewResult;
-		if (!Builder.IsReplacingDefaultProperties())
-		{
-			ObjectViewResult = PropertyView.EditObject(ViewContext, Object, {
-				.SearchText = PropertySearchText.data(),
-				.Filter = [&Builder](const FProperty& Property, uint32) {
-					return !Builder.IsPropertyHidden(Property);
-				},
-				.bCreatePropertyTable = false,
-				.bShowEmptyMessage = false,
-			});
-		}
-		MonaImGui::PropertyEdit::EndTable();
-
-		if (BuilderResult.VisibleRowCount + ObjectViewResult.VisiblePropertyCount == 0)
-		{
-			ImGui::TextDisabled(PropertySearchText[0] != '\0'
-				? "No properties match the current search."
-				: "This object has no reflected Edit properties.");
-		}
+		FLevelDetailHostContext Host(Context);
+		DrawDetailPanel(PropertyView, ViewContext, Object, {
+			.SearchText = PropertySearchText.data(),
+			.PropertyTableId = "DetailsPropertyTable",
+			.HostContext = &Host,
+			.ExtendLayout = [&](FDetailLayoutBuilder& Layout) {
+				BuildActorComponentDetails(Context, Cast<AActor>(Object), Layout, PropertySearchText.data());
+			}});
 		ImGui::EndChild();
 	}
 

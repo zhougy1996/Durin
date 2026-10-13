@@ -1,4 +1,5 @@
 #include "Widgets/MTextureEditor.h"
+#include "PropertyEditor/DetailPanel.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/Asset.h"
@@ -796,55 +797,8 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::DrawBuildSettings(DTexture2D* Texture) -> void
 	{
-		if (!MonaImGui::PropertyEdit::BeginTable("TextureBuildSettings")) return;
-		FProperty* UsageProperty = Texture->GetClass()->FindPropertyByName("Usage");
-		FProperty* SRGBProperty = Texture->GetClass()->FindPropertyByName("bSRGB");
-		FProperty* MaxResolutionProperty = Texture->GetClass()->FindPropertyByName("MaxResolution");
-		FProperty* CompressionQualityProperty = Texture->GetClass()->FindPropertyByName("CompressionQuality");
-		FProperty* AlphaMipModeProperty = Texture->GetClass()->FindPropertyByName("AlphaMipMode");
-		FProperty* AlphaCoverageThresholdProperty = Texture->GetClass()->FindPropertyByName("AlphaCoverageThreshold");
-		if (UsageProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture, UsageProperty, 0, {.Label = "Usage"});
-		else DrawInfoRow("Usage", "Reflection metadata unavailable");
-		if (SRGBProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture, SRGBProperty, 0, {.Label = "sRGB"});
-		else DrawInfoRow("sRGB", "Reflection metadata unavailable");
-		if (MaxResolutionProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture, MaxResolutionProperty, 0,
-			{.Label = "Max Resolution (0 = source)"});
-		else DrawInfoRow("Max Resolution", "Reflection metadata unavailable");
-		if (CompressionQualityProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture, CompressionQualityProperty, 0,
-			{.Label = "Compression Quality"});
-		else DrawInfoRow("Compression Quality", "Reflection metadata unavailable");
-		if (AlphaMipModeProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture, AlphaMipModeProperty, 0,
-			{.Label = "Alpha Mip Mode"});
-		else DrawInfoRow("Alpha Mip Mode", "Reflection metadata unavailable");
-		if (AlphaCoverageThresholdProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture,
-			AlphaCoverageThresholdProperty, 0, {.Label = "Alpha Coverage Threshold"});
-		else DrawInfoRow("Alpha Coverage Threshold", "Reflection metadata unavailable");
-
-		const FTexturePlatformData* Platform = Texture->GetPlatformData();
-		if (Platform && Platform->IsValid())
-		{
-			uint64 TotalBytes = 0;
-			for (const FTexture2DMipData& Mip : Platform->Mips) TotalBytes += Mip.Pixels.size();
-			DrawInfoRow("CPU Status", "Platform data ready");
-			DrawInfoRow("Pixel Format", GetPixelFormatInfo(Platform->PixelFormat).Name);
-			DrawInfoRow("Mip Count", std::format("{}", Platform->Mips.size()));
-			DrawInfoRow("Mip Range", std::format("{} to {}", FormatDimensions(Platform->Mips.front().Width, Platform->Mips.front().Height),
-				FormatDimensions(Platform->Mips.back().Width, Platform->Mips.back().Height)));
-			DrawInfoRow("Platform Bytes", StringUtils::FormatByteSize(TotalBytes));
-			DrawInfoRow("Residency", "Fully resident");
-		}
-		else
-		{
-			DrawInfoRow("CPU Status", "Platform data unavailable");
-		}
-
-		DrawInfoRow("GPU Availability", Texture->HasUsableResource() ? "Available" : "Unavailable");
-
-		DrawInfoRow("Resource Update", GetEnumValueDisplayName(
-			"Durin::ETextureResourceUpdateState",
-			static_cast<uint64>(Texture->GetResourceUpdateState())));
-
-		MonaImGui::PropertyEdit::EndTable();
+		DrawDetailPanel(PropertyView, MakePropertyViewContext(), Texture, {
+			.PropertyTableId = "TextureBuildSettings", .bShowEmptyMessage = false});
 	}
 
 	auto MTextureEditor::FinishActivePropertyEdit(bool bCancel) -> bool

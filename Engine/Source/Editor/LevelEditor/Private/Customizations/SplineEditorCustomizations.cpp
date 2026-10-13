@@ -1,3 +1,5 @@
+#include "LevelDetailCustomization.h"
+#include "PropertyEditor/DetailCustomizationRegistry.h"
 #include "Customizations/SplineEditorCustomizations.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 
@@ -374,11 +376,13 @@ namespace Durin::Editor::Level
 			}
 		};
 
-		class FSplineDetailsCustomization final : public IObjectDetailsCustomization
+		class FSplineDetailsCustomization final : public IDetailCustomization
 		{
 		public:
-			auto CustomizeDetails(FLevelEditorContext& Context, DObject* Object, FObjectPropertyViewBuilder& Builder) -> void override
+			auto CustomizeDetails(IDetailLayoutBuilder& Builder) -> void override
 			{
+				DObject* Object = Builder.GetObject();
+				auto& Context = GetLevelDetailHostContext(Builder).Context;
 				auto* Spline = Cast<DSplineComponent>(Object);
 				if (!Spline) return;
 				if (FProperty* SplineCurve = Spline->GetClass()->FindPropertyByName("SplineCurve")) Builder.HideProperty(SplineCurve);
@@ -565,12 +569,13 @@ namespace Durin::Editor::Level
 			}
 		};
 
-		class FSplineMeshActorDetailsCustomization final : public IObjectDetailsCustomization
+		class FSplineMeshActorDetailsCustomization final : public IDetailCustomization
 		{
 		public:
-			auto CustomizeDetails(FLevelEditorContext& Context, DObject* Object,
-				FObjectPropertyViewBuilder& Builder) -> void override
+			auto CustomizeDetails(IDetailLayoutBuilder& Builder) -> void override
 			{
+				DObject* Object = Builder.GetObject();
+				auto& Context = GetLevelDetailHostContext(Builder).Context;
 				auto* Actor = Cast<ASplineMeshActor>(Object);
 				if (!Actor) return;
 				Builder.AddCustomRow("Spline Path Generated Segments Diagnostics Edit",
@@ -645,8 +650,8 @@ namespace Durin::Editor::Level
 	}
 
 	auto CreateSplineComponentVisualizer() -> std::shared_ptr<IComponentEditorVisualizer> { return std::make_shared<FSplineComponentVisualizer>(); }
-	auto CreateSplineDetailsCustomization() -> std::shared_ptr<IObjectDetailsCustomization> { return std::make_shared<FSplineDetailsCustomization>(); }
-	auto CreateSplineMeshActorDetailsCustomization() -> std::shared_ptr<IObjectDetailsCustomization> { return std::make_shared<FSplineMeshActorDetailsCustomization>(); }
+	auto CreateSplineDetailsCustomization() -> std::shared_ptr<IDetailCustomization> { return std::make_shared<FSplineDetailsCustomization>(); }
+	auto CreateSplineMeshActorDetailsCustomization() -> std::shared_ptr<IDetailCustomization> { return std::make_shared<FSplineMeshActorDetailsCustomization>(); }
 	auto RegisterSplineViewportEditMode(
 		) -> FLevelViewportEditModeHandle
 	{

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PropertyEditor/DetailCustomization.h"
 
 #include "LevelEditorAPI.h"
 #include "PropertyEditor/PropertyView.h"
@@ -14,7 +15,6 @@ namespace Durin
 
 namespace Durin::Editor::Level
 {
-	class IObjectDetailsCustomization;
 
 	// Identifies where the displayed material for a static-mesh slot originates.
 	enum class EStaticMeshMaterialSource : uint8
@@ -67,5 +67,5 @@ namespace Durin::Editor::Level
 		std::vector<FStaticMeshMaterialSlotDetailsEntry> CurrentEntries;
 	};
 
-	LEVELEDITOR_API auto CreateStaticMeshComponentDetailsCustomization() -> std::shared_ptr<IObjectDetailsCustomization>;
+	LEVELEDITOR_API auto CreateStaticMeshComponentDetailsCustomization() -> std::shared_ptr<IDetailCustomization>;
 }

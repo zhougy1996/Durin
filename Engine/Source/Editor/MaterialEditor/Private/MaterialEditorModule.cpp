@@ -1,4 +1,5 @@
 #include "MaterialEditorModule.h"
+#include "MaterialParameterCollectionDetails.h"
 #include "Graph/MaterialGraphCanvas.h"
 
 #include "ContentBrowser/ContentBrowserContracts.h"
@@ -78,9 +79,18 @@ namespace Durin
 
 	FMaterialEditorModule::~FMaterialEditorModule() = default;
 
+	auto FMaterialEditorModule::StartupModule() -> void
+	{
+		DetailCustomizationRegistration = Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(
+			DMaterialParameterCollection::StaticClass(), Editor::Material::CreateMaterialParameterCollectionDetails());
+		require(static_cast<bool>(DetailCustomizationRegistration));
+	}
+
 	auto FMaterialEditorModule::ShutdownModule() -> void
 	{
 		UnregisterMaterialEditor();
+		Editor::FDetailCustomizationRegistry::Get().Unregister(DetailCustomizationRegistration);
+		DetailCustomizationRegistration = {};
 		Editor::Material::FMaterialGraphCanvas::ClearSharedClipboard();
 		if (GEditor)
 			checkf(GEditor->GetTransactor()

@@ -1,11 +1,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PropertyEditor/DetailCustomization.h"
 
 #include "LevelEditorCustomizations.h"
 
 namespace Durin::Editor::Level
 {
 	auto CreateCameraComponentVisualizer() -> std::shared_ptr<IComponentEditorVisualizer>;
-	auto CreateCameraDetailsCustomization() -> std::shared_ptr<IObjectDetailsCustomization>;
+	auto CreateCameraDetailsCustomization() -> std::shared_ptr<IDetailCustomization>;
 }

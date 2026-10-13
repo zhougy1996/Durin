@@ -98,6 +98,8 @@ set(_durin_viewport_private_sources
 	${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
 	${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
 	${_durin_level_editor_private}/Customizations/CameraEditorCustomizations.cpp
+	${_durin_level_editor_private}/Customizations/ActorComponentDetails.cpp
+	${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 	${_durin_level_editor_private}/Customizations/DirectionalLightEditorCustomizations.cpp
 	${_durin_level_editor_private}/Customizations/PlayerStartEditorCustomizations.cpp
 	${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp

@@ -8,6 +8,8 @@
 #include "Components/VolumetricCloudComponent.h"
 #include "StaticMesh/StaticMesh.h"
 #include "VolumetricCloudDetails.h"
+#include "Customizations/ActorComponentDetails.h"
+#include "StaticMeshMaterialSlotDetails.h"
 
 namespace
 {
@@ -65,9 +67,8 @@ TEST(FVolumetricCloudDetailsCustomizationTests,
 	auto* Component = Actor->GetVolumetricCloudComponent();
 	ASSERT_NE(Component, nullptr);
 	Durin::Editor::Level::FLevelEditorContext Context;
-	Durin::Editor::Level::FObjectPropertyViewBuilder Builder;
-	Durin::Editor::Level::CreateVolumetricCloudDetailsCustomization()
-		->CustomizeDetails(Context, Component, Builder);
+	Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context);
+	Builder.ApplyCustomization(Component, *Durin::Editor::Level::CreateVolumetricCloudDetailsCustomization());
 	Durin::FProperty* Eligibility = Component->GetClass()->FindPropertyByName(
 		"EligibilityStatus");
 	ASSERT_NE(Eligibility, nullptr);
@@ -126,8 +127,8 @@ TEST(FSplineDetailsCustomizationTests, PreservesComponentPropertiesAndHidesRawCu
 	Durin::Editor::Level::FLevelEditorContext Context;
 	Context.SelectActor(Actor);
 	Context.SelectComponent(Spline);
-	Durin::Editor::Level::FObjectPropertyViewBuilder Builder;
-	Durin::Editor::Level::CreateSplineDetailsCustomization()->CustomizeDetails(Context, Spline, Builder);
+	Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context);
+	Builder.ApplyCustomization(Spline, *Durin::Editor::Level::CreateSplineDetailsCustomization());
 
 	EXPECT_FALSE(Builder.IsReplacingDefaultProperties());
 	EXPECT_TRUE(Builder.IsPropertyHidden(*SplineCurve));
@@ -146,8 +147,8 @@ TEST(FSplineDetailsCustomizationTests, EmitsVisiblePropertyTableRows)
 	Durin::Editor::Level::FLevelEditorContext Context;
 	Context.SelectActor(Actor);
 	Context.SelectComponent(Spline);
-	Durin::Editor::Level::FObjectPropertyViewBuilder Builder;
-	Durin::Editor::Level::CreateSplineDetailsCustomization()->CustomizeDetails(Context, Spline, Builder);
+	Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context);
+	Builder.ApplyCustomization(Spline, *Durin::Editor::Level::CreateSplineDetailsCustomization());
 
 	ImGuiContext* ImContext = ImGui::CreateContext();
 	ASSERT_NE(ImContext, nullptr);
@@ -164,7 +165,7 @@ TEST(FSplineDetailsCustomizationTests, EmitsVisiblePropertyTableRows)
 	if (bTableOpen)
 	{
 		Durin::Editor::FPropertyView PropertyView;
-		const Durin::Editor::Level::FObjectPropertyViewBuilderResult Result = Builder.DrawRows(PropertyView, {});
+		const Durin::Editor::FDetailLayoutBuilderResult Result = Builder.DrawRows(PropertyView, {});
 		EXPECT_EQ(Result.VisibleRowCount, 1u);
 		EXPECT_GE(ImGui::TableGetRowIndex(), 2);
 		Durin::MonaImGui::PropertyEdit::EndTable();
@@ -362,22 +363,151 @@ TEST(FLevelEditorCustomizationRegistryTests, RejectsDuplicatesFindsBaseClassAndU
 	EXPECT_EQ(Registry.FindComponentVisualizer(Durin::DCameraComponent::StaticClass()), Visualizer);
 
 	const auto Details = std::make_shared<FTestDetailsCustomization>();
-	FCustomizationGuard DetailsGuard{Registry.RegisterObjectDetails(Durin::DSceneComponent::StaticClass(), Details)};
+	FDetailCustomizationGuard DetailsGuard{Durin::Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(Durin::DSceneComponent::StaticClass(), Details)};
 	ASSERT_TRUE(DetailsGuard.Handle);
-	EXPECT_EQ(Registry.FindObjectDetails(Durin::DCameraComponent::StaticClass()), Details);
+	EXPECT_EQ(Durin::Editor::FDetailCustomizationRegistry::Get().FindDetailCustomization(Durin::DCameraComponent::StaticClass()), Details);
 	const auto DerivedDetails = std::make_shared<FTestDetailsCustomization>();
-	FCustomizationGuard DerivedDetailsGuard{Registry.RegisterObjectDetails(Durin::DCameraComponent::StaticClass(), DerivedDetails)};
+	FDetailCustomizationGuard DerivedDetailsGuard{Durin::Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(Durin::DCameraComponent::StaticClass(), DerivedDetails)};
 	ASSERT_TRUE(DerivedDetailsGuard.Handle);
-	const auto DetailsChain = Registry.FindObjectDetailsCustomizations(Durin::DCameraComponent::StaticClass());
+	const auto DetailsChain = Durin::Editor::FDetailCustomizationRegistry::Get().FindDetailCustomizations(Durin::DCameraComponent::StaticClass());
 	ASSERT_EQ(DetailsChain.size(), 2u);
 	EXPECT_EQ(DetailsChain[0], Details);
 	EXPECT_EQ(DetailsChain[1], DerivedDetails);
-	ASSERT_TRUE(Registry.Unregister(DetailsGuard.Handle));
+	ASSERT_TRUE(Durin::Editor::FDetailCustomizationRegistry::Get().Unregister(DetailsGuard.Handle));
 	DetailsGuard.Handle = {};
-	EXPECT_EQ(Registry.FindObjectDetails(Durin::DCameraComponent::StaticClass()), DerivedDetails);
+	EXPECT_EQ(Durin::Editor::FDetailCustomizationRegistry::Get().FindDetailCustomization(Durin::DCameraComponent::StaticClass()), DerivedDetails);
 }
 
-TEST(FObjectPropertyViewBuilderTests, ComposesPropertiesHidingReplacementAndSearch)
+TEST(FActorComponentDetailsTests, SearchesNamedComponentsAndKeepsRootTransformSingle)
+{
+	InitializeDObjectSystem();
+	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "AggregatedActor");
+	auto* Root = Actor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "Root");
+	ASSERT_NE(Root, nullptr);
+	auto* First = Actor->AddInstanceComponent(Durin::DStaticMeshComponent::StaticClass(), "PrimaryMesh");
+	auto* Second = Actor->AddInstanceComponent(Durin::DStaticMeshComponent::StaticClass(), "SecondaryMesh");
+	ASSERT_NE(First, nullptr);
+	ASSERT_NE(Second, nullptr);
+	Durin::Editor::Level::FLevelEditorContext Context;
+	for (const auto& [Search, Expected] : std::array{
+		std::pair{"Static Mesh", 2u}, std::pair{"PrimaryMesh", 1u},
+		std::pair{"RelativeTransform", 3u}, std::pair{"ComponentToWorld", 0u},
+		std::pair{"no-such-property", 0u}})
+	{
+		Durin::Editor::FDetailLayoutBuilder Builder(Search);
+		Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, Builder, Search);
+		EXPECT_EQ(Builder.GetVisibleRowCount(), Expected) << Search;
+		EXPECT_FALSE(Builder.IsReplacingDefaultProperties());
+	}
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::CollectGarbage();
+}
+
+TEST(FActorComponentDetailsTests, ReusesCameraAndMaterialCustomizationsInActorTable)
+{
+	InitializeDObjectSystem();
+	auto& Registry = Durin::Editor::Level::FLevelEditorCustomizationRegistry::Get();
+	FDetailCustomizationGuard CameraGuard{Durin::Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(Durin::DCameraComponent::StaticClass(),
+		Durin::Editor::Level::CreateCameraDetailsCustomization())};
+	FDetailCustomizationGuard MeshGuard{Durin::Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(Durin::DStaticMeshComponent::StaticClass(),
+		Durin::Editor::Level::CreateStaticMeshComponentDetailsCustomization())};
+	ASSERT_TRUE(CameraGuard.Handle);
+	ASSERT_TRUE(MeshGuard.Handle);
+	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "AggregatedCustomActor");
+	ASSERT_NE(Actor->AddInstanceComponent(Durin::DCameraComponent::StaticClass(), "ViewCamera"), nullptr);
+	ASSERT_NE(Actor->AddInstanceComponent(Durin::DStaticMeshComponent::StaticClass(), "Mesh"), nullptr);
+	Durin::Editor::Level::FLevelEditorContext Context;
+	for (const auto& [Search, Expected] : std::array{
+		std::pair{"Field Of View", 1u}, std::pair{"Materials", 1u},
+		std::pair{"ProjectionSettings", 0u}, std::pair{"OverrideMaterials", 0u}})
+	{
+		Durin::Editor::FDetailLayoutBuilder Builder(Search);
+		Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, Builder, Search);
+		EXPECT_EQ(Builder.GetVisibleRowCount(), Expected) << Search;
+	}
+	ImGuiContext* ImContext = ImGui::CreateContext();
+	ASSERT_NE(ImContext, nullptr);
+	ImGui::GetIO().DisplaySize = {800.0f, 600.0f};
+	ImGui::GetIO().IniFilename = nullptr;
+	ImGui::GetIO().DeltaTime = 1.0f / 60.0f;
+	ImGui::GetIO().Fonts->Build();
+	ImGui::NewFrame();
+	ImGui::SetNextWindowSize({600.0f, 500.0f});
+	ImGui::Begin("Actor Component Details Test");
+	const bool bTableOpen = Durin::MonaImGui::PropertyEdit::BeginTable("AggregatedRows");
+	if (bTableOpen)
+	{
+		Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context);
+		Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, Builder, {});
+		Durin::Editor::FPropertyView View;
+		ASSERT_TRUE(View.HandleOwnerContext({}, Actor));
+		EXPECT_EQ(Builder.DrawRows(View, {}).VisibleRowCount, 3u);
+		EXPECT_GE(ImGui::TableGetRowIndex(), 10);
+		Durin::MonaImGui::PropertyEdit::EndTable();
+	}
+	ImGui::End();
+	ImGui::Render();
+	ImGui::DestroyContext(ImContext);
+	EXPECT_TRUE(bTableOpen);
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::CollectGarbage();
+}
+
+TEST(FActorComponentDetailsTests, ActorCustomizationSelectsOnlyOwnedPrimaryComponents)
+{
+	InitializeDObjectSystem();
+	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "SelectiveActor");
+	auto* Primary = Actor->AddInstanceComponent(Durin::DStaticMeshComponent::StaticClass(), "Primary");
+	ASSERT_NE(Primary, nullptr);
+	ASSERT_NE(Actor->AddInstanceComponent(Durin::DStaticMeshComponent::StaticClass(), "Secondary"), nullptr);
+	auto* Other = Durin::NewObject<Durin::AActor>(nullptr, "ForeignActor");
+	auto* Foreign = Other->AddInstanceComponent(Durin::DStaticMeshComponent::StaticClass(), "Foreign");
+	ASSERT_NE(Foreign, nullptr);
+	Durin::Editor::Level::FLevelEditorContext Context;
+	Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context, "Static Mesh");
+	Builder.ApplyCustomization(Actor, *Durin::Editor::Level::CreateActorComponentDetailsCustomization([Primary](Durin::AActor*) { return Primary; }));
+	Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, Builder, "Static Mesh");
+	EXPECT_EQ(Builder.GetVisibleRowCount(), 1u);
+	Durin::Editor::Level::FLevelDetailLayoutBuilder FilteredBuilder(Context, "Static Mesh");
+	const std::array Targets{Primary, Primary, Foreign};
+	FilteredBuilder.SetComponentDetailsTargets(Targets);
+	Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, FilteredBuilder, "Static Mesh");
+	EXPECT_EQ(FilteredBuilder.GetVisibleRowCount(), 1u);
+	Durin::Editor::Level::FLevelDetailLayoutBuilder EmptyBuilder(Context, "Static Mesh");
+	EmptyBuilder.SetComponentDetailsTargets({});
+	Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, EmptyBuilder, "Static Mesh");
+	EXPECT_EQ(EmptyBuilder.GetVisibleRowCount(), 0u);
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::MarkObjectHierarchyAsGarbage(Other);
+	Durin::CollectGarbage();
+}
+
+TEST(FActorComponentDetailsTests, KeepsRootlessActorEmptyAndExcludesGeneratedSegments)
+{
+	InitializeDObjectSystem();
+	Durin::Editor::Level::FLevelEditorContext Context;
+	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "RootlessAggregatedActor");
+	Durin::Editor::FDetailLayoutBuilder EmptyBuilder;
+	Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, EmptyBuilder, {});
+	EXPECT_EQ(EmptyBuilder.GetVisibleRowCount(), 0u);
+	EXPECT_EQ(Actor->GetRootComponent(), nullptr);
+	auto* Level = Durin::NewObject<Durin::DLevel>(nullptr, "GeneratedDetailsLevel");
+	auto* SplineActor = Level->SpawnActor<Durin::ASplineMeshActor>("GeneratedDetailsActor");
+	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	SplineActor->SetPathMesh(Mesh);
+	SplineActor->GetSplineComponent()->SetSplinePoints({
+		Durin::FSplinePoint({0.0, 0.0, 0.0}), Durin::FSplinePoint({100.0, 0.0, 0.0})});
+	ASSERT_FALSE(SplineActor->FindComponentsByClass<Durin::DSplineMeshComponent>().empty());
+	Durin::Editor::FDetailLayoutBuilder GeneratedBuilder("SplineMeshComponent");
+	Durin::Editor::Level::BuildActorComponentDetails(Context, SplineActor, GeneratedBuilder, "SplineMeshComponent");
+	EXPECT_EQ(GeneratedBuilder.GetVisibleRowCount(), 0u);
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::MarkObjectHierarchyAsGarbage(Level);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::CollectGarbage();
+}
+
+TEST(FDetailLayoutBuilderTests, ComposesPropertiesHidingReplacementAndSearch)
 {
 	InitializeDObjectSystem();
 	auto* RootComponent = Durin::NewObject<Durin::DSceneComponent>(nullptr, "BuilderComponent");
@@ -385,7 +515,7 @@ TEST(FObjectPropertyViewBuilderTests, ComposesPropertiesHidingReplacementAndSear
 	Durin::FProperty* TransformProperty = RootComponent->GetClass()->FindPropertyByName("RelativeTransform");
 	ASSERT_NE(TransformProperty, nullptr);
 
-	Durin::Editor::Level::FObjectPropertyViewBuilder Builder("rotation");
+	Durin::Editor::FDetailLayoutBuilder Builder("rotation");
 	Builder.AddProperty(RootComponent, TransformProperty, 0, {.Label = "Transform"}, "Location Rotation Scale");
 	Builder.AddCustomRow("Materials Material Slots", [](Durin::Editor::FPropertyView&, const Durin::Editor::FPropertyViewContext&) { return false; });
 	Builder.HideProperty(TransformProperty);
@@ -395,6 +525,85 @@ TEST(FObjectPropertyViewBuilderTests, ComposesPropertiesHidingReplacementAndSear
 	EXPECT_TRUE(Builder.IsPropertyHidden(*TransformProperty));
 	EXPECT_TRUE(Builder.IsReplacingDefaultProperties());
 	Durin::MarkObjectHierarchyAsGarbage(RootComponent);
+	Durin::CollectGarbage();
+}
+
+TEST(FDetailLayoutBuilderTests, SearchesCategoryLabelsAndMovesPropertiesOutOfDefaultRows)
+{
+	InitializeDObjectSystem();
+	auto* Component = Durin::NewObject<Durin::DSceneComponent>(nullptr, "CategoryComponent");
+	auto* Property = Component->GetClass()->FindPropertyByName("RelativeTransform");
+	ASSERT_NE(Property, nullptr);
+	Durin::Editor::FDetailLayoutBuilder Layout("Spatial Controls");
+	Durin::Editor::IDetailLayoutBuilder& Interface = Layout;
+	auto& Category = Interface.EditCategory("Transform", "Spatial Controls");
+	EXPECT_EQ(&Category, &Interface.EditCategory("Transform"));
+	Category.AddProperty(Component, Property);
+	EXPECT_FALSE(Layout.IsPropertyHidden(*Property));
+	EXPECT_TRUE(Layout.IsDefaultPropertyPlaced(Component, *Property, 0));
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 1u);
+	Interface.HideCategory("Transform");
+	EXPECT_TRUE(Layout.IsCategoryHidden("Transform"));
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 0u);
+	Durin::MarkObjectHierarchyAsGarbage(Component);
+	Durin::CollectGarbage();
+}
+
+TEST(FDetailLayoutBuilderTests, BindsCustomizationContextAndRendersCategoryOrder)
+{
+	InitializeDObjectSystem();
+	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "CategoryActor");
+	Durin::Editor::Level::FLevelEditorContext Context;
+	std::vector<int> Order;
+	// Exercises the public interface without depending on the concrete builder.
+	class FCategoryCustomization final : public Durin::Editor::IDetailCustomization
+	{
+	public:
+		explicit FCategoryCustomization(std::vector<int>& InOrder) : Order(InOrder) {}
+		auto CustomizeDetails(Durin::Editor::IDetailLayoutBuilder& Layout) -> void override
+		{
+			Object = Layout.GetObject();
+			Context = &Durin::Editor::Level::GetLevelDetailHostContext(Layout).Context;
+			auto& Later = Layout.EditCategory("Later");
+			Later.SetSortOrder(10);
+			Later.AddCustomRow("shared", [this](auto&, const auto&) { Order.push_back(2); return false; });
+			auto& Earlier = Layout.EditCategory("Earlier");
+			Earlier.SetSortOrder(-10);
+			Earlier.AddCustomRow("shared", [this](auto&, const auto&) { Order.push_back(1); return false; });
+			Layout.EditCategory("Hidden").AddCustomRow("shared", [this](auto&, const auto&) { Order.push_back(3); return false; });
+			Layout.HideCategory("Hidden");
+		}
+		std::vector<int>& Order;
+		Durin::DObject* Object = nullptr;
+		Durin::Editor::Level::FLevelEditorContext* Context = nullptr;
+	};
+	FCategoryCustomization Customization(Order);
+	Durin::Editor::Level::FLevelDetailLayoutBuilder Layout(Context, "shared");
+	Layout.ApplyCustomization(Actor, Customization);
+	EXPECT_EQ(Customization.Object, Actor);
+	EXPECT_EQ(Customization.Context, &Context);
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 2u);
+	ImGuiContext* ImContext = ImGui::CreateContext();
+	ASSERT_NE(ImContext, nullptr);
+	ImGui::GetIO().DisplaySize = {800.0f, 600.0f};
+	ImGui::GetIO().IniFilename = nullptr;
+	ImGui::GetIO().DeltaTime = 1.0f / 60.0f;
+	ImGui::GetIO().Fonts->Build();
+	ImGui::NewFrame();
+	ImGui::Begin("Category Layout Test");
+	const bool bOpen = Durin::MonaImGui::PropertyEdit::BeginTable("CategoryRows");
+	if (bOpen)
+	{
+		Durin::Editor::FPropertyView View;
+		EXPECT_EQ(Layout.DrawRows(View, {}).VisibleRowCount, 2u);
+		Durin::MonaImGui::PropertyEdit::EndTable();
+	}
+	ImGui::End();
+	ImGui::Render();
+	ImGui::DestroyContext(ImContext);
+	EXPECT_TRUE(bOpen);
+	EXPECT_EQ(Order, (std::vector<int>{1, 2}));
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::CollectGarbage();
 }
 
@@ -411,14 +620,14 @@ TEST(FObjectPropertyViewCustomizationTests, CameraDetailsOnlyCustomizeTheCameraC
 	ASSERT_NE(Component, nullptr);
 
 	Durin::Editor::Level::FLevelEditorContext Context;
-	const std::shared_ptr<Durin::Editor::Level::IObjectDetailsCustomization> Customization = Durin::Editor::Level::CreateCameraDetailsCustomization();
-	Durin::Editor::Level::FObjectPropertyViewBuilder ActorBuilder("camera");
-	Customization->CustomizeDetails(Context, Actor, ActorBuilder);
+	const std::shared_ptr<Durin::Editor::IDetailCustomization> Customization = Durin::Editor::Level::CreateCameraDetailsCustomization();
+	Durin::Editor::Level::FLevelDetailLayoutBuilder ActorBuilder(Context, "camera");
+	ActorBuilder.ApplyCustomization(Actor, *Customization);
 	EXPECT_EQ(ActorBuilder.GetVisibleRowCount(), 0u);
 	EXPECT_FALSE(ActorBuilder.IsReplacingDefaultProperties());
 
-	Durin::Editor::Level::FObjectPropertyViewBuilder ComponentBuilder("camera");
-	Customization->CustomizeDetails(Context, Component, ComponentBuilder);
+	Durin::Editor::Level::FLevelDetailLayoutBuilder ComponentBuilder(Context, "camera");
+	ComponentBuilder.ApplyCustomization(Component, *Customization);
 	EXPECT_EQ(ComponentBuilder.GetVisibleRowCount(), 1u);
 	EXPECT_FALSE(ComponentBuilder.IsReplacingDefaultProperties());
 	Durin::FProperty* TransformProperty = Component->GetClass()->FindPropertyByName("RelativeTransform");

@@ -42,72 +42,6 @@ namespace Durin::Editor::Level
 		}
 	} // namespace
 
-	FObjectPropertyViewBuilder::FObjectPropertyViewBuilder(std::string_view InSearchText)
-		: SearchText(InSearchText)
-	{
-	}
-
-	auto FObjectPropertyViewBuilder::AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex,
-		const ::Durin::Editor::FPropertyViewOptions& Options, std::string_view SearchKeywords) -> void
-	{
-		if (!Object || !Property || ArrayIndex >= Property->GetArrayDim()) return;
-		const std::string Label = Options.Label.empty() ? ::Durin::Editor::MakePropertyLabel(*Property, ArrayIndex) : Options.Label;
-		Rows.push_back({Object, Property, ArrayIndex, Label,
-			std::format("{} {} {}", Property->NamePrivate, Label, SearchKeywords), {}});
-	}
-
-	auto FObjectPropertyViewBuilder::AddCustomRow(std::string_view SearchKeywords, FCustomRowDrawer Drawer) -> void
-	{
-		if (!Drawer) return;
-		Rows.push_back({nullptr, nullptr, 0, {}, std::string(SearchKeywords), std::move(Drawer)});
-	}
-
-	auto FObjectPropertyViewBuilder::HideProperty(FProperty* Property) -> void
-	{
-		if (Property) HiddenProperties.insert(Property);
-	}
-
-	auto FObjectPropertyViewBuilder::ReplaceDefaultProperties() -> void
-	{
-		bReplaceDefaultProperties = true;
-	}
-
-	auto FObjectPropertyViewBuilder::IsPropertyHidden(const FProperty& Property) const -> bool
-	{
-		return HiddenProperties.contains(const_cast<FProperty*>(&Property));
-	}
-
-	auto FObjectPropertyViewBuilder::IsReplacingDefaultProperties() const -> bool
-	{
-		return bReplaceDefaultProperties;
-	}
-
-	auto FObjectPropertyViewBuilder::MatchesSearch(std::string_view Candidate) const -> bool
-	{
-		return SearchText.empty() || StringUtils::ContainsInsensitive(Candidate, SearchText);
-	}
-
-	auto FObjectPropertyViewBuilder::GetVisibleRowCount() const -> uint32
-	{
-		return static_cast<uint32>(std::ranges::count_if(Rows, [this](const FRow& Row) { return MatchesSearch(Row.SearchText); }));
-	}
-
-	auto FObjectPropertyViewBuilder::DrawRows(::Durin::Editor::FPropertyView& PropertyView,
-		const ::Durin::Editor::FPropertyViewContext& ViewContext) const -> FObjectPropertyViewBuilderResult
-	{
-		FObjectPropertyViewBuilderResult Result;
-		for (const FRow& Row : Rows)
-		{
-			if (!MatchesSearch(Row.SearchText)) continue;
-			++Result.VisibleRowCount;
-			if (Row.Property)
-				Result.bChanged |= PropertyView.EditProperty(ViewContext, Row.Object, Row.Property, Row.ArrayIndex, {.Label = Row.Label});
-			else
-				Result.bChanged |= Row.Drawer(PropertyView, ViewContext);
-		}
-		return Result;
-	}
-
 	auto FEditorVisualizationCollector::AddLine(const FEditorVisualizationLine& Line) -> void
 	{
 		if (!Line.Actor.IsValid() || !Line.Component.IsValid() || !std::isfinite(Line.WidthPixels) || !std::isfinite(Line.HitTolerancePixels)
@@ -306,15 +240,6 @@ namespace Durin::Editor::Level
 		return {Id, ELevelEditorCustomizationKind::ActorVisualizer};
 	}
 
-	auto FLevelEditorCustomizationRegistry::RegisterObjectDetails(
-		DClass* Class, std::shared_ptr<IObjectDetailsCustomization> Customization) -> FLevelEditorCustomizationHandle
-	{
-		if (!Class || !Customization || ObjectDetails.contains(Class)) return {};
-		const uint64 Id = NextHandleId++;
-		ObjectDetails.emplace(Class, TEntry<IObjectDetailsCustomization>{Id, std::move(Customization)});
-		return {Id, ELevelEditorCustomizationKind::ObjectDetails};
-	}
-
 	auto FLevelEditorCustomizationRegistry::Unregister(FLevelEditorCustomizationHandle Handle) -> bool
 	{
 		if (!Handle) return false;
@@ -332,10 +257,7 @@ namespace Durin::Editor::Level
 			ComponentVisualizers.erase(It);
 			return true;
 		}
-		const auto It = std::ranges::find_if(ObjectDetails, [Handle](const auto& Pair) { return Pair.second.HandleId == Handle.Id; });
-		if (It == ObjectDetails.end()) return false;
-		ObjectDetails.erase(It);
-		return true;
+		return false;
 	}
 
 	auto FLevelEditorCustomizationRegistry::FindActorVisualizer(const DClass* Class) const -> std::shared_ptr<IActorEditorVisualizer>
@@ -348,21 +270,4 @@ namespace Durin::Editor::Level
 		return FindMostSpecific<IComponentEditorVisualizer>(Class, ComponentVisualizers);
 	}
 
-	auto FLevelEditorCustomizationRegistry::FindObjectDetails(const DClass* Class) const -> std::shared_ptr<IObjectDetailsCustomization>
-	{
-		return FindMostSpecific<IObjectDetailsCustomization>(Class, ObjectDetails);
-	}
-
-	auto FLevelEditorCustomizationRegistry::FindObjectDetailsCustomizations(const DClass* Class) const -> std::vector<std::shared_ptr<IObjectDetailsCustomization>>
-	{
-		std::vector<std::shared_ptr<IObjectDetailsCustomization>> Result;
-		std::vector<const DClass*> Hierarchy;
-		for (const DClass* Current = Class; Current != nullptr; Current = Current->GetSuperClass()) Hierarchy.push_back(Current);
-		for (auto It = Hierarchy.rbegin(); It != Hierarchy.rend(); ++It)
-		{
-			if (const auto Entry = ObjectDetails.find(const_cast<DClass*>(*It)); Entry != ObjectDetails.end())
-				Result.push_back(Entry->second.Customization);
-		}
-		return Result;
-	}
 } // namespace Durin::Editor::Level

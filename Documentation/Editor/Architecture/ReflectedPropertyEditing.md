@@ -61,17 +61,52 @@ domain commands.
 
 ## Object View Customization
 
-Level Editor extends the shared property view through
-`FLevelEditorCustomizationRegistry` and `FObjectPropertyViewBuilder`. The
+DurinEd provides the shared property view, `FDetailCustomizationRegistry`, and
+`FDetailLayoutBuilder` under `PropertyEditor/` in the `Durin::Editor` namespace.
+Asset editors and Level Editor use the same layout and registration contracts. The
 registry resolves every registered class in base-to-derived order, allowing a
 derived object to compose its own rows with inherited customizations.
 
-Each `IObjectDetailsCustomization` describes a layout for the current frame. It
+Each `IDetailCustomization::CustomizeDetails(IDetailLayoutBuilder&)` describes a
+layout for the current frame. `GetObject()` supplies the inspected object and
+optional `GetHostContext()` supplies an `IDetailHostContext` extension. No host
+context is required for ordinary asset layouts. The concrete
+`FDetailLayoutBuilder` binds those before dispatch and does not permit a layout
+to be rebound to a different owner. Customizations depend on the layout interface,
+while the host owns its concrete renderer and transaction-aware property view. It
 may add a real reflected property from the inspected object or another object,
 add a custom row callback, hide a default property, or replace all default
 rows. The builder owns search matching for those declarations; Details then
 draws the builder rows and appends ordinary properties through `EditObject()`
 in the same property table.
+
+`EditCategory()` returns a stable `IDetailCategoryBuilder` for a named category.
+Categories can contain reflected properties and custom rows, expose a display
+label, and set their sort order. Every explicit property declaration records placement by object, property, and
+fixed-array index. Default enumeration omits only that exact row; other objects
+and array indices remain eligible. Placement is independent of search and
+category visibility, so a filtered or hidden declared row does not reappear as a
+default row. `HideProperty()` remains an explicit whole-property default
+suppression rule and never serves as implicit placement bookkeeping. Category
+names and labels participate in search; matching categories expand during search.
+`HideCategory()` suppresses both declared category rows and ordinary reflected
+properties in that category. `RegisterDetailCustomization()` and
+`FindDetailCustomizations()` retain base-to-derived composition and scoped
+unregistration. `ApplyRegisteredCustomizations()` binds the inspected object and
+dispatches the shared registry. `DrawDetailPanel()` is the shared host entrypoint:
+it resolves owner context, dispatches registered customizations, applies an
+optional host layout extension, owns the property table, and combines declared
+rows with filtered default enumeration. `ShouldDrawDefaultProperty()` applies
+replacement, explicit hiding, category hiding, and exact placement rules.
+The result reports owner readiness, table drawing, visible rows, and changes;
+search, table identity, host context, and empty-state presentation are options.
+
+Level Editor retains its concrete Actor/Component customizations and
+`FLevelDetailLayoutBuilder` adapter. `FLevelDetailHostContext` carries scene
+services and per-layout component aggregation targets; these types never appear
+in DurinEd contracts. Other asset editors can provide their own host extensions
+or use no extension. A host extension must outlive its layout and row callbacks.
+`FPropertyView` remains the shared transaction-aware property-editing service.
 
 Current built-in composition includes:
 
@@ -448,6 +483,26 @@ properties from another object, such as an Actor editing its RootComponent.
 `FinishActiveEdit()` lets a host deliberately commit or cancel when a document
 or workspace changes.
 
+## Asset Editor Details Integration
+
+TextureEditor registers a Texture2D customization for its six Build Settings
+controls and read-only resource status rows. The workspace calls `DrawDetailPanel()` with its existing property view and
+transaction context. Its curated layout replaces default rows;
+source inspection and preview controls remain owned by the workspace.
+
+MaterialEditor registers a MaterialParameterCollection customization that places
+`Declarations` in a Parameters category. The collection workspace combines
+custom rows with remaining reflected properties, respecting hidden properties,
+hidden categories, and default-row replacement. Collection validation and schema
+diagnostics retain their existing host behavior.
+
+The shared entrypoint calls `HandleOwnerContext()` before building or drawing
+custom properties. Level Editor retains its earlier owner guard before identity
+and search controls, then uses the same shared entrypoint for its property rows.
+The original view still owns previews, cancellation, Undo/Redo, document changes,
+saving, and discarding. Editor modules unregister their customization handles on
+shutdown before their implementation can unload.
+
 ## Current Host Integration
 
 Level Editor Details owns one property view. It still owns object selection,
@@ -461,14 +516,27 @@ UI presents those slots through shared non-resizable array helpers, and the
 shared asset picker reserves a persistent trailing reset action. Edits still
 submit the stable reflected override root through the host property view.
 
-Ordinary Level Editor Actor selection targets its RootComponent by default when
-one exists; this includes selecting an already-selected Actor again. A rootless
-Actor targets the Actor itself. This is a presentation choice and never creates
-a component. The component tree retains separate Actor and component targets,
-so explicitly selecting the Actor keeps Actor details and Actor-specific
-customizations visible until another target or ordinary Actor selection. If an
-inspected component stops belonging to the current Actor, Details applies the
-same RootComponent-or-Actor default. These target transitions continue through
+Ordinary Level Editor Actor selection targets the Actor itself, including
+selecting an already-selected Actor again. The Actor page composes the root's
+Transform and named, collapsible groups of editable authored-component properties.
+Actor details customizations can set the Level Editor host context's
+`ComponentDetailsTargets` to select
+their primary components or suppress aggregation with an empty list. Static-mesh,
+camera, directional-light, and volumetric-cloud Actor customizations select their
+primary component. Other Actors default to all authored components. Foreign and
+duplicate targets are ignored. Transient reflected diagnostics are omitted.
+Component groups reuse registered component customizations, including material
+slots and camera projection controls; their hidden and replaced properties remain
+respected. Search filters component rows and expands matching groups; a matching
+component name or class exposes the whole group. The root transform appears once.
+Generated components are excluded from aggregation and remain accessible through
+their read-only component pages. Aggregated edits target the actual component
+through the host-owned property view and transaction history.
+The component tree retains separate Actor and component targets. Explicitly
+selecting a component displays that component, and selecting the Actor returns
+to the aggregated page. A rootless Actor remains valid; selection never creates
+a component. If an inspected component stops belonging to the current Actor,
+Details falls back to the Actor. These target transitions continue through
 the property view's owner-context handling so an active preview is committed or
 restored before its owner changes.
 

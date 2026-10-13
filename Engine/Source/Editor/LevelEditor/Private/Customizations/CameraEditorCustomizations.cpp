@@ -1,3 +1,5 @@
+#include "LevelDetailCustomization.h"
+#include "PropertyEditor/DetailCustomizationRegistry.h"
 #include "Customizations/CameraEditorCustomizations.h"
 
 #include "Actors/CameraActor.h"
@@ -97,17 +99,18 @@ namespace Durin::Editor::Level
 		};
 
 		// Adds camera projection controls to camera component details.
-		class FCameraDetailsCustomization final : public IObjectDetailsCustomization
+		class FCameraDetailsCustomization final : public IDetailCustomization
 		{
 		public:
-			auto CustomizeDetails(FLevelEditorContext& Context, DObject* Object,
-				FObjectPropertyViewBuilder& Builder) -> void override
+			auto CustomizeDetails(IDetailLayoutBuilder& Builder) -> void override
 			{
+				DObject* Object = Builder.GetObject();
+				auto& Context = GetLevelDetailHostContext(Builder).Context;
 				auto* Camera = Cast<DCameraComponent>(Object);
 				if (!Camera) return;
 				Builder.HideProperty(Camera->GetClass()->FindPropertyByName("ProjectionSettings"));
 				Builder.HideProperty(Camera->GetClass()->FindPropertyByName("ViewDistance"));
-				Builder.AddCustomRow(
+				Builder.EditCategory("Camera").AddCustomRow(
 					"Camera Projection Field Of View Near Clip Far Clip Aspect Ratio Custom Ratio View Distance",
 					[&Context, Camera](::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
 						return DrawCameraDetails(Context, *Camera, PropertyView, ViewContext);
@@ -299,7 +302,7 @@ namespace Durin::Editor::Level
 		return std::make_shared<FCameraComponentVisualizer>();
 	}
 
-	auto CreateCameraDetailsCustomization() -> std::shared_ptr<IObjectDetailsCustomization>
+	auto CreateCameraDetailsCustomization() -> std::shared_ptr<IDetailCustomization>
 	{
 		return std::make_shared<FCameraDetailsCustomization>();
 	}

@@ -1,4 +1,5 @@
 #include "StaticMeshMaterialSlotDetails.h"
+#include "PropertyEditor/DetailLayoutBuilder.h"
 
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
@@ -184,8 +185,8 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	Component->GetPackage()->ClearDirty();
 
 	Durin::Editor::Level::FLevelEditorContext LevelContext;
-	Durin::Editor::Level::FObjectPropertyViewBuilder Builder("material");
-	Durin::Editor::Level::CreateStaticMeshComponentDetailsCustomization()->CustomizeDetails(LevelContext, Component, Builder);
+	Durin::Editor::FDetailLayoutBuilder Builder("material");
+	Builder.ApplyCustomization(Component, *Durin::Editor::Level::CreateStaticMeshComponentDetailsCustomization());
 	EXPECT_EQ(Builder.GetVisibleRowCount(), 1u);
 	Durin::FProperty* OverridesProperty = Component->GetClass()->FindPropertyByName("OverrideMaterials");
 	ASSERT_NE(OverridesProperty, nullptr);

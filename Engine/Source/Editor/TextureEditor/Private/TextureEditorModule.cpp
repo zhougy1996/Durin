@@ -1,4 +1,5 @@
 #include "TextureEditorModule.h"
+#include "TextureBuildSettingsDetails.h"
 
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Icons/FontAwesomeIcons.h"
@@ -48,11 +49,17 @@ namespace Durin
 	auto FTextureEditorModule::StartupModule() -> void
 	{
 		require(Editor::Texture::RegisterTexture2DPropertyEditing());
+		DetailCustomizationRegistration = Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(
+			DTexture2D::StaticClass(), Editor::Texture::CreateTextureBuildSettingsDetails());
+		require(static_cast<bool>(DetailCustomizationRegistration));
+
 	}
 
 	auto FTextureEditorModule::ShutdownModule() -> void
 	{
 		UnregisterTextureEditor();
+		Editor::FDetailCustomizationRegistry::Get().Unregister(DetailCustomizationRegistration);
+		DetailCustomizationRegistration = {};
 		Editor::Texture::UnregisterTexture2DPropertyEditing();
 		FTexturePreview::ReleaseSharedResources();
 	}

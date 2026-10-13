@@ -35,6 +35,8 @@
 #include "Settings/LevelViewportSessionSettings.h"
 #include "Workspace/LevelEditorContext.h"
 #include "LevelEditorCustomizations.h"
+#include "LevelDetailCustomization.h"
+#include "PropertyEditor/DetailCustomizationRegistry.h"
 #include "MonaImGui.h"
 #include "Client/SceneViewport.h"
 #include "Misc/Paths.h"
@@ -221,17 +223,22 @@ namespace
 		}
 	};
 
-	class FTestDetailsCustomization final : public Durin::Editor::Level::IObjectDetailsCustomization
+	class FTestDetailsCustomization final : public Durin::Editor::IDetailCustomization
 	{
 	public:
-		auto CustomizeDetails(Durin::Editor::Level::FLevelEditorContext&, Durin::DObject*,
-			Durin::Editor::Level::FObjectPropertyViewBuilder&) -> void override {}
+		auto CustomizeDetails(Durin::Editor::IDetailLayoutBuilder&) -> void override {}
 	};
 
 	struct FCustomizationGuard
 	{
 		Durin::Editor::Level::FLevelEditorCustomizationHandle Handle;
 		~FCustomizationGuard() { if (Handle) Durin::Editor::Level::FLevelEditorCustomizationRegistry::Get().Unregister(Handle); }
+	};
+
+	struct FDetailCustomizationGuard
+	{
+		Durin::Editor::FDetailCustomizationHandle Handle;
+		~FDetailCustomizationGuard() { if (Handle) Durin::Editor::FDetailCustomizationRegistry::Get().Unregister(Handle); }
 	};
 
 	class FTestEngine final : public Durin::DEngine

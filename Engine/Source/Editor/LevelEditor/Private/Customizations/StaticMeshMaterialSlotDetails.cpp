@@ -54,11 +54,12 @@ namespace Durin::Editor::Level
 		}
 
 		// Adds resolved material-slot editing to static-mesh component details.
-		class FStaticMeshComponentDetailsCustomization final : public IObjectDetailsCustomization
+		class FStaticMeshComponentDetailsCustomization final : public IDetailCustomization
 		{
 		public:
-			auto CustomizeDetails(FLevelEditorContext&, DObject* Object, FObjectPropertyViewBuilder& Builder) -> void override
+			auto CustomizeDetails(IDetailLayoutBuilder& Builder) -> void override
 			{
+				DObject* Object = Builder.GetObject();
 				auto* Component = Cast<DStaticMeshComponent>(Object);
 				if (!Component) return;
 				if (FProperty* Property = Component->GetClass()->FindPropertyByName("OverrideMaterials")) Builder.HideProperty(Property);
@@ -268,7 +269,7 @@ namespace Durin::Editor::Level
 			}, false);
 	}
 
-	auto CreateStaticMeshComponentDetailsCustomization() -> std::shared_ptr<IObjectDetailsCustomization>
+	auto CreateStaticMeshComponentDetailsCustomization() -> std::shared_ptr<IDetailCustomization>
 	{
 		return std::make_shared<FStaticMeshComponentDetailsCustomization>();
 	}

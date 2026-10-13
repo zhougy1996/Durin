@@ -1,13 +1,12 @@
 #include "Panels/DetailsPanelTargeting.h"
 
-#include "Components/SceneComponent.h"
 #include "Engine/Actor.h"
 
 namespace Durin::Editor::Level::DetailsPanelTargeting
 {
-	auto ResolveDefaultComponent(AActor* Actor) -> DActorComponent*
+	auto ResolveDefaultComponent(AActor*) -> DActorComponent*
 	{
-		return Actor ? Actor->GetRootComponent() : nullptr;
+		return nullptr;
 	}
 
 	auto ResolveSelectedComponent(AActor* Actor, DActorComponent* SelectedComponent) -> DActorComponent*
