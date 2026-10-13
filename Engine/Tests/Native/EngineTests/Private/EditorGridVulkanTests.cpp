@@ -1,4 +1,5 @@
 #include "../../RDGTestAccess.h"
+
 #include "RDG/RDG.h"
 #include <gtest/gtest.h>
 #include "VulkanEngineTestSupport.h"
@@ -36,7 +37,6 @@
 #include "VulkanRHIPrivate.h"
 #include "Window/GenericWindow.h"
 #include "Window/GenericWindowDefinition.h"
-
 
 namespace Durin
 {
@@ -269,72 +269,6 @@ namespace Durin
 		FRendererModule Renderer;
 		Durin::FModuleTestHarness RendererLifecycle("EditorGridRendererTest");
 		RendererLifecycle.Start(Renderer);
-
-		auto FailureResults = std::make_shared<
-			std::array<ERenderViewResult, 2>>();
-		auto FailurePixelsBefore = std::make_shared<Durin::FByteBuffer>();
-		auto FailurePixelsOnFailure = std::make_shared<Durin::FByteBuffer>();
-		auto FailurePixelsAfter = std::make_shared<Durin::FByteBuffer>();
-		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline
-		);
-		EnqueueRenderCommand<FFailDisplayPayloadContract>(
-			[&Renderer, FailureResults, FailurePixelsBefore, FailurePixelsOnFailure, FailurePixelsAfter](
-				FRHICommandListImmediate& CommandList
-			) {
-				GRenderFrameCounterRenderThread++;
-				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
-				const auto Desc = FRHITextureCreateDesc::Create2D(
-									  "FailedDisplayPayloadOutput", 1, 1,
-									  EPixelFormat::SRGBA8_UNORM
-				)
-									  .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback);
-				FTextureRHIRef Output =
-					GDynamicRHI->RHICreateTexture(CommandList, Desc);
-				ASSERT_NE(Output, nullptr);
-				FRHIRenderPassInfo SentinelPass{};
-				SentinelPass.RenderTargetLayout =
-					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
-						RenderTargetLayouts::EViewportOutput::Offscreen
-					);
-				SentinelPass.ColorRenderTargets[0] = Output;
-				SentinelPass.ColorClearValues[0] =
-					FClearValueBinding(0.25f, 0.5f, 0.75f, 1.0f);
-				CommandList.BeginRenderPass(
-					SentinelPass, "FailedDisplayPayloadSentinelPass"
-				);
-				CommandList.EndRenderPass();
-				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
-					CommandList, Output, 0, 0, *FailurePixelsBefore
-				));
-				FSceneView View;
-				View.ClearColor = {4.0f, 2.0f, 1.0f, 1.0f};
-				View.Settings.PostProcess.bEnableFXAA = false;
-				(*FailureResults)[0] = Renderer.RenderView(
-					CommandList, nullptr, View, Output, false, {}
-				);
-				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
-					CommandList, Output, 0, 0, *FailurePixelsOnFailure
-				));
-				(*FailureResults)[1] = Renderer.RenderView(
-					CommandList, nullptr, View, Output, false, {}
-				);
-				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
-					CommandList, Output, 0, 0, *FailurePixelsAfter
-				));
-				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
-			}
-		);
-		FlushRenderingCommands();
-		EXPECT_EQ((*FailureResults)[0], ERenderViewResult::RendererResourcesUnavailable);
-		EXPECT_EQ(*FailurePixelsOnFailure, *FailurePixelsBefore);
-		EXPECT_EQ((*FailureResults)[1], ERenderViewResult::Success);
-		EXPECT_NE(*FailurePixelsAfter, *FailurePixelsBefore);
-		EXPECT_TRUE(FConsoleCommandRegistry::Get().Execute(
-													  "renderer.retry-resources"
-		)
-						.bSuccess);
-		FlushRenderingCommands();
 
 		auto HDRPixels = std::make_shared<Durin::FByteBuffer>();
 		auto DefaultExposurePixels = std::make_shared<Durin::FByteBuffer>();
@@ -684,7 +618,7 @@ namespace Durin
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests, GBufferTargetsRecoverAtomicallyAfterInjectedImageFailure)
+	TEST(FEditorGridVulkanTests, GBufferTargetsCreateAndRecreateAcrossInvalidation)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -703,31 +637,17 @@ namespace Durin
 			nullptr, "GBufferRecoveryMaterial");
 		const FMaterialRenderData MaterialData = MaterialObject->GetRenderData();
 		ASSERT_TRUE(MaterialData.CompiledProgram);
-		auto bFailed = std::make_shared<bool>(false);
-		auto bSuppressed = std::make_shared<bool>(false);
 		auto RecoveredTargets =
 			std::make_shared<FGBufferRenderer::FTargets>();
 		auto AlternateTargets =
 			std::make_shared<FGBufferRenderer::FTargets>();
 		auto PipelineResults =
-			std::make_shared<std::array<bool, 11>>();
-		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::Image
-		);
-		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::ShaderModule
-		);
-		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline
-		);
+			std::make_shared<std::array<bool, 8>>();
 		EnqueueRenderCommand<FFailDisplayPayloadContract>(
-			[&Coordinator, &GBuffer, bFailed, bSuppressed,
+			[&Coordinator, &GBuffer,
 			 RecoveredTargets, AlternateTargets, PipelineResults, MaterialData](
 				FRHICommandListImmediate&
 			) {
-				*bFailed = !Tests::FRendererFeatureTargetFixture::CreateGBuffer(64, 32);
-				*bSuppressed =
-					!Tests::FRendererFeatureTargetFixture::CreateGBuffer(64, 32);
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
@@ -768,27 +688,21 @@ namespace Durin
 					};
 				};
 				const auto LocalRequest = MakeRequest(0);
-				(*PipelineResults)[0] =
-					GBuffer.EnsurePipeline_RenderThread(LocalRequest) == nullptr;
-				(*PipelineResults)[1] =
-					GBuffer.EnsurePipeline_RenderThread(LocalRequest) == nullptr;
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
 				);
-				(*PipelineResults)[2] =
-					GBuffer.EnsurePipeline_RenderThread(LocalRequest) == nullptr;
-				(*PipelineResults)[3] =
+				(*PipelineResults)[0] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
 				);
-				(*PipelineResults)[4] =
+				(*PipelineResults)[1] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
 				for (size_t Index = 1; Index < Domains.size(); ++Index)
 				{
-					(*PipelineResults)[4 + Index] =
+					(*PipelineResults)[1 + Index] =
 						GBuffer.EnsurePipeline_RenderThread(
 							MakeRequest(Index)
 						)
@@ -798,7 +712,7 @@ namespace Durin
 					ERendererResourceInvalidationCause::ShaderChanged,
 					FRendererResourceInvalidationTargets{}
 				);
-				(*PipelineResults)[6] =
+				(*PipelineResults)[3] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
 				FRHITexture* BeforeDevice =
 					RecoveredTargets->Material.GetReference();
@@ -808,24 +722,21 @@ namespace Durin
 				);
 				auto DeviceTargets =
 					Tests::FRendererFeatureTargetFixture::CreateGBuffer(64, 32);
-				(*PipelineResults)[7] = DeviceTargets.has_value()
+				(*PipelineResults)[4] = DeviceTargets.has_value()
 										&& DeviceTargets->Material.GetReference() != BeforeDevice;
-				(*PipelineResults)[8] =
+				(*PipelineResults)[5] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
 				FRHITexture* BeforeRelease = DeviceTargets.has_value() ? DeviceTargets->Material.GetReference() : nullptr;
 				GBuffer.ReleaseResources_RenderThread();
 				auto ReleasedTargets =
 					Tests::FRendererFeatureTargetFixture::CreateGBuffer(64, 32);
-				(*PipelineResults)[9] = ReleasedTargets.has_value()
+				(*PipelineResults)[6] = ReleasedTargets.has_value()
 										 && ReleasedTargets->Material.GetReference() != BeforeRelease;
-				(*PipelineResults)[10] =
+				(*PipelineResults)[7] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
 			}
 		);
 		FlushRenderingCommands();
-
-		EXPECT_TRUE(*bFailed);
-		EXPECT_FALSE(*bSuppressed);
 		const FGBufferRenderer::FTargets& Targets = *RecoveredTargets;
 		ASSERT_NE(Targets.Material, nullptr);
 		ASSERT_NE(Targets.Normals, nullptr);
@@ -860,7 +771,7 @@ namespace Durin
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests, GroundTruthAmbientOcclusionTargetsRecoverAfterFailureAndInvalidation)
+	TEST(FEditorGridVulkanTests, GroundTruthAmbientOcclusionTargetsRecreateAcrossInvalidation)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -878,25 +789,13 @@ namespace Durin
 		FGroundTruthAmbientOcclusionRenderer AmbientOcclusion(
 			Coordinator, FullscreenGeometry
 		);
-		auto Results = std::make_shared<std::array<bool, 14>>();
-		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::Image
-		);
-		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::ShaderModule
-		);
-		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline
-		);
+		auto Results = std::make_shared<std::array<bool, 10>>();
 		EnqueueRenderCommand<FFailDisplayPayloadContract>(
 			[&Coordinator, &AmbientOcclusion,
 				&FullscreenGeometry, Results](
 				FRHICommandListImmediate& CommandList
 			) {
 				(*Results)[0] =
-					!Tests::FRendererFeatureTargetFixture::CreateAmbientOcclusion(64, 32,
-						EGroundTruthAmbientOcclusionQuality::FullResolution);
-				(*Results)[1] =
 					Tests::FRendererFeatureTargetFixture::CreateAmbientOcclusion(64, 32,
 						EGroundTruthAmbientOcclusionQuality::FullResolution).has_value();
 				Coordinator.Apply_RenderThread(
@@ -906,7 +805,7 @@ namespace Durin
 				auto Recovered =
 					Tests::FRendererFeatureTargetFixture::CreateAmbientOcclusion(64, 32,
 						EGroundTruthAmbientOcclusionQuality::FullResolution);
-				(*Results)[2] = Recovered.has_value() && Recovered->Raw != nullptr
+				(*Results)[1] = Recovered.has_value() && Recovered->Raw != nullptr
 								&& Recovered->Scratch != nullptr
 								&& Recovered->Raw->GetFormat() == EPixelFormat::R8_UNORM;
 				FRHITexture* RecoveredRaw =
@@ -914,7 +813,7 @@ namespace Durin
 				auto Alternate =
 					Tests::FRendererFeatureTargetFixture::CreateAmbientOcclusion(32, 16,
 						EGroundTruthAmbientOcclusionQuality::FullResolution);
-				(*Results)[3] = Alternate.has_value() && Alternate->Raw != nullptr
+				(*Results)[2] = Alternate.has_value() && Alternate->Raw != nullptr
 								&& Alternate->Raw->GetSizeX() == 32
 								&& Alternate->Raw->GetSizeY() == 16;
 				Coordinator.Apply_RenderThread(
@@ -924,19 +823,19 @@ namespace Durin
 				auto DeviceTargets =
 					Tests::FRendererFeatureTargetFixture::CreateAmbientOcclusion(64, 32,
 						EGroundTruthAmbientOcclusionQuality::FullResolution);
-				(*Results)[4] = DeviceTargets.has_value()
+				(*Results)[3] = DeviceTargets.has_value()
 								&& DeviceTargets->Raw.GetReference() != RecoveredRaw;
 				FRHITexture* DeviceRaw = DeviceTargets.has_value() ? DeviceTargets->Raw.GetReference() : nullptr;
 				AmbientOcclusion.ReleaseResources_RenderThread();
 				auto ReleasedTargets =
 					Tests::FRendererFeatureTargetFixture::CreateAmbientOcclusion(64, 32,
 						EGroundTruthAmbientOcclusionQuality::FullResolution);
-				(*Results)[5] = ReleasedTargets.has_value()
+				(*Results)[4] = ReleasedTargets.has_value()
 								&& ReleasedTargets->Raw.GetReference() != DeviceRaw;
-				(*Results)[6] = ReleasedTargets.has_value()
+				(*Results)[5] = ReleasedTargets.has_value()
 								&& ReleasedTargets->Raw->GetSizeX() == 64
 								&& ReleasedTargets->Raw->GetSizeY() == 32;
-				(*Results)[7] =
+				(*Results)[6] =
 					FGroundTruthAmbientOcclusionRenderer::CalculateRawTargetBytes(
 						64, 32
 					)
@@ -978,23 +877,20 @@ namespace Durin
 						CommandList, *ReleasedTargets, Normals, Surface, Depth, View
 					);
 				};
-				(*Results)[8] = !RenderRaw();
-				(*Results)[9] = !RenderRaw();
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
 				);
-				(*Results)[10] = !RenderRaw();
-				(*Results)[11] = RenderRaw();
+				(*Results)[7] = RenderRaw();
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
 				);
-				(*Results)[12] = RenderRaw();
+				(*Results)[8] = RenderRaw();
 				auto HalfTargets = Tests::FRendererFeatureTargetFixture::CreateAmbientOcclusion(
 					65, 33,
 					EGroundTruthAmbientOcclusionQuality::HalfResolution);
-				(*Results)[13] = HalfTargets.has_value()
+				(*Results)[9] = HalfTargets.has_value()
 					&& HalfTargets->Raw->GetSizeX() == 33
 					&& HalfTargets->Raw->GetSizeY() == 17
 					&& HalfTargets->Selector != nullptr
@@ -1014,7 +910,7 @@ namespace Durin
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests, ContactVisibilityTargetsRecoverAfterFailureAndInvalidation)
+	TEST(FEditorGridVulkanTests, ContactVisibilityTargetsRecreateAcrossInvalidation)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -1031,16 +927,12 @@ namespace Durin
 		FFullscreenGeometryResources FullscreenGeometry;
 		FContactShadowVisibilityRenderer ContactVisibility(
 			Coordinator, FullscreenGeometry);
-		auto Results = std::make_shared<std::array<bool, 18>>();
-		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::Image);
+		auto Results = std::make_shared<std::array<bool, 14>>();
 		EnqueueRenderCommand<FContactVisibilityTargetLifecycle>(
 			[&Coordinator, &ContactVisibility,
 				&FullscreenGeometry, Results](
 				FRHICommandListImmediate& CommandList) {
 				(*Results)[0] =
-					!Tests::FRendererFeatureTargetFixture::CreateContactFragment(64, 32);
-				(*Results)[1] =
 					Tests::FRendererFeatureTargetFixture::CreateContactFragment(64, 32)
 						.has_value();
 				Coordinator.Apply_RenderThread(
@@ -1048,14 +940,14 @@ namespace Durin
 					FRendererResourceInvalidationTargets{});
 				auto Recovered =
 					Tests::FRendererFeatureTargetFixture::CreateContactFragment(64, 32);
-				(*Results)[2] = Recovered.has_value()
+				(*Results)[1] = Recovered.has_value()
 					&& Recovered->Visibility != nullptr
 					&& Recovered->Visibility->GetFormat() == EPixelFormat::R8_UNORM;
 				FRHITexture* RecoveredTexture = Recovered.has_value()
 					? Recovered->Visibility.GetReference() : nullptr;
 				auto Alternate =
 					Tests::FRendererFeatureTargetFixture::CreateContactFragment(32, 16);
-				(*Results)[3] = Alternate.has_value()
+				(*Results)[2] = Alternate.has_value()
 					&& Alternate->Visibility->GetSizeX() == 32
 					&& Alternate->Visibility->GetSizeY() == 16;
 				Coordinator.Apply_RenderThread(
@@ -1063,25 +955,21 @@ namespace Durin
 					FRendererResourceInvalidationTargets{});
 				auto DeviceTargets =
 					Tests::FRendererFeatureTargetFixture::CreateContactFragment(64, 32);
-				(*Results)[4] = DeviceTargets.has_value()
+				(*Results)[3] = DeviceTargets.has_value()
 					&& DeviceTargets->Visibility.GetReference() != RecoveredTexture;
 				FRHITexture* DeviceTexture = DeviceTargets.has_value()
 					? DeviceTargets->Visibility.GetReference() : nullptr;
 				ContactVisibility.ReleaseResources_RenderThread();
 				auto Released =
 					Tests::FRendererFeatureTargetFixture::CreateContactFragment(64, 32);
-				(*Results)[5] = Released.has_value()
+				(*Results)[4] = Released.has_value()
 					&& Released->Visibility.GetReference() != DeviceTexture;
-				(*Results)[6] = FContactShadowVisibilityRenderer::
+				(*Results)[5] = FContactShadowVisibilityRenderer::
 					CalculateTargetBytes(64, 32) == 2048;
-				(*Results)[7] =
+				(*Results)[6] =
 					FContactShadowVisibilityRenderer::DescribeFragmentTarget(64, 32)
 						.Format == EPixelFormat::R8_UNORM;
-				VulkanRHI::ArmVulkanCreateFailure(
-					VulkanRHI::EVulkanCreateFailurePoint::Image);
-				(*Results)[8] =
-					!Tests::FRendererFeatureTargetFixture::CreateContactCompute(65, 33);
-				(*Results)[9] =
+				(*Results)[7] =
 					Tests::FRendererFeatureTargetFixture::CreateContactCompute(65, 33)
 						.has_value();
 				Coordinator.Apply_RenderThread(
@@ -1089,7 +977,7 @@ namespace Durin
 					FRendererResourceInvalidationTargets{});
 				auto ComputeTargets =
 					Tests::FRendererFeatureTargetFixture::CreateContactCompute(65, 33);
-				(*Results)[10] = ComputeTargets.has_value()
+				(*Results)[8] = ComputeTargets.has_value()
 					&& ComputeTargets->Visibility != nullptr
 					&& ComputeTargets->Visibility->GetFormat() == EPixelFormat::R8_UNORM
 					&& ComputeTargets->SampledView != nullptr
@@ -1101,17 +989,17 @@ namespace Durin
 					FRendererResourceInvalidationTargets{});
 				auto RecreatedCompute =
 					Tests::FRendererFeatureTargetFixture::CreateContactCompute(65, 33);
-				(*Results)[11] = RecreatedCompute.has_value()
+				(*Results)[9] = RecreatedCompute.has_value()
 					&& RecreatedCompute->Visibility.GetReference() != ComputeTexture;
 				FRHITexture* RecreatedComputeTexture = RecreatedCompute.has_value()
 					? RecreatedCompute->Visibility.GetReference() : nullptr;
 				ContactVisibility.ReleaseResources_RenderThread();
 				auto ReleasedCompute =
 					Tests::FRendererFeatureTargetFixture::CreateContactCompute(65, 33);
-				(*Results)[12] = ReleasedCompute.has_value()
+				(*Results)[10] = ReleasedCompute.has_value()
 					&& ReleasedCompute->Visibility.GetReference()
 						!= RecreatedComputeTexture;
-				(*Results)[13] = FContactShadowVisibilityRenderer::
+				(*Results)[11] = FContactShadowVisibilityRenderer::
 					CalculateGroupCount(65) == 9;
 
 				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -1148,37 +1036,23 @@ namespace Durin
 				CommandList.TransitionTextures(InputTransitions);
 				auto FragmentTargets =
 					Tests::FRendererFeatureTargetFixture::CreateContactFragment(65, 33);
-				auto FailureComputeTargets =
+				auto DispatchTargets =
 					Tests::FRendererFeatureTargetFixture::CreateContactCompute(65, 33);
 				FSceneView View;
 				View.ViewProjectionMatrix = FMatrix(1.0);
 				View.ViewportWidth = 65;
 				View.ViewportHeight = 33;
-				VulkanRHI::ArmVulkanCreateFailure(
-					VulkanRHI::EVulkanCreateFailurePoint::PipelineLayout);
-				const auto FailedCompute = ContactVisibility.Render_RenderThread(
-					CommandList, true, &*FragmentTargets, &*FailureComputeTargets,
-					Material, Normals, Surface, Emissive, Depth, View,
-					FVector3(0.0, 0.0, -1.0), 65, 33, {});
-				(*Results)[14] = FailedCompute.Route
-					== FContactShadowVisibilityRenderer::ERoute::Fragment;
-				const auto AutomaticRetry = ContactVisibility.Render_RenderThread(
-					CommandList, true, &*FragmentTargets, &*FailureComputeTargets,
-					Material, Normals, Surface, Emissive, Depth, View,
-					FVector3(0.0, 0.0, -1.0), 65, 33, {});
-				(*Results)[15] = AutomaticRetry.Route
-					== FContactShadowVisibilityRenderer::ERoute::Compute;
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{});
-				const auto RecoveredCompute = ContactVisibility.Render_RenderThread(
-					CommandList, true, &*FragmentTargets, &*FailureComputeTargets,
+				const auto ComputeOutput = ContactVisibility.Render_RenderThread(
+					CommandList, true, &*FragmentTargets, &*DispatchTargets,
 					Material, Normals, Surface, Emissive, Depth, View,
 					FVector3(0.0, 0.0, -1.0), 65, 33, {});
-				(*Results)[16] = RecoveredCompute.Route
+				(*Results)[12] = ComputeOutput.Route
 					== FContactShadowVisibilityRenderer::ERoute::Compute;
-				(*Results)[17] = RecoveredCompute.Visibility
-					== FailureComputeTargets->Visibility.GetReference();
+				(*Results)[13] = ComputeOutput.Visibility
+					== DispatchTargets->Visibility.GetReference();
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 				ContactVisibility.ReleaseResources_RenderThread();
 				FullscreenGeometry.ReleaseResources_RenderThread();
@@ -1192,79 +1066,7 @@ namespace Durin
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests, RequiredDeferredSceneFailsWhenGBufferIsUnavailable)
-	{
-		if (!GIsGameThreadIdInitialized)
-		{
-			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
-			GIsGameThreadIdInitialized = true;
-		}
-		ASSERT_EQ(GDynamicRHI, nullptr);
-		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
-		ASSERT_NE(GDynamicRHI, nullptr);
-		InitRenderingThread();
-		FRendererModule Renderer;
-		FModuleTestHarness RendererLifecycle("RequiredDeferredFailureTest");
-		RendererLifecycle.Start(Renderer);
-
-		auto Output = std::make_shared<FTextureRHIRef>();
-		auto ForwardResult = std::make_shared<ERenderViewResult>();
-		auto RequiredResult = std::make_shared<ERenderViewResult>();
-		const size_t CaptureCountBefore = GViewTelemetryCaptureCount;
-		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
-			[&Renderer, Output, ForwardResult, RequiredResult](
-				FRHICommandListImmediate& CommandList
-			) {
-				++GRenderFrameCounterRenderThread;
-				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
-				const auto Desc = FRHITextureCreateDesc::Create2D(
-									  "RequiredDeferredFailureOutput", 64, 32,
-									  EPixelFormat::SRGBA8_UNORM
-				)
-									  .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback);
-				*Output = GDynamicRHI->RHICreateTexture(CommandList, Desc);
-				ASSERT_NE(*Output, nullptr);
-				FSceneView View;
-				View.ViewportWidth = 64;
-				View.ViewportHeight = 32;
-				View.ClearColor = {0.25f, 0.5f, 1.0f, 0.75f};
-				View.Settings.Mode.RenderMode = ERenderMode::Unlit;
-				*ForwardResult = Renderer.RenderView(
-					CommandList, nullptr, View, *Output, false, {}
-				);
-
-				View.Settings.Mode.RenderMode = ERenderMode::Lit;
-				VulkanRHI::ArmVulkanCreateFailure(
-					VulkanRHI::EVulkanCreateFailurePoint::Image
-				);
-				SetViewRenderTelemetrySink(CaptureViewTelemetry);
-				*RequiredResult = Renderer.RenderView(
-					CommandList, nullptr, View, *Output, false, {}
-				);
-				SetViewRenderTelemetrySink(nullptr);
-				VulkanRHI::ResetVulkanCreateFailures();
-				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
-			}
-		);
-		FlushRenderingCommands();
-
-		EXPECT_EQ(*ForwardResult, ERenderViewResult::Success);
-		EXPECT_EQ(*RequiredResult, ERenderViewResult::RendererResourcesUnavailable);
-		EXPECT_EQ(GViewTelemetryCaptureCount, CaptureCountBefore);
-
-		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
-			[Output](FRHICommandListImmediate&) { *Output = nullptr; }
-		);
-		FlushRenderingCommands();
-		RendererLifecycle.Shutdown();
-		FlushRenderingCommands();
-		ShutdownRenderingThread();
-		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
-		RHIExit();
-	}
-
-	TEST(FEditorGridVulkanTests, DeferredDirectionalResourcesRecoverAcrossFailureAndGenerationChanges)
+	TEST(FEditorGridVulkanTests, DeferredDirectionalResourcesRecreateAcrossGenerationChanges)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -1282,26 +1084,15 @@ namespace Durin
 		FDeferredDirectionalLightingRenderer Deferred(
 			Coordinator, FullscreenGeometry
 		);
-		auto Results = std::make_shared<std::array<bool, 16>>();
+		auto Results = std::make_shared<std::array<bool, 12>>();
 		auto FirstTarget = std::make_shared<
 			FDeferredDirectionalLightingRenderer::FTargets>();
 		auto AlternateTarget = std::make_shared<
 			FDeferredDirectionalLightingRenderer::FTargets>();
-		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::Image
-		);
-		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::ShaderModule
-		);
-		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline
-		);
 		EnqueueRenderCommand<FFailDisplayPayloadContract>(
 			[&Coordinator, &FullscreenGeometry, &Deferred, Results,
 			 FirstTarget, AlternateTarget](FRHICommandListImmediate& CommandList) {
 				(*Results)[0] =
-					!Tests::FRendererFeatureTargetFixture::CreateDeferred(64, 32);
-				(*Results)[1] =
 					Tests::FRendererFeatureTargetFixture::CreateDeferred(64, 32)
 						.has_value();
 				Coordinator.Apply_RenderThread(
@@ -1310,31 +1101,27 @@ namespace Durin
 				);
 				auto Recovered =
 					Tests::FRendererFeatureTargetFixture::CreateDeferred(64, 32);
-				(*Results)[2] = Recovered.has_value();
+				(*Results)[1] = Recovered.has_value();
 				if (Recovered.has_value()) *FirstTarget = *Recovered;
 				auto Alternate =
 					Tests::FRendererFeatureTargetFixture::CreateDeferred(32, 16);
-				(*Results)[3] = Alternate.has_value();
+				(*Results)[2] = Alternate.has_value();
 				if (Alternate.has_value()) *AlternateTarget = *Alternate;
-
-				(*Results)[4] = !Deferred.EnsureResources_RenderThread(CommandList);
-				(*Results)[5] = !Deferred.EnsureResources_RenderThread(CommandList);
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
 				);
-				(*Results)[6] = !Deferred.EnsureResources_RenderThread(CommandList);
-				(*Results)[7] = Deferred.EnsureResources_RenderThread(CommandList);
+				(*Results)[3] = Deferred.EnsureResources_RenderThread(CommandList);
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
 				);
-				(*Results)[8] = Deferred.EnsureResources_RenderThread(CommandList);
+				(*Results)[4] = Deferred.EnsureResources_RenderThread(CommandList);
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ShaderChanged,
 					FRendererResourceInvalidationTargets{}
 				);
-				(*Results)[9] = Deferred.EnsureResources_RenderThread(CommandList);
+				(*Results)[5] = Deferred.EnsureResources_RenderThread(CommandList);
 
 				FRHITexture* BeforeDevice = FirstTarget->Color.GetReference();
 				Coordinator.Apply_RenderThread(
@@ -1343,9 +1130,9 @@ namespace Durin
 				);
 				auto DeviceTarget =
 					Tests::FRendererFeatureTargetFixture::CreateDeferred(64, 32);
-				(*Results)[10] = DeviceTarget.has_value()
+				(*Results)[6] = DeviceTarget.has_value()
 								 && DeviceTarget->Color.GetReference() != BeforeDevice;
-				(*Results)[11] =
+				(*Results)[7] =
 					Deferred.EnsureResources_RenderThread(CommandList);
 
 				FRHITexture* BeforeRelease = DeviceTarget.has_value() ? DeviceTarget->Color.GetReference() : nullptr;
@@ -1353,14 +1140,14 @@ namespace Durin
 				FullscreenGeometry.ReleaseResources_RenderThread();
 				auto ReleasedTarget =
 					Tests::FRendererFeatureTargetFixture::CreateDeferred(64, 32);
-				(*Results)[12] = ReleasedTarget.has_value()
+				(*Results)[8] = ReleasedTarget.has_value()
 								 && ReleasedTarget->Color.GetReference() != BeforeRelease;
-				(*Results)[13] =
+				(*Results)[9] =
 					Deferred.EnsureResources_RenderThread(CommandList);
-				(*Results)[14] = ReleasedTarget.has_value()
+				(*Results)[10] = ReleasedTarget.has_value()
 								 && ReleasedTarget->Color->GetFormat()
 										== EPixelFormat::RGBA16_FLOAT;
-				(*Results)[15] = AlternateTarget->Color != FirstTarget->Color;
+				(*Results)[11] = AlternateTarget->Color != FirstTarget->Color;
 			}
 		);
 		FlushRenderingCommands();

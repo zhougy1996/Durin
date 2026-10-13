@@ -98,7 +98,7 @@ namespace Durin::VulkanRHI
 		auto Prepare() -> void;
 
 		auto SetRetirementUses(FRHIRetirementPrerequisites Uses) -> void;
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+#if DURIN_VULKAN_TEST_SUPPORT
 		auto GetRetirementUsesForTesting() const -> const FRHIRetirementPrerequisites& { return RetirementUses; }
 #endif
 

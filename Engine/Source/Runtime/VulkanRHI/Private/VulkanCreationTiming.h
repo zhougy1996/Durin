@@ -7,7 +7,7 @@
 #include "VulkanRHIAPI.h"
 #include "RHICommandList.h"
 
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+#if DURIN_VULKAN_TEST_SUPPORT
 namespace Durin::VulkanRHI
 {
 	// Stable diagnostic categories shared by the baseline and migrated factories.
@@ -38,7 +38,6 @@ namespace Durin::VulkanRHI
 		uint64 PreparationNanoseconds = 0;
 		uint64 NativeNanoseconds = 0;
 		uint64 DependencyNanoseconds = 0;
-		FRHISynchronousOperationTiming Scheduling;
 	};
 
 	// Change only with no live device; empty restores the normal application path.

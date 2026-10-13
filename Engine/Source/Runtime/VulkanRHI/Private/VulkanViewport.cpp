@@ -1,4 +1,5 @@
 #include "VulkanViewport.h"
+
 #include "VulkanSubmission.h"
 #include "VulkanPresentationCandidate.h"
 
@@ -432,9 +433,6 @@ namespace Durin::VulkanRHI
 			for (uint32 ImageIndex = 0; ImageIndex < CandidateImages.size(); ++ImageIndex)
 			{
 				const vk::Image Image = CandidateImages[ImageIndex];
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-				ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::SwapchainImageView);
-#endif
 				ImageViewCreateInfo.setImage(Image);
 				CandidateViews.emplace_back(Image, Device.GetHandle().createImageView(ImageViewCreateInfo));
 				Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidateViews.back().ImageView,
@@ -444,9 +442,6 @@ namespace Durin::VulkanRHI
 			CandidateFrameResources.resize(CandidateImages.size());
 			for (FVulkanViewportFrameResources& FrameResource : CandidateFrameResources)
 			{
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-				ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::SwapchainSemaphore);
-#endif
 				FrameResource.RenderingDoneSemaphore = new FVulkanSemaphore(Device);
 				if (Device.SupportsSwapchainMaintenance1())
 				{

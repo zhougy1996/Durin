@@ -25,15 +25,6 @@ namespace Durin
 	class FRHIComputePipelineState;
 	class FRHICommandStorage;
 
-	// Optional monotonic nanosecond diagnostics owned by the synchronous caller.
-	// Zero admission/wait timestamps identify inline execution; reads follow return.
-	struct FRHISynchronousOperationTiming
-	{
-		uint64 Admitted = 0;
-		uint64 WaitBegin = 0;
-		uint64 WaitEnd = 0;
-	};
-
 	// Provides backend-neutral command recording shared by regular and immediate lists.
 	class FRHICommandListBase
 	{
@@ -449,8 +440,7 @@ namespace Durin
 		auto ExecuteSynchronousContextOperation(
 			bool bFlushRecordedCommands,
 			std::function<void(IRHICommandContext&)> Operation,
-			size_t OwnedPayloadBytes = 0,
-			FRHISynchronousOperationTiming* Timing = nullptr) -> void;
+			size_t OwnedPayloadBytes = 0) -> void;
 		std::unique_ptr<FState> State;
 		FRHICommandListImmediate CommandListImmediate;
 

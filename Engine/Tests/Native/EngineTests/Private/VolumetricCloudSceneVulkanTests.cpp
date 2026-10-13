@@ -1,4 +1,8 @@
 #include "Threading/Task.h"
+
+#if DURIN_VULKAN_TEST_SUPPORT
+#include "VulkanTestSupport.h"
+#endif
 #include <gtest/gtest.h>
 #include "VulkanEngineTestSupport.h"
 #include "VulkanRHIPrivate.h"
@@ -30,7 +34,6 @@
 #include "Texture/VolumeTexture.h"
 #include "Window/GenericWindow.h"
 #include "Window/GenericWindowDefinition.h"
-
 
 namespace Durin
 {

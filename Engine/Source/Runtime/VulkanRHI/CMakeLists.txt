@@ -6,6 +6,6 @@ target_link_libraries(VulkanRHI PRIVATE
 
 if(BUILD_TESTING)
 	target_compile_definitions(VulkanRHI PRIVATE
-		DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+		DURIN_VULKAN_TEST_SUPPORT=1
 	)
 endif()

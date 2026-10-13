@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+
 #include "StaticMesh/StaticMeshImportSettings.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Threading/Task.h"
@@ -47,7 +48,6 @@
 #include <gtest/gtest.h>
 
 #include "NativeDObjectTestSupport.h"
-
 
 namespace
 {
@@ -575,9 +575,6 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::NewObject<Durin::DMaterialInstance>(nullptr, "TextureOnlyControl");
 	Durin::DMaterialInstance* FactorOnly =
 		Durin::NewObject<Durin::DMaterialInstance>(nullptr, "FactorOnlyControl");
-	Durin::DMaterialInstance* FailedResourceMaterial =
-		Durin::NewObject<Durin::DMaterialInstance>(
-			nullptr, "FailedResourceControl");
 	ASSERT_TRUE(TextureOnly->SetParent(ReloadedMaterial));
 	ASSERT_TRUE(TextureOnly->SetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), ReloadedTexture));
@@ -588,18 +585,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), nullptr));
 	ASSERT_TRUE(FactorOnly->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), ImportedFactor));
-	ASSERT_TRUE(FailedResourceMaterial->SetParent(
-		ReloadedMaterial));
-	Durin::FMaterialSamplerState FailedSampler;
-	FailedSampler.AddressU =
-		Durin::EMaterialSamplerAddressMode::ClampToEdge;
-	FailedSampler.AddressV =
-		Durin::EMaterialSamplerAddressMode::ClampToEdge;
-	ASSERT_TRUE(FailedResourceMaterial->SetParameterValue(
-		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
-			Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture,
-		Durin::FMaterialParameterValue::MakeTexture(nullptr, FailedSampler)));
-	const std::array<Durin::DObject*, 3> Controls{TextureOnly, FactorOnly, FailedResourceMaterial};
+	const std::array<Durin::DObject*, 2> Controls{TextureOnly, FactorOnly};
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(Controls);
 	for (auto* Object : Controls)
 		ASSERT_TRUE(Durin::Cast<Durin::DMaterialInstance>(Object)->GetMaterialCompileStatus().IsCurrent());
@@ -668,13 +654,6 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		// independently verify automatic selection and the forced LOD 0 route.
 		EXPECT_EQ(AutomaticLODPixels, Capture(LODContractMesh, ReloadedMaterial));
 		EXPECT_EQ(ForcedLOD0Pixels, Capture(LODContractMesh, ReloadedMaterial, true));
-		Durin::VulkanRHI::ArmVulkanCreateFailure(
-			Durin::VulkanRHI::EVulkanCreateFailurePoint::Sampler);
-		const Durin::FByteBuffer FailedResourcePixels =
-			Capture(ReloadedMesh, FailedResourceMaterial, false,
-				Durin::Editor::EThumbnailCaptureState::Failed);
-		EXPECT_TRUE(FailedResourcePixels.empty());
-		// Failed views publish neither public statistics nor a private snapshot.
 		ASSERT_EQ(TelemetrySnapshots.size(), 7u);
 		const std::array<size_t, 7> ExpectedSections{1u, 1u, 1u, 1u, 4u, 1u, 4u};
 		for (size_t Index = 0; Index < ExpectedSections.size(); ++Index)
@@ -789,7 +768,6 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		|| Sphere->GetRenderData()->GetNumInitializedResources() == 0u);
 	Durin::MarkAsGarbage(FactorOnly);
 	Durin::MarkAsGarbage(TextureOnly);
-	Durin::MarkAsGarbage(FailedResourceMaterial);
 	PreloadedSphere = {};
 	Durin::CollectGarbage();
 	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));

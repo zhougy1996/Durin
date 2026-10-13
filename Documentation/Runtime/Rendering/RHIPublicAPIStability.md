@@ -26,8 +26,8 @@ prefer a complete header boundary rather than adding unrelated unstable members
 to a stable type.
 
 Detailed parameter-validation errors and validators live in
-`Backend/RHIValidation.h`, and creation-exception translation lives in
-`Backend/RHICreation.h`. Recording and execution report those diagnostics inside
+`Backend/RHIValidation.h`. Internal cache-capacity exceptions live in
+`Backend/RHICreation.h`. Recording and execution report validation diagnostics inside
 RHI. Ordinary consumers use resource descriptions and commands, or the boolean
 `IsTextureViewDescValid` query when selecting attachment views. Conformance
 fixtures may inspect the backend-only error codes and context.

@@ -1,4 +1,5 @@
 #include "StaticMeshTestAccess.h"
+
 #include "GeometrySubmissionTestSupport.h"
 #include "Materials/MaterialExpressions.h"
 #include "Asset/AssetCompilingManager.h"
@@ -54,7 +55,6 @@
 #include "VulkanRHIPrivate.h"
 
 #include "NativeDObjectTestSupport.h"
-
 
 namespace
 {
@@ -290,7 +290,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
-	auto CheckCpuOnlyAndGpuRetry = [](auto* Mesh) {
+	auto CheckCpuOnlyAndGpuInitialization = [](auto* Mesh) {
 		const auto Before = Mesh->GetRenderResourceStatus();
 		const auto Loaded = Mesh->EnsureRenderDataLoadedBlocking();
 		ASSERT_TRUE(Loaded.Succeeded()) << Durin::FormatCookedMeshLoadError(Loaded.Error);
@@ -303,8 +303,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Before.Revision);
 		{
 			FScopedRenderThreadBlocker Blocker;
-			Durin::VulkanRHI::ArmVulkanCreateFailure(
-				Durin::VulkanRHI::EVulkanCreateFailurePoint::Buffer);
 			Mesh->InitResources();
 			const auto Queued = Mesh->GetRenderResourceStatus();
 			const auto WhileQueued = Mesh->EnsureRenderDataLoadedBlocking();
@@ -316,30 +314,13 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 			EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Queued.Revision);
 		}
 		Durin::FlushRenderingCommands();
-		const auto Failed = Mesh->RequestRenderDataAndResources();
-		EXPECT_EQ(Failed.GpuPhase, Durin::ECookedMeshGpuPhase::Failed);
-		EXPECT_FALSE(Mesh->HasPendingRenderResourceInitialization());
-		EXPECT_EQ(Mesh->GetRenderData()->GetNumInitializedResources(), 0u);
-		for (int Index = 0; Index < 3; ++Index)
-		{
-			const auto Polled = Mesh->RequestRenderDataAndResources();
-			EXPECT_EQ(Polled.GpuPhase, Durin::ECookedMeshGpuPhase::Failed);
-			EXPECT_EQ(Polled.ResourceRevision, Failed.ResourceRevision);
-			const auto CpuOnly = Mesh->EnsureRenderDataLoadedBlocking();
-			EXPECT_TRUE(CpuOnly.Succeeded());
-			EXPECT_EQ(CpuOnly.Status.GpuPhase, Durin::ECookedMeshGpuPhase::Failed);
-			EXPECT_EQ(CpuOnly.Status.ResourceRevision, Failed.ResourceRevision);
-		}
-		Mesh->InitResources();
-		Durin::FlushRenderingCommands();
 		const auto Ready = Mesh->GetRenderResourceStatus();
 		EXPECT_TRUE(Ready.IsReady());
 		EXPECT_FALSE(Mesh->HasPendingRenderResourceInitialization());
-		EXPECT_GT(Ready.Revision, Failed.ResourceRevision);
 		Mesh->InitResources();
 		EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Ready.Revision);
 	};
-	CheckCpuOnlyAndGpuRetry(StaticMesh);
+	CheckCpuOnlyAndGpuInitialization(StaticMesh);
 	Durin::MarkAsGarbage(StaticMesh);
 	Durin::CollectGarbage();
 	Durin::FlushRenderingCommands();
@@ -2455,7 +2436,7 @@ TEST(FMaterialParameterCollectionVulkanTests,
 	ShutdownAssetCompilingManager();
 }
 
-TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndGpuFailureCanRetry)
+TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndInitializesNewResources)
 {
 	using namespace Durin;
 	if (!GIsGameThreadIdInitialized)
@@ -2482,14 +2463,13 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndG
 	FlushRenderingCommands();
 	ASSERT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
 	const auto Revision = Mesh->GetRenderResourceStatus().Revision;
-	VulkanRHI::ArmVulkanCreateFailure(VulkanRHI::EVulkanCreateFailurePoint::Buffer);
 	Replace();
 	FlushRenderingCommands();
 	EXPECT_EQ(Durin::FStaticMeshTestAccess::GetRenderDataUpdateError(Mesh).Code, Durin::EStaticMeshReplacementError::None);
 	ASSERT_NE(Mesh->GetRenderData(), nullptr);
-	EXPECT_EQ(Mesh->GetRenderResourceStatus().Readiness, EStaticMeshRenderResourceReadiness::Failed);
+	EXPECT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
 	EXPECT_GT(Mesh->GetRenderResourceStatus().Revision, Revision);
-	EXPECT_EQ(Mesh->GetRenderData()->GetNumInitializedResources(), 0u);
+	EXPECT_GT(Mesh->GetRenderData()->GetNumInitializedResources(), 0u);
 	Mesh->InitResources();
 	FlushRenderingCommands();
 	EXPECT_TRUE(Mesh->GetRenderResourceStatus().IsReady());

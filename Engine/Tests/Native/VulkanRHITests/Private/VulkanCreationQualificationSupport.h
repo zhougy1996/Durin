@@ -216,14 +216,13 @@ namespace Durin::VulkanRHI
 	}
 
 	inline constexpr std::string_view CreationRequestColumns =
-		"request,key,compute,success,entry_ns,scheduled_ns,body_start_ns,native_start_ns,native_end_ns,body_end_ns,returned_ns,kind,native_ns,dependency_ns,admitted_ns,wait_begin_ns,wait_end_ns,normalization_ns,preparation_ns,background";
+		"request,key,compute,success,entry_ns,scheduled_ns,body_start_ns,native_start_ns,native_end_ns,body_end_ns,returned_ns,kind,native_ns,dependency_ns,normalization_ns,preparation_ns,background";
 	inline auto WriteCreationRequest(std::ostream& Stream, const FVulkanCreationTiming& S) -> void
 	{
 		Stream << S.RequestId << ',' << S.KeyHash << ',' << S.bCompute << ',' << S.bSucceeded << ','
 			<< S.Entry << ',' << S.Scheduled << ',' << S.BodyStart << ',' << S.NativeStart << ','
 			<< S.NativeEnd << ',' << S.BodyEnd << ',' << S.Returned << ',' << uint32(S.Kind) << ','
-			<< S.NativeNanoseconds << ',' << S.DependencyNanoseconds << ',' << S.Scheduling.Admitted
-			<< ',' << S.Scheduling.WaitBegin << ',' << S.Scheduling.WaitEnd
+			<< S.NativeNanoseconds << ',' << S.DependencyNanoseconds
 			<< ',' << S.NormalizationNanoseconds << ',' << S.PreparationNanoseconds << ',' << S.bBackground;
 	}
 }

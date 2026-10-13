@@ -3104,9 +3104,8 @@ namespace Durin
 	auto FRHICommandListExecutor::ExecuteSynchronousContextOperation(
 		bool bFlushRecordedCommands,
 		std::function<void(IRHICommandContext&)> Operation,
-		size_t OwnedPayloadBytes, FRHISynchronousOperationTiming* Timing) -> void
+		size_t OwnedPayloadBytes) -> void
 	{
-		if (Timing) *Timing = {};
 		checkf(!CommandListImmediate.HasOpenBufferLocks(),
 			"A synchronous RHI operation requires every buffer lock to be unlocked.");
 		check(Operation);
@@ -3123,7 +3122,6 @@ namespace Durin
 		}
 
 		FRHIThreadWork Work;
-		Work.AdmissionNanoseconds = Timing ? &Timing->Admitted : nullptr;
 		Work.PayloadBytes = static_cast<uint64>(OwnedPayloadBytes);
 		Work.Execute = [this, Operation = std::move(Operation)]() mutable {
 			CheckRHIThread();
@@ -3138,18 +3136,7 @@ namespace Durin
 				static_cast<uint32>(Submission.Result));
 			std::terminate();
 		}
-		auto Timestamp = []() -> uint64 {
-			return static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-				std::chrono::steady_clock::now().time_since_epoch()).count());
-		};
-		if (Timing) Timing->WaitBegin = Timestamp();
-		try { WaitForSerial(Submission.Serial); }
-		catch (...)
-		{
-			if (Timing) Timing->WaitEnd = Timestamp();
-			throw;
-		}
-		if (Timing) Timing->WaitEnd = Timestamp();
+		WaitForSerial(Submission.Serial);
 	}
 
 	auto FRHICommandListExecutor::CreateFence() -> FRHICommandListFence

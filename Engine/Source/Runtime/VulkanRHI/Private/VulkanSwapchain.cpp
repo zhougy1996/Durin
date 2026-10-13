@@ -232,9 +232,6 @@ namespace Durin::VulkanRHI
 			.setClipped(vk::True)
 			.setCompositeAlpha(Configuration.CompositeAlpha)
 			.setOldSwapchain(InOldSwapchain);
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Swapchain);
-#endif
 		Swapchain = Device.GetHandle().createSwapchainKHR(SwapchainInfo);
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(Swapchain,
 			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("Swapchain"); });
@@ -266,9 +263,6 @@ namespace Durin::VulkanRHI
 		{
 			for (uint32 i = 0; i < SwapchainImages.size(); ++i)
 			{
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-				ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::SwapchainSemaphore);
-#endif
 				ImageAcquiredSemaphores.push_back(new FVulkanSemaphore(Device));
 			}
 		}
@@ -303,10 +297,6 @@ namespace Durin::VulkanRHI
 
 		const vk::ResultValue<uint32> Result = [&] {
 			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Presentation.AcquireImage");
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			if (ConsumeVulkanSwapchainAcquireTimeoutForTest())
-				return vk::ResultValue<uint32>{vk::Result::eTimeout, 0};
-#endif
 			return Device.GetHandle().acquireNextImageKHR(Swapchain,
 				GetSwapchainAcquireTimeout(PresentationPolicy),
 				CurrentSemaphore->GetHandle(), nullptr);

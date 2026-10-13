@@ -1,5 +1,9 @@
 #include "VulkanFramebuffer.h"
 
+#if DURIN_VULKAN_TEST_SUPPORT
+#include "VulkanTestSupport.h"
+#endif
+
 #include "RHIResources.h"
 #include "VulkanDevice.h"
 #include "VulkanDynamicRHI.h"
@@ -45,57 +49,38 @@ namespace Durin::VulkanRHI
 			AttachmentViews.push_back(View->GetHandle());
 		};
 
-		vk::Framebuffer CandidateFramebuffer;
-		try
+		for (uint32 Index = 0; Index < NumColorRenderTargets; ++Index)
 		{
-			for (uint32 Index = 0; Index < NumColorRenderTargets; ++Index)
+			ColorRenderTargetImages[Index] = GetImage(RPInfo.ColorRenderTargets[Index]);
+			AddView(RPInfo.ColorRenderTargetViews[Index]);
+			if (RPInfo.RenderTargetLayout.ColorAttachments[Index].bHasResolveTarget)
 			{
-				ColorRenderTargetImages[Index] = GetImage(RPInfo.ColorRenderTargets[Index]);
-				AddView(RPInfo.ColorRenderTargetViews[Index]);
-				if (RPInfo.RenderTargetLayout.ColorAttachments[Index].bHasResolveTarget)
-				{
-					ColorResolveTargetImages[Index] = GetImage(RPInfo.ColorResolveTargets[Index]);
-					AddView(RPInfo.ColorResolveTargetViews[Index]);
-					++NumColorAttachments;
-				}
+				ColorResolveTargetImages[Index] = GetImage(RPInfo.ColorResolveTargets[Index]);
+				AddView(RPInfo.ColorResolveTargetViews[Index]);
 				++NumColorAttachments;
 			}
-
-			if (RPInfo.RenderTargetLayout.bHasDepthStencil)
-			{
-				auto* Texture = static_cast<FVulkanTexture*>(RPInfo.DepthStencilRenderTarget);
-				DepthStencilRenderTargetImage = Texture->Image;
-				AddView(RPInfo.DepthStencilRenderTargetView);
-			}
-
-			vk::FramebufferCreateInfo CreateInfo;
-			CreateInfo.setRenderPass(InRenderPass.GetHandle())
-				.setAttachments(AttachmentViews)
-				.setWidth(Extent.width)
-				.setHeight(Extent.height)
-				.setLayers(1);
-		#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Framebuffer);
-		#endif
-			CandidateFramebuffer = Device.GetHandle().createFramebuffer(CreateInfo);
-			Device.GetRHI().GetDebugUtils().NameObjectLazy(CandidateFramebuffer,
-				[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("Framebuffer"); });
-		#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			GVulkanCreatedFramebufferCount.fetch_add(1, std::memory_order_release);
-		#endif
+			++NumColorAttachments;
 		}
-		catch (...)
+
+		if (RPInfo.RenderTargetLayout.bHasDepthStencil)
 		{
-			if (CandidateFramebuffer)
-			{
-				Device.GetHandle().destroyFramebuffer(CandidateFramebuffer);
-			#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-				GVulkanReleasedFramebufferCount.fetch_add(1, std::memory_order_release);
-			#endif
-			}
-			throw;
+			auto* Texture = static_cast<FVulkanTexture*>(RPInfo.DepthStencilRenderTarget);
+			DepthStencilRenderTargetImage = Texture->Image;
+			AddView(RPInfo.DepthStencilRenderTargetView);
 		}
-		Framebuffer = CandidateFramebuffer;
+
+		vk::FramebufferCreateInfo CreateInfo;
+		CreateInfo.setRenderPass(InRenderPass.GetHandle())
+			.setAttachments(AttachmentViews)
+			.setWidth(Extent.width)
+			.setHeight(Extent.height)
+			.setLayers(1);
+		Framebuffer = Device.GetHandle().createFramebuffer(CreateInfo);
+		Device.GetRHI().GetDebugUtils().NameObjectLazy(Framebuffer,
+			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("Framebuffer"); });
+		#if DURIN_VULKAN_TEST_SUPPORT
+		GVulkanCreatedFramebufferCount.fetch_add(1, std::memory_order_release);
+		#endif
 	}
 
 	FVulkanFramebuffer::~FVulkanFramebuffer()
@@ -103,7 +88,7 @@ namespace Durin::VulkanRHI
 		if (Framebuffer)
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Framebuffer, Framebuffer);
-		#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		#if DURIN_VULKAN_TEST_SUPPORT
 			GVulkanReleasedFramebufferCount.fetch_add(1, std::memory_order_release);
 		#endif
 		}

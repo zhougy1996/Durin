@@ -49,8 +49,10 @@ intrusive node already reserved in the resource, without allocation or scheduler
 admission. Gathering reserves deletion-batch storage before removing queue
 ownership. PSO destructors notify owner-thread context caches and enqueue native
 handles for GPU-completion-aware deletion; a background final release never
-destroys those handles directly. Unpublished native candidates roll back their
-handles immediately. Input descriptions with raw resource fields require a live
+destroys those handles directly. Native graphics/compute creation uses the basic
+Vulkan result-code interface. Its failure branch releases any returned pipeline
+and the earlier pipeline layout before translating the error at the nullable
+factory boundary. Input descriptions with raw resource fields require a live
 caller-owned reference until the factory has copied and retained them.
 
 Texture assets use the owned update protocol in [Texture System](TextureSystem.md).
@@ -90,9 +92,12 @@ state trackers are object-local until publication; allocation statistics and
 heap snapshots use their existing mutex. Naming counters are atomic. Persistent
 mapping does not grant concurrent access to the same byte range: mapped writes,
 normalization/flush/invalidation, transfer arenas, state trackers and reclaim
-remain governed by the existing recording/replay owner protocols. Native handles
-and VMA allocations roll back immediately if post-create publication/naming
-throws; ordinary final release continues through GPU-aware owner retirement.
+remain governed by the existing recording/replay owner protocols. Construction
+rollback protects real recoverable native failures, such as pipeline creation
+after layout creation. Naming and container allocation do not receive dedicated
+rollback for terminal exceptions, and no publication-failure injection creates
+an otherwise absent recovery path. Ordinary final release continues through
+GPU-aware owner retirement.
 
 Retained synchronous entries have explicit reasons: external/swapchain texture
 views follow mutable replay-owned backing; viewport creation/resize follows

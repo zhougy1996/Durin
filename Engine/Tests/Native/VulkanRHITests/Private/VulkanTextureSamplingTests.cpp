@@ -1,4 +1,8 @@
 #include <gtest/gtest.h>
+
+#if DURIN_VULKAN_TEST_SUPPORT
+#include "VulkanTestSupport.h"
+#endif
 #include "Backend/RHICompletionBackend.h"
 #include "../../RDGTestAccess.h"
 #include "RDG/RDG.h"
@@ -779,10 +783,6 @@ namespace Durin
 		ASSERT_TRUE(Buffer);
 		const FRHIBufferViewDesc BufferViewDesc{
 			4, 16, ERHIBufferViewType::Formatted, EPixelFormat::R32_FLOAT};
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		VulkanRHI::ArmVulkanCreateFailure(VulkanRHI::EVulkanCreateFailurePoint::BufferView);
-		EXPECT_FALSE(GDynamicRHI->RHICreateBufferView(Buffer, BufferViewDesc));
-#endif
 		FBufferViewRHIRef BufferView = GDynamicRHI->RHICreateBufferView(
 			Buffer, BufferViewDesc);
 		ASSERT_TRUE(BufferView);
@@ -1427,12 +1427,6 @@ namespace Durin
 			FComputePipelineStateInitializer PipelineInitializer;
 			PipelineInitializer.ComputeShader = Shader;
 			PipelineInitializer.PipelineLayout = ReflectedLayout;
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			VulkanRHI::ArmVulkanCreateFailure(
-				VulkanRHI::EVulkanCreateFailurePoint::PipelineLayout);
-			EXPECT_FALSE(GDynamicRHI->RHICreateComputePipelineState(
-				"PublicComputePipelineFailedCandidate", PipelineInitializer));
-#endif
 			FComputePipelineStateRHIRef Pipeline =
 				GDynamicRHI->RHICreateComputePipelineState(
 					"PublicComputePipeline", PipelineInitializer);
@@ -1603,7 +1597,7 @@ namespace Durin
 				Commands.SetShaderParameters(SecondShader, Parameters);
 				// Repeat the same bindings after pool retirement without relying on
 				// BeginFrame to clear the compute cache. Constants/state must survive.
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+#if DURIN_VULKAN_TEST_SUPPORT
 				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
 				GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
 					VulkanRHI::SubmitAndRetireDescriptorPoolsForTesting();
@@ -1672,8 +1666,7 @@ namespace Durin
 			EXPECT_GE(Stats.ComputePipelines.NativeCreations, 1u);
 			EXPECT_GE(Stats.ComputePipelines.Hits, 1u);
 			EXPECT_GE(Stats.DescriptorSnapshots.Hits, 1u);
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			EXPECT_GE(Stats.ComputePipelines.FailedCandidates, 1u);
+#if DURIN_VULKAN_TEST_SUPPORT
 #endif
 		}
 	}

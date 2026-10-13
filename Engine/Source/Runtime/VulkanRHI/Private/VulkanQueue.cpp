@@ -1,4 +1,8 @@
 #include "VulkanQueue.h"
+
+#if DURIN_VULKAN_TEST_SUPPORT
+#include "VulkanTestSupport.h"
+#endif
 #include "Backend/RHICompletionBackend.h"
 
 #include "VulkanDevice.h"
@@ -11,7 +15,7 @@
 
 namespace Durin::VulkanRHI
 {
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+#if DURIN_VULKAN_TEST_SUPPORT
 	namespace { std::atomic<uint64> GNativeSubmissionCount = 0; }
 	auto GetVulkanNativeSubmissionCountForTesting() -> uint64
 	{
@@ -138,14 +142,10 @@ namespace Durin::VulkanRHI
 		}
 		try
 		{
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			if (const auto Failure = ConsumeVulkanSubmitFailureForTesting())
-				throw vk::SystemError(vk::make_error_code(*Failure), "Injected native submit failure");
-#endif
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Submission.QueueSubmit");
 				Queue.submit(SubmitInfos, Fence->GetHandle());
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+#if DURIN_VULKAN_TEST_SUPPORT
 				GNativeSubmissionCount.fetch_add(1, std::memory_order_relaxed);
 #endif
 			}

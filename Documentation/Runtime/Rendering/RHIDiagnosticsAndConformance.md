@@ -96,7 +96,8 @@ payload's logical sync points as successfully complete.
 The timing manager owns query slots, conversion and statistics; it does not
 maintain a separate completion timeline or pending-query owner list. Slot reuse requires
 completion and a released query generation. Exhaustion fails without waiting;
-page-creation failure publishes no partial page.
+native page-creation failure publishes no partial page. Naming and page-container
+allocation errors retain the terminal exception policy.
 
 Each interval captures its recording queue's timestamp width and requires its
 end on the same physical queue. Timestamp subtraction masks both samples to

@@ -1,5 +1,6 @@
 #include "VulkanGPUTiming.h"
 
+
 #include "RHICommandList.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanDevice.h"
@@ -111,11 +112,10 @@ namespace Durin::VulkanRHI
 		FPage Page;
 		try
 		{
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ThrowIfVulkanNativeCreateFailureIsArmed(
-				EVulkanCreateFailurePoint::QueryPool);
-#endif
 			Page.Handle = Device.GetHandle().createQueryPool(Info);
+			Device.GetRHI().GetDebugUtils().NameObjectLazy(Page.Handle,
+				[&] { return std::format("Durin.TimestampQueryPool.{}", Pages.size()); });
+			Pages.push_back(std::move(Page));
 		}
 		catch (const vk::SystemError& Error)
 		{
@@ -123,9 +123,6 @@ namespace Durin::VulkanRHI
 			++Statistics.AllocationFailureCount;
 			return false;
 		}
-		Device.GetRHI().GetDebugUtils().NameObjectLazy(Page.Handle,
-			[&] { return std::format("Durin.TimestampQueryPool.{}", Pages.size()); });
-		Pages.push_back(std::move(Page));
 		Statistics.AllocatedPages = Pages.size();
 		return true;
 	}

@@ -224,20 +224,18 @@ namespace Durin::VulkanRHI
 		std::vector<vk::DescriptorSetLayout> LayoutHandles;
 	};
 
-	// Owns a Vulkan pipeline layout together with its descriptor-set layouts.
+	// Owns shared descriptor-set layouts and their cache metadata reservation.
 	class FVulkanLayout
 	{
 	public:
 		FVulkanLayout(FVulkanDevice& InDevice)
-			: Device(InDevice)
-			, DSetsLayout(InDevice)
+			: DSetsLayout(InDevice)
 		{
 		}
 
 		auto GetDescriptorSetsLayout() const -> const FVulkanDescriptorSetsLayout& { return DSetsLayout; }
 
 	private:
-		FVulkanDevice& Device;
 		FVulkanDescriptorSetsLayout DSetsLayout;
 		std::shared_ptr<void> MetadataReservation;
 

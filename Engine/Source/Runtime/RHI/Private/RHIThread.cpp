@@ -373,12 +373,6 @@ namespace Durin
 			State->PeakOutstandingBatchCount, State->OutstandingBatchCount);
 		State->PeakOutstandingPayloadBytes = std::max(
 			State->PeakOutstandingPayloadBytes, State->OutstandingPayloadBytes);
-		if (Work.AdmissionNanoseconds)
-		{
-			*Work.AdmissionNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-				std::chrono::steady_clock::now().time_since_epoch()).count());
-			Work.AdmissionNanoseconds = nullptr;
-		}
 		State->Queue.push_back({Serial, std::move(Work)});
 		// std::function's moved-from state is valid but otherwise unspecified.
 		// Make accepted submission ownership explicit on every standard library.
@@ -442,12 +436,6 @@ namespace Durin
 			State->PeakOutstandingBatchCount, State->OutstandingBatchCount);
 		State->PeakOutstandingPayloadBytes = std::max(
 			State->PeakOutstandingPayloadBytes, State->OutstandingPayloadBytes);
-		if (Work.AdmissionNanoseconds)
-		{
-			*Work.AdmissionNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-				std::chrono::steady_clock::now().time_since_epoch()).count());
-			Work.AdmissionNanoseconds = nullptr;
-		}
 		State->Queue.push_back({Serial, std::move(Work)});
 		Work = {};
 		State->WorkCV.notify_all();

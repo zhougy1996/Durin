@@ -61,7 +61,7 @@ durin_add_native_test(VulkanRHIIntegrationTests
 		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangSessionEnvironment.cpp
 		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangShaderCompiler.cpp
 		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/ShaderCompileUtilities.cpp
-	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_SUPPORT=1
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/RenderCore/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
@@ -100,7 +100,7 @@ durin_add_native_test(VulkanCreationQualificationTests
 		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangSessionEnvironment.cpp
 		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangShaderCompiler.cpp
 		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/ShaderCompileUtilities.cpp
-	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_SUPPORT=1
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Private

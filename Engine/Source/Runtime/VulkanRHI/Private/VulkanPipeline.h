@@ -37,10 +37,10 @@ namespace Durin::VulkanRHI
 	// Owns one complete Vulkan compute pipeline and the layout used to bind it.
 	class FVulkanComputePipelineState : public FRHIComputePipelineState
 	{
-	public:
 		FVulkanComputePipelineState(FVulkanDevice& InDevice,
 			const FVulkanComputePipelineInputs& Inputs, FComputePipelineStateKey InKey,
 			FVulkanPipelineDependencies Dependencies);
+	public:
 		~FVulkanComputePipelineState() override;
 
 		auto Bind(FVulkanCommandBuffer& InCmdBuffer) -> void;
@@ -64,11 +64,11 @@ namespace Durin::VulkanRHI
 	// Owns one complete Vulkan graphics pipeline and the layout used to bind it.
 	class FVulkanGraphicsPipelineState : public FRHIGraphicsPipelineState
 	{
-	public:
 		FVulkanGraphicsPipelineState(FVulkanDevice& InDevice,
 			const FVulkanGraphicsPipelineInputs& Inputs, FGraphicsPipelineStateKey InKey,
 			FVulkanPipelineDependencies Dependencies);
 
+	public:
 		~FVulkanGraphicsPipelineState() override;
 
 		auto Bind(FVulkanCommandBuffer& InCmdBuffer) -> void;
@@ -113,13 +113,17 @@ namespace Durin::VulkanRHI
 			-> TRefCountPtr<FVulkanComputePipelineState>;
 
 		auto FindOrAddLayout(const FVulkanDescriptorSetsLayoutInfo& LayoutInfo) -> std::shared_ptr<FVulkanLayout>;
-		// Every native access to the shared driver cache uses this exclusive domain.
-		// Callers must not hold a cache-table lock while compiling.
+	private:
+		// Candidate constructors are called only by this manager under CreationMutex.
+		// Initialization precedes creation; saving/destruction follow creator shutdown.
+		// The cache-table lock is released before compiling.
+		// Native failures return their result and output handle without exception translation.
 		auto CompileGraphicsPipeline(const vk::GraphicsPipelineCreateInfo& Info)
 			-> vk::ResultValue<vk::Pipeline>;
 		auto CompileComputePipeline(const vk::ComputePipelineCreateInfo& Info)
 			-> vk::ResultValue<vk::Pipeline>;
-	private:
+		friend class FVulkanGraphicsPipelineState;
+		friend class FVulkanComputePipelineState;
 		auto AcquireGraphicsDependencies(const FVulkanGraphicsPipelineInputs& Inputs)
 			-> FVulkanPipelineDependencies;
 		auto AcquireComputeDependencies(const FVulkanComputePipelineInputs& Inputs)
@@ -151,7 +155,6 @@ namespace Durin::VulkanRHI
 		std::unordered_map<FComputePipelineStateKey, FComputePipelineCacheEntry,
 			FComputePipelineStateKeyHasher> ComputePipelineMap;
 		vk::PipelineCache DriverPipelineCache{};
-		std::mutex DriverCacheMutex;
 		std::mutex CreationMutex;
 		std::mutex LayoutMutex;
 		uint64 AccessSerial = 0;

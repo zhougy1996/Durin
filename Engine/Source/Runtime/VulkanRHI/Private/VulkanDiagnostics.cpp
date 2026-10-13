@@ -1,4 +1,5 @@
 #include "VulkanDiagnostics.h"
+
 #include "VulkanRHIPrivate.h"
 
 namespace Durin::VulkanRHI
@@ -114,10 +115,6 @@ namespace Durin::VulkanRHI
 		const VkResult Result = SetObjectName(
 			static_cast<VkDevice>(Device), &Info);
 		if (Result != VK_SUCCESS) Increment(NamingFailureCount);
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		else RecordVulkanDebugUtilsEventForTest(
-			EVulkanDebugUtilsTestEventType::ObjectName, Type, BoundedName.data());
-#endif
 	}
 
 	auto FVulkanDebugUtils::BeginNameLabel(vk::CommandBuffer CommandBuffer,
@@ -155,11 +152,6 @@ namespace Durin::VulkanRHI
 		while (HighWater < Depth && !LabelHighWater.compare_exchange_weak(
 			HighWater, Depth, std::memory_order_relaxed,
 			std::memory_order_relaxed)) {}
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		RecordVulkanDebugUtilsEventForTest(
-			EVulkanDebugUtilsTestEventType::LabelBegin,
-			vk::ObjectType::eCommandBuffer, BoundedName.data());
-#endif
 		return true;
 	}
 
@@ -175,11 +167,6 @@ namespace Durin::VulkanRHI
 		const uint64 PreviousDepth = ActiveLabelDepth.fetch_sub(
 			1, std::memory_order_relaxed);
 		check(PreviousDepth != 0);
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		RecordVulkanDebugUtilsEventForTest(
-			EVulkanDebugUtilsTestEventType::LabelEnd,
-			vk::ObjectType::eCommandBuffer, {});
-#endif
 	}
 
 	auto FVulkanDebugUtils::MakeInternalName(std::string_view Role) -> std::string

@@ -1,4 +1,8 @@
 #include <gtest/gtest.h>
+
+#if DURIN_VULKAN_TEST_SUPPORT
+#include "VulkanTestSupport.h"
+#endif
 #include "RDG/RDG.h"
 #include "../../RDGTestAccess.h"
 #include "Renderers/RendererRDGAllocator.h"
@@ -21,7 +25,6 @@
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "ShaderBuild/ShaderPaths.h"
-
 
 namespace Durin
 {

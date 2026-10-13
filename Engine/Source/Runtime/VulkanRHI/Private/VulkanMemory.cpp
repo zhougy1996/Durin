@@ -1,4 +1,5 @@
 #include "VulkanCreationTiming.h"
+
 #include "VulkanMemory.h"
 
 #define VMA_IMPLEMENTATION
@@ -8,7 +9,6 @@
 #include "VulkanDynamicRHI.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanRHIPrivate.h"
-
 
 namespace Durin::VulkanRHI
 {
@@ -62,13 +62,7 @@ namespace Durin::VulkanRHI
 		allocatorInfo.pVulkanFunctions = &vmaFuncs;
 		allocatorInfo.instance = DynamicRHI.RHIGetVkInstance();
 
-		const VkResult Result =
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::Allocator)
-				? VK_ERROR_OUT_OF_DEVICE_MEMORY
-				:
-#endif
-			vmaCreateAllocator(&allocatorInfo, &Allocator);
+		const VkResult Result = vmaCreateAllocator(&allocatorInfo, &Allocator);
 		if (Result != VK_SUCCESS)
 		{
 			Allocator = nullptr;
@@ -102,13 +96,8 @@ namespace Durin::VulkanRHI
 
 		VkImage RawImage = VK_NULL_HANDLE;
 		VkResult Result =
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::Image)
-				? VK_ERROR_OUT_OF_DEVICE_MEMORY
-				:
-#endif
 			[&] {
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+#if DURIN_VULKAN_TEST_SUPPORT
 				FVulkanNativeCreationTimingScope NativeTiming;
 #endif
 				return vmaCreateImage(
@@ -124,14 +113,6 @@ namespace Durin::VulkanRHI
 		if (Result != VK_SUCCESS)
 		{
 			GVulkanMemoryBaselineTracker.RecordAllocationFailure(Candidate);
-			RefreshBaselineHeapBudgets();
-			const FRHIMemoryStatistics Statistics = GetRHIMemoryStatistics();
-			DURIN_ERROR("Vulkan image allocation failed: class={}, extent={}x{}x{}, result={}, heapCount={}, heap0Usage={}, heap0Budget={}.",
-				static_cast<uint32>(Candidate), ImageCreateInfo.extent.width,
-				ImageCreateInfo.extent.height, ImageCreateInfo.extent.depth,
-				vk::to_string(static_cast<vk::Result>(Result)), Statistics.HeapCount,
-				Statistics.HeapCount > 0 ? Statistics.Heaps[0].UsageBytes : 0,
-				Statistics.HeapCount > 0 ? Statistics.Heaps[0].BudgetBytes : 0);
 			return static_cast<vk::Result>(Result);
 		}
 
@@ -185,17 +166,9 @@ namespace Durin::VulkanRHI
 		}
 
 		VkBuffer RawBuffer = VK_NULL_HANDLE;
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		const auto InjectedResult = ConsumeVulkanCreateFailureResult(EVulkanCreateFailurePoint::Buffer);
-#endif
 		VkResult Result =
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			InjectedResult != vk::Result::eSuccess
-				? static_cast<VkResult>(InjectedResult)
-				:
-#endif
 			[&] {
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+#if DURIN_VULKAN_TEST_SUPPORT
 				FVulkanNativeCreationTimingScope NativeTiming;
 #endif
 				return vmaCreateBuffer(
@@ -211,13 +184,6 @@ namespace Durin::VulkanRHI
 		if (Result != VK_SUCCESS)
 		{
 			GVulkanMemoryBaselineTracker.RecordAllocationFailure(Candidate);
-			RefreshBaselineHeapBudgets();
-			const FRHIMemoryStatistics Statistics = GetRHIMemoryStatistics();
-			DURIN_ERROR("Vulkan buffer allocation failed: class={}, requestedBytes={}, result={}, heapCount={}, heap0Usage={}, heap0Budget={}.",
-				static_cast<uint32>(Candidate), BufferCreateInfo.size,
-				vk::to_string(static_cast<vk::Result>(Result)), Statistics.HeapCount,
-				Statistics.HeapCount > 0 ? Statistics.Heaps[0].UsageBytes : 0,
-				Statistics.HeapCount > 0 ? Statistics.Heaps[0].BudgetBytes : 0);
 			return static_cast<vk::Result>(Result);
 		}
 
@@ -311,12 +277,7 @@ namespace Durin::VulkanRHI
 		const FVulkanMappedRange Range = NormalizeVulkanMappedRange(
 			Offset, Size, Allocation.GetSize(),
 			Device->GetGpuProperties().limits.nonCoherentAtomSize);
-		const VkResult Result =
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::MappedMemoryFlush)
-				? VK_ERROR_MEMORY_MAP_FAILED :
-#endif
-			vmaFlushAllocation(Allocator, Allocation.Handle, Range.Offset, Range.Size);
+		const VkResult Result = vmaFlushAllocation(Allocator, Allocation.Handle, Range.Offset, Range.Size);
 		if (Result != VK_SUCCESS)
 			throw std::runtime_error(std::format(
 				"Vulkan mapped-memory flush failed: class={}, requestedOffset={}, requestedSize={}, normalizedOffset={}, normalizedSize={}, result={}",
@@ -329,12 +290,7 @@ namespace Durin::VulkanRHI
 		const FVulkanMappedRange Range = NormalizeVulkanMappedRange(
 			Offset, Size, Allocation.GetSize(),
 			Device->GetGpuProperties().limits.nonCoherentAtomSize);
-		const VkResult Result =
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::MappedMemoryInvalidate)
-				? VK_ERROR_MEMORY_MAP_FAILED :
-#endif
-			vmaInvalidateAllocation(Allocator, Allocation.Handle, Range.Offset, Range.Size);
+		const VkResult Result = vmaInvalidateAllocation(Allocator, Allocation.Handle, Range.Offset, Range.Size);
 		if (Result != VK_SUCCESS)
 			throw std::runtime_error(std::format(
 				"Vulkan mapped-memory invalidate failed: class={}, requestedOffset={}, requestedSize={}, normalizedOffset={}, normalizedSize={}, result={}",

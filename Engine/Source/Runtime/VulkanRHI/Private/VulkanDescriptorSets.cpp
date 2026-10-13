@@ -1,4 +1,8 @@
 #include "VulkanDescriptorSets.h"
+
+#if DURIN_VULKAN_TEST_SUPPORT
+#include "VulkanTestSupport.h"
+#endif
 #include "Backend/RHICreation.h"
 
 #include "Profiling/Profiling.h"
@@ -45,7 +49,7 @@ namespace Durin::VulkanRHI
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorSetLayout, Entry.Handle);
 		}
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+#if DURIN_VULKAN_TEST_SUPPORT
 		GVulkanDescriptorSetLayoutEntryCount.fetch_sub(DLayoutMap.size(), std::memory_order_release);
 #endif
 	}
@@ -67,24 +71,12 @@ namespace Durin::VulkanRHI
 
 		FVulkanDescriptorSetLayoutEntry NewEntry;
 		NewEntry.MetadataReservation = Device.ReserveCacheMetadata(512 + Layout.LayoutBindings.capacity() * sizeof(vk::DescriptorSetLayoutBinding));
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		ThrowIfVulkanNativeCreateFailureIsArmed(
-			EVulkanCreateFailurePoint::DescriptorSetLayout);
-#endif
 		NewEntry.Handle = Device.GetHandle().createDescriptorSetLayout(CreateInfo);
-		try
-		{
-			Device.GetRHI().GetDebugUtils().NameObjectLazy(NewEntry.Handle,
-				[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("DescriptorSetLayout"); });
-			const auto [InsertedIt, bInserted] = DLayoutMap.emplace(Layout, NewEntry);
-			check(bInserted);
-		}
-		catch (...)
-		{
-			Device.GetHandle().destroyDescriptorSetLayout(NewEntry.Handle);
-			throw;
-		}
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		Device.GetRHI().GetDebugUtils().NameObjectLazy(NewEntry.Handle,
+			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("DescriptorSetLayout"); });
+		const auto [InsertedIt, bInserted] = DLayoutMap.emplace(Layout, NewEntry);
+		check(bInserted);
+#if DURIN_VULKAN_TEST_SUPPORT
 		GVulkanDescriptorSetLayoutEntryCount.fetch_add(1, std::memory_order_release);
 #endif
 
@@ -146,10 +138,6 @@ namespace Durin::VulkanRHI
 		CreateInfo
 			.setPoolSizes(PoolSizes)
 			.setMaxSets(MaxDescriptorSets);
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		ThrowIfVulkanNativeCreateFailureIsArmed(
-			EVulkanCreateFailurePoint::DescriptorPool);
-#endif
 		DescriptorPool = Device->GetHandle().createDescriptorPool(CreateInfo);
 		Device->GetRHI().GetDebugUtils().NameObjectLazy(DescriptorPool,
 			[&] { return Device->GetRHI().GetDebugUtils().MakeInternalName("DescriptorPool"); });
@@ -304,21 +292,12 @@ namespace Durin::VulkanRHI
 		AllocateInfo
 			.setDescriptorPool(NewPool.GetHandle())
 			.setSetLayouts(Layouts);
-		try
-		{
-			auto DescriptorSets = [&]() {
-				DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.AllocateNative");
-				return Device.GetHandle().allocateDescriptorSets(AllocateInfo);
-			}();
-			NewPool.CommitAllocation(Requirements);
-			return DescriptorSets;
-		}
-		catch (const vk::SystemError& Error)
-		{
-			DURIN_ERROR("Failed to allocate Vulkan descriptor sets after pool expansion: result={}, sets={}, descriptorTypes={}",
-				vk::to_string(static_cast<vk::Result>(Error.code().value())), Requirements.MaxSets, Requirements.DescriptorCounts.size());
-			throw;
-		}
+		auto DescriptorSets = [&]() {
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Descriptors.AllocateNative");
+			return Device.GetHandle().allocateDescriptorSets(AllocateInfo);
+		}();
+		NewPool.CommitAllocation(Requirements);
+		return DescriptorSets;
 	}
 
 	auto FVulkanGlobalDescriptorPool::PrepareForUse() -> void

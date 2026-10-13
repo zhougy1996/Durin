@@ -1,4 +1,8 @@
 #include "../../RDGTestAccess.h"
+
+#if DURIN_VULKAN_TEST_SUPPORT
+#include "VulkanTestSupport.h"
+#endif
 #include "Backend/RHICompletionBackend.h"
 #include "PCH.VulkanRHI.h"
 #include "VulkanResourceState.h"

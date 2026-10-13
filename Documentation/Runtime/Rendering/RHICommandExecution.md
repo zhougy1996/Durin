@@ -258,14 +258,22 @@ failure classification through RHI or RenderCore. Cache capacity exceptions rema
 internal to construction and request admission. Device loss and invariant errors
 propagate as terminal exceptions.
 
+Allocation failures retain their native result and counters. Resource factories
+own the creation failure log; allocation helpers do not capture heap-budget
+snapshots or repeat that log. Heap budgets remain available through explicit
+memory statistics queries.
+
 Buffer, texture, texture-view, shader, graphics-pipeline, compute-pipeline, and
 sampler factories must publish complete resources. A non-null wrapper with an
 invalid native handle or allocation is forbidden. Vertex declarations copy CPU
 descriptions directly. Context-dependent creation uses ordinary synchronous RHI
 execution; the executor does not wrap creation exceptions.
 
-Partially built native candidates clean up immediately in the creation execution
-domain. A later preparation may create a fresh candidate.
+Pipeline creation returns its native result explicitly. The failure branch
+releases the earlier layout and any returned pipeline before error translation;
+no generic creation guard is involved. Constructors do not
+promise rollback for terminal exceptions from naming or container allocation.
+A later preparation may create a fresh candidate after a recoverable failure.
 Vulkan vertex declarations only copy CPU metadata and are created directly,
 without native-failure translation or RHI-thread replay.
 

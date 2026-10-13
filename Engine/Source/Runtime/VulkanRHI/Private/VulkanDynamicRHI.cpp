@@ -1,4 +1,5 @@
 #include "VulkanDynamicRHI.h"
+
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanPresentationSupport.h"
@@ -211,9 +212,6 @@ namespace Durin::VulkanRHI
 		if (Instance)
 		{
 			Instance.destroy();
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			RecordVulkanInstanceDestroyedForTest();
-#endif
 			Instance = nullptr;
 		}
 		InstanceExtensions.clear();
@@ -567,9 +565,6 @@ namespace Durin::VulkanRHI
 			NegotiationInput.AvailableLayers, "VK_LAYER_KHRONOS_validation");
 		AvailabilityCandidate.bValidationLayerActive = std::ranges::contains(
 			Negotiation.EnabledLayers, "VK_LAYER_KHRONOS_validation");
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Instance);
-#endif
 		vk::Instance InstanceCandidate = vk::createInstance(InstanceInfo);
 		InstanceExtensions = std::move(Negotiation.EnabledExtensions);
 		InstanceLayers = std::move(Negotiation.EnabledLayers);
@@ -597,15 +592,8 @@ namespace Durin::VulkanRHI
 		CreateInfo.pUserData = &DebugCallbackState;
 		try
 		{
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ThrowIfVulkanNativeCreateFailureIsArmed(
-				EVulkanCreateFailurePoint::DebugMessenger);
-#endif
 			DebugMessenger = Instance.createDebugUtilsMessengerEXT(CreateInfo);
 			DiagnosticAvailability.bMessengerActive = true;
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			RecordVulkanDebugMessengerCreatedForTest();
-#endif
 		}
 		catch (const std::exception& Exception)
 		{
@@ -621,9 +609,6 @@ namespace Durin::VulkanRHI
 		Instance.destroyDebugUtilsMessengerEXT(DebugMessenger);
 		DebugMessenger = nullptr;
 		DiagnosticAvailability.bMessengerActive = false;
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		RecordVulkanDebugMessengerDestroyedForTest();
-#endif
 	}
 
 	auto FVulkanDynamicRHI::SelectDevice(

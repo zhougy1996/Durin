@@ -1,5 +1,4 @@
 #include "VulkanCreation.h"
-#include "VulkanCreationGuard.h"
 #include "VulkanCreationTiming.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanBuffer.h"
@@ -86,12 +85,7 @@ namespace Durin::VulkanRHI
 				vk::to_string(Result), BufferInfo.size,
 				vk::to_string(BufferInfo.usage), static_cast<uint32>(AllocationCandidate)));
 		}
-		TVulkanCreationGuard Candidate([&] { MemoryManager.DestroyBuffer(Allocation, Buffer); });
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
-#endif
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(Buffer, [&] { return std::string_view(DebugName); });
-		Candidate.Commit();
 	}
 
 	auto FVulkanBuffer::InitializeUniformRange(FByteView Data, uint32 Offset) -> void
@@ -225,7 +219,7 @@ namespace Durin::VulkanRHI
 		const FRHIBufferCreateDesc& CreateDesc)
 		-> FBufferRHIRef
 	{
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+#if DURIN_VULKAN_TEST_SUPPORT
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Buffer);
 #endif
 		FRHIBufferCreateDesc NormalizedDesc = CreateDesc;
@@ -244,7 +238,7 @@ namespace Durin::VulkanRHI
 		{
 			RHICmdList.WriteBuffer(CreatedBuffer, InitialData.Data, InitialData.Size, 0);
 		}
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+#if DURIN_VULKAN_TEST_SUPPORT
 		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
 #endif
 		return Result;

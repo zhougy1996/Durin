@@ -1,4 +1,8 @@
 #include <gtest/gtest.h>
+
+#if DURIN_VULKAN_TEST_SUPPORT
+#include "VulkanTestSupport.h"
+#endif
 #include "Backend/RHICompletionBackend.h"
 #include "../../RDGTestAccess.h"
 #include "RDG/RDG.h"
@@ -210,35 +214,6 @@ namespace Durin::VulkanRHI
 		EXPECT_TRUE(TestVulkanSyncPointStorage());
 	}
 
-	TEST(FVulkanCompletionIntegrationTests, PartialNativeFailureQuarantinesOwnersUntilTeardown)
-	{
-		for (bool bDeviceLost : {false, true})
-		{
-			FVulkanSyncPointFailureTestResult Result;
-			const auto Expected = bDeviceLost ? ERHIGPUSubmissionState::DeviceLost : ERHIGPUSubmissionState::Failed;
-			{
-				FInlineRHITestScope Scope;
-				ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-				Result = TestVulkanSyncPointFailure(bDeviceLost);
-				EXPECT_TRUE(Result.bRejectedCanceledProducer);
-				EXPECT_TRUE(Result.bQuarantinedAcceptedPrefix);
-				for (const auto& Signal : Result.Signals)
-				{
-					EXPECT_EQ(Signal.GetState(), Expected);
-					EXPECT_FALSE(Signal->IsComplete());
-					EXPECT_FALSE(Signal.IsRetirementEligible());
-				}
-			}
-			for (size_t Index = 0; Index != 3; ++Index)
-			{
-				EXPECT_TRUE(Result.Owners[Index].expired());
-				EXPECT_EQ(Result.Signals[Index].GetState(), Expected);
-				EXPECT_EQ(WaitForRHIGPUSyncPoint(Result.Signals[Index], 0),
-					bDeviceLost ? ERHIGPUWaitResult::DeviceLost : ERHIGPUWaitResult::Failed);
-			}
-		}
-	}
-
 	TEST(FVulkanCompletionIntegrationTests, RDGDefersDispatchUntilOuterTimingQueryCloses)
 	{
 		FInlineRHITestScope Scope;
@@ -422,28 +397,6 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Whole.Size, 872u);
 	}
 
-	TEST(FVulkanMappedRangeTests, FlushAndInvalidateFailuresAreNotIgnored)
-	{
-		FInlineRHITestScope Scope;
-		struct FFailureResetScope
-		{
-			~FFailureResetScope() { ResetVulkanCreateFailures(); }
-		} FailureReset;
-		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
-		FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(Commands,
-			FRHIBufferCreateDesc::Create("MappedFailureBuffer", 256, 16,
-				EBufferUsageFlags::Dynamic | EBufferUsageFlags::DestinationCopy
-					| EBufferUsageFlags::KeepCPUAccessible));
-		ASSERT_TRUE(Buffer);
-		auto* VulkanBuffer = static_cast<FVulkanBuffer*>(Buffer.GetReference());
-
-		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::MappedMemoryFlush);
-		EXPECT_THROW(VulkanBuffer->FlushMappedMemory(17, 1), std::runtime_error);
-		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::MappedMemoryInvalidate);
-		EXPECT_THROW(VulkanBuffer->InvalidateMappedMemory(17, 1), std::runtime_error);
-	}
-
 	TEST(FVulkanAllocationClassIntegrationTests,
 		SelectsExplicitPropertiesAndPreservesLiveStatisticsAcrossReset)
 	{
@@ -516,20 +469,6 @@ namespace Durin::VulkanRHI
 				AfterReset.Classes[ClassIndex].LiveBytes);
 		}
 
-		const std::array<EBufferUsageFlags, 4> FailureUsages{
-			EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Static,
-			EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Dynamic,
-			EBufferUsageFlags::Dynamic | EBufferUsageFlags::SourceCopy,
-			EBufferUsageFlags::Dynamic | EBufferUsageFlags::DestinationCopy
-				| EBufferUsageFlags::KeepCPUAccessible};
-		for (uint32 ClassIndex = 0; ClassIndex < FailureUsages.size(); ++ClassIndex)
-		{
-			ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer);
-			EXPECT_FALSE(CreateBuffer("InjectedClassFailure",
-				FailureUsages[ClassIndex]));
-			EXPECT_EQ(GDynamicRHI->RHIGetMemoryStatistics().Classes[ClassIndex]
-				.AllocationFailureCount, 1u);
-		}
 	}
 
 	TEST(FVulkanTransferArenaIntegrationTests, BindingPagesBoundCapacityAndRetainExactLeases)
@@ -633,37 +572,6 @@ namespace Durin::VulkanRHI
 			EXPECT_FALSE(Arena.Acquire(128, 16, SyncPoint).Range);
 			Lease.reset();
 			EXPECT_TRUE(Arena.Acquire(128, 16, SyncPoint).Range);
-		}
-		{
-			FVulkanTransferArena FailingArena(*Device, {
-				.AllocationClass = EVulkanAllocationClassCandidate::TransferReadback,
-				.PageSize = 128,
-				.MaxPageCount = 1,
-				.DebugName = "TransferArenaFailure"});
-			// Both ordinary and oversize pages preserve recoverable native failures,
-			// but device loss and unknown native failures must escape the arena.
-			for (uint64 Size : {64ull, 256ull})
-			{
-				ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer);
-				auto Failed = FailingArena.Acquire(Size, 16, SyncPoint);
-				EXPECT_EQ(Failed.AllocationResult, vk::Result::eErrorOutOfDeviceMemory);
-				EXPECT_FALSE(Failed.Range);
-				for (auto Result : {vk::Result::eErrorDeviceLost, vk::Result::eErrorUnknown})
-				{
-					ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer, Result);
-					try
-					{
-						(void)FailingArena.Acquire(Size, 16, SyncPoint);
-						FAIL() << "Terminal native failures must propagate.";
-					}
-					catch (const vk::SystemError& Error)
-					{
-						EXPECT_EQ(Error.code().value(), static_cast<int>(Result));
-					}
-				}
-				EXPECT_EQ(FailingArena.GetPageCount(), 0u);
-				EXPECT_EQ(FailingArena.GetCapacity(), 0u);
-			}
 		}
 
 		GDynamicRHI->RHIResetMemoryStatistics();

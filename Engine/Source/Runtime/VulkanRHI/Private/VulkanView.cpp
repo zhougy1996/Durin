@@ -1,6 +1,5 @@
 #include "VulkanCreationTiming.h"
 #include "VulkanView.h"
-#include "VulkanCreationGuard.h"
 
 #include "VulkanBuffer.h"
 #include "VulkanDevice.h"
@@ -25,22 +24,14 @@ namespace Durin::VulkanRHI
 			.setFormat(ToVulkan_PixelFormat(InDesc.Format))
 			.setOffset(InDesc.Offset)
 			.setRange(InDesc.Size);
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::BufferView);
-#endif
 		BufferView = [&] {
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+#if DURIN_VULKAN_TEST_SUPPORT
 			FVulkanNativeCreationTimingScope NativeTiming;
 #endif
 			return Device.GetHandle().createBufferView(CreateInfo);
 		}();
-		TVulkanCreationGuard Candidate([&] { Device.GetHandle().destroyBufferView(BufferView); });
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
-#endif
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(BufferView,
 			[&] { return std::format("{}.BufferView", Buffer->GetDebugName()); });
-		Candidate.Commit();
 	}
 
 	FVulkanBufferView::~FVulkanBufferView()
@@ -77,24 +68,16 @@ namespace Durin::VulkanRHI
 				ToVulkanAspectFlags(InDesc.Range.Aspects),
 				InDesc.Range.FirstMip, InDesc.Range.NumMips,
 				InDesc.Range.FirstArrayLayer, InDesc.Range.NumArrayLayers));
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ImageView);
-#endif
 		ImageView = [&] {
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+#if DURIN_VULKAN_TEST_SUPPORT
 			FVulkanNativeCreationTimingScope NativeTiming;
 #endif
 			return Device.GetHandle().createImageView(CreateInfo);
 		}();
-		TVulkanCreationGuard Candidate([&] { Device.GetHandle().destroyImageView(ImageView); });
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
-#endif
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(ImageView,
 			[&] { return std::format("{}.ImageView", Texture->GetDebugName()); });
 		DebugIdentity = GVulkanImageViewHandleIdCounter.fetch_add(
 			1, std::memory_order_relaxed) + 1;
-		Candidate.Commit();
 	}
 
 	FVulkanTextureView::~FVulkanTextureView()

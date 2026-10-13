@@ -12,11 +12,11 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) -> TRefCountPtr<FRHIVertexDeclaration>
 	{
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+#if DURIN_VULKAN_TEST_SUPPORT
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::VertexDeclaration);
 #endif
 		TRefCountPtr<FRHIVertexDeclaration> Result = new FVulkanVertexDeclaration(Elements);
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+#if DURIN_VULKAN_TEST_SUPPORT
 		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
 #endif
 		return Result;

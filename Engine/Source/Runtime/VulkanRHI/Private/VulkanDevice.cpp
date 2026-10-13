@@ -1,4 +1,5 @@
 #include "VulkanUniformBufferPool.h"
+
 #include "VulkanDevice.h"
 #include "PipelineStateCache.h"
 #include "Backend/RHICompletionBackend.h"
@@ -476,9 +477,6 @@ namespace Durin::VulkanRHI
 			DeviceInfo.setPNext(&TimelineFeatures);
 		}
 
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Device);
-#endif
 		Device = Gpu.createDevice(DeviceInfo);
 		RHI->GetDebugUtils().InitializeDevice(Device);
 		RHI->GetDebugUtils().NameObject(Device, "Durin.LogicalDevice");

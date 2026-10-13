@@ -52,9 +52,6 @@ namespace Durin
 		FRHIThreadWork(const FRHIThreadWork&) = delete;
 		auto operator=(const FRHIThreadWork&) -> FRHIThreadWork& = delete;
 
-		// Optional output set under the queue lock on admission, before replay can start.
-		// Enqueue consumes and clears this pointer; its storage need only outlive Enqueue.
-		uint64* AdmissionNanoseconds = nullptr;
 		// Exceptions escaping work are fatal; the queue does not translate them.
 		std::function<void()> Execute;
 		// A pending head stays queued; later serials never bypass it.

@@ -1,4 +1,8 @@
 #include "VulkanUniformBufferPool.h"
+
+#if DURIN_VULKAN_TEST_SUPPORT
+#include "VulkanTestSupport.h"
+#endif
 #include "RHIBufferUploadData.h"
 #include "VulkanDevice.h"
 #include "VulkanDiagnostics.h"
