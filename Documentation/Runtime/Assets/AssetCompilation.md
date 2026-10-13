@@ -285,8 +285,11 @@ means CPU platform data was applied, not GPU readiness.
 Source/settings setters and synchronous builds use `DTexture::BlockOnAnyAsyncBuild`
 before mutation. The barrier cancels and finishes only that texture, delivers the
 old observer as `Canceled`, and retires its request before returning. Cancellation is not an error and carries no cancellation-reason code.
-Import adapters retain resident assets after external cancellation; an importer
-only discards its still-owned unfinished asset during its own teardown.
+Texture2D imports commit Source/settings/import metadata before starting DDC work.
+Build failure or cancellation does not undo that authored commit. The import
+result describes the commit, while compiler status describes platform-data
+readiness. Importer teardown retains committed assets and drains current work;
+batch cancellation before commit discards captured input.
 Same-owner submissions from inside this barrier are rejected. New submissions
 then start with no active predecessor; no latest-wins serial is needed. Storage-only
 source recompression preserves semantic identity and retained read handles.

@@ -43,8 +43,9 @@ data, payload validation, resource publication, and compilation readiness querie
   and settings. Workers return platform data and diagnostics, never source
   pixels for installation. Optional source replacements belong to the
   GameThread result-application context. Rebuilds preserve the existing source;
-  import/reimport commits the retained candidate only after a successful build
-  whose identity matches that candidate.
+  Texture2D import/reimport commits validated Source, settings and metadata before
+  starting independent DDC work. Build failure or cancellation retains the new
+  authored data; saving remains a separate upper-layer operation.
 - The Texture2D builder analyzes alpha from the input image when selecting
   its platform format. Cube builds retain their whole-cube transparency override
   so all six faces use one format.
@@ -218,8 +219,9 @@ erased; only bounded object diagnostics remain.
 The Texture compiling manager commits on the GameThread
 after validating request id, weak object identity, and the selected source.
 Texture2D result application uses one validated private commit; public setters
-retain the selected mutation barrier. Completion and import callbacks use the
-plain `FTextureOperationResult`, with independent terminal publication.
+retain the selected mutation barrier. Compiler completion uses the plain
+`FTextureOperationResult`; Texture2D import returns its authored commit result
+without waiting for platform-data readiness.
 Source/settings mutation and new submissions cancel, finish and retire the previous
 request before proceeding. This selected blocking boundary follows UE texture
 mutation ownership and replaces latest-wins request serials.

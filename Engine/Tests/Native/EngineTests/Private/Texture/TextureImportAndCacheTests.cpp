@@ -71,6 +71,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	Durin::CollectGarbage();
 	EXPECT_EQ(Durin::FindResidentPackage(AssetPath), Result.Asset->GetPackage());
 	ASSERT_TRUE(Durin::SavePackage(Result.Asset->GetPackage()));
+	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Result.Asset, 10.0));
 	const auto& SourceData = Result.Asset->GetSource();
 	const Durin::FTexturePlatformData* PlatformData = Result.Asset->GetPlatformData();
 	ASSERT_TRUE(SourceData.IsValid());
@@ -506,8 +507,9 @@ TEST(FTexture2DTests, SourceFileCanBeReplacedAndRejectsTraversalMetadata)
 	EXPECT_EQ(ImportedSource->Hint, ReplacementFilename);
 	EXPECT_EQ(Result.Asset->GetSource().GetWidth(), 5u);
 	EXPECT_EQ(Result.Asset->GetSource().GetHeight(), 3u);
-	EXPECT_FALSE(Result.Asset->GetPackage()->IsDirty());
+	EXPECT_TRUE(Result.Asset->GetPackage()->IsDirty());
 	EXPECT_TRUE(std::filesystem::is_regular_file(Replacement));
+	ASSERT_TRUE(Durin::SavePackage(Result.Asset->GetPackage()));
 }
 
 TEST(FTexture2DTests, SourceChangesRemainUnobservedUntilExplicitReimport)

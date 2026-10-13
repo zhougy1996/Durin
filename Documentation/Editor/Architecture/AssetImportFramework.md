@@ -123,8 +123,9 @@ candidates. Extension-only PNG lookup is intentionally ambiguous, while a
 requested Texture2D, TextureCube, VolumeTexture, or StaticMesh class
 selects its concrete factory deterministically.
 
-First-import failure discards the disposable package, including a formal object
-that was created before decode/build completed. Reimport has a different safety
+First-import failure before authored commit discards the disposable package,
+including a formal object created before candidate validation. Texture2D DDC
+failure after commit is a compiler failure and retains the imported asset. Reimport has a different safety
 boundary: failure before live-state commit leaves an existing live and
 persisted asset unchanged. Live-state commit and package save are separate
 facts in both flows.
@@ -180,16 +181,19 @@ Texture2D source translation and preparation return expected owned values with
 an owned diagnostic string on failure. They expose no partial output and do not
 log. Capture and decode failures are formatted at their boundary; factories retain
 that message directly without nested preparation/submission variants. Texture2D
-source-file submission returns `expected<void, string>` for admission only.
-Accepted imports complete with the shared `FTextureOperationResult` after compilation,
-source metadata publication and optional save. Compiler and import callbacks share the same plain status/diagnostic value, but
-publish their terminal state at separate boundaries. Later import/save failure does not
-rewrite successful compiler progress.
-Cancellation is distinct from failure and carries no error-reason code. An
-external cancellation stops the import batch and leaves the resident asset to
-its current owner. Importer teardown cancels, finishes and discards only an
-unfinished asset for which it still owns cleanup. Previously published assets
-and pending-save retry behavior are preserved.
+source-file import returns `expected<void, string>` after a validated GameThread
+commit of Source, settings and import metadata. `DTexture2D::SetImportedSource`
+drains prior compilation before installing that candidate and marks the package
+Dirty. DDC compilation starts independently; build failure or cancellation keeps
+the committed authored data. Imports have no compiler-result mailbox or deferred
+completion callback. Compiler completion still uses `FTextureOperationResult`.
+Factories do not save. `FReimportManager` handles optional persistence and reports
+`PersistenceFailure` with its save cause separately from factory failure.
+TextureEditor batches wait for current compilation retirement before save and
+unload, irrespective of its outcome; save failures retain assets for retry.
+Batch cancellation before authored commit discards captured input and skips
+remaining files. After commit it does not roll back the import. Importer teardown
+joins capture/write work, drains current compilation and retains committed assets.
 Texture2D property-setting helpers return `std::expected<void, FTexture2DCompilationError>`
 directly. Invalid usage, quality, alpha mode or threshold retains the requested
 settings in the Engine input cause; unchanged values remain successful no-ops,

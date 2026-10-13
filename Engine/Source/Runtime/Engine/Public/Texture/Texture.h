@@ -112,7 +112,7 @@ namespace Durin
 		ENGINE_API explicit DTexture(const FObjectInitializer& ObjectInitializer);
 #if DURIN_WITH_EDITORONLY_DATA
 		ENGINE_API auto InvalidateAuthoredBuild() -> void;
-		// Family build commit only, after its selected compilation has completed.
+		// Family source commit only, after prior compilation has retired.
 		ENGINE_API auto AdoptBuildSource(FTextureSource Value) -> void;
 #endif
 		ENGINE_API auto InvalidateRenderResource() -> void;

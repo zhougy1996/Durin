@@ -2,6 +2,7 @@
 #include "Import/TextureFileImport.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "Asset/AssetCompilingManager.h"
+#include "Asset/AssetImportData.h"
 #include "Asset/Load.h"
 #include "Asset/PackageInspection.h"
 #include "Asset/EditorBulkDataStorage.h"
@@ -121,6 +122,7 @@ TEST(FTextureFileImportTests, ImportsNormalSavesAndChoosesAvailableNames)
 		});
 	const auto Unsaved = RetryImporter.ImportFile(Source.generic_string(), "/TextureFileImport/");
 	EXPECT_FALSE(Unsaved);
+	EXPECT_EQ(Unsaved.Kind, EAssetOperationKind::Save);
 	ASSERT_NE(Unsaved.Asset, nullptr);
 	EXPECT_EQ(Unsaved.Persistence, EAssetOperationPersistenceState::Dirty);
 	EXPECT_TRUE(RetryImporter.HasPendingSaves());
@@ -594,7 +596,7 @@ TEST_F(FTextureImportQueueTests, BatchContinuesAfterFailureAndPresentsOnce)
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content" / "other_normal.dasset"));
 }
 
-TEST_F(FTextureImportQueueTests, CancelSkipsQueuedFilesButFinishesActiveCapture)
+TEST_F(FTextureImportQueueTests, CancelBeforeCommitDiscardsPreparedSource)
 {
 	Editor::Texture::FTextureFileImport Importer;
 	ASSERT_TRUE(Importer.Begin({Source.generic_string()}, Destination));
@@ -606,7 +608,14 @@ TEST_F(FTextureImportQueueTests, CancelSkipsQueuedFilesButFinishesActiveCapture)
 	Importer.Tick(); // Starts the detached capture before cancellation.
 	Importer.Cancel();
 	ASSERT_TRUE(Drain(Importer));
-	EXPECT_EQ(Importer.GetSavedCount(), 1u);
+	EXPECT_EQ(Importer.GetSavedCount(), 0u);
+	EXPECT_EQ(Importer.GetCanceledCount(), 2u);
+	EXPECT_EQ(Importer.GetFailedCount(), 0u);
+	EXPECT_EQ(FindPackage(Destination + "wall_normal"), nullptr);
+	ASSERT_TRUE(Importer.Begin({(Root / "missing.png").generic_string()}, Destination));
+	Importer.Tick();
+	Importer.Cancel();
+	ASSERT_TRUE(Drain(Importer));
 	EXPECT_EQ(Importer.GetCanceledCount(), 1u);
 	EXPECT_EQ(Importer.GetFailedCount(), 0u);
 }
@@ -658,7 +667,7 @@ TEST_F(FTextureImportQueueTests, TeardownJoinsCaptureWithoutPublishing)
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content" / "wall_normal.dasset"));
 }
 
-TEST_F(FTextureImportQueueTests, TeardownDrainsActiveCompilationAndDiscardsCandidate)
+TEST_F(FTextureImportQueueTests, TeardownDrainsCompilationAndRetainsCommittedImport)
 {
 	int Published = 0;
 	FPackagePath Path;
@@ -675,13 +684,23 @@ TEST_F(FTextureImportQueueTests, TeardownDrainsActiveCompilationAndDiscardsCandi
 		ASSERT_NE(FindResidentPackage(Path), nullptr);
 	}
 	EXPECT_EQ(Published, 0);
-	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+	auto* Retained = FindResidentPackage(Path);
+	ASSERT_NE(Retained, nullptr);
+	auto* Texture = Cast<DTexture2D>(Retained->FindTopLevelAsset("wall_normal"));
+	ASSERT_NE(Texture, nullptr);
+	EXPECT_TRUE(Texture->GetSource().IsValid());
+	EXPECT_NE(Texture->GetAssetImportData(), nullptr);
+	EXPECT_FALSE(HasPendingTexture2DCompilation(*Texture));
+	EXPECT_TRUE(UnloadPackage(Retained, EAssetPackageUnloadPolicy::DiscardUnsaved));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content" / "wall_normal.dasset"));
 }
 
 TEST_F(FTextureImportQueueTests, ExternalCompilationCancellationRetainsResidentAsset)
 {
-	Editor::Texture::FTextureFileImport Importer;
+	Editor::Texture::FTextureFileImport Importer({}, [](const FAssetSaveRequest&) {
+		return FAssetOperationResult{.Kind = EAssetOperationKind::Save,
+			.State = EAssetOperationTerminalState::Rejected, .Message = "Injected save failure"};
+	});
 	ASSERT_TRUE(Importer.Begin({Source.generic_string()}, Destination));
 	DPackage* Package = nullptr;
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -694,18 +713,28 @@ TEST_F(FTextureImportQueueTests, ExternalCompilationCancellationRetainsResidentA
 	ASSERT_NE(Package, nullptr);
 	auto* Texture = Cast<DTexture2D>(Package->FindTopLevelAsset("wall_normal"));
 	ASSERT_NE(Texture, nullptr);
+	const auto ImportedIdentity = Texture->GetSource().GetIdentity();
+	const auto Metadata = Texture->GetAssetImportData()->GetState();
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 	ASSERT_TRUE(Drain(Importer));
-	EXPECT_EQ(Importer.GetCanceledCount(), 1u);
-	EXPECT_EQ(Importer.GetFailedCount(), 0u);
+	EXPECT_EQ(Importer.GetCanceledCount(), 0u);
+	EXPECT_EQ(Importer.GetFailedCount(), 1u);
 	EXPECT_EQ(Importer.GetSavedCount(), 0u);
 	EXPECT_EQ(FindPackage(Destination + "wall_normal"), Package);
+	EXPECT_EQ(Texture->GetSource().GetIdentity(), ImportedIdentity);
+	EXPECT_EQ(Texture->GetAssetImportData()->GetState(), Metadata);
+	EXPECT_FALSE(HasPendingTexture2DCompilation(*Texture));
+	EXPECT_TRUE(Importer.HasPendingSaves());
+	EXPECT_NE(Importer.GetErrors().front().find("save failed"), std::string::npos);
 	EXPECT_TRUE(UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST_F(FTextureImportQueueTests, MutationCanceledImportDoesNotUnloadNewCompilation)
 {
-	Editor::Texture::FTextureFileImport Importer;
+	Editor::Texture::FTextureFileImport Importer({}, [](const FAssetSaveRequest&) {
+		return FAssetOperationResult{.Kind = EAssetOperationKind::Save,
+			.State = EAssetOperationTerminalState::Rejected, .Message = "Injected save failure"};
+	});
 	ASSERT_TRUE(Importer.Begin({Source.generic_string()}, Destination));
 	DPackage* Package = nullptr;
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -725,10 +754,10 @@ TEST_F(FTextureImportQueueTests, MutationCanceledImportDoesNotUnloadNewCompilati
 		{.Build = MakeTexture2DBuildRequest(Prepared->Source).value(),
 		 .ResultApplication = {.SourceReplacement = Prepared->Source}},
 		[&](FTextureOperationResult Value) { Replacement = std::move(Value); }));
-	Importer.Tick();
+	ASSERT_TRUE(Drain(Importer));
 	EXPECT_FALSE(Importer.IsRunning());
-	EXPECT_EQ(Importer.GetCanceledCount(), 1u);
-	EXPECT_EQ(Importer.GetFailedCount(), 0u);
+	EXPECT_EQ(Importer.GetCanceledCount(), 0u);
+	EXPECT_EQ(Importer.GetFailedCount(), 1u);
 	EXPECT_EQ(Importer.GetSavedCount(), 0u);
 	EXPECT_EQ(FindPackage(Destination + "wall_normal"), Package);
 	FAssetCompilingManager::Get().FinishAllCompilation();

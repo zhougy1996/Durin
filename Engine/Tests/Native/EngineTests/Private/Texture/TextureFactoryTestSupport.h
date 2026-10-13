@@ -32,6 +32,8 @@ namespace Durin::AssetForge::Builtins
 		auto* Texture = Cast<DTexture2D>(Imported.Asset);
 		if (!Imported || !Texture)
 			return {false, Imported.Message, Texture};
+		if (!Texture->FinishCachePlatformData())
+			return {false, "Texture compilation failed.", Texture};
 		const FAssetWriteResult Saved = SavePackage(Imported.Package);
 		return Saved
 			? Durin::Testing::TFactoryImportResult<Durin::DTexture2D>{true, {}, Texture}

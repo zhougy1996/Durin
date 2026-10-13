@@ -36,27 +36,19 @@ namespace Durin::AssetForge::Builtins
 		std::string_view Extension) -> bool;
 	using FTexture2DTranslationResult = std::expected<FTextureSource, std::string>;
 	using FTexture2DPreparationResult = std::expected<FPreparedTexture2DImport, std::string>;
-	using FTexture2DSubmissionResult = std::expected<void, std::string>;
-
-	// Import completion includes source metadata publication and optional persistence.
-
-	using FTexture2DImportCompletion = std::function<void(FTextureOperationResult)>;
 
 	// Decodes one image into detached authored source, retaining original channel metadata.
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto TranslateTexture2DSource(
 		FByteView EncodedBytes) -> FTexture2DTranslationResult;
 
-	// Reimports from the retained optional source hint. Completion runs on the
-	// game thread after the detached candidate is either published or rejected.
+	// GameThread only. Commits authored source/settings/import metadata, then starts
+	// independent DDC compilation. Success does not imply compilation or persistence.
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportTexture2D(
-		DTexture2D& Texture,
-		FTexture2DImportCompletion Completion = {}) -> FTexture2DSubmissionResult;
-	// Selects and captures a new source, then atomically publishes canonical
-	// imported data and the new hint only after the detached build succeeds.
+		DTexture2D& Texture) -> std::expected<void, std::string>;
+	// Same commit contract, using a newly selected source file.
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportTexture2DFromFile(
 		DTexture2D& Texture,
-		std::string_view FilePath,
-		FTexture2DImportCompletion Completion = {}) -> FTexture2DSubmissionResult;
+		std::string_view FilePath) -> std::expected<void, std::string>;
 	// Rebuilds one packaged texture from its resident canonical imported data.
 	ASSETFORGEBUILTINS_API auto RebuildTexture2DFromSource(
 		DTexture2D& Texture,

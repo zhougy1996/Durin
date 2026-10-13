@@ -25,13 +25,10 @@ namespace Durin::AssetForge::Builtins
 		GENERATED_BODY()
 
 	public:
-		// Prepared imports return an accepted object before compilation completes.
-		// Completion is game-thread-only; save/publish must wait for success.
-		auto SetPreparedImport(std::shared_ptr<const FPreparedTexture2DImport> InPrepared,
-			FTexture2DImportCompletion InCompletion) -> void
+		// Reuses worker-prepared source; Factory commits it on the GameThread.
+		auto SetPreparedImport(std::shared_ptr<const FPreparedTexture2DImport> InPrepared) -> void
 		{
 			Prepared = std::move(InPrepared);
-			Completion = std::move(InCompletion);
 		}
 		// Opt-in first-import inference after capture/decode; explicit callers and
 		// reimport retain their configured settings.
@@ -74,6 +71,5 @@ namespace Durin::AssetForge::Builtins
 		FTexture2DImportSettings Settings;
 		bool bAutoDetectSettings = false;
 		std::shared_ptr<const FPreparedTexture2DImport> Prepared;
-		FTexture2DImportCompletion Completion;
 	};
 }

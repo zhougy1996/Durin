@@ -17,6 +17,7 @@ namespace Durin
 	struct FTexture2DInputError;
 	struct FTexture2DCompilationError;
 	struct FTexture2DResultApplicationContext;
+	struct FAssetImportDataState;
 
 	class DTexture2D;
 	class FTextureCompilingManager;
@@ -63,6 +64,11 @@ namespace Durin
 		ENGINE_API auto SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,
 			uint32 InMaxResolution, ETextureCompressionQuality InCompressionQuality,
 			ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold) -> void;
+
+		// GameThread only. Validates the candidate, cancels/drains prior compilation, then commits
+		// source/settings/import metadata and marks dirty. Does not build or save.
+		ENGINE_API auto SetImportedSource(FTextureSource Value, const FTexture2DBuildSettings& Settings,
+			FAssetImportDataState ImportState) -> std::expected<void, std::string>;
 
 		// Captures a detached source snapshot without reading or decompressing its payload.
 		ENGINE_API auto CreateBuildRequest(const FTexture2DBuildSettings& Settings) const

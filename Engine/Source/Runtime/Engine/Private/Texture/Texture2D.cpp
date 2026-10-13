@@ -10,6 +10,8 @@
 #include "DynamicRHI.h"
 #include "Texture/Texture2DRenderResource.h"
 #include "Texture/Texture2DCompilation.h"
+#include "Asset/AssetImportData.h"
+#include "DObject/DObjectGlobals.h"
 #include "Texture/TextureDerivedData.h"
 #include "Threading/RunnableThread.h"
 
@@ -184,6 +186,35 @@ namespace Durin
 #endif
 
 #if DURIN_WITH_EDITORONLY_DATA
+
+	auto DTexture2D::SetImportedSource(FTextureSource Value, const FTexture2DBuildSettings& Settings,
+		FAssetImportDataState ImportState) -> std::expected<void, std::string>
+	{
+		CheckGameThread();
+		if (const auto Input = MakeTexture2DBuildRequest(Value, Settings); !Input)
+			return std::unexpected(FormatTexture2DInputError(Input.error()));
+		ImportState.SourceData.Normalize();
+		if (const auto Validation = ImportState.Validate(); !Validation)
+			return std::unexpected(FormatAssetImportDataError(Validation.error()));
+		BlockOnAnyAsyncBuild();
+		auto* ImportData = GetAssetImportData();
+		if (!ImportData) ImportData = NewObject<DAssetImportData>(this, "AssetImportData");
+		if (!ImportData) return std::unexpected(std::string("Could not allocate Texture2D import metadata."));
+		// All validation and allocation precede installation of the authored candidate.
+		AdoptBuildSource(std::move(Value));
+		Usage = Settings.Usage;
+		bSRGB = ResolveTexture2DSRGB(Settings);
+		MaxResolution = Settings.MaxResolution;
+		CompressionQuality = Settings.CompressionQuality;
+		AlphaMipMode = Settings.AlphaMipMode;
+		AlphaCoverageThreshold = Settings.AlphaCoverageThreshold;
+		ImportData->SetState(std::move(ImportState));
+		SetAssetImportData(*ImportData);
+		InvalidateAuthoredBuild();
+		MarkPackageDirty();
+		return {};
+	}
+
 	auto DTexture2D::SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,
 		uint32 InMaxResolution, ETextureCompressionQuality InCompressionQuality,
 		ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold) -> void

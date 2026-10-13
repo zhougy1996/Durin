@@ -22,13 +22,14 @@ namespace Durin::Editor::Texture
 		// when the browser is hidden. Only detached capture/decode runs on our worker.
 		auto Begin(std::vector<std::string> Files, std::string Directory) -> bool;
 		auto Tick(bool bAllowMutation = true) -> void;
+		// Before commit, discard captured input. After commit, finish save and skip queued files.
 		auto Cancel() -> void { bCancelRequested = true; }
 		auto IsRunning() const -> bool { return bRunning; }
 		auto GetCompletedCount() const -> size_t { return Next; }
 		auto GetTotalCount() const -> size_t { return Files.size(); }
 		auto GetSavedCount() const -> size_t { return SavedCount; }
 		auto GetFailedCount() const -> size_t { return Errors.size(); }
-		auto GetCanceledCount() const -> size_t { return bRunning ? 0 : CanceledCount + Files.size() - Next; }
+		auto GetCanceledCount() const -> size_t { return bRunning ? 0 : Files.size() - Next; }
 		auto GetErrors() const -> const std::vector<std::string>& { return Errors; }
 		auto GetActivity() const -> std::string;
 		auto GetTimingDetails() const -> const std::string& { return TimingDetails; }
@@ -40,8 +41,7 @@ namespace Durin::Editor::Texture
 
 	private:
 		auto AdmitFile(std::string_view Filename, std::string_view Directory,
-			std::shared_ptr<const AssetForge::Builtins::FPreparedTexture2DImport> Prepared = {},
-			AssetForge::Builtins::FTexture2DImportCompletion Completion = {}) -> FAssetOperationResult;
+			std::shared_ptr<const AssetForge::Builtins::FPreparedTexture2DImport> Prepared = {}) -> FAssetOperationResult;
 		auto FinishBatch() -> void;
 		auto Save(const FPackagePath& Path) -> FAssetOperationResult;
 		FImportDialogCallbacks Callbacks;
@@ -55,7 +55,6 @@ namespace Durin::Editor::Texture
 		};
 		static auto PrepareFile(const std::string& Filename) -> FPreparation;
 		std::future<FPreparation> Preparation;
-		std::shared_ptr<std::optional<FTextureOperationResult>> Completion;
 		TStrongObjectPtr<DTexture2D> Active;
 		std::unique_ptr<FAssetSaveOperation> DiskSave;
 		bool bSaveStarted = false;
@@ -67,7 +66,7 @@ namespace Durin::Editor::Texture
 		std::string TimingDetails;
 		double PreparationMilliseconds = 0;
 		std::chrono::steady_clock::time_point CompilationStart;
-		size_t Next = 0, SavedCount = 0, CanceledCount = 0;
+		size_t Next = 0, SavedCount = 0;
 		bool bRunning = false, bCancelRequested = false, bMutationAllowed = true;
 	};
 }

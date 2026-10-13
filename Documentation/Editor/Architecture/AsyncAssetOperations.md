@@ -21,7 +21,8 @@ preparation and explicit setter application or delegates only build work to its 
 domain. Shared asset import uses `FAssetImportSession` around private captured
 values; `FSceneImportSession` remains a compatibility alias. It does not introduce a generic import job framework.
 
-Texture2D adapters consume the GameThread terminal result defined by
+Texture2D imports commit authored Source/settings/import metadata on the
+GameThread and then start independent DDC work. Compiler completion follows
 [Asset Compilation](../../Runtime/Assets/AssetCompilation.md#texture2d-completion).
 Request identity and cancellation remain compilation concerns. Texture requests
 are serialized per object: a mutation cancels and finishes its predecessor before
@@ -121,10 +122,10 @@ retain a reflected object implicitly.
 
 `PrepareTexture2DImport` and texture source translation return `std::expected`
 with owned detached values and diagnostic strings. Failure exposes no prepared
-value; decoding and validation remain silent. Texture2D reimport submission
-returns `expected<void, string>` for admission only. Its import completion carries
-`DerivedData::EStatus` and a diagnostic after source metadata publication and
-optional save. A metadata or save failure does not rewrite the compiler result.
+value; decoding and validation remain silent. Texture2D reimport returns
+`expected<void, string>` after committing its authored candidate. DDC failure
+or cancellation does not undo the import. Factories do not save; upper-layer
+persistence reports its own failure and leaves committed data Dirty for retry.
 VolumeTexture rebuild returns an owned diagnostic on failure; structured settings
 and translation errors remain at validation boundaries. StaticMesh rebuild errors
 retain nested completion and save causes, including observed write effects.
@@ -134,13 +135,13 @@ on success and preserves the existing object/garbage-collection ownership.
 For direct Texture2D source selection:
 
 - AssetForgeBuiltins captures the selected file without mutating it.
-- TextureCompressor prepares a detached Texture2D platform-data candidate.
-- Engine rechecks request/object/source/settings identity before the first live
-  mutation, then commits the validated source/settings/platform candidate through
-  its private application seam and calls `DTexture::UpdateResource()`.
-- TextureEditor owns Dirty and save sequencing after successful application.
-- A pre-application failure preserves the live asset; save failure leaves the
-  valid applied state Dirty for retry.
+- Engine validates Source, settings and import metadata, drains prior compilation,
+  then installs the authored candidate together and marks the package Dirty.
+- Independent TextureCompressor work builds platform data; GameThread application
+  installs successful products and calls `DTexture::UpdateResource()`.
+- TextureEditor or the reimport manager owns optional save sequencing.
+- Failure before authored commit preserves the live asset. Later DDC failure keeps
+  new authored data; save failure leaves that data Dirty for retry.
 - The Widget owns only the active asset identity, phase label, conflicting
   control state, close rejection, and final diagnostic presentation.
   Texture Editor shows the phase in its toolbar, disables Save while a build is
