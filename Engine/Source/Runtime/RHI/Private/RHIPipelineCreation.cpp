@@ -1,4 +1,5 @@
 #include "RHIPipelineCreation.h"
+#include "Threading/TaskComposition.h"
 #include "Backend/RHICreation.h"
 #include "PipelineCompileQueue.h"
 
@@ -172,9 +173,9 @@ namespace Durin
 			return {.State = ERHIPipelineRequestState::Failed};
 		return {};
 	}
-	auto FRHIPipelineCreationRequest::GetCompletion() const -> Tasks::FTaskCompletion
+	auto FRHIPipelineCreationRequest::GetTaskHandle() const -> Durin::FTaskHandle
 	{
-		return State ? State->Task.GetCompletion() : Tasks::FTaskCompletion{};
+		return State ? State->Task.GetTaskHandle() : Durin::FTaskHandle{};
 	}
 	auto FRHIPipelineCreationRequest::IsCompute() const -> bool
 	{

@@ -42,7 +42,7 @@ namespace Durin
 						if (Native.IsValid())
 						{
 							std::lock_guard Lock(Operation.Mutex);
-							Operation.Completion->AddPrerequisites(Tasks::FTaskCompletion(Native));
+							Operation.Completion->AddPrerequisites(Durin::FTaskHandle(Native));
 						}
 					}
 					return Accepted;

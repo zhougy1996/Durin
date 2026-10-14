@@ -365,14 +365,14 @@ TEST(FAsyncCacheTests, AssetOperationDestructionCancelsQueuedRequestWithoutRetai
 	FRequestOwner Busy;
 	auto Operation = std::make_shared<FAssetCompilationOperation>();
 	std::weak_ptr<FAssetCompilationOperation> Weak = Operation;
-	const auto Completion = Operation->GetCompletionEvent().GetCompletion();
+	const auto Completion = Operation->GetCompletionEvent().GetTaskHandle();
 	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("OperationDestruction"), 'c')}};
 	ASSERT_TRUE(Async->Get(Requests, Busy, [](auto, auto, auto) {}));
 	uint32 Calls = 0;
 	auto Batch = Async->Get(Requests, *Operation, [&](auto, auto Result, auto) { EXPECT_FALSE(Result); ++Calls; });
 	ASSERT_TRUE(Batch);
 	Operation.reset();
-	EXPECT_TRUE(Weak.expired()); EXPECT_EQ(Calls, 1u); EXPECT_TRUE(Completion.IsReady());
+	EXPECT_TRUE(Weak.expired()); EXPECT_EQ(Calls, 1u); EXPECT_TRUE(Completion.IsComplete());
 	EXPECT_FALSE(Busy.Poll()); Scheduler->Run();
 }
 

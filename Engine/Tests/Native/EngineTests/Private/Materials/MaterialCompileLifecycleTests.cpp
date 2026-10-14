@@ -88,7 +88,7 @@ auto QualifyCanceledFlightResubmission() -> void
 				Blockers.push_back(Tasks::LaunchTask("HoldCanceledMaterialFlight", [&] {
 					if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
 					Release.WaitFor(10.0);
-				}).GetCompletion().GetTaskHandle());
+				}).GetTaskHandle());
 			ASSERT_TRUE(Started.WaitFor(2.0));
 			// Force compilation so the second iteration cannot use a retained hit.
 			ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
@@ -314,7 +314,7 @@ TEST(FMaterialCompileLifecycleTests,
 			Blockers.push_back(Durin::Tasks::LaunchTask("HoldMaterialSingleFlight", [&] {
 				if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
 				Release.WaitFor(2.0);
-			}).GetCompletion().GetTaskHandle());
+			}).GetTaskHandle());
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		ASSERT_TRUE(Durin::RequestMaterialRecompile(*First));
 		ASSERT_TRUE(Durin::RequestMaterialRecompile(*Second));
@@ -499,7 +499,7 @@ TEST(FMaterialCompileLifecycleTests,
 				Blockers.push_back(Durin::Tasks::LaunchTask("HoldRetainedSchemaCompile", [&] {
 					if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
 					Release.WaitFor(10.0);
-				}).GetCompletion().GetTaskHandle());
+				}).GetTaskHandle());
 			ASSERT_TRUE(Started.WaitFor(2.0));
 			ASSERT_TRUE(Graph.Apply(*Root));
 			EXPECT_FLOAT_EQ(GetMaterialBinding(Root->GetRenderData()).Metallic, 0.65f);
@@ -666,7 +666,7 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 				Tasks.push_back(Durin::Tasks::LaunchTask("HoldFunctionCompile", [this, Count] {
 					if (StartedCount.fetch_add(1) + 1 == Count) Started.Trigger();
 					Release.WaitFor(10.0);
-				}).GetCompletion().GetTaskHandle());
+				}).GetTaskHandle());
 			return Started.WaitFor(2.0);
 		}
 		~FHoldWorkers() { Release.Trigger(); for (const auto& Task : Tasks) WaitTask(Task); }

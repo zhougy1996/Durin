@@ -4,7 +4,7 @@ Summary: Define the source and semantic stability boundary of public RHI headers
 
 Modules: RHI, RenderCore, VulkanRHI, MetalRHI
 
-Last reviewed: 2026-10-13
+Last reviewed: 2026-10-14
 
 ## Directory Contract
 
@@ -56,6 +56,12 @@ The validating key builders canonicalize and intern layouts, vertex input, and
 blend descriptions; consumers retain the shared references instead of copying
 or mutating description arrays. Content equality and hashing remain the owning
 [graphics contract](GraphicsStateAndBindings.md#graphics-pipeline-contract).
+
+Pipeline creation requests expose `GetTaskHandle()` for CPU completion
+dependencies. This erased Core handle contains no native result or cancellation
+authority over shared compilation; request cancellation remains an explicit RHI
+operation. The declaration depends on `Threading/Task.h`, while task/event
+composition belongs to the [Core task API](../Core/TaskSystem.md#composition).
 
 An enum value, resource flag, shader frequency, or feature level is vocabulary,
 not proof that a backend implements the feature. Runtime support requires a

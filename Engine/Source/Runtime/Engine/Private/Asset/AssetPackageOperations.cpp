@@ -1031,7 +1031,7 @@ namespace Durin
 			[Operation] { Operation->Stage(); },
 			[Operation, Source, Cancellation = Cancellation](bool bSucceeded) mutable {
 				const bool bCancelled = Cancellation.IsCancellationRequested()
-					|| Private::FTaskRuntimeAccess::IsCancellationRequested(Source.GetCompletion().GetTaskHandle());
+					|| Private::FTaskRuntimeAccess::IsCancellationRequested(Source.GetTaskHandle());
 				auto Result = bCancelled ? Error(EAssetWriteError::Cancelled, "Save was cancelled before publication.")
 					: !bSucceeded ? Error(EAssetWriteError::IoError, "Save I/O task failed.")
 					: Operation->Complete();

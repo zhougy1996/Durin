@@ -1595,15 +1595,15 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		ASSERT_FALSE(Failed);
 		EXPECT_EQ(Failed.error().State, ETaskState::Failed);
 		EXPECT_EQ(Failed.error().ChunkIndex, 0u);
-		std::vector<Tasks::FTaskCompletion> AbandonedCompletions;
+		std::vector<Durin::FTaskHandle> AbandonedCompletions;
 		{
 			auto Abandoned = StartStaticMeshPreparation(LargeInputs, EStaticMeshPreparationPolicy::Tasks);
-			for (const auto& Slot : Abandoned.Active) AbandonedCompletions.push_back(Slot.Task.GetCompletion());
+			for (const auto& Slot : Abandoned.Active) AbandonedCompletions.push_back(Slot.Task.GetTaskHandle());
 		}
 		ASSERT_EQ(AbandonedCompletions.size(), 8u);
 		for (const auto& Completion : AbandonedCompletions)
 		{
-			EXPECT_TRUE(Completion.IsReady());
+			EXPECT_TRUE(Completion.IsComplete());
 			EXPECT_TRUE(Completion.GetState() == ETaskState::Succeeded || Completion.GetState() == ETaskState::Canceled);
 		}
 		ASSERT_EQ(PublishedView.GetNumSections(), 2u);

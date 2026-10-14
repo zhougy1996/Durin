@@ -340,7 +340,7 @@ namespace Durin
 			{
 				for (auto& Handle : Job->Handles) Handle->Cancel();
 				Job->Cancellation.RequestCancellation();
-				(void)WaitTask(Job->Read.GetCompletion().GetTaskHandle());
+				(void)WaitTask(Job->Read.GetTaskHandle());
 			}
 			Jobs.clear();
 			Group.reset();

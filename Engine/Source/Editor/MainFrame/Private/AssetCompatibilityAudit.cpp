@@ -274,7 +274,7 @@ namespace Durin::Editor
 						.Failure = "Asset compatibility audit failed with an unknown exception."};
 				}
 			}, Options);
-		Task = WorkerTask.GetCompletion().GetTaskHandle();
+		Task = WorkerTask.GetTaskHandle();
 
 		Tasks::FTaskExecutionOptions TerminalOptions;
 		TerminalOptions.DebugName = "AssetCompatibility.PublishTerminal";
@@ -308,7 +308,7 @@ namespace Durin::Editor
 						: Outcome.GetDiagnostic();
 				}
 				Model.InvalidatePresentation();
-			}).GetCompletion().GetTaskHandle();
+			}).GetTaskHandle();
 
 		return true;
 	}

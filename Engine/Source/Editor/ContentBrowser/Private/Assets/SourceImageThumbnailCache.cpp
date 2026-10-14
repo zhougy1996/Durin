@@ -438,7 +438,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		if (Impl->OwnedTaskScope)
 			(void)Impl->OwnedTaskScope->Close(ETaskScopeCloseMode::Cancel);
-		for (const auto& Flight : Impl->Tasks) (void)::Durin::Tasks::Cancel(Flight.Task.GetCompletion());
+		for (const auto& Flight : Impl->Tasks) (void)::Durin::Tasks::Cancel(Flight.Task);
 		for (const auto& Flight : Impl->Tasks) (void)Flight.Task.Wait();
 		Impl->Tasks.clear();
 		Impl->ActiveDecodeCount = 0;

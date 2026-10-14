@@ -280,7 +280,7 @@ TEST_F(FPackagePersistenceTests, StaleEditsAndCancellationRejectButDroppedHandle
 	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
 	Operation = Package->SaveAsync(Admission, FSavePackageContext{Options});
 	ASSERT_TRUE(Operation.IsValid());
-	EXPECT_TRUE(Tasks::Cancel(Operation.GetCompletion()));
+	EXPECT_TRUE(Tasks::Cancel(Operation));
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	EXPECT_EQ(Operation.GetState(), ETaskState::Canceled);
 	Operation = Package->SaveAsync(Admission, FSavePackageContext{Options});

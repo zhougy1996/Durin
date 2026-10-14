@@ -74,7 +74,7 @@ namespace Durin
 			// Register completion before releasing disk work. Rejected deferred
 			// admission must never allow a destructive write to start.
 			auto Gate = Tasks::TCompletionSource<void>::Create({.DebugName = "Package.SaveAdmission"});
-			const std::array Prerequisites{Gate.GetCompletion().GetTaskHandle()};
+			const std::array Prerequisites{Gate.GetTaskHandle()};
 			FTaskLaunchOptions DiskOptions;
 			DiskOptions.Target = ETaskTarget::BlockingIO;
 			DiskOptions.bQueueOnSaturation = true;
@@ -312,7 +312,7 @@ namespace Durin
 		};
 		if (Data.Worker.IsValid())
 		{
-			if (Data.Worker.GetCompletion().GetState() != ETaskState::Succeeded)
+			if (Data.Worker.GetTaskHandle().GetState() != ETaskState::Succeeded)
 				return FinishFailure(Fail(EPackageSaveError::IoError, "Staging task did not succeed."));
 			Data.StagingResult = Data.Worker.GetResult();
 		}
@@ -393,7 +393,7 @@ namespace Durin
 			[Operation] { Operation->StageDetached(); },
 			[Operation, Source, Cancellation = Options.Cancellation](bool bSucceeded) mutable {
 				const bool bCancelled = Cancellation.IsCancellationRequested()
-					|| Private::FTaskRuntimeAccess::IsCancellationRequested(Source.GetCompletion().GetTaskHandle());
+					|| Private::FTaskRuntimeAccess::IsCancellationRequested(Source.GetTaskHandle());
 				auto Result = !bSucceeded || bCancelled ? Operation->Cancel() : Operation->Complete();
 				if (!bSucceeded) Result = Fail(EPackageSaveError::IoError, "Package I/O task did not succeed.");
 				Operation.reset();

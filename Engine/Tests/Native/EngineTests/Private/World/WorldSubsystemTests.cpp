@@ -251,7 +251,7 @@ TEST_F(FWorldSubsystemTests, LateDetachedCompletionCannotPublishAfterWorldRetire
 		std::unique_lock Lock(Payload->Mutex);
 		Payload->Condition.wait(Lock, [&] { return Payload->bReleased; });
 		Payload->Value = 42;
-	}).GetCompletion().GetTaskHandle();
+	}).GetTaskHandle();
 	World->Shutdown();
 	{ std::lock_guard Lock(Payload->Mutex); Payload->bReleased = true; }
 	Payload->Condition.notify_all();

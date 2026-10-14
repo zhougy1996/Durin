@@ -73,30 +73,29 @@ namespace Durin::Tasks
 	CORE_API auto ParallelFor(const char* Name, uint64 Num, FParallelForFunction&& Function,
 		const FParallelForPolicyOptions& Options = {}) -> FParallelForResult;
 
-	// Non-consuming observation carries no access to the unique result.
-	class FTaskCompletion
+	// Scope joining is an owner operation, separate from a task dependency.
+	class FTaskGroupJoin
 	{
 	public:
-		FTaskCompletion() = default;
-		explicit FTaskCompletion(FTaskHandle InHandle) : Handle(std::move(InHandle)) {}
-		explicit FTaskCompletion(FTaskScopeToken InGroup) : Group(std::move(InGroup)) {}
-		auto IsValid() const -> bool { return Handle.IsValid() || !(Group == FTaskScopeToken{}); }
+		FTaskGroupJoin() = default;
+		explicit FTaskGroupJoin(FTaskScopeToken InGroup) : Group(std::move(InGroup)) {}
+		auto IsValid() const -> bool { return !(Group == FTaskScopeToken{}); }
 		auto IsReady() const -> bool { const auto State = GetState(); return State == ETaskState::Succeeded || State == ETaskState::Failed || State == ETaskState::Canceled; }
-		auto GetState() const -> ETaskState { return Handle.IsValid() ? Handle.GetState() : Durin::Private::FTaskRuntimeAccess::GroupState(Group); }
+		auto GetState() const -> ETaskState { return Durin::Private::FTaskRuntimeAccess::GroupState(Group); }
 		auto GetGroupToken() const -> const FTaskScopeToken& { return Group; }
-		auto GetTaskHandle() const -> const FTaskHandle& { return Handle; }
 	private:
-		FTaskHandle Handle;
 		FTaskScopeToken Group;
 	};
-	CORE_API auto Wait(const FTaskCompletion& Completion) -> FTaskWaitResult;
-	CORE_API auto Cancel(const FTaskCompletion& Completion) -> bool;
+	CORE_API auto Wait(const FTaskHandle& Task) -> FTaskWaitResult;
+	CORE_API auto Cancel(const FTaskHandle& Task) -> bool;
+	CORE_API auto Wait(const FTaskGroupJoin& Join) -> FTaskWaitResult;
+	CORE_API auto Cancel(const FTaskGroupJoin& Join) -> bool;
 
 	// Completion dependency only: does not forward cancellation or failure to either task.
 	// Must be called from a running task body; its worker is free after the body returns.
-	CORE_API auto AddNested(const FTaskCompletion& Completion) -> void;
-	template<typename T> requires requires(const T& Task) { Task.GetCompletion(); }
-	auto AddNested(const T& Task) -> void { AddNested(Task.GetCompletion()); }
+	CORE_API auto AddNested(const FTaskHandle& Task) -> void;
+	template<typename T> requires requires(const T& Task) { Task.GetTaskHandle(); }
+	auto AddNested(const T& Task) -> void { AddNested(Task.GetTaskHandle()); }
 
 	// Explicit one-shot signal, optionally joined with other completion dependencies.
 	// Copies share one signal. The last handle must not be destroyed before Trigger().
@@ -105,18 +104,40 @@ namespace Durin::Tasks
 	public:
 		// Set false only when signaling never needs GameThread or unknown external progress.
 		CORE_API explicit FTaskEvent(const char* DebugName, bool bUnknownExecutionRequirement = true);
-		CORE_API auto GetCompletion() const -> FTaskCompletion;
-		auto IsCompleted() const -> bool { return GetCompletion().IsReady(); }
-		auto Wait() const -> FTaskWaitResult { return Tasks::Wait(GetCompletion()); }
-		CORE_API auto AddPrerequisites(std::span<const FTaskCompletion> Prerequisites) -> void;
-		auto AddPrerequisites(const FTaskCompletion& Prerequisite) -> void { AddPrerequisites(std::span(&Prerequisite, 1)); }
-		template<typename T> requires requires(const T& Task) { Task.GetCompletion(); }
-		auto AddPrerequisites(const T& Task) -> void { AddPrerequisites(Task.GetCompletion()); }
+		CORE_API auto GetTaskHandle() const -> FTaskHandle;
+		auto IsCompleted() const -> bool { return GetTaskHandle().IsComplete(); }
+		auto Wait() const -> FTaskWaitResult { return Tasks::Wait(GetTaskHandle()); }
+		CORE_API auto AddPrerequisites(std::span<const FTaskHandle> Prerequisites) -> void;
+		auto AddPrerequisites(const FTaskHandle& Prerequisite) -> void { AddPrerequisites(std::span(&Prerequisite, 1)); }
+		template<typename T> requires requires(const T& Task) { Task.GetTaskHandle(); }
+		auto AddPrerequisites(const T& Task) -> void { AddPrerequisites(Task.GetTaskHandle()); }
 		CORE_API auto Trigger() -> void;
 	private:
 		struct FState;
 		std::shared_ptr<FState> State;
 	};
+
+	namespace Detail
+	{
+		template<typename T> concept CTaskDependency = std::same_as<std::remove_cvref_t<T>, FTaskHandle>
+			|| requires(const T& Task) { { Task.GetTaskHandle() } -> std::same_as<FTaskHandle>; };
+		template<CTaskDependency T> auto DependencyHandle(const T& Task) -> FTaskHandle
+		{
+			if constexpr (std::same_as<std::remove_cvref_t<T>, FTaskHandle>) return Task;
+			else return Task.GetTaskHandle();
+		}
+	}
+
+	// Owns only dependency handles, never a unique result claim. The returned
+	// collection can be retained independently of the task/event facades.
+	template<Detail::CTaskDependency... T>
+	auto Prerequisites(const T&... Tasks) -> std::array<FTaskHandle, sizeof...(T)>
+	{ return {Detail::DependencyHandle(Tasks)...}; }
+
+	template<Detail::CTaskDependency T> requires (!std::same_as<std::remove_cvref_t<T>, FTaskHandle>)
+	auto Wait(const T& Task) -> FTaskWaitResult { return Wait(Task.GetTaskHandle()); }
+	template<Detail::CTaskDependency T> requires (!std::same_as<std::remove_cvref_t<T>, FTaskHandle>)
+	auto Cancel(const T& Task) -> bool { return Cancel(Task.GetTaskHandle()); }
 
 	// Owns admission lifetime; owners explicitly close and join before destroying captures.
 	class FTaskGroup
@@ -134,7 +155,7 @@ namespace Durin::Tasks
 		auto Close(ETaskScopeCloseMode Mode = ETaskScopeCloseMode::Drain) -> ETaskScopeCloseResult { return Durin::Private::FTaskRuntimeAccess::CloseGroup(GetToken(), Mode); }
 		auto GetDiagnostics() const -> FTaskScopeDiagnostics { return Durin::Private::FTaskRuntimeAccess::GroupDiagnostics(GetToken()); }
 		auto WaitFor(double Seconds) -> ETaskScopeWaitResult { return Durin::Private::FTaskRuntimeAccess::WaitGroupFor(GetToken(), Seconds); }
-		auto JoinAsync() const -> FTaskCompletion { return FTaskCompletion(GetToken()); }
+		auto JoinAsync() const -> FTaskGroupJoin { return FTaskGroupJoin(GetToken()); }
 	private:
 		FTaskScope Scope;
 		FTaskScopeToken BorrowedScope;
@@ -170,12 +191,12 @@ namespace Durin::Tasks
 		TTask(const TTask&) = delete;
 		auto operator=(const TTask&) -> TTask& = delete;
 		auto IsValid() const -> bool { return Handle.IsValid(); }
-		auto GetCompletion() const -> FTaskCompletion { return FTaskCompletion(Handle.GetTaskHandle()); }
-		auto IsCompleted() const -> bool { return GetCompletion().IsReady(); }
-		auto GetDiagnostics() const -> FTaskDiagnostics { return GetCompletion().GetTaskHandle().GetDiagnostics(); }
-		auto GetDiagnostic() const -> std::string { return GetCompletion().GetTaskHandle().GetDiagnostic(); }
-		auto GetState() const -> ETaskState { return GetCompletion().GetState(); }
-		auto Wait() const -> FTaskWaitResult { return Tasks::Wait(GetCompletion()); }
+		auto GetTaskHandle() const -> FTaskHandle { return FTaskHandle(Handle.GetTaskHandle()); }
+		auto IsCompleted() const -> bool { return GetTaskHandle().IsComplete(); }
+		auto GetDiagnostics() const -> FTaskDiagnostics { return GetTaskHandle().GetDiagnostics(); }
+		auto GetDiagnostic() const -> std::string { return GetTaskHandle().GetDiagnostic(); }
+		auto GetState() const -> ETaskState { return GetTaskHandle().GetState(); }
+		auto Wait() const -> FTaskWaitResult { return Tasks::Wait(GetTaskHandle()); }
 		// Requires a failed terminal state; returns a copy independent of result ownership.
 		auto GetFailure() const -> FTaskFailure
 		{
@@ -216,18 +237,18 @@ namespace Durin::Tasks
 	class TSharedTask
 	{
 	public:
-		auto GetCompletion() const -> FTaskCompletion { return FTaskCompletion(Handle); }
+		auto GetTaskHandle() const -> FTaskHandle { return FTaskHandle(Handle); }
 		auto GetResultShared() const -> std::shared_ptr<const TTaskValue<T>>
 		{
 			if (!Handle.IsComplete() || Handle.GetState() != ETaskState::Succeeded) return {};
 			return std::shared_ptr<const TTaskValue<T>>(LifetimePin, Storage->PeekPublished());
 		}
 		auto IsValid() const -> bool { return Handle.IsValid(); }
-		auto IsCompleted() const -> bool { return GetCompletion().IsReady(); }
-		auto GetDiagnostics() const -> FTaskDiagnostics { return GetCompletion().GetTaskHandle().GetDiagnostics(); }
-		auto GetDiagnostic() const -> std::string { return GetCompletion().GetTaskHandle().GetDiagnostic(); }
+		auto IsCompleted() const -> bool { return GetTaskHandle().IsComplete(); }
+		auto GetDiagnostics() const -> FTaskDiagnostics { return GetTaskHandle().GetDiagnostics(); }
+		auto GetDiagnostic() const -> std::string { return GetTaskHandle().GetDiagnostic(); }
 		auto GetState() const -> ETaskState { return Handle.GetState(); }
-		auto Wait() const -> FTaskWaitResult { return Tasks::Wait(GetCompletion()); }
+		auto Wait() const -> FTaskWaitResult { return Tasks::Wait(GetTaskHandle()); }
 		// Requires a failed terminal state; preserves the producer's failure identity.
 		auto GetFailure() const -> FTaskFailure
 		{
@@ -387,6 +408,63 @@ namespace Durin::Tasks
 		return Detail::LaunchTaskImpl(Options.Scope, 0, ETaskExecutor::Worker, Options, std::forward<F>(Function));
 	}
 
+	namespace Detail
+	{
+		template<typename F>
+		auto WithPrerequisites(FTaskExecutionOptions Options, std::span<const FTaskHandle> Inputs, F&& Launch)
+		{
+			try
+			{
+				std::vector<FTaskHandle> Handles(Options.Prerequisites.begin(), Options.Prerequisites.end());
+				Handles.insert(Handles.end(), Inputs.begin(), Inputs.end());
+				Options.Prerequisites = Handles;
+				return Launch(Options);
+			}
+			catch (const std::bad_alloc&)
+			{
+				using TResult = decltype(Launch(Options));
+				return TConstruction<TResult>::Failure({ETaskAdmissionErrorCode::CapacityExhausted});
+			}
+		}
+	}
+
+	template<typename F, size_t N>
+	auto LaunchTask(FTaskGroup& Group, ETaskExecutor Executor, const FTaskExecutionOptions& Options,
+		F&& Function, const std::array<FTaskHandle, N>& Inputs)
+	{
+		return Detail::WithPrerequisites(Options, Inputs, [&](const auto& BoundOptions) {
+			return LaunchTask(Group, Executor, BoundOptions, std::forward<F>(Function));
+		});
+	}
+	template<typename F, Detail::CTaskDependency T>
+	auto LaunchTask(FTaskGroup& Group, ETaskExecutor Executor, const FTaskExecutionOptions& Options,
+		F&& Function, const T& Input)
+	{ return LaunchTask(Group, Executor, Options, std::forward<F>(Function), Prerequisites(Input)); }
+
+	template<typename F, size_t N>
+	auto LaunchTask(ETaskExecutor Executor, const FTaskExecutionOptions& Options,
+		F&& Function, const std::array<FTaskHandle, N>& Inputs)
+	{
+		return Detail::WithPrerequisites(Options, Inputs, [&](const auto& BoundOptions) {
+			return LaunchTask(Executor, BoundOptions, std::forward<F>(Function));
+		});
+	}
+	template<typename F, Detail::CTaskDependency T>
+	auto LaunchTask(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function, const T& Input)
+	{ return LaunchTask(Executor, Options, std::forward<F>(Function), Prerequisites(Input)); }
+
+	template<typename F, size_t N>
+	auto LaunchTask(const char* Name, F&& Function, const std::array<FTaskHandle, N>& Inputs,
+		FTaskExecutionOptions Options = {})
+	{
+		return Detail::WithPrerequisites(Options, Inputs, [&](const auto& BoundOptions) {
+			return LaunchTask(Name, std::forward<F>(Function), BoundOptions);
+		});
+	}
+	template<typename F, Detail::CTaskDependency T>
+	auto LaunchTask(const char* Name, F&& Function, const T& Input, FTaskExecutionOptions Options = {})
+	{ return LaunchTask(Name, std::forward<F>(Function), Prerequisites(Input), Options); }
+
 	// Declares a CPU-only leaf: the callable must not depend on owner-thread,
 	// RHI, I/O, or external progress. The scheduler enforces task-level leaf
 	// restrictions; the caller owns the callable's ordinary C++ side effects.
@@ -400,11 +478,11 @@ namespace Durin::Tasks
 
 	// A completion prerequisite contributes no result ownership to this success edge.
 	template<typename F>
-	auto Then(const FTaskCompletion& Input, ETaskExecutor Executor, FTaskExecutionOptions Options, F&& Function)
+	auto Then(const FTaskHandle& Input, ETaskExecutor Executor, FTaskExecutionOptions Options, F&& Function)
 	{
 		try
 		{
-			const auto& Handle = Input.GetTaskHandle();
+			const auto& Handle = Input;
 			require(Handle.IsValid());
 			const auto Scope = Durin::Private::FTaskRuntimeAccess::GetScope(Handle);
 			if (Options.Attribution == FTaskAttribution{})
@@ -422,6 +500,10 @@ namespace Durin::Tasks
 			return Detail::TConstruction<FResult>::Failure({ETaskAdmissionErrorCode::CapacityExhausted});
 		}
 	}
+
+	template<typename F>
+	auto Then(const FTaskEvent& Input, ETaskExecutor Executor, FTaskExecutionOptions Options, F&& Function)
+	{ return Then(Input.GetTaskHandle(), Executor, Options, std::forward<F>(Function)); }
 
 	template<typename F>
 	auto FTaskContext::LaunchChild(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
@@ -544,7 +626,7 @@ namespace Durin::Tasks
 		-> TTask<U>
 	{
 		using FAdmission = Detail::TConstruction<TTask<U>>;
-		const auto Predecessor = Input.GetCompletion().GetTaskHandle();
+		const auto Predecessor = Input.GetTaskHandle();
 		if (!Predecessor.IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
 		const uint64 Bytes = Detail::ResultBytes<U>();
 
@@ -658,7 +740,7 @@ namespace Durin::Tasks
 			require(Source && !Source->bTaskTaken.exchange(true));
 			return Detail::FTaskAccess::Make<T>(Source->Handle, Source->Storage, Source->Failure);
 		}
-		auto GetCompletion() const -> FTaskCompletion { return FTaskCompletion(Source->Handle); }
+		auto GetTaskHandle() const -> FTaskHandle { return FTaskHandle(Source->Handle); }
 		auto TrySetValue(TTaskValue<T> Value = {}) const -> bool
 		{
 			if (Source->bResolved.exchange(true)) return false;
@@ -708,7 +790,7 @@ namespace Durin::Tasks
 		if (!Input.IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
 		try
 		{
-			const auto Predecessor = Input.GetCompletion().GetTaskHandle();
+			const auto Predecessor = Input.GetTaskHandle();
 			auto ExternalAdmission = Detail::FCompletionSourceAccess::Create<U>(Durin::Private::FTaskRuntimeAccess::GetScope(Predecessor), Options);
 			auto Source = std::move(ExternalAdmission);
 			auto Output = Source.TakeTask();
@@ -744,13 +826,13 @@ namespace Durin::Tasks
 			};
 			auto InvokeInner = [Source, Binding, InnerHook, Function = std::forward<F>(Function)](auto&&... Args) mutable
 				requires std::is_invocable_v<std::decay_t<F>&, decltype(Args)...> {
-				if (Durin::Private::FTaskRuntimeAccess::IsCancellationRequested(Source.GetCompletion().GetTaskHandle()))
+				if (Durin::Private::FTaskRuntimeAccess::IsCancellationRequested(Source.GetTaskHandle()))
 				{ Source.TrySetCanceled(); return; }
 				auto Returned = std::invoke(Function, std::forward<decltype(Args)>(Args)...);
 				TTask<U> Inner;
 				Inner = std::move(Returned);
 				if (auto Error = Durin::Private::FTaskRuntimeAccess::BindDynamicDependency(
-					Source.GetCompletion().GetTaskHandle(), Inner.GetCompletion().GetTaskHandle()))
+					Source.GetTaskHandle(), Inner.GetTaskHandle()))
 				{
 					requiref(Error->Code != ETaskAdmissionErrorCode::CapacityExhausted, "Dynamic task dependency allocation failed.");
 					Source.TrySetFailure({ETaskTerminalReason::CallbackFailure, *Error, ETaskFailureCode::DependencyBindingFailed});
@@ -771,7 +853,7 @@ namespace Durin::Tasks
 			};
 			auto RunnerAdmission = Then(std::move(Input), Executor, Options, std::move(InvokeInner));
 			auto Runner = std::move(RunnerAdmission);
-			Durin::Private::FTaskRuntimeAccess::BindTerminal(Runner.GetCompletion().GetTaskHandle(), std::move(RunnerHook));
+			Durin::Private::FTaskRuntimeAccess::BindTerminal(Runner.GetTaskHandle(), std::move(RunnerHook));
 			return FAdmission::Success(std::move(Output));
 		}
 		catch (const std::bad_alloc&) { return FAdmission::Failure({ETaskAdmissionErrorCode::CapacityExhausted}); }
@@ -894,7 +976,7 @@ namespace Durin::Tasks
 			auto Result = std::move(Admission);
 			for (size_t Index = 0; Index < Inputs.size(); ++Index)
 			{
-				Claims[Index].Commit(Result.GetCompletion().GetTaskHandle());
+				Claims[Index].Commit(Result.GetTaskHandle());
 				Durin::Private::FUniqueTaskAccess::InvalidateAfterClaim(Detail::FTaskAccess::Native(Inputs[Index]));
 			}
 			return FAdmission::Success(std::move(Result));
@@ -941,7 +1023,7 @@ namespace Durin::Tasks
 				[States] { return std::apply([](const auto&... State) { return FOut(std::move(*State->TakePublished())...); }, States); },
 				[States] { std::apply([](const auto&... State) { (State->Discard(), ...); }, States); });
 			auto Result = std::move(Admission);
-			std::apply([&](auto&... Claim) { (Claim->Commit(Result.GetCompletion().GetTaskHandle()), ...); }, Claims);
+			std::apply([&](auto&... Claim) { (Claim->Commit(Result.GetTaskHandle()), ...); }, Claims);
 			std::apply([](auto&... Input) { (Durin::Private::FUniqueTaskAccess::InvalidateAfterClaim(Detail::FTaskAccess::Native(Input)), ...); }, Inputs);
 			return FAdmission::Success(std::move(Result));
 		}
@@ -962,11 +1044,11 @@ namespace Durin::Tasks
 		-> TTask<U>
 	{
 		using FAdmission = Detail::TConstruction<TTask<U>>;
-		if (!Input.GetCompletion().IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
+		if (!Input.GetTaskHandle().IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
 
 		try
 		{
-			std::vector<FTaskHandle> Handles{Input.GetCompletion().GetTaskHandle()};
+			std::vector<FTaskHandle> Handles{Input.GetTaskHandle()};
 			auto Admission = Detail::BuildFanIn<TTaskValue<U>>(Handles, Executor, Options,
 				Detail::FTaskAccess::SharedStorage(Input)->GetEstimatedResultBytes(),
 				[Input, Function = std::forward<F>(Function)]() mutable -> TTaskValue<U> {
@@ -998,11 +1080,11 @@ namespace Durin::Tasks
 			uint64 Bytes = 0;
 			for (const auto& Input : Inputs)
 			{
-				if (!Input.GetCompletion().IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
+				if (!Input.GetTaskHandle().IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
 				const uint64 InputBytes = Detail::FTaskAccess::SharedStorage(Input)->GetEstimatedResultBytes();
 				if (InputBytes > std::numeric_limits<uint64>::max() - Bytes) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPayloadDeclaration});
 				Bytes += InputBytes;
-				Handles.emplace_back(Input.GetCompletion().GetTaskHandle());
+				Handles.emplace_back(Input.GetTaskHandle());
 			}
 			return Detail::BuildFanIn<FOut>(Handles, Executor, Options, Bytes, [Inputs] {
 				FOut Values; Values.reserve(Inputs.size());

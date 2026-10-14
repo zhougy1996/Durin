@@ -353,7 +353,7 @@ namespace Durin
 						}
 						CompleteFlight(Flight, std::move(Compiled),
 							EMaterialCompileState::Ready);
-					}, Options).GetCompletion().GetTaskHandle();
+					}, Options).GetTaskHandle();
 				NewFlight->TaskId.store(NewFlight->Task.GetTaskId(), std::memory_order_release);
 				return EMaterialCompileState::Running;
 			}

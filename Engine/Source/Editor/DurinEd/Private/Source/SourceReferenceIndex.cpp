@@ -32,8 +32,8 @@ namespace Durin::Editor
 			~FSourceReferenceService()
 			{
 				if (!BuildTask.IsValid()) return;
-				(void)CancelTask(BuildTask.GetCompletion().GetTaskHandle());
-				(void)WaitTask(BuildTask.GetCompletion().GetTaskHandle()).TaskState;
+				(void)CancelTask(BuildTask.GetTaskHandle());
+				(void)WaitTask(BuildTask.GetTaskHandle()).TaskState;
 			}
 
 			std::mutex Mutex;

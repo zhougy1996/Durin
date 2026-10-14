@@ -4,7 +4,7 @@ Summary: Define accepted CPU work, typed ownership, dependencies, cancellation, 
 
 Modules: Core
 
-Last reviewed: 2026-10-12
+Last reviewed: 2026-10-14
 
 ## Construction And Acceptance
 
@@ -111,8 +111,10 @@ does not require another submission during shutdown.
 
 ## Unique And Shared Results
 
-`TTask<T>` is move-only. `GetCompletion()` observes execution without value
-access. `IsCompleted()` includes Succeeded, Failed and Canceled and does not
+`TTask<T>` is move-only. `GetTaskHandle()` observes execution without value
+access or a unique result claim. Task dependencies use the existing erased
+`FTaskHandle`; there is no separate `FTaskCompletion` wrapper. `IsCompleted()`
+includes Succeeded, Failed and Canceled and does not
 imply a value exists. `GetFailure()` requires Failed. `GetResult()` waits for
 success and returns an immutable reference valid until consumption/destruction.
 `std::move(Task).TakeResult()` waits for success, transfers the value exactly
@@ -151,12 +153,26 @@ All ordinary composition returns task handles directly:
 | --- | --- |
 | `Then(TTask<T>&&, Executor, Options, F)` | Consume success into another unique task; void inputs omit the value; callbacks may take context first |
 | `Then(const TSharedTask<T>&, Executor, Options, F)` | Observe immutable success and produce a unique result |
-| `Then(FTaskCompletion, Executor, Options, F)` | Success edge with an erased prerequisite and no input value |
+| `Then(FTaskHandle or FTaskEvent, Executor, Options, F)` | Success edge with an erased prerequisite and no input value |
 | `ThenCompleted(const TSharedTask<T>&, Executor, Options, F)` | Receive the shared task in any terminal state; inspect before accessing a result |
 | `ThenAsync(TTask<T>&&, Executor, Options, F)` | Flatten a returned unique task or shared immutable result owner |
 | `WhenAll(vector<TTask<T>>&&)` | Unique values in input order |
 | `WhenAll(tuple<TTask<Ts>...>&&)` | Heterogeneous unique results; void positions use monostate |
 | `WhenAll(const vector<TSharedTask<T>>&)` | Immutable owning result views, including duplicate positions |
+
+`LaunchTask(Group, Executor, Options, Callable, Dependency)` and the inherited
+executor overload accept a task, event, or erased handle directly. The named
+Worker overload accepts `LaunchTask(Name, Callable, Dependency, Options)`.
+`Prerequisites(A, B, ...)` creates an owning array of erased handles for mixed
+unique tasks, shared tasks, and events; it never consumes a result. These
+overloads append their dependencies to `Options.Prerequisites`, and bind them
+before the supplied array can go out of scope. `Wait(Task)` and `Cancel(Task)`
+accept task/event facades directly.
+
+`FTaskGroup::JoinAsync()` returns `FTaskGroupJoin`, an observation of scope
+quiescence with separate wait/close operations. It is not a task prerequisite:
+scope drain can depend on future admitted children and must retain its owner
+lifecycle semantics instead of becoming an ordinary task edge.
 
 Then rejects task-returning callbacks; ThenAsync is explicit flattening.
 Empty fan-in without additional prerequisites is immediately successful in
@@ -185,7 +201,7 @@ composition such as empty fan-in and dynamically bound inner tasks.
 
 `Tasks::AddNested(Task)` adds a completion dependency to the currently executing
 task. It must be called from a running, non-independent task body, accepts typed
-tasks, events, or a handle-backed `FTaskCompletion`, and rejects cycles and foreign
+tasks, events, or an erased `FTaskHandle`, and rejects cycles and foreign
 schedulers. The parent publishes its result and terminal state only after its
 body and all registered children finish. Its worker is available after the body
 returns. Failure in the parent still waits for child retirement; cancellation
@@ -194,8 +210,10 @@ cancellation does not change the parent's outcome, and this edge does not forwar
 cancellation. Scope cancellation remains a separate owner policy.
 
 `Tasks::FTaskEvent(DebugName)` is a shared, explicit one-shot signal with no worker
-body or result storage. `GetCompletion()` supplies an execution prerequisite or
-nested completion dependency. `AddPrerequisites` accepts handle-backed completions
+body or result storage. Events can be supplied directly as execution prerequisites
+or nested completion dependencies; `GetTaskHandle()` exposes the erased handle
+when it must be stored separately. `AddPrerequisites` accepts task/event facades
+or a span of erased handles
 before `Trigger()`; the event completes only after it is triggered and every
 prerequisite finishes, regardless of prerequisite outcomes. Copies share one
 signal, triggering twice is invalid, and the last handle must be triggered before

@@ -31,9 +31,9 @@ namespace Durin::Tasks
 		}
 	}
 
-	auto AddNested(const FTaskCompletion& Completion) -> void
+	auto AddNested(const FTaskHandle& Completion) -> void
 	{
-		if (auto Error = Durin::Private::FTaskRuntimeAccess::AddNested(Completion.GetTaskHandle()))
+		if (auto Error = Durin::Private::FTaskRuntimeAccess::AddNested(Completion))
 			Detail::FailConstruction(*Error);
 	}
 
@@ -63,19 +63,19 @@ namespace Durin::Tasks
 		State->Handle = std::move(Admission).TakeValue();
 	}
 
-	auto FTaskEvent::GetCompletion() const -> FTaskCompletion
+	auto FTaskEvent::GetTaskHandle() const -> FTaskHandle
 	{
 		require(State);
-		return FTaskCompletion(State->Handle);
+		return FTaskHandle(State->Handle);
 	}
 
-	auto FTaskEvent::AddPrerequisites(std::span<const FTaskCompletion> Prerequisites) -> void
+	auto FTaskEvent::AddPrerequisites(std::span<const FTaskHandle> Prerequisites) -> void
 	{
 		require(State);
 		std::lock_guard Lock(State->Mutex);
 		requiref(!State->Triggered, "Task event prerequisites must be added before Trigger.");
 		for (const auto& Prerequisite : Prerequisites)
-			if (auto Error = Durin::Private::FTaskRuntimeAccess::AddCompletionDependency(State->Handle, Prerequisite.GetTaskHandle()))
+			if (auto Error = Durin::Private::FTaskRuntimeAccess::AddCompletionDependency(State->Handle, Prerequisite))
 				Detail::FailConstruction(*Error);
 	}
 
@@ -122,6 +122,8 @@ namespace Durin::Tasks
 		return Durin::ParallelFor(Name, Num, std::move(Function), Native);
 	}
 
-	auto Wait(const FTaskCompletion& Completion) -> FTaskWaitResult { return Completion.GetTaskHandle().IsValid() ? WaitTask(Completion.GetTaskHandle()) : Durin::Private::FTaskRuntimeAccess::WaitGroup(Completion.GetGroupToken()); }
-	auto Cancel(const FTaskCompletion& Completion) -> bool { return Completion.GetTaskHandle().IsValid() ? CancelTask(Completion.GetTaskHandle()) : Durin::Private::FTaskRuntimeAccess::CloseGroup(Completion.GetGroupToken(), ETaskScopeCloseMode::Cancel) == ETaskScopeCloseResult::Closed; }
+	auto Wait(const FTaskHandle& Task) -> FTaskWaitResult { return WaitTask(Task); }
+	auto Cancel(const FTaskHandle& Task) -> bool { return CancelTask(Task); }
+	auto Wait(const FTaskGroupJoin& Join) -> FTaskWaitResult { return Durin::Private::FTaskRuntimeAccess::WaitGroup(Join.GetGroupToken()); }
+	auto Cancel(const FTaskGroupJoin& Join) -> bool { return Durin::Private::FTaskRuntimeAccess::CloseGroup(Join.GetGroupToken(), ETaskScopeCloseMode::Cancel) == ETaskScopeCloseResult::Closed; }
 }

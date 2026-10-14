@@ -190,7 +190,7 @@ namespace Durin::Editor
 			PumpCache();
 			while (CacheTask.IsValid())
 			{
-				(void)WaitTask(CacheTask.GetCompletion().GetTaskHandle());
+				(void)WaitTask(CacheTask.GetTaskHandle());
 				PumpCache();
 			}
 		}

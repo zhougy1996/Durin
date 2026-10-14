@@ -244,7 +244,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			BlockingState->bEntered = true;
 			BlockingState->Condition.notify_all();
 			BlockingState->Condition.wait(Lock, [&] { return BlockingState->bRelease; });
-		}).GetCompletion().GetTaskHandle();
+		}).GetTaskHandle();
 		ASSERT_TRUE(Blocker.IsValid());
 		{
 			std::unique_lock Lock(BlockingState->Mutex);

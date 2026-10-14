@@ -179,7 +179,7 @@ namespace Durin
 							Tests::EDynamicUnloadFixtureEvent::AsyncPublished,
 							Serial);
 					}
-				}).GetCompletion().GetTaskHandle();
+				}).GetTaskHandle();
 			return Publisher.IsValid();
 		}
 
@@ -219,7 +219,7 @@ namespace Durin
 							Host.WaitForAsyncRelease(Serial);
 						});
 				},
-				Options).GetCompletion().GetTaskHandle();
+				Options).GetTaskHandle();
 			return BlockingWorker.IsValid();
 		}
 

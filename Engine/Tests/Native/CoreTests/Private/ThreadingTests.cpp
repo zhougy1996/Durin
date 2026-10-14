@@ -1621,12 +1621,12 @@ namespace Durin
 				if (Fail) throw std::runtime_error("independent task failure");
 				return 42;
 			});
-			FWaitTaskRunnable Runnable(Task.GetCompletion().GetTaskHandle(), Returned);
+			FWaitTaskRunnable Runnable(Task.GetTaskHandle(), Returned);
 			std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Runnable,
 				"IndependentRenderingJoin", 0, EThreadPriority::Normal, EThreadRole::RenderingThread));
 			EXPECT_NE(Thread, nullptr);
 			if (Thread) EXPECT_FALSE(Returned.WaitFor(0.02));
-			if (Outcome == 2) EXPECT_TRUE(Tasks::Cancel(Task.GetCompletion()));
+			if (Outcome == 2) EXPECT_TRUE(Tasks::Cancel(Task));
 			Release.Trigger();
 			if (Thread)
 			{
@@ -1651,7 +1651,7 @@ namespace Durin
 		SourceOptions.Scope = Scope.GetToken();
 		auto Source = Tasks::TCompletionSource<void>::Create(SourceOptions);
 		auto Pending = Source.TakeTask();
-		const FTaskHandle PendingHandle = Pending.GetCompletion().GetTaskHandle();
+		const FTaskHandle PendingHandle = Pending.GetTaskHandle();
 		Scope.Close(ETaskScopeCloseMode::Drain);
 		for (int InvalidKind = 0; InvalidKind < 3; ++InvalidKind)
 		{
@@ -1674,7 +1674,7 @@ namespace Durin
 			EXPECT_EQ(Scope.WaitFor(0.01), ETaskScopeWaitResult::UnsupportedThread);
 			return true;
 		});
-		const auto LeafHandle = Leaf.GetCompletion().GetTaskHandle();
+		const auto LeafHandle = Leaf.GetTaskHandle();
 		EXPECT_TRUE(Leaf.GetResult());
 		const auto Dynamic = Private::FTaskRuntimeAccess::BindDynamicDependency(LeafHandle, PendingHandle);
 		ASSERT_TRUE(Dynamic);
@@ -2921,10 +2921,10 @@ namespace Durin
 		FTaskHandle Dependent = Tasks::Then(Producer, Tasks::ETaskExecutor::Worker, {.DebugName = "PublicationBarrierDependent"}, [&](const int& Value) {
 			EXPECT_EQ(42, Value);
 			bDependentRan.store(true, std::memory_order::release);
-		}).GetCompletion().GetTaskHandle();
+		}).GetTaskHandle();
 		AllowTaskReturn.Trigger();
 		ASSERT_TRUE(RawTerminalReached.WaitFor(1.0));
-		ASSERT_EQ(Producer.GetCompletion().GetTaskHandle().GetTaskId(), HookTaskId.load(std::memory_order::acquire));
+		ASSERT_EQ(Producer.GetTaskHandle().GetTaskId(), HookTaskId.load(std::memory_order::acquire));
 
 		const FTaskDiagnostics DuringPublication = Producer.GetDiagnostics();
 		EXPECT_EQ(ETaskState::Running, Producer.GetState());
@@ -2990,8 +2990,8 @@ namespace Durin
 
 		auto PreviousLifetime = Tasks::Share(Tasks::LaunchTask("PreviousLifetime", []() { return 7; }));
 		auto ReleasedWhileStopped = Tasks::Share(Tasks::LaunchTask("ReleasedWhileStopped", []() { return 8; }));
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(PreviousLifetime.GetCompletion().GetTaskHandle()).TaskState);
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(ReleasedWhileStopped.GetCompletion().GetTaskHandle()).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(PreviousLifetime.GetTaskHandle()).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(ReleasedWhileStopped.GetTaskHandle()).TaskState);
 		while (GetTaskSchedulerDiagnostics().CompletedTaskCount < 2)
 		{
 			std::this_thread::yield();

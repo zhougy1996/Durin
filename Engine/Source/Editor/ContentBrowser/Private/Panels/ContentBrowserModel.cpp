@@ -25,14 +25,14 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		CancelPendingSnapshots();
 		// Module code must remain loaded until both owned worker bodies have exited.
-		if (ItemsTask.IsValid()) (void)WaitTask(ItemsTask.GetCompletion().GetTaskHandle());
-		if (TreeTask.IsValid()) (void)WaitTask(TreeTask.GetCompletion().GetTaskHandle());
+		if (ItemsTask.IsValid()) (void)WaitTask(ItemsTask.GetTaskHandle());
+		if (TreeTask.IsValid()) (void)WaitTask(TreeTask.GetTaskHandle());
 	}
 
 	auto FContentBrowserModel::InvalidateDirectoryTree() -> void
 	{
 		bActiveTreePublishable = false;
-		if (TreeTask.IsValid()) (void)CancelTask(TreeTask.GetCompletion().GetTaskHandle());
+		if (TreeTask.IsValid()) (void)CancelTask(TreeTask.GetTaskHandle());
 		DirectoryChildrenCache.clear();
 		RequestedDirectoryChildrenSnapshots.clear();
 	}
@@ -40,7 +40,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserModel::CancelPendingSnapshots() -> void
 	{
 		if (ItemsRequest) ItemsRequest->State = EItemsRequestState::Cancelled;
-		if (ItemsTask.IsValid()) (void)CancelTask(ItemsTask.GetCompletion().GetTaskHandle());
+		if (ItemsTask.IsValid()) (void)CancelTask(ItemsTask.GetTaskHandle());
 		ItemsRequest.reset();
 		bSnapshotPublicationSuspended = false;
 		InvalidateDirectoryTree();
@@ -146,8 +146,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		do
 		{
 			(void)PumpPendingSnapshots();
-			if (ItemsTask.IsValid()) (void)WaitTask(ItemsTask.GetCompletion().GetTaskHandle());
-			if (TreeTask.IsValid()) (void)WaitTask(TreeTask.GetCompletion().GetTaskHandle());
+			if (ItemsTask.IsValid()) (void)WaitTask(ItemsTask.GetTaskHandle());
+			if (TreeTask.IsValid()) (void)WaitTask(TreeTask.GetTaskHandle());
 		} while (ItemsTask.IsValid() || TreeTask.IsValid() || IsLoading()
 			|| (bAsync && !RequestedDirectoryChildrenSnapshots.empty()));
 	}
@@ -350,7 +350,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!ActiveTreeDirectory.empty() && Invalidates(ActiveTreeDirectory))
 		{
 			bActiveTreePublishable = false;
-			if (TreeTask.IsValid()) (void)CancelTask(TreeTask.GetCompletion().GetTaskHandle());
+			if (TreeTask.IsValid()) (void)CancelTask(TreeTask.GetTaskHandle());
 		}
 		bool bMoved = false;
 		for (const auto& Change : Changes.Changes)
@@ -389,7 +389,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		bSnapshotInjectedForTesting = false;
 		if (bInvalidateDirectoryTree) InvalidateDirectoryTree();
 		if (ItemsRequest) ItemsRequest->State = EItemsRequestState::Cancelled;
-		if (ItemsTask.IsValid()) (void)CancelTask(ItemsTask.GetCompletion().GetTaskHandle());
+		if (ItemsTask.IsValid()) (void)CancelTask(ItemsTask.GetTaskHandle());
 		if (!Catalog || Catalog->Revision != GetAssetCatalogRevision())
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.CaptureCatalog");

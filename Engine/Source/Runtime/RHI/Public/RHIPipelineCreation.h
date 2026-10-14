@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "RHIResources.h"
-#include "Threading/TaskComposition.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {
@@ -72,7 +72,7 @@ namespace Durin
 		auto GetRejection() const -> ERHIPipelineRequestRejection { return Rejection; }
 		RHI_API auto GetState() const -> ERHIPipelineRequestState;
 		RHI_API auto GetResult() const -> FRHIPipelineCreationResult;
-		RHI_API auto GetCompletion() const -> Tasks::FTaskCompletion;
+		RHI_API auto GetTaskHandle() const -> FTaskHandle;
 		RHI_API auto IsCompute() const -> bool;
 		// Immutable recording metadata is available before the native pipeline.
 		RHI_API auto GetPipelineLayout() const -> std::shared_ptr<const FPipelineLayoutDesc>;

@@ -468,7 +468,7 @@ namespace Durin
 							{Flight, std::move(Result), Terminal});
 					}, {.Cancellation = Flight->Cancellation.GetToken(),
 						.Attribution = State->Attribution,
-						.Scope = State->Scope.GetToken()}).GetCompletion().GetTaskHandle();
+						.Scope = State->Scope.GetToken()}).GetTaskHandle();
 
 			}
 			else if (Phase == EFlightPhase::Working && Flight->Task.IsComplete())

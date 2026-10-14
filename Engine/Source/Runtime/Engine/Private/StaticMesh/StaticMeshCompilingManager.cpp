@@ -530,7 +530,7 @@ namespace Durin
 						Work->Done.store(true, std::memory_order_release);
 						State->AdmittedBuildCount.fetch_sub(1);
 						State->Changed.notify_all();
-					}, Options).GetCompletion().GetTaskHandle();
+					}, Options).GetTaskHandle();
 			}
 			auto Admit() -> void
 			{

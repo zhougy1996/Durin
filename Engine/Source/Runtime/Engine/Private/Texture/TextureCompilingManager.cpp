@@ -142,7 +142,7 @@ namespace Durin
 			if (RequestState.BuildOperation)
 			{
 				// A posted product is not enough: nested completion includes callback/capture retirement.
-				return RequestState.Task.IsValid() && RequestState.Task.GetCompletion().IsReady();
+				return RequestState.Task.IsValid() && RequestState.Task.GetTaskHandle().IsComplete();
 			}
 			return RequestState.Mailbox.has_value(); // Canceled before worker admission.
 		}

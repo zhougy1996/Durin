@@ -1,4 +1,5 @@
 #include "RHICommandList.h"
+#include "Threading/TaskComposition.h"
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICompletionBackend.h"
 
@@ -1615,7 +1616,7 @@ namespace Durin
 			}
 			~FSubmissionGroup()
 			{
-				for (const auto& Wake : WakeTasks) Tasks::Cancel(Wake.GetCompletion());
+				for (const auto& Wake : WakeTasks) Tasks::Cancel(Wake);
 				auto Pending = ERHICommandBatchState::Pending;
 				Completion->State.compare_exchange_strong(Pending, ERHICommandBatchState::Canceled);
 			}
@@ -2977,7 +2978,7 @@ namespace Durin
 				};
 				auto Wake = std::make_shared<FWakeOnTerminal>(State->RHIThread->GetWakeCallback());
 				// Callable destruction also wakes the queue when the edge is canceled.
-				SubmissionGroup->WakeTasks.push_back(Tasks::Then(Request.GetCompletion(), Tasks::ETaskExecutor::Worker,
+				SubmissionGroup->WakeTasks.push_back(Tasks::Then(Request.GetTaskHandle(), Tasks::ETaskExecutor::Worker,
 					{.DebugName = "RHI.PipelineDependency"}, [Wake] {}));
 			}
 			Work.Execute = [Replay, SubmissionGroup]() mutable {

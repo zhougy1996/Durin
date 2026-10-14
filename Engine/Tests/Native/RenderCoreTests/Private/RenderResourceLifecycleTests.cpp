@@ -236,7 +236,7 @@ namespace Durin
 			bTaskAdmissionRejected.store(
 				!Private::TryLaunchCancelableTaskWithCompletion("RenderLifecycle.RejectedAfterClose", [](const FTaskCancellationToken&) {}, {}, {}).HasValue(),
 				std::memory_order_release);
-		}).GetCompletion().GetTaskHandle();
+		}).GetTaskHandle();
 		ASSERT_TRUE(ProbeStarted.WaitFor(1.0));
 
 		ShutdownTaskScheduler(true);
@@ -275,10 +275,10 @@ namespace Durin
 				{
 					std::this_thread::yield();
 				}
-			}).GetCompletion().GetTaskHandle();
+			}).GetTaskHandle();
 		ASSERT_TRUE(RunningTaskStarted.WaitFor(1.0));
 		FTaskHandle QueuedTask = Tasks::LaunchTask(
-			"RenderLifecycle.QueuedDuringDiscard", []() {}).GetCompletion().GetTaskHandle();
+			"RenderLifecycle.QueuedDuringDiscard", []() {}).GetTaskHandle();
 		ASSERT_TRUE(QueuedTask.IsValid());
 
 		ShutdownTaskScheduler(false);
@@ -295,7 +295,7 @@ namespace Durin
 
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		FTaskHandle RestartedTask = Tasks::LaunchTask(
-			"RenderLifecycle.AfterRestart", []() {}).GetCompletion().GetTaskHandle();
+			"RenderLifecycle.AfterRestart", []() {}).GetTaskHandle();
 		ASSERT_TRUE(RestartedTask.IsValid());
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(RestartedTask).TaskState);
 		EXPECT_EQ(ETaskState::Canceled, RunningTask.GetState());

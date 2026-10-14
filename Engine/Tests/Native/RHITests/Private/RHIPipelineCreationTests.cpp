@@ -9,6 +9,7 @@
 #include "RHICommandList.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
+#include "Threading/TaskComposition.h"
 
 namespace Durin
 {
@@ -457,11 +458,11 @@ namespace Durin
 		EXPECT_FALSE(Request.IsAccepted());
 		Request = Owner.RequestCompute(Initializer, "owning caller");
 		EXPECT_TRUE(Request.Wait());
-		auto Completion = Request.GetCompletion();
+		auto Completion = Request.GetTaskHandle();
 		Request = {};
 		Owner.ReleaseResources();
 		EXPECT_EQ(Owner.GetStatistics().ActiveObservers, 0u);
-		EXPECT_TRUE(Completion.IsReady());
+		EXPECT_TRUE(Completion.IsComplete());
 		Group.Close();
 		EXPECT_EQ(Scope.Wait(), ETaskScopeWaitResult::Quiescent);
 	}
@@ -516,7 +517,7 @@ namespace Durin
 		EXPECT_THROW(Request.GetResult(), std::logic_error);
 		EXPECT_EQ(Owner.RequestCompute(Initializer, "late").GetRejection(), ERHIPipelineRequestRejection::Closed);
 		Owner.ReleaseResources();
-		EXPECT_TRUE(Request.GetCompletion().IsReady());
+		EXPECT_TRUE(Request.GetTaskHandle().IsComplete());
 	}
 
 	TEST_F(FRHIPipelineCreationTests, CloseCancelsObserversAndJoinsInFlightCreation)
@@ -554,6 +555,6 @@ namespace Durin
 			EXPECT_EQ(Owner.RequestCompute(Initializer, "closed").GetRejection(), ERHIPipelineRequestRejection::Closed);
 		}
 		EXPECT_EQ(Request.GetState(), ERHIPipelineRequestState::Canceled);
-		EXPECT_TRUE(Request.GetCompletion().IsReady());
+		EXPECT_TRUE(Request.GetTaskHandle().IsComplete());
 	}
 }

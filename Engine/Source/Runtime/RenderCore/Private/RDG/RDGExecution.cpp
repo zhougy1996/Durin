@@ -410,7 +410,7 @@ namespace Durin
 				std::vector<Tasks::TTask<FRHICommandList>> Work;
 				~FPendingRecordings()
 				{
-					for (auto& Task : Work) if (Task.IsValid()) Tasks::Cancel(Task.GetCompletion());
+					for (auto& Task : Work) if (Task.IsValid()) Tasks::Cancel(Task);
 					for (auto& Task : Work) if (Task.IsValid()) require(Task.Wait().WaitStatus == ETaskWaitStatus::Completed);
 				}
 			} Pending;

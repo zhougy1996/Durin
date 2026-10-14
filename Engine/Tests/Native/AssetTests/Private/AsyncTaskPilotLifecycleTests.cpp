@@ -147,8 +147,8 @@ namespace
 		EXPECT_EQ(3u, Held.OutstandingRecords);
 		EXPECT_GT(Held.ReservedBytes, 0u);
 		auto Marker = Tasks::LaunchTask("MeshOwnerReleasedWorkers", [] {});
-		ASSERT_TRUE(WaitUntil([&] { return Marker.GetCompletion().IsReady(); }, std::chrono::seconds(2)));
-		ASSERT_TRUE(Marker.GetCompletion().IsReady());
+		ASSERT_TRUE(WaitUntil([&] { return Marker.GetTaskHandle().IsComplete(); }, std::chrono::seconds(2)));
+		ASSERT_TRUE(Marker.GetTaskHandle().IsComplete());
 		EXPECT_EQ(ETaskState::Succeeded, Marker.GetState());
 		Meshes[0]->CancelCompilation();
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
@@ -267,8 +267,8 @@ namespace
 		// Two suspended Cube owners retain their slots; the third stays queued.
 		EXPECT_EQ(3u, FAssetCompilingManager::Get().GetNumRemainingAssets());
 		auto Marker = Tasks::LaunchTask("CubeOwnerReleasedWorkers", [] {});
-		ASSERT_TRUE(WaitUntil([&] { return Marker.GetCompletion().IsReady(); }, std::chrono::seconds(2)));
-		ASSERT_TRUE(Marker.GetCompletion().IsReady());
+		ASSERT_TRUE(WaitUntil([&] { return Marker.GetTaskHandle().IsComplete(); }, std::chrono::seconds(2)));
+		ASSERT_TRUE(Marker.GetTaskHandle().IsComplete());
 		EXPECT_EQ(ETaskState::Succeeded, Marker.GetState());
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Cubes[0]);
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
@@ -337,9 +337,9 @@ namespace
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor({.MaxQueuedEntries = 1, .MaxQueuedPayloadBytes = 64, .MaxPayloadBytesPerEntry = 64}));
 		ASSERT_TRUE(InitializeAssetCompilingManager());
 		FModuleManager::Get().LoadModuleChecked("TextureCompressor");
-		auto Root = Tasks::LaunchTask("TextureSaturationRoot", [] {}).GetCompletion().GetTaskHandle();
+		auto Root = Tasks::LaunchTask("TextureSaturationRoot", [] {}).GetTaskHandle();
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
-		auto Deferred = Tasks::Then(Tasks::FTaskCompletion(Root), Tasks::ETaskExecutor::GameThreadDeferred, {}, [] {}).GetCompletion().GetTaskHandle();
+		auto Deferred = Tasks::Then(Durin::FTaskHandle(Root), Tasks::ETaskExecutor::GameThreadDeferred, {}, [] {}).GetTaskHandle();
 		ASSERT_TRUE(Deferred.IsValid());
 		Testing::RegisterMountPointForTests("/AsyncPilot/", (Testing::GetTestWorkDirectory() / "LargeContent").generic_string() + "/");
 		ExerciseStaticMeshOwnerBridge();
@@ -380,8 +380,8 @@ namespace
 			ASSERT_EQ(2u, Cache->Reads.load());
 			// Both owner slots are suspended in I/O; the two Core workers remain usable.
 			auto Marker = Tasks::LaunchTask("TextureOwnerReleasedWorkers", [] { return 42; });
-			ASSERT_TRUE(WaitUntil([&] { return Marker.GetCompletion().IsReady(); }, std::chrono::seconds(2)));
-			ASSERT_TRUE(Marker.GetCompletion().IsReady());
+			ASSERT_TRUE(WaitUntil([&] { return Marker.GetTaskHandle().IsComplete(); }, std::chrono::seconds(2)));
+			ASSERT_TRUE(Marker.GetTaskHandle().IsComplete());
 			EXPECT_EQ(ETaskState::Succeeded, Marker.GetState());
 			FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Owners[0]);
 			FAssetCompilingManager::Get().ProcessAsyncTasks();
@@ -522,8 +522,8 @@ namespace
 		ASSERT_EQ(1u, ShutdownMeshCache->Reads.load());
 		EXPECT_EQ(3u, GetStaticMeshCompilationManagerDiagnostics().OutstandingRecords);
 
-		Blockers[0] = Tasks::LaunchTask("HoldTextureWorkerA", [&](const FTaskCancellationToken& Token) { HoldWorker(StartedA, Token); }).GetCompletion().GetTaskHandle();
-		Blockers[1] = Tasks::LaunchTask("HoldTextureWorkerB", [&](const FTaskCancellationToken& Token) { HoldWorker(StartedB, Token); }).GetCompletion().GetTaskHandle();
+		Blockers[0] = Tasks::LaunchTask("HoldTextureWorkerA", [&](const FTaskCancellationToken& Token) { HoldWorker(StartedA, Token); }).GetTaskHandle();
+		Blockers[1] = Tasks::LaunchTask("HoldTextureWorkerB", [&](const FTaskCancellationToken& Token) { HoldWorker(StartedB, Token); }).GetTaskHandle();
 		ASSERT_TRUE(StartedA.WaitFor(1.0));
 		ASSERT_TRUE(StartedB.WaitFor(1.0));
 		Testing::RegisterMountPointForTests("/AsyncPilot/", (Testing::GetTestWorkDirectory() / "ShutdownContent").generic_string() + "/");
@@ -531,7 +531,7 @@ namespace
 		// Requests accepted below must still receive failure/cancellation delivery.
 		for (uint32 Index = 2; Index < Blockers.size(); ++Index)
 		{
-			Blockers[Index] = Tasks::LaunchTask("FillTextureScheduler", [] {}).GetCompletion().GetTaskHandle();
+			Blockers[Index] = Tasks::LaunchTask("FillTextureScheduler", [] {}).GetTaskHandle();
 			ASSERT_TRUE(Blockers[Index].IsValid());
 		}
 		auto ImageResult2 = Image::FImage::TryCreate({.Width = 1, .Height = 1,
@@ -577,10 +577,10 @@ namespace
 		// Scheduler thresholds do not reject queued owner work.
 		for (uint32 Index = 2; Index < 6; ++Index)
 		{
-			Blockers[Index] = Tasks::LaunchTask("FillTextureShutdown", [] {}).GetCompletion().GetTaskHandle();
+			Blockers[Index] = Tasks::LaunchTask("FillTextureShutdown", [] {}).GetTaskHandle();
 			ASSERT_TRUE(Blockers[Index].IsValid());
 		}
-		EXPECT_TRUE(Tasks::LaunchTask("SaturatedTextureShutdown", [] {}).GetCompletion().GetTaskHandle().IsValid());
+		EXPECT_TRUE(Tasks::LaunchTask("SaturatedTextureShutdown", [] {}).GetTaskHandle().IsValid());
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(PendingTextures);
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*HeldTexture);
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*HeldCube);

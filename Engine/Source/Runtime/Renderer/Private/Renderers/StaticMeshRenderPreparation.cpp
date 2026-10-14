@@ -47,7 +47,7 @@ namespace Durin
 			std::vector<Tasks::TTask<std::vector<FMeshViewPreparationFact>>> Work;
 			~FPending()
 			{
-				for (auto& Task : Work) if (Task.IsValid()) Tasks::Cancel(Task.GetCompletion());
+				for (auto& Task : Work) if (Task.IsValid()) Tasks::Cancel(Task);
 				for (auto& Task : Work) if (Task.IsValid()) require(Task.Wait().WaitStatus == ETaskWaitStatus::Completed);
 			}
 		} Pending;
@@ -879,7 +879,7 @@ namespace Durin
 
 	FStaticMeshPreparationWork::~FStaticMeshPreparationWork()
 	{
-		for (auto& Slot : Active) Tasks::Cancel(Slot.Task.GetCompletion());
+		for (auto& Slot : Active) Tasks::Cancel(Slot.Task);
 		for (auto& Slot : Active)
 			require(Slot.Task.Wait().WaitStatus == ETaskWaitStatus::Completed);
 	}
@@ -923,7 +923,7 @@ namespace Durin
 			if (!Failure && Wait.TaskState != ETaskState::Succeeded)
 			{
 				Failure = FStaticMeshPreparationError{Slot.Index, Wait.TaskState};
-				for (auto& Pending : Work.Active) Tasks::Cancel(Pending.Task.GetCompletion());
+				for (auto& Pending : Work.Active) Tasks::Cancel(Pending.Task);
 			}
 			if (!Failure)
 			{
