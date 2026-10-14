@@ -1,5 +1,5 @@
 #include "Backend/RHITextureUpload.h"
-#include "Backend/RHIDynamicBufferWrite.h"
+#include "Backend/RHIDynamicBufferPagePool.h"
 #include <gtest/gtest.h>
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICreation.h"
@@ -96,18 +96,18 @@ namespace Durin
 				: FRHIBuffer(FRHIBufferCreateDesc::Create("MappedTest", 8, 0,
 					EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Dynamic | EBufferUsageFlags::CPUWriteDiscard))
 			{
-				Pool.Add(Memory, Memory->data());
+				require(Pool.AddPage(Memory, Memory->data(), 8));
 			}
 			auto TryAcquireMappedWrite(uint32 Offset, uint32) -> std::shared_ptr<FRHIBufferMappedWrite> override
 			{
 				++AcquireCount;
-				if (auto Range = Pool.TryAcquire())
+				if (auto Range = Pool.TryAcquire(8, 1))
 					return std::make_shared<FTestMappedWrite>(std::move(Range), Offset);
 				return {};
 			}
 			auto PrepareDiscardWrite(IRHICommandContext&) -> void override { ++FallbackDiscardCount; }
 			std::shared_ptr<std::array<std::byte, 8>> Memory = std::make_shared<std::array<std::byte, 8>>();
-			FRHIDynamicBufferWritePool Pool;
+			FRHIDynamicBufferPagePool Pool{1, 8};
 			uint32 AcquireCount = 0;
 			uint32 FallbackDiscardCount = 0;
 		};
@@ -2985,9 +2985,9 @@ namespace Durin
 		auto* Data = static_cast<std::byte*>(Commands.LockBuffer(Buffer, 2, 3, EResourceLockMode::WriteOnlyDiscard));
 		EXPECT_EQ(Data, Buffer->Memory->data() + 2);
 		Data[0] = std::byte{4}; Data[1] = std::byte{5}; Data[2] = std::byte{6};
-		EXPECT_FALSE(Buffer->Pool.TryAcquire());
+		EXPECT_FALSE(Buffer->Pool.TryAcquire(8, 1));
 		Commands.UnlockBuffer(Buffer);
-		EXPECT_FALSE(Buffer->Pool.TryAcquire());
+		EXPECT_FALSE(Buffer->Pool.TryAcquire(8, 1));
 		EXPECT_TRUE(Context.ObservedBufferData.empty());
 		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before.LiveBytes);
 		Executor.Submit({}, ERHISubmitFlags::None);
@@ -2995,7 +2995,7 @@ namespace Durin
 		EXPECT_EQ(Context.ObservedBufferOffset, 2u);
 		EXPECT_EQ(Context.ObservedBufferData, MakeByteVector({4, 5, 6}));
 		EXPECT_EQ(Buffer->FallbackDiscardCount, 0u);
-		EXPECT_TRUE(Buffer->Pool.TryAcquire());
+		EXPECT_TRUE(Buffer->Pool.TryAcquire(8, 1));
 	}
 
 	TEST(FRHICommandListTests, DiscardLockExhaustionFallsBackWithoutCopyingAtUnlock)
@@ -3004,7 +3004,7 @@ namespace Durin
 		FRHICommandListExecutor Executor(Context);
 		auto& Commands = Executor.GetImmediateCommandList();
 		auto Buffer = MakeRefCount<FTestMappedBuffer>();
-		auto Busy = Buffer->Pool.TryAcquire();
+		auto Busy = Buffer->Pool.TryAcquire(8, 1);
 		auto* Data = static_cast<std::byte*>(Commands.LockBuffer(Buffer, 1, 2, EResourceLockMode::WriteOnlyDiscard));
 		EXPECT_NE(Data, Buffer->Memory->data() + 1);
 		Data[0] = std::byte{7}; Data[1] = std::byte{8};
@@ -3055,10 +3055,10 @@ namespace Durin
 			auto& Commands = Executor.GetImmediateCommandList();
 			Commands.LockBuffer(Buffer, 0, 1, EResourceLockMode::WriteOnlyDiscard);
 			Commands.UnlockBuffer(Buffer);
-			EXPECT_FALSE(Buffer->Pool.TryAcquire());
+			EXPECT_FALSE(Buffer->Pool.TryAcquire(8, 1));
 		}
 		EXPECT_TRUE(Context.ObservedBufferData.empty());
-		EXPECT_TRUE(Buffer->Pool.TryAcquire());
+		EXPECT_TRUE(Buffer->Pool.TryAcquire(8, 1));
 	}
 
 	TEST(FRHICommandListTests, OwningUniformRangeSurvivesItsCreatingList)

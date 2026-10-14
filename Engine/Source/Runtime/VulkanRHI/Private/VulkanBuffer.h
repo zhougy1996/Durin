@@ -53,7 +53,7 @@ namespace Durin::VulkanRHI
 		VULKANRHI_API auto GetBackingBuffer() -> FVulkanBuffer*;
 		VULKANRHI_API auto GetBackingBuffer() const -> const FVulkanBuffer*;
 		auto GetWriteRange() const -> const std::shared_ptr<FRHIDynamicBufferWriteRange>& { return ActiveWriteRange; }
-		auto InitializeMappedWrites(const FRHIBufferCreateDesc& CreateDesc) -> void;
+		auto InitializeMappedWrites() -> void;
 		auto TryAcquireMappedWrite(uint32 Offset, uint32 Size)
 			-> std::shared_ptr<FRHIBufferMappedWrite> override;
 		auto PrepareDiscardWrite(IRHICommandContext& Context) -> void override;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CoreMinimal.h"
 #include "Backend/RHIDynamicBufferWrite.h"
 
 namespace Durin
@@ -16,7 +17,7 @@ namespace Durin
 			require(Owner && Data && Size);
 			std::lock_guard Lock(Mutex);
 			if (Pages.size() >= MaxPages || Size > MaxBytes - ReservedBytes) return false;
-			Pages.push_back({std::move(Owner), static_cast<std::byte*>(Data), Size, {{0, Size}}, {}});
+			Pages.push_back({std::move(Owner), static_cast<std::byte*>(Data), {{0, Size}}, {}});
 			ReservedBytes += Size;
 			return true;
 		}
@@ -104,7 +105,6 @@ namespace Durin
 		{
 			std::shared_ptr<void> Owner;
 			std::byte* Data;
-			uint32 Size;
 			std::vector<FSpan> Free;
 			std::vector<FAllocation> Allocations;
 		};
