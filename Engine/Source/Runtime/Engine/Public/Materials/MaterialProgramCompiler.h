@@ -298,6 +298,9 @@ namespace Durin
 			FByteBuffer& OutBytes) -> FMaterialOperationResult;
 	}
 
+	ENGINE_API auto BuildMaterialProgramIdentity(const FMaterialStaticProperties& StaticProperties,
+		const FMaterialCompilerEnvironment& Environment, std::span<const FMaterialParameterCollectionLayout> Collections,
+		FByteView CanonicalIR, const FMaterialRenderLayout& Layout) -> FMaterialProgramIdentity;
 	ENGINE_API auto BuildMaterialProgramIdentity(const MIR::FCompilerInput& Input,
 		FByteView CanonicalIR, const FMaterialRenderLayout& Layout) -> FMaterialProgramIdentity;
 	struct FMaterialSourceGenerationResult

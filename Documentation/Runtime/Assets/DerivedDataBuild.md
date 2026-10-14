@@ -281,6 +281,12 @@ and waits through callbacks and request-buffer/callable release. Same-owner and
 pending same-cache waits anywhere in a nested completion stack return `WouldBlock`;
 reentrant destruction still cancels and leaves shared accounting alive.
 
+`FRequestBarrier` registers a scoped request with the existing owner protocol.
+It keeps `Poll` and external waits pending until submitting code publishes its
+handles, including nested inline submissions. Cancellation cannot release the
+barrier; its submitting-thread scope must end. Waiting from that scope returns
+`WouldBlock`. Priority remains mutable and is sampled by newly dispatched work.
+
 Standalone `CreateAsyncCache` without a scheduler uses Core BlockingIO, creates no threads, and admits
 at most 4,096 pending/active items with two active operations.
 `FCacheDispatchLimits` configures concurrency (clamped to 1..64), capacity

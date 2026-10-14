@@ -13,6 +13,13 @@ namespace Durin
 		auto RequestBytes(const FGeneratedShaderCompileRequest& Request) -> uint64
 		{
 			uint64 Bytes = sizeof(Request) + 3 * Request.Source.capacity() + Request.VirtualPath.capacity() + (Request.ExpectedSourceTree ? Request.ExpectedSourceTree->VirtualPath.capacity() : 0);
+			if (Request.ExpectedSourceTree)
+			{
+				const auto& Tree = *Request.ExpectedSourceTree;
+				for (const auto& Entry : Tree.EntryPoints) Bytes += sizeof(Entry) + Entry.capacity();
+				Bytes += Tree.Frequencies.capacity() * sizeof(EShaderFrequency);
+				for (const auto& Macro : Tree.Macros) Bytes += sizeof(Macro) + Macro.Name.capacity() + (Macro.Value ? Macro.Value->capacity() : 0);
+			}
 			for (const auto& Entry : Request.EntryPoints) Bytes += sizeof(Entry) + Entry.capacity();
 			for (const auto& Macro : Request.Macros) Bytes += sizeof(Macro) + Macro.Name.capacity() + (Macro.Value ? Macro.Value->capacity() : 0);
 			for (const auto& Prefix : Request.AllowedImportVirtualPrefixes) Bytes += sizeof(Prefix) + Prefix.capacity();
@@ -35,15 +42,17 @@ namespace Durin
 			FTaskCancellationSource PreparationCancellation;
 			std::shared_ptr<FFlight> Flight;
 			std::atomic_bool Canceled = false;
-			bool Published = false, Delivering = false, Completed = false;
+			enum class EDelivery { Pending, Delivering, Completed };
+			EDelivery Delivery = EDelivery::Pending;
+			bool Published = false;
 			uint64 Bytes = 0;
 			auto Finish(FShaderCompilerOutput Output) -> void
 			{
 				FShaderBuildCompletion Callback;
 				{
 					std::lock_guard Lock(Mutex);
-					if (Delivering || Completed) return;
-					Delivering = true;
+					if (Delivery != EDelivery::Pending) return;
+					Delivery = EDelivery::Delivering;
 					Callback = std::move(Completion);
 				}
 				try { if (Canceled || (Options.IsCancelled && Options.IsCancelled())) Output = CanceledShader(); } catch (...) { Output = CanceledShader(); }
@@ -51,7 +60,7 @@ namespace Durin
 				try { if (Callback) Callback(std::move(Output)); } catch (...) { }
 				Callback = {};
 				--ShaderCallbackDepth;
-				{ std::lock_guard Lock(Mutex); Completed = true; }
+				{ std::lock_guard Lock(Mutex); Delivery = EDelivery::Completed; }
 				Condition.notify_all();
 			}
 			auto ReleaseCaptures() -> void
@@ -71,10 +80,6 @@ namespace Durin
 			std::shared_ptr<FGeneratedBuildInput> Prepared;
 			std::vector<std::shared_ptr<FSubscriber>> Subscribers;
 			DerivedData::FRequestOwner Owner;
-			std::atomic_bool Published = false;
-			std::mutex SubmissionMutex;
-			std::condition_variable SubmissionCondition;
-			uint32 Submitting = 0;
 			bool Canceled = false;
 			uint64 Bytes = 0;
 		};
@@ -89,7 +94,7 @@ namespace Durin
 		auto PruneCompilerOperations() -> void
 		{
 			std::erase_if(CompilerOperations, [&](const auto& Flight) {
-				if (!Flight->Published || !Flight->Owner.Poll()) return false;
+				if (!Flight->Owner.Poll()) return false;
 				Flight->Prepared.reset(); Bytes -= Flight->Bytes; return true;
 			});
 		}
@@ -140,6 +145,7 @@ namespace Durin
 				}
 			}
 			std::shared_ptr<FFlight> Flight;
+			std::unique_ptr<DerivedData::FRequestBarrier> AdmissionBarrier;
 			bool Leader = false;
 			bool Capacity = false;
 			{
@@ -153,7 +159,9 @@ namespace Durin
 					if (Existing != Flights.end()) Flight = Existing->second;
 					else if (CompilerOperations.size() < 128)
 					{
-						Flight = std::make_shared<FFlight>(); Flight->Key = Key; Flight->Prepared = std::move(*Prepared);
+						Flight = std::make_shared<FFlight>();
+						AdmissionBarrier = std::make_unique<DerivedData::FRequestBarrier>(Flight->Owner);
+						Flight->Key = Key; Flight->Prepared = std::move(*Prepared);
 						Flight->Bytes = std::exchange(Subscriber->Bytes, 0);
 						Flights.emplace(Key, Flight); CompilerOperations.push_back(Flight); Leader = true;
 					}
@@ -167,11 +175,7 @@ namespace Durin
 		}
 		auto SubmitFlight(const std::shared_ptr<FFlight>& Flight, bool Inline, bool Query) -> void
 		{
-			struct FSubmission {
-				std::shared_ptr<FFlight> Flight;
-				explicit FSubmission(std::shared_ptr<FFlight> InFlight) : Flight(std::move(InFlight)) { std::lock_guard Lock(Flight->SubmissionMutex); ++Flight->Submitting; Flight->Published = false; }
-				~FSubmission() { { std::lock_guard Lock(Flight->SubmissionMutex); if (!--Flight->Submitting) Flight->Published.store(true, std::memory_order_release); } Flight->SubmissionCondition.notify_all(); }
-			} Submission(Flight);
+			DerivedData::FRequestBarrier Submission(Flight->Owner);
 			try {
 			using namespace DerivedData;
 			FBuildRequestOptions Options;
@@ -239,8 +243,8 @@ namespace Durin
 	}
 	auto FShaderBuilder::FAsyncState::FSubscriber::IsComplete() const -> bool
 	{
-		{ std::lock_guard Lock(Mutex); if (!Completed || !Published || (Preparation.IsValid() && !Preparation.IsComplete())) return false; }
-		if (auto Owner = State.lock()) { std::lock_guard Lock(Owner->Mutex); return !Flight || (Flight->Published && Flight->Owner.Poll()); }
+		{ std::lock_guard Lock(Mutex); if (Delivery != EDelivery::Completed || !Published || (Preparation.IsValid() && !Preparation.IsComplete())) return false; }
+		if (auto Owner = State.lock()) { std::lock_guard Lock(Owner->Mutex); return !Flight || Flight->Owner.Poll(); }
 		return true;
 	}
 	auto FShaderBuilder::FAsyncState::FSubscriber::Wait() -> EShaderBuildWaitResult
@@ -251,9 +255,8 @@ namespace Durin
 		if (Task.IsValid() && WaitTask(Task).WaitStatus != ETaskWaitStatus::Completed) return EShaderBuildWaitResult::WouldBlock;
 		std::shared_ptr<FFlight> Pending;
 		if (auto Owner = State.lock()) { std::lock_guard Lock(Owner->Mutex); Pending = Flight; }
-		if (Pending) { std::unique_lock Lock(Pending->SubmissionMutex); Pending->SubmissionCondition.wait(Lock, [&] { return Pending->Published && !Pending->Submitting; }); }
 		if (Pending && Pending->Owner.Wait() != DerivedData::ERequestWaitResult::Completed) return EShaderBuildWaitResult::WouldBlock;
-		{ std::unique_lock Lock(Mutex); Condition.wait(Lock, [&] { return Completed; }); }
+		{ std::unique_lock Lock(Mutex); Condition.wait(Lock, [&] { return Delivery == EDelivery::Completed; }); }
 		ReleaseCaptures();
 		if (auto Owner = State.lock()) { std::lock_guard Lock(Owner->Mutex); Owner->PruneCompilerOperations(); }
 		return EShaderBuildWaitResult::Completed;
@@ -298,7 +301,7 @@ namespace Durin
 			if (!Dispatch.HasValue())
 			{
 				{ std::lock_guard Lock(Async->Mutex); Async->Bytes -= Subscriber->Bytes; std::erase(Async->Operations, Subscriber); }
-				{ std::lock_guard Lock(Subscriber->Mutex); Subscriber->Completion = {}; Subscriber->Completed = true; Subscriber->Published = true; }
+				{ std::lock_guard Lock(Subscriber->Mutex); Subscriber->Completion = {}; Subscriber->Delivery = FAsyncState::FSubscriber::EDelivery::Completed; Subscriber->Published = true; }
 				Subscriber->Condition.notify_all();
 				return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::DispatchRejected});
 			}

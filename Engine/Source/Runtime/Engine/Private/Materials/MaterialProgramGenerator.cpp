@@ -1119,8 +1119,8 @@ float4 FragmentMain(
 		FMaterialTranslatedProgram Translation;
 		Translation.StaticProperties = Input.StaticProperties;
 		Translation.ResourceLimits = Input.Environment.ResourceLimits;
-		Translation.Sources = Input.Normalized.Sources;
-		auto& Result = Translation.Candidate;
+		for (const auto& Source : Input.Normalized.Sources) Translation.Sources.push_back({Source});
+		auto& Result = Translation;
 		Result.CompilerIdentity = Input.Environment.CompilerIdentity;
 		Result.Target = Input.Environment.Target;
 		Result.PassContractVersion = Input.Environment.PassContractVersion;
@@ -1170,39 +1170,43 @@ float4 FragmentMain(
 		bool bForceRecompile) -> FGeneratedShaderCompileRequest
 	{
 		if (!Translation) return {};
-		const auto& Result = Translation.Candidate;
+		const auto& Result = Translation;
 		FGeneratedShaderCompileRequest Request;
 		Request.Target = Result.Target == "metal-msl-2.0"
 			? MetalShaderTarget : VulkanShaderTarget;
 		Request.VirtualPath = "/Generated/Materials/" + Result.Identity.ToString();
 		Request.Source = Result.GeneratedSource;
-		Request.EntryPoints.assign(MaterialCompiledEntryPoints.begin(), MaterialCompiledEntryPoints.end());
-		Request.Frequencies.assign(4, EShaderFrequency::Fragment);
-		Request.Frequencies.insert(Request.Frequencies.end(), 3, EShaderFrequency::Vertex);
-		Request.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE",
-			std::to_string(static_cast<uint8>(Translation.StaticProperties.BlendMode)));
-		Request.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL",
-			std::to_string(static_cast<uint8>(Translation.StaticProperties.ShadingModel)));
-		Request.Macros.emplace_back(
-			"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS",
-			std::to_string(std::bit_cast<uint32>(
-				CanonicalizeMaterialShaderProperties(Translation.StaticProperties).OpacityMaskThreshold)));
+		auto Options = MakeMaterialShaderCompileOptions(Request.Target, CanonicalizeMaterialShaderProperties(Translation.StaticProperties));
+		for (const auto* Entry : Options.EntryPoints) Request.EntryPoints.emplace_back(Entry);
+		Request.Frequencies = std::move(Options.Frequencies);
+		Request.Macros = std::move(Options.Macros);
 		Request.AllowedImportVirtualPrefixes = {
 			"/Engine/Material/", "/Engine/Lighting/", "/Engine/VertexFactory/"};
 		Request.bForceRecompile = bForceRecompile;
 		Request.MaximumOutputBytes = 8ull * 1024 * 1024;
 		for (const auto& Dependency : Result.Dependencies)
 			if (Dependency.VirtualPath == "/Engine/MaterialCompilerEnvironment")
-				Request.ExpectedSourceTree = FShaderSourceDependencyFingerprint{Dependency.VirtualPath, Dependency.ContentHash};
+				{
+				FShaderSourceTreeDescription Environment;
+				Environment.VirtualPath = Dependency.VirtualPath; Environment.ContentHash = Dependency.ContentHash;
+				Environment.EntryPoints = Request.EntryPoints; Environment.Frequencies = Request.Frequencies;
+				Environment.Macros = MakeMaterialShaderCompileOptions(Request.Target, {.OpacityMaskThreshold = 0.5f}).Macros;
+				Environment.bCompleteClosure = true; Request.ExpectedSourceTree = std::move(Environment);
+			}
 		return Request;
 	}
 
 	auto AssembleMaterialProgram(FMaterialTranslatedProgram Translation,
 		FShaderCompilerOutput Output) -> FMaterialCompilerResult
 	{
-		auto Result = std::move(Translation.Candidate);
-		Result.bSucceeded = false;
-		Result.CompiledShaders.clear();
+		FMaterialCompilerResult Result{
+			.Identity = Translation.Identity, .CompilerIdentity = std::move(Translation.CompilerIdentity), .Target = std::move(Translation.Target),
+			.PassContractVersion = Translation.PassContractVersion, .Quality = Translation.Quality, .FeatureLevel = Translation.FeatureLevel,
+			.StaticBools = std::move(Translation.StaticBools), .IR = std::move(Translation.IR),
+			.ActiveParameters = std::move(Translation.ActiveParameters), .ActiveCollections = std::move(Translation.ActiveCollections),
+			.Layout = std::move(Translation.Layout), .Requirements = Translation.Requirements,
+			.GeneratedSource = std::move(Translation.GeneratedSource), .Dependencies = std::move(Translation.Dependencies),
+			.Timings = Translation.Timings, .Diagnostics = std::move(Translation.Diagnostics)};
 		if (!Translation) return Result;
 		if (!Output)
 		{
@@ -1231,6 +1235,6 @@ float4 FragmentMain(
 
 	auto MIR::Compile(const MIR::FCompilerInput& Input, bool bForceRecompile) -> FMaterialCompilerResult
 	{
-		return MaterialBuildPrivate::CompileMaterialInput(Input, bForceRecompile);
+		return MaterialBuildPrivate::CompileMaterialInput(Input, bForceRecompile).Program;
 	}
 }

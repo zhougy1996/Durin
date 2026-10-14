@@ -160,6 +160,17 @@ namespace Durin
 			-> bool = default;
 	};
 
+	struct FShaderSourceTreeDescription
+	{
+		std::string VirtualPath;
+		FXxHash128 ContentHash;
+		std::vector<std::string> EntryPoints;
+		std::vector<EShaderFrequency> Frequencies;
+		std::vector<FShaderMacroDefinition> Macros;
+		// The verified tree declares every import available to the generated root.
+		bool bCompleteClosure = false;
+	};
+
 	// Owns an in-memory generated root. The ShaderBuild module resolves imports,
 	// compiles, reflects, and caches it without materializing authored source on disk.
 	struct FGeneratedShaderCompileRequest
@@ -173,8 +184,8 @@ namespace Durin
 		std::vector<std::string> AllowedImportVirtualPrefixes;
 		std::shared_ptr<const FShaderSourceArtifacts> SourceArtifacts;
 		bool bForceRecompile = false;
-		// Optional material environment identity, verified against immutable source bytes.
-		std::optional<FShaderSourceDependencyFingerprint> ExpectedSourceTree;
+		// Optional caller-declared environment, verified against immutable source bytes.
+		std::optional<FShaderSourceTreeDescription> ExpectedSourceTree;
 		uint64 MaximumOutputBytes = 256ull * 1024 * 1024;
 	};
 

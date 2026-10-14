@@ -360,6 +360,25 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(WaitTask(Blocker).WaitStatus, ETaskWaitStatus::Completed);
 	}
 
+	TEST_F(FShaderBuilderTests, GeneratedClosureUsesCallerEnvironmentWithoutMaterialConventions)
+	{
+		WriteTextFile(GetBuilderTestRoot() / "Source/Simple.slang", "float4 Offset() { return float4(1,0,0,1); }");
+		WriteTextFile(GetBuilderTestRoot() / "Source/Environment.slang", "#if USE_OFFSET\nimport Simple;\n#endif\n");
+		Builder = std::make_unique<FShaderBuilder>();
+		auto Options = MakeCompileOptions(); Options.EntryPoints = {"Main"}; Options.Macros = {{"USE_OFFSET", "1"}};
+		FShaderSourceDependencyFingerprint Tree;
+		ASSERT_TRUE(Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Environment", Options, Tree));
+		FGeneratedShaderCompileRequest Request; Request.VirtualPath = "/Generated/Procedural/Closure";
+		Request.Source = "import Simple; [shader(\"vertex\")] float4 Main(uint id : SV_VertexID) : SV_Position { return Offset(); }";
+		Request.EntryPoints = {"Main"}; Request.Frequencies = {EShaderFrequency::Vertex}; Request.AllowedImportVirtualPrefixes = {"/ShaderBuilderTests/"};
+		Request.ExpectedSourceTree = FShaderSourceTreeDescription{Tree.VirtualPath, Tree.ContentHash, {"Main"}, {EShaderFrequency::Vertex}, Options.Macros, true};
+		const auto Output = Builder->GetOrCompileGenerated(Request);
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error); ASSERT_EQ(Output.CompiledShaders.size(), 1u);
+		EXPECT_EQ(Output.CompiledShaders.front().SourceEntryPoint, "Main");
+		Request.ExpectedSourceTree->EntryPoints.clear();
+		EXPECT_EQ(Builder->GetOrCompileGenerated(Request).Error.Code, EShaderError::InvalidGeneratedRequest);
+	}
+
 	TEST_F(FShaderBuilderTests, ExpectedFingerprintRejectsMutationWithUnchangedFileFacts)
 	{
 		const auto File = GetBuilderTestRoot() / "Source/Simple.slang";
@@ -369,7 +388,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		const auto Time = std::filesystem::last_write_time(File); auto Changed = Source; Changed.replace(Changed.find("float4(1,"), 9, "float4(2,"); WriteTextFile(File, Changed); std::filesystem::last_write_time(File, Time);
 		FGeneratedShaderCompileRequest Request; Request.VirtualPath = "/Generated/Materials/FingerprintConflict";
 		Request.Source = "import Simple; [shader(\"vertex\")] float4 Main(uint id : SV_VertexID) : SV_Position { return float4(1,0,0,1); }";
-		Request.EntryPoints = {"Main"}; Request.Frequencies = {EShaderFrequency::Vertex}; Request.AllowedImportVirtualPrefixes = {"/ShaderBuilderTests/"}; Request.ExpectedSourceTree = Before;
+		Request.EntryPoints = {"Main"}; Request.Frequencies = {EShaderFrequency::Vertex}; Request.AllowedImportVirtualPrefixes = {"/ShaderBuilderTests/"}; Request.ExpectedSourceTree = FShaderSourceTreeDescription{Before.VirtualPath, Before.ContentHash, {"Main"}, {EShaderFrequency::Vertex}};
 		const auto Rejected = Builder->GetOrCompileGenerated(Request); EXPECT_FALSE(Rejected); EXPECT_EQ(Rejected.Error.Code, EShaderError::DependencyContentConflict);
 		AdvanceShaderReloadGeneration(); FShaderSourceDependencyFingerprint After; ASSERT_TRUE(Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", MakeCompileOptions(), After)); EXPECT_NE(Before.ContentHash, After.ContentHash);
 	}

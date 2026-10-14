@@ -5,6 +5,13 @@
 
 namespace Durin::MaterialBuildPrivate
 {
+	struct FMaterialBuildResult
+	{
+		FMaterialCompilerResult Program;
+		std::vector<MIR::FSource> Sources;
+		std::shared_ptr<const FMaterialCompilerResult> Shared;
+		bool RetainedHit = false;
+	};
 	// Engine-owned continuation lifetime. Business completion and retirement differ.
 	class ENGINE_API FMaterialBuildOperation : public std::enable_shared_from_this<FMaterialBuildOperation>
 	{
@@ -13,7 +20,8 @@ namespace Durin::MaterialBuildPrivate
 		~FMaterialBuildOperation();
 		auto Start(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force,
 			FTaskCancellationToken Cancellation, std::function<bool(FMaterialTranslatedProgram&)> OnTranslation,
-			std::function<void(FMaterialCompilerResult)> Completion) -> void;
+			std::function<void(FMaterialCompilerResult)> Completion,
+			std::shared_ptr<const FMaterialTranslationInput> EncodedInput = {}) -> void;
 		auto TryReserve() -> bool;
 		auto RaisePriority() -> void;
 		auto Cancel() -> void;
@@ -27,6 +35,5 @@ namespace Durin::MaterialBuildPrivate
 		auto Translated(FMaterialTranslatedProgram Translation) -> void;
 		auto Complete(FMaterialCompilerResult Result, bool Deliver = true) -> void;
 	};
-	ENGINE_API auto CompileMaterialInput(const MIR::FCompilerInput& Input, bool Force,
-		std::vector<MIR::FSource>* Sources = nullptr, std::shared_ptr<const FMaterialCompilerResult>* Shared = nullptr, bool* RetainedHit = nullptr) -> FMaterialCompilerResult;
+	ENGINE_API auto CompileMaterialInput(const MIR::FCompilerInput& Input, bool Force) -> FMaterialBuildResult;
 }

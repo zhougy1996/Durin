@@ -107,6 +107,41 @@ namespace
 	};
 }
 
+TEST(FBuildContinuationTests, SubmissionBarriersRetainNestedInlineCallbacksAndPriority)
+{
+	auto Service = CreateBuild(); auto Function = std::make_shared<FFunction>();
+	ASSERT_TRUE(Service->Register(Function));
+	auto Session = Service->CreateSession({}, CreateInlineBuildScheduler()).value();
+	FRequestOwner Owner(ERequestPriority::Low); uint32 Callbacks = 0;
+	{
+		FRequestBarrier Submission(Owner);
+		EXPECT_FALSE(Owner.Poll()); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock);
+		Owner.SetPriority(ERequestPriority::High);
+		Function->OnBuild = [&] { EXPECT_EQ(Owner.GetPriority(), ERequestPriority::High); };
+		auto First = Session->Build(Definition(), Owner, [&](auto Result) {
+			EXPECT_EQ(Result.GetStatus(), EStatus::Ok); ++Callbacks;
+			FRequestBarrier Nested(Owner);
+			auto Second = Session->Build(Definition(), Owner, [&](auto Other) {
+				EXPECT_EQ(Other.GetStatus(), EStatus::Ok); ++Callbacks;
+				EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock);
+			}, {}, Options());
+			EXPECT_TRUE(Second);
+		}, {}, Options());
+		EXPECT_TRUE(First); EXPECT_EQ(Callbacks, 2u); EXPECT_FALSE(Owner.Poll());
+	}
+	EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+}
+
+TEST(FBuildContinuationTests, CancellationCannotRetireUnpublishedSubmission)
+{
+	FRequestOwner Owner; FThreadEvent Entered, Release, Waiting, Retired;
+	std::thread Submitter([&] { FRequestBarrier Submission(Owner); Entered.Trigger(); Release.Wait(); });
+	Entered.Wait(); Owner.RequestCancel(); EXPECT_FALSE(Owner.Poll());
+	std::thread Waiter([&] { Waiting.Trigger(); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); Retired.Trigger(); });
+	Waiting.Wait(); EXPECT_FALSE(Retired.WaitFor(0.02));
+	Release.Trigger(); Submitter.join(); Waiter.join(); EXPECT_TRUE(Owner.Poll());
+}
+
 TEST(FBuildContinuationTests, TaskSessionsDoNotChangeInlineSessions)
 {
 	auto Cache = std::make_shared<FContinuationCache>(); auto Service = CreateBuild({.Cache = Cache});

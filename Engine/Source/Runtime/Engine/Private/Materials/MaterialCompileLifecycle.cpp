@@ -40,26 +40,6 @@ namespace Durin
 			return Left.GetKey() == Right.GetKey();
 		}
 
-		auto RefreshCollectionDefaults(
-			std::shared_ptr<const FMaterialCompilerResult> Program,
-			std::span<const FMaterialParameterCollectionLayout> Current)
-			-> std::shared_ptr<const FMaterialCompilerResult>
-		{
-			if (!Program) return Program;
-			std::vector<FMaterialParameterCollectionLayout> Active;
-			bool bChanged = false;
-			for (const auto& Collection : Program->ActiveCollections)
-			{
-				const auto Found = std::ranges::find(Current, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
-				if (Found == Current.end() || !Collection.HasCompatibleSchema(*Found)) return Program;
-				bChanged |= Collection.DefaultPayload != Found->DefaultPayload;
-				Active.push_back(*Found);
-			}
-			if (!bChanged) return Program;
-			auto Refreshed = std::make_shared<FMaterialCompilerResult>(*Program);
-			Refreshed->ActiveCollections = std::move(Active);
-			return Refreshed;
-		}
 
 		auto EstimateRequestBytes(const FMaterialCompileRequest& Request) -> uint64
 		{
@@ -255,8 +235,10 @@ namespace Durin
 				}
 				auto Encoded = MaterialBuildPrivate::EncodeTranslationInput(*Request.CompilerInput);
 				if (!Encoded) return EMaterialCompileState::Rejected;
+				const auto FlightBytes = Bytes + Encoded->GetRetainedCapacityBytes();
+				auto TranslationInput = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{*Encoded, FXxHash128::HashBuffer(Encoded->GetBytes())});
 				FBinaryWriter Identity;
-				Identity.WriteHash128(FXxHash128::HashBuffer(Encoded->GetBytes()));
+				Identity.WriteHash128(TranslationInput->Identity);
 				const auto& Environment = Request.CompilerInput->Environment;
 				Identity.WriteString(Environment.CompilerIdentity); Identity.WriteString(Environment.Target); Identity.WriteU32(Environment.PassContractVersion);
 				auto Dependencies = Environment.Dependencies;
@@ -268,7 +250,7 @@ namespace Durin
 					std::scoped_lock Lock(Mutex);
 					if (const auto Existing = Flights.find(Key); Existing != Flights.end())
 					{
-						if (Existing->second->Cancellation.GetToken().IsCancellationRequested()) return EMaterialCompileState::Deferred;
+						if (Existing->second->Cancellation.GetToken().IsCancellationRequested() || Bytes > 128ull * 1024 * 1024 - CapturedBytes) return EMaterialCompileState::Deferred;
 						Request.bSingleFlightConsumer = true;
 						if (!std::ranges::any_of(Existing->second->Origins, [&](auto Origin) { return SameOwner(Origin, Request.Owner); })) Existing->second->Origins.push_back(Request.Owner);
 						Request.ProgramIdentity = Existing->second->ProgramIdentity;
@@ -278,11 +260,11 @@ namespace Durin
 						++Diagnostics.AcceptedRequests; ++Diagnostics.SingleFlightConsumers; ++OutstandingConsumers;
 						return EMaterialCompileState::Pending;
 					}
-					if (Operations.size() >= MaterialCompileMaxConcurrentRequests) return EMaterialCompileState::Deferred;
+					if (FlightBytes > 128ull * 1024 * 1024 - CapturedBytes || Operations.size() >= MaterialCompileMaxConcurrentRequests) return EMaterialCompileState::Deferred;
 					NewFlight = std::make_shared<FMaterialCompileFlight>(); NewFlight->Key = Key;
 					NewFlight->Operation = std::make_shared<MaterialBuildPrivate::FMaterialBuildOperation>();
 					if (!NewFlight->Operation->TryReserve()) return EMaterialCompileState::Deferred;
-					NewFlight->CapturedBytes = Bytes; CapturedBytes += Bytes;
+					NewFlight->CapturedBytes = FlightBytes; CapturedBytes += FlightBytes;
 					NewFlight->Origins.push_back(Request.Owner);
 					NewFlight->InitialOwner = Request.Owner;
 					NewFlight->Consumers.push_back(std::move(Request));
@@ -298,16 +280,16 @@ namespace Durin
 						std::shared_ptr<const FMaterialCompilerResult> Retained;
 						{
 							std::scoped_lock Lock(Mutex);
-							Flight->ProgramIdentity = Translation.Candidate.Identity;
-							for (size_t Index = 0; Index < Translation.Sources.size(); ++Index) Flight->SourceMap.emplace_back(Translation.SourceOrdinals[Index], Translation.Sources[Index].ExpressionIndex);
+							Flight->ProgramIdentity = Translation.Identity;
+							for (size_t Index = 0; Index < Translation.Sources.size(); ++Index) Flight->SourceMap.emplace_back(Translation.Sources[Index].Ordinal, Translation.Sources[Index].Source.ExpressionIndex);
 							for (auto& Consumer : Flight->Consumers)
 							{
 								Consumer.ProgramIdentity = Flight->ProgramIdentity;
 								Consumer.ExpressionSources.clear();
 								for (size_t Index = 0; Index < Translation.Sources.size(); ++Index)
 								{
-									const auto Ordinal = Translation.SourceOrdinals[Index];
-									auto Source = Consumer.CompilerInput->Sources[Ordinal]; Source.ExpressionIndex = Translation.Sources[Index].ExpressionIndex;
+									const auto Ordinal = Translation.Sources[Index].Ordinal;
+									auto Source = Consumer.CompilerInput->Sources[Ordinal]; Source.ExpressionIndex = Translation.Sources[Index].Source.ExpressionIndex;
 									Consumer.ExpressionSources.push_back(std::move(Source));
 								}
 							}
@@ -339,7 +321,7 @@ namespace Durin
 					[this, Weak = std::weak_ptr(NewFlight)](FMaterialCompilerResult Compiled) {
 						const auto Flight = Weak.lock(); if (!Flight) return;
 						CompleteFlight(Flight, std::move(Compiled), Flight->Cancellation.GetToken().IsCancellationRequested() ? EMaterialCompileState::Canceled : EMaterialCompileState::Ready);
-					});
+					}, std::move(TranslationInput));
 				NewFlight->TaskId.store(NewFlight->Operation->GetTaskId());
 				return EMaterialCompileState::Running;
 			}
@@ -887,12 +869,10 @@ namespace Durin
 			Status.DependencyRevision = GetShaderReloadGeneration(); Status.Target = Input.Environment.Target;
 			Status.TaskId = 0; Status.CacheOutcome = EMaterialCompileCacheOutcome::None;
 			Material.CompilationOwner.MaterialCompileDiagnostics.clear();
-			std::vector<MIR::FSource> Sources;
-			std::shared_ptr<const FMaterialCompilerResult> Shared;
-			bool RetainedHit = false;
-			auto Compiled = MaterialBuildPrivate::CompileMaterialInput(Input, bForceRecompile, &Sources, &Shared, &RetainedHit);
+			auto Build = MaterialBuildPrivate::CompileMaterialInput(Input, bForceRecompile);
+			auto& Compiled = Build.Program;
 			Status.RequestedIdentity = Compiled.Identity;
-			Material.CompilationOwner.RequestedExpressionSources = Sources.empty() ? Input.Sources : Sources;
+			Material.CompilationOwner.RequestedExpressionSources = Build.Sources.empty() ? Input.Sources : Build.Sources;
 			FMaterialCompileResult Result{
 				.Owner = FWeakObjectPtr(&Material), .AuthoredRevision = Status.AuthoredRevision,
 				.Generation = Status.RequestGeneration, .DependencyRevision = Status.DependencyRevision,
@@ -900,8 +880,8 @@ namespace Durin
 				.StaticProperties = Input.StaticProperties, .Target = Status.Target,
 				.State = Compiled ? EMaterialCompileState::Ready : EMaterialCompileState::Failed,
 				.Category = Compiled || Compiled.Diagnostics.empty() ? EMaterialCompileResultCategory::None : MapProgramCategory(Compiled.Diagnostics.front().Category),
-				.CacheOutcome = RetainedHit ? EMaterialCompileCacheOutcome::RetainedHit : bForceRecompile ? EMaterialCompileCacheOutcome::Forced : EMaterialCompileCacheOutcome::Compiled,
-				.CompiledProgram = Shared};
+				.CacheOutcome = Build.RetainedHit ? EMaterialCompileCacheOutcome::RetainedHit : bForceRecompile ? EMaterialCompileCacheOutcome::Forced : EMaterialCompileCacheOutcome::Compiled,
+				.CompiledProgram = Build.Shared};
 			if (!Compiled) for (auto& Diagnostic : Compiled.Diagnostics) Result.Diagnostics.push_back({.Category = MapProgramCategory(Diagnostic.Category), .Source = std::move(Diagnostic), .AssetPath = Material.GetObjectPath(), .Generation = Status.RequestGeneration});
 			Admit(Material, std::move(Result), Context);
 			return Status.State == EMaterialCompileState::Ready;
@@ -987,7 +967,7 @@ namespace Durin
 								}
 						}
 						if (Current.size() != Candidate.CompiledProgram->ActiveCollections.size()) { ScheduleEdit(Material, Context); return false; }
-						Candidate.CompiledProgram = RefreshCollectionDefaults(Candidate.CompiledProgram, Current);
+						if (auto Refreshed = MaterialBuildPrivate::BindProgramCollections(Candidate.CompiledProgram, Current)) Candidate.CompiledProgram = std::move(Refreshed);
 					}
 					const auto ShaderProperties = CanonicalizeMaterialShaderProperties(Result.StaticProperties);
 					Candidate.StaticProperties = Material.GetStaticProperties();

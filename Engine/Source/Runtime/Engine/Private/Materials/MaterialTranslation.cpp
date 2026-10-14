@@ -15,7 +15,7 @@ namespace Durin::MaterialBuildPrivate
 		std::atomic_uint64_t Producers = 0, Resolutions = 0, Hits = 0, ProducerMicroseconds = 0, GameThreadProducers = 0;
 		auto InputReference(FXxHash128 Identity) -> FBuildInputReference { return {"Input", Identity, "Material.TranslationInput", 1, "Material.MIR", 1}; }
 		auto Failure(FMaterialError Error) -> FMaterialTranslatedProgram
-		{ FMaterialTranslatedProgram Product; Product.Candidate.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Normalization, .Error = std::move(Error)}); return Product; }
+		{ FMaterialTranslatedProgram Product; Product.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Normalization, .Error = std::move(Error)}); return Product; }
 		class FResolver final : public IBuildInputResolver
 		{
 		public:
@@ -55,19 +55,28 @@ namespace Durin::MaterialBuildPrivate
 				++Producers; if (GIsGameThreadIdInitialized && IsInGameThread()) ++GameThreadProducers;
 				const auto Begin = std::chrono::steady_clock::now();
 				auto Product = TranslatePreparedMaterialProgram(PrepareMaterialProgram(*Decoded));
-				if (!Product) for (auto& Diagnostic : Product.Candidate.Diagnostics)
+				if (!Product) for (auto& Diagnostic : Product.Diagnostics)
 					if (!Diagnostic.NodeId.IsValid() && (Diagnostic.LocationKind == EMaterialProgramDiagnosticLocationKind::Node || Diagnostic.LocationKind == EMaterialProgramDiagnosticLocationKind::Input))
 					{
-						const auto& Locations = Product.Candidate.IR.Nodes.empty() ? Decoded->Sources : Product.Sources;
-						const auto Source = std::ranges::find(Locations, Diagnostic.LocationIndex, &MIR::FSource::ExpressionIndex);
-						if (Source != Locations.end()) Diagnostic.NodeId = Source->NodeId;
+						const MIR::FSource* Source = nullptr;
+						if (Product.IR.Nodes.empty())
+						{
+							const auto Found = std::ranges::find(Decoded->Sources, Diagnostic.LocationIndex, &MIR::FSource::ExpressionIndex);
+							if (Found != Decoded->Sources.end()) Source = &*Found;
+						}
+						else
+						{
+							const auto Found = std::ranges::find(Product.Sources, Diagnostic.LocationIndex, [](const auto& Location) { return Location.Source.ExpressionIndex; });
+							if (Found != Product.Sources.end()) Source = &Found->Source;
+						}
+						if (Source) Diagnostic.NodeId = Source->NodeId;
 					}
 				auto Encoded = EncodeTranslationProduct(Product, *Identity);
 				if (!Encoded) return Context.FailExecution("Material translation output exceeds its schema or resource bound.");
 				if (!DecodeTranslationProduct(Encoded->GetBytes(), *Identity, *Decoded)) return Context.FailExecution("Material translation output failed typed validation.");
 				ProducerMicroseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count());
 				Context.AddValue(FValueId::FromName("Product"), std::move(*Encoded));
-				FBinaryWriter Timing; Timing.WriteU64(Product.Candidate.Timings.NormalizationMicroseconds); Timing.WriteU64(Product.Candidate.Timings.GenerationMicroseconds);
+				FBinaryWriter Timing; Timing.WriteU64(Product.Timings.NormalizationMicroseconds); Timing.WriteU64(Product.Timings.GenerationMicroseconds);
 				if (auto Observation = MakeBuildMetadata(FSharedByteBuffer::Take(Timing.TakeBytes()))) Context.AddObservation(FValueId::FromName("Timings"), std::move(*Observation));
 			}
 		};
@@ -76,10 +85,14 @@ namespace Durin::MaterialBuildPrivate
 			FBuildDefinition Definition;
 			std::shared_ptr<const FResolver> Resolver;
 		};
-		auto MakeRequest(const MIR::FCompilerInput& Input) -> std::optional<FRequest>
+		auto MakeRequest(const MIR::FCompilerInput& Input, std::shared_ptr<const FMaterialTranslationInput> Encoded = {}) -> std::optional<FRequest>
 		{
-			auto Bytes = EncodeTranslationInput(Input); if (!Bytes) return {};
-			auto Resolver = std::make_shared<FResolver>(); Resolver->Bytes = std::move(*Bytes); Resolver->Identity = FXxHash128::HashBuffer(Resolver->Bytes.GetBytes());
+			if (!Encoded)
+			{
+				auto Bytes = EncodeTranslationInput(Input); if (!Bytes) return {};
+				Encoded = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{*Bytes, FXxHash128::HashBuffer(Bytes->GetBytes())});
+			}
+			auto Resolver = std::make_shared<FResolver>(); Resolver->Bytes = Encoded->Bytes; Resolver->Identity = Encoded->Identity;
 			FBuildDefinitionBuilder Builder("Material.Translate");
 			Builder.AddConstant("Generator", GetMaterialBuildVersion()).AddConstant("MIR", uint64(MIR::CurrentVersion))
 				.AddConstant("Layout", uint64(CompiledMaterialRenderLayoutVersion)).AddConstant("Pass", uint64(CurrentMaterialPassContractVersion))
@@ -122,7 +135,7 @@ namespace Durin::MaterialBuildPrivate
 				if (HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit)) ++Hits;
 				for (const auto& Observation : Output->GetObservations()) if (Observation.Id == FValueId::FromName("Timings"))
 				{
-					auto Bytes = Observation.Object.GetView().Find("Payload").AsBinary(); if (Bytes) { FBinaryReader Reader(Bytes->GetBytes()); Reader.ReadU64(Product->Candidate.Timings.NormalizationMicroseconds); Reader.ReadU64(Product->Candidate.Timings.GenerationMicroseconds); }
+					auto Bytes = Observation.Object.GetView().Find("Payload").AsBinary(); if (Bytes) { FBinaryReader Reader(Bytes->GetBytes()); Reader.ReadU64(Product->Timings.NormalizationMicroseconds); Reader.ReadU64(Product->Timings.GenerationMicroseconds); }
 				}
 			}
 			return Product;
@@ -140,32 +153,31 @@ namespace Durin::MaterialBuildPrivate
 	auto TranslateMaterialInput(const MIR::FCompilerInput& Input, bool Force) -> FMaterialTranslatedProgram
 	{
 		if (auto Error = ConsumerError(Input); Error.HasError()) return Failure(Error);
-		RegisterTranslation(); auto Request = MakeRequest(Input); if (!Request) return Failure(EMaterialIRError::CanonicalBytesExceedSupportedBound);
-		for (uint32 Attempt = 0; Attempt < 2; ++Attempt)
-		{
-			auto Completion = Sessions.Build(Request->Definition, Request->Resolver, Options(Request->Resolver, Force, {}, Attempt == 0));
-			if (!Completion || Completion->GetStatus() != EStatus::Ok) return Failure(EMaterialCompileError::ShaderEnvironmentUnavailable);
-			if (auto Product = Assemble(*Completion, Request->Resolver->Identity, Input)) return std::move(*Product);
-			if (!HasBuildExecutionFlag(Completion->GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit)) break;
-		}
-		return Failure(EMaterialIRError::InvalidStructure);
+		auto Bytes = EncodeTranslationInput(Input); if (!Bytes) return Failure(EMaterialIRError::CanonicalBytesExceedSupportedBound);
+		auto Encoded = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{*Bytes, FXxHash128::HashBuffer(Bytes->GetBytes())});
+		FMaterialTranslatedProgram Product; FRequestOwner Owner;
+		auto Admitted = SubmitTranslation(std::make_shared<const MIR::FCompilerInput>(Input), Force, Owner,
+			[&](auto Value) { Product = std::move(Value); }, {}, true, std::move(Encoded), EBuildCacheExecution::Inline);
+		if (!Admitted) return Failure(EMaterialCompileError::ShaderEnvironmentUnavailable);
+		require(Owner.Wait() == ERequestWaitResult::Completed);
+		return Product;
 	}
 	auto SubmitTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner,
-		std::function<void(FMaterialTranslatedProgram)> Completion, FBuildCancellation Cancellation, bool Query)
+		std::function<void(FMaterialTranslatedProgram)> Completion, FBuildCancellation Cancellation, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution)
 		-> std::expected<FBuildRequest, FBuildAdmissionError>
 	{
 		if (auto Error = ConsumerError(*Input); Error.HasError()) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, FormatMaterialError(Error)});
-		RegisterTranslation(); auto Request = MakeRequest(*Input); if (!Request) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Capacity, "Material snapshot exceeds the input limit."});
-		auto Session = Sessions.Get(EBuildCacheExecution::Task); if (!Session) return std::unexpected(Session.error());
+		RegisterTranslation(); auto Request = MakeRequest(*Input, std::move(EncodedInput)); if (!Request) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Capacity, "Material snapshot exceeds the input limit."});
+		auto Session = Sessions.Get(Execution); if (!Session) return std::unexpected(Session.error());
 		return (*Session)->Build(Request->Definition, Owner,
-			[Input, Force, &Owner, Completion = std::move(Completion), Cancellation, Query, Identity = Request->Resolver->Identity](FBuildCompleteParams Result) mutable {
+			[Input, Force, &Owner, Completion = std::move(Completion), Cancellation, Query, Execution, Encoded = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{Request->Resolver->Bytes, Request->Resolver->Identity}), Identity = Request->Resolver->Identity](FBuildCompleteParams Result) mutable {
 				if (Result.GetStatus() == EStatus::Ok)
 				{
 					if (auto Product = Assemble(Result, Identity, *Input)) return Completion(std::move(*Product));
 					if (Query && HasBuildExecutionFlag(Result.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit))
 					{
 						// Retry ownership joins the same owner; only the final typed callback is delivered.
-						auto Retried = SubmitTranslation(Input, Force, Owner, Completion, Cancellation, false);
+						auto Retried = SubmitTranslation(Input, Force, Owner, Completion, Cancellation, false, Encoded, Execution);
 						if (Retried) return;
 					}
 				}

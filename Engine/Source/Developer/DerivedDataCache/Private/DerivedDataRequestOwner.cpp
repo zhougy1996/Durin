@@ -167,6 +167,27 @@ namespace Durin::DerivedData
 			}
 		};
 	}
+	struct FRequestBarrier::FState
+	{
+		struct FBarrierRequest final : Private::FRequestCompletion
+		{
+			// Cancellation cannot release a submission's unpublished handles.
+			auto RequestCancel() -> bool override { return false; }
+		};
+		static auto Begin(IRequestOwner& Owner) -> std::shared_ptr<FBarrierRequest>
+		{
+			auto Request = std::make_shared<FBarrierRequest>();
+			Request->Group = Owner.Begin(Request);
+			Request->DispatchReturned();
+			return Request;
+		}
+		std::shared_ptr<FBarrierRequest> Request;
+		Private::FRequestOwnerScope Scope;
+		explicit FState(IRequestOwner& Owner) : Request(Begin(Owner)), Scope(Request->Group.get(), Request.get()) {}
+		~FState() { Request->Complete(); }
+	};
+	FRequestBarrier::FRequestBarrier(IRequestOwner& Owner) : State(std::make_unique<FState>(Owner)) {}
+	FRequestBarrier::~FRequestBarrier() = default;
 	FRequestOwner::FRequestOwner(ERequestPriority Priority) : State(std::make_shared<Private::FOwnerState>(Priority)) {}
 	FRequestOwner::~FRequestOwner() { Cancel(); }
 	auto FRequestOwner::Begin(std::shared_ptr<IRequest> Request) -> std::shared_ptr<IRequestOwner> { return State->Begin(std::move(Request)); }

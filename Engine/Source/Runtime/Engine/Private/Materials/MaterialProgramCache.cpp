@@ -26,22 +26,26 @@ namespace Durin::MaterialBuildPrivate
 	}
 	auto FindProgram(FMaterialProgramIdentity Identity) -> std::shared_ptr<const FMaterialCompilerResult>
 	{ std::lock_guard Lock(Mutex); const auto Found = Programs.find(Identity); return Found == Programs.end() ? nullptr : Found->second; }
-	auto ConfigureProgram(std::shared_ptr<const FMaterialCompilerResult> Program, const MIR::FCompilerInput& Input) -> std::shared_ptr<const FMaterialCompilerResult>
+	auto BindProgramCollections(std::shared_ptr<const FMaterialCompilerResult> Program,
+		std::span<const FMaterialParameterCollectionLayout> Collections, const FMaterialCompilerEnvironment* Environment) -> std::shared_ptr<const FMaterialCompilerResult>
 	{
 		if (!Program) return {};
-		bool Changed = Program->Quality != Input.Environment.Quality || Program->FeatureLevel != Input.Environment.FeatureLevel || Program->StaticBools != Input.Environment.StaticBools;
+		bool Changed = Environment && (Program->Quality != Environment->Quality || Program->FeatureLevel != Environment->FeatureLevel || Program->StaticBools != Environment->StaticBools);
 		for (const auto& Collection : Program->ActiveCollections)
 		{
-			const auto Found = std::ranges::find(Input.Collections, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
-			if (Found == Input.Collections.end() || !Collection.HasCompatibleSchema(*Found)) return {};
-			Changed |= Collection.DefaultPayload != Found->DefaultPayload || Collection.AssetPath != Found->AssetPath;
+			const auto Found = std::ranges::find(Collections, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
+			if (Found == Collections.end() || !Collection.HasCompatibleSchema(*Found)) return {};
+			Changed |= Collection.DefaultPayload != Found->DefaultPayload || (Environment && Collection.AssetPath != Found->AssetPath);
 		}
 		if (!Changed) return Program;
 		auto Result = std::make_shared<FMaterialCompilerResult>(*Program);
-		Result->Quality = Input.Environment.Quality; Result->FeatureLevel = Input.Environment.FeatureLevel; Result->StaticBools = Input.Environment.StaticBools;
-		for (auto& Collection : Result->ActiveCollections) Collection = *std::ranges::find(Input.Collections, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
+		if (Environment) { Result->Quality = Environment->Quality; Result->FeatureLevel = Environment->FeatureLevel; Result->StaticBools = Environment->StaticBools; }
+		for (auto& Collection : Result->ActiveCollections) Collection = *std::ranges::find(Collections, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
 		return Result;
 	}
+	auto ConfigureProgram(std::shared_ptr<const FMaterialCompilerResult> Program, const MIR::FCompilerInput& Input) -> std::shared_ptr<const FMaterialCompilerResult>
+	{ return BindProgramCollections(std::move(Program), Input.Collections, &Input.Environment); }
+
 	auto RetainProgram(std::shared_ptr<const FMaterialCompilerResult> Program, bool Replace) -> std::shared_ptr<const FMaterialCompilerResult>
 	{
 		if (!Program || !*Program) return Program;

@@ -208,6 +208,11 @@ Filesystem-backed generated requests validate dependencies and imports before
 single-flight admission using the complete output identity. Captured-source requests
 include source contents, artifact contents, ordered search roots, normalized macros,
 entry points/stages, compiler identity, and import policy in their flight identity.
+Generated roots use the `/Generated/` namespace. Optional source-tree descriptions
+carry the caller's fingerprint, entry points/stages, macros and complete-closure
+declaration; ShaderBuild verifies those bytes without material-specific defaults.
+Compiler flights use a request-owner submission barrier acquired before publishing
+the joinable flight, preserving retirement across inline completion and hit repair.
 Forced and ordinary requests have separate flights. A generated subscriber owns
 one move-only handle with nonblocking cancellation, mutable priority and explicit
 wait. Rejection has no callback; acceptance completes exactly once, including

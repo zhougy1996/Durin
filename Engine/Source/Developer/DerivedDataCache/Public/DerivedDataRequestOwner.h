@@ -25,6 +25,19 @@ namespace Durin::DerivedData
 		virtual auto Poll() const -> bool = 0;
 		virtual auto Wait() const -> ERequestWaitResult = 0;
 	};
+	// A scoped request keeps the owner pending until newly dispatched handles
+	// are published. Construct and destroy on the submitting thread.
+	class FRequestBarrier
+	{
+	public:
+		DERIVEDDATACACHE_API explicit FRequestBarrier(IRequestOwner& Owner);
+		DERIVEDDATACACHE_API ~FRequestBarrier();
+		FRequestBarrier(const FRequestBarrier&) = delete;
+		auto operator=(const FRequestBarrier&) -> FRequestBarrier& = delete;
+	private:
+		struct FState;
+		std::unique_ptr<FState> State;
+	};
 	class FRequestOwner final : public IRequestOwner
 	{
 	public:

@@ -6,87 +6,93 @@ namespace Durin::MaterialBuildPrivate
 	namespace
 	{
 		// One bounded field walk defines both directions; no native struct bytes.
-		struct FTransfer
+		template<bool Reading> struct FTransfer
 		{
 			FBinaryWriter* Writer = nullptr;
 			FBinaryReader* Reader = nullptr;
 			bool Good = true;
 			template<class T> auto Value(T& V) -> void
 			{
-				if constexpr (std::is_enum_v<T>)
-				{ uint32 Raw = uint32(V); Value(Raw); Good &= Raw <= std::numeric_limits<std::underlying_type_t<T>>::max(); if (Reader) V = T(Raw); }
-				else if constexpr (std::same_as<T, bool>)
-				{ uint32 Raw = V ? 1 : 0; Value(Raw); Good &= Raw <= 1; if (Reader) V = Raw != 0; }
-				else if constexpr (std::same_as<T, float>)
-				{ if (Writer) Writer->WriteFloat(V == 0.f ? 0.f : V); else Good &= Reader->ReadFloat(V); }
-				else if constexpr (std::same_as<T, uint64>)
-				{ if (Writer) Writer->WriteU64(V); else Good &= Reader->ReadU64(V); }
-				else if constexpr (std::same_as<T, uint32>)
-				{ if (Writer) Writer->WriteU32(V); else Good &= Reader->ReadU32(V); }
-				else if constexpr (std::integral<T>)
-				{ uint32 Raw = V; Value(Raw); Good &= Raw <= std::numeric_limits<T>::max(); if (Reader) V = T(Raw); }
-				else if constexpr (std::same_as<T, FGuid>)
-				{ if (Writer) Writer->WriteGuid(V); else Good &= Reader->ReadGuid(V); }
-				else if constexpr (std::same_as<T, FXxHash128>)
-				{ if (Writer) Writer->WriteHash128(V); else Good &= Reader->ReadHash128(V); }
+				using VType = std::remove_cv_t<T>;
+				if constexpr (std::is_enum_v<VType>)
+				{ uint32 Raw = uint32(V); Value(Raw); Good &= Raw <= std::numeric_limits<std::underlying_type_t<VType>>::max(); if constexpr (Reading) V = T(Raw); }
+				else if constexpr (std::same_as<VType, bool>)
+				{ uint32 Raw = V ? 1 : 0; Value(Raw); Good &= Raw <= 1; if constexpr (Reading) V = Raw != 0; }
+				else if constexpr (std::same_as<VType, float>)
+				{ if constexpr (!Reading) Writer->WriteFloat(V == 0.f ? 0.f : V); else Good &= Reader->ReadFloat(V); }
+				else if constexpr (std::same_as<VType, uint64>)
+				{ if constexpr (!Reading) Writer->WriteU64(V); else Good &= Reader->ReadU64(V); }
+				else if constexpr (std::same_as<VType, uint32>)
+				{ if constexpr (!Reading) Writer->WriteU32(V); else Good &= Reader->ReadU32(V); }
+				else if constexpr (std::integral<VType>)
+				{ uint32 Raw = V; Value(Raw); Good &= Raw <= std::numeric_limits<VType>::max(); if constexpr (Reading) V = T(Raw); }
+				else if constexpr (std::same_as<VType, FGuid>)
+				{ if constexpr (!Reading) Writer->WriteGuid(V); else Good &= Reader->ReadGuid(V); }
+				else if constexpr (std::same_as<VType, FXxHash128>)
+				{ if constexpr (!Reading) Writer->WriteHash128(V); else Good &= Reader->ReadHash128(V); }
 			}
-			auto String(std::string& Text, uint64 Limit = MaterialProgramMaxStringBytes) -> void
-			{ Good &= Text.size() <= Limit; if (Writer) Writer->WriteString(Text); else Good &= Reader->ReadString(Text, Limit); }
-			template<class T, class F> auto Sequence(std::vector<T>& Items, uint32 Limit, F Visit) -> void
+			template<class T> auto String(T& Text, uint64 Limit = MaterialProgramMaxStringBytes) -> void
+			{ Good &= Text.size() <= Limit; if constexpr (!Reading) Writer->WriteString(Text); else Good &= Reader->ReadString(Text, Limit); }
+			template<class T, class F> auto Sequence(T& Items, uint32 Limit, F Visit) -> void
 			{
 				uint32 Count = uint32(Items.size()); Value(Count);
 				if (!Good || Count > Limit || (Reader && Count > Reader->GetRemainingBytes())) { Good = false; return; }
-				if (Reader) Items.resize(Count);
+				if constexpr (Reading) Items.resize(Count);
 				for (auto& Item : Items) Visit(Item);
 			}
-			template<class T> auto Optional(std::optional<T>& Item) -> void
-			{ bool Present = Item.has_value(); Value(Present); if (Present) { if (Reader) Item.emplace(); Value(*Item); } else if (Reader) Item.reset(); }
-			auto Literal(FMaterialProgramLiteral& Literal) -> void { Value(Literal.X); Value(Literal.Y); Value(Literal.Z); Value(Literal.W); }
-			auto Payload(std::monostate&) -> void {}
-			auto Payload(FMaterialProgramLiteral& V) -> void { Literal(V); }
-			auto Payload(FGuid& V) -> void { Value(V); }
-			auto Payload(MIR::FSwizzle& V) -> void { Value(V.Length); for (auto& Part : V.Components) Value(Part); }
-			auto Payload(MIR::FCollectionParameter& V) -> void { Value(V.CollectionId); Value(V.ParameterId); }
-			auto Payload(FMaterialTransformPayload& V) -> void { Value(V.Source); Value(V.Destination); }
+			template<class T> auto Optional(T& Item) -> void
+			{ bool Present = Item.has_value(); Value(Present); if (Present) { if constexpr (Reading) Item.emplace(); Value(*Item); } else if constexpr (Reading) Item.reset(); }
+			template<class T> auto Literal(T& Literal) -> void { Value(Literal.X); Value(Literal.Y); Value(Literal.Z); Value(Literal.W); }
+			template<class T> auto Payload(T& V) -> void
+			{
+				using VType = std::remove_cv_t<T>;
+				if constexpr (std::same_as<VType, FMaterialProgramLiteral>) Literal(V);
+				else if constexpr (std::same_as<VType, FGuid>) Value(V);
+				else if constexpr (std::same_as<VType, MIR::FSwizzle>) { Value(V.Length); for (auto& Part : V.Components) Value(Part); }
+				else if constexpr (std::same_as<VType, MIR::FCollectionParameter>) { Value(V.CollectionId); Value(V.ParameterId); }
+				else if constexpr (std::same_as<VType, FMaterialTransformPayload>) { Value(V.Source); Value(V.Destination); }
+				else static_assert(std::same_as<VType, std::monostate>);
+			}
 			template<size_t Index = 0, class V, class F> auto Variant(V& Item, uint32 Kind, F Visit) -> void
 			{
-				if constexpr (Index < std::variant_size_v<V>)
-				{ if (Kind == Index) { if (Reader) Item.template emplace<Index>(); Visit(std::get<Index>(Item)); } else Variant<Index + 1>(Item, Kind, Visit); }
+				if constexpr (Index < std::variant_size_v<std::remove_cv_t<V>>)
+				{ if (Kind == Index) { if constexpr (Reading) Item.template emplace<Index>(); Visit(std::get<Index>(Item)); } else Variant<Index + 1>(Item, Kind, Visit); }
 				else Good = false;
 			}
-			auto Node(MIR::FNode& Node) -> void
+			template<class T> auto Node(T& Node) -> void
 			{
 				Value(Node.Opcode); Value(Node.ResultType); Value(Node.LegalStages); Value(Node.SpatialKind); Value(Node.CoordinateSpace); Value(Node.ScalarBroadcastMask);
 				Sequence(Node.Inputs, MaterialProgramMaxNodeInputCount, [&](auto& V) { Value(V); });
 				uint32 Kind = uint32(Node.Payload.index()); Value(Kind); Variant(Node.Payload, Kind, [&](auto& V) { Payload(V); });
 			}
-			auto Surface(MIR::FModule::FSurfaceInput& Input) -> void
+			template<class T> auto Surface(T& Input) -> void
 			{ Value(Input.bExpression); Value(Input.ExpressionIndex); Value(Input.Type); Value(Input.LegalStages); Value(Input.SpatialKind); Value(Input.CoordinateSpace); Literal(Input.Literal); }
-			auto IR(MIR::FModule& IR) -> void
+			template<class T> auto IR(T& IR) -> void
 			{
 				Value(IR.Version); Sequence(IR.Nodes, MaterialFunctionMaxExpandedNodes, [&](auto& V) { Node(V); });
 				Value(IR.SurfaceRoot.bAggregate); Value(IR.SurfaceRoot.AggregateExpressionIndex);
 				for (auto& Input : IR.SurfaceRoot.Inputs) Surface(Input);
 				Surface(IR.WorldPositionOffset);
 			}
-			auto Parameters(std::vector<FMaterialCompilerParameterDeclaration>& Items) -> void
+			template<class T> auto Parameters(T& Items) -> void
 			{ Sequence(Items, MaterialRenderMaxFieldCount, [&](auto& V) { Value(V.Id); Value(V.Type); }); }
-			auto Layout(FMaterialRenderLayout& Layout) -> void
+			template<class T> auto Layout(T& Layout) -> void
 			{
 				Value(Layout.Identity.Version); Value(Layout.Identity.Id); Value(Layout.UniformPayloadSize); Value(Layout.UniformFieldCount); Value(Layout.ResourceFieldCount);
 				Sequence(Layout.Fields, MaterialRenderMaxFieldCount, [&](auto& Field) { Value(Field.ParameterId); Value(Field.Storage); Value(Field.Type); Value(Field.CompactIndex); Value(Field.Offset); Value(Field.Size); });
 			}
-			auto Collections(std::vector<FMaterialParameterCollectionLayout>& Items) -> void
+			template<class T> auto Collections(T& Items) -> void
 			{ Sequence(Items, MaterialParameterCollectionMaxPerMaterial, [&](auto& V) { Value(V.CollectionId); Value(V.SchemaVersion); Layout(V.UniformLayout); }); }
-			auto Properties(FMaterialStaticProperties& Properties) -> void
+			template<class T> auto Properties(T& Properties) -> void
 			{ Value(Properties.BlendMode); Value(Properties.ShadingModel); Value(Properties.OpacityMaskThreshold); }
-			auto Limits(FMaterialCompilerResourceLimits& Limits) -> void
+			template<class T> auto Limits(T& Limits) -> void
 			{ Value(Limits.SampledImages); Value(Limits.Samplers); Value(Limits.UniformBuffers); Value(Limits.StageResources); Value(Limits.UniformBufferBytes); }
-			auto Sources(std::vector<MIR::FSource>& Items) -> void
+			template<class T> auto Source(T& V) -> void { Value(V.ExpressionIndex); Value(V.NodeId); Optional(V.InputIndex); Optional(V.UVFieldIndex); }
+			template<class T> auto Sources(T& Items) -> void
 			{
-				Sequence(Items, MaterialFunctionMaxExpandedNodes, [&](auto& V) { Value(V.ExpressionIndex); Value(V.NodeId); Optional(V.InputIndex); Optional(V.UVFieldIndex); });
+				Sequence(Items, MaterialFunctionMaxExpandedNodes, [&](auto& V) { Source(V); });
 			}
-			auto Input(MIR::FCompilerInput& Input) -> void
+			template<class T> auto Input(T& Input) -> void
 			{
 				uint32 Version = TranslationSchema; Value(Version); Good &= Version == TranslationSchema;
 				IR(Input.IR); Parameters(Input.Parameters); Collections(Input.Collections); Properties(Input.StaticProperties); Limits(Input.Environment.ResourceLimits);
@@ -94,16 +100,16 @@ namespace Durin::MaterialBuildPrivate
 				Sequence(Input.Environment.StaticBools, MaterialMaxStaticBoolDeclarations, [&](auto& V) { Value(V.DeclarationId); Value(V.Value); });
 				Sources(Input.Sources);
 			}
-			auto Diagnostic(FMaterialProgramDiagnostic& D) -> void
+			template<class T> auto Diagnostic(T& D) -> void
 			{
 				Value(D.Category); Value(D.LocationKind); Value(D.NodeId); Value(D.LocationIndex); Optional(D.InputIndex); Optional(D.UVFieldIndex);
 				uint32 Kind = uint32(D.Error.Code.index()); Value(Kind);
 				Variant(D.Error.Code, Kind, [&](auto& Code) {
-					using T = std::decay_t<decltype(Code)>;
-					if constexpr (!std::same_as<T, std::monostate>) Value(Code);
-					if constexpr (std::same_as<T, EMaterialIRError>) Good &= uint32(Code) <= uint32(EMaterialIRError::UnsupportedGenerationNode);
-					else if constexpr (std::same_as<T, EMaterialPropertyError>) Good &= uint32(Code) <= uint32(EMaterialPropertyError::ParentChainContainsUnsupportedMaterialOwner);
-					else if constexpr (std::same_as<T, EMaterialLayoutError>) Good &= uint32(Code) > uint32(EMaterialLayoutError::None) && uint32(Code) <= uint32(EMaterialLayoutError::InvalidReflection);
+					using CodeType = std::decay_t<decltype(Code)>;
+					if constexpr (!std::same_as<CodeType, std::monostate>) Value(Code);
+					if constexpr (std::same_as<CodeType, EMaterialIRError>) Good &= uint32(Code) <= uint32(EMaterialIRError::UnsupportedGenerationNode);
+					else if constexpr (std::same_as<CodeType, EMaterialPropertyError>) Good &= uint32(Code) <= uint32(EMaterialPropertyError::ParentChainContainsUnsupportedMaterialOwner);
+					else if constexpr (std::same_as<CodeType, EMaterialLayoutError>) Good &= uint32(Code) > uint32(EMaterialLayoutError::None) && uint32(Code) <= uint32(EMaterialLayoutError::InvalidReflection);
 					else Good = false; // Only errors produced by detached translation may persist.
 				});
 				Optional(D.Error.Index); Value(D.Error.ParameterId); String(D.Error.ParameterName);
@@ -111,16 +117,16 @@ namespace Durin::MaterialBuildPrivate
 				Good &= D.Error.ExternalDiagnostic.empty() && !D.Error.ResourceCause && !D.Error.DuplicationCause && !D.Error.ArchiveCode && !D.Error.BulkStatus && !D.Error.ResourceStatus;
 				Good &= uint32(D.Category) <= uint32(EMaterialProgramDiagnosticCategory::Binding) && uint32(D.LocationKind) <= uint32(EMaterialProgramDiagnosticLocationKind::SurfaceOutput);
 			}
-			auto Product(FMaterialTranslatedProgram& Product, FXxHash128& InputIdentity, std::optional<FXxHash128> Semantic = {}) -> void
+			template<class T> auto Product(T& Product, FXxHash128& InputIdentity, std::optional<FXxHash128> Semantic = {}) -> void
 			{
 				uint32 Version = TranslationSchema; Value(Version); Good &= Version == TranslationSchema;
-				Value(InputIdentity); Value(Product.bSucceeded); auto& Result = Product.Candidate;
+				Value(InputIdentity); Value(Product.bSucceeded); auto& Result = Product;
 				IR(Result.IR); Parameters(Result.ActiveParameters); Collections(Result.ActiveCollections); Layout(Result.Layout); Properties(Product.StaticProperties); Limits(Product.ResourceLimits);
-				String(Result.GeneratedSource, 1024 * 1024); Sources(Product.Sources);
+				String(Result.GeneratedSource, 1024 * 1024); Sequence(Product.Sources, MaterialFunctionMaxExpandedNodes, [&](auto& Location) { Source(Location.Source); });
 				auto& Q = Result.Requirements;
 				Value(Q.bMaterialView); Value(Q.bMaterialPrimitive); Value(Q.bCameraPosition); Value(Q.bViewport); Value(Q.bViewTransforms); Value(Q.bObjectTransforms); Value(Q.bBoundsCenter); Value(Q.bTangentFrame); Value(Q.bVertexNormal);
 				Sequence(Result.Diagnostics, MaterialProgramMaxDiagnosticCount, [&](auto& V) { Diagnostic(V); });
-				if (Writer && Semantic) Value(*Semantic); else Value(Result.Identity.Digest);
+				if constexpr (!Reading) { if (Semantic) Value(*Semantic); else Value(Result.Identity.Digest); } else Value(Result.Identity.Digest);
 			}
 			auto Valid() const -> bool { return Good && (Writer ? !Writer->HasError() : Reader->IsAtEnd()); }
 		};
@@ -132,13 +138,10 @@ namespace Durin::MaterialBuildPrivate
 			Input.Environment.AdapterVersion = GetMaterialCompileAdapterVersion();
 			Input.Environment.Dependencies.clear();
 		}
-		auto SemanticIdentity(const FMaterialTranslatedProgram& Immutable) -> FMaterialProgramIdentity
+		auto SemanticIdentity(const FMaterialTranslatedProgram& Product) -> FMaterialProgramIdentity
 		{
-			// The writer field walk does not modify its input; avoid copying full MIR
-			// and diagnostic maps solely to emit their canonical fields.
-			auto& Product = const_cast<FMaterialTranslatedProgram&>(Immutable);
-			FBinaryWriter Writer({.MaximumTotalBytes = TranslationOutputBytes}); FTransfer Transfer{.Writer = &Writer};
-			auto& Result = Product.Candidate;
+			FBinaryWriter Writer({.MaximumTotalBytes = TranslationOutputBytes}); FTransfer<false> Transfer{.Writer = &Writer};
+			auto& Result = Product;
 			Transfer.IR(Result.IR); Transfer.Parameters(Result.ActiveParameters); Transfer.Collections(Result.ActiveCollections); Transfer.Layout(Result.Layout);
 			Transfer.Properties(Product.StaticProperties); Transfer.Limits(Product.ResourceLimits); Transfer.String(Result.GeneratedSource, 1024 * 1024);
 			Writer.WriteU64(GetMaterialBuildVersion()); Writer.WriteU32(CurrentMaterialPassContractVersion);
@@ -167,31 +170,48 @@ namespace Durin::MaterialBuildPrivate
 	auto EncodeTranslationInput(const MIR::FCompilerInput& Captured) -> std::optional<FSharedByteBuffer>
 	{
 		if (EstimateTranslationCaptureBytes(Captured) > TranslationInputBytes) return {};
-		auto Input = Captured;
-		std::ranges::sort(Input.Parameters, {}, &FMaterialCompilerParameterDeclaration::Id);
-		std::ranges::sort(Input.Collections, {}, &FMaterialParameterCollectionLayout::CollectionId);
-		Input.StaticProperties = CanonicalizeMaterialShaderProperties(Input.StaticProperties);
-		for (uint32 Index = 0; Index < Input.Sources.size(); ++Index) Input.Sources[Index].NodeId = FGuid(0, 0, 0, Index + 1);
-		FBinaryWriter Writer({.MaximumTotalBytes = TranslationInputBytes}); FTransfer Transfer{.Writer = &Writer}; Transfer.Input(Input);
+		auto Parameters = Captured.Parameters;
+		std::ranges::sort(Parameters, {}, &FMaterialCompilerParameterDeclaration::Id);
+		std::vector<FMaterialParameterCollectionLayout> Collections;
+		for (const auto& Item : Captured.Collections) Collections.push_back({.CollectionId = Item.CollectionId, .UniformLayout = Item.UniformLayout, .SchemaVersion = Item.SchemaVersion});
+		std::ranges::sort(Collections, {}, &FMaterialParameterCollectionLayout::CollectionId);
+		const auto Properties = CanonicalizeMaterialShaderProperties(Captured.StaticProperties);
+		std::vector<MIR::FSource> Sources;
+		for (uint32 Index = 0; Index < Captured.Sources.size(); ++Index)
+		{
+			const auto& Source = Captured.Sources[Index];
+			Sources.push_back({.ExpressionIndex = Source.ExpressionIndex, .NodeId = FGuid(0, 0, 0, Index + 1), .InputIndex = Source.InputIndex, .UVFieldIndex = Source.UVFieldIndex});
+		}
+		struct FInputView
+		{
+			const MIR::FModule& IR;
+			const std::vector<FMaterialCompilerParameterDeclaration>& Parameters;
+			const std::vector<FMaterialParameterCollectionLayout>& Collections;
+			const FMaterialStaticProperties& StaticProperties;
+			const FMaterialCompilerEnvironment& Environment;
+			const std::vector<MIR::FSource>& Sources;
+		};
+		const FInputView Input{Captured.IR, Parameters, Collections, Properties, Captured.Environment, Sources};
+		FBinaryWriter Writer({.MaximumTotalBytes = TranslationInputBytes}); FTransfer<false> Transfer{.Writer = &Writer}; Transfer.Input(Input);
 		if (!Transfer.Valid()) return {};
 		return FSharedByteBuffer::Take(Writer.TakeBytes());
 	}
 	auto DecodeTranslationInput(FByteView Bytes) -> std::optional<MIR::FCompilerInput>
 	{
-		FBinaryReader Reader(Bytes, {.MaximumTotalBytes = TranslationInputBytes}); FTransfer Transfer{.Reader = &Reader}; MIR::FCompilerInput Input;
+		FBinaryReader Reader(Bytes, {.MaximumTotalBytes = TranslationInputBytes}); FTransfer<true> Transfer{.Reader = &Reader}; MIR::FCompilerInput Input;
 		Transfer.Input(Input); if (!Transfer.Valid()) return {}; ProducerEnvironment(Input); return Input;
 	}
 	auto EncodeTranslationProduct(const FMaterialTranslatedProgram& Product, FXxHash128 Identity) -> std::optional<FSharedByteBuffer>
 	{
-		const auto Digest = Product ? SemanticIdentity(Product).Digest : Product.Candidate.Identity.Digest;
-		FBinaryWriter Writer({.MaximumTotalBytes = TranslationOutputBytes}); FTransfer Transfer{.Writer = &Writer}; Transfer.Product(const_cast<FMaterialTranslatedProgram&>(Product), Identity, Digest);
+		const auto Digest = Product ? SemanticIdentity(Product).Digest : Product.Identity.Digest;
+		FBinaryWriter Writer({.MaximumTotalBytes = TranslationOutputBytes}); FTransfer<false> Transfer{.Writer = &Writer}; Transfer.Product(Product, Identity, Digest);
 		if (!Transfer.Valid()) return {}; return FSharedByteBuffer::Take(Writer.TakeBytes());
 	}
 	auto DecodeTranslationProduct(FByteView Bytes, FXxHash128 InputIdentity, const MIR::FCompilerInput& Consumer) -> std::optional<FMaterialTranslatedProgram>
 	{
-		FBinaryReader Reader(Bytes, {.MaximumTotalBytes = TranslationOutputBytes}); FTransfer Transfer{.Reader = &Reader}; FMaterialTranslatedProgram Product; FXxHash128 Identity;
+		FBinaryReader Reader(Bytes, {.MaximumTotalBytes = TranslationOutputBytes}); FTransfer<true> Transfer{.Reader = &Reader}; FMaterialTranslatedProgram Product; FXxHash128 Identity;
 		Transfer.Product(Product, Identity); if (!Transfer.Valid() || Identity != InputIdentity) return {};
-		auto& Result = Product.Candidate;
+		auto& Result = Product;
 		if (Product.ResourceLimits != Consumer.Environment.ResourceLimits || Product.StaticProperties != CanonicalizeMaterialShaderProperties(Consumer.StaticProperties)) return {};
 		if (Product)
 		{
@@ -205,8 +225,7 @@ namespace Durin::MaterialBuildPrivate
 			FByteBuffer Canonical;
 			if (!MIR::EncodeCanonical(Result.IR, Canonical)) return {};
 			if (SemanticIdentity(Product) != Result.Identity) return {};
-			auto Semantic = Consumer; Semantic.Collections = Result.ActiveCollections;
-			Result.Identity = BuildMaterialProgramIdentity(Semantic, Canonical, Result.Layout);
+			Result.Identity = BuildMaterialProgramIdentity(Consumer.StaticProperties, Consumer.Environment, Result.ActiveCollections, Canonical, Result.Layout);
 			for (auto& Collection : Result.ActiveCollections)
 			{
 				const auto Current = std::ranges::find(Consumer.Collections, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
@@ -215,10 +234,11 @@ namespace Durin::MaterialBuildPrivate
 			}
 		}
 		else if (Result.Diagnostics.empty()) return {};
-		for (auto& Source : Product.Sources)
+		for (auto& Location : Product.Sources)
 		{
+			auto& Source = Location.Source;
 			if (Source.NodeId.A || Source.NodeId.B || Source.NodeId.C || !Source.NodeId.D || Source.NodeId.D > Consumer.Sources.size() || Source.ExpressionIndex >= Result.IR.Nodes.size()) return {};
-			Product.SourceOrdinals.push_back(Source.NodeId.D - 1);
+			Location.Ordinal = Source.NodeId.D - 1;
 			const auto Index = Source.ExpressionIndex; Source = Consumer.Sources[Source.NodeId.D - 1]; Source.ExpressionIndex = Index;
 		}
 		for (auto& D : Result.Diagnostics) if (!Remap(D, Consumer)) return {};

@@ -584,6 +584,7 @@ per request and 128 MiB in aggregate; candidates are limited to 8 MiB, generated
 source to 1 MiB, diagnostics to the M5 64-record/512-byte limits, and shared
 in-process retention to 128 identities and 256 MiB FIFO. Reservations survive
 business completion until submission, owners, handles and CPU tasks retire.
+The aggregate capture budget also charges retained canonical translation bytes.
 Equal identities share one flight and retained immutable result while keeping
 asset-local generations and diagnostics. Aggregate counters retain no asset or
 terminal-request history. Aggregate selected finish and advisory cancellation
@@ -603,6 +604,12 @@ GUIDs/paths. Cached locations use snapshot-relative ordinals and remap for each
 consumer; final program identity binds the current compiler, target and verified
 immutable dependency closure. Typed invalid hits rebuild once without querying
 the cache. Force bypasses translation, retained programs and Shader output reuse.
+Captured canonical bytes and input identity are reused for submission and hit
+repair. Translation produces a dedicated CPU product with paired source/ordinal
+records; final assembly alone creates shader-bearing compiler results. Inline and
+task execution share completion, typed validation, repair and retained-program
+handling, with waiting restricted to the caller boundary. Collection binding
+shares schema validation and copy-on-write refresh at capture and publication.
 Infrastructure failures and cancellation never become persistent negatives;
 persistence failure retains a validated local product. No complete Material.Program
 record duplicates Shader bytecode. Synchronous, offline and Cook calls use the same

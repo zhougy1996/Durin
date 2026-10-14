@@ -69,15 +69,17 @@ TEST(FMaterialTranslationTests, PersistentHitsSkipTransformsAndPayloadResolution
 	Input.Environment.CompilerIdentity = "OtherCompiler";
 	const auto Warm = TranslateMaterialInput(Input, false);
 	ASSERT_TRUE(Warm);
-	EXPECT_EQ(Warm.Candidate.GeneratedSource, Cold.Candidate.GeneratedSource);
-	EXPECT_NE(Warm.Candidate.Identity, Cold.Candidate.Identity);
+	EXPECT_EQ(Warm.GeneratedSource, Cold.GeneratedSource);
+	EXPECT_NE(Warm.Identity, Cold.Identity);
 	EXPECT_EQ(GetTranslationStats().Producers, Produced.Producers);
 	EXPECT_EQ(GetTranslationStats().Resolutions, Produced.Resolutions);
 	EXPECT_EQ(GetTranslationStats().Hits, Produced.Hits + 1);
 	for (const auto& Source : Warm.Sources)
 	{
-		EXPECT_EQ(Source.FunctionAssetPath, "RequestingAsset");
-		EXPECT_TRUE(std::ranges::contains(Input.Sources, Source.NodeId, &MIR::FSource::NodeId));
+		EXPECT_EQ(Source.Source.FunctionAssetPath, "RequestingAsset");
+		EXPECT_TRUE(std::ranges::contains(Input.Sources, Source.Source.NodeId, &MIR::FSource::NodeId));
+		ASSERT_LT(Source.Ordinal, Input.Sources.size());
+		EXPECT_EQ(Source.Source.NodeId, Input.Sources[Source.Ordinal].NodeId);
 	}
 	ASSERT_TRUE(TranslateMaterialInput(Input, true));
 	EXPECT_EQ(GetTranslationStats().Producers, Produced.Producers + 1);
@@ -117,7 +119,7 @@ TEST(FMaterialTranslationTests, CanonicalInputAndTypedOutputHaveIndependentConsu
 	FByteBuffer Wrong(Encoded->begin(), Encoded->end());
 	Wrong.front() = std::byte{2};
 	EXPECT_FALSE(DecodeTranslationProduct(Wrong, Identity, Input));
-	Product.Candidate.Layout.UniformPayloadSize += 16;
+	Product.Layout.UniformPayloadSize += 16;
 	auto BadLayout = EncodeTranslationProduct(Product, Identity);
 	ASSERT_TRUE(BadLayout);
 	EXPECT_FALSE(DecodeTranslationProduct(BadLayout->GetBytes(), Identity, Input));
@@ -134,13 +136,13 @@ TEST(FMaterialTranslationTests, DeterministicNegativeHitsRetainTypedErrors)
 	struct FRestore { std::string Path; ~FRestore() { FPaths::SetDerivedDataCacheDirForTests(Path); } } Restore{Previous};
 	const auto Cold = TranslateMaterialInput(Input, false);
 	ASSERT_FALSE(Cold);
-	ASSERT_FALSE(Cold.Candidate.Diagnostics.empty());
+	ASSERT_FALSE(Cold.Diagnostics.empty());
 	const auto Produced = GetTranslationStats();
 	for (auto& Source : Input.Sources) { Source.NodeId = FGuid::NewGuid(); Source.FunctionAssetPath = "NegativeRequestAsset"; Source.PortId = FGuid::NewGuid(); }
 	const auto Warm = TranslateMaterialInput(Input, false);
 	EXPECT_FALSE(Warm);
-	EXPECT_EQ(Warm.Candidate.Diagnostics.front().Error, Cold.Candidate.Diagnostics.front().Error);
-	for (const auto& Diagnostic : Warm.Candidate.Diagnostics) if (Diagnostic.NodeId.IsValid())
+	EXPECT_EQ(Warm.Diagnostics.front().Error, Cold.Diagnostics.front().Error);
+	for (const auto& Diagnostic : Warm.Diagnostics) if (Diagnostic.NodeId.IsValid())
 	{
 		const auto Source = std::ranges::find(Input.Sources, Diagnostic.NodeId, &MIR::FSource::NodeId); ASSERT_NE(Source, Input.Sources.end());
 		EXPECT_EQ(Diagnostic.FunctionAssetPath, "NegativeRequestAsset"); EXPECT_EQ(Diagnostic.PortId, Source->PortId);
@@ -156,10 +158,10 @@ TEST(FMaterialTranslationTests, LateNormalizationFailureRetainsItsTypedNegativeP
 	auto Input = MakeSyntheticMaterialCompilerInput(); Input.Environment.ResourceLimits.SampledImages = 0;
 	const auto Previous = FPaths::DerivedDataCacheDir(); FPaths::SetDerivedDataCacheDirForTests((Testing::GetTestWorkDirectory() / "MaterialResourceNegative").generic_string());
 	struct FRestore { std::string Path; ~FRestore() { FPaths::SetDerivedDataCacheDirForTests(Path); } } Restore{Previous};
-	const auto Cold = TranslateMaterialInput(Input, false); ASSERT_FALSE(Cold); ASSERT_FALSE(Cold.Candidate.Diagnostics.empty());
-	EXPECT_EQ(Cold.Candidate.Diagnostics.front().Error.Code, FMaterialError::FCode(EMaterialLayoutError::ResourceLimit));
+	const auto Cold = TranslateMaterialInput(Input, false); ASSERT_FALSE(Cold); ASSERT_FALSE(Cold.Diagnostics.empty());
+	EXPECT_EQ(Cold.Diagnostics.front().Error.Code, FMaterialError::FCode(EMaterialLayoutError::ResourceLimit));
 	const auto Before = GetTranslationStats(); const auto Warm = TranslateMaterialInput(Input, false); ASSERT_FALSE(Warm);
-	EXPECT_EQ(Warm.Candidate.Diagnostics, Cold.Candidate.Diagnostics); EXPECT_EQ(GetTranslationStats().Producers, Before.Producers); EXPECT_EQ(GetTranslationStats().Hits, Before.Hits + 1);
+	EXPECT_EQ(Warm.Diagnostics, Cold.Diagnostics); EXPECT_EQ(GetTranslationStats().Producers, Before.Producers); EXPECT_EQ(GetTranslationStats().Hits, Before.Hits + 1);
 }
 
 TEST(FMaterialTranslationTests, MaterialCacheWaitReleasesTheOnlyAvailableWorker)
@@ -232,7 +234,7 @@ TEST(FMaterialTranslationTests, RejectedHitsRebuildOnceAndStoreFailureKeepsLocal
 	EXPECT_EQ(GetTranslationStats().Producers, Before.Producers + 1);
 	Cache->FailStore = true;
 	FMaterialTranslatedProgram Local; Run(Local, true); ASSERT_TRUE(Local);
-	EXPECT_EQ(Local.Candidate.GeneratedSource, Cold.Candidate.GeneratedSource);
+	EXPECT_EQ(Local.GeneratedSource, Cold.GeneratedSource);
 	FRequestOwner Canceled; Canceled.RequestCancel(); uint32 Completions = 0;
 	auto Accepted = SubmitTranslation(Input, true, Canceled, [&](auto Product) { EXPECT_FALSE(Product); ++Completions; });
 	ASSERT_TRUE(Accepted); EXPECT_EQ(Canceled.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Completions, 1u);
@@ -280,7 +282,7 @@ TEST(FMaterialTranslationTests, FailedNormalizationNeverConstructsShaderWork)
 	ASSERT_FALSE(Prepared.Normalized);
 	const auto Translation = TranslatePreparedMaterialProgram(Prepared);
 	EXPECT_FALSE(Translation);
-	EXPECT_EQ(Translation.Candidate.Diagnostics, Prepared.Normalized.Diagnostics);
+	EXPECT_EQ(Translation.Diagnostics, Prepared.Normalized.Diagnostics);
 	EXPECT_TRUE(MakeMaterialShaderCompileRequest(Translation, false).Source.empty());
 	const auto Result = AssembleMaterialProgram(Translation, {});
 	EXPECT_FALSE(Result);
@@ -299,9 +301,16 @@ TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMism
 	ASSERT_TRUE(Prepared.Normalized);
 	const auto Translation = TranslatePreparedMaterialProgram(Prepared);
 	ASSERT_TRUE(Translation);
-	EXPECT_FALSE(Translation.Candidate);
-	EXPECT_TRUE(Translation.Candidate.CompiledShaders.empty());
+	static_assert(!std::same_as<FMaterialTranslatedProgram, FMaterialCompilerResult>);
 	const auto Request = MakeMaterialShaderCompileRequest(Translation, false);
+	ASSERT_TRUE(Request.ExpectedSourceTree);
+	EXPECT_EQ(Request.ExpectedSourceTree->EntryPoints, Request.EntryPoints);
+	EXPECT_EQ(Request.ExpectedSourceTree->Frequencies, Request.Frequencies);
+	EXPECT_TRUE(Request.ExpectedSourceTree->bCompleteClosure);
+	const auto Threshold = std::ranges::find(Request.ExpectedSourceTree->Macros,
+		"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", &FShaderMacroDefinition::Name);
+	ASSERT_NE(Threshold, Request.ExpectedSourceTree->Macros.end());
+	EXPECT_EQ(Threshold->Value, "1056964608");
 	const auto Output = CompileGeneratedShader(Request);
 	ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 	const auto Split = AssembleMaterialProgram(Translation, Output);

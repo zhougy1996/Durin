@@ -162,6 +162,18 @@ namespace Durin
 		}
 	}
 
+	auto MakeMaterialShaderCompileOptions(FShaderTargetIdentity Target, const FMaterialStaticProperties& Properties) -> FShaderCompileOptions
+	{
+		FShaderCompileOptions Options; Options.Target = Target;
+		for (const auto Entry : MaterialCompiledEntryPoints) Options.EntryPoints.push_back(Entry.data());
+		Options.Frequencies.assign(4, EShaderFrequency::Fragment);
+		Options.Frequencies.insert(Options.Frequencies.end(), 3, EShaderFrequency::Vertex);
+		Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", std::to_string(static_cast<uint8>(Properties.BlendMode)));
+		Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", std::to_string(static_cast<uint8>(Properties.ShadingModel)));
+		Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(Properties.OpacityMaskThreshold)));
+		return Options;
+	}
+
 	auto BuildDefaultMaterialCompilerEnvironment(
 		FMaterialCompilerEnvironment& OutEnvironment,
 		std::optional<FShaderTargetIdentity> Target) -> FMaterialOperationResult
@@ -170,14 +182,7 @@ namespace Durin
 		const bool bMetal = Target
 			? *Target == MetalShaderTarget
 			: Options.Target == MetalShaderTarget;
-		Options.Target = bMetal ? MetalShaderTarget : VulkanShaderTarget;
-		for (const auto Entry : MaterialCompiledEntryPoints) Options.EntryPoints.push_back(Entry.data());
-		Options.Frequencies.assign(4, EShaderFrequency::Fragment);
-		Options.Frequencies.insert(Options.Frequencies.end(), 3, EShaderFrequency::Vertex);
-		Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", "1");
-		Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", "1");
-		Options.Macros.emplace_back(
-			"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", "1056964608");
+		Options = MakeMaterialShaderCompileOptions(bMetal ? MetalShaderTarget : VulkanShaderTarget, {.OpacityMaskThreshold = 0.5f});
 		FShaderSourceDependencyFingerprint SourceTree;
 		FShaderOperationResult ProviderError;
 		if (!(ProviderError = BuildShaderSourceTreeFingerprint("/Engine/MaterialCompilerEnvironment", Options, SourceTree)))
@@ -615,7 +620,8 @@ namespace Durin
 	}
 
 	static auto BuildInputIdentity(
-		const MIR::FCompilerInput& Input,
+		const FMaterialStaticProperties& StaticProperties, const FMaterialCompilerEnvironment& Environment,
+		std::span<const FMaterialParameterCollectionLayout> ActiveCollections,
 		FByteView CanonicalIR, const FMaterialRenderLayout& Layout)
 		-> FMaterialProgramIdentity
 	{
@@ -625,7 +631,7 @@ namespace Durin
 		AppendBytes(Bytes, CanonicalIR);
 
 		std::vector<FMaterialCompilerDependency> Dependencies =
-			Input.Environment.Dependencies;
+			Environment.Dependencies;
 		std::ranges::sort(Dependencies, [](const auto& A, const auto& B) {
 			return std::tie(A.VirtualPath, A.ContentHash.HashHigh,
 				A.ContentHash.HashLow)
@@ -640,35 +646,36 @@ namespace Durin
 			AppendLittleEndian(Bytes, Dependency.ContentHash.HashHigh);
 		}
 
-		const auto ShaderProperties = CanonicalizeMaterialShaderProperties(Input.StaticProperties);
+		const auto ShaderProperties = CanonicalizeMaterialShaderProperties(StaticProperties);
 		AppendLittleEndian(Bytes, ShaderProperties.BlendMode);
 		AppendLittleEndian(Bytes, ShaderProperties.ShadingModel);
 		AppendLittleEndian(Bytes, CanonicalFloatBits(
 			ShaderProperties.OpacityMaskThreshold));
 		AppendLittleEndian(Bytes, MaterialProgramIdentitySchemaVersion);
 		AppendLittleEndian(Bytes, MIR::CurrentVersion);
-		AppendLittleEndian(Bytes, Input.Environment.BuilderVersion);
-		AppendLittleEndian(Bytes, Input.Environment.AdapterVersion);
-		AppendString(Bytes, Input.Environment.CompilerIdentity);
-		AppendString(Bytes, Input.Environment.Target);
+		AppendLittleEndian(Bytes, Environment.BuilderVersion);
+		AppendLittleEndian(Bytes, Environment.AdapterVersion);
+		AppendString(Bytes, Environment.CompilerIdentity);
+		AppendString(Bytes, Environment.Target);
 		AppendLittleEndian(Bytes, Layout.Identity.Version);
 		AppendGuid(Bytes, Layout.Identity.Id);
-		std::vector<FMaterialParameterCollectionLayout> Collections = Input.Collections;
-		std::ranges::sort(Collections, {}, &FMaterialParameterCollectionLayout::CollectionId);
+		std::vector<const FMaterialParameterCollectionLayout*> Collections;
+		for (const auto& Collection : ActiveCollections) Collections.push_back(&Collection);
+		std::ranges::sort(Collections, {}, [](const auto* Collection) { return Collection->CollectionId; });
 		AppendLittleEndian(Bytes, static_cast<uint32>(Collections.size()));
-		for (const auto& Collection : Collections)
+		for (const auto* Collection : Collections)
 		{
-			AppendGuid(Bytes, Collection.CollectionId);
-			AppendLittleEndian(Bytes, Collection.SchemaVersion);
-			AppendLittleEndian(Bytes, Collection.UniformLayout.Identity.Version);
-			AppendGuid(Bytes, Collection.UniformLayout.Identity.Id);
+			AppendGuid(Bytes, Collection->CollectionId);
+			AppendLittleEndian(Bytes, Collection->SchemaVersion);
+			AppendLittleEndian(Bytes, Collection->UniformLayout.Identity.Version);
+			AppendGuid(Bytes, Collection->UniformLayout.Identity.Id);
 		}
-		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.SampledImages);
-		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.Samplers);
-		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.UniformBuffers);
-		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.StageResources);
-		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.UniformBufferBytes);
-		AppendLittleEndian(Bytes, Input.Environment.PassContractVersion);
+		AppendLittleEndian(Bytes, Environment.ResourceLimits.SampledImages);
+		AppendLittleEndian(Bytes, Environment.ResourceLimits.Samplers);
+		AppendLittleEndian(Bytes, Environment.ResourceLimits.UniformBuffers);
+		AppendLittleEndian(Bytes, Environment.ResourceLimits.StageResources);
+		AppendLittleEndian(Bytes, Environment.ResourceLimits.UniformBufferBytes);
+		AppendLittleEndian(Bytes, Environment.PassContractVersion);
 		// Static selection is already represented by the selected normalized MIR.
 		// Do not salt the program identity with the request configuration itself:
 		// distinct configurations that select identical code share one retained program.
@@ -683,10 +690,15 @@ namespace Durin
 		return {.Digest = FXxHash128::HashBuffer(Bytes)};
 	}
 
+	auto BuildMaterialProgramIdentity(const FMaterialStaticProperties& StaticProperties,
+		const FMaterialCompilerEnvironment& Environment, std::span<const FMaterialParameterCollectionLayout> Collections,
+		FByteView CanonicalIR, const FMaterialRenderLayout& Layout) -> FMaterialProgramIdentity
+	{ return BuildInputIdentity(StaticProperties, Environment, Collections, CanonicalIR, Layout); }
+
 	auto BuildMaterialProgramIdentity(const MIR::FCompilerInput& Input,
 		FByteView CanonicalIR, const FMaterialRenderLayout& Layout) -> FMaterialProgramIdentity
 	{
-		return BuildInputIdentity(Input, CanonicalIR, Layout);
+		return BuildInputIdentity(Input.StaticProperties, Input.Environment, Input.Collections, CanonicalIR, Layout);
 	}
 
 }

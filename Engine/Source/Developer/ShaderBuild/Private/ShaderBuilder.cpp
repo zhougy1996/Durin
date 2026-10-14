@@ -389,7 +389,7 @@ namespace Durin
 	{
 		const auto& Request = *Owned;
 		if (!IsActiveCompilerTarget(Request.Target)) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
-		if (!Request.VirtualPath.starts_with("/Generated/Materials/") || Request.Source.empty()
+		if (!Request.VirtualPath.starts_with("/Generated/") || Request.Source.empty()
 			|| Request.Source.size() > 1024 * 1024 || Request.EntryPoints.empty()
 			|| Request.EntryPoints.size() != Request.Frequencies.size() || Request.EntryPoints.size() > 8)
 			return std::unexpected(FShaderError{.Code = EShaderError::InvalidGeneratedRequest});
@@ -418,10 +418,12 @@ namespace Durin
 			EnvironmentOptions.Target = Request.Target;
 			EnvironmentOptions.VirtualShaderPath = Request.ExpectedSourceTree->VirtualPath;
 			EnvironmentOptions.CompilerEnvironment = CompilerEnvironmentIdentity;
-			EnvironmentOptions.EntryPoints = {"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain", "VertexMain", "SplineVertexMain", "GPUCullingVertexMain"};
-			EnvironmentOptions.Frequencies.assign(4, EShaderFrequency::Fragment);
-			EnvironmentOptions.Frequencies.insert(EnvironmentOptions.Frequencies.end(), 3, EShaderFrequency::Vertex);
-			EnvironmentOptions.Macros = {{"DURIN_MATERIAL_BLEND_MODE", "1"}, {"DURIN_MATERIAL_SHADING_MODEL", "1"}, {"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", "1056964608"}};
+			for (const auto& Entry : Request.ExpectedSourceTree->EntryPoints) EnvironmentOptions.EntryPoints.push_back(Entry.c_str());
+			EnvironmentOptions.Frequencies = Request.ExpectedSourceTree->Frequencies;
+			EnvironmentOptions.Macros = Request.ExpectedSourceTree->Macros;
+			if (EnvironmentOptions.EntryPoints.empty() || EnvironmentOptions.EntryPoints.size() > 8
+				|| EnvironmentOptions.EntryPoints.size() != EnvironmentOptions.Frequencies.size() || !HasValidUniqueEntryPoints(EnvironmentOptions))
+				return std::unexpected(FShaderError{.Code = EShaderError::InvalidGeneratedRequest});
 			FShaderMetaData EnvironmentMeta;
 			if (Options.SourceArtifacts)
 			{
@@ -452,7 +454,7 @@ namespace Durin
 		if (Options.SourceArtifacts)
 		{
 			std::vector<std::string> Paths;
-			if (Request.ExpectedSourceTree && Request.ExpectedSourceTree->VirtualPath == "/Engine/MaterialCompilerEnvironment")
+			if (Request.ExpectedSourceTree && Request.ExpectedSourceTree->bCompleteClosure)
 			{
 				// The verified material environment is the complete declared closure.
 				// The compiler filesystem has no fallback outside these immutable bytes.
