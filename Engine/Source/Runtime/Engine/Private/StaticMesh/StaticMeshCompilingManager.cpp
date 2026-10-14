@@ -74,6 +74,7 @@ namespace Durin
 
 		struct FRecord
 		{
+			std::unique_ptr<AssetPrivate::FMeshBuildReservation> Reservation;
 			FStaticMeshCompilationDiagnostic Diagnostic;
 			FStaticMeshReconciliationSnapshot Snapshot;
 			std::optional<std::vector<FMeshMaterialSlotDefinition>> PreparedMaterialSlots;
@@ -120,10 +121,6 @@ namespace Durin
 			CheckOwnerThread();
 			return Records.size();
 		}
-		auto IsMutating(const DStaticMesh& Mesh) const -> bool
-		{
-			return AdmissionState->MutatingOwners.contains(FObjectKey(const_cast<DStaticMesh*>(&Mesh)));
-		}
 
 #if DURIN_WITH_EDITORONLY_DATA
 		auto Submit(DStaticMesh& Mesh, FStaticMeshCompilationRequest Request) -> std::expected<void, std::string>
@@ -133,7 +130,7 @@ namespace Durin
 				Message.resize(std::min(Message.size(), MaximumStaticMeshBuildDiagnosticBytes));
 				return std::unexpected(std::move(Message));
 			};
-			if (!bAccepting || !IsValid(&Mesh) || AdmissionState->MutatingOwners.contains(FObjectKey(&Mesh))) return Reject("StaticMesh compilation is not accepting this owner.");
+			if (!bAccepting || !IsValid(&Mesh) || Mesh.IsCompilationMutationBlocked()) return Reject("StaticMesh compilation is not accepting this owner.");
 			if (!Request.Source.IsValid()) return Reject("StaticMesh compilation requires valid canonical source metadata.");
 			const auto Snapshot = CaptureStaticMeshReconciliation(Mesh);
 			const auto& InputSlots = Request.PreparedMaterialSlots ? *Request.PreparedMaterialSlots : Snapshot.MaterialSlots;
@@ -162,14 +159,16 @@ namespace Durin
 				|| !Memory.Add(std::max<size_t>(Request.Source.GetMaterialSlotCount(), InputSlots.size()), 32768))
 				return Reject(std::format("StaticMesh compilation request exceeds its {} byte budget ({} x {} bytes rejected).", Memory.Limit, Memory.RejectedCount, Memory.RejectedWidth));
 			const uint64 Bytes = Memory.Bytes;
-			if (!AdmissionState->CanReserve(Bytes))
-				return Reject(std::format("StaticMesh compilation admission budget exhausted ({} / {} records, {} reserved bytes, {} requested bytes).", Records.size(), MaximumRecords, ReservedBytes, Bytes));
 			auto Module = IMeshBuilderModule::Get();
 			if (!Module) return Reject("StaticMesh compilation requires the build module.");
 			const uint64 BuilderVersion = Module->GetBuildVersion();
 			if (BuilderVersion == 0)
 				return Reject("StaticMesh compilation requires a nonzero render builder version.");
 			auto Record = std::make_shared<FRecord>();
+			Record->Reservation = AssetPrivate::FMeshBuildReservation::TryCreate(AdmissionState, Accounting, Bytes);
+			if (!Record->Reservation)
+				return Reject(std::format("StaticMesh compilation admission budget exhausted ({} / {} records, {} reserved bytes, {} requested bytes).",
+					AdmissionState->RecordCount, MaximumRecords, AdmissionState->ReservedBytes, Bytes));
 			Record->Snapshot = Snapshot;
 			Record->RequestedSource = Request.Source;
 			Record->RequestedSource.ReleaseGeometry();
@@ -201,8 +200,6 @@ namespace Durin
 					Old->bRequeue = false;
 					Terminate(*Old, EStaticMeshCompilationStatus::Superseded);
 				}
-			ReservedBytes += Bytes;
-			AdmissionState->Reserve(Bytes);
 			Records.push_back(Record);
 			Enqueue(Record);
 			return {};
@@ -212,11 +209,7 @@ namespace Durin
 		auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params) -> FAssetCompileProcessResult override
 		{
 			CheckOwnerThread();
-			AdmissionState->BeginPump(Params.PumpIdentity);
-			const auto Deadline = std::min(Params.Deadline.value_or(FClock::time_point::max()), AdmissionState->PumpDeadline);
-			auto Result = Pump({}, std::min<uint32>(2 - AdmissionState->PumpCount, Params.MaximumCompletions), Deadline);
-			AdmissionState->PumpCount = std::min<uint32>(2, AdmissionState->PumpCount + Result.ProcessedCompletionCount);
-			return Result;
+			return Pump({}, Params.MaximumCompletions, Params.Deadline.value_or(FClock::time_point::max()));
 		}
 		auto FinishCompilationForObjects(std::span<DObject* const> Objects) -> FAssetCompileProcessResult override
 		{
@@ -348,7 +341,7 @@ namespace Durin
 		{
 			CheckOwnerThread();
 			const auto Running = std::ranges::count_if(Records, [](const auto& Record) { const auto Phase = Record->Work->Phase.load(); return Phase != EWorkPhase::Queued && Phase != EWorkPhase::Complete; });
-			return {static_cast<uint32>(Records.size() + FinalizingCount), uint32(Running), static_cast<uint32>(History.size()), ReservedBytes, bAccepting};
+			return {Accounting->RecordCount, uint32(Running), static_cast<uint32>(History.size()), Accounting->ReservedBytes, bAccepting};
 		}
 		std::function<void(uint64, EStaticMeshCompilationPhase)> PhaseHook;
 
@@ -535,8 +528,7 @@ namespace Durin
 					Record->Work->Fail("Asset build task retired before worker completion.");
 				Record->Work->ReleaseInput();
 				Record->Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
-				AdmissionState->AdmittedBuildCount.fetch_sub(1);
-				AdmissionState->Changed.notify_all();
+				AdmissionState->ReleaseSlot();
 			}
 			AdmissionState->Admit();
 		}
@@ -559,19 +551,15 @@ namespace Durin
 				// Remove before owner code can re-enter the pump. The reservation and
 				// output stay alive until the owner callback returns, including exceptions.
 				std::erase(Records, Record);
-				++FinalizingCount;
-				struct FRetireReservation
+				auto Reservation = std::move(Record->Reservation);
+				struct FRetireOutput
 				{
-					FStaticMeshCompilingManager& Manager;
 					const std::shared_ptr<FRecord>& Record;
-					~FRetireReservation()
+					~FRetireOutput()
 					{
 						Record->Work->ReleaseOutput();
-						Manager.ReservedBytes -= Record->Diagnostic.ReservedBytes;
-						Manager.AdmissionState->Release(Record->Diagnostic.ReservedBytes);
-						--Manager.FinalizingCount;
 					}
-				} Retirement{*this, Record};
+				} Retirement{Record};
 				if (!Record->Terminal && Record->Work->Cancellation.IsCancelled())
 					Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
 				auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Record->Diagnostic.Owner));
@@ -621,14 +609,13 @@ namespace Durin
 			return Result;
 		}
 
-		uint32 FinalizingCount = 0;
 		std::vector<std::shared_ptr<FRecord>> Records;
 		std::deque<FStaticMeshCompilationDiagnostic> History;
 		std::shared_ptr<AssetPrivate::FMeshBuildBudget> AdmissionState = AssetPrivate::GetMeshBuildBudget();
 		FTaskScope Scope;
 		FObjectKey PublishingOwner;
 		uint64 NextRequest = 1;
-		uint64 ReservedBytes = 0;
+		std::shared_ptr<AssetPrivate::FMeshBuildAccounting> Accounting = std::make_shared<AssetPrivate::FMeshBuildAccounting>();
 		bool bAccepting = false;
 		bool bShutdown = true;
 	};
@@ -722,10 +709,6 @@ namespace Durin
 	{
 		CheckOwnerThread();
 		return FAssetCompilingManager::Get().FinishCompilationForObject(*this);
-	}
-	auto AssetPrivate::IsStaticMeshCompilationMutationBlocked(const DStaticMesh& Mesh) -> bool
-	{
-		return AssetPrivate::GetMeshBuildBudget()->MutatingOwners.contains(FObjectKey(const_cast<DStaticMesh*>(&Mesh)));
 	}
 
 	auto DStaticMesh::CancelCompilation() -> void

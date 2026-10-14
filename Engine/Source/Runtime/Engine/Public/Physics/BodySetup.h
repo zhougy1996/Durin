@@ -41,6 +41,7 @@ namespace Durin
 		// Assemble the detached cook descriptor from prepared geometry and current body settings.
 		ENGINE_API auto GetCookInfo(FTriMeshCollisionData Data, bool bPersistDerivedData = true) const -> FCookBodySetupInfo;
 		ENGINE_API auto IsCompiling() const -> bool;
+		ENGINE_API auto IsCompilationMutationBlocked() const -> bool;
 		ENGINE_API auto AbortPhysicsMeshAsyncCreation() -> void;
 		ENGINE_API auto FinishPhysicsMeshes() -> void;
 		ENGINE_API auto BeginDestroy() -> void override;
@@ -90,6 +91,8 @@ namespace Durin
 #endif
 
 	private:
+		friend class DStaticMesh;
+		bool bCompilationMutationBlocked = false;
 		auto NotifyPhysicsDataChanged() -> void;
 		EPhysicsMeshBuildStatus PhysicsMeshStatus = EPhysicsMeshBuildStatus::Ready;
 		std::optional<std::string> PhysicsMeshError;

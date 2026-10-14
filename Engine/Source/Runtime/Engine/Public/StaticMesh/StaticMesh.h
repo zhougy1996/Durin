@@ -123,6 +123,8 @@ namespace Durin
 		ENGINE_API auto CancelCompilation() -> void;
 		// Cancels and drains both render and collision work before authored mutation.
 		ENGINE_API auto BlockOnAnyAsyncBuild() -> void;
+		// Owner-thread guard against compilation submitted from retirement callbacks.
+		auto IsCompilationMutationBlocked() const -> bool { return bCompilationMutationBlocked; }
 
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
@@ -224,6 +226,7 @@ namespace Durin
 
 	private:
 		friend class FStaticMeshTestAccess;
+		bool bCompilationMutationBlocked = false;
 		// Owner-thread replacement invalidates old render/collision data first. Failure
 		// leaves CPU data unavailable and returns a diagnostic; no rollback is performed.
 		// Collision failure alone leaves the new CPU render data usable.

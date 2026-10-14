@@ -342,7 +342,7 @@ namespace Durin
 				- Aggregate.ProcessedCompletionCount;
 			const uint32 RemainingCompilers = static_cast<uint32>(Entries.size() - Offset);
 			FAssetCompileProcessResult Item = Entry.Manager->ProcessAsyncTasks({
-				std::max(1u, Remaining / RemainingCompilers), Params.Deadline, Cursor + 1});
+				std::max(1u, Remaining / RemainingCompilers), Params.Deadline});
 			Accumulate(Entry.CompilerName, std::move(Item));
 		}
 		while (Aggregate.ProcessedCompletionCount < Params.MaximumCompletions)
@@ -354,7 +354,7 @@ namespace Durin
 				if (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline) break;
 				FAssetCompileProcessResult Item = Entry.Manager->ProcessAsyncTasks({
 					Params.MaximumCompletions - Aggregate.ProcessedCompletionCount,
-					Params.Deadline, Cursor + 1});
+					Params.Deadline});
 				bMadeProgress |= Item.ProcessedCompletionCount != 0;
 				Accumulate(Entry.CompilerName, std::move(Item));
 			}

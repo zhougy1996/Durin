@@ -144,7 +144,10 @@ status enum. Stale results do not
 change live state; incompatible geometry on a current request stores an Installation
 failure. Workers never mutate the setup. Physics records retain the shared cancellation
 token rather than a duplicate terminal status. Finalization forms a local completion
-result without replacing worker output with an installation error.
+result without replacing worker output with an installation error. A shared RAII
+reservation retains record and byte charges until request products retire and the
+completion notification returns, even if notification throws. Completion processing
+uses the aggregate manager's count/deadline rather than a separate mesh time slice.
 
 The mesh setters invalidate derived collision and schedule when a collision source
 is available, even without CPU RenderData. Missing source retains configuration as

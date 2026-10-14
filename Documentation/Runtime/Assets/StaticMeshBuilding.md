@@ -301,7 +301,11 @@ terminal status and bounded failure text remain in the diagnostic history.
 These object completion interfaces cover rendering only. BodySetup independently
 queries `IsCompiling`, finishes through `FinishPhysicsMeshes`, or cancels with
 `AbortPhysicsMeshAsyncCreation`. Whole-source mutation retains the render/physics
-retirement barrier through `BlockOnAnyAsyncBuild`; saving explicitly finishes both. Status
+retirement barrier through `BlockOnAnyAsyncBuild`; saving explicitly finishes both.
+Mutation guards belong to the mesh and current BodySetup objects, independently
+of compiler/budget lifetime. Physics admission also observes an owning mesh's guard,
+including setups other than its current BodySetup. Retirement callbacks cannot
+submit replacement builds through this barrier. Status
 is absent until terminal delivery; queued, building and mailbox observations do
 not imply failure. Successful, cancelled and superseded terminals carry no error.
 

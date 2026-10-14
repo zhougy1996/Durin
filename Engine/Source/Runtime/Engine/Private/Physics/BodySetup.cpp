@@ -76,6 +76,11 @@ namespace Durin
 	}
 
 	auto DBodySetup::IsCompiling() const -> bool { return IsPhysicsMeshCompiling(*this); }
+	auto DBodySetup::IsCompilationMutationBlocked() const -> bool
+	{
+		const auto* Mesh = Cast<DStaticMesh>(GetOuter());
+		return bCompilationMutationBlocked || (Mesh && Mesh->IsCompilationMutationBlocked());
+	}
 	auto DBodySetup::AbortPhysicsMeshAsyncCreation() -> void { CancelPhysicsMeshCompilation(*this); }
 	auto DBodySetup::FinishPhysicsMeshes() -> void { FinishPhysicsMeshCompilation(*this); }
 

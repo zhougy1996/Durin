@@ -57,6 +57,7 @@ namespace Durin
 		};
 		struct FPhysicsRecord
 		{
+			std::unique_ptr<AssetPrivate::FMeshBuildReservation> Reservation;
 			FObjectKey Body, AssetOwner;
 			uint64 Revision = 0, Generation = 0, ReservedBytes = 0;
 			EBodySetupCollisionSourceMode Mode;
@@ -102,7 +103,7 @@ namespace Durin
 		{
 			CheckOwnerThread();
 			const auto Running = std::ranges::count_if(Records, [](const auto& Record) { return Record->Work->Phase.load(std::memory_order_acquire) == EWorkPhase::Running; });
-			return {uint32(Records.size() + FinalizingCount), uint32(Running), ReservedBytes, bAccepting};
+			return {Accounting->RecordCount, uint32(Running), Accounting->ReservedBytes, bAccepting};
 		}
 		auto Submit(DBodySetup& Body, std::unique_ptr<FPhysicsMeshInputTask> InputTask, bool bPersist, FOnAsyncPhysicsCookFinished Completion)
 			-> void
@@ -114,13 +115,14 @@ namespace Durin
 				const FPhysicsCookCompletionResult Result{.Status = EPhysicsCookCompletionStatus::Failed, .Error = Body.GetPhysicsMeshBuildError()};
 				if (Completion) Completion(Result);
 			};
-			if (!bAccepting || !IsValid(&Body) || Budget->MutatingOwners.contains(FObjectKey(&Body)) || Budget->MutatingOwners.contains(FObjectKey(Body.GetOuter())))
+			if (!bAccepting || !IsValid(&Body) || Body.IsCompilationMutationBlocked())
 				return Reject("Physics mesh compilation is not accepting this owner.");
 			if (!InputTask || InputTask->GetWorkingSetBytes() == 0 || InputTask->GetWorkingSetBytes() > Budget->MaximumRequestBytes)
 				return Reject("Physics mesh preparation requires a bounded detached task.");
 			const auto Bytes = InputTask->GetWorkingSetBytes();
-			if (!Budget->CanReserve(Bytes)) return Reject("Physics mesh compilation admission budget exhausted.");
 			auto Record = std::make_shared<FPhysicsRecord>();
+			Record->Reservation = AssetPrivate::FMeshBuildReservation::TryCreate(Budget, Accounting, Bytes);
+			if (!Record->Reservation) return Reject("Physics mesh compilation admission budget exhausted.");
 			Record->Body = FObjectKey(&Body);
 			Record->AssetOwner = FObjectKey(Body.GetOuter());
 			Record->Revision = Body.GetRevision();
@@ -132,8 +134,6 @@ namespace Durin
 			Record->Work->InputTask = std::move(InputTask);
 			Record->Work->CookInfo = Body.GetCookInfo({}, bPersist);
 			Record->Completion = std::move(Completion);
-			Budget->Reserve(Bytes);
-			ReservedBytes += Bytes;
 			Records.push_back(Record);
 			Budget->Enqueue(false, [Manager = weak_from_this(), WeakRecord = std::weak_ptr(Record)] {
 				auto Self = Manager.lock();
@@ -172,10 +172,7 @@ namespace Durin
 		auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params) -> FAssetCompileProcessResult override
 		{
 			CheckOwnerThread();
-			Budget->BeginPump(Params.PumpIdentity);
-			auto Result = Pump({}, std::min<uint32>(2 - Budget->PumpCount, Params.MaximumCompletions), std::min(Params.Deadline.value_or(FClock::time_point::max()), Budget->PumpDeadline));
-			Budget->PumpCount = std::min<uint32>(2, Budget->PumpCount + Result.ProcessedCompletionCount);
-			return Result;
+			return Pump({}, Params.MaximumCompletions, Params.Deadline.value_or(FClock::time_point::max()));
 		}
 		auto Shutdown() -> void override
 		{
@@ -242,19 +239,15 @@ namespace Durin
 					|| Record->Work->Phase.load(std::memory_order_acquire) != EWorkPhase::Complete
 					|| (Record->Task.IsValid() && !Record->Task.IsComplete())) continue;
 				std::erase(Records, Record);
-				++FinalizingCount;
-				struct FRetirement
+				auto Reservation = std::move(Record->Reservation);
+				struct FRetireOutput
 				{
-					FPhysicsMeshCompilingManager& Manager;
 					const std::shared_ptr<FPhysicsRecord>& Record;
-					~FRetirement()
+					~FRetireOutput()
 					{
 						Record->Work->Outcome = FPhysicsCookResult{};
-						Manager.ReservedBytes -= Record->ReservedBytes;
-						Manager.Budget->Release(Record->ReservedBytes);
-						--Manager.FinalizingCount;
 					}
-				} Retirement{*this, Record};
+				} Retirement{Record};
 				auto* Body = Cast<DBodySetup>(ResolveObjectKey(Record->Body));
 				FPhysicsCookCompletionResult Completion;
 				if (Record->Work->Cancellation.IsCancelled() || !Body)
@@ -304,8 +297,7 @@ namespace Durin
 		std::shared_ptr<AssetPrivate::FMeshBuildBudget> Budget = AssetPrivate::GetMeshBuildBudget();
 		std::vector<std::shared_ptr<FPhysicsRecord>> Records;
 		FTaskScope Scope;
-		uint64 ReservedBytes = 0;
-		uint32 FinalizingCount = 0;
+		std::shared_ptr<AssetPrivate::FMeshBuildAccounting> Accounting = std::make_shared<AssetPrivate::FMeshBuildAccounting>();
 		bool bAccepting = false;
 	};
 	namespace

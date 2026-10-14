@@ -458,14 +458,18 @@ and retained products retire. Render slots remain occupied during cache I/O;
 Each manager's diagnostic counters describe its own records; their sums describe
 the shared quota. Suspended render requests retain admission slots. Physics finish
 may advance retired render DDC continuations to release shared slots, without
-applying unrelated render results. Completion pumps also share the existing
-two-terminal, two-millisecond per-pump slice.
+applying unrelated render results. One RAII reservation maintains both shared and
+per-manager record/byte counters. It moves from the record into finalization and
+releases only after request output cleanup and notification return, including
+exceptional exits; retained queue snapshots do not extend the charge.
 Collision-only work never changes render resource revision.
 
 Background and interactive queues are FIFO with at most four interactive dispatches
-before eligible background work. Each pump processes at most two terminals within
-a shared 2 ms soft deadline. Resource preparation and consumer refresh can exceed
-that soft deadline. History retains at most 128 render diagnostics. Collision
+before eligible background work. Completion pumps honor the aggregate manager's
+completion count and optional deadline; there is no separate mesh completion budget
+or pump identity. A time-limited aggregate pump supplies a 2 ms soft deadline.
+Resource preparation and consumer refresh can exceed that soft deadline.
+History retains at most 128 render diagnostics. Collision
 cache warnings are logged independently; successful collision work is not reported
 as another successful render compilation.
 

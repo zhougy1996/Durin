@@ -1,10 +1,15 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "DObject/ObjectKey.h"
 
 namespace Durin::AssetPrivate
 {
+	class FMeshBuildReservation;
+	struct FMeshBuildAccounting
+	{
+		uint64 ReservedBytes = 0;
+		uint32 RecordCount = 0;
+	};
 	// Shared quotas and launch ordering only. Products and terminal delivery belong
 	// to their typed managers. Owner-thread fields coexist with worker slot retirement.
 	struct FMeshBuildBudget
@@ -17,7 +22,6 @@ namespace Durin::AssetPrivate
 		std::condition_variable Changed;
 		uint64 ReservedBytes = 0;
 		uint32 RecordCount = 0;
-		std::unordered_set<FObjectKey> MutatingOwners;
 		// Advance retired DDC dispatches without applying unrelated render results.
 		std::function<void()> ProgressRender;
 		struct FQueuedLaunch
@@ -27,22 +31,12 @@ namespace Durin::AssetPrivate
 		};
 		std::deque<FQueuedLaunch> Queue;
 		uint32 InteractiveBurst = 0;
-		uint64 PumpIdentity = 0;
-		uint32 PumpCount = 0;
-		std::chrono::steady_clock::time_point PumpDeadline;
-		auto BeginPump(uint64 Identity) -> void
-		{
-			if (!Identity || Identity != PumpIdentity)
-			{
-				PumpIdentity = Identity;
-				PumpCount = 0;
-				PumpDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2);
-			}
-		}
 		auto CanReserve(uint64 Bytes) const -> bool
 		{
 			return RecordCount < MaximumRecords && Bytes <= MaximumTotalBytes - ReservedBytes;
 		}
+	private:
+		friend class FMeshBuildReservation;
 		auto Reserve(uint64 Bytes) -> void
 		{
 			++RecordCount;
@@ -53,6 +47,7 @@ namespace Durin::AssetPrivate
 			--RecordCount;
 			ReservedBytes -= Bytes;
 		}
+	public:
 		auto ReleaseSlot() -> void
 		{
 			AdmittedBuildCount.fetch_sub(1);
@@ -85,6 +80,38 @@ namespace Durin::AssetPrivate
 					ReleaseSlot();
 			}
 		}
+	};
+	// Owner-thread reservation, including output and notification lifetime. Records
+	// transfer it to the finalization scope so snapshots cannot delay its release.
+	class FMeshBuildReservation
+	{
+	public:
+		static auto TryCreate(std::shared_ptr<FMeshBuildBudget> Budget,
+			std::shared_ptr<FMeshBuildAccounting> Accounting, uint64 Bytes) -> std::unique_ptr<FMeshBuildReservation>
+		{
+			if (!Budget->CanReserve(Bytes)) return {};
+			return std::unique_ptr<FMeshBuildReservation>(new FMeshBuildReservation(std::move(Budget), std::move(Accounting), Bytes));
+		}
+		~FMeshBuildReservation()
+		{
+			Budget->Release(Bytes);
+			Accounting->ReservedBytes -= Bytes;
+			--Accounting->RecordCount;
+		}
+		FMeshBuildReservation(const FMeshBuildReservation&) = delete;
+		auto operator=(const FMeshBuildReservation&) -> FMeshBuildReservation& = delete;
+	private:
+		FMeshBuildReservation(std::shared_ptr<FMeshBuildBudget> InBudget,
+			std::shared_ptr<FMeshBuildAccounting> InAccounting, uint64 InBytes)
+			: Budget(std::move(InBudget)), Accounting(std::move(InAccounting)), Bytes(InBytes)
+		{
+			Budget->Reserve(Bytes);
+			Accounting->ReservedBytes += Bytes;
+			++Accounting->RecordCount;
+		}
+		std::shared_ptr<FMeshBuildBudget> Budget;
+		std::shared_ptr<FMeshBuildAccounting> Accounting;
+		uint64 Bytes;
 	};
 	inline auto GetMeshBuildBudget() -> std::shared_ptr<FMeshBuildBudget>
 	{

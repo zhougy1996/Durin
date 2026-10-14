@@ -6,7 +6,6 @@
 #include "DObject/Package.h"
 
 #include "Asset/Asset.h"
-#include "Asset/MeshBuildBudget.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
@@ -574,28 +573,32 @@ namespace Durin
 	auto DStaticMesh::BlockOnAnyAsyncBuild() -> void
 	{
 		CheckStaticMeshUpdateThread();
-		auto Budget = AssetPrivate::GetMeshBuildBudget();
-		const FObjectKey Owner(this);
-		if (!Budget->MutatingOwners.insert(Owner).second) return;
-		const FObjectKey BodyOwner(GetBodySetup());
-		const bool bBlockBody = BodyOwner != FObjectKey{} && Budget->MutatingOwners.insert(BodyOwner).second;
+		if (bCompilationMutationBlocked) return;
+		bCompilationMutationBlocked = true;
+		auto* Body = GetBodySetup();
+		const bool bBodyWasBlocked = Body && Body->bCompilationMutationBlocked;
+		if (Body) Body->bCompilationMutationBlocked = true;
 		struct FMutationGuard
 		{
-			AssetPrivate::FMeshBuildBudget& Budget;
-			FObjectKey Owner, Body;
-			bool bBlockBody;
+			FObjectKey Owner;
+			FObjectKey Body;
+			bool bBodyWasBlocked;
 			~FMutationGuard()
 			{
-				Budget.MutatingOwners.erase(Owner);
-				if (bBlockBody) Budget.MutatingOwners.erase(Body);
+				if (auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Owner))) Mesh->bCompilationMutationBlocked = false;
+				if (auto* Setup = Cast<DBodySetup>(ResolveObjectKey(Body))) Setup->bCompilationMutationBlocked = bBodyWasBlocked;
 			}
-		} Guard{*Budget, Owner, BodyOwner, bBlockBody};
+		} Guard{FObjectKey(this), FObjectKey(Body), bBodyWasBlocked};
 		CancelCompilation();
 		AssetPrivate::CancelPhysicsMeshCompilationForOwner(*this);
 		if (auto* Body = GetBodySetup()) Body->AbortPhysicsMeshAsyncCreation();
 		FinishCompilation();
 		AssetPrivate::FinishPhysicsMeshCompilationForOwner(*this);
 		if (auto* Body = GetBodySetup()) Body->FinishPhysicsMeshes();
+	}
+	auto AssetPrivate::IsStaticMeshCompilationMutationBlocked(const DStaticMesh& Mesh) -> bool
+	{
+		return Mesh.IsCompilationMutationBlocked();
 	}
 	auto DStaticMesh::BeginDestroy() -> void
 	{
