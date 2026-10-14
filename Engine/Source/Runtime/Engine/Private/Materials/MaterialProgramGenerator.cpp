@@ -1110,10 +1110,13 @@ float4 FragmentMain(
 		return Prepared;
 	}
 
-	auto CompilePreparedMaterialProgram(const FMaterialPreparedProgram& Input,
-		bool bForceRecompile) -> FMaterialCompilerResult
+	auto TranslatePreparedMaterialProgram(const FMaterialPreparedProgram& Input)
+		-> FMaterialTranslatedProgram
 	{
-		FMaterialCompilerResult Result;
+		FMaterialTranslatedProgram Translation;
+		Translation.StaticProperties = Input.StaticProperties;
+		Translation.ResourceLimits = Input.Environment.ResourceLimits;
+		auto& Result = Translation.Candidate;
 		Result.CompilerIdentity = Input.Environment.CompilerIdentity;
 		Result.Target = Input.Environment.Target;
 		Result.PassContractVersion = Input.Environment.PassContractVersion;
@@ -1127,14 +1130,14 @@ float4 FragmentMain(
 			Result.Diagnostics.push_back(MakeDiagnostic(
 				EMaterialProgramDiagnosticCategory::Compile,
 				EMaterialIRError::InvalidCompilerEnvironment));
-			return Result;
+			return Translation;
 		}
 		const auto GenerateBegin = std::chrono::steady_clock::now();
 		const auto& Normalized = Input.Normalized;
 		if (!Normalized)
 		{
 			Result.Diagnostics = Normalized.Diagnostics;
-			return Result;
+			return Translation;
 		}
 		Result.Identity = Normalized.Identity;
 		Result.IR = Normalized.IR;
@@ -1148,15 +1151,23 @@ float4 FragmentMain(
 		if (!Generated)
 		{
 			Result.Diagnostics = std::move(Generated.Diagnostics);
-			return Result;
+			return Translation;
 		}
 		Result.GeneratedSource = std::move(Generated.Source);
-		const auto CompileBegin = std::chrono::steady_clock::now();
 		Result.Timings.GenerationMicroseconds =
 			std::chrono::duration_cast<std::chrono::microseconds>(
-				CompileBegin - GenerateBegin).count();
+				std::chrono::steady_clock::now() - GenerateBegin).count();
+		Translation.bSucceeded = true;
+		return Translation;
+	}
+
+	auto MakeMaterialShaderCompileRequest(const FMaterialTranslatedProgram& Translation,
+		bool bForceRecompile) -> FGeneratedShaderCompileRequest
+	{
+		if (!Translation) return {};
+		const auto& Result = Translation.Candidate;
 		FGeneratedShaderCompileRequest Request;
-		Request.Target = Input.Environment.Target == "metal-msl-2.0"
+		Request.Target = Result.Target == "metal-msl-2.0"
 			? MetalShaderTarget : VulkanShaderTarget;
 		Request.VirtualPath = "/Generated/Materials/" + Result.Identity.ToString();
 		Request.Source = Result.GeneratedSource;
@@ -1164,21 +1175,26 @@ float4 FragmentMain(
 		Request.Frequencies.assign(4, EShaderFrequency::Fragment);
 		Request.Frequencies.insert(Request.Frequencies.end(), 3, EShaderFrequency::Vertex);
 		Request.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE",
-			std::to_string(static_cast<uint8>(Input.StaticProperties.BlendMode)));
+			std::to_string(static_cast<uint8>(Translation.StaticProperties.BlendMode)));
 		Request.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL",
-			std::to_string(static_cast<uint8>(Input.StaticProperties.ShadingModel)));
+			std::to_string(static_cast<uint8>(Translation.StaticProperties.ShadingModel)));
 		Request.Macros.emplace_back(
 			"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS",
 			std::to_string(std::bit_cast<uint32>(
-				CanonicalizeMaterialShaderProperties(Input.StaticProperties).OpacityMaskThreshold)));
+				CanonicalizeMaterialShaderProperties(Translation.StaticProperties).OpacityMaskThreshold)));
 		Request.AllowedImportVirtualPrefixes = {
 			"/Engine/Material/", "/Engine/Lighting/", "/Engine/VertexFactory/"};
 		Request.bForceRecompile = bForceRecompile;
-		FShaderCompilerOutput Output = CompileGeneratedShader(Request);
-		const auto CompileEnd = std::chrono::steady_clock::now();
-		Result.Timings.CompilationMicroseconds =
-			std::chrono::duration_cast<std::chrono::microseconds>(
-				CompileEnd - CompileBegin).count();
+		return Request;
+	}
+
+	auto AssembleMaterialProgram(FMaterialTranslatedProgram Translation,
+		FShaderCompilerOutput Output) -> FMaterialCompilerResult
+	{
+		auto Result = std::move(Translation.Candidate);
+		Result.bSucceeded = false;
+		Result.CompiledShaders.clear();
+		if (!Translation) return Result;
 		if (!Output)
 		{
 			Result.Diagnostics.push_back(MakeDiagnostic(
@@ -1186,8 +1202,12 @@ float4 FragmentMain(
 				FMaterialError::FromExternal(EMaterialCompileError::ShaderCompilerFailed, FormatShaderError(Output.Error))));
 			return Result;
 		}
-		const auto Reflection = ValidateMaterialCompiledStages(Output.CompiledShaders,
-			Result.Layout, Input.Environment.ResourceLimits, Result.ActiveCollections);
+		const auto Target = Result.Target == "metal-msl-2.0" ? MetalShaderTarget : VulkanShaderTarget;
+		const auto Reflection = std::ranges::all_of(Output.CompiledShaders,
+			[&](const auto& Shader) { return Shader.Target == Target; })
+			? ValidateMaterialCompiledStages(Output.CompiledShaders,
+				Result.Layout, Translation.ResourceLimits, Result.ActiveCollections)
+			: FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
 		if (!Reflection)
 		{
 			Result.Diagnostics.push_back(MakeDiagnostic(
@@ -1198,6 +1218,20 @@ float4 FragmentMain(
 		Result.CompiledShaders = std::move(Output.CompiledShaders);
 		Result.bSucceeded = true;
 		return Result;
+	}
+
+	auto CompilePreparedMaterialProgram(const FMaterialPreparedProgram& Input,
+		bool bForceRecompile) -> FMaterialCompilerResult
+	{
+		auto Translation = TranslatePreparedMaterialProgram(Input);
+		if (!Translation) return std::move(Translation.Candidate);
+		const auto CompileBegin = std::chrono::steady_clock::now();
+		auto Request = MakeMaterialShaderCompileRequest(Translation, bForceRecompile);
+		auto Output = CompileGeneratedShader(Request);
+		Translation.Candidate.Timings.CompilationMicroseconds =
+			std::chrono::duration_cast<std::chrono::microseconds>(
+				std::chrono::steady_clock::now() - CompileBegin).count();
+		return AssembleMaterialProgram(std::move(Translation), std::move(Output));
 	}
 	auto MIR::Compile(const MIR::FCompilerInput& Input, bool bForceRecompile) -> FMaterialCompilerResult
 	{

@@ -9,20 +9,224 @@ Completed:
 
 ## Current Status
 
-The staged approach is selected; implementation has not started. Repository
-inspection confirms that MaterialCompileLifecycle prepares normalized MIR on
-GameThread, then runs CompilePreparedMaterialProgram synchronously on a Core
-worker. ShaderBuild uses a persistent inline DDC session and waits on its request
-owner. Materials therefore benefit from Shader DDC without an asynchronous
-end-to-end material build chain or a persistent material translation product.
+Stage 0 code audit and boundary decisions are recorded below. The unmodified
+MaterialCompilerTests baseline passed 71 cases on Win64-Debug-DurinEditor
+(2026-10-14). Full workload timing qualification remains open.
 
-This plan adds only implementation stages and acceptance gates. Existing
+Stage 1 is implemented: private translation, generated-request construction and
+typed assembly now serve both MIR::Compile and the existing lifecycle adapter.
+Translation does not submit Shader work and cannot mark a candidate publishable.
+Assembly preserves existing reflection/resource validation and additionally
+rejects stages for a different target. Normalization and Shader cache waits still
+execute in their original locations; Stages 2 through 5 are not implemented.
+
+Stage 1 validation on 2026-10-14: MaterialCompilerTests 73/73,
+MaterialFunctionTests 30/30, MaterialCompileLifecycleTests 6/6, and the default
+workspace `all` build passed. Full logs are
+`Build/.agent-state/logs/20261014-211339-047938-76128-MaterialCompilerTests.log`,
+`Build/.agent-state/logs/20261014-211351-660781-34584-MaterialFunctionTests.log`,
+`Build/.agent-state/logs/20261014-211405-100682-78804-MaterialCompileLifecycleTests.log`,
+and `Build/.agent-state/logs/20261014-211422-711265-55932-cmake.log`.
+XML reports are under `Build/NativeTestResults/Win64-Debug-DurinEditor/` with the
+corresponding target names. Shader/cache, Cook/Game, editor persistence and GPU
+qualification gates for later stages have not been executed.
+Both new `FMaterialTranslationTests` cases also passed as isolated processes;
+report: `Build/NativeTestResults/Win64-Debug-DurinEditor/MaterialTranslationBoundaryTests.xml`;
+log: `Build/.agent-state/logs/20261014-211502-088128-60628-ctest.log`.
+
+Stage 1 may proceed with the mechanical separation of the existing synchronous
+implementation before the timing gate closes: it preserves the normalization
+location, Shader request, session mode, and publication behavior, so the baseline
+pipeline remains available. Stages 2 through 5 still require the Stage 0 lifetime,
+identity, admission, and measurement gates. This sequencing adjustment does not
+claim an asynchronous implementation or a performance improvement.
+
+Existing
 [build](../Runtime/Assets/DerivedDataBuild.md),
 [storage](../Runtime/Assets/DerivedDataCacheStorage.md),
 [asset compilation](../Runtime/Assets/AssetCompilation.md), and
 [shader](../Runtime/Rendering/ShaderCache.md) contracts remain authoritative until
-their implementation changes land. No runtime tests or performance qualification
-have been executed for this plan.
+their asynchronous implementation changes land. No runtime tests or performance qualification
+have been executed for the asynchronous migration.
+
+## Stage 0 Contract Decisions
+
+### Audited object and module boundaries
+
+`MaterialExpressionSnapshot.cpp::SnapshotMaterialCompilerInput` checks
+GameThread, walks parent/static declarations, expands function bodies through
+live objects, and records function owner revisions. Graph emission and selector
+evaluation remain in this capture boundary. `MIR::Normalize` in
+`MaterialProgramCompiler.cpp` consumes detached values, filters inactive outputs,
+canonicalizes commutative operands, remaps sources, derives active schemas and
+layout, and computes program identity; it can move to detached execution.
+
+Production compile callers are `MIR::Compile` (including MaterialCook variants)
+and the asynchronous/offline branches of `MaterialCompileLifecycle.cpp`.
+MaterialInterface capture feeds that lifecycle. Import, load, editor and thumbnail
+paths enter through material lifecycle APIs. Renderer adaptation, material
+binding/publication, DMAT family codecs and Cook consume complete
+`FMaterialCompilerResult` values; these retain their public contract. Searches
+covered Engine source/tests and Sandbox/RoadWeaver source/tests; neither project
+has a direct call to the private prepared-program compiler.
+
+`EngineLoop::Exit` shuts down AssetCompilingManager before object and module
+teardown, and shuts down Core tasks after modules. AssetTool and
+StudioCubeGenerate also explicitly drain asset compilation. ShaderBuild closes
+its build service before releasing Builder/compiler services. Material session
+registration belongs before the first Engine family session acquisition, with
+session close after material operation drain. All accepted submissions remain
+counted until dispatch publication and owner/task retirement, including inline
+completion. Shutdown must not use the final-publication pump to make progress.
+
+### Translation schema and identity
+
+Freeze function name `Material.Translate` and independent function, constants,
+input and output schema versions initially at 1. Private typed transforms are
+`TranslatePreparedMaterialProgram`, `MakeMaterialShaderCompileRequest`, and
+`AssembleMaterialProgram`; the synchronous prepared-program adapter calls these
+in order. A translation success is distinct from a publishable compiler success.
+
+The canonical input value encodes MIR version, all ordered pre-normalization
+nodes (opcode, result/stage/spatial semantics, broadcast mask, ordered input
+indices, selected immediate payload), SurfaceRoot and WPO, GUID/type parameter
+declarations, collection GUID/schema and uniform layout contracts, canonical
+shader properties, and the five resource limits. Sort declaration/collection
+tables by GUID and reject duplicates; preserve node topology and operand order
+until normalization. Include supported quality/feature/static-selector validation
+fields while the existing normalizer consults them; selected graph code already
+captures their semantic effect. Drop them from the translation identity only
+after removing those consultations. Exclude compiler identity, target and Shader
+dependency hashes from translation identity after separating their validation
+and final identity binding from normalization. Translation/generator algorithm
+version, MIR/layout versions and pass contract version invalidate translation.
+
+Fixed output value IDs are `IR`, `Parameters`, `Collections`, `Layout`, `Source`,
+`Locations`, and `Diagnostics`. Metadata contains output schema, success, value
+counts, requirements bits and normalized semantic digest. Collections encode
+schemas only; asset paths and default payloads never enter persisted products.
+The semantic digest covers canonical normalized MIR, active schemas, layout,
+canonical shader properties and generator identity. Final program identity keeps
+the existing compiler/adapter, target, resource limits, pass/entry contracts and
+verified source dependency identity. Asset paths, revisions, generations, runtime
+values, collection defaults and observations never salt either semantic identity.
+
+Validate consumer source metadata before lookup, independently of cached
+semantic validation. `Locations` records input-relative expression ordinals and
+normalized indices, plus input/UV/surface-output qualifiers. Decode diagnostics
+as typed category/location/error codes with ordinals; resolve NodeId, PortId,
+function path and call path from the requesting snapshot. Do not persist external
+text containing consumer paths or GUIDs. Preserve stable producer ordinals for
+negative results as well as successful remapping. Malformed consumer maps fail
+that consumer without poisoning the shared translation record.
+
+After a hit, decode under bounds, require exact schema/value set, validate MIR,
+active schemas, regenerated layout/requirements/source digest and location
+indices, then bind final identity with the current verified Shader environment.
+Reject a bad hit and rebuild once with cache query disabled; invalid local output
+fails without store. Only typed deterministic graph/schema/generation errors are
+negative products. Admission, cancellation, missing modules and I/O errors remain
+transient. Store failure keeps validated local output.
+
+The current material environment has one `/Engine/MaterialCompilerEnvironment`
+tree fingerprint, whereas generated Shader capture happens later. Stage 2 must
+verify that fingerprint against the immutable capture before starting a compiler
+or delivering a hit. Capture and hash the same source bytes used by the resolver;
+changes reject the material operation and trigger bounded recapture under a new
+identity. Never merely refresh the Shader key while retaining an old material
+key. Translation hits may reuse compiler-independent translation under that new
+environment.
+
+### Shader subscriber and operation contracts
+
+Freeze `SubmitGenerated(FGeneratedShaderCompileRequest Request,
+FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)` returning
+`std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>` on
+IShaderBuildModule. These RenderCore types contain no DDC types. Request is owned
+by value; Options owns cancellation and priority. Admission reasons distinguish
+closed service, capacity and stopped scheduler. Rejection has no callback;
+acceptance has exactly one typed `FShaderCompilerOutput` callback, including
+cancellation, and permits completion before return. A successful handle owns one
+subscriber, not its shared compiler flight.
+
+Handle operations are nonblocking `RequestCancel`, mutable `SetPriority`, and
+`Wait` returning Completed/WouldBlock/InvalidRequest. Wait includes completion,
+submission publication and callable/capture release; same-subscriber completion
+stack waits return WouldBlock. Handle destruction requests cancellation without
+waiting on its own completion stack. Subscriber control state survives early
+completion and late handle publication. The operation retains its module/service
+lease until handle retirement. Synchronous CompileGenerated submits through the
+same implementation and waits explicitly; an inline session is used when Core
+is unavailable, with the same transforms and output assembler.
+
+Aggregate flight priority is the highest live subscriber priority, sampled by
+queued continuations after attach/change/detach. Canceling one subscriber delivers
+its canceled completion without canceling other consumers. Last detach latches
+flight cancellation permanently, withdraws queued work and requests cooperative
+running cancellation. Remove that flight from joinable lookup immediately while
+keeping it in retirement accounting. Forced and ordinary flights use separate
+keys. Completed output retention excludes canceled or invalid candidates.
+
+Material operations transition CaptureAdmitted -> TranslationPending ->
+ProgramJoined -> ShaderPending -> AssemblyPending -> Completed -> Retired.
+Failures/cancellation complete once from any active state. Use separate dispatch
+publication counters; business completion never releases still-submitting
+captures. Locks protect transitions and lookup only, and are released before
+submission, completion, owner waits or session drain. Finish selected owners joins
+their operations before GameThread admission; shutdown stops admission, cancels,
+joins all dispatch/owners/handles/tasks, then clears mailboxes and sessions.
+
+### Admission and adversarial fixtures
+
+Retain existing material limits: 64 operations, 256 consumers, 2 MiB captured
+input per operation, 8 MiB candidate, 128 retained programs and 256 MiB retained
+program bytes. Add 128 MiB aggregate captured-input admission before normalization,
+512 MiB aggregate active translation/candidate storage, and 256 MiB transition
+workspace; assembly reserves its peak copy overlap before dispatch. Generated
+source remains at most 1 MiB. Charge container capacities, source maps, strings
+and diagnostic backing storage, not only encoded sizes. Move stage allocations
+between ownership categories; do not reserve the same immutable allocation twice.
+Capacity pressure defers with existing bounded retry fairness and is not a
+deterministic failure.
+
+Shader admission uses 128 compiler flights and 512 subscribers, a 1 GiB aggregate
+captured-source budget, existing 512 MiB per-closure bound and 256 MiB per-output
+codec bound. Material assembly additionally enforces its smaller candidate bound.
+Shader LRU remains 128 entries with a 256 MiB aggregate byte cap. Nested DDC
+queue limits stay independent; they do not substitute for producer capture/RSS
+accounting. Reservations remain through retirement; queued capacity rejection
+does not leave a callback or reservation behind.
+
+Use injected cache gates and controllable schedulers to cover inline completion,
+rejection before dispatch, cancellation before handle publication, canceled
+leader/live follower, cancel-then-resubmit, cache blocking with one Worker,
+dependency mutation between fingerprint/capture, bad-hit rebuild-once, negative
+hit mapping across two asset GUID sets, late task publication and shutdown in
+each stage. Existing lifecycle sharing/selected-finish/publication fixtures remain
+the baseline. Add fixed aggregate stage/cache/producer counters and duration/byte
+peaks without retaining request history or modifying keys.
+
+### Baseline evidence and remaining measurement gate
+
+Host: Windows x64, MSVC 14.44.35207, default Win64-Debug-DurinEditor, Tracy enabled,
+18 build jobs. The unmodified `MaterialCompilerTests --report` passed 71 cases;
+full log: `Build/.agent-state/logs/20261014-210648-994318-90096-MaterialCompilerTests.log`;
+XML: `Build/NativeTestResults/Win64-Debug-DurinEditor/MaterialCompilerTests.xml`.
+Sandbox compilation initially failed with MSVC C1902; the identical command
+outside the sandbox built and passed. This is correctness evidence, not a
+latency baseline.
+
+Existing `FMaterialQualificationTests.ColdAndWarmCompilerBaseline` reports one
+synthetic MIR cold/retained-warm sample; it does not isolate cache wait, capture,
+function-heavy graphs or persistent fresh-service reuse. Do not use its total
+compilation timing as producer-only time. The remaining Stage 0 fixture must
+measure small authored material, standard function recipe and two shared
+instances, in cold empty temporary cache, fresh-service persistent-warm and
+retained-warm modes. Record at least five samples per mode, raw values, median
+and range, host/cache location and workload identity. Measure capture,
+normalization/generation, compiler execution, DDC wait and request-to-publication
+separately; report worker occupancy from deterministic cache gates independently
+of timing. Preserve raw evidence before runtime scheduling changes.
 
 ## Goal
 
@@ -147,13 +351,13 @@ typed diagnostics without parsing display strings as control flow.
 Dependencies: none. Outcome: reviewed signatures, schemas, state transitions, and
 acceptance fixtures, with no unresolved lifetime or identity decision.
 
-- [ ] Audit snapshot/graph emission versus normalization, all synchronous callers,
+- [x] Audit snapshot/graph emission versus normalization, all synchronous callers,
   compiler-result consumers, and module startup/shutdown ordering.
-- [ ] Freeze translation input/output schemas, semantic identity composition,
+- [x] Freeze translation input/output schemas, semantic identity composition,
   diagnostic mapping, version invalidation, and source-closure verification.
-- [ ] Freeze Shader asynchronous admission/completion/retirement signatures,
+- [x] Freeze Shader asynchronous admission/completion/retirement signatures,
   priority aggregation, cancellation races, and synchronous adapter behavior.
-- [ ] Define byte/count budgets and ownership transfer across every stage; specify
+- [x] Define byte/count budgets and ownership transfer across every stage; specify
   progress/cache diagnostics without changing identity or retaining request history.
 - [ ] Record reproducible cold, persistent-warm, and retained-warm baselines for a
   small material, a function-heavy graph, and shared instances. Measure GameThread
@@ -168,11 +372,11 @@ adversarial fixture design are available. A timing claim requires measured data.
 Dependencies: Stage 0. Outcome: current callers use one set of pure transforms
 without changing observable material behavior.
 
-- [ ] Extract translation, generated-request construction, and final assembly from
+- [x] Extract translation, generated-request construction, and final assembly from
   MaterialProgramGenerator; add private typed intermediate products.
-- [ ] Preserve validation, generated entry ordering, reflection/resource limits,
+- [x] Preserve validation, generated entry ordering, reflection/resource limits,
   semantic program sharing, and source-diagnostic mapping.
-- [ ] Route existing synchronous and lifecycle paths through the extracted stages;
+- [x] Route existing synchronous and lifecycle paths through the extracted stages;
   remove duplicate generation/assembly logic.
 
 Completion: MaterialCompilerTests, MaterialFunctionTests, and

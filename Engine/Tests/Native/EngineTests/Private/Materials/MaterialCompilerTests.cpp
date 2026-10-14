@@ -1,6 +1,7 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialCookedProgramTestSupport.h"
 #include "MaterialProgramTestFixture.h"
+#include "Materials/MaterialPreparedProgram.h"
 #include "Shader/ShaderDiagnostics.h"
 
 namespace
@@ -41,6 +42,80 @@ namespace
 		Node.SpatialKind = Result->Kind;
 		Node.CoordinateSpace = Result->Space;
 	}
+}
+
+TEST(FMaterialTranslationTests, FailedNormalizationNeverConstructsShaderWork)
+{
+	using namespace Durin;
+	auto Input = MakeSyntheticMaterialCompilerInput();
+	Input.IR.Version = 0;
+	FMaterialPreparedProgram Prepared{.Normalized = MIR::Normalize(Input),
+		.StaticProperties = Input.StaticProperties, .Environment = Input.Environment};
+	ASSERT_FALSE(Prepared.Normalized);
+	const auto Translation = TranslatePreparedMaterialProgram(Prepared);
+	EXPECT_FALSE(Translation);
+	EXPECT_EQ(Translation.Candidate.Diagnostics, Prepared.Normalized.Diagnostics);
+	EXPECT_TRUE(MakeMaterialShaderCompileRequest(Translation, false).Source.empty());
+	const auto Result = AssembleMaterialProgram(Translation, {});
+	EXPECT_FALSE(Result);
+	EXPECT_EQ(Result.Diagnostics, Prepared.Normalized.Diagnostics);
+	EXPECT_TRUE(Result.CompiledShaders.empty());
+}
+
+TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMismatchedStages)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto Input = MakeSyntheticMaterialCompilerInput();
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+	FMaterialPreparedProgram Prepared{.Normalized = MIR::Normalize(Input),
+		.StaticProperties = Input.StaticProperties, .Environment = Input.Environment};
+	ASSERT_TRUE(Prepared.Normalized);
+	const auto Translation = TranslatePreparedMaterialProgram(Prepared);
+	ASSERT_TRUE(Translation);
+	EXPECT_FALSE(Translation.Candidate);
+	EXPECT_TRUE(Translation.Candidate.CompiledShaders.empty());
+	const auto Request = MakeMaterialShaderCompileRequest(Translation, false);
+	const auto Output = CompileGeneratedShader(Request);
+	ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+	const auto Split = AssembleMaterialProgram(Translation, Output);
+	const auto Synchronous = MIR::Compile(Input);
+	ASSERT_TRUE(Split);
+	ASSERT_TRUE(Synchronous);
+	EXPECT_EQ(Split.Identity, Synchronous.Identity);
+	EXPECT_EQ(Split.IR, Synchronous.IR);
+	EXPECT_EQ(Split.Layout, Synchronous.Layout);
+	EXPECT_EQ(Split.ActiveParameters, Synchronous.ActiveParameters);
+	EXPECT_EQ(Split.Requirements, Synchronous.Requirements);
+	EXPECT_EQ(Split.GeneratedSource, Synchronous.GeneratedSource);
+	EXPECT_EQ(Split.Diagnostics, Synchronous.Diagnostics);
+	ASSERT_EQ(Split.CompiledShaders.size(), Synchronous.CompiledShaders.size());
+	for (size_t Index = 0; Index < Split.CompiledShaders.size(); ++Index)
+	{
+		EXPECT_EQ(Split.CompiledShaders[Index].Hash, Synchronous.CompiledShaders[Index].Hash);
+		EXPECT_EQ(Split.CompiledShaders[Index].SourceEntryPoint,
+			Synchronous.CompiledShaders[Index].SourceEntryPoint);
+	}
+	for (uint32 Variant = 0; Variant < 3; ++Variant)
+	{
+		SCOPED_TRACE(Variant);
+		auto Wrong = Output;
+		if (Variant == 0) Wrong.CompiledShaders.pop_back();
+		else if (Variant == 1) Wrong.CompiledShaders.front().SourceEntryPoint = "WrongEntry";
+		else Wrong.CompiledShaders.front().Target = Request.Target == VulkanShaderTarget
+			? MetalShaderTarget : VulkanShaderTarget;
+		const auto Rejected = AssembleMaterialProgram(Translation, std::move(Wrong));
+		EXPECT_FALSE(Rejected);
+		EXPECT_TRUE(Rejected.CompiledShaders.empty());
+		ASSERT_FALSE(Rejected.Diagnostics.empty());
+		EXPECT_EQ(Rejected.Diagnostics.back().Category, EMaterialProgramDiagnosticCategory::Reflection);
+	}
+	const auto Failed = AssembleMaterialProgram(Translation,
+		{.Error = {.Code = EShaderError::Cancelled}});
+	EXPECT_FALSE(Failed);
+	EXPECT_TRUE(Failed.CompiledShaders.empty());
+	ASSERT_FALSE(Failed.Diagnostics.empty());
+	EXPECT_EQ(Failed.Diagnostics.back().Category, EMaterialProgramDiagnosticCategory::Compile);
 }
 
 TEST(FMaterialVertexEvaluationTests, InterpolationRequiresVertexInputsAndPreservesSpatialMeaning)
