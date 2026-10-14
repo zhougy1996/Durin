@@ -1093,15 +1093,6 @@ namespace Durin
 					}
 					PrerequisiteStates.emplace_back(Prerequisite.State);
 				}
-				const bool bCountedChild = Options.ExpectedParentTaskId != 0 && GCurrentTaskState
-					&& GCurrentTaskState->GetTaskId() == Options.ExpectedParentTaskId && GCurrentTaskState->IsRunningBody()
-					;
-				if (Options.ExpectedParentTaskId != 0 && !bCountedChild)
-				{
-					if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract};
-					RecordRejectedTask(Options.Attribution);
-					return {};
-				}
 				if (!Options.bQueueOnSaturation && (CurrentTaskReservationCount.load(std::memory_order::acquire) >= TaskReservationCapacity
 					|| (Target == ETaskTarget::BlockingIO && BlockingIOReservations >= BlockingIOCapacity)))
 				{
@@ -2979,7 +2970,6 @@ namespace Durin
 			LaunchOptions.bQueueOnSaturation = Options.bQueueOnSaturation;
 			LaunchOptions.CancellationToken = Options.CancellationToken;
 			LaunchOptions.Attribution = ResolvedAttribution;
-			LaunchOptions.ExpectedParentTaskId = FTaskRuntimeAccess::GetCurrentTaskId();
 
 			{
 			std::lock_guard Lock(GTaskSchedulerMutex);

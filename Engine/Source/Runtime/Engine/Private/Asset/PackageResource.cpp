@@ -636,8 +636,8 @@ namespace Durin
 		Options.DebugName = "PackageResource.ReadRange";
 		Options.Attribution = PackageResourceAttribution();
 		State->Bind(Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, Options,
-			[Self = std::move(Self), State, Offset, Size](Tasks::FTaskContext& Context) {
-				if (Context.GetCancellationToken().IsCancellationRequested()
+			[Self = std::move(Self), State, Offset, Size](const FTaskCancellationToken& Token) {
+				if (Token.IsCancellationRequested()
 					|| State->bCancelled.load(std::memory_order_acquire))
 					return Result(EPackageResourceReadStatus::Cancelled, {.Reason = EPackageResourceReadReason::Cancelled});
 				return Self->ReadRangeImpl(Offset, Size, State->bCancelled);

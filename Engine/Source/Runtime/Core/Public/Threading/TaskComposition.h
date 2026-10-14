@@ -98,21 +98,6 @@ namespace Durin::Tasks
 	{ return {Detail::DependencyHandle(Tasks)...}; }
 
 
-	// Invocation-scoped authority cannot be copied into later asynchronous callbacks.
-	class FTaskContext
-	{
-	public:
-		FTaskContext(const FTaskCancellationToken& InCancellation)
-			: Cancellation(InCancellation), ParentTaskId(Durin::Private::FTaskRuntimeAccess::GetCurrentTaskId()) {}
-		FTaskContext(const FTaskContext&) = delete;
-		FTaskContext(FTaskContext&&) = delete;
-		auto GetCancellationToken() const -> const FTaskCancellationToken& { return Cancellation; }
-		template<typename F> auto LaunchChild(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function);
-	private:
-		FTaskCancellationToken Cancellation;
-		uint64 ParentTaskId = 0;
-	};
-
 	namespace Detail { struct FTaskAccess; }
 	template<typename T> class TSharedTask;
 
@@ -242,16 +227,13 @@ namespace Durin::Tasks
 		template<typename T> struct TIsTask<TTask<T>> : std::true_type {};
 		template<typename T> struct TIsTask<TSharedTask<T>> : std::true_type {};
 		template<typename T> struct TIsTask<TTaskAdmission<T>> : std::true_type {};
-		template<typename F, bool = std::is_invocable_v<F&, FTaskContext&>> struct TSpawnResult;
-		template<typename F> struct TSpawnResult<F, true> { using Type = std::invoke_result_t<F&, FTaskContext&>; };
 		template<typename F, bool = std::is_invocable_v<F&, const FTaskCancellationToken&>> struct TTokenResult { using Type = std::invoke_result_t<F&>; };
 		template<typename F> struct TTokenResult<F, true> { using Type = std::invoke_result_t<F&, const FTaskCancellationToken&>; };
-		template<typename F> struct TSpawnResult<F, false> : TTokenResult<F> {};
 		template<typename T, typename F, bool> struct TThenValueResult;
 		template<typename T, typename F> struct TThenValueResult<T, F, false> { using Type = std::invoke_result_t<F&, T&&>; };
-		template<typename T, typename F> struct TThenValueResult<T, F, true> { using Type = std::invoke_result_t<F&, FTaskContext&, T&&>; };
-		template<typename T, typename F> struct TThenResult : TThenValueResult<T, F, std::is_invocable_v<F&, FTaskContext&, T&&>> {};
-		template<typename F> struct TThenResult<void, F> : TSpawnResult<F> {};
+		template<typename T, typename F> struct TThenValueResult<T, F, true> { using Type = std::invoke_result_t<F&, const FTaskCancellationToken&, T&&>; };
+		template<typename T, typename F> struct TThenResult : TThenValueResult<T, F, std::is_invocable_v<F&, const FTaskCancellationToken&, T&&>> {};
+		template<typename F> struct TThenResult<void, F> : TTokenResult<F> {};
 
 		inline auto Target(ETaskExecutor Executor) -> ETaskTarget
 		{
@@ -271,9 +253,9 @@ namespace Durin::Tasks
 
 	namespace Detail
 	{
-	template<typename F, typename T = typename Detail::TSpawnResult<std::decay_t<F>>::Type>
+	template<typename F, typename T = typename Detail::TTokenResult<std::decay_t<F>>::Type>
 	requires (!std::is_reference_v<T> && !Detail::TIsTask<T>::value)
-	auto LaunchTaskImpl(uint64 ParentTaskId, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function, bool bIndependentCPU = false)
+	auto LaunchTaskImpl(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function, bool bIndependentCPU = false)
 		-> TTask<T>
 	{
 		const uint64 Bytes = Detail::ResultBytes<T>();
@@ -283,7 +265,6 @@ namespace Durin::Tasks
 			auto State = std::make_shared<TUniqueTaskResultState<TTaskValue<T>>>(Bytes);
 			FTaskLaunchOptions Launch;
 			Launch.bIndependentCPU = bIndependentCPU;
-			Launch.ExpectedParentTaskId = ParentTaskId;
 			Launch.Attribution = Options.Attribution;
 			Launch.CancellationToken = Options.Cancellation;
 			Launch.Target = Detail::Target(Executor);
@@ -295,10 +276,8 @@ namespace Durin::Tasks
 			Launch.CoalescingKey = Options.CoalescingKey;
 			auto Admission = Durin::Private::TryLaunchCancelableTaskWithCompletion(Options.DebugName,
 				[State, Function = std::forward<F>(Function)](const FTaskCancellationToken& Token) mutable {
-					FTaskContext Context(Token);
 					auto Invoke = [&]() -> T {
-						if constexpr (std::is_invocable_v<std::decay_t<F>&, FTaskContext&>) return std::invoke(Function, Context);
-						else if constexpr (std::is_invocable_v<std::decay_t<F>&, const FTaskCancellationToken&>) return std::invoke(Function, Token);
+						if constexpr (std::is_invocable_v<std::decay_t<F>&, const FTaskCancellationToken&>) return std::invoke(Function, Token);
 						else return std::invoke(Function);
 					};
 					if constexpr (std::is_void_v<T>) { Invoke(); State->SetPending(std::monostate{}); }
@@ -318,8 +297,7 @@ namespace Durin::Tasks
 	template<typename F>
 	auto LaunchTask(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
 	{
-		return Detail::LaunchTaskImpl(
-			Durin::Private::FTaskRuntimeAccess::GetCurrentTaskId(), Executor, Options, std::forward<F>(Function));
+		return Detail::LaunchTaskImpl(Executor, Options, std::forward<F>(Function));
 	}
 
 	// Worker root in the scheduler lifetime. Owners stop their own submission before shutdown.
@@ -327,7 +305,7 @@ namespace Durin::Tasks
 	auto LaunchTask(const char* Name, F&& Function, FTaskExecutionOptions Options = {})
 	{
 		Options.DebugName = Name;
-		return Detail::LaunchTaskImpl(0, ETaskExecutor::Worker, Options, std::forward<F>(Function));
+		return Detail::LaunchTaskImpl(ETaskExecutor::Worker, Options, std::forward<F>(Function));
 	}
 
 	namespace Detail
@@ -380,7 +358,7 @@ namespace Durin::Tasks
 	auto LaunchIndependentTask(const char* Name, F&& Function, FTaskExecutionOptions Options = {})
 	{
 		Options.DebugName = Name;
-		return Detail::LaunchTaskImpl(0, ETaskExecutor::Worker,
+		return Detail::LaunchTaskImpl(ETaskExecutor::Worker,
 			Options, std::forward<F>(Function), true);
 	}
 
@@ -397,8 +375,7 @@ namespace Durin::Tasks
 			std::vector<FTaskHandle> Prerequisites(Options.Prerequisites.begin(), Options.Prerequisites.end());
 			Prerequisites.push_back(Handle);
 			Options.Prerequisites = Prerequisites;
-			return Detail::LaunchTaskImpl(Durin::Private::FTaskRuntimeAccess::GetCurrentTaskId(),
-				Executor, Options, std::forward<F>(Function));
+			return Detail::LaunchTaskImpl(Executor, Options, std::forward<F>(Function));
 		}
 		catch (const std::bad_alloc&)
 		{
@@ -406,14 +383,6 @@ namespace Durin::Tasks
 		}
 	}
 
-
-	template<typename F>
-	auto FTaskContext::LaunchChild(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
-	{
-		if (!ParentTaskId || ParentTaskId != Durin::Private::FTaskRuntimeAccess::GetCurrentTaskId())
-			Detail::FailConstruction({ETaskAdmissionErrorCode::InvalidExecutionContract});
-		return Detail::LaunchTaskImpl(ParentTaskId, Executor, Options, std::forward<F>(Function));
-	}
 
 	// Unique claims remain transactional through native graph registration.
 	template<typename T, typename F, typename U = typename Detail::TThenResult<T, std::decay_t<F>>::Type>
@@ -464,14 +433,13 @@ namespace Durin::Tasks
 					}
 					auto Value = Source->TakePublished();
 					require(Value);
-					FTaskContext Context(Token);
 					auto Invoke = [&]() -> U {
 						if constexpr (std::is_void_v<T>)
 						{
-							if constexpr (std::is_invocable_v<std::decay_t<F>&, FTaskContext&>) return std::invoke(Function, Context);
+							if constexpr (std::is_invocable_v<std::decay_t<F>&, const FTaskCancellationToken&>) return std::invoke(Function, Token);
 							else return std::invoke(Function);
 						}
-						else if constexpr (std::is_invocable_v<std::decay_t<F>&, FTaskContext&, T&&>) return std::invoke(Function, Context, std::move(*Value));
+						else if constexpr (std::is_invocable_v<std::decay_t<F>&, const FTaskCancellationToken&, T&&>) return std::invoke(Function, Token, std::move(*Value));
 						else return std::invoke(Function, std::move(*Value));
 					};
 					if constexpr (std::is_void_v<U>) { Invoke(); Output->SetPending(std::monostate{}); }
@@ -606,7 +574,6 @@ namespace Durin::Tasks
 				FTaskLaunchOptions Launch;
 				Launch.Attribution = Options.Attribution;
 				Launch.CancellationToken = Options.Cancellation;
-				Launch.ExpectedParentTaskId = Durin::Private::FTaskRuntimeAccess::GetCurrentTaskId();
 				Launch.bExternalCompletion = true;
 				Launch.bQueueOnSaturation = true;
 				Launch.bUnknownExecutionRequirement = bUnknownRequirements;
@@ -775,7 +742,7 @@ namespace Durin::Tasks
 			if (Inputs.empty())
 			{
 				if (!Options.Prerequisites.empty())
-					return LaunchTaskImpl(0, Executor, Options, std::forward<F>(Gather));
+					return LaunchTaskImpl(Executor, Options, std::forward<F>(Gather));
 				auto Source = FCompletionSourceAccess::Create<Out>(Options, false);
 				auto Result = Source.TakeTask();
 				Source.TrySetValue(Out{});

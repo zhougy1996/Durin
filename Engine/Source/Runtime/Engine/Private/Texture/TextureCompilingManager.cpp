@@ -213,10 +213,10 @@ namespace Durin
 			Options.Priority = RequestState->Request.Priority == ETexture2DCompilationPriority::Interactive
 				? ETaskPriority::High : ETaskPriority::Low;
 			auto Admission = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options,
-				[Self, RequestState](Tasks::FTaskContext& Context) {
+				[Self, RequestState](const FTaskCancellationToken& Token) {
 					try
 					{
-						Self->RunWorker(RequestState, Context.GetCancellationToken());
+						Self->RunWorker(RequestState, Token);
 						Tasks::AddNested(RequestState->BuildOperation->GetCompletionEvent());
 						RequestState->BuildOperation->CloseSubmission();
 					}

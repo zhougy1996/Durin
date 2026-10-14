@@ -478,8 +478,6 @@ namespace Durin
 		uint64 EstimatedPayloadBytes = 0;
 		// Internal ordinary construction queues beyond checked reservation limits.
 		bool bQueueOnSaturation = false;
-		// Nonzero only for submission authorized by the running parent task.
-		uint64 ExpectedParentTaskId = 0;
 		// Internal completion sources stay counted until producer acknowledgement.
 		bool bExternalCompletion = false;
 		bool bUnknownExecutionRequirement = true;

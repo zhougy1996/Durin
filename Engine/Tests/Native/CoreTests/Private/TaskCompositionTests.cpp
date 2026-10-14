@@ -59,6 +59,77 @@ namespace Durin
 	static_assert(sizeof(Tasks::Private::FTaskHandle) == sizeof(Durin::FTaskHandle));
 	static_assert(!Tasks::Detail::CTaskDependency<Tasks::TCompletionSource<int>>);
 
+	TEST(FTaskCompositionTests, CancellationTokensReachRootsAndUniqueContinuations)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FTaskCancellationSource Cancellation;
+		FThreadEvent Started, Release;
+		bool ObservedCancellation = false;
+		auto Root = Tasks::LaunchTask("TokenRoot", [&](const FTaskCancellationToken& Token) {
+			Started.Trigger();
+			Release.Wait();
+			ObservedCancellation = Token.IsCancellationRequested();
+		}, {.Cancellation = Cancellation.GetToken()});
+		const bool DidStart = Started.WaitFor(1.0);
+		Cancellation.RequestCancellation();
+		Release.Trigger();
+		ASSERT_TRUE(DidStart);
+		ASSERT_EQ(Root.Wait().TaskState, ETaskState::Canceled);
+		EXPECT_TRUE(ObservedCancellation);
+
+		auto Value = Tasks::Then(Tasks::LaunchTask("TokenValue", [] { return std::make_unique<int>(13); }),
+			Tasks::ETaskExecutor::Worker, {}, [](const FTaskCancellationToken& Token, std::unique_ptr<int>&& Input) {
+				EXPECT_FALSE(Token.IsCancellationRequested());
+				return *Input + 2;
+			});
+		EXPECT_EQ(std::move(Value).TakeResult(), 15);
+		auto Void = Tasks::Then(Tasks::LaunchTask("TokenVoid", [] {}), Tasks::ETaskExecutor::Worker, {},
+			[](const FTaskCancellationToken& Token) { EXPECT_FALSE(Token.IsCancellationRequested()); return 17; });
+		EXPECT_EQ(std::move(Void).TakeResult(), 17);
+		auto Async = Tasks::ThenAsync(Tasks::LaunchTask("TokenAsync", [] { return 19; }),
+			Tasks::ETaskExecutor::Worker, {}, [](const FTaskCancellationToken& Token, int&& Input) {
+				EXPECT_FALSE(Token.IsCancellationRequested());
+				return Tasks::LaunchTask("TokenAsyncInner", [Input] { return Input + 2; }, {.Cancellation = Token});
+			});
+		ASSERT_EQ(WaitOffGameThread(Async).TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(std::move(Async).TakeResult(), 21);
+		auto AsyncVoid = Tasks::ThenAsync(Tasks::LaunchTask("TokenAsyncVoid", [] {}),
+			Tasks::ETaskExecutor::Worker, {}, [](const FTaskCancellationToken& Token) {
+				EXPECT_FALSE(Token.IsCancellationRequested());
+				return Tasks::LaunchTask("TokenAsyncVoidInner", [] { return 23; }, {.Cancellation = Token});
+			});
+		ASSERT_EQ(WaitOffGameThread(AsyncVoid).TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(std::move(AsyncVoid).TakeResult(), 23);
+	}
+
+	TEST(FTaskCompositionTests, DirectLaunchAndAddNestedKeepParentPendingWithoutBlockingWorker)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .NumBlockingIOThreads = 1}));
+		FThreadEvent WorkerFreed, ReleaseChild;
+		FTaskHandle ChildObservation;
+		auto Parent = Tasks::LaunchTask("DirectNestedParent", [&](const FTaskCancellationToken& Token) {
+			auto Child = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {.Cancellation = Token}, [&] { ReleaseChild.Wait(); });
+			ChildObservation = Child;
+			Tasks::AddNested(Child);
+			auto Marker = Tasks::LaunchTask("AfterParentBody", [&] { WorkerFreed.Trigger(); });
+			return 42;
+		});
+		const bool WorkerWasFreed = WorkerFreed.WaitFor(1.0);
+		EXPECT_TRUE(WorkerWasFreed);
+		if (WorkerWasFreed)
+		{
+			EXPECT_FALSE(Parent.IsCompleted());
+			EXPECT_EQ(ChildObservation.GetDiagnostics().ParentTaskId, Parent.GetTaskId());
+		}
+		ReleaseChild.Trigger();
+		ASSERT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(std::move(Parent).TakeResult(), 42);
+	}
+
 	TEST(FTaskCompositionTests, CommonHandleObservationTracksMovesAndResultOwnership)
 	{
 		ShutdownTaskScheduler(false);
@@ -477,8 +548,8 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		Tasks::FTaskExecutionOptions Options;
 		auto RootAdmission = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options,
-			[Capture = std::make_unique<int>(13)](Tasks::FTaskContext& Context) mutable {
-				EXPECT_FALSE(Context.GetCancellationToken().IsCancellationRequested());
+			[Capture = std::make_unique<int>(13)](const FTaskCancellationToken& Token) mutable {
+				EXPECT_FALSE(Token.IsCancellationRequested());
 				return std::move(Capture);
 			});
 		auto Root = std::move(RootAdmission);
@@ -776,8 +847,9 @@ namespace Durin
 		for (bool Drain : {true, false})
 		{
 			ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .NumBlockingIOThreads = 1}));
-			auto Parent = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [](Tasks::FTaskContext& Context) {
-				auto Child = Context.LaunchChild(Tasks::ETaskExecutor::BlockingIO, {}, [] { return 11; });
+			auto Parent = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [] {
+				auto Child = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [] { return 11; });
+				Tasks::AddNested(Child);
 
 				auto Task = std::move(Child);
 				EXPECT_EQ(ETaskState::Succeeded, Tasks::Wait(Task).TaskState);
@@ -824,12 +896,14 @@ namespace Durin
 		FThreadEvent CpuBlocked, ReleaseCpu, Finished;
 		auto Blocker = Durin::FTaskHandle(Tasks::LaunchTask("HoldCpu", [&] { CpuBlocked.Trigger(); ReleaseCpu.Wait(); }));
 		ASSERT_TRUE(CpuBlocked.WaitFor(1.0));
-		auto Parent = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [&](Tasks::FTaskContext& Context) {
-			auto Child = Context.LaunchChild(Tasks::ETaskExecutor::Worker, {}, [](Tasks::FTaskContext& ChildContext) {
-				auto IO = ChildContext.LaunchChild(Tasks::ETaskExecutor::BlockingIO, {}, [] {});
+		auto Parent = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [&] {
+			auto Child = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [] {
+				auto IO = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [] {});
+				Tasks::AddNested(IO);
 				auto Task = std::move(IO);
 				EXPECT_EQ(ETaskState::Succeeded, Tasks::Wait(Task).TaskState);
 			});
+			Tasks::AddNested(Child);
 			auto Task = std::move(Child);
 			EXPECT_EQ(ETaskState::Succeeded, Tasks::Wait(Task).TaskState);
 			Finished.Trigger();
@@ -900,8 +974,9 @@ namespace Durin
 		for (int Index = 0; Index < 32; ++Index)
 			Inputs.push_back(Tasks::Then(Shared, Tasks::ETaskExecutor::Worker, {}, [Index](int Value) { return Value + Index; }));
 		auto All = Tasks::WhenAll(std::move(Inputs));
-		auto Io = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [](Tasks::FTaskContext& Context) {
-			auto Child = Context.LaunchChild(Tasks::ETaskExecutor::BlockingIO, {}, [] { return 9; });
+		auto Io = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [] {
+			auto Child = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [] { return 9; });
+			Tasks::AddNested(Child);
 			return std::move(Child).TakeResult();
 		});
 		Source.TrySetValue(10);

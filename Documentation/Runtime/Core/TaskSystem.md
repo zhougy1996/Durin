@@ -11,8 +11,10 @@ Last reviewed: 2026-10-14
 `Threading/TaskComposition.h` defines the ordinary API in `Durin::Tasks`.
 `LaunchTask(Executor, Options, Callable)` returns `TTask<T>` directly,
 including `TTask<void>` (also named `FTask`) for a void callable. The alias keeps
-the same move-only ownership contract. Callables accept no arguments,
-`FTaskContext&`, or a cancellation token. `LaunchTask(Name, Callable, Options)`
+the same move-only ownership contract. Callables accept no arguments or
+`const FTaskCancellationToken&`. Unique value continuations may accept the token
+before their input value; void continuations may accept the token alone.
+`LaunchTask(Name, Callable, Options)`
 is the Worker convenience form. Tasks participate in the process scheduler
 lifetime. Ordinary resource owners keep
 their task handles and completion events, stop their own producer admission,
@@ -28,6 +30,10 @@ defined in [Derived Data Build](../Assets/DerivedDataBuild.md).
 Launching a child with `LaunchTask` does not add a
 parent completion dependency. Use `AddNested` when parent completion must include
 that child.
+Children use the same `LaunchTask` API as roots. Pass a cancellation token in
+the child's options when cancellation should be shared; `AddNested` affects
+completion only and does not forward cancellation. There is no context or
+child-launch facade.
 
 A valid submission while its scheduler admission is open is accepted.
 Busy executors queue work. Ordinary roots, continuations, children, fan-in and
