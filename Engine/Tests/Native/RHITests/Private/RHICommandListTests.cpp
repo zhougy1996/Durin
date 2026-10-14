@@ -411,6 +411,7 @@ namespace Durin
 				Durin::FByteView Data) -> void override
 			{
 				Operations.emplace_back("WriteBuffer");
+				ObservedBufferDataAddress = reinterpret_cast<uintptr_t>(Data.data());
 				ObservedBuffer = Buffer;
 				ObservedBufferOffset = Offset;
 				ObservedBufferData.assign(Data.begin(), Data.end());
@@ -531,6 +532,7 @@ namespace Durin
 			FRHIBuffer* ObservedBuffer = nullptr;
 			uint32 ObservedBufferOffset = 0;
 			Durin::FByteBuffer ObservedBufferData;
+			uintptr_t ObservedBufferDataAddress = 0;
 			Durin::FByteBuffer ObservedTextureData;
 			std::vector<FRHIBufferTransition> ObservedBufferTransitions;
 			std::vector<FRHITextureTransition> ObservedTextureTransitions;
@@ -2862,6 +2864,7 @@ namespace Durin
 		Locked[0] = std::byte{4};
 		Locked[1] = std::byte{5};
 		Locked[2] = std::byte{6};
+		const auto LockedAddress = reinterpret_cast<uintptr_t>(Locked);
 
 		EXPECT_DEATH(Executor.Submit({}, ERHISubmitFlags::None), "");
 		Immediate.UnlockBuffer(Buffer.GetReference());
@@ -2869,6 +2872,11 @@ namespace Durin
 
 		EXPECT_EQ(Context.ObservedBufferOffset, 2u);
 		EXPECT_EQ(Context.ObservedBufferData, MakeByteVector({4, 5, 6}));
+		EXPECT_EQ(Context.ObservedBufferDataAddress, LockedAddress);
+		EXPECT_NE(std::find(Context.Operations.begin(), Context.Operations.end(), "WriteBuffer"),
+			Context.Operations.end());
+		EXPECT_EQ(std::find(Context.Operations.begin(), Context.Operations.end(), "UploadBuffer"),
+			Context.Operations.end());
 	}
 
 	TEST(FRHICommandListTests, OwningUniformRangeSurvivesItsCreatingList)

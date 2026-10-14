@@ -2580,9 +2580,8 @@ namespace Durin
 			"UnlockBuffer requires a matching LockBuffer.");
 		std::unique_ptr<FLockState::FPendingLock> Pending = std::move(It->second);
 		LockState->PendingLocks.erase(It);
-		WriteBuffer(
-			Pending->Buffer.GetReference(), Pending->Data.data(),
-			static_cast<uint32>(Pending->Data.size()), Pending->Offset);
+		RecordBufferUpload(Pending->Buffer.GetReference(), Pending->Offset,
+			FRHIBufferUploadData::Take(std::move(Pending->Data)), true);
 	}
 
 	auto FRHICommandListImmediate::ReadTexture2D(
