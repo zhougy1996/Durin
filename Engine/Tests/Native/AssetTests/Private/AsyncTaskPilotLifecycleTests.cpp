@@ -27,7 +27,7 @@ namespace
 		const auto Physics = GetPhysicsMeshCompilationManagerDiagnostics();
 		Render.OutstandingRecords += Physics.OutstandingRecords;
 		Render.AdmittedBuildCount += Physics.AdmittedBuildCount;
-		Render.ReservedBytes += Physics.ReservedBytes;
+		Render.EstimatedWorkingSetBytes += Physics.EstimatedWorkingSetBytes;
 		return Render;
 	}
 
@@ -170,10 +170,10 @@ namespace
 		const auto Held = GetMeshBuildDiagnosticsForTests();
 		EXPECT_LT(Held.AdmittedBuildCount, 2u);
 		EXPECT_EQ(3u, Held.OutstandingRecords);
-		EXPECT_GT(Held.ReservedBytes, 0u);
+		EXPECT_GT(Held.EstimatedWorkingSetBytes, 0u);
 		Meshes[0]->CancelCompilation();
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
-		EXPECT_EQ(Held.ReservedBytes, GetMeshBuildDiagnosticsForTests().ReservedBytes);
+		EXPECT_EQ(Held.EstimatedWorkingSetBytes, GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes);
 		EXPECT_EQ(3u, GetMeshBuildDiagnosticsForTests().OutstandingRecords);
 		Cache->Release.Trigger();
 		ASSERT_TRUE(WaitUntil([&] { return Cache->Writes.load() != 0; }, std::chrono::seconds(5)));
@@ -189,7 +189,7 @@ namespace
 		EXPECT_FALSE(MailboxEntered.WaitFor(0.01));
 		EXPECT_EQ(nullptr, Meshes[1]->GetRenderData());
 		EXPECT_EQ(0u, Completed[1]);
-		EXPECT_GT(GetMeshBuildDiagnosticsForTests().ReservedBytes, 0u);
+		EXPECT_GT(GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes, 0u);
 		ReleaseCallback.Trigger();
 		ASSERT_TRUE(WaitUntil([&] { return MailboxEntered.WaitFor(0.001); }, std::chrono::seconds(5), true));
 		ASSERT_TRUE(MailboxEntered.WaitFor(0.01));
@@ -224,7 +224,7 @@ namespace
 		EXPECT_EQ(EStaticMeshCompilationStatus::Superseded, GetStaticMeshCompilationDiagnostic(FirstId).Status);
 		EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, Meshes[1]->GetCompilationDiagnostic().Status);
 		FAssetCompilingManager::Get().FinishAllCompilation();
-		EXPECT_EQ(0u, GetMeshBuildDiagnosticsForTests().ReservedBytes);
+		EXPECT_EQ(0u, GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes);
 	}
 
 	auto ExerciseCubeOwnerBridge() -> void
@@ -625,7 +625,7 @@ namespace
 			EXPECT_EQ(Diagnostic.Phase, EStaticMeshCompilationPhase::Terminal);
 			EXPECT_EQ(nullptr, ShutdownMeshes[Index]->GetRenderData());
 		}
-		EXPECT_EQ(0u, GetMeshBuildDiagnosticsForTests().ReservedBytes);
+		EXPECT_EQ(0u, GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes);
 		for (uint32 Count : Completed) EXPECT_EQ(1u, Count);
 		EXPECT_EQ(1u, SaturatedCompleted);
 		Release.Trigger();

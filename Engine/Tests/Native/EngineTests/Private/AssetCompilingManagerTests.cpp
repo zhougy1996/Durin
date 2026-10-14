@@ -24,7 +24,7 @@ namespace
 		uint32 FinishAllCount = 0;
 		uint32 ShutdownCount = 0;
 		bool bCanceled = false;
-		bool bStartSucceeds = true;
+		FAssetCompilerStartResult StartResult;
 		std::function<void()> OnFinishAll;
 	};
 
@@ -38,7 +38,7 @@ namespace
 		{
 			++State->StartCount;
 			Record("start");
-			return {State->bStartSucceeds ? EAssetCompilerStartError::None : EAssetCompilerStartError::StateUnavailable};
+			return State->StartResult;
 		}
 		auto StopAdmission() -> void override { Record("stop"); }
 		auto GetNumRemainingAssets() const -> uint64 override { return State->Remaining; }
@@ -140,11 +140,12 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	EXPECT_EQ(DerivedState->StartCount, 1u);
 
 	auto FailedState = std::make_shared<FSyntheticState>();
-	FailedState->bStartSucceeds = false;
+	FailedState->StartResult = {EAssetCompilerStartError::StateUnavailable};
 	auto FailedManager = std::make_shared<FSyntheticManager>("failed", FailedState);
 	const auto StartFailure = FailedManager->Start();
 	EXPECT_FALSE(StartFailure);
 	EXPECT_EQ(StartFailure.Error, EAssetCompilerStartError::StateUnavailable);
+	FailedState->StartResult = {EAssetCompilerStartError::Undrained, 7};
 	auto Failed = Aggregate.RegisterCompiler({
 		.Name = FName("Durin.Tests.Failed"),
 		.AssetClasses = {DMaterialInstance::StaticClass()},
@@ -152,6 +153,9 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	EXPECT_FALSE(Failed);
 	EXPECT_EQ(Failed.Error.Code, EAssetCompilerRegistrationError::Start);
 	EXPECT_EQ(Failed.Error.CompilerName, "Durin.Tests.Failed");
+	EXPECT_EQ(Failed.Error.StartCause.Error, EAssetCompilerStartError::Undrained);
+	EXPECT_EQ(Failed.Error.StartCause.PendingRequests, 7u);
+	EXPECT_EQ(FormatAssetCompilerRegistrationError(Failed.Error), "Asset compiler still owns 7 pending requests.");
 	EXPECT_EQ(Aggregate.GetDiagnostics().CompilerCount, 2u);
 	EXPECT_TRUE(Aggregate.IsAcceptingRequests());
 

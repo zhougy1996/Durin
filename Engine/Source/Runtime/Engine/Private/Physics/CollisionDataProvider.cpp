@@ -29,7 +29,7 @@ namespace Durin
 	{
 		auto Data = GetPhysicsTriMeshData();
 		if (!Data) return std::unexpected(Data.error());
-		FAssetBuildMemoryEstimate Memory{512ull * 1024 * 1024, 1024 * 1024};
+		FAssetBuildMemoryEstimate Memory{MaximumAssetBuildRequestBytes, 1024 * 1024};
 		if (!Memory.Add(Data->Positions.size(), 512) || !Memory.Add(Data->Indices.size(), 192))
 			return std::unexpected(MakeAssetBuildDiagnostic("Collision input exceeds its working-set budget.", "Input"));
 		return std::make_unique<FResidentPhysicsMeshInputTask>(std::move(*Data), Memory.Bytes);

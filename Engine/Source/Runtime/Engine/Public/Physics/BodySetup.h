@@ -42,6 +42,8 @@ namespace Durin
 		ENGINE_API auto GetCookInfo(FTriMeshCollisionData Data, bool bPersistDerivedData = true) const -> FCookBodySetupInfo;
 		ENGINE_API auto IsCompiling() const -> bool;
 		ENGINE_API auto IsCompilationMutationBlocked() const -> bool;
+		// Withdraw unstarted cooks and invalidate this request's publication. Started
+		// cooks finish normally; FinishPhysicsMeshes waits for their task/callback retirement.
 		ENGINE_API auto AbortPhysicsMeshAsyncCreation() -> void;
 		ENGINE_API auto FinishPhysicsMeshes() -> void;
 		ENGINE_API auto BeginDestroy() -> void override;

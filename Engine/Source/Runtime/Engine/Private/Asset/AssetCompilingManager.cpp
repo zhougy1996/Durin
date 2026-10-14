@@ -20,62 +20,88 @@ namespace Durin
 	{
 		struct FAssetBuildExecutionState
 		{
-			std::atomic<uint32> ActiveCount = 0;
+			uint32 ActiveCount = 0;
+			uint64 ScheduledMemory = 0;
 			std::mutex Mutex;
 			std::condition_variable Changed;
 		};
-		FAssetBuildExecutionSlot::FAssetBuildExecutionSlot(std::shared_ptr<FAssetBuildExecutionState> InState)
-			: State(std::move(InState)) { State->ActiveCount.fetch_add(1); }
-		FAssetBuildExecutionSlot::~FAssetBuildExecutionSlot() { Release(); }
-		auto FAssetBuildExecutionSlot::Release() -> void
+		FAssetBuildExecutionSlot::FAssetBuildExecutionSlot(std::shared_ptr<FAssetBuildExecutionState> InState, uint64 InRequiredMemory)
+			: State(std::move(InState)), RequiredMemory(InRequiredMemory)
 		{
-			if (!bReleased.exchange(true))
-			{
-				State->ActiveCount.fetch_sub(1);
-				State->Changed.notify_all();
-			}
+			std::lock_guard Lock(State->Mutex);
+			++State->ActiveCount;
+			State->ScheduledMemory += RequiredMemory;
 		}
-		FAssetBuildScheduler::FAssetBuildScheduler() : State(std::make_shared<FAssetBuildExecutionState>()) {}
-		auto FAssetBuildScheduler::Enqueue(bool Interactive,
-			std::function<FTaskHandle(std::shared_ptr<FAssetBuildExecutionSlot>)> Launch, FTaskHandle Prerequisite) -> void
+		FAssetBuildExecutionSlot::~FAssetBuildExecutionSlot()
+		{
+			{
+				std::lock_guard Lock(State->Mutex);
+				--State->ActiveCount;
+				State->ScheduledMemory -= RequiredMemory;
+			}
+			State->Changed.notify_all();
+		}
+		FAssetBuildScheduler::FAssetBuildScheduler(uint32 InMaximumConcurrency, uint64 InMemoryBudget)
+			: State(std::make_shared<FAssetBuildExecutionState>()), MaximumConcurrency(InMaximumConcurrency), MemoryBudget(InMemoryBudget)
+		{ require(MaximumConcurrency > 0); }
+		auto FAssetBuildScheduler::Enqueue(bool Interactive, uint64 RequiredMemory,
+			std::function<bool(std::shared_ptr<FAssetBuildExecutionSlot>)> Launch, FTaskHandle Prerequisite, std::function<bool()> IsReady) -> void
 		{
 			if (GIsGameThreadIdInitialized) CheckGameThread();
-			Queue.push_back({Interactive, std::move(Launch), std::move(Prerequisite)});
+			Queue.push_back({Interactive, RequiredMemory, std::move(Launch), std::move(Prerequisite), std::move(IsReady)});
 			Pump();
 		}
 		auto FAssetBuildScheduler::Pump() -> void
 		{
 			if (GIsGameThreadIdInitialized) CheckGameThread();
-			std::erase_if(Running, [](const auto& Item) {
-				if (!Item.Task.IsComplete()) return false;
-				Item.Slot->Release(); // Includes native tasks cancelled before worker entry.
-				return true;
-			});
-			while (State->ActiveCount.load() < 2 && !Queue.empty())
+			if (bPumping) return;
+			bPumping = true;
+			struct FResetPump
 			{
-				const auto Ready = [](const auto& Item) { return !Item.Prerequisite.IsValid() || Item.Prerequisite.IsComplete(); };
+				bool& Pumping;
+				~FResetPump() { Pumping = false; }
+			} Reset{bPumping};
+			while (!Queue.empty())
+			{
+				const auto Ready = [](const auto& Item) {
+					return (!Item.Prerequisite.IsValid() || Item.Prerequisite.IsComplete())
+						&& (!Item.IsReady || Item.IsReady());
+				};
 				auto Background = std::ranges::find_if(Queue, [&](const auto& Item) { return !Item.Interactive && Ready(Item); });
 				auto Interactive = std::ranges::find_if(Queue, [&](const auto& Item) { return Item.Interactive && Ready(Item); });
 				if (Background == Queue.end() && Interactive == Queue.end()) break;
 				auto Selected = Interactive != Queue.end() && (Background == Queue.end() || InteractiveBurst < 4) ? Interactive : Background;
+				{
+					std::lock_guard Lock(State->Mutex);
+					if (State->ActiveCount >= MaximumConcurrency) break;
+					// Like UE, run one oversized request alone to avoid starvation.
+					if (State->ActiveCount && (State->ScheduledMemory >= MemoryBudget
+						|| Selected->RequiredMemory > MemoryBudget - State->ScheduledMemory)) break;
+				}
+				const uint64 RequiredMemory = Selected->RequiredMemory;
 				const bool bInteractive = Selected->Interactive;
 				auto Launch = std::move(Selected->Launch);
 				Queue.erase(Selected); // Dispatch hooks may reenter the scheduler.
-				auto Slot = std::shared_ptr<FAssetBuildExecutionSlot>(new FAssetBuildExecutionSlot(State));
-				auto Task = Launch(Slot);
-				if (Task.IsValid())
+				auto Slot = std::shared_ptr<FAssetBuildExecutionSlot>(new FAssetBuildExecutionSlot(State, RequiredMemory));
+				// Core destroys accepted callables on body exit or pre-entry cancellation,
+				// before publishing terminal state. The callable's capture owns the slot;
+				// retaining its task handle or nested DDC dependency does not retain CPU capacity.
+				if (Launch(Slot))
 				{
-					Running.push_back({std::move(Task), std::move(Slot)});
 					if (bInteractive) ++InteractiveBurst;
 					else InteractiveBurst = 0;
 				}
-				else Slot->Release();
 			}
 		}
 		auto FAssetBuildScheduler::WaitForProgress() -> void
 		{
 			std::unique_lock Lock(State->Mutex);
 			State->Changed.wait_for(Lock, std::chrono::milliseconds(1));
+		}
+		auto FAssetBuildScheduler::GetScheduledMemory() const -> uint64
+		{
+			std::lock_guard Lock(State->Mutex);
+			return State->ScheduledMemory;
 		}
 		auto GetAssetBuildScheduler() -> std::shared_ptr<FAssetBuildScheduler>
 		{
@@ -290,7 +316,7 @@ namespace Durin
 		case EAssetCompilerRegistrationError::NotAccepting: return "Asset compiling manager is not accepting registrations.";
 		case EAssetCompilerRegistrationError::DuplicateName: return "Asset compiler name is already registered: " + Error.CompilerName;
 		case EAssetCompilerRegistrationError::DuplicateClass: return "Asset class already has an exact compiler route: " + Error.AssetClass;
-		case EAssetCompilerRegistrationError::Start: return Error.Message.empty() ? "Asset compiler startup failed." : Error.Message;
+		case EAssetCompilerRegistrationError::Start: return FormatAssetCompilerStartError(Error.StartCause);
 		}
 		return {};
 	}
@@ -334,7 +360,7 @@ namespace Durin
 			if (auto Error = ValidateRegistrationLocked(Registration); Error.Code != EAssetCompilerRegistrationError::None) return {.Error = std::move(Error)};
 		}
 		if (const auto Started = Registration.Manager->Start(); !Started)
-		{ return {.Error = {.Code = EAssetCompilerRegistrationError::Start, .CompilerName = Registration.Name.ToString(), .Message = FormatAssetCompilerStartError(Started)}}; }
+		{ return {.Error = {.Code = EAssetCompilerRegistrationError::Start, .CompilerName = Registration.Name.ToString(), .StartCause = Started}}; }
 		FAssetCompilerRegistrationResult Result;
 		{
 			std::lock_guard Lock(GAssetCompilingMutex);

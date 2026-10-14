@@ -1,4 +1,5 @@
 #include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/IMeshBuilderModule.h"
 #include "StaticMeshBuildPrivate.h"
 #include "StaticMesh/StaticMeshCompilationTestSupport.h"
 

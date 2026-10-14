@@ -1,54 +1,53 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "EngineAPI.h"
 #include "Threading/Task.h"
 
 namespace Durin::AssetPrivate
 {
 	struct FAssetBuildExecutionState;
-	class FAssetBuildExecutionSlot
+	class ENGINE_API FAssetBuildExecutionSlot
 	{
 	public:
+		// The last callable capture releases capacity, including cancellation before entry.
 		~FAssetBuildExecutionSlot();
-		auto Release() -> void;
-		// Releases CPU capacity on function exit, independently of nested DDC retirement.
-		struct FWorkScope
-		{
-			FAssetBuildExecutionSlot& Slot;
-			~FWorkScope() { Slot.Release(); }
-		};
+		FAssetBuildExecutionSlot(const FAssetBuildExecutionSlot&) = delete;
+		auto operator=(const FAssetBuildExecutionSlot&) -> FAssetBuildExecutionSlot& = delete;
 	private:
 		friend class FAssetBuildScheduler;
-		explicit FAssetBuildExecutionSlot(std::shared_ptr<FAssetBuildExecutionState> InState);
+		FAssetBuildExecutionSlot(std::shared_ptr<FAssetBuildExecutionState> InState, uint64 InRequiredMemory);
 		std::shared_ptr<FAssetBuildExecutionState> State;
-		std::atomic<bool> bReleased = false;
+		uint64 RequiredMemory;
 	};
 	// Owner-thread dispatch with worker-side slot release. No objects, products,
-	// memory reservations or application callbacks are owned by this scheduler.
-	class FAssetBuildScheduler
+	// application callbacks are owned by this scheduler. Memory estimates control
+	// execution concurrency, not retained input/product lifetimes or allocator limits.
+	class ENGINE_API FAssetBuildScheduler
 	{
 	public:
-		FAssetBuildScheduler();
-		auto Enqueue(bool Interactive, std::function<FTaskHandle(std::shared_ptr<FAssetBuildExecutionSlot>)> Launch,
-			FTaskHandle Prerequisite = {}) -> void;
+		explicit FAssetBuildScheduler(uint32 MaximumConcurrency = 2, uint64 MemoryBudget = 1024ull * 1024 * 1024);
+		// Optional readiness only observes external retirement; it must not mutate this queue.
+		auto Enqueue(bool Interactive, uint64 RequiredMemory, std::function<bool(std::shared_ptr<FAssetBuildExecutionSlot>)> Launch,
+			FTaskHandle Prerequisite = {}, std::function<bool()> IsReady = {}) -> void;
 		auto Pump() -> void;
 		auto WaitForProgress() -> void;
+		auto GetScheduledMemory() const -> uint64;
 	private:
 		struct FQueuedLaunch
 		{
 			bool Interactive;
-			std::function<FTaskHandle(std::shared_ptr<FAssetBuildExecutionSlot>)> Launch;
+			uint64 RequiredMemory;
+			std::function<bool(std::shared_ptr<FAssetBuildExecutionSlot>)> Launch;
 			FTaskHandle Prerequisite;
-		};
-		struct FRunningLaunch
-		{
-			FTaskHandle Task;
-			std::shared_ptr<FAssetBuildExecutionSlot> Slot;
+			std::function<bool()> IsReady;
 		};
 		std::shared_ptr<FAssetBuildExecutionState> State;
 		std::deque<FQueuedLaunch> Queue;
-		std::vector<FRunningLaunch> Running;
 		uint32 InteractiveBurst = 0;
+		bool bPumping = false;
+		uint32 MaximumConcurrency;
+		uint64 MemoryBudget;
 	};
-	auto GetAssetBuildScheduler() -> std::shared_ptr<FAssetBuildScheduler>;
+	ENGINE_API auto GetAssetBuildScheduler() -> std::shared_ptr<FAssetBuildScheduler>;
 }

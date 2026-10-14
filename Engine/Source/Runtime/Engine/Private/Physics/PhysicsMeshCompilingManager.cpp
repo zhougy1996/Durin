@@ -1,11 +1,16 @@
 #include "Physics/PhysicsMeshCompilation.h"
 #include "Asset/AssetCompilingManager.h"
-#include "Asset/MeshBuildBudget.h"
 #include "Asset/AssetBuildScheduler.h"
+#include "Asset/AssetBuildRetirement.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "Physics/BodySetup.h"
 #include "Physics/PhysicsCookHelper.h"
+#include "Physics/PhysicsMeshInputTask.h"
+#if DURIN_WITH_EDITOR
+#include "DerivedDataRequestOwner.h"
+#include "PhysicsCookInputPrivate.h"
+#endif
 #include "Threading/RunnableThread.h"
 #include "Threading/TaskComposition.h"
 
@@ -22,33 +27,53 @@ namespace Durin
 		{
 			Queued,
 			Running,
+			AwaitingDerivedData,
 			Complete
 		};
-		struct FPhysicsWork
+		struct FPhysicsWork : std::enable_shared_from_this<FPhysicsWork>
 		{
 			std::unique_ptr<FPhysicsMeshInputTask> InputTask;
 			FCookBodySetupInfo CookInfo;
+#if DURIN_WITH_EDITOR
+			std::shared_ptr<DerivedData::FRequestOwner> BuildOperation = std::make_shared<DerivedData::FRequestOwner>();
+			std::optional<DerivedData::FBuildCompleteParams> Completion;
+#endif
 			FCancellationToken Cancellation;
 			std::atomic<EWorkPhase> Phase = EWorkPhase::Queued;
 			std::expected<FPhysicsCookResult, std::string> Outcome;
-			auto Build(const FAssetBuildTaskContext& Control) -> void
+			auto Build(const FAssetBuildTaskContext& Control, bool bDispatch) -> bool
 			{
-				auto Data = InputTask->Execute(Control);
-				if (Control.IsCancelled()) return;
-				if (!Data)
+#if DURIN_WITH_EDITOR
+				if (!bDispatch)
 				{
-					Outcome = std::unexpected(Data.error());
-					return;
+					if (Completion) Outcome = PhysicsPrivate::ConsumeCookBuild(CookInfo.Mode, CookInfo.Policy, std::move(*Completion), Control);
+					Completion.reset();
+					return false;
 				}
+#endif
+				auto Data = InputTask->Execute(Control);
+				if (Control.IsCancelled()) return false;
+				if (!Data) { Outcome = std::unexpected(Data.error()); return false; }
 				CookInfo.TriangleMeshDesc = std::move(*Data);
 				auto Input = FPhysicsCookHelper::Capture(std::move(CookInfo), Control);
-				if (Control.IsCancelled()) return;
-				if (!Input)
-				{
-					Outcome = std::unexpected(Input.error());
-					return;
-				}
+				if (Control.IsCancelled()) return false;
+				if (!Input) { Outcome = std::unexpected(Input.error()); return false; }
+#if DURIN_WITH_EDITOR
+				InputTask.reset();
+				CookInfo.TriangleMeshDesc = {};
+				if (Input->GetMode() == EBodySetupCollisionSourceMode::None) return false;
+				Phase.store(EWorkPhase::AwaitingDerivedData, std::memory_order_release);
+				auto Dispatched = PhysicsPrivate::DispatchCookBuild(*Input, *BuildOperation, Control, [Work = shared_from_this()](auto Value) {
+					try { Work->Completion.emplace(std::move(Value)); }
+					catch (...) { Work->Outcome = std::unexpected(MakeAssetBuildDiagnostic("Physics cache completion could not be retained.", "Cook")); }
+					if (Work->Completion && Work->Completion->GetStatus() == DerivedData::EStatus::Canceled) Work->Cancellation.Cancel();
+				});
+				if (Dispatched) return true;
+				Outcome = std::unexpected(std::move(Dispatched.error()));
+#else
 				Outcome = FPhysicsCookHelper::CookCaptured(*Input, Control);
+#endif
+				return false;
 			}
 			auto ReleaseInput() -> void
 			{
@@ -58,9 +83,8 @@ namespace Durin
 		};
 		struct FPhysicsRecord
 		{
-			std::unique_ptr<AssetPrivate::FMeshBuildReservation> Reservation;
 			FObjectKey Body, AssetOwner;
-			uint64 Revision = 0, Generation = 0, ReservedBytes = 0;
+			uint64 Revision = 0, Generation = 0, EstimatedWorkingSetBytes = 0;
 			EBodySetupCollisionSourceMode Mode;
 			EBodySetupCollisionQueryPolicy Policy;
 			std::shared_ptr<FPhysicsWork> Work;
@@ -103,7 +127,9 @@ namespace Durin
 		{
 			CheckOwnerThread();
 			const auto Running = std::ranges::count_if(Records, [](const auto& Record) { return Record->Work->Phase.load(std::memory_order_acquire) == EWorkPhase::Running; });
-			return {Accounting->RecordCount, uint32(Running), Accounting->ReservedBytes, bAccepting};
+			uint64 EstimatedBytes = 0;
+			for (const auto& Record : Records) EstimatedBytes += Record->EstimatedWorkingSetBytes;
+			return {uint32(Records.size()), uint32(Running), EstimatedBytes, bAccepting};
 		}
 		auto Submit(DBodySetup& Body, std::unique_ptr<FPhysicsMeshInputTask> InputTask, bool bPersist, FOnAsyncPhysicsCookFinished Completion)
 			-> void
@@ -117,36 +143,23 @@ namespace Durin
 			};
 			if (!bAccepting || !IsValid(&Body) || Body.IsCompilationMutationBlocked())
 				return Reject("Physics mesh compilation is not accepting this owner.");
-			if (!InputTask || InputTask->GetWorkingSetBytes() == 0 || InputTask->GetWorkingSetBytes() > Budget->MaximumRequestBytes)
+			if (!InputTask || InputTask->GetWorkingSetBytes() == 0 || InputTask->GetWorkingSetBytes() > MaximumAssetBuildRequestBytes)
 				return Reject("Physics mesh preparation requires a bounded detached task.");
 			const auto Bytes = InputTask->GetWorkingSetBytes();
 			auto Record = std::make_shared<FPhysicsRecord>();
-			Record->Reservation = AssetPrivate::FMeshBuildReservation::TryCreate(Budget, Accounting, Bytes);
-			if (!Record->Reservation) return Reject("Physics mesh compilation admission budget exhausted.");
 			Record->Body = FObjectKey(&Body);
 			Record->AssetOwner = FObjectKey(Body.GetOuter());
 			Record->Revision = Body.GetRevision();
 			Record->Generation = Body.GetPhysicsMeshRequestGeneration();
 			Record->Mode = Body.GetCollisionSourceMode();
 			Record->Policy = Body.GetCollisionQueryPolicy();
-			Record->ReservedBytes = Bytes;
+			Record->EstimatedWorkingSetBytes = Bytes;
 			Record->Work = std::make_shared<FPhysicsWork>();
 			Record->Work->InputTask = std::move(InputTask);
 			Record->Work->CookInfo = Body.GetCookInfo({}, bPersist);
 			Record->Completion = std::move(Completion);
 			Records.push_back(Record);
-			Scheduler->Enqueue(false, [Manager = weak_from_this(), WeakRecord = std::weak_ptr(Record)](std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot> Slot) -> FTaskHandle {
-				auto Self = Manager.lock();
-				auto Record = WeakRecord.lock();
-				if (!Self || !Record || Record->Work->Cancellation.IsCancellationRequested() || Record->Work->Phase.load() != EWorkPhase::Queued) return {};
-				if (!IsTaskSchedulerRunning())
-				{
-					Self->Cancel(*Record);
-					return {};
-				}
-				Record->Work->Phase.store(EWorkPhase::Running, std::memory_order_release);
-				return Self->Launch(Record, std::move(Slot));
-			});
+			Enqueue(Record);
 		}
 		auto MarkCompilationAsCanceled(std::span<DObject* const> Objects) -> void override
 		{
@@ -190,40 +203,108 @@ namespace Durin
 		}
 		static auto Cancel(FPhysicsRecord& Record) -> void
 		{
-			Record.Work->Cancellation.Cancel();
 			if (auto* Body = Cast<DBodySetup>(ResolveObjectKey(Record.Body))) Body->CancelPhysicsMeshes(Record.Generation);
-			if (Record.Work->Phase.load() == EWorkPhase::Queued)
+			// Compete with worker entry, never interrupt a cook that has started.
+			auto Expected = EWorkPhase::Queued;
+			if (Record.Work->Phase.compare_exchange_strong(Expected, EWorkPhase::Complete))
 			{
+				Record.Work->Cancellation.Cancel();
+				if (Record.Task.IsValid()) CancelTask(Record.Task);
 				Record.Work->ReleaseInput();
-				Record.Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
 			}
 		}
-		auto Launch(const std::shared_ptr<FPhysicsRecord>& Record, std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot> Slot) -> FTaskHandle
+		auto Enqueue(const std::shared_ptr<FPhysicsRecord>& Record, bool bDispatch = true, FTaskHandle Prerequisite = {}) -> void
+		{
+			std::function<bool()> IsReady;
+#if DURIN_WITH_EDITOR
+			if (!bDispatch) IsReady = [WeakRecord = std::weak_ptr(Record)] {
+				const auto Record = WeakRecord.lock();
+				return !Record || Record->Work->BuildOperation->Poll();
+			};
+#endif
+			Scheduler->Enqueue(false, Record->EstimatedWorkingSetBytes,
+				[Manager = weak_from_this(), WeakRecord = std::weak_ptr(Record), bDispatch](std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot> Slot) -> bool {
+					auto Self = Manager.lock();
+					auto Record = WeakRecord.lock();
+					if (!Self || !Record) return false;
+					if (bDispatch)
+					{
+						if (Record->Work->Cancellation.IsCancellationRequested() || Record->Work->Phase.load() != EWorkPhase::Queued) return false;
+						if (!IsTaskSchedulerRunning()) { Self->Cancel(*Record); return false; }
+					}
+#if DURIN_WITH_EDITOR
+					else
+					{
+						if (Record->Work->Phase.load() != EWorkPhase::AwaitingDerivedData || RetireDerivedDataWithoutCpu(*Record)) return false;
+					}
+#endif
+					if (!bDispatch) Record->Work->Phase.store(EWorkPhase::Running, std::memory_order_release);
+					return Self->Launch(Record, bDispatch, std::move(Slot)).IsValid();
+				}, std::move(Prerequisite), std::move(IsReady));
+		}
+#if DURIN_WITH_EDITOR
+		static auto RetireDerivedDataWithoutCpu(FPhysicsRecord& Record) -> bool
+		{
+			auto& Work = *Record.Work;
+			if (!Work.BuildOperation->Poll()) return false;
+			if (!IsTaskSchedulerRunning() || Record.Task.GetState() == ETaskState::Canceled) Work.Cancellation.Cancel();
+			if (!Work.Cancellation.IsCancelled() && Work.Completion) return false;
+			Work.Completion.reset();
+			if (Work.Cancellation.IsCancelled()) Work.Outcome = FPhysicsCookResult{};
+			Work.ReleaseInput();
+			Work.Phase.store(EWorkPhase::Complete, std::memory_order_release);
+			return true;
+		}
+#endif
+		auto Launch(const std::shared_ptr<FPhysicsRecord>& Record, bool bDispatch, std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot> Slot) -> FTaskHandle
 		{
 			Tasks::FTaskExecutionOptions Options;
-			Record->Task = Tasks::LaunchTask("PhysicsMesh.Cook", [Slot = std::move(Slot), Work = Record->Work, Bytes = Record->ReservedBytes, Before = BeforeBuild, After = AfterBuild](const FTaskCancellationToken& NativeToken) {
-				AssetPrivate::FAssetBuildExecutionSlot::FWorkScope Execution{*Slot};
+			Record->Task = Tasks::LaunchTask("PhysicsMesh.Cook", [Slot = std::move(Slot), Work = Record->Work, Bytes = Record->EstimatedWorkingSetBytes, Before = BeforeBuild, After = AfterBuild, bDispatch](const FTaskCancellationToken& NativeToken) {
+				if (bDispatch)
+				{
+					auto Expected = EWorkPhase::Queued;
+					if (!Work->Phase.compare_exchange_strong(Expected, EWorkPhase::Running)) return;
+				}
 				const auto Cancellation = Work->Cancellation.WithObserver([NativeToken] { return NativeToken.IsCancellationRequested(); });
 				try
-				{ if (Before) Before(); Work->Build({.Cancellation = Cancellation, .MaximumWorkingSetBytes = Bytes}); if (After) After(); }
+				{
+					if (bDispatch && Before) Before();
+					const bool Waiting = Work->Build({.Cancellation = Cancellation, .MaximumWorkingSetBytes = Bytes}, bDispatch);
+#if DURIN_WITH_EDITOR
+					if (Waiting)
+					{
+						return;
+					}
+#endif
+					if (After) After();
+				}
 				catch (...) { Work->Outcome = std::unexpected(MakeAssetBuildDiagnostic("Physics mesh worker failed with an exception.", "Cook")); }
 				if (Cancellation.IsCancelled()) Work->Outcome = FPhysicsCookResult{};
 				Work->ReleaseInput(); Work->Phase.store(EWorkPhase::Complete, std::memory_order_release); }, Options);
+#if DURIN_WITH_EDITOR
+			if (bDispatch) Enqueue(Record, false, Record->Task);
+#endif
 			return Record->Task;
 		}
 		auto Pump(std::span<const FObjectKey> Owners, uint32 Maximum, FClock::time_point Deadline) -> FAssetCompileProcessResult
 		{
 			Scheduler->Pump();
 			for (const auto& Record : Records)
-				if (Record->Work->Phase.load() == EWorkPhase::Running && Record->Task.IsValid() && Record->Task.IsComplete())
-				{
-					if (Record->Task.GetState() == ETaskState::Canceled)
-						Record->Work->Cancellation.Cancel();
-					else
-						Record->Work->Outcome = std::unexpected(MakeAssetBuildDiagnostic("Physics mesh task retired before worker completion.", "Cook"));
-					Record->Work->ReleaseInput();
-					Record->Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
-				}
+			{
+				if (!Record->Task.IsValid() || !Record->Task.IsComplete()) continue;
+#if DURIN_WITH_EDITOR
+				if (!Record->Work->BuildOperation->Poll()) continue;
+#endif
+				const auto Phase = Record->Work->Phase.load(std::memory_order_acquire);
+#if DURIN_WITH_EDITOR
+				if (Phase == EWorkPhase::AwaitingDerivedData) { RetireDerivedDataWithoutCpu(*Record); continue; }
+#endif
+				if (Phase != EWorkPhase::Running && Phase != EWorkPhase::Queued) continue;
+				AssetPrivate::ObserveAssetBuildTaskCancellation(Record->Task, Record->Work->Cancellation);
+				if (Record->Task.GetState() != ETaskState::Canceled) Record->Work->Outcome = std::unexpected(MakeAssetBuildDiagnostic("Physics mesh task retired before worker completion.", "Cook"));
+				Record->Work->ReleaseInput();
+				Record->Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
+			}
 			Scheduler->Pump();
 			FAssetCompileProcessResult Result;
 			const auto Pending = Records;
@@ -233,16 +314,14 @@ namespace Durin
 				if (!Selected(*Record, Owners) || !std::ranges::contains(Records, Record)
 					|| Record->Work->Phase.load(std::memory_order_acquire) != EWorkPhase::Complete
 					|| (Record->Task.IsValid() && !Record->Task.IsComplete())) continue;
+#if DURIN_WITH_EDITOR
+				if (!Record->Work->BuildOperation->Poll()) continue;
+#endif
 				std::erase(Records, Record);
-				auto Reservation = std::move(Record->Reservation);
-				struct FRetireOutput
-				{
-					const std::shared_ptr<FPhysicsRecord>& Record;
-					~FRetireOutput()
-					{
-						Record->Work->Outcome = FPhysicsCookResult{};
-					}
-				} Retirement{Record};
+				auto Outcome = std::exchange(Record->Work->Outcome, FPhysicsCookResult{});
+#if DURIN_WITH_EDITOR
+				[[maybe_unused]] auto DdcCompletion = std::exchange(Record->Work->Completion, std::nullopt);
+#endif
 				auto* Body = Cast<DBodySetup>(ResolveObjectKey(Record->Body));
 				FPhysicsCookCompletionResult Completion;
 				if (Record->Work->Cancellation.IsCancelled() || !Body)
@@ -253,14 +332,14 @@ namespace Durin
 				else if (Body->GetRevision() != Record->Revision || Body->GetPhysicsMeshRequestGeneration() != Record->Generation
 					|| Body->GetCollisionSourceMode() != Record->Mode || Body->GetCollisionQueryPolicy() != Record->Policy)
 					Completion.Status = EPhysicsCookCompletionStatus::Superseded;
-				else if (!Record->Work->Outcome)
+				else if (!Outcome)
 				{
-					Body->FailPhysicsMeshes(Record->Generation, Record->Work->Outcome.error());
+					Body->FailPhysicsMeshes(Record->Generation, Outcome.error());
 					Completion.Error = Body->GetPhysicsMeshBuildError();
 				}
 				else
 				{
-					const auto& Product = *Record->Work->Outcome;
+					const auto& Product = *Outcome;
 					Completion.Status = Body->ApplyPhysicsMeshes(Record->Generation, Product.Simple, Product.Complex);
 					if (Completion.Status == EPhysicsCookCompletionStatus::Failed) Completion.Error = Body->GetPhysicsMeshBuildError();
 				}
@@ -283,15 +362,19 @@ namespace Durin
 				Result.ProcessedCompletionCount += Batch.ProcessedCompletionCount;
 				if (!Batch.ProcessedCompletionCount)
 				{
-					Scheduler->WaitForProgress();
+					bool JoinedOwner = false;
+#if DURIN_WITH_EDITOR
+					for (const auto& Record : Records)
+						if (Selected(*Record, Owners) && AssetPrivate::WaitForAssetBuildOwner(Record->Task, *Record->Work->BuildOperation))
+						{ JoinedOwner = true; break; }
+#endif
+					if (!JoinedOwner) Scheduler->WaitForProgress();
 				}
 			}
 			return Result;
 		}
-		std::shared_ptr<AssetPrivate::FMeshBuildBudget> Budget = AssetPrivate::GetMeshBuildBudget();
 		std::vector<std::shared_ptr<FPhysicsRecord>> Records;
 		std::shared_ptr<AssetPrivate::FAssetBuildScheduler> Scheduler = AssetPrivate::GetAssetBuildScheduler();
-		std::shared_ptr<AssetPrivate::FMeshBuildAccounting> Accounting = std::make_shared<AssetPrivate::FMeshBuildAccounting>();
 		bool bAccepting = false;
 	};
 	namespace

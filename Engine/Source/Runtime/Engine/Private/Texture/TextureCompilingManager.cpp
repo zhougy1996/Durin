@@ -2,7 +2,7 @@
 #if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/TextureCompilingManager.h"
 #include "TextureBuildInternal.h"
-#include "Asset/AssetCompilationOperation.h"
+#include "DerivedDataRequestOwner.h"
 
 #include "Texture/Texture2DBuild.h"
 #include "Texture/ITextureCompressorModule.h"
@@ -66,7 +66,7 @@ namespace Durin
 			FTexture2DCompilationWorkCompletion Completion;
 			std::shared_ptr<FTexture2DCompilationProgress> Progress;
 			Tasks::TTask<void> Task;
-			std::shared_ptr<FAssetCompilationOperation> BuildOperation;
+			std::shared_ptr<DerivedData::FRequestOwner> BuildOperation;
 			std::optional<FTexture2DCompilationWorkResult> Mailbox;
 			bool bDelivered = false;
 			bool bComputeBudgetCharged = false;
@@ -141,8 +141,9 @@ namespace Durin
 		{
 			if (RequestState.BuildOperation)
 			{
-				// A posted product is not enough: nested completion includes callback/capture retirement.
-				return RequestState.Task.IsValid() && RequestState.Task.IsCompleted();
+				// Producer completion closes submission; owner polling includes callback/capture retirement.
+				return RequestState.Task.IsValid() && RequestState.Task.IsCompleted()
+					&& RequestState.BuildOperation->Poll();
 			}
 			return RequestState.Mailbox.has_value(); // Canceled before worker admission.
 		}
@@ -202,7 +203,7 @@ namespace Durin
 		{
 			{
 				std::lock_guard Lock(Mutex);
-				RequestState->BuildOperation = std::make_shared<FAssetCompilationOperation>(
+				RequestState->BuildOperation = std::make_shared<DerivedData::FRequestOwner>(
 					RequestState->Request.Priority == ETexture2DCompilationPriority::Interactive
 						? DerivedData::ERequestPriority::High : DerivedData::ERequestPriority::Low);
 			}
@@ -214,18 +215,7 @@ namespace Durin
 				? ETaskPriority::High : ETaskPriority::Low;
 			auto Admission = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options,
 				[Self, RequestState](const FTaskCancellationToken& Token) {
-					try
-					{
-						Self->RunWorker(RequestState, Token);
-						Tasks::AddNested(RequestState->BuildOperation->GetCompletionEvent());
-						RequestState->BuildOperation->CloseSubmission();
-					}
-					catch (...)
-					{
-						Tasks::AddNested(RequestState->BuildOperation->GetCompletionEvent());
-						RequestState->BuildOperation->CloseSubmission();
-						throw;
-					}
+					Self->RunWorker(RequestState, Token);
 				});
 			std::lock_guard Lock(Mutex);
 			RequestState->Task = std::move(Admission);
@@ -387,7 +377,7 @@ namespace Durin
 
 		auto Cancel(uint64 RequestId) -> bool
 		{
-			std::shared_ptr<FAssetCompilationOperation> Owner;
+			std::shared_ptr<DerivedData::FRequestOwner> Owner;
 			bool Changed;
 			{
 				std::lock_guard Lock(Mutex);
@@ -514,7 +504,7 @@ namespace Durin
 		auto Shutdown() -> void
 		{
 			std::vector<std::shared_ptr<FRequestState>> Queued;
-			std::vector<std::shared_ptr<FAssetCompilationOperation>> BuildOperations;
+			std::vector<std::shared_ptr<DerivedData::FRequestOwner>> BuildOperations;
 			std::vector<FTaskHandle> TasksToCancel;
 			{
 				std::lock_guard Lock(Mutex);

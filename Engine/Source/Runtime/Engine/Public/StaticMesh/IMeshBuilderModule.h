@@ -3,14 +3,16 @@
 #include "CoreMinimal.h"
 
 #include "Misc/Build.h"
+#include "EngineAPI.h"
 #if DURIN_WITH_EDITORONLY_DATA
 
 #include "Modules/ModuleManager.h"
-#include "StaticMesh/StaticMeshBuildTypes.h"
-#include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin
 {
+	struct FStaticMeshBuildParameters;
+	struct FStaticMeshRenderData;
+
 	// Fixed Developer module contract; implementations return detached CPU data only.
 	class IMeshBuilderModule : public IModuleInterface
 	{

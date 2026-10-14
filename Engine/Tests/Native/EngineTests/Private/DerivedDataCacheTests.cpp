@@ -5,7 +5,7 @@
 #include "../../../../Source/Developer/DerivedDataCache/Private/DerivedDataCacheStorage.h"
 #include "../../../../Source/Developer/DerivedDataCache/Private/CompressedCacheValue.h"
 #include "Asset/DerivedDataCacheKeyProxy.h"
-#include "../../../../Source/Runtime/Engine/Private/Asset/AssetCompilationOperation.h"
+#include "DerivedDataRequestOwner.h"
 #include "../../../../Source/Runtime/Engine/Private/Asset/ResourceBuildSessions.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -187,7 +187,7 @@ TEST(FAsyncCacheTests, OwnerDestructionCancelsQueuedBatchBeforeReturning)
 	EXPECT_EQ(Calls, 1u); EXPECT_FALSE(Busy.Poll()); Scheduler->Run();
 }
 
-TEST(FAsyncCacheTests, AssetOperationWaitsForNativeDispatchCompletion)
+TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeDispatchCompletion)
 {
 	EnsureCacheTaskGameThread();
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(2));
@@ -220,17 +220,17 @@ TEST(FAsyncCacheTests, AssetOperationWaitsForNativeDispatchCompletion)
 		}
 	};
 	auto Scheduler = std::make_shared<FTailScheduler>(); std::weak_ptr<int> Weak = Scheduler->Capture;
-	auto Operation = std::make_shared<FAssetCompilationOperation>(); auto& Owner = *Operation; std::atomic<uint32> Calls = 0;
+	auto Operation = std::make_shared<FRequestOwner>(); auto& Owner = *Operation; std::atomic<uint32> Calls = 0;
 	auto Async = CreateAsyncCache(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
 	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("NativeTail"), '6')}};
 	FThreadEvent Submitted, WaitStarted, WaitReturned;
 	auto Producer = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [&] {
 		EXPECT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) { EXPECT_TRUE(Result); ++Calls; }));
-		Tasks::AddNested(Owner.GetCompletionEvent()); Owner.CloseSubmission(); Submitted.Trigger();
+		Submitted.Trigger();
 	});
 	EXPECT_TRUE(Submitted.WaitFor(5.0)); EXPECT_TRUE(Scheduler->Entered.WaitFor(5.0));
 	EXPECT_EQ(Calls.load(), 1u); EXPECT_FALSE(Owner.Poll()); EXPECT_FALSE(Weak.expired());
-	EXPECT_FALSE(Owner.GetCompletionEvent().IsCompleted()); EXPECT_FALSE(Producer.IsCompleted());
+	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed); EXPECT_FALSE(Owner.Poll());
 	auto Waiter = Tasks::LaunchTask("DDCOwnerJoin", [&] {
 		WaitStarted.Trigger(); EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed);
 		EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); WaitReturned.Trigger();
@@ -242,14 +242,14 @@ TEST(FAsyncCacheTests, AssetOperationWaitsForNativeDispatchCompletion)
 	EXPECT_TRUE(Owner.Poll()); EXPECT_TRUE(Weak.expired()); EXPECT_TRUE(WaitReturned.WaitFor(1.0));
 }
 
-TEST(FAsyncCacheTests, AssetOperationQueuedCancellationNeedsNoBusyOwnerProgress)
+TEST(FAsyncCacheTests, RequestOwnerQueuedCancellationNeedsNoBusyOwnerProgress)
 {
 	EnsureCacheTaskGameThread();
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
 	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
 	auto Backend = std::make_shared<FAsyncFixtureCache>(); auto Async = CreateAsyncCache(Backend, Scheduler, {.Concurrency = 1});
-	FRequestOwner Busy; auto Operation = std::make_shared<FAssetCompilationOperation>(); auto& Owner = *Operation;
+	FRequestOwner Busy; auto Operation = std::make_shared<FRequestOwner>(); auto& Owner = *Operation;
 	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("NestedCancel"), '7')}};
 	ASSERT_TRUE(Async->Get(Requests, Busy, [](auto, auto, auto) {}));
 	FThreadEvent Submitted; std::atomic<uint32> Calls = 0;
@@ -257,15 +257,15 @@ TEST(FAsyncCacheTests, AssetOperationQueuedCancellationNeedsNoBusyOwnerProgress)
 		EXPECT_TRUE(Async->Get(Requests, Owner, [&](auto, auto Result, auto) {
 			EXPECT_FALSE(Result); EXPECT_EQ(Result.error().Code, ECacheError::Canceled); ++Calls;
 		}));
-		Tasks::AddNested(Owner.GetCompletionEvent()); Owner.CloseSubmission(); Submitted.Trigger();
+		Submitted.Trigger();
 	});
-	EXPECT_TRUE(Submitted.WaitFor(5.0)); EXPECT_FALSE(Producer.IsCompleted());
+	EXPECT_TRUE(Submitted.WaitFor(5.0)); EXPECT_FALSE(Owner.Poll());
 	Owner.Cancel(); EXPECT_EQ(Calls.load(), 1u); EXPECT_TRUE(Owner.Poll()); EXPECT_FALSE(Busy.Poll());
 	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed);
 	ASSERT_EQ(Scheduler->Work.size(), 1u); Scheduler->Run(); EXPECT_EQ(Backend->Gets, 1u);
 }
 
-TEST(FAsyncCacheTests, AssetOperationCancellationWaitsForCallbackAndRejectsSelfWait)
+TEST(FAsyncCacheTests, RequestOwnerCancellationWaitsForCallbackAndRejectsSelfWait)
 {
 	EnsureCacheTaskGameThread();
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(2));
@@ -273,44 +273,44 @@ TEST(FAsyncCacheTests, AssetOperationCancellationWaitsForCallbackAndRejectsSelfW
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
 	auto Async = CreateAsyncCache(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
 	FRequestOwner Busy;
-	auto Operation = std::make_shared<FAssetCompilationOperation>();
+	auto Operation = std::make_shared<FRequestOwner>();
 	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("OperationCancel"), '8')}};
 	ASSERT_TRUE(Async->Get(Requests, Busy, [](auto, auto, auto) {}));
 	FThreadEvent Submitted, CallbackEntered, ReleaseCallback, CancelReturned;
-	auto Producer = Tasks::LaunchTask("AssetOperationProducer", [&] {
+	auto Producer = Tasks::LaunchTask("RequestOwnerProducer", [&] {
 		EXPECT_TRUE(Async->Get(Requests, *Operation, [&](auto, auto Result, auto) {
 			EXPECT_FALSE(Result);
 			EXPECT_EQ(Operation->Wait(), ERequestWaitResult::WouldBlock);
 			CallbackEntered.Trigger(); ReleaseCallback.Wait();
 		}));
-		Tasks::AddNested(Operation->GetCompletionEvent()); Operation->CloseSubmission(); Submitted.Trigger();
+		Submitted.Trigger();
 	});
 	EXPECT_TRUE(Submitted.WaitFor(5.0));
-	auto Cancel = Tasks::LaunchTask("AssetOperationCancel", [&] { Operation->Cancel(); CancelReturned.Trigger(); });
+	auto Cancel = Tasks::LaunchTask("RequestOwnerCancel", [&] { Operation->Cancel(); CancelReturned.Trigger(); });
 	EXPECT_TRUE(CallbackEntered.WaitFor(5.0));
 	EXPECT_FALSE(CancelReturned.WaitFor(0.01));
-	EXPECT_FALSE(Producer.IsCompleted()); EXPECT_FALSE(Operation->GetCompletionEvent().IsCompleted());
+	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed); EXPECT_FALSE(Operation->Poll());
 	ReleaseCallback.Trigger();
 	EXPECT_EQ(Cancel.Wait().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed);
-	EXPECT_TRUE(Operation->GetCompletionEvent().IsCompleted()); EXPECT_FALSE(Busy.Poll());
+	EXPECT_TRUE(Operation->Poll()); EXPECT_FALSE(Busy.Poll());
 	Scheduler->Run();
 }
 
-TEST(FAsyncCacheTests, AssetOperationUndispatchedRecordDoesNotRetainCoreShutdown)
+TEST(FAsyncCacheTests, RequestOwnerUndispatchedRecordDoesNotRetainCoreShutdown)
 {
 	EnsureCacheTaskGameThread();
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
 	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
 	const auto Before = GetTaskSchedulerDiagnostics().NonterminalTaskCount;
-	auto Operation = std::make_shared<FAssetCompilationOperation>();
+	auto Operation = std::make_shared<FRequestOwner>();
 	ASSERT_EQ(GetTaskSchedulerDiagnostics().NonterminalTaskCount, Before);
 	ShutdownTaskSystem(ETaskShutdownMode::Cancel);
 	Operation.reset();
 	EXPECT_EQ(GetTaskSchedulerDiagnostics().NonterminalTaskCount, 0u);
 }
 
-TEST(FAsyncCacheTests, AssetOperationDestructionCancelsQueuedRequestWithoutRetainingFacade)
+TEST(FAsyncCacheTests, RequestOwnerDestructionCancelsQueuedRequestWithoutRetainingFacade)
 {
 	EnsureCacheTaskGameThread();
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
@@ -318,41 +318,39 @@ TEST(FAsyncCacheTests, AssetOperationDestructionCancelsQueuedRequestWithoutRetai
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
 	auto Async = CreateAsyncCache(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
 	FRequestOwner Busy;
-	auto Operation = std::make_shared<FAssetCompilationOperation>();
-	std::weak_ptr<FAssetCompilationOperation> Weak = Operation;
-	const auto Completion = Durin::FTaskHandle(Operation->GetCompletionEvent());
+	auto Operation = std::make_shared<FRequestOwner>();
+	std::weak_ptr<FRequestOwner> Weak = Operation;
 	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("OperationDestruction"), 'c')}};
 	ASSERT_TRUE(Async->Get(Requests, Busy, [](auto, auto, auto) {}));
 	uint32 Calls = 0;
 	auto Batch = Async->Get(Requests, *Operation, [&](auto, auto Result, auto) { EXPECT_FALSE(Result); ++Calls; });
 	ASSERT_TRUE(Batch);
 	Operation.reset();
-	EXPECT_TRUE(Weak.expired()); EXPECT_EQ(Calls, 1u); EXPECT_TRUE(Completion.IsComplete());
+	EXPECT_TRUE(Weak.expired()); EXPECT_EQ(Calls, 1u);
 	EXPECT_FALSE(Busy.Poll()); Scheduler->Run();
 }
 
-TEST(FAsyncCacheTests, AssetOperationSynchronousCompletionWaitsForSubmissionClosure)
+TEST(FAsyncCacheTests, RequestOwnerInlineOwnerPollingDoesNotCloseProducerSubmission)
 {
 	EnsureCacheTaskGameThread();
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
 	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
 	auto Async = CreateAsyncCache(std::make_shared<FAsyncFixtureCache>(), CreateInlineBuildScheduler(), {.Concurrency = 1});
-	auto Operation = std::make_shared<FAssetCompilationOperation>();
+	auto Operation = std::make_shared<FRequestOwner>();
 	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("OperationInline"), '9')}};
 	uint32 Calls = 0;
-	auto Producer = Tasks::LaunchTask("AssetOperationInline", [&] {
+	auto Producer = Tasks::LaunchTask("RequestOwnerInline", [&] {
 		for (uint32 Index = 0; Index != 2; ++Index)
 		{
 			EXPECT_TRUE(Async->Get(Requests, *Operation, [&](auto, auto, auto) { ++Calls; }));
-			EXPECT_TRUE(Operation->Poll()); EXPECT_FALSE(Operation->GetCompletionEvent().IsCompleted());
+			EXPECT_TRUE(Operation->Poll());
 		}
-		Tasks::AddNested(Operation->GetCompletionEvent()); Operation->CloseSubmission();
 	});
 	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed);
-	EXPECT_EQ(Calls, 2u); EXPECT_TRUE(Operation->GetCompletionEvent().IsCompleted());
+	EXPECT_EQ(Calls, 2u); EXPECT_TRUE(Operation->Poll());
 }
 
-TEST(FAsyncCacheTests, AssetOperationWaitsForNativeHandlePublishedAfterSynchronousCallback)
+TEST(FAsyncCacheTests, RequestOwnerWaitsForNativeHandlePublishedAfterSynchronousCallback)
 {
 	EnsureCacheTaskGameThread();
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(2));
@@ -369,14 +367,14 @@ TEST(FAsyncCacheTests, AssetOperationWaitsForNativeHandlePublishedAfterSynchrono
 			{ return WaitTask(Handle).WaitStatus == ETaskWaitStatus::Completed ? ERequestWaitResult::Completed : ERequestWaitResult::WouldBlock; }
 		};
 		std::function<void()> BusyWork;
-		Tasks::FTaskEvent* Completion = nullptr;
+		FRequestOwner* Owner = nullptr;
 		FThreadEvent TailEntered, ReleaseTail;
 		auto Schedule(const FBuildScheduleParams&, std::function<void()> Work)
 			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override
 		{
-			if (!Completion) { BusyWork = std::move(Work); return std::shared_ptr<IBuildScheduledWork>{}; }
+			if (!Owner) { BusyWork = std::move(Work); return std::shared_ptr<IBuildScheduledWork>{}; }
 			Work();
-			EXPECT_FALSE(Completion->IsCompleted()); // No native handle has been published yet.
+			EXPECT_FALSE(Owner->Poll()); // No native handle has been published yet.
 			auto Scheduled = std::make_shared<FWork>();
 			FTaskLaunchOptions Options;
 			auto Native = Durin::Private::TryLaunchCancelableTaskWithCompletion("OperationDispatchTail",
@@ -387,24 +385,24 @@ TEST(FAsyncCacheTests, AssetOperationWaitsForNativeHandlePublishedAfterSynchrono
 	auto Scheduler = std::make_shared<FPublicationScheduler>();
 	auto Async = CreateAsyncCache(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
 	FRequestOwner Busy;
-	auto Operation = std::make_shared<FAssetCompilationOperation>();
+	auto Operation = std::make_shared<FRequestOwner>();
 	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("OperationPublication"), 'a')}};
 	ASSERT_TRUE(Async->Get(Requests, Busy, [](auto, auto, auto) {}));
 	FThreadEvent Submitted;
 	auto Producer = Tasks::LaunchTask("OperationLateDispatch", [&] {
 		EXPECT_TRUE(Async->Get(Requests, *Operation, [](auto, auto, auto) {}));
-		Tasks::AddNested(Operation->GetCompletionEvent()); Operation->CloseSubmission(); Submitted.Trigger();
+		Submitted.Trigger();
 	});
-	EXPECT_TRUE(Submitted.WaitFor(5.0)); Scheduler->Completion = &Operation->GetCompletionEvent();
+	EXPECT_TRUE(Submitted.WaitFor(5.0)); Scheduler->Owner = Operation.get();
 	std::exchange(Scheduler->BusyWork, {})();
 	EXPECT_TRUE(Scheduler->TailEntered.WaitFor(5.0));
-	EXPECT_FALSE(Operation->GetCompletionEvent().IsCompleted()); EXPECT_FALSE(Producer.IsCompleted());
+	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed); EXPECT_FALSE(Operation->Poll());
 	Scheduler->ReleaseTail.Trigger();
 	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_EQ(Operation->Wait(), ERequestWaitResult::Completed);
 }
 
-TEST(FAsyncCacheTests, AssetOperationExceptionalProducerStillJoinsQueuedRetirement)
+TEST(FAsyncCacheTests, RequestOwnerExceptionalProducerStillJoinsQueuedRetirement)
 {
 	EnsureCacheTaskGameThread();
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
@@ -412,7 +410,7 @@ TEST(FAsyncCacheTests, AssetOperationExceptionalProducerStillJoinsQueuedRetireme
 	auto Scheduler = std::make_shared<FCacheQueueScheduler>();
 	auto Async = CreateAsyncCache(std::make_shared<FAsyncFixtureCache>(), Scheduler, {.Concurrency = 1});
 	FRequestOwner Busy;
-	auto Operation = std::make_shared<FAssetCompilationOperation>();
+	auto Operation = std::make_shared<FRequestOwner>();
 	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("OperationException"), 'b')}};
 	ASSERT_TRUE(Async->Get(Requests, Busy, [](auto, auto, auto) {}));
 	FThreadEvent Submitted;
@@ -424,10 +422,10 @@ TEST(FAsyncCacheTests, AssetOperationExceptionalProducerStillJoinsQueuedRetireme
 		}
 		catch (...)
 		{
-			Tasks::AddNested(Operation->GetCompletionEvent()); Operation->CloseSubmission(); Submitted.Trigger(); throw;
+			Submitted.Trigger(); throw;
 		}
 	});
-	EXPECT_TRUE(Submitted.WaitFor(5.0)); EXPECT_FALSE(Producer.IsCompleted());
+	EXPECT_TRUE(Submitted.WaitFor(5.0)); EXPECT_FALSE(Operation->Poll());
 	Operation->Cancel();
 	EXPECT_EQ(Producer.Wait().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_EQ(Producer.GetState(), ETaskState::Failed);

@@ -7,6 +7,7 @@
 namespace Durin
 {
 	inline constexpr size_t MaximumAssetBuildDiagnosticBytes = 4096;
+	inline constexpr uint64 MaximumAssetBuildRequestBytes = 512ull * 1024 * 1024;
 	// Ordinary failures carry bounded owned text; cancellation stays in the token.
 	inline auto MakeAssetBuildDiagnostic(std::string_view Message, std::string_view Stage = {}) -> std::string
 	{
@@ -34,7 +35,7 @@ namespace Durin
 	{
 		FCancellationToken Cancellation;
 		FAssetBuildTaskMetrics* Metrics = nullptr;
-		// Whole-operation reservation. Providers must reject expansion before allocating scratch/products.
+		// Construction envelope. Providers must reject expansion before allocating scratch/products.
 		uint64 MaximumWorkingSetBytes = std::numeric_limits<uint64>::max();
 
 		auto IsCancelled() const -> bool

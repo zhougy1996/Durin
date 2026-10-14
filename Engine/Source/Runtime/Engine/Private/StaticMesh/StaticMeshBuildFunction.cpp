@@ -1,5 +1,6 @@
 #include "StaticMeshBuildPrivate.h"
 #include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/IMeshBuilderModule.h"
 #if DURIN_WITH_EDITOR
 #include "DerivedDataBuildSession.h"
 #include "StaticMeshDerivedDataKey.h"

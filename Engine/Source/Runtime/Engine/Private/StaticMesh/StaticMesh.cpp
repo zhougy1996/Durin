@@ -6,6 +6,7 @@
 #include "DObject/Package.h"
 
 #include "Asset/Asset.h"
+#include "Asset/AssetCompilingManager.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"

@@ -109,7 +109,7 @@ namespace Durin
 #if DURIN_WITH_EDITORONLY_DATA
 		const auto& Source = GetSource();
 		if (!Source.IsValid()) return IInterface_CollisionDataProvider::CreatePhysicsMeshInputTask();
-		FAssetBuildMemoryEstimate Memory{512ull * 1024 * 1024, 1024 * 1024};
+		FAssetBuildMemoryEstimate Memory{MaximumAssetBuildRequestBytes, 1024 * 1024};
 		if (!Memory.Add(Source.GetGeometryBulk().GetPayloadSize(), 64) || !Memory.Add(Source.GetMeshCount(), 1024))
 			return std::unexpected(MakeAssetBuildDiagnostic("Collision source exceeds its working-set budget.", "Input"));
 		return std::make_unique<FStaticMeshPhysicsInputTask>(Source, NormalizedSize, Memory.Bytes);
@@ -136,7 +136,7 @@ namespace Durin
 			const auto& LOD = RenderData->LODResources.front();
 			const auto& Positions = LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
 			const auto& Indices = LOD.IndexBuffer.GetIndices();
-			FAssetBuildMemoryEstimate Memory{512ull * 1024 * 1024, 1024 * 1024};
+			FAssetBuildMemoryEstimate Memory{MaximumAssetBuildRequestBytes, 1024 * 1024};
 			if (!Memory.Add(Positions.size(), 512) || !Memory.Add(Indices.size(), 192))
 				return std::unexpected(MakeAssetBuildDiagnostic("Collision input exceeds its working-set budget.", "Input"));
 			return FTriMeshCollisionData{{Positions.begin(), Positions.end()}, {Indices.begin(), Indices.end()}};

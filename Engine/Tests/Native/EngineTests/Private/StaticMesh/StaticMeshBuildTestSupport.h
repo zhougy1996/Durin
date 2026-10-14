@@ -35,7 +35,7 @@ namespace StaticMeshBuildTestSupport
 		const auto Physics = Durin::GetPhysicsMeshCompilationManagerDiagnostics();
 		Render.OutstandingRecords += Physics.OutstandingRecords;
 		Render.AdmittedBuildCount += Physics.AdmittedBuildCount;
-		Render.ReservedBytes += Physics.ReservedBytes;
+		Render.EstimatedWorkingSetBytes += Physics.EstimatedWorkingSetBytes;
 		return Render;
 	}
 
@@ -394,13 +394,13 @@ namespace StaticMeshBuildTestSupport
 		const auto Held = StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests();
 		EXPECT_EQ(2u, Held.AdmittedBuildCount);
 		EXPECT_EQ(2u, Held.OutstandingRecords);
-		EXPECT_LE(Held.ReservedBytes, 1024ull * 1024 * 1024);
+		EXPECT_LE(Held.EstimatedWorkingSetBytes, 1024ull * 1024 * 1024);
 #if defined(__APPLE__)
 		malloc_statistics_t AllocationStats{};
 		malloc_zone_statistics(nullptr, &AllocationStats);
 		rusage Usage{};
 		ASSERT_EQ(0, getrusage(RUSAGE_SELF, &Usage));
-		if (bMeasure) std::cout << "concurrent_render_build_memory reserved_bytes=" << Held.ReservedBytes
+		if (bMeasure) std::cout << "concurrent_render_build_memory reserved_bytes=" << Held.EstimatedWorkingSetBytes
 			<< " default_zone_in_use=" << AllocationStats.size_in_use
 			<< " process_peak_rss_bytes=" << Usage.ru_maxrss << std::endl;
 #endif
@@ -409,7 +409,7 @@ namespace StaticMeshBuildTestSupport
 		EXPECT_NE(Meshes[0]->GetCompilationDiagnostic().Phase, EStaticMeshCompilationPhase::Terminal);
 		EXPECT_TRUE(Meshes[0]->IsCompiling()); // Requested cancellation cannot finish before the held worker retires.
 		EXPECT_NE(Meshes[1]->GetCompilationDiagnostic().Phase, EStaticMeshCompilationPhase::Terminal);
-		EXPECT_EQ(Held.ReservedBytes, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes);
+		EXPECT_EQ(Held.EstimatedWorkingSetBytes, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes);
 		EXPECT_EQ(nullptr, Meshes[0]->GetRenderData());
 		EXPECT_EQ(nullptr, Meshes[1]->GetRenderData());
 		Barrier.Release();
@@ -429,6 +429,6 @@ namespace StaticMeshBuildTestSupport
 		FCollisionGeometryRef Collision;
 		EXPECT_TRUE(Meshes[1]->GetBodySetup()->BuildComplexGeometry(Collision));
 		EXPECT_FALSE(Meshes[1]->GetSource().IsGeometryResident());
-		EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes);
+		EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes);
 	}
 }

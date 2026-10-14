@@ -126,7 +126,7 @@ canonical bytes and schema versions are independent of the DDC namespace. Collis
 derived data uses the flat `StaticMeshCollision` bucket; its spelling is a cache
 compatibility identity, not a code dependency.
 
-`DBodySetup::InvalidatePhysicsData` cancels prior requests, clears derived geometry,
+`DBodySetup::InvalidatePhysicsData` withdraws unstarted prior requests, clears derived geometry,
 advances request/resource revisions, and refreshes physics consumers.
 `CreatePhysicsMeshesAsync` accepts a provider capture and submits bounded work;
 `CreatePhysicsMeshes` also waits, while `FinishPhysicsMeshes` waits for that setup
@@ -137,16 +137,36 @@ The asynchronous interface returns void. Input/admission failures notify once in
 as does disabled collision; accepted work notifies after task retirement. A synchronous
 creation waits and exposes its outcome through the setup's status and error queries.
 Callbacks may reenter creation and must tolerate owner destruction.
+`AbortPhysicsMeshAsyncCreation` invalidates publication for the selected request
+and withdraws only cooks whose worker has not started. Worker entry and withdrawal
+compete through one atomic queued-to-running transition. Withdrawn work reports
+Cancelled without executing its detached input task. Started cooks, including
+DDC waits and CPU consumption, finish normally without owner cancellation being
+forwarded to their task or request owner; stale generations report Superseded and
+cannot install geometry or overwrite the current error. Abort does not wait.
+Destruction invalidates owner identity/publication while detached records remain
+alive until worker and DDC callback retirement. Selected finish, source-mutation
+barriers and compiler shutdown still drain those records before releasing products
+or returning their single completion notification. Shutdown closes admission and
+withdraws queued work while waiting for started cooks to retire.
+Retirement uses producer task completion together with `FRequestOwner::Poll()`;
+the latter includes callback return and registered native dispatch cleanup. Result
+consumption reacquires CPU capacity only after both conditions hold. Selected finish
+uses owner `Wait()` after producer completion, without an asset completion event.
 The setup owns `EPhysicsMeshBuildStatus` and an optional diagnostic string;
 there is no second owner-error wrapper. Cancellation clears the stored failure.
 `ApplyPhysicsMeshes` returns Succeeded, Superseded or Failed using the completion
 status enum. Stale results do not
 change live state; incompatible geometry on a current request stores an Installation
-failure. Workers never mutate the setup. Physics records retain the shared cancellation
-token rather than a duplicate terminal status. Finalization forms a local completion
-result without replacing worker output with an installation error. A shared RAII
-reservation retains record and byte charges until request products retire and the
-completion notification returns, even if notification throws. Completion processing
+failure. Workers never mutate the setup. Physics records retain a shared cancellation
+token for queued withdrawal, input cancellation and native/DDC infrastructure
+cancellation, rather than a duplicate terminal status. Owner abort does not set
+that token after worker entry. Finalization forms a local completion
+result without replacing worker output with an installation error. After retirement
+and record removal, the GameThread moves the cook outcome and any remaining DDC
+completion into local ownership. Installation and notification use that local
+outcome; ordinary destruction releases its products after notification or during
+exception unwinding, without an output scope guard. Completion processing
 uses the aggregate manager's count/deadline rather than a separate mesh time slice.
 Physics uses the asset execution scheduler independently of StaticMesh. Pumping or
 finishing physics can dispatch ready render CPU continuations, without accessing

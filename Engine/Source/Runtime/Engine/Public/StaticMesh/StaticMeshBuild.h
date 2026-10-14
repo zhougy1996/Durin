@@ -5,10 +5,8 @@
 #include "EngineAPI.h"
 #include "Asset/AssetBuildTaskContext.h"
 #include "StaticMesh/StaticMeshBuildTypes.h"
-#include "StaticMesh/IMeshBuilderModule.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
-#include "StaticMesh/StaticMeshDerivedData.h"
 
 namespace Durin
 {

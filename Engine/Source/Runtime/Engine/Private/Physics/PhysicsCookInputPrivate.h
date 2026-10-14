@@ -3,9 +3,22 @@
 #include "CoreMinimal.h"
 #include "Physics/PhysicsCookHelper.h"
 #include "Serialization/BinaryFormat.h"
+#if DURIN_WITH_EDITOR
+#include "DerivedDataBuildSession.h"
+#endif
+
+namespace Durin::DerivedData { class ICache; }
 
 namespace Durin::PhysicsPrivate
 {
+#if DURIN_WITH_EDITOR
+	ENGINE_API auto SetAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void;
+	auto DispatchCookBuild(const FPhysicsCookInput& Input, DerivedData::IRequestOwner& Owner,
+		const FAssetBuildTaskContext& Control, DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>;
+	auto ConsumeCookBuild(EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy,
+		DerivedData::FBuildCompleteParams Completion, const FAssetBuildTaskContext& Control) -> std::expected<FPhysicsCookResult, std::string>;
+#endif
+
 	inline auto HashInput(FByteView Positions, FByteView Indices, const std::function<bool()>& Cancel)
 		-> std::optional<FXxHash128>
 	{

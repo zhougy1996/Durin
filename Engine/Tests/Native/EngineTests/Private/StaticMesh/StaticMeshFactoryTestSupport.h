@@ -4,6 +4,7 @@
 #include "StaticMesh/StaticMeshImportSettings.h"
 
 #include "Asset/PackageSerialization.h"
+#include "Asset/AssetCompilingManager.h"
 #include "AssetForge/Builtins/StaticMeshFactory.h"
 #include "AssetTools/IAssetTools.h"
 #include "DObject/DObjectGlobals.h"

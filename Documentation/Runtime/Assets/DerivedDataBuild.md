@@ -382,26 +382,22 @@ and cache raw/encoded/resident size limits remain independent protections.
 Sessions keep their own close/drain authority.
 
 DDC admission does not capture a Core scope or allocate per-request scope anchors.
-The Engine asset compilation operation owns an `FTaskEvent`; DDC owners expose
-only request lifecycle operations, without a task completion getter. Asset
-producers nest the operation event and close submission after their last dispatch,
-including exceptional exits that have already admitted work. The operation forwards
-request ownership to `FRequestOwner` and records native dispatch handles through
-a scheduler adapter. It triggers the event after submission closes, all request
-callbacks retire, and in-flight schedule calls publish their native handles.
-Those handles are event prerequisites, so completion also includes destruction
-of native dispatch captures. Synchronously completed requests do not close the
-operation before the producer finishes submission. Queued requests need no Core
-worker admission slot. Callback-generated stages remain admissible while
-the operation has active requests. The bridge requires a running Core scheduler;
-ordinary DDC owners do not allocate a completion event.
-The operation creates its event lazily when DDC work is first submitted or the
-producer establishes its nested dependency. Undispatched asset records therefore
-do not retain Core shutdown. Requests retain internal operation state rather than
-the outer operation object; destroying that object cancels and joins its work.
+Engine asset producers use `FRequestOwner` directly. Producer task completion
+establishes that no further submissions can occur; owner `Poll()` then confirms
+request/callback retirement and completion of registered native dispatch handles.
+`Wait()` joins the same boundary, including native dispatch capture destruction.
+Dispatch publication keeps a request registered until its scheduler has returned
+the native handle, even if its callback completed synchronously. Owner polling
+alone cannot close a producer that may still submit another inline request.
+Queued requests need no Core worker admission slot, and callback-generated stages
+remain admissible while requests are active. Owners allocate no completion event;
+undispatched asset records therefore do not retain Core shutdown. Requests retain
+internal owner state rather than the facade; facade destruction cancels and joins
+its work. Asset managers drain producers and their owners before Core shutdown.
 
-Completion dependencies do not forward cancellation. Managers signal their request
-owners before canceling or waiting their own work. Batch cancellation affects only
+Task completion does not forward cancellation. Render and texture managers signal
+their request owners; physics owner abort withdraws only unstarted cooks and lets
+started work retire normally. Batch cancellation affects only
 that batch, including when several producers use one owner. LaunchTask reads
 current owner priority and uses the process scheduler lifetime.
 Schedulers and DDC callbacks must progress without GameThread pumping. Native

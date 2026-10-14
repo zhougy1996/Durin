@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "EngineAPI.h"
-#include "Asset/AssetBuildTaskContext.h"
 #include "DObject/DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
 #include "BodySetupTypes.gen.h"

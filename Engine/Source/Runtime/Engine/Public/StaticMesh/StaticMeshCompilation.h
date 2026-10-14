@@ -3,11 +3,11 @@
 #include "CoreMinimal.h"
 
 #include "StaticMesh/StaticMesh.h"
-#include "Asset/AssetCompilingManager.h"
+#include "EngineAPI.h"
 
 namespace Durin
 {
-	inline constexpr size_t MaximumStaticMeshBuildDiagnosticBytes = 4096;
+	class IAssetCompilingManager;
 
 	enum class EStaticMeshCompilationStatus : uint8 { Succeeded, Failed, Cancelled, Superseded };
 	enum class EStaticMeshCompilationPhase : uint8 { Queued, Building, Mailbox, Terminal };
@@ -19,7 +19,8 @@ namespace Durin
 		// Populated only after completion has retired and reached Terminal.
 		std::optional<EStaticMeshCompilationStatus> Status;
 		EStaticMeshCompilationPhase Phase = EStaticMeshCompilationPhase::Queued;
-		uint64 ReservedBytes = 0;
+		// Estimate only, not a retained-memory reservation.
+		uint64 EstimatedWorkingSetBytes = 0;
 		FXxHash128 SourceIdentity;
 		uint64 RenderBuilderVersion = 0;
 		std::string Error;
@@ -28,10 +29,11 @@ namespace Durin
 	struct FStaticMeshCompilationManagerDiagnostics
 	{
 		uint32 OutstandingRecords = 0;
-		// Includes render requests suspended on cache I/O.
+		// CPU stages only; cache I/O waits do not occupy execution capacity.
 		uint32 AdmittedBuildCount = 0;
 		uint32 RetainedDiagnostics = 0;
-		uint64 ReservedBytes = 0;
+		// Estimate only, not a retained-memory reservation.
+		uint64 EstimatedWorkingSetBytes = 0;
 		bool bAcceptingRequests = false;
 	};
 #if DURIN_WITH_EDITORONLY_DATA

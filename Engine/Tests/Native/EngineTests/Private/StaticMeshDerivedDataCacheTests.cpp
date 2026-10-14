@@ -7,6 +7,7 @@
 #include "DerivedDataCache/DerivedDataCache.h"
 #include "Threading/ThreadEvent.h"
 #include "Runtime/Engine/Private/Physics/PhysicsCookDerivedDataKey.h"
+#include "Runtime/Engine/Private/Asset/AssetBuildScheduler.h"
 #include "../../../../Source/Developer/DerivedDataCache/Private/DerivedDataCacheStorage.h"
 #include "Physics/PhysicsDerivedData.h"
 #include "Physics/PhysicsMeshInputTask.h"
@@ -27,6 +28,7 @@
 #include "StaticMesh/StaticMeshBuildPrivate.h"
 #include "StaticMesh/StaticMeshSharedOutput.h"
 #include "Physics/PhysicsBuildFunction.h"
+#include "Physics/PhysicsCookInputPrivate.h"
 #include "Physics/PhysicsSharedOutput.h"
 #include "DerivedDataBuildSession.h"
 #include "Asset/CookedMeshLoadManager.h"
@@ -50,6 +52,7 @@
 #include "Modules/ModuleManager.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/IMeshBuilderModule.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Threading/RunnableThread.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
@@ -1526,13 +1529,13 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerSupersedesOnceAndRetainsLateWor
 	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())})) << Error;
 	const auto SecondId = Mesh->GetCompilationDiagnostic().RequestId;
 	ASSERT_TRUE(Barrier.Wait(2));
-	const uint64 Reserved = StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes;
+	const uint64 Reserved = StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes;
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_NE(GetStaticMeshCompilationDiagnostic(FirstId).Phase, EStaticMeshCompilationPhase::Terminal);
 	EXPECT_FALSE(GetStaticMeshCompilationDiagnostic(FirstId).Status);
 	EXPECT_TRUE(GetStaticMeshCompilationDiagnostic(FirstId).Error.empty());
 	EXPECT_EQ(2u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords);
-	EXPECT_EQ(Reserved, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes);
+	EXPECT_EQ(Reserved, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes);
 	const auto InvalidSource = Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {});
 	ASSERT_FALSE(InvalidSource);
 	EXPECT_FALSE(InvalidSource.error().empty());
@@ -1544,7 +1547,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerSupersedesOnceAndRetainsLateWor
 	EXPECT_NE(nullptr, Mesh->GetRenderData());
 	EXPECT_FALSE(Mesh->IsCompiling());
 	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords);
-	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes);
+	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes);
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_EQ(Mesh->GetCompilationDiagnostic().RequestId, SecondId);
 }
@@ -1579,15 +1582,15 @@ TEST(FStaticMeshAuthoredCompilationTests, QueuedCancellationHasNoFailureOrAdmiss
 	const auto After = StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests();
 	EXPECT_EQ(After.AdmittedBuildCount, 2u);
 	EXPECT_EQ(After.OutstandingRecords, 2u);
-	EXPECT_EQ(After.ReservedBytes, Before.ReservedBytes - Pending.ReservedBytes);
+	EXPECT_EQ(After.EstimatedWorkingSetBytes, Before.EstimatedWorkingSetBytes - Pending.EstimatedWorkingSetBytes);
 	First->CancelCompilation();
 	Second->CancelCompilation();
 	Barrier.Release();
 	FAssetCompilingManager::Get().FinishAllCompilation();
-	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes, 0u);
+	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes, 0u);
 }
 
-TEST(FStaticMeshAuthoredCompilationTests, ManagerBoundsAcceptedRecordsAndDefersCancellation)
+TEST(FStaticMeshAuthoredCompilationTests, ManagerQueuesBeyondFormerRecordLimitAndDefersCancellation)
 {
 	using namespace Durin;
 	FAssetCompilingManager::Get().FinishAllCompilation();
@@ -1603,18 +1606,15 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerBoundsAcceptedRecordsAndDefersC
 		RequestIds.push_back(Mesh->GetCompilationDiagnostic().RequestId);
 	}
 	EXPECT_EQ(32u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords);
-	const auto Latest = InspectCompilationOperation(*Mesh).RequestId;
-	const auto Rejected = Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())});
-	ASSERT_FALSE(Rejected);
-	EXPECT_FALSE(Rejected.error().empty());
-	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords, 32u);
-	EXPECT_EQ(Latest, InspectCompilationOperation(*Mesh).RequestId);
+	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
+	RequestIds.push_back(Mesh->GetCompilationDiagnostic().RequestId);
+	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords, 33u);
 	Mesh->CancelCompilation();
 	const auto BeforeExpiredPump = StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests();
 	const auto Expired = FAssetCompilingManager::Get().ProcessAsyncTasks({.MaximumCompletions = 5,
 		.Deadline = std::chrono::steady_clock::now()});
 	EXPECT_EQ(Expired.ProcessedCompletionCount, 0u);
-	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes, BeforeExpiredPump.ReservedBytes);
+	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes, BeforeExpiredPump.EstimatedWorkingSetBytes);
 	const auto Batch = FAssetCompilingManager::Get().ProcessAsyncTasks({.MaximumCompletions = 2});
 	EXPECT_EQ(Batch.ProcessedCompletionCount, 2u);
 	const auto LargerBatch = FAssetCompilingManager::Get().ProcessAsyncTasks({.MaximumCompletions = 5});
@@ -1628,7 +1628,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerBoundsAcceptedRecordsAndDefersC
 		EXPECT_NE(Diagnostic.Status, EStaticMeshCompilationStatus::Succeeded);
 		EXPECT_TRUE(Diagnostic.Error.empty());
 	}
-	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes);
+	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes);
 	EXPECT_EQ(nullptr, Mesh->GetRenderData());
 }
 
@@ -1662,7 +1662,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerRejectsMutationAndDestructionDu
 	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords);
 }
 
-TEST(FStaticMeshAuthoredCompilationTests, ManagerEnforcesByteReservationBeforeSupersession)
+TEST(FStaticMeshAuthoredCompilationTests, ManagerQueuesBeyondFormerByteLimitAndRejectsOversizedInput)
 {
 	using namespace Durin;
 	FAssetCompilingManager::Get().FinishAllCompilation();
@@ -1674,13 +1674,12 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerEnforcesByteReservationBeforeSu
 	const auto SourceResource = AttachReservationSource(Source, 4800000);
 	ASSERT_TRUE(Source.IsValid());
 	FStaticMeshWorkerBarrier Barrier;
-	uint32 Accepted = 0;
-	while (Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())})) ++Accepted;
-	EXPECT_GT(Accepted, 2u);
-	EXPECT_LT(Accepted, 32u);
+	constexpr uint32 Accepted = 6;
+	for (uint32 Index = 0; Index < Accepted; ++Index)
+		ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())}));
 	const auto State = StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests();
 	EXPECT_EQ(Accepted, State.OutstandingRecords);
-	EXPECT_LE(State.ReservedBytes, 1024ull * 1024 * 1024);
+	EXPECT_GT(State.EstimatedWorkingSetBytes, 1024ull * 1024 * 1024);
 	const auto Latest = InspectCompilationOperation(*Mesh).RequestId;
 	FStaticMeshSource Oversized;
 	ASSERT_TRUE(Oversized.Initialize(std::move(Geometry)));
@@ -1690,12 +1689,12 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerEnforcesByteReservationBeforeSu
 	ASSERT_FALSE(Rejected);
 	EXPECT_FALSE(Rejected.error().empty());
 	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords, State.OutstandingRecords);
-	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes, State.ReservedBytes);
+	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes, State.EstimatedWorkingSetBytes);
 	EXPECT_EQ(Latest, InspectCompilationOperation(*Mesh).RequestId);
 	Mesh->CancelCompilation();
 	Barrier.Release();
 	FAssetCompilingManager::Get().FinishAllCompilation();
-	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes);
+	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes);
 	EXPECT_FALSE(BuildStaticMeshRenderData({.Source = Source},
 		{.MaximumWorkingSetBytes = 1024}));
 	EXPECT_EQ(SourceResource->GetReadStats().RequestCount, 0u);
@@ -1748,10 +1747,16 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerFairnessAndHistoryStayBounded)
 		AssetPrivate::SetStaticMeshCompilationPhaseHookForTests([&](uint64 Id, EStaticMeshCompilationPhase Phase) {
 			if (Phase == EStaticMeshCompilationPhase::Queued) Dispatches.push_back(Id);
 		});
+		// Keep the fairness assertion about queued submissions, without blocker continuations.
+		Meshes[0]->CancelCompilation();
+		Meshes[1]->CancelCompilation();
 		Barrier.Release();
 		FAssetCompilingManager::Get().FinishAllCompilation();
 		ASSERT_EQ(6u, Dispatches.size());
-		EXPECT_EQ(BackgroundId, Dispatches[4]);
+		const auto Background = std::ranges::find(Dispatches, BackgroundId);
+		ASSERT_NE(Background, Dispatches.end());
+		// Interactive result-consumption turns can make the background submission run earlier.
+		EXPECT_LE(std::distance(Dispatches.begin(), Background), 4);
 	}
 	for (uint32 Index = 0; Index < 130; ++Index)
 	{
@@ -1762,7 +1767,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerFairnessAndHistoryStayBounded)
 	EXPECT_EQ(128u, Diagnostics.RetainedDiagnostics);
 	EXPECT_EQ(0u, InspectCompilationOperation(*Meshes[7]).RequestId);
 	EXPECT_EQ(0u, Diagnostics.OutstandingRecords);
-	EXPECT_EQ(0u, Diagnostics.ReservedBytes);
+	EXPECT_EQ(0u, Diagnostics.EstimatedWorkingSetBytes);
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, ManagerDoesNotKeepUnloadedPackageAlive)
@@ -1784,7 +1789,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerDoesNotKeepUnloadedPackageAlive
 	Barrier.Release();
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_EQ(EStaticMeshCompilationStatus::Cancelled, GetStaticMeshCompilationDiagnostic(RequestId).Status);
-	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes);
+	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes);
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, ManagerDiscardsSourceMutationAndAcceptsInitialCollisionEdits)
@@ -1961,7 +1966,7 @@ TEST(FStaticMeshAuthoredCompilationTests, InitialMutationRequeuesAtCapacityAndEx
 	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, InspectCompilationOperation(*Meshes[0]).Status);
 	EXPECT_EQ(nullptr, Meshes[1]->GetRenderData());
 	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords);
-	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes);
+	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes);
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, DiagnosticsExposeColdWarmAndPersistenceFailureWithoutPollingIo)
@@ -2041,7 +2046,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerQualifiesAllChannelsManySection
 	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, InspectCompilationOperation(*Mesh).Status);
 	EXPECT_NE(Original, Mesh->GetRenderData());
 	EXPECT_EQ(EPhysicsMeshBuildStatus::Failed, Mesh->GetCollisionBuildStatus());
-	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes);
+	EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes);
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, LatestCompletedObservationWinsOverRetainedOlderWorker)
@@ -2069,7 +2074,7 @@ TEST(FStaticMeshAuthoredCompilationTests, LatestCompletedObservationWinsOverReta
 	EXPECT_EQ(EStaticMeshCompilationPhase::Terminal, Completed.Phase);
 	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, Completed.Status);
 	EXPECT_EQ(1u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords);
-	EXPECT_GT(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes, 0u);
+	EXPECT_GT(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes, 0u);
 	EXPECT_NE(nullptr, Mesh->GetRenderData());
 	Barrier.Release();
 	FAssetCompilingManager::Get().FinishAllCompilation();
@@ -2105,7 +2110,7 @@ TEST(FStaticMeshPayloadInspectionTests, UnreadableSourcePollingDoesNotAcquireOrM
 	EXPECT_EQ(Fixture.Mesh->GetRenderData(), Cpu);
 	EXPECT_EQ(Fixture.Mesh->GetPackage()->IsDirty(), Dirty);
 	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords, Before.OutstandingRecords);
-	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes, Before.ReservedBytes);
+	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes, Before.EstimatedWorkingSetBytes);
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
 }
 
@@ -2644,7 +2649,7 @@ TEST(FStaticMeshAuthoredCompilationTests, BuildErrorsOwnInputAndRejectedReservat
 	Source = {};
 	ASSERT_FALSE(Budget);
 	EXPECT_NE(Budget.error().find("decoded source exceeds its reservation"), std::string::npos);
-	EXPECT_LE(Budget.error().size(), MaximumStaticMeshBuildDiagnosticBytes);
+	EXPECT_LE(Budget.error().size(), MaximumAssetBuildDiagnosticBytes);
 	const Durin::FAssetBuildTaskContext Control{.Cancellation = [] { return true; }};
 	const auto Cancelled = BuildStaticMeshRenderData({}, Control);
 	ASSERT_TRUE(Cancelled);
@@ -2688,7 +2693,7 @@ TEST(FStaticMeshAuthoredCompilationTests, SynchronousFailureExposesOwnedMessage)
 	const auto SourceFailure = FStaticMeshTestAccess::BuildCandidate(Mesh, std::move(Geometry));
 	ASSERT_FALSE(SourceFailure);
 	EXPECT_FALSE(SourceFailure.error().empty());
-	EXPECT_LE(SourceFailure.error().size(), MaximumStaticMeshBuildDiagnosticBytes);
+	EXPECT_LE(SourceFailure.error().size(), MaximumAssetBuildDiagnosticBytes);
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 	const auto InvalidSourceFailure = Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous, {.Source = FStaticMeshSource{}});
 	ASSERT_FALSE(InvalidSourceFailure);
@@ -2901,7 +2906,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ImportedCommitRetiresPriorWorkerAndRej
 	ASSERT_TRUE(Mesh.Build(EStaticMeshBuildMode::Asynchronous, {}));
 	Mesh.GetBodySetup()->CreatePhysicsMeshesAsync(Mesh, false, [&](const auto& Result) {
 		++CollisionCompletions;
-		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Cancelled);
+		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Superseded);
 		EXPECT_EQ(Mesh.GetSource().GetIdentity(), OldSource);
 		EXPECT_EQ(Mesh.GetAssetImportData(), OldData);
 		EXPECT_TRUE(Mesh.IsCompilationMutationBlocked());
@@ -2989,7 +2994,7 @@ TEST(FStaticMeshAuthoredCompilationTests, SynchronousBuildRetiresSelectedWorkerW
 	EXPECT_NE(Other->GetRenderData(), nullptr);
 }
 
-TEST(FStaticMeshAuthoredCompilationTests, CancellationFinalizesAfterWorkerRetirementAndBeforeNotificationReturns)
+TEST(FStaticMeshAuthoredCompilationTests, RunningCookAbortFinalizesAfterRetirementAndBeforeNotificationReturns)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -3007,32 +3012,32 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationFinalizesAfterWorkerRetire
 	FStaticMeshWorkerBarrier Barrier;
 	Body->CreatePhysicsMeshesAsync(*Mesh, false, [&](const FPhysicsCookCompletionResult& Result) {
 		++Notifications;
-		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Cancelled);
+		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Superseded);
 		EXPECT_FALSE(Result.Error);
 		const auto Retiring = StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests();
-		EXPECT_EQ(Retiring.ReservedBytes, HeldBytes);
-		EXPECT_EQ(Retiring.OutstandingRecords, 1u);
+		EXPECT_EQ(Retiring.EstimatedWorkingSetBytes, 0u);
+		EXPECT_EQ(Retiring.OutstandingRecords, 0u);
 		// Finishing or pumping recursively must not deliver this observer twice.
 		Body->FinishPhysicsMeshes();
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
 		EXPECT_EQ(Notifications, 1u);
-		EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes, HeldBytes);
+		EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes, 0u);
 	});
 	ASSERT_TRUE(Barrier.Wait(1));
-	HeldBytes = StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes;
+	HeldBytes = StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes;
 	ASSERT_GT(HeldBytes, 0u);
 	Body->AbortPhysicsMeshAsyncCreation();
 	EXPECT_TRUE(Body->IsCompiling());
 	EXPECT_FALSE(Mesh->IsCompiling());
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_EQ(Notifications, 0u);
-	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes, HeldBytes);
+	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes, HeldBytes);
 	EXPECT_FALSE(Body->GetResidentComplexGeometry());
 	Barrier.Release();
 	Body->FinishPhysicsMeshes();
 	EXPECT_FALSE(Body->IsCompiling());
 	EXPECT_EQ(Notifications, 1u);
-	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes, 0u);
+	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes, 0u);
 	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords, 0u);
 	EXPECT_FALSE(Body->GetResidentComplexGeometry());
 	EXPECT_FALSE(Body->GetPhysicsMeshBuildError());
@@ -3041,8 +3046,8 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationFinalizesAfterWorkerRetire
 TEST(FStaticMeshAuthoredCompilationTests, PipelineDiagnosticsStayBounded)
 {
 	using namespace Durin;
-	const auto Failure = MakeAssetBuildDiagnostic(std::string(MaximumStaticMeshBuildDiagnosticBytes + 1, 'a'));
-	EXPECT_EQ(Failure.size(), MaximumStaticMeshBuildDiagnosticBytes);
+	const auto Failure = MakeAssetBuildDiagnostic(std::string(MaximumAssetBuildDiagnosticBytes + 1, 'a'));
+	EXPECT_EQ(Failure.size(), MaximumAssetBuildDiagnosticBytes);
 }
 
 TEST(FStaticMeshSeparatedBuildTests, CollisionSnapshotOutlivesRenderAndOwnsCancellation)
@@ -3168,11 +3173,11 @@ TEST(FStaticMeshSeparatedBuildTests, CollisionWorkersRejectSupersededGeometrySet
 		case 5: Mesh->GetBodySetup()->AbortPhysicsMeshAsyncCreation(); break;
 		case 6: MarkObjectHierarchyAsGarbage(Mesh); break;
 		}
-		if (Scenario != 0) EXPECT_GT(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes, 0u);
+		if (Scenario != 0) EXPECT_GT(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes, 0u);
 		if (Scenario == 5) EXPECT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Unavailable);
 		Barrier.Release();
 		FAssetCompilingManager::Get().FinishAllCompilation();
-		EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes, 0u);
+		EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes, 0u);
 		EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords, 0u);
 		if (Scenario == 6) continue;
 		if (Scenario != 0)
@@ -3274,7 +3279,7 @@ TEST(FPhysicsMeshLifecycleTests, DetachedProviderBuildsWithoutStaticMeshOrRender
 		FStaticMeshWorkerBarrier Barrier;
 		uint32 CancelledCompletions = 0;
 		Body->CreatePhysicsMeshesAsync(Provider, false,
-			[&](const FPhysicsCookCompletionResult& Result) { EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Cancelled); EXPECT_FALSE(Result.Error); ++CancelledCompletions; });
+			[&](const FPhysicsCookCompletionResult& Result) { EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Superseded); EXPECT_FALSE(Result.Error); ++CancelledCompletions; });
 		ASSERT_TRUE(Barrier.Wait(1));
 		Body->InvalidatePhysicsData();
 		Barrier.Release();
@@ -3314,7 +3319,7 @@ TEST(FPhysicsMeshLifecycleTests, PhysicsCompilationDoesNotDependOnRenderCompiler
 	EXPECT_FALSE(Body->IsCompiling());
 	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	EXPECT_TRUE(Body->GetResidentComplexGeometry());
-	EXPECT_EQ(GetPhysicsMeshCompilationManagerDiagnostics().ReservedBytes, 0u);
+	EXPECT_EQ(GetPhysicsMeshCompilationManagerDiagnostics().EstimatedWorkingSetBytes, 0u);
 	MarkObjectHierarchyAsGarbage(Body);
 }
 
@@ -3579,6 +3584,7 @@ TEST(FPhysicsMeshLifecycleTests, WaitingDDCFreesCpuSlotsAndPhysicsWaitResumesRen
 	auto Cache = std::make_shared<FHeldCache>();
 	FThreadEvent CallbackEntered, ReleaseCallback, CpuMailbox;
 	std::atomic<bool> Resumed = false;
+	std::atomic<uint32> CallbackCount = 0;
 	struct FProvider final : IInterface_CollisionDataProvider
 	{
 		FThreadEvent& Mailbox;
@@ -3620,7 +3626,10 @@ TEST(FPhysicsMeshLifecycleTests, WaitingDDCFreesCpuSlotsAndPhysicsWaitResumesRen
 		}
 	} Drain{Cache, ReleaseCallback, CpuMailbox};
 	AssetPrivate::SetStaticMeshAsyncCacheForTests(Cache);
-	AssetPrivate::SetStaticMeshBuildCompletionHookForTests([&] { CallbackEntered.Trigger(); ReleaseCallback.WaitFor(10.0); });
+	AssetPrivate::SetStaticMeshBuildCompletionHookForTests([&] {
+		if (++CallbackCount == 2) CallbackEntered.Trigger();
+		ReleaseCallback.WaitFor(10.0);
+	});
 	AssetPrivate::SetStaticMeshCompilationPhaseHookForTests([&](uint64, EStaticMeshCompilationPhase Phase) {
 		if (Phase == EStaticMeshCompilationPhase::Mailbox) CpuMailbox.Trigger();
 	});
@@ -3640,7 +3649,8 @@ TEST(FPhysicsMeshLifecycleTests, WaitingDDCFreesCpuSlotsAndPhysicsWaitResumesRen
 	const auto Held = GetStaticMeshCompilationManagerDiagnostics();
 	EXPECT_EQ(Held.AdmittedBuildCount, 0u);
 	EXPECT_EQ(Held.OutstandingRecords, 2u);
-	ASSERT_GT(Held.ReservedBytes, 0u);
+	ASSERT_GT(Held.EstimatedWorkingSetBytes, 0u);
+	EXPECT_EQ(AssetPrivate::GetAssetBuildScheduler()->GetScheduledMemory(), 0u);
 	auto* Body = NewObject<DBodySetup>(nullptr, FName("PhysicsWhileRenderWaitsForDdc"));
 	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	FThreadEvent PhysicsFinished;
@@ -3649,32 +3659,265 @@ TEST(FPhysicsMeshLifecycleTests, WaitingDDCFreesCpuSlotsAndPhysicsWaitResumesRen
 	PhysicsFinished.Trigger();
 	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Failed);
 	EXPECT_FALSE(CallbackEntered.WaitFor(0.01));
-	EXPECT_EQ(GetStaticMeshCompilationManagerDiagnostics().ReservedBytes, Held.ReservedBytes);
+	EXPECT_EQ(GetStaticMeshCompilationManagerDiagnostics().EstimatedWorkingSetBytes, Held.EstimatedWorkingSetBytes);
 	Cache->Release.Trigger();
 	ASSERT_TRUE(CallbackEntered.WaitFor(5.0));
 	Meshes[0]->CancelCompilation();
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_TRUE(Meshes[0]->IsCompiling());
 	EXPECT_FALSE(CpuMailbox.WaitFor(0.01));
-	EXPECT_EQ(GetStaticMeshCompilationManagerDiagnostics().ReservedBytes, Held.ReservedBytes);
+	EXPECT_EQ(GetStaticMeshCompilationManagerDiagnostics().EstimatedWorkingSetBytes, Held.EstimatedWorkingSetBytes);
 	ReleaseCallback.Trigger();
 	Provider.WaitForResume = true;
 	Body->CreatePhysicsMeshes(Provider, false);
 	EXPECT_TRUE(Resumed.load());
 	EXPECT_EQ(Meshes[1]->GetRenderData(), nullptr);
 	EXPECT_TRUE(Meshes[1]->IsCompiling());
-	EXPECT_EQ(GetStaticMeshCompilationManagerDiagnostics().ReservedBytes, Held.ReservedBytes);
+	EXPECT_EQ(GetStaticMeshCompilationManagerDiagnostics().EstimatedWorkingSetBytes, Held.EstimatedWorkingSetBytes);
 	Meshes[0]->FinishCompilation();
 	EXPECT_EQ(Meshes[0]->GetCompilationDiagnostic().Status, EStaticMeshCompilationStatus::Cancelled);
 	Meshes[1]->FinishCompilation();
 	EXPECT_EQ(Meshes[1]->GetCompilationDiagnostic().Status, EStaticMeshCompilationStatus::Succeeded);
 	EXPECT_NE(Meshes[1]->GetRenderData(), nullptr);
-	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes, 0u);
+	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes, 0u);
 	for (auto* Mesh : Meshes) MarkObjectHierarchyAsGarbage(Mesh);
 	MarkObjectHierarchyAsGarbage(Body);
 }
 
-TEST(FPhysicsMeshLifecycleTests, NotificationExceptionReleasesReservationAfterProductRetirement)
+TEST(FAssetBuildSchedulerTests, MemoryPressureQueuesAndOversizedWorkRunsAlone)
+{
+	using namespace Durin::AssetPrivate;
+	FAssetBuildScheduler Scheduler(2, 100);
+	std::vector<std::shared_ptr<FAssetBuildExecutionSlot>> Running;
+	uint32 Launched = 0;
+	const auto Launch = [&](auto Slot) { ++Launched; Running.push_back(std::move(Slot)); return true; };
+	Scheduler.Enqueue(false, 60, Launch);
+	Scheduler.Enqueue(false, 60, Launch);
+	EXPECT_EQ(Launched, 1u); // A CPU slot is free, but the memory estimate does not fit.
+	EXPECT_EQ(Scheduler.GetScheduledMemory(), 60u);
+	Running.clear();
+	Scheduler.Pump();
+	EXPECT_EQ(Launched, 2u);
+	Scheduler.Enqueue(false, 150, Launch);
+	EXPECT_EQ(Launched, 2u);
+	Running.clear();
+	Scheduler.Pump();
+	EXPECT_EQ(Launched, 3u); // Oversized work must not starve at zero concurrency.
+	EXPECT_EQ(Scheduler.GetScheduledMemory(), 150u);
+	Scheduler.Enqueue(false, 0, Launch);
+	EXPECT_EQ(Launched, 3u);
+	Running.clear();
+	Scheduler.Pump();
+	EXPECT_EQ(Launched, 4u);
+	Running.clear();
+	EXPECT_EQ(Scheduler.GetScheduledMemory(), 0u);
+}
+
+TEST(FAssetBuildSchedulerTests, NestedDependencyRetainsRetirementButReleasesExecutionMemory)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	FAssetBuildScheduler Scheduler(2, 100);
+	Tasks::FTaskEvent Dependency("AssetBudget.DdcRetirement", false);
+	FThreadEvent BodyExited;
+	FTaskHandle Task;
+	struct FRelease
+	{
+		Tasks::FTaskEvent& Event;
+		FTaskHandle& Task;
+		bool Triggered = false;
+		auto Trigger() -> void { if (!std::exchange(Triggered, true)) Event.Trigger(); }
+		~FRelease() { Trigger(); if (Task.IsValid()) (void)WaitTask(Task); }
+	} Release{Dependency, Task};
+	Scheduler.Enqueue(false, 100, [&](auto Slot) {
+		Task = Tasks::LaunchTask("AssetBudget.Dispatch", [Slot = std::move(Slot), &Dependency, &BodyExited] {
+			Tasks::AddNested(Dependency);
+			BodyExited.Trigger();
+		});
+		return true;
+	});
+	ASSERT_TRUE(BodyExited.WaitFor(5.0));
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (Scheduler.GetScheduledMemory() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+	EXPECT_EQ(Scheduler.GetScheduledMemory(), 0u);
+	EXPECT_FALSE(Task.IsComplete());
+	std::shared_ptr<FAssetBuildExecutionSlot> BlockingCpu;
+	Scheduler.Enqueue(false, 100, [&](auto Slot) { BlockingCpu = std::move(Slot); return true; });
+	uint32 Resumed = 0;
+	Scheduler.Enqueue(false, 100, [&](auto) { ++Resumed; return false; }, Task);
+	Scheduler.Pump();
+	EXPECT_EQ(Resumed, 0u);
+	Release.Trigger();
+	ASSERT_EQ(WaitTask(Task).WaitStatus, ETaskWaitStatus::Completed);
+	Scheduler.Pump();
+	EXPECT_EQ(Resumed, 0u); // Retirement is ready, but CPU consumption must reacquire memory.
+	BlockingCpu.reset();
+	Scheduler.Pump();
+	EXPECT_EQ(Resumed, 1u);
+	EXPECT_EQ(Scheduler.GetScheduledMemory(), 0u);
+}
+
+TEST(FAssetBuildSchedulerTests, NativeCancellationBeforeEntryReleasesMemoryWithoutExecutorProgress)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	FAssetBuildScheduler Scheduler(2, 100);
+	Tasks::FTaskEvent Prerequisite("AssetBudget.BlockedEntry", false);
+	struct FRelease { Tasks::FTaskEvent& Event; ~FRelease() { Event.Trigger(); } } Release{Prerequisite};
+	FTaskHandle Task;
+	bool Entered = false;
+	Scheduler.Enqueue(false, 100, [&](auto Slot) {
+		Task = Tasks::LaunchTask("AssetBudget.Canceled", [Slot = std::move(Slot), &Entered] { Entered = true; }, Prerequisite);
+		return true;
+	});
+	EXPECT_EQ(Scheduler.GetScheduledMemory(), 100u);
+	ASSERT_TRUE(CancelTask(Task));
+	EXPECT_EQ(WaitTask(Task).TaskState, ETaskState::Canceled);
+	EXPECT_FALSE(Entered);
+	EXPECT_EQ(Scheduler.GetScheduledMemory(), 0u);
+	uint32 Launched = 0;
+	Scheduler.Enqueue(false, 100, [&](auto) { ++Launched; return false; });
+	EXPECT_EQ(Launched, 1u);
+	EXPECT_EQ(Scheduler.GetScheduledMemory(), 0u);
+}
+
+TEST(FPhysicsMeshLifecycleTests, QueuedAbortWithdrawsInputWithoutStartingCook)
+{
+	using namespace Durin;
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	struct FProvider final : IInterface_CollisionDataProvider
+	{
+		mutable std::atomic<uint32> Executions = 0;
+		struct FInput final : FPhysicsMeshInputTask
+		{
+			std::atomic<uint32>& Executions;
+			explicit FInput(std::atomic<uint32>& Executions) : Executions(Executions) {}
+			auto GetWorkingSetBytes() const -> uint64 override { return 1024 * 1024; }
+			auto Execute(const FAssetBuildTaskContext&) const -> std::expected<FTriMeshCollisionData, std::string> override
+			{ ++Executions; return FTriMeshCollisionData{{{0, 0, 0}, {2, 0, 0}, {0, 2, 0}}, {0, 1, 2}}; }
+		};
+		auto ContainsPhysicsTriMeshData() const -> bool override { return true; }
+		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override { return {}; }
+		auto CreatePhysicsMeshInputTask() const -> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, std::string> override
+		{ return std::unique_ptr<FPhysicsMeshInputTask>(std::make_unique<FInput>(Executions)); }
+	} Provider;
+	uint32 Notifications = 0;
+	std::vector<std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot>> Slots;
+	struct FDrain
+	{
+		decltype(Slots)& Held;
+		~FDrain() { Held.clear(); FAssetCompilingManager::Get().FinishAllCompilation(); }
+	} Drain{Slots};
+	const auto Scheduler = AssetPrivate::GetAssetBuildScheduler();
+	for (uint32 Index = 0; Index != 2; ++Index)
+		Scheduler->Enqueue(false, 1, [&](auto Slot) { Slots.push_back(std::move(Slot)); return true; });
+	ASSERT_EQ(Slots.size(), 2u);
+	auto* Body = NewObject<DBodySetup>(nullptr, FName("QueuedPhysicsAbort"));
+	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+	Body->CreatePhysicsMeshesAsync(Provider, false, [&](const auto& Result) {
+		++Notifications;
+		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Cancelled);
+		EXPECT_FALSE(Result.Error);
+	});
+	Body->AbortPhysicsMeshAsyncCreation();
+	Body->FinishPhysicsMeshes();
+	EXPECT_EQ(Notifications, 1u);
+	Slots.clear();
+	Scheduler->Pump();
+	EXPECT_EQ(Provider.Executions.load(), 0u);
+	EXPECT_FALSE(Body->IsCompiling());
+	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Unavailable);
+	MarkObjectHierarchyAsGarbage(Body);
+}
+
+TEST(FPhysicsMeshLifecycleTests, ShutdownWaitsForStartedCookAndDiscardsItsResult)
+{
+	using namespace Durin;
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	struct FProvider final : IInterface_CollisionDataProvider
+	{
+		auto ContainsPhysicsTriMeshData() const -> bool override { return true; }
+		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override
+		{ return FTriMeshCollisionData{{{0, 0, 0}, {2, 0, 0}, {0, 2, 0}}, {0, 1, 2}}; }
+	} Provider;
+	uint32 Notifications = 0;
+	FStaticMeshWorkerBarrier Barrier;
+	auto* Body = NewObject<DBodySetup>(nullptr, FName("RunningPhysicsShutdown"));
+	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+	Body->CreatePhysicsMeshesAsync(Provider, false, [&](const auto& Result) {
+		++Notifications;
+		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Superseded);
+		EXPECT_FALSE(Result.Error);
+	});
+	ASSERT_TRUE(Barrier.Wait(1));
+	const auto Manager = AssetPrivate::CreatePhysicsMeshCompilingManager();
+	std::jthread ReleaseWorker([&] { Barrier.Release(); });
+	Manager->Shutdown();
+	EXPECT_EQ(Notifications, 1u);
+	EXPECT_EQ(Manager->GetNumRemainingAssets(), 0u);
+	EXPECT_FALSE(Body->GetResidentComplexGeometry());
+	EXPECT_TRUE(Manager->Start());
+	MarkObjectHierarchyAsGarbage(Body);
+}
+
+TEST(FPhysicsMeshLifecycleTests, DdcWaitReleasesMemoryAndAbortLetsCookRetireBeforeNotification)
+{
+	using namespace Durin;
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	class FHeldCache final : public DerivedData::ICache
+	{
+	public:
+		mutable FThreadEvent Entered, Release;
+		mutable std::atomic<uint32> Writes = 0;
+		auto Get(const DerivedData::FCacheGetRequest&) const -> DerivedData::FCacheGetResult override
+		{ Entered.Trigger(); Release.WaitFor(10.0); return std::optional<DerivedData::FCacheRecord>{}; }
+		auto Put(const DerivedData::FCachePutRequest&) const -> DerivedData::FCachePutResult override { ++Writes; return {}; }
+	};
+	auto Cache = std::make_shared<FHeldCache>();
+	struct FDrain
+	{
+		std::shared_ptr<FHeldCache> Cache;
+		~FDrain() { Cache->Release.Trigger(); FAssetCompilingManager::Get().FinishAllCompilation(); PhysicsPrivate::SetAsyncCacheForTests({}); }
+	};
+	PhysicsPrivate::SetAsyncCacheForTests(Cache);
+	struct FProvider final : IInterface_CollisionDataProvider
+	{
+		auto ContainsPhysicsTriMeshData() const -> bool override { return true; }
+		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override
+		{ return FTriMeshCollisionData{{{0, 0, 0}, {2, 0, 0}, {0, 2, 0}}, {0, 1, 2}}; }
+	} Provider;
+	auto* Body = NewObject<DBodySetup>(nullptr, FName("PhysicsDdcMemoryRetirement"));
+	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+	uint32 Notifications = 0;
+	FDrain Drain{Cache};
+	Body->CreatePhysicsMeshesAsync(Provider, true, [&](const auto& Result) {
+		++Notifications;
+		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Superseded);
+		EXPECT_FALSE(Result.Error);
+		EXPECT_FALSE(Body->IsCompiling());
+		Body->FinishPhysicsMeshes();
+		EXPECT_EQ(Notifications, 1u);
+	});
+	ASSERT_TRUE(Cache->Entered.WaitFor(5.0));
+	const auto Scheduler = AssetPrivate::GetAssetBuildScheduler();
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (Scheduler->GetScheduledMemory() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+	EXPECT_EQ(Scheduler->GetScheduledMemory(), 0u);
+	EXPECT_EQ(GetPhysicsMeshCompilationManagerDiagnostics().AdmittedBuildCount, 0u);
+	Body->AbortPhysicsMeshAsyncCreation();
+	FAssetCompilingManager::Get().ProcessAsyncTasks();
+	EXPECT_TRUE(Body->IsCompiling());
+	EXPECT_EQ(Notifications, 0u);
+	Cache->Release.Trigger();
+	Body->FinishPhysicsMeshes();
+	EXPECT_EQ(Notifications, 1u);
+	EXPECT_GT(Cache->Writes.load(), 0u); // Abort did not cancel the running DDC cook.
+	EXPECT_FALSE(Body->GetResidentComplexGeometry());
+	EXPECT_EQ(Scheduler->GetScheduledMemory(), 0u);
+	MarkObjectHierarchyAsGarbage(Body);
+}
+
+TEST(FPhysicsMeshLifecycleTests, NotificationExceptionPreservesInstalledProductAndRetiresRecord)
 {
 	using namespace Durin;
 	FAssetCompilingManager::Get().FinishAllCompilation();
@@ -3694,22 +3937,22 @@ TEST(FPhysicsMeshLifecycleTests, NotificationExceptionReleasesReservationAfterPr
 		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Succeeded);
 		EXPECT_TRUE(Body->GetResidentComplexGeometry());
 		const auto During = GetPhysicsMeshCompilationManagerDiagnostics();
-		EXPECT_EQ(During.OutstandingRecords, 1u);
-		EXPECT_GT(During.ReservedBytes, 0u);
+		EXPECT_EQ(During.OutstandingRecords, 0u);
+		EXPECT_EQ(During.EstimatedWorkingSetBytes, 0u);
 		Body->FinishPhysicsMeshes();
-		EXPECT_EQ(GetPhysicsMeshCompilationManagerDiagnostics().ReservedBytes, During.ReservedBytes);
+		EXPECT_EQ(GetPhysicsMeshCompilationManagerDiagnostics().EstimatedWorkingSetBytes, During.EstimatedWorkingSetBytes);
 		throw std::runtime_error("Injected physics notification failure.");
 	});
 	EXPECT_THROW(Body->FinishPhysicsMeshes(), std::runtime_error);
 	EXPECT_EQ(Notifications, 1u);
 	EXPECT_FALSE(Body->IsCompiling());
 	EXPECT_EQ(GetPhysicsMeshCompilationManagerDiagnostics().OutstandingRecords, 0u);
-	EXPECT_EQ(GetPhysicsMeshCompilationManagerDiagnostics().ReservedBytes, 0u);
-	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes, 0u);
+	EXPECT_EQ(GetPhysicsMeshCompilationManagerDiagnostics().EstimatedWorkingSetBytes, 0u);
+	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().EstimatedWorkingSetBytes, 0u);
 	EXPECT_TRUE(Body->GetResidentComplexGeometry());
 	Body->CreatePhysicsMeshes(Provider, false);
 	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Ready);
-	EXPECT_EQ(GetPhysicsMeshCompilationManagerDiagnostics().ReservedBytes, 0u);
+	EXPECT_EQ(GetPhysicsMeshCompilationManagerDiagnostics().EstimatedWorkingSetBytes, 0u);
 	MarkObjectHierarchyAsGarbage(Body);
 }
 

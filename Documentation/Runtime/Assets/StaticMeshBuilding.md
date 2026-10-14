@@ -300,7 +300,8 @@ aggregate `OnAssetPostCompile` success notification. Detailed request identity,
 terminal status and bounded failure text remain in the diagnostic history.
 These object completion interfaces cover rendering only. BodySetup independently
 queries `IsCompiling`, finishes through `FinishPhysicsMeshes`, or cancels with
-`AbortPhysicsMeshAsyncCreation`. Whole-source mutation retains the render/physics
+`AbortPhysicsMeshAsyncCreation`, which withdraws unstarted cooks and invalidates
+publication while started cooks finish normally. Whole-source mutation retains the render/physics
 retirement barrier through `BlockOnAnyAsyncBuild`; saving explicitly finishes both.
 Mutation guards belong to the mesh and current BodySetup objects, independently
 of compiler/budget lifetime. Physics admission also observes an owning mesh's guard,
@@ -324,9 +325,13 @@ markers. `FAssetBuildTaskContext::Cancellation` is a Core
 caller, scheduler and request-owner cancellation into that same flag. DDC request
 options, build contexts, CPU assembly and import sessions preserve the token. A
 cancelled synchronous call returns empty inputs/products with no error; its caller
-checks the token first. Compiler workers retain errors only for actual failure. All terminals wait for CPU and nested DDC
-callback retirement. Finalization removes the queue record before observer code,
-while retaining its working-set charge until that observer returns. A single work
+checks the token first. Compiler workers retain errors only for actual failure.
+All terminals require producer task completion and DDC request-owner `Poll()`;
+explicit finish uses `Wait()` after the producer has stopped submitting work.
+Finalization removes the queue record before observer code,
+then moves the retired outcome and any remaining DDC completion into GameThread
+locals. Publication explicitly receives that local outcome, and ordinary destruction
+releases unconsumed products on normal or exceptional scope exit. A single work
 phase (`Queued`, `Running`, `AwaitingDerivedData`, `Complete`) replaces separate
 started, dispatch, completion-ready and CPU-done flags. Queued cancellation
 releases inputs without acquiring or decrementing an admission slot. Detailed source/payload validation
@@ -336,6 +341,10 @@ owned text and does not store another last-error channel on the object.
 `StaticMeshBuildPrivate.h` groups DDC registration, session dispatch/consumption
 and render preparation. Compilation declarations do not include the detached build
 and payload/resource implementation interface.
+`IMeshBuilderModule.h` forward-declares its borrowed build parameters and render
+output; callers include their definitions where needed. Render and physics
+admission share `MaximumAssetBuildRequestBytes` (512 MiB), and failure text uses
+`MaximumAssetBuildDiagnosticBytes` (4096 bytes) from `AssetBuildTaskContext.h`.
 
 These observations do not change cache fallback or publication. A valid warm DDC object can load from persisted identity while source
 and Assimp are unavailable.

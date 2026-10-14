@@ -18,9 +18,11 @@ Aggregate `Start` returns void and is idempotent while running. It requires the
 GameThread once thread identity is established and cannot run after terminal
 shutdown. Those violations are process contracts; individual compiler `Start`
 operations return `FAssetCompilerStartResult`, deriving success from an error
-code. Scheduler unavailability, undrained requests, missing state and task-scope
-creation failures are distinct; undrained results retain pending-request count.
-Registration retains this result as its nested startup cause. No string-output
+code. Scheduler unavailability, undrained requests and missing state are distinct;
+undrained results retain pending-request count.
+Registration retains the error code and pending-request count in its structured
+`StartCause`; initialization preserves that cause without formatting it into text.
+Only diagnostic presentation calls the error formatter. No string-output
 Start overload remains. `RegisterCompiler` returns a typed result containing the
 move-only registration handle and an error code; invalid inputs, wrong thread,
 stopped admission, duplicate name/class and startup rejection remain distinct.
@@ -185,8 +187,8 @@ a mailbox result. Application transfers that same candidate allocation to the te
 All work results travel through the mailbox; dispatch tasks return no product.
 The GameThread also reaps skipped or failed dispatch bodies into that mailbox
 after task completion. Posting a result alone does not permit delivery. The
-dispatch nests the asset operation's `FTaskEvent`, which includes callback and
-native dispatch capture retirement; see [Derived Data Build](DerivedDataBuild.md#ownership).
+producer task must complete and its DDC owner's `Poll()` must confirm callback
+and native dispatch capture retirement; see [Derived Data Build](DerivedDataBuild.md#ownership).
 Dispatch
 failure or cancellation before its body starts also reaches terminal delivery.
 The GameThread pump applies results and invokes observers without another deferred
@@ -194,8 +196,8 @@ task. Diagnostics retain no task handles, build owners or input/result payloads
 after delivery. Synchronous detached/import/Cook adapters retain inline sessions.
 
 Retirement has two boundaries. Compute slots and estimated working bytes are
-released only after dispatch completion, including nested DDC callbacks and native
-capture retirement. Pending-request capacity remains charged through the
+released only after producer completion and DDC owner `Poll()` confirms callback
+and native capture retirement. Pending-request capacity remains charged through the
 GameThread observer callback; its return retires the request's retained inputs,
 mailbox product, task handle and build owner. Cancellation requests neither imply
 quiescence nor bypass these boundaries. Mutation waits for the selected request
@@ -366,12 +368,11 @@ render publication. Aggregate shutdown stops admission and retires both families
 local render-manager shutdown leaves the physics service available.
 
 Render owners dispatch a persistent asynchronous DDC session and release their
-Core worker during cache reads and persistence. Each record owns an asset operation
-that forwards priority and cancellation to its DDC owner and bridges retirement
-into a nested `FTaskEvent`. DDC callbacks publish only
+Core worker during cache reads and persistence. Each record owns a plain DDC
+`FRequestOwner` for priority, cancellation and retirement. DDC callbacks publish only
 detached completion data. Dispatch releases its asset execution slot when its CPU
-function returns, even while its nested DDC operation remains pending. A prerequisite
-in the asset scheduler waits for dispatch/callback retirement, then readmits output
+function returns, even while its DDC requests remain pending. The asset scheduler
+requires both producer task completion and owner `Poll()` before readmitting output
 assembly, metadata restoration and ray-query preparation on a Core worker. Any typed
 compiler pump or explicit finish can advance this scheduler without applying unrelated
 assets. No render worker waits for
@@ -410,15 +411,17 @@ render publication; canceled, stale and failed work emit no success event.
 
 Cancellation requests suppress publication immediately but do not finalize a running
 record. Every terminal, including cancellation and supersession, waits for the CPU
-task and nested DDC callback retirement. The owner removes the record from its queue
+task completion and DDC owner retirement. The owner removes the record from its queue
 before application/notification, preventing recursive finish or pump from delivering
-it again. A scope guard retains its count/byte charge and output through the physics
-observer and releases them even if the observer throws. There is no delivered record
+it again. After retirement, GameThread-local outcomes and any remaining DDC completion
+take ownership from the worker before publication or notification. Ordinary local
+destruction releases those outputs even if publication or an observer throws. There is no delivered record
 waiting for a second cleanup pass. Pending diagnostic snapshots are not terminal;
 terminal history is recorded only at this retirement boundary.
 
 Render work has one private phase: Queued, Running, AwaitingDerivedData, or Complete.
-The nested task completion event publishes and retires its DDC mailbox; no separate
+Producer task completion closes submission; owner `Poll()` joins the DDC mailbox's
+callbacks and registered native tasks. No separate completion event,
 completion-ready or asynchronous-dispatch boolean is needed. CPU assembly changes
 back to Running before scheduling, so a canceled/rejected continuation cannot be
 mistaken for another DDC dispatch. The shared Core cancellation token controls terminal classification. Native task
@@ -437,7 +440,7 @@ and supersedes the earlier request. Publication checks the BodySetup object key,
 settings revision and request generation,
 then asks BodySetup to apply or reject the result. `FAssetBuildTaskContext` carries
 shared cancellation, borrowed worker-local checkpoint metrics and the working-set
-reservation. Cancellation does not imply task or DDC callback retirement.
+bound. Cancellation does not imply task or DDC callback retirement.
 Module sessions guard only render work. Collision admission, cooking and
 installation do not acquire the render build module; its absence or unloading
 cannot invalidate a physics request. Manager code never writes mesh
@@ -448,26 +451,46 @@ bodies immediately; accepted collision installation refreshes them again.
 Authored primitives survive render replacement. Installing/clearing geometry does
 not recursively schedule a request or invalidate render work.
 
-Both managers use the asset-layer execution scheduler, with two admitted CPU stages
-and one priority queue. The separate mesh budget permits 32 outstanding records, 1 GiB total reservation
-and 512 MiB per request. Render admission uses checked arithmetic for
-`1 MiB + 64 * canonical bytes + 1024 * mesh count + 32768 * slot count`.
-Authored collision reserves `1 MiB + 64 * canonical bytes + 1024 * mesh count`
-without decoding on the owner thread. Source-less resident captures reserve
+Both managers use one asset-layer execution scheduler and priority queue. It
+admits at most two CPU stages and uses a default 1 GiB estimated execution-memory
+budget. Requests queue when another executing stage leaves insufficient budget;
+they do not fail admission due to temporary memory pressure. With no executing
+stage, one oversized estimate may run alone to prevent starvation. The constructor
+accepts concurrency and memory-policy limits. This is a scheduling heuristic, not
+a hard allocator limit or a cap on retained sources, DDC outputs or notifications.
+There is no separate mesh reservation, record quota or per-manager accounting ledger.
+
+Each request still has a checked 512 MiB construction envelope. Render estimates
+use `1 MiB + 64 * canonical bytes + 1024 * mesh count + 32768 * slot count`.
+Authored collision estimates use `1 MiB + 64 * canonical bytes + 1024 * mesh count`
+without decoding on the owner thread. Source-less resident captures estimate
 `1 MiB + 512 * positions + 192 * indices`. Provider captures declare the complete
-working-set bound, and builders enforce construction envelopes. Canceled
-records keep their count and byte charges until their build callbacks, CPU tasks
-and retained products retire. Render dispatch releases execution capacity during cache I/O;
-Each manager's diagnostic counters describe its own records; their sums describe
-the shared quota. CPU consumption reacquires execution capacity only after DDC
-callback retirement; cancellation cleanup requires retirement but no CPU slot.
-Physics finish advances only the generic asset scheduler, with no render-manager
-progress callback and no application of unrelated render results. Execution slots
-release on worker function exit or native task retirement before entry, exactly once.
-One RAII reservation maintains both shared and
-per-manager record/byte counters. It moves from the record into finalization and
-releases only after request output cleanup and notification return, including
-exceptional exits; retained queue snapshots do not extend the charge.
+working-set bound, and builders enforce construction envelopes. Typed diagnostic
+`EstimatedWorkingSetBytes` values sum pending request estimates; they are not
+budget charges and exclude records already removed for notification. The asset
+scheduler's scheduled-memory observation counts only leased execution capacity.
+
+Render and physics dispatch release execution capacity and its memory estimate
+while waiting for DDC. CPU consumption reacquires both resources only when
+producer task completion and DDC owner `Poll()` confirm callback/native-task retirement. Cancellation cleanup requires
+retirement but no execution capacity. Physics finish advances only the generic
+asset scheduler, with no render-manager progress callback and no application of
+unrelated render results. Execution slots are owned only by callable captures.
+Core destroys the callable after body exit or queued cancellation, before terminal
+publication; the slot destructor releases both resources exactly once. The asset
+scheduler retains no running-task table or explicit release flag. Owners retain
+task handles for DDC prerequisites and terminal retirement. Records retain detached
+input and products independently of scheduling estimates. Finalization removes the
+record before notifying owner code and transfers its outputs to local ownership
+through notification return, including exceptional exits; recursive finish cannot notify twice.
+Explicit mesh/physics finish uses owner `Wait()` only after the producer finishes,
+when no further submission can race that wait. Shared private helpers observe
+native task cancellation and join request owners; typed workers retain compensation,
+result classification and publication. Mesh publication explicitly receives the
+local outcome instead of reading the worker mailbox. No output cleanup guard remains.
+There is no asset-specific DDC event bridge or additional build framework.
+Retired DDC requests that need no CPU consumption use the same owner cleanup path
+whether reached from continuation admission or an explicit owner pump.
 Collision-only work never changes render resource revision.
 
 Background and interactive queues are FIFO with at most four interactive dispatches
@@ -503,7 +526,11 @@ Physics results use bounded diagnostic strings and physics completion status,
 with no intermediate StaticMesh diagnostic or status conversion. Input/admission
 failures notify inline; accepted work notifies after retirement. The physics record
 stores cancellation in its token and forms terminal status locally during finalization.
-The shared budget owns no products, snapshots or completion callbacks.
+Physics owner cancellation withdraws only unstarted cooks. Started cooks continue
+through DDC and CPU consumption; owner generations suppress stale publication,
+which reports Superseded. Owner abort does not cancel a running DDC request.
+Selected finish and shutdown retain the native-task and callback retirement barrier.
+The asset scheduler owns no products, snapshots or completion callbacks.
 StaticMesh diagnostic `Status` is absent until terminal delivery; pending work
 does not report failure. `Error` retains bounded owned text only for a failed
 terminal, without a cancellation bit or completion wrapper. Successful, cancelled
