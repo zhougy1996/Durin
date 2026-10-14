@@ -272,9 +272,13 @@ permits render preparation/recording joins without relaxing general wait policy.
 Cancellation and exceptions still publish the normal terminal state, and result
 access still requires success. Waits do not pump GameThread callbacks.
 Executing tasks help only the waited task and its transitive execution, nested,
-and dynamic dependencies. Queue removal claims a specific task under the queue
-lock, competing safely with normal worker dispatch; it never runs unrelated
-queue entries. Graph traversal is iterative rather than recursive. Kernel Worker
+and dynamic dependencies. Tasks retain a weak handle to their stable queue node. Retraction
+pins that node and detaches it in constant time under the owning pool's lock;
+there is no ID lookup or queue scan. The priority lanes use owning forward links
+and non-owning backward links, with iterative teardown. Normal dispatch and
+retraction share the same removal path; stale and wrong-pool handles fail. Handles
+do not retain callable captures, and callable/discard storage is released outside
+the queue lock. Retraction never runs unrelated queue entries. Graph traversal is iterative rather than recursive. Kernel Worker
 helping runs CPU work; I/O helping stays within the blocking-I/O authority,
 including a single-thread I/O parent waiting for its child. External callers
 retain blocking-only behavior and executor-affinity restrictions remain in force.

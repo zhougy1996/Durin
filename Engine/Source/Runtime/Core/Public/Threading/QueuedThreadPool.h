@@ -16,6 +16,16 @@ namespace Durin
 	using FQueuedWorkFunction = TMoveOnlyFunction<void()>;
 	using FQueuedWorkDiscardFunction = TMoveOnlyFunction<void()>;
 
+	namespace Private { struct FQueuedWorkNode; }
+
+	// Weak observation of one stable queue node; never retains its callable.
+	class FQueuedWorkHandle
+	{
+	private:
+		friend class FQueuedThreadPool;
+		std::weak_ptr<Private::FQueuedWorkNode> Node;
+	};
+
 	// Owns a fixed worker set and drains named work items from a shared queue.
 	class FQueuedThreadPool
 	{
@@ -37,11 +47,11 @@ namespace Durin
 			FQueuedWorkFunction&& Work,
 			FQueuedWorkDiscardFunction&& Discard = {},
 			EQueuedWorkPriority Priority = EQueuedWorkPriority::Normal,
-			uint64 WorkId = 0
+			FQueuedWorkHandle* OutHandle = nullptr
 		) -> bool;
 		CORE_API auto TryExecuteOneQueuedTask() -> bool;
-		// Claims one identified item under the queue lock; zero is not retractable.
-		CORE_API auto TryExecuteQueuedTask(uint64 WorkId) -> bool;
+		// Claims the node in constant time under the queue lock. Stale/wrong-pool handles fail.
+		CORE_API auto TryExecuteQueuedTask(const FQueuedWorkHandle& Handle) -> bool;
 
 		// Returns false instead of deadlocking when called by one of this pool's workers.
 		CORE_API auto WaitForIdle() -> bool;

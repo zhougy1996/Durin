@@ -145,11 +145,78 @@ namespace Durin
 			delete Value;
 		});
 		Private::SetQueuedWorkAllocationFailureForTests(true);
-		EXPECT_THROW(Pool.Enqueue("FailedQueueAllocation", [Capture = std::move(Capture)] {}, {}), std::bad_alloc);
+		FQueuedWorkHandle Handle;
+		EXPECT_THROW(Pool.Enqueue("FailedQueueAllocation", [Capture = std::move(Capture)] {}, {},
+			EQueuedWorkPriority::Normal, &Handle), std::bad_alloc);
 		Private::SetQueuedWorkAllocationFailureForTests(false);
 		EXPECT_TRUE(Destroyed);
+		EXPECT_FALSE(Pool.TryExecuteQueuedTask(Handle));
 		EXPECT_EQ(0u, Pool.GetNumQueuedTasks());
 		EXPECT_TRUE(Pool.Enqueue("RetryQueueAllocation", [] {}, {}));
+	}
+
+	TEST(FQueuedThreadPoolTests, DirectRetractionPreservesQueueOrderAndReleasesCapturedOwners)
+	{
+		EnsureGameThreadForTaskTest();
+		FQueuedThreadPool Pool, OtherPool;
+		ASSERT_TRUE(Pool.Create(1)); ASSERT_TRUE(OtherPool.Create(1));
+		FThreadEvent Started, Release;
+		ASSERT_TRUE(Pool.Enqueue("HandleTestBlocker", [&] { Started.Trigger(); Release.WaitFor(2); }));
+		ASSERT_TRUE(Started.WaitFor(1));
+		std::vector<int> Order;
+		std::array<FQueuedWorkHandle, 4> Handles;
+		std::atomic<uint32> Discarded = 0;
+		auto Owner = std::make_shared<int>(3);
+		std::weak_ptr<int> WeakOwner = Owner;
+		for (int Index = 0; Index < 4; ++Index)
+		{
+			EXPECT_TRUE(Pool.Enqueue("DirectQueueNode", [&, Index, Capture = Owner] { Order.push_back(Index); },
+				[&] { ++Discarded; }, EQueuedWorkPriority::Normal, &Handles[Index]));
+		}
+		Owner.reset();
+		EXPECT_FALSE(OtherPool.TryExecuteQueuedTask(Handles[2]));
+		EXPECT_TRUE(Pool.TryExecuteQueuedTask(Handles[1])); // middle
+		EXPECT_TRUE(Pool.TryExecuteQueuedTask(Handles[3])); // tail
+		EXPECT_TRUE(Pool.TryExecuteQueuedTask(Handles[0])); // head
+		EXPECT_FALSE(Pool.TryExecuteQueuedTask(Handles[1]));
+		EXPECT_EQ(Pool.GetNumQueuedTasks(), 1u);
+		Release.Trigger();
+		EXPECT_TRUE(Pool.WaitForIdle());
+		EXPECT_EQ(Order, (std::vector<int>{1, 3, 0, 2}));
+		EXPECT_EQ(Discarded.load(), 0u);
+		EXPECT_TRUE(WeakOwner.expired());
+		for (const auto& Handle : Handles) EXPECT_FALSE(Pool.TryExecuteQueuedTask(Handle));
+		Pool.Destroy(false);
+		ASSERT_TRUE(Pool.Create(1));
+		for (const auto& Handle : Handles) EXPECT_FALSE(Pool.TryExecuteQueuedTask(Handle));
+	}
+
+	TEST(FQueuedThreadPoolTests, ShutdownInvalidatesRetractionHandlesAndDiscardsOutsideQueueLock)
+	{
+		EnsureGameThreadForTaskTest();
+		FQueuedThreadPool Pool;
+		ASSERT_TRUE(Pool.Create(1));
+		FThreadEvent Started, Release, DiscardEntered;
+		ASSERT_TRUE(Pool.Enqueue("ShutdownHandleBlocker", [&] { Started.Trigger(); Release.WaitFor(2); }));
+		ASSERT_TRUE(Started.WaitFor(1));
+		std::atomic<uint32> Runs = 0, Discards = 0, Destructions = 0;
+		auto Owner = std::shared_ptr<int>(new int(5), [&](int* Value) {
+			EXPECT_EQ(Pool.GetNumQueuedTasks(), 0u);
+			++Destructions; delete Value;
+		});
+		std::weak_ptr<int> WeakOwner = Owner;
+		FQueuedWorkHandle Handle;
+		EXPECT_TRUE(Pool.Enqueue("ShutdownQueueNode", [&, Capture = std::move(Owner)] { ++Runs; },
+			[&] { ++Discards; DiscardEntered.Trigger(); }, EQueuedWorkPriority::Normal, &Handle));
+		std::thread Shutdown([&] { Pool.Destroy(false); });
+		EXPECT_TRUE(DiscardEntered.WaitFor(1));
+		EXPECT_FALSE(Pool.TryExecuteQueuedTask(Handle));
+		Release.Trigger(); Shutdown.join();
+		EXPECT_EQ(Runs.load(), 0u);
+		EXPECT_EQ(Discards.load(), 1u);
+		EXPECT_EQ(Destructions.load(), 1u);
+		EXPECT_TRUE(WeakOwner.expired());
+		EXPECT_FALSE(Pool.TryExecuteQueuedTask(Handle));
 	}
 
 	TEST(FThreadEventTests, StartsUnsignaledAndWakesAfterTrigger)

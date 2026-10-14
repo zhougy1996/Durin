@@ -17,35 +17,101 @@ namespace Durin
 			FQueuedWorkDiscardFunction Discard;
 			EQueuedWorkPriority Priority = EQueuedWorkPriority::Normal;
 			uint64 Sequence = 0;
-			uint64 WorkId = 0;
 		};
+	}
 
+	namespace Private
+	{
+		struct FQueuedWorkNode
+		{
+			FQueuedWorkNode(const void* InPool, FQueuedWork&& InWork) : Pool(InPool), Work(std::move(InWork)) {}
+			const void* const Pool;
+			FQueuedWork Work;
+			// Links and membership are protected by the owning pool's mutex.
+			FQueuedWorkNode* Previous = nullptr;
+			std::shared_ptr<FQueuedWorkNode> Next;
+			bool bQueued = false;
+		};
+	}
+
+	namespace
+	{
 		// FIFO within each priority; every eighth dispatch selects the oldest head.
 		// New interactive arrivals cannot indefinitely overtake previously queued work.
 		struct FWorkQueue
 		{
-			std::array<std::deque<FQueuedWork>, 3> Lanes;
+			struct FLane
+			{
+				std::shared_ptr<Private::FQueuedWorkNode> Head;
+				Private::FQueuedWorkNode* Tail = nullptr;
+				size_t Count = 0;
+			};
+			std::array<FLane, 3> Lanes;
 			uint64 NextSequence = 0;
 			uint32 PreferredDispatches = 0;
-			auto empty() const -> bool { return size() == 0; }
-			auto size() const -> size_t { return Lanes[0].size() + Lanes[1].size() + Lanes[2].size(); }
-			auto emplace_back(FQueuedWork&& Work) -> void
+			FWorkQueue() = default;
+			FWorkQueue(const FWorkQueue&) = delete;
+			auto operator=(const FWorkQueue&) -> FWorkQueue& = delete;
+			FWorkQueue(FWorkQueue&& Other) noexcept { Swap(Other); }
+			auto operator=(FWorkQueue&& Other) noexcept -> FWorkQueue&
 			{
-				Work.Sequence = NextSequence++;
-				Lanes[static_cast<size_t>(Work.Priority)].emplace_back(std::move(Work));
+				require(empty());
+				Swap(Other);
+				return *this;
+			}
+			~FWorkQueue()
+			{
+				// Detach iteratively so a long owning chain cannot overflow the stack.
+				while (!empty()) { auto Work = Take(); }
+			}
+			auto Swap(FWorkQueue& Other) noexcept -> void
+			{
+				Lanes.swap(Other.Lanes);
+				std::swap(NextSequence, Other.NextSequence);
+				std::swap(PreferredDispatches, Other.PreferredDispatches);
+			}
+			auto empty() const -> bool { return size() == 0; }
+			auto size() const -> size_t { return Lanes[0].Count + Lanes[1].Count + Lanes[2].Count; }
+			auto emplace_back(const std::shared_ptr<Private::FQueuedWorkNode>& Node) -> void
+			{
+				auto& Lane = Lanes[static_cast<size_t>(Node->Work.Priority)];
+				Node->Previous = Lane.Tail;
+				if (Lane.Tail) Lane.Tail->Next = Node;
+				else Lane.Head = Node;
+				Lane.Tail = Node.get();
+				++Lane.Count;
+				Node->bQueued = true;
+				Node->Work.Sequence = NextSequence++;
+			}
+			auto Remove(const std::shared_ptr<Private::FQueuedWorkNode>& Node, FQueuedWork& OutWork) -> bool
+			{
+				if (!Node->bQueued) return false;
+				OutWork = std::move(Node->Work);
+				auto& Lane = Lanes[static_cast<size_t>(OutWork.Priority)];
+				auto Next = std::move(Node->Next);
+				if (Node->Previous) Node->Previous->Next = Next;
+				else Lane.Head = Next;
+				if (Next) Next->Previous = Node->Previous;
+				else Lane.Tail = Node->Previous;
+				Node->Previous = nullptr;
+				Node->bQueued = false;
+				--Lane.Count;
+				return true;
 			}
 			auto Take() -> FQueuedWork
 			{
 				size_t Selected = 3;
 				for (size_t Index = 0; Index < 3; ++Index)
 				{
-					if (Lanes[Index].empty()) continue;
-					if (Selected == 3 || (PreferredDispatches == 7 && Lanes[Index].front().Sequence < Lanes[Selected].front().Sequence)) Selected = Index;
+					if (!Lanes[Index].Head) continue;
+					if (Selected == 3 || (PreferredDispatches == 7 && Lanes[Index].Head->Work.Sequence < Lanes[Selected].Head->Work.Sequence)) Selected = Index;
 				}
 				require(Selected < 3);
 				PreferredDispatches = (PreferredDispatches + 1) % 8;
-				auto Work = std::move(Lanes[Selected].front());
-				Lanes[Selected].pop_front();
+				auto Node = Lanes[Selected].Head;
+				FQueuedWork Work;
+				const bool bRemoved = Remove(Node, Work);
+				require(bRemoved);
 				return Work;
 			}
 		};
@@ -209,23 +275,26 @@ namespace Durin
 			FQueuedWorkFunction&& Work,
 			FQueuedWorkDiscardFunction&& Discard,
 			EQueuedWorkPriority Priority,
-			uint64 WorkId
+			FQueuedWorkHandle* OutHandle
 		) -> bool
 		{
+			if (OutHandle) *OutHandle = {};
 			if (!Work || static_cast<uint8>(Priority) > static_cast<uint8>(EQueuedWorkPriority::Low))
 			{
 				return false;
 			}
 			// Keep all user storage outside the lock scope until queue insertion succeeds.
 			FQueuedWork Item{TaskName ? TaskName : "QueuedWork",
-				std::make_unique<FQueuedWorkFunction>(std::move(Work)), std::move(Discard), Priority, 0, WorkId};
+				std::make_unique<FQueuedWorkFunction>(std::move(Work)), std::move(Discard), Priority};
+			auto Node = std::make_shared<Private::FQueuedWorkNode>(this, std::move(Item));
 			{
 				std::lock_guard Lock(Mutex);
 				if (!bRunning || !bAcceptingWork || bStopRequested) return false;
 				try
 				{
 					if (GFailQueuedWorkAllocation.exchange(false)) throw std::bad_alloc();
-					Queue.emplace_back(std::move(Item));
+					Queue.emplace_back(Node);
+					if (OutHandle) OutHandle->Node = Node;
 				}
 				catch (...)
 				{
@@ -237,25 +306,16 @@ namespace Durin
 			return true;
 		}
 
-		auto TryExecuteQueuedTask(uint64 WorkId) -> bool
+		auto TryExecuteQueuedTask(const FQueuedWorkHandle& Handle) -> bool
 		{
-			if (WorkId == 0) return false;
+			auto Node = Handle.Node.lock();
+			if (!Node || Node->Pool != this) return false;
 			FQueuedWork Work;
 			{
 				std::lock_guard Lock(Mutex);
 				if (bStopRequested && !bDrainQueuedWorkOnStop) return false;
-				bool bFound = false;
-				for (auto& Lane : Queue.Lanes)
-				{
-					const auto It = std::ranges::find(Lane, WorkId, &FQueuedWork::WorkId);
-					if (It == Lane.end()) continue;
-					Work = std::move(*It);
-					Lane.erase(It);
-					++ActiveTaskCount;
-					bFound = true;
-					break;
-				}
-				if (!bFound) return false;
+				if (!Queue.Remove(Node, Work)) return false;
+				++ActiveTaskCount;
 			}
 			const auto PreviousPool = GCurrentQueuedThreadPool;
 			GCurrentQueuedThreadPool = this;
@@ -489,14 +549,14 @@ namespace Durin
 		FQueuedWorkFunction&& Work,
 		FQueuedWorkDiscardFunction&& Discard,
 		EQueuedWorkPriority Priority,
-		uint64 WorkId
+		FQueuedWorkHandle* OutHandle
 	) -> bool
 	{
-		return Impl->Enqueue(TaskName, std::move(Work), std::move(Discard), Priority, WorkId);
+		return Impl->Enqueue(TaskName, std::move(Work), std::move(Discard), Priority, OutHandle);
 	}
 
-	auto FQueuedThreadPool::TryExecuteQueuedTask(uint64 WorkId) -> bool
-	{ return Impl->TryExecuteQueuedTask(WorkId); }
+	auto FQueuedThreadPool::TryExecuteQueuedTask(const FQueuedWorkHandle& Handle) -> bool
+	{ return Impl->TryExecuteQueuedTask(Handle); }
 
 	auto FQueuedThreadPool::TryExecuteOneQueuedTask() -> bool
 	{

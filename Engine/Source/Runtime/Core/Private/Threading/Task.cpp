@@ -647,6 +647,18 @@ namespace Durin
 			return true;
 		}
 
+		auto BindQueuedWork(FQueuedWorkHandle Handle) -> void
+		{
+			std::lock_guard Lock(Mutex);
+			// Normal dispatch/cancellation can win before Enqueue returns.
+			if (State == ETaskState::Queued) QueuedWork = std::move(Handle);
+		}
+		auto GetQueuedWork() const -> FQueuedWorkHandle
+		{
+			std::lock_guard Lock(Mutex);
+			return State == ETaskState::Queued ? QueuedWork : FQueuedWorkHandle{};
+		}
+
 		auto TryMarkRunning(std::unique_ptr<Private::FMoveOnlyTaskFunction>* OutFunction = nullptr) -> bool
 		{
 			std::lock_guard Lock(Mutex);
@@ -657,6 +669,7 @@ namespace Durin
 			// Execution and cancellation claim the callback under the same lock.
 			if (OutFunction) *OutFunction = std::move(PendingFunction);
 			State = ETaskState::Running;
+			QueuedWork = {};
 			StartTimeNanoseconds = MonotonicNanoseconds();
 			ExecutingThreadName = GetCurrentThreadName();
 			if (FRunnableThread* CurrentThread = GetCurrentThread())
@@ -924,6 +937,7 @@ namespace Durin
 		mutable std::mutex Mutex;
 		std::condition_variable CV;
 		std::unique_ptr<Private::FMoveOnlyTaskFunction> PendingFunction;
+		FQueuedWorkHandle QueuedWork;
 		Private::FTaskCompletionFunction CompletionFunction;
 		bool bHasResultStorage = false;
 		bool bAdmissionPending = true;
@@ -1280,6 +1294,7 @@ namespace Durin
 				}
 
 				auto& ExecutionPool = State->GetTarget() == ETaskTarget::BlockingIO ? BlockingIOPool : Pool;
+				FQueuedWorkHandle QueuedWork;
 				const bool bAccepted = ExecutionPool.Enqueue(
 					State->GetDebugName(),
 					[State, Scheduler = this]() {
@@ -1288,9 +1303,10 @@ namespace Durin
 					[State]() {
 						State->RequestCancellation("Task was discarded during scheduler shutdown.", ETaskTerminalReason::ShutdownCanceled);
 					},
-					static_cast<EQueuedWorkPriority>(State->GetPriority()), State->GetTaskId()
+					static_cast<EQueuedWorkPriority>(State->GetPriority()), &QueuedWork
 				);
 
+				if (bAccepted) State->BindQueuedWork(std::move(QueuedWork));
 				if (!bAccepted)
 				{
 					requiref(!State->QueuesOnSaturation() || IsTerminalState(State->GetState()), "Accepted task dispatch failed.");
@@ -1517,11 +1533,11 @@ namespace Durin
 				if (!Visited.insert(Current.get()).second || IsTerminalState(Current->GetState())) continue;
 				if (Current->GetTarget() == ETaskTarget::AnyWorker)
 				{
-					if (Pool.TryExecuteQueuedTask(Current->GetTaskId())) return true;
+					if (Pool.TryExecuteQueuedTask(Current->GetQueuedWork())) return true;
 				}
 				else if (Current->GetTarget() == ETaskTarget::BlockingIO && GExecutingBlockingIOPool)
 				{
-					if (BlockingIOPool.TryExecuteQueuedTask(Current->GetTaskId())) return true;
+					if (BlockingIOPool.TryExecuteQueuedTask(Current->GetQueuedWork())) return true;
 				}
 				for (auto& Dependency : Current->GetWaitDependencies()) Pending.push_back(std::move(Dependency));
 			}
