@@ -4,7 +4,7 @@ Summary: Evolve Durin's structured cache toward independently stored values, sel
 
 Last reviewed: 2026-10-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-11
 
 ## Current Status
@@ -54,8 +54,8 @@ the all build, with GPU execution omitted. `affected --explain` selects broad
 Engine/GPU targets through shared headers, so explicit owning-module and CPU
 consumer selections provide the task-specific coverage.
 
-Lasting rules live in the [build protocol](../Runtime/Assets/DerivedDataBuild.md)
-and [cache storage contract](../Runtime/Assets/DerivedDataCacheStorage.md). The
+Lasting rules live in the [build protocol](../../../Runtime/Assets/DerivedDataBuild.md)
+and [cache storage contract](../../../Runtime/Assets/DerivedDataCacheStorage.md). The
 storage contract was split at the build document's growth boundary because
 manifest/codec/query work has a distinct task trigger. Historical Stage 2/3
 namespace descriptions and measurements below describe their validated format;
@@ -158,7 +158,7 @@ confirmed the sandbox's MSVC PDB service restriction.
 
 Align with modern UE DDC capabilities, without promising UE wire compatibility:
 independent cache records, content-addressed compressed values, selective queries,
-and bounded asynchronous I/O. Preserve the [build protocol](../Runtime/Assets/DerivedDataBuild.md)
+and bounded asynchronous I/O. Preserve the [build protocol](../../../Runtime/Assets/DerivedDataBuild.md)
 ownership boundaries and complete typed build results.
 
 ## Selected Decisions
@@ -275,8 +275,8 @@ Depends on Stage 2; may proceed alongside later consumer work after Stage 2 acce
 
 ## Validation and Handoff
 
-Follow [Testing](../Agents/Testing.md), [Build and Run](../Agents/BuildAndRun.md),
-and [Documentation](../Agents/Documentation.md). Validate changed documents and
+Follow [Testing](../../../Agents/Testing.md), [Build and Run](../../../Agents/BuildAndRun.md),
+and [Documentation](../../../Agents/Documentation.md). Validate changed documents and
 all plans on creation/lifecycle changes. Each implementation commit updates this
 plan with observed evidence and exact Plan/Stage trailers. Shared API changes
 require consumer searches across every project in `Durin.dworkspace` and an all

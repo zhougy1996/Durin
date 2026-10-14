@@ -18,7 +18,7 @@ The default-adoption decision was delivered separately in `c9c73de07`: automatic
 Metal initialization can fall back to Vulkan in Editor, explicit selection is
 strict, and shader/material targets follow the active backend. This supersedes
 the original opt-in rollout assumption; it does not waive acceptance gates.
-[Metal-cpp migration](MetalCppMigration.md) is completed, including native
+[Metal-cpp migration](Archive/2026-10/MetalCppMigration.md) is completed, including native
 resource, pipeline, submission, completion and viewport RAII. The authoritative
 startup/ownership contract is in
 [RHI capabilities and startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md#startup-presentation-ownership).

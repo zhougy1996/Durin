@@ -487,7 +487,7 @@ Follow [agent build/run](../../../Agents/BuildAndRun.md) and
 tests from the current registry; do not start another build in a checkout with
 an active process tree. Documentation validation closes no implementation box.
 
-Coordinate with [Geometry Submission Refactor](../../GeometrySubmissionRefactor.md),
+Coordinate with [Geometry Submission Refactor](../2026-10/GeometrySubmissionRefactor.md),
 [RHI Resource Creation Refactor](RHIResourceCreationRefactor.md), and
 `Documentation/Plans/Archive/2026-09/PayloadArchiveSerializationRefactor.md` (currently present
 only in the coordinating checkout).

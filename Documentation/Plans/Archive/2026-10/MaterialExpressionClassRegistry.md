@@ -4,7 +4,7 @@ Summary: Make reflected expression classes the authoring and editor registration
 
 Last reviewed: 2026-10-03
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-03
 
 ## Current Status
@@ -293,19 +293,19 @@ latter reimport behavior.
 
 ## Execution and References
 
-Follow [Build and Run](../Agents/BuildAndRun.md),
-[Testing](../Agents/Testing.md), and
-[Documentation](../Agents/Documentation.md). Implementation commits update this
+Follow [Build and Run](../../../Agents/BuildAndRun.md),
+[Testing](../../../Agents/Testing.md), and
+[Documentation](../../../Agents/Documentation.md). Implementation commits update this
 plan's status/checklists and carry the exact Plan and Stage trailers required by
 the repository handoff rules. Creating this plan does not complete an
 implementation stage.
 
 Authoritative local contracts:
 
-- [Material expression building](../Runtime/Rendering/MaterialExpressionBuilding.md)
-- [Material graph operations](../Editor/Architecture/MaterialGraphOperations.md)
-- [Material editor lifecycle](../Editor/Architecture/MaterialEditorLifecycle.md)
-- [Material compatibility boundary](../Runtime/Rendering/MaterialSystem.md#compatibility-boundary)
+- [Material expression building](../../../Runtime/Rendering/MaterialExpressionBuilding.md)
+- [Material graph operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [Material editor lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md)
+- [Material compatibility boundary](../../../Runtime/Rendering/MaterialSystem.md#compatibility-boundary)
 
 UE design references are official API documentation, not a claim that Durin must
 copy UE implementation or historical compilation paths:

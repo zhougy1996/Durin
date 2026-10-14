@@ -724,5 +724,5 @@ all-plan, and all-roadmap validation pass.
   and [Material Editor Lifecycle](../../../Editor/Architecture/MaterialEditorLifecycle.md)
   own editor behavior.
 - Coordinate vertex-factory/pass bindings with
-  [Geometry Submission Refactor](../../GeometrySubmissionRefactor.md); do not add a
+  [Geometry Submission Refactor](../2026-10/GeometrySubmissionRefactor.md); do not add a
   second geometry submission or shader-binding path.

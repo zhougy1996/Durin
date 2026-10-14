@@ -15,7 +15,7 @@ architecture review revised Stage 3 to simplify dispatch policy and public
 integration before adding further infrastructure. Stage 2 completion records
 validated behavior, not a requirement to retain every implementation mechanism.
 This plan continues the completed
-[Modern Derived Data Cache plan](ModernDerivedDataCache.md) without reopening its
+[Modern Derived Data Cache plan](Archive/2026-10/ModernDerivedDataCache.md) without reopening its
 record/value format or asset-publication decisions.
 
 Stage 1 evidence (Win64-Debug-DurinEditor, 2026-10-13):

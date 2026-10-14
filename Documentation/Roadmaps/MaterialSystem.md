@@ -269,7 +269,7 @@ ErrorMaterial. Neither path can pair old code with new layout.
 Dynamic values remain outside program/PSO identity. Input declarations are
 independent of the eight surface outputs; M10 does not expand shading models.
 
-Coordinate with [Geometry Submission Refactor](../Plans/GeometrySubmissionRefactor.md),
+Coordinate with [Geometry Submission Refactor](../Plans/Archive/2026-10/GeometrySubmissionRefactor.md),
 [RHI Resource Creation Refactor](../Plans/Archive/2026-09/RHIResourceCreationRefactor.md) and
 `Documentation/Plans/Archive/2026-09/PayloadArchiveSerializationRefactor.md` (currently in the
 coordinating checkout).

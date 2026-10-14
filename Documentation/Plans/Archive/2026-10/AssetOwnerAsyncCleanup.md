@@ -4,7 +4,7 @@ Summary: Clarify asynchronous owner metrics, remove Texture transition branches,
 
 Last reviewed: 2026-10-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-12
 
 ## Current Status
@@ -16,7 +16,7 @@ cancellation and dropped-dispatch readiness remain supported. Shared held-cache,
 bounded-wait and drain helpers replace repeated lifecycle fixtures. Callback-referenced local state
 now outlives the drain guards on both normal and early scope exit, including
 terminal shutdown. Lasting metric semantics are recorded in
-[Asset Compilation](../Runtime/Assets/AssetCompilation.md).
+[Asset Compilation](../../../Runtime/Assets/AssetCompilation.md).
 
 Validation on `Win64-Debug-DurinEditor`:
 
@@ -62,7 +62,7 @@ before their referenced local state is destroyed.
 ### Stage 2: Validate and deliver
 
 - [x] Pass Texture, StaticMesh, lifecycle and asset-manager tests following
-  [testing](../Agents/Testing.md) guidance.
+  [testing](../../../Agents/Testing.md) guidance.
 - [x] Complete the shared Engine API all-build gate following
-  [build](../Agents/BuildAndRun.md) guidance.
+  [build](../../../Agents/BuildAndRun.md) guidance.
 - [x] Validate documentation and all plans, record evidence and commit.

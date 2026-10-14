@@ -4,7 +4,7 @@ Summary: Remove logical Storage buffer resources and use ordinary GPU buffers, v
 
 Last reviewed: 2026-10-09
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-09
 
 ## Current Status
@@ -149,9 +149,9 @@ Acceptance: tests assert the new behavior rather than preserving removed APIs.
 - [x] Review the complete diff, close only evidenced checks, and commit with
   exact Plan and Stage provenance.
 
-Build/test execution follows [Build and Run](../Agents/BuildAndRun.md) and
-[Testing](../Agents/Testing.md). Documentation validation follows
-[Documentation](../Agents/Documentation.md).
+Build/test execution follows [Build and Run](../../../Agents/BuildAndRun.md) and
+[Testing](../../../Agents/Testing.md). Documentation validation follows
+[Documentation](../../../Agents/Documentation.md).
 
 ### Stage 4: Simplify uniform and upload internals
 

@@ -305,7 +305,7 @@ Out of scope:
 - Follow [Build and run](../../../Agents/BuildAndRun.md), [Testing](../../../Agents/Testing.md)
   and [Documentation](../../../Agents/Documentation.md). Timing qualification additionally
   follows the linked performance-qualification guidance from Testing.
-- The active [Geometry Submission Refactor](../../GeometrySubmissionRefactor.md) owns
+- The active [Geometry Submission Refactor](../2026-10/GeometrySubmissionRefactor.md) owns
   generic mesh/factory execution and final performance qualification. Preserve its
   shared material execution boundary and do not add geometry-family collection paths.
 - The active [RHI Asynchronous Buffer Upload Refactor](RhiAsyncBufferUploadRefactor.md)

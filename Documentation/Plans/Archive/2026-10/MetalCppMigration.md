@@ -4,7 +4,7 @@ Summary: Migrate the existing MetalRHI backend from Objective-C Metal calls and 
 
 Last reviewed: 2026-10-05
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-04
 
 ## Current Status
@@ -23,10 +23,10 @@ GPU output remain unchanged.
 Original migration qualification passed 37 headless cases (Metal API validation enabled),
 17 production shader/material cases in their baseline environment, and the
 workspace `all` build across Engine, Sandbox and RoadWeaver. Lasting rules are in
-[RHI implementation documentation](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md#metal-native-ownership-and-cocoa-boundary).
+[RHI implementation documentation](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md#metal-native-ownership-and-cocoa-boundary).
 Stage receipts and diagnostic limits are recorded below. Native window/application
 presentation remains the separate open gate identified in Stage 0 and owned by
-[Metal RHI](MetalRHI.md); it is not claimed as passing migration evidence.
+[Metal RHI](../../MetalRHI.md); it is not claimed as passing migration evidence.
 
 ## Goal and Scope
 
@@ -35,7 +35,7 @@ Keep backend-neutral RHI interfaces, supported capabilities, shader routes,
 resource descriptors, synchronization, failure behavior, and rendered/readback
 output unchanged. Keep native types private to MetalRHI.
 
-The [Metal RHI plan](MetalRHI.md) owns feature delivery, platform qualification,
+The [Metal RHI plan](../../MetalRHI.md) owns feature delivery, platform qualification,
 shader-route decisions, and production adoption. This independent plan owns
 only the refactor; its completion does not close that plan's acceptance gates.
 New features, wider hardware support, performance optimization, and changing
@@ -183,9 +183,9 @@ Unavailable presentation evidence remains an open gate, not a passing result.
 
 ## Validation and Handoff
 
-Follow [build and run guidance](../Agents/BuildAndRun.md),
-[native-test guidance](../Agents/Testing.md), and the
-[documentation workflow](../Agents/Documentation.md). Use the host DevTool
+Follow [build and run guidance](../../../Agents/BuildAndRun.md),
+[native-test guidance](../../../Agents/Testing.md), and the
+[documentation workflow](../../../Agents/Documentation.md). Use the host DevTool
 launcher and existing qualification targets; do not copy stale command lines
 into this plan. Do not overlap build process trees.
 
@@ -397,12 +397,12 @@ No new dimensions, shader routes, native memory policy or RHI interfaces are add
 
 ## Required References
 
-- [RHI command execution](../Runtime/Rendering/RHICommandExecution.md)
-- [RHI resource transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI resource views and transfers](../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [RHI diagnostics and conformance](../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
-- [Graphics state and bindings](../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [Viewport rendering](../Runtime/Rendering/ViewportRendering.md)
+- [RHI command execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [RHI resource transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [RHI resource views and transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
+- [RHI diagnostics and conformance](../../../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
+- [Graphics state and bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
+- [Viewport rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Apple Metal-cpp ownership and interoperability guidance](https://developer.apple.com/videos/play/wwdc2022/10160/)
 
 The pinned local headers remain authoritative for API availability in this
@@ -525,7 +525,7 @@ pinned dependency, macOS/M4 host, SDK/compiler, profile and preset as Stage 0.
 - Native color-format support translation is shared by backend support queries,
   render-pass checks and pipeline factories. Its admitted formats are unchanged.
 - Lasting ownership, pool, payload-retirement and Cocoa-boundary rules moved to
-  the owning [RHI implementation contract](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md#metal-native-ownership-and-cocoa-boundary).
+  the owning [RHI implementation contract](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md#metal-native-ownership-and-cocoa-boundary).
 
 ### Final validation receipts
 

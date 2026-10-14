@@ -113,7 +113,7 @@ update APIs. Structured and byte-address data now use native buffer factories,
 views, and ordered uploads. Existing bindings do not preserve old ordinary
 buffer contents; callers needing immutable alternatives retain separate buffers.
 The [resource-view contract](RHIResourceViewsAndTransfers.md#uniform-and-storage-buffers)
-owns this behavior; [the selected migration plan](../../Plans/UnifiedRhiBuffers.md)
+owns this behavior; [the selected migration plan](../../Plans/Archive/2026-10/UnifiedRhiBuffers.md)
 records implementation and acceptance evidence.
 
 ## Current Experimental Families

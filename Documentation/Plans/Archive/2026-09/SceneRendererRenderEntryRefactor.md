@@ -84,7 +84,7 @@ retain Durin's existing rendering behavior and failure contracts. Do not introdu
 - [Build workflow](../../../Agents/BuildAndRun.md),
   [test workflow](../../../Agents/Testing.md), and
   [documentation workflow](../../../Agents/Documentation.md).
-- [Geometry submission refactor](../../GeometrySubmissionRefactor.md) and
+- [Geometry submission refactor](../2026-10/GeometrySubmissionRefactor.md) and
   [RDG/RHI multi-queue execution](../../RdgRhiMultiQueueExecution.md) share renderer
   consumers. Reconcile their current stages before editing shared files; do not
   roll back geometry contracts, queue ownership, or retirement behavior.

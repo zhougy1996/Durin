@@ -542,5 +542,5 @@ and the exact stage title as the `Stage` trailer.
 - [Static mesh rendering](../Runtime/Rendering/StaticMeshRendering.md)
 - [Renderer frame preparation](../Runtime/Rendering/RendererFramePreparation.md)
 - [RDG and RHI multi-queue execution plan](RdgRhiMultiQueueExecution.md)
-- [Geometry submission refactor plan](GeometrySubmissionRefactor.md)
+- [Geometry submission refactor plan](Archive/2026-10/GeometrySubmissionRefactor.md)
 - [Rendering performance baseline](../Development/Build/RenderingPerformanceBaseline.md)

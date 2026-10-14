@@ -664,4 +664,4 @@ its gate, not merely code compilation.
 - [Renderer frame preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
 - [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
 - [Volumetric cloud scene contract](../../../Runtime/Rendering/VolumetricCloudSceneContract.md)
-- [Geometry submission refactor](../../GeometrySubmissionRefactor.md)
+- [Geometry submission refactor](../2026-10/GeometrySubmissionRefactor.md)

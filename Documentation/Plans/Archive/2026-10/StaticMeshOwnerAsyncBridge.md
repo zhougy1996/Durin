@@ -4,7 +4,7 @@ Summary: Migrate StaticMesh render compilation owners to asynchronous derived-da
 
 Last reviewed: 2026-10-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-12
 
 ## Current Status
@@ -13,8 +13,8 @@ All stages are complete. The plan was saved and validated before source changes.
 Render owners use asynchronous DDC dispatch and retain their reservation across
 I/O. The owner pump schedules CPU consumption only after callback retirement;
 publication and explicit finish retain owner-thread reconciliation. Lasting
-behavior is recorded in [Asset Compilation](../Runtime/Assets/AssetCompilation.md#staticmesh-completion)
-and [Derived Data Build](../Runtime/Assets/DerivedDataBuild.md#family-boundaries).
+behavior is recorded in [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md#staticmesh-completion)
+and [Derived Data Build](../../../Runtime/Assets/DerivedDataBuild.md#family-boundaries).
 
 Validation on `Win64-Debug-DurinEditor`:
 
@@ -77,5 +77,5 @@ compilation unchanged.
 - [x] Add two-worker regressions for slow reads/writes, cancellation, warm hits,
   selected finish, supersession and shutdown.
 - [x] Pass relevant StaticMesh, owner lifecycle and DDC suites and the all build
-  following [build](../Agents/BuildAndRun.md) and [testing](../Agents/Testing.md) guidance.
+  following [build](../../../Agents/BuildAndRun.md) and [testing](../../../Agents/Testing.md) guidance.
 - [x] Validate documentation and all plans, record evidence and commit.

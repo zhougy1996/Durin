@@ -4,7 +4,7 @@ Summary: Replace primitive-family rendering dispatch with a common geometry-batc
 
 Last reviewed: 2026-10-09
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-09
 
 ## Current Status
@@ -153,7 +153,7 @@ shader or binding is a failure, not an empty successful pass. Preserve each
 feature's documented fallback and view-failure policy.
 
 This deliberately replaces the primitive typed-view requirement in
-[Scene Representation](../Runtime/Rendering/SceneRepresentation.md). Light and
+[Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md). Light and
 other non-mesh family rules remain authoritative. Update the implemented contract
 alongside the stage that switches production primitive consumers.
 
@@ -646,7 +646,7 @@ new factory registration contract test:
 
 These results establish existing-family correctness, not the remaining extension
 or performance gates. The lasting implemented boundary is recorded in
-[Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md).
+[Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md).
 
 ### Stage 3: Unify primitive membership and view candidates
 
@@ -1006,7 +1006,7 @@ explicit RDG culling decision for unlit receivers, and retains positive shadow
 draw assertions for lit receivers. The documented Base Scene decomposition
 already increased exposed attachment/sample handoffs from 15 to 22; the test now
 checks that current shape. See the prior
-[decomposition evidence](RdgAccessDeclarationsAndBaseSceneDecomposition.md).
+[decomposition evidence](../../RdgAccessDeclarationsAndBaseSceneDecomposition.md).
 Image, motion, masked coverage, cascade parity and contact-shadow checks remain.
 This is a structural expectation repair; no production rendering behavior changes.
 
@@ -1014,14 +1014,14 @@ Core collection/visibility/shadow preparation paths were audited for concrete
 StaticMesh/Spline proxy dispatch. No such branches remain in the inspected
 paths; the remaining input-binding cast targets the common interface. Lasting
 batch publication, snapshot lifetime and independent generated-stage opt-in
-contracts live in [frame preparation](../Runtime/Rendering/RendererFramePreparation.md)
-and [materials](../Runtime/Rendering/MaterialSystem.md), with the related Runtime
+contracts live in [frame preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+and [materials](../../../Runtime/Rendering/MaterialSystem.md), with the related Runtime
 contracts linked below. The plan is complete under the user-authorized scope.
 
 ## Validation and Handoff
 
-Follow [Build and Run](../Agents/BuildAndRun.md) before repository build/run work
-and [Testing](../Agents/Testing.md) before test selection/execution. Use the
+Follow [Build and Run](../../../Agents/BuildAndRun.md) before repository build/run work
+and [Testing](../../../Agents/Testing.md) before test selection/execution. Use the
 registry and affected selection rather than inferring targets from directories.
 Current candidate owners, to narrow by changed behavior during Stage 0:
 
@@ -1064,10 +1064,10 @@ stage merely because the existing two families render successfully.
 
 ## Related Contracts
 
-- [Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md)
-- [Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Render Resource Lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
+- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)

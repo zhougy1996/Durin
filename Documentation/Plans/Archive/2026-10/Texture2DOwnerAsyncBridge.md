@@ -4,7 +4,7 @@ Summary: Bridge Texture2D compilation owners to asynchronous derived-data sessio
 
 Last reviewed: 2026-10-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-12
 
 ## Current Status
@@ -13,8 +13,8 @@ All stages are complete. Texture2D owner dispatch releases workers during cache
 I/O while retaining admission budgets through build callback retirement. Source
 validation and shared-output assembly are common to synchronous and asynchronous
 consumers. Lasting behavior is documented in
-[Asset Compilation](../Runtime/Assets/AssetCompilation.md#initial-compiling-managers)
-and [Derived Data Build](../Runtime/Assets/DerivedDataBuild.md#family-boundaries).
+[Asset Compilation](../../../Runtime/Assets/AssetCompilation.md#initial-compiling-managers)
+and [Derived Data Build](../../../Runtime/Assets/DerivedDataBuild.md#family-boundaries).
 
 Validation on `Win64-Debug-DurinEditor`:
 
@@ -74,5 +74,5 @@ protocol before migration; StaticMesh, physics and ShaderBuild are outside scope
 
 - [x] Add regressions proving worker release, overlapping owners and terminal lifecycle.
 - [x] Pass Texture tests, relevant derived-data tests and the all build according to
-  [build](../Agents/BuildAndRun.md) and [testing](../Agents/Testing.md) guidance.
+  [build](../../../Agents/BuildAndRun.md) and [testing](../../../Agents/Testing.md) guidance.
 - [x] Validate changed documentation and all plans, record evidence and commit.

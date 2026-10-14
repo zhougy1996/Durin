@@ -4,7 +4,7 @@ Summary: Clarify texture recipe inputs, shared mip processing, and format encodi
 
 Last reviewed: 2026-10-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-10
 
 ## Current Status
@@ -37,7 +37,7 @@ Final validation on Win64-Debug-DurinEditor:
   not required because GPU behavior is unchanged.
 - Changed-document and all-plan validation passed; final completion metadata is
   checked again before commit. Lasting recipe boundaries are documented in the
-  [build protocol](../Runtime/Assets/DerivedDataBuild.md#family-boundaries).
+  [build protocol](../../../Runtime/Assets/DerivedDataBuild.md#family-boundaries).
 
 Consumer inventory: TextureBuild's 2D and LDR Cube entrypoints, TextureTests,
 TextureCompressionQualificationTests, and Vulkan texture sampling fixtures call
@@ -86,7 +86,7 @@ of typed family entrypoints and share algorithms where their semantics match.
 - Keep `TextureBuild`, its module registration, dependency direction, and
   editor-lifetime `ITextureBuildModule` contract. A future rename is separate work.
 - Preserve the ownership boundary in the
-  [derived data build protocol](../Runtime/Assets/DerivedDataBuild.md#ownership):
+  [derived data build protocol](../../../Runtime/Assets/DerivedDataBuild.md#ownership):
   Engine owns DDC, scheduling policy, input identity, codecs, and application;
   TextureBuild owns detached CPU recipes and uses the existing Core task system.
 - Treat the module as a texture processing pipeline. Mip generation, Cube
@@ -200,19 +200,19 @@ Cube integration and cache tests pass; a shared Engine API migration receives an
 Dependency: Stages 1-3.
 
 - [x] Validate affected CPU recipe, Cube, Volume, and DDC integration coverage
-  using the registered selections described in [Testing](../Agents/Testing.md).
+  using the registered selections described in [Testing](../../../Agents/Testing.md).
 - [x] Compile changed Vulkan sampling consumers; GPU execution is required only
   if GPU behavior changes, following the testing workflow.
-- [x] Follow [Build And Run](../Agents/BuildAndRun.md), validate affected project
+- [x] Follow [Build And Run](../../../Agents/BuildAndRun.md), validate affected project
   targets, and complete the required `all` build for shared Engine API changes.
 - [x] Review deterministic outputs and key identities against Stage 0 evidence.
   Do not bump recipe versions for an output-preserving structural refactor.
   Any intended output change requires a recorded plan revision and invalidation policy.
 - [x] Update lasting ownership or recipe contracts in their authoritative
-  documentation, including [Volume textures](../Runtime/Assets/VolumeTextures.md)
+  documentation, including [Volume textures](../../../Runtime/Assets/VolumeTextures.md)
   only where its implemented contract changes.
 - [x] Record validation evidence and update lifecycle metadata/checklists through
-  completion, following [plan lifecycle rules](AGENTS.md#status-maintenance).
+  completion, following [plan lifecycle rules](../../AGENTS.md#status-maintenance).
 
 Completion: all required gates pass, final evidence is recorded, and no obsolete
 helper API, duplicated metrics type, or contradictory Cube input state remains.

@@ -662,7 +662,7 @@ Preserve the implemented [frame preparation contract](../../../Runtime/Rendering
 RDG already provides dependency analysis, culling, lifetime planning and barriers;
 this plan extends its execution boundary rather than replacing the graph.
 
-The [Geometry Submission Refactor](../../GeometrySubmissionRefactor.md) owns generic
+The [Geometry Submission Refactor](../2026-10/GeometrySubmissionRefactor.md) owns generic
 geometry and vertex-factory extensibility. Preserve independent geometry providers,
 multiple batches and dynamic factories. The [RDG and RHI Multi-Queue Execution
 Plan](RdgRhiMultiQueueExecution.md) owns GPU queue scheduling, split barriers and
