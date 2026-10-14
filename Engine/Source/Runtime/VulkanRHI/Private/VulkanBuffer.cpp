@@ -1,4 +1,3 @@
-#include "VulkanCreation.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanBuffer.h"
 
@@ -33,7 +32,7 @@ namespace Durin::VulkanRHI
 	}
 
 	FVulkanBuffer::FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc,
-		bool bConcurrentReadOnly)
+		bool bConcurrentReadOnly, vk::Result* OutResult)
 		: FRHIBuffer(InCreateDesc)
 		, Device(InDevice)
 		, StateTracker(InCreateDesc.Size)
@@ -77,12 +76,13 @@ namespace Durin::VulkanRHI
 		const FVulkanMemoryManager& MemoryManager = Device.GetMemoryManager();
 		const vk::Result Result = MemoryManager.CreateBuffer(
 			Allocation, Buffer, AllocationCandidate, BufferInfo, DebugName.c_str());
+		if (OutResult) *OutResult = Result;
 		if (Result != vk::Result::eSuccess)
 		{
-			throw vk::SystemError(vk::make_error_code(Result), std::format(
-				"Vulkan buffer allocation failed: result={}, size={}, usage={}, allocationClass={}",
-				vk::to_string(Result), BufferInfo.size,
-				vk::to_string(BufferInfo.usage), static_cast<uint32>(AllocationCandidate)));
+			Buffer = nullptr;
+			Allocation = {};
+			if (!OutResult) ThrowVulkanError(Result, "Vulkan buffer allocation");
+			return;
 		}
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(Buffer, [&] { return std::string_view(DebugName); });
 	}
@@ -181,16 +181,6 @@ namespace Durin::VulkanRHI
 		Staging.Retire();
 	}
 
-	auto FVulkanBuffer::IsDynamic() const -> bool
-	{
-		return EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::Dynamic);
-	}
-
-	auto FVulkanBuffer::IsStatic() const -> bool
-	{
-		return EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::Static);
-	}
-
 	auto FVulkanBuffer::GetMappedPointer() const -> void*
 	{
 		return Allocation.GetMappedData();
@@ -224,10 +214,15 @@ namespace Durin::VulkanRHI
 		{
 			NormalizedDesc.Usage |= EBufferUsageFlags::DestinationCopy;
 		}
-		auto Result = CreateVulkanResource([&]() -> FBufferRHIRef {
-			return new FVulkanBuffer(*Device, NormalizedDesc);
-		}, "buffer", CreateDesc.DebugName ? CreateDesc.DebugName : "");
-		if (!Result) return {};
+		vk::Result CreationResult;
+		FBufferRHIRef Result = new FVulkanBuffer(*Device, NormalizedDesc, false, &CreationResult);
+		if (CreationResult != vk::Result::eSuccess)
+		{
+			if (!IsRecoverableVulkanCreationError(CreationResult))
+				ThrowVulkanError(CreationResult, "Vulkan buffer allocation");
+			LogVulkanCreationFailure(CreationResult, "buffer", CreateDesc.DebugName ? CreateDesc.DebugName : "");
+			return {};
+		}
 		auto* CreatedBuffer = FVulkanBuffer::Cast(Result.GetReference());
 		auto& InitialData = CreateDesc.InitialData;
 		if (InitialData.Data)

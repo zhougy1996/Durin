@@ -31,14 +31,12 @@ namespace Durin::VulkanRHI
 			require(Resource);
 			return static_cast<const FVulkanBuffer*>(Resource);
 		}
+		// Nullable factories check OutResult before publication. Required internal
+		// allocations omit it and propagate native failures.
 		VULKANRHI_API FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc,
-			bool bConcurrentReadOnly = false);
+			bool bConcurrentReadOnly = false, vk::Result* OutResult = nullptr);
 
 		VULKANRHI_API ~FVulkanBuffer() override;
-
-		auto IsDynamic() const -> bool;
-
-		auto IsStatic() const -> bool;
 
 		auto GetHandle() const -> vk::Buffer { return Buffer; }
 		auto GetDebugName() const -> std::string_view { return DebugName; }
@@ -75,5 +73,4 @@ namespace Durin::VulkanRHI
 
 	};
 
-	// Suballocates per-frame uniform ranges from persistently mapped Vulkan buffers.
 } // namespace Durin::VulkanRHI

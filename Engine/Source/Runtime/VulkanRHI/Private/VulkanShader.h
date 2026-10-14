@@ -14,7 +14,7 @@ namespace Durin::VulkanRHI
 	class FVulkanShader : public FRHIShader
 	{
 	public:
-		FVulkanShader(FVulkanDevice& InDevice, const FRHIShaderCreateDesc& InCreateDesc);
+		FVulkanShader(FVulkanDevice& InDevice, const FRHIShaderCreateDesc& InCreateDesc, vk::Result& OutResult);
 
 		~FVulkanShader() override;
 

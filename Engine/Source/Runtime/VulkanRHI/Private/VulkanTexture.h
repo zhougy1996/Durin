@@ -29,7 +29,10 @@ namespace Durin::VulkanRHI
 	class FVulkanTexture : public FRHITexture
 	{
 	public:
-		VULKANRHI_API FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc);
+		// Nullable factories check OutResult before publication; required internal
+		// allocations omit it and propagate native failures.
+		VULKANRHI_API FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc,
+			vk::Result* OutResult = nullptr);
 
 		VULKANRHI_API FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage);
 
@@ -84,7 +87,7 @@ namespace Durin::VulkanRHI
 	class FVulkanSampler : public FRHISampler
 	{
 	public:
-		FVulkanSampler(FVulkanDevice& InDevice, const FRHISamplerDesc& InDesc);
+		FVulkanSampler(FVulkanDevice& InDevice, const FRHISamplerDesc& InDesc, vk::Result& OutResult);
 		~FVulkanSampler() override;
 
 		auto GetHandle() const -> vk::Sampler { return Sampler; }

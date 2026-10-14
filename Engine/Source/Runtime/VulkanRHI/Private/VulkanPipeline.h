@@ -39,7 +39,7 @@ namespace Durin::VulkanRHI
 	{
 		FVulkanComputePipelineState(FVulkanDevice& InDevice,
 			const FVulkanComputePipelineInputs& Inputs, FComputePipelineStateKey InKey,
-			FVulkanPipelineDependencies Dependencies);
+			FVulkanPipelineDependencies Dependencies, vk::Result& OutResult);
 	public:
 		~FVulkanComputePipelineState() override;
 
@@ -66,7 +66,7 @@ namespace Durin::VulkanRHI
 	{
 		FVulkanGraphicsPipelineState(FVulkanDevice& InDevice,
 			const FVulkanGraphicsPipelineInputs& Inputs, FGraphicsPipelineStateKey InKey,
-			FVulkanPipelineDependencies Dependencies);
+			FVulkanPipelineDependencies Dependencies, vk::Result& OutResult);
 
 	public:
 		~FVulkanGraphicsPipelineState() override;

@@ -12,10 +12,11 @@ namespace Durin::VulkanRHI
 	FVulkanBufferView::FVulkanBufferView(
 		FVulkanDevice& InDevice,
 		FRHIBuffer* InBuffer,
-		const FRHIBufferViewDesc& InDesc)
+		const FRHIBufferViewDesc& InDesc, vk::Result* OutResult)
 		: FRHIBufferView(InBuffer, InDesc), Device(InDevice)
 	{
 		require(InBuffer);
+		if (OutResult) *OutResult = vk::Result::eSuccess;
 		if (InDesc.Type != ERHIBufferViewType::Formatted) return;
 		const auto* Buffer = FVulkanBuffer::Cast(InBuffer);
 		vk::BufferViewCreateInfo CreateInfo;
@@ -23,7 +24,14 @@ namespace Durin::VulkanRHI
 			.setFormat(ToVulkan_PixelFormat(InDesc.Format))
 			.setOffset(InDesc.Offset)
 			.setRange(InDesc.Size);
-		BufferView = Device.GetHandle().createBufferView(CreateInfo);
+		const auto Result = Device.GetHandle().createBufferView(&CreateInfo, nullptr, &BufferView);
+		if (OutResult) *OutResult = Result;
+		if (Result != vk::Result::eSuccess)
+		{
+			BufferView = nullptr;
+			if (!OutResult) ThrowVulkanError(Result, "Vulkan buffer view creation");
+			return;
+		}
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(BufferView,
 			[&] { return std::format("{}.BufferView", Buffer->GetDebugName()); });
 	}
@@ -41,7 +49,7 @@ namespace Durin::VulkanRHI
 	FVulkanTextureView::FVulkanTextureView(
 		FVulkanDevice& InDevice,
 		FRHITexture* InTexture,
-		const FRHITextureViewDesc& InDesc)
+		const FRHITextureViewDesc& InDesc, vk::Result& OutResult)
 		: FRHITextureView(InTexture, InDesc), Device(InDevice)
 	{
 		const auto* Texture = static_cast<const FVulkanTexture*>(InTexture);
@@ -62,7 +70,8 @@ namespace Durin::VulkanRHI
 				ToVulkanAspectFlags(InDesc.Range.Aspects),
 				InDesc.Range.FirstMip, InDesc.Range.NumMips,
 				InDesc.Range.FirstArrayLayer, InDesc.Range.NumArrayLayers));
-		ImageView = Device.GetHandle().createImageView(CreateInfo);
+		OutResult = Device.GetHandle().createImageView(&CreateInfo, nullptr, &ImageView);
+		if (OutResult != vk::Result::eSuccess) { ImageView = nullptr; return; }
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(ImageView,
 			[&] { return std::format("{}.ImageView", Texture->GetDebugName()); });
 		DebugIdentity = GVulkanImageViewHandleIdCounter.fetch_add(

@@ -26,8 +26,10 @@ namespace Durin::VulkanRHI
 			require(Resource && Resource->GetResourceType() == ERHIResourceType::BufferView);
 			return static_cast<const FVulkanBufferView*>(Resource);
 		}
+		// An explicit result permits nullable creation; replay-owned required views
+		// omit it and retain their throwing contract.
 		FVulkanBufferView(FVulkanDevice& InDevice, FRHIBuffer* InBuffer,
-			const FRHIBufferViewDesc& InDesc);
+			const FRHIBufferViewDesc& InDesc, vk::Result* OutResult = nullptr);
 		~FVulkanBufferView() override;
 
 		auto GetHandle() const -> vk::BufferView { return BufferView; }
@@ -42,7 +44,7 @@ namespace Durin::VulkanRHI
 	{
 	public:
 		FVulkanTextureView(FVulkanDevice& InDevice, FRHITexture* InTexture,
-			const FRHITextureViewDesc& InDesc);
+			const FRHITextureViewDesc& InDesc, vk::Result& OutResult);
 		~FVulkanTextureView() override;
 
 		auto GetHandle() const -> vk::ImageView { return ImageView; }

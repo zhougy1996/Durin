@@ -9,7 +9,6 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "SlangShaderCompiler.h"
-#include "VulkanCreation.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
 #include "VulkanBuffer.h"
@@ -23,25 +22,14 @@ namespace Durin::VulkanRHI
 	{
 	};
 
-	TEST_F(FVulkanResourceIntegrationTests, NullableFactoryReturnsResourcesAndLogsCreationFailureOnce)
+	TEST_F(FVulkanResourceIntegrationTests, NativeCreationFailureDiagnosticsLogOneResult)
 	{
 		auto& Logger = FLogger::Get();
 		ASSERT_TRUE(Logger.Initialize({}));
 		struct FLoggerScope { ~FLoggerScope() { FLogger::Get().Shutdown(); } } LoggerScope;
 		Logger.Flush();
 		const auto Cursor = Logger.ReadRecords(1, 0).NewestAvailableSequence + 1;
-		auto Fail = []() -> std::shared_ptr<int> {
-			throw vk::OutOfDeviceMemoryError("expected allocation failure");
-		};
-		const auto Resource = CreateVulkanResource([] { return std::make_shared<int>(42); }, "test resource");
-		ASSERT_TRUE(Resource);
-		EXPECT_EQ(*Resource, 42);
-		const auto Null = CreateVulkanResource([] { return std::shared_ptr<int>{}; }, "test resource");
-		ASSERT_FALSE(Null);
-		Logger.Flush();
-		EXPECT_TRUE(Logger.ReadRecords(Cursor).Records.empty());
-
-		EXPECT_FALSE(CreateVulkanResource(Fail, "test resource"));
+		LogVulkanCreationFailure(vk::Result::eErrorOutOfDeviceMemory, "test resource");
 		Logger.Flush();
 		const auto Logs = Logger.ReadRecords(Cursor);
 		ASSERT_EQ(Logs.Records.size(), 1u);
@@ -168,26 +156,6 @@ namespace Durin::VulkanRHI
 			Declaration = nullptr;
 			RHIExit();
 		}
-	}
-
-	TEST_F(FVulkanResourceIntegrationTests,
-		NullableFactoryConsumesRecoverableFailuresAndPreservesTerminalExceptions)
-	{
-		EXPECT_FALSE(CreateVulkanResource([]() -> FTextureRHIRef {
-			throw vk::OutOfDeviceMemoryError("expected allocation failure");
-		}, "test texture"));
-		EXPECT_FALSE(CreateVulkanResource([]() -> FTextureRHIRef {
-			throw vk::FormatNotSupportedError("unsupported descriptor");
-		}, "test texture"));
-		EXPECT_THROW(CreateVulkanResource([]() -> FTextureRHIRef {
-			throw vk::DeviceLostError("terminal device loss");
-		}, "test texture"), vk::DeviceLostError);
-		EXPECT_THROW(CreateVulkanResource([]() -> FTextureRHIRef {
-			throw std::logic_error("internal invariant failure");
-		}, "test texture"), std::logic_error);
-		EXPECT_THROW(CreateVulkanResource([]() -> FTextureRHIRef {
-			throw 7;
-		}, "test texture"), int);
 	}
 
 	TEST_F(FVulkanResourceIntegrationTests,

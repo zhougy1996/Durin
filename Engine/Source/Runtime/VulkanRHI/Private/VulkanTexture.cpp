@@ -1,7 +1,4 @@
-#include "VulkanCreation.h"
-
 #include "Backend/RHIValidation.h"
-#include "Backend/RHICreation.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanTexture.h"
 #include "VulkanSubmission.h"
@@ -108,7 +105,8 @@ namespace Durin::VulkanRHI
 		return Desc;
 	}
 
-	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc)
+	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc,
+		vk::Result* OutResult)
 		: FRHITexture(InCreateDesc)
 		, Device(InDevice)
 		, OwnerType(EImageOwnerType::LocalOwner)
@@ -119,8 +117,6 @@ namespace Durin::VulkanRHI
 			? (InCreateDesc.DebugName ? std::string(InCreateDesc.DebugName)
 				: Device.GetRHI().GetDebugUtils().MakeInternalName("Image")) : std::string{})
 	{
-		const vk::Extent3D ImageExtent = ToVulkan_Extent3D(InCreateDesc.GetSize());
-
 		const bool bDepthStencil = EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::DepthStencilTargetable);
 		const bool bStorage = EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::Storage);
 		checkf(!bStorage || !bDepthStencil, "Vulkan storage images do not support depth/stencil textures in this RHI");
@@ -132,12 +128,13 @@ namespace Durin::VulkanRHI
 			MemoryManager.CreateImage(Allocation, Image,
 				EVulkanAllocationClassCandidate::DeviceLocal, ImageInfo,
 				DebugName.c_str());
+		if (OutResult) *OutResult = ImageResult;
 		if (ImageResult != vk::Result::eSuccess)
 		{
-			throw vk::SystemError(vk::make_error_code(ImageResult), std::format(
-				"Vulkan texture image allocation failed: result={}, extent={}x{}x{}, format={}",
-				vk::to_string(ImageResult), ImageExtent.width, ImageExtent.height,
-				ImageExtent.depth, vk::to_string(Format)));
+			Image = nullptr;
+			Allocation = {};
+			if (!OutResult) ThrowVulkanError(ImageResult, "Vulkan texture allocation");
+			return;
 		}
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(Image, [&] { return std::string_view(DebugName); });
 	}
@@ -182,7 +179,7 @@ namespace Durin::VulkanRHI
 		return Device.GetMemoryManager().GetMemoryType(Allocation).propertyFlags;
 	}
 
-	FVulkanSampler::FVulkanSampler(FVulkanDevice& InDevice, const FRHISamplerDesc& InDesc)
+	FVulkanSampler::FVulkanSampler(FVulkanDevice& InDevice, const FRHISamplerDesc& InDesc, vk::Result& OutResult)
 		: Device(InDevice)
 	{
 		const float MaxAnisotropy = InDesc.MaxAnisotropy >= 1.0f ? InDesc.MaxAnisotropy : 1.0f;
@@ -204,7 +201,8 @@ namespace Durin::VulkanRHI
 			.setBorderColor(ToVulkan_SamplerBorderColor(InDesc.BorderColor))
 			.setUnnormalizedCoordinates(InDesc.bUnnormalizedCoordinates);
 
-		Sampler = Device.GetHandle().createSampler(SamplerInfo);
+		OutResult = Device.GetHandle().createSampler(&SamplerInfo, nullptr, &Sampler);
+		if (OutResult != vk::Result::eSuccess) { Sampler = nullptr; return; }
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(Sampler,
 			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("Sampler"); });
 	}
@@ -235,10 +233,15 @@ namespace Durin::VulkanRHI
 				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>");
 			return {};
 		}
-		auto Texture = CreateVulkanResource([&]() -> FTextureRHIRef {
-			return new FVulkanTexture(*Device, NormalizedDesc);
-		}, "texture", CreateDesc.DebugName ? CreateDesc.DebugName : "");
-		if (!Texture) return {};
+		vk::Result CreationResult;
+		FTextureRHIRef Texture = new FVulkanTexture(*Device, NormalizedDesc, &CreationResult);
+		if (CreationResult != vk::Result::eSuccess)
+		{
+			if (!IsRecoverableVulkanCreationError(CreationResult))
+				ThrowVulkanError(CreationResult, "Vulkan texture allocation");
+			LogVulkanCreationFailure(CreationResult, "texture", CreateDesc.DebugName ? CreateDesc.DebugName : "");
+			return {};
+		}
 		if (EnumHasAnyFlags(NormalizedDesc.Flags, ETextureCreateFlags::Storage))
 		{
 			RHICmdList.InitializeTexture(Texture.GetReference());
@@ -346,10 +349,16 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler>
 	{
-		auto Result = CreateVulkanResource([&]() -> TRefCountPtr<FRHISampler> {
-			return new FVulkanSampler(*Device, CreateDesc);
-		}, "sampler");
-		return Result;
+		vk::Result CreationResult;
+		TRefCountPtr<FRHISampler> Sampler = new FVulkanSampler(*Device, CreateDesc, CreationResult);
+		if (CreationResult != vk::Result::eSuccess)
+		{
+			if (!IsRecoverableVulkanCreationError(CreationResult))
+				ThrowVulkanError(CreationResult, "Vulkan sampler creation");
+			LogVulkanCreationFailure(CreationResult, "sampler");
+			return nullptr;
+		}
+		return Sampler;
 	}
 
 	auto FVulkanDynamicRHI::RHICreateBufferView(
@@ -374,10 +383,16 @@ namespace Durin::VulkanRHI
 				return nullptr;
 			}
 		}
-		auto Result = CreateVulkanResource([&]() -> FBufferViewRHIRef {
-			return new FVulkanBufferView(*Device, Buffer, Desc);
-		}, "buffer view");
-		return Result;
+		vk::Result CreationResult;
+		FBufferViewRHIRef View = new FVulkanBufferView(*Device, Buffer, Desc, &CreationResult);
+		if (CreationResult != vk::Result::eSuccess)
+		{
+			if (!IsRecoverableVulkanCreationError(CreationResult))
+				ThrowVulkanError(CreationResult, "Vulkan buffer view creation");
+			LogVulkanCreationFailure(CreationResult, "buffer view");
+			return nullptr;
+		}
+		return View;
 	}
 
 	auto FVulkanDynamicRHI::RHICreateTextureView(
@@ -393,9 +408,16 @@ namespace Durin::VulkanRHI
 		FTextureViewRHIRef Result;
 		auto CreationOperation = [this, Texture, Desc, &Result
 		]() {
-			Result = CreateVulkanResource([&]() -> FTextureViewRHIRef {
-				return new FVulkanTextureView(*Device, Texture, Desc);
-			}, "texture view");
+			vk::Result CreationResult;
+			FTextureViewRHIRef Candidate = new FVulkanTextureView(*Device, Texture, Desc, CreationResult);
+			if (CreationResult != vk::Result::eSuccess)
+			{
+				if (!IsRecoverableVulkanCreationError(CreationResult))
+					ThrowVulkanError(CreationResult, "Vulkan texture view creation");
+				LogVulkanCreationFailure(CreationResult, "texture view");
+				return;
+			}
+			Result = std::move(Candidate);
 		};
 		// Swapchain backing changes on replay; only stable local images are caller-domain factories.
 		if (static_cast<FVulkanTexture*>(Texture)->HasExternalBacking() && GRHIThread && !IsInRHIThread())

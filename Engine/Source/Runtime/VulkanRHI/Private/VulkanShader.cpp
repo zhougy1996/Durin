@@ -1,5 +1,3 @@
-#include "VulkanCreation.h"
-
 #include "VulkanShader.h"
 
 #include "RHICommandList.h"
@@ -101,7 +99,7 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	FVulkanShader::FVulkanShader(FVulkanDevice& InDevice, const FRHIShaderCreateDesc& InCreateDesc)
+	FVulkanShader::FVulkanShader(FVulkanDevice& InDevice, const FRHIShaderCreateDesc& InCreateDesc, vk::Result& OutResult)
 		: FRHIShader(InCreateDesc)
 		, Device(InDevice)
 		, EntryPoint(InCreateDesc.EntryPoint)
@@ -119,7 +117,8 @@ namespace Durin::VulkanRHI
 				Code, VertexInputLocations);
 		}
 		createInfo.setCode(Code);
-		ShaderModule = Device.GetHandle().createShaderModule(createInfo);
+		OutResult = Device.GetHandle().createShaderModule(&createInfo, nullptr, &ShaderModule);
+		if (OutResult != vk::Result::eSuccess) { ShaderModule = nullptr; return; }
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(ShaderModule,
 			[&] { return InCreateDesc.DebugName ? InCreateDesc.DebugName
 					: Device.GetRHI().GetDebugUtils().MakeInternalName("ShaderModule"); });
@@ -143,9 +142,15 @@ namespace Durin::VulkanRHI
 			|| !InCreateDesc.MetalBindings.empty()
 			|| InCreateDesc.MetalPushConstantBufferSlot != UINT32_MAX)
 			return nullptr;
-		auto Result = CreateVulkanResource([&]() -> FShaderRHIRef {
-			return new FVulkanShader(*Device, InCreateDesc);
-		}, "shader", InCreateDesc.DebugName ? InCreateDesc.DebugName : "");
-		return Result;
+		vk::Result CreationResult;
+		FShaderRHIRef Shader = new FVulkanShader(*Device, InCreateDesc, CreationResult);
+		if (CreationResult != vk::Result::eSuccess)
+		{
+			if (!IsRecoverableVulkanCreationError(CreationResult))
+				ThrowVulkanError(CreationResult, "Vulkan shader module creation");
+			LogVulkanCreationFailure(CreationResult, "shader", InCreateDesc.DebugName ? InCreateDesc.DebugName : "");
+			return nullptr;
+		}
+		return Shader;
 	}
 }

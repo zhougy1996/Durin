@@ -8,7 +8,6 @@
 #include "HAL/PlatformLTS.h"
 #include "RHICommandList.h"
 #include "SlangShaderCompiler.h"
-#include "VulkanCreation.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
 #include "VulkanPipeline.h"
@@ -208,23 +207,21 @@ namespace Durin::VulkanRHI
 					bCompute ? EShaderStageFlags::Compute : EShaderStageFlags::Vertex,
 					Variant, ERHIBindingType::UniformBuffer);
 				TRefCountPtr<FRHIResource> Result;
-				return CreateVulkanResource([&]() -> TRefCountPtr<FRHIResource> {
-					if (bCompute)
-					{
-						auto Key = BuildComputePipelineStateKey(C, GDynamicRHI->RHIGetCapabilities());
-						if (!Key)
-							throw std::runtime_error(std::string(ToString(Key.error())));
-						Result = Device->GetPipelineManager().GetOrCreateComputePipelineState(C, std::move(*Key), "BackgroundCompute");
-					}
-					else
-					{
-						auto Key = BuildGraphicsPipelineStateKey(G, GDynamicRHI->RHIGetCapabilities());
-						if (!Key)
-							throw std::runtime_error(std::string(ToString(Key.error())));
-						Result = Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(G, std::move(*Key), "BackgroundGraphics");
-					}
-					return Result;
-				}, "test pipeline");
+				if (bCompute)
+				{
+					auto Key = BuildComputePipelineStateKey(C, GDynamicRHI->RHIGetCapabilities());
+					if (!Key)
+						throw std::runtime_error(std::string(ToString(Key.error())));
+					Result = Device->GetPipelineManager().GetOrCreateComputePipelineState(C, std::move(*Key), "BackgroundCompute");
+				}
+				else
+				{
+					auto Key = BuildGraphicsPipelineStateKey(G, GDynamicRHI->RHIGetCapabilities());
+					if (!Key)
+						throw std::runtime_error(std::string(ToString(Key.error())));
+					Result = Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(G, std::move(*Key), "BackgroundGraphics");
+				}
+				return Result;
 			};
 			// PublicAsyncPipelinesShareCreationAndRetainOwnedInputs covers the
 			// public creator's concurrency. Exercise cache admission serially here.
@@ -237,7 +234,21 @@ namespace Durin::VulkanRHI
 			auto& Commands = GCommandListExecutor.GetImmediateCommandList();
 			EXPECT_EQ(Hit, Warm);
 			EXPECT_FALSE(Create(2));
+			const auto* ColdIdentity = Cold.GetReference();
 			Cold = nullptr;
+			{
+				// Real budget pressure must restore the extracted cache-only victim.
+				const auto Used = Device->GetCacheMetadataBytes();
+				auto Pressure = Device->ReserveCacheMetadata(64ull * 1024 * 1024 - Used);
+				EXPECT_FALSE(Create(2));
+				auto Restored = Create(1);
+				EXPECT_EQ(Restored.GetReference(), ColdIdentity);
+				const auto PressureStats = Device->GetPipelineCacheStatistics();
+				const auto& Cache = bCompute ? PressureStats.ComputePipelines : PressureStats.GraphicsPipelines;
+				EXPECT_EQ(Cache.Occupancy, 2u);
+				EXPECT_EQ(Cache.NativeCreations, 2u);
+				EXPECT_EQ(Cache.Evictions, 0u);
+			}
 			auto Replacement = Create(2);
 			EXPECT_TRUE(Replacement);
 			EXPECT_EQ(Create(0), Warm);
@@ -245,7 +256,7 @@ namespace Durin::VulkanRHI
 			const auto& Cache = bCompute ? Stats.ComputePipelines : Stats.GraphicsPipelines;
 			EXPECT_EQ(Cache.Occupancy, 2u);
 			EXPECT_EQ(Cache.NativeCreations, 3u);
-			EXPECT_EQ(Cache.FailedCandidates, 1u);
+			EXPECT_EQ(Cache.FailedCandidates, 2u);
 			EXPECT_EQ(Cache.Evictions, 1u);
 			Warm = nullptr;
 			Hit = nullptr;

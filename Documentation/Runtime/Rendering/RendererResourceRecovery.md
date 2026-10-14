@@ -4,7 +4,7 @@ Summary: Define complete-or-null Renderer resource publication, explicit readine
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-10-13
+Last reviewed: 2026-10-14
 
 ## Complete-Or-Null Construction
 
@@ -26,8 +26,15 @@ hold logical ownership; the backend cache and recorded commands can also retain
 references. Cache eviction selects only entries with no external references.
 
 Vertex declarations copy immutable CPU descriptions directly on the caller.
-Vulkan nullable factories catch recoverable native creation errors locally and
-log their native status. Texture views of external images retain ordered RHI
+Vulkan nullable factories inspect native `vk::Result` values explicitly and
+log recoverable creation failures locally before returning null. Vulkan-Hpp
+output-handle overloads expose the native result without exception translation;
+buffer and image allocation retain VMA's result-returning interface. No generic
+factory wrapper decides recovery for every resource family. Internal required
+allocations and dependency caches retain their throwing contract; pipeline
+creation translates recoverable dependency/cache failures at its own boundary.
+Device loss and unexpected errors continue to propagate as terminal exceptions.
+Texture views of external images retain ordered RHI
 synchronization because swapchain backing can change during replay.
 
 Native graphics/compute PSO candidates receive owned input copies and retained
@@ -51,8 +58,10 @@ ownership. PSO destructors notify owner-thread context caches and enqueue native
 handles for GPU-completion-aware deletion; a background final release never
 destroys those handles directly. Native graphics/compute creation uses the basic
 Vulkan result-code interface. Its failure branch releases any returned pipeline
-and the earlier pipeline layout before translating the error at the nullable
-factory boundary. Input descriptions with raw resource fields require a live
+and the earlier pipeline layout before the manager handles its native result.
+Recoverable failures restore any reserved cache victim without publishing a
+candidate; terminal exceptions retain the same rollback before propagation.
+Input descriptions with raw resource fields require a live
 caller-owned reference until the factory has copied and retained them.
 
 Texture assets use the owned update protocol in [Texture System](TextureSystem.md).

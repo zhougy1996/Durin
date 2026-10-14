@@ -188,7 +188,9 @@ namespace Durin::VulkanRHI
 
 		vk::RenderPassCreateInfo CreateInfo;
 		CreateInfo.setAttachments(Attachments).setSubpasses(Subpass).setDependencies(Dependencies);
-		RenderPass = Device.GetHandle().createRenderPass(CreateInfo);
+		const auto Result = Device.GetHandle().createRenderPass(&CreateInfo, nullptr, &RenderPass);
+		if (Result != vk::Result::eSuccess)
+			ThrowVulkanError(Result, "Vulkan render pass creation");
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(RenderPass,
 			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("RenderPass"); });
 	}

@@ -65,7 +65,9 @@ namespace Durin::VulkanRHI
 
 		FVulkanDescriptorSetLayoutEntry NewEntry;
 		NewEntry.MetadataReservation = Device.ReserveCacheMetadata(512 + Layout.LayoutBindings.capacity() * sizeof(vk::DescriptorSetLayoutBinding));
-		NewEntry.Handle = Device.GetHandle().createDescriptorSetLayout(CreateInfo);
+		const auto Result = Device.GetHandle().createDescriptorSetLayout(&CreateInfo, nullptr, &NewEntry.Handle);
+		if (Result != vk::Result::eSuccess)
+			ThrowVulkanError(Result, "Vulkan descriptor set layout creation");
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(NewEntry.Handle,
 			[&] { return Device.GetRHI().GetDebugUtils().MakeInternalName("DescriptorSetLayout"); });
 		const auto [InsertedIt, bInserted] = DLayoutMap.emplace(Layout, NewEntry);
