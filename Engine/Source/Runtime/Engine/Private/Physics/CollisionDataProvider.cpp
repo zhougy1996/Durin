@@ -11,11 +11,11 @@ namespace Durin
 				: Data(std::move(InData)), Bytes(InBytes) {}
 			auto GetWorkingSetBytes() const -> uint64 override { return Bytes; }
 			auto Execute(const FAssetBuildTaskContext& Context) const
-				-> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> override
+				-> std::expected<FTriMeshCollisionData, std::string> override
 			{
 				if (Context.IsCancelled()) return {};
 				if (Bytes > Context.MaximumWorkingSetBytes)
-					return std::unexpected(FPhysicsCookFailure{"Collision input exceeds the reservation.", EPhysicsCookStage::Input});
+					return std::unexpected(MakeAssetBuildDiagnostic("Collision input exceeds the reservation.", "Input"));
 				return Data;
 			}
 		private:
@@ -25,13 +25,13 @@ namespace Durin
 	}
 
 	auto IInterface_CollisionDataProvider::CreatePhysicsMeshInputTask() const
-		-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, FPhysicsCookFailure>
+		-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, std::string>
 	{
 		auto Data = GetPhysicsTriMeshData();
 		if (!Data) return std::unexpected(Data.error());
 		FAssetBuildMemoryEstimate Memory{512ull * 1024 * 1024, 1024 * 1024};
 		if (!Memory.Add(Data->Positions.size(), 512) || !Memory.Add(Data->Indices.size(), 192))
-			return std::unexpected(FPhysicsCookFailure{"Collision input exceeds its working-set budget.", EPhysicsCookStage::Input});
+			return std::unexpected(MakeAssetBuildDiagnostic("Collision input exceeds its working-set budget.", "Input"));
 		return std::make_unique<FResidentPhysicsMeshInputTask>(std::move(*Data), Memory.Bytes);
 	}
 

@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "EngineAPI.h"
-#include "Physics/PhysicsCookFailure.h"
+#include "Asset/AssetBuildTaskContext.h"
 
 namespace Durin
 {
@@ -21,10 +21,10 @@ namespace Durin
 		virtual auto ContainsPhysicsTriMeshData() const -> bool = 0;
 		// Owner-thread call returning owned geometry, never deferred execution.
 		virtual auto GetPhysicsTriMeshData() const
-			-> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> = 0;
+			-> std::expected<FTriMeshCollisionData, std::string> = 0;
 		// Durin's asynchronous preparation extension. Default copies actual provider data;
 		// source-backed assets override it to defer I/O and decoding on detached inputs.
 		ENGINE_API virtual auto CreatePhysicsMeshInputTask() const
-			-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, FPhysicsCookFailure>;
+			-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, std::string>;
 	};
 }

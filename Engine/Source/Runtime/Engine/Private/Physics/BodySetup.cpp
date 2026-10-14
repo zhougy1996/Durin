@@ -43,36 +43,31 @@ namespace Durin
 	}
 
 	auto DBodySetup::CreatePhysicsMeshesAsync(const IInterface_CollisionDataProvider& Provider,
-		bool bPersistDerivedData, FOnAsyncPhysicsCookFinished Completion) -> std::expected<void, FPhysicsCookFailure>
+		bool bPersistDerivedData, FOnAsyncPhysicsCookFinished Completion) -> void
 	{
 		InvalidatePhysicsData();
 		if (CollisionSourceMode == EBodySetupCollisionSourceMode::None)
 		{
 			if (Completion) Completion({.Status = EPhysicsCookCompletionStatus::Succeeded});
-			return {};
+			return;
 		}
 		auto Source = Provider.CreatePhysicsMeshInputTask();
 		if (!Source)
 		{
-			FailPhysicsMeshes(PhysicsMeshRequestGeneration, Source.error());
-			return std::unexpected(Source.error());
+			FailPhysicsMeshes(PhysicsMeshRequestGeneration, std::move(Source.error()));
+			const FPhysicsCookCompletionResult Result{.Status = EPhysicsCookCompletionStatus::Failed, .Error = PhysicsMeshError};
+			if (Completion) Completion(Result);
+			return;
 		}
-		const auto Submitted = SubmitPhysicsMeshCompilation(*this, std::move(*Source), bPersistDerivedData, std::move(Completion));
-		if (!Submitted) FailPhysicsMeshes(PhysicsMeshRequestGeneration, Submitted.error());
-		else PhysicsMeshStatus = EPhysicsMeshBuildStatus::Pending;
-		return Submitted;
+		PhysicsMeshStatus = EPhysicsMeshBuildStatus::Pending;
+		SubmitPhysicsMeshCompilation(*this, std::move(*Source), bPersistDerivedData, std::move(Completion));
 	}
 
 	auto DBodySetup::CreatePhysicsMeshes(const IInterface_CollisionDataProvider& Provider,
-		bool bPersistDerivedData) -> std::expected<void, FPhysicsCookFailure>
+		bool bPersistDerivedData) -> void
 	{
-		if (const auto Submitted = CreatePhysicsMeshesAsync(Provider, bPersistDerivedData); !Submitted) return Submitted;
+		CreatePhysicsMeshesAsync(Provider, bPersistDerivedData);
 		FinishPhysicsMeshes();
-		if (PhysicsMeshStatus == EPhysicsMeshBuildStatus::Ready) return {};
-		if (PhysicsMeshError) return std::unexpected(*PhysicsMeshError);
-		if (PhysicsMeshStatus == EPhysicsMeshBuildStatus::Unavailable)
-			return std::unexpected(FPhysicsCookFailure{"Physics mesh creation was cancelled.", EPhysicsCookStage::Cook});
-		return std::unexpected(FPhysicsCookFailure{"Physics mesh creation did not complete.", EPhysicsCookStage::Cook});
 	}
 
 	auto DBodySetup::GetCookInfo(FTriMeshCollisionData Data, bool bPersistDerivedData) const -> FCookBodySetupInfo
@@ -85,20 +80,20 @@ namespace Durin
 	auto DBodySetup::FinishPhysicsMeshes() -> void { FinishPhysicsMeshCompilation(*this); }
 
 	auto DBodySetup::ApplyPhysicsMeshes(uint64 Generation, const FCollisionGeometryRef& Simple,
-		const FCollisionGeometryRef& Complex) -> EPhysicsMeshApplyResult
+		const FCollisionGeometryRef& Complex) -> EPhysicsCookCompletionStatus
 	{
 		if (Generation != PhysicsMeshRequestGeneration || PhysicsMeshStatus != EPhysicsMeshBuildStatus::Pending)
-			return EPhysicsMeshApplyResult::Superseded;
-		if (SetCollisionGeometry(Simple, Complex)) return EPhysicsMeshApplyResult::Applied;
-		FailPhysicsMeshes(Generation, FPhysicsCookFailure{"Could not install physics meshes.", EPhysicsCookStage::Installation});
-		return EPhysicsMeshApplyResult::Failed;
+			return EPhysicsCookCompletionStatus::Superseded;
+		if (SetCollisionGeometry(Simple, Complex)) return EPhysicsCookCompletionStatus::Succeeded;
+		FailPhysicsMeshes(Generation, MakeAssetBuildDiagnostic("Could not install physics meshes.", "Installation"));
+		return EPhysicsCookCompletionStatus::Failed;
 	}
 
-	auto DBodySetup::FailPhysicsMeshes(uint64 Generation, FPhysicsCookFailure Error) -> void
+	auto DBodySetup::FailPhysicsMeshes(uint64 Generation, std::string Error) -> void
 	{
 		if (Generation != PhysicsMeshRequestGeneration) return;
 		PhysicsMeshStatus = EPhysicsMeshBuildStatus::Failed;
-		PhysicsMeshError = std::move(Error);
+		PhysicsMeshError = MakeAssetBuildDiagnostic(std::move(Error));
 	}
 
 	auto DBodySetup::CancelPhysicsMeshes(uint64 Generation) -> void

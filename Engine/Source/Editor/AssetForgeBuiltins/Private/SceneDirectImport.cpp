@@ -661,7 +661,7 @@ auto FAssetImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 				                  Cancellation.IsCancelled()
 				                      ? EImportDiagnosticCategory::Canceled
 				                      : EImportDiagnosticCategory::CandidateFailure,
-				                  "scene-build", Cancellation.IsCancelled() ? "Scene mesh build was cancelled." : Outcome.error().ToString(),
+				                  "scene-build", Cancellation.IsCancelled() ? "Scene mesh build was cancelled." : Outcome.error(),
 				                  Descriptor.StableIdentity);
 				return;
 			}

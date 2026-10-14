@@ -48,8 +48,8 @@ namespace Durin
 #else
 			std::monostate Request;
 #endif
-			std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Outcome =
-				std::unexpected(FStaticMeshBuildFailure{"StaticMesh render build has not started."});
+			std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Outcome =
+				std::unexpected(MakeAssetBuildDiagnostic("StaticMesh render build has not started."));
 			uint64 ReservedBytes = 0;
 			FCancellationToken Cancellation;
 			std::atomic<EWorkPhase> Phase = EWorkPhase::Queued;
@@ -63,11 +63,11 @@ namespace Durin
 				Outcome = BuildStaticMeshRenderData(std::move(Request), Control);
 	#endif
 #else
-				Outcome = std::unexpected(FStaticMeshBuildFailure{"Authored mesh builds require editor-only data."});
+				Outcome = std::unexpected(MakeAssetBuildDiagnostic("Authored mesh builds require editor-only data."));
 #endif
 				if (Control.IsCancelled()) Outcome = std::unique_ptr<FStaticMeshRenderData>{};
 			}
-			auto Fail(std::string Message) -> void { Outcome = std::unexpected(FStaticMeshBuildFailure{std::move(Message)}); }
+			auto Fail(std::string Message) -> void { Outcome = std::unexpected(MakeAssetBuildDiagnostic(std::move(Message))); }
 			auto ReleaseInput() -> void { Request = {}; }
 			auto ReleaseOutput() -> void { Outcome = std::unique_ptr<FStaticMeshRenderData>{}; }
 		};
@@ -474,7 +474,7 @@ namespace Durin
 			else if (!Record->Work->Outcome)
 			{
 				Record->Terminal = EStaticMeshCompilationStatus::Failed;
-				Record->Diagnostic.Error = Record->Work->Outcome.error().ToString();
+				Record->Diagnostic.Error = Record->Work->Outcome.error();
 			}
 			else
 			{

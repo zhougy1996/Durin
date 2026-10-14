@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "EngineAPI.h"
-#include "Physics/PhysicsCookFailure.h"
+#include "Asset/AssetBuildTaskContext.h"
 #include "DObject/DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
 #include "BodySetupTypes.gen.h"
@@ -32,10 +32,9 @@ namespace Durin
 	{
 		EPhysicsCookCompletionStatus Status = EPhysicsCookCompletionStatus::Failed;
 		// Present only for Failed; cancellation and supersession are terminal states.
-		std::optional<FPhysicsCookFailure> Error;
+		std::optional<std::string> Error;
 	};
 	using FOnAsyncPhysicsCookFinished = std::function<void(const FPhysicsCookCompletionResult&)>;
-	enum class EPhysicsMeshApplyResult : uint8 { Applied, Superseded, Failed };
 
 	enum class EPhysicsMeshBuildStatus : uint8 { Unavailable, Pending, Ready, Failed };
 }

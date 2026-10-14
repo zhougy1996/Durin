@@ -237,10 +237,10 @@ diagnostics. Failed results contain no key
 or partial bytes; execution boundaries format explicitly. Private cache codecs return a rejection message to the
 cache boundary, where decode rejection triggers rebuilding. Public payload validators
 retain typed failures for cooked loading and other non-cache callers. Public derived-data builds return
-`std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>` or
-`std::expected<FPhysicsCookResult, FPhysicsCookFailure>`.
+`std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string>` or
+`std::expected<FPhysicsCookResult, std::string>`.
 Render data is returned with unique ownership; failure and cancellation return no product.
-Render construction uses `FStaticMeshBuildFailure`: ordinary failure text capped
+Render construction returns ordinary failure text capped
 at 4096 bytes. Cancellation is recorded in the shared invocation token, never in
 the error. Cancelled synchronous construction returns an empty product; callers
 check the token before inspecting the result or publishing it. Application and resource
@@ -250,7 +250,8 @@ Cooked publication errors retain owned diagnostic text rather than a shared fail
 wrapper. Lower-level source, construction, codec and validation errors are formatted
 at the pipeline boundary; completion diagnostics retain only ordinary failure text.
 There is no per-layer error enumeration or nested completion cause tree.
-Physics preparation, cooking and installation use `FPhysicsCookFailure` independently.
+Physics preparation, cooking and installation also use bounded diagnostic strings,
+with the failure stage recorded in text.
 Both pipelines log recoverable cache problems once at execution, with function,
 key, operation and bounded original cause. Results and completion records carry no
 cache warning lists. Clean hits and misses produce no warning records.
@@ -313,8 +314,8 @@ installed only on success. Geometry first passes `FStaticMeshSource::Initialize`
 stays in Scene's direct prepared transaction, independently of compilation requests.
 Import saving reports its own result and does not modify compilation history.
 
-`FStaticMeshBuildFailure` and `FPhysicsCookFailure` carry ordinary failure details
-and have no cancellation marker. `FAssetBuildTaskContext::Cancellation` is a Core
+Ordinary failure channels carry diagnostic strings without wrappers or cancellation
+markers. `FAssetBuildTaskContext::Cancellation` is a Core
 `FCancellationToken`; copies share a monotonic atomic flag. Observers bridge existing
 caller, scheduler and request-owner cancellation into that same flag. DDC request
 options, build contexts, CPU assembly and import sessions preserve the token. A

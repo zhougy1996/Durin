@@ -39,10 +39,10 @@ namespace Durin
 	{
 	public:
 		ENGINE_API static auto Capture(FCookBodySetupInfo Info, const FAssetBuildTaskContext& Context = {})
-			-> std::expected<FPhysicsCookInput, FPhysicsCookFailure>;
+			-> std::expected<FPhysicsCookInput, std::string>;
 		ENGINE_API static auto CookCaptured(const FPhysicsCookInput& Input, const FAssetBuildTaskContext& Context = {})
-			-> std::expected<FPhysicsCookResult, FPhysicsCookFailure>;
+			-> std::expected<FPhysicsCookResult, std::string>;
 		ENGINE_API static auto Cook(const FCookBodySetupInfo& Info, const FAssetBuildTaskContext& Context = {})
-			-> std::expected<FPhysicsCookResult, FPhysicsCookFailure>;
+			-> std::expected<FPhysicsCookResult, std::string>;
 	};
 }

@@ -77,7 +77,7 @@ namespace Durin::PhysicsPrivate
 					return Fail("Physics source arrays are malformed.");
 				const auto PositionCount = Positions->size() / sizeof(FVector3f), IndexCount = Indices->size() / sizeof(uint32);
 				if (auto Valid = CheckCookInput(PositionCount, IndexCount, Config->Mode, Config->Policy, std::numeric_limits<uint64>::max()); !Valid)
-					return Fail(Valid.error().ToString());
+					return Fail(Valid.error());
 				const auto Identity = HashInput(Positions->GetBytes(), Indices->GetBytes(), Cancel);
 				if (!Identity) return Fail(Cancelled().Description);
 				if (*Identity != Input->Identity.Identity) return Fail("Physics source semantic identity is invalid.");

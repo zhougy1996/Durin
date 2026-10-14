@@ -36,10 +36,6 @@ namespace Durin
 
 #endif
 
-	FStaticMeshBuildFailure::FStaticMeshBuildFailure(std::string InMessage)
-		: Message(InMessage.substr(0, MaximumStaticMeshBuildDiagnosticBytes))
-	{}
-
 #if DURIN_WITH_EDITORONLY_DATA
 	auto DStaticMesh::Build(EStaticMeshBuildMode Mode, FStaticMeshBuildOptions Options)
 		-> std::expected<void, std::string>
@@ -65,7 +61,7 @@ namespace Durin
 		auto Render = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(Slots, Snapshot.NormalizedSize), .Source = Request.Source,
 			.bPersistDerivedData = Request.bPersistDerivedData}, Control);
 		if (Control.IsCancelled()) return std::unexpected(std::string("StaticMesh construction was cancelled."));
-		if (!Render) return std::unexpected(Render.error().ToString());
+		if (!Render) return std::unexpected(Render.error());
 		if (const auto Applied = CommitStaticMeshBuild(Mesh, std::move(*Render), Request.Source, Snapshot,
 			Request.bMarkPackageDirty, nullptr,
 			Request.PreparedMaterialSlots ? &*Request.PreparedMaterialSlots : nullptr, Request.bPersistDerivedData); !Applied)

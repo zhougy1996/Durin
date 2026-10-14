@@ -20,12 +20,12 @@ namespace Durin
 		std::function<void()> CompletionHookForTests;
 
 		auto CheckRenderPreparationBudget(const FStaticMeshRenderData& Render, const FAssetBuildTaskContext& Control)
-			-> std::expected<void, FStaticMeshBuildFailure>
+			-> std::expected<void, std::string>
 		{
-			const auto Fail = [](FStaticMeshBuildFailure Error) { return std::unexpected(std::move(Error)); };
+			const auto Fail = [](std::string Error) { return std::unexpected(std::move(Error)); };
 			const auto BudgetFailure = [&](std::string_view Reason, const FAssetBuildMemoryEstimate& Memory) {
-				return Fail(FStaticMeshBuildFailure{std::format("{} Limit {}, accumulated {}, rejected {} x {} bytes.",
-					Reason, Memory.Limit, Memory.Bytes, Memory.RejectedCount, Memory.RejectedWidth)});
+				return Fail(MakeAssetBuildDiagnostic(std::format("{} Limit {}, accumulated {}, rejected {} x {} bytes.",
+					Reason, Memory.Limit, Memory.Bytes, Memory.RejectedCount, Memory.RejectedWidth)));
 			};
 			FAssetBuildMemoryEstimate Memory{Control.MaximumWorkingSetBytes};
 			if (!Memory.Add(1, 1024 * 1024) || !Memory.Add(Render.MaterialSlots.capacity(), 32768)
@@ -73,20 +73,20 @@ namespace Durin
 	namespace StaticMeshPrivate
 	{
 		auto ValidateRenderRequest(const FStaticMeshBuildRequest& Request, const FAssetBuildTaskContext& Control)
-			-> std::expected<void, FStaticMeshBuildFailure>
+			-> std::expected<void, std::string>
 		{
 			if (Control.IsCancelled()) return {};
 			if (!Request.Source.IsValid() || !std::isfinite(Request.Settings.NormalizedSize)
 				|| Request.Settings.NormalizedSize <= 0)
-				return std::unexpected(FStaticMeshBuildFailure{"StaticMesh render source or normalization is invalid."});
+				return std::unexpected(MakeAssetBuildDiagnostic("StaticMesh render source or normalization is invalid."));
 			FAssetBuildMemoryEstimate SourceMemory{Control.MaximumWorkingSetBytes};
 			if (!SourceMemory.Add(Request.Source.GetGeometryBulk().GetPayloadSize(), 8)
 				|| !SourceMemory.Add(Request.Source.GetMeshCount(), sizeof(FMeshDescriptionSection))
 				|| !SourceMemory.Add(Request.Source.GetMaterialSlotCount(), 32768)
 				|| !SourceMemory.Add(Request.Settings.MaterialSlots.size(), 32768))
-				return std::unexpected(FStaticMeshBuildFailure{"StaticMesh decoded source exceeds its reservation."});
+				return std::unexpected(MakeAssetBuildDiagnostic("StaticMesh decoded source exceeds its reservation."));
 			if (Request.Settings.MaterialSlots.size() > MaximumMeshMaterialSlots)
-				return std::unexpected(FStaticMeshBuildFailure{"StaticMesh material-slot input exceeds the slot limit."});
+				return std::unexpected(MakeAssetBuildDiagnostic("StaticMesh material-slot input exceeds the slot limit."));
 			std::unordered_set<FName> SlotNames;
 			std::unordered_set<uint32> SourceIndices;
 			for (const auto& Slot : Request.Settings.MaterialSlots)
@@ -94,7 +94,7 @@ namespace Durin
 				if (Slot.Name.IsNone() || !SlotNames.insert(Slot.Name).second
 					|| Slot.SourceName.size() > 4096 || !SourceIndices.insert(Slot.SourceMaterialIndex).second
 					)
-					return std::unexpected(FStaticMeshBuildFailure{"StaticMesh requires bounded, uniquely named material slots with unambiguous source indices."});
+					return std::unexpected(MakeAssetBuildDiagnostic("StaticMesh requires bounded, uniquely named material slots with unambiguous source indices."));
 			}
 			return {};
 		}
@@ -124,13 +124,13 @@ namespace Durin
 				if (!Completion.GetDiagnostic().empty()) Description = Completion.GetDiagnostic();
 				if (const auto* Output = Completion.GetOutput(); Output && !Output->GetMessages().empty()) Description = Output->GetMessages().back().Text;
 				else if (const auto* Output = Completion.GetOutput(); Output && !Output->GetLogs().empty()) Description = Output->GetLogs().back().Text;
-				return std::unexpected(FStaticMeshBuildFailure{std::move(Description)});
+				return std::unexpected(MakeAssetBuildDiagnostic(std::move(Description)));
 			}
 			auto Product = StaticMeshPrivate::AssembleSharedOutput(*Completion.GetOutput(), IsCancelled);
 			if (IsCancelled()) return {};
-			if (!Product) return std::unexpected(FStaticMeshBuildFailure{std::move(Product.error())});
+			if (!Product) return std::unexpected(MakeAssetBuildDiagnostic(std::move(Product.error())));
 			if (auto Metadata = RestoreRuntimeMetadata(Settings.MaterialSlots, **Product); !Metadata)
-				return std::unexpected(FStaticMeshBuildFailure{std::move(Metadata.error())});
+				return std::unexpected(MakeAssetBuildDiagnostic(std::move(Metadata.error())));
 			if (auto Budget = CheckRenderPreparationBudget(**Product, Control); !Budget) return std::unexpected(std::move(Budget.error()));
 			if (!StaticMeshPrivate::PrepareRenderRayQueries(**Product, Control.Cancellation.WithObserver([Control] { return Control.IsCancelled(); })))
 				return {};
@@ -138,18 +138,18 @@ namespace Durin
 		}
 		auto DispatchRenderBuild(FStaticMeshBuildRequest& Request, uint64 BuilderVersion,
 			DerivedData::IRequestOwner& Owner, FCancellationToken Cancellation, uint64 MaximumWorkingSetBytes,
-			DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, FStaticMeshBuildFailure>
+			DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>
 		{
 			const FAssetBuildTaskContext Control{.Cancellation = Cancellation, .MaximumWorkingSetBytes = MaximumWorkingSetBytes};
 			if (Control.IsCancelled()) return {};
 			if (auto Validation = ValidateRenderRequest(Request, Control); !Validation) return Validation;
 			auto Definition = MakeStaticMeshSessionDefinition(uint32(Request.Settings.MaterialSlots.size()), BuilderVersion);
-			if (!Definition) return std::unexpected(FStaticMeshBuildFailure{"StaticMesh build definition is invalid."});
+			if (!Definition) return std::unexpected(MakeAssetBuildDiagnostic("StaticMesh build definition is invalid."));
 			auto Options = MakeRenderOptions(Request.bPersistDerivedData, MaximumWorkingSetBytes, std::move(Cancellation));
 			Options.InputResolver = MakeRenderInputResolver(Request);
 			Request.Source.ReleaseGeometry();
 			auto Session = Sessions.Get(DerivedData::EBuildCacheExecution::Task);
-			if (!Session) return std::unexpected(FStaticMeshBuildFailure{Session.error().Description});
+			if (!Session) return std::unexpected(MakeAssetBuildDiagnostic(Session.error().Description));
 			std::function<void()> CompletionHook;
 			{
 				std::lock_guard Lock(CompletionHookMutex);
@@ -164,7 +164,7 @@ namespace Durin
 				};
 			}
 			auto Admitted = (*Session)->Build(std::move(*Definition), Owner, std::move(Completion), {}, std::move(Options));
-			if (!Admitted) return std::unexpected(FStaticMeshBuildFailure{Admitted.error().Description});
+			if (!Admitted) return std::unexpected(MakeAssetBuildDiagnostic(Admitted.error().Description));
 			return {};
 		}
 	}
@@ -196,7 +196,7 @@ namespace Durin
 
 #if DURIN_WITH_EDITORONLY_DATA
 	auto BuildStaticMeshRenderData(FStaticMeshBuildRequest Request,
-		const FAssetBuildTaskContext& Control) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>
+		const FAssetBuildTaskContext& Control) -> std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string>
 	{
 #if DURIN_WITH_EDITOR
 		if (Control.IsCancelled()) return {};
@@ -206,20 +206,20 @@ namespace Durin
 		const auto IsCancelled = [&] { return Control.IsCancelled(); };
 		if (IsCancelled()) return {};
 #if !DURIN_WITH_EDITOR
-		return std::unexpected(FStaticMeshBuildFailure{"StaticMesh build orchestration is unavailable outside editor builds."});
+		return std::unexpected(MakeAssetBuildDiagnostic("StaticMesh build orchestration is unavailable outside editor builds."));
 #else
 		const auto* Module = IMeshBuilderModule::Get();
-		if (!Module) return std::unexpected(FStaticMeshBuildFailure{"The MeshBuilder module is unavailable."});
+		if (!Module) return std::unexpected(MakeAssetBuildDiagnostic("The MeshBuilder module is unavailable."));
 		auto Definition = MakeStaticMeshSessionDefinition(uint32(Request.Settings.MaterialSlots.size()), Module->GetBuildVersion());
-		if (!Definition) return std::unexpected(FStaticMeshBuildFailure{
-			"StaticMesh build definition is invalid."});
+		if (!Definition) return std::unexpected(MakeAssetBuildDiagnostic(
+			"StaticMesh build definition is invalid."));
 		auto Inputs = StaticMeshPrivate::MakeRenderInputResolver(Request);
 		// The resolver retains canonical bulk, not the request's optional decoded residency.
 		Request.Source.ReleaseGeometry();
 		auto Options = StaticMeshPrivate::MakeRenderOptions(Request.bPersistDerivedData, Control.MaximumWorkingSetBytes, Control.Cancellation.WithObserver([Control] { return Control.IsCancelled(); }));
 		auto Built = Sessions.Build(std::move(*Definition), std::move(Inputs), std::move(Options));
-		if (!Built) return std::unexpected(FStaticMeshBuildFailure{
-			Built.error().Description});
+		if (!Built) return std::unexpected(MakeAssetBuildDiagnostic(
+			Built.error().Description));
 		return StaticMeshPrivate::ConsumeRenderBuild(Request.Settings, std::move(*Built), Control);
 #endif
 	}

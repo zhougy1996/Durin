@@ -6,6 +6,23 @@
 
 namespace Durin
 {
+	inline constexpr size_t MaximumAssetBuildDiagnosticBytes = 4096;
+	// Ordinary failures carry bounded owned text; cancellation stays in the token.
+	inline auto MakeAssetBuildDiagnostic(std::string_view Message, std::string_view Stage = {}) -> std::string
+	{
+		const auto PrefixBytes = Stage.empty() ? size_t{0} : std::min(Stage.size(), MaximumAssetBuildDiagnosticBytes - 2) + 2;
+		const auto MessageBytes = std::min(Message.size(), MaximumAssetBuildDiagnosticBytes - PrefixBytes);
+		std::string Diagnostic;
+		Diagnostic.reserve(PrefixBytes + MessageBytes);
+		if (PrefixBytes)
+		{
+			Diagnostic.append(Stage.substr(0, PrefixBytes - 2));
+			Diagnostic.append(": ");
+		}
+		Diagnostic.append(Message.substr(0, MessageBytes));
+		return Diagnostic;
+	}
+
 	// Worker-local observations; no concurrent access is permitted during an invocation.
 	struct FAssetBuildTaskMetrics
 	{

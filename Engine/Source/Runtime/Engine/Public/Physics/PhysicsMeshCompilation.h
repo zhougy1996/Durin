@@ -28,7 +28,7 @@ namespace Durin
 	}
 	// Engine-owned scheduling backend; BodySetup owns the resource lifecycle.
 	ENGINE_API auto SubmitPhysicsMeshCompilation(DBodySetup& Body, std::unique_ptr<FPhysicsMeshInputTask> InputTask,
-		bool bPersistDerivedData, FOnAsyncPhysicsCookFinished Completion) -> std::expected<void, FPhysicsCookFailure>;
+		bool bPersistDerivedData, FOnAsyncPhysicsCookFinished Completion) -> void;
 	ENGINE_API auto CancelPhysicsMeshCompilation(DBodySetup& Body) -> void;
 	ENGINE_API auto FinishPhysicsMeshCompilation(DBodySetup& Body) -> void;
 }

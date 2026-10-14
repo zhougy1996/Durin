@@ -44,15 +44,15 @@ namespace Durin
 				: Source(std::move(InSource)), Size(InSize), Bytes(InBytes) { Source.ReleaseGeometry(); }
 			auto GetWorkingSetBytes() const -> uint64 override { return Bytes; }
 			auto Execute(const FAssetBuildTaskContext& Control) const
-				-> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> override
+				-> std::expected<FTriMeshCollisionData, std::string> override
 			{
 				if (Control.IsCancelled()) return {};
 				if (Bytes > Control.MaximumWorkingSetBytes)
-					return std::unexpected(FPhysicsCookFailure{"Collision preparation exceeds the reservation.", EPhysicsCookStage::Input});
+					return std::unexpected(MakeAssetBuildDiagnostic("Collision preparation exceeds the reservation.", "Input"));
 				const auto Cancelled = [&] { return Control.IsCancelled(); };
 				const auto Geometry = Source.AcquireGeometry(Cancelled);
 				if (Cancelled()) return {};
-				if (!Geometry) return std::unexpected(FPhysicsCookFailure{FormatStaticMeshSourceError(Geometry.error()), EPhysicsCookStage::Input});
+				if (!Geometry) return std::unexpected(MakeAssetBuildDiagnostic(FormatStaticMeshSourceError(Geometry.error()), "Input"));
 				FTriMeshCollisionData Data;
 				FAssetBuildMemoryEstimate Budget{Control.MaximumWorkingSetBytes, 1024 * 1024};
 				uint64 VertexCount = 0, IndexCount = 0;
@@ -63,7 +63,7 @@ namespace Durin
 					VertexCount += Mesh.Positions.size(); IndexCount += Mesh.Indices.size();
 					if (!Budget.Add(Mesh.Positions.size(), 512) || !Budget.Add(Mesh.Indices.size(), 192)
 						|| VertexCount > std::numeric_limits<uint32>::max() || IndexCount > std::numeric_limits<uint32>::max())
-						return std::unexpected(FPhysicsCookFailure{"Collision input exceeds the reservation.", EPhysicsCookStage::Input});
+						return std::unexpected(MakeAssetBuildDiagnostic("Collision input exceeds the reservation.", "Input"));
 				}
 				Data.Positions.reserve(VertexCount); Data.Indices.reserve(IndexCount);
 				FBox Bounds;
@@ -85,7 +85,7 @@ namespace Durin
 				}
 				const auto Normalization = GetStaticMeshPositionNormalization(Bounds, Size);
 				if (!Normalization)
-					return std::unexpected(FPhysicsCookFailure{"Collision source has invalid normalization bounds.", EPhysicsCookStage::Input});
+					return std::unexpected(MakeAssetBuildDiagnostic("Collision source has invalid normalization bounds.", "Input"));
 				for (auto& Position : Data.Positions)
 				{
 					if ((++Work % 256) == 0 && Cancelled()) return {};
@@ -104,14 +104,14 @@ namespace Durin
 #endif
 
 	auto DStaticMesh::CreatePhysicsMeshInputTask() const
-		-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, FPhysicsCookFailure>
+		-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, std::string>
 	{
 #if DURIN_WITH_EDITORONLY_DATA
 		const auto& Source = GetSource();
 		if (!Source.IsValid()) return IInterface_CollisionDataProvider::CreatePhysicsMeshInputTask();
 		FAssetBuildMemoryEstimate Memory{512ull * 1024 * 1024, 1024 * 1024};
 		if (!Memory.Add(Source.GetGeometryBulk().GetPayloadSize(), 64) || !Memory.Add(Source.GetMeshCount(), 1024))
-			return std::unexpected(FPhysicsCookFailure{"Collision source exceeds its working-set budget.", EPhysicsCookStage::Input});
+			return std::unexpected(MakeAssetBuildDiagnostic("Collision source exceeds its working-set budget.", "Input"));
 		return std::make_unique<FStaticMeshPhysicsInputTask>(Source, NormalizedSize, Memory.Bytes);
 #else
 		return IInterface_CollisionDataProvider::CreatePhysicsMeshInputTask();
@@ -119,7 +119,7 @@ namespace Durin
 	}
 
 	auto DStaticMesh::GetPhysicsTriMeshData() const
-		-> std::expected<FTriMeshCollisionData, FPhysicsCookFailure>
+		-> std::expected<FTriMeshCollisionData, std::string>
 	{
 #if DURIN_WITH_EDITORONLY_DATA
 		const auto& Source = GetSource();
@@ -138,10 +138,10 @@ namespace Durin
 			const auto& Indices = LOD.IndexBuffer.GetIndices();
 			FAssetBuildMemoryEstimate Memory{512ull * 1024 * 1024, 1024 * 1024};
 			if (!Memory.Add(Positions.size(), 512) || !Memory.Add(Indices.size(), 192))
-				return std::unexpected(FPhysicsCookFailure{"Collision input exceeds its working-set budget.", EPhysicsCookStage::Input});
+				return std::unexpected(MakeAssetBuildDiagnostic("Collision input exceeds its working-set budget.", "Input"));
 			return FTriMeshCollisionData{{Positions.begin(), Positions.end()}, {Indices.begin(), Indices.end()}};
 		}
-		return std::unexpected(FPhysicsCookFailure{"No collision source is available.", EPhysicsCookStage::Input});
+		return std::unexpected(MakeAssetBuildDiagnostic("No collision source is available.", "Input"));
 	}
 
 	auto DStaticMesh::GetBodySetup() const -> DBodySetup*
@@ -236,7 +236,7 @@ namespace Durin
 	{
 		if (!BodySetup || BodySetup->GetCollisionSourceMode() == EBodySetupCollisionSourceMode::None) return;
 		if (bAllowUnavailable && !ContainsPhysicsTriMeshData()) return;
-		static_cast<void>(BodySetup->CreatePhysicsMeshesAsync(*this, bPersistDerivedData));
+		BodySetup->CreatePhysicsMeshesAsync(*this, bPersistDerivedData);
 	}
 
 	auto DStaticMesh::GetCollisionBuildStatus() const -> EPhysicsMeshBuildStatus
@@ -244,9 +244,9 @@ namespace Durin
 		return BodySetup ? BodySetup->GetPhysicsMeshBuildStatus() : EPhysicsMeshBuildStatus::Ready;
 	}
 
-	auto DStaticMesh::GetCollisionBuildError() const -> const std::optional<FPhysicsCookFailure>&
+	auto DStaticMesh::GetCollisionBuildError() const -> const std::optional<std::string>&
 	{
-		static const std::optional<FPhysicsCookFailure> NoError;
+		static const std::optional<std::string> NoError;
 		return BodySetup ? BodySetup->GetPhysicsMeshBuildError() : NoError;
 	}
 

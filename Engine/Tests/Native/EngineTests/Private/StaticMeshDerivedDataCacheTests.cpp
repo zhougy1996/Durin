@@ -259,7 +259,7 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	FStaticMeshBuildRequest Request{
 		.Settings = MakeStaticMeshBuildSettings(Fixture.Mesh->GetMaterialSlots(), Fixture.Mesh->GetNormalizedSize()),
 		.Source = Fixture.Mesh->GetSource()};
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Product;
+	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Product;
 	FCacheLogCapture RenderCacheLog;
 	std::string Error;
 	// The runtime loader carries only authored metadata until a cache miss.
@@ -278,11 +278,11 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	Request.Settings.MaterialSlots.clear();
 	EXPECT_FALSE(BuildStaticMeshRenderData(Request));
 
-	std::expected<FPhysicsCookResult, FPhysicsCookFailure> ColdCollision;
+	std::expected<FPhysicsCookResult, std::string> ColdCollision;
 	ASSERT_TRUE((ColdCollision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(
 		*Fixture.Mesh->GetRenderData(), EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex)))) << Error;
-	std::expected<FPhysicsCookResult, FPhysicsCookFailure> Collision;
+	std::expected<FPhysicsCookResult, std::string> Collision;
 	CollisionLog.Reset();
 	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
@@ -327,7 +327,7 @@ TEST(FStaticMeshDerivedDataCacheTests, InvalidDetachedReplacementInvalidatesLive
 	ASSERT_NE(Fixture.Mesh, nullptr);
 	const FXxHash128 ImportedIdentity = Fixture.Mesh->GetSource().GetIdentity();
 	const uint64 Revision = Fixture.Mesh->GetRenderResourceStatus().Revision;
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Result;
+	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Result;
 	std::string Error;
 	ASSERT_TRUE((Result = BuildRenderForTest({
 		.Settings = MakeStaticMeshBuildSettings(Fixture.Mesh->GetMaterialSlots(), Fixture.Mesh->GetNormalizedSize()),
@@ -445,7 +445,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 	Fixture.Mesh->SetCollisionSourceMode(Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Fixture.Mesh);
 	ASSERT_EQ(Fixture.Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Ready)
-		<< (Fixture.Mesh->GetCollisionBuildError() ? Fixture.Mesh->GetCollisionBuildError()->ToString() : std::string{});
+		<< (Fixture.Mesh->GetCollisionBuildError() ? *Fixture.Mesh->GetCollisionBuildError() : std::string{});
 	ASSERT_NE(Fixture.Mesh->GetBodySetup(), nullptr);
 	Durin::FCollisionGeometryRef AuthoredGeometry;
 	ASSERT_TRUE(Fixture.Mesh->GetBodySetup()->BuildComplexGeometry(AuthoredGeometry));
@@ -1033,7 +1033,7 @@ TEST(FStaticMeshSourceResidencyTests, WarmCacheSkipsUnreadableBulkAndMissReturns
 	FStaticMeshBuildRequest Request{.Settings = MakeStaticMeshBuildSettings(Fixture.Mesh->GetMaterialSlots(), Fixture.Mesh->GetNormalizedSize()),
 		.Source = Fixture.Mesh->GetSource()};
 	const auto Resource = AttachResidencyProbe(Request.Source, true);
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Product;
+	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Product;
 	FCacheLogCapture RenderCacheLog;
 	std::string Error;
 	ASSERT_TRUE((Product = BuildRenderForTest(Request, {}, &RenderCacheLog))) << Error;
@@ -1041,7 +1041,7 @@ TEST(FStaticMeshSourceResidencyTests, WarmCacheSkipsUnreadableBulkAndMissReturns
 	ASSERT_TRUE(std::filesystem::remove(GetObjectPath(Fixture, GetStaticMeshKey(*Fixture.Mesh))));
 	const auto& FailedRead = (Product = BuildRenderForTest(Request, {}, &RenderCacheLog));
 	EXPECT_FALSE(FailedRead);
-	EXPECT_FALSE(FailedRead.error().ToString().empty());
+	EXPECT_FALSE(FailedRead.error().empty());
 	EXPECT_EQ(Resource->GetReadStats().RequestCount, 1u);
 	EXPECT_FALSE(Request.Source.IsGeometryResident());
 	EXPECT_FALSE((Product = BuildRenderForTest(Request, {}, &RenderCacheLog)));
@@ -1188,7 +1188,7 @@ TEST(FAssetBuildCancellationTests, CopiesAndObserversShareMonotonicCancellation)
 TEST(FStaticMeshAuthoredCompilationTests, CancellationTokenDiscardsProducts)
 {
 	using namespace Durin;
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Render;
+	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Render;
 	std::string Error;
 	const Durin::FAssetBuildTaskContext RenderControl{.Cancellation = [] { return true; }};
 	const auto& Cancelled = (Render = BuildRenderForTest({},
@@ -1200,9 +1200,9 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationTokenDiscardsProducts)
 	const auto& Invalid = (Render = BuildRenderForTest({}));
 	ASSERT_FALSE(Invalid);
 
-	EXPECT_FALSE(Invalid.error().ToString().empty());
+	EXPECT_FALSE(Invalid.error().empty());
 
-	std::expected<FPhysicsCookResult, FPhysicsCookFailure> Collision;
+	std::expected<FPhysicsCookResult, std::string> Collision;
 	FStaticMeshRenderData EmptyRender;
 	uint32 Checks = 0;
 	const Durin::FAssetBuildTaskContext CollisionProbeControl{.Cancellation = [&] { return ++Checks == 2; }};
@@ -1242,7 +1242,7 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationInterruptsGeometryLoops)
 	for (const uint64 StopAt : {8ull, 32ull, 128ull})
 	{
 		FAssetBuildTaskMetrics Metrics;
-		std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Product;
+		std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Product;
 		const Durin::FAssetBuildTaskContext Control{.Cancellation = [&] { return Metrics.CancellationCheckpoints >= StopAt; },
 				.Metrics = &Metrics};
 		const auto& Outcome = (Product = BuildRenderForTest(
@@ -1279,12 +1279,12 @@ TEST(FStaticMeshAuthoredCompilationTests, PreparedRenderPublishesWithoutRebuildi
 	ASSERT_TRUE(SynchronousBuild1) << SynchronousBuild1.error();
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
-		<< (Mesh->GetCollisionBuildError() ? Mesh->GetCollisionBuildError()->ToString() : std::string{});
+		<< (Mesh->GetCollisionBuildError() ? *Mesh->GetCollisionBuildError() : std::string{});
 	Mesh->GetBodySetup()->FinishPhysicsMeshes();
 	const auto PhysicsRevision = Mesh->GetBodySetup()->GetRevision();
 	const auto Snapshot = CaptureStaticMeshReconciliation(*Mesh);
 	auto Built = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(Snapshot.MaterialSlots, Snapshot.NormalizedSize), .Source = Mesh->GetSource()});
-	ASSERT_TRUE(Built) << Built.error().ToString();
+	ASSERT_TRUE(Built) << Built.error();
 	auto Candidate = std::move(*Built);
 	const auto Ray = Candidate->LODResources.front().RayQueryAcceleration;
 	ASSERT_NE(Ray, nullptr);
@@ -1308,7 +1308,7 @@ TEST(FStaticMeshAuthoredCompilationTests, StaleRenderPreservesLiveState)
 	ASSERT_TRUE(FStaticMeshTestAccess::Build(Mesh, MakeResidencyGeometry()));
 	const auto Snapshot = CaptureStaticMeshReconciliation(*Mesh);
 	auto Built = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(Snapshot.MaterialSlots, Snapshot.NormalizedSize), .Source = Mesh->GetSource()});
-	ASSERT_TRUE(Built) << Built.error().ToString();
+	ASSERT_TRUE(Built) << Built.error();
 	auto Candidate = std::move(*Built);
 	ASSERT_TRUE(Mesh->RenameMaterialSlot(0, FName("Changed")));
 	const auto* Original = Mesh->GetRenderData();
@@ -1345,7 +1345,7 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationAbandonsDecodeAndRayScratc
 	EXPECT_FALSE(Source.IsGeometryResident());
 	EXPECT_EQ(Checks, 8u);
 	ASSERT_TRUE(Source.AcquireGeometry().value()) << Error;
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Render;
+	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Render;
 	FCacheLogCapture RenderCacheLog;
 	ASSERT_TRUE((Render = BuildRenderForTest({.Source = Source}, {}, &RenderCacheLog)));
 	for (const uint32 StopAt : {1u, 16u, 64u})
@@ -1363,7 +1363,7 @@ TEST(FStaticMeshAuthoredCompilationTests, CacheWarningsDoNotFailBuild)
 	FStaticMeshSource Source;
 	std::string Error;
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Render;
+	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Render;
 	FCacheLogCapture RenderCacheLog;
 
 	FScopedDerivedDataCacheRestore RestoreCache;
@@ -1397,10 +1397,10 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationDiscardsPayloadAndFinaliza
 	std::string Error;
 	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(std::move(Input)));
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Render;
+	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Render;
 	FCacheLogCapture RenderCacheLog;
 	ASSERT_TRUE((Render = BuildRenderForTest({.Source = Source}, {}, &RenderCacheLog))) << Error;
-	std::expected<FPhysicsCookResult, FPhysicsCookFailure> Collision;
+	std::expected<FPhysicsCookResult, std::string> Collision;
 	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*(*Render),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex)))) << Error;
@@ -1804,7 +1804,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerDiscardsSourceMutationAndAccept
 	ASSERT_TRUE(Initial->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source}));
 	Initial->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_NE(Initial->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
-		<< (Initial->GetCollisionBuildError() ? Initial->GetCollisionBuildError()->ToString() : std::string{});
+		<< (Initial->GetCollisionBuildError() ? *Initial->GetCollisionBuildError() : std::string{});
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Initial);
 	FCollisionGeometryRef Collision;
 	ASSERT_NE(nullptr, Initial->GetBodySetup());
@@ -1938,10 +1938,10 @@ TEST(FStaticMeshAuthoredCompilationTests, InitialMutationRequeuesAtCapacityAndEx
 	ASSERT_TRUE(Barrier.Wait(2));
 	Meshes[0]->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_NE(Meshes[0]->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
-		<< (Meshes[0]->GetCollisionBuildError() ? Meshes[0]->GetCollisionBuildError()->ToString() : std::string{});
+		<< (Meshes[0]->GetCollisionBuildError() ? *Meshes[0]->GetCollisionBuildError() : std::string{});
 	Meshes[1]->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_NE(Meshes[1]->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
-		<< (Meshes[1]->GetCollisionBuildError() ? Meshes[1]->GetCollisionBuildError()->ToString() : std::string{});
+		<< (Meshes[1]->GetCollisionBuildError() ? *Meshes[1]->GetCollisionBuildError() : std::string{});
 	Meshes[1]->CancelCompilation();
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_EQ(32u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().OutstandingRecords);
@@ -2166,7 +2166,7 @@ TEST(FStaticMeshPayloadInspectionTests, AuthoredAndCookedMetadataDoesNotDependOn
 	std::string Error;
 	Fixture.Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_NE(Fixture.Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
-		<< (Fixture.Mesh->GetCollisionBuildError() ? Fixture.Mesh->GetCollisionBuildError()->ToString() : std::string{});
+		<< (Fixture.Mesh->GetCollisionBuildError() ? *Fixture.Mesh->GetCollisionBuildError() : std::string{});
 	const auto CookRoot = std::filesystem::absolute(Fixture.Root / "Cook");
 	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	ASSERT_TRUE(ContributeEngineCookAsset(*Fixture.Mesh, "/Game/InspectionMesh", Context)) << Error;
@@ -2238,7 +2238,7 @@ TEST(FStaticMeshReplacementTests, FailureDropsDerivedDataAndValidSourceCanBeRebu
 	EXPECT_EQ(Mesh->GetNormalizedSize(), 2.0f);
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Product;
+	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Product;
 	ASSERT_TRUE((Product = BuildRenderForTest({
 		.Settings = MakeStaticMeshBuildSettings(Mesh->GetMaterialSlots(), Mesh->GetNormalizedSize()),
 		.Source = Source}))) << Error;
@@ -2314,7 +2314,7 @@ TEST(FPhysicsCookTests, InvalidInputCancellationAndBudgetFailWithoutInstallingGe
 		.Mode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, .bPersistDerivedData = false};
 	const auto Failed = FPhysicsCookHelper::Cook(Info);
 	ASSERT_FALSE(Failed);
-	EXPECT_EQ(Failed.error().GetStage(), EPhysicsCookStage::Cook);
+	EXPECT_NE(Failed.error().find("Cook:"), std::string::npos);
 
 	const Durin::FAssetBuildTaskContext Control{.Cancellation = [] { return true; }};
 	const auto Cancelled = FPhysicsCookHelper::Cook(Info, Control);
@@ -2322,7 +2322,7 @@ TEST(FPhysicsCookTests, InvalidInputCancellationAndBudgetFailWithoutInstallingGe
 	EXPECT_TRUE(Control.Cancellation.IsCancelled());
 	const auto Budget = FPhysicsCookHelper::Cook(Info, {.MaximumWorkingSetBytes = 1});
 	ASSERT_FALSE(Budget);
-	EXPECT_EQ(Budget.error().GetStage(), EPhysicsCookStage::Cook);
+	EXPECT_NE(Budget.error().find("Cook:"), std::string::npos);
 }
 
 TEST(FStaticMeshSourceResidencyTests, TypedReadFailureOwnsCauseAndRejectedIndex)
@@ -2410,7 +2410,7 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 	ASSERT_NE(Fixture.Mesh, nullptr);
 	FStaticMeshBuildRequest Request{.Settings = MakeStaticMeshBuildSettings(Fixture.Mesh->GetMaterialSlots(), Fixture.Mesh->GetNormalizedSize()),
 		.Source = Fixture.Mesh->GetSource()};
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Render;
+	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Render;
 	FCacheLogCapture RenderCacheLog;
 	std::string Error;
 	ASSERT_TRUE((Render = BuildRenderForTest(Request, {}, &RenderCacheLog)));
@@ -2434,7 +2434,7 @@ TEST(FStaticMeshDerivedDataCacheTests, PayloadRebuildLogsRenderAndCollisionCache
 	ASSERT_TRUE((Render = BuildRenderForTest(Request, {}, &RenderCacheLog)));
 	EXPECT_TRUE(RenderCacheLog.empty());
 
-	std::expected<FPhysicsCookResult, FPhysicsCookFailure> Collision;
+	std::expected<FPhysicsCookResult, std::string> Collision;
 	CollisionLog.Reset();
 	ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
@@ -2503,7 +2503,7 @@ TEST(FStaticMeshDerivedDataCacheTests, ColdAndWarmAssemblyRepairFiniteIncorrectB
 	for (uint32 Attempt = 0; Attempt < 2; ++Attempt)
 	{
 		auto Render = BuildRenderForTest({.Source = Source});
-		ASSERT_TRUE(Render) << Render.error().ToString();
+		ASSERT_TRUE(Render) << Render.error();
 		EXPECT_EQ((*Render)->LocalBounds.Min, FVector3(-0.75, -0.75, 0));
 		EXPECT_EQ((*Render)->LocalBounds.Max, FVector3(0.75, 0.75, 0));
 		EXPECT_EQ((*Render)->LODResources.front().LocalBounds.Min, (*Render)->LocalBounds.Min);
@@ -2549,35 +2549,35 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailureAndC
 	Info->Module = std::move(Implementation);
 	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Product;
+	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Product;
 	std::string Error;
 	const auto& Outcome = (Product = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false}));
 	EXPECT_FALSE(Outcome);
 	ASSERT_FALSE(Outcome);
 
-	EXPECT_FALSE(Outcome.error().ToString().empty());
+	EXPECT_FALSE(Outcome.error().empty());
 	EXPECT_FALSE(Product);
 	const auto Authored = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry())),
 		.Source = Source, .bPersistDerivedData = false});
 	ASSERT_FALSE(Authored);
-	EXPECT_EQ(Authored.error().ToString(), Outcome.error().ToString());
+	EXPECT_EQ(Authored.error(), Outcome.error());
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("TypedWorkerFailure"));
 	FStaticMeshTestAccess::SetMaterialSlots(Mesh, FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()));
 	ASSERT_TRUE(Mesh->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .bPersistDerivedData = false})) << Error;
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	const auto Diagnostic = Mesh->GetCompilationDiagnostic();
 	ASSERT_FALSE(Diagnostic.Error.empty());
-	EXPECT_EQ(Diagnostic.Error, Authored.error().ToString());
+	EXPECT_EQ(Diagnostic.Error, Authored.error());
 	const auto Synchronous = Mesh->BuildFromSource(EStaticMeshBuildMode::Synchronous, {.Source = Source});
 	ASSERT_FALSE(Synchronous);
-	EXPECT_EQ(Synchronous.error(), Authored.error().ToString());
+	EXPECT_EQ(Synchronous.error(), Authored.error());
 	Module.bFail = true;
 	// Use a distinct build key so the session cannot reuse the previous invalid-product completion.
 	const auto Failed = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), 2.0f),
 		.Source = Source, .bPersistDerivedData = false});
 	ASSERT_FALSE(Failed);
 
-	EXPECT_NE(Failed.error().ToString().find("see MeshBuilder logs"), std::string::npos) << Failed.error().ToString();
+	EXPECT_NE(Failed.error().find("see MeshBuilder logs"), std::string::npos) << Failed.error();
 	const Durin::FAssetBuildTaskContext Control{.Cancellation = [] { return true; }};
 	const auto Cancelled = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false},
 		Control);
@@ -2595,7 +2595,7 @@ TEST(FStaticMeshAuthoredCompilationTests, TokenReportsCancellationAndErrorsRepor
 	FPaths::SetDerivedDataCacheDirForTests((Testing::GetTestWorkDirectory() / "SourceCancellationCache").generic_string());
 	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Product;
+	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Product;
 	uint32 Checks = 0;
 	const Durin::FAssetBuildTaskContext Control{.Cancellation = [&] { return ++Checks == 3; }};
 	const auto& Cancelled = (Product = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false},
@@ -2607,14 +2607,14 @@ TEST(FStaticMeshAuthoredCompilationTests, TokenReportsCancellationAndErrorsRepor
 	FStaticMeshRenderData Invalid;
 	Invalid.LODResources.resize(1);
 	Invalid.LODResources[0].IndexBuffer.Init(std::vector<uint32>{0, 1});
-	std::expected<FPhysicsCookResult, FPhysicsCookFailure> Collision;
+	std::expected<FPhysicsCookResult, std::string> Collision;
 	const auto& Rejected = (Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(Invalid,
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex, false)));
 	EXPECT_FALSE(Rejected);
 	Invalid.LODResources.clear();
-	EXPECT_EQ(Rejected.error().GetStage(), EPhysicsCookStage::Cook);
-	EXPECT_NE(Rejected.error().ToString().find("0 vertices, 2 indices"), std::string::npos);
+	EXPECT_NE(Rejected.error().find("Cook:"), std::string::npos);
+	EXPECT_NE(Rejected.error().find("0 vertices, 2 indices"), std::string::npos);
 	EXPECT_FALSE(Collision);
 }
 
@@ -2628,13 +2628,13 @@ TEST(FStaticMeshAuthoredCompilationTests, BuildErrorsOwnInputAndRejectedReservat
 	const auto Invalid = BuildStaticMeshRenderData(Request);
 	Request.Settings.NormalizedSize = 1.5f;
 	ASSERT_FALSE(Invalid);
-	EXPECT_NE(Invalid.error().ToString().find("normalization is invalid"), std::string::npos);
+	EXPECT_NE(Invalid.error().find("normalization is invalid"), std::string::npos);
 	const auto Budget = BuildStaticMeshRenderData(Request, {.MaximumWorkingSetBytes = 1});
 	Request.Source = {};
 	Source = {};
 	ASSERT_FALSE(Budget);
-	EXPECT_NE(Budget.error().ToString().find("decoded source exceeds its reservation"), std::string::npos);
-	EXPECT_LE(Budget.error().ToString().size(), MaximumStaticMeshBuildDiagnosticBytes);
+	EXPECT_NE(Budget.error().find("decoded source exceeds its reservation"), std::string::npos);
+	EXPECT_LE(Budget.error().size(), MaximumStaticMeshBuildDiagnosticBytes);
 	const Durin::FAssetBuildTaskContext Control{.Cancellation = [] { return true; }};
 	const auto Cancelled = BuildStaticMeshRenderData({}, Control);
 	ASSERT_TRUE(Cancelled);
@@ -2695,7 +2695,7 @@ TEST(FStaticMeshReplacementTests, ReplacementRepairsBoundsRestoresSlotsAndReject
 	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
 	auto Render = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false});
-	ASSERT_TRUE(Render) << Render.error().ToString();
+	ASSERT_TRUE(Render) << Render.error();
 	(*Render)->LocalBounds = FBox(FVector3(100), FVector3(101));
 	(*Render)->LODResources.front().LocalBounds = (*Render)->LocalBounds;
 	(*Render)->LODResources.front().Sections.front().LocalBounds = (*Render)->LocalBounds;
@@ -2709,7 +2709,7 @@ TEST(FStaticMeshReplacementTests, ReplacementRepairsBoundsRestoresSlotsAndReject
 	EXPECT_EQ(Mesh->GetRenderData()->MaterialSlots.front().Name, "Authored");
 	EXPECT_EQ(Mesh->GetRenderData()->MaterialSlots.front().SourceMaterialIndex, 7u);
 	Render = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false});
-	ASSERT_TRUE(Render) << Render.error().ToString();
+	ASSERT_TRUE(Render) << Render.error();
 	(*Render)->LODResources.front().ScreenSize = 0.5f;
 	const auto Rejected = FStaticMeshTestAccess::ReplaceRenderData(Mesh, std::move(*Render), Slots);
 	ASSERT_FALSE(Rejected);
@@ -2887,15 +2887,17 @@ TEST(FStaticMeshAuthoredCompilationTests, ImportedCommitRetiresPriorWorkerAndRej
 	uint32 CollisionCompletions = 0;
 	FStaticMeshWorkerBarrier Barrier;
 	ASSERT_TRUE(Mesh.Build(EStaticMeshBuildMode::Asynchronous, {}));
-	ASSERT_TRUE(Mesh.GetBodySetup()->CreatePhysicsMeshesAsync(Mesh, false, [&](const auto& Result) {
+	Mesh.GetBodySetup()->CreatePhysicsMeshesAsync(Mesh, false, [&](const auto& Result) {
 		++CollisionCompletions;
 		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Cancelled);
 		EXPECT_EQ(Mesh.GetSource().GetIdentity(), OldSource);
 		EXPECT_EQ(Mesh.GetAssetImportData(), OldData);
-		EXPECT_FALSE(Mesh.GetBodySetup()->CreatePhysicsMeshesAsync(Mesh, false));
+		Mesh.GetBodySetup()->CreatePhysicsMeshesAsync(Mesh, false);
+		EXPECT_EQ(Mesh.GetBodySetup()->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Failed);
+		ASSERT_TRUE(Mesh.GetBodySetup()->GetPhysicsMeshBuildError());
 		EXPECT_FALSE(Mesh.Build(EStaticMeshBuildMode::Asynchronous));
 		EXPECT_FALSE(Mesh.SetImportedSource(Source, FStaticMeshTestAccess::MakeSlots(Geometry), *Data));
-	}));
+	});
 	ASSERT_TRUE(Barrier.Wait(2));
 	EXPECT_TRUE(Mesh.IsCompiling());
 	std::jthread ReleaseWorker([&] { Barrier.Release(); });
@@ -2983,7 +2985,7 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationFinalizesAfterWorkerRetire
 	uint32 Notifications = 0;
 	uint64 HeldBytes = 0;
 	FStaticMeshWorkerBarrier Barrier;
-	ASSERT_TRUE(Body->CreatePhysicsMeshesAsync(*Mesh, false, [&](const FPhysicsCookCompletionResult& Result) {
+	Body->CreatePhysicsMeshesAsync(*Mesh, false, [&](const FPhysicsCookCompletionResult& Result) {
 		++Notifications;
 		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Cancelled);
 		EXPECT_FALSE(Result.Error);
@@ -2995,7 +2997,7 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationFinalizesAfterWorkerRetire
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
 		EXPECT_EQ(Notifications, 1u);
 		EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes, HeldBytes);
-	}));
+	});
 	ASSERT_TRUE(Barrier.Wait(1));
 	HeldBytes = StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes;
 	ASSERT_GT(HeldBytes, 0u);
@@ -3019,8 +3021,8 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationFinalizesAfterWorkerRetire
 TEST(FStaticMeshAuthoredCompilationTests, PipelineDiagnosticsStayBounded)
 {
 	using namespace Durin;
-	const FStaticMeshBuildFailure Failure(std::string(MaximumStaticMeshBuildDiagnosticBytes + 1, 'a'));
-	EXPECT_EQ(Failure.ToString().size(), MaximumStaticMeshBuildDiagnosticBytes);
+	const auto Failure = MakeAssetBuildDiagnostic(std::string(MaximumStaticMeshBuildDiagnosticBytes + 1, 'a'));
+	EXPECT_EQ(Failure.size(), MaximumStaticMeshBuildDiagnosticBytes);
 }
 
 TEST(FStaticMeshSeparatedBuildTests, CollisionSnapshotOutlivesRenderAndOwnsCancellation)
@@ -3046,9 +3048,9 @@ TEST(FStaticMeshSeparatedBuildTests, CollisionSnapshotOutlivesRenderAndOwnsCance
 	EXPECT_TRUE(Control.Cancellation.IsCancelled());
 	const auto Budget = FPhysicsCookHelper::Cook(Request, {.MaximumWorkingSetBytes = 1});
 	ASSERT_FALSE(Budget);
-	EXPECT_EQ(Budget.error().GetStage(), EPhysicsCookStage::Cook);
+	EXPECT_NE(Budget.error().find("Cook:"), std::string::npos);
 	const auto Collision = FPhysicsCookHelper::Cook(Request);
-	ASSERT_TRUE(Collision) << Collision.error().ToString();
+	ASSERT_TRUE(Collision) << Collision.error();
 	EXPECT_TRUE(Collision->Complex);
 	EXPECT_FALSE(Collision->Simple);
 	auto Retry = Request;
@@ -3074,7 +3076,7 @@ TEST(FPhysicsCookTests, CookAndAsyncInstallationUseIndependentCollisionWork)
 	struct FDataProvider final : IInterface_CollisionDataProvider
 	{
 		auto ContainsPhysicsTriMeshData() const -> bool override { return true; }
-		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> override
+		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override
 		{ return FTriMeshCollisionData{{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {0, 1, 2}}; }
 	} DataProvider;
 	auto* Body = NewObject<DBodySetup>(nullptr, FName("ProviderIndependentCook"));
@@ -3083,19 +3085,20 @@ TEST(FPhysicsCookTests, CookAndAsyncInstallationUseIndependentCollisionWork)
 	ASSERT_TRUE(Data);
 	const auto Info = Body->GetCookInfo(std::move(*Data));
 	const auto Cold = FPhysicsCookHelper::Cook(Info);
-	ASSERT_TRUE(Cold) << Cold.error().ToString();
+	ASSERT_TRUE(Cold) << Cold.error();
 	EXPECT_TRUE(Cold->Complex);
 	const auto Warm = FPhysicsCookHelper::Cook(Info);
 	ASSERT_TRUE(Warm);
 	EXPECT_TRUE(CollisionLog.empty());
-	ASSERT_TRUE(Body->CreatePhysicsMeshes(DataProvider));
+	Body->CreatePhysicsMeshes(DataProvider);
+	ASSERT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	EXPECT_TRUE(Body->GetResidentComplexGeometry());
 
 	{
 		FStaticMeshWorkerBarrier Barrier;
 		uint32 Completions = 0;
-		ASSERT_TRUE(Body->CreatePhysicsMeshesAsync(DataProvider, false,
-			[&](const FPhysicsCookCompletionResult& Result) { EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Succeeded); EXPECT_FALSE(Result.Error); ++Completions; }));
+		Body->CreatePhysicsMeshesAsync(DataProvider, false,
+			[&](const FPhysicsCookCompletionResult& Result) { EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Succeeded); EXPECT_FALSE(Result.Error); ++Completions; });
 		ASSERT_TRUE(Barrier.Wait(1));
 		Barrier.Release();
 		Body->FinishPhysicsMeshes();
@@ -3205,7 +3208,7 @@ TEST(FPhysicsMeshLifecycleTests, DetachedProviderBuildsWithoutStaticMeshOrRender
 	struct FProvider final : IInterface_CollisionDataProvider
 	{
 		auto ContainsPhysicsTriMeshData() const -> bool override { return true; }
-		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> override
+		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override
 		{
 			return FTriMeshCollisionData{{{0, 0, 0}, {2, 0, 0}, {0, 2, 0}}, {0, 1, 2}};
 		}
@@ -3216,32 +3219,33 @@ TEST(FPhysicsMeshLifecycleTests, DetachedProviderBuildsWithoutStaticMeshOrRender
 	uint32 CompletionCount = 0;
 	{
 		FProvider Provider;
-		ASSERT_TRUE(Body->CreatePhysicsMeshesAsync(Provider, false, [&](const FPhysicsCookCompletionResult& Result) { EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Succeeded); EXPECT_FALSE(Result.Error); ++CompletionCount; }));
+		Body->CreatePhysicsMeshesAsync(Provider, false, [&](const FPhysicsCookCompletionResult& Result) { EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Succeeded); EXPECT_FALSE(Result.Error); ++CompletionCount; });
 	} // The data provider may die before the worker consumes its capture.
 	Body->FinishPhysicsMeshes();
 	EXPECT_EQ(CompletionCount, 1u);
-	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Ready) << (Body->GetPhysicsMeshBuildError() ? Body->GetPhysicsMeshBuildError()->ToString() : std::string{});
+	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Ready) << (Body->GetPhysicsMeshBuildError() ? *Body->GetPhysicsMeshBuildError() : std::string{});
 	EXPECT_TRUE(Body->GetResidentComplexGeometry());
 	const auto Generation = Body->GetPhysicsMeshRequestGeneration();
 	const auto Geometry = Body->GetResidentComplexGeometry();
 	Body->InvalidatePhysicsData();
-	EXPECT_EQ(Body->ApplyPhysicsMeshes(Generation, {}, Geometry), EPhysicsMeshApplyResult::Superseded);
+	EXPECT_EQ(Body->ApplyPhysicsMeshes(Generation, {}, Geometry), EPhysicsCookCompletionStatus::Superseded);
 	EXPECT_FALSE(Body->GetPhysicsMeshBuildError());
 	EXPECT_FALSE(Body->GetResidentComplexGeometry());
 	FProvider Provider;
-	ASSERT_TRUE(Body->CreatePhysicsMeshes(Provider, false));
+	Body->CreatePhysicsMeshes(Provider, false);
+	ASSERT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	EXPECT_TRUE(Body->GetResidentComplexGeometry());
 	{
 		FStaticMeshWorkerBarrier Barrier;
-		ASSERT_TRUE(Body->CreatePhysicsMeshesAsync(Provider, false));
+		Body->CreatePhysicsMeshesAsync(Provider, false);
 		ASSERT_TRUE(Barrier.Wait(1));
 		const auto PendingGeneration = Body->GetPhysicsMeshRequestGeneration();
-		EXPECT_EQ(Body->ApplyPhysicsMeshes(PendingGeneration, {}, {}), EPhysicsMeshApplyResult::Failed);
+		EXPECT_EQ(Body->ApplyPhysicsMeshes(PendingGeneration, {}, {}), EPhysicsCookCompletionStatus::Failed);
 		ASSERT_TRUE(Body->GetPhysicsMeshBuildError());
-		EXPECT_EQ(Body->GetPhysicsMeshBuildError()->GetStage(), EPhysicsCookStage::Installation);
+		EXPECT_NE(Body->GetPhysicsMeshBuildError()->find("Installation:"), std::string::npos);
 		EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Failed);
-		EXPECT_EQ(Body->ApplyPhysicsMeshes(Generation, {}, Geometry), EPhysicsMeshApplyResult::Superseded);
-		EXPECT_EQ(Body->GetPhysicsMeshBuildError()->GetStage(), EPhysicsCookStage::Installation);
+		EXPECT_EQ(Body->ApplyPhysicsMeshes(Generation, {}, Geometry), EPhysicsCookCompletionStatus::Superseded);
+		EXPECT_NE(Body->GetPhysicsMeshBuildError()->find("Installation:"), std::string::npos);
 		Body->InvalidatePhysicsData();
 		Barrier.Release();
 		Body->FinishPhysicsMeshes();
@@ -3249,8 +3253,8 @@ TEST(FPhysicsMeshLifecycleTests, DetachedProviderBuildsWithoutStaticMeshOrRender
 	{
 		FStaticMeshWorkerBarrier Barrier;
 		uint32 CancelledCompletions = 0;
-		ASSERT_TRUE(Body->CreatePhysicsMeshesAsync(Provider, false,
-			[&](const FPhysicsCookCompletionResult& Result) { EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Cancelled); EXPECT_FALSE(Result.Error); ++CancelledCompletions; }));
+		Body->CreatePhysicsMeshesAsync(Provider, false,
+			[&](const FPhysicsCookCompletionResult& Result) { EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Cancelled); EXPECT_FALSE(Result.Error); ++CancelledCompletions; });
 		ASSERT_TRUE(Barrier.Wait(1));
 		Body->InvalidatePhysicsData();
 		Barrier.Release();
@@ -3278,12 +3282,12 @@ TEST(FPhysicsMeshLifecycleTests, PhysicsCompilationDoesNotDependOnRenderCompiler
 	struct FProvider final : IInterface_CollisionDataProvider
 	{
 		auto ContainsPhysicsTriMeshData() const -> bool override { return true; }
-		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> override
+		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override
 		{ FTriMeshCollisionData Data; Data.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}; Data.Indices = {0, 1, 2}; return Data; }
 	} Provider;
 	auto* Body = NewObject<DBodySetup>(nullptr, FName("IndependentPhysicsCompiler"));
 	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
-	ASSERT_TRUE(Body->CreatePhysicsMeshesAsync(Provider, false));
+	Body->CreatePhysicsMeshesAsync(Provider, false);
 	EXPECT_TRUE(Body->IsCompiling());
 	EXPECT_EQ(GetStaticMeshCompilationManagerDiagnostics().OutstandingRecords, 0u);
 	Body->FinishPhysicsMeshes();
@@ -3331,7 +3335,7 @@ TEST(FPhysicsMeshLifecycleTests, CollisionProjectionMatchesRenderNormalizationAn
 	EXPECT_EQ(Direct->Indices, ExpectedIndices);
 	ASSERT_TRUE(FStaticMeshTestAccess::Build(Mesh, MakeResidencyGeometry()));
 	auto Data = (*Captured)->Execute({.MaximumWorkingSetBytes = (*Captured)->GetWorkingSetBytes()});
-	ASSERT_TRUE(Data) << Data.error().ToString();
+	ASSERT_TRUE(Data) << Data.error();
 	EXPECT_EQ(Data->Positions, ExpectedPositions);
 	EXPECT_EQ(Data->Indices, ExpectedIndices);
 	const auto Again = (*Captured)->Execute({.MaximumWorkingSetBytes = (*Captured)->GetWorkingSetBytes()});
@@ -3370,7 +3374,7 @@ TEST(FPhysicsMeshLifecycleTests, ResidentInputTaskAndCookInfoOwnRepeatableSnapsh
 	{
 		FTriMeshCollisionData Data{{{0, 0, 0}, {2, 0, 0}, {0, 2, 0}}, {0, 1, 2}};
 		auto ContainsPhysicsTriMeshData() const -> bool override { return true; }
-		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> override { return Data; }
+		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override { return Data; }
 	};
 	std::unique_ptr<FPhysicsMeshInputTask> Task;
 	{
@@ -3403,14 +3407,14 @@ TEST(FPhysicsMeshLifecycleTests, ResidentInputTaskAndCookInfoOwnRepeatableSnapsh
 	EXPECT_EQ(Info.Policy, EBodySetupCollisionQueryPolicy::ComplexOnly);
 	EXPECT_FALSE(Info.bPersistDerivedData);
 	const auto Cooked = FPhysicsCookHelper::Cook(std::move(Info), Context);
-	ASSERT_TRUE(Cooked) << Cooked.error().ToString();
+	ASSERT_TRUE(Cooked) << Cooked.error();
 	EXPECT_TRUE(Cooked->Complex);
 	EXPECT_FALSE(Cooked->Simple);
 	EXPECT_FALSE(Body->GetResidentComplexGeometry());
 	MarkObjectHierarchyAsGarbage(Body);
 }
 
-TEST(FPhysicsCookTests, InputFailuresPreservePhysicsStageCancellationAndBoundedText)
+TEST(FPhysicsCookTests, InputFailuresNotifyOnceAndPreserveCancellationAndBoundedText)
 {
 	using namespace Durin;
 	struct FFailingProvider final : IInterface_CollisionDataProvider
@@ -3419,46 +3423,121 @@ TEST(FPhysicsCookTests, InputFailuresPreservePhysicsStageCancellationAndBoundedT
 		{
 			auto GetWorkingSetBytes() const -> uint64 override { return 1024 * 1024; }
 			auto Execute(const FAssetBuildTaskContext& Control) const
-				-> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> override
+				-> std::expected<FTriMeshCollisionData, std::string> override
 			{ Control.Cancellation.Cancel(); return {}; }
 		};
 		bool bCancel = false;
 		auto CreatePhysicsMeshInputTask() const
-			-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, FPhysicsCookFailure> override
+			-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, std::string> override
 		{
 			if (bCancel) return std::unique_ptr<FPhysicsMeshInputTask>(std::make_unique<FCancelInput>());
 			return IInterface_CollisionDataProvider::CreatePhysicsMeshInputTask();
 		}
 		auto ContainsPhysicsTriMeshData() const -> bool override { return true; }
-		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> override
+		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override
 		{
-			std::string Message(MaximumPhysicsCookDiagnosticBytes + 100, 'x');
-			return std::unexpected(FPhysicsCookFailure{Message, EPhysicsCookStage::Input});
+			std::string Message(MaximumAssetBuildDiagnosticBytes + 100, 'x');
+			return std::unexpected(MakeAssetBuildDiagnostic(Message, "Input"));
 		}
 	} Provider;
 	auto* Body = NewObject<DBodySetup>(nullptr, FName("PhysicsFailureOwnership"));
 	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	uint32 Completions = 0;
-	const auto Failed = Body->CreatePhysicsMeshesAsync(Provider, false, [&](const FPhysicsCookCompletionResult&) { ++Completions; });
-	ASSERT_FALSE(Failed);
-	EXPECT_EQ(Failed.error().GetStage(), EPhysicsCookStage::Input);
-
-	EXPECT_EQ(Failed.error().ToString().size(), MaximumPhysicsCookDiagnosticBytes);
+	std::optional<FPhysicsCookCompletionResult> Failed;
+	Body->CreatePhysicsMeshesAsync(Provider, false, [&](const FPhysicsCookCompletionResult& Result) { Failed = Result; ++Completions; });
+	ASSERT_TRUE(Failed);
+	EXPECT_EQ(Failed->Status, EPhysicsCookCompletionStatus::Failed);
+	ASSERT_TRUE(Failed->Error);
+	EXPECT_NE(Failed->Error->find("Input:"), std::string::npos);
+	EXPECT_EQ(Failed->Error->size(), MaximumAssetBuildDiagnosticBytes);
+	EXPECT_EQ(Completions, 1u);
 	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Failed);
 	ASSERT_TRUE(Body->GetPhysicsMeshBuildError());
-	EXPECT_EQ(Body->GetPhysicsMeshBuildError()->GetStage(), EPhysicsCookStage::Input);
+	EXPECT_NE(Body->GetPhysicsMeshBuildError()->find("Input:"), std::string::npos);
 	Provider.bCancel = true;
-	const auto Cancelled = Body->CreatePhysicsMeshesAsync(Provider, false, [&](const FPhysicsCookCompletionResult& Completion) {
+	Body->CreatePhysicsMeshesAsync(Provider, false, [&](const FPhysicsCookCompletionResult& Completion) {
 		EXPECT_EQ(Completion.Status, EPhysicsCookCompletionStatus::Cancelled);
 		EXPECT_FALSE(Completion.Error);
 		++Completions;
 	});
-	ASSERT_TRUE(Cancelled);
 	Body->FinishPhysicsMeshes();
 	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Unavailable);
 	EXPECT_FALSE(Body->GetPhysicsMeshBuildError());
-	EXPECT_EQ(Completions, 1u);
+	EXPECT_EQ(Completions, 2u);
 	EXPECT_FALSE(Body->GetResidentComplexGeometry());
+	MarkObjectHierarchyAsGarbage(Body);
+}
+
+TEST(FPhysicsMeshLifecycleTests, ImmediateFailuresCanReenterWithANewRequest)
+{
+	using namespace Durin;
+	struct FProvider final : IInterface_CollisionDataProvider
+	{
+		bool FailInput = true;
+		auto ContainsPhysicsTriMeshData() const -> bool override { return true; }
+		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override
+		{
+			if (FailInput) return std::unexpected(std::string(MaximumAssetBuildDiagnosticBytes + 100, 'x'));
+			return FTriMeshCollisionData{{{0, 0, 0}, {2, 0, 0}, {0, 2, 0}}, {0, 1, 2}};
+		}
+	} Provider;
+	auto* Body = NewObject<DBodySetup>(nullptr, FName("PhysicsImmediateFailureReentry"));
+	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+	std::optional<FPhysicsCookCompletionResult> InputFailure, AdmissionFailure;
+	uint32 Notifications = 0;
+	Body->CreatePhysicsMeshesAsync(Provider, false, [&](const FPhysicsCookCompletionResult& Result) {
+		InputFailure = Result;
+		++Notifications;
+		ASSERT_EQ(Result.Status, EPhysicsCookCompletionStatus::Failed);
+		ASSERT_TRUE(Result.Error);
+		EXPECT_EQ(Result.Error->size(), MaximumAssetBuildDiagnosticBytes);
+		Provider.FailInput = false;
+		Body->CreatePhysicsMeshesAsync(Provider, false, [&](const FPhysicsCookCompletionResult& Next) {
+			++Notifications;
+			EXPECT_EQ(Next.Status, EPhysicsCookCompletionStatus::Succeeded);
+			EXPECT_FALSE(Next.Error);
+		});
+	});
+	Body->FinishPhysicsMeshes();
+	EXPECT_EQ(Notifications, 2u);
+	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Ready);
+	EXPECT_FALSE(Body->GetPhysicsMeshBuildError());
+	ASSERT_TRUE(InputFailure->Error);
+	EXPECT_EQ(InputFailure->Error->size(), MaximumAssetBuildDiagnosticBytes);
+
+	auto Manager = AssetPrivate::CreatePhysicsMeshCompilingManager();
+	struct FRestart
+	{
+		std::shared_ptr<IAssetCompilingManager> Manager;
+		~FRestart() { EXPECT_TRUE(Manager->Start()); }
+	} Restart{Manager};
+	Manager->Shutdown();
+	Body->CreatePhysicsMeshesAsync(Provider, false, [&](const FPhysicsCookCompletionResult& Result) {
+		AdmissionFailure = Result;
+		++Notifications;
+		ASSERT_EQ(Result.Status, EPhysicsCookCompletionStatus::Failed);
+		ASSERT_TRUE(Result.Error);
+		EXPECT_NE(Result.Error->find("Scheduling:"), std::string::npos);
+		ASSERT_TRUE(Manager->Start());
+		Body->CreatePhysicsMeshesAsync(Provider, false, [&](const FPhysicsCookCompletionResult& Next) {
+			++Notifications;
+			EXPECT_EQ(Next.Status, EPhysicsCookCompletionStatus::Succeeded);
+		});
+	});
+	Body->FinishPhysicsMeshes();
+	EXPECT_EQ(Notifications, 4u);
+	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Ready);
+	EXPECT_FALSE(Body->GetPhysicsMeshBuildError());
+	ASSERT_TRUE(AdmissionFailure);
+	EXPECT_TRUE(AdmissionFailure->Error);
+	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::None);
+	Body->CreatePhysicsMeshesAsync(Provider, false, [&](const FPhysicsCookCompletionResult& Result) {
+		++Notifications;
+		EXPECT_EQ(Result.Status, EPhysicsCookCompletionStatus::Succeeded);
+		EXPECT_FALSE(Result.Error);
+	});
+	EXPECT_EQ(Notifications, 5u);
+	EXPECT_FALSE(Body->IsCompiling());
 	MarkObjectHierarchyAsGarbage(Body);
 }
 
@@ -3468,7 +3547,7 @@ TEST(FPhysicsMeshLifecycleTests, CompletionPreservesCookFailureWithoutOwnerWrapp
 	struct FProvider final : IInterface_CollisionDataProvider
 	{
 		auto ContainsPhysicsTriMeshData() const -> bool override { return true; }
-		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> override
+		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override
 		{
 			return FTriMeshCollisionData{{{0, 0, 0}}, {0, 0}};
 		}
@@ -3477,21 +3556,21 @@ TEST(FPhysicsMeshLifecycleTests, CompletionPreservesCookFailureWithoutOwnerWrapp
 	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	std::optional<FPhysicsCookCompletionResult> Completed;
 	uint32 Completions = 0;
-	ASSERT_TRUE(Body->CreatePhysicsMeshesAsync(Provider, false,
-		[&](const FPhysicsCookCompletionResult& Result) { Completed = Result; ++Completions; }));
+	Body->CreatePhysicsMeshesAsync(Provider, false,
+		[&](const FPhysicsCookCompletionResult& Result) { Completed = Result; ++Completions; });
 	Body->FinishPhysicsMeshes();
 	ASSERT_TRUE(Completed);
 	EXPECT_EQ(Completions, 1u);
 	EXPECT_EQ(Completed->Status, EPhysicsCookCompletionStatus::Failed);
 	ASSERT_TRUE(Completed->Error);
 	ASSERT_TRUE(Body->GetPhysicsMeshBuildError());
-	EXPECT_EQ(Completed->Error->GetStage(), EPhysicsCookStage::Cook);
-	EXPECT_EQ(Completed->Error->ToString(), Body->GetPhysicsMeshBuildError()->ToString());
+	EXPECT_NE(Completed->Error->find("Cook:"), std::string::npos);
+	EXPECT_EQ(*Completed->Error, *Body->GetPhysicsMeshBuildError());
 	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Failed);
 	EXPECT_FALSE(Body->GetResidentComplexGeometry());
 	Body->InvalidatePhysicsData();
 	EXPECT_FALSE(Body->GetPhysicsMeshBuildError());
-	EXPECT_FALSE(Completed->Error->ToString().empty());
+	EXPECT_FALSE(Completed->Error->empty());
 	MarkObjectHierarchyAsGarbage(Body);
 }
 
@@ -3501,20 +3580,21 @@ TEST(FPhysicsMeshLifecycleTests, SupersededCompletionPreservesInstalledGeometryW
 	struct FProvider final : IInterface_CollisionDataProvider
 	{
 		auto ContainsPhysicsTriMeshData() const -> bool override { return true; }
-		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> override
+		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override
 		{
 			return FTriMeshCollisionData{{{0, 0, 0}, {2, 0, 0}, {0, 2, 0}}, {0, 1, 2}};
 		}
 	} Provider;
 	auto* Body = NewObject<DBodySetup>(nullptr, FName("PhysicsSupersededCompletion"));
 	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
-	ASSERT_TRUE(Body->CreatePhysicsMeshes(Provider, false));
+	Body->CreatePhysicsMeshes(Provider, false);
+	ASSERT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	const auto Geometry = Body->GetResidentComplexGeometry();
 	std::optional<FPhysicsCookCompletionResult> Completed;
 	{
 		FStaticMeshWorkerBarrier Barrier;
-		ASSERT_TRUE(Body->CreatePhysicsMeshesAsync(Provider, false,
-			[&](const FPhysicsCookCompletionResult& Result) { Completed = Result; }));
+		Body->CreatePhysicsMeshesAsync(Provider, false,
+			[&](const FPhysicsCookCompletionResult& Result) { Completed = Result; });
 		ASSERT_TRUE(Barrier.Wait(1));
 		ASSERT_TRUE(Body->SetCollisionGeometry({}, Geometry));
 		Barrier.Release();

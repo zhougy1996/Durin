@@ -150,9 +150,9 @@ namespace Durin
 		// Returns CPU LOD 0 bounds only when every axis has positive extent.
 		ENGINE_API auto GetLOD0VolumetricBounds() const -> std::optional<FBox>;
 		ENGINE_API auto ContainsPhysicsTriMeshData() const -> bool override;
-		ENGINE_API auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> override;
+		ENGINE_API auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override;
 		ENGINE_API auto CreatePhysicsMeshInputTask() const
-			-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, FPhysicsCookFailure> override;
+			-> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, std::string> override;
 		ENGINE_API auto GetBodySetup() const -> DBodySetup*;
 		ENGINE_API auto NotifyCollisionDataChanged() -> void;
 		ENGINE_API auto SetBodySetup(DBodySetup* InBodySetup) -> bool;
@@ -167,7 +167,7 @@ namespace Durin
 		ENGINE_API auto NotifyCollisionSettingsChanged() -> void;
 		ENGINE_API auto GetCollisionBuildStatus() const -> EPhysicsMeshBuildStatus;
 		// Last collision build error, including admission and worker failure.
-		ENGINE_API auto GetCollisionBuildError() const -> const std::optional<FPhysicsCookFailure>&;
+		ENGINE_API auto GetCollisionBuildError() const -> const std::optional<std::string>&;
 		// Creates the qualified built-in Box setup from verified CPU bounds; arbitrary meshes remain collision-free.
 		ENGINE_API auto EnsureQualifiedBoxBodySetup() -> DBodySetup*;
 		// Queues GPU initialization for resident CPU data; query GetRenderResourceStatus()

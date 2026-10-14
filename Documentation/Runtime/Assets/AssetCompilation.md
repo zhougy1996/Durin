@@ -489,9 +489,11 @@ function, key, stage and bounded original cause. They do not enter worker result
 completion callbacks or retained history. Reporting is independent of successful
 publication, so a later construction or application failure cannot hide a cache
 issue. Clean hits and misses produce no warnings.
-Physics results use an independent `FPhysicsCookFailure` and physics terminal
-status, with no intermediate StaticMesh diagnostic or status conversion. The
-shared budget owns no products, snapshots or completion callbacks.
+Physics results use bounded diagnostic strings and physics completion status,
+with no intermediate StaticMesh diagnostic or status conversion. Input/admission
+failures notify inline; accepted work notifies after retirement. The physics record
+stores cancellation in its token and forms terminal status locally during finalization.
+The shared budget owns no products, snapshots or completion callbacks.
 StaticMesh diagnostic `Status` is absent until terminal delivery; pending work
 does not report failure. `Error` retains bounded owned text only for a failed
 terminal, without a cancellation bit or completion wrapper. Successful, cancelled

@@ -37,7 +37,7 @@ namespace Durin
 	// empty product, ordinary failure returns an error, and success returns render data.
 	ENGINE_API auto BuildStaticMeshRenderData(FStaticMeshBuildRequest Request,
 		const FAssetBuildTaskContext& Control = {})
-		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>;
+		-> std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string>;
 #endif
 
 #if DURIN_WITH_EDITORONLY_DATA

@@ -31,17 +31,17 @@ namespace Durin::PhysicsPrivate
 		return Memory.Add(1, 1024 * 1024) && Memory.Add(Positions, 512) && Memory.Add(Indices, 192);
 	}
 	inline auto CheckCookInput(uint64 Positions, uint64 Indices, EBodySetupCollisionSourceMode Mode,
-		EBodySetupCollisionQueryPolicy Policy, uint64 MaximumWorkingSetBytes) -> std::expected<void, FPhysicsCookFailure>
+		EBodySetupCollisionQueryPolicy Policy, uint64 MaximumWorkingSetBytes) -> std::expected<void, std::string>
 	{
 		if (Mode != EBodySetupCollisionSourceMode::ConvexHullFromLOD0 && Mode != EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
-			return std::unexpected(FPhysicsCookFailure{"Physics cook source mode is invalid."});
+			return std::unexpected(MakeAssetBuildDiagnostic("Physics cook source mode is invalid.", "Cook"));
 		if (Policy != EBodySetupCollisionQueryPolicy::SimpleOnly && Policy != EBodySetupCollisionQueryPolicy::ComplexOnly
 			&& Policy != EBodySetupCollisionQueryPolicy::SimpleAndComplex)
-			return std::unexpected(FPhysicsCookFailure{"Physics cook query policy is invalid."});
+			return std::unexpected(MakeAssetBuildDiagnostic("Physics cook query policy is invalid.", "Cook"));
 		if (!CheckCookReservation(Positions, Indices, MaximumWorkingSetBytes))
-			return std::unexpected(FPhysicsCookFailure{"Physics cook input and working set exceed the reservation."});
+			return std::unexpected(MakeAssetBuildDiagnostic("Physics cook input and working set exceed the reservation.", "Cook"));
 		if (!Positions || !Indices || Indices % 3)
-			return std::unexpected(FPhysicsCookFailure{std::format("Physics cook input is malformed ({} vertices, {} indices).", Positions, Indices)});
+			return std::unexpected(MakeAssetBuildDiagnostic(std::format("Physics cook input is malformed ({} vertices, {} indices).", Positions, Indices), "Cook"));
 		return {};
 	}
 }

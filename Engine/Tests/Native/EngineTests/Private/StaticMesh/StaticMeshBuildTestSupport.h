@@ -181,7 +181,7 @@ namespace StaticMeshBuildTestSupport
 			EXPECT_EQ(Source.GetGeometryBulk().GetPayloadSize(), Triangles == 1 ? 195u : 4800147u);
 			EXPECT_EQ(Source.GetIdentity().HashLow, Triangles == 1 ? 4982799754724307949ull : 17565407108445809865ull);
 			EXPECT_EQ(Source.GetIdentity().HashHigh, Triangles == 1 ? 10298414200299834774ull : 892654471079648671ull);
-			std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Product;
+			std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Product;
 			ASSERT_TRUE((Product = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false}))) << Error;
 			const uint64 Retained = Mesh.Positions.capacity() * sizeof(FVector3f)
 				+ Mesh.Indices.capacity() * sizeof(uint32);
@@ -225,7 +225,7 @@ namespace StaticMeshBuildTestSupport
 			ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
 			Source.ReleaseGeometry();
 			const auto Start = std::chrono::steady_clock::now();
-			std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Render;
+			std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Render;
 			ASSERT_TRUE((Render = BuildRenderForTest(
 				{.Source = Source, .bPersistDerivedData = false}))) << Error;
 			const auto RenderEnd = std::chrono::steady_clock::now();
@@ -233,7 +233,7 @@ namespace StaticMeshBuildTestSupport
 			const auto& LOD = (*Render)->LODResources.front();
 			const auto Acceleration = BuildStaticMeshRayQueryAcceleration(LOD);
 			ASSERT_NE(Acceleration, nullptr);
-			std::expected<FPhysicsCookResult, FPhysicsCookFailure> Collision;
+			std::expected<FPhysicsCookResult, std::string> Collision;
 			const auto CollisionStart = std::chrono::steady_clock::now();
 			ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*(*Render),
 				EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
@@ -300,7 +300,7 @@ namespace StaticMeshBuildTestSupport
 		auto Outcome = BuildStaticMeshRenderData(std::move(Request),
 			Control);
 		const auto Built = std::chrono::steady_clock::now();
-		ASSERT_TRUE(Outcome) << Outcome.error().ToString();
+		ASSERT_TRUE(Outcome) << Outcome.error();
 		auto Candidate = std::move(*Outcome);
 		ASSERT_NE(Candidate, nullptr);
 		const auto Ray = Candidate->LODResources.front().RayQueryAcceleration;

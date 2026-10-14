@@ -30,14 +30,14 @@ namespace Durin
 	public:
 		ENGINE_API explicit DBodySetup(const FObjectInitializer& ObjectInitializer);
 		// Owner-thread lifecycle. Async capture owns its inputs and never retains the provider.
-		// Accepted work completes once through the owner pump; rejected admission has no callback.
-		// The return value reports admission only. Completion separates failure from cancellation/supersession.
-		// Disabled collision needs no task and completes inline. Callbacks must tolerate owner destruction.
+		// Every request notifies once: input/admission failures and disabled collision complete inline;
+		// accepted work completes through the owner pump after task retirement.
+		// Callbacks may reenter these APIs and must tolerate owner destruction.
 		ENGINE_API auto InvalidatePhysicsData() -> void;
 		ENGINE_API auto CreatePhysicsMeshesAsync(const IInterface_CollisionDataProvider& Provider,
-			bool bPersistDerivedData = true, FOnAsyncPhysicsCookFinished Completion = {}) -> std::expected<void, FPhysicsCookFailure>;
+			bool bPersistDerivedData = true, FOnAsyncPhysicsCookFinished Completion = {}) -> void;
 		ENGINE_API auto CreatePhysicsMeshes(const IInterface_CollisionDataProvider& Provider,
-			bool bPersistDerivedData = true) -> std::expected<void, FPhysicsCookFailure>;
+			bool bPersistDerivedData = true) -> void;
 		// Assemble the detached cook descriptor from prepared geometry and current body settings.
 		ENGINE_API auto GetCookInfo(FTriMeshCollisionData Data, bool bPersistDerivedData = true) const -> FCookBodySetupInfo;
 		ENGINE_API auto IsCompiling() const -> bool;
@@ -50,13 +50,13 @@ namespace Durin
 				return EPhysicsMeshBuildStatus::Ready;
 			return PhysicsMeshStatus == EPhysicsMeshBuildStatus::Ready ? EPhysicsMeshBuildStatus::Unavailable : PhysicsMeshStatus;
 		}
-		auto GetPhysicsMeshBuildError() const -> const std::optional<FPhysicsCookFailure>& { return PhysicsMeshError; }
+		auto GetPhysicsMeshBuildError() const -> const std::optional<std::string>& { return PhysicsMeshError; }
 		auto GetPhysicsMeshRequestGeneration() const -> uint64 { return PhysicsMeshRequestGeneration; }
 		// Stale requests return Superseded without changing the current state or its error.
 		// A matching request that rejects geometry stores the installation failure once.
 		ENGINE_API auto ApplyPhysicsMeshes(uint64 Generation, const FCollisionGeometryRef& Simple,
-			const FCollisionGeometryRef& Complex) -> EPhysicsMeshApplyResult;
-		ENGINE_API auto FailPhysicsMeshes(uint64 Generation, FPhysicsCookFailure Error) -> void;
+			const FCollisionGeometryRef& Complex) -> EPhysicsCookCompletionStatus;
+		ENGINE_API auto FailPhysicsMeshes(uint64 Generation, std::string Error) -> void;
 		ENGINE_API auto CancelPhysicsMeshes(uint64 Generation) -> void;
 		ENGINE_API auto SetBox(const FVector3& HalfExtent, const FVector3& Center = FVector3(0.0)) -> bool;
 		ENGINE_API auto SetSphere(double Radius, const FVector3& Center = FVector3(0.0)) -> bool;
@@ -92,7 +92,7 @@ namespace Durin
 	private:
 		auto NotifyPhysicsDataChanged() -> void;
 		EPhysicsMeshBuildStatus PhysicsMeshStatus = EPhysicsMeshBuildStatus::Ready;
-		std::optional<FPhysicsCookFailure> PhysicsMeshError;
+		std::optional<std::string> PhysicsMeshError;
 		uint64 PhysicsMeshRequestGeneration = 1;
 		DPROPERTY()
 		EBodySetupShapeType ShapeType = EBodySetupShapeType::None;

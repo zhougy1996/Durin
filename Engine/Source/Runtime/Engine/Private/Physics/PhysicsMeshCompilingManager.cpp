@@ -29,7 +29,7 @@ namespace Durin
 			FCookBodySetupInfo CookInfo;
 			FCancellationToken Cancellation;
 			std::atomic<EWorkPhase> Phase = EWorkPhase::Queued;
-			std::expected<FPhysicsCookResult, FPhysicsCookFailure> Outcome;
+			std::expected<FPhysicsCookResult, std::string> Outcome;
 			auto Build(const FAssetBuildTaskContext& Control) -> void
 			{
 				auto Data = InputTask->Execute(Control);
@@ -63,7 +63,6 @@ namespace Durin
 			EBodySetupCollisionQueryPolicy Policy;
 			std::shared_ptr<FPhysicsWork> Work;
 			FTaskHandle Task;
-			std::optional<EPhysicsCookCompletionStatus> Terminal;
 			FOnAsyncPhysicsCookFinished Completion;
 		};
 	} // namespace
@@ -106,10 +105,15 @@ namespace Durin
 			return {uint32(Records.size() + FinalizingCount), uint32(Running), ReservedBytes, bAccepting};
 		}
 		auto Submit(DBodySetup& Body, std::unique_ptr<FPhysicsMeshInputTask> InputTask, bool bPersist, FOnAsyncPhysicsCookFinished Completion)
-			-> std::expected<void, FPhysicsCookFailure>
+			-> void
 		{
 			CheckOwnerThread();
-			const auto Reject = [](std::string Message) { return std::unexpected(FPhysicsCookFailure{std::move(Message), EPhysicsCookStage::Scheduling}); };
+			const auto Reject = [&](std::string Message) {
+				const auto Generation = Body.GetPhysicsMeshRequestGeneration();
+				Body.FailPhysicsMeshes(Generation, MakeAssetBuildDiagnostic(std::move(Message), "Scheduling"));
+				const FPhysicsCookCompletionResult Result{.Status = EPhysicsCookCompletionStatus::Failed, .Error = Body.GetPhysicsMeshBuildError()};
+				if (Completion) Completion(Result);
+			};
 			if (!bAccepting || !IsValid(&Body) || Budget->MutatingOwners.contains(FObjectKey(&Body)) || Budget->MutatingOwners.contains(FObjectKey(Body.GetOuter())))
 				return Reject("Physics mesh compilation is not accepting this owner.");
 			if (!InputTask || InputTask->GetWorkingSetBytes() == 0 || InputTask->GetWorkingSetBytes() > Budget->MaximumRequestBytes)
@@ -134,7 +138,7 @@ namespace Durin
 			Budget->Enqueue(false, [Manager = weak_from_this(), WeakRecord = std::weak_ptr(Record)] {
 				auto Self = Manager.lock();
 				auto Record = WeakRecord.lock();
-				if (!Self || !Record || Record->Terminal || Record->Work->Phase.load() != EWorkPhase::Queued) return false;
+				if (!Self || !Record || Record->Work->Cancellation.IsCancellationRequested() || Record->Work->Phase.load() != EWorkPhase::Queued) return false;
 				if (!IsTaskSchedulerRunning())
 				{
 					Self->Cancel(*Record);
@@ -144,7 +148,6 @@ namespace Durin
 				Self->Launch(Record);
 				return true;
 			});
-			return {};
 		}
 		auto MarkCompilationAsCanceled(std::span<DObject* const> Objects) -> void override
 		{
@@ -195,8 +198,6 @@ namespace Durin
 		}
 		static auto Cancel(FPhysicsRecord& Record) -> void
 		{
-			if (Record.Terminal) return;
-			Record.Terminal = EPhysicsCookCompletionStatus::Cancelled;
 			Record.Work->Cancellation.Cancel();
 			if (auto* Body = Cast<DBodySetup>(ResolveObjectKey(Record.Body))) Body->CancelPhysicsMeshes(Record.Generation);
 			if (Record.Work->Phase.load() == EWorkPhase::Queued)
@@ -213,7 +214,7 @@ namespace Durin
 				const auto Cancellation = Work->Cancellation.WithObserver([NativeToken] { return NativeToken.IsCancellationRequested(); });
 				try
 				{ if (Before) Before(); Work->Build({.Cancellation = Cancellation, .MaximumWorkingSetBytes = Bytes}); if (After) After(); }
-				catch (...) { Work->Outcome = std::unexpected(FPhysicsCookFailure{"Physics mesh worker failed with an exception."}); }
+				catch (...) { Work->Outcome = std::unexpected(MakeAssetBuildDiagnostic("Physics mesh worker failed with an exception.", "Cook")); }
 				if (Cancellation.IsCancelled()) Work->Outcome = FPhysicsCookResult{};
 				Work->ReleaseInput(); Work->Phase.store(EWorkPhase::Complete, std::memory_order_release); Budget->ReleaseSlot(); }, Options).GetTaskHandle();
 		}
@@ -226,7 +227,7 @@ namespace Durin
 					if (Record->Task.GetState() == ETaskState::Canceled)
 						Record->Work->Cancellation.Cancel();
 					else
-						Record->Work->Outcome = std::unexpected(FPhysicsCookFailure{"Physics mesh task retired before worker completion."});
+						Record->Work->Outcome = std::unexpected(MakeAssetBuildDiagnostic("Physics mesh task retired before worker completion.", "Cook"));
 					Record->Work->ReleaseInput();
 					Record->Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
 					Budget->ReleaseSlot();
@@ -255,39 +256,30 @@ namespace Durin
 					}
 				} Retirement{*this, Record};
 				auto* Body = Cast<DBodySetup>(ResolveObjectKey(Record->Body));
-				if (!Record->Terminal && Record->Work->Cancellation.IsCancelled()) Cancel(*Record);
-				if (!Record->Terminal)
+				FPhysicsCookCompletionResult Completion;
+				if (Record->Work->Cancellation.IsCancelled() || !Body)
 				{
-					if (!Body)
-						Record->Terminal = EPhysicsCookCompletionStatus::Cancelled;
-					else if (Body->GetRevision() != Record->Revision || Body->GetPhysicsMeshRequestGeneration() != Record->Generation
-							 || Body->GetCollisionSourceMode() != Record->Mode || Body->GetCollisionQueryPolicy() != Record->Policy)
-						Record->Terminal = EPhysicsCookCompletionStatus::Superseded;
-					else if (!Record->Work->Outcome)
-					{
-						Body->FailPhysicsMeshes(Record->Generation, Record->Work->Outcome.error());
-						Record->Terminal = EPhysicsCookCompletionStatus::Failed;
-					}
-					else
-					{
-						const auto& Product = *Record->Work->Outcome;
-						switch (Body->ApplyPhysicsMeshes(Record->Generation, Product.Simple, Product.Complex))
-						{
-						case EPhysicsMeshApplyResult::Applied: Record->Terminal = EPhysicsCookCompletionStatus::Succeeded; break;
-						case EPhysicsMeshApplyResult::Superseded: Record->Terminal = EPhysicsCookCompletionStatus::Superseded; break;
-						case EPhysicsMeshApplyResult::Failed:
-							Record->Terminal = EPhysicsCookCompletionStatus::Failed;
-							Record->Work->Outcome = std::unexpected(*Body->GetPhysicsMeshBuildError());
-							break;
-						}
-					}
+					Cancel(*Record);
+					Completion.Status = EPhysicsCookCompletionStatus::Cancelled;
 				}
-				if (Body && *Record->Terminal != EPhysicsCookCompletionStatus::Succeeded) Body->CancelPhysicsMeshes(Record->Generation);
+				else if (Body->GetRevision() != Record->Revision || Body->GetPhysicsMeshRequestGeneration() != Record->Generation
+					|| Body->GetCollisionSourceMode() != Record->Mode || Body->GetCollisionQueryPolicy() != Record->Policy)
+					Completion.Status = EPhysicsCookCompletionStatus::Superseded;
+				else if (!Record->Work->Outcome)
+				{
+					Body->FailPhysicsMeshes(Record->Generation, Record->Work->Outcome.error());
+					Completion.Error = Body->GetPhysicsMeshBuildError();
+				}
+				else
+				{
+					const auto& Product = *Record->Work->Outcome;
+					Completion.Status = Body->ApplyPhysicsMeshes(Record->Generation, Product.Simple, Product.Complex);
+					if (Completion.Status == EPhysicsCookCompletionStatus::Failed) Completion.Error = Body->GetPhysicsMeshBuildError();
+				}
+				if (Body && Completion.Status != EPhysicsCookCompletionStatus::Succeeded) Body->CancelPhysicsMeshes(Record->Generation);
 				++Result.ProcessedCompletionCount;
 				if (auto Notify = std::move(Record->Completion))
 				{
-					FPhysicsCookCompletionResult Completion{.Status = *Record->Terminal};
-					if (*Record->Terminal == EPhysicsCookCompletionStatus::Failed) Completion.Error = Record->Work->Outcome.error();
 					Notify(Completion);
 				}
 			}
@@ -353,11 +345,13 @@ namespace Durin
 		}
 	} // namespace AssetPrivate
 	auto SubmitPhysicsMeshCompilation(DBodySetup& Body, std::unique_ptr<FPhysicsMeshInputTask> InputTask, bool bPersist, FOnAsyncPhysicsCookFinished Completion)
-		-> std::expected<void, FPhysicsCookFailure>
+		-> void
 	{
 		CheckOwnerThread();
 		if (auto Manager = GPhysicsManager.lock()) return Manager->Submit(Body, std::move(InputTask), bPersist, std::move(Completion));
-		return std::unexpected(FPhysicsCookFailure{"Physics mesh compiling service is unavailable.", EPhysicsCookStage::Scheduling});
+		Body.FailPhysicsMeshes(Body.GetPhysicsMeshRequestGeneration(), MakeAssetBuildDiagnostic("Physics mesh compiling service is unavailable.", "Scheduling"));
+		const FPhysicsCookCompletionResult Result{.Status = EPhysicsCookCompletionStatus::Failed, .Error = Body.GetPhysicsMeshBuildError()};
+		if (Completion) Completion(Result);
 	}
 	auto CancelPhysicsMeshCompilation(DBodySetup& Body) -> void { AssetPrivate::CancelPhysicsMeshCompilationForOwner(Body); }
 	auto FinishPhysicsMeshCompilation(DBodySetup& Body) -> void { AssetPrivate::FinishPhysicsMeshCompilationForOwner(Body); }

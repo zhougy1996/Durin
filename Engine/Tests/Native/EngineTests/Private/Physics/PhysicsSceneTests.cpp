@@ -489,7 +489,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	Mesh->GetBodySetup()->FinishPhysicsMeshes();
 	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Ready)
-		<< (Mesh->GetCollisionBuildError() ? Mesh->GetCollisionBuildError()->ToString() : std::string{});
+		<< (Mesh->GetCollisionBuildError() ? *Mesh->GetCollisionBuildError() : std::string{});
 	auto AddMesh = [&](Durin::DWorld& World, std::string_view Name) {
 		auto* Actor = World.SpawnActor<Durin::AStaticMeshActor>(Durin::FName(Name));
 		Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
@@ -554,7 +554,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	Mesh->GetBodySetup()->FinishPhysicsMeshes();
 	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Ready)
-		<< (Mesh->GetCollisionBuildError() ? Mesh->GetCollisionBuildError()->ToString() : std::string{});
+		<< (Mesh->GetCollisionBuildError() ? *Mesh->GetCollisionBuildError() : std::string{});
 	EXPECT_FALSE(First->GetPhysicsActorHandle().IsValid());
 	EXPECT_FALSE(Second->GetPhysicsActorHandle().IsValid());
 	EXPECT_EQ(First->GetCollisionProfileName(), Durin::CollisionProfile::WorldStatic);
@@ -562,7 +562,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	Mesh->GetBodySetup()->FinishPhysicsMeshes();
 	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Ready)
-		<< (Mesh->GetCollisionBuildError() ? Mesh->GetCollisionBuildError()->ToString() : std::string{});
+		<< (Mesh->GetCollisionBuildError() ? *Mesh->GetCollisionBuildError() : std::string{});
 	EXPECT_TRUE(First->GetPhysicsActorHandle().IsValid());
 	EXPECT_TRUE(Second->GetPhysicsActorHandle().IsValid());
 	EXPECT_EQ(First->GetPublishedBodySetupRevision(), Mesh->GetBodySetup()->GetRevision());

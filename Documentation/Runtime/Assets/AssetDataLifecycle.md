@@ -352,7 +352,7 @@ pending source mutations require a selected wait before cook capture. See
 [Asset Compilation](AssetCompilation.md#staticmesh-completion) for bounds,
 publication and observational diagnostics. StaticMesh keys are editor-only
 Engine-private values. Render results return validated render data or
-`FStaticMeshBuildFailure`, without cache-origin, key, timing, or persistence
+bounded ordinary diagnostic strings, without cache-origin, key, timing, or persistence
 observations. Source acquisition, warm-hit reuse,
 and detached application follow [Static mesh building](StaticMeshBuilding.md).
 

@@ -118,7 +118,7 @@ namespace Durin
 				if (Control.IsCancelled()) { Ar.Fail(EArchiveFailureCode::InvalidData, "Cook render construction was cancelled."); return; }
 				if (!Built)
 				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, Built.error().ToString());
+					Ar.Fail(EArchiveFailureCode::InvalidData, Built.error());
 					return;
 				}
 				DetachedRender = std::move(*Built);
@@ -163,16 +163,16 @@ namespace Durin
 			{
 				FCollisionGeometryRef Simple, Complex;
 				auto Data = GetPhysicsTriMeshData();
-				if (!Data) { Ar.Fail(EArchiveFailureCode::InvalidData, Data.error().ToString()); return; }
+				if (!Data) { Ar.Fail(EArchiveFailureCode::InvalidData, Data.error()); return; }
 				const FAssetBuildTaskContext Control;
 				auto Input = FPhysicsCookHelper::Capture(BodySetup->GetCookInfo(std::move(*Data), false), Control);
 				if (Control.IsCancelled()) { Ar.Fail(EArchiveFailureCode::InvalidData, "Cook collision capture was cancelled."); return; }
-				if (!Input) { Ar.Fail(EArchiveFailureCode::InvalidData, Input.error().ToString()); return; }
+				if (!Input) { Ar.Fail(EArchiveFailureCode::InvalidData, Input.error()); return; }
 				auto Collision = FPhysicsCookHelper::CookCaptured(*Input, Control);
 				if (Control.IsCancelled()) { Ar.Fail(EArchiveFailureCode::InvalidData, "Cook collision construction was cancelled."); return; }
 				if (!Collision)
 				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, Collision.error().ToString());
+					Ar.Fail(EArchiveFailureCode::InvalidData, Collision.error());
 					return;
 				}
 				Simple = std::move(Collision->Simple);

@@ -113,8 +113,9 @@ All contribute to the package cook fingerprint alongside the DCOL schema.
 Algorithm upgrades invalidate cached builds without rejecting compatible cooked data.
 DCOL schema 3 uses a 60-byte header with no producer word; older payload schemas
 require recook. Schema, target, layout, bounds and checksum remain compatibility gates.
-Physics input preparation, cooking and admission return `FPhysicsCookFailure`,
-with typed cancellation and bounded text. Recoverable cache issues are logged once
+Physics input preparation and cooking return ordinary diagnostic strings capped
+at 4096 bytes, with the failure stage recorded in text. Cancellation belongs to
+the shared invocation token. Recoverable cache issues are logged once
 at execution with function, key, operation and bounded original cause; cook results
 carry no warning list. Private cache codecs use the existing failure type rather
 than expose a separate codec error domain.
@@ -131,15 +132,19 @@ advances request/resource revisions, and refreshes physics consumers.
 `CreatePhysicsMeshes` also waits, while `FinishPhysicsMeshes` waits for that setup
 only. Accepted asynchronous work delivers `FOnAsyncPhysicsCookFinished` once on
 the owner-thread pump. Its `FPhysicsCookCompletionResult` distinguishes Succeeded,
-Failed, Cancelled and Superseded; only Failed carries the original cook failure.
-The immediate return reports admission only; rejected admission has no callback.
-Disabled collision completes inline without submitting work. Callbacks must tolerate
-owner destruction.
-The setup owns `EPhysicsMeshBuildStatus` and an optional `FPhysicsCookFailure`;
+Failed, Cancelled and Superseded; only Failed carries diagnostic text.
+The asynchronous interface returns void. Input/admission failures notify once inline,
+as does disabled collision; accepted work notifies after task retirement. A synchronous
+creation waits and exposes its outcome through the setup's status and error queries.
+Callbacks may reenter creation and must tolerate owner destruction.
+The setup owns `EPhysicsMeshBuildStatus` and an optional diagnostic string;
 there is no second owner-error wrapper. Cancellation clears the stored failure.
-`ApplyPhysicsMeshes` returns Applied, Superseded or Failed. Stale results do not
+`ApplyPhysicsMeshes` returns Succeeded, Superseded or Failed using the completion
+status enum. Stale results do not
 change live state; incompatible geometry on a current request stores an Installation
-failure. Workers never mutate the setup.
+failure. Workers never mutate the setup. Physics records retain the shared cancellation
+token rather than a duplicate terminal status. Finalization forms a local completion
+result without replacing worker output with an installation error.
 
 The mesh setters invalidate derived collision and schedule when a collision source
 is available, even without CPU RenderData. Missing source retains configuration as
