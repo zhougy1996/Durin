@@ -190,7 +190,7 @@ TEST(FMaterialTranslationTests, MaterialCacheWaitReleasesTheOnlyAvailableWorker)
 	ASSERT_TRUE(Cache->Entered.WaitFor(5));
 	FThreadEvent Progress; auto Unrelated = Tasks::LaunchTask("UnrelatedMaterialProgress", [&] { Progress.Trigger(); });
 	ASSERT_TRUE(Progress.WaitFor(5));
-	Cache->Release.Trigger(); Operation->Wait(); EXPECT_TRUE(Operation->IsRetired()); EXPECT_EQ(Completed, 1u);
+	Cache->Release.Trigger(); Operation->Wait(); EXPECT_TRUE(Operation->IsFinished()); EXPECT_EQ(Completed, 1u);
 }
 
 TEST(FMaterialTranslationTests, RejectedHitsRebuildOnceAndStoreFailureKeepsLocalProduct)
@@ -268,7 +268,7 @@ TEST(FMaterialTranslationTests, CancellationDuringCacheIOCompletesAndRetiresWith
 	auto Op = std::make_shared<FMaterialBuildOperation>(); std::atomic_uint32_t Calls = 0;
 	Op->Start(std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput()), false, {}, {}, [&](auto Result) { EXPECT_FALSE(Result); ASSERT_FALSE(Result.Diagnostics.empty()); EXPECT_EQ(Result.Diagnostics.front().Error, EMaterialCompileError::CompilationCanceled); ++Calls; });
 	ASSERT_TRUE(Cache->Entered.WaitFor(5)); const auto Begin = std::chrono::steady_clock::now(); Op->Cancel();
-	Cache->Release.Trigger(); Op->Wait(); EXPECT_TRUE(Op->IsRetired()); EXPECT_EQ(Calls, 1u);
+	Cache->Release.Trigger(); Op->Wait(); EXPECT_TRUE(Op->IsFinished()); EXPECT_EQ(Calls, 1u);
 	RecordProperty("CacheCancelRetirementMicroseconds", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count());
 }
 

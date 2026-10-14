@@ -22,10 +22,8 @@ namespace Durin::MaterialBuildPrivate
 	struct FMaterialBuildOperation::FState
 	{
 		mutable std::mutex Mutex;
-		std::vector<FTaskHandle> Tasks;
 		std::shared_ptr<FShaderBuildHandle> Shader;
-		DerivedData::FRequestOwner Submissions;
-		DerivedData::FRequestOwner TranslationOwner;
+		DerivedData::FRequestOwner Owner;
 		DerivedData::FBuildCancellation Cancellation;
 		FTaskCancellationToken Parent;
 		FTaskCancellationSource CpuCancellation;
@@ -33,7 +31,7 @@ namespace Durin::MaterialBuildPrivate
 		std::shared_ptr<const FMaterialTranslationInput> EncodedInput;
 		std::function<bool(FMaterialTranslatedProgram&)> OnTranslation;
 		std::function<void(FMaterialCompilerResult)> Completion;
-		bool Force = false, Started = false, Done = false, Reserved = false;
+		bool Force = false, Started = false, ResultReady = false, Reserved = false;
 		bool HighPriority = false;
 		bool Inline = false;
 		uint64 TaskId = 0;
@@ -52,7 +50,7 @@ namespace Durin::MaterialBuildPrivate
 	{
 		std::shared_ptr<FShaderBuildHandle> Shader;
 		{ std::lock_guard Lock(State->Mutex); State->HighPriority = true; Shader = State->Shader; }
-		State->TranslationOwner.SetPriority(DerivedData::ERequestPriority::High);
+		State->Owner.SetPriority(DerivedData::ERequestPriority::High);
 		if (Shader) Shader->SetPriority(EShaderBuildPriority::High);
 	}
 	auto FMaterialBuildOperation::Launch(std::function<void()> Work) -> void
@@ -63,7 +61,7 @@ namespace Durin::MaterialBuildPrivate
 			catch (...) { Complete(FailedMaterial()); }
 			return;
 		}
-		DerivedData::FRequestBarrier Submission(State->Submissions);
+		DerivedData::FRequestBarrier Submission(State->Owner);
 		ETaskPriority Priority;
 		{ std::lock_guard Lock(State->Mutex); Priority = State->HighPriority ? ETaskPriority::High : ETaskPriority::Normal; }
 		auto Dispatch = Private::TryLaunchCancelableTaskWithCompletion("MaterialBuildStage",
@@ -74,13 +72,14 @@ namespace Durin::MaterialBuildPrivate
 		if (!Dispatch.HasValue()) Complete(FailedMaterial());
 		{
 			std::lock_guard Lock(State->Mutex);
-			if (Dispatch.HasValue()) { auto Task = std::move(Dispatch).TakeValue(); if (!State->TaskId) State->TaskId = Task.GetTaskId(); State->Tasks.push_back(std::move(Task)); }
+			if (Dispatch.HasValue()) { auto Task = std::move(Dispatch).TakeValue(); if (!State->TaskId) State->TaskId = Task.GetTaskId(); State->Owner.TrackTask(std::move(Task)); }
 		}
 	}
 	auto FMaterialBuildOperation::Start(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force,
 		FTaskCancellationToken Cancellation, std::function<bool(FMaterialTranslatedProgram&)> OnTranslation,
 		std::function<void(FMaterialCompilerResult)> Completion, std::shared_ptr<const FMaterialTranslationInput> EncodedInput) -> void
 	{
+		DerivedData::FRequestBarrier Submission(State->Owner);
 		const bool Admitted = TryReserve();
 		{
 			std::lock_guard Lock(State->Mutex); require(!State->Started); State->Started = true;
@@ -92,7 +91,7 @@ namespace Durin::MaterialBuildPrivate
 		Launch([Self = shared_from_this()] {
 			if (auto Error = ValidateTranslationConsumer(*Self->State->Input); Error.HasError())
 				return Self->Complete({.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Normalization, .Error = std::move(Error)}}});
-			auto Admitted = SubmitTranslation(Self->State->Input, Self->State->Force, Self->State->TranslationOwner,
+			auto Admitted = SubmitTranslation(Self->State->Input, Self->State->Force, Self->State->Owner,
 				[Self](FMaterialTranslatedProgram Product) { try { Self->Translated(std::move(Product)); } catch (...) { Self->Complete(FailedMaterial()); } }, Self->State->Cancellation, true, Self->State->EncodedInput, Self->State->Inline ? DerivedData::EBuildCacheExecution::Inline : DerivedData::EBuildCacheExecution::Task);
 			if (!Admitted) Self->Complete(FailedMaterial());
 		});
@@ -108,7 +107,7 @@ namespace Durin::MaterialBuildPrivate
 		if (!ShaderBuild) return Complete(FailedMaterial());
 		auto Product = std::make_shared<FMaterialTranslatedProgram>(std::move(Translation));
 		const auto Begin = std::chrono::steady_clock::now();
-		DerivedData::FRequestBarrier Submission(State->Submissions);
+		DerivedData::FRequestBarrier Submission(State->Owner);
 		EShaderBuildPriority Priority;
 		{ std::lock_guard Lock(State->Mutex); Priority = State->HighPriority ? EShaderBuildPriority::High : EShaderBuildPriority::Normal; }
 		auto Submitted = ShaderBuild->SubmitGenerated(MakeMaterialShaderCompileRequest(*Product, State->Force),
@@ -123,6 +122,10 @@ namespace Durin::MaterialBuildPrivate
 		std::shared_ptr<FShaderBuildHandle> Shader;
 		if (Submitted) Shader = std::make_shared<FShaderBuildHandle>(std::move(*Submitted));
 		else Complete(FailedMaterial());
+		if (Shader) State->Owner.TrackDependency({
+			.IsFinished = [Shader] { return Shader->IsComplete(); },
+			.Wait = [Shader] { return Shader->Wait() == EShaderBuildWaitResult::Completed ? DerivedData::ERequestWaitResult::Completed : DerivedData::ERequestWaitResult::WouldBlock; },
+			.RequestCancel = [Shader] { Shader->RequestCancel(); }});
 		{
 			std::lock_guard Lock(State->Mutex); State->Shader = Shader; if (Shader && State->HighPriority) Shader->SetPriority(EShaderBuildPriority::High);
 		}
@@ -130,10 +133,10 @@ namespace Durin::MaterialBuildPrivate
 	}
 	auto FMaterialBuildOperation::Complete(FMaterialCompilerResult Result, bool Deliver) -> void
 	{
-		DerivedData::FRequestBarrier Delivery(State->Submissions);
+		DerivedData::FRequestBarrier Delivery(State->Owner);
 		std::function<void(FMaterialCompilerResult)> Callback;
 		{
-			std::lock_guard Lock(State->Mutex); if (State->Done) return; State->Done = true;
+			std::lock_guard Lock(State->Mutex); if (State->ResultReady) return; State->ResultReady = true;
 			Callback = std::move(State->Completion); State->OnTranslation = {};
 		}
 		if (Result && EstimateProgramBytes(Result) > 8ull * 1024 * 1024) Result = {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Bounds, .Error = EMaterialCompileError::CompiledMaterialResultExceedsRetainedResultByteLimit}}};
@@ -142,35 +145,19 @@ namespace Durin::MaterialBuildPrivate
 	}
 	auto FMaterialBuildOperation::Cancel() -> void
 	{
-		State->Cancellation.Cancel(); State->CpuCancellation.RequestCancellation(); State->TranslationOwner.RequestCancel();
-		std::shared_ptr<FShaderBuildHandle> Shader;
-		{ std::lock_guard Lock(State->Mutex); Shader = State->Shader; }
-		if (Shader) Shader->RequestCancel();
+		State->Cancellation.Cancel(); State->CpuCancellation.RequestCancellation(); State->Owner.RequestCancel();
 	}
-	auto FMaterialBuildOperation::IsRetired() const -> bool
+	auto FMaterialBuildOperation::IsFinished() const -> bool
 	{
 		std::lock_guard Lock(State->Mutex);
-		return State->Started && State->Done && State->Submissions.Poll() && State->TranslationOwner.Poll()
-			&& (!State->Shader || State->Shader->IsComplete())
-			&& std::ranges::all_of(State->Tasks, [](const auto& Task) { return Task.IsComplete(); });
+		return State->Started && State->ResultReady && State->Owner.Poll();
 	}
 	auto FMaterialBuildOperation::GetTaskId() const -> uint64 { std::lock_guard Lock(State->Mutex); return State->TaskId; }
 	auto FMaterialBuildOperation::Wait() -> void
 	{
 		RaisePriority();
-		for (;;)
-		{
-			std::vector<FTaskHandle> Tasks;
-			require(State->Submissions.Wait() == DerivedData::ERequestWaitResult::Completed);
-			{ std::lock_guard Lock(State->Mutex); Tasks = State->Tasks; }
-			for (const auto& Task : Tasks) require(WaitTask(Task).WaitStatus == ETaskWaitStatus::Completed);
-			require(State->TranslationOwner.Wait() == DerivedData::ERequestWaitResult::Completed);
-			std::shared_ptr<FShaderBuildHandle> Shader;
-			require(State->Submissions.Wait() == DerivedData::ERequestWaitResult::Completed);
-			{ std::lock_guard Lock(State->Mutex); Shader = State->Shader; }
-			if (Shader) require(Shader->Wait() == EShaderBuildWaitResult::Completed);
-			if (IsRetired()) return;
-		}
+		require(State->Owner.Wait() == DerivedData::ERequestWaitResult::Completed);
+		require(IsFinished());
 	}
 	auto CompileMaterialInput(const MIR::FCompilerInput& Input, bool Force) -> FMaterialBuildResult
 	{
@@ -203,7 +190,7 @@ namespace Durin::MaterialBuildPrivate
 	auto FMaterialBuildOperation::RaisePriority() -> void {}
 	auto FMaterialBuildOperation::Cancel() -> void {}
 	auto FMaterialBuildOperation::Wait() -> void {}
-	auto FMaterialBuildOperation::IsRetired() const -> bool { return true; }
+	auto FMaterialBuildOperation::IsFinished() const -> bool { return true; }
 	auto FMaterialBuildOperation::GetTaskId() const -> uint64 { return 0; }
 	auto CompileMaterialInput(const MIR::FCompilerInput&, bool) -> FMaterialBuildResult
 	{ return {.Program = {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Compile, .Error = EMaterialCompileError::NoAuthoredProgram}}}}; }

@@ -56,6 +56,21 @@ namespace Durin::DerivedData
 			struct FEntry { std::shared_ptr<IRequest> Request; std::shared_ptr<FOwnerTask> Dispatch; };
 			std::unordered_map<IRequest*, FEntry> Requests;
 			std::vector<FTaskHandle> NativeTasks;
+			std::vector<std::shared_ptr<const FRequestDependency>> Dependencies;
+			uint64 DependencyRevision = 0;
+			auto TrackTask(FTaskHandle Task) -> void
+			{
+				if (!Task.IsValid()) return;
+				std::lock_guard Lock(Mutex); PruneNativeTasks(); NativeTasks.push_back(std::move(Task)); ++DependencyRevision;
+			}
+			auto TrackDependency(FRequestDependency Value) -> void
+			{
+				require(Value.IsFinished && Value.Wait && Value.RequestCancel);
+				auto Dependency = std::make_shared<const FRequestDependency>(std::move(Value));
+				bool Cancel;
+				{ std::lock_guard Lock(Mutex); Dependencies.push_back(Dependency); ++DependencyRevision; Cancel = Canceled; }
+				if (Cancel) Dependency->RequestCancel();
+			}
 			explicit FOwnerState(ERequestPriority Priority) : Priority(Priority) {}
 			auto Begin(std::shared_ptr<IRequest> Request) -> std::shared_ptr<IRequestOwner> override
 			{
@@ -85,14 +100,16 @@ namespace Durin::DerivedData
 			auto RequestCancel() -> void override
 			{
 				std::vector<std::shared_ptr<IRequest>> Snapshot;
-				{ std::lock_guard Lock(Mutex); Canceled = true; for (const auto& [Key, Request] : Requests) Snapshot.push_back(Request.Request); }
+				std::vector<std::shared_ptr<const FRequestDependency>> External;
+				{ std::lock_guard Lock(Mutex); Canceled = true; External = Dependencies; for (const auto& [Key, Request] : Requests) Snapshot.push_back(Request.Request); }
 				for (const auto& Request : Snapshot) Request->RequestCancel();
+				for (const auto& Dependency : External) Dependency->RequestCancel();
 			}
 			auto Cancel() -> void override
 			{
 				requiref(!IsInCallback(), "Request owners must be drained outside their callbacks; use RequestCancel.");
 				RequestCancel();
-				requiref(Wait() == ERequestWaitResult::Completed, "Request owner cancellation must join retirement.");
+				requiref(Wait() == ERequestWaitResult::Completed, "Request owner cancellation must wait for request end.");
 			}
 			auto IsCanceled() const -> bool override { std::lock_guard Lock(Mutex); return Canceled; }
 			auto PruneNativeTasks() -> void
@@ -142,8 +159,16 @@ namespace Durin::DerivedData
 			}
 			auto Poll() const -> bool override
 			{
+				std::vector<std::shared_ptr<const FRequestDependency>> External;
+				uint64 Revision;
+				{
+					std::lock_guard Lock(Mutex);
+					if (!Requests.empty() || !std::ranges::all_of(NativeTasks, [](const auto& Task) { return Task.IsComplete(); })) return false;
+					External = Dependencies; Revision = DependencyRevision;
+				}
+				if (!std::ranges::all_of(External, [](const auto& Dependency) { return Dependency->IsFinished(); })) return false;
 				std::lock_guard Lock(Mutex);
-				return Requests.empty() && std::ranges::all_of(NativeTasks, [](const auto& Task) { return Task.IsComplete(); });
+				return Requests.empty() && Revision == DependencyRevision && std::ranges::all_of(NativeTasks, [](const auto& Task) { return Task.IsComplete(); });
 			}
 			auto Wait() const -> ERequestWaitResult override
 			{
@@ -152,16 +177,22 @@ namespace Durin::DerivedData
 				{
 					std::shared_ptr<IRequest> Request;
 					std::vector<FTaskHandle> Native;
+					std::vector<std::shared_ptr<const FRequestDependency>> External;
 					{
 						std::lock_guard Lock(Mutex);
-						if (Requests.empty()) Native = NativeTasks;
+						if (Requests.empty()) { Native = NativeTasks; External = Dependencies; }
 						else Request = Requests.begin()->second.Request;
 					}
 					if (Request) { if (Request->Wait() != ERequestWaitResult::Completed) return ERequestWaitResult::WouldBlock; }
 					else
 					{
 						for (const auto& Task : Native) if (WaitTask(Task).WaitStatus != ETaskWaitStatus::Completed) return ERequestWaitResult::WouldBlock;
-						return ERequestWaitResult::Completed;
+						for (const auto& Dependency : External)
+						{
+							FRequestOwnerScope Scope(const_cast<FOwnerState*>(this));
+							if (Dependency->Wait() != ERequestWaitResult::Completed) return ERequestWaitResult::WouldBlock;
+						}
+						if (Poll()) return ERequestWaitResult::Completed;
 					}
 				}
 			}
@@ -199,6 +230,8 @@ namespace Durin::DerivedData
 	auto FRequestOwner::SetPriority(ERequestPriority Priority) -> void { State->SetPriority(Priority); }
 	auto FRequestOwner::Poll() const -> bool { return State->Poll(); }
 	auto FRequestOwner::Wait() const -> ERequestWaitResult { return State->Wait(); }
+	auto FRequestOwner::TrackTask(FTaskHandle Task) -> void { State->TrackTask(std::move(Task)); }
+	auto FRequestOwner::TrackDependency(FRequestDependency Dependency) -> void { State->TrackDependency(std::move(Dependency)); }
 	auto Private::CreateRequestOwnerState() -> std::shared_ptr<IRequestOwner> { return std::make_shared<FOwnerState>(ERequestPriority::Normal); }
 	auto FRequestOwner::LaunchTask(IRequest* Request, IBuildScheduler& Scheduler, std::string_view Name, std::function<void()> Work, std::function<void()> OnCanceled)
 		-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> { return State->LaunchTask(Request, Scheduler, Name, std::move(Work), std::move(OnCanceled)); }

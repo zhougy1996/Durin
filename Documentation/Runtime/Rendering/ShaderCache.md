@@ -212,7 +212,7 @@ Generated roots use the `/Generated/` namespace. Optional source-tree descriptio
 carry the caller's fingerprint, entry points/stages, macros and complete-closure
 declaration; ShaderBuild verifies those bytes without material-specific defaults.
 Compiler flights use a request-owner submission barrier acquired before publishing
-the joinable flight, preserving retirement across inline completion and hit repair.
+the joinable flight, preserving request end across inline completion and hit repair.
 Forced and ordinary requests have separate flights. A generated subscriber owns
 one move-only handle with nonblocking cancellation, mutable priority and explicit
 wait. Rejection has no callback; acceptance completes exactly once, including

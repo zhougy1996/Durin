@@ -4,10 +4,18 @@
 #include "DerivedDataRequest.h"
 #include "DerivedDataBuildScheduler.h"
 #include "DerivedDataCacheAPI.h"
+#include "Threading/Task.h"
 
 namespace Durin::DerivedData
 {
 	namespace Private { class FOwnerState; }
+	// External work participates in the same request-end boundary as DDC work.
+	struct FRequestDependency
+	{
+		std::function<bool()> IsFinished;
+		std::function<ERequestWaitResult()> Wait;
+		std::function<void()> RequestCancel;
+	};
 	class IRequestOwner
 	{
 	public:
@@ -42,7 +50,7 @@ namespace Durin::DerivedData
 	{
 	public:
 		DERIVEDDATACACHE_API explicit FRequestOwner(ERequestPriority Priority = ERequestPriority::Normal);
-		// Destruction joins retirement; it must occur outside callbacks.
+		// Destruction waits for request end; it must occur outside callbacks.
 		DERIVEDDATACACHE_API ~FRequestOwner() override;
 		FRequestOwner(const FRequestOwner&) = delete;
 		auto operator=(const FRequestOwner&) -> FRequestOwner& = delete;
@@ -57,6 +65,11 @@ namespace Durin::DerivedData
 			-> std::expected<std::shared_ptr<IBuildScheduledWork>, FBuildAdmissionError> override;
 		DERIVEDDATACACHE_API auto Poll() const -> bool override;
 		DERIVEDDATACACHE_API auto Wait() const -> ERequestWaitResult override;
+		// Register before leaving the submission barrier. Poll/Wait include these
+		// handles. Dependency queries run outside owner locks and must not wait
+		// on this owner. Native task cancellation remains with its source.
+		DERIVEDDATACACHE_API auto TrackTask(FTaskHandle Task) -> void;
+		DERIVEDDATACACHE_API auto TrackDependency(FRequestDependency Dependency) -> void;
 	private:
 		std::shared_ptr<Private::FOwnerState> State;
 	};

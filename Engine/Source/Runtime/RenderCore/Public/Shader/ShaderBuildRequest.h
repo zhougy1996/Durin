@@ -28,7 +28,7 @@ namespace Durin
 		virtual auto Wait() -> EShaderBuildWaitResult = 0;
 		virtual auto IsComplete() const -> bool = 0;
 	};
-	// One subscriber; moving transfers cancellation authority. Retirement is explicit.
+	// One subscriber; moving transfers cancellation authority. Wait joins request end.
 	class FShaderBuildHandle
 	{
 	public:

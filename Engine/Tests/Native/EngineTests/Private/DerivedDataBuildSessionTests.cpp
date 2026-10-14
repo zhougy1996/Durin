@@ -107,6 +107,42 @@ namespace
 	};
 }
 
+TEST(FBuildContinuationTests, OwnerWaitIncludesTrackedNativeTaskEnd)
+{
+	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
+	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
+	FThreadEvent Entered, Release;
+	FRequestOwner Owner;
+	auto Task = Tasks::LaunchTask("OwnerTrackedTask", [&] { Entered.Trigger(); Release.Wait(); });
+	Owner.TrackTask(Task); Entered.Wait(); EXPECT_FALSE(Owner.Poll());
+	Release.Trigger(); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	EXPECT_TRUE(Task.IsComplete()); EXPECT_TRUE(Owner.Poll());
+}
+
+TEST(FBuildContinuationTests, OwnerWaitIncludesDependencyAddedByEarlierWait)
+{
+	FRequestOwner Owner; FThreadEvent Entered, Release, Finished;
+	std::atomic_bool Added = false, Ready = false;
+	Owner.TrackDependency({.IsFinished = [&] { return Added.load(); }, .Wait = [&] {
+		if (!Added.exchange(true)) Owner.TrackDependency({.IsFinished = [&] { return Ready.load(); },
+			.Wait = [&] { Entered.Trigger(); Release.Wait(); Ready = true; return ERequestWaitResult::Completed; }, .RequestCancel = [&] { Release.Trigger(); }});
+		return ERequestWaitResult::Completed;
+	}, .RequestCancel = [] {}});
+	std::thread Waiter([&] { EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); Finished.Trigger(); });
+	Entered.Wait(); EXPECT_FALSE(Owner.Poll()); EXPECT_FALSE(Finished.WaitFor(0.02));
+	Release.Trigger(); Waiter.join(); EXPECT_TRUE(Owner.Poll());
+}
+
+TEST(FBuildContinuationTests, OwnerDependencyQueriesAndLateCancellationRunOutsideLock)
+{
+	FRequestOwner Owner; uint32 Cancellations = 0;
+	Owner.RequestCancel();
+	Owner.TrackDependency({.IsFinished = [&] { EXPECT_EQ(Owner.GetPriority(), ERequestPriority::Normal); return true; },
+		.Wait = [&] { EXPECT_EQ(Owner.Wait(), ERequestWaitResult::WouldBlock); return ERequestWaitResult::Completed; },
+		.RequestCancel = [&] { EXPECT_TRUE(Owner.IsCanceled()); ++Cancellations; }});
+	EXPECT_EQ(Cancellations, 1u); EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+}
+
 TEST(FBuildContinuationTests, SubmissionBarriersRetainNestedInlineCallbacksAndPriority)
 {
 	auto Service = CreateBuild(); auto Function = std::make_shared<FFunction>();

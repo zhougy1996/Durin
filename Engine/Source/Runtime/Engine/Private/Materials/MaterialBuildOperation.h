@@ -12,7 +12,7 @@ namespace Durin::MaterialBuildPrivate
 		std::shared_ptr<const FMaterialCompilerResult> Shared;
 		bool RetainedHit = false;
 	};
-	// Engine-owned continuation lifetime. Business completion and retirement differ.
+	// Engine-owned continuation lifetime. Result readiness and request end differ.
 	class ENGINE_API FMaterialBuildOperation : public std::enable_shared_from_this<FMaterialBuildOperation>
 	{
 	public:
@@ -26,7 +26,7 @@ namespace Durin::MaterialBuildPrivate
 		auto RaisePriority() -> void;
 		auto Cancel() -> void;
 		auto Wait() -> void;
-		auto IsRetired() const -> bool;
+		auto IsFinished() const -> bool;
 		auto GetTaskId() const -> uint64;
 	private:
 		struct FState;

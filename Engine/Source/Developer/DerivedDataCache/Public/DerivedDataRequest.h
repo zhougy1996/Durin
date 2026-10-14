@@ -12,7 +12,8 @@ namespace Durin::DerivedData
 		virtual ~IRequest() = default;
 		// Nonblocking signal for cancellation propagation and callbacks.
 		virtual auto RequestCancel() -> bool = 0;
-		// Cancel and Wait join callback retirement. Cancel rejects self-waits.
+		// Cancel and Wait wait for request end, including callback exit.
+		// Cancel rejects self-waits.
 		virtual auto Cancel() -> bool = 0;
 		virtual auto Wait() -> ERequestWaitResult = 0;
 	};

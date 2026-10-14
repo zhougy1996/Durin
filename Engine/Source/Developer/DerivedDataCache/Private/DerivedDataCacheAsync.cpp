@@ -20,7 +20,7 @@ namespace Durin::DerivedData::Private
 		uint64 RetainedBytes = 0;
 		bool Admitted = false; // Protected by Cache->Mutex.
 		auto IsCanceled() const -> bool { return Canceled.load() || Group->IsCanceled(); }
-		auto OnRetired() -> void override;
+		auto OnFinished() -> void override;
 		auto RequestCancel() -> bool override;
 		auto Finish(FCacheGetResult GetResult, FCachePutResult PutResult, FCacheQueryStats Stats = {}) -> void;
 		auto Run() -> void;
@@ -38,7 +38,7 @@ namespace Durin::DerivedData::Private
 		auto Pump() -> void;
 	};
 	auto CanceledError() -> FCacheError { return {ECacheError::Canceled, "Asynchronous cache request canceled or dropped."}; }
-	auto FCacheOperation::OnRetired() -> void
+	auto FCacheOperation::OnFinished() -> void
 	{
 		std::lock_guard Lock(Cache->Mutex);
 		std::erase_if(Cache->All, [&](const auto& Op) { return Op.get() == this; });

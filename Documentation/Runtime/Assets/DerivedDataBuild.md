@@ -361,19 +361,24 @@ initialization hold the request lock. `FRequestOwner` supplies cancellation,
 Destroying an owner from its callback is rejected: move that
 destruction outside the callback and drain first. Reentrant waits return
 `WouldBlock`. Callbacks use nonblocking `RequestCancel`; synchronous `Cancel`
-rejects self-waits and returns only after callback retirement.
+rejects self-waits and returns only after request end.
 
-Build and Cache share one completion protocol. Owner wait includes callback
-retirement, request buffer/callable release, initial dispatch return, and native
-dispatch capture retirement. `Poll` observes the same completion boundary.
-`Cancel` signals cancellation and joins retirement; owner cancellation signals all
+Result readiness means a terminal result is available for consumers. Request end
+means submission has returned, callbacks have exited, buffers/callables have been
+released, and registered native work has ended. Build and Cache share this
+protocol. Owner `Wait` joins request end; `Poll` observes the same boundary.
+`Cancel` signals cancellation and waits for request end; owner cancellation signals all
 requests before joining any of them. Internal propagation and session/cache
 `Close` use nonblocking `RequestCancel`. Queued cache requests retire immediately,
 including their callback, without waiting for another owner's I/O slot. Already
 canceled owners do not dispatch cache work; stale dispatch thunks do no backend
 work. Owner wait joins requests already admitted; concurrent submission windows
-must be synchronized by callers. No DDC barrier interface or barrier wait state
-is retained.
+must be protected by submission barriers before publishing handles.
+`TrackTask` includes accepted native handles in this boundary; cancellation stays
+with the task's source. `TrackDependency` includes external handles such as Shader
+subscribers, including cancellation for dependencies registered after cancel.
+Dependency queries and waits execute outside owner locks. A wait rechecks the
+owner after joining its snapshot, including work added by a continuation.
 
 The complete Build request, its Get/Put stages, and each dispatched task register
 with the same owner. Dispatch tasks own the queued/running transition and dropped
@@ -390,7 +395,7 @@ Sessions keep their own close/drain authority.
 DDC admission does not capture a Core scope or allocate per-request scope anchors.
 Engine asset producers use `FRequestOwner` directly. Producer task completion
 establishes that no further submissions can occur; owner `Poll()` then confirms
-request/callback retirement and completion of registered native dispatch handles.
+request end and completion of registered native dispatch handles.
 `Wait()` joins the same boundary, including native dispatch capture destruction.
 Dispatch publication keeps a request registered until its scheduler has returned
 the native handle, even if its callback completed synchronously. Owner polling

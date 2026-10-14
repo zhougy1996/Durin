@@ -21,22 +21,22 @@ namespace Durin::DerivedData::Private
 			return false;
 		}
 	};
-	// Shared callback retirement, dispatch publication, and stage wait protocol.
+	// Shared callback completion, dispatch publication, and request-end protocol.
 	struct FRequestCompletion : IRequest
 	{
 		std::mutex Mutex;
 		std::condition_variable Changed;
-		bool Dispatching = true, CompletionReleased = false, OwnerReleased = false, Retired = false, StageDispatching = false;
+		bool Dispatching = true, CompletionReleased = false, OwnerReleased = false, Finished = false, StageDispatching = false;
 		uint64 ScheduleRevision = 0;
 		std::shared_ptr<IRequestOwner> Group;
 		std::shared_ptr<IBuildScheduledWork> Scheduled;
 		const void* WaitDomain = nullptr;
-		virtual auto OnRetired() -> void {}
+		virtual auto OnFinished() -> void {}
 		auto Cancel() -> bool final
 		{
 			requiref(!FRequestOwnerScope::Blocks(this, WaitDomain), "Synchronous cancellation cannot wait for its own callback; use RequestCancel.");
 			const bool Changed = RequestCancel();
-			requiref(Wait() == ERequestWaitResult::Completed, "Synchronous cancellation must join request retirement.");
+			requiref(Wait() == ERequestWaitResult::Completed, "Synchronous cancellation must wait for request end.");
 			return Changed;
 		}
 		auto ReleaseOwner() -> void
@@ -48,9 +48,9 @@ namespace Durin::DerivedData::Private
 				OwnerReleased = true;
 				Owner = Group;
 			}
-			OnRetired();
+			OnFinished();
 			if (Owner) Owner->End(this);
-			{ std::lock_guard Lock(Mutex); Retired = true; }
+			{ std::lock_guard Lock(Mutex); Finished = true; }
 			Changed.notify_all();
 		}
 		auto DispatchReturned() -> void { { std::lock_guard Lock(Mutex); Dispatching = false; } ReleaseOwner(); Changed.notify_all(); }
@@ -63,7 +63,7 @@ namespace Durin::DerivedData::Private
 		}
 		auto Wait() -> ERequestWaitResult override
 		{
-			{ std::lock_guard Lock(Mutex); if (Retired) return ERequestWaitResult::Completed; }
+			{ std::lock_guard Lock(Mutex); if (Finished) return ERequestWaitResult::Completed; }
 			if (FRequestOwnerScope::Blocks(this, WaitDomain)) return ERequestWaitResult::WouldBlock;
 			for (;;)
 			{
@@ -74,7 +74,7 @@ namespace Durin::DerivedData::Private
 					Changed.wait(Lock, [&] { return !Dispatching && (!StageDispatching || CompletionReleased); });
 					if (CompletionReleased)
 					{
-						Changed.wait(Lock, [&] { return Retired; });
+						Changed.wait(Lock, [&] { return Finished; });
 						return ERequestWaitResult::Completed;
 					}
 					Work = Scheduled;

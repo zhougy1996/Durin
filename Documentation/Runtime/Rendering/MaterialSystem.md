@@ -583,7 +583,10 @@ ceilings are 512 MiB and 256 MiB respectively. Captured input is limited to 2 Mi
 per request and 128 MiB in aggregate; candidates are limited to 8 MiB, generated
 source to 1 MiB, diagnostics to the M5 64-record/512-byte limits, and shared
 in-process retention to 128 identities and 256 MiB FIFO. Reservations survive
-business completion until submission, owners, handles and CPU tasks retire.
+result readiness until request end. A single request owner tracks translation,
+submission/callback barriers, CPU tasks and Shader handles. `IsFinished` and
+`Wait` use that owner's shared end boundary; GameThread result publication remains
+the material lifecycle's separate responsibility.
 The aggregate capture budget also charges retained canonical translation bytes.
 Equal identities share one flight and retained immutable result while keeping
 asset-local generations and diagnostics. Aggregate counters retain no asset or

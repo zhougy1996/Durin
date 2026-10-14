@@ -178,7 +178,7 @@ namespace Durin
 			{
 				std::vector<std::shared_ptr<FMaterialCompileFlight>> Retired;
 				{ std::scoped_lock Lock(Mutex); Retired = Operations; }
-				std::erase_if(Retired, [](const auto& Flight) { return !Flight->Operation->IsRetired(); });
+				std::erase_if(Retired, [](const auto& Flight) { return !Flight->Operation->IsFinished(); });
 				std::scoped_lock Lock(Mutex);
 				for (const auto& Flight : Retired)
 				{
@@ -344,7 +344,7 @@ namespace Durin
 				{
 					std::scoped_lock Lock(Mutex);
 					for (const auto& [Key, Flight] : Flights)
-						if (Flight->Operation->IsRetired())
+						if (Flight->Operation->IsFinished())
 							TerminalFlights.push_back(Flight);
 				}
 				for (const auto& Flight : TerminalFlights)
