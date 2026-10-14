@@ -68,6 +68,36 @@ namespace Durin::Tasks
 	// Must be called from a running task body; its worker is free after the body returns.
 	CORE_API auto AddNested(const FTaskHandle& Task) -> void;
 
+	namespace Detail
+	{
+		template<typename T> concept CTaskDependency = std::same_as<std::remove_cvref_t<T>, FTaskHandle>
+			|| std::derived_from<std::remove_cvref_t<T>, Private::FTaskHandle>;
+		template<CTaskDependency T> auto DependencyHandle(const T& Task) -> FTaskHandle
+		{ return Task; }
+
+		template<typename R> concept CTaskDependencyCollection = std::ranges::input_range<const R>
+			&& CTaskDependency<std::ranges::range_reference_t<const R>>;
+
+		// Copy observations only; collecting dependencies never consumes a result claim.
+		template<CTaskDependencyCollection R>
+		auto CollectDependencies(const R& Inputs, std::span<const FTaskHandle> Existing = {})
+			-> std::vector<FTaskHandle>
+		{
+			try
+			{
+				std::vector<FTaskHandle> Handles(Existing.begin(), Existing.end());
+				for (const auto& Input : Inputs) Handles.push_back(DependencyHandle(Input));
+				return Handles;
+			}
+			catch (const std::bad_alloc&) { FailConstruction({ETaskAdmissionErrorCode::CapacityExhausted}); }
+		}
+	}
+
+	// One outcome per input, in input order; does not consume task results.
+	template<Detail::CTaskDependencyCollection R>
+	auto Wait(const R& Inputs) -> std::vector<FTaskWaitResult>
+	{ return WaitAll(Detail::CollectDependencies(Inputs)); }
+
 	// Explicit one-shot signal, optionally joined with other completion dependencies.
 	// Copies share one signal. The last handle must not be destroyed before Trigger().
 	class FTaskEvent : public Private::FTaskHandle
@@ -77,19 +107,17 @@ namespace Durin::Tasks
 		CORE_API explicit FTaskEvent(const char* DebugName, bool bUnknownExecutionRequirement = true);
 		CORE_API auto AddPrerequisites(std::span<const Durin::FTaskHandle> Prerequisites) -> void;
 		auto AddPrerequisites(const Durin::FTaskHandle& Prerequisite) -> void { AddPrerequisites(std::span(&Prerequisite, 1)); }
+		template<Detail::CTaskDependencyCollection R>
+		auto AddPrerequisites(const R& Inputs) -> void
+		{
+			const auto Handles = Detail::CollectDependencies(Inputs);
+			AddPrerequisites(std::span<const Durin::FTaskHandle>(Handles));
+		}
 		CORE_API auto Trigger() -> void;
 	private:
 		struct FState;
 		std::shared_ptr<FState> State;
 	};
-
-	namespace Detail
-	{
-		template<typename T> concept CTaskDependency = std::same_as<std::remove_cvref_t<T>, FTaskHandle>
-			|| std::derived_from<std::remove_cvref_t<T>, Private::FTaskHandle>;
-		template<CTaskDependency T> auto DependencyHandle(const T& Task) -> FTaskHandle
-		{ return Task; }
-	}
 
 	// Owns only dependency handles, never a unique result claim. The returned
 	// collection can be retained independently of the task/event facades.
@@ -310,26 +338,18 @@ namespace Durin::Tasks
 
 	namespace Detail
 	{
-		template<typename F>
-		auto WithPrerequisites(FTaskExecutionOptions Options, std::span<const FTaskHandle> Inputs, F&& Launch)
+		template<CTaskDependencyCollection R, typename F>
+		auto WithPrerequisites(FTaskExecutionOptions Options, const R& Inputs, F&& Launch)
 		{
-			try
-			{
-				std::vector<FTaskHandle> Handles(Options.Prerequisites.begin(), Options.Prerequisites.end());
-				Handles.insert(Handles.end(), Inputs.begin(), Inputs.end());
-				Options.Prerequisites = Handles;
-				return Launch(Options);
-			}
-			catch (const std::bad_alloc&)
-			{
-				FailConstruction({ETaskAdmissionErrorCode::CapacityExhausted});
-			}
+			const auto Handles = CollectDependencies(Inputs, Options.Prerequisites);
+			Options.Prerequisites = Handles;
+			return Launch(Options);
 		}
 	}
 
-	template<typename F, size_t N>
+	template<typename F, Detail::CTaskDependencyCollection R>
 	auto LaunchTask(ETaskExecutor Executor, const FTaskExecutionOptions& Options,
-		F&& Function, const std::array<FTaskHandle, N>& Inputs)
+		F&& Function, const R& Inputs)
 	{
 		return Detail::WithPrerequisites(Options, Inputs, [&](const auto& BoundOptions) {
 			return LaunchTask(Executor, BoundOptions, std::forward<F>(Function));
@@ -339,8 +359,8 @@ namespace Durin::Tasks
 	auto LaunchTask(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function, const T& Input)
 	{ return LaunchTask(Executor, Options, std::forward<F>(Function), Prerequisites(Input)); }
 
-	template<typename F, size_t N>
-	auto LaunchTask(const char* Name, F&& Function, const std::array<FTaskHandle, N>& Inputs,
+	template<typename F, Detail::CTaskDependencyCollection R>
+	auto LaunchTask(const char* Name, F&& Function, const R& Inputs,
 		FTaskExecutionOptions Options = {})
 	{
 		return Detail::WithPrerequisites(Options, Inputs, [&](const auto& BoundOptions) {

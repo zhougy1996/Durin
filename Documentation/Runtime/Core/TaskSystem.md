@@ -162,13 +162,16 @@ All ordinary composition returns task handles directly:
 | `WhenAll(const vector<TSharedTask<T>>&)` | Immutable owning result views, including duplicate positions |
 
 `LaunchTask(Executor, Options, Callable, Dependency)` accepts a task, event,
-or erased handle directly. The named
+or erased handle directly, or a vector, array, or span of these types. The named
 Worker overload accepts `LaunchTask(Name, Callable, Dependency, Options)`.
 `Prerequisites(A, B, ...)` creates an owning array of erased handles for mixed
 unique tasks, shared tasks, and events; it never consumes a result. These
 overloads append their dependencies to `Options.Prerequisites`, and bind them
-before the supplied array can go out of scope. `Wait(Task)` and `Cancel(Task)`
-accept task/event facades directly.
+before the supplied collection can go out of scope. `Wait(Task)` and `Cancel(Task)`
+accept task/event facades directly. `Wait(Collection)` accepts the same collections
+and returns one `FTaskWaitResult` per input in input order, including invalid, failed,
+or canceled entries; waiting never consumes results. Empty collections produce no
+dependencies and an empty wait result.
 
 Owners combine known work with task prerequisites, `AddNested`, and task events.
 Completion of a resource's business record does not prove its worker callable
@@ -221,7 +224,7 @@ cancellation. Owners request cancellation explicitly.
 body or result storage. Events can be supplied directly as execution prerequisites
 or nested completion dependencies. An erased `Durin::FTaskHandle` can retain
 observation separately. `AddPrerequisites` accepts task/event facades
-or a span of erased handles
+or vectors, arrays, and spans of task/event or erased handles
 before `Trigger()`; the event completes only after it is triggered and every
 prerequisite finishes, regardless of prerequisite outcomes. Copies share one
 signal, triggering twice is invalid, and the last handle must be triggered before

@@ -335,10 +335,9 @@ namespace Durin
 					Ticket->Finished = false;
 					// Serialize retirement as well as execution. Waiting the last drain
 					// then covers every earlier callable that captured this device owner.
-					const std::array Previous{Durin::FTaskHandle(LastDrain)};
-					const std::span<const FTaskHandle> Dependencies(Previous.data(), LastDrain.IsValid() ? 1 : 0);
+					const std::span Dependencies(&LastDrain, LastDrain.IsValid() ? 1 : 0);
 					LastDrain = Tasks::Share(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker,
-						{.DebugName = "RHI.PipelineCreation", .Prerequisites = Dependencies}, [this, Ticket] {
+						{.DebugName = "RHI.PipelineCreation"}, [this, Ticket] {
 							try { Drain(); }
 							catch (...)
 							{
@@ -350,7 +349,7 @@ namespace Durin
 								throw;
 							}
 							Ticket->Finished = true;
-						}));
+						}, Dependencies));
 				}
 				return Result;
 			}

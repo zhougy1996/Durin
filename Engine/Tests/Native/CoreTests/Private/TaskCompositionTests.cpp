@@ -211,15 +211,81 @@ namespace Durin
 		EXPECT_EQ(Runs, 0u);
 	}
 
+	TEST(FTaskCompositionTests, DependencyCollectionsPreserveResultsAndBindBeforeContainersExpire)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent Gate("CollectionGate", false), Extra("ExtraGate", false), Join("CollectionJoin", false);
+		Tasks::FTaskExecutionOptions Options;
+		const auto Existing = Tasks::Prerequisites(Extra);
+		Options.Prerequisites = Existing;
+		std::vector<Tasks::TTask<int>> Unique;
+		Unique.push_back(Tasks::LaunchTask("CollectionValue", [] { return 42; },
+			std::vector<Tasks::FTaskEvent>{Gate}, Options));
+		Join.AddPrerequisites(std::span(Unique));
+		Join.Trigger();
+		auto Dependent = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, {}, [] { return 7; }, std::move(Unique));
+		Gate.Trigger();
+		EXPECT_FALSE(Unique.front().IsCompleted());
+		EXPECT_FALSE(Join.IsCompleted());
+		Extra.Trigger();
+		ASSERT_EQ(Tasks::Wait(std::as_const(Unique)).front().TaskState, ETaskState::Succeeded);
+		ASSERT_EQ(Join.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(std::move(Dependent).TakeResult(), 7);
+		EXPECT_EQ(std::move(Unique.front()).TakeResult(), 42);
+
+		const std::array Shared{Tasks::Share(Tasks::LaunchTask("SharedCollectionValue", [] { return 13; }))};
+		Tasks::FTaskEvent SharedJoin("SharedCollectionJoin", false);
+		SharedJoin.AddPrerequisites(Shared);
+		SharedJoin.Trigger();
+		auto AfterShared = Tasks::LaunchTask("SharedCollectionDependent", [] {}, std::span(Shared));
+		ASSERT_EQ(Tasks::Wait(Shared).front().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Shared.front().GetResult(), 13);
+		EXPECT_EQ(AfterShared.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(SharedJoin.Wait().TaskState, ETaskState::Succeeded);
+	}
+
+	TEST(FTaskCompositionTests, CollectionWaitKeepsOutcomeOrderAndAcceptsEmptyInputs)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		std::array Events{Tasks::FTaskEvent("SucceededCollectionEvent", false),
+			Tasks::FTaskEvent("CanceledCollectionEvent", false)};
+		EXPECT_TRUE(Tasks::Cancel(Events[1]));
+		for (auto& Event : Events) Event.Trigger();
+		const auto Outcomes = Tasks::Wait(std::span(Events));
+		ASSERT_EQ(Outcomes.size(), 2u);
+		EXPECT_EQ(Outcomes[0].TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Outcomes[1].TaskState, ETaskState::Canceled);
+		for (const auto& Outcome : Outcomes) EXPECT_EQ(Outcome.WaitStatus, ETaskWaitStatus::Completed);
+		std::vector<Tasks::TTask<void>> Inputs;
+		Inputs.push_back(Tasks::LaunchTask("FailedCollectionValue", [] { throw std::runtime_error("failure"); }));
+		Inputs.emplace_back();
+		const auto FailedOutcomes = Tasks::Wait(std::span(Inputs));
+		ASSERT_EQ(FailedOutcomes.size(), 2u);
+		EXPECT_EQ(FailedOutcomes[0].TaskState, ETaskState::Failed);
+		EXPECT_EQ(FailedOutcomes[1].WaitStatus, ETaskWaitStatus::InvalidTask);
+		Inputs.clear();
+		EXPECT_TRUE(Tasks::Wait(Inputs).empty());
+		const std::array<Tasks::FTaskEvent, 0> Empty;
+		Tasks::FTaskEvent EmptyJoin("EmptyCollectionJoin", false);
+		EmptyJoin.AddPrerequisites(Inputs);
+		EmptyJoin.AddPrerequisites(Empty);
+		EmptyJoin.AddPrerequisites(std::span(Empty));
+		EmptyJoin.Trigger();
+		EXPECT_EQ(EmptyJoin.Wait().TaskState, ETaskState::Succeeded);
+		auto EmptyLaunch = Tasks::LaunchTask("EmptyCollectionLaunch", [] {}, Empty);
+		EXPECT_EQ(EmptyLaunch.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_TRUE(Tasks::Wait(std::span(Empty)).empty());
+	}
+
 	TEST(FTaskCompositionTests, NestedCompletionReleasesWorkerAndDefersResultPublication)
 	{
 		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
 		Tasks::FTaskEvent Gate("NestedGate");
 		auto Parent = Tasks::LaunchTask("NestedParent", [&] {
-			const FTaskHandle Prerequisites[] = {Durin::FTaskHandle(Gate)};
-			Tasks::FTaskExecutionOptions Options; Options.Prerequisites = Prerequisites;
-			auto Child = Tasks::LaunchTask("NestedChild", [] { return 21; }, Options);
+			auto Child = Tasks::LaunchTask("NestedChild", [] { return 21; }, Gate);
 			Tasks::AddNested(Child);
 			Tasks::AddNested(Gate);
 			return 42;
@@ -241,7 +307,7 @@ namespace Durin
 		auto Failed = Tasks::LaunchTask("FailedPrerequisite", [] { throw std::runtime_error("expected child failure"); });
 		EXPECT_EQ(Failed.Wait().TaskState, ETaskState::Failed);
 		Join.AddPrerequisites(Failed);
-		const Durin::FTaskHandle Inputs[] = {First, Second};
+		const std::array Inputs{First, Second};
 		Join.AddPrerequisites(Inputs);
 		Join.AddPrerequisites(std::span(Inputs));
 		Join.Trigger();
@@ -381,9 +447,7 @@ namespace Durin
 		FTaskHandle ParentHandle;
 		auto Parent = Tasks::LaunchTask("CompletedBackEdgeParent", [&] {
 			Published.Wait();
-			const FTaskHandle Inputs[] = {ParentHandle};
-			Tasks::FTaskExecutionOptions Options; Options.Prerequisites = Inputs;
-			auto Child = Tasks::LaunchTask("CanceledBackEdgeChild", [] { ADD_FAILURE(); }, Options);
+			auto Child = Tasks::LaunchTask("CanceledBackEdgeChild", [] { ADD_FAILURE(); }, ParentHandle);
 			EXPECT_TRUE(Tasks::Cancel(Child));
 			EXPECT_TRUE(Child.IsCompleted());
 			Tasks::AddNested(Child);
@@ -816,25 +880,25 @@ namespace Durin
 		auto Blocker = Durin::FTaskHandle(Tasks::LaunchTask("PriorityBlocker", [&] { Started.Trigger(); Release.Wait(); }));
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		std::vector<int> Order;
-		std::vector<FTaskHandle> Completions;
+		std::vector<Tasks::TTask<void>> Completions;
 		Tasks::FTaskExecutionOptions Options;
 		Options.Priority = ETaskPriority::Low;
 		auto Low = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options, [&] { Order.push_back(-1); });
-		Completions.push_back(Durin::FTaskHandle(Low));
+		Completions.push_back(std::move(Low));
 		auto SourceAdmission = Tasks::TCompletionSource<void>::Create({});
 		auto Source = std::move(SourceAdmission);
 		auto Input = Source.TakeTask();
 		Options.Priority = ETaskPriority::High;
 		auto Edge = Tasks::Then(std::move(Input), Tasks::ETaskExecutor::Worker, Options, [&] { Order.push_back(99); });
-		Completions.push_back(Durin::FTaskHandle(Edge));
+		Completions.push_back(std::move(Edge));
 		Source.TrySetValue();
 		for (int Index = 0; Index < 24; ++Index)
 		{
 			auto High = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options, [&, Index] { Order.push_back(Index); });
-			Completions.push_back(Durin::FTaskHandle(High));
+			Completions.push_back(std::move(High));
 		}
 		Release.Trigger();
-		WaitAll(Completions);
+		Tasks::Wait(Completions);
 		ASSERT_EQ(26u, Order.size());
 		EXPECT_EQ(99, Order.front());
 		EXPECT_LE(std::ranges::find(Order, -1) - Order.begin(), 7);
