@@ -40,6 +40,15 @@ namespace Durin
 		FRHIRetirementPrerequisites Uses;
 	};
 
+	// A disjoint occupancy snapshot, taken before selecting the next write range.
+	struct FRHIDynamicBufferWritePoolSnapshot final
+	{
+		uint32 RangeCount = 0;
+		uint32 RetainedRangeCount = 0;
+		uint32 AwaitingRetirementRangeCount = 0;
+		uint32 ReusableRangeCount = 0;
+	};
+
 	// Initialized before publication. Acquisition never allocates native memory,
 	// polls a native fence, waits for replay/GPU completion, or grows the pool.
 	class FRHIDynamicBufferWritePool final
@@ -50,16 +59,31 @@ namespace Durin
 			std::lock_guard Lock(Mutex);
 			Ranges.push_back(std::make_shared<FRHIDynamicBufferWriteRange>(std::move(Owner), Data));
 		}
-		auto TryAcquire() -> std::shared_ptr<FRHIDynamicBufferWriteRange>
+		// Optional diagnostics describe occupancy before this acquisition. Retained
+		// ranges include CPU, command, binding and submission references.
+		auto TryAcquire(FRHIDynamicBufferWritePoolSnapshot* Snapshot = nullptr)
+			-> std::shared_ptr<FRHIDynamicBufferWriteRange>
 		{
 			std::lock_guard Lock(Mutex);
+			if (Snapshot) *Snapshot = {static_cast<uint32>(Ranges.size())};
+			std::shared_ptr<FRHIDynamicBufferWriteRange> Result;
 			for (const auto& Range : Ranges)
 			{
-				if (Range.use_count() != 1) continue;
+				if (Range.use_count() != 1)
+				{
+					if (Snapshot) ++Snapshot->RetainedRangeCount;
+					continue;
+				}
 				std::lock_guard RangeLock(Range->Mutex);
-				if (Range->Uses.IsRetirementEligible()) return Range;
+				if (Range->Uses.IsRetirementEligible())
+				{
+					if (!Snapshot) return Range;
+					++Snapshot->ReusableRangeCount;
+					if (!Result) Result = Range;
+				}
+				else if (Snapshot) ++Snapshot->AwaitingRetirementRangeCount;
 			}
-			return {};
+			return Result;
 		}
 	private:
 		std::mutex Mutex;

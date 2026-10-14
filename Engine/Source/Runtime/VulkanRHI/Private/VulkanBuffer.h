@@ -77,6 +77,8 @@ namespace Durin::VulkanRHI
 		FVulkanBufferStateTracker StateTracker;
 		std::string DebugName;
 		bool bUniformBacking = false;
+		bool bMappedWriteBacking = false;
+		bool bDiscardWriteFallbackBacking = false;
 		FRHIDynamicBufferWritePool WritePool;
 		std::shared_ptr<FRHIDynamicBufferWriteRange> ActiveWriteRange;
 

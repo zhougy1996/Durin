@@ -887,6 +887,27 @@ namespace Durin::MonaImGui
 				ImGuiRHIImplRT_ClearViewport(CommandList, BackBuffer, ClearValue);
 			}
 
+#if DURIN_WITH_TRACY
+			if (TracyIsConnected)
+			{
+				uint64 RingCapacityBytes = 0;
+				for (const auto& Buffers : WindowRenderBuffers->FrameRenderBuffers)
+				{
+					if (Buffers.VertexBuffer) RingCapacityBytes += Buffers.VertexBuffer->GetSize();
+					if (Buffers.IndexBuffer) RingCapacityBytes += Buffers.IndexBuffer->GetSize();
+				}
+				const uint64 VertexBytes = DrawData && DrawData->TotalVtxCount > 0
+					? static_cast<uint64>(DrawData->TotalVtxCount) * sizeof(ImDrawVert) : 0;
+				const uint64 IndexBytes = DrawData && DrawData->TotalIdxCount > 0
+					? static_cast<uint64>(DrawData->TotalIdxCount) * sizeof(ImDrawIdx) : 0;
+				TracyPlot("MonaImGui.RHI.SampledViewportRingCapacityBytes", static_cast<int64>(RingCapacityBytes));
+				TracyPlot("MonaImGui.RHI.SampledViewportRequestedBytes", static_cast<int64>(VertexBytes + IndexBytes));
+				DURIN_PROFILE_CPU_ZONE_TEXT(std::format(
+					"viewport={} frameSlots={} logicalRingCapacityBytes={} vertexBytes={} indexBytes={}",
+					static_cast<const void*>(ViewportRHI.GetReference()), FrameInFlight, RingCapacityBytes, VertexBytes, IndexBytes));
+			}
+#endif
+
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.EndViewport");
 				CommandList.EndDrawingViewport(ViewportRHI, bPresent, false);

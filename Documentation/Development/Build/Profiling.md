@@ -219,6 +219,36 @@ limit. Each in-flight buffer retains its capacity without automatic shrinking.
 Only required bytes are uploaded; grow-zone text reports required and allocated
 capacity bytes.
 
+Dynamic discard writes expose `Vulkan.DynamicBuffer.*` plots. `MappedLocks`,
+`PoolBusyFallbacks`, `NoPoolFallbacks`, `RequestedBytes`, and
+`CommittedMappedBytes` accumulate only while Tracy is connected;
+`MappingHitPercent` is the cumulative hit ratio over those observed locks.
+`RHI.DynamicBuffer.CommittedTemporaryBytes` counts replayed discard fallback
+uploads across backends, also only while connected. Compare counter deltas for
+a selected steady interval. Acquired bytes and committed bytes can differ
+because recording precedes replay or is canceled.
+`MappedReservedBytes`, `FallbackReservedBytes`, and `LiveMappedVersions` track
+live backend allocations even before connection, until buffer destruction
+queues native deletion; VMA diagnostics remain the authority for native bytes
+still awaiting deferred deletion. Lock counters cover all Vulkan discard
+requests; reservation gauges cover opted-in allocations, not only ImGui.
+
+`SampledPoolBusyVersions` describes the last sampled pool before acquisition,
+not a sum across buffers. `Vulkan.Buffer.TryMappedWrite` text identifies the
+buffer, requested bytes, mapping result, retained ranges (CPU, recording,
+binding or payload ownership), unretained ranges awaiting GPU retirement, and
+reusable ranges. Detailed occupancy scans run only while connected; the
+unconnected acquisition path retains its early exit.
+
+`MonaImGui.RHI.SampledViewportRingCapacityBytes` and
+`SampledViewportRequestedBytes` describe the last viewport invocation;
+`RenderViewport` text adds viewport identity, frame-slot count, and vertex/index
+byte counts. Ring capacity is the logical sum across ImGui's two frame slots;
+Vulkan's additional mapped versions are counted separately above. With both
+slots allocated at minimum capacity and three mapped versions per buffer, a
+viewport reserves approximately 640 KiB before growth. This is a capacity
+calculation, not a measured performance result.
+
 RHI-thread `RHI.Commands.Replay` reports recorded command counts and
 `RHI.SubmitCommands` measures backend submission, alongside existing Vulkan
 submission/acquire/present/wait zones. These are CPU measurements, not GPU

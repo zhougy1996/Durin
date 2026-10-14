@@ -85,6 +85,39 @@ namespace Durin
 		EXPECT_EQ(Pool.TryAcquire()->GetData(), Released);
 	}
 
+	TEST(FRHIDynamicBufferWriteTests, DiagnosticSnapshotCountsPreAcquisitionOccupancyWithoutChangingReuse)
+	{
+		FRHIDynamicBufferWritePool Pool;
+		for (uint32 Index = 0; Index != 3; ++Index)
+		{
+			auto Memory = std::make_shared<std::array<std::byte, 8>>();
+			Pool.Add(Memory, Memory->data());
+		}
+		auto Retained = Pool.TryAcquire(), InFlight = Pool.TryAcquire();
+		FRHIGPUQueueTimeline Queue(AllocateRHIDeviceGeneration(), {0});
+		auto Signal = Queue.Reserve();
+		InFlight->AddGPUUse(Signal);
+		InFlight.reset();
+		FRHIDynamicBufferWritePoolSnapshot Snapshot;
+		auto Acquired = Pool.TryAcquire(&Snapshot);
+		ASSERT_TRUE(Acquired);
+		EXPECT_EQ(Snapshot.RangeCount, 3u);
+		EXPECT_EQ(Snapshot.RetainedRangeCount, 1u);
+		EXPECT_EQ(Snapshot.AwaitingRetirementRangeCount, 1u);
+		EXPECT_EQ(Snapshot.ReusableRangeCount, 1u);
+		EXPECT_FALSE(Pool.TryAcquire(&Snapshot));
+		EXPECT_EQ(Snapshot.RetainedRangeCount, 2u);
+		EXPECT_EQ(Snapshot.AwaitingRetirementRangeCount, 1u);
+		EXPECT_EQ(Snapshot.ReusableRangeCount, 0u);
+		ASSERT_TRUE(Queue.MarkSubmitted(Signal));
+		ASSERT_TRUE(Queue.ObserveCompleted(Signal));
+		Acquired.reset();
+		EXPECT_TRUE(Pool.TryAcquire(&Snapshot));
+		EXPECT_EQ(Snapshot.RetainedRangeCount, 1u);
+		EXPECT_EQ(Snapshot.AwaitingRetirementRangeCount, 0u);
+		EXPECT_EQ(Snapshot.ReusableRangeCount, 2u);
+	}
+
 	TEST(FRHICompletionTests, LogicalIdentitySurvivesCoalescingAndObserverRelease)
 	{
 		FRHIGPUQueueTimeline Queue(AllocateRHIDeviceGeneration(), {0});
