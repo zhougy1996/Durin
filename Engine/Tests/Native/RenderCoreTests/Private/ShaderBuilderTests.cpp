@@ -200,6 +200,43 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(Stats.ManifestHits, 1u);
 	}
 
+	TEST_F(FShaderBuilderTests, MountedTypedInvalidHitRebuildsOnceAndClosedBuilderRejects)
+	{
+		using namespace DerivedData;
+		struct FCache final : ICache
+		{
+			mutable std::optional<FCacheRecord> Record;
+			mutable bool InvalidProduct = false;
+			mutable uint32 Gets = 0, Puts = 0;
+			auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult override
+			{
+				++Gets;
+				if (!Record || !InvalidProduct) return Record;
+				FBuildOutputBuilder Output("Shader.Output", 1);
+				Output.AddValue(FValueId("Metadata"), FSharedByteBuffer::Take(FByteBuffer{std::byte{0}}));
+				return std::optional{FCacheRecord::FromOutput(Request.Key, std::move(Output).Build().value()).value()};
+			}
+			auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
+			{ ++Puts; Record = Request.Record; return {}; }
+		};
+		auto Cache = std::make_shared<FCache>();
+		auto MakeService = [&] { return std::make_shared<FShaderBuildService>(std::function<void(std::string_view)>{}, FBuildServiceOptions{.Cache = Cache}); };
+		Builder = std::make_unique<FShaderBuilder>(MakeService());
+		const auto Cold = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions()); ASSERT_TRUE(Cold);
+		Builder.reset(); Cache->InvalidProduct = true;
+		Builder = std::make_unique<FShaderBuilder>(MakeService());
+		const auto Repaired = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions()); ASSERT_TRUE(Repaired) << FormatShaderError(Repaired.Error);
+		EXPECT_EQ(Repaired.CompiledShaders.front().Hash, Cold.CompiledShaders.front().Hash);
+		EXPECT_EQ(Builder->GetStats().Compilations, 1u); EXPECT_EQ(Cache->Gets, 2u); EXPECT_EQ(Cache->Puts, 2u);
+		Builder.reset(); Cache->InvalidProduct = false;
+		Builder = std::make_unique<FShaderBuilder>(MakeService());
+		EXPECT_TRUE(Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions()));
+		EXPECT_EQ(Builder->GetStats().Compilations, 0u);
+		Builder->Close();
+		EXPECT_FALSE(Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions()));
+		EXPECT_EQ(Cache->Gets, 3u); EXPECT_EQ(Cache->Puts, 2u);
+	}
+
 	TEST_F(FShaderBuilderTests, DdcStoreFailureDoesNotDiscardCompiledOutput)
 	{
 		const std::filesystem::path BlockedRoot =

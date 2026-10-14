@@ -5,6 +5,7 @@
 
 namespace Durin::MaterialBuildPrivate
 {
+	enum class EMaterialTranslationAction { Compile, Reuse, Join };
 	struct FMaterialBuildResult
 	{
 		FMaterialCompilerResult Program;
@@ -19,7 +20,7 @@ namespace Durin::MaterialBuildPrivate
 		FMaterialBuildOperation();
 		~FMaterialBuildOperation();
 		auto Start(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force,
-			FTaskCancellationToken Cancellation, std::function<bool(FMaterialTranslatedProgram&)> OnTranslation,
+			FTaskCancellationToken Cancellation, std::function<EMaterialTranslationAction(FMaterialTranslatedProgram&)> OnTranslation,
 			std::function<void(FMaterialCompilerResult)> Completion,
 			std::shared_ptr<const FMaterialTranslationInput> EncodedInput = {}) -> void;
 		auto TryReserve() -> bool;
@@ -29,11 +30,12 @@ namespace Durin::MaterialBuildPrivate
 		auto IsFinished() const -> bool;
 		auto GetTaskId() const -> uint64;
 	private:
+		enum class ECompletionDelivery { Deliver, Handled };
 		struct FState;
 		std::unique_ptr<FState> State;
 		auto Launch(std::function<void()> Work) -> void;
 		auto Translated(FMaterialTranslatedProgram Translation) -> void;
-		auto Complete(FMaterialCompilerResult Result, bool Deliver = true) -> void;
+		auto Complete(FMaterialCompilerResult Result, ECompletionDelivery Delivery = ECompletionDelivery::Deliver) -> void;
 	};
 	ENGINE_API auto CompileMaterialInput(const MIR::FCompilerInput& Input, bool Force) -> FMaterialBuildResult;
 }

@@ -146,8 +146,9 @@ namespace Durin::MaterialBuildPrivate
 	auto GetTranslationStats() -> FTranslationStats { return {Producers.load(), Resolutions.load(), Hits.load(), ProducerMicroseconds.load(), GameThreadProducers.load()}; }
 	auto RegisterTranslation() -> void
 	{
-		static std::once_flag Once; std::call_once(Once, [] { require(GetBuild().Register(MakeTranslationFunction()).has_value()); }); Sessions.Open();
+		static std::once_flag Once; std::call_once(Once, [] { require(GetBuild().Register(MakeTranslationFunction()).has_value()); });
 	}
+	auto OpenTranslationSessions() -> void { RegisterTranslation(); Sessions.Open(); }
 	auto SetTranslationServiceForTests(std::shared_ptr<IBuild> Service) -> void { require(Sessions.SetTaskService(std::move(Service)) == EBuildDrainResult::Drained); }
 	auto CloseTranslationSessions() -> void { require(Sessions.Close() == EBuildDrainResult::Drained); }
 	auto TranslateMaterialInput(const MIR::FCompilerInput& Input, bool Force) -> FMaterialTranslatedProgram

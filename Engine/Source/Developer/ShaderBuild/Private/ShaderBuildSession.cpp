@@ -315,36 +315,36 @@ namespace Durin
 			}
 		};
 		std::shared_ptr<FCompilerService> Compiler = std::make_shared<FCompilerService>();
-		std::shared_ptr<FObservedCache> Cache = std::make_shared<FObservedCache>();
+		std::shared_ptr<FObservedCache> Cache;
 		std::string Environment = Compiler->Environment;
 		std::shared_ptr<IBuild> Service;
 		std::shared_ptr<FBuildSession> Session;
 		std::shared_ptr<FBuildSession> TaskSession;
 		std::mutex Mutex;
 		bool Closed = false;
+		auto Open(FBuildServiceOptions Options) -> void
+		{
+			Cache = std::make_shared<FObservedCache>();
+			Cache->Backend = Options.Cache ? std::move(Options.Cache) : std::shared_ptr<ICache>(&GetCache(), [](ICache*) {});
+			Options.Cache = Cache;
+			Service = CreateBuild(std::move(Options));
+			require(Service->Register(std::make_shared<FFunction>(Compiler)));
+			auto Created = Service->CreateSession({}, CreateInlineBuildScheduler()); require(Created);
+			Session = std::move(*Created); Compiler->ProducerMicroseconds = 0; Closed = false;
+		}
 	};
 	FShaderBuildService::FShaderBuildService(std::function<void(std::string_view)> Hook, FBuildServiceOptions Options)
 		: State(std::make_unique<FState>())
 	{
 		State->Compiler->BeforeGeneratedCompile = std::move(Hook);
-		State->Cache->Backend = Options.Cache ? std::move(Options.Cache) : std::shared_ptr<ICache>(&GetCache(), [](ICache*) {});
-		Options.Cache = State->Cache;
-		State->Service = CreateBuild(std::move(Options));
-		const auto Registered = State->Service->Register(std::make_shared<FFunction>(State->Compiler)); require(Registered);
-		auto Session = State->Service->CreateSession({}, CreateInlineBuildScheduler()); require(Session); State->Session = std::move(*Session);
+		State->Open(std::move(Options));
 	}
 	FShaderBuildService::~FShaderBuildService() { Close(); }
 	auto FShaderBuildService::ResetCacheForTests(FBuildServiceOptions Options) -> void
 	{
 		Close();
 		std::lock_guard Lock(State->Mutex);
-		State->Cache = std::make_shared<FState::FObservedCache>();
-		State->Cache->Backend = Options.Cache ? std::move(Options.Cache) : std::shared_ptr<ICache>(&GetCache(), [](ICache*) {});
-		Options.Cache = State->Cache;
-		State->Service = CreateBuild(std::move(Options));
-		require(State->Service->Register(std::make_shared<FFunction>(State->Compiler)));
-		auto Session = State->Service->CreateSession({}, CreateInlineBuildScheduler()); require(Session);
-		State->Session = std::move(*Session); State->Compiler->ProducerMicroseconds = 0; State->Closed = false;
+		State->Open(std::move(Options));
 	}
 	auto FShaderBuildService::GetBuildVersion() const -> uint64 { return State->Compiler->BuildVersion; }
 	auto FShaderBuildService::GetCompilerEnvironmentIdentity() const -> const std::string& { return State->Environment; }
@@ -376,19 +376,16 @@ namespace Durin
 	auto FShaderBuildService::Execute(FShaderSessionRequest Request, FBuildRequestOptions Options)
 		-> FBuildCompleteParams
 	{
-		std::shared_ptr<FBuildSession> Persistent;
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (State->Closed || !State->Session)
 				return FBuildCompleteParams::Canceled(std::nullopt, EBuildExecutionFlags::None);
-			Persistent = State->Session;
 		}
 		FRequestOwner Owner;
-		Options.InputResolver = std::move(Request.Resolver);
 		std::optional<FBuildCompleteParams> Completion;
-		auto Admitted = Persistent->Build(std::move(Request.Definition), Owner, [&](auto Result) {
+		auto Admitted = Submit(std::move(Request), Owner, [&](auto Result) {
 			Completion = std::move(Result);
-		}, {}, std::move(Options));
+		}, std::move(Options), true);
 		if (!Admitted) return FBuildCompleteParams::Error(std::nullopt, EBuildExecutionFlags::None, Admitted.error().Description);
 		require(Owner.Wait() == ERequestWaitResult::Completed);
 		if (!Completion) return FBuildCompleteParams::Error(std::nullopt, EBuildExecutionFlags::None);

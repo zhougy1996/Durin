@@ -122,7 +122,7 @@ TEST(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
 						.Environment = Captured.Snapshot->Input.Environment};
 					auto Translation = TranslatePreparedMaterialProgram(Prepared);
 					ASSERT_TRUE(Translation);
-					const auto GenerationUs = Translation.Candidate.Timings.GenerationMicroseconds;
+					const auto GenerationUs = Translation.Timings.GenerationMicroseconds;
 					auto Output = CompileGeneratedShader(MakeMaterialShaderCompileRequest(Translation, false));
 					ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 					auto Candidate = AssembleMaterialProgram(std::move(Translation), std::move(Output));
@@ -144,6 +144,41 @@ TEST(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Csv)), Root / "samples.csv"));
 	RecordProperty("BaselineSamples", 60);
 	std::cout << "[MaterialStagedBaseline] csv=" << (Root / "samples.csv").generic_string() << '\n';
+}
+
+TEST(FMaterialQualificationTests, ConsumerResultCopyCost)
+{
+	using namespace Durin;
+	InitializeDObjectSystem(); FScopedOfflinePreparation Offline;
+	auto* Small = NewObject<DMaterial>(nullptr, "CopyCostSmall");
+	auto* Functions = NewObject<DMaterial>(nullptr, "CopyCostFunctions");
+	Functions->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(Testing::SetStandardMaterialExpressionsForTest(*Functions));
+	struct FRestore { std::array<DMaterial*, 2> Owners; ~FRestore() { for (auto* Owner : Owners) MarkAsGarbage(Owner); CollectGarbage(); } } Restore{{Small, Functions}};
+	FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
+	for (auto* Material : Restore.Owners)
+	{
+		auto Captured = SnapshotMaterialCompilerInput(*Material, Environment); ASSERT_TRUE(Captured);
+		auto Program = MIR::Compile(Captured.Snapshot->Input); ASSERT_TRUE(Program);
+		uint64 CopiedBytes = Program.GeneratedSource.size() + Program.IR.Nodes.size() * sizeof(MIR::FNode)
+			+ Program.CompiledShaders.size() * sizeof(FCompiledShader);
+		uint64 SharedCodeBytes = 0;
+		for (const auto& Node : Program.IR.Nodes) CopiedBytes += Node.Inputs.size() * sizeof(uint32);
+		for (const auto& Shader : Program.CompiledShaders) if (Shader.Code) SharedCodeBytes += Shader.Code->size();
+		std::vector<int64> Samples;
+		for (uint32 Index = 0; Index < 500; ++Index)
+		{
+			const auto Begin = std::chrono::steady_clock::now();
+			auto Copy = std::make_shared<FMaterialCompilerResult>(Program);
+			Copy->Quality = EMaterialQualityLevel::Low;
+			Samples.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin).count());
+			ASSERT_EQ(Copy->Identity, Program.Identity);
+			ASSERT_EQ(Copy->CompiledShaders.front().Code.get(), Program.CompiledShaders.front().Code.get());
+		}
+		std::ranges::sort(Samples);
+		std::cout << "[MaterialConsumerCopy] nodes=" << Program.IR.Nodes.size() << " source_ir_descriptor_bytes=" << CopiedBytes
+			<< " shared_code_bytes=" << SharedCodeBytes << " median_ns=" << Samples[250] << " p95_ns=" << Samples[475] << '\n';
+	}
 }
 
 TEST(FMaterialQualificationTests, RequestToPublicationWorkloads)
@@ -176,7 +211,7 @@ TEST(FMaterialQualificationTests, RequestToPublicationWorkloads)
 					Owners.clear();
 					for (uint32 Index = 0; Index < 2; ++Index) { auto* Instance = NewObject<DMaterialInstance>(nullptr, NAME_None); ASSERT_TRUE(Instance->SetParent(Material)); Owners.push_back(Instance); }
 				}
-				if (Mode < 2) { ShaderBuildPrivate::ResetServiceForTests(); MaterialBuildPrivate::ClearPrograms(); MaterialBuildPrivate::CloseTranslationSessions(); }
+				if (Mode < 2) { ShaderBuildPrivate::ResetServiceForTests(); MaterialBuildPrivate::ClearPrograms(); MaterialBuildPrivate::CloseTranslationSessions(); MaterialBuildPrivate::OpenTranslationSessions(); }
 				for (uint32 Consumer = 0; Consumer < Owners.size(); ++Consumer)
 				{
 					const auto TranslationBefore = MaterialBuildPrivate::GetTranslationStats();
@@ -235,7 +270,7 @@ TEST(FMaterialQualificationTests, AsyncCaptureToPublicationWorkloads)
 					Owners.clear();
 					for (uint32 Index = 0; Index < 2; ++Index) { auto* Instance = NewObject<DMaterialInstance>(nullptr, NAME_None); ASSERT_TRUE(Instance->SetParent(Material)); Owners.push_back(Instance); }
 				}
-				if (Mode < 2) { ShaderBuildPrivate::ResetServiceForTests(); MaterialBuildPrivate::ClearPrograms(); MaterialBuildPrivate::CloseTranslationSessions(); }
+				if (Mode < 2) { ShaderBuildPrivate::ResetServiceForTests(); MaterialBuildPrivate::ClearPrograms(); MaterialBuildPrivate::CloseTranslationSessions(); MaterialBuildPrivate::OpenTranslationSessions(); }
 				for (uint32 Consumer = 0; Consumer < Owners.size(); ++Consumer)
 				{
 					const auto TranslationBefore = MaterialBuildPrivate::GetTranslationStats();

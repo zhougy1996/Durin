@@ -275,8 +275,8 @@ namespace Durin
 				NewFlight->DiagnosticInput = Input;
 				NewFlight->Operation->Start(Input, Key.bForceRecompile, NewFlight->Cancellation.GetToken(),
 					[this, Weak = std::weak_ptr(NewFlight)](FMaterialTranslatedProgram& Translation) {
-						const auto Flight = Weak.lock(); if (!Flight) return false;
-						if (!Translation) return true;
+						const auto Flight = Weak.lock(); if (!Flight) return MaterialBuildPrivate::EMaterialTranslationAction::Join;
+						if (!Translation) return MaterialBuildPrivate::EMaterialTranslationAction::Compile;
 						std::shared_ptr<const FMaterialCompilerResult> Retained;
 						{
 							std::scoped_lock Lock(Mutex);
@@ -293,7 +293,7 @@ namespace Durin
 									Consumer.ExpressionSources.push_back(std::move(Source));
 								}
 							}
-							if (Flight->Cancellation.GetToken().IsCancellationRequested()) return true;
+							if (Flight->Cancellation.GetToken().IsCancellationRequested()) return MaterialBuildPrivate::EMaterialTranslationAction::Compile;
 							if (!Flight->Key.bForceRecompile)
 							{
 								Retained = MaterialBuildPrivate::FindProgram(Flight->ProgramIdentity);
@@ -304,19 +304,16 @@ namespace Durin
 								const auto Existing = ProgramFlights.find(ProgramKey);
 								if (Existing != ProgramFlights.end() && !Existing->second->Cancellation.GetToken().IsCancellationRequested())
 								{
-									for (auto& Consumer : Flight->Consumers) { Consumer.bSingleFlightConsumer = true; Existing->second->Consumers.push_back(std::move(Consumer)); ++Diagnostics.SingleFlightConsumers; }
-									Existing->second->CapturedBytes += Flight->CapturedBytes; Flight->CapturedBytes = 0;
-									for (const auto Origin : Flight->Origins) if (!std::ranges::any_of(Existing->second->Origins, [&](auto Other) { return SameOwner(Origin, Other); })) Existing->second->Origins.push_back(Origin);
-									Flight->Consumers.clear(); Flights.erase(Flight->Key); return false;
+									MergeConsumersLocked(*Existing->second, *Flight); return MaterialBuildPrivate::EMaterialTranslationAction::Join;
 								}
 								ProgramFlights.insert_or_assign(ProgramKey, Flight);
 							}
 						}
 						if (Retained)
 						{
-							CompleteFlight(Flight, {}, EMaterialCompileState::Ready, EMaterialCompileCacheOutcome::RetainedHit, Retained); return false;
+							CompleteFlight(Flight, {}, EMaterialCompileState::Ready, EMaterialCompileCacheOutcome::RetainedHit, Retained); return MaterialBuildPrivate::EMaterialTranslationAction::Reuse;
 						}
-						return true;
+						return MaterialBuildPrivate::EMaterialTranslationAction::Compile;
 					},
 					[this, Weak = std::weak_ptr(NewFlight)](FMaterialCompilerResult Compiled) {
 						const auto Flight = Weak.lock(); if (!Flight) return;
@@ -324,6 +321,19 @@ namespace Durin
 					}, std::move(TranslationInput));
 				NewFlight->TaskId.store(NewFlight->Operation->GetTaskId());
 				return EMaterialCompileState::Running;
+			}
+
+			auto MergeConsumersLocked(FMaterialCompileFlight& Target, FMaterialCompileFlight& Source) -> void
+			{
+				for (auto& Consumer : Source.Consumers)
+				{
+					Consumer.bSingleFlightConsumer = true; Target.Consumers.push_back(std::move(Consumer));
+					++Diagnostics.SingleFlightConsumers;
+				}
+				Target.CapturedBytes += Source.CapturedBytes; Source.CapturedBytes = 0;
+				for (const auto Origin : Source.Origins)
+					if (!std::ranges::any_of(Target.Origins, [&](auto Other) { return SameOwner(Origin, Other); })) Target.Origins.push_back(Origin);
+				Source.Consumers.clear(); Flights.erase(Source.Key);
 			}
 
 			auto CancelOwner(FWeakObjectPtr Owner) -> bool

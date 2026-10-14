@@ -240,6 +240,26 @@ TEST(FMaterialTranslationTests, RejectedHitsRebuildOnceAndStoreFailureKeepsLocal
 	ASSERT_TRUE(Accepted); EXPECT_EQ(Canceled.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Completions, 1u);
 }
 
+TEST(FMaterialTranslationTests, ClosedSessionsRemainClosedUntilExplicitOpen)
+{
+	using namespace Durin; using namespace DerivedData; using namespace MaterialBuildPrivate;
+	InitializeDObjectSystem();
+	auto Input = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
+	CloseTranslationSessions();
+	struct FRestore { ~FRestore() { OpenTranslationSessions(); } } Restore;
+	const auto Before = GetTranslationStats(); uint32 Completions = 0;
+	FRequestOwner Owner;
+	for (uint32 Index = 0; Index < 2; ++Index)
+	{
+		auto Accepted = SubmitTranslation(Input, false, Owner, [&](auto) { ++Completions; }, {}, true, {}, EBuildCacheExecution::Inline);
+		ASSERT_FALSE(Accepted); EXPECT_EQ(Accepted.error().Reason, EBuildAdmissionReason::Closed);
+	}
+	EXPECT_TRUE(Owner.Poll()); EXPECT_EQ(Completions, 0u); EXPECT_EQ(GetTranslationStats().Producers, Before.Producers);
+	OpenTranslationSessions();
+	auto Accepted = SubmitTranslation(Input, false, Owner, [&](auto Product) { EXPECT_TRUE(Product); ++Completions; }, {}, true, {}, EBuildCacheExecution::Inline);
+	ASSERT_TRUE(Accepted); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Completions, 1u);
+}
+
 TEST(FMaterialTranslationTests, AdmissionPrecedesCopiesAndReservationsBoundTransitionOverlap)
 {
 	using namespace Durin; using namespace MaterialBuildPrivate;

@@ -5,6 +5,7 @@
 #include "Shader/IShaderBuildModule.h"
 #include "ShaderDependencyManifestStore.h"
 #include "ShaderBuildSession.h"
+#include "ShaderOutputCache.h"
 #include "SlangShaderDependencyResolver.h"
 
 namespace Durin
@@ -45,7 +46,7 @@ namespace Durin
 		auto Close() -> void;
 
 	private:
-		struct FGeneratedBuildInput
+		struct FPreparedShaderBuild
 		{
 			std::shared_ptr<const FGeneratedShaderCompileRequest> Request;
 			FShaderCompileOptions Options;
@@ -54,67 +55,20 @@ namespace Durin
 		};
 		auto PrepareGenerated(std::shared_ptr<const FGeneratedShaderCompileRequest> Request,
 			const std::function<bool(uint64)>& ReserveSources)
-			-> std::expected<std::shared_ptr<FGeneratedBuildInput>, FShaderError>;
+			-> std::expected<std::shared_ptr<FPreparedShaderBuild>, FShaderError>;
+		auto PrepareMounted(std::shared_ptr<const FGeneratedShaderCompileRequest> Request,
+			const std::function<bool(uint64)>& ReserveSources) -> std::expected<std::shared_ptr<FPreparedShaderBuild>, FShaderError>;
+		auto SubmitRequest(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
+			FShaderBuildCompletion Completion, bool Mounted) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
 		struct FAsyncState;
 		std::shared_ptr<FAsyncState> Async;
 		auto InitializeAsync() -> void;
 
-		static constexpr size_t GMaximumOutputEntries = 128;
 		static constexpr size_t GMaximumSourceTreeFingerprintEntries = 128;
-
-		auto ExecuteDerivedBuild(const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey,
-			std::vector<FShaderPortableDependency> Dependencies, std::optional<std::string> GeneratedSource,
-			FShaderArtifactResolver Resolve) -> FShaderCompilerOutput;
 
 		static auto ValidateGeneratedImports(
 			std::span<const std::string> DependencyPaths,
 			std::span<const std::string> AllowedImportVirtualPrefixes) -> FShaderOperationResult;
-
-		struct FOutputCacheEntry
-		{
-			FShaderCompilerOutput Output;
-			std::list<std::string>::iterator Recency;
-			uint64 Bytes = 0;
-		};
-
-		auto AddOutput(std::string Key, const FShaderCompilerOutput& Output) -> void;
-
-		struct FInFlightRequest
-		{
-			std::condition_variable Condition;
-			bool bCompleted = false;
-			FShaderCompilerOutput Output;
-			std::exception_ptr Exception;
-		};
-
-		template <typename F>
-		auto RunSingleFlight(const std::string& Key, F&& Compile) -> FShaderCompilerOutput
-		{
-			std::shared_ptr<FInFlightRequest> Flight;
-			{
-				std::unique_lock Lock(InFlightMutex);
-				if (const auto Found = InFlightRequests.find(Key); Found != InFlightRequests.end())
-				{
-					Flight = Found->second;
-					Flight->Condition.wait(Lock, [&] { return Flight->bCompleted; });
-					Lock.unlock();
-					if (Flight->Exception) std::rethrow_exception(Flight->Exception);
-					return Flight->Output;
-				}
-				Flight = std::make_shared<FInFlightRequest>();
-				InFlightRequests.emplace(Key, Flight);
-			}
-			try { Flight->Output = Compile(); }
-			catch (...) { Flight->Exception = std::current_exception(); }
-			{
-				std::lock_guard Lock(InFlightMutex);
-				Flight->bCompleted = true;
-				InFlightRequests.erase(Key);
-			}
-			Flight->Condition.notify_all();
-			if (Flight->Exception) std::rethrow_exception(Flight->Exception);
-			return Flight->Output;
-		}
 
 		auto ResolveSourceMetaData(
 			std::string_view VirtualShaderPath,
@@ -123,24 +77,14 @@ namespace Durin
 			const std::vector<FShaderMacroDefinition>& NormalizedMacros,
 			FShaderMetaData& OutMetaData, bool Fresh = false) -> FShaderOperationResult;
 
-		auto GetOrCompileInternal(
-			std::string_view VirtualShaderPath,
-			std::string_view SourceFilePath,
-			const FShaderCompileOptions& EffectiveOptions,
-			const std::vector<FShaderMacroDefinition>& NormalizedMacros
-		) -> FShaderCompilerOutput;
-
 		std::shared_ptr<FShaderBuildService> BuildService;
 		FSlangShaderDependencyResolver DependencyResolver;
 		const std::string CompilerEnvironmentIdentity;
 		FShaderDependencyManifestStore ManifestStore;
 		FFileFingerprintCache FileFingerprintCache;
-		std::mutex InFlightMutex;
-		std::unordered_map<std::string, std::shared_ptr<FInFlightRequest>> InFlightRequests;
-		mutable std::mutex OutputCacheMutex;
-		std::list<std::string> OutputRecency;
-		std::unordered_map<std::string, FOutputCacheEntry> OutputCache;
-		uint64 OutputCacheBytes = 0;
+		std::mutex SourcePreparationMutex;
+		std::unordered_map<std::string, std::weak_ptr<std::mutex>> SourcePreparationLocks;
+		FShaderOutputCache OutputCache;
 		std::mutex SourceTreeFingerprintCacheMutex;
 		uint64 SourceTreeFingerprintCacheGeneration = 0;
 		std::unordered_map<std::string,

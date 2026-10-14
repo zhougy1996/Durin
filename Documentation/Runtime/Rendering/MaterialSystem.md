@@ -611,7 +611,12 @@ Captured canonical bytes and input identity are reused for submission and hit
 repair. Translation produces a dedicated CPU product with paired source/ordinal
 records; final assembly alone creates shader-bearing compiler results. Inline and
 task execution share completion, typed validation, repair and retained-program
-handling, with waiting restricted to the caller boundary. Collection binding
+handling, with waiting restricted to the caller boundary. Registration installs
+the translation function once; Engine startup explicitly opens sessions and
+shutdown closes/drains them. Submission never reopens closed sessions. Translation
+completion explicitly selects compile, retained reuse, or joining a program
+flight. Joining transfers consumers, capture charges and owner origins together
+without changing aggregate accounting. Collection binding
 shares schema validation and copy-on-write refresh at capture and publication.
 Infrastructure failures and cancellation never become persistent negatives;
 persistence failure retains a validated local product. No complete Material.Program

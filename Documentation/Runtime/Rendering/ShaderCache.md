@@ -186,9 +186,12 @@ concurrently. Atomic replacement gives identical writers last-writer-wins
 publication and readers a prior or new complete object.
 
 ShaderBuild owns single-flight records, compiler contexts, memory caching, and
-shutdown. Generated submission owns asynchronous preparation and bounded
-admission through `SubmitGenerated`; callers own their material/asset operations. Generated requests do not
-hold a builder-wide lock across dependency validation, cache access, or compilation.
+shutdown. Mounted and generated requests share subscriber admission, compiler
+flights, completion/repair and the output LRU. `SubmitGenerated` exposes the
+asynchronous handle; both synchronous entry points submit and wait at their
+caller boundary. Callers own their material/asset operations. Filesystem-backed
+mounted source discovery uses a per-input identity gate; it covers neither
+compilation nor DDC I/O. Other source identities prepare independently.
 Each Slang compiler/resolver call exclusively leases a global session; all derived
 objects are destroyed before returning that lease. Idle contexts are reused only
 on their originating thread; asynchronous continuations never migrate a pooled
@@ -213,25 +216,29 @@ carry the caller's fingerprint, entry points/stages, macros and complete-closure
 declaration; ShaderBuild verifies those bytes without material-specific defaults.
 Compiler flights use a request-owner submission barrier acquired before publishing
 the joinable flight, preserving request end across inline completion and hit repair.
-Forced and ordinary requests have separate flights. A generated subscriber owns
+Forced and ordinary requests have separate flights. Each subscriber owns
 one move-only handle with nonblocking cancellation, mutable priority and explicit
 wait. Rejection has no callback; acceptance completes exactly once, including
 inline completion before submission returns. Canceling one subscriber preserves
 a live follower; the last cancellation withdraws the flight from joinable lookup
 and requests cooperative producer cancellation. Flight priority is the highest
 live subscriber priority. Task-backed DDC sessions release dispatch workers while
-cache I/O progresses. Synchronous generated APIs submit through the same pipeline
+cache I/O progresses. Synchronous APIs submit through the same pipeline
 and wait at their caller boundary. Callback-stack waits return `WouldBlock`.
 Admission bounds are 512 subscribers, 128 compiler flights and 1 GiB captured
 source bytes; the 128-entry output LRU is additionally capped at 256 MiB.
 Material scheduling coalesces consumers before launching work. Success and failure completion wake waiters and remove the record, allowing
-retries. Unexpected recipe exceptions become generic failure completions; direct
-pre-session exceptions still use the existing flight exception path.
+retries. Unexpected recipe exceptions become generic failure completions; source-preparation
+exceptions also deliver terminal failures through the subscriber.
 Reload generation invalidates memoized source fingerprints and refreshes their
 content hashes. Material generated requests verify their expected environment
 fingerprint against immutable captured bytes before output lookup, including
 caller-supplied artifacts; changed dependencies cannot compile under an old
-material identity. Invalid typed cache hits retry once with query disabled.
+material identity. Mounted and generated invalid typed cache hits retry once
+with query disabled. Source preparation, retained output caching, Cook input
+capture and shared-build adaptation are separate private components within
+ShaderBuild; Slang remains the compiler backend. Test cache reset reuses service
+initialization while retaining the resident, thread-affine compiler pool.
 
 Global and Material Shader owners publish complete typed sets atomically.
 Renderer resource slots expose only the requested Ready generation; pending

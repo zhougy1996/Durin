@@ -17,7 +17,7 @@ namespace Durin
 		auto StartupModule() -> void override
 		{
 #if DURIN_WITH_EDITOR
-			MaterialBuildPrivate::RegisterTranslation();
+			MaterialBuildPrivate::OpenTranslationSessions();
 #endif
 			CollisionDebug = std::make_unique<FWorldSubsystemRegistration>(FWorldSubsystemDescriptor{
 				.Type = DCollisionDebugSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
