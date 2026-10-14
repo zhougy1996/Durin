@@ -5,7 +5,7 @@
 #include "VulkanDynamicRHI.h"
 #include "VulkanRHIPrivate.h"
 #include "RHIBufferUploadData.h"
-#include "Profiling/Profiling.h"
+#include "VulkanProfiling.h"
 
 namespace Durin::VulkanRHI
 {
@@ -25,7 +25,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanUniformBuffer::UpdateContents(FByteView Data,
 		std::span<FRHIResource* const> References) -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Uniform.Update");
+		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Uniform.Update");
 		CheckVulkanRHIThread();
 		require(Data.size() == GetSize());
 		auto Next = std::make_shared<FVulkanUniformAllocation>();

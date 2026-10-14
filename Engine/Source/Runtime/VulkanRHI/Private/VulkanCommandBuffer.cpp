@@ -8,7 +8,7 @@
 #include "VulkanRenderPass.h"
 #include "VulkanFramebuffer.h"
 #include "VulkanRHIPrivate.h"
-#include "Profiling/Profiling.h"
+#include "VulkanProfiling.h"
 
 namespace Durin::VulkanRHI
 {
@@ -52,14 +52,14 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::BindPipeline(vk::PipelineBindPoint BindPoint, vk::Pipeline Pipeline) -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.Pipeline");
+		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.Pipeline");
 		CheckVulkanRHIThread();
 		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
 		check(BindPoint == vk::PipelineBindPoint::eGraphics || BindPoint == vk::PipelineBindPoint::eCompute);
 		auto& Recorded = RecordedPipelines[BindPoint == vk::PipelineBindPoint::eGraphics ? 0 : 1];
 		if (Recorded == Pipeline) return;
 		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.PipelineNative");
+			DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.PipelineNative");
 			Handle.bindPipeline(BindPoint, Pipeline);
 		}
 		Recorded = Pipeline;
@@ -67,7 +67,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::BindVertexBuffer(uint32 Stream, vk::Buffer Buffer, vk::DeviceSize Offset) -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.VertexBuffer");
+		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.VertexBuffer");
 		CheckVulkanRHIThread();
 		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
 		check(Stream < Device.GetGpuProperties().limits.maxVertexInputBindings);
@@ -76,7 +76,7 @@ namespace Durin::VulkanRHI
 		const auto Binding = std::make_tuple(Buffer, Offset);
 		if (Recorded == Binding) return;
 		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.VertexBufferNative");
+			DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.VertexBufferNative");
 			Handle.bindVertexBuffers(Stream, Buffer, {Offset});
 		}
 		Recorded = Binding;
@@ -84,13 +84,13 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::BindIndexBuffer(vk::Buffer Buffer, vk::DeviceSize Offset, vk::IndexType Type) -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.IndexBuffer");
+		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.IndexBuffer");
 		CheckVulkanRHIThread();
 		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
 		const auto Binding = std::make_tuple(Buffer, Offset, Type);
 		if (RecordedIndexBuffer && *RecordedIndexBuffer == Binding) return;
 		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.IndexBufferNative");
+			DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.IndexBufferNative");
 			Handle.bindIndexBuffer(Buffer, Offset, Type);
 		}
 		RecordedIndexBuffer = Binding;

@@ -23,7 +23,7 @@
 #include "VulkanView.h"
 #include "VulkanQueueTransfer.h"
 #include "VulkanTransition.h"
-#include "Profiling/Profiling.h"
+#include "VulkanProfiling.h"
 
 namespace Durin::VulkanRHI
 {
@@ -1067,7 +1067,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.PushConstants");
+		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.PushConstants");
 		CheckVulkanRHIThread();
 		require(Data && Size && Offset % 4 == 0 && Size % 4 == 0
 			&& uint64(Offset) + Size <= Device.GetGpuProperties().limits.maxPushConstantsSize);
@@ -1094,7 +1094,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHISetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Bind.ShaderParameters");
+		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.ShaderParameters");
 		CheckVulkanRHIThread();
 		if (InShader && InShader->GetFrequency() == EShaderFrequency::Compute)
 		{
@@ -1143,7 +1143,7 @@ namespace Durin::VulkanRHI
 		uint32 InstanceCount, uint32 FirstVertex, uint32 FirstInstance,
 		bool bIndexed) const -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.ValidateBindings");
+		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.ValidateBindings");
 		const FVulkanGraphicsPipelineState* PipelineState =
 			PendingGfxState->GetPipelineState();
 		checkf(PipelineState, "Draw requires an active graphics pipeline.");
@@ -1196,14 +1196,14 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIDraw(const FRHIDrawArguments& Arguments) -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.Direct");
+		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.Direct");
 		CheckVulkanRHIThread();
 		if (Arguments.VertexCount == 0 || Arguments.InstanceCount == 0) return;
 		ValidateDrawBindings(Arguments.VertexCount, Arguments.InstanceCount,
 			Arguments.FirstVertex, Arguments.FirstInstance, false);
 		PendingGfxState->PrepareForDraw(*this);
 		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.DirectNative");
+			DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.DirectNative");
 			GetCommandBuffer()->GetHandle().draw(Arguments.VertexCount,
 				Arguments.InstanceCount, Arguments.FirstVertex, Arguments.FirstInstance);
 		}
@@ -1212,12 +1212,12 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIDrawIndexed(
 		const FRHIDrawIndexedArguments& Arguments) -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.Indexed");
+		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.Indexed");
 		CheckVulkanRHIThread();
 		if (Arguments.IndexCount == 0 || Arguments.InstanceCount == 0) return;
 		checkf(BoundIndexBuffer, "Indexed draw requires a bound index buffer.");
 		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.ValidateIndexRange");
+			DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.ValidateIndexRange");
 			const uint64 AvailableIndices =
 				(BoundIndexBuffer->GetSize() - BoundIndexBufferOffset)
 				/ BoundIndexBuffer->GetStride();
@@ -1245,7 +1245,7 @@ namespace Durin::VulkanRHI
 			Arguments.FirstInstance, true);
 		PendingGfxState->PrepareForDraw(*this);
 		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.IndexedNative");
+			DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.IndexedNative");
 			GetCommandBuffer()->GetHandle().drawIndexed(Arguments.IndexCount,
 				Arguments.InstanceCount, Arguments.FirstIndex, Arguments.VertexOffset,
 				Arguments.FirstInstance);
@@ -1255,7 +1255,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIDrawIndirect(
 		FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.Indirect");
+		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.Indirect");
 		CheckVulkanRHIThread();
 		checkf(PendingGfxState->GetPipelineState(),
 			"Indirect draw requires an active graphics pipeline.");
@@ -1267,7 +1267,7 @@ namespace Durin::VulkanRHI
 			"Indirect draw record is not in IndirectArgumentRead access.");
 		PendingGfxState->PrepareForDraw(*this);
 		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.IndirectNative");
+			DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.IndirectNative");
 			GetCommandBuffer()->GetHandle().drawIndirect(Buffer->GetHandle(), Offset,
 				1, sizeof(FRHIDrawIndirectArguments));
 		}
@@ -1276,7 +1276,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIDrawIndexedIndirect(
 		FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.IndexedIndirect");
+		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.IndexedIndirect");
 		CheckVulkanRHIThread();
 		checkf(PendingGfxState->GetPipelineState(),
 			"Indexed indirect draw requires an active graphics pipeline.");
@@ -1290,7 +1290,7 @@ namespace Durin::VulkanRHI
 			"Indexed indirect draw record is not in IndirectArgumentRead access.");
 		PendingGfxState->PrepareForDraw(*this);
 		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Draw.IndexedIndirectNative");
+			DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.IndexedIndirectNative");
 			GetCommandBuffer()->GetHandle().drawIndexedIndirect(Buffer->GetHandle(),
 				Offset, 1, sizeof(FRHIDrawIndexedIndirectArguments));
 		}

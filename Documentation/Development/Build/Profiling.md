@@ -260,6 +260,28 @@ viewport count, and capture settings fixed, warm up glyph uploads and buffer
 growth, then compare open/closed steady frames on each thread. Parent timings
 include their nested zones; invocation counts are not frame-wide totals.
 
+### Vulkan Capture Detail
+
+Ordinary Vulkan captures retain RHI batch replay, submission, synchronization
+waits, presentation, render-pass and barrier zones. Descriptor cache misses,
+allocation and updates remain visible; cache-hit counts use the existing
+backend statistics instead of per-hit zones.
+
+Per-draw, binding, uniform-update and descriptor-cache lookup/hit zones are
+disabled by default. Enable them for a focused investigation:
+
+```powershell
+.\DevTool.bat configure -DDURIN_VULKAN_DETAILED_PROFILING=ON
+.\DevTool.bat build --target VulkanRHI
+```
+
+Restore ordinary capture detail with
+`.\DevTool.bat configure -DDURIN_VULKAN_DETAILED_PROFILING=OFF` and rebuild
+`VulkanRHI`. The option is private to the Vulkan backend and still requires
+Tracy instrumentation to produce events. Keep its value identical when
+comparing captures; historical detailed captures have different overhead and
+zone counts. These zones measure CPU recording work, not GPU execution time.
+
 ### Task Correlation And Owner Plots
 
 Profiling builds correlate task phases with the same process-unique nonzero task
