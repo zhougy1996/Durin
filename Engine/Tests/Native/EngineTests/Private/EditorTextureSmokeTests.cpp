@@ -346,7 +346,7 @@ namespace Durin
 		ASSERT_TRUE(AssetForge::Builtins::SetTexture2DSRGB(
 			*TextureImport.Asset, !TextureImport.Asset->IsSRGB()));
 		ASSERT_TRUE(TextureImport.Asset->FinishCachePlatformData(10.0))
-			<< Durin::FormatTexture2DCompilationError(Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*TextureImport.Asset).Error);
+			<< Durin::AssetPrivate::GetTexture2DCompilationDiagnosticForTests(*TextureImport.Asset).Diagnostic;
 		FlushRenderingCommands();
 		EXPECT_EQ(
 			TextureImport.Asset->GetTextureReferenceRHI().GetReference(),
