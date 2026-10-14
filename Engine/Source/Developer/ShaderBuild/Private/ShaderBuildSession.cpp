@@ -233,12 +233,37 @@ namespace Durin
 		private: std::shared_ptr<FCompilerService> Service;
 		};
 	}
-	auto MakeShaderSessionRequest(const FShaderCompileOptions& Options, const FShaderVariantKey& Variant, uint64 BuilderVersion,
-		std::vector<FShaderPortableDependency> Dependencies, std::optional<std::string> GeneratedSource, FShaderArtifactResolver Resolve)
-		-> std::expected<FShaderSessionRequest, FShaderError>
+	namespace
 	{
-		std::vector<FShaderMacroDefinition> Macros;
-		if (auto Normalized = ShaderCompileUtilities::NormalizeMacros(Options, Macros); !Normalized) return std::unexpected(std::move(Normalized.error()));
+		template<class TWriter>
+		auto WriteSessionOptions(TWriter& Writer, const FShaderCompileOptions& Options,
+			const std::vector<std::string>& Roots, bool Generated) -> void
+		{
+			Writer.WriteU32(2); Writer.WriteString(Options.VirtualShaderPath); Writer.WriteString(Options.CompilerEnvironment);
+			Writer.WriteU32(uint32(Options.Target.Platform)); Writer.WriteU32(uint32(Options.Target.Backend));
+			Writer.WriteU32(uint32(Options.Target.IntermediateFormat)); Writer.WriteU32(uint32(Options.Target.OutputFormat));
+			Writer.WriteU32(Options.Target.MslLanguageVersion); Writer.WriteU32(Options.Target.BindingRemapSchema);
+			Writer.WriteU32(Generated); Writer.WriteU32(uint32(Options.EntryPoints.size()));
+			for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
+			{ Writer.WriteString(Options.EntryPoints[Index]); Writer.WriteU32(uint32(Options.Frequencies[Index])); }
+			Writer.WriteU32(uint32(Options.Macros.size()));
+			for (const auto& Macro : Options.Macros)
+			{
+				Writer.WriteString(Macro.Name); Writer.WriteU32(Macro.Value.has_value()); Writer.WriteString(Macro.Value.value_or(""));
+			}
+			Writer.WriteU32(uint32(Roots.size())); for (const auto& Root : Roots) Writer.WriteString(Root);
+		}
+		struct FOptionsSizeWriter
+		{
+			uint64 Bytes = 0;
+			auto WriteU32(uint32) -> void { Bytes += 4; }
+			auto WriteString(std::string_view Value) -> void { Bytes += 8 + Value.size(); }
+		};
+	}
+	auto PrepareShaderSessionRecipe(const FShaderCompileOptions& Options, const FShaderVariantKey& Variant,
+		uint64 BuilderVersion, std::vector<FShaderPortableDependency> Dependencies, bool Generated, FShaderArtifactResolver Resolve)
+		-> std::expected<FShaderSessionRecipe, FShaderError>
+	{
 		std::vector<std::string> Roots;
 		if (Options.SourceArtifacts) Roots = Options.SourceArtifacts->GetSearchRoots();
 		else for (const auto& Mount : FShaderPaths::GetRegisteredMountPoints()) Roots.push_back(Mount.VirtualRoot);
@@ -249,7 +274,7 @@ namespace Durin
 		}
 		if (!BuilderVersion || Options.VirtualShaderPath.empty() || Options.VirtualShaderPath.size() > ShaderCaptureLimits::MaximumPathBytes
 			|| Options.EntryPoints.empty() || Options.EntryPoints.size() > 32 || Options.EntryPoints.size() != Options.Frequencies.size()
-			|| Macros.size() > 512 || Roots.size() > 256 || Variant.Value.IsZero() || !Resolve)
+			|| Options.Macros.size() > 512 || Roots.size() > 256 || Variant.Value.IsZero() || !Resolve)
 			return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
 		std::set<std::pair<std::string_view, EShaderFrequency>> UniqueEntries;
 		for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
@@ -261,34 +286,40 @@ namespace Durin
 		}
 		for (const auto& Root : Roots) if (Root.empty() || Root.size() > ShaderCaptureLimits::MaximumPathBytes)
 			return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
-		FBinaryWriter Writer({.MaximumTotalBytes = 1024 * 1024});
-		Writer.Reserve(512);
-		Writer.WriteU32(2); Writer.WriteString(Options.VirtualShaderPath); Writer.WriteString(Options.CompilerEnvironment);
-		Writer.WriteU32(uint32(Options.Target.Platform)); Writer.WriteU32(uint32(Options.Target.Backend));
-		Writer.WriteU32(uint32(Options.Target.IntermediateFormat)); Writer.WriteU32(uint32(Options.Target.OutputFormat));
-		Writer.WriteU32(Options.Target.MslLanguageVersion); Writer.WriteU32(Options.Target.BindingRemapSchema);
-		Writer.WriteU32(GeneratedSource.has_value()); Writer.WriteU32(uint32(Options.EntryPoints.size()));
-		for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
-		{ Writer.WriteString(Options.EntryPoints[Index]); Writer.WriteU32(uint32(Options.Frequencies[Index])); }
-		Writer.WriteU32(uint32(Macros.size()));
-		for (const auto& Macro : Macros)
-		{
+		for (const auto& Macro : Options.Macros)
 			if (Macro.Name.size() > 32768 || (Macro.Value && Macro.Value->size() > 32768))
 				return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
-			Writer.WriteString(Macro.Name); Writer.WriteU32(Macro.Value.has_value()); Writer.WriteString(Macro.Value.value_or(""));
-		}
-		Writer.WriteU32(uint32(Roots.size())); for (const auto& Root : Roots) Writer.WriteString(Root);
-		if (Writer.HasError() || Options.CompilerEnvironment.size() > 32768) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+		FOptionsSizeWriter Size; WriteSessionOptions(Size, Options, Roots, Generated);
+		if (Size.Bytes > 1024 * 1024 || Options.CompilerEnvironment.size() > 32768)
+			return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+		return FShaderSessionRecipe{Variant, BuilderVersion, std::move(Roots), std::move(Dependencies), Generated, std::move(Resolve)};
+	}
+	auto MakeShaderSessionRequest(const FShaderCompileOptions& Options, FShaderSessionRecipe Recipe,
+		std::optional<std::string> GeneratedSource) -> std::expected<FShaderSessionRequest, FShaderError>
+	{
+		FBinaryWriter Writer({.MaximumTotalBytes = 1024 * 1024}); Writer.Reserve(512);
+		WriteSessionOptions(Writer, Options, Recipe.Roots, Recipe.Generated);
+		if (Writer.HasError() || Recipe.Generated != GeneratedSource.has_value()) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
 		const auto Encoded = Writer.TakeBytes();
 		FBuildDefinitionBuilder DefinitionBuilder("Durin.Shader.Compile");
-		DefinitionBuilder.AddConstant("BuilderVersion", BuilderVersion);
+		DefinitionBuilder.AddConstant("BuilderVersion", Recipe.BuilderVersion);
 		DefinitionBuilder.AddConstant("Options", std::string(reinterpret_cast<const char*>(Encoded.data()), Encoded.size()))
 			.AddInput("Closure", "CapturedShaderClosure");
 		auto Definition = std::move(DefinitionBuilder).Build();
 		if (!Definition) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
-		auto Resolver = std::make_shared<FResolver>(); Resolver->Identity = Reference(Variant);
-		Resolver->Dependencies = std::move(Dependencies); Resolver->Generated = std::move(GeneratedSource); Resolver->Capture = std::move(Resolve);
+		auto Resolver = std::make_shared<FResolver>(); Resolver->Identity = Reference(Recipe.Variant);
+		Resolver->Dependencies = std::move(Recipe.Dependencies); Resolver->Generated = std::move(GeneratedSource); Resolver->Capture = std::move(Recipe.Resolve);
 		return FShaderSessionRequest{std::move(*Definition), std::move(Resolver)};
+	}
+	auto MakeShaderSessionRequest(const FShaderCompileOptions& Options, const FShaderVariantKey& Variant, uint64 BuilderVersion,
+		std::vector<FShaderPortableDependency> Dependencies, std::optional<std::string> GeneratedSource, FShaderArtifactResolver Resolve)
+		-> std::expected<FShaderSessionRequest, FShaderError>
+	{
+		auto Normalized = Options;
+		if (auto Result = ShaderCompileUtilities::NormalizeMacros(Options, Normalized.Macros); !Result) return std::unexpected(Result.error());
+		auto Recipe = PrepareShaderSessionRecipe(Normalized, Variant, BuilderVersion, std::move(Dependencies), GeneratedSource.has_value(), std::move(Resolve));
+		if (!Recipe) return std::unexpected(Recipe.error());
+		return MakeShaderSessionRequest(Normalized, std::move(*Recipe), std::move(GeneratedSource));
 	}
 
 	struct FShaderBuildService::FState

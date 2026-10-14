@@ -298,7 +298,7 @@ namespace Durin
 		Request.Macros = Options.Macros; Request.SourceArtifacts = Options.SourceArtifacts; Request.bForceRecompile = Options.bForceRecompile;
 		for (const auto* Entry : Options.EntryPoints) Request.EntryPoints.emplace_back(Entry);
 		FShaderCompilerOutput Output;
-		auto Handle = SubmitRequest(std::move(Request), {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); }, true);
+		auto Handle = SubmitRequest(std::move(Request), {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); }, ESourceKind::Mounted);
 		if (!Handle) return {.Error = {.Code = EShaderError::InvalidCompileRequest}};
 		require(Handle->Wait() == EShaderBuildWaitResult::Completed);
 		return Output;
@@ -345,8 +345,9 @@ namespace Durin
 		FShaderVariantKey Variant;
 		ShaderCompileUtilities::BuildVariantKey(Options.VirtualShaderPath, Meta, Macros, CompilerEnvironmentIdentity, Options.Target, Variant);
 		Prepared->OutputKey = BuildOutputKey(Variant, Options);
-		auto Session = MakeShaderSessionRequest(Options, Variant, GetBuildVersion(), std::move(Meta.PortableDependencies), std::nullopt, std::move(Resolve));
-		if (!Session) return std::unexpected(Session.error()); Prepared->Session = std::move(*Session); return Prepared;
+		Options.Macros = std::move(Macros);
+		auto Recipe = PrepareShaderSessionRecipe(Options, Variant, GetBuildVersion(), std::move(Meta.PortableDependencies), false, std::move(Resolve));
+		if (!Recipe) return std::unexpected(Recipe.error()); Prepared->Recipe = std::move(*Recipe); return Prepared;
 	}
 
 	auto FShaderBuilder::PrepareGenerated(std::shared_ptr<const FGeneratedShaderCompileRequest> Owned,
@@ -478,9 +479,10 @@ namespace Durin
 		FShaderVariantKey Variant;
 		ShaderCompileUtilities::BuildVariantKey(Request.VirtualPath, Meta, Macros, CompilerEnvironmentIdentity, Options.Target, Variant);
 		Prepared->OutputKey = BuildOutputKey(Variant, Options);
-		auto Session = MakeShaderSessionRequest(Options, Variant, GetBuildVersion(), std::move(Meta.PortableDependencies), Request.Source, std::move(Resolve));
-		if (!Session) return std::unexpected(Session.error());
-		Prepared->Session = std::move(*Session);
+		Options.Macros = std::move(Macros);
+		auto Recipe = PrepareShaderSessionRecipe(Options, Variant, GetBuildVersion(), std::move(Meta.PortableDependencies), true, std::move(Resolve));
+		if (!Recipe) return std::unexpected(Recipe.error());
+		Prepared->Recipe = std::move(*Recipe);
 		return Prepared;
 	}
 

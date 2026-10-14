@@ -18,6 +18,21 @@ namespace Durin
 		DerivedData::FBuildDefinition Definition;
 		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver;
 	};
+	// Validated recipe; definition encoding and resolver allocation are leader-only.
+	struct FShaderSessionRecipe
+	{
+		FShaderVariantKey Variant;
+		uint64 BuilderVersion = 0;
+		std::vector<std::string> Roots;
+		std::vector<FShaderPortableDependency> Dependencies;
+		bool Generated = false;
+		FShaderArtifactResolver Resolve;
+	};
+	SHADERBUILD_API auto PrepareShaderSessionRecipe(const FShaderCompileOptions& NormalizedOptions,
+		const FShaderVariantKey& Variant, uint64 BuilderVersion, std::vector<FShaderPortableDependency> Dependencies,
+		bool Generated, FShaderArtifactResolver Resolve) -> std::expected<FShaderSessionRecipe, FShaderError>;
+	SHADERBUILD_API auto MakeShaderSessionRequest(const FShaderCompileOptions& NormalizedOptions,
+		FShaderSessionRecipe Recipe, std::optional<std::string> GeneratedSource) -> std::expected<FShaderSessionRequest, FShaderError>;
 	SHADERBUILD_API auto MakeShaderSessionRequest(const FShaderCompileOptions& Options,
 		const FShaderVariantKey& Variant, uint64 BuilderVersion, std::vector<FShaderPortableDependency> Dependencies,
 		std::optional<std::string> GeneratedSource, FShaderArtifactResolver Resolve)

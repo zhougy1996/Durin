@@ -4,7 +4,8 @@ namespace Durin::MaterialBuildPrivate
 	namespace
 	{
 		std::mutex Mutex;
-		std::unordered_map<FMaterialProgramIdentity, std::shared_ptr<const FMaterialCompilerResult>> Programs;
+		struct FProgramEntry { std::shared_ptr<const FMaterialCompilerResult> Program; uint64 Bytes = 0; };
+		std::unordered_map<FMaterialProgramIdentity, FProgramEntry> Programs;
 		std::deque<FMaterialProgramIdentity> Order;
 		uint64 Bytes = 0;
 	}
@@ -25,7 +26,7 @@ namespace Durin::MaterialBuildPrivate
 		return Size;
 	}
 	auto FindProgram(FMaterialProgramIdentity Identity) -> std::shared_ptr<const FMaterialCompilerResult>
-	{ std::lock_guard Lock(Mutex); const auto Found = Programs.find(Identity); return Found == Programs.end() ? nullptr : Found->second; }
+	{ std::lock_guard Lock(Mutex); const auto Found = Programs.find(Identity); return Found == Programs.end() ? nullptr : Found->second.Program; }
 	auto BindProgramCollections(std::shared_ptr<const FMaterialCompilerResult> Program,
 		std::span<const FMaterialParameterCollectionLayout> Collections, const FMaterialCompilerEnvironment* Environment) -> std::shared_ptr<const FMaterialCompilerResult>
 	{
@@ -54,12 +55,12 @@ namespace Durin::MaterialBuildPrivate
 		const auto Found = Programs.find(Program->Identity);
 		if (Found != Programs.end())
 		{
-			if (!Replace) return Found->second;
-			Bytes -= EstimateProgramBytes(*Found->second); Programs.erase(Found); std::erase(Order, Program->Identity);
+			if (!Replace) return Found->second.Program;
+			Bytes -= Found->second.Bytes; Programs.erase(Found); std::erase(Order, Program->Identity);
 		}
 		while (!Order.empty() && (Programs.size() >= 128 || Bytes + Size > 256ull * 1024 * 1024))
-		{ auto Old = Order.front(); Order.pop_front(); Bytes -= EstimateProgramBytes(*Programs.at(Old)); Programs.erase(Old); }
-		Bytes += Size; Programs.emplace(Program->Identity, Program); Order.push_back(Program->Identity); return Program;
+		{ auto Old = Order.front(); Order.pop_front(); Bytes -= Programs.at(Old).Bytes; Programs.erase(Old); }
+		Bytes += Size; Programs.emplace(Program->Identity, FProgramEntry{Program, Size}); Order.push_back(Program->Identity); return Program;
 	}
 	auto ClearPrograms() -> void { std::lock_guard Lock(Mutex); Programs.clear(); Order.clear(); Bytes = 0; }
 	auto ProgramCacheStats() -> std::pair<uint32, uint64> { std::lock_guard Lock(Mutex); return {uint32(Programs.size()), Bytes}; }

@@ -1,5 +1,6 @@
 #include "MaterialBuildOperation.h"
 #include "MaterialProgramCache.h"
+#include "Materials/MaterialCompileLifecycle.h"
 #if DURIN_WITH_EDITOR
 #include "MaterialTranslation.h"
 #include "MaterialTranslationCodec.h"
@@ -25,7 +26,6 @@ namespace Durin::MaterialBuildPrivate
 		std::shared_ptr<FShaderBuildHandle> Shader;
 		DerivedData::FRequestOwner Owner;
 		DerivedData::FBuildCancellation Cancellation;
-		FTaskCancellationToken Parent;
 		FTaskCancellationSource CpuCancellation;
 		std::shared_ptr<const MIR::FCompilerInput> Input;
 		std::shared_ptr<const FMaterialTranslationInput> EncodedInput;
@@ -83,17 +83,16 @@ namespace Durin::MaterialBuildPrivate
 		const bool Admitted = TryReserve();
 		{
 			std::lock_guard Lock(State->Mutex); require(!State->Started); State->Started = true;
-			State->Inline = !IsTaskSchedulerRunning(); State->Input = std::move(Input); State->EncodedInput = std::move(EncodedInput); State->Force = Force; State->Parent = std::move(Cancellation);
-			State->Cancellation = State->Cancellation.WithObserver([Parent = State->Parent] { return Parent.IsCancellationRequested(); });
+			State->Inline = !IsTaskSchedulerRunning(); State->Input = std::move(Input); State->EncodedInput = std::move(EncodedInput); State->Force = Force;
+			State->Cancellation = State->Cancellation.WithObserver([Parent = std::move(Cancellation)] { return Parent.IsCancellationRequested(); });
 			State->OnTranslation = std::move(OnTranslation); State->Completion = std::move(Completion);
 		}
 		if (!Admitted) return Complete(FailedMaterial());
 		Launch([Self = shared_from_this()] {
-			if (auto Error = ValidateTranslationConsumer(*Self->State->Input); Error.HasError())
-				return Self->Complete({.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Normalization, .Error = std::move(Error)}}});
+			FMaterialError ValidationError;
 			auto Admitted = SubmitTranslation(Self->State->Input, Self->State->Force, Self->State->Owner,
-				[Self](FMaterialTranslatedProgram Product) { try { Self->Translated(std::move(Product)); } catch (...) { Self->Complete(FailedMaterial()); } }, Self->State->Cancellation, true, Self->State->EncodedInput, Self->State->Inline ? DerivedData::EBuildCacheExecution::Inline : DerivedData::EBuildCacheExecution::Task);
-			if (!Admitted) Self->Complete(FailedMaterial());
+				[Self](FMaterialTranslatedProgram Product) { try { Self->Translated(std::move(Product)); } catch (...) { Self->Complete(FailedMaterial()); } }, Self->State->Cancellation, true, Self->State->EncodedInput, Self->State->Inline ? DerivedData::EBuildCacheExecution::Inline : DerivedData::EBuildCacheExecution::Task, &ValidationError);
+			if (!Admitted) Self->Complete(ValidationError.HasError() ? FMaterialCompilerResult{.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Normalization, .Error = std::move(ValidationError)}}} : FailedMaterial());
 		});
 	}
 	auto FMaterialBuildOperation::Translated(FMaterialTranslatedProgram Translation) -> void
@@ -139,7 +138,7 @@ namespace Durin::MaterialBuildPrivate
 			std::lock_guard Lock(State->Mutex); if (State->ResultReady) return; State->ResultReady = true;
 			Callback = std::move(State->Completion); State->OnTranslation = {};
 		}
-		if (Result && EstimateProgramBytes(Result) > 8ull * 1024 * 1024) Result = {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Bounds, .Error = EMaterialCompileError::CompiledMaterialResultExceedsRetainedResultByteLimit}}};
+		if (Result && EstimateProgramBytes(Result) > MaterialCompileMaxResultBytes) Result = {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Bounds, .Error = EMaterialCompileError::CompiledMaterialResultExceedsRetainedResultByteLimit}}};
 		if (State->Cancellation.IsCancelled()) Result = CanceledMaterial();
 		if (Delivery == ECompletionDelivery::Deliver && Callback) Callback(std::move(Result));
 	}

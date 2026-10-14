@@ -1,5 +1,6 @@
 #include "NativeRHIBackendTestSupport.h"
 #include "Materials/MaterialParameterCollection.h"
+#include "Materials/MaterialCollectionBinding.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialFunction.h"
 #include "MaterialCookedProgramTestSupport.h"
@@ -74,6 +75,25 @@ namespace
 		std::vector<TStrongObjectPtr<DWorld>> Worlds;
 		std::unique_ptr<FWorldSubsystemRegistration> SubsystemRegistration;
 	};
+}
+
+TEST_F(FMaterialParameterCollectionTests, PublicationResolvesDefaultsAndRejectsMissingPathsOrSchemas)
+{
+	using namespace Durin::MaterialBuildPrivate;
+	auto* Collection = Make<DMaterialParameterCollection>("PublicationCollection");
+	auto Declaration = MakeDeclaration("Exposure", EMaterialParameterType::Scalar, FVector4(1.0));
+	ASSERT_TRUE(Collection->SetDeclarations(std::array{Declaration}));
+	auto Expected = Collection->BuildLayout(); ASSERT_TRUE(Expected);
+	Declaration.DefaultValue = FVector4(2.0); ASSERT_TRUE(Collection->SetDeclarations(std::array{Declaration}));
+	auto Current = ResolvePublicationCollections(std::span(&*Expected, 1)); ASSERT_TRUE(Current);
+	EXPECT_NE(Current->front().DefaultPayload, Expected->DefaultPayload);
+	EXPECT_TRUE(Current->front().HasCompatibleSchema(*Expected));
+	auto WrongPath = *Expected; WrongPath.AssetPath += "Missing";
+	auto Missing = ResolvePublicationCollections(std::span(&WrongPath, 1)); ASSERT_FALSE(Missing); EXPECT_EQ(Missing.error(), ECollectionPublicationError::MissingObject);
+	Declaration.Type = EMaterialParameterType::Vector4; ASSERT_TRUE(Collection->SetDeclarations(std::array{Declaration}));
+	auto Incompatible = ResolvePublicationCollections(std::span(&*Expected, 1)); ASSERT_FALSE(Incompatible); EXPECT_EQ(Incompatible.error(), ECollectionPublicationError::IncompatibleSchema);
+	MarkAsGarbage(Collection);
+	auto Deleted = ResolvePublicationCollections(std::span(&*Expected, 1)); ASSERT_FALSE(Deleted); EXPECT_EQ(Deleted.error(), ECollectionPublicationError::MissingObject);
 }
 
 TEST_F(FMaterialParameterCollectionTests,

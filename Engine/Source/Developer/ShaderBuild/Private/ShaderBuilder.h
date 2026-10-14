@@ -46,11 +46,12 @@ namespace Durin
 		auto Close() -> void;
 
 	private:
+		enum class ESourceKind { Mounted, Generated };
 		struct FPreparedShaderBuild
 		{
 			std::shared_ptr<const FGeneratedShaderCompileRequest> Request;
 			FShaderCompileOptions Options;
-			std::optional<FShaderSessionRequest> Session;
+			FShaderSessionRecipe Recipe;
 			std::string OutputKey;
 		};
 		auto PrepareGenerated(std::shared_ptr<const FGeneratedShaderCompileRequest> Request,
@@ -59,7 +60,7 @@ namespace Durin
 		auto PrepareMounted(std::shared_ptr<const FGeneratedShaderCompileRequest> Request,
 			const std::function<bool(uint64)>& ReserveSources) -> std::expected<std::shared_ptr<FPreparedShaderBuild>, FShaderError>;
 		auto SubmitRequest(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
-			FShaderBuildCompletion Completion, bool Mounted) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
+			FShaderBuildCompletion Completion, ESourceKind SourceKind) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
 		struct FAsyncState;
 		std::shared_ptr<FAsyncState> Async;
 		auto InitializeAsync() -> void;

@@ -221,12 +221,20 @@ one move-only handle with nonblocking cancellation, mutable priority and explici
 wait. Rejection has no callback; acceptance completes exactly once, including
 inline completion before submission returns. Canceling one subscriber preserves
 a live follower; the last cancellation withdraws the flight from joinable lookup
-and requests cooperative producer cancellation. Flight priority is the highest
+and requests cooperative producer cancellation. Source validation returns a
+validated recipe before output lookup; only a newly admitted flight leader
+encodes its DDC definition and creates the captured resolver. Macro options are
+normalized once for that recipe. Flight priority is the highest
 live subscriber priority. Task-backed DDC sessions release dispatch workers while
 cache I/O progresses. Synchronous APIs submit through the same pipeline
 and wait at their caller boundary. Callback-stack waits return `WouldBlock`.
 Admission bounds are 512 subscribers, 128 compiler flights and 1 GiB captured
 source bytes; the 128-entry output LRU is additionally capped at 256 MiB.
+`MaximumOutputBytes` applies to the complete build product on both DDC and LRU
+paths through the same output-limit validation, including metadata/reflection.
+The LRU retains the immutable build output alongside the typed result and charges
+serialized data, typed reflection, push constants and Metal binding allocations;
+shader code buffers remain shared.
 Material scheduling coalesces consumers before launching work. Success and failure completion wake waiters and remove the record, allowing
 retries. Unexpected recipe exceptions become generic failure completions; source-preparation
 exceptions also deliver terminal failures through the subscriber.

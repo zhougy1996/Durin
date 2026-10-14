@@ -142,7 +142,6 @@ namespace Durin::MaterialBuildPrivate
 		}
 	}
 	auto MakeTranslationFunction() -> std::shared_ptr<const IBuildFunction> { return std::make_shared<FFunction>(); }
-	auto ValidateTranslationConsumer(const MIR::FCompilerInput& Input) -> FMaterialError { return ConsumerError(Input); }
 	auto GetTranslationStats() -> FTranslationStats { return {Producers.load(), Resolutions.load(), Hits.load(), ProducerMicroseconds.load(), GameThreadProducers.load()}; }
 	auto RegisterTranslation() -> void
 	{
@@ -151,23 +150,25 @@ namespace Durin::MaterialBuildPrivate
 	auto OpenTranslationSessions() -> void { RegisterTranslation(); Sessions.Open(); }
 	auto SetTranslationServiceForTests(std::shared_ptr<IBuild> Service) -> void { require(Sessions.SetTaskService(std::move(Service)) == EBuildDrainResult::Drained); }
 	auto CloseTranslationSessions() -> void { require(Sessions.Close() == EBuildDrainResult::Drained); }
+	static auto SubmitValidatedTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner,
+		std::function<void(FMaterialTranslatedProgram)> Completion, FBuildCancellation Cancellation, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution)
+		-> std::expected<FBuildRequest, FBuildAdmissionError>;
 	auto TranslateMaterialInput(const MIR::FCompilerInput& Input, bool Force) -> FMaterialTranslatedProgram
 	{
 		if (auto Error = ConsumerError(Input); Error.HasError()) return Failure(Error);
 		auto Bytes = EncodeTranslationInput(Input); if (!Bytes) return Failure(EMaterialIRError::CanonicalBytesExceedSupportedBound);
 		auto Encoded = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{*Bytes, FXxHash128::HashBuffer(Bytes->GetBytes())});
 		FMaterialTranslatedProgram Product; FRequestOwner Owner;
-		auto Admitted = SubmitTranslation(std::make_shared<const MIR::FCompilerInput>(Input), Force, Owner,
+		auto Admitted = SubmitValidatedTranslation(std::make_shared<const MIR::FCompilerInput>(Input), Force, Owner,
 			[&](auto Value) { Product = std::move(Value); }, {}, true, std::move(Encoded), EBuildCacheExecution::Inline);
 		if (!Admitted) return Failure(EMaterialCompileError::ShaderEnvironmentUnavailable);
 		require(Owner.Wait() == ERequestWaitResult::Completed);
 		return Product;
 	}
-	auto SubmitTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner,
+	static auto SubmitValidatedTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner,
 		std::function<void(FMaterialTranslatedProgram)> Completion, FBuildCancellation Cancellation, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution)
 		-> std::expected<FBuildRequest, FBuildAdmissionError>
 	{
-		if (auto Error = ConsumerError(*Input); Error.HasError()) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, FormatMaterialError(Error)});
 		RegisterTranslation(); auto Request = MakeRequest(*Input, std::move(EncodedInput)); if (!Request) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Capacity, "Material snapshot exceeds the input limit."});
 		auto Session = Sessions.Get(Execution); if (!Session) return std::unexpected(Session.error());
 		return (*Session)->Build(Request->Definition, Owner,
@@ -178,12 +179,23 @@ namespace Durin::MaterialBuildPrivate
 					if (Query && HasBuildExecutionFlag(Result.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit))
 					{
 						// Retry ownership joins the same owner; only the final typed callback is delivered.
-						auto Retried = SubmitTranslation(Input, Force, Owner, Completion, Cancellation, false, Encoded, Execution);
+						auto Retried = SubmitValidatedTranslation(Input, Force, Owner, Completion, Cancellation, false, Encoded, Execution);
 						if (Retried) return;
 					}
 				}
 				Completion(Failure(Result.GetStatus() == EStatus::Canceled ? FMaterialError(EMaterialCompileError::CompilationCanceled) : FMaterialError(EMaterialIRError::InvalidStructure)));
 			}, {}, Options(Request->Resolver, Force, Cancellation, Query));
 	}
+	auto SubmitTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner,
+		std::function<void(FMaterialTranslatedProgram)> Completion, FBuildCancellation Cancellation, bool Query,
+		std::shared_ptr<const FMaterialTranslationInput> EncodedInput, EBuildCacheExecution Execution, FMaterialError* ConsumerValidationError)
+		-> std::expected<FBuildRequest, FBuildAdmissionError>
+	{
+		const auto Error = ConsumerError(*Input);
+		if (ConsumerValidationError) *ConsumerValidationError = Error;
+		if (Error.HasError()) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, FormatMaterialError(Error)});
+		return SubmitValidatedTranslation(std::move(Input), Force, Owner, std::move(Completion), std::move(Cancellation), Query, std::move(EncodedInput), Execution);
+	}
+
 }
 #endif

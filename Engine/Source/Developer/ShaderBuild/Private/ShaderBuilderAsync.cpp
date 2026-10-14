@@ -35,7 +35,7 @@ namespace Durin
 			std::weak_ptr<FAsyncState> State;
 			std::shared_ptr<const FGeneratedShaderCompileRequest> Request;
 			FShaderBuildRequestOptions Options;
-			bool Mounted = false;
+			ESourceKind SourceKind = ESourceKind::Generated;
 			FShaderBuildCompletion Completion;
 			mutable std::mutex Mutex;
 			std::condition_variable Condition;
@@ -79,9 +79,9 @@ namespace Durin
 		{
 			std::string Key;
 			std::shared_ptr<FPreparedShaderBuild> Prepared;
+			std::unique_ptr<FShaderSessionRequest> Session;
 			std::vector<std::shared_ptr<FSubscriber>> Subscribers;
 			DerivedData::FRequestOwner Owner;
-			bool Canceled = false;
 			uint64 Bytes = 0;
 		};
 		FShaderBuilder* Builder;
@@ -96,7 +96,7 @@ namespace Durin
 		{
 			std::erase_if(CompilerOperations, [&](const auto& Flight) {
 				if (!Flight->Owner.Poll()) return false;
-				Flight->Prepared.reset(); Bytes -= Flight->Bytes; return true;
+				Flight->Prepared.reset(); Flight->Session.reset(); Bytes -= Flight->Bytes; return true;
 			});
 		}
 		auto Priority(const std::shared_ptr<FFlight>& Flight) -> void
@@ -124,17 +124,15 @@ namespace Durin
 				if (Amount > 1024ull * 1024 * 1024 - Bytes) return false;
 				Bytes += Amount; Subscriber->Bytes += Amount; return true;
 			};
-			auto Prepared = Subscriber->Mounted ? Builder->PrepareMounted(Subscriber->Request, Reserve) : Builder->PrepareGenerated(Subscriber->Request, Reserve);
+			auto Prepared = Subscriber->SourceKind == ESourceKind::Mounted ? Builder->PrepareMounted(Subscriber->Request, Reserve) : Builder->PrepareGenerated(Subscriber->Request, Reserve);
 			if (!Prepared) return Subscriber->Finish({.Error = Prepared.error()});
 			if (Subscriber->Canceled) return Subscriber->Finish(CanceledShader());
 			if (!Subscriber->Request->bForceRecompile)
 			{
-				auto Retained = Builder->OutputCache.Find((*Prepared)->OutputKey);
+				auto Retained = Builder->OutputCache.Find((*Prepared)->OutputKey, std::min(ShaderCompiledOutput::MaximumValueBytes, Subscriber->Request->MaximumOutputBytes));
 				if (Retained)
 				{
 					Builder->MemoryHits.fetch_add(1);
-					uint64 Bytes = 0; for (const auto& Shader : Retained->CompiledShaders) if (Shader.Code) Bytes += Shader.Code->size();
-					if (Bytes > Subscriber->Request->MaximumOutputBytes) return Subscriber->Finish({.Error = {.Code = EShaderError::CaptureInputLimit}});
 					return Subscriber->Finish(std::move(*Retained));
 				}
 			}
@@ -165,6 +163,14 @@ namespace Durin
 			}
 			if (!Flight) return Subscriber->Finish(Capacity ? FShaderCompilerOutput{.Error = {.Code = EShaderError::CaptureInputLimit}} : CanceledShader());
 			if (!Leader) return;
+			try
+			{
+				const bool Generated = Flight->Prepared->Recipe.Generated;
+				auto Session = MakeShaderSessionRequest(Flight->Prepared->Options, std::move(Flight->Prepared->Recipe), Generated ? std::optional(Flight->Prepared->Request->Source) : std::nullopt);
+				if (!Session) return Complete(Flight, {.Error = Session.error()});
+				Flight->Session = std::make_unique<FShaderSessionRequest>(std::move(*Session));
+			}
+			catch (...) { return Complete(Flight, {.Error = {.Code = EShaderError::InvalidCompileRequest}}); }
 			SubmitFlight(Flight, Subscriber->Options.bInlineExecution, true);
 		}
 		auto SubmitFlight(const std::shared_ptr<FFlight>& Flight, bool Inline, bool Query) -> void
@@ -180,7 +186,7 @@ namespace Durin
 			Options.Policy.OutputLimits.MaximumTotalBytes = std::min(ShaderCompiledOutput::MaximumValueBytes, Flight->Prepared->Request->MaximumOutputBytes);
 			Options.Policy.PersistenceLimits = Options.Policy.OutputLimits;
 			Options.Policy.MaximumEncodedBytes = ShaderCompiledOutput::MaximumValueBytes + 4ull * 1024 * 1024;
-			auto Admitted = Builder->BuildService->Submit(*Flight->Prepared->Session, Flight->Owner,
+			auto Admitted = Builder->BuildService->Submit(*Flight->Session, Flight->Owner,
 				[Self = shared_from_this(), Flight, Inline, Query](FBuildCompleteParams Completion) {
 					try
 					{
@@ -193,7 +199,7 @@ namespace Durin
 						auto Built = ShaderSharedOutput::Assemble(Flight->Prepared->Options, *Completion.GetOutput());
 						if (!Built && Query && HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit) && !Flight->Owner.IsCanceled()) { Self->SubmitFlight(Flight, Inline, false); return; }
 						Output = Built ? std::move(*Built) : FShaderCompilerOutput{.Error = Built.error()};
-						if (Output && !Flight->Owner.IsCanceled()) Self->Builder->OutputCache.Store(Flight->Prepared->OutputKey, Output);
+						if (Output && !Flight->Owner.IsCanceled()) Self->Builder->OutputCache.Store(Flight->Prepared->OutputKey, Output, *Completion.GetOutput());
 					}
 					else Output.Error = FShaderError::FromBuildDiagnostic(EShaderError::InvalidCompileRequest, std::string(Completion.GetDiagnostic()), 0);
 					Self->Complete(Flight, std::move(Output));
@@ -218,7 +224,7 @@ namespace Durin
 				Owner->Priority(Flight);
 				if (Flight->Subscribers.empty())
 				{
-					CancelFlight = Flight; Flight->Canceled = true;
+					CancelFlight = Flight;
 					const auto It = Owner->Flights.find(Flight->Key);
 					if (It != Owner->Flights.end() && It->second == Flight) Owner->Flights.erase(It);
 				}
@@ -256,12 +262,12 @@ namespace Durin
 		return EShaderBuildWaitResult::Completed;
 	}
 	auto FShaderBuilder::SubmitRequest(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
-		FShaderBuildCompletion Completion, bool Mounted) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>
+		FShaderBuildCompletion Completion, ESourceKind SourceKind) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>
 	{
 		if (!Completion) return std::unexpected(FShaderBuildAdmissionError{});
 		if (!Options.bInlineExecution && !IsTaskSchedulerRunning()) return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::DispatchRejected});
 		auto Subscriber = std::make_shared<FAsyncState::FSubscriber>();
-		Subscriber->Mounted = Mounted; Subscriber->State = Async; Subscriber->Bytes = RequestBytes(Request);
+		Subscriber->SourceKind = SourceKind; Subscriber->State = Async; Subscriber->Bytes = RequestBytes(Request);
 		Subscriber->Request = std::make_shared<const FGeneratedShaderCompileRequest>(std::move(Request));
 		Subscriber->Options = std::move(Options); Subscriber->Completion = std::move(Completion);
 		// Snapshot retired controls outside the state lock: retirement queries also
@@ -307,7 +313,7 @@ namespace Durin
 	}
 	auto FShaderBuilder::SubmitGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
 		FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>
-	{ return SubmitRequest(std::move(Request), std::move(Options), std::move(Completion), false); }
+	{ return SubmitRequest(std::move(Request), std::move(Options), std::move(Completion), ESourceKind::Generated); }
 	auto FShaderBuilder::GetOrCompileGenerated(const FGeneratedShaderCompileRequest& Request) -> FShaderCompilerOutput
 	{
 		FShaderCompilerOutput Output;

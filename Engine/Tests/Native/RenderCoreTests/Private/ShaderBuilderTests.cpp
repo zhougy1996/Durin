@@ -237,6 +237,25 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(Cache->Gets, 3u); EXPECT_EQ(Cache->Puts, 2u);
 	}
 
+	TEST_F(FShaderBuilderTests, OutputBudgetIncludesMetadataOnMemoryAndDdcHits)
+	{
+		Builder = std::make_unique<FShaderBuilder>();
+		FGeneratedShaderCompileRequest Request;
+		Request.VirtualPath = "/Generated/BudgetParity";
+		Request.Source = "[shader(\"vertex\")] float4 Main(uint id : SV_VertexID) : SV_Position { return float4(1,0,0,1); }";
+		Request.EntryPoints = {"Main"}; Request.Frequencies = {EShaderFrequency::Vertex};
+		const auto Cold = Builder->GetOrCompileGenerated(Request); ASSERT_TRUE(Cold);
+		// Enough for code alone, insufficient for the full build product.
+		Request.MaximumOutputBytes = Cold.CompiledShaders.front().Code->size();
+		EXPECT_FALSE(Builder->GetOrCompileGenerated(Request));
+		EXPECT_EQ(Builder->GetStats().Compilations, 1u);
+		Builder.reset(); Builder = std::make_unique<FShaderBuilder>();
+		EXPECT_FALSE(Builder->GetOrCompileGenerated(Request));
+		Request.MaximumOutputBytes = 256ull * 1024 * 1024;
+		EXPECT_TRUE(Builder->GetOrCompileGenerated(Request));
+		EXPECT_EQ(Builder->GetStats().DdcHits, 1u);
+	}
+
 	TEST_F(FShaderBuilderTests, DdcStoreFailureDoesNotDiscardCompiledOutput)
 	{
 		const std::filesystem::path BlockedRoot =

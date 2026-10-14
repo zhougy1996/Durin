@@ -616,8 +616,19 @@ the translation function once; Engine startup explicitly opens sessions and
 shutdown closes/drains them. Submission never reopens closed sessions. Translation
 completion explicitly selects compile, retained reuse, or joining a program
 flight. Joining transfers consumers, capture charges and owner origins together
-without changing aggregate accounting. Collection binding
-shares schema validation and copy-on-write refresh at capture and publication.
+without changing aggregate accounting. Consumer validation runs once per
+submission; typed hit repair reuses that validated immutable input and preserves
+structured normalization errors. Operation completion enforces the result bound;
+program-cache entries retain their charged size for replacement and eviction.
+Completion detaches consumers under the manager lock, builds per-consumer results
+outside it, then commits the mailbox under the lock. Detached completions remain
+visible to owner queries and cancellation, and their operations remain charged
+until request end. Cancellation withdraws publication; shutdown drains these
+completions before clearing counters. Fanout exceptions deliver terminal failures.
+Collection binding shares schema validation and copy-on-write refresh at capture
+and publication. Publication resolves current live collection objects, exact
+nonempty asset paths and compatible schemas through a dedicated helper; missing
+objects or incompatible schemas schedule a new snapshot.
 Infrastructure failures and cancellation never become persistent negatives;
 persistence failure retains a validated local product. No complete Material.Program
 record duplicates Shader bytecode. Synchronous, offline and Cook calls use the same

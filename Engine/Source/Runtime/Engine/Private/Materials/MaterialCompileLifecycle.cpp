@@ -2,6 +2,8 @@
 #include "MaterialPreparedProgram.h"
 #include "MaterialBuildOperation.h"
 #include "MaterialProgramCache.h"
+#include "MaterialCompileTestSupport.h"
+#include "MaterialCollectionBinding.h"
 #include "MaterialTranslationCodec.h"
 #include "MaterialCompileRetryQueue.h"
 #include "Threading/TaskComposition.h"
@@ -20,6 +22,13 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "Threading/RunnableThread.h"
 #include "Serialization/BinaryFormat.h"
+
+namespace Durin::MaterialBuildPrivate
+{
+	static std::atomic<std::shared_ptr<const std::function<void()>>> ResultFanoutHook;
+	auto SetResultFanoutHookForTests(std::function<void()> Hook) -> void
+	{ ResultFanoutHook.store(Hook ? std::make_shared<const std::function<void()>>(std::move(Hook)) : nullptr); }
+}
 
 namespace Durin
 {
@@ -118,6 +127,7 @@ namespace Durin
 		{
 			FMaterialCompileFlightKey Key;
 			std::vector<FMaterialCompileRequest> Consumers;
+			std::vector<FWeakObjectPtr> CompletingOwners;
 			FTaskCancellationSource Cancellation;
 			std::shared_ptr<MaterialBuildPrivate::FMaterialBuildOperation> Operation;
 			FMaterialProgramIdentity ProgramIdentity;
@@ -161,7 +171,7 @@ namespace Durin
 				std::scoped_lock Lock(Mutex);
 				Diagnostics.CanceledRequests += OutstandingConsumers;
 				Flights.clear();
-				ProgramFlights.clear(); Operations.clear(); CapturedBytes = 0;
+				ProgramFlights.clear(); CompletingFlights.clear(); Operations.clear(); CapturedBytes = 0;
 				Mailbox.clear();
 				OutstandingConsumers = 0;
 				MaterialBuildPrivate::ClearPrograms();
@@ -379,6 +389,7 @@ namespace Durin
 						[Owner](const FMaterialCompileRequest& Consumer) {
 							return SameOwner(Consumer.Owner, Owner);
 						})) return true;
+				if (std::ranges::any_of(CompletingFlights, [&](const auto& Flight) { return std::ranges::any_of(Flight->CompletingOwners, [&](auto Pending) { return SameOwner(Pending, Owner); }); })) return true;
 				return std::ranges::any_of(Mailbox,
 					[Owner](const FMaterialCompileResult& Result) {
 						return SameOwner(Result.Owner, Owner);
@@ -437,121 +448,139 @@ namespace Durin
 				};
 			}
 
+			static auto MakeTerminalResult(const FMaterialCompileRequest& Consumer, EMaterialCompileState State,
+				EMaterialCompileResultCategory Category, uint64 TaskId) -> FMaterialCompileResult
+			{
+				return {.Owner = Consumer.Owner, .AuthoredRevision = Consumer.AuthoredRevision, .Generation = Consumer.Generation,
+					.DependencyRevision = Consumer.DependencyRevision, .ParentChainRevision = Consumer.ParentChainRevision,
+					.ProgramIdentity = Consumer.ProgramIdentity, .StaticProperties = Consumer.CompilerInput->StaticProperties,
+					.Target = Consumer.Target, .State = State, .Category = Category, .TaskId = TaskId, .ExpressionSources = Consumer.ExpressionSources};
+			}
+
 			auto CompleteFlight(
 				const std::shared_ptr<FMaterialCompileFlight>& Flight,
 				FMaterialCompilerResult Compiled,
 				EMaterialCompileState CompletionState, EMaterialCompileCacheOutcome Override = EMaterialCompileCacheOutcome::None,
 				std::shared_ptr<const FMaterialCompilerResult> Retained = {}) -> void
 			{
-				std::scoped_lock Lock(Mutex);
-				const auto It = Flights.find(Flight->Key);
-				if (It == Flights.end() || It->second != Flight) return;
-				Flights.erase(It);
-				const FMaterialCompileFlightKey ProgramKey{Flight->ProgramIdentity, Flight->Key.bForceRecompile};
-				if (const auto ProgramIt = ProgramFlights.find(ProgramKey); ProgramIt != ProgramFlights.end() && ProgramIt->second == Flight) ProgramFlights.erase(ProgramIt);
+				std::vector<FMaterialCompileRequest> Consumers;
+				{
+					std::scoped_lock Lock(Mutex);
+					const auto It = Flights.find(Flight->Key);
+					if (It == Flights.end() || It->second != Flight) return;
+					Flights.erase(It);
+					const FMaterialCompileFlightKey ProgramKey{Flight->ProgramIdentity, Flight->Key.bForceRecompile};
+					if (const auto ProgramIt = ProgramFlights.find(ProgramKey); ProgramIt != ProgramFlights.end() && ProgramIt->second == Flight) ProgramFlights.erase(ProgramIt);
+					Consumers = std::move(Flight->Consumers);
+					for (const auto& Consumer : Consumers) Flight->CompletingOwners.push_back(Consumer.Owner);
+					CompletingFlights.push_back(Flight);
+				}
+				std::vector<FMaterialCompileResult> Results;
 				const uint64 TaskId = Flight->TaskId.load(
 					std::memory_order_acquire);
 				std::shared_ptr<const FMaterialCompilerResult> Program;
 				EMaterialCompileState State = CompletionState;
 				EMaterialCompileResultCategory Category =
 					EMaterialCompileResultCategory::None;
-				if (CompletionState == EMaterialCompileState::Ready)
+				try
 				{
-					if (Retained) Program = std::move(Retained);
-					else if (!Compiled)
+					if (const auto Hook = MaterialBuildPrivate::ResultFanoutHook.load()) (*Hook)();
+					if (CompletionState == EMaterialCompileState::Ready)
 					{
-						State = EMaterialCompileState::Failed;
-						Category = Compiled.Diagnostics.empty()
-							? EMaterialCompileResultCategory::Compile
-							: MapProgramCategory(Compiled.Diagnostics.front().Category);
-					}
-					else if (MaterialBuildPrivate::EstimateProgramBytes(Compiled) > MaterialCompileMaxResultBytes)
-					{
-						State = EMaterialCompileState::Failed;
-						Category = EMaterialCompileResultCategory::Admission;
-						Compiled.Diagnostics = {{
-							.Category = EMaterialProgramDiagnosticCategory::Bounds,
-							.Error = EMaterialCompileError::CompiledMaterialResultExceedsRetainedResultByteLimit}};
-					}
-					else
-					{
-						Program = std::make_shared<const FMaterialCompilerResult>(
-							std::move(Compiled));
-						Program = MaterialBuildPrivate::RetainProgram(Program, Flight->Key.bForceRecompile);
-					}
-				}
-				else if (CompletionState == EMaterialCompileState::Canceled)
-					Category = EMaterialCompileResultCategory::Cancellation;
-				if (State == EMaterialCompileState::Ready)
-				{
-					Diagnostics.CompletedRequests += Flight->Consumers.size();
-					if (Override == EMaterialCompileCacheOutcome::RetainedHit) Diagnostics.RetainedHits += Flight->Consumers.size();
-				}
-				else if (State == EMaterialCompileState::Failed)
-					Diagnostics.FailedRequests += Flight->Consumers.size();
-				else if (State == EMaterialCompileState::Canceled)
-					Diagnostics.CanceledRequests += Flight->Consumers.size();
-
-				for (const FMaterialCompileRequest& Consumer : Flight->Consumers)
-				{
-					if (State == EMaterialCompileState::Ready)
-					{
-						Mailbox.push_back(MakeReadyResult(
-							Consumer, Program,
-							Override != EMaterialCompileCacheOutcome::None ? Override : Consumer.bSingleFlightConsumer
-								? EMaterialCompileCacheOutcome::SingleFlight
-								: Flight->Key.bForceRecompile
-								? EMaterialCompileCacheOutcome::Forced
-								: EMaterialCompileCacheOutcome::Compiled,
-							TaskId));
-						continue;
-					}
-
-					FMaterialCompileResult Result{
-						.Owner = Consumer.Owner,
-						.AuthoredRevision = Consumer.AuthoredRevision,
-						.Generation = Consumer.Generation,
-						.DependencyRevision = Consumer.DependencyRevision,
-					.ParentChainRevision = Consumer.ParentChainRevision,
-						.ProgramIdentity = Consumer.ProgramIdentity,
-						.StaticProperties = Consumer.CompilerInput->StaticProperties,
-						.Target = Consumer.Target,
-						.State = State,
-						.Category = Category,
-						.TaskId = TaskId,
-						.ExpressionSources = Consumer.ExpressionSources,
-					};
-					if (State == EMaterialCompileState::Canceled)
-					{
-						Result.Diagnostics.push_back(MakeDiagnostic(
-							Consumer, Category,
-							{.Category = EMaterialProgramDiagnosticCategory::Compile,
-							 .Error = EMaterialCompileError::CompilationCanceled}));
-					}
-					else
-					{
-						for (const FMaterialProgramDiagnostic& Diagnostic
-							: Compiled.Diagnostics)
+						if (Retained) Program = std::move(Retained);
+						else if (!Compiled)
 						{
-							if (Result.Diagnostics.size()
-								>= MaterialProgramMaxDiagnosticCount) break;
-							auto Qualified = Diagnostic;
-							if (Diagnostic.NodeId.IsValid() && Flight->DiagnosticInput && Consumer.CompilerInput)
-							{
-								const auto Origin = std::ranges::find(Flight->DiagnosticInput->Sources, Diagnostic.NodeId, &MIR::FSource::NodeId);
-								if (Origin != Flight->DiagnosticInput->Sources.end())
-								{
-									const auto Index = std::distance(Flight->DiagnosticInput->Sources.begin(), Origin);
-									const auto& Source = Consumer.CompilerInput->Sources[Index];
-									Qualified.NodeId = Source.NodeId; Qualified.PortId = Source.PortId; Qualified.FunctionAssetPath = Source.FunctionAssetPath; Qualified.CallPath = Source.CallPath;
-								}
-							}
-							Result.Diagnostics.push_back(MakeDiagnostic(
-								Consumer, MapProgramCategory(Diagnostic.Category),
-								std::move(Qualified)));
+							State = EMaterialCompileState::Failed;
+							Category = Compiled.Diagnostics.empty()
+								? EMaterialCompileResultCategory::Compile
+								: MapProgramCategory(Compiled.Diagnostics.front().Category);
+						}
+						else
+						{
+							Program = std::make_shared<const FMaterialCompilerResult>(
+								std::move(Compiled));
+							Program = MaterialBuildPrivate::RetainProgram(Program, Flight->Key.bForceRecompile);
 						}
 					}
-					Mailbox.push_back(std::move(Result));
+					else if (CompletionState == EMaterialCompileState::Canceled)
+						Category = EMaterialCompileResultCategory::Cancellation;
+					for (const FMaterialCompileRequest& Consumer : Consumers)
+					{
+						if (State == EMaterialCompileState::Ready)
+						{
+							Results.push_back(MakeReadyResult(
+								Consumer, Program,
+								Override != EMaterialCompileCacheOutcome::None ? Override : Consumer.bSingleFlightConsumer
+									? EMaterialCompileCacheOutcome::SingleFlight
+									: Flight->Key.bForceRecompile
+									? EMaterialCompileCacheOutcome::Forced
+									: EMaterialCompileCacheOutcome::Compiled,
+								TaskId));
+							continue;
+						}
+
+						auto Result = MakeTerminalResult(Consumer, State, Category, TaskId);
+						if (State == EMaterialCompileState::Canceled)
+						{
+							Result.Diagnostics.push_back(MakeDiagnostic(
+								Consumer, Category,
+								{.Category = EMaterialProgramDiagnosticCategory::Compile,
+								 .Error = EMaterialCompileError::CompilationCanceled}));
+						}
+						else
+						{
+							for (const FMaterialProgramDiagnostic& Diagnostic
+								: Compiled.Diagnostics)
+							{
+								if (Result.Diagnostics.size()
+									>= MaterialProgramMaxDiagnosticCount) break;
+								auto Qualified = Diagnostic;
+								if (Diagnostic.NodeId.IsValid() && Flight->DiagnosticInput && Consumer.CompilerInput)
+								{
+									const auto Origin = std::ranges::find(Flight->DiagnosticInput->Sources, Diagnostic.NodeId, &MIR::FSource::NodeId);
+									if (Origin != Flight->DiagnosticInput->Sources.end())
+									{
+										const auto Index = std::distance(Flight->DiagnosticInput->Sources.begin(), Origin);
+										const auto& Source = Consumer.CompilerInput->Sources[Index];
+										Qualified.NodeId = Source.NodeId; Qualified.PortId = Source.PortId; Qualified.FunctionAssetPath = Source.FunctionAssetPath; Qualified.CallPath = Source.CallPath;
+									}
+								}
+								Result.Diagnostics.push_back(MakeDiagnostic(
+									Consumer, MapProgramCategory(Diagnostic.Category),
+									std::move(Qualified)));
+							}
+						}
+						Results.push_back(std::move(Result));
+					}
+				}
+				catch (...)
+				{
+					State = EMaterialCompileState::Failed; Category = EMaterialCompileResultCategory::Compile; Results.clear();
+					for (const auto& Consumer : Consumers)
+					{
+						auto Result = MakeTerminalResult(Consumer, State, Category, TaskId);
+						Result.Diagnostics.push_back(MakeDiagnostic(Consumer, Category,
+							{.Category = EMaterialProgramDiagnosticCategory::Compile, .Error = EMaterialCompileError::AdmissionRejected}));
+						Results.push_back(std::move(Result));
+					}
+				}
+
+				{
+					std::scoped_lock Lock(Mutex);
+					// Detachment wins completion; subsequent cancellation withdraws publication separately.
+					if (State == EMaterialCompileState::Ready)
+					{
+						Diagnostics.CompletedRequests += Consumers.size();
+						if (Override == EMaterialCompileCacheOutcome::RetainedHit) Diagnostics.RetainedHits += Consumers.size();
+					}
+					else if (State == EMaterialCompileState::Failed)
+						Diagnostics.FailedRequests += Consumers.size();
+					else if (State == EMaterialCompileState::Canceled)
+						Diagnostics.CanceledRequests += Consumers.size();
+
+					for (auto& Result : Results)
+						if (std::ranges::any_of(Flight->CompletingOwners, [&](auto Owner) { return SameOwner(Owner, Result.Owner); })) Mailbox.push_back(std::move(Result));
+					Flight->CompletingOwners.clear(); std::erase(CompletingFlights, Flight);
 				}
 			}
 
@@ -563,21 +592,22 @@ namespace Durin
 			auto CancelOwnerLocked(FWeakObjectPtr Owner, bool bSuperseded) -> bool
 			{
 				bool bFound = false;
+				const auto AccountRemoved = [&](const auto& Flight, size_t Removed, bool Empty) {
+					if (Removed == 0) return;
+					if (!SameOwner(Owner, Flight->InitialOwner)) std::erase_if(Flight->Origins, [&](auto Origin) { return SameOwner(Origin, Owner); });
+					bFound = true; OutstandingConsumers -= static_cast<uint32>(Removed);
+					if (bSuperseded) Diagnostics.SupersededRequests += Removed; else Diagnostics.CanceledRequests += Removed;
+					if (Empty) Flight->Cancellation.RequestCancellation();
+				};
 				for (auto& [Key, Flight] : Flights)
 				{
-					const size_t PreviousCount = Flight->Consumers.size();
-					std::erase_if(Flight->Consumers,
-						[Owner](const FMaterialCompileRequest& Consumer) {
-							return SameOwner(Consumer.Owner, Owner);
-						});
-					const size_t Removed = PreviousCount - Flight->Consumers.size();
-					if (Removed == 0) continue;
-					if (!SameOwner(Owner, Flight->InitialOwner)) std::erase_if(Flight->Origins, [&](auto Origin) { return SameOwner(Origin, Owner); });
-					bFound = true;
-					OutstandingConsumers -= static_cast<uint32>(Removed);
-					if (bSuperseded) Diagnostics.SupersededRequests += Removed;
-					else Diagnostics.CanceledRequests += Removed;
-					if (Flight->Consumers.empty()) Flight->Cancellation.RequestCancellation();
+					const auto Removed = std::erase_if(Flight->Consumers, [Owner](const auto& Consumer) { return SameOwner(Consumer.Owner, Owner); });
+					AccountRemoved(Flight, Removed, Flight->Consumers.empty());
+				}
+				for (auto& Flight : CompletingFlights)
+				{
+					const auto Removed = std::erase_if(Flight->CompletingOwners, [Owner](auto Pending) { return SameOwner(Pending, Owner); });
+					AccountRemoved(Flight, Removed, Flight->CompletingOwners.empty());
 				}
 				for (auto It = Mailbox.begin(); It != Mailbox.end();)
 				{
@@ -604,6 +634,7 @@ namespace Durin
 				FMaterialCompileFlightKeyHash> Flights;
 			std::deque<FMaterialCompileResult> Mailbox;
 			std::vector<std::shared_ptr<FMaterialCompileFlight>> Operations;
+			std::vector<std::shared_ptr<FMaterialCompileFlight>> CompletingFlights;
 			std::unordered_map<FMaterialCompileFlightKey, std::shared_ptr<FMaterialCompileFlight>, FMaterialCompileFlightKeyHash> ProgramFlights;
 			uint64 CapturedBytes = 0;
 			FMaterialCompilationDiagnostics Diagnostics;
@@ -963,21 +994,9 @@ namespace Durin
 					Status.SourceRetryCount = 0;
 					if (!Candidate.CompiledProgram->ActiveCollections.empty())
 					{
-						std::vector<FMaterialParameterCollectionLayout> Current;
-						const auto Objects = GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly);
-						for (const auto& Expected : Candidate.CompiledProgram->ActiveCollections)
-						{
-							for (auto* Object : Objects)
-								if (auto* Collection = Cast<DMaterialParameterCollection>(Object); IsValid(Collection)
-									&& Collection->GetCollectionId() == Expected.CollectionId && (Expected.AssetPath.empty() || Collection->GetObjectPath() == Expected.AssetPath))
-								{
-									auto Layout = Collection->BuildLayout();
-									if (!Layout || !Expected.HasCompatibleSchema(*Layout)) { ScheduleEdit(Material, Context); return false; }
-									Current.push_back(std::move(*Layout)); break;
-								}
-						}
-						if (Current.size() != Candidate.CompiledProgram->ActiveCollections.size()) { ScheduleEdit(Material, Context); return false; }
-						if (auto Refreshed = MaterialBuildPrivate::BindProgramCollections(Candidate.CompiledProgram, Current)) Candidate.CompiledProgram = std::move(Refreshed);
+						auto Current = MaterialBuildPrivate::ResolvePublicationCollections(Candidate.CompiledProgram->ActiveCollections);
+						if (!Current) { ScheduleEdit(Material, Context); return false; }
+						if (auto Refreshed = MaterialBuildPrivate::BindProgramCollections(Candidate.CompiledProgram, *Current)) Candidate.CompiledProgram = std::move(Refreshed);
 					}
 					const auto ShaderProperties = CanonicalizeMaterialShaderProperties(Result.StaticProperties);
 					Candidate.StaticProperties = Material.GetStaticProperties();
