@@ -62,15 +62,14 @@ namespace Durin
 					Input->Faces[FaceIndex].Mips[MipIndex];
 				const FUpdateTextureRegion2D Region(
 					0, 0, 0, 0, Mip.Width, Mip.Height);
-				GDynamicRHI->RHIUpdateTexture2D(
-					CommandList, NewTexture, MipIndex, FaceIndex,
+				CommandList.UpdateTexture2D(NewTexture, MipIndex, FaceIndex,
 					Region, Mip.RowPitch, Mip.Pixels);
-				CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
-					NewTexture, {Durin::ERHITextureAspect::Color, MipIndex, 1, FaceIndex, 1},
-					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			}
 		}
 
+		const std::array Transitions{FRHITextureTransition::Whole(
+			NewTexture, ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead)};
+		CommandList.TransitionTextures(Transitions);
 		SetTextureRHI_RenderThread(std::move(NewTexture));
 	}
 

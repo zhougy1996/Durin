@@ -127,7 +127,7 @@ TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProduct
 			auto FontResult = Durin::GDynamicRHI->RHICreateTexture(Commands, FontDesc);
 			ASSERT_TRUE(FontResult);
 			auto Font = std::move(FontResult);
-			Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Font.GetReference(),
+			Commands.UpdateTexture2D(Font.GetReference(),
 				0, 0, Durin::FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 4,
 				std::as_bytes(std::span(FontPixel)));
 			Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{

@@ -373,7 +373,7 @@ namespace Durin::Editor::Texture
 			if (NewTexture)
 			{
 				const FUpdateTextureRegion2D Region(0, 0, 0, 0, Width, Height);
-				GDynamicRHI->RHIUpdateTexture2D(CommandList, NewTexture, 0, 0, Region, RowPitch, *PixelSnapshot);
+				CommandList.UpdateTexture2D(NewTexture, 0, 0, Region, RowPitch, *PixelSnapshot);
 				CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
 					NewTexture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
 					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});

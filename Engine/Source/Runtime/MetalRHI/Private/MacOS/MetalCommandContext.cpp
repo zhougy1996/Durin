@@ -1,3 +1,4 @@
+#include "Backend/RHITextureUpload.h"
 #include "MetalCommandContext.h"
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICompletionBackend.h"
@@ -690,37 +691,22 @@ namespace Durin
 						|| Texture->GetDimension() == ETextureDimension::TextureCubeArray)
 					&& ToMetalPixelFormat(Texture->GetFormat()) != MTL::PixelFormatInvalid,
 					"Metal texture upload requires a supported destination texture.");
-				FRHITextureDesc Desc;
-				Desc.Dimension = Texture->GetDimension();
-				Desc.Extent = FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
-				Desc.Depth = static_cast<uint16>(Texture->GetSizeZ());
-				Desc.ArraySize = Texture->GetArraySize();
-				Desc.NumMips = Texture->GetNumMips();
-				Desc.NumSamples = Texture->GetNumSamples();
-				Desc.Format = Texture->GetFormat();
+				const FRHITextureDesc Desc = GetTextureUploadDesc(*Texture);
 				requiref(ValidateTexture2DUpdate(Desc, MipIndex, ArraySlice,
 					Region, SourcePitch).has_value(), "Invalid Metal texture upload region.");
-				const auto& Format = GetPixelFormatInfo(Texture->GetFormat());
-				const auto Layout = GetPixelFormatLayout(
-					Texture->GetFormat(), Region.Width, Region.Height);
-				const uint64 SourceStart = static_cast<uint64>(Region.SrcY / Format.BlockSize)
-					* SourcePitch + static_cast<uint64>(Region.SrcX / Format.BlockSize)
-					* Format.BytesPerBlock;
-				const uint64 RequiredBytes = SourceStart
-					+ (Layout.BlocksHigh - 1) * SourcePitch + Layout.RowPitch;
-				requiref(RequiredBytes <= SourceData.size(),
-					"Metal texture upload source data is incomplete.");
-				const NS::UInteger RowPitch = Layout.RowPitch;
-				const NS::UInteger ByteCount = Layout.DataSize;
+				const FUpdateTextureRegion3D SourceRegion3D{Region.DestX, Region.DestY, 0,
+					Region.SrcX, Region.SrcY, 0, Region.Width, Region.Height, 1};
+				const auto Layout = ComputeTextureUploadLayout(Texture->GetFormat(),
+					SourceRegion3D, SourcePitch, 0, SourceData.size());
+				requiref(Layout, "Invalid Metal upload source: {}", ToString(Layout.error()));
+				const NS::UInteger RowPitch = Layout->RowPitch;
+				const NS::UInteger ByteCount = Layout->Size;
 				auto StagingOwner = NS::TransferPtr(State->Queue->device()->newBuffer(
 					ByteCount, MTL::ResourceStorageModeShared));
 				auto* Staging = StagingOwner.get();
 				requiref(Staging != nullptr, "Metal texture upload staging allocation failed.");
 				auto* TargetBytes = static_cast<std::byte*>(Staging->contents());
-				for (uint32 Row = 0; Row < Layout.BlocksHigh; ++Row)
-					std::memcpy(TargetBytes + static_cast<size_t>(Row) * RowPitch,
-						SourceData.data() + SourceStart + static_cast<uint64>(Row) * SourcePitch,
-						RowPitch);
+				CopyTextureUploadData(*Layout, SourceData, {TargetBytes, Layout->Size});
 				if (!Active) RHISubmitCommands();
 				auto Command = Active ? Active->Command : NS::RetainPtr(State->Queue->commandBuffer());
 				requiref(static_cast<bool>(Command), "Metal texture upload command allocation failed.");
@@ -775,43 +761,22 @@ namespace Durin
 					&& ToMetalPixelFormat(Texture->GetFormat()) != MTL::PixelFormatInvalid
 					&& EnumHasAnyFlags(Texture->GetFlags(), ETextureCreateFlags::DestinationCopy),
 					"Metal volume upload requires a supported destination texture.");
-				FRHITextureDesc Desc;
-				Desc.Dimension = Texture->GetDimension();
-				Desc.Extent = FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
-				Desc.Depth = static_cast<uint16>(Texture->GetSizeZ());
-				Desc.ArraySize = Texture->GetArraySize();
-				Desc.NumMips = Texture->GetNumMips();
-				Desc.NumSamples = Texture->GetNumSamples();
-				Desc.Format = Texture->GetFormat();
+				const FRHITextureDesc Desc = GetTextureUploadDesc(*Texture);
 				requiref(ValidateTexture3DUpdate(Desc, MipIndex, Region,
 					SourceRowPitch, SourceDepthPitch).has_value(),
 					"Invalid Metal volume upload region.");
-				const NS::UInteger BytesPerTexel = MetalBytesPerTexel(Texture->GetFormat());
-				const uint64 SourceStart = static_cast<uint64>(Region.SrcZ) * SourceDepthPitch
-					+ static_cast<uint64>(Region.SrcY) * SourceRowPitch
-					+ static_cast<uint64>(Region.SrcX) * BytesPerTexel;
-				const uint64 RequiredBytes = SourceStart
-					+ static_cast<uint64>(Region.Depth - 1) * SourceDepthPitch
-					+ static_cast<uint64>(Region.Height - 1) * SourceRowPitch
-					+ static_cast<uint64>(Region.Width) * BytesPerTexel;
-				requiref(RequiredBytes <= SourceData.size(),
-					"Metal volume upload source data is incomplete.");
-				const NS::UInteger RowPitch = static_cast<NS::UInteger>(Region.Width) * BytesPerTexel;
-				const NS::UInteger ImagePitch = RowPitch * Region.Height;
-				const NS::UInteger ByteCount = ImagePitch * Region.Depth;
+				const auto Layout = ComputeTextureUploadLayout(Texture->GetFormat(),
+					Region, SourceRowPitch, SourceDepthPitch, SourceData.size());
+				requiref(Layout, "Invalid Metal volume upload source: {}", ToString(Layout.error()));
+				const NS::UInteger RowPitch = Layout->RowPitch;
+				const NS::UInteger ImagePitch = Layout->DepthPitch;
+				const NS::UInteger ByteCount = Layout->Size;
 				auto StagingOwner = NS::TransferPtr(State->Queue->device()->newBuffer(
 					ByteCount, MTL::ResourceStorageModeShared));
 				auto* Staging = StagingOwner.get();
 				requiref(Staging != nullptr, "Metal volume upload staging allocation failed.");
 				auto* TargetBytes = static_cast<std::byte*>(Staging->contents());
-				for (uint32 Z = 0; Z < Region.Depth; ++Z)
-					for (uint32 Row = 0; Row < Region.Height; ++Row)
-						std::memcpy(TargetBytes + static_cast<size_t>(Z) * ImagePitch
-							+ static_cast<size_t>(Row) * RowPitch,
-							SourceData.data() + SourceStart
-								+ static_cast<uint64>(Z) * SourceDepthPitch
-								+ static_cast<uint64>(Row) * SourceRowPitch,
-							RowPitch);
+				CopyTextureUploadData(*Layout, SourceData, {TargetBytes, Layout->Size});
 				if (!Active) RHISubmitCommands();
 				auto Command = Active ? Active->Command : NS::RetainPtr(State->Queue->commandBuffer());
 				requiref(static_cast<bool>(Command), "Metal volume upload command allocation failed.");

@@ -197,9 +197,7 @@ namespace Durin::Editor
 						{
 							const FUpdateTextureRegion2D Region(
 								0, 0, 0, 0, Width, Height);
-							GDynamicRHI->RHIUpdateTexture2D(
-								CommandList,
-								Result.Texture,
+							CommandList.UpdateTexture2D(Result.Texture,
 								0,
 								0,
 								Region,

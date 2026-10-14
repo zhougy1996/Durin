@@ -391,7 +391,7 @@ namespace Durin::VulkanRHI
 				Bytes.fill(0x7f);
 				return Bytes;
 			}();
-			GDynamicRHI->RHIUpdateTexture2D(Commands, Sampled, 0, 0,
+			Commands.UpdateTexture2D(Sampled, 0, 0,
 				FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16,
 				std::as_bytes(std::span{SampledBytes}));
 			Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{

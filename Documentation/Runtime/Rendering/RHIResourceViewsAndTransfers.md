@@ -160,6 +160,15 @@ the destination in `TransferWrite`; texture updates likewise leave the affected
 mip/array slice in `TransferWrite`. Uploads perform the internal transitions
 needed for copying but do not infer the next consumer access. Callers explicitly
 transition the written range before sampling, compute or further copies.
+CPU uploads use the shared checked footprint and packer in
+`Backend/RHITextureUpload.h`, including source offsets, compressed blocks,
+row/depth pitches, complete source bounds, and packed-size limits. Ordinary
+Texture updates pack once when recorded; RDG packs at declaration and shares
+that immutable payload with recording. Backends use the same layout/copy helper
+for the required staging copy. Calls record through
+`FRHICommandListBase::UpdateTexture2D/3D`; DynamicRHI has no upload forwarding
+methods. Complete mip/face initialization and ImGui dirty-region batches
+transition to the consumer state after the complete batch.
 Readback restores the exact prior texture state, transitions its range for host read, waits the producing
 submission token, invalidates noncoherent mapped memory, and publishes tightly
 packed CPU bytes before returning the range. These paths do not introduce a

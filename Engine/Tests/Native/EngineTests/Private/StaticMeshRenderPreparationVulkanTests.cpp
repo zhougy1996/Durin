@@ -1974,7 +1974,7 @@ TEST(FMaterialAnimationVulkanTests, EarlyCommandsInvalidateOnTextureMaterialAndT
 					FRHITextureCreateDesc::Create2D("EarlyCommandTexture", 1, 1, EPixelFormat::RGBA8_UNORM)
 						.SetFlags(ETextureCreateFlags::ShaderResource));
 				ASSERT_TRUE(Textures[Index]);
-				GDynamicRHI->RHIUpdateTexture2D(Commands, Textures[Index], 0, 0,
+				Commands.UpdateTexture2D(Textures[Index], 0, 0,
 					{0, 0, 0, 0, 1, 1}, 4, std::as_bytes(std::span(Colors[Index])));
 				Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
 					Textures[Index], {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},

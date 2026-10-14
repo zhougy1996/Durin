@@ -159,9 +159,7 @@ namespace Durin
 			{
 				const uint32 Size = std::max(1u, 4u >> MipIndex);
 				const Durin::FByteBuffer Pixels = MakeSolidMip(Size, Colors[MipIndex]);
-				GDynamicRHI->RHIUpdateTexture2D(
-					RHICmdList,
-					Texture,
+				RHICmdList.UpdateTexture2D(Texture,
 					MipIndex,
 					0,
 					FUpdateTextureRegion2D(0, 0, 0, 0, Size, Size),
@@ -234,9 +232,7 @@ namespace Durin
 			for (uint32 MipIndex = 0; Texture && MipIndex < PlatformData.Mips.size(); ++MipIndex)
 			{
 				const FTexture2DMipData& Mip = PlatformData.Mips[MipIndex];
-				GDynamicRHI->RHIUpdateTexture2D(
-					RHICmdList,
-					Texture,
+				RHICmdList.UpdateTexture2D(Texture,
 					MipIndex,
 					0,
 					FUpdateTextureRegion2D(0, 0, 0, 0, Mip.Width, Mip.Height),
@@ -583,8 +579,7 @@ namespace Durin
 			TextureBytes[Index] = static_cast<uint8>(Index);
 		}
 		const FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, 4, 4);
-		GDynamicRHI->RHIUpdateTexture2D(
-			RHICmdList, Texture.GetReference(), 0, 0, UpdateRegion,
+		RHICmdList.UpdateTexture2D(Texture.GetReference(), 0, 0, UpdateRegion,
 			4 * 4, std::as_bytes(std::span{TextureBytes}));
 		RHICmdList.TransitionTextures(std::array{Durin::FRHITextureTransition{
 			Texture.GetReference(), {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
@@ -685,8 +680,7 @@ namespace Durin
 					const FUpdateTextureRegion2D ChurnRegion(0, 0, 0, 0, 4, 4);
 					if (ChurnBuffer && ChurnTexture)
 					{
-						GDynamicRHI->RHIUpdateTexture2D(
-							CommandList, ChurnTexture.GetReference(), 0, 0,
+						CommandList.UpdateTexture2D(ChurnTexture.GetReference(), 0, 0,
 							ChurnRegion, 4 * 4, std::as_bytes(std::span{ChurnBytes}));
 						CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
 							ChurnTexture.GetReference(), {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
@@ -1183,7 +1177,7 @@ namespace Durin
 			std::array<uint8, 64> Expected{};
 			for (uint32 Index = 0; Index < Expected.size(); ++Index)
 				Expected[Index] = static_cast<uint8>(Index * 3 + 1);
-			GDynamicRHI->RHIUpdateTexture2D(RHICmdList, SourceTexture, 0, 0,
+			RHICmdList.UpdateTexture2D(SourceTexture, 0, 0,
 				FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16,
 				std::as_bytes(std::span{Expected}));
 			RHICmdList.TransitionTextures(std::array{Durin::FRHITextureTransition{
@@ -1245,7 +1239,7 @@ namespace Durin
 			std::array<uint8, 16> CubeMipBytes{};
 			for (uint32 Index = 0; Index < CubeMipBytes.size(); ++Index)
 				CubeMipBytes[Index] = static_cast<uint8>(0xa0 + Index);
-			GDynamicRHI->RHIUpdateTexture2D(RHICmdList, SourceCube, 1, 2,
+			RHICmdList.UpdateTexture2D(SourceCube, 1, 2,
 				FUpdateTextureRegion2D(0, 0, 0, 0, 2, 2), 8,
 				std::as_bytes(std::span{CubeMipBytes}));
 			RHICmdList.TransitionTextures(std::array{Durin::FRHITextureTransition{
@@ -1287,7 +1281,7 @@ namespace Durin
 			std::array<uint8, 32> CompressedBytes{};
 			for (uint32 Index = 0; Index < CompressedBytes.size(); ++Index)
 				CompressedBytes[Index] = static_cast<uint8>(Index * 7 + 3);
-			GDynamicRHI->RHIUpdateTexture2D(RHICmdList, CompressedSource, 0, 0,
+			RHICmdList.UpdateTexture2D(CompressedSource, 0, 0,
 				FUpdateTextureRegion2D(0, 0, 0, 0, 8, 8), 16,
 				std::as_bytes(std::span{CompressedBytes}));
 			RHICmdList.TransitionTextures(std::array{Durin::FRHITextureTransition{
@@ -1325,7 +1319,7 @@ namespace Durin
 			std::array<uint8, 48> VolumeBytes{};
 			for (uint32 Index = 0; Index < VolumeBytes.size(); ++Index)
 				VolumeBytes[Index] = static_cast<uint8>(Index + 1);
-			GDynamicRHI->RHIUpdateTexture3D(RHICmdList, Volume, 0,
+			RHICmdList.UpdateTexture3D(Volume, 0,
 				FUpdateTextureRegion3D(0, 0, 0, 0, 0, 0, 4, 4, 3),
 				4, 16, std::as_bytes(std::span{VolumeBytes}));
 			RHICmdList.TransitionTextures(std::array{Durin::FRHITextureTransition{
@@ -1761,7 +1755,7 @@ namespace Durin
 			const std::array<uint8, 8> Source{
 				255, 0, 0, 255, 0, 0, 255, 255};
 			EXPECT_GE(Input->GetBackendAllocationBytes(), Source.size());
-			GDynamicRHI->RHIUpdateTexture3D(Commands, Input, 0,
+			Commands.UpdateTexture3D(Input, 0,
 				FUpdateTextureRegion3D(0, 0, 0, 0, 0, 0, 1, 1, 2),
 				4, 4, std::as_bytes(std::span{Source}));
 			Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
@@ -1907,7 +1901,7 @@ namespace Durin
 					GDynamicRHI->RHICreateTexture(Commands, Desc);
 				if (Texture)
 				{
-					GDynamicRHI->RHIUpdateTexture3D(Commands, Texture, 0,
+					Commands.UpdateTexture3D(Texture, 0,
 						FUpdateTextureRegion3D(
 							0, 0, 0, 0, 0, 0, Size, Size, Size),
 						Size, Size * Size, Bytes);
@@ -1938,7 +1932,7 @@ namespace Durin
 						| ETextureCreateFlags::ShaderResource
 						| ETextureCreateFlags::CPUReadback));
 			ASSERT_TRUE(Base && Detail && Weather && Output);
-			GDynamicRHI->RHIUpdateTexture2D(Commands, Weather, 0, 0,
+			Commands.UpdateTexture2D(Weather, 0, 0,
 				FUpdateTextureRegion2D(0, 0, 0, 0, 64, 64), 64,
 				WeatherBytes);
 			Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{

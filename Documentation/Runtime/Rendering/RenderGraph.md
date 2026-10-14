@@ -282,9 +282,10 @@ Recording does not require another source copy.
 Graph destruction or cancellation releases its ownership; bytes remain charged
 until the final graph or command owner releases them.
 `QueueTextureUpload` supports 2D mip/array-slice updates (including cube faces)
-and 3D volume updates with explicit source row/depth pitches. It snapshots the
-CPU source at declaration and records an `UpdateTexture2D/3D` command that packs
-and owns the copied region through replay. The destination must declare
+and 3D volume updates with explicit source row/depth pitches. It validates and
+packs only the requested CPU region at declaration into immutable
+`FRHITextureUploadData`. The recording command retains this same allocation;
+recording does not copy or repack the bytes. The destination must declare
 `DestinationCopy`; invalid handles, regions, pitches, or incomplete source data
 fail compilation before recording. The pass declares only the affected mip and
 array slice in `TransferWrite`. A complete overwrite declares a discard write;
@@ -292,8 +293,9 @@ a partial update declares preserving read/write access, requires existing
 contents, and retains its preceding producer even when culling is enabled.
 Subsequent graph uses supply the next transition without an intermediate
 canonical graphics state. Texture uploads use ordinary Copy recording passes;
-the buffer-specific upload grouping and shared byte-accounting rules above do
-not apply to their source snapshots.
+the buffer-specific upload grouping above does not apply to them. Their packed
+bytes share the existing upload byte accounting from declaration until the final
+graph or command owner releases them.
 `AddRecordingPass` instead receives a regular owned `FRHICommandList` and the
 same frozen typed parameters/resolver. Its callback must close every render pass,
 diagnostic region and timing query; the graph seals and queues the list only after

@@ -216,7 +216,10 @@ Immediate flush behavior is explicit:
 Buffer and texture uploads are recorded and own their source bytes.
 `WriteBuffer` leaves the written range in `TransferWrite` for an explicit
 caller transition or a graph-managed next barrier. Texture updates follow the
-same contract for their affected mip/slice. Neither restores canonical access. Write-only buffer locks allocate CPU temporary storage and transfer it
+same contract for their affected mip/slice. Neither restores canonical access.
+Texture uploads use immutable packed payloads; graph recording retains the same
+allocation without another CPU copy. Updates are recorded directly on the
+command list, with no DynamicRHI forwarding layer. Write-only buffer locks allocate CPU temporary storage and transfer it
 into `WriteBuffer` at unlock without copying the bytes; they do not provide
 native mappings. Uniform resources use `UpdateUniformBuffer`; ordinary buffers
 use ordered `WriteBuffer` commands. Operations

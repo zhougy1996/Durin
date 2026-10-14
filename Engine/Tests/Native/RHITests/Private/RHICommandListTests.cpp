@@ -1,3 +1,4 @@
+#include "Backend/RHITextureUpload.h"
 #include <gtest/gtest.h>
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICreation.h"
@@ -428,6 +429,7 @@ namespace Durin
 				Durin::FByteView SourceData) -> void override
 			{
 				Operations.emplace_back("UpdateTexture2D");
+				ObservedTextureDataAddress = reinterpret_cast<uintptr_t>(SourceData.data());
 				ObservedTextureData.assign(SourceData.begin(), SourceData.end());
 			}
 			auto RHIUpdateTexture3D(
@@ -436,6 +438,7 @@ namespace Durin
 				Durin::FByteView SourceData) -> void override
 			{
 				Operations.emplace_back("UpdateTexture3D");
+				ObservedTextureDataAddress = reinterpret_cast<uintptr_t>(SourceData.data());
 				ObservedTextureData.assign(SourceData.begin(), SourceData.end());
 			}
 			auto RHIReadTexture2D(
@@ -524,6 +527,7 @@ namespace Durin
 			Durin::FByteBuffer ObservedBufferData;
 			uintptr_t ObservedBufferDataAddress = 0;
 			Durin::FByteBuffer ObservedTextureData;
+			uintptr_t ObservedTextureDataAddress = 0;
 			std::vector<FRHIBufferTransition> ObservedBufferTransitions;
 			std::vector<FRHITextureTransition> ObservedTextureTransitions;
 			std::vector<FRHIBufferCopyRegion> ObservedBufferCopyRegions;
@@ -2862,6 +2866,51 @@ namespace Durin
 		std::fill(Source.begin(), Source.end(), std::byte{0});
 		Executor.Submit({}, ERHISubmitFlags::None);
 		EXPECT_EQ(Context.ObservedTextureData, MakeByteVector({1, 2, 3, 4, 5, 6, 7, 8}));
+	}
+
+	TEST(FRHICommandListTests, PackedTexturePayloadRetainsItsAllocationUntilReplay)
+	{
+		for (const bool bVolume : {false, true})
+		{
+			SCOPED_TRACE(bVolume);
+			FRecordingCommandContext Context;
+			FRHICommandListExecutor Executor(Context);
+			auto Desc = bVolume
+				? FRHITextureCreateDesc::Create3D("PackedVolume").SetExtent(2, 2).SetDepth(2)
+				: FRHITextureCreateDesc::Create2D("PackedImage", 2, 2, EPixelFormat::R8_UNORM);
+			Desc.SetFormat(EPixelFormat::R8_UNORM);
+			auto Texture = MakeRefCount<FRHITexture>(Desc);
+			FByteBuffer Source(bVolume ? 8 : 4, std::byte{7});
+			auto Packed = bVolume
+				? FRHITextureUploadData::Pack3D(Desc, 0, {0, 0, 0, 0, 0, 0, 2, 2, 2}, 2, 4, Source)
+				: FRHITextureUploadData::Pack2D(Desc, 0, 0, {0, 0, 0, 0, 2, 2}, 2, Source);
+			ASSERT_TRUE(Packed.has_value());
+			auto Data = std::move(*Packed);
+			EXPECT_EQ(Data->GetLayout().SourceOffset, 0u);
+			EXPECT_EQ(Data->GetLayout().RequiredSourceBytes, Data->GetData().size());
+			const auto Address = reinterpret_cast<uintptr_t>(Data->GetData().data());
+			if (bVolume) Executor.GetImmediateCommandList().UpdateTexture3D(Texture, std::move(Data));
+			else Executor.GetImmediateCommandList().UpdateTexture2D(Texture, std::move(Data));
+			std::fill(Source.begin(), Source.end(), std::byte{0});
+			Executor.Submit({}, ERHISubmitFlags::None);
+			EXPECT_EQ(Context.ObservedTextureDataAddress, Address);
+			EXPECT_EQ(Context.ObservedTextureData, FByteBuffer(Source.size(), std::byte{7}));
+		}
+	}
+
+	TEST(FRHICommandListTests, TextureUploadLayoutsRejectIncompleteAndOverflowingSources)
+	{
+		const auto Incomplete = ComputeTextureUploadLayout(EPixelFormat::R8_UNORM,
+			{0, 0, 0, 0, 0, 0, 2, 2, 1}, 2, 0, 3);
+		ASSERT_FALSE(Incomplete.has_value());
+		EXPECT_EQ(Incomplete.error(), ERHITextureUploadDataError::SourceTooSmall);
+		const auto Offset = ComputeTextureUploadLayout(EPixelFormat::R8_UNORM,
+			{0, 0, 0, 0, INT32_MAX, INT32_MAX, 1, 1, 1}, UINT32_MAX, UINT32_MAX, 16);
+		EXPECT_FALSE(Offset.has_value());
+		const auto Footprint = ComputeTextureUploadLayout(EPixelFormat::RGBA32_FLOAT,
+			{0, 0, 0, 0, 0, 0, UINT32_MAX, UINT32_MAX, 1}, UINT32_MAX, 0, SIZE_MAX);
+		ASSERT_FALSE(Footprint.has_value());
+		EXPECT_EQ(Footprint.error(), ERHITextureUploadDataError::FootprintOverflow);
 	}
 
 	TEST(FRHICommandListTests, BufferLocksTransferOwnedBytesAtUnlock)

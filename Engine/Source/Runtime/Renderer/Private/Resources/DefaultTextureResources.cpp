@@ -27,9 +27,7 @@ namespace Durin
 			{
 				const FUpdateTextureRegion2D Region(
 					0, 0, 0, 0, 1, 1);
-				GDynamicRHI->RHIUpdateTexture2D(
-					CommandList,
-					Texture,
+				CommandList.UpdateTexture2D(Texture,
 					0,
 					0,
 					Region,
@@ -62,18 +60,17 @@ namespace Durin
 					ArraySlice < TextureCubeFaceCount;
 					++ArraySlice)
 				{
-					GDynamicRHI->RHIUpdateTexture2D(
-						CommandList,
-						Texture,
+					CommandList.UpdateTexture2D(Texture,
 						0,
 						ArraySlice,
 						Region,
 						4,
 						std::as_bytes(std::span(Color)));
-					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
-						Texture, {Durin::ERHITextureAspect::Color, 0, 1, ArraySlice, 1},
-						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
+
 				}
+				const std::array Transitions{FRHITextureTransition::Whole(
+					Texture, ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead)};
+				CommandList.TransitionTextures(Transitions);
 			}
 			return Texture;
 		}
@@ -111,9 +108,7 @@ namespace Durin
 			{
 				const std::array<float, 4> Color{0.5f, 0.5f, 1.0f, 1.0f};
 				const FUpdateTextureRegion2D Region(0, 0, 0, 0, 1, 1);
-				GDynamicRHI->RHIUpdateTexture2D(
-					CommandList,
-					Texture,
+				CommandList.UpdateTexture2D(Texture,
 					0,
 					0,
 					Region,

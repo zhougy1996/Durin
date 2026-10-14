@@ -1561,6 +1561,7 @@ namespace Durin
 		FTextureUploadRecordingContext Context;
 		FRHICommandListExecutor Executor(Context);
 		FTestRDGAllocator Allocator;
+		const uint64 BeforeBytes = GetBufferUploadStats().LiveBytes;
 		const FRHITextureSubresourceRange Range{ERHITextureAspect::Color, 1, 1, 2, 1};
 		{
 			FRDGBuilder Builder;
@@ -1571,6 +1572,7 @@ namespace Durin
 			FByteBuffer Source(16);
 			for (size_t Index = 0; Index < Source.size(); ++Index) Source[Index] = std::byte(Index);
 			Builder.QueueTextureUpload(Texture, 1, 2, {0, 0, 1, 1, 2, 2}, 4, Source);
+			EXPECT_EQ(GetBufferUploadStats().LiveBytes, BeforeBytes + 4);
 			std::fill(Source.begin(), Source.end(), std::byte{99});
 			auto Params = Builder.AllocParameters<FInstanceAccessParameters>();
 			Params->Textures[0] = FRDGTextureAccess{Texture, Range, ERDGUse::Read,
@@ -1579,11 +1581,13 @@ namespace Durin
 				[](FRHICommandList&, const FInstanceAccessParameters&, const FRDGParameterResolver&) {});
 			const auto Result = Builder.Execute(Executor.GetImmediateCommandList(), &Allocator);
 			ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+			EXPECT_EQ(GetBufferUploadStats().LiveBytes, BeforeBytes + 4);
 			const auto Capture = Builder.Capture();
 			ASSERT_EQ(Capture.Uses.size(), 2u);
 			EXPECT_EQ(Capture.Uses[0].TextureRange, Range);
 			EXPECT_TRUE(Capture.Uses[0].bDiscard);
 		}
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, BeforeBytes + 4);
 		Executor.Submit({}, ERHISubmitFlags::None);
 		ASSERT_EQ(Context.Uploads.size(), 1u);
 		EXPECT_EQ(Context.Uploads[0].Mip, 1u);

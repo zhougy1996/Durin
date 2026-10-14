@@ -1,7 +1,6 @@
 #include "RDGBuilderInternal.h"
 #include "Misc/Time.h"
-#include "Backend/RHIValidation.h"
-#include "PixelFormat.h"
+#include "Backend/RHITextureUpload.h"
 
 namespace Durin::RDGPrivate
 {
@@ -223,28 +222,6 @@ namespace Durin
 				return &Metadata;
 			}
 		};
-
-		// Subtract each term independently so hostile source pitches cannot overflow
-		// a summed byte offset before it is checked against the source span.
-		auto HasTextureUploadSource(EPixelFormat Format, uint32 SrcX, uint32 SrcY,
-			uint32 SrcZ, uint32 Width, uint32 Height, uint32 Depth,
-			uint32 RowPitch, uint32 DepthPitch, FByteView Data) -> bool
-		{
-			const auto& Info = GetPixelFormatInfo(Format);
-			const auto Layout = GetPixelFormatLayout(Format, Width, Height);
-			uint64 Remaining = Data.size();
-			auto Consume = [&](uint64 Bytes) {
-				if (Bytes > Remaining) return false;
-				Remaining -= Bytes;
-				return true;
-			};
-			return Consume(uint64(SrcZ) * DepthPitch)
-				&& Consume(uint64(SrcY / Info.BlockSize) * RowPitch)
-				&& Consume(uint64(SrcX / Info.BlockSize) * Info.BytesPerBlock)
-				&& Consume(uint64(Depth - 1) * DepthPitch)
-				&& Consume((Layout.BlocksHigh - 1) * RowPitch)
-				&& Consume(Layout.RowPitch);
-		}
 
 		struct FBufferUploadParameters final
 		{
@@ -522,84 +499,66 @@ namespace Durin
 		return {State->Owner, Index};
 	}
 
-	auto FRDGBuilder::QueueTextureUpload(FRDGTextureHandle Texture,
-		uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& Region,
-		uint32 SourcePitch, FByteView Data) -> FRDGPassHandle
+	auto FRDGBuilder::FindTextureUploadDesc(FRDGTextureHandle Texture) -> const FRHITextureDesc*
 	{
-		RequireBuilding();
 		if (Texture.Owner != State->Owner || Texture.Index >= State->Resources.size()
 			|| State->Resources[Texture.Index].Kind != ERDGResourceKind::Texture)
 		{
 			State->DeclarationErrors.push_back(FRDGUseError{ERDGUseError::ResourceHandleInvalid});
-			return {};
+			return nullptr;
 		}
 		const auto& Desc = State->Resources[Texture.Index].TextureDesc;
-		if (MipIndex >= 32 || !ValidateTexture2DUpdate(Desc, MipIndex, ArraySlice, Region, SourcePitch)
-			|| !HasTextureUploadSource(Desc.Format, Region.SrcX, Region.SrcY, 0,
-				Region.Width, Region.Height, 1, SourcePitch, 0, Data))
-		{
-			State->DeclarationErrors.push_back(FRDGUseError{ERDGUseError::TextureRangeInvalid});
-			return {};
-		}
 		if (!EnumHasAllFlags(Desc.Flags, ETextureCreateFlags::DestinationCopy))
 		{
 			State->DeclarationErrors.push_back(FRDGUseError{ERDGUseError::RequiredAccessInvalid});
-			return {};
+			return nullptr;
 		}
-		const bool bFull = Region.DestX == 0 && Region.DestY == 0
-			&& Region.Width == std::max(1u, uint32(Desc.Extent.x) >> MipIndex)
-			&& Region.Height == std::max(1u, uint32(Desc.Extent.y) >> MipIndex);
-		auto Parameters = AllocParameters<FTextureUploadParameters>();
-		Parameters->Texture = {Texture, {ERHITextureAspect::Color, MipIndex, 1, ArraySlice, 1},
-			bFull ? ERDGUse::Write : ERDGUse::ReadWrite, ERHIAccess::TransferWrite, bFull};
-		return AddRecordingPass("TextureUpload_" + std::to_string(State->Passes.size()),
-			ERDGPassType::Copy, std::move(Parameters),
-			[Region, MipIndex, ArraySlice, SourcePitch, Snapshot = FByteBuffer(Data.begin(), Data.end())](
-				FRHICommandList& Commands, const FTextureUploadParameters& Params,
-				const FRDGParameterResolver& Resolver) {
-				Commands.UpdateTexture2D(Resolver.GetTexture(Params.Texture), MipIndex,
-					ArraySlice, Region, SourcePitch, Snapshot);
-			});
+		return &Desc;
 	}
 
-	auto FRDGBuilder::QueueTextureUpload(FRDGTextureHandle Texture,
-		uint32 MipIndex, const FUpdateTextureRegion3D& Region,
-		uint32 SourceRowPitch, uint32 SourceDepthPitch, FByteView Data) -> FRDGPassHandle
+	auto FRDGBuilder::QueueTextureUpload(FRDGTextureHandle Texture, uint32 Mip,
+		uint32 Layer, const FUpdateTextureRegion2D& Region, uint32 SourcePitch, FByteView Source) -> FRDGPassHandle
 	{
 		RequireBuilding();
-		if (Texture.Owner != State->Owner || Texture.Index >= State->Resources.size()
-			|| State->Resources[Texture.Index].Kind != ERDGResourceKind::Texture)
-		{
-			State->DeclarationErrors.push_back(FRDGUseError{ERDGUseError::ResourceHandleInvalid});
-			return {};
-		}
-		const auto& Desc = State->Resources[Texture.Index].TextureDesc;
-		if (MipIndex >= 32 || !ValidateTexture3DUpdate(Desc, MipIndex, Region, SourceRowPitch, SourceDepthPitch)
-			|| !HasTextureUploadSource(Desc.Format, Region.SrcX, Region.SrcY, Region.SrcZ,
-				Region.Width, Region.Height, Region.Depth, SourceRowPitch, SourceDepthPitch, Data))
+		const auto* Desc = FindTextureUploadDesc(Texture);
+		if (!Desc) return {};
+		auto Data = FRHITextureUploadData::Pack2D(*Desc, Mip, Layer, Region, SourcePitch, Source);
+		if (!Data)
 		{
 			State->DeclarationErrors.push_back(FRDGUseError{ERDGUseError::TextureRangeInvalid});
 			return {};
 		}
-		if (!EnumHasAllFlags(Desc.Flags, ETextureCreateFlags::DestinationCopy))
+		return QueueTextureUploadData(Texture, std::move(*Data));
+	}
+
+	auto FRDGBuilder::QueueTextureUpload(FRDGTextureHandle Texture, uint32 Mip,
+		const FUpdateTextureRegion3D& Region, uint32 RowPitch, uint32 DepthPitch, FByteView Source) -> FRDGPassHandle
+	{
+		RequireBuilding();
+		const auto* Desc = FindTextureUploadDesc(Texture);
+		if (!Desc) return {};
+		auto Data = FRHITextureUploadData::Pack3D(*Desc, Mip, Region, RowPitch, DepthPitch, Source);
+		if (!Data)
 		{
-			State->DeclarationErrors.push_back(FRDGUseError{ERDGUseError::RequiredAccessInvalid});
+			State->DeclarationErrors.push_back(FRDGUseError{ERDGUseError::TextureRangeInvalid});
 			return {};
 		}
-		const bool bFull = Region.DestX == 0 && Region.DestY == 0 && Region.DestZ == 0
-			&& Region.Width == std::max(1u, uint32(Desc.Extent.x) >> MipIndex)
-			&& Region.Height == std::max(1u, uint32(Desc.Extent.y) >> MipIndex)
-			&& Region.Depth == std::max(1u, uint32(Desc.Depth) >> MipIndex);
+		return QueueTextureUploadData(Texture, std::move(*Data));
+	}
+
+	auto FRDGBuilder::QueueTextureUploadData(FRDGTextureHandle Texture,
+		std::shared_ptr<const FRHITextureUploadData> Data) -> FRDGPassHandle
+	{
+		const bool bFull = Data->IsFullOverwrite();
 		auto Parameters = AllocParameters<FTextureUploadParameters>();
-		Parameters->Texture = {Texture, {ERHITextureAspect::Color, MipIndex, 1, 0, 1},
+		Parameters->Texture = {Texture, {ERHITextureAspect::Color, Data->GetMip(), 1, Data->GetLayer(), 1},
 			bFull ? ERDGUse::Write : ERDGUse::ReadWrite, ERHIAccess::TransferWrite, bFull};
 		return AddRecordingPass("TextureUpload_" + std::to_string(State->Passes.size()),
 			ERDGPassType::Copy, std::move(Parameters),
-			[Region, MipIndex, SourceRowPitch, SourceDepthPitch,
-				Snapshot = FByteBuffer(Data.begin(), Data.end())](FRHICommandList& Commands,
-				const FTextureUploadParameters& Params, const FRDGParameterResolver& Resolver) {
-				Commands.UpdateTexture3D(Resolver.GetTexture(Params.Texture), MipIndex,
-					Region, SourceRowPitch, SourceDepthPitch, Snapshot);
+			[Data = std::move(Data)](FRHICommandList& Commands, const FTextureUploadParameters& Params,
+				const FRDGParameterResolver& Resolver) {
+				if (Data->IsVolume()) Commands.UpdateTexture3D(Resolver.GetTexture(Params.Texture), Data);
+				else Commands.UpdateTexture2D(Resolver.GetTexture(Params.Texture), Data);
 			});
 	}
 

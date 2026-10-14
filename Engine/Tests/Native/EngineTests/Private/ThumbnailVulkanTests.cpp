@@ -662,7 +662,7 @@ TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRat
 			std::byte{128}, std::byte{64}, std::byte{32}, std::byte{128}};
 		if (Input)
 		{
-			GDynamicRHI->RHIUpdateTexture2D(Commands, Input, 0, 0,
+			Commands.UpdateTexture2D(Input, 0, 0,
 				FUpdateTextureRegion2D(0, 0, 0, 0, 2, 1), 8, Pixels);
 			Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
 				Input, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},

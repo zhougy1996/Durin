@@ -159,8 +159,7 @@ namespace Durin
 					);
 					if (Texture)
 					{
-						GDynamicRHI->RHIUpdateTexture3D(
-							CommandList, Texture, 0,
+						CommandList.UpdateTexture3D(Texture, 0,
 							FUpdateTextureRegion3D(
 								0, 0, 0, 0, 0, 0, Size, Size, Size
 							),
@@ -263,7 +262,7 @@ namespace Durin
 				const uint8 White = 255;
 				if (Weather)
 				{
-					GDynamicRHI->RHIUpdateTexture2D(CommandList, Weather, 0, 0,
+					CommandList.UpdateTexture2D(Weather, 0, 0,
 					FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 1,
 					std::as_bytes(std::span{&White, 1}));
 					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
@@ -482,13 +481,13 @@ namespace Durin
 				);
 				if (EdgeCloudTexture && EdgeDepthTexture)
 				{
-					GDynamicRHI->RHIUpdateTexture2D(CommandList, EdgeCloudTexture, 0, 0,
+					CommandList.UpdateTexture2D(EdgeCloudTexture, 0, 0,
 						FUpdateTextureRegion2D(0, 0, 0, 0, 32, 16), 32u * 8u,
 						std::as_bytes(std::span{EdgeCloud}));
 					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
 						EdgeCloudTexture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
 						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
-					GDynamicRHI->RHIUpdateTexture2D(CommandList, EdgeDepthTexture, 0, 0,
+					CommandList.UpdateTexture2D(EdgeDepthTexture, 0, 0,
 						FUpdateTextureRegion2D(0, 0, 0, 0, 64, 32), 64u * 4u,
 						std::as_bytes(std::span{EdgeDepth}));
 					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{

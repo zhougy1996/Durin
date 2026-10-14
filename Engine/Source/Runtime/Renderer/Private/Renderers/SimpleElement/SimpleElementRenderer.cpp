@@ -270,8 +270,7 @@ namespace Durin
 					const FUpdateTextureRegion2D Region(0, 0, 0, 0,
 						FEditorIconAtlasLayout::Width,
 						FEditorIconAtlasLayout::Height);
-					GDynamicRHI->RHIUpdateTexture2D(CommandList,
-						Candidate.EditorIconAtlas, 0, 0, Region,
+					CommandList.UpdateTexture2D(Candidate.EditorIconAtlas, 0, 0, Region,
 						FEditorIconAtlasLayout::RowPitchBytes,
 						std::as_bytes(std::span(Pixels)));
 					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{

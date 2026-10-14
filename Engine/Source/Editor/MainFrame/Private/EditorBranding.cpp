@@ -126,14 +126,13 @@ namespace Durin::Editor::MainFrame
 				for (uint32 MipIndex = 0; MipIndex < Mips->size(); ++MipIndex)
 				{
 					const FBrandMip& Mip = (*Mips)[MipIndex];
-					GDynamicRHI->RHIUpdateTexture2D(
-						CommandList, Texture, MipIndex, 0,
+					CommandList.UpdateTexture2D(Texture, MipIndex, 0,
 						FUpdateTextureRegion2D(0, 0, 0, 0, Mip.Width, Mip.Height),
 						Mip.Width * 4, Mip.Pixels);
-					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
-						Texture, {Durin::ERHITextureAspect::Color, MipIndex, 1, 0, 1},
-						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 				}
+				const std::array Transitions{FRHITextureTransition::Whole(
+					Texture, ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead)};
+				CommandList.TransitionTextures(Transitions);
 			}
 			if (const std::shared_ptr<FBrandUploadState> State = WeakState.lock())
 			{

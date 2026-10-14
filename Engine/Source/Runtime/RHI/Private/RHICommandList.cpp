@@ -1,3 +1,4 @@
+#include "Backend/RHITextureUpload.h"
 #include "RHICommandList.h"
 #include "Threading/TaskComposition.h"
 #include "Backend/RHIValidation.h"
@@ -1283,187 +1284,22 @@ namespace Durin
 			TRefCountPtr<FRHITexture> BackBuffer;
 		};
 
-		struct FUpdateTexture2DCommand
+		struct FUpdateTextureCommand
 		{
-			FUpdateTexture2DCommand(
-				FRHITexture* InTexture,
-				uint32 InMipIndex,
-				uint32 InArraySlice,
-				const FUpdateTextureRegion2D& InRegion,
-				uint32 InSourcePitch,
-				FByteView InSourceData)
-				: Texture(InTexture)
-				, MipIndex(InMipIndex)
-				, ArraySlice(InArraySlice)
-				, Region(InRegion)
-			{
-				check(Texture && !InSourceData.empty());
-				FRHITextureDesc Desc;
-				Desc.Dimension = Texture->GetDimension();
-				Desc.Extent = FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
-				Desc.Format = Texture->GetFormat();
-				Desc.ArraySize = Texture->GetArraySize();
-				Desc.NumMips = Texture->GetNumMips();
-				Desc.NumSamples = Texture->GetNumSamples();
-#if DO_CHECK
-				const auto ValidationResult = ValidateTexture2DUpdate(
-					Desc, MipIndex, ArraySlice, Region, InSourcePitch);
-				checkf(ValidationResult,
-					"Invalid RHI texture upload: {}", ToString(ValidationResult.error()));
-#endif
-
-				const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(Texture->GetFormat());
-				const FPixelFormatLayout Layout = GetPixelFormatLayout(
-					Texture->GetFormat(), Region.Width, Region.Height);
-				check(Layout.RowPitch <= std::numeric_limits<uint32>::max());
-				check(Layout.DataSize <= std::numeric_limits<uint32>::max());
-				SourcePitch = static_cast<uint32>(Layout.RowPitch);
-				DataSize = static_cast<size_t>(Layout.DataSize);
-				ReserveData();
-				const uint64 SourceBlockX = static_cast<uint32>(Region.SrcX)
-					/ FormatInfo.BlockSize;
-				const uint64 SourceBlockY = static_cast<uint32>(Region.SrcY)
-					/ FormatInfo.BlockSize;
-				const uint64 SourceOffset = SourceBlockY * InSourcePitch
-					+ SourceBlockX * FormatInfo.BytesPerBlock;
-				const uint64 RequiredSourceBytes = SourceOffset
-					+ (Layout.BlocksHigh - 1) * InSourcePitch + Layout.RowPitch;
-				checkf(RequiredSourceBytes <= InSourceData.size(),
-					"Invalid RHI texture upload: source data contains {} bytes, but the source region requires {} bytes.",
-					InSourceData.size(), RequiredSourceBytes);
-				const std::byte* SourceRegion = InSourceData.data()
-					+ SourceOffset;
-				for (uint64 Row = 0; Row < Layout.BlocksHigh; ++Row)
-				{
-					std::memcpy(
-						Data.get() + Row * SourcePitch,
-						SourceRegion + Row * InSourcePitch,
-						SourcePitch);
-				}
-				Region.SrcX = 0;
-				Region.SrcY = 0;
-			}
-
+			TRefCountPtr<FRHITexture> Texture;
+			std::shared_ptr<const FRHITextureUploadData> Data;
 			auto Execute(void* ReplayContext) -> void
 			{
-				GetReplayContext(ReplayContext)
-					.GetOperationContext("UpdateTexture2D")
-					.RHIUpdateTexture2D(
-						Texture.GetReference(), MipIndex, ArraySlice,
-						Region, SourcePitch, FByteView(Data.get(), DataSize));
+				auto& Context = GetReplayContext(ReplayContext).GetOperationContext(
+					Data->IsVolume() ? "UpdateTexture3D" : "UpdateTexture2D");
+				if (Data->IsVolume())
+					Context.RHIUpdateTexture3D(Texture, Data->GetMip(), Data->GetRegion3D(),
+						Data->GetLayout().RowPitch, Data->GetLayout().DepthPitch, Data->GetData());
+				else
+					Context.RHIUpdateTexture2D(Texture, Data->GetMip(), Data->GetLayer(),
+						Data->GetRegion2D(), Data->GetLayout().RowPitch, Data->GetData());
 			}
-
-			auto GetOwnedPayloadBytes() const -> size_t
-			{
-				return DataSize;
-			}
-
-			TRefCountPtr<FRHITexture> Texture;
-			uint32 MipIndex;
-			uint32 ArraySlice;
-			FUpdateTextureRegion2D Region;
-			uint32 SourcePitch = 0;
-			auto ReserveData() -> void
-			{
-				Reservation = FRHIBufferUploadAccounting::Track(DataSize);
-				Data = std::make_unique<std::byte[]>(DataSize);
-			}
-			size_t DataSize = 0;
-			std::shared_ptr<const FRHIBufferUploadAccounting> Reservation;
-			std::unique_ptr<std::byte[]> Data;
-		};
-
-		struct FUpdateTexture3DCommand
-		{
-			FUpdateTexture3DCommand(
-				FRHITexture* InTexture,
-				uint32 InMipIndex,
-				const FUpdateTextureRegion3D& InRegion,
-				uint32 InSourceRowPitch,
-				uint32 InSourceDepthPitch,
-				FByteView InSourceData)
-				: Texture(InTexture), MipIndex(InMipIndex), Region(InRegion)
-			{
-				check(Texture && !InSourceData.empty());
-				FRHITextureDesc Desc;
-				Desc.Dimension = Texture->GetDimension();
-				Desc.Extent = FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
-				Desc.Depth = static_cast<uint16>(Texture->GetSizeZ());
-				Desc.Format = Texture->GetFormat();
-				Desc.ArraySize = Texture->GetArraySize();
-				Desc.NumMips = Texture->GetNumMips();
-				Desc.NumSamples = Texture->GetNumSamples();
-#if DO_CHECK
-				const auto ValidationResult = ValidateTexture3DUpdate(Desc, MipIndex, Region,
-					InSourceRowPitch, InSourceDepthPitch);
-				checkf(ValidationResult,
-					"Invalid RHI volume texture upload: {}", ToString(ValidationResult.error()));
-#endif
-
-				const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(Texture->GetFormat());
-				const FPixelFormatLayout SliceLayout = GetPixelFormatLayout(
-					Texture->GetFormat(), Region.Width, Region.Height);
-				check(SliceLayout.RowPitch <= std::numeric_limits<uint32>::max());
-				check(SliceLayout.DataSize <= std::numeric_limits<uint32>::max());
-				check(Region.Depth <= std::numeric_limits<size_t>::max() / SliceLayout.DataSize);
-				SourceRowPitch = static_cast<uint32>(SliceLayout.RowPitch);
-				SourceDepthPitch = static_cast<uint32>(SliceLayout.DataSize);
-				DataSize = static_cast<size_t>(SliceLayout.DataSize) * Region.Depth;
-				ReserveData();
-				const uint64 SourceBlockX = static_cast<uint32>(Region.SrcX) / FormatInfo.BlockSize;
-				const uint64 SourceBlockY = static_cast<uint32>(Region.SrcY) / FormatInfo.BlockSize;
-				const uint64 SourceOffset = static_cast<uint64>(Region.SrcZ)
-					* InSourceDepthPitch + SourceBlockY * InSourceRowPitch
-					+ SourceBlockX * FormatInfo.BytesPerBlock;
-				const uint64 RequiredSourceBytes = SourceOffset
-					+ (static_cast<uint64>(Region.Depth) - 1) * InSourceDepthPitch
-					+ (SliceLayout.BlocksHigh - 1) * InSourceRowPitch
-					+ SliceLayout.RowPitch;
-				checkf(RequiredSourceBytes <= InSourceData.size(),
-					"Invalid RHI volume texture upload: source data contains {} bytes, but the source region requires {} bytes.",
-					InSourceData.size(), RequiredSourceBytes);
-				const std::byte* SourceRegion = InSourceData.data()
-					+ SourceOffset;
-				for (uint64 Z = 0; Z < Region.Depth; ++Z)
-				{
-					for (uint64 Row = 0; Row < SliceLayout.BlocksHigh; ++Row)
-					{
-						std::memcpy(Data.get() + Z * SourceDepthPitch + Row * SourceRowPitch,
-							SourceRegion + Z * InSourceDepthPitch + Row * InSourceRowPitch,
-							SourceRowPitch);
-					}
-				}
-				Region.SrcX = 0;
-				Region.SrcY = 0;
-				Region.SrcZ = 0;
-			}
-
-			auto Execute(void* ReplayContext) -> void
-			{
-				GetReplayContext(ReplayContext)
-					.GetOperationContext("UpdateTexture3D")
-					.RHIUpdateTexture3D(Texture.GetReference(), MipIndex, Region,
-						SourceRowPitch, SourceDepthPitch, FByteView(Data.get(), DataSize));
-			}
-
-			auto GetOwnedPayloadBytes() const -> size_t
-			{
-				return DataSize;
-			}
-
-			TRefCountPtr<FRHITexture> Texture;
-			uint32 MipIndex = 0;
-			FUpdateTextureRegion3D Region;
-			uint32 SourceRowPitch = 0;
-			uint32 SourceDepthPitch = 0;
-			auto ReserveData() -> void
-			{
-				Reservation = FRHIBufferUploadAccounting::Track(DataSize);
-				Data = std::make_unique<std::byte[]>(DataSize);
-			}
-			size_t DataSize = 0;
-			std::shared_ptr<const FRHIBufferUploadAccounting> Reservation;
-			std::unique_ptr<std::byte[]> Data;
+			auto GetOwnedPayloadBytes() const -> size_t { return Data->GetData().size(); }
 		};
 
 		struct FSetPreparedShaderParametersCommand
@@ -2406,28 +2242,42 @@ namespace Durin
 		RecordCommand<FInitializeTextureCommand>(Texture);
 	}
 
-	auto FRHICommandListBase::UpdateTexture2D(
-		FRHITexture* Texture,
-		uint32 MipIndex,
-		uint32 ArraySlice,
-		const FUpdateTextureRegion2D& UpdateRegion,
-		uint32 SourcePitch,
-		FByteView SourceData) -> void
+	auto FRHICommandListBase::UpdateTexture2D(FRHITexture* Texture, uint32 MipIndex,
+		uint32 ArraySlice, const FUpdateTextureRegion2D& Region, uint32 SourcePitch, FByteView Source) -> void
 	{
-		RecordCommand<FUpdateTexture2DCommand>(FUpdateTexture2DCommand(
-			Texture, MipIndex, ArraySlice, UpdateRegion, SourcePitch, SourceData));
+		require(Texture);
+		auto Data = FRHITextureUploadData::Pack2D(GetTextureUploadDesc(*Texture),
+			MipIndex, ArraySlice, Region, SourcePitch, Source);
+		requiref(Data, "Invalid RHI texture upload: {}", ToString(Data.error()));
+		UpdateTexture2D(Texture, std::move(*Data));
 	}
 
-	auto FRHICommandListBase::UpdateTexture3D(
-		FRHITexture* Texture,
-		uint32 MipIndex,
-		const FUpdateTextureRegion3D& UpdateRegion,
-		uint32 SourceRowPitch,
-		uint32 SourceDepthPitch,
-		FByteView SourceData) -> void
+	auto FRHICommandListBase::UpdateTexture3D(FRHITexture* Texture, uint32 MipIndex,
+		const FUpdateTextureRegion3D& Region, uint32 RowPitch, uint32 DepthPitch, FByteView Source) -> void
 	{
-		RecordCommand<FUpdateTexture3DCommand>(FUpdateTexture3DCommand(Texture, MipIndex, UpdateRegion,
-			SourceRowPitch, SourceDepthPitch, SourceData));
+		require(Texture);
+		auto Data = FRHITextureUploadData::Pack3D(GetTextureUploadDesc(*Texture),
+			MipIndex, Region, RowPitch, DepthPitch, Source);
+		requiref(Data, "Invalid RHI volume texture upload: {}", ToString(Data.error()));
+		UpdateTexture3D(Texture, std::move(*Data));
+	}
+
+	auto FRHICommandListBase::UpdateTexture2D(FRHITexture* Texture,
+		std::shared_ptr<const FRHITextureUploadData> Data) -> void
+	{
+		require(Texture && Data && !Data->IsVolume() && Texture->GetFormat() == Data->GetFormat());
+		require(ValidateTexture2DUpdate(GetTextureUploadDesc(*Texture), Data->GetMip(),
+			Data->GetLayer(), Data->GetRegion2D(), Data->GetLayout().RowPitch).has_value());
+		RecordCommand<FUpdateTextureCommand>(TRefCountPtr<FRHITexture>(Texture), std::move(Data));
+	}
+
+	auto FRHICommandListBase::UpdateTexture3D(FRHITexture* Texture,
+		std::shared_ptr<const FRHITextureUploadData> Data) -> void
+	{
+		require(Texture && Data && Data->IsVolume() && Texture->GetFormat() == Data->GetFormat());
+		require(ValidateTexture3DUpdate(GetTextureUploadDesc(*Texture), Data->GetMip(),
+			Data->GetRegion3D(), Data->GetLayout().RowPitch, Data->GetLayout().DepthPitch).has_value());
+		RecordCommand<FUpdateTextureCommand>(TRefCountPtr<FRHITexture>(Texture), std::move(Data));
 	}
 
 	auto FRHICommandListBase::PushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void

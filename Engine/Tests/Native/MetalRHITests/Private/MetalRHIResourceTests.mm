@@ -845,7 +845,7 @@ TEST(FMetalRHITextureTests, CppViewAndSourceSurvivePoolDrainWithDelayedNativeWor
 						static_cast<Durin::FMetalTexture*>(Texture.GetReference())->GetHandle());
 					auto* NativeView = static_cast<Durin::FMetalTextureView*>(View.GetReference())->GetHandle();
 					ViewNative = (__bridge id<MTLTexture>)static_cast<void*>(NativeView);
-					Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Texture.GetReference(),
+					Commands.UpdateTexture2D(Texture.GetReference(),
 						0, 0, {0, 0, 0, 0, 4, 4}, 16, std::as_bytes(std::span{Pattern}));
 					Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
 						Texture.GetReference(), {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
@@ -1305,7 +1305,7 @@ TEST(FMetalRHITextureTests, ProductionFallbackDescriptorsAdmitShaderOnlyUsage)
 			->GetHandle()->textureType(), MTL::TextureTypeCube);
 		const std::array<uint8_t, 4> Red{255, 0, 0, 255};
 		const Durin::FUpdateTextureRegion2D Region(0, 0, 0, 0, 1, 1);
-		Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Cube.GetReference(),
+		Commands.UpdateTexture2D(Cube.GetReference(),
 			0, 0, Region, 4, std::as_bytes(std::span(Red)));
 		Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
 			Cube.GetReference(), {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
@@ -1509,7 +1509,7 @@ TEST(FMetalRHITextureTests, BC1SrgbCubeUploadsAndReadsBlockRowsAndMipTail)
 				{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 			for (uint32_t Face = 0; Face < 6; ++Face)
 			{
-				Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Cube.GetReference(),
+				Commands.UpdateTexture2D(Cube.GetReference(),
 					0, Face, {0, 0, 0, 0, 8, 8}, 24, std::span(Pitched));
 				Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
 					Cube.GetReference(), {Durin::ERHITextureAspect::Color, 0, 1, Face, 1},
@@ -1517,7 +1517,7 @@ TEST(FMetalRHITextureTests, BC1SrgbCubeUploadsAndReadsBlockRowsAndMipTail)
 				for (uint32_t Mip = 1; Mip < 4; ++Mip)
 				{
 					const uint32_t Extent = 8u >> Mip;
-					Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Cube.GetReference(),
+					Commands.UpdateTexture2D(Cube.GetReference(),
 						Mip, Face, {0, 0, 0, 0, Extent, Extent}, 8, std::span(GrayBlock));
 					Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
 						Cube.GetReference(), {Durin::ERHITextureAspect::Color, Mip, 1, Face, 1},
@@ -1702,7 +1702,7 @@ TEST(FMetalRHITextureTests, BC5AndBC7UploadPitchedBlockRowsAndMipTails)
 								for (uint32_t Row = 0; Row < Layout.BlocksHigh; ++Row)
 									std::memcpy(Bytes.data() + Row * Layout.RowPitch,
 										Source.data() + (Row + 1) * SourcePitch + 16, Layout.RowPitch);
-								Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Texture.GetReference(),
+								Commands.UpdateTexture2D(Texture.GetReference(),
 									Mip, Layer, {0, 0, 4, 4, Extent, Extent}, SourcePitch, std::span(Source));
 								Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
 									Texture.GetReference(), {Durin::ERHITextureAspect::Color, Mip, 1, Layer, 1},
@@ -1882,7 +1882,7 @@ TEST(FMetalRHITextureTests, PitchedUploadWorksInsideAndOutsideSubmission)
 				if (bExplicitSubmission)
 					Signal = Commands.BeginGPUSubmission(
 						{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
-				Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Texture.GetReference(),
+				Commands.UpdateTexture2D(Texture.GetReference(),
 					0, 0, Region, SourcePitch, std::as_bytes(std::span{Source}));
 				if (bExplicitSubmission)
 				{
@@ -2495,7 +2495,7 @@ TEST(FMetalRHITextureTests, PitchedVolumeUploadPreservesVoxelBox)
 				if (bExplicitSubmission)
 					Signal = Commands.BeginGPUSubmission(
 						{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
-				Durin::GDynamicRHI->RHIUpdateTexture3D(Commands, Texture.GetReference(),
+				Commands.UpdateTexture3D(Texture.GetReference(),
 					0, Update, RowPitch, DepthPitch, std::as_bytes(std::span{Source}));
 				if (!bExplicitSubmission)
 					Signal = Commands.BeginGPUSubmission(

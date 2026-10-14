@@ -309,7 +309,7 @@ namespace Durin
 					);
 					if (Texture)
 					{
-						GDynamicRHI->RHIUpdateTexture3D(CommandList, Texture, 0, FUpdateTextureRegion3D(0, 0, 0, 0, 0, 0, Size, Size, Size), Size, Size * Size, Bytes);
+						CommandList.UpdateTexture3D(Texture, 0, FUpdateTextureRegion3D(0, 0, 0, 0, 0, 0, Size, Size, Size), Size, Size * Size, Bytes);
 						CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
 							Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
 							Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
@@ -330,7 +330,7 @@ namespace Durin
 				);
 				if (Weather)
 				{
-					GDynamicRHI->RHIUpdateTexture2D(CommandList, Weather, 0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 64, 64), 64, WeatherBytes);
+					CommandList.UpdateTexture2D(Weather, 0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 64, 64), 64, WeatherBytes);
 					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
 						Weather, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
 						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});

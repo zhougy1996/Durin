@@ -1,3 +1,4 @@
+#include "Backend/RHITextureUpload.h"
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanTexture.h"
@@ -470,13 +471,7 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		checkf(Texture != nullptr, "RHIUpdateTexture2D requires a texture.");
 		checkf(!SourceData.empty(), "RHIUpdateTexture2D requires source data.");
-		FRHITextureDesc TextureDesc;
-		TextureDesc.Dimension = Texture->GetDimension();
-		TextureDesc.Extent = FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
-		TextureDesc.Format = Texture->GetFormat();
-		TextureDesc.ArraySize = Texture->GetArraySize();
-		TextureDesc.NumMips = Texture->GetNumMips();
-		TextureDesc.NumSamples = Texture->GetNumSamples();
+		const FRHITextureDesc TextureDesc = GetTextureUploadDesc(*Texture);
 #if DO_CHECK
 		const auto ValidationResult = ValidateTexture2DUpdate(TextureDesc, MipIndex, ArraySlice, UpdateRegion, SourcePitch);
 		checkf(ValidationResult,
@@ -485,17 +480,14 @@ namespace Durin::VulkanRHI
 #endif
 
 		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
-		const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(VulkanTexture->GetFormat());
-		const uint32 BlockSize = FormatInfo.BlockSize;
+		const auto& FormatInfo = GetPixelFormatInfo(VulkanTexture->GetFormat());
 		const uint32 BytesPerBlock = FormatInfo.BytesPerBlock;
-
-		const FPixelFormatLayout PackedLayout = GetPixelFormatLayout(VulkanTexture->GetFormat(), UpdateRegion.Width, UpdateRegion.Height);
-		const uint64 SourceBlockX = static_cast<uint32>(UpdateRegion.SrcX) / BlockSize;
-		const uint64 SourceBlockY = static_cast<uint32>(UpdateRegion.SrcY) / BlockSize;
-		check(PackedLayout.RowPitch <= std::numeric_limits<uint32>::max());
-		check(PackedLayout.DataSize <= std::numeric_limits<uint32>::max());
-		const uint32 PackedRowPitch = static_cast<uint32>(PackedLayout.RowPitch);
-		const uint32 DataSize = static_cast<uint32>(PackedLayout.DataSize);
+		const FUpdateTextureRegion3D SourceRegion3D{UpdateRegion.DestX, UpdateRegion.DestY, 0,
+			UpdateRegion.SrcX, UpdateRegion.SrcY, 0, UpdateRegion.Width, UpdateRegion.Height, 1};
+		const auto Layout = ComputeTextureUploadLayout(VulkanTexture->GetFormat(),
+			SourceRegion3D, SourcePitch, 0, SourceData.size());
+		requiref(Layout, "Invalid Vulkan upload source: {}", ToString(Layout.error()));
+		const uint32 DataSize = Layout->Size;
 		const uint64 Alignment = std::max<uint64>({16, BytesPerBlock,
 			Device->GetGpuProperties().limits.nonCoherentAtomSize,
 			Device->GetGpuProperties().limits.optimalBufferCopyOffsetAlignment});
@@ -504,11 +496,7 @@ namespace Durin::VulkanRHI
 		FVulkanBuffer* StagingBuffer = Staging.GetBuffer();
 		GVulkanMemoryBaselineTracker.RecordUpload(DataSize);
 		auto* Mapped = Staging.GetMappedPointer();
-		const auto* SourceRegion = SourceData.data() + SourceBlockY * SourcePitch + SourceBlockX * BytesPerBlock;
-		for (uint64 BlockRow = 0; BlockRow < PackedLayout.BlocksHigh; ++BlockRow)
-		{
-			std::memcpy(Mapped + BlockRow * PackedRowPitch, SourceRegion + BlockRow * SourcePitch, PackedRowPitch);
-		}
+		CopyTextureUploadData(*Layout, SourceData, {Mapped, DataSize});
 		Staging.Flush();
 		StagingBuffer->GetStateTracker().Apply(
 			Staging.GetOffset(), DataSize, ERHIAccess::HostWrite);
@@ -551,14 +539,7 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		checkf(Texture != nullptr, "RHIUpdateTexture3D requires a texture.");
 		checkf(!SourceData.empty(), "RHIUpdateTexture3D requires source data.");
-		FRHITextureDesc TextureDesc;
-		TextureDesc.Dimension = Texture->GetDimension();
-		TextureDesc.Extent = FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
-		TextureDesc.Depth = static_cast<uint16>(Texture->GetSizeZ());
-		TextureDesc.Format = Texture->GetFormat();
-		TextureDesc.ArraySize = Texture->GetArraySize();
-		TextureDesc.NumMips = Texture->GetNumMips();
-		TextureDesc.NumSamples = Texture->GetNumSamples();
+		const FRHITextureDesc TextureDesc = GetTextureUploadDesc(*Texture);
 #if DO_CHECK
 		const auto ValidationResult = ValidateTexture3DUpdate(TextureDesc, MipIndex, UpdateRegion,
 			SourceRowPitch, SourceDepthPitch);
@@ -567,16 +548,11 @@ namespace Durin::VulkanRHI
 #endif
 
 		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
-		const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(VulkanTexture->GetFormat());
-		const FPixelFormatLayout SliceLayout = GetPixelFormatLayout(
-			VulkanTexture->GetFormat(), UpdateRegion.Width, UpdateRegion.Height);
-		check(SliceLayout.RowPitch <= std::numeric_limits<uint32>::max());
-		check(SliceLayout.DataSize <= std::numeric_limits<uint32>::max());
-		check(UpdateRegion.Depth <= std::numeric_limits<uint32>::max() / SliceLayout.DataSize);
-		const uint32 PackedRowPitch = static_cast<uint32>(SliceLayout.RowPitch);
-		const uint32 PackedDepthPitch = static_cast<uint32>(SliceLayout.DataSize);
-		const uint32 DataSize = PackedDepthPitch * UpdateRegion.Depth;
-		check(SourceData.size() >= DataSize);
+		const auto& FormatInfo = GetPixelFormatInfo(VulkanTexture->GetFormat());
+		const auto Layout = ComputeTextureUploadLayout(VulkanTexture->GetFormat(),
+			UpdateRegion, SourceRowPitch, SourceDepthPitch, SourceData.size());
+		requiref(Layout, "Invalid Vulkan volume upload source: {}", ToString(Layout.error()));
+		const uint32 DataSize = Layout->Size;
 		const uint64 Alignment = std::max<uint64>({16, FormatInfo.BytesPerBlock,
 			Device->GetGpuProperties().limits.nonCoherentAtomSize,
 			Device->GetGpuProperties().limits.optimalBufferCopyOffsetAlignment});
@@ -585,17 +561,7 @@ namespace Durin::VulkanRHI
 		FVulkanBuffer* StagingBuffer = Staging.GetBuffer();
 		GVulkanMemoryBaselineTracker.RecordUpload(DataSize);
 		auto* Mapped = Staging.GetMappedPointer();
-		const uint64 SourceBlockX = static_cast<uint32>(UpdateRegion.SrcX) / FormatInfo.BlockSize;
-		const uint64 SourceBlockY = static_cast<uint32>(UpdateRegion.SrcY) / FormatInfo.BlockSize;
-		const std::byte* SourceRegion = SourceData.data()
-			+ static_cast<uint64>(UpdateRegion.SrcZ) * SourceDepthPitch
-			+ SourceBlockY * SourceRowPitch
-			+ SourceBlockX * FormatInfo.BytesPerBlock;
-		for (uint64 Z = 0; Z < UpdateRegion.Depth; ++Z)
-			for (uint64 Row = 0; Row < SliceLayout.BlocksHigh; ++Row)
-				std::memcpy(Mapped + Z * PackedDepthPitch + Row * PackedRowPitch,
-					SourceRegion + Z * SourceDepthPitch + Row * SourceRowPitch,
-					PackedRowPitch);
+		CopyTextureUploadData(*Layout, SourceData, {Mapped, DataSize});
 		Staging.Flush();
 		StagingBuffer->GetStateTracker().Apply(
 			Staging.GetOffset(), DataSize, ERHIAccess::HostWrite);

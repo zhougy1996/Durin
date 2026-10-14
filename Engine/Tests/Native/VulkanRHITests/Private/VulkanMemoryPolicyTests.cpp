@@ -51,7 +51,7 @@ namespace Durin::VulkanRHI
 				ASSERT_TRUE(Texture);
 				std::array<uint8, 64> Expected;
 				for (uint32 Index = 0; Index < Expected.size(); ++Index) Expected[Index] = static_cast<uint8>(Index + 31);
-				GDynamicRHI->RHIUpdateTexture2D(Commands, Texture, 0, 0,
+				Commands.UpdateTexture2D(Texture, 0, 0,
 					FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16, std::as_bytes(std::span{Expected}));
 				Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
 					Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
@@ -632,7 +632,7 @@ namespace Durin::VulkanRHI
 		std::array<uint8, 64> Expected{};
 		for (uint32 Index = 0; Index < Expected.size(); ++Index)
 			Expected[Index] = static_cast<uint8>(Index + 17);
-		GDynamicRHI->RHIUpdateTexture2D(Commands, Texture, 0, 0,
+		Commands.UpdateTexture2D(Texture, 0, 0,
 			FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16,
 			std::as_bytes(std::span{Expected}));
 		Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
@@ -668,7 +668,7 @@ namespace Durin::VulkanRHI
 				.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));
 		ASSERT_TRUE(Texture);
 		FByteBuffer Expected(7 * 3 * 4, std::byte{0x39});
-		GDynamicRHI->RHIUpdateTexture2D(Commands, Texture, 0, 0,
+		Commands.UpdateTexture2D(Texture, 0, 0,
 			FUpdateTextureRegion2D(0, 0, 0, 0, 7, 3), 28, Expected);
 		Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
 			Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
@@ -676,7 +676,7 @@ namespace Durin::VulkanRHI
 		auto First = Commands.EnqueueTextureReadback(Texture);
 		EXPECT_EQ(First->GetState(), ERHITextureReadbackState::Pending);
 		FByteBuffer Replacement(Expected.size(), std::byte{0x71});
-		GDynamicRHI->RHIUpdateTexture2D(Commands, Texture, 0, 0,
+		Commands.UpdateTexture2D(Texture, 0, 0,
 			FUpdateTextureRegion2D(0, 0, 0, 0, 7, 3), 28, Replacement);
 		Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
 			Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},

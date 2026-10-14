@@ -48,12 +48,12 @@ namespace Durin
 			const FVolumeTextureMipData& Mip = Input->Mips[MipIndex];
 			const FUpdateTextureRegion3D Region(0, 0, 0, 0, 0, 0,
 				Mip.Width, Mip.Height, Mip.Depth);
-			GDynamicRHI->RHIUpdateTexture3D(CommandList, NewTexture, MipIndex,
+			CommandList.UpdateTexture3D(NewTexture, MipIndex,
 				Region, Mip.RowPitch, Mip.DepthPitch, Mip.Voxels);
-			CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
-				NewTexture, {Durin::ERHITextureAspect::Color, MipIndex, 1, 0, 1},
-				Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 		}
+		const std::array Transitions{FRHITextureTransition::Whole(
+			NewTexture, ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead)};
+		CommandList.TransitionTextures(Transitions);
 		SetTextureRHI_RenderThread(std::move(NewTexture));
 	}
 }

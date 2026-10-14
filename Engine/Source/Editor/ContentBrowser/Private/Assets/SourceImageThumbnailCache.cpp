@@ -209,7 +209,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					if (Texture)
 					{
 						const FUpdateTextureRegion2D Region(0, 0, 0, 0, Width, Height);
-						GDynamicRHI->RHIUpdateTexture2D(CommandList, Texture, 0, 0, Region, Width * 4, *Pixels);
+						CommandList.UpdateTexture2D(Texture, 0, 0, Region, Width * 4, *Pixels);
 						CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
 							Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
 							Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});

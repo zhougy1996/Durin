@@ -577,7 +577,7 @@ namespace Durin
 					if (Candidate.WhiteWeather)
 					{
 						const std::byte White{255};
-						GDynamicRHI->RHIUpdateTexture2D(CommandList, Candidate.WhiteWeather,
+						CommandList.UpdateTexture2D(Candidate.WhiteWeather,
 							0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 1,
 							std::span{&White, 1});
 						CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{

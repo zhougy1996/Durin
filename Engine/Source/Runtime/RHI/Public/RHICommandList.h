@@ -19,6 +19,7 @@ namespace Durin
 
 	class FRHITexture;
 	class IRHICommandContext;
+	class FRHITextureUploadData;
 	class FRHICommandListExecutor;
 	class FRHIViewport;
 	class FRHIGraphicsPipelineState;
@@ -155,6 +156,11 @@ namespace Durin
 		RHI_API auto UpdateTexture3D(FRHITexture* Texture, uint32 MipIndex,
 			const FUpdateTextureRegion3D& UpdateRegion, uint32 SourceRowPitch,
 			uint32 SourceDepthPitch, FByteView SourceData) -> void;
+		// Packed source ownership is retained without another byte copy.
+		RHI_API auto UpdateTexture2D(FRHITexture* Texture,
+			std::shared_ptr<const FRHITextureUploadData> Data) -> void;
+		RHI_API auto UpdateTexture3D(FRHITexture* Texture,
+			std::shared_ptr<const FRHITextureUploadData> Data) -> void;
 		RHI_API auto PushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void;
 		RHI_API auto SetShaderParameters(FRHIShader* InShader, std::span<const FRHIShaderParameterResource> InResourceParameters) -> void;
 		RHI_API auto SetPreparedShaderParameters(std::shared_ptr<const FRHIShaderParameterBatch> Batch) -> void;
