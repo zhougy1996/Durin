@@ -55,14 +55,14 @@ namespace Durin
 			FWorkQueue(FWorkQueue&& Other) noexcept { Swap(Other); }
 			auto operator=(FWorkQueue&& Other) noexcept -> FWorkQueue&
 			{
-				require(empty());
+				require(IsEmpty());
 				Swap(Other);
 				return *this;
 			}
 			~FWorkQueue()
 			{
 				// Detach iteratively so a long owning chain cannot overflow the stack.
-				while (!empty()) { auto Work = Take(); }
+				while (!IsEmpty()) { auto Work = Take(); }
 			}
 			auto Swap(FWorkQueue& Other) noexcept -> void
 			{
@@ -70,9 +70,9 @@ namespace Durin
 				std::swap(NextSequence, Other.NextSequence);
 				std::swap(PreferredDispatches, Other.PreferredDispatches);
 			}
-			auto empty() const -> bool { return size() == 0; }
-			auto size() const -> size_t { return Lanes[0].Count + Lanes[1].Count + Lanes[2].Count; }
-			auto emplace_back(const std::shared_ptr<Private::FQueuedWorkNode>& Node) -> void
+			auto IsEmpty() const -> bool { return Num() == 0; }
+			auto Num() const -> size_t { return Lanes[0].Count + Lanes[1].Count + Lanes[2].Count; }
+			auto Enqueue(const std::shared_ptr<Private::FQueuedWorkNode>& Node) -> void
 			{
 				auto& Lane = Lanes[static_cast<size_t>(Node->Work.Priority)];
 				Node->Previous = Lane.Tail;
@@ -293,7 +293,7 @@ namespace Durin
 				try
 				{
 					if (GFailQueuedWorkAllocation.exchange(false)) throw std::bad_alloc();
-					Queue.emplace_back(Node);
+					Queue.Enqueue(Node);
 					if (OutHandle) OutHandle->Node = Node;
 				}
 				catch (...)
@@ -350,7 +350,7 @@ namespace Durin
 
 			std::unique_lock Lock(Mutex);
 			IdleCV.wait(Lock, [this]() {
-				return Queue.empty() && ActiveTaskCount == 0;
+				return Queue.IsEmpty() && ActiveTaskCount == 0;
 			});
 			return true;
 		}
@@ -364,7 +364,7 @@ namespace Durin
 		auto GetNumQueuedTasks() const -> uint32
 		{
 			std::lock_guard Lock(Mutex);
-			return static_cast<uint32>(Queue.size());
+			return static_cast<uint32>(Queue.Num());
 		}
 
 		auto IsRunning() const -> bool
@@ -403,15 +403,15 @@ namespace Durin
 				{
 					std::unique_lock Lock(Mutex);
 					WorkAvailableCV.wait(Lock, [this]() {
-						return bStopRequested || !Queue.empty();
+						return bStopRequested || !Queue.IsEmpty();
 					});
 
-					if (bStopRequested && (!bDrainQueuedWorkOnStop || Queue.empty()))
+					if (bStopRequested && (!bDrainQueuedWorkOnStop || Queue.IsEmpty()))
 					{
 						break;
 					}
 
-					if (Queue.empty())
+					if (Queue.IsEmpty())
 					{
 						continue;
 					}
@@ -428,7 +428,7 @@ namespace Durin
 		auto TryDequeueWork(FQueuedWork& OutWork) -> bool
 		{
 			std::lock_guard Lock(Mutex);
-			if (Queue.empty())
+			if (Queue.IsEmpty())
 			{
 				return false;
 			}
@@ -472,7 +472,7 @@ namespace Durin
 
 		auto DiscardWork(FWorkQueue&& WorkItems) -> void
 		{
-			while (!WorkItems.empty())
+			while (!WorkItems.IsEmpty())
 			{
 				auto Work = WorkItems.Take();
 				if (Work.Discard)
@@ -500,7 +500,7 @@ namespace Durin
 
 		auto NotifyIdleIfNeeded() -> void
 		{
-			if (Queue.empty() && ActiveTaskCount == 0)
+			if (Queue.IsEmpty() && ActiveTaskCount == 0)
 			{
 				IdleCV.notify_all();
 			}
