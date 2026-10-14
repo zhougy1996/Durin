@@ -1,4 +1,5 @@
 #include "Asset/AssetCompilingManager.h"
+#include "Asset/AssetBuildScheduler.h"
 
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
@@ -15,6 +16,73 @@
 
 namespace Durin
 {
+	namespace AssetPrivate
+	{
+		struct FAssetBuildExecutionState
+		{
+			std::atomic<uint32> ActiveCount = 0;
+			std::mutex Mutex;
+			std::condition_variable Changed;
+		};
+		FAssetBuildExecutionSlot::FAssetBuildExecutionSlot(std::shared_ptr<FAssetBuildExecutionState> InState)
+			: State(std::move(InState)) { State->ActiveCount.fetch_add(1); }
+		FAssetBuildExecutionSlot::~FAssetBuildExecutionSlot() { Release(); }
+		auto FAssetBuildExecutionSlot::Release() -> void
+		{
+			if (!bReleased.exchange(true))
+			{
+				State->ActiveCount.fetch_sub(1);
+				State->Changed.notify_all();
+			}
+		}
+		FAssetBuildScheduler::FAssetBuildScheduler() : State(std::make_shared<FAssetBuildExecutionState>()) {}
+		auto FAssetBuildScheduler::Enqueue(bool Interactive,
+			std::function<FTaskHandle(std::shared_ptr<FAssetBuildExecutionSlot>)> Launch, FTaskHandle Prerequisite) -> void
+		{
+			if (GIsGameThreadIdInitialized) CheckGameThread();
+			Queue.push_back({Interactive, std::move(Launch), std::move(Prerequisite)});
+			Pump();
+		}
+		auto FAssetBuildScheduler::Pump() -> void
+		{
+			if (GIsGameThreadIdInitialized) CheckGameThread();
+			std::erase_if(Running, [](const auto& Item) {
+				if (!Item.Task.IsComplete()) return false;
+				Item.Slot->Release(); // Includes native tasks cancelled before worker entry.
+				return true;
+			});
+			while (State->ActiveCount.load() < 2 && !Queue.empty())
+			{
+				const auto Ready = [](const auto& Item) { return !Item.Prerequisite.IsValid() || Item.Prerequisite.IsComplete(); };
+				auto Background = std::ranges::find_if(Queue, [&](const auto& Item) { return !Item.Interactive && Ready(Item); });
+				auto Interactive = std::ranges::find_if(Queue, [&](const auto& Item) { return Item.Interactive && Ready(Item); });
+				if (Background == Queue.end() && Interactive == Queue.end()) break;
+				auto Selected = Interactive != Queue.end() && (Background == Queue.end() || InteractiveBurst < 4) ? Interactive : Background;
+				const bool bInteractive = Selected->Interactive;
+				auto Launch = std::move(Selected->Launch);
+				Queue.erase(Selected); // Dispatch hooks may reenter the scheduler.
+				auto Slot = std::shared_ptr<FAssetBuildExecutionSlot>(new FAssetBuildExecutionSlot(State));
+				auto Task = Launch(Slot);
+				if (Task.IsValid())
+				{
+					Running.push_back({std::move(Task), std::move(Slot)});
+					if (bInteractive) ++InteractiveBurst;
+					else InteractiveBurst = 0;
+				}
+				else Slot->Release();
+			}
+		}
+		auto FAssetBuildScheduler::WaitForProgress() -> void
+		{
+			std::unique_lock Lock(State->Mutex);
+			State->Changed.wait_for(Lock, std::chrono::milliseconds(1));
+		}
+		auto GetAssetBuildScheduler() -> std::shared_ptr<FAssetBuildScheduler>
+		{
+			static auto Scheduler = std::make_shared<FAssetBuildScheduler>();
+			return Scheduler;
+		}
+	}
 	namespace
 	{
 		struct FRegisteredAssetCompiler

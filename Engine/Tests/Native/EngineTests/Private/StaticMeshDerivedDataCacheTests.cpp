@@ -3,6 +3,9 @@
 #include "StaticMesh/StaticMeshAttributes.h"
 #include "Math/Operations.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
+#include "StaticMesh/StaticMeshCompilationTestSupport.h"
+#include "DerivedDataCache/DerivedDataCache.h"
+#include "Threading/ThreadEvent.h"
 #include "Runtime/Engine/Private/Physics/PhysicsCookDerivedDataKey.h"
 #include "../../../../Source/Developer/DerivedDataCache/Private/DerivedDataCacheStorage.h"
 #include "Physics/PhysicsDerivedData.h"
@@ -3555,6 +3558,119 @@ TEST(FPhysicsMeshLifecycleTests, ImmediateFailuresCanReenterWithANewRequest)
 	});
 	EXPECT_EQ(Notifications, 5u);
 	EXPECT_FALSE(Body->IsCompiling());
+	MarkObjectHierarchyAsGarbage(Body);
+}
+
+TEST(FPhysicsMeshLifecycleTests, WaitingDDCFreesCpuSlotsAndPhysicsWaitResumesRenderWithoutApplyingIt)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	class FHeldCache final : public DerivedData::ICache
+	{
+	public:
+		mutable std::atomic<uint32> Reads = 0;
+		mutable FThreadEvent Release;
+		auto Get(const DerivedData::FCacheGetRequest&) const -> DerivedData::FCacheGetResult override
+		{ ++Reads; Release.WaitFor(10.0); return std::optional<DerivedData::FCacheRecord>{}; }
+		auto Put(const DerivedData::FCachePutRequest&) const -> DerivedData::FCachePutResult override { return {}; }
+	};
+	auto Cache = std::make_shared<FHeldCache>();
+	FThreadEvent CallbackEntered, ReleaseCallback, CpuMailbox;
+	std::atomic<bool> Resumed = false;
+	struct FProvider final : IInterface_CollisionDataProvider
+	{
+		FThreadEvent& Mailbox;
+		std::atomic<bool>& Resumed;
+		bool WaitForResume = false;
+		FProvider(FThreadEvent& InMailbox, std::atomic<bool>& InResumed) : Mailbox(InMailbox), Resumed(InResumed) {}
+		struct FInput final : FPhysicsMeshInputTask
+		{
+			FThreadEvent& Mailbox;
+			std::atomic<bool>& Resumed;
+			bool Wait;
+			FInput(FThreadEvent& InMailbox, std::atomic<bool>& InResumed, bool InWait) : Mailbox(InMailbox), Resumed(InResumed), Wait(InWait) {}
+			auto GetWorkingSetBytes() const -> uint64 override { return 1024 * 1024; }
+			auto Execute(const FAssetBuildTaskContext&) const -> std::expected<FTriMeshCollisionData, std::string> override
+			{
+				if (Wait) Resumed = Mailbox.WaitFor(2.0);
+				// Fail before physics DDC I/O, so this probes execution capacity rather
+				// than competing for the deliberately blocked cache I/O workers.
+				return FTriMeshCollisionData{{{0, 0, 0}}, {0, 1}};
+			}
+		};
+		auto ContainsPhysicsTriMeshData() const -> bool override { return true; }
+		auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override { return FTriMeshCollisionData{}; }
+		auto CreatePhysicsMeshInputTask() const -> std::expected<std::unique_ptr<FPhysicsMeshInputTask>, std::string> override
+		{ return std::unique_ptr<FPhysicsMeshInputTask>(std::make_unique<FInput>(Mailbox, Resumed, WaitForResume)); }
+	} Provider{CpuMailbox, Resumed};
+	struct FDrain
+	{
+		std::shared_ptr<FHeldCache> Cache;
+		FThreadEvent& ReleaseCallback;
+		FThreadEvent& CpuMailbox;
+		~FDrain()
+		{
+			Cache->Release.Trigger(); ReleaseCallback.Trigger(); CpuMailbox.Trigger();
+			FAssetCompilingManager::Get().FinishAllCompilation();
+			AssetPrivate::SetStaticMeshBuildCompletionHookForTests({});
+			AssetPrivate::SetStaticMeshCompilationPhaseHookForTests({});
+			AssetPrivate::SetStaticMeshAsyncCacheForTests({});
+		}
+	} Drain{Cache, ReleaseCallback, CpuMailbox};
+	AssetPrivate::SetStaticMeshAsyncCacheForTests(Cache);
+	AssetPrivate::SetStaticMeshBuildCompletionHookForTests([&] { CallbackEntered.Trigger(); ReleaseCallback.WaitFor(10.0); });
+	AssetPrivate::SetStaticMeshCompilationPhaseHookForTests([&](uint64, EStaticMeshCompilationPhase Phase) {
+		if (Phase == EStaticMeshCompilationPhase::Mailbox) CpuMailbox.Trigger();
+	});
+	FStaticMeshSource Source;
+	const auto Geometry = MakeResidencyGeometry();
+	ASSERT_TRUE(Source.Initialize(Geometry));
+	std::array<DStaticMesh*, 2> Meshes;
+	for (uint32 Index = 0; Index < Meshes.size(); ++Index)
+	{
+		Meshes[Index] = NewObject<DStaticMesh>(nullptr, FName(std::format("HeldDdcCpuSlot{}", Index)));
+		ASSERT_TRUE(Meshes[Index]->BuildFromSource(EStaticMeshBuildMode::Asynchronous,
+			{.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(Geometry), .bPersistDerivedData = false}));
+	}
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (Cache->Reads.load() != 2 && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+	ASSERT_EQ(Cache->Reads.load(), 2u);
+	const auto Held = GetStaticMeshCompilationManagerDiagnostics();
+	EXPECT_EQ(Held.AdmittedBuildCount, 0u);
+	EXPECT_EQ(Held.OutstandingRecords, 2u);
+	ASSERT_GT(Held.ReservedBytes, 0u);
+	auto* Body = NewObject<DBodySetup>(nullptr, FName("PhysicsWhileRenderWaitsForDdc"));
+	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+	FThreadEvent PhysicsFinished;
+	std::jthread Watchdog([&] { if (!PhysicsFinished.WaitFor(2.0)) Cache->Release.Trigger(); });
+	Body->CreatePhysicsMeshes(Provider, false);
+	PhysicsFinished.Trigger();
+	EXPECT_EQ(Body->GetPhysicsMeshBuildStatus(), EPhysicsMeshBuildStatus::Failed);
+	EXPECT_FALSE(CallbackEntered.WaitFor(0.01));
+	EXPECT_EQ(GetStaticMeshCompilationManagerDiagnostics().ReservedBytes, Held.ReservedBytes);
+	Cache->Release.Trigger();
+	ASSERT_TRUE(CallbackEntered.WaitFor(5.0));
+	Meshes[0]->CancelCompilation();
+	FAssetCompilingManager::Get().ProcessAsyncTasks();
+	EXPECT_TRUE(Meshes[0]->IsCompiling());
+	EXPECT_FALSE(CpuMailbox.WaitFor(0.01));
+	EXPECT_EQ(GetStaticMeshCompilationManagerDiagnostics().ReservedBytes, Held.ReservedBytes);
+	ReleaseCallback.Trigger();
+	Provider.WaitForResume = true;
+	Body->CreatePhysicsMeshes(Provider, false);
+	EXPECT_TRUE(Resumed.load());
+	EXPECT_EQ(Meshes[1]->GetRenderData(), nullptr);
+	EXPECT_TRUE(Meshes[1]->IsCompiling());
+	EXPECT_EQ(GetStaticMeshCompilationManagerDiagnostics().ReservedBytes, Held.ReservedBytes);
+	Meshes[0]->FinishCompilation();
+	EXPECT_EQ(Meshes[0]->GetCompilationDiagnostic().Status, EStaticMeshCompilationStatus::Cancelled);
+	Meshes[1]->FinishCompilation();
+	EXPECT_EQ(Meshes[1]->GetCompilationDiagnostic().Status, EStaticMeshCompilationStatus::Succeeded);
+	EXPECT_NE(Meshes[1]->GetRenderData(), nullptr);
+	EXPECT_EQ(StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes, 0u);
+	for (auto* Mesh : Meshes) MarkObjectHierarchyAsGarbage(Mesh);
 	MarkObjectHierarchyAsGarbage(Body);
 }
 

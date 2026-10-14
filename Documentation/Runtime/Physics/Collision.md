@@ -148,6 +148,10 @@ result without replacing worker output with an installation error. A shared RAII
 reservation retains record and byte charges until request products retire and the
 completion notification returns, even if notification throws. Completion processing
 uses the aggregate manager's count/deadline rather than a separate mesh time slice.
+Physics uses the asset execution scheduler independently of StaticMesh. Pumping or
+finishing physics can dispatch ready render CPU continuations, without accessing
+the render manager or applying its results. Pending DDC requests occupy no asset
+execution slots; their memory/record reservations remain until terminal retirement.
 
 The mesh setters invalidate derived collision and schedule when a collision source
 is available, even without CPU RenderData. Missing source retains configuration as

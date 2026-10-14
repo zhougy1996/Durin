@@ -369,9 +369,12 @@ Render owners dispatch a persistent asynchronous DDC session and release their
 Core worker during cache reads and persistence. Each record owns an asset operation
 that forwards priority and cancellation to its DDC owner and bridges retirement
 into a nested `FTaskEvent`. DDC callbacks publish only
-detached completion data. The owner pump waits for callback retirement, then
-schedules output assembly, metadata restoration and ray-query preparation on a
-Core worker. Explicit finish drives the same pump; no render worker waits for
+detached completion data. Dispatch releases its asset execution slot when its CPU
+function returns, even while its nested DDC operation remains pending. A prerequisite
+in the asset scheduler waits for dispatch/callback retirement, then readmits output
+assembly, metadata restoration and ray-query preparation on a Core worker. Any typed
+compiler pump or explicit finish can advance this scheduler without applying unrelated
+assets. No render worker waits for
 cache I/O or another render task. Shutdown drains these suspended requests before
 closing the manager scope. Queued records cancel without dispatch if Core has
 already stopped.
@@ -445,8 +448,8 @@ bodies immediately; accepted collision installation refreshes them again.
 Authored primitives survive render replacement. Installing/clearing geometry does
 not recursively schedule a request or invalidate render work.
 
-Both managers share a private launch-only queue and budget: two admitted builds,
-32 outstanding records, 1 GiB total reservation
+Both managers use the asset-layer execution scheduler, with two admitted CPU stages
+and one priority queue. The separate mesh budget permits 32 outstanding records, 1 GiB total reservation
 and 512 MiB per request. Render admission uses checked arithmetic for
 `1 MiB + 64 * canonical bytes + 1024 * mesh count + 32768 * slot count`.
 Authored collision reserves `1 MiB + 64 * canonical bytes + 1024 * mesh count`
@@ -454,11 +457,14 @@ without decoding on the owner thread. Source-less resident captures reserve
 `1 MiB + 512 * positions + 192 * indices`. Provider captures declare the complete
 working-set bound, and builders enforce construction envelopes. Canceled
 records keep their count and byte charges until their build callbacks, CPU tasks
-and retained products retire. Render slots remain occupied during cache I/O;
+and retained products retire. Render dispatch releases execution capacity during cache I/O;
 Each manager's diagnostic counters describe its own records; their sums describe
-the shared quota. Suspended render requests retain admission slots. Physics finish
-may advance retired render DDC continuations to release shared slots, without
-applying unrelated render results. One RAII reservation maintains both shared and
+the shared quota. CPU consumption reacquires execution capacity only after DDC
+callback retirement; cancellation cleanup requires retirement but no CPU slot.
+Physics finish advances only the generic asset scheduler, with no render-manager
+progress callback and no application of unrelated render results. Execution slots
+release on worker function exit or native task retirement before entry, exactly once.
+One RAII reservation maintains both shared and
 per-manager record/byte counters. It moves from the record into finalization and
 releases only after request output cleanup and notification return, including
 exceptional exits; retained queue snapshots do not extend the charge.

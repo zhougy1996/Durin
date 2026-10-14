@@ -10,6 +10,7 @@
 #include "Logging/LogMacros.h"
 #include "Asset/AssetReadResult.h"
 #include "Asset/MeshBuildBudget.h"
+#include "Asset/AssetBuildScheduler.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
 #include "Threading/RunnableThread.h"
@@ -340,7 +341,7 @@ namespace Durin
 		auto Diagnostics() const -> FStaticMeshCompilationManagerDiagnostics
 		{
 			CheckOwnerThread();
-			const auto Running = std::ranges::count_if(Records, [](const auto& Record) { const auto Phase = Record->Work->Phase.load(); return Phase != EWorkPhase::Queued && Phase != EWorkPhase::Complete; });
+			const auto Running = std::ranges::count_if(Records, [](const auto& Record) { return Record->Work->Phase.load() == EWorkPhase::Running; });
 			return {Accounting->RecordCount, uint32(Running), static_cast<uint32>(History.size()), Accounting->ReservedBytes, bAccepting};
 		}
 		std::function<void(uint64, EStaticMeshCompilationPhase)> PhaseHook;
@@ -360,12 +361,13 @@ namespace Durin
 				Record.Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
 			}
 		}
-		auto Launch(const std::shared_ptr<FRecord>& Record, bool bDispatch) -> void
+		auto Launch(const std::shared_ptr<FRecord>& Record, bool bDispatch, std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot> Slot) -> FTaskHandle
 		{
 			Tasks::FTaskExecutionOptions Options;
 			Options.Scope = Scope.GetToken();
 			Options.Priority = Record->Priority == EStaticMeshCompilationPriority::Interactive ? ETaskPriority::High : ETaskPriority::Low;
-			Record->Task = Tasks::LaunchTask("StaticMesh.Build", [Work = Record->Work, State = AdmissionState, Hook = PhaseHook, Id = Record->Diagnostic.RequestId, BuilderVersion = Record->Diagnostic.RenderBuilderVersion, bDispatch](const FTaskCancellationToken& Token) {
+			auto Task = Tasks::LaunchTask("StaticMesh.Build", [Slot = std::move(Slot), Work = Record->Work, Hook = PhaseHook, Id = Record->Diagnostic.RequestId, BuilderVersion = Record->Diagnostic.RenderBuilderVersion, bDispatch](const FTaskCancellationToken& Token) {
+						AssetPrivate::FAssetBuildExecutionSlot::FWorkScope Execution{*Slot};
 						const auto Cancellation = Work->Cancellation.WithObserver([Token] { return Token.IsCancellationRequested(); });
 						try
 						{
@@ -386,7 +388,7 @@ namespace Durin
 								{
 									Tasks::AddNested(Work->BuildOperation->GetCompletionEvent());
 									Work->BuildOperation->CloseSubmission();
-									return; // Owner retains its slot while cache I/O is suspended.
+									return; // CPU slot is released; the nested operation retains the retirement barrier.
 								}
 								Work->Outcome = std::unexpected(std::move(Dispatched.error()));
 							}
@@ -411,27 +413,49 @@ namespace Durin
 #endif
 						Work->ReleaseInput();
 						Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
-						State->AdmittedBuildCount.fetch_sub(1);
-						State->Changed.notify_all(); }, Options).GetTaskHandle();
+						}, Options).GetTaskHandle();
+			Record->Task = Task;
+#if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
+			if (bDispatch) Enqueue(Record, false, Task);
+#endif
+			return Task;
 		}
-		auto Enqueue(const std::shared_ptr<FRecord>& Record) -> void
+		auto Enqueue(const std::shared_ptr<FRecord>& Record, bool bDispatch = true, FTaskHandle Prerequisite = {}) -> void
 		{
-			AdmissionState->Enqueue(Record->Priority == EStaticMeshCompilationPriority::Interactive, [Manager = weak_from_this(), WeakRecord = std::weak_ptr(Record)] {
+			Scheduler->Enqueue(Record->Priority == EStaticMeshCompilationPriority::Interactive,
+				[Manager = weak_from_this(), WeakRecord = std::weak_ptr(Record), bDispatch](std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot> Slot) -> FTaskHandle {
 				auto Self = Manager.lock();
 				auto Record = WeakRecord.lock();
-				if (!Self || !Record || Record->Terminal || Record->Work->Phase.load() != EWorkPhase::Queued) return false;
-				if (!IsTaskSchedulerRunning())
+				if (!Self || !Record) return {};
+				if (bDispatch)
 				{
-					Self->Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
-					return false;
+					if (Record->Terminal || Record->Work->Phase.load() != EWorkPhase::Queued) return {};
+					if (!IsTaskSchedulerRunning())
+					{ Self->Terminate(*Record, EStaticMeshCompilationStatus::Cancelled); return {}; }
+					if (Self->PhaseHook) Self->PhaseHook(Record->Diagnostic.RequestId, EStaticMeshCompilationPhase::Queued);
+					if (Record->Terminal) return {};
+					Record->Diagnostic.Phase = EStaticMeshCompilationPhase::Building;
 				}
-				if (Self->PhaseHook) Self->PhaseHook(Record->Diagnostic.RequestId, EStaticMeshCompilationPhase::Queued);
-				if (Record->Terminal) return false;
+#if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
+				else
+				{
+					if (Record->Work->Phase.load() != EWorkPhase::AwaitingDerivedData) return {};
+					if (Record->Task.GetState() == ETaskState::Canceled) Record->Work->Cancellation.Cancel();
+					if (Record->Terminal || Record->Work->Cancellation.IsCancelled()
+						|| !Record->Work->Completion || !IsTaskSchedulerRunning())
+					{
+						if (!IsTaskSchedulerRunning()) Record->Work->Cancellation.Cancel();
+						Record->Work->Completion.reset();
+						if (Record->Work->Cancellation.IsCancelled()) Record->Work->ReleaseOutput();
+						Record->Work->ReleaseInput();
+						Record->Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
+						return {};
+					}
+				}
+#endif
 				Record->Work->Phase.store(EWorkPhase::Running, std::memory_order_release);
-				Record->Diagnostic.Phase = EStaticMeshCompilationPhase::Building;
-				Self->Launch(Record, true);
-				return true;
-			});
+				return Self->Launch(Record, bDispatch, std::move(Slot));
+			}, std::move(Prerequisite));
 		}
 #if DURIN_WITH_EDITORONLY_DATA
 		static auto IsCurrent(const FRecord& Record, const DStaticMesh& Mesh) -> bool
@@ -500,37 +524,34 @@ namespace Durin
 #endif
 		}
 
-	public:
+	private:
 		auto ProgressWork() -> void
 		{
-			// Nested operation completion retires DDC before dispatch tasks become ready.
+			Scheduler->Pump();
 			for (const auto& Record : Records)
 			{
-				if (!Record->Task.IsValid() || !Record->Task.IsComplete()
-					|| Record->Work->Phase.load(std::memory_order_acquire) == EWorkPhase::Complete) continue;
-				// A task cancelled before entry never got to poll its native observer.
+				if (!Record->Task.IsValid() || !Record->Task.IsComplete()) continue;
+				const auto Phase = Record->Work->Phase.load(std::memory_order_acquire);
+				// Native tasks skipped before entry still retire through the owner mailbox.
 				if (Record->Task.GetState() == ETaskState::Canceled) Record->Work->Cancellation.Cancel();
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
-				if (Record->Work->Phase.load(std::memory_order_acquire) == EWorkPhase::AwaitingDerivedData)
+				if (Phase == EWorkPhase::AwaitingDerivedData)
 				{
-					auto& Render = *Record->Work;
-					if (Render.Completion && !Record->Work->Cancellation.IsCancelled() && IsTaskSchedulerRunning())
-					{
-						Record->Work->Phase.store(EWorkPhase::Running, std::memory_order_release);
-						Launch(Record, false);
-						continue;
-					}
-					Render.Completion.reset();
-					if (Record->Work->Cancellation.IsCancelled()) Render.Outcome = std::unique_ptr<FStaticMeshRenderData>{};
+					if (!Record->Terminal && !Record->Work->Cancellation.IsCancelled() && IsTaskSchedulerRunning()) continue;
+					// Cancellation cleanup needs retirement, not an execution slot. A
+					// selected finish must not wait for unrelated admitted CPU work.
+					Record->Work->Completion.reset();
+					Record->Work->ReleaseOutput();
 				}
 				else
 #endif
-					Record->Work->Fail("Asset build task retired before worker completion.");
+				{
+					if (Phase != EWorkPhase::Running) continue;
+					if (!Record->Work->Cancellation.IsCancelled()) Record->Work->Fail("Asset build task retired before worker completion.");
+				}
 				Record->Work->ReleaseInput();
 				Record->Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
-				AdmissionState->ReleaseSlot();
 			}
-			AdmissionState->Admit();
 		}
 
 	private:
@@ -589,7 +610,7 @@ namespace Durin
 				}
 #endif
 
-			AdmissionState->Admit();
+			Scheduler->Pump();
 			return Result;
 		}
 		auto Finish(std::span<const FObjectKey> Owners) -> FAssetCompileProcessResult
@@ -602,8 +623,7 @@ namespace Durin
 				Result.SuccessfullyCompiledAssets.insert(Result.SuccessfullyCompiledAssets.end(), Batch.SuccessfullyCompiledAssets.begin(), Batch.SuccessfullyCompiledAssets.end());
 				if (Batch.ProcessedCompletionCount == 0)
 				{
-					std::unique_lock Lock(AdmissionState->Mutex);
-					AdmissionState->Changed.wait_for(Lock, std::chrono::milliseconds(1));
+					Scheduler->WaitForProgress();
 				}
 			}
 			return Result;
@@ -613,6 +633,7 @@ namespace Durin
 		std::deque<FStaticMeshCompilationDiagnostic> History;
 		std::shared_ptr<AssetPrivate::FMeshBuildBudget> AdmissionState = AssetPrivate::GetMeshBuildBudget();
 		FTaskScope Scope;
+		std::shared_ptr<AssetPrivate::FAssetBuildScheduler> Scheduler = AssetPrivate::GetAssetBuildScheduler();
 		FObjectKey PublishingOwner;
 		uint64 NextRequest = 1;
 		std::shared_ptr<AssetPrivate::FMeshBuildAccounting> Accounting = std::make_shared<AssetPrivate::FMeshBuildAccounting>();
@@ -632,7 +653,6 @@ namespace Durin
 			if (auto Existing = GManager.lock()) return Existing;
 			auto Manager = std::make_shared<FStaticMeshCompilingManager>();
 			GManager = Manager;
-			AssetPrivate::GetMeshBuildBudget()->ProgressRender = [Weak = std::weak_ptr(Manager)] { if (auto Manager = Weak.lock()) Manager->ProgressWork(); };
 			return Manager;
 		}
 		auto SetStaticMeshCompilationPhaseHookForTests(std::function<void(uint64, EStaticMeshCompilationPhase)> Hook) -> void
