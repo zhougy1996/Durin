@@ -461,7 +461,7 @@ namespace Durin
 			CORE_API static auto CompleteExternal(const FTaskHandle& Task, ETaskState State) -> void;
 			CORE_API static auto AddCompletionDependency(const FTaskHandle& Parent, const FTaskHandle& Child) -> std::optional<Tasks::FTaskAdmissionError>;
 			CORE_API static auto AddNested(const FTaskHandle& Child) -> std::optional<Tasks::FTaskAdmissionError>;
-			CORE_API static auto BindDynamicDependency(const FTaskHandle& Task, const FTaskHandle& Inner, bool bCancelInner = true) -> std::optional<Tasks::FTaskAdmissionError>;
+			CORE_API static auto BindDynamicDependency(const FTaskHandle& Task, const FTaskHandle& Inner) -> std::optional<Tasks::FTaskAdmissionError>;
 		};
 	}
 

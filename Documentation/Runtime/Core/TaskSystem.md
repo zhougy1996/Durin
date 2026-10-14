@@ -186,6 +186,9 @@ ThenAsync binds and cycle-checks its dynamic dependency before clearing unknown
 execution requirements. Unique inner cancellation is forwarded; shared inner
 cancellation remains local to its observer. An inner user exception remains
 execution failure, not a scheduler admission result.
+Sharing and flattening preserve the original failure reason, code, dependency
+error and input identity. A flattening callback exception remains a callback
+failure; it is not relabeled as a failed prerequisite.
 
 `TCompletionSource<T>::Create` returns a counted external producer directly.
 It does not occupy a worker. `TakeTask()` transfers its one unique task;

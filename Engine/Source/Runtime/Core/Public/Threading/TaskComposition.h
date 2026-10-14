@@ -33,9 +33,8 @@ namespace Durin::Tasks
 	{
 		// Result access requires both a supported wait and successful execution in every build.
 		CORE_API auto WaitForSuccess(const FTaskHandle& Handle) -> void;
-		// Requires failure; absent stored failure uses the override or the native terminal reason.
-		CORE_API auto ReadFailure(const FTaskHandle& Handle, const FTaskFailure* Failure,
-			std::optional<ETaskTerminalReason> FallbackReason = {}) -> FTaskFailure;
+		// Requires failure; absent stored failure uses the native terminal reason.
+		CORE_API auto ReadFailure(const FTaskHandle& Handle, const FTaskFailure* Failure) -> FTaskFailure;
 	}
 	template<typename T> using TTaskValue = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
 
@@ -184,7 +183,7 @@ namespace Durin::Tasks
 		// Requires a failed terminal state; preserves the producer's failure identity.
 		auto GetFailure() const -> FTaskFailure
 		{
-			return Detail::ReadFailure(*this, Failure.get(), ETaskTerminalReason::DependencyFailed);
+			return Detail::ReadFailure(*this, Failure.get());
 		}
 		// Waits for success. The immutable reference is valid while this shared task is retained.
 		// Use GetResultShared when the result must outlive the task handle.
@@ -457,7 +456,7 @@ namespace Durin::Tasks
 					{
 						if (Predecessor.GetState() == ETaskState::Failed)
 						{
-							*Failure = SourceFailure ? *SourceFailure : FTaskFailure{ETaskTerminalReason::DependencyFailed};
+							*Failure = Detail::ReadFailure(Predecessor, SourceFailure.get());
 							throw Detail::FPropagationFailure{};
 						}
 						Durin::Private::FTaskRuntimeAccess::CancelCurrent();
@@ -677,6 +676,7 @@ namespace Durin::Tasks
 		try
 		{
 			const auto Predecessor = FTaskHandle(Input);
+			const auto PredecessorFailure = Detail::FTaskAccess::Failure(Input);
 			auto Source = Detail::FCompletionSourceAccess::Create<U>(Options);
 			auto Output = Source.TakeTask();
 			struct FBinding
@@ -703,12 +703,6 @@ namespace Durin::Tasks
 				catch (...) { Binding->Source.TrySetFailure({}); }
 			};
 			auto RunnerHook = std::make_shared<Durin::Private::FTaskTerminalHook>();
-			RunnerHook->Function = [Source, Predecessor](ETaskState Terminal) {
-				if (Terminal == ETaskState::Failed || (Terminal == ETaskState::Canceled
-					&& (Predecessor.GetState() == ETaskState::Failed || Predecessor.GetDiagnostics().TerminalReason == ETaskTerminalReason::DependencyFailed)))
-					Source.TrySetFailure({ETaskTerminalReason::DependencyFailed});
-				else if (Terminal == ETaskState::Canceled) Source.TrySetCanceled();
-			};
 			auto InvokeInner = [Source, Binding, InnerHook, Function = std::forward<F>(Function)](auto&&... Args) mutable
 				requires std::is_invocable_v<std::decay_t<F>&, decltype(Args)...> {
 				if (Durin::Private::FTaskRuntimeAccess::IsCancellationRequested(Source.GetTaskHandle()))
@@ -737,6 +731,19 @@ namespace Durin::Tasks
 				Durin::Private::FTaskRuntimeAccess::BindTerminal(Handle, std::move(InnerHook));
 			};
 			auto Runner = Then(std::move(Input), Executor, Options, std::move(InvokeInner));
+			const auto RunnerFailure = Detail::FTaskAccess::Failure(Runner);
+			RunnerHook->Function = [Source, Predecessor, PredecessorFailure, RunnerFailure](ETaskState Terminal) {
+				if (Terminal == ETaskState::Failed)
+					Source.TrySetFailure(*RunnerFailure);
+				else if (Terminal == ETaskState::Canceled)
+				{
+					if (Predecessor.GetState() == ETaskState::Failed)
+						Source.TrySetFailure(Detail::ReadFailure(Predecessor, PredecessorFailure.get()));
+					else if (const auto Diagnostics = Predecessor.GetDiagnostics(); Diagnostics.TerminalReason == ETaskTerminalReason::DependencyFailed)
+						Source.TrySetFailure({ETaskTerminalReason::DependencyFailed, {}, ETaskFailureCode::DependencyFailed, Diagnostics.DirectBlockingTaskId});
+					else Source.TrySetCanceled();
+				}
+			};
 			Durin::Private::FTaskRuntimeAccess::BindTerminal(FTaskHandle(Runner), std::move(RunnerHook));
 			return Output;
 		}

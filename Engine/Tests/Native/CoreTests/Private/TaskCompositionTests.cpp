@@ -26,6 +26,26 @@ namespace Durin
 		public:
 			~FEngineThreadPoolTestGuard() { ShutdownTaskScheduler(false); }
 		};
+		auto WaitOffGameThread(const Tasks::Private::FTaskHandle& Task) -> FTaskWaitResult
+		{
+			FTaskWaitResult Result;
+			std::thread Caller([&] { Result = Task.Wait(); });
+			Caller.join();
+			return Result;
+		}
+		auto ExpectFailureIdentity(const Tasks::FTaskFailure& Actual, const Tasks::FTaskFailure& Expected) -> void
+		{
+			EXPECT_EQ(Actual.Reason, Expected.Reason);
+			EXPECT_EQ(Actual.Code, Expected.Code);
+			EXPECT_EQ(Actual.RelatedTaskId, Expected.RelatedTaskId);
+			EXPECT_EQ(Actual.InputIndex, Expected.InputIndex);
+			ASSERT_EQ(Actual.DependencyError.has_value(), Expected.DependencyError.has_value());
+			if (Actual.DependencyError)
+			{
+				EXPECT_EQ(Actual.DependencyError->Code, Expected.DependencyError->Code);
+				EXPECT_EQ(Actual.DependencyError->RelatedTaskId, Expected.DependencyError->RelatedTaskId);
+			}
+		}
 	}
 	static_assert(!std::is_default_constructible_v<Tasks::TTaskAdmission<FTaskHandle>>);
 	static_assert(!std::is_copy_constructible_v<Tasks::TTaskAdmission<std::unique_ptr<int>>>);
@@ -602,6 +622,68 @@ namespace Durin
 		EXPECT_EQ(Second.GetTaskHandle().GetTaskId(), Failure.RelatedTaskId);
 	}
 
+	TEST(FTaskCompositionTests, SharingPreservesNativeAndExplicitFailureIdentity)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		auto Failed = Tasks::LaunchTask("ThrowBeforeShare", []() -> int { throw std::runtime_error("expected failure"); });
+		ASSERT_EQ(Failed.Wait().TaskState, ETaskState::Failed);
+		const auto NativeFailure = Failed.GetFailure();
+		ASSERT_EQ(NativeFailure.Reason, ETaskTerminalReason::CallbackFailure);
+		auto Shared = Tasks::Share(std::move(Failed));
+		ExpectFailureIdentity(Shared.GetFailure(), NativeFailure);
+
+		const Tasks::FTaskFailure ExplicitFailure{ETaskTerminalReason::CallbackFailure,
+			Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::DependencyCycle, 37},
+			Tasks::ETaskFailureCode::DependencyBindingFailed, 41, 3};
+		auto Source = Tasks::TCompletionSource<int>::Create();
+		auto Result = Source.TakeTask();
+		ASSERT_TRUE(Source.TrySetFailure(ExplicitFailure));
+		auto ExplicitShared = Tasks::Share(std::move(Result));
+		ExpectFailureIdentity(ExplicitShared.GetFailure(), ExplicitFailure);
+	}
+
+	TEST(FTaskCompositionTests, ThenAsyncPreservesPredecessorCallbackAndInnerFailures)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		const Tasks::FTaskFailure ExplicitFailure{ETaskTerminalReason::CallbackFailure,
+			Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::DependencyCycle, 53},
+			Tasks::ETaskFailureCode::DependencyBindingFailed, 59, 5};
+		for (uint32 Iteration = 0; Iteration < 16; ++Iteration)
+		{
+			auto Predecessor = Tasks::TCompletionSource<void>::Create();
+			if (Iteration % 2 == 0) ASSERT_TRUE(Predecessor.TrySetFailure(ExplicitFailure));
+			auto FromPredecessor = Tasks::ThenAsync(Predecessor.TakeTask(), Tasks::ETaskExecutor::Worker, {}, [] {
+				ADD_FAILURE() << "Failed predecessor must not invoke the callback";
+				return Tasks::LaunchTask("UnreachableInner", [] { return 0; });
+			});
+			if (Iteration % 2 != 0) ASSERT_TRUE(Predecessor.TrySetFailure(ExplicitFailure));
+			ASSERT_EQ(WaitOffGameThread(FromPredecessor).TaskState, ETaskState::Failed);
+			ExpectFailureIdentity(FromPredecessor.GetFailure(), ExplicitFailure);
+
+			auto FromCallback = Tasks::ThenAsync(Tasks::LaunchTask("AsyncCallbackInput", [] {}),
+				Tasks::ETaskExecutor::Worker, {}, []() -> Tasks::TTask<int> { throw std::runtime_error("callback failure"); });
+			ASSERT_EQ(WaitOffGameThread(FromCallback).TaskState, ETaskState::Failed);
+			ExpectFailureIdentity(FromCallback.GetFailure(), {});
+
+			auto Inner = Tasks::TCompletionSource<int>::Create();
+			if (Iteration % 2 == 0) ASSERT_TRUE(Inner.TrySetFailure(ExplicitFailure));
+			auto FromInner = Tasks::ThenAsync(Tasks::LaunchTask("AsyncInnerInput", [] {}),
+				Tasks::ETaskExecutor::Worker, {}, [Inner]() mutable { return Inner.TakeTask(); });
+			if (Iteration % 2 != 0) ASSERT_TRUE(Inner.TrySetFailure(ExplicitFailure));
+			ASSERT_EQ(WaitOffGameThread(FromInner).TaskState, ETaskState::Failed);
+			ExpectFailureIdentity(FromInner.GetFailure(), ExplicitFailure);
+		}
+		auto FromNativeFailure = Tasks::ThenAsync(
+			Tasks::LaunchTask("ThrowBeforeFlatten", []() -> int { throw std::runtime_error("predecessor failure"); }),
+			Tasks::ETaskExecutor::Worker, {}, [](int) { return Tasks::LaunchTask("UnreachableNativeInner", [] { return 0; }); });
+		ASSERT_EQ(WaitOffGameThread(FromNativeFailure).TaskState, ETaskState::Failed);
+		ExpectFailureIdentity(FromNativeFailure.GetFailure(), {});
+	}
+
 	TEST(FTaskCompositionTests, SharedFanInDuplicatesAndAsyncCancellationAreLocal)
 	{
 		ShutdownTaskScheduler(false);
@@ -627,7 +709,7 @@ namespace Durin
 		ASSERT_EQ(2u, Values.size());
 		EXPECT_EQ(Values[0].get(), Values[1].get());
 		EXPECT_EQ(27, *Values[1]);
-		EXPECT_EQ(ETaskState::Canceled, Observer.GetState());
+		EXPECT_EQ(ETaskState::Canceled, WaitOffGameThread(Observer).TaskState);
 	}
 
 	TEST(FTaskCompositionTests, ThenAsyncCancelsUniqueDeferredInnerWithoutPumping)

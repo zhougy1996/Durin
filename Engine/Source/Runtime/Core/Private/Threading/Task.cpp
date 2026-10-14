@@ -590,14 +590,13 @@ namespace Durin
 			}
 			Hook->Function(Terminal);
 		}
-		auto SetDynamicDependency(std::shared_ptr<FTaskStateData> Inner, bool bCancelInner) -> void
+		auto SetDynamicDependency(std::shared_ptr<FTaskStateData> Inner) -> void
 		{
 			std::shared_ptr<FTaskStateData> Previous;
 			{
 				std::lock_guard Lock(Mutex);
 				Previous = std::move(DynamicPrerequisite);
 				DynamicPrerequisite = std::move(Inner);
-				bCancelDynamicDependency = bCancelInner;
 				bUnknownExecutionRequirement = false;
 			}
 		}
@@ -910,7 +909,6 @@ namespace Durin
 		bool bUnknownExecutionRequirement = false;
 		std::shared_ptr<Private::FTaskTerminalHook> TerminalHooks;
 		std::shared_ptr<FTaskStateData> DynamicPrerequisite;
-		bool bCancelDynamicDependency = false;
 		std::vector<std::weak_ptr<FTaskStateData>> Prerequisites;
 		std::vector<uint64> PrerequisiteTaskIds;
 		std::vector<ETaskDependencyKind> PrerequisiteDependencyKinds;
@@ -2300,7 +2298,7 @@ namespace Durin
 			}
 
 			bCancellationRequested = true;
-			if (bCancelDynamicDependency) InnerToCancel = DynamicPrerequisite;
+			InnerToCancel = DynamicPrerequisite;
 			if (CancellationDiagnostic.empty())
 			{
 				CancellationDiagnostic = std::move(InDiagnostic);
@@ -3040,7 +3038,7 @@ namespace Durin
 			}
 		}
 
-		auto FTaskRuntimeAccess::BindDynamicDependency(const FTaskHandle& Task, const FTaskHandle& Inner, bool bCancelInner)
+		auto FTaskRuntimeAccess::BindDynamicDependency(const FTaskHandle& Task, const FTaskHandle& Inner)
 			-> std::optional<Tasks::FTaskAdmissionError>
 		{
 			// Serializes dynamic edge insertion and cycle checks across concurrent sources.
@@ -3052,10 +3050,10 @@ namespace Durin
 					return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract};
 				if (Task.State == Inner.State || Inner.State->DependsOn(Task.State.get()))
 					return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::DependencyCycle, Inner.GetTaskId()};
-				Task.State->SetDynamicDependency(Inner.State, bCancelInner);
+				Task.State->SetDynamicDependency(Inner.State);
 			}
 			// Cancellation can invoke terminal hooks, so it must happen outside dependency synchronization.
-			if (bCancelInner && Task.State->IsCancellationRequested())
+			if (Task.State->IsCancellationRequested())
 				Inner.State->RequestCancellation("Outer task cancellation preceded inner binding.");
 			return {};
 		}

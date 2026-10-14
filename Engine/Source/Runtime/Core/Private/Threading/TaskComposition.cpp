@@ -16,12 +16,11 @@ namespace Durin::Tasks
 			require(WaitResult.WaitStatus == ETaskWaitStatus::Completed && Handle.GetState() == ETaskState::Succeeded);
 		}
 
-		auto ReadFailure(const FTaskHandle& Handle, const FTaskFailure* Failure,
-			std::optional<ETaskTerminalReason> FallbackReason) -> FTaskFailure
+		auto ReadFailure(const FTaskHandle& Handle, const FTaskFailure* Failure) -> FTaskFailure
 		{
 			require(Handle.GetState() == ETaskState::Failed);
 			if (Failure) return *Failure;
-			return FTaskFailure{FallbackReason ? *FallbackReason : Handle.GetDiagnostics().TerminalReason};
+			return FTaskFailure{Handle.GetDiagnostics().TerminalReason};
 		}
 	}
 
