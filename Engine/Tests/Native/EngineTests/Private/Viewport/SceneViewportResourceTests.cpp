@@ -78,7 +78,6 @@ namespace Durin
 			auto RHICopyTextureToBuffer(FRHITexture*, FRHIBuffer*, std::span<const FRHIBufferTextureCopyRegion>) -> void override {}
 			auto RHICopyTexture(FRHITexture*, FRHITexture*, std::span<const FRHITextureCopyRegion>) -> void override {}
 			auto RHIWriteBuffer(FRHIBuffer*, uint32, Durin::FByteView) -> void override { ++UploadCount; }
-			auto RHIUploadBuffer(FRHIBuffer*, uint32, Durin::FByteView) -> void override { ++UploadCount; }
 			auto RHIInitializeTexture(FRHITexture*) -> void override {}
 			auto RHIUpdateTexture2D(FRHITexture*, uint32, uint32, const FUpdateTextureRegion2D&,
 				uint32, Durin::FByteView) -> void override {}

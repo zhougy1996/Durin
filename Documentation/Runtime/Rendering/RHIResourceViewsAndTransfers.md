@@ -49,13 +49,13 @@ interpretation. Storage is a shader binding category, not a resource subclass
 or separate resource identity. `FRHIStorageBufferRange` remains a shader
 parameter range over an ordinary buffer.
 
-`UploadBuffer` copies a patch into command-owned storage and applies it during
-ordered replay, leaving the written range in `TransferWrite`. The consumer
-records the appropriate transition before shader reads or other uses.
-`WriteBuffer` is the convenience path that restores canonical access after
-writing. Both preserve untouched GPU bytes and retain upload bytes through
-replay or cancellation. Neither maintains a full CPU shadow or replaces the
-buffer allocation. Canceled commands release their payload without writing.
+`WriteBuffer` copies a patch into command-owned storage, or retains an immutable
+owned payload without copying its bytes, and applies it during ordered replay.
+The written range is left in `TransferWrite`; callers record an explicit
+transition to the next use, or let RDG derive it. Writing does not restore a
+canonical access state. Untouched GPU bytes are preserved; upload bytes live
+through replay or cancellation. No full CPU shadow or replacement allocation
+is maintained. Canceled commands release their payload without writing.
 Initial data in a native creation descriptor uses the native initialization
 path; callers cannot rely on discarding an initialization command list while
 retaining its initialized contents.
@@ -91,7 +91,7 @@ capacity. Shared graph and command owners count one source allocation until its
 last owner releases it. Ordinary buffers retain no permanent CPU upload copy.
 
 `CreateUniformBuffer` returns a counted resource; `UpdateUniformBuffer`,
-`WriteBuffer`, and `UploadBuffer` return void. Invalid ranges, resource types,
+and `WriteBuffer` return void. Invalid ranges, resource types,
 or uniform sidecar ownership violate enforced preconditions. Native creation
 uses its existing recoverable result contract. Allocation failures during
 replay follow terminal replay failure handling. Executor backpressure remains
@@ -155,16 +155,17 @@ methods are the only backend-private native copy-recording authority.
 
 Static device-local buffer writes, `RHIUpdateTexture2D`, and
 `RHIReadTexture2D` use bounded persistently mapped upload/readback arena ranges,
-selected transitions, and the same public copy semantics. Upload restores the
-resource's canonical graphics or storage access. Readback restores the exact
+selected transitions, and the same public copy semantics. Buffer writes leave
+the destination in `TransferWrite`; texture updates restore canonical access.
+Readback restores the exact
 prior texture state, transitions its range for host read, waits the producing
 submission token, invalidates noncoherent mapped memory, and publishes tightly
 packed CPU bytes before returning the range. These paths do not introduce a
 whole-device idle wait or a second layout tracker. Arena ownership, bounds, and
 reuse are defined by [Vulkan memory and GPU completion](VulkanMemoryAndGPUCompletion.md).
 
-The graph-specific `UploadBuffer` uses the same owned source and staging path,
-but leaves the written destination range in `TransferWrite`. RDG supplies the
+RDG uses the same `WriteBuffer` owned source and staging path, leaving the
+written destination range in `TransferWrite`. RDG supplies the
 next transition from its declared use. Mapped destinations transition from
 `HostWrite`; device-local destinations copy from a retired staging range.
 

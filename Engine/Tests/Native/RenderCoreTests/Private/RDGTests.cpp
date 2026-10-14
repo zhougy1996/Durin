@@ -162,8 +162,6 @@ namespace Durin
 			{ ADD_FAILURE() << "Unexpected backend operation: RHICopyTexture"; }
 			auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIWriteBuffer"; }
-			auto RHIUploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void override
-			{ ADD_FAILURE() << "Unexpected backend operation: RHIUploadBuffer"; }
 			auto RHIInitializeTexture(FRHITexture* Texture) -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIInitializeTexture"; }
 			auto RHIUpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void override
@@ -243,7 +241,7 @@ namespace Durin
 				FByteBuffer Data;
 			};
 			std::vector<FUpload> Uploads;
-			auto RHIUploadBuffer(FRHIBuffer* Buffer, uint32 Offset,
+			auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset,
 				FByteView Data) -> void override
 			{
 				Uploads.push_back({Buffer, Offset,

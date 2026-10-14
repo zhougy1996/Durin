@@ -641,6 +641,10 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 		// Exercise an upload recorded before any explicit GPU submission.
 		Commands.WriteBuffer(VertexBuffer.GetReference(), Positions,
 			sizeof(Positions), 0);
+		const std::array Transition{Durin::FRHIBufferTransition{
+			VertexBuffer.GetReference(), 0, sizeof(Positions), Durin::ERHIAccess::TransferWrite,
+			Durin::ERHIAccess::VertexBufferRead}};
+		Commands.TransitionBuffers(Transition);
 		auto TextureDesc = Durin::FRHITextureCreateDesc::Create2D(
 			"Metal triangle target", 8, 8, Durin::EPixelFormat::RGBA8_UNORM);
 		TextureDesc.SetFlags(Durin::ETextureCreateFlags::RenderTargetable

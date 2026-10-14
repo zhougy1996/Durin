@@ -552,6 +552,12 @@ namespace Durin::MonaImGui
 			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.UnlockBuffers");
 			GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.VertexBuffer);
 			GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.IndexBuffer);
+			const std::array BufferTransitions{
+				FRHIBufferTransition{RenderBuffers.VertexBuffer, 0, RequiredVertexBufferSize,
+					ERHIAccess::TransferWrite, ERHIAccess::VertexBufferRead},
+				FRHIBufferTransition{RenderBuffers.IndexBuffer, 0, RequiredIndexBufferSize,
+					ERHIAccess::TransferWrite, ERHIAccess::IndexBufferRead}};
+			CommandList.TransitionBuffers(BufferTransitions);
 		}
 
 	}

@@ -1001,7 +1001,7 @@ namespace Durin
 			auto Replacement = GDynamicRHI->RHICreateBuffer(Commands, StorageDesc);
 			ASSERT_TRUE(Replacement);
 			const uint32 Green = 40;
-			Commands.UploadBuffer(Replacement, 4, std::as_bytes(std::span{&Green, 1}));
+			Commands.WriteBuffer(Replacement, 4, std::as_bytes(std::span{&Green, 1}));
 			const auto StorageAccess = bCompute ? ERHIAccess::ComputeShaderRead : ERHIAccess::GraphicsShaderRead;
 			Commands.TransitionBuffers(std::array{FRHIBufferTransition{Replacement, 4, 4,
 				ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead}});

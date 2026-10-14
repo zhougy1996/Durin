@@ -133,10 +133,10 @@ namespace Durin
 		RHI_API auto SetScissor(float MinX, float MinY, float Width, float Height) -> void;
 		RHI_API auto SetDepthBias(float ConstantFactor, float Clamp,
 			float SlopeFactor) -> void;
+		// Owns the source through replay; leaves the written range in TransferWrite.
 		RHI_API auto WriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void;
 		RHI_API auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;
-		RHI_API auto UploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void;
-		RHI_API auto UploadBuffer(FRHIBuffer* Buffer, uint32 Offset,
+		RHI_API auto WriteBuffer(FRHIBuffer* Buffer, uint32 Offset,
 			std::shared_ptr<const FRHIBufferUploadData> Data) -> void;
 		// Owning logical range safe across preparation and recording lists.
 		RHI_API auto CreateUniformBufferRange(const void* Data, uint32 Size) -> FRHIUniformBufferRange;
@@ -221,8 +221,6 @@ namespace Durin
 		RHI_API auto CommitCommand(void* Node, size_t OwnedPayloadBytes) -> void;
 		static auto RecordInvalidDiagnosticRegion() -> void;
 		auto TryAddPipelineDependency(const FRHIPipelineCreationRequest& Request) -> bool;
-		auto RecordBufferUpload(FRHIBuffer* Buffer, uint32 Offset,
-			std::shared_ptr<const FRHIBufferUploadData> Data, bool bRestoreCanonicalAccess) -> void;
 		auto DetachStorage() -> std::unique_ptr<FRHICommandStorage>;
 		auto IsFinished() const -> bool;
 		auto MarkAdmitted() -> void;

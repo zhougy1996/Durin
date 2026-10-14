@@ -1210,19 +1210,15 @@ namespace Durin
 			FByteBuffer Data;
 		};
 
-		template<bool bRestoreCanonicalAccess>
-		struct TBufferUploadCommand
+		struct FBufferWriteCommand
 		{
 			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset;
 			std::shared_ptr<const FRHIBufferUploadData> Data;
 			auto Execute(void* ReplayContext) -> void
 			{
-				auto& Context = GetReplayContext(ReplayContext).GetOperationContext(
-					bRestoreCanonicalAccess ? "WriteBuffer" : "UploadBuffer");
-				if constexpr (bRestoreCanonicalAccess)
-					Context.RHIWriteBuffer(Buffer.GetReference(), Offset, Data->GetData());
-				else Context.RHIUploadBuffer(Buffer.GetReference(), Offset, Data->GetData());
+				auto& Context = GetReplayContext(ReplayContext).GetOperationContext("WriteBuffer");
+				Context.RHIWriteBuffer(Buffer.GetReference(), Offset, Data->GetData());
 			}
 			auto GetOwnedPayloadBytes() const -> size_t { return Data->GetOwnedPayloadBytes(); }
 		};
@@ -2392,30 +2388,17 @@ namespace Durin
 
 	auto FRHICommandListBase::WriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void
 	{
-		RecordBufferUpload(Buffer, Offset, FRHIBufferUploadData::Copy(Data), true);
+		WriteBuffer(Buffer, Offset, FRHIBufferUploadData::Copy(Data));
 	}
 
-	auto FRHICommandListBase::UploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void
-	{
-		UploadBuffer(Buffer, Offset, FRHIBufferUploadData::Copy(Data));
-	}
-
-	auto FRHICommandListBase::UploadBuffer(FRHIBuffer* Buffer, uint32 Offset,
+	auto FRHICommandListBase::WriteBuffer(FRHIBuffer* Buffer, uint32 Offset,
 		std::shared_ptr<const FRHIBufferUploadData> Data) -> void
-	{
-		RecordBufferUpload(Buffer, Offset, std::move(Data), false);
-	}
-
-	auto FRHICommandListBase::RecordBufferUpload(FRHIBuffer* Buffer, uint32 Offset,
-		std::shared_ptr<const FRHIBufferUploadData> Data, bool bRestoreCanonicalAccess) -> void
 	{
 		require(IsRecording());
 		require(Buffer && Data);
 		const auto Bytes = Data->GetData();
 		require(!Bytes.empty() && Offset <= Buffer->GetSize() && Bytes.size() <= Buffer->GetSize() - Offset);
-		if (bRestoreCanonicalAccess)
-			RecordCommand<TBufferUploadCommand<true>>(TRefCountPtr<FRHIBuffer>(Buffer), Offset, std::move(Data));
-		else RecordCommand<TBufferUploadCommand<false>>(TRefCountPtr<FRHIBuffer>(Buffer), Offset, std::move(Data));
+		RecordCommand<FBufferWriteCommand>(TRefCountPtr<FRHIBuffer>(Buffer), Offset, std::move(Data));
 	}
 
 	auto FRHICommandListBase::InitializeTexture(FRHITexture* Texture) -> void
@@ -2580,8 +2563,8 @@ namespace Durin
 			"UnlockBuffer requires a matching LockBuffer.");
 		std::unique_ptr<FLockState::FPendingLock> Pending = std::move(It->second);
 		LockState->PendingLocks.erase(It);
-		RecordBufferUpload(Pending->Buffer.GetReference(), Pending->Offset,
-			FRHIBufferUploadData::Take(std::move(Pending->Data)), true);
+		WriteBuffer(Pending->Buffer.GetReference(), Pending->Offset,
+			FRHIBufferUploadData::Take(std::move(Pending->Data)));
 	}
 
 	auto FRHICommandListImmediate::ReadTexture2D(

@@ -115,6 +115,10 @@ TEST(FMetalRHIBufferTests, UploadThenCopyRetainsBuffersUntilGPUCompletion)
 			const auto Signal = Commands.BeginGPUSubmission(
 				{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 			Commands.WriteBuffer(Source.GetReference(), Pattern, Size, 0);
+			const std::array Transition{Durin::FRHIBufferTransition{
+				Source.GetReference(), 0, Size, Durin::ERHIAccess::TransferWrite,
+				Durin::ERHIAccess::TransferRead}};
+			Commands.TransitionBuffers(Transition);
 			const Durin::FRHIBufferCopyRegion Copy{.SourceOffset = 0,
 				.DestinationOffset = 0, .Size = Size};
 			Commands.CopyBuffer(Source.GetReference(), Destination.GetReference(), {&Copy, 1});
@@ -201,6 +205,10 @@ TEST(FMetalRHIBufferTests, RepeatedCppOwnersSurvivePoolDrainAndReleaseAtShutdown
 					Signal = Commands.BeginGPUSubmission(
 						{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 					Commands.WriteBuffer(Source.GetReference(), Pattern.data(), sizeof(Pattern), 0);
+					const std::array Transition{Durin::FRHIBufferTransition{
+						Source.GetReference(), 0, sizeof(Pattern), Durin::ERHIAccess::TransferWrite,
+						Durin::ERHIAccess::TransferRead}};
+					Commands.TransitionBuffers(Transition);
 					const Durin::FRHIBufferCopyRegion Copy{.Size = sizeof(Pattern)};
 					Commands.CopyBuffer(Source.GetReference(), Destination.GetReference(), {&Copy, 1});
 					Commands.EndGPUSubmission();

@@ -52,15 +52,12 @@ namespace Durin::VulkanRHI
 		VULKANRHI_API auto InvalidateMappedMemory(uint32 Offset = 0, uint32 Size = 0) -> void;
 
 		auto Write(FVulkanCommandListContext& Context, uint32 Offset, FByteView Data) -> void;
-		auto Upload(FVulkanCommandListContext& Context, uint32 Offset, FByteView Data) -> void;
 		auto InitializeUniformRange(FByteView Data, uint32 Offset = 0) -> void;
 
 		auto GetStateTracker() -> FVulkanBufferStateTracker& { return StateTracker; }
 		auto GetStateTracker() const -> const FVulkanBufferStateTracker& { return StateTracker; }
 
 	protected:
-		auto WriteImpl(FVulkanCommandListContext& Context, uint32 Offset,
-			FByteView Data, bool bRestoreCanonicalAccess) -> void;
 		FVulkanDevice& Device;
 
 		vk::Buffer Buffer{};

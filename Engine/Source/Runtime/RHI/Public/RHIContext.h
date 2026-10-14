@@ -79,9 +79,8 @@ namespace Durin
 			std::span<const FRHIBufferTextureCopyRegion> Regions) -> void = 0;
 		virtual auto RHICopyTexture(FRHITexture* Source, FRHITexture* Destination,
 			std::span<const FRHITextureCopyRegion> Regions) -> void = 0;
+		// Leaves the written range in TransferWrite for an explicit caller or graph barrier.
 		virtual auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void = 0;
-		// Leaves the written range in TransferWrite for a graph-managed barrier.
-		virtual auto RHIUploadBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void = 0;
 		virtual auto RHIInitializeTexture(FRHITexture* Texture) -> void = 0;
 		virtual auto RHIUpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void = 0;
 		virtual auto RHIUpdateTexture3D(FRHITexture* Texture, uint32 MipIndex,

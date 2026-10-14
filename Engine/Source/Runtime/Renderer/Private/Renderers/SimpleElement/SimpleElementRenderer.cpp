@@ -403,6 +403,12 @@ namespace Durin
 			return Prepared;
 		CommandList.WriteBuffer(State->VertexBuffer, Vertices.data(), VertexBytes, 0);
 		CommandList.WriteBuffer(State->IndexBuffer, Indices.data(), IndexBytes, 0);
+		const std::array BufferTransitions{
+			FRHIBufferTransition{State->VertexBuffer, 0, VertexBytes,
+				ERHIAccess::TransferWrite, ERHIAccess::VertexBufferRead},
+			FRHIBufferTransition{State->IndexBuffer, 0, IndexBytes,
+				ERHIAccess::TransferWrite, ERHIAccess::IndexBufferRead}};
+		CommandList.TransitionBuffers(BufferTransitions);
 		State->BufferFailureGeneration.reset();
 
 		for (const FPendingDraw& Pending : PendingDraws)

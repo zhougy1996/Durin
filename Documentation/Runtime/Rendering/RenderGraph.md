@@ -260,7 +260,7 @@ never discard the whole resource; buffer barriers cover the complete allocation.
 callback with a pass-scoped resource view, and then records final batches.
 `QueueBufferUpload` copies a byte span; `QueueBufferUploadOwned` moves a byte
 buffer. Each creates a Copy recording pass with an exact `TransferWrite` byte
-use and an RHI `UploadBuffer` command. The destination must declare
+use and an RHI `WriteBuffer` command. The destination must declare
 `DestinationCopy`. Upload sources allocate on demand and share observational
 CPU byte accounting with pending uniform data and native upload commands.
 There is no per-upload, per-builder, or global fixed CPU payload quota.

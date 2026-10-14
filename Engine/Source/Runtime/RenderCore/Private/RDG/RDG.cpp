@@ -546,7 +546,7 @@ namespace Durin
 			[Data = std::move(Owned)](FRHICommandList& Commands,
 				const FBufferUploadParameters& Params,
 				const FRDGParameterResolver& Resolver) {
-				Commands.UploadBuffer(Resolver.GetBuffer(Params.Buffer),
+				Commands.WriteBuffer(Resolver.GetBuffer(Params.Buffer),
 					static_cast<uint32>(Params.Buffer.Offset), Data);
 			});
 		if (Pass.Owner == State->Owner && Pass.Index < State->Passes.size())

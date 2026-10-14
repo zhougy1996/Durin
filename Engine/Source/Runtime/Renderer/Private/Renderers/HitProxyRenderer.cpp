@@ -224,6 +224,9 @@ namespace Durin
 			OverlayBuffer = GDynamicRHI->RHICreateBuffer(Commands, BufferDesc);
 			if (!OverlayBuffer) { Fail(); return; }
 			Commands.WriteBuffer(OverlayBuffer, Vertices.data(), Bytes, 0);
+			const std::array BufferTransitions{FRHIBufferTransition{
+				OverlayBuffer, 0, Bytes, ERHIAccess::TransferWrite, ERHIAccess::VertexBufferRead}};
+			Commands.TransitionBuffers(BufferTransitions);
 		}
 		const auto Color = RHICreateTexture(FRHITextureCreateDesc::Create2D("HitProxyIds", uint32(Width), uint32(Height), EPixelFormat::RG32_UINT)
 			.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));

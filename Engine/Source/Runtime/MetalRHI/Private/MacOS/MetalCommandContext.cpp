@@ -653,9 +653,7 @@ namespace Durin
 				requiref(static_cast<bool>(Encoder), "Metal buffer upload encoder creation failed.");
 				Encoder->copyFromBuffer(Staging, 0, Target->GetHandle(), Offset, Data.size());
 				Encoder->endEncoding();
-				const auto CanonicalAccess = GetMetalCanonicalBufferAccess(Buffer->GetUsage());
-				Target->GetStateTracker().Apply(Offset, Data.size(), CanonicalAccess == ERHIAccess::None
-					? ERHIAccess::TransferWrite : CanonicalAccess);
+				Target->GetStateTracker().Apply(Offset, Data.size(), ERHIAccess::TransferWrite);
 				Active->NativeResources.push_back(NS::RetainPtr(Staging));
 				Active->NativeResources.push_back(NS::RetainPtr(Target->GetHandle()));
 				Active->ResourceOwners.emplace_back(Buffer);
@@ -668,12 +666,6 @@ namespace Durin
 					Pending.push_back(std::move(*Active));
 					Active.reset();
 				}
-			}
-			auto RHIUploadBuffer(FRHIBuffer* Buffer, uint32 Offset,
-			FByteView Data) -> void override
-			{
-				RHIWriteBuffer(Buffer, Offset, Data);
-				if (!Data.empty()) static_cast<FMetalBuffer*>(Buffer)->GetStateTracker().Apply(Offset, Data.size(), ERHIAccess::TransferWrite);
 			}
 			auto RHIInitializeTexture(FRHITexture* Texture) -> void override
 			{

@@ -214,12 +214,12 @@ Immediate flush behavior is explicit:
   preceding batch references have been released.
 
 Buffer and texture uploads are recorded and own their source bytes.
-`UploadBuffer` records an owned byte snapshot like `WriteBuffer`, but leaves
-the written range in `TransferWrite` for a graph-managed next barrier.
-`WriteBuffer` keeps its canonical-access restoration contract. Write-only buffer
-locks allocate CPU staging and record `WriteBuffer` at unlock; they do not
-provide native mappings. Uniform resources use `UpdateUniformBuffer`; ordinary
-buffers use ordered `WriteBuffer`/`UploadBuffer` commands. Operations
+`WriteBuffer` leaves the written range in `TransferWrite` for an explicit
+caller transition or a graph-managed next barrier. It does not restore canonical
+access. Write-only buffer locks allocate CPU temporary storage and transfer it
+into `WriteBuffer` at unlock without copying the bytes; they do not provide
+native mappings. Uniform resources use `UpdateUniformBuffer`; ordinary buffers
+use ordered `WriteBuffer` commands. Operations
 that must return a completed result—texture readback,
 back-buffer acquisition, GPU-idle waits, resource creation, viewport resize,
 and backend-dependent allocation—use declared synchronous executor operations.

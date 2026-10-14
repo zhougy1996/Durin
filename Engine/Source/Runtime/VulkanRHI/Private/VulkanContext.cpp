@@ -904,21 +904,11 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanCommandListContext::RHIWriteBuffer(
-		FRHIBuffer* Buffer,
-		uint32 Offset,
-		FByteView Data) -> void
-	{
-		CheckVulkanRHIThread();
-		check(Buffer);
-		FVulkanBuffer::Cast(Buffer)->Write(*this, Offset, Data);
-	}
-
-	auto FVulkanCommandListContext::RHIUploadBuffer(
 		FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void
 	{
 		CheckVulkanRHIThread();
 		check(Buffer);
-		FVulkanBuffer::Cast(Buffer)->Upload(*this, Offset, Data);
+		FVulkanBuffer::Cast(Buffer)->Write(*this, Offset, Data);
 	}
 
 	auto FVulkanCommandListContext::RHIInitializeTexture(
