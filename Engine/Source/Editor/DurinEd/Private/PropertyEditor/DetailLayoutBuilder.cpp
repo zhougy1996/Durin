@@ -237,7 +237,10 @@ namespace Durin::Editor
 			if (Row.Property)
 				Result.bChanged |= PropertyView.EditProperty(ViewContext, Row.Object, Row.Property, Row.ArrayIndex, Row.Options);
 			else
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("Details.CustomRow");
 				Result.bChanged |= Row.Drawer(PropertyView, ViewContext);
+			}
 		}
 		if (CurrentCategory != nullptr && bGroupOpen) MonaImGui::PropertyEdit::EndGroup();
 		return Result;

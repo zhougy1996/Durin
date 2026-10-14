@@ -87,7 +87,7 @@ namespace Durin::MonaImGui::PropertyEdit
 
 		template<typename TVector>
 		auto EditVectorRow(const char* Label, TVector& Value, bool bReadOnly, double Speed,
-			FWidgetState* OutState, const FValueWidgetConfig& Config, const char* LabelTooltip) -> bool
+			FWidgetState* OutState, const FValueWidgetConfig& Config, FLabelTooltip LabelTooltip) -> bool
 		{
 			BeginRow(Label, bReadOnly, 0.0f, LabelTooltip);
 			const bool bChanged = EditVectorValue(Label, Value, Speed, OutState, Config);
@@ -178,43 +178,43 @@ namespace Durin::MonaImGui::PropertyEdit
 	}
 
 	auto EditVector(const char* Label, FVector2& Value, bool bReadOnly, double Speed,
-		FWidgetState* OutState, const FValueWidgetConfig& Config, const char* LabelTooltip) -> bool
+		FWidgetState* OutState, const FValueWidgetConfig& Config, FLabelTooltip LabelTooltip) -> bool
 	{
 		return EditVectorRow(Label, Value, bReadOnly, Speed, OutState, Config, LabelTooltip);
 	}
 
 	auto EditVector(const char* Label, FVector3& Value, bool bReadOnly, double Speed,
-		FWidgetState* OutState, const FValueWidgetConfig& Config, const char* LabelTooltip) -> bool
+		FWidgetState* OutState, const FValueWidgetConfig& Config, FLabelTooltip LabelTooltip) -> bool
 	{
 		return EditVectorRow(Label, Value, bReadOnly, Speed, OutState, Config, LabelTooltip);
 	}
 
 	auto EditVector(const char* Label, FVector4& Value, bool bReadOnly, double Speed,
-		FWidgetState* OutState, const FValueWidgetConfig& Config, const char* LabelTooltip) -> bool
+		FWidgetState* OutState, const FValueWidgetConfig& Config, FLabelTooltip LabelTooltip) -> bool
 	{
 		return EditVectorRow(Label, Value, bReadOnly, Speed, OutState, Config, LabelTooltip);
 	}
 
 	auto EditVector(const char* Label, FVector2f& Value, bool bReadOnly, double Speed,
-		FWidgetState* OutState, const FValueWidgetConfig& Config, const char* LabelTooltip) -> bool
+		FWidgetState* OutState, const FValueWidgetConfig& Config, FLabelTooltip LabelTooltip) -> bool
 	{
 		return EditVectorRow(Label, Value, bReadOnly, Speed, OutState, Config, LabelTooltip);
 	}
 
 	auto EditVector(const char* Label, FVector3f& Value, bool bReadOnly, double Speed,
-		FWidgetState* OutState, const FValueWidgetConfig& Config, const char* LabelTooltip) -> bool
+		FWidgetState* OutState, const FValueWidgetConfig& Config, FLabelTooltip LabelTooltip) -> bool
 	{
 		return EditVectorRow(Label, Value, bReadOnly, Speed, OutState, Config, LabelTooltip);
 	}
 
 	auto EditVector(const char* Label, FVector4f& Value, bool bReadOnly, double Speed,
-		FWidgetState* OutState, const FValueWidgetConfig& Config, const char* LabelTooltip) -> bool
+		FWidgetState* OutState, const FValueWidgetConfig& Config, FLabelTooltip LabelTooltip) -> bool
 	{
 		return EditVectorRow(Label, Value, bReadOnly, Speed, OutState, Config, LabelTooltip);
 	}
 
 	auto EditQuat(const char* Label, FQuat& Value, bool bReadOnly, FWidgetState* OutState,
-		const char* LabelTooltip) -> bool
+		FLabelTooltip LabelTooltip) -> bool
 	{
 		FVector3 RotationDegrees = QuatToEulerDegrees(Value);
 		if (!EditVector(Label, RotationDegrees, bReadOnly, 0.25, OutState, {}, LabelTooltip)) return false;
@@ -278,7 +278,7 @@ namespace Durin::MonaImGui::PropertyEdit
 		ImGui::TreePop();
 	}
 
-	auto BeginRow(const char* Label, bool bReadOnly, float LabelIndent, const char* LabelTooltip) -> void
+	auto BeginRow(const char* Label, bool bReadOnly, float LabelIndent, FLabelTooltip LabelTooltip) -> void
 	{
 		ImGui::TableNextRow();
 		ImGui::TableSetColumnIndex(0);
@@ -299,22 +299,24 @@ namespace Durin::MonaImGui::PropertyEdit
 		if (bReadOnly) ImGui::EndDisabled();
 	}
 
-	auto ShowLabelTooltip(const char* LabelTooltip, bool bReadOnly) -> void
+	auto ShowLabelTooltip(FLabelTooltip LabelTooltip, bool bReadOnly) -> void
 	{
-		if ((!LabelTooltip || LabelTooltip[0] == '\0') && !bReadOnly) return;
+		if (!LabelTooltip.Builder && (!LabelTooltip.Text || LabelTooltip.Text[0] == '\0') && !bReadOnly) return;
 		if (!ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) return;
+		const std::string Generated = LabelTooltip.Builder ? LabelTooltip.Builder(LabelTooltip.Context) : std::string{};
+		const char* Text = LabelTooltip.Builder ? Generated.c_str() : LabelTooltip.Text;
 		ImGui::BeginTooltip();
-		if (LabelTooltip && LabelTooltip[0] != '\0') ImGui::TextUnformatted(LabelTooltip);
+		if (Text && Text[0] != '\0') ImGui::TextUnformatted(Text);
 		if (bReadOnly)
 		{
-			if (LabelTooltip && LabelTooltip[0] != '\0') ImGui::Separator();
+			if (Text && Text[0] != '\0') ImGui::Separator();
 			ImGui::TextDisabled("Read-only");
 		}
 		ImGui::EndTooltip();
 	}
 
 	auto EditTransform(const char* Label, FTransform& Transform, bool bReadOnly, FWidgetState* OutState,
-		const char* LabelTooltip, bool bShowHeader) -> bool
+		FLabelTooltip LabelTooltip, bool bShowHeader) -> bool
 	{
 		if (bShowHeader)
 		{
@@ -345,7 +347,7 @@ namespace Durin::MonaImGui::PropertyEdit
 	}
 
 	auto EditColor(const char* Label, FLinearColor& Color, bool bShowAlpha, bool bReadOnly,
-		FWidgetState* OutState, const char* LabelTooltip) -> bool
+		FWidgetState* OutState, FLabelTooltip LabelTooltip) -> bool
 	{
 		ImGui::PushID(Label);
 		BeginRow(Label, bReadOnly, 0.0f, LabelTooltip);

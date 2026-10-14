@@ -109,7 +109,22 @@ collapsed slot arrays do not build a drawing model. Models are rebuilt for each
 draw so preceding mesh edits are reflected immediately. Tracy separates
 `Details.BuildLayout`, `Details.FilterAndSortRows`, `Details.DrawRows`,
 `LevelEditor.Details.ComponentTree`, `LevelEditor.Details.Materials`, and
-`LevelEditor.Details.MaterialModel`.
+`LevelEditor.Details.MaterialModel`. Within `Details.DrawRows`,
+`Details.ReflectedRow` separates reflected rows from `Details.CustomRow` callbacks.
+Reflected rows split into `Details.Property.Prepare` (validation, labels, flags,
+and flags), `Details.Property.Widget` (ordinary controls), and
+`Details.Property.SubmitEdit` (proposal submission and active-edit finalization).
+`Details.Property.Struct`, `.Array`, and `.Map` cover recursive/container editors;
+`Details.Property.TypeTooltip` measures reflected type and tooltip formatting
+inside those editors. Parent zones include their child-zone costs.
+Ordinary root widgets and inline struct fields create their reflected edit targets
+only when a value changes, an edit deactivates, or an active control receives Esc.
+`Details.Property.BuildEditTarget` measures those constructions; complex/container
+editors retain their explicit paths. Floating-point precision formats use immutable
+predefined strings for the full nonnegative `int8` precision range. Property labels
+accept a non-owning `FLabelTooltip` source whose builder runs synchronously only
+when the label is hovered; it reads current metadata without a cross-frame cache.
+Legacy text tooltips remain supported through implicit conversion.
 
 The result reports owner readiness, table drawing, visible rows, and changes;
 search, table identity, host context, and empty-state presentation are options.

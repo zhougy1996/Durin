@@ -6,6 +6,8 @@
 #include "EngineTestSupport.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Components/SceneComponent.h"
+#include "Components/PointLightComponent.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "PropertyEditor/DetailPanel.h"
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
@@ -208,4 +210,105 @@ TEST(FSharedDetailCustomizationTests, CachedRowsFollowDeclarationsAndCategoryLab
 	EXPECT_EQ(Layout.GetVisibleRowCount(), 129u);
 	Layout.HideCategory("Controls");
 	EXPECT_EQ(Layout.GetVisibleRowCount(), 0u);
+}
+
+TEST(FSharedDetailCustomizationTests, DeferredTargetsPreserveDragReleaseEscapeAndUndoRedo)
+{
+	InitializeDObjectSystem();
+	auto* Light = Durin::NewObject<Durin::DPointLightComponent>(nullptr, "DeferredTargetLight");
+	auto* Intensity = Light->GetClass()->FindPropertyByName("Intensity");
+	ASSERT_NE(Intensity, nullptr);
+	std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> ImContext(ImGui::CreateContext(), &ImGui::DestroyContext);
+	ASSERT_NE(ImContext, nullptr);
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {800.0f, 600.0f};
+	IO.IniFilename = nullptr;
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.Fonts->Build();
+	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Editor::FPropertyView View;
+	const Durin::Editor::FPropertyViewContext Context{.Transactor = Transactions.Get()};
+	ASSERT_TRUE(View.HandleOwnerContext(Context, Light));
+	ImVec2 Center;
+	const auto Draw = [&] {
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0.0f, 0.0f});
+		ImGui::SetNextWindowSize({600.0f, 300.0f});
+		ImGui::Begin("Deferred Targets", nullptr, ImGuiWindowFlags_NoTitleBar);
+		if (Durin::MonaImGui::PropertyEdit::BeginTable("DeferredRows"))
+		{
+			View.EditProperty(Context, Light, Intensity);
+			const ImVec2 Min = ImGui::GetItemRectMin();
+			const ImVec2 Max = ImGui::GetItemRectMax();
+			Center = {(Min.x + Max.x) * 0.5f, (Min.y + Max.y) * 0.5f};
+			Durin::MonaImGui::PropertyEdit::EndTable();
+		}
+		ImGui::End();
+		ImGui::EndFrame(); // Exercise widgets without rendering or a GPU backend.
+	};
+	const auto Value = [&] { return *Intensity->ContainerPtrToValuePtr<float>(Light); };
+	const float Original = Value();
+	Draw(); Draw();
+	EXPECT_FALSE(View.IsEditing());
+	const auto Drag = [&](float Distance) {
+		IO.AddMousePosEvent(Center.x, Center.y); Draw();
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true); Draw();
+		IO.AddMousePosEvent(Center.x + Distance, Center.y); Draw(); Draw();
+	};
+	Drag(50.0f);
+	ASSERT_TRUE(View.IsEditing());
+	ASSERT_NE(Value(), Original);
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false); Draw(); Draw();
+	EXPECT_FALSE(View.IsEditing());
+	const float Committed = Value();
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Value(), Original);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Value(), Committed);
+	for (uint32 Frame = 0; Frame < 30; ++Frame) Draw(); // Avoid double-click text entry.
+	Drag(40.0f);
+	ASSERT_TRUE(View.IsEditing());
+	IO.AddKeyEvent(ImGuiKey_Escape, true); Draw();
+	EXPECT_FALSE(View.IsEditing());
+	EXPECT_EQ(Value(), Committed);
+	IO.AddKeyEvent(ImGuiKey_Escape, false);
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false); Draw();
+	ASSERT_TRUE(Transactions->Reset());
+	Durin::MarkObjectHierarchyAsGarbage(Light);
+	Durin::CollectGarbage();
+}
+
+TEST(FSharedDetailCustomizationTests, LazyTooltipBuildsOnlyAfterLabelHover)
+{
+	std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> ImContext(ImGui::CreateContext(), &ImGui::DestroyContext);
+	ASSERT_NE(ImContext, nullptr);
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {800.0f, 600.0f};
+	IO.IniFilename = nullptr;
+	IO.DeltaTime = 0.1f;
+	IO.Fonts->Build();
+	uint32 Builds = 0;
+	const Durin::MonaImGui::PropertyEdit::FLabelTooltip Tooltip(&Builds, [](const void* Context) {
+		++*const_cast<uint32*>(static_cast<const uint32*>(Context));
+		return std::string("Current metadata");
+	});
+	const auto Draw = [&] {
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0.0f, 0.0f});
+		ImGui::SetNextWindowSize({300.0f, 200.0f});
+		ImGui::Begin("Lazy Tooltip", nullptr, ImGuiWindowFlags_NoTitleBar);
+		ImGui::SetCursorScreenPos({40.0f, 40.0f});
+		ImGui::TextUnformatted("Label");
+		Durin::MonaImGui::PropertyEdit::ShowLabelTooltip(Tooltip);
+		ImGui::End(); ImGui::EndFrame();
+	};
+	IO.AddMousePosEvent(700.0f, 500.0f);
+	for (uint32 Frame = 0; Frame < 10; ++Frame) Draw();
+	EXPECT_EQ(Builds, 0u);
+	IO.AddMousePosEvent(45.0f, 45.0f);
+	for (uint32 Frame = 0; Frame < 10; ++Frame) Draw();
+	EXPECT_GT(Builds, 0u);
+	const uint32 HoverBuilds = Builds;
+	IO.AddMousePosEvent(700.0f, 500.0f); Draw();
+	EXPECT_EQ(Builds, HoverBuilds);
 }

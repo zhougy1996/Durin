@@ -159,6 +159,9 @@ namespace Durin::Editor
 			bool bReadOnly,
 			const FPropertyEditTarget& EditTarget, bool bShowTransformHeader = true
 		) -> bool;
+		auto DrawAndSubmitPropertyWidget(const FPropertyViewContext& Context, DObject* Object,
+			FProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly,
+			const FPropertyEditTarget* ExistingTarget = nullptr, bool bStructMember = false, bool bShowTransformHeader = true) -> bool;
 		auto EditPropertyWidget(
 			const FPropertyViewContext& Context,
 			FProperty* Property,
