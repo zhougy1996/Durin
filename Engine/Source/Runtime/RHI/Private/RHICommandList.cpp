@@ -2908,6 +2908,7 @@ namespace Durin
 			}
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Commands.Replay");
+				DURIN_PROFILE_CPU_ZONE_TEXT(std::format("commands={}", Group.GetCommandCount()));
 				Group.Replay(State->ReplayContext);
 			}
 			const auto ReplayEnd = std::chrono::steady_clock::now();
@@ -2918,6 +2919,7 @@ namespace Durin
 
 			if (EnumHasAnyFlags(Group.GetFlags(), ERHISubmitFlags::SubmitToGPU))
 			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("RHI.SubmitCommands");
 				State->ReplayContext.GetOperationContext("SubmitToGPU")
 					.RHISubmitCommands();
 			}

@@ -196,6 +196,37 @@ main-viewport submission, platform-window updates, and platform-window submissio
 under `MonaImGui.*`. These are CPU elapsed-time zones; frame synchronization may
 include downstream backlog. There is no separate UI tick phase.
 
+ImGui RHI instrumentation separates main-thread `MonaImGui.RHI.PrepareViewport`,
+`SnapshotDrawData`, `EnqueueViewport`, and `PrepareTextures` work from render-thread
+`RenderViewport`, `BeginViewport`, `GetBackBuffer`, `RenderDrawData`, and
+`EndViewport` recording. All shortened names here have the `MonaImGui.RHI.` prefix.
+`UpdateBuffers` contains `GrowVertexBuffer` / `GrowIndexBuffer`, `LockBuffers`,
+`CopyBuffers`, and `UnlockBuffers`; its zone text reports required upload bytes and
+existing buffer capacities. `ProjectionUniform`, `SetupRenderState`, and
+`DrawCommands` isolate state preparation and draw recording. Draw-command zone
+text reports submitted draws, clipped commands, callbacks, and vertex/index
+counts per viewport invocation; snapshot text also identifies the viewport.
+`UpdateTexture` and `WaitTextureUpload` expose conditional atlas updates and their
+explicit render-thread flush waits. Draw-command text also reports common-state setup,
+scissor-update, and texture-bind counts. Common state is set once per pass and
+restored after user callbacks; ResetRenderState callbacks restore it immediately.
+Clipped commands are rejected before restoring or binding state, and unchanged
+scissor/texture bindings are reused within the pass. Callback invalidation resets
+both binding caches. No state is cached across passes or frames. Buffer growth
+retains approximately 50% headroom, with minimum capacities of 64 KiB for vertices
+and 16 KiB for indices, rounded to element sizes and saturated at the RHI byte-size
+limit. Each in-flight buffer retains its capacity without automatic shrinking.
+Only required bytes are uploaded; grow-zone text reports required and allocated
+capacity bytes.
+
+RHI-thread `RHI.Commands.Replay` reports recorded command counts and
+`RHI.SubmitCommands` measures backend submission, alongside existing Vulkan
+submission/acquire/present/wait zones. These are CPU measurements, not GPU
+execution timestamps. For Details comparisons, keep scene, window layout,
+viewport count, and capture settings fixed, warm up glyph uploads and buffer
+growth, then compare open/closed steady frames on each thread. Parent timings
+include their nested zones; invocation counts are not frame-wide totals.
+
 ### Task Correlation And Owner Plots
 
 Profiling builds correlate task phases with the same process-unique nonzero task

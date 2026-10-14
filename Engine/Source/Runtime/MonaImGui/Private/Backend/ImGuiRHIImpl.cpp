@@ -1,4 +1,7 @@
 #include "ImGuiRHIImpl.h"
+#include "ImGuiRHIDrawState.h"
+#include "ImGuiRHIBufferCapacity.h"
+#include "Profiling/Profiling.h"
 
 #include "ThirdParty/ImGui/imgui_threaded_rendering.h"
 
@@ -155,11 +158,14 @@ namespace Durin::MonaImGui
 
 	static auto SnapshotViewportDrawData(ImGuiViewport* Viewport, ImDrawData* DrawData) -> ImDrawData*
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.SnapshotDrawData");
 		auto* ViewportData = GetRendererViewportData(Viewport);
 		check(ViewportData != nullptr);
 
 		const uint32 SnapshotIndex = ViewportData->NextSnapshotIndex;
 		ImDrawDataSnapshot& Snapshot = ViewportData->DrawDataSnapshots[SnapshotIndex];
+		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("viewport={} lists={} vertices={} indices={}", Viewport->ID,
+			DrawData->CmdListsCount, DrawData->TotalVtxCount, DrawData->TotalIdxCount));
 		Snapshot.SnapUsingSwap(DrawData, FTime::Seconds());
 		ViewportData->NextSnapshotIndex = (SnapshotIndex + 1) % ViewportData->DrawDataSnapshots.size();
 		return &Snapshot.DrawData;
@@ -182,7 +188,10 @@ namespace Durin::MonaImGui
 			return;
 		}
 
-		ViewportData.ViewportRHI = Renderer->PrepareViewportForDraw(*Window);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.PrepareViewport");
+			ViewportData.ViewportRHI = Renderer->PrepareViewportForDraw(*Window);
+		}
 		if (ViewportData.ViewportRHI == nullptr)
 		{
 			return;
@@ -479,46 +488,77 @@ namespace Durin::MonaImGui
 
 	static auto ImGuiRHIImplRT_UpdateBuffers(FRHICommandListImmediate& CommandList, const ImDrawData* DrawData, FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.UpdateBuffers");
 		check(IsInRenderingThread());
 
 		if (DrawData->TotalVtxCount <= 0) return;
 
-		uint32 RequiredVertexBufferSize = DrawData->TotalVtxCount * sizeof(ImDrawVert);
-		uint32 RequiredIndexBufferSize = DrawData->TotalIdxCount * sizeof(ImDrawIdx);
+		const uint64 VertexBytes = static_cast<uint64>(DrawData->TotalVtxCount) * sizeof(ImDrawVert);
+		const uint64 IndexBytes = static_cast<uint64>(DrawData->TotalIdxCount) * sizeof(ImDrawIdx);
+		require(VertexBytes <= std::numeric_limits<uint32>::max() && IndexBytes <= std::numeric_limits<uint32>::max());
+		const uint32 RequiredVertexBufferSize = static_cast<uint32>(VertexBytes);
+		const uint32 RequiredIndexBufferSize = static_cast<uint32>(IndexBytes);
+		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("vertexBytes={} indexBytes={} vertexCapacity={} indexCapacity={}",
+			RequiredVertexBufferSize, RequiredIndexBufferSize,
+			RenderBuffers.VertexBuffer ? RenderBuffers.VertexBuffer->GetSize() : 0,
+			RenderBuffers.IndexBuffer ? RenderBuffers.IndexBuffer->GetSize() : 0));
 
 		if (RenderBuffers.VertexBuffer == nullptr || RenderBuffers.VertexBuffer->GetSize() < RequiredVertexBufferSize)
 		{
-			FRHIBufferCreateDesc VertexBufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("ImGuiVertexBuffer", RequiredVertexBufferSize);
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.GrowVertexBuffer");
+			const uint32 Capacity = ComputeImGuiBufferCapacity(
+				RenderBuffers.VertexBuffer ? RenderBuffers.VertexBuffer->GetSize() : 0,
+				RequiredVertexBufferSize, 64 * 1024, sizeof(ImDrawVert));
+			DURIN_PROFILE_CPU_ZONE_TEXT(std::format("requiredBytes={} capacityBytes={}", RequiredVertexBufferSize, Capacity));
+			FRHIBufferCreateDesc VertexBufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("ImGuiVertexBuffer", Capacity);
 			VertexBufferCreateDesc.Usage |= EBufferUsageFlags::Dynamic;
 			RenderBuffers.VertexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, VertexBufferCreateDesc);
 		}
 		if (RenderBuffers.IndexBuffer == nullptr || RenderBuffers.IndexBuffer->GetSize() < RequiredIndexBufferSize)
 		{
-			FRHIBufferCreateDesc IndexBufferCreateDesc = FRHIBufferCreateDesc::CreateIndex("ImGuiIndexBuffer", RequiredIndexBufferSize, sizeof(ImDrawIdx));
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.GrowIndexBuffer");
+			const uint32 Capacity = ComputeImGuiBufferCapacity(
+				RenderBuffers.IndexBuffer ? RenderBuffers.IndexBuffer->GetSize() : 0,
+				RequiredIndexBufferSize, 16 * 1024, sizeof(ImDrawIdx));
+			DURIN_PROFILE_CPU_ZONE_TEXT(std::format("requiredBytes={} capacityBytes={}", RequiredIndexBufferSize, Capacity));
+			FRHIBufferCreateDesc IndexBufferCreateDesc = FRHIBufferCreateDesc::CreateIndex("ImGuiIndexBuffer", Capacity, sizeof(ImDrawIdx));
 			IndexBufferCreateDesc.Usage |= EBufferUsageFlags::Dynamic;
 			RenderBuffers.IndexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, IndexBufferCreateDesc);
 		}
 
-		void* VertexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.VertexBuffer, 0, RequiredVertexBufferSize, EResourceLockMode::WriteOnly);
-		void* IndexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.IndexBuffer, 0, RequiredIndexBufferSize, EResourceLockMode::WriteOnly);
+		void* VertexBufferData = nullptr;
+		void* IndexBufferData = nullptr;
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.LockBuffers");
+			VertexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.VertexBuffer, 0, RequiredVertexBufferSize, EResourceLockMode::WriteOnly);
+			IndexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.IndexBuffer, 0, RequiredIndexBufferSize, EResourceLockMode::WriteOnly);
+		}
 
 		auto VertexBufferDst = static_cast<ImDrawVert*>(VertexBufferData);
 		auto IndexBufferDst = static_cast<ImDrawIdx*>(IndexBufferData);
 
-		for (const ImDrawList* DrawList : DrawData->CmdLists)
 		{
-			memcpy(VertexBufferDst, DrawList->VtxBuffer.Data, DrawList->VtxBuffer.Size * sizeof(ImDrawVert));
-			memcpy(IndexBufferDst, DrawList->IdxBuffer.Data, DrawList->IdxBuffer.Size * sizeof(ImDrawIdx));
-			VertexBufferDst += DrawList->VtxBuffer.Size;
-			IndexBufferDst += DrawList->IdxBuffer.Size;
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.CopyBuffers");
+			for (const ImDrawList* DrawList : DrawData->CmdLists)
+			{
+				memcpy(VertexBufferDst, DrawList->VtxBuffer.Data, DrawList->VtxBuffer.Size * sizeof(ImDrawVert));
+				memcpy(IndexBufferDst, DrawList->IdxBuffer.Data, DrawList->IdxBuffer.Size * sizeof(ImDrawIdx));
+				VertexBufferDst += DrawList->VtxBuffer.Size;
+				IndexBufferDst += DrawList->IdxBuffer.Size;
+			}
 		}
 
-		GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.VertexBuffer);
-		GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.IndexBuffer);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.UnlockBuffers");
+			GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.VertexBuffer);
+			GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.IndexBuffer);
+		}
+
 	}
 
 	static auto ImGuiRHIImpl_UpdateTexture(ImTextureData* InTex) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.UpdateTexture");
 		if (InTex->Status == ImTextureStatus_WantCreate)
 		{
 			check(InTex->TexID == ImTextureID_Invalid && InTex->BackendUserData == nullptr);
@@ -548,7 +588,10 @@ namespace Durin::MonaImGui
 				GDynamicRHI->RHIUpdateTexture2D(CommandList, BackendTexture->Texture, 0, 0, UpdateRegion, SourcePitch, TexPixels);
 			});
 
-			FlushRenderingCommands(); // Make sure the texture update is processed before the texture is used for rendering in the next frame.
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.WaitTextureUpload");
+				FlushRenderingCommands();
+			}
 			InTex->SetTexID(reinterpret_cast<ImTextureID>(BackendTexture->Texture.GetReference()));
 			InTex->SetStatus(ImTextureStatus_OK);
 		}
@@ -573,7 +616,10 @@ namespace Durin::MonaImGui
 				});
 			}
 
-			FlushRenderingCommands(); // Ensure atlas updates are visible before rendering new glyphs.
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.WaitTextureUpload");
+				FlushRenderingCommands();
+			}
 			InTex->SetStatus(ImTextureStatus_OK);
 		}
 
@@ -590,6 +636,7 @@ namespace Durin::MonaImGui
 
 	static auto ImGuiRHIImplRT_CreateProjectionUniform(FRHICommandListImmediate& CommandList, const ImDrawData* DrawData) -> FRHIUniformBufferRange
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.ProjectionUniform");
 		FImGuiRHIImpl_ConstantBufferData ProjectionData;
 		ProjectionData.Scale.x = 2.0f / DrawData->DisplaySize.x;
 		ProjectionData.Scale.y = 2.0f / DrawData->DisplaySize.y;
@@ -606,6 +653,7 @@ namespace Durin::MonaImGui
 		const FGraphicsPipelineStateRHIRef& PipelineState
 	) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.SetupRenderState");
 		const int32 FrameBufferWidth = static_cast<int32>(DrawData->DisplaySize.x * DrawData->FramebufferScale.x);
 		const int32 FrameBufferHeight = static_cast<int32>(DrawData->DisplaySize.y * DrawData->FramebufferScale.y);
 
@@ -632,6 +680,7 @@ namespace Durin::MonaImGui
 		const FGraphicsPipelineStateRHIRef& PipelineState
 	) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.RenderDrawData");
 		check(IsInRenderingThread());
 		const ImVec2 ClipOff = DrawData->DisplayPos;
 		const ImVec2 ClipScale = DrawData->FramebufferScale;
@@ -658,56 +707,87 @@ namespace Durin::MonaImGui
 
 		int GlobalVertexOffset = 0;
 		int GlobalIndexOffset = 0;
+		FImGuiRHIDrawState DrawState;
+		DrawState.OnRenderStateSetup();
 
-		for (const ImDrawList* DrawList : DrawData->CmdLists)
 		{
-			for (int CmdIndex = 0; CmdIndex < DrawList->CmdBuffer.Size; CmdIndex++)
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.DrawCommands");
+			uint32 DrawCount = 0;
+			uint32 ClippedCount = 0;
+			uint32 CallbackCount = 0;
+			uint32 SetupCount = 1; // Initial setup before this loop.
+			uint32 ScissorCount = 0;
+			uint32 TextureBindCount = 0;
+			for (const ImDrawList* DrawList : DrawData->CmdLists)
 			{
-				const ImDrawCmd* Cmd = &DrawList->CmdBuffer[CmdIndex];
-				if (Cmd->UserCallback != nullptr)
+				for (int CmdIndex = 0; CmdIndex < DrawList->CmdBuffer.Size; CmdIndex++)
 				{
-					// User callback, registered via ImDrawList::AddCallback()
-					// (ImDrawCallback_ResetRenderState is a special callback value used by the user to request the renderer to reset render state.)
-					if (Cmd->UserCallback == ImDrawCallback_ResetRenderState)
+					const ImDrawCmd* Cmd = &DrawList->CmdBuffer[CmdIndex];
+					if (Cmd->UserCallback != nullptr)
 					{
-						ImGuiRHIImplRT_SetupRenderState(
-							CommandList, DrawData, RenderBuffers,
-							ProjectionUniform, PipelineState);
+						++CallbackCount;
+						DrawState.Invalidate();
+						// User callback, registered via ImDrawList::AddCallback()
+						// (ImDrawCallback_ResetRenderState is a special callback value used by the user to request the renderer to reset render state.)
+						if (Cmd->UserCallback == ImDrawCallback_ResetRenderState)
+						{
+							ImGuiRHIImplRT_SetupRenderState(
+								CommandList, DrawData, RenderBuffers,
+								ProjectionUniform, PipelineState);
+							DrawState.OnRenderStateSetup();
+							++SetupCount;
+						}
+						else
+						{
+							Cmd->UserCallback(DrawList, Cmd);
+						}
 					}
 					else
 					{
-						Cmd->UserCallback(DrawList, Cmd);
+						const ImVec2 ClipMin((Cmd->ClipRect.x - ClipOff.x) * ClipScale.x, (Cmd->ClipRect.y - ClipOff.y) * ClipScale.y);
+						const ImVec2 ClipMax((Cmd->ClipRect.z - ClipOff.x) * ClipScale.x, (Cmd->ClipRect.w - ClipOff.y) * ClipScale.y);
+
+						const float ScissorMinX = std::max(0.0f, ClipMin.x);
+						const float ScissorMinY = std::max(0.0f, ClipMin.y);
+						const float ScissorMaxX = std::min(static_cast<float>(FrameBufferWidth), ClipMax.x);
+						const float ScissorMaxY = std::min(static_cast<float>(FrameBufferHeight), ClipMax.y);
+						if (ScissorMaxX <= ScissorMinX || ScissorMaxY <= ScissorMinY)
+						{
+							++ClippedCount;
+							continue;
+						}
+						if (DrawState.NeedsRenderStateSetup())
+						{
+							ImGuiRHIImplRT_SetupRenderState(CommandList, DrawData, RenderBuffers, ProjectionUniform, PipelineState);
+							DrawState.OnRenderStateSetup();
+							++SetupCount;
+						}
+						const std::array Scissor{ScissorMinX, ScissorMinY, ScissorMaxX - ScissorMinX, ScissorMaxY - ScissorMinY};
+						if (DrawState.ShouldSetScissor(Scissor))
+						{
+							CommandList.SetScissor(Scissor[0], Scissor[1], Scissor[2], Scissor[3]);
+							++ScissorCount;
+						}
+						auto* Texture = reinterpret_cast<FRHITexture*>(Cmd->GetTexID());
+						if (DrawState.ShouldBindTexture(Texture))
+						{
+							FImGuiFragmentShader::FParameters ShaderParameters;
+							ShaderParameters.FontTexture = Texture;
+							ShaderParameters.FontSampler = GBackendState.LinearSampler;
+							SetShaderParameters(CommandList, GBackendState.FragmentShader, ShaderParameters);
+							++TextureBindCount;
+						}
+
+						CommandList.DrawIndexed(Cmd->ElemCount, Cmd->IdxOffset + GlobalIndexOffset, Cmd->VtxOffset + GlobalVertexOffset);
+						++DrawCount;
 					}
 				}
-				else
-				{
-					ImGuiRHIImplRT_SetupRenderState(
-						CommandList, DrawData, RenderBuffers,
-						ProjectionUniform, PipelineState);
-
-					const ImVec2 ClipMin((Cmd->ClipRect.x - ClipOff.x) * ClipScale.x, (Cmd->ClipRect.y - ClipOff.y) * ClipScale.y);
-					const ImVec2 ClipMax((Cmd->ClipRect.z - ClipOff.x) * ClipScale.x, (Cmd->ClipRect.w - ClipOff.y) * ClipScale.y);
-
-					const float ScissorMinX = std::max(0.0f, ClipMin.x);
-					const float ScissorMinY = std::max(0.0f, ClipMin.y);
-					const float ScissorMaxX = std::min(static_cast<float>(FrameBufferWidth), ClipMax.x);
-					const float ScissorMaxY = std::min(static_cast<float>(FrameBufferHeight), ClipMax.y);
-					if (ScissorMaxX <= ScissorMinX || ScissorMaxY <= ScissorMinY)
-					{
-						continue;
-					}
-					CommandList.SetScissor(ScissorMinX, ScissorMinY, ScissorMaxX - ScissorMinX, ScissorMaxY - ScissorMinY);
-
-					FImGuiFragmentShader::FParameters ShaderParameters;
-					ShaderParameters.FontTexture = reinterpret_cast<FRHITexture*>(Cmd->GetTexID());
-					ShaderParameters.FontSampler = GBackendState.LinearSampler;
-					SetShaderParameters(CommandList, GBackendState.FragmentShader, ShaderParameters);
-
-					CommandList.DrawIndexed(Cmd->ElemCount, Cmd->IdxOffset + GlobalIndexOffset, Cmd->VtxOffset + GlobalVertexOffset);
-				}
+				GlobalIndexOffset += DrawList->IdxBuffer.Size;
+				GlobalVertexOffset += DrawList->VtxBuffer.Size;
 			}
-			GlobalIndexOffset += DrawList->IdxBuffer.Size;
-			GlobalVertexOffset += DrawList->VtxBuffer.Size;
+			DURIN_PROFILE_CPU_ZONE_TEXT(std::format("draws={} clipped={} callbacks={} setups={} scissors={} textureBinds={} vertices={} indices={}",
+				DrawCount, ClippedCount, CallbackCount, SetupCount, ScissorCount, TextureBindCount,
+				DrawData->TotalVtxCount, DrawData->TotalIdxCount));
 		}
 
 		CommandList.EndRenderPass();
@@ -730,11 +810,13 @@ namespace Durin::MonaImGui
 
 	auto ImGuiRHIImpl_RenderDrawData(const FViewportRHIRef& InViewport, ImDrawData* DrawData, FImGuiRHIImpl_WindowRenderBuffers* WindowRenderBuffers, bool bPresent) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.EnqueueViewport");
 		const bool bHasDrawData = DrawData != nullptr;
 
 		// Update textures
 		if (bHasDrawData && DrawData->Textures != nullptr)
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.PrepareTextures");
 			for (ImTextureData* Tex : *DrawData->Textures)
 			{
 				if (Tex->Status != ImTextureStatus_OK)
@@ -748,13 +830,21 @@ namespace Durin::MonaImGui
 		const FClearValueBinding ClearValue(WindowBgColor.x, WindowBgColor.y, WindowBgColor.z, 1.0f);
 
 		ENQUEUE_RENDER_COMMAND(RenderWindow)([ViewportRHI = InViewport, DrawData, WindowRenderBuffers, ClearValue, bPresent](FRHICommandListImmediate& CommandList) {
+			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.RenderViewport");
 			check(WindowRenderBuffers != nullptr);
 			auto& RenderBuffersCurrentFrame = WindowRenderBuffers->FrameRenderBuffers[GRenderFrameCounterRenderThread % FrameInFlight];
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 
-			CommandList.BeginDrawingViewport(ViewportRHI, nullptr);
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.BeginViewport");
+				CommandList.BeginDrawingViewport(ViewportRHI, nullptr);
+			}
 
-			FTextureRHIRef BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(ViewportRHI);
+			FTextureRHIRef BackBuffer;
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.GetBackBuffer");
+				BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(ViewportRHI);
+			}
 			if (BackBuffer == nullptr)
 			{
 				CommandList.EndDrawingViewport(ViewportRHI, false, false);
@@ -779,7 +869,10 @@ namespace Durin::MonaImGui
 				ImGuiRHIImplRT_ClearViewport(CommandList, BackBuffer, ClearValue);
 			}
 
-			CommandList.EndDrawingViewport(ViewportRHI, bPresent, false);
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.EndViewport");
+				CommandList.EndDrawingViewport(ViewportRHI, bPresent, false);
+			}
 		});
 	}
 

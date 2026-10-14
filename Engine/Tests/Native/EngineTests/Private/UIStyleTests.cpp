@@ -4,6 +4,8 @@
 #include "Workspace/LevelEditorUILayout.h"
 #include "Workspace/LevelEditorPresentationPolicy.h"
 #include "MonaImGui.h"
+#include "Runtime/MonaImGui/Private/Backend/ImGuiRHIDrawState.h"
+#include "Runtime/MonaImGui/Private/Backend/ImGuiRHIBufferCapacity.h"
 
 namespace Durin::Editor::Level
 {
@@ -299,3 +301,83 @@ namespace Durin::Editor::Level
 		ImGui::DestroyContext(Context);
 	}
 } // namespace Durin::Editor::Level
+
+TEST(FImGuiRHIDrawStateTests, RepeatedDrawsReuseBindingsAndStateChangesRemainIndependent)
+{
+	Durin::MonaImGui::FImGuiRHIDrawState State;
+	ASSERT_TRUE(State.NeedsRenderStateSetup());
+	State.OnRenderStateSetup();
+	int Font = 0;
+	int Image = 0;
+	const std::array<float, 4> First{0, 0, 100, 100};
+	const std::array<float, 4> Second{10, 20, 80, 70};
+	uint32 Scissors = 0, Bindings = 0;
+	for (uint32 Draw = 0; Draw < 100; ++Draw)
+	{
+		EXPECT_FALSE(State.NeedsRenderStateSetup());
+		Scissors += State.ShouldSetScissor(First);
+		Bindings += State.ShouldBindTexture(&Font);
+	}
+	EXPECT_EQ(Scissors, 1u);
+	EXPECT_EQ(Bindings, 1u);
+	EXPECT_TRUE(State.ShouldSetScissor(Second));
+	EXPECT_FALSE(State.ShouldBindTexture(&Font));
+	EXPECT_TRUE(State.ShouldBindTexture(&Image));
+	EXPECT_FALSE(State.ShouldSetScissor(Second));
+	EXPECT_TRUE(State.ShouldBindTexture(&Font));
+}
+
+TEST(FImGuiRHIDrawStateTests, CallbackInvalidationAndExplicitResetRebindIdenticalDrawState)
+{
+	Durin::MonaImGui::FImGuiRHIDrawState State;
+	int Font = 0;
+	const std::array<float, 4> Scissor{0, 0, 100, 100};
+	State.OnRenderStateSetup();
+	ASSERT_TRUE(State.ShouldSetScissor(Scissor));
+	ASSERT_TRUE(State.ShouldBindTexture(&Font));
+	State.Invalidate(); // An arbitrary user callback can change every binding.
+	EXPECT_TRUE(State.NeedsRenderStateSetup());
+	EXPECT_TRUE(State.NeedsRenderStateSetup()); // A clipped command must not consume invalidation.
+	State.OnRenderStateSetup();
+	EXPECT_TRUE(State.ShouldSetScissor(Scissor));
+	EXPECT_TRUE(State.ShouldBindTexture(&Font));
+	State.OnRenderStateSetup(); // ResetRenderState immediately restores common state.
+	EXPECT_FALSE(State.NeedsRenderStateSetup());
+	EXPECT_TRUE(State.ShouldSetScissor(Scissor));
+	EXPECT_TRUE(State.ShouldBindTexture(&Font));
+	Durin::MonaImGui::FImGuiRHIDrawState NextPass;
+	EXPECT_TRUE(NextPass.NeedsRenderStateSetup());
+	EXPECT_TRUE(NextPass.ShouldSetScissor(Scissor));
+	EXPECT_TRUE(NextPass.ShouldBindTexture(&Font));
+}
+
+TEST(FImGuiRHIBufferCapacityTests, GradualGrowthReusesCapacityAndNeverShrinks)
+{
+	uint32 Capacity = 0;
+	uint32 Allocations = 0;
+	for (uint32 Count = 1; Count <= 10000; ++Count)
+	{
+		const uint32 Required = Count * 20;
+		const uint32 Next = Durin::MonaImGui::ComputeImGuiBufferCapacity(Capacity, Required, 64 * 1024, 20);
+		Allocations += Next != Capacity;
+		EXPECT_GE(Next, Required);
+		EXPECT_GE(Next, Capacity);
+		EXPECT_EQ(Next % 20, 0u);
+		Capacity = Next;
+	}
+	EXPECT_LT(Allocations, 10u);
+	EXPECT_EQ(Durin::MonaImGui::ComputeImGuiBufferCapacity(Capacity, 20, 64 * 1024, 20), Capacity);
+	EXPECT_EQ(Durin::MonaImGui::ComputeImGuiBufferCapacity(Capacity, 0, 64 * 1024, 20), Capacity);
+}
+
+TEST(FImGuiRHIBufferCapacityTests, InitialLargeRequestsHaveHeadroomAndNearLimitGrowthDoesNotWrap)
+{
+	const uint32 Large = Durin::MonaImGui::ComputeImGuiBufferCapacity(0, 100000, 16 * 1024, 4);
+	EXPECT_GT(Large, 100000u);
+	EXPECT_EQ(Large % 4, 0u);
+	const uint32 Maximum = std::numeric_limits<uint32>::max() / 4 * 4;
+	EXPECT_EQ(Durin::MonaImGui::ComputeImGuiBufferCapacity(Maximum - 4096, Maximum, 16 * 1024, 4), Maximum);
+	const uint32 IndexCapacity = Durin::MonaImGui::ComputeImGuiBufferCapacity(0, 2, 16 * 1024, 2);
+	EXPECT_GE(IndexCapacity, 16u * 1024);
+	EXPECT_EQ(IndexCapacity % 2, 0u);
+}
