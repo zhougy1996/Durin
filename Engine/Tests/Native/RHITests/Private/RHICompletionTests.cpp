@@ -5,6 +5,56 @@
 
 namespace Durin
 {
+	TEST(FRHIDynamicBufferPageTests, SplitPreservesExistingSpanThenPrefixAndSuffixOrder)
+	{
+		FRHIDynamicBufferPagePool Pool(1, 64);
+		auto Memory = std::make_shared<std::array<std::byte, 64>>();
+		ASSERT_TRUE(Pool.AddPage(Memory, Memory->data(), 64));
+		auto First = Pool.TryAcquire(3, 1), Hole = Pool.TryAcquire(13, 1), Last = Pool.TryAcquire(8, 1);
+		ASSERT_TRUE(First && Hole && Last);
+		Hole.reset();
+		auto Aligned = Pool.TryAcquire(1, 4);
+		ASSERT_TRUE(Aligned);
+		EXPECT_EQ(Aligned->GetOffset(), 4u);
+		auto Existing = Pool.TryAcquire(32, 1);
+		ASSERT_TRUE(Existing);
+		EXPECT_EQ(Existing->GetOffset(), 24u);
+		auto Prefix = Pool.TryAcquire(1, 1), Suffix = Pool.TryAcquire(8, 1), Tail = Pool.TryAcquire(8, 1);
+		ASSERT_TRUE(Prefix && Suffix && Tail);
+		EXPECT_EQ(Prefix->GetOffset(), 3u);
+		EXPECT_EQ(Suffix->GetOffset(), 8u);
+		EXPECT_EQ(Tail->GetOffset(), 56u);
+		EXPECT_FALSE(Pool.TryAcquire(1, 1));
+	}
+
+	TEST(FRHIDynamicBufferPageTests, GrowthProbeReclaimsCompletedSlicesWithoutReservingSpace)
+	{
+		FRHIDynamicBufferPagePool Pool(1, 32);
+		auto Memory = std::make_shared<std::array<std::byte, 32>>();
+		ASSERT_TRUE(Pool.AddPage(Memory, Memory->data(), 32));
+		auto InFlight = Pool.TryAcquire(16, 16), Retained = Pool.TryAcquire(16, 16);
+		ASSERT_TRUE(InFlight && Retained);
+		FRHIGPUQueueTimeline Queue(AllocateRHIDeviceGeneration(), {0});
+		auto Signal = Queue.Reserve();
+		InFlight->AddGPUUse(Signal);
+		InFlight.reset();
+		EXPECT_FALSE(Pool.CanAcquire(16, 16));
+		ASSERT_TRUE(Queue.MarkSubmitted(Signal));
+		ASSERT_TRUE(Queue.ObserveCompleted(Signal));
+		EXPECT_FALSE(Pool.CanAcquire(UINT32_MAX, 16));
+		EXPECT_TRUE(Pool.CanAcquire(16, 16));
+		EXPECT_TRUE(Pool.CanAcquire(16, 16));
+		FRHIDynamicBufferWritePoolSnapshot Snapshot;
+		auto Reused = Pool.TryAcquire(16, 16, &Snapshot);
+		ASSERT_TRUE(Reused);
+		EXPECT_EQ(Reused->GetOffset(), 0u);
+		EXPECT_EQ(Snapshot.RangeCount, 1u);
+		EXPECT_EQ(Snapshot.FreeBytes, 16u);
+		EXPECT_EQ(Snapshot.RetainedRangeCount, 1u);
+		EXPECT_EQ(Snapshot.AwaitingRetirementRangeCount, 0u);
+		EXPECT_FALSE(Pool.CanAcquire(1, 1));
+	}
+
 	TEST(FRHIDynamicBufferPageTests, BuffersShareOnePageWithAlignedNonOverlappingSlices)
 	{
 		FRHIDynamicBufferPagePool Pool(2, 256);

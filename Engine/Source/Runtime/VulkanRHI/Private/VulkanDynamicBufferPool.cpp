@@ -7,12 +7,12 @@
 
 namespace Durin::VulkanRHI
 {
-	auto FVulkanDynamicBufferPool::GetWriteAlignment() const -> uint32
-	{
-		const uint64 Alignment = std::max<uint64>(16, Device.GetGpuProperties().limits.nonCoherentAtomSize);
-		require(Alignment <= UINT32_MAX);
-		return static_cast<uint32>(Alignment);
-	}
+	FVulkanDynamicBufferPool::FVulkanDynamicBufferPool(FVulkanDevice& InDevice)
+		: Device(InDevice), WriteAlignment([&] {
+			const uint64 Alignment = std::max<uint64>(16, Device.GetGpuProperties().limits.nonCoherentAtomSize);
+			require(Alignment <= UINT32_MAX);
+			return static_cast<uint32>(Alignment);
+		}()), Pool(MaxPages, MaxBytes) {}
 	auto FVulkanDynamicBufferPool::EnsureInitialPage() -> void
 	{
 		std::lock_guard Lock(GrowthMutex);
@@ -25,7 +25,7 @@ namespace Durin::VulkanRHI
 		{
 			// Frame pacing or releasing the previous active slice can have made space
 			// available since the recording-thread miss. Probe before allocating a page.
-			if (!Pool.TryAcquire(Requested, GetWriteAlignment())) EnsurePage(Requested);
+			if (!Pool.CanAcquire(Requested, WriteAlignment)) EnsurePage(Requested);
 		}
 	}
 	auto FVulkanDynamicBufferPool::EnsurePage(uint32 Size) -> void
@@ -53,11 +53,10 @@ namespace Durin::VulkanRHI
 	auto FVulkanDynamicBufferPool::TryAcquire(uint32 Size,
 		FRHIDynamicBufferWritePoolSnapshot* Snapshot) -> std::shared_ptr<FRHIDynamicBufferWriteRange>
 	{
-		const uint32 Alignment = GetWriteAlignment();
-		auto Range = Pool.TryAcquire(Size, Alignment, Snapshot);
+		auto Range = Pool.TryAcquire(Size, WriteAlignment, Snapshot);
 		if (!Range)
 		{
-			const uint64 AlignedSize = (uint64(Size) + Alignment - 1) / Alignment * Alignment;
+			const uint64 AlignedSize = (uint64(Size) + WriteAlignment - 1) / WriteAlignment * WriteAlignment;
 			if (AlignedSize <= UINT32_MAX)
 			{
 				uint32 Current = RequestedGrowth.load(std::memory_order_relaxed);
