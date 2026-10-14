@@ -62,6 +62,7 @@ namespace Durin::Tasks
 		const FParallelForPolicyOptions& Options = {}) -> FParallelForResult;
 
 	CORE_API auto Wait(const FTaskHandle& Task) -> FTaskWaitResult;
+	CORE_API auto Wait(const FTaskHandle& Task, double TimeoutSeconds) -> FTaskWaitResult;
 	CORE_API auto Cancel(const FTaskHandle& Task) -> bool;
 
 	// Completion dependency only: does not forward cancellation or failure to either task.
@@ -97,6 +98,9 @@ namespace Durin::Tasks
 	template<Detail::CTaskDependencyCollection R>
 	auto Wait(const R& Inputs) -> std::vector<FTaskWaitResult>
 	{ return WaitAll(Detail::CollectDependencies(Inputs)); }
+	template<Detail::CTaskDependencyCollection R>
+	auto Wait(const R& Inputs, double TimeoutSeconds) -> std::vector<FTaskWaitResult>
+	{ return WaitAll(Detail::CollectDependencies(Inputs), TimeoutSeconds); }
 
 	// Explicit one-shot signal, optionally joined with other completion dependencies.
 	// Copies share one signal. The last handle must not be destroyed before Trigger().

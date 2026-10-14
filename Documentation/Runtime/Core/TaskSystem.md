@@ -245,9 +245,18 @@ duplicate dependent release. A task id is process-unique and nonzero; parent
 and prerequisite identities are distinct.
 
 `WaitTask` returns wait status separately from task state. Completed means a
-terminal state was observed; InvalidTask, SelfWait, DependencyCycle and
-UnsupportedThread do not prove completion. `WaitAll` preserves one result per
-input. GameThread rejects unknown or transitive deferred requirements;
+terminal state and finished terminal publication were observed; InvalidTask,
+SelfWait, DependencyCycle, UnsupportedThread and TimedOut do not prove completion.
+`Task.Wait(TimeoutSeconds)`, `Tasks::Wait(TaskOrCollection, TimeoutSeconds)`,
+`WaitTask` and `WaitAll` accept a timeout in seconds. Omitting it waits indefinitely.
+A collection shares one steady-clock deadline across all inputs and preserves one
+result per input, including completed or invalid entries after the deadline.
+Timeout does not request cancellation or consume results. Nonpositive timeouts
+allow one direct-target execution attempt per input without blocking; positive
+timeouts stop starting work after the deadline. Executed callables cannot be
+interrupted, so a helping wait may exceed its timeout. NaN is treated as zero.
+
+GameThread rejects unknown or transitive deferred requirements;
 executing tasks reject unknown external requirements. RenderingThread rejects
 ordinary task waits. It may wait for an explicit independent CPU leaf
 created with `Tasks::LaunchIndependentTask(Name, Callable, Options)`. This entry
@@ -261,9 +270,14 @@ The callable must not depend on owner-thread, RHI, I/O or other external progres
 these ordinary C++ effects remain a caller contract. This explicit declaration
 permits render preparation/recording joins without relaxing general wait policy.
 Cancellation and exceptions still publish the normal terminal state, and result
-access still requires success. Waits do not pump GameThread callbacks. Kernel Worker helping runs CPU
-work; I/O helping stays within the blocking-I/O authority, including a
-single-thread I/O parent waiting for its child.
+access still requires success. Waits do not pump GameThread callbacks.
+Executing tasks help only the waited task and its transitive execution, nested,
+and dynamic dependencies. Queue removal claims a specific task under the queue
+lock, competing safely with normal worker dispatch; it never runs unrelated
+queue entries. Graph traversal is iterative rather than recursive. Kernel Worker
+helping runs CPU work; I/O helping stays within the blocking-I/O authority,
+including a single-thread I/O parent waiting for its child. External callers
+retain blocking-only behavior and executor-affinity restrictions remain in force.
 
 The process scheduler owns a distinct blocking-I/O pool, defaulting to two
 threads. It wraps blocking calls and makes no kernel-async I/O claim. Worker

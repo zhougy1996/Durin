@@ -76,6 +76,7 @@ namespace Durin
 		SelfWait,
 		DependencyCycle,
 		UnsupportedThread,
+		TimedOut,
 	};
 
 	struct FTaskWaitResult
@@ -438,6 +439,8 @@ namespace Durin
 		friend CORE_API auto Private::MakeTaskResultAccounting(const FTaskHandle& Task) -> Private::FTaskResultAccounting;
 		friend CORE_API auto CancelTask(const FTaskHandle& Task) -> bool;
 		friend CORE_API auto WaitTask(const FTaskHandle& Task) -> FTaskWaitResult;
+		friend CORE_API auto WaitTask(const FTaskHandle& Task, double TimeoutSeconds) -> FTaskWaitResult;
+		friend CORE_API auto WaitAll(std::span<const FTaskHandle> Tasks, double TimeoutSeconds) -> std::vector<FTaskWaitResult>;
 
 		std::shared_ptr<FTaskStateData> State;
 	};
@@ -540,8 +543,11 @@ namespace Durin
 
 	CORE_API auto CancelTask(const FTaskHandle& Task) -> bool;
 	CORE_API auto WaitTask(const FTaskHandle& Task) -> FTaskWaitResult;
+	// Seconds bound blocking and helping attempts, never an executing callable.
+	CORE_API auto WaitTask(const FTaskHandle& Task, double TimeoutSeconds) -> FTaskWaitResult;
 	// Returns one wait result for each input handle, including invalid handles and rejected waits.
 	CORE_API auto WaitAll(std::span<const FTaskHandle> Tasks) -> std::vector<FTaskWaitResult>;
+	CORE_API auto WaitAll(std::span<const FTaskHandle> Tasks, double TimeoutSeconds) -> std::vector<FTaskWaitResult>;
 
 	// Executes [0, Num) in bounded contiguous chunks and includes the calling thread.
 	// Chunks invoke the same owned callable concurrently; captures must support concurrent access.
@@ -698,6 +704,7 @@ namespace Durin
 			auto GetDiagnostic() const -> std::string { return Handle.GetDiagnostic(); }
 			auto GetDiagnostics() const -> FTaskDiagnostics { return Handle.GetDiagnostics(); }
 			auto Wait() const -> FTaskWaitResult { return WaitTask(Handle); }
+			auto Wait(double TimeoutSeconds) const -> FTaskWaitResult { return WaitTask(Handle, TimeoutSeconds); }
 			// Erasure is observation even for rvalues; it never moves only the base
 			// out of a unique task and leaves its result owner stranded.
 			operator Durin::FTaskHandle() const noexcept { return Handle; }

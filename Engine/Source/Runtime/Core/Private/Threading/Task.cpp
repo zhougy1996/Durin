@@ -31,6 +31,21 @@ namespace Durin
 
 	namespace
 	{
+		class FTaskWaitDeadline
+		{
+		public:
+			explicit FTaskWaitDeadline(double Seconds) : TimeoutSeconds(Seconds >= 0 ? Seconds : 0) {}
+			auto Remaining() const -> double
+			{
+				return std::max(0.0, TimeoutSeconds - std::chrono::duration<double>(
+					std::chrono::steady_clock::now() - Start).count());
+			}
+			auto IsExpired() const -> bool { return Remaining() == 0; }
+		private:
+			std::chrono::steady_clock::time_point Start = std::chrono::steady_clock::now();
+			double TimeoutSeconds;
+		};
+
 		constexpr uint16 UnattributedAttributionId = 0;
 		constexpr uint16 OverflowAttributionId = 1;
 		constexpr uint16 MaxTaskAttributionOwners = 256;
@@ -760,6 +775,18 @@ namespace Durin
 			return false;
 		}
 
+		auto GetWaitDependencies() const -> std::vector<std::shared_ptr<FTaskStateData>>
+		{
+			std::lock_guard Lock(Mutex);
+			std::vector<std::shared_ptr<FTaskStateData>> Result;
+			if (DynamicPrerequisite) Result.push_back(DynamicPrerequisite);
+			for (const auto& Weak : NestedPrerequisites)
+				if (auto Pinned = Weak.lock()) Result.push_back(std::move(Pinned));
+			for (const auto& Weak : Prerequisites)
+				if (auto Pinned = Weak.lock()) Result.push_back(std::move(Pinned));
+			return Result;
+		}
+
 		auto RequestCancellation(std::string InDiagnostic, ETaskTerminalReason InReason = ETaskTerminalReason::CancellationRequested, uint64 InDirectBlockingTaskId = 0) -> bool;
 		auto OnNestedCompleted() -> void;
 		auto MarkSucceeded() -> void;
@@ -1261,7 +1288,7 @@ namespace Durin
 					[State]() {
 						State->RequestCancellation("Task was discarded during scheduler shutdown.", ETaskTerminalReason::ShutdownCanceled);
 					},
-					static_cast<EQueuedWorkPriority>(State->GetPriority())
+					static_cast<EQueuedWorkPriority>(State->GetPriority()), State->GetTaskId()
 				);
 
 				if (!bAccepted)
@@ -1476,10 +1503,29 @@ namespace Durin
 			QuiescenceCV.notify_all();
 		}
 
-		auto TryExecuteOneQueuedTask() -> bool
+		auto TryHelpTask(const std::shared_ptr<FTaskStateData>& Target, const FTaskWaitDeadline& Deadline, bool bAllowExpiredAttempt) -> bool
 		{
-			if (GExecutingBlockingIOPool && BlockingIOPool.TryExecuteOneQueuedTask()) return true;
-			return Pool.TryExecuteOneQueuedTask();
+			std::vector<std::shared_ptr<FTaskStateData>> Pending{Target};
+			std::unordered_set<const FTaskStateData*> Visited;
+			bool bFirst = true;
+			while (!Pending.empty())
+			{
+				// Zero timeout allows one attempt at the target, never unrelated work.
+				if (Deadline.IsExpired() && (!bFirst || !bAllowExpiredAttempt)) break;
+				bFirst = false;
+				auto Current = std::move(Pending.back()); Pending.pop_back();
+				if (!Visited.insert(Current.get()).second || IsTerminalState(Current->GetState())) continue;
+				if (Current->GetTarget() == ETaskTarget::AnyWorker)
+				{
+					if (Pool.TryExecuteQueuedTask(Current->GetTaskId())) return true;
+				}
+				else if (Current->GetTarget() == ETaskTarget::BlockingIO && GExecutingBlockingIOPool)
+				{
+					if (BlockingIOPool.TryExecuteQueuedTask(Current->GetTaskId())) return true;
+				}
+				for (auto& Dependency : Current->GetWaitDependencies()) Pending.push_back(std::move(Dependency));
+			}
+			return false;
 		}
 
 		auto GetActiveTaskCount() const -> uint64
@@ -3116,111 +3162,116 @@ namespace Durin
 	}
 
 	auto WaitTask(const FTaskHandle& Task) -> FTaskWaitResult
+	{ return WaitTask(Task, std::numeric_limits<double>::infinity()); }
+
+	namespace
 	{
-		if (!Task.State)
+		auto WaitTaskState(const std::shared_ptr<FTaskStateData>& TaskState, const FTaskWaitDeadline& Deadline,
+			bool bAllowExpiredAttempt) -> FTaskWaitResult
 		{
-			return {ETaskWaitStatus::InvalidTask, ETaskState::Invalid};
-		}
-
-		ETaskState State = Task.State->GetState();
-		if (IsTerminalState(State))
-		{
-			return {ETaskWaitStatus::Completed, State};
-		}
-
-		if (GCurrentTaskState == Task.State.get())
-		{
-			DURIN_WARN("Task wait rejected because a task cannot wait for itself. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
-			return {ETaskWaitStatus::SelfWait, State};
-		}
-
-		if (GCurrentTaskState && Task.State->DependsOn(GCurrentTaskState))
-		{
-			DURIN_WARN("Task wait rejected because the target depends on the current task. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
-			return {ETaskWaitStatus::DependencyCycle, State};
-		}
-
-		if (GCurrentTaskState && GCurrentTaskState->IsIndependentCPU())
-			return {ETaskWaitStatus::UnsupportedThread, State};
-		if (IsInRenderingThread() && !Task.State->IsIndependentCPU())
-		{
-			DURIN_WARN("Task wait rejected on the rendering thread. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
-			return {ETaskWaitStatus::UnsupportedThread, State};
-		}
-		if (GCurrentTaskState && Task.State->RequiresGameThread(true))
-			return {ETaskWaitStatus::UnsupportedThread, State};
-		if (GIsGameThreadIdInitialized && IsInGameThread() && Task.State->RequiresGameThread())
-		{
-			DURIN_WARN("Task wait rejected because GameThread cannot block on deferred GameThread work. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
-			return {ETaskWaitStatus::UnsupportedThread, State};
-		}
-
-		std::shared_ptr<FTaskScheduler> Scheduler = Task.State->PinScheduler();
-		const auto WaitStartTime = std::chrono::steady_clock::now();
-		bool bReportedLongWait = false;
-		auto ReportLongWait = [&](bool bThresholdElapsed = false) {
-			if (bReportedLongWait || (!bThresholdElapsed && std::chrono::duration<double>(std::chrono::steady_clock::now() - WaitStartTime).count() < LongWaitThresholdSeconds))
+			if (!TaskState)
 			{
-				return;
+				return {ETaskWaitStatus::InvalidTask, ETaskState::Invalid};
 			}
-			bReportedLongWait = true;
-			if (Scheduler)
+
+			ETaskState State = TaskState->GetState();
+			if (IsTerminalState(State))
 			{
-				const char* WaiterName = GCurrentTaskState
-					? GCurrentTaskState->GetDebugName()
-					: (GetCurrentThread() ? GetCurrentThread()->GetThreadName() : "ExternalThread");
-				const FTaskDiagnostics TargetDiagnostics = Task.State->GetDiagnostics();
-				const uint64 ElapsedNanoseconds = static_cast<uint64>(
-					std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - WaitStartTime).count()
-				);
-				Scheduler->RecordLongWait(
-					WaiterName,
-					TargetDiagnostics,
-					ElapsedNanoseconds
-				);
-				DURIN_WARN(
-					"Long task wait detected. (waiter: {}, target: {}, target id: {}, state: {}, elapsed milliseconds: {})",
-					WaiterName,
-					TargetDiagnostics.DebugName,
-					TargetDiagnostics.TaskId,
-					static_cast<uint32>(TargetDiagnostics.State),
-					ElapsedNanoseconds / 1'000'000
-				);
+				return {ETaskWaitStatus::Completed, State};
 			}
-		};
-		if (GCurrentTaskState && Scheduler && GCurrentTaskScheduler == Scheduler.get())
-		{
+
+			if (GCurrentTaskState == TaskState.get())
+			{
+				DURIN_WARN("Task wait rejected because a task cannot wait for itself. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
+				return {ETaskWaitStatus::SelfWait, State};
+			}
+
+			if (GCurrentTaskState && TaskState->DependsOn(GCurrentTaskState))
+			{
+				DURIN_WARN("Task wait rejected because the target depends on the current task. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
+				return {ETaskWaitStatus::DependencyCycle, State};
+			}
+
+			if (GCurrentTaskState && GCurrentTaskState->IsIndependentCPU())
+				return {ETaskWaitStatus::UnsupportedThread, State};
+			if (IsInRenderingThread() && !TaskState->IsIndependentCPU())
+			{
+				DURIN_WARN("Task wait rejected on the rendering thread. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
+				return {ETaskWaitStatus::UnsupportedThread, State};
+			}
+			if (GCurrentTaskState && TaskState->RequiresGameThread(true))
+				return {ETaskWaitStatus::UnsupportedThread, State};
+			if (GIsGameThreadIdInitialized && IsInGameThread() && TaskState->RequiresGameThread())
+			{
+				DURIN_WARN("Task wait rejected because GameThread cannot block on deferred GameThread work. (task: {}, id: {})", TaskState->GetDebugName(), TaskState->GetTaskId());
+				return {ETaskWaitStatus::UnsupportedThread, State};
+			}
+
+			std::shared_ptr<FTaskScheduler> Scheduler = TaskState->PinScheduler();
+			const auto WaitStartTime = std::chrono::steady_clock::now();
+			bool bReportedLongWait = false;
+			auto ReportLongWait = [&] {
+				if (bReportedLongWait || std::chrono::duration<double>(std::chrono::steady_clock::now() - WaitStartTime).count() < LongWaitThresholdSeconds)
+				{
+					return;
+				}
+				bReportedLongWait = true;
+				if (Scheduler)
+				{
+					const char* WaiterName = GCurrentTaskState
+						? GCurrentTaskState->GetDebugName()
+						: (GetCurrentThread() ? GetCurrentThread()->GetThreadName() : "ExternalThread");
+					const FTaskDiagnostics TargetDiagnostics = TaskState->GetDiagnostics();
+					const uint64 ElapsedNanoseconds = static_cast<uint64>(
+						std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - WaitStartTime).count()
+					);
+					Scheduler->RecordLongWait(
+						WaiterName,
+						TargetDiagnostics,
+						ElapsedNanoseconds
+					);
+					DURIN_WARN(
+						"Long task wait detected. (waiter: {}, target: {}, target id: {}, state: {}, elapsed milliseconds: {})",
+						WaiterName,
+						TargetDiagnostics.DebugName,
+						TargetDiagnostics.TaskId,
+						static_cast<uint32>(TargetDiagnostics.State),
+						ElapsedNanoseconds / 1'000'000
+					);
+				}
+			};
+			const bool bCanHelp = GCurrentTaskState && Scheduler && GCurrentTaskScheduler == Scheduler.get();
+			bool bFirst = true;
 			while (!IsTerminalState(State))
 			{
-				if (Scheduler->TryExecuteOneQueuedTask())
-				{
-					State = Task.State->GetState();
-					ReportLongWait();
-					continue;
-				}
-				State = Task.State->WaitFor(WorkerWaitSliceSeconds);
+				const bool bHelped = bCanHelp && ((bFirst && bAllowExpiredAttempt) || !Deadline.IsExpired())
+					&& Scheduler->TryHelpTask(TaskState, Deadline, bFirst && bAllowExpiredAttempt);
+				bFirst = false;
+				State = TaskState->GetState();
 				ReportLongWait();
+				if (IsTerminalState(State)) break;
+				if (Deadline.IsExpired()) return {ETaskWaitStatus::TimedOut, State};
+				if (bHelped) continue;
+				State = TaskState->WaitFor(std::min(Deadline.Remaining(),
+					bCanHelp ? WorkerWaitSliceSeconds : LongWaitThresholdSeconds));
 			}
 			return {ETaskWaitStatus::Completed, State};
 		}
-
-		State = Task.State->WaitFor(LongWaitThresholdSeconds);
-		if (!IsTerminalState(State))
-		{
-			ReportLongWait(true);
-			State = Task.State->Wait();
-		}
-		return {ETaskWaitStatus::Completed, State};
 	}
 
+	auto WaitTask(const FTaskHandle& Task, double TimeoutSeconds) -> FTaskWaitResult
+	{ return WaitTaskState(Task.State, FTaskWaitDeadline(TimeoutSeconds), !(TimeoutSeconds > 0)); }
+
 	auto WaitAll(std::span<const FTaskHandle> Tasks) -> std::vector<FTaskWaitResult>
+	{ return WaitAll(Tasks, std::numeric_limits<double>::infinity()); }
+
+	auto WaitAll(std::span<const FTaskHandle> Tasks, double TimeoutSeconds) -> std::vector<FTaskWaitResult>
 	{
+		const FTaskWaitDeadline Deadline(TimeoutSeconds);
 		std::vector<FTaskWaitResult> Outcomes;
 		Outcomes.reserve(Tasks.size());
 		for (const FTaskHandle& Task : Tasks)
-		{
-			Outcomes.push_back(WaitTask(Task));
-		}
+			Outcomes.push_back(WaitTaskState(Task.State, Deadline, !(TimeoutSeconds > 0)));
 		return Outcomes;
 	}
 

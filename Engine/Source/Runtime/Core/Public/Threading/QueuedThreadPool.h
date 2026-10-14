@@ -36,9 +36,12 @@ namespace Durin
 			const char* TaskName,
 			FQueuedWorkFunction&& Work,
 			FQueuedWorkDiscardFunction&& Discard = {},
-			EQueuedWorkPriority Priority = EQueuedWorkPriority::Normal
+			EQueuedWorkPriority Priority = EQueuedWorkPriority::Normal,
+			uint64 WorkId = 0
 		) -> bool;
 		CORE_API auto TryExecuteOneQueuedTask() -> bool;
+		// Claims one identified item under the queue lock; zero is not retractable.
+		CORE_API auto TryExecuteQueuedTask(uint64 WorkId) -> bool;
 
 		// Returns false instead of deadlocking when called by one of this pool's workers.
 		CORE_API auto WaitForIdle() -> bool;

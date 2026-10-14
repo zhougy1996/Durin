@@ -211,6 +211,118 @@ namespace Durin
 		EXPECT_EQ(Runs, 0u);
 	}
 
+	TEST(FTaskCompositionTests, TimedWaitPreservesPendingResultsAndSharesCollectionDeadline)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskEvent Gate("TimedWaitGate", false);
+		auto Pending = Tasks::LaunchTask("TimedWaitValue", [] { return 42; }, Gate);
+		EXPECT_EQ(Pending.Wait(0).WaitStatus, ETaskWaitStatus::TimedOut);
+		EXPECT_EQ(Tasks::Wait(Pending, 0.002).WaitStatus, ETaskWaitStatus::TimedOut);
+		EXPECT_FALSE(Pending.IsCompleted());
+		EXPECT_EQ(Pending.GetState(), ETaskState::Waiting);
+		Gate.Trigger();
+		ASSERT_EQ(Pending.Wait(1).WaitStatus, ETaskWaitStatus::Completed);
+		EXPECT_EQ(std::move(Pending).TakeResult(), 42);
+		EXPECT_EQ(Tasks::Wait(std::array<Tasks::TTask<void>, 0>{}, 0).size(), 0u);
+		EXPECT_EQ(Tasks::Wait(Tasks::TTask<void>{}, 0).WaitStatus, ETaskWaitStatus::InvalidTask);
+
+		std::atomic<uint32> LateRuns = 0;
+		auto Parent = Tasks::LaunchTask("TimedCollectionParent", [&] {
+			FThreadEvent NeverSignaled;
+			std::vector<Tasks::TTask<void>> Inputs;
+			Inputs.push_back(Tasks::LaunchTask("BudgetConsumingBody", [&] { NeverSignaled.WaitFor(0.06); }));
+			Inputs.push_back(Tasks::LaunchTask("AfterCollectionDeadline", [&] { ++LateRuns; }));
+			const auto Outcomes = Tasks::Wait(Inputs, 0.02);
+			EXPECT_EQ(Outcomes[0].WaitStatus, ETaskWaitStatus::Completed);
+			EXPECT_EQ(Outcomes[1].WaitStatus, ETaskWaitStatus::TimedOut);
+			EXPECT_EQ(LateRuns.load(), 0u);
+			Tasks::AddNested(Inputs[1]);
+		});
+		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(LateRuns.load(), 1u);
+	}
+
+	TEST(FTaskCompositionTests, WaitHelpsOnlyTargetDependenciesAndNestedWork)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		std::atomic<uint32> UnrelatedRuns = 0;
+		auto Parent = Tasks::LaunchTask("DirectedWaitParent", [&] {
+			auto Unrelated = Tasks::LaunchTask("UnrelatedHighPriority", [&] { ++UnrelatedRuns; },
+				{.Priority = ETaskPriority::High});
+			std::vector<Tasks::TTask<int>> Inputs;
+			Inputs.push_back(Tasks::LaunchTask("DirectedPrerequisite", [] { return 3; }));
+			auto Target = Tasks::LaunchTask("DirectedTarget", [] { return 7; }, Inputs);
+			ASSERT_EQ(Target.Wait(1).TaskState, ETaskState::Succeeded);
+			EXPECT_EQ(UnrelatedRuns.load(), 0u);
+			EXPECT_EQ(std::move(Inputs.front()).TakeResult(), 3);
+			EXPECT_EQ(std::move(Target).TakeResult(), 7);
+			auto Nested = Tasks::LaunchTask("DirectedNestedParent", [] {
+				auto Child = Tasks::LaunchTask("DirectedNestedChild", [] {});
+				Tasks::AddNested(Child);
+			});
+			ASSERT_EQ(Nested.Wait(1).TaskState, ETaskState::Succeeded);
+			auto Source = Tasks::TCompletionSource<int>::Create({.DebugName = "DirectedDynamicSource"});
+			auto Flat = Source.TakeTask();
+			auto Inner = Tasks::LaunchTask("DirectedDynamicInner", [&] { Source.TrySetValue(11); });
+			ASSERT_FALSE(Private::FTaskRuntimeAccess::BindDynamicDependency(Source.GetTaskHandle(), Inner).has_value());
+			ASSERT_EQ(Flat.Wait(1).TaskState, ETaskState::Succeeded);
+			EXPECT_EQ(std::move(Flat).TakeResult(), 11);
+			EXPECT_EQ(UnrelatedRuns.load(), 0u);
+			auto Immediate = Tasks::LaunchTask("ZeroTimeoutRetraction", [] { return 5; });
+			EXPECT_EQ(Immediate.Wait(0).WaitStatus, ETaskWaitStatus::Completed);
+			EXPECT_EQ(std::move(Immediate).TakeResult(), 5);
+			Tasks::AddNested(Unrelated);
+		});
+		EXPECT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(UnrelatedRuns.load(), 1u);
+	}
+
+	TEST(FTaskCompositionTests, TimedWaitIncludesTerminalPublicationAndKeepsOwnerThreadPolicy)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		auto Source = Tasks::TCompletionSource<int>::Create({});
+		auto Result = Source.TakeTask();
+		FThreadEvent HookEntered, ReleaseHook;
+		auto Hook = std::make_shared<Private::FTaskTerminalHook>();
+		Hook->Function = [&](ETaskState) { HookEntered.Trigger(); ReleaseHook.Wait(); };
+		Private::FTaskRuntimeAccess::BindTerminal(Source.GetTaskHandle(), Hook);
+		std::thread Producer([&] { Source.TrySetValue(23); });
+		EXPECT_TRUE(HookEntered.WaitFor(1));
+		FTaskWaitResult TimedResult;
+		std::thread Waiter([&] { TimedResult = Result.Wait(0.002); });
+		Waiter.join();
+		EXPECT_EQ(TimedResult.WaitStatus, ETaskWaitStatus::TimedOut);
+		EXPECT_FALSE(Result.IsCompleted());
+		ReleaseHook.Trigger();
+		Producer.join();
+		EXPECT_EQ(Result.Wait(0).WaitStatus, ETaskWaitStatus::Completed);
+		EXPECT_EQ(std::move(Result).TakeResult(), 23);
+		Tasks::FTaskEvent Unknown("UnknownTimedWait");
+		EXPECT_EQ(Unknown.Wait(0).WaitStatus, ETaskWaitStatus::UnsupportedThread);
+		Unknown.Trigger();
+		EXPECT_EQ(Unknown.Wait(0).WaitStatus, ETaskWaitStatus::Completed);
+	}
+
+	TEST(FTaskCompositionTests, DirectedHelpingRacesWorkersWithoutDuplicateExecution)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(2));
+		std::array<std::atomic<uint32>, 128> Runs{};
+		auto Parent = Tasks::LaunchTask("RetractionRaceParent", [&] {
+			std::vector<Tasks::TTask<void>> Children;
+			for (size_t Index = 0; Index < Runs.size(); ++Index)
+				Children.push_back(Tasks::LaunchTask("RetractionRaceChild", [&, Index] { ++Runs[Index]; }));
+			for (const auto& Outcome : Tasks::Wait(Children, 2))
+				EXPECT_EQ(Outcome.WaitStatus, ETaskWaitStatus::Completed);
+		});
+		ASSERT_EQ(Parent.Wait().TaskState, ETaskState::Succeeded);
+		for (const auto& Count : Runs) EXPECT_EQ(Count.load(), 1u);
+		ShutdownTaskScheduler(true);
+	}
+
 	TEST(FTaskCompositionTests, DependencyCollectionsPreserveResultsAndBindBeforeContainersExpire)
 	{
 		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);

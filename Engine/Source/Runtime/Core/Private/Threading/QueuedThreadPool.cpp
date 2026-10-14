@@ -17,6 +17,7 @@ namespace Durin
 			FQueuedWorkDiscardFunction Discard;
 			EQueuedWorkPriority Priority = EQueuedWorkPriority::Normal;
 			uint64 Sequence = 0;
+			uint64 WorkId = 0;
 		};
 
 		// FIFO within each priority; every eighth dispatch selects the oldest head.
@@ -207,7 +208,8 @@ namespace Durin
 			const char* TaskName,
 			FQueuedWorkFunction&& Work,
 			FQueuedWorkDiscardFunction&& Discard,
-			EQueuedWorkPriority Priority
+			EQueuedWorkPriority Priority,
+			uint64 WorkId
 		) -> bool
 		{
 			if (!Work || static_cast<uint8>(Priority) > static_cast<uint8>(EQueuedWorkPriority::Low))
@@ -216,7 +218,7 @@ namespace Durin
 			}
 			// Keep all user storage outside the lock scope until queue insertion succeeds.
 			FQueuedWork Item{TaskName ? TaskName : "QueuedWork",
-				std::make_unique<FQueuedWorkFunction>(std::move(Work)), std::move(Discard), Priority};
+				std::make_unique<FQueuedWorkFunction>(std::move(Work)), std::move(Discard), Priority, 0, WorkId};
 			{
 				std::lock_guard Lock(Mutex);
 				if (!bRunning || !bAcceptingWork || bStopRequested) return false;
@@ -232,6 +234,33 @@ namespace Durin
 			}
 
 			WorkAvailableCV.notify_one();
+			return true;
+		}
+
+		auto TryExecuteQueuedTask(uint64 WorkId) -> bool
+		{
+			if (WorkId == 0) return false;
+			FQueuedWork Work;
+			{
+				std::lock_guard Lock(Mutex);
+				if (bStopRequested && !bDrainQueuedWorkOnStop) return false;
+				bool bFound = false;
+				for (auto& Lane : Queue.Lanes)
+				{
+					const auto It = std::ranges::find(Lane, WorkId, &FQueuedWork::WorkId);
+					if (It == Lane.end()) continue;
+					Work = std::move(*It);
+					Lane.erase(It);
+					++ActiveTaskCount;
+					bFound = true;
+					break;
+				}
+				if (!bFound) return false;
+			}
+			const auto PreviousPool = GCurrentQueuedThreadPool;
+			GCurrentQueuedThreadPool = this;
+			ExecuteQueuedWork(std::move(Work));
+			GCurrentQueuedThreadPool = PreviousPool;
 			return true;
 		}
 
@@ -459,11 +488,15 @@ namespace Durin
 		const char* TaskName,
 		FQueuedWorkFunction&& Work,
 		FQueuedWorkDiscardFunction&& Discard,
-		EQueuedWorkPriority Priority
+		EQueuedWorkPriority Priority,
+		uint64 WorkId
 	) -> bool
 	{
-		return Impl->Enqueue(TaskName, std::move(Work), std::move(Discard), Priority);
+		return Impl->Enqueue(TaskName, std::move(Work), std::move(Discard), Priority, WorkId);
 	}
+
+	auto FQueuedThreadPool::TryExecuteQueuedTask(uint64 WorkId) -> bool
+	{ return Impl->TryExecuteQueuedTask(WorkId); }
 
 	auto FQueuedThreadPool::TryExecuteOneQueuedTask() -> bool
 	{
