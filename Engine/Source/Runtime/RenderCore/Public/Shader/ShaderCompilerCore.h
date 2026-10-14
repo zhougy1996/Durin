@@ -173,6 +173,9 @@ namespace Durin
 		std::vector<std::string> AllowedImportVirtualPrefixes;
 		std::shared_ptr<const FShaderSourceArtifacts> SourceArtifacts;
 		bool bForceRecompile = false;
+		// Optional material environment identity, verified against immutable source bytes.
+		std::optional<FShaderSourceDependencyFingerprint> ExpectedSourceTree;
+		uint64 MaximumOutputBytes = 256ull * 1024 * 1024;
 	};
 
 	// Produces value-owned compiler and reachable-source identity without

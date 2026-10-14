@@ -2,52 +2,76 @@
 
 Summary: Move authored material compilation to staged asynchronous orchestration with cached material translation, asynchronous ShaderBuild requests, and generation-safe publication.
 
-Last reviewed: 2026-10-14
+Last reviewed: 2026-10-15
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-15
 
 ## Current Status
 
-Stage 0 code audit and boundary decisions are recorded below. The unmodified
-MaterialCompilerTests baseline passed 71 cases on Win64-Debug-DurinEditor
-(2026-10-14). Full workload timing qualification remains open.
+Completed on 2026-10-15. All required stages and CPU acceptance gates passed.
+One production pipeline now serves editor requests, explicit synchronous callers
+and Cook: detached cached translation, semantic-flight joining, asynchronous
+ShaderBuild, bounded CPU assembly and independently qualified GameThread publication.
+DMAT and Shader package codecs retain their existing compatibility.
 
-Stage 1 is implemented: private translation, generated-request construction and
-typed assembly now serve both MIR::Compile and the existing lifecycle adapter.
-Translation does not submit Shader work and cannot mark a candidate publishable.
-Assembly preserves existing reflection/resource validation and additionally
-rejects stages for a different target. Normalization and Shader cache waits still
-execute in their original locations; Stages 2 through 5 are not implemented.
+The final acceptance matrix passed 658 cases across 18 targets. MaterialCompilerTests
+passed 81, MaterialFunctionTests 30, MaterialCompileLifecycleTests 6,
+MaterialRuntimeTests 91, graph editing 104, editor interaction 66, editing persistence
+13, material package 6, thumbnail 8, RenderShaderBuilderTests 27, shader cache 14,
+shader contract 55, DerivedDataBuildTests 78, DerivedDataCacheTests 59, material Cook
+7, Shader Cook integration 1, cooked Shader library 7 and CookFunctionalTests 5.
+The cache target additionally skipped one existing symlink security fixture because
+the Windows account lacks symlink privilege; it is unrelated to material translation.
+Full-target reports are under `Build/NativeTestResults/Win64-Debug-DurinEditor/`.
+Final matrix logs span `20261015-003905-551934-75492-RenderShaderBuilderTests.log`
+through `20261015-004125-511528-61380-CookFunctionalTests.log` in
+`Build/.agent-state/logs/`. Final retirement/negative-product refinements passed
+compiler, lifecycle, shader builder/contract, runtime and material Cook again;
+logs span `20261015-005503-032826-84716-MaterialCompilerTests.log` through
+`20261015-005550-551408-89400-MaterialCookTests.log`.
 
-Stage 1 validation on 2026-10-14: MaterialCompilerTests 73/73,
-MaterialFunctionTests 30/30, MaterialCompileLifecycleTests 6/6, and the default
-workspace `all` build passed. Full logs are
-`Build/.agent-state/logs/20261014-211339-047938-76128-MaterialCompilerTests.log`,
-`Build/.agent-state/logs/20261014-211351-660781-34584-MaterialFunctionTests.log`,
-`Build/.agent-state/logs/20261014-211405-100682-78804-MaterialCompileLifecycleTests.log`,
-and `Build/.agent-state/logs/20261014-211422-711265-55932-cmake.log`.
-XML reports are under `Build/NativeTestResults/Win64-Debug-DurinEditor/` with the
-corresponding target names. Shader/cache, Cook/Game, editor persistence and GPU
-qualification gates for later stages have not been executed.
-Both new `FMaterialTranslationTests` cases also passed as isolated processes;
-report: `Build/NativeTestResults/Win64-Debug-DurinEditor/MaterialTranslationBoundaryTests.xml`;
-log: `Build/.agent-state/logs/20261014-211502-088128-60628-ctest.log`.
+Independent-process coverage passed 10 translation cases, 27 Shader cases and
+6 lifecycle cases. Reports: `MaterialAsyncIsolated.xml`, `ShaderAsyncIsolated.xml`
+and `MaterialLifecycleIsolated.xml` in the same report directory; logs are
+`Build/.agent-state/logs/20261015-005804-822142-81948-ctest.log`,
+`Build/.agent-state/logs/20261015-005810-207064-84328-ctest.log` and
+`Build/.agent-state/logs/20261015-005827-703327-79356-ctest.log`.
 
-Stage 1 may proceed with the mechanical separation of the existing synchronous
-implementation before the timing gate closes: it preserves the normalization
-location, Shader request, session mode, and publication behavior, so the baseline
-pipeline remains available. Stages 2 through 5 still require the Stage 0 lifetime,
-identity, admission, and measurement gates. This sequencing adjustment does not
-claim an asynchronous implementation or a performance improvement.
+Final workspace all builds passed for Editor and Game:
+`Build/.agent-state/logs/20261015-010406-692680-83544-cmake.log` and
+`Build/.agent-state/logs/20261015-010402-850934-88048-cmake.log`. Engine, Sandbox and
+RoadWeaver are covered. Actual Game cooked mesh loading passed 4 cases and cooked
+Shader library loading passed 7; reports are under
+`Build/NativeTestResults/Win64-Debug-DurinGame/`. Runtime link-rule audit in
+`Build/MaterialAsyncEvidence/game-link-audit.json` proves Engine, RenderCore,
+Sandbox and RoadWeaver do not link ShaderBuild or DerivedDataCache. Qualification
+also fixed three existing Game isolation errors: the unconditional editor PCH,
+a DDC include outside its authoring guard, and an editor-only mesh source index.
 
-Existing
-[build](../Runtime/Assets/DerivedDataBuild.md),
-[storage](../Runtime/Assets/DerivedDataCacheStorage.md),
-[asset compilation](../Runtime/Assets/AssetCompilation.md), and
-[shader](../Runtime/Rendering/ShaderCache.md) contracts remain authoritative until
-their asynchronous implementation changes land. No runtime tests or performance qualification
-have been executed for the asynchronous migration.
+Final five-sample cold/persistent/retained workload measurements passed at
+`Build/.agent-state/logs/20261015-010149-667760-77632-ctest.log`; raw CSVs, summaries
+and the report are retained under `Build/MaterialAsyncEvidence/`. The measured
+outcomes and warm-path tradeoffs are below. Deterministic fixtures cover worker
+release, consumer cancellation, cancellation/resubmission, semantic convergence,
+source mutation with unchanged file facts, rejected-hit fallback, store failure,
+count/byte reservation, queued cancellation, complete shutdown and retirement.
+
+Compiler contexts are reused only on their originating thread after cross-thread
+Slang reflection failure in the convergence fixture. Fixture cache replacement
+retains the resident compiler and drains/replaces cache sessions. Producer code
+is resident and rejects dynamic reload; module-owned close and complete operation
+retirement enforce its lifetime rather than acquiring a code lease from a worker
+(the module manager admits leases only on its control thread). Consumers release
+controls before normal module teardown. The verified material environment is the
+complete declared closure; the closed compiler filesystem prevents live fallback.
+
+Stage 1 was committed separately as `c4cff777f`. Lasting behavior is documented in
+MaterialSystem, ShaderCache, DerivedDataBuild and AssetCompilation, with roadmap
+status updated. This completed plan remains at its original path under the local
+completion rules; monthly archival is deferred because the batch also includes an
+unrelated completed plan. GPU/application execution is not required by this
+scheduling/cache refactor and was not performed.
 
 ## Stage 0 Contract Decisions
 
@@ -101,9 +125,12 @@ dependency hashes from translation identity after separating their validation
 and final identity binding from normalization. Translation/generator algorithm
 version, MIR/layout versions and pass contract version invalidate translation.
 
-Fixed output value IDs are `IR`, `Parameters`, `Collections`, `Layout`, `Source`,
-`Locations`, and `Diagnostics`. Metadata contains output schema, success, value
-counts, requirements bits and normalized semantic digest. Collections encode
+The output codec uses one fixed value ID, `Product`, containing versioned IR,
+parameters, collections, layout, source, locations and diagnostics sections.
+This refines the initial seven-value proposal: all consumers require the complete
+translation, and one bounded codec keeps cross-section admission and validation
+atomic without separate partial-product lifetimes. Metadata/sections contain
+output schema, success, value counts, requirements bits and normalized semantic digest. Collections encode
 schemas only; asset paths and default payloads never enter persisted products.
 The semantic digest covers canonical normalized MIR, active schemas, layout,
 canonical shader properties and generator identity. Final program identity keeps
@@ -136,6 +163,11 @@ changes reject the material operation and trigger bounded recapture under a new
 identity. Never merely refresh the Shader key while retaining an old material
 key. Translation hits may reuse compiler-independent translation under that new
 environment.
+
+Stage 2 immutable closure verification found that the environment root omitted
+`Material.MeshUniforms`, although the generator imports it. Add that import to
+the dependency root before enabling verification; this correctly invalidates
+old program identities and makes the root cover the generated import closure.
 
 ### Shader subscriber and operation contracts
 
@@ -189,6 +221,14 @@ between ownership categories; do not reserve the same immutable allocation twice
 Capacity pressure defers with existing bounded retry fairness and is not a
 deterministic failure.
 
+The implementation reserves a conservative 16 MiB active-product allowance and
+8 MiB assembly-overlap allowance per admitted operation. The aggregate limits
+therefore admit at most 32 transforming operations, below the existing 64-control
+ceiling, while retaining the 256-consumer limit. This avoids allocating a large
+product and only then discovering transition pressure; unused reservations are
+released at retirement. Shader outputs for material requests are additionally
+bounded by the 8 MiB candidate contract before assembly.
+
 Shader admission uses 128 compiler flights and 512 subscribers, a 1 GiB aggregate
 captured-source budget, existing 512 MiB per-closure bound and 256 MiB per-output
 codec bound. Material assembly additionally enforces its smaller candidate bound.
@@ -206,27 +246,65 @@ each stage. Existing lifecycle sharing/selected-finish/publication fixtures rema
 the baseline. Add fixed aggregate stage/cache/producer counters and duration/byte
 peaks without retaining request history or modifying keys.
 
-### Baseline evidence and remaining measurement gate
+### Baseline and qualification evidence
 
-Host: Windows x64, MSVC 14.44.35207, default Win64-Debug-DurinEditor, Tracy enabled,
-18 build jobs. The unmodified `MaterialCompilerTests --report` passed 71 cases;
-full log: `Build/.agent-state/logs/20261014-210648-994318-90096-MaterialCompilerTests.log`;
-XML: `Build/NativeTestResults/Win64-Debug-DurinEditor/MaterialCompilerTests.xml`.
-Sandbox compilation initially failed with MSVC C1902; the identical command
-outside the sandbox built and passed. This is correctness evidence, not a
-latency baseline.
+Host: Windows x64, MSVC 14.44.35207, Win64-Debug-DurinEditor, Tracy enabled,
+18 build jobs and two native CPU workers. Output caches use separate temporary
+roots per workload/sample; each mode measures five samples, with two consumers
+for shared instances. Source manifests and compiler initialization are reported
+separately from output-cache warmth. No other repository build/test ran during
+the CPU measurements; these results do not claim GPU performance.
 
-Existing `FMaterialQualificationTests.ColdAndWarmCompilerBaseline` reports one
-synthetic MIR cold/retained-warm sample; it does not isolate cache wait, capture,
-function-heavy graphs or persistent fresh-service reuse. Do not use its total
-compilation timing as producer-only time. The remaining Stage 0 fixture must
-measure small authored material, standard function recipe and two shared
-instances, in cold empty temporary cache, fresh-service persistent-warm and
-retained-warm modes. Record at least five samples per mode, raw values, median
-and range, host/cache location and workload identity. Measure capture,
-normalization/generation, compiler execution, DDC wait and request-to-publication
-separately; report worker occupancy from deterministic cache gates independently
-of timing. Preserve raw evidence before runtime scheduling changes.
+Stage 0 used Stage 1 commit `c4cff777f` with the same measurement fixture:
+`Build/MaterialAsyncEvidence/stage0-samples.csv`, `stage0-summary.json`,
+`stage0-publication.csv` and `stage0-publication-report.xml`. The initial
+unmodified material correctness baseline passed 71 cases at
+`Build/.agent-state/logs/20261014-210648-994318-90096-MaterialCompilerTests.log`.
+
+Stage 5 raw samples are `Build/MaterialAsyncEvidence/stage5-publication.csv`
+and `stage5-async.csv`, with corresponding `*-summary.json` files. Qualification
+report: `Build/NativeTestResults/Win64-Debug-DurinEditor/MaterialAsyncQualification.xml`;
+log: `Build/.agent-state/logs/20261015-010149-667760-77632-ctest.log`.
+The fixture records capture-to-candidate and request-to-publication observations,
+translation/resolution/hit counts, producer-only durations, cache I/O duration and
+GameThread producer counts. Async samples additionally report submission time.
+
+Publication milliseconds, median (minimum–maximum), first consumer:
+
+| Workload | Mode | Baseline | Shared pipeline | Async pipeline |
+| --- | --- | --- | --- | --- |
+| Small | Cold | 912.5 (880.5–921.9) | 582.7 (553.1–1153.1) | 580.0 (561.6–613.4) |
+| Small | Persistent warm | 20.1 (17.9–21.6) | 23.3 (19.0–25.1) | 27.7 (25.5–28.4) |
+| Small | Retained warm | 2.7 (2.5–3.1) | 3.4 (3.3–3.6) | 4.0 (3.3–4.0) |
+| Functions | Cold | 729.1 (710.8–940.9) | 678.8 (667.8–749.1) | 670.1 (632.4–723.7) |
+| Functions | Persistent warm | 32.0 (30.9–33.1) | 36.4 (35.1–44.6) | 45.8 (43.8–46.5) |
+| Functions | Retained warm | 13.7 (13.2–15.0) | 15.0 (14.9–19.2) | 22.6 (21.4–25.2) |
+| Shared instances | Cold | 691.7 (684.1–702.0) | 642.2 (622.9–656.5) | 688.2 (638.8–709.5) |
+| Shared instances | Persistent warm | 30.9 (30.5–31.7) | 35.0 (33.1–35.1) | 43.6 (43.4–44.8) |
+| Shared instances | Retained warm | 13.8 (13.3–21.6) | 15.3 (14.6–16.1) | 21.4 (21.2–23.1) |
+
+Cold medians improved on all three workloads. The first small cold sample had
+a 1.153 s outlier during initialization/read-only document discovery; ranges are
+reported and no per-sample latency threshold is claimed. Warm paths pay bounded typed
+translation decoding and immutable source verification; asynchronous function
+requests additionally include detached scheduling/publication overhead. These
+measurements claim eliminated producer work and GameThread normalization, not a
+universal warm-latency improvement. An earlier 251–287 ms persistent-warm
+regression was traced to repeated Slang closure discovery and removed by consuming
+the complete verified declared closure through a closed compiler filesystem.
+
+Every warm sample invoked zero translation producers, zero payload resolvers and
+zero Shader compilers. Every actual pipeline sample recorded zero GameThread
+translation producers. Async submission medians ranged from 0.543 to 10.666 ms;
+function graph expansion remains part of GameThread capture. Deterministic
+blocked-cache fixtures independently prove unrelated work progresses with one
+available CPU worker. Cache-cancellation retirement was 198 microseconds in the
+recorded compiler report, with exactly one canceled completion and no publication
+pump. Process peak working sets were 357,613,568 bytes for synchronous qualification
+and 367,005,696 bytes after asynchronous qualification; these include loaded test
+modules and Slang contexts, not only material storage. The reservation fixture
+proves 32 admitted transformation/overlap reservations and rejection before input
+copy or normalization for an oversized capture.
 
 ## Goal
 
@@ -359,7 +437,7 @@ acceptance fixtures, with no unresolved lifetime or identity decision.
   priority aggregation, cancellation races, and synchronous adapter behavior.
 - [x] Define byte/count budgets and ownership transfer across every stage; specify
   progress/cache diagnostics without changing identity or retaining request history.
-- [ ] Record reproducible cold, persistent-warm, and retained-warm baselines for a
+- [x] Record reproducible cold, persistent-warm, and retained-warm baselines for a
   small material, a function-heavy graph, and shared instances. Measure GameThread
   capture/normalization, producer execution, cache wait, and end-to-end latency
   separately; record host, cache setup, sample count, and noise.
@@ -389,13 +467,13 @@ equivalence rather than mirroring the extracted implementation.
 Dependencies: Stage 1. Outcome: generated Shader requests progress without a
 material producer worker waiting on cache I/O.
 
-- [ ] Implement the asynchronous module entrypoint and task-backed persistent
+- [x] Implement the asynchronous module entrypoint and task-backed persistent
   Shader session while preserving compiler service/module lifetime ownership.
-- [ ] Move dependency preparation and cache/compiler continuations onto appropriate
+- [x] Move dependency preparation and cache/compiler continuations onto appropriate
   Core/DDC execution paths; retain immutable captured closure verification.
-- [ ] Keep Shader single-flight/LRU and independent subscriber cancellation;
+- [x] Keep Shader single-flight/LRU and independent subscriber cancellation;
   implement agreed priority behavior and exactly-once completion.
-- [ ] Preserve synchronous APIs as explicit submit-and-wait adapters; drain both
+- [x] Preserve synchronous APIs as explicit submit-and-wait adapters; drain both
   execution modes at shutdown without destroying active Slang contexts.
 
 Completion: RenderShaderBuilderTests, RenderShaderCacheTests, and
@@ -410,13 +488,13 @@ all build after migrating consumers.
 Dependencies: Stages 1 and 2. Outcome: translation is a registered, bounded DDC
 product usable through task and synchronous sessions.
 
-- [ ] Implement canonical input capture/encoding, resolver, function registration,
+- [x] Implement canonical input capture/encoding, resolver, function registration,
   output values/metadata, and typed assembly with independent version identities.
-- [ ] Exclude consumer configuration/defaults and source locations as specified;
+- [x] Exclude consumer configuration/defaults and source locations as specified;
   reconstruct per-consumer diagnostics after cache hits.
-- [ ] Implement force behavior, deterministic negative output, infrastructure
+- [x] Implement force behavior, deterministic negative output, infrastructure
   failure translation, and local-result preservation on persistence failure.
-- [ ] Add Engine-side injectable cache/session support scoped through request
+- [x] Add Engine-side injectable cache/session support scoped through request
   retirement; do not expose private schemas or fixture controls as runtime APIs.
 
 Completion: MaterialCompilerTests plus relevant DerivedDataBuildTests and
@@ -430,16 +508,16 @@ semantic rejection, negative hits, canceled misses, and store failure.
 Dependencies: Stages 2 and 3. Outcome: normal authored requests use the complete
 asynchronous pipeline, and GameThread no longer normalizes detached MIR.
 
-- [ ] Replace the monolithic MaterialCompile task with bounded operation state,
+- [x] Replace the monolithic MaterialCompile task with bounded operation state,
   translation ownership, semantic-flight merging, Shader subscription, assembly
   task, and completion mailbox.
-- [ ] Preserve independently qualified consumers, retained-program reuse, retry
+- [x] Preserve independently qualified consumers, retained-program reuse, retry
   fairness, selected finish/cancel, last-known-good behavior, and atomic publication.
-- [ ] Propagate cancellation/priority and force policy across stages; retain count
+- [x] Propagate cancellation/priority and force policy across stages; retain count
   and byte admission until the relevant captures retire.
-- [ ] Apply current collection defaults/configuration only at typed consumer
+- [x] Apply current collection defaults/configuration only at typed consumer
   assembly/application; keep source maps associated with each consumer snapshot.
-- [ ] Implement stop-admission and complete drain before producer module teardown.
+- [x] Implement stop-admission and complete drain before producer module teardown.
 
 Completion: MaterialCompileLifecycleTests and MaterialRuntimeTests pass. Cover
 two translation inputs converging to one program, independent cancellation,
@@ -453,18 +531,18 @@ prove no live-object worker access and no blocked material worker during cache I
 Dependencies: Stage 4. Outcome: one production pipeline serves editor and offline
 callers, with current runtime contracts and reproducible validation evidence.
 
-- [ ] Migrate MIR::Compile, offline preparation, import/load paths, and MaterialCook
+- [x] Migrate MIR::Compile, offline preparation, import/load paths, and MaterialCook
   to shared stage products and explicit waiting. Remove obsolete synchronous
   lifecycle implementations and compatibility-only helpers after consumer audit.
-- [ ] Search every source/test project in Durin.dworkspace for changed shared
+- [x] Search every source/test project in Durin.dworkspace for changed shared
   symbols and migrate all consumers; validate each affected project target.
-- [ ] Preserve DMAT/Shader package codec compatibility unless a separately
+- [x] Preserve DMAT/Shader package codec compatibility unless a separately
   justified payload change is recorded. Prove cooked Game does not acquire
   ShaderBuild/DDC dependencies or submit authoring requests.
-- [ ] Run the validation matrix below and repeat Stage 0 workload measurements.
+- [x] Run the validation matrix below and repeat Stage 0 workload measurements.
   Record warm producer counts, GameThread work, cache wait worker occupancy,
   cancellation latency, peak resident bytes, and cold-path cost.
-- [ ] Publish implemented contracts in MaterialSystem, ShaderCache,
+- [x] Publish implemented contracts in MaterialSystem, ShaderCache,
   DerivedDataBuild, and AssetCompilation; update material roadmap status only for
   implemented outcomes. Complete/archive this plan under local lifecycle rules.
 

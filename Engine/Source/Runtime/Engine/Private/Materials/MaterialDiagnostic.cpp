@@ -288,6 +288,7 @@ namespace Durin
 				case EMaterialCompileError::NoAuthoredProgram: return "Material has no authored program.";
 				case EMaterialCompileError::ShaderCompilerFailed: return "Material compiler provider failed.";
 				case EMaterialCompileError::ShaderEnvironmentUnavailable: return "Material compiler environment is unavailable.";
+				case EMaterialCompileError::SourceDependencyChanged: return "Material shader sources changed after snapshot capture.";
 				}
 			}
 			else if constexpr (std::is_same_v<T, EMaterialInstanceError>)

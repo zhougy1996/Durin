@@ -3,6 +3,8 @@
 #include "Materials/MaterialParameterCollection.h"
 #if DURIN_WITH_EDITOR
 #include "Physics/PhysicsBuildFunction.h"
+#include "Materials/MaterialTranslation.h"
+#include "Materials/MaterialProgramCache.h"
 #endif
 
 namespace Durin
@@ -14,6 +16,9 @@ namespace Durin
 		auto SupportsDynamicReloading() const -> bool override { return false; }
 		auto StartupModule() -> void override
 		{
+#if DURIN_WITH_EDITOR
+			MaterialBuildPrivate::RegisterTranslation();
+#endif
 			CollisionDebug = std::make_unique<FWorldSubsystemRegistration>(FWorldSubsystemDescriptor{
 				.Type = DCollisionDebugSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 			MaterialParameterCollections = std::make_unique<FWorldSubsystemRegistration>(FWorldSubsystemDescriptor{
@@ -24,6 +29,8 @@ namespace Durin
 		{
 #if DURIN_WITH_EDITOR
 			PhysicsPrivate::ShutdownBuildSessions();
+			MaterialBuildPrivate::CloseTranslationSessions();
+			MaterialBuildPrivate::ClearPrograms();
 #endif
 			MaterialParameterCollections.reset();
 			CollisionDebug.reset();

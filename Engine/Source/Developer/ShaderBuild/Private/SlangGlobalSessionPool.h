@@ -35,7 +35,9 @@ namespace Durin
 			Slang::ComPtr<slang::IGlobalSession> Session;
 			{
 				std::lock_guard Lock(Mutex);
-				if (IdleCount) Session = std::move(Idle[--IdleCount]);
+				for (size_t Index = 0; Index < IdleCount; ++Index)
+					if (Idle[Index].Thread == std::this_thread::get_id())
+					{ Session = std::move(Idle[Index].Session); Idle[Index] = std::move(Idle[--IdleCount]); break; }
 			}
 			// Both construction and destruction may be expensive; never hold the
 			// inventory lock while calling Slang.
@@ -49,13 +51,14 @@ namespace Durin
 		auto Release(Slang::ComPtr<slang::IGlobalSession> Session) -> void
 		{
 			std::lock_guard Lock(Mutex);
-			if (IdleCount < Idle.size()) Idle[IdleCount++] = std::move(Session);
+			if (IdleCount < Idle.size()) Idle[IdleCount++] = {std::this_thread::get_id(), std::move(Session)};
 		}
 
 		// Bound retained memory after bursts. Active contexts are bounded by the
 		// caller's admission/worker budget, not another blocking queue here.
 		std::mutex Mutex;
-		std::array<Slang::ComPtr<slang::IGlobalSession>, 4> Idle;
+		struct FIdleSession { std::thread::id Thread; Slang::ComPtr<slang::IGlobalSession> Session; };
+		std::array<FIdleSession, 4> Idle;
 		size_t IdleCount = 0;
 	};
 }

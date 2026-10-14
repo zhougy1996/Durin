@@ -1,4 +1,5 @@
 #include "MaterialPreparedProgram.h"
+#include "MaterialBuildOperation.h"
 #include "Materials/MaterialProgramCompiler.h"
 
 #include "Materials/MaterialTypes.h"
@@ -1109,6 +1110,8 @@ float4 FragmentMain(
 		Prepared.Environment = Input.Environment;
 		return Prepared;
 	}
+	auto BuildMaterialProgramRequirements(const MIR::FModule& IR) -> FMaterialProgramRequirements
+	{ return DeriveMaterialProgramRequirements(IR); }
 
 	auto TranslatePreparedMaterialProgram(const FMaterialPreparedProgram& Input)
 		-> FMaterialTranslatedProgram
@@ -1116,6 +1119,7 @@ float4 FragmentMain(
 		FMaterialTranslatedProgram Translation;
 		Translation.StaticProperties = Input.StaticProperties;
 		Translation.ResourceLimits = Input.Environment.ResourceLimits;
+		Translation.Sources = Input.Normalized.Sources;
 		auto& Result = Translation.Candidate;
 		Result.CompilerIdentity = Input.Environment.CompilerIdentity;
 		Result.Target = Input.Environment.Target;
@@ -1137,6 +1141,7 @@ float4 FragmentMain(
 		if (!Normalized)
 		{
 			Result.Diagnostics = Normalized.Diagnostics;
+			Translation.Sources.clear();
 			return Translation;
 		}
 		Result.Identity = Normalized.Identity;
@@ -1185,6 +1190,10 @@ float4 FragmentMain(
 		Request.AllowedImportVirtualPrefixes = {
 			"/Engine/Material/", "/Engine/Lighting/", "/Engine/VertexFactory/"};
 		Request.bForceRecompile = bForceRecompile;
+		Request.MaximumOutputBytes = 8ull * 1024 * 1024;
+		for (const auto& Dependency : Result.Dependencies)
+			if (Dependency.VirtualPath == "/Engine/MaterialCompilerEnvironment")
+				Request.ExpectedSourceTree = FShaderSourceDependencyFingerprint{Dependency.VirtualPath, Dependency.ContentHash};
 		return Request;
 	}
 
@@ -1198,8 +1207,8 @@ float4 FragmentMain(
 		if (!Output)
 		{
 			Result.Diagnostics.push_back(MakeDiagnostic(
-				EMaterialProgramDiagnosticCategory::Compile,
-				FMaterialError::FromExternal(EMaterialCompileError::ShaderCompilerFailed, FormatShaderError(Output.Error))));
+				Output.Error.Code == EShaderError::DependencyContentConflict ? EMaterialProgramDiagnosticCategory::Dependency : EMaterialProgramDiagnosticCategory::Compile,
+				FMaterialError::FromExternal(Output.Error.Code == EShaderError::DependencyContentConflict ? EMaterialCompileError::SourceDependencyChanged : EMaterialCompileError::ShaderCompilerFailed, FormatShaderError(Output.Error))));
 			return Result;
 		}
 		const auto Target = Result.Target == "metal-msl-2.0" ? MetalShaderTarget : VulkanShaderTarget;
@@ -1220,21 +1229,8 @@ float4 FragmentMain(
 		return Result;
 	}
 
-	auto CompilePreparedMaterialProgram(const FMaterialPreparedProgram& Input,
-		bool bForceRecompile) -> FMaterialCompilerResult
-	{
-		auto Translation = TranslatePreparedMaterialProgram(Input);
-		if (!Translation) return std::move(Translation.Candidate);
-		const auto CompileBegin = std::chrono::steady_clock::now();
-		auto Request = MakeMaterialShaderCompileRequest(Translation, bForceRecompile);
-		auto Output = CompileGeneratedShader(Request);
-		Translation.Candidate.Timings.CompilationMicroseconds =
-			std::chrono::duration_cast<std::chrono::microseconds>(
-				std::chrono::steady_clock::now() - CompileBegin).count();
-		return AssembleMaterialProgram(std::move(Translation), std::move(Output));
-	}
 	auto MIR::Compile(const MIR::FCompilerInput& Input, bool bForceRecompile) -> FMaterialCompilerResult
 	{
-		return CompilePreparedMaterialProgram(PrepareMaterialProgram(Input), bForceRecompile);
+		return MaterialBuildPrivate::CompileMaterialInput(Input, bForceRecompile);
 	}
 }

@@ -83,8 +83,6 @@ namespace Durin
 		uint64 Generation = 0;
 	};
 
-	struct FMaterialPreparedProgram;
-
 	// Immutable snapshot captured on GameThread before Worker admission.
 	struct FMaterialCompileRequest
 	{
@@ -94,7 +92,8 @@ namespace Durin
 		uint64 DependencyRevision = 0;
 		uint64 ParentChainRevision = 0;
 		FMaterialProgramIdentity ProgramIdentity;
-		std::shared_ptr<const FMaterialPreparedProgram> PreparedProgram;
+		std::shared_ptr<const MIR::FCompilerInput> CompilerInput;
+		std::vector<MIR::FSource> ExpressionSources;
 		std::string AssetPath;
 		std::string Target;
 		bool bForceRecompile = false;
@@ -119,6 +118,7 @@ namespace Durin
 			EMaterialCompileCacheOutcome::None;
 		uint64 TaskId = 0;
 		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
+		std::vector<MIR::FSource> ExpressionSources;
 		std::vector<FMaterialCompileDiagnostic> Diagnostics;
 	};
 
@@ -139,6 +139,7 @@ namespace Durin
 		FMaterialProgramIdentity CompiledIdentity;
 		std::string Target;
 		uint64 DurationMicroseconds = 0;
+		uint8 SourceRetryCount = 0;
 
 		auto IsCurrent() const -> bool
 		{

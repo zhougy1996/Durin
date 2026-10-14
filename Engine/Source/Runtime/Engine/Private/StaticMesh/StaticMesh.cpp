@@ -832,7 +832,9 @@ namespace Durin
 		for (size_t Index = 0; Index < InMaterialSlots.size(); ++Index)
 		{
 			InRenderData->MaterialSlots[Index].Name = InMaterialSlots[Index].Name.ToString();
+#if DURIN_WITH_EDITORONLY_DATA
 			InRenderData->MaterialSlots[Index].SourceMaterialIndex = InMaterialSlots[Index].SourceMaterialIndex;
+#endif
 		}
 		InRenderData->RecalculateBounds();
 		StaticMeshPrivate::PrepareRenderRayQueries(*InRenderData);

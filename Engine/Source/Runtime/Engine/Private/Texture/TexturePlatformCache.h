@@ -3,7 +3,9 @@
 #include "CoreMinimal.h"
 
 #include "Texture/Texture.h"
+#if DURIN_WITH_EDITORONLY_DATA
 #include "DerivedDataBuildExecution.h"
+#endif
 
 namespace Durin
 {

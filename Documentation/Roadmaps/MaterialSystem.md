@@ -2,12 +2,18 @@
 
 Summary: Evolve authored materials from fixed PBR inputs to material-owned parameters, compiled layouts, reusable graphs, and runtime instances.
 
-Last reviewed: 2026-10-01
+Last reviewed: 2026-10-15
 
 Status: Active
 Completed:
 
 ## Current Status
+
+The [Material Async Derived Data Build plan](../Plans/MaterialAsyncDerivedDataBuild.md)
+implements detached cached translation, asynchronous ShaderBuild subscriptions and
+staged material assembly. GameThread captures authored graphs; normalization and
+cache waits now progress through detached continuations. Its acceptance evidence
+and completion status remain owned by that plan.
 
 On 2026-10-01 the
 [Material Vertex Evaluation plan](../Plans/Archive/2026-10/MaterialVertexEvaluation.md) completed

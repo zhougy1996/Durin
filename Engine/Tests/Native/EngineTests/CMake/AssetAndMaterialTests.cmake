@@ -304,6 +304,7 @@ durin_add_native_test(MaterialCompilerTests
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	LIBRARIES
+		DerivedDataCache
 		Core
 		CoreDObject
 		Engine
@@ -578,6 +579,7 @@ durin_add_native_test(MaterialCompileLifecycleTests
 		Private/Materials/MaterialAsyncEditingSessionTestSupport.cpp
 	PRIVATE_SOURCES ${_durin_material_editor_private}/Widgets/MaterialEditingSession.cpp
 	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_level_editor_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
@@ -586,6 +588,8 @@ durin_add_native_test(MaterialCompileLifecycleTests
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	LIBRARIES
+		ShaderBuild
+		DerivedDataCache
 		Core
 		CoreDObject
 		Engine
@@ -700,6 +704,7 @@ durin_add_native_test(MaterialQualificationTests
 	TIMEOUT 900
 	SOURCES Private/Materials/MaterialQualificationTests.cpp
 	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_level_editor_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
@@ -708,6 +713,8 @@ durin_add_native_test(MaterialQualificationTests
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	LIBRARIES
+		ShaderBuild
+		DerivedDataCache
 		Core
 		CoreDObject
 		Engine

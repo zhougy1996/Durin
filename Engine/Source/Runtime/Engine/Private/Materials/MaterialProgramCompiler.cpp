@@ -1,4 +1,5 @@
 #include "Materials/MaterialProgramCompiler.h"
+#include "MaterialPreparedProgram.h"
 #include "MaterialBuildVersion.h"
 #include "Hash/XxHash.h"
 #include "Serialization/BinaryFormat.h"
@@ -211,7 +212,7 @@ namespace Durin
 		return {};
 	}
 
-	static auto ValidateNormalizationEnvironment(const MIR::FCompilerInput& Input) -> MIR::FNormalizationResult
+	auto ValidateMaterialNormalizationEnvironment(const MIR::FCompilerInput& Input) -> MIR::FNormalizationResult
 	{
 		MIR::FNormalizationResult Result;
 		const auto StaticPropertiesError = ValidateMaterialStaticProperties(
@@ -293,7 +294,7 @@ namespace Durin
 	auto MIR::Normalize(const MIR::FCompilerInput& Input) -> MIR::FNormalizationResult
 	{
 		MIR::FNormalizationResult Result;
-		const auto EnvironmentValidation = ValidateNormalizationEnvironment(Input);
+		const auto EnvironmentValidation = ValidateMaterialNormalizationEnvironment(Input);
 		if (!EnvironmentValidation) return EnvironmentValidation;
 		if (Input.Collections.size() > MaterialParameterCollectionMaxPerMaterial)
 		{

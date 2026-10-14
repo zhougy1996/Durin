@@ -1,4 +1,5 @@
 #include "ShaderBuildSession.h"
+#include "ShaderBuildTestSupport.h"
 #include "ShaderBuildVersion.h"
 #include "Shader/ShaderCompiledOutput.h"
 #include "ShaderCaptureLimits.h"
@@ -27,9 +28,19 @@ namespace Durin
 		}
 	}
 
+	class FShaderBuildModule;
+	static FShaderBuildModule* ActiveModule = nullptr;
 	class FShaderBuildModule final : public IShaderBuildModule
 	{
 	public:
+		auto ResetService(DerivedData::FBuildServiceOptions Options) -> void
+		{
+			if (Builder) Builder->Close();
+			if (BuildService) BuildService->Close();
+			Builder.reset();
+			BuildService->ResetCacheForTests(std::move(Options));
+			Builder = std::make_unique<FShaderBuilder>(BuildService);
+		}
 		auto CompileMounted(
 			std::string_view VirtualShaderPath,
 			const FShaderCompileOptions& Options) -> FShaderCompilerOutput override
@@ -42,6 +53,9 @@ namespace Durin
 		{
 			return Builder->GetOrCompileGenerated(Request);
 		}
+		auto SubmitGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
+			FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> override
+		{ return Builder->SubmitGenerated(std::move(Request), std::move(Options), std::move(Completion)); }
 
 		auto GetBuildVersion() const -> uint64 override { return Builder->GetBuildVersion(); }
 		auto GetCompileAdapterVersion() const -> FShaderCompileAdapterVersion override
@@ -176,6 +190,7 @@ namespace Durin
 		// Resident until normal editor/tool shutdown; dynamic reloading is unsupported.
 		auto StartupModule() -> void override
 		{
+			ActiveModule = this;
 			FShaderPaths::InitDefaultMountPoints();
 			BuildService = std::make_shared<FShaderBuildService>();
 			Builder = std::make_unique<FShaderBuilder>(BuildService);
@@ -191,6 +206,8 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
+			ActiveModule = nullptr;
+			if (Builder) Builder->Close();
 			if (BuildService) BuildService->Close();
 			Builder.reset();
 			BuildService.reset();
@@ -200,6 +217,14 @@ namespace Durin
 		std::shared_ptr<FShaderBuildService> BuildService;
 		std::unique_ptr<FShaderBuilder> Builder;
 	};
+	namespace ShaderBuildPrivate
+	{
+		auto ResetServiceForTests(DerivedData::FBuildServiceOptions Options) -> void
+		{
+			require(ActiveModule);
+			ActiveModule->ResetService(std::move(Options));
+		}
+	}
 
 	IMPLEMENT_MODULE(FShaderBuildModule, ShaderBuild)
 }

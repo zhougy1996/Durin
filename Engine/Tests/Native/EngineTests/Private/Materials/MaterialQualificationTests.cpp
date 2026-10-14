@@ -1,3 +1,10 @@
+#include "Asset/AssetCompilingManager.h"
+#ifdef _WIN32
+#include "Windows/WindowsPlatform.h"
+#include <Psapi.h>
+#endif
+#include "Materials/MaterialProgramCache.h"
+#include "Materials/MaterialTranslation.h"
 #include "MaterialGraphDocument.h"
 #include "MaterialCookedProgramTestSupport.h"
 #include "ExplicitMaterialProgramTestFixture.h"
@@ -12,6 +19,12 @@
 #include "Materials/ObjectCacheContext.h"
 #include "NativeQualificationSupport.h"
 #include "RenderingThread.h"
+#include "Asset/OfflinePreparation.h"
+#include "Materials/MaterialPreparedProgram.h"
+#include "StandardMaterialFunctionTestFixture.h"
+#include "ShaderBuildTestSupport.h"
+#include "Shader/IShaderBuildModule.h"
+#include "Misc/Paths.h"
 
 
 namespace
@@ -47,6 +60,209 @@ namespace
 			{Seed, Seed + 0.01f, Seed + 0.02f, Seed + 0.03f});
 	}
 
+}
+
+TEST(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	ASSERT_NE(IShaderBuildModule::Get(), nullptr);
+	auto* Small = NewObject<DMaterial>(nullptr, "BaselineSmall");
+	auto* Functions = NewObject<DMaterial>(nullptr, "BaselineFunctions");
+	Functions->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(Testing::SetStandardMaterialExpressionsForTest(*Functions));
+	auto* First = NewObject<DMaterialInstance>(nullptr, "BaselineSharedFirst");
+	auto* Second = NewObject<DMaterialInstance>(nullptr, "BaselineSharedSecond");
+	ASSERT_TRUE(First->SetParent(Functions));
+	ASSERT_TRUE(Second->SetParent(Functions));
+	const auto PreviousCache = FPaths::DerivedDataCacheDir();
+	struct FRestore
+	{
+		std::string Previous;
+		std::array<DMaterialInterface*, 4> Owners;
+		~FRestore()
+		{
+			ShaderBuildPrivate::ResetServiceForTests();
+			FPaths::SetDerivedDataCacheDirForTests(Previous);
+			for (auto* Owner : Owners) MarkAsGarbage(Owner);
+			CollectGarbage();
+		}
+	} Restore{PreviousCache, {Small, Functions, First, Second}};
+	const auto Root = Testing::GetTestWorkDirectory() / "MaterialStagedBaseline";
+	std::filesystem::create_directories(Root);
+	std::string Csv = "workload,sample,mode,consumer,capture_us,normalization_us,generation_us,producer_us,cache_io_us,candidate_us,compilations,ddc_hits,memory_hits\n";
+	const auto Micros = [](auto Begin) { return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count(); };
+	for (uint32 Workload = 0; Workload < 3; ++Workload)
+	{
+		const std::vector<DMaterialInterface*> Owners = Workload == 0 ? std::vector<DMaterialInterface*>{Small}
+			: Workload == 1 ? std::vector<DMaterialInterface*>{Functions} : std::vector<DMaterialInterface*>{First, Second};
+		for (uint32 Sample = 0; Sample < 5; ++Sample)
+		{
+			const auto CachePath = Root / std::format("cache-{}-{}", Workload, Sample);
+			FPaths::SetDerivedDataCacheDirForTests(CachePath.generic_string());
+			for (uint32 Mode = 0; Mode < 3; ++Mode)
+			{
+				if (Mode < 2) ShaderBuildPrivate::ResetServiceForTests();
+				FMaterialCompilerEnvironment Environment;
+				ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
+				for (uint32 Consumer = 0; Consumer < Owners.size(); ++Consumer)
+				{
+					const auto Before = GetShaderBuildStats();
+					const auto Begin = std::chrono::steady_clock::now();
+					auto Captured = SnapshotMaterialCompilerInput(*Owners[Consumer], Environment);
+					const auto CaptureUs = Micros(Begin);
+					ASSERT_TRUE(Captured);
+					const auto NormalizeBegin = std::chrono::steady_clock::now();
+					auto Normalized = MIR::Normalize(Captured.Snapshot->Input);
+					const auto NormalizeUs = Micros(NormalizeBegin);
+					ASSERT_TRUE(Normalized);
+					FMaterialPreparedProgram Prepared{.Normalized = std::move(Normalized),
+						.StaticProperties = Captured.Snapshot->Input.StaticProperties,
+						.Environment = Captured.Snapshot->Input.Environment};
+					auto Translation = TranslatePreparedMaterialProgram(Prepared);
+					ASSERT_TRUE(Translation);
+					const auto GenerationUs = Translation.Candidate.Timings.GenerationMicroseconds;
+					auto Output = CompileGeneratedShader(MakeMaterialShaderCompileRequest(Translation, false));
+					ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+					auto Candidate = AssembleMaterialProgram(std::move(Translation), std::move(Output));
+					ASSERT_TRUE(Candidate);
+					const auto TotalUs = Micros(Begin);
+					const auto After = GetShaderBuildStats();
+					if (Mode > 0 || Consumer > 0) EXPECT_EQ(After.Compilations, Before.Compilations);
+					else EXPECT_EQ(After.Compilations, Before.Compilations + 1);
+					const auto Row = std::format("{},{},{},{},{},{},{},{},{},{},{},{},{}\n", Workload, Sample, Mode, Consumer,
+						CaptureUs, NormalizeUs, GenerationUs, After.ProducerMicroseconds - Before.ProducerMicroseconds,
+						After.CacheMicroseconds - Before.CacheMicroseconds, TotalUs, After.Compilations - Before.Compilations,
+						After.DdcHits - Before.DdcHits, After.MemoryHits - Before.MemoryHits);
+					Csv += Row;
+					std::cout << "[MaterialStagedBaseline] " << Row;
+				}
+			}
+		}
+	}
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Csv)), Root / "samples.csv"));
+	RecordProperty("BaselineSamples", 60);
+	std::cout << "[MaterialStagedBaseline] csv=" << (Root / "samples.csv").generic_string() << '\n';
+}
+
+TEST(FMaterialQualificationTests, RequestToPublicationWorkloads)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	ASSERT_NE(IShaderBuildModule::Get(), nullptr);
+	const auto Previous = FPaths::DerivedDataCacheDir();
+	struct FRestore { std::string Previous; ~FRestore() { ShaderBuildPrivate::ResetServiceForTests(); FPaths::SetDerivedDataCacheDirForTests(Previous); } } Restore{Previous};
+	const auto Root = Testing::GetTestWorkDirectory() / "MaterialPublicationBaseline";
+	std::filesystem::create_directories(Root);
+	std::string Csv = "workload,sample,mode,consumer,publication_us,compilations,ddc_hits,memory_hits,translation_producers,translation_resolutions,translation_hits,translation_producer_us,shader_producer_us,shader_cache_io_us,gt_translation_producers\n";
+	for (uint32 Workload = 0; Workload < 3; ++Workload)
+		for (uint32 Sample = 0; Sample < 5; ++Sample)
+		{
+			FPaths::SetDerivedDataCacheDirForTests((Root / std::format("cache-{}-{}", Workload, Sample)).generic_string());
+			for (uint32 Mode = 0; Mode < 3; ++Mode)
+			{
+				auto* Material = NewObject<DMaterial>(nullptr, NAME_None);
+				Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+				if (Workload) ASSERT_TRUE(Testing::SetStandardMaterialExpressionsForTest(*Material));
+				auto Outputs = Material->GetExpressionOutputs(); Outputs.Roughness.SetConstant({0.527f + Sample * 0.013f});
+				std::vector<DMaterialExpression*> Expressions;
+				for (const auto& Expression : Material->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
+				ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
+				std::vector<DMaterialInterface*> Owners{Material};
+				if (Workload == 2)
+				{
+					Owners.clear();
+					for (uint32 Index = 0; Index < 2; ++Index) { auto* Instance = NewObject<DMaterialInstance>(nullptr, NAME_None); ASSERT_TRUE(Instance->SetParent(Material)); Owners.push_back(Instance); }
+				}
+				if (Mode < 2) { ShaderBuildPrivate::ResetServiceForTests(); MaterialBuildPrivate::ClearPrograms(); MaterialBuildPrivate::CloseTranslationSessions(); }
+				for (uint32 Consumer = 0; Consumer < Owners.size(); ++Consumer)
+				{
+					const auto TranslationBefore = MaterialBuildPrivate::GetTranslationStats();
+					const auto Before = GetShaderBuildStats(); const auto Begin = std::chrono::steady_clock::now();
+					ASSERT_TRUE(RequestMaterialRecompile(*Owners[Consumer]));
+					ASSERT_TRUE(Owners[Consumer]->GetMaterialCompileStatus().IsCurrent());
+					ASSERT_TRUE(Owners[Consumer]->GetAcceptedCompiledProgram());
+					const auto Duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count();
+					const auto After = GetShaderBuildStats();
+					const auto TranslationAfter = MaterialBuildPrivate::GetTranslationStats();
+					const auto Row = std::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n", Workload, Sample, Mode, Consumer, Duration,
+						After.Compilations - Before.Compilations, After.DdcHits - Before.DdcHits, After.MemoryHits - Before.MemoryHits, TranslationAfter.Producers - TranslationBefore.Producers, TranslationAfter.Resolutions - TranslationBefore.Resolutions, TranslationAfter.Hits - TranslationBefore.Hits, TranslationAfter.ProducerMicroseconds - TranslationBefore.ProducerMicroseconds, After.ProducerMicroseconds - Before.ProducerMicroseconds, After.CacheMicroseconds - Before.CacheMicroseconds, TranslationAfter.GameThreadProducers - TranslationBefore.GameThreadProducers);
+					Csv += Row; std::printf("[MaterialPublicationBaseline] %s", Row.c_str());
+					if (Mode > 0 || Consumer > 0) { EXPECT_EQ(After.Compilations, Before.Compilations); EXPECT_EQ(TranslationAfter.Producers, TranslationBefore.Producers); EXPECT_EQ(TranslationAfter.Resolutions, TranslationBefore.Resolutions); }
+					EXPECT_EQ(TranslationAfter.GameThreadProducers, TranslationBefore.GameThreadProducers);
+				}
+				for (auto* Owner : Owners) if (Owner != Material) MarkAsGarbage(Owner);
+				MarkAsGarbage(Material); CollectGarbage();
+			}
+		}
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Csv)), Root / "publication.csv"));
+	#ifdef _WIN32
+	PROCESS_MEMORY_COUNTERS Memory{}; if (K32GetProcessMemoryInfo(GetCurrentProcess(), &Memory, sizeof(Memory))) { RecordProperty("PeakProcessWorkingSetBytes", Memory.PeakWorkingSetSize); std::cout << "[MaterialWorkingSet] peak_bytes=" << Memory.PeakWorkingSetSize << "\n"; }
+	#endif
+	std::cout << "[MaterialPublicationBaseline] csv=" << (Root / "publication.csv").generic_string() << '\n';
+}
+
+TEST(FMaterialQualificationTests, AsyncCaptureToPublicationWorkloads)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	ASSERT_TRUE(InitializeAssetCompilingManager());
+	struct FShutdown { ~FShutdown() { ShutdownAssetCompilingManager(); } } Shutdown;
+	ASSERT_NE(IShaderBuildModule::Get(), nullptr);
+	const auto Previous = FPaths::DerivedDataCacheDir();
+	struct FRestore { std::string Previous; ~FRestore() { ShaderBuildPrivate::ResetServiceForTests(); FPaths::SetDerivedDataCacheDirForTests(Previous); } } Restore{Previous};
+	const auto Root = Testing::GetTestWorkDirectory() / "MaterialAsyncPublication";
+	std::filesystem::create_directories(Root);
+	std::string Csv = "workload,sample,mode,consumer,publication_us,submission_us,compilations,ddc_hits,memory_hits,translation_producers,translation_resolutions,translation_hits,translation_producer_us,shader_producer_us,shader_cache_io_us,gt_translation_producers\n";
+	for (uint32 Workload = 0; Workload < 3; ++Workload)
+		for (uint32 Sample = 0; Sample < 5; ++Sample)
+		{
+			FPaths::SetDerivedDataCacheDirForTests((Root / std::format("cache-{}-{}", Workload, Sample)).generic_string());
+			for (uint32 Mode = 0; Mode < 3; ++Mode)
+			{
+				auto* Material = NewObject<DMaterial>(nullptr, NAME_None);
+				Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+				if (Workload) ASSERT_TRUE(Testing::SetStandardMaterialExpressionsForTest(*Material));
+				auto Outputs = Material->GetExpressionOutputs(); Outputs.Roughness.SetConstant({0.527f + Sample * 0.013f});
+				std::vector<DMaterialExpression*> Expressions;
+				for (const auto& Expression : Material->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
+				ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
+				std::vector<DMaterialInterface*> Owners{Material};
+				if (Workload == 2)
+				{
+					Owners.clear();
+					for (uint32 Index = 0; Index < 2; ++Index) { auto* Instance = NewObject<DMaterialInstance>(nullptr, NAME_None); ASSERT_TRUE(Instance->SetParent(Material)); Owners.push_back(Instance); }
+				}
+				if (Mode < 2) { ShaderBuildPrivate::ResetServiceForTests(); MaterialBuildPrivate::ClearPrograms(); MaterialBuildPrivate::CloseTranslationSessions(); }
+				for (uint32 Consumer = 0; Consumer < Owners.size(); ++Consumer)
+				{
+					const auto TranslationBefore = MaterialBuildPrivate::GetTranslationStats();
+					const auto Before = GetShaderBuildStats(); const auto Begin = std::chrono::steady_clock::now();
+					ASSERT_TRUE(RequestMaterialRecompile(*Owners[Consumer]));
+					const auto Submission = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count();
+					DObject* Selected[] = {Owners[Consumer]}; FAssetCompilingManager::Get().FinishCompilationForObjects(Selected);
+					ASSERT_TRUE(Owners[Consumer]->GetMaterialCompileStatus().IsCurrent());
+					ASSERT_TRUE(Owners[Consumer]->GetAcceptedCompiledProgram());
+					const auto Duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count();
+					const auto After = GetShaderBuildStats();
+					const auto TranslationAfter = MaterialBuildPrivate::GetTranslationStats();
+					const auto Row = std::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n", Workload, Sample, Mode, Consumer, Duration, Submission,
+						After.Compilations - Before.Compilations, After.DdcHits - Before.DdcHits, After.MemoryHits - Before.MemoryHits, TranslationAfter.Producers - TranslationBefore.Producers, TranslationAfter.Resolutions - TranslationBefore.Resolutions, TranslationAfter.Hits - TranslationBefore.Hits, TranslationAfter.ProducerMicroseconds - TranslationBefore.ProducerMicroseconds, After.ProducerMicroseconds - Before.ProducerMicroseconds, After.CacheMicroseconds - Before.CacheMicroseconds, TranslationAfter.GameThreadProducers - TranslationBefore.GameThreadProducers);
+					Csv += Row; std::printf("[MaterialAsyncPublication] %s", Row.c_str());
+					if (Mode > 0 || Consumer > 0) { EXPECT_EQ(After.Compilations, Before.Compilations); EXPECT_EQ(TranslationAfter.Producers, TranslationBefore.Producers); EXPECT_EQ(TranslationAfter.Resolutions, TranslationBefore.Resolutions); }
+					EXPECT_EQ(TranslationAfter.GameThreadProducers, TranslationBefore.GameThreadProducers);
+				}
+				for (auto* Owner : Owners) if (Owner != Material) MarkAsGarbage(Owner);
+				MarkAsGarbage(Material); CollectGarbage();
+			}
+		}
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Csv)), Root / "publication.csv"));
+	#ifdef _WIN32
+	PROCESS_MEMORY_COUNTERS Memory{}; if (K32GetProcessMemoryInfo(GetCurrentProcess(), &Memory, sizeof(Memory))) { RecordProperty("PeakProcessWorkingSetBytes", Memory.PeakWorkingSetSize); std::cout << "[MaterialWorkingSet] peak_bytes=" << Memory.PeakWorkingSetSize << "\n"; }
+	#endif
+	std::cout << "[MaterialAsyncPublication] csv=" << (Root / "publication.csv").generic_string() << '\n';
 }
 
 TEST(FMaterialQualificationTests, MaximumGraphLayoutLatency)

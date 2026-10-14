@@ -1,3 +1,6 @@
+#include "ShaderBuildTestSupport.h"
+#include "Shader/IShaderBuildModule.h"
+#include "Materials/MaterialExpressionBuild.h"
 #include "NativeRHIBackendTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "FunctionPortTestFixture.h"
@@ -57,6 +60,37 @@ namespace
 
 namespace
 {
+	auto QualifyDistinctTranslationsConvergingToOneProgram() -> void
+	{
+		using namespace Durin;
+		struct FGate final : DerivedData::ICache {
+			mutable FThreadEvent Entered, Release;
+			auto Get(const DerivedData::FCacheGetRequest& Request) const -> DerivedData::FCacheGetResult override { Entered.Trigger(); Release.WaitFor(10); return DerivedData::GetCache().Get(Request); }
+			auto Put(const DerivedData::FCachePutRequest& Request) const -> DerivedData::FCachePutResult override { Entered.Trigger(); Release.WaitFor(10); return DerivedData::GetCache().Put(Request); }
+		};
+		auto Cache = std::make_shared<FGate>(); ShaderBuildPrivate::ResetServiceForTests({.Cache = Cache});
+		auto* A = NewObject<DMaterial>(nullptr, "SemanticConvergenceA"); auto* B = NewObject<DMaterial>(nullptr, "SemanticConvergenceB");
+		struct FRestore { std::shared_ptr<FGate> Cache; DMaterial* A; DMaterial* B; ~FRestore() { Cache->Release.Trigger(); FAssetCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); MarkAsGarbage(A); MarkAsGarbage(B); CollectGarbage(); } } Restore{Cache, A, B};
+		A->SetEditCompileMode(EMaterialEditCompileMode::Manual); B->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		ASSERT_TRUE(EditRoughnessDefault(*A, .141971f)); ASSERT_TRUE(EditRoughnessDefault(*B, .141971f));
+		FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
+		auto Capture = SnapshotMaterialCompilerInput(*A, Environment); ASSERT_TRUE(Capture);
+		auto Input = Capture.Snapshot->Input; auto Other = Input;
+		Other.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Constant, .ResultType = EMaterialProgramValueType::Float, .Payload = FMaterialProgramLiteral{.739f}});
+		ASSERT_EQ(MIR::Normalize(Input).Identity, MIR::Normalize(Other).Identity);
+		const auto Before = GetMaterialCompilationDiagnostics();
+		ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*A, Input, true)); ASSERT_TRUE(Cache->Entered.WaitFor(5));
+		ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*B, Other, true));
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (GetMaterialCompilationDiagnostics().SingleFlightConsumers == Before.SingleFlightConsumers && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+		ASSERT_GT(GetMaterialCompilationDiagnostics().SingleFlightConsumers, Before.SingleFlightConsumers);
+		Cache->Release.Trigger(); ASSERT_TRUE(WaitForMaterialCompile(*A)); ASSERT_TRUE(WaitForMaterialCompile(*B));
+		EXPECT_EQ(A->GetAcceptedCompiledProgram(), B->GetAcceptedCompiledProgram()); EXPECT_EQ(GetShaderBuildStats().Compilations, 1u);
+	}
+}
+
+namespace
+{
 auto QualifyCanceledFlightResubmission() -> void
 {
 	using namespace Durin;
@@ -97,7 +131,7 @@ auto QualifyCanceledFlightResubmission() -> void
 				FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Material);
 			ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
 			EXPECT_GT(Material->GetMaterialCompileStatus().RequestGeneration, Generation);
-			EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Deferred);
+			EXPECT_TRUE(Material->GetMaterialCompileStatus().State == EMaterialCompileState::Deferred || Material->GetMaterialCompileStatus().State == EMaterialCompileState::Running);
 		}
 		ASSERT_TRUE(WaitForMaterialCompile(*Material));
 		EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
@@ -285,6 +319,7 @@ TEST(FMaterialCompileLifecycleTests,
 	const bool bOwnsScheduler = !Durin::IsTaskSchedulerRunning();
 	if (bOwnsScheduler) ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+	QualifyDistinctTranslationsConvergingToOneProgram();
 	QualifyCanceledFlightResubmission();
 	Durin::Testing::CheckInstanceVariantsForTest(false);
 	QualifyInstanceCompilationOwners();

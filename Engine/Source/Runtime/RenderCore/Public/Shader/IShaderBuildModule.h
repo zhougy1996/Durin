@@ -5,6 +5,7 @@
 #include "Modules/ModuleManager.h"
 #include "RenderCoreAPI.h"
 #include "Shader/ShaderCompilerCore.h"
+#include "Shader/ShaderBuildRequest.h"
 #include "Shader/ShaderCookedLibrary.h"
 
 namespace Durin
@@ -28,6 +29,8 @@ namespace Durin
 		uint64 ContentReads = 0;
 		uint64 OutputEntries = 0;
 		uint64 SourceTreeFingerprintHits = 0;
+		uint64 ProducerMicroseconds = 0;
+		uint64 CacheMicroseconds = 0;
 	};
 
 	// Owns every authoring-only Shader source, compiler, manifest, and DDC call.
@@ -47,6 +50,9 @@ namespace Durin
 		virtual auto CompileGenerated(
 			const FGeneratedShaderCompileRequest& Request)
 			-> FShaderCompilerOutput = 0;
+		virtual auto SubmitGenerated(FGeneratedShaderCompileRequest Request,
+			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
+			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> = 0;
 		virtual auto GetCompilerEnvironmentIdentity() -> std::string = 0;
 		virtual auto BuildSourceDependencyManifest(
 			std::string_view VirtualShaderPath,

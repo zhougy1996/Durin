@@ -2,6 +2,12 @@
 #include "MaterialCookedProgramTestSupport.h"
 #include "MaterialProgramTestFixture.h"
 #include "Materials/MaterialPreparedProgram.h"
+#include "Materials/MaterialTranslation.h"
+#include "Materials/MaterialTranslationCodec.h"
+#include "Materials/MaterialBuildOperation.h"
+#include "Threading/TaskComposition.h"
+#include "Misc/Paths.h"
+#include "Threading/ThreadEvent.h"
 #include "Shader/ShaderDiagnostics.h"
 
 namespace
@@ -42,6 +48,226 @@ namespace
 		Node.SpatialKind = Result->Kind;
 		Node.CoordinateSpace = Result->Space;
 	}
+}
+
+TEST(FMaterialTranslationTests, PersistentHitsSkipTransformsAndPayloadResolution)
+{
+	using namespace Durin;
+	using namespace MaterialBuildPrivate;
+	auto Input = MakeSyntheticMaterialCompilerInput();
+	const auto Previous = FPaths::DerivedDataCacheDir();
+	const auto Root = Testing::GetTestWorkDirectory() / "MaterialTranslationWarm";
+	FPaths::SetDerivedDataCacheDirForTests(Root.generic_string());
+	struct FRestore { std::string Path; ~FRestore() { FPaths::SetDerivedDataCacheDirForTests(Path); } } Restore{Previous};
+	const auto Before = GetTranslationStats();
+	const auto Cold = TranslateMaterialInput(Input, false);
+	ASSERT_TRUE(Cold);
+	const auto Produced = GetTranslationStats();
+	EXPECT_EQ(Produced.Producers, Before.Producers + 1);
+	EXPECT_EQ(Produced.Resolutions, Before.Resolutions + 1);
+	for (auto& Source : Input.Sources) { Source.NodeId = FGuid::NewGuid(); Source.FunctionAssetPath = "RequestingAsset"; }
+	Input.Environment.CompilerIdentity = "OtherCompiler";
+	const auto Warm = TranslateMaterialInput(Input, false);
+	ASSERT_TRUE(Warm);
+	EXPECT_EQ(Warm.Candidate.GeneratedSource, Cold.Candidate.GeneratedSource);
+	EXPECT_NE(Warm.Candidate.Identity, Cold.Candidate.Identity);
+	EXPECT_EQ(GetTranslationStats().Producers, Produced.Producers);
+	EXPECT_EQ(GetTranslationStats().Resolutions, Produced.Resolutions);
+	EXPECT_EQ(GetTranslationStats().Hits, Produced.Hits + 1);
+	for (const auto& Source : Warm.Sources)
+	{
+		EXPECT_EQ(Source.FunctionAssetPath, "RequestingAsset");
+		EXPECT_TRUE(std::ranges::contains(Input.Sources, Source.NodeId, &MIR::FSource::NodeId));
+	}
+	ASSERT_TRUE(TranslateMaterialInput(Input, true));
+	EXPECT_EQ(GetTranslationStats().Producers, Produced.Producers + 1);
+}
+
+TEST(FMaterialTranslationTests, CanonicalInputAndTypedOutputHaveIndependentConsumerIdentity)
+{
+	using namespace Durin;
+	using namespace MaterialBuildPrivate;
+	auto Input = MakeSyntheticMaterialCompilerInput();
+	auto Bytes = EncodeTranslationInput(Input);
+	ASSERT_TRUE(Bytes);
+	auto Other = Input;
+	std::ranges::reverse(Other.Parameters);
+	Other.Environment.CompilerIdentity = "DifferentCompiler";
+	Other.Environment.Target = "metal-msl-2.0";
+	Other.Environment.Dependencies.clear();
+	for (auto& Source : Other.Sources) { Source.NodeId = FGuid::NewGuid(); Source.FunctionAssetPath = "AnotherAsset"; }
+	auto SameBytes = EncodeTranslationInput(Other);
+	ASSERT_TRUE(SameBytes);
+	EXPECT_TRUE(std::ranges::equal(Bytes->GetBytes(), SameBytes->GetBytes()));
+	Other.Environment.ResourceLimits.SampledImages += 1;
+	auto Changed = EncodeTranslationInput(Other);
+	ASSERT_TRUE(Changed);
+	EXPECT_NE(FXxHash128::HashBuffer(Bytes->GetBytes()), FXxHash128::HashBuffer(Changed->GetBytes()));
+	auto Decoded = DecodeTranslationInput(Bytes->GetBytes());
+	ASSERT_TRUE(Decoded);
+	FMaterialPreparedProgram Prepared{.Normalized = MIR::Normalize(*Decoded), .StaticProperties = Decoded->StaticProperties, .Environment = Decoded->Environment};
+	auto Product = TranslatePreparedMaterialProgram(Prepared);
+	ASSERT_TRUE(Product);
+	const auto Identity = FXxHash128::HashBuffer(Bytes->GetBytes());
+	auto Encoded = EncodeTranslationProduct(Product, Identity);
+	ASSERT_TRUE(Encoded);
+	ASSERT_TRUE(DecodeTranslationProduct(Encoded->GetBytes(), Identity, Input));
+	EXPECT_FALSE(DecodeTranslationProduct(Encoded->GetBytes(), {1, 2}, Input));
+	EXPECT_FALSE(DecodeTranslationProduct(Encoded->GetBytes().first(Encoded->size() - 1), Identity, Input));
+	FByteBuffer Wrong(Encoded->begin(), Encoded->end());
+	Wrong.front() = std::byte{2};
+	EXPECT_FALSE(DecodeTranslationProduct(Wrong, Identity, Input));
+	Product.Candidate.Layout.UniformPayloadSize += 16;
+	auto BadLayout = EncodeTranslationProduct(Product, Identity);
+	ASSERT_TRUE(BadLayout);
+	EXPECT_FALSE(DecodeTranslationProduct(BadLayout->GetBytes(), Identity, Input));
+}
+
+TEST(FMaterialTranslationTests, DeterministicNegativeHitsRetainTypedErrors)
+{
+	using namespace Durin;
+	using namespace MaterialBuildPrivate;
+	auto Input = MakeSyntheticMaterialCompilerInput();
+	Input.IR.Nodes.front().Inputs = {UINT32_MAX};
+	const auto Previous = FPaths::DerivedDataCacheDir();
+	FPaths::SetDerivedDataCacheDirForTests((Testing::GetTestWorkDirectory() / "MaterialTranslationNegative").generic_string());
+	struct FRestore { std::string Path; ~FRestore() { FPaths::SetDerivedDataCacheDirForTests(Path); } } Restore{Previous};
+	const auto Cold = TranslateMaterialInput(Input, false);
+	ASSERT_FALSE(Cold);
+	ASSERT_FALSE(Cold.Candidate.Diagnostics.empty());
+	const auto Produced = GetTranslationStats();
+	for (auto& Source : Input.Sources) { Source.NodeId = FGuid::NewGuid(); Source.FunctionAssetPath = "NegativeRequestAsset"; Source.PortId = FGuid::NewGuid(); }
+	const auto Warm = TranslateMaterialInput(Input, false);
+	EXPECT_FALSE(Warm);
+	EXPECT_EQ(Warm.Candidate.Diagnostics.front().Error, Cold.Candidate.Diagnostics.front().Error);
+	for (const auto& Diagnostic : Warm.Candidate.Diagnostics) if (Diagnostic.NodeId.IsValid())
+	{
+		const auto Source = std::ranges::find(Input.Sources, Diagnostic.NodeId, &MIR::FSource::NodeId); ASSERT_NE(Source, Input.Sources.end());
+		EXPECT_EQ(Diagnostic.FunctionAssetPath, "NegativeRequestAsset"); EXPECT_EQ(Diagnostic.PortId, Source->PortId);
+	}
+	EXPECT_EQ(GetTranslationStats().Producers, Produced.Producers);
+	EXPECT_EQ(GetTranslationStats().Resolutions, Produced.Resolutions);
+	EXPECT_EQ(GetTranslationStats().Hits, Produced.Hits + 1);
+}
+
+TEST(FMaterialTranslationTests, LateNormalizationFailureRetainsItsTypedNegativeProduct)
+{
+	using namespace Durin; using namespace MaterialBuildPrivate;
+	auto Input = MakeSyntheticMaterialCompilerInput(); Input.Environment.ResourceLimits.SampledImages = 0;
+	const auto Previous = FPaths::DerivedDataCacheDir(); FPaths::SetDerivedDataCacheDirForTests((Testing::GetTestWorkDirectory() / "MaterialResourceNegative").generic_string());
+	struct FRestore { std::string Path; ~FRestore() { FPaths::SetDerivedDataCacheDirForTests(Path); } } Restore{Previous};
+	const auto Cold = TranslateMaterialInput(Input, false); ASSERT_FALSE(Cold); ASSERT_FALSE(Cold.Candidate.Diagnostics.empty());
+	EXPECT_EQ(Cold.Candidate.Diagnostics.front().Error.Code, FMaterialError::FCode(EMaterialLayoutError::ResourceLimit));
+	const auto Before = GetTranslationStats(); const auto Warm = TranslateMaterialInput(Input, false); ASSERT_FALSE(Warm);
+	EXPECT_EQ(Warm.Candidate.Diagnostics, Cold.Candidate.Diagnostics); EXPECT_EQ(GetTranslationStats().Producers, Before.Producers); EXPECT_EQ(GetTranslationStats().Hits, Before.Hits + 1);
+}
+
+TEST(FMaterialTranslationTests, MaterialCacheWaitReleasesTheOnlyAvailableWorker)
+{
+	using namespace Durin;
+	using namespace DerivedData;
+	using namespace MaterialBuildPrivate;
+	InitializeDObjectSystem();
+	struct FGate final : ICache
+	{
+		mutable FThreadEvent Entered, Release;
+		auto Get(const FCacheGetRequest&) const -> FCacheGetResult { Entered.Trigger(); Release.WaitFor(10); return std::optional<FCacheRecord>{}; }
+		auto Put(const FCachePutRequest&) const -> FCachePutResult { return {}; }
+	};
+	auto Cache = std::make_shared<FGate>(); auto Service = CreateBuild({.Cache = Cache}); ASSERT_TRUE(Service->Register(MakeTranslationFunction()));
+	SetTranslationServiceForTests(Service);
+	FThreadEvent Hold, Held; std::atomic_uint32_t Holding = 0;
+	std::vector<FTaskHandle> Blockers;
+	const auto Count = GetTaskSchedulerDiagnostics().WorkerCount;
+	struct FRestore { std::shared_ptr<FGate> Cache; FThreadEvent& Hold; std::vector<FTaskHandle>& Blockers; ~FRestore() { Cache->Release.Trigger(); Hold.Trigger(); for (auto& Task : Blockers) WaitTask(Task); SetTranslationServiceForTests({}); } } Restore{Cache, Hold, Blockers};
+	for (uint32 Index = 1; Index < Count; ++Index) Blockers.push_back(Tasks::LaunchTask("HoldOtherMaterialWorkers", [&] { if (Holding.fetch_add(1) + 1 == Count - 1) Held.Trigger(); Hold.WaitFor(10); }));
+	if (Count > 1) ASSERT_TRUE(Held.WaitFor(5));
+	auto Input = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
+	auto Operation = std::make_shared<FMaterialBuildOperation>(); std::atomic_uint32_t Completed = 0;
+	Operation->Start(Input, false, {}, {}, [&](auto Result) { EXPECT_TRUE(Result); ++Completed; });
+	ASSERT_TRUE(Cache->Entered.WaitFor(5));
+	FThreadEvent Progress; auto Unrelated = Tasks::LaunchTask("UnrelatedMaterialProgress", [&] { Progress.Trigger(); });
+	ASSERT_TRUE(Progress.WaitFor(5));
+	Cache->Release.Trigger(); Operation->Wait(); EXPECT_TRUE(Operation->IsRetired()); EXPECT_EQ(Completed, 1u);
+}
+
+TEST(FMaterialTranslationTests, RejectedHitsRebuildOnceAndStoreFailureKeepsLocalProduct)
+{
+	using namespace Durin;
+	using namespace DerivedData;
+	using namespace MaterialBuildPrivate;
+	InitializeDObjectSystem();
+	struct FCache final : ICache
+	{
+		mutable std::optional<FCacheRecord> Record;
+		mutable bool Corrupt = false, FailStore = false;
+		auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult override
+		{
+			if (!Record) return std::optional<FCacheRecord>{};
+			if (!Corrupt) return Record;
+			const auto* Value = Record->FindValue(FValueId("Product"));
+			EXPECT_NE(Value, nullptr);
+			if (!Value) return std::unexpected(FCacheError{ECacheError::Corrupt, "Missing fixture product."});
+			const auto Data = Value->GetData(); EXPECT_FALSE(Data.IsEmpty());
+			if (Data.IsEmpty()) return std::unexpected(FCacheError{ECacheError::Corrupt, "Empty fixture product."});
+			FByteBuffer Bytes(Data.begin(), Data.end());
+			Bytes.front() = std::byte{2};
+			FBuildOutputBuilder Output("Material.Translation", 1); Output.AddValue(FValueId("Product"), FSharedByteBuffer::Take(std::move(Bytes)));
+			return std::optional{FCacheRecord::FromOutput(Request.Key, std::move(Output).Build().value()).value()};
+		}
+		auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
+		{ if (FailStore) return std::unexpected(FCacheError{ECacheError::StorageFailure, "fixture"}); Record = Request.Record; return {}; }
+	};
+	auto Cache = std::make_shared<FCache>(); auto Service = CreateBuild({.Cache = Cache}); ASSERT_TRUE(Service->Register(MakeTranslationFunction()));
+	SetTranslationServiceForTests(Service);
+	struct FRestore { ~FRestore() { SetTranslationServiceForTests({}); } } Restore;
+	auto Input = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
+	auto Run = [&](FMaterialTranslatedProgram& Product, bool Force = false) {
+		FRequestOwner Owner; auto Accepted = SubmitTranslation(Input, Force, Owner, [&](auto Value) { Product = std::move(Value); });
+		EXPECT_TRUE(Accepted); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	};
+	FMaterialTranslatedProgram Cold; Run(Cold); ASSERT_TRUE(Cold);
+	const auto Before = GetTranslationStats(); Cache->Corrupt = true;
+	FMaterialTranslatedProgram Rebuilt; Run(Rebuilt); ASSERT_TRUE(Rebuilt);
+	EXPECT_EQ(GetTranslationStats().Producers, Before.Producers + 1);
+	Cache->FailStore = true;
+	FMaterialTranslatedProgram Local; Run(Local, true); ASSERT_TRUE(Local);
+	EXPECT_EQ(Local.Candidate.GeneratedSource, Cold.Candidate.GeneratedSource);
+	FRequestOwner Canceled; Canceled.RequestCancel(); uint32 Completions = 0;
+	auto Accepted = SubmitTranslation(Input, true, Canceled, [&](auto Product) { EXPECT_FALSE(Product); ++Completions; });
+	ASSERT_TRUE(Accepted); EXPECT_EQ(Canceled.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Completions, 1u);
+}
+
+TEST(FMaterialTranslationTests, AdmissionPrecedesCopiesAndReservationsBoundTransitionOverlap)
+{
+	using namespace Durin; using namespace MaterialBuildPrivate;
+	std::vector<std::shared_ptr<FMaterialBuildOperation>> Operations;
+	for (uint32 Index = 0; Index < 32; ++Index) { auto Op = std::make_shared<FMaterialBuildOperation>(); ASSERT_TRUE(Op->TryReserve()); Operations.push_back(std::move(Op)); }
+	auto Excess = std::make_shared<FMaterialBuildOperation>(); EXPECT_FALSE(Excess->TryReserve());
+	Operations.pop_back(); EXPECT_TRUE(Excess->TryReserve()); Operations.clear(); Excess.reset();
+	auto Input = MakeSyntheticMaterialCompilerInput(); Input.IR.Nodes.reserve(TranslationInputBytes / sizeof(MIR::FNode) + 1);
+	const auto Before = GetTranslationStats();
+	EXPECT_FALSE(EncodeTranslationInput(Input)); EXPECT_FALSE(MIR::Compile(Input));
+	EXPECT_EQ(GetTranslationStats().Producers, Before.Producers);
+	FByteBuffer Oversized(TranslationOutputBytes + 1); EXPECT_FALSE(DecodeTranslationProduct(Oversized, {}, Input));
+}
+
+TEST(FMaterialTranslationTests, CancellationDuringCacheIOCompletesAndRetiresWithoutPublicationPump)
+{
+	using namespace Durin; using namespace DerivedData; using namespace MaterialBuildPrivate;
+	struct FGate final : ICache {
+		mutable FThreadEvent Entered, Release;
+		auto Get(const FCacheGetRequest&) const -> FCacheGetResult override { Entered.Trigger(); Release.WaitFor(10); return std::optional<FCacheRecord>{}; }
+		auto Put(const FCachePutRequest&) const -> FCachePutResult override { return {}; }
+	};
+	auto Cache = std::make_shared<FGate>(); auto Service = CreateBuild({.Cache = Cache}); ASSERT_TRUE(Service->Register(MakeTranslationFunction()));
+	SetTranslationServiceForTests(Service);
+	struct FRestore { std::shared_ptr<FGate> Cache; ~FRestore() { Cache->Release.Trigger(); SetTranslationServiceForTests({}); } } Restore{Cache};
+	auto Op = std::make_shared<FMaterialBuildOperation>(); std::atomic_uint32_t Calls = 0;
+	Op->Start(std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput()), false, {}, {}, [&](auto Result) { EXPECT_FALSE(Result); ASSERT_FALSE(Result.Diagnostics.empty()); EXPECT_EQ(Result.Diagnostics.front().Error, EMaterialCompileError::CompilationCanceled); ++Calls; });
+	ASSERT_TRUE(Cache->Entered.WaitFor(5)); const auto Begin = std::chrono::steady_clock::now(); Op->Cancel();
+	Cache->Release.Trigger(); Op->Wait(); EXPECT_TRUE(Op->IsRetired()); EXPECT_EQ(Calls, 1u);
+	RecordProperty("CacheCancelRetirementMicroseconds", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count());
 }
 
 TEST(FMaterialTranslationTests, FailedNormalizationNeverConstructsShaderWork)

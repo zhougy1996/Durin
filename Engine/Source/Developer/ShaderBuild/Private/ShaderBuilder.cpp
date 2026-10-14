@@ -153,10 +153,11 @@ namespace Durin
 		: FShaderBuilder(std::make_shared<FShaderBuildService>(std::move(Hook))) {}
 
 	FShaderBuilder::FShaderBuilder(std::shared_ptr<FShaderBuildService> InService)
-		: BuildService(std::move(InService)), CompilerEnvironmentIdentity(BuildService->GetCompilerEnvironmentIdentity()) {}
+		: BuildService(std::move(InService)), CompilerEnvironmentIdentity(BuildService->GetCompilerEnvironmentIdentity()) { SourceTreeFingerprintCacheGeneration = GetShaderReloadGeneration(); InitializeAsync(); }
 
 	FShaderBuilder::~FShaderBuilder()
 	{
+		Close();
 		FileFingerprintCache.Clear();
 	}
 
@@ -271,10 +272,12 @@ namespace Durin
 			VirtualShaderPath, NormalizedMacros,
 			EffectiveOptions.CompilerEnvironment, EffectiveOptions.Target, DependencyKey);
 		const uint64 ReloadGeneration = GetShaderReloadGeneration();
+		bool Fresh = false;
 		{
 			std::lock_guard Lock(SourceTreeFingerprintCacheMutex);
 			if (SourceTreeFingerprintCacheGeneration != ReloadGeneration)
 			{
+				Fresh = true; FileFingerprintCache.Clear();
 				SourceTreeFingerprintCache.clear();
 				SourceTreeFingerprintCacheGeneration = ReloadGeneration;
 			}
@@ -289,7 +292,7 @@ namespace Durin
 			}
 		}
 		FShaderMetaData MetaData;
-		if (auto Result = ResolveSourceMetaData(VirtualShaderPath, FShaderPaths::SourcePath(VirtualShaderPath), EffectiveOptions, NormalizedMacros, MetaData); !Result) return Result;
+		if (auto Result = ResolveSourceMetaData(VirtualShaderPath, FShaderPaths::SourcePath(VirtualShaderPath), EffectiveOptions, NormalizedMacros, MetaData, Fresh); !Result) return Result;
 		OutFingerprint = {
 			.VirtualPath = std::string(VirtualShaderPath),
 			.ContentHash = MetaData.SourceTreeSignature};
@@ -374,77 +377,25 @@ namespace Durin
 			.ContentReads = FileFingerprintCache.GetContentReadCount(),
 			.OutputEntries = OutputCache.size(),
 			.SourceTreeFingerprintHits =
-				SourceTreeFingerprintHits.load(std::memory_order_relaxed)
+				SourceTreeFingerprintHits.load(std::memory_order_relaxed),
+			.ProducerMicroseconds = BuildService->GetProducerMicroseconds(),
+			.CacheMicroseconds = BuildService->GetCacheMicroseconds()
 		};
 	}
 
-	auto FShaderBuilder::GetOrCompileGenerated(const FGeneratedShaderCompileRequest& Request)
-		-> FShaderCompilerOutput
+	auto FShaderBuilder::PrepareGenerated(std::shared_ptr<const FGeneratedShaderCompileRequest> Owned,
+		const std::function<bool(uint64)>& ReserveSources)
+		-> std::expected<std::shared_ptr<FGeneratedBuildInput>, FShaderError>
 	{
-		// Bound work before hashing/copying the generated root.
-		if (!IsActiveCompilerTarget(Request.Target))
-			return {.Error = {.Code = EShaderError::InvalidCompileRequest}};
-		if (Request.Source.size() > 1024 * 1024 || Request.EntryPoints.size() > 8)
-			return {.Error = {.Code = EShaderError::InvalidGeneratedRequest}};
-		if (!Request.SourceArtifacts) return GetOrCompileGeneratedInternal(Request);
-		FShaderCompileOptions Options;
-		Options.Target = Request.Target;
-		Options.Frequencies = Request.Frequencies;
-		Options.CompilerEnvironment = CompilerEnvironmentIdentity;
-		Options.bForceRecompile = Request.bForceRecompile;
-		Options.Macros = Request.Macros;
-		for (const auto& Entry : Request.EntryPoints)
-			Options.EntryPoints.push_back(Entry.c_str());
-		if (!HasValidUniqueEntryPoints(Options))
-			return {.Error = {.Code = EShaderError::InvalidCompileRequest}};
-		std::vector<FShaderMacroDefinition> Macros;
-		FShaderCompilerOutput Output;
-		if (auto Result = ShaderCompileUtilities::NormalizeMacros(Options, Macros); !Result)
-		{
-			Output.Error = std::move(Result.error());
-			return Output;
-		}
-		FXxHash128Builder Builder;
-		UpdateCanonicalHashString(Builder, "GeneratedRequest_v1");
-		UpdateCanonicalHashString(Builder, BuildRequestKey(Request.VirtualPath, Options, Macros));
-		UpdateCanonicalHashString(Builder, Request.Source);
-		auto Prefixes = Request.AllowedImportVirtualPrefixes;
-		std::ranges::sort(Prefixes);
-		Prefixes.erase(std::ranges::unique(Prefixes).begin(), Prefixes.end());
-		UpdateCanonicalHash(Builder, static_cast<uint64>(Prefixes.size()));
-		for (const auto& Prefix : Prefixes) UpdateCanonicalHashString(Builder, Prefix);
-		// Content and ordered search roots, never the snapshot pointer.
-		const auto& Files = Request.SourceArtifacts->GetFiles();
-		UpdateCanonicalHash(Builder, static_cast<uint64>(Files.size()));
-		for (const auto& [Path, Bytes] : Files)
-		{
-			UpdateCanonicalHashString(Builder, Path);
-			UpdateCanonicalHash(Builder, FXxHash128::HashBuffer(FByteView(Bytes)));
-		}
-		const auto& Roots = Request.SourceArtifacts->GetSearchRoots();
-		UpdateCanonicalHash(Builder, static_cast<uint64>(Roots.size()));
-		for (const auto& Root : Roots) UpdateCanonicalHashString(Builder, Root);
-		return RunSingleFlight("Generated/" + Builder.Finalize().ToString(), [&] {
-			return GetOrCompileGeneratedInternal(Request);
-		});
-	}
-
-	auto FShaderBuilder::GetOrCompileGeneratedInternal(
-		const FGeneratedShaderCompileRequest& Request)
-		-> FShaderCompilerOutput
-	{
-		FShaderCompilerOutput Output;
-		if (!Request.VirtualPath.starts_with("/Generated/Materials/")
-			|| Request.Source.empty()
-			|| Request.Source.size() > 1024 * 1024
-			|| Request.EntryPoints.empty()
-			|| Request.EntryPoints.size() != Request.Frequencies.size()
-			|| Request.EntryPoints.size() > 8)
-		{
-			Output.Error = {.Code = EShaderError::InvalidGeneratedRequest};
-			return Output;
-		}
-		FShaderCompileOptions Options;
+		const auto& Request = *Owned;
+		if (!IsActiveCompilerTarget(Request.Target)) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+		if (!Request.VirtualPath.starts_with("/Generated/Materials/") || Request.Source.empty()
+			|| Request.Source.size() > 1024 * 1024 || Request.EntryPoints.empty()
+			|| Request.EntryPoints.size() != Request.Frequencies.size() || Request.EntryPoints.size() > 8)
+			return std::unexpected(FShaderError{.Code = EShaderError::InvalidGeneratedRequest});
+		auto Prepared = std::make_shared<FGeneratedBuildInput>();
+		Prepared->Request = std::move(Owned);
+		auto& Options = Prepared->Options;
 		Options.Target = Request.Target;
 		Options.Frequencies = Request.Frequencies;
 		Options.SourceArtifacts = Request.SourceArtifacts;
@@ -452,171 +403,117 @@ namespace Durin
 		Options.bForceRecompile = Request.bForceRecompile;
 		Options.VirtualShaderPath = Request.VirtualPath;
 		Options.CompilerEnvironment = CompilerEnvironmentIdentity;
-		Options.EntryPoints.reserve(Request.EntryPoints.size());
-		for (const std::string& Entry : Request.EntryPoints)
-			Options.EntryPoints.push_back(Entry.c_str());
-		if (!HasValidUniqueEntryPoints(Options))
-		{
-			Output.Error = {.Code = EShaderError::InvalidCompileRequest};
-			return Output;
-		}
-
+		for (const auto& Entry : Request.EntryPoints) Options.EntryPoints.push_back(Entry.c_str());
+		if (!HasValidUniqueEntryPoints(Options)) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
 		std::vector<FShaderMacroDefinition> Macros;
-		if (auto Result = ShaderCompileUtilities::NormalizeMacros(Options, Macros); !Result)
+		if (auto Result = ShaderCompileUtilities::NormalizeMacros(Options, Macros); !Result) return std::unexpected(Result.error());
+		auto Prefixes = Request.AllowedImportVirtualPrefixes;
+		std::ranges::sort(Prefixes);
+		Prefixes.erase(std::ranges::unique(Prefixes).begin(), Prefixes.end());
+		// Material identity is bound to this exact captured environment. The dependency
+		// resolver and compiler below read the same immutable bytes, including hits.
+		if (Request.ExpectedSourceTree)
 		{
-			Output.Error = std::move(Result.error());
-			return Output;
+			FShaderCompileOptions EnvironmentOptions;
+			EnvironmentOptions.Target = Request.Target;
+			EnvironmentOptions.VirtualShaderPath = Request.ExpectedSourceTree->VirtualPath;
+			EnvironmentOptions.CompilerEnvironment = CompilerEnvironmentIdentity;
+			EnvironmentOptions.EntryPoints = {"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain", "VertexMain", "SplineVertexMain", "GPUCullingVertexMain"};
+			EnvironmentOptions.Frequencies.assign(4, EShaderFrequency::Fragment);
+			EnvironmentOptions.Frequencies.insert(EnvironmentOptions.Frequencies.end(), 3, EShaderFrequency::Vertex);
+			EnvironmentOptions.Macros = {{"DURIN_MATERIAL_BLEND_MODE", "1"}, {"DURIN_MATERIAL_SHADING_MODEL", "1"}, {"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", "1056964608"}};
+			FShaderMetaData EnvironmentMeta;
+			if (Options.SourceArtifacts)
+			{
+				EnvironmentOptions.SourceArtifacts = Options.SourceArtifacts;
+				std::vector<std::string> Paths;
+				const auto Root = Options.SourceArtifacts->GetFiles().contains(EnvironmentOptions.VirtualShaderPath) ? EnvironmentOptions.VirtualShaderPath : EnvironmentOptions.VirtualShaderPath + ".slang";
+				if (auto Result = DependencyResolver.Resolve(Root, EnvironmentOptions, Paths); !Result) return std::unexpected(Result.error());
+				auto Captured = CapturedMetaData(std::move(Paths), *Options.SourceArtifacts);
+				if (!Captured) return std::unexpected(Captured.error());
+				EnvironmentMeta = std::move(*Captured);
+			}
+			else if (auto Result = ResolveSourceMetaData(EnvironmentOptions.VirtualShaderPath, FShaderPaths::SourcePath(EnvironmentOptions.VirtualShaderPath), EnvironmentOptions, EnvironmentOptions.Macros, EnvironmentMeta); !Result)
+				return std::unexpected(Result.error());
+			if (EnvironmentMeta.SourceTreeSignature != Request.ExpectedSourceTree->ContentHash)
+				return std::unexpected(FShaderError{.Code = EShaderError::DependencyContentConflict});
+			if (!Options.SourceArtifacts)
+			{
+				uint64 Bytes = 0;
+				for (const auto& Dependency : EnvironmentMeta.Dependencies) Bytes += 2 * Dependency.FileSize + Dependency.NormalizedPath.capacity() + sizeof(Dependency);
+				if (!ReserveSources(Bytes)) return std::unexpected(FShaderError{.Code = EShaderError::CaptureInputLimit});
+				auto Captured = ShaderCompileUtilities::CaptureSourceArtifacts(EnvironmentMeta);
+				if (!Captured) return std::unexpected(Captured.error());
+				Options.SourceArtifacts = std::move(*Captured);
+			}
 		}
-		std::vector<std::string> AllowedImportVirtualPrefixes =
-			Request.AllowedImportVirtualPrefixes;
-		std::ranges::sort(AllowedImportVirtualPrefixes);
-		AllowedImportVirtualPrefixes.erase(
-			std::ranges::unique(AllowedImportVirtualPrefixes).begin(),
-			AllowedImportVirtualPrefixes.end());
+		FShaderMetaData Meta;
+		FShaderArtifactResolver Resolve;
 		if (Options.SourceArtifacts)
 		{
-			std::vector<std::string> Dependencies;
-			if (auto Result = DependencyResolver.ResolveSource(Request.VirtualPath.substr(1), Request.VirtualPath, Request.Source, Options, Dependencies); !Result)
+			std::vector<std::string> Paths;
+			if (Request.ExpectedSourceTree && Request.ExpectedSourceTree->VirtualPath == "/Engine/MaterialCompilerEnvironment")
 			{
-				Output.Error = std::move(Result.error());
-				return Output;
+				// The verified material environment is the complete declared closure.
+				// The compiler filesystem has no fallback outside these immutable bytes.
+				// Use the whole closure without re-running Slang dependency discovery.
+				for (const auto& [Path, Data] : Options.SourceArtifacts->GetFiles())
+					if (Path != Request.ExpectedSourceTree->VirtualPath && Path != Request.ExpectedSourceTree->VirtualPath + ".slang") Paths.push_back(Path);
 			}
-			for (const auto& Path : Dependencies)
-			{
-				if (!Options.SourceArtifacts->GetFiles().contains(Path)
-					|| !std::ranges::any_of(AllowedImportVirtualPrefixes,
-						[&](const std::string& Prefix) { return Path.starts_with(Prefix); }))
-				{
-					Output.Error = {.Code = EShaderError::ImportNotDeclared, .ActualIdentity = Path};
-					return Output;
-				}
-			}
-			auto MetaData = CapturedMetaData(std::move(Dependencies), *Options.SourceArtifacts);
-			if (!MetaData) return {.Error = std::move(MetaData.error())};
-			FXxHash128Builder Tree;
-			Tree.Update("DurinGeneratedShaderSourceTree_v1");
-			UpdateCanonicalHash(Tree, FXxHash128::HashBuffer(Request.Source));
-			UpdateCanonicalHash(Tree, MetaData->SourceTreeSignature);
-			MetaData->SourceTreeSignature = Tree.Finalize();
-			FShaderVariantKey Variant;
-			ShaderCompileUtilities::BuildVariantKey(Request.VirtualPath, *MetaData, Macros, CompilerEnvironmentIdentity, Options.Target, Variant);
-			return ExecuteDerivedBuild(Options, Variant, MetaData->PortableDependencies, Request.Source,
-				[&]() -> FArtifactResult { return Options.SourceArtifacts; });
-		}
-		const FXxHash128 SourceHash = FXxHash128::HashBuffer(Request.Source);
-		const auto& Mounts = FShaderPaths::GetRegisteredMountPoints();
-		if (Mounts.empty())
-		{
-			Output.Error = {.Code = EShaderError::ShaderMountRequired};
-			return Output;
-		}
-		const auto SourceMount = std::ranges::find_if(Mounts,
-			[&](const FShaderPaths::FShaderMountPoint& Mount) {
-				return std::ranges::any_of(
-					AllowedImportVirtualPrefixes,
-					[&](const std::string& Prefix) {
-						return Prefix.starts_with(Mount.VirtualRoot);
-					});
-			});
-		const std::string SourcePathHint =
-			(std::filesystem::path(SourceMount != Mounts.end()
-				? SourceMount->SourceDir : Mounts.front().SourceDir)
-				/ "GeneratedMaterial.slang").generic_string();
-		const std::string CachePath = std::format(
-			"{}__GeneratedMaterials/{}", Mounts.front().VirtualRoot,
-			SourceHash.ToString());
-		FXxHash128Builder ImportContextBuilder;
-		UpdateCanonicalHashString(
-			ImportContextBuilder, "DurinGeneratedImportContext_v1");
-		UpdateCanonicalHashString(ImportContextBuilder, SourcePathHint);
-		UpdateCanonicalHash(ImportContextBuilder,
-			static_cast<uint64>(AllowedImportVirtualPrefixes.size()));
-		for (const std::string& Prefix : AllowedImportVirtualPrefixes)
-			UpdateCanonicalHashString(ImportContextBuilder, Prefix);
-		const std::string DependencyIdentity = std::format(
-			"{}/Imports/{}", CachePath,
-			ImportContextBuilder.Finalize().ToString());
-		FShaderDependencyKey DependencyKey;
-		ShaderCompileUtilities::BuildDependencyKey(
-			DependencyIdentity, Macros, Options.CompilerEnvironment, Options.Target,
-			DependencyKey);
-		FShaderMetaData DependencyMetaData;
-		bool bManifestCurrent = false;
-		if (ManifestStore.Load(
-			CachePath, DependencyKey, DependencyMetaData))
-		{
-			const ShaderCompileUtilities::FMetaDataReuseResult ReuseResult =
-				ShaderCompileUtilities::TryReuseMetaData(
-					DependencyMetaData, FileFingerprintCache);
-			bManifestCurrent = ReuseResult.Status
-				== ShaderCompileUtilities::EMetaDataReuseStatus::Current;
-			if (ReuseResult.Status
-				== ShaderCompileUtilities::EMetaDataReuseStatus::Failed)
-			{
-				DURIN_WARN(
-					"Failed to validate generated shader dependency manifest for {}: {}",
-					Request.VirtualPath, FormatShaderError(ReuseResult.Error));
-			}
-		}
-
-		std::vector<std::string> DependencyPaths;
-		if (bManifestCurrent)
-		{
-			DependencyPaths.reserve(DependencyMetaData.Dependencies.size());
-			for (const FFileFingerprint& Dependency
-				: DependencyMetaData.Dependencies)
-				DependencyPaths.push_back(Dependency.NormalizedPath);
+			else if (auto Result = DependencyResolver.ResolveSource(Request.VirtualPath.substr(1), Request.VirtualPath, Request.Source, Options, Paths); !Result)
+				return std::unexpected(Result.error());
+			for (const auto& Path : Paths)
+				if (!Options.SourceArtifacts->GetFiles().contains(Path) || !std::ranges::any_of(Prefixes, [&](const auto& Prefix) { return Path.starts_with(Prefix); }))
+					return std::unexpected(FShaderError{.Code = EShaderError::ImportNotDeclared, .ActualIdentity = Path});
+			auto Captured = CapturedMetaData(std::move(Paths), *Options.SourceArtifacts);
+			if (!Captured) return std::unexpected(Captured.error());
+			Meta = std::move(*Captured);
+			Resolve = [Artifacts = Options.SourceArtifacts]() -> FArtifactResult { return Artifacts; };
 		}
 		else
 		{
-			DependencyResolutions.fetch_add(1, std::memory_order_relaxed);
-			if (auto Result = DependencyResolver.ResolveSource(Request.VirtualPath.substr(1), SourcePathHint, Request.Source, Options, DependencyPaths); !Result)
+			const auto& Mounts = FShaderPaths::GetRegisteredMountPoints();
+			if (Mounts.empty()) return std::unexpected(FShaderError{.Code = EShaderError::ShaderMountRequired});
+			const auto Mount = std::ranges::find_if(Mounts, [&](const auto& Item) {
+				return std::ranges::any_of(Prefixes, [&](const auto& Prefix) { return Prefix.starts_with(Item.VirtualRoot); }); });
+			const auto Hint = (std::filesystem::path(Mount != Mounts.end() ? Mount->SourceDir : Mounts.front().SourceDir) / "GeneratedMaterial.slang").generic_string();
+			const auto CachePath = std::format("{}__GeneratedMaterials/{}", Mounts.front().VirtualRoot, FXxHash128::HashBuffer(Request.Source).ToString());
+			FXxHash128Builder ImportHash;
+			UpdateCanonicalHashString(ImportHash, "DurinGeneratedImportContext_v1"); UpdateCanonicalHashString(ImportHash, Hint);
+			UpdateCanonicalHash(ImportHash, uint64(Prefixes.size())); for (const auto& Prefix : Prefixes) UpdateCanonicalHashString(ImportHash, Prefix);
+			FShaderDependencyKey Key;
+			ShaderCompileUtilities::BuildDependencyKey(std::format("{}/Imports/{}", CachePath, ImportHash.Finalize().ToString()), Macros, CompilerEnvironmentIdentity, Options.Target, Key);
+			bool Current = ManifestStore.Load(CachePath, Key, Meta)
+				&& ShaderCompileUtilities::TryReuseMetaData(Meta, FileFingerprintCache).Status == ShaderCompileUtilities::EMetaDataReuseStatus::Current;
+			std::vector<std::string> Paths;
+			if (Current)
 			{
-				Output.Error = std::move(Result.error());
-				return Output;
+				ManifestHits.fetch_add(1);
+				for (const auto& Dependency : Meta.Dependencies) Paths.push_back(Dependency.NormalizedPath);
 			}
-			if (auto Result = ShaderCompileUtilities::BuildShaderMetaData(DependencyPaths, FileFingerprintCache, DependencyMetaData); !Result)
+			else
 			{
-				Output.Error = std::move(Result.error());
-				return Output;
+				DependencyResolutions.fetch_add(1);
+				if (auto Result = DependencyResolver.ResolveSource(Request.VirtualPath.substr(1), Hint, Request.Source, Options, Paths); !Result) return std::unexpected(Result.error());
+				if (auto Result = ShaderCompileUtilities::BuildShaderMetaData(Paths, FileFingerprintCache, Meta); !Result) return std::unexpected(Result.error());
 			}
+			if (auto Result = ValidateGeneratedImports(Paths, Prefixes); !Result) return std::unexpected(Result.error());
+			if (!Current && !ManifestStore.Save(CachePath, Key, Meta)) DURIN_WARN("Generated shader manifest write failed for {}", Request.VirtualPath);
+			uint64 Bytes = 0;
+			for (const auto& Dependency : Meta.Dependencies) Bytes += 2 * Dependency.FileSize + Dependency.NormalizedPath.capacity() + sizeof(Dependency);
+			if (!ReserveSources(Bytes)) return std::unexpected(FShaderError{.Code = EShaderError::CaptureInputLimit});
+			Resolve = [CapturedMeta = Meta] { return ShaderCompileUtilities::CaptureSourceArtifacts(CapturedMeta); };
 		}
-		if (auto Result = ValidateGeneratedImports(DependencyPaths, AllowedImportVirtualPrefixes); !Result)
-		{
-			Output.Error = std::move(Result.error());
-			return Output;
-		}
-		if (!bManifestCurrent)
-		{
-			if (!ManifestStore.Save(
-				CachePath, DependencyKey, DependencyMetaData))
-				DURIN_WARN(
-					"Generated shader dependency manifest write failed for {}",
-					Request.VirtualPath);
-		}
-		else
-		{
-			ManifestHits.fetch_add(1, std::memory_order_relaxed);
-		}
-
-		FShaderMetaData MetaData = DependencyMetaData;
-		FXxHash128Builder SourceTree;
-		SourceTree.Update("DurinGeneratedShaderSourceTree_v1");
-		UpdateCanonicalHash(SourceTree, SourceHash);
-		UpdateCanonicalHash(SourceTree, MetaData.SourceTreeSignature);
-		MetaData.SourceTreeSignature = SourceTree.Finalize();
-		FShaderVariantKey VariantKey;
-		ShaderCompileUtilities::BuildVariantKey(
-			Request.VirtualPath, MetaData, Macros,
-			Options.CompilerEnvironment, Options.Target, VariantKey);
-		const std::string OutputKey = BuildOutputKey(VariantKey, Options);
-		// Dependency content is now part of OutputKey. A source change during
-		// another flight cannot join an obsolete compilation.
-		return RunSingleFlight("GeneratedOutput/" + OutputKey
-			+ (Options.bForceRecompile ? "/Forced" : "/Cached"), [&] {
-			return ExecuteDerivedBuild(Options, VariantKey, DependencyMetaData.PortableDependencies, Request.Source,
-				[&] { return ShaderCompileUtilities::CaptureSourceArtifacts(DependencyMetaData); });
-		});
+		FXxHash128Builder Tree; Tree.Update("DurinGeneratedShaderSourceTree_v1");
+		UpdateCanonicalHash(Tree, FXxHash128::HashBuffer(Request.Source)); UpdateCanonicalHash(Tree, Meta.SourceTreeSignature);
+		Meta.SourceTreeSignature = Tree.Finalize();
+		FShaderVariantKey Variant;
+		ShaderCompileUtilities::BuildVariantKey(Request.VirtualPath, Meta, Macros, CompilerEnvironmentIdentity, Options.Target, Variant);
+		Prepared->OutputKey = BuildOutputKey(Variant, Options);
+		auto Session = MakeShaderSessionRequest(Options, Variant, GetBuildVersion(), std::move(Meta.PortableDependencies), Request.Source, std::move(Resolve));
+		if (!Session) return std::unexpected(Session.error());
+		Prepared->Session = std::move(*Session);
+		return Prepared;
 	}
 
 	auto FShaderBuilder::ExecuteDerivedBuild(const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey,
@@ -690,17 +587,32 @@ namespace Durin
 
 	auto FShaderBuilder::AddOutput(std::string Key, const FShaderCompilerOutput& Output) -> void
 	{
+		uint64 Bytes = sizeof(Output) + Key.capacity();
+		for (const auto& Shader : Output.CompiledShaders)
+		{
+			Bytes += sizeof(Shader) + (Shader.Code ? Shader.Code->size() : 0)
+				+ Shader.SourceEntryPoint.capacity() + Shader.BinaryEntryPoint.capacity() + Shader.DebugName.capacity();
+			for (const auto& Binding : Shader.Reflection.ResourceBindings) Bytes += sizeof(Binding) + Binding.Name.capacity();
+		}
+		if (Bytes > 256ull * 1024 * 1024) return;
 		std::lock_guard Lock(OutputCacheMutex);
 		if (auto FoundIt = OutputCache.find(Key); FoundIt != OutputCache.end())
 		{
+			OutputCacheBytes -= FoundIt->second.Bytes;
+			OutputCacheBytes += Bytes;
+			FoundIt->second.Bytes = Bytes;
 			FoundIt->second.Output = Output;
 			OutputRecency.splice(OutputRecency.begin(), OutputRecency, FoundIt->second.Recency);
-			return;
 		}
-		OutputRecency.push_front(std::move(Key));
-		OutputCache.emplace(OutputRecency.front(), FOutputCacheEntry{Output, OutputRecency.begin()});
-		while (OutputCache.size() > GMaximumOutputEntries)
+		else
 		{
+			OutputRecency.push_front(std::move(Key));
+			OutputCache.emplace(OutputRecency.front(), FOutputCacheEntry{Output, OutputRecency.begin(), Bytes});
+			OutputCacheBytes += Bytes;
+		}
+		while (OutputCache.size() > GMaximumOutputEntries || OutputCacheBytes > 256ull * 1024 * 1024)
+		{
+			OutputCacheBytes -= OutputCache.at(OutputRecency.back()).Bytes;
 			OutputCache.erase(OutputRecency.back());
 			OutputRecency.pop_back();
 		}
@@ -711,14 +623,14 @@ namespace Durin
 		std::string_view SourceFilePath,
 		const FShaderCompileOptions& EffectiveOptions,
 		const std::vector<FShaderMacroDefinition>& NormalizedMacros,
-		FShaderMetaData& OutMetaData) -> FShaderOperationResult
+		FShaderMetaData& OutMetaData, bool Fresh) -> FShaderOperationResult
 	{
 		FShaderDependencyKey DependencyKey;
 		ShaderCompileUtilities::BuildDependencyKey(
 			VirtualShaderPath, NormalizedMacros,
 			EffectiveOptions.CompilerEnvironment, EffectiveOptions.Target, DependencyKey);
 		bool bManifestCurrent = false;
-		if (ManifestStore.Load(
+		if (!Fresh && ManifestStore.Load(
 			VirtualShaderPath, DependencyKey, OutMetaData))
 		{
 			const ShaderCompileUtilities::FMetaDataReuseResult ReuseResult =

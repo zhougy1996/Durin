@@ -40,11 +40,24 @@ namespace Durin
 
 		auto GetOrCompileGenerated(const FGeneratedShaderCompileRequest& Request)
 			-> FShaderCompilerOutput;
+		auto SubmitGenerated(FGeneratedShaderCompileRequest Request, FShaderBuildRequestOptions Options,
+			FShaderBuildCompletion Completion) -> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
+		auto Close() -> void;
 
 	private:
-		auto GetOrCompileGeneratedInternal(
-			const FGeneratedShaderCompileRequest& Request)
-			-> FShaderCompilerOutput;
+		struct FGeneratedBuildInput
+		{
+			std::shared_ptr<const FGeneratedShaderCompileRequest> Request;
+			FShaderCompileOptions Options;
+			std::optional<FShaderSessionRequest> Session;
+			std::string OutputKey;
+		};
+		auto PrepareGenerated(std::shared_ptr<const FGeneratedShaderCompileRequest> Request,
+			const std::function<bool(uint64)>& ReserveSources)
+			-> std::expected<std::shared_ptr<FGeneratedBuildInput>, FShaderError>;
+		struct FAsyncState;
+		std::shared_ptr<FAsyncState> Async;
+		auto InitializeAsync() -> void;
 
 		static constexpr size_t GMaximumOutputEntries = 128;
 		static constexpr size_t GMaximumSourceTreeFingerprintEntries = 128;
@@ -61,6 +74,7 @@ namespace Durin
 		{
 			FShaderCompilerOutput Output;
 			std::list<std::string>::iterator Recency;
+			uint64 Bytes = 0;
 		};
 
 		auto AddOutput(std::string Key, const FShaderCompilerOutput& Output) -> void;
@@ -107,7 +121,7 @@ namespace Durin
 			std::string_view SourceFilePath,
 			const FShaderCompileOptions& EffectiveOptions,
 			const std::vector<FShaderMacroDefinition>& NormalizedMacros,
-			FShaderMetaData& OutMetaData) -> FShaderOperationResult;
+			FShaderMetaData& OutMetaData, bool Fresh = false) -> FShaderOperationResult;
 
 		auto GetOrCompileInternal(
 			std::string_view VirtualShaderPath,
@@ -126,6 +140,7 @@ namespace Durin
 		mutable std::mutex OutputCacheMutex;
 		std::list<std::string> OutputRecency;
 		std::unordered_map<std::string, FOutputCacheEntry> OutputCache;
+		uint64 OutputCacheBytes = 0;
 		std::mutex SourceTreeFingerprintCacheMutex;
 		uint64 SourceTreeFingerprintCacheGeneration = 0;
 		std::unordered_map<std::string,

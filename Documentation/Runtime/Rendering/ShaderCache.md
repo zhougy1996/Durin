@@ -4,7 +4,7 @@ Summary: Define authored ShaderBuild caching and compiler-free cooked Shader del
 
 Modules: RenderCore, ShaderBuild, DerivedDataCache, RHI
 
-Last reviewed: 2026-10-03
+Last reviewed: 2026-10-15
 
 ShaderBuild owns Slang dependency resolution, compilation, request coalescing,
 dependency manifests, DDC orchestration, and cooked-library production.
@@ -186,17 +186,20 @@ concurrently. Atomic replacement gives identical writers last-writer-wins
 publication and readers a prior or new complete object.
 
 ShaderBuild owns single-flight records, compiler contexts, memory caching, and
-shutdown. Callers own task scheduling and admission. Generated requests do not
+shutdown. Generated submission owns asynchronous preparation and bounded
+admission through `SubmitGenerated`; callers own their material/asset operations. Generated requests do not
 hold a builder-wide lock across dependency validation, cache access, or compilation.
 Each Slang compiler/resolver call exclusively leases a global session; all derived
-objects are destroyed before returning that lease. Pool locks cover only the idle
+objects are destroyed before returning that lease. Idle contexts are reused only
+on their originating thread; asynchronous continuations never migrate a pooled
+Slang context between threads. Pool locks cover only the idle
 inventory, with at most four idle sessions retained per pool. Active contexts follow
 the caller's worker/admission budget; acquisition creates a context when none is
 idle instead of blocking a worker behind another compilation. Shutdown requires
 all calls and their leases to drain before destroying the builder. Module startup
 constructs the compiler service and freezes registration before constructing the
-builder. Shutdown closes service admission, cancels and drains sessions, and
-waits for accepted execution to retire before releasing the builder/service.
+builder. Shutdown closes builder admission, cancels and joins accepted subscribers, then
+closes and drains both service sessions before releasing compiler contexts.
 Requests retain captured resolvers; their input description runs in the build
 session. Synchronous callers use a DDC request owner and wait before reading
 completion, independently of whether the session executes inline.
@@ -205,12 +208,25 @@ Filesystem-backed generated requests validate dependencies and imports before
 single-flight admission using the complete output identity. Captured-source requests
 include source contents, artifact contents, ordered search roots, normalized macros,
 entry points/stages, compiler identity, and import policy in their flight identity.
-Forced and ordinary requests have separate flights. Identical synchronous callers
-wait only for their matching flight; unrelated cache hits and compiles can proceed.
+Forced and ordinary requests have separate flights. A generated subscriber owns
+one move-only handle with nonblocking cancellation, mutable priority and explicit
+wait. Rejection has no callback; acceptance completes exactly once, including
+inline completion before submission returns. Canceling one subscriber preserves
+a live follower; the last cancellation withdraws the flight from joinable lookup
+and requests cooperative producer cancellation. Flight priority is the highest
+live subscriber priority. Task-backed DDC sessions release dispatch workers while
+cache I/O progresses. Synchronous generated APIs submit through the same pipeline
+and wait at their caller boundary. Callback-stack waits return `WouldBlock`.
+Admission bounds are 512 subscribers, 128 compiler flights and 1 GiB captured
+source bytes; the 128-entry output LRU is additionally capped at 256 MiB.
 Material scheduling coalesces consumers before launching work. Success and failure completion wake waiters and remove the record, allowing
 retries. Unexpected recipe exceptions become generic failure completions; direct
 pre-session exceptions still use the existing flight exception path.
-Reload generation invalidates memoized source fingerprints.
+Reload generation invalidates memoized source fingerprints and refreshes their
+content hashes. Material generated requests verify their expected environment
+fingerprint against immutable captured bytes before output lookup, including
+caller-supplied artifacts; changed dependencies cannot compile under an old
+material identity. Invalid typed cache hits retry once with query disabled.
 
 Global and Material Shader owners publish complete typed sets atomically.
 Renderer resource slots expose only the requested Ready generation; pending

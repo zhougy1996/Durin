@@ -27,13 +27,20 @@ namespace Durin
 	class SHADERBUILD_API FShaderBuildService
 	{
 	public:
-		explicit FShaderBuildService(std::function<void(std::string_view)> BeforeGeneratedCompile = {});
+		explicit FShaderBuildService(std::function<void(std::string_view)> BeforeGeneratedCompile = {},
+			DerivedData::FBuildServiceOptions Options = {});
 		~FShaderBuildService();
 		auto GetBuildVersion() const -> uint64;
 		auto GetCompilerEnvironmentIdentity() const -> const std::string&;
+		auto GetProducerMicroseconds() const -> uint64;
+		auto GetCacheMicroseconds() const -> uint64;
 		auto Execute(FShaderSessionRequest Request, DerivedData::FBuildRequestOptions Options)
 			-> DerivedData::FBuildCompleteParams;
+		auto Submit(FShaderSessionRequest Request, DerivedData::IRequestOwner& Owner,
+			DerivedData::FBuildCompletionCallback Completion, DerivedData::FBuildRequestOptions Options,
+			bool bInlineExecution) -> std::expected<DerivedData::FBuildRequest, DerivedData::FBuildAdmissionError>;
 		auto Close() -> void;
+		auto ResetCacheForTests(DerivedData::FBuildServiceOptions Options) -> void;
 	private:
 		struct FState;
 		std::unique_ptr<FState> State;

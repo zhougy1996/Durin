@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-10-14
+Last reviewed: 2026-10-15
 
 ## Ownership
 
@@ -420,8 +420,11 @@ They release their dispatch worker immediately and retain a build request owner
 until callback retirement, then apply its detached result on GameThread. Owner
 priority follows the request; concurrency and estimated memory stay reserved
 across asynchronous stages. See [Asset Compilation](AssetCompilation.md#initial-compiling-managers).
-Other Engine asset families and synchronous texture adapters submit through inline
-sessions; ShaderBuild does the same through its isolated service. Each synchronous caller owns a
+Material translation and generated Shader submission also own persistent task
+sessions. Material normalization/generation, Shader preparation and CPU assembly
+are separate detached continuations; neither producer waits for nested cache I/O.
+Other Engine asset families and synchronous texture adapters use inline sessions.
+ShaderBuild retains a separate inline session for explicit synchronous adapters. Each synchronous caller owns a
 request group and waits explicitly before typed assembly; it never assumes
 that completion happened before `Build` returned. Captured input description
 runs inside the accepted request. Producer scheduling adds no second asset reservation. Cache working-set limits
@@ -520,7 +523,7 @@ gating, and publication remain unchanged. Serialized and native physics
 validation protect different trust boundaries and remain separate.
 
 ShaderBuild captures immutable dependency metadata into request inputs, reuses
-one persistent service session, and keeps its compiler single-flight, LRU,
+persistent inline and task service sessions, and keeps its compiler single-flight, LRU,
 waiter cancellation, filesystem bounds, and dependency-content verification.
 Its nonzero opaque 64-bit build identity composes private producer revisions and
 compiler dependencies. A named `BuilderVersion` constant is checked before recipe
@@ -529,6 +532,17 @@ The output binds fixed entry IDs and Compact Binary metadata to the virtual shad
 path. Cook production identity includes those versions, the library producer revision
 and DSHD/DSLB schemas. Both runtime codecs use schema 5 with no producer
 version word, allowing algorithm upgrades without rejecting compatible cooked data. Shader counters derive from completion status and build-status facts.
+
+Engine registers `Material.Translate` before family session acquisition. Its versioned
+canonical input and one bounded `Product` output persist normalization/generation,
+active schemas/layout, requirements and typed semantic diagnostics, independently
+of Shader target/compiler/source identities. Locations use input-relative ordinals;
+requesting snapshots restore consumer GUIDs, paths and collection defaults. Typed
+validation rejects schema, identity, MIR/layout or requirements disagreement and
+rebuilds a bad hit once without cache query. Force, cancellation and persistence
+failure retain the common session policy. Material operations retain their DDC
+owners through retirement and close family sessions after operation drain. Complete
+assembled material candidates remain in the shared bounded process cache only.
 
 Cache success never means an asset is current, applied, GPU-ready, or
 physics-ready. Family freshness and object application checks remain authoritative;

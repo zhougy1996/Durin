@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureCompressor, MeshBuilder
 
-Last reviewed: 2026-10-14
+Last reviewed: 2026-10-15
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -141,7 +141,15 @@ services stop. See [Derived Data Build Protocol](DerivedDataBuild.md#ownership).
 
 ## Initial Compiling Managers
 
-Material compilation remains Engine-owned. It preserves program-identity
+Material compilation remains Engine-owned. Its operation captures on GameThread,
+submits detached cached translation, merges normalized program flights, subscribes
+to asynchronous ShaderBuild, and assembles a candidate on CPU before mailbox
+publication. Cancellation is consumer-scoped; last-consumer cancellation latches
+the operation and prevents reattachment. Selected finish raises downstream DDC
+and Shader priority and joins all dispatch publication, cache owners, subscribers
+and CPU tasks. Shutdown closes admission before draining those controls; progress
+before final application requires no GameThread pump. Count and byte reservations
+remain held until retirement. It preserves program-identity
 single-flight sharing, retained program results, last-known-good visibility,
 generation-safe admission, Renderer publication, reload behavior, and cooked
 program rules. Remaining count is the number of live outstanding material

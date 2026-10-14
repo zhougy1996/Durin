@@ -238,6 +238,7 @@ namespace Durin
 		NoAuthoredProgram,
 		ShaderCompilerFailed,
 		ShaderEnvironmentUnavailable,
+		SourceDependencyChanged,
 	};
 
 	enum class EMaterialRenderError : uint16

@@ -1,0 +1,62 @@
+#include "MaterialProgramCache.h"
+namespace Durin::MaterialBuildPrivate
+{
+	namespace
+	{
+		std::mutex Mutex;
+		std::unordered_map<FMaterialProgramIdentity, std::shared_ptr<const FMaterialCompilerResult>> Programs;
+		std::deque<FMaterialProgramIdentity> Order;
+		uint64 Bytes = 0;
+	}
+	auto EstimateProgramBytes(const FMaterialCompilerResult& Result) -> uint64
+	{
+		uint64 Size = sizeof(Result) + Result.GeneratedSource.capacity() + Result.CompilerIdentity.capacity() + Result.Target.capacity()
+			+ Result.IR.Nodes.capacity() * sizeof(MIR::FNode) + Result.ActiveParameters.capacity() * sizeof(FMaterialCompilerParameterDeclaration)
+			+ Result.Layout.Fields.capacity() * sizeof(FMaterialRenderField) + Result.CompiledShaders.capacity() * sizeof(FCompiledShader);
+		for (const auto& Node : Result.IR.Nodes) Size += Node.Inputs.capacity() * sizeof(uint32);
+		for (const auto& Dependency : Result.Dependencies) Size += sizeof(Dependency) + Dependency.VirtualPath.capacity();
+		for (const auto& Collection : Result.ActiveCollections) Size += sizeof(Collection) + Collection.AssetPath.capacity() + Collection.DefaultPayload.capacity() + Collection.UniformLayout.Fields.capacity() * sizeof(FMaterialRenderField);
+		for (const auto& Shader : Result.CompiledShaders)
+		{
+			Size += Shader.SourceEntryPoint.capacity() + Shader.BinaryEntryPoint.capacity() + Shader.DebugName.capacity() + (Shader.Code ? Shader.Code->size() : 0);
+			for (const auto& Binding : Shader.Reflection.ResourceBindings) Size += sizeof(Binding) + Binding.Name.capacity();
+			Size += Shader.Reflection.PushConstantRanges.capacity() * sizeof(FPushConstantRange) + Shader.MetalBindings.capacity() * sizeof(FMetalShaderBinding);
+		}
+		return Size;
+	}
+	auto FindProgram(FMaterialProgramIdentity Identity) -> std::shared_ptr<const FMaterialCompilerResult>
+	{ std::lock_guard Lock(Mutex); const auto Found = Programs.find(Identity); return Found == Programs.end() ? nullptr : Found->second; }
+	auto ConfigureProgram(std::shared_ptr<const FMaterialCompilerResult> Program, const MIR::FCompilerInput& Input) -> std::shared_ptr<const FMaterialCompilerResult>
+	{
+		if (!Program) return {};
+		bool Changed = Program->Quality != Input.Environment.Quality || Program->FeatureLevel != Input.Environment.FeatureLevel || Program->StaticBools != Input.Environment.StaticBools;
+		for (const auto& Collection : Program->ActiveCollections)
+		{
+			const auto Found = std::ranges::find(Input.Collections, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
+			if (Found == Input.Collections.end() || !Collection.HasCompatibleSchema(*Found)) return {};
+			Changed |= Collection.DefaultPayload != Found->DefaultPayload || Collection.AssetPath != Found->AssetPath;
+		}
+		if (!Changed) return Program;
+		auto Result = std::make_shared<FMaterialCompilerResult>(*Program);
+		Result->Quality = Input.Environment.Quality; Result->FeatureLevel = Input.Environment.FeatureLevel; Result->StaticBools = Input.Environment.StaticBools;
+		for (auto& Collection : Result->ActiveCollections) Collection = *std::ranges::find(Input.Collections, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
+		return Result;
+	}
+	auto RetainProgram(std::shared_ptr<const FMaterialCompilerResult> Program, bool Replace) -> std::shared_ptr<const FMaterialCompilerResult>
+	{
+		if (!Program || !*Program) return Program;
+		const auto Size = EstimateProgramBytes(*Program); if (Size > 8ull * 1024 * 1024) return Program;
+		std::lock_guard Lock(Mutex);
+		const auto Found = Programs.find(Program->Identity);
+		if (Found != Programs.end())
+		{
+			if (!Replace) return Found->second;
+			Bytes -= EstimateProgramBytes(*Found->second); Programs.erase(Found); std::erase(Order, Program->Identity);
+		}
+		while (!Order.empty() && (Programs.size() >= 128 || Bytes + Size > 256ull * 1024 * 1024))
+		{ auto Old = Order.front(); Order.pop_front(); Bytes -= EstimateProgramBytes(*Programs.at(Old)); Programs.erase(Old); }
+		Bytes += Size; Programs.emplace(Program->Identity, Program); Order.push_back(Program->Identity); return Program;
+	}
+	auto ClearPrograms() -> void { std::lock_guard Lock(Mutex); Programs.clear(); Order.clear(); Bytes = 0; }
+	auto ProgramCacheStats() -> std::pair<uint32, uint64> { std::lock_guard Lock(Mutex); return {uint32(Programs.size()), Bytes}; }
+}

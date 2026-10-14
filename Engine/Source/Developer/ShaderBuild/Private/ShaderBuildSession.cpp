@@ -157,6 +157,7 @@ namespace Durin
 			const std::string Environment = Compiler.GetEnvironmentIdentity();
 			const uint64 BuildVersion = ShaderBuildPrivate::BuildVersion(Environment);
 			std::function<void(std::string_view)> BeforeGeneratedCompile;
+			std::atomic_uint64_t ProducerMicroseconds = 0;
 		};
 		class FFunction final : public IBuildFunction
 		{
@@ -217,9 +218,12 @@ namespace Durin
 					return Fail(FormatShaderError({.Code = EShaderError::DependencyContentConflict}));
 				Options->Value.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(std::move(Files), std::move(Options->Roots));
 				if (Context.IsCancelled()) return Fail(FormatShaderError({.Code = EShaderError::Cancelled}));
+				const auto ProducerBegin = std::chrono::steady_clock::now();
 				auto Product = Options->Generated
 					? Service->Compiler.CompileSource(Options->Value.VirtualShaderPath.substr(1), Options->Value.VirtualShaderPath, Generated, Options->Value, Service->BeforeGeneratedCompile)
 					: Service->Compiler.Compile(Options->Value.VirtualShaderPath, Options->Value);
+				Service->ProducerMicroseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
+					std::chrono::steady_clock::now() - ProducerBegin).count(), std::memory_order_relaxed);
 				if (!Product) return Context.FailExecution(FormatShaderError(std::move(Product.Error)));
 				auto Output = ShaderSharedOutput::Make(Options->Value, Product, [&] { return Context.IsCancelled(); });
 				if (!Output) return Context.FailExecution(FormatShaderError(std::move(Output.error())));
@@ -289,23 +293,86 @@ namespace Durin
 
 	struct FShaderBuildService::FState
 	{
+		struct FObservedCache final : ICache
+		{
+			std::shared_ptr<ICache> Backend;
+			mutable std::atomic_uint64_t Microseconds = 0;
+			auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult override
+			{
+				const auto Begin = std::chrono::steady_clock::now();
+				auto Result = Backend->Get(Request);
+				Microseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
+					std::chrono::steady_clock::now() - Begin).count(), std::memory_order_relaxed);
+				return Result;
+			}
+			auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
+			{
+				const auto Begin = std::chrono::steady_clock::now();
+				auto Result = Backend->Put(Request);
+				Microseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
+					std::chrono::steady_clock::now() - Begin).count(), std::memory_order_relaxed);
+				return Result;
+			}
+		};
 		std::shared_ptr<FCompilerService> Compiler = std::make_shared<FCompilerService>();
+		std::shared_ptr<FObservedCache> Cache = std::make_shared<FObservedCache>();
 		std::string Environment = Compiler->Environment;
 		std::shared_ptr<IBuild> Service;
 		std::shared_ptr<FBuildSession> Session;
+		std::shared_ptr<FBuildSession> TaskSession;
 		std::mutex Mutex;
 		bool Closed = false;
 	};
-	FShaderBuildService::FShaderBuildService(std::function<void(std::string_view)> Hook) : State(std::make_unique<FState>())
+	FShaderBuildService::FShaderBuildService(std::function<void(std::string_view)> Hook, FBuildServiceOptions Options)
+		: State(std::make_unique<FState>())
 	{
 		State->Compiler->BeforeGeneratedCompile = std::move(Hook);
-		State->Service = CreateBuild();
+		State->Cache->Backend = Options.Cache ? std::move(Options.Cache) : std::shared_ptr<ICache>(&GetCache(), [](ICache*) {});
+		Options.Cache = State->Cache;
+		State->Service = CreateBuild(std::move(Options));
 		const auto Registered = State->Service->Register(std::make_shared<FFunction>(State->Compiler)); require(Registered);
 		auto Session = State->Service->CreateSession({}, CreateInlineBuildScheduler()); require(Session); State->Session = std::move(*Session);
 	}
 	FShaderBuildService::~FShaderBuildService() { Close(); }
+	auto FShaderBuildService::ResetCacheForTests(FBuildServiceOptions Options) -> void
+	{
+		Close();
+		std::lock_guard Lock(State->Mutex);
+		State->Cache = std::make_shared<FState::FObservedCache>();
+		State->Cache->Backend = Options.Cache ? std::move(Options.Cache) : std::shared_ptr<ICache>(&GetCache(), [](ICache*) {});
+		Options.Cache = State->Cache;
+		State->Service = CreateBuild(std::move(Options));
+		require(State->Service->Register(std::make_shared<FFunction>(State->Compiler)));
+		auto Session = State->Service->CreateSession({}, CreateInlineBuildScheduler()); require(Session);
+		State->Session = std::move(*Session); State->Compiler->ProducerMicroseconds = 0; State->Closed = false;
+	}
 	auto FShaderBuildService::GetBuildVersion() const -> uint64 { return State->Compiler->BuildVersion; }
 	auto FShaderBuildService::GetCompilerEnvironmentIdentity() const -> const std::string& { return State->Environment; }
+	auto FShaderBuildService::GetProducerMicroseconds() const -> uint64 { return State->Compiler->ProducerMicroseconds.load(); }
+	auto FShaderBuildService::GetCacheMicroseconds() const -> uint64 { return State->Cache->Microseconds.load(); }
+	auto FShaderBuildService::Submit(FShaderSessionRequest Request, IRequestOwner& Owner,
+		FBuildCompletionCallback Completion, FBuildRequestOptions Options, bool bInlineExecution)
+		-> std::expected<FBuildRequest, FBuildAdmissionError>
+	{
+		std::shared_ptr<FBuildSession> Session;
+		{
+			std::lock_guard Lock(State->Mutex);
+			if (State->Closed) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Closed, "Shader sessions are closed."});
+			if (bInlineExecution) Session = State->Session;
+			else
+			{
+				if (!State->TaskSession)
+				{
+					auto Created = State->Service->CreateSession({}, CreateTaskBuildScheduler(), EBuildCacheExecution::Task);
+					if (!Created) return std::unexpected(Created.error());
+					State->TaskSession = std::move(*Created);
+				}
+				Session = State->TaskSession;
+			}
+		}
+		Options.InputResolver = std::move(Request.Resolver);
+		return Session->Build(std::move(Request.Definition), Owner, std::move(Completion), {}, std::move(Options));
+	}
 	auto FShaderBuildService::Execute(FShaderSessionRequest Request, FBuildRequestOptions Options)
 		-> FBuildCompleteParams
 	{
@@ -342,6 +409,6 @@ namespace Durin
 			require(Retired->Drain() == EBuildDrainResult::Drained);
 		}
 		std::lock_guard Lock(State->Mutex);
-		State->Session.reset(); State->Service.reset();
+		State->Session.reset(); State->TaskSession.reset(); State->Service.reset();
 	}
 }

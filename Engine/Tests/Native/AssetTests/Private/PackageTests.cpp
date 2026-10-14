@@ -9966,6 +9966,9 @@ namespace
 		auto GetCompileAdapterVersion() const -> Durin::FShaderCompileAdapterVersion override { return {3, 2, 6}; }
 		auto CompileMounted(std::string_view, const Durin::FShaderCompileOptions&) -> Durin::FShaderCompilerOutput override { return {}; }
 		auto CompileGenerated(const Durin::FGeneratedShaderCompileRequest&) -> Durin::FShaderCompilerOutput override { return {}; }
+		auto SubmitGenerated(Durin::FGeneratedShaderCompileRequest, Durin::FShaderBuildRequestOptions, Durin::FShaderBuildCompletion)
+			-> std::expected<Durin::FShaderBuildHandle, Durin::FShaderBuildAdmissionError> override
+		{ return std::unexpected(Durin::FShaderBuildAdmissionError{Durin::EShaderBuildAdmissionReason::Closed}); }
 		auto GetCompilerEnvironmentIdentity() -> std::string override { return "cook-fixture-compiler-v1"; }
 		auto GetCookInputIdentity(std::string& OutIdentity,
 			const std::function<bool()>& IsCancelled) -> Durin::FShaderOperationResult override

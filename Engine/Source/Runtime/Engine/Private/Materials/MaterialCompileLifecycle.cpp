@@ -1,5 +1,8 @@
 #include "Materials/ObjectCacheContext.h"
 #include "MaterialPreparedProgram.h"
+#include "MaterialBuildOperation.h"
+#include "MaterialProgramCache.h"
+#include "MaterialTranslationCodec.h"
 #include "MaterialCompileRetryQueue.h"
 #include "Threading/TaskComposition.h"
 #include "Asset/OfflinePreparation.h"
@@ -16,14 +19,12 @@
 #include "Materials/Material.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "Threading/RunnableThread.h"
+#include "Serialization/BinaryFormat.h"
 
 namespace Durin
 {
 	namespace
 	{
-		constexpr uint64 MaterialCompileMaxRetainedProgramBytes =
-			256ull * 1024ull * 1024ull;
-
 		auto CheckMaterialCompileGameThread() -> void
 		{
 			if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -44,98 +45,29 @@ namespace Durin
 			std::span<const FMaterialParameterCollectionLayout> Current)
 			-> std::shared_ptr<const FMaterialCompilerResult>
 		{
-			if (!Program || Program->ActiveCollections.size() != Current.size())
-				return Program;
+			if (!Program) return Program;
+			std::vector<FMaterialParameterCollectionLayout> Active;
 			bool bChanged = false;
-			for (size_t Index = 0; Index < Current.size(); ++Index)
+			for (const auto& Collection : Program->ActiveCollections)
 			{
-				if (!Program->ActiveCollections[Index].HasCompatibleSchema(Current[Index]))
-					return Program;
-				bChanged |= Program->ActiveCollections[Index].DefaultPayload
-					!= Current[Index].DefaultPayload;
+				const auto Found = std::ranges::find(Current, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
+				if (Found == Current.end() || !Collection.HasCompatibleSchema(*Found)) return Program;
+				bChanged |= Collection.DefaultPayload != Found->DefaultPayload;
+				Active.push_back(*Found);
 			}
 			if (!bChanged) return Program;
 			auto Refreshed = std::make_shared<FMaterialCompilerResult>(*Program);
-			Refreshed->ActiveCollections.assign(Current.begin(), Current.end());
+			Refreshed->ActiveCollections = std::move(Active);
 			return Refreshed;
-		}
-
-		auto ApplyProgramConfiguration(
-			std::shared_ptr<const FMaterialCompilerResult> Program,
-			const FMaterialCompilerEnvironment& Environment)
-			-> std::shared_ptr<const FMaterialCompilerResult>
-		{
-			if (!Program || (Program->Quality == Environment.Quality
-				&& Program->FeatureLevel == Environment.FeatureLevel
-				&& Program->StaticBools == Environment.StaticBools)) return Program;
-			auto Configured = std::make_shared<FMaterialCompilerResult>(*Program);
-			Configured->Quality = Environment.Quality;
-			Configured->FeatureLevel = Environment.FeatureLevel;
-			Configured->StaticBools = Environment.StaticBools;
-			return Configured;
 		}
 
 		auto EstimateRequestBytes(const FMaterialCompileRequest& Request) -> uint64
 		{
-			uint64 Bytes = sizeof(Request) + sizeof(FMaterialPreparedProgram)
-				+ Request.PreparedProgram->Normalized.CanonicalBytes.size()
-				+ Request.PreparedProgram->Normalized.Layout.Fields.size() * sizeof(FMaterialRenderField)
-				+ Request.AssetPath.size()
-				+ Request.Target.size()
-				+ Request.PreparedProgram->Environment.CompilerIdentity.size();
-			for (const MIR::FNode& Node : Request.PreparedProgram->Normalized.IR.Nodes)
-				Bytes += sizeof(Node) + Node.Inputs.size() * sizeof(uint32);
-			for (const auto& Source : Request.PreparedProgram->Normalized.Sources)
-				Bytes += sizeof(Source) + Source.FunctionAssetPath.size() + Source.CallPath.size() * sizeof(FGuid);
-			Bytes += Request.PreparedProgram->Normalized.ActiveParameters.size()
-				* sizeof(FMaterialCompilerParameterDeclaration);
-			for (const FMaterialCompilerDependency& Dependency
-				: Request.PreparedProgram->Environment.Dependencies)
-				Bytes += sizeof(Dependency) + Dependency.VirtualPath.size();
-			for (const FMaterialParameterCollectionLayout& Collection
-				: Request.PreparedProgram->Normalized.ActiveCollections)
-			{
-				Bytes += sizeof(Collection) + Collection.AssetPath.size()
-					+ Collection.UniformLayout.Fields.size()
-						* sizeof(FMaterialRenderField)
-					+ Collection.DefaultPayload.size();
-			}
-			return Bytes;
-		}
-
-		auto EstimateResultBytes(const FMaterialCompilerResult& Result) -> uint64
-		{
-			uint64 Bytes = sizeof(Result) + Result.GeneratedSource.size()
-				+ Result.CompilerIdentity.size() + Result.Target.size()
-				+ Result.IR.Nodes.size() * sizeof(MIR::FNode)
-				+ Result.ActiveParameters.size() * sizeof(FMaterialCompilerParameterDeclaration)
-				+ Result.Layout.Fields.size() * sizeof(FMaterialRenderField)
-				+ sizeof(Result.IR.SurfaceRoot);
-			for (const MIR::FNode& Node : Result.IR.Nodes)
-				Bytes += Node.Inputs.size() * sizeof(uint32);
-			for (const FMaterialCompilerDependency& Dependency : Result.Dependencies)
-				Bytes += sizeof(Dependency) + Dependency.VirtualPath.size();
-			for (const FMaterialParameterCollectionLayout& Collection
-				: Result.ActiveCollections)
-			{
-				Bytes += sizeof(Collection) + Collection.AssetPath.size()
-					+ Collection.UniformLayout.Fields.size()
-						* sizeof(FMaterialRenderField)
-					+ Collection.DefaultPayload.size();
-			}
-			for (const FCompiledShader& Shader : Result.CompiledShaders)
-			{
-				Bytes += sizeof(Shader) + Shader.SourceEntryPoint.size()
-					+ Shader.BinaryEntryPoint.size() + Shader.DebugName.size();
-				if (Shader.Code) Bytes += Shader.Code->size();
-				for (const FShaderResourceBinding& Binding
-					: Shader.Reflection.ResourceBindings)
-					Bytes += sizeof(Binding) + Binding.Name.size();
-				Bytes += Shader.Reflection.PushConstantRanges.size()
-					* sizeof(FPushConstantRange);
-			}
-			for (const FMaterialProgramDiagnostic& Diagnostic : Result.Diagnostics)
-				Bytes += sizeof(Diagnostic) + Diagnostic.Error.ExternalDiagnostic.size() + Diagnostic.Error.ArchivePath.size();
+			if (!Request.CompilerInput) return 0;
+			uint64 Bytes = sizeof(Request) + Request.AssetPath.capacity() + Request.Target.capacity()
+				+ MaterialBuildPrivate::EstimateTranslationCaptureBytes(*Request.CompilerInput)
+				+ Request.ExpressionSources.capacity() * sizeof(MIR::FSource);
+			for (const auto& Source : Request.ExpressionSources) Bytes += Source.FunctionAssetPath.capacity() + Source.CallPath.capacity() * sizeof(FGuid);
 			return Bytes;
 		}
 
@@ -205,10 +137,15 @@ namespace Durin
 		struct FMaterialCompileFlight
 		{
 			FMaterialCompileFlightKey Key;
-			std::shared_ptr<const FMaterialPreparedProgram> PreparedProgram;
 			std::vector<FMaterialCompileRequest> Consumers;
 			FTaskCancellationSource Cancellation;
-			FTaskHandle Task;
+			std::shared_ptr<MaterialBuildPrivate::FMaterialBuildOperation> Operation;
+			FMaterialProgramIdentity ProgramIdentity;
+			std::vector<std::pair<uint32, uint32>> SourceMap;
+			std::shared_ptr<const MIR::FCompilerInput> DiagnosticInput;
+			std::vector<FWeakObjectPtr> Origins;
+			FWeakObjectPtr InitialOwner;
+			uint64 CapturedBytes = 0;
 			std::atomic_uint64_t TaskId = 0;
 		};
 
@@ -229,28 +166,25 @@ namespace Durin
 			auto Shutdown() -> void
 			{
 				CheckMaterialCompileGameThread();
-				std::vector<FTaskHandle> Pending;
+				std::vector<std::shared_ptr<FMaterialCompileFlight>> Pending;
 				{
 					std::scoped_lock Lock(Mutex);
 					bAcceptingRequests = false;
-					Pending = std::move(Workers);
-					for (auto& [Key, Flight] : Flights)
+					Pending = Operations;
+					for (auto& Flight : Pending)
 					{
 						Flight->Cancellation.RequestCancellation();
 					}
 				}
-				for (const auto& Task : Pending) CancelTask(Task);
-				for (const auto& Task : Pending)
-					requiref(WaitTask(Task).WaitStatus == ETaskWaitStatus::Completed,
-						"Material compile work must finish before owner release.");
+				for (const auto& Flight : Pending) Flight->Operation->Cancel();
+				for (const auto& Flight : Pending) Flight->Operation->Wait();
 				std::scoped_lock Lock(Mutex);
 				Diagnostics.CanceledRequests += OutstandingConsumers;
 				Flights.clear();
+				ProgramFlights.clear(); Operations.clear(); CapturedBytes = 0;
 				Mailbox.clear();
 				OutstandingConsumers = 0;
-				RetainedPrograms.clear();
-				RetentionOrder.clear();
-				RetainedProgramBytes = 0;
+				MaterialBuildPrivate::ClearPrograms();
 			}
 
 			auto StopAdmission() -> void
@@ -260,128 +194,179 @@ namespace Durin
 				bAcceptingRequests = false;
 			}
 
+			auto RetireOperations() -> void
+			{
+				std::vector<std::shared_ptr<FMaterialCompileFlight>> Retired;
+				{ std::scoped_lock Lock(Mutex); Retired = Operations; }
+				std::erase_if(Retired, [](const auto& Flight) { return !Flight->Operation->IsRetired(); });
+				std::scoped_lock Lock(Mutex);
+				for (const auto& Flight : Retired)
+				{
+					const auto It = std::ranges::find(Operations, Flight);
+					if (It != Operations.end()) { CapturedBytes -= Flight->CapturedBytes; Operations.erase(It); }
+				}
+			}
+
+			auto CancelLatchedOperations() -> void
+			{
+				std::vector<std::shared_ptr<FMaterialCompileFlight>> Pending;
+				{ std::scoped_lock Lock(Mutex); Pending = Operations; }
+				for (const auto& Flight : Pending) if (Flight->Cancellation.GetToken().IsCancellationRequested()) Flight->Operation->Cancel();
+			}
+
+			auto RaisePendingPriority(std::span<const FWeakObjectPtr> Owners = {}) -> void
+			{
+				std::vector<std::shared_ptr<FMaterialCompileFlight>> Pending;
+				{ std::scoped_lock Lock(Mutex); Pending = Operations; }
+				for (const auto& Flight : Pending)
+					if (Owners.empty() || std::ranges::any_of(Flight->Origins, [&](auto Origin) { return std::ranges::any_of(Owners, [&](auto Owner) { return SameOwner(Origin, Owner); }); })) Flight->Operation->RaisePriority();
+			}
+
+			auto DrainOperations() -> void
+			{
+				std::vector<std::shared_ptr<FMaterialCompileFlight>> Pending;
+				{ std::scoped_lock Lock(Mutex); Pending = Operations; }
+				for (const auto& Flight : Pending) Flight->Operation->Wait();
+				RetireOperations();
+			}
+			auto DrainSelected(std::span<const FWeakObjectPtr> Owners) -> void
+			{
+				std::vector<std::shared_ptr<FMaterialCompileFlight>> Pending;
+				{ std::scoped_lock Lock(Mutex); Pending = Operations; }
+				for (const auto& Flight : Pending)
+					if (std::ranges::any_of(Flight->Origins, [&](const auto& Origin) { return std::ranges::any_of(Owners, [&](const auto& Owner) { return SameOwner(Origin, Owner); }); })) Flight->Operation->Wait();
+				RetireOperations();
+			}
+
 			auto Submit(FMaterialCompileRequest Request) -> EMaterialCompileState
 			{
 				CheckMaterialCompileGameThread();
-				if (EstimateRequestBytes(Request) > MaterialCompileMaxRequestBytes)
-				{
-					++Diagnostics.RejectedRequests;
-					return EMaterialCompileState::Rejected;
-				}
-
-				std::shared_ptr<FMaterialCompileFlight> NewFlight;
+				RetireOperations();
+				const auto Bytes = EstimateRequestBytes(Request);
+				if (!Request.CompilerInput || Bytes > MaterialCompileMaxRequestBytes) return EMaterialCompileState::Rejected;
+				struct FCancelOnExit { FMaterialCompilationState& State; ~FCancelOnExit() { State.CancelLatchedOperations(); } } CancelOnExit{*this};
+				// Admission precedes encoding and normalization. Captured encoding is
+				// bounded by the input contract and belongs to GameThread snapshot capture.
 				{
 					std::scoped_lock Lock(Mutex);
 					SupersedeOwnerLocked(Request.Owner);
-					if (!bAcceptingRequests)
-					{
-						++Diagnostics.RejectedRequests;
-						return EMaterialCompileState::Rejected;
-					}
-
-					if (OutstandingConsumers >= MaterialCompileMaxConsumers)
-						return EMaterialCompileState::Deferred;
-
-					if (!Request.bForceRecompile)
-					{
-						if (const auto RetainedIt = RetainedPrograms.find(
-								Request.ProgramIdentity);
-							RetainedIt != RetainedPrograms.end())
-						{
-							++Diagnostics.AcceptedRequests;
-							++Diagnostics.RetainedHits;
-							++Diagnostics.CompletedRequests;
-							++OutstandingConsumers;
-							Mailbox.push_back(MakeReadyResult(
-								Request, RetainedIt->second,
-								EMaterialCompileCacheOutcome::RetainedHit, 0));
-							return EMaterialCompileState::Pending;
-						}
-					}
-
-					const FMaterialCompileFlightKey Key{
-						.Identity = Request.ProgramIdentity,
-						.bForceRecompile = Request.bForceRecompile};
-					if (const auto Existing = Flights.find(Key);
-						Existing != Flights.end())
-					{
-						// Cancellation is irreversible. Keep the retiring flight counted
-						// until completion, then retry through the bounded owner queue.
-						if (Existing->second->Cancellation.GetToken().IsCancellationRequested())
-							return EMaterialCompileState::Deferred;
-						Request.bSingleFlightConsumer = true;
-						Existing->second->Consumers.push_back(std::move(Request));
-						++Diagnostics.AcceptedRequests;
-						++Diagnostics.SingleFlightConsumers;
-						++OutstandingConsumers;
-						return EMaterialCompileState::Pending;
-					}
-					if (Flights.size() >= MaterialCompileMaxConcurrentRequests)
-						return EMaterialCompileState::Deferred;
-
-					NewFlight = std::make_shared<FMaterialCompileFlight>();
-					NewFlight->Key = Key;
-					NewFlight->PreparedProgram = Request.PreparedProgram;
-					NewFlight->Consumers.push_back(std::move(Request));
-					Flights.emplace(Key, NewFlight);
-					++Diagnostics.AcceptedRequests;
-					++OutstandingConsumers;
+					if (!bAcceptingRequests) return EMaterialCompileState::Rejected;
+					if (OutstandingConsumers >= MaterialCompileMaxConsumers || Bytes > 128ull * 1024 * 1024 - CapturedBytes) return EMaterialCompileState::Deferred;
 				}
-
-				Tasks::FTaskExecutionOptions Options{
-					.Cancellation = NewFlight->Cancellation.GetToken(),
-					.Attribution = Attribution,
-				};
-				NewFlight->Task = Durin::FTaskHandle(Tasks::LaunchTask(
-					"MaterialCompile",
-					[this, Flight = NewFlight](const FTaskCancellationToken& Token) {
-						if (Token.IsCancellationRequested())
-						{
-							CompleteFlight(Flight, {}, EMaterialCompileState::Canceled);
-							return;
-						}
-						FMaterialCompilerResult Compiled = CompilePreparedMaterialProgram(
-							*Flight->PreparedProgram, Flight->Key.bForceRecompile);
-						if (Token.IsCancellationRequested())
-						{
-							CompleteFlight(Flight, {}, EMaterialCompileState::Canceled);
-							return;
-						}
-						CompleteFlight(Flight, std::move(Compiled),
-							EMaterialCompileState::Ready);
-					}, Options));
-				NewFlight->TaskId.store(NewFlight->Task.GetTaskId(), std::memory_order_release);
+				auto Encoded = MaterialBuildPrivate::EncodeTranslationInput(*Request.CompilerInput);
+				if (!Encoded) return EMaterialCompileState::Rejected;
+				FBinaryWriter Identity;
+				Identity.WriteHash128(FXxHash128::HashBuffer(Encoded->GetBytes()));
+				const auto& Environment = Request.CompilerInput->Environment;
+				Identity.WriteString(Environment.CompilerIdentity); Identity.WriteString(Environment.Target); Identity.WriteU32(Environment.PassContractVersion);
+				auto Dependencies = Environment.Dependencies;
+				std::ranges::sort(Dependencies, {}, &FMaterialCompilerDependency::VirtualPath);
+				for (const auto& Dependency : Dependencies) { Identity.WriteString(Dependency.VirtualPath); Identity.WriteHash128(Dependency.ContentHash); }
+				const FMaterialCompileFlightKey Key{.Identity = {.Digest = FXxHash128::HashBuffer(Identity.GetBytes())}, .bForceRecompile = Request.bForceRecompile};
+				std::shared_ptr<FMaterialCompileFlight> NewFlight;
 				{
 					std::scoped_lock Lock(Mutex);
-					// CompleteFlight may remove the business record before the callable
-					// returns. Keep shutdown authority independently of that mailbox.
-					std::erase_if(Workers, [](const FTaskHandle& Task) { return Task.IsComplete(); });
-					Workers.push_back(NewFlight->Task);
+					if (const auto Existing = Flights.find(Key); Existing != Flights.end())
+					{
+						if (Existing->second->Cancellation.GetToken().IsCancellationRequested()) return EMaterialCompileState::Deferred;
+						Request.bSingleFlightConsumer = true;
+						if (!std::ranges::any_of(Existing->second->Origins, [&](auto Origin) { return SameOwner(Origin, Request.Owner); })) Existing->second->Origins.push_back(Request.Owner);
+						Request.ProgramIdentity = Existing->second->ProgramIdentity;
+						for (const auto& [Ordinal, NormalizedIndex] : Existing->second->SourceMap)
+						{ auto Source = Request.CompilerInput->Sources[Ordinal]; Source.ExpressionIndex = NormalizedIndex; Request.ExpressionSources.push_back(std::move(Source)); }
+						Existing->second->Consumers.push_back(std::move(Request)); Existing->second->CapturedBytes += Bytes; CapturedBytes += Bytes;
+						++Diagnostics.AcceptedRequests; ++Diagnostics.SingleFlightConsumers; ++OutstandingConsumers;
+						return EMaterialCompileState::Pending;
+					}
+					if (Operations.size() >= MaterialCompileMaxConcurrentRequests) return EMaterialCompileState::Deferred;
+					NewFlight = std::make_shared<FMaterialCompileFlight>(); NewFlight->Key = Key;
+					NewFlight->Operation = std::make_shared<MaterialBuildPrivate::FMaterialBuildOperation>();
+					if (!NewFlight->Operation->TryReserve()) return EMaterialCompileState::Deferred;
+					NewFlight->CapturedBytes = Bytes; CapturedBytes += Bytes;
+					NewFlight->Origins.push_back(Request.Owner);
+					NewFlight->InitialOwner = Request.Owner;
+					NewFlight->Consumers.push_back(std::move(Request));
+					Flights.emplace(Key, NewFlight); Operations.push_back(NewFlight);
+					++Diagnostics.AcceptedRequests; ++OutstandingConsumers;
 				}
+				const auto Input = NewFlight->Consumers.front().CompilerInput;
+				NewFlight->DiagnosticInput = Input;
+				NewFlight->Operation->Start(Input, Key.bForceRecompile, NewFlight->Cancellation.GetToken(),
+					[this, Weak = std::weak_ptr(NewFlight)](FMaterialTranslatedProgram& Translation) {
+						const auto Flight = Weak.lock(); if (!Flight) return false;
+						if (!Translation) return true;
+						std::shared_ptr<const FMaterialCompilerResult> Retained;
+						{
+							std::scoped_lock Lock(Mutex);
+							Flight->ProgramIdentity = Translation.Candidate.Identity;
+							for (size_t Index = 0; Index < Translation.Sources.size(); ++Index) Flight->SourceMap.emplace_back(Translation.SourceOrdinals[Index], Translation.Sources[Index].ExpressionIndex);
+							for (auto& Consumer : Flight->Consumers)
+							{
+								Consumer.ProgramIdentity = Flight->ProgramIdentity;
+								Consumer.ExpressionSources.clear();
+								for (size_t Index = 0; Index < Translation.Sources.size(); ++Index)
+								{
+									const auto Ordinal = Translation.SourceOrdinals[Index];
+									auto Source = Consumer.CompilerInput->Sources[Ordinal]; Source.ExpressionIndex = Translation.Sources[Index].ExpressionIndex;
+									Consumer.ExpressionSources.push_back(std::move(Source));
+								}
+							}
+							if (Flight->Cancellation.GetToken().IsCancellationRequested()) return true;
+							if (!Flight->Key.bForceRecompile)
+							{
+								Retained = MaterialBuildPrivate::FindProgram(Flight->ProgramIdentity);
+							}
+							const FMaterialCompileFlightKey ProgramKey{Flight->ProgramIdentity, Flight->Key.bForceRecompile};
+							if (!Retained)
+							{
+								const auto Existing = ProgramFlights.find(ProgramKey);
+								if (Existing != ProgramFlights.end() && !Existing->second->Cancellation.GetToken().IsCancellationRequested())
+								{
+									for (auto& Consumer : Flight->Consumers) { Consumer.bSingleFlightConsumer = true; Existing->second->Consumers.push_back(std::move(Consumer)); ++Diagnostics.SingleFlightConsumers; }
+									Existing->second->CapturedBytes += Flight->CapturedBytes; Flight->CapturedBytes = 0;
+									for (const auto Origin : Flight->Origins) if (!std::ranges::any_of(Existing->second->Origins, [&](auto Other) { return SameOwner(Origin, Other); })) Existing->second->Origins.push_back(Origin);
+									Flight->Consumers.clear(); Flights.erase(Flight->Key); return false;
+								}
+								ProgramFlights.insert_or_assign(ProgramKey, Flight);
+							}
+						}
+						if (Retained)
+						{
+							CompleteFlight(Flight, {}, EMaterialCompileState::Ready, EMaterialCompileCacheOutcome::RetainedHit, Retained); return false;
+						}
+						return true;
+					},
+					[this, Weak = std::weak_ptr(NewFlight)](FMaterialCompilerResult Compiled) {
+						const auto Flight = Weak.lock(); if (!Flight) return;
+						CompleteFlight(Flight, std::move(Compiled), Flight->Cancellation.GetToken().IsCancellationRequested() ? EMaterialCompileState::Canceled : EMaterialCompileState::Ready);
+					});
+				NewFlight->TaskId.store(NewFlight->Operation->GetTaskId());
 				return EMaterialCompileState::Running;
 			}
 
 			auto CancelOwner(FWeakObjectPtr Owner) -> bool
 			{
 				CheckMaterialCompileGameThread();
-				std::scoped_lock Lock(Mutex);
-				return CancelOwnerLocked(Owner, false);
+				bool Canceled;
+				{ std::scoped_lock Lock(Mutex); Canceled = CancelOwnerLocked(Owner, false); }
+				CancelLatchedOperations(); return Canceled;
 			}
 
 			auto Pump(uint32 MaximumCount = std::numeric_limits<uint32>::max())
 				-> std::vector<FMaterialCompileResult>
 			{
 				CheckMaterialCompileGameThread();
+				RetireOperations();
 				// A canceled-before-entry body or an exception may never publish its mailbox.
 				std::vector<std::shared_ptr<FMaterialCompileFlight>> TerminalFlights;
 				{
 					std::scoped_lock Lock(Mutex);
 					for (const auto& [Key, Flight] : Flights)
-						if (Flight->Task.IsValid() && Flight->Task.IsComplete())
+						if (Flight->Operation->IsRetired())
 							TerminalFlights.push_back(Flight);
 				}
 				for (const auto& Flight : TerminalFlights)
-					CompleteFlight(Flight, {}, Flight->Task.GetState() == ETaskState::Canceled
+					CompleteFlight(Flight, {}, Flight->Cancellation.GetToken().IsCancellationRequested()
 						? EMaterialCompileState::Canceled : EMaterialCompileState::Failed);
 				std::vector<FMaterialCompileResult> Results;
 				std::scoped_lock Lock(Mutex);
@@ -420,12 +405,11 @@ namespace Durin
 				std::scoped_lock Lock(Mutex);
 				FMaterialCompilationDiagnostics Result = Diagnostics;
 				Result.bAcceptingRequests = bAcceptingRequests;
-				Result.InFlightCount = static_cast<uint32>(Flights.size());
+				Result.InFlightCount = static_cast<uint32>(Operations.size());
 				Result.OutstandingConsumerCount = OutstandingConsumers;
 				Result.PendingPublicationCount = static_cast<uint32>(Mailbox.size());
-				Result.RetainedProgramCount =
-					static_cast<uint32>(RetainedPrograms.size());
-				Result.RetainedProgramBytes = RetainedProgramBytes;
+				const auto Cache = MaterialBuildPrivate::ProgramCacheStats();
+				Result.RetainedProgramCount = Cache.first; Result.RetainedProgramBytes = Cache.second;
 				return Result;
 			}
 
@@ -442,10 +426,7 @@ namespace Durin
 				EMaterialCompileCacheOutcome CacheOutcome,
 				uint64 TaskId) -> FMaterialCompileResult
 			{
-				Program = ApplyProgramConfiguration(std::move(Program),
-					Request.PreparedProgram->Environment);
-				Program = RefreshCollectionDefaults(std::move(Program),
-					Request.PreparedProgram->Normalized.ActiveCollections);
+				Program = MaterialBuildPrivate::ConfigureProgram(std::move(Program), *Request.CompilerInput);
 				return {
 					.Owner = Request.Owner,
 					.AuthoredRevision = Request.AuthoredRevision,
@@ -453,25 +434,29 @@ namespace Durin
 					.DependencyRevision = Request.DependencyRevision,
 					.ParentChainRevision = Request.ParentChainRevision,
 					.ProgramIdentity = Request.ProgramIdentity,
-					.StaticProperties = Request.PreparedProgram->StaticProperties,
+					.StaticProperties = Request.CompilerInput->StaticProperties,
 					.Target = Request.Target,
 					.State = EMaterialCompileState::Ready,
 					.Category = EMaterialCompileResultCategory::None,
 					.CacheOutcome = CacheOutcome,
 					.TaskId = TaskId,
 					.CompiledProgram = std::move(Program),
+					.ExpressionSources = Request.ExpressionSources,
 				};
 			}
 
 			auto CompleteFlight(
 				const std::shared_ptr<FMaterialCompileFlight>& Flight,
 				FMaterialCompilerResult Compiled,
-				EMaterialCompileState CompletionState) -> void
+				EMaterialCompileState CompletionState, EMaterialCompileCacheOutcome Override = EMaterialCompileCacheOutcome::None,
+				std::shared_ptr<const FMaterialCompilerResult> Retained = {}) -> void
 			{
 				std::scoped_lock Lock(Mutex);
 				const auto It = Flights.find(Flight->Key);
 				if (It == Flights.end() || It->second != Flight) return;
 				Flights.erase(It);
+				const FMaterialCompileFlightKey ProgramKey{Flight->ProgramIdentity, Flight->Key.bForceRecompile};
+				if (const auto ProgramIt = ProgramFlights.find(ProgramKey); ProgramIt != ProgramFlights.end() && ProgramIt->second == Flight) ProgramFlights.erase(ProgramIt);
 				const uint64 TaskId = Flight->TaskId.load(
 					std::memory_order_acquire);
 				std::shared_ptr<const FMaterialCompilerResult> Program;
@@ -480,14 +465,15 @@ namespace Durin
 					EMaterialCompileResultCategory::None;
 				if (CompletionState == EMaterialCompileState::Ready)
 				{
-					if (!Compiled)
+					if (Retained) Program = std::move(Retained);
+					else if (!Compiled)
 					{
 						State = EMaterialCompileState::Failed;
 						Category = Compiled.Diagnostics.empty()
 							? EMaterialCompileResultCategory::Compile
 							: MapProgramCategory(Compiled.Diagnostics.front().Category);
 					}
-					else if (EstimateResultBytes(Compiled) > MaterialCompileMaxResultBytes)
+					else if (MaterialBuildPrivate::EstimateProgramBytes(Compiled) > MaterialCompileMaxResultBytes)
 					{
 						State = EMaterialCompileState::Failed;
 						Category = EMaterialCompileResultCategory::Admission;
@@ -499,13 +485,16 @@ namespace Durin
 					{
 						Program = std::make_shared<const FMaterialCompilerResult>(
 							std::move(Compiled));
-						RetainProgram(Flight->Key.Identity, Program);
+						Program = MaterialBuildPrivate::RetainProgram(Program, Flight->Key.bForceRecompile);
 					}
 				}
 				else if (CompletionState == EMaterialCompileState::Canceled)
 					Category = EMaterialCompileResultCategory::Cancellation;
 				if (State == EMaterialCompileState::Ready)
+				{
 					Diagnostics.CompletedRequests += Flight->Consumers.size();
+					if (Override == EMaterialCompileCacheOutcome::RetainedHit) Diagnostics.RetainedHits += Flight->Consumers.size();
+				}
 				else if (State == EMaterialCompileState::Failed)
 					Diagnostics.FailedRequests += Flight->Consumers.size();
 				else if (State == EMaterialCompileState::Canceled)
@@ -517,7 +506,7 @@ namespace Durin
 					{
 						Mailbox.push_back(MakeReadyResult(
 							Consumer, Program,
-							Consumer.bSingleFlightConsumer
+							Override != EMaterialCompileCacheOutcome::None ? Override : Consumer.bSingleFlightConsumer
 								? EMaterialCompileCacheOutcome::SingleFlight
 								: Flight->Key.bForceRecompile
 								? EMaterialCompileCacheOutcome::Forced
@@ -533,11 +522,12 @@ namespace Durin
 						.DependencyRevision = Consumer.DependencyRevision,
 					.ParentChainRevision = Consumer.ParentChainRevision,
 						.ProgramIdentity = Consumer.ProgramIdentity,
-						.StaticProperties = Consumer.PreparedProgram->StaticProperties,
+						.StaticProperties = Consumer.CompilerInput->StaticProperties,
 						.Target = Consumer.Target,
 						.State = State,
 						.Category = Category,
 						.TaskId = TaskId,
+						.ExpressionSources = Consumer.ExpressionSources,
 					};
 					if (State == EMaterialCompileState::Canceled)
 					{
@@ -553,37 +543,24 @@ namespace Durin
 						{
 							if (Result.Diagnostics.size()
 								>= MaterialProgramMaxDiagnosticCount) break;
+							auto Qualified = Diagnostic;
+							if (Diagnostic.NodeId.IsValid() && Flight->DiagnosticInput && Consumer.CompilerInput)
+							{
+								const auto Origin = std::ranges::find(Flight->DiagnosticInput->Sources, Diagnostic.NodeId, &MIR::FSource::NodeId);
+								if (Origin != Flight->DiagnosticInput->Sources.end())
+								{
+									const auto Index = std::distance(Flight->DiagnosticInput->Sources.begin(), Origin);
+									const auto& Source = Consumer.CompilerInput->Sources[Index];
+									Qualified.NodeId = Source.NodeId; Qualified.PortId = Source.PortId; Qualified.FunctionAssetPath = Source.FunctionAssetPath; Qualified.CallPath = Source.CallPath;
+								}
+							}
 							Result.Diagnostics.push_back(MakeDiagnostic(
 								Consumer, MapProgramCategory(Diagnostic.Category),
-								Diagnostic));
+								std::move(Qualified)));
 						}
 					}
 					Mailbox.push_back(std::move(Result));
 				}
-			}
-
-			auto RetainProgram(
-				FMaterialProgramIdentity Identity,
-				const std::shared_ptr<const FMaterialCompilerResult>& Program) -> void
-			{
-				const uint64 Bytes = EstimateResultBytes(*Program);
-				if (const auto Existing = RetainedPrograms.find(Identity);
-					Existing != RetainedPrograms.end()) return;
-				while (!RetentionOrder.empty()
-					&& (RetainedPrograms.size() >= MaterialCompileMaxResidentPrograms
-						|| RetainedProgramBytes + Bytes
-							> MaterialCompileMaxRetainedProgramBytes))
-				{
-					const FMaterialProgramIdentity Oldest = RetentionOrder.front();
-					RetentionOrder.pop_front();
-					const auto Old = RetainedPrograms.find(Oldest);
-					if (Old == RetainedPrograms.end()) continue;
-					RetainedProgramBytes -= EstimateResultBytes(*Old->second);
-					RetainedPrograms.erase(Old);
-				}
-				RetainedPrograms.emplace(Identity, Program);
-				RetentionOrder.push_back(Identity);
-				RetainedProgramBytes += Bytes;
 			}
 
 			auto SupersedeOwnerLocked(FWeakObjectPtr Owner) -> void
@@ -603,6 +580,7 @@ namespace Durin
 						});
 					const size_t Removed = PreviousCount - Flight->Consumers.size();
 					if (Removed == 0) continue;
+					if (!SameOwner(Owner, Flight->InitialOwner)) std::erase_if(Flight->Origins, [&](auto Origin) { return SameOwner(Origin, Owner); });
 					bFound = true;
 					OutstandingConsumers -= static_cast<uint32>(Removed);
 					if (bSuperseded) Diagnostics.SupersededRequests += Removed;
@@ -633,11 +611,9 @@ namespace Durin
 				std::shared_ptr<FMaterialCompileFlight>,
 				FMaterialCompileFlightKeyHash> Flights;
 			std::deque<FMaterialCompileResult> Mailbox;
-			std::vector<FTaskHandle> Workers;
-			std::unordered_map<FMaterialProgramIdentity,
-				std::shared_ptr<const FMaterialCompilerResult>> RetainedPrograms;
-			std::deque<FMaterialProgramIdentity> RetentionOrder;
-			uint64 RetainedProgramBytes = 0;
+			std::vector<std::shared_ptr<FMaterialCompileFlight>> Operations;
+			std::unordered_map<FMaterialCompileFlightKey, std::shared_ptr<FMaterialCompileFlight>, FMaterialCompileFlightKeyHash> ProgramFlights;
+			uint64 CapturedBytes = 0;
 			FMaterialCompilationDiagnostics Diagnostics;
 		};
 
@@ -747,6 +723,7 @@ namespace Durin
 						&& Material->GetMaterialCompileStatus().State == EMaterialCompileState::Deferred);
 				}))
 				{
+					State.RaisePendingPriority(Owners);
 					auto Item = PumpMaterialCompileResultsDetailed(
 						State, std::numeric_limits<uint32>::max());
 					Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
@@ -756,6 +733,7 @@ namespace Durin
 						Item.SuccessfullyCompiledAssets.end());
 					if (Item.ProcessedCompletionCount == 0) std::this_thread::yield();
 				}
+				State.DrainSelected(Owners);
 				return Aggregate;
 			}
 			auto MarkCompilationAsCanceled(std::span<DObject* const> Objects)
@@ -770,6 +748,7 @@ namespace Durin
 				FAssetCompileProcessResult Aggregate;
 				while (GetNumRemainingAssets() != 0)
 				{
+					State.RaisePendingPriority();
 					auto Item = PumpMaterialCompileResultsDetailed(
 						State, std::numeric_limits<uint32>::max());
 					Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
@@ -779,6 +758,7 @@ namespace Durin
 						Item.SuccessfullyCompiledAssets.end());
 					if (Item.ProcessedCompletionCount == 0) std::this_thread::yield();
 				}
+				State.DrainOperations();
 				return Aggregate;
 			}
 			auto Shutdown() -> void override
@@ -871,151 +851,60 @@ namespace Durin
 			}
 			Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Pending;
 			Material.CompilationOwner.RequestedFunctionOwners = std::move(FunctionOwners);
-			const auto Prepared = std::make_shared<const FMaterialPreparedProgram>(PrepareMaterialProgram(Input));
-			const auto& Normalized = Prepared->Normalized;
-			Material.CompilationOwner.RequestedExpressionSources = Normalized.Sources;
-				Material.CompilationOwner.MaterialCompileStatus.RequestGeneration = AdvanceNonzero(
-					Material.CompilationOwner.MaterialCompileStatus.RequestGeneration);
-				Material.CompilationOwner.MaterialCompileStatus.DependencyRevision =
-					GetShaderReloadGeneration();
-				Material.CompilationOwner.MaterialCompileStatus.Target = Input.Environment.Target;
-				Material.CompilationOwner.MaterialCompileStatus.RequestedIdentity =
-					Normalized.Identity;
-				Material.CompilationOwner.MaterialCompileStatus.TaskId = 0;
-				Material.CompilationOwner.MaterialCompileStatus.CacheOutcome =
-					EMaterialCompileCacheOutcome::None;
+#if DURIN_WITH_EDITOR
+			if (Compilation && Compilation->IsAccepting() && IsTaskSchedulerRunning() && !FScopedOfflinePreparation::IsActive())
+			{
+				auto& Status = Material.CompilationOwner.MaterialCompileStatus;
+				Status.RequestGeneration = AdvanceNonzero(Status.RequestGeneration);
+				Status.DependencyRevision = GetShaderReloadGeneration(); Status.Target = Input.Environment.Target;
+				Status.RequestedIdentity = {}; Status.TaskId = 0; Status.CacheOutcome = EMaterialCompileCacheOutcome::None;
+				Material.CompilationOwner.RequestedExpressionSources = Input.Sources;
 				Material.CompilationOwner.MaterialCompileDiagnostics.clear();
-
 				FMaterialCompileRequest Request{
-					.Owner = FWeakObjectPtr(&Material),
-					.AuthoredRevision = Material.CompilationOwner.MaterialCompileStatus.AuthoredRevision,
-					.Generation = Material.CompilationOwner.MaterialCompileStatus.RequestGeneration,
-					.DependencyRevision = Material.CompilationOwner.MaterialCompileStatus.DependencyRevision,
-					.ParentChainRevision = Material.CompilationOwner.MaterialCompileStatus.ParentChainRevision,
-					.ProgramIdentity = Normalized.Identity,
-					.PreparedProgram = Prepared,
-					.AssetPath = Material.GetObjectPath(),
-					.Target = Material.CompilationOwner.MaterialCompileStatus.Target,
-					.bForceRecompile = bForceRecompile,
-				};
-
-				if (!Normalized)
+					.Owner = FWeakObjectPtr(&Material), .AuthoredRevision = Status.AuthoredRevision,
+					.Generation = Status.RequestGeneration, .DependencyRevision = Status.DependencyRevision,
+					.ParentChainRevision = Status.ParentChainRevision,
+					.CompilerInput = std::make_shared<const MIR::FCompilerInput>(std::move(Input)),
+					.AssetPath = Material.GetObjectPath(), .Target = Status.Target, .bForceRecompile = bForceRecompile};
+				const auto Submitted = Compilation->Submit(std::move(Request));
+				Status.State = Submitted;
+				if (Submitted == EMaterialCompileState::Deferred)
 				{
-					Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Failed;
-					Material.CompilationOwner.MaterialCompileStatus.ResultCategory =
-						Normalized.Diagnostics.empty()
-							? EMaterialCompileResultCategory::Normalization
-							: MapProgramCategory(
-								Normalized.Diagnostics.front().Category);
-					for (const FMaterialProgramDiagnostic& Diagnostic
-						: Normalized.Diagnostics)
-					{
-						if (Material.CompilationOwner.MaterialCompileDiagnostics.size()
-							>= MaterialProgramMaxDiagnosticCount) break;
-						Material.CompilationOwner.MaterialCompileDiagnostics.push_back(MakeDiagnostic(
-							Request, MapProgramCategory(Diagnostic.Category), Diagnostic));
-					}
-					Material.RetireFailedMaterialGeneration(Context);
-					return false;
+					Material.CompilationOwner.bDeferredForceRecompile = bForceRecompile;
+					GetMaterialCompileRetryQueue().Add(FWeakObjectPtr(&Material));
+					return true;
 				}
-
-				// Tooling can adopt the root's exact immutable result through normal
-				// owner admission even when no asynchronous retained store is running.
-				if (!bForceRecompile && (!Compilation || !Compilation->IsAccepting()
-					|| FScopedOfflinePreparation::IsActive()))
-				{
-					for (DObject* Object : GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly))
-					{
-						auto* Owner = Cast<DMaterialInterface>(Object);
-						if (!IsValid(Owner)) continue;
-						const auto Program = Owner->CompilationOwner.RenderLayer.CompiledProgram;
-						if (Program && Program->Identity == Request.ProgramIdentity)
-						{
-							const auto Refreshed = RefreshCollectionDefaults(Program,
-								Request.PreparedProgram->Normalized.ActiveCollections);
-							return Admit(Material, {
-								.Owner = Request.Owner,
-								.AuthoredRevision = Request.AuthoredRevision,
-								.Generation = Request.Generation,
-								.DependencyRevision = Request.DependencyRevision,
-								.ParentChainRevision = Request.ParentChainRevision,
-								.ProgramIdentity = Request.ProgramIdentity,
-								.StaticProperties = Request.PreparedProgram->StaticProperties,
-								.Target = Request.Target,
-								.State = EMaterialCompileState::Ready,
-								.CacheOutcome = EMaterialCompileCacheOutcome::RetainedHit,
-								.CompiledProgram = Refreshed}, Context);
-						}
-					}
-				}
-
-				if (FScopedOfflinePreparation::IsActive()
-					|| Request.Owner.GetKey().IsNull()
-					|| !Compilation || !Compilation->IsAccepting()
-					|| !IsTaskSchedulerRunning())
-				{
-					FMaterialCompilerResult Compiled = CompilePreparedMaterialProgram(
-						*Request.PreparedProgram, bForceRecompile);
-					FMaterialCompileResult Result{
-						.Owner = Request.Owner,
-						.AuthoredRevision = Request.AuthoredRevision,
-						.Generation = Request.Generation,
-						.DependencyRevision = Request.DependencyRevision,
-					.ParentChainRevision = Request.ParentChainRevision,
-						.ProgramIdentity = Request.ProgramIdentity,
-						.StaticProperties = Request.PreparedProgram->StaticProperties,
-						.Target = Request.Target,
-						.State = Compiled ? EMaterialCompileState::Ready
-							: EMaterialCompileState::Failed,
-						.Category = Compiled || Compiled.Diagnostics.empty()
-							? EMaterialCompileResultCategory::None
-							: MapProgramCategory(Compiled.Diagnostics.front().Category),
-						.CacheOutcome = bForceRecompile
-							? EMaterialCompileCacheOutcome::Forced
-							: EMaterialCompileCacheOutcome::Compiled,
-					};
-					if (Compiled)
-						Result.CompiledProgram =
-							std::make_shared<const FMaterialCompilerResult>(std::move(Compiled));
-					else
-						for (const FMaterialProgramDiagnostic& Diagnostic
-							: Compiled.Diagnostics)
-							Result.Diagnostics.push_back(MakeDiagnostic(
-								Request, MapProgramCategory(Diagnostic.Category), Diagnostic));
-					Admit(Material, std::move(Result), Context);
-					return Material.CompilationOwner.MaterialCompileStatus.State
-						== EMaterialCompileState::Ready;
-				}
-
-				Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Pending;
-				Material.CompilationOwner.MaterialCompileStatus.ResultCategory =
-					EMaterialCompileResultCategory::None;
-				const EMaterialCompileState Submitted =
-					Compilation->Submit(std::move(Request));
 				if (Submitted == EMaterialCompileState::Rejected)
 				{
-					Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Rejected;
-					Material.CompilationOwner.MaterialCompileStatus.ResultCategory =
-						EMaterialCompileResultCategory::Admission;
-					FMaterialCompileRequest DiagnosticRequest;
-					DiagnosticRequest.Owner = FWeakObjectPtr(&Material);
-					DiagnosticRequest.Generation =
-						Material.CompilationOwner.MaterialCompileStatus.RequestGeneration;
-					DiagnosticRequest.ProgramIdentity =
-						Material.CompilationOwner.MaterialCompileStatus.RequestedIdentity;
-					DiagnosticRequest.AssetPath = Material.GetObjectPath();
-					Material.CompilationOwner.MaterialCompileDiagnostics.push_back(MakeDiagnostic(
-						DiagnosticRequest, EMaterialCompileResultCategory::Admission,
-						{.Category = EMaterialProgramDiagnosticCategory::Compile,
-						 .Error = EMaterialCompileError::AdmissionRejected}));
-					Material.RetireFailedMaterialGeneration(Context);
-					return false;
+					Status.ResultCategory = EMaterialCompileResultCategory::Admission;
+					Material.RetireFailedMaterialGeneration(Context); return false;
 				}
-				Material.CompilationOwner.bDeferredForceRecompile = bForceRecompile;
-				Material.CompilationOwner.MaterialCompileStatus.State = Submitted;
-				if (Submitted == EMaterialCompileState::Deferred)
-					GetMaterialCompileRetryQueue().Add(FWeakObjectPtr(&Material));
 				return true;
+			}
+#endif
+			auto& Status = Material.CompilationOwner.MaterialCompileStatus;
+			Status.RequestGeneration = AdvanceNonzero(Status.RequestGeneration);
+			Status.DependencyRevision = GetShaderReloadGeneration(); Status.Target = Input.Environment.Target;
+			Status.TaskId = 0; Status.CacheOutcome = EMaterialCompileCacheOutcome::None;
+			Material.CompilationOwner.MaterialCompileDiagnostics.clear();
+			std::vector<MIR::FSource> Sources;
+			std::shared_ptr<const FMaterialCompilerResult> Shared;
+			bool RetainedHit = false;
+			auto Compiled = MaterialBuildPrivate::CompileMaterialInput(Input, bForceRecompile, &Sources, &Shared, &RetainedHit);
+			Status.RequestedIdentity = Compiled.Identity;
+			Material.CompilationOwner.RequestedExpressionSources = Sources.empty() ? Input.Sources : Sources;
+			FMaterialCompileResult Result{
+				.Owner = FWeakObjectPtr(&Material), .AuthoredRevision = Status.AuthoredRevision,
+				.Generation = Status.RequestGeneration, .DependencyRevision = Status.DependencyRevision,
+				.ParentChainRevision = Status.ParentChainRevision, .ProgramIdentity = Compiled.Identity,
+				.StaticProperties = Input.StaticProperties, .Target = Status.Target,
+				.State = Compiled ? EMaterialCompileState::Ready : EMaterialCompileState::Failed,
+				.Category = Compiled || Compiled.Diagnostics.empty() ? EMaterialCompileResultCategory::None : MapProgramCategory(Compiled.Diagnostics.front().Category),
+				.CacheOutcome = RetainedHit ? EMaterialCompileCacheOutcome::RetainedHit : bForceRecompile ? EMaterialCompileCacheOutcome::Forced : EMaterialCompileCacheOutcome::Compiled,
+				.CompiledProgram = Shared};
+			if (!Compiled) for (auto& Diagnostic : Compiled.Diagnostics) Result.Diagnostics.push_back({.Category = MapProgramCategory(Diagnostic.Category), .Source = std::move(Diagnostic), .AssetPath = Material.GetObjectPath(), .Generation = Status.RequestGeneration});
+			Admit(Material, std::move(Result), Context);
+			return Status.State == EMaterialCompileState::Ready;
 		}
 
 		auto FMaterialCompilationLifecycle::Admit(
@@ -1032,6 +921,9 @@ namespace Durin
 				{
 					return false;
 				}
+
+				if (Result.DependencyRevision != GetShaderReloadGeneration())
+				{ RequestCurrent(Material, false, Context); return false; }
 
 				const auto OwnerHandle = FWeakObjectPtr(&Material);
 				if (!OwnerHandle.GetKey().IsNull())
@@ -1052,6 +944,18 @@ namespace Durin
 					ScheduleEdit(Material, Context);
 					return false;
 				}
+				// Detached translation supplies the identity for this qualified generation.
+				if (!Status.RequestedIdentity.IsValid()) Status.RequestedIdentity = Result.ProgramIdentity;
+				if (!Result.ExpressionSources.empty()) Material.CompilationOwner.RequestedExpressionSources = std::move(Result.ExpressionSources);
+				const bool SourceChanged = std::ranges::any_of(Result.Diagnostics, [](const auto& Diagnostic) {
+					const auto* Error = std::get_if<EMaterialCompileError>(&Diagnostic.Source.Error.Code);
+					return Error && *Error == EMaterialCompileError::SourceDependencyChanged;
+				});
+				if (SourceChanged && Status.SourceRetryCount == 0)
+				{
+					++Status.SourceRetryCount; AdvanceShaderReloadGeneration();
+					RequestCurrent(Material, false, Context); return false;
+				}
 
 				Status.State = Result.State;
 				Status.ResultCategory = Result.Category;
@@ -1066,6 +970,25 @@ namespace Durin
 				{
 					FMaterialLocalRenderLayer Candidate;
 					Candidate.CompiledProgram = Result.CompiledProgram;
+					Status.SourceRetryCount = 0;
+					if (!Candidate.CompiledProgram->ActiveCollections.empty())
+					{
+						std::vector<FMaterialParameterCollectionLayout> Current;
+						const auto Objects = GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly);
+						for (const auto& Expected : Candidate.CompiledProgram->ActiveCollections)
+						{
+							for (auto* Object : Objects)
+								if (auto* Collection = Cast<DMaterialParameterCollection>(Object); IsValid(Collection)
+									&& Collection->GetCollectionId() == Expected.CollectionId && (Expected.AssetPath.empty() || Collection->GetObjectPath() == Expected.AssetPath))
+								{
+									auto Layout = Collection->BuildLayout();
+									if (!Layout || !Expected.HasCompatibleSchema(*Layout)) { ScheduleEdit(Material, Context); return false; }
+									Current.push_back(std::move(*Layout)); break;
+								}
+						}
+						if (Current.size() != Candidate.CompiledProgram->ActiveCollections.size()) { ScheduleEdit(Material, Context); return false; }
+						Candidate.CompiledProgram = RefreshCollectionDefaults(Candidate.CompiledProgram, Current);
+					}
 					const auto ShaderProperties = CanonicalizeMaterialShaderProperties(Result.StaticProperties);
 					Candidate.StaticProperties = Material.GetStaticProperties();
 					Candidate.StaticProperties->OpacityMaskThreshold = ShaderProperties.OpacityMaskThreshold;

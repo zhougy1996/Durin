@@ -11,6 +11,8 @@
 #include "ShaderCompileUtilities.h"
 #include "SlangShaderDependencyResolver.h"
 #include "NativeTestSupport.h"
+#include "Threading/TaskComposition.h"
+#include "Threading/ThreadEvent.h"
 
 #include "gtest/gtest.h"
 
@@ -269,6 +271,107 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_NE(ChangedFingerprint.ContentHash,
 			ColdFingerprint.ContentHash);
 		EXPECT_EQ(Builder->GetStats().DependencyResolutions, 1u);
+	}
+
+	TEST_F(FShaderBuilderTests, AsyncCacheWaitReleasesWorkerAndCancellationIsSubscriberScoped)
+	{
+		ASSERT_FALSE(IsTaskSchedulerRunning());
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FStop { ~FStop() { ShutdownTaskScheduler(); } } Stop;
+		struct FGateCache final : DerivedData::ICache
+		{
+			mutable FThreadEvent Entered, Release;
+			auto Get(const DerivedData::FCacheGetRequest& Request) const -> DerivedData::FCacheGetResult override
+			{ Entered.Trigger(); Release.WaitFor(10.0); return DerivedData::GetCache().Get(Request); }
+			auto Put(const DerivedData::FCachePutRequest& Request) const -> DerivedData::FCachePutResult override
+			{ return DerivedData::GetCache().Put(Request); }
+		};
+		auto Cache = std::make_shared<FGateCache>();
+		struct FRelease { std::shared_ptr<FGateCache> Cache; ~FRelease() { Cache->Release.Trigger(); } } Release{Cache};
+		auto Service = std::make_shared<FShaderBuildService>(std::function<void(std::string_view)>{}, DerivedData::FBuildServiceOptions{.Cache = Cache});
+		Builder = std::make_unique<FShaderBuilder>(Service);
+		FGeneratedShaderCompileRequest Request;
+		Request.VirtualPath = "/Generated/Materials/AsyncGate";
+		Request.Source = "[shader(\"fragment\")] float4 FragmentMain() : SV_Target0 { return float4(1,0,0,1); }";
+		Request.EntryPoints = {"FragmentMain"}; Request.Frequencies = {EShaderFrequency::Fragment};
+		std::atomic_uint32_t FirstCallbacks = 0, SecondCallbacks = 0;
+		auto First = Builder->SubmitGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Error.Code, EShaderError::Cancelled); ++FirstCallbacks; });
+		ASSERT_TRUE(First);
+		ASSERT_TRUE(Cache->Entered.WaitFor(5.0));
+		auto Second = Builder->SubmitGenerated(Request, {}, [&](auto Output) { EXPECT_TRUE(Output) << FormatShaderError(Output.Error); ++SecondCallbacks; });
+		ASSERT_TRUE(Second);
+		FThreadEvent Unrelated;
+		auto Marker = Tasks::LaunchTask("UnrelatedShaderWork", [&] { Unrelated.Trigger(); });
+		ASSERT_TRUE(Unrelated.WaitFor(5.0));
+		EXPECT_TRUE(First->RequestCancel());
+		EXPECT_EQ(First->Wait(), EShaderBuildWaitResult::Completed);
+		EXPECT_EQ(FirstCallbacks, 1u);
+		EXPECT_EQ(SecondCallbacks, 0u);
+		Cache->Release.Trigger();
+		EXPECT_EQ(Second->Wait(), EShaderBuildWaitResult::Completed);
+		EXPECT_EQ(SecondCallbacks, 1u);
+		EXPECT_EQ(Builder->GetStats().Compilations, 1u);
+		Builder->Close();
+	}
+
+	TEST_F(FShaderBuilderTests, InlineCompletionReentryAndDispatchRejectionAreExplicit)
+	{
+		Builder = std::make_unique<FShaderBuilder>();
+		FGeneratedShaderCompileRequest Request;
+		Request.VirtualPath = "/Generated/Materials/InlineInvalid";
+		uint32 Callbacks = 0;
+		auto Rejected = Builder->SubmitGenerated(Request, {}, [&](auto) { ++Callbacks; });
+		EXPECT_FALSE(Rejected);
+		EXPECT_EQ(Callbacks, 0u);
+		bool Returned = false;
+		auto Inline = Builder->SubmitGenerated(Request, {.bInlineExecution = true}, [&](auto Output) {
+			EXPECT_FALSE(Returned); EXPECT_FALSE(Output); ++Callbacks;
+			auto Nested = Builder->SubmitGenerated(Request, {.bInlineExecution = true}, [&](auto) { ++Callbacks; });
+			ASSERT_TRUE(Nested);
+			EXPECT_EQ(Nested->Wait(), EShaderBuildWaitResult::WouldBlock);
+		});
+		Returned = true;
+		ASSERT_TRUE(Inline);
+		EXPECT_EQ(Inline->Wait(), EShaderBuildWaitResult::Completed);
+		EXPECT_EQ(Callbacks, 2u);
+		Builder->Close();
+		auto Closed = Builder->SubmitGenerated(Request, {.bInlineExecution = true}, [&](auto) { ++Callbacks; });
+		EXPECT_FALSE(Closed);
+		EXPECT_EQ(Callbacks, 2u);
+	}
+
+	TEST_F(FShaderBuilderTests, QueuedCancellationAndShutdownRetireExactlyOnce)
+	{
+		ASSERT_FALSE(IsTaskSchedulerRunning()); ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FStop { ~FStop() { ShutdownTaskScheduler(); } } Stop;
+		FThreadEvent Entered, Release;
+		auto Blocker = Tasks::LaunchTask("HoldShaderPreparation", [&] { Entered.Trigger(); Release.WaitFor(10); });
+		struct FRelease { FThreadEvent& Event; ~FRelease() { Event.Trigger(); } } Cleanup{Release};
+		ASSERT_TRUE(Entered.WaitFor(5)); Builder = std::make_unique<FShaderBuilder>();
+		FGeneratedShaderCompileRequest Request; Request.VirtualPath = "/Generated/Materials/QueuedCancellation";
+		Request.Source = "[shader(\"fragment\")] float4 FragmentMain() : SV_Target0 { return float4(1,0,0,1); }";
+		Request.EntryPoints = {"FragmentMain"}; Request.Frequencies = {EShaderFrequency::Fragment};
+		std::atomic_uint32_t Calls = 0;
+		auto Handle = Builder->SubmitGenerated(Request, {}, [&](auto Output) { EXPECT_EQ(Output.Error.Code, EShaderError::Cancelled); ++Calls; }); ASSERT_TRUE(Handle);
+		Handle->RequestCancel(); EXPECT_EQ(Calls, 1u);
+		auto Closing = std::async(std::launch::async, [&] { Builder->Close(); });
+		Release.Trigger(); Closing.get(); EXPECT_EQ(Handle->Wait(), EShaderBuildWaitResult::Completed);
+		EXPECT_EQ(Calls, 1u); EXPECT_EQ(Builder->GetStats().Compilations, 0u);
+		EXPECT_EQ(WaitTask(Blocker).WaitStatus, ETaskWaitStatus::Completed);
+	}
+
+	TEST_F(FShaderBuilderTests, ExpectedFingerprintRejectsMutationWithUnchangedFileFacts)
+	{
+		const auto File = GetBuilderTestRoot() / "Source/Simple.slang";
+		const std::string Source = "[shader(\"vertex\")] float4 VertexMain(uint id : SV_VertexID) : SV_Position { return float4(1,0,0,1); }";
+		WriteTextFile(File, Source); Builder = std::make_unique<FShaderBuilder>();
+		FShaderSourceDependencyFingerprint Before; ASSERT_TRUE(Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", MakeCompileOptions(), Before));
+		const auto Time = std::filesystem::last_write_time(File); auto Changed = Source; Changed.replace(Changed.find("float4(1,"), 9, "float4(2,"); WriteTextFile(File, Changed); std::filesystem::last_write_time(File, Time);
+		FGeneratedShaderCompileRequest Request; Request.VirtualPath = "/Generated/Materials/FingerprintConflict";
+		Request.Source = "import Simple; [shader(\"vertex\")] float4 Main(uint id : SV_VertexID) : SV_Position { return float4(1,0,0,1); }";
+		Request.EntryPoints = {"Main"}; Request.Frequencies = {EShaderFrequency::Vertex}; Request.AllowedImportVirtualPrefixes = {"/ShaderBuilderTests/"}; Request.ExpectedSourceTree = Before;
+		const auto Rejected = Builder->GetOrCompileGenerated(Request); EXPECT_FALSE(Rejected); EXPECT_EQ(Rejected.Error.Code, EShaderError::DependencyContentConflict);
+		AdvanceShaderReloadGeneration(); FShaderSourceDependencyFingerprint After; ASSERT_TRUE(Builder->BuildSourceTreeFingerprint("/ShaderBuilderTests/Simple", MakeCompileOptions(), After)); EXPECT_NE(Before.ContentHash, After.ContentHash);
 	}
 
 	TEST_F(FShaderBuilderTests,

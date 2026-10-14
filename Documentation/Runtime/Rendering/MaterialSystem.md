@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-10-07
+Last reviewed: 2026-10-15
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -526,9 +526,13 @@ not invoke template creation, and unsupported graphs require deliberate reconstr
 Engine registers `DMaterial` and `DMaterialInstance` to the built-in `Durin.Material` typed manager of its
 [asset-compilation aggregate](../Assets/AssetCompilation.md) between task-system
 startup and shutdown. `DMaterialInterface` owns non-reflected compilation state.
-GameThread snapshots root graph/declarations and effective owner properties into a value-owned request,
-normalizes it to obtain the M5 program identity, and submits the expensive
-compiler call through its owned Worker task handles. Workers retain no
+GameThread snapshots root graph/declarations, expanded functions, source mappings
+and effective owner properties into a detached request. A task-backed
+`Material.Translate` session normalizes MIR and generates Slang; successful
+translations join by final semantic program identity before asynchronous
+ShaderBuild submission. A CPU continuation validates and assembles all seven
+stages, then the GameThread mailbox applies the qualified candidate. Neither
+translation nor Shader cache I/O holds a material producer worker. Workers retain no
 `DObject`, editor, Renderer, RHI, registry, or borrowed-container state. The
 only synchronous compatibility path is process bootstrap or tooling without an
 active compiling manager; construction in a running engine does not compile
@@ -572,9 +576,14 @@ revision or last-known-good display flag. Current readiness requires Ready state
 and matching requested/compiled identities; owner and revision checks remain at
 result admission.
 
-The Material compiling manager admits at most 64 distinct flights and 256 consumers. Requests are
-bounded to 2 MiB, results to 8 MiB, diagnostics to the M5 64-record/512-byte
-limits, and in-process retained results to 128 identities and 256 MiB FIFO.
+The Material compiling manager retains at most 64 operation controls and 256
+consumers. Conservative reservations admit at most 32 transforming operations,
+with 16 MiB active-product and 8 MiB assembly-overlap allowance each: aggregate
+ceilings are 512 MiB and 256 MiB respectively. Captured input is limited to 2 MiB
+per request and 128 MiB in aggregate; candidates are limited to 8 MiB, generated
+source to 1 MiB, diagnostics to the M5 64-record/512-byte limits, and shared
+in-process retention to 128 identities and 256 MiB FIFO. Reservations survive
+business completion until submission, owners, handles and CPU tasks retire.
 Equal identities share one flight and retained immutable result while keeping
 asset-local generations and diagnostics. Aggregate counters retain no asset or
 terminal-request history. Aggregate selected finish and advisory cancellation
@@ -586,8 +595,18 @@ at most 256 owners per pump; finish operations include deferred owners and
 cancellation/stop-admission clears their intent.
 
 ShaderBuild owns compiled-output DDC and local dependency manifests as defined
-by [Shader Cache](ShaderCache.md). Materials add no second persistent cache for
-IR/source or compiled artifacts. The material manager reports retained-result
+by [Shader Cache](ShaderCache.md). Engine owns the independent `Material.Translate`
+DDC product: bounded normalized MIR, active schemas/layout, requirements, generated
+source and typed deterministic diagnostics. Canonical input excludes compiler and
+Shader dependency identities, collection defaults/asset paths and consumer source
+GUIDs/paths. Cached locations use snapshot-relative ordinals and remap for each
+consumer; final program identity binds the current compiler, target and verified
+immutable dependency closure. Typed invalid hits rebuild once without querying
+the cache. Force bypasses translation, retained programs and Shader output reuse.
+Infrastructure failures and cancellation never become persistent negatives;
+persistence failure retains a validated local product. No complete Material.Program
+record duplicates Shader bytecode. Synchronous, offline and Cook calls use the same
+products with explicit caller-boundary waiting; cooked Game submits no authoring work. The material manager reports retained-result
 hits, shared in-flight work, compilation, or forced compilation; corrupt Shader
 artifacts follow ShaderBuild's cache-miss/repair contract.
 

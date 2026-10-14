@@ -66,6 +66,7 @@ durin_add_native_test(RenderShaderBuilderTests
 		${_durin_shader_build_private_dir}/ShaderCompileUtilities.cpp
 		${_durin_shader_build_private_dir}/ShaderDependencyManifestStore.cpp
 		${_durin_shader_build_private_dir}/ShaderBuilder.cpp
+		${_durin_shader_build_private_dir}/ShaderBuilderAsync.cpp
 		${_durin_shader_build_private_dir}/SlangShaderDependencyResolver.cpp
 	LIBRARIES Core RHI RenderCore DerivedDataCache ShaderBuild Slang_Imported
 	INCLUDE_DIRECTORIES "${_durin_render_core_private_dir}" "${_durin_shader_build_private_dir}"
@@ -87,6 +88,7 @@ durin_add_native_test(ShaderBuildQualificationTests
 		${_durin_shader_build_private_dir}/ShaderCompileUtilities.cpp
 		${_durin_shader_build_private_dir}/ShaderDependencyManifestStore.cpp
 		${_durin_shader_build_private_dir}/ShaderBuilder.cpp
+		${_durin_shader_build_private_dir}/ShaderBuilderAsync.cpp
 		${_durin_shader_build_private_dir}/SlangShaderDependencyResolver.cpp
 	LIBRARIES Core RHI RenderCore DerivedDataCache ShaderBuild Slang_Imported
 	INCLUDE_DIRECTORIES "${_durin_render_core_private_dir}" "${_durin_shader_build_private_dir}"
