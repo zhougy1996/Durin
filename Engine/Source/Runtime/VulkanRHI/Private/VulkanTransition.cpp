@@ -1,8 +1,26 @@
 #include "VulkanTransition.h"
+#include "VulkanBuffer.h"
 #include "VulkanDevice.h"
 
 namespace Durin::VulkanRHI
 {
+	auto FVulkanTransition::CaptureBufferVersions() -> void
+	{
+		if (std::ranges::none_of(GetBufferTransitions(), [](const auto& Entry) {
+			return static_cast<bool>(FVulkanBuffer::Cast(Entry.Buffer)->GetWriteRange());
+		})) return;
+		BufferVersions.assign(GetBufferTransitions().begin(), GetBufferTransitions().end());
+		for (auto& Entry : BufferVersions)
+		{
+			auto* Buffer = FVulkanBuffer::Cast(Entry.Buffer);
+			if (const auto& Range = Buffer->GetWriteRange())
+			{
+				WriteRanges.push_back(Range);
+				Entry.Buffer = Buffer->GetBackingBuffer();
+			}
+		}
+	}
+
 	FVulkanTransition::FVulkanTransition(FVulkanDevice& InDevice, FRHITransitionDesc Desc)
 		: FRHITransition(std::move(Desc)), Device(InDevice) {}
 

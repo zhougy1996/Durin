@@ -310,6 +310,10 @@ namespace Durin
 		/** Buffer can be exposed through a formatted texel view. */
 		FormattedBuffer = 1 << 24,
 
+		/** Opt into bounded mapped discard versions for dynamic vertex/index buffers.
+		 * Unsupported backends and exhausted pools retain temporary-memory uploads. */
+		CPUWriteDiscard = 1 << 25,
+
 		// Helper bit-masks
 		AnyDynamic = (Dynamic | Volatile),
 	};
@@ -331,7 +335,9 @@ namespace Durin
 	{
 		ReadOnly,
 		WriteOnly,
-		WriteOnly_NoOverwrite
+		WriteOnly_NoOverwrite,
+		// Replaces the contents: bytes outside the locked range are undefined.
+		WriteOnlyDiscard
 	};
 
 } // namespace Durin

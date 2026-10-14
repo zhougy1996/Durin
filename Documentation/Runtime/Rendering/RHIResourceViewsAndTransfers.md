@@ -68,6 +68,20 @@ completion. Native buffers participate in copies, transitions, queue transfers,
 vertex/index binding, and RDG external imports according to their descriptors
 and the applicable access contracts.
 
+`LockBuffer(WriteOnly)` retains the ordinary patch semantics. A
+`WriteOnlyDiscard` lock replaces contents and leaves bytes outside its range
+undefined. Dynamic vertex/index buffers can opt into bounded native mapped
+versions with `CPUWriteDiscard`; unsupported backends or exhausted pools use
+the existing temporary-byte upload, moving those bytes into the command at
+unlock. Neither lock path waits for GPU completion. Unlock records the commit;
+ordered replay leaves the written range in `TransferWrite` in both paths.
+Callers still transition explicitly and rebind after a discard write to select
+the new physical version. Existing vertex/index bindings retain their version
+through command-buffer restoration and GPU completion. Mapped versions cannot
+be reacquired while CPU locks, recorded commands, active versions or bindings
+retain them, or while any GPU use is awaiting retirement. Failed/device-lost
+GPU uses never authorize normal reuse.
+
 `UpdateUniformBuffer` still copies complete replacement bytes and resource
 references into the command list. Uniform binding captures the current
 immutable physical allocation during replay; subsequent updates do not rewrite

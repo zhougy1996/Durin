@@ -1,4 +1,5 @@
 #include "Backend/RHITextureUpload.h"
+#include "Backend/RHIDynamicBufferWrite.h"
 #include "RHICommandList.h"
 #include "Threading/TaskComposition.h"
 #include "Backend/RHIValidation.h"
@@ -1216,12 +1217,27 @@ namespace Durin
 			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset;
 			std::shared_ptr<const FRHIBufferUploadData> Data;
+			bool bDiscard = false;
 			auto Execute(void* ReplayContext) -> void
 			{
 				auto& Context = GetReplayContext(ReplayContext).GetOperationContext("WriteBuffer");
+				if (bDiscard) Buffer->PrepareDiscardWrite(Context);
 				Context.RHIWriteBuffer(Buffer.GetReference(), Offset, Data->GetData());
 			}
 			auto GetOwnedPayloadBytes() const -> size_t { return Data->GetOwnedPayloadBytes(); }
+		};
+
+		struct FBufferMappedWriteCommand
+		{
+			TRefCountPtr<FRHIBuffer> Buffer;
+			uint32 Offset;
+			uint32 Size;
+			std::shared_ptr<FRHIBufferMappedWrite> Write;
+			auto Execute(void* ReplayContext) -> void
+			{
+				Write->Commit(GetReplayContext(ReplayContext).GetOperationContext("MappedWriteBuffer"),
+					Buffer.GetReference(), Offset, Size);
+			}
 		};
 
 		struct FTextureReadbackCommand
@@ -1550,6 +1566,9 @@ namespace Durin
 		{
 			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset = 0;
+			uint32 Size = 0;
+			std::shared_ptr<FRHIBufferMappedWrite> MappedWrite;
+			bool bDiscard = false;
 			FByteBuffer Data;
 		};
 
@@ -2390,8 +2409,8 @@ namespace Durin
 	auto FRHICommandListImmediate::LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
 	{
 		check(Buffer);
-		checkf(LockMode == EResourceLockMode::WriteOnly,
-			"Recorded buffer locks currently support WriteOnly mode.");
+		checkf(LockMode == EResourceLockMode::WriteOnly || LockMode == EResourceLockMode::WriteOnlyDiscard,
+			"Recorded buffer locks support WriteOnly and WriteOnlyDiscard modes.");
 		check(Size != 0 && Offset <= Buffer->GetSize()
 			&& Size <= Buffer->GetSize() - Offset);
 		checkf(!LockState->PendingLocks.contains(Buffer),
@@ -2399,8 +2418,17 @@ namespace Durin
 		auto Pending = std::make_unique<FLockState::FPendingLock>();
 		Pending->Buffer = Buffer;
 		Pending->Offset = Offset;
-		Pending->Data.resize(Size);
-		void* Result = Pending->Data.data();
+		Pending->Size = Size;
+		Pending->bDiscard = LockMode == EResourceLockMode::WriteOnlyDiscard;
+		if (LockMode == EResourceLockMode::WriteOnlyDiscard)
+			Pending->MappedWrite = Buffer->TryAcquireMappedWrite(Offset, Size);
+		void* Result;
+		if (Pending->MappedWrite) Result = Pending->MappedWrite->GetData();
+		else
+		{
+			Pending->Data.resize(Size);
+			Result = Pending->Data.data();
+		}
 		LockState->PendingLocks.emplace(Buffer, std::move(Pending));
 		return Result;
 	}
@@ -2413,8 +2441,14 @@ namespace Durin
 			"UnlockBuffer requires a matching LockBuffer.");
 		std::unique_ptr<FLockState::FPendingLock> Pending = std::move(It->second);
 		LockState->PendingLocks.erase(It);
-		WriteBuffer(Pending->Buffer.GetReference(), Pending->Offset,
-			FRHIBufferUploadData::Take(std::move(Pending->Data)));
+		if (Pending->MappedWrite)
+		{
+			RecordCommand<FBufferMappedWriteCommand>(std::move(Pending->Buffer),
+				Pending->Offset, Pending->Size, std::move(Pending->MappedWrite));
+			return;
+		}
+		RecordCommand<FBufferWriteCommand>(std::move(Pending->Buffer), Pending->Offset,
+			FRHIBufferUploadData::Take(std::move(Pending->Data)), Pending->bDiscard);
 	}
 
 	auto FRHICommandListImmediate::ReadTexture2D(

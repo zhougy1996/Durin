@@ -1,4 +1,5 @@
 #include "Backend/RHITextureUpload.h"
+#include "Backend/RHIDynamicBufferWrite.h"
 #include <gtest/gtest.h>
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICreation.h"
@@ -72,6 +73,43 @@ namespace Durin
 				: FRHIBuffer(FRHIBufferCreateDesc::Create("TestBuffer", Desc)), Contents(Desc.Size) {}
 			FByteBuffer Contents;
 
+		};
+
+		class FTestMappedWrite final : public FRHIBufferMappedWrite
+		{
+		public:
+			FTestMappedWrite(std::shared_ptr<FRHIDynamicBufferWriteRange> InRange, uint32 InOffset)
+				: Range(std::move(InRange)), Offset(InOffset) {}
+			auto GetData() const -> void* override
+			{ return static_cast<std::byte*>(Range->GetData()) + Offset; }
+			auto Commit(IRHICommandContext& Context, FRHIBuffer* Buffer, uint32 WriteOffset, uint32 Size) -> void override
+			{ Context.RHIWriteBuffer(Buffer, WriteOffset, FByteView(static_cast<std::byte*>(GetData()), Size)); }
+		private:
+			std::shared_ptr<FRHIDynamicBufferWriteRange> Range;
+			uint32 Offset;
+		};
+
+		class FTestMappedBuffer final : public FRHIBuffer
+		{
+		public:
+			FTestMappedBuffer()
+				: FRHIBuffer(FRHIBufferCreateDesc::Create("MappedTest", 8, 0,
+					EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Dynamic | EBufferUsageFlags::CPUWriteDiscard))
+			{
+				Pool.Add(Memory, Memory->data());
+			}
+			auto TryAcquireMappedWrite(uint32 Offset, uint32) -> std::shared_ptr<FRHIBufferMappedWrite> override
+			{
+				++AcquireCount;
+				if (auto Range = Pool.TryAcquire())
+					return std::make_shared<FTestMappedWrite>(std::move(Range), Offset);
+				return {};
+			}
+			auto PrepareDiscardWrite(IRHICommandContext&) -> void override { ++FallbackDiscardCount; }
+			std::shared_ptr<std::array<std::byte, 8>> Memory = std::make_shared<std::array<std::byte, 8>>();
+			FRHIDynamicBufferWritePool Pool;
+			uint32 AcquireCount = 0;
+			uint32 FallbackDiscardCount = 0;
 		};
 
 		class FTestShader final : public FRHIShader
@@ -2935,6 +2973,92 @@ namespace Durin
 		EXPECT_EQ(Context.ObservedBufferDataAddress, LockedAddress);
 		EXPECT_NE(std::find(Context.Operations.begin(), Context.Operations.end(), "WriteBuffer"),
 			Context.Operations.end());
+	}
+
+	TEST(FRHICommandListTests, DiscardLocksUseExactMappedRangeAndHoldItThroughReplay)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto& Commands = Executor.GetImmediateCommandList();
+		auto Buffer = MakeRefCount<FTestMappedBuffer>();
+		const auto Before = GetBufferUploadStats();
+		auto* Data = static_cast<std::byte*>(Commands.LockBuffer(Buffer, 2, 3, EResourceLockMode::WriteOnlyDiscard));
+		EXPECT_EQ(Data, Buffer->Memory->data() + 2);
+		Data[0] = std::byte{4}; Data[1] = std::byte{5}; Data[2] = std::byte{6};
+		EXPECT_FALSE(Buffer->Pool.TryAcquire());
+		Commands.UnlockBuffer(Buffer);
+		EXPECT_FALSE(Buffer->Pool.TryAcquire());
+		EXPECT_TRUE(Context.ObservedBufferData.empty());
+		EXPECT_EQ(GetBufferUploadStats().LiveBytes, Before.LiveBytes);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Context.ObservedBufferDataAddress, reinterpret_cast<uintptr_t>(Data));
+		EXPECT_EQ(Context.ObservedBufferOffset, 2u);
+		EXPECT_EQ(Context.ObservedBufferData, MakeByteVector({4, 5, 6}));
+		EXPECT_EQ(Buffer->FallbackDiscardCount, 0u);
+		EXPECT_TRUE(Buffer->Pool.TryAcquire());
+	}
+
+	TEST(FRHICommandListTests, DiscardLockExhaustionFallsBackWithoutCopyingAtUnlock)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto& Commands = Executor.GetImmediateCommandList();
+		auto Buffer = MakeRefCount<FTestMappedBuffer>();
+		auto Busy = Buffer->Pool.TryAcquire();
+		auto* Data = static_cast<std::byte*>(Commands.LockBuffer(Buffer, 1, 2, EResourceLockMode::WriteOnlyDiscard));
+		EXPECT_NE(Data, Buffer->Memory->data() + 1);
+		Data[0] = std::byte{7}; Data[1] = std::byte{8};
+		const auto Address = reinterpret_cast<uintptr_t>(Data);
+		Commands.UnlockBuffer(Buffer);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Context.ObservedBufferDataAddress, Address);
+		EXPECT_EQ(Context.ObservedBufferData, MakeByteVector({7, 8}));
+		EXPECT_EQ(Buffer->FallbackDiscardCount, 1u);
+	}
+
+	TEST(FRHICommandListTests, UnsupportedMappedDiscardLocksUseOrdinaryUpload)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto& Commands = Executor.GetImmediateCommandList();
+		auto Buffer = MakeRefCount<FTestBuffer>(8);
+		auto* Data = static_cast<std::byte*>(Commands.LockBuffer(Buffer, 3, 1, EResourceLockMode::WriteOnlyDiscard));
+		*Data = std::byte{10};
+		const auto Address = reinterpret_cast<uintptr_t>(Data);
+		Commands.UnlockBuffer(Buffer);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Context.ObservedBufferDataAddress, Address);
+		EXPECT_EQ(Context.ObservedBufferOffset, 3u);
+		EXPECT_EQ(Context.ObservedBufferData, MakeByteVector({10}));
+	}
+
+	TEST(FRHICommandListTests, WriteOnlyPatchesDoNotAcquireOrDiscardMappedVersions)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto& Commands = Executor.GetImmediateCommandList();
+		auto Buffer = MakeRefCount<FTestMappedBuffer>();
+		*static_cast<std::byte*>(Commands.LockBuffer(Buffer, 0, 1, EResourceLockMode::WriteOnly)) = std::byte{9};
+		Commands.UnlockBuffer(Buffer);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Buffer->AcquireCount, 0u);
+		EXPECT_EQ(Buffer->FallbackDiscardCount, 0u);
+		EXPECT_EQ(Context.ObservedBufferData, MakeByteVector({9}));
+	}
+
+	TEST(FRHICommandListTests, AbandonedMappedWriteReleasesItsRangeWithoutReplay)
+	{
+		FRecordingCommandContext Context;
+		auto Buffer = MakeRefCount<FTestMappedBuffer>();
+		{
+			FRHICommandListExecutor Executor(Context);
+			auto& Commands = Executor.GetImmediateCommandList();
+			Commands.LockBuffer(Buffer, 0, 1, EResourceLockMode::WriteOnlyDiscard);
+			Commands.UnlockBuffer(Buffer);
+			EXPECT_FALSE(Buffer->Pool.TryAcquire());
+		}
+		EXPECT_TRUE(Context.ObservedBufferData.empty());
+		EXPECT_TRUE(Buffer->Pool.TryAcquire());
 	}
 
 	TEST(FRHICommandListTests, OwningUniformRangeSurvivesItsCreatingList)

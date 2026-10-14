@@ -340,6 +340,9 @@ namespace Durin
 		RHI_API auto ImmediateFlush(
 			EImmediateFlushType FlushType,
 			ERHISubmitFlags SubmitFlags = ERHISubmitFlags::None) -> void;
+		// WriteOnly preserves untouched bytes. WriteOnlyDiscard makes them undefined
+		// and may acquire an idle native version when CPUWriteDiscard was requested.
+		// Unsupported mappings and exhausted pools use command-owned temporary bytes.
 		RHI_API auto LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
 		RHI_API auto UnlockBuffer(FRHIBuffer* Buffer) -> void;
 		RHI_API auto ReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteBuffer& OutData) -> bool;

@@ -19,6 +19,7 @@ namespace Durin::VulkanRHI
 		std::vector<FRHIBufferTransition> Buffers;
 		std::vector<FRHITextureTransition> Textures;
 		std::vector<FBufferRHIRef> BufferOwners;
+		std::vector<std::shared_ptr<FRHIDynamicBufferWriteRange>> WriteRanges;
 		std::vector<FTextureRHIRef> TextureOwners;
 		std::vector<vk::BufferMemoryBarrier2> BufferBarriers;
 		std::vector<vk::ImageMemoryBarrier2> TextureBarriers;
@@ -134,8 +135,15 @@ namespace Durin::VulkanRHI
 		State->TextureSources.clear(); State->TextureDestinations.clear();
 		for (size_t Index = 0; Index < State->Buffers.size(); ++Index)
 		{
-			const auto& Transition = State->Buffers[Index];
+			auto& Transition = State->Buffers[Index];
 			auto* Buffer = FVulkanBuffer::Cast(Transition.Buffer);
+			if (const auto& Range = Buffer->GetWriteRange())
+			{
+				Range->AddGPUUse(SyncPoint);
+				State->WriteRanges.push_back(Range);
+				Buffer = Buffer->GetBackingBuffer();
+				Transition.Buffer = Buffer; // Acquire must use the release's physical version.
+			}
 			auto& Candidate = BufferStates.try_emplace(Buffer, Buffer->GetStateTracker()).first->second;
 			ERHIAccess Tracked;
 			require(Candidate.Validate(Transition.Offset, Transition.Size, Transition.ExpectedBefore, Tracked));
@@ -180,11 +188,13 @@ namespace Durin::VulkanRHI
 		State->Phase = FState::EPhase::Released;
 	}
 
-	auto FVulkanQueueTransfer::RecordAcquire(FVulkanQueue& Queue, vk::CommandBuffer Commands) -> void
+	auto FVulkanQueueTransfer::RecordAcquire(FVulkanQueue& Queue, vk::CommandBuffer Commands,
+		const FRHIGPUSyncPointRef& SyncPoint) -> void
 	{
 		CheckVulkanRHIThread();
 		require(State->Phase == FState::EPhase::Released && Queue.GetId() == State->Destination);
 		require(State->Device.FindQueue(Queue.GetId()) == &Queue);
+		for (const auto& Range : State->WriteRanges) Range->AddGPUUse(SyncPoint);
 		const auto Status = State->Signal.GetState();
 		require(Status == ERHIGPUSubmissionState::Pending
 			|| Status == ERHIGPUSubmissionState::Submitted || Status == ERHIGPUSubmissionState::Complete);

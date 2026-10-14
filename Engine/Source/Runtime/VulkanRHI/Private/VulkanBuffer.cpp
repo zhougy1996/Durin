@@ -87,6 +87,98 @@ namespace Durin::VulkanRHI
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(Buffer, [&] { return std::string_view(DebugName); });
 	}
 
+	namespace
+	{
+		using FMappedBufferOwner = TRefCountPtr<FVulkanBuffer>;
+		class FVulkanMappedBufferWrite final : public FRHIBufferMappedWrite
+		{
+		public:
+			FVulkanMappedBufferWrite(std::shared_ptr<FRHIDynamicBufferWriteRange> InRange, uint32 InOffset)
+				: Range(std::move(InRange)), Offset(InOffset) {}
+			auto GetData() const -> void* override
+			{ return static_cast<std::byte*>(Range->GetData()) + Offset; }
+			auto Commit(IRHICommandContext& Context, FRHIBuffer* Buffer,
+				uint32 WriteOffset, uint32 Size) -> void override
+			{
+				FVulkanBuffer::Cast(Buffer)->CommitMappedWrite(
+					static_cast<FVulkanCommandListContext&>(Context), Range, WriteOffset, Size);
+			}
+		private:
+			std::shared_ptr<FRHIDynamicBufferWriteRange> Range;
+			uint32 Offset;
+		};
+	}
+
+	auto FVulkanBuffer::GetBackingBuffer() -> FVulkanBuffer*
+	{
+		return ActiveWriteRange
+			? static_cast<FMappedBufferOwner*>(ActiveWriteRange->GetOwner().get())->GetReference() : this;
+	}
+	auto FVulkanBuffer::GetBackingBuffer() const -> const FVulkanBuffer*
+	{
+		return ActiveWriteRange
+			? static_cast<const FMappedBufferOwner*>(ActiveWriteRange->GetOwner().get())->GetReference() : this;
+	}
+
+	auto FVulkanBuffer::InitializeMappedWrites(const FRHIBufferCreateDesc& CreateDesc) -> void
+	{
+		const auto Required = EBufferUsageFlags::Dynamic | EBufferUsageFlags::CPUWriteDiscard;
+		const auto Allowed = Required | EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::IndexBuffer;
+		if (!EnumHasAllFlags(GetUsage(), Required) || EnumHasAnyFlags(GetUsage(), ~Allowed)
+			|| !EnumHasAnyFlags(GetUsage(), EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::IndexBuffer)
+			|| !GetMappedPointer()) return;
+		// Three bounded discard versions plus the original temporary-upload backing.
+		// Allocate only for explicitly opted-in buffers, before they are published.
+		FRHIBufferCreateDesc BackingDesc = CreateDesc;
+		BackingDesc.Usage &= ~EBufferUsageFlags::CPUWriteDiscard;
+		BackingDesc.InitialData = {};
+		for (uint32 Index = 0; Index != 3; ++Index)
+		{
+			vk::Result Result;
+			auto Owner = std::make_shared<FMappedBufferOwner>(
+				new FVulkanBuffer(Device, BackingDesc, false, &Result));
+			if (Result != vk::Result::eSuccess)
+			{
+				if (!IsRecoverableVulkanCreationError(Result)) ThrowVulkanError(Result, "Mapped buffer allocation");
+				break;
+			}
+			if (void* Mapped = (*Owner)->GetMappedPointer()) WritePool.Add(Owner, Mapped);
+		}
+	}
+
+	auto FVulkanBuffer::TryAcquireMappedWrite(uint32 Offset, uint32 Size)
+		-> std::shared_ptr<FRHIBufferMappedWrite>
+	{
+		require(Size && Offset <= GetSize() && Size <= GetSize() - Offset);
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Buffer.TryMappedWrite");
+		if (auto Range = WritePool.TryAcquire())
+			return std::make_shared<FVulkanMappedBufferWrite>(std::move(Range), Offset);
+		return {};
+	}
+
+	auto FVulkanBuffer::PrepareDiscardWrite(IRHICommandContext&) -> void
+	{
+		CheckVulkanRHIThread();
+		// Temporary bytes are consumed on replay, using the original backing and its
+		// existing frame synchronization. Never overwrite an in-flight discard version.
+		ActiveWriteRange.reset();
+	}
+
+	auto FVulkanBuffer::CommitMappedWrite(FVulkanCommandListContext& Context,
+		std::shared_ptr<FRHIDynamicBufferWriteRange> Range, uint32 Offset, uint32 Size) -> void
+	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Buffer.CommitMappedWrite");
+		CheckVulkanRHIThread();
+		ActiveWriteRange = std::move(Range);
+		auto* Backing = GetBackingBuffer();
+		Backing->FlushMappedMemory(Offset, Size);
+		Backing->StateTracker.Apply(Offset, Size, ERHIAccess::HostWrite);
+		Context.RetainWriteRange(ActiveWriteRange);
+		const std::array Transition{FRHIBufferTransition{
+			this, Offset, Size, ERHIAccess::HostWrite, ERHIAccess::TransferWrite}};
+		Context.RHITransitionBuffers(Transition);
+	}
+
 	auto FVulkanBuffer::InitializeUniformRange(FByteView Data, uint32 Offset) -> void
 	{
 		CheckVulkanRHIThread();
@@ -116,6 +208,12 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		check(!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset);
 		require(!bUniformBacking);
+		if (ActiveWriteRange)
+		{
+			Context.RetainWriteRange(ActiveWriteRange);
+			GetBackingBuffer()->Write(Context, Offset, Data);
+			return;
+		}
 		if (void* MappedData = Allocation.GetMappedData(); MappedData != nullptr)
 		{
 			std::memcpy(static_cast<std::byte*>(MappedData) + Offset, Data.data(), Data.size());
@@ -152,25 +250,25 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanBuffer::GetMappedPointer() const -> void*
 	{
-		return Allocation.GetMappedData();
+		return GetBackingBuffer()->Allocation.GetMappedData();
 	}
 
 	auto FVulkanBuffer::GetMemoryPropertyFlags() const
 		-> vk::MemoryPropertyFlags
 	{
-		return Device.GetMemoryManager().GetMemoryType(Allocation).propertyFlags;
+		return Device.GetMemoryManager().GetMemoryType(GetBackingBuffer()->Allocation).propertyFlags;
 	}
 
 	auto FVulkanBuffer::FlushMappedMemory(uint32 Offset, uint32 Size) -> void
 	{
 		const vk::DeviceSize FlushSize = Size != 0 ? Size : VK_WHOLE_SIZE;
-		Device.GetMemoryManager().Flush(Allocation, Offset, FlushSize);
+		Device.GetMemoryManager().Flush(GetBackingBuffer()->Allocation, Offset, FlushSize);
 	}
 
 	auto FVulkanBuffer::InvalidateMappedMemory(uint32 Offset, uint32 Size) -> void
 	{
 		const vk::DeviceSize InvalidateSize = Size != 0 ? Size : VK_WHOLE_SIZE;
-		Device.GetMemoryManager().Invalidate(Allocation, Offset, InvalidateSize);
+		Device.GetMemoryManager().Invalidate(GetBackingBuffer()->Allocation, Offset, InvalidateSize);
 	}
 
 	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList,
@@ -193,6 +291,7 @@ namespace Durin::VulkanRHI
 			return {};
 		}
 		auto* CreatedBuffer = FVulkanBuffer::Cast(Result.GetReference());
+		CreatedBuffer->InitializeMappedWrites(NormalizedDesc);
 		auto& InitialData = CreateDesc.InitialData;
 		if (InitialData.Data)
 		{

@@ -15,6 +15,8 @@ namespace Durin
 	class FRHIBuffer;
 	class FRHIUniformBuffer;
 	class FRHIBufferUploadData;
+	class FRHIBufferMappedWrite;
+	class IRHICommandContext;
 	class FRHICommandListBase;
 	class FRHITextureView;
 	class FDynamicRHI;
@@ -1806,6 +1808,12 @@ namespace Durin
 
 		/** @return The usage flags used to create the buffer. */
 		auto GetUsage() const -> EBufferUsageFlags { return Desc.Usage; }
+
+		// Called by the recording thread for discard locks only. A null mapping uses
+		// the existing owned upload path; native allocation and waits are forbidden.
+		virtual auto TryAcquireMappedWrite(uint32 Offset, uint32 Size)
+			-> std::shared_ptr<FRHIBufferMappedWrite> { return {}; }
+		virtual auto PrepareDiscardWrite(IRHICommandContext& Context) -> void {}
 
 	protected:
 		FRHIBufferDesc Desc;

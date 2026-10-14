@@ -36,11 +36,11 @@ namespace Durin::VulkanRHI
 		};
 
 		auto BuildSplitBarrierSet(const FRHITransition& Transition,
-			uint32 QueueFamily) -> FVulkanSplitBarrierSet
+			std::span<const FRHIBufferTransition> BufferVersions, uint32 QueueFamily) -> FVulkanSplitBarrierSet
 		{
 			FVulkanSplitBarrierSet Result;
-			Result.Buffers.reserve(Transition.GetBufferTransitions().size());
-			for (const auto& Entry : Transition.GetBufferTransitions())
+			Result.Buffers.reserve(BufferVersions.size());
+			for (const auto& Entry : BufferVersions)
 			{
 				auto* Buffer = FVulkanBuffer::Cast(Entry.Buffer);
 				requiref(Buffer->GetStateTracker().GetOwnership().CanUse(
@@ -266,7 +266,7 @@ namespace Durin::VulkanRHI
 		auto& Payload = GetPayload();
 		Payload.RetainedTransitions.push_back(Transfer);
 		Payload.AddCompletionWait(Transfer->GetReleaseSyncPoint());
-		Transfer->RecordAcquire(*Queue, GetCommandBuffer()->GetHandle());
+		Transfer->RecordAcquire(*Queue, GetCommandBuffer()->GetHandle(), Payload.GetSyncPoint());
 	}
 
 	auto FVulkanCommandListContext::RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
@@ -652,8 +652,10 @@ namespace Durin::VulkanRHI
 			"Bound vertex buffer requires VertexBuffer usage.");
 		checkf(Offset <= InVertexBuffer->GetSize(),
 			"Bound vertex buffer offset exceeds the resource.");
-		BoundVertexBuffers[StreamIndex] = {InVertexBuffer, Offset};
-		vk::Buffer BufferHandle = FVulkanBuffer::Cast(InVertexBuffer)->GetHandle();
+		auto* VertexBuffer = FVulkanBuffer::Cast(InVertexBuffer);
+		BoundVertexBuffers[StreamIndex] = {VertexBuffer->GetBackingBuffer(), Offset, VertexBuffer->GetWriteRange()};
+		RetainWriteRange(VertexBuffer->GetWriteRange());
+		vk::Buffer BufferHandle = VertexBuffer->GetHandle();
 		GetCommandBuffer()->BindVertexBuffer(StreamIndex, BufferHandle, Offset);
 	}
 
@@ -671,6 +673,7 @@ namespace Durin::VulkanRHI
 		if (!InIndexBuffer)
 		{
 			BoundIndexBuffer = nullptr;
+			BoundIndexWriteRange.reset();
 			BoundIndexBufferOffset = 0;
 			return;
 		}
@@ -680,9 +683,11 @@ namespace Durin::VulkanRHI
 			&& Offset <= InIndexBuffer->GetSize()
 			&& (Offset % InIndexBuffer->GetStride()) == 0,
 			"Bound index buffer requires an aligned uint16 or uint32 format.");
-		BoundIndexBuffer = InIndexBuffer;
+		auto* IndexBuffer = FVulkanBuffer::Cast(InIndexBuffer);
+		BoundIndexBuffer = IndexBuffer->GetBackingBuffer();
+		BoundIndexWriteRange = IndexBuffer->GetWriteRange();
+		RetainWriteRange(BoundIndexWriteRange);
 		BoundIndexBufferOffset = Offset;
-		const FVulkanBuffer* IndexBuffer = FVulkanBuffer::Cast(InIndexBuffer);
 		GetCommandBuffer()->BindIndexBuffer(IndexBuffer->GetHandle(), Offset,
 			DeduceIndexType(IndexBuffer->GetStride()));
 	}
@@ -693,8 +698,11 @@ namespace Durin::VulkanRHI
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Barriers.Buffers");
 		CheckVulkanRHIThread();
 		for (const auto& Transition : Transitions)
+		{
+			RetainWriteRange(FVulkanBuffer::Cast(Transition.Buffer)->GetWriteRange());
 			requiref(FVulkanBuffer::Cast(Transition.Buffer)->GetStateTracker().GetOwnership().CanUse(
 				Transition.Offset, Transition.Size, Queue->GetFamilyIndex()), "Buffer range is owned by another queue family or awaiting acquire.");
+		}
 		vk::CommandBuffer CommandBuffer = GetCommandBuffer()->GetHandle();
 		const FRHICapabilities* Capabilities = RHI->RHIGetCapabilities();
 		check(Capabilities);
@@ -860,7 +868,9 @@ namespace Durin::VulkanRHI
 		requiref(VulkanTransition, "Vulkan split transition has an incompatible backend object.");
 		requiref(VulkanTransition->BeginOn(Queue->GetId()),
 			"Vulkan split transition begin is not single-use.");
-		auto Barriers = BuildSplitBarrierSet(*Transition, Queue->GetFamilyIndex());
+		VulkanTransition->CaptureBufferVersions();
+		for (const auto& Range : VulkanTransition->GetWriteRanges()) RetainWriteRange(Range);
+		auto Barriers = BuildSplitBarrierSet(*Transition, VulkanTransition->GetBufferVersions(), Queue->GetFamilyIndex());
 		const vk::DependencyInfo Dependency = vk::DependencyInfo()
 			.setBufferMemoryBarriers(Barriers.Buffers)
 			.setImageMemoryBarriers(Barriers.Images);
@@ -882,13 +892,14 @@ namespace Durin::VulkanRHI
 			"Vulkan split transition end requires its recorded begin.");
 		requiref(VulkanTransition->EndOn(Queue->GetId()),
 			"Vulkan split transition must end on the physical queue where it began.");
-		auto Barriers = BuildSplitBarrierSet(*Transition, Queue->GetFamilyIndex());
+		for (const auto& Range : VulkanTransition->GetWriteRanges()) RetainWriteRange(Range);
+		auto Barriers = BuildSplitBarrierSet(*Transition, VulkanTransition->GetBufferVersions(), Queue->GetFamilyIndex());
 		const std::array Events{VulkanTransition->GetEvent()};
 		const std::array Dependencies{vk::DependencyInfo()
 			.setBufferMemoryBarriers(Barriers.Buffers)
 			.setImageMemoryBarriers(Barriers.Images)};
 		GetCommandBuffer()->GetHandle().waitEvents2(Events, Dependencies);
-		for (const auto& Entry : Transition->GetBufferTransitions())
+		for (const auto& Entry : VulkanTransition->GetBufferVersions())
 		{
 			auto* Buffer = FVulkanBuffer::Cast(Entry.Buffer);
 			require(Buffer->GetStateTracker().GetOwnership().Claim(
@@ -1332,6 +1343,15 @@ namespace Durin::VulkanRHI
 		GetPayload().RetainAllocation(Owner);
 	}
 
+	auto FVulkanCommandListContext::RetainWriteRange(
+		const std::shared_ptr<FRHIDynamicBufferWriteRange>& Range) -> void
+	{
+		if (!Range) return;
+		auto& Payload = GetPayload();
+		Range->AddGPUUse(Payload.GetSyncPoint());
+		Payload.RetainAllocation(Range);
+	}
+
 	auto FVulkanCommandListContext::Finalize() -> std::unique_ptr<FVulkanPayload>
 	{
 		CheckVulkanRHIThread();
@@ -1406,10 +1426,24 @@ namespace Durin::VulkanRHI
 		RestorePipeline(PendingGfxState->GetPipelineState(), GraphicsPushConstants);
 		RestorePipeline(PendingComputeState->GetPipelineState(), ComputePushConstants);
 		for (const auto& [Stream, Binding] : BoundVertexBuffers)
+		{
+			if (Binding.WriteRange)
+			{
+				Binding.WriteRange->AddGPUUse(InPayload.GetSyncPoint());
+				InPayload.RetainAllocation(Binding.WriteRange);
+			}
 			NewCmdBuffer->BindVertexBuffer(Stream, FVulkanBuffer::Cast(Binding.Buffer.GetReference())->GetHandle(), Binding.Offset);
+		}
 		if (BoundIndexBuffer)
+		{
+			if (BoundIndexWriteRange)
+			{
+				BoundIndexWriteRange->AddGPUUse(InPayload.GetSyncPoint());
+				InPayload.RetainAllocation(BoundIndexWriteRange);
+			}
 			NewCmdBuffer->BindIndexBuffer(FVulkanBuffer::Cast(BoundIndexBuffer.GetReference())->GetHandle(),
 				BoundIndexBufferOffset, DeduceIndexType(BoundIndexBuffer->GetStride()));
+		}
 	}
 
 	auto FVulkanCommandListContext::GetPayload() -> FVulkanPayload&

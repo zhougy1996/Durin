@@ -11,6 +11,7 @@
 #include "RHICompletion.h"
 #include "VulkanMemory.h"
 #include "VulkanResourceState.h"
+#include "Backend/RHIDynamicBufferWrite.h"
 
 namespace Durin::VulkanRHI
 {
@@ -38,13 +39,22 @@ namespace Durin::VulkanRHI
 
 		VULKANRHI_API ~FVulkanBuffer() override;
 
-		auto GetHandle() const -> vk::Buffer { return Buffer; }
+		auto GetHandle() const -> vk::Buffer { return GetBackingBuffer()->Buffer; }
+		VULKANRHI_API auto GetBackingBuffer() -> FVulkanBuffer*;
+		VULKANRHI_API auto GetBackingBuffer() const -> const FVulkanBuffer*;
+		auto GetWriteRange() const -> const std::shared_ptr<FRHIDynamicBufferWriteRange>& { return ActiveWriteRange; }
+		auto InitializeMappedWrites(const FRHIBufferCreateDesc& CreateDesc) -> void;
+		auto TryAcquireMappedWrite(uint32 Offset, uint32 Size)
+			-> std::shared_ptr<FRHIBufferMappedWrite> override;
+		auto PrepareDiscardWrite(IRHICommandContext& Context) -> void override;
+		auto CommitMappedWrite(FVulkanCommandListContext& Context,
+			std::shared_ptr<FRHIDynamicBufferWriteRange> Range, uint32 Offset, uint32 Size) -> void;
 		auto GetDebugName() const -> std::string_view { return DebugName; }
 
 		VULKANRHI_API auto GetMappedPointer() const -> void*;
 		auto GetAllocationClass() const -> EVulkanAllocationClassCandidate
 		{
-			return Allocation.Class;
+			return GetBackingBuffer()->Allocation.Class;
 		}
 		VULKANRHI_API auto GetMemoryPropertyFlags() const -> vk::MemoryPropertyFlags;
 
@@ -54,8 +64,8 @@ namespace Durin::VulkanRHI
 		auto Write(FVulkanCommandListContext& Context, uint32 Offset, FByteView Data) -> void;
 		auto InitializeUniformRange(FByteView Data, uint32 Offset = 0) -> void;
 
-		auto GetStateTracker() -> FVulkanBufferStateTracker& { return StateTracker; }
-		auto GetStateTracker() const -> const FVulkanBufferStateTracker& { return StateTracker; }
+		auto GetStateTracker() -> FVulkanBufferStateTracker& { return GetBackingBuffer()->StateTracker; }
+		auto GetStateTracker() const -> const FVulkanBufferStateTracker& { return GetBackingBuffer()->StateTracker; }
 
 	protected:
 		FVulkanDevice& Device;
@@ -67,6 +77,8 @@ namespace Durin::VulkanRHI
 		FVulkanBufferStateTracker StateTracker;
 		std::string DebugName;
 		bool bUniformBacking = false;
+		FRHIDynamicBufferWritePool WritePool;
+		std::shared_ptr<FRHIDynamicBufferWriteRange> ActiveWriteRange;
 
 	};
 

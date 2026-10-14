@@ -207,6 +207,33 @@ bytes or allocating one Vulkan buffer per operation.
 
 ## Uniform, Descriptor, Command, and Fence Reuse
 
+### Dynamic vertex and index discard writes
+
+Vulkan buffers explicitly created with `Dynamic | CPUWriteDiscard` and only
+vertex/index usage reserve up to three additional mapped native allocations at
+creation. The original allocation remains the temporary-upload fallback.
+Allocation pressure may reduce the mapped pool without failing a successful
+base-buffer creation. Other buffer usages retain ordinary uploads. ImGui opts
+in for both vertex and index buffers and locks only the required data bytes,
+using its existing capacity growth policy.
+
+Recording-thread acquisition checks counted range ownership and thread-safe
+GPU completion metadata, without native fence polling, native allocation or
+GPU waits. Unlock retains the range in a recorded commit. RHI replay flushes
+the exact written bytes and records `HostWrite -> TransferWrite`; the caller's
+existing transitions select vertex/index read access. Each transition, bind
+and command-buffer binding restoration adds its payload's exact sync point
+and retains the physical range. Split barriers and cross-queue ownership
+transfers capture and retain the same physical version through their paired
+operations. Reuse requires both released CPU/recording/
+active-binding ownership and retirement of every GPU use. Pool exhaustion
+uses the prior temporary-memory upload path and its existing synchronization.
+
+`Vulkan.Buffer.TryMappedWrite` and `Vulkan.Buffer.CommitMappedWrite` expose
+mapping acquisition and replay flush/barrier work in Tracy. This path removes
+the intermediate CPU byte allocation and replay memcpy when a mapped range
+is available; it does not remove the copy from ImGui's draw-list storage.
+
 Frame end submits both provisioned command contexts, but records only the
 graphics context end-frame sync point for the two-slot pacing policy. Reusing
 a frame waits that point and its explicit GPU dependencies; unrelated compute

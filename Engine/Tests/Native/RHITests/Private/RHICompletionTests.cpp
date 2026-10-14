@@ -1,9 +1,90 @@
 #include "RHICompletion.h"
 #include "Backend/RHICompletionBackend.h"
+#include "Backend/RHIDynamicBufferWrite.h"
 #include <gtest/gtest.h>
 
 namespace Durin
 {
+	TEST(FRHIDynamicBufferWriteTests, CPUAndRecordingOwnersPreventReuse)
+	{
+		FRHIDynamicBufferWritePool Pool;
+		auto Memory = std::make_shared<std::array<std::byte, 8>>();
+		Pool.Add(Memory, Memory->data());
+		auto Lock = Pool.TryAcquire();
+		ASSERT_TRUE(Lock);
+		EXPECT_EQ(Lock->GetData(), Memory->data());
+		EXPECT_FALSE(Pool.TryAcquire());
+		auto Recording = Lock;
+		Lock.reset();
+		EXPECT_FALSE(Pool.TryAcquire());
+		Recording.reset(); // Unreplayed/canceled locks have no GPU prerequisite.
+		EXPECT_TRUE(Pool.TryAcquire());
+	}
+
+	TEST(FRHIDynamicBufferWriteTests, AllGPUUsesAndCurrentBindingsMustRetire)
+	{
+		FRHIDynamicBufferWritePool Pool;
+		auto Memory = std::make_shared<std::array<std::byte, 8>>();
+		Pool.Add(Memory, Memory->data());
+		FRHIGPUQueueTimeline Graphics(AllocateRHIDeviceGeneration(), {0});
+		FRHIGPUQueueTimeline Other(AllocateRHIDeviceGeneration(), {1});
+		auto First = Graphics.Reserve(), Second = Other.Reserve();
+		auto Range = Pool.TryAcquire();
+		ASSERT_TRUE(Range);
+		Range->AddGPUUse(First);
+		Range->AddGPUUse(Second);
+		Range.reset();
+		EXPECT_FALSE(Pool.TryAcquire());
+		ASSERT_TRUE(Graphics.MarkSubmitted(First));
+		ASSERT_TRUE(Graphics.ObserveCompleted(First));
+		EXPECT_FALSE(Pool.TryAcquire());
+		ASSERT_TRUE(Other.MarkSubmitted(Second));
+		ASSERT_TRUE(Other.ObserveCompleted(Second));
+		auto CurrentBinding = Pool.TryAcquire();
+		ASSERT_TRUE(CurrentBinding);
+		EXPECT_FALSE(Pool.TryAcquire()); // Completion alone does not release bindings.
+		CurrentBinding.reset();
+		EXPECT_TRUE(Pool.TryAcquire());
+	}
+
+	TEST(FRHIDynamicBufferWriteTests, CanceledUsesRecycleButFailedGPUUsesDoNot)
+	{
+		for (uint32 Outcome : {0u, 1u, 2u})
+		{
+			FRHIDynamicBufferWritePool Pool;
+			auto Memory = std::make_shared<std::array<std::byte, 8>>();
+			Pool.Add(Memory, Memory->data());
+			FRHIGPUQueueTimeline Queue(AllocateRHIDeviceGeneration(), {0});
+			auto Signal = Queue.Reserve();
+			auto Range = Pool.TryAcquire();
+			ASSERT_TRUE(Range);
+			Range->AddGPUUse(Signal);
+			Range.reset();
+			if (Outcome) Queue.Fail(Outcome == 2);
+			else ASSERT_TRUE(Queue.Cancel(Signal));
+			EXPECT_EQ(static_cast<bool>(Pool.TryAcquire()), Outcome == 0);
+		}
+	}
+
+	TEST(FRHIDynamicBufferWriteTests, PoolExhaustionIsBoundedAndReleasedSlotsRecycle)
+	{
+		FRHIDynamicBufferWritePool Pool;
+		std::array<std::shared_ptr<std::array<std::byte, 8>>, 3> Memory;
+		for (auto& Bytes : Memory)
+		{
+			Bytes = std::make_shared<std::array<std::byte, 8>>();
+			Pool.Add(Bytes, Bytes->data());
+		}
+		auto First = Pool.TryAcquire(), Second = Pool.TryAcquire(), Third = Pool.TryAcquire();
+		ASSERT_TRUE(First && Second && Third);
+		EXPECT_NE(First->GetData(), Second->GetData());
+		EXPECT_NE(Second->GetData(), Third->GetData());
+		EXPECT_FALSE(Pool.TryAcquire());
+		auto* Released = Second->GetData();
+		Second.reset();
+		EXPECT_EQ(Pool.TryAcquire()->GetData(), Released);
+	}
+
 	TEST(FRHICompletionTests, LogicalIdentitySurvivesCoalescingAndObserverRelease)
 	{
 		FRHIGPUQueueTimeline Queue(AllocateRHIDeviceGeneration(), {0});

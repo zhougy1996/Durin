@@ -25,7 +25,8 @@ namespace Durin::VulkanRHI
 		VULKANRHI_API ~FVulkanQueueTransfer() override;
 		auto RecordRelease(FVulkanQueue& Queue, vk::CommandBuffer Commands,
 			const FRHIGPUSyncPointRef& SyncPoint) -> void;
-		auto RecordAcquire(FVulkanQueue& Queue, vk::CommandBuffer Commands) -> void;
+		auto RecordAcquire(FVulkanQueue& Queue, vk::CommandBuffer Commands,
+			const FRHIGPUSyncPointRef& SyncPoint) -> void;
 		auto GetReleaseSyncPoint() const -> FRHIGPUSyncPointRef;
 	private:
 		struct FState;

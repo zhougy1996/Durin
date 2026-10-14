@@ -10,6 +10,7 @@
 #include "RHIContext.h"
 #include "VulkanMemory.h"
 #include "VulkanTransferArena.h"
+#include "Backend/RHIDynamicBufferWrite.h"
 
 namespace Durin::VulkanRHI
 {
@@ -152,6 +153,7 @@ namespace Durin::VulkanRHI
 		VULKANRHI_API auto Finalize() -> std::unique_ptr<FVulkanPayload>;
 		auto HasPendingCommands() const -> bool { return !Payloads.empty(); }
 		VULKANRHI_API auto RetainAllocation(const std::shared_ptr<void>& Owner) -> void;
+		auto RetainWriteRange(const std::shared_ptr<FRHIDynamicBufferWriteRange>& Range) -> void;
 		auto AcquireTransferRange(EVulkanAllocationClassCandidate AllocationClass,
 			uint64 Size, uint64 Alignment) -> FVulkanTransferRange;
 
@@ -185,10 +187,12 @@ namespace Durin::VulkanRHI
 		{
 			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset = 0;
+			std::shared_ptr<FRHIDynamicBufferWriteRange> WriteRange;
 		};
 		std::unordered_map<uint32, FBoundVertexBuffer> BoundVertexBuffers;
 		TRefCountPtr<FRHIBuffer> BoundIndexBuffer;
 		uint32 BoundIndexBufferOffset = 0;
+		std::shared_ptr<FRHIDynamicBufferWriteRange> BoundIndexWriteRange;
 
 		std::vector<FVulkanPayload*> Payloads;
 		std::shared_ptr<void> ReplayStorageOwner;

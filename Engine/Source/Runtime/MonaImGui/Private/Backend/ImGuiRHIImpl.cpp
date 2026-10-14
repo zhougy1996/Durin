@@ -511,7 +511,7 @@ namespace Durin::MonaImGui
 				RequiredVertexBufferSize, 64 * 1024, sizeof(ImDrawVert));
 			DURIN_PROFILE_CPU_ZONE_TEXT(std::format("requiredBytes={} capacityBytes={}", RequiredVertexBufferSize, Capacity));
 			FRHIBufferCreateDesc VertexBufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("ImGuiVertexBuffer", Capacity);
-			VertexBufferCreateDesc.Usage |= EBufferUsageFlags::Dynamic;
+			VertexBufferCreateDesc.Usage |= EBufferUsageFlags::Dynamic | EBufferUsageFlags::CPUWriteDiscard;
 			RenderBuffers.VertexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, VertexBufferCreateDesc);
 		}
 		if (RenderBuffers.IndexBuffer == nullptr || RenderBuffers.IndexBuffer->GetSize() < RequiredIndexBufferSize)
@@ -522,7 +522,7 @@ namespace Durin::MonaImGui
 				RequiredIndexBufferSize, 16 * 1024, sizeof(ImDrawIdx));
 			DURIN_PROFILE_CPU_ZONE_TEXT(std::format("requiredBytes={} capacityBytes={}", RequiredIndexBufferSize, Capacity));
 			FRHIBufferCreateDesc IndexBufferCreateDesc = FRHIBufferCreateDesc::CreateIndex("ImGuiIndexBuffer", Capacity, sizeof(ImDrawIdx));
-			IndexBufferCreateDesc.Usage |= EBufferUsageFlags::Dynamic;
+			IndexBufferCreateDesc.Usage |= EBufferUsageFlags::Dynamic | EBufferUsageFlags::CPUWriteDiscard;
 			RenderBuffers.IndexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, IndexBufferCreateDesc);
 		}
 
@@ -530,8 +530,8 @@ namespace Durin::MonaImGui
 		void* IndexBufferData = nullptr;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.RHI.LockBuffers");
-			VertexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.VertexBuffer, 0, RequiredVertexBufferSize, EResourceLockMode::WriteOnly);
-			IndexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.IndexBuffer, 0, RequiredIndexBufferSize, EResourceLockMode::WriteOnly);
+			VertexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.VertexBuffer, 0, RequiredVertexBufferSize, EResourceLockMode::WriteOnlyDiscard);
+			IndexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.IndexBuffer, 0, RequiredIndexBufferSize, EResourceLockMode::WriteOnlyDiscard);
 		}
 
 		auto VertexBufferDst = static_cast<ImDrawVert*>(VertexBufferData);
