@@ -38,7 +38,7 @@ namespace
 		{
 			++State->StartCount;
 			Record("start");
-			return {State->bStartSucceeds ? EAssetCompilerStartError::None : EAssetCompilerStartError::TaskScopeUnavailable};
+			return {State->bStartSucceeds ? EAssetCompilerStartError::None : EAssetCompilerStartError::StateUnavailable};
 		}
 		auto StopAdmission() -> void override { Record("stop"); }
 		auto GetNumRemainingAssets() const -> uint64 override { return State->Remaining; }
@@ -144,7 +144,7 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	auto FailedManager = std::make_shared<FSyntheticManager>("failed", FailedState);
 	const auto StartFailure = FailedManager->Start();
 	EXPECT_FALSE(StartFailure);
-	EXPECT_EQ(StartFailure.Error, EAssetCompilerStartError::TaskScopeUnavailable);
+	EXPECT_EQ(StartFailure.Error, EAssetCompilerStartError::StateUnavailable);
 	auto Failed = Aggregate.RegisterCompiler({
 		.Name = FName("Durin.Tests.Failed"),
 		.AssetClasses = {DMaterialInstance::StaticClass()},

@@ -48,7 +48,6 @@ namespace Durin
 		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
 		LEVELEDITOR_API auto RequestOpenProject(std::string ProjectFile) -> bool;
 	private:
-		FAsyncOperationGroup ThumbnailOperations;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<Editor::Level::FLevelEditorSessionSettings> SessionSettings;
 		std::vector<Editor::Level::FLevelEditorCustomizationHandle> CustomizationHandles;

@@ -67,7 +67,6 @@ namespace Durin::Editor
 		std::array<std::optional<FCacheRead>, 2> Reads;
 		std::deque<FCacheWrite> Writes;
 		Tasks::TTask<FCacheResult> CacheTask;
-		std::optional<Tasks::FTaskGroup> CacheTasks;
 		int32 ActiveRead = -1;
 		uint64 ActiveWriteBytes = 0;
 		uint64 RetainedBytes = 0;
@@ -102,8 +101,7 @@ namespace Durin::Editor
 				const auto& Request = Read.Job.GenerationRequest;
 				Read.bStarted = true;
 				ActiveRead = Index;
-				if (!CacheTasks) CacheTasks.emplace();
-				CacheTask = Tasks::LaunchTask(*CacheTasks, Tasks::ETaskExecutor::BlockingIO,
+				CacheTask = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
 					{.DebugName = "ReadAssetThumbnailCache"},
 					[State = Cache, Key = Read.Job.CacheKey,
 						Cancellation = Request.Cancellation, Output = Request.KeyInput.Output] {
@@ -139,8 +137,7 @@ namespace Durin::Editor
 			Writes.pop_front();
 			ActiveRead = -1;
 			ActiveWriteBytes = Write.Bytes.size();
-			if (!CacheTasks) CacheTasks.emplace();
-			CacheTask = Tasks::LaunchTask(*CacheTasks, Tasks::ETaskExecutor::BlockingIO,
+			CacheTask = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
 				{.DebugName = "SaveAssetThumbnailCache"},
 				[State = Cache, Write = std::move(Write)] {
 					FCacheResult Result;
@@ -190,7 +187,7 @@ namespace Durin::Editor
 			PumpCache();
 			while (CacheTask.IsValid())
 			{
-				(void)WaitTask(CacheTask.GetTaskHandle());
+				(void)WaitTask(Durin::FTaskHandle(CacheTask));
 				PumpCache();
 			}
 		}
@@ -222,11 +219,6 @@ namespace Durin::Editor
 	{
 		// Module teardown is the only production wait. UI frames merely poll.
 		Impl->DrainCache();
-		if (Impl->CacheTasks)
-		{
-			Impl->CacheTasks->Close();
-			while (Impl->CacheTasks->WaitFor(60.0) == ETaskScopeWaitResult::TimedOut) {}
-		}
 	}
 
 	auto FAssetThumbnailGeneration::WaitForCacheTasksForTesting() -> void

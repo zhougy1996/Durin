@@ -258,25 +258,6 @@ namespace Durin::Tests
 		EXPECT_THROW(Manager.UnloadModule(ResultName), std::runtime_error);
 		ExpectIncompleteAndMapped(ResultInfo);
 
-		const FName DeferredName("DynamicUnloadFixtureDeferredUnsupported");
-		const auto DeferredInfo = LoadFixture(DeferredName);
-		ASSERT_NE(DeferredInfo, nullptr);
-		const auto DeferredSerial = InvokeSerial();
-		ASSERT_TRUE(DeferredSerial.has_value());
-		const auto DeferredStarted = InvokeFixture(
-			[](IDynamicUnloadFixtureFeature& Fixture) {
-				return Fixture.StartDrainedAsyncChain();
-			});
-		ASSERT_TRUE(DeferredStarted.WasInvoked()
-			&& DeferredStarted.Value && *DeferredStarted.Value);
-		ASSERT_TRUE(Host.WaitFor(
-			EDynamicUnloadFixtureEvent::AsyncWorkerCompleted, *DeferredSerial));
-		GIsGameThreadIdInitialized = false;
-		EXPECT_THROW(Manager.UnloadModule(DeferredName), std::runtime_error);
-		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
-		GIsGameThreadIdInitialized = true;
-		ExpectIncompleteAndMapped(DeferredInfo);
-
 		const FName ShutdownName("DynamicUnloadFixtureShutdownFailure");
 		const auto ShutdownInfo = LoadFixture(ShutdownName);
 		ASSERT_NE(ShutdownInfo, nullptr);

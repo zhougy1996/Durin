@@ -27,12 +27,7 @@ namespace Durin
 				Implementation);
 		}
 
-		auto CreateAsyncOperationGroup(
-			FName GroupName) -> FAsyncOperationGroup
-		{
-			return Detail::CreateAsyncOperationGroup(
-				ModuleOwner, std::move(GroupName));
-		}
+
 
 		[[nodiscard]] CORE_API auto GetFeatureSnapshot() const
 			-> FModularFeatureRetirementSnapshot;

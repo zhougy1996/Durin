@@ -77,7 +77,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			if (!bAllowSave) return false;
 			Saved = Settings;
 			return true;
-		}, {}, {}, {}, {}, {}, {}, {}, {});
+		}, {}, {}, {}, {}, {}, {}, {});
 		const auto Previous = FContentBrowserPanelTestAccess::Preferences(Panel);
 		auto Next = Previous;
 		Next.ViewMode = 1;
@@ -115,8 +115,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		Platform.Platform_SetClipboardTextFn = [](ImGuiContext* Context, const char* Text) {
 			*static_cast<std::string*>(Context->PlatformIO.Platform_ClipboardUserData) = Text;
 		};
-		FContentBrowserPanel Source({}, {}, {}, {}, {}, {}, {}, {}, std::make_shared<FMountedContentReconciliationState>(), {});
-		FContentBrowserPanel Target({}, {}, {}, {}, {}, {}, {}, {}, std::make_shared<FMountedContentReconciliationState>(), {});
+		FContentBrowserPanel Source({}, {}, {}, {}, {}, {}, {}, {}, std::make_shared<FMountedContentReconciliationState>());
+		FContentBrowserPanel Target({}, {}, {}, {}, {}, {}, {}, {}, std::make_shared<FMountedContentReconciliationState>());
 		FContentBrowserPanelTestAccess::SetSelection(Source, Root.generic_string(), {
 			{.Kind = EContentBrowserItemKind::File, .Name = "notes.txt", .PhysicalPath = (Root / "notes.txt").generic_string()},
 			{.Kind = EContentBrowserItemKind::File, .Name = "config.json", .PhysicalPath = (Root / "config.json").generic_string()}});
@@ -142,7 +142,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		Testing::FScopedMountRegistryFixture Registry(Definitions);
 		ASSERT_TRUE(Registry.IsValid());
 		FContentBrowserPanel Panel({}, {}, {}, {}, {}, {}, {}, {},
-			std::make_shared<FMountedContentReconciliationState>(), {});
+			std::make_shared<FMountedContentReconciliationState>());
 		FContentBrowserPanelTestAccess::CreateFolder(Panel, Root.generic_string());
 		EXPECT_TRUE(FContentBrowserPanelTestAccess::RenameTarget(Panel).empty());
 		FContentBrowserPanelTestAccess::FinishCapture(Panel);
@@ -175,7 +175,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		IO.Fonts->GetTexDataAsRGBA32(&Pixels, &Width, &Height);
 
 		FContentBrowserPanel Panel({}, {}, {}, {}, {}, {}, {}, {},
-			std::make_shared<FMountedContentReconciliationState>(), {});
+			std::make_shared<FMountedContentReconciliationState>());
 		std::string Error;
 		int TypeDetailCalls = 0;
 		auto Type = RegisterAssetTypePresentation({
@@ -294,7 +294,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		unsigned char* Pixels;
 		int Width, Height;
 		IO.Fonts->GetTexDataAsRGBA32(&Pixels, &Width, &Height);
-		FContentBrowserPanel Panel({}, {}, {}, {}, {}, {}, {}, {}, {}, {});
+		FContentBrowserPanel Panel({}, {}, {}, {}, {}, {}, {}, {}, {});
 		int Queries = 0;
 		FContentBrowserPanelTestAccess::SetReimportQuery(Panel, [&](std::string_view ClassName) {
 			++Queries;
@@ -336,7 +336,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		int Width, Height;
 		IO.Fonts->GetTexDataAsRGBA32(&Pixels, &Width, &Height);
 		FContentBrowserPanel Panel({}, {}, {}, {}, {}, {}, {}, {},
-			std::make_shared<FMountedContentReconciliationState>(), {});
+			std::make_shared<FMountedContentReconciliationState>());
 		const FContentBrowserItem Asset{.Kind = EContentBrowserItemKind::Asset, .Name = "Asset",
 			.VirtualPath = "/BrowserDrag/Asset.Asset", .PhysicalPath = Root + "/Asset.dasset"};
 		const FContentBrowserItem File{.Kind = EContentBrowserItemKind::File, .Name = "notes.txt",

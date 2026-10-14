@@ -13,7 +13,6 @@ namespace Durin::Tasks
 	{
 		CapacityExhausted,
 		LifetimeClosed,
-		GroupClosed,
 		InvalidPrerequisite,
 		UnsupportedExecutor,
 		InvalidPayloadDeclaration,

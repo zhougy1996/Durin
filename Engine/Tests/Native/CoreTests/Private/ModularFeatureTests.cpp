@@ -188,13 +188,6 @@ namespace Durin::Tests
 		RecoveryHarness.Shutdown();
 	}
 
-	TEST(FModuleStartupTests, OwnerCreationOutsideStartupIsRejected)
-	{
-		EXPECT_DEATH(
-			(void)FModuleStartup::CreateAsyncOperationGroup(
-				"Tests.OutsideModuleStartup"),
-			".*");
-	}
 
 	TEST(FModularFeatureTests, UsesDeclaredNameAndVersionAndRejectsInvalidIdentity)
 	{

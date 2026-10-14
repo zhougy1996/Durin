@@ -4,7 +4,7 @@ Summary: Define typed feature invocation, module-owned cleanup, and explicit nat
 
 Modules: Core
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-10-14
 
 ## Feature Contract
 
@@ -122,34 +122,12 @@ feature, startup, or shutdown code.
 
 ## Asynchronous Operation Boundary
 
-Returning from a feature visitor does not prove that work submitted by the
-implementation has finished. A module creates `FAsyncOperationGroup` instances
-through `FModuleStartup` during its startup callback. Each group owns one task
-scope, explicit cancellation source, stable abort reason, and diagnostic identity.
-The module chooses when to call `Close(Drain)` or `Close(Cancel)` and then `Drain`.
-Its Shutdown must release retained result handles before waiting for quiescence. A root task explicitly
-selects the group's scope and cancellation token; accepted descendants and
-continuations inherit the scope under the Task System rules.
-
-Closing a group is irreversible. `Drain` rejects later roots and lets accepted
-work finish; `Cancel` additionally requests cooperative cancellation and records
-the first explicit abort reason. A call to `Drain` from one of the group's own
-tasks returns `SelfWait`. A non-Game Thread drain that encounters retained
-`GameThreadDeferred` work returns `UnsupportedThread`. Timeouts preserve the
-closing state and their evidence; they never reopen admission.
-
-Game Thread drain selects only entries belonging to the closing task scope.
-Drain-mode entries execute without pumping unrelated queues. Cancel-mode and
-stale entries publish cancellation, detach from the queue, and destroy their
-callable storage before success. Worker queue ownership tags similarly remain
-outstanding until the erased wrapper and discard callback are destroyed.
-
-Successful group drain requires zero active tasks, zero retained typed-result
-states, zero selected deferred callables, and zero Worker wrappers. `Drain`
-returns the small `EAsyncOperationDrainStatus` enum; `GetSnapshot()` separately
-exposes diagnostics. Registration `Reset` likewise returns
-`EModularFeatureRetirementStatus`. There are no aggregate owner drain Result
-objects. A module must check cleanup outcomes before returning from Shutdown.
+Returning from a feature visitor does not prove that asynchronous work has
+finished. Each module stops its own producers during ShutdownModule, cancels or
+waits the tasks it owns, and releases callbacks, results and resources. Core
+does not register module task scopes, collect descendants, or pump selected
+module queues. There is no shared operation-group replacement. Modules without
+asynchronous work require no task-specific shutdown boundary.
 
 ## Specialized Registries and Explicit Unload
 
@@ -164,7 +142,7 @@ point on the module-control thread (Game Thread after its identity is installed)
 The caller stops dependent consumers and external dispatch before shutdown;
 specialized callbacks must have returned and cannot race the unload. A callback
 must not unload its own module, including through a reentrant UI or event path.
-Request the unload and perform it at a later safe point instead. Registration tokens and operation groups provide local wait operations that
+Request the unload and perform it at a later safe point instead. Registration tokens provide local wait operations that
 the module explicitly invokes as part of its cleanup.
 
 Each owner is responsible for these boundaries, in dependency order:
@@ -199,12 +177,11 @@ shutdown directly, including after typed-feature retirement has started.
 
 ## External and Deferred Execution
 
-A callback invocation that launches work must attach the root task to an
-owner-created `FAsyncOperationGroup` before returning. The module may keep task
-result handles during normal operation, but `ShutdownModule` must cancel or
-wait them and destroy those handles before completing its own group drain.
-Local task scopes remain valid for native tests and objects whose code is not
-unloadable; they are not a production substitute for module attribution.
+A callback that launches work must leave it under the producing owner's control.
+The owner stops submission and completes its actual cleanup before shutdown
+returns. Task/event combinations are optional dependency tools, not a mandatory
+module retirement protocol. General task completion does not release user-held
+results or callbacks; their owner releases them explicitly.
 
 Render commands are bounded submissions rather than registry entries, but
 their callable storage still contains producer code. Every unloadable producer
@@ -235,7 +212,7 @@ checks that explicit shutdown removes it and destroys its capture before the
 module instance is destroyed and its DLL unmapped.
 
 Successful qualification proves that an admitted synchronous call completes
-while late admission is rejected, a Worker-to-Game-Thread chain and its
+while late admission is rejected, a module-owned Worker chain and its
 destructor-sensitive capture drain before module destruction, and the native
 image is absent after `UnloadModule`. Reload produces a higher owner generation
 and a distinct fixture instance. Thirty-two additional serialized cycles prove
@@ -244,7 +221,7 @@ image is physically unmapped.
 
 Failure qualification runs irreversible cases in a separate process with one
 logical module record per scenario. The fixture owns feature and asynchronous cleanup. Invocation timeout, active
-worker, retained typed result, retained deferred callable, and recursive feature
+worker, retained typed result, and recursive feature
 cleanup throw from its Shutdown. These exceptions propagate without releasing
 the affected image. Wrong-thread unload is rejected before entering Shutdown.
 

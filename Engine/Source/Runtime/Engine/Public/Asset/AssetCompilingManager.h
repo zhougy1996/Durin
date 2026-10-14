@@ -49,7 +49,7 @@ namespace Durin
 
 	DECLARE_MULTICAST_DELEGATE_OneParam(FAssetPostCompileEvent, const FAssetPostCompileData&)
 
-	enum class EAssetCompilerStartError : uint8 { None, SchedulerUnavailable, Undrained, TaskScopeUnavailable, StateUnavailable };
+	enum class EAssetCompilerStartError : uint8 { None, SchedulerUnavailable, Undrained, StateUnavailable };
 	struct FAssetCompilerStartResult
 	{
 		EAssetCompilerStartError Error = EAssetCompilerStartError::None;

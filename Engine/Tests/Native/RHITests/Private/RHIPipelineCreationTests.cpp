@@ -47,6 +47,22 @@ namespace Durin
 		}
 	};
 
+	TEST_F(FRHIPipelineCreationTests, IdleQueueRejectsReuseAfterSchedulerRestart)
+	{
+		FPipelineCompileQueue Owner(Capabilities(), Backend([](const auto&, const auto&) {
+			ADD_FAILURE() << "A queue from the previous scheduler must not create device work.";
+			return MakeRefCount<FRHIComputePipelineState>();
+		}));
+		ShutdownTaskScheduler(true);
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader;
+		const auto Request = Owner.RequestCompute(Initializer, "stale queue");
+		EXPECT_FALSE(Request.IsAccepted());
+		EXPECT_EQ(Request.GetRejection(), ERHIPipelineRequestRejection::Unsupported);
+	}
+
 	TEST_F(FRHIPipelineCreationTests, CacheSharesPendingIdentityWithoutSharingCancellationAuthority)
 	{
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
@@ -84,48 +100,7 @@ namespace Durin
 		EXPECT_EQ(Calls, 1u);
 	}
 
-	TEST_F(FRHIPipelineCreationTests, CacheColdMissFromForeignScopeDoesNotWaitForNativeCreation)
-	{
-		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
-		FComputePipelineStateInitializer Initializer;
-		Initializer.ComputeShader = Shader;
-		std::promise<void> Release;
-		auto Released = Release.get_future().share();
-		FRHIPipelineStateCache Owner(Capabilities(), Backend([&](const auto&, const auto&) {
-			Released.wait();
-			return MakeRefCount<FRHIComputePipelineState>();
-		}));
-		auto Scope = CreateTaskScope();
-		Tasks::FTaskGroup Group(Scope.GetToken());
-		std::promise<FComputePipelineStateRef> Submitted;
-		auto SubmittedFuture = Submitted.get_future();
-		auto Producer = Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, {}, [&] {
-			auto Cached = Owner.GetCompute(Initializer, "parallel draw");
-			EXPECT_TRUE(Cached);
-			if (Cached)
-			{
-				EXPECT_EQ((*Cached)->GetState(), ERHIPipelineRequestState::Pending);
-				EXPECT_FALSE((*Cached)->CanWait());
-				EXPECT_FALSE((*Cached)->Wait());
-				Submitted.set_value(*Cached);
-			}
-			else Submitted.set_value({});
-		});
-		const auto Admission = SubmittedFuture.wait_for(std::chrono::seconds(5));
-		EXPECT_EQ(Admission, std::future_status::ready);
-		// Always release the creator before asserting or joining scopes.
-		Release.set_value();
-		auto Pipeline = SubmittedFuture.get();
-		if (Pipeline)
-		{
-			EXPECT_TRUE(Pipeline->Wait());
-			auto Hit = Owner.GetCompute(Initializer, "owner hit");
-			EXPECT_TRUE(Hit);
-			if (Hit) EXPECT_EQ(*Hit, Pipeline);
-		}
-		Group.Close();
-		EXPECT_EQ(Scope.Wait(), ETaskScopeWaitResult::Quiescent);
-	}
+
 
 	TEST_F(FRHIPipelineCreationTests, CacheFailedIdentityRetriesAndDeviceRetirementInvalidatesSurvivingHandles)
 	{
@@ -435,37 +410,7 @@ namespace Durin
 		EXPECT_EQ(Owner.GetStatistics().UnfinishedDescriptionBytes, 0u);
 	}
 
-	TEST_F(FRHIPipelineCreationTests, ForeignTaskScopesRejectBeforeCoreConstructionWithoutStarvingWorker)
-	{
-		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
-		FComputePipelineStateInitializer Initializer;
-		Initializer.ComputeShader = Shader;
-		FPipelineCompileQueue Owner(Capabilities(), Backend([](const auto&, const auto&) {
-			return MakeRefCount<FRHIComputePipelineState>();
-		}));
-		std::promise<FRHIPipelineCreationRequest> Submitted;
-		auto SubmittedFuture = Submitted.get_future();
-		auto Scope = CreateTaskScope();
-		Tasks::FTaskGroup Group(Scope.GetToken());
-		auto Producer = Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, {}, [&] {
-			auto Request = Owner.RequestCompute(Initializer, "single worker caller");
-			EXPECT_FALSE(Request.Wait());
-			EXPECT_EQ(Request.GetRejection(), ERHIPipelineRequestRejection::Unsupported);
-			Submitted.set_value(Request);
-		});
-		EXPECT_EQ(SubmittedFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
-		auto Request = SubmittedFuture.get();
-		EXPECT_FALSE(Request.IsAccepted());
-		Request = Owner.RequestCompute(Initializer, "owning caller");
-		EXPECT_TRUE(Request.Wait());
-		auto Completion = Request.GetTaskHandle();
-		Request = {};
-		Owner.ReleaseResources();
-		EXPECT_EQ(Owner.GetStatistics().ActiveObservers, 0u);
-		EXPECT_TRUE(Completion.IsComplete());
-		Group.Close();
-		EXPECT_EQ(Scope.Wait(), ETaskScopeWaitResult::Quiescent);
-	}
+
 
 	TEST_F(FRHIPipelineCreationTests, MixedBatchPreservesPartialResultsAndRecoverableFailuresCanRetry)
 	{

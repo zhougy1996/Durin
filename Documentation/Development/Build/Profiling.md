@@ -230,14 +230,13 @@ include their nested zones; invocation counts are not frame-wide totals.
 ### Task Correlation And Owner Plots
 
 Profiling builds correlate task phases with the same process-unique nonzero task
-id, optional fixed-width numeric scope id, and bounded attribution exposed by
-task diagnostics. Unscoped work reports scope id zero. Admission emits an
+id and bounded attribution exposed by task diagnostics. Admission emits an
 `enqueue` message after aggregate charging. A winning start opens the stable
 `Task.Execute` CPU zone and attaches one zone-text record containing phase, task
-id, scope id, owner, category, target, terminal reason, and the bounded task
+id, owner, category, target, terminal reason, and the bounded task
 debug name. The winning terminal transition emits one `terminal` message after
 aggregate accounting. The pinned Tracy API has no native cross-thread flow
-primitive, so task and scope ids are correlation values; Durin does not retain
+primitive, so task ids are correlation values; Durin does not retain
 task history to draw synthetic arrows.
 
 The engine frame boundary publishes six fixed plots per registered pair:

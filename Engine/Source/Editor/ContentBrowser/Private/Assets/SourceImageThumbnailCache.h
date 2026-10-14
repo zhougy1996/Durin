@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 
 #include "Thumbnail/ThumbnailManager.h"
-#include "Threading/Task.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {
@@ -24,7 +23,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		// Test/local caches may be unscoped; production ContentBrowser construction
 		// supplies its module-owned task scope.
 		FSourceImageThumbnailCache();
-		explicit FSourceImageThumbnailCache(FTaskScopeToken TaskScope);
 		~FSourceImageThumbnailCache();
 
 		FSourceImageThumbnailCache(const FSourceImageThumbnailCache&) = delete;

@@ -16,7 +16,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	public:
 		// Standalone synchronous mode supports callers without a frame pump.
 		// Editor panels opt into asynchronous mode and pump before drawing.
-		explicit FContentBrowserModel(bool bAsync = false, FTaskScopeToken Scope = {});
+		explicit FContentBrowserModel(bool bAsync = false);
 		~FContentBrowserModel();
 		// Owner-thread, nonblocking frame pump; true means item publication or failure
 		// completed and the panel may repair its selection against current rows.
@@ -134,7 +134,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		FEntryStatusQuery EntryStatusQuery;
 		bool bAsync = false;
 		bool bSnapshotPublicationSuspended = false;
-		FTaskScopeToken TaskScope;
 		uint64 SnapshotVersion = 0;
 		uint64 ItemsRequestCount = 0;
 		bool bActiveTreePublishable = false;

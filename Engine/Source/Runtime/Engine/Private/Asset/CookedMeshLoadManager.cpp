@@ -171,7 +171,6 @@ namespace Durin
 		mutable std::mutex Mutex;
 		FCookedMeshLoadManagerConfig Config;
 		ECookedMeshManagerState ManagerState = ECookedMeshManagerState::Stopped;
-		FTaskScope Scope;
 		FTaskAttribution Attribution;
 		uint64 NextId = 1;
 		uint64 InFlightEstimatedBytes = 0;
@@ -205,8 +204,6 @@ namespace Durin
 			|| State->Config.MaxPendingCompletionBytes == 0
 			|| State->Config.MaxIoPollsPerPump == 0
 			|| State->Config.MaxCompletionsPerPump == 0) return false;
-		State->Scope = CreateTaskScope();
-		if (!State->Scope.IsValid()) return false;
 		State->Attribution = RegisterTaskAttribution("Engine", "CookedMeshLoad");
 		State->ManagerState = ECookedMeshManagerState::Accepting;
 		return true;
@@ -438,7 +435,7 @@ namespace Durin
 				}
 				Flight->Phase.store(EFlightPhase::Working, std::memory_order_release);
 				auto SharedState = State;
-				Flight->Task = Tasks::LaunchTask(
+				Flight->Task = Durin::FTaskHandle(Tasks::LaunchTask(
 					"CookedMeshDecode",
 					[SharedState, Flight, Buffers = std::move(Buffers)](
 						const FTaskCancellationToken& Token) mutable {
@@ -467,8 +464,7 @@ namespace Durin
 						SharedState->QueueCompletion(
 							{Flight, std::move(Result), Terminal});
 					}, {.Cancellation = Flight->Cancellation.GetToken(),
-						.Attribution = State->Attribution,
-						.Scope = State->Scope.GetToken()}).GetTaskHandle();
+						.Attribution = State->Attribution}));
 
 			}
 			else if (Phase == EFlightPhase::Working && Flight->Task.IsComplete())
@@ -489,6 +485,10 @@ namespace Durin
 			{
 				std::scoped_lock Lock(State->Mutex);
 				if (State->Mailbox.empty()) break;
+				// Publication can race callable retirement. Keep the flight and its
+				// task tracked until Shutdown can safely release the resource owner.
+				const auto& Worker = State->Mailbox.front().Flight->Task;
+				if (Worker.IsValid() && !Worker.IsComplete()) break;
 				Completion = std::move(State->Mailbox.front());
 				State->Mailbox.pop_front();
 				check(State->PendingCompletionBytes >= Completion.Result.RetainedBytes);
@@ -637,7 +637,6 @@ namespace Durin
 			State->PendingRequests.clear();
 			State->PendingRequestEstimatedBytes = 0;
 		}
-		State->Scope.Close(ETaskScopeCloseMode::Cancel);
 		while (true)
 		{
 			{
@@ -647,11 +646,9 @@ namespace Durin
 			Pump();
 			std::this_thread::yield();
 		}
-		(void)State->Scope.Wait();
 		std::scoped_lock Lock(State->Mutex);
 		State->Mailbox.clear();
 		State->PendingCompletionBytes = 0;
-		State->Scope = {};
 		State->ManagerState = ECookedMeshManagerState::Stopped;
 	}
 

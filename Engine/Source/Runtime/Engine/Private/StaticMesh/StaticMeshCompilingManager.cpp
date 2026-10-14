@@ -105,10 +105,9 @@ namespace Durin
 			if (bAccepting) return {};
 			if (!Records.empty()) return {EAssetCompilerStartError::Undrained, Records.size()};
 			if (!IsTaskSchedulerRunning()) return {EAssetCompilerStartError::SchedulerUnavailable};
-			Scope = CreateTaskScope();
-			bAccepting = Scope.IsValid();
+			bAccepting = true;
 			bShutdown = false;
-			return {bAccepting ? EAssetCompilerStartError::None : EAssetCompilerStartError::TaskScopeUnavailable};
+			return {};
 		}
 		auto StopAdmission() -> void override
 		{
@@ -244,13 +243,8 @@ namespace Durin
 			bShutdown = true;
 			for (const auto& Record : Records)
 				Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
-			// Pump suspended cache requests before closing the scope borrowed by their continuations.
+			// Records retain their build tasks and suspended cache operations until retirement.
 			FinishAllCompilation();
-			if (Scope.IsValid())
-			{
-				Scope.Close(ETaskScopeCloseMode::Drain);
-				Scope.Wait();
-			}
 		}
 		~FStaticMeshCompilingManager() override { Shutdown(); }
 
@@ -364,9 +358,8 @@ namespace Durin
 		auto Launch(const std::shared_ptr<FRecord>& Record, bool bDispatch, std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot> Slot) -> FTaskHandle
 		{
 			Tasks::FTaskExecutionOptions Options;
-			Options.Scope = Scope.GetToken();
 			Options.Priority = Record->Priority == EStaticMeshCompilationPriority::Interactive ? ETaskPriority::High : ETaskPriority::Low;
-			auto Task = Tasks::LaunchTask("StaticMesh.Build", [Slot = std::move(Slot), Work = Record->Work, Hook = PhaseHook, Id = Record->Diagnostic.RequestId, BuilderVersion = Record->Diagnostic.RenderBuilderVersion, bDispatch](const FTaskCancellationToken& Token) {
+			auto Task = Durin::FTaskHandle(Tasks::LaunchTask("StaticMesh.Build", [Slot = std::move(Slot), Work = Record->Work, Hook = PhaseHook, Id = Record->Diagnostic.RequestId, BuilderVersion = Record->Diagnostic.RenderBuilderVersion, bDispatch](const FTaskCancellationToken& Token) {
 						AssetPrivate::FAssetBuildExecutionSlot::FWorkScope Execution{*Slot};
 						const auto Cancellation = Work->Cancellation.WithObserver([Token] { return Token.IsCancellationRequested(); });
 						try
@@ -413,7 +406,7 @@ namespace Durin
 #endif
 						Work->ReleaseInput();
 						Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
-						}, Options).GetTaskHandle();
+						}, Options));
 			Record->Task = Task;
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
 			if (bDispatch) Enqueue(Record, false, Task);
@@ -632,7 +625,6 @@ namespace Durin
 		std::vector<std::shared_ptr<FRecord>> Records;
 		std::deque<FStaticMeshCompilationDiagnostic> History;
 		std::shared_ptr<AssetPrivate::FMeshBuildBudget> AdmissionState = AssetPrivate::GetMeshBuildBudget();
-		FTaskScope Scope;
 		std::shared_ptr<AssetPrivate::FAssetBuildScheduler> Scheduler = AssetPrivate::GetAssetBuildScheduler();
 		FObjectKey PublishingOwner;
 		uint64 NextRequest = 1;

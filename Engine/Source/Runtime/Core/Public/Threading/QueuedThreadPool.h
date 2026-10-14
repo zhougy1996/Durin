@@ -36,13 +36,9 @@ namespace Durin
 			const char* TaskName,
 			FQueuedWorkFunction&& Work,
 			FQueuedWorkDiscardFunction&& Discard = {},
-			uint64 OwnerTag = 0,
 			EQueuedWorkPriority Priority = EQueuedWorkPriority::Normal
 		) -> bool;
 		CORE_API auto TryExecuteOneQueuedTask() -> bool;
-		// Waits until queued and executing work carrying OwnerTag has released its callable storage.
-		CORE_API auto WaitForOwnerTagIdle(uint64 OwnerTag, double TimeoutSeconds) -> bool;
-		CORE_API auto GetOwnerTagOutstandingCount(uint64 OwnerTag) const -> uint32;
 
 		// Returns false instead of deadlocking when called by one of this pool's workers.
 		CORE_API auto WaitForIdle() -> bool;

@@ -82,9 +82,6 @@ namespace Durin
 
 	LEVELEDITOR_API auto FLevelEditorModule::StartupModule() -> void
 	{
-		ThumbnailOperations =
-			FModuleStartup::CreateAsyncOperationGroup("SourceImageThumbnail.Decodes");
-		require(ThumbnailOperations.IsValid());
 		ProjectDefaultLevelReferenceStore =
 			std::make_unique<FProjectDefaultLevelReferenceStore>(
 				[this](const FPackagePath& Path) {
@@ -126,11 +123,7 @@ namespace Durin
 
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
 	{
-		ThumbnailOperations.Close(EAsyncOperationCloseMode::Cancel, EAsyncOperationAbortReason::ModuleShutdown);
 		UnregisterLevelEditorWorkspace();
-		if (ThumbnailOperations.IsValid())
-			require(ThumbnailOperations.Drain() == EAsyncOperationDrainStatus::Succeeded);
-		ThumbnailOperations = {};
 		if (GEditor)
 			checkf(GEditor->GetTransactor()
 				->DiscardCustomChangesByModule("LevelEditor"),
@@ -158,7 +151,7 @@ namespace Durin
 		if (WorkspaceRegistration && WorkspaceRegistration->IsValid()) return false;
 		WorkspaceRegistration.reset();
 		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(
-			*SessionSettings, WorkspaceManager, ThumbnailOperations.GetTaskScope(),
+			*SessionSettings, WorkspaceManager,
 			std::move(ContentBrowserCallbacks), std::move(OpenProjectBrowser));
 		Workspace->Construct();
 		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({

@@ -65,8 +65,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		FQueryReimport InQueryReimport,
 		FReimport InReimport,
 		std::shared_ptr<FMountedContentReconciliationState>
-			InMountedContentReconciliationState,
-		FTaskScopeToken InThumbnailTaskScope)
+			InMountedContentReconciliationState)
 		: PresentationSettings(std::move(InSettings))
 		, SavePresentationSettings(std::move(InSaveSettings))
 		, OpenAsset(std::move(InOpenAsset))
@@ -81,15 +80,14 @@ namespace Durin::Editor::ContentBrowser::Private
 				: uint64{0},
 			GetAssetCatalogRevision(),
 			std::move(InMountedContentReconciliationState))
-		, Model(true, InThumbnailTaskScope)
+		, Model(true)
 		, Operations(FContentBrowserPaths{}, {}, {}, {},
 			std::move(InNotifyMountedContentMutation), std::move(InCanMutate))
 		, IconSize(PresentationSettings.IconSize)
 		, DirectoryTreeWidth(PresentationSettings.TreeWidth)
 	{
 		Model.RefreshMountSnapshot();
-		ThumbnailReferences = std::make_unique<FContentBrowserThumbnailReferences>(
-			std::move(InThumbnailTaskScope));
+		ThumbnailReferences = std::make_unique<FContentBrowserThumbnailReferences>();
 		ViewMode = static_cast<EContentBrowserViewMode>(
 			PresentationSettings.ViewMode);
 		bIconSizeLocked = PresentationSettings.bIconSizeLocked;

@@ -76,12 +76,7 @@ namespace Durin
 		return GCurrentModuleStartupStack.back().ModuleOwner;
 	}
 
-	auto FModuleStartup::CreateAsyncOperationGroup(
-		FName GroupName) -> FAsyncOperationGroup
-	{
-		return Detail::CreateAsyncOperationGroup(
-			GetCurrentOwner(), std::move(GroupName));
-	}
+
 
 	auto FModuleStartup::GetModuleName() -> FName
 	{

@@ -4,7 +4,6 @@
 
 #include "DObject/AssetPath.h"
 #include "AssetRegistry/ContentChanges.h"
-#include "Threading/Task.h"
 #include "ContentBrowserAPI.h"
 
 namespace Durin::Editor::ContentBrowser
@@ -200,7 +199,6 @@ namespace Durin::Editor::ContentBrowser
 		// Receives the qualified asset class name. Must not load assets or perform source I/O.
 		std::function<FReimportAvailability(std::string_view)> QueryReimport;
 		std::function<void(bool, std::string, std::function<void(std::string)>)> Reimport;
-		FTaskScopeToken ThumbnailTaskScope;
 		std::shared_ptr<FMountedContentReconciliationState> ReconciliationState;
 	};
 

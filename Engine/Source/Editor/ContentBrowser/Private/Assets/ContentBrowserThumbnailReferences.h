@@ -4,7 +4,6 @@
 
 #include "Thumbnail/AssetThumbnail.h"
 #include "AssetRegistry/Catalog.h"
-#include "Threading/Task.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {
@@ -28,7 +27,6 @@ namespace Durin::Editor::ContentBrowser::Private
 	public:
 		// Test/local caches may use the source cache's local task scope.
 		FContentBrowserThumbnailReferences();
-		explicit FContentBrowserThumbnailReferences(FTaskScopeToken ThumbnailTaskScope);
 		~FContentBrowserThumbnailReferences();
 
 		FContentBrowserThumbnailReferences(const FContentBrowserThumbnailReferences&) = delete;

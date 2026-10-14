@@ -1596,7 +1596,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		std::vector<Durin::FTaskHandle> AbandonedCompletions;
 		{
 			auto Abandoned = StartStaticMeshPreparation(LargeInputs, EStaticMeshPreparationPolicy::Tasks);
-			for (const auto& Slot : Abandoned.Active) AbandonedCompletions.push_back(Slot.Task.GetTaskHandle());
+			for (const auto& Slot : Abandoned.Active) AbandonedCompletions.push_back(Durin::FTaskHandle(Slot.Task));
 		}
 		ASSERT_EQ(AbandonedCompletions.size(), 8u);
 		for (const auto& Completion : AbandonedCompletions)

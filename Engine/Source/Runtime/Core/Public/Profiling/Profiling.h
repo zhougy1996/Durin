@@ -132,7 +132,7 @@ namespace Durin::Profiling
 			inline auto FormatTaskProfilerMessage(
 				const char* Phase,
 				uint64 TaskId,
-				uint64 ScopeId,
+
 				uint16 OwnerId,
 				uint16 CategoryId,
 				uint8 Target,
@@ -143,12 +143,12 @@ namespace Durin::Profiling
 				FTaskProfilerMessage Message;
 				const int Length = DebugName
 					? std::snprintf(Message.Bytes.data(), Message.Bytes.size(),
-						"task phase=%s id=%llu scope=%llu owner=%s category=%s target=%u reason=%u name=%s",
-						Phase, static_cast<unsigned long long>(TaskId), static_cast<unsigned long long>(ScopeId), Slot.Owner.data(), Slot.Category.data(),
+						"task phase=%s id=%llu owner=%s category=%s target=%u reason=%u name=%s",
+						Phase, static_cast<unsigned long long>(TaskId), Slot.Owner.data(), Slot.Category.data(),
 						static_cast<unsigned>(Target), static_cast<unsigned>(TerminalReason), DebugName)
 					: std::snprintf(Message.Bytes.data(), Message.Bytes.size(),
-						"task phase=%s id=%llu scope=%llu owner=%s category=%s target=%u reason=%u",
-						Phase, static_cast<unsigned long long>(TaskId), static_cast<unsigned long long>(ScopeId), Slot.Owner.data(), Slot.Category.data(),
+						"task phase=%s id=%llu owner=%s category=%s target=%u reason=%u",
+						Phase, static_cast<unsigned long long>(TaskId), Slot.Owner.data(), Slot.Category.data(),
 						static_cast<unsigned>(Target), static_cast<unsigned>(TerminalReason));
 				Message.Length = Length <= 0 ? 0 : std::min(static_cast<size_t>(Length), Message.Bytes.size() - 1);
 				return Message;
@@ -179,21 +179,21 @@ namespace Durin::Profiling
 			Slot.bRegistered = true;
 		}
 
-		inline auto TaskEnqueued(uint64 TaskId, uint64 ScopeId, uint16 OwnerId, uint16 CategoryId, uint8 Target) noexcept -> void
+		inline auto TaskEnqueued(uint64 TaskId,  uint16 OwnerId, uint16 CategoryId, uint8 Target) noexcept -> void
 		{
 			if (!TracyIsConnected) return;
 			const Private::FTaskProfilerMessage Message = Private::FormatTaskProfilerMessage(
-				"enqueue", TaskId, ScopeId, OwnerId, CategoryId, Target, 0);
+				"enqueue", TaskId, OwnerId, CategoryId, Target, 0);
 			TracyMessage(Message.Bytes.data(), Message.Length);
 		}
 
-		inline auto TaskExecution(uint64, uint64, uint16, uint16, uint8) noexcept -> void {}
+		inline auto TaskExecution(uint64, uint16, uint16, uint8) noexcept -> void {}
 
-		inline auto TaskTerminal(uint64 TaskId, uint64 ScopeId, uint16 OwnerId, uint16 CategoryId, uint8 Target, uint8 TerminalReason) noexcept -> void
+		inline auto TaskTerminal(uint64 TaskId,  uint16 OwnerId, uint16 CategoryId, uint8 Target, uint8 TerminalReason) noexcept -> void
 		{
 			if (!TracyIsConnected) return;
 			const Private::FTaskProfilerMessage Message = Private::FormatTaskProfilerMessage(
-				"terminal", TaskId, ScopeId, OwnerId, CategoryId, Target, TerminalReason);
+				"terminal", TaskId, OwnerId, CategoryId, Target, TerminalReason);
 			TracyMessage(Message.Bytes.data(), Message.Length);
 		}
 
@@ -228,11 +228,11 @@ namespace Durin::Profiling
 			const std::string_view DurinProfileTextView{DurinProfileTextStorage}; \
 			ZoneText(DurinProfileTextView.data(), DurinProfileTextView.size()); \
 		} } while (false)
-	#define DURIN_PROFILE_TASK_EXECUTION_ZONE(DebugName, TaskId, ScopeId, OwnerId, CategoryId, Target) \
+	#define DURIN_PROFILE_TASK_EXECUTION_ZONE(DebugName, TaskId, OwnerId, CategoryId, Target) \
 		ZoneScopedN("Task.Execute"); \
 		if (ZoneIsActive) { \
 			const auto DurinTaskProfilerExecutionMessage = ::Durin::Profiling::Private::FormatTaskProfilerMessage( \
-				"execute", TaskId, ScopeId, OwnerId, CategoryId, Target, 0, DebugName); \
+				"execute", TaskId, OwnerId, CategoryId, Target, 0, DebugName); \
 			ZoneText(DurinTaskProfilerExecutionMessage.Bytes.data(), DurinTaskProfilerExecutionMessage.Length); \
 		}
 	#define DURIN_PROFILE_FRAME_MARK() FrameMark
@@ -243,17 +243,17 @@ namespace Durin::Profiling
 #else
 	namespace Durin::Profiling
 	{
-		inline auto TaskEnqueued(uint64, uint64, uint16, uint16, uint8) noexcept -> void {}
-		inline auto TaskExecution(uint64, uint64, uint16, uint16, uint8) noexcept -> void {}
-		inline auto TaskTerminal(uint64, uint64, uint16, uint16, uint8, uint8) noexcept -> void {}
+		inline auto TaskEnqueued(uint64, uint16, uint16, uint8) noexcept -> void {}
+		inline auto TaskExecution(uint64, uint16, uint16, uint8) noexcept -> void {}
+		inline auto TaskTerminal(uint64, uint16, uint16, uint8, uint8) noexcept -> void {}
 		inline auto TaskAggregatePlots(uint16, uint16, uint64, uint64, uint64, uint64, uint64, uint64) noexcept -> void {}
 	}
 
 	#define DURIN_PROFILE_CPU_ZONE() ((void)0)
 	#define DURIN_PROFILE_CPU_ZONE_NAMED(Name) ((void)0)
 	#define DURIN_PROFILE_CPU_ZONE_TEXT(Text) ((void)0)
-	#define DURIN_PROFILE_TASK_EXECUTION_ZONE(DebugName, TaskId, ScopeId, OwnerId, CategoryId, Target) \
-		::Durin::Profiling::TaskExecution(TaskId, ScopeId, OwnerId, CategoryId, Target)
+	#define DURIN_PROFILE_TASK_EXECUTION_ZONE(DebugName, TaskId, OwnerId, CategoryId, Target) \
+		::Durin::Profiling::TaskExecution(TaskId, OwnerId, CategoryId, Target)
 	#define DURIN_PROFILE_FRAME_MARK() ((void)0)
 	#define DURIN_PROFILE_STARTUP_FIRST_PRESENT() ((void)0)
 	#define DURIN_PROFILE_THREAD(Name) ((void)0)

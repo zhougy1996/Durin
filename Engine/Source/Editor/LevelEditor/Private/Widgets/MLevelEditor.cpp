@@ -49,12 +49,10 @@ namespace Durin::Editor::Level
 	// MLevelEditor is the composition root for the editor-specific controllers.
 	MLevelEditor::MLevelEditor(FLevelEditorSessionSettings& InSessionSettings,
 		::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
-		FTaskScopeToken InThumbnailTaskScope,
 		FContentBrowserCallbacks InContentBrowserCallbacks,
 		std::function<void()> InOpenProjectBrowser)
 		: SessionSettings(InSessionSettings)
 		, WorkspaceManager(InWorkspaceManager)
-		, ThumbnailTaskScope(std::move(InThumbnailTaskScope))
 		, ContentBrowserCallbacks(std::move(InContentBrowserCallbacks))
 		, OpenProjectBrowser(std::move(InOpenProjectBrowser))
 	{

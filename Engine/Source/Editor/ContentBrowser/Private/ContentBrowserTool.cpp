@@ -19,8 +19,7 @@ namespace Durin::Editor::ContentBrowser
 			std::move(Services.NotifyMountedContentMutation),
 			std::move(Services.QueryReimport),
 			std::move(Services.Reimport),
-			std::move(Services.ReconciliationState),
-			std::move(Services.ThumbnailTaskScope));
+			std::move(Services.ReconciliationState));
 		Panel->SetContentChangeServices(std::move(Services.CaptureMountedContentChanges),
 			std::move(Services.NotifyScopedContentMutation));
 		return Panel;

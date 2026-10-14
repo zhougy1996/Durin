@@ -124,7 +124,6 @@ namespace Durin
 		std::vector<std::shared_ptr<FAsyncLoadHandle>> Pending;
 		std::vector<std::shared_ptr<FAsyncLoadHandle>> Deliveries;
 		std::vector<std::unique_ptr<FJob>> Jobs;
-		std::unique_ptr<Tasks::FTaskGroup> Group;
 		bool bProcessing = false;
 
 		auto Complete(const std::shared_ptr<FAsyncLoadHandle>& Handle, FAssetReadResult Result,
@@ -311,19 +310,13 @@ namespace Durin
 					if (Entry->RedirectDestination.IsValid()) Paths.push_back(Entry->RedirectDestination);
 					Sources.push_back(*Entry);
 				}
-				if (!Group) Group = std::make_unique<Tasks::FTaskGroup>();
-				Job->Read = Tasks::LaunchTask(*Group, Tasks::ETaskExecutor::BlockingIO,
+				Job->Read = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
 					{.DebugName = "Asset.PackageRead", .Cancellation = Job->Cancellation.GetToken()},
 					[Sources = std::move(Sources)](const FTaskCancellationToken& Token) mutable {
 						return ReadInputs(std::move(Sources), Token);
 					});
 				State.State = EAsyncLoadState::Loading;
 				Jobs.push_back(std::move(Job));
-			}
-			if (Jobs.empty() && Group)
-			{
-				Group->Close();
-				Group.reset();
 			}
 		}
 
@@ -335,15 +328,14 @@ namespace Durin
 			Pending.clear();
 			for (auto& Handle : Deliveries) Handle->Cancel();
 			Deliveries.clear();
-			if (Group) Group->Close(ETaskScopeCloseMode::Cancel);
 			for (auto& Job : Jobs)
 			{
 				for (auto& Handle : Job->Handles) Handle->Cancel();
 				Job->Cancellation.RequestCancellation();
-				(void)WaitTask(Job->Read.GetTaskHandle());
+				Tasks::Cancel(Job->Read);
+				(void)WaitTask(Durin::FTaskHandle(Job->Read));
 			}
 			Jobs.clear();
-			Group.reset();
 		}
 	};
 

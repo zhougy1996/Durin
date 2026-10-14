@@ -85,12 +85,7 @@ namespace Durin
 			FeatureRegistration =
 				FModuleStartup::RegisterFeature<Tests::IDynamicUnloadFixtureFeature>(*this);
 
-			AsyncOperations = FModuleStartup::CreateAsyncOperationGroup(
-				"DynamicUnloadFixture.Drained");
-			FailureOperations = FModuleStartup::CreateAsyncOperationGroup(
-				"DynamicUnloadFixture.Failures");
-			if (!FeatureRegistration.IsValid()
-				|| !AsyncOperations.IsValid() || !FailureOperations.IsValid())
+			if (!FeatureRegistration.IsValid())
 				throw std::runtime_error(
 					"Dynamic unload fixture failed to create its owned boundaries.");
 			ConsoleCommand = FConsoleCommandRegistry::Get().RegisterCommand({
@@ -112,8 +107,6 @@ namespace Durin
 			if (FeatureRegistration.IsValid()
 				&& FeatureRegistration.Reset(ShutdownTimeout) != EModularFeatureRetirementStatus::Succeeded)
 				throw std::runtime_error("Fixture feature cleanup failed");
-			AsyncOperations.Close(EAsyncOperationCloseMode::Drain);
-			FailureOperations.Close(EAsyncOperationCloseMode::Cancel, EAsyncOperationAbortReason::ModuleShutdown);
 			RecordHostEvent(
 				Tests::EDynamicUnloadFixtureEvent::Shutdown,
 				InstanceSerial);
@@ -121,13 +114,14 @@ namespace Durin
 				"Injected dynamic unload fixture shutdown failure.");
 			FConsoleCommandRegistry::Get().UnregisterCommand(ConsoleCommand);
 			ConsoleCommand = 0;
+			if (bRetainResult || (BlockingWorker.IsValid() && !BlockingWorker.IsComplete()))
+				throw std::runtime_error("Fixture asynchronous cleanup failed");
+			if (Worker.IsValid()) require(Worker.Wait().WaitStatus == ETaskWaitStatus::Completed);
+			if (Publisher.IsValid()) require(WaitTask(Publisher).WaitStatus == ETaskWaitStatus::Completed);
 			Publisher = {};
 			Worker = {};
 			BlockingWorker = {};
 			if (!bRetainResult) RetainedResult = {};
-			if ((AsyncOperations.IsValid() && AsyncOperations.Drain(ShutdownTimeout) != EAsyncOperationDrainStatus::Succeeded)
-				|| (FailureOperations.IsValid() && FailureOperations.Drain(ShutdownTimeout) != EAsyncOperationDrainStatus::Succeeded))
-				throw std::runtime_error("Fixture asynchronous cleanup failed");
 		}
 
 		auto GetInstanceSerial() const -> uint64 override
@@ -153,8 +147,6 @@ namespace Durin
 			if (Worker.IsValid() || Publisher.IsValid()) return false;
 			auto Capture = std::make_shared<FAsyncCaptureProbe>(InstanceSerial);
 			Tasks::FTaskExecutionOptions WorkerOptions;
-			WorkerOptions.Scope = AsyncOperations.GetTaskScope();
-			WorkerOptions.Cancellation = AsyncOperations.GetCancellationToken();
 			Worker = Tasks::Share(Tasks::LaunchTask(
 				"DynamicUnloadFixture.Worker",
 				[Capture, Serial = InstanceSerial] {
@@ -167,10 +159,8 @@ namespace Durin
 			if (!Worker.IsValid()) return false;
 
 			Tasks::FTaskExecutionOptions PublisherOptions;
-			PublisherOptions.Scope = AsyncOperations.GetTaskScope();
-			PublisherOptions.Cancellation = AsyncOperations.GetCancellationToken();
 			PublisherOptions.DebugName = "DynamicUnloadFixture.Publish";
-			Publisher = Tasks::ThenCompleted(Worker, Tasks::ETaskExecutor::GameThreadDeferred, PublisherOptions,
+			Publisher = Durin::FTaskHandle(Tasks::ThenCompleted(Worker, Tasks::ETaskExecutor::Worker, PublisherOptions,
 				[Capture, Serial = InstanceSerial](const Tasks::TSharedTask<uint64>& Outcome) {
 					if (Outcome.GetState() == ETaskState::Succeeded
 						&& Outcome.GetResult() == Serial)
@@ -179,7 +169,7 @@ namespace Durin
 							Tests::EDynamicUnloadFixtureEvent::AsyncPublished,
 							Serial);
 					}
-				}).GetTaskHandle();
+				}));
 			return Publisher.IsValid();
 		}
 
@@ -187,8 +177,6 @@ namespace Durin
 		{
 			if (RetainedResult.IsValid()) return false;
 			Tasks::FTaskExecutionOptions Options;
-			Options.Scope = FailureOperations.GetTaskScope();
-			Options.Cancellation = FailureOperations.GetCancellationToken();
 			RetainedResult = Tasks::Share(Tasks::LaunchTask(
 				"DynamicUnloadFixture.RetainedResult",
 				[Serial = InstanceSerial] {
@@ -206,9 +194,7 @@ namespace Durin
 		{
 			if (BlockingWorker.IsValid()) return false;
 			Tasks::FTaskExecutionOptions Options;
-			Options.Scope = FailureOperations.GetTaskScope();
-			Options.Cancellation = FailureOperations.GetCancellationToken();
-			BlockingWorker = Tasks::LaunchTask(
+			BlockingWorker = Durin::FTaskHandle(Tasks::LaunchTask(
 				"DynamicUnloadFixture.BlockingWorker",
 				[Serial = InstanceSerial] {
 					RecordHostEvent(
@@ -219,7 +205,7 @@ namespace Durin
 							Host.WaitForAsyncRelease(Serial);
 						});
 				},
-				Options).GetTaskHandle();
+				Options));
 			return BlockingWorker.IsValid();
 		}
 
@@ -241,8 +227,6 @@ namespace Durin
 		FName ModuleName;
 		FModularFeatureRegistration FeatureRegistration;
 
-		FAsyncOperationGroup AsyncOperations;
-		FAsyncOperationGroup FailureOperations;
 		Tasks::TSharedTask<uint64> Worker;
 		FTaskHandle Publisher;
 		Tasks::TSharedTask<uint64> RetainedResult;

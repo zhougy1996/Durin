@@ -528,7 +528,7 @@ Engine registers `DMaterial` and `DMaterialInstance` to the built-in `Durin.Mate
 startup and shutdown. `DMaterialInterface` owns non-reflected compilation state.
 GameThread snapshots root graph/declarations and effective owner properties into a value-owned request,
 normalizes it to obtain the M5 program identity, and submits the expensive
-compiler call to the `Engine/MaterialCompile` task scope. Workers retain no
+compiler call through its owned Worker task handles. Workers retain no
 `DObject`, editor, Renderer, RHI, registry, or borrowed-container state. The
 only synchronous compatibility path is process bootstrap or tooling without an
 active compiling manager; construction in a running engine does not compile

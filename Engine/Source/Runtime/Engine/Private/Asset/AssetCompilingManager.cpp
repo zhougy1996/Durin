@@ -302,7 +302,6 @@ namespace Durin
 		case EAssetCompilerStartError::None: return {};
 		case EAssetCompilerStartError::SchedulerUnavailable: return "Asset compilation requires a running task scheduler.";
 		case EAssetCompilerStartError::Undrained: return std::format("Asset compiler still owns {} pending requests.", Result.PendingRequests);
-		case EAssetCompilerStartError::TaskScopeUnavailable: return "Asset compiler task scope could not start.";
 		case EAssetCompilerStartError::StateUnavailable: return "Asset compiler state is unavailable.";
 		}
 		return {};

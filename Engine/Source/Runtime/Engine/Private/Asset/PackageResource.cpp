@@ -11,20 +11,6 @@ namespace Durin
 {
 	namespace AssetPrivate
 	{
-		// Keeps root admission open for copied requests and their later transforms.
-		struct FPackageTaskLifetime
-		{
-			FTaskScope Scope = CreateTaskScope();
-			auto GetAdmissionToken() const -> FTaskScopeToken
-			{
-				// Nested reads participate in their caller's scope. A fresh package
-				// scope would cross the executing task's ownership boundary.
-				const auto Token = Scope.GetToken();
-				return Token.CanLaunchFromCurrentContext() ? Token : FTaskScopeToken{};
-			}
-			~FPackageTaskLifetime() { Scope.Close(ETaskScopeCloseMode::Drain); }
-		};
-
 		struct FPackageResourceRequestState
 		{
 			using FSharedResult = Tasks::TSharedTask<FPackageResourceReadResult>;
@@ -37,11 +23,10 @@ namespace Durin
 			std::variant<FPackageResourceReadResult, FSharedResult> Result;
 			std::atomic_bool bCancelled = false;
 			std::function<void()> OnCancel;
-			std::shared_ptr<FPackageTaskLifetime> Lifetime;
 
 			auto Completion() const -> Durin::FTaskHandle
 			{
-				if (const auto* Task = std::get_if<FSharedResult>(&Result)) return Task->GetTaskHandle();
+				if (const auto* Task = std::get_if<FSharedResult>(&Result)) return *Task;
 				return {};
 			}
 			auto Bind(Tasks::TTask<FPackageResourceReadResult> Task) -> void
@@ -601,7 +586,6 @@ namespace Durin
 		{
 			std::unique_lock Lock(Input.State->Mutex);
 			Input.State->Bound.wait(Lock, [&Input] { return !Input.State->bBinding; });
-			State->Lifetime = Input.State->Lifetime;
 		}
 		State->OnCancel = [Input]() mutable { Input.Cancel(); };
 		Tasks::FTaskExecutionOptions Options;
@@ -617,8 +601,6 @@ namespace Durin
 		}
 		else
 		{
-			State->Lifetime = std::make_shared<AssetPrivate::FPackageTaskLifetime>();
-			Options.Scope = State->Lifetime->GetAdmissionToken();
 			State->Bind(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options,
 				[Input = std::move(Input), Function = std::move(Function)]() mutable { return Function(Input.Wait()); }));
 		}
@@ -639,7 +621,6 @@ namespace Durin
 				EPackageResourceReadStatus::InvalidRange, {.Reason = EPackageResourceReadReason::InvalidRange, .Offset = Offset, .Size = Size, .Extent = SegmentExtent}));
 
 		auto State = std::make_shared<AssetPrivate::FPackageResourceRequestState>(true);
-		State->Lifetime = std::make_shared<AssetPrivate::FPackageTaskLifetime>();
 		{
 			std::lock_guard Lock(Mutex);
 			if (bRetired) return CompleteRetired();
@@ -652,7 +633,6 @@ namespace Durin
 		}
 		auto Self = shared_from_this();
 		Tasks::FTaskExecutionOptions Options;
-		Options.Scope = State->Lifetime->GetAdmissionToken();
 		Options.DebugName = "PackageResource.ReadRange";
 		Options.Attribution = PackageResourceAttribution();
 		State->Bind(Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, Options,

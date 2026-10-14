@@ -220,7 +220,7 @@ namespace Durin
 		std::atomic<bool> bRenderCommandAccepted = false;
 		std::atomic<bool> bRenderCommandExecuted = false;
 		std::atomic<bool> bTaskAdmissionRejected = false;
-		FTaskHandle Probe = Tasks::LaunchTask("RenderLifecycle.AdmissionProbe", [&]() {
+		FTaskHandle Probe = Durin::FTaskHandle(Tasks::LaunchTask("RenderLifecycle.AdmissionProbe", [&]() {
 			ProbeStarted.Trigger();
 			while (IsTaskSchedulerRunning())
 			{
@@ -236,7 +236,7 @@ namespace Durin
 			bTaskAdmissionRejected.store(
 				!Private::TryLaunchCancelableTaskWithCompletion("RenderLifecycle.RejectedAfterClose", [](const FTaskCancellationToken&) {}, {}, {}).HasValue(),
 				std::memory_order_release);
-		}).GetTaskHandle();
+		}));
 		ASSERT_TRUE(ProbeStarted.WaitFor(1.0));
 
 		ShutdownTaskScheduler(true);
@@ -267,7 +267,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 
 		FThreadEvent RunningTaskStarted;
-		FTaskHandle RunningTask = Tasks::LaunchTask(
+		FTaskHandle RunningTask = Durin::FTaskHandle(Tasks::LaunchTask(
 			"RenderLifecycle.RunningDuringDiscard",
 			[&RunningTaskStarted](const FTaskCancellationToken& Token) {
 				RunningTaskStarted.Trigger();
@@ -275,10 +275,10 @@ namespace Durin
 				{
 					std::this_thread::yield();
 				}
-			}).GetTaskHandle();
+			}));
 		ASSERT_TRUE(RunningTaskStarted.WaitFor(1.0));
-		FTaskHandle QueuedTask = Tasks::LaunchTask(
-			"RenderLifecycle.QueuedDuringDiscard", []() {}).GetTaskHandle();
+		FTaskHandle QueuedTask = Durin::FTaskHandle(Tasks::LaunchTask(
+			"RenderLifecycle.QueuedDuringDiscard", []() {}));
 		ASSERT_TRUE(QueuedTask.IsValid());
 
 		ShutdownTaskScheduler(false);
@@ -294,8 +294,8 @@ namespace Durin
 		EXPECT_GE(DiscardDiagnostics.RetainedTerminalHandleCount, 2u);
 
 		ASSERT_TRUE(InitializeTaskScheduler(1));
-		FTaskHandle RestartedTask = Tasks::LaunchTask(
-			"RenderLifecycle.AfterRestart", []() {}).GetTaskHandle();
+		FTaskHandle RestartedTask = Durin::FTaskHandle(Tasks::LaunchTask(
+			"RenderLifecycle.AfterRestart", []() {}));
 		ASSERT_TRUE(RestartedTask.IsValid());
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(RestartedTask).TaskState);
 		EXPECT_EQ(ETaskState::Canceled, RunningTask.GetState());

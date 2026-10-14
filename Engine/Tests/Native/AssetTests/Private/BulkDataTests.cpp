@@ -654,7 +654,7 @@ TEST(FPackageResourceTests, BlockingReadsLeaveCpuAvailableAndTransformsShareTerm
 	ASSERT_TRUE(FirstResource->Started.WaitFor(1.0));
 	ASSERT_TRUE(SecondResource->Started.WaitFor(1.0));
 	FThreadEvent CpuRan;
-	auto Cpu = Tasks::LaunchTask("PackageIoIsolation", [&] { CpuRan.Trigger(); }).GetTaskHandle();
+	auto Cpu = Durin::FTaskHandle(Tasks::LaunchTask("PackageIoIsolation", [&] { CpuRan.Trigger(); }));
 	EXPECT_TRUE(CpuRan.WaitFor(0.5));
 	auto Copy = First;
 	auto Transform = FPackageResourceRequest::Transform(First, [](FPackageResourceReadResult Value) { return Value; });

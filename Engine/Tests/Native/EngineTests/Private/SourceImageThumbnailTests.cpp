@@ -239,12 +239,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 
 		const auto BlockingState = std::make_shared<FBlockingTaskState>();
-		const FTaskHandle Blocker = Tasks::LaunchTask("BlockThumbnailWorker", [BlockingState] {
+		const FTaskHandle Blocker = Durin::FTaskHandle(Tasks::LaunchTask("BlockThumbnailWorker", [BlockingState] {
 			std::unique_lock Lock(BlockingState->Mutex);
 			BlockingState->bEntered = true;
 			BlockingState->Condition.notify_all();
 			BlockingState->Condition.wait(Lock, [&] { return BlockingState->bRelease; });
-		}).GetTaskHandle();
+		}));
 		ASSERT_TRUE(Blocker.IsValid());
 		{
 			std::unique_lock Lock(BlockingState->Mutex);
@@ -267,18 +267,17 @@ namespace Durin::Editor::ContentBrowser::Private
 
 			const FTaskSchedulerDiagnostics ActiveDiagnostics =
 				GetTaskSchedulerDiagnostics();
-			EXPECT_EQ(ActiveDiagnostics.LiveScopeCount, 1u);
-			EXPECT_EQ(ActiveDiagnostics.OpenScopeCount, 1u);
-			EXPECT_EQ(ActiveDiagnostics.NonquiescentScopeCount, 1u);
+			EXPECT_EQ(Cache.GetTrackedTaskCountForTesting(), 1u);
+			EXPECT_EQ(ActiveDiagnostics.NonterminalTaskCount, 2u);
 
 			Cache.Shutdown();
 			EXPECT_EQ(Cache.Find("/Game/Textures/CanceledThumbnail").State,
 				Editor::EAssetThumbnailState::NotRequested);
 			const FTaskSchedulerDiagnostics ClosedDiagnostics =
 				GetTaskSchedulerDiagnostics();
-			EXPECT_EQ(ClosedDiagnostics.LiveScopeCount, 1u);
-			EXPECT_EQ(ClosedDiagnostics.OpenScopeCount, 0u);
-			EXPECT_EQ(ClosedDiagnostics.NonquiescentScopeCount, 0u);
+			EXPECT_EQ(Cache.GetTrackedTaskCountForTesting(), 0u);
+			EXPECT_EQ(ClosedDiagnostics.NonterminalTaskCount, 1u);
+			EXPECT_EQ(ClosedDiagnostics.CanceledTaskCount, ActiveDiagnostics.CanceledTaskCount + 1);
 		}
 
 		{
@@ -287,23 +286,16 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		BlockingState->Condition.notify_all();
 		EXPECT_EQ(WaitTask(Blocker).TaskState, ETaskState::Succeeded);
-		EXPECT_EQ(GetTaskSchedulerDiagnostics().OpenScopeCount, 0u);
-		EXPECT_EQ(GetTaskSchedulerDiagnostics().NonquiescentScopeCount, 0u);
 
 		{
 			FSourceImageThumbnailCache RecreatedCache;
 			const FTaskSchedulerDiagnostics RestartDiagnostics =
 				GetTaskSchedulerDiagnostics();
-			EXPECT_EQ(RestartDiagnostics.OpenScopeCount, 1u);
-			EXPECT_EQ(RestartDiagnostics.NonquiescentScopeCount, 1u);
+			EXPECT_EQ(RecreatedCache.GetTrackedTaskCountForTesting(), 0u);
 			RecreatedCache.Shutdown();
 			const FTaskSchedulerDiagnostics RestartClosedDiagnostics =
 				GetTaskSchedulerDiagnostics();
-			EXPECT_EQ(RestartClosedDiagnostics.OpenScopeCount, 0u);
-			EXPECT_EQ(RestartClosedDiagnostics.NonquiescentScopeCount, 0u);
 		}
-		EXPECT_EQ(GetTaskSchedulerDiagnostics().OpenScopeCount, 0u);
-		EXPECT_EQ(GetTaskSchedulerDiagnostics().NonquiescentScopeCount, 0u);
 		ShutdownTaskScheduler(true);
 	}
 

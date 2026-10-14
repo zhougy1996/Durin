@@ -11,12 +11,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 	}
 
-	FContentBrowserThumbnailReferences::FContentBrowserThumbnailReferences(
-		FTaskScopeToken ThumbnailTaskScope)
-		: SourceImages(std::make_unique<FSourceImageThumbnailCache>(
-			std::move(ThumbnailTaskScope)))
-	{
-	}
+
 
 	FContentBrowserThumbnailReferences::~FContentBrowserThumbnailReferences()
 	{

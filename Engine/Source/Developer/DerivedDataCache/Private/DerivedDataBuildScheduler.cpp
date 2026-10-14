@@ -39,7 +39,6 @@ namespace Durin::DerivedData
 				FTaskLaunchOptions Options;
 				const char* Name = IO ? "DerivedDataCacheIO" : "DerivedDataBuild";
 				// The DDC owner owns work lifetime; queue pumps must not donate their Core scope.
-				Options.bUseExplicitScope = true;
 				Options.bQueueOnSaturation = true;
 				Options.Target = IO ? ETaskTarget::BlockingIO : ETaskTarget::AnyWorker;
 				Options.Priority = Params.Priority == ERequestPriority::High ? ETaskPriority::High

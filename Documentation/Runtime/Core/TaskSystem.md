@@ -9,43 +9,33 @@ Last reviewed: 2026-10-14
 ## Construction And Acceptance
 
 `Threading/TaskComposition.h` defines the ordinary API in `Durin::Tasks`.
-`LaunchTask(Group, Executor, Options, Callable)` returns `TTask<T>` directly,
+`LaunchTask(Executor, Options, Callable)` returns `TTask<T>` directly,
 including `TTask<void>` (also named `FTask`) for a void callable. The alias keeps
 the same move-only ownership contract. Callables accept no arguments,
 `FTaskContext&`, or a cancellation token. `LaunchTask(Name, Callable, Options)`
-is the Worker convenience form; `Options.Scope` may borrow an owner scope,
-otherwise it inherits the executing task scope, or participates in the
-scheduler lifetime when submitted outside a task. `FTaskGroup` owns
-an explicit scope or borrows an existing module scope without taking its drain
-responsibility. Group construction requires a running scheduler.
-`LaunchTask(Executor, Options, Callable)` also supports inherited scope admission
-for a selected executor. Nested submissions count as children of the executing
-task. Package payload reads use this form to retain caller ownership while
-dispatching file work to BlockingIO.
-Domain queues use the native fallible admission API with an explicitly captured
-scope. An external completion task can reserve scope lifetime while a request
-remains outside Core, but does not authorize root admission after scope closure.
-During Drain, only an executing task in that scope can admit its children.
+is the Worker convenience form. Tasks participate in the process scheduler
+lifetime. Ordinary resource owners keep
+their task handles and completion events, stop their own producer admission,
+then cancel/wait the accepted work before releasing captures or resource state.
+There is no general task-group or group-join facade.
+`LaunchTask(Executor, Options, Callable)` supports a selected executor and
+records the executing parent identity for nested submissions. Package payload
+reads use this form when dispatching file work to BlockingIO.
+Domain queues own their admission policy. External completion tasks retain
+their scheduler participation until their producers acknowledge completion.
 Asset compilation uses explicit operation completion dependencies as
 defined in [Derived Data Build](../Assets/DerivedDataBuild.md).
-Launching a child with `LaunchTask` inherits scope admission but does not add a
+Launching a child with `LaunchTask` does not add a
 parent completion dependency. Use `AddNested` when parent completion must include
 that child.
 
-`FTaskScopeToken::CanLaunchFromCurrentContext()` exposes context compatibility
-for domain admission: ordinary caller threads and tasks already executing in
-that scope are compatible; a foreign executing task is not. This read-only
-query neither reserves admission nor keeps the scheduler/scope open. Owners
-must independently maintain their lifetime protocol. It does not bypass scope
-inheritance or provide an unchecked construction policy.
-
-A valid submission while its scheduler and owner scope are open is accepted.
+A valid submission while its scheduler admission is open is accepted.
 Busy executors queue work. Ordinary roots, continuations, children, fan-in and
 completion sources do not return admission errors or failed surrogate tasks
 when scheduler thresholds are exceeded. They do not retry, wait for capacity,
 or run a callable inline. Acceptance does not promise execution success.
 
-Options carry debug name, priority, cancellation, attribution, borrowed scope,
+Options carry debug name, priority, cancellation, attribution,
 prerequisites, and deferred generation/coalescing identity. Ordinary callers do
 not declare scheduler capture/result byte budgets. Actual domain payload limits
 and producer throttling belong to resource owners; see
@@ -57,18 +47,18 @@ always-enabled `requiref` failure path, including Shipping. Allocation failure
 in scheduler construction/registration/dispatch/result storage is fatal; it is
 not ordinary task failure. Exceptions from user work produce Failed tasks.
 
-`Threading/Task.h` retains erased handles, unique storage, scopes, cancellation,
+`Threading/Task.h` retains erased handles, unique storage, cancellation,
 wait operations, lifecycle and kernel primitives. Checked admission is limited
 to `Private::TryLaunchCancelableTaskWithCompletion` and
 `Private::TryLaunchContinuationTask`, Core kernel tests, deliberate lifecycle
 close probes, and ParallelFor's bounded infrastructure chunk submission.
-These operations retain structured capacity/lifetime/scope/prerequisite errors
+These operations retain structured capacity/lifetime/prerequisite errors
 and transactional rollback. They always validate construction. Business code
 must use the ordinary API rather than selecting the checked policy.
 
 ## Storage And Execution Limits
 
-Accepted waiting/ready nodes remain in scheduler lifetime and scope tracking.
+Accepted waiting/ready nodes remain in scheduler lifetime tracking.
 Worker ready queues and the deferred queue own their callable storage until
 execution or explicit cancellation. There is no untracked overflow queue.
 Pending storage can grow with accepted work; this is not an unlimited-memory
@@ -105,15 +95,20 @@ Terminal publication releases scheduler reservations exactly once; retained
 terminal handles/results have separate lifetimes.
 
 External producers can use `TCompletionSource<T>::Create(Options)` in the
-scheduler lifetime (or an explicitly borrowed scope), or the group overload.
+scheduler lifetime.
 Register consumers before starting external work so producer acknowledgement
 does not require another submission during shutdown.
 
 ## Unique And Shared Results
 
-`TTask<T>` is move-only. `GetTaskHandle()` observes execution without value
-access or a unique result claim. Task dependencies use the existing erased
-`FTaskHandle`; there is no separate `FTaskCompletion` wrapper. `IsCompleted()`
+`TTask<T>`, `TSharedTask<T>`, and `FTaskEvent` derive from the internal
+`Tasks::Private::FTaskHandle` observation base. It owns one erased execution
+handle and provides validity, completion, waiting, and diagnostics; it owns no
+result claim. Ordinary dependencies accept task/event objects directly, without
+`GetTaskHandle()`. Erasure to the kernel's `Durin::FTaskHandle` copies observation
+even from an rvalue and never moves only the base out of a unique result owner.
+`TTask<T>` is move-only and directly owns its result storage and failure metadata;
+there is no intermediate `TUniqueTaskHandle` or claim tombstone. `IsCompleted()`
 includes Succeeded, Failed and Canceled and does not
 imply a value exists. `GetFailure()` requires Failed. `GetResult()` waits for
 success and returns an immutable reference valid until consumption/destruction.
@@ -160,8 +155,8 @@ All ordinary composition returns task handles directly:
 | `WhenAll(tuple<TTask<Ts>...>&&)` | Heterogeneous unique results; void positions use monostate |
 | `WhenAll(const vector<TSharedTask<T>>&)` | Immutable owning result views, including duplicate positions |
 
-`LaunchTask(Group, Executor, Options, Callable, Dependency)` and the inherited
-executor overload accept a task, event, or erased handle directly. The named
+`LaunchTask(Executor, Options, Callable, Dependency)` accepts a task, event,
+or erased handle directly. The named
 Worker overload accepts `LaunchTask(Name, Callable, Dependency, Options)`.
 `Prerequisites(A, B, ...)` creates an owning array of erased handles for mixed
 unique tasks, shared tasks, and events; it never consumes a result. These
@@ -169,14 +164,18 @@ overloads append their dependencies to `Options.Prerequisites`, and bind them
 before the supplied array can go out of scope. `Wait(Task)` and `Cancel(Task)`
 accept task/event facades directly.
 
-`FTaskGroup::JoinAsync()` returns `FTaskGroupJoin`, an observation of scope
-quiescence with separate wait/close operations. It is not a task prerequisite:
-scope drain can depend on future admitted children and must retain its owner
-lifecycle semantics instead of becoming an ordinary task edge.
+Owners combine known work with task prerequisites, `AddNested`, and task events.
+Completion of a resource's business record does not prove its worker callable
+has retired: retain its task handle until terminal publication. Pipeline drain
+tasks form a dependency chain so the last handle covers every earlier drain;
+Material compilation retains workers independently of its result mailbox, and
+CookedMesh completion records retire only after their worker task is terminal.
+The RHI device queue captures a weak scheduler identity and rejects reuse after
+a scheduler restart; this read-only binding creates no task node.
 
 Then rejects task-returning callbacks; ThenAsync is explicit flattening.
 Empty fan-in without additional prerequisites is immediately successful in
-the current scheduler lifetime (or its explicit owner scope). Additional
+the current scheduler lifetime. Additional
 prerequisites retain their dependency and executor requirements.
 Fan-in waits for all inputs; failure precedes cancellation and the lowest
 failing input index determines the framework failure. Shared observers are
@@ -194,7 +193,7 @@ It does not occupy a worker. `TakeTask()` transfers its one unique task;
 publication attempts. Last unresolved source release fails with abandonment.
 Cancellation remains requested until the external producer acknowledges it.
 Preallocated terminal hooks run outside internal locks without scheduling a
-new task. Source scope/known-requirement construction also supports internal
+new task. Source known-requirement construction also supports internal
 composition such as empty fan-in and dynamically bound inner tasks.
 
 ## Dependencies, Waiting And CPU Policy
@@ -207,12 +206,12 @@ body and all registered children finish. Its worker is available after the body
 returns. Failure in the parent still waits for child retirement; cancellation
 while awaiting children remains a request until they complete. Child failure or
 cancellation does not change the parent's outcome, and this edge does not forward
-cancellation. Scope cancellation remains a separate owner policy.
+cancellation. Owners request cancellation explicitly.
 
 `Tasks::FTaskEvent(DebugName)` is a shared, explicit one-shot signal with no worker
 body or result storage. Events can be supplied directly as execution prerequisites
-or nested completion dependencies; `GetTaskHandle()` exposes the erased handle
-when it must be stored separately. `AddPrerequisites` accepts task/event facades
+or nested completion dependencies. An erased `Durin::FTaskHandle` can retain
+observation separately. `AddPrerequisites` accepts task/event facades
 or a span of erased handles
 before `Trigger()`; the event completes only after it is triggered and every
 prerequisite finishes, regardless of prerequisite outcomes. Copies share one
@@ -223,12 +222,8 @@ execution requirements. Passing `false` as the constructor's second argument
 declares that signaling never requires GameThread or unknown external progress;
 transitive prerequisite wait restrictions still apply.
 
-Events participate in scheduler lifetime without implicitly capturing the current
-scope. Nest an event into a scoped producer to keep that producer counted until
-external acknowledgement. GameThread wait restrictions and cycle detection inspect
-the completion dependencies as well as execution prerequisites. DDC owners use
-events for explicit asset producer nesting; managers retain cancellation authority
-and drain their owners before Core shutdown.
+Events participate in scheduler lifetime. AddNested expresses an explicit parent
+completion dependency; events do not collect work on behalf of an owner.
 
 Prerequisites must be valid in the same scheduler lifetime. Success dependencies
 release once after every prerequisite succeeds; failure/cancellation skips the
@@ -242,12 +237,12 @@ terminal state was observed; InvalidTask, SelfWait, DependencyCycle and
 UnsupportedThread do not prove completion. `WaitAll` preserves one result per
 input. GameThread rejects unknown or transitive deferred requirements;
 executing tasks reject unknown external requirements. RenderingThread rejects
-ordinary task and scope waits. It may wait for an explicit independent CPU leaf
+ordinary task waits. It may wait for an explicit independent CPU leaf
 created with `Tasks::LaunchIndependentTask(Name, Callable, Options)`. This entry
 uses Worker execution and ordinary scheduler/owner lifetime. It rejects launch
 prerequisites, external completion and non-Worker targets. An independent leaf
 cannot submit children, acquire dynamic task dependencies, block on nonterminal
-tasks, or wait for a nonquiescent scope. Contract violations reject checked-kernel
+tasks. Contract violations reject checked-kernel
 admission with `InvalidExecutionContract`; ordinary construction treats them as
 programming violations. Completed values remain readable without blocking.
 The callable must not depend on owner-thread, RHI, I/O or other external progress;
@@ -275,20 +270,10 @@ validation of queueing is not performance-equivalence evidence.
 
 ## Owner And Module Lifetime
 
-Owners stop producing before scope closure, then cancel/drain accepted work
-while captures, callbacks and module code remain alive. Scheduler submission
-linearizes under its Submit mutex; scope participation linearizes at TryAdmit.
-Submission participation protects registration through publication or rollback.
-Cancel racing registration is reconciled before dispatch.
-
-Group Drain excludes external roots but a live counted `FTaskContext` may use
-`LaunchChild` until the parent retires. Cancel and global scheduler closure
-exclude new children. `JoinAsync` observes closed-group quiescence without
-submitting a node. Pending group waits on owner/executor threads are rejected
-because live parents can still acquire owner-thread dependencies. Destruction
-diagnoses nonquiescence and never implicitly pumps or joins. Borrowed module
-scopes retain their stronger drain authority, including retained results and
-external source lifetimes.
+Owners stop submission, cancel or wait their own accepted work, and release
+callbacks, results and resource state before shutdown completes. The Task
+kernel does not collect module tasks or track module retirement. Module
+shutdown owns this policy; see [module retirement](ModularFeaturesAndModuleRetirement.md#asynchronous-operation-boundary).
 
 The GameThread owns mutable Worlds, DObjects, registry/editor state and resource
 publication. Workers use detached values, immutable snapshots or synchronized

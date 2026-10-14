@@ -46,8 +46,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			FQueryReimport InQueryReimport,
 			FReimport InReimport,
 			std::shared_ptr<FMountedContentReconciliationState>
-				InMountedContentReconciliationState,
-			FTaskScopeToken InThumbnailTaskScope);
+				InMountedContentReconciliationState);
 		~FContentBrowserPanel() override;
 		auto SetContentChangeServices(std::function<FContentChangeBatch(uint64)> Capture,
 			std::function<void(FContentChangeBatch)> Notify) -> void

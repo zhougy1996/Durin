@@ -321,12 +321,11 @@ references:
 CPU-work owners close their work admission and publication before the process
 task-system boundary. Work that accesses objects must finish during host/service
 or object teardown before those objects are collected; retaining the executors
-for later module cleanup does not extend object lifetimes. A task scope is a
-safety mechanism, not a replacement for manager mailbox, provider, cache,
-object, render, or RHI ownership. The
-[CPU Task System](TaskSystem.md) defines scope closure, `Drain`/`Cancel`
-behavior, continuation dispatch, pumping, waits, and diagnostics; this document
-defines only where that process-level boundary occurs.
+for later module cleanup does not extend object lifetimes. Owners are responsible
+for their manager mailboxes, providers, caches, objects, render and RHI work. The
+[CPU Task System](TaskSystem.md) defines process shutdown, continuation dispatch,
+pumping, waits and diagnostics; this document defines where that process-level
+boundary occurs.
 
 The shutdown object drain has exactly one release collection, one render flush,
 and one finalization collection. It does not retry until an invalid owner

@@ -104,12 +104,12 @@ callback copies before DLL unload under the
 [explicit module unload contract](../Core/ModularFeaturesAndModuleRetirement.md).
 Typed-feature retirement does not suppress these cleanup calls.
 
-Concrete managers retain their own Engine task scopes, cancellation sources,
+Concrete managers retain their own task handles, cancellation sources,
 concurrency and memory bounds, mailboxes, diagnostics, and timeout policy. The
 aggregate does not add a compilation thread pool. Process shutdown completes
 the aggregate before Core closes task admission.
 
-TextureCompressor does not own those scopes or return asynchronous tasks.
+TextureCompressor does not own those task handles or return asynchronous tasks.
 Engine calls its fixed module interface for synchronous value-only build operations.
 The interface includes `Texture2DBuildTypes.h`, `TextureCubeBuildTypes.h`, and
 `VolumeTextureBuildTypes.h`; Cube and Volume CPU data live in their respective
@@ -347,7 +347,7 @@ are known.
 ## StaticMesh Completion
 
 `Durin.StaticMesh` owns render requests; `Durin.PhysicsMesh` owns BodySetup cooking
-requests. Each has its own task scope, typed records and owner-thread completion
+requests. Each has its own task handles, typed records and owner-thread completion
 path. The render manager has no collision payload variant or physics terminal
 conversion. Physics scheduling lives under Engine/Physics and does not require
 the StaticMesh manager or MeshBuilder. Ordinary Build/BuildFromSource, PostLoad

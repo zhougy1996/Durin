@@ -191,7 +191,6 @@ namespace Durin
 		uint64 DetachedBytes = 0;
 		FSavePackageContext Context;
 		std::unique_ptr<IPackageWriteOperation> Write;
-		std::unique_ptr<Tasks::FTaskGroup> Group;
 		Tasks::TTask<FPackageSaveResult> Worker;
 		FPackageSaveResult StagingResult;
 		std::optional<FPackageSaveResult> Result;
@@ -287,8 +286,7 @@ namespace Durin
 		{
 			if (!IsTaskSchedulerRunning())
 			{ Admission = Fail(EPackageSaveError::ShuttingDown, "Scheduler stopped during preparation."); return {}; }
-			Data.Group = std::make_unique<Tasks::FTaskGroup>();
-			Data.Worker = Tasks::LaunchTask(*Data.Group, Tasks::ETaskExecutor::BlockingIO,
+			Data.Worker = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
 				{.DebugName = "Package.SaveStaging"}, [&Data] { return Data.Stage(); });
 		}
 		else if (!bDeferStaging) Data.StagingResult = Data.Stage();
@@ -312,7 +310,7 @@ namespace Durin
 		};
 		if (Data.Worker.IsValid())
 		{
-			if (Data.Worker.GetTaskHandle().GetState() != ETaskState::Succeeded)
+			if (Data.Worker.GetState() != ETaskState::Succeeded)
 				return FinishFailure(Fail(EPackageSaveError::IoError, "Staging task did not succeed."));
 			Data.StagingResult = Data.Worker.GetResult();
 		}

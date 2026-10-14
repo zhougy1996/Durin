@@ -15,7 +15,6 @@ namespace Durin
 	namespace Private
 	{
 		struct FTaskAttributionAccess;
-		struct FTaskScopeAccess;
 		struct FTaskRuntimeAccess;
 	}
 
@@ -49,11 +48,7 @@ namespace Durin
 	class FTaskGenerationState;
 	class FTaskHandle;
 	class FTaskScheduler;
-	class FTaskScope;
-	class FTaskScopeState;
 	class FTaskStateData;
-	template<typename T>
-	class TUniqueTaskHandle;
 	template<typename T>
 	class TUniqueTaskResultState;
 	struct FTaskLaunchOptions;
@@ -109,39 +104,6 @@ namespace Durin
 		Cancel,
 	};
 
-	enum class ETaskScopeCloseMode : uint8
-	{
-		Drain,
-		Cancel,
-	};
-
-	enum class ETaskScopeCloseResult : uint8
-	{
-		Closed,
-		EscalatedToCancel,
-		AlreadyClosed,
-		Invalid,
-	};
-
-	enum class ETaskScopeWaitResult : uint8
-	{
-		Quiescent,
-		TimedOut,
-		ScopeOpen,
-		UnsupportedThread,
-		Invalid,
-	};
-
-	enum class ETaskScopeState : uint8
-	{
-		Invalid,
-		Open,
-		ClosingDrain,
-		ClosingCancel,
-		QuiescentDrain,
-		QuiescentCancel,
-	};
-
 	enum class ETaskDependencyKind : uint8
 	{
 		Success,
@@ -176,8 +138,6 @@ namespace Durin
 
 		using FTaskCompletionFunction = TMoveOnlyFunction<void(ETaskState)>;
 
-		struct FTaskHandleFactory;
-		struct FUniqueTaskAccess;
 		// Reports rejection before acceptance; accepted work can still fail during execution.
 		CORE_API auto TryLaunchCancelableTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes = 0) -> Tasks::TTaskAdmission<FTaskHandle>;
 		CORE_API auto TryLaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function, FTaskCompletionFunction&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes = 0) -> Tasks::TTaskAdmission<FTaskHandle>;
@@ -196,7 +156,6 @@ namespace Durin
 	struct FTaskDiagnostics
 	{
 		uint64 TaskId = 0;
-		uint64 ScopeId = 0;
 		uint64 ParentTaskId = 0;
 		std::vector<uint64> PrerequisiteTaskIds;
 		std::vector<ETaskDependencyKind> PrerequisiteDependencyKinds;
@@ -228,22 +187,7 @@ namespace Durin
 		uint64 ExecutionNanoseconds = 0;
 	};
 
-	struct FTaskScopeDiagnostics
-	{
-		ETaskScopeState State = ETaskScopeState::Invalid;
-		uint64 ScopeId = 0;
-		uint64 AcceptedCount = 0;
-		uint64 RejectedCount = 0;
-		uint64 SucceededCount = 0;
-		uint64 FailedCount = 0;
-		uint64 CanceledCount = 0;
-		uint64 CurrentActiveCount = 0;
-		uint64 PeakActiveCount = 0;
-		uint64 CurrentRetainedResultCount = 0;
-		uint64 PeakRetainedResultCount = 0;
-		std::vector<FTaskDiagnostics> NonterminalTasks;
-		uint64 NonterminalSnapshotTruncationCount = 0;
-	};
+
 
 	struct FTaskOwnerCategoryDiagnostics
 	{
@@ -317,11 +261,6 @@ namespace Durin
 		uint64 CanceledTaskCount = 0;
 		uint64 RejectedTaskCount = 0;
 		uint64 CapacityRejectedTaskCount = 0;
-		uint64 LiveScopeCount = 0;
-		uint64 OpenScopeCount = 0;
-		uint64 NonquiescentScopeCount = 0;
-		uint64 AbandonedOpenScopeCount = 0;
-		uint64 ScopeRejectedTaskCount = 0;
 		uint64 LongWaitCount = 0;
 		uint64 NonterminalTaskCount = 0;
 		uint64 RetainedTerminalHandleCount = 0;
@@ -460,90 +399,6 @@ namespace Durin
 		std::shared_ptr<FTaskCancellationState> State;
 	};
 
-	class FTaskScopeToken
-	{
-	public:
-		FTaskScopeToken() = default;
-		auto operator==(const FTaskScopeToken&) const -> bool = default;
-		// Context compatibility only; the owner must still keep admission open.
-		CORE_API auto CanLaunchFromCurrentContext() const -> bool;
-
-	private:
-		explicit FTaskScopeToken(std::shared_ptr<FTaskScopeState> InState)
-			: State(std::move(InState))
-		{
-		}
-
-		friend class FTaskScope;
-		friend class FTaskScheduler;
-		friend class FTaskStateData;
-		friend struct Private::FTaskScopeAccess;
-		friend CORE_API auto CreateTaskScope() -> FTaskScope;
-
-		std::shared_ptr<FTaskScopeState> State;
-	};
-
-	class FTaskScope
-	{
-	public:
-		FTaskScope() = default;
-		CORE_API ~FTaskScope();
-		FTaskScope(const FTaskScope&) = delete;
-		auto operator=(const FTaskScope&) -> FTaskScope& = delete;
-		CORE_API FTaskScope(FTaskScope&& Other) noexcept;
-		CORE_API auto operator=(FTaskScope&& Other) noexcept -> FTaskScope&;
-
-		CORE_API auto IsValid() const -> bool;
-		CORE_API auto GetToken() const -> FTaskScopeToken;
-		CORE_API auto Close(ETaskScopeCloseMode Mode) -> ETaskScopeCloseResult;
-		CORE_API auto Wait() const -> ETaskScopeWaitResult;
-		CORE_API auto WaitFor(double TimeoutSeconds) const -> ETaskScopeWaitResult;
-		CORE_API auto GetDiagnostics() const -> FTaskScopeDiagnostics;
-
-	private:
-		explicit FTaskScope(std::shared_ptr<FTaskScopeState> InState)
-			: State(std::move(InState))
-		{
-		}
-
-		friend CORE_API auto CreateTaskScope() -> FTaskScope;
-
-		std::shared_ptr<FTaskScopeState> State;
-	};
-
-	namespace Private
-	{
-		// Reports the number of callables retained by GameThreadDeferred for one task scope.
-		struct FTaskScopeDeferredWorkSnapshot
-		{
-			uint32 RetainedCallableCount = 0;
-		};
-
-		// Reports one bounded selected-scope Game Thread pump or cancellation pass.
-		struct FTaskScopeDeferredPumpResult
-		{
-			uint32 ExecutedCallbacks = 0;
-			uint32 CanceledCallbacks = 0;
-			uint32 DestroyedCallables = 0;
-			bool bReentrant = false;
-		};
-
-		CORE_API auto IsExecutingTaskScope(const FTaskScopeToken& Scope) -> bool;
-		CORE_API auto ProcessGameThreadDeferredScope(
-			const FTaskScopeToken& Scope,
-			bool bCancel,
-			const FGameThreadDeferredPumpBudget& Budget
-		) -> FTaskScopeDeferredPumpResult;
-		CORE_API auto GetGameThreadDeferredScopeSnapshot(
-			const FTaskScopeToken& Scope
-		) -> FTaskScopeDeferredWorkSnapshot;
-		CORE_API auto WaitForTaskScopeWorkerCallables(
-			const FTaskScopeToken& Scope,
-			double TimeoutSeconds
-		) -> bool;
-		CORE_API auto GetTaskScopeWorkerCallableCount(const FTaskScopeToken& Scope) -> uint32;
-	}
-
 	// Observes both ParallelFor group cancellation and caller-provided cancellation.
 	class FParallelForCancellationToken
 	{
@@ -598,18 +453,9 @@ namespace Durin
 		struct FTaskRuntimeAccess
 		{
 			CORE_API static auto GetCurrentTaskId() -> uint64;
-			CORE_API static auto GetCurrentScope() -> FTaskScopeToken;
-			CORE_API static auto GetCancellation(const FTaskHandle& Task) -> FTaskCancellationToken;
 			CORE_API static auto IsExecutingIndependentCPU() -> bool;
-			CORE_API static auto GroupState(const FTaskScopeToken& Scope) -> ETaskState;
-			CORE_API static auto CloseGroup(const FTaskScopeToken& Scope, ETaskScopeCloseMode Mode) -> ETaskScopeCloseResult;
-			CORE_API static auto WaitGroupFor(const FTaskScopeToken& Scope, double Seconds) -> ETaskScopeWaitResult;
-			CORE_API static auto WaitGroup(const FTaskScopeToken& Scope) -> FTaskWaitResult;
-			CORE_API static auto GroupDiagnostics(const FTaskScopeToken& Scope) -> FTaskScopeDiagnostics;
-			CORE_API static auto DiagnoseGroupDestruction(const FTaskScopeToken& Scope) -> void;
 			CORE_API static auto IsCancellationRequested(const FTaskHandle& Task) -> bool;
 			CORE_API static auto CancelCurrent() -> void;
-			CORE_API static auto GetScope(const FTaskHandle& Task) -> FTaskScopeToken;
 			CORE_API static auto GetAttribution(const FTaskHandle& Task) -> FTaskAttribution;
 			CORE_API static auto BindTerminal(const FTaskHandle& Task, std::shared_ptr<FTaskTerminalHook> Hook) -> void;
 			CORE_API static auto CompleteExternal(const FTaskHandle& Task, ETaskState State) -> void;
@@ -627,16 +473,14 @@ namespace Durin
 		std::span<const FTaskHandle> Prerequisites;
 		FTaskCancellationToken CancellationToken;
 		FTaskAttribution Attribution;
-		FTaskScopeToken Scope;
 		ETaskTarget Target = ETaskTarget::AnyWorker;
 		ETaskPriority Priority = ETaskPriority::Normal;
 		uint64 EstimatedPayloadBytes = 0;
 		// Internal ordinary construction queues beyond checked reservation limits.
 		bool bQueueOnSaturation = false;
-		// Internal completion sources stay counted until producer acknowledgement.
+		// Nonzero only for submission authorized by the running parent task.
 		uint64 ExpectedParentTaskId = 0;
-		// Explicit captured dispatch must not inherit the dispatching thread scope.
-		bool bUseExplicitScope = false;
+		// Internal completion sources stay counted until producer acknowledgement.
 		bool bExternalCompletion = false;
 		bool bUnknownExecutionRequirement = true;
 		// Independent CPU leaves may be joined by RenderingThread. No task
@@ -655,7 +499,6 @@ namespace Durin
 		ETaskTarget Target = ETaskTarget::AnyWorker;
 		ETaskPriority Priority = ETaskPriority::Normal;
 		FTaskAttribution Attribution;
-		FTaskScopeToken Scope;
 	};
 
 	struct FParallelForOptions
@@ -664,7 +507,6 @@ namespace Durin
 		uint64 MinBatchSize = std::numeric_limits<uint64>::max();
 		FTaskCancellationToken CancellationToken;
 		FTaskAttribution Attribution;
-		FTaskScopeToken Scope;
 	};
 
 	struct FParallelForResult
@@ -685,7 +527,6 @@ namespace Durin
 	// Starts the process-owned CPU scheduler. Engine lifecycle starts it once during PreInit.
 	CORE_API auto InitializeTaskScheduler(uint32 InNumThreads = 0) -> bool;
 	CORE_API auto InitializeTaskScheduler(const FTaskSchedulerConfig& Config) -> bool;
-	CORE_API auto CreateTaskScope() -> FTaskScope;
 	// Closes admission and either drains or discards all accepted work before returning.
 	CORE_API auto ShutdownTaskScheduler(bool bWaitForQueuedWork = true) -> void;
 	CORE_API auto InitializeGameThreadDeferredExecutor(const FGameThreadDeferredWorkQueueConfig& Config = {}) -> bool;
@@ -778,18 +619,13 @@ namespace Durin
 			return true;
 		}
 
-		// Native accounting changes share the ownership lock; no arbitrary callback runs here.
-		auto CommitClaim(uint64 Token, const FTaskHandle& Consumer, bool bTransferAccounting = true) -> bool
+		// Claim commitment is serialized with result ownership.
+		auto CommitClaim(uint64 Token) -> bool
 		{
-			auto ConsumerSetter = Private::MakeTaskResultAccounting(Consumer);
 			std::lock_guard Lock(Mutex);
 			if (ClaimState != EClaimState::Reserved || ReservationToken != Token) return false;
 			ClaimState = EClaimState::Claimed;
 			ReservationToken = 0;
-			if (!bTransferAccounting) return true;
-			if (RetainedBytesSetter) RetainedBytesSetter(0);
-			RetainedBytesSetter = ConsumerSetter;
-			if (bPublished && Value) ConsumerSetter(EstimatedResultBytes);
 			return true;
 		}
 
@@ -848,82 +684,36 @@ namespace Durin
 		bool bDiscarded = false;
 	};
 
-	template<typename T>
-	class TUniqueTaskHandle
+	namespace Tasks::Detail { struct FTaskAccess; }
+	namespace Tasks::Private
 	{
-	public:
-		TUniqueTaskHandle() = default;
-		~TUniqueTaskHandle()
+		// Shared observation base with one execution handle and no result claim.
+		class FTaskHandle
 		{
-			if (ResultState) ResultState->Discard();
-		}
-		TUniqueTaskHandle(const TUniqueTaskHandle&) = delete;
-		auto operator=(const TUniqueTaskHandle&) -> TUniqueTaskHandle& = delete;
-		TUniqueTaskHandle(TUniqueTaskHandle&&) noexcept = default;
-		auto operator=(TUniqueTaskHandle&& Other) noexcept -> TUniqueTaskHandle&
-		{
-			if (this == &Other) return *this;
-			if (ResultState) ResultState->Discard();
-			Task = std::move(Other.Task);
-			ResultState = std::move(Other.ResultState);
-			ClaimTombstone = std::move(Other.ClaimTombstone);
-			return *this;
-		}
-
-		auto IsValid() const -> bool { return Task.IsValid(); }
-		auto IsComplete() const -> bool { return Task.IsComplete(); }
-		auto GetState() const -> ETaskState { return Task.GetState(); }
-		auto GetDebugName() const -> const char* { return Task.GetDebugName(); }
-		auto GetTaskId() const -> uint64 { return Task.GetTaskId(); }
-		auto GetDiagnostic() const -> std::string { return Task.GetDiagnostic(); }
-		auto GetDiagnostics() const -> FTaskDiagnostics { return Task.GetDiagnostics(); }
-		auto GetTaskHandle() const -> const FTaskHandle& { return Task; }
-
-	private:
-		TUniqueTaskHandle(FTaskHandle InTask, std::shared_ptr<TUniqueTaskResultState<T>> InResultState)
-			: Task(std::move(InTask)), ResultState(std::move(InResultState))
-		{
-		}
-
-		auto InvalidateAfterClaim() -> void
-		{
-			ClaimTombstone = ResultState;
-			Task = {};
-			ResultState.reset();
-		}
-
-		friend struct Private::FTaskHandleFactory;
-		friend struct Private::FUniqueTaskAccess;
-
-		FTaskHandle Task;
-		std::shared_ptr<TUniqueTaskResultState<T>> ResultState;
-		std::weak_ptr<TUniqueTaskResultState<T>> ClaimTombstone;
-	};
-
-	namespace Private
-	{
-		struct FUniqueTaskAccess
-		{
-			template<typename T>
-			static auto GetTask(TUniqueTaskHandle<T>& Handle) -> FTaskHandle& { return Handle.Task; }
-			template<typename T>
-			static auto GetResultState(TUniqueTaskHandle<T>& Handle) -> std::shared_ptr<TUniqueTaskResultState<T>>& { return Handle.ResultState; }
-			template<typename T>
-			static auto GetResultState(const TUniqueTaskHandle<T>& Handle) -> const std::shared_ptr<TUniqueTaskResultState<T>>& { return Handle.ResultState; }
-			template<typename T>
-			static auto HasClaimTombstone(TUniqueTaskHandle<T>& Handle) -> bool { return !Handle.ClaimTombstone.expired(); }
-			template<typename T>
-			static auto InvalidateAfterClaim(TUniqueTaskHandle<T>& Handle) -> void { Handle.InvalidateAfterClaim(); }
+		public:
+			auto IsValid() const -> bool { return Handle.IsValid(); }
+			auto IsCompleted() const -> bool { return Handle.IsComplete(); }
+			auto IsComplete() const -> bool { return IsCompleted(); }
+			auto GetState() const -> ETaskState { return Handle.GetState(); }
+			auto GetDebugName() const -> const char* { return Handle.GetDebugName(); }
+			auto GetTaskId() const -> uint64 { return Handle.GetTaskId(); }
+			auto GetDiagnostic() const -> std::string { return Handle.GetDiagnostic(); }
+			auto GetDiagnostics() const -> FTaskDiagnostics { return Handle.GetDiagnostics(); }
+			auto Wait() const -> FTaskWaitResult { return WaitTask(Handle); }
+			// Erasure is observation even for rvalues; it never moves only the base
+			// out of a unique task and leaves its result owner stranded.
+			operator Durin::FTaskHandle() const noexcept { return Handle; }
+		protected:
+			FTaskHandle() = default;
+			FTaskHandle(const FTaskHandle&) = default;
+			FTaskHandle(FTaskHandle&&) noexcept = default;
+			auto operator=(const FTaskHandle&) -> FTaskHandle& = default;
+			auto operator=(FTaskHandle&&) noexcept -> FTaskHandle& = default;
+			auto SetHandle(Durin::FTaskHandle InHandle) -> void { Handle = std::move(InHandle); }
+			auto TakeHandle() -> Durin::FTaskHandle { return std::move(Handle); }
+			friend struct Tasks::Detail::FTaskAccess;
+		private:
+			Durin::FTaskHandle Handle;
 		};
-
-		struct FTaskHandleFactory
-		{
-			template<typename T>
-			static auto MakeUnique(FTaskHandle Task, std::shared_ptr<TUniqueTaskResultState<T>> ResultState) -> TUniqueTaskHandle<T>
-			{
-				return TUniqueTaskHandle<T>(std::move(Task), std::move(ResultState));
-			}
-		};
-
 	}
 } // namespace Durin

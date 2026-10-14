@@ -221,8 +221,6 @@ namespace Durin
 				std::scoped_lock Lock(Mutex);
 				if (bAcceptingRequests) return true;
 				if (!IsTaskSchedulerRunning()) return false;
-				Scope = CreateTaskScope();
-				if (!Scope.IsValid()) return false;
 				Attribution = RegisterTaskAttribution("Engine", "MaterialCompile");
 				bAcceptingRequests = true;
 				return true;
@@ -231,20 +229,20 @@ namespace Durin
 			auto Shutdown() -> void
 			{
 				CheckMaterialCompileGameThread();
+				std::vector<FTaskHandle> Pending;
 				{
 					std::scoped_lock Lock(Mutex);
-					if (!Scope.IsValid())
-					{
-						bAcceptingRequests = false;
-						return;
-					}
 					bAcceptingRequests = false;
+					Pending = std::move(Workers);
 					for (auto& [Key, Flight] : Flights)
+					{
 						Flight->Cancellation.RequestCancellation();
+					}
 				}
-				Scope.Close(ETaskScopeCloseMode::Cancel);
-				const ETaskScopeWaitResult WaitResult = Scope.Wait();
-				requiref(WaitResult == ETaskScopeWaitResult::Quiescent, "Material compile scope must drain before owner release.");
+				for (const auto& Task : Pending) CancelTask(Task);
+				for (const auto& Task : Pending)
+					requiref(WaitTask(Task).WaitStatus == ETaskWaitStatus::Completed,
+						"Material compile work must finish before owner release.");
 				std::scoped_lock Lock(Mutex);
 				Diagnostics.CanceledRequests += OutstandingConsumers;
 				Flights.clear();
@@ -253,7 +251,6 @@ namespace Durin
 				RetainedPrograms.clear();
 				RetentionOrder.clear();
 				RetainedProgramBytes = 0;
-				Scope = {};
 			}
 
 			auto StopAdmission() -> void
@@ -276,7 +273,7 @@ namespace Durin
 				{
 					std::scoped_lock Lock(Mutex);
 					SupersedeOwnerLocked(Request.Owner);
-					if (!bAcceptingRequests || !Scope.IsValid())
+					if (!bAcceptingRequests)
 					{
 						++Diagnostics.RejectedRequests;
 						return EMaterialCompileState::Rejected;
@@ -334,9 +331,8 @@ namespace Durin
 				Tasks::FTaskExecutionOptions Options{
 					.Cancellation = NewFlight->Cancellation.GetToken(),
 					.Attribution = Attribution,
-					.Scope = Scope.GetToken(),
 				};
-				NewFlight->Task = Tasks::LaunchTask(
+				NewFlight->Task = Durin::FTaskHandle(Tasks::LaunchTask(
 					"MaterialCompile",
 					[this, Flight = NewFlight](const FTaskCancellationToken& Token) {
 						if (Token.IsCancellationRequested())
@@ -353,8 +349,15 @@ namespace Durin
 						}
 						CompleteFlight(Flight, std::move(Compiled),
 							EMaterialCompileState::Ready);
-					}, Options).GetTaskHandle();
+					}, Options));
 				NewFlight->TaskId.store(NewFlight->Task.GetTaskId(), std::memory_order_release);
+				{
+					std::scoped_lock Lock(Mutex);
+					// CompleteFlight may remove the business record before the callable
+					// returns. Keep shutdown authority independently of that mailbox.
+					std::erase_if(Workers, [](const FTaskHandle& Task) { return Task.IsComplete(); });
+					Workers.push_back(NewFlight->Task);
+				}
 				return EMaterialCompileState::Running;
 			}
 
@@ -623,7 +626,6 @@ namespace Durin
 			}
 
 			mutable std::mutex Mutex;
-			FTaskScope Scope;
 			FTaskAttribution Attribution;
 			bool bAcceptingRequests = false;
 			uint32 OutstandingConsumers = 0;
@@ -631,6 +633,7 @@ namespace Durin
 				std::shared_ptr<FMaterialCompileFlight>,
 				FMaterialCompileFlightKeyHash> Flights;
 			std::deque<FMaterialCompileResult> Mailbox;
+			std::vector<FTaskHandle> Workers;
 			std::unordered_map<FMaterialProgramIdentity,
 				std::shared_ptr<const FMaterialCompilerResult>> RetainedPrograms;
 			std::deque<FMaterialProgramIdentity> RetentionOrder;
@@ -703,7 +706,7 @@ namespace Durin
 			auto GetState() const -> const FMaterialCompilationState& { return State; }
 			auto Start() -> FAssetCompilerStartResult override
 			{
-				return {State.Initialize() ? EAssetCompilerStartError::None : EAssetCompilerStartError::TaskScopeUnavailable};
+				return {State.Initialize() ? EAssetCompilerStartError::None : EAssetCompilerStartError::StateUnavailable};
 			}
 			auto StopAdmission() -> void override
 			{

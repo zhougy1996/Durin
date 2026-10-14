@@ -79,9 +79,8 @@ namespace Durin
 			if (bAccepting) return {};
 			if (!Records.empty()) return {EAssetCompilerStartError::Undrained, Records.size()};
 			if (!IsTaskSchedulerRunning()) return {EAssetCompilerStartError::SchedulerUnavailable};
-			Scope = CreateTaskScope();
-			bAccepting = Scope.IsValid();
-			return {bAccepting ? EAssetCompilerStartError::None : EAssetCompilerStartError::TaskScopeUnavailable};
+			bAccepting = true;
+			return {};
 		}
 		auto StopAdmission() -> void override
 		{
@@ -179,11 +178,7 @@ namespace Durin
 			CheckOwnerThread();
 			StopAdmission();
 			FinishAllCompilation();
-			if (Scope.IsValid())
-			{
-				Scope.Close(ETaskScopeCloseMode::Drain);
-				Scope.Wait();
-			}
+
 		}
 		~FPhysicsMeshCompilingManager() override { Shutdown(); }
 		std::function<void()> BeforeBuild, AfterBuild;
@@ -206,7 +201,6 @@ namespace Durin
 		auto Launch(const std::shared_ptr<FPhysicsRecord>& Record, std::shared_ptr<AssetPrivate::FAssetBuildExecutionSlot> Slot) -> FTaskHandle
 		{
 			Tasks::FTaskExecutionOptions Options;
-			Options.Scope = Scope.GetToken();
 			Record->Task = Tasks::LaunchTask("PhysicsMesh.Cook", [Slot = std::move(Slot), Work = Record->Work, Bytes = Record->ReservedBytes, Before = BeforeBuild, After = AfterBuild](const FTaskCancellationToken& NativeToken) {
 				AssetPrivate::FAssetBuildExecutionSlot::FWorkScope Execution{*Slot};
 				const auto Cancellation = Work->Cancellation.WithObserver([NativeToken] { return NativeToken.IsCancellationRequested(); });
@@ -214,7 +208,7 @@ namespace Durin
 				{ if (Before) Before(); Work->Build({.Cancellation = Cancellation, .MaximumWorkingSetBytes = Bytes}); if (After) After(); }
 				catch (...) { Work->Outcome = std::unexpected(MakeAssetBuildDiagnostic("Physics mesh worker failed with an exception.", "Cook")); }
 				if (Cancellation.IsCancelled()) Work->Outcome = FPhysicsCookResult{};
-				Work->ReleaseInput(); Work->Phase.store(EWorkPhase::Complete, std::memory_order_release); }, Options).GetTaskHandle();
+				Work->ReleaseInput(); Work->Phase.store(EWorkPhase::Complete, std::memory_order_release); }, Options);
 			return Record->Task;
 		}
 		auto Pump(std::span<const FObjectKey> Owners, uint32 Maximum, FClock::time_point Deadline) -> FAssetCompileProcessResult
@@ -296,7 +290,6 @@ namespace Durin
 		}
 		std::shared_ptr<AssetPrivate::FMeshBuildBudget> Budget = AssetPrivate::GetMeshBuildBudget();
 		std::vector<std::shared_ptr<FPhysicsRecord>> Records;
-		FTaskScope Scope;
 		std::shared_ptr<AssetPrivate::FAssetBuildScheduler> Scheduler = AssetPrivate::GetAssetBuildScheduler();
 		std::shared_ptr<AssetPrivate::FMeshBuildAccounting> Accounting = std::make_shared<AssetPrivate::FMeshBuildAccounting>();
 		bool bAccepting = false;

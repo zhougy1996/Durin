@@ -247,11 +247,11 @@ TEST_F(FWorldSubsystemTests, LateDetachedCompletionCannotPublishAfterWorldRetire
 	auto Gate = World->GetSubsystem<FSubsystemProbeA>()->GetWorkGate();
 	struct FDetachedPayload { std::mutex Mutex; std::condition_variable Condition; bool bReleased = false; int Value = 0; };
 	auto Payload = std::make_shared<FDetachedPayload>();
-	auto Worker = Tasks::LaunchTask("SubsystemDetachedWork", [Payload] {
+	auto Worker = Durin::FTaskHandle(Tasks::LaunchTask("SubsystemDetachedWork", [Payload] {
 		std::unique_lock Lock(Payload->Mutex);
 		Payload->Condition.wait(Lock, [&] { return Payload->bReleased; });
 		Payload->Value = 42;
-	}).GetTaskHandle();
+	}));
 	World->Shutdown();
 	{ std::lock_guard Lock(Payload->Mutex); Payload->bReleased = true; }
 	Payload->Condition.notify_all();

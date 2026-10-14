@@ -1,5 +1,6 @@
 #include "RHIPipelineCreation.h"
 #include "Threading/TaskComposition.h"
+#include "Threading/Private/TaskSchedulerLifetime.h"
 #include "Backend/RHICreation.h"
 #include "PipelineCompileQueue.h"
 
@@ -106,9 +107,9 @@ namespace Durin
 
 	struct FRHIPipelineCreationRequest::FState
 	{
-		FState(Tasks::FTaskGroup& Group, std::shared_ptr<FRequestLifetime> InLifetime)
+		explicit FState(std::shared_ptr<FRequestLifetime> InLifetime)
 			: Lifetime(std::move(InLifetime)),
-			Source(Tasks::TCompletionSource<void>::Create(Group, {.DebugName = "RHI.PipelineObserver"})),
+			Source(Tasks::TCompletionSource<void>::Create({.DebugName = "RHI.PipelineObserver"})),
 			Task(Tasks::Share(Source.TakeTask())) { ++Lifetime->Observers; }
 		~FState() { --Lifetime->Observers; }
 		auto Publish(const FPublished& Publication) -> void
@@ -175,7 +176,7 @@ namespace Durin
 	}
 	auto FRHIPipelineCreationRequest::GetTaskHandle() const -> Durin::FTaskHandle
 	{
-		return State ? State->Task.GetTaskHandle() : Durin::FTaskHandle{};
+		return State ? Durin::FTaskHandle(State->Task) : Durin::FTaskHandle{};
 	}
 	auto FRHIPipelineCreationRequest::IsCompute() const -> bool
 	{
@@ -223,8 +224,7 @@ namespace Durin
 			bool Finished = true;
 		};
 		FState(const FRHICapabilities& InCapabilities, FBackend InBackend)
-			: Capabilities(InCapabilities), Backend(std::move(InBackend)),
-			ScopeOwner(CreateTaskScope()), Group(ScopeOwner.GetToken()) {}
+			: Capabilities(InCapabilities), Backend(std::move(InBackend)) {}
 
 		auto Reject(ERHIPipelineRequestRejection Reason) -> FRHIPipelineCreationRequest
 		{
@@ -233,7 +233,7 @@ namespace Durin
 		}
 		auto MakeObserver() -> std::shared_ptr<FObserver>
 		{
-			auto Observer = std::make_shared<FObserver>(Group, Lifetime);
+			auto Observer = std::make_shared<FObserver>(Lifetime);
 			for (uint32 Offset = 0; Offset < MaxObservers; ++Offset)
 			{
 				const uint32 Index = (NextObserver + Offset) % MaxObservers;
@@ -262,7 +262,13 @@ namespace Durin
 			std::lock_guard Lock(Mutex);
 			if (Lifetime->Closed.load() || Lifetime->Failed.load()) return Reject(ERHIPipelineRequestRejection::Closed);
 			if (!IsTaskSchedulerRunning()) return Reject(ERHIPipelineRequestRejection::Unsupported);
-			if (!Group.GetToken().CanLaunchFromCurrentContext()) return Reject(ERHIPipelineRequestRejection::Unsupported);
+			const auto CurrentScheduler = Private::GetTaskSchedulerLifetime();
+			if (SchedulerLifetime.owner_before(CurrentScheduler) || CurrentScheduler.owner_before(SchedulerLifetime))
+				return Reject(ERHIPipelineRequestRejection::Unsupported);
+			// Device admission belongs to this queue. A task body cannot submit
+			// device work that may require its own executor to make progress.
+			if (Private::FTaskRuntimeAccess::GetCurrentTaskId() != 0)
+				return Reject(ERHIPipelineRequestRejection::Unsupported);
 			if (Lifetime->Observers.load() >= MaxObservers) return Reject(ERHIPipelineRequestRejection::CapacityExceeded);
 			const uint64 Bytes = DescriptionBytes(Initializer, Name);
 			if (Bytes > MaxDescriptionBytes) return Reject(ERHIPipelineRequestRejection::CapacityExceeded);
@@ -327,8 +333,12 @@ namespace Durin
 				{
 					DrainActive = true;
 					Ticket->Finished = false;
-					LastDrain = Tasks::Share(Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker,
-						{.DebugName = "RHI.PipelineCreation"}, [this, Ticket] {
+					// Serialize retirement as well as execution. Waiting the last drain
+					// then covers every earlier callable that captured this device owner.
+					const std::array Previous{Durin::FTaskHandle(LastDrain)};
+					const std::span<const FTaskHandle> Dependencies(Previous.data(), LastDrain.IsValid() ? 1 : 0);
+					LastDrain = Tasks::Share(Tasks::LaunchTask(Tasks::ETaskExecutor::Worker,
+						{.DebugName = "RHI.PipelineCreation", .Prerequisites = Dependencies}, [this, Ticket] {
 							try { Drain(); }
 							catch (...)
 							{
@@ -401,10 +411,7 @@ namespace Durin
 		FRHICapabilities Capabilities;
 		FBackend Backend;
 		std::shared_ptr<FRequestLifetime> Lifetime = std::make_shared<FRequestLifetime>();
-		// The device owns stronger drain authority over a scope containing only
-		// worker creation and external observations; no owning-thread child is admitted.
-		FTaskScope ScopeOwner;
-		Tasks::FTaskGroup Group;
+		std::weak_ptr<const void> SchedulerLifetime = Private::GetTaskSchedulerLifetime();
 		Tasks::TSharedTask<void> LastDrain;
 		mutable std::mutex Mutex;
 		std::array<std::weak_ptr<FObserver>, MaxObservers> Observers;
@@ -499,11 +506,13 @@ namespace Durin
 				}
 				State->Queue.clear();
 				State->Statistics.UnfinishedRequests = static_cast<uint32>(State->Pending.size());
-				State->Group.Close();
 			}
 		}
-		const auto Joined = State->ScopeOwner.Wait();
-		checkf(Joined == ETaskScopeWaitResult::Quiescent, "Pipeline creation scope could not join.");
+		if (State->LastDrain.IsValid())
+		{
+			const auto Joined = Tasks::Wait(State->LastDrain);
+			checkf(Joined.WaitStatus == ETaskWaitStatus::Completed, "Pipeline creation work could not join.");
+		}
 		State->WorkJoined = true;
 	}
 	auto FPipelineCompileQueue::ReleaseResources() -> void

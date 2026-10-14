@@ -238,10 +238,10 @@ through drain.
 `FBuildSession::Build` accepts a definition or action, optional request inputs,
 policy, cancellation, and completion callback. An omitted scheduler or
 `CreateInlineBuildScheduler` executes inline. `CreateTaskBuildScheduler` schedules
-on Core workers in scheduler lifetime, without inheriting an ambient task scope. Its wait handle uses
+on Core workers in scheduler lifetime. Its wait handle uses
 Core cooperative waiting, including single-worker nested builds. A stopped
 Core scheduler rejects admission without completion; the adapter does not start
-or stop Core. Asset producers explicitly nest their operation completion to retain their scope until retirement.
+or stop Core. Asset producers explicitly nest their operation completion when parent completion must include it.
 
 All sessions use one Prepare, CacheGet, BuildLocal, CachePut, Complete pipeline.
 Action preparation runs once; local execution receives the prepared action and
@@ -392,7 +392,7 @@ callbacks retire, and in-flight schedule calls publish their native handles.
 Those handles are event prerequisites, so completion also includes destruction
 of native dispatch captures. Synchronously completed requests do not close the
 operation before the producer finishes submission. Queued requests need no Core
-worker or scope admission slot. Callback-generated stages remain admissible while
+worker admission slot. Callback-generated stages remain admissible while
 the operation has active requests. The bridge requires a running Core scheduler;
 ordinary DDC owners do not allocate a completion event.
 The operation creates its event lazily when DDC work is first submitted or the
@@ -400,11 +400,10 @@ producer establishes its nested dependency. Undispatched asset records therefore
 do not retain Core shutdown. Requests retain internal operation state rather than
 the outer operation object; destroying that object cancels and joins its work.
 
-Completion dependencies do not forward cancellation. Managers signal their owners
-before canceling or draining their asset scopes. Batch cancellation affects only
-that batch, including when several scopes use one owner. `LaunchTask` reads current
-owner priority and uses explicit empty scope admission, so a foreign queue pump
-cannot donate its scope and later phases can progress during asset-scope drain.
+Completion dependencies do not forward cancellation. Managers signal their request
+owners before canceling or waiting their own work. Batch cancellation affects only
+that batch, including when several producers use one owner. LaunchTask reads
+current owner priority and uses the process scheduler lifetime.
 Schedulers and DDC callbacks must progress without GameThread pumping. Native
 schedulers expose their dispatch handle through `IBuildScheduledWork::GetTaskHandle`;
 custom external schedulers retain responsibility for their own dispatch lifetime.

@@ -5,7 +5,6 @@
 #include "Misc/CoreStd.h"
 
 #include "CoreAPI.h"
-#include "Modules/AsyncOperationGroup.h"
 #include "Modules/ModularFeature.h"
 #include "Templates/SmartPointers.h"
 
@@ -27,9 +26,6 @@ namespace Durin
 				Implementation);
 		}
 
-		CORE_API static auto CreateAsyncOperationGroup(
-			FName GroupName
-		) -> FAsyncOperationGroup;
 
 		[[nodiscard]] CORE_API static auto GetModuleName() -> FName;
 

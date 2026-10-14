@@ -93,7 +93,7 @@ durin_add_native_test(CoreConcurrencyTests
 	DOMAINS core
 	MODULES core
 	SOURCES
-		Private/AsyncOperationGroupTests.cpp
+		Private/ModuleAsyncShutdownTests.cpp
 		Private/AtomicSharedPtrTests.cpp
 		Private/DelegateTests.cpp
 		Private/ModularFeatureTests.cpp

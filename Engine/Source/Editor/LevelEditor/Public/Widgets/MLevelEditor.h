@@ -7,7 +7,6 @@
 #include "DObject/SoftObjectPtr.h"
 #include "Workspace/Workspace.h"
 #include "Workspace/WorkspaceRootWindow.h"
-#include "Threading/Task.h"
 #include "Settings/EditorSettings.h"
 
 namespace Durin
@@ -42,7 +41,6 @@ namespace Durin::Editor::Level
 	public:
 		MLevelEditor(FLevelEditorSessionSettings& InSessionSettings,
 			::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
-			FTaskScopeToken InThumbnailTaskScope,
 			FContentBrowserCallbacks InContentBrowserCallbacks,
 			std::function<void()> InOpenProjectBrowser);
 		LEVELEDITOR_API ~MLevelEditor() override;
@@ -99,7 +97,6 @@ namespace Durin::Editor::Level
 		// Module-owned services outlive this registered workspace.
 		FLevelEditorSessionSettings& SessionSettings;
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
-		FTaskScopeToken ThumbnailTaskScope;
 		FContentBrowserCallbacks ContentBrowserCallbacks;
 		std::function<void()> OpenProjectBrowser;
 		std::unique_ptr<FLevelDocumentController> DocumentController;

@@ -177,7 +177,9 @@ TEST_F(FPackagePersistenceTests, ProtectedTaskCompletesOnHostPumpAndRejectsGameT
 	EXPECT_FALSE(Task.IsCompleted());
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
-	PumpGameThreadDeferredWork();
+	// File I/O retirement can precede worker terminal publication. The owner
+	// drain pumps until the protected save's publication is complete.
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	ASSERT_TRUE(Task.IsCompleted());
 	ASSERT_EQ(Task.GetState(), ETaskState::Succeeded);
 	EXPECT_TRUE(Task.GetResult());

@@ -15,7 +15,6 @@ namespace Durin
 			std::string Name;
 			std::unique_ptr<FQueuedWorkFunction> Function;
 			FQueuedWorkDiscardFunction Discard;
-			uint64 OwnerTag = 0;
 			EQueuedWorkPriority Priority = EQueuedWorkPriority::Normal;
 			uint64 Sequence = 0;
 		};
@@ -208,7 +207,6 @@ namespace Durin
 			const char* TaskName,
 			FQueuedWorkFunction&& Work,
 			FQueuedWorkDiscardFunction&& Discard,
-			uint64 OwnerTag,
 			EQueuedWorkPriority Priority
 		) -> bool
 		{
@@ -218,18 +216,10 @@ namespace Durin
 			}
 			// Keep all user storage outside the lock scope until queue insertion succeeds.
 			FQueuedWork Item{TaskName ? TaskName : "QueuedWork",
-				std::make_unique<FQueuedWorkFunction>(std::move(Work)), std::move(Discard), OwnerTag, Priority};
+				std::make_unique<FQueuedWorkFunction>(std::move(Work)), std::move(Discard), Priority};
 			{
 				std::lock_guard Lock(Mutex);
 				if (!bRunning || !bAcceptingWork || bStopRequested) return false;
-				auto Owner = OutstandingOwnerTags.end();
-				bool bInsertedOwner = false;
-				if (OwnerTag != 0)
-				{
-					auto Inserted = OutstandingOwnerTags.try_emplace(OwnerTag, 0);
-					Owner = Inserted.first;
-					bInsertedOwner = Inserted.second;
-				}
 				try
 				{
 					if (GFailQueuedWorkAllocation.exchange(false)) throw std::bad_alloc();
@@ -237,10 +227,8 @@ namespace Durin
 				}
 				catch (...)
 				{
-					if (bInsertedOwner) OutstandingOwnerTags.erase(Owner);
 					throw;
 				}
-				if (OwnerTag != 0) ++Owner->second;
 			}
 
 			WorkAvailableCV.notify_one();
@@ -259,23 +247,9 @@ namespace Durin
 			return true;
 		}
 
-		auto WaitForOwnerTagIdle(uint64 OwnerTag, double TimeoutSeconds) -> bool
-		{
-			if (OwnerTag == 0) return true;
-			if (GCurrentQueuedThreadPool == this) return false;
-			std::unique_lock Lock(Mutex);
-			return OwnerIdleCV.wait_for(Lock, std::chrono::duration<double>(std::max(0.0, TimeoutSeconds)), [&]() {
-				return !OutstandingOwnerTags.contains(OwnerTag);
-			});
-		}
 
-		auto GetOwnerTagOutstandingCount(uint64 OwnerTag) const -> uint32
-		{
-			if (OwnerTag == 0) return 0;
-			std::lock_guard Lock(Mutex);
-			const auto Iterator = OutstandingOwnerTags.find(OwnerTag);
-			return Iterator == OutstandingOwnerTags.end() ? 0u : Iterator->second;
-		}
+
+
 
 		auto WaitForIdle() -> bool
 		{
@@ -403,7 +377,6 @@ namespace Durin
 			{
 				std::lock_guard Lock(Mutex);
 				--ActiveTaskCount;
-				ReleaseOwnerTagLocked(Work.OwnerTag);
 				NotifyIdleIfNeeded();
 			}
 		}
@@ -431,21 +404,10 @@ namespace Durin
 				Work.Function.reset();
 				Work.Discard = {};
 				std::lock_guard Lock(Mutex);
-				ReleaseOwnerTagLocked(Work.OwnerTag);
 			}
 		}
 
-		auto ReleaseOwnerTagLocked(uint64 OwnerTag) -> void
-		{
-			if (OwnerTag == 0) return;
-			auto Iterator = OutstandingOwnerTags.find(OwnerTag);
-			require(Iterator != OutstandingOwnerTags.end() && Iterator->second > 0);
-			if (--Iterator->second == 0)
-			{
-				OutstandingOwnerTags.erase(Iterator);
-				OwnerIdleCV.notify_all();
-			}
-		}
+
 
 		auto NotifyIdleIfNeeded() -> void
 		{
@@ -458,9 +420,7 @@ namespace Durin
 		mutable std::mutex Mutex;
 		std::condition_variable WorkAvailableCV;
 		std::condition_variable IdleCV;
-		std::condition_variable OwnerIdleCV;
 		FWorkQueue Queue;
-		std::unordered_map<uint64, uint32> OutstandingOwnerTags;
 
 		std::vector<std::unique_ptr<FWorkerRunnable>> WorkerRunnables;
 		std::vector<std::unique_ptr<FRunnableThread>> WorkerThreads;
@@ -499,11 +459,10 @@ namespace Durin
 		const char* TaskName,
 		FQueuedWorkFunction&& Work,
 		FQueuedWorkDiscardFunction&& Discard,
-		uint64 OwnerTag,
 		EQueuedWorkPriority Priority
 	) -> bool
 	{
-		return Impl->Enqueue(TaskName, std::move(Work), std::move(Discard), OwnerTag, Priority);
+		return Impl->Enqueue(TaskName, std::move(Work), std::move(Discard), Priority);
 	}
 
 	auto FQueuedThreadPool::TryExecuteOneQueuedTask() -> bool
@@ -511,15 +470,9 @@ namespace Durin
 		return Impl->TryExecuteOneQueuedTask();
 	}
 
-	auto FQueuedThreadPool::WaitForOwnerTagIdle(uint64 OwnerTag, double TimeoutSeconds) -> bool
-	{
-		return Impl->WaitForOwnerTagIdle(OwnerTag, TimeoutSeconds);
-	}
 
-	auto FQueuedThreadPool::GetOwnerTagOutstandingCount(uint64 OwnerTag) const -> uint32
-	{
-		return Impl->GetOwnerTagOutstandingCount(OwnerTag);
-	}
+
+
 
 	auto FQueuedThreadPool::WaitForIdle() -> bool
 	{

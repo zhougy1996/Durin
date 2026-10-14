@@ -89,8 +89,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::vector<FPendingRequest> PendingRequests;
 		std::vector<FDecodeResult> PendingUploads;
 		std::shared_ptr<FAsyncThumbnailState> AsyncState = std::make_shared<FAsyncThumbnailState>();
-		std::optional<FTaskScope> OwnedTaskScope;
-		FTaskScopeToken TaskScope;
 		// Retains identity even when a callable fails before producing a value.
 		struct FDecodeFlight
 		{
@@ -242,7 +240,6 @@ namespace Durin::Editor::ContentBrowser::Private
 				const std::shared_ptr<FSourceImageThumbnailDiskCache> DiskCache = State->DiskCache;
 				::Durin::Tasks::FTaskExecutionOptions DecodeOptions;
 				DecodeOptions.Attribution = GetSourceImageThumbnailDecodeAttribution();
-				DecodeOptions.Scope = TaskScope;
 				auto Task = ::Durin::Tasks::LaunchTask("DecodeSourceImageThumbnail", [State, DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial, BypassDisk = BypassDiskSources.contains(PhysicalPath)] {
 					FDecodeResult Result;
 					Result.PhysicalPath = PhysicalPath;
@@ -288,15 +285,9 @@ namespace Durin::Editor::ContentBrowser::Private
 	FSourceImageThumbnailCache::FSourceImageThumbnailCache()
 		: Impl(std::make_unique<FImpl>())
 	{
-		Impl->OwnedTaskScope.emplace(CreateTaskScope());
-		Impl->TaskScope = Impl->OwnedTaskScope->GetToken();
 	}
 
-	FSourceImageThumbnailCache::FSourceImageThumbnailCache(FTaskScopeToken TaskScope)
-		: Impl(std::make_unique<FImpl>())
-	{
-		Impl->TaskScope = std::move(TaskScope);
-	}
+
 
 	FSourceImageThumbnailCache::~FSourceImageThumbnailCache()
 	{
@@ -439,13 +430,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			Impl->AsyncState->bAcceptingResults = false;
 			Impl->AsyncState->UploadedResults.clear();
 		}
-		if (Impl->OwnedTaskScope)
-			(void)Impl->OwnedTaskScope->Close(ETaskScopeCloseMode::Cancel);
 		for (const auto& Flight : Impl->Tasks) (void)::Durin::Tasks::Cancel(Flight.Task);
 		for (const auto& Flight : Impl->Tasks) (void)Flight.Task.Wait();
 		Impl->Tasks.clear();
 		Impl->ActiveDecodeCount = 0;
-		if (Impl->OwnedTaskScope) (void)Impl->OwnedTaskScope->Wait();
 		if (GRenderingThread) FlushRenderingCommands();
 		Clear();
 		Impl->AsyncState.reset();

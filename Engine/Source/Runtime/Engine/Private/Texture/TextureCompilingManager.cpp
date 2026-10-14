@@ -142,7 +142,7 @@ namespace Durin
 			if (RequestState.BuildOperation)
 			{
 				// A posted product is not enough: nested completion includes callback/capture retirement.
-				return RequestState.Task.IsValid() && RequestState.Task.GetTaskHandle().IsComplete();
+				return RequestState.Task.IsValid() && RequestState.Task.IsCompleted();
 			}
 			return RequestState.Mailbox.has_value(); // Canceled before worker admission.
 		}
@@ -207,13 +207,12 @@ namespace Durin
 						? DerivedData::ERequestPriority::High : DerivedData::ERequestPriority::Low);
 			}
 			const std::shared_ptr<FQueueState> Self = shared_from_this();
-			Tasks::FTaskGroup Group(Scope.GetToken());
 			Tasks::FTaskExecutionOptions Options;
 			Options.DebugName = "Texture2D.Build";
 			Options.Attribution = Attribution;
 			Options.Priority = RequestState->Request.Priority == ETexture2DCompilationPriority::Interactive
 				? ETaskPriority::High : ETaskPriority::Low;
-			auto Admission = Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, Options,
+			auto Admission = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker, Options,
 				[Self, RequestState](Tasks::FTaskContext& Context) {
 					try
 					{
@@ -500,8 +499,6 @@ namespace Durin
 				return {EAssetCompilerStartError::Undrained, PendingRequestCount};
 			}
 			bShutdown = false;
-			Scope = CreateTaskScope();
-			if (!Scope.IsValid()) return {EAssetCompilerStartError::TaskScopeUnavailable};
 			Attribution = RegisterTaskAttribution("Engine", "Texture2DCompile");
 			bAcceptingRequests = true;
 			ConsecutiveInteractive = 0;
@@ -518,6 +515,7 @@ namespace Durin
 		{
 			std::vector<std::shared_ptr<FRequestState>> Queued;
 			std::vector<std::shared_ptr<FAssetCompilationOperation>> BuildOperations;
+			std::vector<FTaskHandle> TasksToCancel;
 			{
 				std::lock_guard Lock(Mutex);
 				if (bShutdown) return;
@@ -527,6 +525,7 @@ namespace Durin
 				{
 					RequestState->bCancellationRequested.store(true, std::memory_order_release);
 					if (RequestState->BuildOperation) BuildOperations.push_back(RequestState->BuildOperation);
+					if (RequestState->Task.IsValid()) TasksToCancel.push_back(Durin::FTaskHandle(RequestState->Task));
 				}
 				while (!InteractiveQueue.empty()) { Queued.push_back(std::move(InteractiveQueue.front())); InteractiveQueue.pop_front(); }
 				while (!BackgroundQueue.empty()) { Queued.push_back(std::move(BackgroundQueue.front())); BackgroundQueue.pop_front(); }
@@ -534,7 +533,7 @@ namespace Durin
 			for (const auto& Owner : BuildOperations) Owner->RequestCancel();
 			for (const auto& RequestState : Queued)
 				CompleteWithoutWorker(RequestState, DerivedData::EStatus::Canceled);
-			Scope.Close(ETaskScopeCloseMode::Cancel);
+			for (const auto& Task : TasksToCancel) CancelTask(Task);
 			// Even tasks canceled before their body runs are consumed by the owner pump.
 			for (;;)
 			{
@@ -545,13 +544,9 @@ namespace Durin
 				std::this_thread::yield();
 			}
 			Pump(std::numeric_limits<uint32>::max());
-			const ETaskScopeWaitResult ScopeWait = Scope.WaitFor(5.0);
-			if (ScopeWait != ETaskScopeWaitResult::Quiescent)
-				DURIN_ERROR_CATEGORY("Texture", "Texture2D compilation scope did not become quiescent during shutdown ({}).", static_cast<uint32>(ScopeWait));
 		}
 
 		FTextureCompilingManagerConfig Config;
-		FTaskScope Scope;
 		FTaskAttribution Attribution;
 		mutable std::mutex Mutex;
 		std::unordered_map<uint64, std::shared_ptr<FRequestState>> Requests;

@@ -983,22 +983,7 @@ TEST_F(FContentBrowserModelTests, AsyncScanFailureTerminatesLoadingAndAllowsRetr
 	ASSERT_EQ(Model.GetItems().size(), 1);
 }
 
-TEST_F(FContentBrowserModelTests, AsyncSubmissionAfterOwnerClosureIsALifecycleViolation)
-{
-	InitializeDObjectSystem();
-	auto Scope = CreateTaskScope();
-	ASSERT_TRUE(Scope.IsValid());
-	(void)Scope.Close(ETaskScopeCloseMode::Cancel);
-	(void)Scope.Wait();
-	FContentBrowserModel Model(true, Scope.GetToken());
-	auto Visits = std::make_shared<std::atomic<int>>(0);
-	Model.SetEntryStatusQueryForTesting([Visits](const auto& Entry, auto& Error) {
-		++*Visits;
-		return Entry.symlink_status(Error);
-	});
-	EXPECT_DEATH({ (void)Model.NavigateToPhysical((Root / "Content").generic_string()); }, "");
-	EXPECT_EQ(Visits->load(), 0);
-}
+
 
 TEST_F(FContentBrowserModelTests, AsyncRevealReturnsIdentityBeforeDirectoryCaptureCompletes)
 {
