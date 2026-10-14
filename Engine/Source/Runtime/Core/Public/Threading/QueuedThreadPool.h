@@ -49,9 +49,11 @@ namespace Durin
 			EQueuedWorkPriority Priority = EQueuedWorkPriority::Normal,
 			FQueuedWorkHandle* OutHandle = nullptr
 		) -> bool;
-		CORE_API auto TryExecuteOneQueuedTask() -> bool;
 		// Claims the node in constant time under the queue lock. Stale/wrong-pool handles fail.
 		CORE_API auto TryExecuteQueuedTask(const FQueuedWorkHandle& Handle) -> bool;
+		// Internal scheduler path: the task itself owns its queue links and execution.
+		CORE_API auto EnqueueNode(const std::shared_ptr<Private::FQueuedWorkNode>& Node, EQueuedWorkPriority Priority) -> bool;
+		CORE_API auto TryExecuteNode(const std::shared_ptr<Private::FQueuedWorkNode>& Node) -> bool;
 
 		// Returns false instead of deadlocking when called by one of this pool's workers.
 		CORE_API auto WaitForIdle() -> bool;

@@ -193,7 +193,9 @@ callback, so mandatory cleanup belongs to the owner lifecycle boundary.
 
 ThenAsync binds and cycle-checks its dynamic dependency before clearing unknown
 execution requirements. Unique inner cancellation is forwarded; shared inner
-cancellation remains local to its observer. An inner user exception remains
+cancellation remains local to its observer. The shared-inner adapter binds caller
+prerequisites on the runner before returning and does not retain their borrowed
+span in the later observer. An inner user exception remains
 execution failure, not a scheduler admission result.
 Sharing and flattening preserve the original failure reason, code, dependency
 error and input identity. A flattening callback exception remains a callback
@@ -244,6 +246,20 @@ terminal states. Registration racing terminal publication cannot lose or
 duplicate dependent release. A task id is process-unique and nonzero; parent
 and prerequisite identities are distinct.
 
+Execution prerequisites and nested completion have separate phase counters.
+Retraction visits execution backlinks only while prerequisites remain and
+nested backlinks only while children remain. Persistent weak graph metadata
+continues to support cycle, authority and diagnostic checks. An unsuccessful
+attempt leaves unfinished links available to other waiters and later progress.
+Dynamic inner binding is one-shot; a second binding returns
+`InvalidExecutionContract` before mutation or cancellation forwarding.
+
+The scheduler publishes progress after ready-node insertion, dynamic binding,
+nested registration, callable retirement and full terminal publication. Its
+progress serial and condition variable use a separate mutex; observers prepare
+before inspecting work and wait only while the serial is unchanged. Notification
+does not imply completion or permit bypassing callable/terminal-hook retirement.
+
 `WaitTask` returns wait status separately from task state. Completed means a
 terminal state and finished terminal publication were observed; InvalidTask,
 SelfWait, DependencyCycle, UnsupportedThread and TimedOut do not prove completion.
@@ -272,16 +288,39 @@ permits render preparation/recording joins without relaxing general wait policy.
 Cancellation and exceptions still publish the normal terminal state, and result
 access still requires success. Waits do not pump GameThread callbacks.
 Executing tasks help only the waited task and its transitive execution, nested,
-and dynamic dependencies. Tasks retain a weak handle to their stable queue node. Retraction
-pins that node and detaches it in constant time under the owning pool's lock;
+and dynamic dependencies. The task state is the queue execution node; scheduler
+dispatch adds no callback wrapper or separate queue-node allocation. Ordinary
+pool callbacks use an adapter. Retraction pins the task node and detaches it in
+constant time under the owning pool's lock;
 there is no ID lookup or queue scan. The priority lanes use owning forward links
 and non-owning backward links, with iterative teardown. Normal dispatch and
-retraction share the same removal path; stale and wrong-pool handles fail. Handles
+retraction share the same removal path; stale and wrong-pool handles fail. Generic handles
 do not retain callable captures, and callable/discard storage is released outside
 the queue lock. Retraction never runs unrelated queue entries. Graph traversal is iterative rather than recursive. Kernel Worker
 helping runs CPU work; I/O helping stays within the blocking-I/O authority,
 including a single-thread I/O parent waiting for its child. External callers
 retain blocking-only behavior and executor-affinity restrictions remain in force.
+
+A retraction pass visits prerequisites before attempting the node, then inspects
+dynamic/nested backlinks again to include work added by its body. The local
+postorder stack, dependency scratch vector and task-ID deduplication buckets are
+reused during one wait. Pins are released between passes; there is no graph
+revision cache or recursion-depth limit. An expired/zero deadline attempts only
+the target once and never starts its dependencies. A started body is not preempted.
+
+Waiting prepares the scheduler progress serial before inspection, rechecks
+terminal state and deadline after retraction, then sleeps only while that serial
+is unchanged. Ready insertion and newly registered dependencies wake the waiter
+as well as terminal publication. The former worker 1 ms polling slice is removed;
+the long-wait diagnostic has one deadline of its own. The scheduler notification
+is shared, so unrelated progress can wake a waiter, but cannot authorize execution
+of unrelated work. This is a correctness refactor, not a timing qualification.
+
+Callable ownership transfers only after admission succeeds, and the body is
+retired before terminal publication. Typed result storage remains separately
+owned so unique reservations and shared views can outlive execution without
+changing their claims or retaining callback captures. Queue-node membership is
+one-shot; an executed or discarded node cannot be admitted again.
 
 The process scheduler owns a distinct blocking-I/O pool, defaulting to two
 threads. It wraps blocking calls and makes no kernel-async I/O claim. Worker

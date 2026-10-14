@@ -1,4 +1,5 @@
 #include "Threading/QueuedThreadPool.h"
+#include "Threading/Private/QueuedWorkNode.h"
 
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
@@ -10,27 +11,26 @@ namespace Durin
 {
 	namespace
 	{
-		struct FQueuedWork
+		struct FCallbackWorkNode final : Private::FQueuedWorkNode
 		{
+			FCallbackWorkNode(const char* InName, FQueuedWorkFunction&& InFunction, FQueuedWorkDiscardFunction&& InDiscard)
+				: Name(InName ? InName : "QueuedWork"), Function(std::move(InFunction)), DiscardFunction(std::move(InDiscard)) {}
+			auto GetName() const -> const char* override { return Name.c_str(); }
+			auto Execute() -> void override
+			{
+				auto Body = std::move(Function);
+				auto OnDiscard = std::move(DiscardFunction);
+				Body();
+			}
+			auto Discard() -> void override
+			{
+				auto Body = std::move(Function);
+				auto OnDiscard = std::move(DiscardFunction);
+				if (OnDiscard) OnDiscard();
+			}
 			std::string Name;
-			std::unique_ptr<FQueuedWorkFunction> Function;
-			FQueuedWorkDiscardFunction Discard;
-			EQueuedWorkPriority Priority = EQueuedWorkPriority::Normal;
-			uint64 Sequence = 0;
-		};
-	}
-
-	namespace Private
-	{
-		struct FQueuedWorkNode
-		{
-			FQueuedWorkNode(const void* InPool, FQueuedWork&& InWork) : Pool(InPool), Work(std::move(InWork)) {}
-			const void* const Pool;
-			FQueuedWork Work;
-			// Links and membership are protected by the owning pool's mutex.
-			FQueuedWorkNode* Previous = nullptr;
-			std::shared_ptr<FQueuedWorkNode> Next;
-			bool bQueued = false;
+			FQueuedWorkFunction Function;
+			FQueuedWorkDiscardFunction DiscardFunction;
 		};
 	}
 
@@ -74,20 +74,19 @@ namespace Durin
 			auto Num() const -> size_t { return Lanes[0].Count + Lanes[1].Count + Lanes[2].Count; }
 			auto Enqueue(const std::shared_ptr<Private::FQueuedWorkNode>& Node) -> void
 			{
-				auto& Lane = Lanes[static_cast<size_t>(Node->Work.Priority)];
+				auto& Lane = Lanes[static_cast<size_t>(Node->QueuePriority)];
 				Node->Previous = Lane.Tail;
 				if (Lane.Tail) Lane.Tail->Next = Node;
 				else Lane.Head = Node;
 				Lane.Tail = Node.get();
 				++Lane.Count;
 				Node->bQueued = true;
-				Node->Work.Sequence = NextSequence++;
+				Node->Sequence = NextSequence++;
 			}
-			auto Remove(const std::shared_ptr<Private::FQueuedWorkNode>& Node, FQueuedWork& OutWork) -> bool
+			auto Remove(const std::shared_ptr<Private::FQueuedWorkNode>& Node) -> bool
 			{
 				if (!Node->bQueued) return false;
-				OutWork = std::move(Node->Work);
-				auto& Lane = Lanes[static_cast<size_t>(OutWork.Priority)];
+				auto& Lane = Lanes[static_cast<size_t>(Node->QueuePriority)];
 				auto Next = std::move(Node->Next);
 				if (Node->Previous) Node->Previous->Next = Next;
 				else Lane.Head = Next;
@@ -98,21 +97,20 @@ namespace Durin
 				--Lane.Count;
 				return true;
 			}
-			auto Take() -> FQueuedWork
+			auto Take() -> std::shared_ptr<Private::FQueuedWorkNode>
 			{
 				size_t Selected = 3;
 				for (size_t Index = 0; Index < 3; ++Index)
 				{
 					if (!Lanes[Index].Head) continue;
-					if (Selected == 3 || (PreferredDispatches == 7 && Lanes[Index].Head->Work.Sequence < Lanes[Selected].Head->Work.Sequence)) Selected = Index;
+					if (Selected == 3 || (PreferredDispatches == 7 && Lanes[Index].Head->Sequence < Lanes[Selected].Head->Sequence)) Selected = Index;
 				}
 				require(Selected < 3);
 				PreferredDispatches = (PreferredDispatches + 1) % 8;
 				auto Node = Lanes[Selected].Head;
-				FQueuedWork Work;
-				const bool bRemoved = Remove(Node, Work);
+				const bool bRemoved = Remove(Node);
 				require(bRemoved);
-				return Work;
+				return Node;
 			}
 		};
 
@@ -283,62 +281,46 @@ namespace Durin
 			{
 				return false;
 			}
-			// Keep all user storage outside the lock scope until queue insertion succeeds.
-			FQueuedWork Item{TaskName ? TaskName : "QueuedWork",
-				std::make_unique<FQueuedWorkFunction>(std::move(Work)), std::move(Discard), Priority};
-			auto Node = std::make_shared<Private::FQueuedWorkNode>(this, std::move(Item));
+			auto Node = std::make_shared<FCallbackWorkNode>(TaskName, std::move(Work), std::move(Discard));
+			if (!EnqueueNode(Node, Priority)) return false;
+			if (OutHandle) OutHandle->Node = Node;
+			return true;
+		}
+
+		auto EnqueueNode(const std::shared_ptr<Private::FQueuedWorkNode>& Node, EQueuedWorkPriority Priority) -> bool
+		{
+			if (!Node || static_cast<uint8>(Priority) > static_cast<uint8>(EQueuedWorkPriority::Low)) return false;
 			{
 				std::lock_guard Lock(Mutex);
 				if (!bRunning || !bAcceptingWork || bStopRequested) return false;
-				try
-				{
-					if (GFailQueuedWorkAllocation.exchange(false)) throw std::bad_alloc();
-					Queue.Enqueue(Node);
-					if (OutHandle) OutHandle->Node = Node;
-				}
-				catch (...)
-				{
-					throw;
-				}
+				if (GFailQueuedWorkAllocation.exchange(false)) throw std::bad_alloc();
+				const void* Expected = nullptr;
+				if (!Node->Pool.compare_exchange_strong(Expected, this)) return false;
+				Node->QueuePriority = Priority;
+				Queue.Enqueue(Node);
 			}
-
 			WorkAvailableCV.notify_one();
 			return true;
 		}
 
 		auto TryExecuteQueuedTask(const FQueuedWorkHandle& Handle) -> bool
+		{ return TryExecuteNode(Handle.Node.lock()); }
+
+		auto TryExecuteNode(const std::shared_ptr<Private::FQueuedWorkNode>& Node) -> bool
 		{
-			auto Node = Handle.Node.lock();
-			if (!Node || Node->Pool != this) return false;
-			FQueuedWork Work;
+			if (!Node || Node->Pool.load() != this) return false;
 			{
 				std::lock_guard Lock(Mutex);
 				if (bStopRequested && !bDrainQueuedWorkOnStop) return false;
-				if (!Queue.Remove(Node, Work)) return false;
+				if (!Queue.Remove(Node)) return false;
 				++ActiveTaskCount;
 			}
 			const auto PreviousPool = GCurrentQueuedThreadPool;
 			GCurrentQueuedThreadPool = this;
-			ExecuteQueuedWork(std::move(Work));
+			ExecuteQueuedWork(Node);
 			GCurrentQueuedThreadPool = PreviousPool;
 			return true;
 		}
-
-		auto TryExecuteOneQueuedTask() -> bool
-		{
-			FQueuedWork Work;
-			if (!TryDequeueWork(Work))
-			{
-				return false;
-			}
-
-			ExecuteQueuedWork(std::move(Work));
-			return true;
-		}
-
-
-
-
 
 		auto WaitForIdle() -> bool
 		{
@@ -399,7 +381,7 @@ namespace Durin
 			GCurrentQueuedThreadPool = this;
 			while (true)
 			{
-				FQueuedWork Work;
+				std::shared_ptr<Private::FQueuedWorkNode> Work;
 				{
 					std::unique_lock Lock(Mutex);
 					WorkAvailableCV.wait(Lock, [this]() {
@@ -425,43 +407,24 @@ namespace Durin
 			GCurrentQueuedThreadPool = PreviousPool;
 		}
 
-		auto TryDequeueWork(FQueuedWork& OutWork) -> bool
-		{
-			std::lock_guard Lock(Mutex);
-			if (Queue.IsEmpty())
-			{
-				return false;
-			}
-
-			if (bStopRequested && !bDrainQueuedWorkOnStop)
-			{
-				return false;
-			}
-
-			OutWork = Queue.Take();
-			++ActiveTaskCount;
-			return true;
-		}
-
-		auto ExecuteQueuedWork(FQueuedWork&& Work) -> void
+		auto ExecuteQueuedWork(std::shared_ptr<Private::FQueuedWorkNode> Work) -> void
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("QueuedTask.Execute");
-			DURIN_TRACE("Queued task started. (task: {}, thread: {}, id: {})", Work.Name, GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
+			DURIN_TRACE("Queued task started. (task: {}, thread: {}, id: {})", Work->GetName(), GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
 			try
 			{
-				(*Work.Function)();
+				Work->Execute();
 			}
 			catch (const std::exception& Exception)
 			{
-				DURIN_ERROR("Queued task escaped its callable boundary. (task: {}, error: {})", Work.Name, Exception.what());
+				DURIN_ERROR("Queued task escaped its callable boundary. (task: {}, error: {})", Work->GetName(), Exception.what());
 			}
 			catch (...)
 			{
-				DURIN_ERROR("Queued task escaped its callable boundary with an unknown exception. (task: {})", Work.Name);
+				DURIN_ERROR("Queued task escaped its callable boundary with an unknown exception. (task: {})", Work->GetName());
 			}
-			DURIN_TRACE("Queued task finished. (task: {}, thread: {}, id: {})", Work.Name, GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
-			Work.Function.reset();
-			Work.Discard = {};
+			DURIN_TRACE("Queued task finished. (task: {}, thread: {}, id: {})", Work->GetName(), GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
+			Work.reset();
 
 			{
 				std::lock_guard Lock(Mutex);
@@ -475,28 +438,13 @@ namespace Durin
 			while (!WorkItems.IsEmpty())
 			{
 				auto Work = WorkItems.Take();
-				if (Work.Discard)
-				{
-					try
-					{
-						Work.Discard();
-					}
-					catch (const std::exception& Exception)
-					{
-						DURIN_ERROR("Queued task discard callback failed. (task: {}, error: {})", Work.Name, Exception.what());
-					}
-					catch (...)
-					{
-						DURIN_ERROR("Queued task discard callback failed with an unknown exception. (task: {})", Work.Name);
-					}
-				}
-				Work.Function.reset();
-				Work.Discard = {};
-				std::lock_guard Lock(Mutex);
+				try { Work->Discard(); }
+				catch (const std::exception& Exception)
+				{ DURIN_ERROR("Queued task discard callback failed. (task: {}, error: {})", Work->GetName(), Exception.what()); }
+				catch (...)
+				{ DURIN_ERROR("Queued task discard callback failed with an unknown exception. (task: {})", Work->GetName()); }
 			}
 		}
-
-
 
 		auto NotifyIdleIfNeeded() -> void
 		{
@@ -558,14 +506,11 @@ namespace Durin
 	auto FQueuedThreadPool::TryExecuteQueuedTask(const FQueuedWorkHandle& Handle) -> bool
 	{ return Impl->TryExecuteQueuedTask(Handle); }
 
-	auto FQueuedThreadPool::TryExecuteOneQueuedTask() -> bool
-	{
-		return Impl->TryExecuteOneQueuedTask();
-	}
+	auto FQueuedThreadPool::EnqueueNode(const std::shared_ptr<Private::FQueuedWorkNode>& Node, EQueuedWorkPriority Priority) -> bool
+	{ return Impl->EnqueueNode(Node, Priority); }
 
-
-
-
+	auto FQueuedThreadPool::TryExecuteNode(const std::shared_ptr<Private::FQueuedWorkNode>& Node) -> bool
+	{ return Impl->TryExecuteNode(Node); }
 
 	auto FQueuedThreadPool::WaitForIdle() -> bool
 	{

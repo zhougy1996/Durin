@@ -5,6 +5,7 @@
 
 #include "Profiling/Profiling.h"
 #include "Threading/QueuedThreadPool.h"
+#include "Threading/Private/QueuedWorkNode.h"
 #include "Threading/Runnable.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/TaskComposition.h"
@@ -134,6 +135,35 @@ namespace Durin
 			}
 		}
 	} // namespace
+
+	TEST(FQueuedThreadPoolTests, ExecutionNodeHasOneShotMembershipAcrossPools)
+	{
+		EnsureGameThreadForTaskTest();
+		struct FNode final : Private::FQueuedWorkNode
+		{
+			auto Execute() -> void override { ++Runs; }
+			auto Discard() -> void override { ++Discards; }
+			auto GetName() const -> const char* override { return "DirectExecutionNode"; }
+			std::atomic<uint32> Runs = 0, Discards = 0;
+		};
+		FQueuedThreadPool Pool, Other;
+		ASSERT_TRUE(Pool.Create(1)); ASSERT_TRUE(Other.Create(1));
+		FThreadEvent Started, Release;
+		ASSERT_TRUE(Pool.Enqueue("NodeMembershipBlocker", [&] { Started.Trigger(); Release.WaitFor(2); }));
+		ASSERT_TRUE(Started.WaitFor(1));
+		auto Node = std::make_shared<FNode>();
+		ASSERT_TRUE(Pool.EnqueueNode(Node, EQueuedWorkPriority::Normal));
+		EXPECT_FALSE(Pool.EnqueueNode(Node, EQueuedWorkPriority::High));
+		EXPECT_FALSE(Other.EnqueueNode(Node, EQueuedWorkPriority::Normal));
+		EXPECT_FALSE(Other.TryExecuteNode(Node));
+		EXPECT_TRUE(Pool.TryExecuteNode(Node));
+		EXPECT_FALSE(Pool.TryExecuteNode(Node));
+		EXPECT_FALSE(Pool.EnqueueNode(Node, EQueuedWorkPriority::Normal));
+		Release.Trigger();
+		EXPECT_TRUE(Pool.WaitForIdle());
+		EXPECT_EQ(Node->Runs.load(), 1u);
+		EXPECT_EQ(Node->Discards.load(), 0u);
+	}
 
 	TEST(FQueuedThreadPoolTests, AllocationRollbackReleasesOwnerAndCallableOutsideLock)
 	{

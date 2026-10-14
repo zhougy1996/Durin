@@ -390,21 +390,12 @@ namespace Durin::Tasks
 	template<typename F>
 	auto Then(const FTaskHandle& Input, ETaskExecutor Executor, FTaskExecutionOptions Options, F&& Function)
 	{
-		try
-		{
-			const auto& Handle = Input;
-			require(Handle.IsValid());
-			if (Options.Attribution == FTaskAttribution{})
-				Options.Attribution = Durin::Private::FTaskRuntimeAccess::GetAttribution(Handle);
-			std::vector<FTaskHandle> Prerequisites(Options.Prerequisites.begin(), Options.Prerequisites.end());
-			Prerequisites.push_back(Handle);
-			Options.Prerequisites = Prerequisites;
-			return Detail::LaunchTaskImpl(Executor, Options, std::forward<F>(Function));
-		}
-		catch (const std::bad_alloc&)
-		{
-			Detail::FailConstruction({ETaskAdmissionErrorCode::CapacityExhausted});
-		}
+		require(Input.IsValid());
+		if (Options.Attribution == FTaskAttribution{})
+			Options.Attribution = Durin::Private::FTaskRuntimeAccess::GetAttribution(Input);
+		return Detail::WithPrerequisites(Options, Prerequisites(Input), [&](const auto& BoundOptions) {
+			return Detail::LaunchTaskImpl(Executor, BoundOptions, std::forward<F>(Function));
+		});
 	}
 
 
@@ -772,8 +763,7 @@ namespace Durin::Tasks
 				Source.TrySetValue(Out{});
 				return Result;
 			}
-			std::vector<FTaskHandle> Prerequisites(Options.Prerequisites.begin(), Options.Prerequisites.end());
-			Prerequisites.insert(Prerequisites.end(), Inputs.begin(), Inputs.end());
+			const auto Prerequisites = CollectDependencies(Inputs, Options.Prerequisites);
 			FTaskContinuationOptions Edge;
 			Edge.bQueueOnSaturation = true;
 			Edge.GenerationToken = Options.GenerationToken;
@@ -976,7 +966,10 @@ namespace Durin::Tasks
 		-> TTask<std::shared_ptr<const TTaskValue<U>>>
 	{
 		FTaskExecutionOptions ObserverOptions = Options;
-		return ThenAsync(std::move(Input), Executor, ObserverOptions,
+		// The runner binds caller-owned prerequisites synchronously. Its observer
+		// must not capture or bind that borrowed collection a second time.
+		ObserverOptions.Prerequisites = {};
+		return ThenAsync(std::move(Input), Executor, Options,
 			[Function = std::forward<F>(Function), ObserverOptions](auto&&... Args) mutable
 				requires std::is_invocable_v<std::decay_t<F>&, decltype(Args)...> {
 				auto Shared = std::invoke(Function, std::forward<decltype(Args)>(Args)...);

@@ -279,6 +279,153 @@ namespace Durin
 		EXPECT_EQ(UnrelatedRuns.load(), 1u);
 	}
 
+	TEST(FTaskCompositionTests, RetractionHandlesDeepChainsSharedDagsAndNewNestedWork)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		std::atomic<uint32> Runs = 0, UnrelatedRuns = 0;
+		auto Parent = Tasks::LaunchTask("RetractionGraphParent", [&] {
+			auto Unrelated = Tasks::LaunchTask("UnrelatedDuringRetraction", [&] { ++UnrelatedRuns; }, {.Priority = ETaskPriority::High});
+			std::vector<Tasks::FTask> Chain;
+			Chain.push_back(Tasks::LaunchTask("DeepRoot", [&] { ++Runs; }));
+			for (uint32 Index = 1; Index < 512; ++Index)
+			{
+				std::array<FTaskHandle, 1> Previous{Chain.back()};
+				Chain.push_back(Tasks::LaunchTask("DeepStep", [&] { ++Runs; }, Previous));
+			}
+			std::vector<Tasks::FTask> Branches;
+			for (uint32 Index = 0; Index < 64; ++Index)
+			{
+				std::array<FTaskHandle, 1> SharedLeaf{Chain.back()};
+				Branches.push_back(Tasks::LaunchTask("SharedDagBranch", [&] { ++Runs; }, SharedLeaf));
+			}
+			auto Target = Tasks::LaunchTask("DagNestedTarget", [&] {
+				auto Child = Tasks::LaunchTask("NewNestedChild", [&] {
+					auto Grandchild = Tasks::LaunchTask("NewNestedGrandchild", [&] { ++Runs; });
+					Tasks::AddNested(Grandchild);
+				});
+				Tasks::AddNested(Child);
+			}, Branches);
+			EXPECT_EQ(Target.Wait(3).TaskState, ETaskState::Succeeded);
+			EXPECT_EQ(Runs.load(), 577u);
+			EXPECT_EQ(UnrelatedRuns.load(), 0u);
+			Tasks::AddNested(Unrelated);
+		});
+		EXPECT_EQ(Parent.Wait(5).TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(UnrelatedRuns.load(), 1u);
+	}
+
+	TEST(FTaskCompositionTests, ConcurrentRetractionWaitersExecuteSharedDependenciesOnce)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(2));
+		FThreadEvent FirstStarted, SecondStarted, Release;
+		FTaskHandle Target;
+		std::atomic<uint32> Runs = 0;
+		auto First = Tasks::LaunchTask("FirstRetractionWaiter", [&] {
+			FirstStarted.Trigger(); Release.WaitFor(2);
+			EXPECT_EQ(WaitTask(Target, 2).TaskState, ETaskState::Succeeded);
+		});
+		auto Second = Tasks::LaunchTask("SecondRetractionWaiter", [&] {
+			SecondStarted.Trigger(); Release.WaitFor(2);
+			EXPECT_EQ(WaitTask(Target, 2).TaskState, ETaskState::Succeeded);
+		});
+		EXPECT_TRUE(FirstStarted.WaitFor(1)); EXPECT_TRUE(SecondStarted.WaitFor(1));
+		std::vector<Tasks::FTask> Inputs;
+		for (uint32 Index = 0; Index < 64; ++Index)
+			Inputs.push_back(Tasks::LaunchTask("SharedRetractionInput", [&] { ++Runs; }));
+		auto Joined = Tasks::LaunchTask("SharedRetractionTarget", [&] { ++Runs; }, Inputs);
+		Target = Joined;
+		Release.Trigger();
+		EXPECT_EQ(First.Wait(3).TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Second.Wait(3).TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Joined.Wait(1).TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(Runs.load(), 65u);
+	}
+
+	TEST(FTaskCompositionTests, ZeroTimeoutRetiresTargetBodyWithoutExecutingNewNestedWork)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		auto Parent = Tasks::LaunchTask("ZeroNestedWaiter", [] {
+			uint32 ChildRuns = 0;
+			auto Target = Tasks::LaunchTask("ZeroNestedTarget", [&] {
+				auto Child = Tasks::LaunchTask("ZeroNestedChild", [&] { ++ChildRuns; });
+				Tasks::AddNested(Child);
+			});
+			EXPECT_EQ(Target.Wait(0).WaitStatus, ETaskWaitStatus::TimedOut);
+			EXPECT_EQ(ChildRuns, 0u);
+			EXPECT_EQ(Target.Wait(1).TaskState, ETaskState::Succeeded);
+			EXPECT_EQ(ChildRuns, 1u);
+		});
+		EXPECT_EQ(Parent.Wait(3).TaskState, ETaskState::Succeeded);
+	}
+
+	TEST(FTaskCompositionTests, NotifiedWaitResumesForLateDynamicBinding)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		for (uint32 Iteration = 0; Iteration < 32; ++Iteration)
+		{
+			auto Source = Tasks::Detail::FCompletionSourceAccess::Create<int>({}, false);
+			auto Result = Source.TakeTask();
+			FThreadEvent Ready;
+			auto Parent = Tasks::LaunchTask("LateBindingWaiter", [&] {
+				EXPECT_EQ(Result.Wait(0.001).WaitStatus, ETaskWaitStatus::TimedOut);
+				Ready.Trigger();
+				EXPECT_EQ(Result.Wait(2).TaskState, ETaskState::Succeeded);
+			});
+			EXPECT_TRUE(Ready.WaitFor(1));
+			auto Inner = Tasks::LaunchTask("LateBoundInner", [&] { Source.TrySetValue(17); });
+			EXPECT_FALSE(Private::FTaskRuntimeAccess::BindDynamicDependency(Source.GetTaskHandle(), Inner));
+			EXPECT_EQ(Parent.Wait(3).TaskState, ETaskState::Succeeded);
+			ASSERT_TRUE(Result.IsCompleted());
+			EXPECT_EQ(std::move(Result).TakeResult(), 17);
+		}
+	}
+
+	TEST(FTaskCompositionTests, NotifiedWaitRevisitsRunningIoTaskAfterNestedRegistration)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .NumBlockingIOThreads = 1}));
+		FThreadEvent Waiting, AllowNested;
+		std::atomic<uint32> ChildRuns = 0;
+		auto Parent = Tasks::LaunchTask("CrossExecutorWaiter", [&] {
+			auto Io = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO, {}, [&] {
+				AllowNested.WaitFor(2);
+				auto Child = Tasks::LaunchTask("LateCpuNestedChild", [&] { ++ChildRuns; });
+				Tasks::AddNested(Child);
+			});
+			EXPECT_EQ(Io.Wait(0.003).WaitStatus, ETaskWaitStatus::TimedOut);
+			Waiting.Trigger();
+			EXPECT_EQ(Io.Wait(2).TaskState, ETaskState::Succeeded);
+		});
+		EXPECT_TRUE(Waiting.WaitFor(1));
+		AllowNested.Trigger();
+		EXPECT_EQ(Parent.Wait(3).TaskState, ETaskState::Succeeded);
+		EXPECT_EQ(ChildRuns.load(), 1u);
+	}
+
+	TEST(FTaskCompositionTests, DynamicDependencyRejectsReplacementWithoutForwardingCancellation)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		auto Parent = Tasks::LaunchTask("OneShotDynamicBinding", [] {
+			auto Source = Tasks::TCompletionSource<void>::Create();
+			auto Original = Tasks::LaunchTask("OriginalInner", [] {});
+			auto Replacement = Tasks::LaunchTask("RejectedInner", [] {});
+			ASSERT_FALSE(Private::FTaskRuntimeAccess::BindDynamicDependency(Source.GetTaskHandle(), Original));
+			ASSERT_TRUE(Source.TrySetCanceled());
+			auto Error = Private::FTaskRuntimeAccess::BindDynamicDependency(Source.GetTaskHandle(), Replacement);
+			ASSERT_TRUE(Error);
+			EXPECT_EQ(Error->Code, Tasks::ETaskAdmissionErrorCode::InvalidExecutionContract);
+			EXPECT_EQ(Original.Wait(1).TaskState, ETaskState::Canceled);
+			EXPECT_EQ(Replacement.Wait(1).TaskState, ETaskState::Succeeded);
+		});
+		EXPECT_EQ(Parent.Wait(2).TaskState, ETaskState::Succeeded);
+	}
+
 	TEST(FTaskCompositionTests, TimedWaitIncludesTerminalPublicationAndKeepsOwnerThreadPolicy)
 	{
 		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
@@ -929,6 +1076,46 @@ namespace Durin
 			Tasks::ETaskExecutor::Worker, {}, [](int) { return Tasks::LaunchTask("UnreachableNativeInner", [] { return 0; }); });
 		ASSERT_EQ(WaitOffGameThread(FromNativeFailure).TaskState, ETaskState::Failed);
 		ExpectFailureIdentity(FromNativeFailure.GetFailure(), {});
+	}
+
+	TEST(FTaskCompositionTests, SharedThenAsyncBindsBorrowedPrerequisitesBeforeReturning)
+	{
+		EnsureGameThreadForTaskTest(); ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard; ASSERT_TRUE(InitializeTaskScheduler(1));
+		auto Check = []<typename T>(const Tasks::TSharedTask<T>& Shared) {
+			for (const bool bDestroyCollection : {false, true})
+			{
+				auto RootSource = Tasks::TCompletionSource<void>::Create({.DebugName = "BorrowedPrerequisiteRoot"});
+				Tasks::FTaskEvent Gate("BorrowedPrerequisiteGate", false);
+				std::vector<FTaskHandle> Borrowed{Gate};
+				std::atomic<bool> bFactoryRan = false;
+				auto Output = Tasks::ThenAsync(RootSource.TakeTask(), Tasks::ETaskExecutor::Worker,
+					{.DebugName = "BorrowedPrerequisiteFlatten", .Prerequisites = Borrowed}, [&] {
+						bFactoryRan.store(true); return Shared;
+					});
+				// Mutation catches a second binding deterministically; destruction also
+				// exercises the lifetime of the borrowed storage without changing the API.
+				if (bDestroyCollection) std::vector<FTaskHandle>().swap(Borrowed);
+				else Borrowed.front() = {};
+				EXPECT_TRUE(RootSource.TrySetValue());
+				auto Probe = Tasks::LaunchTask("BorrowedPrerequisiteProbe", [] {});
+				EXPECT_EQ(Probe.Wait(1).WaitStatus, ETaskWaitStatus::Completed);
+				const bool bRanBeforePrerequisite = bFactoryRan.load();
+				Gate.Trigger();
+				EXPECT_FALSE(bRanBeforePrerequisite);
+				ASSERT_EQ(WaitOffGameThread(Output).TaskState, ETaskState::Succeeded);
+				EXPECT_TRUE(bFactoryRan.load());
+				const auto Value = std::move(Output).TakeResult();
+				ASSERT_TRUE(Value);
+				if constexpr (!std::is_void_v<T>) EXPECT_EQ(*Value, 42);
+			}
+		};
+		auto Value = Tasks::Share(Tasks::LaunchTask("SharedBorrowedValue", [] { return 42; }));
+		ASSERT_EQ(Value.Wait().TaskState, ETaskState::Succeeded);
+		Check(Value);
+		auto Void = Tasks::Share(Tasks::LaunchTask("SharedBorrowedVoid", [] {}));
+		ASSERT_EQ(Void.Wait().TaskState, ETaskState::Succeeded);
+		Check(Void);
 	}
 
 	TEST(FTaskCompositionTests, SharedFanInDuplicatesAndAsyncCancellationAreLocal)
