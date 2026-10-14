@@ -4,7 +4,7 @@ Summary: Define StaticMesh source ownership, detached builds, payload validation
 
 Modules: Engine
 
-Last reviewed: 2026-10-13
+Last reviewed: 2026-10-14
 
 ## Source ownership and publication
 
@@ -113,8 +113,9 @@ never coexist with old projections. `PostEditChange` starts the independent rend
 build. Import success describes this authored commit; later DDC failure or cancellation
 keeps the new source, slots and metadata. Saving belongs to the editor caller.
 
-Advanced `BuildFromSource` transactions, including Scene publication, retain
-`PreparedMaterialSlots` and provenance until successful render publication.
+`BuildFromSource` retains candidate Source and `PreparedMaterialSlots` until
+successful render publication. Scene commits its prepared render/source/slots/provenance
+directly through `CommitStaticMeshBuild`; compiler requests have no provenance callback.
 Ordinary rebuilds retain existing slots and preserve previous render data on failure;
 the private destructive test replacement retains its explicit destructive behavior.
 
@@ -239,11 +240,15 @@ retain typed failures for cooked loading and other non-cache callers. Public der
 `std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure>` or
 `std::expected<FPhysicsCookResult, FPhysicsCookFailure>`.
 Render data is returned with unique ownership; failure and cancellation return no product.
-Render construction, application and resource publication use
-`FStaticMeshBuildFailure`: a diagnostic stage, owned text capped at 4096 bytes,
-and `IsCancelled()` for internal control flow. Lower-level source, construction,
-codec and validation errors are formatted at the pipeline boundary; the failure
-then propagates unchanged through candidate construction and completion diagnostics.
+Render construction uses `FStaticMeshBuildFailure`: ordinary failure text capped
+at 4096 bytes. Cancellation is recorded in the shared invocation token, never in
+the error. Cancelled synchronous construction returns an empty product; callers
+check the token before inspecting the result or publishing it. Application and resource
+publication return `expected<void, string>` and do not accept cancellation control;
+the owning transaction or compiler checks cancellation before publication.
+Cooked publication errors retain owned diagnostic text rather than a shared failure
+wrapper. Lower-level source, construction, codec and validation errors are formatted
+at the pipeline boundary; completion diagnostics retain only ordinary failure text.
 There is no per-layer error enumeration or nested completion cause tree.
 Physics preparation, cooking and installation use `FPhysicsCookFailure` independently.
 Both pipelines log recoverable cache problems once at execution, with function,
@@ -282,28 +287,51 @@ lifetime and contribute to DDC identity. Engine does not link
 back to the Developer implementation. Physics Cook calls the linked PhysicsCore
 geometry builders directly, independently of the render build module. Cache issues
 are logged internally; render results carry no cache-origin, key or timing observation.
-`DStaticMesh::Build(Mode, Options, Completion)` rebuilds the current accepted Source.
+`DStaticMesh::Build(Mode, Options)` rebuilds the current accepted Source.
 `EStaticMeshBuildMode` explicitly selects Synchronous or Asynchronous execution;
 there is no implicit scheduling default. Both modes support cache persistence and
 package-dirty options. Source and settings are captured on the owner thread.
-The return type is `std::expected<void, std::vector<std::string>>`: synchronous
-success means constructed and applied; asynchronous success means admitted.
-Completion runs on the owner thread, before return for synchronous calls and
-through the mailbox for asynchronous calls. Synchronous completion has request ID 0.
-Synchronous render work neither submits nor pumps compilation records; commit
-still schedules independent missing collision. Valid source input cancels older
-requests without waiting for their callbacks. Failed construction/application
-preserves live data. Errors are bounded owned strings.
-`BuildFromSource(Mode, Request, Completion)` is the separate authoring transaction
-for a candidate Source, prepared slots and provenance, installed only on success.
-Geometry must first pass `FStaticMeshSource::Initialize(FMeshDescription)`;
-`DStaticMesh` has no decoded-geometry Build overload.
-Asynchronous Accepted requests deliver `FStaticMeshCompilationResult` with
-request ID, terminal `Status` and an `Errors` string array. Cancellation and
-supersession are completion states, not public error codes. Detailed diagnostics
-remain a separate query. Import saving updates the import completion result,
-not compilation history. Compilation, cooked residency and Level mutation
-reports retain independent lifecycle and partial-effect states.
+The return type is `expected<void, string>`: synchronous success means constructed
+and applied; asynchronous success means admitted. There is no per-request completion
+callback or duplicate result envelope. Query `IsCompiling` and
+`GetCompilationDiagnostic`, explicitly `FinishCompilation`, or subscribe to the
+aggregate `OnAssetPostCompile` success notification. Detailed request identity,
+terminal status and bounded failure text remain in the diagnostic history.
+These object completion interfaces cover rendering only. BodySetup independently
+queries `IsCompiling`, finishes through `FinishPhysicsMeshes`, or cancels with
+`AbortPhysicsMeshAsyncCreation`. Whole-source mutation retains the render/physics
+retirement barrier through `BlockOnAnyAsyncBuild`; saving explicitly finishes both. Status
+is absent until terminal delivery; queued, building and mailbox observations do
+not imply failure. Successful, cancelled and superseded terminals carry no error.
+
+Synchronous Build cancels and retires prior render/collision work for the selected
+mesh before constructing the candidate. It does not pump unrelated asset completion.
+Failed construction/application preserves live data. `BuildFromSource(Mode, Request)`
+is the separate authoring transaction for candidate Source and prepared slots,
+installed only on success. Geometry first passes `FStaticMeshSource::Initialize`;
+`DStaticMesh` has no decoded-geometry Build overload. Scene provenance publication
+stays in Scene's direct prepared transaction, independently of compilation requests.
+Import saving reports its own result and does not modify compilation history.
+
+`FStaticMeshBuildFailure` and `FPhysicsCookFailure` carry ordinary failure details
+and have no cancellation marker. `FAssetBuildTaskContext::Cancellation` is a Core
+`FCancellationToken`; copies share a monotonic atomic flag. Observers bridge existing
+caller, scheduler and request-owner cancellation into that same flag. DDC request
+options, build contexts, CPU assembly and import sessions preserve the token. A
+cancelled synchronous call returns empty inputs/products with no error; its caller
+checks the token first. Compiler workers retain errors only for actual failure. All terminals wait for CPU and nested DDC
+callback retirement. Finalization removes the queue record before observer code,
+while retaining its working-set charge until that observer returns. A single work
+phase (`Queued`, `Running`, `AwaitingDerivedData`, `Complete`) replaces separate
+started, dispatch, completion-ready and CPU-done flags. Queued cancellation
+releases inputs without acquiring or decrementing an admission slot. Detailed source/payload validation
+errors retain their rejected values. Test-only destructive replacement returns
+owned text and does not store another last-error channel on the object.
+`StaticMeshBuildTypes.h` owns lightweight build types; the private
+`StaticMeshBuildPrivate.h` groups DDC registration, session dispatch/consumption
+and render preparation. Compilation declarations do not include the detached build
+and payload/resource implementation interface.
+
 These observations do not change cache fallback or publication. A valid warm DDC object can load from persisted identity while source
 and Assimp are unavailable.
 

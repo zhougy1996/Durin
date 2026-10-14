@@ -1,3 +1,4 @@
+#include "Physics/BodySetup.h"
 #include "Import/StaticMeshImportDialog.h"
 
 #include "AssetTools/IAssetTools.h"
@@ -45,7 +46,10 @@ namespace Durin::Editor::StaticMesh
 	{
 		if (Operation)
 			if (auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Operation->Owner)))
+			{
 				Mesh->FinishCompilation(); // Retire work; the authored import remains committed.
+				if (auto* Body = Mesh->GetBodySetup()) Body->FinishPhysicsMeshes();
+			}
 	}
 
 	auto FStaticMeshImportDialog::Open(std::string_view DestinationDirectory) -> void
@@ -265,7 +269,8 @@ namespace Durin::Editor::StaticMesh
 		auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Operation->Owner));
 		if (!Mesh) { Operation.reset(); SetError("The imported StaticMesh is no longer available."); return false; }
 		if (Mesh->IsCompiling()) return false;
-		Mesh->FinishCompilation(); // Saving waits for collision retirement, not compilation success.
+		Mesh->FinishCompilation();
+		if (auto* Body = Mesh->GetBodySetup()) Body->FinishPhysicsMeshes(); // Saving waits for collision retirement.
 		const auto AssetPath = Operation->Package;
 		if (const FAssetOperationResult Saved = IAssetTools::Get().SaveAssets({
 				.AssetPaths = {AssetPath},

@@ -1,3 +1,5 @@
+#include "Physics/BodySetup.h"
+#include "Physics/PhysicsMeshCompilation.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
 #include "AssetForge/Builtins/SceneImport.h"
@@ -147,7 +149,19 @@ auto Abandon(std::vector<FPreparedSceneOutput> &Outputs) -> void
 		if (Output.Candidate && Output.Package->IsGraphPrivate())
 			Objects.push_back(Output.Candidate);
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(Objects);
+	for (auto* Object : Objects)
+		if (auto* Mesh = Cast<DStaticMesh>(Object))
+		{
+			AssetPrivate::CancelPhysicsMeshCompilationForOwner(*Mesh);
+			if (auto* Body = Mesh->GetBodySetup()) Body->AbortPhysicsMeshAsyncCreation();
+		}
 	FAssetCompilingManager::Get().FinishCompilationForObjects(Objects);
+	for (auto* Object : Objects)
+		if (auto* Mesh = Cast<DStaticMesh>(Object))
+		{
+			AssetPrivate::FinishPhysicsMeshCompilationForOwner(*Mesh);
+			if (auto* Body = Mesh->GetBodySetup()) Body->FinishPhysicsMeshes();
+		}
 	for (FPreparedSceneOutput &Output : Outputs)
 	{
 		if (Output.Package && IsValid(Output.Package) && Output.Package->IsGraphPrivate())
@@ -337,7 +351,7 @@ struct FAssetImportSession::FImpl
 	bool bAsync = true;
 	bool bImportRequested = false;
 	bool bReplanRequested = false;
-	std::atomic<bool> Canceled = false;
+	FCancellationToken Cancellation;
 	std::function<bool()> IsCancellationRequested;
 	FSceneImportProgress Progress;
 	FSceneImportResult Result;
@@ -640,14 +654,14 @@ auto FAssetImportSession::FImpl::BuildProducts(FSceneImportResult &Result) -> vo
 			FStaticMeshBuildRequest Request{.Settings = MakeStaticMeshBuildSettings(Output.StaticMeshMaterialSlots),
 				.Source = Output.StaticMeshSource};
 			auto Outcome = BuildStaticMeshRenderData(std::move(Request),
-			    {.ShouldCancel = IsCancellationRequested});
-			if (!Outcome)
+			    {.Cancellation = Cancellation});
+			if (Cancellation.IsCancelled() || !Outcome)
 			{
 				Result = AddError(Result,
-				                  (!Outcome && Outcome.error().IsCancelled())
+				                  Cancellation.IsCancelled()
 				                      ? EImportDiagnosticCategory::Canceled
 				                      : EImportDiagnosticCategory::CandidateFailure,
-				                  "scene-build", Outcome.error().ToString(),
+				                  "scene-build", Cancellation.IsCancelled() ? "Scene mesh build was cancelled." : Outcome.error().ToString(),
 				                  Descriptor.StableIdentity);
 				return;
 			}
@@ -679,8 +693,8 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 		while (bAsync && !bImportRequested)
 		{
 			Progress = {ESceneImportPhase::Ready, "Configure asset outputs"};
-			co_await Step([this] { return bImportRequested || bReplanRequested || Canceled.load(); });
-			if (Canceled.load())
+			co_await Step([this] { return bImportRequested || bReplanRequested || Cancellation.IsCancelled(); });
+			if (Cancellation.IsCancelled())
 				co_return AddError(Result, EImportDiagnosticCategory::Canceled, "asset-preview", "Asset import canceled.");
 			if (std::exchange(bReplanRequested, false))
 			{
@@ -859,13 +873,13 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 				ImportData->SourceIdentity = RootFilename;
 				ImportData->OutputIdentity = Descriptor.StableIdentity;
 				if (const auto Applied = CommitStaticMeshBuild(
-				        *Mesh, std::move(Output.StaticMesh), Output.StaticMeshSource, CaptureStaticMeshReconciliation(*Mesh), true, {},
+				        *Mesh, std::move(Output.StaticMesh), Output.StaticMeshSource, CaptureStaticMeshReconciliation(*Mesh), true,
 				        ImportData, &Output.StaticMeshMaterialSlots);
 				    !Applied)
 				{
 					co_return AddError(
 					    Result, EImportDiagnosticCategory::CandidateFailure, "scene-materialization",
-					    (Applied.error()).ToString(), Descriptor.StableIdentity);
+					    Applied.error(), Descriptor.StableIdentity);
 				}
 			}
 		}
@@ -1178,7 +1192,7 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 
 auto FAssetImportSession::FImpl::Tick() -> void
 {
-	Progress.bCancellationRequested = Canceled.load();
+	Progress.bCancellationRequested = Cancellation.IsCancelled();
 	if (Progress.Phase == ESceneImportPhase::Building)
 		Progress.Completed = BuiltCount.load();
 	if (Progress.Phase == ESceneImportPhase::Completed)
@@ -1227,7 +1241,7 @@ FAssetImportSession::FAssetImportSession(std::string SourceFile, FPackagePath De
 	Impl->DestinationDirectory = std::move(Destination);
 	Impl->Settings = std::move(Settings);
 	Impl->ImportOptions = std::move(Options);
-	Impl->IsCancellationRequested = [State = Impl.get()] { return State->Canceled.load(); };
+	Impl->IsCancellationRequested = [Token = Impl->Cancellation] { return Token.IsCancelled(); };
 }
 FAssetImportSession::~FAssetImportSession()
 {
@@ -1248,7 +1262,7 @@ auto FAssetImportSession::Tick() -> void
 }
 auto FAssetImportSession::Cancel() -> void
 {
-	Impl->Canceled.store(true);
+	Impl->Cancellation.Cancel();
 	Impl->Progress.bCancellationRequested = true;
 }
 auto FAssetImportSession::GetProgress() const -> const FSceneImportProgress &
@@ -1380,7 +1394,8 @@ auto ImportAssetOutputs(std::string_view SourceFile, const FPackagePath& Destina
 	Session.Impl->bImportRequested = true;
 	Session.Impl->MaterialOptions = Materials;
 	Session.Impl->PublicationOptions = Publication;
-	Session.Impl->IsCancellationRequested = Cancellation;
+	Session.Impl->Cancellation = FCancellationToken(Cancellation);
+	Session.Impl->IsCancellationRequested = [Token = Session.Impl->Cancellation] { return Token.IsCancelled(); };
 	Session.Tick();
 	return Session.GetResult();
 }
@@ -1396,7 +1411,8 @@ auto ImportSceneAssets(std::string_view SourceFile, const FPackagePath &Destinat
 	Session.Impl->bImportRequested = true;
 	Session.Impl->MaterialOptions = MaterialOptions;
 	Session.Impl->PublicationOptions = PublicationOptions;
-	Session.Impl->IsCancellationRequested = IsCancellationRequested;
+	Session.Impl->Cancellation = FCancellationToken(IsCancellationRequested);
+	Session.Impl->IsCancellationRequested = [Token = Session.Impl->Cancellation] { return Token.IsCancelled(); };
 	Session.Tick();
 	return Session.GetResult();
 }

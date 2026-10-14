@@ -1,5 +1,5 @@
 #include "StaticMesh/StaticMeshResources.h"
-#include "StaticMeshRenderPreparation.h"
+#include "StaticMeshBuildPrivate.h"
 
 #include "DynamicRHI.h"
 #include "RenderingThread.h"
@@ -579,22 +579,17 @@ namespace Durin
 	}
 
 	auto StaticMeshPrivate::PrepareRenderRayQueries(FStaticMeshRenderData& Render,
-		const std::function<bool()>& ShouldCancel) -> bool
+		const FCancellationToken& Cancellation) -> bool
 	{
-		if (ShouldCancel && ShouldCancel()) return false;
+		if (Cancellation.IsCancelled()) return false;
 #if DURIN_WITH_EDITOR
-		bool bCancelled = false;
-		const std::function<bool()> IsCancelled = [&] {
-			bCancelled = bCancelled || (ShouldCancel && ShouldCancel());
-			return bCancelled;
-		};
 		for (auto& LOD : Render.LODResources)
 		{
-			LOD.RayQueryAcceleration = BuildStaticMeshRayQueryAcceleration(LOD, IsCancelled);
-			if (bCancelled) return false;
+			LOD.RayQueryAcceleration = BuildStaticMeshRayQueryAcceleration(LOD, [&] { return Cancellation.IsCancelled(); });
+			if (Cancellation.IsCancelled()) return false;
 		}
 #endif
-		return !ShouldCancel || !ShouldCancel();
+		return !Cancellation.IsCancelled();
 	}
 
 	auto FStaticMeshRenderData::RecalculateBounds(const std::function<bool()>& ShouldCancel) -> bool

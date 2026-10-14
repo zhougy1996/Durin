@@ -63,8 +63,7 @@ namespace Durin::PhysicsPrivate
 				const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
 				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != FCollisionCookedData::GetBuildVersion())
 					return Context.FailExecution("Physics cooker identity does not match the build request.");
-				bool bCancelled = false;
-				const auto Cancel = [&] { return bCancelled = bCancelled || Context.IsCancelled(); };
+				const auto Cancel = [&] { return Context.IsCancelled(); };
 				auto Config = Settings(Context); if (!Config) return Fail(std::move(Config.error()));
 				const auto* Input = Context.FindInput("Geometry");
 				if (!Input || Input->Identity != Reference(Input->Identity.Identity) || !Input->Metadata.IsEmpty() || Input->Values.size() != 2) return Fail("Physics source representation is invalid.");

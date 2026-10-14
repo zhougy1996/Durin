@@ -1081,7 +1081,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage5Tests, Ins
 	Mesh->FinishCompilation();
 	ASSERT_NE(Mesh, nullptr);
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
-	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
 		<< (Mesh->GetCollisionBuildError() ? Mesh->GetCollisionBuildError()->ToString() : std::string{});
 	const FStaticMeshCollisionInspection Inspection = InspectStaticMeshCollision(*Mesh);
@@ -1122,7 +1122,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex)))) << Error;
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
-	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
 		<< (Mesh->GetCollisionBuildError() ? Mesh->GetCollisionBuildError()->ToString() : std::string{});
 	DBodySetup* Setup = Mesh->GetBodySetup();
@@ -1133,7 +1133,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	ASSERT_TRUE(Setup->BuildComplexGeometry(FirstGeometry));
 	const uint64 FirstIdentity = FirstGeometry.GetIdentity();
 	Mesh->RebuildCollision();
-	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
 	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	std::expected<FPhysicsCookResult, FPhysicsCookFailure> Warm;
 	ASSERT_TRUE((Warm = FPhysicsCookHelper::Cook(StaticMeshBuildTestSupport::CaptureCollisionCookInfoForTest(*Mesh->GetRenderData(),
@@ -1146,7 +1146,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 
 	const auto* RenderData = Mesh->GetRenderData();
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
-	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
 	EXPECT_EQ(Setup->GetCollisionSourceMode(), EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
 	EXPECT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Failed);
 	const auto Rejected = Mesh->GetCollisionBuildError();
@@ -1159,10 +1159,10 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	EXPECT_FALSE(Setup->BuildSimpleGeometry(Preserved));
 	EXPECT_EQ(Mesh->GetRenderData(), RenderData);
 	Mesh->RebuildCollision();
-	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
 	EXPECT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Failed);
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
-	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
 	EXPECT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	EXPECT_FALSE(Mesh->GetCollisionBuildError());
 	EXPECT_TRUE(Setup->BuildComplexGeometry(Preserved));
@@ -1172,12 +1172,12 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::ComplexOnly)))) << Error;
 	Mesh->SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy::ComplexOnly);
-	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
 		<< (Mesh->GetCollisionBuildError() ? Mesh->GetCollisionBuildError()->ToString() : std::string{});
 	EXPECT_EQ(Setup->GetCollisionQueryPolicy(), EBodySetupCollisionQueryPolicy::ComplexOnly);
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::None);
-	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
 		<< (Mesh->GetCollisionBuildError() ? Mesh->GetCollisionBuildError()->ToString() : std::string{});
 	EXPECT_FALSE(Setup->BuildComplexGeometry(Preserved));

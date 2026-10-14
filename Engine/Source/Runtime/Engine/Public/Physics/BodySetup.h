@@ -40,6 +40,8 @@ namespace Durin
 			bool bPersistDerivedData = true) -> std::expected<void, FPhysicsCookFailure>;
 		// Assemble the detached cook descriptor from prepared geometry and current body settings.
 		ENGINE_API auto GetCookInfo(FTriMeshCollisionData Data, bool bPersistDerivedData = true) const -> FCookBodySetupInfo;
+		ENGINE_API auto IsCompiling() const -> bool;
+		ENGINE_API auto AbortPhysicsMeshAsyncCreation() -> void;
 		ENGINE_API auto FinishPhysicsMeshes() -> void;
 		ENGINE_API auto BeginDestroy() -> void override;
 		auto GetPhysicsMeshBuildStatus() const -> EPhysicsMeshBuildStatus

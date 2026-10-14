@@ -71,7 +71,7 @@ namespace Durin
 		if (PhysicsMeshStatus == EPhysicsMeshBuildStatus::Ready) return {};
 		if (PhysicsMeshError) return std::unexpected(*PhysicsMeshError);
 		if (PhysicsMeshStatus == EPhysicsMeshBuildStatus::Unavailable)
-			return std::unexpected(FPhysicsCookFailure::Cancelled());
+			return std::unexpected(FPhysicsCookFailure{"Physics mesh creation was cancelled.", EPhysicsCookStage::Cook});
 		return std::unexpected(FPhysicsCookFailure{"Physics mesh creation did not complete.", EPhysicsCookStage::Cook});
 	}
 
@@ -80,6 +80,8 @@ namespace Durin
 		return {std::move(Data), CollisionSourceMode, CollisionQueryPolicy, bPersistDerivedData};
 	}
 
+	auto DBodySetup::IsCompiling() const -> bool { return IsPhysicsMeshCompiling(*this); }
+	auto DBodySetup::AbortPhysicsMeshAsyncCreation() -> void { CancelPhysicsMeshCompilation(*this); }
 	auto DBodySetup::FinishPhysicsMeshes() -> void { FinishPhysicsMeshCompilation(*this); }
 
 	auto DBodySetup::ApplyPhysicsMeshes(uint64 Generation, const FCollisionGeometryRef& Simple,
@@ -95,8 +97,8 @@ namespace Durin
 	auto DBodySetup::FailPhysicsMeshes(uint64 Generation, FPhysicsCookFailure Error) -> void
 	{
 		if (Generation != PhysicsMeshRequestGeneration) return;
-		PhysicsMeshStatus = Error.IsCancelled() ? EPhysicsMeshBuildStatus::Unavailable : EPhysicsMeshBuildStatus::Failed;
-		PhysicsMeshError = Error.IsCancelled() ? std::nullopt : std::optional{std::move(Error)};
+		PhysicsMeshStatus = EPhysicsMeshBuildStatus::Failed;
+		PhysicsMeshError = std::move(Error);
 	}
 
 	auto DBodySetup::CancelPhysicsMeshes(uint64 Generation) -> void

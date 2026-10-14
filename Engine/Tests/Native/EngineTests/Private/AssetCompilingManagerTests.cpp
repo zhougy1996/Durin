@@ -25,6 +25,7 @@ namespace
 		uint32 ShutdownCount = 0;
 		bool bCanceled = false;
 		bool bStartSucceeds = true;
+		std::function<void()> OnFinishAll;
 	};
 
 	class FSyntheticManager final : public IAssetCompilingManager
@@ -75,6 +76,7 @@ namespace
 			const uint32 Count = State->AvailableCompletions;
 			State->AvailableCompletions = 0;
 			State->Remaining = 0;
+			if (auto Notify = std::move(State->OnFinishAll)) Notify();
 			return {.ProcessedCompletionCount = Count};
 		}
 		auto Shutdown() -> void override
@@ -216,6 +218,22 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	Retired.Handle.Reset();
 	EXPECT_EQ(RetiredState->FinishAllCount, 1u);
 	EXPECT_EQ(RetiredState->ShutdownCount, 1u);
+	// Cross-compiler submissions require another pass, regardless of registry order.
+	auto FirstDependency = std::make_shared<FSyntheticState>();
+	auto SecondDependency = std::make_shared<FSyntheticState>();
+	FirstDependency->Remaining = SecondDependency->Remaining = 1;
+	FirstDependency->AvailableCompletions = SecondDependency->AvailableCompletions = 1;
+	FirstDependency->OnFinishAll = [SecondDependency] { ++SecondDependency->Remaining; ++SecondDependency->AvailableCompletions; };
+	SecondDependency->OnFinishAll = [FirstDependency] { ++FirstDependency->Remaining; ++FirstDependency->AvailableCompletions; };
+	auto FirstRegistration = Aggregate.RegisterCompiler({.Name = FName("Durin.Tests.DependencyA"), .AssetClasses = {DMaterial::StaticClass()},
+		.Manager = std::make_shared<FSyntheticManager>("dependency-a", FirstDependency)});
+	auto SecondRegistration = Aggregate.RegisterCompiler({.Name = FName("Durin.Tests.DependencyB"), .AssetClasses = {DTexture::StaticClass()},
+		.Manager = std::make_shared<FSyntheticManager>("dependency-b", SecondDependency)});
+	ASSERT_TRUE(FirstRegistration); ASSERT_TRUE(SecondRegistration);
+	EXPECT_EQ(Aggregate.FinishAllCompilation().ProcessedCompletionCount, 4u);
+	EXPECT_EQ(FirstDependency->Remaining, 0u); EXPECT_EQ(SecondDependency->Remaining, 0u);
+	FirstRegistration.Handle.Reset(); SecondRegistration.Handle.Reset();
+
 	auto ConflictingState = std::make_shared<FSyntheticState>();
 	auto Conflicting = Aggregate.RegisterCompiler({
 		.Name = FName("Durin.Material"),

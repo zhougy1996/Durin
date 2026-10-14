@@ -1,3 +1,4 @@
+#include "StaticMesh/StaticMeshGeometry.h"
 #include "StaticMesh/StaticMeshBuilder.h"
 
 #include "Logging/LogMacros.h"

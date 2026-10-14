@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureCompressor, MeshBuilder
 
-Last reviewed: 2026-10-13
+Last reviewed: 2026-10-14
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -346,17 +346,24 @@ are known.
 
 ## StaticMesh Completion
 
-`Durin.StaticMesh` uses one task scope, bounded queue and owner-thread mailbox
-for separate render and collision records. Ordinary Build/BuildFromSource, PostLoad
+`Durin.StaticMesh` owns render requests; `Durin.PhysicsMesh` owns BodySetup cooking
+requests. Each has its own task scope, typed records and owner-thread completion
+path. The render manager has no collision payload variant or physics terminal
+conversion. Physics scheduling lives under Engine/Physics and does not require
+the StaticMesh manager or MeshBuilder. Ordinary Build/BuildFromSource, PostLoad
 complete at render commit; standalone import completes at authored-source commit.
 Collision failure is reported through
 `GetCollisionBuildStatus` and `GetCollisionBuildError`. Pending render work alone
 does not imply pending collision. Render callbacks never wait for collision.
-Asset-level finish drains render records and BodySetup records belonging to selected
-assets. `DStaticMesh::FinishCompilation` selects Render, Collision, or All;
-`DBodySetup::FinishPhysicsMeshes` selects only one setup. Render-only barriers never
-wait for collision. Shutdown stops
-admission, cancels both kinds and drains workers before releasing storage.
+`DStaticMesh::IsCompiling`, `FinishCompilation` and `CancelCompilation` describe
+render work only. `DBodySetup::IsCompiling`, `FinishPhysicsMeshes` and
+`AbortPhysicsMeshAsyncCreation` describe physics work, including cancelled requests
+awaiting retirement. Whole-source mutation uses `BlockOnAnyAsyncBuild` to cancel
+and retire rendering plus the selected asset's owned/current BodySetup work. Saving
+and importer cleanup explicitly wait for both where needed. Aggregate finish-all
+repeats until every compiler is drained, including physics work submitted during
+render publication. Aggregate shutdown stops admission and retires both families;
+local render-manager shutdown leaves the physics service available.
 
 Render owners dispatch a persistent asynchronous DDC session and release their
 Core worker during cache reads and persistence. Each record owns an asset operation
@@ -370,7 +377,7 @@ closing the manager scope. Queued records cancel without dispatch if Core has
 already stopped.
 
 Render workers own detached source and slot metadata, without material object
-bindings. The owner snapshot retains bindings and provenance until publication.
+bindings. The owner snapshot retains bindings and captured provenance identity until publication.
 Application rechecks source identity, normalization, slot bindings and provenance.
 The immutable render builder version is captured at admission for diagnostics; joining
 and publication do not reread it. MeshBuilder remains resident throughout the editor
@@ -379,13 +386,15 @@ and drain work before normal module shutdown. Source-changing operations are dis
 without automatic requeue. Current-source rebuilds may requeue stale render facts.
 Synchronous Build cancels and retires older work for the selected mesh, builds CPU
 render data directly and publishes it, returning `expected<void, string>`.
-AsyncBuild success means admission only; `FStaticMeshCompilationResult` contains
-only terminal Status and an owned Diagnostic. Detailed request identity and causes
-remain in the bounded diagnostic history. Standalone import commits Source, slots
+AsyncBuild success means admission only; it has no per-request completion callback
+or separate result envelope. Object queries and aggregate `OnAssetPostCompile`
+notifications describe completion. Detailed request identity and bounded failure
+text remain in the diagnostic history. Standalone import commits Source, slots
 and provenance together, clears old render/collision projections, then triggers
 `PostEditChange`. Compilation failure never rolls back that authored commit.
-Advanced source-changing compilation and Scene publication retain their candidate
-transaction until render publication. Collision failure does not undo publication.
+Source-changing compilation retains candidate Source and slots until render
+publication. Scene independently submits prepared render/source/slots/provenance
+through its direct commit; compiler requests have no `PreparePublication` callback. Collision failure does not undo publication.
 
 `DStaticMesh::IsCompiling` queries render work without pumping, including canceled
 records whose native workers or DDC callbacks have not retired. Collision readiness
@@ -396,13 +405,36 @@ unapplied. `CancelCompilation` requests cancellation; it does not itself wait.
 Object finish uses the aggregate `OnAssetPostCompile` notification for successful
 render publication; canceled, stale and failed work emit no success event.
 
+Cancellation requests suppress publication immediately but do not finalize a running
+record. Every terminal, including cancellation and supersession, waits for the CPU
+task and nested DDC callback retirement. The owner removes the record from its queue
+before application/notification, preventing recursive finish or pump from delivering
+it again. A scope guard retains its count/byte charge and output through the physics
+observer and releases them even if the observer throws. There is no delivered record
+waiting for a second cleanup pass. Pending diagnostic snapshots are not terminal;
+terminal history is recorded only at this retirement boundary.
+
+Render work has one private phase: Queued, Running, AwaitingDerivedData, or Complete.
+The nested task completion event publishes and retires its DDC mailbox; no separate
+completion-ready or asynchronous-dispatch boolean is needed. CPU assembly changes
+back to Running before scheduling, so a canceled/rejected continuation cannot be
+mistaken for another DDC dispatch. The shared Core cancellation token controls terminal classification. Native task
+and DDC request-owner observers latch into the same flag throughout dispatch and
+CPU consumption. Detached synchronous APIs return empty inputs/products on
+cancellation, with no error marker; consumers check the token before using results.
+The manager clears canceled output and retains no canceled failure diagnostic.
+Superseded remains a detailed stale-publication reason and physics disposition,
+independently of whether its underlying work was canceled.
+
+
 Collision records belong to BodySetup, not to its mesh. They own a detached
 `FPhysicsMeshInputTask` and `FCookBodySetupInfo` settings snapshot. Source acquisition, normalization
 and collision cooking run without render publication. A retry captures fresh source
 and supersedes the earlier request. Publication checks the BodySetup object key,
 settings revision and request generation,
 then asks BodySetup to apply or reject the result. `FAssetBuildTaskContext` carries
-only borrowed cancellation, checkpoint metrics and the working-set reservation.
+shared cancellation, borrowed worker-local checkpoint metrics and the working-set
+reservation. Cancellation does not imply task or DDC callback retirement.
 Module sessions guard only render work. Collision admission, cooking and
 installation do not acquire the render build module; its absence or unloading
 cannot invalidate a physics request. Manager code never writes mesh
@@ -413,7 +445,8 @@ bodies immediately; accepted collision installation refreshes them again.
 Authored primitives survive render replacement. Installing/clearing geometry does
 not recursively schedule a request or invalidate render work.
 
-The manager allows two admitted builds, 32 outstanding records, 1 GiB total reservation
+Both managers share a private launch-only queue and budget: two admitted builds,
+32 outstanding records, 1 GiB total reservation
 and 512 MiB per request. Render admission uses checked arithmetic for
 `1 MiB + 64 * canonical bytes + 1024 * mesh count + 32768 * slot count`.
 Authored collision reserves `1 MiB + 64 * canonical bytes + 1024 * mesh count`
@@ -422,7 +455,11 @@ without decoding on the owner thread. Source-less resident captures reserve
 working-set bound, and builders enforce construction envelopes. Canceled
 records keep their count and byte charges until their build callbacks, CPU tasks
 and retained products retire. Render slots remain occupied during cache I/O;
-`AdmittedBuildCount` counts admitted builds, including suspended render requests.
+Each manager's diagnostic counters describe its own records; their sums describe
+the shared quota. Suspended render requests retain admission slots. Physics finish
+may advance retired render DDC continuations to release shared slots, without
+applying unrelated render results. Completion pumps also share the existing
+two-terminal, two-millisecond per-pump slice.
 Collision-only work never changes render resource revision.
 
 Background and interactive queues are FIFO with at most four interactive dispatches
@@ -452,10 +489,14 @@ function, key, stage and bounded original cause. They do not enter worker result
 completion callbacks or retained history. Reporting is independent of successful
 publication, so a later construction or application failure cannot hide a cache
 issue. Clean hits and misses produce no warnings.
-Physics results use an independent `FPhysicsCookFailure`; the shared scheduler
-preserves each product's fatal error type.
-The optional `Error` retains the original pipeline failure without a completion
-wrapper. `FormatStaticMeshCompilationDiagnostic` displays that failure only.
+Physics results use an independent `FPhysicsCookFailure` and physics terminal
+status, with no intermediate StaticMesh diagnostic or status conversion. The
+shared budget owns no products, snapshots or completion callbacks.
+StaticMesh diagnostic `Status` is absent until terminal delivery; pending work
+does not report failure. `Error` retains bounded owned text only for a failed
+terminal, without a cancellation bit or completion wrapper. Successful, cancelled
+and superseded terminals have empty errors. `FormatStaticMeshCompilationDiagnostic`
+displays that failure text only.
 The presentation text budget
 is 4096 bytes per record including a producer identity capped at 256 bytes.
 Completion diagnostics retain no cache-origin or per-product observation records. Queue counts and reserved bytes remain for admission and lifecycle
@@ -465,4 +506,4 @@ source, payload, component or callback.
 Initial-edit replacement waits for the retiring worker's storage to be released
 before reclaiming that record's admission capacity. Explicit cancellation or a
 new accepted request suppresses that replacement. Late cancellation remains
-accounted until worker completion even after terminal delivery.
+accounted until worker/callback retirement and the single terminal notification.

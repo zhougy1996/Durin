@@ -2,8 +2,7 @@
 #if DURIN_WITH_EDITORONLY_DATA
 #include "StaticMesh/IMeshBuilderModule.h"
 #if DURIN_WITH_EDITOR
-#include "StaticMeshBuildFunction.h"
-#include "StaticMeshBuildAsync.h"
+#include "StaticMeshBuildPrivate.h"
 #endif
 
 namespace Durin

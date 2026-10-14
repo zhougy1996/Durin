@@ -1,3 +1,4 @@
+#include "Physics/BodySetup.h"
 #include "RoadNet/RoadPropertyEditValidation.h"
 #include "RoadNet/RoadNetActor.h"
 #include "RoadNet/RoadNetBuilder.h"
@@ -91,6 +92,7 @@ TEST(RoadSceneIntegration, LoadedPreviewMeshFinishesCompilationBeforeConstructio
 	Actor->SetPreviewMesh(nullptr);
 	Actor->BeginDestroy();
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+	if (auto* Body = Mesh->GetBodySetup()) Body->FinishPhysicsMeshes();
 }
 
 TEST(RoadSceneIntegration, ReuseFailureCleanupRecoveryAndDetach)

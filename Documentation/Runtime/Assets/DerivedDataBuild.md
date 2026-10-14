@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-10-13
+Last reviewed: 2026-10-14
 
 ## Ownership
 
@@ -217,7 +217,13 @@ completion-only error text for callers. Only input-determined failures
 use `AddError`; budget and module availability never become negative cache entries.
 Adapter versions are advanced to invalidate previously misclassified failures. Cache and input infrastructure failures are logged by their owning
 layer and are not translated into request-level phase or cause objects.
-Cancellation is a distinct terminal status.
+Cancellation is a distinct terminal status. Request options carry the Core
+`FCancellationToken` (`FBuildCancellation` is its DDC alias). Copies share a
+monotonic flag, including observers of request-owner cancellation. Cancelling a
+request, or completing it as `Canceled`, latches the caller token before notification.
+The token owns no completion event: callback retirement and request waiting remain
+separate lifecycle guarantees. Observer callbacks are serialized, must not reenter
+their token, and must retain valid captures for every token copy.
 
 Admission rejection uses `FBuildAdmissionError` and invokes no completion.
 Closed service/session, capacity, missing function, invalid request, dispatch

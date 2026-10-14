@@ -10,6 +10,8 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCompilingManager.h"
 #include "StaticMesh/StaticMeshCompilation.h"
+#include "Physics/BodySetup.h"
+#include "Physics/PhysicsMeshCompilation.h"
 
 namespace Durin
 {
@@ -417,11 +419,17 @@ namespace Durin
 	{
 		FAssetCompileProcessResult Aggregate;
 		if (!IsSupportedThread()) return Aggregate;
-		for (auto& Entry : MakeSnapshot())
+		for (;;)
 		{
-			FAssetCompileProcessResult Item = Entry.Manager->FinishAllCompilation();
-			Publish(Entry.CompilerName, Item);
-			CoalesceSuccessfulAssets(Aggregate, std::move(Item));
+			for (auto& Entry : MakeSnapshot())
+			{
+				FAssetCompileProcessResult Item = Entry.Manager->FinishAllCompilation();
+				Publish(Entry.CompilerName, Item);
+				CoalesceSuccessfulAssets(Aggregate, std::move(Item));
+			}
+			// A completion can submit work to a compiler already visited this pass.
+			const auto Remaining = MakeSnapshot();
+			if (std::ranges::none_of(Remaining, [](const auto& Entry) { return Entry.Manager->GetNumRemainingAssets() != 0; })) break;
 		}
 		return Aggregate;
 	}
@@ -521,6 +529,17 @@ namespace Durin
 			Aggregate.Shutdown();
 			return {std::move(StaticMeshRegistration.Error)};
 		}
+		auto PhysicsRegistration = Aggregate.RegisterCompiler({
+			.Name = FName("Durin.PhysicsMesh"),
+			.AssetClasses = {DBodySetup::StaticClass()},
+			.Manager = AssetPrivate::CreatePhysicsMeshCompilingManager()});
+		if (!PhysicsRegistration)
+		{
+			DURIN_ERROR("Physics mesh compiling manager failed to register: {}", FormatAssetCompilerRegistrationError(PhysicsRegistration.Error));
+			Aggregate.Shutdown();
+			return {std::move(PhysicsRegistration.Error)};
+		}
+		PhysicsRegistration.Handle.Generation = 0;
 		StaticMeshRegistration.Handle.Generation = 0;
 		MaterialRegistration.Handle.Generation = 0;
 #if DURIN_WITH_EDITORONLY_DATA

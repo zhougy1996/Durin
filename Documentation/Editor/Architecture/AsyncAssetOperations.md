@@ -4,7 +4,7 @@ Summary: Define completion, compensation, and UI ownership for nonblocking edito
 
 Modules: TextureCompressor, AssetForgeBuiltins, DurinEd, TextureEditor, StaticMeshEditor, Engine
 
-Last reviewed: 2026-10-13
+Last reviewed: 2026-10-14
 
 ## Ownership Layers
 
@@ -129,8 +129,9 @@ or cancellation does not undo the import. Factories do not save; upper-layer
 persistence reports its own failure and leaves committed data Dirty for retry.
 VolumeTexture rebuild returns an owned diagnostic on failure; structured settings
 and translation errors remain at validation boundaries. StaticMesh import and
-build boundaries use owned diagnostic strings; ordinary completion carries Status
-and Diagnostic, while detailed causes stay with compilation diagnostics. Save
+build boundaries use owned diagnostic strings. Completion is queried on the mesh
+and observed through the compiling manager; no separate ordinary result or
+per-request build callback is retained. Save
 failures belong to the upper-layer persistence result. Transient mesh creation
 returns the authored object before compilation finishes and preserves the existing
 object/garbage-collection ownership.

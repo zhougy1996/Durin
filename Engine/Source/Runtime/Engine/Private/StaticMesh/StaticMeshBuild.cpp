@@ -36,40 +36,17 @@ namespace Durin
 
 #endif
 
-
-	FStaticMeshBuildFailure::FStaticMeshBuildFailure(std::string InMessage, EStaticMeshBuildStage InStage)
-		: Message(InMessage.substr(0, MaximumStaticMeshBuildDiagnosticBytes)), Stage(InStage)
-	{
-	}
-
-	auto FormatStaticMeshBuildMessages(std::span<const std::string> Messages) -> std::string
-	{
-		std::string Text;
-		for (size_t Index = 0; Index < Messages.size(); ++Index)
-		{
-			if (Text.size() >= MaximumStaticMeshBuildDiagnosticBytes) break;
-			if (Index != 0) Text += '\n';
-			Text.append(Messages[Index], 0, MaximumStaticMeshBuildDiagnosticBytes - Text.size());
-		}
-		return Text;
-	}
-
-	auto FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage Stage, std::string Message) -> FStaticMeshBuildFailure
-	{
-		FStaticMeshBuildFailure Error(std::move(Message), Stage);
-		Error.bCancelled = true;
-		return Error;
-	}
+	FStaticMeshBuildFailure::FStaticMeshBuildFailure(std::string InMessage)
+		: Message(InMessage.substr(0, MaximumStaticMeshBuildDiagnosticBytes))
+	{}
 
 #if DURIN_WITH_EDITORONLY_DATA
-	auto DStaticMesh::Build(EStaticMeshBuildMode Mode, FStaticMeshBuildOptions Options,
-		std::function<void(const FStaticMeshCompilationResult&)> Completion)
+	auto DStaticMesh::Build(EStaticMeshBuildMode Mode, FStaticMeshBuildOptions Options)
 		-> std::expected<void, std::string>
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		return BuildFromSource(Mode, {.Source = GetSource(), .Priority = Options.Priority,
-			.bPersistDerivedData = Options.bPersistDerivedData, .bMarkPackageDirty = Options.bMarkPackageDirty},
-			std::move(Completion));
+			.bPersistDerivedData = Options.bPersistDerivedData, .bMarkPackageDirty = Options.bMarkPackageDirty});
 	}
 
 	// Kept detached from compilation admission: synchronous rebuilds never pump unrelated callbacks.
@@ -84,19 +61,15 @@ namespace Durin
 		Mesh.BlockOnAnyAsyncBuild();
 		const auto Snapshot = CaptureStaticMeshReconciliation(Mesh);
 		const auto& Slots = Request.PreparedMaterialSlots ? *Request.PreparedMaterialSlots : Snapshot.MaterialSlots;
+		const FAssetBuildTaskContext Control;
 		auto Render = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(Slots, Snapshot.NormalizedSize), .Source = Request.Source,
-			.bPersistDerivedData = Request.bPersistDerivedData});
+			.bPersistDerivedData = Request.bPersistDerivedData}, Control);
+		if (Control.IsCancelled()) return std::unexpected(std::string("StaticMesh construction was cancelled."));
 		if (!Render) return std::unexpected(Render.error().ToString());
-		DAssetImportData* PreparedImportData = nullptr;
-		if (Request.PreparePublication)
-		{
-			const auto Prepared = Request.PreparePublication(Mesh, PreparedImportData);
-			if (!Prepared) return std::unexpected(Prepared.error().ToString());
-		}
 		if (const auto Applied = CommitStaticMeshBuild(Mesh, std::move(*Render), Request.Source, Snapshot,
-			Request.bMarkPackageDirty, {}, PreparedImportData,
+			Request.bMarkPackageDirty, nullptr,
 			Request.PreparedMaterialSlots ? &*Request.PreparedMaterialSlots : nullptr, Request.bPersistDerivedData); !Applied)
-			return std::unexpected(Applied.error().ToString());
+			return std::unexpected(Applied.error());
 		return {};
 	}
 

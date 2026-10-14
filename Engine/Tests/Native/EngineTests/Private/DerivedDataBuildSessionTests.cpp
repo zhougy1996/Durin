@@ -333,7 +333,9 @@ TEST(FBuildContinuationTests, CancellationCloseAndDroppedContinuationCompleteOnc
 	auto Service = CreateBuild({Cache, CreateAsyncCache(Cache, IO)}); auto Function = std::make_shared<FFunction>(); ASSERT_TRUE(Service->Register(Function));
 	auto Session = Service->CreateSession({}, Producer).value(); uint32 Callbacks = 0;
 	auto Callback = [&](auto Completion) { EXPECT_EQ(Completion.GetStatus(), EStatus::Canceled); EXPECT_FALSE(Completion.GetOutput()); ++Callbacks; };
-	auto Canceled = Session->Build(Definition(), Callback); ASSERT_TRUE(Canceled); Producer->Run(); Canceled->Cancel(); IO->Run();
+	const FBuildCancellation Token;
+	auto Canceled = Session->Build(Definition(), Callback, {}, {.Cancellation = Token}); ASSERT_TRUE(Canceled); Producer->Run(); Canceled->Cancel(); IO->Run();
+	EXPECT_TRUE(Token.IsCancelled());
 	EXPECT_EQ(Callbacks, 1u); EXPECT_EQ(Cache->Gets, 0u);
 	auto Dropped = Session->Build(Definition(), Callback); ASSERT_TRUE(Dropped); Producer->Run(); IO->Run(); Producer->Work.clear();
 	EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Function->Builds, 0u);

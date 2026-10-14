@@ -113,7 +113,9 @@ namespace Durin
 			{
 				FStaticMeshBuildRequest Request{.Settings = MakeStaticMeshBuildSettings(GetMaterialSlots(), GetNormalizedSize()), .Source = GetSource()};
 				Request.bPersistDerivedData = false;
-				auto Built = BuildStaticMeshRenderData(std::move(Request));
+				const FAssetBuildTaskContext Control;
+				auto Built = BuildStaticMeshRenderData(std::move(Request), Control);
+				if (Control.IsCancelled()) { Ar.Fail(EArchiveFailureCode::InvalidData, "Cook render construction was cancelled."); return; }
 				if (!Built)
 				{
 					Ar.Fail(EArchiveFailureCode::InvalidData, Built.error().ToString());
@@ -162,9 +164,12 @@ namespace Durin
 				FCollisionGeometryRef Simple, Complex;
 				auto Data = GetPhysicsTriMeshData();
 				if (!Data) { Ar.Fail(EArchiveFailureCode::InvalidData, Data.error().ToString()); return; }
-				auto Input = FPhysicsCookHelper::Capture(BodySetup->GetCookInfo(std::move(*Data), false));
+				const FAssetBuildTaskContext Control;
+				auto Input = FPhysicsCookHelper::Capture(BodySetup->GetCookInfo(std::move(*Data), false), Control);
+				if (Control.IsCancelled()) { Ar.Fail(EArchiveFailureCode::InvalidData, "Cook collision capture was cancelled."); return; }
 				if (!Input) { Ar.Fail(EArchiveFailureCode::InvalidData, Input.error().ToString()); return; }
-				auto Collision = FPhysicsCookHelper::CookCaptured(*Input);
+				auto Collision = FPhysicsCookHelper::CookCaptured(*Input, Control);
+				if (Control.IsCancelled()) { Ar.Fail(EArchiveFailureCode::InvalidData, "Cook collision construction was cancelled."); return; }
 				if (!Collision)
 				{
 					Ar.Fail(EArchiveFailureCode::InvalidData, Collision.error().ToString());
@@ -321,7 +326,7 @@ namespace Durin
 			return Error.ProductCause ? FormatCookedMeshProductError(*Error.ProductCause)
 				: "Cooked mesh product decoding failed.";
 		case ECookedMeshLoadError::Publication:
-			return Error.PublicationCause ? (*Error.PublicationCause).ToString()
+			return !Error.PublicationDiagnostic.empty() ? Error.PublicationDiagnostic
 				: "Cooked mesh publication failed.";
 		}
 		return "Unknown cooked mesh load failure.";
@@ -367,7 +372,7 @@ namespace Durin
 			std::move(Product.RenderData), nullptr); !Published)
 		{
 			return {.Error = {.Code = ECookedMeshLoadError::Publication, .Owner = FObjectKey(this),
-				.PublicationCause = std::make_shared<FStaticMeshBuildFailure>(Published.error())}};
+				.PublicationDiagnostic = Published.error()}};
 		}
 		if (bRequiresCollision)
 		{
@@ -470,7 +475,7 @@ namespace Durin
 					std::move(Product.RenderData), nullptr); !Published)
 				{
 					return {.Error = {.Code = ECookedMeshLoadError::Publication,
-						.PublicationCause = std::make_shared<FStaticMeshBuildFailure>(Published.error())}};
+						.PublicationDiagnostic = Published.error()}};
 				}
 				if (Product.bHasCollision)
 				{

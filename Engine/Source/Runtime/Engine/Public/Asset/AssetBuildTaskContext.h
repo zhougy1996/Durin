@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Misc/CoreTypes.h"
+#include "Threading/CancellationToken.h"
 
 namespace Durin
 {
@@ -11,10 +12,10 @@ namespace Durin
 		uint64 CancellationCheckpoints = 0;
 	};
 
-	// Borrowed invocation controls. Neither provider nor product may retain these values.
+	// Cancellation is shared across the invocation. Metrics are borrowed worker-local data.
 	struct FAssetBuildTaskContext
 	{
-		std::function<bool()> ShouldCancel;
+		FCancellationToken Cancellation;
 		FAssetBuildTaskMetrics* Metrics = nullptr;
 		// Whole-operation reservation. Providers must reject expansion before allocating scratch/products.
 		uint64 MaximumWorkingSetBytes = std::numeric_limits<uint64>::max();
@@ -22,7 +23,7 @@ namespace Durin
 		auto IsCancelled() const -> bool
 		{
 			if (Metrics) ++Metrics->CancellationCheckpoints;
-			return ShouldCancel && ShouldCancel();
+			return Cancellation.IsCancelled();
 		}
 	};
 

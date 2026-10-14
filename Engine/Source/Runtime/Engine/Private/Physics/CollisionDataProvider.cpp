@@ -13,7 +13,7 @@ namespace Durin
 			auto Execute(const FAssetBuildTaskContext& Context) const
 				-> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> override
 			{
-				if (Context.IsCancelled()) return std::unexpected(FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Input));
+				if (Context.IsCancelled()) return {};
 				if (Bytes > Context.MaximumWorkingSetBytes)
 					return std::unexpected(FPhysicsCookFailure{"Collision input exceeds the reservation.", EPhysicsCookStage::Input});
 				return Data;

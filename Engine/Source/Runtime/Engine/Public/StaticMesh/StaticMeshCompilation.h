@@ -2,13 +2,12 @@
 
 #include "CoreMinimal.h"
 
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMesh.h"
 #include "Asset/AssetCompilingManager.h"
 
 namespace Durin
 {
 	inline constexpr size_t MaximumStaticMeshBuildDiagnosticBytes = 4096;
-
 
 	enum class EStaticMeshCompilationStatus : uint8 { Succeeded, Failed, Cancelled, Superseded };
 	enum class EStaticMeshCompilationPhase : uint8 { Queued, Building, Mailbox, Terminal };
@@ -17,19 +16,15 @@ namespace Durin
 	{
 		uint64 RequestId = 0;
 		FObjectKey Owner;
-		EStaticMeshCompilationStatus Status = EStaticMeshCompilationStatus::Failed;
+		// Populated only after completion has retired and reached Terminal.
+		std::optional<EStaticMeshCompilationStatus> Status;
 		EStaticMeshCompilationPhase Phase = EStaticMeshCompilationPhase::Queued;
 		uint64 ReservedBytes = 0;
 		FXxHash128 SourceIdentity;
 		uint64 RenderBuilderVersion = 0;
-		std::optional<FStaticMeshBuildFailure> Error;
+		std::string Error;
 	};
 	ENGINE_API auto FormatStaticMeshCompilationDiagnostic(const FStaticMeshCompilationDiagnostic& Diagnostic) -> std::string;
-#if DURIN_WITH_EDITORONLY_DATA
-	using FStaticMeshPublicationPreparation = std::function<std::expected<void, FStaticMeshBuildFailure>(DStaticMesh&, DAssetImportData*&)>;
-
-#endif
-
 	struct FStaticMeshCompilationManagerDiagnostics
 	{
 		uint32 OutstandingRecords = 0;
@@ -48,20 +43,9 @@ namespace Durin
 		EStaticMeshCompilationPriority Priority = EStaticMeshCompilationPriority::Background;
 		bool bPersistDerivedData = true;
 		bool bMarkPackageDirty = true;
-		// Owner thread only. Prepare a private provenance inner without changing live state.
-		// Application validates it before mutation and installs its pointer within the refresh boundary.
-		FStaticMeshPublicationPreparation PreparePublication;
+
 	};
 #endif
-
-	// Ordinary completion contains no scheduling, cache or provider diagnostics.
-	struct FStaticMeshCompilationResult
-	{
-		EStaticMeshCompilationStatus Status = EStaticMeshCompilationStatus::Failed;
-		std::string Diagnostic;
-		ENGINE_API auto ToString() const -> std::string;
-	};
-	using FStaticMeshCompilationCompletion = std::function<void(const FStaticMeshCompilationResult&)>;
 
 #if DURIN_WITH_EDITORONLY_DATA
 	ENGINE_API auto CanJoinStaticMeshCompilation(const DStaticMesh& Mesh, const FStaticMeshSource& Source) -> bool;

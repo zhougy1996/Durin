@@ -1,16 +1,15 @@
 #include "Threading/TaskComposition.h"
 #include "StaticMesh/StaticMeshCompilation.h"
-#include "StaticMeshBuildAsync.h"
+#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMeshBuildPrivate.h"
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
-#include "Asset/AssetCompilationOperation.h"
+	#include "Asset/AssetCompilationOperation.h"
 #endif
 
 #include "CoreGlobals.h"
 #include "Logging/LogMacros.h"
 #include "Asset/AssetReadResult.h"
-#include "Physics/BodySetup.h"
-#include "Physics/PhysicsCookHelper.h"
-#include "Physics/PhysicsMeshCompilation.h"
+#include "Asset/MeshBuildBudget.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
 #include "Threading/RunnableThread.h"
@@ -22,117 +21,62 @@ namespace Durin
 	{
 		using FClock = std::chrono::steady_clock;
 		constexpr uint64 MaximumRequestBytes = 512ull * 1024 * 1024;
-		constexpr uint64 MaximumTotalBytes = 1024ull * 1024 * 1024;
 		constexpr size_t MaximumRecords = 32;
 		constexpr size_t MaximumHistory = 128;
 
-		auto CheckOwnerThread() -> void { if (GIsGameThreadIdInitialized) CheckGameThread(); }
+		auto CheckOwnerThread() -> void
+		{
+			if (GIsGameThreadIdInitialized) CheckGameThread();
+		}
 
-		struct FRenderWork
+		enum class EWorkPhase : uint8
+		{
+			Queued,
+			Running,
+			AwaitingDerivedData,
+			Complete
+		};
+
+		struct FWork
 		{
 #if DURIN_WITH_EDITORONLY_DATA
 			FStaticMeshBuildRequest Request;
-#if DURIN_WITH_EDITOR
+	#if DURIN_WITH_EDITOR
 			std::shared_ptr<FAssetCompilationOperation> BuildOperation;
 			std::optional<DerivedData::FBuildCompleteParams> Completion;
-			std::atomic<bool> CompletionReady = false;
-			std::atomic<bool> AsyncDispatched = false;
-#endif
+	#endif
 #else
 			std::monostate Request;
 #endif
 			std::expected<std::unique_ptr<FStaticMeshRenderData>, FStaticMeshBuildFailure> Outcome =
 				std::unexpected(FStaticMeshBuildFailure{"StaticMesh render build has not started."});
+			uint64 ReservedBytes = 0;
+			FCancellationToken Cancellation;
+			std::atomic<EWorkPhase> Phase = EWorkPhase::Queued;
 			auto Build(const FAssetBuildTaskContext& Control) -> void
 			{
 #if DURIN_WITH_EDITORONLY_DATA
-#if DURIN_WITH_EDITOR
+	#if DURIN_WITH_EDITOR
 				if (Completion) Outcome = StaticMeshPrivate::ConsumeRenderBuild(Request.Settings, std::move(*Completion), Control);
 				Completion.reset();
-#else
+	#else
 				Outcome = BuildStaticMeshRenderData(std::move(Request), Control);
-#endif
+	#endif
 #else
 				Outcome = std::unexpected(FStaticMeshBuildFailure{"Authored mesh builds require editor-only data."});
 #endif
+				if (Control.IsCancelled()) Outcome = std::unique_ptr<FStaticMeshRenderData>{};
 			}
+			auto Fail(std::string Message) -> void { Outcome = std::unexpected(FStaticMeshBuildFailure{std::move(Message)}); }
+			auto ReleaseInput() -> void { Request = {}; }
+			auto ReleaseOutput() -> void { Outcome = std::unique_ptr<FStaticMeshRenderData>{}; }
 		};
-		struct FCollisionWork
-		{
-			struct FRequest
-			{
-				std::unique_ptr<FPhysicsMeshInputTask> InputTask;
-				FCookBodySetupInfo CookInfo;
-			} Request;
-			std::expected<FPhysicsCookResult, FPhysicsCookFailure> Outcome =
-				std::unexpected(FPhysicsCookFailure{"Physics cook has not started."});
-			auto Build(const FAssetBuildTaskContext& Control) -> void
-			{
-				auto Data = Request.InputTask->Execute(Control);
-				if (!Data) { Outcome = std::unexpected(Data.error()); return; }
-				Request.CookInfo.TriangleMeshDesc = std::move(*Data);
-				auto Input = FPhysicsCookHelper::Capture(std::move(Request.CookInfo), Control);
-				if (!Input) { Outcome = std::unexpected(std::move(Input.error())); return; }
-				Outcome = FPhysicsCookHelper::CookCaptured(*Input, Control);
-			}
-		};
-		// The selected payload type never changes while the worker/owner share this capture.
-		// It contains detached inputs and no callbacks to owners.
-		struct FWork
-		{
-			std::variant<FRenderWork, FCollisionWork> Payload;
-			uint64 ReservedBytes = 0;
-			std::atomic<bool> Cancelled = false;
-			std::atomic<bool> Done = false;
-			FWork() = default;
-			explicit FWork(std::in_place_type_t<FCollisionWork>) : Payload(std::in_place_type<FCollisionWork>) {}
-			auto IsCollision() const -> bool { return std::holds_alternative<FCollisionWork>(Payload); }
-			auto Render() -> FRenderWork& { return std::get<FRenderWork>(Payload); }
-			auto Collision() -> FCollisionWork& { return std::get<FCollisionWork>(Payload); }
-			auto Build(const FAssetBuildTaskContext& Control) -> void
-			{ std::visit([&](auto& Work) { Work.Build(Control); }, Payload); }
-			auto Fail(std::string Message) -> void
-			{
-				std::visit([&](auto& Work) {
-					using FFailure = typename decltype(Work.Outcome)::error_type;
-					Work.Outcome = std::unexpected(FFailure(Message));
-				}, Payload);
-			}
-			auto ReleaseInput() -> void
-			{ std::visit([](auto& Work) { Work.Request = {}; }, Payload); }
-			auto ReleaseOutput() -> void
-			{ std::visit([](auto& Work) { Work.Outcome = typename decltype(Work.Outcome)::value_type{}; }, Payload); }
-		};
-		// Collision publication facts are private scheduler state, separate from render reconciliation.
-		struct FCollisionOwnerSnapshot
-		{
-			FObjectKey Body;
-			uint64 BodyRevision = 0;
-			EBodySetupCollisionSourceMode CollisionMode = EBodySetupCollisionSourceMode::None;
-			EBodySetupCollisionQueryPolicy CollisionPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-			uint64 RequestGeneration = 0;
-			static auto Capture(DBodySetup* Body) -> FCollisionOwnerSnapshot
-			{
-				return {.Body = FObjectKey(Body), .BodyRevision = Body ? Body->GetRevision() : 0,
-					.CollisionMode = Body ? Body->GetCollisionSourceMode() : EBodySetupCollisionSourceMode::None,
-					.CollisionPolicy = Body ? Body->GetCollisionQueryPolicy() : EBodySetupCollisionQueryPolicy::SimpleAndComplex,
-					.RequestGeneration = Body ? Body->GetPhysicsMeshRequestGeneration() : 0};
-			}
-		};
-		struct FAdmissionState
-		{
-			std::atomic<uint32> AdmittedBuildCount = 0;
-			std::mutex Mutex;
-			std::condition_variable Changed;
-		};
+
 		struct FRecord
 		{
 			FStaticMeshCompilationDiagnostic Diagnostic;
-			std::variant<FStaticMeshReconciliationSnapshot, FCollisionOwnerSnapshot> Snapshot;
-			auto RenderSnapshot() const -> const FStaticMeshReconciliationSnapshot& { return std::get<FStaticMeshReconciliationSnapshot>(Snapshot); }
-			auto CollisionSnapshot() const -> const FCollisionOwnerSnapshot& { return std::get<FCollisionOwnerSnapshot>(Snapshot); }
+			FStaticMeshReconciliationSnapshot Snapshot;
 			std::optional<std::vector<FMeshMaterialSlotDefinition>> PreparedMaterialSlots;
-			FObjectKey AssetOwner;
 			FObjectKey Package;
 			FObjectKey ImportData;
 #if DURIN_WITH_EDITORONLY_DATA
@@ -140,679 +84,554 @@ namespace Durin
 #endif
 			bool bRequeue = false;
 			std::optional<FXxHash128> ImportState;
-			FStaticMeshCompilationCompletion Completion;
-			FOnAsyncPhysicsCookFinished PhysicsCompletion;
-#if DURIN_WITH_EDITORONLY_DATA
-			FStaticMeshPublicationPreparation PreparePublication;
-#endif
 			std::shared_ptr<FWork> Work;
 			FTaskHandle Task;
 			EStaticMeshCompilationPriority Priority;
 			std::optional<EStaticMeshCompilationStatus> Terminal;
 			bool bMarkPackageDirty = true;
 			bool bPersistDerivedData = true;
-			bool bStarted = false;
-			bool bDelivered = false;
 		};
 
-	}
+	} // namespace
 
-	class FStaticMeshCompilingManager final : public IAssetCompilingManager
+	class FStaticMeshCompilingManager final : public IAssetCompilingManager, public std::enable_shared_from_this<FStaticMeshCompilingManager>
+	{
+	public:
+		auto Start() -> FAssetCompilerStartResult override
 		{
-		public:
-			auto Start() -> FAssetCompilerStartResult override
-			{
-				CheckOwnerThread();
-				if (bAccepting) return {};
-				if (!Records.empty()) return {EAssetCompilerStartError::Undrained, Records.size()};
-				if (!IsTaskSchedulerRunning()) return {EAssetCompilerStartError::SchedulerUnavailable};
-				Scope = CreateTaskScope();
-				bAccepting = Scope.IsValid();
-				bShutdown = false;
-				InteractiveBurst = 0;
-				LastPumpIdentity = 0;
-				return {bAccepting ? EAssetCompilerStartError::None : EAssetCompilerStartError::TaskScopeUnavailable};
-			}
-			auto StopAdmission() -> void override
-			{
-				CheckOwnerThread();
-				bAccepting = false;
-				for (const auto& Record : Records) Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
-			}
-			auto GetNumRemainingAssets() const -> uint64 override { CheckOwnerThread(); return Records.size(); }
+			CheckOwnerThread();
+			if (bAccepting) return {};
+			if (!Records.empty()) return {EAssetCompilerStartError::Undrained, Records.size()};
+			if (!IsTaskSchedulerRunning()) return {EAssetCompilerStartError::SchedulerUnavailable};
+			Scope = CreateTaskScope();
+			bAccepting = Scope.IsValid();
+			bShutdown = false;
+			return {bAccepting ? EAssetCompilerStartError::None : EAssetCompilerStartError::TaskScopeUnavailable};
+		}
+		auto StopAdmission() -> void override
+		{
+			CheckOwnerThread();
+			bAccepting = false;
+			for (const auto& Record : Records)
+				Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
+		}
+		auto GetNumRemainingAssets() const -> uint64 override
+		{
+			CheckOwnerThread();
+			return Records.size();
+		}
+		auto IsMutating(const DStaticMesh& Mesh) const -> bool
+		{
+			return AdmissionState->MutatingOwners.contains(FObjectKey(const_cast<DStaticMesh*>(&Mesh)));
+		}
 
 #if DURIN_WITH_EDITORONLY_DATA
-			auto Submit(DStaticMesh& Mesh, FStaticMeshCompilationRequest Request,
-				FStaticMeshCompilationCompletion Completion) -> std::expected<void, std::string>
+		auto Submit(DStaticMesh& Mesh, FStaticMeshCompilationRequest Request) -> std::expected<void, std::string>
+		{
+			CheckOwnerThread();
+			const auto Reject = [](std::string Message) -> std::expected<void, std::string> {
+				Message.resize(std::min(Message.size(), MaximumStaticMeshBuildDiagnosticBytes));
+				return std::unexpected(std::move(Message));
+			};
+			if (!bAccepting || !IsValid(&Mesh) || AdmissionState->MutatingOwners.contains(FObjectKey(&Mesh))) return Reject("StaticMesh compilation is not accepting this owner.");
+			if (!Request.Source.IsValid()) return Reject("StaticMesh compilation requires valid canonical source metadata.");
+			const auto Snapshot = CaptureStaticMeshReconciliation(Mesh);
+			const auto& InputSlots = Request.PreparedMaterialSlots ? *Request.PreparedMaterialSlots : Snapshot.MaterialSlots;
+			if (!std::isfinite(Snapshot.NormalizedSize) || Snapshot.NormalizedSize <= 0
+				|| InputSlots.size() > MaximumMeshMaterialSlots)
+				return Reject("StaticMesh compilation settings are invalid.");
+			std::unordered_set<FName> SlotNames;
+			for (size_t Index = 0; Index < InputSlots.size(); ++Index)
 			{
-				CheckOwnerThread();
-				const auto Reject = [](std::string Message) -> std::expected<void, std::string> {
-					Message.resize(std::min(Message.size(), MaximumStaticMeshBuildDiagnosticBytes));
-					return std::unexpected(std::move(Message));
-				};
-				if (!bAccepting || !IsValid(&Mesh) || MutatingOwners.contains(FObjectKey(&Mesh))) return Reject("StaticMesh compilation is not accepting this owner.");
-				if (!Request.Source.IsValid()) return Reject("StaticMesh compilation requires valid canonical source metadata.");
-				const auto Snapshot = CaptureStaticMeshReconciliation(Mesh);
-				const auto& InputSlots = Request.PreparedMaterialSlots ? *Request.PreparedMaterialSlots : Snapshot.MaterialSlots;
-				if (!std::isfinite(Snapshot.NormalizedSize) || Snapshot.NormalizedSize <= 0
-					|| InputSlots.size() > MaximumMeshMaterialSlots)
-					return Reject("StaticMesh compilation settings are invalid.");
-				std::unordered_set<FName> SlotNames;
-				for (size_t Index = 0; Index < InputSlots.size(); ++Index)
-				{
-					const auto& Slot = InputSlots[Index];
-					if (Slot.Name.IsNone()
-#if DURIN_WITH_EDITORONLY_DATA
-						|| Slot.SourceName.size() > 4096
-#endif
-						|| !SlotNames.insert(Slot.Name).second)
-						return Reject(std::format("StaticMesh compilation requires bounded unique material slots (slot {}, name {}).", Index, Slot.Name.ToString()));
-				}
-				if (Mesh.GetAssetImportData())
-				{
-					if (const auto Validation = Mesh.GetAssetImportData()->Validate(); !Validation)
-						return Reject(FormatAssetImportDataError(Validation.error()));
-				}
-				const uint64 WireBytes = Request.Source.GetGeometryBulk().GetPayloadSize();
-				FAssetBuildMemoryEstimate Memory{MaximumRequestBytes, 1024 * 1024};
-				if (!Memory.Add(WireBytes, 64) || !Memory.Add(Request.Source.GetMeshCount(), 1024)
-					|| !Memory.Add(std::max<size_t>(Request.Source.GetMaterialSlotCount(), InputSlots.size()), 32768))
-					return Reject(std::format("StaticMesh compilation request exceeds its {} byte budget ({} x {} bytes rejected).", Memory.Limit, Memory.RejectedCount, Memory.RejectedWidth));
-				const uint64 Bytes = Memory.Bytes;
-				if (Records.size() >= MaximumRecords || Bytes > MaximumTotalBytes - ReservedBytes)
-					return Reject(std::format("StaticMesh compilation admission budget exhausted ({} / {} records, {} reserved bytes, {} requested bytes).", Records.size(), MaximumRecords, ReservedBytes, Bytes));
-				auto Module = IMeshBuilderModule::Get();
-				if (!Module) return Reject("StaticMesh compilation requires the build module.");
-				const uint64 BuilderVersion = Module->GetBuildVersion();
-				if (BuilderVersion == 0)
-					return Reject("StaticMesh compilation requires a nonzero render builder version.");
-				auto Record = std::make_shared<FRecord>();
-				Record->Snapshot = Snapshot;
-				Record->RequestedSource = Request.Source;
-				Record->RequestedSource.ReleaseGeometry();
-				Record->Package = FObjectKey(Mesh.GetPackage());
-				Record->ImportData = FObjectKey(Mesh.GetAssetImportData());
-				if (Mesh.GetAssetImportData()) Record->ImportState = Mesh.GetAssetImportData()->GetCompilationIdentity();
-				Record->Completion = std::move(Completion);
-				Record->PreparePublication = std::move(Request.PreparePublication);
-				Record->Work = std::make_shared<FWork>();
-				Record->PreparedMaterialSlots = std::move(Request.PreparedMaterialSlots);
-				const auto& Slots = Record->PreparedMaterialSlots ? *Record->PreparedMaterialSlots : Snapshot.MaterialSlots;
-				Record->Work->Render().Request = {.Settings = MakeStaticMeshBuildSettings(Slots, Snapshot.NormalizedSize),
-					.Source = std::move(Request.Source)};
-				Record->Work->Render().Request.Source.ReleaseGeometry();
-				Record->Work->ReservedBytes = Bytes;
-				Record->Work->Render().Request.bPersistDerivedData = Request.bPersistDerivedData;
-				Record->Priority = Request.Priority;
-#if DURIN_WITH_EDITOR
-				Record->Work->Render().BuildOperation = std::make_shared<FAssetCompilationOperation>(
-					Request.Priority == EStaticMeshCompilationPriority::Interactive ? DerivedData::ERequestPriority::High : DerivedData::ERequestPriority::Low);
-#endif
-				Record->bMarkPackageDirty = Request.bMarkPackageDirty;
-				Record->bPersistDerivedData = Request.bPersistDerivedData;
-				Record->Diagnostic = {.RequestId = NextRequest++, .Owner = FObjectKey(&Mesh), .ReservedBytes = Bytes};
-				Record->Diagnostic.SourceIdentity = Record->RequestedSource.GetIdentity();
-				Record->Diagnostic.RenderBuilderVersion = BuilderVersion;
-				// No invalid/rejected submission reaches this boundary or invalidates an older request.
-				for (const auto& Old : Records)
-					if (!Old->Work->IsCollision() && Old->Diagnostic.Owner == Record->Diagnostic.Owner && !Old->bDelivered)
-						{ Old->bRequeue = false; Terminate(*Old, EStaticMeshCompilationStatus::Superseded); }
-				ReservedBytes += Bytes;
-				Records.push_back(std::move(Record));
-				Admit();
-				return {};
+				const auto& Slot = InputSlots[Index];
+				if (Slot.Name.IsNone()
+	#if DURIN_WITH_EDITORONLY_DATA
+					|| Slot.SourceName.size() > 4096
+	#endif
+					|| !SlotNames.insert(Slot.Name).second)
+					return Reject(std::format("StaticMesh compilation requires bounded unique material slots (slot {}, name {}).", Index, Slot.Name.ToString()));
 			}
+			if (Mesh.GetAssetImportData())
+			{
+				if (const auto Validation = Mesh.GetAssetImportData()->Validate(); !Validation)
+					return Reject(FormatAssetImportDataError(Validation.error()));
+			}
+			const uint64 WireBytes = Request.Source.GetGeometryBulk().GetPayloadSize();
+			FAssetBuildMemoryEstimate Memory{MaximumRequestBytes, 1024 * 1024};
+			if (!Memory.Add(WireBytes, 64) || !Memory.Add(Request.Source.GetMeshCount(), 1024)
+				|| !Memory.Add(std::max<size_t>(Request.Source.GetMaterialSlotCount(), InputSlots.size()), 32768))
+				return Reject(std::format("StaticMesh compilation request exceeds its {} byte budget ({} x {} bytes rejected).", Memory.Limit, Memory.RejectedCount, Memory.RejectedWidth));
+			const uint64 Bytes = Memory.Bytes;
+			if (!AdmissionState->CanReserve(Bytes))
+				return Reject(std::format("StaticMesh compilation admission budget exhausted ({} / {} records, {} reserved bytes, {} requested bytes).", Records.size(), MaximumRecords, ReservedBytes, Bytes));
+			auto Module = IMeshBuilderModule::Get();
+			if (!Module) return Reject("StaticMesh compilation requires the build module.");
+			const uint64 BuilderVersion = Module->GetBuildVersion();
+			if (BuilderVersion == 0)
+				return Reject("StaticMesh compilation requires a nonzero render builder version.");
+			auto Record = std::make_shared<FRecord>();
+			Record->Snapshot = Snapshot;
+			Record->RequestedSource = Request.Source;
+			Record->RequestedSource.ReleaseGeometry();
+			Record->Package = FObjectKey(Mesh.GetPackage());
+			Record->ImportData = FObjectKey(Mesh.GetAssetImportData());
+			if (Mesh.GetAssetImportData()) Record->ImportState = Mesh.GetAssetImportData()->GetCompilationIdentity();
+			Record->Work = std::make_shared<FWork>();
+			Record->PreparedMaterialSlots = std::move(Request.PreparedMaterialSlots);
+			const auto& Slots = Record->PreparedMaterialSlots ? *Record->PreparedMaterialSlots : Snapshot.MaterialSlots;
+			Record->Work->Request = {.Settings = MakeStaticMeshBuildSettings(Slots, Snapshot.NormalizedSize), .Source = std::move(Request.Source)};
+			Record->Work->Request.Source.ReleaseGeometry();
+			Record->Work->ReservedBytes = Bytes;
+			Record->Work->Request.bPersistDerivedData = Request.bPersistDerivedData;
+			Record->Priority = Request.Priority;
+	#if DURIN_WITH_EDITOR
+			Record->Work->BuildOperation = std::make_shared<FAssetCompilationOperation>(
+				Request.Priority == EStaticMeshCompilationPriority::Interactive ? DerivedData::ERequestPriority::High : DerivedData::ERequestPriority::Low
+			);
+	#endif
+			Record->bMarkPackageDirty = Request.bMarkPackageDirty;
+			Record->bPersistDerivedData = Request.bPersistDerivedData;
+			Record->Diagnostic = {.RequestId = NextRequest++, .Owner = FObjectKey(&Mesh), .ReservedBytes = Bytes};
+			Record->Diagnostic.SourceIdentity = Record->RequestedSource.GetIdentity();
+			Record->Diagnostic.RenderBuilderVersion = BuilderVersion;
+			// No invalid/rejected submission reaches this boundary or invalidates an older request.
+			for (const auto& Old : Records)
+				if (Old->Diagnostic.Owner == Record->Diagnostic.Owner && !Old->Terminal)
+				{
+					Old->bRequeue = false;
+					Terminate(*Old, EStaticMeshCompilationStatus::Superseded);
+				}
+			ReservedBytes += Bytes;
+			AdmissionState->Reserve(Bytes);
+			Records.push_back(Record);
+			Enqueue(Record);
+			return {};
+		}
 #endif
 
-			auto CancelCollision(DBodySetup& Body) -> void
-			{
-				CheckOwnerThread();
+		auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params) -> FAssetCompileProcessResult override
+		{
+			CheckOwnerThread();
+			AdmissionState->BeginPump(Params.PumpIdentity);
+			const auto Deadline = std::min(Params.Deadline.value_or(FClock::time_point::max()), AdmissionState->PumpDeadline);
+			auto Result = Pump({}, std::min<uint32>(2 - AdmissionState->PumpCount, Params.MaximumCompletions), Deadline);
+			AdmissionState->PumpCount = std::min<uint32>(2, AdmissionState->PumpCount + Result.ProcessedCompletionCount);
+			return Result;
+		}
+		auto FinishCompilationForObjects(std::span<DObject* const> Objects) -> FAssetCompileProcessResult override
+		{
+			CheckOwnerThread();
+			std::vector<FObjectKey> Selected;
+			for (auto* Object : Objects)
+				Selected.push_back(FObjectKey(Object));
+			if (Selected.empty()) return {};
+			return Finish(Selected);
+		}
+		auto MarkCompilationAsCanceled(std::span<DObject* const> Objects) -> void override
+		{
+			CheckOwnerThread();
+			for (auto* Object : Objects)
 				for (const auto& Record : Records)
-					if (Record->Work->IsCollision() && Record->Diagnostic.Owner == FObjectKey(&Body))
+					if (Record->Diagnostic.Owner == FObjectKey(Object))
+					{
+						Record->bRequeue = false;
 						Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
-			}
-			auto SubmitCollision(DBodySetup& Body, std::unique_ptr<FPhysicsMeshInputTask> InputTask, bool bPersistDerivedData, FOnAsyncPhysicsCookFinished Completion)
-				-> std::expected<void, FPhysicsCookFailure>
+					}
+		}
+		auto FinishAllCompilation() -> FAssetCompileProcessResult override
+		{
+			CheckOwnerThread();
+			return Finish({});
+		}
+		auto Shutdown() -> void override
+		{
+			CheckOwnerThread();
+			bAccepting = false;
+			bShutdown = true;
+			for (const auto& Record : Records)
+				Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
+			// Pump suspended cache requests before closing the scope borrowed by their continuations.
+			FinishAllCompilation();
+			if (Scope.IsValid())
 			{
-				CheckOwnerThread();
-				const auto Reject = [](std::string Message) -> std::expected<void, FPhysicsCookFailure> {
-					return std::unexpected(FPhysicsCookFailure{std::move(Message), EPhysicsCookStage::Scheduling});
-				};
-				if (!bAccepting || !IsValid(&Body) || MutatingOwners.contains(FObjectKey(Body.GetOuter())))
-					return Reject("Physics mesh compilation is not accepting this owner.");
-				if (!InputTask || InputTask->GetWorkingSetBytes() == 0 || InputTask->GetWorkingSetBytes() > MaximumRequestBytes)
-					return Reject("Physics mesh preparation requires a bounded detached task.");
-				if (Records.size() >= MaximumRecords || InputTask->GetWorkingSetBytes() > MaximumTotalBytes - ReservedBytes)
-					return Reject("Physics mesh compilation admission budget exhausted.");
-				auto Record = std::make_shared<FRecord>();
-				Record->Snapshot = FCollisionOwnerSnapshot::Capture(&Body);
-				Record->AssetOwner = FObjectKey(Body.GetOuter());
-				Record->PhysicsCompletion = std::move(Completion);
-				Record->Priority = EStaticMeshCompilationPriority::Background;
-				Record->Work = std::make_shared<FWork>(std::in_place_type<FCollisionWork>);
-				Record->Work->ReservedBytes = InputTask->GetWorkingSetBytes();
-				Record->Work->Collision().Request = {std::move(InputTask), Body.GetCookInfo({}, bPersistDerivedData)};
-				Record->Diagnostic = {.RequestId = NextRequest++, .Owner = FObjectKey(&Body), .ReservedBytes = Record->Work->ReservedBytes};
-				ReservedBytes += Record->Work->ReservedBytes;
-				Records.push_back(std::move(Record));
-				Admit();
-				return {};
+				Scope.Close(ETaskScopeCloseMode::Drain);
+				Scope.Wait();
 			}
+		}
+		~FStaticMeshCompilingManager() override { Shutdown(); }
 
-			auto IsMutating(const DStaticMesh& Mesh) const -> bool
-			{
-				return MutatingOwners.contains(FObjectKey(const_cast<DStaticMesh*>(&Mesh)));
-			}
-			auto BlockMutation(DStaticMesh& Mesh) -> void
-			{
-				const auto Owner = FObjectKey(&Mesh);
-				if (!MutatingOwners.insert(Owner).second) return;
-				struct FRetireGuard
+		auto Mutated(DStaticMesh& Mesh) -> void
+		{
+#if DURIN_WITH_EDITORONLY_DATA
+			CheckOwnerThread();
+			if (PublishingOwner == FObjectKey(&Mesh)) return;
+			for (const auto& Record : Records)
+				if (Record->Diagnostic.Owner == FObjectKey(&Mesh) && !Record->Terminal)
 				{
-					std::unordered_set<FObjectKey>& Owners; FObjectKey Owner;
-					~FRetireGuard() { Owners.erase(Owner); }
-				} Guard{MutatingOwners, Owner};
-				DObject* Object = &Mesh;
-				MarkCompilationAsCanceled({&Object, 1});
-				FAssetCompilingManager::Get().FinishCompilationForObject(Mesh);
-			}
-
-			auto FinishForMesh(DStaticMesh& Mesh, EStaticMeshCompilationProducts Products) -> FAssetCompileProcessResult
-			{
-				const FObjectKey Owner(&Mesh);
-				return Finish({&Owner, 1}, Products);
-			}
-			auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params) -> FAssetCompileProcessResult override
-			{
-				CheckOwnerThread();
-				if (Params.PumpIdentity == 0 || Params.PumpIdentity != LastPumpIdentity)
-				{
-					LastPumpIdentity = Params.PumpIdentity;
-					PumpCount = 0;
-					PumpDeadline = FClock::now() + std::chrono::milliseconds(2);
+					Record->bRequeue = !Mesh.GetRenderData() && !Record->PreparedMaterialSlots
+									   && Record->RequestedSource.GetIdentity() == Record->Snapshot.SourceIdentity;
+					Terminate(*Record, EStaticMeshCompilationStatus::Superseded);
 				}
-				const auto Deadline = std::min(Params.Deadline.value_or(FClock::time_point::max()), PumpDeadline);
-				auto Result = Pump({}, std::min<uint32>(2 - PumpCount, Params.MaximumCompletions), Deadline);
-				PumpCount += Result.ProcessedCompletionCount;
-				return Result;
-			}
-			auto FinishCompilationForObjects(std::span<DObject* const> Objects) -> FAssetCompileProcessResult override
-			{
-				CheckOwnerThread();
-				std::vector<FObjectKey> Selected;
-				for (auto* Object : Objects) Selected.push_back(FObjectKey(Object));
-				if (Selected.empty()) return {};
-				return Finish(Selected);
-			}
-			auto MarkCompilationAsCanceled(std::span<DObject* const> Objects) -> void override
-			{
-				CheckOwnerThread();
-				for (auto* Object : Objects)
-					for (const auto& Record : Records)
-						if (Record->Diagnostic.Owner == FObjectKey(Object) || Record->AssetOwner == FObjectKey(Object))
-						{ Record->bRequeue = false; Terminate(*Record, EStaticMeshCompilationStatus::Cancelled); }
-			}
-			auto FinishAllCompilation() -> FAssetCompileProcessResult override { CheckOwnerThread(); return Finish({}); }
-			auto Shutdown() -> void override
-			{
-				CheckOwnerThread();
-				bAccepting = false;
-				bShutdown = true;
-				for (const auto& Record : Records) Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
-				// Pump suspended cache requests before closing the scope borrowed by their continuations.
-				FinishAllCompilation();
-				if (Scope.IsValid()) { Scope.Close(ETaskScopeCloseMode::Drain); Scope.Wait(); }
-			}
-			~FStaticMeshCompilingManager() override { Shutdown(); }
-
-			auto Mutated(DStaticMesh& Mesh) -> void
-			{
-#if DURIN_WITH_EDITORONLY_DATA
-				CheckOwnerThread();
-				if (PublishingOwner == FObjectKey(&Mesh)) return;
-				for (const auto& Record : Records)
-					if (!Record->Work->IsCollision() && Record->Diagnostic.Owner == FObjectKey(&Mesh) && !Record->Terminal && !Record->bDelivered)
-					{
-						Record->bRequeue = !Mesh.GetRenderData() && !Record->PreparePublication && !Record->PreparedMaterialSlots
-							&& Record->RequestedSource.GetIdentity() == Record->RenderSnapshot().SourceIdentity;
-						Terminate(*Record, EStaticMeshCompilationStatus::Superseded);
-					}
 #else
-				CheckOwnerThread();
+			CheckOwnerThread();
 #endif
-			}
+		}
 
 #if DURIN_WITH_EDITORONLY_DATA
-			auto CanJoin(const DStaticMesh& Mesh, const FStaticMeshSource& Source) const -> bool
-			{
-				CheckOwnerThread();
-				for (const auto& Record : Records)
-					if (!Record->Work->IsCollision() && Record->Diagnostic.Owner == FObjectKey(const_cast<DStaticMesh*>(&Mesh))
-						&& !Record->bDelivered && !Record->Terminal && !Record->PreparePublication && !Record->PreparedMaterialSlots
-						&& Record->RequestedSource.GetIdentity() == Source.GetIdentity() && IsCurrent(*Record, Mesh)
-						&& FObjectKey(const_cast<DAssetImportData*>(Mesh.GetAssetImportData())) == Record->ImportData
-						&& (!Record->ImportState || (Mesh.GetAssetImportData()
-							&& Mesh.GetAssetImportData()->GetCompilationIdentity() == *Record->ImportState)))
-					{
-						return true;
-					}
-				return false;
-			}
+		auto CanJoin(const DStaticMesh& Mesh, const FStaticMeshSource& Source) const -> bool
+		{
+			CheckOwnerThread();
+			for (const auto& Record : Records)
+				if (Record->Diagnostic.Owner == FObjectKey(const_cast<DStaticMesh*>(&Mesh))
+					&& !Record->Terminal && !Record->PreparedMaterialSlots
+					&& Record->RequestedSource.GetIdentity() == Source.GetIdentity() && IsCurrent(*Record, Mesh)
+					&& FObjectKey(const_cast<DAssetImportData*>(Mesh.GetAssetImportData())) == Record->ImportData
+					&& (!Record->ImportState || (Mesh.GetAssetImportData() && Mesh.GetAssetImportData()->GetCompilationIdentity() == *Record->ImportState)))
+				{
+					return true;
+				}
+			return false;
+		}
 #endif
 
-			auto HasSourceMutation(const DStaticMesh& Mesh) const -> bool
-			{
+		auto HasSourceMutation(const DStaticMesh& Mesh) const -> bool
+		{
 #if DURIN_WITH_EDITORONLY_DATA
-				for (const auto& Record : Records)
-					if (!Record->Work->IsCollision() && Record->Diagnostic.Owner == FObjectKey(const_cast<DStaticMesh*>(&Mesh))
-						&& !Record->bDelivered && !Record->Terminal
-						&& (Record->PreparePublication || Record->PreparedMaterialSlots || Record->RequestedSource.GetIdentity() != Mesh.GetSource().GetIdentity())) return true;
-				return false;
+			for (const auto& Record : Records)
+				if (Record->Diagnostic.Owner == FObjectKey(const_cast<DStaticMesh*>(&Mesh))
+					&& !Record->Terminal
+					&& (Record->PreparedMaterialSlots || Record->RequestedSource.GetIdentity() != Mesh.GetSource().GetIdentity())) return true;
+			return false;
 #else
-				return false;
+			return false;
 #endif
-			}
+		}
 
-			auto HasPending(const DStaticMesh& Mesh) const -> bool
-			{
-				CheckOwnerThread();
-				const auto Owner = FObjectKey(const_cast<DStaticMesh*>(&Mesh));
-				return std::ranges::any_of(Records, [&](const auto& Record) { return !Record->Work->IsCollision() && Record->Diagnostic.Owner == Owner; });
-			}
-			auto Diagnostic(const DStaticMesh& Mesh) const -> FStaticMeshCompilationDiagnostic
-			{
-				CheckOwnerThread();
-				const auto Owner = FObjectKey(const_cast<DStaticMesh*>(&Mesh));
-				FStaticMeshCompilationDiagnostic Result;
-				for (const auto& Record : Records)
-					if (!Record->Work->IsCollision() && Record->Diagnostic.Owner == Owner && Record->Diagnostic.RequestId > Result.RequestId)
-					{
-						Result = Record->Diagnostic;
-						if (!Record->Terminal && Record->Work->Done.load(std::memory_order_acquire))
-							Result.Phase = EStaticMeshCompilationPhase::Mailbox;
-					}
-				for (const auto& Entry : History)
-					if (Entry.Owner == Owner && Entry.RequestId > Result.RequestId) Result = Entry;
-				return Result;
-			}
-			auto Diagnostic(uint64 RequestId) const -> FStaticMeshCompilationDiagnostic
-			{
-				CheckOwnerThread();
-				for (const auto& Entry : History)
-					if (Entry.RequestId == RequestId) return Entry;
-				for (const auto& Record : Records)
-					if (Record->Diagnostic.RequestId == RequestId)
-					{
-						auto Result = Record->Diagnostic;
-						if (!Record->Terminal && Record->Work->Done.load(std::memory_order_acquire))
-							Result.Phase = EStaticMeshCompilationPhase::Mailbox;
-						return Result;
-					}
-				return {};
-			}
-			auto Diagnostics() const -> FStaticMeshCompilationManagerDiagnostics
-			{
-				CheckOwnerThread();
-				return {static_cast<uint32>(Records.size()), AdmissionState->AdmittedBuildCount.load(),
-					static_cast<uint32>(History.size()), ReservedBytes, bAccepting};
-			}
-			std::function<void(uint64, EStaticMeshCompilationPhase)> PhaseHook;
+		auto HasPending(const DStaticMesh& Mesh) const -> bool
+		{
+			CheckOwnerThread();
+			const auto Owner = FObjectKey(const_cast<DStaticMesh*>(&Mesh));
+			return std::ranges::any_of(Records, [&](const auto& Record) { return Record->Diagnostic.Owner == Owner; });
+		}
+		auto Diagnostic(const DStaticMesh& Mesh) const -> FStaticMeshCompilationDiagnostic
+		{
+			CheckOwnerThread();
+			const auto Owner = FObjectKey(const_cast<DStaticMesh*>(&Mesh));
+			FStaticMeshCompilationDiagnostic Result;
+			for (const auto& Record : Records)
+				if (Record->Diagnostic.Owner == Owner && Record->Diagnostic.RequestId > Result.RequestId)
+				{
+					Result = Record->Diagnostic;
+					if (!Record->Terminal && Record->Work->Phase.load(std::memory_order_acquire) == EWorkPhase::Complete)
+						Result.Phase = EStaticMeshCompilationPhase::Mailbox;
+				}
+			for (const auto& Entry : History)
+				if (Entry.Owner == Owner && Entry.RequestId > Result.RequestId) Result = Entry;
+			return Result;
+		}
+		auto Diagnostic(uint64 RequestId) const -> FStaticMeshCompilationDiagnostic
+		{
+			CheckOwnerThread();
+			for (const auto& Entry : History)
+				if (Entry.RequestId == RequestId) return Entry;
+			for (const auto& Record : Records)
+				if (Record->Diagnostic.RequestId == RequestId)
+				{
+					auto Result = Record->Diagnostic;
+					if (!Record->Terminal && Record->Work->Phase.load(std::memory_order_acquire) == EWorkPhase::Complete)
+						Result.Phase = EStaticMeshCompilationPhase::Mailbox;
+					return Result;
+				}
+			return {};
+		}
+		auto Diagnostics() const -> FStaticMeshCompilationManagerDiagnostics
+		{
+			CheckOwnerThread();
+			const auto Running = std::ranges::count_if(Records, [](const auto& Record) { const auto Phase = Record->Work->Phase.load(); return Phase != EWorkPhase::Queued && Phase != EWorkPhase::Complete; });
+			return {static_cast<uint32>(Records.size() + FinalizingCount), uint32(Running), static_cast<uint32>(History.size()), ReservedBytes, bAccepting};
+		}
+		std::function<void(uint64, EStaticMeshCompilationPhase)> PhaseHook;
 
-		private:
-			static auto Terminate(FRecord& Record, EStaticMeshCompilationStatus Status) -> void
-			{
-				if (Record.bDelivered || Record.Terminal) return;
-				Record.Terminal = Status;
-				if (Record.Work->IsCollision())
-					if (auto* Body = Cast<DBodySetup>(ResolveObjectKey(Record.Diagnostic.Owner)))
-						Body->CancelPhysicsMeshes(Record.CollisionSnapshot().RequestGeneration);
-				Record.Work->Cancelled.store(true, std::memory_order_release);
+	private:
+		static auto Terminate(FRecord& Record, EStaticMeshCompilationStatus Status) -> void
+		{
+			if (Record.Terminal) return;
+			Record.Terminal = Status;
+			Record.Work->Cancellation.Cancel();
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
-				if (!Record.Work->IsCollision() && Record.Work->Render().BuildOperation) Record.Work->Render().BuildOperation->RequestCancel();
+			if (Record.Work->BuildOperation) Record.Work->BuildOperation->RequestCancel();
 #endif
-				if (!Record.bStarted)
-				{
-					Record.Work->ReleaseInput();
-					Record.Work->Done.store(true, std::memory_order_release);
-				}
-			}
-			auto Launch(const std::shared_ptr<FRecord>& Record, bool bDispatch) -> void
+			if (Record.Work->Phase.load(std::memory_order_acquire) == EWorkPhase::Queued)
 			{
-				Tasks::FTaskExecutionOptions Options;
-				Options.Scope = Scope.GetToken();
-				if (!Record->Work->IsCollision()) Options.Priority = Record->Priority == EStaticMeshCompilationPriority::Interactive
-					? ETaskPriority::High : ETaskPriority::Low;
-				Record->Task = Tasks::LaunchTask("StaticMesh.Build",
-					[Work = Record->Work, State = AdmissionState, Hook = PhaseHook, Id = Record->Diagnostic.RequestId,
-					 BuilderVersion = Record->Diagnostic.RenderBuilderVersion, bDispatch](const FTaskCancellationToken& Token) {
+				Record.Work->ReleaseInput();
+				Record.Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
+			}
+		}
+		auto Launch(const std::shared_ptr<FRecord>& Record, bool bDispatch) -> void
+		{
+			Tasks::FTaskExecutionOptions Options;
+			Options.Scope = Scope.GetToken();
+			Options.Priority = Record->Priority == EStaticMeshCompilationPriority::Interactive ? ETaskPriority::High : ETaskPriority::Low;
+			Record->Task = Tasks::LaunchTask("StaticMesh.Build", [Work = Record->Work, State = AdmissionState, Hook = PhaseHook, Id = Record->Diagnostic.RequestId, BuilderVersion = Record->Diagnostic.RenderBuilderVersion, bDispatch](const FTaskCancellationToken& Token) {
+						const auto Cancellation = Work->Cancellation.WithObserver([Token] { return Token.IsCancellationRequested(); });
 						try
 						{
 							if (bDispatch && Hook) Hook(Id, EStaticMeshCompilationPhase::Building);
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
-							if (bDispatch && !Work->IsCollision())
+							if (bDispatch)
 							{
-								Work->Render().AsyncDispatched.store(true, std::memory_order_release);
-								auto Dispatched = StaticMeshPrivate::DispatchRenderBuild(Work->Render().Request, BuilderVersion,
-									*Work->Render().BuildOperation, [Work] { return Work->Cancelled.load(std::memory_order_acquire); },
+								Work->Phase.store(EWorkPhase::AwaitingDerivedData, std::memory_order_release);
+								auto Dispatched = StaticMeshPrivate::DispatchRenderBuild(Work->Request, BuilderVersion,
+									*Work->BuildOperation, Cancellation,
 									Work->ReservedBytes, [Work](auto Completion) {
-										try { Work->Render().Completion.emplace(std::move(Completion)); }
+										try { Work->Completion.emplace(std::move(Completion)); }
 										catch (...) { Work->Fail("StaticMesh cache completion could not be retained."); }
-										Work->Render().CompletionReady.store(true, std::memory_order_release);
+										if (Work->Completion && Work->Completion->GetStatus() == DerivedData::EStatus::Canceled)
+											Work->Cancellation.Cancel();
 									});
 								if (Dispatched)
 								{
-									Tasks::AddNested(Work->Render().BuildOperation->GetCompletionEvent());
-									Work->Render().BuildOperation->CloseSubmission();
+									Tasks::AddNested(Work->BuildOperation->GetCompletionEvent());
+									Work->BuildOperation->CloseSubmission();
 									return; // Owner retains its slot while cache I/O is suspended.
 								}
-								Work->Render().AsyncDispatched.store(false, std::memory_order_release);
-								Work->Render().Outcome = std::unexpected(std::move(Dispatched.error()));
+								Work->Outcome = std::unexpected(std::move(Dispatched.error()));
 							}
 							else
 #endif
 							{
 								const FAssetBuildTaskContext Control{
-									.ShouldCancel = [&] { return Work->Cancelled.load(std::memory_order_acquire) || Token.IsCancellationRequested(); },
+									.Cancellation = Cancellation,
 									.MaximumWorkingSetBytes = Work->ReservedBytes};
 								Work->Build(Control);
 							}
 							if (Hook) Hook(Id, EStaticMeshCompilationPhase::Mailbox);
 						}
 						catch (...) { Work->Fail("Asset build worker failed with an exception."); }
+						if (Cancellation.IsCancelled()) Work->ReleaseOutput();
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
-						if (!Work->IsCollision())
+
 						{
-							Tasks::AddNested(Work->Render().BuildOperation->GetCompletionEvent());
-							Work->Render().BuildOperation->CloseSubmission();
+							Tasks::AddNested(Work->BuildOperation->GetCompletionEvent());
+							Work->BuildOperation->CloseSubmission();
 						}
 #endif
 						Work->ReleaseInput();
-						Work->Done.store(true, std::memory_order_release);
+						Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
 						State->AdmittedBuildCount.fetch_sub(1);
-						State->Changed.notify_all();
-					}, Options).GetTaskHandle();
-			}
-			auto Admit() -> void
-			{
-				while (!bShutdown && AdmissionState->AdmittedBuildCount.load() < 2)
+						State->Changed.notify_all(); }, Options).GetTaskHandle();
+		}
+		auto Enqueue(const std::shared_ptr<FRecord>& Record) -> void
+		{
+			AdmissionState->Enqueue(Record->Priority == EStaticMeshCompilationPriority::Interactive, [Manager = weak_from_this(), WeakRecord = std::weak_ptr(Record)] {
+				auto Self = Manager.lock();
+				auto Record = WeakRecord.lock();
+				if (!Self || !Record || Record->Terminal || Record->Work->Phase.load() != EWorkPhase::Queued) return false;
+				if (!IsTaskSchedulerRunning())
 				{
-					std::shared_ptr<FRecord> Background, Interactive;
-					for (const auto& Record : Records)
-					{
-						if (Record->bStarted || Record->Terminal) continue;
-						auto& First = Record->Priority == EStaticMeshCompilationPriority::Interactive ? Interactive : Background;
-						if (!First) First = Record;
-					}
-					auto Record = Interactive && (!Background || InteractiveBurst < 4) ? Interactive : Background;
-					if (!Record) return;
-					if (!IsTaskSchedulerRunning()) { Terminate(*Record, EStaticMeshCompilationStatus::Cancelled); continue; }
-					if (Record == Interactive) ++InteractiveBurst; else InteractiveBurst = 0;
-					if (PhaseHook) PhaseHook(Record->Diagnostic.RequestId, EStaticMeshCompilationPhase::Queued);
-					Record->bStarted = true;
-					Record->Diagnostic.Phase = EStaticMeshCompilationPhase::Building;
-					AdmissionState->AdmittedBuildCount.fetch_add(1);
-					Launch(Record, true);
-
+					Self->Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
+					return false;
 				}
-			}
-#if DURIN_WITH_EDITORONLY_DATA
-			static auto IsCurrent(const FRecord& Record, const DStaticMesh& Mesh) -> bool
-			{
-				const auto Current = CaptureStaticMeshReconciliation(Mesh);
-				const auto& Expected = Record.RenderSnapshot();
-				if (Current.SourceIdentity != Expected.SourceIdentity || Current.NormalizedSize != Expected.NormalizedSize
-					|| Current.MaterialSlots.size() != Expected.MaterialSlots.size()) return false;
-				for (size_t Index = 0; Index < Current.MaterialSlots.size(); ++Index)
-				{
-					const auto& A = Current.MaterialSlots[Index];
-					const auto& B = Expected.MaterialSlots[Index];
-					if (A.Name != B.Name
-#if DURIN_WITH_EDITORONLY_DATA
-						|| A.SourceName != B.SourceName || A.SourceMaterialIndex != B.SourceMaterialIndex
-#endif
-						|| A.DefaultMaterial != B.DefaultMaterial) return false;
-				}
+				if (Self->PhaseHook) Self->PhaseHook(Record->Diagnostic.RequestId, EStaticMeshCompilationPhase::Queued);
+				if (Record->Terminal) return false;
+				Record->Work->Phase.store(EWorkPhase::Running, std::memory_order_release);
+				Record->Diagnostic.Phase = EStaticMeshCompilationPhase::Building;
+				Self->Launch(Record, true);
 				return true;
+			});
+		}
+#if DURIN_WITH_EDITORONLY_DATA
+		static auto IsCurrent(const FRecord& Record, const DStaticMesh& Mesh) -> bool
+		{
+			const auto Current = CaptureStaticMeshReconciliation(Mesh);
+			const auto& Expected = Record.Snapshot;
+			if (Current.SourceIdentity != Expected.SourceIdentity || Current.NormalizedSize != Expected.NormalizedSize
+				|| Current.MaterialSlots.size() != Expected.MaterialSlots.size()) return false;
+			for (size_t Index = 0; Index < Current.MaterialSlots.size(); ++Index)
+			{
+				const auto& A = Current.MaterialSlots[Index];
+				const auto& B = Expected.MaterialSlots[Index];
+				if (A.Name != B.Name
+	#if DURIN_WITH_EDITORONLY_DATA
+					|| A.SourceName != B.SourceName || A.SourceMaterialIndex != B.SourceMaterialIndex
+	#endif
+					|| A.DefaultMaterial != B.DefaultMaterial)
+					return false;
 			}
+			return true;
+		}
 #endif
 
-			static auto Selected(const FRecord& Record, std::span<const FObjectKey> Owners, EStaticMeshCompilationProducts Products = EStaticMeshCompilationProducts::All) -> bool
-			{
-				if (Products == EStaticMeshCompilationProducts::Render && Record.Work->IsCollision()) return false;
-				if (Products == EStaticMeshCompilationProducts::Collision && !Record.Work->IsCollision()) return false;
-				return Owners.empty() || std::ranges::contains(Owners, Record.Diagnostic.Owner)
-					|| std::ranges::contains(Owners, Record.AssetOwner);
-			}
-			auto CompleteCollision(const std::shared_ptr<FRecord>& Record, DBodySetup* Body) -> void
-			{
-				const auto& Expected = Record->CollisionSnapshot();
-				const auto Current = FCollisionOwnerSnapshot::Capture(Body);
-				if (!Body || Current.RequestGeneration != Expected.RequestGeneration
-					|| Current.Body != Expected.Body || Current.BodyRevision != Expected.BodyRevision
-					|| Current.CollisionMode != Expected.CollisionMode || Current.CollisionPolicy != Expected.CollisionPolicy)
-				{
-					if (Body) Body->CancelPhysicsMeshes(Expected.RequestGeneration);
-					Record->Terminal = EStaticMeshCompilationStatus::Superseded;
-				}
-				else if (!Record->Work->Collision().Outcome)
-				{
-					const auto& Error = Record->Work->Collision().Outcome.error();
-					Body->FailPhysicsMeshes(Expected.RequestGeneration, Error);
-					Record->Terminal = Error.IsCancelled() ? EStaticMeshCompilationStatus::Cancelled : EStaticMeshCompilationStatus::Failed;
-				}
-				else
-				{
-					const auto& Collision = *Record->Work->Collision().Outcome;
-					switch (Body->ApplyPhysicsMeshes(Expected.RequestGeneration, Collision.Simple, Collision.Complex))
-					{
-					case EPhysicsMeshApplyResult::Applied: Record->Terminal = EStaticMeshCompilationStatus::Succeeded; break;
-					case EPhysicsMeshApplyResult::Superseded: Record->Terminal = EStaticMeshCompilationStatus::Superseded; break;
-					case EPhysicsMeshApplyResult::Failed:
-						Record->Terminal = EStaticMeshCompilationStatus::Failed;
-						Record->Work->Collision().Outcome = std::unexpected(*Body->GetPhysicsMeshBuildError());
-						break;
-					}
-				}
-			}
-
-			auto CompleteRender(const std::shared_ptr<FRecord>& Record, DStaticMesh* Mesh,
-				FAssetCompileProcessResult& Result) -> void
-			{
+		static auto Selected(const FRecord& Record, std::span<const FObjectKey> Owners) -> bool
+		{
+			return Owners.empty() || std::ranges::contains(Owners, Record.Diagnostic.Owner);
+		}
+		auto CompleteRender(const std::shared_ptr<FRecord>& Record, DStaticMesh* Mesh, FAssetCompileProcessResult& Result) -> void
+		{
 #if DURIN_WITH_EDITORONLY_DATA
-				if (!Record->Work->Render().Outcome) Record->Diagnostic.Error = Record->Work->Render().Outcome.error();
-				if (!Mesh || FObjectKey(Mesh->GetPackage()) != Record->Package)
-					Record->Terminal = EStaticMeshCompilationStatus::Cancelled;
-				else if (!Record->Work->Render().Outcome)
-					Record->Terminal = Record->Work->Render().Outcome.error().IsCancelled()
-						? EStaticMeshCompilationStatus::Cancelled : EStaticMeshCompilationStatus::Failed;
-				else
-				{
-					const bool bImportCurrent = FObjectKey(Mesh->GetAssetImportData()) == Record->ImportData
-						&& (!Record->ImportState || (Mesh->GetAssetImportData() && Mesh->GetAssetImportData()->GetCompilationIdentity() == *Record->ImportState));
-					if (!bImportCurrent)
-						Record->Terminal = EStaticMeshCompilationStatus::Superseded;
-					else if (!IsCurrent(*Record, *Mesh))
-					{
-						Record->Terminal = EStaticMeshCompilationStatus::Superseded;
-						Record->bRequeue = !Record->PreparePublication && !Record->PreparedMaterialSlots
-							&& Record->RequestedSource.GetIdentity() == Record->RenderSnapshot().SourceIdentity;
-					}
-					else
-					{
-						DAssetImportData* PreparedImportData = nullptr;
-						std::expected<void, FStaticMeshBuildFailure> Application = Record->PreparePublication
-							? Record->PreparePublication(*Mesh, PreparedImportData) : std::expected<void, FStaticMeshBuildFailure>{};
-						PublishingOwner = Record->Diagnostic.Owner;
-						if (Application)
-							Application = CommitStaticMeshBuild(*Mesh, std::move(*Record->Work->Render().Outcome), Record->RequestedSource,
-								Record->RenderSnapshot(), Record->bMarkPackageDirty, {}, PreparedImportData,
-								Record->PreparedMaterialSlots ? &*Record->PreparedMaterialSlots : nullptr, Record->bPersistDerivedData);
-						const bool Applied = static_cast<bool>(Application);
-						if (!Application)
-						{
-							Record->Diagnostic.Error = Application.error();
-						}
-						PublishingOwner = {};
-						Record->Terminal = Applied ? EStaticMeshCompilationStatus::Succeeded
-							: Application.error().IsCancelled() ? EStaticMeshCompilationStatus::Cancelled : EStaticMeshCompilationStatus::Failed;
-						if (Applied) Result.SuccessfullyCompiledAssets.emplace_back(Mesh);
-					}
-				}
-#else
+			if (!Mesh || FObjectKey(Mesh->GetPackage()) != Record->Package)
+				Record->Terminal = EStaticMeshCompilationStatus::Cancelled;
+			else if (!Record->Work->Outcome)
+			{
 				Record->Terminal = EStaticMeshCompilationStatus::Failed;
-#endif
+				Record->Diagnostic.Error = Record->Work->Outcome.error().ToString();
 			}
-
-			auto Pump(std::span<const FObjectKey> Owners, uint32 Maximum, FClock::time_point Deadline, EStaticMeshCompilationProducts Products = EStaticMeshCompilationProducts::All) -> FAssetCompileProcessResult
+			else
 			{
-				FAssetCompileProcessResult Result;
-#if DURIN_WITH_EDITORONLY_DATA
-				std::vector<std::pair<FObjectKey, FStaticMeshCompilationRequest>> Requeues;
-#endif
-				// Nested operation completion retires DDC before dispatch tasks become ready.
-				for (const auto& Record : Records)
+				const bool bImportCurrent = FObjectKey(Mesh->GetAssetImportData()) == Record->ImportData
+											&& (!Record->ImportState || (Mesh->GetAssetImportData() && Mesh->GetAssetImportData()->GetCompilationIdentity() == *Record->ImportState));
+				if (!bImportCurrent)
+					Record->Terminal = EStaticMeshCompilationStatus::Superseded;
+				else if (!IsCurrent(*Record, *Mesh))
 				{
-					if (!Record->Task.IsValid() || !Record->Task.IsComplete()
-						|| Record->Work->Done.load(std::memory_order_acquire)) continue;
-#if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
-					if (!Record->Work->IsCollision() && Record->Work->Render().AsyncDispatched.load(std::memory_order_acquire))
+					Record->Terminal = EStaticMeshCompilationStatus::Superseded;
+					Record->bRequeue = !Record->PreparedMaterialSlots
+									   && Record->RequestedSource.GetIdentity() == Record->Snapshot.SourceIdentity;
+				}
+				else
+				{
+					PublishingOwner = Record->Diagnostic.Owner;
+					auto Application = CommitStaticMeshBuild(*Mesh, std::move(*Record->Work->Outcome), Record->RequestedSource, Record->Snapshot, Record->bMarkPackageDirty, nullptr, Record->PreparedMaterialSlots ? &*Record->PreparedMaterialSlots : nullptr, Record->bPersistDerivedData);
+					const bool Applied = static_cast<bool>(Application);
+					if (!Application)
 					{
-						auto& Render = Record->Work->Render();
-						if (!Render.CompletionReady.load(std::memory_order_acquire)) continue;
-						Render.AsyncDispatched.store(false, std::memory_order_release);
-						if (!Record->Work->Cancelled.load(std::memory_order_acquire) && IsTaskSchedulerRunning())
-						{
-							Launch(Record, false);
-							continue;
-						}
-						Render.Completion.reset();
-						Render.Outcome = std::unexpected(FStaticMeshBuildFailure::Cancelled());
+						Record->Diagnostic.Error = Application.error();
 					}
-					else
+					PublishingOwner = {};
+					Record->Terminal = Applied ? EStaticMeshCompilationStatus::Succeeded : EStaticMeshCompilationStatus::Failed;
+					if (Applied) Result.SuccessfullyCompiledAssets.emplace_back(Mesh);
+				}
+			}
+#else
+			Record->Terminal = EStaticMeshCompilationStatus::Failed;
+#endif
+		}
+
+	public:
+		auto ProgressWork() -> void
+		{
+			// Nested operation completion retires DDC before dispatch tasks become ready.
+			for (const auto& Record : Records)
+			{
+				if (!Record->Task.IsValid() || !Record->Task.IsComplete()
+					|| Record->Work->Phase.load(std::memory_order_acquire) == EWorkPhase::Complete) continue;
+				// A task cancelled before entry never got to poll its native observer.
+				if (Record->Task.GetState() == ETaskState::Canceled) Record->Work->Cancellation.Cancel();
+#if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
+				if (Record->Work->Phase.load(std::memory_order_acquire) == EWorkPhase::AwaitingDerivedData)
+				{
+					auto& Render = *Record->Work;
+					if (Render.Completion && !Record->Work->Cancellation.IsCancelled() && IsTaskSchedulerRunning())
+					{
+						Record->Work->Phase.store(EWorkPhase::Running, std::memory_order_release);
+						Launch(Record, false);
+						continue;
+					}
+					Render.Completion.reset();
+					if (Record->Work->Cancellation.IsCancelled()) Render.Outcome = std::unique_ptr<FStaticMeshRenderData>{};
+				}
+				else
 #endif
 					Record->Work->Fail("Asset build task retired before worker completion.");
-					Record->Work->ReleaseInput();
-					Record->Work->Done.store(true, std::memory_order_release);
-					AdmissionState->AdmittedBuildCount.fetch_sub(1);
-					AdmissionState->Changed.notify_all();
-				}
-				Admit();
-				const auto Pending = Records; // Callbacks may submit, cancel, or shut down this manager.
-				for (const auto& Record : Pending)
-				{
-					if (Result.ProcessedCompletionCount >= Maximum || FClock::now() >= Deadline) break;
-					if (!Selected(*Record, Owners, Products) || Record->bDelivered) continue;
-					if (!Record->Terminal && (!Record->Work->Done.load(std::memory_order_acquire)
-						|| (Record->Task.IsValid() && !Record->Task.IsComplete()))) continue;
-					// Replacements reuse the retiring record's count/byte capacity. Wait for its
-					// late worker before releasing that charge, even when the queue is saturated.
-					if (Record->bRequeue && (!Record->Work->Done.load(std::memory_order_acquire)
-						|| (Record->Task.IsValid() && !Record->Task.IsComplete()))) continue;
-					auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Record->Diagnostic.Owner));
-					if (!Record->Terminal)
-					{
-						if (Record->Work->IsCollision()) CompleteCollision(Record, Cast<DBodySetup>(ResolveObjectKey(Record->Diagnostic.Owner)));
-						else CompleteRender(Record, Mesh, Result);
-					}
-					if (Record->Work->IsCollision() && *Record->Terminal != EStaticMeshCompilationStatus::Succeeded)
-						if (auto* Body = Cast<DBodySetup>(ResolveObjectKey(Record->Diagnostic.Owner)))
-							Body->CancelPhysicsMeshes(Record->CollisionSnapshot().RequestGeneration);
-					Record->bDelivered = true;
-					Record->Diagnostic.Status = *Record->Terminal;
-					Record->Diagnostic.Phase = EStaticMeshCompilationPhase::Terminal;
-					if (!Record->Work->IsCollision()) History.push_back(Record->Diagnostic);
-					if (History.size() > MaximumHistory) History.pop_front();
-					auto Completion = std::move(Record->Completion);
-					auto PhysicsCompletion = std::move(Record->PhysicsCompletion);
-#if DURIN_WITH_EDITORONLY_DATA
-					Record->PreparePublication = {};
-					if (Record->bRequeue && Mesh && bAccepting)
-						Requeues.emplace_back(Record->Diagnostic.Owner, FStaticMeshCompilationRequest{
-							.Source = Mesh->GetSource().GetIdentity() == Record->RenderSnapshot().SourceIdentity
-								? Record->RequestedSource : Mesh->GetSource(),
-							.Priority = Record->Priority, .bMarkPackageDirty = Record->bMarkPackageDirty});
-					Record->RequestedSource = {};
-#endif
-
-					Record->Snapshot = {};
-					Record->PreparedMaterialSlots.reset();
-					Record->ImportState.reset();
-					++Result.ProcessedCompletionCount;
-					if (PhysicsCompletion)
-					{
-						FPhysicsCookCompletionResult Completed;
-						switch (*Record->Terminal)
-						{
-						case EStaticMeshCompilationStatus::Succeeded: Completed.Status = EPhysicsCookCompletionStatus::Succeeded; break;
-						case EStaticMeshCompilationStatus::Cancelled: Completed.Status = EPhysicsCookCompletionStatus::Cancelled; break;
-						case EStaticMeshCompilationStatus::Superseded: Completed.Status = EPhysicsCookCompletionStatus::Superseded; break;
-						case EStaticMeshCompilationStatus::Failed:
-							Completed.Status = EPhysicsCookCompletionStatus::Failed;
-							Completed.Error = Record->Work->Collision().Outcome.error();
-							break;
-						}
-						PhysicsCompletion(Completed);
-					}
-					if (Completion)
-					{
-						FStaticMeshCompilationResult Completed{.Status = *Record->Terminal};
-						if (Record->Diagnostic.Error && (Completed.Status == EStaticMeshCompilationStatus::Failed
-							|| Completed.Status == EStaticMeshCompilationStatus::Cancelled))
-							Completed.Diagnostic = Record->Diagnostic.Error->ToString();
-						Completion(Completed);
-					}
-				}
-				std::erase_if(Records, [&](const auto& Record) {
-					if (!Record->bDelivered || !Record->Work->Done.load(std::memory_order_acquire)
-						|| (Record->Task.IsValid() && !Record->Task.IsComplete())) return false;
-					Record->Work->ReleaseOutput();
-					ReservedBytes -= Record->Diagnostic.ReservedBytes;
-					return true;
-				});
-#if DURIN_WITH_EDITORONLY_DATA
-				for (auto& [Owner, Request] : Requeues)
-					if (auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Owner)); Mesh && !HasPending(*Mesh))
-					{
-						static_cast<void>(Submit(*Mesh, std::move(Request), {}));
-					}
-#endif
-
-				Admit();
-				return Result;
+				Record->Work->ReleaseInput();
+				Record->Work->Phase.store(EWorkPhase::Complete, std::memory_order_release);
+				AdmissionState->AdmittedBuildCount.fetch_sub(1);
+				AdmissionState->Changed.notify_all();
 			}
-			auto Finish(std::span<const FObjectKey> Owners, EStaticMeshCompilationProducts Products = EStaticMeshCompilationProducts::All) -> FAssetCompileProcessResult
+			AdmissionState->Admit();
+		}
+
+	private:
+		auto Pump(std::span<const FObjectKey> Owners, uint32 Maximum, FClock::time_point Deadline) -> FAssetCompileProcessResult
+		{
+			FAssetCompileProcessResult Result;
+#if DURIN_WITH_EDITORONLY_DATA
+			std::vector<std::pair<FObjectKey, FStaticMeshCompilationRequest>> Requeues;
+#endif
+			ProgressWork();
+			const auto Pending = Records; // Callbacks may submit, cancel, or shut down this manager.
+			for (const auto& Record : Pending)
 			{
-				FAssetCompileProcessResult Result;
-				while (std::ranges::any_of(Records, [&](const auto& Record) { return Selected(*Record, Owners, Products); }))
+				if (Result.ProcessedCompletionCount >= Maximum || FClock::now() >= Deadline) break;
+				if (!Selected(*Record, Owners) || !std::ranges::contains(Records, Record)) continue;
+				if (Record->Work->Phase.load(std::memory_order_acquire) != EWorkPhase::Complete
+					|| (Record->Task.IsValid() && !Record->Task.IsComplete())) continue;
+				// Remove before owner code can re-enter the pump. The reservation and
+				// output stay alive until the owner callback returns, including exceptions.
+				std::erase(Records, Record);
+				++FinalizingCount;
+				struct FRetireReservation
 				{
-					auto Batch = Pump(Owners, std::numeric_limits<uint32>::max(), FClock::time_point::max(), Products);
-					Result.ProcessedCompletionCount += Batch.ProcessedCompletionCount;
-					Result.SuccessfullyCompiledAssets.insert(Result.SuccessfullyCompiledAssets.end(),
-						Batch.SuccessfullyCompiledAssets.begin(), Batch.SuccessfullyCompiledAssets.end());
-					if (Batch.ProcessedCompletionCount == 0)
+					FStaticMeshCompilingManager& Manager;
+					const std::shared_ptr<FRecord>& Record;
+					~FRetireReservation()
 					{
-						std::unique_lock Lock(AdmissionState->Mutex);
-						AdmissionState->Changed.wait_for(Lock, std::chrono::milliseconds(1));
+						Record->Work->ReleaseOutput();
+						Manager.ReservedBytes -= Record->Diagnostic.ReservedBytes;
+						Manager.AdmissionState->Release(Record->Diagnostic.ReservedBytes);
+						--Manager.FinalizingCount;
 					}
-				}
-				return Result;
-			}
+				} Retirement{*this, Record};
+				if (!Record->Terminal && Record->Work->Cancellation.IsCancelled())
+					Terminate(*Record, EStaticMeshCompilationStatus::Cancelled);
+				auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Record->Diagnostic.Owner));
+				if (!Record->Terminal) CompleteRender(Record, Mesh, Result);
+				if (*Record->Terminal != EStaticMeshCompilationStatus::Failed) Record->Diagnostic.Error.clear();
+				Record->Diagnostic.Error.resize(std::min(Record->Diagnostic.Error.size(), MaximumStaticMeshBuildDiagnosticBytes));
+				Record->Diagnostic.Status = *Record->Terminal;
+				Record->Diagnostic.Phase = EStaticMeshCompilationPhase::Terminal;
+				History.push_back(Record->Diagnostic);
+				if (History.size() > MaximumHistory) History.pop_front();
+#if DURIN_WITH_EDITORONLY_DATA
+				if (Record->bRequeue && Mesh && bAccepting)
+					Requeues.emplace_back(Record->Diagnostic.Owner, FStaticMeshCompilationRequest{.Source = Mesh->GetSource().GetIdentity() == Record->Snapshot.SourceIdentity ? Record->RequestedSource : Mesh->GetSource(), .Priority = Record->Priority, .bMarkPackageDirty = Record->bMarkPackageDirty});
+				Record->RequestedSource = {};
+#endif
 
-			std::vector<std::shared_ptr<FRecord>> Records;
-			std::unordered_set<FObjectKey> MutatingOwners;
-			std::deque<FStaticMeshCompilationDiagnostic> History;
-			std::shared_ptr<FAdmissionState> AdmissionState = std::make_shared<FAdmissionState>();
-			FTaskScope Scope;
-			FObjectKey PublishingOwner;
-			uint64 NextRequest = 1;
-			uint64 LastPumpIdentity = 0;
-			uint32 PumpCount = 0;
-			FClock::time_point PumpDeadline;
-			uint64 ReservedBytes = 0;
-			uint32 InteractiveBurst = 0;
-			bool bAccepting = false;
-			bool bShutdown = true;
-		};
+				Record->Snapshot = {};
+				Record->PreparedMaterialSlots.reset();
+				Record->ImportState.reset();
+				++Result.ProcessedCompletionCount;
+			}
+#if DURIN_WITH_EDITORONLY_DATA
+			for (auto& [Owner, Request] : Requeues)
+				if (auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Owner)); Mesh && !HasPending(*Mesh))
+				{
+					static_cast<void>(Submit(*Mesh, std::move(Request)));
+				}
+#endif
+
+			AdmissionState->Admit();
+			return Result;
+		}
+		auto Finish(std::span<const FObjectKey> Owners) -> FAssetCompileProcessResult
+		{
+			FAssetCompileProcessResult Result;
+			while (std::ranges::any_of(Records, [&](const auto& Record) { return Selected(*Record, Owners); }))
+			{
+				auto Batch = Pump(Owners, std::numeric_limits<uint32>::max(), FClock::time_point::max());
+				Result.ProcessedCompletionCount += Batch.ProcessedCompletionCount;
+				Result.SuccessfullyCompiledAssets.insert(Result.SuccessfullyCompiledAssets.end(), Batch.SuccessfullyCompiledAssets.begin(), Batch.SuccessfullyCompiledAssets.end());
+				if (Batch.ProcessedCompletionCount == 0)
+				{
+					std::unique_lock Lock(AdmissionState->Mutex);
+					AdmissionState->Changed.wait_for(Lock, std::chrono::milliseconds(1));
+				}
+			}
+			return Result;
+		}
+
+		uint32 FinalizingCount = 0;
+		std::vector<std::shared_ptr<FRecord>> Records;
+		std::deque<FStaticMeshCompilationDiagnostic> History;
+		std::shared_ptr<AssetPrivate::FMeshBuildBudget> AdmissionState = AssetPrivate::GetMeshBuildBudget();
+		FTaskScope Scope;
+		FObjectKey PublishingOwner;
+		uint64 NextRequest = 1;
+		uint64 ReservedBytes = 0;
+		bool bAccepting = false;
+		bool bShutdown = true;
+	};
 	namespace
 	{
 		std::weak_ptr<FStaticMeshCompilingManager> GManager;
@@ -826,6 +645,7 @@ namespace Durin
 			if (auto Existing = GManager.lock()) return Existing;
 			auto Manager = std::make_shared<FStaticMeshCompilingManager>();
 			GManager = Manager;
+			AssetPrivate::GetMeshBuildBudget()->ProgressRender = [Weak = std::weak_ptr(Manager)] { if (auto Manager = Weak.lock()) Manager->ProgressWork(); };
 			return Manager;
 		}
 		auto SetStaticMeshCompilationPhaseHookForTests(std::function<void(uint64, EStaticMeshCompilationPhase)> Hook) -> void
@@ -833,47 +653,30 @@ namespace Durin
 			CheckOwnerThread();
 			if (auto Manager = GManager.lock()) Manager->PhaseHook = std::move(Hook);
 		}
-	}
+	} // namespace AssetPrivate
 	auto FormatStaticMeshCompilationDiagnostic(const FStaticMeshCompilationDiagnostic& Diagnostic) -> std::string
 	{
-		auto Message = Diagnostic.Error ? Diagnostic.Error->ToString() : std::string{};
+		auto Message = Diagnostic.Error;
 		Message.resize(std::min(Message.size(), MaximumStaticMeshBuildDiagnosticBytes));
 		return Message;
-	}
-
-	auto FStaticMeshCompilationResult::ToString() const -> std::string
-	{
-		if (!Diagnostic.empty()) return Diagnostic;
-		switch (Status)
-		{
-		case EStaticMeshCompilationStatus::Succeeded: return {};
-		case EStaticMeshCompilationStatus::Failed: return "StaticMesh compilation failed.";
-		case EStaticMeshCompilationStatus::Cancelled: return "StaticMesh compilation was cancelled.";
-		case EStaticMeshCompilationStatus::Superseded: return "StaticMesh compilation was superseded.";
-		}
-		return {};
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA
 	auto BuildStaticMeshSourceSynchronously(DStaticMesh& Mesh, FStaticMeshCompilationRequest Request)
 		-> std::expected<void, std::string>;
 
-	auto DStaticMesh::BuildFromSource(EStaticMeshBuildMode Mode, FStaticMeshCompilationRequest Request,
-		FStaticMeshCompilationCompletion Completion) -> std::expected<void, std::string>
+	auto DStaticMesh::BuildFromSource(EStaticMeshBuildMode Mode, FStaticMeshCompilationRequest Request) -> std::expected<void, std::string>
 	{
 		CheckOwnerThread();
 		if (AssetPrivate::IsStaticMeshCompilationMutationBlocked(*this))
 			return std::unexpected(std::string("StaticMesh mutation is retiring prior compilation."));
 		if (Mode == EStaticMeshBuildMode::Synchronous)
 		{
-			auto Outcome = BuildStaticMeshSourceSynchronously(*this, std::move(Request));
-			if (Completion) Completion({.Status = Outcome ? EStaticMeshCompilationStatus::Succeeded : EStaticMeshCompilationStatus::Failed,
-				.Diagnostic = Outcome ? std::string{} : Outcome.error()});
-			return Outcome;
+			return BuildStaticMeshSourceSynchronously(*this, std::move(Request));
 		}
 		if (Mode != EStaticMeshBuildMode::Asynchronous)
 			return std::unexpected(std::string("Invalid StaticMesh build mode."));
-		if (auto Manager = GManager.lock()) return Manager->Submit(*this, std::move(Request), std::move(Completion));
+		if (auto Manager = GManager.lock()) return Manager->Submit(*this, std::move(Request));
 		return std::unexpected(std::string("The StaticMesh compiling manager is unavailable."));
 	}
 #endif
@@ -915,49 +718,14 @@ namespace Durin
 		const auto Manager = GManager.lock();
 		return Manager ? Manager->Diagnostics() : FStaticMeshCompilationManagerDiagnostics{};
 	}
-	auto DStaticMesh::FinishCompilation(EStaticMeshCompilationProducts Products) -> FAssetCompileProcessResult
+	auto DStaticMesh::FinishCompilation() -> FAssetCompileProcessResult
 	{
 		CheckOwnerThread();
-		if (Products == EStaticMeshCompilationProducts::All)
-			return FAssetCompilingManager::Get().FinishCompilationForObject(*this);
-		if (auto Manager = GManager.lock())
-		{
-			auto Result = Manager->FinishForMesh(*this, Products);
-			if (!Result.SuccessfullyCompiledAssets.empty())
-				FAssetCompilingManager::Get().OnAssetPostCompile().Broadcast({FName("Durin.StaticMesh"), Result.SuccessfullyCompiledAssets});
-			return Result;
-		}
-		return {};
+		return FAssetCompilingManager::Get().FinishCompilationForObject(*this);
 	}
-	auto SubmitPhysicsMeshCompilation(DBodySetup& Body, std::unique_ptr<FPhysicsMeshInputTask> InputTask, bool bPersistDerivedData, FOnAsyncPhysicsCookFinished Completion)
-		-> std::expected<void, FPhysicsCookFailure>
-	{
-		CheckOwnerThread();
-		if (auto Manager = GManager.lock()) return Manager->SubmitCollision(Body, std::move(InputTask), bPersistDerivedData, std::move(Completion));
-		return std::unexpected(FPhysicsCookFailure{"Physics mesh compiling service is unavailable.", EPhysicsCookStage::Scheduling});
-	}
-	auto CancelPhysicsMeshCompilation(DBodySetup& Body) -> void
-	{
-		CheckOwnerThread();
-		if (auto Manager = GManager.lock()) Manager->CancelCollision(Body);
-	}
-	auto FinishPhysicsMeshCompilation(DBodySetup& Body) -> void
-	{
-		CheckOwnerThread();
-		DObject* Object = &Body;
-		if (auto Manager = GManager.lock()) Manager->FinishCompilationForObjects({&Object, 1});
-	}
-
 	auto AssetPrivate::IsStaticMeshCompilationMutationBlocked(const DStaticMesh& Mesh) -> bool
 	{
-		const auto Manager = GManager.lock();
-		return Manager && Manager->IsMutating(Mesh);
-	}
-
-	auto DStaticMesh::BlockOnAnyAsyncBuild() -> void
-	{
-		CheckOwnerThread();
-		if (const auto Manager = GManager.lock()) Manager->BlockMutation(*this);
+		return AssetPrivate::GetMeshBuildBudget()->MutatingOwners.contains(FObjectKey(const_cast<DStaticMesh*>(&Mesh)));
 	}
 
 	auto DStaticMesh::CancelCompilation() -> void
@@ -971,4 +739,4 @@ namespace Durin
 		CheckOwnerThread();
 		if (auto Manager = GManager.lock()) Manager->Mutated(Mesh);
 	}
-}
+} // namespace Durin

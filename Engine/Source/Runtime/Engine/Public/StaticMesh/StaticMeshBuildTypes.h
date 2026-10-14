@@ -2,12 +2,26 @@
 
 #include "CoreMinimal.h"
 
+#include "EngineAPI.h"
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
-
 #include "Asset/AssetBuildTaskContext.h"
-#include "StaticMesh/StaticMeshGeometry.h"
-#include "StaticMesh/StaticMeshData.h"
+#include "MeshDescription/MeshDescription.h"
+#endif
+
+namespace Durin
+{
+	// Owned ordinary-failure diagnostic; cancellation belongs to the invocation token.
+	struct FStaticMeshBuildFailure
+	{
+		ENGINE_API explicit FStaticMeshBuildFailure(std::string Message);
+		auto ToString() const -> const std::string& { return Message; }
+	private:
+		std::string Message;
+	};
+}
+
+#if DURIN_WITH_EDITORONLY_DATA
 
 namespace Durin
 {

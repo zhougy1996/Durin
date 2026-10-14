@@ -46,20 +46,19 @@ namespace Durin
 			auto Execute(const FAssetBuildTaskContext& Control) const
 				-> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> override
 			{
-				if (Control.IsCancelled()) return std::unexpected(FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Input));
+				if (Control.IsCancelled()) return {};
 				if (Bytes > Control.MaximumWorkingSetBytes)
 					return std::unexpected(FPhysicsCookFailure{"Collision preparation exceeds the reservation.", EPhysicsCookStage::Input});
 				const auto Cancelled = [&] { return Control.IsCancelled(); };
 				const auto Geometry = Source.AcquireGeometry(Cancelled);
-				if (!Geometry) return std::unexpected(Cancelled()
-					? FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Input)
-					: FPhysicsCookFailure{FormatStaticMeshSourceError(Geometry.error()), EPhysicsCookStage::Input});
+				if (Cancelled()) return {};
+				if (!Geometry) return std::unexpected(FPhysicsCookFailure{FormatStaticMeshSourceError(Geometry.error()), EPhysicsCookStage::Input});
 				FTriMeshCollisionData Data;
 				FAssetBuildMemoryEstimate Budget{Control.MaximumWorkingSetBytes, 1024 * 1024};
 				uint64 VertexCount = 0, IndexCount = 0;
 				for (const auto& Mesh : (*Geometry)->Sections)
 				{
-					if (Cancelled()) return std::unexpected(FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Input));
+					if (Cancelled()) return {};
 					if (Mesh.Positions.empty() || Mesh.Indices.empty()) continue;
 					VertexCount += Mesh.Positions.size(); IndexCount += Mesh.Indices.size();
 					if (!Budget.Add(Mesh.Positions.size(), 512) || !Budget.Add(Mesh.Indices.size(), 192)
@@ -75,12 +74,12 @@ namespace Durin
 					const auto Base = static_cast<uint32>(Data.Positions.size());
 					for (const auto& Position : Mesh.Positions)
 					{
-						if ((++Work % 256) == 0 && Cancelled()) return std::unexpected(FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Input));
+						if ((++Work % 256) == 0 && Cancelled()) return {};
 						Data.Positions.push_back(Position); Bounds.AddPoint(FVector3(Position));
 					}
 					for (uint32 Index : Mesh.Indices)
 					{
-						if ((++Work % 256) == 0 && Cancelled()) return std::unexpected(FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Input));
+						if ((++Work % 256) == 0 && Cancelled()) return {};
 						Data.Indices.push_back(Base + Mesh.GetVertexIndex(Index));
 					}
 				}
@@ -89,10 +88,10 @@ namespace Durin
 					return std::unexpected(FPhysicsCookFailure{"Collision source has invalid normalization bounds.", EPhysicsCookStage::Input});
 				for (auto& Position : Data.Positions)
 				{
-					if ((++Work % 256) == 0 && Cancelled()) return std::unexpected(FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Input));
+					if ((++Work % 256) == 0 && Cancelled()) return {};
 					Position = (Position - Normalization->Center) * Normalization->Scale;
 				}
-				if (Cancelled()) return std::unexpected(FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Input));
+				if (Cancelled()) return {};
 				return Data;
 			}
 		private:

@@ -1,11 +1,12 @@
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMeshRenderPreparation.h"
+#include "StaticMeshBuildPrivate.h"
 
 #include "Asset/CookedMeshLoadManager.h"
 
 #include "DObject/Package.h"
 
 #include "Asset/Asset.h"
+#include "Asset/MeshBuildBudget.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
@@ -17,6 +18,7 @@
 #include "Materials/MaterialInterface.h"
 #include "Misc/Paths.h"
 #include "Physics/BodySetup.h"
+#include "Physics/PhysicsMeshCompilation.h"
 #include "Serialization/Archive.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshBuild.h"
@@ -39,7 +41,7 @@ namespace Durin
 		}
 
 		auto InitializeStaticMeshCandidate(
-			FStaticMeshRenderData& Candidate) -> std::expected<void, FStaticMeshBuildFailure>
+			FStaticMeshRenderData& Candidate) -> std::expected<void, std::string>
 		{
 			if (GDynamicRHI == nullptr)
 			{
@@ -60,7 +62,7 @@ namespace Durin
 			if (!bInitialized.load(std::memory_order_acquire))
 			{
 				check(Candidate.GetNumInitializedResources() == 0);
-				return std::unexpected(FStaticMeshBuildFailure{"Static-mesh candidate resource initialization failed.", EStaticMeshBuildStage::Resources});
+				return std::unexpected(std::string{"Static-mesh candidate resource initialization failed."});
 			}
 			return {};
 		}
@@ -439,12 +441,12 @@ namespace Durin
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FMeshMaterialSlotDefinition>* InMaterialSlots,
 		FStaticMeshSource* PreparedSource,
-		DAssetImportData* PreparedImportData, bool bAcceptGeometry) -> std::expected<void, FStaticMeshBuildFailure>
+		DAssetImportData* PreparedImportData, bool bAcceptGeometry) -> std::expected<void, std::string>
 	{
 		CheckStaticMeshUpdateThread();
 		if (InRenderData == nullptr)
 		{
-			return std::unexpected(FStaticMeshBuildFailure{"Static-mesh publication requires render data.", EStaticMeshBuildStage::Application});
+			return std::unexpected(std::string{"Static-mesh publication requires render data."});
 		}
 
 #if DURIN_BUILD_DEBUG
@@ -473,9 +475,8 @@ namespace Durin
 				|| AcceptedGeometryNormalizedSize != NormalizedSize);
 #else
 			if (PreparedSource || PreparedImportData)
-				return std::unexpected(FStaticMeshBuildFailure{
-					"Authored StaticMesh publication requires editor-only data support.",
-					EStaticMeshBuildStage::Application});
+				return std::unexpected(std::string{
+					"Authored StaticMesh publication requires editor-only data support."});
 			const bool bGeometryChanged = bAcceptGeometry
 				&& AcceptedGeometryNormalizedSize != NormalizedSize;
 #endif
@@ -498,12 +499,12 @@ namespace Durin
 			PublishRenderResourceState(CandidateState);
 			if (OldRenderData) RetireStaticMeshRenderData(OldRenderData);
 		}
-		RenderDataUpdateError = {};
+
 		return {};
 	}
 
 	auto PublishStaticMeshRenderData(DStaticMesh& Mesh, std::unique_ptr<FStaticMeshRenderData> Render)
-		-> std::expected<void, FStaticMeshBuildFailure>
+		-> std::expected<void, std::string>
 	{
 		return Mesh.CommitPreparedMeshData(std::move(Render), nullptr, nullptr, nullptr, false);
 	}
@@ -512,53 +513,51 @@ namespace Durin
 	auto CommitStaticMeshBuild(DStaticMesh& Mesh,
 		std::unique_ptr<FStaticMeshRenderData> Render, FStaticMeshSource Source,
 		const FStaticMeshReconciliationSnapshot& Snapshot,
-		bool bMarkPackageDirty, const FAssetBuildTaskContext& Control,
+		bool bMarkPackageDirty,
 		DAssetImportData* PreparedImportData,
 		std::vector<FMeshMaterialSlotDefinition>* PreparedMaterialSlots,
-		bool bPersistCollisionDerivedData) -> std::expected<void, FStaticMeshBuildFailure>
+		bool bPersistCollisionDerivedData) -> std::expected<void, std::string>
 	{
 		CheckStaticMeshUpdateThread();
-		const auto Fail = [](FStaticMeshBuildFailure Error) -> std::expected<void, FStaticMeshBuildFailure> {
+		const auto Fail = [](std::string Error) -> std::expected<void, std::string> {
 			return std::unexpected(std::move(Error));
 		};
-		if (Control.IsCancelled()) return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Application));
 		if (!IsValid(&Mesh) || !Render || !Source.IsValid())
-			return Fail(FStaticMeshBuildFailure{"StaticMesh publication requires a live owner, valid source and prepared render data.", EStaticMeshBuildStage::Application});
+			return Fail(std::string{"StaticMesh publication requires a live owner, valid source and prepared render data."});
 		if (PreparedImportData)
 		{
 			if (PreparedImportData->GetOuter() != &Mesh)
-				return Fail(FStaticMeshBuildFailure{std::format(
+				return Fail(std::string{std::format(
 					"StaticMesh provenance '{}' must be an owned inner of '{}'.",
-					PreparedImportData->GetObjectPath(), Mesh.GetObjectPath()), EStaticMeshBuildStage::Application});
+					PreparedImportData->GetObjectPath(), Mesh.GetObjectPath())});
 			if (const auto Validation = PreparedImportData->Validate(); !Validation)
-				return Fail(FStaticMeshBuildFailure{FormatAssetImportDataError(Validation.error()), EStaticMeshBuildStage::Application});
+				return Fail(std::string{FormatAssetImportDataError(Validation.error())});
 		}
 		const auto Current = CaptureStaticMeshReconciliation(Mesh);
 		if (Current.SourceIdentity != Snapshot.SourceIdentity || Current.NormalizedSize != Snapshot.NormalizedSize
 			|| Current.MaterialSlots.size() != Snapshot.MaterialSlots.size())
-			return Fail(FStaticMeshBuildFailure{std::format(
+			return Fail(std::string{std::format(
 				"StaticMesh owner '{}' changed during render construction (source changed {}, size {} -> {}, slots {} -> {}).",
 				Mesh.GetObjectPath(), Current.SourceIdentity != Snapshot.SourceIdentity,
 				Snapshot.NormalizedSize, Current.NormalizedSize,
-				Snapshot.MaterialSlots.size(), Current.MaterialSlots.size()), EStaticMeshBuildStage::Application});
+				Snapshot.MaterialSlots.size(), Current.MaterialSlots.size())});
 		for (size_t Index = 0; Index < Snapshot.MaterialSlots.size(); ++Index)
 		{
 			const auto& Expected = Snapshot.MaterialSlots[Index];
 			const auto& Actual = Current.MaterialSlots[Index];
 			if (Expected.Name != Actual.Name || Expected.SourceName != Actual.SourceName
 				|| Expected.SourceMaterialIndex != Actual.SourceMaterialIndex || Expected.DefaultMaterial != Actual.DefaultMaterial)
-				return Fail(FStaticMeshBuildFailure{std::format(
+				return Fail(std::string{std::format(
 					"StaticMesh material bindings changed at slot {} (expected '{}', current '{}').",
-					Index, Expected.Name.ToString(), Actual.Name.ToString()), EStaticMeshBuildStage::Application});
+					Index, Expected.Name.ToString(), Actual.Name.ToString())});
 		}
 		const auto& Slots = PreparedMaterialSlots ? *PreparedMaterialSlots : Snapshot.MaterialSlots;
 		if (Render->MaterialSlots.size() != Slots.size())
-			return Fail(FStaticMeshBuildFailure{"Prepared render material slots do not match publication input.", EStaticMeshBuildStage::Application});
+			return Fail(std::string{"Prepared render material slots do not match publication input."});
 		for (size_t Index = 0; Index < Slots.size(); ++Index)
 			if (Render->MaterialSlots[Index].Name != Slots[Index].Name.ToString()
 				|| Render->MaterialSlots[Index].SourceMaterialIndex != Slots[Index].SourceMaterialIndex)
-				return Fail(FStaticMeshBuildFailure{"Prepared render material mapping changed before publication.", EStaticMeshBuildStage::Application});
-		if (Control.IsCancelled()) return Fail(FStaticMeshBuildFailure::Cancelled(EStaticMeshBuildStage::Application));
+				return Fail(std::string{"Prepared render material mapping changed before publication."});
 		Source.ReleaseGeometry();
 		if (const auto Published = Mesh.CommitPreparedMeshData(std::move(Render),
 			PreparedMaterialSlots, &Source, PreparedImportData); !Published)
@@ -572,9 +571,37 @@ namespace Durin
 
 #endif
 
+	auto DStaticMesh::BlockOnAnyAsyncBuild() -> void
+	{
+		CheckStaticMeshUpdateThread();
+		auto Budget = AssetPrivate::GetMeshBuildBudget();
+		const FObjectKey Owner(this);
+		if (!Budget->MutatingOwners.insert(Owner).second) return;
+		const FObjectKey BodyOwner(GetBodySetup());
+		const bool bBlockBody = BodyOwner != FObjectKey{} && Budget->MutatingOwners.insert(BodyOwner).second;
+		struct FMutationGuard
+		{
+			AssetPrivate::FMeshBuildBudget& Budget;
+			FObjectKey Owner, Body;
+			bool bBlockBody;
+			~FMutationGuard()
+			{
+				Budget.MutatingOwners.erase(Owner);
+				if (bBlockBody) Budget.MutatingOwners.erase(Body);
+			}
+		} Guard{*Budget, Owner, BodyOwner, bBlockBody};
+		CancelCompilation();
+		AssetPrivate::CancelPhysicsMeshCompilationForOwner(*this);
+		if (auto* Body = GetBodySetup()) Body->AbortPhysicsMeshAsyncCreation();
+		FinishCompilation();
+		AssetPrivate::FinishPhysicsMeshCompilationForOwner(*this);
+		if (auto* Body = GetBodySetup()) Body->FinishPhysicsMeshes();
+	}
 	auto DStaticMesh::BeginDestroy() -> void
 	{
 		this->CancelCompilation();
+		AssetPrivate::CancelPhysicsMeshCompilationForOwner(*this);
+		if (auto* Body = GetBodySetup()) Body->AbortPhysicsMeshAsyncCreation();
 		if (FCookedMeshLoadManager* Manager = GetCookedMeshLoadManager())
 			Manager->Cancel(FObjectKey(this));
 		const EStaticMeshRenderResourceState State =
@@ -640,7 +667,7 @@ namespace Durin
 		{
 			DURIN_ERROR(
 				"Failed to create debug static mesh: {}",
-				(Published.error()).ToString());
+				Published.error());
 			MarkAsGarbage(Mesh);
 			return nullptr;
 		}
@@ -686,7 +713,7 @@ namespace Durin
 			MaterialSlots = std::move(Slots);
 			AssetImportData = &ImportData;
 			AcceptedGeometryNormalizedSize = NormalizedSize;
-			RenderDataUpdateError = {};
+
 		}
 		MarkPackageDirty();
 		return {};
@@ -707,6 +734,8 @@ namespace Durin
 	auto DStaticMesh::InvalidateRenderData() -> void
 	{
 		this->CancelCompilation();
+		AssetPrivate::CancelPhysicsMeshCompilationForOwner(*this);
+		if (auto* Body = GetBodySetup()) Body->AbortPhysicsMeshAsyncCreation();
 		if (auto* Manager = GetCookedMeshLoadManager()) Manager->Cancel(FObjectKey(this));
 		CookedLoadGeneration.fetch_add(1, std::memory_order_acq_rel);
 		// Superseded cooked bytes must not restore geometry after a failed authored replacement.
@@ -726,37 +755,19 @@ namespace Durin
 		}
 	}
 
-	auto FormatStaticMeshReplacementError(const FStaticMeshReplacementError& Error) -> std::string
-	{
-		switch (Error.Code)
-		{
-		case EStaticMeshReplacementError::None: return {};
-		case EStaticMeshReplacementError::Source: return "StaticMesh replacement requires valid imported values and normalization.";
-		case EStaticMeshReplacementError::MaterialSlots: return "StaticMesh replacement requires valid imported, render, and material values.";
-		case EStaticMeshReplacementError::SlotName: return "StaticMesh replacement requires unique non-None material slots.";
-		case EStaticMeshReplacementError::UVChannels: return "StaticMesh replacement exceeds the texture coordinate limit.";
-		case EStaticMeshReplacementError::Payload: return Error.PayloadCause ? FormatStaticMeshPayloadError(*Error.PayloadCause) : "StaticMesh replacement payload is invalid.";
-		case EStaticMeshReplacementError::Publication: return Error.PublicationCause ? (*Error.PublicationCause).ToString() : "StaticMesh replacement publication failed.";
-		}
-		return {};
-	}
-
 #if DURIN_WITH_EDITORONLY_DATA
 	auto DStaticMesh::ReplaceSourceRenderDataDestructively(
 		FStaticMeshSource InSource,
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
-		float InNormalizedSize) -> std::expected<void, FStaticMeshReplacementError>
+		float InNormalizedSize) -> std::expected<void, std::string>
 	{
 		CheckStaticMeshUpdateThread();
 		if (!InSource.IsValid() || !std::isfinite(InNormalizedSize) || InNormalizedSize <= 0.0f)
 		{
 			FStaticMeshRenderStateRecreateContext RecreateContext(this);
 			InvalidateRenderData();
-			RenderDataUpdateError = {.Code = EStaticMeshReplacementError::Source,
-				.SourceValid = InSource.IsValid(), .NormalizedSize = InNormalizedSize};
-			DURIN_ERROR("Static mesh '{}' source replacement failed: {}", GetObjectPath(), FormatStaticMeshReplacementError(RenderDataUpdateError));
-			return std::unexpected(RenderDataUpdateError);
+			return std::unexpected(std::string("StaticMesh replacement requires valid source and normalization."));
 		}
 		NormalizedSize = InNormalizedSize;
 		InSource.ReleaseGeometry();
@@ -767,18 +778,16 @@ namespace Durin
 
 	auto DStaticMesh::ReplaceRenderDataDestructively(
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
-		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> std::expected<void, FStaticMeshReplacementError>
+		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> std::expected<void, std::string>
 	{
 		CheckStaticMeshUpdateThread();
 		FStaticMeshRenderStateRecreateContext RecreateContext(this);
 		const bool bInitializeResources = RenderData != nullptr;
 		InvalidateRenderData();
-		RenderDataUpdateError = {};
+
 		if (const auto Replaced = ValidateAndReplaceRenderData(std::move(InRenderData), std::move(InMaterialSlots)); !Replaced)
 		{
-			RenderDataUpdateError = Replaced.error();
-			DURIN_ERROR("Static mesh '{}' render-data replacement failed: {}", GetObjectPath(), FormatStaticMeshReplacementError(RenderDataUpdateError));
-			return std::unexpected(RenderDataUpdateError);
+			return Replaced;
 		}
 		CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
 		ScheduleCollisionData(false);
@@ -788,15 +797,14 @@ namespace Durin
 
 	auto DStaticMesh::ValidateAndReplaceRenderData(
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
-		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> std::expected<void, FStaticMeshReplacementError>
+		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> std::expected<void, std::string>
 	{
 		CheckStaticMeshUpdateThread();
 		if (!InRenderData || InMaterialSlots.empty()
 			|| InMaterialSlots.size() > MaximumMeshMaterialSlots
 			|| InRenderData->MaterialSlots.size() != InMaterialSlots.size())
 		{
-			return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::MaterialSlots, .RenderDataPresent = InRenderData != nullptr,
-				.Actual = InMaterialSlots.size(), .Expected = InRenderData ? InRenderData->MaterialSlots.size() : 0});
+			return std::unexpected(std::string("StaticMesh replacement requires matching nonempty material slots and render data."));
 		}
 		std::unordered_set<FName> SlotNames;
 		for (size_t Index = 0; Index < InMaterialSlots.size(); ++Index)
@@ -804,19 +812,18 @@ namespace Durin
 			const auto& Slot = InMaterialSlots[Index];
 			if (Slot.Name.IsNone() || !SlotNames.insert(Slot.Name).second)
 			{
-				return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::SlotName, .Index = Index, .SlotName = Slot.Name.ToString()});
+				return std::unexpected(std::string("StaticMesh replacement requires unique non-None material slots."));
 			}
 		}
 		for (size_t Index = 0; Index < InRenderData->LODResources.size(); ++Index)
 		{
 			const auto& LOD = InRenderData->LODResources[Index];
 			if (LOD.NumTexCoords > MaxStaticMeshUVChannels)
-				return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::UVChannels,
-					.Actual = LOD.NumTexCoords, .Expected = MaxStaticMeshUVChannels, .Index = Index});
+				return std::unexpected(std::string("StaticMesh replacement exceeds the texture coordinate limit."));
 		}
 		if (const auto Result = ValidateStaticMeshRenderData(*InRenderData); !Result)
 		{
-			return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::Payload, .PayloadCause = std::make_shared<FStaticMeshPayloadError>(Result.error())});
+			return std::unexpected(FormatStaticMeshPayloadError(Result.error()));
 		}
 		for (size_t Index = 0; Index < InMaterialSlots.size(); ++Index)
 		{
@@ -827,7 +834,7 @@ namespace Durin
 		StaticMeshPrivate::PrepareRenderRayQueries(*InRenderData);
 		if (const auto Published = CommitPreparedMeshData(std::move(InRenderData), &InMaterialSlots); !Published)
 		{
-			return std::unexpected(FStaticMeshReplacementError{.Code = EStaticMeshReplacementError::Publication, .PublicationCause = std::make_shared<FStaticMeshBuildFailure>(Published.error())});
+			return std::unexpected(Published.error());
 		}
 		NotifyStaticMeshCompilationMutation(*this);
 		return {};

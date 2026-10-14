@@ -5,6 +5,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMesh/StaticMeshCompilation.h"
+#include "StaticMesh/StaticMeshBuild.h"
 
 namespace Durin
 {
@@ -49,14 +50,12 @@ namespace Durin
 		}
 
 		static auto ReplaceRenderData(DStaticMesh* Mesh, std::unique_ptr<FStaticMeshRenderData> Data,
-			std::vector<FMeshMaterialSlotDefinition> Slots) -> std::expected<void, FStaticMeshReplacementError>
+			std::vector<FMeshMaterialSlotDefinition> Slots) -> std::expected<void, std::string>
 		{ return Mesh->ReplaceRenderDataDestructively(std::move(Data), std::move(Slots)); }
 		static auto ReplaceSourceRenderData(DStaticMesh* Mesh, FStaticMeshSource Source,
 			std::unique_ptr<FStaticMeshRenderData> Data, std::vector<FMeshMaterialSlotDefinition> Slots,
-			float NormalizedSize) -> std::expected<void, FStaticMeshReplacementError>
+			float NormalizedSize) -> std::expected<void, std::string>
 		{ return Mesh->ReplaceSourceRenderDataDestructively(std::move(Source), std::move(Data), std::move(Slots), NormalizedSize); }
-		static auto GetRenderDataUpdateError(const DStaticMesh* Mesh) -> const FStaticMeshReplacementError&
-		{ return Mesh->GetRenderDataUpdateError(); }
 		static auto GetMutableRenderData(DStaticMesh* Mesh)
 			-> FStaticMeshRenderData*
 		{

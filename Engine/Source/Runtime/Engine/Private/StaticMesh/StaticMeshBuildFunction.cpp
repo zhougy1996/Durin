@@ -1,4 +1,4 @@
-#include "StaticMeshBuildFunction.h"
+#include "StaticMeshBuildPrivate.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #if DURIN_WITH_EDITOR
 #include "DerivedDataBuildSession.h"
@@ -103,8 +103,7 @@ namespace Durin::StaticMeshPrivate
 				const auto* BuilderVersion = Context.FindConstant<uint64>("BuilderVersion");
 				if (!BuilderVersion || !*BuilderVersion || *BuilderVersion != Module->GetBuildVersion())
 					return Context.FailExecution("StaticMesh builder identity does not match the action.");
-				bool bCancelled = false;
-				const auto ShouldCancel = [&] { return bCancelled = bCancelled || Context.IsCancelled(); };
+				const auto ShouldCancel = [&] { return Context.IsCancelled(); };
 				auto Count = MaterialCount(Context); if (!Count) return Fail(std::move(Count.error()));
 				const FBuildInput* Source = Context.FindInput("Source"); const FBuildInput* Settings = Context.FindInput("Reconciliation");
 				if (!Source || !Settings || Source->Identity != SourceReference(Source->Identity.Identity) || Settings->Identity != ReconciliationReference(Settings->Identity.Identity)
@@ -140,7 +139,7 @@ namespace Durin::StaticMeshPrivate
 				if (!Geometry) return Fail(Geometry.error().Code == EStaticMeshSourceError::Cancelled ? Cancelled().Description : FormatStaticMeshSourceError(Geometry.error()));
 				auto Product = std::make_unique<FStaticMeshRenderData>();
 				const bool bBuilt = Module->BuildRender(*Product, {.Geometry = std::move(*Geometry), .MaterialSlots = Slots, .NormalizedSize = Size,
-					.Control = {.ShouldCancel = ShouldCancel}});
+					.Control = {.Cancellation = Context.GetCancellation()}});
 				if (ShouldCancel()) return Fail(Cancelled().Description);
 				if (!bBuilt) return Context.FailExecution("StaticMesh render construction failed; see MeshBuilder logs for details.");
 				auto Output = MakeSharedOutput(std::move(Product), *Count, ShouldCancel);

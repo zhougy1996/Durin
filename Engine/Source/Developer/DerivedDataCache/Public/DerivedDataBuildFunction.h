@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Threading/CancellationToken.h"
 
 #include "DerivedDataBuildDefinition.h"
 #include "DerivedDataBuildOutput.h"
@@ -8,15 +9,7 @@
 namespace Durin::DerivedData
 {
 	namespace Private { struct FBuildExecutionAccess; }
-	class FBuildCancellation
-	{
-	public:
-		FBuildCancellation() = default;
-		explicit FBuildCancellation(std::function<bool()> Predicate) : Predicate(std::move(Predicate)) {}
-		auto IsCancelled() const -> bool { return Predicate && Predicate(); }
-	private:
-		std::function<bool()> Predicate;
-	};
+	using FBuildCancellation = FCancellationToken;
 
 	struct FBuildInputValue { std::string Name; FSharedByteBuffer Data; };
 	struct FBuildInput
@@ -104,6 +97,7 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API auto AddLog(std::string Category, EBuildLogSeverity Severity,
 			std::string Text) -> bool;
 		auto IsCancelled() const -> bool { return Cancel.IsCancelled(); }
+		auto GetCancellation() const -> const FBuildCancellation& { return Cancel; }
 	private:
 		friend struct Private::FBuildExecutionAccess;
 		FBuildContext(const FBuildAction& Action, std::span<const FBuildInput> Inputs, FBuildOutputBuilder& Output,

@@ -38,7 +38,7 @@ namespace Durin
 	auto FPhysicsCookHelper::Capture(FCookBodySetupInfo Info, const FAssetBuildTaskContext& Control)
 		-> std::expected<FPhysicsCookInput, FPhysicsCookFailure>
 	{
-		if (Control.IsCancelled()) return std::unexpected(FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Input));
+		if (Control.IsCancelled()) return {};
 		FPhysicsCookInput Input;
 		Input.Mode = Info.Mode; Input.Policy = Info.Policy; Input.bPersist = Info.bPersistDerivedData;
 		if (Info.Mode == EBodySetupCollisionSourceMode::None) return Input;
@@ -49,7 +49,7 @@ namespace Durin
 		Input.Positions = FSharedByteBuffer::TakeNative(std::move(Info.TriangleMeshDesc.Positions));
 		Input.Indices = FSharedByteBuffer::TakeNative(std::move(Info.TriangleMeshDesc.Indices));
 		auto Identity = PhysicsPrivate::HashInput(Input.Positions.GetBytes(), Input.Indices.GetBytes(), [&] { return Control.IsCancelled(); });
-		if (!Identity) return std::unexpected(FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Input));
+		if (!Identity) return {};
 		Input.Identity = *Identity;
 		return Input;
 	}
@@ -57,11 +57,12 @@ namespace Durin
 	auto FPhysicsCookHelper::Cook(const FCookBodySetupInfo& Info, const FAssetBuildTaskContext& Control)
 		-> std::expected<FPhysicsCookResult, FPhysicsCookFailure>
 	{
-		if (Control.IsCancelled()) return std::unexpected(FPhysicsCookFailure::Cancelled(EPhysicsCookStage::Input));
+		if (Control.IsCancelled()) return {};
 		if (Info.Mode != EBodySetupCollisionSourceMode::None
 			&& !PhysicsPrivate::CheckCookReservation(Info.TriangleMeshDesc.Positions.capacity(), Info.TriangleMeshDesc.Indices.capacity(), Control.MaximumWorkingSetBytes))
 			return std::unexpected(FPhysicsCookFailure{"Physics cook input and working set exceed the reservation."});
 		auto Input = Capture(Info, Control);
+		if (Control.IsCancelled()) return {};
 		if (!Input) return std::unexpected(std::move(Input.error()));
 		return CookCaptured(*Input, Control);
 	}
@@ -69,9 +70,8 @@ namespace Durin
 	auto FPhysicsCookHelper::CookCaptured(const FPhysicsCookInput& Input, const FAssetBuildTaskContext& Control)
 		-> std::expected<FPhysicsCookResult, FPhysicsCookFailure>
 	{
-		bool bCancelled = false;
-		const auto Cancel = [&] { return bCancelled = bCancelled || Control.IsCancelled(); };
-		if (Cancel()) return std::unexpected(FPhysicsCookFailure::Cancelled());
+		const auto Cancel = [&] { return Control.IsCancelled(); };
+		if (Cancel()) return {};
 		if (Input.GetMode() == EBodySetupCollisionSourceMode::None) return FPhysicsCookResult{};
 		if (auto Valid = PhysicsPrivate::CheckCookInput(Input.GetPositions().GetSize() / sizeof(FVector3f),
 			Input.GetIndices().GetSize() / sizeof(uint32), Input.GetMode(), Input.GetPolicy(), Control.MaximumWorkingSetBytes); !Valid)
@@ -89,14 +89,14 @@ namespace Durin
 		Options.Policy.OutputLimits.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes;
 		const uint64 MaximumBytes = std::min(MaximumPhysicsCollisionPayloadBytes, Control.MaximumWorkingSetBytes / 16);
 		Options.Policy.PersistenceLimits.MaximumTotalBytes = MaximumBytes; Options.Policy.MaximumEncodedBytes = MaximumBytes;
-		Options.Cancellation = DerivedData::FBuildCancellation(Cancel);
+		Options.Cancellation = Control.Cancellation.WithObserver([Control] { return Control.IsCancelled(); });
 		auto Built = BuildPhysicsDefinition(std::move(*Definition),
 			PhysicsPrivate::MakeCollisionInputResolver(Input), std::move(Options));
 		if (!Built) return std::unexpected(FPhysicsCookFailure{
 			Built.error().Description, EPhysicsCookStage::Cook});
 		auto& Completion = *Built;
-		if (Cancel() || Completion.GetStatus() == DerivedData::EStatus::Canceled)
-			return std::unexpected(FPhysicsCookFailure::Cancelled());
+		if (Completion.GetStatus() == DerivedData::EStatus::Canceled) Control.Cancellation.Cancel();
+		if (Cancel()) return {};
 		if (Completion.GetStatus() == DerivedData::EStatus::Error)
 		{
 			std::string Description = "Physics derived-data build failed.";
@@ -106,7 +106,7 @@ namespace Durin
 			return std::unexpected(FPhysicsCookFailure{std::move(Description), EPhysicsCookStage::Cook});
 		}
 		auto Result = PhysicsPrivate::AssembleSharedOutput(*Completion.GetOutput(), Input.GetMode(), Input.GetPolicy(), Cancel);
-		if (Cancel()) return std::unexpected(FPhysicsCookFailure::Cancelled());
+		if (Cancel()) return {};
 		if (!Result) return std::unexpected(FPhysicsCookFailure{std::move(Result.error())});
 		return std::move(*Result);
 #else
@@ -115,14 +115,14 @@ namespace Durin
 		Positions.reserve(Source.size());
 		for (size_t Index = 0; Index < Source.size(); ++Index)
 		{
-			if (Index % 256 == 0 && Cancel()) return std::unexpected(FPhysicsCookFailure::Cancelled());
+			if (Index % 256 == 0 && Cancel()) return {};
 			Positions.emplace_back(Source[Index]);
 		}
 		FCollisionGeometryBuildDiagnostics Diagnostics;
 		auto Geometry = Input.GetMode() == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
 			? FCollisionGeometryRef::BuildConvexHull(Positions, &Diagnostics, Cancel)
 			: FCollisionGeometryRef::BuildTriangleMesh(Positions, *Input.GetIndices().GetNativeView<uint32>(), &Diagnostics, Cancel);
-		if (Cancel()) return std::unexpected(FPhysicsCookFailure::Cancelled());
+		if (Cancel()) return {};
 		if (!Geometry) return std::unexpected(FPhysicsCookFailure{std::format("Physics geometry construction failed (status {}).", int(Diagnostics.Status))});
 		FPhysicsCookResult Result;
 		(Input.GetMode() == EBodySetupCollisionSourceMode::ConvexHullFromLOD0 ? Result.Simple : Result.Complex) = std::move(Geometry);

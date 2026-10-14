@@ -14,6 +14,7 @@ namespace Durin
 	public:
 		virtual ~FPhysicsMeshInputTask() = default;
 		virtual auto GetWorkingSetBytes() const -> uint64 = 0;
+		// Cancellation returns empty data and remains recorded in Context.Cancellation.
 		virtual auto Execute(const FAssetBuildTaskContext& Context) const
 			-> std::expected<FTriMeshCollisionData, FPhysicsCookFailure> = 0;
 	};

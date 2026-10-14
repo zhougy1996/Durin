@@ -1120,10 +1120,12 @@ TEST(FSceneImportTests, AssetForgeRejectsUnsupportedSceneFeaturesWithoutPartialP
 TEST(FSceneImportTests, DirectImportHonorsCancellationBeforePublication)
 {
 	const FSceneFixture Fixture = InitializeFixture("Scheduled");
+	uint32 CancellationChecks = 0;
 	auto Result = Durin::AssetForge::Builtins::ImportSceneAssets(
 		Fixture.Source, Fixture.DestinationDirectory,
-		Durin::FStaticMeshImportSettings::MakeDurin(), [] { return true; });
+		Durin::FStaticMeshImportSettings::MakeDurin(), [&] { return ++CancellationChecks == 1; });
 	EXPECT_FALSE(Result);
+	EXPECT_EQ(CancellationChecks, 1u);
 	ASSERT_FALSE(Result.Diagnostics.empty());
 	EXPECT_EQ(Result.Diagnostics.back().Category, Durin::AssetForge::EImportDiagnosticCategory::Canceled);
 	EXPECT_FALSE(Durin::FindAssetExact(

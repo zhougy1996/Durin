@@ -303,9 +303,9 @@ namespace Durin::Editor::StaticMesh
 				const char* Phase = "Queued";
 				if (Operation.Phase == EStaticMeshCompilationPhase::Building) Phase = "Building";
 				else if (Operation.Phase == EStaticMeshCompilationPhase::Mailbox) Phase = "Awaiting publication";
-				else if (Operation.Phase == EStaticMeshCompilationPhase::Terminal)
+				else if (Operation.Status)
 				{
-					switch (Operation.Status)
+					switch (*Operation.Status)
 					{
 					case EStaticMeshCompilationStatus::Succeeded: Phase = "Succeeded"; break;
 					case EStaticMeshCompilationStatus::Failed: Phase = "Failed"; break;

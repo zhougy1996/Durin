@@ -33,6 +33,8 @@ namespace Durin
 		bool bPersist = true;
 	};
 
+	// Check Context.Cancellation before using results. Cancelled calls return empty
+	// inputs/products; only genuine failures populate the error channel.
 	class FPhysicsCookHelper
 	{
 	public:

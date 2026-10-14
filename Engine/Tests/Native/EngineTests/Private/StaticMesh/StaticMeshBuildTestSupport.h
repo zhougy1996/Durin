@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "../AssetCacheLogTestSupport.h"
 #include "Physics/PhysicsCookHelper.h"
+#include "Physics/PhysicsMeshCompilation.h"
 
 #include "EngineTestSupport.h"
 #include "StaticMeshTestAccess.h"
@@ -21,6 +22,23 @@
 
 namespace StaticMeshBuildTestSupport
 {
+	inline auto FinishMeshBuildForTests(Durin::DStaticMesh& Mesh) -> Durin::FAssetCompileProcessResult
+	{
+		auto Result = Mesh.FinishCompilation();
+		Durin::AssetPrivate::FinishPhysicsMeshCompilationForOwner(Mesh);
+		if (auto* Body = Mesh.GetBodySetup()) Body->FinishPhysicsMeshes();
+		return Result;
+	}
+	inline auto GetMeshBuildDiagnosticsForTests() -> Durin::FStaticMeshCompilationManagerDiagnostics
+	{
+		auto Render = Durin::GetStaticMeshCompilationManagerDiagnostics();
+		const auto Physics = Durin::GetPhysicsMeshCompilationManagerDiagnostics();
+		Render.OutstandingRecords += Physics.OutstandingRecords;
+		Render.AdmittedBuildCount += Physics.AdmittedBuildCount;
+		Render.ReservedBytes += Physics.ReservedBytes;
+		return Render;
+	}
+
 	inline auto CaptureCollisionCookInfoForTest(const Durin::FStaticMeshRenderData& Render,
 		Durin::EBodySetupCollisionSourceMode Mode, Durin::EBodySetupCollisionQueryPolicy Policy,
 		bool bPersistDerivedData = true) -> Durin::FCookBodySetupInfo
@@ -85,15 +103,17 @@ namespace StaticMeshBuildTestSupport
 		explicit FStaticMeshWorkerBarrier(Durin::EStaticMeshCompilationPhase Selected = Durin::EStaticMeshCompilationPhase::Building, bool bFirstOnly = false)
 		{
 			bPumpContinuations = Selected == Durin::EStaticMeshCompilationPhase::Mailbox;
-			Durin::AssetPrivate::SetStaticMeshCompilationPhaseHookForTests([this, Selected, bFirstOnly](uint64, Durin::EStaticMeshCompilationPhase Phase) {
-				if (Phase != Selected) return;
+			auto Wait = [this, bFirstOnly] {
 				EXPECT_FALSE(Durin::IsInGameThread());
 				std::unique_lock Lock(Mutex);
 				if (bFirstOnly && Entered != 0) return;
-				++Entered;
-				Changed.notify_all();
+				++Entered; Changed.notify_all();
 				Changed.wait(Lock, [&] { return bReleased; });
-			});
+			};
+			Durin::AssetPrivate::SetStaticMeshCompilationPhaseHookForTests([Wait, Selected](uint64, Durin::EStaticMeshCompilationPhase Phase) { if (Phase == Selected) Wait(); });
+			Durin::AssetPrivate::SetPhysicsMeshCompilationHooksForTests(
+				Selected == Durin::EStaticMeshCompilationPhase::Building ? Wait : std::function<void()>{},
+				Selected == Durin::EStaticMeshCompilationPhase::Mailbox ? Wait : std::function<void()>{});
 		}
 		auto Wait(uint32 Count, std::chrono::seconds Timeout = std::chrono::seconds(5)) -> bool
 		{
@@ -118,6 +138,7 @@ namespace StaticMeshBuildTestSupport
 			Release();
 			Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 			Durin::AssetPrivate::SetStaticMeshCompilationPhaseHookForTests({});
+			Durin::AssetPrivate::SetPhysicsMeshCompilationHooksForTests({}, {});
 		}
 	};
 
@@ -269,21 +290,22 @@ namespace StaticMeshBuildTestSupport
 		const auto Start = std::chrono::steady_clock::now();
 		auto LastCheckpoint = Start;
 		uint64 MaximumGapNanoseconds = 0;
-		auto Outcome = BuildStaticMeshRenderData(std::move(Request),
-			{.ShouldCancel = [&] {
+		const Durin::FAssetBuildTaskContext Control{.Cancellation = [&] {
 				const auto Now = std::chrono::steady_clock::now();
 				MaximumGapNanoseconds = std::max(MaximumGapNanoseconds, static_cast<uint64>(
 					std::chrono::duration_cast<std::chrono::nanoseconds>(Now - LastCheckpoint).count()));
 				LastCheckpoint = Now;
 				return false;
-			}, .Metrics = &Metrics});
+			}, .Metrics = &Metrics};
+		auto Outcome = BuildStaticMeshRenderData(std::move(Request),
+			Control);
 		const auto Built = std::chrono::steady_clock::now();
 		ASSERT_TRUE(Outcome) << Outcome.error().ToString();
 		auto Candidate = std::move(*Outcome);
 		ASSERT_NE(Candidate, nullptr);
 		const auto Ray = Candidate->LODResources.front().RayQueryAcceleration;
 		auto PreparedSlots = Input.MaterialSlots;
-		ASSERT_TRUE(CommitStaticMeshBuild(*Mesh, std::move(Candidate), Source, Snapshot, true, {}, nullptr, &PreparedSlots)) << Error;
+		ASSERT_TRUE(CommitStaticMeshBuild(*Mesh, std::move(Candidate), Source, Snapshot, true, nullptr, &PreparedSlots)) << Error;
 		const auto Published = std::chrono::steady_clock::now();
 		EXPECT_EQ(Mesh->GetRenderData()->LODResources.front().RayQueryAcceleration, Ray);
 		EXPECT_FALSE(Source.IsGeometryResident());
@@ -302,8 +324,7 @@ namespace StaticMeshBuildTestSupport
 			uint64 Checks = 0;
 			bool bRequested = false;
 			std::chrono::steady_clock::time_point RequestedAt;
-			const auto Cancelled = BuildStaticMeshRenderData(std::move(CancelRequest),
-				{.ShouldCancel = [&] {
+			const Durin::FAssetBuildTaskContext CancelControl{.Cancellation = [&] {
 					if (bRequested) return true;
 					if (++Checks == StopAfter)
 					{
@@ -311,10 +332,12 @@ namespace StaticMeshBuildTestSupport
 						RequestedAt = std::chrono::steady_clock::now();
 					}
 					return false;
-				}});
+				}};
+			const auto Cancelled = BuildStaticMeshRenderData(std::move(CancelRequest),
+				CancelControl);
 			ASSERT_TRUE(bRequested);
-			ASSERT_FALSE(Cancelled);
-			EXPECT_TRUE(Cancelled.error().IsCancelled());
+			ASSERT_TRUE(Cancelled);
+			EXPECT_TRUE(CancelControl.Cancellation.IsCancelled());
 			MaximumCancellationNanoseconds = std::max(MaximumCancellationNanoseconds,
 				static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 					std::chrono::steady_clock::now() - RequestedAt).count()));
@@ -358,7 +381,6 @@ namespace StaticMeshBuildTestSupport
 		});
 #endif
 		std::array<DStaticMesh*, 2> Meshes;
-		std::array<std::optional<FStaticMeshCompilationResult>, 2> Results;
 		FStaticMeshWorkerBarrier Barrier(EStaticMeshCompilationPhase::Mailbox);
 		for (size_t Index = 0; Index < Meshes.size(); ++Index)
 		{
@@ -366,11 +388,10 @@ namespace StaticMeshBuildTestSupport
 			auto* Body = NewObject<DBodySetup>(Meshes[Index], FName("BodySetup"));
 			Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 			ASSERT_TRUE(Meshes[Index]->SetBodySetup(Body));
-			ASSERT_TRUE(Meshes[Index]->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .bPersistDerivedData = false},
-				[&, Index](const auto& Result) { EXPECT_TRUE(IsInGameThread()); Results[Index] = Result; })) << Error;
+			ASSERT_TRUE(Meshes[Index]->BuildFromSource(EStaticMeshBuildMode::Asynchronous, {.Source = Source, .PreparedMaterialSlots = FStaticMeshTestAccess::MakeSlots(MakeResidencyGeometry()), .bPersistDerivedData = false})) << Error;
 		}
 		ASSERT_TRUE(Barrier.Wait(2, std::chrono::seconds(bMeasure ? 30 : 5)));
-		const auto Held = GetStaticMeshCompilationManagerDiagnostics();
+		const auto Held = StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests();
 		EXPECT_EQ(2u, Held.AdmittedBuildCount);
 		EXPECT_EQ(2u, Held.OutstandingRecords);
 		EXPECT_LE(Held.ReservedBytes, 1024ull * 1024 * 1024);
@@ -385,16 +406,17 @@ namespace StaticMeshBuildTestSupport
 #endif
 		Meshes[0]->CancelCompilation();
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
-		ASSERT_TRUE(Results[0].has_value());
-		EXPECT_EQ(EStaticMeshCompilationStatus::Cancelled, Results[0]->Status);
-		EXPECT_TRUE(Meshes[0]->IsCompiling()); // Cancellation delivery does not retire the held worker.
-		EXPECT_FALSE(Results[1].has_value());
-		EXPECT_EQ(Held.ReservedBytes, GetStaticMeshCompilationManagerDiagnostics().ReservedBytes);
+		EXPECT_NE(Meshes[0]->GetCompilationDiagnostic().Phase, EStaticMeshCompilationPhase::Terminal);
+		EXPECT_TRUE(Meshes[0]->IsCompiling()); // Requested cancellation cannot finish before the held worker retires.
+		EXPECT_NE(Meshes[1]->GetCompilationDiagnostic().Phase, EStaticMeshCompilationPhase::Terminal);
+		EXPECT_EQ(Held.ReservedBytes, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes);
 		EXPECT_EQ(nullptr, Meshes[0]->GetRenderData());
 		EXPECT_EQ(nullptr, Meshes[1]->GetRenderData());
 		Barrier.Release();
 		FAssetCompilingManager::Get().FinishAllCompilation();
-		ASSERT_TRUE(Results[1].has_value());
+		EXPECT_EQ(Meshes[0]->GetCompilationDiagnostic().Status, EStaticMeshCompilationStatus::Cancelled);
+		EXPECT_TRUE(Meshes[0]->GetCompilationDiagnostic().Error.empty());
+		ASSERT_EQ(Meshes[1]->GetCompilationDiagnostic().Status, EStaticMeshCompilationStatus::Succeeded);
 #if defined(__APPLE__)
 		AllocationSampler.request_stop();
 		AllocationSampler.join();
@@ -407,6 +429,6 @@ namespace StaticMeshBuildTestSupport
 		FCollisionGeometryRef Collision;
 		EXPECT_TRUE(Meshes[1]->GetBodySetup()->BuildComplexGeometry(Collision));
 		EXPECT_FALSE(Meshes[1]->GetSource().IsGeometryResident());
-		EXPECT_EQ(0u, GetStaticMeshCompilationManagerDiagnostics().ReservedBytes);
+		EXPECT_EQ(0u, StaticMeshBuildTestSupport::GetMeshBuildDiagnosticsForTests().ReservedBytes);
 	}
 }

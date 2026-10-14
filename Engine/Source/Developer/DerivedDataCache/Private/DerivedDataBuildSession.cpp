@@ -56,7 +56,7 @@ namespace Durin::DerivedData
 		enum class ERequestState { PendingDispatch, Queued, Running, Completing, Done };
 		struct FBuildRequestState : FRequestCompletion, std::enable_shared_from_this<FBuildRequestState>
 		{
-			std::atomic<bool> Canceled = false;
+			FBuildCancellation Cancellation;
 			ERequestState State = ERequestState::PendingDispatch;
 			uint64 Id = 0;
 			std::weak_ptr<FBuildSessionState> Owner;
@@ -65,6 +65,7 @@ namespace Durin::DerivedData
 
 			auto Finish(FBuildCompleteParams Completion) -> void
 			{
+				const bool bCancelled = Cancellation.IsCancelled();
 				auto Session = Owner.lock();
 				FBuildCompletionCallback Notify;
 				std::shared_ptr<FRequestData> Retired;
@@ -72,7 +73,8 @@ namespace Durin::DerivedData
 					std::lock_guard Lock(Mutex);
 					if (State == ERequestState::Completing || State == ERequestState::Done) return;
 					State = ERequestState::Completing;
-					if (Canceled.load()) Completion = Private::FBuildCompletionAccess::Canceled(std::move(Completion));
+					if (bCancelled || Cancellation.IsCancellationRequested()) Completion = Private::FBuildCompletionAccess::Canceled(std::move(Completion));
+					if (Completion.GetStatus() == EStatus::Canceled) Cancellation.Cancel();
 					Notify = std::move(Callback);
 					Retired = std::move(Data);
 				}
@@ -91,7 +93,7 @@ namespace Durin::DerivedData
 				{
 					std::lock_guard Lock(Mutex);
 					if (State == ERequestState::Completing || State == ERequestState::Done) return false;
-					Canceled.store(true);
+					Cancellation.Cancel();
 					Complete = State == ERequestState::Queued;
 					Work = Scheduled;
 				}
@@ -143,7 +145,7 @@ namespace Durin::DerivedData
 			auto SetScheduledIfCurrent(std::shared_ptr<IBuildScheduledWork> Work, uint64 Revision) -> void
 			{
 				{ std::lock_guard Lock(Mutex); if (ScheduleRevision != Revision || State == ERequestState::Done) return; Scheduled = Work; StageDispatching = false; }
-				if (Canceled.load() && Work) Work->RequestCancel();
+				if (Cancellation.IsCancelled() && Work) Work->RequestCancel();
 				Changed.notify_all();
 			}
 			auto ReceiveCache(FCacheGetResult Result) -> void
@@ -214,11 +216,9 @@ namespace Durin::DerivedData
 					std::nullopt, EBuildExecutionFlags::None);
 				try
 				{
-					FBuildCancellation ExternalCancellation = std::move(Work->Options.Cancellation);
-					FBuildCancellation Token([Weak = weak_from_this(), ExternalCancellation = std::move(ExternalCancellation)] {
-						auto Self = Weak.lock(); return !Self || Self->Canceled.load() || Self->Group->IsCanceled() || ExternalCancellation.IsCancelled();
+					Work->Options.Cancellation = Work->Options.Cancellation.WithObserver([Weak = weak_from_this()] {
+						auto Self = Weak.lock(); return !Self || Self->Group->IsCanceled();
 					});
-					Work->Options.Cancellation = std::move(Token);
 					StartBuild(std::move(Work));
 					return;
 				}
@@ -237,7 +237,7 @@ namespace Durin::DerivedData
 					if (State == ERequestState::PendingDispatch)
 					{
 						State = ERequestState::Queued;
-						Complete = Canceled.load();
+						Complete = Cancellation.IsCancellationRequested();
 					}
 				}
 				if (Complete) RequestCancel();
@@ -483,6 +483,7 @@ namespace Durin::DerivedData
 				Request->Owner = Owner;
 				Request->Data = std::make_shared<Private::FRequestData>(
 					std::move(BuildRequest), std::move(Inputs), std::move(Options), Owner->Resources);
+				Request->Cancellation = Request->Data->Options.Cancellation;
 				Request->Callback = std::move(Completion);
 				Scheduler = Owner->Resources->Scheduler;
 				Owner->Requests.emplace(Request->Id, Request); ++Owner->Active;
@@ -492,11 +493,11 @@ namespace Durin::DerivedData
 				{
 					std::lock_guard RequestLock(Request->Mutex);
 					Request->Group = (RequestOwner ? *RequestOwner : *LocalOwner).Begin(Request);
-					if (Request->Group->IsCanceled()) Request->Canceled.store(true);
+					if (Request->Group->IsCanceled()) Request->Cancellation.Cancel();
 				}
 			}
 			FBuildRequest Handle; Handle.State = Request;
-			if (Request->Canceled.load()) { Request->Run(); return Handle; }
+			if (Request->Cancellation.IsCancelled()) { Request->Run(); return Handle; }
 			const auto& Data = *Request->Data;
 			const std::string FunctionName(std::holds_alternative<FBuildDefinition>(Data.Request)
 				? std::get<FBuildDefinition>(Data.Request).GetFunctionName() : std::get<FBuildAction>(Data.Request).GetFunction().Name);
