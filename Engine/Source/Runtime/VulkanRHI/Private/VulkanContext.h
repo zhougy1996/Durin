@@ -154,6 +154,7 @@ namespace Durin::VulkanRHI
 		auto HasPendingCommands() const -> bool { return !Payloads.empty(); }
 		VULKANRHI_API auto RetainAllocation(const std::shared_ptr<void>& Owner) -> void;
 		auto RetainWriteRange(const std::shared_ptr<FRHIDynamicBufferWriteRange>& Range) -> void;
+		auto RefreshBufferBindings(FRHIBuffer* LogicalBuffer) -> void;
 		auto AcquireTransferRange(EVulkanAllocationClassCandidate AllocationClass,
 			uint64 Size, uint64 Alignment) -> FVulkanTransferRange;
 
@@ -188,11 +189,13 @@ namespace Durin::VulkanRHI
 			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset = 0;
 			std::shared_ptr<FRHIDynamicBufferWriteRange> WriteRange;
+			TRefCountPtr<FRHIBuffer> LogicalBuffer;
 		};
 		std::unordered_map<uint32, FBoundVertexBuffer> BoundVertexBuffers;
 		TRefCountPtr<FRHIBuffer> BoundIndexBuffer;
 		uint32 BoundIndexBufferOffset = 0;
 		std::shared_ptr<FRHIDynamicBufferWriteRange> BoundIndexWriteRange;
+		TRefCountPtr<FRHIBuffer> BoundLogicalIndexBuffer;
 
 		std::vector<FVulkanPayload*> Payloads;
 		std::shared_ptr<void> ReplayStorageOwner;

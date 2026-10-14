@@ -9,6 +9,7 @@
 #include "VulkanDevice.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanContext.h"
+#include "VulkanDynamicBufferPool.h"
 #include "VulkanQueue.h"
 
 namespace Durin::VulkanRHI
@@ -43,7 +44,7 @@ namespace Durin::VulkanRHI
 				static_cast<int64>(GDynamicBufferWriteProfile.MappedReservedBytes.load(std::memory_order_relaxed)));
 			TracyPlot("Vulkan.DynamicBuffer.FallbackReservedBytes",
 				static_cast<int64>(GDynamicBufferWriteProfile.FallbackReservedBytes.load(std::memory_order_relaxed)));
-			TracyPlot("Vulkan.DynamicBuffer.LiveMappedVersions",
+			TracyPlot("Vulkan.DynamicBuffer.LiveMappedPages",
 				static_cast<int64>(GDynamicBufferWriteProfile.LiveMappedVersions.load(std::memory_order_relaxed)));
 		}
 #endif
@@ -120,6 +121,24 @@ namespace Durin::VulkanRHI
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(Buffer, [&] { return std::string_view(DebugName); });
 	}
 
+	FVulkanBuffer::FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InDesc,
+		TRefCountPtr<FVulkanBuffer> Page, uint32 Offset, uint32 MappedSize)
+		: FRHIBuffer(InDesc), Device(InDevice), StateTracker(InDesc.Size),
+		PageBuffer(std::move(Page)), PageOffset(Offset), PageSize(MappedSize)
+	{
+		require(PageBuffer && MappedSize && MappedSize <= InDesc.Size && uint64(Offset) + MappedSize <= PageBuffer->GetSize());
+	}
+
+	auto FVulkanBuffer::MarkMappedPage() -> void
+	{
+#if DURIN_WITH_TRACY
+		bMappedWriteBacking = true;
+		GDynamicBufferWriteProfile.MappedReservedBytes.fetch_add(GetSize(), std::memory_order_relaxed);
+		GDynamicBufferWriteProfile.LiveMappedVersions.fetch_add(1, std::memory_order_relaxed);
+		PublishDynamicBufferWriteProfile();
+#endif
+	}
+
 	namespace
 	{
 		using FMappedBufferOwner = TRefCountPtr<FVulkanBuffer>;
@@ -153,42 +172,19 @@ namespace Durin::VulkanRHI
 			? static_cast<const FMappedBufferOwner*>(ActiveWriteRange->GetOwner().get())->GetReference() : this;
 	}
 
-	auto FVulkanBuffer::InitializeMappedWrites(const FRHIBufferCreateDesc& CreateDesc) -> void
+	auto FVulkanBuffer::InitializeMappedWrites(const FRHIBufferCreateDesc&) -> void
 	{
 		const auto Required = EBufferUsageFlags::Dynamic | EBufferUsageFlags::CPUWriteDiscard;
 		const auto Allowed = Required | EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::IndexBuffer;
 		if (!EnumHasAllFlags(GetUsage(), Required) || EnumHasAnyFlags(GetUsage(), ~Allowed)
 			|| !EnumHasAnyFlags(GetUsage(), EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::IndexBuffer)
 			|| !GetMappedPointer()) return;
+		bSupportsMappedWrites = true;
 #if DURIN_WITH_TRACY
 		bDiscardWriteFallbackBacking = true;
 		GDynamicBufferWriteProfile.FallbackReservedBytes.fetch_add(GetSize(), std::memory_order_relaxed);
 #endif
-		// Three bounded discard versions plus the original temporary-upload backing.
-		// Allocate only for explicitly opted-in buffers, before they are published.
-		FRHIBufferCreateDesc BackingDesc = CreateDesc;
-		BackingDesc.Usage &= ~EBufferUsageFlags::CPUWriteDiscard;
-		BackingDesc.InitialData = {};
-		for (uint32 Index = 0; Index != 3; ++Index)
-		{
-			vk::Result Result;
-			auto Owner = std::make_shared<FMappedBufferOwner>(
-				new FVulkanBuffer(Device, BackingDesc, false, &Result));
-			if (Result != vk::Result::eSuccess)
-			{
-				if (!IsRecoverableVulkanCreationError(Result)) ThrowVulkanError(Result, "Mapped buffer allocation");
-				break;
-			}
-			if (void* Mapped = (*Owner)->GetMappedPointer())
-			{
-				WritePool.Add(Owner, Mapped);
-#if DURIN_WITH_TRACY
-				(*Owner)->bMappedWriteBacking = true;
-				GDynamicBufferWriteProfile.MappedReservedBytes.fetch_add(GetSize(), std::memory_order_relaxed);
-				GDynamicBufferWriteProfile.LiveMappedVersions.fetch_add(1, std::memory_order_relaxed);
-#endif
-			}
-		}
+		Device.GetDynamicBufferPool().EnsureInitialPage();
 #if DURIN_WITH_TRACY
 		PublishDynamicBufferWriteProfile();
 #endif
@@ -204,25 +200,36 @@ namespace Durin::VulkanRHI
 #if DURIN_WITH_TRACY
 		if (TracyIsConnected) DiagnosticSnapshot = &Snapshot;
 #endif
-		auto Range = WritePool.TryAcquire(DiagnosticSnapshot);
+		const uint64 Alignment = std::max<uint64>(16, Device.GetGpuProperties().limits.nonCoherentAtomSize);
+		require(Alignment <= UINT32_MAX);
+		auto Range = bSupportsMappedWrites
+			? Device.GetDynamicBufferPool().TryAcquire(Offset + Size, static_cast<uint32>(Alignment), DiagnosticSnapshot)
+			: std::shared_ptr<FRHIDynamicBufferWriteRange>{};
 #if DURIN_WITH_TRACY
 		if (DiagnosticSnapshot)
 		{
 			auto& Count = Range ? GDynamicBufferWriteProfile.MappedLocks
-				: Snapshot.RangeCount ? GDynamicBufferWriteProfile.PoolBusyFallbacks : GDynamicBufferWriteProfile.NoPoolFallbacks;
+				: Snapshot.PageCount ? GDynamicBufferWriteProfile.PoolBusyFallbacks : GDynamicBufferWriteProfile.NoPoolFallbacks;
 			Count.fetch_add(1, std::memory_order_relaxed);
 			GDynamicBufferWriteProfile.RequestedBytes.fetch_add(Size, std::memory_order_relaxed);
-			TracyPlot("Vulkan.DynamicBuffer.SampledPoolBusyVersions",
-				static_cast<int64>(Snapshot.RangeCount - Snapshot.ReusableRangeCount));
+			TracyPlot("Vulkan.DynamicBuffer.SampledPoolLiveRanges", static_cast<int64>(Snapshot.RangeCount));
+			TracyPlot("Vulkan.DynamicBuffer.SampledPoolFreeBytes", static_cast<int64>(Snapshot.FreeBytes));
 			DURIN_PROFILE_CPU_ZONE_TEXT(std::format(
-				"buffer={} bytes={} mapped={} versions={} retained={} awaitingRetirement={} reusable={}",
+				"buffer={} bytes={} mapped={} liveRanges={} retained={} awaitingRetirement={} pages={} freeBytes={}",
 				DebugName, Size, static_cast<bool>(Range), Snapshot.RangeCount, Snapshot.RetainedRangeCount,
-				Snapshot.AwaitingRetirementRangeCount, Snapshot.ReusableRangeCount));
+				Snapshot.AwaitingRetirementRangeCount, Snapshot.PageCount, Snapshot.FreeBytes));
 			PublishDynamicBufferWriteProfile();
 		}
 #endif
 		if (Range)
+		{
+			auto Desc = FRHIBufferCreateDesc::Create(DebugName.c_str(), GetDesc());
+			Desc.Usage &= ~EBufferUsageFlags::CPUWriteDiscard;
+			auto Page = static_cast<FMappedBufferOwner*>(Range->GetOwner().get())->GetReference();
+			auto Owner = std::make_shared<FMappedBufferOwner>(new FVulkanBuffer(Device, Desc, Page, Range->GetOffset(), Range->GetSize()));
+			Range->SetOwner(std::move(Owner));
 			return std::make_shared<FVulkanMappedBufferWrite>(std::move(Range), Offset);
+		}
 		return {};
 	}
 
@@ -232,6 +239,7 @@ namespace Durin::VulkanRHI
 		// Temporary bytes are consumed on replay, using the original backing and its
 		// existing frame synchronization. Never overwrite an in-flight discard version.
 		ActiveWriteRange.reset();
+		if (bSupportsMappedWrites) Device.GetDynamicBufferPool().ProcessGrowthRequest();
 	}
 
 	auto FVulkanBuffer::CommitMappedWrite(FVulkanCommandListContext& Context,
@@ -297,12 +305,37 @@ namespace Durin::VulkanRHI
 		require(!bUniformBacking);
 		if (ActiveWriteRange)
 		{
-			Context.RetainWriteRange(ActiveWriteRange);
-			GetBackingBuffer()->Write(Context, Offset, Data);
-			return;
+			auto* Backing = GetBackingBuffer();
+			if (Offset <= Backing->GetMappedSize() && Data.size() <= Backing->GetMappedSize() - Offset)
+			{
+				Context.RetainWriteRange(ActiveWriteRange);
+				Backing->Write(Context, Offset, Data);
+				return;
+			}
+			// A normal patch can extend a prior discard's defined prefix. Materialize
+			// that prefix in the original backing, retaining its exact access states.
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Buffer.MaterializeMappedPrefix");
+			const auto PreviousRange = ActiveWriteRange;
+			const auto PreviousStates = Backing->GetStateTracker().GetIntervals();
+			const uint32 PreviousSize = Backing->GetMappedSize();
+			require(Allocation.GetMappedData());
+			std::memcpy(Allocation.GetMappedData(), Backing->GetMappedPointer(), PreviousSize);
+			Device.GetMemoryManager().Flush(Allocation, 0, PreviousSize);
+			ActiveWriteRange.reset();
+			// Undefined tail bytes keep the logical access contract as well. The
+			// original backing owns the full range, so these barriers remain valid.
+			StateTracker.Apply(0, GetSize(), ERHIAccess::HostWrite);
+			std::vector<FRHIBufferTransition> Restore;
+			for (const auto& Interval : PreviousStates)
+				if (Interval.Access != ERHIAccess::None && Interval.Access != ERHIAccess::Discard)
+					Restore.push_back({this, Interval.Offset, Interval.Size, ERHIAccess::HostWrite, Interval.Access});
+				else StateTracker.Apply(Interval.Offset, Interval.Size, Interval.Access);
+			if (!Restore.empty()) Context.RHITransitionBuffers(Restore);
+			Context.RefreshBufferBindings(this);
 		}
-		if (void* MappedData = Allocation.GetMappedData(); MappedData != nullptr)
+		if (void* MappedData = GetMappedPointer(); MappedData != nullptr)
 		{
+			require(!PageBuffer || (Offset <= PageSize && Data.size() <= PageSize - Offset));
 			std::memcpy(static_cast<std::byte*>(MappedData) + Offset, Data.data(), Data.size());
 			FlushMappedMemory(Offset, static_cast<uint32>(Data.size()));
 			StateTracker.Apply(Offset, Data.size(), ERHIAccess::HostWrite);
@@ -337,23 +370,42 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanBuffer::GetMappedPointer() const -> void*
 	{
-		return GetBackingBuffer()->Allocation.GetMappedData();
+		const auto* Backing = GetBackingBuffer();
+		return Backing->PageBuffer
+			? static_cast<std::byte*>(Backing->PageBuffer->GetMappedPointer()) + Backing->PageOffset
+			: Backing->Allocation.GetMappedData();
 	}
 
 	auto FVulkanBuffer::GetMemoryPropertyFlags() const
 		-> vk::MemoryPropertyFlags
 	{
-		return Device.GetMemoryManager().GetMemoryType(GetBackingBuffer()->Allocation).propertyFlags;
+		const auto* Backing = GetBackingBuffer();
+		return Backing->PageBuffer ? Backing->PageBuffer->GetMemoryPropertyFlags()
+			: Device.GetMemoryManager().GetMemoryType(Backing->Allocation).propertyFlags;
 	}
 
 	auto FVulkanBuffer::FlushMappedMemory(uint32 Offset, uint32 Size) -> void
 	{
+		auto* Backing = GetBackingBuffer();
+		if (Backing->PageBuffer)
+		{
+			require(Offset <= Backing->PageSize && (!Size || Size <= Backing->PageSize - Offset));
+			Backing->PageBuffer->FlushMappedMemory(Backing->PageOffset + Offset, Size ? Size : Backing->PageSize - Offset);
+			return;
+		}
 		const vk::DeviceSize FlushSize = Size != 0 ? Size : VK_WHOLE_SIZE;
 		Device.GetMemoryManager().Flush(GetBackingBuffer()->Allocation, Offset, FlushSize);
 	}
 
 	auto FVulkanBuffer::InvalidateMappedMemory(uint32 Offset, uint32 Size) -> void
 	{
+		auto* Backing = GetBackingBuffer();
+		if (Backing->PageBuffer)
+		{
+			require(Offset <= Backing->PageSize && (!Size || Size <= Backing->PageSize - Offset));
+			Backing->PageBuffer->InvalidateMappedMemory(Backing->PageOffset + Offset, Size ? Size : Backing->PageSize - Offset);
+			return;
+		}
 		const vk::DeviceSize InvalidateSize = Size != 0 ? Size : VK_WHOLE_SIZE;
 		Device.GetMemoryManager().Invalidate(GetBackingBuffer()->Allocation, Offset, InvalidateSize);
 	}

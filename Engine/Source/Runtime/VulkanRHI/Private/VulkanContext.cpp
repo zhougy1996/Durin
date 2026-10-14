@@ -52,12 +52,14 @@ namespace Durin::VulkanRHI
 					"Vulkan split buffer transition state mismatch.");
 				const auto Source = Buffer->GetStateTracker().GetBarrierSource(Entry.Offset, Entry.Size);
 				const auto Destination = MapVulkanResourceState(Entry.RequiredAfter);
+				const uint64 NativeSize = Buffer->GetNativeRangeSize(Entry.Offset, Entry.Size);
+				if (!NativeSize) continue;
 				Result.Buffers.push_back(vk::BufferMemoryBarrier2()
 					.setSrcStageMask(Source.StageMask2).setSrcAccessMask(Source.AccessMask2)
 					.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
 					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 					.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-					.setBuffer(Buffer->GetHandle()).setOffset(Entry.Offset).setSize(Entry.Size));
+					.setBuffer(Buffer->GetHandle()).setOffset(uint64(Buffer->GetBackingOffset()) + Entry.Offset).setSize(NativeSize));
 			}
 			Result.Images.reserve(Transition.GetTextureTransitions().size());
 			for (const auto& Entry : Transition.GetTextureTransitions())
@@ -653,10 +655,11 @@ namespace Durin::VulkanRHI
 		checkf(Offset <= InVertexBuffer->GetSize(),
 			"Bound vertex buffer offset exceeds the resource.");
 		auto* VertexBuffer = FVulkanBuffer::Cast(InVertexBuffer);
-		BoundVertexBuffers[StreamIndex] = {VertexBuffer->GetBackingBuffer(), Offset, VertexBuffer->GetWriteRange()};
+		require(Offset <= VertexBuffer->GetMappedSize());
+		BoundVertexBuffers[StreamIndex] = {VertexBuffer->GetBackingBuffer(), Offset, VertexBuffer->GetWriteRange(), InVertexBuffer};
 		RetainWriteRange(VertexBuffer->GetWriteRange());
 		vk::Buffer BufferHandle = VertexBuffer->GetHandle();
-		GetCommandBuffer()->BindVertexBuffer(StreamIndex, BufferHandle, Offset);
+		GetCommandBuffer()->BindVertexBuffer(StreamIndex, BufferHandle, uint64(Offset) + VertexBuffer->GetBackingOffset());
 	}
 
 	static constexpr auto DeduceIndexType(uint32 Stride) -> vk::IndexType
@@ -674,6 +677,7 @@ namespace Durin::VulkanRHI
 		{
 			BoundIndexBuffer = nullptr;
 			BoundIndexWriteRange.reset();
+			BoundLogicalIndexBuffer = nullptr;
 			BoundIndexBufferOffset = 0;
 			return;
 		}
@@ -684,11 +688,13 @@ namespace Durin::VulkanRHI
 			&& (Offset % InIndexBuffer->GetStride()) == 0,
 			"Bound index buffer requires an aligned uint16 or uint32 format.");
 		auto* IndexBuffer = FVulkanBuffer::Cast(InIndexBuffer);
+		require(Offset <= IndexBuffer->GetMappedSize());
+		BoundLogicalIndexBuffer = InIndexBuffer;
 		BoundIndexBuffer = IndexBuffer->GetBackingBuffer();
 		BoundIndexWriteRange = IndexBuffer->GetWriteRange();
 		RetainWriteRange(BoundIndexWriteRange);
 		BoundIndexBufferOffset = Offset;
-		GetCommandBuffer()->BindIndexBuffer(IndexBuffer->GetHandle(), Offset,
+		GetCommandBuffer()->BindIndexBuffer(IndexBuffer->GetHandle(), uint64(Offset) + IndexBuffer->GetBackingOffset(),
 			DeduceIndexType(IndexBuffer->GetStride()));
 	}
 
@@ -725,13 +731,15 @@ namespace Durin::VulkanRHI
 				const auto Source = Buffer->GetStateTracker().GetBarrierSource(
 					Transition.Offset, Transition.Size);
 				const FVulkanResourceStateMapping Destination = MapVulkanResourceState(Transition.RequiredAfter);
+				const uint64 NativeSize = Buffer->GetNativeRangeSize(Transition.Offset, Transition.Size);
+				if (!NativeSize) continue;
 				Barriers.push_back(vk::BufferMemoryBarrier2()
 					.setSrcStageMask(Source.StageMask2).setSrcAccessMask(Source.AccessMask2)
 					.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
 					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-					.setBuffer(Buffer->GetHandle()).setOffset(Transition.Offset).setSize(Transition.Size));
+					.setBuffer(Buffer->GetHandle()).setOffset(uint64(Buffer->GetBackingOffset()) + Transition.Offset).setSize(NativeSize));
 			}
-			CommandBuffer.pipelineBarrier2(vk::DependencyInfo().setBufferMemoryBarriers(Barriers));
+			if (!Barriers.empty()) CommandBuffer.pipelineBarrier2(vk::DependencyInfo().setBufferMemoryBarriers(Barriers));
 		}
 		else
 		{
@@ -752,14 +760,16 @@ namespace Durin::VulkanRHI
 				const auto Source = Buffer->GetStateTracker().GetBarrierSource(
 					Transition.Offset, Transition.Size);
 				const FVulkanResourceStateMapping Destination = MapVulkanResourceState(Transition.RequiredAfter);
+				const uint64 NativeSize = Buffer->GetNativeRangeSize(Transition.Offset, Transition.Size);
+				if (!NativeSize) continue;
 				Barriers.push_back(vk::BufferMemoryBarrier()
 					.setSrcAccessMask(Source.LegacyAccessMask).setDstAccessMask(Destination.LegacyAccessMask)
 					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-					.setBuffer(Buffer->GetHandle()).setOffset(Transition.Offset).setSize(Transition.Size));
+					.setBuffer(Buffer->GetHandle()).setOffset(uint64(Buffer->GetBackingOffset()) + Transition.Offset).setSize(NativeSize));
 				SourceStages |= Source.LegacyStageMask;
 				DestinationStages |= Destination.LegacyStageMask;
 			}
-			CommandBuffer.pipelineBarrier(SourceStages, DestinationStages,
+			if (!Barriers.empty()) CommandBuffer.pipelineBarrier(SourceStages, DestinationStages,
 				vk::DependencyFlags{}, {}, Barriers, {});
 		}
 		for (const FRHIBufferTransition& Transition : Transitions)
@@ -871,7 +881,11 @@ namespace Durin::VulkanRHI
 		VulkanTransition->CaptureBufferVersions();
 		for (const auto& Range : VulkanTransition->GetWriteRanges()) RetainWriteRange(Range);
 		auto Barriers = BuildSplitBarrierSet(*Transition, VulkanTransition->GetBufferVersions(), Queue->GetFamilyIndex());
+		const auto EmptyBarrier = vk::MemoryBarrier2().setSrcStageMask(vk::PipelineStageFlagBits2::eAllCommands)
+			.setDstStageMask(vk::PipelineStageFlagBits2::eAllCommands);
+		const bool bEmpty = Barriers.Buffers.empty() && Barriers.Images.empty();
 		const vk::DependencyInfo Dependency = vk::DependencyInfo()
+			.setMemoryBarrierCount(bEmpty ? 1u : 0u).setPMemoryBarriers(bEmpty ? &EmptyBarrier : nullptr)
 			.setBufferMemoryBarriers(Barriers.Buffers)
 			.setImageMemoryBarriers(Barriers.Images);
 		GetCommandBuffer()->GetHandle().setEvent2(
@@ -895,7 +909,11 @@ namespace Durin::VulkanRHI
 		for (const auto& Range : VulkanTransition->GetWriteRanges()) RetainWriteRange(Range);
 		auto Barriers = BuildSplitBarrierSet(*Transition, VulkanTransition->GetBufferVersions(), Queue->GetFamilyIndex());
 		const std::array Events{VulkanTransition->GetEvent()};
+		const auto EmptyBarrier = vk::MemoryBarrier2().setSrcStageMask(vk::PipelineStageFlagBits2::eAllCommands)
+			.setDstStageMask(vk::PipelineStageFlagBits2::eAllCommands);
+		const bool bEmpty = Barriers.Buffers.empty() && Barriers.Images.empty();
 		const std::array Dependencies{vk::DependencyInfo()
+			.setMemoryBarrierCount(bEmpty ? 1u : 0u).setPMemoryBarriers(bEmpty ? &EmptyBarrier : nullptr)
 			.setBufferMemoryBarriers(Barriers.Buffers)
 			.setImageMemoryBarriers(Barriers.Images)};
 		GetCommandBuffer()->GetHandle().waitEvents2(Events, Dependencies);
@@ -1164,6 +1182,8 @@ namespace Durin::VulkanRHI
 			const uint64 ValidationOffset = It->second.Offset
 				+ FirstElement * Element.Stride;
 			const uint64 ValidationSize = ElementCount * Element.Stride;
+			checkf(VulkanBuffer->GetNativeRangeSize(ValidationOffset, ValidationSize) == ValidationSize,
+				"Draw vertex stream exceeds the mapped discard contents.");
 			ERHIAccess Tracked = ERHIAccess::None;
 			checkf(VulkanBuffer->GetStateTracker().Validate(ValidationOffset,
 				ValidationSize,
@@ -1211,6 +1231,8 @@ namespace Durin::VulkanRHI
 			const uint64 IndexValidationSize =
 				static_cast<uint64>(Arguments.IndexCount)
 					* BoundIndexBuffer->GetStride();
+			checkf(VulkanIndexBuffer->GetNativeRangeSize(IndexValidationOffset, IndexValidationSize) == IndexValidationSize,
+				"Indexed draw exceeds the mapped discard contents.");
 			ERHIAccess Tracked = ERHIAccess::None;
 			checkf(VulkanIndexBuffer->GetStateTracker().Validate(
 				IndexValidationOffset,
@@ -1352,6 +1374,15 @@ namespace Durin::VulkanRHI
 		Payload.RetainAllocation(Range);
 	}
 
+	auto FVulkanCommandListContext::RefreshBufferBindings(FRHIBuffer* LogicalBuffer) -> void
+	{
+		for (auto& [Stream, Binding] : BoundVertexBuffers)
+			if (Binding.LogicalBuffer.GetReference() == LogicalBuffer)
+				RHIBindVertexBuffer(Stream, LogicalBuffer, Binding.Offset);
+		if (BoundLogicalIndexBuffer.GetReference() == LogicalBuffer)
+			RHIBindIndexBuffer(LogicalBuffer, BoundIndexBufferOffset);
+	}
+
 	auto FVulkanCommandListContext::Finalize() -> std::unique_ptr<FVulkanPayload>
 	{
 		CheckVulkanRHIThread();
@@ -1432,7 +1463,8 @@ namespace Durin::VulkanRHI
 				Binding.WriteRange->AddGPUUse(InPayload.GetSyncPoint());
 				InPayload.RetainAllocation(Binding.WriteRange);
 			}
-			NewCmdBuffer->BindVertexBuffer(Stream, FVulkanBuffer::Cast(Binding.Buffer.GetReference())->GetHandle(), Binding.Offset);
+			const auto* Buffer = FVulkanBuffer::Cast(Binding.Buffer.GetReference());
+			NewCmdBuffer->BindVertexBuffer(Stream, Buffer->GetHandle(), uint64(Binding.Offset) + Buffer->GetBackingOffset());
 		}
 		if (BoundIndexBuffer)
 		{
@@ -1442,7 +1474,8 @@ namespace Durin::VulkanRHI
 				InPayload.RetainAllocation(BoundIndexWriteRange);
 			}
 			NewCmdBuffer->BindIndexBuffer(FVulkanBuffer::Cast(BoundIndexBuffer.GetReference())->GetHandle(),
-				BoundIndexBufferOffset, DeduceIndexType(BoundIndexBuffer->GetStride()));
+				uint64(BoundIndexBufferOffset) + FVulkanBuffer::Cast(BoundIndexBuffer.GetReference())->GetBackingOffset(),
+				DeduceIndexType(BoundIndexBuffer->GetStride()));
 		}
 	}
 

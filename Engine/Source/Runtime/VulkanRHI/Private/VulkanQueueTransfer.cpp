@@ -150,6 +150,8 @@ namespace Durin::VulkanRHI
 			const auto Source = Candidate.GetBarrierSource(Transition.Offset, Transition.Size);
 			const auto Destination = MapVulkanResourceState(Transition.RequiredAfter);
 			require(Candidate.GetOwnership().Release(Transition.Offset, Transition.Size, SourceFamily, DestinationFamily, State->BufferIds[Index]));
+			const uint64 NativeSize = Buffer->GetNativeRangeSize(Transition.Offset, Transition.Size);
+			if (!NativeSize) continue;
 			State->BufferSources.push_back(Source);
 			State->BufferDestinations.push_back(Destination);
 			State->BufferBarriers.push_back(vk::BufferMemoryBarrier2()
@@ -157,7 +159,7 @@ namespace Durin::VulkanRHI
 				.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
 				.setSrcQueueFamilyIndex(bSameFamily ? VK_QUEUE_FAMILY_IGNORED : SourceFamily)
 				.setDstQueueFamilyIndex(bSameFamily ? VK_QUEUE_FAMILY_IGNORED : DestinationFamily)
-				.setBuffer(Buffer->GetHandle()).setOffset(Transition.Offset).setSize(Transition.Size));
+				.setBuffer(Buffer->GetHandle()).setOffset(uint64(Buffer->GetBackingOffset()) + Transition.Offset).setSize(NativeSize));
 		}
 		for (size_t Index = 0; Index < State->Textures.size(); ++Index)
 		{

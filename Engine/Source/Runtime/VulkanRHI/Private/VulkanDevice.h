@@ -90,6 +90,7 @@ namespace Durin::VulkanRHI
 	class FVulkanCompletionTracker;
 	class FVulkanTransferArena;
 	class FVulkanUniformBufferPool;
+	class FVulkanDynamicBufferPool;
 	class FVulkanGPUTimingManager;
 
 	// Defers destruction of Vulkan handles until their queue completion token retires.
@@ -235,6 +236,7 @@ namespace Durin::VulkanRHI
 		// Graphics-only compatibility path for consumers not yet migrated to use sets.
 		VULKANRHI_API auto GetCompletionTracker() const -> FVulkanCompletionTracker&;
 		auto GetUploadArena() -> FVulkanTransferArena& { return *UploadArena; }
+		auto GetDynamicBufferPool() -> FVulkanDynamicBufferPool& { return *DynamicBufferPool; }
 		auto GetUniformBufferPool() -> FVulkanUniformBufferPool&
 		{ return *UniformBufferPool; }
 		auto GetReadbackArena() -> FVulkanTransferArena& { return *ReadbackArena; }
@@ -313,6 +315,7 @@ namespace Durin::VulkanRHI
 		std::vector<FVulkanQueue*> PhysicalQueues;
 		FVulkanTransferArena* UploadArena = nullptr;
 		FVulkanUniformBufferPool* UniformBufferPool = nullptr;
+		FVulkanDynamicBufferPool* DynamicBufferPool = nullptr;
 		FVulkanTransferArena* ReadbackArena = nullptr;
 		FVulkanGPUTimingManager* GPUTimingManager = nullptr;
 

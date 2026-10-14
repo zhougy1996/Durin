@@ -210,12 +210,37 @@ bytes or allocating one Vulkan buffer per operation.
 ### Dynamic vertex and index discard writes
 
 Vulkan buffers explicitly created with `Dynamic | CPUWriteDiscard` and only
-vertex/index usage reserve up to three additional mapped native allocations at
-creation. The original allocation remains the temporary-upload fallback.
-Allocation pressure may reduce the mapped pool without failing a successful
-base-buffer creation. Other buffer usages retain ordinary uploads. ImGui opts
-in for both vertex and index buffers and locks only the required data bytes,
-using its existing capacity growth policy.
+vertex/index usage share a device-owned mapped page pool. A discard lock reserves
+the prefix ending at `Offset + Size`, rounded to at least the device's
+non-coherent atom size and 16-byte alignment. Independent slices never share a
+flush atom. The original allocation remains the temporary-upload fallback;
+buffers no longer preallocate three complete physical versions. ImGui keeps
+its outer two-frame buffer ring and existing growth policy for that fallback.
+
+The initial shared page is 64 KiB. Backend growth doubles page capacity, rounded
+to 64 KiB and raised for larger requests, with at most four pages and 4 MiB of
+retained page storage. Recording-thread misses coalesce a growth request;
+fallback replay rechecks reclaimed space before allocating a page. Creation
+may also provision the initial page. Lock never performs native allocation,
+fence polling, or a GPU wait. Allocation pressure, oversized requests and pool
+exhaustion retain temporary uploads. Adjacent retired free spans coalesce;
+failed GPU uses remain unavailable until device teardown.
+
+Logical buffer size, stride and access tracking remain independent of physical
+page storage. CPU-only slice objects retain the page, offset and populated
+prefix; binds and every barrier path add that offset. Whole-buffer transitions
+still update logical state, while native barriers intersect the populated
+prefix to protect neighboring slices. Ordinary patches within the prefix write
+there directly. An extending patch materializes the prior prefix in the
+original backing, restores its access states and refreshes existing bindings
+before applying the patch. Undefined tail bytes remain undefined.
+
+This separation follows UE's backend-managed physical allocation model. UE's
+Vulkan changes explicitly replaced the fixed three-buffer scheme with an
+allocation array whose availability is managed by fences; see the
+[UE 5.3 RHI release notes](https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-engine-5.3-release-notes?application_version=5.3).
+Durin's page sizes, capacity limits and temporary-upload fallback are its own
+policy, rather than a claim to reproduce a particular UE backend version.
 
 Recording-thread acquisition checks counted range ownership and thread-safe
 GPU completion metadata, without native fence polling, native allocation or

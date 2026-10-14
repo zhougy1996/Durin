@@ -1,4 +1,5 @@
 #include "VulkanUniformBufferPool.h"
+#include "VulkanDynamicBufferPool.h"
 
 #include "VulkanDevice.h"
 #include "PipelineStateCache.h"
@@ -369,6 +370,7 @@ namespace Durin::VulkanRHI
 			.DebugName = "VulkanReadbackArena"});
 
 		UniformBufferPool = new FVulkanUniformBufferPool(*this);
+		DynamicBufferPool = new FVulkanDynamicBufferPool(*this);
 		ImmediateContext = new FVulkanCommandListContext(RHI, *this, GraphicsQueue);
 		SubmissionCoordinator = std::make_unique<FVulkanSubmissionCoordinator>(*this);
 		if (ComputeQueue != GraphicsQueue)
@@ -721,6 +723,8 @@ namespace Durin::VulkanRHI
 		}
 		delete ReadbackArena;
 		delete UniformBufferPool;
+		delete DynamicBufferPool;
+		DynamicBufferPool = nullptr;
 		UniformBufferPool = nullptr;
 		ReadbackArena = nullptr;
 		delete UploadArena;

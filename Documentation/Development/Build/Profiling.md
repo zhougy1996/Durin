@@ -227,27 +227,30 @@ Dynamic discard writes expose `Vulkan.DynamicBuffer.*` plots. `MappedLocks`,
 uploads across backends, also only while connected. Compare counter deltas for
 a selected steady interval. Acquired bytes and committed bytes can differ
 because recording precedes replay or is canceled.
-`MappedReservedBytes`, `FallbackReservedBytes`, and `LiveMappedVersions` track
+`MappedReservedBytes`, `FallbackReservedBytes`, and `LiveMappedPages` track
 live backend allocations even before connection, until buffer destruction
 queues native deletion; VMA diagnostics remain the authority for native bytes
 still awaiting deferred deletion. Lock counters cover all Vulkan discard
 requests; reservation gauges cover opted-in allocations, not only ImGui.
 
-`SampledPoolBusyVersions` describes the last sampled pool before acquisition,
-not a sum across buffers. `Vulkan.Buffer.TryMappedWrite` text identifies the
+`SampledPoolLiveRanges` and `SampledPoolFreeBytes` describe the shared device
+pool before acquisition. `PoolBusyFallbacks` includes lack of a fitting span,
+fragmentation and capacity limits. `Vulkan.Buffer.TryMappedWrite` text identifies the
 buffer, requested bytes, mapping result, retained ranges (CPU, recording,
 binding or payload ownership), unretained ranges awaiting GPU retirement, and
-reusable ranges. Detailed occupancy scans run only while connected; the
-unconnected acquisition path retains its early exit.
+page count and free bytes. Detailed diagnostic counts run only while connected;
+reclamation still checks reference ownership and GPU metadata on every acquisition.
 
 `MonaImGui.RHI.SampledViewportRingCapacityBytes` and
 `SampledViewportRequestedBytes` describe the last viewport invocation;
 `RenderViewport` text adds viewport identity, frame-slot count, and vertex/index
 byte counts. Ring capacity is the logical sum across ImGui's two frame slots;
-Vulkan's additional mapped versions are counted separately above. With both
-slots allocated at minimum capacity and three mapped versions per buffer, a
-viewport reserves approximately 640 KiB before growth. This is a capacity
-calculation, not a measured performance result.
+the shared Vulkan page capacity is counted separately above. With both slots
+allocated at minimum capacity, a viewport retains approximately 160 KiB of
+original fallback buffers; the device initially adds one shared 64 KiB page,
+then grows it on demand within the page-count and byte limits. Page capacity
+is shared across viewports rather than multiplied by every logical buffer.
+These are capacity calculations, not measured performance results.
 
 RHI-thread `RHI.Commands.Replay` reports recorded command counts and
 `RHI.SubmitCommands` measures backend submission, alongside existing Vulkan

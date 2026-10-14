@@ -38,8 +38,18 @@ namespace Durin::VulkanRHI
 			bool bConcurrentReadOnly = false, vk::Result* OutResult = nullptr);
 
 		VULKANRHI_API ~FVulkanBuffer() override;
+		// CPU-only logical slice; no native allocation or mapping calls.
+		VULKANRHI_API FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& Desc,
+			TRefCountPtr<FVulkanBuffer> Page, uint32 Offset, uint32 MappedSize);
+		auto MarkMappedPage() -> void;
 
-		auto GetHandle() const -> vk::Buffer { return GetBackingBuffer()->Buffer; }
+		auto GetHandle() const -> vk::Buffer
+		{ const auto* Backing = GetBackingBuffer(); return Backing->PageBuffer ? Backing->PageBuffer->GetHandle() : Backing->Buffer; }
+		auto GetBackingOffset() const -> uint32 { return GetBackingBuffer()->PageOffset; }
+		auto GetMappedSize() const -> uint32
+		{ const auto* Backing = GetBackingBuffer(); return Backing->PageBuffer ? Backing->PageSize : Backing->GetSize(); }
+		auto GetNativeRangeSize(uint64 Offset, uint64 Size) const -> uint64
+		{ const uint64 Available = GetMappedSize(); return Offset < Available ? std::min(Size, Available - Offset) : 0; }
 		VULKANRHI_API auto GetBackingBuffer() -> FVulkanBuffer*;
 		VULKANRHI_API auto GetBackingBuffer() const -> const FVulkanBuffer*;
 		auto GetWriteRange() const -> const std::shared_ptr<FRHIDynamicBufferWriteRange>& { return ActiveWriteRange; }
@@ -54,7 +64,8 @@ namespace Durin::VulkanRHI
 		VULKANRHI_API auto GetMappedPointer() const -> void*;
 		auto GetAllocationClass() const -> EVulkanAllocationClassCandidate
 		{
-			return GetBackingBuffer()->Allocation.Class;
+			const auto* Backing = GetBackingBuffer();
+			return Backing->PageBuffer ? Backing->PageBuffer->GetAllocationClass() : Backing->Allocation.Class;
 		}
 		VULKANRHI_API auto GetMemoryPropertyFlags() const -> vk::MemoryPropertyFlags;
 
@@ -79,7 +90,10 @@ namespace Durin::VulkanRHI
 		bool bUniformBacking = false;
 		bool bMappedWriteBacking = false;
 		bool bDiscardWriteFallbackBacking = false;
-		FRHIDynamicBufferWritePool WritePool;
+		bool bSupportsMappedWrites = false;
+		TRefCountPtr<FVulkanBuffer> PageBuffer;
+		uint32 PageOffset = 0;
+		uint32 PageSize = 0;
 		std::shared_ptr<FRHIDynamicBufferWriteRange> ActiveWriteRange;
 
 	};

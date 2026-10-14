@@ -36,6 +36,59 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Logs.Records.front().Level, ELogLevel::Error);
 	}
 
+	TEST_F(FVulkanResourceIntegrationTests, DynamicDiscardBuffersSharePageAndPreserveExtendedPatches)
+	{
+		_putenv_s("DURIN_RHI_EXECUTION", "inline");
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		auto& Commands = FRHICommandListImmediate::Get();
+		Commands.SwitchPipeline(ERHIPipeline::Graphics);
+		auto Desc = FRHIBufferCreateDesc::CreateVertex("SharedDynamicPageTest", 256);
+		Desc.Usage |= EBufferUsageFlags::Dynamic | EBufferUsageFlags::CPUWriteDiscard;
+		auto First = GDynamicRHI->RHICreateBuffer(Commands, Desc);
+		auto Second = GDynamicRHI->RHICreateBuffer(Commands, Desc);
+		ASSERT_TRUE(First && Second);
+		for (const auto& Buffer : {First, Second})
+		{
+			auto* Bytes = static_cast<std::byte*>(Commands.LockBuffer(Buffer, 0, 16, EResourceLockMode::WriteOnlyDiscard));
+			std::memset(Bytes, 7, 16);
+			Commands.UnlockBuffer(Buffer);
+			// Full logical transitions must not cover neighboring page slices.
+			Commands.TransitionBuffers(std::array{FRHIBufferTransition::Whole(Buffer, ERHIAccess::Discard, ERHIAccess::VertexBufferRead)});
+		}
+		Commands.BindVertexBuffer(0, First, 0);
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+			const auto* A = FVulkanBuffer::Cast(First.GetReference());
+			const auto* B = FVulkanBuffer::Cast(Second.GetReference());
+			EXPECT_EQ(A->GetHandle(), B->GetHandle());
+			EXPECT_NE(A->GetBackingOffset(), B->GetBackingOffset());
+			EXPECT_EQ(A->GetMappedSize(), 16u);
+			EXPECT_EQ(A->GetSize(), 256u);
+			EXPECT_EQ(A->GetNativeRangeSize(0, 256), 16u);
+			EXPECT_EQ(A->GetNativeRangeSize(16, 240), 0u);
+		});
+		const std::array Patch{std::byte{9}};
+		Commands.WriteBuffer(First, 32, Patch);
+		Commands.TransitionBuffers(std::array{FRHIBufferTransition{First, 32, 1,
+			ERHIAccess::TransferWrite, ERHIAccess::VertexBufferRead}});
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+			const auto* A = FVulkanBuffer::Cast(First.GetReference());
+			const auto* B = FVulkanBuffer::Cast(Second.GetReference());
+			EXPECT_NE(A->GetHandle(), B->GetHandle());
+			EXPECT_EQ(A->GetMappedSize(), 256u);
+			const auto* Bytes = static_cast<const std::byte*>(A->GetMappedPointer());
+			EXPECT_EQ(Bytes[0], std::byte{7});
+			EXPECT_EQ(Bytes[15], std::byte{7});
+			EXPECT_EQ(Bytes[32], std::byte{9});
+			ERHIAccess Tracked = ERHIAccess::None;
+			EXPECT_TRUE(A->GetStateTracker().Validate(0, 16, ERHIAccess::VertexBufferRead, Tracked));
+			EXPECT_EQ(static_cast<const std::byte*>(B->GetMappedPointer())[0], std::byte{7});
+		});
+		Commands.BindVertexBuffer(0, nullptr, 0);
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+	}
+
 	TEST_F(FVulkanResourceIntegrationTests, NativeResourceFactoriesRunOutsideReplayAndReleaseResources)
 	{
 		FShaderCompileOptions Options;

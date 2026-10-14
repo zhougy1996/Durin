@@ -23,11 +23,17 @@ namespace Durin
 	class FRHIDynamicBufferWriteRange final
 	{
 		friend class FRHIDynamicBufferWritePool;
+		friend class FRHIDynamicBufferPagePool;
 	public:
 		FRHIDynamicBufferWriteRange(std::shared_ptr<void> InOwner, void* InData)
 			: Owner(std::move(InOwner)), Data(InData) { require(Owner && Data); }
 		auto GetData() const -> void* { return Data; }
 		auto GetOwner() const -> const std::shared_ptr<void>& { return Owner; }
+		auto GetOffset() const -> uint32 { return Offset; }
+		auto GetSize() const -> uint32 { return Size; }
+		// Backend replaces the page owner with a slice owner before publishing the lock.
+		// That slice must retain the same page and mapped address.
+		auto SetOwner(std::shared_ptr<void> InOwner) -> void { require(InOwner); Owner = std::move(InOwner); }
 		auto AddGPUUse(const FRHIGPUSyncPointRef& Signal) -> void
 		{
 			std::lock_guard Lock(Mutex);
@@ -38,6 +44,8 @@ namespace Durin
 		void* Data;
 		std::mutex Mutex;
 		FRHIRetirementPrerequisites Uses;
+		uint32 Offset = 0;
+		uint32 Size = 0;
 	};
 
 	// A disjoint occupancy snapshot, taken before selecting the next write range.
@@ -47,6 +55,9 @@ namespace Durin
 		uint32 RetainedRangeCount = 0;
 		uint32 AwaitingRetirementRangeCount = 0;
 		uint32 ReusableRangeCount = 0;
+		uint32 PageCount = 0;
+		uint64 ReservedBytes = 0;
+		uint64 FreeBytes = 0;
 	};
 
 	// Initialized before publication. Acquisition never allocates native memory,

@@ -82,6 +82,14 @@ be reacquired while CPU locks, recorded commands, active versions or bindings
 retain them, or while any GPU use is awaiting retirement. Failed/device-lost
 GPU uses never authorize normal reuse.
 
+Vulkan mapped versions are logical slices of shared device pages. The logical
+buffer capacity and stride remain unchanged; binding and synchronization add
+the captured physical offset. Whole logical transitions intersect the populated
+prefix when emitted natively, avoiding neighboring slices. Normal patches that
+extend this prefix preserve its bytes and access states by materializing the
+original backing, including refreshing existing bindings. See the
+[dynamic discard memory contract](VulkanMemoryAndGPUCompletion.md#dynamic-vertex-and-index-discard-writes).
+
 `UpdateUniformBuffer` still copies complete replacement bytes and resource
 references into the command list. Uniform binding captures the current
 immutable physical allocation during replay; subsequent updates do not rewrite

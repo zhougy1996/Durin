@@ -1,10 +1,131 @@
 #include "RHICompletion.h"
 #include "Backend/RHICompletionBackend.h"
 #include "Backend/RHIDynamicBufferWrite.h"
+#include "Backend/RHIDynamicBufferPagePool.h"
 #include <gtest/gtest.h>
 
 namespace Durin
 {
+	TEST(FRHIDynamicBufferPageTests, BuffersShareOnePageWithAlignedNonOverlappingSlices)
+	{
+		FRHIDynamicBufferPagePool Pool(2, 256);
+		auto Memory = std::make_shared<std::array<std::byte, 128>>();
+		ASSERT_TRUE(Pool.AddPage(Memory, Memory->data(), 128));
+		auto First = Pool.TryAcquire(17, 16), Second = Pool.TryAcquire(9, 16);
+		ASSERT_TRUE(First && Second);
+		EXPECT_EQ(First->GetOffset(), 0u);
+		EXPECT_EQ(First->GetSize(), 17u);
+		EXPECT_EQ(Second->GetOffset(), 32u);
+		EXPECT_EQ(Second->GetSize(), 9u);
+		EXPECT_EQ(Second->GetData(), Memory->data() + 32);
+		EXPECT_EQ(First->GetOwner(), Second->GetOwner());
+		std::memset(First->GetData(), 1, First->GetSize());
+		std::memset(Second->GetData(), 2, Second->GetSize());
+		EXPECT_EQ((*Memory)[16], std::byte{1});
+		EXPECT_EQ((*Memory)[32], std::byte{2});
+	}
+
+	TEST(FRHIDynamicBufferPageTests, ReferencedAndGPUInFlightSlicesCannotBeReused)
+	{
+		FRHIDynamicBufferPagePool Pool(1, 64);
+		auto Memory = std::make_shared<std::array<std::byte, 64>>();
+		ASSERT_TRUE(Pool.AddPage(Memory, Memory->data(), 64));
+		auto First = Pool.TryAcquire(32, 16), Second = Pool.TryAcquire(32, 16);
+		FRHIGPUQueueTimeline Queue(AllocateRHIDeviceGeneration(), {0});
+		auto Signal = Queue.Reserve();
+		First->AddGPUUse(Signal);
+		First.reset();
+		FRHIDynamicBufferWritePoolSnapshot Snapshot;
+		EXPECT_FALSE(Pool.TryAcquire(16, 16, &Snapshot));
+		EXPECT_EQ(Snapshot.PageCount, 1u);
+		EXPECT_EQ(Snapshot.ReservedBytes, 64u);
+		EXPECT_EQ(Snapshot.FreeBytes, 0u);
+		EXPECT_EQ(Snapshot.RetainedRangeCount, 1u);
+		EXPECT_EQ(Snapshot.AwaitingRetirementRangeCount, 1u);
+		ASSERT_TRUE(Queue.MarkSubmitted(Signal));
+		ASSERT_TRUE(Queue.ObserveCompleted(Signal));
+		auto Reused = Pool.TryAcquire(32, 16);
+		ASSERT_TRUE(Reused);
+		EXPECT_EQ(Reused->GetOffset(), 0u);
+	}
+
+	TEST(FRHIDynamicBufferPageTests, AdjacentReleasedSlicesMergeForLargerWrites)
+	{
+		FRHIDynamicBufferPagePool Pool(1, 64);
+		auto Memory = std::make_shared<std::array<std::byte, 64>>();
+		ASSERT_TRUE(Pool.AddPage(Memory, Memory->data(), 64));
+		auto First = Pool.TryAcquire(16, 16), Second = Pool.TryAcquire(16, 16), Third = Pool.TryAcquire(32, 16);
+		First.reset(); Second.reset();
+		EXPECT_FALSE(Pool.TryAcquire(48, 16));
+		auto Combined = Pool.TryAcquire(32, 16);
+		ASSERT_TRUE(Combined);
+		EXPECT_EQ(Combined->GetOffset(), 0u);
+		Combined.reset(); Third.reset();
+		EXPECT_TRUE(Pool.TryAcquire(64, 16));
+	}
+
+	TEST(FRHIDynamicBufferPageTests, PageAndByteLimitsRejectGrowthAndOversizedWrites)
+	{
+		FRHIDynamicBufferPagePool Pool(2, 96);
+		auto Memory = std::make_shared<std::array<std::byte, 128>>();
+		ASSERT_TRUE(Pool.AddPage(Memory, Memory->data(), 64));
+		EXPECT_FALSE(Pool.CanAddPage(64));
+		ASSERT_TRUE(Pool.AddPage(Memory, Memory->data() + 64, 32));
+		EXPECT_FALSE(Pool.AddPage(Memory, Memory->data() + 96, 16));
+		EXPECT_EQ(Pool.GetPageCount(), 2u);
+		EXPECT_FALSE(Pool.TryAcquire(UINT32_MAX, 256));
+		EXPECT_FALSE(Pool.TryAcquire(65, 16));
+		EXPECT_TRUE(Pool.TryAcquire(64, 16));
+		EXPECT_TRUE(Pool.TryAcquire(32, 16));
+	}
+
+	TEST(FRHIDynamicBufferPageTests, EveryQueueUseMustCompleteBeforeReclaim)
+	{
+		FRHIDynamicBufferPagePool Pool(1, 32);
+		auto Memory = std::make_shared<std::array<std::byte, 32>>();
+		ASSERT_TRUE(Pool.AddPage(Memory, Memory->data(), 32));
+		FRHIGPUQueueTimeline FirstQueue(AllocateRHIDeviceGeneration(), {0}), SecondQueue(AllocateRHIDeviceGeneration(), {1});
+		auto First = FirstQueue.Reserve(), Second = SecondQueue.Reserve();
+		auto Range = Pool.TryAcquire(32, 16);
+		Range->AddGPUUse(First); Range->AddGPUUse(Second); Range.reset();
+		ASSERT_TRUE(FirstQueue.MarkSubmitted(First));
+		ASSERT_TRUE(FirstQueue.ObserveCompleted(First));
+		EXPECT_FALSE(Pool.TryAcquire(32, 16));
+		ASSERT_TRUE(SecondQueue.Cancel(Second));
+		EXPECT_TRUE(Pool.TryAcquire(32, 16));
+	}
+
+	TEST(FRHIDynamicBufferPageTests, ConcurrentRecordingReservesDistinctSlices)
+	{
+		FRHIDynamicBufferPagePool Pool(1, 128);
+		auto Memory = std::make_shared<std::array<std::byte, 128>>();
+		ASSERT_TRUE(Pool.AddPage(Memory, Memory->data(), 128));
+		std::array<std::future<std::shared_ptr<FRHIDynamicBufferWriteRange>>, 4> Futures;
+		for (auto& Future : Futures)
+			Future = std::async(std::launch::async, [&] { return Pool.TryAcquire(32, 16); });
+		std::array<std::shared_ptr<FRHIDynamicBufferWriteRange>, 4> Ranges;
+		std::unordered_set<uint32> Offsets;
+		for (size_t Index = 0; Index < Ranges.size(); ++Index)
+		{
+			Ranges[Index] = Futures[Index].get();
+			ASSERT_TRUE(Ranges[Index]);
+			Offsets.insert(Ranges[Index]->GetOffset());
+		}
+		EXPECT_EQ(Offsets.size(), 4u);
+		EXPECT_FALSE(Pool.TryAcquire(1, 16));
+	}
+
+	TEST(FRHIDynamicBufferPageTests, FailedSubmissionsNeverAuthorizeNormalReuse)
+	{
+		FRHIDynamicBufferPagePool Pool(1, 32);
+		auto Memory = std::make_shared<std::array<std::byte, 32>>();
+		ASSERT_TRUE(Pool.AddPage(Memory, Memory->data(), 32));
+		FRHIGPUQueueTimeline Queue(AllocateRHIDeviceGeneration(), {0});
+		auto Range = Pool.TryAcquire(32, 16);
+		Range->AddGPUUse(Queue.Reserve()); Range.reset(); Queue.Fail(true);
+		EXPECT_FALSE(Pool.TryAcquire(32, 16));
+	}
+
 	TEST(FRHIDynamicBufferWriteTests, CPUAndRecordingOwnersPreventReuse)
 	{
 		FRHIDynamicBufferWritePool Pool;
