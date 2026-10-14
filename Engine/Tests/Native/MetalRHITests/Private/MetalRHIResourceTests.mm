@@ -847,6 +847,9 @@ TEST(FMetalRHITextureTests, CppViewAndSourceSurvivePoolDrainWithDelayedNativeWor
 					ViewNative = (__bridge id<MTLTexture>)static_cast<void*>(NativeView);
 					Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Texture.GetReference(),
 						0, 0, {0, 0, 0, 0, 4, 4}, 16, std::as_bytes(std::span{Pattern}));
+					Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+						Texture.GetReference(), {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 					// Finish the public upload before using a separate native qualification queue.
 					Commands.BlockUntilGPUIdle();
 					Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread);
@@ -1304,6 +1307,9 @@ TEST(FMetalRHITextureTests, ProductionFallbackDescriptorsAdmitShaderOnlyUsage)
 		const Durin::FUpdateTextureRegion2D Region(0, 0, 0, 0, 1, 1);
 		Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Cube.GetReference(),
 			0, 0, Region, 4, std::as_bytes(std::span(Red)));
+		Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+			Cube.GetReference(), {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+			Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 		auto ShadowDesc = Durin::FRHITextureCreateDesc::Create2DArray(
 			"Metal fallback shadow")
 			.SetExtent(1)
@@ -1505,11 +1511,17 @@ TEST(FMetalRHITextureTests, BC1SrgbCubeUploadsAndReadsBlockRowsAndMipTail)
 			{
 				Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Cube.GetReference(),
 					0, Face, {0, 0, 0, 0, 8, 8}, 24, std::span(Pitched));
+				Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+					Cube.GetReference(), {Durin::ERHITextureAspect::Color, 0, 1, Face, 1},
+					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 				for (uint32_t Mip = 1; Mip < 4; ++Mip)
 				{
 					const uint32_t Extent = 8u >> Mip;
 					Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Cube.GetReference(),
 						Mip, Face, {0, 0, 0, 0, Extent, Extent}, 8, std::span(GrayBlock));
+					Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+						Cube.GetReference(), {Durin::ERHITextureAspect::Color, Mip, 1, Face, 1},
+						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 				}
 			}
 			Commands.EndGPUSubmission();
@@ -1692,6 +1704,9 @@ TEST(FMetalRHITextureTests, BC5AndBC7UploadPitchedBlockRowsAndMipTails)
 										Source.data() + (Row + 1) * SourcePitch + 16, Layout.RowPitch);
 								Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Texture.GetReference(),
 									Mip, Layer, {0, 0, 4, 4, Extent, Extent}, SourcePitch, std::span(Source));
+								Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+									Texture.GetReference(), {Durin::ERHITextureAspect::Color, Mip, 1, Layer, 1},
+									Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 							}
 						if (bExplicitSubmission)
 						{
@@ -2485,6 +2500,9 @@ TEST(FMetalRHITextureTests, PitchedVolumeUploadPreservesVoxelBox)
 				if (!bExplicitSubmission)
 					Signal = Commands.BeginGPUSubmission(
 						{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+				Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+					Texture.GetReference(), {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::TransferRead}});
 				Commands.CopyTextureToBuffer(Texture.GetReference(), Buffer.GetReference(),
 					{&Copy, 1});
 				Commands.EndGPUSubmission();

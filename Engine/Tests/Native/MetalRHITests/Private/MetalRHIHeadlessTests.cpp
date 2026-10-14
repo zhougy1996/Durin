@@ -130,6 +130,9 @@ TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProduct
 			Durin::GDynamicRHI->RHIUpdateTexture2D(Commands, Font.GetReference(),
 				0, 0, Durin::FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 4,
 				std::as_bytes(std::span(FontPixel)));
+			Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+				Font.GetReference(), {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+				Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			auto FontView = Durin::GDynamicRHI->RHICreateTextureView(
 				Font.GetReference(), Durin::MakeDefaultTextureViewDesc(
 					*Font, Durin::ERHITextureViewUsage::Sampled));

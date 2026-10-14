@@ -205,6 +205,9 @@ namespace Durin::Editor
 								Region,
 								Width * 4,
 								*SharedPixels);
+							CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+								Result.Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+								Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 						}
 						else
 						{

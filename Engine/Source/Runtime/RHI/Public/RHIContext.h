@@ -82,6 +82,7 @@ namespace Durin
 		// Leaves the written range in TransferWrite for an explicit caller or graph barrier.
 		virtual auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void = 0;
 		virtual auto RHIInitializeTexture(FRHITexture* Texture) -> void = 0;
+		// Uploads leave the affected mip/slice in TransferWrite; callers transition to its next use.
 		virtual auto RHIUpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void = 0;
 		virtual auto RHIUpdateTexture3D(FRHITexture* Texture, uint32 MipIndex,
 			const FUpdateTextureRegion3D& UpdateRegion, uint32 SourceRowPitch,

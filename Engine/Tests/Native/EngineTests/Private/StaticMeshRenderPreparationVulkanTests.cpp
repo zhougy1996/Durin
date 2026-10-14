@@ -1978,6 +1978,9 @@ TEST(FMaterialAnimationVulkanTests, EarlyCommandsInvalidateOnTextureMaterialAndT
 				ASSERT_TRUE(Textures[Index]);
 				GDynamicRHI->RHIUpdateTexture2D(Commands, Textures[Index], 0, 0,
 					{0, 0, 0, 0, 1, 1}, 4, std::as_bytes(std::span(Colors[Index])));
+				Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+					Textures[Index], {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			}
 			Reference.SetReferencedTexture_RenderThread(Textures[0]);
 			Data = MaterialProxy->Resolve_RenderThread();

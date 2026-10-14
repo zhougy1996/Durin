@@ -249,6 +249,23 @@ namespace Durin
 			}
 		};
 
+		class FTextureUploadRecordingContext final : public FBarrierRecordingContext
+		{
+		public:
+			struct FUpload
+			{
+				uint32 Mip, Layer;
+				FByteBuffer Data;
+			};
+			std::vector<FUpload> Uploads;
+			auto RHIUpdateTexture2D(FRHITexture*, uint32 Mip, uint32 Layer,
+				const FUpdateTextureRegion2D&, uint32, FByteView Data) -> void override
+			{ Uploads.push_back({Mip, Layer, FByteBuffer(Data.begin(), Data.end())}); }
+			auto RHIUpdateTexture3D(FRHITexture*, uint32 Mip,
+				const FUpdateTextureRegion3D&, uint32, uint32, FByteView Data) -> void override
+			{ Uploads.push_back({Mip, 0, FByteBuffer(Data.begin(), Data.end())}); }
+		};
+
 		class FIndirectRecordingContext final : public FBarrierRecordingContext
 		{
 		public:
@@ -1537,6 +1554,131 @@ namespace Durin
 		EXPECT_TRUE(Builder.Capture().bCompiled);
 		EXPECT_EQ(Durin::GetRDGExecutionStatus(Builder.Execute(GetCommandList())), ERDGExecutionStatus::InvalidState);
 		EXPECT_FALSE(FRDGBuilderTestAccessor::Compile(Builder).has_value());
+	}
+
+	TEST_F(FRDGTests, QueuedTextureUploadsOwnPitchedCubeSourcesAndTransitionToCompute)
+	{
+		FTextureUploadRecordingContext Context;
+		FRHICommandListExecutor Executor(Context);
+		FTestRDGAllocator Allocator;
+		const FRHITextureSubresourceRange Range{ERHITextureAspect::Color, 1, 1, 2, 1};
+		{
+			FRDGBuilder Builder;
+			const auto Texture = Builder.CreateTexture({.Texture =
+				FRHITextureCreateDesc::CreateCube("UploadCube").SetExtent(4)
+					.SetFormat(EPixelFormat::R8_UNORM).SetNumMips(2)
+					.SetFlags(ETextureCreateFlags::DestinationCopy | ETextureCreateFlags::ShaderResource)}, "Cube");
+			FByteBuffer Source(16);
+			for (size_t Index = 0; Index < Source.size(); ++Index) Source[Index] = std::byte(Index);
+			Builder.QueueTextureUpload(Texture, 1, 2, {0, 0, 1, 1, 2, 2}, 4, Source);
+			std::fill(Source.begin(), Source.end(), std::byte{99});
+			auto Params = Builder.AllocParameters<FInstanceAccessParameters>();
+			Params->Textures[0] = FRDGTextureAccess{Texture, Range, ERDGUse::Read,
+				ERHIAccess::ComputeShaderRead, false};
+			Builder.AddRecordingPass("ComputeConsumer", ERDGPassType::Compute, std::move(Params),
+				[](FRHICommandList&, const FInstanceAccessParameters&, const FRDGParameterResolver&) {});
+			const auto Result = Builder.Execute(Executor.GetImmediateCommandList(), &Allocator);
+			ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+			const auto Capture = Builder.Capture();
+			ASSERT_EQ(Capture.Uses.size(), 2u);
+			EXPECT_EQ(Capture.Uses[0].TextureRange, Range);
+			EXPECT_TRUE(Capture.Uses[0].bDiscard);
+		}
+		Executor.Submit({}, ERHISubmitFlags::None);
+		ASSERT_EQ(Context.Uploads.size(), 1u);
+		EXPECT_EQ(Context.Uploads[0].Mip, 1u);
+		EXPECT_EQ(Context.Uploads[0].Layer, 2u);
+		EXPECT_EQ(Context.Uploads[0].Data,
+			(FByteBuffer{std::byte{5}, std::byte{6}, std::byte{9}, std::byte{10}}));
+		ASSERT_EQ(Context.TextureBatches.size(), 2u);
+		EXPECT_EQ(Context.TextureBatches[0][0].Range, Range);
+		EXPECT_EQ(Context.TextureBatches[0][0].RequiredAfter, ERHIAccess::TransferWrite);
+		EXPECT_EQ(Context.TextureBatches[1][0].ExpectedBefore, ERHIAccess::TransferWrite);
+		EXPECT_EQ(Context.TextureBatches[1][0].RequiredAfter, ERHIAccess::ComputeShaderRead);
+	}
+
+	TEST_F(FRDGTests, QueuedVolumePatchRetainsItsInitialProducerWhenCulling)
+	{
+		FTextureUploadRecordingContext Context;
+		FRHICommandListExecutor Executor(Context);
+		FTestRDGAllocator Allocator;
+		FRDGBuilder Builder;
+		Builder.EnablePassCulling();
+		const auto Texture = Builder.CreateTexture({.Texture =
+			FRHITextureCreateDesc::Create3D("Volume").SetExtent(2, 2).SetDepth(2)
+				.SetFormat(EPixelFormat::R8_UNORM).SetFlags(ETextureCreateFlags::DestinationCopy)}, "Volume");
+		FByteBuffer Source(40, std::byte{99});
+		for (const size_t Index : {17u, 18u, 21u, 22u, 29u, 30u, 33u, 34u})
+			Source[Index] = std::byte{7};
+		Builder.QueueTextureUpload(Texture, 0, {0, 0, 0, 1, 1, 1, 2, 2, 2}, 4, 12, Source);
+		std::fill(Source.begin(), Source.end(), std::byte{0});
+		const auto Patch = Builder.QueueTextureUpload(Texture, 0,
+			{1, 1, 1, 0, 0, 0, 1, 1, 1}, 1, 1, FByteBuffer{std::byte{9}});
+		Builder.MarkPassRoot(Patch);
+		const auto Result = Builder.Execute(Executor.GetImmediateCommandList(), &Allocator);
+		ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+		Executor.Submit({}, ERHISubmitFlags::None);
+		ASSERT_EQ(Context.Uploads.size(), 2u);
+		EXPECT_EQ(Context.Uploads[0].Data, FByteBuffer(8, std::byte{7}));
+		EXPECT_EQ(Context.Uploads[1].Data, FByteBuffer{std::byte{9}});
+		const auto Capture = Builder.Capture();
+		ASSERT_EQ(Capture.Uses.size(), 2u);
+		EXPECT_EQ(Capture.Uses[1].Use, ERDGUse::ReadWrite);
+		EXPECT_FALSE(Capture.Uses[1].bDiscard);
+	}
+
+	TEST_F(FRDGTests, QueuedCompressedTextureUploadPacksSourceBlocks)
+	{
+		FTextureUploadRecordingContext Context;
+		FRHICommandListExecutor Executor(Context);
+		FTestRDGAllocator Allocator;
+		FRDGBuilder Builder;
+		const auto Texture = Builder.CreateTexture({.Texture =
+			FRHITextureCreateDesc::Create2D("Compressed", 8, 8, EPixelFormat::BC7_UNORM)
+				.SetFlags(ETextureCreateFlags::DestinationCopy)}, "Compressed");
+		FByteBuffer Source(144, std::byte{99});
+		FByteBuffer Expected(64);
+		for (size_t Index = 0; Index < Expected.size(); ++Index)
+		{
+			Expected[Index] = std::byte(Index);
+			Source[64 + (Index / 32) * 48 + Index % 32] = Expected[Index];
+		}
+		Builder.QueueTextureUpload(Texture, 0, 0, {0, 0, 4, 4, 8, 8}, 48, Source);
+		std::fill(Source.begin(), Source.end(), std::byte{0});
+		const auto Result = Builder.Execute(Executor.GetImmediateCommandList(), &Allocator);
+		ASSERT_TRUE(Result.has_value()) << ToString(Result.error());
+		Executor.Submit({}, ERHISubmitFlags::None);
+		ASSERT_EQ(Context.Uploads.size(), 1u);
+		EXPECT_EQ(Context.Uploads[0].Data, Expected);
+	}
+
+	TEST_F(FRDGTests, QueuedTexturePatchRequiresExistingContents)
+	{
+		FRDGBuilder Builder;
+		const auto Texture = Builder.CreateTexture({.Texture =
+			FRHITextureCreateDesc::Create2D("Patch", 2, 2, EPixelFormat::R8_UNORM)
+				.SetFlags(ETextureCreateFlags::DestinationCopy)}, "Patch");
+		Builder.QueueTextureUpload(Texture, 0, 0, {0, 0, 0, 0, 1, 1}, 1, FByteBuffer(1));
+		const auto Result = Builder.Execute(GetCommandList());
+		ASSERT_FALSE(Result.has_value());
+		EXPECT_NE(ToString(Result.error()).find("resource producer missing"), std::string::npos);
+	}
+
+	TEST_F(FRDGTests, QueuedTextureUploadsRejectInvalidRegionsSourcesAndHandles)
+	{
+		for (uint32 Case = 0; Case < 5; ++Case)
+		{
+			SCOPED_TRACE(Case);
+			FRDGBuilder Builder;
+			const auto Texture = Builder.CreateTexture({.Texture =
+				FRHITextureCreateDesc::Create2D("Invalid", 2, 2, EPixelFormat::R8_UNORM)
+					.SetFlags(Case == 3 ? ETextureCreateFlags::ShaderResource : ETextureCreateFlags::DestinationCopy)}, "Invalid");
+			if (Case == 4) Builder.QueueTextureUpload({}, 0, 0, {0, 0, 0, 0, 2, 2}, 2, FByteBuffer(4));
+			else Builder.QueueTextureUpload(Texture, Case == 0 ? 1 : 0, 0,
+				{0, 0, 0, 0, 2, 2}, Case == 1 ? 1 : 2, FByteBuffer(Case == 2 ? 3 : 4));
+			const auto Result = Builder.Execute(GetCommandList());
+			EXPECT_FALSE(Result.has_value());
+		}
 	}
 
 	TEST_F(FRDGTests, QueuedBufferUploadsCopySourcesAndDeclareExactRanges)

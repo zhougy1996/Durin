@@ -517,7 +517,6 @@ namespace Durin::VulkanRHI
 			ERHIAccess::HostWrite, ERHIAccess::TransferRead}};
 		Context.RHITransitionBuffers(StagingTransition);
 
-		const bool bStorage = EnumHasAnyFlags(VulkanTexture->CreateFlags, ETextureCreateFlags::Storage);
 		const FRHITextureSubresourceRange TransitionRange{
 			ERHITextureAspect::Color, MipIndex, 1, ArraySlice, 1};
 		const ERHIAccess PreviousAccess = VulkanTexture->GetStateTracker().Get(
@@ -537,11 +536,6 @@ namespace Durin::VulkanRHI
 			.TextureExtent = {UpdateRegion.Width, UpdateRegion.Height, 1}}};
 		Context.RHICopyBufferToTexture(StagingBuffer, VulkanTexture, CopyRegions);
 
-		const ERHIAccess FinalAccess = bStorage
-			? ERHIAccess::GraphicsShaderReadWrite : ERHIAccess::GraphicsShaderRead;
-		const std::array PostCopyTransition{FRHITextureTransition{
-			VulkanTexture, TransitionRange, ERHIAccess::TransferWrite, FinalAccess}};
-		Context.RHITransitionTextures(PostCopyTransition);
 		Staging.Retire();
 	}
 
@@ -627,13 +621,6 @@ namespace Durin::VulkanRHI
 				static_cast<int32>(UpdateRegion.DestY), static_cast<int32>(UpdateRegion.DestZ)},
 			.TextureExtent = {UpdateRegion.Width, UpdateRegion.Height, UpdateRegion.Depth}}};
 		Context.RHICopyBufferToTexture(StagingBuffer, VulkanTexture, CopyRegions);
-		const bool bStorage = EnumHasAnyFlags(
-			VulkanTexture->CreateFlags, ETextureCreateFlags::Storage);
-		const ERHIAccess FinalAccess = bStorage
-			? ERHIAccess::GraphicsShaderReadWrite : ERHIAccess::GraphicsShaderRead;
-		const std::array PostCopyTransition{FRHITextureTransition{
-			VulkanTexture, TransitionRange, ERHIAccess::TransferWrite, FinalAccess}};
-		Context.RHITransitionTextures(PostCopyTransition);
 		Staging.Retire();
 	}
 

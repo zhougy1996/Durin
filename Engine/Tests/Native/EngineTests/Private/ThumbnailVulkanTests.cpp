@@ -660,8 +660,14 @@ TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRat
 		Input = GDynamicRHI->RHICreateTexture(Commands, Desc);
 		const FByteBuffer Pixels{std::byte{128}, std::byte{64}, std::byte{32}, std::byte{128},
 			std::byte{128}, std::byte{64}, std::byte{32}, std::byte{128}};
-		if (Input) GDynamicRHI->RHIUpdateTexture2D(Commands, Input, 0, 0,
-			FUpdateTextureRegion2D(0, 0, 0, 0, 2, 1), 8, Pixels);
+		if (Input)
+		{
+			GDynamicRHI->RHIUpdateTexture2D(Commands, Input, 0, 0,
+				FUpdateTextureRegion2D(0, 0, 0, 0, 2, 1), 8, Pixels);
+			Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+				Input, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+				Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
+		}
 	});
 	FlushRenderingCommands();
 	ASSERT_NE(Input, nullptr);

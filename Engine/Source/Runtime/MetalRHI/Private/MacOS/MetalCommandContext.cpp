@@ -740,8 +740,7 @@ namespace Durin
 				Encoder->endEncoding();
 				static_cast<FMetalTexture*>(Texture)->ApplyAccess(
 					{ERHITextureAspect::Color, MipIndex, 1, ArraySlice, 1},
-					EnumHasAnyFlags(Texture->GetFlags(), ETextureCreateFlags::Storage)
-						? ERHIAccess::GraphicsShaderReadWrite : ERHIAccess::GraphicsShaderRead);
+					ERHIAccess::TransferWrite);
 				if (Active)
 				{
 					Active->NativeResources.push_back(NS::RetainPtr(Staging));
@@ -832,8 +831,7 @@ namespace Durin
 				Encoder->endEncoding();
 				static_cast<FMetalTexture*>(Texture)->ApplyAccess(
 					{ERHITextureAspect::Color, MipIndex, 1, 0, 1},
-					EnumHasAnyFlags(Texture->GetFlags(), ETextureCreateFlags::Storage)
-						? ERHIAccess::GraphicsShaderReadWrite : ERHIAccess::GraphicsShaderRead);
+					ERHIAccess::TransferWrite);
 				if (Active)
 				{
 					Active->NativeResources.push_back(NS::RetainPtr(Staging));

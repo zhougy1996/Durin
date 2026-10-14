@@ -168,6 +168,9 @@ namespace Durin
 					Size * 4,
 					Pixels
 				);
+				RHICmdList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+					Texture, {Durin::ERHITextureAspect::Color, MipIndex, 1, 0, 1},
+					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			}
 			return Texture;
 		}
@@ -240,6 +243,9 @@ namespace Durin
 					Mip.RowPitch,
 					Mip.Pixels
 				);
+				RHICmdList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+					Texture, {Durin::ERHITextureAspect::Color, MipIndex, 1, 0, 1},
+					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			}
 			return Texture;
 		}
@@ -580,6 +586,9 @@ namespace Durin
 		GDynamicRHI->RHIUpdateTexture2D(
 			RHICmdList, Texture.GetReference(), 0, 0, UpdateRegion,
 			4 * 4, std::as_bytes(std::span{TextureBytes}));
+		RHICmdList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+			Texture.GetReference(), {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+			Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 		Durin::FByteBuffer ReadbackBytes;
 		EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(
 			RHICmdList, Texture.GetReference(), 0, 0, ReadbackBytes));
@@ -679,6 +688,9 @@ namespace Durin
 						GDynamicRHI->RHIUpdateTexture2D(
 							CommandList, ChurnTexture.GetReference(), 0, 0,
 							ChurnRegion, 4 * 4, std::as_bytes(std::span{ChurnBytes}));
+						CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+							ChurnTexture.GetReference(), {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+							Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 						Durin::FByteBuffer ChurnReadback;
 						bChurnSucceeded = bChurnSucceeded
 							&& GDynamicRHI->RHIReadTexture2D(
@@ -1174,6 +1186,9 @@ namespace Durin
 			GDynamicRHI->RHIUpdateTexture2D(RHICmdList, SourceTexture, 0, 0,
 				FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16,
 				std::as_bytes(std::span{Expected}));
+			RHICmdList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+				SourceTexture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+				Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 
 			const FRHITextureSubresourceRange WholeColor{ERHITextureAspect::Color, 0, 1, 0, 1};
 			RHICmdList.TransitionTextures(std::array{
@@ -1233,6 +1248,9 @@ namespace Durin
 			GDynamicRHI->RHIUpdateTexture2D(RHICmdList, SourceCube, 1, 2,
 				FUpdateTextureRegion2D(0, 0, 0, 0, 2, 2), 8,
 				std::as_bytes(std::span{CubeMipBytes}));
+			RHICmdList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+				SourceCube, {Durin::ERHITextureAspect::Color, 1, 1, 2, 1},
+				Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			const FRHITextureSubresourceRange SourceCubeRange{
 				ERHITextureAspect::Color, 1, 1, 2, 1};
 			const FRHITextureSubresourceRange DestinationCubeRange{
@@ -1272,6 +1290,9 @@ namespace Durin
 			GDynamicRHI->RHIUpdateTexture2D(RHICmdList, CompressedSource, 0, 0,
 				FUpdateTextureRegion2D(0, 0, 0, 0, 8, 8), 16,
 				std::as_bytes(std::span{CompressedBytes}));
+			RHICmdList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+				CompressedSource, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+				Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			RHICmdList.TransitionTextures(std::array{
 				FRHITextureTransition{CompressedSource, WholeColor,
 					ERHIAccess::GraphicsShaderRead, ERHIAccess::TransferRead},
@@ -1307,6 +1328,9 @@ namespace Durin
 			GDynamicRHI->RHIUpdateTexture3D(RHICmdList, Volume, 0,
 				FUpdateTextureRegion3D(0, 0, 0, 0, 0, 0, 4, 4, 3),
 				4, 16, std::as_bytes(std::span{VolumeBytes}));
+			RHICmdList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+				Volume, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+				Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			RHICmdList.TransitionTextures(std::array{
 				FRHITextureTransition{Volume, WholeColor,
 					ERHIAccess::GraphicsShaderRead, ERHIAccess::TransferRead},
@@ -1740,6 +1764,9 @@ namespace Durin
 			GDynamicRHI->RHIUpdateTexture3D(Commands, Input, 0,
 				FUpdateTextureRegion3D(0, 0, 0, 0, 0, 0, 1, 1, 2),
 				4, 4, std::as_bytes(std::span{Source}));
+			Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+				Input, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+				Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			FTextureViewRHIRef InputView = GDynamicRHI->RHICreateTextureView(
 				Input, MakeDefaultTextureViewDesc(*Input, ERHITextureViewUsage::Sampled));
 			FTextureViewRHIRef StorageView = GDynamicRHI->RHICreateTextureView(
@@ -1884,6 +1911,9 @@ namespace Durin
 						FUpdateTextureRegion3D(
 							0, 0, 0, 0, 0, 0, Size, Size, Size),
 						Size, Size * Size, Bytes);
+					Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+						Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 				}
 				return Texture;
 			};
@@ -1911,6 +1941,9 @@ namespace Durin
 			GDynamicRHI->RHIUpdateTexture2D(Commands, Weather, 0, 0,
 				FUpdateTextureRegion2D(0, 0, 0, 0, 64, 64), 64,
 				WeatherBytes);
+			Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+				Weather, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+				Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 
 			FTextureViewRHIRef BaseView = GDynamicRHI->RHICreateTextureView(
 				Base, MakeDefaultTextureViewDesc(

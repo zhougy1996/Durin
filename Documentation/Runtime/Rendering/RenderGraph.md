@@ -270,7 +270,7 @@ command is recorded.
 with structured, shader-resource, and copy-destination usage, then queue its
 complete initial contents through the same path. Their byte size must be a
 nonzero multiple of the element stride.
-After culling and scheduling, consecutive upload helpers on the same logical
+After culling and scheduling, consecutive buffer upload helpers on the same logical
 queue form one execution-plan submission and owned RHI command list, with
 at most 64 uploads and a 16 MiB grouping threshold. An upload larger than
 that threshold occupies its own list. Pass handles, exact
@@ -281,6 +281,19 @@ The graph and recorded RHI command share one immutable source allocation.
 Recording does not require another source copy.
 Graph destruction or cancellation releases its ownership; bytes remain charged
 until the final graph or command owner releases them.
+`QueueTextureUpload` supports 2D mip/array-slice updates (including cube faces)
+and 3D volume updates with explicit source row/depth pitches. It snapshots the
+CPU source at declaration and records an `UpdateTexture2D/3D` command that packs
+and owns the copied region through replay. The destination must declare
+`DestinationCopy`; invalid handles, regions, pitches, or incomplete source data
+fail compilation before recording. The pass declares only the affected mip and
+array slice in `TransferWrite`. A complete overwrite declares a discard write;
+a partial update declares preserving read/write access, requires existing
+contents, and retains its preceding producer even when culling is enabled.
+Subsequent graph uses supply the next transition without an intermediate
+canonical graphics state. Texture uploads use ordinary Copy recording passes;
+the buffer-specific upload grouping and shared byte-accounting rules above do
+not apply to their source snapshots.
 `AddRecordingPass` instead receives a regular owned `FRHICommandList` and the
 same frozen typed parameters/resolver. Its callback must close every render pass,
 diagnostic region and timing query; the graph seals and queues the list only after

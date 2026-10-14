@@ -50,6 +50,9 @@ namespace Durin
 				Mip.Width, Mip.Height, Mip.Depth);
 			GDynamicRHI->RHIUpdateTexture3D(CommandList, NewTexture, MipIndex,
 				Region, Mip.RowPitch, Mip.DepthPitch, Mip.Voxels);
+			CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+				NewTexture, {Durin::ERHITextureAspect::Color, MipIndex, 1, 0, 1},
+				Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 		}
 		SetTextureRHI_RenderThread(std::move(NewTexture));
 	}

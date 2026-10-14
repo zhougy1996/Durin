@@ -592,6 +592,9 @@ namespace Durin::MonaImGui
 
 			ENQUEUE_RENDER_COMMAND(ImGuiImpl_UpdateTexture)([=](FRHICommandListImmediate& CommandList) {
 				GDynamicRHI->RHIUpdateTexture2D(CommandList, BackendTexture->Texture, 0, 0, UpdateRegion, SourcePitch, TexPixels);
+				CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+					BackendTexture->Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			});
 
 			{
@@ -619,6 +622,9 @@ namespace Durin::MonaImGui
 					static_cast<size_t>(SourcePitch) * InTex->Height};
 				ENQUEUE_RENDER_COMMAND(ImGuiImpl_UpdateTextureRegion)([=](FRHICommandListImmediate& CommandList) {
 					GDynamicRHI->RHIUpdateTexture2D(CommandList, BackendTexture->Texture, 0, 0, UpdateRegion, SourcePitch, UpdatePixels);
+					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+						BackendTexture->Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 				});
 			}
 

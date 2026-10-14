@@ -45,6 +45,14 @@ namespace Durin
 			uint32 Offset, FByteView Data) -> FRDGPassHandle;
 		RENDERCORE_API auto QueueBufferUploadOwned(FRDGBufferHandle Buffer,
 			uint32 Offset, FByteBuffer Data) -> FRDGPassHandle;
+		// Snapshots source bytes and declares one mip/slice upload. Partial writes
+		// preserve existing contents; complete overwrites may discard them.
+		RENDERCORE_API auto QueueTextureUpload(FRDGTextureHandle Texture,
+			uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& Region,
+			uint32 SourcePitch, FByteView Data) -> FRDGPassHandle;
+		RENDERCORE_API auto QueueTextureUpload(FRDGTextureHandle Texture,
+			uint32 MipIndex, const FUpdateTextureRegion3D& Region,
+			uint32 SourceRowPitch, uint32 SourceDepthPitch, FByteView Data) -> FRDGPassHandle;
 		RENDERCORE_API auto CreateStructuredBuffer(std::string_view Name,
 			uint32 Stride, FByteView Data,
 			EBufferUsageFlags AdditionalUsage = EBufferUsageFlags::None)

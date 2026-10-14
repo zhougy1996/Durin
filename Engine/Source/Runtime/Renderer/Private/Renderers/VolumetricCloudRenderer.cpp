@@ -580,6 +580,9 @@ namespace Durin
 						GDynamicRHI->RHIUpdateTexture2D(CommandList, Candidate.WhiteWeather,
 							0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 1,
 							std::span{&White, 1});
+						CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+							Candidate.WhiteWeather, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+							Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 					}
 					if (!Candidate.WhiteWeather)
 						return FFallbackResult::Failure(MakeFailure(

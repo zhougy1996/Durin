@@ -156,9 +156,11 @@ methods are the only backend-private native copy-recording authority.
 Static device-local buffer writes, `RHIUpdateTexture2D`, and
 `RHIReadTexture2D` use bounded persistently mapped upload/readback arena ranges,
 selected transitions, and the same public copy semantics. Buffer writes leave
-the destination in `TransferWrite`; texture updates restore canonical access.
-Readback restores the exact
-prior texture state, transitions its range for host read, waits the producing
+the destination in `TransferWrite`; texture updates likewise leave the affected
+mip/array slice in `TransferWrite`. Uploads perform the internal transitions
+needed for copying but do not infer the next consumer access. Callers explicitly
+transition the written range before sampling, compute or further copies.
+Readback restores the exact prior texture state, transitions its range for host read, waits the producing
 submission token, invalidates noncoherent mapped memory, and publishes tightly
 packed CPU bytes before returning the range. These paths do not introduce a
 whole-device idle wait or a second layout tracker. Arena ownership, bounds, and

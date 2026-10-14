@@ -35,6 +35,9 @@ namespace Durin
 					Region,
 					4,
 					std::as_bytes(std::span(Color)));
+				CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+					Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			}
 			return Texture;
 		}
@@ -67,6 +70,9 @@ namespace Durin
 						Region,
 						4,
 						std::as_bytes(std::span(Color)));
+					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+						Texture, {Durin::ERHITextureAspect::Color, 0, 1, ArraySlice, 1},
+						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 				}
 			}
 			return Texture;
@@ -113,6 +119,9 @@ namespace Durin
 					Region,
 					sizeof(Color),
 					std::as_bytes(std::span(Color)));
+				CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+					Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			}
 			return Texture;
 		}

@@ -130,6 +130,9 @@ namespace Durin::Editor::MainFrame
 						CommandList, Texture, MipIndex, 0,
 						FUpdateTextureRegion2D(0, 0, 0, 0, Mip.Width, Mip.Height),
 						Mip.Width * 4, Mip.Pixels);
+					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+						Texture, {Durin::ERHITextureAspect::Color, MipIndex, 1, 0, 1},
+						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 				}
 			}
 			if (const std::shared_ptr<FBrandUploadState> State = WeakState.lock())

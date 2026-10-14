@@ -274,6 +274,9 @@ namespace Durin
 						Candidate.EditorIconAtlas, 0, 0, Region,
 						FEditorIconAtlasLayout::RowPitchBytes,
 						std::as_bytes(std::span(Pixels)));
+					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+						Candidate.EditorIconAtlas, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 				}
 				if (Candidate.SpriteShaderSet)
 					Candidate.Sampler =

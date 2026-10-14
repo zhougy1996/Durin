@@ -150,6 +150,7 @@ namespace Durin
 			std::span<FRHIResource* const> References = {})
 			-> void;
 		RHI_API auto InitializeTexture(FRHITexture* Texture) -> void;
+		// Uploads leave the affected mip/slice in TransferWrite; callers transition to its next use.
 		RHI_API auto UpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void;
 		RHI_API auto UpdateTexture3D(FRHITexture* Texture, uint32 MipIndex,
 			const FUpdateTextureRegion3D& UpdateRegion, uint32 SourceRowPitch,

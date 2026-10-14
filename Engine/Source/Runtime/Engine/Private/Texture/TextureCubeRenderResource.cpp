@@ -65,6 +65,9 @@ namespace Durin
 				GDynamicRHI->RHIUpdateTexture2D(
 					CommandList, NewTexture, MipIndex, FaceIndex,
 					Region, Mip.RowPitch, Mip.Pixels);
+				CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+					NewTexture, {Durin::ERHITextureAspect::Color, MipIndex, 1, FaceIndex, 1},
+					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			}
 		}
 

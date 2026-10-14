@@ -53,6 +53,9 @@ namespace Durin::VulkanRHI
 				for (uint32 Index = 0; Index < Expected.size(); ++Index) Expected[Index] = static_cast<uint8>(Index + 31);
 				GDynamicRHI->RHIUpdateTexture2D(Commands, Texture, 0, 0,
 					FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16, std::as_bytes(std::span{Expected}));
+				Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+					Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 				FRHIQueueTransferDesc Forward{.Source = Queues.Graphics, .Destination = Queues.Compute,
 					.Textures = {FRHITextureTransition::Whole(Texture.GetReference(), ERHIAccess::GraphicsShaderRead, ERHIAccess::ComputeShaderRead)}};
 				FRHIQueueTransferDesc Backward{.Source = Queues.Compute, .Destination = Queues.Graphics,
@@ -632,6 +635,9 @@ namespace Durin::VulkanRHI
 		GDynamicRHI->RHIUpdateTexture2D(Commands, Texture, 0, 0,
 			FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16,
 			std::as_bytes(std::span{Expected}));
+		Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+			Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+			Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 		for (uint32 ReadIndex = 0; ReadIndex < 3; ++ReadIndex)
 		{
 			Durin::FByteBuffer Actual;
@@ -664,11 +670,17 @@ namespace Durin::VulkanRHI
 		FByteBuffer Expected(7 * 3 * 4, std::byte{0x39});
 		GDynamicRHI->RHIUpdateTexture2D(Commands, Texture, 0, 0,
 			FUpdateTextureRegion2D(0, 0, 0, 0, 7, 3), 28, Expected);
+		Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+			Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+			Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 		auto First = Commands.EnqueueTextureReadback(Texture);
 		EXPECT_EQ(First->GetState(), ERHITextureReadbackState::Pending);
 		FByteBuffer Replacement(Expected.size(), std::byte{0x71});
 		GDynamicRHI->RHIUpdateTexture2D(Commands, Texture, 0, 0,
 			FUpdateTextureRegion2D(0, 0, 0, 0, 7, 3), 28, Replacement);
+		Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+			Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+			Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 		auto Second = Commands.EnqueueTextureReadback(Texture);
 		auto Canceled = Commands.EnqueueTextureReadback(Texture);
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);

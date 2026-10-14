@@ -394,6 +394,9 @@ namespace Durin::VulkanRHI
 			GDynamicRHI->RHIUpdateTexture2D(Commands, Sampled, 0, 0,
 				FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16,
 				std::as_bytes(std::span{SampledBytes}));
+			Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+				Sampled, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+				Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 			FTextureViewRHIRef SampledView = GDynamicRHI->RHICreateTextureView(
 				Sampled, MakeDefaultTextureViewDesc(
 					*Sampled, ERHITextureViewUsage::Sampled));

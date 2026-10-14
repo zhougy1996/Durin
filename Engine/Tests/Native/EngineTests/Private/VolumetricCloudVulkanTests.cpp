@@ -166,6 +166,9 @@ namespace Durin
 							),
 							Size, Size * Size, std::as_bytes(std::span{Bytes})
 						);
+						CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+							Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+							Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 					}
 					return Texture;
 				};
@@ -258,9 +261,15 @@ namespace Durin
 									 .SetFlags(ETextureCreateFlags::ShaderResource)
 				);
 				const uint8 White = 255;
-				if (Weather) GDynamicRHI->RHIUpdateTexture2D(CommandList, Weather, 0, 0,
+				if (Weather)
+				{
+					GDynamicRHI->RHIUpdateTexture2D(CommandList, Weather, 0, 0,
 					FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 1,
 					std::as_bytes(std::span{&White, 1}));
+					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+						Weather, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
+				}
 				auto ShadowFragmentTargets =
 					Tests::FRendererFeatureTargetFixture::CreateCloudShadowFragment(64, 32);
 				auto ShadowComputeTargets =
@@ -476,9 +485,15 @@ namespace Durin
 					GDynamicRHI->RHIUpdateTexture2D(CommandList, EdgeCloudTexture, 0, 0,
 						FUpdateTextureRegion2D(0, 0, 0, 0, 32, 16), 32u * 8u,
 						std::as_bytes(std::span{EdgeCloud}));
+					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+						EdgeCloudTexture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 					GDynamicRHI->RHIUpdateTexture2D(CommandList, EdgeDepthTexture, 0, 0,
 						FUpdateTextureRegion2D(0, 0, 0, 0, 64, 32), 64u * 4u,
 						std::as_bytes(std::span{EdgeDepth}));
+					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+						EdgeDepthTexture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
 					FSceneView EdgeView = View;
 					EdgeView.ViewportX = 0;
 					EdgeView.ViewportY = 0;
