@@ -154,10 +154,8 @@ namespace Durin::VulkanRHI
 		check(CurrentPipelineState && (InShader || bResolvingUniforms));
 		if (!bResolvingUniforms)
 		{
-			UniformBindings.Update(InResourceParameters);
 			const FComputePipelineStateKey& Key = CurrentPipelineState->GetKey();
-			checkf(InShader->GetFrequency() == EShaderFrequency::Compute
-				&& InShader->GetHash() == Key.ComputeShaderHash,
+			requiref(MatchesPipelineShaderIdentity(*InShader, Key),
 				"Shader parameter update does not belong to the active compute pipeline.");
 #if DO_CHECK
 			const auto ValidationResult = ValidateShaderParameterUpdate(*Key.PipelineLayout,
@@ -165,6 +163,7 @@ namespace Durin::VulkanRHI
 			checkf(ValidationResult,
 				"Invalid compute shader parameter update: {}", ToString(ValidationResult.error()));
 #endif
+			UniformBindings.Update(InResourceParameters);
 		}
 		for (const FRHIShaderParameterResource& Parameter : InResourceParameters)
 		{
@@ -433,16 +432,11 @@ namespace Durin::VulkanRHI
 		check(CurrentPipelineState);
 		check(InShader);
 		const FGraphicsPipelineStateKey& Key = CurrentPipelineState->GetKey();
-		EShaderStageFlags ShaderStage = EShaderStageFlags::None;
-		if (InShader->GetFrequency() == EShaderFrequency::Vertex
-			&& InShader->GetHash() == Key.VertexShaderHash)
-			ShaderStage = EShaderStageFlags::Vertex;
-		else if (InShader->GetFrequency() == EShaderFrequency::Fragment
-			&& InShader->GetHash() == Key.FragmentShaderHash)
-			ShaderStage = EShaderStageFlags::Fragment;
-		checkf(ShaderStage != EShaderStageFlags::None,
+		requiref(MatchesPipelineShaderIdentity(*InShader, Key),
 			"Shader parameter update does not belong to the active graphics pipeline.");
 #if DO_CHECK
+		const auto ShaderStage = InShader->GetFrequency() == EShaderFrequency::Vertex
+			? EShaderStageFlags::Vertex : EShaderStageFlags::Fragment;
 		const auto ValidationResult = ValidateShaderParameterUpdate(*Key.PipelineLayout, ShaderStage,
 			InResourceParameters);
 		checkf(ValidationResult,

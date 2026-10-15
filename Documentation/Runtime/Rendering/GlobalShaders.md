@@ -2,9 +2,9 @@
 
 Summary: Define registration, atomic set ownership, typed lookup, generation recovery, and lifecycle for fixed non-Material shaders.
 
-Modules: RenderCore, Renderer
+Modules: RenderCore, Renderer, ShaderFormat
 
-Last reviewed: 2026-10-03
+Last reviewed: 2026-10-15
 
 ## Category and Ownership
 
@@ -62,6 +62,22 @@ set construction asks ShaderBuild for a complete output. In Cooked mode the
 same typed construction consumes the exact `DSHD` output from the qualified
 `DSLB` library. Parameter binding, merged layouts, lazy RHI creation, generation
 coupling, and complete-or-null publication are shared after that data selection.
+
+Compiled stages retain immutable code and opaque, versioned target metadata.
+ShaderFormat owns target validation, the Metal metadata codec, and the shared
+`BuildLogicalBindings` conversion from reflection into logical declarations.
+RenderCore has no separate conversion adapter and allocates no native slots.
+DSHD v6, shared compiler output v7, and DSLB v6 preserve those bytes and validate
+the complete shader identity before publication. The identity covers target
+settings, format version, stage/group size, binary entry point, code, logical
+reflection, and execution metadata. `FShaderCode::CodeHash` remains the separately
+checked code-only hash. Obsolete cache values miss; incompatible cooked libraries
+require recooking. Material cooked payload/family schema v14 uses the same opaque
+metadata and shader validation rather than serializing Metal fields itself.
+Compiler, cache and cooked stages use this same `FShaderCode` representation.
+Reflection is the only stored declaration list; merged pipeline layouts and
+native binding operations are prepared at pipeline creation. Identity-only
+cache and serialization paths do not construct code owners or layouts.
 
 ## Generations and Failure Recovery
 

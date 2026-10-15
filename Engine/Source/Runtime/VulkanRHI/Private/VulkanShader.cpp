@@ -1,3 +1,4 @@
+#include "ShaderFormat.h"
 #include "VulkanShader.h"
 
 #include "RHICommandList.h"
@@ -136,11 +137,8 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef
 	{
-		if (InCreateDesc.Target != VulkanShaderTarget
-			|| InCreateDesc.CodeFormat != EShaderCodeFormat::Spirv15
-			|| !InCreateDesc.BindingRemapIdentity.IsZero()
-			|| !InCreateDesc.MetalBindings.empty()
-			|| InCreateDesc.MetalPushConstantBufferSlot != UINT32_MAX)
+		if (!ShaderFormat::ValidateShaderCreateDesc(InCreateDesc) || InCreateDesc.Target != VulkanShaderTarget
+			|| InCreateDesc.CodeFormat != EShaderCodeFormat::Spirv15)
 			return nullptr;
 		vk::Result CreationResult;
 		FShaderRHIRef Shader = new FVulkanShader(*Device, InCreateDesc, CreationResult);

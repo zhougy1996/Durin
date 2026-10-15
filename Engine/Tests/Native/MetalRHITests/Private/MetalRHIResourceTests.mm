@@ -1,3 +1,4 @@
+#include "MetalShaderFixture.h"
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <QuartzCore/CATransaction.h>
@@ -252,20 +253,20 @@ TEST(FMetalRHIBufferTests, DeferredUniformVersionsReachSeparateDispatches)
 				"device uint* output [[buffer(1)]]) { output[values.y] = values.x; }\n";
 			Durin::FByteBuffer Code;
 			for (char Character : Source) Code.push_back(std::byte(Character));
-			auto ShaderDesc = Durin::FRHIShaderCreateDesc::Create("MetalDeferredUniform",
+			auto ShaderDesc = Durin::FMetalShaderFixture::Create("MetalDeferredUniform",
 				Durin::EShaderFrequency::Compute, Code,
 				Durin::FXxHash128::HashBuffer(Code));
 			ShaderDesc.Target = Durin::MetalShaderTarget;
 			ShaderDesc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 			ShaderDesc.ComputeThreadGroupSize = {1, 1, 1};
 			ShaderDesc.SetEntryPoint("writeVersion");
-			ShaderDesc.MetalBindings = {
+			ShaderDesc.Bindings = {
 				{0, 0, Durin::ERHIBindingType::UniformBuffer, 0, 1},
 				{0, 1, Durin::ERHIBindingType::StorageBuffer, 1, 1}};
-			ShaderDesc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-				Durin::EShaderFrequency::Compute, ShaderDesc.MetalBindings,
-				ShaderDesc.MetalPushConstantBufferSlot);
-			auto Shader = Durin::GDynamicRHI->RHICreateShader(ShaderDesc);
+			ShaderDesc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+				Durin::EShaderFrequency::Compute, ShaderDesc.Bindings,
+				ShaderDesc.PushSlot);
+			auto Shader = Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(ShaderDesc));
 			ASSERT_TRUE(Shader);
 			Durin::FComputePipelineStateInitializer PipelineDesc;
 			PipelineDesc.ComputeShader = Shader.GetReference();
@@ -421,20 +422,20 @@ TEST(FMetalRHIComputeTests, RecordedDispatchWritesStructuredBufferInBothExecutio
 				"uint id [[thread_position_in_grid]]) { result[id] = id * scale + 3; }\n";
 			Durin::FByteBuffer Code;
 			for (char Character : Source) Code.push_back(std::byte(Character));
-			auto ShaderDesc = Durin::FRHIShaderCreateDesc::Create("ComputeMain",
+			auto ShaderDesc = Durin::FMetalShaderFixture::Create("ComputeMain",
 				Durin::EShaderFrequency::Compute, Code,
 				Durin::FXxHash128::HashBuffer(Code));
 			ShaderDesc.Target = Durin::MetalShaderTarget;
 			ShaderDesc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 			ShaderDesc.ComputeThreadGroupSize = {4, 1, 1};
 			ShaderDesc.SetEntryPoint("computeMain");
-			ShaderDesc.MetalBindings.push_back({0, 0,
+			ShaderDesc.Bindings.push_back({0, 0,
 				Durin::ERHIBindingType::StorageBuffer, 0, 1});
-			ShaderDesc.MetalPushConstantBufferSlot = 1;
-			ShaderDesc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-				Durin::EShaderFrequency::Compute, ShaderDesc.MetalBindings,
-				ShaderDesc.MetalPushConstantBufferSlot);
-			auto Shader = Durin::GDynamicRHI->RHICreateShader(ShaderDesc);
+			ShaderDesc.PushSlot = 1;
+			ShaderDesc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+				Durin::EShaderFrequency::Compute, ShaderDesc.Bindings,
+				ShaderDesc.PushSlot);
+			auto Shader = Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(ShaderDesc));
 			ASSERT_TRUE(Shader);
 			Durin::FComputePipelineStateInitializer Initializer;
 			Initializer.ComputeShader = Shader.GetReference();
@@ -581,18 +582,18 @@ TEST(FMetalRHIComputeTests, StorageWriteThenSampleUsesNativeTextureAndSamplerVie
 			auto MakeShader = [&](const char* Entry,
 				std::vector<Durin::FMetalShaderBinding> Bindings,
 				std::array<uint32_t, 3> Group) {
-				auto Desc = Durin::FRHIShaderCreateDesc::Create(Entry,
+				auto Desc = Durin::FMetalShaderFixture::Create(Entry,
 					Durin::EShaderFrequency::Compute, Code,
 					Durin::FXxHash128::HashBuffer(Code));
 				Desc.Target = Durin::MetalShaderTarget;
 				Desc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 				Desc.ComputeThreadGroupSize = Group;
 				Desc.SetEntryPoint(Entry);
-				Desc.MetalBindings = std::move(Bindings);
-				Desc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-					Durin::EShaderFrequency::Compute, Desc.MetalBindings,
-					Desc.MetalPushConstantBufferSlot);
-				return Durin::GDynamicRHI->RHICreateShader(Desc);
+				Desc.Bindings = std::move(Bindings);
+				Desc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+					Durin::EShaderFrequency::Compute, Desc.Bindings,
+					Desc.PushSlot);
+				return Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc));
 			};
 			auto WriteShader = MakeShader("writeMain",
 				{{0, 0, Durin::ERHIBindingType::StorageImage, 0, 1}},
@@ -686,17 +687,17 @@ TEST(FMetalRHIComputeTests, StorageWriteThenSampleUsesNativeTextureAndSamplerVie
 				Durin::EShaderFrequency Frequency,
 				std::vector<Durin::FMetalShaderBinding> Bindings,
 				uint32_t PushSlot) {
-				auto Desc = Durin::FRHIShaderCreateDesc::Create(Entry,
+				auto Desc = Durin::FMetalShaderFixture::Create(Entry,
 					Frequency, DrawCode, Durin::FXxHash128::HashBuffer(DrawCode));
 				Desc.Target = Durin::MetalShaderTarget;
 				Desc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 				Desc.SetEntryPoint(Entry);
-				Desc.MetalBindings = std::move(Bindings);
-				Desc.MetalPushConstantBufferSlot = PushSlot;
-				Desc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-					Frequency, Desc.MetalBindings,
-					Desc.MetalPushConstantBufferSlot);
-				return Durin::GDynamicRHI->RHICreateShader(Desc);
+				Desc.Bindings = std::move(Bindings);
+				Desc.PushSlot = PushSlot;
+				Desc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+					Frequency, Desc.Bindings,
+					Desc.PushSlot);
+				return Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc));
 			};
 			auto DrawVertex = MakeDrawShader("vertexMain",
 				Durin::EShaderFrequency::Vertex, {}, UINT32_MAX);
@@ -1336,20 +1337,20 @@ TEST(FMetalRHITextureTests, ProductionFallbackDescriptorsAdmitShaderOnlyUsage)
 			"face.write(float4(1,0,0,1), uint2(0,0)); }\n";
 		Durin::FByteBuffer Code;
 		for (char Character : Source) Code.push_back(std::byte(Character));
-		auto ShaderDesc = Durin::FRHIShaderCreateDesc::Create("MetalCubeSample",
+		auto ShaderDesc = Durin::FMetalShaderFixture::Create("MetalCubeSample",
 			Durin::EShaderFrequency::Compute, Code,
 			Durin::FXxHash128::HashBuffer(Code));
 		ShaderDesc.Target = Durin::MetalShaderTarget;
 		ShaderDesc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 		ShaderDesc.ComputeThreadGroupSize = {1, 1, 1};
 		ShaderDesc.SetEntryPoint("sampleCube");
-		ShaderDesc.MetalBindings = {
+		ShaderDesc.Bindings = {
 			{0, 0, Durin::ERHIBindingType::Texture, 0, 1},
 			{0, 1, Durin::ERHIBindingType::StorageBuffer, 0, 1}};
-		ShaderDesc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-			Durin::EShaderFrequency::Compute, ShaderDesc.MetalBindings,
-			ShaderDesc.MetalPushConstantBufferSlot);
-		auto Shader = Durin::GDynamicRHI->RHICreateShader(ShaderDesc);
+		ShaderDesc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+			Durin::EShaderFrequency::Compute, ShaderDesc.Bindings,
+			ShaderDesc.PushSlot);
+		auto Shader = Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(ShaderDesc));
 		ASSERT_TRUE(Shader);
 		Durin::FComputePipelineStateInitializer PipelineDesc;
 		PipelineDesc.ComputeShader = Shader.GetReference();
@@ -1420,19 +1421,19 @@ TEST(FMetalRHITextureTests, ProductionFallbackDescriptorsAdmitShaderOnlyUsage)
 		ASSERT_TRUE(FaceView);
 		EXPECT_EQ(static_cast<Durin::FMetalTextureView*>(FaceView.GetReference())
 			->GetHandle()->textureType(), MTL::TextureType2D);
-		auto WriteDesc = Durin::FRHIShaderCreateDesc::Create("MetalCubeFaceWrite",
+		auto WriteDesc = Durin::FMetalShaderFixture::Create("MetalCubeFaceWrite",
 			Durin::EShaderFrequency::Compute, Code,
 			Durin::FXxHash128::HashBuffer(Code));
 		WriteDesc.Target = Durin::MetalShaderTarget;
 		WriteDesc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 		WriteDesc.ComputeThreadGroupSize = {1, 1, 1};
 		WriteDesc.SetEntryPoint("writeCubeFace");
-		WriteDesc.MetalBindings = {
+		WriteDesc.Bindings = {
 			{0, 0, Durin::ERHIBindingType::StorageImage, 0, 1}};
-		WriteDesc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-			Durin::EShaderFrequency::Compute, WriteDesc.MetalBindings,
-			WriteDesc.MetalPushConstantBufferSlot);
-		auto WriteShader = Durin::GDynamicRHI->RHICreateShader(WriteDesc);
+		WriteDesc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+			Durin::EShaderFrequency::Compute, WriteDesc.Bindings,
+			WriteDesc.PushSlot);
+		auto WriteShader = Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(WriteDesc));
 		ASSERT_TRUE(WriteShader);
 		Durin::FComputePipelineStateInitializer WritePipelineDesc;
 		WritePipelineDesc.ComputeShader = WriteShader.GetReference();
@@ -1551,20 +1552,20 @@ TEST(FMetalRHITextureTests, BC1SrgbCubeUploadsAndReadsBlockRowsAndMipTail)
 				"output[0] = cube.sample(nearest, float3(1,0,0)); }\n";
 			Durin::FByteBuffer Code;
 			for (char Character : Source) Code.push_back(std::byte(Character));
-			auto ShaderDesc = Durin::FRHIShaderCreateDesc::Create("MetalBC1CubeSample",
+			auto ShaderDesc = Durin::FMetalShaderFixture::Create("MetalBC1CubeSample",
 				Durin::EShaderFrequency::Compute, Code,
 				Durin::FXxHash128::HashBuffer(Code));
 			ShaderDesc.Target = Durin::MetalShaderTarget;
 			ShaderDesc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 			ShaderDesc.ComputeThreadGroupSize = {1, 1, 1};
 			ShaderDesc.SetEntryPoint("sampleBC1");
-			ShaderDesc.MetalBindings = {
+			ShaderDesc.Bindings = {
 				{0, 0, Durin::ERHIBindingType::Texture, 0, 1},
 				{0, 1, Durin::ERHIBindingType::StorageBuffer, 0, 1}};
-			ShaderDesc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-				Durin::EShaderFrequency::Compute, ShaderDesc.MetalBindings,
-				ShaderDesc.MetalPushConstantBufferSlot);
-			auto Shader = Durin::GDynamicRHI->RHICreateShader(ShaderDesc);
+			ShaderDesc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+				Durin::EShaderFrequency::Compute, ShaderDesc.Bindings,
+				ShaderDesc.PushSlot);
+			auto Shader = Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(ShaderDesc));
 			ASSERT_TRUE(Shader);
 			Durin::FComputePipelineStateInitializer PipelineDesc;
 			PipelineDesc.ComputeShader = Shader.GetReference();
@@ -1767,15 +1768,15 @@ TEST(FMetalRHITextureTests, DepthArrayLayersDrawIndependentlyInBothExecutionMode
 			for (char Character : Source) Code.push_back(std::byte(Character));
 			auto MakeShader = [&](const char* Entry,
 				Durin::EShaderFrequency Frequency) {
-				auto ShaderDesc = Durin::FRHIShaderCreateDesc::Create(Entry,
+				auto ShaderDesc = Durin::FMetalShaderFixture::Create(Entry,
 					Frequency, Code, Durin::FXxHash128::HashBuffer(Code));
 				ShaderDesc.Target = Durin::MetalShaderTarget;
 				ShaderDesc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 				ShaderDesc.SetEntryPoint(Entry);
-				ShaderDesc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-					Frequency, ShaderDesc.MetalBindings,
-					ShaderDesc.MetalPushConstantBufferSlot);
-				return Durin::GDynamicRHI->RHICreateShader(ShaderDesc);
+				ShaderDesc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+					Frequency, ShaderDesc.Bindings,
+					ShaderDesc.PushSlot);
+				return Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(ShaderDesc));
 			};
 			auto Vertex = MakeShader("depthMain", Durin::EShaderFrequency::Vertex);
 			auto Fragment = MakeShader("emptyMain", Durin::EShaderFrequency::Fragment);
@@ -2362,20 +2363,20 @@ TEST(FMetalRHITextureTests, VolumeMipCopiesPreserveDepthSlices)
 				"result[0] = uint(volume.sample(nearest, float3(0.25)).r * 255.0f + 0.5f); }\n";
 			Durin::FByteBuffer ShaderCode;
 			for (char Character : ShaderSource) ShaderCode.push_back(std::byte(Character));
-			auto ShaderDesc = Durin::FRHIShaderCreateDesc::Create("MetalVolumeSample",
+			auto ShaderDesc = Durin::FMetalShaderFixture::Create("MetalVolumeSample",
 				Durin::EShaderFrequency::Compute, ShaderCode,
 				Durin::FXxHash128::HashBuffer(ShaderCode));
 			ShaderDesc.Target = Durin::MetalShaderTarget;
 			ShaderDesc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 			ShaderDesc.ComputeThreadGroupSize = {1, 1, 1};
 			ShaderDesc.SetEntryPoint("sampleVolume");
-			ShaderDesc.MetalBindings = {
+			ShaderDesc.Bindings = {
 				{0, 0, Durin::ERHIBindingType::Texture, 0, 1},
 				{0, 1, Durin::ERHIBindingType::StorageBuffer, 0, 1}};
-			ShaderDesc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-				Durin::EShaderFrequency::Compute, ShaderDesc.MetalBindings,
-				ShaderDesc.MetalPushConstantBufferSlot);
-			auto Shader = Durin::GDynamicRHI->RHICreateShader(ShaderDesc);
+			ShaderDesc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+				Durin::EShaderFrequency::Compute, ShaderDesc.Bindings,
+				ShaderDesc.PushSlot);
+			auto Shader = Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(ShaderDesc));
 			ASSERT_TRUE(Shader);
 			Durin::FComputePipelineStateInitializer PipelineDesc;
 			PipelineDesc.ComputeShader = Shader.GetReference();
@@ -2546,15 +2547,15 @@ TEST(FMetalRHIPipelineTests, CppPipelineOwnersSurvivePoolsAndAsyncCacheTeardown)
 			const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\nkernel void mainA() {}\nkernel void mainB() {}\nkernel void mainC() {}\n";
 			Durin::FByteBuffer Code;
 			for (char Character : Source) Code.push_back(std::byte(Character));
-			auto Desc = Durin::FRHIShaderCreateDesc::Create("pool pipeline",
+			auto Desc = Durin::FMetalShaderFixture::Create("pool pipeline",
 				Durin::EShaderFrequency::Compute, Code, Durin::FXxHash128::HashBuffer(Code));
 			Desc.Target = Durin::MetalShaderTarget;
 			Desc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 			Desc.ComputeThreadGroupSize = {1, 1, 1};
-			Desc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-				Desc.Frequency, Desc.MetalBindings, Desc.MetalPushConstantBufferSlot);
+			Desc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+				Desc.Frequency, Desc.Bindings, Desc.PushSlot);
 			Desc.SetEntryPoint("mainA");
-			auto Shader = Durin::GDynamicRHI->RHICreateShader(Desc);
+			auto Shader = Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc));
 			ASSERT_TRUE(Shader);
 			WeakFunction = (__bridge id<MTLFunction>)static_cast<void*>(
 				static_cast<Durin::FMetalShader*>(Shader.GetReference())->GetFunction());
@@ -2566,7 +2567,7 @@ TEST(FMetalRHIPipelineTests, CppPipelineOwnersSurvivePoolsAndAsyncCacheTeardown)
 			ASSERT_TRUE(Requested);
 			First = *Requested;
 			Desc.SetEntryPoint("mainB");
-			auto OtherShader = Durin::GDynamicRHI->RHICreateShader(Desc);
+			auto OtherShader = Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc));
 			ASSERT_TRUE(OtherShader);
 			Initializer.ComputeShader = OtherShader.GetReference();
 			auto Other = Cache->GetCompute(Initializer, "replacement");
@@ -2577,7 +2578,7 @@ TEST(FMetalRHIPipelineTests, CppPipelineOwnersSurvivePoolsAndAsyncCacheTeardown)
 			ASSERT_TRUE(First->Wait());
 			ASSERT_TRUE(Replacement->Wait());
 			Desc.SetEntryPoint("mainC");
-			auto LateShader = Durin::GDynamicRHI->RHICreateShader(Desc);
+			auto LateShader = Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc));
 			ASSERT_TRUE(LateShader);
 			Initializer.ComputeShader = LateShader.GetReference();
 			auto Late = Cache->GetCompute(Initializer, "close outstanding");
@@ -2647,16 +2648,16 @@ TEST(FMetalRHISubmissionTests, DelayedGPUCompletionRetainsPayloadAndShutdownDrai
 				"result[0] = 0x12345678u; }\n";
 			Durin::FByteBuffer Code;
 			for (char Character : Source) Code.push_back(std::byte(Character));
-			auto ShaderDesc = Durin::FRHIShaderCreateDesc::Create("delayed payload",
+			auto ShaderDesc = Durin::FMetalShaderFixture::Create("delayed payload",
 				Durin::EShaderFrequency::Compute, Code, Durin::FXxHash128::HashBuffer(Code));
 			ShaderDesc.Target = Durin::MetalShaderTarget;
 			ShaderDesc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 			ShaderDesc.ComputeThreadGroupSize = {1, 1, 1};
 			ShaderDesc.SetEntryPoint("delayed");
-			ShaderDesc.MetalBindings = {{0, 0, Durin::ERHIBindingType::StorageBuffer, 0, 1}};
-			ShaderDesc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-				ShaderDesc.Frequency, ShaderDesc.MetalBindings, ShaderDesc.MetalPushConstantBufferSlot);
-			auto Shader = Durin::GDynamicRHI->RHICreateShader(ShaderDesc);
+			ShaderDesc.Bindings = {{0, 0, Durin::ERHIBindingType::StorageBuffer, 0, 1}};
+			ShaderDesc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+				ShaderDesc.Frequency, ShaderDesc.Bindings, ShaderDesc.PushSlot);
+			auto Shader = Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(ShaderDesc));
 			ASSERT_TRUE(Shader);
 			Durin::FComputePipelineStateInitializer Initializer;
 			Initializer.ComputeShader = Shader.GetReference();

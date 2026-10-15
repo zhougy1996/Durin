@@ -2,9 +2,9 @@
 
 Summary: Define the source and semantic stability boundary of public RHI headers without promising a C++ binary ABI or unsupported GPU features.
 
-Modules: RHI, RenderCore, VulkanRHI, MetalRHI
+Modules: RHI, RenderCore, ShaderFormat, VulkanRHI, MetalRHI
 
-Last reviewed: 2026-10-14
+Last reviewed: 2026-10-15
 
 ## Directory Contract
 
@@ -51,6 +51,35 @@ types, and diagnostic formatting may change without compatibility adapters.
 Durin projects build from one workspace revision and do not load independently
 versioned RHI client binaries.
 
+`FShaderTargetIdentity` carries backend/code-format discriminants and an opaque
+settings-profile digest. ShaderFormat owns language/remap options and their
+supported immutable profiles; common RHI does not interpret those settings.
+`FShaderCode` is the common compiled-stage representation: immutable shared code
+bytes, entry points, target metadata, and canonical reflection declarations.
+There is no separate artifact or duplicated per-stage pipeline layout.
+RenderCore publishes a shared immutable code owner in ShaderMap;
+`MakeShaderCreateDesc` reuses it through `FRHIShaderCreateDesc::CodeOwner`.
+Code, reflection and metadata survive the source compiler output's lifetime.
+Native admission validates the owner against all generic creation arguments
+before publication. Common shader descriptions and pipeline keys carry the
+complete `ShaderIdentity`; they contain no Metal mapping fields or accessors.
+Metal requires a code owner and stores its
+decoded map only in `FMetalShader`. Vulkan also supports raw SPIR-V creation
+descriptors through its existing backend admission path. Backend, platform, and
+code-format discriminants remain public for target selection and compatibility;
+they do not expose target metadata schemas or native slot policy.
+
+Raw creation validates the target/code format, bounded code shape, code hash,
+stage, entry point, and execution metadata. A nonzero shader identity requires
+an attached code owner. Owned code additionally validates resource types,
+per-stage visibility, unique logical addresses, array bounds, and aligned,
+bounded, non-overlapping push ranges, even if the caller recomputes the hash.
+An explicitly supplied descriptor identity must match the code owner.
+Owned creation compares the descriptor's fields, code hash and byte view with
+the owner before validating that code once. Raw creation still validates its
+inputs independently. Format, digest and stage checks share ShaderFormat helpers;
+archive readers retain bounded parsing and their own precise error classification.
+
 Pipeline-key description fields retain shared immutable RHI-owned CPU data.
 The validating key builders canonicalize and intern layouts, vertex input, and
 blend descriptions; consumers retain the shared references instead of copying
@@ -92,7 +121,7 @@ The owning semantic documents remain authoritative. This document classifies
 their API surface and does not duplicate their detailed rules.
 
 Shader creation carries the backend target, code format, binary entry point,
-code hash, and Metal binding map with its push-constant slot and remap digest.
+code hash, and an optional immutable code owner with opaque platform metadata.
 Metal accepts canonical MSL slot assignments and matching native function types;
 Vulkan rejects Metal binding metadata. MSL source syntax is validated by the native
 compiler; include spelling, directive position and a minimum source-text length

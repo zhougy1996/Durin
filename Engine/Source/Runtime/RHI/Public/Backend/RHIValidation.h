@@ -373,4 +373,8 @@ namespace Durin
 		std::span<const FRHIShaderParameterResource> Resources) -> std::expected<void, FRHIShaderBindingError>;
 	RHI_API auto ValidateShaderBindingCompleteness(const FPipelineLayoutDesc& Layout,
 		std::span<const FRHIShaderParameterResource> Resources) -> std::expected<void, FRHIShaderBindingError>;
+	RHI_API auto MatchesPipelineShaderIdentity(const FRHIShader& Shader,
+		const FGraphicsPipelineStateKey& Key) -> bool;
+	RHI_API auto MatchesPipelineShaderIdentity(const FRHIShader& Shader,
+		const FComputePipelineStateKey& Key) -> bool;
 } // namespace Durin

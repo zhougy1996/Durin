@@ -1,3 +1,4 @@
+#include "MetalShaderFormat.h"
 #include "MetalShaderTranslator.h"
 
 #if defined(__APPLE__)
@@ -26,11 +27,11 @@ namespace Durin
 			}
 		}
 
-		auto RemapBindings(FCompiledShader& Shader, spvc_compiler Compiler,
+		auto RemapBindings(FShaderCode& Shader, spvc_compiler Compiler,
 			SpvExecutionModel Stage) -> FShaderOperationResult
 		{
-			auto Map = BuildMetalShaderBindingMap(Shader.Frequency, Shader.Reflection);
-			if (!Map) return std::unexpected(std::move(Map.error()));
+			auto Map = ShaderFormat::BuildMetalBindingMap(Shader.Frequency, ShaderFormat::BuildLogicalBindings(Shader.Reflection), !Shader.Reflection.PushConstantRanges.empty());
+			if (!Map) return std::unexpected(FShaderError{.Code = EShaderError::MetalBindingRemapInvalid});
 			for (const auto& Binding : Map->Bindings)
 			{
 				spvc_msl_resource_binding_2 NativeBinding;
@@ -67,25 +68,28 @@ namespace Durin
 				if (spvc_compiler_msl_add_resource_binding_2(Compiler, &PushBinding) != SPVC_SUCCESS)
 					return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
 			}
-			Shader.MetalBindings = std::move(Map->Bindings);
-			Shader.MetalPushConstantBufferSlot = Map->PushConstantBufferSlot;
-			Shader.BindingRemapIdentity = Map->Identity;
+			const auto Metadata = ShaderFormat::EncodeMetalMetadata(Shader.Frequency,
+				{std::move(Map->Bindings), Map->PushConstantBufferSlot, Map->Identity});
+			if (!Metadata) return std::unexpected(FShaderError{.Code = EShaderError::MetalBindingRemapInvalid});
+			Shader.PlatformData = *Metadata;
 			return {};
 		}
 
 	}
 	#endif
 
-	auto TranslateMetalShader(FCompiledShader& Shader) -> FShaderOperationResult
+	auto TranslateMetalShader(FShaderCode& Shader) -> FShaderOperationResult
 	{
 	#if defined(__APPLE__)
-		if (!Shader.Code || Shader.CodeFormat != EShaderCodeFormat::Spirv15
-			|| Shader.Code->size() < 20 || Shader.Code->size() % sizeof(uint32) != 0)
+		const auto Settings = ShaderFormat::ResolveMetalCompileSettings(MetalShaderTarget);
+		if (!Settings) return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
+		if (Shader.Code.IsEmpty() || Shader.CodeFormat != EShaderCodeFormat::Spirv15
+			|| Shader.Code.size() < 20 || Shader.Code.size() % sizeof(uint32) != 0)
 			return std::unexpected(FShaderError{.Code = EShaderError::SpirvConversionFailed});
 		const auto Stage = ExecutionModel(Shader.Frequency);
 		if (!Stage) return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
-		std::vector<uint32> Words(Shader.Code->size() / sizeof(uint32));
-		std::memcpy(Words.data(), Shader.Code->data(), Shader.Code->size());
+		std::vector<uint32> Words(Shader.Code.size() / sizeof(uint32));
+		std::memcpy(Words.data(), Shader.Code.data(), Shader.Code.size());
 		FSpirvCrossContext Context;
 		if (spvc_context_create(&Context.Handle) != SPVC_SUCCESS)
 			return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
@@ -97,7 +101,8 @@ namespace Durin
 				SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &Compiler) != SPVC_SUCCESS
 			|| spvc_compiler_create_compiler_options(Compiler, &Options) != SPVC_SUCCESS
 			|| spvc_compiler_options_set_uint(Options, SPVC_COMPILER_OPTION_MSL_VERSION,
-				SPVC_MAKE_MSL_VERSION(2, 0, 0)) != SPVC_SUCCESS
+				SPVC_MAKE_MSL_VERSION(Settings->MslLanguageVersion / 100,
+					(Settings->MslLanguageVersion % 100) / 10, Settings->MslLanguageVersion % 10)) != SPVC_SUCCESS
 			// Common RHI uses Vulkan's positive-height viewport: clip Y=-1 is top.
 			// Metal maps clip Y=+1 to top, so adapt vertex output before rasterization.
 			|| spvc_compiler_options_set_bool(Options, SPVC_COMPILER_OPTION_FLIP_VERTEX_Y,
@@ -136,8 +141,8 @@ namespace Durin
 		if (!EntryPoint || !*EntryPoint)
 			return std::unexpected(FShaderError{.Code = EShaderError::MslConversionFailed});
 		const auto SourceBytes = std::as_bytes(std::span(Source, std::strlen(Source)));
-		Shader.Code = std::make_shared<const FSharedByteBuffer>(FSharedByteBuffer::Copy(SourceBytes));
-		Shader.Hash = FXxHash128::HashBuffer(*Shader.Code);
+		Shader.Code = FSharedByteBuffer::Copy(SourceBytes);
+		Shader.CodeHash = FXxHash128::HashBuffer(Shader.Code);
 		Shader.BinaryEntryPoint = EntryPoint;
 		Shader.Target = MetalShaderTarget;
 		Shader.CodeFormat = EShaderCodeFormat::Msl20Source;

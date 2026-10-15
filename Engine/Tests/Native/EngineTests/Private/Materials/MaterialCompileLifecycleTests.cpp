@@ -1,3 +1,4 @@
+#include "MetalShaderFormat.h"
 #include "ShaderBuildTestSupport.h"
 #include "Shader/IShaderBuildModule.h"
 #include "Materials/MaterialExpressionBuild.h"
@@ -884,7 +885,7 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_EQ(Current.DependencyCount, Program->Dependencies.size());
 	uint64 ExpectedCodeBytes = 0;
 	for (const auto& Shader : Program->CompiledShaders)
-		ExpectedCodeBytes += Shader.Code ? Shader.Code->size() : 0;
+		ExpectedCodeBytes += !Shader.Code.IsEmpty() ? Shader.Code.size() : 0;
 	EXPECT_EQ(Current.CompiledCodeBytes, ExpectedCodeBytes);
 	EXPECT_FALSE(Current.bSizeOverflow);
 
@@ -1001,17 +1002,17 @@ TEST(FMaterialCompileLifecycleTests,
 		Material->GetAcceptedCompiledProgram()->CompiledShaders.size());
 	for (size_t Index = 0; Index < DecodedProgram->CompiledShaders.size(); ++Index)
 	{
-		const Durin::FCompiledShader& Decoded =
+		const Durin::FShaderCode& Decoded =
 			DecodedProgram->CompiledShaders[Index];
-		const Durin::FCompiledShader& Source =
+		const Durin::FShaderCode& Source =
 			Material->GetAcceptedCompiledProgram()->CompiledShaders[Index];
 		EXPECT_EQ(Decoded.Frequency, Source.Frequency);
 		EXPECT_EQ(Decoded.SourceEntryPoint, Source.SourceEntryPoint);
 		EXPECT_EQ(Decoded.BinaryEntryPoint, Source.BinaryEntryPoint);
-		EXPECT_EQ(Decoded.Hash, Source.Hash);
-		ASSERT_TRUE(Decoded.Code);
-		ASSERT_TRUE(Source.Code);
-		EXPECT_TRUE(std::ranges::equal(Decoded.Code->GetBytes(), Source.Code->GetBytes()));
+		EXPECT_EQ(Decoded.CodeHash, Source.CodeHash);
+		ASSERT_TRUE(!Decoded.Code.IsEmpty());
+		ASSERT_TRUE(!Source.Code.IsEmpty());
+		EXPECT_TRUE(std::ranges::equal(Decoded.Code.GetBytes(), Source.Code.GetBytes()));
 	}
 	EXPECT_TRUE(DecodedProgram->IR.Nodes.empty());
 	EXPECT_TRUE(DecodedProgram->GeneratedSource.empty());
@@ -1081,14 +1082,12 @@ TEST(FMaterialCompileLifecycleTests, MetalCookedProgramPreservesStageBindingMaps
 		const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\nfragment float4 main() { return float4(1); }\n";
 		Durin::FByteBuffer Bytes;
 		for (char Character : Source) Bytes.push_back(std::byte(Character));
-		Shader.Code = std::make_shared<const Durin::FSharedByteBuffer>(
-			Durin::FSharedByteBuffer::Take(std::move(Bytes)));
-		Shader.Hash = Durin::FXxHash128::HashBuffer(*Shader.Code);
-		const auto Map = Durin::BuildMetalShaderBindingMap(Shader.Frequency, Shader.Reflection);
+		Shader.Code = Durin::FSharedByteBuffer::Take(std::move(Bytes));
+		Shader.CodeHash = Durin::FXxHash128::HashBuffer(Shader.Code);
+		const auto Map = Durin::ShaderFormat::BuildMetalBindingMap(Shader.Frequency, Durin::ShaderFormat::BuildLogicalBindings(Shader.Reflection), !Shader.Reflection.PushConstantRanges.empty());
 		ASSERT_TRUE(Map);
-		Shader.MetalBindings = Map->Bindings;
-		Shader.MetalPushConstantBufferSlot = Map->PushConstantBufferSlot;
-		Shader.BindingRemapIdentity = Map->Identity;
+		Shader.PlatformData = Durin::ShaderFormat::EncodeMetalMetadata(Shader.Frequency,
+			{std::move(Map->Bindings), Map->PushConstantBufferSlot, Map->Identity}).value();
 	}
 	const std::array Programs{&Program};
 	Durin::FByteBuffer Bytes;
@@ -1106,15 +1105,17 @@ TEST(FMaterialCompileLifecycleTests, MetalCookedProgramPreservesStageBindingMaps
 	for (size_t Index = 0; Index < Program.CompiledShaders.size(); ++Index)
 	{
 		EXPECT_EQ(Decoded->CompiledShaders[Index].Target, Durin::MetalShaderTarget);
-		EXPECT_EQ(Decoded->CompiledShaders[Index].MetalBindings,
-			Program.CompiledShaders[Index].MetalBindings);
-		EXPECT_EQ(Decoded->CompiledShaders[Index].BindingRemapIdentity,
-			Program.CompiledShaders[Index].BindingRemapIdentity);
+		EXPECT_EQ(Durin::ShaderFormat::DecodeMetalMetadata(Decoded->CompiledShaders[Index].Frequency, Decoded->CompiledShaders[Index].PlatformData.GetBytes())->Bindings,
+			Durin::ShaderFormat::DecodeMetalMetadata(Program.CompiledShaders[Index].Frequency, Program.CompiledShaders[Index].PlatformData.GetBytes())->Bindings);
+		EXPECT_EQ(Durin::ShaderFormat::DecodeMetalMetadata(Decoded->CompiledShaders[Index].Frequency, Decoded->CompiledShaders[Index].PlatformData.GetBytes())->Identity,
+			Durin::ShaderFormat::DecodeMetalMetadata(Program.CompiledShaders[Index].Frequency, Program.CompiledShaders[Index].PlatformData.GetBytes())->Identity);
 	}
 	EXPECT_FALSE(Durin::DecodeMaterialCookedProgramFamily(Bytes,
 		Durin::ECookTargetPlatform::Win64, Durin::ECookTargetProfile::Game,
 		Program.Quality, Program.FeatureLevel, {}, Properties, Decoded));
-	Program.CompiledShaders.front().BindingRemapIdentity.HashLow ^= 1;
+	auto CorruptedMetadata = Durin::FByteBuffer(Program.CompiledShaders.front().PlatformData.begin(), Program.CompiledShaders.front().PlatformData.end());
+	CorruptedMetadata.back() ^= std::byte{1};
+	Program.CompiledShaders.front().PlatformData = Durin::FSharedByteBuffer::Take(std::move(CorruptedMetadata));
 	EXPECT_FALSE(Durin::EncodeMaterialCookedProgramFamily(Programs,
 		Material->GetStaticProperties(), Durin::ECookTargetPlatform::MacOS,
 		Durin::ECookTargetProfile::Game, Bytes));

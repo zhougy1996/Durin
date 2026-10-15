@@ -14,6 +14,7 @@
 #include "VulkanCreationQualificationSupport.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
+#include "Shader/Shader.h"
 
 namespace Durin::VulkanRHI
 {
@@ -41,6 +42,207 @@ namespace Durin::VulkanRHI
 		std::optional<std::string> PreviousMode;
 	};
 
+	TEST_F(FVulkanCreationQualificationTests, BindingUpdateAndSubmission)
+	{
+		constexpr uint32 DrawCount = 1024;
+		constexpr uint32 Warmup = 30;
+		constexpr uint32 Samples = 120;
+		constexpr uint32 Runs = 6; // Three A/A pairs before comparing a candidate.
+		FShaderCompileOptions Options;
+		Options.EntryPoints = {"ComputeMain", "VertexMain", "FragmentMain"};
+		Options.Frequencies = {EShaderFrequency::Compute, EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+		const auto Compiled = FSlangShaderCompiler().Compile(
+			(std::filesystem::path(DURIN_TEST_DATA_DIR) / "DeferredBufferVersions.slang").string(), Options);
+		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
+		ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
+		ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
+		auto& Commands = FRHICommandListImmediate::Get();
+		const auto OutputRoot = Testing::CreateTestFixtureDirectory("BindingTiming");
+		std::ofstream Raw(OutputRoot / "samples.csv");
+		std::ofstream Hardware(OutputRoot / "device.txt");
+		WriteCreationHost(Hardware);
+		Hardware << GetVulkanDeviceDescriptionForTiming();
+		Hardware << "draws=" << DrawCount << " warmup=" << Warmup << " samples=" << Samples
+			<< " runs=" << Runs << "\nexecution=threaded; cache=warm; pipeline_reset=same PSO\n";
+		Raw << "compute,indirect,scenario,run,sample,producer_update_ns,producer_submit_ns,queue_replay_ns,combined_ns\n";
+		std::array<FShaderRHIRef, 3> Shaders;
+		for (uint32 Index = 0; Index < Shaders.size(); ++Index)
+		{
+			const auto& Source = Compiled.CompiledShaders[Index];
+			auto Desc = FRHIShaderCreateDesc::Create(Source.DebugName.c_str(), Source.Frequency, Source.Code, Source.CodeHash);
+			Desc.SetEntryPoint(Source.BinaryEntryPoint.c_str());
+			Shaders[Index] = GDynamicRHI->RHICreateShader(Desc);
+			ASSERT_TRUE(Shaders[Index]);
+		}
+		std::array<FBufferRHIRef, 2> Uniforms;
+		for (uint32 Index = 0; Index < Uniforms.size(); ++Index)
+		{
+			const std::array<uint32, 4> Value{10 + Index * 10, 0, 0, 0};
+			auto Desc = FRHIBufferCreateDesc::Create("BindingTimingUniform", 16, 0,
+				EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Static);
+			Desc.InitialData = {Value.data(), sizeof(Value)};
+			Uniforms[Index] = GDynamicRHI->RHICreateBuffer(Commands, Desc);
+			ASSERT_TRUE(Uniforms[Index]);
+		}
+		const std::array<uint32, 4> Values{0, 30, 50, 0};
+		auto StorageDesc = FRHIBufferCreateDesc::Create("BindingTimingStorage", 16, 16,
+			EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ShaderResource);
+		StorageDesc.InitialData = {Values.data(), sizeof(Values)};
+		auto Storage = GDynamicRHI->RHICreateBuffer(Commands, StorageDesc);
+		ASSERT_TRUE(Storage);
+		auto Declaration = GDynamicRHI->RHICreateVertexDeclaration({});
+		ASSERT_TRUE(Declaration);
+		FRHIRenderTargetLayout TargetLayout;
+		TargetLayout.NumColorRenderTargets = 1;
+		auto& Color = TargetLayout.ColorAttachments[0].RenderTarget;
+		Color.Format = EPixelFormat::RGBA8_UNORM;
+		Color.LoadAction = ERHIRenderTargetLoadAction::Clear;
+		Color.StoreAction = ERHIRenderTargetStoreAction::Store;
+		Color.FinalLayout = ERHITextureLayout::ShaderReadOnly;
+		Color.FinalAccess = ERHIAccess::GraphicsShaderRead;
+		FComputePipelineStateInitializer ComputeInit;
+		ComputeInit.ComputeShader = Shaders[0];
+		ASSERT_TRUE(BuildPipelineLayoutFromReflection(std::array{Compiled.CompiledShaders[0].Reflection}, ComputeInit.PipelineLayout));
+		FGraphicsPipelineStateInitializer GraphicsInit;
+		GraphicsInit.BoundShaders = {Shaders[1], Shaders[2]};
+		GraphicsInit.VertexDeclaration = Declaration;
+		GraphicsInit.RenderTargetLayout = TargetLayout;
+		ASSERT_TRUE(BuildPipelineLayoutFromReflection(std::array{Compiled.CompiledShaders[1].Reflection,
+			Compiled.CompiledShaders[2].Reflection}, GraphicsInit.PipelineLayout));
+		const auto PreparationStart = VulkanCreationTimestamp();
+		auto Compute = GDynamicRHI->RHICreateComputePipelineState("BindingTimingCompute", ComputeInit);
+		auto Graphics = GDynamicRHI->RHICreateGraphicsPipelineState("BindingTimingGraphics", GraphicsInit);
+		Hardware << "pipeline_creation_ns=" << VulkanCreationTimestamp() - PreparationStart
+			<< " cache_metadata_bytes=" << GetVulkanDeviceForTest(FVulkanDynamicRHI::Get())->GetCacheMetadataBytes() << '\n';
+		ASSERT_TRUE(Compute && Graphics);
+		for (const bool bCompute : {false, true})
+		{
+			const auto Access = bCompute ? ERHIAccess::ComputeShaderRead : ERHIAccess::GraphicsShaderRead;
+			if (bCompute)
+				Commands.TransitionBuffers(std::array{
+					FRHIBufferTransition{Uniforms[0], 0, 16, ERHIAccess::GraphicsUniformRead, ERHIAccess::ComputeUniformRead},
+					FRHIBufferTransition{Uniforms[1], 0, 16, ERHIAccess::GraphicsUniformRead, ERHIAccess::ComputeUniformRead},
+					FRHIBufferTransition{Storage, 0, 16, ERHIAccess::GraphicsShaderRead, Access}});
+			const std::array<uint32, 4> Arguments = bCompute
+				? std::array<uint32, 4>{1, 1, 1, 0} : std::array<uint32, 4>{3, 1, 0, 0};
+			auto ArgumentDesc = FRHIBufferCreateDesc::Create("BindingTimingIndirect", sizeof(Arguments), 0,
+				EBufferUsageFlags::DrawIndirect | EBufferUsageFlags::Static);
+			ArgumentDesc.InitialData = {Arguments.data(), sizeof(Arguments)};
+			auto Indirect = GDynamicRHI->RHICreateBuffer(Commands, ArgumentDesc);
+			ASSERT_TRUE(Indirect);
+			for (const bool bIndirect : {false, true})
+			for (const std::string_view Scenario : {"unchanged", "partial_change", "pipeline_reset"})
+			{
+				SCOPED_TRACE(std::format("compute={} indirect={} scenario={}", bCompute, bIndirect, Scenario));
+				auto Output = GDynamicRHI->RHICreateTexture(Commands,
+					FRHITextureCreateDesc::Create2D("BindingTimingPixels", DrawCount, 1, EPixelFormat::RGBA8_UNORM)
+						.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback
+							| (bCompute ? ETextureCreateFlags::Storage : ETextureCreateFlags::RenderTargetable)));
+				ASSERT_TRUE(Output);
+				Commands.SwitchPipeline(bCompute ? ERHIPipeline::Compute : ERHIPipeline::Graphics);
+				if (bCompute) Commands.TransitionTextures(std::array{FRHITextureTransition{Output,
+					{ERHITextureAspect::Color, 0, 1, 0, 1}, ERHIAccess::Discard, ERHIAccess::ComputeShaderReadWrite}});
+				const auto Bind = [&] {
+					if (bCompute) Commands.SetComputePipelineState(*Compute);
+					else Commands.SetGraphicsPipelineState(*Graphics);
+					const std::array Parameters{
+						FRHIShaderParameterResource{.Resource = Uniforms[0], .BindingIndex = 0, .Type = ERHIBindingType::UniformBuffer, .Size = 16},
+						FRHIShaderParameterResource{.Resource = Storage, .BindingIndex = 1, .Type = ERHIBindingType::StorageBuffer, .Size = 16}};
+					Commands.SetShaderParameters(Shaders[bCompute ? 0 : 2], Parameters);
+					if (bCompute) Commands.SetShaderParameters(Shaders[0], std::array{FRHIShaderParameterResource{
+						.Resource = Output, .BindingIndex = 2, .Type = ERHIBindingType::StorageImage}});
+				};
+				std::array<std::array<std::vector<uint64>, 4>, Runs> Timings;
+				for (auto& Run : Timings) for (auto& Metric : Run) Metric.reserve(Samples);
+				for (uint32 Run = 0; Run < Runs; ++Run)
+				for (uint32 Sample = 0; Sample < Warmup + Samples; ++Sample)
+				{
+					const auto Started = VulkanCreationTimestamp();
+					GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+					if (!bCompute)
+					{
+						FRHIRenderPassInfo Pass;
+						Pass.RenderTargetLayout = TargetLayout;
+						Pass.ColorRenderTargets[0] = Output;
+						Commands.BeginRenderPass(Pass, "BindingTiming");
+						Commands.SetViewport(0, 0, 0, DrawCount, 1, 1);
+					}
+					Bind();
+					uint64 UpdateTime = 0, SubmitTime = 0;
+					for (uint32 Pixel = 0; Pixel < DrawCount; ++Pixel)
+					{
+						const auto UpdateStart = VulkanCreationTimestamp();
+						if (Scenario == "pipeline_reset") Bind();
+						const uint32 UniformIndex = Scenario == "partial_change" ? Pixel % 2 : 0;
+						Commands.SetShaderParameters(Shaders[bCompute ? 0 : 2], std::array{FRHIShaderParameterResource{
+							.Resource = Uniforms[UniformIndex], .BindingIndex = 0, .Type = ERHIBindingType::UniformBuffer, .Size = 16}});
+						const auto Updated = VulkanCreationTimestamp();
+						if (bCompute)
+						{
+							Commands.PushConstants(EShaderStageFlags::Compute, 0, sizeof(Pixel), &Pixel);
+							if (bIndirect) Commands.DispatchIndirect(Indirect, 0);
+							else Commands.Dispatch(1, 1, 1);
+						}
+						else
+						{
+							Commands.SetScissor(static_cast<float>(Pixel), 0, 1, 1);
+							if (bIndirect) Commands.DrawIndirect(Indirect, 0);
+							else Commands.Draw({.VertexCount = 3});
+						}
+						const auto Encoded = VulkanCreationTimestamp();
+						UpdateTime += Updated - UpdateStart;
+						SubmitTime += Encoded - Updated;
+					}
+					if (!bCompute) Commands.EndRenderPass();
+					GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+					const auto ReplayStart = VulkanCreationTimestamp();
+					Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+					const auto Finished = VulkanCreationTimestamp();
+					// Drain outside the CPU interval; each sample starts without GPU backlog.
+					GDynamicRHI->RHIBlockUntilGPUIdle();
+					if (Sample >= Warmup)
+					{
+						const std::array Values{UpdateTime, SubmitTime, Finished - ReplayStart, Finished - Started};
+						for (uint32 Metric = 0; Metric < Values.size(); ++Metric) Timings[Run][Metric].push_back(Values[Metric]);
+						Raw << bCompute << ',' << bIndirect << ',' << Scenario << ',' << Run << ','
+							<< Sample - Warmup << ',' << UpdateTime << ',' << SubmitTime << ',' << Finished - ReplayStart << ',' << Finished - Started << '\n';
+					}
+				}
+				constexpr std::array MetricNames{"producer_update", "producer_submit", "queue_replay", "combined"};
+				for (uint32 Run = 0; Run < Runs; ++Run)
+				for (uint32 Metric = 0; Metric < MetricNames.size(); ++Metric)
+				{
+					auto& Values = Timings[Run][Metric];
+					std::ranges::sort(Values);
+					const auto Median = (Values[Samples / 2 - 1] + Values[Samples / 2]) / 2;
+					const auto P95 = Values[(Samples * 95 + 99) / 100 - 1];
+					const auto Prefix = std::format("binding_c{}_i{}_{}_run{}_{}", bCompute, bIndirect, Scenario, Run, MetricNames[Metric]);
+					RecordProperty(Prefix + "_median_ns", std::to_string(Median));
+					RecordProperty(Prefix + "_p95_ns", std::to_string(P95));
+					std::cout << "BindingTiming " << Prefix << " median_ns=" << Median << " p95_ns=" << P95 << '\n';
+				}
+				FByteBuffer Pixels;
+				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Output, 0, 0, Pixels));
+				ASSERT_EQ(Pixels.size(), DrawCount * 4);
+				for (uint32 Pixel = 0; Pixel < DrawCount; ++Pixel)
+				{
+					const uint32 Red = Scenario == "partial_change" ? 10 + (Pixel % 2) * 10 : 10;
+					EXPECT_NEAR(std::to_integer<uint8>(Pixels[Pixel * 4]), Red, 1);
+					EXPECT_NEAR(std::to_integer<uint8>(Pixels[Pixel * 4 + 1]), 30, 1);
+					EXPECT_NEAR(std::to_integer<uint8>(Pixels[Pixel * 4 + 2]), 50, 1);
+					EXPECT_EQ(Pixels[Pixel * 4 + 3], std::byte{255});
+				}
+			}
+		}
+		ASSERT_TRUE(Raw.good() && Hardware.good());
+		RecordProperty("warmup_count", Warmup);
+		RecordProperty("sample_count", Samples);
+		RecordProperty("run_count", Runs);
+		RecordProperty("draw_count", DrawCount);
+		RecordProperty("authority", "observation_requires_external_quiet_lane_and_noise_receipt");
+		std::cout << "Binding timing output: " << OutputRoot << std::endl;
+	}
+
 	TEST_F(FVulkanCreationQualificationTests, ColdHotAndConcurrentRequests)
 	{
 		FShaderCompileOptions Options;
@@ -54,7 +256,7 @@ namespace Durin::VulkanRHI
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
 		const auto Output = Testing::CreateTestFixtureDirectory("CreationTiming");
 		for (size_t Index = 0; Index < Compiled.CompiledShaders.size(); ++Index)
-			ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Compiled.CompiledShaders[Index].Code,
+			ASSERT_TRUE(FFileHelper::SaveArrayToFile(Compiled.CompiledShaders[Index].Code,
 				Output / std::format("Shader{}.spv", Index)));
 		std::ofstream Rounds(Output / "rounds.csv");
 		Rounds << "round,scenario,compute,total_ns,synchronous_operations,submission_serials,graphics_native,compute_native,queue_entries_peak,queue_payload_peak"
@@ -76,14 +278,14 @@ namespace Durin::VulkanRHI
 					<< " device_id=" << Props.deviceID << " driver=" << Props.driverVersion
 					<< " api=" << Props.apiVersion << "\napplication_cache=cold per lifetime; driver_private_cache=uncontrolled\n";
 				for (const auto& Shader : Compiled.CompiledShaders)
-					Hardware << "shader=" << Shader.DebugName << " bytes=" << Shader.Code->size() << '\n';
+					Hardware << "shader=" << Shader.DebugName << " bytes=" << Shader.Code.size() << '\n';
 			}
 			std::array<FShaderRHIRef, 3> Shaders;
 			for (size_t Index = 0; Index < Shaders.size(); ++Index)
 			{
 				const auto& Shader = Compiled.CompiledShaders[Index];
 				auto Desc = FRHIShaderCreateDesc::Create(Shader.DebugName.c_str(), Shader.Frequency,
-					*Shader.Code, Shader.Hash);
+					Shader.Code, Shader.CodeHash);
 				Desc.SetEntryPoint(Shader.BinaryEntryPoint.c_str());
 				Shaders[Index] = GDynamicRHI->RHICreateShader(Desc);
 				ASSERT_TRUE(Shaders[Index]);
@@ -196,7 +398,7 @@ namespace Durin::VulkanRHI
 		for (size_t Index = 0; Index < InitialData.size(); ++Index)
 			InitialData[Index] = std::byte(Index % 256);
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(InitialData, Output / "initial-data.bin"));
-		ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Compiled.CompiledShaders[0].Code, Output / "Shader0.spv"));
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Compiled.CompiledShaders[0].Code, Output / "Shader0.spv"));
 		std::ofstream Rounds(Output / "rounds.csv");
 		Rounds << "round,creation_ns,upload_record_ns,upload_wait_ns,synchronous_operations,queue_entries_peak,queue_payload_peak"
 			<< CreationMemoryColumns << '\n';
@@ -219,7 +421,7 @@ namespace Durin::VulkanRHI
 			const auto Start = VulkanCreationTimestamp();
 			const auto& Shader = Compiled.CompiledShaders[0];
 			auto ShaderDesc = FRHIShaderCreateDesc::Create("ResourceBatchShader", Shader.Frequency,
-				*Shader.Code, Shader.Hash);
+				Shader.Code, Shader.CodeHash);
 			ShaderDesc.SetEntryPoint(Shader.BinaryEntryPoint.c_str());
 			for (auto& Result : Shaders) Result = GDynamicRHI->RHICreateShader(ShaderDesc);
 			for (auto& Result : Samplers) Result = GDynamicRHI->RHICreateSampler({});
@@ -300,7 +502,7 @@ namespace Durin::VulkanRHI
 			for (size_t Index = 0; Index < Shaders.size(); ++Index)
 			{
 				const auto& Shader = Compiled.CompiledShaders[Index];
-				auto Desc = FRHIShaderCreateDesc::Create(Shader.DebugName.c_str(), Shader.Frequency, *Shader.Code, Shader.Hash);
+				auto Desc = FRHIShaderCreateDesc::Create(Shader.DebugName.c_str(), Shader.Frequency, Shader.Code, Shader.CodeHash);
 				Desc.SetEntryPoint(Shader.BinaryEntryPoint.c_str());
 				Shaders[Index] = GDynamicRHI->RHICreateShader(Desc);
 				ASSERT_TRUE(Shaders[Index]);

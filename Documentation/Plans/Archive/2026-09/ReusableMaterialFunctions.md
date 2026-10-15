@@ -2,12 +2,18 @@
 
 Summary: Add typed material function assets and replace expanded imported PBR graphs with texture-driven StandardPBR calls, including editor workflows and explicit asset migration.
 
-Last reviewed: 2026-09-12
+Last reviewed: 2026-10-15
 
 Status: Archived
 Completed: 2026-09-12
 
 ## Current Status
+
+Report retention was updated on 2026-10-15: generated inventory, migration and
+qualification JSON now remain local under ignored
+`Build/Qualification/PlanEvidence/`. The summaries below preserve the original
+September validation outcomes; this maintenance does not rerun qualification or
+change the completion date.
 
 Stage 0 completed on 2026-09-11. The interface and bounds are frozen below;
 the 22 source packages have recorded identities, references and SHA-256 hashes.
@@ -446,9 +452,9 @@ shared Engine mesh incompatibilities). No source packages have been modified.
 
 ### Stage 0 completion receipts
 
-The [source inventory](../../Evidence/ReusableMaterialFunctions-Inventory.json) records
-all 22 packages, physical ownership, SHA-256 hashes, reflected objects and exact
-reference routes. Engine packages are shared between projects and recorded once.
+The pre-migration inventory captured on 2026-09-11 at `2a962b3f9` covered
+22 packages, physical ownership, SHA-256 hashes, reflected objects and exact
+reference routes. Engine packages were shared between projects and recorded once.
 All object/reference inspections succeeded. This is a pre-migration checkpoint;
 each package remains `Pending` until Stage 4 records its disposition and verifies
 the before/after identity and references. No source package has been changed.
@@ -802,8 +808,8 @@ production construction uses the function library. Inspection of historical comm
 resave expansion with deterministic MIGR node identities. The recognizer accepts
 that complete graph, not just its familiar root GUID. A modified node is rejected.
 
-The [migration checkpoint](../../Evidence/ReusableMaterialFunctions-Migration.json)
-records all source fingerprints and dispositions. ImportedSurface was replaced;
+The migration checkpoint verified all 22 package dispositions, with object and
+reference preservation in every package. ImportedSurface was replaced;
 DefaultMaterial, five meshes and two material instances were canonically resaved.
 The other 13 existing packages remained byte-identical. All original object records
 and references are preserved; only the parent gains function references. The five
@@ -843,9 +849,9 @@ expanded graph and compares each capture immediately against a standard-function
 root with the same parameter values, sampling policy, properties and geometry.
 
 All six imported captures and ten forward captures match Stage 0 pixel for pixel
-at 64x64. The ten same-run old/new comparisons also match exactly. The durable
-[qualification record](../../Evidence/ReusableMaterialFunctions-Qualification.json)
-contains per-image hashes and zero-difference metrics; retained images are under
+at 64x64. The ten same-run old/new comparisons also match exactly. All 26
+comparisons reported zero changed pixels and zero maximum/mean channel delta.
+Raw per-image hashes remain in the local qualification JSON; retained images are under
 `Build/.agent-state/evidence/ReusableMaterialFunctions-Stage5/Imported/` and
 `Build/.agent-state/evidence/ReusableMaterialFunctions-Stage5/Forward/`.
 Independent maps retain eight resources, 40 uniform fields and 656 uniform bytes;
@@ -884,7 +890,7 @@ shared qualification registration edits. This stage uses the bounded owning
 material/import/Cook/reload/thumbnail targets and explicit GPU qualification,
 with the final all build covering the shared Engine/editor dependency closure.
 
-Final validation receipts are recorded in the qualification JSON. MaterialTests
+Final validation results are summarized here. MaterialTests
 passed 180/180 before the final Cook contributor correction; all 23 function
 cases then passed again with that correction. SceneImportTests passed 6/6,
 AssetCookTests 21/21, AssetPackageReloadTests 13/13, MaterialThumbnailTests 8/8 and
@@ -899,8 +905,8 @@ packages plus two shared Engine dependencies and reuses those two dependencies.
 All material/instance packages hit on warm runs. The existing unversioned generic
 recipe deliberately recaptures Level/RoadNet packages. Function packages are not
 published. All 27 source package hashes still equal the Stage 4 checkpoint.
-Cold/warm receipts and per-package outcomes are retained in the qualification
-record and `Build/.agent-state/evidence/ReusableMaterialFunctions-Stage5/`.
+Cold/warm receipts and per-package outcomes remain local in the qualification
+JSON and `Build/.agent-state/evidence/ReusableMaterialFunctions-Stage5/`.
 
 The final all build passed:
 `Build/.agent-state/logs/20260912-164946-929242-19816-cmake.log`.

@@ -1,3 +1,4 @@
+#include "MetalShaderFormat.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialCookedProgramTestSupport.h"
 #include "MaterialProgramTestFixture.h"
@@ -385,7 +386,7 @@ TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMism
 	ASSERT_EQ(Split.CompiledShaders.size(), Synchronous.CompiledShaders.size());
 	for (size_t Index = 0; Index < Split.CompiledShaders.size(); ++Index)
 	{
-		EXPECT_EQ(Split.CompiledShaders[Index].Hash, Synchronous.CompiledShaders[Index].Hash);
+		EXPECT_EQ(Split.CompiledShaders[Index].CodeHash, Synchronous.CompiledShaders[Index].CodeHash);
 		EXPECT_EQ(Split.CompiledShaders[Index].SourceEntryPoint,
 			Synchronous.CompiledShaders[Index].SourceEntryPoint);
 	}
@@ -512,7 +513,7 @@ TEST(FMaterialCompilerTests, MetalMaterialProgramCompilesAndCooks)
 	{
 		EXPECT_EQ(Shader.Target, MetalShaderTarget);
 		EXPECT_EQ(Shader.CodeFormat, EShaderCodeFormat::Msl20Source);
-		EXPECT_NE(Shader.BindingRemapIdentity, FXxHash128{});
+		EXPECT_NE(ShaderFormat::DecodeMetalMetadata(Shader.Frequency, Shader.PlatformData.GetBytes())->Identity, FXxHash128{});
 	}
 	FByteBuffer Bytes;
 	const std::array Programs{&Compiled};
@@ -1351,7 +1352,7 @@ TEST(FMaterialProgramNormalizationTests,
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty()
 		? std::string("no diagnostic") : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	size_t ActiveBindings = 0;
-	for (const Durin::FCompiledShader& Shader : Compiled.CompiledShaders)
+	for (const Durin::FShaderCode& Shader : Compiled.CompiledShaders)
 		ActiveBindings += Shader.Reflection.ResourceBindings.size();
 	std::cout << "[MaterialOutputDefaultBaseline] input_ir_nodes="
 		<< Input.IR.Nodes.size()
@@ -1690,7 +1691,7 @@ TEST(FMaterialProgramCompilerTests, NormalizedIRRecompilationPreservesSourceAndS
 	{
 		EXPECT_EQ(Compiled.CompiledShaders[Index].Frequency, Baseline.CompiledShaders[Index].Frequency);
 		EXPECT_EQ(Compiled.CompiledShaders[Index].SourceEntryPoint, Baseline.CompiledShaders[Index].SourceEntryPoint);
-		EXPECT_EQ(Compiled.CompiledShaders[Index].Hash, Baseline.CompiledShaders[Index].Hash);
+		EXPECT_EQ(Compiled.CompiledShaders[Index].CodeHash, Baseline.CompiledShaders[Index].CodeHash);
 	}
 }
 

@@ -86,10 +86,10 @@ namespace Durin::RendererPrivate
 		}
 		const std::array<const FShaderType*, 2> Types{
 			&VertexType, &FragmentType};
-		std::span<const FCompiledShader> GeneratedStages = MaterialProgram
-			? std::span<const FCompiledShader>(MaterialProgram->CompiledShaders)
-			: std::span<const FCompiledShader>{};
-		std::vector<FCompiledShader> FactoryCompatibleStages;
+		std::span<const FShaderCode> GeneratedStages = MaterialProgram
+			? std::span<const FShaderCode>(MaterialProgram->CompiledShaders)
+			: std::span<const FShaderCode>{};
+		std::vector<FShaderCode> FactoryCompatibleStages;
 		if (!Factory->UsesGeneratedMaterialVertexStage(MeshPassKey))
 		{
 			for (const auto& Stage : GeneratedStages)

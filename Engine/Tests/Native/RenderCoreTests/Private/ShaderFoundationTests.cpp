@@ -8,6 +8,7 @@
 #include "Shader/MaterialShader.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
+#include "MetalShaderFormat.h"
 #include "ShaderBuild/ShaderPaths.h"
 
 namespace Durin
@@ -189,12 +190,10 @@ namespace Durin
 			return MakeInlineShaderParametersMetadata<ParameterStruct>("FParameters", Members);
 		}
 
-		auto MakeCode(uint8 Seed) -> std::shared_ptr<const FSharedByteBuffer>
+		auto MakeCode(uint8 Seed) -> FSharedByteBuffer
 		{
-			FByteBuffer Code(16);
-			for (size_t Index = 0; Index < Code.size(); ++Index)
-				Code[Index] = static_cast<std::byte>(Seed + static_cast<uint8>(Index));
-			return std::make_shared<const FSharedByteBuffer>(FSharedByteBuffer::Take(std::move(Code)));
+			const std::array<uint32, 6> Code{0x07230203u, 0x00010500u, Seed, 2, 0, Seed};
+			return FSharedByteBuffer::Copy(std::as_bytes(std::span(Code)));
 		}
 
 		auto MakeCompiledShader(
@@ -204,30 +203,42 @@ namespace Durin
 			uint8 CodeSeed,
 			FShaderReflectionData Reflection = {},
 			std::string BinaryEntryPoint = "main"
-		) -> FCompiledShader
+		) -> FShaderCode
 		{
-			FCompiledShader CompiledShader;
+			FShaderCode CompiledShader;
 			CompiledShader.Frequency = Frequency;
 			CompiledShader.SourceEntryPoint = std::move(SourceEntryPoint);
 			CompiledShader.BinaryEntryPoint = std::move(BinaryEntryPoint);
 			CompiledShader.DebugName = std::move(DebugName);
 			CompiledShader.Code = MakeCode(CodeSeed);
-			CompiledShader.Hash = FXxHash128::HashBuffer(*CompiledShader.Code);
+			CompiledShader.CodeHash = FXxHash128::HashBuffer(CompiledShader.Code);
 			CompiledShader.Reflection = std::move(Reflection);
 			return CompiledShader;
 		}
 
-		auto ExpectShaderEqual(const FCompiledShader& Actual, const FCompiledShader& Expected) -> void
+		auto MakeMetalFixtureArtifact(FShaderCode& Shader) -> void
+		{
+			Shader.Target = MetalShaderTarget;
+			Shader.CodeFormat = EShaderCodeFormat::Msl20Source;
+			const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\nvoid " + Shader.BinaryEntryPoint + "() {}\n";
+			Shader.Code = FSharedByteBuffer::Copy(std::as_bytes(std::span(Source)));
+			Shader.CodeHash = FXxHash128::HashBuffer(Shader.Code);
+			const auto Map = ShaderFormat::BuildMetalBindingMap(Shader.Frequency, ShaderFormat::BuildLogicalBindings(Shader.Reflection), !Shader.Reflection.PushConstantRanges.empty()).value();
+			Shader.PlatformData = ShaderFormat::EncodeMetalMetadata(Shader.Frequency,
+				{Map.Bindings, Map.PushConstantBufferSlot, Map.Identity}).value();
+		}
+
+		auto ExpectShaderEqual(const FShaderCode& Actual, const FShaderCode& Expected) -> void
 		{
 			ASSERT_EQ(Actual.Frequency, Expected.Frequency);
 			EXPECT_EQ(Actual.SourceEntryPoint, Expected.SourceEntryPoint);
 			EXPECT_EQ(Actual.BinaryEntryPoint, Expected.BinaryEntryPoint);
 			EXPECT_EQ(Actual.DebugName, Expected.DebugName);
-			EXPECT_EQ(Actual.Hash, Expected.Hash);
-			ASSERT_TRUE(Actual.Code);
-			ASSERT_TRUE(Expected.Code);
-			ASSERT_EQ(Actual.Code->size(), Expected.Code->size());
-			EXPECT_EQ(std::memcmp(Actual.Code->data(), Expected.Code->data(), Actual.Code->size()), 0);
+			EXPECT_EQ(Actual.CodeHash, Expected.CodeHash);
+			ASSERT_TRUE(!Actual.Code.IsEmpty());
+			ASSERT_TRUE(!Expected.Code.IsEmpty());
+			ASSERT_EQ(Actual.Code.size(), Expected.Code.size());
+			EXPECT_EQ(std::memcmp(Actual.Code.data(), Expected.Code.data(), Actual.Code.size()), 0);
 			ASSERT_EQ(Actual.Reflection.ResourceBindings.size(), Expected.Reflection.ResourceBindings.size());
 			for (size_t Index = 0; Index < Actual.Reflection.ResourceBindings.size(); ++Index)
 			{
@@ -624,25 +635,64 @@ namespace Durin
 	TEST_F(FShaderFoundationTests, MakeShaderCreateDescPreservesFrequencyHashAndUsesBackendEntryPoint)
 	{
 		auto CompiledShader = MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 7);
-		CompiledShader.Target = MetalShaderTarget;
-		CompiledShader.CodeFormat = EShaderCodeFormat::Msl20Source;
-		CompiledShader.BindingRemapIdentity = {17, 23};
-		CompiledShader.MetalBindings = {{0, 2, ERHIBindingType::Texture, 0, 1}};
-		CompiledShader.MetalPushConstantBufferSlot = 0;
+		CompiledShader.Reflection.ResourceBindings.push_back({"Texture", EShaderStageFlags::Fragment, 0, 2, ERHIBindingType::Texture, 1});
+		CompiledShader.Reflection.PushConstantRanges.push_back({EShaderStageFlags::Fragment, 0, 4});
+		MakeMetalFixtureArtifact(CompiledShader);
 		const FRHIShaderCreateDesc CreateDesc = MakeShaderCreateDesc(CompiledShader);
 
 		EXPECT_EQ(CreateDesc.Frequency, EShaderFrequency::Fragment);
-		EXPECT_EQ(CreateDesc.Hash, CompiledShader.Hash);
+		EXPECT_EQ(CreateDesc.Hash, CompiledShader.CodeHash);
 		EXPECT_EQ(CreateDesc.Target, MetalShaderTarget);
 		EXPECT_EQ(CreateDesc.CodeFormat, EShaderCodeFormat::Msl20Source);
-		EXPECT_EQ(CreateDesc.BindingRemapIdentity, CompiledShader.BindingRemapIdentity);
-		EXPECT_EQ(CreateDesc.MetalBindings, CompiledShader.MetalBindings);
-		EXPECT_EQ(CreateDesc.MetalPushConstantBufferSlot,
-			CompiledShader.MetalPushConstantBufferSlot);
+		const auto Map = ShaderFormat::DecodeMetalMetadata(CompiledShader.Frequency, CompiledShader.PlatformData.GetBytes());
+		ASSERT_TRUE(Map);
+		EXPECT_EQ(CreateDesc.ShaderIdentity, CreateDesc.CodeOwner->ShaderIdentity);
+		EXPECT_TRUE(std::ranges::equal(CreateDesc.CodeOwner->PlatformData, CompiledShader.PlatformData));
+		ASSERT_TRUE(CreateDesc.CodeOwner);
+		const auto Retained = CreateDesc.CodeOwner;
+		auto RenamedInterface = CompiledShader;
+		RenamedInterface.Reflection.ResourceBindings[0].Name = "OtherTexture";
+		const auto RenamedArtifact = ShareShaderCode(RenamedInterface);
+		ASSERT_TRUE(RenamedArtifact);
+		EXPECT_NE(Retained->ShaderIdentity, RenamedArtifact->ShaderIdentity);
 		EXPECT_STREQ(CreateDesc.EntryPoint, "main");
 		EXPECT_STREQ(CreateDesc.DebugName, "UnitFragmentShader");
-		ASSERT_EQ(CreateDesc.Code.size(), CompiledShader.Code->size());
-		EXPECT_EQ(std::memcmp(CreateDesc.Code.data(), CompiledShader.Code->data(), CreateDesc.Code.size_bytes()), 0);
+		ASSERT_EQ(CreateDesc.Code.size(), CompiledShader.Code.size());
+		EXPECT_EQ(std::memcmp(CreateDesc.Code.data(), CompiledShader.Code.data(), CreateDesc.Code.size_bytes()), 0);
+		CompiledShader = {};
+		EXPECT_STREQ(CreateDesc.EntryPoint, "main");
+		EXPECT_STREQ(CreateDesc.DebugName, "UnitFragmentShader");
+		EXPECT_FALSE(Retained->PlatformData.IsEmpty());
+	}
+
+	TEST_F(FShaderFoundationTests, ShaderMapPublishesOneImmutableCodeOwnerForCreation)
+	{
+		auto Source = MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "SharedCode", 7);
+		Source.Reflection.ResourceBindings = {
+			{"Texture", EShaderStageFlags::Fragment, 3, 7, ERHIBindingType::Texture, 2},
+			{"Sampler", EShaderStageFlags::Fragment, 0, 2, ERHIBindingType::Sampler, 1}};
+		const auto Identity = ShaderFormat::ComputeShaderIdentity(Source);
+		auto Reordered = Source;
+		std::ranges::reverse(Reordered.Reflection.ResourceBindings);
+		EXPECT_EQ(Identity, ShaderFormat::ComputeShaderIdentity(Reordered));
+
+		FShaderMapResourceCode Resource;
+		const auto Index = Resource.AddCompiledShader(Source);
+		const auto Owner = Resource.GetSharedShaderCode(Index);
+		const auto First = MakeShaderCreateDesc(Owner);
+		const auto Second = MakeShaderCreateDesc(Owner);
+		EXPECT_EQ(&Resource.GetCompiledShader(Index), Owner.get());
+		EXPECT_EQ(First.CodeOwner, Owner);
+		EXPECT_EQ(Second.CodeOwner, Owner);
+		EXPECT_TRUE(Owner->Code.SharesStorageWith(Source.Code));
+		EXPECT_EQ(First.Code.data(), Source.Code.data());
+		EXPECT_EQ(First.EntryPoint, Second.EntryPoint);
+		EXPECT_EQ(First.ShaderIdentity, Identity);
+		Source.Reflection.ResourceBindings.front().Name = "ChangedAfterPublication";
+		Source.Code = {};
+		EXPECT_EQ(Owner->Reflection.ResourceBindings.front().Name, "Texture");
+		EXPECT_TRUE(ShaderFormat::ValidateShaderCreateDesc(First));
+		EXPECT_TRUE(ShaderFormat::ValidateShaderCreateDesc(Second));
 	}
 
 	TEST_F(FShaderFoundationTests, ShaderMapRejectsWrongTargetAndSeparatesIdenticalCode)
@@ -668,8 +718,7 @@ namespace Durin
 		EXPECT_FALSE((Error = RejectedMap.Initialize(Types, VulkanOutput, MetalOptions)));
 		EXPECT_EQ(Error.error().Code, EShaderError::PayloadOutputInvalid);
 		auto MetalOutput = VulkanOutput;
-		MetalOutput.CompiledShaders[0].Target = MetalShaderTarget;
-		MetalOutput.CompiledShaders[0].CodeFormat = EShaderCodeFormat::Msl20Source;
+		MakeMetalFixtureArtifact(MetalOutput.CompiledShaders[0]);
 		FShaderMapBase MetalMap;
 		ASSERT_TRUE((Error = MetalMap.Initialize(Types, MetalOutput, MetalOptions)))
 			<< FormatShaderError(Error.error());
@@ -719,7 +768,7 @@ namespace Durin
 			.ArraySize = 1
 		});
 
-		std::vector<FCompiledShader> CompiledShaders = {
+		std::vector<FShaderCode> CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitVertexShader", 3, VertexReflection),
 			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 4, FragmentReflection)
 		};
@@ -770,7 +819,7 @@ namespace Durin
 			.ArraySize = 1
 		});
 
-		std::vector<FCompiledShader> CompiledShaders = {
+		std::vector<FShaderCode> CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitVertexShader", 8, VertexReflection),
 			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 9, FragmentReflection)
 		};

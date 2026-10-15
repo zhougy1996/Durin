@@ -59,17 +59,11 @@ namespace Durin
 			Ar << Range.StageFlags << Range.Offset << Range.Size;
 		}
 
-		auto SerializeMetalBinding(FArchive& Ar, FMetalShaderBinding& Binding) -> void
-		{
-			Ar << Binding.SetIndex << Binding.BindingIndex << Binding.Type
-				<< Binding.Slot << Binding.Count;
-		}
-
-		auto SerializeShader(FArchive& Ar, FCompiledShader& Shader) -> void
+		auto SerializeShader(FArchive& Ar, FShaderCode& Shader) -> void
 		{
 			Ar << Shader.Target.Platform << Shader.Target.Backend
 				<< Shader.Target.IntermediateFormat << Shader.Target.OutputFormat
-				<< Shader.Target.MslLanguageVersion << Shader.Target.BindingRemapSchema
+				<< Shader.Target.SettingsDigest.HashLow << Shader.Target.SettingsDigest.HashHigh
 				<< Shader.CodeFormat;
 			Ar << Shader.Frequency;
 			for (uint32& Axis : Shader.ComputeThreadGroupSize) Ar << Axis;
@@ -79,10 +73,9 @@ namespace Durin
 				Ar, Shader.BinaryEntryPoint, MaterialCookedProgramMaxStringBytes);
 			SerializeBoundedString(
 				Ar, Shader.DebugName, MaterialCookedProgramMaxStringBytes);
-			FByteBuffer Code = Ar.IsSaving() && Shader.Code
-				? FByteBuffer(Shader.Code->begin(), Shader.Code->end()) : FByteBuffer{};
+			FByteBuffer Code = Ar.IsSaving() && !Shader.Code.IsEmpty() ? FByteBuffer(Shader.Code.begin(), Shader.Code.end()) : FByteBuffer{};
 			SerializeByteBuffer(Ar, Code, MaterialCookedProgramMaxPayloadBytes);
-			SerializeHash(Ar, Shader.Hash);
+			SerializeHash(Ar, Shader.CodeHash);
 			SerializeBoundedSequence(
 				Ar, Shader.Reflection.ResourceBindings,
 				MaterialCookedProgramMaxBindingsPerStage,
@@ -95,15 +88,24 @@ namespace Durin
 				[](FArchive& Inner, FPushConstantRange& Range) {
 					SerializePushRange(Inner, Range);
 				});
-			SerializeBoundedSequence(Ar, Shader.MetalBindings,
-				MaterialCookedProgramMaxBindingsPerStage,
-				[](FArchive& Inner, FMetalShaderBinding& Binding) {
-					SerializeMetalBinding(Inner, Binding);
-				});
-			Ar << Shader.MetalPushConstantBufferSlot;
-			SerializeHash(Ar, Shader.BindingRemapIdentity);
+			Ar << Shader.PlatformDataVersion;
+			FByteBuffer Metadata = Ar.IsSaving() ? FByteBuffer(Shader.PlatformData.begin(), Shader.PlatformData.end()) : FByteBuffer{};
+			SerializeByteBuffer(Ar, Metadata, 4096);
+			FXxHash128 Identity{};
+			if (Ar.IsSaving())
+			{
+				const auto IdentityValue = ShaderFormat::ComputeShaderIdentity(Shader);
+				if (!ShaderFormat::ValidateShaderCode(Shader)) { Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid target shader artifact."); return; }
+				Identity = IdentityValue;
+			}
+			SerializeHash(Ar, Identity);
 			if (Ar.IsLoading() && !Ar.IsError())
-				Shader.Code = std::make_shared<const FSharedByteBuffer>(FSharedByteBuffer::Take(std::move(Code)));
+			{
+				Shader.PlatformData = FSharedByteBuffer::Take(std::move(Metadata));
+				Shader.Code = FSharedByteBuffer::Take(std::move(Code));
+				const auto IdentityValue = ShaderFormat::ComputeShaderIdentity(Shader);
+				if (!ShaderFormat::ValidateShaderCode(Shader) || IdentityValue != Identity) Ar.Fail(EArchiveFailureCode::InvalidData, "Target shader artifact mismatch; recook required.");
+			}
 		}
 
 		auto SerializeLayout(FArchive& Ar, FMaterialRenderLayout& Layout) -> void
@@ -197,7 +199,7 @@ namespace Durin
 				});
 			SerializeBoundedSequence(
 				Ar, Program.CompiledShaders, MaterialCompiledEntryPoints.size(),
-				[](FArchive& Inner, FCompiledShader& Shader) {
+				[](FArchive& Inner, FShaderCode& Shader) {
 					SerializeShader(Inner, Shader);
 				});
 		}
@@ -263,40 +265,15 @@ namespace Durin
 					return {EMaterialCookError::ActiveParameterContractInvalid};
 				PreviousCollection = Collection.CollectionId;
 			}
-			for (const FCompiledShader& Shader : Program.CompiledShaders)
+			for (const FShaderCode& Shader : Program.CompiledShaders)
 			{
-				if (!Shader.Code || Shader.Code->IsEmpty() || Shader.BinaryEntryPoint.empty()
-					|| FXxHash128::HashBuffer(*Shader.Code) != Shader.Hash)
+				if (Shader.BinaryEntryPoint.empty()
+					|| !ShaderFormat::ValidateCodeHash(Shader.Code, Shader.CodeHash))
 					return {EMaterialCookError::CookedShaderCodeHashInvalid};
 				if (Shader.Target != ExpectedTarget
 					|| Shader.CodeFormat != ExpectedTarget.OutputFormat)
 					return {EMaterialCookError::CookedProgramTargetIncompatible};
-				if ((Shader.Frequency == EShaderFrequency::Compute
-						&& bMetal && !IsValidComputeThreadGroupSize(
-							Shader.ComputeThreadGroupSize))
-					|| (Shader.Frequency != EShaderFrequency::Compute
-						&& Shader.ComputeThreadGroupSize != std::array<uint32, 3>{}))
-					return {EMaterialCookError::CookedProgramTargetIncompatible};
-				if (bMetal)
-				{
-					const auto Map = BuildMetalShaderBindingMap(Shader.Frequency, Shader.Reflection);
-					const auto Code = Shader.Code->GetBytes();
-					const std::string_view Source(reinterpret_cast<const char*>(Code.data()), Code.size());
-					if (!Map || Shader.Code->size() < 32
-						|| std::ranges::find(Code, std::byte{0}) != Code.end()
-						|| Shader.MetalBindings != Map->Bindings
-						|| Shader.MetalPushConstantBufferSlot != Map->PushConstantBufferSlot
-						|| Shader.BindingRemapIdentity != Map->Identity
-						|| !Source.substr(0, 256).contains("#include <metal_stdlib>")
-						|| Source.find(Shader.BinaryEntryPoint) == std::string_view::npos)
-						return {EMaterialCookError::CookedProgramTargetIncompatible};
-				}
-				else if (!Shader.MetalBindings.empty()
-					|| Shader.MetalPushConstantBufferSlot != UINT32_MAX
-					|| Shader.BindingRemapIdentity != FXxHash128{}
-					|| Shader.Code->size() < 5 * sizeof(uint32)
-					|| Shader.Code->size() % sizeof(uint32) != 0
-					|| std::memcmp(Shader.Code->data(), "\x03\x02\x23\x07", 4) != 0)
+				if (!ShaderFormat::ValidateShaderCode(Shader))
 					return {EMaterialCookError::CookedProgramTargetIncompatible};
 			}
 			const auto Contract = ValidateMaterialCompilerResult(Program);

@@ -251,9 +251,9 @@ namespace Durin
 		Result.CompiledShaderCount = Program->CompiledShaders.size();
 		Result.DependencyCount = Program->Dependencies.size();
 		Result.PhaseTimings = Program->Timings;
-		for (const FCompiledShader& Shader : Program->CompiledShaders)
+		for (const FShaderCode& Shader : Program->CompiledShaders)
 		{
-			const uint64 Bytes = Shader.Code ? Shader.Code->size() : 0;
+			const uint64 Bytes = Shader.Code.size();
 			if (Bytes > std::numeric_limits<uint64>::max() - Result.CompiledCodeBytes)
 			{
 				Result.CompiledCodeBytes = std::numeric_limits<uint64>::max();

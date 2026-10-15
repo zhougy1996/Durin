@@ -2,6 +2,7 @@
     "ModuleName": "MetalRHI",
     "PrivateDependencies": [
         "Core",
-        "RHI"
+        "RHI",
+        "ShaderFormat"
     ]
 }

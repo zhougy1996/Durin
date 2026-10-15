@@ -2,7 +2,7 @@
 
 Summary: Deliver the native Metal backend for macOS Apple Silicon and track shader, lifecycle, editor, cooked-game, image-parity, and performance qualification.
 
-Last reviewed: 2026-10-05
+Last reviewed: 2026-10-15
 
 Status: Active
 Completed:
@@ -13,6 +13,19 @@ The backend is implemented and macOS now selects Metal by default. The remaining
 work is qualification, not initial backend bring-up. This plan remains Active:
 window lifecycle, the complete parameter/format and paired-scene image matrix,
 and comparable performance measurements have not all been accepted.
+
+[Portable shader binding layouts](PortableShaderBindingLayouts.md) implemented
+target-format extraction, generic owned artifacts, and prepared Metal binding
+operations in `52b90de28`, `47689c4c7`, and `f8a6d837c`. Common RHI no longer
+owns native maps; `FMetalShader` owns decoded metadata and pipelines own prepared
+operations. DSHD/shared-output/DSLB schemas are now 6/7/6, Material payloads are
+14, and target settings use immutable profile digests. Historical schema and
+field descriptions below describe earlier receipts. Windows correctness and
+SDK-free counters pass, but the current migration has no macOS native build,
+output, or timing receipt. A host is unavailable as of 2026-10-15; none of this
+closes this plan's native qualification, image-parity, lifecycle, or performance
+gates. Requalify the candidate on macOS before treating older native results as
+evidence for the new binding path.
 
 The default-adoption decision was delivered separately in `c9c73de07`: automatic
 Metal initialization can fall back to Vulkan in Editor, explicit selection is

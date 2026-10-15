@@ -1,4 +1,5 @@
 #include "Shader/Shader.h"
+#include "ShaderFormat.h"
 
 namespace Durin
 {
@@ -25,23 +26,30 @@ namespace Durin
 
 	} // namespace
 
-	auto MakeShaderCreateDesc(const FCompiledShader& CompiledShader) -> FRHIShaderCreateDesc
+	auto ShareShaderCode(const FShaderCode& Shader) -> std::shared_ptr<const FShaderCode>
 	{
-		checkf(CompiledShader.Code, "Compiled shader code must not be null");
-		FRHIShaderCreateDesc CreateDesc = FRHIShaderCreateDesc::Create(
-			CompiledShader.DebugName.empty() ? nullptr : CompiledShader.DebugName.c_str(),
-			CompiledShader.Frequency,
-			*CompiledShader.Code,
-			CompiledShader.Hash
-		);
-		CreateDesc.SetEntryPoint(CompiledShader.BinaryEntryPoint.c_str());
-		CreateDesc.Target = CompiledShader.Target;
-		CreateDesc.CodeFormat = CompiledShader.CodeFormat;
-		CreateDesc.ComputeThreadGroupSize = CompiledShader.ComputeThreadGroupSize;
-		CreateDesc.BindingRemapIdentity = CompiledShader.BindingRemapIdentity;
-		CreateDesc.MetalBindings = CompiledShader.MetalBindings;
-		CreateDesc.MetalPushConstantBufferSlot = CompiledShader.MetalPushConstantBufferSlot;
-		return CreateDesc;
+		if (!ShaderFormat::ValidateShaderCode(Shader)) return {};
+		auto Published = Shader;
+		Published.ShaderIdentity = ShaderFormat::ComputeShaderIdentity(Published);
+		return std::make_shared<const FShaderCode>(std::move(Published));
+	}
+
+	auto MakeShaderCreateDesc(const FShaderCode& Shader) -> FRHIShaderCreateDesc
+	{
+		return MakeShaderCreateDesc(ShareShaderCode(Shader));
+	}
+
+	auto MakeShaderCreateDesc(std::shared_ptr<const FShaderCode> Code) -> FRHIShaderCreateDesc
+	{
+		requiref(Code && !Code->Code.IsEmpty(), "Shader code owner must be valid");
+		auto Desc = FRHIShaderCreateDesc::Create(Code->DebugName.empty() ? nullptr : Code->DebugName.c_str(),
+			Code->Frequency, Code->Code.GetBytes(), Code->CodeHash);
+		Desc.SetEntryPoint(Code->BinaryEntryPoint.c_str());
+		Desc.Target = Code->Target; Desc.CodeFormat = Code->CodeFormat;
+		Desc.ComputeThreadGroupSize = Code->ComputeThreadGroupSize;
+		Desc.ShaderIdentity = Code->ShaderIdentity;
+		Desc.CodeOwner = std::move(Code);
+		return Desc;
 	}
 
 	auto BuildPipelineLayoutFromReflection(
@@ -158,12 +166,12 @@ namespace Durin
 	}
 
 	auto BuildPipelineLayoutFromShaders(
-		std::span<const FCompiledShader> CompiledShaders,
+		std::span<const FShaderCode> CompiledShaders,
 		FPipelineLayoutDesc& OutPipelineLayout) -> FShaderOperationResult
 	{
 		std::vector<FShaderReflectionData> ReflectionData;
 		ReflectionData.reserve(CompiledShaders.size());
-		for (const FCompiledShader& CompiledShader : CompiledShaders)
+		for (const FShaderCode& CompiledShader : CompiledShaders)
 		{
 			ReflectionData.push_back(CompiledShader.Reflection);
 		}

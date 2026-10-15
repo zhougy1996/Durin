@@ -554,7 +554,7 @@ namespace Durin
 		std::string_view VirtualShaderPath,
 		const char8* EntryPointName,
 		EShaderFrequency Frequency,
-		FCompiledShader& OutCompiledShader) -> FShaderOperationResult
+		FShaderCode& OutCompiledShader) -> FShaderOperationResult
 	{
 		Slang::ComPtr<slang::IBlob> LayoutDiagnostics;
 		slang::ProgramLayout* ProgramLayout = ComposedProgram->getLayout(0, LayoutDiagnostics.writeRef());
@@ -605,11 +605,11 @@ namespace Durin
 		{
 			return std::unexpected(FShaderError{.Code = EShaderError::SpirvConversionFailed});
 		}
-		OutCompiledShader.Code = std::make_shared<const FSharedByteBuffer>(FSharedByteBuffer::Take(std::move(Code)));
-		OutCompiledShader.Hash = FXxHash128::HashBuffer(*OutCompiledShader.Code);
+		OutCompiledShader.Code = FSharedByteBuffer::Take(std::move(Code));
+		OutCompiledShader.CodeHash = FXxHash128::HashBuffer(OutCompiledShader.Code);
 
-		std::vector<uint32> SpirvWords(OutCompiledShader.Code->size() / sizeof(uint32));
-		std::memcpy(SpirvWords.data(), OutCompiledShader.Code->data(), OutCompiledShader.Code->size());
+		std::vector<uint32> SpirvWords(OutCompiledShader.Code.size() / sizeof(uint32));
+		std::memcpy(SpirvWords.data(), OutCompiledShader.Code.data(), OutCompiledShader.Code.size());
 
 		if (auto Result = BuildReflectionData(ProgramLayout, Metadata.get(), SpirvWords, 0, OutCompiledShader.Frequency, OutCompiledShader.Reflection); !Result)
 		{

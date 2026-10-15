@@ -81,16 +81,16 @@ namespace
 	}
 
 	// This fixture translates SPIR-V itself; its input target must not follow the active RHI.
-	auto TranslateMaterialStage(const Durin::FCompiledShader& Shader, std::string& Error)
+	auto TranslateMaterialStage(const Durin::FShaderCode& Shader, std::string& Error)
 		-> std::string
 	{
-		if (!Shader.Code || Shader.Code->size() % sizeof(SpvId) != 0)
+		if (Shader.Code.IsEmpty() || Shader.Code.size() % sizeof(SpvId) != 0)
 		{
 			Error = "Invalid material SPIR-V byte count";
 			return {};
 		}
-		std::vector<SpvId> Words(Shader.Code->size() / sizeof(SpvId));
-		std::memcpy(Words.data(), Shader.Code->data(), Shader.Code->size());
+		std::vector<SpvId> Words(Shader.Code.size() / sizeof(SpvId));
+		std::memcpy(Words.data(), Shader.Code.data(), Shader.Code.size());
 		spvc_context Context = nullptr;
 		if (spvc_context_create(&Context) != SPVC_SUCCESS)
 		{

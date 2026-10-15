@@ -22,6 +22,12 @@ Use `doc validate --scope all` for a repository-wide documentation audit; add
 Successful document mutations include a validation receipt; reuse it unless
 later edits or an explicit audit require validation again.
 
+Keep generated test reports, logs, inventories and raw timing samples under the
+ignored `Build/` tree or in a CI artifact store, not `Documentation/Plans/Evidence/`.
+Commit concise acceptance summaries with the tested revision, selection,
+reproduction settings and remaining gates in the owning plan. Timing claims still
+require retrievable raw samples; moving reports out of Git does not waive that gate.
+
 ## Apply Document Operations
 
 Document move, task removal, and monthly archive commands apply immediately and

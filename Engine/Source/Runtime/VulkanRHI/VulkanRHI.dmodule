@@ -4,6 +4,7 @@
         "Core",
         "ApplicationCore",
         "RenderCore",
-        "RHI"
+        "RHI",
+        "ShaderFormat"
     ]
 }

@@ -1022,7 +1022,7 @@ float4 FragmentMain(
 			Result.CompiledShaders, Result.Layout, {}, Result.ActiveCollections);
 	}
 
-	auto ValidateMaterialCompiledStages(std::span<const FCompiledShader> Stages,
+	auto ValidateMaterialCompiledStages(std::span<const FShaderCode> Stages,
 		const FMaterialRenderLayout& Layout, const FMaterialCompilerResourceLimits& Limits,
 		std::span<const FMaterialParameterCollectionLayout> Collections)
 		-> FMaterialLayoutValidationResult
@@ -1035,7 +1035,7 @@ float4 FragmentMain(
 		for (uint32 Index = 0; Index < Stages.size(); ++Index)
 		{
 			const auto& Stage = Stages[Index];
-			if (!Stage.Code || Stage.Code->IsEmpty() || Stage.SourceEntryPoint != Entries[Index]
+			if (Stage.Code.IsEmpty() || Stage.SourceEntryPoint != Entries[Index]
 				|| Stage.Frequency != (Index < 4 ? EShaderFrequency::Fragment : EShaderFrequency::Vertex) || !Stage.Reflection.PushConstantRanges.empty()
 				|| Stage.Reflection.ResourceBindings.size()
 					> 2 * Layout.ResourceFieldCount + 12 + Collections.size())

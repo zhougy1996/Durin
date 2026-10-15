@@ -1,3 +1,4 @@
+#include "MetalShaderFormat.h"
 #include <gtest/gtest.h>
 #include "NativeRHIBackendTestSupport.h"
 
@@ -10,7 +11,7 @@ namespace Durin
 	namespace
 	{
 		auto FindBinding(
-			const FCompiledShader& Shader,
+			const FShaderCode& Shader,
 			std::string_view Name
 		) -> const FShaderResourceBinding*
 		{
@@ -23,7 +24,7 @@ namespace Durin
 		}
 
 		auto GetSpirvInterfaceLocations(
-			const FCompiledShader& Shader,
+			const FShaderCode& Shader,
 			uint32 StorageClass
 		) -> std::set<uint32>
 		{
@@ -31,12 +32,12 @@ namespace Durin
 			constexpr uint16 OpVariable = 59;
 			constexpr uint32 DecorationLocation = 30;
 			std::vector<uint32> Words(
-				Shader.Code->size() / sizeof(uint32)
+				Shader.Code.size() / sizeof(uint32)
 			);
 			std::memcpy(
 				Words.data(),
-				Shader.Code->data(),
-				Shader.Code->size()
+				Shader.Code.data(),
+				Shader.Code.size()
 			);
 
 			std::unordered_map<uint32, uint32> LocationsById;
@@ -82,7 +83,7 @@ namespace Durin
 		}
 
 		auto GetSpirvInputLocations(
-			const FCompiledShader& Shader
+			const FShaderCode& Shader
 		) -> std::set<uint32>
 		{
 			constexpr uint32 StorageClassInput = 1;
@@ -90,7 +91,7 @@ namespace Durin
 		}
 
 		auto GetSpirvOutputLocations(
-			const FCompiledShader& Shader
+			const FShaderCode& Shader
 		) -> std::set<uint32>
 		{
 			constexpr uint32 StorageClassOutput = 3;
@@ -98,17 +99,17 @@ namespace Durin
 		}
 
 		auto GetSpirvImageFormats(
-			const FCompiledShader& Shader
+			const FShaderCode& Shader
 		) -> std::set<uint32>
 		{
 			constexpr uint16 OpTypeImage = 25;
 			std::vector<uint32> Words(
-				Shader.Code->size() / sizeof(uint32)
+				Shader.Code.size() / sizeof(uint32)
 			);
 			std::memcpy(
 				Words.data(),
-				Shader.Code->data(),
-				Shader.Code->size()
+				Shader.Code.data(),
+				Shader.Code.size()
 			);
 
 			std::set<uint32> Formats;
@@ -134,7 +135,7 @@ namespace Durin
 		}
 
 		auto HasSpirvInputBuiltIn(
-			const FCompiledShader& Shader,
+			const FShaderCode& Shader,
 			uint32 BuiltIn
 		) -> bool
 		{
@@ -143,12 +144,12 @@ namespace Durin
 			constexpr uint32 DecorationBuiltIn = 11;
 			constexpr uint32 StorageClassInput = 1;
 			std::vector<uint32> Words(
-				Shader.Code->size() / sizeof(uint32)
+				Shader.Code.size() / sizeof(uint32)
 			);
 			std::memcpy(
 				Words.data(),
-				Shader.Code->data(),
-				Shader.Code->size()
+				Shader.Code.data(),
+				Shader.Code.size()
 			);
 
 			std::set<uint32> BuiltInIds;
@@ -185,7 +186,7 @@ namespace Durin
 		}
 
 		auto ExpectBinding(
-			const FCompiledShader& Shader,
+			const FShaderCode& Shader,
 			std::string_view Name,
 			uint32 BindingIndex,
 			ERHIBindingType Type,
@@ -269,18 +270,18 @@ namespace Durin
 			EXPECT_EQ(Shader.Target, MetalShaderTarget);
 			EXPECT_EQ(Shader.CodeFormat, EShaderCodeFormat::Msl20Source);
 			EXPECT_EQ(Shader.BinaryEntryPoint, "main0");
-			ASSERT_TRUE(Shader.Code);
-			const std::string_view Source(reinterpret_cast<const char*>(Shader.Code->data()),
-				Shader.Code->size());
+			ASSERT_TRUE(!Shader.Code.IsEmpty());
+			const std::string_view Source(reinterpret_cast<const char*>(Shader.Code.data()),
+				Shader.Code.size());
 			EXPECT_TRUE(Source.contains("#include <metal_stdlib>"));
-			EXPECT_NE(Shader.BindingRemapIdentity, FXxHash128{});
+			EXPECT_NE(ShaderFormat::DecodeMetalMetadata(Shader.Frequency, Shader.PlatformData.GetBytes())->Identity, FXxHash128{});
 		}
 		const auto& Fragment = Output.CompiledShaders[1];
-		ASSERT_EQ(Fragment.MetalBindings.size(), 3u);
-		EXPECT_EQ(Fragment.MetalBindings[0], (FMetalShaderBinding{0, 0, ERHIBindingType::Texture, 0, 1}));
-		EXPECT_EQ(Fragment.MetalBindings[1], (FMetalShaderBinding{0, 1, ERHIBindingType::Sampler, 0, 1}));
-		EXPECT_EQ(Fragment.MetalBindings[2], (FMetalShaderBinding{0, 2, ERHIBindingType::UniformBuffer, 0, 1}));
-		EXPECT_EQ(Fragment.MetalPushConstantBufferSlot, UINT32_MAX);
+		ASSERT_EQ(ShaderFormat::DecodeMetalMetadata(Fragment.Frequency, Fragment.PlatformData.GetBytes())->Bindings.size(), 3u);
+		EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Fragment.Frequency, Fragment.PlatformData.GetBytes())->Bindings[0], (FMetalShaderBinding{0, 0, ERHIBindingType::Texture, 0, 1}));
+		EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Fragment.Frequency, Fragment.PlatformData.GetBytes())->Bindings[1], (FMetalShaderBinding{0, 1, ERHIBindingType::Sampler, 0, 1}));
+		EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Fragment.Frequency, Fragment.PlatformData.GetBytes())->Bindings[2], (FMetalShaderBinding{0, 2, ERHIBindingType::UniformBuffer, 0, 1}));
+		EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Fragment.Frequency, Fragment.PlatformData.GetBytes())->PushConstantBufferSlot, UINT32_MAX);
 	}
 
 	TEST_F(FShaderReflectionTests, MetalComputeReservesArrayAndPushConstantSlots)
@@ -308,13 +309,13 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
 		const auto& Shader = Output.CompiledShaders[0];
-		ASSERT_EQ(Shader.MetalBindings.size(), 3u);
+		ASSERT_EQ(ShaderFormat::DecodeMetalMetadata(Shader.Frequency, Shader.PlatformData.GetBytes())->Bindings.size(), 3u);
 		EXPECT_EQ(Shader.ComputeThreadGroupSize,
 			(std::array<uint32, 3>{2, 1, 1}));
-		EXPECT_EQ(Shader.MetalBindings[0], (FMetalShaderBinding{0, 0, ERHIBindingType::Texture, 0, 2}));
-		EXPECT_EQ(Shader.MetalBindings[1], (FMetalShaderBinding{0, 1, ERHIBindingType::Sampler, 0, 2}));
-		EXPECT_EQ(Shader.MetalBindings[2], (FMetalShaderBinding{0, 2, ERHIBindingType::StorageBuffer, 0, 1}));
-		EXPECT_EQ(Shader.MetalPushConstantBufferSlot, 1u);
+		EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Shader.Frequency, Shader.PlatformData.GetBytes())->Bindings[0], (FMetalShaderBinding{0, 0, ERHIBindingType::Texture, 0, 2}));
+		EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Shader.Frequency, Shader.PlatformData.GetBytes())->Bindings[1], (FMetalShaderBinding{0, 1, ERHIBindingType::Sampler, 0, 2}));
+		EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Shader.Frequency, Shader.PlatformData.GetBytes())->Bindings[2], (FMetalShaderBinding{0, 2, ERHIBindingType::StorageBuffer, 0, 1}));
+		EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Shader.Frequency, Shader.PlatformData.GetBytes())->PushConstantBufferSlot, 1u);
 	}
 #endif
 
@@ -333,14 +334,14 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 			Compiler.Compile(ShaderPath.string(), Options);
 		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 3u);
-		const FCompiledShader& Vertex = Output.CompiledShaders[0];
-		const FCompiledShader& Fragment = Output.CompiledShaders[1];
-		const FCompiledShader& Compute = Output.CompiledShaders[2];
+		const FShaderCode& Vertex = Output.CompiledShaders[0];
+		const FShaderCode& Fragment = Output.CompiledShaders[1];
+		const FShaderCode& Compute = Output.CompiledShaders[2];
 		EXPECT_TRUE(Vertex.Reflection.ResourceBindings.empty());
 		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 6u);
 		ASSERT_EQ(Compute.Reflection.ResourceBindings.size(), 7u);
 
-		for (const FCompiledShader* Shader : {&Fragment, &Compute})
+		for (const FShaderCode* Shader : {&Fragment, &Compute})
 		{
 			const EShaderStageFlags Stage = Shader == &Fragment ? EShaderStageFlags::Fragment : EShaderStageFlags::Compute;
 			ExpectBinding(*Shader, "BaseDensity", 0, ERHIBindingType::Texture, Stage);
@@ -372,11 +373,11 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		);
 		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 3u);
-		const FCompiledShader& Fragment = Output.CompiledShaders[1];
-		const FCompiledShader& Compute = Output.CompiledShaders[2];
+		const FShaderCode& Fragment = Output.CompiledShaders[1];
+		const FShaderCode& Compute = Output.CompiledShaders[2];
 		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 6u);
 		ASSERT_EQ(Compute.Reflection.ResourceBindings.size(), 7u);
-		for (const FCompiledShader* Shader : {&Fragment, &Compute})
+		for (const FShaderCode* Shader : {&Fragment, &Compute})
 		{
 			const EShaderStageFlags Stage = Shader == &Fragment ? EShaderStageFlags::Fragment : EShaderStageFlags::Compute;
 			const std::array<const char*, 4> Textures{
@@ -406,7 +407,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		EXPECT_TRUE(Output.CompiledShaders[0].Reflection.ResourceBindings.empty());
-		const FCompiledShader& Fragment = Output.CompiledShaders[1];
+		const FShaderCode& Fragment = Output.CompiledShaders[1];
 		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 5u);
 		ExpectBinding(Fragment, "SceneColorTexture", 0, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(Fragment, "CloudTexture", 1, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
@@ -431,7 +432,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		EXPECT_TRUE(Output.CompiledShaders[0].Reflection.ResourceBindings.empty());
-		const FCompiledShader& Fragment = Output.CompiledShaders[1];
+		const FShaderCode& Fragment = Output.CompiledShaders[1];
 		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 4u);
 		ExpectBinding(Fragment, "CurrentCloud", 0, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(Fragment, "PreviousCloud", 1, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
@@ -451,9 +452,9 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
 
-		const FCompiledShader& Shader = Output.CompiledShaders[0];
+		const FShaderCode& Shader = Output.CompiledShaders[0];
 		EXPECT_EQ(Shader.Frequency, EShaderFrequency::Fragment);
-		EXPECT_FALSE(Shader.Code->IsEmpty());
+		EXPECT_FALSE(Shader.Code.IsEmpty());
 		EXPECT_TRUE(Shader.Reflection.ResourceBindings.empty());
 		EXPECT_TRUE(Shader.Reflection.PushConstantRanges.empty());
 
@@ -482,9 +483,9 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 			Compiler.Compile(ShaderPath.string(), Options);
 		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
-		const FCompiledShader& VertexShader =
+		const FShaderCode& VertexShader =
 			Output.CompiledShaders[0];
-		const FCompiledShader& FragmentShader =
+		const FShaderCode& FragmentShader =
 			Output.CompiledShaders[1];
 
 		EXPECT_EQ(VertexShader.SourceEntryPoint, "VertexMain");
@@ -560,7 +561,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 				Compiler.Compile(ShaderPath.string(), Options);
 			ASSERT_TRUE(Output) << Name << ": " << FormatShaderError(Output.Error);
 			ASSERT_EQ(Output.CompiledShaders.size(), 2u) << Name;
-			const FCompiledShader& Fragment = Output.CompiledShaders[1];
+			const FShaderCode& Fragment = Output.CompiledShaders[1];
 			EXPECT_EQ(Fragment.SourceEntryPoint, "GeometryFragmentMain")
 				<< Name;
 			EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0, 1, 2, 3})) << Name;
@@ -591,7 +592,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 			Compiler.Compile(ShaderPath.string(), Options);
 		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
-		const FCompiledShader& Fragment = Output.CompiledShaders[1];
+		const FShaderCode& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
 		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 6u);
 		ExpectBinding(Fragment, "GBufferMaterial", 0, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
@@ -618,7 +619,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 			Compiler.Compile(ShaderPath.string(), Options);
 		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
-		const FCompiledShader& Fragment = Output.CompiledShaders[1];
+		const FShaderCode& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
 		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 6u);
 		for (uint32 Index = 0; Index < 5; ++Index)
@@ -645,7 +646,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 			FSlangShaderCompiler().Compile(ShaderPath.string(), Options);
 		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
-		const FCompiledShader& Compute = Output.CompiledShaders[0];
+		const FShaderCode& Compute = Output.CompiledShaders[0];
 		ASSERT_EQ(Compute.Reflection.ResourceBindings.size(), 7u);
 		for (uint32 Index = 0; Index < 5; ++Index)
 		{
@@ -675,7 +676,7 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 			Compiler.Compile(ShaderPath.string(), Options);
 		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
-		const FCompiledShader& Fragment = Output.CompiledShaders[1];
+		const FShaderCode& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
 		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 19u);
 		for (uint32 Index = 0; Index <= 7; ++Index)

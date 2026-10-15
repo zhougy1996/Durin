@@ -186,7 +186,7 @@ namespace Durin
 		FShaderCompileOptions CompileOptions;
 		std::string FixedShaderRuntimeRequest;
 		std::string FixedFragmentRuntimeRequest;
-		std::span<const FCompiledShader> GeneratedStages;
+		std::span<const FShaderCode> GeneratedStages;
 		FMaterialProgramIdentity CompiledProgramIdentity;
 		std::string CompiledTarget;
 		bool bCreateRHIShaders = true;

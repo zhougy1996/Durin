@@ -1423,7 +1423,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		{
 			ASSERT_TRUE(Material.CompiledProgram);
 			ASSERT_TRUE(std::ranges::any_of(Material.CompiledProgram->CompiledShaders,
-				[](const FCompiledShader& Shader) {
+				[](const FShaderCode& Shader) {
 					return Shader.Frequency == EShaderFrequency::Vertex
 						&& Shader.SourceEntryPoint == FQualificationVertexShader::StaticType().GetEntryPoint();
 				}));

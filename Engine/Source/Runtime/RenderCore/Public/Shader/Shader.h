@@ -514,12 +514,13 @@ namespace Durin
 	#define DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(ShaderClass, TypeNameLiteral, VirtualPathLiteral, FrequencyValue, EntryPointLiteral) \
 		DURIN_DECLARE_SHADER_NAMED(ShaderClass, FShader, TypeNameLiteral, VirtualPathLiteral, FrequencyValue, EntryPointLiteral)
 
-	RENDERCORE_API auto MakeShaderCreateDesc(const FCompiledShader& CompiledShader) -> FRHIShaderCreateDesc;
+	RENDERCORE_API auto MakeShaderCreateDesc(const FShaderCode& CompiledShader) -> FRHIShaderCreateDesc;
+	RENDERCORE_API auto MakeShaderCreateDesc(std::shared_ptr<const FShaderCode> Code) -> FRHIShaderCreateDesc;
 	RENDERCORE_API auto BuildPipelineLayoutFromReflection(
 		std::span<const FShaderReflectionData> ReflectionData,
 		FPipelineLayoutDesc& OutPipelineLayout) -> FShaderOperationResult;
 	RENDERCORE_API auto BuildPipelineLayoutFromShaders(
-		std::span<const FCompiledShader> CompiledShaders,
+		std::span<const FShaderCode> CompiledShaders,
 		FPipelineLayoutDesc& OutPipelineLayout) -> FShaderOperationResult;
 	// Reports cache occupancy for compiled shader-map resource code.
 	struct FShaderMapResourceCacheStats
@@ -536,16 +537,22 @@ namespace Durin
 	public:
 		auto GetNumShaders() const -> uint32 { return static_cast<uint32>(CompiledShaders.size()); }
 
-		auto GetCompiledShader(uint32 ShaderIndex) const -> const FCompiledShader&
+		auto GetCompiledShader(uint32 ShaderIndex) const -> const FShaderCode&
+		{
+			check(ShaderIndex < CompiledShaders.size());
+			return *CompiledShaders[ShaderIndex];
+		}
+
+		auto GetSharedShaderCode(uint32 ShaderIndex) const -> std::shared_ptr<const FShaderCode>
 		{
 			check(ShaderIndex < CompiledShaders.size());
 			return CompiledShaders[ShaderIndex];
 		}
 
-		auto AddCompiledShader(const FCompiledShader& CompiledShader) -> uint32;
+		RENDERCORE_API auto AddCompiledShader(const FShaderCode& CompiledShader) -> uint32;
 
 	private:
-		std::vector<FCompiledShader> CompiledShaders;
+		std::vector<std::shared_ptr<const FShaderCode>> CompiledShaders;
 	};
 
 	// Provides indexed access to the RHI shaders created for one shader map.

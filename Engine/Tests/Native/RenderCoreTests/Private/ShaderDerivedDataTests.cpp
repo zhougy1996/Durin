@@ -1,3 +1,4 @@
+#include "MetalShaderFormat.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "ShaderBuild/ShaderPaths.h"
 
@@ -53,17 +54,17 @@ namespace Durin
 		}
 
 		auto MakeShader(std::string_view EntryPoint,
-			EShaderFrequency Frequency, uint32 Bound) -> FCompiledShader
+			EShaderFrequency Frequency, uint32 Bound) -> FShaderCode
 		{
 			const std::array<uint32, 5> Words = {
 				0x07230203u, 0x00010500u, 0u, Bound, 0u};
-			FCompiledShader Shader;
+			FShaderCode Shader;
 			Shader.Frequency = Frequency;
 			Shader.SourceEntryPoint = EntryPoint;
 			Shader.BinaryEntryPoint = "main";
 			Shader.DebugName = std::string(EntryPoint) + "Debug";
-			Shader.Code = std::make_shared<const FSharedByteBuffer>(FSharedByteBuffer::Copy(std::as_bytes(std::span(Words))));
-			Shader.Hash = FXxHash128::HashBuffer(*Shader.Code);
+			Shader.Code = FSharedByteBuffer::Copy(std::as_bytes(std::span(Words)));
+			Shader.CodeHash = FXxHash128::HashBuffer(Shader.Code);
 			Shader.Reflection.ResourceBindings.push_back({
 				.Name = "Scene",
 				.StageFlags = Frequency == EShaderFrequency::Vertex
@@ -97,15 +98,13 @@ namespace Durin
 				Shader.Target = MetalShaderTarget;
 				Shader.CodeFormat = EShaderCodeFormat::Msl20Source;
 				Shader.BinaryEntryPoint = "main0";
-				const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\n";
-				Shader.Code = std::make_shared<const FSharedByteBuffer>(
-					FSharedByteBuffer::Copy(std::as_bytes(std::span(Source))));
-				Shader.Hash = FXxHash128::HashBuffer(*Shader.Code);
-				auto Map = BuildMetalShaderBindingMap(Shader.Frequency, Shader.Reflection);
-				if (!Map) return {.Error = std::move(Map.error())};
-				Shader.MetalBindings = std::move(Map->Bindings);
-				Shader.MetalPushConstantBufferSlot = Map->PushConstantBufferSlot;
-				Shader.BindingRemapIdentity = Map->Identity;
+				const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\nvoid main0() {}\n";
+				Shader.Code = FSharedByteBuffer::Copy(std::as_bytes(std::span(Source)));
+				Shader.CodeHash = FXxHash128::HashBuffer(Shader.Code);
+				auto Map = ShaderFormat::BuildMetalBindingMap(Shader.Frequency, ShaderFormat::BuildLogicalBindings(Shader.Reflection), !Shader.Reflection.PushConstantRanges.empty());
+				if (!Map) return {.Error = {.Code = EShaderError::MetalBindingRemapInvalid}};
+				Shader.PlatformData = ShaderFormat::EncodeMetalMetadata(Shader.Frequency,
+					{std::move(Map->Bindings), Map->PushConstantBufferSlot, Map->Identity}).value();
 			}
 			return Output;
 		}
@@ -181,7 +180,7 @@ namespace Durin
 		ASSERT_TRUE((Error = ShaderCompiledOutput::Encode(Options, Expected, Second))) << FormatShaderError(Error.error());
 		EXPECT_EQ(First, Second);
 		EXPECT_EQ(ToHex(First),
-			"44534844050000000403020100000000010000000100000001000000010000000000000000000000020000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000000000000000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e650100000000000000010000000000000001000000010000000100000000000000100000000000000000000000ffffffff000000000000000000000000000000000c00000000000000467261676d656e744d61696e04000000000000006d61696e01000000010000000000000000000000000000001100000000000000467261676d656e744d61696e446562756776835ac38ce6e7a67c3015d75a3a6f26140000000000000003022307000501000000000002000000000000000100000005000000000000005363656e650200000000000000020000000000000001000000010000000200000000000000100000000000000000000000ffffffff00000000000000000000000000000000");
+			"445348440600000004030201000000000100000001000000010000000100000000000000000000000000000000000000020000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000000000000000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e6501000000000000000100000000000000010000000100000001000000000000001000000000000000010000000000000000000000301e0caed88d833d17a8187ca4344e5d0c00000000000000467261676d656e744d61696e04000000000000006d61696e01000000010000000000000000000000000000001100000000000000467261676d656e744d61696e446562756776835ac38ce6e7a67c3015d75a3a6f26140000000000000003022307000501000000000002000000000000000100000005000000000000005363656e650200000000000000020000000000000001000000010000000200000000000000100000000000000001000000000000000000000025e865d6966669a47adfd8028841b997");
 		ASSERT_GE(First.size(), 24u);
 		uint32 Magic = 0;
 		uint32 Schema = 0;
@@ -198,15 +197,15 @@ namespace Durin
 		ASSERT_EQ(Loaded.CompiledShaders.size(), 2u);
 		for (size_t Index = 0; Index < Loaded.CompiledShaders.size(); ++Index)
 		{
-			const FCompiledShader& Actual = Loaded.CompiledShaders[Index];
-			const FCompiledShader& Wanted = Expected.CompiledShaders[Index];
+			const FShaderCode& Actual = Loaded.CompiledShaders[Index];
+			const FShaderCode& Wanted = Expected.CompiledShaders[Index];
 			EXPECT_EQ(Actual.Target, Wanted.Target);
 			EXPECT_EQ(Actual.CodeFormat, Wanted.CodeFormat);
 			EXPECT_EQ(Actual.SourceEntryPoint, Wanted.SourceEntryPoint);
 			EXPECT_EQ(Actual.Frequency, Wanted.Frequency);
 			EXPECT_EQ(Actual.ComputeThreadGroupSize, Wanted.ComputeThreadGroupSize);
-			EXPECT_EQ(Actual.Hash, Wanted.Hash);
-			EXPECT_TRUE(std::ranges::equal(Actual.Code->GetBytes(), Wanted.Code->GetBytes()));
+			EXPECT_EQ(Actual.CodeHash, Wanted.CodeHash);
+			EXPECT_TRUE(std::ranges::equal(Actual.Code.GetBytes(), Wanted.Code.GetBytes()));
 			EXPECT_EQ(Actual.Reflection.ResourceBindings,
 				Wanted.Reflection.ResourceBindings);
 			EXPECT_EQ(Actual.Reflection.PushConstantRanges,
@@ -253,7 +252,7 @@ namespace Durin
 		FShaderOperationResult Error;
 		ASSERT_TRUE((Error = ShaderCompiledOutput::Encode(Options, Output, Bytes))) << FormatShaderError(Error.error());
 		EXPECT_EQ(ToHex(Bytes),
-			"44534844050000000403020100000000010000000100000001000000010000000000000000000000010000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000000000000000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e650100000000000000010000000000000001000000010000000100000000000000100000000000000000000000ffffffff00000000000000000000000000000000");
+			"445348440600000004030201000000000100000001000000010000000100000000000000000000000000000000000000010000000a000000000000005665727465784d61696e04000000000000006d61696e00000000010000000000000000000000000000000f000000000000005665727465784d61696e4465627567cf9a2d3c094317863728ab64520b8eeb140000000000000003022307000501000000000001000000000000000100000005000000000000005363656e6501000000000000000100000000000000010000000100000001000000000000001000000000000000010000000000000000000000301e0caed88d833d17a8187ca4344e5d");
 	}
 
 	TEST_F(FShaderDerivedDataTests, MetalComputeThreadGroupSurvivesBothPayloads)
@@ -262,7 +261,7 @@ namespace Durin
 		Options.Target = MetalShaderTarget;
 		Options.EntryPoints = {"ComputeMain"};
 		Options.Frequencies = {EShaderFrequency::Compute};
-		FCompiledShader Shader;
+		FShaderCode Shader;
 		Shader.Target = MetalShaderTarget;
 		Shader.CodeFormat = EShaderCodeFormat::Msl20Source;
 		Shader.Frequency = EShaderFrequency::Compute;
@@ -271,14 +270,12 @@ namespace Durin
 		Shader.BinaryEntryPoint = "main0";
 		const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\n"
 			"kernel void main0(uint3 tid [[thread_position_in_grid]]) {}\n";
-		Shader.Code = std::make_shared<const FSharedByteBuffer>(
-			FSharedByteBuffer::Copy(std::as_bytes(std::span(Source))));
-		Shader.Hash = FXxHash128::HashBuffer(*Shader.Code);
-		auto Map = BuildMetalShaderBindingMap(Shader.Frequency, Shader.Reflection);
-		ASSERT_TRUE(Map) << FormatShaderError(Map.error());
-		Shader.MetalBindings = std::move(Map->Bindings);
-		Shader.MetalPushConstantBufferSlot = Map->PushConstantBufferSlot;
-		Shader.BindingRemapIdentity = Map->Identity;
+		Shader.Code = FSharedByteBuffer::Copy(std::as_bytes(std::span(Source)));
+		Shader.CodeHash = FXxHash128::HashBuffer(Shader.Code);
+		auto Map = ShaderFormat::BuildMetalBindingMap(Shader.Frequency, ShaderFormat::BuildLogicalBindings(Shader.Reflection), !Shader.Reflection.PushConstantRanges.empty());
+		ASSERT_TRUE(Map);
+		Shader.PlatformData = ShaderFormat::EncodeMetalMetadata(Shader.Frequency,
+			{std::move(Map->Bindings), Map->PushConstantBufferSlot, Map->Identity}).value();
 		FShaderCompilerOutput Product;
 		Product.Error = {};
 		Product.CompiledShaders.push_back(std::move(Shader));
@@ -309,7 +306,7 @@ namespace Durin
 			Loaded.Error = {};
 			Loaded.CompiledShaders.push_back(MakeShader(
 				"Old", EShaderFrequency::Vertex, 1));
-			EXPECT_FALSE((Error = ShaderCompiledOutput::Decode(Candidate, Options, Loaded)));
+			ASSERT_FALSE((Error = ShaderCompiledOutput::Decode(Candidate, Options, Loaded)));
 			EXPECT_EQ(Error.error().Code, Code);
 			EXPECT_FALSE(static_cast<bool>(Loaded));
 			EXPECT_TRUE(Loaded.CompiledShaders.empty());
@@ -352,17 +349,17 @@ namespace Durin
 		*It.begin() = std::byte{0};
 		ExpectRejected(std::move(CorruptCode), EShaderError::PayloadSpirvInvalid);
 		Durin::FByteBuffer BadFrequency = Bytes;
-		WriteU32At(BadFrequency, 74,
+		WriteU32At(BadFrequency, 82,
 			static_cast<uint32>(EShaderFrequency::RayMiss) + 1);
 		ExpectRejected(std::move(BadFrequency), EShaderError::PayloadEntryInvalid);
 		Durin::FByteBuffer BadFormat = Bytes;
-		WriteU32At(BadFormat, 78, uint32(EShaderCodeFormat::Msl20Source));
+		WriteU32At(BadFormat, 86, uint32(EShaderCodeFormat::Msl20Source));
 		ExpectRejected(std::move(BadFormat), EShaderError::PayloadEntryInvalid);
 		Durin::FByteBuffer BadHash = Bytes;
-		BadHash[117] ^= std::byte{1};
+		BadHash[125] ^= std::byte{1};
 		ExpectRejected(std::move(BadHash), EShaderError::PayloadSpirvHashMismatch);
 		Durin::FByteBuffer BadBindingCount = Bytes;
-		WriteU32At(BadBindingCount, 161, 65537);
+		WriteU32At(BadBindingCount, 169, 65537);
 		ExpectRejected(std::move(BadBindingCount), EShaderError::PayloadBindingCountInvalid);
 
 		FShaderCompileOptions WrongRequest = Options;
@@ -503,10 +500,10 @@ namespace Durin
 	}
 	TEST_F(FShaderDerivedDataTests, SharedOutputRetainsColdCodeAcrossProducerAndConsumerCopies)
 	{
-		static_assert(std::is_same_v<decltype(FCompiledShader::Code), std::shared_ptr<const FSharedByteBuffer>>);
+		static_assert(std::is_same_v<decltype(FShaderCode::Code), FSharedByteBuffer>);
 		const auto Options = MakeOptions();
 		auto Product = MakeOutput();
-		const auto* Bytes = Product.CompiledShaders[0].Code->data();
+		const auto* Bytes = Product.CompiledShaders[0].Code.data();
 		auto Output = ShaderSharedOutput::Make(Options, Product); ASSERT_TRUE(Output);
 		EXPECT_EQ(Output->FindValue(ShaderValueId(0, false))->GetData().data(), Bytes);
 		Product = {};
@@ -514,8 +511,8 @@ namespace Durin
 		auto Assembled = ShaderSharedOutput::Assemble(Options, *Output); ASSERT_TRUE(Assembled);
 		auto Waiter = *Assembled;
 		Output = DerivedData::FBuildOutput{}; Assembled = FShaderCompilerOutput{};
-		EXPECT_EQ(Waiter.CompiledShaders[0].Code->data(), Bytes);
-		EXPECT_EQ(FXxHash128::HashBuffer(*Waiter.CompiledShaders[0].Code), Waiter.CompiledShaders[0].Hash);
+		EXPECT_EQ(Waiter.CompiledShaders[0].Code.data(), Bytes);
+		EXPECT_EQ(FXxHash128::HashBuffer(Waiter.CompiledShaders[0].Code), Waiter.CompiledShaders[0].CodeHash);
 		EXPECT_EQ(Waiter.CompiledShaders[0].DebugName, Options.VirtualShaderPath + "::VertexMain");
 		EXPECT_EQ(Waiter.CompiledShaders[0].Reflection.ResourceBindings, MakeOutput().CompiledShaders[0].Reflection.ResourceBindings);
 	}
@@ -528,7 +525,7 @@ namespace Durin
 		ASSERT_TRUE(Product) << FormatShaderError(Product.Error);
 		auto Output = ShaderSharedOutput::Make(Options, Product);
 		ASSERT_TRUE(Output) << FormatShaderError(Output.error());
-		EXPECT_EQ(Output->GetSchemaVersion(), 6u);
+		EXPECT_EQ(Output->GetSchemaVersion(), ShaderCompileOutputSchemaVersion);
 		auto Legacy = CopyShaderOutput(*Output);
 		Legacy.SchemaVersion = 5;
 		auto OldPayload = std::move(Legacy).Build();
@@ -540,17 +537,17 @@ namespace Durin
 		for (size_t Index = 0; Index < Product.CompiledShaders.size(); ++Index)
 		{
 			EXPECT_EQ(Assembled->CompiledShaders[Index].CodeFormat, EShaderCodeFormat::Msl20Source);
-			EXPECT_EQ(Assembled->CompiledShaders[Index].MetalBindings,
-				Product.CompiledShaders[Index].MetalBindings);
-			EXPECT_EQ(Assembled->CompiledShaders[Index].BindingRemapIdentity,
-				Product.CompiledShaders[Index].BindingRemapIdentity);
+			EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Assembled->CompiledShaders[Index].Frequency, Assembled->CompiledShaders[Index].PlatformData.GetBytes())->Bindings,
+				ShaderFormat::DecodeMetalMetadata(Product.CompiledShaders[Index].Frequency, Product.CompiledShaders[Index].PlatformData.GetBytes())->Bindings);
+			EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Assembled->CompiledShaders[Index].Frequency, Assembled->CompiledShaders[Index].PlatformData.GetBytes())->Identity,
+				ShaderFormat::DecodeMetalMetadata(Product.CompiledShaders[Index].Frequency, Product.CompiledShaders[Index].PlatformData.GetBytes())->Identity);
 		}
 		auto CorruptCode = CopyShaderOutput(*Output);
 		for (auto& [Id, Value] : CorruptCode.Values)
 			if (Id == ShaderValueId(0, false))
 			{
 				FByteBuffer Bytes(Value.begin(), Value.end());
-				Bytes[0] = std::byte{'X'};
+				Bytes[0] = std::byte{0};
 				Value = FSharedByteBuffer::Take(std::move(Bytes));
 			}
 		auto BadCode = std::move(CorruptCode).Build();
@@ -607,10 +604,10 @@ namespace Durin
 			EXPECT_EQ(Actual.Target, MetalShaderTarget);
 			EXPECT_EQ(Actual.CodeFormat, EShaderCodeFormat::Msl20Source);
 			EXPECT_EQ(Actual.BinaryEntryPoint, "main0");
-			EXPECT_EQ(Actual.Hash, Expected.Hash);
-			EXPECT_EQ(Actual.MetalBindings, Expected.MetalBindings);
-			EXPECT_EQ(Actual.MetalPushConstantBufferSlot, Expected.MetalPushConstantBufferSlot);
-			EXPECT_EQ(Actual.BindingRemapIdentity, Expected.BindingRemapIdentity);
+			EXPECT_EQ(Actual.CodeHash, Expected.CodeHash);
+			EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Actual.Frequency, Actual.PlatformData.GetBytes())->Bindings, ShaderFormat::DecodeMetalMetadata(Expected.Frequency, Expected.PlatformData.GetBytes())->Bindings);
+			EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Actual.Frequency, Actual.PlatformData.GetBytes())->PushConstantBufferSlot, ShaderFormat::DecodeMetalMetadata(Expected.Frequency, Expected.PlatformData.GetBytes())->PushConstantBufferSlot);
+			EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Actual.Frequency, Actual.PlatformData.GetBytes())->Identity, ShaderFormat::DecodeMetalMetadata(Expected.Frequency, Expected.PlatformData.GetBytes())->Identity);
 		}
 		auto VulkanOptions = MakeOptions();
 		EXPECT_FALSE((Error = ShaderCompiledOutput::Decode(Bytes, VulkanOptions, Loaded)));
@@ -621,7 +618,9 @@ namespace Durin
 		EXPECT_FALSE((Error = ShaderCompiledOutput::Decode(VulkanBytes, Options, Loaded)));
 		EXPECT_EQ(Error.error().Code, EShaderError::PayloadHeaderInvalid);
 		auto StaleMap = Product;
-		StaleMap.CompiledShaders[0].BindingRemapIdentity.HashLow ^= 1;
+		FByteBuffer StaleMetadata(StaleMap.CompiledShaders[0].PlatformData.begin(), StaleMap.CompiledShaders[0].PlatformData.end());
+		StaleMetadata.back() ^= std::byte{1};
+		StaleMap.CompiledShaders[0].PlatformData = FSharedByteBuffer::Take(std::move(StaleMetadata));
 		EXPECT_FALSE((Error = ShaderCompiledOutput::Encode(Options, StaleMap, VulkanBytes)));
 		EXPECT_EQ(Error.error().Code, EShaderError::PayloadBindingInvalid);
 		auto CorruptMap = Bytes;
@@ -633,7 +632,7 @@ namespace Durin
 		const auto Header = std::as_bytes(std::span(std::string_view("#include <metal_stdlib>")));
 		const auto Match = std::ranges::search(CorruptMsl, Header);
 		ASSERT_NE(Match.begin(), CorruptMsl.end());
-		*Match.begin() = std::byte{'X'};
+		*Match.begin() = std::byte{0};
 		EXPECT_FALSE((Error = ShaderCompiledOutput::Decode(CorruptMsl, Options, Loaded)));
 		EXPECT_EQ(Error.error().Code, EShaderError::PayloadMslInvalid);
 	}
@@ -697,7 +696,7 @@ namespace Durin
 			auto Warm = Loaded->ToOutput(Key); ASSERT_TRUE(Warm);
 			const auto* Code = Warm->FindValue(ShaderValueId(0, false))->GetData().data();
 			auto Assembled = ShaderSharedOutput::Assemble(Options, *Warm); ASSERT_TRUE(Assembled);
-			EXPECT_EQ(Assembled->CompiledShaders[0].Code->data(), Code);
+			EXPECT_EQ(Assembled->CompiledShaders[0].Code.data(), Code);
 			Warm = FBuildOutput{}; Loaded = FCacheRecord{}; Encoded = FSharedByteBuffer{};
 			FByteBuffer After; ASSERT_TRUE(ShaderCompiledOutput::Encode(Options, *Assembled, After));
 			EXPECT_EQ(Before, After);

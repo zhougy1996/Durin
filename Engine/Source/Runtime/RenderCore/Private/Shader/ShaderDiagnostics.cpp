@@ -159,7 +159,7 @@ namespace Durin
 		case EShaderError::LibraryTooLarge: return "Shader library exceeds its byte bound.";
 		case EShaderError::LibraryReadFailed: return Error.FileError ? Error.FileError->ToString() : "Shader library could not be read.";
 		case EShaderError::LibraryExtentInvalid: return "Shader library byte extent is invalid.";
-		case EShaderError::LibraryHeaderInvalid: return "Shader library header is incompatible or corrupt.";
+		case EShaderError::LibraryHeaderInvalid: return "Shader library header is incompatible or corrupt; recook the library for this runtime.";
 		case EShaderError::LibraryDirectoryRecordInvalid: return "Shader library directory record is invalid.";
 		case EShaderError::LibraryDirectoryOrderInvalid: return "Shader library directory is unsorted or duplicated.";
 		case EShaderError::LibraryInventoryDigestInvalid: return "Shader library extent or inventory digest is invalid.";

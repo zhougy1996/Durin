@@ -112,7 +112,7 @@ namespace Durin::VulkanRHI
 			const auto BufferViewDesc = MakeDefaultBufferViewDesc(*Buffer, ERHIBufferViewType::Formatted, EPixelFormat::R32_UINT);
 			const auto TextureViewDesc = MakeDefaultTextureViewDesc(*Texture, ERHITextureViewUsage::Sampled);
 			const auto& Shader = Compiled.CompiledShaders[0];
-			auto ShaderDesc = FRHIShaderCreateDesc::Create("IndependentShader", Shader.Frequency, *Shader.Code, Shader.Hash);
+			auto ShaderDesc = FRHIShaderCreateDesc::Create("IndependentShader", Shader.Frequency, Shader.Code, Shader.CodeHash);
 			ShaderDesc.SetEntryPoint(Shader.BinaryEntryPoint.c_str());
 			const std::array<std::function<TRefCountPtr<FRHIResource>()>, 6> Factories{
 				[&] { return GDynamicRHI->RHICreateShader(ShaderDesc); },
@@ -384,10 +384,10 @@ namespace Durin::VulkanRHI
 		ASSERT_TRUE(CompileOutput) << FormatShaderError(CompileOutput.Error);
 		ASSERT_EQ(CompileOutput.CompiledShaders.size(), 3u);
 
-		auto MakeCreateDesc = [](const FCompiledShader& CompiledShader) {
+		auto MakeCreateDesc = [](const FShaderCode& CompiledShader) {
 			FRHIShaderCreateDesc Desc = FRHIShaderCreateDesc::Create(
 				CompiledShader.DebugName.c_str(), CompiledShader.Frequency,
-				*CompiledShader.Code, CompiledShader.Hash);
+				CompiledShader.Code, CompiledShader.CodeHash);
 			Desc.SetEntryPoint(CompiledShader.BinaryEntryPoint.c_str());
 			return Desc;
 		};

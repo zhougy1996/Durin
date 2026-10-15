@@ -254,7 +254,7 @@ namespace Durin
 		FMaterialProgramRequirements Requirements;
 		std::string GeneratedSource;
 		std::vector<FMaterialCompilerDependency> Dependencies;
-		std::vector<FCompiledShader> CompiledShaders;
+		std::vector<FShaderCode> CompiledShaders;
 		FMaterialCompileTimings Timings;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 
@@ -320,7 +320,7 @@ namespace Durin
 		std::span<const FMaterialParameterCollectionLayout> Collections)
 		-> FMaterialSourceGenerationResult;
 	[[nodiscard]] ENGINE_API auto ValidateMaterialCompiledStages(
-		std::span<const FCompiledShader> Stages, const FMaterialRenderLayout& Layout,
+		std::span<const FShaderCode> Stages, const FMaterialRenderLayout& Layout,
 		const FMaterialCompilerResourceLimits& Limits = {},
 		std::span<const FMaterialParameterCollectionLayout> Collections = {})
 		-> FMaterialLayoutValidationResult;

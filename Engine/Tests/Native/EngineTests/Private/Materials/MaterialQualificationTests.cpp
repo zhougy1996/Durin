@@ -161,10 +161,10 @@ TEST(FMaterialQualificationTests, ConsumerResultCopyCost)
 		auto Captured = SnapshotMaterialCompilerInput(*Material, Environment); ASSERT_TRUE(Captured);
 		auto Program = MIR::Compile(Captured.Snapshot->Input); ASSERT_TRUE(Program);
 		uint64 CopiedBytes = Program.GeneratedSource.size() + Program.IR.Nodes.size() * sizeof(MIR::FNode)
-			+ Program.CompiledShaders.size() * sizeof(FCompiledShader);
+			+ Program.CompiledShaders.size() * sizeof(FShaderCode);
 		uint64 SharedCodeBytes = 0;
 		for (const auto& Node : Program.IR.Nodes) CopiedBytes += Node.Inputs.size() * sizeof(uint32);
-		for (const auto& Shader : Program.CompiledShaders) if (Shader.Code) SharedCodeBytes += Shader.Code->size();
+		for (const auto& Shader : Program.CompiledShaders) SharedCodeBytes += Shader.Code.size();
 		std::vector<int64> Samples;
 		for (uint32 Index = 0; Index < 500; ++Index)
 		{
@@ -173,7 +173,7 @@ TEST(FMaterialQualificationTests, ConsumerResultCopyCost)
 			Copy->Quality = EMaterialQualityLevel::Low;
 			Samples.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin).count());
 			ASSERT_EQ(Copy->Identity, Program.Identity);
-			ASSERT_EQ(Copy->CompiledShaders.front().Code.get(), Program.CompiledShaders.front().Code.get());
+			ASSERT_EQ(Copy->CompiledShaders.front().Code.data(), Program.CompiledShaders.front().Code.data());
 		}
 		std::ranges::sort(Samples);
 		std::cout << "[MaterialConsumerCopy] nodes=" << Program.IR.Nodes.size() << " source_ir_descriptor_bytes=" << CopiedBytes
@@ -470,10 +470,10 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	uint64 SpirvBytes = 0;
 	for (size_t Index = 0; Index < Compiled.CompiledShaders.size(); ++Index)
 	{
-		EXPECT_EQ(Warm.CompiledShaders[Index].Hash,
-			Compiled.CompiledShaders[Index].Hash);
-		ASSERT_TRUE(Compiled.CompiledShaders[Index].Code);
-		SpirvBytes += Compiled.CompiledShaders[Index].Code->size();
+		EXPECT_EQ(Warm.CompiledShaders[Index].CodeHash,
+			Compiled.CompiledShaders[Index].CodeHash);
+		ASSERT_TRUE(!Compiled.CompiledShaders[Index].Code.IsEmpty());
+		SpirvBytes += Compiled.CompiledShaders[Index].Code.size();
 	}
 	Durin::FByteBuffer CookedBytes;
 	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(Compiled, {},

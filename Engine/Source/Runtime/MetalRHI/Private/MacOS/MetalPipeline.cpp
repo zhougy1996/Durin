@@ -1,3 +1,4 @@
+#include "MetalShaderFormat.h"
 #include "MetalPipeline.h"
 #include "MetalResourceDescriptors.h"
 #include "RHIShaderParameters.h"
@@ -124,45 +125,11 @@ namespace Durin
 			Initializer.BoundShaders.FragmentShader);
 		if (!Vertex || !Fragment)
 			return nullptr;
-		const auto MatchesStage = [&](FMetalShader* Shader,
-		EShaderStageFlags Stage) {
-			const auto Map = Shader->GetMetalBindings();
-			size_t Count = 0;
-			for (uint32 SetIndex = 0;
-				SetIndex < Key->PipelineLayout->BindingLayouts.size(); ++SetIndex)
-				for (const auto& Binding : Key->PipelineLayout->BindingLayouts[SetIndex].BindingLayouts)
-				{
-					if (!EnumHasAnyFlags(Binding.StageFlags, Stage)) continue;
-					if (Count >= Map.size()
-						|| Map[Count].SetIndex != SetIndex
-						|| Map[Count].BindingIndex != Binding.Slot
-						|| Map[Count].Type != (Binding.Type == ERHIBindingType::UniformBufferDynamic
-							? ERHIBindingType::UniformBuffer : Binding.Type)
-						|| Map[Count].Count != Binding.ArraySize)
-						return false;
-					++Count;
-				}
-			return Count == Map.size();
-		};
-		if (!MatchesStage(Vertex, EShaderStageFlags::Vertex)
-			|| !MatchesStage(Fragment, EShaderStageFlags::Fragment))
-			return nullptr;
-		for (const auto Stage : {EShaderStageFlags::Vertex,
-			EShaderStageFlags::Fragment})
-		{
-			const bool bPush = std::ranges::any_of(
-				Key->PipelineLayout->PushConstantRanges,
-				[&](const auto& Range) {
-					return EnumHasAnyFlags(Range.StageFlags, Stage);
-				});
-			auto* Shader = Stage == EShaderStageFlags::Vertex
-				? Vertex : Fragment;
-			if (bPush != (Shader->GetMetalPushConstantBufferSlot()
-				!= UINT32_MAX)) return nullptr;
-		}
-		for (const auto& Range : Key->PipelineLayout->PushConstantRanges)
-			if (uint64(Range.Offset) + Range.Size > 65536)
-				return nullptr;
+		const std::array StageBindings{
+			FMetalStageBindings{EShaderFrequency::Vertex, Vertex->GetMetalBindings(), Vertex->GetMetalPushConstantBufferSlot()},
+			FMetalStageBindings{EShaderFrequency::Fragment, Fragment->GetMetalBindings(), Fragment->GetMetalPushConstantBufferSlot()}};
+		auto Bindings = PrepareMetalBindings(*Key->PipelineLayout, StageBindings);
+		if (!Bindings) return nullptr;
 		auto Desc = NS::TransferPtr(MTL::RenderPipelineDescriptor::alloc()->init());
 		Desc->setVertexFunction(Vertex->GetFunction());
 		Desc->setFragmentFunction(Fragment->GetFunction());
@@ -254,7 +221,7 @@ namespace Durin
 			Initializer.VertexDeclaration, std::move(Pipeline),
 			Initializer.RenderTargetLayout, Initializer.RasterizerState,
 			bLineList ? MTL::PrimitiveTypeLine : MTL::PrimitiveTypeTriangle,
-			std::move(Key->PipelineLayout), std::move(DepthStencil));
+			std::move(Key->PipelineLayout), std::move(DepthStencil), std::move(Bindings));
 	}
 
 	auto CreateMetalComputePipeline(MTL::Device* Device, const FComputePipelineStateInitializer& Initializer)
@@ -268,28 +235,10 @@ namespace Durin
 		if (!Key) return nullptr;
 		auto* Shader = dynamic_cast<FMetalShader*>(Initializer.ComputeShader);
 		if (!Shader) return nullptr;
-		const auto Bindings = Shader->GetMetalBindings();
-		size_t Count = 0;
-		for (uint32 SetIndex = 0;
-			SetIndex < Key->PipelineLayout->BindingLayouts.size(); ++SetIndex)
-			for (const auto& Binding : Key->PipelineLayout->BindingLayouts[SetIndex].BindingLayouts)
-			{
-				if (Count >= Bindings.size()
-					|| Bindings[Count].SetIndex != SetIndex
-					|| Bindings[Count].BindingIndex != Binding.Slot
-					|| Bindings[Count].Type != (Binding.Type == ERHIBindingType::UniformBufferDynamic
-						? ERHIBindingType::UniformBuffer : Binding.Type)
-					|| Bindings[Count].Count != Binding.ArraySize)
-					return nullptr;
-				++Count;
-			}
-		if (Count != Bindings.size()
-			|| Key->PipelineLayout->PushConstantRanges.empty()
-				!= (Shader->GetMetalPushConstantBufferSlot() == UINT32_MAX))
-			return nullptr;
-		for (const auto& Range : Key->PipelineLayout->PushConstantRanges)
-			if (uint64(Range.Offset) + Range.Size > 65536)
-				return nullptr;
+		const std::array StageBindings{FMetalStageBindings{EShaderFrequency::Compute,
+			Shader->GetMetalBindings(), Shader->GetMetalPushConstantBufferSlot()}};
+		auto Bindings = PrepareMetalBindings(*Key->PipelineLayout, StageBindings);
+		if (!Bindings) return nullptr;
 		NS::Error* Error = nullptr;
 		auto Pipeline = NS::TransferPtr(Device->newComputePipelineState(Shader->GetFunction(), &Error));
 		if (!Pipeline)
@@ -302,26 +251,18 @@ namespace Durin
 		if (uint64(Group[0]) * Group[1] * Group[2]
 			> Pipeline->maxTotalThreadsPerThreadgroup()) return nullptr;
 		return new FMetalComputePipelineState(Shader,
-			std::move(Key->PipelineLayout), std::move(Pipeline));
+			std::move(Key->PipelineLayout), std::move(Pipeline), std::move(Bindings));
 	}
 
-	auto CreateMetalShader(MTL::Device* Device, const FRHIShaderCreateDesc& Desc)
+	auto CreateMetalShader(MTL::Device* Device, const FRHIShaderCreateDesc& InDesc)
 		-> TRefCountPtr<FRHIShader>
 	{
+		const auto& Desc = InDesc;
+		if (!Device || Desc.Target != MetalShaderTarget || !Desc.CodeOwner
+			|| !ShaderFormat::ValidateShaderCreateDesc(Desc)) return nullptr;
+		auto Map = ShaderFormat::DecodeMetalMetadata(Desc.Frequency, Desc.CodeOwner->PlatformData.GetBytes());
+		if (!Map) return nullptr;
 		const FMetalAutoreleasePool Pool;
-		if (!Device || Desc.Target != MetalShaderTarget
-			|| Desc.CodeFormat != EShaderCodeFormat::Msl20Source
-			|| !Desc.EntryPoint || !*Desc.EntryPoint
-			|| Desc.Code.empty()
-			|| std::ranges::find(Desc.Code, std::byte{0}) != Desc.Code.end()
-			|| FXxHash128::HashBuffer(Desc.Code) != Desc.Hash
-			|| (Desc.Frequency == EShaderFrequency::Compute
-				&& !IsValidComputeThreadGroupSize(Desc.ComputeThreadGroupSize))
-			|| (Desc.Frequency != EShaderFrequency::Compute
-				&& Desc.ComputeThreadGroupSize != std::array<uint32, 3>{})
-			|| !ValidateMetalBindingRemap(Desc.Frequency,
-				Desc.MetalBindings, Desc.MetalPushConstantBufferSlot,
-				Desc.BindingRemapIdentity)) return nullptr;
 		const std::string_view Source(
 			reinterpret_cast<const char*>(Desc.Code.data()), Desc.Code.size());
 		const std::string SourceText(Source);
@@ -346,6 +287,6 @@ namespace Durin
 			: Desc.Frequency == EShaderFrequency::Fragment
 				? MTL::FunctionTypeFragment : MTL::FunctionTypeKernel;
 		if (Function->functionType() != Expected) return nullptr;
-		return new FMetalShader(Desc, std::move(Library), std::move(Function));
+		return new FMetalShader(Desc, std::move(*Map), std::move(Library), std::move(Function));
 	}
 }

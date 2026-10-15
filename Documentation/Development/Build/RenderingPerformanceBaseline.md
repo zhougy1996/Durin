@@ -2,7 +2,7 @@
 
 Summary: Define the reproducible RHI, RDG, and Renderer performance qualification selection, measurement ownership, authority, and comparison rules.
 
-Last reviewed: 2026-09-29
+Last reviewed: 2026-10-15
 
 ## Selection
 
@@ -33,7 +33,7 @@ acceptance.
 | Target | Workload and authority | Primary observations |
 | --- | --- | --- |
 | `RDGQualificationTests` | Backend-free synthetic graph compilation; diagnostic on every host | declaration/compile median and p95, deterministic dump, dependency count |
-| `VulkanCreationQualificationTests` | Real Vulkan cold/hot/concurrent creation | shader/PSO/resource creation time, instrumentation overhead, allocation and request pressure |
+| `VulkanCreationQualificationTests` | Real Vulkan cold/hot/concurrent creation and checked binding submission | shader/PSO/resource creation time, instrumentation overhead, allocation and request pressure; binding producer and queue/replay CPU samples |
 | `MaterialCreationQualificationTests` | Fixed production material frames | producer/render/GPU completion spans, synchronous operations, queue and native creation counts |
 | `StaticMeshRenderPreparationVulkanTests` | Mixed StaticMesh/Spline preparation with 64 primitives and 256 draws | preparation median/p95 and owned container capacity |
 | `DirectionalShadowBaselineVulkanTests` | Single and cascaded shadow preparation plus rendered output | logical/discovery/static preparation, GPU shadow time, output parity |
@@ -44,6 +44,36 @@ acceptance.
 Do not add a target to this domain merely because it initializes Vulkan. It must
 own a stable performance, scale, or memory workload and publish reproducible
 observations. Correctness-only Vulkan integration remains outside this catalog.
+
+### Binding Update and Submission Workload
+
+`FVulkanCreationQualificationTests.BindingUpdateAndSubmission` uses the checked
+`DeferredBufferVersions.slang` input for graphics and compute, each with direct
+and indirect commands. Each sample records 1024 draws or dispatches in a complete
+RHI frame, so descriptor caches follow normal frame retirement. Scenarios
+reuse unchanged bindings, replace one uniform binding while retaining storage,
+or reset the same pipeline and restore its bindings. Pipeline reset measures
+the existing reset boundary; it does not measure a change to a different PSO.
+The fixture checks all output pixels, including alternating uniform values.
+
+For each scenario, six runs provide three reference A/A pairs, with 30 warm-up
+and 120 measured samples per run. `BindingTiming/samples.csv` records producer
+parameter-update time, producer command-recording time, queue/replay completion
+time, and combined CPU time in nanoseconds. The combined interval includes
+render-pass/pipeline setup and RHI-thread replay; GPU idle waits and readback
+are outside it. Producer columns do not isolate backend parameter-update or
+native encoding time from replay. `device.txt` also records the cold combined
+graphics/compute pipeline creation duration and total device cache metadata;
+these are observations, not isolated prepared-operation storage measurements.
+
+Set `DURIN_TEST_KEEP_WORK=1` when collecting a receipt; successful tests otherwise
+remove their work directories and raw samples. Preserve the printed work path
+alongside the log and XML. Report medians/p95 and A/A noise from the raw rows;
+the fixture also publishes per-run numeric timing properties and stable
+`BindingTiming` console lines. It does not infer a quiet lane, assert device-independent timing
+budgets, or supply Metal/mapping-counter coverage. Sparse bindings, descriptor
+arrays, dynamic offsets, and distinct-pipeline reuse retain separate correctness
+coverage in `VulkanRHIIntegrationTests`.
 
 ## Baseline Matrix
 

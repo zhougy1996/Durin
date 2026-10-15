@@ -115,6 +115,7 @@ namespace Durin
 		class FTestShader final : public FRHIShader
 		{
 		public:
+			explicit FTestShader(const FRHIShaderCreateDesc& Desc) : FRHIShader(Desc) {}
 			FTestShader(EShaderFrequency Frequency, uint64 Hash,
 				FShaderTargetIdentity Target = VulkanShaderTarget)
 				: FRHIShader([&] {
@@ -3338,6 +3339,45 @@ namespace Durin
 		EXPECT_NE(*VulkanComputeKey, *MetalComputeKey);
 		EXPECT_NE(FComputePipelineStateKeyHasher{}(*VulkanComputeKey),
 			FComputePipelineStateKeyHasher{}(*MetalComputeKey));
+	}
+
+	TEST(FRHICommandListTests, PipelineShaderMembershipIncludesArtifactEntryAndTargetIdentity)
+	{
+		for (const auto Frequency : {EShaderFrequency::Vertex, EShaderFrequency::Fragment})
+		{
+			auto Desc = FRHIShaderCreateDesc::Create("Identity", Frequency, {}, FXxHash128{50, 1});
+			Desc.ShaderIdentity = {10, 20}; Desc.SetEntryPoint("mainA");
+			FTestShader Shader(Desc);
+			FGraphicsPipelineStateKey Key;
+			Key.VertexShaderHash = Key.FragmentShaderHash = Desc.Hash;
+			Key.VertexShaderIdentity = Key.FragmentShaderIdentity = Desc.ShaderIdentity;
+			Key.VertexEntryPoint = Key.FragmentEntryPoint = "mainA";
+			ASSERT_TRUE(MatchesPipelineShaderIdentity(Shader, Key));
+			auto Changed = Key;
+			Changed.VertexShaderIdentity = Changed.FragmentShaderIdentity = {30, 40};
+			EXPECT_FALSE(MatchesPipelineShaderIdentity(Shader, Changed));
+			Changed = Key; Changed.VertexEntryPoint = Changed.FragmentEntryPoint = "mainB";
+			EXPECT_FALSE(MatchesPipelineShaderIdentity(Shader, Changed));
+			Changed = Key; Changed.Target.SettingsDigest.HashLow ^= 1;
+			EXPECT_FALSE(MatchesPipelineShaderIdentity(Shader, Changed));
+			Changed = Key; Changed.CodeFormat = EShaderCodeFormat::Msl20Source;
+			EXPECT_FALSE(MatchesPipelineShaderIdentity(Shader, Changed));
+		}
+		auto Desc = FRHIShaderCreateDesc::Create("ComputeIdentity", EShaderFrequency::Compute, {}, FXxHash128{50, 1});
+		Desc.ShaderIdentity = {10, 20}; Desc.SetEntryPoint("mainA"); Desc.ComputeThreadGroupSize = {8, 1, 1};
+		FTestShader Shader(Desc);
+		FComputePipelineStateKey Key;
+		Key.ComputeShaderHash = Desc.Hash; Key.ShaderIdentity = Desc.ShaderIdentity;
+		Key.EntryPoint = "mainA"; Key.ComputeThreadGroupSize = Desc.ComputeThreadGroupSize;
+		ASSERT_TRUE(MatchesPipelineShaderIdentity(Shader, Key));
+		auto Changed = Key; Changed.ShaderIdentity.HashHigh ^= 1;
+		EXPECT_FALSE(MatchesPipelineShaderIdentity(Shader, Changed));
+		Changed = Key; Changed.EntryPoint = "mainB";
+		EXPECT_FALSE(MatchesPipelineShaderIdentity(Shader, Changed));
+		Changed = Key; Changed.ComputeThreadGroupSize = {16, 1, 1};
+		EXPECT_FALSE(MatchesPipelineShaderIdentity(Shader, Changed));
+		Changed = Key; Changed.Target.SettingsDigest.HashLow ^= 1;
+		EXPECT_FALSE(MatchesPipelineShaderIdentity(Shader, Changed));
 	}
 
 	TEST(FRHICommandListTests, GraphicsPipelineKeyCanonicalizesDynamicDepthBias)

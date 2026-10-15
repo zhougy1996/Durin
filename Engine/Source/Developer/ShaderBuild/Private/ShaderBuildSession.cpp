@@ -30,7 +30,7 @@ namespace Durin
 		auto Invalid() -> FBuildInputError { return Boundary({.Code = EShaderError::CaptureInputInvalid}); }
 		auto Descriptor() -> FBuildFunctionDescriptor { return GetShaderBuildDescriptor(); }
 		auto Reference(const FShaderVariantKey& Variant) -> FBuildInputReference
-			{ return {"Closure", Variant.Value, "ShaderVariant", 8, "Shader.SourceClosure", 2}; }
+			{ return {"Closure", Variant.Value, "ShaderVariant", 9, "Shader.SourceClosure", 2}; }
 		struct FOptions
 		{
 			FShaderCompileOptions Value;
@@ -46,14 +46,14 @@ namespace Durin
 			if (!Bytes) return {};
 			FBinaryReader Reader(std::as_bytes(std::span(Bytes->data(), Bytes->size())), {.MaximumTotalBytes = 1024 * 1024});
 			FOptions Result; uint32 Version = 0, Generated = 0, Count = 0;
-			if (!Reader.ReadU32(Version) || Version != 2
+			if (!Reader.ReadU32(Version) || Version != 3
 				|| !Reader.ReadString(Result.Value.VirtualShaderPath, ShaderCaptureLimits::MaximumPathBytes) || Result.Value.VirtualShaderPath.empty()
 				|| !Reader.ReadString(Result.Value.CompilerEnvironment, 32768)) return {};
 			uint32 Platform = 0, Backend = 0, Intermediate = 0, Output = 0;
 			if (!Reader.ReadU32(Platform) || !Reader.ReadU32(Backend)
 				|| !Reader.ReadU32(Intermediate) || !Reader.ReadU32(Output)
-				|| !Reader.ReadU32(Result.Value.Target.MslLanguageVersion)
-				|| !Reader.ReadU32(Result.Value.Target.BindingRemapSchema)) return {};
+				|| !Reader.ReadU64(Result.Value.Target.SettingsDigest.HashLow)
+				|| !Reader.ReadU64(Result.Value.Target.SettingsDigest.HashHigh)) return {};
 			Result.Value.Target.Platform = EShaderTargetPlatform(Platform);
 			Result.Value.Target.Backend = EShaderRuntimeBackend(Backend);
 			Result.Value.Target.IntermediateFormat = EShaderCodeFormat(Intermediate);
@@ -239,10 +239,10 @@ namespace Durin
 		auto WriteSessionOptions(TWriter& Writer, const FShaderCompileOptions& Options,
 			const std::vector<std::string>& Roots, bool Generated) -> void
 		{
-			Writer.WriteU32(2); Writer.WriteString(Options.VirtualShaderPath); Writer.WriteString(Options.CompilerEnvironment);
+			Writer.WriteU32(3); Writer.WriteString(Options.VirtualShaderPath); Writer.WriteString(Options.CompilerEnvironment);
 			Writer.WriteU32(uint32(Options.Target.Platform)); Writer.WriteU32(uint32(Options.Target.Backend));
 			Writer.WriteU32(uint32(Options.Target.IntermediateFormat)); Writer.WriteU32(uint32(Options.Target.OutputFormat));
-			Writer.WriteU32(Options.Target.MslLanguageVersion); Writer.WriteU32(Options.Target.BindingRemapSchema);
+			Writer.WriteU64(Options.Target.SettingsDigest.HashLow); Writer.WriteU64(Options.Target.SettingsDigest.HashHigh);
 			Writer.WriteU32(Generated); Writer.WriteU32(uint32(Options.EntryPoints.size()));
 			for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
 			{ Writer.WriteString(Options.EntryPoints[Index]); Writer.WriteU32(uint32(Options.Frequencies[Index])); }
@@ -257,6 +257,7 @@ namespace Durin
 		{
 			uint64 Bytes = 0;
 			auto WriteU32(uint32) -> void { Bytes += 4; }
+			auto WriteU64(uint64) -> void { Bytes += 8; }
 			auto WriteString(std::string_view Value) -> void { Bytes += 8 + Value.size(); }
 		};
 	}

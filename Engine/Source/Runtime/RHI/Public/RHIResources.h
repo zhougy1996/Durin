@@ -51,25 +51,6 @@ namespace Durin
 		StorageImage = 5,
 	};
 
-	// Canonical descriptor-to-native-slot mapping carried by Metal shader artifacts.
-	struct FMetalShaderBinding
-	{
-		uint32 SetIndex = 0;
-		uint32 BindingIndex = 0;
-		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
-		uint32 Slot = 0;
-		uint32 Count = 1;
-
-		auto operator==(const FMetalShaderBinding&) const -> bool = default;
-	};
-
-	RHI_API auto ComputeMetalBindingRemapIdentity(EShaderFrequency Frequency,
-		std::span<const FMetalShaderBinding> Bindings, uint32 PushConstantBufferSlot)
-		-> FXxHash128;
-	RHI_API auto ValidateMetalBindingRemap(EShaderFrequency Frequency,
-		std::span<const FMetalShaderBinding> Bindings, uint32 PushConstantBufferSlot,
-		FXxHash128 Identity) -> bool;
-
 	// Provides thread-safe intrusive lifetime tracking for backend-owned GPU resources.
 	// Once the published reference count reaches zero, deferred deletion is irreversible.
 	class FRHIResource
@@ -264,6 +245,69 @@ namespace Durin
 		static std::atomic<uint64> InvalidRecordingCount;
 	};
 
+	// Defines a byte range of push constants visible to selected shader stages.
+	struct FPushConstantRange
+	{
+		EShaderStageFlags StageFlags;
+		uint32 Offset;
+		uint32 Size;
+
+		auto operator==(const FPushConstantRange&) const -> bool = default;
+	};
+
+	// Describes one resource binding reflected from a compiled shader stage.
+	struct FShaderResourceBinding
+	{
+		std::string Name;
+		EShaderStageFlags StageFlags = EShaderStageFlags::None;
+		uint32 SetIndex = 0;
+		uint32 BindingIndex = 0;
+		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
+		uint32 ArraySize = 1;
+
+		auto operator==(const FShaderResourceBinding& Other) const -> bool
+		{
+			return Name == Other.Name
+				&& StageFlags == Other.StageFlags
+				&& SetIndex == Other.SetIndex
+				&& BindingIndex == Other.BindingIndex
+				&& Type == Other.Type
+				&& ArraySize == Other.ArraySize;
+		}
+	};
+
+	// Aggregates descriptor bindings and push-constant ranges for compiled shader code.
+	struct FShaderReflectionData
+	{
+		std::vector<FShaderResourceBinding> ResourceBindings;
+		std::vector<FPushConstantRange> PushConstantRanges;
+	};
+
+	// Owns one compiled stage binary and the reflection data needed to bind it.
+	struct FShaderCode
+	{
+		FShaderTargetIdentity Target;
+		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
+		EShaderFrequency Frequency = EShaderFrequency::Vertex;
+		// Reflected [numthreads] for compute; zero for all other stages.
+		std::array<uint32, 3> ComputeThreadGroupSize{};
+		// Source-level entry point requested by the caller, such as `vertexMain`.
+		std::string SourceEntryPoint;
+		// Backend-visible entry point exported by the compiled binary, such as Vulkan SPIR-V `main`.
+		std::string BinaryEntryPoint = "main";
+		std::string DebugName;
+		// Immutable shared bytes survive compiler, session, LRU and waiter lifetimes.
+		FSharedByteBuffer Code;
+		// Bytecode-only hash; complete binding/execution identity is ShaderIdentity.
+		FXxHash128 CodeHash{};
+		FShaderReflectionData Reflection;
+		// Target-tagged immutable bytes; decoded platform maps never persist here.
+		uint32 PlatformDataVersion = 1;
+		FSharedByteBuffer PlatformData;
+		// Set only on an immutable published owner; never trusted without admission validation.
+		FXxHash128 ShaderIdentity{};
+	};
+
 	// Supplies the stable stage and content identity shared by shader instances.
 	struct FRHIShaderDesc
 	{
@@ -278,9 +322,7 @@ namespace Durin
 			return Frequency == Other.Frequency && Hash == Other.Hash
 				&& ComputeThreadGroupSize == Other.ComputeThreadGroupSize
 				&& Target == Other.Target && CodeFormat == Other.CodeFormat
-				&& BindingRemapIdentity == Other.BindingRemapIdentity
-				&& MetalBindings == Other.MetalBindings
-				&& MetalPushConstantBufferSlot == Other.MetalPushConstantBufferSlot;
+				&& ShaderIdentity == Other.ShaderIdentity;
 		}
 
 		auto operator!=(const FRHIShaderDesc& Other) const -> bool
@@ -294,9 +336,7 @@ namespace Durin
 		std::array<uint32, 3> ComputeThreadGroupSize{};
 		FShaderTargetIdentity Target;
 		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
-		FXxHash128 BindingRemapIdentity{};
-		std::vector<FMetalShaderBinding> MetalBindings;
-		uint32 MetalPushConstantBufferSlot = UINT32_MAX;
+		FXxHash128 ShaderIdentity{};
 	};
 
 	// Extends shader identity with non-owning compiled-code input used during creation.
@@ -335,6 +375,7 @@ namespace Durin
 		}
 
 		FCodeView Code{};
+		std::shared_ptr<const FShaderCode> CodeOwner;
 
 		const char* EntryPoint = "main";
 
@@ -353,15 +394,14 @@ namespace Durin
 			, Hash(InCreateDesc.Hash)
 			, Target(InCreateDesc.Target)
 			, CodeFormat(InCreateDesc.CodeFormat)
-			, BindingRemapIdentity(InCreateDesc.BindingRemapIdentity)
-			, MetalBindings(InCreateDesc.MetalBindings)
-			, MetalPushConstantBufferSlot(InCreateDesc.MetalPushConstantBufferSlot)
+			, ShaderIdentity(InCreateDesc.ShaderIdentity)
 		{
 		}
 		explicit FRHIShader(const FRHIShaderCreateDesc& InCreateDesc)
 			: FRHIShader(static_cast<const FRHIShaderDesc&>(InCreateDesc))
 		{
 			EntryPoint = InCreateDesc.EntryPoint ? InCreateDesc.EntryPoint : "";
+			if (InCreateDesc.CodeOwner) ShaderIdentity = InCreateDesc.CodeOwner->ShaderIdentity;
 		}
 
 		auto GetFrequency() const -> EShaderFrequency { return Frequency; }
@@ -371,9 +411,7 @@ namespace Durin
 		auto GetHash() const -> FXxHash128 { return Hash; }
 		auto GetTarget() const -> const FShaderTargetIdentity& { return Target; }
 		auto GetCodeFormat() const -> EShaderCodeFormat { return CodeFormat; }
-		auto GetBindingRemapIdentity() const -> FXxHash128 { return BindingRemapIdentity; }
-		auto GetMetalBindings() const -> std::span<const FMetalShaderBinding> { return MetalBindings; }
-		auto GetMetalPushConstantBufferSlot() const -> uint32 { return MetalPushConstantBufferSlot; }
+		auto GetShaderIdentity() const -> FXxHash128 { return ShaderIdentity; }
 		auto GetEntryPoint() const -> std::string_view { return EntryPoint; }
 
 	protected:
@@ -383,9 +421,7 @@ namespace Durin
 		FXxHash128 Hash;
 		FShaderTargetIdentity Target;
 		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
-		FXxHash128 BindingRemapIdentity{};
-		std::vector<FMetalShaderBinding> MetalBindings;
-		uint32 MetalPushConstantBufferSlot = UINT32_MAX;
+		FXxHash128 ShaderIdentity{};
 		std::string EntryPoint = "main";
 	};
 
@@ -1079,16 +1115,6 @@ namespace Durin
 		FRHIShader* FragmentShader = nullptr;
 	};
 
-	// Defines a byte range of push constants visible to selected shader stages.
-	struct FPushConstantRange
-	{
-		EShaderStageFlags StageFlags;
-		uint32 Offset;
-		uint32 Size;
-
-		auto operator==(const FPushConstantRange&) const -> bool = default;
-	};
-
 	// Describes one resource slot within a descriptor-set layout.
 	struct FBindingLayoutItem
 	{
@@ -1571,8 +1597,8 @@ namespace Durin
 		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
 		FXxHash128 VertexShaderHash;
 		FXxHash128 FragmentShaderHash;
-		FXxHash128 VertexBindingRemapIdentity{};
-		FXxHash128 FragmentBindingRemapIdentity{};
+		FXxHash128 VertexShaderIdentity{};
+		FXxHash128 FragmentShaderIdentity{};
 		std::string VertexEntryPoint;
 		std::string FragmentEntryPoint;
 		FRHIRenderTargetLayout RenderTargetLayout;
@@ -1632,7 +1658,7 @@ namespace Durin
 		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
 		FXxHash128 ComputeShaderHash;
 		std::array<uint32, 3> ComputeThreadGroupSize{};
-		FXxHash128 BindingRemapIdentity{};
+		FXxHash128 ShaderIdentity{};
 		std::string EntryPoint;
 		std::shared_ptr<const FPipelineLayoutDesc> PipelineLayout;
 

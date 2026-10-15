@@ -259,7 +259,7 @@ namespace Durin
 				switch (Code)
 				{
 				case EMaterialCookError::CookedProgramIdentityEnvironmentInvalid: return "Material cooked program identity or environment is invalid.";
-				case EMaterialCookError::CookedProgramTargetIncompatible: return "Material cooked program target is incompatible.";
+				case EMaterialCookError::CookedProgramTargetIncompatible: return "Material cooked program target is incompatible; recook for this runtime.";
 				case EMaterialCookError::CookedProgramCompilerTargetIdentityIncompatible: return "Material cooked program compiler or target identity is incompatible.";
 				case EMaterialCookError::ActiveParameterCountExceedsLimit: return "Material active parameter count exceeds its limit.";
 				case EMaterialCookError::ActiveParameterContractInvalid: return "Material active parameter contract is invalid.";

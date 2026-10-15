@@ -62,13 +62,14 @@ maps that opaque key to the ordinary two-character-sharded `.bin` object layout.
 RenderCore never constructs or observes that physical path; ShaderBuild uses
 the build protocol for compiled outputs.
 
-`FCompiledShader::Code` retains a `shared_ptr<const FSharedByteBuffer>`. Compiler
+`FShaderCode::Code` is an `FSharedByteBuffer` value, which already shares immutable
+storage; it has no outer shared pointer or allocation. Compiler
 output, LRU entries, single-flight results, cooked inputs and RHI readers share
 immutable bytecode. Slang adopts its copied blob buffer; its reflection word
 conversion remains a separate recipe cost. Package decoding adopts decoded
 bytes without changing the package format.
 
-ShaderBuild also provides the private `Shader.Output` schema-6 representation.
+ShaderBuild also provides the private `Shader.Output` schema-7 representation.
 Bounded metadata describes ordered source/binary entries, frequencies and hashes;
 `Entry/<n>/Code` retains code storage and `Entry/<n>/Reflection` holds canonical
 binding and push-constant descriptors. Validation checks the representation
@@ -95,13 +96,13 @@ memory-cache identities include the composed build identity.
 
 The session carries a named 64-bit `BuilderVersion` constant and verifies it
 against the compiler service before decoding recipe options. Adapter function
-version 3, constants schema 2 and `Shader.Output` schema 6 have independent
+version 5, constants schema 3 and `Shader.Output` schema 7 have independent
 ownership. `GetCompileAdapterVersion()` exposes those contracts to authored
 Material fingerprints separately from the build identity. One descriptor supplies
 registration and test action construction.
-The explicit `Options` byte constant has a 1 MiB bound and schema 2: version,
-root virtual path, compiler environment, target/backend/code formats, Metal language
-and binding-remap schemas, generated-source flag, ordered entry-point/frequency
+The explicit `Options` byte constant has a 1 MiB bound and schema 3: version,
+root virtual path, compiler environment, target/backend/code formats and opaque
+settings-profile digest, generated-source flag, ordered entry-point/frequency
 pairs, normalized macro name/value-presence/value triples, and ordered virtual
 search roots. Counts and integers are fixed-width little endian; strings are
 length-prefixed. Force policy remains outside production identity.
@@ -114,27 +115,25 @@ Recovered imports are rechecked against the caller's virtual-prefix allowlist.
 
 ## Package compiled-output payload
 
-The separate `DSHD` schema-5 little-endian package codec contains the complete
+The separate `DSHD` schema-6 little-endian package codec contains the complete
 ordered `FShaderCompilerOutput`. The header contains magic, schema,
-endianness marker, a zero reserved field, and entry count. Each entry contains:
+endianness marker, a zero reserved field, target/profile, and entry count.
+Each `FShaderCode` entry stores source/binary entry points, stage/format/group
+metadata, debug name, code-only hash and bytes, canonical named reflection and
+push ranges, versioned opaque platform bytes, and complete shader identity.
+There is no separately serialized logical interface or name digest; see the
+[compiled-stage contract](GlobalShaders.md#atomic-shader-sets).
 
-1. length-prefixed UTF-8 source and binary entry points;
-2. `uint32` frequency and zero reserved field;
-3. length-prefixed UTF-8 debug name;
-4. the two `uint64` halves of the XXH3-128 SPIR-V hash;
-5. `uint64` SPIR-V byte count followed by bytes;
-6. `uint32` resource count and each name, stage flags, set, binding, type, and array size;
-7. `uint32` push-constant count and each stage flags, offset, size, and zero reserved field.
-
-The request supports 1–32 stages. A stage permits at most 64 MiB SPIR-V, 65,536
+The request supports 1–32 stages. A stage permits at most 64 MiB code, 65,536
 resource bindings, 65,536 push-constant ranges, 32 KiB per string, descriptor
 indices through 65,535, and push-constant extents within 65,536 bytes. The whole
 compiled output permits at most 256 MiB. Decode validates header versions, request
 identity and ordering, enum masks, all counts and length arithmetic, reserved
-fields, SPIR-V minimum size/alignment/magic, recomputed code hashes, reflection
-bounds, and complete byte consumption before publishing a candidate.
+fields, target code shape, recomputed code hashes, reflection bounds, opaque
+metadata compatibility, complete shader identity, and complete byte consumption
+before publishing a candidate. ShaderFormat owns code and metadata admission.
 
-Archive decode failure leaves the caller output empty; SPIR-V and reflection
+Archive decode failure leaves the caller output empty; code and reflection
 are never independently published or accepted. Session cache records instead
 use the shared-output validator; rejection triggers one uncached compile.
 
@@ -271,7 +270,7 @@ ShaderBuild to resolve each exact request through the ordinary memory/DDC/
 compiler path. It publishes `Shaders/ShaderLibrary.dslb` in the same Cook
 transaction as packages and records it in `CookManifest.bin`.
 
-`DSLB` schema 5 is exact for one target/profile. Its sorted directory maps a
+`DSLB` schema 6 is exact for one target/profile. Its sorted directory maps a
 source-independent runtime request identity to one complete embedded `DSHD`
 value and records production identity and payload digests. RenderCore preflights
 the full header, directory, bounds, alignment, target/profile, inventory closure
@@ -289,7 +288,7 @@ or a compiler module. Material `ProgramData` remains package-owned.
 Runtime request identity has its own hash version, independent of the DSLB file
 schema. Changing the container layout does not change request membership keys.
 
-DSHD and DSLB schema 5 omit the producer version word. DSLB uses a 108-byte
+DSHD and DSLB omit the producer version word. DSLB uses a 108-byte
 header; older payloads and libraries require recook. Algorithm or compiler upgrades invalidate
 build/Cook identity without rejecting compatible existing payloads or libraries.
 Magic, schema, byte-order marker, target/code format, request membership, reflection

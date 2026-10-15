@@ -2,7 +2,9 @@
 
 Summary: Define portable compute PSO identity, recorded dispatch, reflected binding, synchronization, and Vulkan execution.
 
-Modules: RHI, RenderCore, VulkanRHI
+Modules: RHI, RenderCore, ShaderFormat, MetalRHI, VulkanRHI
+
+Last reviewed: 2026-10-15
 
 Durin exposes direct compute dispatch through the same recorded command-list
 timeline and Vulkan immediate queue used by graphics. Compute pipeline selection
@@ -16,7 +18,7 @@ ownership transfers.
 shaders, non-compute descriptor visibility, duplicate bindings, malformed
 arrays, and invalid or overlapping push-constant ranges. It sorts reflected
 bindings and push-constant ranges before producing a key from the shader content
-hash and complete layout.
+hash, complete shader identity, and complete layout.
 
 `RHICreateComputePipelineState` returns one complete `FRHIComputePipelineState`
 or null. Debug names label native objects but do not participate in identity.
@@ -48,6 +50,15 @@ removes the active replay context.
 
 ## Binding and State
 
+Metal prepares immutable native operations and push destinations at pipeline
+creation using the admitted shader map. Parameter updates resolve logical
+addresses into bounded dense state, retaining each owner and the uniform
+allocation captured at replay. Direct and indirect dispatch execute the same
+prepared operations without decoding, allocating native slots, or searching
+maps/layouts. Missing-resource and push-byte counts provide completeness checks.
+Selecting a compute pipeline resets the state; a new encoder always re-emits
+bindings. Native upload allocations and resource retention remain permitted.
+
 RenderCore reflection is the source of the pipeline layout. Typed compute shader
 parameters may include storage buffers, storage images, sampled textures,
 samplers, and uniform ranges. Vulkan keeps compute pending state separate from
@@ -55,7 +66,9 @@ graphics dynamic and draw state, binds descriptors with the compute bind point,
 and clears an incompatible snapshot on a compute PSO change or frame reset.
 
 Every reflected descriptor element must be populated before dispatch. The
-active shader must match the compute PSO's shader content hash. Uniform and
+active shader must match the compute PSO's target, code format, content hash,
+shader identity, entry point, and thread-group metadata before pending state
+changes. Uniform and
 sampled resources require compute-readable tracked access; storage resources
 require `ComputeShaderReadWrite`. Image layout and Vulkan stage/access masks are
 derived exclusively from the shared RHI resource-state mapping.

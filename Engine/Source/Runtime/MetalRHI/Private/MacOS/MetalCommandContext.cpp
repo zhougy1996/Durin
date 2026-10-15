@@ -22,8 +22,7 @@ namespace Durin
 		auto MetalBytesPerTexel(EPixelFormat Format) -> NS::UInteger
 		{ return GetPixelFormatInfo(Format).BytesPerBlock; }
 
-		using FBoundBufferAllocations = std::map<std::tuple<uint32, uint32, uint32>,
-			std::shared_ptr<FMetalUniformAllocation>>;
+		using FBoundBufferAllocations = std::vector<std::shared_ptr<FMetalUniformAllocation>>;
 
 		class FMetalCommandContextImpl final : public FMetalCommandContext
 		{
@@ -58,19 +57,15 @@ namespace Durin
 				if (StorageOwner) Submission.StorageOwners.push_back(StorageOwner);
 				Active.emplace(std::move(Submission));
 				ComputePipeline = nullptr;
-				ComputeParameters.clear();
+				ComputeParameters.Reset();
 				ComputeBufferAllocations.clear();
-				ComputeParameterOwners.clear();
-				ComputePushConstants.clear();
-				ComputePushConstantWritten.clear();
+				ComputePush.Reset();
 				GraphicsPipeline = nullptr;
 				BoundVertexStreams = 0;
 				IndexBuffer = nullptr;
-				GraphicsParameters.clear();
+				GraphicsParameters.Reset();
 				GraphicsBufferAllocations.clear();
-				GraphicsParameterOwners.clear();
-				for (auto& Bytes : GraphicsPushConstants) Bytes.clear();
-				for (auto& Written : GraphicsPushConstantWritten) Written.clear();
+				for (auto& Push : GraphicsPush) Push.Reset();
 			}
 			auto RHIEndGPUSubmission(const FRHIGPUSyncPointRef& Signal) -> void override
 			{
@@ -300,11 +295,9 @@ namespace Durin
 				GraphicsPipeline = nullptr;
 				BoundVertexStreams = 0;
 				IndexBuffer = nullptr;
-				GraphicsParameters.clear();
+				GraphicsParameters.Reset();
 				GraphicsBufferAllocations.clear();
-				GraphicsParameterOwners.clear();
-				for (auto& Bytes : GraphicsPushConstants) Bytes.clear();
-				for (auto& Written : GraphicsPushConstantWritten) Written.clear();
+				for (auto& Push : GraphicsPush) Push.Reset();
 				if (bImplicitRenderSubmission)
 				{
 					std::lock_guard Lock(State->Mutex);
@@ -434,11 +427,9 @@ namespace Durin
 					&& Pipeline->GetRenderTargets() == CurrentRenderTargetLayout,
 					"Metal graphics pipeline does not match the active render pass.");
 				GraphicsPipeline = Pipeline;
-				GraphicsParameters.clear();
-				GraphicsBufferAllocations.clear();
-				GraphicsParameterOwners.clear();
-				for (auto& Bytes : GraphicsPushConstants) Bytes.clear();
-				for (auto& Written : GraphicsPushConstantWritten) Written.clear();
+				GraphicsParameters.Reset(Pipeline->GetBindingPlan());
+				GraphicsBufferAllocations.assign(Pipeline->GetBindingPlan()->Parameters.size(), {});
+				for (uint32 Stage = 0; Stage < 2; ++Stage) GraphicsPush[Stage].Reset(&Pipeline->GetBindingPlan()->Push[Stage]);
 				RenderEncoder->setRenderPipelineState(Pipeline->GetPipeline());
 				RenderEncoder->setDepthStencilState(Pipeline->GetDepthStencil());
 				RenderEncoder->setBlendColor(0.0f, 0.0f, 0.0f, 0.0f);
@@ -455,12 +446,12 @@ namespace Durin
 			{
 				requiref(Active && !RenderEncoder,
 					"Metal compute pipeline requires an active submission outside a render pass.");
-				ComputePipeline = &State;
-				ComputeParameters.clear();
-				ComputeBufferAllocations.clear();
-				ComputeParameterOwners.clear();
-				ComputePushConstants.clear();
-				ComputePushConstantWritten.clear();
+				auto* Pipeline = dynamic_cast<FMetalComputePipelineState*>(&State);
+				requiref(Pipeline, "Metal compute pipeline belongs to another backend.");
+				ComputePipeline = Pipeline;
+				ComputeParameters.Reset(Pipeline->GetBindingPlan());
+				ComputeBufferAllocations.assign(Pipeline->GetBindingPlan()->Parameters.size(), {});
+				ComputePush.Reset(&Pipeline->GetBindingPlan()->Push[2]);
 			}
 			auto RHIBindVertexBuffer(uint32 Stream, FRHIBuffer* Resource,
 				uint32 Offset) -> void override
@@ -969,28 +960,9 @@ namespace Durin
 						"Invalid Metal graphics push constant update.");
 					for (uint32 StageIndex = 0; StageIndex < 2; ++StageIndex)
 					{
-						const auto Stage = StageIndex == 0
-							? EShaderStageFlags::Vertex
-							: EShaderStageFlags::Fragment;
-						if (!EnumHasAnyFlags(Stages, Stage)) continue;
-						for (uint32 Byte = Offset; Byte < Offset + Size; Byte += 4)
-							requiref(std::ranges::any_of(
-								GraphicsPipeline->GetLayout().PushConstantRanges,
-								[&](const auto& Range) {
-									return EnumHasAnyFlags(Range.StageFlags, Stage)
-										&& Byte >= Range.Offset
-										&& Byte + 4 <= uint64(Range.Offset) + Range.Size;
-								}), "Metal graphics push constant update exceeds its layout.");
-						auto& Bytes = GraphicsPushConstants[StageIndex];
-						auto& Written = GraphicsPushConstantWritten[StageIndex];
-						if (Bytes.size() < Offset + Size)
-						{
-							Bytes.resize(Offset + Size);
-							Written.resize(Offset + Size);
-						}
-						std::memcpy(Bytes.data() + Offset, Data, Size);
-						std::fill(Written.begin() + Offset,
-							Written.begin() + Offset + Size, 1);
+						const auto Stage = StageIndex == 0 ? EShaderStageFlags::Vertex : EShaderStageFlags::Fragment;
+						if (EnumHasAnyFlags(Stages, Stage))
+							requiref(GraphicsPush[StageIndex].Write(Offset, Size, Data), "Metal graphics push constant update exceeds its layout.");
 					}
 					return;
 				}
@@ -1000,88 +972,38 @@ namespace Durin
 					&& Data && Size && Offset % 4 == 0 && Size % 4 == 0
 					&& uint64(Offset) + Size <= 65536,
 					"Invalid Metal compute push constant update.");
-				const auto& Ranges = Pipeline->GetLayout().PushConstantRanges;
-				for (uint32 Byte = Offset; Byte < Offset + Size; Byte += 4)
-					requiref(std::ranges::any_of(Ranges, [&](const auto& Range) {
-						return Byte >= Range.Offset
-							&& Byte + 4 <= uint64(Range.Offset) + Range.Size;
-					}), "Metal compute push constant update exceeds its layout.");
-				if (ComputePushConstants.size() < Offset + Size)
-				{
-					ComputePushConstants.resize(Offset + Size);
-					ComputePushConstantWritten.resize(Offset + Size);
-				}
-				std::memcpy(ComputePushConstants.data() + Offset, Data, Size);
-				std::fill(ComputePushConstantWritten.begin() + Offset,
-					ComputePushConstantWritten.begin() + Offset + Size, 1);
+				requiref(ComputePush.Write(Offset, Size, Data), "Metal compute push constant update exceeds its layout.");
 			}
 			auto RHISetShaderParameters(FRHIShader* Shader,
 			const std::span<const FRHIShaderParameterResource>& Parameters) -> void override
 			{
+				FMetalParameterState* Values = nullptr;
+				FBoundBufferAllocations* Allocations = nullptr;
+				EShaderStageFlags Stage;
 				if (RenderEncoder)
 				{
 					auto* Pipeline = GraphicsPipeline.GetReference();
-					const EShaderStageFlags Stage = Pipeline
-						&& Shader == Pipeline->GetVertexShader()
-						? EShaderStageFlags::Vertex : EShaderStageFlags::Fragment;
-					requiref(Pipeline && (Shader == Pipeline->GetVertexShader()
-						|| Shader == Pipeline->GetFragmentShader())
-						&& ValidateShaderParameterUpdate(Pipeline->GetLayout(),
-							Stage, Parameters).has_value(),
-						"Invalid Metal graphics shader parameter update.");
-					for (const auto& Parameter : Parameters)
-					{
-						requiref(Parameter.Resource,
-							"Metal graphics parameter requires a resource.");
-						auto Existing = std::ranges::find_if(GraphicsParameters,
-							[&](const auto& Item) {
-								return Item.SetIndex == Parameter.SetIndex
-									&& Item.BindingIndex == Parameter.BindingIndex
-									&& Item.ArrayElement == Parameter.ArrayElement;
-							});
-						CaptureBufferAllocation(Parameter, GraphicsBufferAllocations);
-						if (Existing == GraphicsParameters.end())
-							GraphicsParameters.push_back(Parameter);
-						else *Existing = Parameter;
-					}
-					std::ranges::sort(GraphicsParameters, {}, [](const auto& Item) {
-						return std::tuple(Item.SetIndex, Item.BindingIndex,
-							Item.ArrayElement);
-					});
-					GraphicsParameterOwners.clear();
-					for (const auto& Parameter : GraphicsParameters)
-						GraphicsParameterOwners.emplace_back(Parameter.Resource);
-					return;
+					requiref(Pipeline && (Shader == Pipeline->GetVertexShader() || Shader == Pipeline->GetFragmentShader()), "Invalid Metal graphics parameter shader.");
+					Stage = Shader == Pipeline->GetVertexShader() ? EShaderStageFlags::Vertex : EShaderStageFlags::Fragment;
+					Values = &GraphicsParameters; Allocations = &GraphicsBufferAllocations;
 				}
-				auto* Pipeline = static_cast<FMetalComputePipelineState*>(
-					ComputePipeline.GetReference());
-				requiref(Active && Pipeline && Shader == Pipeline->GetShader()
-					&& ValidateShaderParameterUpdate(Pipeline->GetLayout(),
-						EShaderStageFlags::Compute, Parameters).has_value(),
-					"Invalid Metal compute shader parameter update.");
+				else
+				{
+					auto* Pipeline = static_cast<FMetalComputePipelineState*>(ComputePipeline.GetReference());
+					requiref(Active && Pipeline && Shader == Pipeline->GetShader(), "Invalid Metal compute parameter shader.");
+					Stage = EShaderStageFlags::Compute; Values = &ComputeParameters; Allocations = &ComputeBufferAllocations;
+				}
+				// Validate the entire batch before changing any retained state.
+				for (const auto& Parameter : Parameters)
+					requiref(Values->Find(Parameter, Stage).has_value(), "Invalid Metal shader parameter update.");
 				for (const auto& Parameter : Parameters)
 				{
-					requiref(Parameter.Resource != nullptr,
-						"Metal compute parameter requires a resource.");
-					auto Existing = std::ranges::find_if(ComputeParameters,
-						[&](const auto& Item) {
-							return Item.SetIndex == Parameter.SetIndex
-								&& Item.BindingIndex == Parameter.BindingIndex
-								&& Item.ArrayElement == Parameter.ArrayElement;
-						});
-					CaptureBufferAllocation(Parameter, ComputeBufferAllocations);
-					if (Existing == ComputeParameters.end())
-						ComputeParameters.push_back(Parameter);
-					else *Existing = Parameter;
+					const uint32 Index = *Values->Find(Parameter, Stage);
+					CaptureBufferAllocation(Parameter, (*Allocations)[Index]);
+					Values->Write(Index, Parameter);
 				}
-				std::ranges::sort(ComputeParameters, {}, [](const auto& Item) {
-					return std::tuple(Item.SetIndex, Item.BindingIndex,
-						Item.ArrayElement);
-				});
-				ComputeParameterOwners.clear();
-				for (const auto& Parameter : ComputeParameters)
-					ComputeParameterOwners.emplace_back(Parameter.Resource);
 			}
+
 			auto RHIDispatch(uint32 X, uint32 Y, uint32 Z) -> void override
 				{ EncodeComputeDispatch(X, Y, Z, nullptr, 0); }
 			auto RHIDispatchIndirect(FRHIBuffer* ArgumentBuffer,
@@ -1104,56 +1026,33 @@ namespace Durin
 					ComputePipeline.GetReference());
 				requiref(Active && !RenderEncoder && Pipeline
 					&& (ArgumentBuffer || (X && Y && Z))
-					&& ValidateShaderBindingCompleteness(Pipeline->GetLayout(),
-						ComputeParameters).has_value(),
+					&& ComputeParameters.IsComplete(),
 					"Invalid Metal compute dispatch state.");
 				auto Encoder = NS::RetainPtr(Active->Command->computeCommandEncoder());
 				requiref(static_cast<bool>(Encoder), "Metal compute encoder creation failed.");
 				Encoder->setComputePipelineState(Pipeline->GetPipeline());
-				const auto& PushRanges = Pipeline->GetLayout().PushConstantRanges;
-				if (!PushRanges.empty())
+				const auto& Push = Pipeline->GetBindingPlan()->Push[2];
+				requiref(ComputePush.IsComplete(), "Metal compute push constants are incomplete.");
+				if (Push.Extent)
 				{
-					uint32 End = 0;
-					for (const auto& Range : PushRanges)
-					{
-						End = std::max(End, Range.Offset + Range.Size);
-						requiref(ComputePushConstantWritten.size()
-							>= uint64(Range.Offset) + Range.Size
-							&& std::ranges::all_of(
-								std::span(ComputePushConstantWritten).subspan(
-									Range.Offset, Range.Size),
-								[](uint8 Written) { return Written != 0; }),
-							"Metal compute push constants are incomplete.");
-					}
 					auto ConstantsOwner = NS::TransferPtr(State->Queue->device()->newBuffer(
-						ComputePushConstants.data(), End, MTL::ResourceStorageModeShared));
+						ComputePush.GetBytes().data(), Push.Extent, MTL::ResourceStorageModeShared));
 					auto* Constants = ConstantsOwner.get();
-					requiref(Constants != nullptr,
-						"Metal compute push constant allocation failed.");
-					Encoder->setBuffer(Constants, 0, Pipeline->GetShader()->GetMetalPushConstantBufferSlot());
+					requiref(Constants, "Metal compute push constant allocation failed.");
+					Encoder->setBuffer(Constants, 0, Push.NativeSlot);
 					Active->NativeResources.push_back(NS::RetainPtr(Constants));
 				}
-				const auto& Map = Pipeline->GetShader()->GetMetalBindings();
-				for (const auto& Parameter : ComputeParameters)
+				for (const auto& Operation : ComputeParameters.OperationsForSubmission())
 				{
-					auto Binding = std::ranges::find_if(Map, [&](const auto& Item) {
-						return Item.SetIndex == Parameter.SetIndex
-							&& Item.BindingIndex == Parameter.BindingIndex
-							&& Item.Type == (Parameter.Type == ERHIBindingType::UniformBufferDynamic
-								? ERHIBindingType::UniformBuffer : Parameter.Type);
-					});
-					requiref(Binding != Map.end()
-						&& Parameter.ArrayElement < Binding->Count,
-						"Metal compute binding is missing its native slot.");
-					const uint32 Slot = Binding->Slot + Parameter.ArrayElement;
+					const auto& Parameter = ComputeParameters.Get(Operation.ParameterIndex);
+					const uint32 Slot = Operation.NativeSlot;
 					if (Parameter.Type == ERHIBindingType::StorageBuffer
 						|| Parameter.Type == ERHIBindingType::UniformBuffer
 						|| Parameter.Type == ERHIBindingType::UniformBufferDynamic)
 					{
 						if (Parameter.Resource->GetResourceType() == ERHIResourceType::UniformBuffer)
 						{
-							const auto& Allocation = ComputeBufferAllocations.at(std::tuple(
-								Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement));
+							const auto& Allocation = ComputeBufferAllocations[Operation.ParameterIndex];
 							require(Allocation && Allocation->Handle);
 							Active->StorageOwners.push_back(Allocation);
 							Active->NativeResources.push_back(NS::RetainPtr(Allocation->Handle.get()));
@@ -1350,15 +1249,14 @@ namespace Durin
 			};
 
 			static auto CaptureBufferAllocation(const FRHIShaderParameterResource& Parameter,
-				FBoundBufferAllocations& Snapshots) -> void
+				std::shared_ptr<FMetalUniformAllocation>& Snapshot) -> void
 			{
-				const auto Key = std::tuple(Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement);
 				if (Parameter.Resource->GetResourceType() == ERHIResourceType::UniformBuffer)
 				{
-					Snapshots[Key] = static_cast<FMetalUniformBuffer*>(Parameter.Resource)->GetAllocation();
+					Snapshot = static_cast<FMetalUniformBuffer*>(Parameter.Resource)->GetAllocation();
 					return;
 				}
-				Snapshots.erase(Key);
+				Snapshot.reset();
 			}
 
 			auto ResolveBufferBinding(FRHIBufferView* View) -> FBufferBinding
@@ -1372,144 +1270,98 @@ namespace Durin
 
 			auto BindGraphicsParameters() -> void
 			{
-				const auto& Layout = GraphicsPipeline->GetLayout();
-				requiref(ValidateShaderBindingCompleteness(Layout,
-					GraphicsParameters).has_value(),
-					"Metal graphics shader bindings are incomplete.");
+				requiref(GraphicsParameters.IsComplete(), "Metal graphics shader bindings are incomplete.");
 				for (uint32 StageIndex = 0; StageIndex < 2; ++StageIndex)
 				{
-					const auto Stage = StageIndex == 0
-						? EShaderStageFlags::Vertex : EShaderStageFlags::Fragment;
-					auto* Shader = StageIndex == 0
-						? GraphicsPipeline->GetVertexShader()
-						: GraphicsPipeline->GetFragmentShader();
-					if (Shader->GetMetalPushConstantBufferSlot() == UINT32_MAX)
-						continue;
-					uint32 End = 0;
-					for (const auto& Range : Layout.PushConstantRanges)
-					{
-						if (!EnumHasAnyFlags(Range.StageFlags, Stage)) continue;
-						End = std::max(End, Range.Offset + Range.Size);
-						const auto& Written = GraphicsPushConstantWritten[StageIndex];
-						requiref(Written.size() >= uint64(Range.Offset) + Range.Size
-							&& std::ranges::all_of(std::span(Written).subspan(
-								Range.Offset, Range.Size),
-								[](uint8 Value) { return Value != 0; }),
-							"Metal graphics push constants are incomplete.");
-					}
-					requiref(End != 0,
-						"Metal graphics shader push slot lacks a layout range.");
+					const auto& Push = GraphicsPipeline->GetBindingPlan()->Push[StageIndex];
+					requiref(GraphicsPush[StageIndex].IsComplete(), "Metal graphics push constants are incomplete.");
+					if (!Push.Extent) continue;
 					auto ConstantsOwner = NS::TransferPtr(State->Queue->device()->newBuffer(
-						GraphicsPushConstants[StageIndex].data(), End, MTL::ResourceStorageModeShared));
+						GraphicsPush[StageIndex].GetBytes().data(), Push.Extent, MTL::ResourceStorageModeShared));
 					auto* Constants = ConstantsOwner.get();
-					requiref(Constants != nullptr,
-						"Metal graphics push constant allocation failed.");
-					if (StageIndex == 0)
-						RenderEncoder->setVertexBuffer(Constants, 0, Shader->GetMetalPushConstantBufferSlot());
-					else RenderEncoder->setFragmentBuffer(Constants, 0, Shader->GetMetalPushConstantBufferSlot());
+					requiref(Constants, "Metal graphics push constant allocation failed.");
+					if (StageIndex == 0) RenderEncoder->setVertexBuffer(Constants, 0, Push.NativeSlot);
+					else RenderEncoder->setFragmentBuffer(Constants, 0, Push.NativeSlot);
 					Active->NativeResources.push_back(NS::RetainPtr(Constants));
 				}
-				for (const auto& Parameter : GraphicsParameters)
+				for (const auto& Operation : GraphicsParameters.OperationsForSubmission())
 				{
-					const auto& Set = Layout.BindingLayouts[Parameter.SetIndex];
-					const auto Binding = std::ranges::find(Set.BindingLayouts,
-						Parameter.BindingIndex, &FBindingLayoutItem::Slot);
-					requiref(Binding != Set.BindingLayouts.end(),
-						"Metal graphics binding is absent from its layout.");
-					for (const auto Stage : {EShaderStageFlags::Vertex,
-						EShaderStageFlags::Fragment})
+					const auto& Parameter = GraphicsParameters.Get(Operation.ParameterIndex);
+					const auto Stage = Operation.Stage;
+					const uint32 Slot = Operation.NativeSlot;
+					if (Parameter.Type == ERHIBindingType::Texture
+						|| Parameter.Type == ERHIBindingType::StorageImage)
 					{
-						if (!EnumHasAnyFlags(Binding->StageFlags, Stage)) continue;
-						auto* Shader = Stage == EShaderStageFlags::Vertex
-							? GraphicsPipeline->GetVertexShader()
-							: GraphicsPipeline->GetFragmentShader();
-						const auto Map = Shader->GetMetalBindings();
-						const auto Native = std::ranges::find_if(Map,
-							[&](const auto& Item) {
-								return Item.SetIndex == Parameter.SetIndex
-									&& Item.BindingIndex == Parameter.BindingIndex
-									&& Item.Type == (Parameter.Type == ERHIBindingType::UniformBufferDynamic
-										? ERHIBindingType::UniformBuffer : Parameter.Type);
-							});
-						requiref(Native != Map.end()
-							&& Parameter.ArrayElement < Native->Count,
-							"Metal graphics binding has no native slot.");
-						const uint32 Slot = Native->Slot + Parameter.ArrayElement;
-						if (Parameter.Type == ERHIBindingType::Texture
-							|| Parameter.Type == ERHIBindingType::StorageImage)
-						{
-							requiref(Parameter.Resource->GetResourceType()
-								== ERHIResourceType::TextureView,
-								"Metal graphics texture binding requires a view.");
-							auto* View = dynamic_cast<FMetalTextureView*>(
-								static_cast<FRHITextureView*>(Parameter.Resource));
-							requiref(View && View->GetDesc().Usage ==
-								(Parameter.Type == ERHIBindingType::Texture
-									? ERHITextureViewUsage::Sampled
-									: ERHITextureViewUsage::Storage),
-								"Metal graphics texture view usage is incompatible.");
-							if (Stage == EShaderStageFlags::Vertex)
-								RenderEncoder->setVertexTexture(View->GetHandle(), Slot);
-							else RenderEncoder->setFragmentTexture(View->GetHandle(), Slot);
-							Active->NativeResources.push_back(NS::RetainPtr(View->GetHandle()));
-						}
-						else if (Parameter.Type == ERHIBindingType::Sampler)
-						{
-							requiref(Parameter.Resource->GetResourceType()
-								== ERHIResourceType::Sampler,
-								"Metal graphics sampler binding requires a sampler.");
-							auto* Sampler = dynamic_cast<FMetalSampler*>(
-								static_cast<FRHISampler*>(Parameter.Resource));
-							requiref(Sampler,
-								"Metal graphics sampler belongs to another backend.");
-							if (Stage == EShaderStageFlags::Vertex)
-								RenderEncoder->setVertexSamplerState(Sampler->GetHandle(), Slot);
-							else RenderEncoder->setFragmentSamplerState(Sampler->GetHandle(), Slot);
-						}
-						else if (Parameter.Type == ERHIBindingType::UniformBuffer
-							|| Parameter.Type == ERHIBindingType::UniformBufferDynamic
-							|| Parameter.Type == ERHIBindingType::StorageBuffer)
-						{
-							if (Parameter.Resource->GetResourceType() == ERHIResourceType::UniformBuffer)
-							{
-								const auto& Allocation = GraphicsBufferAllocations.at(std::tuple(
-									Parameter.SetIndex, Parameter.BindingIndex, Parameter.ArrayElement));
-								require(Allocation && Allocation->Handle);
-								Active->StorageOwners.push_back(Allocation);
-								Active->NativeResources.push_back(NS::RetainPtr(Allocation->Handle.get()));
-								if (Stage == EShaderStageFlags::Vertex)
-									RenderEncoder->setVertexBuffer(Allocation->Handle.get(), Parameter.Offset, Slot);
-								else RenderEncoder->setFragmentBuffer(Allocation->Handle.get(), Parameter.Offset, Slot);
-								Active->ResourceOwners.emplace_back(Parameter.Resource);
-								continue;
-							}
-							requiref(Parameter.Resource->GetResourceType()
-								== ERHIResourceType::BufferView,
-								"Metal graphics buffer binding requires a view.");
-							auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
-							const auto Buffer = ResolveBufferBinding(View);
-							const bool bStorage = Parameter.Type
-								== ERHIBindingType::StorageBuffer;
-							requiref(bStorage
-									? View->GetDesc().Type == ERHIBufferViewType::StructuredStorage
-										|| View->GetDesc().Type == ERHIBufferViewType::ByteAddressStorage
-									: View->GetDesc().Type == ERHIBufferViewType::Uniform,
-								"Metal graphics buffer view type is incompatible.");
-							requiref(Parameter.Type == ERHIBindingType::UniformBufferDynamic
-								|| Parameter.Offset == 0,
-								"Metal static graphics binding cannot use a dynamic offset.");
-							const uint64 Offset = View->GetDesc().Offset
-								+ (Parameter.Type == ERHIBindingType::UniformBufferDynamic
-									? Parameter.Offset : 0);
-							requiref(Offset <= Buffer.Size
-								&& View->GetDesc().Size <= Buffer.Size - Offset,
-								"Metal graphics buffer range exceeds its allocation.");
-							if (Stage == EShaderStageFlags::Vertex)
-								RenderEncoder->setVertexBuffer(Buffer.Handle, Offset, Slot);
-							else RenderEncoder->setFragmentBuffer(Buffer.Handle, Offset, Slot);
-						}
-						else Unsupported();
+						requiref(Parameter.Resource->GetResourceType()
+							== ERHIResourceType::TextureView,
+							"Metal graphics texture binding requires a view.");
+						auto* View = dynamic_cast<FMetalTextureView*>(
+							static_cast<FRHITextureView*>(Parameter.Resource));
+						requiref(View && View->GetDesc().Usage ==
+							(Parameter.Type == ERHIBindingType::Texture
+								? ERHITextureViewUsage::Sampled
+								: ERHITextureViewUsage::Storage),
+							"Metal graphics texture view usage is incompatible.");
+						if (Stage == EShaderStageFlags::Vertex)
+							RenderEncoder->setVertexTexture(View->GetHandle(), Slot);
+						else RenderEncoder->setFragmentTexture(View->GetHandle(), Slot);
+						Active->NativeResources.push_back(NS::RetainPtr(View->GetHandle()));
 					}
+					else if (Parameter.Type == ERHIBindingType::Sampler)
+					{
+						requiref(Parameter.Resource->GetResourceType()
+							== ERHIResourceType::Sampler,
+							"Metal graphics sampler binding requires a sampler.");
+						auto* Sampler = dynamic_cast<FMetalSampler*>(
+							static_cast<FRHISampler*>(Parameter.Resource));
+						requiref(Sampler,
+							"Metal graphics sampler belongs to another backend.");
+						if (Stage == EShaderStageFlags::Vertex)
+							RenderEncoder->setVertexSamplerState(Sampler->GetHandle(), Slot);
+						else RenderEncoder->setFragmentSamplerState(Sampler->GetHandle(), Slot);
+					}
+					else if (Parameter.Type == ERHIBindingType::UniformBuffer
+						|| Parameter.Type == ERHIBindingType::UniformBufferDynamic
+						|| Parameter.Type == ERHIBindingType::StorageBuffer)
+					{
+						if (Parameter.Resource->GetResourceType() == ERHIResourceType::UniformBuffer)
+						{
+							const auto& Allocation = GraphicsBufferAllocations[Operation.ParameterIndex];
+							require(Allocation && Allocation->Handle);
+							Active->StorageOwners.push_back(Allocation);
+							Active->NativeResources.push_back(NS::RetainPtr(Allocation->Handle.get()));
+							if (Stage == EShaderStageFlags::Vertex)
+								RenderEncoder->setVertexBuffer(Allocation->Handle.get(), Parameter.Offset, Slot);
+							else RenderEncoder->setFragmentBuffer(Allocation->Handle.get(), Parameter.Offset, Slot);
+							Active->ResourceOwners.emplace_back(Parameter.Resource);
+							continue;
+						}
+						requiref(Parameter.Resource->GetResourceType()
+							== ERHIResourceType::BufferView,
+							"Metal graphics buffer binding requires a view.");
+						auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
+						const auto Buffer = ResolveBufferBinding(View);
+						const bool bStorage = Parameter.Type
+							== ERHIBindingType::StorageBuffer;
+						requiref(bStorage
+								? View->GetDesc().Type == ERHIBufferViewType::StructuredStorage
+									|| View->GetDesc().Type == ERHIBufferViewType::ByteAddressStorage
+								: View->GetDesc().Type == ERHIBufferViewType::Uniform,
+							"Metal graphics buffer view type is incompatible.");
+						requiref(Parameter.Type == ERHIBindingType::UniformBufferDynamic
+							|| Parameter.Offset == 0,
+							"Metal static graphics binding cannot use a dynamic offset.");
+						const uint64 Offset = View->GetDesc().Offset
+							+ (Parameter.Type == ERHIBindingType::UniformBufferDynamic
+								? Parameter.Offset : 0);
+						requiref(Offset <= Buffer.Size
+							&& View->GetDesc().Size <= Buffer.Size - Offset,
+							"Metal graphics buffer range exceeds its allocation.");
+						if (Stage == EShaderStageFlags::Vertex)
+							RenderEncoder->setVertexBuffer(Buffer.Handle, Offset, Slot);
+						else RenderEncoder->setFragmentBuffer(Buffer.Handle, Offset, Slot);
+					}
+					else Unsupported();
 					Active->ResourceOwners.emplace_back(Parameter.Resource);
 				}
 			}
@@ -1539,19 +1391,15 @@ namespace Durin
 				bImplicitRenderSubmission = false;
 				RenderEncoder.reset();
 				ComputePipeline = nullptr;
-				ComputeParameters.clear();
+				ComputeParameters.Reset();
 				ComputeBufferAllocations.clear();
-				ComputeParameterOwners.clear();
-				ComputePushConstants.clear();
-				ComputePushConstantWritten.clear();
+				ComputePush.Reset();
 				GraphicsPipeline = nullptr;
 				BoundVertexStreams = 0;
 				IndexBuffer = nullptr;
-				GraphicsParameters.clear();
+				GraphicsParameters.Reset();
 				GraphicsBufferAllocations.clear();
-				GraphicsParameterOwners.clear();
-				for (auto& Bytes : GraphicsPushConstants) Bytes.clear();
-				for (auto& Written : GraphicsPushConstantWritten) Written.clear();
+				for (auto& Push : GraphicsPush) Push.Reset();
 				StorageOwner.reset();
 				bFrameOpen = false;
 			}
@@ -1574,17 +1422,13 @@ namespace Durin
 			uint16 BoundVertexStreams = 0;
 			FBufferRHIRef IndexBuffer;
 			uint32 IndexBufferOffset = 0;
-			std::vector<FRHIShaderParameterResource> GraphicsParameters;
+			FMetalParameterState GraphicsParameters;
 			FBoundBufferAllocations GraphicsBufferAllocations;
-			std::vector<TRefCountPtr<FRHIResource>> GraphicsParameterOwners;
-			std::array<std::vector<std::byte>, 2> GraphicsPushConstants;
-			std::array<std::vector<uint8>, 2> GraphicsPushConstantWritten;
+			std::array<FMetalPushState, 2> GraphicsPush;
 			TRefCountPtr<FRHIComputePipelineState> ComputePipeline;
-			std::vector<FRHIShaderParameterResource> ComputeParameters;
+			FMetalParameterState ComputeParameters;
 			FBoundBufferAllocations ComputeBufferAllocations;
-			std::vector<TRefCountPtr<FRHIResource>> ComputeParameterOwners;
-			std::vector<std::byte> ComputePushConstants;
-			std::vector<uint8> ComputePushConstantWritten;
+			FMetalPushState ComputePush;
 			std::vector<FMetalPendingSubmission> Pending;
 			std::vector<TRefCountPtr<FMetalGPUTimingQuery>> OpenTimingQueries;
 		};

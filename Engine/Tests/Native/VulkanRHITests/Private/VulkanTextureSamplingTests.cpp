@@ -317,7 +317,7 @@ namespace Durin
 		const FShaderCompilerOutput CompileOutput = Compiler.Compile(ShaderPath.string(), CompileOptions);
 		ASSERT_TRUE(CompileOutput) << FormatShaderError(CompileOutput.Error);
 		ASSERT_EQ(CompileOutput.CompiledShaders.size(), 1u);
-		const FCompiledShader& CompiledShader = CompileOutput.CompiledShaders[0];
+		const FShaderCode& CompiledShader = CompileOutput.CompiledShaders[0];
 
 		const VkDeviceSize ResultBytes = sizeof(FFloat4) * ResultCount;
 		FVulkanBufferAllocation Readback = CreateReadbackBuffer(Device, PhysicalDevice, ResultBytes);
@@ -352,8 +352,8 @@ namespace Durin
 
 		const VkShaderModuleCreateInfo ShaderInfo{
 			.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-			.codeSize = CompiledShader.Code->size(),
-			.pCode = reinterpret_cast<const uint32*>(CompiledShader.Code->data())
+			.codeSize = CompiledShader.Code.size(),
+			.pCode = reinterpret_cast<const uint32*>(CompiledShader.Code.data())
 		};
 		VkShaderModule ShaderModule = VK_NULL_HANDLE;
 		ASSERT_EQ(vkCreateShaderModule(Device, &ShaderInfo, nullptr, &ShaderModule), VK_SUCCESS);
@@ -880,7 +880,7 @@ namespace Durin
 		auto& Commands = FRHICommandListImmediate::Get();
 		const auto& Source = Compiled.CompiledShaders[0];
 		auto ShaderDesc = FRHIShaderCreateDesc::Create(Source.DebugName.c_str(),
-			Source.Frequency, *Source.Code, Source.Hash);
+			Source.Frequency, Source.Code, Source.CodeHash);
 		ShaderDesc.SetEntryPoint(Source.BinaryEntryPoint.c_str());
 		FShaderRHIRef Shader = GDynamicRHI->RHICreateShader(ShaderDesc);
 		ASSERT_TRUE(Shader);
@@ -952,7 +952,7 @@ namespace Durin
 			for (uint32 Index = 0; Index < Shaders.size(); ++Index)
 			{
 				const auto& Source = Compiled.CompiledShaders[Index];
-				auto Desc = FRHIShaderCreateDesc::Create(Source.DebugName.c_str(), Source.Frequency, *Source.Code, Source.Hash);
+				auto Desc = FRHIShaderCreateDesc::Create(Source.DebugName.c_str(), Source.Frequency, Source.Code, Source.CodeHash);
 				Desc.SetEntryPoint(Source.BinaryEntryPoint.c_str());
 				Shaders[Index] = GDynamicRHI->RHICreateShader(Desc);
 				ASSERT_TRUE(Shaders[Index]);
@@ -1369,7 +1369,7 @@ namespace Durin
 				/ "PublicComputePipeline.slang").string(), Options);
 		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 2u);
-		const FCompiledShader& CompiledShader = Compiled.CompiledShaders[0];
+		const FShaderCode& CompiledShader = Compiled.CompiledShaders[0];
 		FPipelineLayoutDesc ReflectedLayout;
 		FShaderOperationResult ReflectionError;
 		ASSERT_TRUE((ReflectionError = BuildPipelineLayoutFromReflection(std::span(&CompiledShader.Reflection, 1), ReflectedLayout))) << FormatShaderError(ReflectionError.error());
@@ -1418,21 +1418,21 @@ namespace Durin
 			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 			FRHIShaderCreateDesc ShaderDesc = FRHIShaderCreateDesc::Create(
 				CompiledShader.DebugName.c_str(), CompiledShader.Frequency,
-				*CompiledShader.Code, CompiledShader.Hash);
+				CompiledShader.Code, CompiledShader.CodeHash);
 			ShaderDesc.SetEntryPoint(CompiledShader.BinaryEntryPoint.c_str());
 			FShaderRHIRef Shader = GDynamicRHI->RHICreateShader(ShaderDesc);
-			const FCompiledShader& SecondCompiledShader = Compiled.CompiledShaders[1];
+			const FShaderCode& SecondCompiledShader = Compiled.CompiledShaders[1];
 			FRHIShaderCreateDesc SecondShaderDesc = FRHIShaderCreateDesc::Create(
 				SecondCompiledShader.DebugName.c_str(), SecondCompiledShader.Frequency,
-				*SecondCompiledShader.Code, SecondCompiledShader.Hash);
+				SecondCompiledShader.Code, SecondCompiledShader.CodeHash);
 			SecondShaderDesc.SetEntryPoint(
 				SecondCompiledShader.BinaryEntryPoint.c_str());
 			FShaderRHIRef SecondShader =
 				GDynamicRHI->RHICreateShader(SecondShaderDesc);
 			auto MakeInteropShader = [&](uint32 Index) {
-				const FCompiledShader& Source = InteropCompiled.CompiledShaders[Index];
+				const FShaderCode& Source = InteropCompiled.CompiledShaders[Index];
 				FRHIShaderCreateDesc Desc = FRHIShaderCreateDesc::Create(
-					Source.DebugName.c_str(), Source.Frequency, *Source.Code, Source.Hash);
+					Source.DebugName.c_str(), Source.Frequency, Source.Code, Source.CodeHash);
 				Desc.SetEntryPoint(Source.BinaryEntryPoint.c_str());
 				return GDynamicRHI->RHICreateShader(Desc);
 			};
@@ -1694,7 +1694,7 @@ namespace Durin
 				/ "VolumeTextureCompute.slang").string(), Options);
 		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 1u);
-		const FCompiledShader& CompiledShader = Compiled.CompiledShaders[0];
+		const FShaderCode& CompiledShader = Compiled.CompiledShaders[0];
 		FPipelineLayoutDesc Layout;
 		FShaderOperationResult Error;
 		ASSERT_TRUE((Error = BuildPipelineLayoutFromReflection(std::span(&CompiledShader.Reflection, 1), Layout))) << FormatShaderError(Error.error());
@@ -1719,7 +1719,7 @@ namespace Durin
 			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 			FRHIShaderCreateDesc ShaderDesc = FRHIShaderCreateDesc::Create(
 				CompiledShader.DebugName.c_str(), CompiledShader.Frequency,
-				*CompiledShader.Code, CompiledShader.Hash);
+				CompiledShader.Code, CompiledShader.CodeHash);
 			ShaderDesc.SetEntryPoint(CompiledShader.BinaryEntryPoint.c_str());
 			FShaderRHIRef Shader = GDynamicRHI->RHICreateShader(ShaderDesc);
 			FComputePipelineStateInitializer Initializer;
@@ -1841,7 +1841,7 @@ namespace Durin
 				/ "VolumetricCloudFixture.slang").string(), Options);
 		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 1u);
-		const FCompiledShader& CompiledShader = Compiled.CompiledShaders[0];
+		const FShaderCode& CompiledShader = Compiled.CompiledShaders[0];
 		FPipelineLayoutDesc Layout;
 		FShaderOperationResult Error;
 		ASSERT_TRUE((Error = BuildPipelineLayoutFromReflection(std::span(&CompiledShader.Reflection, 1), Layout))) << FormatShaderError(Error.error());
@@ -1865,7 +1865,7 @@ namespace Durin
 			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 			FRHIShaderCreateDesc ShaderDesc = FRHIShaderCreateDesc::Create(
 				CompiledShader.DebugName.c_str(), CompiledShader.Frequency,
-				*CompiledShader.Code, CompiledShader.Hash);
+				CompiledShader.Code, CompiledShader.CodeHash);
 			ShaderDesc.SetEntryPoint(CompiledShader.BinaryEntryPoint.c_str());
 			FShaderRHIRef Shader = GDynamicRHI->RHICreateShader(ShaderDesc);
 			FComputePipelineStateInitializer Initializer;
@@ -2080,9 +2080,9 @@ namespace Durin
 				GTEST_SKIP() << "The physical device does not support fragment storage writes.";
 			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 			auto MakeShader = [&](uint32 Index) {
-				const FCompiledShader& Shader = Compiled.CompiledShaders[Index];
+				const FShaderCode& Shader = Compiled.CompiledShaders[Index];
 				FRHIShaderCreateDesc Desc = FRHIShaderCreateDesc::Create(
-					Shader.DebugName.c_str(), Shader.Frequency, *Shader.Code, Shader.Hash);
+					Shader.DebugName.c_str(), Shader.Frequency, Shader.Code, Shader.CodeHash);
 				Desc.SetEntryPoint(Shader.BinaryEntryPoint.c_str());
 				return GDynamicRHI->RHICreateShader(Desc);
 			};

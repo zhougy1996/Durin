@@ -13,15 +13,15 @@ namespace Durin::MaterialBuildPrivate
 	{
 		uint64 Size = sizeof(Result) + Result.GeneratedSource.capacity() + Result.CompilerIdentity.capacity() + Result.Target.capacity()
 			+ Result.IR.Nodes.capacity() * sizeof(MIR::FNode) + Result.ActiveParameters.capacity() * sizeof(FMaterialCompilerParameterDeclaration)
-			+ Result.Layout.Fields.capacity() * sizeof(FMaterialRenderField) + Result.CompiledShaders.capacity() * sizeof(FCompiledShader);
+			+ Result.Layout.Fields.capacity() * sizeof(FMaterialRenderField) + Result.CompiledShaders.capacity() * sizeof(FShaderCode);
 		for (const auto& Node : Result.IR.Nodes) Size += Node.Inputs.capacity() * sizeof(uint32);
 		for (const auto& Dependency : Result.Dependencies) Size += sizeof(Dependency) + Dependency.VirtualPath.capacity();
 		for (const auto& Collection : Result.ActiveCollections) Size += sizeof(Collection) + Collection.AssetPath.capacity() + Collection.DefaultPayload.capacity() + Collection.UniformLayout.Fields.capacity() * sizeof(FMaterialRenderField);
 		for (const auto& Shader : Result.CompiledShaders)
 		{
-			Size += Shader.SourceEntryPoint.capacity() + Shader.BinaryEntryPoint.capacity() + Shader.DebugName.capacity() + (Shader.Code ? Shader.Code->size() : 0);
+			Size += Shader.SourceEntryPoint.capacity() + Shader.BinaryEntryPoint.capacity() + Shader.DebugName.capacity() + Shader.Code.GetRetainedCapacityBytes();
 			for (const auto& Binding : Shader.Reflection.ResourceBindings) Size += sizeof(Binding) + Binding.Name.capacity();
-			Size += Shader.Reflection.PushConstantRanges.capacity() * sizeof(FPushConstantRange) + Shader.MetalBindings.capacity() * sizeof(FMetalShaderBinding);
+			Size += Shader.Reflection.PushConstantRanges.capacity() * sizeof(FPushConstantRange) + Shader.PlatformData.GetRetainedCapacityBytes();
 		}
 		return Size;
 	}

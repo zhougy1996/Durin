@@ -1,3 +1,4 @@
+#include "MetalShaderFormat.h"
 #include "ShaderBuild/ShaderPaths.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "Shader/IShaderBuildModule.h"
@@ -123,7 +124,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Builder = std::make_unique<FShaderBuilder>();
 		auto Options = MakeCompileOptions();
 		Options.Target = MetalShaderTarget;
-		++Options.Target.BindingRemapSchema;
+		++Options.Target.SettingsDigest.HashHigh;
 		auto Output = Builder->GetOrCompile("/ShaderBuilderTests/Simple", Options);
 		EXPECT_FALSE(Output);
 		EXPECT_EQ(Output.Error.Code, EShaderError::InvalidCompileRequest);
@@ -141,22 +142,22 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		ASSERT_EQ(Metal.CompiledShaders.size(), 1u);
 		EXPECT_EQ(Metal.CompiledShaders[0].Target, MetalShaderTarget);
 		EXPECT_EQ(Metal.CompiledShaders[0].CodeFormat, EShaderCodeFormat::Msl20Source);
-		EXPECT_NE(Metal.CompiledShaders[0].BindingRemapIdentity, FXxHash128{});
+		EXPECT_NE(ShaderFormat::DecodeMetalMetadata(Metal.CompiledShaders[0].Frequency, Metal.CompiledShaders[0].PlatformData.GetBytes())->Identity, FXxHash128{});
 		const auto Vulkan = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions());
 		ASSERT_TRUE(Vulkan) << FormatShaderError(Vulkan.Error);
 		EXPECT_EQ(Vulkan.CompiledShaders[0].Target, VulkanShaderTarget);
-		EXPECT_NE(Metal.CompiledShaders[0].Hash, Vulkan.CompiledShaders[0].Hash);
+		EXPECT_NE(Metal.CompiledShaders[0].CodeHash, Vulkan.CompiledShaders[0].CodeHash);
 		EXPECT_EQ(Builder->GetStats().Compilations, 2u);
 		Builder.reset();
 		Builder = std::make_unique<FShaderBuilder>();
 		const auto WarmMetal = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MetalOptions);
 		ASSERT_TRUE(WarmMetal) << FormatShaderError(WarmMetal.Error);
-		EXPECT_EQ(WarmMetal.CompiledShaders[0].Hash, Metal.CompiledShaders[0].Hash);
-		EXPECT_EQ(WarmMetal.CompiledShaders[0].BindingRemapIdentity,
-			Metal.CompiledShaders[0].BindingRemapIdentity);
+		EXPECT_EQ(WarmMetal.CompiledShaders[0].CodeHash, Metal.CompiledShaders[0].CodeHash);
+		EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(WarmMetal.CompiledShaders[0].Frequency, WarmMetal.CompiledShaders[0].PlatformData.GetBytes())->Identity,
+			ShaderFormat::DecodeMetalMetadata(Metal.CompiledShaders[0].Frequency, Metal.CompiledShaders[0].PlatformData.GetBytes())->Identity);
 		const auto WarmVulkan = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions());
 		ASSERT_TRUE(WarmVulkan) << FormatShaderError(WarmVulkan.Error);
-		EXPECT_EQ(WarmVulkan.CompiledShaders[0].Hash, Vulkan.CompiledShaders[0].Hash);
+		EXPECT_EQ(WarmVulkan.CompiledShaders[0].CodeHash, Vulkan.CompiledShaders[0].CodeHash);
 		EXPECT_EQ(Builder->GetStats().Compilations, 0u);
 		EXPECT_EQ(Builder->GetStats().DdcHits, 2u);
 	}
@@ -226,7 +227,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Builder.reset(); Cache->InvalidProduct = true;
 		Builder = std::make_unique<FShaderBuilder>(MakeService());
 		const auto Repaired = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions()); ASSERT_TRUE(Repaired) << FormatShaderError(Repaired.Error);
-		EXPECT_EQ(Repaired.CompiledShaders.front().Hash, Cold.CompiledShaders.front().Hash);
+		EXPECT_EQ(Repaired.CompiledShaders.front().CodeHash, Cold.CompiledShaders.front().CodeHash);
 		EXPECT_EQ(Builder->GetStats().Compilations, 1u); EXPECT_EQ(Cache->Gets, 2u); EXPECT_EQ(Cache->Puts, 2u);
 		Builder.reset(); Cache->InvalidProduct = false;
 		Builder = std::make_unique<FShaderBuilder>(MakeService());
@@ -246,7 +247,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Request.EntryPoints = {"Main"}; Request.Frequencies = {EShaderFrequency::Vertex};
 		const auto Cold = Builder->GetOrCompileGenerated(Request); ASSERT_TRUE(Cold);
 		// Enough for code alone, insufficient for the full build product.
-		Request.MaximumOutputBytes = Cold.CompiledShaders.front().Code->size();
+		Request.MaximumOutputBytes = Cold.CompiledShaders.front().Code.size();
 		EXPECT_FALSE(Builder->GetOrCompileGenerated(Request));
 		EXPECT_EQ(Builder->GetStats().Compilations, 1u);
 		Builder.reset(); Builder = std::make_unique<FShaderBuilder>();
@@ -530,7 +531,7 @@ float4 FragmentMain() : SV_Target0
 			Builder->GetOrCompileGenerated(Request);
 		ASSERT_TRUE(First) << FormatShaderError(First.Error);
 		ASSERT_EQ(First.CompiledShaders.size(), 1u);
-		const FXxHash128 FirstHash = First.CompiledShaders.front().Hash;
+		const FXxHash128 FirstHash = First.CompiledShaders.front().CodeHash;
 		Builder.reset();
 
 		WriteTextFile(ImportedPath,
@@ -544,7 +545,7 @@ float4 FragmentMain() : SV_Target0
 			Builder->GetOrCompileGenerated(Request);
 		ASSERT_TRUE(Changed) << FormatShaderError(Changed.Error);
 		ASSERT_EQ(Changed.CompiledShaders.size(), 1u);
-		EXPECT_NE(Changed.CompiledShaders.front().Hash, FirstHash);
+		EXPECT_NE(Changed.CompiledShaders.front().CodeHash, FirstHash);
 		const auto Stats = Builder->GetStats();
 		EXPECT_EQ(Stats.DependencyResolutions, 1u);
 		EXPECT_EQ(Stats.ManifestHits, 0u);
@@ -745,7 +746,7 @@ float4 FragmentMain() : SV_Target0
 		ASSERT_TRUE(SecondOutput) << FormatShaderError(SecondOutput.Error);
 		ASSERT_EQ(FirstOutput.CompiledShaders.size(), 1u);
 		ASSERT_EQ(SecondOutput.CompiledShaders.size(), 1u);
-		EXPECT_NE(FirstOutput.CompiledShaders[0].Hash, SecondOutput.CompiledShaders[0].Hash);
+		EXPECT_NE(FirstOutput.CompiledShaders[0].CodeHash, SecondOutput.CompiledShaders[0].CodeHash);
 		EXPECT_EQ(Calls.load(), 2u);
 	}
 
@@ -769,13 +770,13 @@ float4 FragmentMain() : SV_Target0
 		auto Hit = Builder->GetOrCompile("/ShaderBuilderTests/Simple", Options);
 		ASSERT_TRUE(Hit);
 		for (const auto& Output : Outputs)
-			EXPECT_EQ(Output.CompiledShaders[0].Code->data(), Hit.CompiledShaders[0].Code->data());
+			EXPECT_EQ(Output.CompiledShaders[0].Code.data(), Hit.CompiledShaders[0].Code.data());
 		const FShaderBuildStats Stats = Builder->GetStats();
 		EXPECT_EQ(Stats.DependencyResolutions, 1u);
 		EXPECT_EQ(Stats.Compilations, 1u);
 		Builder.reset();
 		for (const auto& Output : Outputs)
-			EXPECT_EQ(FXxHash128::HashBuffer(*Output.CompiledShaders[0].Code), Hit.CompiledShaders[0].Hash);
+			EXPECT_EQ(FXxHash128::HashBuffer(Output.CompiledShaders[0].Code), Hit.CompiledShaders[0].CodeHash);
 	}
 
 	TEST_F(FShaderBuilderTests,
@@ -987,9 +988,9 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		ASSERT_EQ(FirstA.CompiledShaders.size(), 1u);
 		ASSERT_EQ(FirstB.CompiledShaders.size(), 1u);
 		const FXxHash128 FirstAHash =
-			FirstA.CompiledShaders[0].Hash;
+			FirstA.CompiledShaders[0].CodeHash;
 		const FXxHash128 FirstBHash =
-			FirstB.CompiledShaders[0].Hash;
+			FirstB.CompiledShaders[0].CodeHash;
 
 		WriteTextFile(ModulePath, SecondModule);
 		std::filesystem::last_write_time(
@@ -1004,8 +1005,8 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		ASSERT_TRUE(SecondB) << FormatShaderError(SecondB.Error);
 		ASSERT_EQ(SecondA.CompiledShaders.size(), 1u);
 		ASSERT_EQ(SecondB.CompiledShaders.size(), 1u);
-		EXPECT_NE(SecondA.CompiledShaders[0].Hash, FirstAHash);
-		EXPECT_NE(SecondB.CompiledShaders[0].Hash, FirstBHash);
+		EXPECT_NE(SecondA.CompiledShaders[0].CodeHash, FirstAHash);
+		EXPECT_NE(SecondB.CompiledShaders[0].CodeHash, FirstBHash);
 
 		const FShaderBuildStats Stats =
 			Builder->GetStats();
@@ -1105,12 +1106,12 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		uint64 SpirvBytes = 0;
 		for (size_t Index = 0; Index < Cold.CompiledShaders.size(); ++Index)
 		{
-			const FCompiledShader& Shader = Cold.CompiledShaders[Index];
+			const FShaderCode& Shader = Cold.CompiledShaders[Index];
 			EXPECT_EQ(Shader.SourceEntryPoint, ExpectedEntries[Index]);
 			EXPECT_EQ(Shader.Frequency, EShaderFrequency::Fragment);
-			ASSERT_TRUE(Shader.Code);
-			EXPECT_FALSE(Shader.Code->IsEmpty());
-			SpirvBytes += Shader.Code->size();
+			ASSERT_TRUE(!Shader.Code.IsEmpty());
+			EXPECT_FALSE(Shader.Code.IsEmpty());
+			SpirvBytes += Shader.Code.size();
 		}
 		EXPECT_EQ(
 			Cold.CompiledShaders[0].Reflection.ResourceBindings.size(), 0u);

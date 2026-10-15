@@ -14,6 +14,7 @@ namespace Durin
 		constexpr uint32 LibrarySchemaVersion = ShaderCookedLibrarySchemaVersion;
 		// Request hashing evolves independently of the DSLB wire layout.
 		// Retain the existing hash domain so current request identities stay stable.
+		// Exact runtime request inputs are independent of compiled-output/container schemas.
 		constexpr uint32 RuntimeRequestIdentityVersion = 5;
 		constexpr uint32 LibraryHeaderSize = 108;
 		constexpr uint32 LibraryDirectoryRecordSize = 80;

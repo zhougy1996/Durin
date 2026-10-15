@@ -1,3 +1,4 @@
+#include "MetalShaderFixture.h"
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
@@ -484,7 +485,7 @@ TEST(FMetalRHIHeadlessTests, ShaderCreationValidatesTargetEntryAndNativeBindingM
 		std::pair{Durin::EShaderFrequency::Compute, "computeMain"}})
 	{
 		SCOPED_TRACE(Entry);
-		auto Desc = Durin::FRHIShaderCreateDesc::Create(
+		auto Desc = Durin::FMetalShaderFixture::Create(
 			Entry, Frequency, Code, Durin::FXxHash128::HashBuffer(Code));
 		Desc.Target = Durin::MetalShaderTarget;
 		Desc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
@@ -492,15 +493,15 @@ TEST(FMetalRHIHeadlessTests, ShaderCreationValidatesTargetEntryAndNativeBindingM
 			Desc.ComputeThreadGroupSize = {1, 1, 1};
 		Desc.SetEntryPoint(Entry);
 		if (Frequency == Durin::EShaderFrequency::Compute)
-			Desc.MetalBindings.push_back({0, 0,
+			Desc.Bindings.push_back({0, 0,
 				Durin::ERHIBindingType::StorageBuffer, 0, 1});
-		Desc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-			Frequency, Desc.MetalBindings, Desc.MetalPushConstantBufferSlot);
-		const auto Shader = Durin::GDynamicRHI->RHICreateShader(Desc);
+		Desc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+			Frequency, Desc.Bindings, Desc.PushSlot);
+		const auto Shader = Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc));
 		ASSERT_TRUE(Shader);
 		EXPECT_EQ(Shader->GetTarget(), Durin::MetalShaderTarget);
 		EXPECT_EQ(Shader->GetEntryPoint(), Entry);
-		EXPECT_EQ(Shader->GetMetalBindings().size(), Desc.MetalBindings.size());
+		EXPECT_EQ(Durin::ShaderFormat::DecodeMetalMetadata(Frequency, FinalizeMetalFixture(Desc).CodeOwner->PlatformData)->Bindings.size(), Desc.Bindings.size());
 		if (Frequency == Durin::EShaderFrequency::Compute)
 		{
 			Durin::FComputePipelineStateInitializer Pipeline;
@@ -519,42 +520,42 @@ TEST(FMetalRHIHeadlessTests, ShaderCreationValidatesTargetEntryAndNativeBindingM
 		// Native function stage mismatch must reject the candidate library/function.
 		Desc.SetEntryPoint(Frequency == Durin::EShaderFrequency::Vertex
 			? "fragmentMain" : "vertexMain");
-		EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Desc));
+		EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc)));
 		Desc.SetEntryPoint(Entry);
-		Desc.BindingRemapIdentity.HashLow ^= 1;
-		EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Desc));
-		Desc.BindingRemapIdentity.HashLow ^= 1;
-		if (!Desc.MetalBindings.empty())
+		Desc.RemapIdentity.HashLow ^= 1;
+		EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc)));
+		Desc.RemapIdentity.HashLow ^= 1;
+		if (!Desc.Bindings.empty())
 		{
-			Desc.MetalBindings.front().Slot = 1;
-			Desc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-				Frequency, Desc.MetalBindings, Desc.MetalPushConstantBufferSlot);
-			EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Desc));
-			Desc.MetalBindings.front().Slot = 0;
-			Desc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-				Frequency, Desc.MetalBindings, Desc.MetalPushConstantBufferSlot);
+			Desc.Bindings.front().Slot = 1;
+			Desc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+				Frequency, Desc.Bindings, Desc.PushSlot);
+			EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc)));
+			Desc.Bindings.front().Slot = 0;
+			Desc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+				Frequency, Desc.Bindings, Desc.PushSlot);
 		}
 		Desc.CodeFormat = Durin::EShaderCodeFormat::Spirv15;
-		EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Desc));
+		EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc)));
 		Desc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 		Desc.Target = Durin::VulkanShaderTarget;
-		EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Desc));
+		EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc)));
 		Desc.Target = Durin::MetalShaderTarget;
 		Desc.SetEntryPoint("missingEntry");
-		EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Desc));
+		EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc)));
 	}
 	const std::string InvalidSource = "#include <metal_stdlib>\nusing namespace metal;\nkernel void broken() { invalid_msl; }\n";
 	Durin::FByteBuffer InvalidCode;
 	for (char Character : InvalidSource) InvalidCode.push_back(std::byte(Character));
-	auto Invalid = Durin::FRHIShaderCreateDesc::Create("compiler failure",
+	auto Invalid = Durin::FMetalShaderFixture::Create("compiler failure",
 		Durin::EShaderFrequency::Compute, InvalidCode, Durin::FXxHash128::HashBuffer(InvalidCode));
 	Invalid.Target = Durin::MetalShaderTarget;
 	Invalid.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 	Invalid.ComputeThreadGroupSize = {1, 1, 1};
 	Invalid.SetEntryPoint("broken");
-	Invalid.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-		Invalid.Frequency, Invalid.MetalBindings, Invalid.MetalPushConstantBufferSlot);
-	EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Invalid));
+	Invalid.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+		Invalid.Frequency, Invalid.Bindings, Invalid.PushSlot);
+	EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Invalid)));
 	// Valid source formatting is decided by the MSL compiler, not a textual prefix.
 	for (const auto& Variant : {std::string("/*") + std::string(512, 'x') + "*/\n" + Source,
 		std::string("#include<metal_stdlib>\n") + Source.substr(Source.find('\n') + 1),
@@ -563,16 +564,16 @@ TEST(FMetalRHIHeadlessTests, ShaderCreationValidatesTargetEntryAndNativeBindingM
 		const bool Short = Variant.size() < 32;
 		Durin::FByteBuffer VariantCode;
 		for (char Character : Variant) VariantCode.push_back(std::byte(Character));
-		auto Desc = Durin::FRHIShaderCreateDesc::Create("source formatting",
+		auto Desc = Durin::FMetalShaderFixture::Create("source formatting",
 			Durin::EShaderFrequency::Compute, VariantCode, Durin::FXxHash128::HashBuffer(VariantCode));
 		Desc.Target = Durin::MetalShaderTarget;
 		Desc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 		Desc.ComputeThreadGroupSize = {1, 1, 1};
 		Desc.SetEntryPoint(Short ? "shortMain" : "computeMain");
-		if (!Short) Desc.MetalBindings.push_back({0, 0, Durin::ERHIBindingType::StorageBuffer, 0, 1});
-		Desc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-			Desc.Frequency, Desc.MetalBindings, Desc.MetalPushConstantBufferSlot);
-		EXPECT_TRUE(Durin::GDynamicRHI->RHICreateShader(Desc));
+		if (!Short) Desc.Bindings.push_back({0, 0, Durin::ERHIBindingType::StorageBuffer, 0, 1});
+		Desc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+			Desc.Frequency, Desc.Bindings, Desc.PushSlot);
+		EXPECT_TRUE(Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc)));
 	}
 	Durin::RHIExit();
 }
@@ -606,7 +607,7 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 		for (char Character : Source) Code.push_back(std::byte(Character));
 		auto MakeShader = [&](const char* Entry,
 			Durin::EShaderFrequency Frequency) {
-			auto Desc = Durin::FRHIShaderCreateDesc::Create(Entry,
+			auto Desc = Durin::FMetalShaderFixture::Create(Entry,
 				Frequency, Code, Durin::FXxHash128::HashBuffer(Code));
 			Desc.Target = Durin::MetalShaderTarget;
 			Desc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
@@ -614,13 +615,13 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			if (Frequency == Durin::EShaderFrequency::Compute)
 			{
 				Desc.ComputeThreadGroupSize = {1, 1, 1};
-				Desc.MetalBindings.push_back({0, 0,
+				Desc.Bindings.push_back({0, 0,
 					Durin::ERHIBindingType::StorageBuffer, 0, 1});
 			}
-			Desc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-				Frequency, Desc.MetalBindings,
-				Desc.MetalPushConstantBufferSlot);
-			return Durin::GDynamicRHI->RHICreateShader(Desc);
+			Desc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+				Frequency, Desc.Bindings,
+				Desc.PushSlot);
+			return Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc));
 		};
 		auto Vertex = MakeShader("vertexMain", Durin::EShaderFrequency::Vertex);
 		auto Fragment = MakeShader("fragmentMain", Durin::EShaderFrequency::Fragment);
@@ -1249,15 +1250,15 @@ TEST(FMetalRHIHeadlessTests, D32DepthRejectsFarDrawInBothExecutionModes)
 		for (char Character : Source) Code.push_back(std::byte(Character));
 		auto MakeShader = [&](const char* Entry,
 			Durin::EShaderFrequency Frequency) {
-			auto Desc = Durin::FRHIShaderCreateDesc::Create(Entry,
+			auto Desc = Durin::FMetalShaderFixture::Create(Entry,
 				Frequency, Code, Durin::FXxHash128::HashBuffer(Code));
 			Desc.Target = Durin::MetalShaderTarget;
 			Desc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
 			Desc.SetEntryPoint(Entry);
-			Desc.BindingRemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
-				Frequency, Desc.MetalBindings,
-				Desc.MetalPushConstantBufferSlot);
-			return Durin::GDynamicRHI->RHICreateShader(Desc);
+			Desc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+				Frequency, Desc.Bindings,
+				Desc.PushSlot);
+			return Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc));
 		};
 		auto Near = MakeShader("nearMain", Durin::EShaderFrequency::Vertex);
 		auto Far = MakeShader("farMain", Durin::EShaderFrequency::Vertex);

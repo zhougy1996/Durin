@@ -3,6 +3,8 @@
 #include "CoreMinimal.h"
 #include "MetalAutoreleasePool.h"
 #include "RHIResources.h"
+#include "MetalShaderFormat.h"
+#include "MetalBindingPlan.h"
 #include "PipelineStateCache.h"
 #include <Metal/Metal.hpp>
 
@@ -11,9 +13,9 @@ namespace Durin
 	class FMetalShader final : public FRHIShader
 	{
 	public:
-		FMetalShader(const FRHIShaderCreateDesc& Desc,
+		FMetalShader(const FRHIShaderCreateDesc& Desc, ShaderFormat::FMetalBindingMap InBindings,
 			NS::SharedPtr<MTL::Library> InLibrary, NS::SharedPtr<MTL::Function> InFunction)
-			: FRHIShader(Desc), Library(std::move(InLibrary)), Function(std::move(InFunction)) {}
+			: FRHIShader(Desc), Bindings(std::move(InBindings)), Library(std::move(InLibrary)), Function(std::move(InFunction)) {}
 
 		~FMetalShader() override
 		{
@@ -22,9 +24,12 @@ namespace Durin
 			Library.reset();
 		}
 
+		auto GetMetalBindings() const -> std::span<const FMetalShaderBinding> { return Bindings.Bindings; }
+		auto GetMetalPushConstantBufferSlot() const -> uint32 { return Bindings.PushConstantBufferSlot; }
 		auto GetFunction() const -> MTL::Function* { return Function.get(); }
 
 	private:
+		ShaderFormat::FMetalBindingMap Bindings;
 		NS::SharedPtr<MTL::Library> Library;
 		NS::SharedPtr<MTL::Function> Function;
 	};
@@ -33,8 +38,9 @@ namespace Durin
 	{
 	public:
 		FMetalComputePipelineState(FRHIShader* InShader,
-			std::shared_ptr<const FPipelineLayoutDesc> InLayout, NS::SharedPtr<MTL::ComputePipelineState> InPipeline)
-			: Shader(InShader), Layout(std::move(InLayout)), Pipeline(std::move(InPipeline)) {}
+			std::shared_ptr<const FPipelineLayoutDesc> InLayout, NS::SharedPtr<MTL::ComputePipelineState> InPipeline,
+			std::shared_ptr<const FMetalBindingPlan> InBindings)
+			: Shader(InShader), Layout(std::move(InLayout)), Pipeline(std::move(InPipeline)), Bindings(std::move(InBindings)) {}
 
 		~FMetalComputePipelineState() override
 		{
@@ -43,13 +49,15 @@ namespace Durin
 		}
 
 		auto GetPipeline() const -> MTL::ComputePipelineState* { return Pipeline.get(); }
+		auto GetBindingPlan() const -> const std::shared_ptr<const FMetalBindingPlan>& { return Bindings; }
 		auto GetLayout() const -> const FPipelineLayoutDesc& { return *Layout; }
-		auto GetShader() const -> FRHIShader* { return Shader.GetReference(); }
+		auto GetShader() const -> FMetalShader* { return static_cast<FMetalShader*>(Shader.GetReference()); }
 
 	private:
 		FShaderRHIRef Shader;
 		std::shared_ptr<const FPipelineLayoutDesc> Layout;
 		NS::SharedPtr<MTL::ComputePipelineState> Pipeline;
+		std::shared_ptr<const FMetalBindingPlan> Bindings;
 	};
 
 	class FMetalVertexDeclaration final : public FRHIVertexDeclaration
@@ -73,12 +81,13 @@ namespace Durin
 			FRHIRasterizerState InRasterizer,
 			MTL::PrimitiveType InPrimitiveType,
 			std::shared_ptr<const FPipelineLayoutDesc> InLayout,
-			NS::SharedPtr<MTL::DepthStencilState> InDepthStencil)
+			NS::SharedPtr<MTL::DepthStencilState> InDepthStencil,
+			std::shared_ptr<const FMetalBindingPlan> InBindings)
 			: Vertex(InVertex), Fragment(InFragment), Declaration(InDeclaration),
 				Pipeline(std::move(InPipeline)), RenderTargets(std::move(InRenderTargets)),
 				Rasterizer(InRasterizer), PrimitiveType(InPrimitiveType),
 				Layout(std::move(InLayout)),
-				DepthStencil(std::move(InDepthStencil)) {}
+				DepthStencil(std::move(InDepthStencil)), Bindings(std::move(InBindings)) {}
 		~FMetalGraphicsPipelineState() override
 		{
 			const FMetalAutoreleasePool Pool;
@@ -92,9 +101,10 @@ namespace Durin
 		auto GetRasterizer() const -> const FRHIRasterizerState&
 			{ return Rasterizer; }
 		auto GetPrimitiveType() const -> MTL::PrimitiveType { return PrimitiveType; }
+		auto GetBindingPlan() const -> const std::shared_ptr<const FMetalBindingPlan>& { return Bindings; }
 		auto GetLayout() const -> const FPipelineLayoutDesc& { return *Layout; }
-		auto GetVertexShader() const -> FRHIShader* { return Vertex.GetReference(); }
-		auto GetFragmentShader() const -> FRHIShader* { return Fragment.GetReference(); }
+		auto GetVertexShader() const -> FMetalShader* { return static_cast<FMetalShader*>(Vertex.GetReference()); }
+		auto GetFragmentShader() const -> FMetalShader* { return static_cast<FMetalShader*>(Fragment.GetReference()); }
 		auto GetDepthStencil() const -> MTL::DepthStencilState*
 			{ return DepthStencil.get(); }
 		auto GetRequiredVertexStreams() const -> uint16
@@ -117,6 +127,7 @@ namespace Durin
 		MTL::PrimitiveType PrimitiveType;
 		std::shared_ptr<const FPipelineLayoutDesc> Layout;
 		NS::SharedPtr<MTL::DepthStencilState> DepthStencil;
+		std::shared_ptr<const FMetalBindingPlan> Bindings;
 	};
 
 	auto ToMetalVertexFormat(EVertexElementType Type) -> MTL::VertexFormat;

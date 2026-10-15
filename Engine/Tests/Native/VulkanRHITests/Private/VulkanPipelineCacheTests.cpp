@@ -32,7 +32,7 @@ namespace Durin::VulkanRHI
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 1u);
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		const auto& Input = Compiled.CompiledShaders.front();
-		auto Desc = FRHIShaderCreateDesc::Create(Input.DebugName.c_str(), Input.Frequency, *Input.Code, Input.Hash);
+		auto Desc = FRHIShaderCreateDesc::Create(Input.DebugName.c_str(), Input.Frequency, Input.Code, Input.CodeHash);
 		Desc.SetEntryPoint(Input.BinaryEntryPoint.c_str());
 		auto Shader = GDynamicRHI->RHICreateShader(Desc);
 		ASSERT_TRUE(Shader);
@@ -82,7 +82,7 @@ namespace Durin::VulkanRHI
 			for (size_t Index = 0; Index < Shaders.size(); ++Index)
 			{
 				const auto& Shader = Compiled.CompiledShaders[Index];
-				auto Desc = FRHIShaderCreateDesc::Create(Shader.DebugName.c_str(), Shader.Frequency, *Shader.Code, Shader.Hash);
+				auto Desc = FRHIShaderCreateDesc::Create(Shader.DebugName.c_str(), Shader.Frequency, Shader.Code, Shader.CodeHash);
 				std::string TemporaryEntryPoint = Shader.BinaryEntryPoint;
 				Desc.SetEntryPoint(TemporaryEntryPoint.c_str());
 				Shaders[Index] = GDynamicRHI->RHICreateShader(Desc);
@@ -176,7 +176,7 @@ namespace Durin::VulkanRHI
 		{
 			const auto& Shader = Compiled.CompiledShaders[Index];
 			auto Desc = FRHIShaderCreateDesc::Create(Shader.DebugName.c_str(), Shader.Frequency,
-				*Shader.Code, Shader.Hash);
+				Shader.Code, Shader.CodeHash);
 			Desc.SetEntryPoint(Shader.BinaryEntryPoint.c_str());
 			Shaders[Index] = GDynamicRHI->RHICreateShader(Desc);
 			ASSERT_TRUE(Shaders[Index]);

@@ -14,16 +14,17 @@ namespace Durin
 		EShaderRuntimeBackend Backend = EShaderRuntimeBackend::Vulkan;
 		EShaderCodeFormat IntermediateFormat = EShaderCodeFormat::Spirv15;
 		EShaderCodeFormat OutputFormat = EShaderCodeFormat::Spirv15;
-		uint32 MslLanguageVersion = 0;
-		uint32 BindingRemapSchema = 0;
+		// Canonical immutable target-settings profile digest; options belong to ShaderFormat.
+		FXxHash128 SettingsDigest{};
 
 		auto operator==(const FShaderTargetIdentity&) const -> bool = default;
 	};
 
 	inline constexpr FShaderTargetIdentity VulkanShaderTarget{};
-	inline constexpr FShaderTargetIdentity MetalShaderTarget{
+	inline const FShaderTargetIdentity MetalShaderTarget{
 		EShaderTargetPlatform::MacOS, EShaderRuntimeBackend::Metal,
-		EShaderCodeFormat::Spirv15, EShaderCodeFormat::Msl20Source, 200, 1};
+		EShaderCodeFormat::Spirv15, EShaderCodeFormat::Msl20Source,
+		FXxHash128::HashBuffer("Durin.ShaderTargetProfile.2.1", 29)};
 
 	constexpr uint32 FrameInFlight = 2;
 

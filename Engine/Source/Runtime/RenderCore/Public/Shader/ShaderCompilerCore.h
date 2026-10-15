@@ -7,6 +7,7 @@
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
 #include "RenderCoreAPI.h"
+#include "ShaderFormat.h"
 
 namespace Durin
 {
@@ -80,72 +81,13 @@ namespace Durin
 		bool bForceRecompile = false;
 	};
 
-	// Describes one resource binding reflected from a compiled shader stage.
-	struct FShaderResourceBinding
-	{
-		std::string Name;
-		EShaderStageFlags StageFlags = EShaderStageFlags::None;
-		uint32 SetIndex = 0;
-		uint32 BindingIndex = 0;
-		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
-		uint32 ArraySize = 1;
-
-		auto operator==(const FShaderResourceBinding& Other) const -> bool
-		{
-			return Name == Other.Name
-				&& StageFlags == Other.StageFlags
-				&& SetIndex == Other.SetIndex
-				&& BindingIndex == Other.BindingIndex
-				&& Type == Other.Type
-				&& ArraySize == Other.ArraySize;
-		}
-	};
-
-	// Aggregates descriptor bindings and push-constant ranges for compiled shader code.
-	struct FShaderReflectionData
-	{
-		std::vector<FShaderResourceBinding> ResourceBindings;
-		std::vector<FPushConstantRange> PushConstantRanges;
-	};
-
-	struct FMetalShaderBindingMap
-	{
-		std::vector<FMetalShaderBinding> Bindings;
-		uint32 PushConstantBufferSlot = UINT32_MAX;
-		FXxHash128 Identity{};
-	};
-
-	// Canonical schema-1 slot allocation used by the compiler and payload admission.
-	RENDERCORE_API auto BuildMetalShaderBindingMap(EShaderFrequency Frequency,
-		const FShaderReflectionData& Reflection)
-		-> std::expected<FMetalShaderBindingMap, FShaderError>;
-
-	// Owns one compiled stage binary and the reflection data needed to bind it.
-	struct FCompiledShader
-	{
-		FShaderTargetIdentity Target;
-		EShaderCodeFormat CodeFormat = EShaderCodeFormat::Spirv15;
-		EShaderFrequency Frequency = EShaderFrequency::Vertex;
-		// Reflected [numthreads] for compute; zero for all other stages.
-		std::array<uint32, 3> ComputeThreadGroupSize{};
-		// Source-level entry point requested by the caller, such as `vertexMain`.
-		std::string SourceEntryPoint;
-		// Backend-visible entry point exported by the compiled binary, such as Vulkan SPIR-V `main`.
-		std::string BinaryEntryPoint = "main";
-		std::string DebugName;
-		// Immutable shared bytes survive compiler, session, LRU and waiter lifetimes.
-		std::shared_ptr<const FSharedByteBuffer> Code;
-		FXxHash128 Hash{};
-		FShaderReflectionData Reflection;
-		std::vector<FMetalShaderBinding> MetalBindings;
-		uint32 MetalPushConstantBufferSlot = UINT32_MAX;
-		FXxHash128 BindingRemapIdentity{};
-	};
+	RENDERCORE_API auto ShareShaderCode(const FShaderCode& Shader)
+		-> std::shared_ptr<const FShaderCode>;
 
 	// Owns compiled stages and a structured compilation outcome.
 	struct FShaderCompilerOutput
 	{
-		std::vector<FCompiledShader> CompiledShaders;
+		std::vector<FShaderCode> CompiledShaders;
 		FShaderError Error{.Code = EShaderError::CompilationNotStarted};
 
 		operator bool() const { return Error.IsSuccess(); }

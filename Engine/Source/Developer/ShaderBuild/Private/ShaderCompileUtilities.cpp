@@ -14,16 +14,16 @@ namespace Durin::ShaderCompileUtilities
 	namespace
 	{
 		constexpr std::string_view GShaderSourceTreeSignatureVersion = "DurinShaderPortableSourceTree_v1";
-		constexpr std::string_view GShaderVariantKeyVersion = "DurinShaderVariantKey_v8";
-		constexpr std::string_view GShaderDependencyKeyVersion = "DurinShaderDependencyKey_v3";
+		constexpr std::string_view GShaderVariantKeyVersion = "DurinShaderVariantKey_v9";
+		constexpr std::string_view GShaderDependencyKeyVersion = "DurinShaderDependencyKey_v4";
 		auto HashTarget(FXxHash128Builder& Builder, const FShaderTargetIdentity& Target) -> void
 		{
 			UpdateCanonicalHash(Builder, Target.Platform);
 			UpdateCanonicalHash(Builder, Target.Backend);
 			UpdateCanonicalHash(Builder, Target.IntermediateFormat);
 			UpdateCanonicalHash(Builder, Target.OutputFormat);
-			UpdateCanonicalHash(Builder, Target.MslLanguageVersion);
-			UpdateCanonicalHash(Builder, Target.BindingRemapSchema);
+			UpdateCanonicalHash(Builder, Target.SettingsDigest.HashLow);
+			UpdateCanonicalHash(Builder, Target.SettingsDigest.HashHigh);
 		}
 	}
 

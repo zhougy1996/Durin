@@ -2,7 +2,9 @@
 
 Summary: Define portable graphics-pipeline identity, draw submission, reflected bindings, and bounded Vulkan cache behavior.
 
-Modules: RHI, RenderCore, VulkanRHI, Renderer
+Modules: RHI, RenderCore, ShaderFormat, MetalRHI, VulkanRHI, Renderer
+
+Last reviewed: 2026-10-15
 
 ## Graphics Pipeline Contract
 
@@ -77,6 +79,18 @@ published nor emulated.
 
 ## Reflected Binding Snapshots
 
+Metal pipelines prepare immutable binding operations from the merged logical
+layout and each admitted shader's compiler-agreed map before publication. The
+operations contain dense parameter indices, stage visibility, native slots, and
+resource categories; sparse logical addresses do not size parameter storage.
+Updates use a sorted address index and replace only the affected retained owner
+and uniform-allocation snapshot. Pipeline selection resets parameter and push
+coverage state. Draw and indirect draw traverse prepared operations directly,
+including their first use, and re-emit native bindings for each encoder.
+Push destinations/extents and required byte coverage are prepared in advance;
+missing bindings or partial push writes fail before submission. Resource
+retention and native push-buffer uploads remain submission work.
+
 Vulkan command contexts preserve binding state across native command-buffer
 boundaries caused by submission or allocator pressure. A new command buffer
 rebinds active graphics/compute pipelines, vertex streams and the index buffer,
@@ -94,7 +108,9 @@ members. RenderCore flattens arrays into deterministic
 element. Recorded commands retain canonical buffer/texture views, samplers,
 and their parent resources through replay.
 
-Updates must belong to a shader in the active PSO and must match reflected
+Updates must belong to a shader in the active PSO: stage, target, format, code
+hash, complete shader identity, and binary entry point must agree before
+pending state changes. Updates must also match reflected
 set, binding, array extent, and type. Before descriptor allocation or the
 first write, draw preparation requires every reflected array element and
 scalar to be populated, validates view usage and ranges, and checks dynamic

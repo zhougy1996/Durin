@@ -43,7 +43,7 @@ namespace Durin
 		const std::array<std::string_view, 4> FragmentNames{
 			"FSurfaceFragmentShader", "FGBufferFragmentShader", "FSurfaceMaskedShadowFragmentShader", "FSurfaceOpaqueShadowFragmentShader"};
 		std::array<const FShaderType*, 4> FragmentTypes{};
-		std::array<std::vector<FCompiledShader>, 3> MaterialStages;
+		std::array<std::vector<FShaderCode>, 3> MaterialStages;
 		for (size_t Pass = 0; Pass < FragmentNames.size(); ++Pass)
 		{
 			const auto& Types = FShaderType::GetTypeList();

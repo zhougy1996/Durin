@@ -84,8 +84,8 @@ namespace Durin
 			UpdateCanonicalHash(Production, Descriptor.OutputSchema);
 			UpdateCanonicalHash(Production, ShaderCompiledOutput::PayloadSchemaVersion);
 			UpdateCanonicalHash(Production, ShaderCookedLibrarySchemaVersion);
-			for (const FCompiledShader& Shader : Output.CompiledShaders)
-				Production.UpdateValue(Shader.Hash);
+			for (const FShaderCode& Shader : Output.CompiledShaders)
+				Production.UpdateValue(Shader.CodeHash);
 			Records.push_back({Request, Production.Finalize(), std::move(Output)});
 		}
 		return EncodeShaderCookedLibrary(TargetPlatform, TargetProfile, Records, OutBytes);

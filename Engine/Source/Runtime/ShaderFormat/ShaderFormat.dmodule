@@ -1,0 +1,6 @@
+{
+    "ModuleName": "ShaderFormat",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_Core",
+    "PublicDependencies": ["Core", "RHI"]
+}

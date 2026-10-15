@@ -1,3 +1,4 @@
+#include "MetalShaderFormat.h"
 #include "Shader/ShaderCookedLibrary.h"
 #include "Shader/ShaderData.h"
 
@@ -31,17 +32,17 @@ namespace Durin
 		auto MakeShader(
 			std::string EntryPoint,
 			EShaderFrequency Frequency,
-			uint32 Bound) -> FCompiledShader
+			uint32 Bound) -> FShaderCode
 		{
 			const std::array<uint32, 5> Words = {
 				0x07230203u, 0x00010500u, 0u, Bound, 0u};
-			FCompiledShader Shader;
+			FShaderCode Shader;
 			Shader.Frequency = Frequency;
 			Shader.SourceEntryPoint = std::move(EntryPoint);
 			Shader.BinaryEntryPoint = "main";
 			Shader.DebugName = Shader.SourceEntryPoint;
-			Shader.Code = std::make_shared<const FSharedByteBuffer>(FSharedByteBuffer::Copy(std::as_bytes(std::span(Words))));
-			Shader.Hash = FXxHash128::HashBuffer(*Shader.Code);
+			Shader.Code = FSharedByteBuffer::Copy(std::as_bytes(std::span(Words)));
+			Shader.CodeHash = FXxHash128::HashBuffer(Shader.Code);
 			return Shader;
 		}
 
@@ -64,15 +65,13 @@ namespace Durin
 				Shader.Target = MetalShaderTarget;
 				Shader.CodeFormat = EShaderCodeFormat::Msl20Source;
 				Shader.BinaryEntryPoint = "main0";
-				const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\n";
-				Shader.Code = std::make_shared<const FSharedByteBuffer>(
-					FSharedByteBuffer::Copy(std::as_bytes(std::span(Source))));
-				Shader.Hash = FXxHash128::HashBuffer(*Shader.Code);
-				auto Map = BuildMetalShaderBindingMap(Shader.Frequency, Shader.Reflection);
-				if (!Map) return {.Error = std::move(Map.error())};
-				Shader.MetalBindings = std::move(Map->Bindings);
-				Shader.MetalPushConstantBufferSlot = Map->PushConstantBufferSlot;
-				Shader.BindingRemapIdentity = Map->Identity;
+				const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\nvoid main0() {}\n";
+				Shader.Code = FSharedByteBuffer::Copy(std::as_bytes(std::span(Source)));
+				Shader.CodeHash = FXxHash128::HashBuffer(Shader.Code);
+				auto Map = ShaderFormat::BuildMetalBindingMap(Shader.Frequency, ShaderFormat::BuildLogicalBindings(Shader.Reflection), !Shader.Reflection.PushConstantRanges.empty());
+				if (!Map) return {.Error = {.Code = EShaderError::MetalBindingRemapInvalid}};
+				Shader.PlatformData = ShaderFormat::EncodeMetalMetadata(Shader.Frequency,
+					{std::move(Map->Bindings), Map->PushConstantBufferSlot, Map->Identity}).value();
 			}
 			return Output;
 		}
@@ -153,8 +152,8 @@ namespace Durin
 		ASSERT_EQ(Loaded.CompiledShaders.size(), 2u);
 		EXPECT_EQ(Loaded.CompiledShaders[0].SourceEntryPoint, "FragmentMain");
 		EXPECT_EQ(Loaded.CompiledShaders[1].SourceEntryPoint, "VertexMain");
-		EXPECT_TRUE(std::ranges::equal(Loaded.CompiledShaders[0].Code->GetBytes(),
-			Record.Output.CompiledShaders[0].Code->GetBytes()));
+		EXPECT_TRUE(std::ranges::equal(Loaded.CompiledShaders[0].Code.GetBytes(),
+			Record.Output.CompiledShaders[0].Code.GetBytes()));
 	}
 
 
@@ -215,8 +214,8 @@ namespace Durin
 		EXPECT_EQ(Loaded.CompiledShaders[0].Target, MetalShaderTarget);
 		EXPECT_EQ(Loaded.CompiledShaders[0].CodeFormat, EShaderCodeFormat::Msl20Source);
 		EXPECT_EQ(Loaded.CompiledShaders[0].BinaryEntryPoint, "main0");
-		EXPECT_EQ(Loaded.CompiledShaders[0].BindingRemapIdentity,
-			Output.CompiledShaders[0].BindingRemapIdentity);
+		EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Loaded.CompiledShaders[0].Frequency, Loaded.CompiledShaders[0].PlatformData.GetBytes())->Identity,
+			ShaderFormat::DecodeMetalMetadata(Output.CompiledShaders[0].Frequency, Output.CompiledShaders[0].PlatformData.GetBytes())->Identity);
 		FByteBuffer Corrupt = Bytes;
 		const uint64 PayloadOffset = ReadU64At(Corrupt, 52);
 		ASSERT_LT(PayloadOffset, Corrupt.size());
@@ -225,7 +224,7 @@ namespace Durin
 			Corrupt.end(), std::as_bytes(std::span(Marker)).begin(),
 			std::as_bytes(std::span(Marker)).end());
 		ASSERT_NE(Found.begin(), Corrupt.end());
-		*Found.begin() = std::byte{'X'};
+		*Found.begin() = std::byte{0};
 		const FXxHash128 PayloadDigest = FXxHash128::HashBuffer(
 			std::span(Corrupt).subspan(PayloadOffset));
 		WriteU64At(Corrupt, 140, PayloadDigest.HashLow);

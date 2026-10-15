@@ -6,5 +6,5 @@
 namespace Durin
 {
 	// Converts one reflected Slang SPIR-V stage to MSL with an explicit native slot map.
-	SHADERBUILD_API auto TranslateMetalShader(FCompiledShader& Shader) -> FShaderOperationResult;
+	SHADERBUILD_API auto TranslateMetalShader(FShaderCode& Shader) -> FShaderOperationResult;
 }

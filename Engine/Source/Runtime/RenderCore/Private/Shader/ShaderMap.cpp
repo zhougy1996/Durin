@@ -243,14 +243,14 @@ namespace Durin
 			}
 
 			FXxHash128Builder Builder;
-			UpdateCanonicalHashString(Builder, "DurinShaderMapCacheKey_v2");
+			UpdateCanonicalHashString(Builder, "DurinShaderMapCacheKey_v3");
 			UpdateCanonicalHashString(Builder, CompileOptions.VirtualShaderPath);
 			UpdateCanonicalHash(Builder, CompileOptions.Target.Platform);
 			UpdateCanonicalHash(Builder, CompileOptions.Target.Backend);
 			UpdateCanonicalHash(Builder, CompileOptions.Target.IntermediateFormat);
 			UpdateCanonicalHash(Builder, CompileOptions.Target.OutputFormat);
-			UpdateCanonicalHash(Builder, CompileOptions.Target.MslLanguageVersion);
-			UpdateCanonicalHash(Builder, CompileOptions.Target.BindingRemapSchema);
+			UpdateCanonicalHash(Builder, CompileOptions.Target.SettingsDigest.HashLow);
+			UpdateCanonicalHash(Builder, CompileOptions.Target.SettingsDigest.HashHigh);
 
 			const uint64 EntryPointCount = static_cast<uint64>(CompileOptions.EntryPoints.size());
 			UpdateCanonicalHash(Builder, EntryPointCount);
@@ -282,7 +282,7 @@ namespace Durin
 			UpdateCanonicalHash(Builder, ShaderCount);
 			for (size_t ShaderIndex = 0; ShaderIndex < Output.CompiledShaders.size(); ++ShaderIndex)
 			{
-				const FCompiledShader& CompiledShader = Output.CompiledShaders[ShaderIndex];
+				const FShaderCode& CompiledShader = Output.CompiledShaders[ShaderIndex];
 				if (CompiledShader.Target != CompileOptions.Target
 					|| CompiledShader.CodeFormat != CompileOptions.Target.OutputFormat)
 					return std::unexpected(FShaderError{
@@ -291,11 +291,13 @@ namespace Durin
 				UpdateCanonicalHash(Builder, CompiledShader.Target.Backend);
 				UpdateCanonicalHash(Builder, CompiledShader.Target.IntermediateFormat);
 				UpdateCanonicalHash(Builder, CompiledShader.Target.OutputFormat);
-				UpdateCanonicalHash(Builder, CompiledShader.Target.MslLanguageVersion);
-				UpdateCanonicalHash(Builder, CompiledShader.Target.BindingRemapSchema);
+				UpdateCanonicalHash(Builder, CompiledShader.Target.SettingsDigest.HashLow);
+				UpdateCanonicalHash(Builder, CompiledShader.Target.SettingsDigest.HashHigh);
 				UpdateCanonicalHash(Builder, CompiledShader.CodeFormat);
 				UpdateCanonicalHashString(Builder, CompiledShader.BinaryEntryPoint);
-				UpdateCanonicalHash(Builder, CompiledShader.Hash);
+				UpdateCanonicalHash(Builder, CompiledShader.CodeHash);
+				if (!ShaderFormat::ValidateShaderCode(CompiledShader)) return std::unexpected(FShaderError{.Code = EShaderError::PayloadOutputInvalid, .Index = ShaderIndex});
+				UpdateCanonicalHash(Builder, ShaderFormat::ComputeShaderIdentity(CompiledShader));
 			}
 
 			OutCacheKey = Builder.Finalize();
@@ -304,9 +306,11 @@ namespace Durin
 
 	} // namespace
 
-	auto FShaderMapResourceCode::AddCompiledShader(const FCompiledShader& CompiledShader) -> uint32
+	auto FShaderMapResourceCode::AddCompiledShader(const FShaderCode& CompiledShader) -> uint32
 	{
-		CompiledShaders.push_back(CompiledShader);
+		auto Published = ShareShaderCode(CompiledShader);
+		requiref(Published, "Cannot publish invalid shader code");
+		CompiledShaders.push_back(std::move(Published));
 		return static_cast<uint32>(CompiledShaders.size() - 1);
 	}
 
@@ -318,7 +322,7 @@ namespace Durin
 
 	auto FShaderMapResource::AddShaderCompilerOutput(const FShaderCompilerOutput& Output) -> void
 	{
-		for (const FCompiledShader& CompiledShader : Output.CompiledShaders)
+		for (const FShaderCode& CompiledShader : Output.CompiledShaders)
 		{
 			Code->AddCompiledShader(CompiledShader);
 		}
@@ -339,8 +343,8 @@ namespace Durin
 		{
 			checkf(GDynamicRHI, "Cannot create RHI shader without an active DynamicRHI");
 
-			const FCompiledShader& CompiledShader = Code->GetCompiledShader(ShaderIndex);
-			const FRHIShaderCreateDesc ShaderCreateDesc = MakeShaderCreateDesc(CompiledShader);
+			const FShaderCode& CompiledShader = Code->GetCompiledShader(ShaderIndex);
+			const FRHIShaderCreateDesc ShaderCreateDesc = MakeShaderCreateDesc(Code->GetSharedShaderCode(ShaderIndex));
 			Shaders[ShaderIndex] = GDynamicRHI->RHICreateShader(ShaderCreateDesc);
 
 			if (bRequired)
@@ -427,15 +431,12 @@ namespace Durin
 			Resource = std::move(CacheEntry.Resource);
 		}
 
-		std::vector<FCompiledShader> CompiledShaders;
-		CompiledShaders.reserve(Output.CompiledShaders.size());
-
 		for (uint32 ShaderIndex = 0; ShaderIndex < ShaderTypes.size(); ++ShaderIndex)
 		{
 			const FShaderType* ShaderType = ShaderTypes[ShaderIndex];
 			checkf(ShaderType, "Shader type must not be null");
 
-			const FCompiledShader& CompiledShader = Code->GetCompiledShader(ShaderIndex);
+			const FShaderCode& CompiledShader = Code->GetCompiledShader(ShaderIndex);
 			if (CompiledShader.Frequency != ShaderType->GetFrequency())
 			{
 				Result = std::unexpected(FShaderError{.Code = EShaderError::CompiledFrequencyMismatch,
@@ -473,15 +474,14 @@ namespace Durin
 				return Result;
 			}
 			ShaderInstances.emplace(ShaderType, std::move(ShaderInstance));
-			CompiledShaders.push_back(CompiledShader);
 		}
 
 		std::vector<FShaderReflectionData> PipelineReflectionData;
-		PipelineReflectionData.reserve(CompiledShaders.size());
+		PipelineReflectionData.reserve(ShaderTypes.size());
 		for (uint32 ShaderIndex = 0; ShaderIndex < ShaderTypes.size(); ++ShaderIndex)
 		{
 			FShaderReflectionData ReflectionWithOverrides;
-			ApplyShaderParameterBindingOverrides(*ShaderTypes[ShaderIndex], CompiledShaders[ShaderIndex].Reflection, ReflectionWithOverrides);
+			ApplyShaderParameterBindingOverrides(*ShaderTypes[ShaderIndex], Code->GetCompiledShader(ShaderIndex).Reflection, ReflectionWithOverrides);
 			PipelineReflectionData.push_back(std::move(ReflectionWithOverrides));
 		}
 

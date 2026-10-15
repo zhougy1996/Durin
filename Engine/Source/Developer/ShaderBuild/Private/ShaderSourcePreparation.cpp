@@ -28,7 +28,7 @@ namespace Durin
 		auto BuildRequestKey(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const std::vector<FShaderMacroDefinition>& Macros) -> std::string
 		{
 			FXxHash128Builder Builder;
-			UpdateCanonicalHashString(Builder, "DurinShaderCompileRequest_v2");
+			UpdateCanonicalHashString(Builder, "DurinShaderCompileRequest_v3");
 			UpdateCanonicalHashString(Builder, VirtualShaderPath);
 			UpdateCanonicalHashString(Builder, Options.CompilerEnvironment);
 			UpdateCanonicalHash(Builder, ShaderBuildPrivate::BuildVersion(Options.CompilerEnvironment));
@@ -36,8 +36,8 @@ namespace Durin
 			UpdateCanonicalHash(Builder, Options.Target.Backend);
 			UpdateCanonicalHash(Builder, Options.Target.IntermediateFormat);
 			UpdateCanonicalHash(Builder, Options.Target.OutputFormat);
-			UpdateCanonicalHash(Builder, Options.Target.MslLanguageVersion);
-			UpdateCanonicalHash(Builder, Options.Target.BindingRemapSchema);
+			UpdateCanonicalHash(Builder, Options.Target.SettingsDigest.HashLow);
+			UpdateCanonicalHash(Builder, Options.Target.SettingsDigest.HashHigh);
 			UpdateCanonicalHash(Builder, Options.bForceRecompile);
 			UpdateCanonicalHash(Builder, static_cast<uint64>(Options.EntryPoints.size()));
 			for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)

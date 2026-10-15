@@ -1,6 +1,10 @@
 {
     "ProjectName": "Engine",
-    "Tests": {"Native": {"Root": "Tests/Native"}},
+    "Tests": {
+        "Native": {
+            "Root": "Tests/Native"
+        }
+    },
     "ModuleDirs": {
         "Core": "Source/Runtime/Core",
         "PhysicsCore": "Source/Runtime/PhysicsCore",
@@ -33,7 +37,8 @@
         "TextureCompressor": "Source/Developer/TextureCompressor",
         "AssetMaintenance": "Source/Developer/AssetMaintenance",
         "ShaderBuild": "Source/Developer/ShaderBuild",
-        "TargetPlatform": "Source/Developer/TargetPlatform"
+        "TargetPlatform": "Source/Developer/TargetPlatform",
+        "ShaderFormat": "Source/Runtime/ShaderFormat"
     },
     "BaseModules": [
         "DurinLauncher",

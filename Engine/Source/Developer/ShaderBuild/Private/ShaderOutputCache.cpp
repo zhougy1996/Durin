@@ -17,7 +17,7 @@ namespace Durin
 
 	auto FShaderOutputCache::Store(std::string Key, const FShaderCompilerOutput& Output, const DerivedData::FBuildOutput& Product) -> void
 	{
-		uint64 Bytes = sizeof(FEntry) + 2 * Key.capacity() + Output.CompiledShaders.capacity() * sizeof(FCompiledShader);
+		uint64 Bytes = sizeof(FEntry) + 2 * Key.capacity() + Output.CompiledShaders.capacity() * sizeof(FShaderCode);
 		for (const auto& Meta : Product.GetMetadata()) Bytes += sizeof(Meta) + Meta.Object.GetBytes().GetSize();
 		for (const auto& Value : Product.GetValues()) Bytes += sizeof(Value) + Value.Value.GetRawSize();
 		for (const auto& Observation : Product.GetObservations()) Bytes += sizeof(Observation) + Observation.Object.GetBytes().GetSize();
@@ -27,7 +27,7 @@ namespace Durin
 		{
 			Bytes += Shader.Reflection.ResourceBindings.capacity() * sizeof(FShaderResourceBinding)
 				+ Shader.Reflection.PushConstantRanges.capacity() * sizeof(FPushConstantRange)
-				+ Shader.MetalBindings.capacity() * sizeof(FMetalShaderBinding)
+				+ Shader.PlatformData.GetRetainedCapacityBytes()
 				+ Shader.SourceEntryPoint.capacity() + Shader.BinaryEntryPoint.capacity() + Shader.DebugName.capacity();
 			for (const auto& Binding : Shader.Reflection.ResourceBindings) Bytes += Binding.Name.capacity();
 		}

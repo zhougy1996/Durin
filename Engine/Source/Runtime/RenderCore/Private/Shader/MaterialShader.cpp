@@ -261,7 +261,7 @@ namespace Durin
 		}
 
 		std::vector<const FShaderType*> FixedTypes;
-		std::vector<const FCompiledShader*> SelectedGenerated(
+		std::vector<const FShaderCode*> SelectedGenerated(
 			Input.ShaderTypes.size(), nullptr);
 		for (size_t Index = 0; Index < Input.ShaderTypes.size(); ++Index)
 		{
@@ -271,7 +271,7 @@ namespace Durin
 				return std::unexpected(FShaderError{.Code = EShaderError::NullShaderType});
 			}
 			const auto Generated = std::ranges::find_if(
-				Input.GeneratedStages, [Type](const FCompiledShader& Shader) {
+				Input.GeneratedStages, [Type](const FShaderCode& Shader) {
 					return Shader.SourceEntryPoint == Type->GetEntryPoint()
 						&& Shader.Frequency == Type->GetFrequency();
 				});

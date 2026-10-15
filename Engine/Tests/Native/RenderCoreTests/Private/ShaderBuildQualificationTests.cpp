@@ -85,9 +85,9 @@ namespace Durin
 					ASSERT_TRUE(Outputs[Index]) << FormatShaderError(Outputs[Index].Error);
 					ASSERT_EQ(Outputs[Index].CompiledShaders.size(), 1u);
 					const auto& Shader = Outputs[Index].CompiledShaders[0];
-					ASSERT_TRUE(Shader.Code);
-					Bytes += Shader.Code->size();
-					if (Mode) EXPECT_EQ(Shader.Hash, Cold[Index].CompiledShaders[0].Hash);
+					ASSERT_TRUE(!Shader.Code.IsEmpty());
+					Bytes += Shader.Code.size();
+					if (Mode) EXPECT_EQ(Shader.CodeHash, Cold[Index].CompiledShaders[0].CodeHash);
 				}
 				const auto After = Builder->GetStats();
 				EXPECT_EQ(After.Compilations - Before.Compilations, Mode == 0 ? BatchSize : 0u);

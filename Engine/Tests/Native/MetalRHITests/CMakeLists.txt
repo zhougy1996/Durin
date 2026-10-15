@@ -11,7 +11,7 @@ set_source_files_properties(Private/MetalRHIResourceTests.mm PROPERTIES
 find_library(METAL_FRAMEWORK Metal REQUIRED)
 find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
 find_library(QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
-set(_metal_rhi_test_libraries Core RHI MetalRHI
+set(_metal_rhi_test_libraries Core RHI MetalRHI ShaderFormat
 	${METAL_FRAMEWORK} ${FOUNDATION_FRAMEWORK} ${QUARTZCORE_FRAMEWORK})
 set(_metal_rhi_test_domains rhi-creation)
 set(_metal_rhi_test_backends metal)
@@ -29,6 +29,7 @@ durin_add_native_test(MetalRHIHeadlessTests
 	SOURCES Private/MetalRHIHeadlessTests.cpp Private/MetalRHIResourceTests.mm
 	LIBRARIES ${_metal_rhi_test_libraries}
 	INCLUDE_DIRECTORIES
+		"${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/MetalRHI/Private"
 		"${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/MetalRHI/Private/MacOS"
 		"${CMAKE_SOURCE_DIR}/Engine/External/Source/metal-cpp"
 	RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
