@@ -121,13 +121,29 @@ namespace
 			TextBytes.begin(), TextBytes.end()) != Bytes.end();
 	}
 
+	class FTextureCookTests : public testing::Test
+	{
+	protected:
+		static auto SetUpTestSuite() -> void
+		{
+			InitializeDObjectSystem();
+			if (!Durin::IsTaskSchedulerRunning())
+				ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+			Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
+			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+		}
+
+		static auto TearDownTestSuite() -> void
+		{
+			// Retire compilers before the resource-update suite closes task admission.
+			Durin::ShutdownAssetCompilingManager();
+		}
+	};
+
 }
 
-TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
+TEST_F(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 {
-	InitializeDObjectSystem();
-	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
-	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	std::string Error;
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureColdAuthoredCook";
@@ -174,11 +190,8 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
-TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
+TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 {
-	InitializeDObjectSystem();
-	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
-	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	std::string Error;
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureCookedConsumer";
@@ -694,7 +707,7 @@ namespace
 	}
 }
 
-TEST(FTextureCookTests, OwnedUpdatesInvalidateOldDataCoalesceInputsAndCloseAcrossAllFamilies)
+TEST(FTextureResourceUpdateTests, OwnedUpdatesInvalidateOldDataCoalesceInputsAndCloseAcrossAllFamilies)
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::InitializeTaskScheduler());
