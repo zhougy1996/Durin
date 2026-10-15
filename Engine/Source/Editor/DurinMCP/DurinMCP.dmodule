@@ -1,0 +1,11 @@
+{
+    "ModuleName": "DurinMCP",
+    "LinkType": "Shared",
+    "PCH": "Self",
+    "PrivateDependencies": [
+        "Core"
+    ],
+    "PublicDependencies": [],
+    "OptionalPrivateDependencies": [],
+    "OptionalPublicDependencies": []
+}

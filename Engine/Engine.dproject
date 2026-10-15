@@ -38,7 +38,8 @@
         "AssetMaintenance": "Source/Developer/AssetMaintenance",
         "ShaderBuild": "Source/Developer/ShaderBuild",
         "TargetPlatform": "Source/Developer/TargetPlatform",
-        "ShaderFormat": "Source/Runtime/ShaderFormat"
+        "ShaderFormat": "Source/Runtime/ShaderFormat",
+        "DurinMCP": "Source/Editor/DurinMCP"
     },
     "BaseModules": [
         "DurinLauncher",
@@ -63,7 +64,8 @@
                 "TextureCompressor",
                 "AssetMaintenance",
                 "ShaderBuild",
-                "TargetPlatform"
+                "TargetPlatform",
+                "DurinMCP"
             ]
         },
         "DurinGame": {
