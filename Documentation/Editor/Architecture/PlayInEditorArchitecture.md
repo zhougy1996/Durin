@@ -2,7 +2,7 @@
 
 Summary: Define editor-to-runtime world duplication, session ownership, input, ticking, and teardown.
 
-Modules: LevelEditor, Engine, Launch
+Modules: DurinEd, LevelEditor, Engine, Launch
 
 This document defines the ownership, isolation, input, and restoration contracts
 for Play In Editor (PIE). User-facing controls are documented in
@@ -27,6 +27,10 @@ hierarchy as garbage through the Outer index. Objects intended to survive the
 session must be explicitly reparented before retirement.
 
 ## Session State
+
+Native and Console automation uses DurinEd's `editor.pie` Toolset through the
+per-editor invocation service. See [Console Toolset integration](ConsoleTools.md)
+for canonical calls, explicit pause state, and queued invocation.
 
 PIE supports Playing and Paused states plus single-frame stepping. Runtime
 changes are discarded with the transient world and do not dirty the editor

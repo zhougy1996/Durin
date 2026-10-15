@@ -7,15 +7,18 @@
 
 struct ImGuiInputTextCallbackData;
 
+namespace Durin { class DEditorEngine; }
+
 namespace Durin::Editor::MainFrame
 {
 	struct FConsolePanelState;
+	class FConsoleToolAdapter;
 
 	// Draws console history and submits commands through the editor console.
 	class FConsolePanel final
 	{
 	public:
-		explicit FConsolePanel();
+		explicit FConsolePanel(DEditorEngine& Editor);
 		~FConsolePanel();
 
 		auto Tick() -> void;
@@ -40,6 +43,7 @@ namespace Durin::Editor::MainFrame
 		auto ExecuteCommand(std::string CommandLine) -> void;
 		auto Clear() -> void;
 
+		std::unique_ptr<FConsoleToolAdapter> ToolAdapter;
 		std::shared_ptr<FConsolePanelState> State;
 		FConsoleCommandHandle ClearCommandHandle = 0;
 		FConsoleCommandHandle AssetFixUpCommandHandle = 0;

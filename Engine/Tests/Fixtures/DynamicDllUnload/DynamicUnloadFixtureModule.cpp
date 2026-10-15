@@ -38,19 +38,18 @@ namespace Durin
 
 		struct FAsyncCaptureProbe
 		{
-			explicit FAsyncCaptureProbe(uint64 InInstanceSerial)
-				: InstanceSerial(InInstanceSerial)
+			FAsyncCaptureProbe(uint64 InInstanceSerial, std::function<void(Tests::FDynamicUnloadFixtureEvent)> InRecord)
+				: InstanceSerial(InInstanceSerial), Record(std::move(InRecord))
 			{
 			}
 
 			~FAsyncCaptureProbe()
 			{
-				RecordHostEvent(
-					Tests::EDynamicUnloadFixtureEvent::AsyncCaptureDestroyed,
-					InstanceSerial);
+				Record({Tests::EDynamicUnloadFixtureEvent::AsyncCaptureDestroyed, InstanceSerial});
 			}
 
 			uint64 InstanceSerial = 0;
+			std::function<void(Tests::FDynamicUnloadFixtureEvent)> Record;
 		};
 	}
 
@@ -82,8 +81,9 @@ namespace Durin
 			if (!Serial.WasInvoked() || !Serial.Value) throw std::runtime_error(
 				"Dynamic unload fixture requires its process-resident host feature.");
 			InstanceSerial = *Serial.Value;
+			require(InvokeHost([this](auto& Host) { WorkerCallbacks = Host.GetWorkerCallbacks(); }));
 			FeatureRegistration =
-				FModuleStartup::RegisterFeature<Tests::IDynamicUnloadFixtureFeature>(*this);
+				FModularFeatureRegistry::Get().RegisterFeature<Tests::IDynamicUnloadFixtureFeature>(*this);
 
 			if (!FeatureRegistration.IsValid())
 				throw std::runtime_error(
@@ -100,13 +100,10 @@ namespace Durin
 		}
 
 		auto SupportsDynamicReloading() const -> bool override { return bDynamicReloading; }
-		auto SetShutdownTimeout(std::chrono::milliseconds Timeout) -> void override { ShutdownTimeout = Timeout; }
 
 		auto ShutdownModule() -> void override
 		{
-			if (FeatureRegistration.IsValid()
-				&& FeatureRegistration.Reset(ShutdownTimeout) != EModularFeatureRetirementStatus::Succeeded)
-				throw std::runtime_error("Fixture feature cleanup failed");
+			FeatureRegistration.Reset();
 			RecordHostEvent(
 				Tests::EDynamicUnloadFixtureEvent::Shutdown,
 				InstanceSerial);
@@ -129,14 +126,11 @@ namespace Durin
 			return InstanceSerial;
 		}
 
-		auto RunSynchronousBarrier() -> void override
+		auto RunSynchronousCall() -> void override
 		{
 			RecordHostEvent(
 				Tests::EDynamicUnloadFixtureEvent::SynchronousEntered,
 				InstanceSerial);
-			(void)InvokeHost([this](Tests::IDynamicUnloadHostFeature& Host) {
-				Host.WaitForSynchronousRelease(InstanceSerial);
-			});
 			RecordHostEvent(
 				Tests::EDynamicUnloadFixtureEvent::SynchronousExited,
 				InstanceSerial);
@@ -145,14 +139,12 @@ namespace Durin
 		auto StartDrainedAsyncChain() -> bool override
 		{
 			if (Worker.IsValid() || Publisher.IsValid()) return false;
-			auto Capture = std::make_shared<FAsyncCaptureProbe>(InstanceSerial);
+			auto Capture = std::make_shared<FAsyncCaptureProbe>(InstanceSerial, WorkerCallbacks.Record);
 			Tasks::FTaskExecutionOptions WorkerOptions;
 			Worker = Tasks::Share(Tasks::LaunchTask(
 				"DynamicUnloadFixture.Worker",
-				[Capture, Serial = InstanceSerial] {
-					RecordHostEvent(
-						Tests::EDynamicUnloadFixtureEvent::AsyncWorkerCompleted,
-						Serial);
+				[Capture, Callbacks = WorkerCallbacks, Serial = InstanceSerial] {
+					Callbacks.Record({Tests::EDynamicUnloadFixtureEvent::AsyncWorkerCompleted, Serial});
 					return Serial;
 				},
 				WorkerOptions));
@@ -161,13 +153,11 @@ namespace Durin
 			Tasks::FTaskExecutionOptions PublisherOptions;
 			PublisherOptions.DebugName = "DynamicUnloadFixture.Publish";
 			Publisher = Durin::FTaskHandle(Tasks::ThenCompleted(Worker, Tasks::ETaskExecutor::Worker, PublisherOptions,
-				[Capture, Serial = InstanceSerial](const Tasks::TSharedTask<uint64>& Outcome) {
+				[Capture, Callbacks = WorkerCallbacks, Serial = InstanceSerial](const Tasks::TSharedTask<uint64>& Outcome) {
 					if (Outcome.GetState() == ETaskState::Succeeded
 						&& Outcome.GetResult() == Serial)
 					{
-						RecordHostEvent(
-							Tests::EDynamicUnloadFixtureEvent::AsyncPublished,
-							Serial);
+						Callbacks.Record({Tests::EDynamicUnloadFixtureEvent::AsyncPublished, Serial});
 					}
 				}));
 			return Publisher.IsValid();
@@ -179,10 +169,8 @@ namespace Durin
 			Tasks::FTaskExecutionOptions Options;
 			RetainedResult = Tasks::Share(Tasks::LaunchTask(
 				"DynamicUnloadFixture.RetainedResult",
-				[Serial = InstanceSerial] {
-					RecordHostEvent(
-						Tests::EDynamicUnloadFixtureEvent::RetainedResultReady,
-						Serial);
+				[Callbacks = WorkerCallbacks, Serial = InstanceSerial] {
+					Callbacks.Record({Tests::EDynamicUnloadFixtureEvent::RetainedResultReady, Serial});
 					return Serial;
 				},
 				Options));
@@ -196,14 +184,9 @@ namespace Durin
 			Tasks::FTaskExecutionOptions Options;
 			BlockingWorker = Durin::FTaskHandle(Tasks::LaunchTask(
 				"DynamicUnloadFixture.BlockingWorker",
-				[Serial = InstanceSerial] {
-					RecordHostEvent(
-						Tests::EDynamicUnloadFixtureEvent::BlockingWorkerEntered,
-						Serial);
-					(void)InvokeHost(
-						[Serial](Tests::IDynamicUnloadHostFeature& Host) {
-							Host.WaitForAsyncRelease(Serial);
-						});
+				[Callbacks = WorkerCallbacks, Serial = InstanceSerial] {
+					Callbacks.Record({Tests::EDynamicUnloadFixtureEvent::BlockingWorkerEntered, Serial});
+					Callbacks.WaitForAsyncRelease(Serial);
 				},
 				Options));
 			return BlockingWorker.IsValid();
@@ -221,7 +204,7 @@ namespace Durin
 
 	private:
 		bool bDynamicReloading = true;
-		std::chrono::milliseconds ShutdownTimeout = std::chrono::seconds(5);
+		Tests::FDynamicUnloadWorkerCallbacks WorkerCallbacks;
 		uint64 InstanceSerial = 0;
 		FConsoleCommandHandle ConsoleCommand = 0;
 		FName ModuleName;

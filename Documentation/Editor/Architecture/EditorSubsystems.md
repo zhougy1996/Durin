@@ -4,7 +4,7 @@ Summary: Define per-editor native services and the notification subsystem's owne
 
 Modules: DurinEd, MainFrame, Engine
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-10-15
 
 ## Host Contract
 
@@ -23,7 +23,7 @@ Editor Init loads project providers and AssetForgeBuiltins, runs base Init,
 retains EditorWorld, loads MainFrame, then initializes Editor services before
 CreateEditorHost exposes consumers. The constructor-created transactor is
 available; the shell is not yet created. DurinEd's module startup registers the
-notification service. A returned failure, cancellation or exception retires
+notification and [tool](EditorTools.md) services. A returned failure, cancellation or exception retires
 partial host state and prevents successful initialization.
 
 Shutdown closes both collections' gates, stops PIE, shuts down EditorWorld,

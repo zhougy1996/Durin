@@ -11,26 +11,14 @@
 namespace Durin
 {
 	class FModuleTestHarness;
+	namespace Detail { struct FModuleOwnerState; }
 
-	// Creates state attributed to the exact module load generation currently starting.
+	// Reports the module identity installed around StartupModule by the manager.
 	class FModuleStartup final
 	{
 	public:
-		// These operations require the manager-controlled startup scope and reject unattributed use.
-		template<CModularFeature T>
-		static auto RegisterFeature(T& Implementation) -> FModularFeatureRegistration
-		{
-			return FModularFeatureRegistry::Get().Register(
-				GetCurrentOwner(),
-				{FName(std::string_view(T::FeatureName)), static_cast<uint32>(T::FeatureVersion)},
-				Implementation);
-		}
-
-
 		[[nodiscard]] CORE_API static auto GetModuleName() -> FName;
 
-	private:
-		CORE_API static auto GetCurrentOwner() -> std::shared_ptr<Detail::FModuleOwnerState>;
 	};
 
 	// Defines parameterless lifecycle hooks for one native module instance.

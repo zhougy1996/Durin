@@ -20,7 +20,7 @@ direction.
 
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
-| `Core` | Platform abstraction, containers, threading, logging, math, modules, serialization primitives, detached package writer operations, and low-level utilities | [source](../../Engine/Source/Runtime/Core) |
+| `Core` | Platform abstraction, containers, threading, logging, math, modules, serialization primitives, detached package writer operations, transport-independent Toolset contracts and native bindings, and low-level utilities | [source](../../Engine/Source/Runtime/Core) |
 | `PhysicsCore` | Engine-independent collision shapes, handles, filters, hits, validation, and reference geometry math | [source](../../Engine/Source/Runtime/PhysicsCore) |
 | `Physics` | World-independent physics scene body storage and synchronous query orchestration | [source](../../Engine/Source/Runtime/Physics) |
 | `CoreDObject` | Managed objects, reflection, properties, garbage collection, object serialization, format-neutral package linker tables, canonical reflected Map-key tokens, canonical DAST v10 read/write, generic live graph capture, save contexts, and package persistence | [source](../../Engine/Source/Runtime/CoreDObject) |
@@ -52,10 +52,10 @@ folder. Module entrypoints and API export headers remain at the root.
 
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
-| `DurinEd` | Shared editor services: generic object factories, reimport handlers, workspaces, reflected property editing, transactions, previews, thumbnails, source references, and editor UI infrastructure | [source](../../Engine/Source/Editor/DurinEd) |
+| `DurinEd` | Shared editor services: Toolset discovery and invocation, generic object factories, reimport handlers, workspaces, reflected property editing, transactions, previews, thumbnails, source references, and editor UI infrastructure | [source](../../Engine/Source/Editor/DurinEd) |
 | `DurinMCP` | Editor-only MCP integration module skeleton; no protocol transport or tools implemented yet | [source](../../Engine/Source/Editor/DurinMCP) |
 | `AssetTools` | Reusable editor policy and orchestration for package-backed creation, import, duplicate, save/resave, relocation, and redirector fix-up; owns relocation/fix-up workflows and staging, deletion operations, confirmed selection/reference policy, and deletion companion providers over Engine package mechanisms | [source](../../Engine/Source/Editor/AssetTools) |
-| `MainFrame` | Editor host frame, project browser, profiling integration, compatibility tools, and top-level editor startup UI | [source](../../Engine/Source/Editor/MainFrame) |
+| `MainFrame` | Editor host frame, Console Toolset adapter and result presentation, project browser, profiling integration, compatibility tools, and top-level editor startup UI | [source](../../Engine/Source/Editor/MainFrame) |
 | `ContentBrowser` | Project-wide browser model, presentation, operations, settings, extensions, and asset thumbnails | [source](../../Engine/Source/Editor/ContentBrowser) |
 | `LevelEditor` | Level workspace, scene viewport, panels, documents, selection, Level settings, and editor visualization producers built on Engine primitive drawing | [source](../../Engine/Source/Editor/LevelEditor) |
 | `MaterialEditor` | Material asset editor and material-specific editing UI | [source](../../Engine/Source/Editor/MaterialEditor) |

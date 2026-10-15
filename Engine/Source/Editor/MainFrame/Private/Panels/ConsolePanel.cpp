@@ -1,4 +1,5 @@
 #include "Panels/ConsolePanel.h"
+#include "Panels/ConsoleToolAdapter.h"
 
 #include "AssetRegistry/Catalog.h"
 #include "AssetTools/IAssetTools.h"
@@ -212,8 +213,8 @@ namespace Durin::Editor::MainFrame
 		}
 	} // namespace
 
-	FConsolePanel::FConsolePanel()
-		: State(std::make_shared<FConsolePanelState>())
+	FConsolePanel::FConsolePanel(DEditorEngine& Editor)
+		: ToolAdapter(std::make_unique<FConsoleToolAdapter>(Editor)), State(std::make_shared<FConsolePanelState>())
 	{
 		const std::weak_ptr<FConsolePanelState> WeakState = State;
 		ClearCommandHandle = FConsoleCommandRegistry::Get().RegisterCommand({"clear", "Clears the editor console.", "clear", [WeakState](std::span<const std::string> Args) {
@@ -264,6 +265,11 @@ namespace Durin::Editor::MainFrame
 
 	auto FConsolePanel::Tick() -> void
 	{
+		for (auto& Result : ToolAdapter->Poll())
+		{
+			State->Records.AddText(Result.bSuccess ? EConsoleRecordType::Result : EConsoleRecordType::Error, std::move(Result.Message));
+			MarkRecordsChanged(); bHasNewConsoleRecords = true;
+		}
 		bHasNewConsoleRecords = PollLogRecords(true) || bHasNewConsoleRecords;
 	}
 
@@ -407,7 +413,7 @@ namespace Durin::Editor::MainFrame
 			const std::string_view Input(Data->Buf, static_cast<size_t>(Data->CursorPos));
 			const size_t Space = Input.find_first_of(" \t");
 			if (Space != std::string_view::npos) return 0;
-			const std::vector<std::string> Matches = FConsoleCommandRegistry::Get().FindCompletions(Input);
+			const std::vector<std::string> Matches = Panel->ToolAdapter->FindCompletions(Input);
 			if (Matches.empty()) return 0;
 			const std::string Completion = Matches.size() == 1 ? Matches.front() + " " : CommonPrefix(Matches);
 			if (Completion.size() > Input.size()) Data->InsertChars(Data->CursorPos, Completion.data() + Input.size(), Completion.data() + Completion.size());
@@ -547,7 +553,7 @@ namespace Durin::Editor::MainFrame
 		if (History.empty() || History.back() != CommandLine) History.push_back(CommandLine);
 		if (History.size() > MaxCommandHistory) History.erase(History.begin());
 		HistoryPosition = -1;
-		const FConsoleCommandResult Result = FConsoleCommandRegistry::Get().Execute(CommandLine);
+		const FConsoleCommandResult Result = ToolAdapter->Execute(CommandLine);
 		(void)ApplyPendingRequests();
 		if (!Result.Message.empty()) State->Records.AddText(Result.bSuccess ? EConsoleRecordType::Result : EConsoleRecordType::Error, Result.Message);
 		MarkRecordsChanged();

@@ -87,11 +87,12 @@ durin_add_native_test(EditorPropertyTests
 
 durin_add_native_test(EditorOperationTests
 	KIND contract
-	DOMAINS editor-operation
+	DOMAINS editor-operation tools
 	MODULES asset-tools durin-ed
 	STACKS editor
 	SOURCES
 		Private/Editor/CompensatingAsyncOperationTests.cpp
+		Private/Editor/EditorToolTests.cpp
 		Private/Editor/FactoryTests.cpp
 		Private/Editor/TransactionRecordTests.cpp
 	LIBRARIES Core CoreDObject Engine AssetTools DurinEd

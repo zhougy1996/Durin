@@ -1239,7 +1239,7 @@ namespace Durin
 	}
 
 	auto FMainFrameModule::CreateEditorHost(
-		std::shared_ptr<MWindow> StartupWindow) -> void
+		DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow) -> void
 	{
 		check(BootstrapContext == nullptr);
 		check(StartupWindow != nullptr);
@@ -1268,7 +1268,7 @@ namespace Durin
 			std::make_shared<FProfilingToolService>(FPaths::RootDir());
 		Context.AssetCompatibilityWindow =
 			std::make_shared<FAssetCompatibilityWindow>();
-		Context.Console = std::make_unique<FConsolePanel>();
+		Context.Console = std::make_unique<FConsolePanel>(Editor);
 		Context.Activity = std::make_unique<FEditorNotificationOverlay>();
 
 		const FIntPoint WindowSize{

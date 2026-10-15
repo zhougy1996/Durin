@@ -4,7 +4,7 @@ Summary: Define typed feature invocation, module-owned cleanup, and explicit nat
 
 Modules: Core
 
-Last reviewed: 2026-10-14
+Last reviewed: 2026-10-15
 
 ## Feature Contract
 
@@ -13,48 +13,51 @@ A modular feature derives from `IModularFeature` and declares a stable
 cross-DLL interface identity; RTTI, interface addresses, and registration order
 are not identities.
 
-Module lifecycle hooks are parameterless. Immediately around each manager-
-initiated `StartupModule()`, Core installs a stack-disciplined current startup
-identity carrying the logical module name and exact load-generation owner.
-Modules register implementations only through `FModuleStartup`; callers cannot
-select or retain an owner. Registration outside the current startup scope is a
-programming error and cannot publish an unattributed entry. Registration
-returns a move-only `FModularFeatureRegistration`. Moving, retiring, or
-resetting a token affects only its exact entry. Low-level tests use an isolated
-`FModuleTestOwner`; concrete module tests use `FModuleTestHarness`. The harness calls the module cleanup hook and checks feature registration counts;
-it does not close registrations or drain tasks on behalf of the module.
+Modules register through `FModularFeatureRegistry::RegisterFeature<T>` and retain
+an exact move-only registration token. `Reset()` immediately unregisters that
+entry and is idempotent. Token destruction also unregisters. The registry does
+not own the implementation, bind registration to module startup, or drain work.
+`FModuleStartup` only reports the current startup module name for other systems;
+it is not part of feature registration. Tests register features directly;
+`FModuleTestHarness` remains separate test support for concrete module lifecycle.
 
-Consumers call `FModularFeatureRegistry::InvokeSingle<T>` or `InvokeAll<T>`.
-The feature reference exists only during the visitor call and must not be
-stored. `InvokeSingle` reports unavailable, invoked, ambiguous, or visitor
-failure. `InvokeAll` admits the exact published set as one snapshot and reports
-each invocation independently. The registry never selects the first provider
-implicitly and exposes no raw lookup or lease API.
+Consumers use `InvokeSingle<T>`, `InvokeAll<T>`, or
+`InvokeRegistered<T>(RegistrationIdentity, Visitor)`. Feature references are valid
+only within synchronous visitation and must not escape. Single invocation reports
+unavailable, invoked, ambiguous, or visitor failure; it does not choose the first
+provider. All invocation selects a stable set for the duration of dispatch.
+Exact invocation rejects zero, missing, unregistered, replacement, and
+wrong-interface identities. Identity changes on every registration and survives
+token moves; it is a process-local route, not a persistent key.
 
-Invocation results also report the exact process-local `RegistrationIdentity`.
-`InvokeSingle` accepts an optional expected identity and rejects a replacement
-before entering its visitor. The identity survives token moves, changes on every
-registration (including the same implementation and owner), and is never a
-persistent recipe or cache key. `InvokeAll` reports it per admitted entry.
+`GetPublicationRevision()` is a global monotonic invalidation counter, incremented
+on successful registration and actual unregistration. Invocation, token moves,
+failed registration, and repeated Reset do not increment it. Unrelated feature
+changes may conservatively invalidate a metadata cache. Toolset
+providers use these APIs as described in [toolset contracts](Tools.md).
 
-## Synchronous Invocation Gate
+## Main-Thread and Safe-Point Contract
 
-Each registration moves irreversibly through:
+Registration, unregistration, discovery, invocation, and revision reads require
+the module-control thread during startup and GameThread once its identity is
+installed. Bootstrap establishes the registry on the control thread. Worker
+threads submit detached work to a host-owned queue; they never access the feature
+registry. These rules are enforced in all build configurations.
 
-```text
-Published -> Retiring -> Retired
-```
+Nested synchronous invocation is allowed. A stack scope tracks dispatch depth
+and unwinds on success, absence, ambiguity, and visitor exceptions. Any registry
+mutation during dispatch is a contract violation, even for another provider, so
+an enumerated set cannot be invalidated by reentrant registration or destruction.
+The registry has no mutex, condition variable, in-flight counters, retirement
+states, waiting, timeout, or self-wait protocol.
 
-Lookup and retirement linearize under the Core registry mutex. Admission of a
-published entry increments its in-flight count before the mutex is released.
-The visitor then runs without a registry or module-map lock. Core decrements
-the count on every normal or exceptional return. Retirement first closes
-admission, then waits with a bounded policy for admitted visitors.
-
-Retirement from inside the matching invocation closes admission but reports
-`SelfWait` instead of blocking. Timeout likewise leaves admission closed. This
-gate proves only synchronous visitor return; it is not cancellation and does
-not own or drain tasks, continuations, timers, or external work.
+`UnloadModule` called during feature dispatch returns false before entering
+Shutdown or changing module state. `ShutdownModule` during dispatch is a contract
+violation. Schedule these operations at a later safe point after the entire
+feature call stack returns. A scope is not a code lease and never waits for a
+worker. Modules supporting unload must independently stop producers, synchronize
+workers and retained callbacks, unregister features, and destroy their resources
+while code is mapped. Unregistration alone does not make unload safe.
 
 ## Module Lifecycle
 
@@ -113,12 +116,10 @@ Stopped and shutting-down instances are never returned by `GetModule` or
 
 ## Locking
 
-The module-map mutex protects map membership and lookup snapshots. The
-registry mutex protects feature publication, admission counts, and retirement.
-If both are ever needed, module-map order precedes registry order. Current
-callback paths release the module-map lock before entering the registry, and
-all registry and module-map locks are released before logging or calling
-feature, startup, or shutdown code.
+The module-map mutex protects map membership and lookup snapshots. Feature
+registration and dispatch are main-thread-only and have no registry mutex.
+Module-map locks are released before logging or calling feature, startup, or
+shutdown code. Modules synchronize their own worker-facing services separately.
 
 ## Asynchronous Operation Boundary
 
@@ -142,8 +143,7 @@ point on the module-control thread (Game Thread after its identity is installed)
 The caller stops dependent consumers and external dispatch before shutdown;
 specialized callbacks must have returned and cannot race the unload. A callback
 must not unload its own module, including through a reentrant UI or event path.
-Request the unload and perform it at a later safe point instead. Registration tokens provide local wait operations that
-the module explicitly invokes as part of its cleanup.
+Request the unload and perform it at a later safe point instead. Feature tokens remove registration immediately and provide no wait operation.
 
 Each owner is responsible for these boundaries, in dependency order:
 
@@ -173,7 +173,7 @@ Workspace registration stores the original workspace directly. The host closes
 documents, releases integrations, and destroys external workspace references
 before unloading the concrete editor module. Asset compiler handle reset removes
 routes, stops admission, finishes accepted compilation, and calls provider
-shutdown directly, including after typed-feature retirement has started.
+shutdown directly after external entry points have been stopped.
 
 ## External and Deferred Execution
 
@@ -211,19 +211,20 @@ Successful qualification also registers a fixture-owned console callback and
 checks that explicit shutdown removes it and destroys its capture before the
 module instance is destroyed and its DLL unmapped.
 
-Successful qualification proves that an admitted synchronous call completes
-while late admission is rejected, a module-owned Worker chain and its
-destructor-sensitive capture drain before module destruction, and the native
-image is absent after `UnloadModule`. Reload produces a higher owner generation
-and a distinct fixture instance. Thirty-two additional serialized cycles prove
-that earlier instances publish no later events and every successfully retired
-image is physically unmapped.
+Successful qualification proves a synchronous main-thread call returns before
+safe-point unload, a module-owned Worker chain and destructor-sensitive capture
+drain before module destruction, and the native image is absent after unload.
+Worker observations use explicitly obtained process-resident callbacks, not
+worker-thread registry access. Reload produces a higher owner generation and a
+distinct fixture instance. Thirty-two additional serialized cycles verify that
+earlier instances publish no later events and images are physically unmapped.
 
-Failure qualification runs irreversible cases in a separate process with one
-logical module record per scenario. The fixture owns feature and asynchronous cleanup. Invocation timeout, active
-worker, retained typed result, and recursive feature
-cleanup throw from its Shutdown. These exceptions propagate without releasing
-the affected image. Wrong-thread unload is rejected before entering Shutdown.
+Failure qualification runs irreversible cleanup failures in a separate process.
+Active workers, retained typed results, and injected cleanup exceptions leave
+images mapped in ShuttingDown. Wrong-thread and reentrant feature-call unload
+are rejected before shutdown and leave the module Active; safe-point unload can
+then succeed. Unit death tests enforce wrong-thread registry access and mutation
+during dispatch. Feature callbacks never overlap module unload.
 
 The dedicated native targets are `DynamicDllUnloadQualificationTests` and
 `DynamicDllUnloadFailureQualificationTests`; both require explicit
@@ -236,4 +237,4 @@ machinery. Process-resident code also needs no DLL ownership token, but must
 still obey object and service lifetimes. Neither an `IsModuleLoaded` query nor
 a generation number proves that escaped executable storage has been destroyed.
 Explicit unload correctness is the responsibility of the caller and owners;
-Core registration/group waits prove only their declared local boundaries.
+the registry enforces main-thread dispatch and safe-point mutation only.

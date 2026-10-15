@@ -1,4 +1,5 @@
 #include "Editor/EditorEngine.h"
+#include "Tools/EditorToolSubsystem.h"
 #include "Notifications/Notification.h"
 #include "Notifications/EditorNotificationSubsystem.h"
 #include "Transactions/Transaction.h"
@@ -129,7 +130,7 @@ namespace Durin
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellBegin);
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.EditorShell");
-			EditorHost->CreateEditorHost(InitContext.StartupWindow);
+			EditorHost->CreateEditorHost(*this, InitContext.StartupWindow);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellComplete);
 
@@ -161,31 +162,6 @@ namespace Durin
 		auto RegisterCommand = [this](FConsoleCommandDesc Desc) {
 			if (const FConsoleCommandHandle Handle = FConsoleCommandRegistry::Get().RegisterCommand(std::move(Desc))) ConsoleCommandHandles.push_back(Handle);
 		};
-		RegisterCommand({"pie.play", "Starts Play from the level start.", "pie.play", [](std::span<const std::string> Args) {
-			if (!Args.empty()) return FConsoleCommandResult::Failure("Usage: pie.play");
-			if (!GEditor || !GEditor->GetEditorWorld()) return FConsoleCommandResult::Failure("The editor world is unavailable.");
-			std::string Error;
-			return GEditor->StartPlaySession(GEditor->GetEditorWorld()->GetCurrentLevel(), &Error) ? FConsoleCommandResult::Success("Play session started.") : FConsoleCommandResult::Failure(std::move(Error));
-		}});
-		RegisterCommand({"pie.stop", "Stops the active Play session.", "pie.stop", [](std::span<const std::string> Args) {
-			if (!Args.empty()) return FConsoleCommandResult::Failure("Usage: pie.stop");
-			if (!GEditor || !GEditor->IsPlaying()) return FConsoleCommandResult::Failure("No Play session is active.");
-			GEditor->StopPlaySession();
-			return FConsoleCommandResult::Success("Play session stopped.");
-		}});
-		RegisterCommand({"pie.pause", "Pauses or resumes Play.", "pie.pause [on|off|toggle]", [](std::span<const std::string> Args) {
-			if (!GEditor || !GEditor->IsPlaying()) return FConsoleCommandResult::Failure("No Play session is active.");
-			if (Args.size() > 1) return FConsoleCommandResult::Failure("Usage: pie.pause [on|off|toggle]");
-			bool bPaused = !GEditor->IsPlaySessionPaused();
-			if (!Args.empty() && Args[0] != "toggle")
-			{
-				if (Args[0] == "on") bPaused = true;
-				else if (Args[0] == "off") bPaused = false;
-				else return FConsoleCommandResult::Failure("Usage: pie.pause [on|off|toggle]");
-			}
-			GEditor->SetPlaySessionPaused(bPaused);
-			return FConsoleCommandResult::Success(bPaused ? "Play paused." : "Play resumed.");
-		}});
 		RegisterCommand({"pie.step", "Advances one frame while Play is paused.", "pie.step", [](std::span<const std::string> Args) {
 			if (!Args.empty() || !GEditor || !GEditor->IsPlaySessionPaused()) return FConsoleCommandResult::Failure("pie.step requires a paused Play session.");
 			GEditor->StepPlaySession();
@@ -205,11 +181,6 @@ namespace Durin
 				? FConsoleCommandResult::Success(std::format("Applied runtime changes from {} actor(s).", AppliedCount))
 				: FConsoleCommandResult::Failure(std::move(Error));
 		}});
-		RegisterCommand({"pie.status", "Shows the current Play state.", "pie.status", [](std::span<const std::string> Args) {
-			if (!Args.empty()) return FConsoleCommandResult::Failure("Usage: pie.status");
-			if (!GEditor || !GEditor->IsPlaying()) return FConsoleCommandResult::Success("Stopped");
-			return FConsoleCommandResult::Success(GEditor->IsPlaySessionPaused() ? "Paused" : "Playing");
-		}});
 		DURIN_DEBUG("Editor initialized successfully");
 		return true;
 	}
@@ -218,6 +189,8 @@ namespace Durin
 	{
 		if (bShutdownRequested) { PrepareForShutdown(); return; }
 		FHostOperationScope Operation(*this);
+		if (auto* Tools = GetEditorSubsystem<DEditorToolSubsystem>()) Tools->TickTools();
+		if (bShutdownRequested) return;
 		ReleaseRetiredPlaySessions();
 		if (IsPlayingInNewWindow() && PlayWindow)
 		{

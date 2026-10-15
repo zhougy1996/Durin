@@ -6,6 +6,7 @@
 #include "Misc/Build.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleStartupScope.h"
+#include "Modules/ModuleOwnerState.h"
 
 namespace Durin
 {
@@ -69,14 +70,6 @@ namespace Durin
 		static FModuleManager Instance;
 		return Instance;
 	}
-
-	auto FModuleStartup::GetCurrentOwner() -> std::shared_ptr<Detail::FModuleOwnerState>
-	{
-		require(!GCurrentModuleStartupStack.empty());
-		return GCurrentModuleStartupStack.back().ModuleOwner;
-	}
-
-
 
 	auto FModuleStartup::GetModuleName() -> FName
 	{
@@ -205,7 +198,7 @@ namespace Durin
 		}
 
 		ModuleInfo->OwnerGeneration = NextOwnerGeneration++;
-		ModuleInfo->ModuleOwner = FModularFeatureRegistry::Get().CreateOwner(InModuleName, ModuleInfo->OwnerGeneration);
+		ModuleInfo->ModuleOwner = std::make_shared<Detail::FModuleOwnerState>(Detail::FModuleOwnerState{InModuleName, ModuleInfo->OwnerGeneration});
 		if (bCanProcessNewlyLoadedObjects && ProcessLoadedObjectsCallback) ProcessLoadedObjectsCallback();
 		bool bStartupFailed = false;
 		try
@@ -257,6 +250,7 @@ namespace Durin
 	auto FModuleManager::ShutdownModule(const FName& InModuleName) -> void
 	{
 		requiref(IsControlThread(), "Module shutdown must run on the module-control thread.");
+		requiref(!FModularFeatureRegistry::Get().IsDispatching(), "Module shutdown requires a safe point outside feature dispatch.");
 		const auto Info = FindModule(InModuleName);
 		if (!Info || !Info->Module || Info->State.load() == EModuleState::StoppedMapped) return;
 		requiref(Info->State.load() == EModuleState::Active,
@@ -282,6 +276,11 @@ namespace Durin
 		if (!IsControlThread())
 		{
 			DURIN_ERROR("Module unload must run on the module-control thread.");
+			return false;
+		}
+		if (FModularFeatureRegistry::Get().IsDispatching())
+		{
+			DURIN_ERROR("Module unload must be deferred until feature dispatch returns.");
 			return false;
 		}
 		const auto Info = FindModule(InModuleName);

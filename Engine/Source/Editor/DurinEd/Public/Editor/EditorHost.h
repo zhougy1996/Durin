@@ -64,13 +64,14 @@ namespace Durin::Editor::Host
 namespace Durin
 {
 	class MWindow;
+	class DEditorEngine;
 
 	// Defines the host lifecycle required by the editor engine without naming its UI implementation.
 	class IEditorHost : public IModuleInterface
 	{
 	public:
 		virtual auto CreateEditorHost(
-			std::shared_ptr<MWindow> StartupWindow) -> void = 0;
+			DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow) -> void = 0;
 		virtual auto DestroyEditorHost() -> void = 0;
 		virtual auto AdvanceBootstrap(bool bFirstPresentAvailable)
 			-> Editor::Host::EBootstrapStepStatus = 0;

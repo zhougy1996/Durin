@@ -1,26 +1,14 @@
 #include "Modules/ModuleTestSupport.h"
 
 #include "Modules/ModuleStartupScope.h"
+#include "Modules/ModuleOwnerState.h"
 
 namespace Durin
 {
-	FModuleTestOwner::FModuleTestOwner(FName InModuleName)
-		: ModuleName(std::move(InModuleName))
+	FModuleTestHarness::FModuleTestHarness(FName InModuleName)
+		: ModuleName(InModuleName), ModuleOwner(std::make_shared<Detail::FModuleOwnerState>())
 	{
-		static std::atomic<uint64> NextTestGeneration = 1;
-		const uint64 Generation = NextTestGeneration.fetch_add(1, std::memory_order_relaxed);
-		ModuleOwner = FModularFeatureRegistry::Get().CreateOwner(ModuleName, Generation);
-	}
-
-	auto FModuleTestOwner::GetFeatureSnapshot() const
-		-> FModularFeatureRetirementSnapshot
-	{
-		return FModularFeatureRegistry::Get().SnapshotOwner(ModuleOwner);
-	}
-
-	FModuleTestHarness::FModuleTestHarness(FName ModuleName)
-		: Owner(std::move(ModuleName))
-	{
+		ModuleOwner->Name = InModuleName;
 	}
 
 	FModuleTestHarness::~FModuleTestHarness()
@@ -31,7 +19,7 @@ namespace Durin
 	auto FModuleTestHarness::Start(IModuleInterface& Module) -> void
 	{
 		require(StartedModule == nullptr);
-		Detail::FScopedModuleStartup StartupScope(Owner.ModuleName, Owner.ModuleOwner);
+		Detail::FScopedModuleStartup StartupScope(ModuleName, ModuleOwner);
 		Module.StartupModule();
 		StartedModule = &Module;
 	}
@@ -40,9 +28,7 @@ namespace Durin
 	{
 		require(StartedModule != nullptr);
 		StartedModule->ShutdownModule();
-		const auto Audit = Owner.GetFeatureSnapshot();
-		require(Audit.PublishedCount == 0);
-		require(Audit.InFlightInvocationCount == 0);
+		require(!FModularFeatureRegistry::Get().IsDispatching());
 		StartedModule = nullptr;
 	}
 
@@ -63,8 +49,7 @@ namespace Durin
 		}
 		ModuleInfo->State = EModuleState::Loading;
 		ModuleInfo->OwnerGeneration = Manager.NextOwnerGeneration++;
-		ModuleInfo->ModuleOwner = FModularFeatureRegistry::Get().CreateOwner(
-			ModuleName, ModuleInfo->OwnerGeneration);
+		ModuleInfo->ModuleOwner = std::make_shared<Detail::FModuleOwnerState>(Detail::FModuleOwnerState{ModuleName, ModuleInfo->OwnerGeneration});
 		ModuleInfo->Module = std::move(Module);
 		Detail::FScopedModuleStartup StartupScope(ModuleName, ModuleInfo->ModuleOwner);
 		ModuleInfo->Module->StartupModule();

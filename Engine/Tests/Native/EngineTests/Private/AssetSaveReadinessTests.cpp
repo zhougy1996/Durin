@@ -2,7 +2,6 @@
 
 #include "Asset/AssetSaveReadiness.h"
 #include "DObject/Object.h"
-#include "Modules/ModuleTestSupport.h"
 
 namespace
 {
@@ -34,10 +33,9 @@ TEST(AssetSaveReadinessTests, UsesTheSingleHandlingProvider)
 	FReadinessFeature Rejected;
 	Rejected.Result = {
 		Durin::EAssetWriteError::StaleData, "Asset family is not ready."};
-	Durin::FModuleTestOwner IgnoredOwner("ReadinessIgnored");
-	Durin::FModuleTestOwner RejectedOwner("ReadinessRejected");
-	auto IgnoredRegistration = IgnoredOwner.RegisterFeature(Ignored);
-	auto RejectedRegistration = RejectedOwner.RegisterFeature(Rejected);
+
+	auto IgnoredRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Ignored);
+	auto RejectedRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Rejected);
 
 	const auto Result = Durin::ValidateAssetSaveReadiness(&Object);
 	EXPECT_EQ(Durin::EAssetWriteError::StaleData, Result.Error);
@@ -49,10 +47,9 @@ TEST(AssetSaveReadinessTests, RejectsAmbiguousHandlingProviders)
 	Durin::DObject Object;
 	FReadinessFeature First;
 	FReadinessFeature Second;
-	Durin::FModuleTestOwner FirstOwner("ReadinessFirst");
-	Durin::FModuleTestOwner SecondOwner("ReadinessSecond");
-	auto FirstRegistration = FirstOwner.RegisterFeature(First);
-	auto SecondRegistration = SecondOwner.RegisterFeature(Second);
+
+	auto FirstRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(First);
+	auto SecondRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Second);
 
 	const auto Result = Durin::ValidateAssetSaveReadiness(&Object);
 	EXPECT_EQ(Durin::EAssetWriteError::StaleData, Result.Error);

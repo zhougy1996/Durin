@@ -7,38 +7,6 @@
 
 namespace Durin
 {
-	// Owns one isolated test generation for registry and async-operation tests.
-	class FModuleTestOwner final
-	{
-	public:
-		CORE_API explicit FModuleTestOwner(FName ModuleName);
-
-		FModuleTestOwner(FModuleTestOwner&&) noexcept = default;
-		auto operator=(FModuleTestOwner&&) noexcept -> FModuleTestOwner& = default;
-		FModuleTestOwner(const FModuleTestOwner&) = delete;
-		auto operator=(const FModuleTestOwner&) -> FModuleTestOwner& = delete;
-
-		template<CModularFeature T>
-		auto RegisterFeature(T& Implementation) -> FModularFeatureRegistration
-		{
-			return FModularFeatureRegistry::Get().Register(
-				ModuleOwner,
-				{FName(std::string_view(T::FeatureName)), static_cast<uint32>(T::FeatureVersion)},
-				Implementation);
-		}
-
-
-
-		[[nodiscard]] CORE_API auto GetFeatureSnapshot() const
-			-> FModularFeatureRetirementSnapshot;
-
-	private:
-		FName ModuleName;
-		std::shared_ptr<Detail::FModuleOwnerState> ModuleOwner;
-
-		friend class FModuleTestHarness;
-	};
-
 	// Drives a concrete stack-owned module through isolated startup and shutdown in tests.
 	class FModuleTestHarness final
 	{
@@ -59,7 +27,8 @@ namespace Durin
 		) -> IModuleInterface*;
 
 	private:
-		FModuleTestOwner Owner;
+		FName ModuleName;
+		std::shared_ptr<Detail::FModuleOwnerState> ModuleOwner;
 		IModuleInterface* StartedModule = nullptr;
 	};
 }

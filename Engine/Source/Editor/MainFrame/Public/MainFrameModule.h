@@ -20,7 +20,7 @@ namespace Durin
 
 		auto ShutdownModule() -> void override;
 		auto CreateEditorHost(
-			std::shared_ptr<MWindow> StartupWindow) -> void override;
+			DEditorEngine& Editor, std::shared_ptr<MWindow> StartupWindow) -> void override;
 		auto DestroyEditorHost() -> void override;
 		auto AdvanceBootstrap(bool bFirstPresentAvailable)
 			-> Editor::Host::EBootstrapStepStatus override;

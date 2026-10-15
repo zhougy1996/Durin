@@ -3,7 +3,6 @@
 #include "CoreGlobals.h"
 #include "Console/ConsoleCommand.h"
 #include "HAL/PlatformLTS.h"
-#include "Modules/ModuleTestSupport.h"
 #include "Threading/Task.h"
 
 #include <gtest/gtest.h>
@@ -23,6 +22,11 @@ namespace Durin::Tests
 		class FDynamicUnloadHost final : public IDynamicUnloadHostFeature
 		{
 		public:
+			auto GetWorkerCallbacks() -> FDynamicUnloadWorkerCallbacks override
+			{
+				return {[this](auto Event) { Record(Event); }, [this](uint64 Serial) { WaitForAsyncRelease(Serial); }};
+			}
+
 			auto AllocateInstanceSerial() -> uint64 override
 			{
 				return NextInstanceSerial.fetch_add(1, std::memory_order_relaxed);
@@ -35,27 +39,12 @@ namespace Durin::Tests
 				Changed.notify_all();
 			}
 
-			auto WaitForSynchronousRelease(uint64 InstanceSerial) -> void override
-			{
-				std::unique_lock Lock(Mutex);
-				Changed.wait(Lock, [&] {
-					return ReleasedInstances.contains(InstanceSerial);
-				});
-			}
-
 			auto WaitForAsyncRelease(uint64 InstanceSerial) -> void override
 			{
 				std::unique_lock Lock(Mutex);
 				Changed.wait(Lock, [&] {
 					return ReleasedAsyncInstances.contains(InstanceSerial);
 				});
-			}
-
-			auto ReleaseSynchronous(uint64 InstanceSerial) -> void
-			{
-				std::lock_guard Lock(Mutex);
-				ReleasedInstances.insert(InstanceSerial);
-				Changed.notify_all();
 			}
 
 			auto WaitFor(
@@ -101,7 +90,7 @@ namespace Durin::Tests
 			mutable std::mutex Mutex;
 			std::condition_variable Changed;
 			std::vector<FDynamicUnloadFixtureEvent> Events;
-			std::unordered_set<uint64> ReleasedInstances;
+
 			std::unordered_set<uint64> ReleasedAsyncInstances;
 		};
 
@@ -179,16 +168,16 @@ namespace Durin::Tests
 	}
 
 	TEST(FDynamicDllUnloadQualificationTests,
-		SuccessfulUnloadDrainsCallsAsyncStorageAndReloadsNewGenerations)
+		SafePointUnloadDrainsOwnedAsyncStorageAndReloadsNewGenerations)
 	{
 		FTaskSystemGuard TaskGuard;
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 
 		FDynamicUnloadHost Host;
-		FModuleTestOwner HostContext("DynamicUnloadQualification.Host");
+
 		auto HostRegistration =
-			HostContext.RegisterFeature<IDynamicUnloadHostFeature>(Host);
+			Durin::FModularFeatureRegistry::Get().RegisterFeature<IDynamicUnloadHostFeature>(Host);
 		ASSERT_TRUE(HostRegistration.IsValid());
 
 		auto& Manager = FModuleManager::Get();
@@ -204,39 +193,12 @@ namespace Durin::Tests
 		ASSERT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::Startup, *FirstSerial));
 
-		std::atomic<EFeatureInvokeStatus> CallerStatus =
-			EFeatureInvokeStatus::Unavailable;
-		std::thread Caller([&] {
-			CallerStatus = FModularFeatureRegistry::Get()
-				.InvokeSingle<IDynamicUnloadFixtureFeature>(
-					[](IDynamicUnloadFixtureFeature& Fixture) {
-						Fixture.RunSynchronousBarrier();
-					}).Status;
-		});
-		ASSERT_TRUE(Host.WaitFor(
-			EDynamicUnloadFixtureEvent::SynchronousEntered, *FirstSerial));
-
-		std::atomic<EFeatureInvokeStatus> LateStatus =
-			EFeatureInvokeStatus::Invoked;
-		std::thread Releaser([&] {
-			const auto Deadline = std::chrono::steady_clock::now()
-				+ std::chrono::seconds(5);
-			do
-			{
-				LateStatus = FModularFeatureRegistry::Get()
-					.InvokeSingle<IDynamicUnloadFixtureFeature>([](auto&) {}).Status;
-				if (LateStatus.load() == EFeatureInvokeStatus::Unavailable) break;
-				std::this_thread::yield();
-			} while (std::chrono::steady_clock::now() < Deadline);
-			Host.ReleaseSynchronous(*FirstSerial);
-		});
-		const bool FirstUnload =
-			Manager.UnloadModule(FName(FixtureModuleName));
-		Releaser.join();
-		Caller.join();
-		ASSERT_TRUE(FirstUnload);
-		EXPECT_EQ(CallerStatus.load(), EFeatureInvokeStatus::Invoked);
-		EXPECT_EQ(LateStatus.load(), EFeatureInvokeStatus::Unavailable);
+		const auto Call = FModularFeatureRegistry::Get().InvokeSingle<IDynamicUnloadFixtureFeature>(
+			[](auto& Fixture) { Fixture.RunSynchronousCall(); });
+		ASSERT_TRUE(Call.WasInvoked());
+		ASSERT_TRUE(Manager.UnloadModule(FName(FixtureModuleName)));
+		EXPECT_EQ(EFeatureInvokeStatus::Unavailable,
+			FModularFeatureRegistry::Get().InvokeSingle<IDynamicUnloadFixtureFeature>([](auto&) {}).Status);
 		EXPECT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::SynchronousExited, *FirstSerial));
 		EXPECT_TRUE(Host.WaitFor(

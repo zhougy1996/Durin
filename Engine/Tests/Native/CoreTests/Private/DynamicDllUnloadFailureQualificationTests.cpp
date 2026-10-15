@@ -2,7 +2,6 @@
 
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
-#include "Modules/ModuleTestSupport.h"
 #include "Threading/Task.h"
 
 #include <gtest/gtest.h>
@@ -28,6 +27,11 @@ namespace Durin::Tests
 		class FFailureHost final : public IDynamicUnloadHostFeature
 		{
 		public:
+			auto GetWorkerCallbacks() -> FDynamicUnloadWorkerCallbacks override
+			{
+				return {[this](auto Event) { Record(Event); }, [this](uint64 Serial) { WaitForAsyncRelease(Serial); }};
+			}
+
 			auto AllocateInstanceSerial() -> uint64 override
 			{
 				return NextSerial.fetch_add(1, std::memory_order_relaxed);
@@ -40,23 +44,10 @@ namespace Durin::Tests
 				Changed.notify_all();
 			}
 
-			auto WaitForSynchronousRelease(uint64 Serial) -> void override
-			{
-				std::unique_lock Lock(Mutex);
-				Changed.wait(Lock, [&] { return SyncReleases.contains(Serial); });
-			}
-
 			auto WaitForAsyncRelease(uint64 Serial) -> void override
 			{
 				std::unique_lock Lock(Mutex);
 				Changed.wait(Lock, [&] { return AsyncReleases.contains(Serial); });
-			}
-
-			auto ReleaseSync(uint64 Serial) -> void
-			{
-				std::lock_guard Lock(Mutex);
-				SyncReleases.insert(Serial);
-				Changed.notify_all();
 			}
 
 			auto ReleaseAsync(uint64 Serial) -> void
@@ -90,7 +81,7 @@ namespace Durin::Tests
 			std::mutex Mutex;
 			std::condition_variable Changed;
 			std::vector<FDynamicUnloadFixtureEvent> Events;
-			std::unordered_set<uint64> SyncReleases;
+
 			std::unordered_set<uint64> AsyncReleases;
 		};
 
@@ -117,8 +108,6 @@ namespace Durin::Tests
 			auto& Manager = FModuleManager::Get();
 			Manager.AddModule(LogicalName, std::string(FixtureFileName));
 			if (!Manager.LoadModule(LogicalName)) return nullptr;
-			(void)FModularFeatureRegistry::Get().InvokeSingle<IDynamicUnloadFixtureFeature>(
-				[](auto& Fixture) { Fixture.SetShutdownTimeout(std::chrono::milliseconds(5)); });
 			return Manager.FindModule(LogicalName);
 		}
 
@@ -173,8 +162,8 @@ namespace Durin::Tests
 	TEST(FDynamicDllUnloadFailureQualificationTests, ResidentStartupFailureCleansUpWithoutUnmappingCode)
 	{
 		FFailureHost Host;
-		FModuleTestOwner HostContext("ResidentStartupFailureHost");
-		auto HostRegistration = HostContext.RegisterFeature<IDynamicUnloadHostFeature>(Host);
+
+		auto HostRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature<IDynamicUnloadHostFeature>(Host);
 		auto& Manager = FModuleManager::Get();
 		const FName Name("DynamicUnloadFixtureResidentStartupFailure");
 		Manager.AddModule(Name, std::string(FixtureFileName));
@@ -202,28 +191,11 @@ namespace Durin::Tests
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		FFailureHost Host;
-		FModuleTestOwner HostContext("DynamicUnloadQualification.FailureHost");
+
 		auto HostRegistration =
-			HostContext.RegisterFeature<IDynamicUnloadHostFeature>(Host);
+			Durin::FModularFeatureRegistry::Get().RegisterFeature<IDynamicUnloadHostFeature>(Host);
 		ASSERT_TRUE(HostRegistration.IsValid());
 		auto& Manager = FModuleManager::Get();
-
-		const FName SyncName("DynamicUnloadFixtureSyncTimeout");
-		const auto SyncInfo = LoadFixture(SyncName);
-		ASSERT_NE(SyncInfo, nullptr);
-		const auto SyncSerial = InvokeSerial();
-		ASSERT_TRUE(SyncSerial.has_value());
-		std::thread Caller([] {
-			(void)InvokeFixture([](IDynamicUnloadFixtureFeature& Fixture) {
-				Fixture.RunSynchronousBarrier();
-			});
-		});
-		ASSERT_TRUE(Host.WaitFor(
-			EDynamicUnloadFixtureEvent::SynchronousEntered, *SyncSerial));
-		EXPECT_THROW(Manager.UnloadModule(SyncName), std::runtime_error);
-		ExpectIncompleteAndMapped(SyncInfo);
-		Host.ReleaseSync(*SyncSerial);
-		Caller.join();
 
 		const FName WorkerName("DynamicUnloadFixtureWorkerTimeout");
 		const auto WorkerInfo = LoadFixture(WorkerName);
@@ -294,10 +266,15 @@ namespace Durin::Tests
 			[](IDynamicUnloadFixtureFeature& Fixture) {
 				return Fixture.RequestRecursiveUnloadForFailure();
 			});
-		EXPECT_EQ(Recursive.Status, EFeatureInvokeStatus::VisitorFailed);
-		EXPECT_EQ(RecursiveInfo->State.load(), EModuleState::ShuttingDown);
-		ExpectIncompleteAndMapped(RecursiveInfo);
+		EXPECT_EQ(Recursive.Status, EFeatureInvokeStatus::Invoked);
+		ASSERT_TRUE(Recursive.Value.has_value());
+		EXPECT_FALSE(*Recursive.Value);
+		EXPECT_EQ(RecursiveInfo->State.load(), EModuleState::Active);
+		EXPECT_TRUE(IsMapped(RecursiveInfo));
 		EXPECT_FALSE(Host.HasEvent(
 			EDynamicUnloadFixtureEvent::ModuleDestroyed, *RecursiveSerial));
+		EXPECT_TRUE(Manager.UnloadModule(RecursiveName));
+		// Failed modules remain mapped, but their released workers must finish while Host is alive.
+		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
 	}
 }

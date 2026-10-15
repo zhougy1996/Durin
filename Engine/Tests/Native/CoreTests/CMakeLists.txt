@@ -1,6 +1,14 @@
 set(_durin_assertion_fixture_dir
 	"${DURIN_WORKSPACE_DIR}/CMake/Tests/Fixtures/AssertionHeader")
 
+durin_add_native_test(CoreToolTests
+	KIND contract
+	DOMAINS tools
+	MODULES core
+	SOURCES Private/ToolTests.cpp
+	LIBRARIES Core
+)
+
 durin_add_native_test(CoreUtilityTests
 	KIND contract
 	DOMAINS core

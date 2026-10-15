@@ -10,7 +10,7 @@ namespace Durin
 	public:
 		auto StartupModule() -> void override
 		{
-			SaveReadinessRegistration = FModuleStartup::RegisterFeature<
+			SaveReadinessRegistration = FModularFeatureRegistry::Get().RegisterFeature<
 				IAssetSaveReadinessFeature>(AssetFeatures);
 			require(SaveReadinessRegistration.IsValid());
 			ImportDialog = std::make_unique<Editor::FGltfAssetImportDialog>();
@@ -39,8 +39,7 @@ namespace Durin
 		{
 			ImportExtension.Reset();
 			ImportDialog.reset();
-			if (SaveReadinessRegistration.IsValid())
-				require(SaveReadinessRegistration.Reset() == EModularFeatureRetirementStatus::Succeeded);
+			SaveReadinessRegistration.Reset();
 		}
 
 	private:

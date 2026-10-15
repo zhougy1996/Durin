@@ -25,6 +25,13 @@ namespace Durin::Tests
 		uint64 InstanceSerial = 0;
 	};
 
+	// Process-resident callbacks obtained on GameThread; the fixture owns worker drain.
+	struct FDynamicUnloadWorkerCallbacks
+	{
+		std::function<void(FDynamicUnloadFixtureEvent)> Record;
+		std::function<void(uint64)> WaitForAsyncRelease;
+	};
+
 	class IDynamicUnloadHostFeature : public IModularFeature
 	{
 	public:
@@ -33,7 +40,7 @@ namespace Durin::Tests
 
 		virtual auto AllocateInstanceSerial() -> uint64 = 0;
 		virtual auto Record(FDynamicUnloadFixtureEvent Event) -> void = 0;
-		virtual auto WaitForSynchronousRelease(uint64 InstanceSerial) -> void = 0;
+		virtual auto GetWorkerCallbacks() -> FDynamicUnloadWorkerCallbacks = 0;
 		virtual auto WaitForAsyncRelease(uint64 InstanceSerial) -> void = 0;
 	};
 
@@ -43,9 +50,8 @@ namespace Durin::Tests
 		static constexpr std::string_view FeatureName = "Tests.DynamicUnloadFixture";
 		static constexpr uint32 FeatureVersion = 1;
 
-		virtual auto SetShutdownTimeout(std::chrono::milliseconds Timeout) -> void = 0;
 		virtual auto GetInstanceSerial() const -> uint64 = 0;
-		virtual auto RunSynchronousBarrier() -> void = 0;
+		virtual auto RunSynchronousCall() -> void = 0;
 		virtual auto StartDrainedAsyncChain() -> bool = 0;
 		virtual auto StartRetainedResultForFailure() -> bool = 0;
 		virtual auto StartBlockingWorkerForFailure() -> bool = 0;
