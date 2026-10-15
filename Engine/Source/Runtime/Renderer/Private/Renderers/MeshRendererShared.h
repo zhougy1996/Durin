@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialDiagnostic.h"
 #include "Renderers/MeshVertexFactory.h"
 
 #include "Renderers/MeshRenderingCommon.h"
@@ -60,11 +61,14 @@ namespace Durin::RendererPrivate
 		const FRenderResourceGeneration& Generation,
 		const FMaterialCompilerResult* MaterialProgram,
 		const FShaderCompileOptions& VertexCompileOptions,
-		FMaterialShaderMap& OutShaderMap) -> FShaderOperationResult
+		FMaterialShaderMap& OutShaderMap) -> FShaderCompletion
 	{
 		if (MaterialProgram != nullptr)
 		{
-			if (!MaterialProgram->bSucceeded || !ValidateMaterialCompilerResult(*MaterialProgram))
+			if (MaterialProgram->Status == EMaterialProgramStatus::Canceled) return FShaderCompletion::Canceled();
+			if (!*MaterialProgram && !MaterialProgram->Diagnostics.empty())
+				return FShaderCompletion::Failure(FormatMaterialProgramDiagnostics(MaterialProgram->Diagnostics));
+			if (!*MaterialProgram || !ValidateMaterialCompilerResult(*MaterialProgram))
 				return std::unexpected(FShaderError{.Code = EShaderError::MaterialProgramInvalid});
 			if (MaterialProgram->Identity != Identity.ProgramIdentity)
 				return std::unexpected(FShaderError{.Code = EShaderError::MaterialProgramIdentityMismatch,

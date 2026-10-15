@@ -4,6 +4,7 @@
 #include "CoreGlobals.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
+#include "Shader/IShaderBuildModule.h"
 #include "Shader/GlobalShader.h"
 #include "Shader/MaterialShader.h"
 #include "Shader/Shader.h"
@@ -1321,20 +1322,50 @@ namespace Durin
 			FGlobalShaderType::GetTypeList().end());
 	}
 
-	TEST_F(FShaderFoundationTests, GlobalShaderMapPublishesOrderIndependentTypedSet)
+	class FCompletionShaderStub final : public IShaderBuildModule
+	{
+	public:
+		uint32 Compiles = 0;
+		FShaderBuildResult Completion{.Status = EShaderBuildStatus::Canceled};
+		auto GetBuildVersion() const -> uint64 override { return 1; }
+		auto GetCompileAdapterVersion() const -> FShaderCompileAdapterVersion override { return {}; }
+		auto CompileMounted(std::string_view, const FShaderCompileOptions&) -> FShaderBuildResult override { ++Compiles; return Completion; }
+		auto CompileGenerated(const FGeneratedShaderCompileRequest&) -> FShaderBuildResult override { return {}; }
+		auto SubmitGenerated(FGeneratedShaderCompileRequest, FShaderBuildRequestOptions, FShaderBuildCompletion)
+			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> override
+		{ return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::Closed}); }
+		auto GetCompilerEnvironmentIdentity() -> std::string override { return {}; }
+		auto GetCookInputIdentity(std::string&, const std::function<bool()>&) -> FShaderCompletion override
+		{ return FShaderCompletion::Failure("Unsupported fixture operation."); }
+		auto BuildSourceDependencyManifest(std::string_view, const FShaderCompileOptions&,
+			std::vector<FShaderSourceDependencyFingerprint>&) -> FShaderOperationResult override
+		{ return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable}); }
+		auto BuildSourceTreeFingerprint(std::string_view, const FShaderCompileOptions&,
+			FShaderSourceDependencyFingerprint&) -> FShaderOperationResult override
+		{ return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable}); }
+		auto GetStats() const -> FShaderBuildStats override { return {}; }
+		auto BuildCookedLibrary(EShaderTargetPlatform, EShaderTargetProfile, FByteBuffer&,
+			std::shared_ptr<const FShaderSourceArtifacts>, const std::function<bool()>&) -> FShaderCompletion override
+		{ return FShaderCompletion::Failure("Unsupported fixture operation."); }
+	};
+
+	auto InitializeGlobalShaderFixture() -> bool
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
 			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 			GIsGameThreadIdInitialized = true;
 		}
-		const std::filesystem::path CacheDir =
-			std::filesystem::temp_directory_path()
-			/ "DurinGlobalShaderFoundationCache";
-		std::filesystem::create_directories(CacheDir);
-		FShaderPaths::RegisterMountPoint(
-			"/Engine/", DURIN_ENGINE_SHADER_SOURCE_DIR, CacheDir.generic_string());
-		ASSERT_NE(FModuleManager::Get().LoadModule("ShaderBuild"), nullptr);
+		auto& Manager = FModuleManager::Get();
+		if (Manager.IsModuleLoaded("ShaderBuild")) return true;
+		const auto Cache = std::filesystem::temp_directory_path() / "DurinGlobalShaderFoundationCache";
+		std::filesystem::create_directories(Cache);
+		FShaderPaths::RegisterMountPoint("/Engine/", DURIN_ENGINE_SHADER_SOURCE_DIR, Cache.generic_string());
+		return Manager.LoadModule("ShaderBuild") != nullptr;
+	}
+	TEST_F(FShaderFoundationTests, GlobalShaderMapPublishesOrderIndependentTypedSet)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
 		FGlobalShaderMap& Map = GetGlobalShaderMap();
 		Map.Shutdown_RenderThread();
 		EXPECT_EQ(Map.GetSectionCount(), 0u);
@@ -1347,9 +1378,10 @@ namespace Durin
 		const std::array<const FGlobalShaderType*, 2> Types = {
 			&FGlobalFixtureFragmentShader::StaticType(),
 			&FGlobalFixtureVertexShader::StaticType()};
-		const FGlobalShaderSetRef Set = Map.ResolveShaderSet(
+		const auto Completion = Map.ResolveShaderSet(
 			"Tests.GlobalFixture", Types, false);
-		ASSERT_TRUE(Set);
+		ASSERT_TRUE(Completion) << Completion.Diagnostic;
+		const auto& Set = *Completion;
 		EXPECT_EQ(Set.GetGeneration(), Generation);
 		EXPECT_EQ(Set.GetIdentity(),
 			"Tests.GlobalFixture|FGlobalFixtureFragmentShader|FGlobalFixtureVertexShader");
@@ -1364,6 +1396,33 @@ namespace Durin
 		EXPECT_EQ(Map.GetSectionCount(), 0u);
 		EXPECT_TRUE(Vertex);
 		EXPECT_TRUE(Fragment);
+	}
+
+	TEST_F(FShaderFoundationTests, GlobalShaderCompletionPreservesCancellationAndDiagnostics)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
+		auto& Manager = FModuleManager::Get();
+		auto Info = Manager.FindModule("ShaderBuild");
+		struct FRestore {
+			FModuleManager::FModuleInfoPtr Info; EModuleState State; std::unique_ptr<IModuleInterface> Module;
+			~FRestore() { Info->Module = std::move(Module); Info->State = State; }
+		} Restore{Info, Info->State.load(), std::move(Info->Module)};
+		auto Module = std::make_unique<FCompletionShaderStub>(); auto* Stub = Module.get();
+		Info->Module = std::move(Module); Info->State = EModuleState::Active;
+		auto& Map = GetGlobalShaderMap(); Map.Shutdown_RenderThread();
+		struct FClear { FGlobalShaderMap& Map; ~FClear() { Map.Shutdown_RenderThread(); } } Clear{Map};
+		const std::array<const FGlobalShaderType*, 2> Types{
+			&FGlobalFixtureVertexShader::StaticType(), &FGlobalFixtureFragmentShader::StaticType()};
+		const auto Canceled = Map.ResolveShaderSet("Tests.Completion", Types, false);
+		EXPECT_EQ(Canceled.Status, EShaderBuildStatus::Canceled);
+		EXPECT_FALSE(Canceled.Value); EXPECT_TRUE(Canceled.Diagnostic.empty());
+		Stub->Completion = FShaderBuildResult::Failure("global shader diagnostic");
+		const auto Failed = Map.ResolveShaderSet("Tests.Completion", Types, false);
+		EXPECT_EQ(Failed.Status, EShaderBuildStatus::Error);
+		EXPECT_EQ(Failed.Diagnostic, "global shader diagnostic"); EXPECT_FALSE(Failed.Value);
+		EXPECT_EQ(Stub->Compiles, 2u);
+		const auto Cached = Map.ResolveShaderSet("Tests.Completion", Types, false);
+		EXPECT_EQ(Cached.Diagnostic, Failed.Diagnostic); EXPECT_EQ(Stub->Compiles, 2u);
 	}
 
 	TEST_F(FShaderFoundationTests, StorageShaderParameterMacrosCreateTypedMetadata)
@@ -1555,9 +1614,9 @@ namespace Durin
 
 	TEST_F(FShaderFoundationTests, ShaderFailureFactoriesOwnContext)
 	{
-		const FShaderOperationResult Cancelled = std::unexpected(FShaderError{.Code = EShaderError::Cancelled});
+		const auto Cancelled = FShaderCompletion::Canceled();
 		ASSERT_FALSE(Cancelled);
-		EXPECT_EQ(Cancelled.error().Code, EShaderError::Cancelled);
+		EXPECT_EQ(Cancelled.Status, EShaderBuildStatus::Canceled);
 		auto Path = std::filesystem::path("/Shaders/entry.slang");
 		const auto NativeError = std::make_error_code(std::errc::permission_denied);
 		const FShaderOperationResult Result = std::unexpected(FShaderError::FromFileSystem(Path, NativeError));
@@ -1590,17 +1649,14 @@ namespace Durin
 		EXPECT_EQ(External.ExternalDiagnostic.size(), 4096u);
 	}
 
-	TEST_F(FShaderFoundationTests, BuildDiagnosticsDoNotReconstructCompilerIdentity)
+	TEST_F(FShaderFoundationTests, CompletionSeparatesCancellationAndDiagnostics)
 	{
-		const auto Original = FShaderError::FromSlang(ESlangShaderError::Code, "first diagnostic", -7);
-		const auto Boundary = FShaderError::FromBuildDiagnostic(FormatShaderError(Original));
-		EXPECT_EQ(Boundary.Code, EShaderError::BuildFailed);
-		EXPECT_EQ(FormatShaderError(Boundary), FormatShaderError(Original));
-		EXPECT_FALSE(Boundary.NativeStatus.has_value());
-		const auto Reworded = FShaderError::FromBuildDiagnostic("different diagnostic");
-		EXPECT_EQ(Boundary.GetSemanticFingerprint(), Reworded.GetSemanticFingerprint());
-		const auto Long = FShaderError::FromBuildDiagnostic(std::string(8192, 'x'));
-		EXPECT_EQ(FormatShaderError(Long).size(), 4096u);
+		const auto Canceled = FShaderCompletion::Canceled();
+		EXPECT_EQ(Canceled.Status, EShaderBuildStatus::Canceled);
+		EXPECT_TRUE(Canceled.Diagnostic.empty());
+		const auto Failed = FShaderCompletion::Failure(std::string(8192, 'x'));
+		EXPECT_EQ(Failed.Status, EShaderBuildStatus::Error);
+		EXPECT_EQ(Failed.Diagnostic.size(), 4096u);
 	}
 
 	TEST_F(FShaderFoundationTests, DefaultCompileTargetFollowsSelectedRHIBackend)

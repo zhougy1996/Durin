@@ -9962,6 +9962,8 @@ namespace
 	{
 	public:
 		uint32 Libraries = 0;
+		Durin::FShaderCompletion InputCompletion;
+		Durin::FShaderCompletion LibraryCompletion;
 		auto GetBuildVersion() const -> uint64 override { return 0x123456789abcdef0ull; }
 		auto GetCompileAdapterVersion() const -> Durin::FShaderCompileAdapterVersion override { return {3, 2, 6}; }
 		auto CompileMounted(std::string_view, const Durin::FShaderCompileOptions&) -> Durin::FShaderBuildResult override { return {}; }
@@ -9971,11 +9973,12 @@ namespace
 		{ return std::unexpected(Durin::FShaderBuildAdmissionError{Durin::EShaderBuildAdmissionReason::Closed}); }
 		auto GetCompilerEnvironmentIdentity() -> std::string override { return "cook-fixture-compiler-v1"; }
 		auto GetCookInputIdentity(std::string& OutIdentity,
-			const std::function<bool()>& IsCancelled) -> Durin::FShaderOperationResult override
+			const std::function<bool()>& IsCancelled) -> Durin::FShaderCompletion override
 		{
 			OutIdentity.clear();
 			if (IsCancelled && IsCancelled())
-				return std::unexpected(Durin::FShaderError{.Code = Durin::EShaderError::Cancelled});
+				return Durin::FShaderCompletion::Canceled();
+			if (!InputCompletion) return InputCompletion;
 			OutIdentity = "cook-fixture-input-v1";
 			return {};
 		}
@@ -9984,10 +9987,12 @@ namespace
 		auto BuildSourceTreeFingerprint(std::string_view, const Durin::FShaderCompileOptions&,
 			Durin::FShaderSourceDependencyFingerprint&) -> Durin::FShaderOperationResult override { return std::unexpected(Durin::FShaderError{.Code = Durin::EShaderError::BuildModuleUnavailable}); }
 		auto GetStats() const -> Durin::FShaderBuildStats override { return {}; }
-		auto BuildCookedLibrary(Durin::EShaderTargetPlatform, Durin::EShaderTargetProfile, Durin::FByteBuffer& Out, std::shared_ptr<const Durin::FShaderSourceArtifacts> Sources, const std::function<bool()>&) -> Durin::FShaderOperationResult override
+		auto BuildCookedLibrary(Durin::EShaderTargetPlatform, Durin::EShaderTargetProfile, Durin::FByteBuffer& Out, std::shared_ptr<const Durin::FShaderSourceArtifacts> Sources, const std::function<bool()>&) -> Durin::FShaderCompletion override
 		{
 			EXPECT_EQ(Sources, nullptr);
 			++Libraries;
+			Out.clear();
+			if (!LibraryCompletion) return LibraryCompletion;
 			Out = {std::byte{1}, std::byte{2}, std::byte{3}};
 			return {};
 		}
@@ -10018,6 +10023,46 @@ namespace
 		Durin::EModuleState OriginalState;
 		std::unique_ptr<Durin::IModuleInterface> Original;
 	};
+}
+
+TEST(FPackageAssetTests, CookPropagatesShaderCompletionWithoutPollingForClassification)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	FScopedCookShaderModule ShaderModule;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ShaderCompletionCook", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	FCookContributorRegistration Registration{.Name = "shader-completion-fixture", .ContributorVersion = 1,
+		.Prepare = [](DObject&, std::string_view, FCookPreparationContext&) -> FCookContributionResult { return {}; }};
+	const auto Handle = RegisterCookContributor(DPackageAssetForTest::StaticClass(), Registration).Handle;
+	ASSERT_NE(Handle, 0u);
+	struct FRetire { FCookContributorHandle Handle; ~FRetire() { UnregisterCookContributor(Handle); } } Retire{Handle};
+	FCookRequest Request{.OutputRoot = Testing::GetTestWorkDirectory() / "ShaderCompletionCook",
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
+	Request.IsCancelled = [] { return false; };
+	FCookRunResult Result;
+	ShaderModule.Get().InputCompletion = FShaderCompletion::Failure("shader input failed");
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	EXPECT_EQ(Result.Status, ECookRunStatus::Failed);
+	EXPECT_EQ(Result.InputFailure.ToString(), "shader input failed");
+	EXPECT_EQ(ShaderModule.Get().Libraries, 0u);
+	ShaderModule.Get().InputCompletion = FShaderCompletion::Canceled();
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	EXPECT_EQ(Result.Status, ECookRunStatus::Cancelled);
+	EXPECT_TRUE(Result.InputFailure.ToString().empty());
+	EXPECT_EQ(Result.Error, ECookRunError::Cancelled);
+	ShaderModule.Get().InputCompletion = {};
+	ShaderModule.Get().LibraryCompletion = FShaderCompletion::Canceled();
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	EXPECT_EQ(Result.Status, ECookRunStatus::Cancelled);
+	EXPECT_TRUE(Result.ShaderDiagnostic.empty());
+	ShaderModule.Get().LibraryCompletion = FShaderCompletion::Failure("shader library failed");
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	EXPECT_EQ(Result.Status, ECookRunStatus::Failed);
+	EXPECT_EQ(Result.ShaderDiagnostic, "shader library failed");
 }
 
 TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
@@ -10423,7 +10468,7 @@ TEST(FPackageAssetTests, CookOfflineMeshPreparationDoesNotScheduleEditorCompilat
 			Contributed = true;
 			EXPECT_FALSE(Object.GetPackage()->IsGraphPrivate());
 			EXPECT_FALSE(static_cast<DStaticMesh&>(Object).IsCompiling());
-			return {.Error = ECookContributionError::SourceMutation, .ObjectPath = Object.GetObjectPath()};
+			return {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::SourceMutation, .ObjectPath = Object.GetObjectPath()};
 		}, .DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult { return {}; }};
 	const auto Handle = RegisterCookContributor(DStaticMesh::StaticClass(), Registration).Handle;
 	struct FRetire { FCookContributorHandle Handle; ~FRetire() { UnregisterCookContributor(Handle); } } Retire{Handle};

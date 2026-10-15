@@ -25,7 +25,7 @@ namespace Durin::AssetPrivate
 		if (Builtins && !Builtins->Result) return Failure(*Package, FormatCookContributorRegistrationError(Builtins->Result));
 		if (std::ranges::none_of(Package->GetTopLevelAssets(), [&](auto* Object) { return Snapshot->Includes(Object) && !IsPackageCaptureObjectOmitted(Object, Options.SaveOverrides.get()); }))
 		{
-			if (Options.PreparationFailure) *Options.PreparationFailure = {.Error = ECookContributionError::EmptyRuntimeRoot, .VirtualPath = Package->GetPackagePath()};
+			if (Options.PreparationFailure) *Options.PreparationFailure = {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::EmptyRuntimeRoot, .VirtualPath = Package->GetPackagePath()};
 			return Failure(*Package, "Cook root has no runtime exports.");
 		}
 		const FAssetBuildTaskContext Control{.Cancellation = FCancellationToken([Check = Options.IsCancelled] { return Check && Check(); })};
@@ -35,7 +35,11 @@ namespace Durin::AssetPrivate
 		for (size_t Index = 0; Index < Pending.size(); ++Index)
 		{
 			if (Index >= 65536) return Failure(*Package, "Cook preparation object limit exceeded.");
-			if (Control.IsCancelled()) return Failure(*Package, "Cook preparation was cancelled.");
+			if (Control.IsCancelled())
+			{
+				if (Options.PreparationFailure) *Options.PreparationFailure = {.Status = ECookContributionStatus::Canceled};
+				return Failure(*Package, {});
+			}
 			auto* Object = Pending[Index];
 			if (!Snapshot->Includes(Object) || IsPackageCaptureObjectOmitted(Object, Options.SaveOverrides.get())) continue;
 			auto Children = GDObjectArray.GetObjectsWithOuter(Object,
@@ -64,7 +68,11 @@ namespace Durin::AssetPrivate
 			RetainedBytes += PrimaryBytes + CollisionBytes;
 			Products.emplace(FObjectKey(Object), std::move(Product));
 		}
-		if (Control.IsCancelled()) return Failure(*Package, "Cook preparation was cancelled.");
+		if (Control.IsCancelled())
+		{
+			if (Options.PreparationFailure) *Options.PreparationFailure = {.Status = ECookContributionStatus::Canceled};
+			return Failure(*Package, {});
+		}
 		if (Package->GetEditRevision() != Revision) return Failure(*Package, "Cook inputs changed during preparation.");
 		return {};
 	}

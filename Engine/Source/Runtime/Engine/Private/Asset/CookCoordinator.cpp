@@ -372,7 +372,7 @@ namespace Durin
 		case ECookRunError::CookInUse: return "A Cook run is already active.";
 		case ECookRunError::Cancelled:
 			if (Result.PublicationCause) return FormatCookPublishError(*Result.PublicationCause);
-			if (Result.ShaderCause) return FormatShaderError(*Result.ShaderCause);
+			if (!Result.ShaderDiagnostic.empty()) return Result.ShaderDiagnostic;
 			return Result.Stage == ECookOperationStage::Discovery ? "CookCancelledBeforeDiscovery" : "CookCancelledBeforePackagePreparation";
 		case ECookRunError::ProjectSettingsFailed: return Result.SettingsCause ? std::format("CookProjectSettingsFailed: {}", Result.SettingsCause->Message) : "Cook project settings failed.";
 		case ECookRunError::InvalidDefaultLevel: return std::format("CookInvalidDefaultLevel: {}: {}", Result.AssetIdentity, Result.DefaultLevelCause ? ToString(*Result.DefaultLevelCause) : "Invalid path");
@@ -389,7 +389,7 @@ namespace Durin
 		case ECookRunError::MissingPackage: return std::format("CookMissingPackage: package={}, contributor={}", Result.CurrentPackage.ToString(), Result.CurrentContributor);
 		case ECookRunError::ContributionFailed: return std::format("CookContributionFailed: package={}, contributor={}, stage=prepare: {}", Result.ContributionPackage.ToString(), Result.ContributionProvider, Result.ContributionCause ? FormatCookContributionError(*Result.ContributionCause) : "Contribution failed");
 		case ECookRunError::CaptureFailed: return Result.CaptureCause ? FormatCookCaptureError(*Result.CaptureCause) : "Cook capture failed.";
-		case ECookRunError::ShaderLibraryFailed: return Result.ShaderCause ? FormatShaderError(*Result.ShaderCause) : "Cook shader library failed.";
+		case ECookRunError::ShaderLibraryFailed: return !Result.ShaderDiagnostic.empty() ? Result.ShaderDiagnostic : "Cook shader library failed.";
 		case ECookRunError::PublicationFailed: return Result.PublicationCause ? FormatCookPublishError(*Result.PublicationCause) : "Cook publication failed.";
 		}
 		return "Unknown Cook failure.";
@@ -516,9 +516,9 @@ namespace Durin
 				[Contributors](std::string_view ClassName, bool bAllowGeneric, const FCookContributorRegistration*& Out) -> FCookContributionResult {
 					Out = nullptr;
 					auto* Class = FindClassByQualifiedName(FName(ClassName));
-					if (!Class) return {.Error = ECookContributionError::UnsupportedClass, .ActualClass = std::string(ClassName)};
+					if (!Class) return {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::UnsupportedClass, .ActualClass = std::string(ClassName)};
 					if (const auto* Entry = Contributors->Resolve(Class, bAllowGeneric)) Out = Entry;
-					else if (bAllowGeneric) return {.Error = ECookContributionError::UnsupportedClass, .ActualClass = std::string(ClassName)};
+					else if (bAllowGeneric) return {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::UnsupportedClass, .ActualClass = std::string(ClassName)};
 					return {};
 				});
 			auto CheckInputs = [&]() -> FCookInputResult { return Inputs.CheckCancellation(); };
@@ -543,7 +543,8 @@ namespace Durin
 				OutResult.InputFailure = Result;
 
 				return Finish(Result.Status == ECookInputStatus::Cancelled
-					? ECookRunStatus::Cancelled : ECookRunStatus::Failed, ECookRunError::InputFailed);
+					? ECookRunStatus::Cancelled : ECookRunStatus::Failed,
+					Result.Status == ECookInputStatus::Cancelled ? ECookRunError::Cancelled : ECookRunError::InputFailed);
 			};
 			bool bPrepared = false;
 			try
@@ -621,6 +622,8 @@ namespace Durin
 							return Finish(ECookRunStatus::Failed, ECookRunError::MissingPackage);
 						const FCookContributionResult Contribution = SaveCookPackage(AuthoredPackage, Path.GetView(), Context);
 						if (auto Result = CheckInputs(); !Result) return InputFailure(Result);
+						if (Contribution.Status == ECookContributionStatus::Canceled)
+							return Finish(ECookRunStatus::Cancelled, ECookRunError::Cancelled);
 						if (!Contribution)
 						{
 							OutResult.ContributionCause = std::make_shared<FCookContributionResult>(Contribution);
@@ -661,8 +664,8 @@ namespace Durin
 					const auto ShaderPlatform = ToShaderTargetPlatform(Request.TargetPlatform).value();
 					if (const auto ShaderResult = BuildCookedShaderLibrary(ShaderPlatform, EShaderTargetProfile::Game, ShaderBytes, Request.IsCancelled); !ShaderResult)
 					{
-						OutResult.ShaderCause = std::make_shared<FShaderError>(ShaderResult.error());
-						return IsCancelled(Request.IsCancelled)
+						OutResult.ShaderDiagnostic = ShaderResult.Diagnostic;
+						return ShaderResult.Status == EShaderBuildStatus::Canceled
 							? Finish(ECookRunStatus::Cancelled, ECookRunError::Cancelled)
 							: Finish(ECookRunStatus::Failed, ECookRunError::ShaderLibraryFailed);
 					}

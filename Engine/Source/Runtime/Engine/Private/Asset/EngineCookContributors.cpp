@@ -28,7 +28,7 @@ namespace Durin
 		auto PrepareBuiltin(DObject& Object, std::string_view Path, FCookPreparationContext& Context) -> FCookContributionResult
 		{
 			auto Reject = [&](ECookContributionError Error, std::string Diagnostic = {}) -> FCookContributionResult {
-				return {.Error = Error, .ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(Path),
+				return {.Status = ECookContributionStatus::Error, .Error = Error, .ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(Path),
 					.TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile(), .Diagnostic = std::move(Diagnostic)};
 			};
 			const auto& Options = Context.Options;
@@ -47,7 +47,8 @@ namespace Durin
 			else if (auto* Material = Cast<DMaterialInterface>(&Object); Material && !Material->IsDynamicInstance())
 			{
 				auto Built = Material->PrepareCookedProgram(Options.TargetPlatform, Options.MaterialConfigurations, Control);
-				if (!Built) return Reject(ECookContributionError::Preparation, std::move(Built.error()));
+				if (Built.Status == EShaderBuildStatus::Canceled) return {.Status = ECookContributionStatus::Canceled};
+				if (!Built) return Reject(ECookContributionError::Preparation, std::move(Built.Diagnostic));
 				Context.Primary = std::move(*Built);
 			}
 			return {};
@@ -99,12 +100,12 @@ namespace Durin
 	auto SaveCookPackage(DPackage* Package, std::string_view Path, FCookContext& Context) -> FCookContributionResult
 	{
 		if (GetTargetPlatformName(Context.GetTargetPlatform()).empty() || Context.GetTargetProfile() != ECookTargetProfile::Game)
-			return {.Error = ECookContributionError::Target, .VirtualPath = std::string(Path), .TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()};
+			return {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::Target, .VirtualPath = std::string(Path), .TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()};
 		const auto Added = Context.AddPackage(std::string(Path), Package);
 		if (!Added)
 		{
 			if (!Context.GetPreparationFailure()) return Context.GetPreparationFailure();
-			return {.Error = ECookContributionError::Plan, .VirtualPath = std::string(Path), .PlanCause = Added.Error};
+			return {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::Plan, .VirtualPath = std::string(Path), .PlanCause = Added.Error};
 		}
 		return {};
 	}

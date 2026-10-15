@@ -327,7 +327,7 @@ namespace Durin
 					},
 					[this, Weak = std::weak_ptr(NewFlight)](FMaterialCompilerResult Compiled) {
 						const auto Flight = Weak.lock(); if (!Flight) return;
-						CompleteFlight(Flight, std::move(Compiled), Flight->Cancellation.GetToken().IsCancellationRequested() ? EMaterialCompileState::Canceled : EMaterialCompileState::Ready);
+						CompleteFlight(Flight, std::move(Compiled), (Compiled.Status == EMaterialProgramStatus::Canceled || Flight->Cancellation.GetToken().IsCancellationRequested()) ? EMaterialCompileState::Canceled : EMaterialCompileState::Ready);
 					}, std::move(TranslationInput));
 				NewFlight->TaskId.store(NewFlight->Operation->GetTaskId());
 				return EMaterialCompileState::Running;
@@ -479,6 +479,7 @@ namespace Durin
 				const uint64 TaskId = Flight->TaskId.load(
 					std::memory_order_acquire);
 				std::shared_ptr<const FMaterialCompilerResult> Program;
+				if (Compiled.Status == EMaterialProgramStatus::Canceled) CompletionState = EMaterialCompileState::Canceled;
 				EMaterialCompileState State = CompletionState;
 				EMaterialCompileResultCategory Category =
 					EMaterialCompileResultCategory::None;
@@ -520,13 +521,7 @@ namespace Durin
 						}
 
 						auto Result = MakeTerminalResult(Consumer, State, Category, TaskId);
-						if (State == EMaterialCompileState::Canceled)
-						{
-							Result.Diagnostics.push_back(MakeDiagnostic(
-								Consumer, Category,
-								{.Category = EMaterialProgramDiagnosticCategory::Compile,
-								 .Error = EMaterialCompileError::CompilationCanceled}));
-						}
+						if (State == EMaterialCompileState::Canceled) Result.Diagnostics.clear();
 						else
 						{
 							for (const FMaterialProgramDiagnostic& Diagnostic
@@ -919,8 +914,8 @@ namespace Durin
 				.Generation = Status.RequestGeneration, .DependencyRevision = Status.DependencyRevision,
 				.ParentChainRevision = Status.ParentChainRevision, .ProgramIdentity = Compiled.Identity,
 				.StaticProperties = Input.StaticProperties, .Target = Status.Target,
-				.State = Compiled ? EMaterialCompileState::Ready : EMaterialCompileState::Failed,
-				.Category = Compiled || Compiled.Diagnostics.empty() ? EMaterialCompileResultCategory::None : MapProgramCategory(Compiled.Diagnostics.front().Category),
+				.State = Compiled.Status == EMaterialProgramStatus::Canceled ? EMaterialCompileState::Canceled : Compiled ? EMaterialCompileState::Ready : EMaterialCompileState::Failed,
+				.Category = Compiled.Status == EMaterialProgramStatus::Canceled ? EMaterialCompileResultCategory::Cancellation : Compiled || Compiled.Diagnostics.empty() ? EMaterialCompileResultCategory::None : MapProgramCategory(Compiled.Diagnostics.front().Category),
 				.CacheOutcome = Build.RetainedHit ? EMaterialCompileCacheOutcome::RetainedHit : bForceRecompile ? EMaterialCompileCacheOutcome::Forced : EMaterialCompileCacheOutcome::Compiled,
 				.CompiledProgram = Build.Shared};
 			if (!Compiled) for (auto& Diagnostic : Compiled.Diagnostics) Result.Diagnostics.push_back({.Category = MapProgramCategory(Diagnostic.Category), .Source = std::move(Diagnostic), .AssetPath = Material.GetObjectPath(), .Generation = Status.RequestGeneration});

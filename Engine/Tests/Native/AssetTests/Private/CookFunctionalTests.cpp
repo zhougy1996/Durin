@@ -35,6 +35,7 @@
 #include "Threading/Task.h"
 
 #include <gtest/gtest.h>
+#include "../../../../Source/Runtime/Engine/Private/Materials/MaterialTranslation.h"
 
 namespace
 {
@@ -332,7 +333,7 @@ TEST_F(FCookFunctionalTests, DetachedMaterialPreparationHonorsSelectedVariants)
 	const auto Revision = Material->GetPackage()->GetEditRevision();
 	const std::array Configurations{FMaterialCookConfiguration{EMaterialQualityLevel::High, ERHIFeatureLevel::SM5}};
 	auto Prepared = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations);
-	ASSERT_TRUE(Prepared) << Prepared.error();
+	ASSERT_TRUE(Prepared) << Prepared.Diagnostic;
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
 	EXPECT_EQ(Material->GetPackage()->GetEditRevision(), Revision);
 	const auto BeforeSerialization = GetShaderBuildStats().Compilations;
@@ -354,7 +355,16 @@ TEST_F(FCookFunctionalTests, DetachedMaterialPreparationHonorsSelectedVariants)
 		ECookTargetProfile::Game, EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5, {}, Properties, Program));
 	FAssetBuildTaskContext Cancelled;
 	Cancelled.Cancellation.Cancel();
-	EXPECT_FALSE(Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations, Cancelled));
+	const auto Canceled = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations, Cancelled);
+	EXPECT_EQ(Canceled.Status, EShaderBuildStatus::Canceled);
+	EXPECT_FALSE(Canceled.Value);
+	EXPECT_TRUE(Canceled.Diagnostic.empty());
+	MaterialBuildPrivate::CloseTranslationSessions();
+	struct FReopen { ~FReopen() { MaterialBuildPrivate::OpenTranslationSessions(); } } Reopen;
+	const auto Failed = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations);
+	EXPECT_EQ(Failed.Status, EShaderBuildStatus::Error);
+	EXPECT_FALSE(Failed.Value);
+	EXPECT_NE(Failed.Diagnostic.find("closed"), std::string::npos);
 }
 
 TEST_F(FCookFunctionalTests, PreparationOmitsTransientAssetSubtrees)
@@ -782,7 +792,7 @@ TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithou
 	EXPECT_FALSE(Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Invalid));
 	EXPECT_FALSE(Material->PrepareCookedProgram(ECookTargetPlatform::MacOS, std::span(&Low, 1)));
 	auto Subset = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, std::span(&Low, 1));
-	ASSERT_TRUE(Subset) << Subset.error();
+	ASSERT_TRUE(Subset) << Subset.Diagnostic;
 	auto Read = Subset->AcquireRead();
 	ASSERT_TRUE(Read);
 	FMaterialStaticProperties Properties;
@@ -792,7 +802,7 @@ TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithou
 	EXPECT_FALSE(DecodeMaterialCookedProgramFamily(Read.Lock.GetBytes(), ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, High.Quality, High.FeatureLevel, {}, Properties, Program));
 	auto Same = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Request.MaterialConfigurations);
-	ASSERT_TRUE(Same) << Same.error();
+	ASSERT_TRUE(Same) << Same.Diagnostic;
 	auto SameRead = Same->AcquireRead();
 	auto Original = Material->GetCookedProgramData();
 	auto OriginalRead = Original.AcquireRead();
@@ -818,10 +828,12 @@ TEST_F(FCookFunctionalTests, RetainsContributionCauseAndClearsItForNextRun)
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 	UnregisterCookContributor(Handles.back());
 	Handles.pop_back();
+	bool CancelContribution = false;
 	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {
 		.Name = "rejecting-provider",
-		.Prepare = [](DObject& Object, std::string_view VirtualPath, FCookPreparationContext&) -> FCookContributionResult {
-			return FCookContributionResult{.Error = ECookContributionError::SourceMutation,
+		.Prepare = [&](DObject& Object, std::string_view VirtualPath, FCookPreparationContext&) -> FCookContributionResult {
+			if (CancelContribution) return {.Status = ECookContributionStatus::Canceled};
+			return FCookContributionResult{.Status = ECookContributionStatus::Error, .Error = ECookContributionError::SourceMutation,
 				.ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(VirtualPath)};
 		},
 		.DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult { return {}; }});
@@ -838,6 +850,11 @@ TEST_F(FCookFunctionalTests, RetainsContributionCauseAndClearsItForNextRun)
 
 	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "CookManifest.bin"));
 	const auto Retained = Result.ContributionCause;
+	CancelContribution = true;
+	Request.IsCancelled = [] { return false; };
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	EXPECT_EQ(Result.Status, ECookRunStatus::Cancelled);
+	EXPECT_FALSE(Result.ContributionCause);
 	Request.ExplicitRoots = {Missing};
 	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
 	EXPECT_FALSE(Result.ContributionCause);

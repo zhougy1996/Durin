@@ -31,7 +31,7 @@ namespace Durin::AssetPrivate
 				return {};
 			}
 #endif
-			return {.Error = ECookContributionError::RecipeProvider, .VirtualPath = Request.Package.ToString(),
+			return {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::RecipeProvider, .VirtualPath = Request.Package.ToString(),
 				.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile, .Provider = std::string(Family)};
 		}
 	}

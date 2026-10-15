@@ -12,6 +12,21 @@
 #include "Shader/ShaderDiagnostics.h"
 #include "NativeRHIBackendTestSupport.h"
 
+TEST(FMaterialProgramCompilerTests, DiagnosticSummaryPreservesOrderAndBoundsPresentation)
+{
+	using namespace Durin;
+	const std::array Diagnostics{
+		FMaterialProgramDiagnostic{.Error = FMaterialError::FromExternal(EMaterialCompileError::ShaderCompilerFailed, "first")},
+		FMaterialProgramDiagnostic{.Error = FMaterialError::FromExternal(EMaterialCompileError::AdmissionRejected, "second")}};
+	EXPECT_EQ(FormatMaterialProgramDiagnostics(Diagnostics),
+		FormatMaterialError(Diagnostics[0].Error) + "\n" + FormatMaterialError(Diagnostics[1].Error));
+	EXPECT_EQ(FormatMaterialProgramDiagnostics({}, "fallback"), "fallback");
+	EXPECT_TRUE(FormatMaterialProgramDiagnostics({}).empty());
+	const std::vector<FMaterialProgramDiagnostic> Many(1000, Diagnostics.front());
+	EXPECT_EQ(FormatMaterialProgramDiagnostics(Many).size(), 4096u);
+	EXPECT_EQ(FormatMaterialProgramDiagnostics({}, std::string(8192, 'x')).size(), 4096u);
+}
+
 TEST(FMaterialProgramCompilerTests, ExplicitTargetDoesNotFollowHostBackend)
 {
 	using namespace Durin;
@@ -275,8 +290,37 @@ TEST(FMaterialTranslationTests, RejectedHitsRebuildOnceAndStoreFailureKeepsLocal
 	FMaterialTranslatedProgram Local; Run(Local, true); ASSERT_TRUE(Local);
 	EXPECT_EQ(Local.GeneratedSource, Cold.GeneratedSource);
 	FRequestOwner Canceled; Canceled.RequestCancel(); uint32 Completions = 0;
-	auto Accepted = SubmitTranslation(Input, true, Canceled, [&](auto Product) { EXPECT_FALSE(Product); ++Completions; });
+	auto Accepted = SubmitTranslation(Input, true, Canceled, [&](auto Product) { EXPECT_FALSE(Product); EXPECT_EQ(Product.Status, EMaterialProgramStatus::Canceled); EXPECT_TRUE(Product.Diagnostics.empty()); ++Completions; });
 	ASSERT_TRUE(Accepted); EXPECT_EQ(Canceled.Wait(), ERequestWaitResult::Completed); EXPECT_EQ(Completions, 1u);
+}
+
+TEST(FMaterialTranslationTests, PreservesExecutionAndAdmissionDiagnostics)
+{
+	using namespace Durin; using namespace DerivedData; using namespace MaterialBuildPrivate;
+	InitializeDObjectSystem();
+	struct FFailingTranslation final : IBuildFunction
+	{
+		std::shared_ptr<const IBuildFunction> Inner = MakeTranslationFunction();
+		auto GetName() const -> std::string_view override { return Inner->GetName(); }
+		auto GetVersion() const -> uint32 override { return Inner->GetVersion(); }
+		auto Configure(FBuildConfigContext& Context) const -> void override { Inner->Configure(Context); }
+		auto Build(FBuildContext& Context) const -> void override { Context.FailExecution("translation producer diagnostic"); }
+	};
+	auto Service = CreateBuild({}); ASSERT_TRUE(Service->Register(std::make_shared<FFailingTranslation>()));
+	SetTranslationServiceForTests(Service);
+	struct FRestore { ~FRestore() { SetTranslationServiceForTests({}); OpenTranslationSessions(); } } Restore;
+	auto Input = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
+	FMaterialTranslatedProgram Product; FRequestOwner Owner;
+	auto Accepted = SubmitTranslation(Input, true, Owner, [&](auto Value) { Product = std::move(Value); });
+	ASSERT_TRUE(Accepted); ASSERT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+	EXPECT_EQ(Product.Status, EMaterialProgramStatus::Error);
+	ASSERT_FALSE(Product.Diagnostics.empty());
+	EXPECT_EQ(Product.Diagnostics.front().Error.ExternalDiagnostic, "translation producer diagnostic");
+	CloseTranslationSessions();
+	const auto Rejected = TranslateMaterialInput(*Input, true);
+	EXPECT_EQ(Rejected.Status, EMaterialProgramStatus::Error);
+	ASSERT_FALSE(Rejected.Diagnostics.empty());
+	EXPECT_FALSE(Rejected.Diagnostics.front().Error.ExternalDiagnostic.empty());
 }
 
 TEST(FMaterialTranslationTests, ClosedSessionsRemainClosedUntilExplicitOpen)
@@ -325,7 +369,7 @@ TEST(FMaterialTranslationTests, CancellationDuringCacheIOCompletesAndRetiresWith
 	SetTranslationServiceForTests(Service);
 	struct FRestore { std::shared_ptr<FGate> Cache; ~FRestore() { Cache->Release.Trigger(); SetTranslationServiceForTests({}); } } Restore{Cache};
 	auto Op = std::make_shared<FMaterialBuildOperation>(); std::atomic_uint32_t Calls = 0;
-	Op->Start(std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput()), false, {}, {}, [&](auto Result) { EXPECT_FALSE(Result); ASSERT_FALSE(Result.Diagnostics.empty()); EXPECT_EQ(Result.Diagnostics.front().Error, EMaterialCompileError::CompilationCanceled); ++Calls; });
+	Op->Start(std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput()), false, {}, {}, [&](auto Result) { EXPECT_FALSE(Result); EXPECT_TRUE(Result.Diagnostics.empty()); EXPECT_EQ(Result.Status, EMaterialProgramStatus::Canceled); ++Calls; });
 	ASSERT_TRUE(Cache->Entered.WaitFor(5)); const auto Begin = std::chrono::steady_clock::now(); Op->Cancel();
 	Cache->Release.Trigger(); Op->Wait(); EXPECT_TRUE(Op->IsFinished()); EXPECT_EQ(Calls, 1u);
 	RecordProperty("CacheCancelRetirementMicroseconds", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count());
@@ -408,9 +452,8 @@ TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMism
 		{.Status = EShaderBuildStatus::Canceled});
 	EXPECT_FALSE(Failed);
 	EXPECT_TRUE(Failed.CompiledShaders.empty());
-	ASSERT_FALSE(Failed.Diagnostics.empty());
-	EXPECT_EQ(Failed.Diagnostics.back().Category, EMaterialProgramDiagnosticCategory::Compile);
-	EXPECT_EQ(Failed.Diagnostics.back().Error, EMaterialCompileError::CompilationCanceled);
+	EXPECT_TRUE(Failed.Diagnostics.empty());
+	EXPECT_EQ(Failed.Status, EMaterialProgramStatus::Canceled);
 }
 
 TEST(FMaterialVertexEvaluationTests, InterpolationRequiresVertexInputsAndPreservesSpatialMeaning)
@@ -1957,7 +2000,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	InvalidResult.CompiledShaders.pop_back();
 	EXPECT_FALSE(ValidateMaterialCompilerResult(InvalidResult));
 	InvalidResult = Compiled;
-	InvalidResult.bSucceeded = false;
+	InvalidResult.Status = EMaterialProgramStatus::Error;
 	EXPECT_FALSE(ValidateMaterialCompilerResult(InvalidResult));
 	EXPECT_NE(Compiled.GeneratedSource.find("MaterialTexture0.Sample(MaterialSampler0"), std::string::npos);
 	EXPECT_EQ(Compiled.GeneratedSource.find("GetMaterialUV"), std::string::npos);

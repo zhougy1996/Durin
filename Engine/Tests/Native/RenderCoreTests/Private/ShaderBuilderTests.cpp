@@ -281,7 +281,12 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_TRUE(Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions()));
 		EXPECT_EQ(Builder->GetStats().Compilations, 0u);
 		Builder->Close();
-		EXPECT_FALSE(Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions()));
+		const auto Closed = Builder->GetOrCompile("/ShaderBuilderTests/Simple", MakeCompileOptions());
+		EXPECT_EQ(Closed.Status, EShaderBuildStatus::Error);
+		EXPECT_EQ(Closed.Diagnostic, FormatShaderBuildAdmissionError({EShaderBuildAdmissionReason::Closed}));
+		const auto GeneratedClosed = Builder->GetOrCompileGenerated({});
+		EXPECT_EQ(GeneratedClosed.Status, EShaderBuildStatus::Error);
+		EXPECT_EQ(GeneratedClosed.Diagnostic, Closed.Diagnostic);
 		EXPECT_EQ(Cache->Gets, 3u); EXPECT_EQ(Cache->Puts, 2u);
 	}
 

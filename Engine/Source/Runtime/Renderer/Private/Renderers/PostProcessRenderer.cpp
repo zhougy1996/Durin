@@ -161,10 +161,11 @@ namespace Durin
 					&FPostProcessVertexShader::StaticType(),
 					&FFXAAFragmentShader::StaticType()};
 				FPayload Candidate;
-				Candidate.CopyShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+				const auto CopyShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"PostProcess.Copy", CopyShaderTypes, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (!Candidate.CopyShaderSet)
+				if (CopyShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (!CopyShaderSetCompletion)
 				{
 					return FResult::Failure(
 						MakeRendererResourceCreateError(
@@ -175,10 +176,12 @@ namespace Durin
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}
-				Candidate.FXAAShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+				Candidate.CopyShaderSet = *CopyShaderSetCompletion;
+				const auto FXAAShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"PostProcess.FXAA", FXAAShaderTypes, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (!Candidate.FXAAShaderSet)
+				if (FXAAShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (!FXAAShaderSetCompletion)
 				{
 					return FResult::Failure(
 						MakeRendererResourceCreateError(
@@ -189,6 +192,7 @@ namespace Durin
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}
+				Candidate.FXAAShaderSet = *FXAAShaderSetCompletion;
 
 				Candidate.CopyVertexShader = TShaderMapRef<FPostProcessVertexShader>(Candidate.CopyShaderSet);
 				Candidate.FXAAVertexShader = TShaderMapRef<FPostProcessVertexShader>(Candidate.FXAAShaderSet);

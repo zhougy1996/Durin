@@ -131,27 +131,27 @@ namespace Durin
 
 	auto DMaterialInterface::PrepareCookedProgram(ECookTargetPlatform TargetPlatform,
 		std::span<const FMaterialCookConfiguration> Requested, const FAssetBuildTaskContext& Control)
-		-> std::expected<FBulkData, std::string>
+		-> TShaderValueResult<FBulkData>
 	{
-		if (Control.IsCancelled()) return std::unexpected("Material Cook preparation was cancelled.");
+		if (Control.IsCancelled()) return FShaderCompletion::Canceled();
 		if (IsDynamicInstance()) return FBulkData{};
 		const auto Configurations = ResolveMaterialCookConfigurations(Requested);
-		if (!Configurations) return std::unexpected("Material Cook configuration is unsupported.");
+		if (!Configurations) return FShaderCompletion::Failure("Material Cook configuration is unsupported.");
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (GetAssetRuntimeConfiguration().GetCookTargetPlatform() != TargetPlatform || !CookedProgramData.HasData())
-				return std::unexpected("Material cooked program data is unavailable or targets another platform.");
+				return FShaderCompletion::Failure("Material cooked program data is unavailable or targets another platform.");
 			auto Read = CookedProgramData.AcquireRead();
-			if (!Read) return std::unexpected("Material cooked program data could not be read.");
+			if (!Read) return FShaderCompletion::Failure("Material cooked program data could not be read.");
 			std::vector<std::shared_ptr<const FMaterialCompilerResult>> Variants;
 			FMaterialStaticProperties Properties;
 			for (const auto& Configuration : *Configurations)
 			{
-				if (Control.IsCancelled()) return std::unexpected("Material Cook preparation was cancelled.");
+				if (Control.IsCancelled()) return FShaderCompletion::Canceled();
 				std::shared_ptr<const FMaterialCompilerResult> Program;
 				const auto Decoded = DecodeMaterialCookedProgramFamily(Read.Lock.GetBytes(), TargetPlatform,
 					ECookTargetProfile::Game, Configuration.Quality, Configuration.FeatureLevel, {}, Properties, Program);
-				if (!Decoded) return std::unexpected(FormatMaterialError(Decoded.Error));
+				if (!Decoded) return FShaderCompletion::Failure(FormatMaterialError(Decoded.Error));
 				Variants.push_back(std::move(Program));
 			}
 			std::vector<const FMaterialCompilerResult*> Programs;
@@ -159,44 +159,47 @@ namespace Durin
 			FByteBuffer Bytes;
 			const auto Encoded = EncodeMaterialCookedProgramFamily(Programs, Properties,
 				TargetPlatform, ECookTargetProfile::Game, Bytes);
-			if (!Encoded) return std::unexpected(FormatMaterialError(Encoded.Error));
+			if (!Encoded) return FShaderCompletion::Failure(FormatMaterialError(Encoded.Error));
 			auto Bulk = FBulkData::TryCreateDetached(Bytes);
-			if (!Bulk) return std::unexpected(FormatBulkDataError(Bulk.error()));
+			if (!Bulk) return FShaderCompletion::Failure(FormatBulkDataError(Bulk.error()));
+			if (Control.IsCancelled()) return FShaderCompletion::Canceled();
 			return std::move(*Bulk);
 		}
 #if DURIN_WITH_EDITOR
 		const auto Target = ResolveTargetPlatform(TargetPlatform);
 		if (!Target)
-			return std::unexpected("Material Cook target or configuration is unsupported.");
+			return FShaderCompletion::Failure("Material Cook target or configuration is unsupported.");
 		FMaterialCompilerEnvironment BaseEnvironment;
 		if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment, Target->GetShaderTarget()); !Environment)
-			return std::unexpected(FormatMaterialError(Environment.Error));
+			return FShaderCompletion::Failure(FormatMaterialError(Environment.Error));
 		std::vector<FMaterialCompilerResult> Variants;
 		Variants.reserve(Configurations->size());
 		for (const auto& Configuration : *Configurations)
 		{
-			if (Control.IsCancelled()) return std::unexpected("Material Cook preparation was cancelled.");
+			if (Control.IsCancelled()) return FShaderCompletion::Canceled();
 			auto Environment = BaseEnvironment;
 			Environment.Quality = Configuration.Quality;
 			Environment.FeatureLevel = Configuration.FeatureLevel;
 			auto Snapshot = SnapshotMaterialCompilerInput(*this, std::move(Environment));
-			if (!Snapshot) return std::unexpected("Material cooked configuration snapshot failed.");
+			if (!Snapshot) return FShaderCompletion::Failure(FormatMaterialProgramDiagnostics(Snapshot.Diagnostics, "Material cooked configuration snapshot failed."));
 			auto Compiled = MIR::Compile(Snapshot.Snapshot->Input);
-			if (!Compiled) return std::unexpected("Material cooked configuration compilation failed.");
+			if (Compiled.Status == EMaterialProgramStatus::Canceled || Control.IsCancelled()) return FShaderCompletion::Canceled();
+			if (!Compiled) return FShaderCompletion::Failure(FormatMaterialProgramDiagnostics(Compiled.Diagnostics, "Material cooked configuration compilation failed."));
 			Variants.push_back(std::move(Compiled));
 		}
-		if (Control.IsCancelled()) return std::unexpected("Material Cook preparation was cancelled.");
+		if (Control.IsCancelled()) return FShaderCompletion::Canceled();
 		std::vector<const FMaterialCompilerResult*> Programs;
 		for (const auto& Variant : Variants) Programs.push_back(&Variant);
 		FByteBuffer Bytes;
 		const auto Encoded = EncodeMaterialCookedProgramFamily(Programs,
 			CanonicalizeMaterialShaderProperties(GetStaticProperties()), TargetPlatform, ECookTargetProfile::Game, Bytes);
-		if (!Encoded) return std::unexpected(FormatMaterialError(Encoded.Error));
+		if (!Encoded) return FShaderCompletion::Failure(FormatMaterialError(Encoded.Error));
 		auto Bulk = FBulkData::TryCreateDetached(Bytes);
-		if (!Bulk) return std::unexpected(FormatBulkDataError(Bulk.error()));
+		if (!Bulk) return FShaderCompletion::Failure(FormatBulkDataError(Bulk.error()));
+		if (Control.IsCancelled()) return FShaderCompletion::Canceled();
 		return std::move(*Bulk);
 #else
-		return std::unexpected("Authored material Cook preparation is unavailable in this runtime.");
+		return FShaderCompletion::Failure("Authored material Cook preparation is unavailable in this runtime.");
 #endif
 	}
 

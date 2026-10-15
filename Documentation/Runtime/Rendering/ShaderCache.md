@@ -33,8 +33,21 @@ retains stages; `Canceled` has neither stages nor diagnostics. Cache hits and lo
 builds use the same completion contract. Compiler and validation failures are
 formatted at this boundary; deterministic output messages and infrastructure
 completion diagnostics are preserved without reconstructing typed causes or
-classifying text. Material consumers branch on status, including cancellation.
-The direct compiler and runtime validation APIs retain their typed contracts.
+classifying text. Cook input capture, cooked-library production and ShaderMap
+compilation use `FShaderCompletion` with the same status and diagnostic contract.
+Material Cook preparation returns an optional payload with independent completion.
+Cook contributors propagate cancellation without attaching a failure cause, including
+when the caller cancellation callback has not fired.
+
+Shared output construction, assembly and validation use that completion plus an
+optional product; cancellation retains neither product nor diagnostic. Pure
+compiler, codec and semantic validation helpers retain structured errors.
+
+Cook stops discovery when Shader input capture fails and preserves its diagnostic;
+it propagates Shader cancellation directly rather than polling again to classify
+it. Material translation and compilation expose `EMaterialProgramStatus`, and
+cancellation produces no error diagnostic or cacheable product. Render-resource
+slots also retain cancellation separately, report no failure and permit retry.
 
 Binding may retain a valid prefix on failure; layouts and MaterialShaderMaps
 publish only complete candidates, and failed ShaderMap initialization resets

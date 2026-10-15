@@ -287,9 +287,9 @@ namespace Durin
 		EXPECT_EQ(Decoded.CompiledShaders[0].ComputeThreadGroupSize,
 			(std::array<uint32, 3>{8, 4, 2}));
 		auto Shared = ShaderSharedOutput::Make(Options, Product);
-		ASSERT_TRUE(Shared) << FormatShaderError(Shared.error());
+		ASSERT_TRUE(Shared) << Shared.Diagnostic;
 		auto Restored = ShaderSharedOutput::Assemble(Options, *Shared);
-		ASSERT_TRUE(Restored) << FormatShaderError(Restored.error());
+		ASSERT_TRUE(Restored) << Restored.Diagnostic;
 		ASSERT_EQ(Restored->CompiledShaders.size(), 1u);
 		EXPECT_EQ(Restored->CompiledShaders[0].ComputeThreadGroupSize,
 			(std::array<uint32, 3>{8, 4, 2}));
@@ -510,7 +510,7 @@ namespace Durin
 		ASSERT_TRUE(ShaderSharedOutput::Validate(Options, *Output));
 		auto Assembled = ShaderSharedOutput::Assemble(Options, *Output); ASSERT_TRUE(Assembled);
 		auto Waiter = *Assembled;
-		Output = DerivedData::FBuildOutput{}; Assembled = FShaderCompilerOutput{};
+		Output = TShaderValueResult<DerivedData::FBuildOutput>{}; Assembled = TShaderValueResult<FShaderCompilerOutput>{};
 		EXPECT_EQ(Waiter.CompiledShaders[0].Code.data(), Bytes);
 		EXPECT_EQ(FXxHash128::HashBuffer(Waiter.CompiledShaders[0].Code), Waiter.CompiledShaders[0].CodeHash);
 		EXPECT_EQ(Waiter.CompiledShaders[0].DebugName, Options.VirtualShaderPath + "::VertexMain");
@@ -524,7 +524,7 @@ namespace Durin
 		auto Product = MakeMetalOutput();
 		ASSERT_TRUE(Product) << FormatShaderError(Product.Error);
 		auto Output = ShaderSharedOutput::Make(Options, Product);
-		ASSERT_TRUE(Output) << FormatShaderError(Output.error());
+		ASSERT_TRUE(Output) << Output.Diagnostic;
 		EXPECT_EQ(Output->GetSchemaVersion(), ShaderCompileOutputSchemaVersion);
 		auto Legacy = CopyShaderOutput(*Output);
 		Legacy.SchemaVersion = 5;
@@ -532,7 +532,7 @@ namespace Durin
 		ASSERT_TRUE(OldPayload);
 		EXPECT_FALSE(ShaderSharedOutput::Assemble(Options, *OldPayload));
 		auto Assembled = ShaderSharedOutput::Assemble(Options, *Output);
-		ASSERT_TRUE(Assembled) << FormatShaderError(Assembled.error());
+		ASSERT_TRUE(Assembled) << Assembled.Diagnostic;
 		ASSERT_EQ(Assembled->CompiledShaders.size(), Product.CompiledShaders.size());
 		for (size_t Index = 0; Index < Product.CompiledShaders.size(); ++Index)
 		{
@@ -554,7 +554,7 @@ namespace Durin
 		ASSERT_TRUE(BadCode);
 		auto Rejected = ShaderSharedOutput::Assemble(Options, *BadCode);
 		ASSERT_FALSE(Rejected);
-		EXPECT_EQ(Rejected.error().Code, EShaderError::PayloadMslInvalid);
+		EXPECT_EQ(Rejected.Status, EShaderBuildStatus::Error); EXPECT_FALSE(Rejected.Diagnostic.empty());
 		auto CorruptHash = CopyShaderOutput(*Output);
 		for (auto& [Id, Value] : CorruptHash.Values)
 			if (Id == ShaderValueId(0, false))
@@ -567,7 +567,7 @@ namespace Durin
 		ASSERT_TRUE(BadHash);
 		Rejected = ShaderSharedOutput::Assemble(Options, *BadHash);
 		ASSERT_FALSE(Rejected);
-		EXPECT_EQ(Rejected.error().Code, EShaderError::PayloadMslHashMismatch);
+		EXPECT_EQ(Rejected.Status, EShaderBuildStatus::Error); EXPECT_FALSE(Rejected.Diagnostic.empty());
 		auto CorruptMap = CopyShaderOutput(*Output);
 		for (auto& [Id, Value] : CorruptMap.Values)
 			if (Id == ShaderValueId(0, true))
@@ -580,7 +580,7 @@ namespace Durin
 		ASSERT_TRUE(BadMap);
 		Rejected = ShaderSharedOutput::Assemble(Options, *BadMap);
 		ASSERT_FALSE(Rejected);
-		EXPECT_EQ(Rejected.error().Code, EShaderError::PayloadBindingInvalid);
+		EXPECT_EQ(Rejected.Status, EShaderBuildStatus::Error); EXPECT_FALSE(Rejected.Diagnostic.empty());
 	}
 
 	TEST_F(FShaderDerivedDataTests, MetalCookedPayloadRoundTripsAndRejectsWrongTargetOrRemap)
@@ -653,18 +653,18 @@ namespace Durin
 		EXPECT_FALSE(ShaderSharedOutput::Assemble(OtherOptions, *Output));
 		auto RejectedRequest = ShaderSharedOutput::Make(OtherOptions, MakeOutput());
 		ASSERT_FALSE(RejectedRequest);
-		EXPECT_EQ(RejectedRequest.error().Code, EShaderError::PayloadOutputInvalid);
+		EXPECT_EQ(RejectedRequest.Status, EShaderBuildStatus::Error); EXPECT_FALSE(RejectedRequest.Diagnostic.empty());
 
 		auto WrongFormat = MakeOutput();
 		WrongFormat.CompiledShaders[0].CodeFormat = EShaderCodeFormat::Msl20Source;
 		auto RejectedFormat = ShaderSharedOutput::Make(Options, WrongFormat);
 		ASSERT_FALSE(RejectedFormat);
-		EXPECT_EQ(RejectedFormat.error().Code, EShaderError::PayloadOutputInvalid);
+		EXPECT_EQ(RejectedFormat.Status, EShaderBuildStatus::Error); EXPECT_FALSE(RejectedFormat.Diagnostic.empty());
 		auto WrongTarget = MakeOutput();
 		WrongTarget.CompiledShaders[0].Target = MetalShaderTarget;
 		auto RejectedTarget = ShaderSharedOutput::Make(Options, WrongTarget);
 		ASSERT_FALSE(RejectedTarget);
-		EXPECT_EQ(RejectedTarget.error().Code, EShaderError::PayloadOutputInvalid);
+		EXPECT_EQ(RejectedTarget.Status, EShaderBuildStatus::Error); EXPECT_FALSE(RejectedTarget.Diagnostic.empty());
 
 		auto Tampered = CopyShaderOutput(*Output);
 		FByteBuffer Metadata(Tampered.Metadata.begin(), Tampered.Metadata.end());
@@ -674,7 +674,7 @@ namespace Durin
 		auto WrongMetadata = std::move(Tampered).Build(); ASSERT_TRUE(WrongMetadata);
 		auto RejectedMetadata = ShaderSharedOutput::Assemble(Options, *WrongMetadata);
 		ASSERT_FALSE(RejectedMetadata);
-		EXPECT_EQ(RejectedMetadata.error().Code, EShaderError::PayloadHeaderInvalid);
+		EXPECT_EQ(RejectedMetadata.Status, EShaderBuildStatus::Error); EXPECT_FALSE(RejectedMetadata.Diagnostic.empty());
 	}
 
 	TEST_F(FShaderDerivedDataTests, SharedOutputRetainsRawAndCompressedRecordCodeWithoutPackageChanges)
@@ -735,9 +735,11 @@ namespace Durin
 		}
 		uint32 Checks = 0;
 		auto Cancelled = ShaderSharedOutput::Validate(Options, *Output, [&] { return ++Checks == 3; });
-		ASSERT_FALSE(Cancelled); EXPECT_EQ(Cancelled.error().Code, EShaderError::Cancelled);
-		EXPECT_FALSE(ShaderSharedOutput::Assemble(Options, *Output, [] { return true; }));
-		EXPECT_FALSE(ShaderSharedOutput::Make(Options, MakeOutput(), [] { return true; }));
+		ASSERT_FALSE(Cancelled); EXPECT_EQ(Cancelled.Status, EShaderBuildStatus::Canceled); EXPECT_TRUE(Cancelled.Diagnostic.empty());
+		const auto CanceledAssembly = ShaderSharedOutput::Assemble(Options, *Output, [] { return true; });
+		EXPECT_EQ(CanceledAssembly.Status, EShaderBuildStatus::Canceled); EXPECT_FALSE(CanceledAssembly.Value); EXPECT_TRUE(CanceledAssembly.Diagnostic.empty());
+		const auto CanceledOutput = ShaderSharedOutput::Make(Options, MakeOutput(), [] { return true; });
+		EXPECT_EQ(CanceledOutput.Status, EShaderBuildStatus::Canceled); EXPECT_FALSE(CanceledOutput.Value); EXPECT_TRUE(CanceledOutput.Diagnostic.empty());
 		for (uint32 Fault = 0; Fault < 4; ++Fault)
 		{
 			auto Product = MakeOutput();

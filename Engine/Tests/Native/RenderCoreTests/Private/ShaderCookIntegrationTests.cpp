@@ -23,7 +23,7 @@ namespace Durin
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
 		FShaderOperationResult Error;
-		FShaderOperationResult ShaderResult;
+		FShaderCompletion ShaderResult;
 		std::string MountError;
 		ASSERT_TRUE(FMountPaths::InitDefaultMountPoints(&MountError)) << MountError;
 		ASSERT_TRUE(FModuleManager::Get().LoadModule("RenderCore"));
@@ -36,7 +36,7 @@ namespace Durin
 
 		std::string CancelledIdentity = "stale";
 		const auto CancelledCapture = GetShaderCookInputIdentity(CancelledIdentity, [] { return true; });
-		EXPECT_EQ(CancelledCapture.error().Code, EShaderError::Cancelled);
+		EXPECT_EQ(CancelledCapture.Status, EShaderBuildStatus::Canceled);
 		EXPECT_TRUE(CancelledIdentity.empty());
 
 
@@ -56,16 +56,17 @@ namespace Durin
 			Options.bForceRecompile = true;
 			Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", Pass == 2 ? "1" : "0");
 			Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(0.4f)));
-			ASSERT_TRUE((ShaderResult = Compiled.InitializeFromShaderTypes(std::span(&FragmentTypes[Pass], 1), Options))) << FormatShaderError(ShaderResult.error());
+			ASSERT_TRUE((ShaderResult = Compiled.InitializeFromShaderTypes(std::span(&FragmentTypes[Pass], 1), Options))) << ShaderResult.Diagnostic;
 			MaterialStages[Pass].push_back(Compiled.GetCode()->GetCompiledShader(0));
 		}
 
+		FShaderCompletion CookCompletion;
 		Durin::FByteBuffer First;
 		Durin::FByteBuffer Second;
 		ASSERT_TRUE(([&] {
-			return (Error = BuildCookedShaderLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, First))
-				&& (Error = BuildCookedShaderLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, Second));
-		})()) << FormatShaderError(Error.error());
+			return (CookCompletion = BuildCookedShaderLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, First))
+				&& (CookCompletion = BuildCookedShaderLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, Second));
+		})()) << CookCompletion.Diagnostic;
 		EXPECT_EQ(First, Second);
 
 		std::vector<FShaderRuntimeRequest> Requests;
@@ -112,7 +113,7 @@ namespace Durin
 					.VertexFactoryType = *Factory,
 					.ShaderTypes = RuntimeTypes,
 					.FixedShaderRuntimeRequest = Request.Name,
-					.bCreateRHIShaders = false}, Map))) << Request.Name << ": " << FormatShaderError(ShaderResult.error());
+					.bCreateRHIShaders = false}, Map))) << Request.Name << ": " << ShaderResult.Diagnostic;
 				EXPECT_TRUE(Map);
 				const size_t Pass = static_cast<size_t>(Request.Name.back() - '0');
 				ASSERT_LT(Pass, 4u);
@@ -125,7 +126,7 @@ namespace Durin
 					.VertexFactoryType = *Factory, .MeshPassKey = static_cast<uint32>(Pass),
 					.ShaderTypes = ComposedTypes, .FixedShaderRuntimeRequest = Request.Name,
 					.GeneratedStages = MaterialStages[FragmentPass], .CompiledProgramIdentity = Program,
-					.CompiledTarget = "vulkan-spirv-1.5", .bCreateRHIShaders = false}, Map))) << Request.Name << ": " << FormatShaderError(ShaderResult.error());
+					.CompiledTarget = "vulkan-spirv-1.5", .bCreateRHIShaders = false}, Map))) << Request.Name << ": " << ShaderResult.Diagnostic;
 				if (Pass == 2)
 				{
 					const std::array<const FShaderType*, 2> OpaqueTypes{RuntimeTypes.front(), FragmentTypes[3]};
@@ -134,7 +135,7 @@ namespace Durin
 						.VertexFactoryType = *Factory, .MeshPassKey = 2,
 						.ShaderTypes = OpaqueTypes, .FixedShaderRuntimeRequest = Request.Name,
 						.FixedFragmentRuntimeRequest = "Surface.OpaqueShadow",
-						.bCreateRHIShaders = false}, Map))) << FormatShaderError(ShaderResult.error());
+						.bCreateRHIShaders = false}, Map))) << ShaderResult.Diagnostic;
 				}
 			}
 		}

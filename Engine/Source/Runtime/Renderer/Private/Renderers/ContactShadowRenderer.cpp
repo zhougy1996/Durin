@@ -177,16 +177,18 @@ namespace Durin
 				const std::array<const FGlobalShaderType*, 1> Types{
 					&FContactVisibilityComputeShader::StaticType()};
 				FPayload Candidate;
-				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"ContactVisibility.Compute", Types, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (!Candidate.ShaderSet)
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
 						"ContactVisibilityCompute", "shader",
 						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual));
+				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.ComputeShader =
 					TShaderMapRef<FContactVisibilityComputeShader>(Candidate.ShaderSet);
 				FRHIShader* ComputeRHI = Candidate.ComputeShader.GetRHIShader(false);
@@ -227,16 +229,18 @@ namespace Durin
 					&FContactVisibilityVertexShader::StaticType(),
 					&FContactVisibilityFragmentShader::StaticType()};
 				FPayload Candidate;
-				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"ContactVisibility.Fragment", Types, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (!Candidate.ShaderSet)
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
 						"ContactVisibility", "shader",
 						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual));
+				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.VertexShader =
 					TShaderMapRef<FContactVisibilityVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader =

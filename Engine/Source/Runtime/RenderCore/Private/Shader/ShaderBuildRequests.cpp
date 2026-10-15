@@ -2,6 +2,18 @@
 
 namespace Durin
 {
+	auto FormatShaderBuildAdmissionError(const FShaderBuildAdmissionError& Error) -> std::string
+	{
+		switch (Error.Reason)
+		{
+		case EShaderBuildAdmissionReason::Closed: return "Shader build admission is closed.";
+		case EShaderBuildAdmissionReason::Capacity: return "Shader build admission capacity was exceeded.";
+		case EShaderBuildAdmissionReason::DispatchRejected: return "Shader build task dispatch was rejected.";
+		case EShaderBuildAdmissionReason::InvalidRequest: return "Shader build request is invalid.";
+		}
+		return "Shader build admission failed.";
+	}
+
 	auto IShaderBuildModule::Get() -> IShaderBuildModule*
 	{
 #if DURIN_WITH_EDITOR
@@ -47,7 +59,7 @@ namespace Durin
 		return {};
 	}
 
-	auto GetShaderCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled) -> FShaderOperationResult
+	auto GetShaderCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled) -> FShaderCompletion
 	{
 		if (auto* Module = IShaderBuildModule::Get()) return Module->GetCookInputIdentity(OutIdentity, IsCancelled);
 		OutIdentity.clear();
@@ -58,7 +70,7 @@ namespace Durin
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		FByteBuffer& OutBytes,
-		const std::function<bool()>& IsCancelled) -> FShaderOperationResult
+		const std::function<bool()>& IsCancelled) -> FShaderCompletion
 	{
 		if (auto* Module = IShaderBuildModule::Get())
 			return Module->BuildCookedLibrary(TargetPlatform, TargetProfile, OutBytes, {}, IsCancelled);

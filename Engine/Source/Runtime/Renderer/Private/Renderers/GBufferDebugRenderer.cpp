@@ -106,10 +106,11 @@ namespace Durin
 					&FGBufferDebugVertexShader::StaticType(),
 					&FGBufferDebugFragmentShader::StaticType()};
 				FPayload Candidate;
-				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"GBufferDebug.Debug", Types, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (!Candidate.ShaderSet)
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (!ShaderSetCompletion)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
@@ -117,6 +118,7 @@ namespace Durin
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual));
 				}
+				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.VertexShader = TShaderMapRef<FGBufferDebugVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader = TShaderMapRef<FGBufferDebugFragmentShader>(Candidate.ShaderSet);
 

@@ -75,11 +75,6 @@ namespace Durin
 			.ExternalDiagnostic = std::string(Diagnostic.substr(0, 4096))};
 	}
 
-	auto FShaderError::FromBuildDiagnostic(std::string Description) -> FShaderError
-	{
-		if (Description.size() > 4096) Description.resize(4096);
-		return {.Code = EShaderError::BuildFailed, .ExternalDiagnostic = std::move(Description)};
-	}
 
 	auto FormatShaderError(const FShaderError& Error) -> std::string
 	{
@@ -133,8 +128,6 @@ namespace Durin
 			return std::format("Slang phase {} failed (status {}): {}", ShaderCompilerPhaseName(Error.CompilerPhase), Error.NativeStatus ? std::to_string(*Error.NativeStatus) : "unavailable", Error.ExternalDiagnostic);
 
 		case EShaderError::InventoryEmpty: return "Cooked Shader inventory is empty.";
-		case EShaderError::Cancelled: return "Shader operation cancelled.";
-		case EShaderError::BuildFailed: return Error.ExternalDiagnostic.empty() ? "Shader build failed." : Error.ExternalDiagnostic;
 		case EShaderError::BuildModuleUnavailable: return "ShaderBuild module is unavailable.";
 		case EShaderError::RequestRetirementFrozen: return "Shader request retirement is forbidden after inventory freeze.";
 		case EShaderError::RequestNullBuildType: return "Shader request contains a null build type.";

@@ -94,7 +94,6 @@ namespace Durin
 	};
 
 	// Build completion is independent of compiler diagnostics. Only Ok owns stages.
-	enum class EShaderBuildStatus : uint8 { Ok, Error, Canceled };
 	struct FShaderBuildResult
 	{
 		EShaderBuildStatus Status = EShaderBuildStatus::Error;
@@ -104,7 +103,7 @@ namespace Durin
 		explicit operator bool() const { return Status == EShaderBuildStatus::Ok; }
 		static auto Failure(std::string Text) -> FShaderBuildResult
 		{
-			if (Text.size() > 4096) Text.resize(4096);
+			if (Text.size() > ShaderBuildDiagnosticMaxBytes) Text.resize(ShaderBuildDiagnosticMaxBytes);
 			return {.Diagnostic = std::move(Text)};
 		}
 		static auto Success(FShaderCompilerOutput Output) -> FShaderBuildResult

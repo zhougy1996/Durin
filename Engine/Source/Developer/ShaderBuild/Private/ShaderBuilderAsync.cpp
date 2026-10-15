@@ -198,7 +198,7 @@ namespace Durin
 					{
 						auto Built = ShaderSharedOutput::Assemble(Flight->Prepared->Options, *Completion.GetOutput());
 						if (!Built && Query && HasBuildExecutionFlag(Completion.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit) && !Flight->Owner.IsCanceled()) { Self->SubmitFlight(Flight, Inline, false); return; }
-						Output = Built ? FShaderBuildResult::Success(std::move(*Built)) : FShaderBuildResult::Failure(FormatShaderError(Built.error()));
+						Output = Built ? FShaderBuildResult::Success(std::move(*Built)) : FShaderBuildResult{.Status = Built.Status, .Diagnostic = Built.Diagnostic};
 						if (Output && !Flight->Owner.IsCanceled()) Self->Builder->OutputCache.Store(Flight->Prepared->OutputKey, Output, *Completion.GetOutput());
 					}
 					else
@@ -208,8 +208,8 @@ namespace Durin
 							for (const auto& Message : Product->GetMessages())
 							{
 								if (!Diagnostic.empty()) Diagnostic += '\n';
-								Diagnostic.append(Message.Text, 0, 4096 - std::min<size_t>(Diagnostic.size(), 4096));
-								if (Diagnostic.size() >= 4096) break;
+								Diagnostic.append(Message.Text, 0, ShaderBuildDiagnosticMaxBytes - std::min(Diagnostic.size(), ShaderBuildDiagnosticMaxBytes));
+								if (Diagnostic.size() >= ShaderBuildDiagnosticMaxBytes) break;
 							}
 						Output = FShaderBuildResult::Failure(std::move(Diagnostic));
 					}
@@ -329,7 +329,7 @@ namespace Durin
 	{
 		FShaderBuildResult Output;
 		auto Submitted = SubmitGenerated(Request, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); });
-		if (!Submitted) return FShaderBuildResult::Failure(FormatShaderError({.Code = EShaderError::InvalidCompileRequest}));
+		if (!Submitted) return FShaderBuildResult::Failure(FormatShaderBuildAdmissionError(Submitted.error()));
 		require(Submitted->Wait() == EShaderBuildWaitResult::Completed);
 		return Output;
 	}

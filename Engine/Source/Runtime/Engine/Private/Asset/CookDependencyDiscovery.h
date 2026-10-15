@@ -54,7 +54,7 @@ namespace Durin::AssetPrivate
 		auto Fail(FCookInputFailure Cause) -> FCookInputResult;
 		auto Fail(const FCookInputResult& Result) -> FCookInputResult;
 		auto Fail(const FAssetReadResult& Result) -> FCookInputResult { return Fail(ToCookInputResult(Result)); }
-		auto Fail(const FCookContributionResult& Result) -> FCookInputResult { return Fail(FCookInputResult{ECookInputStatus::InvalidDependency, FormatCookContributionError(Result)}); }
+		auto Fail(const FCookContributionResult& Result) -> FCookInputResult { return Fail(Result.Status == ECookContributionStatus::Canceled ? FCookInputResult{ECookInputStatus::Cancelled} : FCookInputResult{ECookInputStatus::InvalidDependency, FormatCookContributionError(Result)}); }
 		const FCookRequest& Request;
 		FAssetRegistrySnapshot Registry;
 		FResolveContributor ResolveContributor;

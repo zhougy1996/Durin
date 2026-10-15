@@ -18,6 +18,7 @@ namespace Durin
 	auto FormatRenderResourceCreateError(const FRenderResourceCreateError& Error) -> std::string
 	{
 		if (const auto* Shader = std::get_if<FShaderError>(&Error.Cause)) return FormatShaderError(*Shader);
+		if (const auto* Text = std::get_if<std::string>(&Error.Cause)) return *Text;
 		switch (Error.Reason)
 		{
 		case ERenderResourceCreateErrorReason::Unspecified: return "Renderer resource creation failed.";

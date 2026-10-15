@@ -202,11 +202,13 @@ namespace Durin
 					&FSimpleSpriteFragmentShader::StaticType()};
 				if (bNeedsLine)
 				{
-					Candidate.LineShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					const auto LineShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 						"EditorAssistance.SimpleElement.Line", LineTypes, true,
 						ReportRendererResourceCreateDiagnostic);
-					if (Candidate.LineShaderSet)
+					if (LineShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FBaseResult::Canceled();
+					if (LineShaderSetCompletion)
 					{
+						Candidate.LineShaderSet = *LineShaderSetCompletion;
 						Candidate.LineVertexShader =
 							TShaderMapRef<FSimpleLineVertexShader>(Candidate.LineShaderSet);
 						Candidate.LineFragmentShader =
@@ -215,11 +217,13 @@ namespace Durin
 				}
 				if (bNeedsSprite)
 				{
-					Candidate.SpriteShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					const auto SpriteShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 						"EditorAssistance.SimpleElement.Sprite", SpriteTypes, true,
 						ReportRendererResourceCreateDiagnostic);
-					if (Candidate.SpriteShaderSet)
+					if (SpriteShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FBaseResult::Canceled();
+					if (SpriteShaderSetCompletion)
 					{
+						Candidate.SpriteShaderSet = *SpriteShaderSetCompletion;
 						Candidate.SpriteVertexShader =
 							TShaderMapRef<FSimpleSpriteVertexShader>(Candidate.SpriteShaderSet);
 						Candidate.SpriteFragmentShader =

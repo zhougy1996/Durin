@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Shader/ShaderDiagnostics.h"
 
 #include "DObject/Object.h"
 #include "Asset/BulkData.h"
@@ -170,7 +171,7 @@ namespace Durin
 		// Owner-thread detached preparation; never applies a result to this material.
 		ENGINE_API auto PrepareCookedProgram(ECookTargetPlatform Target,
 			std::span<const FMaterialCookConfiguration> Configurations, const FAssetBuildTaskContext& Control = {})
-			-> std::expected<FBulkData, std::string>;
+			-> TShaderValueResult<FBulkData>;
 
 		// Tests the canonical Parent chain without relying on reverse registration state.
 		ENGINE_API auto IsDependent(const DMaterialInterface* TestDependency) const -> bool;

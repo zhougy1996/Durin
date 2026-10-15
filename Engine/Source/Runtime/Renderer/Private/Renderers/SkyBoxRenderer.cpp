@@ -97,10 +97,11 @@ namespace Durin
 					&FSkyBoxVertexShader::StaticType(),
 					&FSkyBoxFragmentShader::StaticType()};
 				FPayload Candidate;
-				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"SkyBox.Default", ShaderTypes, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (!Candidate.ShaderSet)
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (!ShaderSetCompletion)
 				{
 					return FResult::Failure(
 						MakeRendererResourceCreateError(
@@ -113,6 +114,7 @@ namespace Durin
 						)
 					);
 				}
+				Candidate.ShaderSet = *ShaderSetCompletion;
 
 				Candidate.VertexShader = TShaderMapRef<FSkyBoxVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader = TShaderMapRef<FSkyBoxFragmentShader>(Candidate.ShaderSet);

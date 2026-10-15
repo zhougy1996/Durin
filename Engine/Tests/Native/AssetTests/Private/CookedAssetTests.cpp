@@ -565,6 +565,7 @@ TEST(FCookContributorTests, FamilyRejectionsOwnTargetAndNestedPlanContext)
 	EXPECT_TRUE(Rejected.ObjectPath.empty()); // Target admission precedes object preparation.
 	Path.clear();
 	EXPECT_EQ(Rejected.VirtualPath, "/Game/Rejected");
+	Rejected.Status = ECookContributionStatus::Error;
 	Rejected.Error = ECookContributionError::Plan;
 	Rejected.PlanCause = FCookPlanError{.Code = ECookPlanError::DuplicatePath,
 		.VirtualPath = Rejected.VirtualPath};
@@ -705,7 +706,7 @@ TEST(FCookContributorTests, AdmissionFailureDoesNotReusePreviousPreparationError
 	ASSERT_NE(NewObject<DObject>(Package, "Root"), nullptr);
 	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {"preparation-error", 1,
 		[](DObject&, std::string_view, FCookPreparationContext&) -> FCookContributionResult {
-			return {.Error = ECookContributionError::Preparation, .Diagnostic = "first failure"};
+			return {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::Preparation, .Diagnostic = "first failure"};
 		}});
 	ASSERT_TRUE(Registered);
 	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);

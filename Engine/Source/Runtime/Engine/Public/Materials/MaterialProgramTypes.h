@@ -493,6 +493,10 @@ namespace Durin
 		auto operator==(const FMaterialProgramDiagnostic&) const -> bool = default;
 	};
 
+	// Bounded presentation text; the source diagnostics retain their structured errors.
+	ENGINE_API auto FormatMaterialProgramDiagnostics(
+		std::span<const FMaterialProgramDiagnostic> Diagnostics, std::string_view Fallback = {}) -> std::string;
+
 	struct FMaterialProgramValidationResult
 	{
 		bool bSucceeded = false;

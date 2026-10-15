@@ -79,7 +79,8 @@ namespace Durin
         const auto* Caps=GDynamicRHI->RHIGetCapabilities();
         if (!Caps || !Caps->bSupportsSkyLighting) return false;
         const std::array<const FGlobalShaderType*,1> Types{&FSkyLightingShader::StaticType()};
-        State->ShaderSet=GetGlobalShaderMap().ResolveShaderSet("SkyLighting.Compute",Types,true,ReportRendererResourceCreateDiagnostic);
+        const auto Completion=GetGlobalShaderMap().ResolveShaderSet("SkyLighting.Compute",Types,true,ReportRendererResourceCreateDiagnostic);
+        State->ShaderSet=Completion.Value.value_or(FGlobalShaderSetRef{});
         if (!State->ShaderSet) return false;
         State->Shader=TShaderMapRef<FSkyLightingShader>(State->ShaderSet);
         auto* Shader=State->Shader.GetRHIShader(false);

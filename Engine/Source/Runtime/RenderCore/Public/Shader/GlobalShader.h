@@ -4,6 +4,7 @@
 
 #include "RenderResourceCreation.h"
 #include "Shader/Shader.h"
+#include "Shader/ShaderDiagnostics.h"
 #include "Shader/ShaderCookedLibrary.h"
 
 namespace Durin
@@ -207,7 +208,7 @@ namespace Durin
 			std::span<const FGlobalShaderType* const> ShaderTypes,
 			bool bCreateRHIShaders = true,
 			FGlobalShaderDiagnosticReporter ReportDiagnostic = {})
-			-> FGlobalShaderSetRef;
+			-> TShaderValueResult<FGlobalShaderSetRef>;
 		RENDERCORE_API auto SetGeneration_RenderThread(
 			const FRenderResourceGeneration& InGeneration,
 			bool bForceShaderRecompile) -> void;

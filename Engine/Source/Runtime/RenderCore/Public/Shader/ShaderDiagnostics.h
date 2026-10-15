@@ -61,9 +61,7 @@ namespace Durin
 		SlangFailure,
 
 		InventoryEmpty,
-		Cancelled,
 		BuildModuleUnavailable,
-		BuildFailed,
 		RequestRetirementFrozen,
 		RequestNullBuildType,
 		RequestRegistrationFrozen,
@@ -180,8 +178,6 @@ namespace Durin
 		// Display-only compiler or build-boundary text; never classify this text.
 		std::string ExternalDiagnostic;
 
-		// Adapter for runtime APIs that still return typed validation errors.
-		RENDERCORE_API static auto FromBuildDiagnostic(std::string Description) -> FShaderError;
 
 		// In-process diagnostic identity; excludes external wording, not a persistent cache key.
 		RENDERCORE_API auto GetSemanticFingerprint() const -> size_t;
@@ -202,4 +198,37 @@ namespace Durin
 
 
 	RENDERCORE_API auto FormatShaderError(const FShaderError& Error) -> std::string;
+
+	inline constexpr size_t ShaderBuildDiagnosticMaxBytes = 4096;
+	enum class EShaderBuildStatus : uint8 { Ok, Error, Canceled };
+	// Orchestration completion. Typed validation errors are formatted only here.
+	struct FShaderCompletion
+	{
+		EShaderBuildStatus Status = EShaderBuildStatus::Ok;
+		std::string Diagnostic;
+		FShaderCompletion() = default;
+		FShaderCompletion(EShaderBuildStatus InStatus, std::string Text = {})
+			: Status(InStatus), Diagnostic(InStatus == EShaderBuildStatus::Error ? Text.substr(0, ShaderBuildDiagnosticMaxBytes) : std::string{}) {}
+		FShaderCompletion(const std::unexpected<FShaderError>& Error)
+			: FShaderCompletion(EShaderBuildStatus::Error, FormatShaderError(Error.error())) {}
+		FShaderCompletion(const FShaderOperationResult& Result)
+			: FShaderCompletion(Result ? FShaderCompletion{} : FShaderCompletion(std::unexpected(Result.error()))) {}
+		explicit operator bool() const { return Status == EShaderBuildStatus::Ok; }
+		static auto Canceled() -> FShaderCompletion { return {EShaderBuildStatus::Canceled}; }
+		static auto Failure(std::string Text) -> FShaderCompletion { return {EShaderBuildStatus::Error, std::move(Text)}; }
+	};
+
+	template<class T>
+	struct TShaderValueResult : FShaderCompletion
+	{
+		std::optional<T> Value;
+		TShaderValueResult() : FShaderCompletion(EShaderBuildStatus::Error) {}
+		TShaderValueResult(T Product) : Value(std::move(Product)) {}
+		TShaderValueResult(FShaderCompletion Completion) : FShaderCompletion(std::move(Completion)) { require(Status != EShaderBuildStatus::Ok); }
+		TShaderValueResult(const std::unexpected<FShaderError>& Error) : FShaderCompletion(Error) {}
+		auto operator*() -> T& { return *Value; }
+		auto operator*() const -> const T& { return *Value; }
+		auto operator->() -> T* { return &*Value; }
+		auto operator->() const -> const T* { return &*Value; }
+	};
 }

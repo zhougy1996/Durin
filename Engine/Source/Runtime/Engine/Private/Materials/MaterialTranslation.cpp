@@ -29,7 +29,8 @@ namespace Durin::MaterialBuildPrivate
 			auto Resolve(std::span<const FBuildInputReference> Inputs, const FBuildCancellation& Cancellation) const -> std::expected<std::vector<FBuildInput>, FBuildInputError> override
 			{
 				++Resolutions;
-				if (Cancellation.IsCancelled() || Inputs.size() != 1 || Inputs.front() != InputReference(Identity) || FXxHash128::HashBuffer(Bytes.GetBytes()) != Identity)
+				if (Cancellation.IsCancelled()) return std::vector<FBuildInput>{};
+				if (Inputs.size() != 1 || Inputs.front() != InputReference(Identity) || FXxHash128::HashBuffer(Bytes.GetBytes()) != Identity)
 					return std::unexpected(FBuildInputError{"Invalid captured material input."});
 				return std::vector<FBuildInput>{{.Identity = Inputs.front(), .Values = {{"MIR", Bytes}}}};
 			}
@@ -51,7 +52,7 @@ namespace Durin::MaterialBuildPrivate
 					return Context.FailExecution("Material translation input identity is invalid.");
 				auto Decoded = DecodeTranslationInput(Input->Values.front().Data.GetBytes());
 				if (!Decoded) return Context.FailExecution("Material translation input encoding is invalid.");
-				if (Context.IsCancelled()) return Context.FailExecution("Material translation was canceled.");
+				if (Context.IsCancelled()) return;
 				++Producers; if (GIsGameThreadIdInitialized && IsInGameThread()) ++GameThreadProducers;
 				const auto Begin = std::chrono::steady_clock::now();
 				auto Product = TranslatePreparedMaterialProgram(PrepareMaterialProgram(*Decoded));
@@ -161,7 +162,7 @@ namespace Durin::MaterialBuildPrivate
 		FMaterialTranslatedProgram Product; FRequestOwner Owner;
 		auto Admitted = SubmitValidatedTranslation(std::make_shared<const MIR::FCompilerInput>(Input), Force, Owner,
 			[&](auto Value) { Product = std::move(Value); }, {}, true, std::move(Encoded), EBuildCacheExecution::Inline);
-		if (!Admitted) return Failure(EMaterialCompileError::ShaderEnvironmentUnavailable);
+		if (!Admitted) return Failure(FMaterialError::FromExternal(EMaterialCompileError::AdmissionRejected, Admitted.error().Description));
 		require(Owner.Wait() == ERequestWaitResult::Completed);
 		return Product;
 	}
@@ -181,9 +182,21 @@ namespace Durin::MaterialBuildPrivate
 						// Retry ownership joins the same owner; only the final typed callback is delivered.
 						auto Retried = SubmitValidatedTranslation(Input, Force, Owner, Completion, Cancellation, false, Encoded, Execution);
 						if (Retried) return;
+						return Completion(Failure(FMaterialError::FromExternal(EMaterialCompileError::AdmissionRejected, Retried.error().Description)));
 					}
 				}
-				Completion(Failure(Result.GetStatus() == EStatus::Canceled ? FMaterialError(EMaterialCompileError::CompilationCanceled) : FMaterialError(EMaterialIRError::InvalidStructure)));
+				if (Result.GetStatus() == EStatus::Canceled) return Completion({.Status = EMaterialProgramStatus::Canceled});
+				std::string Diagnostic(Result.GetDiagnostic());
+				Diagnostic.resize(std::min<size_t>(Diagnostic.size(), MaterialProgramMaxDiagnosticMessageBytes));
+				if (const auto* Output = Result.GetOutput())
+					for (const auto& Message : Output->GetMessages())
+					{
+						if (Diagnostic.size() >= MaterialProgramMaxDiagnosticMessageBytes) break;
+						if (!Diagnostic.empty()) Diagnostic += '\n';
+						Diagnostic.append(Message.Text, 0, MaterialProgramMaxDiagnosticMessageBytes - Diagnostic.size());
+					}
+				Completion(Failure(Diagnostic.empty() ? FMaterialError(EMaterialIRError::InvalidStructure)
+					: FMaterialError::FromExternal(EMaterialCompileError::ShaderCompilerFailed, std::move(Diagnostic))));
 			}, {}, Options(Request->Resolver, Force, Cancellation, Query));
 	}
 	auto SubmitTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner,

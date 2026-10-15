@@ -112,11 +112,11 @@ namespace Durin
 		const std::array<const FGlobalShaderType*, 2> ShaderTypes = {
 			&FEditorGridVertexShader::StaticType(),
 			&FEditorGridFragmentShader::StaticType()};
-		FGlobalShaderSetRef ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+		const auto Completion = GetGlobalShaderMap().ResolveShaderSet(
 			"EditorAssistance.EditorGrid", ShaderTypes, true,
 			ReportRendererResourceCreateDiagnostic);
-		if (!ShaderSet)
-			return;
+		if (!Completion) return;
+		const auto& ShaderSet = *Completion;
 		TShaderMapRef<FEditorGridVertexShader> VertexShader(ShaderSet);
 		TShaderMapRef<FEditorGridFragmentShader> FragmentShader(ShaderSet);
 

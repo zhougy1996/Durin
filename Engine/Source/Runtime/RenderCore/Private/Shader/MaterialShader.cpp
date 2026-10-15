@@ -250,7 +250,7 @@ namespace Durin
 
 	auto FMaterialShaderMap::TryCompile(
 		FMaterialShaderMapCompileInput Input,
-		FMaterialShaderMap& OutMap) -> FShaderOperationResult
+		FMaterialShaderMap& OutMap) -> FShaderCompletion
 	{
 		FShaderOperationResult Result;
 		OutMap = {};
@@ -319,7 +319,7 @@ namespace Durin
 					return CookedError;
 				if (!(Result = Map->Initialize(Group, Output, Options))) return Result;
 			}
-			else if (!(Result = Map->InitializeFromShaderTypes(Group, Options))) return Result;
+			else if (auto Completion = Map->InitializeFromShaderTypes(Group, Options); !Completion) return Completion;
 			FixedMaps.push_back(std::move(Map));
 		}
 

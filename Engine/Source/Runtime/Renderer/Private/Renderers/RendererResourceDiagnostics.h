@@ -15,7 +15,7 @@ namespace Durin
 
 	inline auto MakeRendererResourceCreateError(
 		ERenderResourceCreateErrorCategory Category,
-		std::string Context, std::string Identity, FShaderError Cause,
+		std::string Context, std::string Identity, FRenderResourceCreateCause Cause,
 		ERenderResourceGenerationDependency RetryDependencies) -> FRenderResourceCreateError
 	{
 		return MakeRendererResourceCreateError(Category, std::move(Context), std::move(Identity),

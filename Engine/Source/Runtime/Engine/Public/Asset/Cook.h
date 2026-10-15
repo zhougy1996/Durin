@@ -205,7 +205,7 @@ namespace Durin
 
 	enum class ECookInputError : uint8
 	{
-		None, Cancelled, WriteConflict, FileIo, ByteLimit, PackageLimit, UnknownPackage,
+		None, ShaderInput, Cancelled, WriteConflict, FileIo, ByteLimit, PackageLimit, UnknownPackage,
 		UndeclaredInput, NoReader, DeclarationCount, DeclarationName, DuplicateDeclaration,
 		PackageDeclaration, ExternalDeclaration, ValueDeclaration, ValueStorage, ReservedKind,
 		BulkIdentity, SchemaClass, SchemaDepth, SchemaFields, SchemaField, SchemaType, SchemaEncoding,
@@ -229,6 +229,7 @@ namespace Durin
 		uint64 Expected = 0;
 		FXxHash128 ExpectedDigest;
 		FXxHash128 ActualDigest;
+		std::string ShaderDiagnostic;
 		ENGINE_API auto ToInputResult() const -> FCookInputResult;
 	};
 	ENGINE_API auto FormatCookInputError(const FCookInputFailure& Failure) -> std::string;
@@ -300,7 +301,7 @@ namespace Durin
 		std::shared_ptr<const FCookOutputRootResult> OutputRootCause;
 		std::shared_ptr<const FProjectGameSettingsResult> SettingsCause;
 		std::shared_ptr<const FObjectPathError> DefaultLevelCause;
-		std::shared_ptr<const FShaderError> ShaderCause;
+		std::string ShaderDiagnostic;
 		std::shared_ptr<const FCookCaptureResult> CaptureCause;
 		std::shared_ptr<const FCookContributionResult> ContributionCause;
 		FPackagePath ContributionPackage;
@@ -501,8 +502,10 @@ namespace Durin
 		None, Target, PlatformData, Contract, UnsupportedClass, Plan,
 		SourceMutation, RecipeProvider, ShaderInputs, Preparation, EmptyRuntimeRoot
 	};
+	enum class ECookContributionStatus : uint8 { Ok, Error, Canceled };
 	struct FCookContributionResult
 	{
+		ECookContributionStatus Status = ECookContributionStatus::Ok;
 		ECookContributionError Error = ECookContributionError::None;
 		std::string ObjectPath;
 		std::string VirtualPath;
@@ -512,7 +515,7 @@ namespace Durin
 		std::string ActualClass;
 		std::string Provider;
 		std::string Diagnostic;
-		explicit operator bool() const { return Error == ECookContributionError::None; }
+		explicit operator bool() const { return Status == ECookContributionStatus::Ok; }
 	};
 	ENGINE_API auto FormatCookContributionError(const FCookContributionResult& Result) -> std::string;
 

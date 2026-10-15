@@ -36,9 +36,10 @@ namespace Durin
 		EShaderTargetProfile TargetProfile,
 		FByteBuffer& OutBytes,
 		std::shared_ptr<const FShaderSourceArtifacts> Artifacts,
-		const std::function<bool()>& IsCancelled) -> FShaderOperationResult
+		const std::function<bool()>& IsCancelled) -> FShaderCompletion
 	{
 		OutBytes.clear();
+		if (IsCancelled && IsCancelled()) return FShaderCompletion::Canceled();
 		const auto Platform = ToCookTargetPlatform(TargetPlatform);
 		const auto Profile = TargetProfile == EShaderTargetProfile::Game ? ECookTargetProfile::Game
 			: TargetProfile == EShaderTargetProfile::EditorValidation ? ECookTargetProfile::EditorValidation : ECookTargetProfile::Invalid;
@@ -53,7 +54,7 @@ namespace Durin
 		Records.reserve(Inventory.size());
 		for (const FShaderRuntimeRequest& Request : Inventory)
 		{
-			if (IsCancelled && IsCancelled()) { return std::unexpected(FShaderError{.Code = EShaderError::Cancelled}); }
+			if (IsCancelled && IsCancelled()) { return FShaderCompletion::Canceled(); }
 			std::vector<const FShaderType*> Types;
 			if (auto Result = GetShaderRuntimeRequestBuildTypes(Request, Types); !Result)
 				return Result;
@@ -66,10 +67,7 @@ namespace Durin
 				Options.VirtualShaderPath, Options);
 			if (!Output)
 			{
-				auto Error = Output.Status == EShaderBuildStatus::Canceled ? FShaderError{.Code = EShaderError::Cancelled}
-					: FShaderError::FromBuildDiagnostic(Output.Diagnostic);
-				Error.ActualIdentity = Request.Name;
-				return std::unexpected(std::move(Error));
+				return {Output.Status, Output.Diagnostic};
 			}
 			FXxHash128 RuntimeIdentity;
 			if (auto Result = BuildShaderRuntimeRequestIdentity(Request, RuntimeIdentity); !Result) return Result;
@@ -89,6 +87,11 @@ namespace Durin
 				Production.UpdateValue(Shader.CodeHash);
 			Records.push_back({Request, Production.Finalize(), FShaderCompilerOutput{.CompiledShaders = std::move(Output.CompiledShaders), .Error = {}}});
 		}
-		return EncodeShaderCookedLibrary(TargetPlatform, TargetProfile, Records, OutBytes);
+		FByteBuffer Candidate;
+		const auto Encoded = EncodeShaderCookedLibrary(TargetPlatform, TargetProfile, Records, Candidate);
+		if (IsCancelled && IsCancelled()) return FShaderCompletion::Canceled();
+		if (!Encoded) return Encoded;
+		OutBytes = std::move(Candidate);
+		return {};
 	}
 }

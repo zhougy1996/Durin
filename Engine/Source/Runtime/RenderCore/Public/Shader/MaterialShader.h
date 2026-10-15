@@ -199,7 +199,7 @@ namespace Durin
 		explicit operator bool() const { return Payload != nullptr; }
 
 		RENDERCORE_API static auto TryCreate(FMaterialShaderMapBuildInput Input, FMaterialShaderMap& OutMap) -> FShaderOperationResult;
-		RENDERCORE_API static auto TryCompile(FMaterialShaderMapCompileInput Input, FMaterialShaderMap& OutMap) -> FShaderOperationResult;
+		RENDERCORE_API static auto TryCompile(FMaterialShaderMapCompileInput Input, FMaterialShaderMap& OutMap) -> FShaderCompletion;
 
 		RENDERCORE_API auto GetIdentity() const
 			-> const FMaterialShaderMapIdentity&;

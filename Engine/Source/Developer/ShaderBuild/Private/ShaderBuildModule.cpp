@@ -68,7 +68,7 @@ namespace Durin
 			return Builder->BuildSourceTreeFingerprint(VirtualShaderPath, Options, OutFingerprint);
 		}
 
-		auto GetCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled) -> FShaderOperationResult override
+		auto GetCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled) -> FShaderCompletion override
 		{ return BuildCookShaderInputIdentity(*Builder, OutIdentity, IsCancelled); }
 
 		auto GetStats() const -> FShaderBuildStats override
@@ -81,7 +81,7 @@ namespace Durin
 			EShaderTargetProfile TargetProfile,
 			FByteBuffer& OutBytes,
 			std::shared_ptr<const FShaderSourceArtifacts> Artifacts,
-			const std::function<bool()>& IsCancelled) -> FShaderOperationResult override
+			const std::function<bool()>& IsCancelled) -> FShaderCompletion override
 		{
 			return ProduceCookedShaderLibrary(
 				*Builder, TargetPlatform, TargetProfile, OutBytes, std::move(Artifacts), IsCancelled);

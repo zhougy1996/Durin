@@ -120,7 +120,9 @@ namespace Durin::MaterialBuildPrivate
 			template<class T> auto Product(T& Product, FXxHash128& InputIdentity, std::optional<FXxHash128> Semantic = {}) -> void
 			{
 				uint32 Version = TranslationSchema; Value(Version); Good &= Version == TranslationSchema;
-				Value(InputIdentity); Value(Product.bSucceeded); auto& Result = Product;
+				Value(InputIdentity); bool Succeeded = Product.Status == EMaterialProgramStatus::Ok; Value(Succeeded);
+				if constexpr (Reading) Product.Status = Succeeded ? EMaterialProgramStatus::Ok : EMaterialProgramStatus::Error;
+				auto& Result = Product;
 				IR(Result.IR); Parameters(Result.ActiveParameters); Collections(Result.ActiveCollections); Layout(Result.Layout); Properties(Product.StaticProperties); Limits(Product.ResourceLimits);
 				String(Result.GeneratedSource, 1024 * 1024); Sequence(Product.Sources, MaterialFunctionMaxExpandedNodes, [&](auto& Location) { Source(Location.Source); });
 				auto& Q = Result.Requirements;
@@ -203,6 +205,7 @@ namespace Durin::MaterialBuildPrivate
 	}
 	auto EncodeTranslationProduct(const FMaterialTranslatedProgram& Product, FXxHash128 Identity) -> std::optional<FSharedByteBuffer>
 	{
+		if (Product.Status == EMaterialProgramStatus::Canceled) return {};
 		const auto Digest = Product ? SemanticIdentity(Product).Digest : Product.Identity.Digest;
 		FBinaryWriter Writer({.MaximumTotalBytes = TranslationOutputBytes}); FTransfer<false> Transfer{.Writer = &Writer}; Transfer.Product(Product, Identity, Digest);
 		if (!Transfer.Valid()) return {}; return FSharedByteBuffer::Take(Writer.TakeBytes());

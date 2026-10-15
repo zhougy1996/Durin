@@ -16,16 +16,17 @@ namespace Durin
 		constexpr size_t ReadChunkBytes = 4 * 1024 * 1024;
 
 		auto CaptureLimitFailure(EShaderError Code, EShaderCaptureLimit Kind,
-			uint64 Maximum, uint64 Actual, std::string_view Path = {}) -> FShaderOperationResult
+			uint64 Maximum, uint64 Actual, std::string_view Path = {}) -> FShaderCompletion
 		{
 			return std::unexpected(FShaderError{.Code = Code, .ActualIdentity = std::string(Path),
 				.CaptureLimit = FShaderCaptureLimitContext{Kind, Maximum, Actual}});
 		}
 	}
 
-	auto BuildCookShaderInputIdentity(FShaderBuilder& Builder, std::string& OutIdentity, const std::function<bool()>& IsCancelled) -> FShaderOperationResult
+	auto BuildCookShaderInputIdentity(FShaderBuilder& Builder, std::string& OutIdentity, const std::function<bool()>& IsCancelled) -> FShaderCompletion
 	{
 		OutIdentity.clear();
+		if (IsCancelled && IsCancelled()) return FShaderCompletion::Canceled();
 		const auto Mounts = FShaderPaths::GetRegisteredMountPoints();
 		if (Mounts.size() > MaximumMounts)
 			return CaptureLimitFailure(EShaderError::CaptureMountLimit,
@@ -44,7 +45,7 @@ namespace Durin
 			if (Error) { return std::unexpected(FShaderError::FromFileSystem(FailurePath, Error)); }
 			for (; It != End; It.increment(Error))
 			{
-				if (IsCancelled && IsCancelled()) { return std::unexpected(FShaderError{.Code = EShaderError::Cancelled}); }
+				if (IsCancelled && IsCancelled()) { return FShaderCompletion::Canceled(); }
 				if (++Entries > MaximumDirectoryEntries)
 					return CaptureLimitFailure(EShaderError::CaptureDirectoryLimit,
 						EShaderCaptureLimit::DirectoryEntries, MaximumDirectoryEntries, Entries, Root.generic_string());
@@ -78,7 +79,7 @@ namespace Durin
 				FByteBuffer Bytes(static_cast<size_t>(Size));
 				for (size_t Offset = 0; Offset < Bytes.size(); Offset += ReadChunkBytes)
 				{
-					if (IsCancelled && IsCancelled()) { return std::unexpected(FShaderError{.Code = EShaderError::Cancelled}); }
+					if (IsCancelled && IsCancelled()) { return FShaderCompletion::Canceled(); }
 					if (auto Read = (*File)->ReadAt(Offset, std::span(Bytes).subspan(Offset, std::min(ReadChunkBytes, Bytes.size() - Offset))); !Read)
 					{ return std::unexpected(FShaderError{.Code = EShaderError::FileReadFailure, .FileError = Read.error()}); }
 				}
@@ -106,6 +107,7 @@ namespace Durin
 			Identity.WriteString(Name); Identity.WriteHash128(Digest);
 		}
 		const auto Digest = FXxHash128::HashBuffer(Identity.GetBytes());
+		if (IsCancelled && IsCancelled()) return FShaderCompletion::Canceled();
 		OutIdentity = std::format("{:016x}{:016x}", Digest.HashHigh, Digest.HashLow);
 		return {};
 	}

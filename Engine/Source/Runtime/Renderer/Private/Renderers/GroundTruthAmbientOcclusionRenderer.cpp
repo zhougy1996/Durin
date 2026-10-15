@@ -197,10 +197,11 @@ namespace Durin
 					&FGTAOHalfFilterFragmentShader::StaticType(),
 					&FGTAOResolveFragmentShader::StaticType()};
 				FPayload Candidate;
-				Candidate.RawShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+				const auto RawShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"GroundTruthAmbientOcclusion.Raw", RawTypes, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (!Candidate.RawShaderSet)
+				if (RawShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (!RawShaderSetCompletion)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
@@ -209,10 +210,12 @@ namespace Durin
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual));
 				}
-				Candidate.FilterShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+				Candidate.RawShaderSet = *RawShaderSetCompletion;
+				const auto FilterShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"GroundTruthAmbientOcclusion.Filter", FilterTypes, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (!Candidate.FilterShaderSet)
+				if (FilterShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (!FilterShaderSetCompletion)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
@@ -221,6 +224,7 @@ namespace Durin
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual));
 				}
+				Candidate.FilterShaderSet = *FilterShaderSetCompletion;
 				Candidate.RawVertexShader = TShaderMapRef<FGTAOVertexShader>(Candidate.RawShaderSet);
 				Candidate.FilterVertexShader = TShaderMapRef<FGTAOVertexShader>(Candidate.FilterShaderSet);
 				Candidate.FragmentShader = TShaderMapRef<FGTAORawFragmentShader>(Candidate.RawShaderSet);

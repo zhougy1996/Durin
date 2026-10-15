@@ -8,6 +8,21 @@
 
 namespace Durin
 {
+	auto FormatMaterialProgramDiagnostics(std::span<const FMaterialProgramDiagnostic> Diagnostics,
+		std::string_view Fallback) -> std::string
+	{
+		constexpr size_t MaximumBytes = 4096;
+		std::string Text;
+		for (const auto& Diagnostic : Diagnostics)
+		{
+			if (Text.size() >= MaximumBytes) break;
+			const auto Message = FormatMaterialError(Diagnostic.Error);
+			if (Message.empty()) continue;
+			if (!Text.empty()) Text += '\n';
+			Text.append(Message, 0, MaximumBytes - Text.size());
+		}
+		return Text.empty() ? std::string(Fallback.substr(0, MaximumBytes)) : Text;
+	}
 
 	FMaterialError::FMaterialError(const FMaterialLayoutValidationResult& Validation)
 		: Code(Validation.Error), Index(Validation.FieldIndex), ParameterId(Validation.ParameterId) {}
@@ -283,7 +298,6 @@ namespace Durin
 				switch (Code)
 				{
 				case EMaterialCompileError::CompiledMaterialResultExceedsRetainedResultByteLimit: return "Compiled material result exceeds the retained-result byte limit.";
-				case EMaterialCompileError::CompilationCanceled: return "Material compilation was canceled.";
 				case EMaterialCompileError::AdmissionRejected: return "Material compile admission was rejected.";
 				case EMaterialCompileError::NoAuthoredProgram: return "Material has no authored program.";
 				case EMaterialCompileError::ShaderCompilerFailed: return "Material compiler provider failed.";

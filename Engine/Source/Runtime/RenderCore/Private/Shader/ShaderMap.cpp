@@ -496,7 +496,7 @@ namespace Durin
 
 	auto FShaderMapBase::InitializeFromShaderTypes(
 		std::span<const FShaderType* const> ShaderTypes,
-		const FShaderCompileOptions& CompileOptions) -> FShaderOperationResult
+		const FShaderCompileOptions& CompileOptions) -> FShaderCompletion
 	{
 		FShaderOperationResult Result;
 		FShaderCompileOptions EffectiveCompileOptions;
@@ -516,7 +516,7 @@ namespace Durin
 		if (!Output)
 		{
 			Reset();
-			return std::unexpected(Output.Status == EShaderBuildStatus::Canceled ? FShaderError{.Code = EShaderError::Cancelled} : FShaderError::FromBuildDiagnostic(Output.Diagnostic));
+			return {Output.Status, Output.Diagnostic};
 		}
 
 		return Initialize(ShaderTypes, FShaderCompilerOutput{.CompiledShaders = std::move(Output.CompiledShaders), .Error = {}}, EffectiveCompileOptions);

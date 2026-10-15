@@ -2,6 +2,7 @@
 #include "Renderers/StaticMeshDrawExecution.h"
 #include "Renderers/MaterialBindingResolution.h"
 #include "Shader/ShaderCookedLibrary.h"
+#include "Logging/Logger.h"
 
 namespace Durin
 {
@@ -114,9 +115,11 @@ namespace Durin
 				Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", std::to_string(static_cast<uint8>(Identity.BlendMode)));
 				Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", std::to_string(static_cast<uint8>(Identity.ShadingModel)));
 				Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(Identity.OpacityMaskThreshold)));
-				if (!InitializeMaterialShaderMap(*Factory->GetShaderType(MaterialMeshPassForward), FHitProxyFragmentShader::StaticType(),
+				const auto ShaderCompletion = InitializeMaterialShaderMap(*Factory->GetShaderType(MaterialMeshPassForward), FHitProxyFragmentShader::StaticType(),
 					Factory->GetType(), MaterialMeshPassForward, Identity, Coordinator.GetGeneration_RenderThread(),
-					Draw.Command->Material.CompiledProgram.get(), Options, Item.ShaderMap)) { bReady = false; break; }
+					Draw.Command->Material.CompiledProgram.get(), Options, Item.ShaderMap);
+				if (ShaderCompletion.Status == EShaderBuildStatus::Canceled) { Request.Readback->Cancel(); bReady = false; break; }
+				if (!ShaderCompletion) { DURIN_ERROR("Hit proxy material shader failed: {}", ShaderCompletion.Diagnostic); bReady = false; break; }
 				Item.Vertex = Factory->Resolve(Item.ShaderMap, MaterialMeshPassForward);
 				Item.Fragment = TMaterialShaderRef<FHitProxyFragmentShader>(Item.ShaderMap);
 				if (!Item.Vertex || !Item.Vertex->GetRHIShader(false) || !Item.Fragment.GetRHIShader(false)) { bReady = false; break; }
@@ -179,8 +182,10 @@ namespace Durin
 		if (!Request.Overlays.empty())
 		{
 			const std::array<const FGlobalShaderType*, 2> Types{&FHitProxyOverlayVertexShader::StaticType(), &FHitProxyOverlayFragmentShader::StaticType()};
-			OverlayShaders = GetGlobalShaderMap().ResolveShaderSet("HitProxy.Overlay", Types, true, ReportRendererResourceCreateDiagnostic);
-			if (!OverlayShaders) { Fail(); return; }
+			const auto ShaderCompletion = GetGlobalShaderMap().ResolveShaderSet("HitProxy.Overlay", Types, true, ReportRendererResourceCreateDiagnostic);
+			if (ShaderCompletion.Status == EShaderBuildStatus::Canceled) { Request.Readback->Cancel(); return; }
+			if (!ShaderCompletion) { Fail(); return; }
+			OverlayShaders = *ShaderCompletion;
 			TShaderMapRef<FHitProxyOverlayVertexShader> Vertex(OverlayShaders);
 			OverlayFragment = TShaderMapRef<FHitProxyOverlayFragmentShader>(OverlayShaders);
 			FVertexDeclarationElementList Elements{};

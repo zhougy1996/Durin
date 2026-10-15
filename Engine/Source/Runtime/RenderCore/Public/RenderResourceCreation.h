@@ -123,7 +123,7 @@ namespace Durin
 				&& Earlier.Manual != Later.Manual);
 	}
 
-	using FRenderResourceCreateCause = std::variant<std::monostate, FShaderError>;
+	using FRenderResourceCreateCause = std::variant<std::monostate, FShaderError, std::string>;
 
 	struct FRenderResourceCreateError
 	{
@@ -149,6 +149,7 @@ namespace Durin
 		Pending,
 		Ready,
 		Failed,
+		Canceled,
 	};
 
 	enum class ERenderResourceCreateDiagnosticKind : uint8
@@ -183,6 +184,8 @@ namespace Durin
 			return Result;
 		}
 
+		static auto Canceled() -> TRenderResourceCreateResult { TRenderResourceCreateResult Result; Result.bCanceled = true; return Result; }
+		auto IsCanceled() const -> bool { return bCanceled; }
 		auto HasPayload() const -> bool { return Payload.has_value(); }
 		auto TakePayload() -> PayloadType { return std::move(*Payload); }
 		auto TakeError() -> FRenderResourceCreateError
@@ -191,6 +194,7 @@ namespace Durin
 		}
 
 	private:
+		bool bCanceled = false;
 		std::optional<PayloadType> Payload;
 		std::optional<FRenderResourceCreateError> Error;
 	};
@@ -240,6 +244,7 @@ namespace Durin
 				return nullptr;
 			}
 			PipelineRequests.Reset();
+			if (Result.IsCanceled()) { bHasAttempt = false; Failure.reset(); FailureFingerprint.reset(); bFailureReported = false; Availability = ERenderResourceAvailability::Canceled; return nullptr; }
 			bHasAttempt = true;
 			AttemptedGeneration = Generation;
 			if (Result.HasPayload())

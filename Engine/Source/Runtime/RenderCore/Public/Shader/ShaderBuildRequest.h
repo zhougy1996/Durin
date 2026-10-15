@@ -11,6 +11,7 @@ namespace Durin
 	{
 		EShaderBuildAdmissionReason Reason = EShaderBuildAdmissionReason::InvalidRequest;
 	};
+	RENDERCORE_API auto FormatShaderBuildAdmissionError(const FShaderBuildAdmissionError& Error) -> std::string;
 	struct FShaderBuildRequestOptions
 	{
 		EShaderBuildPriority Priority = EShaderBuildPriority::Normal;

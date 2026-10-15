@@ -126,6 +126,21 @@ namespace Durin
 			};
 		}
 
+		TEST(FRenderResourceCreationTests, CancellationDoesNotReportFailureOrSuppressRetry)
+		{
+			FSlot Slot;
+			FRenderResourceGeneration Generation;
+			uint32 Diagnostics = 0;
+			auto Report = [&](const FRenderResourceCreateDiagnostic&) { ++Diagnostics; };
+			EXPECT_EQ(Slot.Resolve(Generation, [] { return FResult::Canceled(); }, Report), nullptr);
+			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Canceled);
+			EXPECT_EQ(Diagnostics, 0u);
+			const auto* Product = Slot.Resolve(Generation, [] { return FResult::Success(42); }, Report);
+			ASSERT_NE(Product, nullptr);
+			EXPECT_EQ(*Product, 42);
+			EXPECT_EQ(Diagnostics, 0u);
+		}
+
 		TEST(FRenderResourceCreationTests, FingerprintsIgnoreExternalWordingAndRetainSemanticCauses)
 		{
 			auto First = MakeError();

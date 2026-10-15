@@ -63,24 +63,24 @@ namespace Durin
 			const FShaderCompileOptions& Options,
 			FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult = 0;
 		// Hashes stable mounted sources and compiler settings without retaining file bytes.
-		virtual auto GetCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled = {}) -> FShaderOperationResult = 0;
+		virtual auto GetCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled = {}) -> FShaderCompletion = 0;
 		virtual auto GetStats() const -> FShaderBuildStats = 0;
 		virtual auto BuildCookedLibrary(
 			EShaderTargetPlatform TargetPlatform,
 			EShaderTargetProfile TargetProfile,
 			FByteBuffer& OutBytes,
 			std::shared_ptr<const FShaderSourceArtifacts> Artifacts = {},
-			const std::function<bool()>& IsCancelled = {}) -> FShaderOperationResult = 0;
+			const std::function<bool()>& IsCancelled = {}) -> FShaderCompletion = 0;
 	};
 
 	RENDERCORE_API auto GetShaderCookInputIdentity(
 		std::string& OutIdentity,
-		const std::function<bool()>& IsCancelled = {}) -> FShaderOperationResult;
+		const std::function<bool()>& IsCancelled = {}) -> FShaderCompletion;
 
 	RENDERCORE_API auto GetShaderBuildStats() -> FShaderBuildStats;
 	RENDERCORE_API auto BuildCookedShaderLibrary(
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		FByteBuffer& OutBytes,
-		const std::function<bool()>& IsCancelled = {}) -> FShaderOperationResult;
+		const std::function<bool()>& IsCancelled = {}) -> FShaderCompletion;
 }

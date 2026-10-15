@@ -98,6 +98,12 @@ unavailable shaders prevent a new pipeline candidate from becoming Ready.
 Device invalidation first releases Renderer consumers, then resets every
 global section and the weak shader-map resource cache before the device
 generation advances. No previous global set substitutes for a failed replacement.
+`ResolveShaderSet` returns `TShaderValueResult<FGlobalShaderSetRef>`. Only `Ok`
+contains a set; `Error` retains a bounded diagnostic, and `Canceled` contains
+neither a set nor a diagnostic. Containing resource slots propagate `Canceled`
+without caching a failure, so the same generation can retry. Hit-proxy readbacks
+also cancel when their shader preparation cancels.
+
 The global set owns the detailed shader failure diagnostic; a containing
 feature slot mirrors the unavailable state for retry purposes without emitting
 a second wrapper failure or recovery transition.

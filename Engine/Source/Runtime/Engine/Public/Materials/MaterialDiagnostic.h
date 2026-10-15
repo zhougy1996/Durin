@@ -233,9 +233,8 @@ namespace Durin
 	enum class EMaterialCompileError : uint16
 	{
 		CompiledMaterialResultExceedsRetainedResultByteLimit,
-		CompilationCanceled,
 		AdmissionRejected,
-		NoAuthoredProgram,
+		NoAuthoredProgram = 3, // Value 2 formerly represented cancellation; cancellation is now a status.
 		ShaderCompilerFailed,
 		ShaderEnvironmentUnavailable,
 		SourceDependencyChanged,

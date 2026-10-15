@@ -299,7 +299,7 @@ namespace Durin
 		for (const auto* Entry : Options.EntryPoints) Request.EntryPoints.emplace_back(Entry);
 		FShaderBuildResult Output;
 		auto Handle = SubmitRequest(std::move(Request), {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); }, ESourceKind::Mounted);
-		if (!Handle) return FShaderBuildResult::Failure(FormatShaderError({.Code = EShaderError::InvalidCompileRequest}));
+		if (!Handle) return FShaderBuildResult::Failure(FormatShaderBuildAdmissionError(Handle.error()));
 		require(Handle->Wait() == EShaderBuildWaitResult::Completed);
 		return Output;
 	}

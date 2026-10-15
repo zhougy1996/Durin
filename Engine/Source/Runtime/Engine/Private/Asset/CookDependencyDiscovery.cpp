@@ -19,6 +19,7 @@ namespace Durin
 		switch (Failure.Error)
 		{
 		case ECookInputError::None: return {};
+		case ECookInputError::ShaderInput: return Failure.ShaderDiagnostic;
 		case ECookInputError::Cancelled: return "Cook cancelled.";
 		case ECookInputError::WriteConflict: return std::format("Cook input is being written: {}", Failure.File.string());
 		case ECookInputError::FileIo: return Failure.FileCause ? Failure.FileCause->ToString() : "Cook input IO failed.";
@@ -309,8 +310,6 @@ namespace Durin::AssetPrivate
 	auto FCookDependencyDiscovery::Acquire(std::span<const FPackagePath> Roots,
 		const FAssetReferenceStoreCapture& ExternalRoots) -> FCookInputResult
 	{
-		FShaderOperationResult ShaderError;
-		(void)(ShaderError = GetShaderCookInputIdentity(ShaderBuildIdentity, Request.IsCancelled));
 		if (Roots.size() > MaximumCookDependencyRecords)
 			return Fail(FCookInputFailure{.Error = ECookInputError::RootLimit, .Actual = Roots.size(), .Maximum = MaximumCookDependencyRecords});
 		std::vector<FPackagePath> Pending(Roots.begin(), Roots.end());
@@ -404,6 +403,12 @@ namespace Durin::AssetPrivate
 		RuntimePackages.assign(Runtime.begin(), Runtime.end());
 		std::ranges::sort(RuntimePackages, [](const auto& A, const auto& B) { return A.GetView() < B.GetView(); });
 		if (RuntimePackages.empty()) return Fail(FCookInputFailure{.Error = ECookInputError::NoRuntimePackages});
+
+		const auto ShaderResult = GetShaderCookInputIdentity(ShaderBuildIdentity, Request.IsCancelled);
+		if (ShaderResult.Status == EShaderBuildStatus::Canceled)
+			return Fail(FCookInputResult{ECookInputStatus::Cancelled});
+		if (!ShaderResult)
+			return Fail(FCookInputFailure{.Error = ECookInputError::ShaderInput, .ShaderDiagnostic = ShaderResult.Diagnostic});
 
 		const auto CustomVersionDefinitions = FCustomVersionRegistry::GetAll();
 		std::vector<FCookPackageBuildInputs> Graph;

@@ -131,7 +131,7 @@ namespace Durin
 		std::span<const FGlobalShaderType* const> ShaderTypes,
 		bool bCreateRHIShaders,
 		FGlobalShaderDiagnosticReporter ReportDiagnostic)
-		-> FGlobalShaderSetRef
+		-> TShaderValueResult<FGlobalShaderSetRef>
 	{
 		checkf(!SectionIdentity.empty(), "Global shader section identity must not be empty");
 		checkf(!ShaderTypes.empty(), "Global shader set must contain at least one type");
@@ -177,7 +177,7 @@ namespace Durin
 				Candidate->Identity = TypeIdentity;
 				std::vector<const FShaderType*> BaseTypes(
 					Entry.Types.begin(), Entry.Types.end());
-				FShaderOperationResult ShaderResult;
+				FShaderCompletion ShaderResult;
 				FShaderOperationResult Error;
 				bool bInitialized = false;
 				if (GetShaderDataDomain() == EShaderDataDomain::Cooked)
@@ -191,8 +191,9 @@ namespace Durin
 					FShaderCompileOptions Options;
 					Options.bForceRecompile =
 						ForceRecompileShaderGeneration == Generation.Shader;
-					bInitialized = (ShaderResult = Candidate->ShaderMap->InitializeFromShaderTypes(BaseTypes, Options)).has_value();
+					bInitialized = (ShaderResult = Candidate->ShaderMap->InitializeFromShaderTypes(BaseTypes, Options)).Status == EShaderBuildStatus::Ok;
 				}
+				if (ShaderResult.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
 				if (!bInitialized)
 				{
 					return FResult::Failure({
@@ -200,7 +201,7 @@ namespace Durin
 						.Reason = ERenderResourceCreateErrorReason::ShaderFailure,
 						.Context = std::string(SectionIdentity),
 						.Identity = TypeIdentity,
-						.Cause = ShaderResult.has_value() ? std::move(Error.error()) : std::move(ShaderResult.error()),
+						.Cause = ShaderResult ? FRenderResourceCreateCause(std::move(Error.error())) : FRenderResourceCreateCause(ShaderResult.Diagnostic),
 						.RetryDependencies = ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual});
 				}
@@ -239,7 +240,10 @@ namespace Durin
 			[&](const FRenderResourceCreateDiagnostic& Diagnostic) {
 				if (ReportDiagnostic) ReportDiagnostic(Diagnostic);
 			});
-		return Published ? FGlobalShaderSetRef(*Published) : FGlobalShaderSetRef{};
+		if (Published) return FGlobalShaderSetRef(*Published);
+		if (Entry.Slot.GetAvailability() == ERenderResourceAvailability::Canceled) return FShaderCompletion::Canceled();
+		return FShaderCompletion::Failure(Entry.Slot.GetFailure()
+			? FormatRenderResourceCreateError(*Entry.Slot.GetFailure()) : "Global shader set is unavailable.");
 	}
 
 	auto FGlobalShaderMap::SetGeneration_RenderThread(

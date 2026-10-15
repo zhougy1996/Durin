@@ -377,14 +377,15 @@ namespace Durin
 						Coordinator.GetGeneration_RenderThread(),
 						Material.CompiledProgram.get(),
 						CompileOptions, ShaderMap);
-					if (!ShaderResult)
+					if (ShaderResult.Status == EShaderBuildStatus::Canceled) return FShaderMapResult::Canceled();
+				if (!ShaderResult)
 					{
 						return FShaderMapResult::Failure(
 							MakeRendererResourceCreateError(
 								ERenderResourceCreateErrorCategory::ShaderCompile,
 								"StaticMeshShaderMap",
 								GetIdentityText(Identity),
-								std::move(ShaderResult.error()),
+								ShaderResult.Diagnostic,
 								ERenderResourceGenerationDependency::Shader
 									| ERenderResourceGenerationDependency::Manual
 							)

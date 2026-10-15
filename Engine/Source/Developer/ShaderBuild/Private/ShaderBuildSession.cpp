@@ -108,7 +108,7 @@ namespace Durin
 			auto Describe(std::span<const FBuildSourceReference> Sources, const FBuildCancellation& Cancel) const
 				-> std::expected<std::vector<FBuildInputReference>, FBuildInputError> override
 			{
-				if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}));
+				if (Cancel.IsCancelled()) return {};
 				if (Sources.size() != 1 || Sources[0] != FBuildSourceReference{"Closure", "CapturedShaderClosure"}) return std::unexpected(Invalid());
 				return std::vector{Identity};
 			}
@@ -116,7 +116,7 @@ namespace Durin
 				-> std::expected<std::vector<FBuildInput>, FBuildInputError> override
 			{
 				if (Inputs.size() != 1 || Inputs[0] != Identity || Dependencies.size() > ShaderCaptureLimits::MaximumFiles) return std::unexpected(Invalid());
-				if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}));
+				if (Cancel.IsCancelled()) return {};
 				auto Artifacts = Capture();
 				if (!Artifacts) return std::unexpected(Boundary(std::move(Artifacts.error())));
 				if (!*Artifacts) return std::unexpected(Invalid());
@@ -133,7 +133,7 @@ namespace Durin
 				Metadata.WriteU32(uint32(Dependencies.size())); uint64 Bytes = 0;
 				for (size_t Index = 0; Index < Dependencies.size(); ++Index)
 				{
-					if (Cancel.IsCancelled()) return std::unexpected(Boundary({.Code = EShaderError::Cancelled}));
+					if (Cancel.IsCancelled()) return {};
 					const auto& Dependency = Dependencies[Index]; const auto Found = Files.find(Dependency.VirtualPath);
 					if (Found == Files.end()) return std::unexpected(Boundary({.Code = EShaderError::DependencyNotCaptured, .ActualIdentity = Dependency.VirtualPath}));
 					const auto& Data = *Found->second.second;
@@ -226,7 +226,8 @@ namespace Durin
 					std::chrono::steady_clock::now() - ProducerBegin).count(), std::memory_order_relaxed);
 				if (!Product) return Context.FailExecution(FormatShaderError(std::move(Product.Error)));
 				auto Output = ShaderSharedOutput::Make(Options->Value, Product, [&] { return Context.IsCancelled(); });
-				if (!Output) return Context.FailExecution(FormatShaderError(std::move(Output.error())));
+				if (Output.Status == EShaderBuildStatus::Canceled) return;
+				if (!Output) return Context.FailExecution(Output.Diagnostic);
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
 				for (const auto& MetaValue : Output->GetMetadata()) Context.AddMeta(MetaValue.Id, MetaValue.Object);
 			}

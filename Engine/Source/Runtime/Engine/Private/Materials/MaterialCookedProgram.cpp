@@ -355,7 +355,7 @@ namespace Durin
 		}
 		if (Platform != ExpectedPlatform || Profile != ExpectedProfile)
 			return {EMaterialCookError::CookedProgramTargetIncompatible};
-		Candidate.bSucceeded = true;
+		Candidate.Status = EMaterialProgramStatus::Ok;
 		if (const auto Validation = ValidateDecodedProgram(
 				Candidate, CandidateProperties, Platform, true); !Validation) return Validation;
 		OutStaticProperties = CandidateProperties;

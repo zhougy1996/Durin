@@ -210,6 +210,7 @@ namespace Durin
 					MeshPass, ShaderKey.Material,
 					Coordinator.GetGeneration_RenderThread(), CompiledProgram.get(),
 					Options, ShaderMap);
+				if (ShaderResult.Status == EShaderBuildStatus::Canceled) return FShaderResult::Canceled();
 				if (!ShaderResult)
 				{
 					return FShaderResult::Failure(
@@ -217,7 +218,7 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::ShaderCompile,
 							"GBufferShaderMap",
 							std::to_string(ShaderKey.FactoryKey.HashValue),
-							std::move(ShaderResult.error()),
+							ShaderResult.Diagnostic,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}
@@ -348,16 +349,18 @@ namespace Durin
 				const std::array<const FGlobalShaderType*, 1> Types{
 					&FGBufferGPUCullingComputeShader::StaticType()};
 				FPayload Candidate;
-				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"GBuffer.GPUCulling", Types, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (!Candidate.ShaderSet)
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
 						"GBufferGPUCulling", "shader",
 						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual));
+				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.Shader = TShaderMapRef<FGBufferGPUCullingComputeShader>(
 					Candidate.ShaderSet);
 				FRHIShader* ComputeRHI = Candidate.Shader.GetRHIShader(false);

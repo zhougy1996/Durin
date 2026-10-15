@@ -33,7 +33,7 @@ namespace Durin
 	// in FMaterialCompilerResult, constructed by final assembly.
 	struct FMaterialTranslatedProgram
 	{
-		bool bSucceeded = false;
+		EMaterialProgramStatus Status = EMaterialProgramStatus::Error;
 		FMaterialProgramIdentity Identity;
 		std::string CompilerIdentity;
 		std::string Target;
@@ -54,7 +54,7 @@ namespace Durin
 		FMaterialCompilerResourceLimits ResourceLimits;
 		std::vector<FMaterialTranslationSource> Sources;
 
-		explicit operator bool() const { return bSucceeded; }
+		explicit operator bool() const { return Status == EMaterialProgramStatus::Ok; }
 	};
 
 	ENGINE_API auto TranslatePreparedMaterialProgram(const FMaterialPreparedProgram& Input)

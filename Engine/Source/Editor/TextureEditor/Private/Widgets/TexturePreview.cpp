@@ -138,10 +138,12 @@ namespace Durin::Editor::Texture
 								| ERenderResourceGenerationDependency::Manual,
 						};
 					};
-					if (auto Result = ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions); !Result)
+					auto Result = ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions);
+					if (Result.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+					if (!Result)
 						return FResult::Failure(MakeError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,
-							ERenderResourceCreateErrorReason::ShaderFailure, std::move(Result.error())));
+							ERenderResourceCreateErrorReason::ShaderFailure, Result.Diagnostic));
 					auto* VertexShader =
 						static_cast<FTexturePreviewVertexShader*>(
 							ShaderMap->GetShader(&VertexShaderType));

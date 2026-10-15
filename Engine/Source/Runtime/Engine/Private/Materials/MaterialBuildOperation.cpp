@@ -16,9 +16,9 @@ namespace Durin::MaterialBuildPrivate
 		// 8 MiB assembly overlap. Admission precedes transformation allocation.
 		constexpr uint32 MaximumReservedOperations = 32;
 		auto CanceledMaterial() -> FMaterialCompilerResult
-		{ return {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Compile, .Error = EMaterialCompileError::CompilationCanceled}}}; }
-		auto FailedMaterial() -> FMaterialCompilerResult
-		{ return {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Compile, .Error = EMaterialCompileError::AdmissionRejected}}}; }
+		{ return {.Status = EMaterialProgramStatus::Canceled}; }
+		auto FailedMaterial(std::string Diagnostic = {}) -> FMaterialCompilerResult
+		{ return {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Compile, .Error = FMaterialError::FromExternal(EMaterialCompileError::AdmissionRejected, std::move(Diagnostic))}}}; }
 	}
 	struct FMaterialBuildOperation::FState
 	{
@@ -68,7 +68,7 @@ namespace Durin::MaterialBuildPrivate
 			[Self = shared_from_this(), Work = std::move(Work)](const FTaskCancellationToken&) {
 				try { if (Self->State->Cancellation.IsCancelled()) Self->Complete(CanceledMaterial()); else Work(); }
 				catch (...) { Self->Complete(FailedMaterial()); }
-			}, [Self = shared_from_this()](ETaskState Terminal) { if (Terminal != ETaskState::Succeeded) Self->Complete(CanceledMaterial()); }, {.CancellationToken = State->CpuCancellation.GetToken(), .Priority = Priority});
+			}, [Self = shared_from_this()](ETaskState Terminal) { if (Terminal == ETaskState::Canceled) Self->Complete(CanceledMaterial()); else if (Terminal != ETaskState::Succeeded) Self->Complete(FailedMaterial()); }, {.CancellationToken = State->CpuCancellation.GetToken(), .Priority = Priority});
 		if (!Dispatch.HasValue()) Complete(FailedMaterial());
 		{
 			std::lock_guard Lock(State->Mutex);
@@ -92,7 +92,7 @@ namespace Durin::MaterialBuildPrivate
 			FMaterialError ValidationError;
 			auto Admitted = SubmitTranslation(Self->State->Input, Self->State->Force, Self->State->Owner,
 				[Self](FMaterialTranslatedProgram Product) { try { Self->Translated(std::move(Product)); } catch (...) { Self->Complete(FailedMaterial()); } }, Self->State->Cancellation, true, Self->State->EncodedInput, Self->State->Inline ? DerivedData::EBuildCacheExecution::Inline : DerivedData::EBuildCacheExecution::Task, &ValidationError);
-			if (!Admitted) Self->Complete(ValidationError.HasError() ? FMaterialCompilerResult{.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Normalization, .Error = std::move(ValidationError)}}} : FailedMaterial());
+			if (!Admitted) Self->Complete(ValidationError.HasError() ? FMaterialCompilerResult{.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Normalization, .Error = std::move(ValidationError)}}} : FailedMaterial(Admitted.error().Description));
 		});
 	}
 	auto FMaterialBuildOperation::Translated(FMaterialTranslatedProgram Translation) -> void
@@ -120,7 +120,7 @@ namespace Durin::MaterialBuildPrivate
 			});
 		std::shared_ptr<FShaderBuildHandle> Shader;
 		if (Submitted) Shader = std::make_shared<FShaderBuildHandle>(std::move(*Submitted));
-		else Complete(FailedMaterial());
+		else Complete(FailedMaterial(FormatShaderBuildAdmissionError(Submitted.error())));
 		if (Shader) State->Owner.TrackDependency({
 			.IsFinished = [Shader] { return Shader->IsComplete(); },
 			.Wait = [Shader] { return Shader->Wait() == EShaderBuildWaitResult::Completed ? DerivedData::ERequestWaitResult::Completed : DerivedData::ERequestWaitResult::WouldBlock; },

@@ -598,7 +598,7 @@ namespace Durin
 			bool bAllowMixedSources = false) -> FShaderOperationResult;
 		RENDERCORE_API auto InitializeFromShaderTypes(
 			std::span<const FShaderType* const> ShaderTypes,
-			const FShaderCompileOptions& CompileOptions) -> FShaderOperationResult;
+			const FShaderCompileOptions& CompileOptions) -> FShaderCompletion;
 		RENDERCORE_API auto FindShaderIndex(const FShaderType* ShaderType) const -> const uint32*;
 		RENDERCORE_API auto GetShader(const FShaderType* ShaderType) const -> FShader*;
 		RENDERCORE_API auto GetOrCreateShaderRHI(const FShaderType* ShaderType, bool bRequired = true) -> FRHIShader*;

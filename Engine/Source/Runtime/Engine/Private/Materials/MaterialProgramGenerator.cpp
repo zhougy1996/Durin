@@ -997,7 +997,7 @@ float4 FragmentMain(
 	auto ValidateMaterialCompilerResult(const FMaterialCompilerResult& Result)
 		-> FMaterialLayoutValidationResult
 	{
-		if (!Result.bSucceeded || !Result.Identity.IsValid()
+		if (!Result || !Result.Identity.IsValid()
 			|| Result.PassContractVersion != CurrentMaterialPassContractVersion)
 			return {.Error = EMaterialLayoutError::InvalidIdentity};
 		const auto Expected = CompileMaterialLayout(Result.ActiveParameters);
@@ -1162,7 +1162,7 @@ float4 FragmentMain(
 		Result.Timings.GenerationMicroseconds =
 			std::chrono::duration_cast<std::chrono::microseconds>(
 				std::chrono::steady_clock::now() - GenerateBegin).count();
-		Translation.bSucceeded = true;
+		Translation.Status = EMaterialProgramStatus::Ok;
 		return Translation;
 	}
 
@@ -1207,12 +1207,14 @@ float4 FragmentMain(
 			.Layout = std::move(Translation.Layout), .Requirements = Translation.Requirements,
 			.GeneratedSource = std::move(Translation.GeneratedSource), .Dependencies = std::move(Translation.Dependencies),
 			.Timings = Translation.Timings, .Diagnostics = std::move(Translation.Diagnostics)};
+		if (Translation.Status == EMaterialProgramStatus::Canceled || Output.Status == EShaderBuildStatus::Canceled)
+			return {.Status = EMaterialProgramStatus::Canceled};
 		if (!Translation) return Result;
 		if (!Output)
 		{
 			Result.Diagnostics.push_back(MakeDiagnostic(
 				EMaterialProgramDiagnosticCategory::Compile,
-				Output.Status == EShaderBuildStatus::Canceled ? FMaterialError(EMaterialCompileError::CompilationCanceled) : FMaterialError::FromExternal(EMaterialCompileError::ShaderCompilerFailed, Output.Diagnostic)));
+				FMaterialError::FromExternal(EMaterialCompileError::ShaderCompilerFailed, Output.Diagnostic)));
 			return Result;
 		}
 		const auto Target = Result.Target == "metal-msl-2.0" ? MetalShaderTarget : VulkanShaderTarget;
@@ -1229,7 +1231,7 @@ float4 FragmentMain(
 			return Result;
 		}
 		Result.CompiledShaders = std::move(Output.CompiledShaders);
-		Result.bSucceeded = true;
+		Result.Status = EMaterialProgramStatus::Ok;
 		return Result;
 	}
 

@@ -235,9 +235,10 @@ namespace Durin
 		auto operator==(const FMaterialProgramRequirements&) const -> bool = default;
 	};
 
+	enum class EMaterialProgramStatus : uint8 { Ok, Error, Canceled };
 	struct FMaterialCompilerResult
 	{
-		bool bSucceeded = false;
+		EMaterialProgramStatus Status = EMaterialProgramStatus::Error;
 		FMaterialProgramIdentity Identity;
 		std::string CompilerIdentity;
 		std::string Target;
@@ -258,7 +259,7 @@ namespace Durin
 		FMaterialCompileTimings Timings;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 
-		explicit operator bool() const { return bSucceeded; }
+		explicit operator bool() const { return Status == EMaterialProgramStatus::Ok; }
 	};
 
 	struct FMaterialCompilerSnapshot

@@ -257,16 +257,18 @@ namespace Durin
 					&FCloudTemporalVertexShader::StaticType(),
 					&FCloudTemporalFragmentShader::StaticType()};
 				FPayload CandidatePayload;
-				CandidatePayload.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"VolumetricCloud.Temporal", Types, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (!CandidatePayload.ShaderSet)
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FCreateResult::Canceled();
+				if (!ShaderSetCompletion)
 				{
 					return FCreateResult::Failure(MakeFailure(
 						"VolumetricCloudTemporal", "shader", ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceCreateErrorCategory::ShaderCompile
 					));
 				}
+				CandidatePayload.ShaderSet = *ShaderSetCompletion;
 				CandidatePayload.VertexShader = TShaderMapRef<FCloudTemporalVertexShader>(CandidatePayload.ShaderSet);
 				CandidatePayload.FragmentShader = TShaderMapRef<FCloudTemporalFragmentShader>(CandidatePayload.ShaderSet);
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
@@ -329,13 +331,15 @@ namespace Durin
 					&FCloudCompositeVertexShader::StaticType(),
 					&FCloudCompositeFragmentShader::StaticType()};
 				FPayload Candidate;
-				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"VolumetricCloud.Composite", Types, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (!Candidate.ShaderSet)
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeFailure("VolumetricCloudComposite",
 						"shader", ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceCreateErrorCategory::ShaderCompile));
+				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.VertexShader = TShaderMapRef<FCloudCompositeVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader = TShaderMapRef<FCloudCompositeFragmentShader>(Candidate.ShaderSet);
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
@@ -435,13 +439,15 @@ namespace Durin
 				const std::array<const FGlobalShaderType*, 1> Types{
 					&FCloudComputeShader::StaticType()};
 				FPayload Candidate;
-				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"VolumetricCloud.Compute", Types, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (!Candidate.ShaderSet)
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeFailure("VolumetricCloudCompute",
 						"shader", ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceCreateErrorCategory::ShaderCompile));
+				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.ComputeShader =
 					TShaderMapRef<FCloudComputeShader>(Candidate.ShaderSet);
 				FRHIShader* RHIShader = Candidate.ComputeShader.GetRHIShader(false);
@@ -474,13 +480,15 @@ namespace Durin
 					&FCloudVertexShader::StaticType(),
 					&FCloudFragmentShader::StaticType()};
 				FPayload Candidate;
-				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
 					"VolumetricCloud.Fragment", Types, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (!Candidate.ShaderSet)
+				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeFailure("VolumetricCloudFragment",
 						"shader", ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceCreateErrorCategory::ShaderCompile));
+				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.VertexShader =
 					TShaderMapRef<FCloudVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader =

@@ -13,13 +13,13 @@ namespace Durin::AssetPrivate
 		Recipe.WriteU32(MaterialCookedProgramPayloadSchemaVersion);
 		Recipe.WriteU32(CurrentMaterialPassContractVersion);
 		Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion, "recipe/material", {}, Recipe.TakeBytes()});
-		if (Request.ShaderBuildIdentity.empty()) return {.Error = ECookContributionError::ShaderInputs,
+		if (Request.ShaderBuildIdentity.empty()) return {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::ShaderInputs,
 			.VirtualPath = Request.Package.ToString(), .TargetPlatform = Request.TargetPlatform,
 			.TargetProfile = Request.TargetProfile, .Provider = "shader-build"};
 		const auto Bytes = std::as_bytes(std::span(Request.ShaderBuildIdentity));
 		Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion, "shader-build", {}, FByteBuffer(Bytes.begin(), Bytes.end())});
 		const auto Configurations = ResolveMaterialCookConfigurations(Request.MaterialConfigurations);
-		if (!Configurations) return {.Error = ECookContributionError::Contract, .VirtualPath = Request.Package.ToString()};
+		if (!Configurations) return {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::Contract, .VirtualPath = Request.Package.ToString()};
 		FBinaryWriter Policy;
 		Policy.WriteU32(1);
 		Policy.WriteU32(static_cast<uint32>(Configurations->size()));
