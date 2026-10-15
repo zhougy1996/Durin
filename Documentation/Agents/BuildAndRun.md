@@ -34,6 +34,12 @@ recovery inspection.
 
 ## Recovery
 
+On Windows, sandboxed MSVC builds can fail with `C1902` because of PDB service
+compatibility. When this sandbox-only failure is already established, request
+authorized execution of the DevTool build outside the sandbox from the outset;
+do not reproduce it on every task. If it also fails outside the sandbox,
+investigate the toolchain rather than assuming a sandbox issue.
+
 After cancellation, external termination, or loss of the controlling DevTool
 process, wait for its build process tree to exit, then run `.\DevTool.bat status`
 and follow the reported recovery command. If clean, fix the cause and retry.
