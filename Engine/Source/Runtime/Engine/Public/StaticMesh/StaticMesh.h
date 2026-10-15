@@ -213,11 +213,6 @@ namespace Durin
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostLoad() -> void override;
 	private:
-		friend auto ::Durin::ContributeEngineCookAsset(
-			DObject&, std::string_view, FCookContext&) -> FCookContributionResult;
-		ENGINE_API auto ContributeToCook(
-			FCookContext& Context,
-			std::string_view VirtualPackagePath) -> FCookContributionResult;
 	public:
 
 		ENGINE_API static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;

@@ -7,6 +7,8 @@
 /Build/
 # Generated qualification reports stay local; plans retain acceptance summaries.
 /Documentation/Plans/Evidence/
+# Retired generated Cook snapshots; tests create their outputs in Build instead.
+/Engine/Tests/Native/AssetTests/Data/CookLifecycleBaseline/
 /.idea/
 /.vscode
 /.vscode.pre-link-backup/

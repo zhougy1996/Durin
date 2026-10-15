@@ -11,8 +11,8 @@ namespace Durin
 	auto MakePhysicsCookSessionDefinition(EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy,
 		uint64 BuilderVersion, uint32 WeldToleranceBits, EAssetPayloadTargetPlatform TargetPlatform) -> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>
 	{
-		const auto Target = ResolveTargetPlatform(static_cast<ECookTargetPlatform>(TargetPlatform), ECookTargetProfile::Game);
-		if (!Target || !Target->Supports(ETargetOperation::CollisionPayload))
+		const auto Target = ResolveTargetPlatform(static_cast<ECookTargetPlatform>(TargetPlatform));
+		if (!Target || !Target->SupportsCollisionPayload())
 			return std::unexpected(DerivedData::FBuildDefinitionError{DerivedData::EBuildDefinitionError::InvalidConstant, "TargetPlatform"});
 		if (!BuilderVersion) return std::unexpected(DerivedData::FBuildDefinitionError{DerivedData::EBuildDefinitionError::InvalidConstant, "BuilderVersion"});
 		DerivedData::FBuildDefinitionBuilder Builder("Durin.Physics.Collision");

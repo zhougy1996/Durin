@@ -1,6 +1,7 @@
 #include "Misc/PackageWriter.h"
 #include "CookOutputInternal.h"
 #include "CookDependencyDiscovery.h"
+#include "CookRegistry.h"
 #include "Asset/OfflinePreparation.h"
 #include "Asset/AssetCompilingManager.h"
 #include "CoreGlobals.h"
@@ -33,13 +34,10 @@ namespace Durin
 	namespace
 	{
 		const std::thread::id CookBootstrapOwner = std::this_thread::get_id();
-
-
 		struct FRegisteredCookContributor
 		{
 			FCookContributorHandle Handle = 0;
 			FCookContributorRegistration Registration;
-
 		};
 
 		auto GetCookContributorMutex() -> std::mutex&
@@ -59,32 +57,6 @@ namespace Durin
 		{
 			static FCookContributorHandle Handle = 1;
 			return Handle;
-		}
-
-		using FCookContributorSnapshot = std::unordered_map<
-			DClass*, std::shared_ptr<const FRegisteredCookContributor>>;
-
-		auto CaptureCookContributors() -> FCookContributorSnapshot
-		{
-			std::scoped_lock Lock(GetCookContributorMutex());
-			return GetCookContributors();
-		}
-
-		auto ResolveCookContributor(DClass* Class,
-			const FCookContributorSnapshot& Contributors,
-			std::shared_ptr<const FRegisteredCookContributor>& OutContributor, bool bAllowGeneric) -> FCookContributionResult
-		{
-			OutContributor.reset();
-			for (DClass* Candidate = Class; Candidate; Candidate = Candidate->GetSuperClass())
-			{
-				if (!bAllowGeneric && Candidate == DObject::StaticClass()) return {};
-				const auto Found = Contributors.find(Candidate);
-				if (Found == Contributors.end()) continue;
-				OutContributor = Found->second;
-				return {};
-			}
-			return {.Error = ECookContributionError::UnsupportedClass,
-				.ObjectPath = Class ? Class->GetQualifiedName().ToString() : "<null>"};
 		}
 
 		auto IsCancelled(const FCookCancellationCheck& Check) -> bool
@@ -203,6 +175,34 @@ namespace Durin
 		return "discovery";
 	}
 
+	auto AssetPrivate::CaptureCookRegistry() -> std::shared_ptr<const FCookRegistrySnapshot>
+	{
+		auto Snapshot = std::make_shared<FCookRegistrySnapshot>();
+		std::scoped_lock Lock(GetCookContributorMutex());
+		for (const auto& [Class, Entry] : GetCookContributors())
+			Snapshot->Entries.emplace(Class, std::shared_ptr<const FCookContributorRegistration>(Entry, &Entry->Registration));
+		return Snapshot;
+	}
+	auto AssetPrivate::FCookRegistrySnapshot::Resolve(DClass* Class, bool AllowGeneric) const -> const FCookContributorRegistration*
+	{
+		for (auto* Candidate = Class; Candidate; Candidate = Candidate->GetSuperClass())
+		{
+			if (!AllowGeneric && Candidate == DObject::StaticClass()) return nullptr;
+			if (const auto Found = Entries.find(Candidate); Found != Entries.end()) return Found->second.get();
+		}
+		return nullptr;
+	}
+	auto AssetPrivate::FCookRegistrySnapshot::Includes(const DObject* Object) const -> bool
+	{
+		for (auto* Candidate = Object; Candidate && !Cast<DPackage>(Candidate); Candidate = Candidate->GetOuter())
+		{
+			if (Candidate->IsTemplateObject()) return false;
+			const auto* Family = Resolve(Candidate->GetClass());
+			if (Family && Family->Disposition == ECookObjectDisposition::SourceOnly) return false;
+		}
+		return true;
+	}
+
 	auto FormatCookContributorRegistrationError(const FCookContributorRegistrationResult& Result) -> std::string
 	{
 		if (Result) return {};
@@ -215,18 +215,19 @@ namespace Durin
 		auto Reject = [&](ECookContributorRegistrationError Error) -> FCookContributorRegistrationResult {
 			return {.Error = Error, .ContributorName = Registration.Name,
 				.ClassName = Class ? Class->GetQualifiedName().ToString() : std::string{},
-				.ContributorVersion = Registration.ContributorVersion, .FamilyProducerVersion = Registration.FamilyProducerVersion};
+				.ContributorVersion = Registration.ContributorVersion, .FamilyProducerVersion = CookLegacyProducerVersion};
 		};
 		if (!Class) return Reject(ECookContributorRegistrationError::InvalidClass);
 		if (Registration.Name.empty()) return Reject(ECookContributorRegistrationError::Name);
-		if (!Registration.Contribute) return Reject(ECookContributorRegistrationError::Callback);
-		if (Registration.ContributorVersion == 0 || Registration.FamilyProducerVersion == 0)
+		if (Registration.ContributorVersion == 0)
 			return Reject(ECookContributorRegistrationError::Version);
 		auto Entry = std::make_shared<FRegisteredCookContributor>();
 		Entry->Registration = Registration;
 		std::scoped_lock Lock(GetCookContributorMutex());
 		auto& Contributors = GetCookContributors();
 		if (Contributors.contains(Class)) return Reject(ECookContributorRegistrationError::DuplicateClass);
+		if (std::ranges::any_of(Contributors, [&](const auto& Pair) { return Pair.second->Registration.Name == Registration.Name; }))
+			return Reject(ECookContributorRegistrationError::DuplicateName);
 
 		const FCookContributorHandle Handle = GetNextCookContributorHandle()++;
 		Entry->Handle = Handle;
@@ -425,8 +426,8 @@ namespace Durin
 		if (!Configurations) return Finish(ECookRunStatus::Failed, ECookRunError::InvalidRequest);
 		Request.MaterialConfigurations = *Configurations;
 #if DURIN_WITH_EDITOR
-		const auto ResolvedTarget = ResolveTargetPlatform(Request.TargetPlatform, Request.TargetProfile);
-		if (!ResolvedTarget || !ResolvedTarget->Supports(ETargetOperation::Cook))
+		const auto ResolvedTarget = ResolveTargetPlatform(Request.TargetPlatform);
+		if (!ResolvedTarget || Request.TargetProfile != ECookTargetProfile::Game)
 			return Finish(ECookRunStatus::Failed, ECookRunError::InvalidRequest);
 #else
 		if (GetTargetPlatformName(Request.TargetPlatform).empty() || Request.TargetProfile != ECookTargetProfile::Game)
@@ -445,7 +446,9 @@ namespace Durin
 		static std::atomic_flag Running = ATOMIC_FLAG_INIT;
 		if (Running.test_and_set()) return Finish(ECookRunStatus::Failed, ECookRunError::CookInUse);
 		struct FRunGuard { std::atomic_flag& Flag; ~FRunGuard() { Flag.clear(); } } RunGuard{Running};
-		auto Contributors = CaptureCookContributors();
+		FEngineCookRegistrationScope Builtins;
+		if (!Builtins.Result) { OutResult.InputFailure = {ECookInputStatus::InvalidDependency, FormatCookContributorRegistrationError(Builtins.Result)}; return Finish(ECookRunStatus::Failed, ECookRunError::InputFailed); }
+		auto Contributors = CaptureCookRegistry();
 		if (IsCancelled(Request.IsCancelled))
 			return Finish(ECookRunStatus::Cancelled, ECookRunError::Cancelled);
 
@@ -511,10 +514,11 @@ namespace Durin
 			} ReleaseLoads{LoadScope};
 			AssetPrivate::FCookDependencyDiscovery Inputs(Request, CaptureAssetRegistrySnapshot(),
 				[&](std::string_view ClassName, bool bAllowGeneric, FCookContributorRegistration& Out) -> FCookContributionResult {
-					std::shared_ptr<const FRegisteredCookContributor> Entry;
-					const auto Result = ResolveCookContributor(FindClassByQualifiedName(FName(ClassName)), Contributors, Entry, bAllowGeneric);
-					if (Result && Entry) Out = Entry->Registration;
-					return Result;
+					auto* Class = FindClassByQualifiedName(FName(ClassName));
+					if (!Class) return {.Error = ECookContributionError::UnsupportedClass, .ActualClass = std::string(ClassName)};
+					if (const auto* Entry = Contributors->Resolve(Class, bAllowGeneric)) Out = *Entry;
+					else if (bAllowGeneric) return {.Error = ECookContributionError::UnsupportedClass, .ActualClass = std::string(ClassName)};
+					return {};
 				});
 			auto CheckInputs = [&]() -> FCookInputResult { return Inputs.CheckCancellation(); };
 			auto RetainOutput = [&](uint64 PackageBytes, uint64 BulkBytes) -> bool {
@@ -565,10 +569,8 @@ namespace Durin
 						if (!Data) return Finish(ECookRunStatus::Failed, ECookRunError::StaleRegistry);
 						if (Data->TopLevelAssets.empty())
 							return Finish(ECookRunStatus::Failed, ECookRunError::MissingTopLevelAsset);
-						const FTopLevelAssetData& CookRoot = Data->TopLevelAssets.front();
-						const auto& Contributor = Inputs.GetContributor(Path);
-						OutResult.CurrentContributor = Contributor.Name;
-						OutResult.AssetIdentity = CookRoot.AssetPath.ToString();
+						OutResult.CurrentContributor = CookPackageSerializer;
+						OutResult.AssetIdentity = Path.ToString();
 						const auto& Dependencies = Inputs.GetDependencies(Path);
 						FXxHash128 Fingerprint;
 						if (const auto Fingerprinted = FingerprintCookBuildDependencies(Dependencies, Fingerprint); !Fingerprinted)
@@ -579,11 +581,11 @@ namespace Durin
 						const auto Prior = PriorEntries.find(Path.ToString());
 						bool bCookHit = Inputs.IsReusable(Path)
 										&& Prior != PriorEntries.end()
+										&& Prior->second->Contributor == CookPackageSerializer
 										&& Prior->second->InputFingerprint == Fingerprint
-										&& Prior->second->ContributorVersion
-											   == Contributor.ContributorVersion
+										&& Prior->second->ContributorVersion == CookPackageSerializerVersion
 										&& Prior->second->FamilyProducerVersion
-											   == Contributor.FamilyProducerVersion
+											   == CookLegacyProducerVersion
 										&& Prior->second->BuildDependencies == Dependencies;
 						FCookSavePlan CachedPlan;
 						if (bCookHit)
@@ -601,15 +603,11 @@ namespace Durin
 							continue;
 						}
 
-						FObjectPath CookRootPath;
-						if (!MakeTopLevelObjectPath(CookRoot.AssetPath, CookRootPath))
-							return Finish(ECookRunStatus::Failed, ECookRunError::InvalidTopLevelAsset);
-						DObject* Asset = nullptr;
-						const auto LoadResult = LoadScope.LoadObject<DObject>(CookRootPath);
-						Asset = LoadResult.value_or(nullptr);
+						const auto LoadResult = LoadScope.LoadPackage(Path);
 						if (!LoadResult) return InputFailure(ToCookInputResult(AssetReadResultFromError(LoadResult.error())));
-						if (!Asset) return InputFailure({ECookInputStatus::InvalidDependency, "Cook load returned no object."});
+						DPackage* AuthoredPackage = *LoadResult;
 						FCookContext Context(Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData);
+						Context.SetContributorSnapshot(Contributors);
 						Context.SetMaterialConfigurations(Request.MaterialConfigurations);
 						Context.SetCancellationCheck(Request.IsCancelled);
 						Context.SetInputReader([&](auto Kind, auto Name, FByteBuffer& Bytes) {
@@ -618,18 +616,15 @@ namespace Durin
 
 						if (Injected(ECookOperationStage::Prepare, Index))
 							return Finish(ECookRunStatus::Failed, ECookRunError::PrepareInjectedFailure);
-						DPackage* AuthoredPackage = Asset->GetPackage();
 						if (!AuthoredPackage)
 							return Finish(ECookRunStatus::Failed, ECookRunError::MissingPackage);
-						const FCookContributionResult Contribution = Contributor.Contribute(
-							*Asset, Path.GetView(), Context
-						);
+						const FCookContributionResult Contribution = SaveCookPackage(AuthoredPackage, Path.GetView(), Context);
 						if (auto Result = CheckInputs(); !Result) return InputFailure(Result);
 						if (!Contribution)
 						{
 							OutResult.ContributionCause = std::make_shared<FCookContributionResult>(Contribution);
 							OutResult.ContributionPackage = Path;
-							OutResult.ContributionProvider = Contributor.Name;
+							OutResult.ContributionProvider = Contribution.Provider.empty() ? OutResult.CurrentContributor : Contribution.Provider;
 							return Finish(ECookRunStatus::Failed, ECookRunError::ContributionFailed);
 						}
 						if (Injected(ECookOperationStage::Capture, Index))
@@ -639,23 +634,21 @@ namespace Durin
 						if (!Captured || PackagePlans.size() != 1)
 						{
 							FCookCaptureResult Failure{.Error = Captured ? ECookCaptureError::PlanCount : ECookCaptureError::Finalization,
-								.Package = Path, .Contributor = Contributor.Name, .ActualPlans = PackagePlans.size()};
+								.Package = Path, .Contributor = std::string(CookPackageSerializer), .ActualPlans = PackagePlans.size()};
 							if (!Captured) Failure.PlanCause = Captured.Error;
 							OutResult.CaptureCause = std::make_shared<FCookCaptureResult>(std::move(Failure));
 							return Finish(ECookRunStatus::Failed, ECookRunError::CaptureFailed);
 						}
 						FCookSavePlan Plan = std::move(PackagePlans.front());
 						Plan.InputFingerprint = Fingerprint;
-						Plan.Contributor = Contributor.Name;
-						Plan.ContributorVersion = Contributor.ContributorVersion;
-						Plan.FamilyProducerVersion = Contributor.FamilyProducerVersion;
-						const ECookPackageStatus PreparationStatus =
-							Contributor.ClassifyPreparation ? Contributor.ClassifyPreparation(*Asset) : ECookPackageStatus::Captured;
-						Plan.BuildProvenance = CookPackageStatusName(PreparationStatus);
+						Plan.Contributor = CookPackageSerializer;
+						Plan.ContributorVersion = CookPackageSerializerVersion;
+						Plan.FamilyProducerVersion = CookLegacyProducerVersion;
+						Plan.BuildProvenance = CookPackageStatusName(ECookPackageStatus::Captured);
 						if (!RetainOutput(Plan.PackageFileSize, Plan.SegmentFileSize)) return Finish(ECookRunStatus::Failed, ECookRunError::OutputLimit);
 						OutResult.ChangedBytes += Plan.PackageFileSize + Plan.SegmentFileSize;
 						NewState.Entries.push_back(MakeCookStateEntry(Plan));
-						OutResult.Packages.push_back({{}, Path, Plan.Contributor, PreparationStatus, ECookOperationStage::Capture, Plan.PackageFileSize, Plan.SegmentFileSize});
+						OutResult.Packages.push_back({{}, Path, Plan.Contributor, ECookPackageStatus::Captured, ECookOperationStage::Capture, Plan.PackageFileSize, Plan.SegmentFileSize});
 						NewState.Entries.back().BuildDependencies = Dependencies;
 						if (auto Result = CheckInputs(); !Result) return InputFailure(Result);
 						Plans.push_back(std::move(Plan));
@@ -664,8 +657,8 @@ namespace Durin
 					if (Injected(ECookOperationStage::StageAuxiliary, 0))
 						return Finish(ECookRunStatus::Failed, ECookRunError::AuxiliaryInjectedFailure);
 					FByteBuffer ShaderBytes;
-				const auto ShaderPlatform = ToShaderTargetPlatform(Request.TargetPlatform).value();
-				if (const auto ShaderResult = BuildCookedShaderLibrary(ShaderPlatform, EShaderTargetProfile::Game, ShaderBytes, Request.IsCancelled); !ShaderResult)
+					const auto ShaderPlatform = ToShaderTargetPlatform(Request.TargetPlatform).value();
+					if (const auto ShaderResult = BuildCookedShaderLibrary(ShaderPlatform, EShaderTargetProfile::Game, ShaderBytes, Request.IsCancelled); !ShaderResult)
 					{
 						OutResult.ShaderCause = std::make_shared<FShaderError>(ShaderResult.error());
 						return IsCancelled(Request.IsCancelled)
@@ -688,7 +681,7 @@ namespace Durin
 			}
 			if (!bPrepared) return false;
 		}
-		Contributors.clear();
+		Contributors.reset();
 		std::ranges::sort(Plans, {}, &FCookSavePlan::VirtualPath);
 		std::ranges::sort(NewState.Entries, {}, &FCookStateEntry::VirtualPackagePath);
 		if (Request.bDryRun) return Finish(ECookRunStatus::Succeeded, ECookRunError::None);

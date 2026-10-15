@@ -165,8 +165,8 @@ namespace Durin
 			return std::move(*Bulk);
 		}
 #if DURIN_WITH_EDITOR
-		const auto Target = ResolveTargetPlatform(TargetPlatform, ECookTargetProfile::Game);
-		if (!Target || !Target->Supports(ETargetOperation::Cook))
+		const auto Target = ResolveTargetPlatform(TargetPlatform);
+		if (!Target)
 			return std::unexpected("Material Cook target or configuration is unsupported.");
 		FMaterialCompilerEnvironment BaseEnvironment;
 		if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment, Target->GetShaderTarget()); !Environment)
@@ -225,25 +225,6 @@ namespace Durin
 			FName("ProgramData"), FArchiveLogicalTypeDescriptor::BulkData()});
 		Value->Serialize(Ar, {.Alignment = EditorBulkDataExternalAlignment,
 			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
-	}
-	auto DMaterialInterface::ContributeToCook(FCookContext& Context,
-		std::string_view VirtualPackagePath) -> FCookContributionResult
-	{
-		auto Reject = [&](ECookContributionError Error) -> FCookContributionResult {
-			return {.Error = Error, .ObjectPath = GetObjectPath(), .VirtualPath = std::string(VirtualPackagePath),
-				.TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()};
-		};
-		if ((Context.GetTargetPlatform() != ECookTargetPlatform::Win64
-				&& Context.GetTargetPlatform() != ECookTargetPlatform::MacOS)
-			|| Context.GetTargetProfile() != ECookTargetProfile::Game) return Reject(ECookContributionError::Target);
-		const auto Added = Context.AddPackage(std::string(VirtualPackagePath), GetPackage());
-		if (!Added)
-		{
-			auto Result = Reject(ECookContributionError::Plan);
-			Result.PlanCause = Added.Error;
-			return Result;
-		}
-		return {};
 	}
 
 }

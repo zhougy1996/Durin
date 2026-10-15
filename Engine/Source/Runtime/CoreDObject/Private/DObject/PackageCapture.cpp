@@ -298,7 +298,19 @@ namespace Durin::PackagePrivate
 				std::string_view ExternalPath;
 				// Runtime-only targets have no persistent identity, including children
 				// whose own flags do not repeat their transient Outer's flags.
-				if (Value && !IsTransientObjectGraph(Value))
+				const bool bExcluded = Value && Options.ObjectFilter && !Options.ObjectFilter(Value);
+				if (bExcluded && !std::ranges::any_of(NodeStack, [](const FCapturedNode* Node) {
+					return Node && Node->ReflectedProperty && Node->ReflectedProperty->HasAnyPropertyFlags(EPropertyFlags::EditorOnly);
+				}))
+				{
+					CaptureFailure.ObjectPath = Value->GetObjectPath();
+					for (const auto* Node : NodeStack) if (Node && Node->Kind == ENodeKind::Field)
+						CaptureFailure.Route.push_back(Node->Field.Name.ToString());
+					if (!CaptureFailure.Route.empty()) CaptureFailure.FieldName = CaptureFailure.Route.front();
+					FailCapture(EPackageCaptureReason::InvalidHardReference, EArchiveFailureCode::InvalidObjectReference);
+					return;
+				}
+				if (Value && !bExcluded && !IsTransientObjectGraph(Value))
 				{
 					if (auto It = ObjectIds.find(Value); It != ObjectIds.end())
 					{
@@ -1398,7 +1410,8 @@ namespace Durin
 		}
 		std::vector<DObject*> Objects;
 		for (DObject* Object : FrozenObjects)
-			if (!IsPackageCaptureObjectOmitted(Object, Options.SaveOverrides.get()))
+			if (!IsPackageCaptureObjectOmitted(Object, Options.SaveOverrides.get())
+				&& (!Options.ObjectFilter || Options.ObjectFilter(Object)))
 				Objects.push_back(Object);
 		std::unordered_map<DObject*, uint64> ObjectIds;
 		for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
@@ -1492,9 +1505,12 @@ namespace Durin
 			return !std::ranges::contains(Objects, ObjectPlan.Object);
 		});
 		const auto& CustomVersions = Captured.CustomVersions;
+		std::vector<DObject*> SelectedAssets;
+		for (DObject* Asset : Package->GetTopLevelAssets())
+			if (std::ranges::contains(Objects, Asset)) SelectedAssets.push_back(Asset);
 		FPackageCaptureError LinkerError;
 		if (!PackagePrivate::BuildLinkerTables(Captured, Options, PackagePath, Objects,
-				DeltaPlan, CustomVersions, Package->GetTopLevelAssets(), OutLinker, LinkerError, FormatVersion))
+				DeltaPlan, CustomVersions, SelectedAssets, OutLinker, LinkerError, FormatVersion))
 		{
 			return std::unexpected(std::move(LinkerError));
 		}

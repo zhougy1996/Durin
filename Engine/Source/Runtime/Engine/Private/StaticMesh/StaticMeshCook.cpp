@@ -99,9 +99,9 @@ namespace Durin
 		if (Control.IsCancelled()) return std::unexpected("Cook mesh preparation was cancelled.");
 		const bool HasCollision = BodySetup && BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None;
 #if DURIN_WITH_EDITOR
-		const auto Target = ResolveTargetPlatform(Platform, ECookTargetProfile::Game);
-		if (!Target || !Target->Supports(ETargetOperation::Cook)
-			|| (HasCollision && !Target->Supports(ETargetOperation::CollisionPayload)))
+		const auto Target = ResolveTargetPlatform(Platform);
+		if (!Target
+			|| (HasCollision && !Target->SupportsCollisionPayload()))
 			return std::unexpected("StaticMesh collision representation is unsupported for the requested target.");
 #else
 		if (GetTargetPlatformName(Platform).empty() || (HasCollision && Platform != ECookTargetPlatform::Win64))
@@ -505,31 +505,6 @@ namespace Durin
 		CookedLoadPhase.store(
 			ECookedMeshCpuPhase::IoQueued, std::memory_order_release);
 		return true;
-	}
-
-	auto DStaticMesh::ContributeToCook(FCookContext& Context,
-		std::string_view VirtualPackagePath) -> FCookContributionResult
-	{
-		auto Reject = [&](ECookContributionError Error) -> FCookContributionResult {
-			return {.Error = Error, .ObjectPath = GetObjectPath(), .VirtualPath = std::string(VirtualPackagePath),
-				.TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()};
-		};
-		if ((Context.GetTargetPlatform() != ECookTargetPlatform::Win64
-				&& Context.GetTargetPlatform() != ECookTargetPlatform::MacOS)
-			|| Context.GetTargetProfile() != ECookTargetProfile::Game) return Reject(ECookContributionError::Target);
-#if DURIN_WITH_EDITORONLY_DATA
-		if (!RenderData && !GetSource().IsValid()) return Reject(ECookContributionError::RenderData);
-#else
-		if (!RenderData) return Reject(ECookContributionError::RenderData);
-#endif
-		const auto Added = Context.AddPackage(std::string(VirtualPackagePath), GetPackage());
-		if (!Added)
-		{
-			auto Result = Reject(ECookContributionError::Plan);
-			Result.PlanCause = Added.Error;
-			return Result;
-		}
-		return {};
 	}
 
 }

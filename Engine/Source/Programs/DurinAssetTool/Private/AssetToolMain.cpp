@@ -759,39 +759,6 @@ namespace
 		}
 	}
 
-	auto RegisterCookContributors(
-		std::vector<Durin::FCookContributorHandle>& OutHandles,
-		std::string& OutError
-	) -> bool
-	{
-		using namespace Durin;
-		using namespace Durin;
-		OutHandles.clear();
-		const auto Generic = RegisterCookContributor(
-			DObject::StaticClass(), {"generic-package", 1, 1,
-									 [](DObject& Object, std::string_view VirtualPath,
-										FCookContext& Context) -> FCookContributionResult {
-										 std::string Error;
-										 if (const auto Added = Context.AddPackage(std::string(VirtualPath), Object.GetPackage()); !Added)
-											 return {.Error = ECookContributionError::Plan, .PlanCause = Added.Error};
-										 return {};
-									 }}
-		);
-		if (Generic) OutHandles.push_back(Generic.Handle);
-		const auto Registered = Generic ? RegisterEngineCookContributors(OutHandles) : Generic;
-		const bool bRegistered = static_cast<bool>(Registered);
-		if (bRegistered)
-		{
-			OutError.clear();
-			return true;
-		}
-		for (const FCookContributorHandle Handle : OutHandles)
-			UnregisterCookContributor(Handle);
-		OutHandles.clear();
-		OutError = FormatCookContributorRegistrationError(Registered);
-		return false;
-	}
-
 	auto SerializeCookRunResult(const Durin::FCookRunResult& Result)
 		-> std::string
 	{
@@ -869,22 +836,6 @@ namespace
 			std::cerr << "Error: Cook requires a complete published asset registry.\n";
 			return 1;
 		}
-		std::vector<FCookContributorHandle> Handles;
-		std::string Error;
-		if (!RegisterCookContributors(Handles, Error))
-		{
-			std::cerr << "Error: " << Error << '\n';
-			return 1;
-		}
-		struct FContributorCleanup
-		{
-			std::vector<FCookContributorHandle>& Handles;
-			~FContributorCleanup()
-			{
-				for (const FCookContributorHandle Handle : Handles)
-					UnregisterCookContributor(Handle);
-			}
-		} Cleanup{Handles};
 		FCookCoordinator Coordinator;
 		FCookRunResult Result;
 		const FCookRequest Request{

@@ -228,11 +228,10 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 	struct FRetire { std::vector<FCookContributorHandle>& Handles; ~FRetire() { for (auto Handle : Handles) UnregisterCookContributor(Handle); } } Retire{Handles};
 	// The standalone host registers this unversioned fallback for generic assets.
 	// It must not make transitive function dependencies permanently uncacheable.
-	const auto Generic = RegisterCookContributor(DObject::StaticClass(), {"generic-package", 1, 1,
-		[](DObject& Object, std::string_view Path, FCookContext& Context) -> FCookContributionResult {
+	const auto Generic = RegisterCookContributor(DObject::StaticClass(), {"generic-package", 1,
+		[](DObject& Object, std::string_view Path, FCookPreparationContext& Context) -> FCookContributionResult {
 			std::string Error;
-			if (const auto Added = Context.AddPackage(std::string(Path), Object.GetPackage()); !Added)
-				return {.Error = ECookContributionError::Plan, .PlanCause = Added.Error};
+
 			return {};
 		}}).Handle;
 	ASSERT_NE(Generic, 0u);
@@ -273,8 +272,9 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 	FunctionRootRequest.OutputRoot = Root / "RejectedFunctionRoot";
 	FunctionRootRequest.ExplicitRoots = {FunctionPath};
 	EXPECT_FALSE(FCookCoordinator().Run(FunctionRootRequest, Result));
-	EXPECT_EQ(Result.Error, ECookRunError::ContributionFailed);
-	ASSERT_TRUE(Result.ContributionCause);
+	EXPECT_EQ(Result.Error, ECookRunError::InputFailed);
+	ASSERT_TRUE(Result.InputFailure.GetDiagnostic());
+	EXPECT_EQ(Result.InputFailure.GetDiagnostic()->Error, ECookInputError::EmptyRuntimeRoot);
 	EXPECT_FALSE(std::filesystem::exists(FunctionRootRequest.OutputRoot / "CookManifest.bin"));
 
 	ASSERT_TRUE(UnloadPackage(MaterialPath));

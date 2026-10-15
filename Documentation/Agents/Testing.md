@@ -6,6 +6,11 @@ Choose validation by semantic risk. Low-risk text or mechanical edits need diff
 review and compilation when useful; behavior changes need relevant test coverage.
 Honor explicit acceptance gates and report validation performed or omitted.
 
+Generate Cook packages, manifests, state and DDC records in test fixture directories
+under ignored `Build/`; do not copy generated output snapshots into versioned test
+data. Prefer runtime-generated inputs and focused codec assertions. Historical
+qualification snapshots belong in local ignored storage or CI artifacts.
+
 Use the smallest sufficient selection:
 
 ```powershell

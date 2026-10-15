@@ -51,8 +51,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	std::string Error;
-	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*Source, Durin::DefaultMaterialPackagePath, Cook)) << Error;
+	ASSERT_TRUE(Durin::SaveCookPackage((*Source).GetPackage(), Durin::DefaultMaterialPackagePath, Cook)) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
@@ -191,8 +190,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	std::string Error;
-	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*Source, Durin::DefaultMaterialPackagePath, Cook)) << Error;
+	ASSERT_TRUE(Durin::SaveCookPackage((*Source).GetPackage(), Durin::DefaultMaterialPackagePath, Cook)) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
@@ -388,7 +386,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	const auto CookRoot = std::filesystem::absolute(Testing::CreateTestFixtureDirectory("CustomLayoutMaterialCook"));
 	FCookContext Cook(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	std::string Error;
-	ASSERT_TRUE(ContributeEngineCookAsset(*Source, DefaultMaterialPackagePath, Cook)) << Error;
+	ASSERT_TRUE(SaveCookPackage((*Source).GetPackage(), DefaultMaterialPackagePath, Cook)) << Error;
 	ASSERT_TRUE(PublishCookContext(Cook, CookRoot)) << Error;
 	ShutdownAssetManager(); CollectGarbage();
 	auto Configuration = FAssetRuntimeConfiguration::Authored();

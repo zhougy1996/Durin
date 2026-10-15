@@ -29,7 +29,6 @@ namespace Durin::AssetPrivate
 		auto ReadInput(const FPackagePath& Path, ECookBuildDependencyKind Kind, std::string_view Name, FByteBuffer& Out) -> FCookInputResult;
 		auto GetPackages() const -> const std::vector<FPackagePath>& { return RuntimePackages; }
 		auto GetRegistry() const -> const FAssetRegistrySnapshot& { return Registry; }
-		auto GetContributor(const FPackagePath& Path) const -> const FCookContributorRegistration& { return Inputs.at(Path).Contributor; }
 		auto GetDependencies(const FPackagePath& Path) const -> const std::vector<FCookBuildDependency>& { return Inputs.at(Path).Dependencies; }
 		auto GetRetainedBytes() const -> uint64 { return RetainedBytes; }
 		auto GetStatus() const -> ECookInputStatus { return Failure.Status; }
@@ -43,7 +42,6 @@ namespace Durin::AssetPrivate
 			std::map<std::string, std::filesystem::path> DeclaredFiles;
 			FAssetPackageInspection Inspection;
 			std::vector<FAssetReferenceEdge> References;
-			FCookContributorRegistration Contributor;
 			std::vector<FCookBuildDependency> Dependencies;
 			std::map<std::pair<ECookBuildDependencyKind, std::string>, FByteBuffer> DeclaredValues;
 			bool bDeclared = false;

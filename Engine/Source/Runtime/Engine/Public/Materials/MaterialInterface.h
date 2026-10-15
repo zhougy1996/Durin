@@ -213,11 +213,6 @@ namespace Durin
 
 	private:
 		auto BroadcastParameterChanges(const TObjectCacheIterator<DMaterialInterface>& Dependents) -> void;
-		friend auto ::Durin::ContributeEngineCookAsset(
-			DObject&, std::string_view, FCookContext&) -> FCookContributionResult;
-		ENGINE_API auto ContributeToCook(
-			FCookContext& Context,
-			std::string_view VirtualPackagePath) -> FCookContributionResult;
 	private:
 		friend struct Private::FMaterialCompilationLifecycle;
 #if DURIN_WITH_EDITORONLY_DATA

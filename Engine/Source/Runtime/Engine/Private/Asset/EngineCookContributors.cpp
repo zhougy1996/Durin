@@ -1,9 +1,9 @@
 #include "CookBuildProviders.h"
-#include "Asset/Cook.h"
-#include "Shader/IShaderBuildModule.h"
-
+#include "CookRegistry.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/Class.h"
+#include "DObject/Package.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialFunctionInterface.h"
 #include "Materials/MaterialInstance.h"
@@ -15,71 +15,75 @@
 
 namespace Durin
 {
+	auto FCookPreparationContext::GetTargetPlatform() const -> ECookTargetPlatform { return Options.TargetPlatform; }
+	auto FCookPreparationContext::GetTargetProfile() const -> ECookTargetProfile { return Options.TargetProfile; }
+	auto FCookPreparationContext::ReadDeclaredInput(ECookBuildDependencyKind Kind, std::string_view Name, FByteBuffer& Out) const -> FCookInputResult
+	{
+		Out.clear();
+		return Options.ReadCookInput ? Options.ReadCookInput(Kind, Name, Out)
+			: FCookInputFailure{.Error = ECookInputError::NoReader, .Kind = Kind, .Name = std::string(Name)}.ToInputResult();
+	}
 	namespace
 	{
-		auto RegisterFunctionSource(std::vector<FCookContributorHandle>& Handles) -> FCookContributorRegistrationResult
+		auto PrepareBuiltin(DObject& Object, std::string_view Path, FCookPreparationContext& Context) -> FCookContributionResult
 		{
-			// Override generic DObject contributors: function graphs are complete,
-			// versioned build inputs, never runtime packages or unversioned recipes.
-			const auto Handle = RegisterCookContributor(DMaterialFunctionInterface::StaticClass(),
-				{"material-function-source", 1, 1,
-					[](DObject& Object, std::string_view Path, FCookContext& Context) -> FCookContributionResult {
-						return FCookContributionResult{.Error = ECookContributionError::AuthoringOnly,
-							.ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(Path),
-							.TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()};
-					}, {}, {},
-					[](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult {
-						// Source bytes, reflected schema and transitive package references
-						// are already captured by ordinary Cook dependency discovery.
-						return {};
-					}});
-			if (!Handle) return Handle;
-			Handles.push_back(Handle.Handle);
+			auto Reject = [&](ECookContributionError Error, std::string Diagnostic = {}) -> FCookContributionResult {
+				return {.Error = Error, .ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(Path),
+					.TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile(), .Diagnostic = std::move(Diagnostic)};
+			};
+			const auto& Options = Context.Options;
+			const FAssetBuildTaskContext Control{.Cancellation = FCancellationToken([Check = Options.IsCancelled] { return Check && Check(); })};
+			if (auto* Texture = Cast<DTexture>(&Object))
+			{
+				if (Texture->IsAsyncCacheComplete()) Texture->BeginCachePlatformData();
+				if (!Texture->FinishCachePlatformData() || !Texture->HasPlatformData()) return Reject(ECookContributionError::PlatformData);
+			}
+			else if (auto* Mesh = Cast<DStaticMesh>(&Object))
+			{
+				if (HasPendingStaticMeshSourceMutation(*Mesh)) return Reject(ECookContributionError::SourceMutation);
+				auto Built = Mesh->PrepareCookedPayloads(Options.TargetPlatform, Context.Primary, Context.Collision, Control);
+				if (!Built) return Reject(ECookContributionError::Preparation, std::move(Built.error()));
+			}
+			else if (auto* Material = Cast<DMaterialInterface>(&Object); Material && !Material->IsDynamicInstance())
+			{
+				auto Built = Material->PrepareCookedProgram(Options.TargetPlatform, Options.MaterialConfigurations, Control);
+				if (!Built) return Reject(ECookContributionError::Preparation, std::move(Built.error()));
+				Context.Primary = std::move(*Built);
+			}
 			return {};
 		}
-
-		template<typename T>
-		auto RegisterFamily(
-			std::string Name,
-			std::vector<FCookContributorHandle>& Handles, FCookDependencyDeclarationCallback Declare) -> FCookContributorRegistrationResult
+		auto RegisterBuiltins(std::vector<FCookContributorHandle>& Handles, bool OnlyMissing) -> FCookContributorRegistrationResult
 		{
-			constexpr uint32 Version = std::is_base_of_v<DMaterialInterface, T> ? 5 : 2;
-			const auto Handle = RegisterCookContributor(
-				T::StaticClass(), {std::move(Name), Version, Version,
-					[](DObject& Object, std::string_view VirtualPath,
-						FCookContext& Context) -> FCookContributionResult {
-						if (!Object.IsA(T::StaticClass()))
-							return FCookContributionResult{.Error = ECookContributionError::TypeMismatch,
-								.ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(VirtualPath),
-								.ExpectedClass = T::StaticClass()->GetQualifiedName().ToString(),
-								.ActualClass = Object.GetClass()->GetQualifiedName().ToString()};
-						if constexpr (std::is_same_v<T, DStaticMesh>)
-						{
-							if (HasPendingStaticMeshSourceMutation(static_cast<DStaticMesh&>(Object)))
-								return FCookContributionResult{.Error = ECookContributionError::SourceMutation,
-									.ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(VirtualPath)};
-						}
-						else if constexpr (!std::is_base_of_v<DMaterialInterface, T>)
-							FAssetCompilingManager::Get().FinishCompilationForObject(Object);
-						return ContributeEngineCookAsset(Object, VirtualPath, Context);
-					},
-					[](const DObject&) -> ECookPackageStatus {
-						return ECookPackageStatus::Captured;
-					}, {},
-					std::move(Declare)}
-			);
-			if (!Handle) return Handle;
-			Handles.push_back(Handle.Handle);
-			return {};
+			const auto First = Handles.size();
+			auto Add = [&](DClass* Class, FCookContributorRegistration Registration) {
+				auto Result = RegisterCookContributor(Class, std::move(Registration));
+				if (!Result && OnlyMissing && Result.Error == ECookContributorRegistrationError::DuplicateClass) return FCookContributorRegistrationResult{};
+				if (Result) Handles.push_back(Result.Handle);
+				return Result;
+			};
+			auto EmptyDeclaration = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult { return {}; };
+			FCookContributorRegistrationResult Result;
+			if ((Result = Add(DTexture2D::StaticClass(), {"texture2d", 2, PrepareBuiltin, {}, AssetPrivate::DeclareTexture2DCookInputs}))
+				&& (Result = Add(DTextureCube::StaticClass(), {"texture-cube", 2, PrepareBuiltin, {}, AssetPrivate::DeclareTextureCubeCookInputs}))
+				&& (Result = Add(DVolumeTexture::StaticClass(), {"volume-texture", 2, PrepareBuiltin, {}, AssetPrivate::DeclareVolumeTextureCookInputs}))
+				&& (Result = Add(DStaticMesh::StaticClass(), {"static-mesh", 2, PrepareBuiltin, {}, AssetPrivate::DeclareStaticMeshCookInputs}))
+				&& (Result = Add(DMaterial::StaticClass(), {"material", 5, PrepareBuiltin, {}, AssetPrivate::DeclareMaterialCookInputs}))
+				&& (Result = Add(DMaterialInstance::StaticClass(), {"material-instance", 5, PrepareBuiltin, {}, AssetPrivate::DeclareMaterialCookInputs}))
+				&& (Result = Add(DMaterialFunctionInterface::StaticClass(), {"material-function-source", 1, {}, {}, EmptyDeclaration, ECookObjectDisposition::SourceOnly}))
+				&& (!OnlyMissing || (Result = Add(DObject::StaticClass(), {"generic-package", 1, {}, {}, EmptyDeclaration})))) return {};
+			for (size_t Index = First; Index < Handles.size(); ++Index) UnregisterCookContributor(Handles[Index]);
+			Handles.resize(First);
+			return Result;
 		}
 	}
-
 	auto FormatCookContributionError(const FCookContributionResult& Result) -> std::string
 	{
 		std::string_view Reason;
 		switch (Result.Error)
 		{
 		case ECookContributionError::None: return {};
+		case ECookContributionError::Preparation: return Result.Diagnostic;
+		case ECookContributionError::EmptyRuntimeRoot: return "Cook root has no runtime exports: " + Result.VirtualPath;
 		case ECookContributionError::AuthoringOnly: Reason = "Material functions are authoring-only build dependencies"; break;
 		case ECookContributionError::TypeMismatch: return std::format("Cook contributor expected class '{}' but received '{}' for '{}'.", Result.ExpectedClass, Result.ActualClass, Result.ObjectPath);
 		case ECookContributionError::SourceMutation: Reason = "Cook cannot settle authored source mutation after capture"; break;
@@ -97,42 +101,20 @@ namespace Durin
 		return std::format("{}: {}", Reason, Result.ObjectPath);
 	}
 
-
-	auto ContributeEngineCookAsset(
-		DObject& Object,
-		std::string_view VirtualPackagePath,
-		FCookContext& Context) -> FCookContributionResult
+	auto SaveCookPackage(DPackage* Package, std::string_view Path, FCookContext& Context) -> FCookContributionResult
 	{
-		if (Object.IsA(DTexture2D::StaticClass())
-			|| Object.IsA(DTextureCube::StaticClass())
-			|| Object.IsA(DVolumeTexture::StaticClass()))
-			return static_cast<DTexture&>(Object).ContributeToCook(
-				Context, VirtualPackagePath);
-		if (Object.IsA(DStaticMesh::StaticClass()))
-			return static_cast<DStaticMesh&>(Object).ContributeToCook(
-				Context, VirtualPackagePath);
-		if (Object.IsA(DMaterialInterface::StaticClass()))
-			return static_cast<DMaterialInterface&>(Object).ContributeToCook(
-				Context, VirtualPackagePath);
-		return {.Error = ECookContributionError::UnsupportedClass, .ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(VirtualPackagePath)};
+		if (GetTargetPlatformName(Context.GetTargetPlatform()).empty() || Context.GetTargetProfile() != ECookTargetProfile::Game)
+			return {.Error = ECookContributionError::Target, .VirtualPath = std::string(Path), .TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()};
+		const auto Added = Context.AddPackage(std::string(Path), Package);
+		if (!Added)
+		{
+			if (!Context.GetPreparationFailure()) return Context.GetPreparationFailure();
+			return {.Error = ECookContributionError::Plan, .VirtualPath = std::string(Path), .PlanCause = Added.Error};
+		}
+		return {};
 	}
-
-	auto RegisterEngineCookContributors(
-		std::vector<FCookContributorHandle>& OutHandles) -> FCookContributorRegistrationResult
-	{
-		const size_t FirstNewHandle = OutHandles.size();
-		FCookContributorRegistrationResult Registered;
-		if ((Registered = RegisterFamily<DTexture2D>("texture2d", OutHandles, AssetPrivate::DeclareTexture2DCookInputs))
-			&& (Registered = RegisterFamily<DTextureCube>("texture-cube", OutHandles, AssetPrivate::DeclareTextureCubeCookInputs))
-			&& (Registered = RegisterFamily<DVolumeTexture>("volume-texture", OutHandles, AssetPrivate::DeclareVolumeTextureCookInputs))
-			&& (Registered = RegisterFamily<DStaticMesh>("static-mesh", OutHandles, AssetPrivate::DeclareStaticMeshCookInputs))
-			&& (Registered = RegisterFamily<DMaterial>("material", OutHandles, AssetPrivate::DeclareMaterialCookInputs))
-			&& (Registered = RegisterFamily<DMaterialInstance>("material-instance", OutHandles, AssetPrivate::DeclareMaterialCookInputs))
-			&& (Registered = RegisterFunctionSource(OutHandles))) return {};
-
-		for (size_t Index = FirstNewHandle; Index < OutHandles.size(); ++Index)
-			UnregisterCookContributor(OutHandles[Index]);
-		OutHandles.resize(FirstNewHandle);
-		return Registered;
-	}
+	auto RegisterEngineCookContributors(std::vector<FCookContributorHandle>& Handles) -> FCookContributorRegistrationResult
+	{ return RegisterBuiltins(Handles, false); }
+	AssetPrivate::FEngineCookRegistrationScope::FEngineCookRegistrationScope() { Result = RegisterBuiltins(Handles, true); }
+	AssetPrivate::FEngineCookRegistrationScope::~FEngineCookRegistrationScope() { for (auto Handle : Handles) UnregisterCookContributor(Handle); }
 }

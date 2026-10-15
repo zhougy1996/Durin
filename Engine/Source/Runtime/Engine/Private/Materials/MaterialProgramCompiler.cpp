@@ -185,7 +185,7 @@ namespace Durin
 		const auto SelectedTarget = Target.value_or(Options.Target);
 #if DURIN_WITH_EDITOR
 		const auto Platform = ToCookTargetPlatform(SelectedTarget.Platform);
-		const auto Resolved = Platform ? ResolveTargetPlatform(*Platform, ECookTargetProfile::Game)
+		const auto Resolved = Platform ? ResolveTargetPlatform(*Platform)
 			: std::expected<FTargetPlatformDescription, ETargetPlatformError>{std::unexpected(ETargetPlatformError::UnknownPlatform)};
 		if (!Resolved || Resolved->GetShaderTarget() != SelectedTarget) return {FMaterialError::FromExternal(EMaterialCompileError::ShaderEnvironmentUnavailable,
 			"Material shader target is unsupported.")};

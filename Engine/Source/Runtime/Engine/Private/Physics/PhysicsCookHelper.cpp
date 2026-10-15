@@ -99,8 +99,8 @@ namespace Durin
 		Input.Mode = Info.Mode; Input.Policy = Info.Policy; Input.bPersist = Info.bPersistDerivedData;
 		if (Info.Mode == EBodySetupCollisionSourceMode::None) return Input;
 #if DURIN_WITH_EDITOR
-		const auto Target = ResolveTargetPlatform(static_cast<ECookTargetPlatform>(TargetPlatform), ECookTargetProfile::Game);
-		if (!Target || !Target->Supports(ETargetOperation::CollisionPayload))
+		const auto Target = ResolveTargetPlatform(static_cast<ECookTargetPlatform>(TargetPlatform));
+		if (!Target || !Target->SupportsCollisionPayload())
 			return std::unexpected(MakeAssetBuildDiagnostic("Physics collision representation is unsupported for the requested target.", "Cook"));
 #else
 		if (TargetPlatform != EAssetPayloadTargetPlatform::Win64)

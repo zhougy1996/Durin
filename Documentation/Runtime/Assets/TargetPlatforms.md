@@ -22,7 +22,7 @@ load a compiler, inspect the active GPU, acquire DDC sessions, or create tasks.
 
 ## Immutable resolution
 
-`ResolveTargetPlatform` validates platform/profile and returns an immutable
+`ResolveTargetPlatform` validates the platform and returns an immutable
 `FTargetPlatformDescription`. Current Win64 and MacOS Shader selections are
 Vulkan/SPIR-V and Metal/MSL respectively. Explicit material Shader identities
 are validated against that selection by the material compiler. Resolution has
@@ -44,6 +44,10 @@ cache reuse. Material owns quality/FeatureLevel/pass legality; texture owns
 usage-dependent pixel format selection; physics owns geometry and payload layout.
 No platform module depends on these asset types or their builders.
 
+Profile admission belongs to Cook, Shader and texture boundaries. The platform
+description exposes `SupportsCollisionPayload()` and its Shader target; it has no
+generic operation switch or profile state.
+
 ## Cook settings and preparation
 
 `FCookCoordinator` copies its admitted request before callbacks and canonicalizes
@@ -58,16 +62,17 @@ use specific family registrations; the generic DObject fallback only participate
 for top-level exports, so authored expression nodes do not disable reuse. Identical
 cross-family declarations coalesce; conflicting values and duplicate identities
 within one contributor fail admission. A family without declarations prevents
-reuse. Package capture still uses the primary contributor. The generic
+reuse. The common package publisher is independent of export order. The generic
 coordinator does not compose builder versions.
 
-Engine's package capture prepares material programs and StaticMesh render/
+Engine's package capture finishes every eligible texture compilation and prepares
+material programs and StaticMesh render/
 collision payloads before generic Archive discovery/emission. A bounded scoped
 table owns detached BulkData by object handle, package revision and exact Archive
 target. Nested captures use independent tables. Preparation observes cancellation,
 limits traversal to 65536 objects and retained prepared payloads to 1 GiB, and
-rejects package revision changes. Preparation and capture share the same
-transient-subtree and explicit object-omission predicate. Complete field planning
+rejects package revision changes. Preparation and capture share transient-subtree, explicit omission and source-only
+object policy from the immutable registration snapshot. Complete field planning
 uses capture's selected object list instead of rediscovering descendants.
 These are retained-storage limits, not total RSS or transient compiler/recipe
 allocation limits. Existing family construction admission and result limits
@@ -82,8 +87,8 @@ service. Cooked-only resaving requires data for the same target and never rebuil
 authored inputs. Its material preparation validates the requested configuration
 set, decodes each required existing variant and re-encodes only that selection.
 Missing variants fail, including when the default all-variant selection cannot
-be satisfied. It does not invoke producers. Preparation does not install results
-into live asset fields or accepted render programs. Ordinary offline input stability remains the
+be satisfied. It does not invoke producers. Material/mesh preparation does not install results into live asset fields or
+accepted render programs. Texture completion may apply transient platform data. Ordinary offline input stability remains the
 [Cook workflow's](Cooking.md) responsibility.
 
 ## Cache and format compatibility

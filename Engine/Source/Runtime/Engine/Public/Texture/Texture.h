@@ -138,11 +138,7 @@ namespace Durin
 		virtual auto LoadCookedPlatformData() -> bool = 0;
 
 	private:
-		friend auto ::Durin::ContributeEngineCookAsset(
-			DObject&, std::string_view, FCookContext&) -> FCookContributionResult;
 
-		auto ContributeToCook(FCookContext& Context,
-			std::string_view VirtualPackagePath) -> FCookContributionResult;
 
 		auto ReleaseRenderResources() -> void;
 		auto StartResourceUpdate(std::unique_ptr<FTextureResource> Candidate) -> void;

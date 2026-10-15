@@ -171,6 +171,8 @@ namespace Durin
 		std::string_view FieldName;
 		EAssetReferenceKind ObjectKind = EAssetReferenceKind::HardObject;
 		std::vector<FAssetReferenceEdge>& References;
+		const FAssetPackageInspection* InternalInspection = nullptr;
+		bool bEditorOnly = false;
 	};
 
 	auto ExtractReferenceValue(
@@ -219,11 +221,13 @@ namespace Durin
 	auto ExtractReferenceValue(
 		FProperty* Property,
 		Durin::PackagePrivate::FByteReader& Reader,
-		const FReferenceExtractionContext& Context,
+		const FReferenceExtractionContext& InContext,
 		std::vector<FAssetReferenceRouteSegment>& Route,
 		const std::string& PropertyPath,
 		uint32 ContainerDepth) -> FAssetReadResult
 	{
+		auto Context = InContext;
+		Context.bEditorOnly |= Property && Property->HasAnyPropertyFlags(EPropertyFlags::EditorOnly);
 		if (!Property)
 			return Error(EAssetReadError::TypeMismatch,
 				"SoftReferenceSchemaMismatch: reflected property metadata is missing.");
@@ -240,23 +244,28 @@ namespace Durin
 				return Error(EAssetReadError::CorruptFile,
 					std::format("AssetReferencePayloadTruncated: {} has no reference tag.", PropertyPath));
 			if (ReferenceKind == 0) return {};
+			std::string PathString;
+			FObjectPath TargetPath;
 			if (ReferenceKind == 1)
 			{
 				uint64 ObjectId = 0;
 				if (!Reader.Read(ObjectId) || ObjectId == 0)
-					return Error(EAssetReadError::InvalidObjectGraph,
-						std::format("AssetReferenceInternalObject: {} has an invalid object id.", PropertyPath));
-				return {};
+					return Error(EAssetReadError::InvalidObjectGraph, "AssetReferenceInternalObject: invalid object id.");
+				if (!Context.InternalInspection) return {};
+				const auto& Objects = Context.InternalInspection->Objects;
+				const auto Target = std::ranges::find(Objects, ObjectId, &FAssetPackageObjectInspection::Id);
+				if (Target == Objects.end())
+					return Error(EAssetReadError::InvalidObjectGraph, "AssetReferenceInternalObject: missing target.");
+				std::string Relative = Target->ObjectPath;
+				const auto Separator = Relative.find('/');
+				std::ranges::replace(Relative, '/', '.');
+				if (Separator != std::string::npos) Relative[Separator] = ':';
+				if (!FObjectPath::TryCreate(Context.SourcePackage.ToString() + "." + Relative, TargetPath))
+					return Error(EAssetReadError::InvalidObjectGraph, "AssetReferenceInternalObject: missing target.");
 			}
-			if (ReferenceKind != 2)
-				return Error(EAssetReadError::CorruptFile,
-					std::format("AssetReferencePayloadTag: {} has unknown tag {}.", PropertyPath, ReferenceKind));
-			std::string PathString;
-			FObjectPath TargetPath;
-			if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes)
+			else if (ReferenceKind != 2 || !Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes)
 				|| !FObjectPath::TryCreate(PathString, TargetPath))
-				return Error(EAssetReadError::InvalidPath,
-					std::format("AssetReferenceInvalidPath: {} has an invalid external path.", PropertyPath));
+				return Error(EAssetReadError::InvalidPath, "AssetReferenceInvalidPath: invalid external path.");
 			DClass* ExpectedClass = ObjectProperty->GetReferencedClass();
 			if (!ExpectedClass)
 				return Error(EAssetReadError::TypeMismatch,
@@ -278,7 +287,7 @@ namespace Durin
 				.ExpectedClass = ExpectedClass->GetQualifiedName().ToString(),
 				.TargetPath = std::move(TargetPath),
 				.Route = Route,
-				.DisplayRoute = PropertyPath});
+				.DisplayRoute = PropertyPath, .bEditorOnly = Context.InternalInspection && Context.bEditorOnly});
 			return {};
 		}
 		case DurinCodeGen::EPropertyGenFlags::SoftObject:
@@ -326,7 +335,7 @@ namespace Durin
 				.ExpectedClass = ExpectedClass->GetQualifiedName().ToString(),
 				.TargetPath = SoftPath,
 				.Route = Route,
-				.DisplayRoute = PropertyPath});
+				.DisplayRoute = PropertyPath, .bEditorOnly = Context.InternalInspection && Context.bEditorOnly});
 			return {};
 		}
 		case DurinCodeGen::EPropertyGenFlags::Array:
@@ -969,7 +978,7 @@ namespace Durin
 		auto ExtractAssetReferencesInternal(
 			const FPackagePath& SourcePackage,
 			const FAssetPackageInspection& Inspection,
-			std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetReadResult
+			std::vector<FAssetReferenceEdge>& OutReferences, bool bIncludeInternal) -> FAssetReadResult
 		{
 			OutReferences.clear();
 			if (!SourcePackage.IsValid())
@@ -1039,7 +1048,7 @@ namespace Durin
 						.ObjectKind = Object.ClassName == "Durin::DAssetRedirector"
 							? EAssetReferenceKind::Redirect
 							: EAssetReferenceKind::HardObject,
-						.References = References};
+						.References = References, .InternalInspection = bIncludeInternal ? &Inspection : nullptr};
 					std::vector<FAssetReferenceRouteSegment> Route;
 					auto Result = ExtractReferencePropertyValues(
 						Property, Field.Payload, Context, Route, Field.Name, 0);
@@ -1055,9 +1064,9 @@ namespace Durin
 	auto ExtractAssetReferences(
 		const FPackagePath& SourcePackage,
 		const FAssetPackageInspection& Inspection,
-		std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetReadResult
+		std::vector<FAssetReferenceEdge>& OutReferences, bool bIncludeInternal) -> FAssetReadResult
 	{
 		return ExtractAssetReferencesInternal(
-			SourcePackage, Inspection, OutReferences);
+			SourcePackage, Inspection, OutReferences, bIncludeInternal);
 	}
 }

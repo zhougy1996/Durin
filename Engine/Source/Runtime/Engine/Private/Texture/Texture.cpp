@@ -135,29 +135,6 @@ namespace Durin
 #endif
 	}
 
-	auto DTexture::ContributeToCook(FCookContext& Context,
-		std::string_view VirtualPackagePath) -> FCookContributionResult
-	{
-		auto Reject = [&](ECookContributionError Error) -> FCookContributionResult {
-			return {.Error = Error, .ObjectPath = GetObjectPath(), .VirtualPath = std::string(VirtualPackagePath),
-				.TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()};
-		};
-		if ((Context.GetTargetPlatform() != ECookTargetPlatform::Win64
-				&& Context.GetTargetPlatform() != ECookTargetPlatform::MacOS)
-			|| Context.GetTargetProfile() != ECookTargetProfile::Game) return Reject(ECookContributionError::Target);
-		if (!HasPlatformData()) PostLoad();
-		if (!FinishCachePlatformData()) return Reject(ECookContributionError::PlatformData);
-		if (!HasPlatformData()) return Reject(ECookContributionError::PlatformData);
-		const auto Added = Context.AddPackage(std::string(VirtualPackagePath), GetPackage());
-		if (!Added)
-		{
-			auto Result = Reject(ECookContributionError::Plan);
-			Result.PlanCause = Added.Error;
-			return Result;
-		}
-		return {};
-	}
-
 	auto DTexture::BeginDestroy() -> void
 	{
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);

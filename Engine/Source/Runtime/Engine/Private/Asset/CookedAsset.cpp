@@ -511,7 +511,10 @@ namespace Durin
 			.TargetProfile = TargetProfile,
 			.bRetainEditorOnlyData = bRetainEditorOnlyData,
 			.MaterialConfigurations = MaterialConfigurations,
-			.IsCancelled = IsCancelled
+			.IsCancelled = IsCancelled,
+			.CookSnapshot = Snapshot,
+			.ReadCookInput = ReadInput,
+			.PreparationFailure = PreparationFailure
 		};
 	}
 
@@ -554,6 +557,7 @@ namespace Durin
 		DPackage* Package
 	) -> FCookPlanResult
 	{
+		*PreparationFailure = {};
 		if (const auto Validated = ValidateCookPlanPath(VirtualPackagePath); !Validated) return Validated;
 		if (!Package || !Package->IsAssetPackage()
 			|| Package->GetTopLevelAssets().empty())

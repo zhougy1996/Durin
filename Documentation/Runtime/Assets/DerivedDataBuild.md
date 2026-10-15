@@ -463,6 +463,13 @@ acquisition lock. Test overrides do not replace synchronous production sessions.
 
 ## Family boundaries
 
+Cook registration versions describe family behavior, not DDC recipes. Unified
+package preparation and source-only filtering preserve existing family action
+projections, payload codecs and producer versions. The package publisher owns
+CookState reuse identity separately; its legacy producer-version word is fixed
+to 1. Platform resolution supplies capabilities while the family boundary
+validates its request profile.
+
 Texture2D, TextureCube, and VolumeTexture use a texture-owned inline session for
 import, detached build and Cook. Texture2D owner work (including authored PostLoad
 and editor rebuilds) and Cube platform-cache owner work use a separate task-scheduled

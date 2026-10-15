@@ -10,12 +10,14 @@
 #include "Asset/CookedAsset.h"
 #include "Asset/CookDependencies.h"
 #include "Asset/PackageBulkData.h"
+#include "Asset/BulkData.h"
 #include "DObject/DObjectFwd.h"
 #include "DObject/AssetPath.h"
 #include "Misc/FileError.h"
 
 namespace Durin
 {
+	namespace AssetPrivate { struct FCookRegistrySnapshot; }
 	struct FAssetPackageSerializationOptions;
 	struct FAssetPathResolveResult;
 	struct FCookOutputRootResult;
@@ -207,7 +209,7 @@ namespace Durin
 		UndeclaredInput, NoReader, DeclarationCount, DeclarationName, DuplicateDeclaration,
 		PackageDeclaration, ExternalDeclaration, ValueDeclaration, ValueStorage, ReservedKind,
 		BulkIdentity, SchemaClass, SchemaDepth, SchemaFields, SchemaField, SchemaType, SchemaEncoding,
-		SchemaStorage, RootLimit, RootClass, RuntimeEdgeLimit, ReferenceClass, NoRuntimePackages, DependencyStorage
+		SchemaStorage, RootLimit, RootClass, RuntimeEdgeLimit, ReferenceClass, NoRuntimePackages, DependencyStorage, EmptyRuntimeRoot, ExcludedRuntimeReference
 	};
 	struct FCookContributionResult;
 	struct FCookInputFailure
@@ -497,7 +499,7 @@ namespace Durin
 	enum class ECookContributionError : uint8
 	{
 		None, Target, PlatformData, RenderData, Revision, Contract, FunctionDependencies, UnsupportedClass, Plan,
-		AuthoringOnly, TypeMismatch, SourceMutation, RecipeProvider, ShaderInputs
+		AuthoringOnly, TypeMismatch, SourceMutation, RecipeProvider, ShaderInputs, Preparation, EmptyRuntimeRoot
 	};
 	struct FCookContributionResult
 	{
@@ -511,6 +513,7 @@ namespace Durin
 		std::string ExpectedClass;
 		std::string ActualClass;
 		std::string Provider;
+		std::string Diagnostic;
 		explicit operator bool() const { return Error == ECookContributionError::None; }
 	};
 	ENGINE_API auto FormatCookContributionError(const FCookContributionResult& Result) -> std::string;
@@ -549,12 +552,6 @@ namespace Durin
 		ENGINE_API auto TakeSavePlans(std::vector<FCookSavePlan>& OutPlans) -> FCookPlanResult;
 		using FReadInput = std::function<FCookInputResult(ECookBuildDependencyKind, std::string_view, FByteBuffer&)>;
 		auto SetInputReader(FReadInput Reader) -> void { ReadInput = std::move(Reader); }
-		auto ReadDeclaredInput(ECookBuildDependencyKind Kind, std::string_view Name,
-			FByteBuffer& Out) const -> FCookInputResult {
-			Out.clear();
-			return ReadInput ? ReadInput(Kind, Name, Out)
-				: FCookInputFailure{.Error = ECookInputError::NoReader, .Kind = Kind, .Name = std::string(Name)}.ToInputResult();
-		}
 		auto GetSavePlans() const -> std::span<const FCookSavePlan> { return Packages; }
 		auto GetTargetPlatform() const -> ECookTargetPlatform { return TargetPlatform; }
 		auto GetTargetProfile() const -> ECookTargetProfile { return TargetProfile; }
@@ -562,10 +559,14 @@ namespace Durin
 		auto SetMaterialConfigurations(std::span<const FMaterialCookConfiguration> Values) -> void
 			{ MaterialConfigurations.assign(Values.begin(), Values.end()); }
 		auto SetCancellationCheck(FCookCancellationCheck Check) -> void { IsCancelled = std::move(Check); }
+		auto SetContributorSnapshot(std::shared_ptr<const AssetPrivate::FCookRegistrySnapshot> Value) -> void { Snapshot = std::move(Value); }
+		auto GetPreparationFailure() const -> const FCookContributionResult& { return *PreparationFailure; }
 		ENGINE_API auto MakePackageSerializationOptions() const
 			-> FAssetPackageSerializationOptions;
 
 	private:
+		std::shared_ptr<const AssetPrivate::FCookRegistrySnapshot> Snapshot;
+		std::shared_ptr<FCookContributionResult> PreparationFailure = std::make_shared<FCookContributionResult>();
 		FReadInput ReadInput;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
@@ -586,13 +587,25 @@ namespace Durin
 	};
 	ENGINE_API auto FormatCookContextPublishError(const FCookContextPublishResult& Result) -> std::string;
 
-	// Consumes a direct family context and publishes through the shared output store.
+	// Consumes a direct package context and publishes through the shared output store.
 	// Production uses the coordinator for reachability, reuse and shader outputs.
 	ENGINE_API auto PublishCookContext(FCookContext& Context,
 		const std::filesystem::path& OutputRoot) -> FCookContextPublishResult;
 
+	// Object preparation can produce scoped payloads and read frozen inputs, but
+	// cannot capture packages or publish output.
+	struct FCookPreparationContext
+	{
+		const FAssetPackageSerializationOptions& Options;
+		FBulkData Primary;
+		FBulkData Collision;
+		ENGINE_API auto GetTargetPlatform() const -> ECookTargetPlatform;
+		ENGINE_API auto GetTargetProfile() const -> ECookTargetProfile;
+		ENGINE_API auto ReadDeclaredInput(ECookBuildDependencyKind Kind, std::string_view Name, FByteBuffer& Out) const -> FCookInputResult;
+	};
+	enum class ECookObjectDisposition : uint8 { Runtime, SourceOnly };
 	using FCookContributor = std::function<FCookContributionResult(
-		DObject&, std::string_view, FCookContext&
+		DObject&, std::string_view, FCookPreparationContext&
 	)>;
 	using FCookContributorHandle = uint64;
 
@@ -601,26 +614,24 @@ namespace Durin
 	{
 		std::string Name;
 		uint32 ContributorVersion = 1;
-		uint32 FamilyProducerVersion = 1;
-		FCookContributor Contribute;
-		std::function<ECookPackageStatus(const DObject&)> ClassifyPreparation;
+		FCookContributor Prepare;
 		// Pins callback state and native code until the last active run releases
 		// this registration. Empty means the caller guarantees process lifetime.
 		std::shared_ptr<void> LifetimeOwner;
 		// Absence disables incremental reuse. Native callbacks must declare every
 		// external input; automatic source/bulk/hard dependencies are added by Cook.
 		FCookDependencyDeclarationCallback DeclareDependencies;
+		ECookObjectDisposition Disposition = ECookObjectDisposition::Runtime;
 
 		// Callback managers may execute provider code during destruction.
 		~FCookContributorRegistration()
 		{
 			DeclareDependencies = {};
-			ClassifyPreparation = {};
-			Contribute = {};
+			Prepare = {};
 		}
 	};
 
-	enum class ECookContributorRegistrationError : uint8 { None, InvalidClass, Name, Callback, Version, DuplicateClass };
+	enum class ECookContributorRegistrationError : uint8 { None, InvalidClass, Name, Callback, Version, DuplicateClass, DuplicateName };
 	struct FCookContributorRegistrationResult
 	{
 		ECookContributorRegistrationError Error = ECookContributorRegistrationError::None;
@@ -638,8 +649,8 @@ namespace Durin
 	ENGINE_API auto UnregisterCookContributor(FCookContributorHandle Handle) -> void;
 	ENGINE_API auto RegisterEngineCookContributors(
 		std::vector<FCookContributorHandle>& OutHandles) -> FCookContributorRegistrationResult;
-	ENGINE_API auto ContributeEngineCookAsset(
-		DObject& Object,
+	ENGINE_API auto SaveCookPackage(
+		DPackage* Package,
 		std::string_view VirtualPackagePath,
 		FCookContext& Context) -> FCookContributionResult;
 

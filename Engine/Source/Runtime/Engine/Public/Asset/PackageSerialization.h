@@ -7,6 +7,7 @@
 #include "Asset/AssetWriteResult.h"
 #include "DObject/PackageBulkStorage.h"
 #include "Asset/CookedAsset.h"
+#include "Asset/CookDependencies.h"
 #include "DObject/Archive.h"
 #include "DObject/PackageSaveOverrides.h"
 #include "DObject/ObjectPtr.h"
@@ -17,6 +18,8 @@
 
 namespace Durin
 {
+	namespace AssetPrivate { struct FCookRegistrySnapshot; }
+	struct FCookContributionResult;
 	class FObjectGraphReplacement;
 	enum class EAssetPackageSaveDomain : uint8 { Authored, Cooked };
 
@@ -50,6 +53,9 @@ namespace Durin
 		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta;
 		std::vector<FMaterialCookConfiguration> MaterialConfigurations;
 		std::function<bool()> IsCancelled;
+		std::shared_ptr<const AssetPrivate::FCookRegistrySnapshot> CookSnapshot;
+		std::function<FCookInputResult(ECookBuildDependencyKind, std::string_view, FByteBuffer&)> ReadCookInput;
+		std::shared_ptr<FCookContributionResult> PreparationFailure;
 	};
 
 	enum class EAssetBundleSavePhase : uint8

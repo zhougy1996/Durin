@@ -102,6 +102,7 @@ namespace Durin
 		FArchiveTarget Target;
 		std::shared_ptr<const FObjectSaveOverrides> SaveOverrides;
 		std::function<bool(const DObject*, const FProperty*)> PropertyFilter;
+		std::function<bool(const DObject*)> ObjectFilter;
 		std::unordered_map<const DObject*, FObjectPath> RedirectDestinations;
 	};
 	// GameThread capture. Does not validate catalog dependencies or publish assets.

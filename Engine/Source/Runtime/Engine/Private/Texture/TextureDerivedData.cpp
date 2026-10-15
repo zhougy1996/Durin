@@ -27,8 +27,8 @@ namespace Durin
 
 		auto IsSupportedTarget(ECookTargetPlatform Platform, ECookTargetProfile Profile) -> bool
 		{
-			const auto Target = ResolveTargetPlatform(Platform, Profile);
-			return Target && Target->Supports(ETargetOperation::TextureMetadata);
+			const auto Target = ResolveTargetPlatform(Platform);
+			return Target && !GetTargetProfileName(Profile).empty();
 		}
 
 #endif

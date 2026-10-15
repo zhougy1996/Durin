@@ -368,8 +368,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::FCookContext CookContext(
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*AuthoredMesh, "/Game/CookedMesh", CookContext)) << Error;
+	ASSERT_TRUE(Durin::SaveCookPackage((*AuthoredMesh).GetPackage(), "/Game/CookedMesh", CookContext)) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(CookContext, CookRoot)) << Error;
 	ASSERT_TRUE(Durin::UnloadPackage(
 		AuthoredPath,

@@ -1369,8 +1369,7 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	Durin::FCookContext Cook(
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*Texture, "/Game/CookedVolume", Cook)) << Error;
+	ASSERT_TRUE(Durin::SaveCookPackage((*Texture).GetPackage(), "/Game/CookedVolume", Cook)) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot)) << Error;
 	EXPECT_FALSE(std::filesystem::exists(CookRoot / "Game/CookedVolume.dbulk"));
 	Durin::FAssetPackageInspection CookedInspection;

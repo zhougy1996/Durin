@@ -4,21 +4,178 @@ Summary: Remove primary-asset ownership of package Cook, unify object eligibilit
 
 Last reviewed: 2026-10-15
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-15
 
 ## Current Status
 
-Planning only. No implementation stage has started. The baseline is commit
-`2fca9b889` and the completed [Target Platform Build Policy plan](TargetPlatformBuildPolicy.md).
-Its 1016 passing CPU cases and Editor/Game builds are historical baseline evidence,
-not acceptance evidence for this plan.
+Stages 0–5 are complete. Cook now loads and publishes packages independently of
+the first asset, captures one registration snapshot, and prepares every eligible
+object through the common save path. Stable names are unique across classes.
+Engine owns built-ins; standalone captures use scoped access to the same registry.
+Source-only admission runs before reuse, while generic capture receives the same
+object policy. Platform descriptions expose capabilities without profile state.
+The baseline remains production commit `2fca9b889`; historical passing results
+are not counted as this plan's acceptance evidence.
 
-The follow-up review found that declarations cover secondary/nested families but
-preparation still depends partly on the primary contributor. Secondary textures
-can miss compilation completion, and secondary authoring-only assets bypass the
-primary contributor's rejection. Family-name deduplication also assumes name
-uniqueness that registration does not enforce.
+### Completion evidence (2026-10-15)
+
+Retention correction (2026-10-15): generated Cook packages, shader libraries,
+manifests, state snapshots and the cold-DDC inventory have been removed from Git
+at the user's request. The snapshot comparisons below describe the original
+qualification only; they are no longer checked-in test inputs. Functional tests
+generate their own assets and retain warm-hit, forced-rebuild and publisher-change
+invalidation checks. Existing focused codec tests retain deterministic roundtrip,
+corruption and legacy-version coverage. The snapshot-only reader case was removed;
+continuous byte comparison against pre-migration packages is no longer covered.
+Future historical snapshots belong under ignored `Build/` or in CI artifacts.
+Retention cleanup validation: `AssetCookTests` passes 44/44 and
+`CookFunctionalTests` passes 19/19 in Win64-Debug-DurinEditor. Logs:
+`Build/.agent-state/logs/20261015-154341-195798-38260-AssetCookTests.log` and
+`Build/.agent-state/logs/20261015-154403-963267-22180-CookFunctionalTests.log`.
+
+- The original combined texture failure was split into Texture2D, Cube and
+  Volume cases. All three failed independently before migration in
+  `Build/.agent-state/logs/20261015-141556-275566-46428-ctest.log`.
+  Missing common preparation caused the failures. Texture2D also required
+  finishing an existing request without launching a duplicate build.
+- The final Cook functional suite passes 19/19 sequentially in
+  `Build/.agent-state/logs/20261015-150008-977437-7556-CookFunctionalTests.log`.
+  The preceding 18 cases pass individually in
+  `Build/.agent-state/logs/20261015-145301-551487-46824-ctest.log`; the added
+  reverse-creation mixed generic/material/instance case passes alone in
+  `Build/.agent-state/logs/20261015-150006-162802-33100-ctest.log`.
+  Coverage includes referenced nested textures, delayed Texture2D completion,
+  warm saves, transient/explicitly omitted textures, both EditorOnly retention
+  policies, internal/external source-only references, empty runtime roots,
+  declaration conflicts, cancellation and common publication.
+- All 18 required CPU targets pass: 1031 tests, no failures or disabled cases.
+  Per-target XML is under `Build/NativeTestResults/Win64-Debug-DurinEditor/`.
+  `Build/.agent-state/CookLifecycleValidation.json` records exact target counts,
+  report paths, build logs and the retained compatibility fixture run.
+- Families and Mixed cooked bytes match the immutable Stage 0 fixtures. The
+  family test injects real baseline CookState and proves deliberate misses,
+  subsequent current-state hits, warm-DDC capture and forced-rebuild parity.
+  Material selection and recipe mutations invalidate dependent packages.
+  All 31 DDC records emitted by the retained final fixture match baseline keys,
+  sizes and SHA-256 values; there are no new keys. Two historical Shader records
+  are not emitted by this run. No payload or DDC codec version was changed.
+- Publisher identity is now `engine-package` version 2. This intentionally
+  invalidates old Engine CookState entries across families. Family behavior has
+  one active version; the legacy producer word remains readable and is written
+  as 1. Family recipe declarations retain their independent versions.
+- Editor and Game `all` builds pass respectively in
+  `Build/.agent-state/logs/20261015-145656-092805-7080-cmake.log` and
+  `Build/.agent-state/logs/20261015-145422-995934-43180-cmake.log`, covering Engine,
+  Sandbox and RoadWeaver. The Game Ninja graph has no TargetPlatform target.
+- Affected Vulkan mesh and texture integration consumers compile in
+  `Build/.agent-state/logs/20261015-145704-822501-380-cmake.log` and
+  `Build/.agent-state/logs/20261015-145722-367041-44780-cmake.log`.
+  An earlier broad `@asset-cook` isolation probe also selected texture integration
+  cases and exposed missing per-case compiling-manager setup. That setup is fixed
+  and compiled; its GPU continuation was not rerun. GPU/application execution is
+  not a required gate for this lifecycle/API change, and no native MacOS collision
+  qualification is claimed.
+- Lasting contracts are updated in Cooking, TargetPlatforms and DerivedDataBuild.
+  Changed-document and all-plan validation are required before the completion
+  commit, together with a clean diff check.
+
+### Stage 0 contract inventory
+
+The `Durin.dworkspace` projects are Engine, Sandbox and RoadWeaver. Searching
+their source/test roots found registration, positional aggregate, callback and
+direct-save consumers only in Engine. The frontend owner is `AssetToolMain.cpp`;
+test-owned registrations occur in `CookedAssetTests.cpp`, `CookFunctionalTests.cpp`,
+`PackageTests.cpp` and `MaterialFunctionCookTests.cpp`. Direct family adapters
+also occur in the texture, material, static-mesh DDC and Vulkan preparation tests
+listed in Stage 3. `CookedAssetTests.cpp` contains retirement, reentrant owner
+destruction and callback-before-owner destruction coverage; preserve all three.
+Engine module startup is the intended built-in owner, with lazy access through
+the same registration storage for standalone direct-save test hosts.
+
+The selected object policy is:
+
+| Case | `bRetainEditorOnlyData=false` | `bRetainEditorOnlyData=true` |
+| --- | --- | --- |
+| Runtime object and runtime hard reference | Retain; validate target | Retain; validate target |
+| Ordinary EditorOnly field/reference | Strip; do not make a runtime dependency | Retain diagnostic field/reference |
+| Source-only object, including secondary export | Omit runtime export; retain build inputs | Omit runtime export; retain build inputs |
+| Runtime hard reference to source-only object | Fail with object/field cause | Fail with object/field cause |
+| EditorOnly reference to source-only object | Strip | Omit the excluded target reference; never promote the target |
+| Transient/template/explicitly omitted subtree | No preparation or export | No preparation or export |
+| Explicit root with no runtime exports | Typed empty-runtime-root failure | Typed empty-runtime-root failure |
+| Source-only build dependency | Retain source/schema/transitive inputs; no output | Retain source/schema/transitive inputs; no output |
+
+The last three source-only behaviors intentionally replace the current
+primary-contributor rejection; current retained editor references can incorrectly
+promote a function package into the runtime set. Generic CoreDObject capture must
+receive the exclusion policy from Engine, not inspect Engine classes.
+
+Selected baseline targets are `AssetCookTests`, `CookFunctionalTests`,
+`AssetPackageTests`, `MaterialFunctionTests` and `TextureTests`; the configured
+registry confirms the first two. Existing `CooksSavedFamiliesAndReusesValidatedOutputs`
+covers generic, material/instances, all texture families and mesh/collision output
+hash parity, warm CookState hits and forced rebuilds. `MixedPackageDeclaresEveryMaterialFamily`
+covers secondary/nested material declarations. CMNF has a fixed 137-byte golden
+hash in `FCookManifestTests.IsDeterministicAndRejectsCorruptRecords`; CookState v2
+has canonical roundtrip, truncation and legacy-v1 rejection coverage. These are
+coverage inventory, not yet passing evidence for this execution.
+
+Initial sandbox baseline build failed with MSVC C1902 before tests ran
+(`Build/.agent-state/logs/20261015-130819-352558-45772-cmake.log`). The documented
+outside-sandbox retry built successfully. Use outside-sandbox DevTool builds on
+this host for the remaining stages; no toolchain repair or clean build is needed.
+
+The original compatibility inputs were captured under
+`Engine/Tests/Native/AssetTests/Data/CookLifecycleBaseline` (removed by the retention
+correction above). They contained actual
+family and mixed package bytes, CMNF and CookState v2 dependency/action records,
+captured before production changes. The new reader fixture verifies exact
+re-encoding and package size/hash consistency. These snapshots came from the
+existing functional tests' warm and forced-rebuild parity checks. A later isolated
+run with a fresh family DDC reproduced identical bytes for all ten family packages;
+`ColdDdcRecords.json` preserves 33 resulting record identities and checksums.
+A gated Texture2D worker establishes controlled in-flight compilation before
+direct save begins, with RAII release/drain on every failure path.
+
+Evidence from the Win64-Debug-DurinEditor preset (all paths under
+`Build/.agent-state/logs/`):
+
+- `20261015-131130-717536-12408-AssetCookTests.log`: 41 existing cases passed;
+  new `RejectsDuplicateStableNamesAcrossClasses` failed because the second
+  registration returned a live handle. Cleanup retires both handles even on
+  the old implementation.
+- `20261015-131631-351596-36760-AssetCookTests.log`: new
+  `ReadsLifecycleBaselineStateAndManifest` passed in a standalone run.
+- `20261015-131712-885191-4268-CookFunctionalTests.log`: new
+  `SecondaryFamilyDeclarationsControlReuseAndConflicts` passed alone. It checks
+  missing declarations disable reuse, identical declarations coalesce, and
+  conflicts leave previously published output unchanged.
+- `20261015-131924-584321-49112-CookFunctionalTests.log`: 12 cases passed,
+  including all 11 prior cases; two new regressions failed as expected.
+  `DirectSavePreparesSecondaryTextureWithoutPostLoad` creates secondary 2D/cube
+  and nested volume textures with no platform data; capture fails before
+  preparation. `MixedAuthoringOnlyExportsAreFilteredForEitherRetentionPolicy`
+  covers both root orders and both editor-data policies and exposes the
+  unfiltered material-function export.
+- `20261015-131959-636734-4468-ctest.log`: the same three new functional cases
+  run in isolated processes (`--isolate --test-jobs 1`); declaration coverage
+  passes and both lifecycle regressions reproduce independently.
+- `20261015-132049-229850-33248-AssetCookTests.log`: final 43-case suite,
+  42 passed and only the duplicate-name regression failed.
+- `20261015-132227-415476-4876-ctest.log`: controlled delayed Texture2D
+  compilation reproduces the direct-save failure in isolation.
+- `20261015-132339-822585-25484-ctest.log`: isolated fresh-DDC family fixture
+  passed cold/warm/forced-rebuild parity.
+- `20261015-132416-345888-47412-ctest.log`: all 14 functional cases ran in
+  isolated processes; 12 passed and only the two known lifecycle regressions
+  failed. A separate SHA-256 comparison of this run's ten family package files
+  against the checked-in baseline found every file byte-identical.
+
+The regression suite is intentionally red at this characterization checkpoint.
+No production behavior, keys or codecs have changed. Stages 1-5 and the full
+Editor/Game build gates remain outstanding. A red Stage 0 fixture records a
+reproduced defect, not acceptance evidence for the final lifecycle.
 
 ## Goal
 
@@ -130,15 +287,15 @@ Files to inspect and extend:
 - `Engine/Source/Runtime/Engine/Private/Asset/CookState.cpp`
 - `Engine/Source/Programs/DurinAssetTool/Private/AssetToolMain.cpp`
 
-- [ ] Inventory callback/registration consumers across Engine, Sandbox and
+- [x] Inventory callback/registration consumers across Engine, Sandbox and
   RoadWeaver source/test roots declared by `Durin.dworkspace`, including positional
   aggregate initializers, lifetime tests and direct package-save adapters.
-- [ ] Capture cold/warm payload bytes, family action identities, CookState v2 and
+- [x] Capture cold/warm payload bytes, family action identities, CookState v2 and
   CMNF fixtures for material, texture, mesh/collision, generic and mixed packages.
-- [ ] Add regression fixtures for delayed secondary/nested textures, reordered
+- [x] Add regression fixtures for delayed secondary/nested textures, reordered
   mixed packages, authoring-only secondary exports, duplicate registration names,
   missing declarations and conflicting cross-family declarations.
-- [ ] Specify empty-root, source-only dependency, runtime hard-reference and
+- [x] Specify empty-root, source-only dependency, runtime hard-reference and
   `bRetainEditorOnlyData` outcomes before changing graph selection.
 
 Compatibility: tests and fixture capture do not change production keys or codecs.
@@ -163,16 +320,16 @@ Migration files:
 - Registration and capture fixtures in `CookedAssetTests.cpp`,
   `CookFunctionalTests.cpp`, `PackageTests.cpp` and `MaterialFunctionCookTests.cpp`.
 
-- [ ] Reject duplicate stable names atomically, including across different classes;
+- [x] Reject duplicate stable names atomically, including across different classes;
   retain callback code/lifetime pins for active snapshots and safe unregistration.
-- [ ] Make package loading and capture independent of a primary asset's class.
+- [x] Make package loading and capture independent of a primary asset's class.
   Move the sole `AddPackage`/capture decision into the common package workflow.
-- [ ] Change family registrations toward metadata/declarations and per-object
+- [x] Change family registrations toward metadata/declarations and per-object
   preparation; remove publishing privileges from preparation callbacks. Any
   temporary adapter must delegate to the same pipeline and cannot create a second plan.
-- [ ] Give Engine one owner for built-in initialization; remove duplicate frontend
+- [x] Give Engine one owner for built-in initialization; remove duplicate frontend
   ownership and migrate tests to scoped registration/lifetime fixtures.
-- [ ] Remove root-only classification and define one package serializer identity
+- [x] Remove root-only classification and define one package serializer identity
   for persisted save-plan bookkeeping. Preserve distinct family versions in the
   dependency set, not in first-asset fields.
 
@@ -201,15 +358,15 @@ Migration files:
 - `Engine/Tests/Native/AssetTests/Private/PackageTests.cpp` and `CookFunctionalTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/Materials/MaterialFunctionCookTests.cpp`
 
-- [ ] Represent family runtime/source-only disposition independently of package
+- [x] Represent family runtime/source-only disposition independently of package
   publication. Remove authoring-only rejection from primary-only callbacks.
-- [ ] Run metadata admission before cache hits; share the resulting policy with
+- [x] Run metadata admission before cache hits; share the resulting policy with
   live-object preparation and capture through generic omission/filtering contracts.
-- [ ] Filter source-only secondary objects while retaining material-function source
+- [x] Filter source-only secondary objects while retaining material-function source
   dependencies, schema closure and necessary transitive invalidation.
-- [ ] Keep CoreDObject free of Engine classes: Engine supplies object policy;
+- [x] Keep CoreDObject free of Engine classes: Engine supplies object policy;
   generic capture validates references and uses the selected-object complete plan.
-- [ ] Handle empty-runtime-root/source-only outcomes explicitly in coordinator,
+- [x] Handle empty-runtime-root/source-only outcomes explicitly in coordinator,
   manifest staging and diagnostics, with no partially published output.
 
 Compatibility: selection/admission changes must invalidate affected old CookState
@@ -245,16 +402,16 @@ Migration files:
   `Materials/MaterialCookTests.cpp`, `StaticMeshDerivedDataCacheTests.cpp` and
   `StaticMeshRenderPreparationVulkanTests.cpp`.
 
-- [ ] Replace built-in `ContributeToCook`/friend dispatch wrappers with object
+- [x] Replace built-in `ContributeToCook`/friend dispatch wrappers with object
   preparation plus the common save entrypoint; migrate every shared-API consumer.
-- [ ] Prepare all retained candidate textures, explicitly finish their compilation
+- [x] Prepare all retained candidate textures, explicitly finish their compilation
   and validate platform data before serialization. Make direct saves independent
   of incidental PostLoad progress and coordinator registration.
-- [ ] Keep detached material/mesh/collision production, selected material variants,
+- [x] Keep detached material/mesh/collision production, selected material variants,
   target validation and pending mesh-source-mutation checks for every relevant object.
-- [ ] Serializers only consume valid prepared/platform data and encode fields;
+- [x] Serializers only consume valid prepared/platform data and encode fields;
   they do not launch compilation, geometry construction or DDC requests.
-- [ ] Preserve cancellation, bounded retained products, stale-input rejection,
+- [x] Preserve cancellation, bounded retained products, stale-input rejection,
   nested-capture isolation and cleanup on all terminal paths. Existing texture
   completion may apply transient platform data; authored state and accepted
   material/render programs must not be rewritten.
@@ -284,14 +441,14 @@ Migration files:
 - `Engine/Source/Runtime/Engine/Public/Asset/Cook.h`
 - `Engine/Tests/Native/AssetTests/Private/TargetPlatformTests.cpp` and `CookedAssetTests.cpp`
 
-- [ ] Replace generic `Supports(ETargetOperation)` workflow gating with explicit
+- [x] Replace generic `Supports(ETargetOperation)` workflow gating with explicit
   platform capabilities; move profile validation into Cook, Shader and texture
   boundaries. Do not widen EditorValidation production or unsupported collision.
-- [ ] Remove profile from platform description/resolution if no capability needs
+- [x] Remove profile from platform description/resolution if no capability needs
   it; retain profile in requests, action projections and payload tags where semantic.
-- [ ] Keep stable platform adapters and explicit Shader identity validation;
+- [x] Keep stable platform adapters and explicit Shader identity validation;
   explicit builds remain independent of active RHI capabilities.
-- [ ] Give Cook behavior one active family version. Preserve legacy nonzero
+- [x] Give Cook behavior one active family version. Preserve legacy nonzero
   `FamilyProducerVersion` wire fields as compatibility fields with documented
   deterministic values; do not silently reinterpret them as recipe versions.
   Actual recipe/function/constants/output versions remain family declarations.
@@ -310,27 +467,27 @@ Files: stage-owned tests and codecs above, plus
 `Documentation/Runtime/Assets/TargetPlatforms.md`, `Cooking.md`,
 `DerivedDataBuild.md`, and this plan's status/evidence.
 
-- [ ] Prove cold, warm DDC, CookState reuse and forced rebuild paths. A CookHit
+- [x] Prove cold, warm DDC, CookState reuse and forced rebuild paths. A CookHit
   performs no family preparation; a miss with available DDC avoids producer work.
-- [ ] Compare canonical dependencies and payload bytes for reordered mixed assets,
+- [x] Compare canonical dependencies and payload bytes for reordered mixed assets,
   selected material variants, all three texture families and mesh/collision.
-- [ ] Load legacy CookState/CMNF fixtures and verify deliberate misses, accepted
+- [x] Load legacy CookState/CMNF fixtures and verify deliberate misses, accepted
   current hits, reader compatibility and absence of unsafe reuse after filtering.
-- [ ] Run relevant CPU targets: CookFunctionalTests, AssetCookTests,
+- [x] Run relevant CPU targets: CookFunctionalTests, AssetCookTests,
   AssetPackageTests, CoreObjectTests, PackageLinkerContractTests,
   PackagePersistenceTests, PackageWriterContractTests, TargetPlatformTests,
   MaterialCompilerTests, MaterialCookTests, MaterialFunctionTests,
   MaterialRuntimeTests, TextureTests, StaticMeshTests, CookedMeshLoadingTests,
   RenderShaderBuilderTests, RenderShaderCacheTests and RenderShaderCookedLibraryTests.
   Confirm target names/selection through the configured registry when implementing.
-- [ ] Run new cases alone and the Cook functional suite in isolated processes;
+- [x] Run new cases alone and the Cook functional suite in isolated processes;
   verify registration and asset-runtime cleanup between sequential cases.
-- [ ] Complete Editor and Game `all` builds, including Engine, Sandbox and
+- [x] Complete Editor and Game `all` builds, including Engine, Sandbox and
   RoadWeaver consumers, and inspect the Game graph for TargetPlatform leakage.
-- [ ] Compile affected GPU/application test consumers when API migration reaches
+- [x] Compile affected GPU/application test consumers when API migration reaches
   them. GPU/application execution is required only for changed GPU behavior or an
   explicit gate; do not invent native MacOS collision qualification.
-- [ ] Update lasting contracts, remove temporary duplicate publishing paths and
+- [x] Update lasting contracts, remove temporary duplicate publishing paths and
   obsolete helpers, record exact reports/logs and any unrun required gate, then
   mark this plan complete only after all required checks pass.
 

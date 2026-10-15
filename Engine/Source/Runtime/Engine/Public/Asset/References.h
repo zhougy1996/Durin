@@ -49,6 +49,8 @@ namespace Durin
 		FObjectPath TargetPath;
 		std::vector<FAssetReferenceRouteSegment> Route;
 		std::string DisplayRoute;
+		// Populated for Cook admission when internal references are requested.
+		bool bEditorOnly = false;
 
 		auto operator==(const FAssetReferenceEdge&) const -> bool = default;
 	};
@@ -56,7 +58,8 @@ namespace Durin
 	ENGINE_API auto ExtractAssetReferences(
 		const FPackagePath& SourcePackage,
 		const FAssetPackageInspection& Inspection,
-		std::vector<FAssetReferenceEdge>& OutReferences
+		std::vector<FAssetReferenceEdge>& OutReferences,
+		bool bIncludeInternal = false
 	) -> FAssetReadResult;
 
 	ENGINE_API auto BuildCookReachability(

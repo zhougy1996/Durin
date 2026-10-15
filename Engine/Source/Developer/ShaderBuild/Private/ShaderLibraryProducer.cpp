@@ -43,8 +43,8 @@ namespace Durin
 		const auto Profile = TargetProfile == EShaderTargetProfile::Game ? ECookTargetProfile::Game
 			: TargetProfile == EShaderTargetProfile::EditorValidation ? ECookTargetProfile::EditorValidation : ECookTargetProfile::Invalid;
 		if (!Platform) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
-		const auto Resolved = ResolveTargetPlatform(*Platform, Profile);
-		if (!Resolved) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+		const auto Resolved = ResolveTargetPlatform(*Platform);
+		if (!Resolved || Profile == ECookTargetProfile::Invalid) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
 		std::vector<FShaderRuntimeRequest> Inventory;
 		if (auto Result = FreezeShaderRuntimeInventory(TargetPlatform, TargetProfile, Inventory); !Result) return Result;
 		if (Inventory.empty())

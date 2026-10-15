@@ -47,6 +47,8 @@ namespace Durin
 		case ECookInputError::RootClass: return std::format("Cook root class unavailable: package={}, class={}", Failure.Package.ToString(), Failure.Name);
 		case ECookInputError::RuntimeEdgeLimit: return std::format("Cook runtime edge limit exceeded: package={}, edges={}, maximum={}", Failure.Package.ToString(), Failure.Actual, Failure.Maximum);
 		case ECookInputError::ReferenceClass: return std::format("Cook reference class unavailable: package={}, class={}, member={}", Failure.Package.ToString(), Failure.Name, Failure.Member);
+		case ECookInputError::EmptyRuntimeRoot: return "Cook root has no runtime exports: " + Failure.Package.ToString();
+		case ECookInputError::ExcludedRuntimeReference: return "Runtime reference targets an excluded object: " + Failure.Name + " field " + Failure.Member;
 		case ECookInputError::NoRuntimePackages: return "Cook selected no runtime packages.";
 		case ECookInputError::DependencyStorage: return std::format("Cook retained dependency limit exceeded: package={}, name={}, requested={}, retained={}, maximum={}", Failure.Package.ToString(), Failure.Name, Failure.Actual, Failure.Retained, Failure.MaximumRetained);
 		}
@@ -162,7 +164,7 @@ namespace Durin::AssetPrivate
 		FAssetPackageReadContext Context{.PackageBytes = PackageBytes, .PackagePath = Path,
 			.PhysicalBulkBytes = BulkBytes.size(), .bResourceBackedBulk = true};
 		if (auto Result = Codec->Inspect(Context, Input.Inspection); !Result) return Fail(Result);
-		if (auto Result = Codec->ExtractReferences(Context, Input.References); !Result) return Fail(Result);
+		if (auto Result = ExtractAssetReferences(Path, Input.Inspection, Input.References, true); !Result) return Fail(Result);
 		// Schema discovery needs class identities, not retained serialized field payloads.
 		for (auto& Object : Input.Inspection.Objects)
 		{
@@ -325,32 +327,53 @@ namespace Durin::AssetPrivate
 					Pending.push_back(Root.TargetPath);
 				}
 		std::unordered_set<FPackagePath> Runtime;
-		const auto IsRuntimeReference = [&](const FAssetReferenceEdge& Reference) {
-			if (Request.bRetainEditorOnlyData) return true;
+		const auto IsEditorReference = [&](const FAssetReferenceEdge& Reference) {
 			const auto* Class = FindClassByQualifiedName(FName(Reference.SourceClass));
 			const auto* Property = Class ? Class->FindPropertyByName(FName(Reference.FieldName)) : nullptr;
-			// Custom archive fields without a reflected policy remain runtime dependencies.
-			return !Property || !Property->HasAnyPropertyFlags(EPropertyFlags::EditorOnly);
+			return Reference.bEditorOnly || (Property && Property->HasAnyPropertyFlags(EPropertyFlags::EditorOnly));
 		};
+		const auto IsExcluded = [&](const FInput& Input, uint64 Id) {
+			while (Id != 0) {
+				const auto It = std::ranges::find(Input.Inspection.Objects, Id, &FAssetPackageObjectInspection::Id);
+				if (It == Input.Inspection.Objects.end()) break;
+				FCookContributorRegistration Family;
+				if (auto Result = ResolveContributor(It->ClassName, It->OuterId == 0, Family); !Result) { Fail(Result); return true; }
+				if (Family.Disposition == ECookObjectDisposition::SourceOnly) return true;
+				Id = It->OuterId;
+			}
+			return false;
+		};
+		std::unordered_set<FPackagePath> Explicit;
+		for (const auto& Root : Pending) {
+			FPackagePath Final;
+			if (auto Result = Resolve(Root, Final); !Result) return Result;
+			Explicit.insert(Final);
+		}
 		uint64 RuntimeEdges = 0;
 		while (!Pending.empty())
 		{
 			const auto Requested = Pending.back(); Pending.pop_back();
 			FPackagePath Path;
 			if (auto Result = Resolve(Requested, Path); !Result) return Result;
-			if (!Runtime.insert(Path).second) continue;
+			if (Runtime.contains(Path)) continue;
 			const auto& Input = Inputs.at(Path);
+			const bool HasRuntime = std::ranges::any_of(Input.Inspection.Objects, [&](const auto& Object) {
+				return Object.OuterId == 0 && !IsExcluded(Input, Object.Id);
+			});
+			if (!Failure) return Failure;
+			if (!HasRuntime) {
+				if (Explicit.contains(Path)) return Fail(FCookInputFailure{.Error = ECookInputError::EmptyRuntimeRoot, .Package = Path});
+				continue;
+			}
+			Runtime.insert(Path);
 			RuntimeEdges += Input.Inspection.Header.Dependencies.size() + Input.References.size();
 			if (RuntimeEdges > MaximumCookDependencyRecords)
 				return Fail(FCookInputFailure{.Error = ECookInputError::RuntimeEdgeLimit, .Package = Path, .Actual = RuntimeEdges, .Maximum = MaximumCookDependencyRecords});
-			std::unordered_map<FPackagePath, bool> ReferencedPackages;
+			std::unordered_set<FPackagePath> ReferencedPackages;
 			for (const auto& Reference : Input.References)
-				ReferencedPackages[Reference.TargetPath.GetPackagePath()] |= IsRuntimeReference(Reference);
+				ReferencedPackages.insert(Reference.TargetPath.GetPackagePath());
 			for (const auto& Dependency : Input.Inspection.Header.Dependencies)
-			{
-				const auto Reference = ReferencedPackages.find(Dependency);
-				if (Reference == ReferencedPackages.end() || Reference->second) Pending.push_back(Dependency);
-			}
+				if (!ReferencedPackages.contains(Dependency)) Pending.push_back(Dependency);
 			for (const auto& Reference : Input.References)
 			{
 				if (Reference.Kind == EAssetReferenceKind::Redirect) continue;
@@ -365,7 +388,17 @@ namespace Durin::AssetPrivate
 				for (const auto& Alias : Resolution.RedirectChain)
 					if (auto Result = AcquirePackage(Alias.GetPackagePath()); !Result) return Result;
 				if (auto Result = AcquirePackage(Resolution.FinalPath.GetPackagePath()); !Result) return Result;
-				if (IsRuntimeReference(Reference)) Pending.push_back(Resolution.FinalPath.GetPackagePath());
+				const auto& Target = Inputs.at(Resolution.FinalPath.GetPackagePath());
+				std::string RelativeTarget(Resolution.FinalPath.GetAssetPath().GetAssetName());
+				for (const auto Name : Resolution.FinalPath.GetSubobjectNames()) { RelativeTarget += '/'; RelativeTarget += Name; }
+				const auto TargetObject = std::ranges::find(Target.Inspection.Objects, RelativeTarget, &FAssetPackageObjectInspection::ObjectPath);
+				const bool ExcludedTarget = TargetObject != Target.Inspection.Objects.end() && IsExcluded(Target, TargetObject->Id);
+				const bool ExcludedSource = IsExcluded(Input, Reference.SourceObjectId);
+				if (!Failure) return Failure;
+				if (ExcludedTarget && !ExcludedSource && !IsEditorReference(Reference) && Reference.Kind == EAssetReferenceKind::HardObject)
+					return Fail(FCookInputFailure{.Error = ECookInputError::ExcludedRuntimeReference, .Package = Path, .Name = Reference.TargetPath.ToString(), .Member = Reference.FieldName});
+				if (!ExcludedTarget && !ExcludedSource && (Request.bRetainEditorOnlyData || !IsEditorReference(Reference)))
+					Pending.push_back(Resolution.FinalPath.GetPackagePath());
 			}
 		}
 		RuntimePackages.assign(Runtime.begin(), Runtime.end());
@@ -405,17 +438,14 @@ namespace Durin::AssetPrivate
 					if (Automatic.insert(Dependency).second) Node.Packages.push_back({Dependency, true});
 				}
 				if (auto Result = CaptureSchema(Input, Node); !Result) return Result;
-				const auto* Data = Registry.Catalog.FindExact(Path);
-				const auto ContributorResult = ResolveContributor(Data->TopLevelAssets.front().AssetClassName, true, Input.Contributor);
-				if (!ContributorResult && Runtime.contains(Path)) return Fail(ContributorResult);
 				std::vector<FCookContributorRegistration> Families;
-				if (ContributorResult) Families.push_back(Input.Contributor);
 				std::unordered_set<std::string> FamilyNames;
-				if (ContributorResult) FamilyNames.insert(Input.Contributor.Name);
 				for (const auto& Object : Input.Inspection.Objects)
 				{
 					FCookContributorRegistration Family;
-					if (const auto Result = ResolveContributor(Object.ClassName, Object.OuterId == 0, Family); Result && !Family.Name.empty())
+					const auto Result = ResolveContributor(Object.ClassName, Object.OuterId == 0, Family);
+					if (!Result) return Fail(Result);
+					if (!Family.Name.empty())
 					{
 						if (FamilyNames.insert(Family.Name).second) Families.push_back(std::move(Family));
 					}
@@ -427,7 +457,7 @@ namespace Durin::AssetPrivate
 					bAllDeclared &= bool(Family.DeclareDependencies);
 					FBinaryWriter Versions;
 					Versions.WriteU32(Family.ContributorVersion);
-					Versions.WriteU32(Family.FamilyProducerVersion);
+					Versions.WriteU32(1);
 					Node.Inputs.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
 						"contributor/" + Family.Name, Versions.TakeBytes()});
 					if (Family.DeclareDependencies)
@@ -533,7 +563,7 @@ namespace Durin::AssetPrivate
 			}
 		}
 		for (const auto& [Path, Input] : Inputs)
-			if (!Input.Contributor.Name.empty() && !Input.bDeclared) UnversionedPackages.insert(Path.ToString());
+			if (!Input.bDeclared) UnversionedPackages.insert(Path.ToString());
 		FCookBuildDependencyGraph Dependencies;
 		if (const auto Initialized = Dependencies.Initialize(Graph); !Initialized)
 			return Fail(Initialized.ToInputResult());

@@ -24,8 +24,11 @@ program or apply a compiled candidate to the asset.
 `FCookContext::AddPackage` accepts canonical cooked package bytes; package
 serialization captures any `FBulkData` ranges and produces the optional raw
 segment. `AddRawPackage` admits an already laid-out opaque segment. Asset families
-contribute through class-keyed registrations owned by `RegisterEngineCookContributors`; individual family
-Cook methods are private.
+prepare objects through class-keyed registrations owned by the Engine module.
+Standalone saves acquire missing built-ins through the same registry and retire
+only their own handles. Stable family names and classes must both be unique.
+`SaveCookPackage` and direct package saves use one common package capture; family
+callbacks cannot publish plans.
 
 A coordinator run captures the contributor registration map before its first
 cancellation or provider callback. Resolution for every package uses that map.
@@ -112,8 +115,8 @@ or retain whole-run package/bulk copies. Ordinary loading provides recursion,
 aliases, cycles, residency and file-backed lazy bulk. Existing residents in this
 process are valid; ordinary non-Cook load/mutation admission remains unchanged.
 
-Contributors prepare derived state and return detached save plans without saving
-authored files. `FScopedOfflinePreparation` selects synchronous Material work and
+Contributors prepare derived object state without saving authored files. The
+common publisher captures each retained package once. `FScopedOfflinePreparation` selects synchronous Material work and
 lets StaticMesh build its detached serialization product without editor compilation.
 It does not gate mutation or loading. The host must finish owned work before
 unloading provider code. `DeclareDependencies` executes before every cache lookup without loading
@@ -128,9 +131,9 @@ without declarations. Declarations use stable logical names and these semantics:
   Cycles terminate once per node. Build-only packages do not become runtime roots.
 - External files are hashed during discovery and read again when requested; their
   locator is excluded from identity. Configuration and schema/producer values are owned canonical bytes.
-  Contributors read them through `FCookContext::ReadDeclaredInput`; undeclared
+  Contributors read them through `FCookPreparationContext::ReadDeclaredInput`; undeclared
   access fails the run even if its immediate error is ignored.
-- Names, kinds, lengths, and values are canonically framed. Contributor/family
+- Names, kinds, lengths, and values are canonically framed. Family behavior
   versions, relevant reflected schema, target/profile, and editor retention are
   included. Process revisions, timestamps, absolute paths, scheduling, and DDC
   location are excluded. Native constructor defaults, custom serializers, build
@@ -231,19 +234,20 @@ output root. Its `AddPackage` overloads return `FCookPlanResult`, distinguishing
 invalid path/source identity, empty bytes, duplicate path, invalid package and
 projection failure. Errors retain the virtual path and complete serialization
 result for projection failures; admission failure publishes no plan.
-Family contribution returns `FCookContributionResult`, retaining object/virtual
-paths, target settings, material revision and nested plan causes. Target, missing
-derived state, stale material revision/contract/dependencies and unsupported
-classes have distinct errors. The registration callback uses `ToAssetResult` to
-format the contribution diagnostic at the callback boundary; the asset result
-does not embed a second contribution result.
-Engine registration callbacks also retain typed authoring-only, class mismatch,
-pending source mutation and missing recipe/shader-input failures. Class failures
-own expected/actual identities; dependency failures own provider and package
-identities. Their asset adapters retain the existing UnsupportedProperty,
-TypeMismatch or InUse classification. The coordinator retains the complete
-`ContributionCause`, package and contributor identity before formatting the
+Family preparation returns `FCookContributionResult`, retaining object/virtual
+paths, target settings and preparation diagnostics. The coordinator retains the
+complete `ContributionCause`, package and family identity before formatting the
 run presentation. Starting another run clears this prior failure state.
+Metadata admission rejects explicit roots with no runtime exports and runtime
+hard references to excluded source-only objects before any CookState reuse.
+Source-only objects and their descendants are omitted from runtime exports;
+their bytes, schema and transitive build inputs still invalidate consumers.
+EditorOnly references are stripped normally; diagnostic retention writes null
+for an excluded target without promoting that target into runtime output.
+Live capture applies the same policy and validates hard references with field
+and object diagnostics. CoreDObject accepts the generic filter without depending
+on Engine asset classes.
+
 Coordinator capture failures retain `FCookCaptureResult` in `CaptureCause`.
 Finalization errors own the complete `FCookPlanError`, including nested asset or
 path-resolution causes; successful finalization with an unexpected plan count
@@ -301,6 +305,13 @@ in `InjectionCause`, bounded to 2048 bytes with stage/index context. The coordin
 preserves the complete failed result in `FCookRunResult::PublicationCause` before
 presentation formatting. Status and transaction timing remain independent
 from the cause; existing cleanup and manifest-last publication order are unchanged.
+
+The package publisher uses the stable `engine-package` identity and its own
+serializer version. Each family has one active behavior version. The legacy
+`FamilyProducerVersion` word remains in CookState/manifest-compatible records
+with deterministic value 1; it is not a recipe version. Old records remain
+readable but cannot match the migrated publisher identity. Family recipe,
+function, constants and output versions remain explicit dependency declarations.
 
 ## Output transaction
 

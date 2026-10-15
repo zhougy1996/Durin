@@ -8,8 +8,11 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Object.h"
 #include "DObject/Package.h"
+#include "DObject/Class.h"
+#include "DObject/DurinPropertyTypes.h"
 #include "Asset/OfflinePreparation.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "Shader/GlobalShader.h"
@@ -20,10 +23,12 @@
 #include "NativeAssetTestSupport.h"
 #include "NativeAssetRuntimeTestSupport.h"
 #include "Texture/Texture2D.h"
+#include "Texture/Texture2DCompilation.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "Materials/MaterialFunction.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Serialization/BinaryFormat.h"
 #include "StaticMesh/StaticMesh.h"
@@ -34,6 +39,34 @@
 namespace
 {
 	using namespace Durin;
+
+	class DCookReferenceFixture : public DObject
+	{
+	public:
+		explicit DCookReferenceFixture(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : DObject(Initializer) {}
+		static void __DefaultConstructor(const FObjectInitializer& X) { new (X.GetObj()) DCookReferenceFixture(X); }
+		static auto StaticClassNoRegister() -> DClass*
+		{
+			static DClass* Class = nullptr;
+			if (!Class) {
+				Class = new DClass(EC_StaticConstructor, "DCookReferenceFixture", sizeof(DCookReferenceFixture), alignof(DCookReferenceFixture), EObjectFlags::NoFlags, EClassFlags::None, EClassCastFlags::DClass, (DClass::ClassConstructorType)InternalConstructor<DCookReferenceFixture>);
+				Class->SetSuperStructBase(DObject::StaticClass());
+				Class->Register(DClass::StaticClass, "", "DCookReferenceFixture");
+			}
+			return Class;
+		}
+		static auto StaticClass() -> DClass*
+		{
+			static const auto Runtime = DurinCodeGen::FObjectPropertyParams::ObjectPtr<DObject>("RuntimeReference", EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DCookReferenceFixture, RuntimeReference), &DObject::StaticClass);
+			static const auto Editor = DurinCodeGen::FObjectPropertyParams::ObjectPtr<DObject>("EditorReference", EPropertyFlags::EditorOnly, 1, STRUCT_OFFSET_UINT16(DCookReferenceFixture, EditorReference), &DObject::StaticClass);
+			static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&Runtime, &Editor};
+			static const DurinCodeGen::FClassParams Params = {&StaticClassNoRegister, "Tests::DCookReferenceFixture", "DCookReferenceFixture", Properties, std::size(Properties)};
+			static DClass* Class = DurinCodeGen::ConstructDClass(Params);
+			return Class;
+		}
+		TObjectPtr<DObject> RuntimeReference;
+		TObjectPtr<DObject> EditorReference;
+	};
 
 	// Keeps the Cook shader library independent of the renderer's production inventory.
 	class FCookFixtureShader : public FGlobalShader
@@ -93,10 +126,9 @@ namespace
 			ASSERT_TRUE(RegisterEngineCookContributors(Handles)) << Error;
 			const auto Generic = RegisterCookContributor(DObject::StaticClass(), {
 				.Name = "generic-package",
-				.Contribute = [](DObject& Object, std::string_view Path, FCookContext& Context) -> FCookContributionResult {
+				.Prepare = [](DObject& Object, std::string_view Path, FCookPreparationContext& Context) -> FCookContributionResult {
 					std::string Error;
-					if (const auto Added = Context.AddPackage(std::string(Path), Object.GetPackage()); !Added)
-						return {.Error = ECookContributionError::Plan, .PlanCause = Added.Error};
+
 					return {};
 				},
 				.DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult { return {}; }}).Handle;
@@ -161,7 +193,7 @@ TEST_F(FCookFunctionalTests, DeclarationFailuresRetainIdentityAndPathCause)
 	uint32 Contributions = 0;
 	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {
 		.Name = "declaration-provider",
-		.Contribute = [&](DObject&, std::string_view, FCookContext&) -> FCookContributionResult { ++Contributions; return {}; },
+		.Prepare = [&](DObject&, std::string_view, FCookPreparationContext&) -> FCookContributionResult { ++Contributions; return {}; },
 		.DeclareDependencies = [&](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>& Out) -> FCookContributionResult { Out = Declarations; return {}; }});
 	ASSERT_TRUE(Registered);
 	Handles.push_back(Registered.Handle);
@@ -208,10 +240,9 @@ TEST_F(FCookFunctionalTests, RequestValuesStayFrozenAcrossCallbacks)
 	std::vector<FMaterialCookConfiguration> Observed;
 	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {
 		.Name = "frozen-policy",
-		.Contribute = [](DObject& Object, std::string_view Path, FCookContext& Context) -> FCookContributionResult {
+		.Prepare = [](DObject& Object, std::string_view Path, FCookPreparationContext& Context) -> FCookContributionResult {
 			EXPECT_EQ(Context.GetTargetPlatform(), ECookTargetPlatform::Win64);
-			const auto Added = Context.AddPackage(std::string(Path), Object.GetPackage());
-			return Added ? FCookContributionResult{} : FCookContributionResult{.Error = ECookContributionError::Plan, .PlanCause = Added.Error};
+			return {};
 		},
 		.DeclareDependencies = [&](const FCookDependencyRequest& Captured, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult {
 			EXPECT_EQ(Captured.TargetPlatform, ECookTargetPlatform::Win64);
@@ -287,6 +318,9 @@ TEST_F(FCookFunctionalTests, PreparationOmitsTransientAssetSubtrees)
 	auto* Temporary = NewObject<DObject>(Root, "Temporary", EObjectFlags::Transient);
 	ASSERT_NE(NewObject<DStaticMesh>(Temporary, "InvalidMesh"), nullptr);
 	ASSERT_NE(NewObject<DMaterial>(Temporary, "Material"), nullptr);
+	ASSERT_NE(NewObject<DTexture2D>(Temporary, "Invalid2D"), nullptr);
+	ASSERT_NE(NewObject<DTextureCube>(Temporary, "InvalidCube"), nullptr);
+	ASSERT_NE(NewObject<DVolumeTexture>(Temporary, "InvalidVolume"), nullptr);
 	const auto Before = GetShaderBuildStats().Compilations;
 	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	const auto Saved = Context.AddPackage(Path.ToString(), Package);
@@ -295,12 +329,322 @@ TEST_F(FCookFunctionalTests, PreparationOmitsTransientAssetSubtrees)
 	auto* Omitted = NewObject<DStaticMesh>(Root, "ExplicitlyOmittedMesh");
 	auto Overrides = std::make_shared<FObjectSaveOverrides>();
 	ASSERT_TRUE(Overrides->AddObjectOmission(*Omitted));
+	ASSERT_TRUE(Overrides->AddObjectOmission(*NewObject<DTexture2D>(Root, "Omitted2D")));
+	ASSERT_TRUE(Overrides->AddObjectOmission(*NewObject<DTextureCube>(Root, "OmittedCube")));
+	ASSERT_TRUE(Overrides->AddObjectOmission(*NewObject<DVolumeTexture>(Root, "OmittedVolume")));
 	FByteBuffer Bytes, Bulk;
 	const auto WithOverride = SerializeAssetPackageClosure(Package, Bytes, Bulk,
 		{.Domain = EAssetPackageSaveDomain::Cooked, .TargetPlatform = ECookTargetPlatform::Win64,
 			.TargetProfile = ECookTargetProfile::Game, .SaveOverrides = Overrides});
 	ASSERT_TRUE(WithOverride) << ObjectPackage::FormatPackageError(WithOverride);
 	EXPECT_EQ(GetShaderBuildStats().Compilations, Before);
+}
+
+namespace
+{
+template<class T>
+auto ExpectDirectTexturePreparation(bool Nested) -> void
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("SecondaryTexturePreparation");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate(std::format("/CookTests/Secondary{}{}", int(std::is_same_v<T, DTextureCube>) + 2 * int(std::is_same_v<T, DVolumeTexture>), Nested), Path));
+	auto* Package = CreatePackage(Path);
+	auto* Root = NewObject<DCookReferenceFixture>(Package, "AFirst");
+	ASSERT_NE(Root, nullptr);
+	auto* Texture = NewObject<T>(Nested ? Root : static_cast<DObject*>(Package), "Texture");
+	ASSERT_NE(Texture, nullptr);
+	Root->RuntimeReference = Texture;
+	if constexpr (std::is_same_v<T, DVolumeTexture>)
+	{
+		FVolumeTextureSourceData Voxels;
+		Voxels.Width = Voxels.Height = Voxels.Depth = 4;
+		ASSERT_TRUE(Voxels.Voxels.UpdatePayload(FByteBuffer(64, std::byte{0x7f})));
+		auto Source = PrepareVolumeTextureSource(Voxels);
+		ASSERT_TRUE(Source);
+		Texture->SetSource(std::move(*Source));
+	}
+	else
+	{
+		auto Pixels = Image::FImage::TryCreate({.Width = 4, .Height = 4,
+			.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64, std::byte{0xff}));
+		ASSERT_TRUE(Pixels);
+		if constexpr (std::is_same_v<T, DTexture2D>)
+		{
+			FTextureSource Source;
+			ASSERT_TRUE(Source.Init2D(Pixels->GetView(), 4));
+			Texture->SetSource(std::move(Source));
+		}
+		else
+		{
+			FTextureCubeFaceImages Faces;
+			for (auto& Face : Faces.Faces) Face = *Pixels;
+			Faces.SourceChannelCount = 4;
+			auto Source = PrepareTextureCubeSource(Faces);
+			ASSERT_TRUE(Source);
+			Texture->SetSource(std::move(*Source));
+			Texture->SetBuildSettings(ETextureCubeSourceLayout::SixFaces, 4, 0, 4, 4, true);
+		}
+	}
+	ASSERT_FALSE(Texture->HasPlatformData());
+	std::promise<void> Started, Release;
+	auto StartedFuture = Started.get_future();
+	auto ReleaseFuture = Release.get_future().share();
+	bool Released = false;
+	bool Completed = false;
+	struct FDrainCompilation
+	{
+		std::promise<void>& Release;
+		bool& Released;
+		~FDrainCompilation()
+		{
+			if (!Released) { Released = true; Release.set_value(); }
+			FAssetCompilingManager::Get().FinishAllCompilation();
+			AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
+		}
+	} Drain{Release, Released};
+	if constexpr (std::is_same_v<T, DTexture2D>)
+	{
+	AssetPrivate::SetTexture2DCompilationPhaseHookForTests(
+		[&](uint64, ETexture2DCompilationPhase Phase) {
+			if (Phase != ETexture2DCompilationPhase::Building) return;
+			Started.set_value();
+			ReleaseFuture.wait();
+		});
+	auto Build = MakeTexture2DBuildRequest(Texture->GetSource());
+	ASSERT_TRUE(Build);
+	ASSERT_TRUE(SubmitTexture2DCompilation(*Texture,
+		{.Build = std::move(*Build), .ResultApplication = {.bMarkPackageDirty = false}},
+		[&](FTextureOperationResult Result) { Completed = Result.Succeeded(); }));
+	ASSERT_EQ(StartedFuture.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+	ASSERT_FALSE(Completed);
+	}
+	// A runtime reference keeps the nested object in the stripped cooked graph.
+	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game, false);
+	Context.SetCancellationCheck([&] {
+		if (!Released) { Released = true; Release.set_value(); }
+		return false;
+	});
+	const auto Saved = Context.AddPackage(Path.ToString(), Package);
+	ASSERT_TRUE(Saved) << FormatCookPlanError(Saved.Error);
+	EXPECT_TRUE(Texture->HasPlatformData());
+	if constexpr (std::is_same_v<T, DTexture2D>) EXPECT_TRUE(Completed);
+	ASSERT_EQ(Context.GetSavePlans().size(), 1u);
+	FCookContext Warm(ECookTargetPlatform::Win64, ECookTargetProfile::Game, false);
+	ASSERT_TRUE(Warm.AddPackage(Path.ToString(), Package));
+	ASSERT_EQ(Warm.GetSavePlans().size(), 1u);
+	EXPECT_EQ(Context.GetSavePlans().front().PackageBytes, Warm.GetSavePlans().front().PackageBytes);
+}
+
+}
+
+TEST_F(FCookFunctionalTests, DirectSavePreparesSecondaryAndNestedTexture2D)
+{
+	ASSERT_NO_FATAL_FAILURE(ExpectDirectTexturePreparation<DTexture2D>(false));
+	ASSERT_NO_FATAL_FAILURE(ExpectDirectTexturePreparation<DTexture2D>(true));
+}
+
+TEST_F(FCookFunctionalTests, DirectSavePreparesSecondaryAndNestedTextureCube)
+{
+	ASSERT_NO_FATAL_FAILURE(ExpectDirectTexturePreparation<DTextureCube>(false));
+	ASSERT_NO_FATAL_FAILURE(ExpectDirectTexturePreparation<DTextureCube>(true));
+}
+
+TEST_F(FCookFunctionalTests, DirectSavePreparesSecondaryAndNestedVolumeTexture)
+{
+	ASSERT_NO_FATAL_FAILURE(ExpectDirectTexturePreparation<DVolumeTexture>(false));
+	ASSERT_NO_FATAL_FAILURE(ExpectDirectTexturePreparation<DVolumeTexture>(true));
+}
+
+TEST_F(FCookFunctionalTests, MixedAuthoringOnlyExportsAreFilteredForEitherRetentionPolicy)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("MixedSourceOnly");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	for (const bool Retain : {false, true}) for (const bool SourceFirst : {false, true})
+	{
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/CookTests/Mixed{}{}", Retain, SourceFirst), Path));
+		auto* Package = CreatePackage(Path);
+		if (SourceFirst) ASSERT_NE(NewObject<DMaterialFunction>(Package, "AFirst"), nullptr);
+		ASSERT_NE(NewObject<DObject>(Package, SourceFirst ? "ZLast" : "AFirst"), nullptr);
+		if (!SourceFirst) ASSERT_NE(NewObject<DMaterialFunction>(Package, "ZLast"), nullptr);
+		FByteBuffer Bytes;
+		const auto Saved = SerializeAssetPackageBytes(Package, Bytes,
+			{.Domain = EAssetPackageSaveDomain::Cooked, .TargetPlatform = ECookTargetPlatform::Win64,
+				.TargetProfile = ECookTargetProfile::Game, .bRetainEditorOnlyData = Retain});
+		ASSERT_TRUE(Saved) << ObjectPackage::FormatPackageError(Saved);
+		const auto File = Fixture / (Retain ? "retained.dasset" : "stripped.dasset");
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, File));
+		FAssetPackageInspection Inspection;
+		const auto Inspected = InspectAssetPackage(File.generic_string(), Path, Inspection);
+		ASSERT_TRUE(Inspected) << Inspected.Message;
+		EXPECT_EQ(Inspection.Objects.size(), 1u);
+		EXPECT_EQ(Inspection.Objects.front().ClassName, DObject::StaticClass()->GetQualifiedName().ToString());
+	}
+}
+
+TEST_F(FCookFunctionalTests, SourceOnlyReferenceAdmissionPrecedesReuse)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("SourceOnlyReferences");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	for (const bool Retain : {false, true}) for (const bool External : {false, true})
+	{
+		FPackagePath Path, SourcePath;
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/CookTests/References{}{}", Retain, External), Path));
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/CookTests/Source{}{}", Retain, External), SourcePath));
+		auto* Package = CreatePackage(Path);
+		auto* Root = NewObject<DCookReferenceFixture>(Package, "Root");
+		auto* SourcePackage = External ? CreatePackage(SourcePath) : Package;
+		auto* Source = NewObject<DMaterialFunction>(SourcePackage, "Source");
+		Root->EditorReference = Source;
+		if (External) ASSERT_TRUE(SavePackage(SourcePackage));
+		ASSERT_TRUE(SavePackage(Package));
+		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+		FCookRequest Request{.OutputRoot = Fixture / std::format("Output{}{}", Retain, External), .TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}, .bRetainEditorOnlyData = Retain};
+		FCookRunResult Result;
+		ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+		ASSERT_EQ(Result.Packages.size(), 1u);
+		ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+		EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+		const auto Before = Inventory(Request.OutputRoot);
+		Root->RuntimeReference = Source;
+		ASSERT_TRUE(SavePackage(Package));
+		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+		EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+		EXPECT_NE(FormatCookRunError(Result).find("RuntimeReference"), std::string::npos);
+		EXPECT_EQ(Inventory(Request.OutputRoot), Before);
+		FCookContext Direct(ECookTargetPlatform::Win64, ECookTargetProfile::Game, Retain);
+		EXPECT_FALSE(Direct.AddPackage(Path.ToString(), Package));
+	}
+}
+
+TEST_F(FCookFunctionalTests, SourceOnlyExplicitRootFailsWithoutPublishing)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("SourceOnlyRoot");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/SourceOnly", Path));
+	auto* Package = CreatePackage(Path);
+	ASSERT_NE(NewObject<DMaterialFunction>(Package, "Source"), nullptr);
+	ASSERT_TRUE(SavePackage(Package));
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
+	FCookRunResult Result;
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	ASSERT_TRUE(Result.InputFailure.GetDiagnostic());
+	EXPECT_EQ(Result.InputFailure.GetDiagnostic()->Error, ECookInputError::EmptyRuntimeRoot);
+	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "CookManifest.bin"));
+	FCookContext Direct(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	const auto Saved = SaveCookPackage(Package, Path.GetView(), Direct);
+	EXPECT_EQ(Saved.Error, ECookContributionError::EmptyRuntimeRoot);
+}
+
+TEST_F(FCookFunctionalTests, SecondaryFamilyDeclarationsControlReuseAndConflicts)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("SecondaryDeclarations");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/SecondaryDeclarations", Path));
+	auto* Package = CreatePackage(Path);
+	ASSERT_NE(NewObject<DObject>(Package, "AFirst"), nullptr);
+	ASSERT_NE(NewObject<DMaterialFunction>(Package, "Source"), nullptr);
+	ASSERT_TRUE(SavePackage(Package));
+	ASSERT_TRUE(UnloadPackage(Package));
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	for (const auto Handle : Handles) UnregisterCookContributor(Handle);
+	Handles.clear();
+	const FCookContributor Capture = [](DObject& Object, std::string_view Path,
+		FCookPreparationContext& Context) -> FCookContributionResult {
+		return {};
+	};
+	const auto Declare = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>& Out)
+		-> FCookContributionResult {
+		Out.push_back({ECookBuildDependencyKind::ConfigurationValue, "shared-policy", {}, {std::byte{1}}});
+		return {};
+	};
+	const auto Generic = RegisterCookContributor(DObject::StaticClass(),
+		{"generic-package", 1, Capture, {}, Declare});
+	ASSERT_TRUE(Generic);
+	Handles.push_back(Generic.Handle);
+	auto Secondary = RegisterCookContributor(DMaterialFunction::StaticClass(),
+		{"secondary-source", 1, Capture});
+	ASSERT_TRUE(Secondary);
+	Handles.push_back(Secondary.Handle);
+	FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
+	FCookRunResult Result;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	ASSERT_EQ(Result.Packages.size(), 1u);
+	EXPECT_NE(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+	UnregisterCookContributor(Secondary.Handle);
+	Handles.pop_back();
+	Secondary = RegisterCookContributor(DMaterialFunction::StaticClass(),
+		{"secondary-source", 1, Capture, {}, Declare});
+	ASSERT_TRUE(Secondary);
+	Handles.push_back(Secondary.Handle);
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+	const auto Before = Inventory(Request.OutputRoot);
+	UnregisterCookContributor(Secondary.Handle);
+	Handles.pop_back();
+	Secondary = RegisterCookContributor(DMaterialFunction::StaticClass(),
+		{"secondary-source", 1, Capture, {},
+			[](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>& Out) -> FCookContributionResult {
+				Out.push_back({ECookBuildDependencyKind::ConfigurationValue, "shared-policy", {}, {std::byte{2}}});
+				return {};
+			}});
+	ASSERT_TRUE(Secondary);
+	Handles.push_back(Secondary.Handle);
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	ASSERT_TRUE(Result.InputFailure.GetDiagnostic());
+	EXPECT_EQ(Result.InputFailure.GetDiagnostic()->Error, ECookInputError::DuplicateDeclaration);
+	EXPECT_EQ(Inventory(Request.OutputRoot), Before);
+}
+
+TEST_F(FCookFunctionalTests, MixedCreationOrderPreservesCanonicalPackageBytes)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("MixedCreationOrder");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	std::vector<FCookSavePlan> Baseline;
+	for (const bool Reverse : {false, true})
+	{
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/CookTests/Order{}", Reverse), Path));
+		auto* Package = CreatePackage(Path);
+		DMaterial* Material = nullptr;
+		DMaterialInstance* Instance = nullptr;
+		if (Reverse) {
+			Instance = NewObject<DMaterialInstance>(Package, "Instance");
+			Material = NewObject<DMaterial>(Package, "Material");
+			ASSERT_NE(NewObject<DObject>(Package, "Generic"), nullptr);
+		} else {
+			ASSERT_NE(NewObject<DObject>(Package, "Generic"), nullptr);
+			Material = NewObject<DMaterial>(Package, "Material");
+			Instance = NewObject<DMaterialInstance>(Package, "Instance");
+		}
+		ASSERT_TRUE(Instance->SetParent(Material));
+		FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+		Context.SetMaterialConfigurations(std::array{FMaterialCookConfiguration{EMaterialQualityLevel::High, ERHIFeatureLevel::SM5}});
+		ASSERT_TRUE(SaveCookPackage(Package, "/Game/Equivalent", Context));
+		std::vector<FCookSavePlan> Plans;
+		ASSERT_TRUE(Context.TakeSavePlans(Plans));
+		ASSERT_EQ(Plans.size(), 1u);
+		if (!Reverse) Baseline = std::move(Plans);
+		else {
+			EXPECT_EQ(Plans.front().PackageBytes, Baseline.front().PackageBytes);
+			EXPECT_EQ(Plans.front().BulkBytes, Baseline.front().BulkBytes);
+		}
+	}
 }
 
 TEST_F(FCookFunctionalTests, MixedPackageDeclaresEveryMaterialFamily)
@@ -338,7 +682,7 @@ TEST_F(FCookFunctionalTests, MixedPackageDeclaresEveryMaterialFamily)
 	ASSERT_EQ(Result.Packages.size(), 2u);
 	for (const auto& Entry : Result.Packages)
 	{
-		EXPECT_EQ(Entry.Contributor, "generic-package");
+		EXPECT_EQ(Entry.Contributor, "engine-package");
 		EXPECT_EQ(Entry.Status, ECookPackageStatus::CookHit);
 	}
 	Request.MaterialConfigurations = {{EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5}};
@@ -424,7 +768,7 @@ TEST_F(FCookFunctionalTests, RetainsContributionCauseAndClearsItForNextRun)
 	Handles.pop_back();
 	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {
 		.Name = "rejecting-provider",
-		.Contribute = [](DObject& Object, std::string_view VirtualPath, FCookContext&) -> FCookContributionResult {
+		.Prepare = [](DObject& Object, std::string_view VirtualPath, FCookPreparationContext&) -> FCookContributionResult {
 			return FCookContributionResult{.Error = ECookContributionError::SourceMutation,
 				.ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(VirtualPath)};
 		},
@@ -449,7 +793,7 @@ TEST_F(FCookFunctionalTests, RetainsContributionCauseAndClearsItForNextRun)
 	EXPECT_EQ(Retained->Error, ECookContributionError::SourceMutation);
 }
 
-TEST_F(FCookFunctionalTests, CaptureFailuresRetainCountsAndFinalizationCauses)
+TEST_F(FCookFunctionalTests, PreparationCallbackUsesSingleCommonPublisher)
 {
 	const auto Fixture = Testing::CreateTestFixtureDirectory("CookCaptureCause");
 	Testing::FScopedMountRegistryFixture Mounts;
@@ -463,43 +807,23 @@ TEST_F(FCookFunctionalTests, CaptureFailuresRetainCountsAndFinalizationCauses)
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 	UnregisterCookContributor(Handles.back());
 	Handles.pop_back();
-	bool bInvalidBytes = false;
+	uint32 Prepared = 0;
 	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {
 		.Name = "capture-provider",
-		.Contribute = [&](DObject&, std::string_view, FCookContext& Context) -> FCookContributionResult {
-			if (bInvalidBytes)
-			{
-				const auto Added = Context.AddPackage(Path.ToString(), FByteBuffer{std::byte{1}});
-				EXPECT_TRUE(Added);
-			}
-			return {};
-		},
+		.Prepare = [&](DObject&, std::string_view, FCookPreparationContext&) -> FCookContributionResult { ++Prepared; return {}; },
 		.DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult { return {}; }});
 	ASSERT_TRUE(Registered);
 	Handles.push_back(Registered.Handle);
 	FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64,
 		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
 	FCookRunResult Result;
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	ASSERT_TRUE(Result.CaptureCause);
-	EXPECT_EQ(Result.CaptureCause->Error, ECookCaptureError::PlanCount);
-	EXPECT_EQ(Result.CaptureCause->ActualPlans, 0u);
-	EXPECT_EQ(Result.CaptureCause->ExpectedPlans, 1u);
-	EXPECT_EQ(Result.CaptureCause->Package, Path);
-	EXPECT_EQ(Result.CaptureCause->Contributor, "capture-provider");
-	EXPECT_FALSE(Result.CaptureCause->PlanCause);
-	const auto CountFailure = Result.CaptureCause;
-	bInvalidBytes = true;
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	ASSERT_TRUE(Result.CaptureCause);
-	EXPECT_EQ(Result.CaptureCause->Error, ECookCaptureError::Finalization);
-	ASSERT_TRUE(Result.CaptureCause->PlanCause);
-	EXPECT_EQ(Result.CaptureCause->PlanCause->Code, ECookPlanError::Canonicalization);
-	EXPECT_EQ(Result.CaptureCause->PlanCause->VirtualPath, Path.ToString());
-	ASSERT_FALSE(Result.CaptureCause->PlanCause->CanonicalizationDiagnostic.empty());
-	EXPECT_FALSE(Result.CaptureCause->PlanCause->CanonicalizationDiagnostic.empty());
-	EXPECT_EQ(CountFailure->Error, ECookCaptureError::PlanCount);
-	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "CookManifest.bin"));
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Prepared, 1u);
+	ASSERT_EQ(Result.Packages.size(), 1u);
+	EXPECT_TRUE(std::filesystem::exists(Request.OutputRoot / "CookManifest.bin"));
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Prepared, 1u);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
 }
 
 TEST_F(FCookFunctionalTests, PreservesSourcesAndPriorOutputsOnFailure)
@@ -594,6 +918,13 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 {
 	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
 	const auto Fixture = Testing::CreateTestFixtureDirectory("CookFamilies");
+	struct FRestoreCacheRoot
+	{
+		std::string Previous = FPaths::DerivedDataCacheDir();
+		~FRestoreCacheRoot() { FPaths::SetDerivedDataCacheDirForTests(Previous); }
+	} RestoreCacheRoot;
+	// This fixture starts with its own empty cache and then exercises warm reuse.
+	FPaths::SetDerivedDataCacheDirForTests((Fixture / "DerivedDataCache").generic_string());
 	const auto Source = Fixture / "Project";
 	std::filesystem::create_directories(Source / "Content");
 	Testing::FScopedMountRegistryFixture Mounts;
@@ -703,6 +1034,18 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	EXPECT_EQ(Inventory(Source), Before);
 	const auto First = Inventory(Output / "Game");
+	// A retired publisher identity must invalidate otherwise valid generated state.
+	const auto LegacyBytes = FFileHelper::LoadFileToArray(Output / "CookState.bin");
+	ASSERT_TRUE(LegacyBytes);
+	FCookState LegacyState;
+	ASSERT_TRUE(DecodeCookState(*LegacyBytes, LegacyState));
+	for (auto& Entry : LegacyState.Entries) Entry.Contributor = "retired-package-publisher";
+	FByteBuffer LegacyEncoded;
+	ASSERT_TRUE(EncodeCookState(LegacyState, LegacyEncoded));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(LegacyEncoded, Output / "CookState.bin"));
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	for (const auto& Package : Result.Packages) EXPECT_NE(Package.Status, ECookPackageStatus::CookHit);
+	EXPECT_EQ(Inventory(Output / "Game"), First);
 	const auto Compilations = GetShaderBuildStats().Compilations;
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	EXPECT_EQ(GetShaderBuildStats().Compilations, Compilations);
@@ -714,11 +1057,10 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
 	for (const auto& Package : Result.Packages)
 	{
-		if (Package.Contributor == "material" || Package.Contributor == "material-instance")
+		const auto Name = Package.PackagePath.GetView();
+		if (Name == "/Game/Material" || Name == "/Game/Variant0" || Name == "/Game/Variant1" || Name == "/Game/Variant2" || Name == "/Game/Mesh")
 			EXPECT_NE(Package.Status, ECookPackageStatus::CookHit);
-		if (Package.Contributor == "texture2d" || Package.Contributor == "texture-cube"
-			|| Package.Contributor == "volume-texture" || Package.Contributor == "generic-package")
-			EXPECT_EQ(Package.Status, ECookPackageStatus::CookHit);
+		else EXPECT_EQ(Package.Status, ECookPackageStatus::CookHit);
 	}
 	Request.MaterialConfigurations.clear();
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
@@ -736,8 +1078,9 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	uint32 MeshRecipes = 0;
 	for (auto& Entry : State.Entries)
 	{
-		if (Entry.Contributor != "generic-package") EXPECT_FALSE(Entry.BuildDependencies.empty());
-		if (Entry.Contributor == "static-mesh")
+		EXPECT_EQ(Entry.Contributor, "engine-package");
+		EXPECT_FALSE(Entry.BuildDependencies.empty());
+		if (std::ranges::find(Entry.BuildDependencies, "recipe/static-mesh", &FCookBuildDependency::LogicalName) != Entry.BuildDependencies.end())
 		{
 			++MeshRecipes;
 			const auto Recipe = std::ranges::find(Entry.BuildDependencies,
@@ -754,7 +1097,7 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 			// A prior adapter constants layout must recook even when algorithms stay unchanged.
 			Recipe->Value[12] ^= std::byte{1};
 		}
-		if (Entry.Contributor == "material" || Entry.Contributor == "material-instance")
+		if (std::ranges::find(Entry.BuildDependencies, "recipe/material", &FCookBuildDependency::LogicalName) != Entry.BuildDependencies.end())
 		{
 			++MaterialRecipes;
 			const auto Recipe = std::ranges::find(Entry.BuildDependencies,
@@ -772,20 +1115,21 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 			Recipe->Value[7] ^= std::byte{1};
 		}
 	}
-	ASSERT_EQ(MaterialRecipes, 4u);
+	ASSERT_EQ(MaterialRecipes, 5u); // Includes the mesh package's transitive material recipe.
 	ASSERT_EQ(MeshRecipes, 1u);
 	ASSERT_TRUE(EncodeCookState(State, StateBytes));
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(StateBytes, Output / "CookState.bin"));
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	for (const auto& Package : Result.Packages)
-		if (Package.Contributor == "material" || Package.Contributor == "material-instance"
-			|| Package.Contributor == "static-mesh")
+		if (std::ranges::any_of(State.Entries, [&](const auto& Entry) { return Entry.VirtualPackagePath == Package.PackagePath.ToString() && std::ranges::any_of(Entry.BuildDependencies, [](const auto& Input) { return Input.LogicalName == "recipe/material" || Input.LogicalName == "recipe/static-mesh"; }); }))
 			EXPECT_NE(Package.Status, ECookPackageStatus::CookHit);
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	for (const auto& Package : Result.Packages) EXPECT_EQ(Package.Status, ECookPackageStatus::CookHit);
 	EXPECT_EQ(Inventory(Output / "Game"), First);
 	Request.IncrementalPolicy = ECookIncrementalPolicy::Disabled;
+	const auto WarmCompilations = GetShaderBuildStats().Compilations;
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
+	EXPECT_EQ(GetShaderBuildStats().Compilations, WarmCompilations);
 	EXPECT_EQ(Inventory(Output / "Game"), First);
 	EXPECT_EQ(Inventory(Source), Before);
 	Testing::FScopedAssetRuntimeForTests Runtime;

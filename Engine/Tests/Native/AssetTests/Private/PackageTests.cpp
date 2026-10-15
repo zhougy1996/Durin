@@ -10055,17 +10055,16 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	ASSERT_EQ(FindPackage(Path.GetView()), nullptr);
 	std::vector<int32> Values;
 	uint32 Declarations = 0;
-	std::function<void(DObject&, FCookContext&)> OnContribution;
+	std::function<void(DObject&, FCookPreparationContext&)> OnContribution;
 	FCookContributorRegistration Registration{
-		.Name = "capture-fixture", .ContributorVersion = 1, .FamilyProducerVersion = 1,
-		.Contribute = [&](DObject& Object, std::string_view Name, FCookContext& Context) -> FCookContributionResult {
+		.Name = "capture-fixture", .ContributorVersion = 1,
+		.Prepare = [&](DObject& Object, std::string_view Name, FCookPreparationContext& Context) -> FCookContributionResult {
 			EXPECT_FALSE(Object.GetPackage()->IsGraphPrivate());
 			EXPECT_EQ(FindPackage(Path.GetView()), Object.GetPackage());
 			Values.push_back(static_cast<DPackageAssetForTest&>(Object).Value);
 			if (OnContribution) OnContribution(Object, Context);
 			std::string Error;
-			const auto Added = Context.AddPackage(std::string(Name), Object.GetPackage());
-			return Added ? FCookContributionResult{} : FCookContributionResult{.Error = ECookContributionError::Plan, .PlanCause = Added.Error};
+			return {};
 		},
 		.DeclareDependencies = [&](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult { ++Declarations; return {}; }};
 	const auto Handle = RegisterCookContributor(DPackageAssetForTest::StaticClass(), Registration).Handle;
@@ -10073,7 +10072,7 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	struct FRetire { FCookContributorHandle Handle; ~FRetire() { UnregisterCookContributor(Handle); } } Retire{Handle};
 	FCookRequest Request{.OutputRoot = Testing::GetTestWorkDirectory() / "CapturedCookOutput",
 		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
-	OnContribution = [&](DObject&, FCookContext&) {
+	OnContribution = [&](DObject&, FCookPreparationContext&) {
 		DPackage* LoadedOther = nullptr;
 		{
 			auto LoadedValue = LoadPackage(IndependentPath);
@@ -10149,7 +10148,7 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
 
 	Request.IncrementalPolicy = ECookIncrementalPolicy::Disabled;
-	OnContribution = [&](DObject&, FCookContext& Context) {
+	OnContribution = [&](DObject&, FCookPreparationContext& Context) {
 		FByteBuffer Missing;
 		EXPECT_FALSE(Context.ReadDeclaredInput(ECookBuildDependencyKind::ExternalFile, "not-declared", Missing));
 	};
@@ -10172,7 +10171,7 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	ExpectPriorManifest();
 	Request.IsCancelled = {}; Request.ReportProgress = {};
 	// Reentrant Cook fails before invoking callbacks and does not poison its caller.
-	OnContribution = [&](DObject&, FCookContext&) {
+	OnContribution = [&](DObject&, FCookPreparationContext&) {
 		FCookRunResult Nested;
 		EXPECT_FALSE(FCookCoordinator().Run(Request, Nested));
 		EXPECT_EQ(Nested.Error, ECookRunError::CookInUse);
@@ -10233,15 +10232,14 @@ TEST(FPackageAssetTests, CookDeclaredFilesValuesAndBuildOnlyPackagesControlReuse
 	uint32 Contributions = 0;
 	FByteBuffer ObservedFile, ObservedConfiguration;
 	FCookContributorRegistration Registration{
-		.Name = "dependency-fixture", .ContributorVersion = 1, .FamilyProducerVersion = 1,
-		.Contribute = [&](DObject& Object, std::string_view Name, FCookContext& Context) -> FCookContributionResult {
+		.Name = "dependency-fixture", .ContributorVersion = 1,
+		.Prepare = [&](DObject& Object, std::string_view Name, FCookPreparationContext& Context) -> FCookContributionResult {
 			++Contributions;
 			EXPECT_EQ(Name, Paths[0].GetView());
 			EXPECT_TRUE(Context.ReadDeclaredInput(ECookBuildDependencyKind::ExternalFile, "recipe", ObservedFile));
 			EXPECT_TRUE(Context.ReadDeclaredInput(ECookBuildDependencyKind::ConfigurationValue, "quality", ObservedConfiguration));
 			std::string Error;
-			const auto Added = Context.AddPackage(std::string(Name), Object.GetPackage());
-			return Added ? FCookContributionResult{} : FCookContributionResult{.Error = ECookContributionError::Plan, .PlanCause = Added.Error};
+			return {};
 		},
 		.DeclareDependencies = [&](const FCookDependencyRequest& Request, std::vector<FCookDependencyDeclaration>& Out) -> FCookContributionResult {
 			if (Request.Package == Paths[0])
@@ -10324,15 +10322,14 @@ TEST(FPackageAssetTests, CookReadsOrdinaryLazyBulk)
 	MarkObjectHierarchyAsGarbage(Asset->GetPackage()); CollectGarbage();
 	bool ReadCaptured = false;
 	FCookContributorRegistration Registration{
-		.Name = "bulk-fixture", .ContributorVersion = 1, .FamilyProducerVersion = 1,
-		.Contribute = [&](DObject& Object, std::string_view Name, FCookContext& Context) -> FCookContributionResult {
+		.Name = "bulk-fixture", .ContributorVersion = 1,
+		.Prepare = [&](DObject& Object, std::string_view Name, FCookPreparationContext& Context) -> FCookContributionResult {
 			auto& BulkAsset = static_cast<DBulkPackageAssetForTest&>(Object);
 			const auto Read = BulkAsset.Payload.GetPayload().Wait();
 			EXPECT_TRUE(Read) << Durin::FormatPackageResourceReadError(Read);
 			ReadCaptured = Read && std::ranges::equal(Read->GetBytes(), Payload);
 			std::string Error;
-			const auto Added = Context.AddPackage(std::string(Name), Object.GetPackage());
-			return Added ? FCookContributionResult{} : FCookContributionResult{.Error = ECookContributionError::Plan, .PlanCause = Added.Error};
+			return {};
 		}, .DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult { return {}; }};
 	const auto Handle = RegisterCookContributor(DBulkPackageAssetForTest::StaticClass(), Registration).Handle;
 	struct FRetire { FCookContributorHandle Handle; ~FRetire() { UnregisterCookContributor(Handle); } } Retire{Handle};
@@ -10371,11 +10368,10 @@ TEST(FPackageAssetTests, CookResolvesAliasesAndDiscoversExternalRoots)
 	for (const auto& Path : {A, B}) if (auto* Package = FindPackage(Path.GetView())) MarkObjectHierarchyAsGarbage(Package);
 	CollectGarbage();
 	FCookContributorRegistration Registration{
-		.Name = "root-fixture", .ContributorVersion = 1, .FamilyProducerVersion = 1,
-		.Contribute = [](DObject& Object, std::string_view Name, FCookContext& Context) -> FCookContributionResult {
+		.Name = "root-fixture", .ContributorVersion = 1,
+		.Prepare = [](DObject& Object, std::string_view Name, FCookPreparationContext& Context) -> FCookContributionResult {
 			std::string Error;
-			const auto Added = Context.AddPackage(std::string(Name), Object.GetPackage());
-			return Added ? FCookContributionResult{} : FCookContributionResult{.Error = ECookContributionError::Plan, .PlanCause = Added.Error};
+			return {};
 		}, .DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FCookContributionResult { return {}; }};
 	const auto Handle = RegisterCookContributor(DPackageAssetForTest::StaticClass(), Registration).Handle;
 	struct FRetire { FCookContributorHandle Handle; ~FRetire() { UnregisterCookContributor(Handle); } } Retire{Handle};
@@ -10422,8 +10418,8 @@ TEST(FPackageAssetTests, CookOfflineMeshPreparationDoesNotScheduleEditorCompilat
 	MarkObjectHierarchyAsGarbage(Mesh->GetPackage()); CollectGarbage();
 	bool Contributed = false;
 	FCookContributorRegistration Registration{
-		.Name = "mesh-load-fixture", .ContributorVersion = 1, .FamilyProducerVersion = 1,
-		.Contribute = [&](DObject& Object, std::string_view, FCookContext&) -> FCookContributionResult {
+		.Name = "mesh-load-fixture", .ContributorVersion = 1,
+		.Prepare = [&](DObject& Object, std::string_view, FCookPreparationContext&) -> FCookContributionResult {
 			Contributed = true;
 			EXPECT_FALSE(Object.GetPackage()->IsGraphPrivate());
 			EXPECT_FALSE(static_cast<DStaticMesh&>(Object).IsCompiling());
