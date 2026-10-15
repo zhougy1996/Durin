@@ -1115,6 +1115,8 @@ namespace Durin::Editor
 	auto FPropertyEditSession::Commit() -> FPropertyEditOperationResult
 	{
 		if (!bActive) return Reject("No reflected-property edit session is active.");
+		if (Transactor && (!TransactionScope || !TransactionScope->IsActive()))
+			return Reject("The property transaction scope is unavailable. Cancel this edit before retrying.");
 		const bool bChanged = HasChanges();
 		if (const auto Mutation = ExecuteMutation(Target, nullptr, nullptr, EMutationOperation::NotifyOnly,
 			EPropertyChangePhase::Committed, EPropertyChangeOrigin::Edit); !Mutation)
@@ -1132,6 +1134,7 @@ namespace Durin::Editor
 				if (const auto Update = UpdateTransactorRecord(); !Update) return Update;
 				TransactorResult = TransactionScope->End();
 				if (TransactorResult.Code == ETransactorResultCode::Rejected
+					|| TransactorResult.Code == ETransactorResultCode::Discarded
 					|| TransactorResult.Code == ETransactorResultCode::Failed
 					|| TransactorResult.Code == ETransactorResultCode::RecoveryRequired)
 				{

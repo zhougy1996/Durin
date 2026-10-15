@@ -72,6 +72,7 @@ durin_add_native_test(EditorPropertyTests
 	SOURCES
 		Private/ReflectedPropertyViewTests.cpp
 		Private/Editor/DetailCustomizationTests.cpp
+		Private/Editor/EditorFunctionActionTests.cpp
 		Private/Editor/ReflectedPropertyEditSessionTests.cpp
 		Private/Editor/ReflectedPropertyTransactionTests.cpp
 		Private/Editor/ReflectedPropertyContainerTests.cpp

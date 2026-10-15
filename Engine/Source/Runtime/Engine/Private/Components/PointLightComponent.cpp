@@ -5,6 +5,14 @@
 
 namespace Durin
 {
+	auto DPointLightComponent::NormalizeSettings() -> void
+	{
+		const auto Normalized = GetSceneData();
+		Color = FLinearColor(Normalized.Color.x, Normalized.Color.y, Normalized.Color.z, 1.0f);
+		Intensity = Normalized.Intensity;
+		Range = Normalized.Range;
+	}
+
 	auto DPointLightComponent::GetSceneData() const -> FPointLightSceneData
 	{
 		FPointLightSceneData Result;

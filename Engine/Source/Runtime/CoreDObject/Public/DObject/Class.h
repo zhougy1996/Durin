@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "Object.h"
+#include "Function.h"
 
 namespace Durin
 {
@@ -166,6 +167,9 @@ namespace Durin
 		ClassConstructorType ClassConstructor = nullptr;
 
 		auto GetSuperClass() const -> DClass* { return static_cast<DClass*>(GetSuperStructBase()); }
+		COREDOBJECT_API auto ForEachFunction(const std::function<void(const FFunction&)>& Visitor, bool bIncludeSuper = true) const -> void;
+		COREDOBJECT_API auto FindFunctionByName(FName Name, bool bIncludeSuper = true) const -> const FFunction*;
+		COREDOBJECT_API auto RegisterFunctions(std::vector<FFunction> InFunctions) -> void;
 		COREDOBJECT_API auto IsChildOf(const DClass* InClass) const -> bool;
 		auto GetClassFlags() const -> EClassFlags { return ClassFlags; }
 		auto HasAnyClassFlags(EClassFlags InFlags) const -> bool { return EnumHasAnyFlags(ClassFlags, InFlags); }
@@ -195,6 +199,7 @@ namespace Durin
 		auto ReleaseDefaultObjectOwnership() -> DObject*;
 
 		EClassFlags ClassFlags = EClassFlags::None;
+		std::vector<FFunction> Functions;
 		FName QualifiedName;
 		std::string ShortName;
 		std::string DisplayName;

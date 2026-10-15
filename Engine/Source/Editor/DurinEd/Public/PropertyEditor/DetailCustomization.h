@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "PropertyEditor/PropertyView.h"
+#include "DObject/Function.h"
 
 namespace Durin::Editor
 {
@@ -21,6 +22,7 @@ namespace Durin::Editor
 		virtual auto AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex = 0,
 			const ::Durin::Editor::FPropertyViewOptions& Options = {}, std::string_view SearchKeywords = {}) -> void = 0;
 		virtual auto AddCustomRow(std::string_view SearchKeywords, FDetailRowDrawer Drawer) -> void = 0;
+		virtual auto AddFunction(const FFunction& Function) -> void = 0;
 		virtual auto SetSortOrder(int32 SortOrder) -> void = 0;
 		virtual auto SetTooltip(std::string_view Tooltip) -> void = 0;
 		virtual auto SetInitiallyCollapsed(bool bCollapsed) -> void = 0;
@@ -41,6 +43,8 @@ namespace Durin::Editor
 		virtual auto AddCustomRow(std::string_view SearchKeywords, FDetailRowDrawer Drawer) -> void = 0;
 		virtual auto HideProperty(FProperty* Property) -> void = 0;
 		virtual auto ReplaceDefaultProperties() -> void = 0;
+		virtual auto AddFunction(const FFunction& Function) -> void = 0;
+		virtual auto HideFunction(const FFunction& Function) -> void = 0;
 	};
 
 	// Defines an editor-side layout for one reflected object class.

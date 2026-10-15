@@ -122,6 +122,46 @@ namespace Durin::Editor
 		if (Property) HiddenProperties.insert(Property);
 	}
 
+	auto FDetailLayoutBuilder::FCategory::AddFunction(const FFunction& Function) -> void
+	{
+		const size_t Before = Owner.Rows.size();
+		Owner.AddFunction(Function);
+		if (Owner.Rows.size() != Before) Owner.Rows.back().Category = this;
+	}
+
+	auto FDetailLayoutBuilder::AddFunction(const FFunction& Function) -> void
+	{
+		if (!InspectedObject) return;
+		const auto* Effective = InspectedObject->GetClass()->FindFunctionByName(Function.GetName());
+		if (!Effective || !Effective->HasAnyFlags(EFunctionFlags::CallInEditor)
+			|| &Effective->GetRootFunction() != &Function.GetRootFunction()) return;
+		if (!PlacedFunctions.insert(&Effective->GetRootFunction()).second) return;
+		FRow Row;
+		Row.Object = InspectedObject;
+		Row.Function = Effective;
+		if (!SearchText.empty()) Row.SearchText = std::format("{} {} {} {} {}", Effective->GetName(),
+			Effective->GetOwnerClass()->GetQualifiedName(), Effective->GetDisplayName(),
+			Effective->GetCategory(), Effective->GetToolTip());
+		Rows.push_back(std::move(Row));
+		bVisibleRowsDirty = true;
+	}
+
+	auto FDetailLayoutBuilder::HideFunction(const FFunction& Function) -> void
+	{
+		HiddenFunctions.insert(&Function.GetRootFunction());
+		bVisibleRowsDirty = true;
+	}
+
+	auto FDetailLayoutBuilder::AddDefaultFunctions() -> void
+	{
+		if (!InspectedObject) return;
+		InspectedObject->GetClass()->ForEachFunction([&](const FFunction& Function) {
+			if (HiddenFunctions.contains(&Function.GetRootFunction())) return;
+			if (Function.GetCategory().empty()) AddFunction(Function);
+			else EditCategory(Function.GetCategory()).AddFunction(Function);
+		});
+	}
+
 	auto FDetailLayoutBuilder::ReplaceDefaultProperties() -> void
 	{
 		bReplaceDefaultProperties = true;
@@ -184,6 +224,7 @@ namespace Durin::Editor
 
 	auto FDetailLayoutBuilder::IsRowVisible(const FRow& Row) const -> bool
 	{
+		if (Row.Function && HiddenFunctions.contains(&Row.Function->GetRootFunction())) return false;
 		const FCategory* Category = Row.Category;
 		if (IsCategoryHidden(Category ? std::string_view(Category->Name) : std::string_view{})) return false;
 		return MatchesSearch(Row.SearchText) || (Category && (MatchesSearch(Category->Name) || MatchesSearch(Category->Label)));
@@ -236,6 +277,30 @@ namespace Durin::Editor
 			if (!bGroupOpen) continue;
 			if (Row.Property)
 				Result.bChanged |= PropertyView.EditProperty(ViewContext, Row.Object, Row.Property, Row.ArrayIndex, Row.Options);
+			else if (Row.Function)
+			{
+				const auto& Function = *Row.Function;
+				FEditorFunctionRequest Request{FObjectKey(Row.Object), Function.GetName(),
+					Function.GetRootFunction().GetOwnerClass()->GetQualifiedName()};
+				auto Error = CanExecuteEditorFunction(ViewContext, Request);
+				if (Error == EEditorFunctionError::BusyTransactor && PropertyView.IsEditing())
+					Error = EEditorFunctionError::None;
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(1);
+				const auto Id = std::format("{}::{}:{}", Request.RootOwner, Request.FunctionName, Request.Target.GetHash());
+				ImGui::PushID(Id.c_str());
+				ImGui::BeginDisabled(Error != EEditorFunctionError::None);
+				const auto Label = Function.GetDisplayName() + "###FunctionAction";
+				if (ImGui::Button(Label.c_str())) Result.FunctionRequest = Request;
+				ImGui::EndDisabled();
+				if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+				{
+					const auto Text = Error == EEditorFunctionError::None
+						? std::string_view(Function.GetToolTip()) : DescribeEditorFunctionError(Error);
+					if (!Text.empty()) ImGui::SetTooltip("%.*s", static_cast<int>(Text.size()), Text.data());
+				}
+				ImGui::PopID();
+			}
 			else
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Details.CustomRow");

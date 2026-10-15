@@ -1,0 +1,452 @@
+#include "PropertyEditor/EditorFunctionAction.h"
+#include "PropertyEditor/DetailLayoutBuilder.h"
+#include "PropertyEditor/DetailPanel.h"
+#include "MonaImGui.h"
+#include "DObject/Class.h"
+#include "DObject/DObjectGlobals.h"
+#include "DObject/DurinPropertyTypes.h"
+#include "DObject/ObjectLifecycle.h"
+#include "DObject/StrongObjectPtr.h"
+#include "Components/PointLightComponent.h"
+#include "Rendering/LightSceneProxy.h"
+#include "Editor/EditorTransactionTestSupport.h"
+#include "EngineTestSupport.h"
+#include "NativeDObjectTestSupport.h"
+#include "Misc/MountPathTestSupport.h"
+
+#include <gtest/gtest.h>
+
+namespace
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+
+	class DFunctionTarget : public DObject
+	{
+	public:
+		explicit DFunctionTarget(const FObjectInitializer& Initializer) : DObject(Initializer) {}
+		static void __DefaultConstructor(const FObjectInitializer& Initializer)
+		{ new (Initializer.GetObj()) DFunctionTarget(Initializer); }
+		virtual void Run() { ++Invocations; Value += 5; if (DuringCall) DuringCall(); }
+		void PostEditChangeProperty(const FPropertyChangedEvent&) override { DerivedValue = Value * 2; }
+		static auto StaticClass() -> DClass*
+		{
+			static DClass* Class = [] {
+				auto* Result = new DClass(EC_StaticConstructor, "Tests::DFunctionTarget",
+					sizeof(DFunctionTarget), alignof(DFunctionTarget), EObjectFlags::NoFlags,
+					EClassFlags::NoClassDefaultObject, EClassCastFlags::DClass, &InternalConstructor<DFunctionTarget>);
+				Result->SetSuperStructBase(DObject::StaticClass());
+				Result->SetTypeNames("DFunctionTarget", "", "");
+				auto* Property = new FNumericProperty(FFieldVariant(Result), "Value", EObjectFlags::NoFlags,
+					EPropertyFlags::Edit, 1, STRUCT_OFFSET_UINT16(DFunctionTarget, Value), sizeof(int32),
+					DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+				Property->SetValueLifecycle(sizeof(int32), alignof(int32),
+					[](void* Memory) { std::construct_at(static_cast<int32*>(Memory)); },
+					[](void* Memory) { std::destroy_at(static_cast<int32*>(Memory)); });
+				Result->ChildProperties = Property;
+				Result->Register(DClass::StaticClass, "", "DFunctionTarget");
+				DObjectForceRegistration(Result);
+				Result->RegisterFunctions({FFunction(Result, "Run",
+					EFunctionFlags::CallInEditor | EFunctionFlags::Virtual, "Actions", "Run Action", "Test action",
+					[](DObject& Target) { static_cast<DFunctionTarget&>(Target).Run(); })});
+				return Result;
+			}();
+			return Class;
+		}
+		int32 Value = 0;
+		int32 DerivedValue = 0;
+		int32 Invocations = 0;
+		std::function<void()> DuringCall;
+	};
+
+	class DDerivedFunctionTarget : public DFunctionTarget
+	{
+	public:
+		explicit DDerivedFunctionTarget(const FObjectInitializer& Initializer) : DFunctionTarget(Initializer) {}
+		static void __DefaultConstructor(const FObjectInitializer& Initializer)
+		{ new (Initializer.GetObj()) DDerivedFunctionTarget(Initializer); }
+		void Run() override { ++Invocations; Value += 10; }
+		static auto StaticClass() -> DClass*
+		{
+			static DClass* Class = [] {
+				auto* Result = new DClass(EC_StaticConstructor, "Tests::DDerivedFunctionTarget",
+					sizeof(DDerivedFunctionTarget), alignof(DDerivedFunctionTarget), EObjectFlags::NoFlags,
+					EClassFlags::NoClassDefaultObject, EClassCastFlags::DClass, &InternalConstructor<DDerivedFunctionTarget>);
+				Result->SetSuperStructBase(DFunctionTarget::StaticClass());
+				Result->Register(DClass::StaticClass, "", "DDerivedFunctionTarget");
+				DObjectForceRegistration(Result);
+				return Result;
+			}();
+			return Class;
+		}
+	};
+
+	template<typename T>
+	auto MakeActionTestClass(const char* Name, DClass* Base) -> DClass*
+	{
+		auto* Class = new DClass(EC_StaticConstructor, FName(Name), sizeof(T), alignof(T), EObjectFlags::NoFlags,
+			EClassFlags::NoClassDefaultObject, EClassCastFlags::DClass, &InternalConstructor<T>);
+		Class->SetSuperStructBase(Base);
+		Class->Register(DClass::StaticClass, "", Name);
+		DObjectForceRegistration(Class);
+		return Class;
+	}
+
+	class DOptOutFunctionTarget : public DDerivedFunctionTarget
+	{
+	public:
+		explicit DOptOutFunctionTarget(const FObjectInitializer& Init) : DDerivedFunctionTarget(Init) {}
+		static void __DefaultConstructor(const FObjectInitializer& Init) { new (Init.GetObj()) DOptOutFunctionTarget(Init); }
+		static auto StaticClass() -> DClass*
+		{
+			static auto* Class = [] {
+				auto* Result = MakeActionTestClass<DOptOutFunctionTarget>("Tests::DOptOutFunctionTarget", DDerivedFunctionTarget::StaticClass());
+				Result->RegisterFunctions({FFunction(Result, "Run", EFunctionFlags::Virtual,
+					"Other", "Hidden Action", "", [](DObject& Object) { static_cast<DFunctionTarget&>(Object).Run(); })});
+				return Result;
+			}();
+			return Class;
+		}
+	};
+
+	class DRejectCaptureTransactor : public DTransactor
+	{
+	public:
+		explicit DRejectCaptureTransactor(const FObjectInitializer& Init)
+			: DTransactor(Init), Inner(NewObject<DTransBuffer>(this, "Inner")) {}
+		static void __DefaultConstructor(const FObjectInitializer& Init) { new (Init.GetObj()) DRejectCaptureTransactor(Init); }
+		static auto StaticClass() -> DClass*
+		{
+			static auto* Class = MakeActionTestClass<DRejectCaptureTransactor>("Tests::DRejectCaptureTransactor", DTransactor::StaticClass());
+			return Class;
+		}
+		auto Record(FTransactionScopeId, FTransactionObjectRecord) -> FTransactorResult override
+		{ return {.Code = ETransactorResultCode::Failed, .FailureCause = FTransactorFailure{.Code = ETransactorFailure::Unsupported}}; }
+		auto Begin(const FTransactionContext& Context) -> FTransactorResult override { return Inner->Begin(Context); }
+		auto Cancel(FTransactionScopeId Scope) -> FTransactorResult override { return Inner->Cancel(Scope); }
+		auto CanBeginStandaloneTransaction() const -> bool override { return Inner->CanBeginStandaloneTransaction(); }
+		auto GetState() const -> ETransactorState { return Inner->GetState(); }
+	private:
+		TStrongObjectPtr<DTransBuffer> Inner;
+	};
+
+	auto Request(DObject* Object, FName Name = "Run") -> FEditorFunctionRequest
+	{
+		const auto* Function = Object->GetClass()->FindFunctionByName(Name);
+		return {FObjectKey(Object), Name, Function->GetRootFunction().GetOwnerClass()->GetQualifiedName()};
+	}
+
+	auto MakeActionPackage() -> DPackage*
+	{
+		Testing::FScopedMountRegistryFixture Mounts;
+		Testing::RegisterMountPointForTests("/FunctionActionTests/",
+			(Testing::GetTestWorkDirectory() / "FunctionActionTests").generic_string() + "/");
+		static uint32 Next = 0;
+		const auto Name = "Package" + std::to_string(++Next);
+		FPackagePath Path;
+		require(FPackagePath::TryCreate("/FunctionActionTests/" + Name, Path));
+		auto* Package = NewObject<DPackage>(nullptr, FName(Name));
+		Package->InitializeAssetPackage(Path);
+		return Package;
+	}
+
+	class FEditorFunctionTests : public testing::Test
+	{
+	protected:
+		void SetUp() override { InitializeDObjectSystem(); }
+	};
+}
+
+TEST_F(FEditorFunctionTests, InheritedVirtualActionRecordsValuesAndNeverReinvokesOnReplay)
+{
+	Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DDerivedFunctionTarget> Target(NewObject<DDerivedFunctionTarget>(nullptr, "InheritedAction"));
+	FPropertyView View;
+	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	const auto Action = ExecuteEditorFunction(View, Context, Request(Target));
+	EXPECT_EQ(Action.Error, EEditorFunctionError::None);
+	EXPECT_TRUE(Action.bInvoked);
+	EXPECT_TRUE(Action.bChanged);
+	EXPECT_EQ(Target->Value, 10);
+	EXPECT_EQ(Target->DerivedValue, 20);
+	ASSERT_EQ(Buffer->GetHistoryCount(), 1u);
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Target->Value, 0);
+	EXPECT_EQ(Target->DerivedValue, 0);
+	ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(Target->Value, 10);
+	EXPECT_EQ(Target->DerivedValue, 20);
+	EXPECT_EQ(Target->Invocations, 1);
+	uint32 Count = 0;
+	Target->GetClass()->ForEachFunction([&](const auto&) { ++Count; });
+	EXPECT_EQ(Count, 1u);
+	EXPECT_EQ(Target->GetClass()->FindFunctionByName("Run", false), nullptr);
+	TStrongObjectPtr<DObject> Wrong(NewObject<DObject>(nullptr, "WrongActionType"));
+	EXPECT_EQ(Target->GetClass()->FindFunctionByName("Run")->InvokeVoidNoArgs(*Wrong), EFunctionInvokeError::WrongClass);
+}
+
+TEST_F(FEditorFunctionTests, AdmissionAndReentrancyPreventNativeMutation)
+{
+	Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "RejectedAction"));
+	FPropertyView View;
+	FPropertyViewContext Context{.Transactor = Buffer.Get(), .bReadOnly = true};
+	EXPECT_EQ(ExecuteEditorFunction(View, Context, Request(Target)).Error, EEditorFunctionError::ReadOnly);
+	Context.bReadOnly = false;
+	Context.Transactor = nullptr;
+	EXPECT_EQ(ExecuteEditorFunction(View, Context, Request(Target)).Error, EEditorFunctionError::MissingTransactor);
+	Context.Transactor = Buffer.Get();
+	FScopedTransaction Busy(Buffer.Get(), {"test", "Busy"});
+	EXPECT_EQ(ExecuteEditorFunction(View, Context, Request(Target)).Error, EEditorFunctionError::BusyTransactor);
+	(void)Busy.Cancel();
+	EXPECT_EQ(Target->Invocations, 0);
+	Target->DuringCall = [&] {
+		EXPECT_EQ(ExecuteEditorFunction(View, Context, Request(Target)).Error, EEditorFunctionError::Reentrant);
+	};
+	EXPECT_TRUE(ExecuteEditorFunction(View, Context, Request(Target)).bInvoked);
+	EXPECT_EQ(Target->Invocations, 1);
+	const auto OldRequest = Request(Target);
+	MarkObjectHierarchyAsGarbage(Target);
+	EXPECT_EQ(CanExecuteEditorFunction(Context, OldRequest), EEditorFunctionError::InvalidTarget);
+}
+
+TEST_F(FEditorFunctionTests, FinalizationFailureReportsInvocationAndInvalidatesCheckpoint)
+{
+	Tests::FTestTransactorOwner Buffer;
+	auto* Package = MakeActionPackage();
+	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(Package, "FailedHistoryAction"));
+	Buffer->EstablishSavedState(*Package);
+	ASSERT_TRUE(Buffer->SetLimits({.MaximumEntries = 4, .MaximumOwnedBytes = 1}));
+	FPropertyView View;
+	std::string Error;
+	FPropertyViewContext Context{.Transactor = Buffer.Get(), .ReportError = [&](std::string Message) { Error = std::move(Message); }};
+	const auto Result = ExecuteEditorFunction(View, Context, Request(Target));
+	EXPECT_TRUE(Result.bInvoked);
+	EXPECT_EQ(Result.Error, EEditorFunctionError::History);
+	EXPECT_EQ(Target->Value, 5);
+	EXPECT_FALSE(Error.empty());
+	EXPECT_TRUE(Package->IsDirty());
+	ASSERT_TRUE(Buffer->GetPackageRevisionState(*Package));
+	EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->bCheckpointValid);
+	EXPECT_FALSE(Buffer->CanUndo());
+}
+
+TEST_F(FEditorFunctionTests, LayoutDeduplicatesHidesAndSearchesInheritedActions)
+{
+	TStrongObjectPtr<DDerivedFunctionTarget> Target(NewObject<DDerivedFunctionTarget>(nullptr, "ActionLayout"));
+	const auto* Function = Target->GetClass()->FindFunctionByName("Run");
+	FDetailLayoutBuilder Layout("Test action");
+	Layout.ApplyRegisteredCustomizations(Target);
+	Layout.ReplaceDefaultProperties();
+	Layout.EditCategory("Tools").AddFunction(*Function);
+	Layout.AddDefaultFunctions();
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 1u);
+	Layout.HideFunction(*Function);
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 0u);
+	FDetailLayoutBuilder Category;
+	Category.ApplyRegisteredCustomizations(Target);
+	Category.AddDefaultFunctions();
+	Category.HideCategory("Actions");
+	EXPECT_EQ(Category.GetVisibleRowCount(), 0u);
+}
+
+TEST_F(FEditorFunctionTests, GeneratedPrivatePointLightActionSupportsUndoAndNoOp)
+{
+	Tests::FTestTransactorOwner Buffer;
+	auto* Package = MakeActionPackage();
+	TStrongObjectPtr<DPointLightComponent> Light(NewObject<DPointLightComponent>(Package, "NormalizeLight"));
+	auto* Intensity = Light->GetClass()->FindPropertyByName("Intensity");
+	ASSERT_NE(Intensity, nullptr);
+	*Intensity->ContainerPtrToValuePtr<float>(Light.Get()) = -3.0f;
+	Buffer->EstablishSavedState(*Package);
+	FPropertyView View;
+	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	const auto ActionRequest = Request(Light, "NormalizeSettings");
+	const auto Action = ExecuteEditorFunction(View, Context, ActionRequest);
+	ASSERT_EQ(Action.Error, EEditorFunctionError::None);
+	EXPECT_TRUE(Action.bChanged);
+	EXPECT_EQ(*Intensity->ContainerPtrToValuePtr<float>(Light.Get()), 0.0f);
+	EXPECT_TRUE(Package->IsDirty());
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(*Intensity->ContainerPtrToValuePtr<float>(Light.Get()), -3.0f);
+	EXPECT_FALSE(Package->IsDirty());
+	ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(*Intensity->ContainerPtrToValuePtr<float>(Light.Get()), 0.0f);
+	Buffer->MarkSaved(*Package);
+	const auto NoOp = ExecuteEditorFunction(View, Context, ActionRequest);
+	EXPECT_TRUE(NoOp.bInvoked);
+	EXPECT_FALSE(NoOp.bChanged);
+	EXPECT_EQ(NoOp.Error, EEditorFunctionError::None);
+	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	const auto* Default = DPointLightComponent::StaticClass()->GetDefaultObject();
+	ASSERT_NE(Default, nullptr);
+	auto TemplateRequest = ActionRequest;
+	TemplateRequest.Target = FObjectKey(Default);
+	EXPECT_EQ(CanExecuteEditorFunction(Context, TemplateRequest), EEditorFunctionError::TemplateTarget);
+}
+
+TEST_F(FEditorFunctionTests, ActivePropertyEditCommitsBeforeIndependentAction)
+{
+	Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "EditedBeforeAction"));
+	FPropertyView View;
+	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	const auto Edit = FPropertyEditTarget::ForMember(Target, Target->GetClass()->FindPropertyByName("Value"));
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, Edit, [](FProperty* Property, void* Storage, uint32 Index) {
+		*Property->ContainerPtrToValuePtr<int32>(Storage, Index) = 7;
+	}, true));
+	ASSERT_TRUE(View.IsEditing());
+	const auto Result = ExecuteEditorFunction(View, Context, Request(Target));
+	ASSERT_EQ(Result.Error, EEditorFunctionError::None);
+	EXPECT_FALSE(View.IsEditing());
+	EXPECT_EQ(Target->Value, 12);
+	ASSERT_EQ(Buffer->GetHistoryCount(), 2u);
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Target->Value, 7);
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Target->Value, 0);
+}
+
+TEST_F(FEditorFunctionTests, CheckedScopeReportsBeforeCaptureFailureWithoutMutation)
+{
+	Tests::FTestTransactorOwner Buffer;
+	FScopedTransaction Scope;
+	const auto Missing = Scope.BeginChecked(nullptr, {"test", "Missing"});
+	ASSERT_TRUE(Missing.FailureCause);
+	EXPECT_EQ(Missing.FailureCause->Code, ETransactorFailure::MissingTransactor);
+	ASSERT_TRUE(Scope.BeginChecked(Buffer.Get(), {"test", "Before capture"}));
+	const auto AlreadyActive = Scope.BeginChecked(Buffer.Get(), {"test", "Second begin"});
+	ASSERT_TRUE(AlreadyActive.FailureCause);
+	EXPECT_EQ(AlreadyActive.FailureCause->Code, ETransactorFailure::ActiveScope);
+	EXPECT_FALSE(Scope.TryModify(nullptr));
+	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	EXPECT_EQ(Scope.Cancel().Code, ETransactorResultCode::Discarded);
+}
+
+TEST_F(FEditorFunctionTests, DetailsClickExecutesOnlyAfterAllRowsAndRequestsRefresh)
+{
+	Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "ClickedAction"));
+	FPropertyView View;
+	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	struct FImGuiScope
+	{
+		ImGuiContext* Context = ImGui::CreateContext();
+		~FImGuiScope() { ImGui::DestroyContext(Context); }
+	} ImScope;
+	ImGui::GetIO().DisplaySize = {1000.0f, 800.0f};
+	ImGui::GetIO().IniFilename = nullptr;
+	ImGui::GetIO().DeltaTime = 1.0f / 60.0f;
+	ImGui::GetIO().Fonts->Build();
+	ImVec2 ButtonMin{}, ButtonMax{};
+	auto Frame = [&] {
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0.0f, 0.0f});
+		ImGui::SetNextWindowSize({800.0f, 600.0f});
+		ImGui::Begin("Function Action Click Test");
+		const auto Result = DrawDetailPanel(View, Context, Target, {
+			.ExtendLayout = [&](FDetailLayoutBuilder& Layout) {
+				Layout.ReplaceDefaultProperties();
+				Layout.AddFunction(*Target->GetClass()->FindFunctionByName("Run"));
+				Layout.AddCustomRow("after action", [&](auto&, const auto&) {
+					ButtonMin = ImGui::GetItemRectMin();
+					ButtonMax = ImGui::GetItemRectMax();
+					EXPECT_EQ(Target->Invocations, 0);
+					return false;
+				});
+			}});
+		ImGui::End();
+		ImGui::Render();
+		return Result;
+	};
+	EXPECT_FALSE(Frame().bActionInvoked);
+	EXPECT_FALSE(Frame().bActionInvoked); // Settle the new table's column widths.
+	ASSERT_GT(ButtonMax.x, ButtonMin.x);
+	ImGui::GetIO().AddMousePosEvent((ButtonMin.x + ButtonMax.x) * 0.5f, (ButtonMin.y + ButtonMax.y) * 0.5f);
+	EXPECT_FALSE(Frame().bActionInvoked); // Establish the hovered window before pressing.
+	ImGui::GetIO().AddMouseButtonEvent(0, true);
+	EXPECT_FALSE(Frame().bActionInvoked);
+	ImGui::GetIO().AddMouseButtonEvent(0, false);
+	const auto Clicked = Frame();
+	EXPECT_TRUE(Clicked.bActionInvoked);
+	EXPECT_TRUE(Clicked.bRefreshRequested);
+	EXPECT_TRUE(Clicked.bChanged);
+	EXPECT_EQ(Target->Invocations, 1);
+	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+}
+
+TEST_F(FEditorFunctionTests, EffectiveOverrideCanRemoveTheInheritedEditorButton)
+{
+	Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DOptOutFunctionTarget> Target(NewObject<DOptOutFunctionTarget>(nullptr, "OptOutAction"));
+	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	EXPECT_EQ(CanExecuteEditorFunction(Context, Request(Target)), EEditorFunctionError::FunctionUnavailable);
+	const auto* Effective = Target->GetClass()->FindFunctionByName("Run");
+	EXPECT_EQ(Effective->GetDisplayName(), "Hidden Action");
+	EXPECT_EQ(Effective->GetOwnerClass(), DOptOutFunctionTarget::StaticClass());
+	EXPECT_EQ(Effective->GetRootFunction().GetOwnerClass(), DFunctionTarget::StaticClass());
+	FDetailLayoutBuilder Layout;
+	Layout.ApplyRegisteredCustomizations(Target);
+	Layout.AddDefaultFunctions();
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 0u);
+	EXPECT_EQ(Effective->InvokeVoidNoArgs(*Target), EFunctionInvokeError::None);
+	EXPECT_EQ(Target->Value, 10);
+}
+
+TEST_F(FEditorFunctionTests, RejectedBeforeCaptureBlocksNativeInvocationAndClosesScope)
+{
+	TStrongObjectPtr<DRejectCaptureTransactor> Buffer(NewObject<DRejectCaptureTransactor>(nullptr, "RejectActionCapture"));
+	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "BeforeCaptureAction"));
+	FPropertyView View;
+	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	const auto Result = ExecuteEditorFunction(View, Context, Request(Target));
+	EXPECT_EQ(Result.Error, EEditorFunctionError::History);
+	EXPECT_FALSE(Result.bInvoked);
+	EXPECT_EQ(Target->Invocations, 0);
+	EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle);
+	ASSERT_TRUE(Result.History.CleanupCause);
+	EXPECT_EQ(Result.History.CleanupCause->Code, ETransactorResultCode::Discarded);
+}
+
+TEST_F(FEditorFunctionTests, FailedPropertyEditCompletionRetainsEditAndBlocksAction)
+{
+	Tests::FTestTransactorOwner Buffer;
+	ASSERT_TRUE(Buffer->SetLimits({.MaximumEntries = 4, .MaximumOwnedBytes = 1}));
+	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "UnfinishedActionEdit"));
+	FPropertyView View;
+	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	const auto Edit = FPropertyEditTarget::ForMember(Target, Target->GetClass()->FindPropertyByName("Value"));
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, Edit, [](FProperty* Property, void* Storage, uint32 Index) {
+		*Property->ContainerPtrToValuePtr<int32>(Storage, Index) = 7;
+	}, true));
+	const auto Result = ExecuteEditorFunction(View, Context, Request(Target));
+	EXPECT_EQ(Result.Error, EEditorFunctionError::ActiveEdit);
+	EXPECT_FALSE(Result.bInvoked);
+	EXPECT_TRUE(View.IsEditing());
+	EXPECT_EQ(Target->Invocations, 0);
+	EXPECT_EQ(ExecuteEditorFunction(View, Context, Request(Target)).Error, EEditorFunctionError::ActiveEdit);
+	EXPECT_EQ(Target->Invocations, 0);
+	EXPECT_TRUE(View.FinishActiveEdit(&Context, true));
+	EXPECT_EQ(Target->Value, 0);
+}
+
+TEST_F(FEditorFunctionTests, RootIdentityDoesNotDependOnParentDescriptorRegistrationOrder)
+{
+	auto* Base = MakeActionTestClass<DFunctionTarget>("Tests::DLateFunctionBase", DObject::StaticClass());
+	auto* Derived = MakeActionTestClass<DFunctionTarget>("Tests::DEarlyFunctionDerived", Base);
+	const auto Flags = EFunctionFlags::CallInEditor | EFunctionFlags::Virtual;
+	const auto Invoke = +[](DObject&) {};
+	Derived->RegisterFunctions({FFunction(Derived, "LateAction", Flags, "Actions", "Late Action", "", Invoke)});
+	Base->RegisterFunctions({FFunction(Base, "LateAction", Flags, "Actions", "Late Action", "", Invoke)});
+	const auto* Function = Derived->FindFunctionByName("LateAction");
+	ASSERT_NE(Function, nullptr);
+	EXPECT_EQ(Function->GetRootFunction().GetOwnerClass(), Base);
+	uint32 Count = 0;
+	Derived->ForEachFunction([&](const auto& Effective) {
+		++Count;
+		EXPECT_EQ(Effective.GetOwnerClass(), Derived);
+		EXPECT_EQ(Effective.GetRootFunction().GetOwnerClass(), Base);
+	});
+	EXPECT_EQ(Count, 1u);
+}

@@ -23,6 +23,8 @@ namespace Durin::Editor
 		bool bChanged = false;
 		bool bOwnerReady = false;
 		bool bTableDrawn = false;
+		bool bActionInvoked = false;
+		bool bRefreshRequested = false;
 	};
 
 	DURINED_API auto DrawDetailPanel(FPropertyView& View, const FPropertyViewContext& Context,

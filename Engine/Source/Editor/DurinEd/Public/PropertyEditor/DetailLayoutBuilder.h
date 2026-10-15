@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "DurinEdAPI.h"
 #include "PropertyEditor/DetailCustomization.h"
+#include "PropertyEditor/EditorFunctionAction.h"
 
 namespace Durin::Editor
 {
@@ -11,6 +12,7 @@ namespace Durin::Editor
 	{
 		uint32 VisibleRowCount = 0;
 		bool bChanged = false;
+		std::optional<FEditorFunctionRequest> FunctionRequest;
 	};
 
 	// Builds searchable reflected and custom rows for one details view.
@@ -43,6 +45,9 @@ namespace Durin::Editor
 		DURINED_API auto IsReplacingDefaultProperties() const -> bool;
 		// Appends remaining reflected rows to the same category layout as custom rows.
 		DURINED_API auto AddDefaultProperties(DObject* Object, bool bIncludeTransient = true) -> void;
+		DURINED_API auto AddDefaultFunctions() -> void;
+		DURINED_API auto AddFunction(const FFunction& Function) -> void override;
+		DURINED_API auto HideFunction(const FFunction& Function) -> void override;
 		DURINED_API auto GetVisibleRowCount() const -> uint32;
 		DURINED_API auto DrawRows(::Durin::Editor::FPropertyView& PropertyView,
 			const ::Durin::Editor::FPropertyViewContext& ViewContext) const -> FDetailLayoutBuilderResult;
@@ -75,6 +80,7 @@ namespace Durin::Editor
 			std::string SearchText;
 			FCustomRowDrawer Drawer;
 			const FCategory* Category = nullptr;
+			const FFunction* Function = nullptr;
 		};
 
 		// Stores category presentation and forwards its rows to the host layout.
@@ -86,6 +92,7 @@ namespace Durin::Editor
 			auto AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex,
 				const ::Durin::Editor::FPropertyViewOptions& Options, std::string_view SearchKeywords) -> void override;
 			auto AddCustomRow(std::string_view SearchKeywords, FDetailRowDrawer Drawer) -> void override;
+			auto AddFunction(const FFunction& Function) -> void override;
 			auto SetSortOrder(int32 InOrder) -> void override { SortOrder = InOrder; Owner.bVisibleRowsDirty = true; }
 			auto SetTooltip(std::string_view InTooltip) -> void override { Tooltip = InTooltip; }
 			auto SetInitiallyCollapsed(bool bCollapsed) -> void override { bInitiallyCollapsed = bCollapsed; }
@@ -107,6 +114,8 @@ namespace Durin::Editor
 		mutable std::vector<const FRow*> VisibleRows;
 		mutable bool bVisibleRowsDirty = true;
 		std::unordered_set<FProperty*> HiddenProperties;
+		std::unordered_set<const FFunction*> PlacedFunctions;
+		std::unordered_set<const FFunction*> HiddenFunctions;
 		bool bReplaceDefaultProperties = false;
 		std::vector<std::unique_ptr<FCategory>> Categories;
 		std::unordered_set<std::string> HiddenCategories;

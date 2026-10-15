@@ -261,6 +261,13 @@ def _make_dht_parse_source(source: str) -> tuple[str, dict[int, _DMetaUse]]:
         return f'__attribute__((annotate("{_annotation_payload("DPROPERTY", payload)}")))'
 
     source = _replace_macro_calls(source, "DPROPERTY", replace_dproperty)
+
+    def replace_dfunction(payload: str, line: int, column: int) -> str:
+        from durin_header_tool.parser.function_parser import function_metadata
+        function_metadata(payload, f"DFUNCTION at line {line}, column {column}")
+        return f'__attribute__((annotate("{_annotation_payload("DFUNCTION", payload)}")))'
+
+    source = _replace_macro_calls(source, "DFUNCTION", replace_dfunction)
     source = _replace_macro_calls(
         source,
         "GENERATED_BODY",

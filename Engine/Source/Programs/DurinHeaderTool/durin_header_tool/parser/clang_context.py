@@ -11,7 +11,7 @@ from durin_header_tool.model.export_info import ExportedSymbolInfo
 from durin_header_tool.parser.annotation_rewriter import _DMetaUse, _make_dht_parse_source
 
 ExportedSymbols: TypeAlias = dict[str, ExportedSymbolInfo]
-PARSER_CONTEXT_VERSION = "target-predefines-v8"
+PARSER_CONTEXT_VERSION = "target-predefines-v9-functions"
 _FILE_ID_READABLE_PREFIX_LENGTH = 48
 _INCLUDE_PATTERN = re.compile(r'^[ \t]*#[ \t]*include\b[^\r\n]*$', re.MULTILINE)
 _TYPE_DECLARATION_PATTERN = re.compile(r"\b(?:class|struct|enum(?:\s+class)?)\s+([A-Za-z_]\w*)")
@@ -121,7 +121,7 @@ def _validate_preprocessor_context(source: str) -> None:
             )
 
 
-def _synthetic_declaration(symbol: ExportedSymbolInfo) -> str:
+def _synthetic_declaration(symbol: ExportedSymbolInfo, symbols=None) -> str:
     parts = symbol.QualifiedName.split("::")
     name = parts[-1]
     namespaces = parts[:-1]
@@ -130,7 +130,18 @@ def _synthetic_declaration(symbol: ExportedSymbolInfo) -> str:
         keyword = "enum class" if symbol.IsScoped else "enum"
         declaration = f"{keyword} {name} : {underlying};"
     else:
-        declaration = f"{symbol.Kind} {name} {{}};"
+        functions = {}
+        ancestor = symbol
+        visited = set()
+        while ancestor and ancestor.QualifiedName not in visited:
+            visited.add(ancestor.QualifiedName)
+            for function in ancestor.Functions:
+                functions.setdefault(function["Name"], function)
+            ancestor = (symbols or {}).get(ancestor.BaseQualifiedName)
+        methods = " ".join(
+            ("virtual " if function["Virtual"] else "") + f"void {function['Name']}();"
+            for function in functions.values())
+        declaration = f"{symbol.Kind} {name} {{ public: {methods} }};"
     for namespace in reversed(namespaces):
         declaration = f"namespace {namespace} {{ {declaration} }}"
     return declaration
@@ -157,7 +168,7 @@ def _synthetic_parser_prelude(
     for symbol in sorted((exported_symbols or {}).values(), key=lambda item: item.QualifiedName):
         if symbol.Header == header or symbol.ShortName in declared_names:
             continue
-        lines.append(_synthetic_declaration(symbol))
+        lines.append(_synthetic_declaration(symbol, exported_symbols))
     return "\n".join(lines) + "\n"
 
 

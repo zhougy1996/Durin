@@ -4,7 +4,7 @@ Summary: Define reflected type registration, generated metadata, properties, and
 
 Modules: CoreDObject
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-10-15
 
 This document describes the reflection framework that is currently implemented in Durin. Object lifetime and collector semantics are documented separately in [Garbage Collection](GarbageCollection.md).
 
@@ -46,8 +46,12 @@ The current system supports:
 - minimal in-memory object graph save/load helpers
 
 The system does not currently implement editable class defaults, hot reload,
-function reflection, general archetype chains, schema migrations, weak
+general archetype chains, schema migrations, weak
 references, incremental/concurrent GC, or complete metadata specifier parsing.
+
+Native `DFUNCTION` registration, inheritance, and no-argument invocation are
+defined in [Native function reflection](FunctionReflection.md). Functions are
+independent of property schemas and serialization.
 
 `DSTRUCT()` value types generate `StaticStruct()` and `DStruct` metadata without changing normal C++ copy/move behavior. [Core math aliases](Math.md) cannot depend on `CoreDObject`, so float vectors, their default double-precision counterparts, `FQuatf`, `FQuat`, `FMatrix4f`, and `FTransform` are registered externally as intrinsic structs and still appear as ordinary `FStructProperty` values. Explicit `FVector*d` and `FQuatd` source spellings use the existing default-double descriptors rather than creating persistent aliases.
 

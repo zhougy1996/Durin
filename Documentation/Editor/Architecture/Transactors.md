@@ -4,7 +4,7 @@ Summary: Define the reflected editor transactor service, executable property rec
 
 Modules: DurinEd
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-10-15
 
 ## Service Ownership
 
@@ -65,6 +65,13 @@ rejected transactor does not prevent the caller's mutation. Operations that
 require rollback when history recording fails use the advanced record API or a
 domain-specific `CommitApplied(...)` change. `Cancel()` discards the history
 records; it does not revert mutations the caller has already applied.
+
+`FScopedTransaction::BeginChecked` and `TryModify` expose structured preparation
+results for callers that must reject execution before mutation. A default scope
+starts inactive; an absent transactor or a second begin on an active scope is a
+typed failure. The existing constructors and `Modify` retain their best-effort
+behavior. [Editor function actions](EditorFunctionActions.md) use this checked
+path, handle finalization explicitly, and distinguish invocation from recording.
 
 Tests, independent tools, and hosts without `GEditor` may use the explicit
 `FScopedTransaction(DTransactor*, FTransactionContext)` constructor. Direct

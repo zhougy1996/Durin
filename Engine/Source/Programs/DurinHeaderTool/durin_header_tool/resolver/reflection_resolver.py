@@ -1,4 +1,5 @@
 import logging
+import json
 from dataclasses import dataclass
 
 from durin_header_tool import config as configs
@@ -109,8 +110,12 @@ def resolve_header_symbols(header: ReflectedHeaderInfo, symbols: ExportedSymbols
 def resolved_symbol_dependencies_for_header(header_info: ReflectedHeaderInfo, symbols: ExportedSymbols) -> dict[str, dict[str, str]]:
     dependencies: dict[str, dict[str, str]] = {}
     for class_info in header_info.classes:
-        if class_info.base_qualified_name in symbols:
-            dependencies[class_info.base_qualified_name] = symbol_dependency_snapshot(symbols[class_info.base_qualified_name])
+        base_name = class_info.base_qualified_name
+        visited = set()
+        while base_name in symbols and base_name not in visited:
+            visited.add(base_name)
+            dependencies[base_name] = symbol_dependency_snapshot(symbols[base_name])
+            base_name = symbols[base_name].BaseQualifiedName
         for prop in class_info.properties:
             _collect_property_dependencies(prop, symbols, dependencies)
     for struct_info in header_info.structs:
@@ -128,6 +133,7 @@ def symbol_dependency_snapshot(symbol: ExportedSymbolInfo) -> dict[str, str]:
         ),
         "API": symbol.API,
         "BaseQualifiedName": symbol.BaseQualifiedName,
+        "Functions": json.dumps(symbol.Functions, sort_keys=True),
         "Kind": symbol.Kind,
         "UnderlyingKind": symbol.UnderlyingKind,
         "UnderlyingType": symbol.UnderlyingType,

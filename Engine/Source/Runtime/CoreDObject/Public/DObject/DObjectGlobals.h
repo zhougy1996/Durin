@@ -6,6 +6,7 @@
 #include "ContainerOps.h"
 #include "ObjectMacros.h"
 #include "StructOps.h"
+#include "Function.h"
 
 namespace Durin
 {
@@ -336,6 +337,16 @@ namespace Durin
 			size_t NumLegacyNames = 0;
 		};
 
+		struct FFunctionParams
+		{
+			const char* Name;
+			EFunctionFlags Flags;
+			const char* Category;
+			const char* DisplayName;
+			const char* ToolTip;
+			FFunction::FInvoker Invoker;
+		};
+
 		struct FClassParams
 		{
 			DClass* (*ClassNoRegisterFunc)();
@@ -347,6 +358,8 @@ namespace Durin
 			const char* DefaultObjectName = nullptr;
 			const char* const* LegacyNames = nullptr;
 			size_t NumLegacyNames = 0;
+			const FFunctionParams* Functions = nullptr;
+			size_t NumFunctions = 0;
 		};
 
 		struct FMetaDataPair

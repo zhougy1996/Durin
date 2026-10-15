@@ -16,6 +16,7 @@ from durin_header_tool.model.reflection_info import (
     ReflectedStructInfo,
 )
 from durin_header_tool.parser.cpp_source_scanner import CppSourceScanner
+from durin_header_tool.parser.function_parser import parse_functions, validate_function_inheritance
 from durin_header_tool.resolver.reflection_resolver import (
     resolve_symbol,
     resolve_symbol_name,
@@ -30,6 +31,7 @@ from durin_header_tool.parser.annotation_rewriter import (
     _class_specifiers_from_payload,
     _dmeta_use_id,
     _make_dht_parse_source,
+    _replace_macro_calls,
     make_dht_parse_source,
 )
 from durin_header_tool.parser.reflection_ast_helpers import (
@@ -237,6 +239,8 @@ def parse_reflection_header(
                         pending_dstruct_annotation, "LegacyNames"
                     ),
                 )
+                if parse_functions(child, header):
+                    raise ValueError(f"{header}: DFUNCTION is not supported on DSTRUCT")
                 for member in child.get_children():
                     if member.kind == clang.cindex.CursorKind.FIELD_DECL:
                         prop = _make_property(
@@ -352,6 +356,9 @@ def parse_reflection_header(
                 _validate_property_deprecations(
                     reflected_class.qualified_name, reflected_class.properties
                 )
+                reflected_class.functions = parse_functions(child, header)
+                if exported_symbols and not export_mode:
+                    validate_function_inheritance(child, reflected_class, header, exported_symbols)
                 classes.append(reflected_class)
                 pending_dclass_annotation = ""
                 continue
@@ -373,6 +380,15 @@ def parse_reflection_header(
                 visit(child)
 
     visit(tu.cursor)
+
+    function_markers = []
+    def count_function_marker(payload, line, column):
+        function_markers.append((line, column))
+        return ""
+    _replace_macro_calls(source, "DFUNCTION", count_function_marker)
+    if len(function_markers) != sum(len(c.functions) for c in classes):
+        raise ValueError(f"{header}: DFUNCTION requires a supported method in a reflected DCLASS; "
+                         "templates and unattached annotations are unsupported")
 
     unconsumed_dmeta_uses = dmeta_uses.keys() - consumed_dmeta_uses
     if unconsumed_dmeta_uses:

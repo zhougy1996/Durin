@@ -220,6 +220,17 @@ class ReflectedPropertyInfo:
 
 
 @dataclass
+class ReflectedFunctionInfo:
+    name: str
+    source_line: int
+    is_virtual: bool = False
+    call_in_editor: bool = False
+    category: str = "Actions"
+    display_name: str = ""
+    tool_tip: str = ""
+
+
+@dataclass
 class ReflectedClassInfo:
     short_name: str
     namespace: str
@@ -238,6 +249,7 @@ class ReflectedClassInfo:
     default_object_name: str = ""
     legacy_names: list[str] = field(default_factory=list)
     properties: list[ReflectedPropertyInfo] = field(default_factory=list)
+    functions: list[ReflectedFunctionInfo] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.namespace_path:

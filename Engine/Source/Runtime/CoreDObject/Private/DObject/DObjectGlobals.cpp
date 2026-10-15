@@ -1,4 +1,5 @@
 #include "DObject/DObjectGlobals.h"
+#include "Misc/StringHelper.h"
 #include "DObject/PropertyKindTraits.h"
 #include "QualifiedTypeRegistry.h"
 #include "Misc/Name.h"
@@ -843,6 +844,23 @@ namespace Durin
 		);
 		Private::RegisterLegacyClassNames(
 			Class, std::span(Params.LegacyNames, Params.NumLegacyNames));
+		check((Params.Functions != nullptr) == (Params.NumFunctions != 0));
+		std::vector<FFunction> Functions;
+		for (size_t Index = 0; Index < Params.NumFunctions; ++Index)
+		{
+			const auto& Function = Params.Functions[Index];
+			check(Function.Name && Function.Invoker);
+			const auto* Super = Class->GetSuperClass()
+				? Class->GetSuperClass()->FindFunctionByName(FName(Function.Name)) : nullptr;
+			check(!Super || (Super->HasAnyFlags(EFunctionFlags::Virtual)
+				&& EnumHasAnyFlags(Function.Flags, EFunctionFlags::Virtual)));
+			Functions.emplace_back(Class, FName(Function.Name), Function.Flags,
+				Function.Category ? Function.Category : "Actions",
+				Function.DisplayName && *Function.DisplayName ? Function.DisplayName
+					: StringUtils::HumanizeName(Function.Name),
+				Function.ToolTip ? Function.ToolTip : "", Function.Invoker);
+		}
+		Class->RegisterFunctions(std::move(Functions));
 
 		if (!Class->ChildProperties && Params.PropertyParams && Params.NumProperties > 0)
 		{

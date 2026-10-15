@@ -25,6 +25,10 @@ namespace Durin
 			-> std::unique_ptr<FLightSceneProxy> override;
 
 	private:
+		DFUNCTION(CallInEditor, Category = "Light", DisplayName = "Normalize Settings",
+			ToolTip = "Clamp authored light color, intensity, and range to their supported values.")
+		ENGINE_API auto NormalizeSettings() -> void;
+
 		DPROPERTY(Category = "Light", Edit, MetaData="HideAlpha")
 		FLinearColor Color{1.0f, 1.0f, 1.0f, 1.0f};
 

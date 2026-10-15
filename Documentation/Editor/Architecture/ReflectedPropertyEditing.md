@@ -163,6 +163,11 @@ dispatch. It contains no Actor or static-mesh type branches. Real property rows
 still enter `EditProperty()`, while custom controls submit through the same
 session and mutation pipeline.
 
+The shared layout also hosts
+[reflected editor function actions](EditorFunctionActions.md). Their buttons
+finish active property editing before a separate object transaction and defer
+execution until row traversal ends.
+
 The shared property view renders an ordinary reflected struct as a default-open
 tree containing each nested field marked `Edit`. Nested rows retain the
 object-owned outer member as their snapshot root and append a struct-member

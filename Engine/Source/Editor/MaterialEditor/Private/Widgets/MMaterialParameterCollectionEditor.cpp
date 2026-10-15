@@ -130,7 +130,7 @@ namespace Durin::Editor::Material
 				const auto Result = DrawDetailPanel(PropertyView, ViewContext, Collection, {
 					.PropertyTableId = "MaterialParameterCollectionProperties", .bShowEmptyMessage = false});
 				if (!Result.bOwnerReady) return;
-				if (Result.bChanged && !Collection->Validate())
+				if ((Result.bChanged || Result.bRefreshRequested) && !Collection->Validate())
 					Report(Collection->Validate().Message);
 				const auto Layout = Collection->BuildLayout();
 				ImGui::SeparatorText("Diagnostics");

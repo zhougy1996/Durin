@@ -2,7 +2,7 @@
 
 Summary: Define DurinHeaderTool parsing, symbol exports, and generated C++ contracts.
 
-Last reviewed: 2026-09-21
+Last reviewed: 2026-10-15
 
 ## Parsing Scope And Generated-File Naming
 
@@ -135,11 +135,11 @@ Each reflected module writes:
 <Module>.export
 ```
 
-The export file uses schema v6 JSON:
+The export file uses schema v7 JSON:
 
 ```json
 {
-  "SchemaVersion": 6,
+  "SchemaVersion": 7,
   "Module": "Engine",
   "Symbols": {
     "Durin::AActor": {
@@ -163,6 +163,16 @@ structured namespace path, not a derived helper spelling. All consumers derive
 the same local and absolute C++ names through the central generated-symbol
 model. Exports are used for symbol resolution during parsing/generation, not as
 the full runtime reflection database.
+
+Class exports also contain `Functions`, a list of reflected method `Name`,
+`Virtual`, and declaration `Line` summaries. DHT validates compatible overrides
+and rejects hiding across header/module boundaries. All ancestor summaries enter
+a descendant header's incremental dependency snapshot. The hermetic synthetic
+prelude exposes supported ancestor method declarations; ordinary includes and
+method bodies remain outside extraction. Generated invokers live inside the
+existing friended class statics helper and use ordinary member calls. See
+[Native function reflection](../../Runtime/Core/FunctionReflection.md) for the
+supported signatures, metadata, and runtime registration contract.
 
 Export files should only change when the exported reflected-symbol contract changes. Whitespace-only edits in a reflected header may force the owning module's export command to run, but should not rewrite the public `.export` file if the symbol index is unchanged. This keeps downstream modules from regenerating purely because an upstream header timestamp changed.
 

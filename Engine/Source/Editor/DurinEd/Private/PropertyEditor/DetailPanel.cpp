@@ -17,6 +17,7 @@ namespace Durin::Editor
 			Layout.ApplyRegisteredCustomizations(Object);
 			if (Options.ExtendLayout) Options.ExtendLayout(Layout);
 			Layout.AddDefaultProperties(Object);
+			Layout.AddDefaultFunctions();
 		}
 		if (!MonaImGui::PropertyEdit::BeginTable(Options.PropertyTableId)) return Result;
 		Result.bTableDrawn = true;
@@ -24,9 +25,16 @@ namespace Durin::Editor
 		Result.VisibleRowCount = Declared.VisibleRowCount;
 		Result.bChanged = Declared.bChanged;
 		MonaImGui::PropertyEdit::EndTable();
+		if (Declared.FunctionRequest)
+		{
+			const auto Action = ExecuteEditorFunction(View, Context, *Declared.FunctionRequest);
+			Result.bActionInvoked = Action.bInvoked;
+			Result.bRefreshRequested = Action.bInvoked;
+			Result.bChanged |= Action.bChanged;
+		}
 		if (Options.bShowEmptyMessage && Result.VisibleRowCount == 0)
-			ImGui::TextDisabled(!Options.SearchText.empty() ? "No properties match the current search."
-				: "This object has no reflected Edit properties.");
+			ImGui::TextDisabled(!Options.SearchText.empty() ? "No properties or actions match the current search."
+				: "This object has no reflected Edit properties or editor actions.");
 		return Result;
 	}
 }

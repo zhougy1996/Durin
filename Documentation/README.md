@@ -14,6 +14,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Configuring, building, running, or recovering for task validation | [Agent build and run workflow](Agents/BuildAndRun.md) |
 | Changing build/run workflows, output layout, setup, or recovery behavior | [Build and run](Development/Build/BuildAndRun.md) |
 | DHT parsing, reflected symbol exports, or generated C++ | [Reflection generation](Development/Tooling/ReflectionGeneration.md) |
+| DFUNCTION native invocation, inherited CallInEditor buttons, or action transactions | [Native function reflection](Runtime/Core/FunctionReflection.md), [Editor function actions](Editor/Architecture/EditorFunctionActions.md) |
 | CMake metadata, target generation, or module binaries | [Build system](Development/Build/BuildSystem.md) |
 | Runtime variants or build presets | [Runtime variants](Development/Build/RuntimeVariants.md) |
 | Tracy or CPU profiling | [CPU profiling](Development/Build/Profiling.md) |

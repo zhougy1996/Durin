@@ -123,6 +123,59 @@ namespace
 
 namespace Durin
 {
+	auto FFunction::GetRootFunction() const -> const FFunction&
+	{
+		// Parent descriptors may register later in the same module batch. Resolve
+		// ancestry after publication instead of caching a registration-order result.
+		const auto* Parent = Owner ? Owner->GetSuperClass() : nullptr;
+		const auto* Inherited = Parent ? Parent->FindFunctionByName(Name) : nullptr;
+		return Inherited ? Inherited->GetRootFunction() : *this;
+	}
+
+	auto FFunction::InvokeVoidNoArgs(DObject& Target) const -> EFunctionInvokeError
+	{
+		if (!IsValid(&Target)) return EFunctionInvokeError::InvalidTarget;
+		if (!Owner || !Target.IsA(Owner)) return EFunctionInvokeError::WrongClass;
+		if (!Invoker) return EFunctionInvokeError::MissingInvoker;
+		Invoker(Target);
+		return EFunctionInvokeError::None;
+	}
+
+	auto DClass::FindFunctionByName(FName Name, bool bIncludeSuper) const -> const FFunction*
+	{
+		for (const auto& Function : Functions)
+			if (Function.GetName() == Name) return &Function;
+		return bIncludeSuper && GetSuperClass() ? GetSuperClass()->FindFunctionByName(Name) : nullptr;
+	}
+
+	auto DClass::ForEachFunction(const std::function<void(const FFunction&)>& Visitor, bool bIncludeSuper) const -> void
+	{
+		std::vector<const FFunction*> Effective;
+		std::unordered_set<FName> Names;
+		for (const DClass* Class = this; Class; Class = bIncludeSuper ? Class->GetSuperClass() : nullptr)
+			for (const auto& Function : Class->Functions)
+				if (Names.insert(Function.GetName()).second) Effective.push_back(&Function);
+		std::ranges::sort(Effective, [](const auto* A, const auto* B) {
+			const auto& RootA = A->GetRootFunction();
+			const auto& RootB = B->GetRootFunction();
+			return std::pair(RootA.GetOwnerClass()->GetQualifiedName().ToString(), RootA.GetName().ToString())
+				< std::pair(RootB.GetOwnerClass()->GetQualifiedName().ToString(), RootB.GetName().ToString());
+		});
+		for (const auto* Function : Effective) Visitor(*Function);
+	}
+
+	auto DClass::RegisterFunctions(std::vector<FFunction> InFunctions) -> void
+	{
+		check(Functions.empty());
+		std::unordered_set<FName> Names;
+		for (const auto& Function : InFunctions)
+		{
+			check(Function.GetOwnerClass() == this && !Function.GetName().IsNone());
+			check(Names.insert(Function.GetName()).second);
+		}
+		Functions = std::move(InFunctions);
+	}
+
 	auto DStructBase::RegisterDependencies() -> void
 	{
 		if (SuperStructBase)

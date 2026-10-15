@@ -33,6 +33,8 @@ def _extract_header_export_symbols_impl(
             API=class_info.api,
             BaseQualifiedName=class_info.base_qualified_name,
             IsAbstract=class_info.is_abstract,
+            Functions=[{"Name": f.name, "Virtual": f.is_virtual, "Line": f.source_line}
+                       for f in class_info.functions],
         )
     for enum_info in header_info.enums:
         symbols[enum_info.qualified_name] = ExportedSymbolInfo(
@@ -124,6 +126,20 @@ def resolve_module_export_info(
             raw_symbol,
             BaseQualifiedName=resolved_base or "",
         )
+    # The export parse has no inherited C++ semantics. A compatible same-name
+    # method remains virtual even when its author omits the override keyword.
+    all_symbols = {**dependency_symbols, **export_info.Symbols}
+    for symbol in export_info.Symbols.values():
+        inherited_virtual = set()
+        base_name = symbol.BaseQualifiedName
+        visited = set()
+        while base_name in all_symbols and base_name not in visited:
+            visited.add(base_name)
+            base = all_symbols[base_name]
+            inherited_virtual.update(f["Name"] for f in base.Functions if f["Virtual"])
+            base_name = base.BaseQualifiedName
+        symbol.Functions = [dict(f, Virtual=f["Virtual"] or f["Name"] in inherited_virtual)
+                            for f in symbol.Functions]
     return export_info
 
 

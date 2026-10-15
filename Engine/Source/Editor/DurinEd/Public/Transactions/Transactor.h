@@ -112,7 +112,7 @@ namespace Durin::Editor
 		Unsupported, InactiveModify, InvalidObject, InactiveRecord, InactiveUpdate,
 		CaptureBefore, PrepareRecord, ExpiredObject, CaptureAfter, FinalizeRecord,
 		EntryAccounting, RetainedAccounting, ByteLimit,
-		ModuleAccounting, InconsistentAccounting
+		ModuleAccounting, InconsistentAccounting, MissingTransactor, ActiveScope
 	};
 	struct FTransactorFailure
 	{
@@ -292,6 +292,8 @@ namespace Durin
 		DURINED_API virtual auto CanUndo() const -> bool;
 		DURINED_API virtual auto CanRedo() const -> bool;
 		DURINED_API virtual auto HasPendingOperation() const -> bool;
+		// Admission for independent UI commands, rather than nested recording scopes.
+		DURINED_API virtual auto CanBeginStandaloneTransaction() const -> bool;
 		DURINED_API virtual auto GetUndoId() const -> Editor::FTransactionId;
 		DURINED_API virtual auto GetRedoId() const -> Editor::FTransactionId;
 		DURINED_API virtual auto GetUndoDescription() const -> std::string_view;
@@ -375,6 +377,7 @@ namespace Durin
 		DURINED_API auto BeginDestroy() -> void override;
 
 		auto GetState() const -> Editor::ETransactorState { return State; }
+		auto CanBeginStandaloneTransaction() const -> bool override { return State == Editor::ETransactorState::Idle; }
 		auto GetLimits() const -> Editor::FTransactionBufferLimits { return Limits; }
 		auto GetHistoryCount() const -> size_t { return History.size(); }
 		auto GetUndoCount() const -> size_t { return Cursor; }
@@ -467,6 +470,9 @@ namespace Durin::Editor
 	class FScopedTransaction
 	{
 	public:
+		DURINED_API FScopedTransaction();
+		[[nodiscard]] DURINED_API auto BeginChecked(DTransactor* InTransactor, FTransactionContext Context) -> FTransactorResult;
+		[[nodiscard]] DURINED_API auto TryModify(DObject* Object) -> FTransactorResult;
 		// Uses the editor's active transactor. An absent editor leaves the scope inactive.
 		DURINED_API explicit FScopedTransaction(std::string_view Description);
 		DURINED_API FScopedTransaction(DTransactor* Transactor, FTransactionContext Context);

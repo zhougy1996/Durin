@@ -9,7 +9,7 @@ from durin_header_tool.model.reflection_info import (
     make_generated_symbol,
 )
 
-EXPORT_SCHEMA_VERSION = 6
+EXPORT_SCHEMA_VERSION = 7
 
 
 class ModuleExportSchemaMismatchError(ValueError):
@@ -38,6 +38,7 @@ class ExportedSymbolInfo:
     UnderlyingType: str = ""
     UnderlyingKind: str = "Unknown"
     UnderlyingSize: int = 0
+    Functions: list[dict] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.NamespacePath:
@@ -64,7 +65,7 @@ class ExportedSymbolInfo:
         expected_fields = {field_info.name for field_info in fields(cls)}
         if not isinstance(data, dict) or set(data) != expected_fields:
             raise ValueError("The exported symbol has an invalid JSON object shape.")
-        for field_name in expected_fields - {"NamespacePath", "IsAbstract", "IsScoped", "UnderlyingSize"}:
+        for field_name in expected_fields - {"NamespacePath", "IsAbstract", "IsScoped", "UnderlyingSize", "Functions"}:
             if not isinstance(data[field_name], str):
                 raise ValueError(f"Exported symbol field '{field_name}' must be a string.")
         raw_namespace_path = data["NamespacePath"]
@@ -87,6 +88,18 @@ class ExportedSymbolInfo:
         underlying_size = data["UnderlyingSize"]
         if not isinstance(underlying_size, int) or isinstance(underlying_size, bool) or underlying_size < 0:
             raise ValueError("Exported symbol field 'UnderlyingSize' must be a non-negative integer.")
+        functions = data["Functions"]
+        if not isinstance(functions, list):
+            raise ValueError("Exported Functions must be an array")
+        names = set()
+        for function in functions:
+            if (not isinstance(function, dict) or set(function) != {"Name", "Virtual", "Line"}
+                    or not isinstance(function["Name"], str) or not function["Name"]
+                    or function["Name"] in names
+                    or not isinstance(function["Virtual"], bool)
+                    or type(function["Line"]) is not int or function["Line"] < 1):
+                raise ValueError("Invalid exported function summary")
+            names.add(function["Name"])
         decoded = dict(data)
         decoded["NamespacePath"] = tuple(namespace_path)
         symbol = cls(**decoded)

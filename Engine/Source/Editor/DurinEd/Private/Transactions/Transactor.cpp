@@ -74,6 +74,8 @@ namespace Durin::Editor
 			switch (Error.Code)
 			{
 			case ETransactorFailure::Unsupported: Message = "The abstract transactor does not implement this operation."; break;
+			case ETransactorFailure::MissingTransactor: Message = "Beginning a scope requires a transactor."; break;
+			case ETransactorFailure::ActiveScope: Message = "This scope is already active."; break;
 			case ETransactorFailure::InactiveModify: Message = "Object modification requires an active transaction scope."; break;
 			case ETransactorFailure::InvalidObject: Message = "The transaction object is invalid."; break;
 			case ETransactorFailure::InactiveRecord: Message = "Recording requires an active transaction scope."; break;
@@ -506,6 +508,8 @@ namespace Durin::Editor
 		uint64 RecordId = 0;
 	};
 
+	FScopedTransaction::FScopedTransaction() = default;
+
 	FScopedTransaction::FScopedTransaction(std::string_view Description)
 		: FScopedTransaction(GEditor ? GEditor->GetTransactor() : nullptr, {
 			.Name = "ScopedTransaction",
@@ -518,11 +522,24 @@ namespace Durin::Editor
 		DTransactor* InTransactor,
 		FTransactionContext Context)
 	{
-		if (!InTransactor) return;
+		(void)BeginChecked(InTransactor, std::move(Context));
+	}
+
+	auto FScopedTransaction::BeginChecked(DTransactor* InTransactor, FTransactionContext Context) -> FTransactorResult
+	{
+		if (!InTransactor || IsActive()) return {.Code = ETransactorResultCode::Rejected,
+			.FailureCause = FTransactorFailure{.Code = !InTransactor
+				? ETransactorFailure::MissingTransactor : ETransactorFailure::ActiveScope}};
 		const FTransactorResult Result = InTransactor->Begin(Context);
-		if (!Result) return;
+		if (!Result) return Result;
 		Transactor = InTransactor;
 		ScopeId = Result.ScopeId;
+		return Result;
+	}
+
+	auto FScopedTransaction::TryModify(DObject* Object) -> FTransactorResult
+	{
+		return CaptureModifiedObject(Object);
 	}
 
 	FScopedTransaction::~FScopedTransaction()
@@ -764,6 +781,7 @@ namespace Durin
 	auto DTransactor::CanUndo() const -> bool { return false; }
 	auto DTransactor::CanRedo() const -> bool { return false; }
 	auto DTransactor::HasPendingOperation() const -> bool { return false; }
+	auto DTransactor::CanBeginStandaloneTransaction() const -> bool { return false; }
 	auto DTransactor::GetUndoId() const -> FTransactionId { return 0; }
 	auto DTransactor::GetRedoId() const -> FTransactionId { return 0; }
 	auto DTransactor::GetUndoDescription() const -> std::string_view { return {}; }

@@ -157,6 +157,12 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
         _append_line(class_builder, "static const Durin::DurinCodeGen::FClassParams ClassParams;", 1)
         if class_info.legacy_names:
             _append_line(class_builder, "static const char* const LegacyNames[];", 1)
+        if class_info.functions:
+            _append_line(class_builder, "static const Durin::DurinCodeGen::FFunctionParams Functions[];", 1)
+            for function in class_info.functions:
+                _append_line(class_builder,
+                    f"static void Invoke_{function.name}(Durin::DObject& Target) "
+                    f"{{ static_cast<{class_info.qualified_name}&>(Target).{function.name}(); }}", 1)
         for prop in properties:
             class_builder.extend(_property_decls(prop))
         if has_properties:
@@ -171,6 +177,18 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
                 _append_line(class_builder, f"&{generated_statics_name}::NewProp_{prop.name},", 1)
             class_builder.append("};\n\n")
 
+        if class_info.functions:
+            class_builder.append(f"const Durin::DurinCodeGen::FFunctionParams {generated_statics_name}::Functions[] = {{\n")
+            for function in class_info.functions:
+                flag_names = (["CallInEditor"] if function.call_in_editor else []) + (["Virtual"] if function.is_virtual else [])
+                flags = " | ".join(f"Durin::EFunctionFlags::{name}" for name in flag_names) or "Durin::EFunctionFlags::None"
+                name = _cpp_string_literal(function.name)
+                rest = ", ".join(_cpp_string_literal(v) for v in (
+                    function.category, function.display_name, function.tool_tip))
+                _append_line(class_builder,
+                    f"{{ {name}, {flags}, {rest}, "
+                    f"&{generated_statics_name}::Invoke_{function.name} }},", 1)
+            class_builder.append("};\n\n")
         property_params = f"{generated_statics_name}::PropertyParams" if has_properties else "nullptr"
         property_count = len(properties)
         display_name = _cpp_string_literal(class_info.display_name) if class_info.display_name else "nullptr"
@@ -192,7 +210,9 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
             (f"{display_name},", 1),
             (f"{default_object_name},", 1),
             (f"{legacy_names},", 1),
-            (str(len(class_info.legacy_names)), 1),
+            (f"{len(class_info.legacy_names)},", 1),
+            (f"{generated_statics_name}::Functions," if class_info.functions else "nullptr,", 1),
+            (str(len(class_info.functions)), 1),
             ("};", 0),
             ("", 0),
         )
