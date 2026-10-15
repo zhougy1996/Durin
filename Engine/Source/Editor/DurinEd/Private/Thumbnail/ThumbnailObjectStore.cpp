@@ -12,6 +12,7 @@ namespace Durin::Editor
 		constexpr uint32 ThumbnailIndexSchemaVersion = 2;
 		constexpr uint32 MaximumIndexEntries = 1'000'000;
 		constexpr uint32 ThumbnailIndexAccessFlushInterval = 64;
+		constexpr uint32 ThumbnailIndexMutationFlushInterval = 16;
 
 		struct FObjectIndexEntry
 		{
@@ -126,7 +127,7 @@ namespace Durin::Editor
 
 		auto MarkIndexChanged() -> void
 		{
-			if (++UnsavedMutations >= 16 || !Settings.bBatchIndexWrites) SaveIndex();
+			if (++UnsavedMutations >= ThumbnailIndexMutationFlushInterval || !Settings.bBatchIndexWrites) SaveIndex();
 		}
 
 		auto RemoveObject(const FObjectIndexEntry& Entry) -> void

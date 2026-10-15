@@ -10,6 +10,7 @@
 #include "Shader/Shader.h"
 #include "Shader/ShaderCookedLibrary.h"
 #include "Shader/ShaderCompilerCore.h"
+#include "Shader/ShaderMapPreparation.h"
 #include "Texture/Texture2D.h"
 
 namespace Durin::Editor::Texture
@@ -233,10 +234,9 @@ namespace Durin::Editor::Texture
 						ERHICullMode::None;
 					PipelineInitializer.PipelineLayout =
 						Candidate.ShaderMap->GetMergedPipelineLayout();
-					Candidate.PipelineState =
-						GDynamicRHI->RHICreateGraphicsPipelineState(
-							"TexturePreviewChannelPipeline",
-							PipelineInitializer);
+					Candidate.PipelineState = FPreparedShaderMapScope::IsActive()
+						? FRenderPipelineRequestScope::Graphics("TexturePreviewChannelPipeline", PipelineInitializer)
+						: GDynamicRHI->RHICreateGraphicsPipelineState("TexturePreviewChannelPipeline", PipelineInitializer);
 					if (Candidate.VertexDeclaration == nullptr
 						|| Candidate.VertexBuffer == nullptr
 						|| Candidate.IndexBuffer == nullptr

@@ -15,6 +15,8 @@
 #include "Preview/PreviewScene.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "Shader/ShaderMapPreparation.h"
+#include "RenderPipelineCreation.h"
 #include "SceneViewProjection.h"
 
 namespace Durin::Editor
@@ -140,6 +142,7 @@ namespace Durin::Editor
 			case ERenderViewResult::InvalidOutput:
 				return "The rendered-thumbnail output target is invalid.";
 			case ERenderViewResult::RendererResourcesUnavailable:
+			case ERenderViewResult::RendererResourcesPending:
 				return "The rendered-thumbnail renderer resources are unavailable.";
 			case ERenderViewResult::RequiredEnvironmentUnavailable:
 				return "The rendered-thumbnail view environment is unavailable.";
@@ -328,7 +331,8 @@ namespace Durin::Editor
 		{
 			std::lock_guard Lock(Impl->Capture->Mutex);
 			if (Impl->Capture->State == EThumbnailCaptureState::Rendering
-				|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
+				|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending
+				|| Impl->Capture->State == EThumbnailCaptureState::Preparing)
 			{
 				return std::unexpected("A rendered-thumbnail capture is already in flight.");
 			}
@@ -355,7 +359,8 @@ namespace Durin::Editor
 		{
 			std::lock_guard Lock(Impl->Capture->Mutex);
 			if (Impl->Capture->State == EThumbnailCaptureState::Rendering
-				|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
+				|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending
+				|| Impl->Capture->State == EThumbnailCaptureState::Preparing)
 			{
 				return std::unexpected("A rendered-thumbnail capture is already in flight.");
 			}
@@ -381,7 +386,8 @@ namespace Durin::Editor
 		std::lock_guard Lock(Impl->Capture->Mutex);
 		if (!IsAvailable() || !Renderer
 			|| Impl->Capture->State == EThumbnailCaptureState::Rendering
-			|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
+			|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending
+				|| Impl->Capture->State == EThumbnailCaptureState::Preparing)
 		{
 			return std::unexpected("Thumbnail image capture is unavailable or already in flight.");
 		}
@@ -418,41 +424,51 @@ namespace Durin::Editor
 		const FSceneView View = Impl->View;
 		const auto ImageRenderer = Impl->ImageRenderer;
 		const auto Output = Impl->Output;
+		auto Shaders = ImageRenderer
+			? FShaderMapPreparation::Request("TextureEditor", {"TextureEditor.Preview"}, EShaderBuildPriority::High)
+			: Renderer ? Renderer->PrepareSceneThumbnailShaders() : FShaderMapPreparation{};
 		const FSceneViewRenderOptions Options{
 			.Environment = Impl->Environment
 		};
 		ENQUEUE_RENDER_COMMAND(RenderAssetThumbnailPreview)(
-			[Capture, Generation, Renderer, Scene, RenderTarget, View, Options, ImageRenderer, Output](
+			[Capture, Generation, Renderer, Scene, RenderTarget, View, Options, ImageRenderer, Output, Shaders = std::move(Shaders)](
 				FRHICommandListImmediate& CommandList
-			) {
+			) mutable {
 				std::shared_ptr<FRHITextureReadback> Readback;
+				FPreparedShaderMapScope PreparedShaders;
 				std::string Error;
-				if (ImageRenderer)
+				auto ShaderReady = Shaders.Poll();
+				bool bPending = ShaderReady && !*ShaderReady;
+				if (!ShaderReady) Error = ShaderReady.error();
+				else if (!bPending && ImageRenderer)
 				{
+					FRenderPipelinePreparationBatch Batch;
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 					auto Image = ImageRenderer(CommandList, Output.Width, Output.Height);
+					bPending = Batch.GetRequestCount() != 0;
 					if (Image && Image->GetSizeX() == Output.Width && Image->GetSizeY() == Output.Height
 						&& Image->GetFormat() == EPixelFormat::SRGBA8_UNORM)
 						Readback = CommandList.EnqueueTextureReadback(Image);
-					if (!Readback) Error = "Thumbnail image rendering or readback failed.";
+					if (!Readback && !bPending) Error = "Thumbnail image rendering or readback failed.";
 				}
-				else if (Renderer == nullptr || Scene == nullptr || RenderTarget == nullptr)
+				else if (!bPending && (Renderer == nullptr || Scene == nullptr || RenderTarget == nullptr))
 				{
 					Error = "Rendered-thumbnail resources were released before capture.";
 				}
-				else
+				else if (!bPending)
 				{
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 					FSceneViewStatistics Statistics;
 					const ERenderViewResult RenderResult = Renderer->RenderView(
 						CommandList, Scene, View, RenderTarget, false, Options,
 						&Statistics);
-					if (RenderResult != ERenderViewResult::Success)
+					bPending = RenderResult == ERenderViewResult::RendererResourcesPending;
+					if (!bPending && RenderResult != ERenderViewResult::Success)
 						Error = GetRenderFailureDiagnostic(RenderResult);
-					else if (HasRejectedVisibleGeometry(Statistics))
+					else if (!bPending && HasRejectedVisibleGeometry(Statistics))
 						Error = "The rendered-thumbnail scene contained visible geometry, "
 							"but the renderer produced no geometry draw calls.";
-					else Readback = CommandList.EnqueueTextureReadback(RenderTarget);
+					else if (!bPending) Readback = CommandList.EnqueueTextureReadback(RenderTarget);
 				}
 				std::lock_guard Lock(Capture->Mutex);
 				if (Capture->Generation != Generation)
@@ -462,7 +478,8 @@ namespace Durin::Editor
 				}
 				Capture->Readback = std::move(Readback);
 				Capture->Error = std::move(Error);
-				Capture->State = Capture->Error.empty() ? EThumbnailCaptureState::ReadbackPending : EThumbnailCaptureState::Failed;
+				Capture->State = bPending ? EThumbnailCaptureState::Preparing
+					: Capture->Error.empty() ? EThumbnailCaptureState::ReadbackPending : EThumbnailCaptureState::Failed;
 			}
 		);
 		return {};
@@ -471,7 +488,13 @@ namespace Durin::Editor
 	auto FThumbnailPreviewScenePool::PollCapture() -> std::expected<std::optional<FByteBuffer>, std::string>
 	{
 		checkf(IsInGameThread(), "Rendered thumbnail capture polling must run on the game thread.");
-		std::lock_guard Lock(Impl->Capture->Mutex);
+		std::unique_lock Lock(Impl->Capture->Mutex);
+		if (Impl->Capture->State == EThumbnailCaptureState::Preparing)
+		{
+			Lock.unlock();
+			if (auto Retry = BeginCapture(); !Retry) return std::unexpected(Retry.error());
+			return std::optional<FByteBuffer>{};
+		}
 		if (Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
 		{
 			const auto State = Impl->Capture->Readback->GetState();

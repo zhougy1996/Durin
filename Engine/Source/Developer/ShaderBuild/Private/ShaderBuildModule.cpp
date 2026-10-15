@@ -2,6 +2,7 @@
 #include "ShaderBuildTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "Shader/IShaderBuildModule.h"
+#include "Shader/ShaderMapPreparation.h"
 #include "Shader/ShaderData.h"
 #include "RHIGlobals.h"
 #include "ShaderBuild/ShaderPaths.h"
@@ -19,6 +20,7 @@ namespace Durin
 	public:
 		auto ResetService(DerivedData::FBuildServiceOptions Options) -> void
 		{
+			ClearShaderMapPreparations();
 			if (Builder) Builder->Close();
 			if (BuildService) BuildService->Close();
 			Builder.reset();
@@ -31,6 +33,11 @@ namespace Durin
 		{
 			return Builder->GetOrCompile(VirtualShaderPath, Options);
 		}
+
+		auto SubmitMounted(std::string_view Path, const FShaderCompileOptions& CompileOptions,
+			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
+			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> override
+		{ return Builder->SubmitMounted(Path, CompileOptions, std::move(Options), std::move(Completion)); }
 
 		auto CompileGenerated(const FGeneratedShaderCompileRequest& Request)
 			-> FShaderBuildResult override
@@ -107,6 +114,7 @@ namespace Durin
 		auto ShutdownModule() -> void override
 		{
 			ActiveModule = nullptr;
+			ClearShaderMapPreparations();
 			if (Builder) Builder->Close();
 			if (BuildService) BuildService->Close();
 			Builder.reset();

@@ -47,6 +47,10 @@ namespace Durin
 		virtual auto CompileMounted(
 			std::string_view VirtualShaderPath,
 			const FShaderCompileOptions& Options) -> FShaderBuildResult = 0;
+		virtual auto SubmitMounted(std::string_view VirtualShaderPath,
+			const FShaderCompileOptions& CompileOptions, FShaderBuildRequestOptions Options,
+			FShaderBuildCompletion Completion)
+			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> = 0;
 		virtual auto CompileGenerated(
 			const FGeneratedShaderCompileRequest& Request)
 			-> FShaderBuildResult = 0;

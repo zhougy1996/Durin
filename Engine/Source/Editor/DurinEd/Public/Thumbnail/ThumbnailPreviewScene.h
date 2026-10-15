@@ -11,6 +11,7 @@ namespace Durin::Editor
 	enum class EThumbnailCaptureState : uint8
 	{
 		Idle,
+		Preparing,
 		Rendering,
 		ReadbackPending,
 		Ready,

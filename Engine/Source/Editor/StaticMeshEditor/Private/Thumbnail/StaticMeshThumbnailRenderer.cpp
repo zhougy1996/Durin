@@ -7,6 +7,8 @@
 #include "DObject/Package.h"
 #include "Engine/Actor.h"
 #include "Engine/World.h"
+#include "Engine/Engine.h"
+#include "IRendererModule.h"
 #include "Math/Operations.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
@@ -97,6 +99,8 @@ namespace Durin::Editor::StaticMesh
 			}
 
 		private:
+			FShaderMapPreparation Shaders;
+			bool bShadersRequested = false;
 			auto PollStaticMeshReadiness()
 				-> ::Durin::Editor::FThumbnailRendererSessionUpdate
 			{
@@ -126,8 +130,18 @@ namespace Durin::Editor::StaticMesh
 				switch (Status.Readiness)
 				{
 				case EStaticMeshRenderResourceReadiness::Ready:
+				{
+					if (!bShadersRequested && GEngine && GEngine->GetRendererModule())
+					{
+						Shaders = GEngine->GetRendererModule()->PrepareSceneThumbnailShaders();
+						bShadersRequested = true;
+					}
+					auto ShaderReady = Shaders.Poll();
+					if (!ShaderReady) return {.Diagnostic = ShaderReady.error()};
 					return {
-						.State = ::Durin::Editor::EThumbnailRendererSessionState::ReadyToRender};
+						.State = *ShaderReady ? ::Durin::Editor::EThumbnailRendererSessionState::ReadyToRender
+							: ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+				}
 				case EStaticMeshRenderResourceReadiness::Queued:
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
@@ -255,6 +269,8 @@ namespace Durin::Editor::StaticMesh
 				StaticMesh = nullptr;
 				if (AssetLoad) AssetLoad->Cancel();
 				AssetLoad.reset();
+				Shaders = {};
+				bShadersRequested = false;
 			}
 
 			auto ResetScenePreview() -> void

@@ -29,6 +29,9 @@
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "Thumbnail/TextureThumbnailRenderer.h"
 #include "TexturePreview.h"
+#include "Shader/ShaderMapPreparation.h"
+#include "Shader/IShaderBuildModule.h"
+#include "Shader/Shader.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 
@@ -241,6 +244,47 @@ namespace
 	};
 } // namespace
 
+TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
+{
+	using namespace Durin;
+	ClearShaderMapPreparations();
+	std::vector<const FShaderType*> Types;
+	ASSERT_TRUE(GetShaderRuntimeRequestBuildTypes(
+		{.Owner = "TextureEditor", .Name = "TextureEditor.Preview"}, Types));
+	const auto Before = GetShaderBuildStats();
+	{
+		FPreparedShaderMapScope Scope;
+		FShaderMapBase Map;
+		EXPECT_FALSE(Map.InitializeFromShaderTypes(Types, {}));
+	}
+	EXPECT_EQ(GetShaderBuildStats().Compilations, Before.Compilations);
+	auto First = FShaderMapPreparation::Request("TextureEditor", {"TextureEditor.Preview"});
+	auto Second = FShaderMapPreparation::Request("TextureEditor", {"TextureEditor.Preview"});
+	ASSERT_TRUE(WaitForResourcePublication([&] {
+		auto Ready = First.Poll();
+		return !Ready || *Ready;
+	}));
+	ASSERT_TRUE(First.Poll().value_or(false));
+	ASSERT_TRUE(Second.Poll().value_or(false));
+	const auto Prepared = GetShaderBuildStats();
+	EXPECT_LE(Prepared.DependencyResolutions - Before.DependencyResolutions, 1u);
+	std::ranges::reverse(Types);
+	{
+		FPreparedShaderMapScope Scope;
+		FShaderMapBase Map;
+		ASSERT_TRUE(Map.InitializeFromShaderTypes(Types, {}));
+		for (const auto* Type : Types) EXPECT_NE(Map.GetShader(Type), nullptr);
+	}
+	EXPECT_EQ(GetShaderBuildStats().DependencyResolutions, Prepared.DependencyResolutions);
+	EXPECT_EQ(GetShaderBuildStats().Compilations, Prepared.Compilations);
+	InvalidateShaderMapPreparations(true);
+	ASSERT_TRUE(WaitForResourcePublication([&] { return First.Poll().value_or(false); }));
+	EXPECT_GT(GetShaderBuildStats().Compilations, Prepared.Compilations);
+	ClearShaderMapPreparations();
+	auto Invalid = FShaderMapPreparation::Request("TextureEditor", {"Missing.Program"});
+	EXPECT_FALSE(Invalid.Poll().has_value());
+}
+
 TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRendering)
 {
 	uint32 ProbeLoads = 0;
@@ -335,6 +379,8 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		while (std::chrono::steady_clock::now() < Deadline)
 		{
+			Durin::PumpGameThreadDeferredWork();
+			Durin::FAssetCompilingManager::Get().ProcessAsyncTasks(true);
 			Durin::ProcessAsyncLoading();
 			Cache.BeginFrame();
 			Cache.Request(
@@ -368,7 +414,8 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		return View;
 	};
 	{
-		Durin::Editor::FAssetThumbnailPool Cache({}, {.CacheRoot = ThumbnailCacheRoot, .ObjectExtension = ".png"});
+		// This fixture pumps faster than real frames; its wall-clock deadline owns timeout.
+		Durin::Editor::FAssetThumbnailPool Cache({.MaximumResourceWaitFrames = 0}, {.CacheRoot = ThumbnailCacheRoot, .ObjectExtension = ".png"});
 		const Durin::Editor::FAssetThumbnailView Ready = PumpCacheToReady(Cache);
 		ASSERT_EQ(Ready.State, Durin::Editor::EAssetThumbnailState::Ready)
 			<< Ready.Diagnostic;
@@ -401,7 +448,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		EXPECT_EQ(ThumbnailUIBackend.NumRegistered(), 0u);
 	}
 	{
-		Durin::Editor::FAssetThumbnailPool WarmCache({}, {.CacheRoot = ThumbnailCacheRoot, .ObjectExtension = ".png"});
+		Durin::Editor::FAssetThumbnailPool WarmCache({.MaximumResourceWaitFrames = 0}, {.CacheRoot = ThumbnailCacheRoot, .ObjectExtension = ".png"});
 		const Durin::Editor::FAssetThumbnailView Ready = PumpCacheToReady(WarmCache);
 		ASSERT_EQ(Ready.State, Durin::Editor::EAssetThumbnailState::Ready)
 			<< Ready.Diagnostic;

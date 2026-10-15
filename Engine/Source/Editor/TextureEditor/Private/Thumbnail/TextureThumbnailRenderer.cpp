@@ -1,4 +1,5 @@
 #include "Thumbnail/TextureThumbnailRenderer.h"
+#include "Shader/ShaderMapPreparation.h"
 
 #include "Asset/Asset.h"
 #include "Texture/Texture2D.h"
@@ -26,6 +27,7 @@ namespace Durin::Editor::Texture
 			{
 				ResetPreview();
 				AssetLoad = RequestAsyncLoad(AssetPath, {}, DTexture2D::StaticClass());
+				Shaders = FShaderMapPreparation::Request("TextureEditor", {"TextureEditor.Preview"}, EShaderBuildPriority::High);
 				return {.State = EThumbnailRendererSessionState::WaitingForResources};
 			}
 			auto PollResources() -> FThumbnailRendererSessionUpdate override
@@ -49,7 +51,10 @@ namespace Durin::Editor::Texture
 					return {.State = EThumbnailRendererSessionState::WaitingForResources};
 				if (!Texture.Get()->HasUsableResource())
 					return {.Diagnostic = "Texture2D built render resource is unavailable."};
-				return {.State = EThumbnailRendererSessionState::ReadyToRender};
+				auto ShaderReady = Shaders.Poll();
+				if (!ShaderReady) return {.Diagnostic = ShaderReady.error()};
+				return {.State = *ShaderReady ? EThumbnailRendererSessionState::ReadyToRender
+					: EThumbnailRendererSessionState::WaitingForResources};
 			}
 			auto PreparePreview(IThumbnailPreviewScene& Scene) -> std::expected<void, std::string> override
 			{
@@ -79,8 +84,10 @@ namespace Durin::Editor::Texture
 				bAssetLoaded = false;
 				if (AssetLoad) AssetLoad->Cancel();
 				AssetLoad.reset();
+				Shaders = {};
 			}
 		private:
+			FShaderMapPreparation Shaders;
 			std::shared_ptr<FAsyncLoadHandle> AssetLoad;
 			bool bAssetLoaded = false;
 			FTopLevelAssetPath AssetPath;

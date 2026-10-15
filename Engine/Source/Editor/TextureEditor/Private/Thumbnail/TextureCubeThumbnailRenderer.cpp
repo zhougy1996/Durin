@@ -6,6 +6,8 @@
 #include "Math/Operations.h"
 #include "Texture/TextureCube.h"
 #include "RenderResource.h"
+#include "Engine/Engine.h"
+#include "IRendererModule.h"
 
 namespace Durin::Editor::Texture
 {
@@ -142,8 +144,15 @@ namespace Durin::Editor::Texture
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
 						.Diagnostic = std::move(Readiness.error())};
+				if (*Readiness && !bShadersRequested && GEngine && GEngine->GetRendererModule())
+				{
+					Shaders = GEngine->GetRendererModule()->PrepareSceneThumbnailShaders();
+					bShadersRequested = true;
+				}
+				auto ShaderReady = Shaders.Poll();
+				if (!ShaderReady) return {.Diagnostic = ShaderReady.error()};
 				return {
-					.State = *Readiness
+					.State = *Readiness && *ShaderReady
 						? ::Durin::Editor::EThumbnailRendererSessionState::ReadyToRender
 						: ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 			}
@@ -195,9 +204,13 @@ namespace Durin::Editor::Texture
 				bAssetLoaded = false;
 				if (AssetLoad) AssetLoad->Cancel();
 				AssetLoad.reset();
+				Shaders = {};
+				bShadersRequested = false;
 			}
 
 		private:
+			FShaderMapPreparation Shaders;
+			bool bShadersRequested = false;
 			std::shared_ptr<FAsyncLoadHandle> AssetLoad;
 			bool bAssetLoaded = false;
 			FXxHash128 SourceIdentity{};

@@ -293,15 +293,24 @@ namespace Durin
 	{
 		if (VirtualShaderPath.empty()) return FShaderBuildResult::Failure(FormatShaderError({.Code = EShaderError::MissingVirtualPath}));
 		if (!IsActiveCompilerTarget(Options.Target) || !HasValidUniqueEntryPoints(Options)) return FShaderBuildResult::Failure(FormatShaderError({.Code = EShaderError::InvalidCompileRequest}));
+		FShaderBuildResult Output;
+		auto Handle = SubmitMounted(VirtualShaderPath, Options, {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); });
+		if (!Handle) return FShaderBuildResult::Failure(FormatShaderBuildAdmissionError(Handle.error()));
+		require(Handle->Wait() == EShaderBuildWaitResult::Completed);
+		return Output;
+	}
+
+	auto FShaderBuilder::SubmitMounted(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options,
+		FShaderBuildRequestOptions RequestOptions, FShaderBuildCompletion Completion)
+		-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>
+	{
+		if (VirtualShaderPath.empty() || !IsActiveCompilerTarget(Options.Target) || !HasValidUniqueEntryPoints(Options))
+			return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::InvalidRequest});
 		FGeneratedShaderCompileRequest Request;
 		Request.VirtualPath = VirtualShaderPath; Request.Target = Options.Target; Request.Frequencies = Options.Frequencies;
 		Request.Macros = Options.Macros; Request.SourceArtifacts = Options.SourceArtifacts; Request.bForceRecompile = Options.bForceRecompile;
 		for (const auto* Entry : Options.EntryPoints) Request.EntryPoints.emplace_back(Entry);
-		FShaderBuildResult Output;
-		auto Handle = SubmitRequest(std::move(Request), {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); }, ESourceKind::Mounted);
-		if (!Handle) return FShaderBuildResult::Failure(FormatShaderBuildAdmissionError(Handle.error()));
-		require(Handle->Wait() == EShaderBuildWaitResult::Completed);
-		return Output;
+		return SubmitRequest(std::move(Request), std::move(RequestOptions), std::move(Completion), ESourceKind::Mounted);
 	}
 
 	auto FShaderBuilder::PrepareMounted(std::shared_ptr<const FGeneratedShaderCompileRequest> Request,

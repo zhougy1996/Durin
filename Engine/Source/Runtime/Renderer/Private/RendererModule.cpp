@@ -59,6 +59,15 @@ namespace Durin
 	FRendererModule::FRendererModule() = default;
 
 	FRendererModule::~FRendererModule() = default;
+	auto FRendererModule::PrepareSceneThumbnailShaders() -> FShaderMapPreparation
+	{
+		auto Preparation = FShaderMapPreparation::Request("Renderer", {
+			"PostProcess.Copy", "PostProcess.FXAA", "SkyBox.Default", "SkyLighting.Compute",
+			"DeferredDirectionalLighting.Default", "GroundTruthAmbientOcclusion.Raw",
+			"GroundTruthAmbientOcclusion.Filter"});
+		Preparation.Add("SurfaceMaterial", {"Surface.OpaqueShadow"});
+		return Preparation;
+	}
     auto FRendererModule::UpdateScenes_RenderThread(FRHICommandListImmediate& Commands) -> void
     { if (RenderingService) RenderingService->UpdatePendingScenes_RenderThread(Commands); }
     auto FRendererModule::SetViewGPUTimingSink_RenderThread(std::function<void(FGPUTimingQueryRHIRef)> Sink) -> void

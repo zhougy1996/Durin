@@ -1,4 +1,5 @@
 #include "Shader/GlobalShader.h"
+#include "Shader/ShaderMapPreparation.h"
 #include "Shader/ShaderData.h"
 
 #include "RenderingThread.h"
@@ -250,6 +251,8 @@ namespace Durin
 		const FRenderResourceGeneration& InGeneration,
 		bool bForceShaderRecompile) -> void
 	{
+		if (Generation.Shader != InGeneration.Shader || Generation.Manual != InGeneration.Manual)
+			InvalidateShaderMapPreparations(bForceShaderRecompile);
 		Generation = InGeneration;
 		ForceRecompileShaderGeneration = bForceShaderRecompile
 			? std::optional<uint64>(Generation.Shader) : std::nullopt;

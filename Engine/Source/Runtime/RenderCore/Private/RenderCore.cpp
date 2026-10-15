@@ -3,6 +3,7 @@
 #include "Shader/Shader.h"
 #include "Shader/GlobalShader.h"
 #include "Shader/ShaderData.h"
+#include "Shader/ShaderMapPreparation.h"
 #include "RHIGlobals.h"
 
 namespace Durin
@@ -22,6 +23,7 @@ namespace Durin
 			GetRHIReleaseResourcesDelegate().Remove(RHIReleaseResourcesHandle);
 			RHIReleaseResourcesHandle = {};
 			GetGlobalShaderMap().Shutdown_RenderThread();
+			ClearShaderMapPreparations();
 			ClearShaderMapResourceCache();
 			ShutdownShaderData();
 		}

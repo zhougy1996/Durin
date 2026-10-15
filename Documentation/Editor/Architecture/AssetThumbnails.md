@@ -113,6 +113,23 @@ Material/MaterialInstance, StaticMesh, Texture2D and TextureCube sessions submit
 including for resident assets. `PollResources()` observes request completion,
 captures asset revisions once, then checks compilation and render readiness.
 Material sessions validate the material before requesting the shared sphere.
+Scene sessions request the Renderer-owned lit-thumbnail Shader preparation
+profile after initial asset work. Material sessions start once the material
+program is accepted, overlapping remaining resource preparation without flooding
+the first asset-build queue. Texture2D sessions prepare `TextureEditor.Preview`
+at high priority alongside loading.
+`PollResources()` waits for these CPU outputs without holding the capture slot.
+The shared RenderCore preparation cache coalesces exact registered programs;
+ShaderBuild performs source capture, DDC access, and compilation on workers.
+Capture consumes completed outputs to initialize typed maps and RHI resources,
+and cannot fall back to synchronous source compilation. TextureCube and StaticMesh
+sessions use the same scene profile. Shader reload and manual retry invalidate
+preparation; forced reload also bypasses cached compiler outputs.
+Pending PSOs defer capture to a later frame without waiting on the rendering
+thread or reporting a resource failure. A reload detected before capture refreshes
+the CPU preparation first. Pending capture retains its leased scene and immutable
+inputs, and cancellation invalidates any queued retry.
+
 The sphere and StaticMesh use `RequestRenderDataAndResources()` for missing CPU
 render data; thumbnail polling never calls the blocking mesh-load API.
 

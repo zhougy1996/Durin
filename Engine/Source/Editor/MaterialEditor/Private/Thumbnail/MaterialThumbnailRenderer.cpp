@@ -6,6 +6,8 @@
 #include "DObject/Package.h"
 #include "Engine/Actor.h"
 #include "Engine/World.h"
+#include "Engine/Engine.h"
+#include "IRendererModule.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Math/Operations.h"
@@ -255,6 +257,13 @@ namespace Durin::Editor::Material
 					const auto Loaded = FinishLoad();
 					if (!bAssetsLoaded) return Loaded;
 				}
+				// Let the first asset builds run before admitting the larger fixed shader profile.
+				if (!bShadersRequested && Material->GetMaterialCompileStatus().IsCurrent()
+					&& Material->GetAcceptedCompiledProgram() && GEngine && GEngine->GetRendererModule())
+				{
+					Shaders = GEngine->GetRendererModule()->PrepareSceneThumbnailShaders();
+					bShadersRequested = true;
+				}
 				auto Resource = GetMaterialResourceRevision(Material);
 				if (!Resource)
 					return {
@@ -292,8 +301,10 @@ namespace Durin::Editor::Material
 						.Diagnostic = "The rendered-thumbnail sphere render resource is unavailable."};
 				const bool bSphereReady = SphereStatus.Readiness
 					== EStaticMeshRenderResourceReadiness::Ready;
+				auto ShaderReady = Shaders.Poll();
+				if (!ShaderReady) return {.Diagnostic = ShaderReady.error()};
 				return {
-					.State = Resource->bReady && bSphereReady
+					.State = Resource->bReady && bSphereReady && *ShaderReady
 						? ::Durin::Editor::EThumbnailRendererSessionState::ReadyToRender
 						: ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 			}
@@ -384,9 +395,13 @@ namespace Durin::Editor::Material
 				if (SphereLoad) SphereLoad->Cancel();
 				MaterialLoad.reset();
 				SphereLoad.reset();
+				Shaders = {};
+				bShadersRequested = false;
 			}
 
 		private:
+			FShaderMapPreparation Shaders;
+			bool bShadersRequested = false;
 			auto AreDependencySnapshotsCurrent() const -> bool
 			{
 				return std::ranges::all_of(DependencySnapshots, [](const auto& Item) {

@@ -13,6 +13,7 @@
 #include "Resources/RenderTargetLayouts.h"
 #include "Scene.h"
 #include "SceneView.h"
+#include "Shader/ShaderMapPreparation.h"
 
 namespace Durin
 {
@@ -169,6 +170,8 @@ namespace Durin
 			if (Batch.GetRequestCount() > FRenderPipelinePreparationBatch::MaximumRequests - JoinedRequests)
 				return ERenderViewResult::RendererResourcesUnavailable;
 			ERenderPipelinePreparationWait WaitResult;
+			if (FPreparedShaderMapScope::IsActive() && Batch.GetRequestCount() != 0)
+				return ERenderViewResult::RendererResourcesPending;
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.WaitForPreparedPipelines");
 				WaitResult = Batch.Wait();

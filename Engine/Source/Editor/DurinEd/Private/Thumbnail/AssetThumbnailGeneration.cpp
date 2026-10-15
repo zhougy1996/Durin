@@ -8,6 +8,8 @@ namespace Durin::Editor
 {
 	struct FAssetThumbnailGeneration::FImpl
 	{
+		static constexpr size_t MaximumCacheReads = 8;
+		static constexpr size_t MaximumQueuedSaves = 8;
 		// Only the serial cache task touches the store in background mode, including
 		// its initial index scan. No task retains a renderer, session, or scheduler.
 		struct FCacheState
@@ -34,7 +36,6 @@ namespace Durin::Editor
 			FAssetThumbnailScheduledRequest Job;
 			FCacheResult Result;
 			uint64 ReservedBytes = 0;
-			bool bStarted = false;
 			bool bComplete = false;
 		};
 		struct FCacheWrite
@@ -65,8 +66,10 @@ namespace Durin::Editor
 		FAssetThumbnailGenerationStats Stats;
 		uint32 RendersStartedThisFrame = 0;
 		bool bBackgroundCache = false;
-		std::array<std::deque<std::shared_ptr<FCacheRead>>, 2> Reads;
-		std::shared_ptr<FCacheRead> ActiveRead;
+		std::array<std::deque<FCacheRead>, 2> Reads;
+		// Deque entries stay stable until their completed result is consumed.
+		// Workers capture values, never this game-thread-only observer.
+		FCacheRead* ActiveRead = nullptr;
 		std::deque<FCacheWrite> Writes;
 		Tasks::TTask<FCacheResult> CacheTask;
 		Tasks::TTask<FCacheWrite> EncodeTask;
@@ -129,7 +132,7 @@ namespace Durin::Editor
 				{
 					ActiveRead->Result = std::move(Result);
 					ActiveRead->bComplete = true;
-					ActiveRead.reset();
+					ActiveRead = nullptr;
 				}
 				else if (!bMaintenanceTask)
 				{
@@ -143,12 +146,11 @@ namespace Durin::Editor
 			}
 			for (int32 Index = 0; Index < 2; ++Index)
 			{
-				const auto Next = std::ranges::find_if(Reads[Index], [](const auto& Read) { return !Read->bStarted; });
+				const auto Next = std::ranges::find_if(Reads[Index], [](const FCacheRead& Read) { return !Read.bComplete; });
 				if (Next == Reads[Index].end()) continue;
-				ActiveRead = *Next;
-				FCacheRead& Read = **Next;
+				ActiveRead = &*Next;
+				FCacheRead& Read = *Next;
 				const auto& Request = Read.Job.GenerationRequest;
-				Read.bStarted = true;
 				CacheTask = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
 					{.DebugName = "ReadAssetThumbnailCache"},
 					[State = Cache, Key = Read.Job.CacheKey,
@@ -159,7 +161,6 @@ namespace Durin::Editor
 						FByteBuffer Encoded;
 						if (Store.Load(Key, Encoded) == EThumbnailObjectLoadResult::Hit)
 						{
-							std::string Error;
 							const uint64 PixelCount = static_cast<uint64>(Output.Width) * Output.Height;
 							if (auto Decoded = Image::DecodeImageFromMemory(Encoded,
 									{.MaximumEncodedBytes = Encoded.size(), .MaximumDecodedPixels = PixelCount}); Decoded
@@ -196,7 +197,6 @@ namespace Durin::Editor
 			}
 			FCacheWrite Write = std::move(Writes.front());
 			Writes.pop_front();
-			ActiveRead.reset();
 			ActiveWriteBytes = Write.Bytes.size();
 			CacheTask = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
 				{.DebugName = "SaveAssetThumbnailCache"},
@@ -220,7 +220,8 @@ namespace Durin::Editor
 		{
 			// Persistence is optional. A slow disk must not accumulate unlimited pixels
 			// or hold back display and capture admission.
-			if (Writes.size() + PendingEncodes.size() + (EncodeTask.IsValid() ? 1u : 0u) >= 8 || Bytes.size() > Budgets.CpuPixelBudgetBytes
+			if (Writes.size() + PendingEncodes.size() + (EncodeTask.IsValid() ? 1u : 0u) >= MaximumQueuedSaves
+				|| Bytes.size() > Budgets.CpuPixelBudgetBytes
 				|| RetainedBytes > Budgets.CpuPixelBudgetBytes - Bytes.size())
 			{
 				++Stats.CacheWritesSkipped;
@@ -308,11 +309,11 @@ namespace Durin::Editor
 		{
 			Impl->PumpCache();
 			const int32 Index = bGeneratedPixelsOnly
-				? 1 : (!Impl->Reads[1].empty() && Impl->Reads[1].front()->bComplete ? 1 : 0);
+				? 1 : (!Impl->Reads[1].empty() && Impl->Reads[1].front().bComplete ? 1 : 0);
 			auto& Reads = Impl->Reads[Index];
-			if (!Reads.empty() && Reads.front()->bComplete)
+			if (!Reads.empty() && Reads.front().bComplete)
 			{
-				FImpl::FCacheRead Read = std::move(*Reads.front());
+				FImpl::FCacheRead Read = std::move(Reads.front());
 				Reads.pop_front();
 				Result.bProgressed = true;
 				Impl->RetainedBytes -= Read.ReservedBytes;
@@ -333,8 +334,8 @@ namespace Durin::Editor
 				return Result;
 			}
 			// Pre-admit bounded cache queries even while earlier reads are pending.
-			if (Impl->Reads[0].size() + Impl->Reads[1].size() >= 8
-				|| (!bGeneratedPixelsOnly && Impl->Reads[0].size() >= 7)) return Result;
+			if (Impl->Reads[0].size() + Impl->Reads[1].size() >= FImpl::MaximumCacheReads
+				|| (!bGeneratedPixelsOnly && Impl->Reads[0].size() >= FImpl::MaximumCacheReads - 1)) return Result;
 			auto Job = bGeneratedPixelsOnly
 				? Impl->Scheduler.TakeNextGeneratedPixels() : Impl->Scheduler.TakeNext();
 			if (!Job) return Result;
@@ -351,8 +352,8 @@ namespace Durin::Editor
 				return Result;
 			}
 			Impl->RetainedBytes += PixelCount * 4;
-			Impl->Reads[bGeneratedPixelsOnly ? 1 : 0].push_back(std::make_shared<FImpl::FCacheRead>(
-				FImpl::FCacheRead{.Job = std::move(*Job), .ReservedBytes = PixelCount * 4}));
+			Impl->Reads[bGeneratedPixelsOnly ? 1 : 0].push_back(
+				{.Job = std::move(*Job), .ReservedBytes = PixelCount * 4});
 			Impl->PumpCache();
 			return Result;
 		}

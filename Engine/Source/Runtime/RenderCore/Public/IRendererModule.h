@@ -7,6 +7,7 @@
 #include "SceneView.h"
 #include "ViewRenderStatistics.h"
 #include "RHIResources.h"
+#include "Shader/ShaderMapPreparation.h"
 
 namespace Durin
 {
@@ -21,7 +22,8 @@ namespace Durin
 		Success,
 		InvalidOutput,
 		RendererResourcesUnavailable,
-		RequiredEnvironmentUnavailable
+		RequiredEnvironmentUnavailable,
+		RendererResourcesPending
 	};
 
 	// Defines scene ownership and frame rendering services exposed by the renderer module.
@@ -30,6 +32,8 @@ namespace Durin
 	public:
 		virtual auto RenderHitProxies(FRHICommandListImmediate&, FSceneInterface*, const FHitProxyRenderRequest& Request) -> void { if (Request.Readback) Request.Readback->Fail(); }
 		virtual auto CreateScene() -> FScenePtr = 0;
+		// Starts CPU-only built-in shader work for the lit scene-thumbnail profile.
+		virtual auto PrepareSceneThumbnailShaders() -> FShaderMapPreparation { return {}; }
 		// Called inside an active RHI frame, independently of viewport submission.
 		virtual auto UpdateScenes_RenderThread(FRHICommandListImmediate&) -> void {}
 		// Opt-in GPU graph timing. Set/clear on the render thread; the sink owns

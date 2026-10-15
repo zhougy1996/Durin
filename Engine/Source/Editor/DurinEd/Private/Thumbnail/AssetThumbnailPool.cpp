@@ -98,6 +98,48 @@ namespace Durin::Editor
 			if (Budgets.bPreGenerateOnAssetChanges) CatalogRevision = GetAssetCatalogRevision();
 		}
 
+		auto CollectBackgroundPackages() -> void
+		{
+			if (!Budgets.bPreGenerateOnAssetChanges) return;
+			const FContentChangeBatch Changes = CaptureAssetCatalogChanges(CatalogRevision);
+			CatalogRevision = Changes.ToRevision;
+			// Mounts and journal rollover must not generate thumbnails for a whole project.
+			if (Changes.bFullRefresh)
+			{
+				BackgroundPackages.clear();
+				return;
+			}
+			for (const FContentChange& Change : Changes.Changes)
+			{
+				if (Change.bDirectory || Change.NewAssetPath.empty()) continue;
+				if (std::ranges::contains(BackgroundPackages, Change.NewAssetPath)) continue;
+				if (BackgroundPackages.size() >= Budgets.MaximumQueuedJobs) break;
+				BackgroundPackages.push_back(Change.NewAssetPath);
+			}
+		}
+
+		auto AdmitBackgroundPackage(FAssetThumbnailPool& Pool) -> void
+		{
+			if (BackgroundPackages.empty()) return;
+			std::string Path = std::move(BackgroundPackages.front());
+			BackgroundPackages.pop_front();
+			FPackagePath PackagePath;
+			if (!FPackagePath::TryCreate(Path, PackagePath)) return;
+			const auto Package = FindAssetExact(PackagePath);
+			if (!Package) return;
+			for (const FTopLevelAssetData& Asset : Package->TopLevelAssets)
+			{
+				if (Asset.IsRedirector() || !Manager.Find(Asset.AssetClassName)) continue;
+				Pool.Prefetch({
+					.AssetPath = Asset.AssetPath,
+					.PackagePath = PackagePath,
+					.AssetClassName = Asset.AssetClassName,
+					.PackageFormatVersion = Package->FormatVersion,
+					.FileSize = static_cast<uint64>(Package->FileSize),
+					.LastWriteTimeTicks = Package->LastWriteTimeTicks});
+			}
+		}
+
 		auto IsCurrent(const FAssetThumbnailGenerationRequest& Request) const -> bool
 		{
 			const FThumbnailRendererHandle Renderer =
@@ -713,21 +755,7 @@ namespace Durin::Editor
 		Impl->DrainUploads();
 		Impl->FinishCapture();
 		Impl->Pipeline.BeginFrame();
-		if (Impl->Budgets.bPreGenerateOnAssetChanges)
-		{
-			const FContentChangeBatch Changes = CaptureAssetCatalogChanges(Impl->CatalogRevision);
-			Impl->CatalogRevision = Changes.ToRevision;
-			// A full refresh may describe an entire project mount. Never load all
-			// assets merely because a project opened or the journal rolled over.
-			if (Changes.bFullRefresh) Impl->BackgroundPackages.clear();
-			else for (const FContentChange& Change : Changes.Changes)
-			{
-				if (Change.bDirectory || Change.NewAssetPath.empty()) continue;
-				if (std::ranges::contains(Impl->BackgroundPackages, Change.NewAssetPath)) continue;
-				if (Impl->BackgroundPackages.size() >= Impl->Budgets.MaximumQueuedJobs) break;
-				Impl->BackgroundPackages.push_back(Change.NewAssetPath);
-			}
-		}
+		Impl->CollectBackgroundPackages();
 	}
 
 	auto FAssetThumbnailPool::Prefetch(const FAssetThumbnailPackageFingerprint& Asset) -> void
@@ -831,7 +859,6 @@ namespace Durin::Editor
 	{
 		const auto It = Impl->Entries.find(AssetPath);
 		if (It == Impl->Entries.end()) return;
-		const uint32 ReferencerCount = It->second.ReferencerCount;
 		Impl->Scheduler.Cancel(AssetPath);
 		Impl->UnregisterTexture(It->second);
 		It->second.Texture = nullptr;
@@ -839,7 +866,6 @@ namespace Durin::Editor
 		It->second.bUploadFailed = false;
 		It->second.Diagnostic.clear();
 		++It->second.Serial;
-		It->second.ReferencerCount = ReferencerCount;
 	}
 
 	auto FAssetThumbnailPool::EndFrame() -> void
@@ -854,23 +880,7 @@ namespace Durin::Editor
 		{
 			if (std::chrono::duration<double>(std::chrono::steady_clock::now() - StartTime).count()
 				>= Impl->Budgets.FrameTimeAllowanceSeconds) break;
-			if (!Impl->BackgroundPackages.empty())
-			{
-				std::string Path = std::move(Impl->BackgroundPackages.front());
-				Impl->BackgroundPackages.pop_front();
-				FPackagePath PackagePath;
-				if (FPackagePath::TryCreate(Path, PackagePath))
-				{
-					const auto Package = FindAssetExact(PackagePath);
-					if (Package) for (const FTopLevelAssetData& Asset : Package->TopLevelAssets)
-					{
-						if (Asset.IsRedirector() || !Impl->Manager.Find(Asset.AssetClassName)) continue;
-						Prefetch({.AssetPath = Asset.AssetPath, .PackagePath = PackagePath,
-							.AssetClassName = Asset.AssetClassName, .PackageFormatVersion = Package->FormatVersion,
-							.FileSize = static_cast<uint64>(Package->FileSize), .LastWriteTimeTicks = Package->LastWriteTimeTicks});
-					}
-				}
-			}
+			Impl->AdmitBackgroundPackage(*this);
 			// Leave a bounded slot for the next cold result; pressure defers work
 			// rather than turning otherwise valid assets into permanent failures.
 			const bool bPreparationFull = Impl->PreparingJob.has_value()

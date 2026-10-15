@@ -110,6 +110,16 @@ a second wrapper failure or recovery transition.
 
 ## Lifecycle
 
+`FShaderMapPreparation` can prepare exact registered programs before a thumbnail
+submission. It uses the asynchronous mounted-source ShaderBuild boundary, sharing
+in-flight and completed CPU outputs per target, type set, macros, and accepted
+Shader generation. Reload/manual generations retire earlier preparation; forced
+reload forces replacement compilation. Failed requests remain terminal until
+invalidation. Preparation does not construct typed maps or RHI objects on workers.
+`FPreparedShaderMapScope` forbids synchronous compilation during thumbnail capture;
+typed maps consume the prepared output in their requested stage order. Other
+rendering consumers retain their existing synchronous demand contract.
+
 Normal lookup and lifecycle operations occur on the rendering thread after
 RenderCore initialization. Renderer owns command admission but passes values
 and callbacks explicitly; RenderCore has no dependency on Renderer and no

@@ -36,6 +36,9 @@ namespace Durin
 			FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult;
 
 		auto GetOrCompile(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options) -> FShaderBuildResult;
+		auto SubmitMounted(std::string_view VirtualShaderPath, const FShaderCompileOptions& CompileOptions,
+			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
+			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError>;
 
 		auto GetStats() const -> FShaderBuildStats;
 
