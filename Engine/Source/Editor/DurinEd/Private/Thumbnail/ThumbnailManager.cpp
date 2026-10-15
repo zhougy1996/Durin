@@ -356,7 +356,8 @@ namespace Durin::Editor
 	auto DThumbnailManager::GetSharedPool() -> FAssetThumbnailPool&
 	{
 		check(!State->bShuttingDown);
-		if (!SharedPool) SharedPool = std::make_unique<FAssetThumbnailPool>(*this);
+		if (!SharedPool) SharedPool = std::make_unique<FAssetThumbnailPool>(
+			*this, FAssetThumbnailBudgets{.bPreGenerateOnAssetChanges = true});
 		return *SharedPool;
 	}
 

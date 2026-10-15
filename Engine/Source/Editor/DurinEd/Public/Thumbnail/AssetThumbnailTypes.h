@@ -118,6 +118,11 @@ namespace Durin
 		uint32 MaximumRetainedEntries = 4096;
 		uint32 ResourcePollIntervalFrames = 4;
 		uint32 MaximumResourceWaitFrames = 600;
+		// Bound game-thread admission independently of render and resource readiness.
+		uint32 MaximumAdmissionsPerFrame = 8;
+		double FrameTimeAllowanceSeconds = 0.002;
+		// Enabled by the process pool; isolated tools do not subscribe to catalog changes.
+		bool bPreGenerateOnAssetChanges = false;
 		uint64 CpuPixelBudgetBytes = 64ull * 1024ull * 1024ull;
 		uint64 GpuTextureBudgetBytes = 64ull * 1024ull * 1024ull;
 	};

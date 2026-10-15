@@ -36,6 +36,7 @@ namespace Durin::Editor
 		DURINED_API auto IsAvailable() const -> bool;
 		DURINED_API auto GetDiagnostic() const -> std::string;
 		DURINED_API auto GetWorld() -> DWorld* override;
+		DURINED_API auto GetReusableActor(std::string_view Key) -> AActor* override;
 		DURINED_API auto SetView(
 			const FThumbnailPreviewView& View) -> std::expected<void, std::string> override;
 		DURINED_API auto SetViewEnvironment(

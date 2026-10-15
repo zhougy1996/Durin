@@ -2004,4 +2004,105 @@ namespace Durin
 		EXPECT_EQ(Stats.Retries, 1u);
 		EXPECT_EQ(Stats.Cancellations, 1u);
 	}
+
+	TEST(FAssetThumbnailContractTests, PreparationPressureDefersInsteadOfFailingAssets)
+	{
+		Editor::DThumbnailManager Manager;
+		auto State = std::make_shared<FFakeThumbnailRendererState>();
+		State->ResourcePollsBeforeReady = 10000;
+		auto Registration = Manager.RegisterScoped(std::make_unique<FFakeThumbnailRenderer>(State));
+		ASSERT_TRUE(Registration);
+		Editor::FAssetThumbnailBudgets Budgets;
+		Budgets.MaximumParkedRenderedJobs = 2;
+		Budgets.FrameTimeAllowanceSeconds = 1.0;
+		Editor::FAssetThumbnailPool Pool(Manager, Budgets,
+			{.CacheRoot = MakeObjectStoreRoot("PreparationPressure")});
+		std::vector<Editor::FAssetThumbnailPackageFingerprint> Assets;
+		Pool.BeginFrame();
+		for (uint32 Index = 0; Index < 5; ++Index)
+		{
+			Assets.push_back(MakePackage(std::format("/ThumbnailTests/Pressure/Asset{}", Index),
+				"DFakeRenderedAsset", 1, 32, 1));
+			Pool.Request(Assets.back(), Editor::EAssetThumbnailPriority::Visible);
+		}
+		Pool.EndFrame();
+		ASSERT_TRUE(PumpThumbnailPoolUntil(Pool, [&] { return State->Sessions == 2; }));
+		for (uint32 Frame = 0; Frame < 16; ++Frame)
+		{
+			Pool.BeginFrame();
+			Pool.EndFrame();
+		}
+		EXPECT_EQ(State->Sessions, 2u);
+		EXPECT_EQ(Pool.GetStats().ParkedResourceWaits, 2u);
+		EXPECT_EQ(Pool.GetStats().Generation.Failures, 0u);
+		for (const auto& Asset : Assets)
+			EXPECT_NE(Pool.Find(Asset.AssetPath).State, Editor::EAssetThumbnailState::Failed);
+		Pool.CancelPendingRequests();
+		EXPECT_EQ(State->SessionDestructions, 2u);
+	}
+
+	TEST(FAssetThumbnailContractTests, BackgroundPrefetchSurvivesLastUIReferencer)
+	{
+		Editor::DThumbnailManager Manager;
+		auto State = std::make_shared<FFakeThumbnailRendererState>();
+		State->ResourcePollsBeforeReady = 10000;
+		auto Registration = Manager.RegisterScoped(std::make_unique<FFakeThumbnailRenderer>(State));
+		ASSERT_TRUE(Registration);
+		Editor::FAssetThumbnailPool Pool(Manager, {},
+			{.CacheRoot = MakeObjectStoreRoot("BackgroundInterest")});
+		const auto Asset = MakePackage("/ThumbnailTests/Background/Interest", "DFakeRenderedAsset", 1, 32, 1);
+		Pool.AddReferencer(Asset.AssetPath);
+		Pool.Prefetch(Asset);
+		ASSERT_TRUE(PumpThumbnailPoolUntil(Pool, [&] { return State->Sessions == 1; }));
+		Pool.RemoveReferencer(Asset.AssetPath);
+		EXPECT_EQ(State->SessionDestructions, 0u);
+		EXPECT_EQ(Pool.GetStats().ParkedResourceWaits, 1u);
+		Pool.CancelPendingRequests();
+		EXPECT_EQ(State->SessionDestructions, 1u);
+	}
+
+	TEST(FAssetThumbnailContractTests, CurrentFrameVisibilityReordersPreviouslyVisibleRequests)
+	{
+		Editor::DThumbnailManager Manager;
+		ASSERT_TRUE(Manager.Register(std::make_shared<FTestThumbnailRenderer>(
+			Editor::FThumbnailRenderingInfo{.AssetClassName = "DTest", .RendererName = "Test", .GeneratorSchemaVersion = 1})));
+		Editor::FAssetThumbnailRequestQueue Queue(Manager);
+		const auto First = MakeThumbnailRequest("/ThumbnailTests/Priority/First", "DTest", 1,
+			Editor::EAssetThumbnailPriority::Visible);
+		const auto Second = MakeThumbnailRequest("/ThumbnailTests/Priority/Second", "DTest", 1,
+			Editor::EAssetThumbnailPriority::Visible);
+		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Queue.Request(First)));
+		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Queue.Request(Second)));
+		Queue.BeginFrame();
+		ASSERT_TRUE(Editor::IsThumbnailRequestAccepted(Queue.Request(Second)));
+		const auto Next = Queue.TakeNext();
+		ASSERT_TRUE(Next);
+		EXPECT_EQ(Next->GenerationRequest.KeyInput.Asset.AssetPath, Second.Asset.AssetPath);
+	}
+
+	TEST(FAssetThumbnailContractTests, BatchedIndexFlushPreservesReplacementAndEvictionAccounting)
+	{
+		const auto Root = MakeObjectStoreRoot("BatchedIndex");
+		Editor::FThumbnailObjectStore Store({.CacheRoot = Root, .DiskBudgetBytes = 10, .bBatchIndexWrites = true});
+		ASSERT_TRUE(Store.Store("aa", FByteBuffer(8, std::byte{1})));
+		ASSERT_TRUE(Store.Store("bb", FByteBuffer(8, std::byte{2})));
+		EXPECT_EQ(Store.GetStats().Evictions, 1u);
+		Store.Flush();
+		{
+			Editor::FThumbnailObjectStore Reopened({.CacheRoot = Root, .DiskBudgetBytes = 10});
+			FByteBuffer Bytes;
+			EXPECT_EQ(Reopened.Load("aa", Bytes), Editor::EThumbnailObjectLoadResult::Miss);
+			EXPECT_EQ(Reopened.Load("bb", Bytes), Editor::EThumbnailObjectLoadResult::Hit);
+			EXPECT_EQ(Bytes, FByteBuffer(8, std::byte{2}));
+		}
+		ASSERT_TRUE(Store.Store("bb", FByteBuffer(3, std::byte{3})));
+		ASSERT_TRUE(Store.Store("cc", FByteBuffer(7, std::byte{4})));
+		EXPECT_EQ(Store.GetStats().Evictions, 1u);
+		Store.Flush();
+		Editor::FThumbnailObjectStore Reopened({.CacheRoot = Root, .DiskBudgetBytes = 10});
+		FByteBuffer Bytes;
+		EXPECT_EQ(Reopened.Load("bb", Bytes), Editor::EThumbnailObjectLoadResult::Hit);
+		EXPECT_EQ(Bytes, FByteBuffer(3, std::byte{3}));
+		EXPECT_EQ(Reopened.Load("cc", Bytes), Editor::EThumbnailObjectLoadResult::Hit);
+	}
 } // namespace Durin

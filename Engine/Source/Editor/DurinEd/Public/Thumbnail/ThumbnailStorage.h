@@ -35,6 +35,7 @@ namespace Durin::Editor
 		auto Load(std::string_view Key, FByteBuffer& OutBytes) -> EThumbnailObjectLoadResult;
 		auto Store(std::string_view Key, FByteView Bytes) -> bool;
 		auto Invalidate(std::string_view Key) -> void;
+		auto Flush() -> void;
 		auto GetStats() const -> FThumbnailObjectStoreStats;
 
 	private:

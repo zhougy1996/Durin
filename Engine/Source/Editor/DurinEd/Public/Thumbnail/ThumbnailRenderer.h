@@ -8,6 +8,7 @@
 namespace Durin
 {
 	class DWorld;
+	class AActor;
 
 	namespace Editor
 	{
@@ -57,6 +58,8 @@ namespace Durin
 		virtual ~IThumbnailPreviewScene() = default;
 
 		virtual auto GetWorld() -> DWorld* = 0;
+		// The scene owns reusable fixtures; sessions must detach asset bindings on reset.
+		virtual auto GetReusableActor(std::string_view Key) -> AActor* { return nullptr; }
 		virtual auto SetView(
 			const FThumbnailPreviewView& View) -> std::expected<void, std::string> = 0;
 		virtual auto SetViewEnvironment(

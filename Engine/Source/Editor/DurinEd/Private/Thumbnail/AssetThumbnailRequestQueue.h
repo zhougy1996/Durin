@@ -43,6 +43,7 @@ namespace Durin::Editor
 		FAssetThumbnailRequestQueue& operator=(const FAssetThumbnailRequestQueue&) = delete;
 
 		DURINED_API auto Request(const FAssetThumbnailRequest& Request) -> EThumbnailRequestStatus;
+		DURINED_API auto BeginFrame() -> void;
 		DURINED_API auto Find(const FTopLevelAssetPath& AssetPath) const -> FAssetThumbnailView;
 		DURINED_API auto TakeNext() -> std::optional<FAssetThumbnailScheduledRequest>;
 		// Selects renderer-generated pixels without waiting behind a resource-bound rendered job.

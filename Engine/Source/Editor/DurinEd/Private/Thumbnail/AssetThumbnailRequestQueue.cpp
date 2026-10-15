@@ -123,6 +123,13 @@ namespace Durin::Editor
 		Shutdown();
 	}
 
+	auto FAssetThumbnailRequestQueue::BeginFrame() -> void
+	{
+		// Visibility belongs to the current frame, not to an asset's first request.
+		for (auto& Request : Impl->PendingRequests) Request.Priority = EAssetThumbnailPriority::Prefetch;
+		for (auto& Job : Impl->CapturedQueue) Job.Priority = EAssetThumbnailPriority::Prefetch;
+	}
+
 	auto FAssetThumbnailRequestQueue::Request(
 		const FAssetThumbnailRequest& Request
 	) -> EThumbnailRequestStatus

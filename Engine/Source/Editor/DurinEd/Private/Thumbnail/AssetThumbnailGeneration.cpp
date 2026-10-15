@@ -56,6 +56,7 @@ namespace Durin::Editor
 			, Budgets(InBudgets)
 			, bBackgroundCache(bInBackgroundCache)
 		{
+			Cache->Settings.bBatchIndexWrites = bBackgroundCache;
 		}
 
 		FAssetThumbnailRequestQueue& Scheduler;
@@ -64,15 +65,58 @@ namespace Durin::Editor
 		FAssetThumbnailGenerationStats Stats;
 		uint32 RendersStartedThisFrame = 0;
 		bool bBackgroundCache = false;
-		std::array<std::optional<FCacheRead>, 2> Reads;
+		std::array<std::deque<std::shared_ptr<FCacheRead>>, 2> Reads;
+		std::shared_ptr<FCacheRead> ActiveRead;
 		std::deque<FCacheWrite> Writes;
 		Tasks::TTask<FCacheResult> CacheTask;
-		int32 ActiveRead = -1;
+		Tasks::TTask<FCacheWrite> EncodeTask;
+		std::deque<FCacheWrite> PendingEncodes;
+		uint64 EncodingBytes = 0;
 		uint64 ActiveWriteBytes = 0;
 		uint64 RetainedBytes = 0;
+		bool bNeedsIndexFlush = false;
+		bool bMaintenanceTask = false;
+
+		auto PumpEncoding() -> void
+		{
+			if (EncodeTask.IsValid())
+			{
+				if (!EncodeTask.IsCompleted()) return;
+				FCacheWrite Encoded;
+				if (EncodeTask.GetState() == ETaskState::Succeeded)
+					Encoded = std::move(EncodeTask).TakeResult();
+				EncodeTask = {};
+				RetainedBytes -= EncodingBytes;
+				if (Encoded.Cancellation.IsCancelled()) ++Stats.CacheWritesSkipped;
+				else if (Encoded.Bytes.empty()) ++Stats.CacheWriteFailures;
+				else if (Encoded.Bytes.size() > Budgets.CpuPixelBudgetBytes
+					|| RetainedBytes > Budgets.CpuPixelBudgetBytes - Encoded.Bytes.size())
+					++Stats.CacheWritesSkipped;
+				else
+				{
+					RetainedBytes += Encoded.Bytes.size();
+					Writes.push_back(std::move(Encoded));
+				}
+			}
+			if (PendingEncodes.empty()) return;
+			FCacheWrite Write = std::move(PendingEncodes.front());
+			PendingEncodes.pop_front();
+			EncodingBytes = Write.Bytes.size();
+			EncodeTask = Tasks::LaunchTask(Tasks::ETaskExecutor::Worker,
+				{.DebugName = "EncodeAssetThumbnailCache"},
+				[Write = std::move(Write)]() mutable {
+					FByteBuffer Encoded;
+					if (!Write.Cancellation.IsCancelled())
+						(void)Image::EncodeRgba8Png(Write.Bytes, Write.Width, Write.Height, Encoded);
+					Write.Bytes = std::move(Encoded);
+					Write.Width = Write.Height = 0;
+					return std::move(Write);
+				});
+		}
 
 		auto PumpCache() -> void
 		{
+			PumpEncoding();
 			if (CacheTask.IsValid())
 			{
 				if (!CacheTask.IsCompleted()) return;
@@ -81,26 +125,30 @@ namespace Durin::Editor
 					Result = std::move(CacheTask).TakeResult();
 				CacheTask = {};
 				Stats.Evictions = std::max(Stats.Evictions, Result.Evictions);
-				if (ActiveRead >= 0)
+				if (ActiveRead)
 				{
-					Reads[ActiveRead]->Result = std::move(Result);
-					Reads[ActiveRead]->bComplete = true;
+					ActiveRead->Result = std::move(Result);
+					ActiveRead->bComplete = true;
+					ActiveRead.reset();
 				}
-				else
+				else if (!bMaintenanceTask)
 				{
 					RetainedBytes -= ActiveWriteBytes;
+					bNeedsIndexFlush |= Result.bSucceeded;
 					if (Result.bSucceeded) ++Stats.CacheWrites;
 					else if (Result.bSkipped) ++Stats.CacheWritesSkipped;
 					else ++Stats.CacheWriteFailures;
 				}
+				bMaintenanceTask = false;
 			}
 			for (int32 Index = 0; Index < 2; ++Index)
 			{
-				if (!Reads[Index] || Reads[Index]->bStarted) continue;
-				FCacheRead& Read = *Reads[Index];
+				const auto Next = std::ranges::find_if(Reads[Index], [](const auto& Read) { return !Read->bStarted; });
+				if (Next == Reads[Index].end()) continue;
+				ActiveRead = *Next;
+				FCacheRead& Read = **Next;
 				const auto& Request = Read.Job.GenerationRequest;
 				Read.bStarted = true;
-				ActiveRead = Index;
 				CacheTask = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
 					{.DebugName = "ReadAssetThumbnailCache"},
 					[State = Cache, Key = Read.Job.CacheKey,
@@ -132,10 +180,23 @@ namespace Durin::Editor
 					});
 				return;
 			}
-			if (Writes.empty()) return;
+			if (Writes.empty())
+			{
+				if (bNeedsIndexFlush && !EncodeTask.IsValid() && PendingEncodes.empty())
+				{
+					bNeedsIndexFlush = false;
+					bMaintenanceTask = true;
+					CacheTask = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
+						{.DebugName = "FlushAssetThumbnailIndex"}, [State = Cache] {
+							State->GetStore().Flush();
+							return FCacheResult{};
+						});
+				}
+				return;
+			}
 			FCacheWrite Write = std::move(Writes.front());
 			Writes.pop_front();
-			ActiveRead = -1;
+			ActiveRead.reset();
 			ActiveWriteBytes = Write.Bytes.size();
 			CacheTask = Tasks::LaunchTask(Tasks::ETaskExecutor::BlockingIO,
 				{.DebugName = "SaveAssetThumbnailCache"},
@@ -146,18 +207,7 @@ namespace Durin::Editor
 						Result.bSkipped = true;
 						return Result;
 					}
-					FByteBuffer Encoded;
-					FByteView Bytes = Write.Bytes;
-					if (Write.Width != 0)
-					{
-						if (!Image::EncodeRgba8Png(Bytes, Write.Width, Write.Height, Encoded)) return Result;
-						Bytes = Encoded;
-					}
-					if (Write.Cancellation.IsCancelled())
-					{
-						Result.bSkipped = true;
-						return Result;
-					}
+					const FByteView Bytes = Write.Bytes;
 					auto& Store = State->GetStore();
 					Result.bSucceeded = Store.Store(Write.Key, Bytes);
 					Result.Evictions = Store.GetStats().Evictions;
@@ -170,14 +220,14 @@ namespace Durin::Editor
 		{
 			// Persistence is optional. A slow disk must not accumulate unlimited pixels
 			// or hold back display and capture admission.
-			if (Writes.size() >= 8 || Bytes.size() > Budgets.CpuPixelBudgetBytes
+			if (Writes.size() + PendingEncodes.size() + (EncodeTask.IsValid() ? 1u : 0u) >= 8 || Bytes.size() > Budgets.CpuPixelBudgetBytes
 				|| RetainedBytes > Budgets.CpuPixelBudgetBytes - Bytes.size())
 			{
 				++Stats.CacheWritesSkipped;
 				return;
 			}
 			RetainedBytes += Bytes.size();
-			Writes.push_back({Job.ScheduledJob.CacheKey,
+			(Width != 0 ? PendingEncodes : Writes).push_back({Job.ScheduledJob.CacheKey,
 				FByteBuffer(Bytes.begin(), Bytes.end()),
 				Job.ScheduledJob.GenerationRequest.Cancellation, Width, Height});
 		}
@@ -185,9 +235,10 @@ namespace Durin::Editor
 		auto DrainCache() -> void
 		{
 			PumpCache();
-			while (CacheTask.IsValid())
+			while (CacheTask.IsValid() || EncodeTask.IsValid())
 			{
-				(void)WaitTask(Durin::FTaskHandle(CacheTask));
+				if (EncodeTask.IsValid()) (void)WaitTask(Durin::FTaskHandle(EncodeTask));
+				if (CacheTask.IsValid()) (void)WaitTask(Durin::FTaskHandle(CacheTask));
 				PumpCache();
 			}
 		}
@@ -257,13 +308,13 @@ namespace Durin::Editor
 		{
 			Impl->PumpCache();
 			const int32 Index = bGeneratedPixelsOnly
-				? 1 : (Impl->Reads[1] && Impl->Reads[1]->bComplete ? 1 : 0);
-			auto& Slot = Impl->Reads[Index];
-			if (Slot)
+				? 1 : (!Impl->Reads[1].empty() && Impl->Reads[1].front()->bComplete ? 1 : 0);
+			auto& Reads = Impl->Reads[Index];
+			if (!Reads.empty() && Reads.front()->bComplete)
 			{
-				if (!Slot->bComplete) return Result;
-				FImpl::FCacheRead Read = std::move(*Slot);
-				Slot.reset();
+				FImpl::FCacheRead Read = std::move(*Reads.front());
+				Reads.pop_front();
+				Result.bProgressed = true;
 				Impl->RetainedBytes -= Read.ReservedBytes;
 				if (!Impl->Scheduler.Transition(Read.Job, EAssetThumbnailState::Loading,
 						Read.Result.bHit ? EAssetThumbnailState::Ready : EAssetThumbnailState::Loading)) return Result;
@@ -281,9 +332,13 @@ namespace Durin::Editor
 				}
 				return Result;
 			}
+			// Pre-admit bounded cache queries even while earlier reads are pending.
+			if (Impl->Reads[0].size() + Impl->Reads[1].size() >= 8
+				|| (!bGeneratedPixelsOnly && Impl->Reads[0].size() >= 7)) return Result;
 			auto Job = bGeneratedPixelsOnly
 				? Impl->Scheduler.TakeNextGeneratedPixels() : Impl->Scheduler.TakeNext();
 			if (!Job) return Result;
+			Result.bProgressed = true;
 			++Impl->Stats.Jobs;
 			const auto& Output = Job->GenerationRequest.KeyInput.Output;
 			const uint64 PixelCount = static_cast<uint64>(Output.Width) * Output.Height;
@@ -296,7 +351,8 @@ namespace Durin::Editor
 				return Result;
 			}
 			Impl->RetainedBytes += PixelCount * 4;
-			Slot = FImpl::FCacheRead{.Job = std::move(*Job), .ReservedBytes = PixelCount * 4};
+			Impl->Reads[bGeneratedPixelsOnly ? 1 : 0].push_back(std::make_shared<FImpl::FCacheRead>(
+				FImpl::FCacheRead{.Job = std::move(*Job), .ReservedBytes = PixelCount * 4}));
 			Impl->PumpCache();
 			return Result;
 		}

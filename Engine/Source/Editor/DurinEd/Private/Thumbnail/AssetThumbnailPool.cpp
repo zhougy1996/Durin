@@ -6,6 +6,7 @@
 #include "MonaUIBackend.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "AssetRegistry/Catalog.h"
 
 namespace Durin::Editor
 {
@@ -52,6 +53,7 @@ namespace Durin::Editor
 			bool bUploading = false;
 			bool bUploadFailed = false;
 			bool bHasTransparency = true;
+			bool bBackgroundRequested = false;
 			uint32 ReferencerCount = 0;
 			uint32 Width = 0;
 			uint32 Height = 0;
@@ -67,7 +69,10 @@ namespace Durin::Editor
 		std::unordered_map<FTopLevelAssetPath, FEntry> Entries;
 		std::shared_ptr<FAssetThumbnailAsyncState> AsyncState =
 			std::make_shared<FAssetThumbnailAsyncState>();
-		std::optional<FAssetThumbnailJob> ActiveJob;
+		std::optional<FAssetThumbnailJob> PreparingJob;
+		// Preparation never owns the preview scene. A capture retains its session
+		// until readback and revision validation finish, while other assets load.
+		std::optional<FAssetThumbnailJob> CaptureJob;
 		std::vector<FParkedJob> ParkedJobs;
 		uint64 FrameNumber = 0;
 		uint64 PreviewSceneCreations = 0;
@@ -78,6 +83,8 @@ namespace Durin::Editor
 		uint64 GpuEvictions = 0;
 		uint64 PeakParkedResourceWaits = 0;
 		uint64 ResourceWaitTimeouts = 0;
+		uint64 CatalogRevision = 0;
+		std::deque<std::string> BackgroundPackages;
 
 		FImpl(
 			DThumbnailManager& InService,
@@ -88,6 +95,7 @@ namespace Durin::Editor
 			, Scheduler(Manager, Budgets)
 			, Pipeline(Scheduler, std::move(StoreSettings), Budgets, true)
 		{
+			if (Budgets.bPreGenerateOnAssetChanges) CatalogRevision = GetAssetCatalogRevision();
 		}
 
 		auto IsCurrent(const FAssetThumbnailGenerationRequest& Request) const -> bool
@@ -122,12 +130,19 @@ namespace Durin::Editor
 			Request.ReleaseRenderedSession();
 		}
 
-		auto ResetActive() -> void
+		auto ResetPreparing() -> void
 		{
-			if (!ActiveJob) return;
-			ReleaseJob(*ActiveJob);
+			if (!PreparingJob) return;
+			ReleaseJob(*PreparingJob);
+			PreparingJob.reset();
+		}
+
+		auto ResetCapture() -> void
+		{
+			if (!CaptureJob) return;
+			ReleaseJob(*CaptureJob);
 			if (ScenePool) ScenePool->Reset();
-			ActiveJob.reset();
+			CaptureJob.reset();
 		}
 
 		auto ResetParkedJobs() -> void
@@ -294,11 +309,16 @@ namespace Durin::Editor
 
 		auto FinishCapture() -> void
 		{
-			if (!ActiveJob || ScenePool == nullptr) return;
+			if (!CaptureJob || ScenePool == nullptr) return;
+			if (!IsCurrent(CaptureJob->ScheduledJob.GenerationRequest))
+			{
+				ResetCapture();
+				return;
+			}
 			auto Capture = ScenePool->PollCapture();
 			if (Capture && !Capture->has_value()) return;
 
-			FAssetThumbnailJob& Job = *ActiveJob;
+			FAssetThumbnailJob& Job = *CaptureJob;
 			FAssetThumbnailGenerationRequest& Request =
 				Job.ScheduledJob.GenerationRequest;
 			IThumbnailRendererSession* Session =
@@ -339,52 +359,53 @@ namespace Durin::Editor
 					Request.KeyInput.Output.Width,
 					Request.KeyInput.Output.Height);
 			}
-			ResetActive();
+			ResetCapture();
 		}
 
-		auto ParkActive(
+		auto ParkPreparing(
 			const FThumbnailRendererSessionUpdate& Update) -> void
 		{
-			if (!ActiveJob) return;
+			if (!PreparingJob) return;
 			if (Budgets.MaximumParkedRenderedJobs == 0
 				|| ParkedJobs.size() >= Budgets.MaximumParkedRenderedJobs)
 			{
 				Pipeline.BeginRender(
-					*ActiveJob, false,
+					*PreparingJob, false,
 					"The rendered-thumbnail parked-resource budget is exhausted.");
-				ResetActive();
+				ResetPreparing();
 				return;
 			}
 			if (!Pipeline.BeginRender(
-					*ActiveJob, false))
+					*PreparingJob, false))
 			{
-				Pipeline.Cancel(*ActiveJob);
-				ResetActive();
+				Pipeline.Cancel(*PreparingJob);
+				ResetPreparing();
 				return;
 			}
 			ParkedJobs.push_back({
-				.Job = std::move(*ActiveJob),
+				.Job = std::move(*PreparingJob),
 				.LastUpdate = Update,
 				.FirstWaitFrame = FrameNumber,
 				.NextPollFrame = FrameNumber
-					+ std::max<uint32>(1, Budgets.ResourcePollIntervalFrames)});
-			ActiveJob.reset();
+					+ std::max<uint32>(1, Budgets.ResourcePollIntervalFrames),
+				.bReady = Update.State == EThumbnailRendererSessionState::ReadyToRender});
+			PreparingJob.reset();
 			PeakParkedResourceWaits = std::max<uint64>(
 				PeakParkedResourceWaits, ParkedJobs.size());
 		}
 
-		auto HandleActiveUpdate(
+		auto HandlePreparedUpdate(
 			const FThumbnailRendererSessionUpdate& Update) -> void
 		{
-			if (!ActiveJob) return;
-			FAssetThumbnailJob& Job = *ActiveJob;
+			if (!PreparingJob) return;
+			FAssetThumbnailJob& Job = *PreparingJob;
 			FAssetThumbnailGenerationRequest& Request =
 				Job.ScheduledJob.GenerationRequest;
 			IThumbnailRendererSession* Session =
 				Request.GetRenderedSession();
 			if (Session == nullptr || !IsCurrent(Request))
 			{
-				ResetActive();
+				ResetPreparing();
 				return;
 			}
 			if (Update.State == EThumbnailRendererSessionState::Failed)
@@ -393,14 +414,14 @@ namespace Durin::Editor
 					Job,
 					false,
 					Update.Diagnostic);
-				ResetActive();
+				ResetPreparing();
 				return;
 			}
 			const bool bReady =
 				Update.State == EThumbnailRendererSessionState::ReadyToRender;
-			if (!bReady)
+			if (!bReady || CaptureJob)
 			{
-				ParkActive(Update);
+				ParkPreparing(Update);
 				return;
 			}
 			if (!Pipeline.BeginRender(
@@ -430,25 +451,28 @@ namespace Durin::Editor
 				}
 				else
 				{
+					CaptureJob = std::move(PreparingJob);
+					PreparingJob.reset();
 					return;
 				}
 			}
 			Pipeline.CompleteRender(
 				Job, Error);
-			ResetActive();
+			if (ScenePool) ScenePool->Reset();
+			ResetPreparing();
 		}
 
-		auto PollActive() -> void
+		auto PollPreparing() -> void
 		{
-			if (!ActiveJob) return;
+			if (!PreparingJob) return;
 			IThumbnailRendererSession* Session =
-				ActiveJob->ScheduledJob.GenerationRequest.GetRenderedSession();
+				PreparingJob->ScheduledJob.GenerationRequest.GetRenderedSession();
 			if (Session == nullptr)
 			{
-				ResetActive();
+				ResetPreparing();
 				return;
 			}
-			HandleActiveUpdate(Session->PollResources());
+			HandlePreparedUpdate(Session->PollResources());
 		}
 
 		auto PollParkedJobs() -> void
@@ -513,7 +537,7 @@ namespace Durin::Editor
 
 		auto ActivateReadyParkedJob() -> void
 		{
-			if (ActiveJob || ParkedJobs.empty()) return;
+			if (PreparingJob || CaptureJob || ParkedJobs.empty()) return;
 			auto IsVisible = [this](const FParkedJob& Parked) {
 				const auto It = Entries.find(
 					Parked.Job.ScheduledJob.GenerationRequest.KeyInput.Asset.AssetPath);
@@ -530,12 +554,12 @@ namespace Durin::Editor
 					[](const FParkedJob& Parked) { return Parked.bReady; });
 			if (Selected == ParkedJobs.end()) return;
 			FThumbnailRendererSessionUpdate Update = Selected->LastUpdate;
-			ActiveJob = std::move(Selected->Job);
+			PreparingJob = std::move(Selected->Job);
 			ParkedJobs.erase(Selected);
-			HandleActiveUpdate(Update);
+			HandlePreparedUpdate(Update);
 		}
 
-		auto StartNext(bool bGeneratedPixelsOnly = false) -> void
+		auto StartNext(bool bGeneratedPixelsOnly = false) -> bool
 		{
 			FAssetThumbnailStartResult Start = bGeneratedPixelsOnly
 				? Pipeline.StartNextGeneratedPixelsDetailed()
@@ -551,17 +575,17 @@ namespace Durin::Editor
 				QueueUpload(WarmJob.GenerationRequest, std::move(Start.Pixels),
 					WarmJob.GenerationRequest.KeyInput.Output.Width,
 					WarmJob.GenerationRequest.KeyInput.Output.Height);
-				return;
+				return true;
 			}
-			if (!Start.ColdJob) return;
+			if (!Start.ColdJob) return Start.bProgressed;
 			if (bGeneratedPixelsOnly)
 			{
 				FAssetThumbnailJob Job = std::move(*Start.ColdJob);
 				ProcessGeneratedPixels(Job);
-				return;
+				return true;
 			}
-			ActiveJob = std::move(Start.ColdJob);
-			FAssetThumbnailJob& Job = *ActiveJob;
+			PreparingJob = std::move(Start.ColdJob);
+			FAssetThumbnailJob& Job = *PreparingJob;
 			FAssetThumbnailGenerationRequest& Request =
 				Job.ScheduledJob.GenerationRequest;
 			if (auto It = Entries.find(Request.KeyInput.Asset.AssetPath);
@@ -570,24 +594,25 @@ namespace Durin::Editor
 			if (Request.GeneratedPixels)
 			{
 				ProcessGeneratedPixels(Job);
-				ResetActive();
-				return;
+				ResetPreparing();
+				return true;
 			}
 			auto Session = Request.BeginRenderedSession();
 			if (!Session)
 			{
 				Pipeline.CompleteLoad(Job, Session.error());
-				ResetActive();
-				return;
+				ResetPreparing();
+				return true;
 			}
 			const FThumbnailRendererSessionUpdate Update = (*Session)->Load();
 			if (!Pipeline.CompleteLoad(
 					Job, Update.Diagnostic))
 			{
-				ResetActive();
-				return;
+				ResetPreparing();
+				return true;
 			}
-			PollActive();
+			PollPreparing();
+			return true;
 		}
 
 		auto EvictToBudget() -> void
@@ -683,10 +708,33 @@ namespace Durin::Editor
 	auto FAssetThumbnailPool::BeginFrame() -> void
 	{
 		++Impl->FrameNumber;
+		Impl->Scheduler.BeginFrame();
 		for (auto& [Path, Entry] : Impl->Entries) Entry.bVisible = false;
 		Impl->DrainUploads();
 		Impl->FinishCapture();
 		Impl->Pipeline.BeginFrame();
+		if (Impl->Budgets.bPreGenerateOnAssetChanges)
+		{
+			const FContentChangeBatch Changes = CaptureAssetCatalogChanges(Impl->CatalogRevision);
+			Impl->CatalogRevision = Changes.ToRevision;
+			// A full refresh may describe an entire project mount. Never load all
+			// assets merely because a project opened or the journal rolled over.
+			if (Changes.bFullRefresh) Impl->BackgroundPackages.clear();
+			else for (const FContentChange& Change : Changes.Changes)
+			{
+				if (Change.bDirectory || Change.NewAssetPath.empty()) continue;
+				if (std::ranges::contains(Impl->BackgroundPackages, Change.NewAssetPath)) continue;
+				if (Impl->BackgroundPackages.size() >= Impl->Budgets.MaximumQueuedJobs) break;
+				Impl->BackgroundPackages.push_back(Change.NewAssetPath);
+			}
+		}
+	}
+
+	auto FAssetThumbnailPool::Prefetch(const FAssetThumbnailPackageFingerprint& Asset) -> void
+	{
+		Request(Asset, EAssetThumbnailPriority::Prefetch);
+		if (const auto It = Impl->Entries.find(Asset.AssetPath); It != Impl->Entries.end())
+			It->second.bBackgroundRequested = true;
 	}
 
 	auto FAssetThumbnailPool::Request(
@@ -761,11 +809,15 @@ namespace Durin::Editor
 		if (It == Impl->Entries.end() || It->second.ReferencerCount == 0) return;
 		--It->second.ReferencerCount;
 		if (It->second.ReferencerCount != 0) return;
+		if (It->second.bBackgroundRequested) return;
 		// Directory navigation releases cold requests but retains cached pixels.
 		Impl->Scheduler.Cancel(AssetPath);
-		if (Impl->ActiveJob
-			&& Impl->ActiveJob->ScheduledJob.GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
-			Impl->ResetActive();
+		if (Impl->PreparingJob
+			&& Impl->PreparingJob->ScheduledJob.GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
+			Impl->ResetPreparing();
+		if (Impl->CaptureJob
+			&& Impl->CaptureJob->ScheduledJob.GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
+			Impl->ResetCapture();
 		std::erase_if(Impl->ParkedJobs, [&](FImpl::FParkedJob& Parked) {
 			if (Parked.Job.ScheduledJob.GenerationRequest.KeyInput.Asset.AssetPath != AssetPath) return false;
 			Impl->ReleaseJob(Parked.Job);
@@ -792,24 +844,51 @@ namespace Durin::Editor
 
 	auto FAssetThumbnailPool::EndFrame() -> void
 	{
-		if (Impl->ActiveJob)
-			Impl->PollActive();
+		const auto StartTime = std::chrono::steady_clock::now();
+		if (Impl->PreparingJob)
+			Impl->PollPreparing();
 		Impl->PollParkedJobs();
-		if (!Impl->ActiveJob)
+		if (!Impl->PreparingJob)
 			Impl->ActivateReadyParkedJob();
-		if (!Impl->ActiveJob)
-			Impl->StartNext();
-		if (Impl->ActiveJob)
-			Impl->StartNext(true);
+		for (uint32 Admission = 0; Admission < Impl->Budgets.MaximumAdmissionsPerFrame; ++Admission)
+		{
+			if (std::chrono::duration<double>(std::chrono::steady_clock::now() - StartTime).count()
+				>= Impl->Budgets.FrameTimeAllowanceSeconds) break;
+			if (!Impl->BackgroundPackages.empty())
+			{
+				std::string Path = std::move(Impl->BackgroundPackages.front());
+				Impl->BackgroundPackages.pop_front();
+				FPackagePath PackagePath;
+				if (FPackagePath::TryCreate(Path, PackagePath))
+				{
+					const auto Package = FindAssetExact(PackagePath);
+					if (Package) for (const FTopLevelAssetData& Asset : Package->TopLevelAssets)
+					{
+						if (Asset.IsRedirector() || !Impl->Manager.Find(Asset.AssetClassName)) continue;
+						Prefetch({.AssetPath = Asset.AssetPath, .PackagePath = PackagePath,
+							.AssetClassName = Asset.AssetClassName, .PackageFormatVersion = Package->FormatVersion,
+							.FileSize = static_cast<uint64>(Package->FileSize), .LastWriteTimeTicks = Package->LastWriteTimeTicks});
+					}
+				}
+			}
+			// Leave a bounded slot for the next cold result; pressure defers work
+			// rather than turning otherwise valid assets into permanent failures.
+			const bool bPreparationFull = Impl->PreparingJob.has_value()
+				|| Impl->ParkedJobs.size() >= Impl->Budgets.MaximumParkedRenderedJobs;
+			if (!Impl->StartNext(bPreparationFull)) break;
+		}
 		Impl->EvictToBudget();
 	}
 
 	auto FAssetThumbnailPool::CancelPendingRequests() -> void
 	{
-		if (Impl->ActiveJob) Impl->Pipeline.Cancel(*Impl->ActiveJob);
+		Impl->BackgroundPackages.clear();
+		if (Impl->PreparingJob) Impl->Pipeline.Cancel(*Impl->PreparingJob);
+		if (Impl->CaptureJob) Impl->Pipeline.Cancel(*Impl->CaptureJob);
 		for (const FImpl::FParkedJob& Parked : Impl->ParkedJobs)
 			Impl->Pipeline.Cancel(Parked.Job);
-		Impl->ResetActive();
+		Impl->ResetPreparing();
+		Impl->ResetCapture();
 		Impl->ResetParkedJobs();
 		Impl->Scheduler.CancelAll();
 		for (auto& [Path, Entry] : Impl->Entries)
@@ -857,7 +936,7 @@ namespace Durin::Editor
 			.RetainedEntries = Impl->Entries.size(),
 			.PinnedEntries = PinnedEntries,
 			.Referencers = Referencers,
-			.bHasActiveJob = Impl->ActiveJob.has_value(),
+			.bHasActiveJob = Impl->PreparingJob.has_value() || Impl->CaptureJob.has_value(),
 			.bHasPreviewScene = Impl->ScenePool != nullptr};
 	}
 } // namespace Durin::Editor

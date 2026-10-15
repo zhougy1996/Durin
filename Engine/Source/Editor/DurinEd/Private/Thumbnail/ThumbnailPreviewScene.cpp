@@ -171,6 +171,7 @@ namespace Durin::Editor
 		FThumbnailVisualContract Contract;
 		FAssetThumbnailOutputSettings Output;
 		std::unique_ptr<Editor::FPreviewScene> PreviewScene;
+		std::unordered_map<std::string, TObjectPtr<AActor>> ReusableActors;
 		TObjectPtr<DDirectionalLightComponent> Light;
 		FTextureRHIRef RenderTarget;
 		FSceneView View;
@@ -304,6 +305,16 @@ namespace Durin::Editor
 	auto FThumbnailPreviewScenePool::GetWorld() -> DWorld*
 	{
 		return IsAvailable() ? Impl->PreviewScene->GetWorld() : nullptr;
+	}
+
+	auto FThumbnailPreviewScenePool::GetReusableActor(std::string_view Key) -> AActor*
+	{
+		checkf(IsInGameThread(), "Thumbnail fixtures belong to the game thread.");
+		DWorld* World = GetWorld();
+		if (World == nullptr) return nullptr;
+		auto& Actor = Impl->ReusableActors[std::string(Key)];
+		if (!Actor) Actor = World->SpawnActor<AActor>(FName(Key));
+		return Actor.Get();
 	}
 
 	auto FThumbnailPreviewScenePool::SetView(

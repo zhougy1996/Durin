@@ -15,6 +15,8 @@ namespace Durin::Editor
 		uint64 DiskBudgetBytes = 256ull * 1024ull * 1024ull;
 		uint64 MaximumObjectBytes = 16ull * 1024ull * 1024ull;
 		std::string ObjectExtension = ".png";
+		// Interactive workers batch index publication; direct stores remain durable per write.
+		bool bBatchIndexWrites = false;
 	};
 
 	// Reports deterministic generation activity without exposing queue mechanics.
@@ -74,6 +76,8 @@ namespace Durin::Editor
 		FAssetThumbnailPool& operator=(const FAssetThumbnailPool&) = delete;
 
 		DURINED_API auto BeginFrame() -> void;
+		// Keeps background generation alive independently of UI referencers.
+		DURINED_API auto Prefetch(const FAssetThumbnailPackageFingerprint& Asset) -> void;
 		DURINED_API auto Request(
 			const FAssetThumbnailPackageFingerprint& Asset,
 			EAssetThumbnailPriority Priority) -> void;

@@ -4,7 +4,7 @@ Summary: Define the shared Thumbnail Manager, renderer, asset-thumbnail, pool, p
 
 Modules: DurinEd, ContentBrowser, MainFrame, MaterialEditor, TextureEditor, StaticMeshEditor, LevelEditor
 
-Last reviewed: 2026-09-21
+Last reviewed: 2026-10-15
 
 Asset thumbnails are optional editor-derived data. They never replace authored
 packages or source files, and deleting the thumbnail cache cannot lose project
@@ -118,9 +118,10 @@ render data; thumbnail polling never calls the blocking mesh-load API.
 
 Sessions retain successful load handles through capture validation. Reset and
 destruction cancel unfinished requests and release those handles. Removing the
-last `FAssetThumbnail` referencer cancels queued work and releases its active or
-parked session immediately, while retaining cached pixels; another referencer
-keeps shared work alive. Scene-only cleanup during preparation preserves the
+last `FAssetThumbnail` referencer cancels UI-only queued work and releases its
+preparing, capturing or parked session immediately, while retaining cached
+pixels. Another UI referencer or explicit background interest keeps shared
+work alive. Scene-only cleanup during preparation preserves the
 load handles until the session is reset.
 
 EngineLoop owns the async-load pump. Standalone thumbnail hosts and tests must
@@ -139,8 +140,11 @@ waiting, rendering, readback, encoding, and already-enqueued upload completions
 all reject the retired generation.
 
 The shared preview pool owns its world, camera/view, environment value, light,
-output target, capture, and readback. Scene renderers attach only session-owned
-content and detach it in reset. TextureCube supplies an immutable allocation snapshot with a fixed counted RHI
+output target, capture, and readback. It can retain generic named Actor fixtures
+for its lifetime. Material sessions reuse one fixture and its StaticMeshComponent,
+clearing mesh and material bindings in reset. Other session-owned scene content
+is detached in reset. Isolated hosts without reusable fixtures retain the
+create/destroy fallback. TextureCube supplies an immutable allocation snapshot with a fixed counted RHI
 environment value and creates no world content. The shared capture implementation
 contains no concrete asset casts, readiness rules, framing rules, or feature diagnostics.
 
@@ -159,7 +163,9 @@ Visible requests outrank prefetch, duplicate keys coalesce, and different
 `FAssetThumbnail` instances for one identity share one entry and one admitted
 job. Each reference increments the entry's pin count. Releasing the final
 reference makes the entry evictable without synchronously releasing an in-use
-RHI resource or affecting a reference held by another panel.
+RHI resource or affecting a reference held by another panel. Explicit `Prefetch`
+interest keeps background generation alive after the last UI reference is
+released; global cancellation and renderer retirement still cancel that work.
 
 The default limits remain:
 
@@ -172,16 +178,25 @@ The default limits remain:
 | Retained pool entries | 4096 |
 | Resource poll interval | 4 frames |
 | Resource wait timeout | 600 frames |
+| Admission steps per frame | 8 |
+| Game-thread scheduling allowance | 2 ms |
+| Pending cache queries | 8 (at most 7 ordinary) |
 | CPU pixels | 64 MiB |
 | GPU textures | 64 MiB |
 | One encoded object | 16 MiB |
 | Persistent objects | 256 MiB |
 
 Jobs move through queued, loading, waiting-for-resources, rendering, readback,
-encoding, uploading, and ready states. A waiting rendered job is parked and
-releases the capture slot, allowing canonical-pixel or another ready rendered
-job to progress. Timeout and failure are stable until identity changes or the
-caller explicitly refreshes. Unreferenced inactive metadata entries use a
+encoding, uploading, and ready states. Preparation and capture are independent.
+A waiting or ready rendered job is parked without owning the scene. One capture retains its session through
+readback and validation while other assets continue cache lookup and loading.
+Preparation capacity applies backpressure instead of failing queued assets.
+The pool consumes multiple cache results and admits more work within the
+per-frame step and elapsed-time limits. The time allowance is cooperative: an
+individual asset callback, load finalization, or render submission is not
+preempted. Current-frame visibility reprioritizes queued and ready work.
+Timeout and failure are stable until identity changes or the caller explicitly
+refreshes. Unreferenced inactive metadata entries use a
 separate count-bounded LRU so failed or unsupported assets cannot grow the pool
 without bound.
 
@@ -199,15 +214,25 @@ The Vulkan context admits at most eight pending requests and 64 MiB of pending
 readback ranges; thumbnail scheduling still uses one active capture.
 
 The interactive pool uses a serial `BlockingIO` task lane for cache index
-initialization, object reads, PNG decoding/encoding, atomic writes, index updates,
-and disk eviction. Frames only poll task completion. At most two cache reads
-(ordinary and generated-pixel lanes) and eight queued saves are retained, with
-decoded-read reservations and retained save pixels sharing the CPU pixel budget.
-When save admission is exhausted, the optional cache save is skipped; display
-and capture remain available. Encoded input is additionally bounded by the
-maximum object size. The private generation coordinator retains a synchronous
-mode for offline opaque-object generation; the interactive pool always selects
-background mode.
+initialization, object reads, PNG decoding, atomic writes, index updates,
+and disk eviction. PNG encoding runs independently on a worker, so encoding a
+previous result cannot hold the cache I/O lane. Pending queries take priority
+over queued writes; an already-running I/O operation is not preempted. Frames
+only poll task completion. Up to eight cache queries are retained, reserving
+one slot for the generated-pixel lane. Up to eight queued/encoding saves are
+retained in addition to an active write. Decoded-read reservations and retained
+save buffers share the CPU pixel budget. When save admission is exhausted, the
+optional cache save is skipped; display and capture remain available. Encoded
+input is additionally bounded by the maximum object size. The private generation
+coordinator retains a synchronous mode for offline opaque-object generation;
+the interactive pool always selects background mode.
+
+Interactive stores batch index mutations, publishing after sixteen mutations,
+when the save lane becomes idle, or during teardown. Direct stores retain
+per-write index publication. Corrupt-object removal publishes immediately.
+A crash before a batch flush can lose recent cache entries, requiring safe
+regeneration; authored content is unaffected. Disk-budget accounting maintains
+an incremental byte total, including replacements and removals.
 
 New pixels are validated against the current request and resource revisions on
 the game thread and submitted for UI upload without waiting for PNG encoding or
@@ -221,6 +246,12 @@ Pool statistics expose jobs, loads, waits, renders, readbacks, disk hits,
 failures, retries, cancellations, evictions, uploads, live textures, queued
 jobs, retained entries, pinned entries, and reference count. Statistics are
 observations and do not alter scheduling or cache identity.
+
+The process manager enables low-priority pre-generation for added or modified
+supported assets from the Asset Registry change journal. Package metadata is
+resolved during bounded admission, and work uses the ordinary cache and renderer
+pipeline. Initial catalogs, full refreshes and journal rollover never trigger
+whole-project generation. Explicitly injected pools do not subscribe by default.
 
 ## Content Browser And Ordinary Files
 
@@ -270,7 +301,8 @@ MainFrame shutdown order is:
 
 All completion, cancellation, retirement, refresh, pool destruction, and
 shutdown paths converge on idempotent preview reset and owning-thread RHI
-release. Pool destruction drains the serial cache task lane before module unload;
+release. Pool destruction drains encoding and cache I/O, including index publication,
+before module unload;
 normal cancellation and refresh never wait for cache tasks. Canceled writes are
 discarded before encoding/publication when cancellation is observed, and canceled
 read results cannot publish into a replacement request.

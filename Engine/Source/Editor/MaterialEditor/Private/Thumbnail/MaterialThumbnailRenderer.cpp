@@ -322,11 +322,13 @@ namespace Durin::Editor::Material
 				{
 					return std::unexpected("The rendered-thumbnail material preview is unavailable.");
 				}
-				Actor = World->SpawnActor<AActor>("MaterialThumbnailPreviewActor");
-				Component = Actor
-					? Cast<DStaticMeshComponent>(Actor->AddInstanceComponent(
-						DStaticMeshComponent::StaticClass(), "MaterialPreview"))
-					: nullptr;
+				Actor = PreviewScene.GetReusableActor("MaterialThumbnailPreviewActor");
+				bOwnsActor = Actor == nullptr;
+				if (bOwnsActor) Actor = World->SpawnActor<AActor>("MaterialThumbnailPreviewActor");
+				Component = Actor ? Actor->FindComponentByExactClass<DStaticMeshComponent>() : nullptr;
+				if (Actor && !Component)
+					Component = Cast<DStaticMeshComponent>(Actor->AddInstanceComponent(
+						DStaticMeshComponent::StaticClass(), "MaterialPreview"));
 				if (Sphere == nullptr || Component == nullptr || Material == nullptr)
 				{
 					ResetPreview();
@@ -402,7 +404,13 @@ namespace Durin::Editor::Material
 			std::vector<FDependencySnapshot> DependencySnapshots;
 			auto ResetScenePreview() -> void
 			{
-				if (World != nullptr && Actor != nullptr) World->DestroyActor(Actor);
+				if (Component != nullptr && !bOwnsActor)
+				{
+					for (uint32 Slot = 0; Slot < Component->GetNumMaterials(); ++Slot)
+						Component->SetMaterial(Slot, nullptr);
+					Component->SetStaticMesh(nullptr);
+				}
+				if (World != nullptr && Actor != nullptr && bOwnsActor) World->DestroyActor(Actor);
 				Component = nullptr;
 				Actor = nullptr;
 				World = nullptr;
@@ -415,6 +423,7 @@ namespace Durin::Editor::Material
 			uint64 PreparedResourceRevision = 0;
 			DWorld* World = nullptr;
 			AActor* Actor = nullptr;
+			bool bOwnsActor = false;
 			DStaticMeshComponent* Component = nullptr;
 			DStaticMesh* Sphere = nullptr;
 			std::shared_ptr<FAsyncLoadHandle> MaterialLoad;

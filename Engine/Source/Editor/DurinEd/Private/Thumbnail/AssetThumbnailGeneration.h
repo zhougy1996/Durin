@@ -22,6 +22,7 @@ namespace Durin::Editor
 		std::optional<FAssetThumbnailScheduledRequest> WarmJob;
 		FByteBuffer EncodedBytes;
 		FByteBuffer Pixels;
+		bool bProgressed = false;
 	};
 
 	// Coordinates bounded rendered-thumbnail transitions and persistent publication across owning threads.

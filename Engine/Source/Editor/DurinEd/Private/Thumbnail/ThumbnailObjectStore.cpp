@@ -60,6 +60,8 @@ namespace Durin::Editor
 		FThumbnailObjectStoreStats Stats;
 		uint64 AccessCounter = 0;
 		uint32 UnsavedAccesses = 0;
+		uint32 UnsavedMutations = 0;
+		uint64 TotalBytes = 0;
 		mutable std::mutex Mutex;
 
 		auto IndexPath() const -> std::filesystem::path { return Settings.CacheRoot / "Index.bin"; }
@@ -92,7 +94,11 @@ namespace Durin::Editor
 					return;
 				AccessCounter = std::max(AccessCounter, Entry.LastAccess);
 			}
-			if (Reader.IsAtEnd()) Entries = std::move(Loaded);
+			if (Reader.IsAtEnd())
+			{
+				Entries = std::move(Loaded);
+				for (const auto& [Key, Entry] : Entries) TotalBytes += Entry.EncodedBytes;
+			}
 		}
 
 		auto SaveIndex() -> void
@@ -112,7 +118,15 @@ namespace Durin::Editor
 				Writer.WriteU64(Entry.LastAccess);
 			}
 			if (FFileHelper::SaveArrayToFileAtomically(Writer.GetBytes(), IndexPath()))
+			{
 				UnsavedAccesses = 0;
+				UnsavedMutations = 0;
+			}
+		}
+
+		auto MarkIndexChanged() -> void
+		{
+			if (++UnsavedMutations >= 16 || !Settings.bBatchIndexWrites) SaveIndex();
 		}
 
 		auto RemoveObject(const FObjectIndexEntry& Entry) -> void
@@ -126,8 +140,6 @@ namespace Durin::Editor
 
 		auto MaintainBudget() -> void
 		{
-			uint64 TotalBytes = 0;
-			for (const auto& [Key, Entry] : Entries) TotalBytes += Entry.EncodedBytes;
 			while (TotalBytes > Settings.DiskBudgetBytes && !Entries.empty())
 			{
 				const auto Candidate = std::ranges::min_element(Entries, {}, [](const auto& Pair) {
@@ -149,7 +161,13 @@ namespace Durin::Editor
 	FThumbnailObjectStore::~FThumbnailObjectStore()
 	{
 		std::lock_guard Lock(Impl->Mutex);
-		if (Impl->UnsavedAccesses != 0) Impl->SaveIndex();
+		if (Impl->UnsavedAccesses != 0 || Impl->UnsavedMutations != 0) Impl->SaveIndex();
+	}
+
+	auto FThumbnailObjectStore::Flush() -> void
+	{
+		std::lock_guard Lock(Impl->Mutex);
+		if (Impl->UnsavedAccesses != 0 || Impl->UnsavedMutations != 0) Impl->SaveIndex();
 	}
 
 	auto FThumbnailObjectStore::Load(std::string_view Key, FByteBuffer& OutBytes)
@@ -193,6 +211,7 @@ namespace Durin::Editor
 		if (auto It = Impl->Entries.find(std::string(Key)); It != Impl->Entries.end())
 		{
 			Impl->RemoveObject(It->second);
+			Impl->TotalBytes -= It->second.EncodedBytes;
 			Impl->Entries.erase(It);
 			++Impl->Stats.Regenerations;
 			Impl->SaveIndex();
@@ -213,12 +232,15 @@ namespace Durin::Editor
 			Impl->Settings.CacheRoot, ObjectPath, ResolvedObjectPath)) return false;
 		if (!FFileHelper::SaveArrayToFileAtomically(Bytes, ResolvedObjectPath)) return false;
 		std::lock_guard Lock(Impl->Mutex);
+		if (const auto Existing = Impl->Entries.find(std::string(Key)); Existing != Impl->Entries.end())
+			Impl->TotalBytes -= Existing->second.EncodedBytes;
+		Impl->TotalBytes += Bytes.size();
 		Impl->Entries.insert_or_assign(std::string(Key), FObjectIndexEntry{
 			.Key = std::string(Key),
 			.EncodedBytes = Bytes.size(),
 			.LastAccess = ++Impl->AccessCounter});
 		Impl->MaintainBudget();
-		Impl->SaveIndex();
+		Impl->MarkIndexChanged();
 		return true;
 	}
 
@@ -229,6 +251,7 @@ namespace Durin::Editor
 		if (auto It = Impl->Entries.find(std::string(Key)); It != Impl->Entries.end())
 		{
 			Impl->RemoveObject(It->second);
+			Impl->TotalBytes -= It->second.EncodedBytes;
 			Impl->Entries.erase(It);
 			++Impl->Stats.Regenerations;
 			Impl->SaveIndex();
