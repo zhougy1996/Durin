@@ -19,7 +19,8 @@ namespace Durin::AssetPrivate
 	class FCookDependencyDiscovery
 	{
 	public:
-		using FResolveContributor = std::function<FCookContributionResult(std::string_view, bool, FCookContributorRegistration&)>;
+		// The resolver retains returned immutable registrations for the discovery lifetime.
+		using FResolveContributor = std::function<FCookContributionResult(std::string_view, bool, const FCookContributorRegistration*&)>;
 		ENGINE_API FCookDependencyDiscovery(const FCookRequest& Request, FAssetRegistrySnapshot Registry,
 			FResolveContributor ResolveContributor);
 		FCookDependencyDiscovery(const FCookDependencyDiscovery&) = delete;

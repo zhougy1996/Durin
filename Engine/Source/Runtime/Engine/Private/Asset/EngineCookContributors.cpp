@@ -84,17 +84,12 @@ namespace Durin
 		case ECookContributionError::None: return {};
 		case ECookContributionError::Preparation: return Result.Diagnostic;
 		case ECookContributionError::EmptyRuntimeRoot: return "Cook root has no runtime exports: " + Result.VirtualPath;
-		case ECookContributionError::AuthoringOnly: Reason = "Material functions are authoring-only build dependencies"; break;
-		case ECookContributionError::TypeMismatch: return std::format("Cook contributor expected class '{}' but received '{}' for '{}'.", Result.ExpectedClass, Result.ActualClass, Result.ObjectPath);
 		case ECookContributionError::SourceMutation: Reason = "Cook cannot settle authored source mutation after capture"; break;
 		case ECookContributionError::RecipeProvider: return std::format("Cook recipe provider '{}' is unavailable for '{}'.", Result.Provider, Result.VirtualPath);
 		case ECookContributionError::ShaderInputs: return std::format("Material Cook requires declared '{}' inputs for '{}'.", Result.Provider, Result.VirtualPath);
 		case ECookContributionError::Target: Reason = "The contributor does not support this cook target"; break;
 		case ECookContributionError::PlatformData: Reason = "Texture platform data is unavailable"; break;
-		case ECookContributionError::RenderData: Reason = "Static mesh render data is unavailable"; break;
-		case ECookContributionError::Revision: return std::format("Material '{}' revision {} has no complete latest target result.", Result.ObjectPath, Result.AuthoredRevision);
 		case ECookContributionError::Contract: Reason = "Material target or pass contract is incompatible"; break;
-		case ECookContributionError::FunctionDependencies: Reason = "Material function dependencies are stale"; break;
 		case ECookContributionError::UnsupportedClass: Reason = "No Engine family Cook contribution exists for the object class"; break;
 		case ECookContributionError::Plan: return Result.PlanCause ? FormatCookPlanError(*Result.PlanCause) : "Cook plan admission failed.";
 		}

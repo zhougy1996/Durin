@@ -498,8 +498,8 @@ namespace Durin
 
 	enum class ECookContributionError : uint8
 	{
-		None, Target, PlatformData, RenderData, Revision, Contract, FunctionDependencies, UnsupportedClass, Plan,
-		AuthoringOnly, TypeMismatch, SourceMutation, RecipeProvider, ShaderInputs, Preparation, EmptyRuntimeRoot
+		None, Target, PlatformData, Contract, UnsupportedClass, Plan,
+		SourceMutation, RecipeProvider, ShaderInputs, Preparation, EmptyRuntimeRoot
 	};
 	struct FCookContributionResult
 	{
@@ -508,9 +508,7 @@ namespace Durin
 		std::string VirtualPath;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
-		uint64 AuthoredRevision = 0;
 		std::optional<FCookPlanError> PlanCause;
-		std::string ExpectedClass;
 		std::string ActualClass;
 		std::string Provider;
 		std::string Diagnostic;
@@ -631,7 +629,7 @@ namespace Durin
 		}
 	};
 
-	enum class ECookContributorRegistrationError : uint8 { None, InvalidClass, Name, Callback, Version, DuplicateClass, DuplicateName };
+	enum class ECookContributorRegistrationError : uint8 { None, InvalidClass, Name, Version, DuplicateClass, DuplicateName };
 	struct FCookContributorRegistrationResult
 	{
 		ECookContributorRegistrationError Error = ECookContributorRegistrationError::None;

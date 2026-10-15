@@ -144,6 +144,58 @@ namespace
 	};
 }
 
+TEST_F(FCookFunctionalTests, DiscoveryAndPreparationDoNotCopyProviderCallbacks)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("CookCallbackCopies");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/CallbackCopies", Path));
+	auto* Package = CreatePackage(Path);
+	ASSERT_NE(NewObject<DObject>(Package, "First"), nullptr);
+	ASSERT_NE(NewObject<DObject>(Package, "Second"), nullptr);
+	ASSERT_TRUE(SavePackage(Package));
+	ASSERT_TRUE(UnloadPackage(Package));
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	UnregisterCookContributor(Handles.back());
+	Handles.pop_back();
+	struct FCopyProbe
+	{
+		int& Copies;
+		int& Calls;
+		FCopyProbe(int& InCopies, int& InCalls) : Copies(InCopies), Calls(InCalls) {}
+		FCopyProbe(const FCopyProbe& Other) : Copies(Other.Copies), Calls(Other.Calls) { ++Copies; }
+		auto operator()(DObject&, std::string_view, FCookPreparationContext&) const -> FCookContributionResult
+		{
+			++Calls;
+			return {};
+		}
+		auto operator()(const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) const -> FCookContributionResult
+		{
+			++Calls;
+			return {};
+		}
+	};
+	int Copies = 0;
+	int Preparations = 0;
+	int Declarations = 0;
+	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {
+		.Name = "copy-probe",
+		.Prepare = FCopyProbe(Copies, Preparations),
+		.DeclareDependencies = FCopyProbe(Copies, Declarations)});
+	ASSERT_TRUE(Registered);
+	Handles.push_back(Registered.Handle);
+	const int Before = Copies;
+	FCookRequest Request{.TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}, .bDryRun = true};
+	FCookRunResult Result;
+	EXPECT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Result.Status, ECookRunStatus::Succeeded);
+	EXPECT_EQ(Copies, Before);
+	EXPECT_EQ(Declarations, 1);
+	EXPECT_EQ(Preparations, 2);
+}
+
 TEST_F(FCookFunctionalTests, MacOSMeshCollisionTargetBaseline)
 {
 	const auto Fixture = Testing::CreateTestFixtureDirectory("MacOSCollisionTarget");

@@ -336,9 +336,9 @@ namespace Durin::AssetPrivate
 			while (Id != 0) {
 				const auto It = std::ranges::find(Input.Inspection.Objects, Id, &FAssetPackageObjectInspection::Id);
 				if (It == Input.Inspection.Objects.end()) break;
-				FCookContributorRegistration Family;
+				const FCookContributorRegistration* Family = nullptr;
 				if (auto Result = ResolveContributor(It->ClassName, It->OuterId == 0, Family); !Result) { Fail(Result); return true; }
-				if (Family.Disposition == ECookObjectDisposition::SourceOnly) return true;
+				if (Family && Family->Disposition == ECookObjectDisposition::SourceOnly) return true;
 				Id = It->OuterId;
 			}
 			return false;
@@ -438,32 +438,32 @@ namespace Durin::AssetPrivate
 					if (Automatic.insert(Dependency).second) Node.Packages.push_back({Dependency, true});
 				}
 				if (auto Result = CaptureSchema(Input, Node); !Result) return Result;
-				std::vector<FCookContributorRegistration> Families;
+				std::vector<const FCookContributorRegistration*> Families;
 				std::unordered_set<std::string> FamilyNames;
 				for (const auto& Object : Input.Inspection.Objects)
 				{
-					FCookContributorRegistration Family;
+					const FCookContributorRegistration* Family = nullptr;
 					const auto Result = ResolveContributor(Object.ClassName, Object.OuterId == 0, Family);
 					if (!Result) return Fail(Result);
-					if (!Family.Name.empty())
+					if (Family && !Family->Name.empty())
 					{
-						if (FamilyNames.insert(Family.Name).second) Families.push_back(std::move(Family));
+						if (FamilyNames.insert(Family->Name).second) Families.push_back(Family);
 					}
 				}
 				bool bAllDeclared = !Families.empty();
 				std::map<std::pair<ECookBuildDependencyKind, std::string>, FCookDependencyDeclaration> PackageDeclarations;
-				for (const auto& Family : Families)
+				for (const auto* Family : Families)
 				{
-					bAllDeclared &= bool(Family.DeclareDependencies);
+					bAllDeclared &= bool(Family->DeclareDependencies);
 					FBinaryWriter Versions;
-					Versions.WriteU32(Family.ContributorVersion);
+					Versions.WriteU32(Family->ContributorVersion);
 					Versions.WriteU32(1);
 					Node.Inputs.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
-						"contributor/" + Family.Name, Versions.TakeBytes()});
-					if (Family.DeclareDependencies)
+						"contributor/" + Family->Name, Versions.TakeBytes()});
+					if (Family->DeclareDependencies)
 					{
 						std::vector<FCookDependencyDeclaration> Declarations;
-						const auto Result = Family.DeclareDependencies(
+						const auto Result = Family->DeclareDependencies(
 							{Path, Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData, ShaderBuildIdentity, Request.MaterialConfigurations}, Declarations);
 						if (auto Admission = CheckCancellation(); !Admission) return Admission;
 						if (!Result) return Fail(Result);

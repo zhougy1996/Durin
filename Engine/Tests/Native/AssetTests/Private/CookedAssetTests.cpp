@@ -490,7 +490,7 @@ TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 {
 	(void)MakePackageBytes();
 	FCookRequest Request;
-	const auto Resolve = [](std::string_view, bool, FCookContributorRegistration&) -> FCookContributionResult { return {}; };
+	const auto Resolve = [](std::string_view, bool, const FCookContributorRegistration*&) -> FCookContributionResult { return {}; };
 	AssetPrivate::FCookDependencyDiscovery Limited(Request, CaptureAssetRegistrySnapshot(), Resolve);
 	std::vector<FPackagePath> Roots(MaximumCookDependencyRecords + 1);
 	const auto Rejected = Limited.Acquire(Roots, {});

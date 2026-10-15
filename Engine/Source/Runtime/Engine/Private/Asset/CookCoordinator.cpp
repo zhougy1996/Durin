@@ -513,10 +513,11 @@ namespace Durin
 				}
 			} ReleaseLoads{LoadScope};
 			AssetPrivate::FCookDependencyDiscovery Inputs(Request, CaptureAssetRegistrySnapshot(),
-				[&](std::string_view ClassName, bool bAllowGeneric, FCookContributorRegistration& Out) -> FCookContributionResult {
+				[Contributors](std::string_view ClassName, bool bAllowGeneric, const FCookContributorRegistration*& Out) -> FCookContributionResult {
+					Out = nullptr;
 					auto* Class = FindClassByQualifiedName(FName(ClassName));
 					if (!Class) return {.Error = ECookContributionError::UnsupportedClass, .ActualClass = std::string(ClassName)};
-					if (const auto* Entry = Contributors->Resolve(Class, bAllowGeneric)) Out = *Entry;
+					if (const auto* Entry = Contributors->Resolve(Class, bAllowGeneric)) Out = Entry;
 					else if (bAllowGeneric) return {.Error = ECookContributionError::UnsupportedClass, .ActualClass = std::string(ClassName)};
 					return {};
 				});
