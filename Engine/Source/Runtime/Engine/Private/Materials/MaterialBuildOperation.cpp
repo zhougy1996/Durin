@@ -111,7 +111,7 @@ namespace Durin::MaterialBuildPrivate
 		{ std::lock_guard Lock(State->Mutex); Priority = State->HighPriority ? EShaderBuildPriority::High : EShaderBuildPriority::Normal; }
 		auto Submitted = ShaderBuild->SubmitGenerated(MakeMaterialShaderCompileRequest(*Product, State->Force),
 			{.Priority = Priority, .IsCancelled = [Cancellation = State->Cancellation] { return Cancellation.IsCancelled(); }, .bInlineExecution = State->Inline},
-			[Self = shared_from_this(), Product, Begin](FShaderCompilerOutput Output) {
+			[Self = shared_from_this(), Product, Begin](FShaderBuildResult Output) {
 				Product->Timings.CompilationMicroseconds = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count();
 				Self->Launch([Self, Product, Output = std::move(Output)]() mutable {
 					if (Self->State->Cancellation.IsCancelled()) return Self->Complete(CanceledMaterial());

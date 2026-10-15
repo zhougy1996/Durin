@@ -27,13 +27,13 @@ namespace Durin
 		}
 		auto CompileMounted(
 			std::string_view VirtualShaderPath,
-			const FShaderCompileOptions& Options) -> FShaderCompilerOutput override
+			const FShaderCompileOptions& Options) -> FShaderBuildResult override
 		{
 			return Builder->GetOrCompile(VirtualShaderPath, Options);
 		}
 
 		auto CompileGenerated(const FGeneratedShaderCompileRequest& Request)
-			-> FShaderCompilerOutput override
+			-> FShaderBuildResult override
 		{
 			return Builder->GetOrCompileGenerated(Request);
 		}

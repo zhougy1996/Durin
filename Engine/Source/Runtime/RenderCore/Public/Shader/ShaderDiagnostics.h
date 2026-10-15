@@ -63,6 +63,7 @@ namespace Durin
 		InventoryEmpty,
 		Cancelled,
 		BuildModuleUnavailable,
+		BuildFailed,
 		RequestRetirementFrozen,
 		RequestNullBuildType,
 		RequestRegistrationFrozen,
@@ -154,7 +155,7 @@ namespace Durin
 
 	};
 
-	// Direct failures retain structured context; generic completion retains formatted diagnostics and identity.
+	// Direct compiler and runtime validation failures retain structured context.
 	struct FShaderError
 	{
 		EShaderError Code = EShaderError::None;
@@ -176,13 +177,11 @@ namespace Durin
 		ESlangShaderError CompilerPhase = ESlangShaderError::Session;
 		std::optional<int64> NativeStatus;
 		std::optional<FFileError> FileError;
-		// Reserved for the compiler boundary; never classify this text.
+		// Display-only compiler or build-boundary text; never classify this text.
 		std::string ExternalDiagnostic;
 
-		// Only the generic build boundary uses these; direct compiler errors retain their structured fields.
-		std::optional<std::string> BoundaryDiagnostic;
-		std::optional<size_t> BoundaryFingerprint;
-		RENDERCORE_API static auto FromBuildDiagnostic(EShaderError Code, std::string Description, size_t Fingerprint) -> FShaderError;
+		// Adapter for runtime APIs that still return typed validation errors.
+		RENDERCORE_API static auto FromBuildDiagnostic(std::string Description) -> FShaderError;
 
 		// In-process diagnostic identity; excludes external wording, not a persistent cache key.
 		RENDERCORE_API auto GetSemanticFingerprint() const -> size_t;

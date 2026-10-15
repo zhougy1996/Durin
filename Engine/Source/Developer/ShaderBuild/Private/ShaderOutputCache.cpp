@@ -2,20 +2,20 @@
 
 namespace Durin
 {
-	auto FShaderOutputCache::Find(const std::string& Key, uint64 MaximumOutputBytes) -> std::optional<FShaderCompilerOutput>
+	auto FShaderOutputCache::Find(const std::string& Key, uint64 MaximumOutputBytes) -> std::optional<FShaderBuildResult>
 	{
 		std::lock_guard Lock(Mutex);
 		const auto Found = Entries.find(Key);
 		if (Found == Entries.end()) return {};
 		Recency.splice(Recency.begin(), Recency, Found->second.Recency);
 		if (!Found->second.Product.CheckLimits({.MaximumTotalBytes = MaximumOutputBytes}))
-			return FShaderCompilerOutput{.Error = {.Code = EShaderError::CaptureInputLimit}};
+			return FShaderBuildResult::Failure(FormatShaderError({.Code = EShaderError::CaptureInputLimit}));
 		return Found->second.Output;
 	}
 	auto FShaderOutputCache::Count() const -> size_t
 	{ std::lock_guard Lock(Mutex); return Entries.size(); }
 
-	auto FShaderOutputCache::Store(std::string Key, const FShaderCompilerOutput& Output, const DerivedData::FBuildOutput& Product) -> void
+	auto FShaderOutputCache::Store(std::string Key, const FShaderBuildResult& Output, const DerivedData::FBuildOutput& Product) -> void
 	{
 		uint64 Bytes = sizeof(FEntry) + 2 * Key.capacity() + Output.CompiledShaders.capacity() * sizeof(FShaderCode);
 		for (const auto& Meta : Product.GetMetadata()) Bytes += sizeof(Meta) + Meta.Object.GetBytes().GetSize();

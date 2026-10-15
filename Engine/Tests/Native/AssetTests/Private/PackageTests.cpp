@@ -9964,8 +9964,8 @@ namespace
 		uint32 Libraries = 0;
 		auto GetBuildVersion() const -> uint64 override { return 0x123456789abcdef0ull; }
 		auto GetCompileAdapterVersion() const -> Durin::FShaderCompileAdapterVersion override { return {3, 2, 6}; }
-		auto CompileMounted(std::string_view, const Durin::FShaderCompileOptions&) -> Durin::FShaderCompilerOutput override { return {}; }
-		auto CompileGenerated(const Durin::FGeneratedShaderCompileRequest&) -> Durin::FShaderCompilerOutput override { return {}; }
+		auto CompileMounted(std::string_view, const Durin::FShaderCompileOptions&) -> Durin::FShaderBuildResult override { return {}; }
+		auto CompileGenerated(const Durin::FGeneratedShaderCompileRequest&) -> Durin::FShaderBuildResult override { return {}; }
 		auto SubmitGenerated(Durin::FGeneratedShaderCompileRequest, Durin::FShaderBuildRequestOptions, Durin::FShaderBuildCompletion)
 			-> std::expected<Durin::FShaderBuildHandle, Durin::FShaderBuildAdmissionError> override
 		{ return std::unexpected(Durin::FShaderBuildAdmissionError{Durin::EShaderBuildAdmissionReason::Closed}); }

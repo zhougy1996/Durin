@@ -124,7 +124,7 @@ TEST(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
 					ASSERT_TRUE(Translation);
 					const auto GenerationUs = Translation.Timings.GenerationMicroseconds;
 					auto Output = CompileGeneratedShader(MakeMaterialShaderCompileRequest(Translation, false));
-					ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+					ASSERT_TRUE(Output) << Output.Diagnostic;
 					auto Candidate = AssembleMaterialProgram(std::move(Translation), std::move(Output));
 					ASSERT_TRUE(Candidate);
 					const auto TotalUs = Micros(Begin);

@@ -64,7 +64,7 @@ namespace Durin
 			FShaderCompileOptions Options;
 			Options.EntryPoints = {"VertexMain"};
 			Options.Frequencies = {EShaderFrequency::Vertex};
-			std::array<FShaderCompilerOutput, BatchSize> Cold;
+			std::array<FShaderBuildResult, BatchSize> Cold;
 			auto Builder = std::make_unique<FShaderBuilder>();
 			for (uint32 Mode = 0; Mode < 3; ++Mode)
 			{
@@ -72,7 +72,7 @@ namespace Durin
 				// builder for the third pass so memory hits are measured separately.
 				if (Mode == 1) Builder = std::make_unique<FShaderBuilder>();
 				const auto Before = Builder->GetStats();
-				std::array<FShaderCompilerOutput, BatchSize> Outputs;
+				std::array<FShaderBuildResult, BatchSize> Outputs;
 				Testing::FQualificationAllocationSampler Allocations;
 				const auto Start = std::chrono::steady_clock::now();
 				for (uint32 Index = 0; Index < BatchSize; ++Index)
@@ -82,7 +82,7 @@ namespace Durin
 				uint64 Bytes = 0;
 				for (uint32 Index = 0; Index < BatchSize; ++Index)
 				{
-					ASSERT_TRUE(Outputs[Index]) << FormatShaderError(Outputs[Index].Error);
+					ASSERT_TRUE(Outputs[Index]) << Outputs[Index].Diagnostic;
 					ASSERT_EQ(Outputs[Index].CompiledShaders.size(), 1u);
 					const auto& Shader = Outputs[Index].CompiledShaders[0];
 					ASSERT_TRUE(!Shader.Code.IsEmpty());

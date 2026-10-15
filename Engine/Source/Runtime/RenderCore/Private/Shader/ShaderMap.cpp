@@ -512,14 +512,14 @@ namespace Durin
 			Reset();
 			return std::unexpected(FShaderError{.Code = EShaderError::BuildModuleUnavailable});
 		}
-		const FShaderCompilerOutput Output = Module->CompileMounted(EffectiveCompileOptions.VirtualShaderPath, EffectiveCompileOptions);
+		FShaderBuildResult Output = Module->CompileMounted(EffectiveCompileOptions.VirtualShaderPath, EffectiveCompileOptions);
 		if (!Output)
 		{
 			Reset();
-			return std::unexpected(Output.Error);
+			return std::unexpected(Output.Status == EShaderBuildStatus::Canceled ? FShaderError{.Code = EShaderError::Cancelled} : FShaderError::FromBuildDiagnostic(Output.Diagnostic));
 		}
 
-		return Initialize(ShaderTypes, Output, EffectiveCompileOptions);
+		return Initialize(ShaderTypes, FShaderCompilerOutput{.CompiledShaders = std::move(Output.CompiledShaders), .Error = {}}, EffectiveCompileOptions);
 	}
 
 	auto FShaderMapBase::FindShaderIndex(const FShaderType* ShaderType) const -> const uint32*

@@ -1590,22 +1590,17 @@ namespace Durin
 		EXPECT_EQ(External.ExternalDiagnostic.size(), 4096u);
 	}
 
-	TEST_F(FShaderFoundationTests, GenericBuildDiagnosticRetainsSemanticIdentityWithoutParsingText)
+	TEST_F(FShaderFoundationTests, BuildDiagnosticsDoNotReconstructCompilerIdentity)
 	{
 		const auto Original = FShaderError::FromSlang(ESlangShaderError::Code, "first diagnostic", -7);
-		const auto Reworded = FShaderError::FromSlang(ESlangShaderError::Code, "changed diagnostic", -7);
-		const auto ChangedStatus = FShaderError::FromSlang(ESlangShaderError::Code, "first diagnostic", -8);
-		const auto ChangedPhase = FShaderError::FromSlang(ESlangShaderError::Module, "first diagnostic", -7);
-		const auto Boundary = FShaderError::FromBuildDiagnostic(Original.Code, FormatShaderError(Original), Original.GetSemanticFingerprint());
-		EXPECT_EQ(Boundary.Code, EShaderError::SlangFailure);
+		const auto Boundary = FShaderError::FromBuildDiagnostic(FormatShaderError(Original));
+		EXPECT_EQ(Boundary.Code, EShaderError::BuildFailed);
 		EXPECT_EQ(FormatShaderError(Boundary), FormatShaderError(Original));
-		EXPECT_EQ(Boundary.GetSemanticFingerprint(), Original.GetSemanticFingerprint());
+		EXPECT_FALSE(Boundary.NativeStatus.has_value());
+		const auto Reworded = FShaderError::FromBuildDiagnostic("different diagnostic");
 		EXPECT_EQ(Boundary.GetSemanticFingerprint(), Reworded.GetSemanticFingerprint());
-		EXPECT_NE(Boundary.GetSemanticFingerprint(), ChangedStatus.GetSemanticFingerprint());
-		EXPECT_NE(Boundary.GetSemanticFingerprint(), ChangedPhase.GetSemanticFingerprint());
-		const auto Long = FShaderError::FromBuildDiagnostic(Original.Code, std::string(8192, 'x'), 0);
+		const auto Long = FShaderError::FromBuildDiagnostic(std::string(8192, 'x'));
 		EXPECT_EQ(FormatShaderError(Long).size(), 4096u);
-		EXPECT_EQ(Long.GetSemanticFingerprint(), 0u);
 	}
 
 	TEST_F(FShaderFoundationTests, DefaultCompileTargetFollowsSelectedRHIBackend)

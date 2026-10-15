@@ -63,7 +63,7 @@ namespace Durin
 	ENGINE_API auto MakeMaterialShaderCompileRequest(const FMaterialTranslatedProgram& Translation,
 		bool bForceRecompile) -> FGeneratedShaderCompileRequest;
 	ENGINE_API auto AssembleMaterialProgram(FMaterialTranslatedProgram Translation,
-		FShaderCompilerOutput Output) -> FMaterialCompilerResult;
+		FShaderBuildResult Output) -> FMaterialCompilerResult;
 
 	auto PrepareMaterialProgram(const MIR::FCompilerInput& Input) -> FMaterialPreparedProgram;
 	auto ValidateMaterialNormalizationEnvironment(const MIR::FCompilerInput& Input) -> MIR::FNormalizationResult;

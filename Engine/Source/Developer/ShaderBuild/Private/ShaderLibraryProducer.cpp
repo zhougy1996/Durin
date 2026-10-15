@@ -62,11 +62,12 @@ namespace Durin
 				return std::unexpected(FShaderError{.Code = EShaderError::RequestBuildTypesMismatch, .ActualIdentity = Request.Name});
 			Options.Target = Resolved->GetShaderTarget();
 			Options.SourceArtifacts = Artifacts;
-			FShaderCompilerOutput Output = Builder.GetOrCompile(
+			FShaderBuildResult Output = Builder.GetOrCompile(
 				Options.VirtualShaderPath, Options);
 			if (!Output)
 			{
-				auto Error = Output.Error;
+				auto Error = Output.Status == EShaderBuildStatus::Canceled ? FShaderError{.Code = EShaderError::Cancelled}
+					: FShaderError::FromBuildDiagnostic(Output.Diagnostic);
 				Error.ActualIdentity = Request.Name;
 				return std::unexpected(std::move(Error));
 			}
@@ -86,7 +87,7 @@ namespace Durin
 			UpdateCanonicalHash(Production, ShaderCookedLibrarySchemaVersion);
 			for (const FShaderCode& Shader : Output.CompiledShaders)
 				Production.UpdateValue(Shader.CodeHash);
-			Records.push_back({Request, Production.Finalize(), std::move(Output)});
+			Records.push_back({Request, Production.Finalize(), FShaderCompilerOutput{.CompiledShaders = std::move(Output.CompiledShaders), .Error = {}}});
 		}
 		return EncodeShaderCookedLibrary(TargetPlatform, TargetProfile, Records, OutBytes);
 	}

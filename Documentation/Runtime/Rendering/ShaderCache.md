@@ -26,8 +26,15 @@ its error code, defaults to `CompilationNotStarted`, and never accepts partial
 stages on failure. `FormatShaderError` formats only at presentation or required
 string-adapter boundaries; bounded compiler text never determines classification.
 Filesystem failures retain their owned path and native cause.
-Generic build failures retain a bounded diagnostic description; they do not
-reconstruct discarded structured causes or classify diagnostic text.
+Synchronous ShaderBuild compilation and asynchronous completion return
+`FShaderBuildResult`: an independent `EShaderBuildStatus` (`Ok`, `Error`, or
+`Canceled`), compiled stages, and a bounded display-only diagnostic. Only `Ok`
+retains stages; `Canceled` has neither stages nor diagnostics. Cache hits and local
+builds use the same completion contract. Compiler and validation failures are
+formatted at this boundary; deterministic output messages and infrastructure
+completion diagnostics are preserved without reconstructing typed causes or
+classifying text. Material consumers branch on status, including cancellation.
+The direct compiler and runtime validation APIs retain their typed contracts.
 
 Binding may retain a valid prefix on failure; layouts and MaterialShaderMaps
 publish only complete candidates, and failed ShaderMap initialization resets

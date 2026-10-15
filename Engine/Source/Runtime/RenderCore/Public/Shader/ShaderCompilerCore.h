@@ -93,6 +93,26 @@ namespace Durin
 		operator bool() const { return Error.IsSuccess(); }
 	};
 
+	// Build completion is independent of compiler diagnostics. Only Ok owns stages.
+	enum class EShaderBuildStatus : uint8 { Ok, Error, Canceled };
+	struct FShaderBuildResult
+	{
+		EShaderBuildStatus Status = EShaderBuildStatus::Error;
+		std::vector<FShaderCode> CompiledShaders;
+		std::string Diagnostic;
+
+		explicit operator bool() const { return Status == EShaderBuildStatus::Ok; }
+		static auto Failure(std::string Text) -> FShaderBuildResult
+		{
+			if (Text.size() > 4096) Text.resize(4096);
+			return {.Diagnostic = std::move(Text)};
+		}
+		static auto Success(FShaderCompilerOutput Output) -> FShaderBuildResult
+		{
+			return {.Status = EShaderBuildStatus::Ok, .CompiledShaders = std::move(Output.CompiledShaders)};
+		}
+	};
+
 	struct FShaderSourceDependencyFingerprint
 	{
 		std::string VirtualPath;
@@ -150,5 +170,5 @@ namespace Durin
 	RENDERCORE_API auto AdvanceShaderReloadGeneration() -> uint64;
 	RENDERCORE_API auto CompileGeneratedShader(
 		const FGeneratedShaderCompileRequest& Request)
-		-> FShaderCompilerOutput;
+		-> FShaderBuildResult;
 }

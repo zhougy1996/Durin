@@ -371,7 +371,7 @@ TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMism
 	ASSERT_NE(Threshold, Request.ExpectedSourceTree->Macros.end());
 	EXPECT_EQ(Threshold->Value, "1056964608");
 	const auto Output = CompileGeneratedShader(Request);
-	ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+	ASSERT_TRUE(Output) << Output.Diagnostic;
 	const auto Split = AssembleMaterialProgram(Translation, Output);
 	const auto Synchronous = MIR::Compile(Input);
 	ASSERT_TRUE(Split);
@@ -405,11 +405,12 @@ TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMism
 		EXPECT_EQ(Rejected.Diagnostics.back().Category, EMaterialProgramDiagnosticCategory::Reflection);
 	}
 	const auto Failed = AssembleMaterialProgram(Translation,
-		{.Error = {.Code = EShaderError::Cancelled}});
+		{.Status = EShaderBuildStatus::Canceled});
 	EXPECT_FALSE(Failed);
 	EXPECT_TRUE(Failed.CompiledShaders.empty());
 	ASSERT_FALSE(Failed.Diagnostics.empty());
 	EXPECT_EQ(Failed.Diagnostics.back().Category, EMaterialProgramDiagnosticCategory::Compile);
+	EXPECT_EQ(Failed.Diagnostics.back().Error, EMaterialCompileError::CompilationCanceled);
 }
 
 TEST(FMaterialVertexEvaluationTests, InterpolationRequiresVertexInputsAndPreservesSpatialMeaning)

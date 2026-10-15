@@ -185,7 +185,7 @@ namespace Durin
 				uint64 Bytes = 0;
 				for (uint32 Index = 0; Index < Count; ++Index)
 				{
-					if (Context.IsCancelled()) return Fail(FormatShaderError({.Code = EShaderError::Cancelled}));
+					if (Context.IsCancelled()) return;
 					std::string Path;
 					if (!Reader.ReadString(Path, ShaderCaptureLimits::MaximumPathBytes) || Path.empty() || !Path.starts_with('/')
 						|| std::filesystem::path(Path).lexically_normal().generic_string() != Path) return Fail(Invalid().Description);
@@ -217,7 +217,7 @@ namespace Durin
 				if (Variant.Value != Input.Identity.Identity || Options->Value.CompilerEnvironment != Service->Environment)
 					return Fail(FormatShaderError({.Code = EShaderError::DependencyContentConflict}));
 				Options->Value.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(std::move(Files), std::move(Options->Roots));
-				if (Context.IsCancelled()) return Fail(FormatShaderError({.Code = EShaderError::Cancelled}));
+				if (Context.IsCancelled()) return;
 				const auto ProducerBegin = std::chrono::steady_clock::now();
 				auto Product = Options->Generated
 					? Service->Compiler.CompileSource(Options->Value.VirtualShaderPath.substr(1), Options->Value.VirtualShaderPath, Generated, Options->Value, Service->BeforeGeneratedCompile)

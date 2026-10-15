@@ -18,7 +18,7 @@ namespace Durin
 		// Explicit caller-boundary execution, usable without the Core scheduler.
 		bool bInlineExecution = false;
 	};
-	using FShaderBuildCompletion = std::function<void(FShaderCompilerOutput)>;
+	using FShaderBuildCompletion = std::function<void(FShaderBuildResult)>;
 	class IShaderBuildRequest
 	{
 	public:

@@ -4,7 +4,6 @@ namespace Durin
 {
 	auto FShaderError::GetSemanticFingerprint() const -> size_t
 	{
-		if (BoundaryFingerprint) return *BoundaryFingerprint;
 		size_t Fingerprint = 0;
 		auto Add = [&]<typename T>(const T& Value) {
 			Fingerprint ^= std::hash<T>{}(Value) + 0x9e3779b9 + (Fingerprint << 6) + (Fingerprint >> 2);
@@ -76,15 +75,14 @@ namespace Durin
 			.ExternalDiagnostic = std::string(Diagnostic.substr(0, 4096))};
 	}
 
-	auto FShaderError::FromBuildDiagnostic(EShaderError Code, std::string Description, size_t Fingerprint) -> FShaderError
+	auto FShaderError::FromBuildDiagnostic(std::string Description) -> FShaderError
 	{
 		if (Description.size() > 4096) Description.resize(4096);
-		return {.Code = Code, .BoundaryDiagnostic = std::move(Description), .BoundaryFingerprint = Fingerprint};
+		return {.Code = EShaderError::BuildFailed, .ExternalDiagnostic = std::move(Description)};
 	}
 
 	auto FormatShaderError(const FShaderError& Error) -> std::string
 	{
-		if (Error.BoundaryDiagnostic) return *Error.BoundaryDiagnostic;
 		if (!Error.IsSuccess() && Error.CaptureLimit)
 		{
 			const auto& Limit = *Error.CaptureLimit;
@@ -136,6 +134,7 @@ namespace Durin
 
 		case EShaderError::InventoryEmpty: return "Cooked Shader inventory is empty.";
 		case EShaderError::Cancelled: return "Shader operation cancelled.";
+		case EShaderError::BuildFailed: return Error.ExternalDiagnostic.empty() ? "Shader build failed." : Error.ExternalDiagnostic;
 		case EShaderError::BuildModuleUnavailable: return "ShaderBuild module is unavailable.";
 		case EShaderError::RequestRetirementFrozen: return "Shader request retirement is forbidden after inventory freeze.";
 		case EShaderError::RequestNullBuildType: return "Shader request contains a null build type.";

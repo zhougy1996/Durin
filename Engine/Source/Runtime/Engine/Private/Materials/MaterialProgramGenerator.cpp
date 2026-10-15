@@ -1197,7 +1197,7 @@ float4 FragmentMain(
 	}
 
 	auto AssembleMaterialProgram(FMaterialTranslatedProgram Translation,
-		FShaderCompilerOutput Output) -> FMaterialCompilerResult
+		FShaderBuildResult Output) -> FMaterialCompilerResult
 	{
 		FMaterialCompilerResult Result{
 			.Identity = Translation.Identity, .CompilerIdentity = std::move(Translation.CompilerIdentity), .Target = std::move(Translation.Target),
@@ -1211,8 +1211,8 @@ float4 FragmentMain(
 		if (!Output)
 		{
 			Result.Diagnostics.push_back(MakeDiagnostic(
-				Output.Error.Code == EShaderError::DependencyContentConflict ? EMaterialProgramDiagnosticCategory::Dependency : EMaterialProgramDiagnosticCategory::Compile,
-				FMaterialError::FromExternal(Output.Error.Code == EShaderError::DependencyContentConflict ? EMaterialCompileError::SourceDependencyChanged : EMaterialCompileError::ShaderCompilerFailed, FormatShaderError(Output.Error))));
+				EMaterialProgramDiagnosticCategory::Compile,
+				Output.Status == EShaderBuildStatus::Canceled ? FMaterialError(EMaterialCompileError::CompilationCanceled) : FMaterialError::FromExternal(EMaterialCompileError::ShaderCompilerFailed, Output.Diagnostic)));
 			return Result;
 		}
 		const auto Target = Result.Target == "metal-msl-2.0" ? MetalShaderTarget : VulkanShaderTarget;

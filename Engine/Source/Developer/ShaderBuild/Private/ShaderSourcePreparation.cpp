@@ -289,17 +289,17 @@ namespace Durin
 		return {};
 	}
 
-	auto FShaderBuilder::GetOrCompile(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput
+	auto FShaderBuilder::GetOrCompile(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options) -> FShaderBuildResult
 	{
-		if (VirtualShaderPath.empty()) return {.Error = {.Code = EShaderError::MissingVirtualPath}};
-		if (!IsActiveCompilerTarget(Options.Target) || !HasValidUniqueEntryPoints(Options)) return {.Error = {.Code = EShaderError::InvalidCompileRequest}};
+		if (VirtualShaderPath.empty()) return FShaderBuildResult::Failure(FormatShaderError({.Code = EShaderError::MissingVirtualPath}));
+		if (!IsActiveCompilerTarget(Options.Target) || !HasValidUniqueEntryPoints(Options)) return FShaderBuildResult::Failure(FormatShaderError({.Code = EShaderError::InvalidCompileRequest}));
 		FGeneratedShaderCompileRequest Request;
 		Request.VirtualPath = VirtualShaderPath; Request.Target = Options.Target; Request.Frequencies = Options.Frequencies;
 		Request.Macros = Options.Macros; Request.SourceArtifacts = Options.SourceArtifacts; Request.bForceRecompile = Options.bForceRecompile;
 		for (const auto* Entry : Options.EntryPoints) Request.EntryPoints.emplace_back(Entry);
-		FShaderCompilerOutput Output;
+		FShaderBuildResult Output;
 		auto Handle = SubmitRequest(std::move(Request), {.bInlineExecution = true}, [&](auto Value) { Output = std::move(Value); }, ESourceKind::Mounted);
-		if (!Handle) return {.Error = {.Code = EShaderError::InvalidCompileRequest}};
+		if (!Handle) return FShaderBuildResult::Failure(FormatShaderError({.Code = EShaderError::InvalidCompileRequest}));
 		require(Handle->Wait() == EShaderBuildWaitResult::Completed);
 		return Output;
 	}

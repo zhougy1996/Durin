@@ -13,10 +13,10 @@ namespace Durin
 	}
 
 	auto CompileGeneratedShader(
-		const FGeneratedShaderCompileRequest& Request) -> FShaderCompilerOutput
+		const FGeneratedShaderCompileRequest& Request) -> FShaderBuildResult
 	{
 		if (auto* Module = IShaderBuildModule::Get()) return Module->CompileGenerated(Request);
-		return {.Error = {.Code = EShaderError::BuildModuleUnavailable}};
+		return FShaderBuildResult::Failure(FormatShaderError({.Code = EShaderError::BuildModuleUnavailable}));
 	}
 
 	auto BuildShaderSourceDependencyManifest(
