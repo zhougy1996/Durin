@@ -8,6 +8,15 @@ Last reviewed: 2026-10-15
 
 ## Ownership
 
+[TargetPlatform](TargetPlatforms.md) resolves immutable tool capabilities before
+family execution. It owns no DDC function, action, session, scheduler or cache.
+Families bind only relevant resolved settings to their existing identities;
+moving target enums to Core does not change canonical action bytes. Material
+translation and Shader compilation remain separate products. Physics capture
+retains an explicit payload target; only the existing Win64 collision
+representation is supported. Cook preparation consumes these family services
+before serialization and keeps package publication outside DDC.
+
 `DerivedDataCache` owns the process-wide production `IBuild`, function registry,
 immutable definitions/actions/inputs/outputs, persistent sessions, execution,
 and the backend-neutral structured-record cache. The cache boundary accepts and

@@ -406,20 +406,35 @@ namespace Durin::AssetPrivate
 				}
 				if (auto Result = CaptureSchema(Input, Node); !Result) return Result;
 				const auto* Data = Registry.Catalog.FindExact(Path);
-				const auto ContributorResult = ResolveContributor(*Data, Input.Contributor);
+				const auto ContributorResult = ResolveContributor(Data->TopLevelAssets.front().AssetClassName, true, Input.Contributor);
 				if (!ContributorResult && Runtime.contains(Path)) return Fail(ContributorResult);
-				if (ContributorResult)
+				std::vector<FCookContributorRegistration> Families;
+				if (ContributorResult) Families.push_back(Input.Contributor);
+				std::unordered_set<std::string> FamilyNames;
+				if (ContributorResult) FamilyNames.insert(Input.Contributor.Name);
+				for (const auto& Object : Input.Inspection.Objects)
 				{
+					FCookContributorRegistration Family;
+					if (const auto Result = ResolveContributor(Object.ClassName, Object.OuterId == 0, Family); Result && !Family.Name.empty())
+					{
+						if (FamilyNames.insert(Family.Name).second) Families.push_back(std::move(Family));
+					}
+				}
+				bool bAllDeclared = !Families.empty();
+				std::map<std::pair<ECookBuildDependencyKind, std::string>, FCookDependencyDeclaration> PackageDeclarations;
+				for (const auto& Family : Families)
+				{
+					bAllDeclared &= bool(Family.DeclareDependencies);
 					FBinaryWriter Versions;
-					Versions.WriteU32(Input.Contributor.ContributorVersion);
-					Versions.WriteU32(Input.Contributor.FamilyProducerVersion);
+					Versions.WriteU32(Family.ContributorVersion);
+					Versions.WriteU32(Family.FamilyProducerVersion);
 					Node.Inputs.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
-						"contributor/" + Input.Contributor.Name, Versions.TakeBytes()});
-					if (Input.Contributor.DeclareDependencies)
+						"contributor/" + Family.Name, Versions.TakeBytes()});
+					if (Family.DeclareDependencies)
 					{
 						std::vector<FCookDependencyDeclaration> Declarations;
-						const auto Result = Input.Contributor.DeclareDependencies(
-							{Path, Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData, ShaderBuildIdentity}, Declarations);
+						const auto Result = Family.DeclareDependencies(
+							{Path, Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData, ShaderBuildIdentity, Request.MaterialConfigurations}, Declarations);
 						if (auto Admission = CheckCancellation(); !Admission) return Admission;
 						if (!Result) return Fail(Result);
 						if (Declarations.size() > MaximumCookDependencyRecords) return Fail(FCookInputFailure{.Error = ECookInputError::DeclarationCount, .Package = Path, .Actual = Declarations.size(), .Maximum = MaximumCookDependencyRecords});
@@ -441,6 +456,14 @@ namespace Durin::AssetPrivate
 							}
 							if (!Unique.emplace(Declaration.Kind, Declaration.LogicalName).second)
 								return Fail(Reject(ECookInputError::DuplicateDeclaration));
+							const auto Key = std::pair(Declaration.Kind, Declaration.LogicalName);
+							const auto [Existing, Fresh] = PackageDeclarations.emplace(Key, Declaration);
+							if (!Fresh)
+							{
+								if (Existing->second.FilePath != Declaration.FilePath || Existing->second.Value != Declaration.Value)
+									return Fail(Reject(ECookInputError::DuplicateDeclaration));
+								continue;
+							}
 							if (Declaration.Kind == ECookBuildDependencyKind::DirectPackage
 								|| Declaration.Kind == ECookBuildDependencyKind::TransitivePackage)
 							{
@@ -491,9 +514,9 @@ namespace Durin::AssetPrivate
 							else return Fail(Reject(ECookInputError::ReservedKind));
 							Input.DeclaredValues.emplace(std::pair(Declaration.Kind, Declaration.LogicalName), std::move(Value));
 						}
-						Input.bDeclared = true;
 					}
 				}
+				Input.bDeclared = bAllDeclared;
 				FBinaryWriter Settings;
 				Settings.WriteU32(static_cast<uint32>(Request.TargetPlatform));
 				Settings.WriteU32(static_cast<uint32>(Request.TargetProfile));

@@ -13,6 +13,7 @@
 #include "DObject/Property.h"
 #include "DObject/SoftObjectPtr.h"
 #include "DObject/PackagePersistence.h"
+#include "Materials/MaterialCookConfiguration.h"
 
 namespace Durin
 {
@@ -47,6 +48,8 @@ namespace Durin
 		std::function<bool(const DObject*, const FProperty*)> PropertyFilter;
 		std::vector<FPackageBulkStoragePayload>* EditorBulkDataStoragePayloads = nullptr;
 		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta;
+		std::vector<FMaterialCookConfiguration> MaterialConfigurations;
+		std::function<bool()> IsCancelled;
 	};
 
 	enum class EAssetBundleSavePhase : uint8

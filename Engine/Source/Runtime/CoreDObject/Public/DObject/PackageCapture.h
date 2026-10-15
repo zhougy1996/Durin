@@ -11,6 +11,9 @@
 namespace Durin
 {
 	class DPackage;
+	// Transient or explicitly omitted outers exclude their entire subtree.
+	COREDOBJECT_API auto IsPackageCaptureObjectOmitted(const DObject* Object,
+		const FObjectSaveOverrides* Overrides = nullptr) -> bool;
 	enum class EPackageSaveError : uint8
 	{
 		None, InvalidPath, InvalidPackageType, InvalidObjectGraph, UnsupportedProperty,

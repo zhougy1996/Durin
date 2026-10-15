@@ -1136,6 +1136,71 @@ namespace Durin
 		return true;
 	}
 
+	auto BuildDefaultDeltaPlanForObjects(std::span<DObject* const> IncludedObjects,
+		FDefaultDeltaPlan& OutPlan, FDefaultDeltaDiagnostic* OutDiagnostic,
+		const FArchiveState& Context) -> bool
+	{
+		OutPlan.Reset();
+		OutPlan.Mode = EDefaultDeltaMode::NoDelta;
+		FDefaultDeltaDiagnostic Diagnostic;
+		auto Fail = [&]() {
+			OutPlan.Reset();
+			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
+			return false;
+		};
+		std::vector<DObject*> Objects(IncludedObjects.begin(), IncludedObjects.end());
+		if (Objects.size() > DefaultDeltaMaxFields)
+		{
+			Diagnostic.Reason = EDefaultDeltaFailureReason::FieldLimit;
+			return Fail();
+		}
+		std::unordered_set<const DObject*> UniqueObjects;
+		for (const auto* Object : Objects)
+			if (!Object || Object->IsTemplateObject() || !Object->GetClass() || !UniqueObjects.insert(Object).second)
+			{
+				Diagnostic.Reason = EDefaultDeltaFailureReason::InvalidInput;
+				Diagnostic.LogicalPath = "<objects>";
+				return Fail();
+			}
+		std::ranges::sort(Objects, [](const DObject* Left, const DObject* Right) {
+			return Left->GetObjectPath() < Right->GetObjectPath();
+		});
+		for (DObject* Object : Objects)
+		{
+			std::vector<FDefaultDeltaFieldPlan> Discovery, Values;
+			if (!CaptureObject(Object, EArchivePurpose::Discovery, Discovery, Diagnostic, Context)
+				|| !CaptureObject(Object, Context.bCooking ? EArchivePurpose::CookedPackage
+					: EArchivePurpose::AuthoredPackage, Values, Diagnostic, Context)) return Fail();
+			if (!FieldsCaptureShapeEquivalent(Discovery, Values))
+			{
+				Diagnostic.Reason = EDefaultDeltaFailureReason::ManifestMismatch;
+				return Fail();
+			}
+			std::vector<FAuthoredOverrideEntry> Replacements;
+			if (!Context.bCooking && !GatherValidReplacements(Object, Values, Diagnostic, Replacements)) return Fail();
+			FPlannerContext Planner{OutPlan, Diagnostic, nullptr, Object, Replacements};
+			FDefaultDeltaObjectPlan ObjectPlan{.Object = Object};
+			for (FDefaultDeltaFieldPlan& Field : Values)
+			{
+				const FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(
+					Field.Descriptor.DeclaringType, Field.Descriptor.Name)};
+				Field.Value = Field.Value
+					? BuildPlannedValue(*Field.Value, Planner, 1, {}, Path) : nullptr;
+				if (!Field.Value) return Fail();
+				Field.Baseline = EDefaultDeltaBaselineKind::None;
+				Field.Disposition = EDefaultDeltaDisposition::Emitted;
+				Field.Provenance = FindAuthoredIntent(Replacements, Path).value_or(EDefaultDeltaProvenance::Explicit);
+				Field.Identity = EPropertyIdentityResult::Different;
+				++OutPlan.FieldCount;
+				++OutPlan.EmittedFieldCount;
+				ObjectPlan.Fields.push_back(std::move(Field));
+			}
+			OutPlan.Objects.push_back(std::move(ObjectPlan));
+		}
+		if (OutDiagnostic) OutDiagnostic->Reset();
+		return true;
+	}
+
 	auto BuildDefaultDeltaPlan(DObject* RootObject, EDefaultDeltaMode Mode,
 		FDefaultDeltaPlan& OutPlan, FDefaultDeltaDiagnostic* OutDiagnostic,
 		const FArchiveState& Context) -> bool
@@ -1163,48 +1228,7 @@ namespace Durin
 					Objects[Index], RootObject->GetPackage() && RootObject->GetPackage()->IsGraphPrivate()
 						? EObjectQueryScope::IncludeUnpublished : EObjectQueryScope::LiveOnly, false))
 					if (!Child->IsTemplateObject()) Objects.push_back(Child);
-			if (Objects.size() > DefaultDeltaMaxFields)
-			{
-				Diagnostic.Reason = EDefaultDeltaFailureReason::FieldLimit;
-				return Fail();
-			}
-			std::ranges::sort(Objects, [](const DObject* Left, const DObject* Right) {
-				return Left->GetObjectPath() < Right->GetObjectPath();
-			});
-			for (DObject* Object : Objects)
-			{
-				std::vector<FDefaultDeltaFieldPlan> Discovery, Values;
-				if (!CaptureObject(Object, EArchivePurpose::Discovery, Discovery, Diagnostic, Context)
-					|| !CaptureObject(Object, Context.bCooking ? EArchivePurpose::CookedPackage
-						: EArchivePurpose::AuthoredPackage, Values, Diagnostic, Context)) return Fail();
-				if (!FieldsCaptureShapeEquivalent(Discovery, Values))
-				{
-					Diagnostic.Reason = EDefaultDeltaFailureReason::ManifestMismatch;
-					return Fail();
-				}
-				std::vector<FAuthoredOverrideEntry> Replacements;
-				if (!Context.bCooking && !GatherValidReplacements(Object, Values, Diagnostic, Replacements)) return Fail();
-				FPlannerContext Planner{OutPlan, Diagnostic, nullptr, Object, Replacements};
-				FDefaultDeltaObjectPlan ObjectPlan{.Object = Object};
-				for (FDefaultDeltaFieldPlan& Field : Values)
-				{
-					const FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(
-						Field.Descriptor.DeclaringType, Field.Descriptor.Name)};
-					Field.Value = Field.Value
-						? BuildPlannedValue(*Field.Value, Planner, 1, {}, Path) : nullptr;
-					if (!Field.Value) return Fail();
-					Field.Baseline = EDefaultDeltaBaselineKind::None;
-					Field.Disposition = EDefaultDeltaDisposition::Emitted;
-					Field.Provenance = FindAuthoredIntent(Replacements, Path).value_or(EDefaultDeltaProvenance::Explicit);
-					Field.Identity = EPropertyIdentityResult::Different;
-					++OutPlan.FieldCount;
-					++OutPlan.EmittedFieldCount;
-					ObjectPlan.Fields.push_back(std::move(Field));
-				}
-				OutPlan.Objects.push_back(std::move(ObjectPlan));
-			}
-			if (OutDiagnostic) OutDiagnostic->Reset();
-			return true;
+			return BuildDefaultDeltaPlanForObjects(Objects, OutPlan, OutDiagnostic, Context);
 		}
 
 		std::vector<DObject*> Objects{RootObject};

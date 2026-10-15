@@ -4281,3 +4281,19 @@ TEST(FPhysicsCookTests, BuildFunctionRejectsMismatchedIdentityBeforeRecipeDecodi
 	EXPECT_EQ(Result->GetOutput(), nullptr);
 	EXPECT_NE(Result->GetDiagnostic().find("identity does not match"), std::string_view::npos);
 }
+
+TEST(FPhysicsCookTests, CapturedTargetRejectsUnsupportedRepresentation)
+{
+	using namespace Durin;
+	FCookBodySetupInfo Info{
+		.TriangleMeshDesc = {{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {0, 1, 2}},
+		.Mode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0};
+	const auto Supported = FPhysicsCookHelper::Capture(Info, {}, EAssetPayloadTargetPlatform::Win64);
+	ASSERT_TRUE(Supported);
+	EXPECT_EQ(Supported->GetTargetPlatform(), EAssetPayloadTargetPlatform::Win64);
+	const auto Unsupported = FPhysicsCookHelper::Capture(Info, {}, EAssetPayloadTargetPlatform::MacOS);
+	ASSERT_FALSE(Unsupported);
+	EXPECT_NE(Unsupported.error().find("unsupported"), std::string::npos);
+	EXPECT_FALSE(MakePhysicsCookSessionDefinition(Info.Mode, Info.Policy, FCollisionCookedData::GetBuildVersion(),
+		0, EAssetPayloadTargetPlatform::MacOS));
+}

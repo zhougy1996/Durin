@@ -14,14 +14,6 @@ namespace Durin
 	inline constexpr std::string_view ShaderCookedLibraryRelativePath =
 		"Shaders/ShaderLibrary.dslb";
 
-	// Identifies the runtime profile encoded by one Shader request and library.
-	enum class EShaderTargetProfile : uint32
-	{
-		Invalid = 0,
-		Game = 1,
-		EditorValidation = 2,
-	};
-
 	// Separates exact Global Shader sets from finite feature-owned programs.
 	enum class EShaderRuntimeRequestCategory : uint32
 	{

@@ -124,7 +124,12 @@ render commit. The transaction schedules missing collision as an
 independent operation, with its own readiness and error. Collision failure never
 rolls back accepted source, slots, provenance or render data and never changes a
 successful render completion into a failure. Cook independently builds detached
-render and required collision projections; missing required collision fails cook.
+render and required collision projections before package Archive capture; missing
+required collision fails Cook. Invocation-scoped products are qualified by object
+handle, package revision and target. SerializeCooked consumes prepared bulk only,
+and existing direct Engine package-save APIs install preparation automatically.
+See [target platform policy](TargetPlatforms.md) for the tool/runtime boundary
+and the explicitly unsupported MacOS collision representation.
 Cooked decoding validates both existing payloads and prepares bounds/ray data
 before installing them within one consumer refresh boundary, without editor construction.
 Bounds/getters/scene preparation never finish authored work.

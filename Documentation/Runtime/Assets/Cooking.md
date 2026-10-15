@@ -2,9 +2,24 @@
 
 Summary: Define offline Cook inputs, dependency reuse, typed failures, and transactional output publication.
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-10-15
 
 ## Coordinator and input ownership
+
+Target interpretation and immutable operation capabilities follow
+[target platform build policy](TargetPlatforms.md). Each run owns a copy of its
+request before callbacks, including canonical material variant selections.
+Family source roots own native recipe declarations; material configurations are
+declared before Cook lookup. Old material dependency sets safely miss without a
+CookState format change. Unrelated family settings do not enter every DDC key.
+
+Engine package capture prepares material programs and StaticMesh render/collision
+products once before Archive discovery/emission. A bounded invocation-scoped
+table retains detached bulk by object handle, package revision and exact target.
+Serializers only consume these values; direct Engine package serialization uses
+the same preparation entrypoint. Cancellation/failure destroys the table before
+publication. Preparation does not depend on an accepted live material render
+program or apply a compiled candidate to the asset.
 
 `FCookContext::AddPackage` accepts canonical cooked package bytes; package
 serialization captures any `FBulkData` ranges and produces the optional raw

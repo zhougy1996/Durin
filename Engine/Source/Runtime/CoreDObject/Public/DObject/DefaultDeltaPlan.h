@@ -114,6 +114,14 @@ namespace Durin
 		const FArchiveLogicalTypeDescriptor& Left,
 		const FArchiveLogicalTypeDescriptor& Right) -> bool;
 
+	// Builds a complete (NoDelta) field plan for an already selected object graph.
+	// Does not discover descendants or serialize objects outside this list.
+	COREDOBJECT_API auto BuildDefaultDeltaPlanForObjects(
+		std::span<DObject* const> Objects,
+		FDefaultDeltaPlan& OutPlan,
+		FDefaultDeltaDiagnostic* OutDiagnostic = nullptr,
+		const FArchiveState& Context = {}) -> bool;
+
 	COREDOBJECT_API auto BuildDefaultDeltaPlan(
 		DObject* RootObject,
 		EDefaultDeltaMode Mode,

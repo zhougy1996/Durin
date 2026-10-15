@@ -196,6 +196,8 @@ namespace Durin
 		bool bDryRun = false;
 		FCookCancellationCheck IsCancelled;
 		FCookProgressCallback ReportProgress;
+		// Empty selects all supported material variants; the coordinator freezes/canonicalizes it.
+		std::vector<FMaterialCookConfiguration> MaterialConfigurations;
 	};
 
 
@@ -557,6 +559,9 @@ namespace Durin
 		auto GetTargetPlatform() const -> ECookTargetPlatform { return TargetPlatform; }
 		auto GetTargetProfile() const -> ECookTargetProfile { return TargetProfile; }
 		auto IsRetainingEditorOnlyData() const -> bool { return bRetainEditorOnlyData; }
+		auto SetMaterialConfigurations(std::span<const FMaterialCookConfiguration> Values) -> void
+			{ MaterialConfigurations.assign(Values.begin(), Values.end()); }
+		auto SetCancellationCheck(FCookCancellationCheck Check) -> void { IsCancelled = std::move(Check); }
 		ENGINE_API auto MakePackageSerializationOptions() const
 			-> FAssetPackageSerializationOptions;
 
@@ -566,6 +571,8 @@ namespace Durin
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		bool bRetainEditorOnlyData = false;
 		std::vector<FCookSavePlan> Packages;
+		std::vector<FMaterialCookConfiguration> MaterialConfigurations;
+		FCookCancellationCheck IsCancelled;
 	};
 
 	enum class ECookContextPublishError : uint8 { None, Finalization, Publication };

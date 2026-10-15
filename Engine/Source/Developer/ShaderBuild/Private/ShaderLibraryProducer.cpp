@@ -5,6 +5,7 @@
 
 #include "Shader/Shader.h"
 #include "ShaderBuilder.h"
+#include "TargetPlatform.h"
 
 namespace Durin
 {
@@ -38,6 +39,12 @@ namespace Durin
 		const std::function<bool()>& IsCancelled) -> FShaderOperationResult
 	{
 		OutBytes.clear();
+		const auto Platform = ToCookTargetPlatform(TargetPlatform);
+		const auto Profile = TargetProfile == EShaderTargetProfile::Game ? ECookTargetProfile::Game
+			: TargetProfile == EShaderTargetProfile::EditorValidation ? ECookTargetProfile::EditorValidation : ECookTargetProfile::Invalid;
+		if (!Platform) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+		const auto Resolved = ResolveTargetPlatform(*Platform, Profile);
+		if (!Resolved) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
 		std::vector<FShaderRuntimeRequest> Inventory;
 		if (auto Result = FreezeShaderRuntimeInventory(TargetPlatform, TargetProfile, Inventory); !Result) return Result;
 		if (Inventory.empty())
@@ -53,8 +60,7 @@ namespace Durin
 			FShaderCompileOptions Options;
 			if (!MakeCompileOptions(Types, Options))
 				return std::unexpected(FShaderError{.Code = EShaderError::RequestBuildTypesMismatch, .ActualIdentity = Request.Name});
-			Options.Target = TargetPlatform == EShaderTargetPlatform::MacOS
-				? MetalShaderTarget : VulkanShaderTarget;
+			Options.Target = Resolved->GetShaderTarget();
 			Options.SourceArtifacts = Artifacts;
 			FShaderCompilerOutput Output = Builder.GetOrCompile(
 				Options.VirtualShaderPath, Options);

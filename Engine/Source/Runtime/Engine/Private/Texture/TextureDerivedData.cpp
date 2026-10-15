@@ -10,6 +10,7 @@
 #include "DerivedDataCache/DerivedDataCache.h"
 #include "DerivedDataBuildDefinition.h"
 #include "TextureDerivedDataBuild.h"
+#include "TargetPlatform.h"
 #endif
 
 namespace Durin
@@ -26,10 +27,8 @@ namespace Durin
 
 		auto IsSupportedTarget(ECookTargetPlatform Platform, ECookTargetProfile Profile) -> bool
 		{
-			return (Platform == ECookTargetPlatform::Win64
-				|| Platform == ECookTargetPlatform::MacOS)
-				&& (Profile == ECookTargetProfile::Game
-					|| Profile == ECookTargetProfile::EditorValidation);
+			const auto Target = ResolveTargetPlatform(Platform, Profile);
+			return Target && Target->Supports(ETargetOperation::TextureMetadata);
 		}
 
 #endif

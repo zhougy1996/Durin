@@ -32,6 +32,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Misc/Project.h"
+#include "Misc/TargetIdentity.h"
 #include "Modules/ModuleManager.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -225,8 +226,8 @@ namespace
 				OutError = "cook --output must be absolute.";
 				return false;
 			}
-			if ((Options.Target != "win64" && Options.Target != "macos")
-				|| Options.TargetProfile != "game")
+			if (!Durin::ParseTargetPlatform(Options.Target)
+				|| Durin::ParseTargetProfile(Options.TargetProfile) != Durin::ECookTargetProfile::Game)
 			{
 				OutError = "cook requires --target=win64|macos --profile=game.";
 				return false;
@@ -888,8 +889,7 @@ namespace
 		FCookRunResult Result;
 		const FCookRequest Request{
 			.OutputRoot = Options.OutputRoot,
-			.TargetPlatform = Options.Target == "macos"
-				? ECookTargetPlatform::MacOS : ECookTargetPlatform::Win64,
+			.TargetPlatform = ParseTargetPlatform(Options.Target).value(),
 			.TargetProfile = ECookTargetProfile::Game,
 			.ExplicitRoots = std::move(Roots),
 			.IncrementalPolicy = Options.bIncremental ? ECookIncrementalPolicy::Enabled : ECookIncrementalPolicy::Disabled,
@@ -966,8 +966,7 @@ int main(int ArgC, char** ArgV)
 				Error = Durin::FormatCookOutputRootError(Validated);
 				Durin::FCookRunResult Result;
 				Result.Status = Durin::ECookRunStatus::Failed;
-				Result.TargetPlatform = Options.Target == "macos"
-					? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64;
+				Result.TargetPlatform = Durin::ParseTargetPlatform(Options.Target).value();
 				Result.Error = Durin::ECookRunError::InvalidOutputRoot;
 				Result.OutputRootCause = std::make_shared<Durin::FCookOutputRootResult>(Validated);
 				if (Options.Format == EOutputFormat::Json)

@@ -8,7 +8,6 @@ namespace Durin::AssetPrivate
 	inline auto CookedArchiveTarget(const FAssetRuntimeConfiguration& Configuration)
 		-> FArchiveTarget
 	{
-		return {.Platform = Configuration.GetCookTargetPlatform()
-			== ECookTargetPlatform::MacOS ? "MacOS" : "Win64", .Profile = "Game"};
+		return {.Platform = std::string(GetTargetPlatformName(Configuration.GetCookTargetPlatform())), .Profile = "Game"};
 	}
 }

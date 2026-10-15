@@ -2521,6 +2521,28 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		for (const auto& Field : Plan.Objects.front().Fields) CheckComplete(*Field.Value);
 	}
 
+	TEST(FCoreDObjectReflectionTests, CompletePlanUsesOnlySelectedObjects)
+	{
+		using namespace Durin;
+		Testing::InitializeDObjectSystemForTests();
+		auto* Root = NewObject<DObject>(nullptr, FName("SelectedPlanRoot"));
+		ASSERT_NE(NewObject<DObject>(Root, FName("ExcludedChild")), nullptr);
+		const std::array<DObject*, 1> Selected{Root};
+		FDefaultDeltaPlan Plan;
+		FDefaultDeltaDiagnostic Diagnostic;
+		ASSERT_TRUE(BuildDefaultDeltaPlanForObjects(Selected, Plan, &Diagnostic, {.bCooking = true}));
+		ASSERT_EQ(Plan.Objects.size(), 1u);
+		EXPECT_EQ(Plan.Objects.front().Object, Root);
+		EXPECT_EQ(Plan.Mode, EDefaultDeltaMode::NoDelta);
+		const std::array<DObject*, 2> Duplicate{Root, Root};
+		EXPECT_FALSE(BuildDefaultDeltaPlanForObjects(Duplicate, Plan, &Diagnostic));
+		EXPECT_EQ(Diagnostic.Reason, EDefaultDeltaFailureReason::InvalidInput);
+		EXPECT_TRUE(Plan.Objects.empty());
+		const std::array<DObject*, 1> Invalid{nullptr};
+		EXPECT_FALSE(BuildDefaultDeltaPlanForObjects(Invalid, Plan, &Diagnostic));
+		EXPECT_EQ(Diagnostic.Reason, EDefaultDeltaFailureReason::InvalidInput);
+	}
+
 	TEST(FCoreDObjectReflectionTests, StructTypeDefaultUnavailableFailsOnlyRelativePlanning)
 	{
 		using namespace Durin;

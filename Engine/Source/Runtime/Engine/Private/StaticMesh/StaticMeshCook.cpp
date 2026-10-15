@@ -1,6 +1,7 @@
 #include "Physics/PhysicsDerivedData.h"
 #include "Physics/PhysicsCookHelper.h"
 #include "Asset/OfflinePreparation.h"
+#include "Asset/CookedPreparation.h"
 #include "Logging/LogMacros.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCustomVersion.h"
@@ -19,6 +20,9 @@
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
+#if DURIN_WITH_EDITOR
+#include "TargetPlatform.h"
+#endif
 
 namespace Durin
 {
@@ -88,121 +92,105 @@ namespace Durin
 		Super::Serialize(Ar);
 	}
 
+	auto DStaticMesh::PrepareCookedPayloads(ECookTargetPlatform Platform, FBulkData& Render,
+		FBulkData& Collision, const FAssetBuildTaskContext& Control) -> std::expected<void, std::string>
+	{
+		Render = {}; Collision = {};
+		if (Control.IsCancelled()) return std::unexpected("Cook mesh preparation was cancelled.");
+		const bool HasCollision = BodySetup && BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None;
+#if DURIN_WITH_EDITOR
+		const auto Target = ResolveTargetPlatform(Platform, ECookTargetProfile::Game);
+		if (!Target || !Target->Supports(ETargetOperation::Cook)
+			|| (HasCollision && !Target->Supports(ETargetOperation::CollisionPayload)))
+			return std::unexpected("StaticMesh collision representation is unsupported for the requested target.");
+#else
+		if (GetTargetPlatformName(Platform).empty() || (HasCollision && Platform != ECookTargetPlatform::Win64))
+			return std::unexpected("StaticMesh collision representation is unsupported for the requested target.");
+#endif
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		{
+			if (GetAssetRuntimeConfiguration().GetCookTargetPlatform() != Platform || !CookedRenderData.HasData()
+				|| (HasCollision && !CookedCollisionData.HasData()))
+				return std::unexpected("StaticMesh cooked data is unavailable or targets another platform.");
+			Render = CookedRenderData; Collision = CookedCollisionData;
+			return {};
+		}
+		std::unique_ptr<FStaticMeshRenderData> Detached;
+		const FStaticMeshRenderData* Projection = RenderData.get();
+#if DURIN_WITH_EDITORONLY_DATA
+		if (GetSource().IsValid())
+		{
+			FStaticMeshBuildRequest Request{.Settings = MakeStaticMeshBuildSettings(GetMaterialSlots(), GetNormalizedSize()), .Source = GetSource()};
+			Request.bPersistDerivedData = false;
+			auto Built = BuildStaticMeshRenderData(std::move(Request), Control);
+			if (Control.IsCancelled()) return std::unexpected("Cook render construction was cancelled.");
+			if (!Built) return std::unexpected(Built.error());
+			Detached = std::move(*Built); Projection = Detached.get();
+		}
+#endif
+		if (!Projection) return std::unexpected("StaticMesh cooked render data is unavailable.");
+		FStaticMeshPayloadData Payload;
+		if (const auto Built = MakeStaticMeshPayloadData(*Projection, Payload); !Built)
+			return std::unexpected(FormatStaticMeshPayloadError(Built.error()));
+		std::string Error;
+		if (!ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, Error)) return std::unexpected(std::move(Error));
+		const FArchiveTarget ArchiveTarget{std::string(GetTargetPlatformName(Platform)), "Game"};
+		FByteBuffer RenderBytes;
+		FCanonicalMemoryWriter RenderWriter(RenderBytes, EArchivePurpose::CookedPayload, {.Target = ArchiveTarget});
+		Payload.Serialize(RenderWriter);
+		if (RenderWriter.IsError()) return std::unexpected(RenderWriter.GetFailure()->Message);
+		auto RenderBulk = FBulkData::TryCreateDetached(RenderBytes);
+		if (!RenderBulk) return std::unexpected(FormatBulkDataError(RenderBulk.error()));
+		FBulkData CollisionBulk;
+		if (HasCollision)
+		{
+			auto Data = GetPhysicsTriMeshData();
+			if (!Data) return std::unexpected(Data.error());
+			auto Input = FPhysicsCookHelper::Capture(BodySetup->GetCookInfo(std::move(*Data), false), Control,
+				static_cast<EAssetPayloadTargetPlatform>(Platform));
+			if (Control.IsCancelled()) return std::unexpected("Cook collision capture was cancelled.");
+			if (!Input) return std::unexpected(Input.error());
+			auto Built = FPhysicsCookHelper::CookCaptured(*Input, Control);
+			if (Control.IsCancelled()) return std::unexpected("Cook collision construction was cancelled.");
+			if (!Built) return std::unexpected(Built.error());
+			const auto& Geometry = BodySetup->GetCollisionSourceMode() == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
+				? Built->Simple : Built->Complex;
+			FPhysicsCollisionPayloadData CollisionPayload;
+			if (const auto Made = MakePhysicsCollisionPayloadData(Geometry, BodySetup->GetCollisionQueryPolicy(), CollisionPayload); !Made)
+				return std::unexpected(FormatPhysicsCollisionPayloadError(Made.error()));
+			FByteBuffer CollisionBytes;
+			FCanonicalMemoryWriter Writer(CollisionBytes, EArchivePurpose::CookedPayload, {.Target = ArchiveTarget});
+			CollisionPayload.Serialize(Writer);
+			if (Writer.IsError()) return std::unexpected(Writer.GetFailure()->Message);
+			auto Bulk = FBulkData::TryCreateDetached(CollisionBytes);
+			if (!Bulk) return std::unexpected(FormatBulkDataError(Bulk.error()));
+			CollisionBulk = std::move(*Bulk);
+		}
+		if (Control.IsCancelled()) return std::unexpected("Cook mesh preparation was cancelled.");
+		Render = std::move(*RenderBulk); Collision = std::move(CollisionBulk);
+		return {};
+	}
+
 	auto DStaticMesh::SerializeCooked(FArchive& Ar) -> void
 	{
-		Super::SerializeCooked(Ar);
-		if ((Ar.GetTarget().Platform != "Win64"
-				&& Ar.GetTarget().Platform != "MacOS")
-			|| Ar.GetTarget().Profile != "Game")
+		auto* Prepared = Ar.IsSaving() ? AssetPrivate::FScopedCookedPreparation::Find(*this, Ar.GetTarget()) : nullptr;
+		if (Ar.IsSaving() && !Prepared)
 		{
-			Ar.Fail(EArchiveFailureCode::InvalidData,
-				"StaticMesh cooked platform data requires a Win64 or MacOS Game target.");
+			Ar.Fail(EArchiveFailureCode::InvalidData, "StaticMesh serialization requires current prepared Cook data.");
 			return;
 		}
-		FBulkData RenderProjection;
-		FBulkData CollisionProjection;
+		Super::SerializeCooked(Ar);
+		if (Ar.IsError()) return;
+		if (!ParseTargetPlatform(Ar.GetTarget().Platform) || Ar.GetTarget().Profile != "Game")
+		{
+			Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "StaticMesh cooked target is unsupported.");
+			return;
+		}
 		FBulkData* RenderField = &CookedRenderData;
 		FBulkData* CollisionField = &CookedCollisionData;
 		if (Ar.IsSaving())
 		{
-			std::unique_ptr<FStaticMeshRenderData> DetachedRender;
-			const FStaticMeshRenderData* Projection = RenderData.get();
-			std::string Error;
-#if DURIN_WITH_EDITORONLY_DATA
-			if (GetSource().IsValid())
-			{
-				FStaticMeshBuildRequest Request{.Settings = MakeStaticMeshBuildSettings(GetMaterialSlots(), GetNormalizedSize()), .Source = GetSource()};
-				Request.bPersistDerivedData = false;
-				const FAssetBuildTaskContext Control;
-				auto Built = BuildStaticMeshRenderData(std::move(Request), Control);
-				if (Control.IsCancelled()) { Ar.Fail(EArchiveFailureCode::InvalidData, "Cook render construction was cancelled."); return; }
-				if (!Built)
-				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, Built.error());
-					return;
-				}
-				DetachedRender = std::move(*Built);
-				Projection = DetachedRender.get();
-			}
-#endif
-
-			if (!Projection)
-			{
-				Ar.Fail(EArchiveFailureCode::InvalidData,
-					"StaticMesh cooked render data is unavailable.");
-				return;
-			}
-			FStaticMeshPayloadData Payload;
-			FByteBuffer RenderBytes;
-			if (const auto Result = MakeStaticMeshPayloadData(*Projection, Payload); !Result)
-			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshPayloadError(Result.error()));
-				return;
-			}
-			if (!ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, Error))
-			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, std::move(Error));
-				return;
-			}
-			FCanonicalMemoryWriter RenderWriter(RenderBytes, EArchivePurpose::CookedPayload,
-				{.Target = {Ar.GetTarget().Platform, "Game"}});
-			Payload.Serialize(RenderWriter);
-			auto RenderBulk = RenderWriter.IsError() ? std::expected<FBulkData, FBulkDataError>{}
-				: FBulkData::TryCreateDetached(RenderBytes);
-			if (RenderWriter.IsError() || !RenderBulk)
-			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, RenderWriter.IsError()
-					? RenderWriter.GetFailure()->Message : FormatBulkDataError(RenderBulk.error()));
-				return;
-			}
-			RenderProjection = std::move(*RenderBulk);
-			RenderField = &RenderProjection;
-
-			if (BodySetup
-				&& BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None)
-			{
-				FCollisionGeometryRef Simple, Complex;
-				auto Data = GetPhysicsTriMeshData();
-				if (!Data) { Ar.Fail(EArchiveFailureCode::InvalidData, Data.error()); return; }
-				const FAssetBuildTaskContext Control;
-				auto Input = FPhysicsCookHelper::Capture(BodySetup->GetCookInfo(std::move(*Data), false), Control);
-				if (Control.IsCancelled()) { Ar.Fail(EArchiveFailureCode::InvalidData, "Cook collision capture was cancelled."); return; }
-				if (!Input) { Ar.Fail(EArchiveFailureCode::InvalidData, Input.error()); return; }
-				auto Collision = FPhysicsCookHelper::CookCaptured(*Input, Control);
-				if (Control.IsCancelled()) { Ar.Fail(EArchiveFailureCode::InvalidData, "Cook collision construction was cancelled."); return; }
-				if (!Collision)
-				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, Collision.error());
-					return;
-				}
-				Simple = std::move(Collision->Simple);
-				Complex = std::move(Collision->Complex);
-				const FCollisionGeometryRef& Geometry =
-					BodySetup->GetCollisionSourceMode()
-						== EBodySetupCollisionSourceMode::ConvexHullFromLOD0 ? Simple : Complex;
-				FPhysicsCollisionPayloadData CollisionPayload;
-				FByteBuffer CollisionBytes;
-				if (const auto Built = MakePhysicsCollisionPayloadData(
-					Geometry, BodySetup->GetCollisionQueryPolicy(), CollisionPayload); !Built)
-				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, FormatPhysicsCollisionPayloadError(Built.error()));
-					return;
-				}
-				FCanonicalMemoryWriter CollisionWriter(
-					CollisionBytes, EArchivePurpose::CookedPayload,
-					{.Target = {Ar.GetTarget().Platform, "Game"}});
-				CollisionPayload.Serialize(CollisionWriter);
-				auto CollisionBulk = CollisionWriter.IsError() ? std::expected<FBulkData, FBulkDataError>{}
-				: FBulkData::TryCreateDetached(CollisionBytes);
-				if (CollisionWriter.IsError() || !CollisionBulk)
-				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, CollisionWriter.IsError()
-						? CollisionWriter.GetFailure()->Message : FormatBulkDataError(CollisionBulk.error()));
-					return;
-				}
-				CollisionProjection = std::move(*CollisionBulk);
-			CollisionField = &CollisionProjection;
-			}
+			RenderField = &Prepared->Primary; CollisionField = &Prepared->Collision;
 		}
 		{
 			auto Field = EnterArchiveField(Ar, {FName("Durin::DStaticMesh"),
@@ -217,7 +205,6 @@ namespace Durin
 				.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 		}
 	}
-
 	auto DStaticMesh::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>
 	{
 		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;

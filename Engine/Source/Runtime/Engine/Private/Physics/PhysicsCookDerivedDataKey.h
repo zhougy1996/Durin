@@ -40,7 +40,8 @@ namespace Durin
 	};
 
 	ENGINE_API auto MakePhysicsCookSessionDefinition(EBodySetupCollisionSourceMode Mode,
-		EBodySetupCollisionQueryPolicy Policy, uint64 BuilderVersion, uint32 WeldToleranceBits = 0)
+		EBodySetupCollisionQueryPolicy Policy, uint64 BuilderVersion, uint32 WeldToleranceBits = 0,
+		EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Win64)
 		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>;
 	ENGINE_API auto GetPhysicsCookBuildDescriptor(uint32 FunctionVersion = PhysicsCollisionBuildFunctionVersion,
 		uint32 OutputVersion = PhysicsCollisionOutputSchemaVersion) -> DerivedData::FBuildFunctionDescriptor;

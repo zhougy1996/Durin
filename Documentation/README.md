@@ -31,6 +31,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | StaticMesh source ownership, detached building, or payload compatibility | [Static mesh building](Runtime/Assets/StaticMeshBuilding.md) |
 | Asset catalog discovery, reference indexing, relocation, deletion, or redirector fix-up | [Asset catalog and mutation](Runtime/Assets/AssetCatalogAndMutation.md) |
 | Offline Cook dependency discovery, reuse, or transactional output publication | [Asset cooking](Runtime/Assets/Cooking.md) |
+| Target/profile parsing, immutable build policy, or family target capabilities | [Target platform build policy](Runtime/Assets/TargetPlatforms.md) |
 | Authored sources, derived data, cooking, bulk payloads, or runtime data domains | [Asset data lifecycle](Runtime/Assets/AssetDataLifecycle.md) |
 | Build definitions, captured input identity, typed recipe adapters, or shared DDC execution | [Derived data build protocol](Runtime/Assets/DerivedDataBuild.md) |
 | Persistent DDC manifests, value attachments, identity versions, selective queries, or codec byte budgets | [Derived data cache storage](Runtime/Assets/DerivedDataCacheStorage.md) |

@@ -45,10 +45,17 @@ if(DURIN_WITH_EDITOR)
 		TIMEOUT 600
 		SOURCES Private/CookFunctionalTests.cpp
 	)
+	durin_add_native_test(TargetPlatformTests
+		KIND contract
+		DOMAINS asset-cook
+		MODULES core target-platform
+		LIBRARIES Core RHI TargetPlatform
+		SOURCES Private/TargetPlatformTests.cpp
+	)
 else()
 	durin_exclude_native_test_sources(
 		RATIONALE "Cook family fixtures require authored editor asset preparation."
-		SOURCES Private/CookFunctionalTests.cpp)
+		SOURCES Private/CookFunctionalTests.cpp Private/TargetPlatformTests.cpp)
 endif()
 
 if(DURIN_WITH_EDITOR)

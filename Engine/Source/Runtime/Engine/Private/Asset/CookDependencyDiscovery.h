@@ -19,7 +19,7 @@ namespace Durin::AssetPrivate
 	class FCookDependencyDiscovery
 	{
 	public:
-		using FResolveContributor = std::function<FCookContributionResult(const FAssetData&, FCookContributorRegistration&)>;
+		using FResolveContributor = std::function<FCookContributionResult(std::string_view, bool, FCookContributorRegistration&)>;
 		ENGINE_API FCookDependencyDiscovery(const FCookRequest& Request, FAssetRegistrySnapshot Registry,
 			FResolveContributor ResolveContributor);
 		FCookDependencyDiscovery(const FCookDependencyDiscovery&) = delete;

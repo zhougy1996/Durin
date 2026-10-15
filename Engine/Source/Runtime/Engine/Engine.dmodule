@@ -16,6 +16,7 @@
         "ApplicationCore",
         "Mona"
     ],
+    "OptionalPrivateDependencies": ["TargetPlatform"],
     "OptionalPublicDependencies": [
 		"DerivedDataCache"
 	],

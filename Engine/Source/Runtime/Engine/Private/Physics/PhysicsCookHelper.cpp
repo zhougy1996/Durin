@@ -6,6 +6,7 @@
 #include "PhysicsCookDerivedDataKey.h"
 #include "PhysicsBuildFunction.h"
 #include "PhysicsSharedOutput.h"
+#include "TargetPlatform.h"
 #endif
 
 namespace Durin
@@ -55,7 +56,7 @@ namespace Durin
 			const FAssetBuildTaskContext& Control, DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>
 		{
 			if (Control.IsCancelled()) return {};
-			auto Definition = MakePhysicsCookSessionDefinition(Input.GetMode(), Input.GetPolicy(), FCollisionCookedData::GetBuildVersion());
+			auto Definition = MakePhysicsCookSessionDefinition(Input.GetMode(), Input.GetPolicy(), FCollisionCookedData::GetBuildVersion(), 0, Input.GetTargetPlatform());
 			if (!Definition) return std::unexpected(MakeAssetBuildDiagnostic("Physics build definition is invalid.", "Cook"));
 			auto Session = GetPhysicsSession(DerivedData::EBuildCacheExecution::Task);
 			if (!Session) return std::unexpected(MakeAssetBuildDiagnostic(Session.error().Description, "Cook"));
@@ -89,13 +90,22 @@ namespace Durin
 	}
 #endif
 
-	auto FPhysicsCookHelper::Capture(FCookBodySetupInfo Info, const FAssetBuildTaskContext& Control)
+	auto FPhysicsCookHelper::Capture(FCookBodySetupInfo Info, const FAssetBuildTaskContext& Control, EAssetPayloadTargetPlatform TargetPlatform)
 		-> std::expected<FPhysicsCookInput, std::string>
 	{
 		if (Control.IsCancelled()) return {};
 		FPhysicsCookInput Input;
+		Input.TargetPlatform = TargetPlatform;
 		Input.Mode = Info.Mode; Input.Policy = Info.Policy; Input.bPersist = Info.bPersistDerivedData;
 		if (Info.Mode == EBodySetupCollisionSourceMode::None) return Input;
+#if DURIN_WITH_EDITOR
+		const auto Target = ResolveTargetPlatform(static_cast<ECookTargetPlatform>(TargetPlatform), ECookTargetProfile::Game);
+		if (!Target || !Target->Supports(ETargetOperation::CollisionPayload))
+			return std::unexpected(MakeAssetBuildDiagnostic("Physics collision representation is unsupported for the requested target.", "Cook"));
+#else
+		if (TargetPlatform != EAssetPayloadTargetPlatform::Win64)
+			return std::unexpected(MakeAssetBuildDiagnostic("Physics collision representation is unsupported for the requested target.", "Cook"));
+#endif
 		if (auto Valid = PhysicsPrivate::CheckCookInput(Info.TriangleMeshDesc.Positions.size(), Info.TriangleMeshDesc.Indices.size(),
 			Info.Mode, Info.Policy, Control.MaximumWorkingSetBytes); !Valid) return std::unexpected(std::move(Valid.error()));
 		if (!PhysicsPrivate::CheckCookReservation(Info.TriangleMeshDesc.Positions.capacity(), Info.TriangleMeshDesc.Indices.capacity(), Control.MaximumWorkingSetBytes))
@@ -134,7 +144,7 @@ namespace Durin
 			Input.GetIndices().GetRetainedCapacityBytes() / sizeof(uint32), Control.MaximumWorkingSetBytes))
 			return std::unexpected(MakeAssetBuildDiagnostic("Physics cook input and working set exceed the reservation.", "Cook"));
 #if DURIN_WITH_EDITOR
-		auto Definition = MakePhysicsCookSessionDefinition(Input.GetMode(), Input.GetPolicy(), FCollisionCookedData::GetBuildVersion());
+		auto Definition = MakePhysicsCookSessionDefinition(Input.GetMode(), Input.GetPolicy(), FCollisionCookedData::GetBuildVersion(), 0, Input.GetTargetPlatform());
 		if (!Definition) return std::unexpected(MakeAssetBuildDiagnostic("Physics build definition is invalid.", "Cook"));
 		auto Session = GetPhysicsSession(DerivedData::EBuildCacheExecution::Inline);
 		if (!Session) return std::unexpected(MakeAssetBuildDiagnostic(Session.error().Description, "Cook"));

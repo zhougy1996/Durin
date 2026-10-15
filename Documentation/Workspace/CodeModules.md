@@ -69,6 +69,7 @@ physical root communicates ownership but does not select them for a target.
 
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
+| `TargetPlatform` | Immutable tool target resolution, selected Shader target and operation capabilities; depends only on Core/RHI, owns no assets, compiler execution, DDC or publication, and is excluded from DurinGame | [source](../../Engine/Source/Developer/TargetPlatform) |
 | `DerivedDataCache` | Immutable canonical build definitions, persistent build services/sessions, status-only completion facts, deterministic output messages, transient non-cacheable logs, owning-layer infrastructure logging, and backend-neutral structured-record Get/Put; record encoding, compression, validation, and byte-oriented filesystem persistence remain private; depends only on `Core`, with request owners and inline/Core task scheduler adapters but no asset policy or worker pool | [source](../../Engine/Source/Developer/DerivedDataCache) |
 | `ShaderBuild` | Editor/tool-lifetime Shader module interface: Slang compiler/resolver, dependency manifests, source fingerprints, shared mounted/generated subscriber and compiler flights, private output LRU and Cook input capture, registered shared-output sessions and verified immutable source-closure resolution, generated-source handling, and deterministic cooked-library production; excluded from DurinGame | [source](../../Engine/Source/Developer/ShaderBuild) |
 | `TextureCompressor` | Pure Texture2D/TextureCube/VolumeTexture normalized-value recipes, panorama normalization, offline compression, recipe metrics and versions through one editor-lifetime module interface; no DDC, Build Framework, key, payload codec, live Texture object, PostLoad, scheduler, or result-application authority | [source](../../Engine/Source/Developer/TextureCompressor) |
@@ -93,6 +94,7 @@ declared native-test roots, even when the implementation belongs to Engine.
 
 | Task language | Start with | Expand only when needed |
 | --- | --- | --- |
+| explicit build target/profile, immutable capabilities or Cook target settings | `TargetPlatform` | Core for stable identities; [target policy](../Runtime/Assets/TargetPlatforms.md) for family projections and detached preparation; Engine owns assets and Cook publication |
 | generic DDC bucket/key get or put | `DerivedDataCache` | Engine owns asset policy and orchestration; pure recipe modules own transformations |
 | canonical build definition, input binding validation, or shared resolve/build/cache protocol | `DerivedDataCache` | [Build protocol](../Runtime/Assets/DerivedDataBuild.md): registered functions own explicit inputs, shared outputs and validation; consumers own typed assembly and error translation; compiling managers retain scheduling and application |
 | asset catalog, registry scan/cache, dependency or referencer query | `AssetRegistry` | `Engine` only for loading, mutation, package writing, or Cook |

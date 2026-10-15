@@ -636,11 +636,17 @@ products with explicit caller-boundary waiting; cooked Game submits no authoring
 hits, shared in-flight work, compilation, or forced compilation; corrupt Shader
 artifacts follow ShaderBuild's cache-miss/repair contract.
 
-Cook requires current successful Win64 Game results and never substitutes
-ErrorMaterial. Authored expression collections and their owned descendants are stripped from cooked packages. One
+Cook prepares detached Win64 or MacOS Game programs from captured authored
+inputs and never substitutes ErrorMaterial or requires an accepted live render
+program. Preparation runs before package Archive discovery/emission; serialization
+consumes the qualified prepared bulk. The explicit target is independent of the
+active RHI device. [Target policy](../Assets/TargetPlatforms.md) owns platform
+capabilities; the material family owns legal variant selection and its Cook
+dependency projection. Authored expression collections and their owned descendants are stripped from cooked packages. One
 DMAT v13 family per material or instance in the
-`DMaterialInterface::ProgramData` BulkData field stores six exact configurations:
-Low and High quality crossed with ES3_1, SM5, and SM6, each using that owner's
+`DMaterialInterface::ProgramData` BulkData field stores the selected exact configurations.
+The default is Low and High quality crossed with ES3_1, SM5, and SM6; explicit
+selections may retain a supported subset. Each uses that owner's
 effective static-bool values. Each entry retains its configuration, exact
 compiler provenance, target, runtime pass contract and payload schema, program identity, canonical shader
 properties and separate pipeline metadata, active declaration contract, compiled

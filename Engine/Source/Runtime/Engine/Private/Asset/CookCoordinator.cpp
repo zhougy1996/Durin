@@ -6,7 +6,11 @@
 #include "CoreGlobals.h"
 #include "Threading/RunnableThread.h"
 #include "Asset/Cook.h"
+#include "Materials/MaterialCompilationConfiguration.h"
 #include "Shader/IShaderBuildModule.h"
+#if DURIN_WITH_EDITOR
+#include "TargetPlatform.h"
+#endif
 
 #include "Asset/Load.h"
 #include "Asset/PackageSerialization.h"
@@ -68,11 +72,12 @@ namespace Durin
 
 		auto ResolveCookContributor(DClass* Class,
 			const FCookContributorSnapshot& Contributors,
-			std::shared_ptr<const FRegisteredCookContributor>& OutContributor) -> FCookContributionResult
+			std::shared_ptr<const FRegisteredCookContributor>& OutContributor, bool bAllowGeneric) -> FCookContributionResult
 		{
 			OutContributor.reset();
 			for (DClass* Candidate = Class; Candidate; Candidate = Candidate->GetSuperClass())
 			{
+				if (!bAllowGeneric && Candidate == DObject::StaticClass()) return {};
 				const auto Found = Contributors.find(Candidate);
 				if (Found == Contributors.end()) continue;
 				OutContributor = Found->second;
@@ -389,8 +394,10 @@ namespace Durin
 		return "Unknown Cook failure.";
 	}
 
-	auto FCookCoordinator::Run(const FCookRequest& Request, FCookRunResult& OutResult, ICookOutputStore* OutputStore, FCookFailureInjection ShouldFail) -> bool
+	auto FCookCoordinator::Run(const FCookRequest& InRequest, FCookRunResult& OutResult, ICookOutputStore* OutputStore, FCookFailureInjection ShouldFail) -> bool
 	{
+		// Callbacks may edit the caller's request; this run keeps its admitted values.
+		FCookRequest Request = InRequest;
 		const auto Start = std::chrono::steady_clock::now();
 		OutResult = {};
 		OutResult.bDryRun = Request.bDryRun;
@@ -414,10 +421,18 @@ namespace Durin
 			OutResult.InjectionCause = FCookRunInjectionCause{Stage, Index, std::move(ExternalDiagnostic)};
 			return true;
 		};
-		if ((Request.TargetPlatform != ECookTargetPlatform::Win64
-				&& Request.TargetPlatform != ECookTargetPlatform::MacOS)
-			|| Request.TargetProfile != ECookTargetProfile::Game
-			|| (!Request.bDryRun && (Request.OutputRoot.empty() || !Request.OutputRoot.is_absolute())))
+		const auto Configurations = ResolveMaterialCookConfigurations(Request.MaterialConfigurations);
+		if (!Configurations) return Finish(ECookRunStatus::Failed, ECookRunError::InvalidRequest);
+		Request.MaterialConfigurations = *Configurations;
+#if DURIN_WITH_EDITOR
+		const auto ResolvedTarget = ResolveTargetPlatform(Request.TargetPlatform, Request.TargetProfile);
+		if (!ResolvedTarget || !ResolvedTarget->Supports(ETargetOperation::Cook))
+			return Finish(ECookRunStatus::Failed, ECookRunError::InvalidRequest);
+#else
+		if (GetTargetPlatformName(Request.TargetPlatform).empty() || Request.TargetProfile != ECookTargetProfile::Game)
+			return Finish(ECookRunStatus::Failed, ECookRunError::InvalidRequest);
+#endif
+		if (!Request.bDryRun && (Request.OutputRoot.empty() || !Request.OutputRoot.is_absolute()))
 			return Finish(ECookRunStatus::Failed, ECookRunError::InvalidRequest);
 		if (!Request.OutputRoot.empty())
 			if (const auto Validated = ValidateCookOutputRoot(Request.OutputRoot); !Validated)
@@ -495,13 +510,10 @@ namespace Durin
 				}
 			} ReleaseLoads{LoadScope};
 			AssetPrivate::FCookDependencyDiscovery Inputs(Request, CaptureAssetRegistrySnapshot(),
-				[&](const FAssetData& Data, FCookContributorRegistration& Out) -> FCookContributionResult {
-					if (Data.TopLevelAssets.empty()) return {.Error = ECookContributionError::Plan,
-						.PlanCause = FCookPlanError{.Code = ECookPlanError::EmptyPackage, .VirtualPath = Data.PackagePath.ToString()}};
+				[&](std::string_view ClassName, bool bAllowGeneric, FCookContributorRegistration& Out) -> FCookContributionResult {
 					std::shared_ptr<const FRegisteredCookContributor> Entry;
-					const auto Result = ResolveCookContributor(FindClassByQualifiedName(FName(
-						Data.TopLevelAssets.front().AssetClassName)), Contributors, Entry);
-					if (Result) Out = Entry->Registration;
+					const auto Result = ResolveCookContributor(FindClassByQualifiedName(FName(ClassName)), Contributors, Entry, bAllowGeneric);
+					if (Result && Entry) Out = Entry->Registration;
 					return Result;
 				});
 			auto CheckInputs = [&]() -> FCookInputResult { return Inputs.CheckCancellation(); };
@@ -598,6 +610,8 @@ namespace Durin
 						if (!LoadResult) return InputFailure(ToCookInputResult(AssetReadResultFromError(LoadResult.error())));
 						if (!Asset) return InputFailure({ECookInputStatus::InvalidDependency, "Cook load returned no object."});
 						FCookContext Context(Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData);
+						Context.SetMaterialConfigurations(Request.MaterialConfigurations);
+						Context.SetCancellationCheck(Request.IsCancelled);
 						Context.SetInputReader([&](auto Kind, auto Name, FByteBuffer& Bytes) {
 							return Inputs.ReadInput(Path, Kind, Name, Bytes);
 						});
@@ -650,8 +664,7 @@ namespace Durin
 					if (Injected(ECookOperationStage::StageAuxiliary, 0))
 						return Finish(ECookRunStatus::Failed, ECookRunError::AuxiliaryInjectedFailure);
 					FByteBuffer ShaderBytes;
-				const auto ShaderPlatform = Request.TargetPlatform == ECookTargetPlatform::MacOS
-					? EShaderTargetPlatform::MacOS : EShaderTargetPlatform::Win64;
+				const auto ShaderPlatform = ToShaderTargetPlatform(Request.TargetPlatform).value();
 				if (const auto ShaderResult = BuildCookedShaderLibrary(ShaderPlatform, EShaderTargetProfile::Game, ShaderBytes, Request.IsCancelled); !ShaderResult)
 					{
 						OutResult.ShaderCause = std::make_shared<FShaderError>(ShaderResult.error());

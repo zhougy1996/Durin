@@ -7,6 +7,8 @@
 #include "EngineAPI.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Materials/MaterialTypes.h"
+#include "Materials/MaterialCookConfiguration.h"
+#include "Asset/AssetBuildTaskContext.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialFunctionInterface.h"
 #include "Delegates/Delegate.h"
@@ -165,6 +167,10 @@ namespace Durin
 			return MaterialCookDiagnostic;
 		}
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
+		// Owner-thread detached preparation; never applies a result to this material.
+		ENGINE_API auto PrepareCookedProgram(ECookTargetPlatform Target,
+			std::span<const FMaterialCookConfiguration> Configurations, const FAssetBuildTaskContext& Control = {})
+			-> std::expected<FBulkData, std::string>;
 
 		// Tests the canonical Parent chain without relying on reverse registration state.
 		ENGINE_API auto IsDependent(const DMaterialInterface* TestDependency) const -> bool;

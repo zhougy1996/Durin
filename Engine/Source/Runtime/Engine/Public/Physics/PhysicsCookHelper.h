@@ -5,6 +5,7 @@
 #include "Asset/AssetBuildTaskContext.h"
 #include "Physics/CookBodySetupInfo.h"
 #include "Collision/CollisionGeometry.h"
+#include "Misc/TargetIdentity.h"
 
 namespace Durin
 {
@@ -24,6 +25,7 @@ namespace Durin
 		auto GetMode() const -> EBodySetupCollisionSourceMode { return Mode; }
 		auto GetPolicy() const -> EBodySetupCollisionQueryPolicy { return Policy; }
 		auto ShouldPersist() const -> bool { return bPersist; }
+		auto GetTargetPlatform() const -> EAssetPayloadTargetPlatform { return TargetPlatform; }
 	private:
 		friend class FPhysicsCookHelper;
 		FSharedByteBuffer Positions, Indices;
@@ -31,6 +33,7 @@ namespace Durin
 		EBodySetupCollisionSourceMode Mode = EBodySetupCollisionSourceMode::None;
 		EBodySetupCollisionQueryPolicy Policy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		bool bPersist = true;
+		EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Win64;
 	};
 
 	// Check Context.Cancellation before using results. Cancelled calls return empty
@@ -38,7 +41,8 @@ namespace Durin
 	class FPhysicsCookHelper
 	{
 	public:
-		ENGINE_API static auto Capture(FCookBodySetupInfo Info, const FAssetBuildTaskContext& Context = {})
+		ENGINE_API static auto Capture(FCookBodySetupInfo Info, const FAssetBuildTaskContext& Context = {},
+			EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Win64)
 			-> std::expected<FPhysicsCookInput, std::string>;
 		ENGINE_API static auto CookCaptured(const FPhysicsCookInput& Input, const FAssetBuildTaskContext& Context = {})
 			-> std::expected<FPhysicsCookResult, std::string>;

@@ -77,6 +77,14 @@ cooperative cancellation does not promise a hard wall-clock deadline.
 
 ## Assets and components
 
+Tool [target policy](../Assets/TargetPlatforms.md) is separate from runtime
+collision ownership. Physics capture owns an explicit payload target, and action
+assembly preserves the existing Win64 identity. MacOS collision payloads remain
+unsupported and fail before StaticMesh render/collision production. Cook prepares
+detached payloads before serialization; runtime decoding requires no Developer
+TargetPlatform service. PhysicsCore remains the algorithm authority for direct
+and DDC construction.
+
 `DBodySetup` owns collision source mode, Simple/Complex query policy, build
 revision, a local shape offset, and independent immutable-resource
 caches. Repeated publication for one revision

@@ -6,6 +6,7 @@
 
 #include "Asset/AssetImportData.h"
 #include "Asset/BulkData.h"
+#include "Asset/AssetBuildTaskContext.h"
 #include "Asset/Cook.h"
 #include "StaticMesh/StaticMeshSource.h"
 #include "EngineAPI.h"
@@ -128,6 +129,9 @@ namespace Durin
 
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
+		// Owner-thread detached preparation; output fields are not installed on the mesh.
+		ENGINE_API auto PrepareCookedPayloads(ECookTargetPlatform Target, FBulkData& Render, FBulkData& Collision,
+			const FAssetBuildTaskContext& Control = {}) -> std::expected<void, std::string>;
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
 		// Starts or joins bounded cooked loading and returns immediately with the
 		// current generation-qualified CPU/GPU snapshot. Does not retry failed/cancelled work.

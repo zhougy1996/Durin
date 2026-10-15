@@ -4,16 +4,20 @@
 #include "DerivedDataBuildDefinition.h"
 #include "StaticMesh/StaticMeshSource.h"
 #include "Serialization/Archive.h"
+#include "TargetPlatform.h"
 
 namespace Durin
 {
 	auto MakePhysicsCookSessionDefinition(EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy,
-		uint64 BuilderVersion, uint32 WeldToleranceBits) -> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>
+		uint64 BuilderVersion, uint32 WeldToleranceBits, EAssetPayloadTargetPlatform TargetPlatform) -> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>
 	{
+		const auto Target = ResolveTargetPlatform(static_cast<ECookTargetPlatform>(TargetPlatform), ECookTargetProfile::Game);
+		if (!Target || !Target->Supports(ETargetOperation::CollisionPayload))
+			return std::unexpected(DerivedData::FBuildDefinitionError{DerivedData::EBuildDefinitionError::InvalidConstant, "TargetPlatform"});
 		if (!BuilderVersion) return std::unexpected(DerivedData::FBuildDefinitionError{DerivedData::EBuildDefinitionError::InvalidConstant, "BuilderVersion"});
 		DerivedData::FBuildDefinitionBuilder Builder("Durin.Physics.Collision");
 		Builder.AddConstant("BuilderVersion", BuilderVersion);
-		Builder.AddConstant("TargetPlatform", uint64(EAssetPayloadTargetPlatform::Win64))
+		Builder.AddConstant("TargetPlatform", uint64(TargetPlatform))
 			.AddConstant("SourceMode", uint64(Mode)).AddConstant("QueryPolicy", uint64(Policy))
 			.AddConstant("WeldToleranceBits", uint64(WeldToleranceBits)).AddInput("Geometry", "CapturedGeometry");
 		return std::move(Builder).Build();
@@ -30,7 +34,7 @@ namespace Durin
 		using namespace DerivedData;
 		if (Input.TargetPlatform != EAssetPayloadTargetPlatform::Win64)
 			return std::unexpected(FPhysicsCookKeyError{.Code = EPhysicsCookKeyError::UnsupportedTarget, .TargetPlatform = Input.TargetPlatform});
-		auto Request = MakePhysicsCookSessionDefinition(Input.SourceMode, Input.QueryPolicy, Input.BuilderVersion, Input.WeldToleranceBits);
+		auto Request = MakePhysicsCookSessionDefinition(Input.SourceMode, Input.QueryPolicy, Input.BuilderVersion, Input.WeldToleranceBits, Input.TargetPlatform);
 		if (!Request) return std::unexpected(FPhysicsCookKeyError{.Code = EPhysicsCookKeyError::Archive,
 			.TargetPlatform = Input.TargetPlatform, .ArchiveCode = EArchiveFailureCode::InvalidData});
 		FBuildActionBuilder Builder(*Request, GetPhysicsCookBuildDescriptor(Input.FunctionVersion, Input.OutputSchemaVersion));

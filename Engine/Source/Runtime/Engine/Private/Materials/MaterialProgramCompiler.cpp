@@ -10,6 +10,9 @@
 #include "Shader/IShaderBuildModule.h"
 #include "DynamicRHI.h"
 #include "RHIGlobals.h"
+#if DURIN_WITH_EDITOR
+#include "TargetPlatform.h"
+#endif
 
 namespace Durin
 {
@@ -179,10 +182,16 @@ namespace Durin
 		std::optional<FShaderTargetIdentity> Target) -> FMaterialOperationResult
 	{
 		FShaderCompileOptions Options;
-		const bool bMetal = Target
-			? *Target == MetalShaderTarget
-			: Options.Target == MetalShaderTarget;
-		Options = MakeMaterialShaderCompileOptions(bMetal ? MetalShaderTarget : VulkanShaderTarget, {.OpacityMaskThreshold = 0.5f});
+		const auto SelectedTarget = Target.value_or(Options.Target);
+#if DURIN_WITH_EDITOR
+		const auto Platform = ToCookTargetPlatform(SelectedTarget.Platform);
+		const auto Resolved = Platform ? ResolveTargetPlatform(*Platform, ECookTargetProfile::Game)
+			: std::expected<FTargetPlatformDescription, ETargetPlatformError>{std::unexpected(ETargetPlatformError::UnknownPlatform)};
+		if (!Resolved || Resolved->GetShaderTarget() != SelectedTarget) return {FMaterialError::FromExternal(EMaterialCompileError::ShaderEnvironmentUnavailable,
+			"Material shader target is unsupported.")};
+#endif
+		const bool bMetal = SelectedTarget == MetalShaderTarget;
+		Options = MakeMaterialShaderCompileOptions(SelectedTarget, {.OpacityMaskThreshold = 0.5f});
 		FShaderSourceDependencyFingerprint SourceTree;
 		FShaderOperationResult ProviderError;
 		if (!(ProviderError = BuildShaderSourceTreeFingerprint("/Engine/MaterialCompilerEnvironment", Options, SourceTree)))
@@ -192,7 +201,7 @@ namespace Durin
 
 		FMaterialCompilerEnvironment Environment;
 		Environment.Target = bMetal ? "metal-msl-2.0" : "vulkan-spirv-1.5";
-		if (const auto* Capabilities = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr)
+		if (const auto* Capabilities = !Target && GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr)
 		{
 			Environment.FeatureLevel = Capabilities->FeatureLevel;
 			auto& Limits = Environment.ResourceLimits;

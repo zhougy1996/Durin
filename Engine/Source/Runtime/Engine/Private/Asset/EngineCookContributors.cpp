@@ -41,7 +41,7 @@ namespace Durin
 		template<typename T>
 		auto RegisterFamily(
 			std::string Name,
-			std::vector<FCookContributorHandle>& Handles) -> FCookContributorRegistrationResult
+			std::vector<FCookContributorHandle>& Handles, FCookDependencyDeclarationCallback Declare) -> FCookContributorRegistrationResult
 		{
 			constexpr uint32 Version = std::is_base_of_v<DMaterialInterface, T> ? 5 : 2;
 			const auto Handle = RegisterCookContributor(
@@ -59,45 +59,14 @@ namespace Durin
 								return FCookContributionResult{.Error = ECookContributionError::SourceMutation,
 									.ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(VirtualPath)};
 						}
-						else FAssetCompilingManager::Get().FinishCompilationForObject(Object);
+						else if constexpr (!std::is_base_of_v<DMaterialInterface, T>)
+							FAssetCompilingManager::Get().FinishCompilationForObject(Object);
 						return ContributeEngineCookAsset(Object, VirtualPath, Context);
 					},
 					[](const DObject&) -> ECookPackageStatus {
 						return ECookPackageStatus::Captured;
 					}, {},
-					[](const FCookDependencyRequest& Request, std::vector<FCookDependencyDeclaration>& Out) -> FCookContributionResult {
-						if constexpr (std::is_same_v<T, DTexture2D> || std::is_same_v<T, DTextureCube>
-							|| std::is_same_v<T, DVolumeTexture> || std::is_same_v<T, DStaticMesh>)
-						{
-							const std::string Family = std::is_same_v<T, DTexture2D> ? "texture2d"
-								: std::is_same_v<T, DTextureCube> ? "texture-cube"
-								: std::is_same_v<T, DVolumeTexture> ? "volume-texture" : "static-mesh";
-							FByteBuffer Value;
-							if (!AssetPrivate::GetCookBuildProviderInput(Family, Value))
-								return FCookContributionResult{.Error = ECookContributionError::RecipeProvider,
-									.VirtualPath = Request.Package.ToString(), .TargetPlatform = Request.TargetPlatform,
-									.TargetProfile = Request.TargetProfile, .Provider = Family};
-							Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
-								"recipe/" + Family, {}, std::move(Value)});
-						}
-						if constexpr (std::is_base_of_v<DMaterialInterface, T>)
-						{
-							FByteBuffer MaterialVersion;
-							if (!AssetPrivate::GetCookBuildProviderInput("material", MaterialVersion))
-								return FCookContributionResult{.Error = ECookContributionError::RecipeProvider,
-									.Provider = "material"};
-							Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
-								"recipe/material", {}, std::move(MaterialVersion)});
-							const auto Identity = Request.ShaderBuildIdentity;
-							if (Identity.empty()) return FCookContributionResult{.Error = ECookContributionError::ShaderInputs,
-								.VirtualPath = Request.Package.ToString(), .TargetPlatform = Request.TargetPlatform,
-								.TargetProfile = Request.TargetProfile, .Provider = "shader-build"};
-							const auto Bytes = std::as_bytes(std::span(Identity));
-							Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
-								"shader-build", {}, FByteBuffer(Bytes.begin(), Bytes.end())});
-						}
-						return {};
-					}}
+					std::move(Declare)}
 			);
 			if (!Handle) return Handle;
 			Handles.push_back(Handle.Handle);
@@ -153,12 +122,12 @@ namespace Durin
 	{
 		const size_t FirstNewHandle = OutHandles.size();
 		FCookContributorRegistrationResult Registered;
-		if ((Registered = RegisterFamily<DTexture2D>("texture2d", OutHandles))
-			&& (Registered = RegisterFamily<DTextureCube>("texture-cube", OutHandles))
-			&& (Registered = RegisterFamily<DVolumeTexture>("volume-texture", OutHandles))
-			&& (Registered = RegisterFamily<DStaticMesh>("static-mesh", OutHandles))
-			&& (Registered = RegisterFamily<DMaterial>("material", OutHandles))
-			&& (Registered = RegisterFamily<DMaterialInstance>("material-instance", OutHandles))
+		if ((Registered = RegisterFamily<DTexture2D>("texture2d", OutHandles, AssetPrivate::DeclareTexture2DCookInputs))
+			&& (Registered = RegisterFamily<DTextureCube>("texture-cube", OutHandles, AssetPrivate::DeclareTextureCubeCookInputs))
+			&& (Registered = RegisterFamily<DVolumeTexture>("volume-texture", OutHandles, AssetPrivate::DeclareVolumeTextureCookInputs))
+			&& (Registered = RegisterFamily<DStaticMesh>("static-mesh", OutHandles, AssetPrivate::DeclareStaticMeshCookInputs))
+			&& (Registered = RegisterFamily<DMaterial>("material", OutHandles, AssetPrivate::DeclareMaterialCookInputs))
+			&& (Registered = RegisterFamily<DMaterialInstance>("material-instance", OutHandles, AssetPrivate::DeclareMaterialCookInputs))
 			&& (Registered = RegisterFunctionSource(OutHandles))) return {};
 
 		for (size_t Index = FirstNewHandle; Index < OutHandles.size(); ++Index)

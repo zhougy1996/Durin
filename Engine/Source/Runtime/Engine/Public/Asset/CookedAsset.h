@@ -4,23 +4,10 @@
 
 #include "EngineAPI.h"
 #include "Asset/AssetReadResult.h"
+#include "Misc/TargetIdentity.h"
 
 namespace Durin
 {
-	enum class ECookTargetPlatform : uint32
-	{
-		Invalid = 0,
-		Win64 = 1,
-		MacOS = 2
-	};
-
-	enum class ECookTargetProfile : uint32
-	{
-		Invalid = 0,
-		Game = 1,
-		EditorValidation = 2
-	};
-
 	enum class EAssetExecutionDomain : uint8
 	{
 		Authored,

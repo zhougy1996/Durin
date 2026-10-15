@@ -509,7 +509,9 @@ namespace Durin
 			.Domain = EAssetPackageSaveDomain::Cooked,
 			.TargetPlatform = TargetPlatform,
 			.TargetProfile = TargetProfile,
-			.bRetainEditorOnlyData = bRetainEditorOnlyData
+			.bRetainEditorOnlyData = bRetainEditorOnlyData,
+			.MaterialConfigurations = MaterialConfigurations,
+			.IsCancelled = IsCancelled
 		};
 	}
 

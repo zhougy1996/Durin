@@ -1,0 +1,6 @@
+{
+    "ModuleName": "TargetPlatform",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_Core",
+    "PublicDependencies": ["Core", "RHI"]
+}

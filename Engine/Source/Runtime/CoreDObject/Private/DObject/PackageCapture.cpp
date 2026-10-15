@@ -593,20 +593,6 @@ namespace Durin::PackagePrivate
 			return std::ranges::equal(Current, Frozen);
 		}
 
-		auto IsObjectOmitted(
-			const DObject* Object,
-			const FObjectSaveOverrides* Overrides) -> bool
-		{
-			for (const DObject* Candidate = Object; Candidate; Candidate = Candidate->GetOuter())
-			{
-				if (Candidate->HasAnyObjectFlags(EObjectFlags::Transient)) return true;
-				const FObjectSaveOverride* Override = Overrides
-					? Overrides->FindObject(*Candidate) : nullptr;
-				if (Override && Override->bOmitObject) return true;
-			}
-			return false;
-		}
-
 		auto PruneUnreachableCookedObjects(
 			const FCapturedPackage& Discovery,
 			std::vector<DObject*>& Objects) -> bool
@@ -1232,6 +1218,20 @@ namespace Durin::PackagePrivate
 
 namespace Durin
 {
+	auto IsPackageCaptureObjectOmitted(
+		const DObject* Object,
+		const FObjectSaveOverrides* Overrides) -> bool
+	{
+		for (const DObject* Candidate = Object; Candidate; Candidate = Candidate->GetOuter())
+		{
+			if (Candidate->HasAnyObjectFlags(EObjectFlags::Transient)) return true;
+			const FObjectSaveOverride* Override = Overrides
+				? Overrides->FindObject(*Candidate) : nullptr;
+			if (Override && Override->bOmitObject) return true;
+		}
+		return false;
+	}
+
 	static auto FormatCaptureDeltaFailure(const FDefaultDeltaDiagnostic& DeltaDiagnostic) -> std::string
 	{
 		auto ReasonName = [](EDefaultDeltaFailureReason Reason) -> std::string_view {
@@ -1398,7 +1398,7 @@ namespace Durin
 		}
 		std::vector<DObject*> Objects;
 		for (DObject* Object : FrozenObjects)
-			if (!PackagePrivate::IsObjectOmitted(Object, Options.SaveOverrides.get()))
+			if (!IsPackageCaptureObjectOmitted(Object, Options.SaveOverrides.get()))
 				Objects.push_back(Object);
 		std::unordered_map<DObject*, uint64> ObjectIds;
 		for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
@@ -1469,7 +1469,9 @@ namespace Durin
 			DeltaContext.Target = Options.Target;
 		}
 		bool bDeltaBuilt = true;
-		for (DObject* Asset : Package->GetTopLevelAssets())
+		if (EffectiveDeltaMode == EDefaultDeltaMode::NoDelta)
+			bDeltaBuilt = BuildDefaultDeltaPlanForObjects(Objects, DeltaPlan, &DeltaDiagnostic, DeltaContext);
+		else for (DObject* Asset : Package->GetTopLevelAssets())
 		{
 			FDefaultDeltaPlan AssetPlan;
 			if (!BuildDefaultDeltaPlan(

@@ -3,6 +3,7 @@
 #include "Asset/Redirector.h"
 #include "DObject/Package.h"
 #include "DObject/PackagePersistence.h"
+#include "CookedPreparation.h"
 
 namespace Durin::AssetPrivate
 {
@@ -10,15 +11,15 @@ namespace Durin::AssetPrivate
   const FAssetPackageSerializationOptions& Options, ObjectPackage::FLinkerTables& OutLinker,
   uint32 FormatVersion) -> std::expected<void, FPackageCaptureError>
  {
+  FScopedCookedPreparation Prepared;
+  if (auto Result = Prepared.Prepare(Package, Options); !Result) return Result;
   FSavePackageContext SaveContext;
   SaveContext.Options.Mode = DeltaMode == EDefaultDeltaMode::NoDelta ? EPackageSaveMode::Complete : EPackageSaveMode::Delta;
   auto& Capture = SaveContext.Options.Capture;
   Capture.bCooking = Options.Domain == EAssetPackageSaveDomain::Cooked;
   Capture.bRetainEditorOnlyData = Options.bRetainEditorOnlyData;
-  Capture.Target.Platform = Options.TargetPlatform == ECookTargetPlatform::Win64 ? "Win64"
-   : Options.TargetPlatform == ECookTargetPlatform::MacOS ? "MacOS" : "";
-  Capture.Target.Profile = Options.TargetProfile == ECookTargetProfile::Game ? "Game"
-   : Options.TargetProfile == ECookTargetProfile::EditorValidation ? "EditorValidation" : "";
+  Capture.Target.Platform = GetTargetPlatformName(Options.TargetPlatform);
+  Capture.Target.Profile = GetTargetProfileName(Options.TargetProfile);
   Capture.SaveOverrides = Options.SaveOverrides;
   Capture.PropertyFilter = Options.PropertyFilter;
   if (Package) for (DObject* Asset : Package->GetTopLevelAssets())

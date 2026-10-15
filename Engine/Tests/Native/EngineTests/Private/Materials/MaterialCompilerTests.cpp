@@ -9,6 +9,44 @@
 #include "Misc/Paths.h"
 #include "Threading/ThreadEvent.h"
 #include "Shader/ShaderDiagnostics.h"
+#include "NativeRHIBackendTestSupport.h"
+
+TEST(FMaterialProgramCompilerTests, ExplicitTargetDoesNotFollowHostBackend)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FMaterialCompilerEnvironment First, Second;
+	{
+		Testing::FScopedRHIBackendOverride Backend("vulkan");
+		ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(First, VulkanShaderTarget));
+	}
+	{
+		Testing::FScopedRHIBackendOverride Backend("metal");
+		ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Second, VulkanShaderTarget));
+	}
+	EXPECT_EQ(First.Target, Second.Target);
+	EXPECT_EQ(First.CompilerIdentity, Second.CompilerIdentity);
+	EXPECT_EQ(First.Dependencies, Second.Dependencies);
+	auto Invalid = VulkanShaderTarget;
+	Invalid.OutputFormat = EShaderCodeFormat::Msl20Source;
+	EXPECT_FALSE(BuildDefaultMaterialCompilerEnvironment(Second, Invalid));
+}
+
+TEST(FMaterialProgramCompilerTests, CookVariantsAreBoundedAndCanonical)
+{
+	using namespace Durin;
+	const auto All = ResolveMaterialCookConfigurations({});
+	ASSERT_TRUE(All);
+	EXPECT_EQ(All->size(), MaterialSupportedConfigurationCount);
+	const FMaterialCookConfiguration Low{EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5};
+	const FMaterialCookConfiguration High{EMaterialQualityLevel::High, ERHIFeatureLevel::SM5};
+	const std::array Requested{High, Low};
+	const auto Selected = ResolveMaterialCookConfigurations(Requested);
+	ASSERT_TRUE(Selected);
+	EXPECT_EQ(*Selected, (std::vector<FMaterialCookConfiguration>{Low, High}));
+	EXPECT_FALSE(ResolveMaterialCookConfigurations(std::array{High, High}));
+	EXPECT_FALSE(ResolveMaterialCookConfigurations(std::array{FMaterialCookConfiguration{static_cast<EMaterialQualityLevel>(255)}}));
+}
 
 namespace
 {

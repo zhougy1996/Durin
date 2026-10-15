@@ -1,16 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/TargetIdentity.h"
 
 namespace Durin
 {
-	enum class EShaderTargetPlatform : uint32
-	{
-		Invalid = 0,
-		Win64 = 1,
-		MacOS = 2,
-	};
-
 	enum class EShaderRuntimeBackend : uint32 { Vulkan = 1, Metal = 2 };
 	enum class EShaderCodeFormat : uint32 { Spirv15 = 1, Msl20Source = 2 };
 
