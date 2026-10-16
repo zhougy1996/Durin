@@ -2,7 +2,7 @@
 
 Summary: Define the reproducible RHI, RDG, and Renderer performance qualification selection, measurement ownership, authority, and comparison rules.
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-16
 
 ## Selection
 

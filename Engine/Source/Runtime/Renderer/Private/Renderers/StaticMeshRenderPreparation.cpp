@@ -6,6 +6,7 @@
 #include "Rendering/MeshBatch.h"
 #include "Renderers/MeshVertexFactory.h"
 #include "Profiling/Profiling.h"
+#include "Materials/MaterialProgramCompiler.h"
 
 namespace Durin
 {
@@ -659,14 +660,37 @@ namespace Durin
 			AssignResolvedIndices(Result.Opaque, Result.Masked, Result.Translucent);
 			// Build a separate group schedule without disturbing translucent draw order.
 			std::vector<uint32> UniformGroups(MaterialCount, UINT32_MAX);
+			std::unordered_multimap<uint32, uint32> AdditionalCollectionGroups;
+			auto Collections = [](const FPreparedStaticMeshDraw& Draw) -> std::span<const FMaterialParameterCollectionLayout> {
+				const auto& Program = Draw.Command->Material.CompiledProgram;
+				return Program ? std::span<const FMaterialParameterCollectionLayout>(Program->ActiveCollections)
+					: std::span<const FMaterialParameterCollectionLayout>{};
+			};
 			for (auto* Bucket : {&Result.Opaque, &Result.Masked, &Result.Translucent})
 				for (auto& Draw : *Bucket)
 				{
-					auto& Group = UniformGroups[Draw.MaterialUniformIndex];
+					const auto MaterialIndex = Draw.MaterialUniformIndex;
+					auto& FirstGroup = UniformGroups[MaterialIndex];
+					uint32 Group = FirstGroup;
+					auto Matches = [&](uint32 Candidate) {
+						return std::ranges::equal(Collections(Draw),
+							Collections(Result.GetDraw(Result.MaterialUniformGroups[Candidate].RepresentativeDraw)));
+					};
+					// Equal local bytes do not imply equal Collection bindings. Keep the
+					// common collection-free path allocation-free and split only collisions.
+					if (Group != UINT32_MAX && !Matches(Group))
+					{
+						Group = UINT32_MAX;
+						const auto [Begin, End] = AdditionalCollectionGroups.equal_range(MaterialIndex);
+						for (auto It = Begin; It != End; ++It)
+							if (Matches(It->second)) { Group = It->second; break; }
+					}
 					if (Group == UINT32_MAX)
 					{
 						Group = static_cast<uint32>(Result.MaterialUniformGroups.size());
 						Result.MaterialUniformGroups.push_back({Draw.ResolvedIndex});
+						if (FirstGroup == UINT32_MAX) FirstGroup = Group;
+						else AdditionalCollectionGroups.emplace(MaterialIndex, Group);
 					}
 					Draw.MaterialUniformIndex = Group;
 				}

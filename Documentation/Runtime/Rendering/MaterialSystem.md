@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-16
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -732,8 +732,11 @@ fragments still compose with the independent factory's vertex stage; the owning
 defines the factory boundary.
 
 The scene snapshot supplies indexed collection buffers at material-set bindings
-3 through 6. One per-view cache uploads each distinct accepted world snapshot once
-and shares it across referencing draws. Forward, GBuffer and reachable masked
+3 through 6. Preparation shares each distinct accepted world snapshot across
+referencing draws and retains immutable uniform allocations across compatible
+submissions. Collection-backed Local geometry can reuse persistent commands;
+value changes refresh dependent binding packets without rebuilding their geometry
+or pipeline records. Forward, GBuffer and reachable masked
 shadow fragments bind the same compiler-declared order and layout; absent scene
 overrides use the compatible cooked/default payload. Opaque shadow remains
 material-resource-free and allocates no collection binding. Collection updates do

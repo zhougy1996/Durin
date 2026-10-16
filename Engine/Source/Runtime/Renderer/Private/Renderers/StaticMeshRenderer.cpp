@@ -5,6 +5,7 @@
 #include "Renderers/MaterialBindingResolution.h"
 #include "Renderers/MeshRendererExecution.h"
 #include "Renderers/MeshRendererShared.h"
+#include "Materials/MaterialParameterCollection.h"
 
 namespace Durin
 {
@@ -62,6 +63,15 @@ namespace Durin
 			std::shared_ptr<const FMeshDrawCommand> Command;
 			uint64 LastUsed = 0;
 		};
+		// Immutable ranges retain their source, so different worlds and in-flight frames
+		// never observe another snapshot's data, even when their version numbers match.
+		struct FCollectionUniform
+		{
+			std::shared_ptr<const FMaterialParameterCollectionSnapshot> Snapshot;
+			FMaterialParameterCollectionLayout Defaults;
+			FRHIUniformBufferRange Range;
+			uint64 LastUsed = 0;
+		};
 		uint64 CacheSerial = 0;
 		template<typename TCache>
 		static auto TrimCache(TCache& Cache) -> void
@@ -77,6 +87,7 @@ namespace Durin
 		}();
 		std::map<std::pair<uint64, uint64>, FPrimitiveUniform> PrimitiveUniforms;
 		std::map<uint64, FMaterialUniform> MaterialUniforms;
+		std::map<std::tuple<FGuid, bool, uint64>, FCollectionUniform> CollectionUniforms;
 		using FDrawKey = std::array<uint64, 7>;
 		static auto MakeDrawKey(const FPreparedStaticMeshDraw& Draw,
 			const FPreparedStaticMeshPrimitive& Primitive, const FResolvedMeshDrawRecord& Record) -> FDrawKey
@@ -87,8 +98,7 @@ namespace Durin
 		}
 		auto IsCacheable(const FPreparedStaticMeshDraw& Draw, const FPreparedStaticMeshPrimitive& Primitive) const -> bool
 		{
-			return bPersistentDraws && Primitive.GeometryRecord && Primitive.VertexDomain == EVertexDeformationDomain::Local
-				&& (!Draw.Command->Material.CompiledProgram || Draw.Command->Material.CompiledProgram->ActiveCollections.empty());
+			return bPersistentDraws && Primitive.GeometryRecord && Primitive.VertexDomain == EVertexDeformationDomain::Local;
 		}
 		std::map<FDrawKey, FCommandEntry> DrawCommands;
 		auto ResetDrawCommands() -> void
@@ -96,6 +106,7 @@ namespace Durin
 			DrawCommands.clear();
 			PrimitiveUniforms.clear();
 			MaterialUniforms.clear();
+			CollectionUniforms.clear();
 			CacheSerial = 0;
 		}
 
@@ -548,19 +559,18 @@ namespace Durin
 		ResolvedView.PrimitiveUniforms.clear();
 		ResolvedView.PrimitiveUniforms.resize(PreparedView.Primitives.size());
 		ResolvedView.PersistentCommandsReused.assign(PreparedView.GetNumSections(), false);
+		ResolvedView.PersistentCollectionBindingsChanged.assign(PreparedView.GetNumSections(), false);
 		ResolvedView.MaterialUniforms.clear();
 		ResolvedView.MaterialUniforms.resize(PreparedView.MaterialUniformGroups.size());
 		ResolvedView.Observations.SurfaceMaterialPreparations = 0;
 		std::vector<std::array<bool, 3>> Requests(PreparedView.MaterialUniformGroups.size());
-		std::vector<bool> DynamicMaterialGroups(PreparedView.MaterialUniformGroups.size(), false);
-		std::map<FGuid, FRHIUniformBufferRange> CollectionUniforms;
+		std::vector<std::vector<FRHIUniformBufferRange>> GroupCollections(PreparedView.MaterialUniformGroups.size());
+		std::map<std::pair<FGuid, uint64>, FRHIUniformBufferRange> CollectionUniforms;
 		ForEachBasePassBucket(PreparedView, [&](const auto& Bucket, EMeshBasePass Pass) {
 			for (const auto& Draw : Bucket)
 			{
 				if (!ResolvedView.IsReady(Draw)) continue;
 				auto& Required = Requests[Draw.MaterialUniformIndex];
-				DynamicMaterialGroups[Draw.MaterialUniformIndex] = DynamicMaterialGroups[Draw.MaterialUniformIndex]
-					|| (Draw.Command->Material.CompiledProgram && !Draw.Command->Material.CompiledProgram->ActiveCollections.empty());
 				if (bShadow) Required[2] = true;
 				else
 				{
@@ -571,14 +581,61 @@ namespace Durin
 				}
 			}
 		});
+		// Resolve and validate current world data before any command hit. Snapshot identity,
+		// rather than its world-local version, owns the immutable allocation cache key.
+		for (uint32 Group = 0; Group < Requests.size(); ++Group)
+		{
+			if (!std::ranges::any_of(Requests[Group], [](bool Required) { return Required; })) continue;
+			const auto& Draw = PreparedView.GetDraw(PreparedView.MaterialUniformGroups[Group].RepresentativeDraw);
+			const auto Program = Draw.Command->Material.CompiledProgram;
+			if (!Program) continue;
+			for (const auto& Required : Program->ActiveCollections)
+			{
+				const auto Snapshot = Scene ? Scene->GetMaterialParameterCollection_RenderThread(Required.CollectionId) : nullptr;
+				if (Snapshot && !Snapshot->Layout.HasCompatibleSchema(Required)) return false;
+				const FByteView Payload = Snapshot ? FByteView(Snapshot->Payload) : FByteView(Required.DefaultPayload);
+				if (Payload.size() != Required.UniformLayout.UniformPayloadSize) return false;
+				// Default payloads can differ across retained programs with the same
+				// Collection ID. Only live world snapshots share by Collection alone.
+				const auto LocalKey = std::make_pair(Required.CollectionId, Snapshot
+					? reinterpret_cast<uint64>(Snapshot.get()) : reinterpret_cast<uint64>(&Required));
+				auto Local = CollectionUniforms.find(LocalKey);
+				if (Local == CollectionUniforms.end())
+				{
+					const auto Key = std::make_tuple(Required.CollectionId, static_cast<bool>(Snapshot),
+						Snapshot ? reinterpret_cast<uint64>(Snapshot.get()) : FXxHash64::HashBuffer(Payload).HashValue);
+					FRHIUniformBufferRange Range;
+					if (State->bPersistentDraws)
+						if (const auto Existing = State->CollectionUniforms.find(Key); Existing != State->CollectionUniforms.end()
+							&& (Snapshot || (Existing->second.Defaults.HasCompatibleSchema(Required)
+								&& Existing->second.Defaults.DefaultPayload == Required.DefaultPayload)))
+						{
+							Range = Existing->second.Range;
+							Existing->second.LastUsed = ++State->CacheSerial;
+						}
+					if (!Range.Buffer)
+					{
+						Range = CommandList.CreateUniformBufferRange(Payload.data(), Payload.size());
+						if (!Range.Buffer) return false;
+						if (State->bPersistentDraws)
+						{
+							State->CollectionUniforms.insert_or_assign(Key, FState::FCollectionUniform{
+								Snapshot, Snapshot ? FMaterialParameterCollectionLayout{} : Required, Range, ++State->CacheSerial});
+							FState::TrimCache(State->CollectionUniforms);
+						}
+					}
+					Local = CollectionUniforms.emplace(LocalKey, std::move(Range)).first;
+				}
+				GroupCollections[Group].push_back(Local->second);
+			}
+		}
 		// Probe complete stable commands before constructing uniforms or resolving surfaces.
 		// Pipelines already reflect the current pass policy and resource generation.
 		for (uint32 Index = 0; Index < PreparedView.GetNumSections(); ++Index)
 		{
 			const auto& Draw = PreparedView.GetDraw(Index);
 			const auto* Primitive = PreparedView.GetPrimitive(Draw);
-			if (!ResolvedView.IsReady(Draw) || !Primitive || !State->IsCacheable(Draw, *Primitive)
-				|| DynamicMaterialGroups[Draw.MaterialUniformIndex]) continue;
+			if (!ResolvedView.IsReady(Draw) || !Primitive || !State->IsCacheable(Draw, *Primitive)) continue;
 			auto& Record = ResolvedView.Draws[Draw.ResolvedIndex];
 			const auto Existing = State->DrawCommands.find(FState::MakeDrawKey(Draw, *Primitive, Record));
 			if (Existing == State->DrawCommands.end()) continue;
@@ -598,8 +655,15 @@ namespace Durin
 			for (uint32 Pass = 0; Pass < 3; ++Pass)
 			{
 				auto& Material = ResolvedView.MaterialUniforms[Draw.MaterialUniformIndex][Pass];
-				if (!Required[Pass] || Material) continue;
+				if (!Required[Pass]) continue;
+				const auto& CurrentCollections = GroupCollections[Draw.MaterialUniformIndex];
+				const bool bSameCollections = std::ranges::equal(Cached.Materials[Pass]->CollectionUniforms, CurrentCollections,
+					[](const auto& A, const auto& B) { return A.Buffer == B.Buffer && A.Offset == B.Offset && A.Size == B.Size; });
+				ResolvedView.PersistentCollectionBindingsChanged[Draw.ResolvedIndex] =
+					ResolvedView.PersistentCollectionBindingsChanged[Draw.ResolvedIndex] || !bSameCollections;
+				if (Material) continue;
 				Material = Cached.Materials[Pass];
+				Material->CollectionUniforms = CurrentCollections;
 				if (!SurfaceMaterials.RefreshPassResources_RenderThread(
 					Pass == 0 ? ESurfaceMaterialPass::Forward : ESurfaceMaterialPass::GBuffer,
 					ResolvedView.DirectionalShadowTexture, ResolvedView.DirectionalShadowSampler, Material->Surface)) return false;
@@ -658,31 +722,7 @@ namespace Durin
 			})) continue;
 			const auto& Draw = PreparedView.GetDraw(PreparedView.MaterialUniformGroups[Group].RepresentativeDraw);
 			const auto* Binding = ResolvedView.GetMaterialBinding(Draw);
-			const auto Program = Draw.Command ? Draw.Command->Material.CompiledProgram : nullptr;
-			std::vector<FRHIUniformBufferRange> RequiredCollections;
-			if (Program)
-				for (const auto& Required : Program->ActiveCollections)
-				{
-					auto Cached = CollectionUniforms.find(Required.CollectionId);
-					if (Cached == CollectionUniforms.end())
-					{
-						FByteView Payload = Required.DefaultPayload;
-						if (Scene)
-							if (const auto Snapshot = Scene->GetMaterialParameterCollection_RenderThread(
-								Required.CollectionId))
-							{
-								if (!Snapshot->Layout.HasCompatibleSchema(Required)) return false;
-								Payload = Snapshot->Payload;
-							}
-						if (Payload.size() != Required.UniformLayout.UniformPayloadSize)
-							return false;
-						auto Range = CommandList.CreateUniformBufferRange(
-							Payload.data(), Payload.size());
-						if (!Range.Buffer) return false;
-						Cached = CollectionUniforms.emplace(Required.CollectionId, Range).first;
-					}
-					RequiredCollections.push_back(Cached->second);
-				}
+			const auto& RequiredCollections = GroupCollections[Group];
 			FRHIUniformBufferRange SharedMaterialUniform;
 			const uint64 MaterialId = Draw.Command->Material.Representation.GetRecordId();
 			if (State->bPersistentDraws && MaterialId != 0)
@@ -734,7 +774,7 @@ namespace Durin
 		ResolvedView.Observations.SurfaceBindingBatchReuses = 0;
 		for (uint32 Index = 0; Index < ResolvedView.Draws.size(); ++Index)
 		{
-			if (ResolvedView.PersistentCommandsReused[Index]) continue;
+			if (ResolvedView.PersistentCommandsReused[Index] && !ResolvedView.PersistentCollectionBindingsChanged[Index]) continue;
 			auto& Record = ResolvedView.Draws[Index];
 			Record.VertexBindings.reset();
 			Record.HybridVertexBindings.reset();
@@ -841,10 +881,13 @@ namespace Durin
 			if (ResolvedView.PersistentCommandsReused[Draw.ResolvedIndex])
 			{
 				++ResolvedView.Observations.PersistentCommandHits;
-				if (!PreparePasses()) return false;
-				continue;
+				if (!ResolvedView.PersistentCollectionBindingsChanged[Draw.ResolvedIndex])
+				{
+					if (!PreparePasses()) return false;
+					continue;
+				}
 			}
-			++ResolvedView.Observations.PersistentCommandMisses;
+			else ++ResolvedView.Observations.PersistentCommandMisses;
 			auto PublishCommand = [&]() {
 				if (!PreparePasses()) return false;
 				if (!bCacheable) return true;

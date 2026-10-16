@@ -264,6 +264,8 @@ namespace Durin
 		std::vector<FResolvedMeshDrawRecord> Draws;
 		// Selected before uniform/surface preparation; stable bindings survive into recording.
 		std::vector<bool> PersistentCommandsReused;
+		// A retained command can reuse its geometry/pipelines while Collection ranges change.
+		std::vector<bool> PersistentCollectionBindingsChanged;
 		// Dense primitive/material indices avoid per-draw pointer-keyed lookups.
 		std::vector<FRHIUniformBufferRange> PrimitiveUniforms;
 		std::array<FRHIUniformBufferRange, 3> ViewUniforms;

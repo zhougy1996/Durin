@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-10-08
+Last reviewed: 2026-10-16
 
 ## Ownership Boundary
 
@@ -257,6 +257,31 @@ indices without changing translucent ordering. Resource preparation uploads
 one transform per prepared primitive/view and one material payload per group;
 recording reads these arrays directly, without lazy uniform-cache searches.
 
+Local geometry with Collection-backed materials participates in the persistent
+mesh-command cache. Before probing a command, preparation validates every current
+world Collection schema and resolves immutable uniform ranges. Snapshot identity
+is retained with each cached allocation; world-local version numbers never key
+cross-world reuse. Missing world snapshots use schema-and-value-checked defaults,
+without retaining an entire compiler result just to cache fallback values.
+Default allocations key by content hash with exact schema/value collision checks,
+so retained programs with different defaults can coexist without rebinding each
+other's unchanged frames.
+
+Uniform grouping additionally compares the exact ordered Collection contracts and
+defaults. Equal local uniforms/textures alone cannot merge materials that bind
+different Collections. Collection-free materials retain the existing fast group
+lookup, and splitting groups never changes translucent draw ordering.
+
+An unchanged snapshot reuses its range and stable material bindings. A changed
+snapshot allocates new storage; the cached geometry/pipeline record still counts
+as a command hit, while material-set vertex/fragment binding packets are rebuilt
+against the new ranges. Existing packets retain old allocations through counted
+owners until their consumers retire. Pass/view bindings remain submission-local.
+Generation changes clear these caches, existing texture-readiness checks still
+guard hits, and the Collection allocation cache shares the 512-entry bounded
+retention policy. Surface preparation and binding-batch counters distinguish full
+binding reuse from a command hit that refreshes Collection bindings.
+
 Mesh material descriptor set 0 contains view/pass controls and lighting resources;
 set 1 contains primitive transforms, deformation, material parameters/textures,
 and hit-proxy IDs. Material time, the view lighting switch, and specular-AA control
@@ -265,8 +290,9 @@ Material shading models remain shader permutations. The reserved material header
 is retained for layout stability and is no longer overwritten with view controls.
 Forward, GBuffer, masked-shadow, and hit-proxy fragments use the same binding
 contract; changing it advances the material pass-contract version so stale cooked
-programs cannot be accepted. Uniform storage belongs to the current submission
-and is rebuilt for new views, frames, and resource-resolution attempts.
+programs cannot be accepted. View/pass storage belongs to the current submission;
+compatible immutable material, primitive and Collection ranges may be retained
+by the persistent command cache across submissions.
 
 Surface shader instances compile reflection into immutable binding layouts.
 Before recording, receiver and cascade resolution builds concrete fragment

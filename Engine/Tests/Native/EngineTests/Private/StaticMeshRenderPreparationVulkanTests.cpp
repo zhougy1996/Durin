@@ -2287,6 +2287,68 @@ TEST(FMaterialParameterCollectionVulkanTests,
 				*Scene, FLightComponentId(901), Light), nullptr);
 		}
 		FlushRenderingCommands();
+		// Exercise command reuse independently of optional timing, including equal-version
+		// world snapshots, changed bindings, incompatible schemas and default fallback.
+		auto RenderCollection = [&](FScene* Scene, FByteBuffer& Pixels, bool bExpectedSuccess = true) {
+			FViewRenderTelemetry Observation;
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+				FSceneView View;
+				View.ViewportWidth = 192; View.ViewportHeight = 108;
+				View.Settings.Mode.RenderMode = ERenderMode::Unlit;
+				View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+				const auto Target = GDynamicRHI->RHICreateTexture(Commands,
+					FRHITextureCreateDesc::Create2D("CollectionCacheCorrectness", 192, 108, EPixelFormat::SRGBA8_UNORM)
+						.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy));
+				ASSERT_TRUE(Target);
+				static FViewRenderTelemetry* Sink = nullptr;
+				Sink = &Observation;
+				SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { *Sink = Value; });
+				++GRenderFrameCounterRenderThread;
+				GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+				const auto Result = Renderer.RenderView(Commands, Scene, View, Target, false, {});
+				SetViewRenderTelemetrySink(nullptr); Sink = nullptr;
+				EXPECT_EQ(Result == ERenderViewResult::Success, bExpectedSuccess);
+				if (Result == ERenderViewResult::Success) ReadGeometryTexture(Commands, Target, Pixels);
+				GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+			});
+			FlushRenderingCommands();
+			return Observation.StaticMesh;
+		};
+		FByteBuffer Red, Green, Repeated, Blue;
+		RenderCollection(RedWorld.Get(), Red);
+		RenderCollection(GreenWorld.Get(), Green);
+		EXPECT_NE(Red, Green);
+		for (auto* Scene : {RedWorld.Get(), GreenWorld.Get()})
+		{
+			const auto Stats = RenderCollection(Scene, Repeated);
+			EXPECT_EQ(Stats.PersistentCommandHits, 2u);
+			EXPECT_EQ(Stats.PersistentCommandMisses, 0u);
+			EXPECT_EQ(Stats.SurfaceMaterialPreparations, 0u);
+			EXPECT_EQ(Stats.PreparedSurfaceBindingBatches, 0u);
+			EXPECT_EQ(Repeated, Scene == RedWorld.Get() ? Red : Green);
+		}
+		GreenWorld->UpdateMaterialParameterCollection(MakeSnapshot(FVector4(0,0,1,0), 1.0f, 2));
+		const auto Updated = RenderCollection(GreenWorld.Get(), Blue);
+		EXPECT_EQ(Updated.PersistentCommandHits, 2u);
+		EXPECT_EQ(Updated.PersistentCommandMisses, 0u);
+		EXPECT_EQ(Updated.SurfaceMaterialPreparations, 0u);
+		EXPECT_GT(Updated.PreparedSurfaceBindingBatches, 0u);
+		EXPECT_NE(Blue, Green);
+		const auto Stable = RenderCollection(GreenWorld.Get(), Repeated);
+		EXPECT_EQ(Stable.PreparedSurfaceBindingBatches, 0u);
+		EXPECT_EQ(Repeated, Blue);
+		RenderCollection(RedWorld.Get(), Repeated);
+		EXPECT_EQ(Repeated, Red);
+		auto Incompatible = MakeSnapshot(FVector4(0,1,0,0), 1.0f, 3);
+		++Incompatible->Layout.SchemaVersion;
+		GreenWorld->UpdateMaterialParameterCollection(Incompatible);
+		RenderCollection(GreenWorld.Get(), Repeated, false);
+		GreenWorld->RemoveMaterialParameterCollection(Layout->CollectionId);
+		RenderCollection(GreenWorld.Get(), Repeated);
+		EXPECT_EQ(Repeated, Red);
+		GreenWorld->UpdateMaterialParameterCollection(MakeSnapshot(FVector4(0,1,0,0), 1.0f, 1));
+		RenderCollection(GreenWorld.Get(), Repeated);
+		EXPECT_EQ(Repeated, Green);
 		if (const auto* Benchmark = std::getenv("DURIN_MATERIAL_CACHE_BENCHMARK");
 			Benchmark && std::string_view(Benchmark) == "1")
 		{
@@ -2471,6 +2533,79 @@ TEST(FMaterialParameterCollectionVulkanTests,
 				EXPECT_EQ(Covered, 0u);
 			});
 		FlushRenderingCommands();
+		// Identical local layouts must not merge different Collection contracts.
+		TStrongObjectPtr<DMaterialParameterCollection> OtherCollection(NewObject<DMaterialParameterCollection>(nullptr, "OtherGPUCollection"));
+		auto OtherDeclarations = Declarations;
+		OtherDeclarations[0].DefaultValue = FVector4(0,0,1,0);
+		ASSERT_TRUE(OtherCollection->SetDeclarations(OtherDeclarations));
+		const auto OtherLayout = OtherCollection->BuildLayout();
+		ASSERT_TRUE(OtherLayout);
+		TStrongObjectPtr<DMaterial> OtherMaterial(NewObject<DMaterial>(nullptr, "OtherGPUCollectionMaterial"));
+		Color->Collection = OtherCollection.Get(); Mask->Collection = OtherCollection.Get();
+		ASSERT_TRUE(OtherMaterial->SetStaticProperties(Properties));
+		ASSERT_TRUE(OtherMaterial->SetMaterialExpressions(Expressions, Outputs));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*OtherMaterial);
+		ASSERT_TRUE(OtherMaterial->GetAcceptedCompiledProgram());
+		const auto OtherProxy = OtherMaterial->GetMaterialRenderProxy();
+		FSceneTestOwner MixedWorld;
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+			auto Proxy = std::make_unique<FProceduralProxy>();
+			Proxy->Geometry = Geometry;
+			Proxy->Materials = {MaterialProxy->Resolve_RenderThread(), OtherProxy->Resolve_RenderThread()};
+			EXPECT_EQ(Proxy->Materials[0].Representation.GetLayout(), Proxy->Materials[1].Representation.GetLayout());
+			ASSERT_TRUE(Proxy->PublishGeometry());
+			FSceneInterfaceTestAccess::AddPrimitiveProxy(*MixedWorld, FPrimitiveComponentId(902), std::move(Proxy), FMatrix(1.0));
+		});
+		FByteBuffer MixedPixels;
+		RenderCollection(MixedWorld.Get(), MixedPixels);
+		auto CountDominant = [](const FByteBuffer& Pixels, size_t Channel) {
+			size_t Count = 0;
+			for (size_t Offset = 0; Offset < Pixels.size(); Offset += 4)
+				Count += std::to_integer<int>(Pixels[Offset + Channel]) > 100
+					&& std::to_integer<int>(Pixels[Offset + (Channel + 1) % 3]) < 50
+					&& std::to_integer<int>(Pixels[Offset + (Channel + 2) % 3]) < 50;
+			return Count;
+		};
+		EXPECT_GT(CountDominant(MixedPixels, 0), 100u);
+		EXPECT_GT(CountDominant(MixedPixels, 2), 100u);
+		const auto MixedStable = RenderCollection(MixedWorld.Get(), Repeated);
+		EXPECT_EQ(MixedStable.PersistentCommandHits, 2u);
+		EXPECT_EQ(MixedStable.PreparedSurfaceBindingBatches, 0u);
+		EXPECT_EQ(Repeated, MixedPixels);
+		auto OtherSnapshot = MakeSnapshot(FVector4(0,1,0,0), 1.0f, 1);
+		OtherSnapshot->Layout = *OtherLayout;
+		MixedWorld->UpdateMaterialParameterCollection(OtherSnapshot);
+		const auto MixedChanged = RenderCollection(MixedWorld.Get(), Repeated);
+		EXPECT_EQ(MixedChanged.PersistentCommandHits, 2u);
+		EXPECT_EQ(MixedChanged.SurfaceMaterialPreparations, 0u);
+		EXPECT_GT(CountDominant(Repeated, 0), 100u);
+		EXPECT_GT(CountDominant(Repeated, 1), 100u);
+		EXPECT_EQ(CountDominant(Repeated, 2), 0u);
+		// Retained programs can carry different default payloads for the same ID.
+		// Default values do not participate in shader identity.
+		FSceneTestOwner DefaultsWorld;
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+			auto Proxy = std::make_unique<FProceduralProxy>();
+			Proxy->Geometry = Geometry;
+			const auto Primary = MaterialProxy->Resolve_RenderThread();
+			auto Alternate = Primary;
+			auto Program = std::make_shared<FMaterialCompilerResult>(*Primary.CompiledProgram);
+			ASSERT_EQ(Program->ActiveCollections.size(), 1u);
+			Program->ActiveCollections[0].DefaultPayload = OtherLayout->DefaultPayload;
+			Alternate.CompiledProgram = std::move(Program);
+			Proxy->Materials = {Primary, Alternate};
+			ASSERT_TRUE(Proxy->PublishGeometry());
+			FSceneInterfaceTestAccess::AddPrimitiveProxy(*DefaultsWorld, FPrimitiveComponentId(903), std::move(Proxy), FMatrix(1.0));
+		});
+		RenderCollection(DefaultsWorld.Get(), MixedPixels);
+		EXPECT_GT(CountDominant(MixedPixels, 0), 100u);
+		EXPECT_GT(CountDominant(MixedPixels, 2), 100u);
+		const auto DefaultsStable = RenderCollection(DefaultsWorld.Get(), Repeated);
+		EXPECT_EQ(DefaultsStable.PersistentCommandHits, 2u);
+		EXPECT_EQ(DefaultsStable.PreparedSurfaceBindingBatches, 0u);
+		EXPECT_EQ(Repeated, MixedPixels);
+		DefaultsWorld.Reset();
+		MixedWorld.Reset();
 		RedWorld.Reset();
 		GreenWorld.Reset();
 	}
