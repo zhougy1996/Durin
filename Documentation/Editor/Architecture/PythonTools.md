@@ -62,8 +62,9 @@ use it or redirect it to another host.
 `durin.tools.list()` returns toolset/tool names, descriptions and contract
 versions. `describe(toolset, tool)` also returns input/output schemas. Schema
 `type` is the native EToolValueType integer; bounds/defaults/enums and UTF-8 byte
-size limits retain native semantics. Toolset and tool names stay separate; MCP
-advertised-name escaping does not apply.
+size limits retain native semantics. Toolset and tool names stay separate;
+toolsets permit dot-separated segments and local tool names cannot contain dots.
+The MCP adapter joins them for discovery; Python passes the original two names.
 
 Submit pins the discovered contract version unless the caller explicitly supplies
 a version. Arguments become owned FToolValue data before entering the existing

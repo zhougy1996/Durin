@@ -70,14 +70,9 @@ namespace Durin::MCP
 		}
 		auto ToolName(const FToolAddress& Address) -> std::string
 		{
-			auto Escape = [](std::string_view Part) {
-				std::string Result;
-				for (char C : Part) { if (C == '_') Result += "_u"; else Result += C; }
-				return Result;
-			};
-			auto Full = Escape(Address.Toolset) + "__" + Escape(Address.Tool);
+			auto Full = Address.Toolset + "." + Address.Tool;
 			if (Full.size() <= 128) return Full;
-			return Full.substr(0, 92) + "__h" + FXxHash128::HashBuffer(Full).ToString();
+			return Full.substr(0, 94) + ".h" + FXxHash128::HashBuffer(Full).ToString();
 		}
 	}
 
@@ -180,6 +175,8 @@ namespace Durin::MCP
 		{
 			if (!Tool.bExposeExternally) continue;
 			FToolAddress Address{Group.Descriptor.Name, Tool.Name};
+			if (!ValidateToolsetName(Address.Toolset) || !ValidateToolName(Address.Tool))
+				return std::unexpected("Invalid MCP tool address; local tool names must not contain dots.");
 			auto Name = ToolName(Address);
 			FObject Description{{"name", Name}, {"description", Tool.Description}, {"inputSchema", Schema(Tool.Input)},
 				{"outputSchema", FObject{{"type", "object"}, {"properties", FObject{{"data", Schema(Tool.Output)}}},
@@ -189,7 +186,7 @@ namespace Durin::MCP
 					{"idempotentHint", Tool.RetryPolicy == EToolRetryPolicy::Idempotent},
 					{"openWorldHint", (static_cast<uint8>(Tool.Effects) & static_cast<uint8>(EToolEffect::External)) != 0}}}};
 			if (!Result.emplace(Name, FAdvertisedTool{std::move(Address), Tool.ContractVersion, Tool.Input, std::move(Description)}).second)
-				return std::unexpected("MCP tool name collision; catalog rejected.");
+				return std::unexpected(std::format("MCP tool name collision for {}; catalog rejected.", Name));
 		}
 		return Result;
 	}

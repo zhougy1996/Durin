@@ -105,7 +105,7 @@ namespace
 				httplib::Client Client("127.0.0.1", Port); Client.set_read_timeout(3, 0);
 				httplib::Request Request; Request.method = "POST"; Request.path = "/mcp";
 				Request.headers = CallHeaders; Request.set_header("Content-Type", "application/json");
-				Request.body = Body("tools/call", {{"name", "tests__echo"}});
+				Request.body = Body("tools/call", {{"name", "tests.echo"}});
 				Request.response_handler = [OnHeaders](const auto&) { if (OnHeaders) OnHeaders(); return true; };
 				return Client.send(Request);
 			});
@@ -138,7 +138,7 @@ namespace
 		auto Capabilities = Document.GetRootView().GetView("result").GetView("capabilities");
 		EXPECT_TRUE(Capabilities.Contains("tools")); EXPECT_FALSE(Capabilities.Contains("resources")); EXPECT_FALSE(Capabilities.Contains("prompts"));
 		auto Listed = Post(); ASSERT_TRUE(Listed); EXPECT_EQ(200, Listed->status);
-		EXPECT_NE(std::string::npos, Listed->body.find("editor.pie__pause"));
+		EXPECT_NE(std::string::npos, Listed->body.find("editor.pie.pause"));
 		EXPECT_EQ(std::string::npos, Listed->body.find("toggle_pause"));
 		auto Ping = Post("ping"); ASSERT_TRUE(Ping); EXPECT_EQ(200, Ping->status);
 		EXPECT_EQ("application/json", Ping->get_header_value("Content-Type"));
@@ -210,7 +210,7 @@ namespace
 		httplib::Client Client("127.0.0.1", Port);
 		httplib::Request Request; Request.method = "POST"; Request.path = "/mcp";
 		Request.headers = Headers(); Request.set_header("Content-Type", "application/json");
-		Request.body = Body("tools/call", {{"name", "tests__echo"}});
+		Request.body = Body("tools/call", {{"name", "tests.echo"}});
 		std::atomic<bool> Opened = false;
 		Request.content_receiver = [&](const char*, size_t, uint64_t, uint64_t) { Opened = true; return false; };
 		(void)Client.send(Request); ASSERT_TRUE(Opened);
@@ -227,7 +227,7 @@ namespace
 	{
 		Register(); httplib::Client Client("127.0.0.1", Port); httplib::Request Request;
 		Request.method = "POST"; Request.path = "/mcp"; Request.headers = Headers();
-		Request.set_header("Content-Type", "application/json"); Request.body = Body("tools/call", {{"name", "tests__echo"}});
+		Request.set_header("Content-Type", "application/json"); Request.body = Body("tools/call", {{"name", "tests.echo"}});
 		std::atomic<bool> Opened = false;
 		Request.content_receiver = [&](const char*, size_t, uint64_t, uint64_t) { Opened = true; return false; };
 		(void)Client.send(Request); ASSERT_TRUE(Opened);
@@ -242,7 +242,7 @@ namespace
 		ASSERT_TRUE(Started); Port = *Started; Connect();
 		httplib::Client Client("127.0.0.1", Port); httplib::Request Request;
 		Request.method = "POST"; Request.path = "/mcp"; Request.headers = Headers();
-		Request.set_header("Content-Type", "application/json"); Request.body = Body("tools/call", {{"name", "tests__echo"}});
+		Request.set_header("Content-Type", "application/json"); Request.body = Body("tools/call", {{"name", "tests.echo"}});
 		bool Opened = false;
 		Request.content_receiver = [&](const char*, size_t, uint64_t, uint64_t) { Opened = true; return false; };
 		(void)Client.send(Request); ASSERT_TRUE(Opened);
@@ -271,7 +271,7 @@ namespace
 			if (I) Connect(); Sessions.push_back(TestSession);
 			Futures.push_back(BeginCall([&, I] { Opened[I] = true; })); ASSERT_TRUE(Wait(Opened[I]));
 		}
-		Connect(); auto Limited = Post("tools/call", {{"name", "tests__echo"}}); ASSERT_TRUE(Limited); EXPECT_EQ(503, Limited->status);
+		Connect(); auto Limited = Post("tools/call", {{"name", "tests.echo"}}); ASSERT_TRUE(Limited); EXPECT_EQ(503, Limited->status);
 		for (const auto& Session : Sessions)
 		{
 			TestSession = Session; auto Cancel = Notify("notifications/cancelled", {{"requestId", 1}}); ASSERT_TRUE(Cancel); EXPECT_EQ(202, Cancel->status);
@@ -303,7 +303,7 @@ namespace
 		auto Future = std::async(std::launch::async, [&] {
 			httplib::Client Client("127.0.0.1", Port); httplib::Request Request;
 			Request.method = "POST"; Request.path = "/mcp"; Request.headers = Headers();
-			Request.set_header("Content-Type", "application/json"); Request.body = Body("tools/call", {{"name", "tests__echo"}});
+			Request.set_header("Content-Type", "application/json"); Request.body = Body("tools/call", {{"name", "tests.echo"}});
 			Request.content_receiver = [&](const char*, size_t, uint64_t, uint64_t) {
 				EXPECT_TRUE(Wait(Started)); EXPECT_EQ(202, Notify("notifications/cancelled", {{"requestId", 1}})->status); return false;
 			};
@@ -314,14 +314,17 @@ namespace
 	TEST_F(FMCPIntegrationTests, MapsInvalidArgumentsAdmissionFailureDomainFailureAndInvalidOutput)
 	{
 		Register();
-		auto Invalid = Post("tools/call", {{"name", "tests__echo"}, {"arguments", FObject{{"unknown", true}}}});
+		auto Invalid = Post("tools/call", {{"name", "tests.echo"}, {"arguments", FObject{{"unknown", true}}}});
 		ASSERT_TRUE(Invalid); EXPECT_NE(std::string::npos, Invalid->body.find("\"isError\":true")); EXPECT_EQ(0, Calls);
-		auto Missing = Post("tools/call", {{"name", "tests__missing"}}); ASSERT_TRUE(Missing);
+		auto Missing = Post("tools/call", {{"name", "tests.missing"}}); ASSERT_TRUE(Missing);
 		EXPECT_NE(std::string::npos, Missing->body.find("-32602"));
+		// Legacy advertised names are not aliases for the dot-separated catalog.
+		auto Legacy = Post("tools/call", {{"name", "tests__echo"}}); ASSERT_TRUE(Legacy);
+		EXPECT_NE(std::string::npos, Legacy->body.find("-32602")); EXPECT_EQ(0, Calls);
 		FEditorToolLimits Limits; Limits.MaxQueued = 1; ASSERT_TRUE(Tools->GetService()->Configure(Limits));
 		(void)Tools->ListToolsets();
 		auto Occupied = Tools->GetService()->Submit({{"tests", "echo"}, 1}, EToolSource::External); ASSERT_TRUE(Occupied);
-		auto Full = Post("tools/call", {{"name", "tests__echo"}}); ASSERT_TRUE(Full);
+		auto Full = Post("tools/call", {{"name", "tests.echo"}}); ASSERT_TRUE(Full);
 		EXPECT_NE(std::string::npos, Full->body.find("\"isError\":true"));
 		ASSERT_TRUE(Tools->GetService()->Cancel(*Occupied)); Registration.Reset(); Toolset.reset();
 		Register([](const auto&, const auto&) { return FToolResult{EToolStatus::Failed, {}, {{EToolError::DomainFailure, "domain rejected", "/field"}}}; });
@@ -345,7 +348,7 @@ namespace
 		Register(); Server.Stop();
 		auto Restart = Server.Start(*Host, {.BearerToken = std::string(Token), .CallTimeout = std::chrono::milliseconds(50)}); ASSERT_TRUE(Restart); Port = *Restart;
 		Connect();
-		auto Timed = Post("tools/call", {{"name", "tests__echo"}}); ASSERT_TRUE(Timed);
+		auto Timed = Post("tools/call", {{"name", "tests.echo"}}); ASSERT_TRUE(Timed);
 		EXPECT_NE(std::string::npos, Timed->body.find("deadline exceeded")); Tools->TickTools(); EXPECT_EQ(0, Calls);
 		std::atomic<bool> Opened = false; auto Future = BeginCall([&] { Opened = true; }); ASSERT_TRUE(Wait(Opened));
 		Server.Stop(); (void)Future.get(); Tools->TickTools(); EXPECT_EQ(0, Calls);
@@ -358,7 +361,7 @@ namespace
 			auto Future = std::async(std::launch::async, [&] {
 				httplib::Client Client("127.0.0.1", Port); httplib::Request Request;
 				Request.method = "POST"; Request.path = "/mcp"; Request.headers = Headers();
-				Request.set_header("Content-Type", "application/json"); Request.body = Body("tools/call", {{"name", "tests__echo"}});
+				Request.set_header("Content-Type", "application/json"); Request.body = Body("tools/call", {{"name", "tests.echo"}});
 				Request.content_receiver = [](const char*, size_t, uint64_t, uint64_t) { return false; };
 				return Client.send(Request);
 			});

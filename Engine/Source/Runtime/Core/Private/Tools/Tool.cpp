@@ -250,12 +250,13 @@ namespace Durin
 		}
 	}
 
-	auto ValidateToolName(std::string_view Name) -> bool { return Name.size() <= 256 && ValidName(Name); }
+	auto ValidateToolsetName(std::string_view Name) -> bool { return Name.size() <= 256 && ValidName(Name); }
+	auto ValidateToolName(std::string_view Name) -> bool { return ValidateToolsetName(Name) && Name.find('.') == std::string_view::npos; }
 
 	auto ValidateToolsetDescriptor(const FToolsetDescriptor& Descriptor, const FToolLimits& Limits) -> FToolValidationResult
 	{
 		if (auto Check = ValidateLimits(Limits); !Check) return Check;
-		if (!ValidateToolName(Descriptor.Name)) return Error(EToolError::InvalidDescriptor, "Invalid toolset name.");
+		if (!ValidateToolsetName(Descriptor.Name)) return Error(EToolError::InvalidDescriptor, "Invalid toolset name.");
 		FBudget Budget{Limits};
 		if (auto Check = Budget.String(Descriptor.Name, "/name"); !Check) return Check;
 		return Budget.String(Descriptor.Description, "/description");
@@ -286,7 +287,7 @@ namespace Durin
 		-> std::expected<FToolRequest, FToolDiagnostic>
 	{
 		if (auto Check = ValidateToolDescriptor(Descriptor, Limits); !Check) return std::unexpected(Check.error());
-		if (!ValidateToolName(Request.Address.Toolset)) return Error(EToolError::InvalidArguments, "Invalid toolset name.");
+		if (!ValidateToolsetName(Request.Address.Toolset)) return Error(EToolError::InvalidArguments, "Invalid toolset name.");
 		if (Request.Address.Tool != Descriptor.Name) return Error(EToolError::ToolUnavailable, "Request does not name this tool.");
 		if (Request.ContractVersion != Descriptor.ContractVersion) return Error(EToolError::VersionMismatch, "Tool contract version does not match.");
 		FBudget RawBudget{Limits};

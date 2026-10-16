@@ -477,6 +477,21 @@ TEST_F(FEditorToolTests, RefusesDuplicateLocalToolsButKeepsUnambiguousToolsInThe
 	EXPECT_TRUE(Tools->DescribeTool({"tests", "other"}));
 }
 
+TEST_F(FEditorToolTests, RejectsDottedLocalToolsAtDiscoveryAndSubmission)
+{
+	FTestToolset Toolset; Toolset.Name = "editor.tests";
+	Toolset.Descriptors = {Descriptor("nested.echo"), Descriptor("set_enabled")};
+	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
+	auto Set = Tools->DescribeToolset("editor.tests"); ASSERT_TRUE(Set);
+	ASSERT_EQ(1u, Set->Descriptor.Tools.size());
+	EXPECT_EQ("set_enabled", Set->Descriptor.Tools.front().Name);
+	auto Invalid = Tools->GetService()->Submit({{"editor.tests", "nested.echo"}, 1});
+	ASSERT_FALSE(Invalid); EXPECT_EQ(EToolError::InvalidArguments, Invalid.error().Code);
+	EXPECT_TRUE(Tools->GetService()->Submit({{"editor.tests", "set_enabled"}, 1}));
+	EXPECT_EQ(0, Toolset.Executions);
+}
+
 TEST_F(FEditorToolTests, InvalidGroupMetadataStillBlocksDuplicateNamespaceInEitherOrder)
 {
 	FTestToolset Good, Bad;

@@ -87,7 +87,7 @@ async def main():
             assert client.protocol_version == "2025-06-18"
             tools = await client.list_tools()
             print([tool.name for tool in tools.tools])
-            result = await client.call_tool("editor.pie__status", {})
+            result = await client.call_tool("editor.pie.status", {})
             print(result.structured_content)
 
 asyncio.run(main())
@@ -99,12 +99,16 @@ POST without initialization is not a complete MCP exchange. The matching archite
 
 ## Available Tools and Cancellation
 
-Discovery publishes existing Toolset tools marked for external exposure. Current
-PIE tools are `editor.pie__status`, `editor.pie__play`, `editor.pie__pause`, and
-`editor.pie__stop`. Pause requires an explicit boolean:
+Discovery publishes existing Toolset tools marked for external exposure.
+MCP names join the Toolset and local tool with a dot. Toolsets may contain dots;
+local tools cannot. Underscores are preserved. Refresh client discovery after
+upgrading from the previous double-underscore naming; old names are not aliases.
+
+PIE tools are `editor.pie.status`, `editor.pie.play`, `editor.pie.pause`, and
+`editor.pie.stop`. Pause requires an explicit boolean:
 
 ```python
-await client.call_tool("editor.pie__pause", {"paused": True})
+await client.call_tool("editor.pie.pause", {"paused": True})
 ```
 
 Business work executes when the editor reaches its next safe point. A call
@@ -123,7 +127,7 @@ retry mutations. No public receipt-polling or cancel business tools are needed.
 
 With the [packaged Python runtime](PythonScripts.md) prepared and enabled, MCP
 automatically shares it with the editor's script panel. Discovery adds
-`editor.python__submit`, `editor.python__status` and `editor.python__cancel`.
+`editor.python.submit`, `editor.python.status` and `editor.python.cancel`.
 Python absence leaves ordinary Toolset tools available and logs the reason.
 
 These tools execute trusted code with editor-process privileges. The MCP token
@@ -134,7 +138,7 @@ editor or elevate the native tool source.
 Inside the connected SDK client context above:
 
 ```python
-submitted = await client.call_tool("editor.python__submit", {
+submitted = await client.call_tool("editor.python.submit", {
     "code": "import durin\nprint(durin.tools.call('editor.pie', 'status', {}))",
     "filename": "agent_script.py",
 })
@@ -142,7 +146,7 @@ assert not submitted.is_error
 job_id = submitted.structured_content["data"]["job_id"]
 
 while True:
-    reply = await client.call_tool("editor.python__status", {"job_id": job_id})
+    reply = await client.call_tool("editor.python.status", {"job_id": job_id})
     assert not reply.is_error
     snapshot = reply.structured_content["data"]
     if snapshot["state"] not in {"queued", "running"}:
@@ -151,7 +155,7 @@ while True:
     await asyncio.sleep(0.1)
 
 # For unfinished work, request cancellation and continue polling actual state:
-# await client.call_tool("editor.python__cancel", {"job_id": job_id})
+# await client.call_tool("editor.python.cancel", {"job_id": job_id})
 ```
 
 Submit returns admission, not script success. Code is limited to 64 KiB UTF-8;

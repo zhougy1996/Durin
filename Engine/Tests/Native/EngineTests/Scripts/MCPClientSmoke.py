@@ -44,7 +44,7 @@ async def exercise(port: int, discovery_only: bool, control: Path) -> None:
     queued_opened = asyncio.Event()
 
     async def on_response(response):
-        if response.request.method == "POST" and json.loads(response.request.content).get("params", {}).get("name") == "tests__queued":
+        if response.request.method == "POST" and json.loads(response.request.content).get("params", {}).get("name") == "tests.queued":
             queued_opened.set()
 
     async with httpx2.AsyncClient(
@@ -68,7 +68,7 @@ async def exercise(port: int, discovery_only: bool, control: Path) -> None:
             assert client.protocol_version == "2025-06-18"
             tools = await client.list_tools()
             names = {tool.name for tool in tools.tools}
-            assert {"editor.pie__status", "editor.pie__play", "editor.pie__pause", "editor.pie__stop"} <= names
+            assert {"editor.pie.status", "editor.pie.play", "editor.pie.pause", "editor.pie.stop"} <= names
             if discovery_only:
                 print("Official SDK discovery passed")
                 return
@@ -76,22 +76,22 @@ async def exercise(port: int, discovery_only: bool, control: Path) -> None:
                 ("status", {}, "stopped"), ("play", {}, "playing"),
                 ("pause", {"paused": True}, "paused"), ("stop", {}, "stopped"),
             ]:
-                result = await client.call_tool(f"editor.pie__{name}", arguments)
+                result = await client.call_tool(f"editor.pie.{name}", arguments)
                 assert not result.is_error, result
                 assert result.structured_content["data"]["state"] == expected, result
             print("Official SDK PIE status/play/pause/stop passed")
-            wait_tool = next(tool for tool in tools.tools if tool.name == "tests__wait")
+            wait_tool = next(tool for tool in tools.tools if tool.name == "tests.wait")
             running_marker = Path(wait_tool.description.split("Marker: ", 1)[1])
-            running = asyncio.create_task(client.call_tool("tests__wait", {}))
+            running = asyncio.create_task(client.call_tool("tests.wait", {}))
             await wait_marker(running_marker)
             await abandon(running)
-            await client.call_tool("tests__pause", {})
-            queued = asyncio.create_task(client.call_tool("tests__queued", {}))
+            await client.call_tool("tests.pause", {})
+            queued = asyncio.create_task(client.call_tool("tests.queued", {}))
             await asyncio.wait_for(queued_opened.wait(), timeout=3)
             await abandon(queued)
             (control / "resume").touch()
             await wait_marker(running_marker.parent / "resumed")
-            stats = await client.call_tool("tests__stats", {})
+            stats = await client.call_tool("tests.stats", {})
             assert not stats.is_error, stats
             assert stats.structured_content["data"] == {
                 "runningCancelled": True, "queuedExecutions": 0,

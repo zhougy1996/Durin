@@ -70,12 +70,14 @@ External admission checks exposure again. Transient availability is evaluated at
 execution; it does not remove a tool from discovery. Catalog descriptions are
 cached by revision and sorted by advertised name.
 
-Names are `<escaped-toolset>__<escaped-tool>`, for example `editor.pie__pause`.
-Every native underscore is escaped as `_u`, so a component cannot contain the
-`__` separator. For example, native tool `add_component` becomes
-`add_ucomponent`. A name longer than
-128 bytes becomes its first 92 bytes, `__h`, and the full XXH3-128 hexadecimal
-digest. A collision rejects the catalog instead of dispatching ambiguously.
+Names are `<toolset>.<tool>`, for example `editor.pie.pause`. Toolsets may contain
+dot-separated segments; local tool names cannot contain dots. Underscores remain
+unchanged, so native tool `add_component` stays `add_component`. Invalid address
+components reject the catalog. A name longer than 128 bytes becomes its first
+94 bytes, `.h`, and the full XXH3-128 hexadecimal digest. Duplicate advertised
+names, including collisions between shortened and ordinary names, reject the
+entire catalog instead of overwriting a route or dispatching ambiguously.
+Legacy double-underscore names have no aliases; clients must refresh discovery.
 The adapter retains the original `FToolAddress`, ContractVersion, and input schema
 for dispatch, alongside the converted protocol description. It does not retain a
 second complete native descriptor.
@@ -146,9 +148,9 @@ Their scripts still call native Toolsets through the existing editor tool servic
 
 | Tool | Input | Successful data |
 | --- | --- | --- |
-| `editor.python__submit` | Required `code` string, up to 64 KiB UTF-8; optional `filename`, up to 4096 bytes, default `<mcp>` | `{job_id}` after admission only |
-| `editor.python__status` | Required session-owned `job_id` string | `{job_id, state, output, error}` |
-| `editor.python__cancel` | Required session-owned `job_id` string | `{job_id, cancellation_requested}` |
+| `editor.python.submit` | Required `code` string, up to 64 KiB UTF-8; optional `filename`, up to 4096 bytes, default `<mcp>` | `{job_id}` after admission only |
+| `editor.python.status` | Required session-owned `job_id` string | `{job_id, state, output, error}` |
+| `editor.python.cancel` | Required session-owned `job_id` string | `{job_id, cancellation_requested}` |
 
 Inputs are closed objects validated against Core schemas. There is no remote file
 path runner or source/host override. Submit is non-idempotent and is never retried
@@ -174,7 +176,7 @@ MCP session deletion, idle expiry and server stop close its Python session and
 cancel owned jobs, including unfinished native tool calls. They do not stop the
 shared runtime or cancel UI/other-client sessions. HTTP disconnect does not cancel
 admitted scripts. notifications/cancelled addresses an in-flight RPC only; after
-submit returns, cancel the job through editor.python__cancel. The job retains its
+submit returns, cancel the job through editor.python.cancel. The job retains its
 original cooperative runtime deadline independently of later status queries.
 
 Runtime lifecycle locking protects short native calls during owner shutdown, and

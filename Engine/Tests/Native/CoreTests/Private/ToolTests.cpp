@@ -417,8 +417,17 @@ namespace Durin::Tests
 	{
 		EXPECT_TRUE(ValidateToolsetDescriptor({"editor.pie", "Play controls", {}}));
 		EXPECT_TRUE(ValidateToolName("start"));
+		EXPECT_TRUE(ValidateToolName("set_paused"));
+		EXPECT_TRUE(ValidateToolsetName("editor.pie"));
+		EXPECT_FALSE(ValidateToolName("pie.play"));
+		EXPECT_FALSE(ValidateToolsetName("editor..pie"));
+		EXPECT_FALSE(ValidateToolsetName("editor."));
 		EXPECT_FALSE(ValidateToolName("bad/name"));
 		EXPECT_FALSE(ValidateToolName(std::string(257, 'a')));
+		auto Dotted = MakeDescriptor(); Dotted.Name = "pie.play";
+		EXPECT_EQ(EToolError::InvalidDescriptor, ValidateToolDescriptor(Dotted).error().Code);
+		EXPECT_THROW((BindTool(FToolDescriptor{.Name = "pie.play"}, &TypedVoid,
+			std::array<FToolParameter, 0>{})), std::invalid_argument);
 		FToolLimits Limits; Limits.MaxStringBytes = 4;
 		EXPECT_EQ(EToolError::LimitExceeded, ValidateToolsetDescriptor({"test", "oversized", {}}, Limits).error().Code);
 		auto Input = Request(); Input.Address.Toolset.clear();

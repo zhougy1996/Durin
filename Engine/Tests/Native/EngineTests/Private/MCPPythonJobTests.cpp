@@ -92,7 +92,7 @@ namespace
         { return Post(Owner, "tools/call", {{"name", std::move(Tool)}, {"arguments", std::move(Args)}}); }
         auto Submit(std::string Code, std::string_view Owner = {}) -> std::string
         {
-            auto ReplyText = Call(Owner.empty() ? Session : Owner, "editor.python__submit", {{"code", std::move(Code)}});
+            auto ReplyText = Call(Owner.empty() ? Session : Owner, "editor.python.submit", {{"code", std::move(Code)}});
             EXPECT_FALSE(IsError(ReplyText)); const auto Id = DataString(ReplyText, "job_id"); EXPECT_FALSE(Id.empty()); return Id;
         }
         auto Wait(std::string_view Id, bool Pump = true, std::string_view Owner = {}) -> std::string
@@ -101,7 +101,7 @@ namespace
             while (std::chrono::steady_clock::now() < Deadline)
             {
                 if (Pump) Tools->TickTools();
-                auto Result = Call(Owner.empty() ? Session : Owner, "editor.python__status", {{"job_id", std::string(Id)}});
+                auto Result = Call(Owner.empty() ? Session : Owner, "editor.python.status", {{"job_id", std::string(Id)}});
                 const auto State = DataString(Result, "state");
                 if (State != "queued" && State != "running") return Result;
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -124,16 +124,16 @@ namespace
     TEST_F(FMCPPythonJobTests, AdvertisesJobsAndReturnsAdmissionBeforeEditorTick)
     {
         auto Listed = Post(Session, "tools/list");
-        for (const auto Name : {"editor.python__submit", "editor.python__status", "editor.python__cancel", "editor.pie__status"})
+        for (const auto Name : {"editor.python.submit", "editor.python.status", "editor.python.cancel", "editor.pie.status"})
             EXPECT_NE(std::string::npos, Listed.find(Name));
         auto Id = Submit("import durin\nprint(durin.tools.call('editor.pie', 'status', {})['state'])");
-        auto Snapshot = Call(Session, "editor.python__status", {{"job_id", Id}});
+        auto Snapshot = Call(Session, "editor.python.status", {{"job_id", Id}});
         EXPECT_FALSE(IsError(Snapshot)); EXPECT_NE("succeeded", DataString(Snapshot, "state"));
         auto Result = Wait(Id); EXPECT_EQ("succeeded", DataString(Result, "state")); EXPECT_EQ("stopped\n", DataString(Result, "output"));
     }
     TEST_F(FMCPPythonJobTests, ReportsFailureAsAJobSnapshotWithDiagnosticFilename)
     {
-        auto Submitted = Call(Session, "editor.python__submit", {{"code", "raise ValueError('script failed')"}, {"filename", "agent_script.py"}});
+        auto Submitted = Call(Session, "editor.python.submit", {{"code", "raise ValueError('script failed')"}, {"filename", "agent_script.py"}});
         ASSERT_FALSE(IsError(Submitted)); auto Result = Wait(DataString(Submitted, "job_id"), false);
         EXPECT_FALSE(IsError(Result)); EXPECT_EQ("failed", DataString(Result, "state"));
         EXPECT_NE(std::string::npos, DataString(Result, "error").find("agent_script.py"));
@@ -143,16 +143,16 @@ namespace
     {
         auto Running = Submit("while True:\n    pass\n");
         auto Queued = Submit("print('must not run')");
-        auto Cancelled = Call(Session, "editor.python__cancel", {{"job_id", Queued}}); EXPECT_FALSE(IsError(Cancelled));
+        auto Cancelled = Call(Session, "editor.python.cancel", {{"job_id", Queued}}); EXPECT_FALSE(IsError(Cancelled));
         EXPECT_EQ("cancelled", DataString(Wait(Queued, false), "state"));
-        EXPECT_FALSE(IsError(Call(Session, "editor.python__cancel", {{"job_id", Running}})));
+        EXPECT_FALSE(IsError(Call(Session, "editor.python.cancel", {{"job_id", Running}})));
         EXPECT_EQ("cancelled", DataString(Wait(Running, false), "state"));
         EXPECT_EQ("", DataString(Wait(Queued, false), "output"));
     }
     TEST_F(FMCPPythonJobTests, RejectsForeignUnknownAndMalformedJobIds)
     {
         auto Id = Submit("print('owner')"); auto Other = Connect();
-        for (const auto Tool : {"editor.python__status", "editor.python__cancel"})
+        for (const auto Tool : {"editor.python.status", "editor.python.cancel"})
         {
             EXPECT_TRUE(IsError(Call(Other, Tool, {{"job_id", Id}})));
             EXPECT_TRUE(IsError(Call(Session, Tool, {{"job_id", "missing"}})));
@@ -164,7 +164,7 @@ namespace
     {
         for (auto Args : {FObject{}, FObject{{"code", 1}}, FObject{{"code", "pass"}, {"source", "Native"}},
             FObject{{"code", std::string(65537, ' ')}}, FObject{{"code", "pass"}, {"filename", std::string(4097, 'x')}}})
-            EXPECT_TRUE(IsError(Call(Session, "editor.python__submit", std::move(Args))));
+            EXPECT_TRUE(IsError(Call(Session, "editor.python.submit", std::move(Args))));
         EXPECT_EQ("succeeded", DataString(Wait(Submit("#" + std::string(65535, ' ')), false), "state"));
         auto Result = Wait(Submit("import durin\ndurin.tools.call('editor.pie', 'pause', {'paused': True})"));
         EXPECT_EQ("failed", DataString(Result, "state")); EXPECT_NE(std::string::npos, DataString(Result, "error").find("No Play session"));
@@ -175,7 +175,7 @@ namespace
         auto Other = Connect(); auto Second = Submit("print('other session')", Other);
         Delete(Session);
         EXPECT_EQ("succeeded", DataString(Wait(Second, false, Other), "state"));
-        EXPECT_TRUE(IsError(Call(Other, "editor.python__status", {{"job_id", Id}})));
+        EXPECT_TRUE(IsError(Call(Other, "editor.python.status", {{"job_id", Id}})));
         auto Third = Submit("while True:\n    pass\n", Other); (void)Third;
         Server.Stop();
         auto Local = Runtime->CreateSession(Tools->GetService()); ASSERT_TRUE(Local);
@@ -214,13 +214,13 @@ namespace
     {
         auto First = Submit("pass"); EXPECT_EQ("succeeded", DataString(Wait(First, false), "state"));
         for (int I = 0; I < 65; ++I) EXPECT_EQ("succeeded", DataString(Wait(Submit("pass"), false), "state"));
-        EXPECT_TRUE(IsError(Call(Session, "editor.python__status", {{"job_id", First}})));
+        EXPECT_TRUE(IsError(Call(Session, "editor.python.status", {{"job_id", First}})));
     }
     TEST_F(FMCPPythonJobTests, EnforcesOutstandingJobLimitAndReleasesQueuedWork)
     {
         auto Running = Submit("while True:\n    pass\n"); (void)Running;
         for (int I = 0; I < 15; ++I) EXPECT_FALSE(Submit("print('queued')").empty());
-        EXPECT_TRUE(IsError(Call(Session, "editor.python__submit", {{"code", "pass"}})));
+        EXPECT_TRUE(IsError(Call(Session, "editor.python.submit", {{"code", "pass"}})));
         Delete(Session); Session = Connect();
         EXPECT_EQ("succeeded", DataString(Wait(Submit("print('new session')"), false), "state"));
     }
@@ -236,21 +236,21 @@ namespace
         }
         auto Result = Wait(Submit("import durin\nprint(durin.ui_marker)"), false);
         EXPECT_EQ("shared interpreter\n", DataString(Result, "output"));
-        EXPECT_TRUE(IsError(Call(Session, "editor.python__status", {{"job_id", std::to_string(*LocalJob)}})));
+        EXPECT_TRUE(IsError(Call(Session, "editor.python.status", {{"job_id", std::to_string(*LocalJob)}})));
         auto Id = Submit("while True:\n    pass\n");
         std::atomic<bool> Done = false;
         auto Reader = std::async(std::launch::async, [&] {
-            while (!Done) { (void)Call(Session, "editor.python__status", {{"job_id", Id}}); std::this_thread::sleep_for(std::chrono::milliseconds(2)); }
+            while (!Done) { (void)Call(Session, "editor.python.status", {{"job_id", Id}}); std::this_thread::sleep_for(std::chrono::milliseconds(2)); }
         });
         Runtime->Stop(); Done = true; Reader.get();
-        EXPECT_TRUE(IsError(Call(Session, "editor.python__status", {{"job_id", Id}})));
+        EXPECT_TRUE(IsError(Call(Session, "editor.python.status", {{"job_id", Id}})));
         EXPECT_NE(std::string::npos, Post(Session, "ping").find("result"));
     }
     TEST_F(FMCPPythonJobTests, OmitsScriptToolsWithoutARuntimeAndRejectsCatalogCollisions)
     {
         Server.Stop();
         auto Without = Server.Start(*Host, {.BearerToken = std::string(Token)}); ASSERT_TRUE(Without); Port = *Without; Session = Connect();
-        EXPECT_EQ(std::string::npos, Post(Session, "tools/list").find("editor.python__"));
+        EXPECT_EQ(std::string::npos, Post(Session, "tools/list").find("editor.python."));
         Server.Stop(); auto With = Server.Start(*Host, {.BearerToken = std::string(Token), .PythonRuntime = Runtime});
         ASSERT_TRUE(With); Port = *With; Session = Connect();
         FToolDescriptor Descriptor{.Name = "submit", .bExposeExternally = true}; FToolBinding Binding{Descriptor};

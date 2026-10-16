@@ -41,10 +41,10 @@ async def exercise(port: int, token: str, ready: Path, process: subprocess.Popen
         async with Client(transport(), mode="legacy", read_timeout_seconds=10, cache=None) as client:
             tools = await client.list_tools()
             names = {tool.name for tool in tools.tools}
-            assert {"editor.python__submit", "editor.python__status", "editor.python__cancel"} <= names
+            assert {"editor.python.submit", "editor.python.status", "editor.python.cancel"} <= names
 
             async def call(name: str, args: dict) -> dict:
-                result = await client.call_tool(f"editor.python__{name}", args)
+                result = await client.call_tool(f"editor.python.{name}", args)
                 assert not result.is_error, result
                 return result.structured_content["data"]
 
@@ -80,7 +80,7 @@ print('SDK_PYTHON_JOBS_OK')
             cancelled = await wait(running)
             assert cancelled["state"] == "cancelled", cancelled
             async with Client(transport(), mode="legacy", cache=None) as other:
-                foreign = await other.call_tool("editor.python__status", {"job_id": job})
+                foreign = await other.call_tool("editor.python.status", {"job_id": job})
                 assert foreign.is_error, foreign
             return {"tools": sorted(names), "success": success, "failure": failure, "cancelled": cancelled,
                     "foreign_job_rejected": True, "ui_mcp_runtime_shared": True}

@@ -58,7 +58,7 @@ namespace Durin
 		}
 		auto ValidateRequest(const FToolRequest& Request, EToolSource Source) -> FToolValidationResult
 		{
-			if (!ValidateToolName(Request.Address.Toolset) || !ValidateToolName(Request.Address.Tool) || static_cast<uint8>(Source) > static_cast<uint8>(EToolSource::External))
+			if (!ValidateToolsetName(Request.Address.Toolset) || !ValidateToolName(Request.Address.Tool) || static_cast<uint8>(Source) > static_cast<uint8>(EToolSource::External))
 				return std::unexpected(Diagnostic(EToolError::InvalidArguments, "Invalid tool name or source."));
 			return ValidateToolValue(Request.Arguments);
 		}
@@ -271,7 +271,7 @@ namespace Durin
 			if (auto Check = ValidateToolsetDescriptor(Set); !Check)
 			{
 				// A valid name still claims its namespace even when the group metadata is invalid.
-				if (ValidateToolName(Set.Name))
+				if (ValidateToolsetName(Set.Name))
 				{
 					ClaimedSets.insert(Set.Name);
 					Toolsets.erase(Set.Name);

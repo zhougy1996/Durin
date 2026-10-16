@@ -187,6 +187,8 @@ namespace Durin
 	};
 
 	using FToolValidationResult = std::expected<void, FToolDiagnostic>;
+	// Toolsets allow dot-separated segments; local tools are a single segment.
+	[[nodiscard]] CORE_API auto ValidateToolsetName(std::string_view Name) -> bool;
 	[[nodiscard]] CORE_API auto ValidateToolName(std::string_view Name) -> bool;
 	// Validates group metadata; individual tool schemas are validated separately.
 	[[nodiscard]] CORE_API auto ValidateToolsetDescriptor(const FToolsetDescriptor& Descriptor,

@@ -59,9 +59,11 @@ precision or return a parser-owned node view.
 
 ## Descriptors and Invocation
 
-Toolset and local tool names contain one or more dot-separated segments, at
-most 256 bytes each. `FToolAddress` keeps the two names separate; it does not
-split or concatenate names to infer ownership. Each segment starts
+Toolset names contain one or more dot-separated segments; local tool names are
+a single segment and cannot contain dots. Both are at most 256 bytes each.
+`ValidateToolsetName` and `ValidateToolName` enforce the respective grammars.
+`FToolAddress` keeps the two names separate; it does not split or concatenate
+names to infer ownership. Each segment starts
 with an ASCII lowercase letter and continues with lowercase letters, digits,
 or underscores. Names are case-sensitive and never normalized. ContractVersion
 is nonzero and independent of module load generation. Inputs have an object

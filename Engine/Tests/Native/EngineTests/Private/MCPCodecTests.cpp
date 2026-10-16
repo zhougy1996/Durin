@@ -81,7 +81,7 @@ namespace
 		Native.Toolsets.push_back({{"editor.pie", "PIE", {Visible, Hidden}}, 1});
 		auto Catalog = BuildCatalog(Native);
 		ASSERT_TRUE(Catalog); ASSERT_EQ(1u, Catalog->size());
-		EXPECT_TRUE(Catalog->contains("editor.pie__pause"));
+		EXPECT_TRUE(Catalog->contains("editor.pie.pause"));
 		Native.Toolsets[0].Descriptor.Name = std::string(256, 'a');
 		auto Long = BuildCatalog(Native);
 		ASSERT_TRUE(Long); EXPECT_LE(Long->begin()->first.size(), 128u);
@@ -92,16 +92,16 @@ namespace
 	TEST(FMCPCodecTests, DescribesPythonJobRoutesAndSchemasExplicitly)
 	{
 		auto Catalog = BuildPythonCatalog(); ASSERT_TRUE(Catalog); ASSERT_EQ(3u, Catalog->size());
-		EXPECT_EQ(EToolRoute::PythonSubmit, Catalog->at("editor.python__submit").Route);
-		EXPECT_EQ(EToolRoute::PythonStatus, Catalog->at("editor.python__status").Route);
-		EXPECT_EQ(EToolRoute::PythonCancel, Catalog->at("editor.python__cancel").Route);
+		EXPECT_EQ(EToolRoute::PythonSubmit, Catalog->at("editor.python.submit").Route);
+		EXPECT_EQ(EToolRoute::PythonStatus, Catalog->at("editor.python.status").Route);
+		EXPECT_EQ(EToolRoute::PythonCancel, Catalog->at("editor.python.cancel").Route);
 		for (const auto& [Name, Tool] : *Catalog)
 		{
 			(void)Name;
 			FToolDescriptor Descriptor; Descriptor.Name = Tool.Address.Tool; Descriptor.Input = Tool.Input;
 			EXPECT_TRUE(ValidateToolDescriptor(Descriptor));
 		}
-		const auto& Submit = Catalog->at("editor.python__submit");
+		const auto& Submit = Catalog->at("editor.python.submit");
 		EXPECT_EQ(65536u, Submit.Input.Properties.at("code").MaxSize);
 		EXPECT_FALSE(std::get<bool>(Find(Find(Submit.Description, "annotations"), "idempotentHint").Data));
 	}
@@ -135,17 +135,47 @@ namespace
 			EXPECT_EQ(ERequestErrorCode::InvalidRequest, Result.error().Code);
 		}
 	}
-	TEST(FMCPCodecTests, EscapesNativeUnderscoresBeforeJoiningAddressComponents)
+	TEST(FMCPCodecTests, JoinsDottedToolsetsWithoutEscapingUnderscores)
 	{
 		ASSERT_TRUE(ValidateToolName("a__b"));
 		FEditorToolCatalog Native;
 		Native.Toolsets.push_back({{"a__b", "first", {{.Name = "c", .bExposeExternally = true}}}, 1});
 		Native.Toolsets.push_back({{"a", "second", {{.Name = "b__c", .bExposeExternally = true}}}, 2});
 		Native.Toolsets.push_back({{"a_u", "third", {{.Name = "c", .bExposeExternally = true}}}, 3});
-		auto Catalog = BuildCatalog(Native); ASSERT_TRUE(Catalog); ASSERT_EQ(3u, Catalog->size());
-		EXPECT_EQ("a__b", Catalog->at("a_u_ub__c").Address.Toolset);
-		EXPECT_EQ("b__c", Catalog->at("a__b_u_uc").Address.Tool);
-		EXPECT_EQ("a_u", Catalog->at("a_uu__c").Address.Toolset);
+		Native.Toolsets.push_back({{"editor.pie", "fourth", {{.Name = "set_paused", .bExposeExternally = true}}}, 4});
+		auto Catalog = BuildCatalog(Native); ASSERT_TRUE(Catalog); ASSERT_EQ(4u, Catalog->size());
+		EXPECT_EQ("a__b", Catalog->at("a__b.c").Address.Toolset);
+		EXPECT_EQ("b__c", Catalog->at("a.b__c").Address.Tool);
+		EXPECT_EQ("a_u", Catalog->at("a_u.c").Address.Toolset);
+		EXPECT_EQ("set_paused", Catalog->at("editor.pie.set_paused").Address.Tool);
+	}
+	TEST(FMCPCodecTests, RejectsDottedLocalNamesAndMalformedToolsets)
+	{
+		FEditorToolCatalog Native;
+		Native.Toolsets.push_back({{"editor", "ambiguous", {{.Name = "pie.play", .bExposeExternally = true}}}, 1});
+		EXPECT_FALSE(BuildCatalog(Native));
+		Native.Toolsets[0].Descriptor.Name = "editor..pie";
+		Native.Toolsets[0].Descriptor.Tools[0].Name = "play";
+		EXPECT_FALSE(BuildCatalog(Native));
+	}
+	TEST(FMCPCodecTests, RejectsDuplicateNamesAndLongNameAliases)
+	{
+		FEditorToolCatalog Native;
+		Native.Toolsets.push_back({{"editor.pie", "PIE", {{.Name = "play", .bExposeExternally = true}}}, 1});
+		Native.Toolsets[0].Descriptor.Tools.push_back(Native.Toolsets[0].Descriptor.Tools[0]);
+		auto Duplicate = BuildCatalog(Native); ASSERT_FALSE(Duplicate);
+		EXPECT_NE(std::string::npos, Duplicate.error().find("editor.pie.play"));
+		Native.Toolsets[0].Descriptor.Tools.pop_back();
+		Native.Toolsets[0].Descriptor.Name = std::string(256, 'a');
+		auto Long = BuildCatalog(Native); ASSERT_TRUE(Long);
+		const auto Name = Long->begin()->first;
+		ASSERT_EQ(128u, Name.size());
+		const auto Separator = Name.rfind('.'); ASSERT_NE(std::string::npos, Separator);
+		Native.Toolsets.push_back({{Name.substr(0, Separator), "alias",
+			{{.Name = Name.substr(Separator + 1), .bExposeExternally = true}}}, 2});
+		EXPECT_FALSE(BuildCatalog(Native));
+		std::reverse(Native.Toolsets.begin(), Native.Toolsets.end());
+		EXPECT_FALSE(BuildCatalog(Native));
 	}
 	TEST(FMCPCodecTests, EnvelopesScalarNullAndFailureResultsWithoutLeakingReceipts)
 	{
