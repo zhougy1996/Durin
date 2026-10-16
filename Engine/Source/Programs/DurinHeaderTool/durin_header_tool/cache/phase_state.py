@@ -15,7 +15,7 @@ from durin_header_tool.model.reflection_generation import ReflectionHeaderGenera
 
 
 PHASE_STATE_ENVELOPE_SCHEMA_VERSION = 2
-EXPORT_PHASE_STATE_SCHEMA_VERSION = 2
+EXPORT_PHASE_STATE_SCHEMA_VERSION = 3
 REFLECTION_PHASE_STATE_SCHEMA_VERSION = 2
 
 
@@ -112,7 +112,7 @@ class ExportPhaseState:
                 continue
             try:
                 symbols = {
-                    _nonempty_key(name, "RawSymbolsByHeader"): ExportedSymbolInfo.from_json(raw)
+                    _nonempty_key(name, "RawSymbolsByHeader"): ExportedSymbolInfo.from_json(raw, allow_unresolved_functions=True)
                     for name, raw in raw_symbols.items()
                 }
                 if any(symbol.QualifiedName != name for name, symbol in symbols.items()):

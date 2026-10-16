@@ -9,6 +9,27 @@
 
 namespace Durin
 {
+	auto ArePropertyTypesSame(const FProperty* A, const FProperty* B) -> bool
+	{
+		if (!A || !B || A->GetKind() != B->GetKind() || A->GetValueSize() != B->GetValueSize()
+			|| A->GetValueAlignment() != B->GetValueAlignment() || A->GetArrayDim() != B->GetArrayDim()
+			|| (A->GetArrayDim() > 1 && A->GetElementSize() != B->GetElementSize())) return false;
+		using K = DurinCodeGen::EPropertyGenFlags;
+		switch (A->GetKind())
+		{
+		case K::Enum: return static_cast<const FEnumProperty*>(A)->GetEnum() == static_cast<const FEnumProperty*>(B)->GetEnum();
+		case K::SoftObject:
+		case K::WeakObject: return A->GetReferencedClass() == B->GetReferencedClass();
+		case K::Object: return A->GetReferencedClass() == B->GetReferencedClass() && A->IsObjectPtrWrapper() == B->IsObjectPtrWrapper();
+		case K::Struct: return static_cast<const FStructProperty*>(A)->GetStruct() == static_cast<const FStructProperty*>(B)->GetStruct();
+		case K::Array: return ArePropertyTypesSame(static_cast<const FArrayProperty*>(A)->GetInner(), static_cast<const FArrayProperty*>(B)->GetInner());
+		case K::Map:
+			return ArePropertyTypesSame(static_cast<const FMapProperty*>(A)->GetKeyProp(), static_cast<const FMapProperty*>(B)->GetKeyProp())
+				&& ArePropertyTypesSame(static_cast<const FMapProperty*>(A)->GetValueProp(), static_cast<const FMapProperty*>(B)->GetValueProp());
+		default: return true;
+		}
+	}
+
 	auto FProperty::InitializeDeprecation() -> void
 	{
 		Deprecation.reset();

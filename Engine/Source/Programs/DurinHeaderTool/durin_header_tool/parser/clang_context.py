@@ -11,7 +11,7 @@ from durin_header_tool.model.export_info import ExportedSymbolInfo
 from durin_header_tool.parser.annotation_rewriter import _DMetaUse, _make_dht_parse_source
 
 ExportedSymbols: TypeAlias = dict[str, ExportedSymbolInfo]
-PARSER_CONTEXT_VERSION = "target-predefines-v9-functions"
+PARSER_CONTEXT_VERSION = "target-predefines-v13-function-named-types"
 _FILE_ID_READABLE_PREFIX_LENGTH = 48
 _INCLUDE_PATTERN = re.compile(r'^[ \t]*#[ \t]*include\b[^\r\n]*$', re.MULTILINE)
 _TYPE_DECLARATION_PATTERN = re.compile(r"\b(?:class|struct|enum(?:\s+class)?)\s+([A-Za-z_]\w*)")
@@ -138,9 +138,8 @@ def _synthetic_declaration(symbol: ExportedSymbolInfo, symbols=None) -> str:
             for function in ancestor.Functions:
                 functions.setdefault(function["Name"], function)
             ancestor = (symbols or {}).get(ancestor.BaseQualifiedName)
-        methods = " ".join(
-            ("virtual " if function["Virtual"] else "") + f"void {function['Name']}();"
-            for function in functions.values())
+        from durin_header_tool.model.function_signature import synthetic_function_declaration
+        methods = " ".join(synthetic_function_declaration(function) for function in functions.values())
         declaration = f"{symbol.Kind} {name} {{ public: {methods} }};"
     for namespace in reversed(namespaces):
         declaration = f"namespace {namespace} {{ {declaration} }}"
@@ -163,10 +162,23 @@ def _synthetic_parser_prelude(
         "using uint64 = unsigned long long;",
         "class FName {}; struct FGuid {}; class FObjectInitializer {}; class FByteBuffer {};",
         "template<class T> class TObjectPtr {}; template<class T> class TSoftObjectPtr {};",
+        "template<class T> class TWeakObjectPtr {};",
         "}",
     ]
+    # Method schemas may refer to types sorted after their declaring class, or
+    # types authored in the current header. Declare identities before methods.
     for symbol in sorted((exported_symbols or {}).values(), key=lambda item: item.QualifiedName):
-        if symbol.Header == header or symbol.ShortName in declared_names:
+        if symbol.Kind == "enum":
+            if symbol.Header != header and symbol.ShortName not in declared_names:
+                lines.append(_synthetic_declaration(symbol, exported_symbols))
+            continue
+        parts = symbol.QualifiedName.split("::")
+        declaration = f"{symbol.Kind} {parts[-1]};"
+        for namespace in reversed(parts[:-1]):
+            declaration = f"namespace {namespace} {{ {declaration} }}"
+        lines.append(declaration)
+    for symbol in sorted((exported_symbols or {}).values(), key=lambda item: item.QualifiedName):
+        if symbol.Kind == "enum" or symbol.Header == header or symbol.ShortName in declared_names:
             continue
         lines.append(_synthetic_declaration(symbol, exported_symbols))
     return "\n".join(lines) + "\n"

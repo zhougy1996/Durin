@@ -118,6 +118,12 @@ def resolved_symbol_dependencies_for_header(header_info: ReflectedHeaderInfo, sy
             base_name = symbols[base_name].BaseQualifiedName
         for prop in class_info.properties:
             _collect_property_dependencies(prop, symbols, dependencies)
+        from durin_header_tool.model.function_signature import function_type_names
+        for function in class_info.functions:
+            for value_type in [function.return_kind, *(p.kind for p in function.parameters)]:
+                for name in function_type_names(value_type):
+                    if name in symbols:
+                        dependencies[name] = symbol_dependency_snapshot(symbols[name])
     for struct_info in header_info.structs:
         for prop in struct_info.properties:
             _collect_property_dependencies(prop, symbols, dependencies)

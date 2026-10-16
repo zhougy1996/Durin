@@ -356,7 +356,14 @@ def parse_reflection_header(
                 _validate_property_deprecations(
                     reflected_class.qualified_name, reflected_class.properties
                 )
-                reflected_class.functions = parse_functions(child, header)
+                function_symbols = dict(exported_symbols or {})
+                for local in [*structs, *enums, *classes, reflected_class]:
+                    function_symbols[local.qualified_name] = ExportedSymbolInfo(
+                        Kind=local.generated_symbol.kind,
+                        ShortName=local.short_name, Namespace=local.namespace, QualifiedName=local.qualified_name,
+                        Header=local.header, API=local.api)
+                reflected_class.functions = parse_functions(child, header, function_symbols,
+                                                            declaring_namespace, allow_unknown=export_mode)
                 if exported_symbols and not export_mode:
                     validate_function_inheritance(child, reflected_class, header, exported_symbols)
                 classes.append(reflected_class)

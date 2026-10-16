@@ -4,6 +4,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
+#include "DObject/Function.h"
 #include "GCReferenceSchema.h"
 #include "Misc/StringHelper.h"
 #include "QualifiedTypeRegistry.h"
@@ -123,57 +124,91 @@ namespace
 
 namespace Durin
 {
-	auto FFunction::GetRootFunction() const -> const FFunction&
-	{
-		// Parent descriptors may register later in the same module batch. Resolve
-		// ancestry after publication instead of caching a registration-order result.
-		const auto* Parent = Owner ? Owner->GetSuperClass() : nullptr;
-		const auto* Inherited = Parent ? Parent->FindFunctionByName(Name) : nullptr;
-		return Inherited ? Inherited->GetRootFunction() : *this;
-	}
-
-	auto FFunction::InvokeVoidNoArgs(DObject& Target) const -> EFunctionInvokeError
-	{
-		if (!IsValid(&Target)) return EFunctionInvokeError::InvalidTarget;
-		if (!Owner || !Target.IsA(Owner)) return EFunctionInvokeError::WrongClass;
-		if (!Invoker) return EFunctionInvokeError::MissingInvoker;
-		Invoker(Target);
-		return EFunctionInvokeError::None;
-	}
-
 	auto DClass::FindFunctionByName(FName Name, bool bIncludeSuper) const -> const FFunction*
 	{
-		for (const auto& Function : Functions)
-			if (Function.GetName() == Name) return &Function;
-		return bIncludeSuper && GetSuperClass() ? GetSuperClass()->FindFunctionByName(Name) : nullptr;
+		if (!bFunctionsLinked)
+		{
+			const auto Error = const_cast<DClass*>(this)->LinkFunctions();
+			requiref(Error == EFunctionLinkError::None, "Failed to link functions for '{}' (error {}).",
+				GetQualifiedName().ToString(), static_cast<uint32>(Error));
+		}
+		const auto It = FunctionMap.find(Name);
+		if (It == FunctionMap.end() || (!bIncludeSuper && It->second->GetOwnerClass() != this)) return nullptr;
+		return It->second;
 	}
 
 	auto DClass::ForEachFunction(const std::function<void(const FFunction&)>& Visitor, bool bIncludeSuper) const -> void
 	{
-		std::vector<const FFunction*> Effective;
-		std::unordered_set<FName> Names;
-		for (const DClass* Class = this; Class; Class = bIncludeSuper ? Class->GetSuperClass() : nullptr)
-			for (const auto& Function : Class->Functions)
-				if (Names.insert(Function.GetName()).second) Effective.push_back(&Function);
-		std::ranges::sort(Effective, [](const auto* A, const auto* B) {
+		if (!bFunctionsLinked)
+		{
+			const auto Error = const_cast<DClass*>(this)->LinkFunctions();
+			requiref(Error == EFunctionLinkError::None, "Failed to link functions for '{}' (error {}).",
+				GetQualifiedName().ToString(), static_cast<uint32>(Error));
+		}
+		for (const auto* Function : EffectiveFunctions)
+			if (bIncludeSuper || Function->GetOwnerClass() == this) Visitor(*Function);
+	}
+
+	auto DClass::LinkFunctions() -> EFunctionLinkError
+	{
+		if (bFunctionsLinked) return EFunctionLinkError::None;
+		if (bLinkingFunctions) return EFunctionLinkError::InheritanceCycle;
+		struct FLinkGuard
+		{
+			bool& bLinking;
+			explicit FLinkGuard(bool& Value) : bLinking(Value) { bLinking = true; }
+			~FLinkGuard() { bLinking = false; }
+		} Guard(bLinkingFunctions);
+		auto* Parent = GetSuperClass();
+		if (Parent)
+		{
+			const auto Error = Parent->LinkFunctions();
+			if (Error != EFunctionLinkError::None) return Error;
+		}
+		// Validate the entire local list before publishing any links or lookup entries.
+		for (const auto& Function : Functions)
+		{
+			if (!Function.HasAnyFlags(EFunctionFlags::Native) || !Function.NativeFunction
+				|| !Function.bValidSignature
+				|| (Function.HasAnyFlags(EFunctionFlags::Final) && !Function.HasAnyFlags(EFunctionFlags::Virtual)))
+				return EFunctionLinkError::InvalidDescriptor;
+			const auto* Super = Parent ? Parent->FindFunctionByName(Function.GetName()) : nullptr;
+			if (!Super) continue;
+			if (!Super->HasAnyFlags(EFunctionFlags::Virtual) || !Function.HasAnyFlags(EFunctionFlags::Virtual))
+				return EFunctionLinkError::NonVirtualOverride;
+			if (Super->HasAnyFlags(EFunctionFlags::Final)) return EFunctionLinkError::FinalOverride;
+			if (!Function.IsSignatureCompatibleWith(*Super)) return EFunctionLinkError::SignatureMismatch;
+		}
+		if (Parent) FunctionMap = Parent->FunctionMap;
+		for (auto& Function : Functions)
+		{
+			Function.SuperFunction = Parent ? Parent->FindFunctionByName(Function.GetName()) : nullptr;
+			FunctionMap[Function.GetName()] = &Function;
+		}
+		for (const auto& [Name, Function] : FunctionMap) EffectiveFunctions.push_back(Function);
+		bFunctionsLinked = true;
+		std::ranges::sort(EffectiveFunctions, [](const auto* A, const auto* B) {
 			const auto& RootA = A->GetRootFunction();
 			const auto& RootB = B->GetRootFunction();
 			return std::pair(RootA.GetOwnerClass()->GetQualifiedName().ToString(), RootA.GetName().ToString())
 				< std::pair(RootB.GetOwnerClass()->GetQualifiedName().ToString(), RootB.GetName().ToString());
 		});
-		for (const auto* Function : Effective) Visitor(*Function);
+		return EFunctionLinkError::None;
 	}
 
 	auto DClass::RegisterFunctions(std::vector<FFunction> InFunctions) -> void
 	{
-		check(Functions.empty());
+		requiref(!bFunctionsRegistered && !bFunctionsLinked,
+			"Cannot register functions for '{}' (registered {}, linked {}, local {}, incoming {}).",
+			GetQualifiedName().ToString(), bFunctionsRegistered, bFunctionsLinked, Functions.size(), InFunctions.size());
 		std::unordered_set<FName> Names;
 		for (const auto& Function : InFunctions)
 		{
-			check(Function.GetOwnerClass() == this && !Function.GetName().IsNone());
-			check(Names.insert(Function.GetName()).second);
+			require(Function.GetOwnerClass() == this && !Function.GetName().IsNone());
+			require(Names.insert(Function.GetName()).second);
 		}
 		Functions = std::move(InFunctions);
+		bFunctionsRegistered = true;
 	}
 
 	auto DStructBase::RegisterDependencies() -> void

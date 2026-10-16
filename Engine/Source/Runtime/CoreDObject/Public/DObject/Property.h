@@ -179,6 +179,10 @@ namespace Durin
 		const void* (*ConstValueAccessor)(const void*, uint32) = nullptr;
 	};
 
+	// Strict native type identity, independent of field names, offsets and metadata.
+	// Unlike snapshot compatibility, referenced descriptors must have the same identity.
+	COREDOBJECT_API auto ArePropertyTypesSame(const FProperty* A, const FProperty* B) -> bool;
+
 	// Owns one fully constructed reflected value in aligned detached storage.
 	// Struct lifetimes and copy modes are always dispatched through FDStructOps.
 	class FReflectedValueStorage

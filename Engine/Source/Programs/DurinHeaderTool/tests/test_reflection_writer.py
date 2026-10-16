@@ -84,7 +84,8 @@ class TestReflectionSourceWriter:
 
         assert '{ "Negative", static_cast<::uint64>(-1), nullptr },' in content
         assert '{ "High", static_cast<::uint64>(18446744073709551615), nullptr },' in content
-        assert "static_cast<::uint16>(8)," in content
+        assert "static_cast<::uint16>(sizeof(Durin::EValue))," in content
+        assert "NativeEnumUnderlyingType<Durin::EValue>()" in content
 
     def test_enum_display_metadata_is_escaped_and_transported(self):
         enum_info = ReflectedEnumInfo(

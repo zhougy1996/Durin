@@ -167,9 +167,15 @@ namespace Durin
 		ClassConstructorType ClassConstructor = nullptr;
 
 		auto GetSuperClass() const -> DClass* { return static_cast<DClass*>(GetSuperStructBase()); }
+		// Queries link manually registered classes on first use, sealing their metadata.
+		// Registration and the first query must run on the registration thread.
 		COREDOBJECT_API auto ForEachFunction(const std::function<void(const FFunction&)>& Visitor, bool bIncludeSuper = true) const -> void;
 		COREDOBJECT_API auto FindFunctionByName(FName Name, bool bIncludeSuper = true) const -> const FFunction*;
 		COREDOBJECT_API auto RegisterFunctions(std::vector<FFunction> InFunctions) -> void;
+		// Seal descriptors base-first after registration. Failure leaves this class unlinked;
+		// successfully linked ancestors remain sealed. No generated parent helpers are called.
+		COREDOBJECT_API auto LinkFunctions() -> EFunctionLinkError;
+		auto AreFunctionsLinked() const -> bool { return bFunctionsLinked; }
 		COREDOBJECT_API auto IsChildOf(const DClass* InClass) const -> bool;
 		auto GetClassFlags() const -> EClassFlags { return ClassFlags; }
 		auto HasAnyClassFlags(EClassFlags InFlags) const -> bool { return EnumHasAnyFlags(ClassFlags, InFlags); }
@@ -200,6 +206,11 @@ namespace Durin
 
 		EClassFlags ClassFlags = EClassFlags::None;
 		std::vector<FFunction> Functions;
+		std::vector<const FFunction*> EffectiveFunctions;
+		std::unordered_map<FName, const FFunction*> FunctionMap;
+		bool bFunctionsRegistered = false;
+		bool bFunctionsLinked = false;
+		bool bLinkingFunctions = false;
 		FName QualifiedName;
 		std::string ShortName;
 		std::string DisplayName;

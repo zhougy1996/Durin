@@ -2,7 +2,7 @@
 
 Summary: Define DurinHeaderTool parsing, symbol exports, and generated C++ contracts.
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-16
 
 ## Parsing Scope And Generated-File Naming
 
@@ -135,11 +135,11 @@ Each reflected module writes:
 <Module>.export
 ```
 
-The export file uses schema v7 JSON:
+The export file uses schema v11 JSON:
 
 ```json
 {
-  "SchemaVersion": 7,
+  "SchemaVersion": 11,
   "Module": "Engine",
   "Symbols": {
     "Durin::AActor": {
@@ -165,14 +165,41 @@ model. Exports are used for symbol resolution during parsing/generation, not as
 the full runtime reflection database.
 
 Class exports also contain `Functions`, a list of reflected method `Name`,
-`Virtual`, and declaration `Line` summaries. DHT validates compatible overrides
-and rejects hiding across header/module boundaries. All ancestor summaries enter
+`Signature`, `Virtual`, `Final`, and declaration `Line` summaries. DHT uses one
+native-signature validator for annotated declarations and unannotated overrides;
+it rejects incompatible hiding and overrides of reflected final declarations
+across header/module boundaries. All ancestor summaries enter
 a descendant header's incremental dependency snapshot. The hermetic synthetic
 prelude exposes supported ancestor method declarations; ordinary includes and
 method bodies remain outside extraction. Generated invokers live inside the
 existing friended class statics helper and use ordinary member calls. See
 [Native function reflection](../../Runtime/Core/FunctionReflection.md) for the
 supported signatures, metadata, and runtime registration contract.
+
+Function `Signature` is a strict object containing `Const`, `Return` (a canonical
+supported value type, including `Void`), and ordered `Parameters` entries with
+`Type` and `Passing` (`Value`, `ConstReference`, or `Reference`). Parameter names
+are presentation details rather than override identity. Synthetic ancestor
+declarations reproduce these types and qualifiers, so cross-header implicit
+virtual overrides and incremental dependencies include the complete signature.
+Physical offsets and size are computed by the target compiler, never exported
+from the hermetic parser's synthetic type sizes.
+
+Primitive function types remain canonical kind strings. Composite types are
+strict recursive objects: `Struct`/`Enum`/`Object`/`ObjectPtr`/`SoftObject`/`WeakObject` contain a fully qualified
+`Name`, `Array` contains `Inner`, and `Map` contains `Key` and `Value`. Export
+resolution resolves names across the complete module/dependency symbol set;
+unreflected or wrong-kind references fail before generation. Function-only type
+dependencies enter incremental snapshots, including nested and return types.
+The hermetic prelude declares all referenced identities before ancestor methods.
+
+The public export contract remains schema v11. Private export-phase state v3
+retains unresolved bare names as `Named` until the complete symbol set resolves
+them to `Struct` or `Enum`, including map keys. Resolved exports reject `Named`
+and unsupported map keys. Tool identity v29 and parser context v13 invalidate
+previous generated sources and cached parse models. Primitive spellings, object
+wrappers, and reference qualifiers share the same function type definitions
+between parsing, synthetic ancestor declarations, and generated thunks.
 
 Export files should only change when the exported reflected-symbol contract changes. Whitespace-only edits in a reflected header may force the owning module's export command to run, but should not rewrite the public `.export` file if the symbol index is unchanged. This keeps downstream modules from regenerating purely because an upstream header timestamp changed.
 
@@ -271,6 +298,15 @@ exports reflected enums as `Kind: "enum"` symbols, records scoped/unscoped form
 and underlying type metadata, and emits `Z_Construct_DEnum_*` helpers plus
 generated value tables. Reflected enum fields also generate `FEnumProperty`
 metadata that points at the corresponding `DEnum`.
+Generated enum sources additionally install an `FNativeEnumRegistration` keyed
+by the actual C++ enum RTTI identity. `StaticEnum<T>()` uses this resolver without
+requiring forward declarations of unscoped enums. The target compiler supplies
+the runtime enum underlying type and size through `NativeEnumUnderlyingType<T>()`
+and `sizeof(T)`; extraction-time values describe the hermetic parsing context.
+The generated registration unregisters on module retirement. Function enum
+parameters and container keys use exact `DEnum` identity rather than integer
+coercion; soft/weak parameters use their existing typed property accessors and
+preserve non-owning GC behavior.
 
 ## Related documentation
 

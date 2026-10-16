@@ -7,6 +7,7 @@ from durin_header_tool.model.reflection_info import (
     ReflectedStructInfo,
 )
 from durin_header_tool.parser.property_parser import _cpp_type_spelling
+from durin_header_tool.writers.reflection_function_writer import function_declarations, signature_factory
 
 
 ExportedSymbols = dict[str, ExportedSymbolInfo]
@@ -160,9 +161,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
         if class_info.functions:
             _append_line(class_builder, "static const Durin::DurinCodeGen::FFunctionParams Functions[];", 1)
             for function in class_info.functions:
-                _append_line(class_builder,
-                    f"static void Invoke_{function.name}(Durin::DObject& Target) "
-                    f"{{ static_cast<{class_info.qualified_name}&>(Target).{function.name}(); }}", 1)
+                class_builder.append(function_declarations(function, class_info.qualified_name))
         for prop in properties:
             class_builder.extend(_property_decls(prop))
         if has_properties:
@@ -180,13 +179,16 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
         if class_info.functions:
             class_builder.append(f"const Durin::DurinCodeGen::FFunctionParams {generated_statics_name}::Functions[] = {{\n")
             for function in class_info.functions:
-                flag_names = (["CallInEditor"] if function.call_in_editor else []) + (["Virtual"] if function.is_virtual else [])
+                flag_names = (["Native"] + (["CallInEditor"] if function.call_in_editor else [])
+                              + (["Virtual"] if function.is_virtual else [])
+                              + (["Final"] if function.is_final else [])
+                              + (["Const"] if function.is_const else []))
                 flags = " | ".join(f"Durin::EFunctionFlags::{name}" for name in flag_names) or "Durin::EFunctionFlags::None"
                 name = _cpp_string_literal(function.name)
                 rest = ", ".join(_cpp_string_literal(v) for v in (
                     function.category, function.display_name, function.tool_tip))
                 _append_line(class_builder,
-                    f"{{ {name}, {flags}, {rest}, "
+                    f"{{ {name}, {signature_factory(function, generated_statics_name)}, {flags}, {rest}, "
                     f"&{generated_statics_name}::Invoke_{function.name} }},", 1)
             class_builder.append("};\n\n")
         property_params = f"{generated_statics_name}::PropertyParams" if has_properties else "nullptr"
@@ -349,8 +351,8 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
         (f"\"{enum_info.short_name}\",", 1),
         (f"{_cpp_string_literal(enum_info.display_name) if enum_info.display_name else 'nullptr'},", 1),
         (f"{_bool_literal(enum_info.is_scoped)},", 1),
-        (f"Durin::DurinCodeGen::EEnumUnderlyingType::{enum_info.underlying_kind},", 1),
-        (f"static_cast<::uint16>({enum_info.underlying_size}),", 1),
+        (f"Durin::DurinCodeGen::NativeEnumUnderlyingType<{enum_info.qualified_name}>(),", 1),
+        (f"static_cast<::uint16>(sizeof({enum_info.qualified_name})),", 1),
         (f"{values_ref},", 1),
         (f"{len(enum_info.values)},", 1),
         (f"{legacy_names},", 1),
@@ -401,6 +403,8 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
         ("}", 0),
         ("", 0),
     )
+    builder.append(f"static Durin::DurinCodeGen::FNativeEnumRegistration NativeEnum_{generated_statics_name}("
+                   f"typeid({enum_info.qualified_name}), &{enum_info.generated_helper_name});\n\n")
     return "".join(builder)
 
 

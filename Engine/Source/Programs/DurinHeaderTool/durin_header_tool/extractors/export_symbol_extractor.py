@@ -4,6 +4,7 @@ from dataclasses import replace
 
 from durin_header_tool import config as configs
 from durin_header_tool.model.export_info import ExportedSymbolInfo, ModuleExportInfo
+from durin_header_tool.model.function_signature import resolve_function_type, validate_function_signature
 from durin_header_tool.parser.reflection_parser import parse_reflection_header
 from durin_header_tool.resolver.reflection_resolver import (
     load_dependency_symbols,
@@ -33,7 +34,8 @@ def _extract_header_export_symbols_impl(
             API=class_info.api,
             BaseQualifiedName=class_info.base_qualified_name,
             IsAbstract=class_info.is_abstract,
-            Functions=[{"Name": f.name, "Virtual": f.is_virtual, "Line": f.source_line}
+            Functions=[{"Name": f.name, "Virtual": f.is_virtual, "Final": f.is_final,
+                        "Signature": f.signature, "Line": f.source_line}
                        for f in class_info.functions],
         )
     for enum_info in header_info.enums:
@@ -125,7 +127,16 @@ def resolve_module_export_info(
         export_info.Symbols[qualified_name] = replace(
             raw_symbol,
             BaseQualifiedName=resolved_base or "",
+            Functions=[dict(function) for function in raw_symbol.Functions],
         )
+        for function in export_info.Symbols[qualified_name].Functions:
+            signature = function["Signature"]
+            function["Signature"] = dict(signature,
+                Return=resolve_function_type(signature["Return"], available_symbols, raw_symbol.Namespace),
+                Parameters=[dict(p, Type=resolve_function_type(p["Type"], available_symbols, raw_symbol.Namespace))
+                            for p in signature["Parameters"]])
+            if not validate_function_signature(function["Signature"]):
+                raise ValueError(f"DFUNCTION {qualified_name}::{function['Name']}: unsupported resolved function type")
     # The export parse has no inherited C++ semantics. A compatible same-name
     # method remains virtual even when its author omits the override keyword.
     all_symbols = {**dependency_symbols, **export_info.Symbols}

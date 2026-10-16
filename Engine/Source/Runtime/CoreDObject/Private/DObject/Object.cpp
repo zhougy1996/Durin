@@ -7,6 +7,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "DObject/PropertyChange.h"
+#include "DObject/Property.h"
 #include "DObject/SoftObjectPtr.h"
 #include "CoreGlobals.h"
 #include "Threading/RunnableThread.h"
@@ -406,6 +407,21 @@ namespace Durin
 	{
 	}
 
+	auto DObject::ProcessEvent(const FFunction* Function, FMutableByteView Parameters) -> EFunctionInvokeError
+	{
+		if (!IsValid(this)) return EFunctionInvokeError::InvalidTarget;
+		if (!Function) return EFunctionInvokeError::InvalidFunction;
+		const auto Error = Function->ValidateInvocation(*this, Parameters);
+		if (Error != EFunctionInvokeError::None) return Error;
+		// Native by-value copies and borrowed aggregates are invisible to the GC.
+		// Defer collection until all native temporaries have left the call stack.
+		FGarbageCollectionDeferralScope Deferral;
+		FFunctionFrame Frame(*this, *Function, Parameters);
+		const auto& ReturnProperty = Function->GetSignature().ReturnProperty;
+		Function->Invoke(Frame, ReturnProperty ? ReturnProperty->GetValuePtr(Parameters.data()) : nullptr);
+		return EFunctionInvokeError::None;
+	}
+
 	auto DObject::IsA(const DClass* InClass) const -> bool
 	{
 		if (!InClass)
@@ -692,6 +708,12 @@ namespace Durin
 		for (const FClassDeferredRegistry::FRegistrant& Registrant : ClassRegistry.GetRegistrations())
 		{
 			if (Registrant.Info->OuterSingleton) BatchClasses.push_back(Registrant.Info->OuterSingleton);
+		}
+		for (DClass* Class : BatchClasses)
+		{
+			const auto Error = Class->LinkFunctions();
+			requiref(Error == EFunctionLinkError::None, "Failed to link functions for '{}' (error {}).",
+				Class->GetQualifiedName().ToString(), static_cast<uint32>(Error));
 		}
 		(void)Private::CreateClassDefaultObjectsForBatch(BatchClasses);
 

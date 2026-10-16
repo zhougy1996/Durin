@@ -48,7 +48,7 @@ namespace Durin::Private
 			const DStructBase* Type;
 		};
 
-		auto CompileProperty(FProperty* Property) -> std::shared_ptr<const FGCReferenceOperation>;
+		auto CompileProperty(FProperty* Property, bool bIncludeRawObjectReferences = false) -> std::shared_ptr<const FGCReferenceOperation>;
 		auto VisitOperation(const FGCReferenceOperation& Operation, void* Container, FReferenceCollector& Collector) -> void;
 
 		struct FArrayReferenceVisitContext
@@ -97,7 +97,7 @@ namespace Durin::Private
 			return Operation;
 		}
 
-		auto CompileProperty(FProperty* Property) -> std::shared_ptr<const FGCReferenceOperation>
+		auto CompileProperty(FProperty* Property, bool bIncludeRawObjectReferences) -> std::shared_ptr<const FGCReferenceOperation>
 		{
 			if (!Property) return nullptr;
 
@@ -106,7 +106,8 @@ namespace Durin::Private
 			case DurinCodeGen::EPropertyGenFlags::Object:
 			{
 				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
-				return ObjectProperty->IsObjectPtrWrapper() ? MakeOperation(EGCReferenceOperation::Object, Property) : nullptr;
+				return ObjectProperty->IsObjectPtrWrapper() || bIncludeRawObjectReferences
+					? MakeOperation(EGCReferenceOperation::Object, Property) : nullptr;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
@@ -121,7 +122,7 @@ namespace Durin::Private
 			case DurinCodeGen::EPropertyGenFlags::Array:
 			{
 				auto* ArrayProperty = static_cast<FArrayProperty*>(Property);
-				auto Inner = CompileProperty(ArrayProperty->GetInner());
+				auto Inner = CompileProperty(ArrayProperty->GetInner(), bIncludeRawObjectReferences);
 				if (!Inner) return nullptr;
 				check(ArrayProperty->HasArrayOps()
 					&& ArrayProperty->HasCapability(EArrayOpsFlags::ConstTraversal)
@@ -133,8 +134,8 @@ namespace Durin::Private
 			case DurinCodeGen::EPropertyGenFlags::Map:
 			{
 				auto* MapProperty = static_cast<FMapProperty*>(Property);
-				auto Key = CompileProperty(MapProperty->GetKeyProp());
-				auto Value = CompileProperty(MapProperty->GetValueProp());
+				auto Key = CompileProperty(MapProperty->GetKeyProp(), bIncludeRawObjectReferences);
+				auto Value = CompileProperty(MapProperty->GetValueProp(), bIncludeRawObjectReferences);
 				if (!Key && !Value) return nullptr;
 				check(MapProperty->HasMapOps()
 					&& MapProperty->HasCapability(EMapOpsFlags::ConstTraversal)
@@ -285,10 +286,11 @@ namespace Durin::Private
 		FProperty* Property,
 		void* Container,
 		uint32 ArrayIndex,
-		FReferenceCollector& Collector) -> void
+		FReferenceCollector& Collector,
+		bool bIncludeRawObjectReferences) -> void
 	{
 		if (!Property || !Container || ArrayIndex >= Property->GetArrayDim()) return;
-		if (auto Operation = CompileProperty(Property))
+		if (auto Operation = CompileProperty(Property, bIncludeRawObjectReferences))
 		{
 			VisitOperationValue(*Operation, Container, ArrayIndex, Collector);
 		}

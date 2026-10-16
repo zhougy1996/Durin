@@ -4,7 +4,7 @@ Summary: Define single-object CallInEditor buttons, invocation admission, and au
 
 Modules: DurinEd, CoreDObject, Engine
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-16
 
 ## Shared Details Layout
 
@@ -14,6 +14,10 @@ ordering, tooltips, search, and visible-row counts. Search includes method name,
 declaring type, display name, category, and tooltip. Widget identity uses object
 and root function identity independently of the display label. Empty states
 account for both properties and actions.
+
+Only void/no-argument signatures are action rows. Parameterized or returning
+functions remain reflected, but automatic and explicit placement exclude them;
+execution admission repeats that signature check even when `CallInEditor` is set.
 
 `IDetailLayoutBuilder::AddFunction` places the inspected object's effective slot;
 category builders can place it in another category. Explicit placement suppresses
@@ -58,7 +62,9 @@ reflected members before native code runs. Failed begin/capture blocks invocatio
 and preserves structured recording/cleanup diagnostics. This is separate from
 the existing best-effort `Modify` convenience API.
 
-After native return, the adapter sends one full-object `PostEditChange()` before
+Invocation enters the target's virtual `DObject::ProcessEvent` with an explicit
+empty parameter view; the adapter does not bypass object dispatch or use a
+separate no-argument native entry. After native return, the adapter sends one full-object `PostEditChange()` before
 capturing final state and explicitly ending the scope. No changed leaf path is
 invented. The body must preserve its invariants; arbitrary C++ calls cannot use
 detached pre-write validation. Adapted methods should not duplicate this terminal

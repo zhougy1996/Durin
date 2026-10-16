@@ -9,3 +9,4 @@
 #include "SoftObjectPtr.h"
 #include "WeakObjectPtr.h"
 #include "DurinPropertyTypes.h"
+#include "FunctionParameters.h"

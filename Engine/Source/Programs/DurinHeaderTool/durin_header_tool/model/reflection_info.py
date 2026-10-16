@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 SYMBOL_NAME_SCHEME = "namespace-scoped-v2"
-TOOL_VERSION = "23"
+TOOL_VERSION = "29"
 
 
 @dataclass(frozen=True, order=True)
@@ -220,14 +220,30 @@ class ReflectedPropertyInfo:
 
 
 @dataclass
+class ReflectedFunctionParameterInfo:
+    name: str
+    kind: str | dict
+    passing: str = "Value"
+
+
+@dataclass
 class ReflectedFunctionInfo:
     name: str
     source_line: int
     is_virtual: bool = False
+    is_final: bool = False
+    is_const: bool = False
+    return_kind: str | dict = "Void"
+    parameters: list[ReflectedFunctionParameterInfo] = field(default_factory=list)
     call_in_editor: bool = False
     category: str = "Actions"
     display_name: str = ""
     tool_tip: str = ""
+
+    @property
+    def signature(self) -> dict:
+        return {"Const": self.is_const, "Return": self.return_kind,
+                "Parameters": [{"Type": p.kind, "Passing": p.passing} for p in self.parameters]}
 
 
 @dataclass

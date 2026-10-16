@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 import json
+from durin_header_tool.model.function_signature import validate_function_signature
 
 from durin_header_tool import io as utils
 from durin_header_tool.model.reflection_info import (
@@ -9,7 +10,7 @@ from durin_header_tool.model.reflection_info import (
     make_generated_symbol,
 )
 
-EXPORT_SCHEMA_VERSION = 7
+EXPORT_SCHEMA_VERSION = 11
 
 
 class ModuleExportSchemaMismatchError(ValueError):
@@ -61,7 +62,7 @@ class ExportedSymbolInfo:
         return result
 
     @classmethod
-    def from_json(cls, data: object) -> "ExportedSymbolInfo":
+    def from_json(cls, data: object, *, allow_unresolved_functions=False) -> "ExportedSymbolInfo":
         expected_fields = {field_info.name for field_info in fields(cls)}
         if not isinstance(data, dict) or set(data) != expected_fields:
             raise ValueError("The exported symbol has an invalid JSON object shape.")
@@ -93,10 +94,13 @@ class ExportedSymbolInfo:
             raise ValueError("Exported Functions must be an array")
         names = set()
         for function in functions:
-            if (not isinstance(function, dict) or set(function) != {"Name", "Virtual", "Line"}
+            if (not isinstance(function, dict) or set(function) != {"Name", "Virtual", "Final", "Signature", "Line"}
                     or not isinstance(function["Name"], str) or not function["Name"]
                     or function["Name"] in names
                     or not isinstance(function["Virtual"], bool)
+                    or not isinstance(function["Final"], bool)
+                    or (function["Final"] and not function["Virtual"])
+                    or not validate_function_signature(function["Signature"], allow_unresolved=allow_unresolved_functions)
                     or type(function["Line"]) is not int or function["Line"] < 1):
                 raise ValueError("Invalid exported function summary")
             names.add(function["Name"])

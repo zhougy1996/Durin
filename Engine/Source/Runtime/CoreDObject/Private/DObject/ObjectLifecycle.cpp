@@ -418,6 +418,7 @@ namespace Durin
 
 		FMarkReferenceCollector Marker;
 		Private::AddStrongObjectReferences(Marker);
+		Private::AddFunctionParameterReferences(Marker);
 		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
 		{
 			if (!Object->IsGarbage()

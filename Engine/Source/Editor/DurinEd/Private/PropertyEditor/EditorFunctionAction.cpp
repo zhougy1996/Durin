@@ -39,7 +39,7 @@ namespace Durin::Editor
 		if (!IsValid(Object)) return EEditorFunctionError::InvalidTarget;
 		if (Object->IsTemplateObject()) return EEditorFunctionError::TemplateTarget;
 		const auto* Function = Object->GetClass()->FindFunctionByName(Request.FunctionName);
-		if (!Function || !Function->HasAnyFlags(EFunctionFlags::CallInEditor)
+		if (!Function || !Function->HasAnyFlags(EFunctionFlags::CallInEditor) || !Function->GetSignature().IsVoidNoArgs()
 			|| Function->GetRootFunction().GetOwnerClass()->GetQualifiedName() != Request.RootOwner)
 			return EEditorFunctionError::FunctionUnavailable;
 		if (!Context.Transactor) return EEditorFunctionError::MissingTransactor;
@@ -84,7 +84,7 @@ namespace Durin::Editor
 		Result.History = Transaction.TryModify(Target.Get());
 		if (!Result.History && Result.History.Code != ETransactorResultCode::NoOp)
 		{ Result.Error = EEditorFunctionError::History; return Report(); }
-		const auto Invoked = Function->InvokeVoidNoArgs(*Target);
+		const auto Invoked = Target->ProcessEvent(Function, {});
 		if (Invoked != EFunctionInvokeError::None)
 		{
 			Result.History = Transaction.Cancel();

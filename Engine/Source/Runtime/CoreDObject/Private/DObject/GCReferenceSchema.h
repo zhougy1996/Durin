@@ -27,7 +27,8 @@ namespace Durin
 			static auto Visit(const DStructBase* Type, void* Instance, FReferenceCollector& Collector) -> void;
 			static auto Visit(const DStruct* Type, void* Instance, FReferenceCollector& Collector) -> void;
 			static auto VisitProperty(
-				FProperty* Property, void* Container, uint32 ArrayIndex, FReferenceCollector& Collector) -> void;
+				FProperty* Property, void* Container, uint32 ArrayIndex, FReferenceCollector& Collector,
+				bool bIncludeRawObjectReferences = false) -> void;
 		};
 	}
 }

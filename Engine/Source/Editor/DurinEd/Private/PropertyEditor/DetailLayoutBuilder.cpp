@@ -133,7 +133,7 @@ namespace Durin::Editor
 	{
 		if (!InspectedObject) return;
 		const auto* Effective = InspectedObject->GetClass()->FindFunctionByName(Function.GetName());
-		if (!Effective || !Effective->HasAnyFlags(EFunctionFlags::CallInEditor)
+		if (!Effective || !Effective->HasAnyFlags(EFunctionFlags::CallInEditor) || !Effective->GetSignature().IsVoidNoArgs()
 			|| &Effective->GetRootFunction() != &Function.GetRootFunction()) return;
 		if (!PlacedFunctions.insert(&Effective->GetRootFunction()).second) return;
 		FRow Row;

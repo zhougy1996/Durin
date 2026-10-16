@@ -340,11 +340,12 @@ namespace Durin
 		struct FFunctionParams
 		{
 			const char* Name;
+			FFunctionSignature (*ConstructSignature)();
 			EFunctionFlags Flags;
 			const char* Category;
 			const char* DisplayName;
 			const char* ToolTip;
-			FFunction::FInvoker Invoker;
+			FFunction::FNativeFuncPtr NativeFunction;
 		};
 
 		struct FClassParams

@@ -834,6 +834,16 @@ namespace Durin
 	auto DurinCodeGen::ConstructDClass(const FClassParams& Params) -> DClass*
 	{
 		DClass* Class = Params.ClassNoRegisterFunc();
+		// A property type resolver can revisit this class before the generated outer
+		// singleton is assigned. Return its identity without installing metadata twice.
+		static std::unordered_set<DClass*> ConstructingClasses;
+		if (!ConstructingClasses.insert(Class).second) return Class;
+		struct FConstructionGuard
+		{
+			std::unordered_set<DClass*>& Classes;
+			DClass* Class;
+			~FConstructionGuard() { Classes.erase(Class); }
+		} Guard{ConstructingClasses, Class};
 
 		DObjectForceRegistration(Class);
 		Class->SetQualifiedName(FName(Params.QualifiedClassName));
@@ -849,16 +859,12 @@ namespace Durin
 		for (size_t Index = 0; Index < Params.NumFunctions; ++Index)
 		{
 			const auto& Function = Params.Functions[Index];
-			check(Function.Name && Function.Invoker);
-			const auto* Super = Class->GetSuperClass()
-				? Class->GetSuperClass()->FindFunctionByName(FName(Function.Name)) : nullptr;
-			check(!Super || (Super->HasAnyFlags(EFunctionFlags::Virtual)
-				&& EnumHasAnyFlags(Function.Flags, EFunctionFlags::Virtual)));
-			Functions.emplace_back(Class, FName(Function.Name), Function.Flags,
+			check(Function.Name && Function.NativeFunction);
+			Functions.emplace_back(Class, FName(Function.Name), Function.ConstructSignature ? Function.ConstructSignature() : FFunctionSignature{}, Function.Flags,
 				Function.Category ? Function.Category : "Actions",
 				Function.DisplayName && *Function.DisplayName ? Function.DisplayName
 					: StringUtils::HumanizeName(Function.Name),
-				Function.ToolTip ? Function.ToolTip : "", Function.Invoker);
+				Function.ToolTip ? Function.ToolTip : "", Function.NativeFunction);
 		}
 		Class->RegisterFunctions(std::move(Functions));
 

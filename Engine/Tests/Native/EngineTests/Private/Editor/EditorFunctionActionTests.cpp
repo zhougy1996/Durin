@@ -7,6 +7,8 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/StrongObjectPtr.h"
+#include "DObject/FunctionParameters.h"
+#include "Collision/CollisionTypes.h"
 #include "Components/PointLightComponent.h"
 #include "Rendering/LightSceneProxy.h"
 #include "Editor/EditorTransactionTestSupport.h"
@@ -28,6 +30,11 @@ namespace
 		static void __DefaultConstructor(const FObjectInitializer& Initializer)
 		{ new (Initializer.GetObj()) DFunctionTarget(Initializer); }
 		virtual void Run() { ++Invocations; Value += 5; if (DuringCall) DuringCall(); }
+		auto ProcessEvent(const FFunction* Function, FMutableByteView Parameters) -> EFunctionInvokeError override
+		{
+			++EventDispatches;
+			return DObject::ProcessEvent(Function, Parameters);
+		}
 		void PostEditChangeProperty(const FPropertyChangedEvent&) override { DerivedValue = Value * 2; }
 		static auto StaticClass() -> DClass*
 		{
@@ -46,9 +53,9 @@ namespace
 				Result->ChildProperties = Property;
 				Result->Register(DClass::StaticClass, "", "DFunctionTarget");
 				DObjectForceRegistration(Result);
-				Result->RegisterFunctions({FFunction(Result, "Run",
-					EFunctionFlags::CallInEditor | EFunctionFlags::Virtual, "Actions", "Run Action", "Test action",
-					[](DObject& Target) { static_cast<DFunctionTarget&>(Target).Run(); })});
+				Result->RegisterFunctions({FFunction(Result, "Run", FFunctionSignature{},
+					EFunctionFlags::Native | EFunctionFlags::CallInEditor | EFunctionFlags::Virtual, "Actions", "Run Action", "Test action",
+					[](DObject& Target, FFunctionFrame&, void*) { static_cast<DFunctionTarget&>(Target).Run(); })});
 				return Result;
 			}();
 			return Class;
@@ -56,6 +63,7 @@ namespace
 		int32 Value = 0;
 		int32 DerivedValue = 0;
 		int32 Invocations = 0;
+		int32 EventDispatches = 0;
 		std::function<void()> DuringCall;
 	};
 
@@ -92,6 +100,29 @@ namespace
 		return Class;
 	}
 
+	class DParameterizedFunctionTarget : public DFunctionTarget
+	{
+	public:
+		explicit DParameterizedFunctionTarget(const FObjectInitializer& Init) : DFunctionTarget(Init) {}
+		static void __DefaultConstructor(const FObjectInitializer& Init) { new (Init.GetObj()) DParameterizedFunctionTarget(Init); }
+		static auto StaticClass() -> DClass*
+		{
+			static auto* Class = [] {
+				auto* Result = MakeActionTestClass<DParameterizedFunctionTarget>("Tests::DParameterizedFunctionTarget", DFunctionTarget::StaticClass());
+				struct FParams { int32 Value; int32 ReturnValue; };
+				using namespace DurinCodeGen;
+				auto Signature = MakeFunctionSignature<FParams>({{MakeFunctionProperty<int32>("Value", 0), EFunctionParameterPassing::Value}},
+					MakeFunctionProperty<int32>("ReturnValue", offsetof(FParams, ReturnValue)));
+				Result->RegisterFunctions({FFunction(Result, "WithArgs", std::move(Signature), EFunctionFlags::Native | EFunctionFlags::CallInEditor,
+					"Actions", "With Args", "", +[](DObject&, FFunctionFrame& Frame, void* ReturnValue) {
+						*static_cast<int32*>(ReturnValue) = Frame.GetParameter<int32>(0) + 1;
+					})});
+				return Result;
+			}();
+			return Class;
+		}
+	};
+
 	class DOptOutFunctionTarget : public DDerivedFunctionTarget
 	{
 	public:
@@ -101,8 +132,8 @@ namespace
 		{
 			static auto* Class = [] {
 				auto* Result = MakeActionTestClass<DOptOutFunctionTarget>("Tests::DOptOutFunctionTarget", DDerivedFunctionTarget::StaticClass());
-				Result->RegisterFunctions({FFunction(Result, "Run", EFunctionFlags::Virtual,
-					"Other", "Hidden Action", "", [](DObject& Object) { static_cast<DFunctionTarget&>(Object).Run(); })});
+				Result->RegisterFunctions({FFunction(Result, "Run", FFunctionSignature{}, EFunctionFlags::Native | EFunctionFlags::Virtual,
+					"Other", "Hidden Action", "", [](DObject& Object, FFunctionFrame&, void*) { static_cast<DFunctionTarget&>(Object).Run(); })});
 				return Result;
 			}();
 			return Class;
@@ -177,12 +208,13 @@ TEST_F(FEditorFunctionTests, InheritedVirtualActionRecordsValuesAndNeverReinvoke
 	EXPECT_EQ(Target->Value, 10);
 	EXPECT_EQ(Target->DerivedValue, 20);
 	EXPECT_EQ(Target->Invocations, 1);
+	EXPECT_EQ(Target->EventDispatches, 1);
 	uint32 Count = 0;
 	Target->GetClass()->ForEachFunction([&](const auto&) { ++Count; });
 	EXPECT_EQ(Count, 1u);
 	EXPECT_EQ(Target->GetClass()->FindFunctionByName("Run", false), nullptr);
 	TStrongObjectPtr<DObject> Wrong(NewObject<DObject>(nullptr, "WrongActionType"));
-	EXPECT_EQ(Target->GetClass()->FindFunctionByName("Run")->InvokeVoidNoArgs(*Wrong), EFunctionInvokeError::WrongClass);
+	EXPECT_EQ(Wrong->ProcessEvent(Target->GetClass()->FindFunctionByName("Run"), {}), EFunctionInvokeError::WrongClass);
 }
 
 TEST_F(FEditorFunctionTests, AdmissionAndReentrancyPreventNativeMutation)
@@ -376,6 +408,29 @@ TEST_F(FEditorFunctionTests, DetailsClickExecutesOnlyAfterAllRowsAndRequestsRefr
 	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
 }
 
+TEST_F(FEditorFunctionTests, ParameterizedFunctionsAreReflectedButExcludedFromEditorActions)
+{
+	Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DParameterizedFunctionTarget> Target(NewObject<DParameterizedFunctionTarget>(nullptr, "ParameterizedEditorAction"));
+	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	const auto* Function = Target->GetClass()->FindFunctionByName("WithArgs");
+	ASSERT_NE(Function, nullptr);
+	EXPECT_EQ(CanExecuteEditorFunction(Context, Request(Target, "WithArgs")), EEditorFunctionError::FunctionUnavailable);
+	FDetailLayoutBuilder Layout;
+	Layout.ApplyRegisteredCustomizations(Target);
+	Layout.AddDefaultFunctions();
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 1u); // Only the inherited void Run() action.
+	Layout.AddFunction(*Function);
+	EXPECT_EQ(Layout.GetVisibleRowCount(), 1u);
+	FPropertyView View;
+	EXPECT_FALSE(ExecuteEditorFunction(View, Context, Request(Target, "WithArgs")).bInvoked);
+	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	FFunctionParameterBuffer Parameters(*Function);
+	Parameters.GetParameter<int32>(0) = 4;
+	EXPECT_EQ(Target->ProcessEvent(Function, Parameters.GetView()), EFunctionInvokeError::None);
+	EXPECT_EQ(Parameters.GetReturnValue<int32>(), 5);
+}
+
 TEST_F(FEditorFunctionTests, EffectiveOverrideCanRemoveTheInheritedEditorButton)
 {
 	Tests::FTestTransactorOwner Buffer;
@@ -390,7 +445,7 @@ TEST_F(FEditorFunctionTests, EffectiveOverrideCanRemoveTheInheritedEditorButton)
 	Layout.ApplyRegisteredCustomizations(Target);
 	Layout.AddDefaultFunctions();
 	EXPECT_EQ(Layout.GetVisibleRowCount(), 0u);
-	EXPECT_EQ(Effective->InvokeVoidNoArgs(*Target), EFunctionInvokeError::None);
+	EXPECT_EQ(Target->ProcessEvent(Effective, {}), EFunctionInvokeError::None);
 	EXPECT_EQ(Target->Value, 10);
 }
 
@@ -435,10 +490,10 @@ TEST_F(FEditorFunctionTests, RootIdentityDoesNotDependOnParentDescriptorRegistra
 {
 	auto* Base = MakeActionTestClass<DFunctionTarget>("Tests::DLateFunctionBase", DObject::StaticClass());
 	auto* Derived = MakeActionTestClass<DFunctionTarget>("Tests::DEarlyFunctionDerived", Base);
-	const auto Flags = EFunctionFlags::CallInEditor | EFunctionFlags::Virtual;
-	const auto Invoke = +[](DObject&) {};
-	Derived->RegisterFunctions({FFunction(Derived, "LateAction", Flags, "Actions", "Late Action", "", Invoke)});
-	Base->RegisterFunctions({FFunction(Base, "LateAction", Flags, "Actions", "Late Action", "", Invoke)});
+	const auto Flags = EFunctionFlags::Native | EFunctionFlags::CallInEditor | EFunctionFlags::Virtual;
+	const auto Invoke = +[](DObject&, FFunctionFrame&, void*) {};
+	Derived->RegisterFunctions({FFunction(Derived, "LateAction", FFunctionSignature{}, Flags, "Actions", "Late Action", "", Invoke)});
+	Base->RegisterFunctions({FFunction(Base, "LateAction", FFunctionSignature{}, Flags, "Actions", "Late Action", "", Invoke)});
 	const auto* Function = Derived->FindFunctionByName("LateAction");
 	ASSERT_NE(Function, nullptr);
 	EXPECT_EQ(Function->GetRootFunction().GetOwnerClass(), Base);
@@ -449,4 +504,15 @@ TEST_F(FEditorFunctionTests, RootIdentityDoesNotDependOnParentDescriptorRegistra
 		EXPECT_EQ(Effective.GetRootFunction().GetOwnerClass(), Base);
 	});
 	EXPECT_EQ(Count, 1u);
+}
+
+TEST_F(FEditorFunctionTests, NativeEnumMetadataResolvesAcrossTheEngineModuleBoundary)
+{
+	const auto* Enum = StaticEnum<ECollisionResponse>();
+	ASSERT_NE(Enum, nullptr);
+	EXPECT_EQ(Enum, FindEnumByQualifiedName("Durin::ECollisionResponse"));
+	const auto Property = DurinCodeGen::MakeFunctionProperty<ECollisionResponse>("Response", 0);
+	EXPECT_EQ(static_cast<const FEnumProperty*>(Property.get())->GetEnum(), Enum);
+	EXPECT_TRUE(Private::FunctionTypeMatches<ECollisionResponse>(*Property));
+	EXPECT_FALSE(Private::FunctionTypeMatches<ECollisionEnabled>(*Property));
 }

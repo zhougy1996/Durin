@@ -238,6 +238,7 @@ namespace Durin
 		);
 
 		auto GetExpectedClass() const -> DClass* { return GetReferencedClass(); }
+		auto HasSoftValueAccessors() const -> bool { return MutableSoftValueAccessor && ConstSoftValueAccessor; }
 		COREDOBJECT_API auto GetSoftObjectPtr(void* Container, uint32 ArrayIndex = 0) const -> FSoftObjectPtr*;
 		COREDOBJECT_API auto GetSoftObjectPtr(const void* Container, uint32 ArrayIndex = 0) const -> const FSoftObjectPtr*;
 
@@ -263,6 +264,7 @@ namespace Durin
 			FConstWeakValueAccessor InConstWeakValueAccessor);
 
 		auto GetExpectedClass() const -> DClass* { return GetReferencedClass(); }
+		auto HasWeakValueAccessors() const -> bool { return MutableWeakValueAccessor && ConstWeakValueAccessor; }
 		COREDOBJECT_API auto GetWeakObjectPtr(void* Container, uint32 ArrayIndex = 0) const -> FWeakObjectPtr*;
 		COREDOBJECT_API auto GetWeakObjectPtr(const void* Container, uint32 ArrayIndex = 0) const -> const FWeakObjectPtr*;
 
