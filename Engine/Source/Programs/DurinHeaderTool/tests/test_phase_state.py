@@ -171,11 +171,13 @@ def test_reflection_phase_bundle_round_trips_generated_content(isolated_state_di
 
 
 def test_corrupt_bundle_is_a_typed_module_miss(isolated_state_dir, caplog):
+    caplog.set_level(logging.DEBUG)
     path = export_state_path("Fixture")
     path.parent.mkdir(parents=True)
     path.write_text('{"SchemaVersion":', encoding="utf-8")
 
     assert load_export_phase_state("Fixture") is None
+    assert not any(record.levelno >= logging.INFO for record in caplog.records)
     assert "Ignoring invalid export phase state" in caplog.text
 
 
@@ -193,7 +195,8 @@ def test_incompatible_bundle_schema_is_a_quiet_module_miss(isolated_state_dir, c
     assert "Ignoring incompatible reflection phase-state schema" in caplog.text
 
 
-def test_wrong_bundle_kind_remains_an_invalid_state_warning(isolated_state_dir, caplog):
+def test_wrong_bundle_kind_is_a_quiet_module_miss(isolated_state_dir, caplog):
+    caplog.set_level(logging.DEBUG)
     state = ReflectionPhaseState(module="Fixture")
     save_reflection_phase_state(state)
     path = reflection_state_path("Fixture")
@@ -202,10 +205,12 @@ def test_wrong_bundle_kind_remains_an_invalid_state_warning(isolated_state_dir, 
     path.write_bytes(canonical_json_bytes(envelope))
 
     assert load_reflection_phase_state("Fixture") is None
+    assert not any(record.levelno >= logging.INFO for record in caplog.records)
     assert "Ignoring invalid reflection phase state" in caplog.text
 
 
-def test_invalid_reflection_header_record_only_invalidates_that_record(isolated_state_dir):
+def test_invalid_reflection_header_record_only_invalidates_that_record(isolated_state_dir, caplog):
+    caplog.set_level(logging.DEBUG)
     first = _result()
     second_header = "Public/Fixture/Pawn.h"
     second = ReflectionHeaderGenerationResult(
@@ -236,6 +241,8 @@ def test_invalid_reflection_header_record_only_invalidates_that_record(isolated_
 
     assert HEADER not in loaded.results_by_header
     assert loaded.results_by_header[second_header] == second
+    assert not any(record.levelno >= logging.INFO for record in caplog.records)
+    assert "Ignoring invalid reflection phase record" in caplog.text
 
 
 def test_dependency_export_change_invalidates_headers_when_existing_binding_is_unchanged():

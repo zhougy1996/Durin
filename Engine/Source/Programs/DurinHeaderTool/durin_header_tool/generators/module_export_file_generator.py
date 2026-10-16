@@ -56,7 +56,7 @@ def _load_previous_export(module_name: str) -> tuple[ModuleExportInfo | None, Ex
                 error.expected,
             )
         except (OSError, UnicodeError, ValueError, TypeError, AttributeError, KeyError) as error:
-            logging.warning(
+            logging.debug(
                 "[DHT] Export %s: ignoring invalid export %s (%s)",
                 module_name,
                 export_file_path,

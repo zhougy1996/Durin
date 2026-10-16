@@ -108,7 +108,8 @@ class TestReflectionAstAndState:
         assert "ignoring incompatible export schema" in caplog.text
 
 
-    def test_malformed_export_remains_an_invalid_export_warning(self, caplog):
+    def test_malformed_export_is_a_quiet_cache_miss(self, caplog):
+        caplog.set_level(logging.DEBUG)
         export_path = self.temp_root / "Fixture.export"
         export_path.write_text('{"SchemaVersion":', encoding="utf-8")
 
@@ -120,7 +121,7 @@ class TestReflectionAstAndState:
 
         assert export_info is None
         assert export_state is None
-        assert any(record.levelno == logging.WARNING for record in caplog.records)
+        assert not any(record.levelno >= logging.INFO for record in caplog.records)
         assert "ignoring invalid export" in caplog.text
 
 

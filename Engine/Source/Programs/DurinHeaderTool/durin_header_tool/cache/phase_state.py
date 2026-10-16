@@ -118,7 +118,7 @@ class ExportPhaseState:
                 if any(symbol.QualifiedName != name for name, symbol in symbols.items()):
                     raise ValueError("Export phase symbol key disagrees with QualifiedName.")
             except (TypeError, ValueError, KeyError):
-                logging.warning("[DHT] Ignoring invalid export phase record for %s", header)
+                logging.debug("[DHT] Ignoring invalid export phase record for %s", header)
                 continue
             state.raw_symbols_by_header[header] = symbols
         return state
@@ -203,7 +203,7 @@ class ReflectionPhaseState:
                 if result.header != header:
                     raise ValueError("Reflection result header disagrees with its key.")
             except (TypeError, ValueError, KeyError):
-                logging.warning("[DHT] Ignoring invalid reflection phase record for %s", header)
+                logging.debug("[DHT] Ignoring invalid reflection phase record for %s", header)
                 continue
             state.results_by_header[header] = result
         return state
@@ -254,7 +254,7 @@ def _load_phase_state(path: Path, kind: str, decoder):
             raise ValueError("Phase-state payload checksum disagreement.")
         return decoder(envelope["Payload"])
     except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError, KeyError) as error:
-        logging.warning("[DHT] Ignoring invalid %s phase state %s (%s)", kind, path, error)
+        logging.debug("[DHT] Ignoring invalid %s phase state %s (%s)", kind, path, error)
         return None
 
 
