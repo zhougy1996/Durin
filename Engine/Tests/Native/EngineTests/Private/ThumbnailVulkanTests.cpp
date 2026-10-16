@@ -8,6 +8,7 @@
 #include "Misc/MountPathTestSupport.h"
 #include "VulkanEngineTestSupport.h"
 #include "Materials/MaterialTestSupport.h"
+#include "Materials/MaterialCompileLifecycle.h"
 #include "Texture/TextureFactoryTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
@@ -283,6 +284,86 @@ TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 	ClearShaderMapPreparations();
 	auto Invalid = FShaderMapPreparation::Request("TextureEditor", {"Missing.Program"});
 	EXPECT_FALSE(Invalid.Poll().has_value());
+}
+
+TEST_F(FThumbnailVulkanTests, StaticMeshSessionWaitsForMaterialPublication)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	DStaticMesh* Mesh = nullptr;
+	const auto MeshPath = Package("SM_MaterialPublication");
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MeshPath, Mesh));
+	FMeshDescription Geometry;
+	Geometry.PolygonGroups.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
+	auto& Section = Geometry.Sections.emplace_back();
+	Section.Name = "Tetrahedron";
+	Section.Positions = {FVector3f(-0.6f, -0.5f, -0.4f), FVector3f(0.7f, -0.4f, -0.3f),
+		FVector3f(0.0f, 0.8f, -0.2f), FVector3f(0.1f, 0.0f, 0.9f)};
+	Section.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};
+	ASSERT_TRUE(FStaticMeshTestAccess::Build(Mesh, std::move(Geometry)));
+	Mesh->RequestRenderDataAndResources();
+	auto Shaders = Renderer.PrepareSceneThumbnailShaders();
+	ASSERT_TRUE(WaitForResourcePublication([&] {
+		return Mesh->GetRenderResourceStatus().Readiness == EStaticMeshRenderResourceReadiness::Ready
+			&& Shaders.Poll().value_or(false);
+	}));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Package("M_MaterialPublication"), Material));
+	ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
+	Mesh->SetMaterialSlotDefaultMaterial(0, Material);
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(SavePackage(Mesh->GetPackage()));
+	ASSERT_FALSE(Material->GetAcceptedCompiledProgram());
+
+	const auto AssetPath = Testing::MakePackageLeafTopLevelAssetPathForTests(MeshPath);
+	StaticMesh::DStaticMeshThumbnailRenderer Extension;
+	StaticMesh::FStaticMeshThumbnailRendererGenerationInput Input(AssetPath, Contract);
+	auto Session = Extension.CreateGenerationSession({}, Input);
+	ASSERT_TRUE(Session) << Session.error();
+	EXPECT_EQ((*Session)->Load().State, EThumbnailRendererSessionState::WaitingForResources);
+	auto Load = RequestAsyncLoad(AssetPath, {}, DStaticMesh::StaticClass());
+	// Deliberately withhold material completion publication, while mesh, global
+	// shaders and asynchronous loading finish. This needs no sleeps or worker gate.
+	ASSERT_TRUE(WaitForResourcePublication([&] {
+		ProcessAsyncLoading();
+		return Load->IsComplete();
+	}));
+	ASSERT_FALSE(Material->GetAcceptedCompiledProgram());
+	const auto Pending = (*Session)->PollResources();
+	ASSERT_EQ(Pending.State, EThumbnailRendererSessionState::WaitingForResources) << Pending.Diagnostic;
+	EXPECT_TRUE(Pending.Diagnostic.empty());
+
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+	ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+	ASSERT_TRUE(WaitForResourcePublication([&] {
+		return (*Session)->PollResources().State == EThumbnailRendererSessionState::ReadyToRender;
+	}));
+	FThumbnailPreviewScenePool Preview(Contract);
+	ASSERT_TRUE(Preview.IsAvailable()) << Preview.GetDiagnostic();
+	ASSERT_TRUE((*Session)->PreparePreview(Preview));
+	ASSERT_TRUE((*Session)->ValidatePreparedInput());
+	const auto Before = GetShaderBuildStats();
+	ASSERT_TRUE(Preview.BeginCapture());
+	std::expected<std::optional<FByteBuffer>, std::string> Capture;
+	ASSERT_TRUE(WaitForResourcePublication([&] {
+		Capture = Preview.PollCapture();
+		return !Capture || Capture->has_value();
+	}));
+	ASSERT_TRUE(Capture) << Capture.error();
+	ASSERT_TRUE(*Capture);
+	EXPECT_EQ((**Capture).size(), Contract.Output.Width * Contract.Output.Height * 4u);
+	EXPECT_EQ(GetShaderBuildStats().Compilations, Before.Compilations);
+	EXPECT_EQ(GetShaderBuildStats().DependencyResolutions, Before.DependencyResolutions);
+	auto Properties = Material->GetStaticProperties();
+	Properties.bTwoSided = !Properties.bTwoSided;
+	ASSERT_TRUE(Material->SetStaticProperties(Properties));
+	EXPECT_FALSE((*Session)->ValidatePreparedInput());
+	ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
+	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Material);
+	const auto Canceled = (*Session)->PollResources();
+	EXPECT_EQ(Canceled.State, EThumbnailRendererSessionState::Failed);
+	EXPECT_FALSE(Canceled.Diagnostic.empty());
+	(*Session)->ResetPreview();
 }
 
 TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRendering)

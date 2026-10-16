@@ -4,7 +4,7 @@ Summary: Define the shared Thumbnail Manager, renderer, asset-thumbnail, pool, p
 
 Modules: DurinEd, ContentBrowser, MainFrame, MaterialEditor, TextureEditor, StaticMeshEditor, LevelEditor
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-16
 
 Asset thumbnails are optional editor-derived data. They never replace authored
 packages or source files, and deleting the thumbnail cache cannot lose project
@@ -132,6 +132,12 @@ inputs, and cancellation invalidates any queued retry.
 
 The sphere and StaticMesh use `RequestRenderDataAndResources()` for missing CPU
 render data; thumbnail polling never calls the blocking mesh-load API.
+StaticMesh sessions also wait for every assigned default material's current
+compiled program before declaring readiness or leasing the capture scene.
+Pending, running, deferred and scheduled material requests remain parked;
+terminal material failures report a qualified diagnostic. Scene preparation
+captures weak material identities and render-state revisions, and later
+validation rejects changed or no-longer-current materials before publication.
 
 Sessions retain successful load handles through capture validation. Reset and
 destruction cancel unfinished requests and release those handles. Removing the

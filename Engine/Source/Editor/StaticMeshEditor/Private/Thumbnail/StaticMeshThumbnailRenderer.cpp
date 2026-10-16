@@ -5,11 +5,14 @@
 #include "Asset/Asset.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Package.h"
+#include "DObject/WeakObjectPtr.h"
 #include "Engine/Actor.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "IRendererModule.h"
 #include "Math/Operations.h"
+#include "Materials/MaterialDiagnostic.h"
+#include "Materials/MaterialInterface.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 
@@ -101,6 +104,27 @@ namespace Durin::Editor::StaticMesh
 		private:
 			FShaderMapPreparation Shaders;
 			bool bShadersRequested = false;
+			auto PollMaterialReadiness() const
+				-> ::Durin::Editor::FThumbnailRendererSessionUpdate
+			{
+				for (const auto& Slot : StaticMesh->GetMaterialSlots())
+				{
+					const auto* Material = Slot.DefaultMaterial.Get();
+					if (!Material) continue;
+					const auto& Status = Material->GetMaterialCompileStatus();
+					if (Status.IsCurrent() && Material->GetAcceptedCompiledProgram()) continue;
+					if (Status.State == EMaterialCompileState::Pending
+						|| Status.State == EMaterialCompileState::Running
+						|| Status.State == EMaterialCompileState::Deferred
+						|| Status.State == EMaterialCompileState::Scheduled)
+						return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+					const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
+					return {.Diagnostic = QualifyDiagnostic(Input.AssetPath, std::format(
+						"Material '{}' has no current compiled program. {}", Material->GetObjectPath(),
+						Diagnostics.empty() ? std::string{} : FormatMaterialError(Diagnostics.front().Source.Error)))};
+				}
+				return {.State = ::Durin::Editor::EThumbnailRendererSessionState::ReadyToRender};
+			}
 			auto PollStaticMeshReadiness()
 				-> ::Durin::Editor::FThumbnailRendererSessionUpdate
 			{
@@ -131,6 +155,9 @@ namespace Durin::Editor::StaticMesh
 				{
 				case EStaticMeshRenderResourceReadiness::Ready:
 				{
+					const auto Materials = PollMaterialReadiness();
+					if (Materials.State != ::Durin::Editor::EThumbnailRendererSessionState::ReadyToRender)
+						return Materials;
 					if (!bShadersRequested && GEngine && GEngine->GetRendererModule())
 					{
 						Shaders = GEngine->GetRendererModule()->PrepareSceneThumbnailShaders();
@@ -163,6 +190,14 @@ namespace Durin::Editor::StaticMesh
 				::Durin::Editor::IThumbnailPreviewScene& PreviewScene) -> std::expected<void, std::string> override
 			{
 				ResetScenePreview();
+				if (!StaticMesh) return std::unexpected(QualifyDiagnostic(Input.AssetPath, "The StaticMesh asset is unavailable."));
+				if (const auto Materials = PollMaterialReadiness();
+					Materials.State != ::Durin::Editor::EThumbnailRendererSessionState::ReadyToRender)
+					return std::unexpected(QualifyDiagnostic(Input.AssetPath,
+						Materials.Diagnostic.empty() ? "A material is still compiling." : Materials.Diagnostic));
+				for (const auto& Slot : StaticMesh->GetMaterialSlots())
+					if (auto* Material = Slot.DefaultMaterial.Get())
+						PreparedMaterials.emplace_back(FWeakObjectPtr(Material), Material->GetRenderStateVersion());
 				PreparedResourceRevision = StaticMesh ? StaticMesh->GetRenderResourceStatus().Revision : 0;
 				const std::optional<FBox> Bounds = StaticMesh
 					? StaticMesh->GetLOD0LocalBounds()
@@ -260,6 +295,14 @@ namespace Durin::Editor::StaticMesh
 						"StaticMesh '{}' changed while its thumbnail was being generated.",
 						Input.AssetPath.ToString()));
 				}
+				for (const auto& [Owner, Revision] : PreparedMaterials)
+				{
+					const auto* Material = Cast<DMaterialInterface>(Owner.Get());
+					if (!Material || !Material->GetMaterialCompileStatus().IsCurrent()
+						|| !Material->GetAcceptedCompiledProgram() || Material->GetRenderStateVersion() != Revision)
+						return std::unexpected(QualifyDiagnostic(Input.AssetPath,
+							"A material changed while its thumbnail was being generated."));
+				}
 				return {};
 			}
 
@@ -275,6 +318,7 @@ namespace Durin::Editor::StaticMesh
 
 			auto ResetScenePreview() -> void
 			{
+				PreparedMaterials.clear();
 				if (World != nullptr && Actor != nullptr) World->DestroyActor(Actor);
 				Component = nullptr;
 				Actor = nullptr;
@@ -286,6 +330,7 @@ namespace Durin::Editor::StaticMesh
 			std::shared_ptr<FAsyncLoadHandle> AssetLoad;
 			uint64 AssetRevision = 0;
 			uint64 PreparedResourceRevision = 0;
+			std::vector<std::pair<FWeakObjectPtr, uint64>> PreparedMaterials;
 			DWorld* World = nullptr;
 			AActor* Actor = nullptr;
 			DStaticMeshComponent* Component = nullptr;
