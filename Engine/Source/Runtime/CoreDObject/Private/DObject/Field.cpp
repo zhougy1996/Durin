@@ -28,7 +28,7 @@ namespace Durin
 		return AllFieldClasses;
 	}
 
-	auto FFieldClass::GetNameToFieldClassMap() -> std::unordered_map<FName, FFieldClass*>
+	auto FFieldClass::GetNameToFieldClassMap() -> std::unordered_map<FName, FFieldClass*>&
 	{
 		static std::unordered_map<FName, FFieldClass*> NameToFieldClassMap;
 		return NameToFieldClassMap;

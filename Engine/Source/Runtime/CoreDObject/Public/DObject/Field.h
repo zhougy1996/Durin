@@ -41,14 +41,14 @@ namespace Durin
 		inline auto IsChildOf(const FFieldClass* InClass) const -> bool
 		{
 			const uint64 InClassId = InClass->GetId();
-			return (Id & InClassId) == InClassId;
+			return (CastFlags & InClassId) == InClassId;
 		}
 
 		/** Get all registered field classes */
 		static COREDOBJECT_API auto GetAllFieldClasses() -> std::vector<FFieldClass*>&;
 
 		/** Get a mapping from name to field class */
-		static COREDOBJECT_API auto GetNameToFieldClassMap() -> std::unordered_map<FName, FFieldClass*>;
+		static COREDOBJECT_API auto GetNameToFieldClassMap() -> std::unordered_map<FName, FFieldClass*>&;
 
 		auto Construct(const FFieldVariant& InOwner, const FName& InName, EObjectFlags InFlags = EObjectFlags::NoFlags) const -> FField*
 		{

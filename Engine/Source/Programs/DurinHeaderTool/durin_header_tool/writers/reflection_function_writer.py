@@ -32,12 +32,12 @@ def function_declarations(function, owner: str) -> str:
                 flags += ["ReferenceParm", "OutParm"]
             role = " | ".join(f"Durin::EPropertyFlags::{flag}" for flag in flags)
             lines.append(_line(f"inline static const Durin::DurinCodeGen::TNativePropertyParams<{function_cpp_type(parameter.kind)}> {field}"
-                               f"{{{_cpp_string_literal(parameter.name)}, static_cast<::uint16>(STRUCT_OFFSET({aggregate}, P{index})), {role}}};", 1))
+                               f"{{{_cpp_string_literal(parameter.name)}, static_cast<::uint32>(STRUCT_OFFSET({aggregate}, P{index})), {role}}};", 1))
             records.append(f"&{field}.Params")
         if function.return_kind != "Void":
             field = f"Prop_{function.name}_ReturnValue"
             lines.append(_line(f"inline static const Durin::DurinCodeGen::TNativePropertyParams<{function_cpp_type(function.return_kind)}> {field}"
-                               f'{{"ReturnValue", static_cast<::uint16>(STRUCT_OFFSET({aggregate}, ReturnValue)), '
+                               f'{{"ReturnValue", static_cast<::uint32>(STRUCT_OFFSET({aggregate}, ReturnValue)), '
                                "Durin::EPropertyFlags::Parm | Durin::EPropertyFlags::ReturnParm | Durin::EPropertyFlags::OutParm};", 1))
             records.append(f"&{field}.Params")
         lines.append(_line(f"inline static const Durin::DurinCodeGen::FPropertyParamsBase* const Props_{function.name}[] = {{ " + ", ".join(records) + " };", 1))

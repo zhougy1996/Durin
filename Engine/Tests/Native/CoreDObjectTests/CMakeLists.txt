@@ -13,7 +13,7 @@ durin_add_native_test(CoreObjectTests
 	KIND contract
 	DOMAINS reflection
 	MODULES core-dobject
-	SOURCES Private/ReflectionTypeTests.cpp Private/FunctionReflectionTests.cpp
+	SOURCES Private/ReflectionTypeTests.cpp Private/FunctionReflectionTests.cpp Private/ReflectionRegressionTests.cpp
 	LIBRARIES Core CoreDObject
 )
 target_sources(CoreObjectTests PRIVATE "${_function_fixture_dir}/FunctionReflectionTestTypes.gen.cpp")

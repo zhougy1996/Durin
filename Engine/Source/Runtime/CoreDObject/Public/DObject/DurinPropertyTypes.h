@@ -22,7 +22,7 @@ namespace Durin
 			EObjectFlags InObjectFlags,
 			EPropertyFlags InPropertyFlags,
 			uint16 InArrayDim,
-			uint16 InOffset,
+			uint32 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
 			DClass* InReferencedClass
@@ -42,7 +42,7 @@ namespace Durin
 			EObjectFlags InObjectFlags,
 			EPropertyFlags InPropertyFlags,
 			uint16 InArrayDim,
-			uint16 InOffset,
+			uint32 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
 			DClass* InReferencedClass
@@ -62,7 +62,7 @@ namespace Durin
 			EObjectFlags InObjectFlags,
 			EPropertyFlags InPropertyFlags,
 			uint16 InArrayDim,
-			uint16 InOffset,
+			uint32 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
 			DClass* InReferencedClass
@@ -92,7 +92,7 @@ namespace Durin
 			EObjectFlags InObjectFlags,
 			EPropertyFlags InPropertyFlags,
 			uint16 InArrayDim,
-			uint16 InOffset,
+			uint32 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
 			DClass* InReferencedClass
@@ -122,7 +122,7 @@ namespace Durin
 			EObjectFlags InObjectFlags,
 			EPropertyFlags InPropertyFlags,
 			uint16 InArrayDim,
-			uint16 InOffset,
+			uint32 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
 			DClass* InReferencedClass
@@ -152,7 +152,7 @@ namespace Durin
 			EObjectFlags InObjectFlags,
 			EPropertyFlags InPropertyFlags,
 			uint16 InArrayDim,
-			uint16 InOffset,
+			uint32 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
 			DClass* InReferencedClass,
@@ -196,7 +196,7 @@ namespace Durin
 			EObjectFlags InObjectFlags,
 			EPropertyFlags InPropertyFlags,
 			uint16 InArrayDim,
-			uint16 InOffset,
+			uint32 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
 			DClass* InReferencedClass,
@@ -230,7 +230,7 @@ namespace Durin
 			EObjectFlags InObjectFlags,
 			EPropertyFlags InPropertyFlags,
 			uint16 InArrayDim,
-			uint16 InOffset,
+			uint32 InOffset,
 			uint16 InElementSize,
 			DClass* InExpectedClass,
 			FMutableSoftValueAccessor InMutableSoftValueAccessor,
@@ -258,7 +258,7 @@ namespace Durin
 		COREDOBJECT_API FWeakObjectProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags);
 		COREDOBJECT_API FWeakObjectProperty(
 			FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags,
-			EPropertyFlags InPropertyFlags, uint16 InArrayDim, uint16 InOffset,
+			EPropertyFlags InPropertyFlags, uint16 InArrayDim, uint32 InOffset,
 			uint16 InElementSize, DClass* InExpectedClass,
 			FMutableWeakValueAccessor InMutableWeakValueAccessor,
 			FConstWeakValueAccessor InConstWeakValueAccessor);
@@ -286,7 +286,7 @@ namespace Durin
 			EObjectFlags InObjectFlags,
 			EPropertyFlags InPropertyFlags,
 			uint16 InArrayDim,
-			uint16 InOffset,
+			uint32 InOffset,
 			DStruct* InStruct
 		);
 
@@ -309,7 +309,7 @@ namespace Durin
 			EObjectFlags InObjectFlags,
 			EPropertyFlags InPropertyFlags,
 			uint16 InArrayDim,
-			uint16 InOffset,
+			uint32 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
 			DClass* InReferencedClass,
@@ -354,7 +354,7 @@ namespace Durin
 			EObjectFlags InObjectFlags,
 			EPropertyFlags InPropertyFlags,
 			uint16 InArrayDim,
-			uint16 InOffset,
+			uint32 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
 			DClass* InReferencedClass,

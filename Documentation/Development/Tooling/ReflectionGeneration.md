@@ -207,7 +207,7 @@ The hermetic prelude declares all referenced identities before ancestor methods.
 The public export contract remains schema v11. Private export-phase state v3
 retains unresolved bare names as `Named` until the complete symbol set resolves
 them to `Struct` or `Enum`, including map keys. Resolved exports reject `Named`
-and unsupported map keys. Tool identity v31 and parser context v15 invalidate
+and unsupported map keys. Tool identity v32 and parser context v15 invalidate
 previous generated sources and cached parse models. Primitive spellings, object
 wrappers, and reference qualifiers share the same function type definitions
 between parsing, synthetic ancestor declarations, and generated thunks.
@@ -298,6 +298,12 @@ are rejected or invalidated and regenerated; no forwarding wrappers preserve
 the former flattened global symbols. All dependent modules must regenerate and
 relink together. Runtime `QualifiedName`, `/Cpp/<Module>` ownership, serialized
 type names, and legacy-name behavior are unchanged.
+
+Member offsets in generated property records, native parameter records, and
+runtime properties use 32-bit storage. Members beyond 64 KiB retain their full
+target-compiler offset; array dimensions and element strides keep their existing
+16-bit limits. This record ABI change requires dependent modules to regenerate
+and relink together. Native function aggregate size retains its 65535-byte limit.
 
 Struct-valued fields use the concrete
 `DurinCodeGen::FStructPropertyParams` record. DurinHeaderTool emits the field

@@ -44,7 +44,7 @@ namespace Durin
 			EObjectFlags InObjectFlags,
 			EPropertyFlags InPropertyFlags,
 			uint16 InArrayDim,
-			uint16 InOffset,
+			uint32 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
 			DClass* InReferencedClass,
@@ -54,7 +54,7 @@ namespace Durin
 		auto GetPropertyFlags() const -> EPropertyFlags { return PropertyFlags; }
 		auto SetPropertyFlags(EPropertyFlags InFlags) -> void { CheckMutable(); PropertyFlags |= InFlags; }
 		auto GetArrayDim() const -> uint16 { return ArrayDim; }
-		auto GetOffset() const -> uint16 { return Offset; }
+		auto GetOffset() const -> uint32 { return Offset; }
 		auto GetElementSize() const -> uint16 { return ElementSize; }
 		auto GetKind() const -> DurinCodeGen::EPropertyGenFlags { return Kind; }
 		auto GetReferencedClass() const -> DClass* { return ReferencedClass; }
@@ -163,7 +163,7 @@ namespace Durin
 	private:
 		EPropertyFlags PropertyFlags = EPropertyFlags::None;
 		uint16 ArrayDim = 1;
-		uint16 Offset = 0;
+		uint32 Offset = 0;
 		uint16 ElementSize = 0;
 		DurinCodeGen::EPropertyGenFlags Kind = DurinCodeGen::EPropertyGenFlags::None;
 		DClass* ReferencedClass = nullptr;

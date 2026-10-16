@@ -392,7 +392,7 @@ namespace Durin
 			const char* NameUTF8;
 			EPropertyFlags Flags;
 			uint16 ArrayDim;
-			uint16 Offset;
+			uint32 Offset;
 			EPropertyGenFlags Kind;
 			EPropertyParamLayout Layout;
 			FMutableValueAccessor MutableValueAccessor;
@@ -410,7 +410,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				EPropertyGenFlags InKind,
 				EPropertyParamLayout InLayout,
 				FMutableValueAccessor InMutableValueAccessor = nullptr,
@@ -482,7 +482,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				const FMetaDataPair* InMetaData = nullptr,
 				size_t InNumMetaData = 0
 			)
@@ -547,7 +547,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				const FMetaDataPair* InMetaData = nullptr,
 				size_t InNumMetaData = 0
 			)
@@ -590,7 +590,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				const FMetaDataPair* InMetaData = nullptr,
 				size_t InNumMetaData = 0) -> FBulkDataPropertyParams
 			{
@@ -606,7 +606,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				FBulkDataPropertyOps InOps,
 				const FMetaDataPair* InMetaData,
 				size_t InNumMetaData)
@@ -627,7 +627,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				FEnumResolver InEnumResolver,
 				const FMetaDataPair* InMetaData = nullptr,
 				size_t InNumMetaData = 0
@@ -660,7 +660,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				FClassResolver InClassResolver,
 				const FMetaDataPair* InMetaData = nullptr,
 				size_t InNumMetaData = 0
@@ -680,7 +680,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				FClassResolver InClassResolver,
 				const FMetaDataPair* InMetaData = nullptr,
 				size_t InNumMetaData = 0
@@ -716,7 +716,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				FClassResolver InClassResolver,
 				EStorage InStorage,
 				FPropertyValueOps InValueOps,
@@ -797,7 +797,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				uint16 InElementSize,
 				FPropertyValueOps InValueOps,
 				const FMetaDataPair* InMetaData = nullptr,
@@ -828,7 +828,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				FExpectedClassResolver InExpectedClassResolver,
 				const FMetaDataPair* InMetaData = nullptr,
 				size_t InNumMetaData = 0
@@ -885,7 +885,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				FExpectedClassResolver InExpectedClassResolver,
 				FPropertyValueOps InValueOps,
 				FMutableSoftValueAccessor InMutableSoftValueAccessor,
@@ -917,7 +917,7 @@ namespace Durin
 			template<typename TValue>
 			static constexpr auto Create(
 				const char* InNameUTF8, EPropertyFlags InFlags, uint16 InArrayDim,
-				uint16 InOffset, FExpectedClassResolver InExpectedClassResolver,
+				uint32 InOffset, FExpectedClassResolver InExpectedClassResolver,
 				const FMetaDataPair* InMetaData = nullptr, size_t InNumMetaData = 0)
 				-> FWeakObjectPropertyParams
 			{
@@ -965,7 +965,7 @@ namespace Durin
 
 			constexpr FWeakObjectPropertyParams(
 				const char* InNameUTF8, EPropertyFlags InFlags, uint16 InArrayDim,
-				uint16 InOffset, FExpectedClassResolver InExpectedClassResolver,
+				uint32 InOffset, FExpectedClassResolver InExpectedClassResolver,
 				FPropertyValueOps InValueOps,
 				FMutableWeakValueAccessor InMutableWeakValueAccessor,
 				FConstWeakValueAccessor InConstWeakValueAccessor,
@@ -994,7 +994,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				const FPropertyParamsBase* InInnerParams,
 				FOpsResolver InOpsResolver,
 				const FMetaDataPair* InMetaData = nullptr,
@@ -1040,7 +1040,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				const FPropertyParamsBase* InKeyParams,
 				const FPropertyParamsBase* InValueParams,
 				FOpsResolver InOpsResolver,
@@ -1090,7 +1090,7 @@ namespace Durin
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
-				uint16 InOffset,
+				uint32 InOffset,
 				FStructResolver InStructResolver,
 				const FMetaDataPair* InMetaData = nullptr,
 				size_t InNumMetaData = 0

@@ -805,9 +805,12 @@ namespace Durin
 
 	auto StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size) -> DObject*
 	{
-		// Allocate memory and zero it out
-		DObject* Obj = nullptr;
-		Obj = static_cast<DObject*>(::operator new(Size));
+		require(Class);
+		const size_t Alignment = Class->GetMinAlignment();
+		require(Alignment && (Alignment & (Alignment - 1)) == 0);
+		// Match the allocation selected by the native type's virtual deleting destructor.
+		DObject* Obj = static_cast<DObject*>(Alignment > __STDCPP_DEFAULT_NEW_ALIGNMENT__
+			? ::operator new(Size, std::align_val_t(Alignment)) : ::operator new(Size));
 		assert(Obj && "Memory allocation failed");
 		new (Obj) DObject(Class, Outer, Name);
 
@@ -853,7 +856,9 @@ namespace Durin
 					else MarkObjectHierarchyAsGarbage(Child);
 				}
 			}
-			::operator delete(Obj);
+			const size_t Alignment = InClass->GetMinAlignment();
+			if (Alignment > __STDCPP_DEFAULT_NEW_ALIGNMENT__) ::operator delete(Obj, std::align_val_t(Alignment));
+			else ::operator delete(Obj);
 			throw;
 		}
 

@@ -218,9 +218,9 @@ auto Z_Construct_DStruct_FTransform() -> DStruct*
 	Singleton = MakeStruct("Durin::FTransform", "FTransform", sizeof(FTransform), alignof(FTransform));
 	static constexpr FPropertyMetadataParams RotationMetadata{.ToolTip = "Local quaternion rotation", .Category = "Transform"};
 	static constexpr FPropertyMetadataParams TranslationMetadata{.ToolTip = "Local translation", .Category = "Transform"};
-	static const auto Rotation = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams{"Rotation", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Rotation)), &Z_Construct_DStruct_FQuat}, &RotationMetadata);
-	static const auto Translation = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams{"Translation", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Translation)), &Z_Construct_DStruct_FVector3}, &TranslationMetadata);
-	static const DurinCodeGen::FStructPropertyParams Scale = {"Scale3D", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Scale3D)), &Z_Construct_DStruct_FVector3};
+	static const auto Rotation = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams{"Rotation", EPropertyFlags::None, 1, static_cast<uint32>(STRUCT_OFFSET(FTransform, Rotation)), &Z_Construct_DStruct_FQuat}, &RotationMetadata);
+	static const auto Translation = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams{"Translation", EPropertyFlags::None, 1, static_cast<uint32>(STRUCT_OFFSET(FTransform, Translation)), &Z_Construct_DStruct_FVector3}, &TranslationMetadata);
+	static const DurinCodeGen::FStructPropertyParams Scale = {"Scale3D", EPropertyFlags::None, 1, static_cast<uint32>(STRUCT_OFFSET(FTransform, Scale3D)), &Z_Construct_DStruct_FVector3};
 	static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&Rotation, &Translation, &Scale};
 	static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FTransform", "FTransform", sizeof(FTransform), alignof(FTransform), Properties, std::size(Properties), &GetDStructOps<FTransform>()};
 	return DurinCodeGen::ConstructDStruct(Params);
@@ -231,10 +231,10 @@ auto Z_Construct_DStruct_FLinearColor() -> DStruct*
 	static DStruct* Singleton = nullptr;
 	if (Singleton) return Singleton;
 	Singleton = MakeStruct("Durin::FLinearColor", "FLinearColor", sizeof(FLinearColor), alignof(FLinearColor));
-	static const DurinCodeGen::FFloatPropertyParams R = {"R", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, R))};
-	static const DurinCodeGen::FFloatPropertyParams G = {"G", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, G))};
-	static const DurinCodeGen::FFloatPropertyParams B = {"B", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, B))};
-	static const DurinCodeGen::FFloatPropertyParams A = {"A", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, A))};
+	static const DurinCodeGen::FFloatPropertyParams R = {"R", EPropertyFlags::None, 1, static_cast<uint32>(STRUCT_OFFSET(FLinearColor, R))};
+	static const DurinCodeGen::FFloatPropertyParams G = {"G", EPropertyFlags::None, 1, static_cast<uint32>(STRUCT_OFFSET(FLinearColor, G))};
+	static const DurinCodeGen::FFloatPropertyParams B = {"B", EPropertyFlags::None, 1, static_cast<uint32>(STRUCT_OFFSET(FLinearColor, B))};
+	static const DurinCodeGen::FFloatPropertyParams A = {"A", EPropertyFlags::None, 1, static_cast<uint32>(STRUCT_OFFSET(FLinearColor, A))};
 	static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&R, &G, &B, &A};
 	static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FLinearColor", "FLinearColor", sizeof(FLinearColor), alignof(FLinearColor), Properties, std::size(Properties), &GetDStructOps<FLinearColor>()};
 	return DurinCodeGen::ConstructDStruct(Params);

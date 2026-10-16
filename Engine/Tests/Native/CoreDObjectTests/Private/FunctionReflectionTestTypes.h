@@ -9,6 +9,47 @@
 
 namespace Durin::FunctionFixtures
 {
+	// Places generated property records beyond the former 16-bit offset boundary.
+	DCLASS(NoClassDefaultObject)
+	class DLargePropertyTarget : public Durin::DObject
+	{
+		GENERATED_BODY()
+	public:
+		explicit DLargePropertyTarget(const Durin::FObjectInitializer& Initializer) : DObject(Initializer) {}
+		uint8 Padding[65536]{};
+		DPROPERTY()
+		int32 Value = 17;
+		DPROPERTY()
+		std::string Text = "large layout";
+		DPROPERTY()
+		Durin::TObjectPtr<Durin::DObject> Reference;
+	};
+
+	// Observes allocation alignment, exception unwinding and virtual GC deletion.
+	DCLASS(NoClassDefaultObject)
+	class alignas(64) DAlignedAllocationTarget : public Durin::DObject
+	{
+		GENERATED_BODY()
+	public:
+		inline static bool bThrowOnConstruction = false;
+		inline static bool bConstructorWasAligned = false;
+		inline static uint32 Destroyed = 0;
+		inline static uint32 Deallocated = 0;
+		inline static size_t DeallocationAlignment = 0;
+		explicit DAlignedAllocationTarget(const Durin::FObjectInitializer& Initializer) : DObject(Initializer)
+		{
+			bConstructorWasAligned = reinterpret_cast<uintptr_t>(this) % alignof(DAlignedAllocationTarget) == 0;
+			if (bThrowOnConstruction) throw std::runtime_error("aligned construction failure");
+		}
+		~DAlignedAllocationTarget() override { ++Destroyed; }
+		static auto operator delete(void* Storage, std::align_val_t Alignment) noexcept -> void
+		{
+			++Deallocated;
+			DeallocationAlignment = static_cast<size_t>(Alignment);
+			::operator delete(Storage, Alignment);
+		}
+	};
+
 	DENUM()
 	enum class EFunctionState : uint8 { Idle = 0, Ready = 7, High = 255 };
 	DENUM()

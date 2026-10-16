@@ -178,7 +178,7 @@ namespace Durin::DurinCodeGen
 {
 	// These holders keep nested generated records alive until the shared constructor
 	// consumes them. All concrete field creation stays in ConstructProperty.
-	template<typename T> auto MakeNativeLeafPropertyParams(const char* Name, uint16 Offset, EPropertyFlags Flags)
+	template<typename T> auto MakeNativeLeafPropertyParams(const char* Name, uint32 Offset, EPropertyFlags Flags)
 	{
 		using Traits = Private::TNativePropertyTraits<T>;
 		constexpr auto Kind = Traits::Kind;
@@ -203,7 +203,7 @@ namespace Durin::DurinCodeGen
 	struct TNativePropertyParams
 	{
 		decltype(MakeNativeLeafPropertyParams<T>(nullptr, 0, EPropertyFlags::None)) Params;
-		TNativePropertyParams(const char* Name, uint16 Offset, EPropertyFlags Flags = EPropertyFlags::None)
+		TNativePropertyParams(const char* Name, uint32 Offset, EPropertyFlags Flags = EPropertyFlags::None)
 			: Params(MakeNativeLeafPropertyParams<T>(Name, Offset, Flags))
 		{ Params.NativeValueOps = MakePropertyValueOps<T>(); }
 		TNativePropertyParams(const TNativePropertyParams&) = delete;
@@ -213,7 +213,7 @@ namespace Durin::DurinCodeGen
 	{
 		TNativePropertyParams<typename Private::TNativePropertyTraits<T>::Element> Inner;
 		FArrayPropertyParams Params;
-		TNativePropertyParams(const char* Name, uint16 Offset, EPropertyFlags Flags = EPropertyFlags::None)
+		TNativePropertyParams(const char* Name, uint32 Offset, EPropertyFlags Flags = EPropertyFlags::None)
 			: Inner("Inner", 0), Params(Name, Flags, 1, Offset, &Inner.Params, &ResolveArrayOps<T>)
 		{ Params.NativeValueOps = MakePropertyValueOps<T>(); }
 		TNativePropertyParams(const TNativePropertyParams&) = delete;
@@ -224,7 +224,7 @@ namespace Durin::DurinCodeGen
 		TNativePropertyParams<typename Private::TNativePropertyTraits<T>::Key> Key;
 		TNativePropertyParams<typename Private::TNativePropertyTraits<T>::Mapped> Value;
 		FMapPropertyParams Params;
-		TNativePropertyParams(const char* Name, uint16 Offset, EPropertyFlags Flags = EPropertyFlags::None)
+		TNativePropertyParams(const char* Name, uint32 Offset, EPropertyFlags Flags = EPropertyFlags::None)
 			: Key("Key", 0), Value("Value", 0), Params(Name, Flags, 1, Offset, &Key.Params, &Value.Params, &ResolveMapOps<T>)
 		{ Params.NativeValueOps = MakePropertyValueOps<T>(); }
 		TNativePropertyParams(const TNativePropertyParams&) = delete;
