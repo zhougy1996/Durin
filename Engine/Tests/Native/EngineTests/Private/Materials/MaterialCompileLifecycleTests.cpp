@@ -8,6 +8,7 @@
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialCookedProgramTestSupport.h"
 #include "MaterialVariantTestFixture.h"
+#include "MaterialResultFanoutTestSupport.h"
 #include "Threading/TaskComposition.h"
 #include "MaterialTestSupport.h"
 
@@ -102,8 +103,7 @@ auto QualifyCanceledFlightResubmission() -> void
 		DMaterial* Material;
 		~FObjectCleanup() { MarkAsGarbage(Material); CollectGarbage(); }
 	} Cleanup{Material};
-	// Keep this fixture's retained result separate from the default-material
-	// identity used by the subsequent cold single-flight assertions.
+	// Use a distinct graph for the cancellation and resubmission assertions.
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(EditRoughnessDefault(*Material, 0.173125f));
 	for (const bool bExplicitCancel : {false, true})
@@ -313,82 +313,64 @@ TEST(FMaterialCompileLifecycleTests, RetryQueueRemovesOwnersAndDistinguishesSlot
 	EXPECT_EQ(Queue.Num(), 0u);
 }
 
+
 namespace
 {
-auto QualifyDetachedResultFanout(bool Shutdown) -> void
-{
-	using namespace Durin;
-	struct FGateCache final : DerivedData::ICache
+	class FMaterialAsyncCompileTests : public testing::Test
 	{
-		mutable FThreadEvent Entered, Release;
-		auto Get(const DerivedData::FCacheGetRequest& Request) const -> DerivedData::FCacheGetResult override { return DerivedData::GetCache().Get(Request); }
-		auto Put(const DerivedData::FCachePutRequest& Request) const -> DerivedData::FCachePutResult override { Entered.Trigger(); Release.WaitFor(10); return DerivedData::GetCache().Put(Request); }
+		std::vector<Durin::DObject*> Objects;
+	protected:
+		static auto SetUpTestSuite() -> void
+		{
+			InitializeDObjectSystem();
+			Durin::FModuleManager::Get().LoadModule("RenderCore");
+			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+		}
+
+		auto TearDown() -> void override
+		{
+			for (auto* Object : Objects) Durin::MarkAsGarbage(Object);
+			Durin::CollectGarbage();
+			Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+			const auto Drained = Durin::GetMaterialCompilationDiagnostics();
+			EXPECT_EQ(Drained.InFlightCount, 0u);
+			EXPECT_EQ(Drained.OutstandingConsumerCount, 0u);
+			EXPECT_EQ(Drained.PendingPublicationCount, 0u);
+		}
+
+		template<class T> auto MakeObject(const char* Name) -> T*
+		{
+			auto* Object = Durin::NewObject<T>(nullptr, Name);
+			Objects.push_back(Object);
+			return Object;
+		}
 	};
-	SCOPED_TRACE(Shutdown ? "shutdown during fanout" : "cancel one follower during fanout");
-	FAssetCompilingManager::Get().FinishAllCompilation();
-	auto Cache = std::make_shared<FGateCache>(); ShaderBuildPrivate::ResetServiceForTests({.Cache = Cache});
-	auto* A = NewObject<DMaterial>(nullptr, "FanoutCanceled"); auto* B = NewObject<DMaterial>(nullptr, "FanoutLive");
-	A->SetEditCompileMode(EMaterialEditCompileMode::Manual); B->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	FThreadEvent Entered, Release;
-	struct FRestore
-	{
-		std::shared_ptr<FGateCache> Cache; FThreadEvent& Release; DMaterial* A; DMaterial* B;
-		~FRestore() { Cache->Release.Trigger(); Release.Trigger(); MaterialBuildPrivate::SetResultFanoutHookForTests({}); FAssetCompilingManager::Get().FinishAllCompilation(); ShaderBuildPrivate::ResetServiceForTests(); MarkAsGarbage(A); MarkAsGarbage(B); CollectGarbage(); }
-	} Restore{Cache, Release, A, B};
-	MaterialBuildPrivate::SetResultFanoutHookForTests([&] { Entered.Trigger(); EXPECT_TRUE(Release.WaitFor(10)); });
-	FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
-	auto Snapshot = SnapshotMaterialCompilerInput(*A, Environment); ASSERT_TRUE(Snapshot);
-	const auto Before = GetMaterialCompilationDiagnostics();
-	ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*A, Snapshot.Snapshot->Input, true)); ASSERT_TRUE(Cache->Entered.WaitFor(5));
-	ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*B, Snapshot.Snapshot->Input, true));
-	Cache->Release.Trigger(); ASSERT_TRUE(Entered.WaitFor(5));
-	EXPECT_TRUE(HasPendingMaterialCompilation(*A)); EXPECT_TRUE(HasPendingMaterialCompilation(*B));
-	EXPECT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, Before.OutstandingConsumerCount + 2);
-	if (Shutdown)
-	{
-		std::thread Releaser([&] {
-			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-			while (IsMaterialCompilationAcceptingRequests() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
-			Release.Trigger();
-		});
-		ShutdownAssetCompilingManager(); Releaser.join();
-		EXPECT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, 0u);
-	}
-	else
-	{
-		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*A);
-		EXPECT_FALSE(HasPendingMaterialCompilation(*A)); EXPECT_TRUE(HasPendingMaterialCompilation(*B));
-		EXPECT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, Before.OutstandingConsumerCount + 1);
-		Release.Trigger(); ASSERT_TRUE(WaitForMaterialCompile(*B));
-		EXPECT_EQ(A->GetMaterialCompileStatus().State, EMaterialCompileState::Canceled);
-		EXPECT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, Before.OutstandingConsumerCount);
-		MaterialBuildPrivate::SetResultFanoutHookForTests([] { throw std::runtime_error("fanout failure"); });
-		ASSERT_TRUE(Private::FMaterialCompilationLifecycle::Submit(*A, Snapshot.Snapshot->Input, true));
-		FAssetCompilingManager::Get().FinishAllCompilation();
-		EXPECT_EQ(A->GetMaterialCompileStatus().State, EMaterialCompileState::Failed);
-		EXPECT_FALSE(HasPendingMaterialCompilation(*A));
-		EXPECT_EQ(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, Before.OutstandingConsumerCount);
-	}
-}
 }
 
-TEST(FMaterialCompileLifecycleTests,
-	LatestGenerationSingleFlightFailureFallbackAndShutdownAreBounded)
+TEST_F(FMaterialAsyncCompileTests, DistinctTranslationsShareOneProgram)
 {
-	InitializeDObjectSystem();
-	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	const bool bOwnsScheduler = !Durin::IsTaskSchedulerRunning();
-	if (bOwnsScheduler) ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
-	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
-	QualifyDistinctTranslationsConvergingToOneProgram();
-	QualifyCanceledFlightResubmission();
-	Durin::Testing::CheckInstanceVariantsForTest(false);
-	QualifyInstanceCompilationOwners();
+	ASSERT_NO_FATAL_FAILURE(QualifyDistinctTranslationsConvergingToOneProgram());
+}
 
-	auto* First = Durin::NewObject<Durin::DMaterial>(
-		nullptr, "AsyncCompileFirst");
-	auto* Second = Durin::NewObject<Durin::DMaterial>(
-		nullptr, "AsyncCompileSecond");
+TEST_F(FMaterialAsyncCompileTests, CanceledFlightsCanBeResubmitted)
+{
+	ASSERT_NO_FATAL_FAILURE(QualifyCanceledFlightResubmission());
+}
+
+TEST_F(FMaterialAsyncCompileTests, InstanceVariantsShareOnlyCompatiblePrograms)
+{
+	ASSERT_NO_FATAL_FAILURE(Durin::Testing::CheckInstanceVariantsForTest(false));
+}
+
+TEST_F(FMaterialAsyncCompileTests, InstanceOwnersRetryDeferredCompilation)
+{
+	ASSERT_NO_FATAL_FAILURE(QualifyInstanceCompilationOwners());
+}
+
+TEST_F(FMaterialAsyncCompileTests, SingleFlightRetainedHitsAndDemandedReload)
+{
+	auto* First = MakeObject<Durin::DMaterial>("AsyncCompileFirst");
+	auto* Second = MakeObject<Durin::DMaterial>("AsyncCompileSecond");
 	ASSERT_EQ(First->GetMaterialCompileStatus().State,
 		Durin::EMaterialCompileState::NeverRequested);
 	ASSERT_EQ(Second->GetMaterialCompileStatus().State,
@@ -412,8 +394,8 @@ TEST(FMaterialCompileLifecycleTests,
 				Release.WaitFor(2.0);
 			})));
 		ASSERT_TRUE(Started.WaitFor(1.0));
-		ASSERT_TRUE(Durin::RequestMaterialRecompile(*First));
-		ASSERT_TRUE(Durin::RequestMaterialRecompile(*Second));
+		ASSERT_TRUE(Durin::RequestMaterialRecompile(*First, true));
+		ASSERT_TRUE(Durin::RequestMaterialRecompile(*Second, true));
 		ASSERT_EQ(First->GetMaterialCompileStatus().State,
 			Durin::EMaterialCompileState::Running);
 		ASSERT_EQ(Second->GetMaterialCompileStatus().State,
@@ -446,7 +428,15 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_EQ(Second->GetMaterialCompileStatus().RequestGeneration,
 		UnusedGeneration);
 	ASSERT_TRUE(WaitForMaterialCompile(*First));
+}
 
+TEST_F(FMaterialAsyncCompileTests, LatestGenerationReplacesTheAcceptedProgram)
+{
+	auto* First = MakeObject<Durin::DMaterial>("LatestGeneration");
+	ASSERT_TRUE(Durin::RequestMaterialRecompile(*First));
+	ASSERT_TRUE(WaitForMaterialCompile(*First));
+	const auto InitialProgram = First->GetAcceptedCompiledProgram();
+	ASSERT_TRUE(InitialProgram);
 	const uint64 InitialGeneration =
 		First->GetMaterialCompileStatus().RequestGeneration;
 	auto Validation = EditRoughnessDefault(*First, 0.03125f);
@@ -467,11 +457,19 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_NE(First->GetAcceptedCompiledProgram()->Identity,
 		InitialProgram->Identity);
 	EXPECT_TRUE(First->GetMaterialCompileStatus().IsCurrent());
+}
 
+TEST_F(FMaterialAsyncCompileTests, FailedAndStaleResultsPreserveGenerationBoundaries)
+{
+	auto* First = MakeObject<Durin::DMaterial>("FailedGeneration");
+	ASSERT_TRUE(Durin::RequestMaterialRecompile(*First));
+	ASSERT_TRUE(WaitForMaterialCompile(*First));
+	const auto InitialProgram = First->GetAcceptedCompiledProgram();
+	ASSERT_TRUE(InitialProgram);
 	auto ParameterValidation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*First);
 
 	ASSERT_TRUE(ParameterValidation);
-	auto* PendingInstance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PendingParameterEdit");
+	auto* PendingInstance = MakeObject<Durin::DMaterialInstance>("PendingParameterEdit");
 	ASSERT_TRUE(PendingInstance->SetParent(First));
 	EXPECT_TRUE(First->GetAcceptedCompiledProgram()->GetArtifact().ActiveParameters.empty());
 	ASSERT_TRUE(PendingInstance->SetVectorParameterValue(
@@ -558,96 +556,95 @@ TEST(FMaterialCompileLifecycleTests,
 	ASSERT_TRUE(WaitForMaterialCompile(*First));
 	EXPECT_TRUE(First->GetAcceptedCompiledProgram());
 	EXPECT_TRUE(First->GetMaterialCompileStatus().IsCurrent());
-
-	// Pending replacements retain deleted declarations; failed owners retire them.
-	{
-		auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "RetainedDeclarationRoot");
-		ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Root));
-		ASSERT_TRUE(WaitForMaterialCompile(*Root));
-		ASSERT_NE(Root, nullptr);
-		ASSERT_NE(Root->GetAcceptedCompiledProgram(), nullptr);
-		auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "RetainedDeclarationInstance");
-		ASSERT_TRUE(Instance->SetParent(Root));
-		ASSERT_TRUE(WaitForMaterialCompile(*Instance));
-		ASSERT_TRUE(Root->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.65f));
-		ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.9f));
-		Durin::FMaterialParameterDefinition Definition;
-		Definition.Id = Durin::FGuid::NewGuid();
-		Definition.Name = "IndependentAmount";
-		Durin::Testing::FTestMaterialExpressionGraph Graph;
-		const std::array Definitions{Definition};
-		auto& Node = Graph.Add(Durin::EMaterialProgramOpcode::Parameter, Durin::EMaterialProgramValueType::Float,
-			{}, Definition.Id, {}, Definitions);
-		Graph.Outputs.Roughness = {Node.Id};
-		Durin::FThreadEvent Started, Release;
-		std::atomic<uint32> StartedCount = 0;
-		std::vector<Durin::FTaskHandle> Blockers;
-		const auto WorkerCount = Durin::GetTaskSchedulerDiagnostics().WorkerCount;
-		struct FReleaseWorkers
-		{
-			Durin::FThreadEvent& Release;
-			std::vector<Durin::FTaskHandle>& Tasks;
-			~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Tasks) Durin::WaitTask(Task); }
-		};
-		{
-			FReleaseWorkers ReleaseWorkers{Release, Blockers};
-			for (uint32 Index = 0; Index < WorkerCount; ++Index)
-				Blockers.push_back(Durin::FTaskHandle(Durin::Tasks::LaunchTask("HoldRetainedSchemaCompile", [&] {
-					if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
-					Release.WaitFor(10.0);
-				})));
-			ASSERT_TRUE(Started.WaitFor(2.0));
-			ASSERT_TRUE(Graph.Apply(*Root));
-			EXPECT_FLOAT_EQ(GetMaterialBinding(Root->GetRenderData()).Metallic, 0.65f);
-			EXPECT_FLOAT_EQ(GetMaterialBinding(Instance->GetRenderData()).Metallic, 0.9f);
-			const auto Pending = Root->GetMaterialCompileStatus();
-			Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Root);
-			Durin::FMaterialCompileResult Failed{
-				.Owner = Durin::FWeakObjectPtr(Root),
-				.AuthoredRevision = Pending.AuthoredRevision,
-				.Generation = Pending.RequestGeneration,
-				.DependencyRevision = Pending.DependencyRevision,
-				.ProgramIdentity = Pending.RequestedIdentity,
-				.Target = Pending.Target,
-				.State = Durin::EMaterialCompileState::Failed,
-				.Category = Durin::EMaterialCompileResultCategory::Compile};
-			EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Root, std::move(Failed)));
-		}
-		EXPECT_FALSE(Root->GetAcceptedCompiledProgram());
-		ExpectColorNear(GetMaterialBinding(Root->GetRenderData()).BaseColor,
-			GetMaterialBinding(Durin::GetErrorMaterialRenderData()).BaseColor);
-		// Each variant owns its result: the child's successful compilation can still publish.
-		ASSERT_TRUE(WaitForMaterialCompile(*Instance));
-		EXPECT_TRUE(Instance->GetAcceptedCompiledProgram());
-		ASSERT_TRUE(Durin::RequestMaterialRecompile(*Root));
-		ASSERT_TRUE(WaitForMaterialCompile(*Root));
-		EXPECT_EQ(Root->GetAcceptedCompiledProgram()->Identity,
-			Instance->GetAcceptedCompiledProgram()->Identity);
-		Durin::MarkAsGarbage(Instance);
-		Durin::MarkAsGarbage(Root);
-	}
-
-	QualifyDetachedResultFanout(false);
-	QualifyEditScheduling();
-	QualifyMaterialEditingSessionAsync();
-	QualifyMaterialFunctionCompilationAsync();
-
-	Durin::MarkAsGarbage(PendingInstance);
-	Durin::MarkAsGarbage(Second);
-	Durin::MarkAsGarbage(First);
-	Durin::CollectGarbage();
-	Durin::ShutdownAssetCompilingManager();
-	const Durin::FMaterialCompilationDiagnostics Shutdown =
-		Durin::GetMaterialCompilationDiagnostics();
-	EXPECT_FALSE(Shutdown.bAcceptingRequests);
-	EXPECT_EQ(Shutdown.InFlightCount, 0u);
-	EXPECT_EQ(Shutdown.OutstandingConsumerCount, 0u);
-	EXPECT_EQ(Shutdown.PendingPublicationCount, 0u);
-	EXPECT_EQ(Shutdown.RetainedProgramCount, 0u);
-	EXPECT_EQ(Shutdown.RetainedProgramBytes, 0u);
-	if (bOwnsScheduler)
-		Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
 }
+
+TEST_F(FMaterialAsyncCompileTests, PendingSchemaReplacementRetainsBindingsUntilFailure)
+{
+	// Pending replacements retain deleted declarations; failed owners retire them.
+	auto* Root = MakeObject<Durin::DMaterial>("RetainedDeclarationRoot");
+	ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Root));
+	ASSERT_TRUE(WaitForMaterialCompile(*Root));
+	ASSERT_NE(Root, nullptr);
+	ASSERT_NE(Root->GetAcceptedCompiledProgram(), nullptr);
+	auto* Instance = MakeObject<Durin::DMaterialInstance>("RetainedDeclarationInstance");
+	ASSERT_TRUE(Instance->SetParent(Root));
+	ASSERT_TRUE(WaitForMaterialCompile(*Instance));
+	ASSERT_TRUE(Root->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.65f));
+	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.9f));
+	Durin::FMaterialParameterDefinition Definition;
+	Definition.Id = Durin::FGuid::NewGuid();
+	Definition.Name = "IndependentAmount";
+	Durin::Testing::FTestMaterialExpressionGraph Graph;
+	const std::array Definitions{Definition};
+	auto& Node = Graph.Add(Durin::EMaterialProgramOpcode::Parameter, Durin::EMaterialProgramValueType::Float,
+		{}, Definition.Id, {}, Definitions);
+	Graph.Outputs.Roughness = {Node.Id};
+	Durin::FThreadEvent Started, Release;
+	std::atomic<uint32> StartedCount = 0;
+	std::vector<Durin::FTaskHandle> Blockers;
+	const auto WorkerCount = Durin::GetTaskSchedulerDiagnostics().WorkerCount;
+	struct FReleaseWorkers
+	{
+		Durin::FThreadEvent& Release;
+		std::vector<Durin::FTaskHandle>& Tasks;
+		~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Tasks) Durin::WaitTask(Task); }
+	};
+	{
+		FReleaseWorkers ReleaseWorkers{Release, Blockers};
+		for (uint32 Index = 0; Index < WorkerCount; ++Index)
+			Blockers.push_back(Durin::FTaskHandle(Durin::Tasks::LaunchTask("HoldRetainedSchemaCompile", [&] {
+				if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
+				Release.WaitFor(10.0);
+			})));
+		ASSERT_TRUE(Started.WaitFor(2.0));
+		ASSERT_TRUE(Graph.Apply(*Root));
+		EXPECT_FLOAT_EQ(GetMaterialBinding(Root->GetRenderData()).Metallic, 0.65f);
+		EXPECT_FLOAT_EQ(GetMaterialBinding(Instance->GetRenderData()).Metallic, 0.9f);
+		const auto Pending = Root->GetMaterialCompileStatus();
+		Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Root);
+		Durin::FMaterialCompileResult Failed{
+			.Owner = Durin::FWeakObjectPtr(Root),
+			.AuthoredRevision = Pending.AuthoredRevision,
+			.Generation = Pending.RequestGeneration,
+			.DependencyRevision = Pending.DependencyRevision,
+			.ProgramIdentity = Pending.RequestedIdentity,
+			.Target = Pending.Target,
+			.State = Durin::EMaterialCompileState::Failed,
+			.Category = Durin::EMaterialCompileResultCategory::Compile};
+		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Root, std::move(Failed)));
+	}
+	EXPECT_FALSE(Root->GetAcceptedCompiledProgram());
+	ExpectColorNear(GetMaterialBinding(Root->GetRenderData()).BaseColor,
+		GetMaterialBinding(Durin::GetErrorMaterialRenderData()).BaseColor);
+	// Each variant owns its result: the child's successful compilation can still publish.
+	ASSERT_TRUE(WaitForMaterialCompile(*Instance));
+	EXPECT_TRUE(Instance->GetAcceptedCompiledProgram());
+	ASSERT_TRUE(Durin::RequestMaterialRecompile(*Root));
+	ASSERT_TRUE(WaitForMaterialCompile(*Root));
+	EXPECT_EQ(Root->GetAcceptedCompiledProgram()->Identity,
+		Instance->GetAcceptedCompiledProgram()->Identity);
+}
+
+TEST_F(FMaterialAsyncCompileTests, DetachedFanoutRetiresCanceledAndFailedConsumers)
+{
+	ASSERT_NO_FATAL_FAILURE(Durin::Testing::CheckDetachedMaterialResultFanout(false));
+}
+
+TEST_F(FMaterialAsyncCompileTests, EditSchedulingHonorsManualAndAutomaticModes)
+{
+	ASSERT_NO_FATAL_FAILURE(QualifyEditScheduling());
+}
+
+TEST_F(FMaterialAsyncCompileTests, EditingSessionAppliesOnlyAcceptedResults)
+{
+	ASSERT_NO_FATAL_FAILURE(QualifyMaterialEditingSessionAsync());
+}
+
+TEST_F(FMaterialAsyncCompileTests, FunctionEditsInvalidateOwnersAndRejectStaleResults)
+{
+	ASSERT_NO_FATAL_FAILURE(QualifyMaterialFunctionCompilationAsync());
+}
+
 
 namespace
 {
@@ -842,22 +839,6 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 		EXPECT_NE(Material->GetAcceptedCompiledProgram()->Identity, Accepted->Identity);
 	}
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Second->GetAcceptedCompiledProgram());
-	{
-		FHoldWorkers Hold;
-		ASSERT_TRUE(Hold.Hold());
-		ASSERT_TRUE(RequestMaterialRecompile(*First, true));
-		ASSERT_TRUE(RequestMaterialRecompile(*Second, true));
-		EXPECT_GE(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, 2u);
-		Hold.Release.Trigger();
-		QualifyDetachedResultFanout(true);
-		ShutdownAssetCompilingManager();
-	}
-	const auto Shutdown = GetMaterialCompilationDiagnostics();
-	EXPECT_FALSE(Shutdown.bAcceptingRequests);
-	EXPECT_EQ(Shutdown.InFlightCount, 0u);
-	EXPECT_EQ(Shutdown.OutstandingConsumerCount, 0u);
-	EXPECT_EQ(Shutdown.PendingPublicationCount, 0u);
-	EXPECT_EQ(Shutdown.RetainedProgramCount, 0u);
 }
 
 TEST(FMaterialCompileLifecycleTests,

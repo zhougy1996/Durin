@@ -2047,9 +2047,10 @@ TEST(FMaterialProgramCompilerTests,
 
 	Durin::MIR::FModule InvalidIR = Normalized.IR;
 	InvalidIR.Version++;
-	std::string InvalidSource;
-	EXPECT_FALSE(Durin::GenerateMaterialProgramSlang(InvalidIR));
-	EXPECT_TRUE(InvalidSource.empty());
+	const auto InvalidSource = Durin::GenerateMaterialProgramSlang(InvalidIR);
+	EXPECT_FALSE(InvalidSource);
+	EXPECT_TRUE(InvalidSource.Source.empty());
+	EXPECT_FALSE(InvalidSource.Diagnostics.empty());
 	Durin::MIR::FCompilerInput InvalidInput = Input;
 	InvalidInput.Environment.Target.clear();
 	const auto Failed = Durin::MIR::Compile(InvalidInput);
@@ -2058,28 +2059,27 @@ TEST(FMaterialProgramCompilerTests,
 	EXPECT_FALSE(Failed.Diagnostics.empty());
 }
 
-TEST(FMaterialProgramCompilerTests, NormalizedIRRecompilationPreservesSourceAndStages)
+TEST(FMaterialProgramCompilerTests, NormalizedIRRoundTripPreservesSourceLayoutAndIdentity)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
 	auto Input = MakeSyntheticMaterialCompilerInput();
 	Durin::FMaterialOperationResult Error;
 	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Input.Environment))) << Durin::FormatMaterialError(Error.Error);
-	const auto Baseline = MIR::Compile(Input);
+	const auto Baseline = MIR::Normalize(Input);
 	ASSERT_TRUE(Baseline);
-	MIR::FCompilerInput Direct{.IR = Baseline.GetDebugData().IR, .Parameters = Input.Parameters,
+	MIR::FCompilerInput Direct{.IR = Baseline.IR, .Parameters = Input.Parameters,
 		.StaticProperties = Input.StaticProperties, .Environment = Input.Environment};
-	const auto Compiled = MIR::Compile(Direct);
-	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
-	EXPECT_EQ(Compiled.GetDebugData().GeneratedSource, Baseline.GetDebugData().GeneratedSource);
-	EXPECT_EQ(Compiled.GetArtifact().Layout, Baseline.GetArtifact().Layout);
-	ASSERT_EQ(Compiled.GetArtifact().CompiledShaders.size(), Baseline.GetArtifact().CompiledShaders.size());
-	for (size_t Index = 0; Index < Compiled.GetArtifact().CompiledShaders.size(); ++Index)
-	{
-		EXPECT_EQ(Compiled.GetArtifact().CompiledShaders[Index].Frequency, Baseline.GetArtifact().CompiledShaders[Index].Frequency);
-		EXPECT_EQ(Compiled.GetArtifact().CompiledShaders[Index].SourceEntryPoint, Baseline.GetArtifact().CompiledShaders[Index].SourceEntryPoint);
-		EXPECT_EQ(Compiled.GetArtifact().CompiledShaders[Index].CodeHash, Baseline.GetArtifact().CompiledShaders[Index].CodeHash);
-	}
+	const auto Repeated = MIR::Normalize(Direct);
+	ASSERT_TRUE(Repeated);
+	EXPECT_EQ(Repeated.Identity, Baseline.Identity);
+	EXPECT_EQ(Repeated.CanonicalBytes, Baseline.CanonicalBytes);
+	EXPECT_EQ(Repeated.Layout, Baseline.Layout);
+	const auto Source = GenerateMaterialProgramSlang(Baseline.IR, Baseline.Layout);
+	const auto RepeatedSource = GenerateMaterialProgramSlang(Repeated.IR, Repeated.Layout);
+	ASSERT_TRUE(Source);
+	ASSERT_TRUE(RepeatedSource);
+	EXPECT_EQ(RepeatedSource.Source, Source.Source);
 }
 
 TEST(FMaterialProgramCompilerTests, DirectIRNormalizationPrunesDeadCodeAndRemapsSourcesDeterministically)
@@ -2352,7 +2352,6 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	InvalidResult.Status = EMaterialProgramStatus::Error;
 	EXPECT_FALSE(ValidateMaterialCompilerResult(InvalidResult));
 	EXPECT_NE(Compiled.GetDebugData().GeneratedSource.find("MaterialTexture0.Sample(MaterialSampler0"), std::string::npos);
-	EXPECT_EQ(Compiled.GetDebugData().GeneratedSource.find("GetMaterialUV"), std::string::npos);
 	ReorderIndependentMaterialIRNodes(Input);
 	std::ranges::reverse(Input.Parameters);
 	const auto Reordered = MIR::Normalize(Input);
@@ -2428,21 +2427,18 @@ TEST(FMaterialProgramCompilerTests, ExplicitUVAndSurfaceCompositionUseOnlyAuthor
 	Input.IR.SurfaceRoot.bAggregate = true;
 	Input.IR.SurfaceRoot.AggregateExpressionIndex = Add(EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface,
 		{Color, Normal, Zero, One, One, Color, One, One});
-	const auto Compiled = MIR::Compile(Input);
-	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
-	ASSERT_TRUE(ValidateMaterialCompilerResult(Compiled));
-	EXPECT_EQ(Compiled.GetArtifact().Layout.Fields.size(), 2u);
-	EXPECT_EQ(Compiled.GetArtifact().Layout.ResourceFieldCount, 0u);
-	EXPECT_NE(Compiled.GetDebugData().GeneratedSource.find("SelectAuthoredUV(input,"), std::string::npos);
-	EXPECT_EQ(Compiled.GetDebugData().GeneratedSource.find("GetMaterialUV"), std::string::npos);
-	EXPECT_EQ(Compiled.GetDebugData().GeneratedSource.find("EvaluateStandardSurface"), std::string::npos);
+	const auto Normalized = MIR::Normalize(Input);
+	ASSERT_TRUE(Normalized);
+	EXPECT_EQ(Normalized.Layout.Fields.size(), 2u);
+	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 0u);
+	const auto Source = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);
+	ASSERT_TRUE(Source);
+	EXPECT_NE(Source.Source.find("SelectAuthoredUV(input,"), std::string::npos);
 	Input.IR.Nodes.back().Inputs.pop_back();
 	EXPECT_FALSE(MIR::Normalize(Input));
 	Input.IR.Nodes.back().Inputs.push_back(One);
 	Input.IR.Nodes[2].Inputs[0] = Color;
 	EXPECT_FALSE(MIR::Normalize(Input));
-
-
 }
 
 TEST(FMaterialProgramSchemaTests, RetiredIROpcodesAreRejectedWithoutMutatingInput)

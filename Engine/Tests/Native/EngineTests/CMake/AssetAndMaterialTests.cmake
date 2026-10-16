@@ -619,6 +619,21 @@ durin_add_native_test(MaterialCompileLifecycleTests
 		"Exercises asynchronous compiler scheduling, owner cancellation, editor apply, and shutdown."
 )
 
+durin_add_native_test(MaterialCompileShutdownTests
+	KIND feature
+	DOMAINS material material-compilation
+	MODULES engine shader-build
+	SOURCES Private/Materials/MaterialCompileShutdownTests.cpp
+	INCLUDE_DIRECTORIES
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+	LIBRARIES Core CoreDObject Engine RenderCore ShaderBuild DerivedDataCache
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Exercises terminal shutdown of authored material compilation in its own process."
+	ENVIRONMENTS authored-shaders
+)
+
 durin_add_native_test(MaterialCookTests
 	KIND feature
 	DOMAINS material material-cook
