@@ -32,6 +32,7 @@ namespace Durin
 		case ECookPublishValidationError::PackageIdentity: return "CookOutputStoreInvalidPackageIdentity: " + Failure.Path;
 		case ECookPublishValidationError::RawBulkClosure: return "CookOutputStoreInvalidRawBulkClosure: " + Failure.Path;
 		case ECookPublishValidationError::AuxiliaryOutput: return "CookOutputStoreInvalidAuxiliaryOutput: " + Failure.Path;
+		case ECookPublishValidationError::ReusedOutput: return "CookOutputStoreChangedReusedOutput: " + Failure.Path;
 		}
 		return {};
 	}
@@ -59,16 +60,6 @@ namespace Durin
 	namespace
 	{
 		auto IsCancelled(const FCookCancellationCheck& Check) -> bool { return Check && Check(); }
-		auto ValidateExistingFile(const std::filesystem::path& Path, uint64 ExpectedSize, const FXxHash128& ExpectedDigest) -> bool
-		{
-			std::error_code ErrorCode;
-			if (!std::filesystem::is_regular_file(Path, ErrorCode) || ErrorCode
-				|| std::filesystem::file_size(Path, ErrorCode) != ExpectedSize || ErrorCode)
-				return false;
-			return FFileHelper::HashFileXx128(Path)
-				.transform([&](const FXxHash128& Digest) { return Digest == ExpectedDigest; })
-				.value_or(false);
-		}
 
 		struct FOutputRecord
 		{
@@ -151,14 +142,16 @@ namespace Durin
 				for (size_t Index = 0; Index < Plans.size(); ++Index)
 				{
 					const FCookSavePlan& Plan = Plans[Index];
+					const bool bReference = Plan.bReuseExistingOutput && Plan.PackageBytes.empty() && Plan.BulkBytes.empty();
 					std::filesystem::path PackagePath;
 					FCookedPathResult PathResult;
 					if (Plan.TargetPlatform != Platform || Plan.TargetProfile != Profile
 						|| Plan.PackageFileSize == 0
-						|| Plan.PackageBytes.size() != Plan.PackageFileSize
-						|| Plan.BulkBytes.size() != Plan.SegmentFileSize
-						|| FXxHash128::HashBuffer(Plan.PackageBytes) != Plan.PackageDigest
-						|| FXxHash128::HashBuffer(Plan.BulkBytes) != Plan.SegmentDigest
+						|| (Plan.SegmentFileSize == 0 && Plan.SegmentDigest != FXxHash128::HashBuffer(FByteView{}))
+						|| (!bReference && (Plan.PackageBytes.size() != Plan.PackageFileSize
+							|| Plan.BulkBytes.size() != Plan.SegmentFileSize
+							|| FXxHash128::HashBuffer(Plan.PackageBytes) != Plan.PackageDigest
+							|| FXxHash128::HashBuffer(Plan.BulkBytes) != Plan.SegmentDigest))
 						|| !(PathResult = ResolveCookedPackagePath(
 							Root, Plan.VirtualPath, PackagePath
 						))
@@ -181,7 +174,9 @@ namespace Durin
 						&& !FPackagePath::TryCreateProjectContent(
 							Plan.VirtualPath, VirtualPath))
 						return RejectValidation(ECookPublishValidationError::PackageIdentity, Plan.VirtualPath, Index);
-					const auto PackageValidation = ValidateAssetPackageBytes(
+					// Reuse references name previously validated bytes by their exact digest.
+					// Recheck their files under the writer lock below, without recapturing bulk.
+					const auto PackageValidation = bReference ? FAssetReadResult{} : ValidateAssetPackageBytes(
 						Plan.PackageBytes, VirtualPath, Plan.BulkBytes);
 					if (!PackageValidation)
 					{
@@ -309,15 +304,27 @@ namespace Durin
 				for (size_t Index = 0; Index < Outputs.size(); ++Index)
 				{
 					FOutputRecord& Output = Outputs[Index];
-					Output.bReuse = Output.bReuse && ValidateExistingFile(Root / Output.RelativePath, Output.Size, Output.Digest);
+					const bool bReference = Output.bReuse && Output.Bytes.empty();
+					if (bReference && (!bHasPreviousManifest || PreviousManifest.TargetPlatform != Platform
+						|| PreviousManifest.TargetProfile != Profile
+						|| !MatchesCookManifestOutput(PreviousManifest, Output.RelativePath, Output.Kind, Output.Flags, Output.Size, Output.Digest)))
+						return RejectValidation(ECookPublishValidationError::ReusedOutput, Output.RelativePath, Index);
+					Output.bReuse = Output.bReuse && ValidateCookOutputFile(Root / Output.RelativePath, Output.Size, Output.Digest,
+						[&] { return !IsCancelled(Cancellation); });
+					if (IsCancelled(Cancellation)) {
+						bOutCancelled = true;
+						return RejectOperation(ECookPublishOperationError::CancelledStaging, Output.Stage, Root / Output.RelativePath);
+					}
+					if (bReference && !Output.bReuse)
+						return RejectValidation(ECookPublishValidationError::ReusedOutput, Output.RelativePath, Index);
 					if (!Output.bReuse && !StageBytes(Output.RelativePath, Output.Bytes, Output.Stage, Index)) return false;
 				}
 				const FXxHash128 StateDigest = FXxHash128::HashBuffer(StateBytes);
 				const FXxHash128 ManifestDigest = FXxHash128::HashBuffer(ManifestBytes);
-				const bool bReuseState = ValidateExistingFile(
+				const bool bReuseState = ValidateCookOutputFile(
 					Root / "CookState.bin", StateBytes.size(), StateDigest
 				);
-				const bool bReuseManifest = ValidateExistingFile(
+				const bool bReuseManifest = ValidateCookOutputFile(
 					Root / "CookManifest.bin", ManifestBytes.size(), ManifestDigest
 				);
 				if (!bReuseState && !StageBytes("CookState.bin", StateBytes, ECookOperationStage::CommitState, Outputs.size())) return false;

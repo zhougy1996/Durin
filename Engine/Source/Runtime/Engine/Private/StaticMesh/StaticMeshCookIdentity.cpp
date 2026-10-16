@@ -1,4 +1,4 @@
-#include "Asset/CookBuildProviders.h"
+#include "Asset/CookSchema.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCustomVersion.h"
 #include "Collision/CollisionGeometry.h"
@@ -11,10 +11,13 @@
 #include "DerivedDataBuildDefinition.h"
 #endif
 
-namespace Durin::AssetPrivate
+namespace Durin
 {
-	auto DeclareStaticMeshCookInputs(const FCookDependencyRequest& Request, std::vector<FCookDependencyDeclaration>& Out) -> FCookContributionResult
+	auto DStaticMesh::AppendToClassSchema(FObjectCookContext& Context) -> void
 	{
+		Context.VersionCoveredClasses.insert("Durin::DStaticMesh");
+		Context.UsedCustomVersions.insert(FStaticMeshSourceVersion::Guid);
+		AssetPrivate::AppendCookSchemaVersion(Context, "static-mesh", 2);
 #if DURIN_WITH_EDITORONLY_DATA
 		const auto* Module = IMeshBuilderModule::Get();
 		const auto Version = Module ? Module->GetBuildVersion() : 0;
@@ -32,17 +35,10 @@ namespace Durin::AssetPrivate
 			Recipe.WriteU32(Physics.ConstantsSchema);
 			Recipe.WriteU32(Physics.OutputSchema);
 			Recipe.WriteU32(PhysicsCollisionPayloadSchemaVersion);
-			Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion, "recipe/static-mesh", {}, Recipe.TakeBytes()});
-			return {};
+			Context.Dependencies.push_back({ECookBuildDependencyKind::SchemaProducerVersion, "recipe/static-mesh", {}, Recipe.TakeBytes()});
+			return;
 		}
 #endif
-		return {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::RecipeProvider, .VirtualPath = Request.Package.ToString(),
-			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile, .Provider = "static-mesh"};
+		Context.Result = {EObjectCookError::InvalidInput, "Cook recipe provider 'static-mesh' is unavailable."};
 	}
-}
-
-namespace Durin
-{
-	auto DStaticMesh::AppendToClassSchema(FObjectCookContext& Context) -> void
-	{ Context.VersionCoveredClasses.insert("Durin::DStaticMesh"); Context.UsedCustomVersions.insert(FStaticMeshSourceVersion::Guid); AssetPrivate::AppendNativeCookSchema(Context, "static-mesh", 2, AssetPrivate::DeclareStaticMeshCookInputs); }
 }

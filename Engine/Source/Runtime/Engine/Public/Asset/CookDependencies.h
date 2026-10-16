@@ -8,7 +8,6 @@
 #include "Asset/AssetReadResult.h"
 #include "Asset/CookedAsset.h"
 #include "DObject/AssetPath.h"
-#include "Materials/MaterialCookConfiguration.h"
 
 namespace Durin
 {
@@ -100,19 +99,4 @@ namespace Durin
 		std::span<const FCookPackageBuildInputs> Graph,
 		std::vector<FCookBuildDependency>& OutRecords) -> FCookDependencyGraphResult;
 
-	struct FCookDependencyRequest
-	{
-		FPackagePath Package;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
-		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
-		bool bRetainEditorOnlyData = false;
-		// Evaluated once per run; empty means the provider supplied no reusable identity.
-		std::string_view ShaderBuildIdentity;
-		std::span<const FMaterialCookConfiguration> MaterialConfigurations;
-	};
-
-	// Called once per package before cache lookup, without loading authored objects.
-	struct FCookContributionResult;
-	using FCookDependencyDeclarationFunction = FCookContributionResult (*)(
-		const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&);
 }

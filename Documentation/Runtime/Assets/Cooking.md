@@ -104,6 +104,10 @@ providers. Required named request values become captured dependencies. Native
 `AppendToClassSchema` hooks bind through `FClassParams` and intrinsic construction;
 `DClass::AppendCookSchema` visits distinct hooks root-to-leaf without CDO access.
 Static schema hooks do not call their parent; object virtual overrides do.
+Family hooks write declarations directly into this context. Material shader identity
+and the canonical configuration set are each captured once through required request
+values; material Cook schema version 6 invalidates the previous duplicate declaration
+layout. Texture and Mesh schema evaluation does not parse material request values.
 Class schema collection clears the package identity and accepts only shared
 configuration/producer-version values. Declare package and external-file inputs
 in `OnCookEvent`, where the instance and package are available. This prevents a
@@ -245,17 +249,23 @@ recomputed each run. Earlier, invalid, duplicate, truncated or incompatible stat
 becomes a safe miss without legacy migration readers. Cook never repairs or resaves
 authored inputs; authored package compatibility remains independent of CookState.
 
-A hit additionally validates output size/digest and retains those exact buffers.
-Missing/corrupt output is recaptured and repaired. Hits, fresh captures and dry
+A hit additionally streams output size/digest verification and retains only output
+metadata matched against the previous manifest. Missing/corrupt output is recaptured
+and repaired. Missing/invalid prior manifests also force recapture. The store rechecks reuse
+references under its writer lock before committing; a reference changed after discovery
+fails publication rather than staging empty bytes. Byte-backed plans can still repair
+corrupt output. Hits, fresh captures and dry
 runs share dependency evaluation; retained runtime packages also produce the
-auxiliary shader library. DDC hits, rebuilds, captures and Cook hits remain distinct
-provenance. All-omitted runs publish valid empty package manifests/state without
+auxiliary shader library. Package reports distinguish Cook hits, captures and omissions;
+DDC hits and rebuilds belong to build operations. Retired v2 package statuses are accepted
+only for reading older reports. All-omitted runs publish valid empty package manifests/state without
 an unnecessary shader library.
 
 Discovery limits are 65536 packages and graph/runtime edges, 256 MiB per read file, and
 1 GiB of accounted retained input data. Dependency sets use at most 65536 records,
 1 MiB per value, and 64 MiB encoded data; the prepared graph shares source hashes
-across expansions. Cook state is bounded to 256 MiB and detached output to 1 GiB.
+across expansions. Cook state is bounded to 256 MiB and retained detached output bytes
+to 1 GiB; metadata-only reuse references do not consume that output-byte budget.
 These bound payload storage rather than total process RSS or native callback
 allocations. The JSON `peakCapturedBytes` field accounts retained dependency values
 and detached outputs; it excludes temporary codec/compiler buffers and ordinary

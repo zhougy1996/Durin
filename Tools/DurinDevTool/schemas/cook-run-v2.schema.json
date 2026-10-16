@@ -33,7 +33,16 @@
         "properties": {
           "packagePath": {"type": "string"},
           "serializer": {"type": "string"},
-          "status": {"enum": ["cook-hit", "ddc-hit", "rebuilt", "reused-output", "captured", "omitted", "failed", "cancelled", "unsupported"]},
+          "status": {
+            "oneOf": [
+              {"enum": ["cook-hit", "captured", "omitted", "failed", "cancelled"]},
+              {
+                "enum": ["ddc-hit", "rebuilt", "reused-output", "unsupported"],
+                "deprecated": true,
+                "description": "Accepted for older v2 reports only; current package reports do not emit build-operation outcomes."
+              }
+            ]
+          },
           "stage": {"enum": ["discovery", "load", "prepare", "capture", "stage-segment", "stage-package", "commit-segment", "commit-package", "commit-state", "commit-manifest", "rollback", "stale-cleanup", "writer-lock"]},
           "code": {"type": "string"},
           "diagnostic": {"type": "string"},

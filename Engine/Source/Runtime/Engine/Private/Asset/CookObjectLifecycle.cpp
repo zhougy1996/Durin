@@ -1,64 +1,9 @@
-#include "CookBuildProviders.h"
+#include "Asset/Cook.h"
 #include "Asset/PackageSerialization.h"
 #include "DObject/Package.h"
-#include "Serialization/BinaryFormat.h"
 
 namespace Durin
 {
-	auto AssetPrivate::MakeObjectCookContext(const FCookDependencyRequest& Request) -> FObjectCookContext
-	{
-		FObjectCookContext Context;
-		Context.Target = {std::string(GetTargetPlatformName(Request.TargetPlatform)), std::string(GetTargetProfileName(Request.TargetProfile))};
-		Context.Package = Request.Package.ToString();
-		Context.bCooking = true;
-		Context.bRetainEditorOnlyData = Request.bRetainEditorOnlyData;
-		const auto Shader = std::as_bytes(std::span(Request.ShaderBuildIdentity));
-		if (!Shader.empty()) Context.RequestValues.emplace("shader-build", FByteBuffer(Shader.begin(), Shader.end()));
-		FBinaryWriter Writer;
-		Writer.WriteU32(static_cast<uint32>(Request.MaterialConfigurations.size()));
-		for (const auto& Configuration : Request.MaterialConfigurations)
-		{
-			Writer.WriteU32(static_cast<uint32>(Configuration.Quality));
-			Writer.WriteU32(static_cast<uint32>(Configuration.FeatureLevel));
-		}
-		Context.RequestValues.emplace("material/configurations", Writer.TakeBytes());
-		return Context;
-	}
-
-	auto AssetPrivate::AppendNativeCookSchema(FObjectCookContext& Context, std::string_view Name, uint32 Version,
-		FCookDependencyDeclarationFunction Declare) -> void
-	{
-		FBinaryWriter VersionBytes;
-		VersionBytes.WriteU32(Version);
-		Context.Dependencies.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
-			"class/" + std::string(Name), {}, VersionBytes.TakeBytes()});
-		if (!Declare) return;
-		const auto Bytes = Context.FindRequestValue("material/configurations");
-		std::vector<FMaterialCookConfiguration> Configurations;
-		if (!Bytes.empty())
-		{
-			FBinaryReader Reader(Bytes);
-			uint32 Count = 0;
-			if (!Reader.ReadU32(Count) || Count > 6) { Context.Result = {EObjectCookError::InvalidInput, "Invalid material Cook configuration count."}; return; }
-			for (uint32 Index = 0; Index < Count; ++Index)
-			{
-				uint32 Quality = 0, Feature = 0;
-				if (!Reader.ReadU32(Quality) || !Reader.ReadU32(Feature)) { Context.Result = {EObjectCookError::InvalidInput, "Truncated material Cook configurations."}; return; }
-				Configurations.push_back({static_cast<EMaterialQualityLevel>(Quality), static_cast<ERHIFeatureLevel>(Feature)});
-			}
-			if (!Reader.IsAtEnd()) { Context.Result = {EObjectCookError::InvalidInput, "Trailing material Cook configuration bytes."}; return; }
-		}
-		FPackagePath Package;
-		if (!Context.Package.empty() && !FPackagePath::TryCreate(Context.Package, Package)) { Context.Result = {EObjectCookError::InvalidInput, "Invalid Cook schema package."}; return; }
-		const auto Shader = Context.FindRequestValue("shader-build");
-		const FCookDependencyRequest Request{Package,
-			ParseTargetPlatform(Context.Target.Platform).value_or(ECookTargetPlatform::Invalid),
-			ParseTargetProfile(Context.Target.Profile).value_or(ECookTargetProfile::Invalid), Context.bRetainEditorOnlyData,
-			std::string_view(reinterpret_cast<const char*>(Shader.data()), Shader.size()), Configurations};
-		if (auto Result = Declare(Request, Context.Dependencies); !Result)
-			Context.Result = {Result.Status == ECookContributionStatus::Canceled ? EObjectCookError::Cancelled : EObjectCookError::InvalidInput,
-				FormatCookContributionError(Result)};
-	}
 	auto FCookPreparationContext::GetTargetPlatform() const -> ECookTargetPlatform { return Options.TargetPlatform; }
 	auto FCookPreparationContext::GetTargetProfile() const -> ECookTargetProfile { return Options.TargetProfile; }
 	auto FCookPreparationContext::ReadDeclaredInput(ECookBuildDependencyKind Kind, std::string_view Name, FByteBuffer& Out) const -> FCookInputResult

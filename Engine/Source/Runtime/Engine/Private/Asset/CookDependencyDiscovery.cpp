@@ -1,7 +1,6 @@
 #include "Misc/PackageWriter.h"
 #include "CookDependencyDiscovery.h"
 #include "CookMemoryBudget.h"
-#include "CookBuildProviders.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Package.h"
 #include "Shader/IShaderBuildModule.h"
@@ -107,8 +106,20 @@ namespace Durin::AssetPrivate
 
 	auto FCookDependencyDiscovery::MakeContext(const FPackagePath& Path) -> FObjectCookContext
 	{
-		auto Context = MakeObjectCookContext({Path, Request.TargetPlatform, Request.TargetProfile,
-			Request.bRetainEditorOnlyData, ShaderBuildIdentity, Request.MaterialConfigurations});
+		FObjectCookContext Context;
+		Context.Target = {std::string(GetTargetPlatformName(Request.TargetPlatform)), std::string(GetTargetProfileName(Request.TargetProfile))};
+		Context.Package = Path.ToString();
+		Context.bCooking = true;
+		Context.bRetainEditorOnlyData = Request.bRetainEditorOnlyData;
+		// The coordinator has already resolved and sorted the configuration set.
+		FBinaryWriter Writer;
+		Writer.WriteU32(static_cast<uint32>(Request.MaterialConfigurations.size()));
+		for (const auto& Configuration : Request.MaterialConfigurations)
+		{
+			Writer.WriteU32(static_cast<uint32>(Configuration.Quality));
+			Writer.WriteU32(static_cast<uint32>(Configuration.FeatureLevel));
+		}
+		Context.RequestValues.emplace("material/configurations", Writer.TakeBytes());
 		Context.IsCancelled = Request.IsCancelled;
 		Context.RequestReader = [this](std::string_view Name) -> std::expected<FByteBuffer, FObjectCookResult> {
 			if (Name != "shader-build") return std::unexpected(FObjectCookResult{EObjectCookError::InvalidInput, "Unknown Cook request value: " + std::string(Name)});

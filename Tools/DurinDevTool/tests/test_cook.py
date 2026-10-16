@@ -95,6 +95,13 @@ def test_omitted_package_report_is_successful_and_distinct_from_failure() -> Non
     assert "0 failed" in output.getvalue()
 
 
+@pytest.mark.parametrize("status", ["ddc-hit", "rebuilt", "reused-output", "unsupported"])
+def test_retired_v2_package_statuses_remain_readable(status: str) -> None:
+    value = json.loads(report())
+    value["packages"][0].update(status=status, code=status)
+    assert cook._read_report(json.dumps(value))["packages"][0]["status"] == status
+
+
 def test_cook_maps_stable_native_contract_and_renders_json(tmp_path: Path) -> None:
     executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()

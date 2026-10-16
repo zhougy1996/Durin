@@ -214,6 +214,83 @@ TEST_F(FCookFunctionalTests, ObjectHooksPrepareEveryExportAndWarmReuseSkipsConst
 	EXPECT_EQ(DCookReferenceFixture::Begins, 2u); EXPECT_EQ(DCookReferenceFixture::Clears, 2u);
 }
 
+TEST_F(FCookFunctionalTests, ReusedOutputsCarryOnlyMetadataAndCorruptionRecaptures)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("CookReuseReferences");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/Reuse", Path));
+	auto* Package = CreatePackage(Path);
+	ASSERT_NE(NewObject<DCookReferenceFixture>(Package, "Reuse"), nullptr);
+	ASSERT_TRUE(SavePackage(Package)); ASSERT_TRUE(UnloadPackage(Package));
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
+	FCookRunResult Result;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	const auto Before = Inventory(Request.OutputRoot);
+	class FCheckingStore final : public ICookOutputStore
+	{
+	public:
+		bool bCalled = false;
+		std::unique_ptr<ICookOutputStore> Store;
+		auto Publish(std::span<const FCookSavePlan> Plans, std::span<const FCookAuxiliaryOutput> Auxiliary,
+			const FCookState& State, FCookRunResult& Result, const FCookCancellationCheck& Cancel,
+			const FCookFailureInjection& Fail) -> FCookPublishResult override
+		{
+			bCalled = true;
+			EXPECT_EQ(Plans.size(), 1u);
+			for (const auto& Plan : Plans) {
+				EXPECT_TRUE(Plan.bReuseExistingOutput);
+				EXPECT_TRUE(Plan.PackageBytes.empty()); EXPECT_TRUE(Plan.BulkBytes.empty());
+				EXPECT_GT(Plan.PackageFileSize, 0u);
+			}
+			return Store->Publish(Plans, Auxiliary, State, Result, Cancel, Fail);
+		}
+	} Store;
+	Store.Store = CreateLocalLooseCookOutputStore(Request.OutputRoot, Request.TargetPlatform, Request.TargetProfile);
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result, &Store)) << FormatCookRunError(Result);
+	EXPECT_TRUE(Store.bCalled);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+	EXPECT_EQ(Inventory(Request.OutputRoot), Before);
+	const std::array Corrupt{std::byte{0}};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, Request.OutputRoot / "CookTests/Reuse.dasset"));
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::Captured);
+	EXPECT_EQ(Inventory(Request.OutputRoot), Before);
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, Request.OutputRoot / "CookManifest.bin"));
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::Captured);
+	EXPECT_EQ(Inventory(Request.OutputRoot), Before);
+}
+
+TEST_F(FCookFunctionalTests, ClassSchemasDeclareMaterialInputsOnceAndOtherFamiliesIgnoreThem)
+{
+	FObjectCookContext Material;
+	Material.RequestValues["shader-build"] = {std::byte{1}};
+	FBinaryWriter Configurations;
+	Configurations.WriteU32(1);
+	Configurations.WriteU32(static_cast<uint32>(EMaterialQualityLevel::High));
+	Configurations.WriteU32(static_cast<uint32>(ERHIFeatureLevel::SM5));
+	Material.RequestValues["material/configurations"] = Configurations.TakeBytes();
+	DMaterial::StaticClass()->AppendCookSchema(Material);
+	ASSERT_TRUE(Material.Result) << Material.Result.Diagnostic;
+	for (const auto Name : {"shader-build", "material/configurations"}) {
+		EXPECT_EQ(std::ranges::count(Material.Dependencies, "request/" + std::string(Name), &FCookDependencyDeclaration::LogicalName), 1);
+		EXPECT_EQ(std::ranges::count(Material.Dependencies, std::string(Name), &FCookDependencyDeclaration::LogicalName), 0);
+	}
+	FObjectCookContext Missing;
+	DMaterial::StaticClass()->AppendCookSchema(Missing);
+	EXPECT_FALSE(Missing.Result);
+	for (auto* Class : {DTexture2D::StaticClass(), DTextureCube::StaticClass(), DVolumeTexture::StaticClass(), DStaticMesh::StaticClass()}) {
+		FObjectCookContext Context;
+		Context.RequestValues["material/configurations"] = {std::byte{0xff}};
+		Class->AppendCookSchema(Context);
+		EXPECT_TRUE(Context.Result) << Context.Result.Diagnostic;
+		EXPECT_TRUE(Context.RequestedValues.empty());
+	}
+}
+
 TEST_F(FCookFunctionalTests, BeginsEveryObjectBeforeWaitingAndClearsAfterCapture)
 {
 	const auto Fixture = Testing::CreateTestFixtureDirectory("CookLifecycleOrder");

@@ -59,18 +59,22 @@ namespace Durin
 		}
 
 		auto ReadCachedCookPlan(const FCookRequest& Request, const FCookStateEntry& Entry,
-			const std::function<bool()>& Continue, FCookSavePlan& OutPlan) -> bool
+			const FCookManifest& Manifest, const std::function<bool()>& Continue, FCookSavePlan& OutPlan) -> bool
 		{
-			FByteBuffer PackageBytes, SegmentBytes;
-			if (!ReadBoundedCookFile(Request.OutputRoot / RelativePackagePath(Entry.VirtualPackagePath), PackageBytes, Continue)
-				|| (Entry.SegmentSize != 0 && !ReadBoundedCookFile(
-					Request.OutputRoot / RelativeSegmentPath(Entry.VirtualPackagePath), SegmentBytes, Continue))
-				|| PackageBytes.size() != Entry.PackageSize || SegmentBytes.size() != Entry.SegmentSize
-				|| FXxHash128::HashBuffer(PackageBytes) != Entry.PackageDigest
-				|| FXxHash128::HashBuffer(SegmentBytes) != Entry.SegmentDigest)
+			const auto Flags = static_cast<uint8>(CookManifestEntryPresent
+				| ((Entry.SegmentFlags & CookStateSegmentRawFieldProjection) ? CookManifestEntryCookedFieldProjection : 0));
+			if (!MatchesCookManifestOutput(Manifest, RelativePackagePath(Entry.VirtualPackagePath),
+				ECookManifestEntryKind::CookedPackage, Flags, Entry.PackageSize, Entry.PackageDigest)
+				|| (Entry.SegmentSize != 0 && !MatchesCookManifestOutput(Manifest, RelativeSegmentPath(Entry.VirtualPackagePath),
+					ECookManifestEntryKind::PackageBulk, CookManifestEntryPresent, Entry.SegmentSize, Entry.SegmentDigest)))
+				return false;
+			if (!ValidateCookOutputFile(Request.OutputRoot / RelativePackagePath(Entry.VirtualPackagePath),
+				Entry.PackageSize, Entry.PackageDigest, Continue)
+				|| (Entry.SegmentSize == 0 && Entry.SegmentDigest != FXxHash128::HashBuffer(FByteView{}))
+				|| (Entry.SegmentSize != 0 && !ValidateCookOutputFile(
+					Request.OutputRoot / RelativeSegmentPath(Entry.VirtualPackagePath), Entry.SegmentSize, Entry.SegmentDigest, Continue)))
 				return false;
 			OutPlan = {.VirtualPath = Entry.VirtualPackagePath,
-				.PackageBytes = std::move(PackageBytes), .BulkBytes = std::move(SegmentBytes),
 				.BulkSummary = {Entry.SegmentSize, Entry.SegmentDigest},
 				.InputFingerprint = Entry.InputFingerprint, .PackageDigest = Entry.PackageDigest,
 				.SegmentDigest = Entry.SegmentDigest, .PackageFileSize = Entry.PackageSize,
@@ -98,14 +102,10 @@ namespace Durin
 		switch (Status)
 		{
 		case ECookPackageStatus::CookHit: return "cook-hit";
-		case ECookPackageStatus::DdcHit: return "ddc-hit";
-		case ECookPackageStatus::Rebuilt: return "rebuilt";
-		case ECookPackageStatus::ReusedOutput: return "reused-output";
 		case ECookPackageStatus::Captured: return "captured";
 		case ECookPackageStatus::Omitted: return "omitted";
 		case ECookPackageStatus::Failed: return "failed";
 		case ECookPackageStatus::Cancelled: return "cancelled";
-		case ECookPackageStatus::Unsupported: return "unsupported";
 		}
 		return "failed";
 	}
@@ -379,6 +379,7 @@ namespace Durin
 		});
 		Roots.erase(std::unique(Roots.begin(), Roots.end()), Roots.end());
 		FCookState PreviousState;
+		FCookManifest PreviousManifest;
 		bool bHasPreviousState = false;
 		if (Request.IncrementalPolicy == ECookIncrementalPolicy::Enabled
 			&& !Request.OutputRoot.empty())
@@ -388,6 +389,11 @@ namespace Durin
 								&& DecodeCookState(Bytes, PreviousState)
 								&& PreviousState.TargetPlatform == Request.TargetPlatform
 								&& PreviousState.TargetProfile == Request.TargetProfile;
+			bHasPreviousState = bHasPreviousState
+				&& ReadBoundedCookFile(Request.OutputRoot / "CookManifest.bin", Bytes)
+				&& DecodeCookManifest(Bytes, PreviousManifest)
+				&& PreviousManifest.TargetPlatform == Request.TargetPlatform
+				&& PreviousManifest.TargetProfile == Request.TargetProfile;
 		}
 		std::unordered_map<std::string, const FCookStateEntry*> PriorEntries;
 		if (bHasPreviousState)
@@ -483,13 +489,12 @@ namespace Durin
 										&& Prior->second->BuildDependencies == Dependencies;
 						FCookSavePlan CachedPlan;
 						if (bCookHit)
-							bCookHit = ReadCachedCookPlan(Request, *Prior->second,
+							bCookHit = ReadCachedCookPlan(Request, *Prior->second, PreviousManifest,
 								[&] { return CheckInputs().Succeeded(); }, CachedPlan);
 						if (auto Result = CheckInputs(); !Result) return InputFailure(Result);
 						if (bCookHit)
 						{
 							const FCookStateEntry& Hit = *Prior->second;
-							if (!RetainOutput(Hit.PackageSize, Hit.SegmentSize)) return Finish(ECookRunStatus::Failed, ECookRunError::OutputLimit);
 							Plans.push_back(std::move(CachedPlan));
 							NewState.Entries.push_back(Hit);
 							OutResult.ReusedBytes += Hit.PackageSize + Hit.SegmentSize;

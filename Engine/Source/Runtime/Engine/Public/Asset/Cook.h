@@ -15,6 +15,7 @@
 #include "DObject/DObjectFwd.h"
 #include "DObject/AssetPath.h"
 #include "Misc/FileError.h"
+#include "Materials/MaterialCookConfiguration.h"
 
 namespace Durin
 {
@@ -90,14 +91,10 @@ namespace Durin
 	enum class ECookPackageStatus : uint8
 	{
 		CookHit,
-		DdcHit,
-		Rebuilt,
-		ReusedOutput,
 		Captured,
 		Omitted,
 		Failed,
 		Cancelled,
-		Unsupported,
 	};
 
 	enum class ECookRunStatus : uint8
@@ -139,6 +136,8 @@ namespace Durin
 		-> std::string_view;
 
 	// Detached canonical bytes and integrity facts for one virtual package.
+	// A metadata-only reuse plan has bReuseExistingOutput set and empty buffers.
+	// The store verifies the prior manifest and files, failing if they changed since discovery.
 	struct FCookSavePlan
 	{
 		std::string VirtualPath;
@@ -405,7 +404,7 @@ namespace Durin
 
 	enum class ECookPublishValidationError : uint8
 	{
-		Request, Plan, OpaqueSegment, PackageIdentity, RawBulkClosure, AuxiliaryOutput
+		Request, Plan, OpaqueSegment, PackageIdentity, RawBulkClosure, AuxiliaryOutput, ReusedOutput
 	};
 	struct FCookPublishValidationFailure
 	{
