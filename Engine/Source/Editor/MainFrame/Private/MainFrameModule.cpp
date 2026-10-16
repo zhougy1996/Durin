@@ -1,5 +1,7 @@
 #include "MainFrameModule.h"
 #include "DurinMCPModule.h"
+#include "DurinPythonModule.h"
+#include "Panels/PythonScriptPanel.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "AssetCompatibilityWindow.h"
 #include "NamePoolDiagnosticsWindow.h"
@@ -91,6 +93,7 @@ namespace Durin::Editor::MainFrame
 		std::shared_ptr<ContentBrowser::FMountedContentReconciliationState> ContentReconciliation =
 			std::make_shared<ContentBrowser::FMountedContentReconciliationState>();
 		std::unique_ptr<FConsolePanel> Console;
+		std::unique_ptr<FPythonScriptPanel> PythonScripts;
 		std::unique_ptr<FEditorNotificationOverlay> Activity;
 	};
 
@@ -190,6 +193,7 @@ namespace Durin::Editor::MainFrame
 			FNamePoolDiagnosticsWindow NamePoolDiagnostics;
 			bool bContentBrowserOpen = false;
 			bool bConsoleOpen = false;
+			bool bPythonOpen = false;
 			bool bActivityHistoryRequested = false;
 			bool bResetHostLayoutRequested = false;
 			EHostDrawerTool DrawerTool = EHostDrawerTool::ContentBrowser;
@@ -742,6 +746,7 @@ namespace Durin::Editor::MainFrame
 				ImGui::MenuItem("Content Browser", "Ctrl+Space",
 					&ViewState.bContentBrowserOpen);
 				ImGui::MenuItem("Console", nullptr, &ViewState.bConsoleOpen);
+				ImGui::MenuItem("Python Scripts", nullptr, &ViewState.bPythonOpen);
 				if (ImGui::MenuItem("Activity History"))
 					ViewState.bActivityHistoryRequested = true;
 				if (ActiveWorkspace)
@@ -965,6 +970,7 @@ namespace Durin::Editor::MainFrame
 			FAssetCompatibilityWindow& AssetCompatibilityWindow,
 			ContentBrowser::IContentBrowserTool& ContentBrowserTool,
 			FConsolePanel& Console,
+			FPythonScriptPanel& PythonScripts,
 			FEditorNotificationOverlay& Activity
 		) -> void
 		{
@@ -985,6 +991,7 @@ namespace Durin::Editor::MainFrame
 
 			WorkspaceManager.RefreshDocumentState();
 			Console.Tick();
+			PythonScripts.Tick();
 			if (GEditor)
 				Activity.UpdateNotifications(
 					GEditor->GetNotificationManager(),
@@ -1215,6 +1222,7 @@ namespace Durin::Editor::MainFrame
 			}
 			Editor::WorkspaceUI::DrawDocumentCloseConfirmation(WorkspaceManager);
 			Activity.DrawHistoryWindow();
+			PythonScripts.Draw(ViewState.bPythonOpen);
 			if (GEditor)
 				Activity.DrawToasts(GEditor->GetNotificationManager());
 
@@ -1271,6 +1279,7 @@ namespace Durin
 		Context.AssetCompatibilityWindow =
 			std::make_shared<FAssetCompatibilityWindow>();
 		Context.Console = std::make_unique<FConsolePanel>(Editor);
+		Context.PythonScripts = std::make_unique<FPythonScriptPanel>(Editor);
 		Context.Activity = std::make_unique<FEditorNotificationOverlay>();
 
 		const FIntPoint WindowSize{
@@ -1367,6 +1376,7 @@ namespace Durin
 					*Context->AssetCompatibilityWindow,
 					*Context->ContentBrowserTool,
 					*Context->Console,
+					*Context->PythonScripts,
 					*Context->Activity);
 				ThumbnailPool.EndFrame();
 				DrawExitConfirmation(*Context);
@@ -1406,8 +1416,11 @@ namespace Durin
 
 	auto FMainFrameModule::DestroyEditorHost() -> void
 	{
-		if (auto* Module = FModuleManager::Get().GetModule("DurinMCP"))
-			static_cast<FDurinMCPModule*>(Module)->StopServer();
+		if (!BootstrapContext) return;
+		if (FModuleManager::Get().IsModuleLoaded("DurinPython"))
+			static_cast<FDurinPythonModule*>(FModuleManager::Get().GetModule("DurinPython"))->StopRuntime();
+		if (FModuleManager::Get().IsModuleLoaded("DurinMCP"))
+			static_cast<FDurinMCPModule*>(FModuleManager::Get().GetModule("DurinMCP"))->StopServer();
 		BootstrapContext.reset();
 	}
 

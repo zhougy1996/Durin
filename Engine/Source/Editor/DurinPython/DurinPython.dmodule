@@ -1,0 +1,7 @@
+{
+    "ModuleName": "DurinPython",
+    "LinkType": "Shared",
+    "PCH": "Self",
+    "PrivateDependencies": ["DurinEd"],
+    "PublicDependencies": ["Core"]
+}

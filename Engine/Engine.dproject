@@ -40,7 +40,8 @@
         "ShaderBuild": "Source/Developer/ShaderBuild",
         "TargetPlatform": "Source/Developer/TargetPlatform",
         "ShaderFormat": "Source/Runtime/ShaderFormat",
-        "DurinMCP": "Source/Editor/DurinMCP"
+        "DurinMCP": "Source/Editor/DurinMCP",
+        "DurinPython": "Source/Editor/DurinPython"
     },
     "BaseModules": [
         "DurinLauncher",
