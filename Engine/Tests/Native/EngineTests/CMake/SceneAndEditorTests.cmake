@@ -450,6 +450,39 @@ durin_add_native_test(EditorShellTests
 	HEAVY_RUNTIME_RATIONALE "Exercises DurinEd and Mona editor-shell models."
 )
 
+durin_add_native_test(MCPCodecTests
+	KIND contract
+	DOMAINS mcp
+	MODULES durin-mcp durin-ed
+	STACKS editor
+	PRIVATE_SOURCE_OWNER DurinMCP
+	PRIVATE_SOURCE_RATIONALE "DurinMCP-owned wire codec coverage without exporting protocol implementation types."
+	SOURCES Private/MCPCodecTests.cpp
+	PRIVATE_SOURCES ${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinMCP/Private/MCPCodec.cpp
+	LIBRARIES Core DurinEd
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinMCP/Private
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses the detached editor Toolset catalog representation."
+	HEAVY_RUNTIME_RATIONALE "Links the editor Toolset catalog contract for MCP codec assertions."
+)
+
+durin_add_native_test(MCPIntegrationTests
+	KIND integration
+	DOMAINS mcp
+	MODULES durin-mcp durin-ed
+	STACKS editor
+	PRIVATE_SOURCE_OWNER DurinMCP
+	PRIVATE_SOURCE_RATIONALE "DurinMCP-owned integration assertions reuse the private wire codec without exporting protocol types."
+	SOURCES Private/MCPIntegrationTests.cpp
+	PRIVATE_SOURCES ${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinMCP/Private/MCPCodec.cpp
+	LIBRARIES Core CoreDObject Engine DurinEd DurinMCP httplib::httplib
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinMCP/Private
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Runs the real local MCP server against an explicitly initialized editor host."
+	HEAVY_RUNTIME_RATIONALE "Exercises CPU editor safe points and detached invocation through real loopback HTTP."
+)
+set_source_files_properties(Private/MCPIntegrationTests.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
 durin_add_native_test(EditorHostToolTests
 	KIND feature
 	DOMAINS editor-shell

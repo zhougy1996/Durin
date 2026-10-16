@@ -4,7 +4,7 @@ Summary: Define per-editor tool discovery, exact provider routing, bounded cross
 
 Modules: Core, DurinEd
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-16
 
 ## Ownership and Entry Points
 
@@ -134,11 +134,11 @@ workers, callbacks, and unload safety under the main-thread feature contract.
 
 ## External Adapter Handoff
 
-`DurinMCP` remains an editor-only module skeleton with a Core dependency and an
-empty module implementation. It currently contains no protocol implementation,
-transport, tool advertisement, or DurinEd service integration. A future adapter
-should add its editor dependency and consume this service rather than register
-another set of business handlers or invoke Console text.
+`DurinMCP` consumes this service through its private DurinEd dependency. Its
+[local MCP adapter](MCPTools.md) owns authenticated Streamable HTTP, tool
+advertisement, wire conversion, and request cancellation. It reuses native
+business handlers and never invokes Console text. The following handoff remains
+the shared contract for external adapters.
 
 | Adapter responsibility | Existing native entry point | Thread and data contract |
 | --- | --- | --- |

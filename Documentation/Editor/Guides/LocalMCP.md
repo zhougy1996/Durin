@@ -1,0 +1,141 @@
+# Connect to Local Editor MCP
+
+Summary: Enable the local DurinMCP endpoint and connect Codex or another MCP 2025-06-18 Streamable HTTP client.
+Modules: DurinMCP, MainFrame
+
+Last reviewed: 2026-10-16
+
+## Enable the Server
+
+The server is disabled by default. Set the following environment variables in
+the process that launches the editor:
+
+- `DURIN_MCP_PORT`: an integer from 0 to 65535. Zero selects an available port.
+- `DURIN_MCP_TOKEN_FILE`: an absolute path to a file containing a 32-128 character
+  ASCII alphanumeric bearer token. A final newline is accepted; the file must
+  contain at most 256 bytes.
+
+For example, create a token for this editor instance in PowerShell:
+
+```powershell
+$mcpDirectory = Join-Path $env:LOCALAPPDATA 'Durin/MCP'
+New-Item -ItemType Directory -Force $mcpDirectory | Out-Null
+$mcpTokenPath = Join-Path $mcpDirectory 'editor-token.txt'
+$mcpToken = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+[IO.File]::WriteAllText($mcpTokenPath, $mcpToken)
+$env:DURIN_MCP_PORT = '60123'
+$env:DURIN_MCP_TOKEN_FILE = $mcpTokenPath
+.\DevTool.bat run
+```
+
+Use the normal [build/run workflow](../../Agents/BuildAndRun.md) to build the
+editor first. On successful startup the log reports
+`MCP listening at http://127.0.0.1:<port>/mcp`. An occupied port or invalid token
+configuration disables MCP with an explanation; the editor remains usable.
+The token is read once at startup. Stop/restart the editor to change it.
+
+## Client Connection
+
+Configure a Streamable HTTP client with the logged endpoint and an HTTP header:
+
+```text
+Authorization: Bearer <contents of DURIN_MCP_TOKEN_FILE>
+```
+
+The endpoint implements only MCP revision `2025-06-18`, with initialize,
+initialized notification, HTTP sessions, and explicit cancellation notifications.
+The older HTTP+SSE transport is not implemented. Verified clients are Codex CLI
+0.144.1 and the official Python MCP SDK 2.3.0 in handshake mode.
+
+For Codex, add the following table to the personal `~/.codex/config.toml`,
+substituting the actual token contents. Keep credentials outside the repository.
+Codex 0.144.1 supports the literal `http_headers` table used here:
+
+```toml
+[mcp_servers.durin]
+url = "http://127.0.0.1:60123/mcp"
+enabled = true
+startup_timeout_sec = 30
+tool_timeout_sec = 45
+http_headers = { Authorization = "Bearer <token contents>" }
+```
+
+Start the editor with the same port and token file before connecting a new Codex
+session. A saved configuration does not reload an existing conversation's tool
+inventory. See the [Codex MCP setup](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)
+for the client's general configuration workflow.
+
+With that SDK installed, a connection looks like:
+
+```python
+import asyncio
+from pathlib import Path
+import httpx2
+from mcp.client import Client
+from mcp.client.streamable_http import streamable_http_client
+
+async def main():
+    token = Path("<absolute token file>").read_text().strip()
+    async with httpx2.AsyncClient(
+        headers={"Authorization": f"Bearer {token}"}, trust_env=False,
+    ) as http:
+        transport = streamable_http_client(
+            "http://127.0.0.1:60123/mcp", http_client=http,
+            max_sse_event_size=16 * 1024 * 1024,
+        )
+        async with Client(transport, mode="legacy", cache=None) as client:
+            assert client.protocol_version == "2025-06-18"
+            tools = await client.list_tools()
+            print([tool.name for tool in tools.tools])
+            result = await client.call_tool("editor.pie__status", {})
+            print(result.structured_content)
+
+asyncio.run(main())
+```
+
+The SDK performs the handshake and sends session/version headers. A generic HTTP
+POST without initialization is not a complete MCP exchange. The matching architecture
+[contract](../Architecture/MCPTools.md) describes errors and limits.
+
+## Available Tools and Cancellation
+
+Discovery publishes existing Toolset tools marked for external exposure. Current
+PIE tools are `editor.pie__status`, `editor.pie__play`, `editor.pie__pause`, and
+`editor.pie__stop`. Pause requires an explicit boolean:
+
+```python
+await client.call_tool("editor.pie__pause", {"paused": True})
+```
+
+Business work executes when the editor reaches its next safe point. A call
+returns its final business result, with data under `structured_content["data"]`.
+Check `is_error` before consuming a success result. Refresh tools/list to discover
+changes; this server does not advertise list-change subscriptions.
+
+Use the client's cancellation facility to send `notifications/cancelled` with
+the request ID in the same session. Closing the response stream alone does not
+cancel admitted work. Cancelling a queued call prevents execution; running handlers
+must observe cancellation cooperatively. A call timeout, disconnect, or missing
+result does not establish that no effects occurred, so do not automatically
+retry mutations. No public receipt-polling or cancel business tools are needed.
+
+## Reproduce SDK Acceptance
+
+The checked-in driver starts the registered native CPU editor host through
+DevTool and uses a test-only token. It does not connect to a production editor.
+From the repository root, install `mcp==2.3.0` into ignored `Build/MCP/site`, then
+run:
+
+```powershell
+python -m pip install --target Build/MCP/site 'mcp==2.3.0'
+python Engine/Tests/Native/EngineTests/Scripts/MCPClientSmoke.py
+```
+
+Use `--discovery-only` for discovery alone. The driver retains its native launch
+log in `Build/MCP/sdk-native.log`; ordinary invocation/cancellation regressions
+are registered under `MCPIntegrationTests`. Follow
+[testing guidance](../../Agents/Testing.md) for native selections and reports.
+The full driver verifies PIE calls and both queued and running cancellation.
+It waits for an opened queued response and a native running marker, rather than
+relying on delays to infer cancellation states. Test markers live in the native
+harness sandbox; they are not production MCP tools or files.

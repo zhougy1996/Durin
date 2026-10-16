@@ -21,8 +21,9 @@ requires; do not read unrelated topics or scan an entire directory.
 | IDE code model or debugging | [IDE code model](Development/Tooling/IDECodeModel.md) |
 | DurinDevTool shell, path discovery, documentation commands, or scaffolding | [DurinDevTool command interface](Development/Tooling/DurinDevTool.md) |
 | Toolset definitions, explicit native bindings, tool schemas, or exact tool invocation | [Toolset contracts](Runtime/Core/Tools.md) |
-| Editor toolset catalog, queued invocation, cancellation, detached endpoints, or future MCP adapter seam | [Editor tool service](Editor/Architecture/EditorTools.md) |
+| Editor toolset catalog, queued invocation, cancellation, detached endpoints, or external adapter seam | [Editor tool service](Editor/Architecture/EditorTools.md) |
 | Console tool syntax, JSON argument files, merged help/completion, or PIE tool calls | [Console Toolset integration](Editor/Architecture/ConsoleTools.md) |
+| Local MCP transport, external Toolset discovery/calls/cancellation, or client connection setup | [MCP adapter](Editor/Architecture/MCPTools.md), [connection guide](Editor/Guides/LocalMCP.md) |
 | Dependencies, bootstrap, or worktrees | [Third-party bootstrap](Development/Build/ThirdPartyBootstrap.md) |
 | Selecting or running native tests for task validation | [Agent testing workflow](Agents/Testing.md) |
 | Advanced native-test selection, modes, diagnosis, aggregates, or CI execution | [Native test execution](Development/Build/NativeTests.md) |

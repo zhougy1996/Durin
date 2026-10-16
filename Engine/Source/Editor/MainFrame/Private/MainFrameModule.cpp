@@ -1,4 +1,5 @@
 #include "MainFrameModule.h"
+#include "DurinMCPModule.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "AssetCompatibilityWindow.h"
 #include "NamePoolDiagnosticsWindow.h"
@@ -1266,6 +1267,7 @@ namespace Durin
 			DURIN_WARN("Could not load the editor branding texture: {}", BrandTextureError);
 		Context.ProfilingTools =
 			std::make_shared<FProfilingToolService>(FPaths::RootDir());
+		FModuleManager::LoadModuleChecked<FDurinMCPModule>("DurinMCP").StartForEditor(Editor);
 		Context.AssetCompatibilityWindow =
 			std::make_shared<FAssetCompatibilityWindow>();
 		Context.Console = std::make_unique<FConsolePanel>(Editor);
@@ -1404,6 +1406,8 @@ namespace Durin
 
 	auto FMainFrameModule::DestroyEditorHost() -> void
 	{
+		if (auto* Module = FModuleManager::Get().GetModule("DurinMCP"))
+			static_cast<FDurinMCPModule*>(Module)->StopServer();
 		BootstrapContext.reset();
 	}
 

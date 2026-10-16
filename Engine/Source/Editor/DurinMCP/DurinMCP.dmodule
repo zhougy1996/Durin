@@ -3,7 +3,8 @@
     "LinkType": "Shared",
     "PCH": "Self",
     "PrivateDependencies": [
-        "Core"
+        "Core",
+        "DurinEd"
     ],
     "PublicDependencies": [],
     "OptionalPrivateDependencies": [],

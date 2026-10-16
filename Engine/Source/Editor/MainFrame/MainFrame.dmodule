@@ -22,6 +22,7 @@
         "MaterialEditor",
         "TextureEditor",
         "StaticMeshEditor",
-        "DurinEd"
+        "DurinEd",
+        "DurinMCP"
     ]
 }

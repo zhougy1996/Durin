@@ -18,6 +18,7 @@ if(APPLE)
 	add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/spirv-cross)
 endif()
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/yyjson)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/cpp-httplib)
 
 if(BUILD_TESTING)
 	add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/googletest EXCLUDE_FROM_ALL)

@@ -53,7 +53,7 @@ folder. Module entrypoints and API export headers remain at the root.
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
 | `DurinEd` | Shared editor services: Toolset discovery and invocation, generic object factories, reimport handlers, workspaces, reflected property editing, transactions, previews, thumbnails, source references, and editor UI infrastructure | [source](../../Engine/Source/Editor/DurinEd) |
-| `DurinMCP` | Editor-only MCP integration module skeleton; no protocol transport or tools implemented yet | [source](../../Engine/Source/Editor/DurinMCP) |
+| `DurinMCP` | Authenticated local Streamable HTTP, MCP Toolset discovery, structured calls, cancellation, and transport lifecycle | [source](../../Engine/Source/Editor/DurinMCP) |
 | `AssetTools` | Reusable editor policy and orchestration for package-backed creation, import, duplicate, save/resave, relocation, and redirector fix-up; owns relocation/fix-up workflows and staging, deletion operations, confirmed selection/reference policy, and deletion companion providers over Engine package mechanisms | [source](../../Engine/Source/Editor/AssetTools) |
 | `MainFrame` | Editor host frame, Console Toolset adapter and result presentation, project browser, profiling integration, compatibility tools, and top-level editor startup UI | [source](../../Engine/Source/Editor/MainFrame) |
 | `ContentBrowser` | Project-wide browser model, presentation, operations, settings, extensions, and asset thumbnails | [source](../../Engine/Source/Editor/ContentBrowser) |
