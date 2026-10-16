@@ -3,7 +3,7 @@
 #include "ImGuiRHIBufferCapacity.h"
 #include "Profiling/Profiling.h"
 
-#include "ThirdParty/ImGui/imgui_threaded_rendering.h"
+#include "ImGuiRHIViewportData.h"
 
 #include "Application/MonaApplication.h"
 #include "CoreGlobals.h"
@@ -85,15 +85,6 @@ namespace Durin::MonaImGui
 		FTextureRHIRef Texture;
 	};
 
-	// Owns render buffers and alternating draw snapshots for an ImGui viewport.
-	struct FImGuiRHIImpl_RendererViewportData
-	{
-		FImGuiRHIImpl_WindowRenderBuffers RenderBuffers;
-		std::array<ImDrawDataSnapshot, 2> DrawDataSnapshots;
-		FViewportRHIRef ViewportRHI;
-		uint32 NextSnapshotIndex = 0;
-	};
-
 	auto FImGuiRHIImpl_WindowRenderBuffers::Clear() -> void
 	{
 		for (FImGuiRHIImpl_FrameRenderBuffers& Buffers : FrameRenderBuffers)
@@ -116,44 +107,6 @@ namespace Durin::MonaImGui
 
 		GTexturesPendingRetirement.push_back(std::move(It->second));
 		GRegisteredTextures.erase(It);
-	}
-
-	static auto GetRendererViewportData(ImGuiViewport* Viewport) -> FImGuiRHIImpl_RendererViewportData*
-	{
-		return Viewport != nullptr ? static_cast<FImGuiRHIImpl_RendererViewportData*>(Viewport->RendererUserData) : nullptr;
-	}
-
-	static auto CreateRendererViewportData(ImGuiViewport* Viewport) -> FImGuiRHIImpl_RendererViewportData*
-	{
-		if (Viewport == nullptr)
-		{
-			return nullptr;
-		}
-
-		auto* ViewportData = GetRendererViewportData(Viewport);
-		if (ViewportData == nullptr)
-		{
-			ViewportData = new FImGuiRHIImpl_RendererViewportData();
-			Viewport->RendererUserData = ViewportData;
-		}
-
-		return ViewportData;
-	}
-
-	static auto DestroyRendererViewportData(ImGuiViewport* Viewport) -> void
-	{
-		if (Viewport == nullptr)
-		{
-			return;
-		}
-
-		if (auto* ViewportData = GetRendererViewportData(Viewport))
-		{
-			ViewportData->RenderBuffers.Clear();
-			ViewportData->ViewportRHI = nullptr;
-			delete ViewportData;
-		}
-		Viewport->RendererUserData = nullptr;
 	}
 
 	static auto SnapshotViewportDrawData(ImGuiViewport* Viewport, ImDrawData* DrawData) -> ImDrawData*

@@ -6,6 +6,7 @@
 #include "RHI.h"
 #include "RHIContext.h"
 #include "RenderingThread.h"
+#include "Runtime/MonaImGui/Private/Backend/ImGuiRHIViewportData.h"
 
 namespace Durin
 {
@@ -172,5 +173,40 @@ namespace Durin
 		EXPECT_EQ(RHI.CreationCount, 2u);
 		EXPECT_EQ(RHI.TransitionCount, 1u);
 		EXPECT_EQ(RHI.GPUIdleCount, 0u);
+	}
+
+	TEST_F(FSceneViewportResourceTests, ImGuiWindowDestructionDrainsBorrowedDrawSnapshots)
+	{
+		ImGuiContext* Context = ImGui::CreateContext();
+		for (int Cycle = 0; Cycle < 8; ++Cycle)
+		{
+			ImGuiViewport Viewport;
+			auto* Data = MonaImGui::CreateRendererViewportData(&Viewport);
+			ImDrawData* Snapshot = &Data->DrawDataSnapshots[0].DrawData;
+			Snapshot->DisplaySize = ImVec2(90.0f, 29.0f);
+			std::promise<void> Release;
+			auto Ready = Release.get_future().share();
+			std::atomic<bool> OwnerAlive{true};
+			std::atomic<bool> Consumed{false};
+			ENQUEUE_RENDER_COMMAND(ConsumeClosingImGuiWindow)(
+				[&OwnerAlive, &Consumed, Ready, Snapshot](FRHICommandListImmediate&) {
+					Ready.wait();
+					// Avoid dereferencing freed memory when exercising the regression.
+					if (OwnerAlive.load())
+						Consumed = Snapshot->DisplaySize.x == 90.0f
+							&& Snapshot->DisplaySize.y == 29.0f;
+				});
+			std::thread Unblock([&Release] {
+				std::this_thread::sleep_for(std::chrono::milliseconds(50));
+				Release.set_value();
+			});
+			MonaImGui::DestroyRendererViewportData(&Viewport);
+			OwnerAlive = false;
+			EXPECT_TRUE(Consumed.load());
+			EXPECT_EQ(Viewport.RendererUserData, nullptr);
+			Unblock.join();
+			FlushRenderingCommands();
+		}
+		ImGui::DestroyContext(Context);
 	}
 }
