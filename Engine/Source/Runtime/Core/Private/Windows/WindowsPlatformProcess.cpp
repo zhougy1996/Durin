@@ -32,10 +32,18 @@ namespace Durin
 
 	auto FWindowsPlatformProcess::ExecutablePath() -> const char*
 	{
-		static std::string ExecutablePath = []() {
-			wchar_t WBuffer[MAX_PATH];
-			GetModuleFileNameW(nullptr, WBuffer, MAX_PATH);
-			return StringUtils::WideToUtf8(WBuffer);
+		static const std::string ExecutablePath = []() {
+			// GetModuleFileNameW includes the extended-length prefix when appropriate.
+			std::vector<wchar_t> Buffer(256);
+			for (;;)
+			{
+				const DWORD Length = GetModuleFileNameW(nullptr, Buffer.data(), static_cast<DWORD>(Buffer.size()));
+				if (Length == 0) return std::string{};
+				if (Length < Buffer.size())
+					return StringUtils::WideToUtf8(std::wstring_view(Buffer.data(), Length));
+				if (Buffer.size() >= 32768) return std::string{};
+				Buffer.resize(std::min<size_t>(Buffer.size() * 2, 32768));
+			}
 		}();
 		return ExecutablePath.c_str();
 	}

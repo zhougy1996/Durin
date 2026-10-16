@@ -1,5 +1,7 @@
 #pragma once
 
+#include "HAL/PlatformLibrary.h"
+
 // Private, pinned CPython ABI table. No Python loader dependency reaches editor startup.
 namespace Durin::PythonABI
 {
@@ -78,155 +80,228 @@ namespace Durin::PythonABI
         decltype(&::PyUnicode_Join) pPyUnicode_Join = nullptr;
         decltype(&::PyUnicode_Type) pPyUnicode_Type = nullptr;
         decltype(&::PyWideStringList_Append) pPyWideStringList_Append = nullptr;
-        auto Load(HMODULE Library) -> bool
+        auto Load(FModuleHandle Library) -> std::expected<void, FPlatformLibraryError>
         {
-            pPyFloat_AsDouble = reinterpret_cast<decltype(pPyFloat_AsDouble)>(GetProcAddress(Library, "PyFloat_AsDouble"));
-            if (!pPyFloat_AsDouble) return false;
-            p_Py_Dealloc = reinterpret_cast<decltype(p_Py_Dealloc)>(GetProcAddress(Library, "_Py_Dealloc"));
-            if (!p_Py_Dealloc) return false;
-            p_Py_NoneStruct = reinterpret_cast<decltype(p_Py_NoneStruct)>(GetProcAddress(Library, "_Py_NoneStruct"));
-            if (!p_Py_NoneStruct) return false;
-            p_Py_TrueStruct = reinterpret_cast<decltype(p_Py_TrueStruct)>(GetProcAddress(Library, "_Py_TrueStruct"));
-            if (!p_Py_TrueStruct) return false;
-            pPy_BuildValue = reinterpret_cast<decltype(pPy_BuildValue)>(GetProcAddress(Library, "Py_BuildValue"));
-            if (!pPy_BuildValue) return false;
-            pPy_CompileStringExFlags = reinterpret_cast<decltype(pPy_CompileStringExFlags)>(GetProcAddress(Library, "Py_CompileStringExFlags"));
-            if (!pPy_CompileStringExFlags) return false;
-            pPy_DecRef = reinterpret_cast<decltype(pPy_DecRef)>(GetProcAddress(Library, "Py_DecRef"));
-            if (!pPy_DecRef) return false;
-            pPy_FinalizeEx = reinterpret_cast<decltype(pPy_FinalizeEx)>(GetProcAddress(Library, "Py_FinalizeEx"));
-            if (!pPy_FinalizeEx) return false;
-            pPy_IncRef = reinterpret_cast<decltype(pPy_IncRef)>(GetProcAddress(Library, "Py_IncRef"));
-            if (!pPy_IncRef) return false;
-            pPy_InitializeFromConfig = reinterpret_cast<decltype(pPy_InitializeFromConfig)>(GetProcAddress(Library, "Py_InitializeFromConfig"));
-            if (!pPy_InitializeFromConfig) return false;
-            pPy_IsInitialized = reinterpret_cast<decltype(pPy_IsInitialized)>(GetProcAddress(Library, "Py_IsInitialized"));
-            if (!pPy_IsInitialized) return false;
-            pPyArg_ParseTuple = reinterpret_cast<decltype(pPyArg_ParseTuple)>(GetProcAddress(Library, "PyArg_ParseTuple"));
-            if (!pPyArg_ParseTuple) return false;
-            pPyBool_FromLong = reinterpret_cast<decltype(pPyBool_FromLong)>(GetProcAddress(Library, "PyBool_FromLong"));
-            if (!pPyBool_FromLong) return false;
-            pPyBool_Type = reinterpret_cast<decltype(pPyBool_Type)>(GetProcAddress(Library, "PyBool_Type"));
-            if (!pPyBool_Type) return false;
-            pPyConfig_Clear = reinterpret_cast<decltype(pPyConfig_Clear)>(GetProcAddress(Library, "PyConfig_Clear"));
-            if (!pPyConfig_Clear) return false;
-            pPyConfig_InitIsolatedConfig = reinterpret_cast<decltype(pPyConfig_InitIsolatedConfig)>(GetProcAddress(Library, "PyConfig_InitIsolatedConfig"));
-            if (!pPyConfig_InitIsolatedConfig) return false;
-            pPyDict_New = reinterpret_cast<decltype(pPyDict_New)>(GetProcAddress(Library, "PyDict_New"));
-            if (!pPyDict_New) return false;
-            pPyDict_Next = reinterpret_cast<decltype(pPyDict_Next)>(GetProcAddress(Library, "PyDict_Next"));
-            if (!pPyDict_Next) return false;
-            pPyDict_SetItem = reinterpret_cast<decltype(pPyDict_SetItem)>(GetProcAddress(Library, "PyDict_SetItem"));
-            if (!pPyDict_SetItem) return false;
-            pPyDict_SetItemString = reinterpret_cast<decltype(pPyDict_SetItemString)>(GetProcAddress(Library, "PyDict_SetItemString"));
-            if (!pPyDict_SetItemString) return false;
-            pPyDict_Size = reinterpret_cast<decltype(pPyDict_Size)>(GetProcAddress(Library, "PyDict_Size"));
-            if (!pPyDict_Size) return false;
-            pPyDict_Type = reinterpret_cast<decltype(pPyDict_Type)>(GetProcAddress(Library, "PyDict_Type"));
-            if (!pPyDict_Type) return false;
-            pPyErr_Clear = reinterpret_cast<decltype(pPyErr_Clear)>(GetProcAddress(Library, "PyErr_Clear"));
-            if (!pPyErr_Clear) return false;
-            pPyErr_GetRaisedException = reinterpret_cast<decltype(pPyErr_GetRaisedException)>(GetProcAddress(Library, "PyErr_GetRaisedException"));
-            if (!pPyErr_GetRaisedException) return false;
-            pPyErr_NewException = reinterpret_cast<decltype(pPyErr_NewException)>(GetProcAddress(Library, "PyErr_NewException"));
-            if (!pPyErr_NewException) return false;
-            pPyErr_Occurred = reinterpret_cast<decltype(pPyErr_Occurred)>(GetProcAddress(Library, "PyErr_Occurred"));
-            if (!pPyErr_Occurred) return false;
-            pPyErr_SetObject = reinterpret_cast<decltype(pPyErr_SetObject)>(GetProcAddress(Library, "PyErr_SetObject"));
-            if (!pPyErr_SetObject) return false;
-            pPyErr_SetString = reinterpret_cast<decltype(pPyErr_SetString)>(GetProcAddress(Library, "PyErr_SetString"));
-            if (!pPyErr_SetString) return false;
-            pPyEval_EvalCode = reinterpret_cast<decltype(pPyEval_EvalCode)>(GetProcAddress(Library, "PyEval_EvalCode"));
-            if (!pPyEval_EvalCode) return false;
-            pPyEval_RestoreThread = reinterpret_cast<decltype(pPyEval_RestoreThread)>(GetProcAddress(Library, "PyEval_RestoreThread"));
-            if (!pPyEval_RestoreThread) return false;
-            pPyEval_SaveThread = reinterpret_cast<decltype(pPyEval_SaveThread)>(GetProcAddress(Library, "PyEval_SaveThread"));
-            if (!pPyEval_SaveThread) return false;
-            pPyEval_SetTrace = reinterpret_cast<decltype(pPyEval_SetTrace)>(GetProcAddress(Library, "PyEval_SetTrace"));
-            if (!pPyEval_SetTrace) return false;
-            pPyExc_BaseException = reinterpret_cast<decltype(pPyExc_BaseException)>(GetProcAddress(Library, "PyExc_BaseException"));
-            if (!pPyExc_BaseException) return false;
-            pPyExc_OverflowError = reinterpret_cast<decltype(pPyExc_OverflowError)>(GetProcAddress(Library, "PyExc_OverflowError"));
-            if (!pPyExc_OverflowError) return false;
-            pPyExc_RuntimeError = reinterpret_cast<decltype(pPyExc_RuntimeError)>(GetProcAddress(Library, "PyExc_RuntimeError"));
-            if (!pPyExc_RuntimeError) return false;
-            pPyExc_TimeoutError = reinterpret_cast<decltype(pPyExc_TimeoutError)>(GetProcAddress(Library, "PyExc_TimeoutError"));
-            if (!pPyExc_TimeoutError) return false;
-            pPyExc_ValueError = reinterpret_cast<decltype(pPyExc_ValueError)>(GetProcAddress(Library, "PyExc_ValueError"));
-            if (!pPyExc_ValueError) return false;
-            pPyFloat_FromDouble = reinterpret_cast<decltype(pPyFloat_FromDouble)>(GetProcAddress(Library, "PyFloat_FromDouble"));
-            if (!pPyFloat_FromDouble) return false;
-            pPyFloat_Type = reinterpret_cast<decltype(pPyFloat_Type)>(GetProcAddress(Library, "PyFloat_Type"));
-            if (!pPyFloat_Type) return false;
-            pPyImport_AppendInittab = reinterpret_cast<decltype(pPyImport_AppendInittab)>(GetProcAddress(Library, "PyImport_AppendInittab"));
-            if (!pPyImport_AppendInittab) return false;
-            pPyImport_ImportModule = reinterpret_cast<decltype(pPyImport_ImportModule)>(GetProcAddress(Library, "PyImport_ImportModule"));
-            if (!pPyImport_ImportModule) return false;
-            pPyList_Append = reinterpret_cast<decltype(pPyList_Append)>(GetProcAddress(Library, "PyList_Append"));
-            if (!pPyList_Append) return false;
-            pPyList_GetItem = reinterpret_cast<decltype(pPyList_GetItem)>(GetProcAddress(Library, "PyList_GetItem"));
-            if (!pPyList_GetItem) return false;
-            pPyList_New = reinterpret_cast<decltype(pPyList_New)>(GetProcAddress(Library, "PyList_New"));
-            if (!pPyList_New) return false;
-            pPyList_Size = reinterpret_cast<decltype(pPyList_Size)>(GetProcAddress(Library, "PyList_Size"));
-            if (!pPyList_Size) return false;
-            pPyList_Type = reinterpret_cast<decltype(pPyList_Type)>(GetProcAddress(Library, "PyList_Type"));
-            if (!pPyList_Type) return false;
-            pPyLong_AsDouble = reinterpret_cast<decltype(pPyLong_AsDouble)>(GetProcAddress(Library, "PyLong_AsDouble"));
-            if (!pPyLong_AsDouble) return false;
-            pPyLong_AsLongLongAndOverflow = reinterpret_cast<decltype(pPyLong_AsLongLongAndOverflow)>(GetProcAddress(Library, "PyLong_AsLongLongAndOverflow"));
-            if (!pPyLong_AsLongLongAndOverflow) return false;
-            pPyLong_AsUnsignedLong = reinterpret_cast<decltype(pPyLong_AsUnsignedLong)>(GetProcAddress(Library, "PyLong_AsUnsignedLong"));
-            if (!pPyLong_AsUnsignedLong) return false;
-            pPyLong_AsUnsignedLongLong = reinterpret_cast<decltype(pPyLong_AsUnsignedLongLong)>(GetProcAddress(Library, "PyLong_AsUnsignedLongLong"));
-            if (!pPyLong_AsUnsignedLongLong) return false;
-            pPyLong_FromLongLong = reinterpret_cast<decltype(pPyLong_FromLongLong)>(GetProcAddress(Library, "PyLong_FromLongLong"));
-            if (!pPyLong_FromLongLong) return false;
-            pPyLong_FromSsize_t = reinterpret_cast<decltype(pPyLong_FromSsize_t)>(GetProcAddress(Library, "PyLong_FromSsize_t"));
-            if (!pPyLong_FromSsize_t) return false;
-            pPyLong_FromUnsignedLongLong = reinterpret_cast<decltype(pPyLong_FromUnsignedLongLong)>(GetProcAddress(Library, "PyLong_FromUnsignedLongLong"));
-            if (!pPyLong_FromUnsignedLongLong) return false;
-            pPyLong_Type = reinterpret_cast<decltype(pPyLong_Type)>(GetProcAddress(Library, "PyLong_Type"));
-            if (!pPyLong_Type) return false;
-            pPyModule_AddObjectRef = reinterpret_cast<decltype(pPyModule_AddObjectRef)>(GetProcAddress(Library, "PyModule_AddObjectRef"));
-            if (!pPyModule_AddObjectRef) return false;
-            pPyModule_Create2 = reinterpret_cast<decltype(pPyModule_Create2)>(GetProcAddress(Library, "PyModule_Create2"));
-            if (!pPyModule_Create2) return false;
-            pPyModule_GetDict = reinterpret_cast<decltype(pPyModule_GetDict)>(GetProcAddress(Library, "PyModule_GetDict"));
-            if (!pPyModule_GetDict) return false;
-            pPyObject_CallFunction = reinterpret_cast<decltype(pPyObject_CallFunction)>(GetProcAddress(Library, "PyObject_CallFunction"));
-            if (!pPyObject_CallFunction) return false;
-            pPyObject_CallMethod = reinterpret_cast<decltype(pPyObject_CallMethod)>(GetProcAddress(Library, "PyObject_CallMethod"));
-            if (!pPyObject_CallMethod) return false;
-            pPyObject_GetAttrString = reinterpret_cast<decltype(pPyObject_GetAttrString)>(GetProcAddress(Library, "PyObject_GetAttrString"));
-            if (!pPyObject_GetAttrString) return false;
-            pPyObject_SetAttrString = reinterpret_cast<decltype(pPyObject_SetAttrString)>(GetProcAddress(Library, "PyObject_SetAttrString"));
-            if (!pPyObject_SetAttrString) return false;
-            pPyObject_Str = reinterpret_cast<decltype(pPyObject_Str)>(GetProcAddress(Library, "PyObject_Str"));
-            if (!pPyObject_Str) return false;
-            pPyRun_StringFlags = reinterpret_cast<decltype(pPyRun_StringFlags)>(GetProcAddress(Library, "PyRun_StringFlags"));
-            if (!pPyRun_StringFlags) return false;
-            pPyStatus_Exception = reinterpret_cast<decltype(pPyStatus_Exception)>(GetProcAddress(Library, "PyStatus_Exception"));
-            if (!pPyStatus_Exception) return false;
-            pPyTuple_Type = reinterpret_cast<decltype(pPyTuple_Type)>(GetProcAddress(Library, "PyTuple_Type"));
-            if (!pPyTuple_Type) return false;
-            pPyType_IsSubtype = reinterpret_cast<decltype(pPyType_IsSubtype)>(GetProcAddress(Library, "PyType_IsSubtype"));
-            if (!pPyType_IsSubtype) return false;
-            pPyUnicode_AsUTF8 = reinterpret_cast<decltype(pPyUnicode_AsUTF8)>(GetProcAddress(Library, "PyUnicode_AsUTF8"));
-            if (!pPyUnicode_AsUTF8) return false;
-            pPyUnicode_AsUTF8AndSize = reinterpret_cast<decltype(pPyUnicode_AsUTF8AndSize)>(GetProcAddress(Library, "PyUnicode_AsUTF8AndSize"));
-            if (!pPyUnicode_AsUTF8AndSize) return false;
-            pPyUnicode_DecodeUTF8 = reinterpret_cast<decltype(pPyUnicode_DecodeUTF8)>(GetProcAddress(Library, "PyUnicode_DecodeUTF8"));
-            if (!pPyUnicode_DecodeUTF8) return false;
-            pPyUnicode_FromString = reinterpret_cast<decltype(pPyUnicode_FromString)>(GetProcAddress(Library, "PyUnicode_FromString"));
-            if (!pPyUnicode_FromString) return false;
-            pPyUnicode_Join = reinterpret_cast<decltype(pPyUnicode_Join)>(GetProcAddress(Library, "PyUnicode_Join"));
-            if (!pPyUnicode_Join) return false;
-            pPyUnicode_Type = reinterpret_cast<decltype(pPyUnicode_Type)>(GetProcAddress(Library, "PyUnicode_Type"));
-            if (!pPyUnicode_Type) return false;
-            pPyWideStringList_Append = reinterpret_cast<decltype(pPyWideStringList_Append)>(GetProcAddress(Library, "PyWideStringList_Append"));
-            if (!pPyWideStringList_Append) return false;
-            return true;
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyFloat_AsDouble"); Symbol)
+                pPyFloat_AsDouble = reinterpret_cast<decltype(pPyFloat_AsDouble)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "_Py_Dealloc"); Symbol)
+                p_Py_Dealloc = reinterpret_cast<decltype(p_Py_Dealloc)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "_Py_NoneStruct"); Symbol)
+                p_Py_NoneStruct = reinterpret_cast<decltype(p_Py_NoneStruct)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "_Py_TrueStruct"); Symbol)
+                p_Py_TrueStruct = reinterpret_cast<decltype(p_Py_TrueStruct)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "Py_BuildValue"); Symbol)
+                pPy_BuildValue = reinterpret_cast<decltype(pPy_BuildValue)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "Py_CompileStringExFlags"); Symbol)
+                pPy_CompileStringExFlags = reinterpret_cast<decltype(pPy_CompileStringExFlags)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "Py_DecRef"); Symbol)
+                pPy_DecRef = reinterpret_cast<decltype(pPy_DecRef)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "Py_FinalizeEx"); Symbol)
+                pPy_FinalizeEx = reinterpret_cast<decltype(pPy_FinalizeEx)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "Py_IncRef"); Symbol)
+                pPy_IncRef = reinterpret_cast<decltype(pPy_IncRef)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "Py_InitializeFromConfig"); Symbol)
+                pPy_InitializeFromConfig = reinterpret_cast<decltype(pPy_InitializeFromConfig)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "Py_IsInitialized"); Symbol)
+                pPy_IsInitialized = reinterpret_cast<decltype(pPy_IsInitialized)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyArg_ParseTuple"); Symbol)
+                pPyArg_ParseTuple = reinterpret_cast<decltype(pPyArg_ParseTuple)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyBool_FromLong"); Symbol)
+                pPyBool_FromLong = reinterpret_cast<decltype(pPyBool_FromLong)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyBool_Type"); Symbol)
+                pPyBool_Type = reinterpret_cast<decltype(pPyBool_Type)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyConfig_Clear"); Symbol)
+                pPyConfig_Clear = reinterpret_cast<decltype(pPyConfig_Clear)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyConfig_InitIsolatedConfig"); Symbol)
+                pPyConfig_InitIsolatedConfig = reinterpret_cast<decltype(pPyConfig_InitIsolatedConfig)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyDict_New"); Symbol)
+                pPyDict_New = reinterpret_cast<decltype(pPyDict_New)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyDict_Next"); Symbol)
+                pPyDict_Next = reinterpret_cast<decltype(pPyDict_Next)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyDict_SetItem"); Symbol)
+                pPyDict_SetItem = reinterpret_cast<decltype(pPyDict_SetItem)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyDict_SetItemString"); Symbol)
+                pPyDict_SetItemString = reinterpret_cast<decltype(pPyDict_SetItemString)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyDict_Size"); Symbol)
+                pPyDict_Size = reinterpret_cast<decltype(pPyDict_Size)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyDict_Type"); Symbol)
+                pPyDict_Type = reinterpret_cast<decltype(pPyDict_Type)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyErr_Clear"); Symbol)
+                pPyErr_Clear = reinterpret_cast<decltype(pPyErr_Clear)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyErr_GetRaisedException"); Symbol)
+                pPyErr_GetRaisedException = reinterpret_cast<decltype(pPyErr_GetRaisedException)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyErr_NewException"); Symbol)
+                pPyErr_NewException = reinterpret_cast<decltype(pPyErr_NewException)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyErr_Occurred"); Symbol)
+                pPyErr_Occurred = reinterpret_cast<decltype(pPyErr_Occurred)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyErr_SetObject"); Symbol)
+                pPyErr_SetObject = reinterpret_cast<decltype(pPyErr_SetObject)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyErr_SetString"); Symbol)
+                pPyErr_SetString = reinterpret_cast<decltype(pPyErr_SetString)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyEval_EvalCode"); Symbol)
+                pPyEval_EvalCode = reinterpret_cast<decltype(pPyEval_EvalCode)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyEval_RestoreThread"); Symbol)
+                pPyEval_RestoreThread = reinterpret_cast<decltype(pPyEval_RestoreThread)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyEval_SaveThread"); Symbol)
+                pPyEval_SaveThread = reinterpret_cast<decltype(pPyEval_SaveThread)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyEval_SetTrace"); Symbol)
+                pPyEval_SetTrace = reinterpret_cast<decltype(pPyEval_SetTrace)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyExc_BaseException"); Symbol)
+                pPyExc_BaseException = reinterpret_cast<decltype(pPyExc_BaseException)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyExc_OverflowError"); Symbol)
+                pPyExc_OverflowError = reinterpret_cast<decltype(pPyExc_OverflowError)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyExc_RuntimeError"); Symbol)
+                pPyExc_RuntimeError = reinterpret_cast<decltype(pPyExc_RuntimeError)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyExc_TimeoutError"); Symbol)
+                pPyExc_TimeoutError = reinterpret_cast<decltype(pPyExc_TimeoutError)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyExc_ValueError"); Symbol)
+                pPyExc_ValueError = reinterpret_cast<decltype(pPyExc_ValueError)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyFloat_FromDouble"); Symbol)
+                pPyFloat_FromDouble = reinterpret_cast<decltype(pPyFloat_FromDouble)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyFloat_Type"); Symbol)
+                pPyFloat_Type = reinterpret_cast<decltype(pPyFloat_Type)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyImport_AppendInittab"); Symbol)
+                pPyImport_AppendInittab = reinterpret_cast<decltype(pPyImport_AppendInittab)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyImport_ImportModule"); Symbol)
+                pPyImport_ImportModule = reinterpret_cast<decltype(pPyImport_ImportModule)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyList_Append"); Symbol)
+                pPyList_Append = reinterpret_cast<decltype(pPyList_Append)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyList_GetItem"); Symbol)
+                pPyList_GetItem = reinterpret_cast<decltype(pPyList_GetItem)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyList_New"); Symbol)
+                pPyList_New = reinterpret_cast<decltype(pPyList_New)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyList_Size"); Symbol)
+                pPyList_Size = reinterpret_cast<decltype(pPyList_Size)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyList_Type"); Symbol)
+                pPyList_Type = reinterpret_cast<decltype(pPyList_Type)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyLong_AsDouble"); Symbol)
+                pPyLong_AsDouble = reinterpret_cast<decltype(pPyLong_AsDouble)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyLong_AsLongLongAndOverflow"); Symbol)
+                pPyLong_AsLongLongAndOverflow = reinterpret_cast<decltype(pPyLong_AsLongLongAndOverflow)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyLong_AsUnsignedLong"); Symbol)
+                pPyLong_AsUnsignedLong = reinterpret_cast<decltype(pPyLong_AsUnsignedLong)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyLong_AsUnsignedLongLong"); Symbol)
+                pPyLong_AsUnsignedLongLong = reinterpret_cast<decltype(pPyLong_AsUnsignedLongLong)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyLong_FromLongLong"); Symbol)
+                pPyLong_FromLongLong = reinterpret_cast<decltype(pPyLong_FromLongLong)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyLong_FromSsize_t"); Symbol)
+                pPyLong_FromSsize_t = reinterpret_cast<decltype(pPyLong_FromSsize_t)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyLong_FromUnsignedLongLong"); Symbol)
+                pPyLong_FromUnsignedLongLong = reinterpret_cast<decltype(pPyLong_FromUnsignedLongLong)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyLong_Type"); Symbol)
+                pPyLong_Type = reinterpret_cast<decltype(pPyLong_Type)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyModule_AddObjectRef"); Symbol)
+                pPyModule_AddObjectRef = reinterpret_cast<decltype(pPyModule_AddObjectRef)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyModule_Create2"); Symbol)
+                pPyModule_Create2 = reinterpret_cast<decltype(pPyModule_Create2)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyModule_GetDict"); Symbol)
+                pPyModule_GetDict = reinterpret_cast<decltype(pPyModule_GetDict)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyObject_CallFunction"); Symbol)
+                pPyObject_CallFunction = reinterpret_cast<decltype(pPyObject_CallFunction)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyObject_CallMethod"); Symbol)
+                pPyObject_CallMethod = reinterpret_cast<decltype(pPyObject_CallMethod)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyObject_GetAttrString"); Symbol)
+                pPyObject_GetAttrString = reinterpret_cast<decltype(pPyObject_GetAttrString)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyObject_SetAttrString"); Symbol)
+                pPyObject_SetAttrString = reinterpret_cast<decltype(pPyObject_SetAttrString)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyObject_Str"); Symbol)
+                pPyObject_Str = reinterpret_cast<decltype(pPyObject_Str)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyRun_StringFlags"); Symbol)
+                pPyRun_StringFlags = reinterpret_cast<decltype(pPyRun_StringFlags)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyStatus_Exception"); Symbol)
+                pPyStatus_Exception = reinterpret_cast<decltype(pPyStatus_Exception)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyTuple_Type"); Symbol)
+                pPyTuple_Type = reinterpret_cast<decltype(pPyTuple_Type)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyType_IsSubtype"); Symbol)
+                pPyType_IsSubtype = reinterpret_cast<decltype(pPyType_IsSubtype)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyUnicode_AsUTF8"); Symbol)
+                pPyUnicode_AsUTF8 = reinterpret_cast<decltype(pPyUnicode_AsUTF8)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyUnicode_AsUTF8AndSize"); Symbol)
+                pPyUnicode_AsUTF8AndSize = reinterpret_cast<decltype(pPyUnicode_AsUTF8AndSize)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyUnicode_DecodeUTF8"); Symbol)
+                pPyUnicode_DecodeUTF8 = reinterpret_cast<decltype(pPyUnicode_DecodeUTF8)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyUnicode_FromString"); Symbol)
+                pPyUnicode_FromString = reinterpret_cast<decltype(pPyUnicode_FromString)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyUnicode_Join"); Symbol)
+                pPyUnicode_Join = reinterpret_cast<decltype(pPyUnicode_Join)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyUnicode_Type"); Symbol)
+                pPyUnicode_Type = reinterpret_cast<decltype(pPyUnicode_Type)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyWideStringList_Append"); Symbol)
+                pPyWideStringList_Append = reinterpret_cast<decltype(pPyWideStringList_Append)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            return {};
         }
     };
     inline FAPI API;

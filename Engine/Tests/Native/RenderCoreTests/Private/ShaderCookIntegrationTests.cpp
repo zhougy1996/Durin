@@ -1,3 +1,5 @@
+#include "HAL/PlatformLibrary.h"
+#include "HAL/PlatformProcess.h"
 #include "NativeRHIBackendTestSupport.h"
 #include "Shader/IShaderBuildModule.h"
 
@@ -27,11 +29,12 @@ namespace Durin
 		std::string MountError;
 		ASSERT_TRUE(FMountPaths::InitDefaultMountPoints(&MountError)) << MountError;
 		ASSERT_TRUE(FModuleManager::Get().LoadModule("RenderCore"));
-		const FModuleHandle RendererHandle = FPlatformMisc::LoadLibrary(
-			std::format("{}{}-Renderer{}", FPlatformMisc::FLibraryPrefix,
-				DURIN_RUNTIME_VARIANT,
-				FPlatformMisc::FLibraryExtension));
-		ASSERT_NE(RendererHandle, nullptr) << FPlatformMisc::GetLastLibraryError();
+		const auto RendererPath = std::filesystem::u8path(FPlatformProcess::ExecutablePath()).parent_path()
+			/ std::format("{}{}-Renderer{}", FPlatformMisc::FLibraryPrefix,
+				DURIN_RUNTIME_VARIANT, FPlatformMisc::FLibraryExtension);
+		const auto RendererLibrary = FPlatformLibrary::Load(RendererPath);
+		ASSERT_TRUE(RendererLibrary) << RendererLibrary.error().ToString();
+		const FModuleHandle RendererHandle = *RendererLibrary;
 		ASSERT_TRUE(FModuleManager::Get().LoadModule("ShaderBuild"));
 
 		std::string CancelledIdentity = "stale";
@@ -140,6 +143,6 @@ namespace Durin
 			}
 		}
 		ShutdownShaderData();
-		FPlatformMisc::FreeLibrary(RendererHandle);
+		EXPECT_TRUE(FPlatformLibrary::Unload(RendererHandle));
 	}
 }

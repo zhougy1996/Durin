@@ -37,6 +37,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Adding, classifying, registering, or changing native-test targets | [Native test authoring](Development/Build/NativeTestAuthoring.md) |
 | Workspace, project, module, or runtime-variant ownership | [Workspace projects](Workspace/WorkspaceProjects.md) |
 | Runtime physical paths or atomic byte publication | [File I/O](Runtime/Core/FileIO.md) |
+| Native dynamic libraries, loader diagnostics, reference lifetime, or Unicode library paths | [Platform libraries](Runtime/Core/PlatformLibraries.md) |
 | Asset paths, package format, references, residency, loading, or compatibility | [Asset packages](Runtime/Assets/AssetPackages.md) |
 | StaticMesh source ownership, detached building, or payload compatibility | [Static mesh building](Runtime/Assets/StaticMeshBuilding.md) |
 | Asset catalog discovery, reference indexing, relocation, deletion, or redirector fix-up | [Asset catalog and mutation](Runtime/Assets/AssetCatalogAndMutation.md) |

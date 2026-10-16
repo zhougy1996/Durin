@@ -2,6 +2,7 @@
 #include "Tools/EditorToolService.h"
 #include "Misc/Paths.h"
 #include "HAL/PlatformProcess.h"
+#include "HAL/PlatformLibrary.h"
 
 #if DURIN_WITH_PYTHON
 // The packaged interpreter uses the release ABI in every editor configuration.
@@ -10,7 +11,6 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #pragma pop_macro("_DEBUG")
-#include <Windows.h>
 #include "PythonABI.h"
 #endif
 
@@ -512,15 +512,18 @@ tools = _Tools(0)
         auto Directory = Options.RuntimeDirectory;
         if (Directory.empty())
         {
-            Directory = std::filesystem::path(FPlatformProcess::ExecutablePath()).parent_path();
+            Directory = std::filesystem::u8path(FPlatformProcess::ExecutablePath()).parent_path();
             if (!std::filesystem::exists(Directory / "python313.zip")) Directory = FPaths::EngineThirdPartyRuntimeBinariesDir();
         }
         if (!std::filesystem::exists(Directory / "python313.zip") || !std::filesystem::exists(Directory / "python313.dll"))
         { InterpreterOwned = false; return std::unexpected("Packaged Python runtime is missing; prepare python and rebuild DurinPython."); }
         // Resolve only the qualified DLL; retain it for process lifetime.
-        const auto Library = LoadLibraryExW((Directory / "python313.dll").c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-        if (!Library || !PythonABI::API.Load(Library))
-        { InterpreterOwned = false; return std::unexpected("Could not load packaged python313.dll."); }
+        const auto Library = FPlatformLibrary::Load(Directory / "python313.dll");
+        if (!Library)
+        { InterpreterOwned = false; return std::unexpected(Library.error().ToString()); }
+        const auto Symbols = PythonABI::API.Load(*Library);
+        if (!Symbols)
+        { InterpreterOwned = false; return std::unexpected(Symbols.error().ToString()); }
         if (Py_IsInitialized())
         { InterpreterOwned = false; return std::unexpected("An existing Python interpreter is not owned by Durin."); }
         Impl = std::make_unique<FImpl>(); Impl->Directory = std::move(Directory);

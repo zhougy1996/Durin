@@ -1,6 +1,31 @@
 set(_durin_assertion_fixture_dir
 	"${DURIN_WORKSPACE_DIR}/CMake/Tests/Fixtures/AssertionHeader")
 
+set(_durin_library_fixture_dir "${DURIN_PROJECT_ROOT_DIR}/Tests/Fixtures/PlatformLibrary")
+add_library(PlatformLibraryDependency SHARED "${_durin_library_fixture_dir}/LibraryDependency.cpp")
+add_library(PlatformLibraryFixture SHARED "${_durin_library_fixture_dir}/LibraryFixture.cpp")
+target_link_libraries(PlatformLibraryFixture PRIVATE PlatformLibraryDependency)
+set_target_properties(PlatformLibraryFixture PROPERTIES
+	BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "@loader_path")
+if(APPLE)
+	set_target_properties(PlatformLibraryDependency PROPERTIES
+		INSTALL_NAME_DIR "@rpath" BUILD_WITH_INSTALL_NAME_DIR TRUE)
+endif()
+
+durin_add_native_test(PlatformLibraryContractTests
+	KIND contract
+	DOMAINS core
+	MODULES core
+	SOURCES Private/PlatformLibraryTests.cpp
+	LIBRARIES Core
+	DEPENDENCIES PlatformLibraryFixture
+	COMPILE_DEFINITIONS
+		"DURIN_LIBRARY_FIXTURE_PATH=\"$<TARGET_FILE:PlatformLibraryFixture>\""
+		"DURIN_LIBRARY_DEPENDENCY_PATH=\"$<TARGET_FILE:PlatformLibraryDependency>\""
+)
+# Exercise the public foundation header without a platform-providing PCH.
+set_source_files_properties(Private/PlatformLibraryTests.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
 durin_add_native_test(CoreToolTests
 	KIND contract
 	DOMAINS tools

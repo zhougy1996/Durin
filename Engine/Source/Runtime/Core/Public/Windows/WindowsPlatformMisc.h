@@ -24,27 +24,6 @@ namespace Durin
 			AddDllDirectory(StringUtils::Utf8ToWide(Directory).c_str());
 		}
 
-		static auto LoadLibrary(const std::string& FileName) -> FModuleHandle
-		{
-			std::wstring WideModuleName(FileName.begin(), FileName.end());
-			return ::LoadLibraryW(WideModuleName.c_str());
-		}
-
-		static auto GetLastLibraryError() -> std::string
-		{
-			return std::format("Windows error {}", ::GetLastError());
-		}
-
-		static auto FreeLibrary(FModuleHandle ModuleHandle) -> void
-		{
-			::FreeLibrary(ModuleHandle);
-		}
-
-		static auto GetProcAddress(FModuleHandle ModuleHandle, const char* ProcName) -> void*
-		{
-			return reinterpret_cast<void*>(::GetProcAddress(ModuleHandle, ProcName));
-		}
-
 		static auto Prefetch(const void* Ptr) -> void
 		{
 			_mm_prefetch(static_cast<const char*>(Ptr), _MM_HINT_T0);

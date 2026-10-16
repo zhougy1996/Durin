@@ -4,7 +4,6 @@
 
 #define PLATFORM_HEADER_NAME MacOS
 #include <malloc/malloc.h>
-#include <dlfcn.h>
 
 #include "HAL/GenericPlatform.h"
 
@@ -43,31 +42,6 @@ namespace Durin
 	{
 		static constexpr auto FLibraryPrefix = "lib";
 		static constexpr auto FLibraryExtension = ".dylib";
-
-		static FModuleHandle LoadLibrary(const std::string& FileName)
-		{
-			dlerror();
-			FModuleHandle Handle = dlopen(FileName.c_str(), RTLD_NOW | RTLD_LOCAL);
-			const char* Error = dlerror();
-			LastLibraryError = Error ? Error : "";
-			return Handle;
-		}
-
-		static auto GetLastLibraryError() -> const std::string&
-		{
-			return LastLibraryError;
-		}
-
-		static void FreeLibrary(FModuleHandle InModuleHandle)
-		{
-			dlclose(InModuleHandle);
-		}
-
-		// GetProcAddress
-		static void* GetProcAddress(FModuleHandle ModuleHandle, const char* ProcName)
-		{
-			return dlsym(ModuleHandle, ProcName);
-		}
 
 		static void Prefetch(const void* Ptr)
 		{
@@ -141,9 +115,6 @@ namespace Durin
 		{
 			return strncasecmp(Str1, Str2, Count);
 		}
-
-	private:
-		inline static thread_local std::string LastLibraryError;
 
 	};
 }

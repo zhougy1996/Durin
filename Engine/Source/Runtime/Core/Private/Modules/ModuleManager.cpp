@@ -3,6 +3,7 @@
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "HAL/PlatformProcess.h"
+#include "HAL/PlatformLibrary.h"
 #include "Misc/Build.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleStartupScope.h"
@@ -13,6 +14,13 @@ namespace Durin
 	namespace
 	{
 		constexpr std::string_view GDefaultRuntimeVariant = "DurinEditor";
+
+		auto ReleaseLibrary(FModuleHandle Handle) -> bool
+		{
+			const auto Released = FPlatformLibrary::Unload(Handle);
+			if (!Released) DURIN_ERROR("Library unload failed: {}", Released.error().ToString());
+			return Released.has_value();
+		}
 
 		struct FCurrentModuleStartup
 		{
@@ -148,50 +156,53 @@ namespace Durin
 
 		ModuleInfo->State = EModuleState::Loading;
 		DURIN_TRACE(STR("Try load: {}"), ModuleInfo->FileName);
-		FModuleHandle ModuleHandle = FPlatformMisc::LoadLibrary(ModuleInfo->FileName);
-		if (!ModuleHandle)
+		const auto RequestedPath = std::filesystem::u8path(ModuleInfo->FileName);
+		const auto ExecutableDirectory = std::filesystem::u8path(FPlatformProcess::ExecutablePath()).parent_path();
+		const auto InitialPath = RequestedPath.is_absolute() ? RequestedPath : ExecutableDirectory / RequestedPath;
+		auto Loaded = FPlatformLibrary::Load(InitialPath);
+		if (!Loaded && !RequestedPath.is_absolute() && !FPaths::ProjectDir().empty())
 		{
-			const std::filesystem::path ExecutableModule =
-				std::filesystem::path(FPlatformProcess::ExecutablePath()).parent_path()
-				/ ModuleInfo->FileName;
-			DURIN_TRACE(STR("Try executable-adjacent module: {}"),
-				ExecutableModule.generic_string());
-			ModuleHandle = FPlatformMisc::LoadLibrary(ExecutableModule.generic_string());
-			if (ModuleHandle) ModuleInfo->FileName = ExecutableModule.generic_string();
-		}
-		if (!ModuleHandle && !FPaths::ProjectDir().empty())
-		{
-			const std::filesystem::path ProjectModule = std::filesystem::path(FPaths::ProjectDir())
+			// FPaths currently exposes native narrow filesystem strings, unlike the
+			// UTF-8 executable path and explicitly registered module filenames.
+			const auto ProjectModule = std::filesystem::path(FPaths::ProjectDir())
 				/ "Binaries" / DURIN_BUILD_PLATFORM_STRING / DURIN_BUILD_TYPE_STRING
-				/ "Runtime" / GetConfiguredRuntimeVariant() / ModuleInfo->FileName;
-			DURIN_TRACE(STR("Try active-project module: {}"), ProjectModule.generic_string());
-			ModuleHandle = FPlatformMisc::LoadLibrary(ProjectModule.generic_string());
-			if (ModuleHandle) ModuleInfo->FileName = ProjectModule.generic_string();
+				/ "Runtime" / GetConfiguredRuntimeVariant() / RequestedPath;
+			Loaded = FPlatformLibrary::Load(ProjectModule);
+			if (Loaded)
+			{
+				const auto Utf8 = ProjectModule.generic_u8string();
+				ModuleInfo->FileName.assign(reinterpret_cast<const char*>(Utf8.data()), Utf8.size());
+			}
 		}
-		if (!ModuleHandle)
+		else if (Loaded)
+		{
+			const auto Utf8 = InitialPath.generic_u8string();
+			ModuleInfo->FileName.assign(reinterpret_cast<const char*>(Utf8.data()), Utf8.size());
+		}
+		if (!Loaded)
 		{
 			ModuleInfo->State = EModuleState::LoadFailed;
-			DURIN_ERROR(STR("Failed to load module \"{}\" from \"{}\": {}."),
-				InModuleName.ToString(), ModuleInfo->FileName,
-				FPlatformMisc::GetLastLibraryError());
+			DURIN_ERROR("Failed to load module \"{}\" from \"{}\": {}.",
+				InModuleName.ToString(), ModuleInfo->FileName, Loaded.error().ToString());
 			return nullptr;
 		}
-
-		const auto InitializeModuleFunction = reinterpret_cast<InitializeModuleFunc>(
-			FPlatformMisc::GetProcAddress(ModuleHandle, "InitializeModule"));
-		if (!InitializeModuleFunction)
+		const FModuleHandle ModuleHandle = *Loaded;
+		const auto Symbol = FPlatformLibrary::FindSymbol(ModuleHandle, "InitializeModule");
+		if (!Symbol || !*Symbol)
 		{
-			FPlatformMisc::FreeLibrary(ModuleHandle);
+			ReleaseLibrary(ModuleHandle);
 			ModuleInfo->State = EModuleState::LoadFailed;
-			DURIN_ERROR("Failed to get module interface from module.");
+			DURIN_ERROR("Failed to get module interface: {}.",
+				Symbol ? "Null InitializeModule export" : Symbol.error().ToString());
 			return nullptr;
 		}
+		const auto InitializeModuleFunction = reinterpret_cast<InitializeModuleFunc>(*Symbol);
 
 		ModuleInfo->Handle = ModuleHandle;
 		ModuleInfo->Module.reset(InitializeModuleFunction());
 		if (!ModuleInfo->Module)
 		{
-			FPlatformMisc::FreeLibrary(ModuleHandle);
+			ReleaseLibrary(ModuleHandle);
 			ModuleInfo->Handle = nullptr;
 			ModuleInfo->State = EModuleState::LoadFailed;
 			return nullptr;
@@ -224,7 +235,7 @@ namespace Durin
 			{
 				ModuleInfo->State = EModuleState::ShuttingDown;
 				ModuleInfo->Module.reset();
-				FPlatformMisc::FreeLibrary(ModuleHandle);
+				ReleaseLibrary(ModuleHandle);
 				ModuleInfo->Handle = nullptr;
 				ModuleInfo->ModuleOwner.reset();
 				ModuleInfo->State = EModuleState::LoadFailed;
@@ -298,7 +309,11 @@ namespace Durin
 		Info->Module.reset();
 		if (Info->Handle)
 		{
-			FPlatformMisc::FreeLibrary(Info->Handle);
+			if (!ReleaseLibrary(Info->Handle))
+			{
+				Info->State = EModuleState::StoppedMapped;
+				return false;
+			}
 			Info->Handle = nullptr;
 		}
 		Info->ModuleOwner.reset();

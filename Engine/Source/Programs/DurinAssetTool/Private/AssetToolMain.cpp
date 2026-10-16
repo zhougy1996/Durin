@@ -1,3 +1,5 @@
+#include "HAL/PlatformLibrary.h"
+#include "HAL/PlatformProcess.h"
 #include "Asset/PackageSerialization.h"
 #if DURIN_WITH_EDITOR
 #include "AssetTools/IAssetTools.h"
@@ -946,7 +948,11 @@ int main(int ArgC, char** ArgV)
 		Durin::FModuleHandle Handle = nullptr;
 		~FScopedShaderInventoryModule()
 		{
-			if (Handle) Durin::FPlatformMisc::FreeLibrary(Handle);
+			if (Handle)
+			{
+				const auto Released = Durin::FPlatformLibrary::Unload(Handle);
+				if (!Released) std::cerr << Released.error().ToString() << '\n';
+			}
 		}
 	} ShaderInventoryModule;
 	struct FScopedEditorServices final
@@ -977,16 +983,17 @@ int main(int ArgC, char** ArgV)
 		if (Options.Operation == EOperation::Cook)
 		{
 			Durin::FModuleManager::Get().LoadModuleChecked("RenderCore");
-			ShaderInventoryModule.Handle = Durin::FPlatformMisc::LoadLibrary(
-				std::format("{}{}-Renderer{}", Durin::FPlatformMisc::FLibraryPrefix,
-					DURIN_RUNTIME_VARIANT,
-					Durin::FPlatformMisc::FLibraryExtension));
-			if (!ShaderInventoryModule.Handle)
+			const auto RendererPath = std::filesystem::u8path(Durin::FPlatformProcess::ExecutablePath()).parent_path()
+				/ std::format("{}{}-Renderer{}", Durin::FPlatformMisc::FLibraryPrefix,
+					DURIN_RUNTIME_VARIANT, Durin::FPlatformMisc::FLibraryExtension);
+			const auto Loaded = Durin::FPlatformLibrary::Load(RendererPath);
+			if (!Loaded)
 			{
 				std::cerr << "Error: Renderer Shader inventory could not load: "
-					<< Durin::FPlatformMisc::GetLastLibraryError() << '\n';
+					<< Loaded.error().ToString() << '\n';
 				return 1;
 			}
+			ShaderInventoryModule.Handle = *Loaded;
 			Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 		}
 	}
