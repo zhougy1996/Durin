@@ -2,17 +2,16 @@
 
 Summary: Add generated no-argument void member-function reflection and transaction-aware Details actions.
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-16
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-16
 
 ## Current Status
 
-Stages 0-2 are implemented and validated. Stage 3 has its consumer and lasting
-contracts, but broad regression acceptance remains open. The user requested a
-commit and stop at the current implementation-stage handoff; do not continue
-unrelated regression repair as part of this handoff. The first consumer is
+Stages 0-3 are complete. The two outstanding regression failures were resolved
+and the final broad regression passed after the implementation-stage handoff.
+The first consumer is
 `DPointLightComponent::NormalizeSettings`: it canonicalizes the component's own
 authored color, intensity, and range, with render-state reconstruction through
 the light component's edit/Undo/Redo hooks. It does not create or edit other
@@ -58,6 +57,30 @@ the implementation commit. All commands used `Win64-Debug-DurinEditor`.
 - A corrupt CoreUtilityTests compiler PDB initially blocked the broad build;
   recompiling only that target's generated objects/PDB repaired the link. No
   repository source change was needed for that environment repair.
+
+Follow-up validation on 2026-10-16 started from revision `810bfe97b`:
+
+- TextureCookIntegrationTests already contains the compiler-lifetime repair in
+  `af10c798d` and the resource-update suite naming repair in `02b064c20`. The
+  complete target passed 3/3 in Debug. Receipt:
+  `Build/.agent-state/logs/20261016-104245-745967-31536-TextureCookIntegrationTests.log`.
+- SandboxGameplayTests passed all assertions but crashed during process-static
+  destruction. A debugger reproduced the access violation in
+  `UnregisterCookContributor`, reached from the retained Engine module's Cook
+  registration scope after the Cook registry had already been destroyed. This
+  target loaded modules without closing their lifecycle. A target-owned GoogleTest
+  environment now calls `ShutdownModulesAtExit` after its worlds are retired and
+  before the scheduler and registries close; runtime lifecycle APIs are unchanged.
+  Diagnostic receipt: `Build/SandboxGameplayCdb.log`.
+- The repaired Sandbox target passed 13/13 in one process and 13/13 in serial
+  isolated processes, including normal exit. Receipts:
+  `Build/.agent-state/logs/20261016-104513-077921-28188-SandboxGameplayTests.log`
+  and `Build/NativeTestResults/SandboxGameplayIsolated.xml`.
+- Final `test all --test-jobs 4` passed 108/108 ordinary native target groups,
+  including both previously failing targets, after building `DurinNativeTests`.
+  This excludes characterization and qualification under the ordinary test
+  policy. Receipts: `Build/NativeTestResults/DFunctionAcceptanceFinal.xml` and
+  `Build/.agent-state/logs/20261016-104915-151344-1448-ctest.log`.
 
 The shared Details layout is rebuilt every frame in LevelEditor and
 TextureEditor; their existing object edit notifications refresh derived state.
@@ -355,5 +378,5 @@ Depends on Stage 2. Outcome: the feature is demonstrated and documented.
 - [x] Publish implemented contracts in reflection generation, runtime reflection,
   reflected property editing, and transactor documentation; validate documents
   and record evidence here before completing the plan.
-- [ ] Diagnose/classify the two recorded broad-suite failures and obtain a final
+- [x] Diagnose/classify the two recorded broad-suite failures and obtain a final
   broad regression receipt before marking Stage 3 and this plan complete.

@@ -13,6 +13,7 @@
 #include "Input/GameInputState.h"
 #include "Input/InputCoreTypes.h"
 #include "NativeDObjectTestSupport.h"
+#include "Modules/ModuleManager.h"
 #include "PlayerPawn.h"
 #include "Physics/PhysicsScene.h"
 #include "SandboxGameplayTuning.h"
@@ -60,6 +61,20 @@ namespace Durin::Sandbox
 
 namespace
 {
+	class FSandboxGameplayEnvironment final : public testing::Environment
+	{
+	public:
+		auto TearDown() -> void override
+		{
+			// Worlds are retired by the cases. Release module-owned registrations
+			// while their registries are alive, before process-static destruction.
+			Durin::FModuleManager::Get().ShutdownModulesAtExit();
+		}
+	};
+
+	[[maybe_unused]] auto* GSandboxGameplayEnvironment =
+		testing::AddGlobalTestEnvironment(new FSandboxGameplayEnvironment);
+
 	auto AddCollisionBox(
 		Durin::DWorld& World,
 		std::string_view Name,
