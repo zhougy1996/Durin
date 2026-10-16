@@ -683,7 +683,7 @@ namespace Durin
 				}
 				return Initialize(ShaderTypes, Output, EffectiveCompileOptions);
 			}
-			if (Prepared->Output) return std::unexpected(FShaderError::FromBuildDiagnostic(Prepared->Output->Diagnostic));
+			if (Prepared->Output) return {Prepared->Output->Status, Prepared->Output->Diagnostic};
 		}
 		if (PreparedScopeDepth != 0)
 			return std::unexpected(FShaderError{.Code = EShaderError::CompilationNotStarted});

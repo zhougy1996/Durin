@@ -1330,6 +1330,9 @@ namespace Durin
 		auto GetBuildVersion() const -> uint64 override { return 1; }
 		auto GetCompileAdapterVersion() const -> FShaderCompileAdapterVersion override { return {}; }
 		auto CompileMounted(std::string_view, const FShaderCompileOptions&) -> FShaderBuildResult override { ++Compiles; return Completion; }
+		auto SubmitMounted(std::string_view, const FShaderCompileOptions&, FShaderBuildRequestOptions, FShaderBuildCompletion)
+			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> override
+		{ return std::unexpected(FShaderBuildAdmissionError{EShaderBuildAdmissionReason::Closed}); }
 		auto CompileGenerated(const FGeneratedShaderCompileRequest&) -> FShaderBuildResult override { return {}; }
 		auto SubmitGenerated(FGeneratedShaderCompileRequest, FShaderBuildRequestOptions, FShaderBuildCompletion)
 			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> override
