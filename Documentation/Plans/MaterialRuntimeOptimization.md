@@ -1,6 +1,6 @@
 # Material Runtime Optimization Plan
 
-Summary: Measure material publication and Collection rendering, prebind parameter layout indices, and retain mesh commands across Collection value updates.
+Summary: Measure material runtime work, prebind parameter layouts, retain Collection mesh commands, and index bounded renderer resource caches.
 
 Last reviewed: 2026-10-16
 
@@ -8,6 +8,50 @@ Status: Completed
 Completed: 2026-10-16
 
 ## Current Status
+
+Stage 3's final candidate passed all 18 slot/invalidation cases (including the
+opt-in workload), all 11 StaticMeshRenderPreparationVulkanTests cases and both
+RendererResourceReloadVulkanTests cases. The workspace all-build also passed
+across Engine, Sandbox and RoadWeaver. The Stage 3 reference is production revision
+`a1973ceb612c4523b9ded7bfcf7b396d9661918c` plus only the new benchmark harness; the candidate is that revision
+plus this stage's implementation. The unchanged Win64-Debug-DurinEditor profile
+uses MSVC 14.44.35207, Debug and Tracy. Release timing acceptance was explicitly
+deferred before runtime edits because this is the configured diagnostic lane;
+no latency/noise threshold or end-to-end frame improvement is claimed.
+
+Pooled 90-sample observations per scenario (microseconds per sweep):
+
+| Keys | Access | Reference median/p95 | Candidate median/p95 | Mean recreations, reference/candidate |
+| --- | --- | --- | --- | --- |
+| 256 | cyclic | 156.00 / 181.00 | 91.50 / 101.30 | 0 / 0 |
+| 256 | hot | 124.00 / 157.20 | 92.50 / 164.00 | 2.07 / 2.07 |
+| 512 | cyclic | 437.15 / 573.00 | 188.35 / 226.10 | 0 / 0 |
+| 512 | hot | 261.40 / 309.50 | 185.60 / 259.90 | 6.27 / 6.27 |
+| 1024 | cyclic | 23876.30 / 26254.50 | 1904.05 / 3190.50 | 1024 / 1024 |
+| 1024 | hot | 3269.40 / 4866.80 | 526.10 / 920.10 | 115.80 / 103 |
+| 4096 | cyclic | 96376.55 / 102409.20 | 7217.50 / 9022.00 | 4096 / 4096 |
+| 4096 | hot | 14156.25 / 15400.60 | 2122.10 / 2498.50 | 467.60 / 410 |
+
+At capacity, evictions equal recreations; below capacity measured evictions are
+zero. Cyclic overflow still thrashes under LRU. Peak accounted slot storage at
+512 resident entries increases from 368640 to 401408 bytes (360 to 392 KiB);
+inline integer payload weight remains 2048 bytes. At 256 entries the respective
+charges are 184320 and 204800 bytes. Candidate medians improve in all eight
+diagnostic groups; the 256-key hot p95 is slower, so no universal tail-latency
+claim is supported. Hash collisions and byte/count limits are correctness gates,
+not probabilistic timing assertions. The byte gate covers charged cache storage,
+not the transitive memory held by live consumers.
+
+Evidence is retained under `Build/MaterialRuntimeOptimization/`:
+`stage3-reference.csv`, `stage3-candidate.csv`, `stage3-comparison.json`,
+`stage3-compare.ps1`, matching logs and XML, `stage3-slot-tests.xml`,
+`stage3-mesh.xml`, `stage3-reload.xml`, and `stage3-all-build.log`. The first list-based candidate's raw
+CSV and comparison are retained as `stage3-list-candidate.csv` and
+`stage3-list-comparison.json`. Reproduce with the opt-in case and settings in
+[the measurement protocol](../Development/Build/RenderingPerformanceBaseline.md#binding-update-and-submission-workload).
+Affected analysis expands to application-hosted and unrelated renderer consumers;
+the selected cache/invalidation, mesh output and reload gates cover this private
+cache change, with all-build covering workspace integration.
 
 Stage 0 passed. Reference production revision is
 `ed82411474a27b3af248f71355fb9bc355337d5f` plus this stage's measurement harness
@@ -41,7 +85,7 @@ RendererResourceReloadVulkanTests cases, and the workspace `all` build across
 Engine, Sandbox and RoadWeaver. The final Collection regression additionally
 covers mixed contracts, missing-world defaults, incompatible schema rejection,
 and different retained defaults for one Collection ID without repeated rebinding.
-Stages 0-2 are complete; Stages 3-8 remain deferred follow-up guidance.
+Stages 0-3 are complete; Stages 4-8 remain deferred.
 
 On the NVIDIA GeForce GTX 1060 6GB diagnostic lane, pooled 360-sample Collection
 RenderView CPU median/p95 changed from 2.189/3.913 ms to 2.315/4.268 ms in the final
@@ -65,7 +109,7 @@ was frozen; Release timing qualification remains a future measurement task.
 
 Reduce repeated material binding work while preserving immutable publication,
 typed validation, counted resource lifetime, exact world isolation, and current
-shader/pipeline identities. Execute the first three stages in this plan.
+shader/pipeline identities. Execute Stages 0-3 in this plan.
 
 ## Selected Decisions
 
@@ -80,6 +124,10 @@ shader/pipeline identities. Execute the first three stages in this plan.
   allocation changes. Validate every required schema before considering a hit.
 - Retain existing geometry eligibility, generation invalidation, texture checks,
   budgets, shader maps and PSOs. Do not broaden caching to Spline in this slice.
+- Follow the dependency and lifetime principles in UE's
+  [Mesh Drawing Pipeline](https://dev.epicgames.com/documentation/en-us/unreal-engine/mesh-drawing-pipeline-in-unreal-engine):
+  retained commands require precise invalidation and resource ownership. The
+  indexed LRU policy is a measured Durin decision, not a claim about UE's policy.
 - Stage 2 inspection found uniform groups currently merge equal local payloads
   even when their programs reference different Collections. Refine groups by the
   exact ordered Collection contracts/defaults before caching or binding them;
@@ -140,14 +188,39 @@ candidate workload and a workspace all build for the shared Engine API changes.
 - [x] Pass Collection output/caching regressions and affected tests.
 - [x] Run all build, document contracts, validate documents and commit.
 
-### Stage 3: Improve cache lookup and retention (deferred)
+### Stage 3: Improve cache lookup and retention
 
-Scope: indexed renderer slot lookup, measured eviction policy and byte budgets.
-Validation: compare 256/512/1024/4096-entry working sets, hot hits and cyclic
-over-capacity access; report median/p95, evictions, recreation requests and retained
-bytes. Preserve generation invalidation and live-resource ownership. Select a
-Release/noise budget before implementation; changing FIFO to LRU alone is not a
-completion condition.
+Scope: the private renderer resource-slot cache and its StaticMesh, GBuffer and
+sampler consumers. Replace linear lookup with a hash index using exact equality,
+and insertion-order eviction with constant-time recency tracking. Preserve slot
+indices for diagnostics, failure memoization, generation dependencies and copied
+resource ownership. Bound both entry count and accounted resident slot bytes;
+accounting includes inline key/payload, charged index/recency nodes and hash
+buckets, excluding diagnostic strings, transitive shared shader/RHI allocations,
+allocator overhead and driver memory. Keep persistent draw
+and Collection allocation caches unchanged in this stage.
+
+Validation: freeze a backend-free workload before runtime edits, with a 512-slot
+capacity and 256/512/1024/4096-key working sets. Measure hot access mixed with cold
+admissions and cyclic over-capacity access, three runs, five warm-ups and 30 raw
+samples per scenario. Report median/p95, evictions, recreation requests and
+retained bytes. Debug/Tracy results are diagnostic only: no Release latency gate
+is selected or claimed in this stage. Structural gates require exact collision
+handling, bounded count/bytes (including lowered budgets), hot-key retention,
+generation/failure behavior and prepared resources surviving eviction/reset.
+Run focused slot tests and renderer invalidation/Vulkan regressions, then all
+build for renderer consumer integration. Release qualification remains deferred
+until a quiet Release/Tracy-off lane is available; do not infer it from Debug.
+
+- [x] Capture the unchanged implementation's scale workload.
+- [x] Implement indexed recency retention, accounting and consumer migration.
+- [x] Pass correctness and renderer integration gates; compare raw samples.
+- [x] Document accounting limits, validate documents and commit.
+
+The first indexed candidate used `std::list::splice` for recency. Its Debug
+integer-key hot sweeps regressed at 256/512 keys despite faster over-capacity
+access. The final implementation uses links embedded in stable heap-owned slots,
+preserving the same LRU decisions and exact index equality.
 
 ### Stage 4: Add Primitive and Instance numeric data (deferred)
 
@@ -189,6 +262,5 @@ compare first-use incomplete requests and replay wait spans, cold/warm loading
 costs, memory and image parity; preserve cancellation, target and device-generation
 rules. Required combinations must be selected from actual scene usage.
 
-Stages 3-8 are sequencing guidance for separate follow-up plans, not acceptance
-gates or implementation scope for the executed Stage 0-2 slice. Each requires
-workload selection and an explicit measurement budget before implementation.
+Stages 4-8 remain sequencing guidance outside the authorized Stage 0-3 slice.
+Each requires workload selection and an explicit measurement budget before implementation.

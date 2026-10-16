@@ -48,6 +48,23 @@ observations. Correctness-only Vulkan integration remains outside this catalog.
 
 ### Binding Update and Submission Workload
 
+`FRendererResourceSlotCacheTests.LookupAndRetentionBaseline` in
+`EditorRenderingTests` is a backend-free, opt-in diagnostic for renderer slot
+lookup/retention. Set `DURIN_RENDERER_SLOT_BENCHMARK=1` and
+`DURIN_TEST_KEEP_WORK=1` and select that case directly. It writes
+`RendererSlotBaseline/samples.csv` in the printed test work directory. A fixed
+512-slot cache processes 256/512/1024/4096-key working sets in cyclic order or
+with 90% accesses to 64 hot keys and 10% rotating cold admissions. Three runs
+each use five warm-up sweeps and 30 measured sweeps. Each sample times one
+working-set-sized sweep, including slot resolution; it records nanoseconds,
+recreations, evictions, inline payload weight, entries and accounted slot bytes.
+Reference slot bytes count occupied vector elements; indexed candidates include
+their charged node/bucket overhead. Neither includes transitive/driver storage.
+This integer-key workload isolates cache mechanics, not real scene rendering or
+material-key hashing. Debug/Tracy results are diagnostic and impose no Release
+latency threshold. Run normal renderer generation/lifetime and Vulkan output
+regressions separately; a cache microbenchmark cannot establish frame speedup.
+
 `FMaterialQualificationTests.ProxyPublicationAndResolveBaseline` measures 32
 proxies with 8, 32 and 128 scalar parameters. Each of three runs has 30 warm-ups
 and 120 samples. Each sample changes one value, publishes and resolves every

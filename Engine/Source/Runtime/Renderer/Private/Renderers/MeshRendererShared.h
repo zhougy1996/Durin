@@ -13,6 +13,7 @@
 
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "RendererResourceSlotCache.h"
+#include "Renderers/MaterialResourceCacheKeyHash.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/EnvironmentLightingResources.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -51,6 +52,8 @@ namespace Durin::RendererPrivate
 	inline constexpr uint32 MaterialMeshPassGBufferGPUCulling = 3;
 	inline constexpr size_t MaterialShaderMapCacheEntryBudget = 256;
 	inline constexpr size_t MaterialPipelineCacheEntryBudget = 512;
+	inline constexpr size_t MaterialShaderMapCacheByteBudget = 1024 * 1024;
+	inline constexpr size_t MaterialPipelineCacheByteBudget = 2 * 1024 * 1024;
 
 	inline auto InitializeMaterialShaderMap(
 		const FShaderType& VertexType,

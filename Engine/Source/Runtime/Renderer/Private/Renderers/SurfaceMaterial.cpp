@@ -48,7 +48,17 @@ namespace Durin::RendererPrivate
 
 	struct FSurfaceMaterialResources::FState
 	{
-		TRendererResourceSlotCache<FMaterialSamplerState, FSamplerRHIRef> Samplers{
+		struct FSamplerKeyHash
+		{
+			auto operator()(const FMaterialSamplerState& Key) const -> size_t
+			{
+				return static_cast<size_t>(Key.MinFilter)
+					| (static_cast<size_t>(Key.MagFilter) << 8)
+					| (static_cast<size_t>(Key.AddressU) << 16)
+					| (static_cast<size_t>(Key.AddressV) << 24);
+			}
+		};
+		TRendererResourceSlotCache<FMaterialSamplerState, FSamplerRHIRef, FSamplerKeyHash> Samplers{
 			ERenderResourceGenerationDependency::Device};
 		FSurfaceMaterialResourceCounters Counters;
 	};
@@ -79,7 +89,7 @@ namespace Durin::RendererPrivate
 		{
 			++State->Counters.SamplerLookups;
 			const FMaterialSamplerState StateKey = RequiredSamplers[Role];
-			auto& Entry = State->Samplers.FindOrAdd(StateKey);
+			auto& Entry = State->Samplers.FindOrAddBounded(StateKey, 128, 256 * 1024);
 			bool bCreationAttempted = false;
 			if (Entry.Slot.Resolve(
 					Coordinator.GetGeneration_RenderThread(),

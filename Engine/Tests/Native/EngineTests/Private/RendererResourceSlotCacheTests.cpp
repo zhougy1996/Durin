@@ -1,6 +1,10 @@
 #include <gtest/gtest.h>
 
 #include "RendererResourceSlotCache.h"
+#include "Renderers/MaterialResourceCacheKeyHash.h"
+#include "Renderers/MeshRenderPreparationCommon.h"
+#include "NativeTestSupport.h"
+#include "Misc/FileHelper.h"
 
 namespace Durin
 {
@@ -9,6 +13,49 @@ namespace Durin
 		using EDependency = ERenderResourceGenerationDependency;
 		using FResult = TRenderResourceCreateResult<int>;
 		using FCache = TRendererResourceSlotCache<int, int>;
+
+		TEST(FRendererResourceSlotCacheTests, LookupAndRetentionBaseline)
+		{
+			if (std::getenv("DURIN_RENDERER_SLOT_BENCHMARK") == nullptr) GTEST_SKIP();
+			const auto Root = Testing::CreateTestFixtureDirectory("RendererSlotBaseline");
+			std::string Csv = "working_set,scenario,run,sample,nanoseconds,recreations,evictions,retained_payload_bytes,entries,accounted_slot_bytes\n";
+			for (const int WorkingSet : {256, 512, 1024, 4096})
+			for (const bool Hot : {false, true})
+			for (int Run = 0; Run < 3; ++Run)
+			{
+				FCache Cache;
+				FRenderResourceGeneration Generation;
+				for (int Sample = -5; Sample < 30; ++Sample)
+				{
+					size_t Recreations = 0, Evictions = 0;
+					const auto Start = std::chrono::steady_clock::now();
+					for (int Access = 0; Access < WorkingSet; ++Access)
+					{
+						const int Key = Hot && Access % 10 != 0 ? Access % 64
+							: Hot ? 64 + (Access / 10 + (Sample + 5) * ((WorkingSet + 9) / 10)) % (WorkingSet - 64) : Access;
+						const size_t Before = Cache.Num();
+						auto& Entry = Cache.FindOrAddBounded(Key, 512);
+						const bool Missing = Entry.Slot.GetPayload() == nullptr;
+						if (Missing && Before == 512) ++Evictions;
+						Entry.Slot.Resolve(Generation, [&] {
+							++Recreations;
+							return FResult::Success(Key);
+						}, [](const FRenderResourceCreateDiagnostic&) {});
+					}
+					const auto Ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+						std::chrono::steady_clock::now() - Start).count();
+					const auto SlotBytes = []<typename T>(const T& Value) -> size_t {
+						if constexpr (requires { Value.GetAccountedSlotBytes(); }) return Value.GetAccountedSlotBytes();
+						else return Value.Num() * sizeof(typename T::FEntry);
+					}(Cache);
+					if (Sample >= 0) Csv += std::format("{},{},{},{},{},{},{},{},{},{}\n", WorkingSet,
+						Hot ? "hot" : "cyclic", Run, Sample, Ns, Recreations, Evictions,
+						Cache.GetRetainedPayloadWeight([](int, int) { return sizeof(int); }), Cache.Num(), SlotBytes);
+				}
+			}
+			ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Csv)), Root / "samples.csv"));
+			std::cout << "[RendererSlotBaseline] csv=" << (Root / "samples.csv").generic_string() << '\n';
+		}
 
 		TEST(FRendererResourceSlotCacheTests, PreparedPayloadSurvivesGrowthEvictionAndReset)
 		{
@@ -24,7 +71,7 @@ namespace Durin
 			std::weak_ptr<const int> Lifetime = PreparedDraw;
 			for (int Key = 2; Key < 128; ++Key) Cache.FindOrAdd(Key);
 			EXPECT_EQ(*PreparedDraw, 42);
-			EXPECT_EQ(*Cache.Find(1)->Slot.GetPayload(), PreparedDraw);
+			EXPECT_EQ(*std::as_const(Cache).Find(1)->Slot.GetPayload(), PreparedDraw);
 			Cache.FindOrAddBounded(128, 127);
 			EXPECT_EQ(Cache.Find(1), nullptr);
 			EXPECT_FALSE(Lifetime.expired());
@@ -331,7 +378,7 @@ namespace Durin
 
 		TEST(
 			FRendererResourceSlotCacheTests,
-			FindOrAddBoundedRetainsExistingAndEvictsOldestOnInsertion)
+			FindOrAddBoundedPromotesExistingAndEvictsLeastRecentlyUsed)
 		{
 			FCache Cache;
 			Cache.FindOrAddBounded(1, 2);
@@ -340,9 +387,73 @@ namespace Durin
 			EXPECT_EQ(Cache.Num(), 2u);
 			Cache.FindOrAddBounded(3, 2);
 			EXPECT_EQ(Cache.Num(), 2u);
-			EXPECT_EQ(Cache.Find(1), nullptr);
-			EXPECT_NE(Cache.Find(2), nullptr);
+			EXPECT_NE(Cache.Find(1), nullptr);
+			EXPECT_EQ(Cache.Find(2), nullptr);
 			EXPECT_NE(Cache.Find(3), nullptr);
+		}
+
+		TEST(FRendererResourceSlotCacheTests, CollisionsPreserveExactKeysAndStableSlots)
+		{
+			struct FConstantHash { auto operator()(int) const -> size_t { return 0; } };
+			TRendererResourceSlotCache<int, int, FConstantHash> Cache;
+			auto* First = &Cache.FindOrAdd(1);
+			for (int Key = 2; Key < 128; ++Key) Cache.FindOrAdd(Key);
+			EXPECT_EQ(Cache.Find(1), First);
+			EXPECT_EQ(Cache.GetHits(), 1u);
+			EXPECT_EQ(Cache.GetMisses(), 127u);
+			for (int Key = 2; Key < 128; ++Key) EXPECT_EQ(Cache.Find(Key)->Key, Key);
+			Cache.FindOrAddBounded(128, 127);
+			EXPECT_EQ(std::as_const(Cache).Find(1), nullptr);
+			EXPECT_EQ(Cache.GetEvictions(), 1u);
+			Cache.Reset();
+			EXPECT_EQ(Cache.Num(), 0u);
+			EXPECT_EQ(Cache.GetHits(), 0u);
+			EXPECT_EQ(Cache.FindOrAdd(1).Index, 0u);
+		}
+
+		TEST(FRendererResourceSlotCacheTests, LoweredCountAndByteBudgetsApplyOnHitsAndMisses)
+		{
+			FCache Cache;
+			for (int Key = 0; Key < 1024; ++Key) Cache.FindOrAdd(Key);
+			const size_t Budget = FCache::AccountedEntryBytes * 4 + 128;
+			EXPECT_EQ(Cache.FindOrAddBounded(0, 8, Budget).Key, 0);
+			EXPECT_LE(Cache.Num(), 4u);
+			EXPECT_LE(Cache.GetAccountedSlotBytes(), Budget);
+			EXPECT_NE(std::as_const(Cache).Find(0), nullptr);
+			EXPECT_EQ(Cache.FindOrAddBounded(1, 1, FCache::MinimumByteBudget).Key, 1);
+			EXPECT_EQ(Cache.Num(), 1u);
+			EXPECT_LE(Cache.GetAccountedSlotBytes(), FCache::MinimumByteBudget);
+			EXPECT_EQ(std::as_const(Cache).Find(0), nullptr);
+		}
+
+		TEST(FRendererResourceSlotCacheTests, HotWorkingSetSurvivesColdAdmissions)
+		{
+			FCache Cache;
+			for (int Key = 0; Key < 8; ++Key) Cache.FindOrAddBounded(Key, 16);
+			for (int Cold = 8; Cold < 4096; ++Cold)
+			{
+				for (int Hot = 0; Hot < 8; ++Hot) ASSERT_NE(Cache.Find(Hot), nullptr);
+				Cache.FindOrAddBounded(Cold, 16);
+			}
+			EXPECT_EQ(Cache.Num(), 16u);
+			EXPECT_EQ(Cache.GetEvictions(), 4080u);
+		}
+
+		TEST(FRendererResourceSlotCacheTests, MaterialHashUsesSemanticValuesAndExactPipelineEquality)
+		{
+			using FHash = RendererPrivate::FMaterialResourceCacheKeyHash;
+			TRendererResourceSlotCache<FEffectiveMeshPipelineKey, int, FHash> Cache;
+			FEffectiveMeshPipelineKey First;
+			First.Material.ShaderMap.OpacityMaskThreshold = 0.0f;
+			auto Equivalent = First;
+			Equivalent.Material.ShaderMap.OpacityMaskThreshold = -0.0f;
+			EXPECT_EQ(FHash{}(First), FHash{}(Equivalent));
+			EXPECT_EQ(&Cache.FindOrAdd(First), &Cache.FindOrAdd(Equivalent));
+			auto Different = First;
+			++Different.Depth.StencilReference; // Not hashed, but still part of equality.
+			EXPECT_EQ(FHash{}(First), FHash{}(Different));
+			EXPECT_NE(&Cache.FindOrAdd(First), &Cache.FindOrAdd(Different));
+			EXPECT_EQ(Cache.Num(), 2u);
 		}
 
 		TEST(

@@ -124,22 +124,22 @@ namespace Durin
 
 		TRendererResourceSlotCache<
 			FMeshShaderMapKey,
-			FShaderMapPayload>
+			FShaderMapPayload, FMaterialResourceCacheKeyHash>
 			ShaderMaps{ERenderResourceGenerationDependency::Shader};
 		TRendererResourceSlotCache<
 			FMeshShaderMapKey,
-			FShaderMapPayload>
+			FShaderMapPayload, FMaterialResourceCacheKeyHash>
 			ShadowShaderMaps{ERenderResourceGenerationDependency::Shader};
 		TRendererResourceSlotCache<
 			FEffectiveMeshPipelineKey,
-			FPipelinePayload>
+			FPipelinePayload, FMaterialResourceCacheKeyHash>
 			Pipelines{
 				ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device
 			};
 		TRendererResourceSlotCache<
 			FEffectiveMeshPipelineKey,
-			FPipelinePayload>
+			FPipelinePayload, FMaterialResourceCacheKeyHash>
 			ShadowPipelines{
 				ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device
@@ -341,7 +341,7 @@ namespace Durin
 		};
 		auto& ShaderMapCache = bShadowDepth ? State->ShadowShaderMaps : State->ShaderMaps;
 		auto& ShaderMapEntry = ShaderMapCache.FindOrAddBounded(
-			ShaderMapKey, MaterialShaderMapCacheEntryBudget);
+			ShaderMapKey, MaterialShaderMapCacheEntryBudget, MaterialShaderMapCacheByteBudget);
 		FState::FShaderMapPayload* ShaderMapPayload =
 			ShaderMapEntry.Slot.Resolve(
 				Coordinator.GetGeneration_RenderThread(),
@@ -453,7 +453,7 @@ namespace Durin
 			!bShadowDepth && bHybridRetained;
 		auto& PipelineCache = bShadowDepth ? State->ShadowPipelines : State->Pipelines;
 		auto& PipelineEntry = PipelineCache.FindOrAddBounded(
-			EffectivePipelineKey, MaterialPipelineCacheEntryBudget);
+			EffectivePipelineKey, MaterialPipelineCacheEntryBudget, MaterialPipelineCacheByteBudget);
 		FRenderResourceGeneration PipelineGeneration =
 			Coordinator.GetGeneration_RenderThread();
 		PipelineGeneration.Shader =

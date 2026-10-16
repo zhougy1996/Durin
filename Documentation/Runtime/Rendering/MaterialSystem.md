@@ -755,6 +755,26 @@ shares identical code/RHI resources and a second hierarchy would widen failure
 and eviction domains without demonstrated sharing. Maps retain no Material
 asset or render proxy.
 
+Renderer resource slots use a hash index with full-key equality and an LRU list.
+Mutable lookup promotes recency; const inspection does not. Slot indices remain
+stable for diagnostic names, and slot references survive insertion but not their
+own eviction or reset. Each geometry-family shader-map cache admits at most 256
+entries and 1 MiB of accounted slot storage; each pipeline cache admits at most
+512 entries and 2 MiB. The shared material-sampler cache admits at most 128
+entries and 256 KiB. Lowered count/byte budgets apply on hits as well as misses;
+byte pressure compacts the index, including on platforms where `rehash` cannot
+shrink it. These are per-cache limits, not a global renderer memory budget.
+
+Accounted bytes charge inline keys/payloads, both index and recency nodes, and
+two pointers per hash bucket. Node/link charges are conservative estimates,
+not allocator measurements. Transitive shared shader/RHI objects, diagnostic
+string allocations and driver memory are excluded. Payload-weight queries remain
+separate and caller-defined; they must not be interpreted as native GPU bytes.
+Eviction removes cache ownership only: prepared consumers retain their copied
+strong resource references. Failure memoization and shader/device/manual
+generation dependencies remain owned by each resource-creation slot. Persistent
+draw-command and Collection allocation caches have independent retention policies.
+
 Generated forward evaluation uses the same world normal frame, specular-AA,
 directional/local/environment lighting and shadow evaluation through compiled
 layout bindings.

@@ -119,9 +119,9 @@ namespace Durin
 			TMaterialShaderRef<FGBufferFragmentShader> Fragment;
 		};
 
-		TRendererResourceSlotCache<FGBufferShaderMapKey, FShaderMapPayload>
+		TRendererResourceSlotCache<FGBufferShaderMapKey, FShaderMapPayload, RendererPrivate::FMaterialResourceCacheKeyHash>
 			ShaderMaps{ERenderResourceGenerationDependency::Shader};
-		TRendererResourceSlotCache<FGBufferPipelineKey, std::shared_ptr<const FPipeline>>
+		TRendererResourceSlotCache<FGBufferPipelineKey, std::shared_ptr<const FPipeline>, RendererPrivate::FMaterialResourceCacheKeyHash>
 			Pipelines{ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
 		TRenderResourceCreationSlot<FGPUCullingPayload> GPUCulling{
@@ -175,7 +175,7 @@ namespace Durin
 			.FactoryKey = Request.FactoryKey, .LayoutKey = Request.LayoutKey,
 			.bGPUCulling = Request.bGPUCulling};
 		auto& ShaderEntry = State->ShaderMaps.FindOrAddBounded(
-			ShaderKey, RendererPrivate::MaterialShaderMapCacheEntryBudget);
+			ShaderKey, RendererPrivate::MaterialShaderMapCacheEntryBudget, RendererPrivate::MaterialShaderMapCacheByteBudget);
 		using FShaderResult =
 			TRenderResourceCreateResult<FState::FShaderMapPayload>;
 		FState::FShaderMapPayload* Shaders = ShaderEntry.Slot.Resolve(
@@ -254,7 +254,7 @@ namespace Durin
 			.FactoryKey = Request.FactoryKey, .LayoutKey = Request.LayoutKey,
 			.bGPUCulling = Request.bGPUCulling, .Topology = Request.Topology};
 		auto& PipelineEntry = State->Pipelines.FindOrAddBounded(
-			PipelineKey, RendererPrivate::MaterialPipelineCacheEntryBudget);
+			PipelineKey, RendererPrivate::MaterialPipelineCacheEntryBudget, RendererPrivate::MaterialPipelineCacheByteBudget);
 		FRenderResourceGeneration PipelineGeneration =
 			Coordinator.GetGeneration_RenderThread();
 		PipelineGeneration.Shader = Shaders->ShaderMap.GetGeneration().Shader;
