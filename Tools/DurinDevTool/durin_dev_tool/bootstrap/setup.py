@@ -125,6 +125,30 @@ def ensure_python_environment(
     requirements = repository_root / "requirements.txt"
     if not requirements.is_file():
         raise BootstrapError(f'Requirements file does not exist: "{requirements}"')
+    try:
+        pip_check = subprocess.run(
+            [str(python), "-m", "pip", "--version"],
+            cwd=repository_root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as exc:
+        raise BootstrapError(f"Could not check pip in {python}: {exc}") from exc
+    if pip_check.returncode != 0:
+        command_io.out("Restoring pip in the Python virtual environment...")
+        try:
+            run_command(
+                [str(python), "-m", "ensurepip", "--upgrade"],
+                cwd=repository_root,
+                command_io=command_io,
+            )
+        except BootstrapError as exc:
+            raise BootstrapError(
+                f'Could not restore pip in "{python}". Ensure the base Python '
+                "installation includes ensurepip, then rerun DevTool setup. "
+                f"{exc}"
+            ) from exc
     command_io.out(f'Installing Python dependencies from "{requirements}"...')
     run_command(
         [

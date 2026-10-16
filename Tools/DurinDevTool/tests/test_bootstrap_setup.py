@@ -17,6 +17,50 @@ from durin_dev_tool.worktree import transactions as worktree_transactions
 
 REPOSITORY = RepositoryContext.load(REPOSITORY_ROOT)
 
+class TestPythonEnvironmentLifecycle:
+
+    @pytest.mark.parametrize('pip_available', [True, False])
+    def test_existing_environment_restores_pip_only_when_needed(
+        self, tmp_path: Path, pip_available: bool,
+    ) -> None:
+        python = setup.prepared_python_path(
+            tmp_path, REPOSITORY.config.worktrees.python_environment,
+        )
+        python.parent.mkdir(parents=True)
+        python.touch()
+        (tmp_path / 'requirements.txt').write_text('', encoding='utf-8')
+        completed = setup.subprocess.CompletedProcess([], 0 if pip_available else 1)
+        with mock.patch.object(setup.subprocess, 'run', return_value=completed) as probe, mock.patch.object(setup, 'run_command') as run:
+            assert setup.ensure_python_environment(tmp_path) == python
+
+        assert probe.call_args.args[0] == [str(python), '-m', 'pip', '--version']
+        commands = [call.args[0] for call in run.call_args_list]
+        restore = [str(python), '-m', 'ensurepip', '--upgrade']
+        assert (restore in commands) == (not pip_available)
+        install_index = next(index for index, command in enumerate(commands) if command[1:4] == ['-m', 'pip', 'install'])
+        if not pip_available:
+            assert commands.index(restore) < install_index
+        assert all('venv' not in command for command in commands)
+
+    def test_failed_pip_restore_stops_before_dependency_install(
+        self, tmp_path: Path,
+    ) -> None:
+        python = setup.prepared_python_path(
+            tmp_path, REPOSITORY.config.worktrees.python_environment,
+        )
+        python.parent.mkdir(parents=True)
+        python.touch()
+        (tmp_path / 'requirements.txt').write_text('', encoding='utf-8')
+
+        def run(command, **kwargs):
+            if command[1:3] == ['-m', 'ensurepip']:
+                raise BootstrapError('No module named ensurepip')
+
+        with mock.patch.object(setup.subprocess, 'run', return_value=setup.subprocess.CompletedProcess([], 1)), mock.patch.object(setup, 'run_command', side_effect=run) as commands:
+            with pytest.raises(BootstrapError, match='base Python installation includes ensurepip'):
+                setup.ensure_python_environment(tmp_path)
+        assert not any(call.args[0][1:4] == ['-m', 'pip', 'install'] for call in commands.call_args_list)
+
 class TestAgentConfigLifecycle:
 
     def test_template_path_matches_repository_layout(self) -> None:
