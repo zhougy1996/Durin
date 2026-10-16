@@ -30,11 +30,14 @@ namespace Durin
 			FMatrix WorldToLocal;
 			FMatrix4f NormalToWorld;
 			FVector3 BoundsCenter;
+			FPrimitiveCustomData CustomPrimitiveData;
+			FPrimitiveCustomData CustomInstanceData;
 			auto operator==(const FPrimitiveState&) const -> bool = default;
 		};
 		static auto CapturePrimitiveState(const FPreparedStaticMeshPrimitive& Primitive) -> FPrimitiveState
 		{
-			return {Primitive.LocalToWorld, Primitive.WorldToLocal, Primitive.NormalToWorld, Primitive.BoundsCenter};
+			return {Primitive.LocalToWorld, Primitive.WorldToLocal, Primitive.NormalToWorld, Primitive.BoundsCenter,
+				Primitive.CustomPrimitiveData, Primitive.CustomInstanceData};
 		}
 		// A complete stable draw, independent of the owning camera/cascade pass.
 		struct FMeshDrawCommand
@@ -784,13 +787,17 @@ namespace Durin
 			Record.GBufferBindings.reset();
 			Record.GBufferGPUCullingBindings.reset();
 		}
-		auto Prepare = [&](const FPreparedStaticMeshDraw& Draw, uint32 Pass, FRHIShader* Shader,
-			const FCompiledSurfaceBindingLayout& Layout, FBindings& Out) -> bool {
+		auto BindingKey = [](const FPreparedStaticMeshDraw& Draw, uint32 Pass, FRHIShader* Shader,
+			const FCompiledSurfaceBindingLayout& Layout) {
 			const bool bUsesPrimitive = std::ranges::any_of(Layout.GetEntries(), [](const auto& Entry) {
 				return Entry.Source == FCompiledSurfaceBindingLayout::ESource::Primitive;
 			});
-			const auto Key = std::make_tuple(Draw.MaterialUniformIndex, Pass,
+			return std::make_tuple(Draw.MaterialUniformIndex, Pass,
 				bUsesPrimitive ? Draw.PrimitiveIndex : std::numeric_limits<uint32>::max(), Shader);
+		};
+		auto Prepare = [&](const FPreparedStaticMeshDraw& Draw, uint32 Pass, FRHIShader* Shader,
+			const FCompiledSurfaceBindingLayout& Layout, FBindings& Out) -> bool {
+			const auto Key = BindingKey(Draw, Pass, Shader, Layout);
 			if (const auto Existing = Batches.find(Key); Existing != Batches.end())
 			{
 				Out = Existing->second;
@@ -883,6 +890,15 @@ namespace Durin
 				++ResolvedView.Observations.PersistentCommandHits;
 				if (!ResolvedView.PersistentCollectionBindingsChanged[Draw.ResolvedIndex])
 				{
+					// Cached and newly prepared packets must share the same per-view
+					// representative, otherwise pointer-based GPU groups fragment.
+					if (Record.GBufferGPUCullingPipeline && Record.GBufferGPUCullingBindings)
+					{
+						const auto& Pipeline = *Record.GBufferGPUCullingPipeline;
+						const auto Key = BindingKey(Draw, 1u, GBuffer->GetFragmentShader(Pipeline), GBuffer->GetSurfaceLayout(Pipeline));
+						const auto [Found, Inserted] = Batches.try_emplace(Key, Record.GBufferGPUCullingBindings);
+						if (!Inserted) Record.GBufferGPUCullingBindings = Found->second;
+					}
 					if (!PreparePasses()) return false;
 					continue;
 				}

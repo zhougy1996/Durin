@@ -368,9 +368,21 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	const auto TextureNode = Add(EMaterialProgramOpcode::TextureParameter, EMaterialProgramValueType::Texture2D, Texture.Id);
 	const auto MeshUV = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2);
 	const auto UV = Add(EMaterialProgramOpcode::VertexInterpolator, EMaterialProgramValueType::Float2, {}, {MeshUV});
-	Graph.Outputs.WorldPositionOffset.SetConstant({0.f, 0.f, .01f});
+	auto* PrimitiveData = NewObject<DMaterialExpressionPrimitiveCustomData>(nullptr, NAME_None);
+	PrimitiveData->Id = FGuid::NewGuid();
+	PrimitiveData->ResultType = EMaterialProgramValueType::Float3;
+	PrimitiveData->DataIndex = 29;
+	Graph.Expressions.emplace_back(PrimitiveData);
+	Graph.Outputs.WorldPositionOffset = Testing::MakeLink(*PrimitiveData);
 	const auto Sample = Add(EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {}, {TextureNode, UV});
 	Graph.Outputs.Emissive = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {}, {Sample});
+	auto* InstanceData = NewObject<DMaterialExpressionInstanceCustomData>(nullptr, NAME_None);
+	InstanceData->Id = FGuid::NewGuid();
+	InstanceData->ResultType = EMaterialProgramValueType::Float3;
+	InstanceData->DataIndex = 3;
+	Graph.Expressions.emplace_back(InstanceData);
+	Graph.Outputs.Emissive = Add(EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float3,
+		{}, {Graph.Outputs.Emissive.Connection, Testing::MakeLink(*InstanceData)});
 	ASSERT_TRUE(Graph.Apply(*Source));
 	ASSERT_NE(Source->GetAcceptedCompiledProgram(), nullptr);
 	const auto ExpectedLayout = Source->GetAcceptedCompiledProgram()->Layout;

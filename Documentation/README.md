@@ -81,6 +81,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Shadow quality, bias, PCF, cascades, or contact shadows | [Directional shadows](Runtime/Rendering/DirectionalShadows.md) |
 | Loaded material dependency queries, batch caches, or notification reentrancy | [Scoped material queries](Runtime/Rendering/MaterialQueries.md) |
 | Material vertex roots, World Position Offset, or vertex-to-pixel interpolation | [Material vertex evaluation](Runtime/Rendering/MaterialVertexEvaluation.md) |
+| Primitive or Instance custom numeric channels, stable render instances, or material variation without separate instances | [Primitive and Instance material data](Runtime/Rendering/MaterialCustomData.md) |
 | Material expression emission, output registration, graph traversal, or function invocation caches | [Material expression building](Runtime/Rendering/MaterialExpressionBuilding.md) |
 | Material graph commands, function authoring, UV inputs, transactions, or clipboard | [Material graph operations](Editor/Architecture/MaterialGraphOperations.md) |
 | Material editor panels, canvas geometry, node menus, or graph diagnostics | [Material graph canvas](Editor/Architecture/MaterialGraphCanvas.md) |

@@ -5,6 +5,7 @@
 #include "EngineAPI.h"
 #include "Misc/Guid.h"
 #include "Rendering/PrimitiveComponentId.h"
+#include "Rendering/PrimitiveCustomData.h"
 
 namespace Durin
 {
@@ -61,6 +62,8 @@ namespace Durin
 		) -> void = 0;
 		virtual auto UpdateMaterialParameterCollection(
 			std::shared_ptr<const FMaterialParameterCollectionSnapshot> Snapshot) -> void = 0;
+		virtual auto UpdatePrimitiveCustomData(FPrimitiveComponentId Id, FPrimitiveCustomData Data) -> void = 0;
+		virtual auto UpdateStaticMeshRenderInstances(FPrimitiveComponentId Id, FStaticMeshRenderInstances Instances) -> void = 0;
 		virtual auto RemoveMaterialParameterCollection(FGuid CollectionId) -> void = 0;
 		virtual auto UpdateSplineMeshDynamicData(
 			FPrimitiveComponentId PrimitiveId,

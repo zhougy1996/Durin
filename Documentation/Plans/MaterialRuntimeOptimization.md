@@ -1,6 +1,6 @@
 # Material Runtime Optimization Plan
 
-Summary: Measure material runtime work, prebind parameter layouts, retain Collection mesh commands, and index bounded renderer resource caches.
+Summary: Optimize material runtime binding, renderer cache retention, and Primitive/Instance numeric variation.
 
 Last reviewed: 2026-10-16
 
@@ -8,6 +8,50 @@ Status: Completed
 Completed: 2026-10-16
 
 ## Current Status
+
+Stage 4 is complete. Its complete 12-case Mesh Vulkan target passed, including
+the custom-data case after the existing animation cases in one process; the
+new case also passed alone. The fixture respects the shared asset compiler's
+terminal lifecycle. All 12 targets in `@domain=material` passed, including the
+two new CPU tests and the extended source-free Cook test. WorldTests passed
+162 cases, RendererSceneContractTests 61, and RendererResourceReloadVulkanTests
+both cases. The workspace all-build passed across Engine, Sandbox and RoadWeaver.
+The production base is `c2aa9cc838453474dbcc6bfa428139671e7eeba1`, plus this
+stage's changes, using Win64-Debug-DurinEditor with MSVC 14.44.35207 and Tracy.
+The chosen design follows UE's
+[Custom Primitive Data](https://dev.epicgames.com/documentation/unreal-engine/storing-custom-data-in-unreal-engine-materials-per-primitive?lang=en-US)
+and [ISM custom-data ownership](https://dev.epicgames.com/documentation/unreal-engine/instanced-static-mesh-component-in-unreal-engine),
+with Durin-specific fixed bounds and immutable snapshots.
+
+The real Vulkan 64-instance workload uses distinct colors and per-instance WPO,
+plus primitive WPO and masked opacity. Byte-for-byte Forward, all five GBuffer
+attachments and masked-shadow depth match the dynamic-material reference and
+direct custom-data route. At equal output, the dynamic reference submits 64
+successful GBuffer draws with 64 material-uniform groups; custom data admits one
+64-candidate GPU group and one indirect draw with one material-uniform group.
+Changing one instance's mask preserves one indirect draw and changes depth and
+shadow pixels; deleting an instance leaves 63 direct draws under the unchanged
+64-candidate minimum. Reordering preserves output and stable IDs. Primitive data
+updates change WPO output while retaining the accepted material program.
+
+Each primitive/instance GPU record grows from 256 to 512 bytes. The existing
+4 MiB generated-buffer cap charges that increased stride; no GPU-memory or
+frame-time speedup is claimed. Instance updates copy/validate bounded snapshots;
+incremental GPU-scene updates, serialized component defaults and instanced
+physics remain outside the executed runtime scope. These tradeoffs and the
+implemented API are documented in [the runtime contract](../Runtime/Rendering/MaterialCustomData.md).
+
+Stage 4 receipts are under `Build/MaterialRuntimeOptimization/`:
+`stage4-mesh.{xml,log}`, `stage4-custom-gpu.{xml,log}`,
+`stage4-custom-cpu.{xml,log}`, `stage4-material.{xml,log}`,
+`stage4-WorldTests.{xml,log}`, `stage4-RendererSceneContractTests.{xml,log}`,
+`stage4-RendererResourceReloadVulkanTests.{xml,log}`, and `stage4-all-build.log`.
+Reproduce with the named targets and the custom-data case in
+StaticMeshRenderPreparationVulkanTests; no opt-in timing variable is needed.
+Affected discovery expands to most workspace tests because the Engine API is
+shared. The bounded material/mesh/lifecycle selections and required all-build
+cover this change; unrelated application-hosted and qualification suites were
+not implicitly enabled.
 
 Stage 3's final candidate passed all 18 slot/invalidation cases (including the
 opt-in workload), all 11 StaticMeshRenderPreparationVulkanTests cases and both
@@ -85,7 +129,7 @@ RendererResourceReloadVulkanTests cases, and the workspace `all` build across
 Engine, Sandbox and RoadWeaver. The final Collection regression additionally
 covers mixed contracts, missing-world defaults, incompatible schema rejection,
 and different retained defaults for one Collection ID without repeated rebinding.
-Stages 0-3 are complete; Stages 4-8 remain deferred.
+Stages 0-4 are complete; Stages 5-8 remain deferred.
 
 On the NVIDIA GeForce GTX 1060 6GB diagnostic lane, pooled 360-sample Collection
 RenderView CPU median/p95 changed from 2.189/3.913 ms to 2.315/4.268 ms in the final
@@ -109,7 +153,7 @@ was frozen; Release timing qualification remains a future measurement task.
 
 Reduce repeated material binding work while preserving immutable publication,
 typed validation, counted resource lifetime, exact world isolation, and current
-shader/pipeline identities. Execute Stages 0-3 in this plan.
+precise shader/pipeline identity contracts. Execute Stages 0-4 in this plan.
 
 ## Selected Decisions
 
@@ -222,13 +266,49 @@ integer-key hot sweeps regressed at 256/512 keys despite faster over-capacity
 access. The final implementation uses links embedded in stable heap-owned slots,
 preserving the same LRU decisions and exact index equality.
 
-### Stage 4: Add Primitive and Instance numeric data (deferred)
+### Stage 4: Add Primitive and Instance numeric data
 
 Scope: bounded typed numeric channels in primitive/instance publication and MIR
 reads, integrated with existing instancing/GPU culling rather than new material
 owners per object. Validation: distinct per-instance pixels, WPO/pass parity,
 correct removal/reordering, reduced binding fragmentation and actual draw-count
 comparison against dynamic instances at equal output.
+
+Selected scope: 32 finite float channels each for Primitive and Instance data,
+zero defaults, typed Float/Float2/Float3/Float4 graph reads with checked constant
+indices, immutable game-to-render publication, and runtime StaticMesh instance
+snapshots with stable nonzero IDs and local transforms. Empty instance lists draw
+nothing; a null list retains ordinary single-mesh behavior. ID-based updates
+survive removal/reordering. Numeric changes create no material variants. Reuse
+Local geometry GPU grouping/culling; direct/Spline/shadow paths read the same
+primitive data. Instance lists are Local StaticMesh only. Physics instancing,
+asset serialization, editor instance painting and automatic WPO bounds expansion
+are outside this runtime slice; callers must provide conservative WPO bounds.
+
+Validation: reject invalid indices/types, nonfinite data, singular/non-affine
+transforms and duplicate IDs atomically. Check MIR identity and Cook compatibility.
+Real Vulkan gates cover distinct pixels, WPO and Forward/GBuffer/masked-shadow
+parity, updates after warm caching, reorder/removal, binding fragmentation and
+actual draw counts versus equal-output dynamic material instances. Run material
+and renderer regressions, workspace all-build and document validation. Retain
+reports under Build; no frame-time speedup claim is required.
+
+- [x] Implement bounded data and ordered scene/component publication.
+- [x] Implement typed graph/MIR reads and direct/instanced shader transport.
+- [x] Pass CPU, Cook and real Vulkan output/grouping regressions.
+- [x] Complete all-build, update contracts, validate documents and commit.
+
+Stage 4's first Vulkan run passed direct pixel/pass parity but exposed that GPU
+plan discovery visits only Opaque, despite existing Masked GPU pipeline and
+submission support. Include compatible Masked draws in the same bounded grouping
+plan, with the custom-data mask and shadow fixture as its acceptance gate.
+Translucent sorting and Spline grouping eligibility remain unchanged.
+
+The variable-WPO MID reference also exposes inconsistent dynamic-uniform
+classification between material vertex and fragment shaders. Classify the
+optional vertex Material uniform consistently, but keep its population in
+material composition rather than geometry binding. Preserve strict shader-layout
+conflict rejection. The full Vulkan case and material regressions own this gate.
 
 ### Stage 5: Select and share shader-stage products (deferred)
 
@@ -262,5 +342,5 @@ compare first-use incomplete requests and replay wait spans, cold/warm loading
 costs, memory and image parity; preserve cancellation, target and device-generation
 rules. Required combinations must be selected from actual scene usage.
 
-Stages 4-8 remain sequencing guidance outside the authorized Stage 0-3 slice.
+Stages 5-8 remain sequencing guidance outside the authorized Stage 0-4 slice.
 Each requires workload selection and an explicit measurement budget before implementation.

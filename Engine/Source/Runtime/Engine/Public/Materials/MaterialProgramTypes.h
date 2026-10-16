@@ -193,6 +193,8 @@ namespace Durin
 		QualitySwitch,
 		FeatureLevelSwitch,
 		VertexInterpolator,
+		PrimitiveCustomData,
+		InstanceCustomData,
 	};
 
 	struct FMaterialTransformPayload

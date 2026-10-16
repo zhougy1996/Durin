@@ -2170,6 +2170,207 @@ TEST(FMaterialAnimationVulkanTests, MaterialTimeChangesPixelsWithoutReplacingCac
 	RHIExit();
 }
 
+TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossPassesAndGPUGrouping)
+{
+	using namespace Durin;
+	using namespace Durin::Tests;
+	InitializeDObjectSystem();
+	const bool bOwnsCompiler = !FAssetCompilingManager::Get().IsAcceptingRequests();
+	if (bOwnsCompiler) ASSERT_TRUE(InitializeAssetCompilingManager());
+	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
+	ASSERT_TRUE(InitializeAssetManager());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("PrimitiveInstanceData");
+	Lifecycle.Start(Renderer);
+	{
+		TStrongObjectPtr<DMaterial> Custom(NewObject<DMaterial>(nullptr, NAME_None)), Reference(NewObject<DMaterial>(nullptr, NAME_None));
+		TStrongObjectPtr<DMaterialExpressionInstanceCustomData> Color(NewObject<DMaterialExpressionInstanceCustomData>(nullptr, NAME_None)),
+			Mask(NewObject<DMaterialExpressionInstanceCustomData>(nullptr, NAME_None)), Offset(NewObject<DMaterialExpressionInstanceCustomData>(nullptr, NAME_None));
+		TStrongObjectPtr<DMaterialExpressionPrimitiveCustomData> PrimitiveOffset(NewObject<DMaterialExpressionPrimitiveCustomData>(nullptr, NAME_None));
+		TStrongObjectPtr<DMaterialExpressionAdd> Sum(NewObject<DMaterialExpressionAdd>(nullptr, NAME_None));
+		Color->Id = FGuid::NewGuid(); Color->ResultType = EMaterialProgramValueType::Float3; Color->DataIndex = 3;
+		Mask->Id = FGuid::NewGuid(); Mask->DataIndex = 31;
+		Offset->Id = FGuid::NewGuid(); Offset->ResultType = EMaterialProgramValueType::Float3; Offset->DataIndex = 6;
+		PrimitiveOffset->Id = FGuid::NewGuid(); PrimitiveOffset->ResultType = EMaterialProgramValueType::Float3; PrimitiveOffset->DataIndex = 29;
+		Sum->Id = FGuid::NewGuid(); Sum->ResultType = EMaterialProgramValueType::Float3;
+		Sum->A = {Offset->Id}; Sum->B = {PrimitiveOffset->Id};
+		FMaterialExpressionSurfaceOutputs Outputs;
+		Outputs.BaseColor = {Color->Id}; Outputs.OpacityMask = {Mask->Id}; Outputs.WorldPositionOffset = {Sum->Id};
+		const std::array<DMaterialExpression*, 5> Expressions{Color.Get(), Mask.Get(), Offset.Get(), PrimitiveOffset.Get(), Sum.Get()};
+		FMaterialStaticProperties Properties; Properties.BlendMode = EMaterialBlendMode::Masked;
+		Properties.bTwoSided = true; Properties.OpacityMaskThreshold = .5f;
+		ASSERT_TRUE(Custom->SetStaticProperties(Properties));
+		ASSERT_TRUE(Custom->SetMaterialExpressions(Expressions, Outputs));
+		TStrongObjectPtr<DMaterialExpressionVector4Parameter> Tint(NewObject<DMaterialExpressionVector4Parameter>(nullptr, NAME_None));
+		TStrongObjectPtr<DMaterialExpressionSwizzle> ColorChannels(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
+		TStrongObjectPtr<DMaterialExpressionVector4Parameter> DynamicOffset(NewObject<DMaterialExpressionVector4Parameter>(nullptr, NAME_None));
+		TStrongObjectPtr<DMaterialExpressionSwizzle> OffsetChannels(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
+		Tint->Id = FGuid::NewGuid(); Tint->Metadata = {.Id = FGuid::NewGuid(), .Name = "InstanceTint"};
+		ColorChannels->Id = FGuid::NewGuid(); ColorChannels->Input = {Tint->Id}; ColorChannels->Components = {0, 1, 2};
+		DynamicOffset->Id = FGuid::NewGuid(); DynamicOffset->Metadata = {.Id = FGuid::NewGuid(), .Name = "InstanceOffset"};
+		OffsetChannels->Id = FGuid::NewGuid(); OffsetChannels->Input = {DynamicOffset->Id}; OffsetChannels->Components = {0, 1, 2};
+		FMaterialExpressionSurfaceOutputs ReferenceOutputs;
+		ReferenceOutputs.BaseColor = {ColorChannels->Id}; ReferenceOutputs.OpacityMask.SetConstant({1.f});
+		ReferenceOutputs.WorldPositionOffset = {OffsetChannels->Id};
+		const std::array<DMaterialExpression*, 4> ReferenceExpressions{Tint.Get(), ColorChannels.Get(), DynamicOffset.Get(), OffsetChannels.Get()};
+		ASSERT_TRUE(Reference->SetStaticProperties(Properties));
+		ASSERT_TRUE(Reference->SetMaterialExpressions(ReferenceExpressions, ReferenceOutputs));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Custom);
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Reference);
+		ASSERT_EQ(Custom->GetMaterialCompileStatus().State, EMaterialCompileState::Ready);
+		ASSERT_EQ(Reference->GetMaterialCompileStatus().State, EMaterialCompileState::Ready);
+		const auto Program = Custom->GetAcceptedCompiledProgram();
+		auto Geometry = MakeRenderData();
+		Geometry->LODResources[0].Sections.resize(1);
+		Geometry->RecalculateBounds();
+		EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate& Commands) {
+			ASSERT_TRUE(Geometry->InitResources(Commands));
+		});
+		FlushRenderingCommands();
+		std::vector<FStaticMeshRenderInstance> Instances;
+		std::vector<TStrongObjectPtr<DMaterialInstance>> Dynamics;
+		FSceneTestOwner Instanced, Dynamic;
+		FPrimitiveCustomData PrimitiveData;
+		ASSERT_TRUE(PrimitiveData.Set(29, std::array{0.f, 0.f, .02f}));
+		for (uint32 Index = 0; Index < 64; ++Index)
+		{
+			FStaticMeshRenderInstance Instance{.Id = Index + 1};
+			Instance.LocalToPrimitive[0][0] = Instance.LocalToPrimitive[1][1] = Instance.LocalToPrimitive[2][2] = .09;
+			Instance.LocalToPrimitive[3] = FVector4(-.85 + .24 * (Index % 8), -.85 + .24 * (Index / 8), .2, 1.0);
+			const float Strength = .4f + .009f * Index;
+			const std::array<float, 3> Value = Index % 2 ? std::array{0.f, Strength, 0.f} : std::array{Strength, 0.f, 0.f};
+			ASSERT_TRUE(Instance.CustomData.Set(3, Value));
+			const std::array OffsetValues{Index % 2 ? .005f : -.005f, 0.f, .02f + .0002f * Index};
+			ASSERT_TRUE(Instance.CustomData.Set(6, OffsetValues));
+			ASSERT_TRUE(Instance.CustomData.Set(31, std::array{1.f}));
+			Instances.push_back(Instance);
+			Dynamics.emplace_back(DMaterialInstance::CreateDynamic(Reference.Get(), nullptr, NAME_None));
+			ASSERT_TRUE(Dynamics.back()->SetVectorParameterValue("InstanceTint", FVector4(Value[0], Value[1], Value[2], 1.0)));
+			const float CombinedZ = .02f + OffsetValues[2];
+			ASSERT_TRUE(Dynamics.back()->SetVectorParameterValue("InstanceOffset", FVector4(OffsetValues[0], 0.0, CombinedZ, 0.0)));
+			FSceneInterfaceTestAccess::AddPrimitiveProxy(*Dynamic, FPrimitiveComponentId(2000 + Index),
+				std::make_unique<FStaticMeshSceneProxy>(Geometry.get(), std::vector{Dynamics.back()->GetMaterialRenderProxy()}), Instance.LocalToPrimitive);
+		}
+		auto Proxy = std::make_unique<FStaticMeshSceneProxy>(Geometry.get(), std::vector{Custom->GetMaterialRenderProxy()},
+			std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
+		ASSERT_TRUE(Proxy->SetCustomPrimitiveData(PrimitiveData));
+		FSceneInterfaceTestAccess::AddPrimitiveProxy(*Instanced, FPrimitiveComponentId(1000), std::move(Proxy), FMatrix(1.0));
+		for (auto* Scene : {Instanced.Get(), Dynamic.Get()})
+		{
+			FDirectionalLightSceneData Light; Light.Intensity = 3.f;
+			ASSERT_NE(PublishLightForTest<FDirectionalLightSceneProxy>(*Scene, FLightComponentId(1000), Light), nullptr);
+		}
+		FlushRenderingCommands();
+		struct FObservation
+		{
+			size_t MaterialGroups = 0;
+			FByteBuffer Pixels, Shadow;
+			std::array<FByteBuffer, 5> GBuffer;
+			FViewRenderTelemetry Telemetry;
+		};
+		auto Render = [&](FScene* Scene, bool GPU, ERenderMode Mode, FObservation& Result) {
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+				static FObservation* Sink = nullptr; Sink = &Result;
+				FSceneView View; View.ViewportWidth = 192; View.ViewportHeight = 192;
+				View.Settings.Mode.RenderMode = Mode;
+				View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+				View.Settings.DirectionalShadow.Candidate = EDirectionalShadowCandidate::SingleMap;
+				Result.MaterialGroups = PrepareStaticMeshView_RenderThread(Commands, Scene->GetPrimitiveSceneInfos(),
+					View, ERasterMode::Solid).MaterialUniformGroups.size();
+				SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Sink->Telemetry = Value; });
+				SetGBufferCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture* A, FRHITexture* B, FRHITexture* D, FRHITexture* E, FRHITexture* Z) {
+					const std::array Textures{A, B, D, E, Z};
+					for (size_t I = 0; I < Textures.size(); ++I) ReadGeometryTexture(C, Textures[I], Sink->GBuffer[I], I == 4);
+				});
+				SetShadowDepthCaptureSink(+[](FRHICommandListImmediate& C, FRHITexture* Texture, uint32) { ReadGeometryTexture(C, Texture, Sink->Shadow, true); });
+				const auto Target = GDynamicRHI->RHICreateTexture(Commands,
+					FRHITextureCreateDesc::Create2D("CustomNumericData", 192, 192, EPixelFormat::SRGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy));
+				FSceneViewRenderOptions Options; Options.bEnableGPUCulling = GPU;
+				++GRenderFrameCounterRenderThread; GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+				EXPECT_EQ(Renderer.RenderView(Commands, Scene, View, Target, false, Options), ERenderViewResult::Success);
+				ReadGeometryTexture(Commands, Target, Result.Pixels);
+				GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+				SetViewRenderTelemetrySink(nullptr); SetGBufferCaptureSink(nullptr); SetShadowDepthCaptureSink(nullptr); Sink = nullptr;
+			});
+			FlushRenderingCommands();
+		};
+		FObservation Direct, Grouped, Baseline;
+		for (const auto Mode : {ERenderMode::Unlit, ERenderMode::Lit})
+		{
+			Render(Instanced.Get(), false, Mode, Direct);
+			Render(Dynamic.Get(), true, Mode, Baseline);
+			Render(Instanced.Get(), true, Mode, Grouped);
+			EXPECT_EQ(Direct.Pixels, Baseline.Pixels);
+			EXPECT_EQ(Direct.Pixels, Grouped.Pixels);
+			ASSERT_FALSE(Direct.Pixels.empty());
+			std::array<size_t, 2> Dominant{};
+			for (size_t Pixel = 0; Pixel + 3 < Direct.Pixels.size(); Pixel += 4)
+			{
+				const int Red = std::to_integer<int>(Direct.Pixels[Pixel]);
+				const int Green = std::to_integer<int>(Direct.Pixels[Pixel + 1]);
+				Dominant[0] += Red > 30 && Red > Green * 2;
+				Dominant[1] += Green > 30 && Green > Red * 2;
+			}
+			EXPECT_GT(Dominant[0], 100u); EXPECT_GT(Dominant[1], 100u);
+			if (Mode == ERenderMode::Lit)
+			{
+				EXPECT_EQ(Direct.GBuffer, Grouped.GBuffer); EXPECT_EQ(Direct.GBuffer, Baseline.GBuffer);
+				ASSERT_FALSE(Direct.GBuffer[0].empty());
+				EXPECT_EQ(Direct.Shadow, Grouped.Shadow); EXPECT_EQ(Direct.Shadow, Baseline.Shadow);
+				ASSERT_FALSE(Direct.Shadow.empty());
+				EXPECT_EQ(Grouped.Telemetry.GBuffer.GPUCullingGroups, 1u);
+				EXPECT_EQ(Grouped.Telemetry.GBuffer.GPUCullingIndirectDraws, 1u);
+				EXPECT_EQ(Grouped.Telemetry.GBuffer.GPUCullingCandidates, 64u);
+				EXPECT_EQ(Baseline.Telemetry.GBuffer.GPUCullingIndirectDraws, 0u);
+				EXPECT_EQ(Baseline.Telemetry.GBuffer.GBufferSuccessfulDraws, 64u);
+				EXPECT_EQ(Direct.Telemetry.GBuffer.GBufferSuccessfulDraws, 64u);
+				EXPECT_EQ(Grouped.MaterialGroups, 1u); EXPECT_EQ(Baseline.MaterialGroups, 64u);
+				std::cout << "[CustomData] dynamic_draws=" << Baseline.Telemetry.GBuffer.GBufferSuccessfulDraws
+					<< " direct_draws=" << Direct.Telemetry.GBuffer.GBufferSuccessfulDraws
+					<< " grouped_indirect_draws=" << Grouped.Telemetry.GBuffer.GPUCullingIndirectDraws
+					<< " instance_uniform_bytes=" << sizeof(RendererPrivate::FStaticMeshTransformUniform) << '\n';
+			}
+		}
+		std::reverse(Instances.begin(), Instances.end());
+		Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
+		FObservation Reordered; Render(Instanced.Get(), true, ERenderMode::Lit, Reordered);
+		EXPECT_EQ(Reordered.Pixels, Grouped.Pixels);
+		ASSERT_TRUE(PrimitiveData.Set(29, std::array{.04f, 0.f, .02f}));
+		Instanced->UpdatePrimitiveCustomData(FPrimitiveComponentId(1000), PrimitiveData);
+		FObservation Moved; Render(Instanced.Get(), true, ERenderMode::Lit, Moved);
+		EXPECT_NE(Moved.Pixels, Reordered.Pixels);
+		EXPECT_EQ(Moved.Telemetry.GBuffer.GPUCullingIndirectDraws, 1u);
+		ASSERT_TRUE(Instances.front().CustomData.Set(31, std::array{0.f}));
+		Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
+		FObservation Masked; Render(Instanced.Get(), true, ERenderMode::Lit, Masked);
+		EXPECT_EQ(Masked.Telemetry.GBuffer.GPUCullingIndirectDraws, 1u);
+		EXPECT_NE(Masked.GBuffer[4], Moved.GBuffer[4]);
+		EXPECT_NE(Masked.Shadow, Moved.Shadow);
+		Instances.pop_back();
+		Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
+		FObservation Changed, Repeated;
+		Render(Instanced.Get(), false, ERenderMode::Lit, Changed);
+		Render(Instanced.Get(), false, ERenderMode::Lit, Repeated);
+		EXPECT_NE(Changed.Pixels, Grouped.Pixels); EXPECT_EQ(Changed.Pixels, Repeated.Pixels);
+		EXPECT_EQ(Changed.Telemetry.GBuffer.GBufferSuccessfulDraws, 63u);
+		EXPECT_EQ(Custom->GetAcceptedCompiledProgram(), Program);
+		Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>());
+		FObservation Empty; Render(Instanced.Get(), false, ERenderMode::Unlit, Empty);
+		EXPECT_EQ(Empty.Telemetry.StaticMesh.PreparedStaticMeshPrimitives, 0u);
+		Instanced.Reset(); Dynamic.Reset();
+		FlushRenderingCommands();
+		EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>([&](FRHICommandListImmediate&) { Geometry->ReleaseResources(); });
+		FlushRenderingCommands();
+	}
+	Lifecycle.Shutdown(); ShutdownRenderingThread(); RHIExit(); if (bOwnsCompiler) ShutdownAssetCompilingManager();
+}
+
 TEST(FMaterialParameterCollectionVulkanTests,
 	WorldSnapshotsDriveForwardGBufferAndMaskedShadowValues)
 {

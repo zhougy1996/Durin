@@ -13,6 +13,17 @@ namespace Durin
 		std::atomic<uint64> GNextPrimitiveComponentId = 1;
 	}
 
+	auto DPrimitiveComponent::SetCustomPrimitiveData(uint32 First, std::span<const float> Values) -> bool
+	{
+		auto Candidate = CustomPrimitiveData;
+		if (!Candidate.Set(First, Values)) return false;
+		if (Candidate == CustomPrimitiveData) return true;
+		CustomPrimitiveData = Candidate;
+		if (SceneProxy && GetRenderScene())
+			GetRenderScene()->UpdatePrimitiveCustomData(PrimitiveComponentId, Candidate);
+		return true;
+	}
+
 	DPrimitiveComponent::DPrimitiveComponent(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{

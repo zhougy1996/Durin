@@ -18,12 +18,12 @@ namespace Durin
 
 	namespace MIR
 	{
-		inline constexpr uint32 CurrentVersion = 7;
+		inline constexpr uint32 CurrentVersion = 8;
 	}
 	// Opaque producer identity; algorithm changes invalidate builds, not DMAT admission.
 	ENGINE_API auto GetMaterialBuildVersion() -> uint64;
 	ENGINE_API auto GetMaterialCompileAdapterVersion() -> uint32;
-	inline constexpr uint32 CurrentMaterialPassContractVersion = 9;
+	inline constexpr uint32 CurrentMaterialPassContractVersion = 10;
 	inline constexpr std::array<std::string_view, 7> MaterialCompiledEntryPoints{
 		"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain",
 		"VertexMain", "SplineVertexMain", "GPUCullingVertexMain"};
@@ -77,8 +77,13 @@ namespace Durin
 			FGuid ParameterId;
 			auto operator==(const FCollectionParameter&) const -> bool = default;
 		};
+		struct FCustomDataRead
+		{
+			uint32 Index = 0;
+			auto operator==(const FCustomDataRead&) const -> bool = default;
+		};
 		using FPayload = std::variant<std::monostate, FMaterialProgramLiteral, FGuid,
-			FSwizzle, FCollectionParameter, FMaterialTransformPayload>;
+			FSwizzle, FCollectionParameter, FMaterialTransformPayload, FCustomDataRead>;
 
 		struct FNode
 		{
@@ -124,6 +129,13 @@ namespace Durin
 			{
 				switch (Opcode)
 				{
+				case EMaterialProgramOpcode::PrimitiveCustomData:
+				case EMaterialProgramOpcode::InstanceCustomData:
+				{
+					const auto* Read = std::get_if<FCustomDataRead>(&Payload);
+					return Read && ResultType <= EMaterialProgramValueType::Float4
+						&& Read->Index < 32 && static_cast<uint32>(ResultType) + 1 <= 32 - Read->Index;
+				}
 				case EMaterialProgramOpcode::Constant: return std::holds_alternative<FMaterialProgramLiteral>(Payload);
 				case EMaterialProgramOpcode::Parameter:
 				case EMaterialProgramOpcode::TextureParameter: return std::holds_alternative<FGuid>(Payload);

@@ -6,6 +6,7 @@
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
 #include "Rendering/PrimitiveComponentId.h"
+#include "Rendering/PrimitiveCustomData.h"
 #include "VertexFactory.h"
 #include "Rendering/MeshGeometryRecord.h"
 
@@ -34,6 +35,9 @@ namespace Durin
 	};
 	struct FMeshCollectionContext
 	{
+		uint64 BatchId = 0;
+		FPrimitiveCustomData CustomPrimitiveData;
+		FPrimitiveCustomData CustomInstanceData;
 		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		FMatrix LocalToWorld{1.0};
 		FBox WorldBounds;
@@ -73,6 +77,8 @@ namespace Durin
 	// asset data inside a concrete binding still obeys its retirement fence.
 	struct FMeshBatch
 	{
+		FPrimitiveCustomData CustomPrimitiveData;
+		FPrimitiveCustomData CustomInstanceData;
 		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		uint64 BatchId = 0;
 		FMatrix LocalToWorld{1.0};
@@ -149,6 +155,8 @@ namespace Durin
 				|| (!Batch.GeometryRecord && !Batch.PublishedMaterials.empty()))
 				return EGeometrySubmissionOutcome::InvalidSubmission;
 			if (Batch.GetNumElements() == 0) return EGeometrySubmissionOutcome::Empty;
+			if (!Batch.CustomPrimitiveData.IsValid() || !Batch.CustomInstanceData.IsValid())
+				return EGeometrySubmissionOutcome::InvalidSubmission;
 			if (Batch.PrimitiveId == InvalidPrimitiveComponentId
 				|| !Math::IsFinite(Batch.LocalToWorld)
 				|| !Batch.WorldBounds.bIsValid

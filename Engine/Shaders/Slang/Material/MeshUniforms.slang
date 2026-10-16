@@ -22,6 +22,8 @@ public struct MaterialPrimitiveUniform
     public float4 TransformParams;
     public float4 WorldOriginHigh;
     public float4 WorldOriginLow;
+    public float4 CustomPrimitiveData[8];
+    public float4 CustomInstanceData[8];
 };
 
 // Keep the stable primitive origin independent of every camera and cascade.

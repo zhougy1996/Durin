@@ -100,6 +100,8 @@ namespace Durin
 			if (ResultType != Type::Float && ResultType != Type::Float4) return std::nullopt;
 			break;
 		case EMaterialProgramOpcode::CollectionParameter:
+		case EMaterialProgramOpcode::PrimitiveCustomData:
+		case EMaterialProgramOpcode::InstanceCustomData:
 			if (!bNumeric) return std::nullopt;
 			break;
 		case EMaterialProgramOpcode::Constant:
@@ -329,6 +331,8 @@ namespace Durin
 		case OpcodeType::Constant:
 		case OpcodeType::Parameter:
 		case OpcodeType::CollectionParameter:
+		case OpcodeType::PrimitiveCustomData:
+		case OpcodeType::InstanceCustomData:
 		case OpcodeType::TextureParameter:
 			return WithStages(Result, Inputs);
 		case OpcodeType::UVChannel:

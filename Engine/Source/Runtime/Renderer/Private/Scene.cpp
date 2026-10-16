@@ -86,6 +86,7 @@ namespace Durin
 		const AActor* Owner = Primitive->GetOwner();
 		const bool bVisible = Primitive->IsVisible() && (Owner == nullptr || !Owner->IsHidden());
 		FPrimitiveSceneProxy* Token = Proxy.get();
+		Proxy->SetCustomPrimitiveData(Primitive->GetCustomPrimitiveData());
 		AddPrimitiveProxy(Id, std::move(Proxy), Primitive->GetRenderMatrix(), bVisible);
 		Primitive->SceneProxy = Token;
 	}
@@ -529,6 +530,32 @@ namespace Durin
 		EnqueueRenderCommand("UpdatePrimitiveTransform", [this, PrimitiveId, Transform](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId); Found != PrimitiveInfosById.end()) Found->second->SetTransform(Transform);
+		});
+	}
+
+	auto FScene::UpdatePrimitiveCustomData(FPrimitiveComponentId Id, FPrimitiveCustomData Data) -> void
+	{
+		require(IsInGameThread());
+		RequireActive("UpdatePrimitiveCustomData");
+		if (!Data.IsValid()) return;
+		EnqueueRenderCommand("UpdatePrimitiveCustomData", [this, Id, Data](FRHICommandListImmediate&) {
+			if (const auto Found = PrimitiveInfosById.find(Id); Found != PrimitiveInfosById.end())
+				Found->second->GetProxy().SetCustomPrimitiveData(Data);
+		});
+	}
+
+	auto FScene::UpdateStaticMeshRenderInstances(FPrimitiveComponentId Id, FStaticMeshRenderInstances Instances) -> void
+	{
+		require(IsInGameThread());
+		RequireActive("UpdateStaticMeshRenderInstances");
+		if (Instances && !ValidateStaticMeshRenderInstances(*Instances)) return;
+		EnqueueRenderCommand("UpdateStaticMeshRenderInstances", [this, Id, Instances = std::move(Instances)](FRHICommandListImmediate&) {
+			if (const auto Found = PrimitiveInfosById.find(Id); Found != PrimitiveInfosById.end()
+				&& Found->second->GetKind() == EPrimitiveSceneProxyKind::StaticMesh)
+			{
+				static_cast<FStaticMeshSceneProxy&>(Found->second->GetProxy()).SetRenderInstances(Instances);
+				Found->second->RefreshBounds();
+			}
 		});
 	}
 

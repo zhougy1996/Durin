@@ -6,6 +6,7 @@
 #include "Math/Box.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "StaticMesh/StaticMeshLODSelection.h"
+#include "Rendering/PrimitiveCustomData.h"
 
 namespace Durin
 {
@@ -24,6 +25,13 @@ namespace Durin
 	{
 	public:
 		ENGINE_API virtual ~FPrimitiveSceneProxy() = default;
+		auto GetCustomPrimitiveData() const -> const FPrimitiveCustomData& { return CustomPrimitiveData; }
+		auto SetCustomPrimitiveData(const FPrimitiveCustomData& Value) -> bool
+		{
+			if (!Value.IsValid()) return false;
+			CustomPrimitiveData = Value;
+			return true;
+		}
 		virtual auto GetKind() const -> EPrimitiveSceneProxyKind { return EPrimitiveSceneProxyKind::Generic; }
 		virtual auto GetLocalBounds() const -> FBox = 0;
 		// Optional value snapshot for threshold-based LOD preparation. Capture and
@@ -34,5 +42,7 @@ namespace Durin
 			const FMeshCollectionContext&, FMeshBatchCollector&) const -> void {}
 		virtual auto UpdateMaterialBinding_RenderThread(
 			const FMaterialRenderProxyBindingUpdate&) -> bool { return false; }
+	private:
+		FPrimitiveCustomData CustomPrimitiveData;
 	};
 }

@@ -209,6 +209,7 @@ namespace Durin
 			FMeshCollectionContext Context;
 			Context.PreparedLOD = ViewFact.LOD;
 			Context.PrimitiveId = SceneInfo->GetId();
+			Context.CustomPrimitiveData = SceneInfo->GetProxy().GetCustomPrimitiveData();
 			Context.LocalToWorld = SceneInfo->GetTransform();
 			Context.WorldBounds = SceneInfo->GetWorldBounds();
 			Context.NormalizedScreenSize = ProjectedSize.NormalizedScreenSize;
@@ -484,7 +485,7 @@ namespace Durin
 				}
 				const uint32 PrimitiveIndex =
 					static_cast<uint32>(Result.Primitives.size());
-				Result.Primitives.push_back({.PrimitiveId = Primitive.Id, .BatchId = Batch.BatchId, .RequestedLODIndex = RequestedLODIndex, .SelectedLODIndex = SelectedLODIndex, .VertexDomain = bSplineMesh ? EVertexDeformationDomain::Spline : EVertexDeformationDomain::Local, .CollectedBinding = Binding, .GeometryRecord = Batch.GeometryRecord, .WorldBounds = Primitive.WorldBounds, .LocalToWorld = LocalToWorld, .NormalToWorld = NormalToWorld, .WorldToLocal = WorldToLocal, .BoundsCenter = BoundsCenter});
+				Result.Primitives.push_back({.CustomPrimitiveData = Batch.CustomPrimitiveData, .CustomInstanceData = Batch.CustomInstanceData, .PrimitiveId = Primitive.Id, .BatchId = Batch.BatchId, .RequestedLODIndex = RequestedLODIndex, .SelectedLODIndex = SelectedLODIndex, .VertexDomain = bSplineMesh ? EVertexDeformationDomain::Spline : EVertexDeformationDomain::Local, .CollectedBinding = Binding, .GeometryRecord = Batch.GeometryRecord, .WorldBounds = Batch.WorldBounds, .LocalToWorld = LocalToWorld, .NormalToWorld = NormalToWorld, .WorldToLocal = WorldToLocal, .BoundsCenter = BoundsCenter});
 				const size_t FirstSectionCount = Result.GetNumSections();
 				const size_t FirstTriangleCount = Result.SelectedTriangles;
 

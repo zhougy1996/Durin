@@ -33,6 +33,11 @@ namespace Durin
 		RENDERER_API auto GetSplineMeshProxy() const -> FSplineMeshSceneProxy&;
 		RENDERER_API auto SetTransform(const FMatrix& InTransform) -> void;
 		auto SetVisible(bool bInVisible) -> void { bVisible = bInVisible; }
+		auto RefreshBounds() -> void
+		{
+			LocalBounds = Proxy->GetLocalBounds();
+			SetTransform(Transform);
+		}
 		RENDERER_API auto UpdateMaterialBinding(
 			const FMaterialRenderProxyBindingUpdate& Update) -> bool;
 		RENDERER_API auto UpdateSplineMeshDynamicData(

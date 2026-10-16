@@ -59,6 +59,8 @@ namespace Durin
 		RENDERER_API auto Release() -> void override;
 		RENDERER_API auto UpdatePrimitiveTransform(FPrimitiveComponentId PrimitiveId, const FMatrix& Transform) -> void override;
 		RENDERER_API auto UpdatePrimitiveVisibility(FPrimitiveComponentId PrimitiveId, bool bVisible) -> void override;
+		RENDERER_API auto UpdatePrimitiveCustomData(FPrimitiveComponentId Id, FPrimitiveCustomData Data) -> void override;
+		RENDERER_API auto UpdateStaticMeshRenderInstances(FPrimitiveComponentId Id, FStaticMeshRenderInstances Instances) -> void override;
 		RENDERER_API auto UpdatePrimitiveMaterialBinding(FPrimitiveComponentId PrimitiveId, const FMaterialRenderProxyBindingUpdate& Update) -> void override;
 		RENDERER_API auto UpdateMaterialParameterCollection(
 			std::shared_ptr<const FMaterialParameterCollectionSnapshot> Snapshot) -> void override;

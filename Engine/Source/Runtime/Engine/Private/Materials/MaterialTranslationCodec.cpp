@@ -48,6 +48,7 @@ namespace Durin::MaterialBuildPrivate
 				using VType = std::remove_cv_t<T>;
 				if constexpr (std::same_as<VType, FMaterialProgramLiteral>) Literal(V);
 				else if constexpr (std::same_as<VType, FGuid>) Value(V);
+				else if constexpr (std::same_as<VType, MIR::FCustomDataRead>) Value(V.Index);
 				else if constexpr (std::same_as<VType, MIR::FSwizzle>) { Value(V.Length); for (auto& Part : V.Components) Value(Part); }
 				else if constexpr (std::same_as<VType, MIR::FCollectionParameter>) { Value(V.CollectionId); Value(V.ParameterId); }
 				else if constexpr (std::same_as<VType, FMaterialTransformPayload>) { Value(V.Source); Value(V.Destination); }

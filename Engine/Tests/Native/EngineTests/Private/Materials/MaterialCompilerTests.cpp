@@ -11,6 +11,90 @@
 #include "Threading/ThreadEvent.h"
 #include "Shader/ShaderDiagnostics.h"
 #include "NativeRHIBackendTestSupport.h"
+#include "Components/StaticMeshComponent.h"
+
+TEST(FMaterialCustomDataTests, NumericRangesAndStableInstanceSnapshotsAreAtomic)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DStaticMeshComponent> Component(NewObject<DStaticMeshComponent>(nullptr, NAME_None));
+	const std::array<float, 4> Values{1.f, 2.f, 3.f, 4.f};
+	ASSERT_TRUE(Component->SetCustomPrimitiveData(28, Values));
+	const auto Before = Component->GetCustomPrimitiveData();
+	EXPECT_FALSE(Component->SetCustomPrimitiveData(29, Values));
+	const std::array<float, 2> NonFinite{9.f, std::numeric_limits<float>::infinity()};
+	EXPECT_FALSE(Component->SetCustomPrimitiveData(0, NonFinite));
+	EXPECT_EQ(Component->GetCustomPrimitiveData(), Before);
+	std::array<FStaticMeshRenderInstance, 2> Instances{{{.Id = 11}, {.Id = 22}}};
+	ASSERT_TRUE(Component->SetRenderInstances(Instances));
+	const auto Original = Component->GetRenderInstances();
+	ASSERT_TRUE(Component->SetInstanceCustomData(22, 3, Values));
+	EXPECT_EQ((*Original)[1].CustomData.Values[3], 0.f);
+	EXPECT_EQ((*Component->GetRenderInstances())[1].CustomData.Values[3], 1.f);
+	Instances[0].Id = 22;
+	const auto Accepted = Component->GetRenderInstances();
+	EXPECT_FALSE(Component->SetRenderInstances(Instances));
+	EXPECT_EQ(Component->GetRenderInstances(), Accepted);
+	Instances = {(*Accepted)[1], (*Accepted)[0]};
+	ASSERT_TRUE(Component->SetRenderInstances(Instances));
+	ASSERT_TRUE(Component->RemoveRenderInstance(11));
+	EXPECT_EQ(Component->GetRenderInstances()->front().Id, 22u);
+	EXPECT_EQ(Component->GetRenderInstances()->front().CustomData.Values[3], 1.f);
+	EXPECT_FALSE(Component->SetInstanceCustomData(11, 0, Values));
+	Instances[0].LocalToPrimitive = FMatrix(0.0);
+	EXPECT_FALSE(Component->SetRenderInstances(Instances));
+	Instances[0].LocalToPrimitive = FMatrix(1.0);
+	Instances[0].LocalToPrimitive[0][3] = 1.0;
+	EXPECT_FALSE(Component->SetRenderInstances(Instances));
+	ASSERT_TRUE(Component->SetRenderInstances({}));
+	EXPECT_TRUE(Component->GetRenderInstances()->empty());
+	Component->ClearRenderInstances();
+	EXPECT_FALSE(Component->GetRenderInstances());
+}
+
+TEST(FMaterialCustomDataTests, TypedCrossSlotReadsCompileAndRoundTripDetachedTranslation)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	MIR::FCompilerInput Input;
+	Input.IR = MakeDefaultMaterialCompilerIR();
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+	auto Add = [&](MIR::FNode Node) {
+		Input.IR.Nodes.push_back(Node);
+		return uint32(Input.IR.Nodes.size() - 1);
+	};
+	const auto Color = Add({.Opcode = EMaterialProgramOpcode::InstanceCustomData,
+		.ResultType = EMaterialProgramValueType::Float3, .Payload = MIR::FCustomDataRead{3}});
+	const auto Offset = Add({.Opcode = EMaterialProgramOpcode::PrimitiveCustomData,
+		.ResultType = EMaterialProgramValueType::Float3, .Payload = MIR::FCustomDataRead{29}});
+	Input.IR.SurfaceRoot.Inputs[static_cast<size_t>(EMaterialSurfaceOutput::Emissive)].bExpression = true;
+	Input.IR.SurfaceRoot.Inputs[static_cast<size_t>(EMaterialSurfaceOutput::Emissive)].ExpressionIndex = Color;
+	Input.IR.WorldPositionOffset.bExpression = true;
+	Input.IR.WorldPositionOffset.ExpressionIndex = Offset;
+	const auto Encoded = MaterialBuildPrivate::EncodeTranslationInput(Input);
+	ASSERT_TRUE(Encoded);
+	const auto Decoded = MaterialBuildPrivate::DecodeTranslationInput(Encoded->GetBytes());
+	ASSERT_TRUE(Decoded);
+	EXPECT_EQ(Decoded->IR, Input.IR);
+	const auto Compiled = MIR::Compile(*Decoded);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "no diagnostic" : FormatMaterialError(Compiled.Diagnostics.front().Error));
+	EXPECT_EQ(Compiled.CompiledShaders.size(), MaterialCompiledEntryPoints.size());
+	EXPECT_TRUE(Compiled.ActiveParameters.empty());
+	EXPECT_NE(Compiled.GeneratedSource.find("nointerpolation float4 customInstanceData"), std::string::npos);
+	for (uint32 Width = 0; Width < 4; ++Width)
+	{
+		MIR::FNode Read{.Opcode = EMaterialProgramOpcode::InstanceCustomData,
+			.ResultType = static_cast<EMaterialProgramValueType>(Width), .Payload = MIR::FCustomDataRead{31 - Width}};
+		EXPECT_TRUE(Read.HasValidPayload());
+		Read.Payload = MIR::FCustomDataRead{32 - Width};
+		EXPECT_FALSE(Read.HasValidPayload());
+	}
+	auto Changed = Input;
+	Changed.IR.Nodes[Color].Payload = MIR::FCustomDataRead{4};
+	const auto First = MIR::Normalize(Input), Second = MIR::Normalize(Changed);
+	ASSERT_TRUE(First && Second);
+	EXPECT_NE(First.Identity, Second.Identity);
+}
 
 TEST(FMaterialProgramCompilerTests, DiagnosticSummaryPreservesOrderAndBoundsPresentation)
 {

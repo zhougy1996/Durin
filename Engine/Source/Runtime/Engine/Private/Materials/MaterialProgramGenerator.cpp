@@ -155,7 +155,31 @@ struct VSOutput
 		for (uint32 Slot = 0; Slot < Interpolators.size(); ++Slot)
 			OutSource += std::format("    {} interpolator{} : TEXCOORD{};\n",
 				SlangType(IR.Nodes[Interpolators[Slot]].ResultType), Slot, Slot + 7);
+		// Custom channels are flat varyings, so grouped fragments never read the
+		// representative draw's primitive uniform for another visible instance.
+		uint32 CustomLocation = 7 + static_cast<uint32>(Interpolators.size());
+		std::string CopyCustomData = "void CopyPrimitiveCustomData(inout VSOutput input, MaterialPrimitiveUniform primitive)\n{\n";
+		for (const auto [Opcode, Name, UniformName] : {
+			std::tuple{EMaterialProgramOpcode::PrimitiveCustomData, "customPrimitiveData", "CustomPrimitiveData"},
+			std::tuple{EMaterialProgramOpcode::InstanceCustomData, "customInstanceData", "CustomInstanceData"}})
+		{
+			std::array<bool, 8> Slots{};
+			for (const auto& Node : IR.Nodes)
+				if (Node.Opcode == Opcode)
+				{
+					const uint32 First = std::get<MIR::FCustomDataRead>(Node.Payload).Index;
+					for (uint32 Component = 0; Component <= static_cast<uint32>(Node.ResultType); ++Component)
+						Slots[(First + Component) / 4] = true;
+				}
+			for (uint32 Slot = 0; Slot < Slots.size(); ++Slot)
+				if (Slots[Slot])
+				{
+					OutSource += std::format("    nointerpolation float4 {}{} : TEXCOORD{};\n", Name, Slot, CustomLocation++);
+					CopyCustomData += std::format("    input.{}{} = primitive.{}[{}];\n", Name, Slot, UniformName, Slot);
+				}
+		}
 		OutSource += "};\n";
+		OutSource += CopyCustomData + "}\n";
 		OutSource += "struct MaterialUniform\n{\n    // Reserved header; view/pass controls live in descriptor set 0.\n    float4 Reserved;\n";
 		for (uint32 Index = 0; Index < Layout.UniformFieldCount; ++Index)
 			OutSource += std::format("    float4 Value{};\n", Index);
@@ -283,6 +307,21 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					break;
 				}
 				case EMaterialProgramOpcode::WorldPosition: Expression = "input.worldPosition"; break;
+				case EMaterialProgramOpcode::PrimitiveCustomData:
+				case EMaterialProgramOpcode::InstanceCustomData:
+				{
+					const uint32 First = std::get<MIR::FCustomDataRead>(Node.Payload).Index;
+					const auto Name = Node.Opcode == EMaterialProgramOpcode::PrimitiveCustomData
+						? "customPrimitiveData" : "customInstanceData";
+					Expression = std::string(SlangType(Node.ResultType)) + "(";
+					for (uint32 Component = 0; Component <= static_cast<uint32>(Node.ResultType); ++Component)
+					{
+						if (Component) Expression += ", ";
+						Expression += std::format("input.{}{}[{}]", Name, (First + Component) / 4, (First + Component) % 4);
+					}
+					Expression += ")";
+					break;
+				}
 				case EMaterialProgramOpcode::Time: Expression = "MaterialView.Parameters.x"; break;
 				case EMaterialProgramOpcode::CameraPosition: Expression = "MaterialView.CameraWorldPosition.xyz"; break;
 				case EMaterialProgramOpcode::CameraVector: Expression = "MaterialSafeNormalize(MaterialView.CameraWorldPosition.xyz - input.worldPosition)"; break;
@@ -531,6 +570,7 @@ VSOutput EvaluateGeneratedGeometry(FLocalVertexFactoryIntermediates vertex, Mate
     primitive = TranslateMaterialPrimitive(primitive, MaterialView);
     input.pos = mul(MaterialView.WorldToClip, mul(primitive.LocalToWorld, float4(vertex.localPosition, 1.0)));
     input.color = vertex.color;
+    CopyPrimitiveCustomData(input, primitive);
     input.worldPosition = mul(primitive.LocalToWorld, float4(vertex.localPosition, 1.0)).xyz;
     input.worldNormal = mul(primitive.NormalToWorld, float4(vertex.localNormal, 0.0)).xyz;
     input.worldTangent = float4(mul(primitive.LocalToWorld, float4(vertex.localTangent.xyz, 0.0)).xyz,

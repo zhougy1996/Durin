@@ -143,6 +143,7 @@ namespace Durin
 				Hash.UpdateValue(static_cast<uint32>(Node.Payload.index()));
 				if (const auto* Value = std::get_if<FMaterialProgramLiteral>(&Node.Payload)) Literal(*Value);
 				else if (const auto* Id = std::get_if<FGuid>(&Node.Payload)) Hash.UpdateValue(*Id);
+				else if (const auto* Read = std::get_if<MIR::FCustomDataRead>(&Node.Payload)) Hash.UpdateValue(Read->Index);
 				else if (const auto* Collection = std::get_if<MIR::FCollectionParameter>(&Node.Payload))
 				{
 					Hash.UpdateValue(Collection->CollectionId);

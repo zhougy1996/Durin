@@ -48,6 +48,8 @@ namespace Durin
 		ENGINE_API auto RecreateRenderState() -> void;
 		ENGINE_API auto MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags DirtyFlags = EPrimitiveRenderStateDirtyFlags::Proxy) -> void;
 		ENGINE_API auto SetVisible(bool bInVisible) -> void;
+		ENGINE_API auto SetCustomPrimitiveData(uint32 First, std::span<const float> Values) -> bool;
+		auto GetCustomPrimitiveData() const -> const FPrimitiveCustomData& { return CustomPrimitiveData; }
 		auto IsVisible() const -> bool { return bVisible; }
 		ENGINE_API auto SetCollisionProfileName(FName ProfileName) -> bool;
 		ENGINE_API auto SetCollisionEnabled(ECollisionEnabled Enabled) -> void;
@@ -90,6 +92,7 @@ namespace Durin
 		auto ApplyPhysicsStateCreationPolicy() -> void;
 
 		FPrimitiveComponentId PrimitiveComponentId = InvalidPrimitiveComponentId;
+		FPrimitiveCustomData CustomPrimitiveData;
 		// Non-owning publication token; the scene keeps the proxy alive until its removal command runs.
 		FPrimitiveSceneProxy* SceneProxy = nullptr;
 		uint64 PhysicsRegistrationGeneration = 0;

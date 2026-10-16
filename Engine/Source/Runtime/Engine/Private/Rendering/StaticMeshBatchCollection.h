@@ -53,6 +53,9 @@ namespace Durin
 		const auto& Inputs = Record->GetBinding();
 		FMeshBatch Batch;
 		Batch.PrimitiveId = Context.PrimitiveId;
+		Batch.BatchId = Context.BatchId;
+		Batch.CustomPrimitiveData = Context.CustomPrimitiveData;
+		Batch.CustomInstanceData = Context.CustomInstanceData;
 		Batch.LocalToWorld = Context.LocalToWorld;
 		Batch.WorldBounds = Context.WorldBounds;
 		Batch.FactoryKey = Inputs->GetFactoryKey();

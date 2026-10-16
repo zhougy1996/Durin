@@ -72,6 +72,8 @@ namespace Durin::RendererPrivate
 		const FPreparedStaticMeshPrimitive& Primitive) -> FStaticMeshTransformUniform
 	{
 		FStaticMeshTransformUniform TransformUniform;
+		TransformUniform.CustomPrimitiveData = Primitive.CustomPrimitiveData;
+		TransformUniform.CustomInstanceData = Primitive.CustomInstanceData;
 		const FVector3 Origin(Primitive.LocalToWorld[3]);
 		FMatrix LocalToWorld = Primitive.LocalToWorld;
 		LocalToWorld[3] = FVector4(0.0, 0.0, 0.0, 1.0);

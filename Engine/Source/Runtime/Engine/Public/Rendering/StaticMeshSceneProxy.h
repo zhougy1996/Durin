@@ -14,7 +14,9 @@ namespace Durin
 	public:
 		ENGINE_API explicit FStaticMeshSceneProxy(
 			const FStaticMeshRenderData* InRenderData,
-			std::vector<FMaterialRenderProxyRef> InMaterialProxies);
+			std::vector<FMaterialRenderProxyRef> InMaterialProxies,
+			FStaticMeshRenderInstances InInstances = {});
+		ENGINE_API auto SetRenderInstances(FStaticMeshRenderInstances InInstances) -> bool;
 
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
 		auto GetKind() const -> EPrimitiveSceneProxyKind override { return EPrimitiveSceneProxyKind::StaticMesh; }
@@ -41,6 +43,7 @@ namespace Durin
 		// component removes this proxy before the asset retires the render data.
 		const FStaticMeshRenderData* RenderData = nullptr;
 		std::vector<FMaterialRenderProxyRef> Materials;
+		FStaticMeshRenderInstances Instances;
 
 	};
 }

@@ -131,7 +131,10 @@ namespace Durin::RendererPrivate
 		const auto* Content = Shader.GetShader();
 		if (!Content || !Shader.GetRHIShader(false)) return {};
 		std::vector<FShaderParameterBinding> Bindings(Content->GetParameterBindings().begin(), Content->GetParameterBindings().end());
-		std::erase_if(Bindings, [](const auto& Parameter) { return Parameter.SetIndex == 0; });
+		// View and material uniforms are supplied by pass/material composition.
+		std::erase_if(Bindings, [](const auto& Parameter) {
+			return Parameter.SetIndex == 0 || (Parameter.SetIndex == 1 && Parameter.BindingIndex == 2);
+		});
 		return PrepareShaderParametersImpl(Shader.GetRHIShader(false), *TShader::GetParametersMetadata(), Bindings, &Parameters);
 	}
 
@@ -167,6 +170,7 @@ namespace Durin::RendererPrivate
 		DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshVertexShader)
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialPrimitive);
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
 		DURIN_END_SHADER_PARAMETERS();
 
 		DURIN_DECLARE_MESH_MATERIAL_SHADER(
@@ -189,6 +193,7 @@ namespace Durin::RendererPrivate
 		DURIN_BEGIN_SHADER_PARAMETERS(FSplineMeshVertexShader)
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialPrimitive);
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(SplineMesh);
 		DURIN_END_SHADER_PARAMETERS();
 		DURIN_DECLARE_MESH_MATERIAL_SHADER(FSplineMeshVertexShader, FMeshMaterialShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "SplineVertexMain");
@@ -204,7 +209,12 @@ namespace Durin::RendererPrivate
 		FVector4f TransformParams{1.0f, 0.0f, 0.0f, 0.0f};
 		FVector4f WorldOriginHigh{0.0f};
 		FVector4f WorldOriginLow{0.0f};
+		FPrimitiveCustomData CustomPrimitiveData;
+		FPrimitiveCustomData CustomInstanceData;
 	};
+	static_assert(sizeof(FStaticMeshTransformUniform) == 512);
+	static_assert(offsetof(FStaticMeshTransformUniform, CustomPrimitiveData) == 256);
+	static_assert(offsetof(FStaticMeshTransformUniform, CustomInstanceData) == 384);
 
 	struct FMaterialViewUniform
 	{

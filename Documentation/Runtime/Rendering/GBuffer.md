@@ -84,7 +84,10 @@ transport; fragment material evaluation and record encoding are shared.
 
 When GPU culling is explicitly enabled and single-command indirect draw is
 supported, groups of at least 64 otherwise identical indexed StaticMesh draws
-may use the GPU path. Compatibility includes the draw command, collected
+from either Opaque or Masked buckets can share a draw while retaining their
+matching material shader and mask behavior. Primitive/Instance numeric channels
+travel in the selected transform record and do not fragment material bindings.
+Compatibility includes the draw command, collected
 vertex input, GPU-culling graphics pipeline, and material binding. Preparation
 stores finite world-space AABBs and transforms, then flattens each admitted
 group into one contiguous visible-instance interval. A compute pass tests the

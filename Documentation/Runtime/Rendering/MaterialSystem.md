@@ -319,11 +319,14 @@ selections to reuse one immutable compiler result while family diagnostics retai
 the distinct requested and static-configuration counts.
 
 Context and spatial-transform expressions use pass-owned data only when reachable.
+Runtime [Primitive and Instance custom data](MaterialCustomData.md) provides
+indexed numeric variation without separate material owners.
 Their World positions follow [camera relative rendering](CameraRelativeRendering.md#material-positions).
 Set 0 binding 0 is `MaterialView`: material time and flags, camera world position,
 viewport origin/size and reciprocal size, plus World-to-View and View-to-World.
-Set 1 binding 0 is `MaterialPrimitive`: Local-to-Clip, Local-to-World,
-Normal-to-World, World-to-Local, primitive bounds center, and transform flags.
+Set 1 binding 0 is `MaterialPrimitive`: Local-to-World, Normal-to-World,
+World-to-Local, primitive bounds center, transform flags, split world origin,
+and Primitive/Instance custom channels. World-to-Clip belongs to `MaterialView`.
 Forward, GBuffer, masked shadow, hit proxy, preview, and thumbnail populate the
 same ABI from their active view and prepared primitive. StaticMesh and SplineMesh
 publish their post-factory tangent basis. Reflection is reachability exact, so

@@ -37,7 +37,8 @@ namespace Durin
 			};
 			std::map<FGroupKey, size_t> GroupByKey;
 			std::vector<std::vector<FPendingCandidate>> Groups;
-			for (const FPreparedStaticMeshDraw& Draw : Prepared.Opaque)
+			for (const auto* Bucket : {&Prepared.Opaque, &Prepared.Masked})
+			for (const FPreparedStaticMeshDraw& Draw : *Bucket)
 			{
 				const FPreparedStaticMeshPrimitive* Primitive =
 					Prepared.GetPrimitive(Draw);
@@ -79,6 +80,7 @@ namespace Durin
 			}
 
 			constexpr size_t PerCandidateBytes =
+				// Keep the ABI charge shared with direct uniform preparation.
 				sizeof(FGBufferGPUCullingCandidate) + sizeof(uint32)
 				+ sizeof(RendererPrivate::FStaticMeshTransformUniform);
 			for (const auto& Group : Groups)

@@ -8,10 +8,18 @@ namespace Durin
 {
 	FStaticMeshSceneProxy::FStaticMeshSceneProxy(
 		const FStaticMeshRenderData* InRenderData,
-		std::vector<FMaterialRenderProxyRef> InMaterialProxies)
+		std::vector<FMaterialRenderProxyRef> InMaterialProxies, FStaticMeshRenderInstances InInstances)
 		: RenderData(InRenderData)
 		, Materials(std::move(InMaterialProxies))
 	{
+		requiref(SetRenderInstances(std::move(InInstances)), "StaticMesh proxy requires valid render instances.");
+	}
+
+	auto FStaticMeshSceneProxy::SetRenderInstances(FStaticMeshRenderInstances InInstances) -> bool
+	{
+		if (InInstances && !ValidateStaticMeshRenderInstances(*InInstances)) return false;
+		Instances = std::move(InInstances);
+		return true;
 	}
 
 	auto FStaticMeshSceneProxy::GetRenderData() const -> const FStaticMeshRenderData*
@@ -28,7 +36,15 @@ namespace Durin
 
 	auto FStaticMeshSceneProxy::GetLocalBounds() const -> FBox
 	{
-		return RenderData != nullptr ? RenderData->LocalBounds : FBox{};
+		if (!RenderData) return {};
+		if (!Instances) return RenderData->LocalBounds;
+		FBox Bounds;
+		for (const auto& Instance : *Instances)
+		{
+			const auto Transformed = TransformPrimitiveBounds(RenderData->LocalBounds, Instance.LocalToPrimitive);
+			if (Transformed.bIsValid) { Bounds.AddPoint(Transformed.Min); Bounds.AddPoint(Transformed.Max); }
+		}
+		return Bounds;
 	}
 
 	auto FStaticMeshSceneProxy::ResolveMaterialRenderData_RenderThread(
@@ -60,6 +76,16 @@ namespace Durin
 	auto FStaticMeshSceneProxy::CollectMeshBatches(const FMeshCollectionContext& Context,
 		FMeshBatchCollector& Collector) const -> void
 	{
-		CollectStaticMeshAssetBatches(*this, RenderData, Context, Collector);
+		if (!Instances) return CollectStaticMeshAssetBatches(*this, RenderData, Context, Collector);
+		if (!RenderData) return;
+		for (const auto& Instance : *Instances)
+		{
+			auto InstanceContext = Context;
+			InstanceContext.BatchId = Instance.Id;
+			InstanceContext.CustomInstanceData = Instance.CustomData;
+			InstanceContext.LocalToWorld = Context.LocalToWorld * Instance.LocalToPrimitive;
+			InstanceContext.WorldBounds = TransformPrimitiveBounds(RenderData->LocalBounds, InstanceContext.LocalToWorld);
+			CollectStaticMeshAssetBatches(*this, RenderData, InstanceContext, Collector);
+		}
 	}
 }

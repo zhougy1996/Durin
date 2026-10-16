@@ -84,6 +84,8 @@ namespace Durin
 	// Stores one batch binding/transform shared by its prepared elements.
 	struct FPreparedStaticMeshPrimitive
 	{
+		FPrimitiveCustomData CustomPrimitiveData;
+		FPrimitiveCustomData CustomInstanceData;
 		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		uint64 BatchId = 0;
 		uint32 RequestedLODIndex = 0;

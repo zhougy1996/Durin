@@ -51,13 +51,15 @@ Accepted programs contain four fragment artifacts plus `VertexMain`,
 `SplineVertexMain` and `GPUCullingVertexMain`. The generated dependency closure
 includes the Local and Spline vertex factories. All seven entries, their exact
 frequencies and allowed resource reflection are validated together. MIR version
-7, generator version 11, compiler envelope 11, pass contract 8 and cooked payload
+8, generator version 12, compiler envelope 11, pass contract 10 and cooked payload
 schema 12 invalidate incompatible cache and cooked artifacts. Schema 12 also
 stores reflected compute thread-group dimensions per compiled stage.
 
 Local and Spline vertices apply WPO after vertex-factory deformation. GPU-culling
 vertices use the selected instance transform. Clip displacement transforms the
 world offset as a homogeneous direction, preserving the active view projection.
+[Primitive and Instance custom data](MaterialCustomData.md) are Both-stage
+numeric reads; grouped fragments receive the selected instance's flat values.
 Forward, GBuffer, opaque/masked shadows, hit proxies, material previews and
 thumbnails use the accepted vertex artifact with their selected fragment.
 

@@ -12,6 +12,8 @@ namespace
 	{
 	public:
 		auto Release() -> void override {}
+		auto UpdatePrimitiveCustomData(Durin::FPrimitiveComponentId, Durin::FPrimitiveCustomData) -> void override {}
+		auto UpdateStaticMeshRenderInstances(Durin::FPrimitiveComponentId, Durin::FStaticMeshRenderInstances) -> void override {}
 		auto AddPrimitive(Durin::DPrimitiveComponent*) -> void override {}
 		auto RemovePrimitive(Durin::DPrimitiveComponent*) -> void override
 		{

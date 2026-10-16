@@ -1,5 +1,6 @@
 #include "Components/PropertyEditValidation.h"
 #include "Components/StaticMeshComponent.h"
+#include "Rendering/SceneInterface.h"
 
 #include "Components/ComponentMaterialOverride.h"
 
@@ -13,6 +14,41 @@
 
 namespace Durin
 {
+	auto DStaticMeshComponent::SetRenderInstances(std::span<const FStaticMeshRenderInstance> Instances) -> bool
+	{
+		if (!ValidateStaticMeshRenderInstances(Instances)) return false;
+		if (RenderInstances && std::ranges::equal(*RenderInstances, Instances)) return true;
+		RenderInstances = std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances.begin(), Instances.end());
+		if (IsRegistered() && GetRenderScene())
+			GetRenderScene()->UpdateStaticMeshRenderInstances(GetPrimitiveComponentId(), RenderInstances);
+		return true;
+	}
+
+	auto DStaticMeshComponent::SetInstanceCustomData(uint32 Id, uint32 First, std::span<const float> Values) -> bool
+	{
+		if (!RenderInstances) return false;
+		auto Candidate = *RenderInstances;
+		const auto Found = std::ranges::find(Candidate, Id, &FStaticMeshRenderInstance::Id);
+		if (Found == Candidate.end() || !Found->CustomData.Set(First, Values)) return false;
+		return SetRenderInstances(Candidate);
+	}
+
+	auto DStaticMeshComponent::RemoveRenderInstance(uint32 Id) -> bool
+	{
+		if (!RenderInstances) return false;
+		auto Candidate = *RenderInstances;
+		if (std::erase_if(Candidate, [Id](const auto& Instance) { return Instance.Id == Id; }) == 0) return false;
+		return SetRenderInstances(Candidate);
+	}
+
+	auto DStaticMeshComponent::ClearRenderInstances() -> void
+	{
+		if (!RenderInstances) return;
+		RenderInstances.reset();
+		if (IsRegistered() && GetRenderScene())
+			GetRenderScene()->UpdateStaticMeshRenderInstances(GetPrimitiveComponentId(), {});
+	}
+
 	DStaticMeshComponent::DStaticMeshComponent(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{}
@@ -153,7 +189,7 @@ namespace Durin
 		}
 		return std::make_unique<FStaticMeshSceneProxy>(
 			RenderData,
-			std::move(MaterialProxies));
+			std::move(MaterialProxies), RenderInstances);
 	}
 
 	auto DStaticMeshComponent::OnRegister() -> void

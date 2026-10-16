@@ -306,6 +306,18 @@ namespace Durin
 		return Emitter.Output(0, Emitter.Emit({.Opcode = EMaterialProgramOpcode::WorldPosition, .ResultType = EMaterialProgramValueType::Float3}));
 	}
 
+	auto DMaterialExpressionPrimitiveCustomData::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		Emitter.Output(0, Emitter.Emit({.Opcode = EMaterialProgramOpcode::PrimitiveCustomData,
+			.ResultType = ResultType, .Payload = MIR::FCustomDataRead{DataIndex}}));
+	}
+
+	auto DMaterialExpressionInstanceCustomData::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		Emitter.Output(0, Emitter.Emit({.Opcode = EMaterialProgramOpcode::InstanceCustomData,
+			.ResultType = ResultType, .Payload = MIR::FCustomDataRead{DataIndex}}));
+	}
+
 	auto DMaterialExpressionTime::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		return Emitter.Output(0, Emitter.Emit({.Opcode = EMaterialProgramOpcode::Time, .ResultType = EMaterialProgramValueType::Float}));

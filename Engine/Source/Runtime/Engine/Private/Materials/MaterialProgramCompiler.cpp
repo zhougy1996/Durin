@@ -60,7 +60,7 @@ namespace Durin
 			EMaterialSurfaceOutput::Emissive,
 			EMaterialSurfaceOutput::Opacity,
 			EMaterialSurfaceOutput::OpacityMask};
-		inline constexpr uint32 MaterialProgramIdentitySchemaVersion = 7;
+		inline constexpr uint32 MaterialProgramIdentitySchemaVersion = 8;
 
 		auto IsCommutative(EMaterialProgramOpcode Opcode) -> bool
 		{
@@ -152,6 +152,8 @@ namespace Durin
 			AppendGuid(Bytes, Node.GetCollectionParameter().ParameterId);
 			AppendLittleEndian(Bytes, Node.GetTransform().Source);
 			AppendLittleEndian(Bytes, Node.GetTransform().Destination);
+			if (const auto* Read = std::get_if<MIR::FCustomDataRead>(&Node.Payload))
+				AppendLittleEndian(Bytes, Read->Index);
 		}
 
 		auto MakeNormalizationFailure(FMaterialError Error)
