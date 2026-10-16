@@ -82,6 +82,77 @@ namespace
 	}
 }
 
+TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTheContract)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModule("RenderCore");
+	FRenderSceneHarness Harness;
+	FMaterialLocalRenderLayer Layer;
+	Layer.Parameters = {
+		{FGuid{1,0,0,1}, 0.25f}, {FGuid{2,0,0,1}, FVector2(0.1, 0.2)},
+		{FGuid{3,0,0,1}, FVector3(0.3, 0.4, 0.5)},
+		{FGuid{4,0,0,1}, FVector4(0.6, 0.7, 0.8, 0.9)},
+		{FGuid{5,0,0,1}, FMaterialLocalTextureValue{.TextureFallback = EMaterialTextureFallback::Black}}};
+	auto Program = std::make_shared<FMaterialCompilerResult>();
+	for (const auto& Parameter : Layer.Parameters) Program->ActiveParameters.push_back({Parameter.Id, Parameter.GetType()});
+	const auto Layout = CompileMaterialLayout(Program->ActiveParameters);
+	ASSERT_TRUE(Layout);
+	Program->Layout = Layout.Layout;
+	Layer.CompiledProgram = Program;
+	Layer.StaticProperties = FMaterialStaticProperties{};
+	FMaterialRenderProxyRef Proxy = new FMaterialRenderProxy;
+	struct FCheck { static constexpr auto GetName() -> const char* { return "PreboundMaterialFields"; } };
+	EnqueueRenderCommand<FCheck>([&](FRHICommandListImmediate&) {
+		const auto Before = GetMaterialRenderProxyCounters();
+		for (uint64 Version = 1; Version <= 3; ++Version)
+		{
+			Layer.Parameters[0].Value = 0.1f * Version;
+			ASSERT_TRUE(Proxy->ApplyPublication_RenderThread({Layer, Version}));
+			const auto& Actual = Proxy->Resolve_RenderThread().Representation;
+			FMaterialRenderRepresentationBuilder ExpectedBuilder(Program->Layout);
+			for (const auto& Parameter : Layer.Parameters) ASSERT_TRUE(ApplyMaterialLocalRenderParameter(ExpectedBuilder, Parameter));
+			FMaterialRenderRepresentation Expected;
+			FMaterialRenderValidationDiagnostic Diagnostic;
+			ASSERT_TRUE(ExpectedBuilder.Build(Expected, Diagnostic));
+			EXPECT_TRUE(std::ranges::equal(Actual.GetUniformPayload(), Expected.GetUniformPayload()));
+			EXPECT_TRUE(std::ranges::equal(Actual.GetResources(), Expected.GetResources()));
+			EXPECT_TRUE(std::ranges::equal(Actual.GetSamplers(), Expected.GetSamplers()));
+			EXPECT_TRUE(std::ranges::equal(Actual.GetTextureFallbacks(), Expected.GetTextureFallbacks()));
+		}
+		EXPECT_EQ(GetMaterialRenderProxyCounters().ParameterBindingBuildCount - Before.ParameterBindingBuildCount, 1u);
+		EXPECT_EQ(GetMaterialRenderProxyCounters().IndexedParameterWriteCount - Before.IndexedParameterWriteCount, 15u);
+		// Removing the first declaration shifts every later field's index.
+		auto Replacement = std::make_shared<FMaterialCompilerResult>(*Program);
+		Replacement->ActiveParameters.erase(Replacement->ActiveParameters.begin());
+		Replacement->Layout = CompileMaterialLayout(Replacement->ActiveParameters).Layout;
+		Layer.CompiledProgram = Replacement;
+		ASSERT_TRUE(Proxy->ApplyPublication_RenderThread({Layer, 4}));
+		const auto& Changed = Proxy->Resolve_RenderThread().Representation;
+		EXPECT_FALSE(Changed.IsError());
+		EXPECT_EQ(Changed.GetLayout().Fields.front().ParameterId, Layer.Parameters[1].Id);
+		EXPECT_EQ(GetMaterialRenderProxyCounters().ParameterBindingBuildCount - Before.ParameterBindingBuildCount, 2u);
+		Layer.Parameters.erase(Layer.Parameters.begin());
+		ASSERT_TRUE(Proxy->ApplyPublication_RenderThread({Layer, 5}));
+		EXPECT_FALSE(Proxy->Resolve_RenderThread().Representation.IsError());
+		EXPECT_EQ(GetMaterialRenderProxyCounters().ParameterBindingBuildCount - Before.ParameterBindingBuildCount, 3u);
+		Layer.Parameters[0].Value = 0.5f; // An orphan type must not reuse the old vector write.
+		ASSERT_TRUE(Proxy->ApplyPublication_RenderThread({Layer, 6}));
+		EXPECT_FALSE(Proxy->Resolve_RenderThread().Representation.IsError());
+		EXPECT_EQ(GetMaterialRenderProxyCounters().ParameterBindingBuildCount - Before.ParameterBindingBuildCount, 4u);
+		FMaterialRenderValidationDiagnostic Diagnostic;
+		for (const uint32 Index : {0u, 1u, 99u})
+		{
+			FMaterialRenderRepresentationBuilder Invalid(Program->Layout);
+			EXPECT_FALSE(Invalid.SetParameterAtIndex(Index, Layer.Parameters[0]));
+			FMaterialRenderRepresentation Output;
+			EXPECT_FALSE(Invalid.Build(Output, Diagnostic));
+			EXPECT_TRUE(Output.IsError());
+		}
+	});
+	FlushRenderingCommands();
+	Proxy = {};
+}
+
 TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 {
 	FRenderSceneHarness Harness;

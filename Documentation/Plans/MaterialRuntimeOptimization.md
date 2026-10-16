@@ -25,6 +25,15 @@ checks. Commands are documented in the measurement protocol. Retained evidence:
 `reference-collection-test.log`, `reference-collection.xml`.
 Raw samples remain diagnostic; structural correctness is the hard gate.
 
+Stage 0 is committed as `3cb4ff78d`. Stage 1 passed 23 focused Proxy and
+representation tests, including mixed numeric/resource byte equivalence and
+program/parameter/type invalidation. The candidate CPU workload also passed;
+raw samples, log and XML are retained as `candidate-cpu.*` beside the reference.
+The new fixture explicitly initializes RenderCore before its first rendering
+thread lifetime. MaterialRuntimeTests now declares its dynamically loaded
+TextureCompressor dependency so clean focused builds deploy it. No authored or
+Cook schema changes. Stage 2 is next; the final all build remains outstanding.
+
 ## Goal
 
 Reduce repeated material binding work while preserving immutable publication,
@@ -76,8 +85,8 @@ type changes cannot reuse stale indices. An unchanged schema builds one index
 across repeated value publications. Rerun the identical CPU workload and compare
 raw median/p95 without promoting Debug results to a Release claim.
 
-- [ ] Implement checked prebinding and structural counters.
-- [ ] Pass focused proxy/representation regressions and candidate sampling.
+- [x] Implement checked prebinding and structural counters.
+- [x] Pass focused proxy/representation regressions and candidate sampling.
 
 ### Stage 2: Cache Collection-backed persistent draw commands
 

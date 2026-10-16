@@ -1,4 +1,5 @@
 #include "Materials/MaterialRenderTypes.h"
+#include "Materials/MaterialRenderProxy.h"
 #include "Hash/XxHash.h"
 
 namespace Durin
@@ -244,6 +245,49 @@ namespace Durin
 		Input.Resources.resize(Layout.ResourceFieldCount);
 		Input.Samplers.resize(Layout.ResourceFieldCount);
 		Input.TextureFallbacks.resize(Layout.ResourceFieldCount, EMaterialTextureFallback::White);
+	}
+
+	auto FMaterialRenderRepresentationBuilder::SetParameterAtIndex(uint32 FieldIndex,
+		const FMaterialLocalRenderParameter& Parameter) -> bool
+	{
+		if (bInvalid || FieldIndex >= Input.Layout.Fields.size()) return RejectField(Parameter.Id);
+		const auto& Field = Input.Layout.Fields[FieldIndex];
+		if (Field.ParameterId != Parameter.Id) return RejectField(Parameter.Id);
+		return std::visit([&](const auto& Value) -> bool {
+			using T = std::decay_t<decltype(Value)>;
+			if constexpr (std::is_same_v<T, FMaterialLocalTextureValue>)
+			{
+				if (Field.Storage != EMaterialRenderFieldStorage::Resource
+					|| Field.Type != EMaterialRenderValueType::Texture2D
+					|| Field.CompactIndex >= Input.Resources.size()
+					|| !IsValidMaterialSampling(Value.SamplerState, Value.TextureFallback)) return RejectField(Parameter.Id);
+				Input.Resources[Field.CompactIndex] = Value.Texture;
+				Input.Samplers[Field.CompactIndex] = Value.SamplerState;
+				Input.TextureFallbacks[Field.CompactIndex] = Value.TextureFallback;
+			}
+			else
+			{
+				constexpr auto Type = [] {
+					if constexpr (std::is_same_v<T, float>) return EMaterialRenderValueType::Scalar;
+					else if constexpr (std::is_same_v<T, FVector2>) return EMaterialRenderValueType::Vector2;
+					else if constexpr (std::is_same_v<T, FVector3>) return EMaterialRenderValueType::Vector3;
+					else return EMaterialRenderValueType::Vector4;
+				}();
+				if (Field.Storage != EMaterialRenderFieldStorage::Uniform || Field.Type != Type)
+					return RejectField(Parameter.Id);
+				if constexpr (std::is_same_v<T, float>) WriteFloat(Input.UniformPayload, Field.Offset, Value);
+				else
+				{
+					WriteFloat(Input.UniformPayload, Field.Offset, static_cast<float>(Value.x));
+					WriteFloat(Input.UniformPayload, Field.Offset + 4, static_cast<float>(Value.y));
+					if constexpr (!std::is_same_v<T, FVector2>)
+						WriteFloat(Input.UniformPayload, Field.Offset + 8, static_cast<float>(Value.z));
+					if constexpr (std::is_same_v<T, FVector4>)
+						WriteFloat(Input.UniformPayload, Field.Offset + 12, static_cast<float>(Value.w));
+				}
+			}
+			return true;
+		}, Parameter.Value);
 	}
 
 	auto FMaterialRenderRepresentationBuilder::FindField(

@@ -21,6 +21,8 @@ namespace Durin
 			std::atomic<uint64> StalePublicationCount = 0;
 			std::atomic<uint64> BindingUpdateCount = 0;
 			std::atomic<uint64> RepresentationValidationFailureCount = 0;
+			std::atomic<uint64> ParameterBindingBuildCount = 0;
+			std::atomic<uint64> IndexedParameterWriteCount = 0;
 		};
 
 		FMaterialRenderProxyAtomicCounters GMaterialRenderProxyCounters;
@@ -67,6 +69,8 @@ namespace Durin
 			.StalePublicationCount = GMaterialRenderProxyCounters.StalePublicationCount.load(),
 			.BindingUpdateCount = GMaterialRenderProxyCounters.BindingUpdateCount.load(),
 			.RepresentationValidationFailureCount = GMaterialRenderProxyCounters.RepresentationValidationFailureCount.load(),
+			.ParameterBindingBuildCount = GMaterialRenderProxyCounters.ParameterBindingBuildCount.load(),
+			.IndexedParameterWriteCount = GMaterialRenderProxyCounters.IndexedParameterWriteCount.load(),
 		};
 	}
 
@@ -84,6 +88,8 @@ namespace Durin
 		GMaterialRenderProxyCounters.StalePublicationCount.store(0);
 		GMaterialRenderProxyCounters.BindingUpdateCount.store(0);
 		GMaterialRenderProxyCounters.RepresentationValidationFailureCount.store(0);
+		GMaterialRenderProxyCounters.ParameterBindingBuildCount.store(0);
+		GMaterialRenderProxyCounters.IndexedParameterWriteCount.store(0);
 	}
 
 	auto RecordMaterialBindingUpdate() -> void
@@ -212,6 +218,37 @@ namespace Durin
 		return true;
 	}
 
+	auto FMaterialRenderProxy::UpdateParameterBindings() -> void
+	{
+		bool bCurrent = BindingProgram == LocalLayer.CompiledProgram
+			&& ParameterBindings.size() == LocalLayer.Parameters.size();
+		for (size_t Index = 0; bCurrent && Index < ParameterBindings.size(); ++Index)
+			bCurrent = ParameterBindings[Index].Id == LocalLayer.Parameters[Index].Id
+				&& ParameterBindings[Index].Type == LocalLayer.Parameters[Index].GetType();
+		if (bCurrent) return;
+		BindingProgram = LocalLayer.CompiledProgram;
+		ParameterBindings.clear();
+		if (!BindingProgram) return;
+		std::unordered_map<FGuid, uint32> Fields;
+		Fields.reserve(BindingProgram->Layout.Fields.size());
+		for (uint32 Index = 0; Index < BindingProgram->Layout.Fields.size(); ++Index)
+			Fields.emplace(BindingProgram->Layout.Fields[Index].ParameterId, Index);
+		std::unordered_map<FGuid, EMaterialParameterType> Active;
+		Active.reserve(BindingProgram->ActiveParameters.size());
+		for (const auto& Parameter : BindingProgram->ActiveParameters) Active.emplace(Parameter.Id, Parameter.Type);
+		ParameterBindings.reserve(LocalLayer.Parameters.size());
+		for (const auto& Parameter : LocalLayer.Parameters)
+		{
+			FParameterBinding Binding{Parameter.Id, Parameter.GetType()};
+			const auto Declaration = Active.find(Parameter.Id);
+			const auto Field = Fields.find(Parameter.Id);
+			Binding.bActive = Declaration != Active.end() && Declaration->second == Binding.Type;
+			if (Field != Fields.end()) Binding.FieldIndex = Field->second;
+			ParameterBindings.push_back(Binding);
+		}
+		GMaterialRenderProxyCounters.ParameterBindingBuildCount.fetch_add(1);
+	}
+
 	auto FMaterialRenderProxy::Resolve_RenderThread()
 		-> const FMaterialRenderData&
 	{
@@ -240,21 +277,20 @@ namespace Durin
 		bool bRepresentationValid = true;
 		if (CachedResolvedData.CompiledProgram)
 			CachedResolvedData.PlanningPassIdentity.ShaderMap.RenderLayout = CachedResolvedData.CompiledProgram->Layout.Identity;
-		for (const FMaterialLocalRenderParameter& Parameter
-			: LocalLayer.Parameters)
+		UpdateParameterBindings();
+		uint64 IndexedWrites = 0;
+		for (size_t Index = 0; Index < LocalLayer.Parameters.size(); ++Index)
 		{
-			const auto& Program = CachedResolvedData.CompiledProgram;
-			if (!Program) continue;
-			const auto Active = std::ranges::find(Program->ActiveParameters,
-				Parameter.Id, &FMaterialCompilerParameterDeclaration::Id);
-			if (Active == Program->ActiveParameters.end()
-				|| Active->Type != Parameter.GetType()) continue;
-			if (!ApplyMaterialLocalRenderParameter(
-					RepresentationBuilder, Parameter))
+			if (!BindingProgram) break;
+			if (!ParameterBindings[Index].bActive) continue;
+			const auto FieldIndex = ParameterBindings[Index].FieldIndex;
+			++IndexedWrites;
+			if (!RepresentationBuilder.SetParameterAtIndex(FieldIndex, LocalLayer.Parameters[Index]))
 			{
 				bRepresentationValid = false;
 			}
 		}
+		GMaterialRenderProxyCounters.IndexedParameterWriteCount.fetch_add(IndexedWrites);
 		if (LocalLayer.StaticProperties)
 		{
 			ApplyStaticProperties(

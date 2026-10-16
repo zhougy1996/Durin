@@ -902,6 +902,15 @@ Storage retires after its last consumer, without a global historical record cach
 Texture references still resolve their current render-thread resources through
 the existing generation and readiness checks.
 
+Each render proxy prebinds its local parameter GUID/type sequence to field indices
+of the accepted immutable program. Value-only publications reuse that index;
+program replacement or a changed parameter sequence rebuilds it. Indexed writes
+check bounds, GUID and concrete field type before modifying payload or resources.
+Inactive/type-orphan values remain excluded. Final representation validation and
+atomic fallback remain unchanged. Proxy counters separately report binding-index
+builds and indexed writes; ordinary value resolution performs no repeated linear
+search of the active declaration or layout field arrays.
+
 `FMaterialRenderProxy` resolves parent and local layers into a copied builder,
 publishes only a complete representation, and keeps the existing cache,
 coalescing, stale-update, startup-replay, and counted-resource contracts.

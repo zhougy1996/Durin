@@ -110,6 +110,7 @@ namespace Durin
 		FMaterialRenderBinding& OutBinding,
 		FMaterialRenderValidationDiagnostic& OutDiagnostic
 	) -> bool;
+	struct FMaterialLocalRenderParameter;
 	// Compiles GUID-addressed Engine values into one layout's compact payload.
 	// GUID lookup is confined to this Engine-side builder; Renderer consumes the
 	// resulting representation through offsets and resource indices.
@@ -120,6 +121,10 @@ namespace Durin
 			const FMaterialRenderRepresentation& Source);
 
 		ENGINE_API explicit FMaterialRenderRepresentationBuilder(const FMaterialRenderLayout& Layout);
+		// Uses a prebound field index, checking GUID and concrete type before writing.
+		// The index is local to this builder's exact immutable layout.
+		ENGINE_API auto SetParameterAtIndex(uint32 FieldIndex,
+			const FMaterialLocalRenderParameter& Parameter) -> bool;
 
 		ENGINE_API auto SetScalar(const FGuid& ParameterId, float Value) -> bool;
 		ENGINE_API auto SetVector(const FGuid& ParameterId, const FVector3& Value) -> bool;

@@ -66,6 +66,8 @@ namespace Durin
 		uint64 StalePublicationCount = 0;
 		uint64 BindingUpdateCount = 0;
 		uint64 RepresentationValidationFailureCount = 0;
+		uint64 ParameterBindingBuildCount = 0;
+		uint64 IndexedParameterWriteCount = 0;
 	};
 
 	ENGINE_API auto GetMaterialRenderProxyCounters()
@@ -108,6 +110,17 @@ namespace Durin
 			-> uint64;
 
 	private:
+		// Bindings retain the exact program and parameter sequence they were built for.
+		struct FParameterBinding
+		{
+			FGuid Id;
+			EMaterialParameterType Type;
+			uint32 FieldIndex = std::numeric_limits<uint32>::max();
+			bool bActive = false;
+		};
+		auto UpdateParameterBindings() -> void;
+		std::shared_ptr<const FMaterialCompilerResult> BindingProgram;
+		std::vector<FParameterBinding> ParameterBindings;
 		ENGINE_API auto ApplyPendingPublication_RenderThread() -> bool;
 
 		~FMaterialRenderProxy() = default;

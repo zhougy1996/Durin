@@ -534,6 +534,8 @@ durin_add_native_test(MaterialRuntimeTests
 		Private/Materials/MaterialRenderRepresentationTests.cpp
 		Private/Materials/MaterialProgramPublicationTests.cpp
 		Private/Materials/MaterialParameterCollectionTests.cpp
+	RUNTIME_ONLY_TARGETS TextureCompressor
+	RUNTIME_ONLY_RATIONALE "Material texture/import fixtures load TextureCompressor dynamically."
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_level_editor_private}
