@@ -69,20 +69,20 @@ def validate_request(request: ConcreteRequest, preset: ConfigurePreset) -> None:
     if request.action is Action.BUILD:
         validate_target(request.target, action=request.action)
     if request.action is Action.TEST:
-        if request.test_operation == "explain" and not request.target:
-            raise BuildToolError("test explain requires a target or @set selection.")
         if request.test_operation == "run" and not request.target:
             raise BuildToolError(
-                "test requires a target, @set selector, or all.",
+                "test requires a target, @set selector, affected, fast-all, or all.",
                 recovery="Run .\\DevTool.bat test list to inspect configured choices.",
             )
-        if request.test_operation not in {"run", "list", "explain", "affected"}:
+        if request.test_operation not in {"run", "list", "affected"}:
             raise BuildToolError(f'Unknown test operation "{request.test_operation}".')
         if request.test_operation != "run" and request.test_mode is not TestMode.ROUTINE:
-            raise BuildToolError("test list, explain, and affected do not accept --mode.")
-        if request.test_operation != "affected" and (request.test_base or request.test_explain_affected):
-            raise BuildToolError("--base and --explain are accepted only by test affected.")
-        discovery = request.test_operation in {"list", "explain"} or request.test_explain_affected
+            raise BuildToolError("test list and affected do not accept --mode.")
+        if request.test_operation == "list" and request.test_explain:
+            raise BuildToolError("test list does not accept --explain; use test <selection> --explain.")
+        if request.test_operation != "affected" and request.test_base:
+            raise BuildToolError("--base is accepted only by test affected.")
+        discovery = request.test_operation == "list" or request.test_explain
         if discovery and (request.test_report_enabled or request.test_report_path is not None):
             raise BuildToolError("--report requires test execution; discovery does not produce a report.")
         if discovery and request.test_parallel_jobs is not None:

@@ -245,6 +245,14 @@ def resolve_selection(
                 recovery=f"Rerun test {expression} --mode qualification.",
             )
         return ResolvedSelection(expression, (exact,), "exact target name")
+    if expression.casefold() == "all":
+        matches = tuple(
+            target for target in registry.targets
+            if not target.characterization and not target.qualification
+        )
+        if not matches:
+            raise BuildToolError('Native-test selection "all" matched no configured targets.')
+        return ResolvedSelection(expression, matches, "all ordinary targets; characterization and qualification excluded")
     if expression.casefold() == "fast-all":
         matches = tuple(
             target

@@ -13,7 +13,7 @@ from rich.text import Text
 
 from .build_context import BuildContext, create_build_context, derive_build_context
 from .errors import BuildToolError
-from .models import Action
+from .models import Action, TestMode
 from .requests import BaseRequest, ConcreteRequest, SimpleRequest, ConfigureRequest
 from .selection import preset_cache_string, tracy_enabled
 from .settings import CMAKE_ENV_VARS, JOBS_ENV_VAR, BuildPaths, default_build_paths
@@ -425,7 +425,10 @@ def dispatch_request(
     if request.action in {Action.PATH, Action.OPEN}:
         execute_location_request(request, context, output)
         return
-    if request.action is Action.TEST and request.test_operation in {"list", "explain"}:
+    if request.action is Action.TEST and (
+        request.test_operation == "list"
+        or (request.test_operation == "run" and request.test_explain)
+    ):
         registry = load_native_test_registry(context)
         if request.test_operation == "list":
             targets = filter_targets(registry, request.test_query)
@@ -447,10 +450,13 @@ def dispatch_request(
         resolved = resolve_selection(
             registry,
             request.target,
-            admit_characterization=True,
-            admit_qualification=True,
+            admit_characterization=request.test_mode is TestMode.CHARACTERIZATION,
+            admit_qualification=request.test_mode is TestMode.QUALIFICATION,
         )
         output.info(f'Selection: {request.target} ({resolved.explanation})')
+        output.info(f"Execution mode: {request.test_mode.value}")
+        if request.test_filter:
+            output.info(f"GoogleTest filter: {request.test_filter}")
         for target in resolved.targets:
             output.raw_line(f"{target.name}\t{target_metadata_text(target)}")
         return
@@ -463,12 +469,12 @@ def dispatch_request(
             + (f' from base "{request.test_base}".' if request.test_base else ".")
         )
         output.info(f"Reason: {'; '.join(affected.reasons)}")
-        if request.test_explain_affected:
+        if request.test_explain:
             for path in changed_paths:
                 output.raw_line(path)
         if affected.run_all:
             output.info("Resolved selection: all")
-            if request.test_explain_affected:
+            if request.test_explain:
                 return
             # Retain the user's selection name for the default report even when
             # conservative impact analysis expands execution to the aggregate.
@@ -478,7 +484,7 @@ def dispatch_request(
             context.request = replace(request, target="all", test_operation="run", test_report_path=report_path)
         elif affected.targets:
             output.info(f"Resolved targets: {', '.join(affected.names)}")
-            if request.test_explain_affected:
+            if request.test_explain:
                 return
             context.request = replace(request, target="affected", test_operation="run")
             context.resolved_test_targets = affected.names
@@ -509,7 +515,7 @@ def load_affected_registry(context: BuildContext, output: BuildOutput, root: Pat
     registry = load_native_test_registry(context) if registry_path(context).is_file() else None
     if registry is not None and registry.test_graph_fingerprint == fingerprint:
         return registry
-    if request.test_explain_affected:
+    if request.test_explain:
         output.warning("Project test graph metadata is stale; run configure to inspect current targets. Affected execution refreshes it automatically.")
         if registry is None:
             raise BuildToolError("No configured native-test registry is available for read-only explanation.")

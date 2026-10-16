@@ -136,17 +136,53 @@ class TestBuildRegistry:
         assert request.context.jobs is None
         assert request.test_report_enabled
 
-    @pytest.mark.parametrize("selection", [["list"], ["explain", "@viewport"], ["affected", "--explain"]])
+    @pytest.mark.parametrize("selection", [["list"], ["@viewport", "--explain"], ["affected", "--explain"]])
     @pytest.mark.parametrize("option", [["--report"], ["--test-jobs", "4"]])
     def test_discovery_rejects_execution_options(self, selection, option) -> None:
         request = handler.request_from_namespace(self.parse(["test", *selection, *option]))
         with pytest.raises(DevToolError, match="requires test execution"):
             request_validation.validate_request(request, mock.Mock())
 
-    @pytest.mark.parametrize("selection", [["list"], ["explain", "@viewport"], ["affected", "--explain"]])
+    @pytest.mark.parametrize("selection", [["list"], ["@viewport", "--explain"], ["affected", "--explain"]])
     def test_discovery_rejects_explicit_timeout(self, selection) -> None:
         with pytest.raises(DevToolError, match="--timeout requires test execution"):
             handler.request_from_namespace(self.parse(["test", *selection, "--timeout", "300"]))
+
+    @pytest.mark.parametrize("selection", ["CoreTests", "@viewport", "fast-all", "all", "affected"])
+    def test_explain_is_read_only_for_every_selection(self, selection) -> None:
+        request = handler.request_from_namespace(self.parse(["test", selection, "--explain"]))
+        request_validation.validate_request(request, request_fixtures.make_preset())
+        assert request.test_explain
+        assert not request.requires_toolchain
+        with mock.patch.object(build_operations, 'create_build_context', return_value=mock.Mock()), \
+             mock.patch.object(build_operations, 'prepare_toolchain_context') as prepare:
+            build_operations.acquire_request_context(request, session=None)
+        prepare.assert_not_called()
+
+    @pytest.mark.parametrize("selection", ["CoreTests", "@viewport", "fast-all", "all"])
+    @pytest.mark.parametrize("option", [["--report"], ["--report", "Build/out.xml"], ["--test-jobs", "2"]])
+    def test_explain_rejects_execution_options_for_all_selections(self, selection, option) -> None:
+        request = handler.request_from_namespace(self.parse(["test", selection, "--explain", *option]))
+        with pytest.raises(DevToolError, match="requires test execution"):
+            request_validation.validate_request(request, request_fixtures.make_preset())
+
+    def test_removed_explain_verb_and_invalid_explanation_combinations_are_rejected(self) -> None:
+        with pytest.raises(DevToolError, match="test explain was removed"):
+            handler.request_from_namespace(self.parse(["test", "explain", "CoreTests"]))
+        for arguments in (["--explain"], ["list", "--explain"], ["CoreTests", "--base", "HEAD", "--explain"],
+                          ["all", "Suite.Case", "--explain"], ["@viewport", "Suite.Case", "--explain"]):
+            with pytest.raises(DevToolError):
+                request = handler.request_from_namespace(self.parse(["test", *arguments]))
+                request_validation.validate_request(request, request_fixtures.make_preset())
+
+    @pytest.mark.parametrize("arguments", [["CoreTests", "Suite.Case"], ["@viewport", "Suite.*", "--isolate"],
+                                           ["@kind=qualification", "--mode", "qualification"]])
+    def test_explain_preserves_the_execution_selection(self, arguments) -> None:
+        from dataclasses import replace
+        execution = handler.request_from_namespace(self.parse(["test", *arguments]))
+        explanation = handler.request_from_namespace(self.parse(["test", *arguments, "--explain"]))
+        request_validation.validate_request(explanation, request_fixtures.make_preset())
+        assert explanation == replace(execution, test_explain=True)
 
     @pytest.mark.parametrize("selection", ["MaterialCompilerTests", "@viewport"])
     @pytest.mark.parametrize("extra,workers", [([], None), (["--test-jobs", "1"], 1)])
@@ -194,9 +230,11 @@ class TestBuildRegistry:
         assert listing.test_query == "viewport"
 
         explaining = handler.request_from_namespace(
-            self.parse(["test", "explain", "@viewport"])
+            self.parse(["test", "@viewport", "--explain"])
         )
-        assert explaining.test_operation == "explain"
+        assert explaining.test_operation == "run"
+        assert explaining.test_explain
+        assert not explaining.requires_toolchain
         assert explaining.target == "@viewport"
 
         affected = handler.request_from_namespace(
@@ -204,7 +242,7 @@ class TestBuildRegistry:
         )
         assert affected.test_operation == "affected"
         assert affected.test_base == "origin/main"
-        assert affected.test_explain_affected
+        assert affected.test_explain
         assert not affected.requires_toolchain
 
     def test_stage_zero_location_contract_has_stable_unique_names(self) -> None:

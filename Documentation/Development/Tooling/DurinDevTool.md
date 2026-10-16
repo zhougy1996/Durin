@@ -93,6 +93,7 @@ Representative commands are alternatives, not a sequence:
 .\DevTool.bat status
 .\DevTool.bat build <Target>
 .\DevTool.bat test CoreConcurrencyTests FTaskSchedulerTests.*
+.\DevTool.bat test CoreConcurrencyTests FTaskSchedulerTests.* --explain
 .\DevTool.bat asset
 .\DevTool.bat asset resave /Game/Characters
 .\DevTool.bat cook --output Saved/Cooked
@@ -110,6 +111,9 @@ Build, run, clean, recovery, output, and ownership behavior is defined by
 [Build and Run](../Build/BuildAndRun.md). Native-test selection and execution
 are defined by [Native Test Execution](../Build/NativeTests.md); target
 construction is defined by [Native Test Authoring](../Build/NativeTestAuthoring.md).
+All test selections use `--explain` for read-only resolution; `test list [query]`
+discovers targets. Explanation preserves the execution selection's mode and
+filter rules; the old `test explain <selection>` verb is not accepted.
 Asset checking and current-format canonical resave are defined by
 [Build and Run](../Build/BuildAndRun.md#asset-maintenance).
 

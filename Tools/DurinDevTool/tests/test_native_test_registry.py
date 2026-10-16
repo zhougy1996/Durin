@@ -107,6 +107,61 @@ def test_empty_and_characterization_selections_are_explicit(
     ).names == ("LaunchCrashTests",)
 
 
+def test_all_selects_only_ordinary_targets(registry: NativeTestRegistry) -> None:
+    assert resolve_selection(registry, "all").names == (
+        "EngineViewportTests", "MonaViewportTests", "VulkanViewportTests",
+    )
+    with pytest.raises(BuildToolError, match="matched no configured targets"):
+        resolve_selection(replace(registry, targets=()), "all")
+
+
+@pytest.mark.parametrize("expression,mode,filter_text,expected", [
+    ("EngineViewportTests", "routine", "Suite.Case", ("EngineViewportTests",)),
+    ("@viewport", "isolation", "Suite.*", ("EngineViewportTests", "MonaViewportTests", "VulkanViewportTests")),
+    ("fast-all", "routine", "", ("EngineViewportTests", "MonaViewportTests")),
+    ("all", "routine", "", ("EngineViewportTests", "MonaViewportTests", "VulkanViewportTests")),
+    ("@kind=qualification", "qualification", "", ("RendererQualificationTests",)),
+    ("LaunchCrashTests", "characterization", "", ("LaunchCrashTests",)),
+])
+def test_explanation_resolves_execution_policy_without_running(
+    registry: NativeTestRegistry, expression: str, mode: str, filter_text: str, expected: tuple[str, ...],
+) -> None:
+    import io
+    from durin_dev_tool.build import operations
+    from durin_dev_tool.build.models import TestMode
+    from durin_dev_tool.build.output import BuildOutput
+    from durin_dev_tool.build.requests import NativeTestRequest
+
+    request = NativeTestRequest(target=expression, test_mode=TestMode(mode), test_filter=filter_text, test_explain=True)
+    acquired = SimpleNamespace(request=request, context=SimpleNamespace(request=request))
+    stream = io.StringIO()
+    with mock.patch.object(operations, "load_native_test_registry", return_value=registry), \
+         mock.patch.object(operations, "execute_context") as execute:
+        operations.dispatch_request(acquired, BuildOutput(plain=True, stdout=stream), repository=mock.Mock())
+    execute.assert_not_called()
+    rendered = stream.getvalue()
+    assert tuple(line.split("\t")[0] for line in rendered.splitlines() if "\t" in line) == expected
+    assert f"Execution mode: {mode}" in rendered
+    if filter_text:
+        assert f"GoogleTest filter: {filter_text}" in rendered
+
+
+def test_explanation_does_not_admit_special_targets_without_mode(registry: NativeTestRegistry) -> None:
+    import io
+    from durin_dev_tool.build import operations
+    from durin_dev_tool.build.output import BuildOutput
+    from durin_dev_tool.build.requests import NativeTestRequest
+
+    for name in ("LaunchCrashTests", "RendererQualificationTests"):
+        request = NativeTestRequest(target=name, test_explain=True)
+        acquired = SimpleNamespace(request=request, context=SimpleNamespace(request=request))
+        with mock.patch.object(operations, "load_native_test_registry", return_value=registry), \
+             mock.patch.object(operations, "execute_context") as execute, \
+             pytest.raises(BuildToolError, match="-only"):
+            operations.dispatch_request(acquired, BuildOutput(plain=True, stdout=io.StringIO()), repository=mock.Mock())
+        execute.assert_not_called()
+
+
 def test_qualification_selections_are_explicit(
     registry: NativeTestRegistry,
 ) -> None:

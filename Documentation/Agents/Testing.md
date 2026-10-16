@@ -79,7 +79,7 @@ instead of inferring it from the source tree:
 
 ```powershell
 .\DevTool.bat test list <query>
-.\DevTool.bat test explain <Target>
+.\DevTool.bat test <Target> --explain
 ```
 
 - Iterate and diagnose with a named target or case. Batch whole-target coverage

@@ -113,20 +113,22 @@ COMMAND_SPECS = (
     build_command(
         "test", "list, explain, build, and run native-test selections",
         (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, PLAIN, OUTPUT_MODE) + (
-            argument("selection", nargs="?", default="", help="target, affected, fast-all, @set selector, all, list [query], or explain <selection>"),
-            argument("case_filter", nargs="?", default="", help="optional GoogleTest Suite.Case filter"),
+            argument("selection", nargs="?", default="", metavar="SELECTION", help="target, @set selector, affected, fast-all, all, or list"),
+            argument("case_filter", nargs="?", default="", metavar="FILTER", help="GoogleTest Suite.Case filter; query text for test list"),
             argument("--isolate", action="store_true", help="run each case in a separate process (named target or @set; routine mode only)"),
             argument("--test-jobs", type=int, choices=range(1, 257), default=None, metavar="N", help="CTest scheduling slots; does not change isolation or build jobs (default: configured concurrency)"),
             argument("--mode", choices=("stress", "characterization", "qualification"), default="routine", help="opt into a special execution scenario"),
             argument("--report", nargs="?", const=True, type=Path, default=None, metavar="PATH", help="save GoogleTest XML for direct runs or CTest JUnit XML, including affected (default: preset result directory)"),
             argument("--timeout", type=int, choices=range(0, 86401), default=None, metavar="0..86400", help="direct-process limit or CTest default in seconds (default: 300); 0 omits the limit; CTest TIMEOUT properties take precedence"),
             argument("--base", default="", metavar="REF", help="Git base for test affected (default: current staged, unstaged, and untracked changes)"),
-            argument("--explain", dest="explain_affected", action="store_true", help="explain test affected without building or running"),
+            argument("--explain", action="store_true", help="explain any test selection without building or running"),
         ),
         epilog=(
             "Common examples:\n"
             "  DevTool test CoreUtilityTests\n"
             "  DevTool test CoreUtilityTests Suite.Case\n"
+            "  DevTool test CoreUtilityTests Suite.Case --explain\n"
+            "  DevTool test \"@viewport\" --explain\n"
             "  DevTool test MaterialCompilerTests --isolate --test-jobs 4 --report\n"
             "  DevTool test affected --test-jobs 4 --report\n"
             "  DevTool test affected --base HEAD~1 --explain\n"

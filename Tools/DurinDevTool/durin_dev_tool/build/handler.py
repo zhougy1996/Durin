@@ -80,13 +80,13 @@ def request_from_namespace(namespace: argparse.Namespace) -> BaseRequest:
         if positional_selection == "list":
             operation, query, target, test_filter = "list", positional_filter, "", ""
         elif positional_selection == "explain":
-            operation, query, target, test_filter = "explain", "", positional_filter, ""
+            raise BuildToolError("test explain was removed; use test <selection> --explain.")
         elif positional_selection == "affected":
             if positional_filter:
                 raise BuildToolError("test affected accepts a Git base only through --base <ref>")
             operation, query, target, test_filter = "affected", "", "affected", ""
         test_mode = TestMode(str(namespace_value(namespace, "mode", "routine")))
-        if (operation in {"list", "explain"} or namespace_value(namespace, "explain_affected", False)) and namespace_value(namespace, "timeout", None) is not None:
+        if (operation == "list" or namespace_value(namespace, "explain", False)) and namespace_value(namespace, "timeout", None) is not None:
             raise BuildToolError("--timeout requires test execution; discovery does not run tests.")
         if namespace_value(namespace, "isolate", False):
             if operation != "run" or target.casefold() in {"all", "fast-all"}:
@@ -108,7 +108,7 @@ def request_from_namespace(namespace: argparse.Namespace) -> BaseRequest:
             test_report_path=report_path if isinstance(report_path, Path) else None,
             test_timeout_seconds=int(namespace_value(namespace, "timeout", 300)),
             test_base=str(namespace_value(namespace, "base", "")),
-            test_explain_affected=bool(namespace_value(namespace, "explain_affected", False)),
+            test_explain=bool(namespace_value(namespace, "explain", False)),
         )
     if action is Action.RUN:
         run_arguments = tuple(namespace_value(namespace, "run_arguments", ()) or ())

@@ -16,11 +16,19 @@ Use the configured registry instead of inferring targets from source directories
 
 ```powershell
 .\DevTool.bat test list <query>
-.\DevTool.bat test explain "@domain=viewport,backend=vulkan"
+.\DevTool.bat test "@domain=viewport,backend=vulkan" --explain
 .\DevTool.bat test affected --explain
 ```
 
 `test list private-sources` reports registered production-private source seams.
+`test <selection> [GoogleTestFilter] --explain` explains the same selection
+without configuring, building, or executing tests. It accepts named targets,
+`@set`, `fast-all`, `all`, and `affected`. Modes and isolation use the same
+admission rules as execution; the output includes the execution mode and any
+GoogleTest filter. Case filters are reported as patterns, without launching an
+executable to enumerate matching cases. `test list [query]` remains a separate
+discovery command and does not accept `--explain`. The former
+`test explain <selection>` syntax is rejected.
 The former `EngineTests` and `MaterialTests` executables are not runnable targets;
 their source directory names do not identify the focused targets that replaced them.
 Do not maintain target counts or inventories here; discovery and reports are the
@@ -95,9 +103,10 @@ arbitrary CTest arguments through to the scheduler.
 | `--mode characterization` / `qualification` | Explicit target or `@set` admission; unavailable with `affected`, `all`, or `--isolate` |
 | `--report [PATH]` | All executing selections, including `affected`; format follows execution path |
 | `--timeout SECONDS` | Execution timeout policy described below; does not limit the build |
-| `--base REF` / `--explain` | Only `affected`; explanation performs no execution |
+| `--base REF` | Only `affected`; select changes relative to a Git ref |
+| `--explain` | Any selection; read-only resolution using the same filter, isolation, and mode rules |
 
-Discovery (`list`, `explain`, and `affected --explain`) rejects `--report`,
+Discovery (`list` and any selection with `--explain`) rejects `--report`,
 `--test-jobs`, and explicit `--timeout`. `affected` keeps ordinary whole-target execution and accepts no
 `--mode`, `--isolate`, or case filter. Report, scheduling, and timeout options
 combine with each supported execution mode.

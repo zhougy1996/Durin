@@ -144,7 +144,7 @@ def test_stale_execution_refreshes_before_selection_and_explain_is_read_only(tmp
     old = owned_registry(tmp_path)
     old.path.touch()
     fresh = replace(old, test_graph_fingerprint=fingerprint(tmp_path, load_workspace_manifest(tmp_path)))
-    context = SimpleNamespace(request=NativeTestRequest(test_operation="affected", test_explain_affected=explain))
+    context = SimpleNamespace(request=NativeTestRequest(test_operation="affected", test_explain=explain))
     initial_request = context.request
     calls = []
     monkeypatch.setattr("durin_dev_tool.build.operations.registry_path", lambda _: old.path)

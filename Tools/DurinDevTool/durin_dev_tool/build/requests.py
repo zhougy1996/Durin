@@ -113,16 +113,14 @@ class NativeTestRequest(BaseRequest):
     test_report_path: Path | None = None
     test_timeout_seconds: int = 300
     test_base: str = ""
-    test_explain_affected: bool = False
+    test_explain: bool = False
     action: Action = Action.TEST
     test_parallel_jobs: int | None = None
     test_report_enabled: bool = False
 
     @property
     def requires_toolchain(self) -> bool:
-        return self.test_operation == "run" or (
-            self.test_operation == "affected" and not self.test_explain_affected
-        )
+        return self.test_operation in {"run", "affected"} and not self.test_explain
 
 
 @dataclass(frozen=True)

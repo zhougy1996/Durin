@@ -16,6 +16,23 @@ class TestCore:
     make_preset = staticmethod(request_fixtures.make_preset)
 
     @pytest.mark.parametrize("selection", ["bounded", "all", "empty"])
+    def test_affected_explanation_never_executes_or_replaces_request(self, tmp_path, selection) -> None:
+        request = NativeTestRequest(target="affected", test_operation="affected", test_explain=True)
+        context = SimpleNamespace(request=request)
+        affected = SimpleNamespace(run_all=selection == "all", targets=() if selection == "empty" else (object(),),
+                                   names=("CoreTests",), reasons=("test impact",))
+        stream = io.StringIO()
+        with mock.patch.object(operations, "discover_changed_paths", return_value=("changed.cpp",)), \
+             mock.patch.object(operations, "load_affected_registry"), \
+             mock.patch.object(operations, "analyze_affected_tests", return_value=affected), \
+             mock.patch.object(operations, "execute_context") as execute:
+            operations.dispatch_request(SimpleNamespace(request=request, context=context),
+                                        BuildOutput(plain=True, stdout=stream), repository=SimpleNamespace(root=tmp_path))
+        execute.assert_not_called()
+        assert context.request is request
+        assert "changed.cpp" in stream.getvalue()
+
+    @pytest.mark.parametrize("selection", ["bounded", "all", "empty"])
     @pytest.mark.parametrize("custom_report", [False, True])
     def test_affected_preserves_scheduling_and_report_identity(self, tmp_path, selection, custom_report) -> None:
         report = tmp_path / "custom.xml" if custom_report else None

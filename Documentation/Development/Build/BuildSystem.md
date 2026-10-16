@@ -234,7 +234,7 @@ compatibility form.
 
 `build` and `rebuild` default to target `all`, while `test` requires an explicit
 target, `@` metadata set, or `all`. The batch and interactive forms both accept
-`test <selection> [case-filter]`; `test list` and `test explain` inspect the
+`test <selection> [case-filter]`; `test list` and `test <selection> --explain` inspect the
 configured CMake registry without building. An option belongs only to commands that consume it: toolchain and job
 overrides are not accepted by artifact-only commands such as `purge`, `run`,
 `path`, or `open`, and child-output selection is not accepted by discovery or
