@@ -1417,10 +1417,10 @@ namespace Durin
 	auto FMainFrameModule::DestroyEditorHost() -> void
 	{
 		if (!BootstrapContext) return;
-		if (FModuleManager::Get().IsModuleLoaded("DurinPython"))
-			static_cast<FDurinPythonModule*>(FModuleManager::Get().GetModule("DurinPython"))->StopRuntime();
 		if (FModuleManager::Get().IsModuleLoaded("DurinMCP"))
 			static_cast<FDurinMCPModule*>(FModuleManager::Get().GetModule("DurinMCP"))->StopServer();
+		if (FModuleManager::Get().IsModuleLoaded("DurinPython"))
+			static_cast<FDurinPythonModule*>(FModuleManager::Get().GetModule("DurinPython"))->StopRuntime();
 		BootstrapContext.reset();
 	}
 

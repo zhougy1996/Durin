@@ -1,4 +1,5 @@
 #include "DurinMCPModule.h"
+#include "DurinPythonModule.h"
 
 namespace Durin
 {
@@ -43,7 +44,11 @@ namespace Durin
 		}
 		std::string Token(Buffer.data(), static_cast<size_t>(File.gcount()));
 		while (!Token.empty() && (Token.back() == '\r' || Token.back() == '\n')) Token.pop_back();
-		auto Started = Server.Start(Editor, {.Port = Port, .BearerToken = std::move(Token)});
+		FMCPServerOptions Options{.Port = Port, .BearerToken = std::move(Token)};
+		auto Python = FModuleManager::LoadModuleChecked<FDurinPythonModule>("DurinPython").EnsureRuntime();
+		if (Python) Options.PythonRuntime = *Python;
+		else DURIN_WARN("MCP Python tools unavailable: {}", Python.error());
+		auto Started = Server.Start(Editor, Options);
 		if (!Started) DURIN_WARN("MCP disabled: {}", Started.error());
 		else DURIN_INFO("MCP listening at http://127.0.0.1:{}/mcp", *Started);
 	}

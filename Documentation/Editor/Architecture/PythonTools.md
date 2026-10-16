@@ -26,7 +26,9 @@ loaded for process lifetime. A process-wide owner permits only one active Durin
 interpreter. Python-backed providers and GameThread callbacks into Python are
 not supported.
 
-Start/Stop are serialized owner operations and must not race public runtime calls.
+Start/Stop are owner operations serialized by the runtime lifecycle lock against
+short public native calls. GetJobResult is named explicitly to avoid the Windows
+GetJob macro; all consumers use that exported native API.
 The worker initializes and finalizes CPython. Isolated PyConfig disables site,
 environment search paths, bytecode writes and signal-handler installation; only
 the deployed standard-library zip is added to its module search path. Native
@@ -121,6 +123,12 @@ optional `DURIN_PYTHON_SCRIPT` absolute path submits one trusted startup script;
 normal startup runs no script. Terminal results are also emitted to the editor log.
 Host destruction stops Python before releasing editor UI/host state; module
 shutdown repeats the idempotent stop.
+When MCP is enabled, EnsureRuntime shares this interpreter with DurinMCP before
+UI session creation. MCP owns separate External sessions/jobs and closes them
+before the Python owner stops. Stopping MCP does not stop the interpreter or UI
+jobs. Native shared ownership and lifecycle locking make late queries return an
+unavailable result after owner shutdown rather than accessing freed state. See
+the [MCP job contract](MCPTools.md#python-script-jobs) for external operations.
 
 `PythonToolIntegrationTests` uses the deployed interpreter with CPU editor hosts
 for values, PIE calls, errors, cancellation, retention, host isolation and teardown.

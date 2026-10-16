@@ -21,8 +21,8 @@ namespace Durin
         std::filesystem::path RuntimeDirectory;
     };
 
-    // Owns one interpreter/worker. GameThread only submits and closes sessions;
-    // Start/Stop are serialized owner operations and must not race public calls.
+    // Owns one interpreter/worker. Native submission/query/cancel calls are thread-safe;
+    // Start/Stop are owner operations serialized against short public API calls.
     // Stop joins after cancelling waits and never depends on a future editor tick.
     // Unsupported scripts which suppress cancellation or block in native code must return.
     class FPythonRuntime final
@@ -42,10 +42,12 @@ namespace Durin
             std::string Filename = "<durin>") -> std::expected<uint64, std::string>;
         // Absolute paths only; bounded UTF-8 source, no process cwd/sys.path mutation.
         DURINPYTHON_API auto RunFile(uint64 Session, const std::filesystem::path& Path) -> std::expected<uint64, std::string>;
-        DURINPYTHON_API auto GetJob(uint64 Job) const -> std::expected<FPythonJobResult, std::string>;
+        DURINPYTHON_API auto GetJobResult(uint64 Job) const -> std::expected<FPythonJobResult, std::string>;
         DURINPYTHON_API auto CancelJob(uint64 Job) -> bool;
     private:
+        auto StopLocked() noexcept -> void;
         struct FImpl;
+        mutable std::shared_mutex LifecycleMutex;
         std::unique_ptr<FImpl> Impl;
     };
 }

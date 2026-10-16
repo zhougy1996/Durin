@@ -58,7 +58,7 @@ namespace
             const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
             while (std::chrono::steady_clock::now() < Deadline)
             {
-                auto Job = Runtime.GetJob(Id);
+                auto Job = Runtime.GetJobResult(Id);
                 if (!Job) { ADD_FAILURE() << Job.error(); return {}; }
                 if (Job->State != EPythonJobState::Queued && Job->State != EPythonJobState::Running) return *Job;
                 if (Pump) Tools->TickTools();
@@ -71,7 +71,7 @@ namespace
             const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
             while (std::chrono::steady_clock::now() < Deadline)
             {
-                auto Result = Runtime.GetJob(Id);
+                auto Result = Runtime.GetJobResult(Id);
                 if (Result && Result->State == EPythonJobState::Running) return;
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
@@ -279,7 +279,7 @@ del durin.saved_tools
         const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
         while (std::chrono::steady_clock::now() < Deadline)
         {
-            auto State = Runtime.GetJob(Job); if (State && State->Output.find("submitted") != std::string::npos) break;
+            auto State = Runtime.GetJobResult(Job); if (State && State->Output.find("submitted") != std::string::npos) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         Registration.Reset();
@@ -358,7 +358,7 @@ else: raise AssertionError('null was treated as absent')
         const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
         while (std::chrono::steady_clock::now() < Deadline)
         {
-            OtherTools->TickTools(); auto Job = Runtime.GetJob(B);
+            OtherTools->TickTools(); auto Job = Runtime.GetJobResult(B);
             if (Job && Job->State == EPythonJobState::Succeeded) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -374,7 +374,7 @@ else: raise AssertionError('null was treated as absent')
         EXPECT_EQ(EPythonJobState::Failed, Expired.State); EXPECT_NE(std::string::npos, Expired.Error.find("ToolError"));
         auto First = Submit("pass"); (void)Wait(First);
         for (int I = 0; I < 65; ++I) EXPECT_EQ(EPythonJobState::Succeeded, Wait(Submit("pass")).State);
-        EXPECT_FALSE(Runtime.GetJob(First)); EXPECT_FALSE(Runtime.CancelJob(First));
+        EXPECT_FALSE(Runtime.GetJobResult(First)); EXPECT_FALSE(Runtime.CancelJob(First));
     }
     TEST_F(FPythonToolIntegrationTests, ClosesWhileCapturingOutputAndWaitsForFiniteNativeWork)
     {
@@ -385,7 +385,7 @@ else: raise AssertionError('null was treated as absent')
         const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
         while (std::chrono::steady_clock::now() < Deadline)
         {
-            auto State = Runtime.GetJob(Native); if (State && State->Output.find("sleeping") != std::string::npos) break;
+            auto State = Runtime.GetJobResult(Native); if (State && State->Output.find("sleeping") != std::string::npos) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         Runtime.CancelJob(Native); EXPECT_EQ(EPythonJobState::Cancelled, Wait(Native, false).State);

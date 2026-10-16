@@ -5,6 +5,7 @@
     "PrivateDependencies": [
         "Core",
         "DurinEd",
+        "DurinPython",
         "HTTPServer"
     ],
     "PublicDependencies": [],

@@ -34,6 +34,10 @@ namespace
 		EXPECT_FALSE(ParseRequest("[]"));
 		EXPECT_FALSE(ParseRequest("{\"jsonrpc\":\"2.0\",\"method\":\"ping\",\"id\":true,\"params\":{}}"));
 		EXPECT_FALSE(ParseRequest(Request("NaN")));
+		const auto LongString = Serialize(FObject{{"code", std::string(65536, 'x')}});
+		const auto OversizedString = Serialize(FObject{{"code", std::string(128 * 1024 + 1, 'x')}});
+		EXPECT_TRUE(ParseRequest(Request(LongString)));
+		EXPECT_FALSE(ParseRequest(Request(OversizedString)));
 	}
 	TEST(FMCPCodecTests, SerializesSingleLineMessagesWithoutChangingStringContents)
 	{
@@ -84,6 +88,22 @@ namespace
 		EXPECT_EQ(Long->begin()->first, BuildCatalog(Native)->begin()->first);
 		Native.Toolsets.push_back(Native.Toolsets[0]);
 		EXPECT_FALSE(BuildCatalog(Native));
+	}
+	TEST(FMCPCodecTests, DescribesPythonJobRoutesAndSchemasExplicitly)
+	{
+		auto Catalog = BuildPythonCatalog(); ASSERT_TRUE(Catalog); ASSERT_EQ(3u, Catalog->size());
+		EXPECT_EQ(EToolRoute::PythonSubmit, Catalog->at("editor.python__submit").Route);
+		EXPECT_EQ(EToolRoute::PythonStatus, Catalog->at("editor.python__status").Route);
+		EXPECT_EQ(EToolRoute::PythonCancel, Catalog->at("editor.python__cancel").Route);
+		for (const auto& [Name, Tool] : *Catalog)
+		{
+			(void)Name;
+			FToolDescriptor Descriptor; Descriptor.Name = Tool.Address.Tool; Descriptor.Input = Tool.Input;
+			EXPECT_TRUE(ValidateToolDescriptor(Descriptor));
+		}
+		const auto& Submit = Catalog->at("editor.python__submit");
+		EXPECT_EQ(65536u, Submit.Input.Properties.at("code").MaxSize);
+		EXPECT_FALSE(std::get<bool>(Find(Find(Submit.Description, "annotations"), "idempotentHint").Data));
 	}
 	TEST(FMCPCodecTests, ListsTheCompleteCatalogInNameOrder)
 	{

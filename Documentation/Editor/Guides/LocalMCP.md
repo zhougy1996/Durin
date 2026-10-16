@@ -1,7 +1,7 @@
 # Connect to Local Editor MCP
 
 Summary: Enable the local DurinMCP endpoint and connect Codex or another MCP 2025-06-18 Streamable HTTP client.
-Modules: DurinMCP, MainFrame
+Modules: DurinMCP, DurinPython, MainFrame
 
 Last reviewed: 2026-10-16
 
@@ -118,6 +118,63 @@ cancel admitted work. Cancelling a queued call prevents execution; running handl
 must observe cancellation cooperatively. A call timeout, disconnect, or missing
 result does not establish that no effects occurred, so do not automatically
 retry mutations. No public receipt-polling or cancel business tools are needed.
+
+## Submit, Inspect and Cancel Python Scripts
+
+With the [packaged Python runtime](PythonScripts.md) prepared and enabled, MCP
+automatically shares it with the editor's script panel. Discovery adds
+`editor.python__submit`, `editor.python__status` and `editor.python__cancel`.
+Python absence leaves ordinary Toolset tools available and logs the reason.
+
+These tools execute trusted code with editor-process privileges. The MCP token
+grants that ability; Python is not a sandbox. Scripts submitted remotely still
+use External source when calling `durin.tools`, and cannot choose a different
+editor or elevate the native tool source.
+
+Inside the connected SDK client context above:
+
+```python
+submitted = await client.call_tool("editor.python__submit", {
+    "code": "import durin\nprint(durin.tools.call('editor.pie', 'status', {}))",
+    "filename": "agent_script.py",
+})
+assert not submitted.is_error
+job_id = submitted.structured_content["data"]["job_id"]
+
+while True:
+    reply = await client.call_tool("editor.python__status", {"job_id": job_id})
+    assert not reply.is_error
+    snapshot = reply.structured_content["data"]
+    if snapshot["state"] not in {"queued", "running"}:
+        print(snapshot["state"], snapshot["output"], snapshot["error"])
+        break
+    await asyncio.sleep(0.1)
+
+# For unfinished work, request cancellation and continue polling actual state:
+# await client.call_tool("editor.python__cancel", {"job_id": job_id})
+```
+
+Submit returns admission, not script success. Code is limited to 64 KiB UTF-8;
+filename is a diagnostic label, not a server file to load. Status returns actual
+state plus bounded output/traceback; a failed script has state=failed even though
+the status query itself succeeds. Job IDs belong only to the creating MCP session.
+Session deletion/expiry cancels its work; an HTTP disconnect alone does not.
+Use the cancel tool for admitted jobs, not the completed submit RPC's request ID.
+No automatic retry, hard termination or rollback is provided. See
+[job limits and ownership](../Architecture/MCPTools.md#python-script-jobs).
+
+After building the editor and installing the existing SDK dependency below, run
+the application acceptance driver with the host Python:
+
+```powershell
+python Engine/Tests/Native/EngineTests/Scripts/MCPPythonClientSmoke.py
+```
+
+It launches a hidden Sandbox editor, verifies UI/MCP runtime sharing, submits a
+script using PIE tools, checks traceback output and cancellation, and rejects a
+foreign-session job query. Credentials are temporary and all evidence remains
+under ignored Build/MCP. Run it after other DevTool operations finish because the
+editor launcher requires exclusive checkout ownership.
 
 ## Reproduce SDK Acceptance
 

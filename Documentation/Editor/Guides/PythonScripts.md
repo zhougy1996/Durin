@@ -97,3 +97,6 @@ domain tools with appropriate transaction semantics for compound edits.
 
 See the [adapter contract](../Architecture/PythonTools.md) for ownership,
 conversion rules, resource limits and shutdown behavior.
+For agent submission, polling and cancellation over authenticated local MCP, see
+the [MCP script workflow](LocalMCP.md#submit-inspect-and-cancel-python-scripts).
+MCP and the panel share one runtime with independent job/session ownership.

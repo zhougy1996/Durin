@@ -20,6 +20,12 @@ namespace Durin
     {
         constexpr size_t MaxSource = 1024 * 1024;
         constexpr size_t MaxOutput = 64 * 1024;
+        auto Utf8Prefix(std::string_view Text, size_t Limit) -> size_t
+        {
+            size_t Count = std::min(Text.size(), Limit);
+            if (Count < Text.size()) while (Count && (static_cast<unsigned char>(Text[Count]) & 0xc0) == 0x80) --Count;
+            return Count;
+        }
         std::atomic<uint64> NextIdentity{1};
         std::atomic<bool> InterpreterOwned{false};
         auto Terminal(EPythonJobState State) -> bool
@@ -236,7 +242,7 @@ namespace Durin
                 if (!PyArg_ParseTuple(Params, "s#", &Text, &Size)) return nullptr;
                 std::lock_guard Lock(CurrentJob->Mutex);
                 const size_t Available = MaxOutput - CurrentJob->Result.Output.size();
-                CurrentJob->Result.Output.append(Text, std::min(Available, static_cast<size_t>(Size)));
+                CurrentJob->Result.Output.append(Text, Utf8Prefix(std::string_view(Text, static_cast<size_t>(Size)), Available));
                 if (static_cast<size_t>(Size) > Available)
                 { CurrentJob->OutputOverflow = true; PyErr_SetString(PyExc_RuntimeError, "Script output exceeded 64 KiB."); return nullptr; }
                 return PyLong_FromSsize_t(Size);
@@ -376,7 +382,7 @@ tools = _Tools(0)
             FPy Text(Lines && Separator ? PyUnicode_Join(Separator.get(), Lines.get()) : PyObject_Str(Error.get()));
             std::string Result = "Python exception (format unavailable).";
             if (Text) { const char* Value = PyUnicode_AsUTF8(Text.get()); if (Value) Result = Value; }
-            PyErr_Clear(); if (Result.size() > MaxOutput) Result.resize(MaxOutput); return Result;
+            PyErr_Clear(); if (Result.size() > MaxOutput) Result.resize(Utf8Prefix(Result, MaxOutput)); return Result;
         }
     }
 #endif
@@ -498,6 +504,7 @@ tools = _Tools(0)
     FPythonRuntime::~FPythonRuntime() { Stop(); }
     auto FPythonRuntime::Start(const FPythonRuntimeOptions& Options) -> std::expected<void, std::string>
     {
+        std::unique_lock LifecycleLock(LifecycleMutex);
         if (Impl) return std::unexpected("Python runtime already started.");
 #if DURIN_WITH_PYTHON
         bool Expected = false;
@@ -520,7 +527,7 @@ tools = _Tools(0)
         std::promise<std::string> Initialized; auto Ready = Initialized.get_future();
         Impl->Worker = std::thread([this, Promise = std::move(Initialized)]() mutable { Impl->Run(std::move(Promise)); });
         auto Error = Ready.get();
-        if (!Error.empty()) { Stop(); return std::unexpected(std::move(Error)); }
+        if (!Error.empty()) { StopLocked(); return std::unexpected(std::move(Error)); }
         return {};
 #else
         (void)Options;
@@ -528,6 +535,11 @@ tools = _Tools(0)
 #endif
     }
     auto FPythonRuntime::Stop() noexcept -> void
+    {
+        std::unique_lock LifecycleLock(LifecycleMutex);
+        StopLocked();
+    }
+    auto FPythonRuntime::StopLocked() noexcept -> void
     {
         if (!Impl) return;
         {
@@ -540,6 +552,7 @@ tools = _Tools(0)
     }
     auto FPythonRuntime::CreateSession(std::shared_ptr<FEditorToolService> Endpoint, EToolSource Source) -> std::expected<uint64, std::string>
     {
+        std::shared_lock LifecycleLock(LifecycleMutex);
         if (!Impl || !Endpoint) return std::unexpected("Python runtime or editor endpoint is unavailable.");
         std::lock_guard Lock(Impl->Mutex);
         if (Impl->Stopping || Impl->Sessions.size() >= 8) return std::unexpected("Python session admission is closed or full.");
@@ -547,6 +560,7 @@ tools = _Tools(0)
     }
     auto FPythonRuntime::CloseSession(uint64 Session) -> void
     {
+        std::shared_lock LifecycleLock(LifecycleMutex);
         if (!Impl) return;
         std::lock_guard Lock(Impl->Mutex); Impl->Sessions.erase(Session);
         for (const auto& [Id, Job] : Impl->Jobs) { (void)Id; if (Job->Session == Session) Impl->Cancel(Job); }
@@ -554,6 +568,7 @@ tools = _Tools(0)
     }
     auto FPythonRuntime::RunString(uint64 Session, std::string Code, std::string Filename) -> std::expected<uint64, std::string>
     {
+        std::shared_lock LifecycleLock(LifecycleMutex);
         if (!Impl) return std::unexpected("Python runtime is unavailable.");
         if (Code.size() > MaxSource || Code.find('\0') != std::string::npos || Filename.size() > 4096 || Filename.find('\0') != std::string::npos)
             return std::unexpected("Script source/filename exceeds limits or contains NUL.");
@@ -586,8 +601,9 @@ tools = _Tools(0)
         const auto Filename = Path.u8string();
         return RunString(Session, std::move(Source), std::string(reinterpret_cast<const char*>(Filename.data()), Filename.size()));
     }
-    auto FPythonRuntime::GetJob(uint64 Job) const -> std::expected<FPythonJobResult, std::string>
+    auto FPythonRuntime::GetJobResult(uint64 Job) const -> std::expected<FPythonJobResult, std::string>
     {
+        std::shared_lock LifecycleLock(LifecycleMutex);
         if (!Impl) return std::unexpected("Python runtime is unavailable.");
         std::lock_guard Lock(Impl->Mutex); auto It = Impl->Jobs.find(Job);
         if (It == Impl->Jobs.end()) return std::unexpected("Python job is unknown or expired.");
@@ -595,6 +611,7 @@ tools = _Tools(0)
     }
     auto FPythonRuntime::CancelJob(uint64 Job) -> bool
     {
+        std::shared_lock LifecycleLock(LifecycleMutex);
         if (!Impl) return false;
         std::lock_guard Lock(Impl->Mutex); auto It = Impl->Jobs.find(Job);
         if (It == Impl->Jobs.end()) return false;

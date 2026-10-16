@@ -33,7 +33,7 @@ namespace Durin::Editor::MainFrame
     auto FPythonScriptPanel::Tick() -> void
     {
         if (!Job) return;
-        auto Snapshot = PythonModule().GetRuntime().GetJob(Job);
+        auto Snapshot = PythonModule().GetRuntime().GetJobResult(Job);
         if (!Snapshot) { Message = Snapshot.error(); Job = 0; return; }
         Result = std::move(*Snapshot);
         if (!Reported && Result->State != EPythonJobState::Queued && Result->State != EPythonJobState::Running)

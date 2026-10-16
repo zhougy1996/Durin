@@ -1,14 +1,14 @@
 # Local MCP Toolset Adapter
 
-Summary: DurinMCP exposes external editor Toolsets through authenticated loopback Streamable HTTP and dispatches all business work through the editor tool service.
-Modules: DurinMCP, HTTPServer, DurinEd, MainFrame, Core
+Summary: DurinMCP exposes external editor Toolsets and session-owned Python script jobs through authenticated loopback Streamable HTTP.
+Modules: DurinMCP, DurinPython, HTTPServer, DurinEd, MainFrame, Core
 
 Last reviewed: 2026-10-16
 
 ## Ownership and Entry Points
 
 DurinMCP owns protocol handling, transport policy, schema/value conversion,
-discovery names, and pending MCP calls. It depends privately on DurinEd and
+discovery names, pending MCP calls and script job ownership. It depends privately on DurinEd, DurinPython and
 [HTTPServer](../../Runtime/Networking/HTTPServer.md). HTTPServer owns listeners,
 socket lifecycle, HTTP routing, and chunked response writes, and privately wraps
 the pinned MIT cpp-httplib dependency. MCP authentication, sessions, SSE message
@@ -28,6 +28,10 @@ MainFrame loads DurinMCP and calls `StartForEditor` during explicit host creatio
 Its host destruction stops the server before releasing the host. Module shutdown
 also stops the module-owned server. Merely loading DurinMCP does not open a port.
 Startup failure logs a bounded explanation and leaves normal editor use available.
+When MCP is enabled, its host acquires the Python module's shared runtime through
+EnsureRuntime on GameThread. Python initialization failure omits script tools and
+logs the reason while ordinary MCP remains available. UI and MCP use the same
+interpreter with separate native sessions. The host stops MCP before Python.
 
 See [connection setup](../Guides/LocalMCP.md) and the authoritative
 [editor service contract](EditorTools.md#external-adapter-handoff).
@@ -131,6 +135,59 @@ One polling routine checks native results and deadlines, called by the live
 response worker or by maintenance after the response worker exits. Completion and
 cancellation compete for one state transition; cleanup cannot overwrite the winner.
 
+## Python Script Jobs
+
+When the owner attaches a running FPythonRuntime in FMCPServerOptions, discovery
+also advertises three adapter-owned tools. These use normal MCP tools/call;
+they are not a protocol Tasks extension or native FToolResult::OperationId.
+Routes are explicit and advertised-name collisions with native Toolsets reject
+the catalog. Script tools do not execute through GameThread provider callbacks.
+Their scripts still call native Toolsets through the existing editor tool service.
+
+| Tool | Input | Successful data |
+| --- | --- | --- |
+| `editor.python__submit` | Required `code` string, up to 64 KiB UTF-8; optional `filename`, up to 4096 bytes, default `<mcp>` | `{job_id}` after admission only |
+| `editor.python__status` | Required session-owned `job_id` string | `{job_id, state, output, error}` |
+| `editor.python__cancel` | Required session-owned `job_id` string | `{job_id, cancellation_requested}` |
+
+Inputs are closed objects validated against Core schemas. There is no remote file
+path runner or source/host override. Submit is non-idempotent and is never retried
+automatically, including when a response is lost. Status is read-only; cancel is
+idempotent and cooperative. All data uses the normal structuredContent.data envelope.
+
+Job IDs are opaque strings scoped by the MCP session, separate from JSON-RPC IDs.
+Every submitting MCP session lazily obtains its own External Python session bound
+to the selected editor endpoint. Unknown, foreign or expired IDs fail without
+revealing other sessions' jobs. The global Python retention/queue limits apply;
+each MCP session retains at most 64 job mappings and evicts its oldest terminal
+mapping when necessary. Runtime evictions are observed as expired jobs.
+
+Status snapshots expose queued, running, succeeded, failed or cancelled. Polling
+a failed script succeeds as a status query, with state=failed and its traceback
+in error; it is not an admission error. stdout/stderr and error text retain the
+Python runtime's 64 KiB budgets, truncated only at complete UTF-8 boundaries.
+`cancellation_requested` does not claim the job has stopped or rolled back effects;
+poll status to observe its actual outcome. It is false if no request can be made,
+including terminal jobs or a concurrent retention eviction.
+
+MCP session deletion, idle expiry and server stop close its Python session and
+cancel owned jobs, including unfinished native tool calls. They do not stop the
+shared runtime or cancel UI/other-client sessions. HTTP disconnect does not cancel
+admitted scripts. notifications/cancelled addresses an in-flight RPC only; after
+submit returns, cancel the job through editor.python__cancel. The job retains its
+original cooperative runtime deadline independently of later status queries.
+
+Runtime lifecycle locking protects short native calls during owner shutdown, and
+the shared native handle prevents dangling runtime access. Start/Stop initialize
+and finalize CPython only on its worker. No HTTP worker initializes an interpreter,
+accesses DObjects or waits for a script to complete. See the
+[Python adapter](PythonTools.md) for supported scripts and shutdown limitations.
+
+Python runs with ordinary editor-process privileges, not in a sandbox. When these
+tools are enabled the MCP bearer token authorizes trusted code execution, including
+file and other process actions; native Toolset exposure does not restrict Python's
+standard library. Keep the endpoint local and credentials private.
+
 ## Limits and Shutdown
 
 The listener binds exclusively to 127.0.0.1. Each request requires the configured
@@ -164,7 +221,10 @@ module shutdown waiting for client input. Stop never waits for an editor tick.
 
 ## Verification
 
-`MCPCodecTests` covers the detached wire/schema boundary. `MCPIntegrationTests`
+`MCPPythonJobTests` covers script admission, snapshots, cancellation, session
+ownership, limits, Unicode output, runtime sharing and closure over real HTTP.
+`MCPPythonClientSmoke.py` exercises the official SDK against a real editor with
+both UI and MCP Python sessions. `MCPCodecTests` covers the detached wire/schema boundary. `MCPIntegrationTests`
 uses a real listener and CPU editor host to cover admission, dispatch,
 cancellation, errors, and teardown. The checked-in `MCPClientSmoke.py` driver uses
 the official Python SDK 2.3.0 against the same native host. Its explicit SDK host
