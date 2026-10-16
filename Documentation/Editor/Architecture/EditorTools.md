@@ -10,8 +10,8 @@ Last reviewed: 2026-10-16
 
 DurinEd registers `DEditorToolSubsystem` before editor subsystem initialization.
 Each editor owns one service, independent of PIE and `GEditor`. MainFrame's
-[Console adapter and DurinEd PIE tools](ConsoleTools.md) consume this service;
-MCP remains deferred. [Core tool contracts](../../Runtime/Core/Tools.md)
+[Console adapter and DurinEd PIE tools](ConsoleTools.md) and the
+[MCP adapter](MCPTools.md) consume this service. [Core tool contracts](../../Runtime/Core/Tools.md)
 remain the authority for values, schemas, provider interfaces, and feature lifetime.
 
 Acquire `GetService()` on GameThread and retain its shared native
