@@ -707,7 +707,7 @@ namespace
 	}
 }
 
-TEST(FTextureResourceUpdateTests, OwnedUpdatesInvalidateOldDataCoalesceInputsAndCloseAcrossAllFamilies)
+TEST(FTextureResourceUpdateIntegrationTests, OwnedUpdatesInvalidateOldDataCoalesceInputsAndCloseAcrossAllFamilies)
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::InitializeTaskScheduler());
