@@ -21,6 +21,7 @@ direction.
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
 | `Core` | Platform abstraction, containers, threading, logging, math, modules, serialization primitives, detached package writer operations, transport-independent Toolset contracts and native bindings, and low-level utilities | [source](../../Engine/Source/Runtime/Core) |
+| `HTTPServer` | HTTP server instances, exact-path routing, bounded workers and connections, chunked responses, and interruptible transport shutdown; privately owns cpp-httplib | [source](../../Engine/Source/Runtime/HTTPServer) |
 | `PhysicsCore` | Engine-independent collision shapes, handles, filters, hits, validation, and reference geometry math | [source](../../Engine/Source/Runtime/PhysicsCore) |
 | `Physics` | World-independent physics scene body storage and synchronous query orchestration | [source](../../Engine/Source/Runtime/Physics) |
 | `CoreDObject` | Managed objects, reflection, properties, garbage collection, object serialization, format-neutral package linker tables, canonical reflected Map-key tokens, canonical DAST v10 read/write, generic live graph capture, object Cook lifecycle/class schema contexts, save contexts, and package persistence | [source](../../Engine/Source/Runtime/CoreDObject) |
@@ -53,7 +54,7 @@ folder. Module entrypoints and API export headers remain at the root.
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
 | `DurinEd` | Shared editor services: Toolset discovery and invocation, generic object factories, reimport handlers, workspaces, reflected property editing, transactions, previews, thumbnails, source references, and editor UI infrastructure | [source](../../Engine/Source/Editor/DurinEd) |
-| `DurinMCP` | Authenticated local Streamable HTTP, MCP Toolset discovery, structured calls, cancellation, and transport lifecycle | [source](../../Engine/Source/Editor/DurinMCP) |
+| `DurinMCP` | Authenticated local MCP Streamable HTTP policy, Toolset discovery, structured calls, sessions and cancellation over HTTPServer | [source](../../Engine/Source/Editor/DurinMCP) |
 | `AssetTools` | Reusable editor policy and orchestration for package-backed creation, import, duplicate, save/resave, relocation, and redirector fix-up; owns relocation/fix-up workflows and staging, deletion operations, confirmed selection/reference policy, and deletion companion providers over Engine package mechanisms | [source](../../Engine/Source/Editor/AssetTools) |
 | `MainFrame` | Editor host frame, Console Toolset adapter and result presentation, project browser, profiling integration, compatibility tools, and top-level editor startup UI | [source](../../Engine/Source/Editor/MainFrame) |
 | `ContentBrowser` | Project-wide browser model, presentation, operations, settings, extensions, and asset thumbnails | [source](../../Engine/Source/Editor/ContentBrowser) |

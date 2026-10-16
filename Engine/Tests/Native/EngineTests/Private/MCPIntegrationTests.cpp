@@ -173,7 +173,9 @@ namespace
 	TEST_F(FMCPIntegrationTests, RejectsBadOptionsAndOccupiedPortsAndRestartsCleanly)
 	{
 		FMCPServer Other;
-		EXPECT_FALSE(Other.Start(*Host, {.Port = Port, .BearerToken = std::string(Token)}));
+		auto Occupied = Other.Start(*Host, {.Port = Port, .BearerToken = std::string(Token)});
+		ASSERT_FALSE(Occupied);
+		EXPECT_NE(std::string::npos, Occupied.error().find("Could not bind the HTTP port."));
 		EXPECT_FALSE(Other.Start(*Host, {.BearerToken = "short"}));
 		EXPECT_FALSE(Other.Start(*Host, {.BearerToken = std::string(Token), .CallTimeout = std::chrono::milliseconds(0)}));
 		Server.Stop(); Server.Stop();

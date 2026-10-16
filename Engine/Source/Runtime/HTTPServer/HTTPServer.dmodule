@@ -1,0 +1,6 @@
+{
+    "ModuleName": "HTTPServer",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_Core",
+    "PublicDependencies": ["Core"]
+}

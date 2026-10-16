@@ -7,6 +7,7 @@
     },
     "ModuleDirs": {
         "Core": "Source/Runtime/Core",
+        "HTTPServer": "Source/Runtime/HTTPServer",
         "PhysicsCore": "Source/Runtime/PhysicsCore",
         "Physics": "Source/Runtime/Physics",
         "CoreDObject": "Source/Runtime/CoreDObject",

@@ -1,5 +1,5 @@
-#include <httplib.h>
 #include "MCPServer.h"
+#include "HTTPServer.h"
 #include "MCPCodec.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Editor/EditorEngine.h"
@@ -10,48 +10,15 @@ namespace Durin
 	namespace
 	{
 		using namespace MCP;
-		class FLocalHTTPServer final : public httplib::Server
+		auto BearerToken(const FHTTPRequest& Request) -> std::string
 		{
-		public:
-			auto StopConnections() -> void
-			{
-				std::lock_guard Lock(Mutex); Closing = true;
-				for (auto Socket : Sockets) httplib::detail::shutdown_socket(Socket);
-			}
-		protected:
-			auto process_and_close_socket(socket_t Socket) -> bool override
-			{
-				// Own closing the socket so Stop can interrupt partial reads without
-				// racing descriptor reuse. The pinned library exposes its serving seam.
-				{
-					std::lock_guard Lock(Mutex); Sockets.insert(Socket);
-					if (Closing) httplib::detail::shutdown_socket(Socket);
-				}
-				struct FScope
-				{
-					FLocalHTTPServer& Owner; socket_t Socket;
-					~FScope()
-					{
-						std::lock_guard Lock(Owner.Mutex); Owner.Sockets.erase(Socket);
-						httplib::detail::drain_and_close_socket(Socket);
-					}
-				} Scope{*this, Socket};
-				std::string Remote, Local; int RemotePort = 0, LocalPort = 0;
-				httplib::detail::get_remote_ip_and_port(Socket, Remote, RemotePort);
-				httplib::detail::get_local_ip_and_port(Socket, Local, LocalPort);
-				return serve_guarded([&] {
-					return httplib::detail::process_server_socket(svr_sock_, Socket, keep_alive_max_count_, keep_alive_timeout_sec_,
-						read_timeout_sec_, read_timeout_usec_, write_timeout_sec_, write_timeout_usec_,
-						[&](httplib::Stream& Stream, bool Close, bool& Closed) {
-							return process_request(Stream, Remote, RemotePort, Local, LocalPort, Close, Closed, nullptr);
-						});
-				});
-			}
-		private:
-			std::mutex Mutex;
-			std::set<socket_t> Sockets;
-			bool Closing = false;
-		};
+			const auto Value = Request.GetHeaderValue("Authorization");
+			constexpr std::string_view Prefix = "Bearer ";
+			if (Value.size() < Prefix.size()) return {};
+			for (size_t I = 0; I < Prefix.size(); ++I)
+				if (std::tolower(static_cast<unsigned char>(Value[I])) != std::tolower(static_cast<unsigned char>(Prefix[I]))) return {};
+			return Value.substr(Prefix.size());
+		}
 		auto EqualToken(std::string_view Left, std::string_view Right) -> bool
 		{
 			if (Left.size() != Right.size()) return false;
@@ -59,7 +26,7 @@ namespace Durin
 			for (size_t I = 0; I < Left.size(); ++I) Difference |= static_cast<unsigned char>(Left[I] ^ Right[I]);
 			return Difference == 0;
 		}
-		auto Send(httplib::Response& Response, FToolValue Body, int Status = 200) -> void
+		auto Send(FHTTPResponse& Response, FToolValue Body, int Status = 200) -> void
 		{
 			auto TextValue = Serialize(Body);
 			if (TextValue.size() > MaxResponseBytes)
@@ -67,22 +34,20 @@ namespace Durin
 				TextValue = Serialize(Error(Find(Body, "id"), -32603, "Serialized response exceeds its byte budget."));
 				Status = 500;
 			}
-			Response.status = Status;
-			Response.set_content(std::move(TextValue), "application/json");
+			Response.SetStatus(Status);
+			Response.SetContent(std::move(TextValue), "application/json");
 		}
 
 	}
 	struct FMCPServer::FImpl
 	{
-		FLocalHTTPServer HTTP;
-		std::thread Listener;
+		FHTTPServer HTTP;
 		std::thread Maintenance;
 		std::condition_variable Wake;
 		std::shared_ptr<FEditorToolService> Service;
 		FMCPServerOptions Options;
 		std::atomic<bool> Stopping{false};
 		std::atomic<uint32> LiveCalls{0};
-		uint16 Port = 0;
 		struct FPending
 		{
 			std::shared_ptr<FEditorToolService> Service;
@@ -154,16 +119,16 @@ namespace Durin
 		std::mutex CatalogMutex;
 		uint64 Revision = UINT64_MAX;
 		std::shared_ptr<const MCP::FCatalog> Catalog;
-		auto RequireSession(const httplib::Request& Wire, httplib::Response& Response) -> std::optional<std::string>
+		auto RequireSession(const FHTTPRequest& Wire, FHTTPResponse& Response) -> std::optional<std::string>
 		{
-			if (Wire.get_header_value_count("Mcp-Session-Id") != 1)
+			if (Wire.GetHeaderValueCount("Mcp-Session-Id") != 1)
 			{ Send(Response, MCP::Error({}, -32600, "Expected one Mcp-Session-Id header."), 400); return {}; }
-			const auto Id = Wire.get_header_value("Mcp-Session-Id");
+			const auto Id = Wire.GetHeaderValue("Mcp-Session-Id");
 			std::lock_guard Lock(SessionMutex);
 			auto It = Sessions.find(Id);
 			if (It == Sessions.end()) { Send(Response, MCP::Error({}, -32600, "Unknown or expired MCP session."), 404); return {}; }
-			if (Wire.get_header_value_count("MCP-Protocol-Version") > 1 || (Wire.has_header("MCP-Protocol-Version")
-				&& Wire.get_header_value("MCP-Protocol-Version") != MCP::ProtocolVersion))
+			if (Wire.GetHeaderValueCount("MCP-Protocol-Version") > 1 || (Wire.HasHeader("MCP-Protocol-Version")
+				&& Wire.GetHeaderValue("MCP-Protocol-Version") != MCP::ProtocolVersion))
 			{ Send(Response, MCP::Error({}, -32600, "Unsupported MCP protocol version."), 400); return {}; }
 			It->second.Used = std::chrono::steady_clock::now(); return Id;
 		}
@@ -183,7 +148,7 @@ namespace Durin
 			}
 			return Catalog;
 		}
-		auto Call(const MCP::FRequest& Request, const std::string& SessionId, httplib::Response& Response) -> void
+		auto Call(const MCP::FRequest& Request, const std::string& SessionId, FHTTPResponse& Response) -> void
 		{
 			using namespace MCP;
 			const auto Name = Text(Find(Request.Params, "name"));
@@ -217,15 +182,15 @@ namespace Durin
 			Pending->State = FPending::EState::Pending;
 			Pending->Heartbeat = std::chrono::steady_clock::now(); Pending->Deadline = Pending->Heartbeat + Options.CallTimeout;
 			PendingCalls.emplace(Key, Pending); ++LiveCalls; SessionLock.unlock();
-			Response.set_chunked_content_provider("text/event-stream", [this, Pending](size_t Offset, httplib::DataSink& Sink) {
+			Response.SetChunkedContentProvider("text/event-stream", [this, Pending](size_t Offset, FHTTPStreamSink& Sink) {
 				if (Stopping || Pending->State == FPending::EState::CancelRequested) return false;
 				// A transport disconnect is not a 2025-06-18 cancellation. Session
 				// ownership keeps this receipt alive until completion or its deadline.
-				if (!Sink.is_writable()) return false;
+				if (!Sink.IsWritable()) return false;
 				if (Offset == 0)
 				{
 					static constexpr std::string_view Open = ": connected\n\n";
-					return Sink.write(Open.data(), Open.size());
+					return Sink.Write(Open);
 				}
 				if (auto Result = Pending->Poll())
 				{
@@ -233,31 +198,31 @@ namespace Durin
 					if (JSON.size() > MCP::MaxResponseBytes)
 						JSON = MCP::Serialize(MCP::ToolResult(Pending->RPCId, {EToolStatus::Failed, {}, {{EToolError::LimitExceeded, "MCP serialized result exceeds its byte budget.", {}}}}));
 					const auto Event = "event: message\ndata: " + JSON + "\n\n";
-					if (!Sink.write(Event.data(), Event.size())) return false;
-					Sink.done(); return true;
+					if (!Sink.Write(Event)) return false;
+					Sink.Done(); return true;
 				}
 				const auto Now = std::chrono::steady_clock::now();
 				if (Now - Pending->Heartbeat >= std::chrono::seconds(1))
 				{
 					static constexpr std::string_view Heartbeat = ": pending\n\n";
 					Pending->Heartbeat = Now;
-					if (!Sink.write(Heartbeat.data(), Heartbeat.size())) return false;
+					if (!Sink.Write(Heartbeat)) return false;
 				}
 				std::this_thread::sleep_for(std::chrono::milliseconds(10));
 				return true;
 			}, [this, Pending](bool) { Pending->ResponseDone = true; --LiveCalls; });
 		}
-		auto Handle(const httplib::Request& Wire, httplib::Response& Response) -> void
+		auto Handle(const FHTTPRequest& Wire, FHTTPResponse& Response) -> void
 		{
 			using namespace MCP;
 			if (Stopping) { Send(Response, Error({}, -32603, "Server is stopping."), 503); return; }
-			const auto ContentType = Wire.get_header_value("Content-Type");
-			const auto Accept = Wire.get_header_value("Accept");
+			const auto ContentType = Wire.GetHeaderValue("Content-Type");
+			const auto Accept = Wire.GetHeaderValue("Accept");
 			if (!(ContentType == "application/json" || ContentType.starts_with("application/json;")))
 			{ Send(Response, Error({}, -32600, "Expected application/json."), 415); return; }
 			if (Accept.find("application/json") == std::string::npos || Accept.find("text/event-stream") == std::string::npos)
 			{ Send(Response, Error({}, -32600, "Accept must include JSON and event-stream."), 406); return; }
-			auto Request = ParseRequest(Wire.body);
+			auto Request = ParseRequest(Wire.GetBody());
 			if (!Request)
 			{
 				Send(Response, Error({}, static_cast<int>(Request.error().Code), Request.error().Message), 400); return;
@@ -273,7 +238,7 @@ namespace Durin
 				std::random_device Random;
 				const auto Id = std::format("{:08x}{:08x}{:08x}{:08x}", Random(), Random(), Random(), Random());
 				Sessions.emplace(Id, FSession{false, std::chrono::steady_clock::now()});
-				Response.set_header("Mcp-Session-Id", Id);
+				Response.SetHeader("Mcp-Session-Id", Id);
 				Send(Response, Initialize(Request->Id)); return;
 			}
 			auto SessionId = RequireSession(Wire, Response); if (!SessionId) return;
@@ -281,14 +246,14 @@ namespace Durin
 			{
 				std::lock_guard Lock(SessionMutex);
 				auto Session = Sessions.find(*SessionId);
-				if (Session == Sessions.end()) { Response.status = 404; return; }
+				if (Session == Sessions.end()) { Response.SetStatus(404); return; }
 				if (Request->Method == "notifications/initialized") Session->second.Initialized = true;
 				else if (Request->Method == "notifications/cancelled")
 				{
 					const auto Key = FCallKey{*SessionId, Serialize(Find(Request->Params, "requestId"))};
 					if (auto It = PendingCalls.find(Key); It != PendingCalls.end()) It->second->Cancel();
 				}
-				Response.status = 202; return;
+				Response.SetStatus(202); return;
 			}
 			{
 				std::lock_guard Lock(SessionMutex);
@@ -326,60 +291,48 @@ namespace Durin
 		(void)Tools->ListToolsets();
 		auto State = std::make_unique<FImpl>();
 		State->Service = Tools->GetService(); State->Options = Options;
-		// Override upstream's reuse-port default: each editor owns one endpoint.
-		State->HTTP.set_socket_options([](socket_t Socket) {
-#if defined(_WIN32)
-			const int Exclusive = 1;
-			setsockopt(Socket, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, reinterpret_cast<const char*>(&Exclusive), sizeof(Exclusive));
-#else
-			const int ReuseAddress = 1;
-			setsockopt(Socket, SOL_SOCKET, SO_REUSEADDR, &ReuseAddress, sizeof(ReuseAddress));
-#endif
-		});
-		State->HTTP.new_task_queue = [] { return new httplib::ThreadPool(8, 8, 8); };
-		State->HTTP.set_payload_max_length(MCP::MaxBodyBytes);
-		State->HTTP.set_read_timeout(2, 0); State->HTTP.set_write_timeout(2, 0);
-		State->HTTP.set_keep_alive_max_count(1);
 		auto* Raw = State.get();
-		State->HTTP.set_pre_routing_handler([Raw](const httplib::Request& Request, httplib::Response& Response) {
-			const auto Host = Request.get_header_value("Host");
-			const auto Local = "127.0.0.1:" + std::to_string(Raw->Port);
-			const auto Named = "localhost:" + std::to_string(Raw->Port);
-			Response.set_header("Cache-Control", "no-store");
-			Response.set_header("Connection", "close");
-			if (Host != Local && Host != Named) { Response.status = 403; return httplib::Server::HandlerResponse::Handled; }
-			if (Request.get_header_value_count("Host") != 1 || Request.get_header_value_count("Origin") > 1)
-			{ Response.status = 403; return httplib::Server::HandlerResponse::Handled; }
-			if (Request.has_header("Origin"))
+		auto Filter = [Raw](const FHTTPRequest& Request, FHTTPResponse& Response) {
+			const auto Host = Request.GetHeaderValue("Host");
+			const auto Local = "127.0.0.1:" + std::to_string(Request.GetLocalPort());
+			const auto Named = "localhost:" + std::to_string(Request.GetLocalPort());
+			Response.SetHeader("Cache-Control", "no-store");
+			Response.SetHeader("Connection", "close");
+			if (Host != Local && Host != Named) { Response.SetStatus(403); return true; }
+			if (Request.GetHeaderValueCount("Host") != 1 || Request.GetHeaderValueCount("Origin") > 1)
+			{ Response.SetStatus(403); return true; }
+			if (Request.HasHeader("Origin"))
 			{
-				const auto Origin = Request.get_header_value("Origin");
+				const auto Origin = Request.GetHeaderValue("Origin");
 				if (Origin != "http://" + Local && Origin != "http://" + Named)
-				{ Response.status = 403; return httplib::Server::HandlerResponse::Handled; }
+				{ Response.SetStatus(403); return true; }
 			}
-			if (Request.get_header_value_count("Authorization") != 1
-				|| !EqualToken(httplib::get_bearer_token_auth(Request), Raw->Options.BearerToken))
-			{ Response.status = 401; return httplib::Server::HandlerResponse::Handled; }
-			return httplib::Server::HandlerResponse::Unhandled;
-		});
-		State->HTTP.Post("/mcp", [Raw](const auto& Request, auto& Response) { Raw->Handle(Request, Response); });
-		State->HTTP.Get("/mcp", [Raw](const auto& Request, auto& Response) { if (Raw->RequireSession(Request, Response)) Response.status = 405; });
-		State->HTTP.Delete("/mcp", [Raw](const auto& Request, auto& Response) {
-			auto Id = Raw->RequireSession(Request, Response); if (!Id) return;
-			std::lock_guard Lock(Raw->SessionMutex); Raw->CloseSessionLocked(*Id); Response.status = 200;
-		});
-		State->HTTP.set_exception_handler([](const auto&, auto& Response, std::exception_ptr) {
+			if (Request.GetHeaderValueCount("Authorization") != 1
+				|| !EqualToken(BearerToken(Request), Raw->Options.BearerToken))
+			{ Response.SetStatus(401); return true; }
+			return false;
+		};
+		std::vector<FHTTPRoute> Routes{
+			{EHTTPMethod::Post, "/mcp", [Raw](const auto& Request, auto& Response) { Raw->Handle(Request, Response); }},
+			{EHTTPMethod::Get, "/mcp", [Raw](const auto& Request, auto& Response) { if (Raw->RequireSession(Request, Response)) Response.SetStatus(405); }},
+			{EHTTPMethod::Delete, "/mcp", [Raw](const auto& Request, auto& Response) {
+				auto Id = Raw->RequireSession(Request, Response); if (!Id) return;
+				std::lock_guard Lock(Raw->SessionMutex); Raw->CloseSessionLocked(*Id); Response.SetStatus(200);
+			}}
+		};
+		FHTTPServerOptions Transport;
+		Transport.Port = Options.Port;
+		Transport.WorkerCount = 8; Transport.MaxQueuedConnections = 8;
+		Transport.MaxBodyBytes = MCP::MaxBodyBytes;
+		Transport.ReadTimeout = Transport.WriteTimeout = std::chrono::seconds(2);
+		Transport.KeepAliveMaxCount = 1;
+		auto Started = State->HTTP.Start(Transport, std::move(Routes), std::move(Filter), [](auto& Response, std::exception_ptr) {
 			Send(Response, MCP::Error({}, -32603, "Internal MCP adapter error."), 500);
 		});
-		int BoundPort = Options.Port;
-		if (Options.Port == 0) BoundPort = State->HTTP.bind_to_any_port("127.0.0.1");
-		else if (!State->HTTP.bind_to_port("127.0.0.1", Options.Port)) BoundPort = -1;
-		if (BoundPort <= 0) return std::unexpected("Could not bind the local MCP port.");
-		State->Port = static_cast<uint16>(BoundPort);
-		State->Listener = std::thread([Raw] { Raw->HTTP.listen_after_bind(); });
-		State->HTTP.wait_until_ready();
+		if (!Started) return std::unexpected("Could not start the local MCP HTTP server: " + Started.error());
 		Impl = std::move(State);
 		Impl->Maintenance = std::thread([Raw] { Raw->Maintain(); });
-		return Impl->Port;
+		return *Started;
 	}
 	auto FMCPServer::Stop() noexcept -> void
 	{
@@ -391,9 +344,7 @@ namespace Durin
 			Impl->PendingCalls.clear(); Impl->Sessions.clear();
 		}
 		Impl->Wake.notify_all();
-		Impl->HTTP.stop();
-		Impl->HTTP.StopConnections();
-		if (Impl->Listener.joinable()) Impl->Listener.join();
+		Impl->HTTP.Stop();
 		if (Impl->Maintenance.joinable()) Impl->Maintenance.join();
 		Impl.reset();
 	}

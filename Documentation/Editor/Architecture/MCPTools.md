@@ -1,16 +1,20 @@
 # Local MCP Toolset Adapter
 
 Summary: DurinMCP exposes external editor Toolsets through authenticated loopback Streamable HTTP and dispatches all business work through the editor tool service.
-Modules: DurinMCP, DurinEd, MainFrame, Core
+Modules: DurinMCP, HTTPServer, DurinEd, MainFrame, Core
 
 Last reviewed: 2026-10-16
 
 ## Ownership and Entry Points
 
-DurinMCP owns protocol handling, transport, schema/value conversion, discovery
-names, and pending HTTP requests. It depends privately on DurinEd and the pinned
-MIT cpp-httplib dependency. Core's existing FJsonDocument/yyjson owns JSON parsing
-and writing. Protocol and transport types stay private to DurinMCP.
+DurinMCP owns protocol handling, transport policy, schema/value conversion,
+discovery names, and pending MCP calls. It depends privately on DurinEd and
+[HTTPServer](../../Runtime/Networking/HTTPServer.md). HTTPServer owns listeners,
+socket lifecycle, HTTP routing, and chunked response writes, and privately wraps
+the pinned MIT cpp-httplib dependency. MCP authentication, sessions, SSE message
+formatting, heartbeats, and invocation cancellation remain in DurinMCP. Core's
+existing FJsonDocument/yyjson owns JSON parsing and writing. Protocol types stay
+private to DurinMCP; third-party transport types stay private to HTTPServer.
 Wire serialization selects Core's `EJsonFormat::Compact` directly. There is no
 adapter-side whitespace rewriting; JSON escaping preserves string contents and
 keeps each SSE data message on one line.

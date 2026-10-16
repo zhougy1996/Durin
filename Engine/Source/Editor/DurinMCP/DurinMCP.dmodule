@@ -4,7 +4,8 @@
     "PCH": "Self",
     "PrivateDependencies": [
         "Core",
-        "DurinEd"
+        "DurinEd",
+        "HTTPServer"
     ],
     "PublicDependencies": [],
     "OptionalPrivateDependencies": [],
