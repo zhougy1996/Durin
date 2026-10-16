@@ -39,8 +39,8 @@ namespace Durin::Editor
 		if (!IsValid(Object)) return EEditorFunctionError::InvalidTarget;
 		if (Object->IsTemplateObject()) return EEditorFunctionError::TemplateTarget;
 		const auto* Function = Object->GetClass()->FindFunctionByName(Request.FunctionName);
-		if (!Function || !Function->HasAnyFlags(EFunctionFlags::CallInEditor) || !Function->GetSignature().IsVoidNoArgs()
-			|| Function->GetRootFunction().GetOwnerClass()->GetQualifiedName() != Request.RootOwner)
+		if (!Function || !Function->HasAnyFunctionFlags(EFunctionFlags::CallInEditor) || Function->GetNumParms() != 0
+			|| Function->GetRootFunction().GetOuterDClass()->GetQualifiedName() != Request.RootOwner)
 			return EEditorFunctionError::FunctionUnavailable;
 		if (!Context.Transactor) return EEditorFunctionError::MissingTransactor;
 		if (!Context.Transactor->CanBeginStandaloneTransaction()) return EEditorFunctionError::BusyTransactor;

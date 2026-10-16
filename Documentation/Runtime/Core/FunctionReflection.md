@@ -52,13 +52,28 @@ Metadata uses flat macro arguments.
 
 ## Ownership And Invocation
 
-`DClass` owns immutable local `FFunction` descriptors independently of
-`DStructBase::ChildProperties`. Detached parameter/return `FProperty` descriptors
-do not become serialized object members, defaults, or object GC schemas. Each descriptor
-owns its presentation strings and refers to its declaring class, name, flags,
-and native invoker. `FFunctionSignature` owns ordered fields, parameter passing
-modes, the optional return field, aggregate size/alignment, and initialization/
-destruction callbacks. `Native`, `Virtual`, `Final`, and `Const` flags are independent
+`DFunction : DStructBase` is intrinsic reflected metadata. Its declaring `DClass`
+keeps local functions reachable through GC; registered functions have stable
+addresses and the class as their Outer. `DFunction` is the sole descriptor type.
+`GetOuterDClass`, `GetReturnProperty`, `GetSuperFunction`,
+`GetFunctionFlags`, `GetNativeFunc`, and `Invoke` expose the native function model.
+
+`DStructBase` owns root property trees for classes, structs, and functions.
+Function parameter/return properties belong to the function's local property chain,
+never the declaring class's member chain. `Parm`, `ReferenceParm`, `ConstParm`,
+`OutParm`, and `ReturnParm` describe their roles. This property chain is the sole
+runtime signature. Virtual `DStructBase::Link` / `DFunction::Link` derives borrowed
+input indexes and return metadata, validating roles, native types, bounds, alignment
+and overlap before sealing the function layout. Parameter
+buffers and frames bind directly to DFunction; generated aggregate lifecycle
+callbacks operate on the complete native aggregate.
+Each override has a complete local layout. `SuperStructBase` stores parent
+identity and `GetSuperFunction` reads that identity. `GetInheritanceSuper` returns
+null for functions; property enumeration, value iteration and GC schema assembly
+therefore never add a second copy of the parent's parameters. Function properties do not create class
+defaults or become serialized members of target instances.
+
+`Native`, `Virtual`, `Final`, and `Const` flags are independent
 of editor exposure. Signature compatibility compares value kinds, passing modes,
 return type, and method constness; names and presentation do not participate.
 Composite compatibility recursively compares element/key/value schemas, exact
@@ -80,28 +95,47 @@ conversions from hiding an extraction mismatch. Thunks read typed slots from the
 frame and assign the returned value into already-initialized result storage.
 Calls preserve ordinary C++ virtual dispatch and non-public generated access.
 
-`RegisterFunctions` installs a local list exactly once, including an empty list.
+`RegisterFunctions` installs a local pointer list exactly once, including an empty
+list. `ConstructDFunction` uses `FObjectInitializer` and builds owned properties
+under RAII before publishing to the object registry. Derived parameter metadata
+is finalized during linking, after construction and recursive type resolution. Generated
+`FFunctionParams` point directly to property/layout records; no signature factory
+callback constructs a separate descriptor graph.
 Recursive property type resolvers can obtain an in-progress class identity;
 the class construction guard prevents a second metadata installation or early
 function linking during that recursion.
 After the registration batch installs all class metadata, `LinkFunctions` seals
-classes base-first before class default objects are constructed. It validates
+function layouts base-first before class default objects are constructed. It validates
 native descriptors, signature compatibility, virtual overrides, and reflected
 final declarations regardless of descriptor registration order. Errors leave
 the failing class unlinked; successfully linked ancestors remain sealed. Linking
-does not call generated parent construct helpers. No further registration is
+does not call generated parent construct helpers. Layout linking and class
+admission are separate: a successful function Link seals its layout, while
+ProcessEvent requires the complete owning-class override batch to pass. Failed
+layout validation leaves fields mutable and clears partial derived metadata;
+callers may repair the layout and retry. A declaring-class parent change after
+function Link is rejected during class linking. Valid layouts remain sealed even if
+another function or override causes the class batch to fail. No further registration is
 allowed on a linked class. Manually registered classes link on their first lookup
 or enumeration; registration and that first query must occur on the registration
 thread, after ancestor metadata is installed.
 
-`DObject::ProcessEvent(const FFunction*, FMutableByteView)` is the single public
-reflection dispatch entry. It checks target liveness, a non-null descriptor,
+`GetLinkDiagnostic` on the function and `GetFunctionLinkDiagnostic` on the class
+retain the latest link failure: error code, originating class/function, property
+path and reason. Nested paths use `.Inner`, `.Key` and `.Value`. Class linking
+and automatic registration propagate that diagnostic, including failures in an
+ancestor, instead of reducing the failure to an integer code. A successful retry
+clears it. Signature comparison and override linking share the same comparison
+implementation; names remain excluded from compatibility.
+
+`DObject::ProcessEvent(const DFunction*, FMutableByteView)` is the single public
+reflection dispatch entry. It checks target and descriptor liveness,
 class compatibility, linked metadata, the validated signature, parameter size/alignment,
 and native-entry availability before constructing a frame. There is no separate
 no-argument overload or `InvokeVoidNoArgs` wrapper; callers pass an explicit empty
 view for void/no-argument functions. A null descriptor returns `InvalidFunction`,
-incorrect storage size/alignment returns `InvalidParameters`, and an unlinked owner returns
-`UnlinkedFunction`.
+incorrect storage size/alignment returns `InvalidParameters`, and a function not installed by successful class linking returns
+`UnlinkedFunction`, even if its owner already linked other functions.
 
 ```cpp
 const auto* Function = Object->GetClass()->FindFunctionByName("NormalizeSettings");
@@ -110,8 +144,9 @@ const auto Error = Object->ProcessEvent(Function, {});
 
 The virtual object entry permits interception/delegation. Its base implementation
 dispatches the supplied descriptor; callers select an effective override through
-class lookup. Descriptor-native invocation is private to the object entry, so
-editor actions use the same virtual dispatch boundary. `FFunctionFrame` borrows
+class lookup. The single `Invoke(Target, Frame, Result)` native entry requires an
+admitted frame matching the target and function. Editor actions use ProcessEvent
+and the same virtual dispatch boundary. `FFunctionFrame` borrows
 the target, function, and parameter view and links to the previous admitted frame
 on the current thread. `GetCurrentFrame()` is restored on return or exception
 unwinding. Frames and borrowed storage must not escape synchronous dispatch.
@@ -133,7 +168,7 @@ using the wrong type or index is a programmer-contract failure.
 Structs and containers require native default construction, destruction, copy
 construction, and assignment. Aggregate lifetimes and ordinary C++ member calls
 use those native operations; custom struct archive/default-publication operations
-do not replace native call semantics. Detached array/map fields own their nested
+do not replace native call semantics. Array/map property trees own their nested
 property metadata and expose the existing container operations for introspection.
 
 ```cpp
@@ -162,21 +197,47 @@ storage with exactly the selected descriptor's size, alignment, offsets, and
 value types. It does not construct, destroy, or reinterpret the caller's value
 lifetimes. Signature compatibility is semantic; it does not convert arbitrary
 physical layouts. Buffer storage and descriptor/module lifetime must cover the
-entire synchronous call. Descriptor creation validates supported field kinds,
+entire synchronous call. Function linking validates supported field kinds,
 lifecycle, bounds, alignment, and non-overlap and caches that result; dispatch
 does not rebuild or revalidate immutable layout metadata on each call. Owned
 parameter buffer construction and descriptor compatibility reuse this cached
-result as well. Standalone mutable `FFunctionSignature::IsCompatibleWith` still
-validates both layouts before comparing their types.
+result as well. Linking rejects invalid layouts and missing native entries;
+dispatch relies on that successful link instead of repeating those checks.
 
 Function runtime implementation lives in `Private/DObject/Function.cpp`;
-`DClass` retains function registration, lookup, and inheritance linking. Internal
-`TNativePropertyTraits<T>` supplies native kind, concrete property class, and
-referenced type identity to field construction and typed access. Container fields
-are built with mutable, explicitly owned child trees, then published through the
-existing `MakeFunctionProperty<T>` read-only shared pointer. Child ownership does
-not follow the non-owning `FField::Owner` back pointer; parents are destroyed
-before their children, and signature copies can safely share a completed tree.
+`DClass` retains registration, lookup, inheritance linking, and GC ownership edges.
+`StructBase.h` separates metadata field/layout foundations from class/function
+headers; `FunctionTypes.h` contains the invocation declarations without an object
+include cycle. Internal `TNativePropertyTraits<T>` supplies type identity to typed
+access and generated record helpers. `TNativePropertyParams<T>` owns nested
+`FPropertyParamsBase`-derived records; both ordinary member registration and
+`ConstructDFunction` use `ConstructProperties` to construct and attach records
+in declaration order. It calls `ConstructProperty` for concrete field construction,
+validation, metadata and value operations; AddOwnedProperty also attaches the root
+through AddCppProperty, so ownership and chain installation cannot drift apart. The shared constructor explicitly
+owns child trees with typed deleters and destroys parents before children.
+`FField::GetOwnerVariant` exposes the non-owning owner; attaching an existing tree to a different metadata
+scope is rejected instead of silently changing its logical owner. Handwritten
+registration uses the same property/layout records and `ConstructDFunction` as
+generated code. No detached signature or manual compatibility factories remain.
+
+`ValidateNativeProperty` shares concrete field/native storage checks between
+generated property construction and function linking: referenced types, native
+size/alignment, container operations and required value operations. Construction
+still validates record layout and resolvers before interpreting records or
+creating fields. Function linking adds parameter-only restrictions, passing roles,
+nesting limits and aggregate bounds/alignment/overlap. Ordinary fields retain
+their supported generic, blob, bulk-data and accessor layouts; provisional struct
+registration does not require native operations to be complete at construction.
+
+Layout and chain storage are private to DStructBase. Checked layout, super and
+chain APIs reject modification after Link. FField owner/next setters and property
+flag, value-operation and container-schema setters check the owning metadata,
+including nested fields. Borrowed native fixture chains use SetChildProperties
+and retain caller-managed lifetime; generated trees use shared ownership.
+Other class/struct registration and provisional-schema reassembly retain their
+existing lifecycle unless explicitly linked. Parameter buffers require a linked
+layout; callers should normally obtain functions through linked class lookup.
 
 `ArePropertyTypesSame` provides strict recursive native property type identity,
 including referenced descriptors and object pointer storage. Field names and
@@ -192,6 +253,16 @@ observer fields keep their established non-owning behavior. Clearing a slot or
 destroying its buffer releases this temporary reachability; object destruction
 still occurs through the normal GC safe point. Explicit garbage marking remains
 authoritative.
+
+Function Link compiles one immutable reference schema from its local parameters
+and return property. Every owned buffer reuses it; collection traverses values
+without rebuilding the property operation tree. This schema is separate from the
+ordinary member schema because raw object parameter slots are strong. Cached
+struct operations consult the struct's current member schema and native collector,
+including when the member schema was empty or provisional at function linking.
+Later struct registration therefore cannot leave a permanently pruned parameter
+subtree. Weak/soft leaves emit no operation. Failed layout validation publishes
+neither parameter indexes nor a parameter reference schema.
 
 `ProcessEvent` runs on the game thread, defers physical GC throughout the native call, and restores the
 deferral state on exceptions. This protects borrowed aggregates, the target,

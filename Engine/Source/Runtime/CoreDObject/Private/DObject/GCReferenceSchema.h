@@ -20,6 +20,8 @@ namespace Durin
 		class FGCReferenceSchemaRegistry
 		{
 		public:
+			static auto CompileParameters(const DStructBase& Type) -> std::shared_ptr<const FGCReferenceSchema>;
+			static auto Visit(const FGCReferenceSchema& Schema, void* Instance, FReferenceCollector& Collector) -> void;
 			static auto Assemble(DStructBase* Type) -> void;
 			static auto FinalizeAndAssemble(DStructBase* Type) -> void;
 			static auto HasReferences(const DStructBase* Type) -> bool;

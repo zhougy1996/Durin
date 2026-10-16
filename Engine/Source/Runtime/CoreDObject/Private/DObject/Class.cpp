@@ -139,35 +139,40 @@ namespace Durin
 		}
 	}
 
-	auto DClass::FindFunctionByName(FName Name, bool bIncludeSuper) const -> const FFunction*
+	auto DClass::EnsureFunctionsLinked() const -> void
 	{
 		if (!bFunctionsLinked)
 		{
 			const auto Error = const_cast<DClass*>(this)->LinkFunctions();
-			requiref(Error == EFunctionLinkError::None, "Failed to link functions for '{}' (error {}).",
-				GetQualifiedName().ToString(), static_cast<uint32>(Error));
+			requiref(Error == EFunctionLinkError::None, "Failed to link functions for '{}': {}",
+				GetQualifiedName().ToString(), ToString(FunctionLinkDiagnostic));
 		}
+	}
+
+	auto DClass::FindFunctionByName(FName Name, bool bIncludeSuper) const -> const DFunction*
+	{
+		EnsureFunctionsLinked();
 		const auto It = FunctionMap.find(Name);
-		if (It == FunctionMap.end() || (!bIncludeSuper && It->second->GetOwnerClass() != this)) return nullptr;
+		if (It == FunctionMap.end() || (!bIncludeSuper && It->second->GetOuterDClass() != this)) return nullptr;
 		return It->second;
 	}
 
-	auto DClass::ForEachFunction(const std::function<void(const FFunction&)>& Visitor, bool bIncludeSuper) const -> void
+	auto DClass::ForEachFunction(const std::function<void(const DFunction&)>& Visitor, bool bIncludeSuper) const -> void
 	{
-		if (!bFunctionsLinked)
-		{
-			const auto Error = const_cast<DClass*>(this)->LinkFunctions();
-			requiref(Error == EFunctionLinkError::None, "Failed to link functions for '{}' (error {}).",
-				GetQualifiedName().ToString(), static_cast<uint32>(Error));
-		}
+		EnsureFunctionsLinked();
 		for (const auto* Function : EffectiveFunctions)
-			if (bIncludeSuper || Function->GetOwnerClass() == this) Visitor(*Function);
+			if (bIncludeSuper || Function->GetOuterDClass() == this) Visitor(*Function);
 	}
 
 	auto DClass::LinkFunctions() -> EFunctionLinkError
 	{
 		if (bFunctionsLinked) return EFunctionLinkError::None;
-		if (bLinkingFunctions) return EFunctionLinkError::InheritanceCycle;
+		if (bLinkingFunctions)
+		{
+			FunctionLinkDiagnostic = {EFunctionLinkError::InheritanceCycle, GetQualifiedName().ToString(), {}, {}, "class inheritance cycle"};
+			return EFunctionLinkError::InheritanceCycle;
+		}
+		FunctionLinkDiagnostic = {};
 		struct FLinkGuard
 		{
 			bool& bLinking;
@@ -178,40 +183,56 @@ namespace Durin
 		if (Parent)
 		{
 			const auto Error = Parent->LinkFunctions();
-			if (Error != EFunctionLinkError::None) return Error;
+			if (Error != EFunctionLinkError::None) { FunctionLinkDiagnostic = Parent->GetFunctionLinkDiagnostic(); return Error; }
 		}
 		// Validate the entire local list before publishing any links or lookup entries.
 		for (const auto& Function : Functions)
 		{
-			if (!Function.HasAnyFlags(EFunctionFlags::Native) || !Function.NativeFunction
-				|| !Function.bValidSignature
-				|| (Function.HasAnyFlags(EFunctionFlags::Final) && !Function.HasAnyFlags(EFunctionFlags::Virtual)))
+			auto Reject = [&](EFunctionLinkError Code, const char* Reason) {
+				Function->FailLink(Code, {}, Reason);
+				FunctionLinkDiagnostic = Function->GetLinkDiagnostic();
+				return Code;
+			};
+			if (!Function->HasAnyFunctionFlags(EFunctionFlags::Native)) return Reject(EFunctionLinkError::InvalidDescriptor, "native function flag is missing");
+			if (!Function->NativeFunction) return Reject(EFunctionLinkError::InvalidDescriptor, "native function entry is missing");
+			if (!Function->Link())
+			{
+				FunctionLinkDiagnostic = Function->GetLinkDiagnostic();
 				return EFunctionLinkError::InvalidDescriptor;
-			const auto* Super = Parent ? Parent->FindFunctionByName(Function.GetName()) : nullptr;
+			}
+			if (Function->HasAnyFunctionFlags(EFunctionFlags::Final) && !Function->HasAnyFunctionFlags(EFunctionFlags::Virtual))
+				return Reject(EFunctionLinkError::InvalidDescriptor, "Final requires a virtual function");
+			const auto* Super = Parent ? Parent->FindFunctionByName(Function->GetFName()) : nullptr;
 			if (!Super) continue;
-			if (!Super->HasAnyFlags(EFunctionFlags::Virtual) || !Function.HasAnyFlags(EFunctionFlags::Virtual))
-				return EFunctionLinkError::NonVirtualOverride;
-			if (Super->HasAnyFlags(EFunctionFlags::Final)) return EFunctionLinkError::FinalOverride;
-			if (!Function.IsSignatureCompatibleWith(*Super)) return EFunctionLinkError::SignatureMismatch;
+			if (!Super->HasAnyFunctionFlags(EFunctionFlags::Virtual) || !Function->HasAnyFunctionFlags(EFunctionFlags::Virtual))
+				return Reject(EFunctionLinkError::NonVirtualOverride, "reflected hiding/overriding requires both functions to be virtual");
+			if (Super->HasAnyFunctionFlags(EFunctionFlags::Final)) return Reject(EFunctionLinkError::FinalOverride, "cannot override a final function");
+			auto Mismatch = Function->GetSignatureMismatch(*Super);
+			if (Mismatch.HasError())
+			{
+				Function->LinkDiagnostic = std::move(Mismatch);
+				FunctionLinkDiagnostic = Function->GetLinkDiagnostic();
+				return EFunctionLinkError::SignatureMismatch;
+			}
 		}
 		if (Parent) FunctionMap = Parent->FunctionMap;
 		for (auto& Function : Functions)
 		{
-			Function.SuperFunction = Parent ? Parent->FindFunctionByName(Function.GetName()) : nullptr;
-			FunctionMap[Function.GetName()] = &Function;
+			FunctionMap[Function->GetFName()] = Function;
+			Function->bLinked = true;
 		}
 		for (const auto& [Name, Function] : FunctionMap) EffectiveFunctions.push_back(Function);
 		bFunctionsLinked = true;
 		std::ranges::sort(EffectiveFunctions, [](const auto* A, const auto* B) {
 			const auto& RootA = A->GetRootFunction();
 			const auto& RootB = B->GetRootFunction();
-			return std::pair(RootA.GetOwnerClass()->GetQualifiedName().ToString(), RootA.GetName().ToString())
-				< std::pair(RootB.GetOwnerClass()->GetQualifiedName().ToString(), RootB.GetName().ToString());
+			return std::pair(RootA.GetOuterDClass()->GetQualifiedName().ToString(), RootA.GetFName().ToString())
+				< std::pair(RootB.GetOuterDClass()->GetQualifiedName().ToString(), RootB.GetFName().ToString());
 		});
 		return EFunctionLinkError::None;
 	}
 
-	auto DClass::RegisterFunctions(std::vector<FFunction> InFunctions) -> void
+	auto DClass::RegisterFunctions(std::vector<DFunction*> InFunctions) -> void
 	{
 		requiref(!bFunctionsRegistered && !bFunctionsLinked,
 			"Cannot register functions for '{}' (registered {}, linked {}, local {}, incoming {}).",
@@ -219,11 +240,62 @@ namespace Durin
 		std::unordered_set<FName> Names;
 		for (const auto& Function : InFunctions)
 		{
-			require(Function.GetOwnerClass() == this && !Function.GetName().IsNone());
-			require(Names.insert(Function.GetName()).second);
+			require(Function && Function->GetOuterDClass() == this && !Function->GetFName().IsNone());
+			require(Names.insert(Function->GetFName()).second);
 		}
 		Functions = std::move(InFunctions);
 		bFunctionsRegistered = true;
+	}
+
+	auto DStructBase::CheckPropertiesMutable() const -> void
+	{
+		requiref(!bPropertiesLinked, "Metadata '{}' is linked and cannot be modified.", GetName());
+	}
+
+	auto DStructBase::SetChildProperties(FField* Properties) -> void
+	{
+		CheckPropertiesMutable();
+		std::unordered_set<FField*> Seen;
+		for (auto* Field = Properties; Field; Field = Field->GetNext())
+		{
+			require(Seen.insert(Field).second);
+			require(!Field->GetOwnerVariant().IsValid() || Field->GetOwnerVariant().ToDObject() == this);
+			Field->SetOwner(FFieldVariant(this));
+		}
+		ChildProperties = Properties;
+	}
+
+	auto DStructBase::AddCppProperty(FProperty* Property) -> void
+	{
+		CheckPropertiesMutable();
+		require(Property && !Property->GetNext());
+		requiref(!Property->GetOwnerVariant().IsValid() || Property->GetOwnerVariant().ToDObject() == this,
+			"Property '{}' already belongs to another metadata scope.", Property->NamePrivate.ToString());
+		Property->SetOwner(FFieldVariant(this));
+		FField* Last = nullptr;
+		for (auto* Field = ChildProperties; Field; Field = Field->GetNext())
+		{
+			require(Field != Property);
+			Last = Field;
+		}
+		if (Last) Last->SetNext(Property);
+		else ChildProperties = Property;
+	}
+
+	auto DStructBase::AddOwnedProperty(std::shared_ptr<const FProperty> Property) -> FProperty*
+	{
+		auto* Result = const_cast<FProperty*>(Property.get());
+		AddCppProperty(Result);
+		OwnedProperties.push_back(std::move(Property));
+		return Result;
+	}
+
+	auto DStructBase::AddReferencedObjects(FReferenceCollector& Collector) -> void
+	{
+		Super::AddReferencedObjects(Collector);
+		DObject* SuperObject = SuperStructBase;
+		Collector.AddReferencedObject(SuperObject);
+		require(SuperObject == SuperStructBase);
 	}
 
 	auto DStructBase::RegisterDependencies() -> void
@@ -236,12 +308,12 @@ namespace Durin
 
 	auto DStructBase::ForEachProperty(const std::function<void(FProperty*)>& Visitor, bool bIncludeSuper) const -> void
 	{
-		if (bIncludeSuper && SuperStructBase)
+		if (auto* Super = bIncludeSuper ? GetInheritanceSuper() : nullptr)
 		{
-			SuperStructBase->ForEachProperty(Visitor, true);
+			Super->ForEachProperty(Visitor, true);
 		}
 
-		for (FField* Field = ChildProperties; Field; Field = Field->Next)
+		for (FField* Field = ChildProperties; Field; Field = Field->GetNext())
 		{
 			Visitor(static_cast<FProperty*>(Field));
 		}
@@ -350,7 +422,7 @@ namespace Durin
 	{
 		if (DefaultState.load(std::memory_order_relaxed) != EDStructDefaultState::Uninitialized) return false;
 		EDStructDefaultReason Reason = EDStructDefaultReason::None;
-		if (PropertiesSize == 0 || MinAlignment == 0 || (MinAlignment & (MinAlignment - 1)) != 0)
+		if (GetStructureSize() == 0 || GetMinAlignment() == 0 || (GetMinAlignment() & (GetMinAlignment() - 1)) != 0)
 			Reason = EDStructDefaultReason::InvalidLayout;
 		else if (!bOpsInitialized)
 			Reason = EDStructDefaultReason::MissingInitializedOps;
@@ -436,7 +508,7 @@ namespace Durin
 	{
 		if (!Value) return;
 		if (NeedsDestroy()) Ops->Destroy(Value);
-		::operator delete(Value, std::align_val_t(MinAlignment));
+		::operator delete(Value, std::align_val_t(GetMinAlignment()));
 	}
 
 	DEnum::DEnum(
@@ -736,8 +808,8 @@ namespace Durin
 				std::vector<DObject*> SideEffectObjects;
 				try
 				{
-					First = ::operator new(Struct->PropertiesSize, std::align_val_t(Struct->MinAlignment));
-					Second = ::operator new(Struct->PropertiesSize, std::align_val_t(Struct->MinAlignment));
+					First = ::operator new(Struct->GetStructureSize(), std::align_val_t(Struct->GetMinAlignment()));
+					Second = ::operator new(Struct->GetStructureSize(), std::align_val_t(Struct->GetMinAlignment()));
 					Struct->Ops->DefaultConstruct(First);
 					bFirstLive = true;
 					Struct->Ops->DefaultConstruct(Second);
@@ -769,11 +841,11 @@ namespace Durin
 				}
 
 				if (bSecondLive) Struct->DestroyDefaultStorage(Second);
-				else if (Second) ::operator delete(Second, std::align_val_t(Struct->MinAlignment));
+				else if (Second) ::operator delete(Second, std::align_val_t(Struct->GetMinAlignment()));
 				if (Failure != EDStructDefaultReason::None)
 				{
 					if (bFirstLive) Struct->DestroyDefaultStorage(First);
-					else if (First) ::operator delete(First, std::align_val_t(Struct->MinAlignment));
+					else if (First) ::operator delete(First, std::align_val_t(Struct->GetMinAlignment()));
 					if (!SideEffectObjects.empty())
 					{
 						const std::unordered_set<DObject*> SideEffectSet(
@@ -847,6 +919,12 @@ namespace Durin
 	auto DClass::AddReferencedObjects(FReferenceCollector& Collector) -> void
 	{
 		Super::AddReferencedObjects(Collector);
+		for (auto* Function : Functions)
+		{
+			DObject* FunctionObject = Function;
+			Collector.AddReferencedObject(FunctionObject);
+			require(FunctionObject == Function);
+		}
 		if (DefaultObjectState.load(std::memory_order_acquire) == EClassDefaultObjectState::Ready)
 		{
 			Collector.AddReferencedObject(ClassDefaultObject);
@@ -860,7 +938,7 @@ namespace Durin
 		else if (HasAnyClassFlags(EClassFlags::Intrinsic)) DefaultObjectReason = EClassDefaultObjectReason::Intrinsic;
 		else if (HasAnyClassFlags(EClassFlags::NoClassDefaultObject)) DefaultObjectReason = EClassDefaultObjectReason::NoClassDefaultObject;
 		else if (!ClassConstructor) DefaultObjectReason = EClassDefaultObjectReason::MissingConstructor;
-		else if (PropertiesSize < sizeof(DObject) || MinAlignment == 0) DefaultObjectReason = EClassDefaultObjectReason::InvalidLayout;
+		else if (GetStructureSize() < sizeof(DObject) || GetMinAlignment() == 0) DefaultObjectReason = EClassDefaultObjectReason::InvalidLayout;
 		else return true;
 
 		DefaultObjectState.store(EClassDefaultObjectState::Ineligible, std::memory_order_release);

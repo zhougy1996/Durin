@@ -2,6 +2,8 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/StrongObjectPtr.h"
 #include "DObject/FunctionParameters.h"
+#include "DObject/PropertyValueIterator.h"
+#include "DObject/PropertyValidation.h"
 #include "FunctionReflectionTestTypes.h"
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
@@ -32,6 +34,47 @@ namespace
 		FObservedParameters() { ++GParameterConstructed; }
 		~FObservedParameters() { ++GParameterDestroyed; }
 	};
+	struct FDeferredFunctionPayload
+	{
+		TObjectPtr<DObject> Object;
+		DObject* Raw = nullptr;
+		static auto StaticStruct() -> DStruct*
+		{
+			static auto* Struct = [] {
+				auto* Type = new DStruct(EC_StaticConstructor, "Tests::FDeferredFunctionPayload", "FDeferredFunctionPayload",
+					sizeof(FDeferredFunctionPayload), alignof(FDeferredFunctionPayload), EObjectFlags::Transient);
+				Type->Register(DStruct::StaticClass, "", "FDeferredFunctionPayload");
+				DObjectForceRegistration(Type);
+				Type->InitializeOps(&GetDStructOps<FDeferredFunctionPayload>());
+				return Type;
+			}();
+			return Struct;
+		}
+	};
+	struct FNativeReferenceFunctionPayload
+	{
+		DObject* Object = nullptr; // Only the native collector declares this reference.
+		static auto StaticStruct() -> DStruct*
+		{
+			static auto* Struct = [] {
+				static const FDStructOps Ops = [] {
+					auto Result = GetDStructOps<FNativeReferenceFunctionPayload>();
+					Result.Flags |= EDStructOpsFlags::CollectReferences;
+					Result.CollectReferences = +[](void* Value, FReferenceCollector& Collector) {
+						Collector.AddReferencedObject(static_cast<FNativeReferenceFunctionPayload*>(Value)->Object);
+					};
+					return Result;
+				}();
+				auto* Type = new DStruct(EC_StaticConstructor, "Tests::FNativeReferenceFunctionPayload", "FNativeReferenceFunctionPayload",
+					sizeof(FNativeReferenceFunctionPayload), alignof(FNativeReferenceFunctionPayload), EObjectFlags::Transient);
+				Type->Register(DStruct::StaticClass, "", "FNativeReferenceFunctionPayload");
+				DObjectForceRegistration(Type);
+				Type->InitializeOps(&Ops);
+				return Type;
+			}();
+			return Struct;
+		}
+	};
 
 	template<typename T = DObject>
 	auto MakeFunctionClass(const char* Name, DClass* Base = nullptr) -> DClass*
@@ -46,10 +89,9 @@ namespace
 		return Class;
 	}
 
-	auto MakeFunction(DClass* Owner, const char* Name, EFunctionFlags Flags = EFunctionFlags::Virtual) -> FFunction
+	auto MakeFunction(DClass* Owner, const char* Name, EFunctionFlags Flags = EFunctionFlags::Virtual) -> DFunction*
 	{
-		return FFunction(Owner, Name, FFunctionSignature{}, Flags | EFunctionFlags::Native,
-			"Actions", Name, "", +[](DObject&, FFunctionFrame&, void*) {});
+		return DurinCodeGen::ConstructDFunction(Owner, {Name, nullptr, Flags | EFunctionFlags::Native, "Actions", Name, "", +[](DObject&, FFunctionFrame&, void*) {}});
 	}
 
 	class DRecursiveFunctionTarget : public DObject
@@ -80,7 +122,7 @@ namespace
 	}
 }
 
-TEST(FFunctionReflectionTests, RecursivePropertyResolutionInstallsFunctionsOnlyOnce)
+TEST(DFunctionReflectionTests, RecursivePropertyResolutionInstallsFunctionsOnlyOnce)
 {
 	GRecursiveFunctionClass = MakeFunctionClass<DRecursiveFunctionTarget>("Tests::DRecursiveFunctionTarget");
 	auto* Class = ConstructRecursiveFunctionClass();
@@ -92,7 +134,7 @@ TEST(FFunctionReflectionTests, RecursivePropertyResolutionInstallsFunctionsOnlyO
 	EXPECT_EQ(Count, 2u);
 }
 
-TEST(FFunctionReflectionTests, LinkingResolvesLateParentsAndCachesEffectiveSlots)
+TEST(DFunctionReflectionTests, LinkingResolvesLateParentsAndCachesEffectiveSlots)
 {
 	auto* Base = MakeFunctionClass("Tests::DFunctionLinkBase");
 	auto* Middle = MakeFunctionClass("Tests::DFunctionLinkMiddle", Base);
@@ -108,20 +150,20 @@ TEST(FFunctionReflectionTests, LinkingResolvesLateParentsAndCachesEffectiveSlots
 	EXPECT_EQ(Function->GetSuperFunction(), Base->FindFunctionByName("Run"));
 	EXPECT_EQ(&Function->GetRootFunction(), Base->FindFunctionByName("Run"));
 	EXPECT_TRUE(Function->IsSignatureCompatibleWith(*Function->GetSuperFunction()));
-	EXPECT_TRUE(Function->GetSignature().IsVoidNoArgs());
+	EXPECT_TRUE((Function->GetNumParms() == 0));
 	EXPECT_EQ(Derived->FindFunctionByName("Inherited", false), nullptr);
 	EXPECT_EQ(Derived->FindFunctionByName("Missing"), nullptr);
 	std::vector<FName> Names;
-	Derived->ForEachFunction([&](const FFunction& Entry) { Names.push_back(Entry.GetName()); });
+	Derived->ForEachFunction([&](const DFunction& Entry) { Names.push_back(Entry.GetFName()); });
 	EXPECT_EQ(Names, (std::vector<FName>{"Inherited", "Run", "Local"}));
 	Names.clear();
-	Derived->ForEachFunction([&](const FFunction& Entry) { Names.push_back(Entry.GetName()); }, false);
+	Derived->ForEachFunction([&](const DFunction& Entry) { Names.push_back(Entry.GetFName()); }, false);
 	EXPECT_EQ(Names, (std::vector<FName>{"Run", "Local"}));
 	EXPECT_EQ(Derived->LinkFunctions(), EFunctionLinkError::None);
 	EXPECT_EQ(Derived->FindFunctionByName("Run"), Function);
 }
 
-TEST(FFunctionReflectionTests, LinkingRejectsNonVirtualHidingRegardlessOfRegistrationOrder)
+TEST(DFunctionReflectionTests, LinkingRejectsNonVirtualHidingRegardlessOfRegistrationOrder)
 {
 	for (const bool bDerivedFirst : {false, true})
 	{
@@ -136,7 +178,7 @@ TEST(FFunctionReflectionTests, LinkingRejectsNonVirtualHidingRegardlessOfRegistr
 	}
 }
 
-TEST(FFunctionReflectionTests, LinkingRejectsFinalOverrideThroughAnIntermediateClass)
+TEST(DFunctionReflectionTests, LinkingRejectsFinalOverrideThroughAnIntermediateClass)
 {
 	auto* Base = MakeFunctionClass("Tests::DFinalFunctionBase");
 	auto* Middle = MakeFunctionClass("Tests::DFinalFunctionMiddle", Base);
@@ -147,15 +189,14 @@ TEST(FFunctionReflectionTests, LinkingRejectsFinalOverrideThroughAnIntermediateC
 	EXPECT_FALSE(Derived->AreFunctionsLinked());
 }
 
-TEST(FFunctionReflectionTests, InvocationRequiresLinkedMetadataAndALiveCompatibleTarget)
+TEST(DFunctionReflectionTests, InvocationRequiresLinkedMetadataAndALiveCompatibleTarget)
 {
 	auto* Class = MakeFunctionClass("Tests::DFunctionInvocationTarget");
 	GFunctionInvocations = 0;
-	FFunction Function(Class, "Run", FFunctionSignature{}, EFunctionFlags::Native,
-		"Actions", "Run", "", +[](DObject&, FFunctionFrame&, void*) { ++GFunctionInvocations; });
+	auto* Function = DurinCodeGen::ConstructDFunction(Class, {"Run", nullptr, EFunctionFlags::Native, "Actions", "Run", "", +[](DObject&, FFunctionFrame&, void*) { ++GFunctionInvocations; }});
 	TStrongObjectPtr<DObject> Target(NewObject(Class, nullptr, "FunctionInvocationTarget"));
 	ASSERT_TRUE(Target);
-	EXPECT_EQ(Target->ProcessEvent(&Function, {}), EFunctionInvokeError::UnlinkedFunction);
+	EXPECT_EQ(Target->ProcessEvent(Function, {}), EFunctionInvokeError::UnlinkedFunction);
 	EXPECT_EQ(GFunctionInvocations, 0);
 	Class->RegisterFunctions({Function});
 	ASSERT_EQ(Class->LinkFunctions(), EFunctionLinkError::None);
@@ -178,15 +219,27 @@ TEST(FFunctionReflectionTests, InvocationRequiresLinkedMetadataAndALiveCompatibl
 	EXPECT_EQ(GFunctionInvocations, 1);
 }
 
-TEST(FFunctionReflectionTests, NestedProcessEventBuildsAndRestoresNativeFrames)
+TEST(DFunctionReflectionTests, DispatchRejectsUntrackedAndUnregisteredFunctionMetadata)
+{
+	auto* Class = MakeFunctionClass("Tests::DFunctionMetadataAdmission");
+	auto* Function = MakeFunction(Class, "Run");
+	Class->RegisterFunctions({Function});
+	ASSERT_EQ(Class->LinkFunctions(), EFunctionLinkError::None);
+	TStrongObjectPtr<DObject> Target(NewObject(Class, nullptr, "MetadataAdmission"));
+	auto* Unregistered = MakeFunction(Class, "Unregistered");
+	EXPECT_EQ(Target->ProcessEvent(Unregistered, {}), EFunctionInvokeError::UnlinkedFunction);
+	DFunction Untracked(FObjectInitializer{});
+	EXPECT_EQ(Target->ProcessEvent(&Untracked, {}), EFunctionInvokeError::InvalidFunction);
+}
+
+TEST(DFunctionReflectionTests, NestedProcessEventBuildsAndRestoresNativeFrames)
 {
 	auto* Class = MakeFunctionClass("Tests::DNestedFunctionTarget");
 	GFunctionInvocations = 0;
 	Class->RegisterFunctions({
-		FFunction(Class, "Outer", FFunctionSignature{}, EFunctionFlags::Native,
-			"Actions", "Outer", "", +[](DObject& Target, FFunctionFrame& Frame, void* Result) {
+		DurinCodeGen::ConstructDFunction(Class, {"Outer", nullptr, EFunctionFlags::Native, "Actions", "Outer", "", +[](DObject& Target, FFunctionFrame& Frame, void* Result) {
 				EXPECT_EQ(&Frame.GetObject(), &Target);
-				EXPECT_EQ(Frame.GetFunction().GetName(), FName("Outer"));
+				EXPECT_EQ(Frame.GetFunction().GetFName(), FName("Outer"));
 				EXPECT_EQ(Frame.GetPreviousFrame(), nullptr);
 				EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), &Frame);
 				EXPECT_EQ(Result, nullptr);
@@ -197,18 +250,17 @@ TEST(FFunctionReflectionTests, NestedProcessEventBuildsAndRestoresNativeFrames)
 				EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), &Frame);
 				EXPECT_EQ(Target.ProcessEvent(Inner, {}), EFunctionInvokeError::None);
 				EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), &Frame);
-			}),
-		FFunction(Class, "Inner", FFunctionSignature{}, EFunctionFlags::Native,
-			"Actions", "Inner", "", +[](DObject& Target, FFunctionFrame& Frame, void* Result) {
+			}}),
+		DurinCodeGen::ConstructDFunction(Class, {"Inner", nullptr, EFunctionFlags::Native, "Actions", "Inner", "", +[](DObject& Target, FFunctionFrame& Frame, void* Result) {
 				ASSERT_NE(Frame.GetPreviousFrame(), nullptr);
 				EXPECT_EQ(&Frame.GetObject(), &Target);
-				EXPECT_EQ(Frame.GetFunction().GetName(), FName("Inner"));
-				EXPECT_EQ(Frame.GetPreviousFrame()->GetFunction().GetName(), FName("Outer"));
+				EXPECT_EQ(Frame.GetFunction().GetFName(), FName("Inner"));
+				EXPECT_EQ(Frame.GetPreviousFrame()->GetFunction().GetFName(), FName("Outer"));
 				EXPECT_EQ(&Frame.GetPreviousFrame()->GetObject(), &Target);
 				EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), &Frame);
 				EXPECT_EQ(Result, nullptr);
 				++GFunctionInvocations;
-			})});
+			}})});
 	TStrongObjectPtr<DObject> Target(NewObject(Class, nullptr, "NestedFunctionTarget"));
 	ASSERT_TRUE(Target);
 	ASSERT_EQ(Class->LinkFunctions(), EFunctionLinkError::None);
@@ -217,14 +269,13 @@ TEST(FFunctionReflectionTests, NestedProcessEventBuildsAndRestoresNativeFrames)
 	EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), nullptr);
 }
 
-TEST(FFunctionReflectionTests, NativeExceptionUnwindsTheCallFrameWithoutConvertingDomainFailure)
+TEST(DFunctionReflectionTests, NativeExceptionUnwindsTheCallFrameWithoutConvertingDomainFailure)
 {
 	auto* Class = MakeFunctionClass("Tests::DThrowingFunctionTarget");
-	Class->RegisterFunctions({FFunction(Class, "Throw", FFunctionSignature{}, EFunctionFlags::Native,
-		"Actions", "Throw", "", +[](DObject&, FFunctionFrame& Frame, void*) {
+	Class->RegisterFunctions({DurinCodeGen::ConstructDFunction(Class, {"Throw", nullptr, EFunctionFlags::Native, "Actions", "Throw", "", +[](DObject&, FFunctionFrame& Frame, void*) {
 			EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), &Frame);
 			throw std::runtime_error("native function body");
-		})});
+		}})});
 	TStrongObjectPtr<DObject> Target(NewObject(Class, nullptr, "ThrowingFunctionTarget"));
 	ASSERT_TRUE(Target);
 	ASSERT_EQ(Class->LinkFunctions(), EFunctionLinkError::None);
@@ -232,18 +283,17 @@ TEST(FFunctionReflectionTests, NativeExceptionUnwindsTheCallFrameWithoutConverti
 	EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), nullptr);
 }
 
-TEST(FFunctionReflectionTests, GeneratedStringArgumentsReferenceOutputAndReturnUseInitializedStorage)
+TEST(DFunctionReflectionTests, GeneratedStringArgumentsReferenceOutputAndReturnUseInitializedStorage)
 {
 	Testing::InitializeDObjectSystemForTests();
 	TStrongObjectPtr<FunctionFixtures::DParameterTarget> Target(NewObject<FunctionFixtures::DParameterTarget>(nullptr, "StringParameters"));
 	const auto* Function = Target->GetClass()->FindFunctionByName("Combine");
 	ASSERT_NE(Function, nullptr);
-	const auto& Signature = Function->GetSignature();
-	ASSERT_EQ(Signature.Parameters.size(), 3u);
-	EXPECT_TRUE(Function->HasAnyFlags(EFunctionFlags::Const));
-	EXPECT_EQ(Signature.Parameters[1].Passing, EFunctionParameterPassing::ConstReference);
-	EXPECT_EQ(Signature.Parameters[2].Passing, EFunctionParameterPassing::Reference);
-	ASSERT_NE(Signature.ReturnProperty, nullptr);
+	ASSERT_EQ(Function->GetNumInputParms(), 3u);
+	EXPECT_TRUE(Function->HasAnyFunctionFlags(EFunctionFlags::Const));
+	EXPECT_TRUE(Function->GetParameterProperty(1)->HasAnyPropertyFlags(EPropertyFlags::ReferenceParm | EPropertyFlags::ConstParm));
+	EXPECT_TRUE(Function->GetParameterProperty(2)->HasAnyPropertyFlags(EPropertyFlags::OutParm));
+	ASSERT_NE(Function->GetReturnProperty(), nullptr);
 	FFunctionParameterBuffer Buffer(*Function);
 	EXPECT_TRUE(Buffer.GetParameter<std::string>(1).empty());
 	EXPECT_TRUE(Buffer.GetReturnValue<std::string>().empty());
@@ -257,40 +307,40 @@ TEST(FFunctionReflectionTests, GeneratedStringArgumentsReferenceOutputAndReturnU
 	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
 	EXPECT_EQ(Buffer.GetReturnValue<std::string>(), "value=7!");
 	EXPECT_EQ(Target->ProcessEvent(Function, {}), EFunctionInvokeError::InvalidParameters);
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView().first(Signature.ParmsSize - 1)), EFunctionInvokeError::InvalidParameters);
-	std::vector<std::byte> Misaligned(Signature.ParmsSize + Signature.ParmsAlignment);
+	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView().first(Function->GetParmsSize() - 1)), EFunctionInvokeError::InvalidParameters);
+	std::vector<std::byte> Misaligned(Function->GetParmsSize() + Function->GetMinAlignment());
 	size_t Offset = 0;
-	while (reinterpret_cast<uintptr_t>(Misaligned.data() + Offset) % Signature.ParmsAlignment == 0) ++Offset;
-	EXPECT_EQ(Target->ProcessEvent(Function, {Misaligned.data() + Offset, Signature.ParmsSize}), EFunctionInvokeError::InvalidParameters);
+	while (reinterpret_cast<uintptr_t>(Misaligned.data() + Offset) % Function->GetMinAlignment() == 0) ++Offset;
+	EXPECT_EQ(Target->ProcessEvent(Function, {Misaligned.data() + Offset, Function->GetParmsSize()}), EFunctionInvokeError::InvalidParameters);
 }
 
-TEST(FFunctionReflectionTests, GeneratedThunkAcceptsBorrowedCompilerLaidOutParameterAggregate)
+TEST(DFunctionReflectionTests, GeneratedThunkAcceptsBorrowedCompilerLaidOutParameterAggregate)
 {
 	Testing::InitializeDObjectSystemForTests();
 	TStrongObjectPtr<FunctionFixtures::DParameterTarget> Target(NewObject<FunctionFixtures::DParameterTarget>(nullptr, "BorrowedParameters"));
 	const auto* Function = Target->GetClass()->FindFunctionByName("Combine");
 	ASSERT_NE(Function, nullptr);
 	struct FArguments { int32 Value; std::string Prefix, Output, ReturnValue; } Arguments{6, "raw=", {}, {}};
-	ASSERT_EQ(sizeof(Arguments), Function->GetSignature().ParmsSize);
-	ASSERT_EQ(offsetof(FArguments, ReturnValue), Function->GetSignature().ReturnProperty->GetOffset());
+	ASSERT_EQ(sizeof(Arguments), Function->GetParmsSize());
+	ASSERT_EQ(offsetof(FArguments, ReturnValue), Function->GetReturnProperty()->GetOffset());
 	EXPECT_EQ(Target->ProcessEvent(Function, std::as_writable_bytes(std::span(&Arguments, 1))), EFunctionInvokeError::None);
 	EXPECT_EQ(Arguments.Output, "raw=6");
 	EXPECT_EQ(Arguments.ReturnValue, "raw=6!");
 }
 
-TEST(FFunctionReflectionTests, GeneratedReturnOnlyReferenceOnlyAndMixedAlignmentSignaturesDispatch)
+TEST(DFunctionReflectionTests, GeneratedReturnOnlyReferenceOnlyAndMixedAlignmentSignaturesDispatch)
 {
 	Testing::InitializeDObjectSystemForTests();
 	TStrongObjectPtr<FunctionFixtures::DParameterTarget> Target(NewObject<FunctionFixtures::DParameterTarget>(nullptr, "MixedParameters"));
 	const auto* Read = Target->GetClass()->FindFunctionByName("ReadValue");
 	ASSERT_NE(Read, nullptr);
-	EXPECT_FALSE(Read->GetSignature().IsVoidNoArgs());
+	EXPECT_FALSE((Read->GetNumParms() == 0));
 	FFunctionParameterBuffer ReadBuffer(*Read);
 	EXPECT_EQ(Target->ProcessEvent(Read, ReadBuffer.GetView()), EFunctionInvokeError::None);
 	EXPECT_EQ(ReadBuffer.GetReturnValue<int32>(), 17);
 	const auto* Update = Target->GetClass()->FindFunctionByName("Update");
 	ASSERT_NE(Update, nullptr);
-	EXPECT_EQ(Update->GetSignature().ReturnProperty, nullptr);
+	EXPECT_EQ(Update->GetReturnProperty(), nullptr);
 	FFunctionParameterBuffer UpdateBuffer(*Update);
 	UpdateBuffer.GetParameter<int32>(0) = 3;
 	EXPECT_EQ(Target->ProcessEvent(Update, UpdateBuffer.GetView()), EFunctionInvokeError::None);
@@ -305,7 +355,7 @@ TEST(FFunctionReflectionTests, GeneratedReturnOnlyReferenceOnlyAndMixedAlignment
 	EXPECT_DOUBLE_EQ(MixedBuffer.GetReturnValue<double>(), -3.75);
 }
 
-TEST(FFunctionReflectionTests, GeneratedNameAndGuidValuesRoundTrip)
+TEST(DFunctionReflectionTests, GeneratedNameAndGuidValuesRoundTrip)
 {
 	Testing::InitializeDObjectSystemForTests();
 	TStrongObjectPtr<FunctionFixtures::DParameterTarget> Target(NewObject<FunctionFixtures::DParameterTarget>(nullptr, "NameGuidParameters"));
@@ -324,7 +374,7 @@ TEST(FFunctionReflectionTests, GeneratedNameAndGuidValuesRoundTrip)
 	EXPECT_EQ(NameBuffer.GetReturnValue<FName>(), FName("FunctionValue"));
 }
 
-TEST(FFunctionReflectionTests, ParameterizedVirtualOverridePreservesSlotAndIgnoresParameterNames)
+TEST(DFunctionReflectionTests, ParameterizedVirtualOverridePreservesSlotAndIgnoresParameterNames)
 {
 	Testing::InitializeDObjectSystemForTests();
 	TStrongObjectPtr<FunctionFixtures::DParameterDerived> Target(NewObject<FunctionFixtures::DParameterDerived>(nullptr, "OverrideParameters"));
@@ -333,8 +383,16 @@ TEST(FFunctionReflectionTests, ParameterizedVirtualOverridePreservesSlotAndIgnor
 	ASSERT_NE(Base, nullptr);
 	ASSERT_NE(Derived, nullptr);
 	EXPECT_EQ(Derived->GetSuperFunction(), Base);
+	EXPECT_EQ(Derived->GetSuperStructBase(), Base);
+	EXPECT_EQ(Derived->GetInheritanceSuper(), nullptr);
 	EXPECT_TRUE(Derived->IsSignatureCompatibleWith(*Base));
+	size_t Fields = 0;
+	Derived->ForEachProperty([&](FProperty* Property) { ++Fields; EXPECT_EQ(Property->GetOwnerVariant().ToDObject(), Derived); });
+	EXPECT_EQ(Fields, Derived->GetNumParms());
 	FFunctionParameterBuffer Buffer(*Base);
+	size_t Values = 0;
+	for (FPropertyValueIterator It(Derived, Buffer.GetView().data()); It; ++It) ++Values;
+	EXPECT_EQ(Values, Derived->GetNumParms());
 	Buffer.GetParameter<int32>(0) = 7;
 	EXPECT_EQ(Target->ProcessEvent(Derived, Buffer.GetView()), EFunctionInvokeError::None);
 	EXPECT_EQ(Buffer.GetReturnValue<int32>(), 21);
@@ -342,48 +400,274 @@ TEST(FFunctionReflectionTests, ParameterizedVirtualOverridePreservesSlotAndIgnor
 	EXPECT_EQ(Buffer.GetReturnValue<int32>(), 21);
 }
 
-TEST(FFunctionReflectionTests, LayoutValidationRejectsOverlapMissingLifecycleAndInvalidBounds)
+TEST(DFunctionReflectionTests, LinkingFinalizesLayoutAndFailedValidationCanBeRepaired)
 {
-	Testing::InitializeDObjectSystemForTests();
-	struct FArguments { int32 Value, Result; };
 	using namespace DurinCodeGen;
-	auto Valid = MakeFunctionSignature<FArguments>({{MakeFunctionProperty<int32>("Value", 0), EFunctionParameterPassing::Value}},
-		MakeFunctionProperty<int32>("ReturnValue", offsetof(FArguments, Result)));
-	EXPECT_TRUE(Valid.IsValid());
-	auto Invalid = Valid;
-	Invalid.ReturnProperty = MakeFunctionProperty<int32>("ReturnValue", 0);
-	EXPECT_FALSE(Invalid.IsValid());
-	EXPECT_FALSE(Invalid.IsCompatibleWith(Valid));
-	EXPECT_FALSE(Valid.IsCompatibleWith(Invalid));
-	Invalid = Valid;
-	Invalid.Initialize = nullptr;
-	EXPECT_FALSE(Invalid.IsValid());
-	EXPECT_FALSE(Invalid.IsCompatibleWith(Valid));
-	EXPECT_FALSE(Valid.IsCompatibleWith(Invalid));
-	Invalid = Valid;
-	Invalid.ParmsSize = 1;
-	EXPECT_FALSE(Invalid.IsValid());
-	EXPECT_FALSE(Invalid.IsCompatibleWith(Valid));
-	EXPECT_FALSE(Valid.IsCompatibleWith(Invalid));
-	Invalid = Valid;
-	Invalid.ParmsAlignment = 3;
-	EXPECT_FALSE(Invalid.IsValid());
-	EXPECT_FALSE(Invalid.IsCompatibleWith(Valid));
-	EXPECT_FALSE(Valid.IsCompatibleWith(Invalid));
+	auto* Owner = MakeFunctionClass("Tests::DFunctionLinkLayout");
+	struct FArguments { int32 Value; };
+	TNativePropertyParams<int32> Value("Value", 0, EPropertyFlags::Parm);
+	const FPropertyParamsBase* Properties[]{&Value.Params};
+	auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
+	auto* Function = ConstructDFunction(Owner, {"Run", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}});
+	EXPECT_FALSE(Function->ArePropertiesLinked());
+	Function->SetStructureLayout(1, 1);
+	Owner->RegisterFunctions({Function});
+	EXPECT_EQ(Owner->LinkFunctions(), EFunctionLinkError::InvalidDescriptor);
+	EXPECT_EQ(Function->GetLinkDiagnostic().OwnerClass, "Tests::DFunctionLinkLayout");
+	EXPECT_EQ(Function->GetLinkDiagnostic().FunctionName, "Run");
+	EXPECT_EQ(Function->GetLinkDiagnostic().PropertyPath, "Value");
+	EXPECT_NE(ToString(Owner->GetFunctionLinkDiagnostic()).find("Value: parameter storage exceeds the aggregate bounds"), std::string::npos);
+	EXPECT_FALSE(Function->ArePropertiesLinked());
+	EXPECT_FALSE(Owner->AreFunctionsLinked());
+	Function->SetStructureLayout(sizeof(FArguments), alignof(FArguments));
+	ASSERT_EQ(Owner->LinkFunctions(), EFunctionLinkError::None);
+	EXPECT_FALSE(Function->GetLinkDiagnostic().HasError());
+	EXPECT_FALSE(Owner->GetFunctionLinkDiagnostic().HasError());
+	EXPECT_TRUE(ToString(Function->GetLinkDiagnostic()).empty());
+	EXPECT_TRUE(Function->ArePropertiesLinked());
+	EXPECT_EQ(Function->GetNumInputParms(), 1u);
+	EXPECT_EQ(Function->GetParameterProperty(0), Function->GetChildProperties());
+	EXPECT_EQ(Owner->LinkFunctions(), EFunctionLinkError::None);
+	EXPECT_EQ(Function->GetNumInputParms(), 1u);
 }
 
-TEST(FFunctionReflectionTests, ParameterAggregateDestructionRunsAfterNativeException)
+TEST(DFunctionReflectionTests, VirtualLayoutLinkDoesNotGrantClassDispatchAdmission)
+{
+	auto* Owner = MakeFunctionClass("Tests::DExplicitFunctionLink");
+	auto* Function = MakeFunction(Owner, "Run");
+	DStructBase* Metadata = Function;
+	ASSERT_TRUE(Metadata->Link());
+	EXPECT_TRUE(Function->ArePropertiesLinked());
+	EXPECT_FALSE(Owner->AreFunctionsLinked());
+	EXPECT_EQ(Function->GetNumParms(), 0u);
+	TStrongObjectPtr<DObject> Target(NewObject(Owner, nullptr, "ExplicitFunctionLink"));
+	EXPECT_EQ(Target->ProcessEvent(Function, {}), EFunctionInvokeError::UnlinkedFunction);
+	Owner->RegisterFunctions({Function});
+	ASSERT_EQ(Owner->LinkFunctions(), EFunctionLinkError::None);
+	EXPECT_EQ(Target->ProcessEvent(Function, {}), EFunctionInvokeError::None);
+}
+
+TEST(DFunctionReflectionTests, ClassLinkRejectsAParentChangedAfterFunctionLayoutLink)
+{
+	auto* FirstBase = MakeFunctionClass("Tests::DFirstLinkedFunctionBase");
+	auto* SecondBase = MakeFunctionClass("Tests::DSecondLinkedFunctionBase");
+	FirstBase->RegisterFunctions({MakeFunction(FirstBase, "Run")});
+	SecondBase->RegisterFunctions({MakeFunction(SecondBase, "Run")});
+	auto* Owner = MakeFunctionClass("Tests::DFunctionParentChange", FirstBase);
+	auto* Function = MakeFunction(Owner, "Run");
+	ASSERT_TRUE(Function->Link());
+	EXPECT_EQ(Function->GetSuperFunction(), FirstBase->FindFunctionByName("Run"));
+	Owner->SetSuperStructBase(SecondBase);
+	Owner->RegisterFunctions({Function});
+	EXPECT_EQ(Owner->LinkFunctions(), EFunctionLinkError::InvalidDescriptor);
+	EXPECT_FALSE(Owner->AreFunctionsLinked());
+}
+
+TEST(DFunctionReflectionTests, FailedOverrideBatchDoesNotAdmitEarlierLocalFunctions)
+{
+	auto* Base = MakeFunctionClass("Tests::DFunctionAtomicBase");
+	auto* Derived = MakeFunctionClass("Tests::DFunctionAtomicDerived", Base);
+	Base->RegisterFunctions({MakeFunction(Base, "Run", EFunctionFlags::None)});
+	auto* First = MakeFunction(Derived, "Local");
+	auto* Invalid = MakeFunction(Derived, "Run");
+	Derived->RegisterFunctions({First, Invalid});
+	ASSERT_EQ(Derived->LinkFunctions(), EFunctionLinkError::NonVirtualOverride);
+	TStrongObjectPtr<DObject> Target(NewObject(Derived, nullptr, "AtomicFunctionTarget"));
+	EXPECT_EQ(Target->ProcessEvent(First, {}), EFunctionInvokeError::UnlinkedFunction);
+	EXPECT_EQ(Target->ProcessEvent(Invalid, {}), EFunctionInvokeError::UnlinkedFunction);
+	EXPECT_EQ(Derived->LinkFunctions(), EFunctionLinkError::NonVirtualOverride);
+}
+
+#if GTEST_HAS_DEATH_TEST
+TEST(DFunctionReflectionTests, LinkedMetadataRejectsLayoutChainFlagsAndValueOperationMutation)
+{
+	Testing::InitializeDObjectSystemForTests();
+	auto* Function = const_cast<DFunction*>(FunctionFixtures::DParameterTarget::StaticClass()->FindFunctionByName("Combine"));
+	auto* Property = const_cast<FProperty*>(Function->GetParameterProperty(0));
+	EXPECT_DEATH(Function->SetStructureLayout(1, 1), "linked and cannot be modified");
+	EXPECT_DEATH(Function->SetChildProperties(nullptr), "linked and cannot be modified");
+	EXPECT_DEATH(Function->SetSuperStructBase(nullptr), "linked and cannot be modified");
+	EXPECT_DEATH(Function->AddCppProperty(Property), "linked and cannot be modified");
+	EXPECT_DEATH(Property->SetPropertyFlags(EPropertyFlags::OutParm), "linked and cannot be modified");
+	EXPECT_DEATH(Property->SetNext(nullptr), "linked and cannot be modified");
+	EXPECT_DEATH(Property->SetOwner(FFieldVariant(nullptr)), "linked and cannot be modified");
+	EXPECT_DEATH(Property->SetValueLifecycle(0, 0, nullptr, nullptr), "linked and cannot be modified");
+	EXPECT_DEATH(Property->SetValueAccessors(nullptr, nullptr), "linked and cannot be modified");
+	const auto* Container = FunctionFixtures::DParameterTarget::StaticClass()->FindFunctionByName("EchoObjects");
+	auto* Array = const_cast<FArrayProperty*>(static_cast<const FArrayProperty*>(Container->GetParameterProperty(0)));
+	EXPECT_DEATH(Array->GetInner()->SetPropertyFlags(EPropertyFlags::OutParm), "linked and cannot be modified");
+	EXPECT_DEATH(Array->SetInner(nullptr), "linked and cannot be modified");
+}
+#endif
+
+TEST(DFunctionReflectionTests, SharedPropertyConstructionPreservesOrderAndOwnership)
+{
+	using namespace DurinCodeGen;
+	auto* Owner = MakeFunctionClass("Tests::DSharedPropertyConstruction");
+	TNativePropertyParams<int32> First("First", 0);
+	TNativePropertyParams<std::vector<int32>> Second("Second", 8);
+	const FPropertyParamsBase* Properties[]{&First.Params, &Second.Params};
+	ConstructProperties(*Owner, Properties, std::size(Properties));
+	std::vector<FName> Names;
+	Owner->ForEachProperty([&](FProperty* Property) {
+		Names.push_back(Property->NamePrivate);
+		EXPECT_EQ(Property->GetOwnerVariant().ToDObject(), Owner);
+	}, false);
+	EXPECT_EQ(Names, (std::vector<FName>{"First", "Second"}));
+	auto* Array = static_cast<FArrayProperty*>(Owner->GetChildProperties()->GetNext());
+	EXPECT_EQ(Array->GetInner()->GetOwnerVariant().ToField(), Array);
+	EXPECT_EQ(Array->GetNext(), nullptr);
+}
+
+TEST(DFunctionReflectionTests, LayoutValidationRejectsOverlapMissingLifecycleAndInvalidBounds)
+{
+	struct FArguments { int32 Value, Result; };
+	using namespace DurinCodeGen;
+	TNativePropertyParams<int32> Value("Value", 0, EPropertyFlags::Parm);
+	TNativePropertyParams<int32> Result("ReturnValue", offsetof(FArguments, Result), EPropertyFlags::Parm | EPropertyFlags::ReturnParm | EPropertyFlags::OutParm);
+	TNativePropertyParams<int32> Overlap("ReturnValue", 0, EPropertyFlags::Parm | EPropertyFlags::ReturnParm | EPropertyFlags::OutParm);
+	const FPropertyParamsBase* Properties[]{&Value.Params, &Result.Params};
+	const FPropertyParamsBase* Overlapping[]{&Value.Params, &Overlap.Params};
+	auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, std::size(Properties));
+	auto Construct = [&](const FFunctionLayoutParams& Input, EFunctionLinkError Expected) {
+		auto* Owner = MakeFunctionClass("Tests::DLayoutValidation");
+		auto* Function = ConstructDFunction(Owner, {"Run", &Input, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}});
+		Owner->RegisterFunctions({Function});
+		EXPECT_EQ(Owner->LinkFunctions(), Expected);
+		return Function;
+	};
+	const auto* Valid = Construct(Layout, EFunctionLinkError::None);
+	EXPECT_TRUE(Valid->IsSignatureCompatibleWith(*Valid));
+	auto CheckInvalid = [&](const FFunctionLayoutParams& Input, const char* Path, const char* Reason) {
+		const auto* Invalid = Construct(Input, EFunctionLinkError::InvalidDescriptor);
+		EXPECT_EQ(Invalid->GetLinkDiagnostic().PropertyPath, Path);
+		EXPECT_NE(Invalid->GetLinkDiagnostic().Reason.find(Reason), std::string::npos);
+		EXPECT_FALSE(Invalid->IsSignatureCompatibleWith(*Valid));
+		EXPECT_FALSE(Valid->IsSignatureCompatibleWith(*Invalid));
+		EXPECT_FALSE(Invalid->IsSignatureCompatibleWith(*Invalid));
+	};
+	auto Invalid = Layout;
+	Invalid.PropertyParams = Overlapping;
+	CheckInvalid(Invalid, "ReturnValue", "overlaps 'Value'");
+	Invalid = Layout; Invalid.Initialize = nullptr; CheckInvalid(Invalid, "", "callback is missing");
+	Invalid = Layout; Invalid.ParmsSize = 1; CheckInvalid(Invalid, "", "aggregate alignment");
+	Invalid = Layout; Invalid.ParmsAlignment = 3; CheckInvalid(Invalid, "", "aggregate alignment");
+}
+
+TEST(DFunctionReflectionTests, NestedStorageDiagnosticsUseTheSharedValidatorAndClearAfterRepair)
+{
+	using namespace DurinCodeGen;
+	using FValues = std::unordered_map<std::string, std::vector<int32>>;
+	struct FArguments { FValues Values; };
+	auto* Owner = MakeFunctionClass("Tests::DNestedStorageDiagnostic");
+	TNativePropertyParams<FValues> Values("Values", 0, EPropertyFlags::Parm);
+	const FPropertyParamsBase* Properties[]{&Values.Params};
+	auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
+	auto* Function = ConstructDFunction(Owner, {"Run", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}});
+	Owner->RegisterFunctions({Function});
+	auto* Map = static_cast<FMapProperty*>(Function->GetChildProperties());
+	auto* Inner = static_cast<FArrayProperty*>(Map->GetValueProp())->GetInner();
+	Inner->SetValueLifecycle(sizeof(int16), alignof(int16), nullptr, nullptr);
+	const auto Error = ValidateNativeProperty(*Inner);
+	ASSERT_TRUE(Error);
+	EXPECT_EQ(Error->Code, EPropertyValidationError::InvalidStorage);
+	EXPECT_EQ(Owner->LinkFunctions(), EFunctionLinkError::InvalidDescriptor);
+	const auto& Diagnostic = Owner->GetFunctionLinkDiagnostic();
+	EXPECT_EQ(Diagnostic.PropertyPath, "Values.Value.Inner");
+	EXPECT_EQ(Diagnostic.Reason, Error->Reason);
+	EXPECT_EQ(ToString(Diagnostic), "Tests::DNestedStorageDiagnostic::Run.Values.Value.Inner: " + Error->Reason);
+	const auto Ops = MakePropertyValueOps<int32>();
+	Inner->SetValueLifecycle(Ops.ValueSize, Ops.ValueAlignment, Ops.InitializeValue, Ops.DestroyValue, Ops.CopyConstructValue, Ops.CopyAssignValue);
+	ASSERT_EQ(Owner->LinkFunctions(), EFunctionLinkError::None);
+	EXPECT_FALSE(Owner->GetFunctionLinkDiagnostic().HasError());
+	EXPECT_FALSE(Function->GetLinkDiagnostic().HasError());
+}
+
+TEST(DFunctionReflectionTests, ClassLinkReportsTheFunctionWithAMissingNativeEntry)
+{
+	auto* Owner = MakeFunctionClass("Tests::DMissingNativeEntryDiagnostic");
+	auto* Function = DurinCodeGen::ConstructDFunction(Owner, {"Run", nullptr, EFunctionFlags::Native, "", "", "", nullptr});
+	Owner->RegisterFunctions({Function});
+	EXPECT_EQ(Owner->LinkFunctions(), EFunctionLinkError::InvalidDescriptor);
+	EXPECT_EQ(ToString(Owner->GetFunctionLinkDiagnostic()), "Tests::DMissingNativeEntryDiagnostic::Run: native function entry is missing");
+	EXPECT_EQ(Function->GetLinkDiagnostic().Code, EFunctionLinkError::InvalidDescriptor);
+	EXPECT_FALSE(Function->ArePropertiesLinked());
+}
+
+TEST(DFunctionReflectionTests, ParentLinkFailuresPreserveTheirOriginAndClearOnRetry)
+{
+	auto* Base = MakeFunctionClass("Tests::DDiagnosticCycleBase");
+	auto* Derived = MakeFunctionClass("Tests::DDiagnosticCycleDerived", Base);
+	Base->SetSuperStructBase(Derived);
+	EXPECT_EQ(Derived->LinkFunctions(), EFunctionLinkError::InheritanceCycle);
+	EXPECT_EQ(Derived->GetFunctionLinkDiagnostic().Code, EFunctionLinkError::InheritanceCycle);
+	EXPECT_EQ(Derived->GetFunctionLinkDiagnostic().Reason, "class inheritance cycle");
+	Base->SetSuperStructBase(DObject::StaticClass());
+	ASSERT_EQ(Derived->LinkFunctions(), EFunctionLinkError::None);
+	EXPECT_FALSE(Base->GetFunctionLinkDiagnostic().HasError());
+	EXPECT_FALSE(Derived->GetFunctionLinkDiagnostic().HasError());
+}
+
+#if GTEST_HAS_DEATH_TEST
+TEST(DFunctionReflectionTests, SharedConstructionRejectsNativeStorageOverridesForMembersAndParameters)
+{
+	using namespace DurinCodeGen;
+	auto* Owner = MakeFunctionClass("Tests::DInvalidNativeStorage");
+	TNativePropertyParams<int32> Value("Value", 0);
+	Value.Params.NativeValueOps = MakePropertyValueOps<int16>();
+	const FPropertyParamsBase* Properties[]{&Value.Params};
+	EXPECT_DEATH(ConstructProperties(*Owner, Properties, 1), "PropertyRegistration.InvalidNativeStorage.*DInvalidNativeStorage.*Value");
+	struct FArguments { int32 Value; };
+	Value.Params.Flags = EPropertyFlags::Parm;
+	auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
+	const FFunctionParams Params{"Run", &Layout, EFunctionFlags::Native, "", "", "", nullptr};
+	EXPECT_DEATH(ConstructDFunction(Owner, Params), "PropertyRegistration.InvalidNativeStorage.*Run.*Value");
+}
+#endif
+
+TEST(DFunctionReflectionTests, PropertyRolesAreValidatedBeforeLinking)
+{
+	using namespace DurinCodeGen;
+	struct FArguments { int32 Value, Result; };
+	for (auto Flags : {EPropertyFlags::None, EPropertyFlags::Parm | EPropertyFlags::ConstParm,
+		EPropertyFlags::Parm | EPropertyFlags::OutParm, EPropertyFlags::Parm | EPropertyFlags::ReferenceParm,
+		EPropertyFlags::Parm | EPropertyFlags::ReturnParm})
+	{
+		auto* Owner = MakeFunctionClass("Tests::DInvalidFunctionRoles");
+		TNativePropertyParams<int32> Value("Value", 0, Flags);
+		const FPropertyParamsBase* Properties[]{&Value.Params};
+		auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
+		Owner->RegisterFunctions({ConstructDFunction(Owner, {"Run", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}})});
+		EXPECT_EQ(Owner->LinkFunctions(), EFunctionLinkError::InvalidDescriptor);
+	}
+}
+
+TEST(DFunctionReflectionTests, ReturnFieldDoesNotConflictWithAnInputNamedReturnValue)
+{
+	using namespace DurinCodeGen;
+	auto* Owner = MakeFunctionClass("Tests::DReturnNameInput");
+	struct FArguments { int32 Value, Result; };
+	TNativePropertyParams<int32> Input("ReturnValue", 0, EPropertyFlags::Parm);
+	TNativePropertyParams<int32> Return("ReturnValue", offsetof(FArguments, Result), EPropertyFlags::Parm | EPropertyFlags::ReturnParm | EPropertyFlags::OutParm);
+	const FPropertyParamsBase* Properties[]{&Input.Params, &Return.Params};
+	auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 2);
+	Owner->RegisterFunctions({ConstructDFunction(Owner, {"Run", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}})});
+	EXPECT_EQ(Owner->LinkFunctions(), EFunctionLinkError::None);
+	EXPECT_NE(Owner->FindFunctionByName("Run")->GetParameterProperty(0), Owner->FindFunctionByName("Run")->GetReturnProperty());
+}
+
+TEST(DFunctionReflectionTests, ParameterAggregateDestructionRunsAfterNativeException)
 {
 	auto* Class = MakeFunctionClass("Tests::DParameterLifecycleTarget");
 	using namespace DurinCodeGen;
 	GParameterConstructed = GParameterDestroyed = 0;
-	auto Signature = MakeFunctionSignature<FObservedParameters>({{
-		MakeFunctionProperty<std::string>("Text", STRUCT_OFFSET_UINT16(FObservedParameters, Text)), EFunctionParameterPassing::ConstReference}});
-	Class->RegisterFunctions({FFunction(Class, "Throw", std::move(Signature), EFunctionFlags::Native,
-		"Actions", "Throw", "", +[](DObject&, FFunctionFrame& Frame, void*) {
+	TNativePropertyParams<std::string> Text("Text", STRUCT_OFFSET_UINT16(FObservedParameters, Text), EPropertyFlags::Parm | EPropertyFlags::ReferenceParm | EPropertyFlags::ConstParm);
+	const FPropertyParamsBase* Properties[]{&Text.Params};
+	auto Layout = MakeFunctionLayoutParams<FObservedParameters>(Properties, std::size(Properties));
+	Class->RegisterFunctions({DurinCodeGen::ConstructDFunction(Class, {"Throw", &Layout, EFunctionFlags::Native, "Actions", "Throw", "", +[](DObject&, FFunctionFrame& Frame, void*) {
 			EXPECT_EQ(Frame.GetParameter<std::string>(0), "owned value");
 			throw std::runtime_error("parameter body");
-		})});
+		}})});
 	ASSERT_EQ(Class->LinkFunctions(), EFunctionLinkError::None);
 	TStrongObjectPtr<DObject> Target(NewObject(Class, nullptr, "ParameterLifecycleTarget"));
 	const auto* Function = Class->FindFunctionByName("Throw");
@@ -398,26 +682,32 @@ TEST(FFunctionReflectionTests, ParameterAggregateDestructionRunsAfterNativeExcep
 	EXPECT_EQ(GParameterDestroyed, 1);
 }
 
-TEST(FFunctionReflectionTests, LinkingRejectsAParameterTypeMismatchEvenWhenSizeAndAlignmentMatch)
+TEST(DFunctionReflectionTests, LinkingRejectsAParameterTypeMismatchEvenWhenSizeAndAlignmentMatch)
 {
 	auto* Base = MakeFunctionClass("Tests::DTypedFunctionBase");
 	auto* Derived = MakeFunctionClass("Tests::DTypedFunctionDerived", Base);
 	struct FIntegerArguments { int32 Value; };
 	struct FFloatArguments { float Value; };
 	using namespace DurinCodeGen;
-	auto Integer = MakeFunctionSignature<FIntegerArguments>({{MakeFunctionProperty<int32>("Value", 0), EFunctionParameterPassing::Value}});
-	auto Float = MakeFunctionSignature<FFloatArguments>({{MakeFunctionProperty<float>("Renamed", 0), EFunctionParameterPassing::Value}});
-	EXPECT_FALSE(Integer.IsCompatibleWith(Float));
+	TNativePropertyParams<int32> IntegerValue("Value", 0, EPropertyFlags::Parm);
+	TNativePropertyParams<float> FloatValue("Renamed", 0, EPropertyFlags::Parm);
+	const FPropertyParamsBase* IntegerProperties[]{&IntegerValue.Params};
+	const FPropertyParamsBase* FloatProperties[]{&FloatValue.Params};
+	auto Integer = MakeFunctionLayoutParams<FIntegerArguments>(IntegerProperties, 1);
+	auto Float = MakeFunctionLayoutParams<FFloatArguments>(FloatProperties, 1);
 	const auto Flags = EFunctionFlags::Native | EFunctionFlags::Virtual;
 	const auto Native = +[](DObject&, FFunctionFrame&, void*) {};
-	Derived->RegisterFunctions({FFunction(Derived, "Run", std::move(Float), Flags, "", "", "", Native)});
-	Base->RegisterFunctions({FFunction(Base, "Run", std::move(Integer), Flags, "", "", "", Native)});
+	Derived->RegisterFunctions({DurinCodeGen::ConstructDFunction(Derived, {"Run", &Float, Flags, "", "", "", Native})});
+	Base->RegisterFunctions({DurinCodeGen::ConstructDFunction(Base, {"Run", &Integer, Flags, "", "", "", Native})});
 	EXPECT_EQ(Derived->LinkFunctions(), EFunctionLinkError::SignatureMismatch);
+	EXPECT_EQ(Derived->GetFunctionLinkDiagnostic().OwnerClass, "Tests::DTypedFunctionDerived");
+	EXPECT_EQ(Derived->GetFunctionLinkDiagnostic().PropertyPath, "Renamed");
+	EXPECT_EQ(Derived->GetFunctionLinkDiagnostic().Reason, "native parameter type differs from the overridden function");
 	EXPECT_FALSE(Derived->AreFunctionsLinked());
 }
 
 #if GTEST_HAS_DEATH_TEST
-TEST(FFunctionReflectionTests, ParameterBufferRejectsTypedAccessWithTheWrongReflectedKind)
+TEST(DFunctionReflectionTests, ParameterBufferRejectsTypedAccessWithTheWrongReflectedKind)
 {
 	EXPECT_DEATH(([] {
 		Testing::InitializeDObjectSystemForTests();
@@ -428,7 +718,7 @@ TEST(FFunctionReflectionTests, ParameterBufferRejectsTypedAccessWithTheWrongRefl
 }
 #endif
 
-TEST(FFunctionReflectionTests, GeneratedObjectParametersAndReturnsPreserveIdentityAndNull)
+TEST(DFunctionReflectionTests, GeneratedObjectParametersAndReturnsPreserveIdentityAndNull)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
@@ -453,7 +743,7 @@ TEST(FFunctionReflectionTests, GeneratedObjectParametersAndReturnsPreserveIdenti
 	EXPECT_EQ(WrappedBuffer.GetReturnValue<TObjectPtr<DObject>>().Get(), nullptr);
 }
 
-TEST(FFunctionReflectionTests, GeneratedStructReferencesReturnAndVirtualDispatchUseNativeValueSemantics)
+TEST(DFunctionReflectionTests, GeneratedStructReferencesReturnAndVirtualDispatchUseNativeValueSemantics)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
@@ -463,6 +753,8 @@ TEST(FFunctionReflectionTests, GeneratedStructReferencesReturnAndVirtualDispatch
 	ASSERT_NE(Base, nullptr);
 	ASSERT_NE(Derived, nullptr);
 	EXPECT_EQ(Derived->GetSuperFunction(), Base);
+	EXPECT_EQ(Derived->GetSuperStructBase(), Base);
+	EXPECT_EQ(Derived->GetInheritanceSuper(), nullptr);
 	const int32 Baseline = FFunctionPayload::Live;
 	{
 		FFunctionParameterBuffer Buffer(*Base);
@@ -477,7 +769,7 @@ TEST(FFunctionReflectionTests, GeneratedStructReferencesReturnAndVirtualDispatch
 	EXPECT_EQ(FFunctionPayload::Live, Baseline);
 }
 
-TEST(FFunctionReflectionTests, ObjectInputOutputReferencesAndIntrinsicStructReturnsUseTypedStorage)
+TEST(DFunctionReflectionTests, ObjectInputOutputReferencesAndIntrinsicStructReturnsUseTypedStorage)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
@@ -499,7 +791,7 @@ TEST(FFunctionReflectionTests, ObjectInputOutputReferencesAndIntrinsicStructRetu
 	EXPECT_EQ(IntrinsicBuffer.GetReturnValue<FTransform>().Translation, FVector3(1.0, 2.0, 3.0));
 }
 
-TEST(FFunctionReflectionTests, NestedMapArrayStructParametersRoundTripAndDestroyEveryElement)
+TEST(DFunctionReflectionTests, NestedMapArrayStructParametersRoundTripAndDestroyEveryElement)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
@@ -526,7 +818,7 @@ TEST(FFunctionReflectionTests, NestedMapArrayStructParametersRoundTripAndDestroy
 	EXPECT_EQ(FFunctionPayload::Live, Baseline);
 }
 
-TEST(FFunctionReflectionTests, StructParameterExceptionRestoresFrameAndDestroysOwnedValues)
+TEST(DFunctionReflectionTests, StructParameterExceptionRestoresFrameAndDestroysOwnedValues)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
@@ -546,7 +838,7 @@ TEST(FFunctionReflectionTests, StructParameterExceptionRestoresFrameAndDestroysO
 	CollectGarbage(); // Also exercises removal of an exception-unwound buffer from GC roots.
 }
 
-TEST(FFunctionReflectionTests, LiveBuffersKeepNestedObjectInputsOutputsAndReturnsReachable)
+TEST(DFunctionReflectionTests, LiveBuffersKeepNestedObjectInputsOutputsAndReturnsReachable)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
@@ -573,7 +865,78 @@ TEST(FFunctionReflectionTests, LiveBuffersKeepNestedObjectInputsOutputsAndReturn
 	EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 }
 
-TEST(FFunctionReflectionTests, BorrowedObjectCallDefersCollectionAndOwnedReturnSurvivesSafePoint)
+TEST(DFunctionReflectionTests, CachedParameterSchemaObservesLaterStructRegistrationAndPreservesRawObserverPolicy)
+{
+	using namespace DurinCodeGen;
+	using FValues = std::vector<FDeferredFunctionPayload>;
+	struct FArguments { FValues Values; };
+	auto* Owner = MakeFunctionClass("Tests::DDeferredParameterSchema");
+	TNativePropertyParams<FValues> Values("Values", 0, EPropertyFlags::Parm);
+	const FPropertyParamsBase* Properties[]{&Values.Params};
+	auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
+	auto* Function = ConstructDFunction(Owner, {"Run", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}});
+	Owner->RegisterFunctions({Function});
+	ASSERT_EQ(Owner->LinkFunctions(), EFunctionLinkError::None);
+	{
+		FFunctionParameterBuffer First(*Function), Second(*Function);
+		First.GetParameter<FValues>(0).resize(1);
+		CollectGarbage(); // Assemble an empty, provisional struct schema after the function cache is published.
+		First.GetParameter<FValues>(0).clear();
+		TNativePropertyParams<TObjectPtr<DObject>> Object("Object", offsetof(FDeferredFunctionPayload, Object));
+		TNativePropertyParams<DObject*> Raw("Raw", offsetof(FDeferredFunctionPayload, Raw));
+		const FPropertyParamsBase* Fields[]{&Object.Params, &Raw.Params};
+		const FStructParams Params{&FDeferredFunctionPayload::StaticStruct, "Tests::FDeferredFunctionPayload", "FDeferredFunctionPayload",
+			sizeof(FDeferredFunctionPayload), alignof(FDeferredFunctionPayload), Fields, std::size(Fields), &GetDStructOps<FDeferredFunctionPayload>()};
+		ASSERT_EQ(ConstructDStruct(Params), FDeferredFunctionPayload::StaticStruct());
+		const FObjectKey FirstKey(NewObject<DObject>(nullptr, "FirstCachedSchemaObject"));
+		const FObjectKey SecondKey(NewObject<DObject>(nullptr, "SecondCachedSchemaObject"));
+		const FObjectKey ObserverKey(NewObject<DObject>(nullptr, "CachedSchemaRawObserver"));
+		First.GetParameter<FValues>(0).push_back({ResolveObjectKey(FirstKey), ResolveObjectKey(ObserverKey)});
+		Second.GetParameter<FValues>(0).push_back({ResolveObjectKey(SecondKey), nullptr});
+		for (int Pass = 0; Pass < 3; ++Pass)
+		{
+			CollectGarbage();
+			ASSERT_NE(ResolveObjectKey(FirstKey), nullptr);
+			ASSERT_NE(ResolveObjectKey(SecondKey), nullptr);
+			EXPECT_EQ(ResolveObjectKey(ObserverKey), nullptr);
+		}
+		First.GetParameter<FValues>(0).clear();
+		CollectGarbage();
+		EXPECT_EQ(ResolveObjectKey(FirstKey), nullptr);
+		ASSERT_NE(ResolveObjectKey(SecondKey), nullptr);
+		Second.GetParameter<FValues>(0).clear();
+		CollectGarbage();
+		EXPECT_EQ(ResolveObjectKey(SecondKey), nullptr);
+	}
+}
+
+TEST(DFunctionReflectionTests, CachedReturnSchemaRunsNativeStructCollectorsWithoutReflectedFields)
+{
+	using namespace DurinCodeGen;
+	struct FArguments { FNativeReferenceFunctionPayload ReturnValue; };
+	auto* Owner = MakeFunctionClass("Tests::DNativeCollectorReturnSchema");
+	TNativePropertyParams<FNativeReferenceFunctionPayload> Result("ReturnValue", 0,
+		EPropertyFlags::Parm | EPropertyFlags::ReturnParm | EPropertyFlags::OutParm);
+	const FPropertyParamsBase* Properties[]{&Result.Params};
+	auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
+	auto* Function = ConstructDFunction(Owner, {"Run", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}});
+	Owner->RegisterFunctions({Function});
+	ASSERT_EQ(Owner->LinkFunctions(), EFunctionLinkError::None);
+	const FObjectKey Key(NewObject<DObject>(nullptr, "NativeCollectorReturnOnlyObject"));
+	{
+		FFunctionParameterBuffer Buffer(*Function);
+		Buffer.GetReturnValue<FNativeReferenceFunctionPayload>().Object = ResolveObjectKey(Key);
+		for (int Pass = 0; Pass < 3; ++Pass)
+		{
+			CollectGarbage();
+			ASSERT_NE(ResolveObjectKey(Key), nullptr);
+		}
+	}
+	CollectGarbage();
+	EXPECT_EQ(ResolveObjectKey(Key), nullptr);
+}
+
+TEST(DFunctionReflectionTests, BorrowedObjectCallDefersCollectionAndOwnedReturnSurvivesSafePoint)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
@@ -599,24 +962,31 @@ TEST(FFunctionReflectionTests, BorrowedObjectCallDefersCollectionAndOwnedReturnS
 	EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 }
 
-TEST(FFunctionReflectionTests, CompositeSignatureCompatibilityComparesRecursiveIdentities)
+TEST(DFunctionReflectionTests, CompositeSignatureCompatibilityComparesRecursiveIdentities)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace DurinCodeGen;
 	using namespace FunctionFixtures;
 	auto Signature = []<typename T>() {
 		struct FArguments { T Value; };
-		return MakeFunctionSignature<FArguments>({{MakeFunctionProperty<T>("Value", 0), EFunctionParameterPassing::Value}});
+		TNativePropertyParams<T> Value("Value", 0, EPropertyFlags::Parm);
+		const FPropertyParamsBase* Properties[]{&Value.Params};
+		auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
+		auto* Owner = MakeFunctionClass("Tests::DSignatureComparison");
+		auto* Function = ConstructDFunction(Owner, {"Compare", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}});
+		Owner->RegisterFunctions({Function});
+		require(Owner->LinkFunctions() == EFunctionLinkError::None);
+		return Function;
 	};
-	EXPECT_FALSE(Signature.operator()<std::vector<int32>>().IsCompatibleWith(Signature.operator()<std::vector<float>>()));
-	EXPECT_FALSE(Signature.operator()<DObject*>().IsCompatibleWith(Signature.operator()<DParameterTarget*>()));
-	EXPECT_FALSE(Signature.operator()<DObject*>().IsCompatibleWith(Signature.operator()<TObjectPtr<DObject>>()));
-	EXPECT_FALSE(Signature.operator()<FFunctionPayload>().IsCompatibleWith(Signature.operator()<FOtherFunctionPayload>()));
-	EXPECT_TRUE(Signature.operator()<std::vector<FFunctionPayload>>().IsCompatibleWith(Signature.operator()<std::vector<FFunctionPayload>>()));
+	EXPECT_FALSE(Signature.operator()<std::vector<int32>>()->IsSignatureCompatibleWith(*Signature.operator()<std::vector<float>>()));
+	EXPECT_FALSE(Signature.operator()<DObject*>()->IsSignatureCompatibleWith(*Signature.operator()<DParameterTarget*>()));
+	EXPECT_FALSE(Signature.operator()<DObject*>()->IsSignatureCompatibleWith(*Signature.operator()<TObjectPtr<DObject>>()));
+	EXPECT_FALSE(Signature.operator()<FFunctionPayload>()->IsSignatureCompatibleWith(*Signature.operator()<FOtherFunctionPayload>()));
+	EXPECT_TRUE(Signature.operator()<std::vector<FFunctionPayload>>()->IsSignatureCompatibleWith(*Signature.operator()<std::vector<FFunctionPayload>>()));
 }
 
 #if GTEST_HAS_DEATH_TEST
-TEST(FFunctionReflectionTests, TypedCompositeAccessRejectsSameSizeDifferentElementAndStructTypes)
+TEST(DFunctionReflectionTests, TypedCompositeAccessRejectsSameSizeDifferentElementAndStructTypes)
 {
 	EXPECT_DEATH(([] {
 		Testing::InitializeDObjectSystemForTests();
@@ -633,7 +1003,7 @@ TEST(FFunctionReflectionTests, TypedCompositeAccessRejectsSameSizeDifferentEleme
 }
 #endif
 
-TEST(FFunctionReflectionTests, GeneratedEnumCallsPreserveEveryUnderlyingWidthAndSignedness)
+TEST(DFunctionReflectionTests, GeneratedEnumCallsPreserveEveryUnderlyingWidthAndSignedness)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
@@ -662,7 +1032,7 @@ TEST(FFunctionReflectionTests, GeneratedEnumCallsPreserveEveryUnderlyingWidthAnd
 	Check("EchoPlain", PlainSeven);
 }
 
-TEST(FFunctionReflectionTests, NativeEnumRegistryRemovesRetiredResolvers)
+TEST(DFunctionReflectionTests, NativeEnumRegistryRemovesRetiredResolvers)
 {
 	Testing::InitializeDObjectSystemForTests();
 	enum class ETemporaryNativeEnum : uint8 { Value };
@@ -674,7 +1044,7 @@ TEST(FFunctionReflectionTests, NativeEnumRegistryRemovesRetiredResolvers)
 	EXPECT_EQ(StaticEnum<ETemporaryNativeEnum>(), nullptr);
 }
 
-TEST(FFunctionReflectionTests, SoftReferenceCallsPreservePendingAndNullPathsWithoutLoading)
+TEST(DFunctionReflectionTests, SoftReferenceCallsPreservePendingAndNullPathsWithoutLoading)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
@@ -697,11 +1067,11 @@ TEST(FFunctionReflectionTests, SoftReferenceCallsPreservePendingAndNullPathsWith
 	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
 	EXPECT_TRUE(Buffer.GetParameter<FSoft>(1).IsNull());
 	EXPECT_TRUE(Buffer.GetReturnValue<FSoft>().IsNull());
-	const auto* Property = static_cast<const FSoftObjectProperty*>(Function->GetSignature().ReturnProperty.get());
+	const auto* Property = static_cast<const FSoftObjectProperty*>(Function->GetReturnProperty());
 	EXPECT_EQ(Property->GetSoftObjectPtr(Buffer.GetView().data()), &Buffer.GetReturnValue<FSoft>().GetBase());
 }
 
-TEST(FFunctionReflectionTests, LoadedSoftReferencesInEnumMapsDoNotKeepAssetsAlive)
+TEST(DFunctionReflectionTests, LoadedSoftReferencesInEnumMapsDoNotKeepAssetsAlive)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
@@ -731,7 +1101,7 @@ TEST(FFunctionReflectionTests, LoadedSoftReferencesInEnumMapsDoNotKeepAssetsAliv
 	EXPECT_EQ(Returned.GetState(), ESoftObjectPtrState::Stale);
 }
 
-TEST(FFunctionReflectionTests, WeakReferenceInputsOutputsAndReturnsRemainNonowningAndPreserveStaleKeys)
+TEST(DFunctionReflectionTests, WeakReferenceInputsOutputsAndReturnsRemainNonowningAndPreserveStaleKeys)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
@@ -747,7 +1117,7 @@ TEST(FFunctionReflectionTests, WeakReferenceInputsOutputsAndReturnsRemainNonowni
 	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
 	EXPECT_EQ(Buffer.GetParameter<FWeak>(1).Get(), Value.Get());
 	EXPECT_EQ(Buffer.GetReturnValue<FWeak>().Get(), Value.Get());
-	const auto* Property = static_cast<const FWeakObjectProperty*>(Function->GetSignature().ReturnProperty.get());
+	const auto* Property = static_cast<const FWeakObjectProperty*>(Function->GetReturnProperty());
 	EXPECT_EQ(Property->GetWeakObjectPtr(Buffer.GetView().data()), &Buffer.GetReturnValue<FWeak>().GetBase());
 	Value.Reset();
 	CollectGarbage();
@@ -763,7 +1133,7 @@ TEST(FFunctionReflectionTests, WeakReferenceInputsOutputsAndReturnsRemainNonowni
 	EXPECT_TRUE(IsObjectKeyNull(Buffer.GetReturnValue<FWeak>().GetKey()));
 }
 
-TEST(FFunctionReflectionTests, WeakArrayReturnDoesNotBecomeAStrongReference)
+TEST(DFunctionReflectionTests, WeakArrayReturnDoesNotBecomeAStrongReference)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
@@ -783,7 +1153,7 @@ TEST(FFunctionReflectionTests, WeakArrayReturnDoesNotBecomeAStrongReference)
 	EXPECT_EQ(Buffer.GetReturnValue<FWeakArray>()[0].Get(), nullptr);
 }
 
-TEST(FFunctionReflectionTests, EnumAndNonowningReferenceOverridesPreserveSlotsAndNativeDispatch)
+TEST(DFunctionReflectionTests, EnumAndNonowningReferenceOverridesPreserveSlotsAndNativeDispatch)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
@@ -795,6 +1165,8 @@ TEST(FFunctionReflectionTests, EnumAndNonowningReferenceOverridesPreserveSlotsAn
 		ASSERT_NE(Base, nullptr);
 		ASSERT_NE(Derived, nullptr);
 		EXPECT_EQ(Derived->GetSuperFunction(), Base);
+	EXPECT_EQ(Derived->GetSuperStructBase(), Base);
+	EXPECT_EQ(Derived->GetInheritanceSuper(), nullptr);
 		EXPECT_TRUE(Derived->IsSignatureCompatibleWith(*Base));
 		FFunctionParameterBuffer Buffer(*Base);
 		if (std::string_view(Name) == "EchoState") Buffer.GetParameter<EFunctionState>(0) = EFunctionState::High;
@@ -810,25 +1182,32 @@ TEST(FFunctionReflectionTests, EnumAndNonowningReferenceOverridesPreserveSlotsAn
 	}
 }
 
-TEST(FFunctionReflectionTests, EnumAndReferenceSchemasRejectIdentityAndStorageMismatches)
+TEST(DFunctionReflectionTests, EnumAndReferenceSchemasRejectIdentityAndStorageMismatches)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace FunctionFixtures;
 	using namespace DurinCodeGen;
 	auto Signature = []<typename T>() {
 		struct FArguments { T Value; };
-		return MakeFunctionSignature<FArguments>({{MakeFunctionProperty<T>("Value", 0), EFunctionParameterPassing::Value}});
+		TNativePropertyParams<T> Value("Value", 0, EPropertyFlags::Parm);
+		const FPropertyParamsBase* Properties[]{&Value.Params};
+		auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
+		auto* Owner = MakeFunctionClass("Tests::DSignatureComparison");
+		auto* Function = ConstructDFunction(Owner, {"Compare", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}});
+		Owner->RegisterFunctions({Function});
+		require(Owner->LinkFunctions() == EFunctionLinkError::None);
+		return Function;
 	};
-	EXPECT_FALSE(Signature.operator()<EFunctionState>().IsCompatibleWith(Signature.operator()<EOtherFunctionState>()));
-	EXPECT_FALSE(Signature.operator()<EFunctionState>().IsCompatibleWith(Signature.operator()<uint8>()));
-	EXPECT_FALSE(Signature.operator()<TSoftObjectPtr<DObject>>().IsCompatibleWith(Signature.operator()<TWeakObjectPtr<DObject>>()));
-	EXPECT_FALSE(Signature.operator()<TSoftObjectPtr<DObject>>().IsCompatibleWith(Signature.operator()<TSoftObjectPtr<DParameterTarget>>()));
-	EXPECT_FALSE(Signature.operator()<TWeakObjectPtr<DObject>>().IsCompatibleWith(Signature.operator()<TWeakObjectPtr<DParameterTarget>>()));
-	EXPECT_FALSE(Signature.operator()<TWeakObjectPtr<DObject>>().IsCompatibleWith(Signature.operator()<TObjectPtr<DObject>>()));
+	EXPECT_FALSE(Signature.operator()<EFunctionState>()->IsSignatureCompatibleWith(*Signature.operator()<EOtherFunctionState>()));
+	EXPECT_FALSE(Signature.operator()<EFunctionState>()->IsSignatureCompatibleWith(*Signature.operator()<uint8>()));
+	EXPECT_FALSE(Signature.operator()<TSoftObjectPtr<DObject>>()->IsSignatureCompatibleWith(*Signature.operator()<TWeakObjectPtr<DObject>>()));
+	EXPECT_FALSE(Signature.operator()<TSoftObjectPtr<DObject>>()->IsSignatureCompatibleWith(*Signature.operator()<TSoftObjectPtr<DParameterTarget>>()));
+	EXPECT_FALSE(Signature.operator()<TWeakObjectPtr<DObject>>()->IsSignatureCompatibleWith(*Signature.operator()<TWeakObjectPtr<DParameterTarget>>()));
+	EXPECT_FALSE(Signature.operator()<TWeakObjectPtr<DObject>>()->IsSignatureCompatibleWith(*Signature.operator()<TObjectPtr<DObject>>()));
 }
 
 #if GTEST_HAS_DEATH_TEST
-TEST(FFunctionReflectionTests, TypedEnumAndReferenceAccessRejectsWrongNativeIdentity)
+TEST(DFunctionReflectionTests, TypedEnumAndReferenceAccessRejectsWrongNativeIdentity)
 {
 	EXPECT_DEATH(([] {
 		Testing::InitializeDObjectSystemForTests();
@@ -851,13 +1230,13 @@ TEST(FFunctionReflectionTests, TypedEnumAndReferenceAccessRejectsWrongNativeIden
 }
 #endif
 
-TEST(FFunctionReflectionTests, SharedPropertyTypeIdentityIgnoresFieldNamesAndOffsets)
+TEST(DFunctionReflectionTests, SharedPropertyTypeIdentityIgnoresFieldNamesAndOffsets)
 {
 	Testing::InitializeDObjectSystemForTests();
 	using namespace DurinCodeGen;
-	const auto First = MakeFunctionProperty<std::vector<int32>>("First", 0);
-	const auto Renamed = MakeFunctionProperty<std::vector<int32>>("Renamed", 16);
-	const auto Different = MakeFunctionProperty<std::vector<float>>("First", 0);
+	const auto First = DurinCodeGen::ConstructProperty(FFieldVariant(nullptr), DurinCodeGen::TNativePropertyParams<std::vector<int32>>("First", 0).Params);
+	const auto Renamed = DurinCodeGen::ConstructProperty(FFieldVariant(nullptr), DurinCodeGen::TNativePropertyParams<std::vector<int32>>("Renamed", 16).Params);
+	const auto Different = DurinCodeGen::ConstructProperty(FFieldVariant(nullptr), DurinCodeGen::TNativePropertyParams<std::vector<float>>("First", 0).Params);
 	EXPECT_TRUE(ArePropertyTypesSame(First.get(), Renamed.get()));
 	EXPECT_FALSE(ArePropertyTypesSame(First.get(), Different.get()));
 	EXPECT_FALSE(ArePropertyTypesSame(First.get(), nullptr));
@@ -872,7 +1251,7 @@ TEST(FFunctionReflectionTests, SharedPropertyTypeIdentityIgnoresFieldNamesAndOff
 	EXPECT_FALSE(ArePropertyTypesSame(&Pair, &PaddedPair));
 }
 
-TEST(FFunctionReflectionTests, DetachedNestedPropertyTreeOutlivesSignaturesWithoutAnOwnershipCycle)
+TEST(DFunctionReflectionTests, NestedPropertyTreeOutlivesGeneratedRecordsWithoutAnOwnershipCycle)
 {
 	using namespace Durin::FunctionFixtures;
 	Testing::InitializeDObjectSystemForTests();
@@ -881,22 +1260,19 @@ TEST(FFunctionReflectionTests, DetachedNestedPropertyTreeOutlivesSignaturesWitho
 	std::shared_ptr<const FProperty> Retained;
 	std::weak_ptr<const FProperty> Weak;
 	{
-		auto Signature = DurinCodeGen::MakeFunctionSignature<FArguments>({{
-			DurinCodeGen::MakeFunctionProperty<FValues>("Values", 0), EFunctionParameterPassing::Value}});
-		ASSERT_TRUE(Signature.IsValid());
-		auto Copy = Signature;
-		Retained = Copy.Parameters[0].Property;
+		DurinCodeGen::TNativePropertyParams<FValues> Record("Values", 0, EPropertyFlags::Parm);
+		Retained = DurinCodeGen::ConstructProperty(FFieldVariant(nullptr), Record.Params);
 		Weak = Retained;
 	}
 	ASSERT_FALSE(Weak.expired());
 	const auto* Map = static_cast<const FMapProperty*>(Retained.get());
 	ASSERT_NE(Map->GetKeyProp(), nullptr);
 	ASSERT_NE(Map->GetValueProp(), nullptr);
-	EXPECT_EQ(Map->GetKeyProp()->Owner.ToField(), Map);
-	EXPECT_EQ(Map->GetValueProp()->Owner.ToField(), Map);
+	EXPECT_EQ(Map->GetKeyProp()->GetOwnerVariant().ToField(), Map);
+	EXPECT_EQ(Map->GetValueProp()->GetOwnerVariant().ToField(), Map);
 	const auto* Array = static_cast<const FArrayProperty*>(Map->GetValueProp());
 	ASSERT_NE(Array->GetInner(), nullptr);
-	EXPECT_EQ(Array->GetInner()->Owner.ToField(), Array);
+	EXPECT_EQ(Array->GetInner()->GetOwnerVariant().ToField(), Array);
 	EXPECT_EQ(Array->GetInner()->GetKind(), DurinCodeGen::EPropertyGenFlags::Struct);
 	{
 		FReflectedValueStorage Storage;
@@ -905,3 +1281,46 @@ TEST(FFunctionReflectionTests, DetachedNestedPropertyTreeOutlivesSignaturesWitho
 	Retained.reset();
 	EXPECT_TRUE(Weak.expired());
 }
+
+TEST(DFunctionReflectionTests, FunctionMetadataIsAStructBaseWithLocallyOwnedParameterFields)
+{
+	using namespace Durin::FunctionFixtures;
+	Testing::InitializeDObjectSystemForTests();
+	static_assert(std::is_base_of_v<DStructBase, DFunction>);
+	const auto* Function = DParameterTarget::StaticClass()->FindFunctionByName("Combine");
+	ASSERT_NE(Function, nullptr);
+	EXPECT_EQ(Cast<DFunction>(Function), Function);
+	EXPECT_TRUE(IsValid(Function));
+	EXPECT_EQ(Function->GetOuter(), Function->GetOuterDClass());
+	size_t Count = 0;
+	Function->ForEachProperty([&](FProperty* Property) {
+		++Count;
+		EXPECT_EQ(Property->GetOwnerVariant().ToDObject(), Function);
+		EXPECT_TRUE(Property->HasAnyPropertyFlags(EPropertyFlags::Parm));
+	});
+	EXPECT_EQ(Count, Function->GetNumParms());
+	ASSERT_NE(Function->GetReturnProperty(), nullptr);
+	EXPECT_TRUE(Function->GetReturnProperty()->HasAnyPropertyFlags(EPropertyFlags::ReturnParm));
+	EXPECT_EQ(Function->GetReturnValueOffset(), Function->GetReturnProperty()->GetOffset());
+	EXPECT_TRUE(Function->GetParameterProperty(1)->HasAnyPropertyFlags(EPropertyFlags::ConstParm));
+	EXPECT_TRUE(Function->GetParameterProperty(2)->HasAnyPropertyFlags(EPropertyFlags::OutParm));
+	EXPECT_EQ(Function->GetSuperStructBase(), nullptr);
+	CollectGarbage();
+	EXPECT_TRUE(IsValid(Function));
+}
+
+#if GTEST_HAS_DEATH_TEST
+TEST(DFunctionReflectionTests, OwnedPropertyCannotBeReparentedToAnotherMetadataScope)
+{
+	Testing::InitializeDObjectSystemForTests();
+	auto* First = MakeFunctionClass("Tests::DFirstPropertyScope");
+	auto* Second = MakeFunctionClass("Tests::DSecondPropertyScope");
+	auto Property = DurinCodeGen::ConstructProperty(FFieldVariant(nullptr), DurinCodeGen::TNativePropertyParams<int32>("Value", 0).Params);
+	EXPECT_EQ(First->AddOwnedProperty(Property), Property.get());
+	EXPECT_EQ(Property->GetOwnerVariant().ToDObject(), First);
+	EXPECT_DEATH(Second->AddOwnedProperty(Property), "already belongs");
+	EXPECT_DEATH(Property->SetOwner(FFieldVariant(Second)), "already belongs");
+	auto Unowned = DurinCodeGen::ConstructProperty(FFieldVariant(nullptr), DurinCodeGen::TNativePropertyParams<int32>("Unowned", 0).Params);
+	EXPECT_DEATH(Unowned->SetOwner(FFieldVariant(Unowned.get())), "ownership cycle");
+}
+#endif

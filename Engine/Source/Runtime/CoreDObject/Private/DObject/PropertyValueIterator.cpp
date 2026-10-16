@@ -45,10 +45,10 @@ namespace Durin
 		}
 		// Match ForEachProperty's base-first order without recursive superclass calls.
 		std::vector<const DStructBase*> Types;
-		for (auto* Current = Type; Current; Current = Options.bIncludeSuper ? Current->GetSuperStructBase() : nullptr)
+		for (auto* Current = Type; Current; Current = Options.bIncludeSuper ? Current->GetInheritanceSuper() : nullptr)
 			Types.push_back(Current);
 		for (auto It = Types.rbegin(); It != Types.rend(); ++It)
-			for (auto* Field = (*It)->ChildProperties; Field; Field = Field->Next)
+			for (auto* Field = (*It)->GetChildProperties(); Field; Field = Field->GetNext())
 				AddProperty(Frame, static_cast<const FProperty*>(Field), Container);
 	}
 

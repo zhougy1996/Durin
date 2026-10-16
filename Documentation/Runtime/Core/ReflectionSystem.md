@@ -4,7 +4,7 @@ Summary: Define reflected type registration, generated metadata, properties, and
 
 Modules: CoreDObject
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-16
 
 This document describes the reflection framework that is currently implemented in Durin. Object lifetime and collector semantics are documented separately in [Garbage Collection](GarbageCollection.md).
 
@@ -116,7 +116,7 @@ identities, so their concrete `LegacyNames` registrations are absent. The
 generic mechanism and owner-scoped alias tests remain available for future
 bounded migrations.
 
-`ConstructDClass(...)` forces class registration, then creates `FProperty` nodes from generated property parameters and attaches top-level fields to `DStructBase::ChildProperties`. Container inner/key/value properties are constructed recursively and owned by their containing `FArrayProperty` or `FMapProperty`; they are not inserted into the class property chain.
+`ConstructDClass(...)` forces class registration, then uses the shared `ConstructProperties(...)` entry to create and attach owned property trees in declaration order. `AddOwnedProperty(...)` installs ownership and calls `AddCppProperty(...)` to attach the root. Container inner/key/value properties are constructed recursively and owned by their containing `FArrayProperty` or `FMapProperty`; they are not inserted into the class property chain.
 
 ### Class Default Objects
 
@@ -483,7 +483,7 @@ resolved `DStruct` owns size and alignment. This keeps ABI ownership with the
 compiler-built descriptor and prevents synthetic parser declarations or host
 STL contents from changing runtime property sizes.
 
-`DStructBase::ChildProperties` stores only properties declared directly on that reflected type. Superclass properties are reached through the superclass chain. Use `FindPropertyByName(...)` or the property iteration helpers when inherited properties should be visible.
+`DStructBase::GetChildProperties()` exposes only properties declared directly on that reflected type. Storage inheritance follows `GetInheritanceSuper()`; functions retain parent metadata identity without inheriting parameter storage. Layout and chain changes use checked APIs and are rejected after `Link()`. Use `FindPropertyByName(...)` or the property iteration helpers when inherited properties should be visible.
 
 ## Serialized Property Aliases
 

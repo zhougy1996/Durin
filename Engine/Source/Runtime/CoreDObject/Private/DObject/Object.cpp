@@ -423,18 +423,18 @@ namespace Durin
 	{
 	}
 
-	auto DObject::ProcessEvent(const FFunction* Function, FMutableByteView Parameters) -> EFunctionInvokeError
+	auto DObject::ProcessEvent(const DFunction* Function, FMutableByteView Parameters) -> EFunctionInvokeError
 	{
 		if (!IsValid(this)) return EFunctionInvokeError::InvalidTarget;
-		if (!Function) return EFunctionInvokeError::InvalidFunction;
+		if (!IsValid(Function)) return EFunctionInvokeError::InvalidFunction;
 		const auto Error = Function->ValidateInvocation(*this, Parameters);
 		if (Error != EFunctionInvokeError::None) return Error;
 		// Native by-value copies and borrowed aggregates are invisible to the GC.
 		// Defer collection until all native temporaries have left the call stack.
 		FGarbageCollectionDeferralScope Deferral;
 		FFunctionFrame Frame(*this, *Function, Parameters);
-		const auto& ReturnProperty = Function->GetSignature().ReturnProperty;
-		Function->Invoke(Frame, ReturnProperty ? ReturnProperty->GetValuePtr(Parameters.data()) : nullptr);
+		const auto* ReturnProperty = Function->GetReturnProperty();
+		Function->Invoke(*this, Frame, ReturnProperty ? ReturnProperty->GetValuePtr(Parameters.data()) : nullptr);
 		return EFunctionInvokeError::None;
 	}
 
@@ -674,7 +674,7 @@ namespace Durin
 			const std::string& ShortName = Class->GetShortName();
 			Params.Name = FName(std::format(
 				"Default__{}", ShortName.empty() ? Class->GetQualifiedName().ToString() : ShortName));
-			Params.Size = Class->PropertiesSize;
+			Params.Size = Class->GetStructureSize();
 			Params.Purpose = EObjectConstructionPurpose::ClassDefaultObject;
 			DObject* Object = StaticConstructObject(Params);
 			Class->SetPendingDefaultObject(Object);
@@ -728,8 +728,8 @@ namespace Durin
 		for (DClass* Class : BatchClasses)
 		{
 			const auto Error = Class->LinkFunctions();
-			requiref(Error == EFunctionLinkError::None, "Failed to link functions for '{}' (error {}).",
-				Class->GetQualifiedName().ToString(), static_cast<uint32>(Error));
+			requiref(Error == EFunctionLinkError::None, "Failed to link functions for '{}': {}",
+				Class->GetQualifiedName().ToString(), ToString(Class->GetFunctionLinkDiagnostic()));
 		}
 		(void)Private::CreateClassDefaultObjectsForBatch(BatchClasses);
 

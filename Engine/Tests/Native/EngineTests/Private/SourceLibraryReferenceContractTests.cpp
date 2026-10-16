@@ -90,7 +90,7 @@ TEST(FSourceFileContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 			Durin::FProperty* Property =
 				Class->FindPropertyByName(Durin::FName(PropertyName));
 			ASSERT_NE(Property, nullptr);
-			EXPECT_EQ(Property->Owner.ToDObject(), Class);
+			EXPECT_EQ(Property->GetOwnerVariant().ToDObject(), Class);
 		}
 	};
 	ExpectDeclaredProperties(TextureClass, TextureProperties);

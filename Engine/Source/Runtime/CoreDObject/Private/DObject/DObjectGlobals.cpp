@@ -1,6 +1,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "Misc/StringHelper.h"
 #include "DObject/PropertyKindTraits.h"
+#include "DObject/PropertyValidation.h"
 #include "QualifiedTypeRegistry.h"
 #include "Misc/Name.h"
 
@@ -24,8 +25,13 @@ namespace Durin
 
 		auto GetGeneratedPropertyOwnerName(const FFieldVariant& Owner) -> std::string
 		{
-			if (DObject* Object = Owner.ToDObject()) return Object->GetName();
-			if (FField* Field = Owner.ToField()) return Field->NamePrivate.ToString();
+			if (DObject* Object = Owner.ToDObject())
+			{
+				if (const auto* Function = Cast<DFunction>(Object))
+					return Function->GetOuterDClass()->GetQualifiedName().ToString() + "::" + Function->GetName();
+				return Object->GetName();
+			}
+			if (FField* Field = Owner.ToField()) return GetGeneratedPropertyOwnerName(Field->GetOwnerVariant()) + "." + Field->NamePrivate.ToString();
 			return "<null>";
 		}
 
@@ -77,7 +83,7 @@ namespace Durin
 		auto HasTransientPropertyContext(const FFieldVariant& Owner, EPropertyFlags Flags) -> bool
 		{
 			if (EnumHasAnyFlags(Flags, EPropertyFlags::Transient)) return true;
-			for (FField* Field = Owner.ToField(); Field; Field = Field->Owner.ToField())
+			for (FField* Field = Owner.ToField(); Field; Field = Field->GetOwnerVariant().ToField())
 			{
 				// Generated property descriptors only nest fields beneath container properties.
 				if (static_cast<FProperty*>(Field)->HasAnyPropertyFlags(EPropertyFlags::Transient)) return true;
@@ -101,10 +107,10 @@ namespace Durin
 		auto ConstructPlainProperty(
 			const FFieldVariant& Owner,
 			const DurinCodeGen::FPropertyParamsBase* Params
-		) -> FProperty*
+		) -> std::shared_ptr<FProperty>
 		{
 			static_assert(sizeof(TValue) <= std::numeric_limits<uint16>::max());
-			auto* Property = new TProperty(
+			auto Property = std::make_shared<TProperty>(
 				Owner,
 				FName(Params->NameUTF8),
 				EObjectFlags::NoFlags,
@@ -115,7 +121,7 @@ namespace Durin
 				Params->Kind,
 				nullptr
 			);
-			SetValueOps(Property, DurinCodeGen::MakePropertyValueOps<TValue>());
+			SetValueOps(Property.get(), DurinCodeGen::MakePropertyValueOps<TValue>());
 			return Property;
 		}
 
@@ -304,10 +310,26 @@ namespace Durin
 		auto ConstructGeneratedProperty(
 			const FFieldVariant& Owner,
 			const DurinCodeGen::FPropertyParamsBase* PropertyParams
-		) -> FProperty*
+		) -> std::shared_ptr<FProperty>
 		{
 			check(PropertyParams);
 			FProperty* Property = nullptr;
+			struct FPropertyTree
+			{
+				std::vector<std::shared_ptr<FProperty>> Children;
+				std::shared_ptr<FProperty> Root;
+			};
+			auto Tree = std::make_shared<FPropertyTree>();
+			auto Own = [&]<typename P>(P* Value) -> FProperty* {
+				Tree->Root = std::shared_ptr<P>(Value);
+				return Value;
+			};
+			auto Child = [&](const DurinCodeGen::FPropertyParamsBase* Params) -> FProperty* {
+				auto Value = ConstructGeneratedProperty(FFieldVariant(Property), Params);
+				auto* Result = Value.get();
+				Tree->Children.push_back(std::move(Value));
+				return Result;
+			};
 			const DurinCodeGen::EPropertyParamLayout ExpectedLayout = GetExpectedPropertyLayout(PropertyParams->Kind);
 			if (PropertyParams->Layout != ExpectedLayout)
 			{
@@ -340,16 +362,20 @@ namespace Durin
 			switch (PropertyParams->Kind)
 			{
 			case DurinCodeGen::EPropertyGenFlags::Bool:
-				Property = ConstructPlainProperty<bool, FBoolProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<bool, FBoolProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::String:
-				Property = ConstructPlainProperty<std::string, FStringProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<std::string, FStringProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Name:
-				Property = ConstructPlainProperty<FName, FNameProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<FName, FNameProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Guid:
-				Property = ConstructPlainProperty<FGuid, FGuidProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<FGuid, FGuidProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Enum:
 				{
@@ -360,7 +386,7 @@ namespace Durin
 						checkf(false, "EnumPropertyRegistration.InvalidDescriptor owner '{}' property '{}'.", GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
 						return nullptr;
 					}
-					Property = new FEnumProperty(
+					Property = Own(new FEnumProperty(
 						Owner,
 						FName(PropertyParams->NameUTF8),
 						EObjectFlags::NoFlags,
@@ -371,7 +397,7 @@ namespace Durin
 						PropertyParams->Kind,
 						nullptr,
 						ReferencedEnum
-					);
+					));
 					requiref(InstallEnumValueOps(Property, ReferencedEnum->GetUnderlyingType()),
 						"A reflected enum property has an unsupported underlying type.");
 					break;
@@ -389,7 +415,7 @@ namespace Durin
 						checkf(false, "ObjectPropertyRegistration.InvalidDescriptor owner '{}' property '{}'.", GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
 						return nullptr;
 					}
-					Property = new FObjectProperty(
+					Property = Own(new FObjectProperty(
 						Owner,
 						FName(PropertyParams->NameUTF8),
 						EObjectFlags::NoFlags,
@@ -402,7 +428,7 @@ namespace Durin
 						ObjectParams->Storage == DurinCodeGen::FObjectPropertyParams::EStorage::ObjectPtr,
 						ObjectParams->ReadObjectValue,
 						ObjectParams->WriteObjectValue
-					);
+					));
 					SetValueOps(Property, ObjectParams->ValueOps);
 					break;
 				}
@@ -419,7 +445,7 @@ namespace Durin
 						checkf(false, "SoftObjectPropertyRegistration.InvalidDescriptor owner '{}' property '{}'.", OwnerName, PropertyName);
 						return nullptr;
 					}
-					Property = new FSoftObjectProperty(
+					Property = Own(new FSoftObjectProperty(
 						Owner,
 						FName(PropertyParams->NameUTF8),
 						EObjectFlags::NoFlags,
@@ -430,7 +456,7 @@ namespace Durin
 						ExpectedClass,
 						SoftParams->MutableSoftValueAccessor,
 						SoftParams->ConstSoftValueAccessor
-					);
+					));
 					SetValueOps(Property, SoftParams->ValueOps);
 					break;
 				}
@@ -452,11 +478,11 @@ namespace Durin
 						checkf(false, "WeakObjectPropertyRegistration.InvalidDescriptor owner '{}' property '{}'.", OwnerName, PropertyName);
 						return nullptr;
 					}
-					Property = new FWeakObjectProperty(
+					Property = Own(new FWeakObjectProperty(
 						Owner, FName(PropertyParams->NameUTF8), EObjectFlags::NoFlags,
 						PropertyParams->Flags, PropertyParams->ArrayDim, PropertyParams->Offset,
 						static_cast<uint16>(WeakParams->ValueOps.ValueSize), ExpectedClass,
-						WeakParams->MutableWeakValueAccessor, WeakParams->ConstWeakValueAccessor);
+						WeakParams->MutableWeakValueAccessor, WeakParams->ConstWeakValueAccessor));
 					SetValueOps(Property, WeakParams->ValueOps);
 					break;
 				}
@@ -476,30 +502,18 @@ namespace Durin
 						checkf(false, "StructPropertyRegistration.NullDescriptor owner '{}' property '{}'.", OwnerName, PropertyName);
 						return nullptr;
 					}
-					if (ReferencedStruct->PropertiesSize == 0 || ReferencedStruct->PropertiesSize > std::numeric_limits<uint16>::max())
+					if (ReferencedStruct->GetStructureSize() == 0 || ReferencedStruct->GetStructureSize() > std::numeric_limits<uint16>::max())
 					{
 						checkf(false, "StructPropertyRegistration.InvalidSize owner '{}' property '{}'.", OwnerName, PropertyName);
 						return nullptr;
 					}
-					const uint32 Alignment = ReferencedStruct->MinAlignment;
+					const uint32 Alignment = ReferencedStruct->GetMinAlignment();
 					if (Alignment == 0 || (Alignment & (Alignment - 1)) != 0)
 					{
 						checkf(false, "StructPropertyRegistration.InvalidAlignment owner '{}' property '{}'.", OwnerName, PropertyName);
 						return nullptr;
 					}
-					const bool bHasMutableAccessor = PropertyParams->MutableValueAccessor != nullptr;
-					const bool bHasConstAccessor = PropertyParams->ConstValueAccessor != nullptr;
-					if (bHasMutableAccessor != bHasConstAccessor || (bHasMutableAccessor && PropertyParams->Offset != 0))
-					{
-						checkf(false, "StructPropertyRegistration.AccessorPairMismatch owner '{}' property '{}'.", OwnerName, PropertyName);
-						return nullptr;
-					}
-					if ((PropertyParams->MetaData == nullptr) != (PropertyParams->NumMetaData == 0))
-					{
-						checkf(false, "StructPropertyRegistration.MetadataMismatch owner '{}' property '{}'.", OwnerName, PropertyName);
-						return nullptr;
-					}
-					Property = new FStructProperty(
+					Property = Own(new FStructProperty(
 						Owner,
 						FName(PropertyParams->NameUTF8),
 						EObjectFlags::NoFlags,
@@ -507,7 +521,7 @@ namespace Durin
 						PropertyParams->ArrayDim,
 						PropertyParams->Offset,
 						ReferencedStruct
-					);
+					));
 					break;
 				}
 			case DurinCodeGen::EPropertyGenFlags::Array:
@@ -519,7 +533,7 @@ namespace Durin
 						checkf(false, "ArrayPropertyRegistration.InvalidDescriptor owner '{}' property '{}'.", GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
 						return nullptr;
 					}
-					Property = new FArrayProperty(
+					Property = Own(new FArrayProperty(
 						Owner,
 						FName(PropertyParams->NameUTF8),
 						EObjectFlags::NoFlags,
@@ -530,8 +544,8 @@ namespace Durin
 						PropertyParams->Kind,
 						nullptr,
 						Ops
-					);
-					static_cast<FArrayProperty*>(Property)->SetInner(ConstructGeneratedProperty(FFieldVariant(Property), ArrayParams->InnerParams));
+					));
+					static_cast<FArrayProperty*>(Property)->SetInner(Child(ArrayParams->InnerParams));
 					break;
 				}
 			case DurinCodeGen::EPropertyGenFlags::Map:
@@ -548,7 +562,7 @@ namespace Durin
 						checkf(false, "MapPropertyRegistration.InvalidDescriptor owner '{}' property '{}'.", GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
 						return nullptr;
 					}
-					Property = new FMapProperty(
+					Property = Own(new FMapProperty(
 						Owner,
 						FName(PropertyParams->NameUTF8),
 						EObjectFlags::NoFlags,
@@ -559,43 +573,52 @@ namespace Durin
 						PropertyParams->Kind,
 						nullptr,
 						Ops
-					);
-					FProperty* KeyProperty = ConstructGeneratedProperty(FFieldVariant(Property), MapParams->KeyParams);
+					));
+					FProperty* KeyProperty = Child(MapParams->KeyParams);
 					if (KeyProperty && KeyProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::WeakObject)
 					{
 						checkf(false, "MapPropertyRegistration.WeakKeyUnsupported owner '{}' property '{}'.", GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
 						return nullptr;
 					}
 					static_cast<FMapProperty*>(Property)->SetKeyProp(KeyProperty);
-					static_cast<FMapProperty*>(Property)->SetValueProp(ConstructGeneratedProperty(FFieldVariant(Property), MapParams->ValueParams));
+					static_cast<FMapProperty*>(Property)->SetValueProp(Child(MapParams->ValueParams));
 					break;
 				}
 			case DurinCodeGen::EPropertyGenFlags::Int8:
-				Property = ConstructPlainProperty<int8, FNumericProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<int8, FNumericProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Int16:
-				Property = ConstructPlainProperty<int16, FNumericProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<int16, FNumericProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Int32:
-				Property = ConstructPlainProperty<int32, FNumericProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<int32, FNumericProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Int64:
-				Property = ConstructPlainProperty<int64, FNumericProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<int64, FNumericProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::UInt8:
-				Property = ConstructPlainProperty<uint8, FNumericProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<uint8, FNumericProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::UInt16:
-				Property = ConstructPlainProperty<uint16, FNumericProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<uint16, FNumericProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::UInt32:
-				Property = ConstructPlainProperty<uint32, FNumericProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<uint32, FNumericProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::UInt64:
-				Property = ConstructPlainProperty<uint64, FNumericProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<uint64, FNumericProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Byte:
-				Property = ConstructPlainProperty<std::byte, FProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<std::byte, FProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Blob:
 				{
@@ -608,10 +631,10 @@ namespace Durin
 							PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
 						return nullptr;
 					}
-					Property = new FProperty(
+					Property = Own(new FProperty(
 						Owner, FName(PropertyParams->NameUTF8), EObjectFlags::NoFlags,
 						PropertyParams->Flags, PropertyParams->ArrayDim, PropertyParams->Offset,
-						static_cast<uint16>(BlobParams->ValueOps.ValueSize), PropertyParams->Kind, nullptr);
+						static_cast<uint16>(BlobParams->ValueOps.ValueSize), PropertyParams->Kind, nullptr));
 					SetValueOps(Property, BlobParams->ValueOps);
 					break;
 				}
@@ -627,21 +650,23 @@ namespace Durin
 							PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
 						return nullptr;
 					}
-					Property = new FProperty(
+					Property = Own(new FProperty(
 						Owner, FName(PropertyParams->NameUTF8), EObjectFlags::NoFlags,
 						PropertyParams->Flags, PropertyParams->ArrayDim, PropertyParams->Offset,
 						static_cast<uint16>(BulkParams->Ops.ValueOps.ValueSize),
-						PropertyParams->Kind, nullptr);
+						PropertyParams->Kind, nullptr));
 					SetValueOps(Property, BulkParams->Ops.ValueOps);
 					Property->SetBulkDataOperations(
 						BulkParams->Ops.SerializeValue, BulkParams->Ops.IdenticalValue);
 					break;
 				}
 			case DurinCodeGen::EPropertyGenFlags::Float:
-				Property = ConstructPlainProperty<float, FNumericProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<float, FNumericProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Double:
-				Property = ConstructPlainProperty<double, FNumericProperty>(Owner, PropertyParams);
+				Tree->Root = ConstructPlainProperty<double, FNumericProperty>(Owner, PropertyParams);
+				Property = Tree->Root.get();
 				break;
 			case DurinCodeGen::EPropertyGenFlags::None:
 				{
@@ -652,7 +677,7 @@ namespace Durin
 						checkf(false, "GenericPropertyRegistration.InvalidDescriptor owner '{}' property '{}'.", GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
 						return nullptr;
 					}
-					Property = new FProperty(
+					Property = Own(new FProperty(
 						Owner,
 						FName(PropertyParams->NameUTF8),
 						EObjectFlags::NoFlags,
@@ -662,7 +687,7 @@ namespace Durin
 						GenericParams->ElementSize,
 						PropertyParams->Kind,
 						nullptr
-					);
+					));
 					SetValueOps(Property, GenericParams->ValueOps);
 					break;
 				}
@@ -675,14 +700,14 @@ namespace Durin
 			{
 				checkf(false, "PropertyRegistration.InvalidTypedMetadata owner '{}' property '{}'.",
 					GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
-				delete Property;
+				Tree->Root.reset();
 				return nullptr;
 			}
 			if (!ValidateDeprecationRegistration(Property))
 			{
 				checkf(false, "PropertyRegistration.InvalidDeprecation owner '{}' property '{}'.",
 					GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
-				delete Property;
+				Tree->Root.reset();
 				return nullptr;
 			}
 			Property->SetValueAccessors(PropertyParams->MutableValueAccessor, PropertyParams->ConstValueAccessor);
@@ -706,9 +731,41 @@ namespace Durin
 				if (Pair.Key && Pair.Key[0] != '\0') Property->SetMetaData(FName(Pair.Key), Pair.Value ? Pair.Value : "");
 			}
 			Property->SetLegacyNames(std::span(PropertyParams->LegacyNames, PropertyParams->NumLegacyNames));
-			return Property;
+			if (PropertyParams->NativeValueOps.ValueSize) SetValueOps(Property, PropertyParams->NativeValueOps);
+			if (const auto Error = ValidateNativeProperty(*Property))
+			{
+				checkf(false, "PropertyRegistration.InvalidNativeStorage owner '{}' property '{}': {}",
+					GetGeneratedPropertyOwnerName(Owner), Error->PropertyPath, Error->Reason);
+				return nullptr;
+			}
+			return {std::move(Tree), Property};
 		}
 	} // namespace
+
+	auto DurinCodeGen::ConstructDFunction(DClass* Owner, const FFunctionParams& Params) -> DFunction*
+	{
+		require(Owner && Params.Name && *Params.Name);
+		// Construction owns all fields before the object becomes visible to GC.
+		auto Function = std::unique_ptr<DFunction>(new DFunction(Owner, Params));
+		Function->RegisterMetadata();
+		return Function.release();
+	}
+
+	auto DurinCodeGen::ConstructProperties(DStructBase& Owner, const FPropertyParamsBase* const* Properties, size_t NumProperties) -> void
+	{
+		Owner.CheckPropertiesMutable();
+		require(!NumProperties || Properties);
+		for (size_t Index = 0; Index < NumProperties; ++Index)
+		{
+			require(Properties[Index]);
+			Owner.AddOwnedProperty(ConstructProperty(FFieldVariant(&Owner), *Properties[Index]));
+		}
+	}
+
+	auto DurinCodeGen::ConstructProperty(const FFieldVariant& Owner, const FPropertyParamsBase& Params) -> std::shared_ptr<FProperty>
+	{
+		return ConstructGeneratedProperty(Owner, &Params);
+	}
 
 	auto FObjectInitializer::Get() -> const FObjectInitializer&
 	{
@@ -817,7 +874,7 @@ namespace Durin
 		Params.Class = Class;
 		Params.Outer = Outer;
 		Params.Name = Name;
-		Params.Size = Class->PropertiesSize;
+		Params.Size = Class->GetStructureSize();
 		Params.Flags = Flags;
 		DObject* Object = StaticConstructObject(Params);
 		DObjectForceRegistration(Object);
@@ -827,7 +884,7 @@ namespace Durin
 	auto CanConstructObjectOfClass(const DClass* Class, const DClass* RequiredBaseClass) -> bool
 	{
 		return Class && RequiredBaseClass && Class->IsChildOf(RequiredBaseClass) && Class->ClassConstructor
-			   && !Class->HasAnyClassFlags(EClassFlags::Abstract) && Class->PropertiesSize >= sizeof(DObject);
+			   && !Class->HasAnyClassFlags(EClassFlags::Abstract) && Class->GetStructureSize() >= sizeof(DObject);
 	}
 
 
@@ -856,38 +913,16 @@ namespace Durin
 		Private::RegisterLegacyClassNames(
 			Class, std::span(Params.LegacyNames, Params.NumLegacyNames));
 		check((Params.Functions != nullptr) == (Params.NumFunctions != 0));
-		std::vector<FFunction> Functions;
+		std::vector<DFunction*> Functions;
 		for (size_t Index = 0; Index < Params.NumFunctions; ++Index)
 		{
 			const auto& Function = Params.Functions[Index];
 			check(Function.Name && Function.NativeFunction);
-			Functions.emplace_back(Class, FName(Function.Name), Function.ConstructSignature ? Function.ConstructSignature() : FFunctionSignature{}, Function.Flags,
-				Function.Category ? Function.Category : "Actions",
-				Function.DisplayName && *Function.DisplayName ? Function.DisplayName
-					: StringUtils::HumanizeName(Function.Name),
-				Function.ToolTip ? Function.ToolTip : "", Function.NativeFunction);
+			Functions.push_back(ConstructDFunction(Class, Function));
 		}
 		Class->RegisterFunctions(std::move(Functions));
 
-		if (!Class->ChildProperties && Params.PropertyParams && Params.NumProperties > 0)
-		{
-			FField* LastProperty = nullptr;
-			for (size_t Index = 0; Index < Params.NumProperties; ++Index)
-			{
-				const FPropertyParamsBase* PropertyParams = Params.PropertyParams[Index];
-				FProperty* Property = ConstructGeneratedProperty(FFieldVariant(Class), PropertyParams);
-
-				if (LastProperty)
-				{
-					LastProperty->Next = Property;
-				}
-				else
-				{
-					Class->ChildProperties = Property;
-				}
-				LastProperty = Property;
-			}
-		}
+		if (!Class->GetChildProperties()) ConstructProperties(*Class, Params.PropertyParams, Params.NumProperties);
 		Class->ValidateSerializedPropertyNames();
 		Private::FGCReferenceSchemaRegistry::FinalizeAndAssemble(Class);
 		return Class;
@@ -913,19 +948,7 @@ namespace Durin
 		Private::RegisterLegacyStructNames(
 			Struct, std::span(Params.LegacyNames, Params.NumLegacyNames));
 		Struct->InitializeOps(Params.Ops);
-		if (!Struct->ChildProperties && Params.PropertyParams && Params.NumProperties > 0)
-		{
-			FField* LastProperty = nullptr;
-			for (size_t Index = 0; Index < Params.NumProperties; ++Index)
-			{
-				FProperty* Property = ConstructGeneratedProperty(FFieldVariant(Struct), Params.PropertyParams[Index]);
-				if (LastProperty)
-					LastProperty->Next = Property;
-				else
-					Struct->ChildProperties = Property;
-				LastProperty = Property;
-			}
-		}
+		if (!Struct->GetChildProperties()) ConstructProperties(*Struct, Params.PropertyParams, Params.NumProperties);
 		Struct->ValidateSerializedPropertyNames();
 		Private::FGCReferenceSchemaRegistry::FinalizeAndAssemble(Struct);
 		if (!Private::IsDStructRegistrationBatchActive())

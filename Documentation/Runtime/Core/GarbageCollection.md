@@ -135,6 +135,15 @@ The base `DObject::AddReferencedObjects(...)` implementation executes the object
 
 Schema execution continues to use property value accessors and generated container helpers. A reference-bearing container without its required helper, or a struct property without resolved `DStruct` metadata, fails during schema assembly instead of being silently omitted during collection. Reflection layouts are immutable after construction; the current system does not invalidate or rebuild schemas at runtime.
 
+Owned function parameter buffers reuse a separate schema compiled at successful
+`DFunction::Link`, covering only local parameter and return fields. Its raw object
+slots, including container elements, are strong; weak and soft slots remain
+non-owning. Cached struct operations use the current ordinary struct schema and
+native collector, so later completion of provisional registration is visible.
+The buffer root pass executes cached operations without compiling property trees.
+See [Function Reflection](FunctionReflection.md#parameter-storage) for aggregate
+lifetime, borrowed-call deferral and parameter-specific reference policy.
+
 The collector does not follow:
 
 - the Outer index from `Outer -> Child`

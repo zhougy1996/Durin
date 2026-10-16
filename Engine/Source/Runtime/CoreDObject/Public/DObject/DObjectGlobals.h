@@ -6,12 +6,15 @@
 #include "ContainerOps.h"
 #include "ObjectMacros.h"
 #include "StructOps.h"
-#include "Function.h"
+#include "FunctionTypes.h"
 
 namespace Durin
 {
 	class DObject;
+	class FFieldVariant;
+	class FProperty;
 	class DClass;
+	class DStructBase;
 	class DEnum;
 	class DStruct;
 	class FSoftObjectPtr;
@@ -338,15 +341,25 @@ namespace Durin
 			size_t NumLegacyNames = 0;
 		};
 
+		struct FFunctionLayoutParams
+		{
+			const FPropertyParamsBase* const* PropertyParams;
+			size_t NumProperties;
+			uint32 ParmsSize;
+			uint32 ParmsAlignment;
+			void (*Initialize)(void*);
+			void (*Destroy)(void*);
+		};
+
 		struct FFunctionParams
 		{
 			const char* Name;
-			FFunctionSignature (*ConstructSignature)();
+			const FFunctionLayoutParams* Layout;
 			EFunctionFlags Flags;
 			const char* Category;
 			const char* DisplayName;
 			const char* ToolTip;
-			FFunction::FNativeFuncPtr NativeFunction;
+			FNativeFunctionPtr NativeFunction;
 		};
 
 		struct FClassParams
@@ -389,6 +402,8 @@ namespace Durin
 			const char* const* LegacyNames = nullptr;
 			size_t NumLegacyNames = 0;
 			const FPropertyMetadataParams* TypedMetadata = nullptr;
+			// Optional target-compiler storage operations, shared by generated members and parameters.
+			FPropertyValueOps NativeValueOps{};
 
 		protected:
 			constexpr FPropertyParamsBase(
@@ -1128,6 +1143,11 @@ namespace Durin
 			const char* const* LegacyNames = nullptr;
 			size_t NumLegacyNames = 0;
 		};
+
+		COREDOBJECT_API auto ConstructDFunction(DClass* Owner, const FFunctionParams& Params) -> DFunction*;
+
+		COREDOBJECT_API auto ConstructProperties(DStructBase& Owner, const FPropertyParamsBase* const* Properties, size_t NumProperties) -> void;
+		COREDOBJECT_API auto ConstructProperty(const FFieldVariant& Owner, const FPropertyParamsBase& Params) -> std::shared_ptr<FProperty>;
 
 		COREDOBJECT_API auto ConstructDClass(const FClassParams& Params) -> DClass*;
 		COREDOBJECT_API auto ConstructDEnum(const FEnumParams& Params) -> DEnum*;

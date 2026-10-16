@@ -168,19 +168,19 @@ namespace
 				Durin::EPropertyFlags::None, 1, offsetof(FRecordNestedValue, Count), sizeof(int32),
 				Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
 			SetValueLifecycle<int32>(*NestedCount);
-			NestedStruct->ChildProperties = NestedCount;
+			NestedStruct->SetChildProperties(NestedCount);
 			auto* NestedProperty = new Durin::FStructProperty(
 				Durin::FFieldVariant(Class), Durin::FName("Nested"), Durin::EObjectFlags::NoFlags,
 				Durin::EPropertyFlags::Edit, 1, STRUCT_OFFSET_UINT16(DTransactionRecordParticipant, Nested),
 				NestedStruct);
 
-			ValueProperty->Next = HardProperty;
-			HardProperty->Next = WeakProperty;
-			WeakProperty->Next = SoftProperty;
-			SoftProperty->Next = ArrayProperty;
-			ArrayProperty->Next = MapProperty;
-			MapProperty->Next = NestedProperty;
-			Class->ChildProperties = ValueProperty;
+			ValueProperty->SetNext(HardProperty);
+			HardProperty->SetNext(WeakProperty);
+			WeakProperty->SetNext(SoftProperty);
+			SoftProperty->SetNext(ArrayProperty);
+			ArrayProperty->SetNext(MapProperty);
+			MapProperty->SetNext(NestedProperty);
+			Class->SetChildProperties(ValueProperty);
 			Class->Register(Durin::DClass::StaticClass, "", "DTransactionRecordParticipant");
 			Durin::DObjectForceRegistration(Class);
 			return Class;
@@ -602,18 +602,18 @@ TEST(FFocusedTransactionObjectSnapshotTests, RejectsIncompatibleResolvedMember)
 	ASSERT_TRUE(Record.RestoreDetached(Storage));
 	const void* PreviousStorage = Storage.GetContainer();
 	Durin::DClass* Class = DTransactionRecordParticipant::StaticClass();
-	Durin::FField* OriginalProperties = Class->ChildProperties;
+	Durin::FField* OriginalProperties = Class->GetChildProperties();
 	Durin::FNumericProperty Incompatible(
 		Durin::FFieldVariant(Class), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
 		Durin::EPropertyFlags::Edit, 1, STRUCT_OFFSET_UINT16(DTransactionRecordParticipant, Value),
 		sizeof(int64), Durin::DurinCodeGen::EPropertyGenFlags::Int64, nullptr);
 	SetValueLifecycle<int64>(Incompatible);
-	Incompatible.Next = OriginalProperties->Next;
-	Class->ChildProperties = &Incompatible;
+	Incompatible.SetNext(OriginalProperties->GetNext());
+	Class->SetChildProperties(&Incompatible);
 
 	const auto Rejected = Record.RestoreDetached(Storage);
 	EXPECT_EQ(Storage.GetContainer(), PreviousStorage);
-	Class->ChildProperties = OriginalProperties;
+	Class->SetChildProperties(OriginalProperties);
 	ASSERT_FALSE(Rejected);
 	EXPECT_EQ(Rejected.error().Code, Durin::Editor::ETransactionSnapshotError::IncompatibleMember);
 	EXPECT_EQ(Rejected.error().ExpectedKind, Durin::DurinCodeGen::EPropertyGenFlags::Int32);

@@ -225,10 +225,10 @@ namespace
 			MapProperty->SetValueProp(MapValue);
 			SetPropertyViewValueLifecycle<FSoftObjectViewMap>(*MapProperty);
 
-			Property->Next = SoftProperty;
-			SoftProperty->Next = ArrayProperty;
-			ArrayProperty->Next = MapProperty;
-			Class->ChildProperties = Property;
+			Property->SetNext(SoftProperty);
+			SoftProperty->SetNext(ArrayProperty);
+			ArrayProperty->SetNext(MapProperty);
+			Class->SetChildProperties(Property);
 			Class->Register(Durin::DClass::StaticClass, "", "DPropertyViewHostTestObject");
 			Durin::DObjectForceRegistration(Class);
 		}
@@ -332,8 +332,8 @@ TEST(FReflectedPropertyViewTests, EditObjectEnumeratesEditableStaticArrayElement
 		FFieldVariant(&TestClass), FName("HiddenValues"), EObjectFlags::Transient,
 		EPropertyFlags::None, 2, 0, sizeof(float), EPropertyGenFlags::Float, nullptr
 	);
-	EditableProperty.Next = &HiddenProperty;
-	TestClass.ChildProperties = &EditableProperty;
+	EditableProperty.SetNext(&HiddenProperty);
+	TestClass.SetChildProperties(&EditableProperty);
 	DObject Object(&TestClass, nullptr, FName("Object"));
 
 	std::vector<uint32> FilteredIndices;
@@ -364,7 +364,7 @@ TEST(FReflectedPropertyViewTests, ArrayIndexEnumFiltersGenericArraysAndFallsBack
 		EClassFlags::Native, EClassCastFlags::DClass, nullptr);
 	FNumericProperty Property(FFieldVariant(&TestClass), FName("Values"), EObjectFlags::Transient,
 		EPropertyFlags::Edit, 8, 0, sizeof(float), DurinCodeGen::EPropertyGenFlags::Float, nullptr);
-	TestClass.ChildProperties = &Property;
+	TestClass.SetChildProperties(&Property);
 	DObject Object(&TestClass, nullptr, FName("Object"));
 	Editor::FPropertyView View;
 	auto CollectIndices = [&]() {

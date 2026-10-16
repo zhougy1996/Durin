@@ -30,7 +30,7 @@ namespace
 		static void __DefaultConstructor(const FObjectInitializer& Initializer)
 		{ new (Initializer.GetObj()) DFunctionTarget(Initializer); }
 		virtual void Run() { ++Invocations; Value += 5; if (DuringCall) DuringCall(); }
-		auto ProcessEvent(const FFunction* Function, FMutableByteView Parameters) -> EFunctionInvokeError override
+		auto ProcessEvent(const DFunction* Function, FMutableByteView Parameters) -> EFunctionInvokeError override
 		{
 			++EventDispatches;
 			return DObject::ProcessEvent(Function, Parameters);
@@ -50,12 +50,10 @@ namespace
 				Property->SetValueLifecycle(sizeof(int32), alignof(int32),
 					[](void* Memory) { std::construct_at(static_cast<int32*>(Memory)); },
 					[](void* Memory) { std::destroy_at(static_cast<int32*>(Memory)); });
-				Result->ChildProperties = Property;
+				Result->SetChildProperties(Property);
 				Result->Register(DClass::StaticClass, "", "DFunctionTarget");
 				DObjectForceRegistration(Result);
-				Result->RegisterFunctions({FFunction(Result, "Run", FFunctionSignature{},
-					EFunctionFlags::Native | EFunctionFlags::CallInEditor | EFunctionFlags::Virtual, "Actions", "Run Action", "Test action",
-					[](DObject& Target, FFunctionFrame&, void*) { static_cast<DFunctionTarget&>(Target).Run(); })});
+				Result->RegisterFunctions({DurinCodeGen::ConstructDFunction(Result, {"Run", nullptr, EFunctionFlags::Native | EFunctionFlags::CallInEditor | EFunctionFlags::Virtual, "Actions", "Run Action", "Test action", [](DObject& Target, FFunctionFrame&, void*) { static_cast<DFunctionTarget&>(Target).Run(); }})});
 				return Result;
 			}();
 			return Class;
@@ -111,12 +109,13 @@ namespace
 				auto* Result = MakeActionTestClass<DParameterizedFunctionTarget>("Tests::DParameterizedFunctionTarget", DFunctionTarget::StaticClass());
 				struct FParams { int32 Value; int32 ReturnValue; };
 				using namespace DurinCodeGen;
-				auto Signature = MakeFunctionSignature<FParams>({{MakeFunctionProperty<int32>("Value", 0), EFunctionParameterPassing::Value}},
-					MakeFunctionProperty<int32>("ReturnValue", offsetof(FParams, ReturnValue)));
-				Result->RegisterFunctions({FFunction(Result, "WithArgs", std::move(Signature), EFunctionFlags::Native | EFunctionFlags::CallInEditor,
-					"Actions", "With Args", "", +[](DObject&, FFunctionFrame& Frame, void* ReturnValue) {
+				TNativePropertyParams<int32> Value("Value", 0, EPropertyFlags::Parm);
+				TNativePropertyParams<int32> Return("ReturnValue", offsetof(FParams, ReturnValue), EPropertyFlags::Parm | EPropertyFlags::ReturnParm | EPropertyFlags::OutParm);
+				const FPropertyParamsBase* Properties[]{&Value.Params, &Return.Params};
+				auto Layout = MakeFunctionLayoutParams<FParams>(Properties, std::size(Properties));
+				Result->RegisterFunctions({DurinCodeGen::ConstructDFunction(Result, {"WithArgs", &Layout, EFunctionFlags::Native | EFunctionFlags::CallInEditor, "Actions", "With Args", "", +[](DObject&, FFunctionFrame& Frame, void* ReturnValue) {
 						*static_cast<int32*>(ReturnValue) = Frame.GetParameter<int32>(0) + 1;
-					})});
+					}})});
 				return Result;
 			}();
 			return Class;
@@ -132,8 +131,7 @@ namespace
 		{
 			static auto* Class = [] {
 				auto* Result = MakeActionTestClass<DOptOutFunctionTarget>("Tests::DOptOutFunctionTarget", DDerivedFunctionTarget::StaticClass());
-				Result->RegisterFunctions({FFunction(Result, "Run", FFunctionSignature{}, EFunctionFlags::Native | EFunctionFlags::Virtual,
-					"Other", "Hidden Action", "", [](DObject& Object, FFunctionFrame&, void*) { static_cast<DFunctionTarget&>(Object).Run(); })});
+				Result->RegisterFunctions({DurinCodeGen::ConstructDFunction(Result, {"Run", nullptr, EFunctionFlags::Native | EFunctionFlags::Virtual, "Other", "Hidden Action", "", [](DObject& Object, FFunctionFrame&, void*) { static_cast<DFunctionTarget&>(Object).Run(); }})});
 				return Result;
 			}();
 			return Class;
@@ -164,7 +162,7 @@ namespace
 	auto Request(DObject* Object, FName Name = "Run") -> FEditorFunctionRequest
 	{
 		const auto* Function = Object->GetClass()->FindFunctionByName(Name);
-		return {FObjectKey(Object), Name, Function->GetRootFunction().GetOwnerClass()->GetQualifiedName()};
+		return {FObjectKey(Object), Name, Function->GetRootFunction().GetOuterDClass()->GetQualifiedName()};
 	}
 
 	auto MakeActionPackage() -> DPackage*
@@ -439,8 +437,8 @@ TEST_F(FEditorFunctionTests, EffectiveOverrideCanRemoveTheInheritedEditorButton)
 	EXPECT_EQ(CanExecuteEditorFunction(Context, Request(Target)), EEditorFunctionError::FunctionUnavailable);
 	const auto* Effective = Target->GetClass()->FindFunctionByName("Run");
 	EXPECT_EQ(Effective->GetDisplayName(), "Hidden Action");
-	EXPECT_EQ(Effective->GetOwnerClass(), DOptOutFunctionTarget::StaticClass());
-	EXPECT_EQ(Effective->GetRootFunction().GetOwnerClass(), DFunctionTarget::StaticClass());
+	EXPECT_EQ(Effective->GetOuterDClass(), DOptOutFunctionTarget::StaticClass());
+	EXPECT_EQ(Effective->GetRootFunction().GetOuterDClass(), DFunctionTarget::StaticClass());
 	FDetailLayoutBuilder Layout;
 	Layout.ApplyRegisteredCustomizations(Target);
 	Layout.AddDefaultFunctions();
@@ -492,16 +490,16 @@ TEST_F(FEditorFunctionTests, RootIdentityDoesNotDependOnParentDescriptorRegistra
 	auto* Derived = MakeActionTestClass<DFunctionTarget>("Tests::DEarlyFunctionDerived", Base);
 	const auto Flags = EFunctionFlags::Native | EFunctionFlags::CallInEditor | EFunctionFlags::Virtual;
 	const auto Invoke = +[](DObject&, FFunctionFrame&, void*) {};
-	Derived->RegisterFunctions({FFunction(Derived, "LateAction", FFunctionSignature{}, Flags, "Actions", "Late Action", "", Invoke)});
-	Base->RegisterFunctions({FFunction(Base, "LateAction", FFunctionSignature{}, Flags, "Actions", "Late Action", "", Invoke)});
+	Derived->RegisterFunctions({DurinCodeGen::ConstructDFunction(Derived, {"LateAction", nullptr, Flags, "Actions", "Late Action", "", Invoke})});
+	Base->RegisterFunctions({DurinCodeGen::ConstructDFunction(Base, {"LateAction", nullptr, Flags, "Actions", "Late Action", "", Invoke})});
 	const auto* Function = Derived->FindFunctionByName("LateAction");
 	ASSERT_NE(Function, nullptr);
-	EXPECT_EQ(Function->GetRootFunction().GetOwnerClass(), Base);
+	EXPECT_EQ(Function->GetRootFunction().GetOuterDClass(), Base);
 	uint32 Count = 0;
 	Derived->ForEachFunction([&](const auto& Effective) {
 		++Count;
-		EXPECT_EQ(Effective.GetOwnerClass(), Derived);
-		EXPECT_EQ(Effective.GetRootFunction().GetOwnerClass(), Base);
+		EXPECT_EQ(Effective.GetOuterDClass(), Derived);
+		EXPECT_EQ(Effective.GetRootFunction().GetOuterDClass(), Base);
 	});
 	EXPECT_EQ(Count, 1u);
 }
@@ -511,7 +509,7 @@ TEST_F(FEditorFunctionTests, NativeEnumMetadataResolvesAcrossTheEngineModuleBoun
 	const auto* Enum = StaticEnum<ECollisionResponse>();
 	ASSERT_NE(Enum, nullptr);
 	EXPECT_EQ(Enum, FindEnumByQualifiedName("Durin::ECollisionResponse"));
-	const auto Property = DurinCodeGen::MakeFunctionProperty<ECollisionResponse>("Response", 0);
+	const auto Property = DurinCodeGen::ConstructProperty(FFieldVariant(nullptr), DurinCodeGen::TNativePropertyParams<ECollisionResponse>("Response", 0).Params);
 	EXPECT_EQ(static_cast<const FEnumProperty*>(Property.get())->GetEnum(), Enum);
 	EXPECT_TRUE(Private::FunctionTypeMatches<ECollisionResponse>(*Property));
 	EXPECT_FALSE(Private::FunctionTypeMatches<ECollisionEnabled>(*Property));

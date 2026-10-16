@@ -32,6 +32,7 @@ namespace Durin
 
 	auto FProperty::InitializeDeprecation() -> void
 	{
+		CheckMutable();
 		Deprecation.reset();
 		if (!HasAnyPropertyFlags(EPropertyFlags::Deprecated)) return;
 		std::string HistoricalName = NamePrivate.ToString();
@@ -41,6 +42,7 @@ namespace Durin
 
 	auto FProperty::SetTypedMetadata(const FPropertyMetadataParams* InMetadata) -> void
 	{
+		CheckMutable();
 		TypedMetadata = {};
 		if (!InMetadata) return;
 		TypedMetadata.DisplayName = InMetadata->DisplayName ? InMetadata->DisplayName : "";
@@ -769,6 +771,7 @@ namespace Durin
 
 	auto FProperty::SetLegacyNames(std::span<const char* const> InLegacyNames) -> void
 	{
+		CheckMutable();
 		LegacyNames.clear();
 		LegacyNames.reserve(InLegacyNames.size());
 		for (const char* LegacyName : InLegacyNames)
@@ -785,14 +788,14 @@ namespace Durin
 	auto FProperty::GetValueSize() const -> uint32
 	{
 		if (ValueSize != 0) return ValueSize;
-		if (DStruct* Struct = GetPropertyStruct(this)) return Struct->PropertiesSize;
+		if (DStruct* Struct = GetPropertyStruct(this)) return Struct->GetStructureSize();
 		return ElementSize;
 	}
 
 	auto FProperty::GetValueAlignment() const -> uint32
 	{
 		if (ValueAlignment != 0) return ValueAlignment;
-		if (DStruct* Struct = GetPropertyStruct(this)) return Struct->MinAlignment;
+		if (DStruct* Struct = GetPropertyStruct(this)) return Struct->GetMinAlignment();
 		switch (Kind)
 		{
 		case DurinCodeGen::EPropertyGenFlags::Bool: return alignof(bool);
@@ -1143,7 +1146,7 @@ namespace Durin
 		FPropertyIdentityDiagnostic* OutDiagnostic
 	) -> EPropertyIdentityResult
 	{
-		DClass* PropertyOwner = Property ? Cast<DClass>(Property->Owner.ToDObject()) : nullptr;
+		DClass* PropertyOwner = Property ? Cast<DClass>(Property->GetOwnerVariant().ToDObject()) : nullptr;
 		if (!Property || !LiveObject || !LiveObject->GetClass() || !PropertyOwner
 			|| !LiveObject->GetClass()->IsChildOf(PropertyOwner)
 			|| LiveObject->IsTemplateObject() || ArrayIndex >= Property->GetArrayDim())
@@ -1543,7 +1546,7 @@ namespace Durin
 			  InPropertyFlags,
 			  InArrayDim,
 			  InOffset,
-			  static_cast<uint16>(InStruct->PropertiesSize),
+			  static_cast<uint16>(InStruct->GetStructureSize()),
 			  DurinCodeGen::EPropertyGenFlags::Struct,
 			  nullptr
 		  )

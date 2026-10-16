@@ -52,6 +52,7 @@ namespace Durin
 		);
 
 		auto GetPropertyFlags() const -> EPropertyFlags { return PropertyFlags; }
+		auto SetPropertyFlags(EPropertyFlags InFlags) -> void { CheckMutable(); PropertyFlags |= InFlags; }
 		auto GetArrayDim() const -> uint16 { return ArrayDim; }
 		auto GetOffset() const -> uint16 { return Offset; }
 		auto GetElementSize() const -> uint16 { return ElementSize; }
@@ -77,7 +78,7 @@ namespace Durin
 		COREDOBJECT_API auto CanCopyAssignValue() const -> bool;
 		auto HasValueLifecycle() const -> bool { return CanDefaultConstructValue() && CanDestroyValue(); }
 		auto HasValueAccessors() const -> bool { return MutableValueAccessor != nullptr || ConstValueAccessor != nullptr; }
-		auto GetOwnerProperty() const -> FProperty* { return static_cast<FProperty*>(Owner.ToField()); }
+		auto GetOwnerProperty() const -> FProperty* { return static_cast<FProperty*>(GetOwnerVariant().ToField()); }
 		auto HasAnyPropertyFlags(EPropertyFlags InFlags) const -> bool { return EnumHasAnyFlags(PropertyFlags, InFlags); }
 
 		auto GetValuePtr(void* Container, uint32 ArrayIndex = 0) const -> void*
@@ -97,6 +98,7 @@ namespace Durin
 			const void* (*InConstAccessor)(const void*, uint32)
 		) -> void
 		{
+			CheckMutable();
 			MutableValueAccessor = InMutableAccessor;
 			ConstValueAccessor = InConstAccessor;
 		}
@@ -110,6 +112,7 @@ namespace Durin
 			void (*InCopyAssignValue)(void*, const void*) = nullptr
 		) -> void
 		{
+			CheckMutable();
 			ValueSize = InValueSize;
 			ValueAlignment = InValueAlignment;
 			InitializeValueFunction = InInitializeValue;
@@ -122,6 +125,7 @@ namespace Durin
 			void (*InSerializeValue)(FArchive&, void*),
 			bool (*InIdenticalValue)(const void*, const void*)) -> void
 		{
+			CheckMutable();
 			SerializeBulkDataValueFunction = InSerializeValue;
 			IdenticalBulkDataValueFunction = InIdenticalValue;
 		}

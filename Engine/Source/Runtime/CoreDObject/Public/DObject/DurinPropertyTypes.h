@@ -316,7 +316,7 @@ namespace Durin
 			const FArrayOps* InOps
 		);
 
-		auto SetInner(FProperty* InInner) -> void { Inner = InInner; }
+		auto SetInner(FProperty* InInner) -> void { CheckMutable(); Inner = InInner; }
 		auto GetInner() const -> FProperty* { return Inner; }
 		auto GetContainerPtr(void* Container) const -> void* { return GetValuePtr(Container); }
 		auto GetContainerPtr(const void* Container) const -> const void* { return GetValuePtr(Container); }
@@ -361,8 +361,8 @@ namespace Durin
 			const FMapOps* InOps
 		);
 
-		auto SetKeyProp(FProperty* InKeyProp) -> void { KeyProp = InKeyProp; }
-		auto SetValueProp(FProperty* InValueProp) -> void { ValueProp = InValueProp; }
+		auto SetKeyProp(FProperty* InKeyProp) -> void { CheckMutable(); KeyProp = InKeyProp; }
+		auto SetValueProp(FProperty* InValueProp) -> void { CheckMutable(); ValueProp = InValueProp; }
 		auto GetKeyProp() const -> FProperty* { return KeyProp; }
 		auto GetValueProp() const -> FProperty* { return ValueProp; }
 		auto GetContainerPtr(void* Container) const -> void* { return GetValuePtr(Container); }

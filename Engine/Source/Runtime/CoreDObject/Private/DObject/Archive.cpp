@@ -198,9 +198,9 @@ namespace Durin
 		{
 			FArchiveLogicalTypeDescriptor LogicalType = MakeLogicalTypeDescriptor(Property);
 			DStruct* DeclaringStruct = Property
-				? Cast<DStruct>(Property->Owner.ToDObject()) : nullptr;
+				? Cast<DStruct>(Property->GetOwnerVariant().ToDObject()) : nullptr;
 			DClass* DeclaringClass = Property
-				? Cast<DClass>(Property->Owner.ToDObject()) : nullptr;
+				? Cast<DClass>(Property->GetOwnerVariant().ToDObject()) : nullptr;
 			if (Property && Property->GetArrayDim() > 1)
 				LogicalType = FArchiveLogicalTypeDescriptor::FixedArray(
 					std::move(LogicalType), Property->GetArrayDim());
@@ -2112,7 +2112,7 @@ namespace Durin
 			FStaticConstructObjectParameters Params;
 			Params.Class = Class;
 			Params.Name = FName(Record.ObjectName);
-			Params.Size = Class->PropertiesSize;
+			Params.Size = Class->GetStructureSize();
 			Params.Purpose = EObjectConstructionPurpose::AssetLoad;
 			DObject* Object = StaticConstructObject(Params);
 			if (!Object)
@@ -2251,7 +2251,7 @@ namespace Durin
 				Params.Class = Class;
 				Params.Outer = DuplicateOuter;
 				Params.Name = Source == RootObject && !NewName.IsNone() ? NewName : Source->GetFName();
-				Params.Size = Class->PropertiesSize;
+				Params.Size = Class->GetStructureSize();
 				Params.Purpose = EObjectConstructionPurpose::Duplication;
 				Duplicate = StaticConstructObject(Params);
 				if (!Duplicate)

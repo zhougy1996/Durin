@@ -929,7 +929,7 @@ namespace Durin::AssetPrivate
 				if (!Object)
 				{
 					FStaticConstructObjectParameters Parameters{
-						Class, Outer, FName(Descriptor.Export->ObjectName), Class->PropertiesSize,
+						Class, Outer, FName(Descriptor.Export->ObjectName), Class->GetStructureSize(),
 						Descriptor.OuterId == 0 ? EObjectFlags::Public : EObjectFlags::NoFlags};
 					Parameters.Purpose = EObjectConstructionPurpose::AssetLoad;
 					Object = StaticConstructObject(Parameters);

@@ -1,7 +1,9 @@
 #include "DObject/FunctionParameters.h"
 
 #include "DObject/Object.h"
+#include "Misc/StringHelper.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/PropertyValidation.h"
 #include "GCReferenceSchema.h"
 #include "Threading/RunnableThread.h"
 
@@ -19,160 +21,194 @@ namespace Durin
 {
 	namespace
 	{
-		auto ValidFunctionProperty(const FProperty* Property, uint32 Depth = 0) -> bool
+		auto ValidateFunctionProperty(const FProperty& Property, std::string Path, uint32 Depth = 0) -> std::optional<FPropertyValidationError>
 		{
-			if (!Property || Depth > 4 || Property->GetArrayDim() != 1 || Property->HasValueAccessors()
-				|| !Property->HasValueLifecycle() || !Property->CanCopyConstructValue() || !Property->CanCopyAssignValue()) return false;
+			using E = EPropertyValidationError;
 			using K = DurinCodeGen::EPropertyGenFlags;
-			switch (Property->GetKind())
+			auto Fail = [&](const char* Reason) -> std::optional<FPropertyValidationError> {
+				return FPropertyValidationError{E::InvalidStorage, Path, Reason};
+			};
+			if (auto Error = ValidateNativeProperty(Property, {.RequireValueOperations = true})) { Error->PropertyPath = Path; return Error; }
+			if (Depth > 4) return Fail("function containers exceed the maximum nesting depth of four");
+			if (Property.GetArrayDim() != 1 || Property.HasValueAccessors()) return Fail("function values require one inline native slot without custom accessors");
+			if (Depth && Property.GetOffset() != 0) return Fail("container element/key/value offset must be zero");
+			switch (Property.GetKind())
 			{
-			case K::Enum:
-			{
-				if (!Property->ClassPrivate || !Property->ClassPrivate->IsChildOf(FEnumProperty::StaticClass())) return false;
-				const auto* Enum = static_cast<const FEnumProperty*>(Property)->GetEnum();
-				if (!Enum || Enum->GetUnderlyingSize() != Property->GetValueSize()) return false;
-				auto Matches = [&]<typename T>() { return Property->GetValueSize() == sizeof(T) && Property->GetValueAlignment() == alignof(T); };
-				using U = DurinCodeGen::EEnumUnderlyingType;
-				switch (Enum->GetUnderlyingType())
-				{
-				case U::Int8: return Matches.operator()<int8>();
-				case U::Int16: return Matches.operator()<int16>();
-				case U::Int32: return Matches.operator()<int32>();
-				case U::Int64: return Matches.operator()<int64>();
-				case U::UInt8: return Matches.operator()<uint8>();
-				case U::UInt16: return Matches.operator()<uint16>();
-				case U::UInt32: return Matches.operator()<uint32>();
-				case U::UInt64: return Matches.operator()<uint64>();
-				default: return false;
-				}
-			}
-			case K::SoftObject:
-				return Property->ClassPrivate && Property->ClassPrivate->IsChildOf(FSoftObjectProperty::StaticClass())
-					&& Property->GetReferencedClass() && static_cast<const FSoftObjectProperty*>(Property)->HasSoftValueAccessors()
-					&& Property->GetValueSize() == sizeof(TSoftObjectPtr<DObject>) && Property->GetValueAlignment() == alignof(TSoftObjectPtr<DObject>);
-			case K::WeakObject:
-				return Property->ClassPrivate && Property->ClassPrivate->IsChildOf(FWeakObjectProperty::StaticClass())
-					&& Property->GetReferencedClass() && static_cast<const FWeakObjectProperty*>(Property)->HasWeakValueAccessors()
-					&& Property->GetValueSize() == sizeof(TWeakObjectPtr<DObject>) && Property->GetValueAlignment() == alignof(TWeakObjectPtr<DObject>);
-			case K::Object:
-				return (Property->ClassPrivate && Property->ClassPrivate->IsChildOf(FObjectProperty::StaticClass())) && Property->GetReferencedClass()
-					&& Property->GetValueSize() == (Property->IsObjectPtrWrapper() ? sizeof(TObjectPtr<DObject>) : sizeof(DObject*))
-					&& Property->GetValueAlignment() == (Property->IsObjectPtrWrapper() ? alignof(TObjectPtr<DObject>) : alignof(DObject*))
-					&& static_cast<const FObjectProperty*>(Property)->HasObjectValueWriter();
-			case K::Struct:
-			{
-				if (!(Property->ClassPrivate && Property->ClassPrivate->IsChildOf(FStructProperty::StaticClass()))) return false;
-				const auto* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
-				return Struct && Struct->AreOpsInitialized() && Struct->CanDefaultConstruct() && Struct->CanDestroy()
-					&& Struct->CanCopyConstruct() && Struct->CanCopyAssign()
-					&& Property->GetValueSize() == Struct->PropertiesSize && Property->GetValueAlignment() == Struct->MinAlignment;
-			}
+			case K::None: case K::Byte: case K::Blob: case K::BulkData: case K::Count:
+				return Fail("property kind is unsupported in native function parameters");
 			case K::Array:
 			{
-				if (!(Property->ClassPrivate && Property->ClassPrivate->IsChildOf(FArrayProperty::StaticClass())) || Depth == 4) return false;
-				const auto* Array = static_cast<const FArrayProperty*>(Property);
-				return Array->HasArrayOps() && IsValidArrayOps(&Array->GetOps()) && Array->GetInner()
-					&& Property->GetValueSize() == Array->GetOps().ContainerSize
-					&& Property->GetValueAlignment() == Array->GetOps().ContainerAlignment
-					&& Array->GetInner()->GetOffset() == 0 && Array->GetInner()->GetKind() != K::Bool
-					&& ValidFunctionProperty(Array->GetInner(), Depth + 1);
+				const auto& Array = static_cast<const FArrayProperty&>(Property);
+				if (Depth == 4) return Fail("function containers exceed the maximum nesting depth of four");
+				if (Array.GetInner()->GetKind() == K::Bool) return Fail("std::vector<bool> storage is unsupported in native function parameters");
+				return ValidateFunctionProperty(*Array.GetInner(), Path + ".Inner", Depth + 1);
 			}
 			case K::Map:
 			{
-				if (!(Property->ClassPrivate && Property->ClassPrivate->IsChildOf(FMapProperty::StaticClass())) || Depth == 4) return false;
-				const auto* Map = static_cast<const FMapProperty*>(Property);
-				return Map->HasMapOps() && IsValidMapOps(&Map->GetOps()) && Map->GetKeyProp() && Map->GetValueProp()
-					&& Property->GetValueSize() == Map->GetOps().ContainerSize
-					&& Property->GetValueAlignment() == Map->GetOps().ContainerAlignment
-					&& Map->GetKeyProp()->GetOffset() == 0 && Map->GetValueProp()->GetOffset() == 0
-					&& Map->GetKeyProp()->GetKind() != K::Object && Map->GetKeyProp()->GetKind() != K::Struct
-					&& Map->GetKeyProp()->GetKind() != K::SoftObject && Map->GetKeyProp()->GetKind() != K::WeakObject
-					&& Map->GetKeyProp()->GetKind() != K::Array && Map->GetKeyProp()->GetKind() != K::Map
-					&& ValidFunctionProperty(Map->GetKeyProp(), Depth + 1) && ValidFunctionProperty(Map->GetValueProp(), Depth + 1);
+				const auto& Map = static_cast<const FMapProperty&>(Property);
+				if (Depth == 4) return Fail("function containers exceed the maximum nesting depth of four");
+				const auto Kind = Map.GetKeyProp()->GetKind();
+				if (Kind == K::Object || Kind == K::Struct || Kind == K::SoftObject || Kind == K::WeakObject || Kind == K::Array || Kind == K::Map)
+					return FPropertyValidationError{E::InvalidType, Path + ".Key", "native function map keys must use scalar, string, name, GUID or enum storage"};
+				if (auto Error = ValidateFunctionProperty(*Map.GetKeyProp(), Path + ".Key", Depth + 1)) return Error;
+				return ValidateFunctionProperty(*Map.GetValueProp(), Path + ".Value", Depth + 1);
 			}
-			default:
-			{
-				auto Matches = [&]<typename T>() { return Private::FunctionTypeMatches<T>(*Property); };
-				switch (Property->GetKind())
-				{
-				case K::Bool: return Matches.operator()<bool>();
-				case K::Int8: return Matches.operator()<int8>();
-				case K::Int16: return Matches.operator()<int16>();
-				case K::Int32: return Matches.operator()<int32>();
-				case K::Int64: return Matches.operator()<int64>();
-				case K::UInt8: return Matches.operator()<uint8>();
-				case K::UInt16: return Matches.operator()<uint16>();
-				case K::UInt32: return Matches.operator()<uint32>();
-				case K::UInt64: return Matches.operator()<uint64>();
-				case K::Float: return Matches.operator()<float>();
-				case K::Double: return Matches.operator()<double>();
-				case K::String: return Matches.operator()<std::string>();
-				case K::Name: return Matches.operator()<FName>();
-				case K::Guid: return Matches.operator()<FGuid>();
-				default: return false;
-				}
-			}
+			default: return {};
 			}
 		}
 	}
 
-	auto FFunctionSignature::IsValid() const -> bool
+	DFunction::DFunction(DClass* Owner, const DurinCodeGen::FFunctionParams& Params)
+		: DStructBase(FObjectInitializer{.Class = DFunction::StaticClass(), .Outer = Owner, .Name = Params.Name, .Flags = EObjectFlags::Transient}),
+		FunctionFlags(Params.Flags), Category(Params.Category ? Params.Category : "Actions"),
+		DisplayName(Params.DisplayName && *Params.DisplayName ? Params.DisplayName : StringUtils::HumanizeName(Params.Name)),
+		ToolTip(Params.ToolTip ? Params.ToolTip : ""), NativeFunction(Params.NativeFunction)
 	{
-		if (IsVoidNoArgs()) return ParmsSize == 0 && ParmsAlignment == 1 && !Initialize && !Destroy;
-		if (!ParmsSize || ParmsSize > std::numeric_limits<uint16>::max() || !ParmsAlignment
-			|| (ParmsAlignment & (ParmsAlignment - 1)) || ParmsSize % ParmsAlignment || !Initialize || !Destroy) return false;
-		std::vector<std::pair<uint32, uint32>> Ranges;
-		auto CheckProperty = [&](const FProperty* Property) {
-			if (!ValidFunctionProperty(Property)) return false;
-			const uint32 Offset = Property->GetOffset(), Size = Property->GetValueSize(), Alignment = Property->GetValueAlignment();
-			if (Offset > ParmsSize || Size > ParmsSize - Offset
-				|| ParmsAlignment < Alignment || Offset % Alignment) return false;
-			Ranges.emplace_back(Offset, Offset + Size);
-			return true;
-		};
-		std::unordered_set<FName> Names;
-		for (const auto& Parameter : Parameters)
+		SetStructureLayout(Params.Layout ? Params.Layout->ParmsSize : 0, Params.Layout ? Params.Layout->ParmsAlignment : 1);
+		if (const auto* Layout = Params.Layout)
 		{
-			if (!CheckProperty(Parameter.Property.get()) || Parameter.Property->NamePrivate.IsNone()
-				|| !Names.insert(Parameter.Property->NamePrivate).second
-				|| (Parameter.Passing != EFunctionParameterPassing::Value
-					&& Parameter.Passing != EFunctionParameterPassing::ConstReference
-					&& Parameter.Passing != EFunctionParameterPassing::Reference)) return false;
+			InitializeParameters = Layout->Initialize;
+			DestroyParameters = Layout->Destroy;
+			DurinCodeGen::ConstructProperties(*this, Layout->PropertyParams, Layout->NumProperties);
 		}
-		if (ReturnProperty && !CheckProperty(ReturnProperty.get())) return false;
-		std::ranges::sort(Ranges);
+	}
+
+	auto DFunction::RegisterMetadata() -> void { AddObject(GetFName()); }
+
+	auto DFunction::GetOuterDClass() const -> DClass* { return static_cast<DClass*>(GetOuter()); }
+
+	auto DFunction::GetReturnValueOffset() const -> uint32
+	{
+		require(ArePropertiesLinked());
+		return ReturnProperty ? ReturnProperty->GetOffset() : std::numeric_limits<uint32>::max();
+	}
+
+	auto DFunction::Invoke(DObject& Target, FFunctionFrame& Frame, void* Result) const -> void
+	{
+		require(&Target == &Frame.GetObject() && this == &Frame.GetFunction());
+		NativeFunction(Target, Frame, Result);
+	}
+
+	auto ToString(const FFunctionLinkDiagnostic& Diagnostic) -> std::string
+	{
+		if (!Diagnostic.HasError()) return {};
+		return std::format("{}::{}{}: {}", Diagnostic.OwnerClass, Diagnostic.FunctionName,
+			Diagnostic.PropertyPath.empty() ? std::string{} : "." + Diagnostic.PropertyPath, Diagnostic.Reason);
+	}
+
+	auto DFunction::MakeLinkDiagnostic(EFunctionLinkError Code, std::string Path, std::string Reason) const -> FFunctionLinkDiagnostic
+	{
+		const auto* Owner = Cast<DClass>(GetOuter());
+		return {Code, Owner ? Owner->GetQualifiedName().ToString() : "<no declaring class>", GetName(), std::move(Path), std::move(Reason)};
+	}
+
+	auto DFunction::FailLink(EFunctionLinkError Code, std::string Path, std::string Reason) -> bool
+	{
+		LinkDiagnostic = MakeLinkDiagnostic(Code, std::move(Path), std::move(Reason));
+		return false;
+	}
+
+	auto DFunction::Link() -> bool
+	{
+		LinkDiagnostic = {};
+		const auto* Owner = Cast<DClass>(GetOuter());
+		if (!Owner) return FailLink(EFunctionLinkError::InvalidDescriptor, {}, "declaring class is missing");
+		auto* Parent = Owner->GetSuperClass();
+		if (Parent && Parent->LinkFunctions() != EFunctionLinkError::None)
+		{ LinkDiagnostic = Parent->GetFunctionLinkDiagnostic(); return false; }
+		auto* SuperFunction = Parent ? const_cast<DFunction*>(Parent->FindFunctionByName(GetFName())) : nullptr;
+		if (ArePropertiesLinked()) return GetSuperStructBase() == SuperFunction
+			|| FailLink(EFunctionLinkError::InvalidDescriptor, {}, "declaring-class parent changed after function layout linking");
+		SetSuperStructBase(SuperFunction);
+		if (!InitializeDerivedMembers())
+		{
+			ParameterProperties.clear();
+			ReturnProperty = nullptr;
+			return false;
+		}
+		ParameterReferenceSchema = Private::FGCReferenceSchemaRegistry::CompileParameters(*this);
+		return Super::Link();
+	}
+
+	auto DFunction::InitializeDerivedMembers() -> bool
+	{
+		ParameterProperties.clear();
+		ReturnProperty = nullptr;
+		struct FRange { uint32 Start, End; std::string Name; };
+		std::vector<FRange> Ranges;
+		std::unordered_set<FName> Names;
+		auto Fail = [&](std::string Path, std::string Reason) { return FailLink(EFunctionLinkError::InvalidDescriptor, std::move(Path), std::move(Reason)); };
+		if (!GetChildProperties())
+			return (GetStructureSize() == 0 && GetMinAlignment() == 1 && !InitializeParameters && !DestroyParameters)
+				|| Fail({}, "void/no-argument functions require an empty aggregate layout and no lifecycle callbacks");
+		if (!GetStructureSize() || GetStructureSize() > std::numeric_limits<uint16>::max()) return Fail({}, "parameter aggregate size must be in [1, 65535]");
+		if (!GetMinAlignment() || (GetMinAlignment() & (GetMinAlignment() - 1)) || GetStructureSize() % GetMinAlignment())
+			return Fail({}, "parameter aggregate alignment must be a power of two and divide its size");
+		if (!InitializeParameters || !DestroyParameters) return Fail({}, "parameter aggregate initialization or destruction callback is missing");
+		for (auto* Field = GetChildProperties(); Field; Field = Field->GetNext())
+		{
+			const auto* Property = static_cast<const FProperty*>(Field);
+			const auto Path = Property->NamePrivate.ToString();
+			if (!Property->HasAnyPropertyFlags(EPropertyFlags::Parm)) return Fail(Path, "parameter property is missing the Parm flag");
+			if (auto Error = ValidateFunctionProperty(*Property, Path)) return Fail(Error->PropertyPath, Error->Reason);
+			if (Property->NamePrivate.IsNone()) return Fail(Path, "parameter property name is empty");
+			const bool bReturn = Property->HasAnyPropertyFlags(EPropertyFlags::ReturnParm);
+			if (!bReturn && !Names.insert(Property->NamePrivate).second) return Fail(Path, "parameter name is duplicated");
+			const bool bReference = Property->HasAnyPropertyFlags(EPropertyFlags::ReferenceParm);
+			const bool bConst = Property->HasAnyPropertyFlags(EPropertyFlags::ConstParm);
+			const bool bOut = Property->HasAnyPropertyFlags(EPropertyFlags::OutParm);
+			if (bReturn && ReturnProperty) return Fail(Path, "multiple return properties are present");
+			if (bReturn ? (bReference || bConst || !bOut) : (bConst && !bReference) || (bOut != (bReference && !bConst)))
+				return Fail(Path, "parameter ReferenceParm/ConstParm/OutParm/ReturnParm flags are inconsistent");
+			if (bReturn) ReturnProperty = Property;
+			else ParameterProperties.push_back(Property);
+			const uint32 Offset = Property->GetOffset(), Size = Property->GetValueSize(), Alignment = Property->GetValueAlignment();
+			if (Offset > GetStructureSize() || Size > GetStructureSize() - Offset) return Fail(Path, "parameter storage exceeds the aggregate bounds");
+			if (GetMinAlignment() < Alignment || Offset % Alignment) return Fail(Path, "parameter offset or aggregate alignment does not satisfy native alignment");
+			Ranges.push_back({Offset, Offset + Size, Path});
+		}
+		std::ranges::sort(Ranges, {}, &FRange::Start);
 		for (size_t Index = 1; Index < Ranges.size(); ++Index)
-			if (Ranges[Index - 1].second > Ranges[Index].first) return false;
+			if (Ranges[Index - 1].End > Ranges[Index].Start) return Fail(Ranges[Index].Name, "parameter storage overlaps '" + Ranges[Index - 1].Name + "'");
 		return true;
 	}
 
-	auto FFunctionSignature::IsCompatibleWith(const FFunctionSignature& Other) const -> bool
+	auto DFunction::GetSignatureMismatch(const DFunction& Other) const -> FFunctionLinkDiagnostic
 	{
-		return IsValid() && Other.IsValid() && HasCompatibleTypes(Other);
+		auto Fail = [&](std::string Path, const char* Reason) { return MakeLinkDiagnostic(EFunctionLinkError::SignatureMismatch, std::move(Path), Reason); };
+		if (!ArePropertiesLinked() || !Other.ArePropertiesLinked()) return Fail({}, "both function layouts must be linked before signature comparison");
+		if (GetNumInputParms() != Other.GetNumInputParms()) return Fail({}, "parameter count differs from the overridden function");
+		if (HasAnyFunctionFlags(EFunctionFlags::Const) != Other.HasAnyFunctionFlags(EFunctionFlags::Const)) return Fail({}, "method const qualification differs from the overridden function");
+		constexpr auto Roles = EPropertyFlags::ReferenceParm | EPropertyFlags::ConstParm | EPropertyFlags::OutParm;
+		for (size_t Index = 0; Index < ParameterProperties.size(); ++Index)
+		{
+			const auto* A = ParameterProperties[Index];
+			const auto* B = Other.ParameterProperties[Index];
+			if ((A->GetPropertyFlags() & Roles) != (B->GetPropertyFlags() & Roles)) return Fail(A->NamePrivate.ToString(), "parameter passing flags differ from the overridden function");
+			if (!ArePropertyTypesSame(A, B)) return Fail(A->NamePrivate.ToString(), "native parameter type differs from the overridden function");
+		}
+		if (bool(ReturnProperty) != bool(Other.ReturnProperty) || (ReturnProperty && !ArePropertyTypesSame(ReturnProperty, Other.ReturnProperty)))
+			return Fail("ReturnValue", "native return type differs from the overridden function");
+		return {};
 	}
 
-	auto FFunctionSignature::HasCompatibleTypes(const FFunctionSignature& Other) const -> bool
+	auto DFunction::IsSignatureCompatibleWith(const DFunction& Other) const -> bool
 	{
-		if (Parameters.size() != Other.Parameters.size() || bool(ReturnProperty) != bool(Other.ReturnProperty)) return false;
-
-		for (size_t Index = 0; Index < Parameters.size(); ++Index)
-			if (Parameters[Index].Passing != Other.Parameters[Index].Passing
-				|| !ArePropertyTypesSame(Parameters[Index].Property.get(), Other.Parameters[Index].Property.get())) return false;
-		return !ReturnProperty || ArePropertyTypesSame(ReturnProperty.get(), Other.ReturnProperty.get());
+		return !GetSignatureMismatch(Other).HasError();
 	}
 
-	FFunctionParameterBuffer::FFunctionParameterBuffer(const FFunction& Function) : Signature(Function.GetSignature())
+	FFunctionParameterBuffer::FFunctionParameterBuffer(const DFunction& Function) : Function(Function)
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FGarbageCollectionDeferralScope Deferral;
-		require(Function.bValidSignature);
-		if (!Signature.ParmsSize) return;
-		const auto Alignment = std::align_val_t(std::max<size_t>(Signature.ParmsAlignment, alignof(std::max_align_t)));
-		Storage = ::operator new(Signature.ParmsSize, Alignment);
-		try { Signature.Initialize(Storage); }
+		require(Function.ArePropertiesLinked());
+		if (!Function.GetParmsSize()) return;
+		const auto Alignment = std::align_val_t(std::max<size_t>(Function.GetMinAlignment(), alignof(std::max_align_t)));
+		Storage = ::operator new(Function.GetParmsSize(), Alignment);
+		try { Function.InitializeParameters(Storage); }
 		catch (...) { ::operator delete(Storage, Alignment); throw; }
 		try { GetFunctionBuffers().insert(this); }
-		catch (...) { Signature.Destroy(Storage); ::operator delete(Storage, Alignment); throw; }
+		catch (...) { Function.DestroyParameters(Storage); ::operator delete(Storage, Alignment); throw; }
 	}
 
 	FFunctionParameterBuffer::~FFunctionParameterBuffer()
@@ -181,8 +217,8 @@ namespace Durin
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FGarbageCollectionDeferralScope Deferral;
 		GetFunctionBuffers().erase(this);
-		Signature.Destroy(Storage);
-		::operator delete(Storage, std::align_val_t(std::max<size_t>(Signature.ParmsAlignment, alignof(std::max_align_t))));
+		Function.DestroyParameters(Storage);
+		::operator delete(Storage, std::align_val_t(std::max<size_t>(Function.GetMinAlignment(), alignof(std::max_align_t))));
 	}
 
 	namespace Private
@@ -191,27 +227,23 @@ namespace Durin
 		{
 			for (auto* Buffer : GetFunctionBuffers())
 			{
-				for (const auto& Parameter : Buffer->Signature.Parameters)
-					FGCReferenceSchemaRegistry::VisitProperty(const_cast<FProperty*>(Parameter.Property.get()), Buffer->Storage, 0, Collector, true);
-				if (Buffer->Signature.ReturnProperty)
-					FGCReferenceSchemaRegistry::VisitProperty(const_cast<FProperty*>(Buffer->Signature.ReturnProperty.get()), Buffer->Storage, 0, Collector, true);
+				FGCReferenceSchemaRegistry::Visit(*Buffer->Function.ParameterReferenceSchema, Buffer->Storage, Collector);
 			}
 		}
 	}
 
-	auto FFunction::GetSuperFunction() const -> const FFunction*
+	auto DFunction::GetSuperFunction() const -> const DFunction*
 	{
-		require(Owner && Owner->AreFunctionsLinked());
-		return SuperFunction;
+		return static_cast<const DFunction*>(GetSuperStructBase());
 	}
 
-	auto FFunction::GetRootFunction() const -> const FFunction&
+	auto DFunction::GetRootFunction() const -> const DFunction&
 	{
 		const auto* Super = GetSuperFunction();
 		return Super ? Super->GetRootFunction() : *this;
 	}
 
-	FFunctionFrame::FFunctionFrame(DObject& InObject, const FFunction& InFunction, FMutableByteView InParameters)
+	FFunctionFrame::FFunctionFrame(DObject& InObject, const DFunction& InFunction, FMutableByteView InParameters)
 		: Object(InObject), Function(InFunction), Parameters(InParameters), PreviousFrame(GCurrentFunctionFrame)
 	{
 		GCurrentFunctionFrame = this;
@@ -228,21 +260,16 @@ namespace Durin
 		return GCurrentFunctionFrame;
 	}
 
-	auto FFunction::ValidateInvocation(DObject& Target, FMutableByteView Parameters) const -> EFunctionInvokeError
+	auto DFunction::ValidateInvocation(DObject& Target, FMutableByteView Parameters) const -> EFunctionInvokeError
 	{
-		if (!Owner || !Target.IsA(Owner)) return EFunctionInvokeError::WrongClass;
-		if (!Owner->AreFunctionsLinked()) return EFunctionInvokeError::UnlinkedFunction;
-		if (!bValidSignature) return EFunctionInvokeError::UnsupportedSignature;
-		if (Parameters.size() != Signature.ParmsSize || (Signature.ParmsSize
-			&& (!Parameters.data() || reinterpret_cast<uintptr_t>(Parameters.data()) % Signature.ParmsAlignment)))
+		if (!GetOuterDClass() || !Target.IsA(GetOuterDClass())) return EFunctionInvokeError::WrongClass;
+		if (!bLinked) return EFunctionInvokeError::UnlinkedFunction;
+		if (Parameters.size() != GetParmsSize() || (GetParmsSize()
+			&& (!Parameters.data() || reinterpret_cast<uintptr_t>(Parameters.data()) % GetMinAlignment())))
 			return EFunctionInvokeError::InvalidParameters;
-		if (!HasAnyFlags(EFunctionFlags::Native) || !NativeFunction) return EFunctionInvokeError::MissingInvoker;
 		return EFunctionInvokeError::None;
 	}
 
-	auto FFunction::Invoke(FFunctionFrame& Frame, void* Result) const -> void
-	{
-		NativeFunction(Frame.GetObject(), Frame, Result);
-	}
-
 }
+
+IMPLEMENT_INTRINSIC_CLASS(DFunction, DFunction, COREDOBJECT_API, DStructBase, DStructBase, COREDOBJECT_API, {})

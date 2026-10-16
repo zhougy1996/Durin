@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "Object.h"
+#include "StructBase.h"
 #include "Function.h"
 
 namespace Durin
@@ -82,62 +82,6 @@ namespace Durin
 		ConstructionFailed,
 	};
 
-	// Provides the common object identity for all reflected runtime metadata.
-	class DType : public DObject
-	{
-	public:
-		DECLARE_CLASS_INTRINSIC_API(DType, DObject, COREDOBJECT_API)
-
-		DType(EStaticConstructor, EObjectFlags InFlags)
-			: DObject(EC_StaticConstructor, InFlags)
-		{
-		}
-	};
-
-	// Describes reflected fields and memory layout shared by classes and value structs.
-	class DStructBase : public DType
-	{
-	public:
-		DECLARE_CLASS_INTRINSIC_API(DStructBase, DType, COREDOBJECT_API)
-
-		DStructBase(EStaticConstructor, uint32 InSize, uint32 InMinAlignment, EObjectFlags InFlags)
-			: DType(EC_StaticConstructor, InFlags)
-			, PropertiesSize(InSize)
-			, MinAlignment(InMinAlignment)
-		{
-		}
-
-		FField* ChildProperties = nullptr;
-
-		uint32 PropertiesSize = 0;
-
-		uint32 MinAlignment = 0;
-
-	private:
-		DStructBase* SuperStructBase = nullptr;
-		std::shared_ptr<const Private::FGCReferenceSchema> ReferenceSchema;
-
-		friend class Private::FGCReferenceSchemaRegistry;
-
-	public:
-		auto SetSuperStructBase(DStructBase* InSuperStructBase) -> void
-		{
-			SuperStructBase = InSuperStructBase;
-		}
-
-		auto GetSuperStructBase() const -> DStructBase* { return SuperStructBase; }
-
-		auto RegisterDependencies() -> void;
-
-		COREDOBJECT_API auto ForEachProperty(const std::function<void(FProperty*)>& Visitor, bool bIncludeSuper = true) const -> void;
-
-		COREDOBJECT_API auto FindPropertyByName(FName InName, bool bIncludeSuper = true) const -> FProperty*;
-		// Resolves a serialized field name through current names and owner-scoped legacy aliases.
-		COREDOBJECT_API auto FindPropertyBySerializedName(
-			FName InName, bool bIncludeSuper = true) const -> FProperty*;
-		COREDOBJECT_API auto ValidateSerializedPropertyNames() const -> void;
-	};
-
 	// Describes a reflected DObject class, its inheritance, constructor, and presentation names.
 	class DClass : public DStructBase
 	{
@@ -172,12 +116,13 @@ namespace Durin
 		auto GetSuperClass() const -> DClass* { return static_cast<DClass*>(GetSuperStructBase()); }
 		// Queries link manually registered classes on first use, sealing their metadata.
 		// Registration and the first query must run on the registration thread.
-		COREDOBJECT_API auto ForEachFunction(const std::function<void(const FFunction&)>& Visitor, bool bIncludeSuper = true) const -> void;
-		COREDOBJECT_API auto FindFunctionByName(FName Name, bool bIncludeSuper = true) const -> const FFunction*;
-		COREDOBJECT_API auto RegisterFunctions(std::vector<FFunction> InFunctions) -> void;
+		COREDOBJECT_API auto ForEachFunction(const std::function<void(const DFunction&)>& Visitor, bool bIncludeSuper = true) const -> void;
+		COREDOBJECT_API auto FindFunctionByName(FName Name, bool bIncludeSuper = true) const -> const DFunction*;
+		COREDOBJECT_API auto RegisterFunctions(std::vector<DFunction*> InFunctions) -> void;
 		// Seal descriptors base-first after registration. Failure leaves this class unlinked;
 		// successfully linked ancestors remain sealed. No generated parent helpers are called.
 		COREDOBJECT_API auto LinkFunctions() -> EFunctionLinkError;
+		auto GetFunctionLinkDiagnostic() const -> const FFunctionLinkDiagnostic& { return FunctionLinkDiagnostic; }
 		auto AreFunctionsLinked() const -> bool { return bFunctionsLinked; }
 		COREDOBJECT_API auto IsChildOf(const DClass* InClass) const -> bool;
 		auto GetClassFlags() const -> EClassFlags { return ClassFlags; }
@@ -200,6 +145,7 @@ namespace Durin
 		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 
 	private:
+		auto EnsureFunctionsLinked() const -> void;
 		auto ResolveDefaultObjectEligibility() -> bool;
 		auto BeginDefaultObjectConstruction() -> bool;
 		auto SetPendingDefaultObject(DObject* Object) -> void;
@@ -208,9 +154,10 @@ namespace Durin
 		auto ReleaseDefaultObjectOwnership() -> DObject*;
 
 		EClassFlags ClassFlags = EClassFlags::None;
-		std::vector<FFunction> Functions;
-		std::vector<const FFunction*> EffectiveFunctions;
-		std::unordered_map<FName, const FFunction*> FunctionMap;
+		std::vector<DFunction*> Functions;
+		std::vector<const DFunction*> EffectiveFunctions;
+		std::unordered_map<FName, const DFunction*> FunctionMap;
+		FFunctionLinkDiagnostic FunctionLinkDiagnostic;
 		bool bFunctionsRegistered = false;
 		bool bFunctionsLinked = false;
 		bool bLinkingFunctions = false;

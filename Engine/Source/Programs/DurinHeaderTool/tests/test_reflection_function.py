@@ -197,7 +197,7 @@ def test_supported_value_parameter_and_return(tmp_path, cpp, kind):
     assert function.signature == {"Const": False, "Return": kind,
                                   "Parameters": [{"Type": kind, "Passing": "Value"}]}
     generated = generate_cpp_content(info, {})
-    assert "MakeFunctionSignature<FParams_Echo>" in generated
+    assert "MakeFunctionLayoutParams<FParams_Echo>" in generated
     assert "ReturnValue{}" in generated
     assert "STRUCT_OFFSET(FParams_Echo, P0)" in generated
 
@@ -268,7 +268,7 @@ def test_composite_parameters_return_and_generated_storage(tmp_path, cpp, expect
     assert [p.kind for p in function.parameters] == [expected, expected]
     assert [p.passing for p in function.parameters] == ["ConstReference", "Reference"]
     cpp = generate_cpp_content(info, {})
-    assert "MakeFunctionProperty<" in cpp and "ReturnValue{}" in cpp
+    assert "TNativePropertyParams<" in cpp and "ReturnValue{}" in cpp
 
 
 @pytest.mark.parametrize("value", [
@@ -354,7 +354,7 @@ def test_enum_and_nonowning_reference_signatures(tmp_path, cpp, kind):
     assert [p.kind for p in function.parameters] == [expected] * 3
     assert [p.passing for p in function.parameters] == ["Value", "ConstReference", "Reference"]
     generated = generate_cpp_content(info, {})
-    assert "MakeFunctionProperty<" in generated and "ReturnValue{}" in generated
+    assert "TNativePropertyParams<" in generated and "ReturnValue{}" in generated
     if kind == "Enum":
         assert "FNativeEnumRegistration" in generated
         assert "NativeEnumUnderlyingType<EMode>()" in generated

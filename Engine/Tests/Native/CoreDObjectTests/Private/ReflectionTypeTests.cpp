@@ -910,12 +910,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DDefaultGraphOwnerForTest, SignedEnum),
 					sizeof(int8), Durin::DurinCodeGen::EPropertyGenFlags::Enum, nullptr,
 					GetBuiltInLeafEnumForTest<Durin::DurinCodeGen::EEnumUnderlyingType::Int8, int8>());
-				BlobProperty->Next = SignedEnumProperty;
-				ChildProperty->Next = ClassSpecificProperty;
-				ClassSpecificProperty->Next = FixedProperty;
-				FixedProperty->Next = ExactFloatProperty;
-				ExactFloatProperty->Next = BlobProperty;
-				Class->ChildProperties = ChildProperty;
+				BlobProperty->SetNext(SignedEnumProperty);
+				ChildProperty->SetNext(ClassSpecificProperty);
+				ClassSpecificProperty->SetNext(FixedProperty);
+				FixedProperty->SetNext(ExactFloatProperty);
+				ExactFloatProperty->SetNext(BlobProperty);
+				Class->SetChildProperties(ChildProperty);
 			}
 			return Class;
 		}
@@ -959,8 +959,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					EPropertyFlags::None, 2, STRUCT_OFFSET_UINT16(DTypeDefaultOwnerForTest, Values), Z_Construct_DStruct_FTransform());
 				auto* RequiredProperty = new FStructProperty(FFieldVariant(Class), "Required", EObjectFlags::NoFlags,
 					EPropertyFlags::AlwaysSerialize, 2, STRUCT_OFFSET_UINT16(DTypeDefaultOwnerForTest, Required), Z_Construct_DStruct_FTransform());
-				ValuesProperty->Next = RequiredProperty;
-				Class->ChildProperties = ValuesProperty;
+				ValuesProperty->SetNext(RequiredProperty);
+				Class->SetChildProperties(ValuesProperty);
 			}
 			return Class;
 		}
@@ -1032,10 +1032,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				Class->SetSuperStructBase(Durin::DObject::StaticClass());
 				Class->Register(Durin::DClass::StaticClass, "", "DAuthoritativeDeltaOwnerForTest");
 				Durin::DObjectForceRegistration(Class);
-				Class->ChildProperties = new Durin::FStructProperty(
+				Class->SetChildProperties(new Durin::FStructProperty(
 					Durin::FFieldVariant(Class), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
 					Durin::EPropertyFlags::None, 1,
-					STRUCT_OFFSET_UINT16(DAuthoritativeDeltaOwnerForTest, Value), TextStruct);
+					STRUCT_OFFSET_UINT16(DAuthoritativeDeltaOwnerForTest, Value), TextStruct));
 			}
 			return Class;
 		}
@@ -5916,11 +5916,11 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(ClassParams);
 
 		ASSERT_NE(Class, nullptr);
-		ASSERT_NE(Class->ChildProperties, nullptr);
-		EXPECT_EQ(Class->ChildProperties->NamePrivate.ToString(), "Value");
-		EXPECT_NE(Class->ChildProperties->Next, nullptr);
-		EXPECT_EQ(Class->PropertiesSize, sizeof(FReflectedPropertyOwnerForTest));
-		EXPECT_EQ(Class->MinAlignment, alignof(FReflectedPropertyOwnerForTest));
+		ASSERT_NE(Class->GetChildProperties(), nullptr);
+		EXPECT_EQ(Class->GetChildProperties()->NamePrivate.ToString(), "Value");
+		EXPECT_NE(Class->GetChildProperties()->GetNext(), nullptr);
+		EXPECT_EQ(Class->GetStructureSize(), sizeof(FReflectedPropertyOwnerForTest));
+		EXPECT_EQ(Class->GetMinAlignment(), alignof(FReflectedPropertyOwnerForTest));
 
 		auto* ValueProperty = Class->FindPropertyByName("Value");
 		ASSERT_NE(ValueProperty, nullptr);
@@ -6074,9 +6074,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Source.ObjectPtr = ReferencedObject;
 
 		size_t NumProperties = 0;
-		for (Durin::FProperty* Property = static_cast<Durin::FProperty*>(Struct->ChildProperties);
+		for (Durin::FProperty* Property = static_cast<Durin::FProperty*>(Struct->GetChildProperties());
 			 Property;
-			 Property = static_cast<Durin::FProperty*>(Property->Next))
+			 Property = static_cast<Durin::FProperty*>(Property->GetNext()))
 		{
 			++NumProperties;
 			EXPECT_TRUE(Property->CanDefaultConstructValue()) << Property->NamePrivate.ToString();
@@ -6250,7 +6250,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1,
 			STRUCT_OFFSET_UINT16(StructOpsTest::FIncompleteAuthoredStruct, Value),
 			sizeof(int32), Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
-		IncompleteStruct.ChildProperties = &ReflectedValue;
+		IncompleteStruct.SetChildProperties(&ReflectedValue);
 		Durin::FStructProperty IncompleteProperty(
 			Durin::FFieldVariant(), Durin::FName("Incomplete"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, &IncompleteStruct);
@@ -6322,10 +6322,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			EXPECT_FALSE(Struct->HasReferenceCollector());
 			EXPECT_TRUE(Struct->HasCompleteAuthoredFields());
 		}
-		EXPECT_EQ(VectorStruct->PropertiesSize, sizeof(Durin::FVector3));
-		EXPECT_EQ(VectorStruct->MinAlignment, alignof(Durin::FVector3));
-		EXPECT_EQ(FloatVectorStruct->PropertiesSize, sizeof(Durin::FVector3f));
-		EXPECT_EQ(FloatVectorStruct->MinAlignment, alignof(Durin::FVector3f));
+		EXPECT_EQ(VectorStruct->GetStructureSize(), sizeof(Durin::FVector3));
+		EXPECT_EQ(VectorStruct->GetMinAlignment(), alignof(Durin::FVector3));
+		EXPECT_EQ(FloatVectorStruct->GetStructureSize(), sizeof(Durin::FVector3f));
+		EXPECT_EQ(FloatVectorStruct->GetMinAlignment(), alignof(Durin::FVector3f));
 		for (const auto& [Struct, Components] : std::array{
 				 std::pair{FloatVector2Struct, std::array<const char*, 4>{"x", "y", nullptr, nullptr}},
 				 std::pair{FloatVectorStruct, std::array<const char*, 4>{"x", "y", "z", nullptr}},
@@ -6369,10 +6369,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_NE(Rotation, nullptr);
 		ASSERT_NE(Translation, nullptr);
 		ASSERT_NE(Scale, nullptr);
-		EXPECT_EQ(TransformStruct->ChildProperties, Rotation);
-		EXPECT_EQ(Rotation->Next, Translation);
-		EXPECT_EQ(Translation->Next, Scale);
-		EXPECT_EQ(Scale->Next, nullptr);
+		EXPECT_EQ(TransformStruct->GetChildProperties(), Rotation);
+		EXPECT_EQ(Rotation->GetNext(), Translation);
+		EXPECT_EQ(Translation->GetNext(), Scale);
+		EXPECT_EQ(Scale->GetNext(), nullptr);
 		EXPECT_EQ(Rotation->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Struct);
 		auto* RotationStructProperty = static_cast<Durin::FStructProperty*>(Rotation);
 		auto* TranslationStructProperty = static_cast<Durin::FStructProperty*>(Translation);
@@ -6392,10 +6392,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			EXPECT_FALSE(Property->HasValueAccessors());
 			EXPECT_TRUE(Property->HasValueLifecycle());
 		}
-		EXPECT_EQ(RotationStructProperty->GetElementSize(), QuatStruct->PropertiesSize);
-		EXPECT_EQ(TranslationStructProperty->GetElementSize(), VectorStruct->PropertiesSize);
-		EXPECT_EQ(ScaleStructProperty->GetElementSize(), VectorStruct->PropertiesSize);
-		EXPECT_EQ(TranslationStructProperty->GetValueAlignment(), VectorStruct->MinAlignment);
+		EXPECT_EQ(RotationStructProperty->GetElementSize(), QuatStruct->GetStructureSize());
+		EXPECT_EQ(TranslationStructProperty->GetElementSize(), VectorStruct->GetStructureSize());
+		EXPECT_EQ(ScaleStructProperty->GetElementSize(), VectorStruct->GetStructureSize());
+		EXPECT_EQ(TranslationStructProperty->GetValueAlignment(), VectorStruct->GetMinAlignment());
 		Durin::FTransform TransformValue;
 		EXPECT_EQ(RotationStructProperty->GetValuePtr(&TransformValue), &TransformValue.Rotation);
 		EXPECT_EQ(TranslationStructProperty->GetValuePtr(&TransformValue), &TransformValue.Translation);
@@ -6420,10 +6420,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_NE(X, nullptr);
 		ASSERT_NE(Y, nullptr);
 		ASSERT_NE(Z, nullptr);
-		EXPECT_EQ(VectorStruct->ChildProperties, X);
-		EXPECT_EQ(X->Next, Y);
-		EXPECT_EQ(Y->Next, Z);
-		EXPECT_EQ(Z->Next, nullptr);
+		EXPECT_EQ(VectorStruct->GetChildProperties(), X);
+		EXPECT_EQ(X->GetNext(), Y);
+		EXPECT_EQ(Y->GetNext(), Z);
+		EXPECT_EQ(Z->GetNext(), nullptr);
 		EXPECT_EQ(X->GetValuePtr(&Source), &Source.x);
 		EXPECT_EQ(Y->GetValuePtr(&Source), &Source.y);
 		EXPECT_EQ(Z->GetValuePtr(&Source), &Source.z);
@@ -6532,7 +6532,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			Durin::FNumericProperty Count(Durin::FFieldVariant(&Struct), "Count", Durin::EObjectFlags::NoFlags,
 				Durin::EPropertyFlags::Edit, 1, 0, sizeof(int32),
 				Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
-			Struct.ChildProperties = &Count;
+			Struct.SetChildProperties(&Count);
 			Durin::FStructProperty Parent(Durin::FFieldVariant(), "Parent", Durin::EObjectFlags::NoFlags,
 				Durin::EPropertyFlags::Edit, 2, 0, &Struct);
 			const Durin::FPropertyMetadataParams Metadata{nullptr, nullptr, nullptr,
@@ -6574,7 +6574,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			return Ops;
 		};
 		auto AttachValue = [](Durin::DStruct& Struct, Durin::FNumericProperty& Property) {
-			Struct.ChildProperties = &Property;
+			Struct.SetChildProperties(&Property);
 		};
 
 		Durin::FDStructOps StableOps = MakeOps(&StructOpsTest::ConstructStableDefault);
@@ -6704,7 +6704,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			static_cast<uint16>(sizeof(Durin::DObject*)),
 			Durin::DurinCodeGen::EPropertyGenFlags::Object, Durin::DObject::StaticClass(),
 			false, Params.ReadObjectValue, Params.WriteObjectValue);
-		Struct->ChildProperties = ValueProperty;
+		Struct->SetChildProperties(ValueProperty);
 		Struct->Register(
 			Durin::DStruct::StaticClass, "/Cpp/StructDefaultLifecycleTest", "Tests::FReferenceDefault");
 		Durin::DObjectForceRegistration(Struct);
@@ -6802,9 +6802,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Direct->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Struct);
 		EXPECT_EQ(Direct->GetStruct(), VectorStruct);
 		EXPECT_EQ(Accessed->GetStruct(), VectorStruct);
-		EXPECT_EQ(Direct->GetElementSize(), VectorStruct->PropertiesSize);
-		EXPECT_EQ(Direct->GetValueSize(), VectorStruct->PropertiesSize);
-		EXPECT_EQ(Direct->GetValueAlignment(), VectorStruct->MinAlignment);
+		EXPECT_EQ(Direct->GetElementSize(), VectorStruct->GetStructureSize());
+		EXPECT_EQ(Direct->GetValueSize(), VectorStruct->GetStructureSize());
+		EXPECT_EQ(Direct->GetValueAlignment(), VectorStruct->GetMinAlignment());
 		EXPECT_EQ(Direct->GetMetaData(Durin::FName("Category")), "TypedStruct");
 		EXPECT_FALSE(Direct->HasValueAccessors());
 		EXPECT_TRUE(Accessed->HasValueAccessors());

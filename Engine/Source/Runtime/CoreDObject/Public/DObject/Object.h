@@ -122,7 +122,7 @@ namespace Durin
 		// Synchronously dispatches a reflected function through its native call frame.
 		// Parameters are borrowed, initialized storage matching the function signature;
 		// Void/no-argument functions require an empty view. Overrides may intercept or delegate to this base.
-		COREDOBJECT_API virtual auto ProcessEvent(const FFunction* Function,
+		COREDOBJECT_API virtual auto ProcessEvent(const DFunction* Function,
 			FMutableByteView Parameters) -> EFunctionInvokeError;
 
 		template<typename T>
@@ -262,6 +262,7 @@ namespace Durin
 		friend COREDOBJECT_API auto MarkAsGarbage(DObject* Object) -> void;
 		friend COREDOBJECT_API auto ForEachObjectReference(DObject* Object, FReferenceCollector& Collector) -> void;
 		friend COREDOBJECT_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
+		friend class DFunction;
 		friend class DPackage;
 		friend class FDObjectArray;
 	};

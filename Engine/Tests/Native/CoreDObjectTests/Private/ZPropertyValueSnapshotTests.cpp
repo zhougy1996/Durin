@@ -341,7 +341,7 @@ namespace
 			Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FNestedGuid, Value)),
 			static_cast<uint16>(sizeof(Durin::FGuid)), Durin::DurinCodeGen::EPropertyGenFlags::Guid, nullptr
 		);
-		NestedStruct.ChildProperties = &NestedValueProperty;
+		NestedStruct.SetChildProperties(&NestedValueProperty);
 		Durin::FStructProperty NestedProperty(
 			Durin::FFieldVariant(), Durin::FName("Nested"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FNestedGuidOwner, Nested)),
@@ -1175,8 +1175,8 @@ TEST(FReflectedContainerOpsTests, CopyCapabilitiesRejectNestedMoveOnlyElementsAn
 			Durin::FFieldVariant(&CycleB), Durin::FName("A"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, &CycleA
 		);
-		CycleA.ChildProperties = &AToB;
-		CycleB.ChildProperties = &BToA;
+		CycleA.SetChildProperties(&AToB);
+		CycleB.SetChildProperties(&BToA);
 		Durin::FStructProperty CycleRoot(
 			Durin::FFieldVariant(), Durin::FName("Root"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, &CycleA
@@ -1210,7 +1210,7 @@ TEST(FReflectedContainerOpsTests, CopyCapabilitiesRejectNestedMoveOnlyElementsAn
 				Durin::FFieldVariant(Structs[Index].get()), Durin::FName("Next"), Durin::EObjectFlags::NoFlags,
 				Durin::EPropertyFlags::None, 1, 0, Structs[Index + 1].get()
 			));
-			Structs[Index]->ChildProperties = Fields.back().get();
+			Structs[Index]->SetChildProperties(Fields.back().get());
 		}
 		Durin::FStructProperty DepthRoot(
 			Durin::FFieldVariant(), Durin::FName("Depth"), Durin::EObjectFlags::NoFlags,
@@ -1274,7 +1274,7 @@ TEST(FReflectedContainerOpsTests, CopyCapabilitiesRejectNestedMoveOnlyElementsAn
 			static_cast<uint16>(offsetof(FValue, Value)), sizeof(int32),
 			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
 		);
-		Struct.ChildProperties = &ReflectedValue;
+		Struct.SetChildProperties(&ReflectedValue);
 		Durin::FStructProperty Property(
 			Durin::FFieldVariant(), Durin::FName("Custom"),
 			Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1, 0,
@@ -1411,7 +1411,7 @@ TEST(FPropertyValueSnapshotTests, SnapshotRestoreFailurePreservesDestination)
 	Struct.InitializeOps(&GetDStructOps<V>());
 	FNumericProperty Field(FFieldVariant(&Struct), "Value", EObjectFlags::NoFlags,
 		EPropertyFlags::None, 1, 0, sizeof(int32), DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
-	Struct.ChildProperties = &Field;
+	Struct.SetChildProperties(&Field);
 	FMapProperty Map({}, "Values", EObjectFlags::NoFlags, EPropertyFlags::None, 1, 0,
 		sizeof(M), DurinCodeGen::EPropertyGenFlags::Map, nullptr, ResolveMapOps<M>());
 	FNumericProperty Key(FFieldVariant(&Map), "Key", EObjectFlags::NoFlags,
@@ -1464,7 +1464,7 @@ TEST(FPropertyValueSnapshotTests, SaveOverrideCopyFailureDoesNotPublishEntry)
 		EObjectFlags::Transient, EClassFlags::None, EClassCastFlags::DClass, nullptr);
 	FNumericProperty Property(FFieldVariant(&Class), "Value", EObjectFlags::NoFlags,
 		EPropertyFlags::None, 1, 0, sizeof(int32), DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
-	Class.ChildProperties = &Property;
+	Class.SetChildProperties(&Property);
 	DObject Object(&Class, nullptr, "OverrideOwner");
 	FObjectSaveOverrides Overrides;
 	const auto Result = Overrides.AddPropertyValue(Object, Property, int32{17});
@@ -1494,7 +1494,7 @@ TEST(FPropertyValueSnapshotTests, SaveOverrideSnapshotFailureDoesNotPublishEntry
 		[](void* P) { std::destroy_at(static_cast<FUnreflectedValue*>(P)); },
 		[](void* D, const void* S) { std::construct_at(static_cast<FUnreflectedValue*>(D), *static_cast<const FUnreflectedValue*>(S)); },
 		[](void* D, const void* S) { *static_cast<FUnreflectedValue*>(D) = *static_cast<const FUnreflectedValue*>(S); });
-	Class.ChildProperties = &Property;
+	Class.SetChildProperties(&Property);
 	DObject Object(&Class, nullptr, "OverrideOwner");
 	FObjectSaveOverrides Overrides;
 	const auto Result = Overrides.AddPropertyValue(Object, Property, FUnreflectedValue{17});
@@ -1537,7 +1537,7 @@ TEST(FPropertyValueSnapshotTests, DefaultCopyRejectsUnavailablePropertyLifecycle
 		EObjectFlags::Transient, EClassFlags::None, EClassCastFlags::DClass, nullptr);
 	FNumericProperty Property(FFieldVariant(&Class), "Unavailable", EObjectFlags::NoFlags,
 		EPropertyFlags::None, 1, 0, sizeof(int32), DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
-	Class.ChildProperties = &Property;
+	Class.SetChildProperties(&Property);
 	DObject Source(&Class, nullptr, "Source"), Destination(&Class, nullptr, "Destination");
 	const auto Result = InitializeObjectFromDefaults(&Source, &Destination, {});
 	EXPECT_EQ(Result.error().Code, EObjectPropertyCopyError::ValueCopy);
@@ -1560,8 +1560,8 @@ TEST(FPropertyValueSnapshotTests, EditableCopyFailureRollsBackEarlierFields)
 		EPropertyFlags::Edit, 1, STRUCT_OFFSET_UINT16(FCopyObject, Value), sizeof(int32), DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
 	FNumericProperty Second(FFieldVariant(&Class), "Opaque", EObjectFlags::NoFlags,
 		EPropertyFlags::Edit, 1, STRUCT_OFFSET_UINT16(FCopyObject, Opaque), sizeof(int32), DurinCodeGen::EPropertyGenFlags::None, nullptr);
-	First.Next = &Second;
-	Class.ChildProperties = &First;
+	First.SetNext(&Second);
+	Class.SetChildProperties(&First);
 	FCopyObject Source(&Class, "Source"), Destination(&Class, "Destination");
 	Source.Value = 99;
 	Destination.Value = 7;

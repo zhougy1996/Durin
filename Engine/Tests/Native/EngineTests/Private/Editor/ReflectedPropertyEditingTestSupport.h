@@ -192,9 +192,9 @@ namespace
 					*static_cast<Durin::TObjectPtr<Durin::DObject>*>(ValueAddress) = Object;
 				});
 			SetTestValueLifecycle<Durin::TObjectPtr<Durin::DObject>>(*ObjectProperty);
-			ValueProperty->Next = GuidProperty;
-			GuidProperty->Next = ObjectProperty;
-			Class->ChildProperties = ValueProperty;
+			ValueProperty->SetNext(GuidProperty);
+			GuidProperty->SetNext(ObjectProperty);
+			Class->SetChildProperties(ValueProperty);
 			Class->Register(Durin::DClass::StaticClass, "", "DReflectedTransactionTestObject");
 			Durin::DObjectForceRegistration(Class);
 			return Class;

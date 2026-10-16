@@ -38,6 +38,11 @@ namespace Durin
 	{
 	};
 
+	DCLASS()
+	class DFunction : public DStructBase
+	{
+	};
+
 	// Mirrors reflected enum metadata for dependency export parsing.
 	DCLASS()
 	class DEnum : public DType

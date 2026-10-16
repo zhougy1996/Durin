@@ -96,6 +96,11 @@ namespace Durin
 		EditorOnly = 1 << 4,
 		// Required wire fields bypass default omission without persisting override intent.
 		AlwaysSerialize = 1 << 5,
+		Parm = 1 << 6,
+		OutParm = 1 << 7,
+		ReturnParm = 1 << 8,
+		ReferenceParm = 1 << 9,
+		ConstParm = 1 << 10,
 	};
 
 	enum class EObjectInternalFlags

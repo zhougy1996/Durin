@@ -7,7 +7,7 @@ from durin_header_tool.model.reflection_info import (
     ReflectedStructInfo,
 )
 from durin_header_tool.parser.property_parser import _cpp_type_spelling
-from durin_header_tool.writers.reflection_function_writer import function_declarations, signature_factory
+from durin_header_tool.writers.reflection_function_writer import function_declarations, function_layout_record
 
 
 ExportedSymbols = dict[str, ExportedSymbolInfo]
@@ -188,7 +188,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
                 rest = ", ".join(_cpp_string_literal(v) for v in (
                     function.category, function.display_name, function.tool_tip))
                 _append_line(class_builder,
-                    f"{{ {name}, {signature_factory(function, generated_statics_name)}, {flags}, {rest}, "
+                    f"{{ {name}, {function_layout_record(function, generated_statics_name)}, {flags}, {rest}, "
                     f"&{generated_statics_name}::Invoke_{function.name} }},", 1)
             class_builder.append("};\n\n")
         property_params = f"{generated_statics_name}::PropertyParams" if has_properties else "nullptr"

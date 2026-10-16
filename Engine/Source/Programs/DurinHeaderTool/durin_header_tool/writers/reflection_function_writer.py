@@ -22,20 +22,26 @@ def function_declarations(function, owner: str) -> str:
         if function.return_kind != "Void":
             lines.append(_line(f"{function_cpp_type(function.return_kind)} ReturnValue{{}};", 2))
         lines.append(_line("};", 1))
-        lines.append(_line(f"static auto MakeSignature_{function.name}() -> Durin::FFunctionSignature", 1))
-        lines.append(_line("{", 1))
-        parameters = []
+        records = []
         for index, parameter in enumerate(function.parameters):
-            prop = (f"Durin::DurinCodeGen::MakeFunctionProperty<{function_cpp_type(parameter.kind)}>("
-                    f"{_cpp_string_literal(parameter.name)}, static_cast<::uint16>(STRUCT_OFFSET({aggregate}, P{index})))")
-            parameters.append(f"{{ {prop}, Durin::EFunctionParameterPassing::{parameter.passing} }}")
-        result = "{}"
+            field = f"Prop_{function.name}_P{index}"
+            flags = ["Parm"]
+            if parameter.passing == "ConstReference":
+                flags += ["ReferenceParm", "ConstParm"]
+            elif parameter.passing == "Reference":
+                flags += ["ReferenceParm", "OutParm"]
+            role = " | ".join(f"Durin::EPropertyFlags::{flag}" for flag in flags)
+            lines.append(_line(f"inline static const Durin::DurinCodeGen::TNativePropertyParams<{function_cpp_type(parameter.kind)}> {field}"
+                               f"{{{_cpp_string_literal(parameter.name)}, static_cast<::uint16>(STRUCT_OFFSET({aggregate}, P{index})), {role}}};", 1))
+            records.append(f"&{field}.Params")
         if function.return_kind != "Void":
-            result = (f"Durin::DurinCodeGen::MakeFunctionProperty<{function_cpp_type(function.return_kind)}>("
-                      f'"ReturnValue", static_cast<::uint16>(STRUCT_OFFSET({aggregate}, ReturnValue)))')
-        lines.append(_line(f"return Durin::DurinCodeGen::MakeFunctionSignature<{aggregate}>("
-                           + "{ " + ", ".join(parameters) + f" }}, {result});", 2))
-        lines.append(_line("}", 1))
+            field = f"Prop_{function.name}_ReturnValue"
+            lines.append(_line(f"inline static const Durin::DurinCodeGen::TNativePropertyParams<{function_cpp_type(function.return_kind)}> {field}"
+                               f'{{"ReturnValue", static_cast<::uint16>(STRUCT_OFFSET({aggregate}, ReturnValue)), '
+                               "Durin::EPropertyFlags::Parm | Durin::EPropertyFlags::ReturnParm | Durin::EPropertyFlags::OutParm};", 1))
+            records.append(f"&{field}.Params")
+        lines.append(_line(f"inline static const Durin::DurinCodeGen::FPropertyParamsBase* const Props_{function.name}[] = {{ " + ", ".join(records) + " };", 1))
+        lines.append(_line(f"inline static const auto Layout_{function.name} = Durin::DurinCodeGen::MakeFunctionLayoutParams<{aggregate}>(Props_{function.name}, std::size(Props_{function.name}));", 1))
     frame = "Durin::FFunctionFrame&" + (" Frame" if function.parameters else "")
     result = "void*" + (" Result" if function.return_kind != "Void" else "")
     arguments = ", ".join(f"Frame.GetParameter<{function_cpp_type(p.kind)}>({i})"
@@ -48,6 +54,6 @@ def function_declarations(function, owner: str) -> str:
     return "".join(lines)
 
 
-def signature_factory(function, statics: str) -> str:
-    return (f"&{statics}::MakeSignature_{function.name}"
+def function_layout_record(function, statics: str) -> str:
+    return (f"&{statics}::Layout_{function.name}"
             if function.parameters or function.return_kind != "Void" else "nullptr")

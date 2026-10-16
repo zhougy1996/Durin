@@ -174,7 +174,18 @@ prelude exposes supported ancestor method declarations; ordinary includes and
 method bodies remain outside extraction. Generated invokers live inside the
 existing friended class statics helper and use ordinary member calls. See
 [Native function reflection](../../Runtime/Core/FunctionReflection.md) for the
-supported signatures, metadata, and runtime registration contract.
+supported signatures, metadata, and runtime registration contract. Generated
+function statics emit `TNativePropertyParams<T>` records, an ordered property record
+array, and `FFunctionLayoutParams` with target-compiler aggregate layout and
+lifecycle. These generation-only records are consumed during construction; no
+separate runtime signature object or passing-mode adapter is retained. Parameter
+role flags identify inputs, references, and the return field.
+`FFunctionParams` references these records directly; `ConstructDFunction` builds
+`DFunction : DStructBase` through the same ConstructProperties attachment entry
+used by classes and structs. It preserves record order and installs ownership
+and links together; function layout validation and derived indexes are finalized
+by Link after construction. This generated ABI requires all dependent modules to regenerate
+and relink together; the public signature JSON contract remains unchanged.
 
 Function `Signature` is a strict object containing `Const`, `Return` (a canonical
 supported value type, including `Void`), and ordered `Parameters` entries with
@@ -196,7 +207,7 @@ The hermetic prelude declares all referenced identities before ancestor methods.
 The public export contract remains schema v11. Private export-phase state v3
 retains unresolved bare names as `Named` until the complete symbol set resolves
 them to `Struct` or `Enum`, including map keys. Resolved exports reject `Named`
-and unsupported map keys. Tool identity v29 and parser context v13 invalidate
+and unsupported map keys. Tool identity v31 and parser context v15 invalidate
 previous generated sources and cached parse models. Primitive spellings, object
 wrappers, and reference qualifiers share the same function type definitions
 between parsing, synthetic ancestor declarations, and generated thunks.

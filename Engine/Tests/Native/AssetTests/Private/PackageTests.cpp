@@ -8376,13 +8376,13 @@ TEST(FPackageAssetTests, MathStructRegistrationPreservesDirectAndNestedSchemaIde
 	ASSERT_NE(FloatMatrix, nullptr);
 	ASSERT_NE(Vectors, nullptr);
 	ASSERT_NE(VectorMap, nullptr);
-	ASSERT_EQ(Class->ChildProperties, Vector);
-	EXPECT_EQ(Vector->Next, Transform);
-	EXPECT_EQ(Transform->Next, FloatQuat);
-	EXPECT_EQ(FloatQuat->Next, FloatMatrix);
-	EXPECT_EQ(FloatMatrix->Next, Vectors);
-	EXPECT_EQ(Vectors->Next, VectorMap);
-	EXPECT_EQ(VectorMap->Next, Class->FindPropertyByName("FixedVectors", false));
+	ASSERT_EQ(Class->GetChildProperties(), Vector);
+	EXPECT_EQ(Vector->GetNext(), Transform);
+	EXPECT_EQ(Transform->GetNext(), FloatQuat);
+	EXPECT_EQ(FloatQuat->GetNext(), FloatMatrix);
+	EXPECT_EQ(FloatMatrix->GetNext(), Vectors);
+	EXPECT_EQ(Vectors->GetNext(), VectorMap);
+	EXPECT_EQ(VectorMap->GetNext(), Class->FindPropertyByName("FixedVectors", false));
 
 	EXPECT_EQ(Vector->GetStruct(), VectorStruct);
 	EXPECT_EQ(Transform->GetStruct(), TransformStruct);
@@ -8394,10 +8394,10 @@ TEST(FPackageAssetTests, MathStructRegistrationPreservesDirectAndNestedSchemaIde
 	EXPECT_EQ(Transform->GetArrayDim(), 1);
 	EXPECT_EQ(Vector->GetOffset(), STRUCT_OFFSET_UINT16(DMathStructAssetForTest, Vector));
 	EXPECT_EQ(Transform->GetOffset(), STRUCT_OFFSET_UINT16(DMathStructAssetForTest, Transform));
-	EXPECT_EQ(Vector->GetElementSize(), VectorStruct->PropertiesSize);
-	EXPECT_EQ(Transform->GetElementSize(), TransformStruct->PropertiesSize);
-	EXPECT_EQ(Vector->GetValueAlignment(), VectorStruct->MinAlignment);
-	EXPECT_EQ(Transform->GetValueAlignment(), TransformStruct->MinAlignment);
+	EXPECT_EQ(Vector->GetElementSize(), VectorStruct->GetStructureSize());
+	EXPECT_EQ(Transform->GetElementSize(), TransformStruct->GetStructureSize());
+	EXPECT_EQ(Vector->GetValueAlignment(), VectorStruct->GetMinAlignment());
+	EXPECT_EQ(Transform->GetValueAlignment(), TransformStruct->GetMinAlignment());
 
 	ASSERT_NE(Vectors->GetInner(), nullptr);
 	auto* VectorsInner = static_cast<Durin::FStructProperty*>(Vectors->GetInner());

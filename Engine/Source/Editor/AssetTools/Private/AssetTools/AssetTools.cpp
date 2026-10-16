@@ -230,7 +230,7 @@ namespace Durin
 			else
 			{
 				FStaticConstructObjectParameters Parameters{
-					AssetClass, Package, AssetName, AssetClass->PropertiesSize, Flags};
+					AssetClass, Package, AssetName, AssetClass->GetStructureSize(), Flags};
 				Asset = StaticConstructObject(Parameters);
 				DObjectForceRegistration(Asset);
 			}

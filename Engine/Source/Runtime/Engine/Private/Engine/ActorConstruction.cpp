@@ -62,7 +62,7 @@ namespace Durin
 		Params.Class = ExactClass;
 		Params.Outer = &Actor;
 		Params.Name = UniqueName;
-		Params.Size = ExactClass->PropertiesSize;
+		Params.Size = ExactClass->GetStructureSize();
 		Params.Purpose = EObjectConstructionPurpose::Generated;
 		auto* Candidate = static_cast<DActorComponent*>(StaticConstructObject(Params));
 		if (Candidate) DObjectForceRegistration(Candidate);

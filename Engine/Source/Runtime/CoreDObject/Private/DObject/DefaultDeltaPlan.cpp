@@ -1037,7 +1037,7 @@ namespace Durin
 					Field.Descriptor.DeclaringType, Field.Descriptor.Name)};
 				const auto Intent = FindAuthoredIntent(Context.LedgerEntries, Path);
 				const FProperty* Property = Live->GetClass()->FindPropertyByName(Field.Descriptor.Name);
-				const auto* DeclaringClass = Property ? Cast<DClass>(Property->Owner.ToDObject()) : nullptr;
+				const auto* DeclaringClass = Property ? Cast<DClass>(Property->GetOwnerVariant().ToDObject()) : nullptr;
 				const bool bReflectedBaseline = DeclaringClass
 					&& DeclaringClass->GetQualifiedName() == Field.Descriptor.DeclaringType
 					&& !Property->HasAnyPropertyFlags(EPropertyFlags::AlwaysSerialize);

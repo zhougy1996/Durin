@@ -2,6 +2,7 @@
 #include "DObject/Field.h"
 
 #include "DObject/Object.h"
+#include "DObject/StructBase.h"
 
 namespace Durin
 {
@@ -58,8 +59,50 @@ namespace Durin
 		, MetaDataMap(nullptr)
 	{
 	}
+	FField::~FField()
+	{
+		delete MetaDataMap;
+	}
+
+	auto FField::CheckMutable() const -> void
+	{
+		const FField* Field = this;
+		uint32 Depth = 0;
+		while (Field)
+		{
+			require(++Depth <= 128);
+			const auto Owner = Field->GetOwnerVariant();
+			if (auto* Object = Owner.ToDObject())
+			{
+				if (auto* Scope = Cast<DStructBase>(Object)) Scope->CheckPropertiesMutable();
+				return;
+			}
+			Field = Owner.ToField();
+		}
+	}
+
+	auto FField::SetNext(FField* InNext) -> void
+	{
+		CheckMutable();
+		for (auto* Field = InNext; Field; Field = Field->GetNext()) require(Field != this);
+		Next = InNext;
+	}
+
+	auto FField::SetOwner(FFieldVariant InOwner) -> void
+	{
+		CheckMutable();
+		requiref(!Owner.IsValid() || (Owner.ToDObject() == InOwner.ToDObject() && Owner.ToField() == InOwner.ToField()),
+			"Field '{}' already belongs to another metadata scope.", NamePrivate.ToString());
+		for (auto* Field = InOwner.ToField(); Field; Field = Field->GetOwnerVariant().ToField())
+			requiref(Field != this, "Field ownership cycle.");
+		if (auto* Field = InOwner.ToField()) Field->CheckMutable();
+		else if (auto* Scope = Cast<DStructBase>(InOwner.ToDObject())) Scope->CheckPropertiesMutable();
+		Owner = InOwner;
+	}
+
 	auto FField::SetMetaData(const FName& InKey, const std::string& InValue) -> void
 	{
+		CheckMutable();
 		if (!MetaDataMap)
 		{
 			MetaDataMap = new std::unordered_map<FName, std::string>();

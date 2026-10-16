@@ -573,7 +573,7 @@ TEST(FPackageLinkerContractTests, LiveMapKeyErrorsRetainNestedRoutes)
 		Descriptor.InitializeOps(&Ops);
 		FEnumProperty Field(FFieldVariant(&Descriptor), FName("UnknownEnum"), EObjectFlags::NoFlags,
 			EPropertyFlags::None, 1, 0, sizeof(uint64), DurinCodeGen::EPropertyGenFlags::Enum, nullptr, nullptr);
-		Descriptor.ChildProperties = &Field;
+		Descriptor.SetChildProperties(&Field);
 		FStructProperty Root(FFieldVariant(), FName("Root"), EObjectFlags::NoFlags,
 			EPropertyFlags::None, 2, 0, &Descriptor);
 		std::array<uint64, 2> Values{};

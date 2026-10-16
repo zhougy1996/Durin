@@ -470,8 +470,8 @@ namespace Durin::AssetPrivate
 			};
 			uint64 Fields = 0;
 			auto DeclaringType = [](const FProperty* Field) -> std::string {
-				auto Owner = Field->Owner;
-				while (auto* Parent = Owner.ToField()) Owner = Parent->Owner;
+				auto Owner = Field->GetOwnerVariant();
+				while (auto* Parent = Owner.ToField()) Owner = Parent->GetOwnerVariant();
 				const auto* Object = Owner.ToDObject();
 				return Object ? Object->GetObjectPath() : std::string{};
 			};

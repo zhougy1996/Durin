@@ -87,7 +87,7 @@ namespace Durin::Editor
 		Error.Member = Property->NamePrivate.ToString();
 		Error.ArrayDim = Property->GetArrayDim();
 		Error.ExpectedKind = Property->GetKind();
-		const DClass* DeclaringClass = Cast<DClass>(Property->Owner.ToDObject());
+		const DClass* DeclaringClass = Cast<DClass>(Property->GetOwnerVariant().ToDObject());
 		if (!DeclaringClass) { Error.Code = ETransactionSnapshotError::MemberOwner; return std::unexpected(std::move(Error)); }
 		Error.DeclaringType = DeclaringClass->GetQualifiedName().ToString();
 		if (InArrayIndex >= Property->GetArrayDim())
@@ -111,7 +111,7 @@ namespace Durin::Editor
 		{ Error.Code = ETransactionSnapshotError::InvalidTarget; return std::unexpected(std::move(Error)); }
 		DClass* TargetClass = Target->GetClass();
 		FProperty* Property = TargetClass ? TargetClass->FindPropertyByName(MemberName) : nullptr;
-		const DClass* DeclaringClass = Property ? Cast<DClass>(Property->Owner.ToDObject()) : nullptr;
+		const DClass* DeclaringClass = Property ? Cast<DClass>(Property->GetOwnerVariant().ToDObject()) : nullptr;
 		if (Property) { Error.ArrayDim = Property->GetArrayDim(); Error.ActualKind = Property->GetKind(); }
 		if (DeclaringClass) Error.ActualDeclaringType = DeclaringClass->GetQualifiedName().ToString();
 		if (!Property || !DeclaringClass || DeclaringClass->GetQualifiedName() != DeclaringType)

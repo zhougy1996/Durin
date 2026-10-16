@@ -1420,10 +1420,10 @@ namespace Durin
 	auto FAssetPackageField::TryReadStruct(DStruct* Struct, void* OutValue) const -> bool
 	{
 		if (!Struct || !OutValue
-			|| Struct->PropertiesSize == 0
-			|| Struct->PropertiesSize > std::numeric_limits<uint16>::max()
-			|| Struct->MinAlignment == 0
-			|| (Struct->MinAlignment & (Struct->MinAlignment - 1)) != 0
+			|| Struct->GetStructureSize() == 0
+			|| Struct->GetStructureSize() > std::numeric_limits<uint16>::max()
+			|| Struct->GetMinAlignment() == 0
+			|| (Struct->GetMinAlignment() & (Struct->GetMinAlignment() - 1)) != 0
 			|| TypeSignature != std::format("Struct<{}>", Struct->GetQualifiedName()))
 			return false;
 

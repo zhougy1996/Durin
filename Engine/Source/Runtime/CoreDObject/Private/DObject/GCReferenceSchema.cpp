@@ -114,6 +114,9 @@ namespace Durin::Private
 				auto* StructProperty = static_cast<FStructProperty*>(Property);
 				DStruct* Struct = StructProperty->GetStruct();
 				check(Struct && "Reflected struct properties must resolve their DStruct before GC schema assembly.");
+				// Parameter schemas retain a live struct operation, even while its ordinary
+				// member schema is provisional or empty. Visit observes later reassembly.
+				if (bIncludeRawObjectReferences) return MakeOperation(EGCReferenceOperation::Struct, Property);
 				FGCReferenceSchemaRegistry::Assemble(Struct);
 				return FGCReferenceSchemaRegistry::HasReferences(Struct)
 					? MakeOperation(EGCReferenceOperation::Struct, Property)
@@ -200,13 +203,28 @@ namespace Durin::Private
 		}
 	}
 
+	auto FGCReferenceSchemaRegistry::CompileParameters(const DStructBase& Type) -> std::shared_ptr<const FGCReferenceSchema>
+	{
+		auto Schema = std::make_shared<FGCReferenceSchema>();
+		Type.ForEachProperty([&](FProperty* Property) {
+			if (auto Operation = CompileProperty(Property, true)) Schema->Operations.push_back(std::move(Operation));
+		}, false);
+		return Schema;
+	}
+
+	auto FGCReferenceSchemaRegistry::Visit(const FGCReferenceSchema& Schema, void* Instance, FReferenceCollector& Collector) -> void
+	{
+		if (!Instance) return;
+		for (const auto& Operation : Schema.Operations) VisitOperation(*Operation, Instance, Collector);
+	}
+
 	auto FGCReferenceSchemaRegistry::Assemble(DStructBase* Type) -> void
 	{
 		if (!Type || Type->ReferenceSchema) return;
 		FSchemaAssemblyScope AssemblyScope(Type);
 
 		auto Schema = std::make_shared<FGCReferenceSchema>();
-		if (DStructBase* Super = Type->GetSuperStructBase())
+		if (DStructBase* Super = Type->GetInheritanceSuper())
 		{
 			Assemble(Super);
 			if (Super->ReferenceSchema)
@@ -236,7 +254,7 @@ namespace Durin::Private
 		std::vector<DStructBase*> Dependents;
 		for (DStructBase* Candidate : GAssembledTypes)
 		{
-			for (DStructBase* Super = Candidate ? Candidate->GetSuperStructBase() : nullptr; Super; Super = Super->GetSuperStructBase())
+			for (DStructBase* Super = Candidate ? Candidate->GetInheritanceSuper() : nullptr; Super; Super = Super->GetInheritanceSuper())
 			{
 				if (Super == Type)
 				{
@@ -252,7 +270,7 @@ namespace Durin::Private
 		std::ranges::sort(Dependents, [](const DStructBase* Left, const DStructBase* Right) {
 			auto Depth = [](const DStructBase* Candidate) {
 				uint32 Result = 0;
-				for (; Candidate; Candidate = Candidate->GetSuperStructBase()) ++Result;
+				for (; Candidate; Candidate = Candidate->GetInheritanceSuper()) ++Result;
 				return Result;
 			};
 			return Depth(Left) < Depth(Right);
@@ -264,10 +282,7 @@ namespace Durin::Private
 	{
 		if (!Type || !Instance) return;
 		if (!Type->ReferenceSchema) Assemble(const_cast<DStructBase*>(Type));
-		for (const auto& Operation : Type->ReferenceSchema->Operations)
-		{
-			VisitOperation(*Operation, Instance, Collector);
-		}
+		Visit(*Type->ReferenceSchema, Instance, Collector);
 	}
 
 	auto FGCReferenceSchemaRegistry::Visit(

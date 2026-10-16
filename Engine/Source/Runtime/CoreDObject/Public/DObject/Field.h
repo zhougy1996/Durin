@@ -179,15 +179,22 @@ namespace Durin
 
 		FFieldClass* ClassPrivate = nullptr;
 
+	private:
 		FFieldVariant Owner;
-
 		FField* Next;
+	public:
+		auto GetOwnerVariant() const -> FFieldVariant { return Owner; }
+		auto GetNext() const -> FField* { return Next; }
+		COREDOBJECT_API auto CheckMutable() const -> void;
+		COREDOBJECT_API auto SetOwner(FFieldVariant InOwner) -> void;
+		COREDOBJECT_API auto SetNext(FField* InNext) -> void;
 
 		FName NamePrivate;
 
 		EObjectFlags FlagsPrivate;
 
 		COREDOBJECT_API FField(FFieldVariant InOwner, FName InName, EObjectFlags InFlags);
+		COREDOBJECT_API ~FField();
 
 	public:
 

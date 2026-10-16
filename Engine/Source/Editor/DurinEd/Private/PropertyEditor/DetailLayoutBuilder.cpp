@@ -122,31 +122,31 @@ namespace Durin::Editor
 		if (Property) HiddenProperties.insert(Property);
 	}
 
-	auto FDetailLayoutBuilder::FCategory::AddFunction(const FFunction& Function) -> void
+	auto FDetailLayoutBuilder::FCategory::AddFunction(const DFunction& Function) -> void
 	{
 		const size_t Before = Owner.Rows.size();
 		Owner.AddFunction(Function);
 		if (Owner.Rows.size() != Before) Owner.Rows.back().Category = this;
 	}
 
-	auto FDetailLayoutBuilder::AddFunction(const FFunction& Function) -> void
+	auto FDetailLayoutBuilder::AddFunction(const DFunction& Function) -> void
 	{
 		if (!InspectedObject) return;
-		const auto* Effective = InspectedObject->GetClass()->FindFunctionByName(Function.GetName());
-		if (!Effective || !Effective->HasAnyFlags(EFunctionFlags::CallInEditor) || !Effective->GetSignature().IsVoidNoArgs()
+		const auto* Effective = InspectedObject->GetClass()->FindFunctionByName(Function.GetFName());
+		if (!Effective || !Effective->HasAnyFunctionFlags(EFunctionFlags::CallInEditor) || Effective->GetNumParms() != 0
 			|| &Effective->GetRootFunction() != &Function.GetRootFunction()) return;
 		if (!PlacedFunctions.insert(&Effective->GetRootFunction()).second) return;
 		FRow Row;
 		Row.Object = InspectedObject;
 		Row.Function = Effective;
-		if (!SearchText.empty()) Row.SearchText = std::format("{} {} {} {} {}", Effective->GetName(),
-			Effective->GetOwnerClass()->GetQualifiedName(), Effective->GetDisplayName(),
+		if (!SearchText.empty()) Row.SearchText = std::format("{} {} {} {} {}", Effective->GetFName(),
+			Effective->GetOuterDClass()->GetQualifiedName(), Effective->GetDisplayName(),
 			Effective->GetCategory(), Effective->GetToolTip());
 		Rows.push_back(std::move(Row));
 		bVisibleRowsDirty = true;
 	}
 
-	auto FDetailLayoutBuilder::HideFunction(const FFunction& Function) -> void
+	auto FDetailLayoutBuilder::HideFunction(const DFunction& Function) -> void
 	{
 		HiddenFunctions.insert(&Function.GetRootFunction());
 		bVisibleRowsDirty = true;
@@ -155,7 +155,7 @@ namespace Durin::Editor
 	auto FDetailLayoutBuilder::AddDefaultFunctions() -> void
 	{
 		if (!InspectedObject) return;
-		InspectedObject->GetClass()->ForEachFunction([&](const FFunction& Function) {
+		InspectedObject->GetClass()->ForEachFunction([&](const DFunction& Function) {
 			if (HiddenFunctions.contains(&Function.GetRootFunction())) return;
 			if (Function.GetCategory().empty()) AddFunction(Function);
 			else EditCategory(Function.GetCategory()).AddFunction(Function);
@@ -280,8 +280,8 @@ namespace Durin::Editor
 			else if (Row.Function)
 			{
 				const auto& Function = *Row.Function;
-				FEditorFunctionRequest Request{FObjectKey(Row.Object), Function.GetName(),
-					Function.GetRootFunction().GetOwnerClass()->GetQualifiedName()};
+				FEditorFunctionRequest Request{FObjectKey(Row.Object), Function.GetFName(),
+					Function.GetRootFunction().GetOuterDClass()->GetQualifiedName()};
 				auto Error = CanExecuteEditorFunction(ViewContext, Request);
 				if (Error == EEditorFunctionError::BusyTransactor && PropertyView.IsEditing())
 					Error = EEditorFunctionError::None;
