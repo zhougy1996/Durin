@@ -153,16 +153,8 @@ Outer does not retain children or siblings. Object creation and deletion need
 explicit future records; a persistent reference never resurrects a garbage
 object.
 
-## Validation
-
-The lasting contract is covered by `CoreObjectTests`,
-`CorePropertyValueSnapshotTests`, and the persistent-reference and focused
-snapshot cases in `EditorOperationTests`. `EditorPropertyTests` protects the
-collector-backed property-history path.
-
 ## Related Documentation
 
 - [Editor Transactor Core](Transactors.md)
 - [Garbage Collection](../../Runtime/Core/GarbageCollection.md)
 - [Reflected Property Editing](ReflectedPropertyEditing.md)
-- [Editor Transaction System roadmap](../../Roadmaps/Archive/2026-08/EditorTransactionSystem.md)

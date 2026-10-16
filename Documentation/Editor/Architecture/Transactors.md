@@ -162,6 +162,13 @@ out-of-band edits invalidate it, and forgetting a package removes its state and
 collector edge. Dirty state is synchronized from revision equality only while
 the checkpoint is valid.
 
+For a valid checkpoint, Undo back to the saved revision clears `DPackage::IsDirty()`;
+Redo away marks it dirty. Saving at any history position preserves valid Redo
+history. A new edit after Undo receives a fresh revision, so a discarded saved
+branch cannot alias its replacement. An invalid checkpoint stays conservatively
+dirty until a successful save or known-clean activation establishes a new one.
+Revision metadata is editor-session state and is not serialized into `DPackage`.
+
 Saved package reload registers a `DTransBuffer` native replacement participant.
 Preparation is accepted only while Idle and records every whole transaction whose
 collector-visible payload, context, custom change, or package transition retains a
@@ -210,14 +217,7 @@ records and collector edges. Property records own no callback. Custom changes
 disconnect completion during destruction, and module drains ensure their
 executable code and deleters do not outlive the owning module.
 
-## Validation
-
-`EditorOperationTests` owns recording, nesting, barriers, cursor, accounting,
-event, custom-change, deferred completion, module-drain, GC-retention, and
-release-path coverage. `EditorShellTests` owns the
-reflected engine edge and open-transaction shutdown coverage.
-
 ## Related Documentation
 
 - [Transaction Record Foundation](TransactionRecords.md)
-- [Editor Transaction System roadmap](../../Roadmaps/Archive/2026-08/EditorTransactionSystem.md)
+- [Reflected property editing](ReflectedPropertyEditing.md)

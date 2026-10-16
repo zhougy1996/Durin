@@ -1,217 +1,42 @@
 # Reflected Property Editing
 
-Summary: Define reflected property presentation, transactions, multi-object edits, validation, and undo.
+Summary: Define detached property validation, stable edit targets, notifications, edit sessions, and history submission.
 
-Modules: DurinEd, MonaImGui, CoreDObject
+Modules: DurinEd, CoreDObject
 
-This document defines the reflected-property editing system currently
-implemented by `CoreDObject` and `DurinEd`. It records adopted behavior only;
-unselected UI API extensions remain outside the repository until they become
-an issue or an executable plan.
+Last reviewed: 2026-10-16
 
-## Scope
+## Scope And Ownership
 
-The system covers editor-originated changes to reflected `DObject` properties.
-It provides:
+Editor-originated reflected-property changes follow one pipeline: resolve a
+stable member-to-leaf target, validate a detached draft, publish the canonical
+value, notify the object, and finalize one logical edit. Runtime assignments
+still use their own setters; `DObject` does not own editor history.
 
-- synchronous object change notifications;
-- stable member-to-leaf property paths;
-- retention-neutral property payloads with collector-based history retention;
-- interactive preview, commit, and cancel semantics;
-- one Undo/Redo entry for one continuous interaction;
-- array and map value and structural transactions;
-- detached pre-apply validation and normalization for generic mutations;
-- object hook implementations for properties with runtime invariants; and
-- an embeddable reflected-property view shared by Details and domain editors.
+| Concern | Owner |
+| --- | --- |
+| Widgets, shared layouts, custom controls, and host view lifetime | [Property Details views](PropertyDetailsViews.md) |
+| Actor/Component targets and aggregation | [Level Editor Details](LevelEditorDetails.md) |
+| Payload encoding, exact object identity, and record retention | [Transaction records](TransactionRecords.md) |
+| Scoped recording, Undo/Redo ordering, package revisions, and dirty checkpoints | [Transactors](Transactors.md) |
+| Property kinds, metadata, and value operations | [Property reflection](../../Runtime/Core/PropertyReflection.md) |
 
-It does not make every runtime property assignment observable, replace gameplay
-setters, or store editor transactions inside `DObject`.
-
-## Ownership Layers
-
-```text
-host panel or workspace
-  owns Editor::FPropertyView
-  supplies Editor::FPropertyViewContext
-        |
-        v
-Editor::FPropertyView
-  owns transient widget state and one active edit session
-        |
-        v
-Editor::FPropertyEditSession
-  captures, applies, commits, or cancels one logical edit
-        |
-        +--> detached draft + DObject::PreEditChangeProperty()
-        |
-        +--> DObject::PostEditChangeProperty()
-        |
-        +--> externally owned DTransactor
-                    |
-                    v
-          DTransBuffer / FTransactionObjectRecord
-```
-
-The view and session own only an edit in progress. A live session temporarily
-roots its preview target so the no-history API remains safe; that root is
-released on commit, cancel, or reset and never enters retained history.
-`DTransBuffer` owns the authoritative committed property data, collector edges,
-package revisions, and the one ordered application Undo/Redo stream shared with
-domain commands.
-
-## Object View Customization
-
-DurinEd provides the shared property view, `FDetailCustomizationRegistry`, and
-`FDetailLayoutBuilder` under `PropertyEditor/` in the `Durin::Editor` namespace.
-Asset editors and Level Editor use the same layout and registration contracts. The
-registry resolves every registered class in base-to-derived order, allowing a
-derived object to compose its own rows with inherited customizations.
-
-Each `IDetailCustomization::CustomizeDetails(IDetailLayoutBuilder&)` describes a
-layout for the current frame. `GetObject()` supplies the inspected object and
-optional `GetHostContext()` supplies an `IDetailHostContext` extension. No host
-context is required for ordinary asset layouts. The concrete
-`FDetailLayoutBuilder` binds those before dispatch and does not permit a layout
-to be rebound to a different owner. Customizations depend on the layout interface,
-while the host owns its concrete renderer and transaction-aware property view. It
-may add a real reflected property from the inspected object or another object,
-add a custom row callback, hide a default property, or replace all default
-rows. `AddDefaultProperties()` appends remaining reflected properties to the
-same layout before drawing. Declared and default rows share category grouping,
-sorting, and search, so a category is drawn once even when both contribute rows.
-
-`EditCategory()` returns a stable `IDetailCategoryBuilder` for a named category.
-Categories can contain reflected properties and custom rows, expose a display
-label, tooltip, initial collapsed state, and sort order. Transform sorts first;
-Diagnostics sorts last and starts collapsed. Every explicit property declaration records placement by object, property, and
-fixed-array index. Default enumeration omits only that exact row; other objects
-and array indices remain eligible. Placement is independent of search and
-category visibility, so a filtered or hidden declared row does not reappear as a
-default row. `HideProperty()` remains an explicit whole-property default
-suppression rule and never serves as implicit placement bookkeeping. Category
-names and labels participate in search; matching categories expand during search.
-`HideCategory()` suppresses both declared category rows and ordinary reflected
-properties in that category. `RegisterDetailCustomization()` and
-`FindDetailCustomizations()` retain base-to-derived composition and scoped
-unregistration. `ApplyRegisteredCustomizations()` binds the inspected object and
-dispatches the shared registry. `DrawDetailPanel()` is the shared host entrypoint:
-it resolves owner context, dispatches registered customizations, applies an
-optional host layout extension, appends filtered default rows to the layout,
-and draws that layout in one property table. `ShouldDrawDefaultProperty()` applies
-replacement, explicit hiding, category hiding, and exact placement rules.
-Placement uses a hash key `(Object, Property, ArrayIndex)`. Rows refer directly
-to stable category objects, and each frame-local layout reuses its filtered,
-sorted row list until declarations, category labels/order, or category visibility
-change. `GetSearchText()` lets customizations omit expensive search-only models;
-empty searches do not construct per-row search strings. Material-slot drawing
-builds one model shared by all expanded slots, with search keywords omitted;
-collapsed slot arrays do not build a drawing model. Models are rebuilt for each
-draw so preceding mesh edits are reflected immediately. Tracy separates
-`Details.BuildLayout`, `Details.FilterAndSortRows`, `Details.DrawRows`,
-`LevelEditor.Details.ComponentTree`, `LevelEditor.Details.Materials`, and
-`LevelEditor.Details.MaterialModel`. Within `Details.DrawRows`,
-`Details.ReflectedRow` separates reflected rows from `Details.CustomRow` callbacks.
-Reflected rows split into `Details.Property.Prepare` (validation, labels, flags,
-and flags), `Details.Property.Widget` (ordinary controls), and
-`Details.Property.SubmitEdit` (proposal submission and active-edit finalization).
-`Details.Property.Struct`, `.Array`, and `.Map` cover recursive/container editors;
-`Details.Property.TypeTooltip` measures reflected type and tooltip formatting
-inside those editors. Parent zones include their child-zone costs.
-Ordinary root widgets and inline struct fields create their reflected edit targets
-only when a value changes, an edit deactivates, or an active control receives Esc.
-`Details.Property.BuildEditTarget` measures those constructions; complex/container
-editors retain their explicit paths. Floating-point precision formats use immutable
-predefined strings for the full nonnegative `int8` precision range. Property labels
-accept a non-owning `FLabelTooltip` source whose builder runs synchronously only
-when the label is hovered; it reads current metadata without a cross-frame cache.
-Legacy text tooltips remain supported through implicit conversion.
-
-The result reports owner readiness, table drawing, visible rows, and changes;
-search, table identity, host context, and empty-state presentation are options.
-
-Level Editor retains its concrete Actor/Component customizations and
-`FLevelDetailLayoutBuilder` adapter. `FLevelDetailHostContext` carries scene
-services and per-layout component aggregation targets; these types never appear
-in DurinEd contracts. Other asset editors can provide their own host extensions
-or use no extension. A host extension must outlive its layout and row callbacks.
-`FPropertyView` remains the shared transaction-aware property-editing service.
-
-Current built-in composition includes:
-
-- Actor `Transform`, bound to the root component's `RelativeTransform`;
-- Camera projection rows;
-- Spline transform, curve settings, selected-point rows, and structural actions; and
-- static-mesh material-slot rows derived from the assigned mesh.
-
-The static-mesh customization hides the raw positional `OverrideMaterials`
-collection. It emits exactly one fixed row per current mesh-owned slot, labeled
-by stable index and user-facing slot name, with resolved source, a material-
-interface picker, Reset when an override exists, and Clear All when any visible
-or dormant entry is stored. Structural array controls and dormant rows are not
-exposed; StaticMesh slot orphans do not exist.
-
-Slot assignment, replacement, and reset snapshot the reflected collection root,
-locate the positional entry in draft storage, and use the fixed-width slot index
-as the logical transaction identity. Clear All edits the same root as a whole.
-The component pre hook validates the bounded array, null holes, and compatible
-non-null objects before live storage changes. Its post hook trims trailing nulls
-and rebuilds render state from canonical mesh and override storage for edit,
-Cancel, Undo, and Redo through the same shared path.
-
-Details owns only the inspected object, search input, table, and customization
-dispatch. It contains no Actor or static-mesh type branches. Real property rows
-still enter `EditProperty()`, while custom controls submit through the same
-session and mutation pipeline.
-
-The shared layout also hosts
-[reflected editor function actions](EditorFunctionActions.md). Their buttons
-finish active property editing before a separate object transaction and defer
-execution until row traversal ends.
-
-The shared property view renders an ordinary reflected struct as a default-open
-tree containing each nested field marked `Edit`. Nested rows retain the
-object-owned outer member as their snapshot root and append a struct-member
-path segment for notification and transaction identity. Math structs such as
-vectors, quaternions, transforms, and linear colors keep their compact inline
-widgets instead of expanding into member rows.
-
-## Typed Metadata Presentation and Bounds
-
-Authoring syntax, applicability, and runtime metadata ownership are defined by
-[Property reflection](../../Runtime/Core/PropertyReflection.md#typed-authoring-metadata).
-
-The generic property view reads `FProperty::GetTypedMetadata()` for first-party
-presentation. `DisplayName` replaces the humanized field label, `ToolTip` is
-shown together with the reflected type, and `Category` groups visible fields
-with a stable category-first ordering. Numeric rows use `Step` as drag speed,
-`Precision` as their decimal format, `UIMin`/`UIMax` as presentation bounds,
-and render the selected unit beside the value. Fixed-array elements retain
-their index in the display label. Raw `DisplayName`, `ToolTip`, and `Category`
-remain a compatibility view, but new code does not parse numeric behavior from
-raw strings.
-
-Hard `ClampMin`/`ClampMax` checks run against the complete detached draft root
-immediately after the proposed leaf mutation. Scalar limits use the property's
-native signed, unsigned, float, or double representation; intrinsic vector and
-quaternion limits validate every component. A violation reports an error before
-snapshot capture starts an edit session, so it changes neither live storage nor
-Undo/Redo history. Package deserialization is not an authoring operation and
-does not silently clamp an older stored value.
+A host owns `FPropertyView`, which owns one `FPropertyEditSession`. A live session
+temporarily roots its exact preview target and releases that root on commit,
+cancel, or reset. Committed payloads and collector edges belong to the externally
+owned transactor shared with domain commands.
 
 ## Object Notification Contract
 
 `DObject::PreEditChangeProperty(FPropertyEditProposal&)` returns
-`std::expected<void, FObjectValidationError>` from synchronous validation and normalization. Rejections
-own the object/property identity and reason; Engine and RoadWeaver retain their
-module-owned typed causes. Pending editor result adapters format explicitly. The proposal
-contains the complete mutable detached snapshot root, a resolved draft leaf,
-and the same member, leaf, path, phase, kind, and origin dimensions used by the
-post event. A failed result rejects the candidate before live storage changes.
-`FPropertyEditExtension::PreEdit` uses this same typed result with no diagnostic
-output. Texture2D retains module-owned metadata kind, package/source readiness,
-input validation and synchronous compilation causes. The edit session retains
-rejection causes through its public result; the view formats them for reporting.
-Extension admission does not inspect prose.
+`std::expected<void, FObjectValidationError>` for synchronous validation and
+normalization. The proposal contains the complete mutable detached snapshot root,
+a resolved draft leaf, and the member, path, phase, kind, and origin of the edit.
+Failure rejects the candidate before live storage changes. Errors own the
+object/property identity, reason, and any module-owned typed cause.
+`FPropertyEditExtension::PreEdit` uses the same typed result. Lower layers retain
+causes; the edit-session boundary formats them into its public result message.
+
 Map removal and key rename may have no leaf in the candidate; in that case the
 leaf container is null and the full draft root remains available.
 
@@ -234,34 +59,23 @@ indices, dynamic-array indices, and map keys. Map entries use serialized key
 data instead of iteration indices because rehashing can reorder entries.
 Path spans and key bytes are valid only for the synchronous callback.
 
-Objects use the post hook to refresh derived runtime state. Scene transforms
-refresh their hierarchy, splines publish immutable evaluation snapshots, static-mesh components
-rebuild render state from current assignments, and materials run a batched
-loaded-object scan to invalidate dependent render data. Camera projection and
-material-parent validation happen on the detached proposal before the generic
-write.
+Objects use the post hook to refresh derived runtime state from canonical
+storage. Validation and normalization belong in the pre hook, including
+cross-field checks against the full detached root; post hooks handle hierarchy,
+cache, and render reactions.
 
 ## Property Snapshots
 
-The shared property codec captures one reflected property value rather than a
-whole object. It supports primitive values, strings, hard/soft/weak object
-references, structs, arrays, and maps.
+Edits capture one stable object-owned property root, normally the top-level
+member. Nested Array/Map operations may invalidate leaf addresses but cannot
+invalidate the member payload used by history. Capture or restore fails on an
+unsupported or incompatible property shape.
 
-`FPropertyValueSnapshotPayload` owns bytes and exact hard-reference handles but
-installs no roots. Active sessions, map paths, and committed property records
-use this payload. `DTransBuffer::AddReferencedObjects()` exposes hard handles
-from pending and retained records to the collector. The legacy
-`FPropertyValueSnapshot` adapter retains hard references with
-`TStrongObjectPtr` for unmigrated callers, but it is not used by property
-history. Weak properties copy their
-index/generation handle and never gain retention. The generic weak
-Details row reports null, live, expired, or type-mismatched state and permits an
-explicit clear; it never offers a durable asset picker. Unsupported or
-type-mismatched capture and restore operations fail with an error.
-
-Nested container edits snapshot a stable object-owned ancestor, normally the
-top-level member. A vector resize or unordered-map rehash may invalidate a leaf
-address, but it cannot invalidate the stored member snapshot used by Undo/Redo.
+Sessions and records use `FPropertyValueSnapshotPayload`. Encoding, exact hard
+handles, soft/weak semantics, and collector retention follow
+[Transaction records](TransactionRecords.md#retention-neutral-property-payload).
+The detached `FPropertyValueSnapshot` adapter is available outside history;
+committed property records use collector enumeration rather than manual roots.
 
 ## Edit Targets
 
@@ -279,19 +93,13 @@ contain no resolved leaf address. Draft construction resolves temporary draft
 storage internally, while sessions and transactions retain only the stable
 snapshot root and owned path.
 
-`FPropertyEditTarget::Validate` and internal path resolution return typed
-`std::expected<void, FPropertyEditPathError>`. Rejections retain owned member/leaf/snapshot names,
-path selectors and indices, Map key bytes/snapshots, snapshot storage presence,
-array bounds, container return codes and nested key-capture errors. Failed
-resolution leaves its output unchanged. Detached drafts retain path errors as
-causes; transaction and session results preserve these causes for presentation.
-
-`FPropertyValueDraft` retains typed initialization errors and returns
-`std::expected<void, FPropertyValueDraftError>` from its operations. It owns root names, indices and lifecycle/layout facts and retains
-nested snapshot, value-storage and path failures without formatting. Invalid
-drafts return their initialization cause from subsequent operations. A failed
-restore leaves an initialized draft available for retry; successful operations
-do not overwrite previously returned errors or publish into the live object.
+Target validation and path resolution return `FPropertyEditPathError` with
+owned location and nested failure context. Failed resolution leaves its output
+unchanged. `FPropertyValueDraft` returns `FPropertyValueDraftError`, preserving
+initialization, storage, snapshot, and path causes without formatting. Invalid
+drafts keep their initialization cause; failed restore remains retryable and
+never publishes to the live object. Successful retries do not alter errors
+already returned to callers.
 
 ## Generic Mutation
 
@@ -302,43 +110,22 @@ and recaptures the actual value. A failed write or recapture attempts rollback
 and emits no post event. Same-target nested edits from a hook are rejected.
 
 Generic mutation returns `std::expected<void, FPropertyMutationError>`.
-Execution results retain the changed flag alongside mutation errors and actual
-storage snapshots, including snapshots recovered after failure. Deferred state
-derives from the retained action rather than a separate flag.
-Errors retain owner/member identity, phase, origin and mutation kind, with typed
-draft, snapshot or object-validation causes. Failed publication and recapture
-retain the primary cause separately from rollback and recovery-capture errors.
-Execution does not format diagnostics. History results retain these errors;
-the edit-session command boundary formats them with `FormatPropertyMutationError`.
-Draft error types remain available to the lower-level history contracts.
+Execution retains the changed flag and actual/recovered snapshots. Errors own
+edit identity and typed draft, snapshot, or validation causes, preserving the
+primary failure separately from rollback and recovery-capture failures.
+Lower layers retain typed errors; history and edit-session boundaries format
+messages for callers. Control flow never depends on diagnostic text.
 
-All current built-in semantic properties use this generic path. Transform
-quaternion normalization, camera cross-field clamping, spline authoring repair,
-material type checks, and material-parent cycle rejection live in pre hooks.
-Hierarchy, cache, and render reactions live in post hooks. Material-instance
-Parent and static-mesh component assignments are read directly from the newly
-written canonical storage: their post hooks need neither the previous
-relationship value nor a registered-value mirror. Material inheritance
-invalidation computes the affected loaded closure from current Parent chains;
-component invalidation resolves current mesh defaults and overrides.
-
-There is no public mutation-adapter or registry surface. No implemented
-property requires an exceptional mutation policy: every canonical value is
-reflected object storage and every current semantic rule fits detached
-validation plus post-write reaction. A future externally owned canonical value
-must first demonstrate that this split is impossible before a new policy
-contract is introduced.
+Canonical values reside in reflected object storage. Object hooks and registered
+property-edit extensions supply validation and reactions; custom widgets submit
+detached proposals through the same execution path.
 
 Interactive validation may defer publication while domain work completes.
-Deferred completion carries `std::expected<void, FObjectValidationError>`; the session logs its
-formatted cause on rejection and never branches on text. Texture2D owns the
-object/property identity and nested compilation cause before scheduling work,
-so deferred failure context does not borrow proposal storage. Cancellation
-retires the session owner before a late completion can publish.
-Committed property records remain callback-free and execute synchronously; a
-domain extension must therefore supply a synchronous history path. Texture2D
-keeps asynchronous preview compilation, but Undo/Redo builds and publishes the
-same detached settings synchronously before the reflected write completes.
+Completion carries `std::expected<void, FObjectValidationError>` with owned
+failure context that does not borrow proposal storage. Cancellation retires the
+session owner before a late completion can publish. Committed property records
+remain callback-free and synchronous; a domain extension with asynchronous
+preview work must also provide a synchronous Undo/Redo path.
 
 ## Edit Session Lifecycle
 
@@ -357,8 +144,8 @@ The lifecycle is:
 ```text
 Begin(target)
   pin the exact live target generation with TStrongObjectPtr
-	  capture original value
-	  begin one scoped transactor entry with before == after
+  capture original value
+  begin one scoped transactor entry with before == after
 
 Apply(proposal)
   validate/normalize a detached draft
@@ -393,257 +180,35 @@ original snapshot so restoration can be retried. If the destructor's final
 safety cancel fails, it emits a fatal editor error instead of silently
 discarding the preview state.
 
-## Transactions and Dirty State
+## History Submission
 
-`Editor::FTransactionObjectRecord` retains the exact target identity, stable
-member locator, path metadata, and root-free before/after payloads. Undo and
-Redo reconstruct a transient target, validate detached state, and use the same
-atomic generic execution and notification path as interactive edits. All
-records prevalidate before the first write; multi-record Undo is reverse order,
-Redo is forward order, and partial failure is rolled back without moving the
-cursor.
+The session opens one scoped transaction and updates the pending record's after
+payload as previews change the live value. Commit ends that scope after the
+Committed notification; it records the already-applied value without a second
+write. Cancelled and no-op edits create no history entry or package revision.
 
-The session opens one scoped transaction, records the before/after object
-payload as interactive edits change the live value, and ends the scope after
-the final committed notification. Ending records the already-applied state; it
-does not write the property a second time. A no-op or cancelled edit creates no
-history entry and does not dirty the package.
+`FTransactionObjectRecord` reconstructs the target from its exact object identity,
+member locator, path, and before/after payloads. Undo/Redo use the same detached
+validation, canonical write, and notification path. Record identity and payload
+rules belong to [Transaction records](TransactionRecords.md#focused-object-snapshots);
+ordering, rollback, and recovery belong to [Transactors](Transactors.md#structural-history-and-barriers).
 
-Each transaction reports a stable, deduplicated set of affected asset packages.
-`DTransBuffer` owns editor-session revision metadata for those
-packages: the current revision, the last successfully saved revision, and
-whether that save checkpoint remains trustworthy. Committing a changed edit
-allocates a fresh after-revision. Undo moves to the stored before-revision only
-after value restoration succeeds, and Redo moves back to the after-revision
-only after reapplication succeeds.
+Dirty-state and save-checkpoint behavior belongs to
+[Package and discovery revisions](Transactors.md#package-and-discovery-revisions).
+Persistent changes outside history must invalidate the checkpoint and mark the
+package dirty. Reflected property edits do not request asset-registry scans.
 
-For a valid checkpoint, the transactor synchronizes the existing
-`DPackage::IsDirty()` compatibility boundary from revision equality. Undoing
-exactly to the saved revision clears dirty; Redoing away sets it again. Saving
-at any history position advances the saved revision only after package save
-succeeds, without clearing valid Redo history. A new edit after Undo receives a
-new revision identity, so a saved state on the discarded branch cannot alias
-the replacement branch.
+## Container Edits
 
-Persistent edits that bypass transaction history must invalidate the package
-checkpoint as well as mark the package dirty. An invalid checkpoint remains
-conservatively dirty across Undo and Redo until a successful save or known-clean
-package activation establishes a new checkpoint. No-op and cancelled edits
-create no transaction or revision and retain their pre-interaction dirty state.
-Revision metadata belongs to the editor transactor, is not serialized
-into `DPackage`, and is forgotten with the document/history lifecycle.
-
-Package revision and dirty-state tracking does not imply mounted-content
-discovery invalidation. Reflected edits, including component transforms and
-Spline control-point edits, mutate in-memory package state and do not advance
-the transactor's mounted-content mutation revision. Consequently their
-Execute, Undo, and Redo transitions never request an asset-registry scan.
-
-## Container Transactions
-
-Arrays distinguish element assignment, add, remove, and resize. Maps distinguish
-value assignment, insertion, removal, and key rename. Structural operations
-capture enough before/after state to restore removed or resized-away values.
-
-Map key rename rejects collisions before notification. After any structural
-operation, the view stops traversing the old container for that frame because
-the operation may have invalidated child addresses or changed iteration order.
-Map insertion is drafted before mutation: key and supported leaf-value widgets
-edit temporary proposals, and `MapInsert` is submitted only when the user
-confirms the new entry. A default-key collision therefore does not require
-inserting and then renaming a live entry.
-
-## Reflected Property View
-
-The property-view `LoadSoftObject` adapter returns `FPropertySoftLoadResult`
-without a diagnostic-output parameter. It distinguishes unavailable storage,
-missing typed accessors, asset loading failure and an absent returned object.
-Results own the property name, array bounds, original reference path and complete
-asset result cause. Failed calls still clear the output object. The picker action
-formats this result only when reporting an error to its presentation callback.
-`InspectSoftObject` remains non-loading and stores typed storage/accessor/asset
-errors with owned property location and asset cause. Its state and original/resolved
-paths describe redirection independently of errors; it stores no diagnostic text.
-
-`Editor::FPropertyView` is an embeddable immediate-mode view, not a dockable
-panel or standalone asset editor. A host stores one instance and supplies a
-context containing:
-
-- the editor's externally owned transactor;
-- an error-reporting callback; and
-- read-only state.
-
-`EditObject()` is the default object-level API. It enumerates inherited `Edit`
-properties, expands fixed arrays, applies caller-provided search and filtering,
-generates default labels, and can either own its property table or compose rows
-inside a table owned by the host. It returns the visible row count and whether
-any row changed so a composing host can provide its own empty state.
-
-`EditProperty()` remains the controlled composition API. It renders and edits
-one top-level reflected property and recursively handles supported structs,
-arrays, and maps.
-`EditPropertyValue()` and the container-recursion helpers are private so callers
-cannot construct unsafe container addresses or edit paths.
-
-Proposed-value capture returns `std::expected<void, std::string>` at the view
-boundary. Draft, validation and container errors become display messages where
-they are handled; submission callers report the message without inspecting nested
-diagnostics. Map callbacks preserve the operation name and container result in
-the message; array callbacks format the resize error. A rejected mutation stops
-before validation and snapshot capture so subsequent work cannot replace its
-original failure. Lower-level draft and transaction APIs retain typed errors.
-
-Leaf widgets are separated from submission. A widget reads the displayed value
-into ordinary temporary state and returns a detached assignment proposal that
-contains no object or edit target. Ordinary properties apply that proposal only
-to an internal property-draft leaf before submitting the stable member snapshot. Map
-key widgets apply the same proposal to a temporary key and then submit an
-explicit `MapKeyRename`; they never write key storage inside the live map.
-
-Custom widgets can use `SubmitPropertyValueEdit()` to retain their presentation
-while sharing proposal capture, session lifecycle, notifications, and history.
-Proposal callbacks receive a leaf resolved inside generated draft storage;
-they never mutate the live object while constructing the proposed snapshot. Runtime
-setters, cache rebuilds, and other semantic side effects therefore run only through
-the object hooks when the proposal is applied.
-Camera and Spline customizations use it for their semantic layouts and actions.
-Material Editor uses it for its parent picker and delegates parameter collection
-edits to its schema-driven panel model. Object-details customizations are given
-the host-owned view and context so composed rows share the same active session
-and transaction history as ordinary Details rows.
-
-`HandleOwnerContext()` cancels an active edit if the object presented by the
-view is replaced or the view becomes read-only. The presented owner is tracked
-separately from the mutation target so an object-level view can compose real
-properties from another object, such as an Actor editing its RootComponent.
-`FinishActiveEdit()` lets a host deliberately commit or cancel when a document
-or workspace changes.
-
-## Asset Editor Details Integration
-
-TextureEditor registers a Texture2D customization for its six Build Settings
-controls and read-only resource status rows. The workspace calls `DrawDetailPanel()` with its existing property view and
-transaction context. Its curated layout replaces default rows;
-source inspection and preview controls remain owned by the workspace.
-
-MaterialEditor registers a MaterialParameterCollection customization that places
-`Declarations` in a Parameters category. The collection workspace combines
-custom rows with remaining reflected properties, respecting hidden properties,
-hidden categories, and default-row replacement. Collection validation and schema
-diagnostics retain their existing host behavior.
-
-The shared entrypoint calls `HandleOwnerContext()` before building or drawing
-custom properties. Level Editor retains its earlier owner guard before identity
-and search controls, then uses the same shared entrypoint for its property rows.
-The original view still owns previews, cancellation, Undo/Redo, document changes,
-saving, and discarding. Editor modules unregister their customization handles on
-shutdown before their implementation can unload.
-
-## Current Host Integration
-
-Level Editor Details owns one property view. It still owns object selection,
-the search input state, class display, customization dispatch, and a shared
-property table used to compose domain rows. Ordinary reflected-property
-enumeration and category/search composition use `FDetailLayoutBuilder`;
-property labels and editing use the shared property view. Actor transform and
-registered customizations compose through that same layout and view. Static-mesh material assignments are a domain
-customization: the mesh controls visible row count and labels, the property-table
-UI presents those slots through shared non-resizable array helpers, and the
-shared asset picker reserves a persistent trailing reset action. Edits still
-submit the stable reflected override root through the host property view.
-
-Ordinary Level Editor Actor selection targets the Actor itself, including
-selecting an already-selected Actor again. The Actor page composes the root's
-Transform and categorized editable authored-component properties. A single
-component has no redundant name wrapper; multiple components retain named groups.
-Actor details customizations can set the Level Editor host context's
-`ComponentDetailsTargets` to select
-their primary components or suppress aggregation with an empty list. Static-mesh,
-camera, directional-light, and volumetric-cloud Actor customizations select their
-primary component. Other Actors default to all authored components. Foreign and
-duplicate targets are ignored. Transient default diagnostics are omitted from Actor aggregation; explicit
-custom diagnostic rows remain available.
-Component groups reuse registered component customizations, including material
-slots and camera projection controls; their hidden and replaced properties remain
-respected. Search filters component rows and expands matching groups; a matching
-component name or class exposes the whole group. The root transform appears once.
-Generated components are excluded from aggregation and remain accessible through
-their read-only component pages. Aggregated edits target the actual component
-through the host-owned property view and transaction history.
-The component tree retains separate Actor and component targets. Explicitly
-selecting a component displays that component, and selecting the Actor returns
-to the aggregated page. A rootless Actor remains valid; selection never creates
-a component. If an inspected component stops belonging to the current Actor,
-Details falls back to the Actor. These target transitions continue through
-the property view's owner-context handling so an active preview is committed or
-restored before its owner changes.
-
-Actor Transform categories draw Location, Rotation, and Scale directly using
-`bShowTransformHeader = false`; default Transform-category component rows do
-the same. Nested Transform properties retain their expandable header. The layout preserves the full property
-presentation options and all edits still submit the root transform member target.
-Generic Actor component groups use full-width headers with component names and
-type tooltips. StaticMeshActor declares Static Mesh (mesh and resolved material
-slots), Rendering (visibility), and Collision (expandable Body Instance) categories
-instead of a component wrapper. Category tooltips identify the source component;
-search retains component-name/type keywords and material-slot names. Explicit
-component-tree selection continues to show the complete component page.
-
-Natural reflected categories organize light/shadow, sky activation/source/capture,
-spline deformation, mesh/rendering/collision, and RoadNet input/preview/diagnostic
-properties. Camera customization separates Projection and View Distance and
-edits Fade Start and Render Distance through their existing reflected member
-targets. SkyLight customization supplies diagnostic refresh and the Recapture
-operation for both component pages and Actor aggregation.
-
-Generated components are inspection-only derived state. Selecting one keeps its
-tree row visible but presents a read-only Details view; rename, duplication,
-deletion, reordering, reparenting, drag/drop, and direct property proposals are
-disabled. Domain owners may expose a redirect action instead. `ASplineMeshActor`
-uses `Edit Owning Spline`, returning selection and editing authority to its
-persistent Spline root while the generated segment remains non-transactional
-and non-serializable.
-
-Material Editor owns another property view and a reusable parameter-panel model.
-Runtime Engine definitions provide parameter type, labels, ordering,
-presentation, ranges, and texture hints. The model snapshots each definition,
-resolved value, supplying ancestor, override state, and orphan state into rows.
-Edits snapshot the reflected definition or override collection root, then locate
-the target entry by GUID in detached draft storage. A parameter GUID is also the
-logical transaction identity, so two parameters sharing one collection root
-cannot coalesce into the same continuous edit. The specialized scalar, color,
-and asset-picker controls remain host-owned; proposal submission, sessions, and
-transactions remain delegated to the shared reflected-property infrastructure.
-
-Spline Details now routes transform, loop state, selected-point values, and
-point structural actions through the shared view while retaining its custom
-layout. Point identity is a stable GUID shared with viewport selection. Numeric
-point and tangent edits resolve that GUID against detached spline authoring
-storage. Structural append, insert, duplicate, reorder, delete, and loop
-operations snapshot the complete authored point collection and loop state so
-one action produces one transaction and one coherent evaluation publication.
-Viewport point/tangent drags use the generic transform-target transaction
-lifecycle, including one history entry for completion and none for Cancel or a
-net-zero drag; they do not create an independent transaction system.
-Camera Details similarly routes FOV, clip planes, aspect-ratio mode, and custom
-ratio through a stable `ProjectionSettings -> Leaf` path. The draft snapshots
-the whole settings structure so its pre hook can clamp one field and safely
-update another; Cancel and Undo restore the complete projection state.
+Arrays distinguish assignment, add, remove, and resize. Maps distinguish value
+assignment, insertion, removal, and key rename. Structural operations preserve
+removed or resized-away values in their stable root snapshots. Key rename rejects
+collisions before notification. Draft insertion and traversal invalidation rules
+belong to [Container controls](PropertyDetailsViews.md#container-controls).
 
 ## Related Code
 
-```text
-Engine/Source/Runtime/CoreDObject/Public/DObject/PropertyChange.h
-Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h
-Engine/Source/Runtime/CoreDObject/Public/DObject/Object.h
-Engine/Source/Editor/DurinEd/Public/PropertyEditor/PropertyEditing.h
-Engine/Source/Editor/DurinEd/Public/PropertyEditor/PropertyView.h
-Engine/Source/Editor/DurinEd/Public/Transactions/TransactionObjectRecord.h
-Engine/Source/Editor/DurinEd/Public/Transactions/Transactor.h
-Engine/Source/Editor/DurinEd/Public/Transactions/Transaction.h
-Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPanel.cpp
-Engine/Source/Editor/LevelEditor/Public/LevelEditorTransformTargets.h
-Engine/Source/Editor/LevelEditor/Private/Customizations/SplineEditorCustomizations.cpp
-Engine/Source/Editor/MaterialEditor/Private/Widgets/MaterialParameterPanelModel.h
-Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.cpp
-```
+- `Engine/Source/Runtime/CoreDObject/Public/DObject/PropertyChange.h`
+- `Engine/Source/Runtime/CoreDObject/Public/DObject/Object.h`
+- `Engine/Source/Editor/DurinEd/Public/PropertyEditor/PropertyEditing.h`
+- `Engine/Source/Editor/DurinEd/Public/Transactions/TransactionObjectRecord.h`

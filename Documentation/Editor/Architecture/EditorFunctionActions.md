@@ -8,7 +8,8 @@ Last reviewed: 2026-10-16
 
 ## Shared Details Layout
 
-`DrawDetailPanel` appends effective inherited `CallInEditor` functions after
+The [shared Details layout](PropertyDetailsViews.md#object-view-customization)
+uses `DrawDetailPanel` to append effective inherited `CallInEditor` functions after
 customizations, host extensions, and default properties. Buttons share category
 ordering, tooltips, search, and visible-row counts. Search includes method name,
 declaring type, display name, category, and tooltip. Widget identity uses object
@@ -90,4 +91,5 @@ no automatic retry or promise of atomic rollback.
 
 - [Native function reflection](../../Runtime/Core/FunctionReflection.md)
 - [Reflected property editing](ReflectedPropertyEditing.md)
+- [Property Details views](PropertyDetailsViews.md)
 - [Transactors](Transactors.md)

@@ -4,7 +4,7 @@ Summary: Define material preview resources, compilation controls, Apply and Save
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-30
+Last reviewed: 2026-10-16
 
 Expression ownership and command publication are defined in
 [Material Graph Operations](MaterialGraphOperations.md#ownership). Panels and
@@ -99,6 +99,14 @@ eligibility and source labels. A local override which becomes unreachable moves
 to the collapsed orphan group and remains removable; it is not rendered or
 presented as active. Reconnecting the same GUID restores the preserved base
 value and makes that override eligible again.
+
+Parameter controls use the shared
+[property view and submission API](PropertyDetailsViews.md#view-ownership-and-submission).
+Edits snapshot the reflected definition/override collection root and resolve the
+entry by GUID in detached storage. The parameter GUID is also the logical
+transaction identity, preventing two entries in the same root from coalescing
+into one continuous edit. Specialized widgets remain host-owned; submission,
+sessions, and history use the shared property pipeline.
 
 ## Document and asset lifecycle
 

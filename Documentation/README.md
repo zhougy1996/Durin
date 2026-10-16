@@ -92,6 +92,9 @@ requires; do not read unrelated topics or scan an entire directory.
 | Material editor panels, canvas geometry, node menus, or graph diagnostics | [Material graph canvas](Editor/Architecture/MaterialGraphCanvas.md) |
 | Material preview resources, Compile/Apply/Save, document lifecycle, or instance overrides | [Material editor lifecycle](Editor/Architecture/MaterialEditorLifecycle.md) |
 | Editor architecture, design, or user workflow | Use a targeted search under `Editor/Architecture/`, `Editor/Design/`, or `Editor/Guides/` |
+| Reflected edit targets, detached validation, object notifications, or edit sessions | [Reflected property editing](Editor/Architecture/ReflectedPropertyEditing.md) |
+| Details layouts, categories/search, custom property widgets, or host view lifetime | [Property Details views](Editor/Architecture/PropertyDetailsViews.md) |
+| Level Editor Actor/Component Details, aggregation, or material-slot controls | [Level Editor Details](Editor/Architecture/LevelEditorDetails.md) |
 | Editor transaction identity, focused records, or collector-enumerated history references | [Transaction record foundation](Editor/Architecture/TransactionRecords.md) |
 | Editor transactor, scoped recording, bounded history, structural Undo/Redo, or transaction buffer ownership | [Editor transactor core](Editor/Architecture/Transactors.md) |
 | Material-system long-term status, sequencing, or future milestones | [Material system roadmap](Roadmaps/MaterialSystem.md) |

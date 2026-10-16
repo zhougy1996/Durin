@@ -275,7 +275,7 @@ current selection.
 ## Related Documentation
 
 - `Documentation/Editor/Architecture/PlayInEditorArchitecture.md`
-- `Documentation/Editor/Architecture/ReflectedPropertyEditing.md`
+- [Property Details views](PropertyDetailsViews.md)
 - `Documentation/Editor/Design/UIStyle.md`
 - `Documentation/Editor/Guides/StaticMeshInspector.md`
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`
