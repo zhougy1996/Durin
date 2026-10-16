@@ -9,6 +9,8 @@
 
 namespace Durin
 {
+	enum class EJsonFormat : uint8 { Pretty, Compact };
+
 	// Reports a JSON parser failure in both byte and source-text coordinates.
 	struct FJsonParseError
 	{
@@ -225,7 +227,8 @@ namespace Durin
 		CORE_API auto GetRootView() const -> FJsonNodeView;
 		CORE_API auto GetMutableRoot() -> FJsonNodeRef;
 
-		CORE_API auto ToString() const -> std::string;
+		// Both formats preserve values and escape Unicode; files remain pretty-printed.
+		CORE_API auto ToString(EJsonFormat Format = EJsonFormat::Pretty) const -> std::string;
 		CORE_API auto SaveToFile(std::string_view FilePath) const -> bool;
 
 	private:

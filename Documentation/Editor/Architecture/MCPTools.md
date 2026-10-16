@@ -11,6 +11,9 @@ DurinMCP owns protocol handling, transport, schema/value conversion, discovery
 names, and pending HTTP requests. It depends privately on DurinEd and the pinned
 MIT cpp-httplib dependency. Core's existing FJsonDocument/yyjson owns JSON parsing
 and writing. Protocol and transport types stay private to DurinMCP.
+Wire serialization selects Core's `EJsonFormat::Compact` directly. There is no
+adapter-side whitespace rewriting; JSON escaping preserves string contents and
+keeps each SSE data message on one line.
 
 `FMCPServer::Start(DEditorEngine&, Options)` selects one editor and acquires its
 detached `FEditorToolService` on the GameThread. Start and Stop are control-thread

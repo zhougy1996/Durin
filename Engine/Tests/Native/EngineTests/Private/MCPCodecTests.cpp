@@ -35,6 +35,19 @@ namespace
 		EXPECT_FALSE(ParseRequest("{\"jsonrpc\":\"2.0\",\"method\":\"ping\",\"id\":true,\"params\":{}}"));
 		EXPECT_FALSE(ParseRequest(Request("NaN")));
 	}
+	TEST(FMCPCodecTests, SerializesSingleLineMessagesWithoutChangingStringContents)
+	{
+		const std::string Text = " keep spaces \t\r\n\"\\ " "\xe4\xb8\xad\xf0\x9f\x98\x80";
+		auto Message = Reply("id", {{"text", Text}, {"nested", FArray{FObject{{"value", Text}}}}});
+		const auto Wire = Serialize(Message);
+		EXPECT_EQ(std::string::npos, Wire.find_first_of("\r\n\t"));
+		EXPECT_TRUE(Wire.starts_with(R"({"id":"id","jsonrpc":"2.0","result":{)"));
+		FJsonDocument Document;
+		ASSERT_TRUE(Document.Parse(Wire));
+		const auto Result = Document.GetRootView().GetView("result");
+		EXPECT_EQ(Text, Result.GetView("text").GetString());
+		EXPECT_EQ(Text, Result.GetView("nested").GetView(0).GetView("value").GetString());
+	}
 	TEST(FMCPCodecTests, DescribesEveryNativeSchemaKindAndUtf8ByteBounds)
 	{
 		for (auto Type : {EToolValueType::Null, EToolValueType::Boolean, EToolValueType::Integer,

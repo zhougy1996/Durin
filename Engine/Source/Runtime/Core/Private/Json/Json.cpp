@@ -954,7 +954,7 @@ namespace Durin
 		return ToNodeRef(Document, Root, nullptr, {}, InvalidJsonIndex, true, EJsonNodeLink::None);
 	}
 
-	auto FJsonDocument::ToString() const -> std::string
+	auto FJsonDocument::ToString(EJsonFormat Format) const -> std::string
 	{
 		yyjson_mut_doc* Document = const_cast<FImpl*>(Impl.get())->EnsureMutableDocument();
 		if (!Document)
@@ -962,7 +962,8 @@ namespace Durin
 			return {};
 		}
 
-		const yyjson_write_flag Flags = YYJSON_WRITE_PRETTY | YYJSON_WRITE_ESCAPE_UNICODE;
+		const yyjson_write_flag Flags = YYJSON_WRITE_ESCAPE_UNICODE
+			| (Format == EJsonFormat::Pretty ? YYJSON_WRITE_PRETTY : 0);
 		size_t Length = 0;
 		char* Raw = yyjson_mut_write_opts(Document, Flags, nullptr, &Length, nullptr);
 		if (!Raw)

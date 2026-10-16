@@ -126,20 +126,7 @@ namespace Durin::MCP
 	{
 		FJsonDocument Document;
 		Write(Document.GetMutableRoot(), Value);
-		auto Result = Document.ToString();
-		// Core writes readable JSON. Compact only lexical whitespace so one SSE data
-		// line contains the complete message without changing string contents.
-		bool String = false, Escape = false;
-		size_t Out = 0;
-		for (char C : Result)
-		{
-			if (!String && (C == ' ' || C == '\r' || C == '\n' || C == '\t')) continue;
-			Result[Out++] = C;
-			if (String) { if (Escape) Escape = false; else if (C == '\\') Escape = true; else if (C == '"') String = false; }
-			else if (C == '"') String = true;
-		}
-		Result.resize(Out);
-		return Result;
+		return Document.ToString(EJsonFormat::Compact);
 	}
 	auto Schema(const FToolSchema& Native) -> FToolValue
 	{

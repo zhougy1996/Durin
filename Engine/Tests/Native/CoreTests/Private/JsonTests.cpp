@@ -82,6 +82,56 @@ namespace
 		EXPECT_DOUBLE_EQ(Flags.GetView("threshold").GetDouble(), 0.75);
 	}
 
+	TEST(FJsonDocumentTests, SelectsCompactOutputWithoutChangingTheDefaultFormat)
+	{
+		Durin::FJsonDocument Document;
+		ASSERT_TRUE(Document.Parse(R"({ "label": "keep these spaces", "items": [true, null, {"value": 42}] })"));
+		const auto Pretty = Document.ToString();
+		EXPECT_EQ(Pretty, Document.ToString(Durin::EJsonFormat::Pretty));
+		EXPECT_NE(std::string::npos, Pretty.find('\n'));
+		EXPECT_EQ(R"({"label":"keep these spaces","items":[true,null,{"value":42}]})",
+			Document.ToString(Durin::EJsonFormat::Compact));
+		Document.GetMutableRoot().SetChildValue("label", "edited value");
+		EXPECT_EQ(R"({"label":"edited value","items":[true,null,{"value":42}]})",
+			Document.ToString(Durin::EJsonFormat::Compact));
+	}
+
+	TEST(FJsonDocumentTests, CompactOutputPreservesEscapesUnicodeAndNumericBoundaries)
+	{
+		Durin::FJsonDocument Document;
+		auto Root = Document.GetMutableRoot();
+		Root.EnsureObject();
+		const std::string Text = " leading space\t\n\r\"\\ " "\xe4\xb8\xad\xf0\x9f\x98\x80" " trailing space ";
+		Root.SetChildValue("spaced key", Text);
+		auto Values = Root.AddArray("values");
+		Values.AppendValue(UINT64_MAX);
+		Values.AppendValue(INT64_MIN);
+		Values.AppendValue(1.25);
+		Values.AppendValue(nullptr);
+		Values.AppendValue(false);
+		const auto Compact = Document.ToString(Durin::EJsonFormat::Compact);
+		EXPECT_EQ(std::string::npos, Compact.find_first_of("\r\n\t"));
+		EXPECT_NE(std::string::npos, Compact.find("18446744073709551615"));
+		EXPECT_NE(std::string::npos, Compact.find("-9223372036854775808"));
+		EXPECT_TRUE(std::ranges::all_of(Compact, [](unsigned char C) { return C < 128; }));
+		Durin::FJsonDocument Reloaded;
+		ASSERT_TRUE(Reloaded.Parse(Compact));
+		EXPECT_EQ(Text, Reloaded.GetRootView().GetView("spaced key").GetString());
+		const auto Items = Reloaded.GetRootView().GetView("values");
+		ASSERT_EQ(5u, Items.Num());
+		EXPECT_EQ(UINT64_MAX, Items.GetView(0).GetUInt());
+		EXPECT_EQ(INT64_MIN, Items.GetView(1).GetInt());
+		EXPECT_DOUBLE_EQ(1.25, Items.GetView(2).GetDouble());
+		EXPECT_TRUE(Items.GetView(3).IsNull());
+		EXPECT_FALSE(Items.GetView(4).GetBool(true));
+		for (const auto* Scalar : {"null", "true", "18446744073709551615", "-9223372036854775808", "1.25", R"(" a b ")"})
+		{
+			Durin::FJsonDocument ScalarDocument;
+			ASSERT_TRUE(ScalarDocument.Parse(Scalar));
+			EXPECT_EQ(Scalar, ScalarDocument.ToString(Durin::EJsonFormat::Compact));
+		}
+	}
+
 	TEST(FJsonDocumentTests, ParseArrayAndDefaults)
 	{
 		Durin::FJsonDocument Document;
