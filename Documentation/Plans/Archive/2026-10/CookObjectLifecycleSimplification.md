@@ -4,7 +4,7 @@ Summary: Remove primary-asset ownership of package Cook, unify object eligibilit
 
 Last reviewed: 2026-10-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-15
 
 ## Current Status
@@ -491,10 +491,10 @@ Files: stage-owned tests and codecs above, plus
   obsolete helpers, record exact reports/logs and any unrun required gate, then
   mark this plan complete only after all required checks pass.
 
-Use the repository [build workflow](../Agents/BuildAndRun.md),
-[test workflow](../Agents/Testing.md), and
-[documentation workflow](../Agents/Documentation.md). Implementation commits must
-carry `Plan: Documentation/Plans/CookObjectLifecycleSimplification.md` and the
+Use the repository [build workflow](../../../Agents/BuildAndRun.md),
+[test workflow](../../../Agents/Testing.md), and
+[documentation workflow](../../../Agents/Documentation.md). Implementation commits must
+carry `Plan: Documentation/Plans/Archive/2026-10/CookObjectLifecycleSimplification.md` and the
 exact `Stage: Stage <N>: <stage title above>` provenance. This planning-only commit
 must not claim a stage has been implemented.
 

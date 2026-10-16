@@ -4,7 +4,7 @@ Summary: Move authored material compilation to staged asynchronous orchestration
 
 Last reviewed: 2026-10-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-15
 
 ## Current Status
@@ -554,7 +554,7 @@ that an extra cache layer is beneficial. Unavailable explicit gates remain open.
 
 ## Validation and Handoff
 
-Follow [testing](../Agents/Testing.md) and [build/run](../Agents/BuildAndRun.md).
+Follow [testing](../../../Agents/Testing.md) and [build/run](../../../Agents/BuildAndRun.md).
 The target names below were checked against the configured native test registry;
 re-query the registry when target registration changes. Run relevant cases alone
 and their target together for singleton/session cleanup. Use deterministic cache
@@ -576,7 +576,7 @@ does not itself require application-hosted execution or a quiet-GPU performance
 lane. Record omitted coverage explicitly.
 
 For each implementation commit, update this plan's status, passed checklists, and
-exact evidence paths/results. Add Plan = Documentation/Plans/MaterialAsyncDerivedDataBuild.md
+exact evidence paths/results. Add Plan = Documentation/Plans/Archive/2026-10/MaterialAsyncDerivedDataBuild.md
 and the exact applicable Stage heading as git commit trailers, following repository
 handoff rules. Plan authoring alone does not satisfy an implementation stage.
 

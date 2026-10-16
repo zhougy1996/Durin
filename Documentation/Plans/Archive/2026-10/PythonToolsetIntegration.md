@@ -4,7 +4,7 @@ Summary: Embed an editor-owned Python runtime and expose existing Toolsets throu
 
 Last reviewed: 2026-10-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-16
 
 ## Current Status
@@ -124,8 +124,8 @@ supported shutdown behavior are recorded below.
   `Build/.agent-state/logs/20261016-164524-768145-31964-DurinEditor.log`.
   Stage 4 logs additionally prove traceback presentation and active-script closure.
   Scripts and marker files remain under ignored `Build/Python/`.
-- Lasting behavior is published in the [Python adapter](../Editor/Architecture/PythonTools.md)
-  and [script guide](../Editor/Guides/PythonScripts.md); module ownership and task
+- Lasting behavior is published in the [Python adapter](../../../Editor/Architecture/PythonTools.md)
+  and [script guide](../../../Editor/Guides/PythonScripts.md); module ownership and task
   routing are updated. Changed-document, all-plan and diff validation pass.
 - Limitations: trusted scripts, one worker, shared import state, packaged Windows
   runtime only, no native extension package support, no automatic script-wide Undo,
@@ -138,9 +138,9 @@ Allow an explicitly submitted Python string or UTF-8 script file to discover and
 invoke Toolsets belonging to one selected editor, receive final native results,
 and report Python exceptions and tool diagnostics without blocking GameThread.
 
-Use the existing [Core tool contracts](../Runtime/Core/Tools.md),
-[editor tool service](../Editor/Architecture/EditorTools.md), and
-[MCP adapter](../Editor/Architecture/MCPTools.md) as authorities for implemented
+Use the existing [Core tool contracts](../../../Runtime/Core/Tools.md),
+[editor tool service](../../../Editor/Architecture/EditorTools.md), and
+[MCP adapter](../../../Editor/Architecture/MCPTools.md) as authorities for implemented
 behavior. This document describes proposed additions, not current APIs.
 
 ## Scope and Selected Design
@@ -357,8 +357,8 @@ prove endpoint, interpreter and module ownership for all supported close paths.
 
 Dependencies: Stages 0-4 complete.
 
-- [x] Follow [agent testing](../Agents/Testing.md) and
-  [build/run guidance](../Agents/BuildAndRun.md); select runtime/codec, CPU editor
+- [x] Follow [agent testing](../../../Agents/Testing.md) and
+  [build/run guidance](../../../Agents/BuildAndRun.md); select runtime/codec, CPU editor
   integration and existing Toolset/Console/MCP regression targets affected by the
   implementation. Do not require GPU startup for CPU-only correctness checks.
 - [x] Validate affected workspace project targets. If a shared Engine API changes,
@@ -374,7 +374,7 @@ Dependencies: Stages 0-4 complete.
 
 Completion: required regressions and project builds pass, implemented contracts
 are published, and every supported lifecycle/acceptance gate has evidence. Follow
-the [plan lifecycle rules](AGENTS.md) before marking this plan completed.
+the [plan lifecycle rules](../../AGENTS.md) before marking this plan completed.
 
 ## Deferred Work
 

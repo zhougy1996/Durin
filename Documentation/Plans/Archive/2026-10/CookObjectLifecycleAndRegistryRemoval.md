@@ -4,7 +4,7 @@ Summary: Replace the independent Cook contributor registry with object lifecycle
 
 Last reviewed: 2026-10-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-16
 
 ## Current Status
@@ -578,8 +578,8 @@ replaced in authoritative documentation. Historical plans remain historical.
 
 ## Validation Matrix and Compatibility
 
-Follow [Testing](../Agents/Testing.md) and
-[Build And Run](../Agents/BuildAndRun.md); discover actual targets through the test
+Follow [Testing](../../../Agents/Testing.md) and
+[Build And Run](../../../Agents/BuildAndRun.md); discover actual targets through the test
 registry. Do not infer target names from filenames. Likely existing entrypoints
 include AssetCookTests, CookFunctionalTests, MaterialFunctionTests and family
 material/texture/mesh suites; Stage 0 must confirm the exact registered selections.
@@ -624,7 +624,7 @@ unexplained regressions rather than inventing a wall-clock threshold.
 Implementation commits update this plan's date, status and relevant checklists.
 Use exact provenance trailers:
 
-- `Plan: Documentation/Plans/CookObjectLifecycleAndRegistryRemoval.md`
+- `Plan: Documentation/Plans/Archive/2026-10/CookObjectLifecycleAndRegistryRemoval.md`
 - `Stage: Stage <N>: <exact stage title above>`
 
 The initial planning-only commit carries the Plan trailer without claiming a

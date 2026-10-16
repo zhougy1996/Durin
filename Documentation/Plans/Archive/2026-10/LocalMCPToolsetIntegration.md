@@ -4,7 +4,7 @@ Summary: Expose existing editor Toolsets through local Streamable HTTP with disc
 
 Last reviewed: 2026-10-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-16
 
 ## Current Status
@@ -105,8 +105,8 @@ survive text limits in result metadata. MainFrame's Stage 2 build also passed.
   selected instead of admitting unrelated GPU/application tests.
 - Raw evidence: ignored Build/.agent-state/logs, Build/MCP/sdk-native.log, and
   Build/MCP/requirements.txt (the SDK dependency snapshot). Reproduce using the
-  checked-in driver and [connection guide](../Editor/Guides/LocalMCP.md).
-- Lasting contracts live in the [MCP adapter](../Editor/Architecture/MCPTools.md)
+  checked-in driver and [connection guide](../../../Editor/Guides/LocalMCP.md).
+- Lasting contracts live in the [MCP adapter](../../../Editor/Architecture/MCPTools.md)
   and connection guide, with routing/module ownership and external handoff updated.
   Changed-document validation, all-plan lifecycle validation, and diff checks pass.
 
@@ -185,9 +185,9 @@ introduce a general HTTP/networking module solely for this delivery.
 
 Authoritative existing contracts:
 
-- [Toolset contracts](../Runtime/Core/Tools.md).
-- [Editor tool service and external adapter handoff](../Editor/Architecture/EditorTools.md#external-adapter-handoff).
-- [Console integration regression contract](../Editor/Architecture/ConsoleTools.md).
+- [Toolset contracts](../../../Runtime/Core/Tools.md).
+- [Editor tool service and external adapter handoff](../../../Editor/Architecture/EditorTools.md#external-adapter-handoff).
+- [Console integration regression contract](../../../Editor/Architecture/ConsoleTools.md).
 
 Out of scope: Resources, Prompts, stdio bridges, legacy HTTP+SSE, remote hosting,
 OAuth infrastructure, multiple simultaneous protocol implementations, general
@@ -202,7 +202,7 @@ support only `2025-06-18`. Use initialize/initialized, bounded HTTP sessions,
 session-scoped notifications/cancelled, and DELETE session termination. A response
 disconnect does not cancel admitted work. Keep six live call streams, 32 retained
 calls, and 16 sessions with ten-minute idle expiry; reserve HTTP workers for
-control traffic. The implemented [adapter contract](../Editor/Architecture/MCPTools.md)
+control traffic. The implemented [adapter contract](../../../Editor/Architecture/MCPTools.md)
 owns current wire semantics, limits, and lifecycle. The sections below preserve
 the original staged design and acceptance history; their superseded protocol
 details are not current implementation requirements.
@@ -345,7 +345,7 @@ Depends on: no implementation stages.
 - [x] Record exact protocol methods, headers, errors, bounded naming, pagination,
   numeric behavior, and finite resource/deadline/polling limits.
 - [x] Select registered native test targets and fixtures following
-  [testing guidance](../Agents/Testing.md); identify a real-client smoke harness.
+  [testing guidance](../../../Agents/Testing.md); identify a real-client smoke harness.
 
 Completion condition: all decisions above are recorded here with no unresolved
 protocol, dependency, public ownership, or unload-safety issue.
@@ -407,7 +407,7 @@ Depends on: Stage 3.
 - [x] Demonstrate client cancellation with a deterministic test Toolset held
   queued/running; do not infer cancellation coverage from fast PIE calls.
 - [x] Run relevant Core, editor-service, Console, and MCP regressions; build
-  affected editor/project targets following [build guidance](../Agents/BuildAndRun.md).
+  affected editor/project targets following [build guidance](../../../Agents/BuildAndRun.md).
   Complete an `all` build if a shared Engine API migration becomes necessary.
 - [x] Publish implemented architecture in `Editor/Architecture`, connection and
   token setup in an editor guide, and update relevant routing/module ownership
@@ -423,7 +423,7 @@ Resources and Prompts remain unadvertised and deferred.
 
 ## Validation and Commit Discipline
 
-Follow [documentation workflow](../Agents/Documentation.md) and the linked build
+Follow [documentation workflow](../../../Agents/Documentation.md) and the linked build
 and test guidance rather than introducing another command workflow. This initial
 plan requires changed-document and all-plan validation only; it makes no runtime
 claims. During implementation, update Current Status and stage evidence in each

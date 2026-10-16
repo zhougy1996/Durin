@@ -4,14 +4,14 @@ Summary: Optimize material runtime binding, renderer caches, Primitive/Instance 
 
 Last reviewed: 2026-10-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-16
 
 ## Current Status
 
 Stage 5 is complete on production base `1b80f6c0f`. Stages 0-5 are complete;
 stages 6-8 remain deferred. The implementation and boundaries are documented in
-[shader stage selection and sharing](../Runtime/Rendering/MaterialShaderStages.md).
+[shader stage selection and sharing](../../../Runtime/Rendering/MaterialShaderStages.md).
 The diagnostic lane remains Win64-Debug-DurinEditor, MSVC 14.44.35207 and Tracy.
 
 All three new stage tests passed together and separately in isolated processes.
@@ -84,7 +84,7 @@ Each primitive/instance GPU record grows from 256 to 512 bytes. The existing
 frame-time speedup is claimed. Instance updates copy/validate bounded snapshots;
 incremental GPU-scene updates, serialized component defaults and instanced
 physics remain outside the executed runtime scope. These tradeoffs and the
-implemented API are documented in [the runtime contract](../Runtime/Rendering/MaterialCustomData.md).
+implemented API are documented in [the runtime contract](../../../Runtime/Rendering/MaterialCustomData.md).
 
 Stage 4 receipts are under `Build/MaterialRuntimeOptimization/`:
 `stage4-mesh.{xml,log}`, `stage4-custom-gpu.{xml,log}`,
@@ -137,7 +137,7 @@ Evidence is retained under `Build/MaterialRuntimeOptimization/`:
 `stage3-mesh.xml`, `stage3-reload.xml`, and `stage3-all-build.log`. The first list-based candidate's raw
 CSV and comparison are retained as `stage3-list-candidate.csv` and
 `stage3-list-comparison.json`. Reproduce with the opt-in case and settings in
-[the measurement protocol](../Development/Build/RenderingPerformanceBaseline.md#binding-update-and-submission-workload).
+[the measurement protocol](../../../Development/Build/RenderingPerformanceBaseline.md#binding-update-and-submission-workload).
 Affected analysis expands to application-hosted and unrelated renderer consumers;
 the selected cache/invalidation, mesh output and reload gates cover this private
 cache change, with all-build covering workspace integration.
@@ -222,8 +222,8 @@ precise shader/pipeline identity contracts. Execute Stages 0-4 in this plan.
   exact ordered Collection contracts/defaults before caching or binding them;
   retain deduplication for collection-free programs. Add a mixed-material output
   regression after the frozen benchmark workload, without changing its inputs.
-- Follow [build](../Agents/BuildAndRun.md), [test](../Agents/Testing.md), and
-  [measurement authority](../Development/Build/RenderingPerformanceBaseline.md).
+- Follow [build](../../../Agents/BuildAndRun.md), [test](../../../Agents/Testing.md), and
+  [measurement authority](../../../Development/Build/RenderingPerformanceBaseline.md).
   Raw CSV/log/XML belongs under ignored Build or native test Work directories.
 
 ## Implementation Stages

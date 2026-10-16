@@ -4,7 +4,7 @@ Summary: Separate dependency projection reuse from cooked output reuse, narrow p
 
 Last reviewed: 2026-10-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-16
 
 ## Current Status
@@ -442,7 +442,7 @@ Dependencies: Stages 1-5. Outcome: complete consumer migration and documented be
   still rejected appropriately; keep normal transient-save hooks functional.
 - [x] Scan all workspace projects/tools for obsolete flags, cooked-state readers,
   synchronous heavy Begin paths and accidental registry/central dispatch additions.
-- [x] Update [Cooking](../Runtime/Assets/Cooking.md) and affected owning contracts;
+- [x] Update [Cooking](../../../Runtime/Assets/Cooking.md) and affected owning contracts;
   keep implemented invariants there and stage/evidence records in this plan.
 - [x] Record tested revision, exact selections, reproducible settings, counts and
   raw evidence paths; close only passed gates and complete plan lifecycle validation.
@@ -452,8 +452,8 @@ before handoff; no required validation is replaced by an unsupported performance
 
 ## Acceptance Matrix and Evidence
 
-Follow [Testing](../Agents/Testing.md), [Build and Run](../Agents/BuildAndRun.md)
-and [Documentation workflow](../Agents/Documentation.md) for supported commands,
+Follow [Testing](../../../Agents/Testing.md), [Build and Run](../../../Agents/BuildAndRun.md)
+and [Documentation workflow](../../../Agents/Documentation.md) for supported commands,
 test selection, build serialization and receipts. Discover exact test selectors
 from the current registry rather than copying historical case counts.
 
@@ -495,7 +495,7 @@ separate capabilities and do not justify weakening current correctness checks.
 Implementation commits update this plan's date, current status and evidence-backed
 checklists. Use exact provenance trailers:
 
-- `Plan: Documentation/Plans/CookReusePrecisionAndAsyncPreparation.md`
+- `Plan: Documentation/Plans/Archive/2026-10/CookReusePrecisionAndAsyncPreparation.md`
 - `Stage: Stage <N>: <exact stage title above>`
 
 The initial planning-only commit carries only the Plan trailer and claims no

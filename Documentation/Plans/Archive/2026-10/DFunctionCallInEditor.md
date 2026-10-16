@@ -4,7 +4,7 @@ Summary: Add generated no-argument void member-function reflection and transacti
 
 Last reviewed: 2026-10-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-16
 
 ## Current Status
@@ -106,15 +106,15 @@ The annotated method must have a callable definition when its module links.
 
 ## Existing Integration Points
 
-- [Reflection generation](../Development/Tooling/ReflectionGeneration.md):
+- [Reflection generation](../../../Development/Tooling/ReflectionGeneration.md):
   hermetic declaration extraction, thin exports, generated friends, and output
   invalidation. Function bodies remain outside DHT's semantic inputs.
-- [Generated reflection](../Runtime/Core/ReflectionSystem.md): `DClass`, type
+- [Generated reflection](../../../Runtime/Core/ReflectionSystem.md): `DClass`, type
   registration, class defaults, and property ownership. The empty `DFUNCTION`
   macro is not an implemented function-reflection contract.
-- [Reflected property editing](../Editor/Architecture/ReflectedPropertyEditing.md):
+- [Reflected property editing](../../../Editor/Architecture/ReflectedPropertyEditing.md):
   shared layouts, search, customizations, active property edits, and object hooks.
-- [Transactors](../Editor/Architecture/Transactors.md): checked recording results,
+- [Transactors](../../../Editor/Architecture/Transactors.md): checked recording results,
   scoped capture, history replay, package checkpoints, and cancellation semantics.
 
 ## Authoring Contract
@@ -372,8 +372,8 @@ Depends on Stage 2. Outcome: the feature is demonstrated and documented.
   consumer and affected targets here before implementation.
 - [x] Validate actual Details behavior, Undo/Redo-derived state, and save/dirty
   state in the owning host. Use test fixtures for failure and inheritance cases.
-- [x] Follow [native testing guidance](../Agents/Testing.md) and
-  [build guidance](../Agents/BuildAndRun.md); validate affected project targets
+- [x] Follow [native testing guidance](../../../Agents/Testing.md) and
+  [build guidance](../../../Agents/BuildAndRun.md); validate affected project targets
   and complete an `all` build for the shared Engine API migration before handoff.
 - [x] Publish implemented contracts in reflection generation, runtime reflection,
   reflected property editing, and transactor documentation; validate documents

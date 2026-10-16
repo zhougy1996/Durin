@@ -4,7 +4,7 @@ Summary: Make DFunction a DStructBase metadata object and unify generated proper
 
 Last reviewed: 2026-10-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-16
 
 ## Current Status
@@ -90,7 +90,7 @@ Depends on Stage 3. Outcome: all required gates pass and long-lived contracts de
 - [x] Update runtime/tooling documentation, validate changed documents and all plans, and inspect the final diff.
 - [x] Record exact results, mark the plan completed only after acceptance, and commit with Plan/Stage provenance.
 
-Validation follows [agent build guidance](../Agents/BuildAndRun.md) and [agent testing guidance](../Agents/Testing.md). Reports and logs stay under ignored Build/ directories. No application-hosted or GPU execution is required by this metadata refactor.
+Validation follows [agent build guidance](../../../Agents/BuildAndRun.md) and [agent testing guidance](../../../Agents/Testing.md). Reports and logs stay under ignored Build/ directories. No application-hosted or GPU execution is required by this metadata refactor.
 
 ### Stage 5: Remove compatibility metadata and unify runtime interfaces
 

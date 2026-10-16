@@ -4,7 +4,7 @@ Summary: Establish module-owned Toolsets with structured calls and an editor inv
 
 Last reviewed: 2026-10-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-15
 
 ## Current Status
@@ -63,8 +63,8 @@ persistent request deduplication, and a new Undo system.
 
 ### Toolsets, descriptions, and dispatch
 
-The implemented contracts live in [Toolset Contracts](../Runtime/Core/Tools.md)
-and [Editor Tool Service](../Editor/Architecture/EditorTools.md). Stage 3 revises
+The implemented contracts live in [Toolset Contracts](../../../Runtime/Core/Tools.md)
+and [Editor Tool Service](../../../Editor/Architecture/EditorTools.md). Stage 3 revises
 the original flat Command vocabulary into explicit Toolsets before Console work.
 `IToolset` owns one named group, whose Tools have local names. `FToolAddress`
 keeps Toolset and Tool separate; no ambiguous dotted-name splitting is allowed.
@@ -85,7 +85,7 @@ The selected migration is PIE status, play, stop, and explicit pause state, with
 an execution-time toggle compatibility tool. Remaining legacy Console commands
 stay in their original registry. The implemented syntax, compatibility messages,
 merged discovery, bounded argument files, and receipt presentation are owned by
-[Console Toolset Integration](../Editor/Architecture/ConsoleTools.md). Domain
+[Console Toolset Integration](../../../Editor/Architecture/ConsoleTools.md). Domain
 handlers retain live-state validation and transaction ownership; protocol and UI
 adapters share those handlers through the editor service.
 
@@ -182,9 +182,9 @@ existing Console commands remain usable and no MCP implementation is introduced.
 Depends on: Stages 1 through 4.
 
 - [x] Run selected Core, editor-service, and Console regression targets following
-  [agent testing guidance](../Agents/Testing.md); record exact coverage/results.
+  [agent testing guidance](../../../Agents/Testing.md); record exact coverage/results.
 - [x] Build affected project targets and complete an `all` build for the shared
-  Core API changes following [agent build guidance](../Agents/BuildAndRun.md).
+  Core API changes following [agent build guidance](../../../Agents/BuildAndRun.md).
 - [x] Document implemented Core contracts under Runtime/Core and editor/Console
   behavior under Editor/Architecture; update relevant module/routing entries
   and keep this plan from becoming competing contract documentation.
@@ -199,14 +199,14 @@ Completed. Application-hosted execution is not an implicit gate.
 
 ## Required References
 
-- [Code module ownership](../Workspace/CodeModules.md)
-- [Modular features and module retirement](../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
-- [Subsystem lifecycle](../Runtime/Core/Subsystems.md)
-- [Editor subsystems](../Editor/Architecture/EditorSubsystems.md)
-- [Editor transactor](../Editor/Architecture/Transactors.md)
-- [Agent documentation workflow](../Agents/Documentation.md)
-- [Existing Console contract](../../Engine/Source/Runtime/Core/Public/Console/ConsoleCommand.h)
-- [Existing modular-feature API](../../Engine/Source/Runtime/Core/Public/Modules/ModularFeature.h)
+- [Code module ownership](../../../Workspace/CodeModules.md)
+- [Modular features and module retirement](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
+- [Subsystem lifecycle](../../../Runtime/Core/Subsystems.md)
+- [Editor subsystems](../../../Editor/Architecture/EditorSubsystems.md)
+- [Editor transactor](../../../Editor/Architecture/Transactors.md)
+- [Agent documentation workflow](../../../Agents/Documentation.md)
+- [Existing Console contract](../../../../Engine/Source/Runtime/Core/Public/Console/ConsoleCommand.h)
+- [Existing modular-feature API](../../../../Engine/Source/Runtime/Core/Public/Modules/ModularFeature.h)
 
 ## Main-Thread Simplification Decision
 
@@ -279,14 +279,14 @@ The execution decisions above explain the selected migration. Maintain the
 implemented rules in their owning documents rather than extending this plan as
 a parallel API specification:
 
-- [Toolset Contracts](../Runtime/Core/Tools.md): owned values, schema vocabulary,
+- [Toolset Contracts](../../../Runtime/Core/Tools.md): owned values, schema vocabulary,
   input/output validation, explicit native bindings, and provider lifetime.
-- [Editor Tool Service](../Editor/Architecture/EditorTools.md): grouped catalogs,
+- [Editor Tool Service](../../../Editor/Architecture/EditorTools.md): grouped catalogs,
   exact routes, host context, queue/result limits, cancellation, shutdown, and
   the future external/MCP adapter seam.
-- [Console Toolset Integration](../Editor/Architecture/ConsoleTools.md): text
+- [Console Toolset Integration](../../../Editor/Architecture/ConsoleTools.md): text
   syntax, typed/file conversion, help/completion, aliases, and presentation.
-- [Modular Features and Module Shutdown](../Runtime/Core/ModularFeaturesAndModuleRetirement.md):
+- [Modular Features and Module Shutdown](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md):
   main-thread safe points and module-owned unload responsibility.
 
 ### Test ownership and affected roots
@@ -329,10 +329,10 @@ using the windows-msvc-x64 profile and Win64-Debug-DurinEditor preset:
   existing calls compile against the extended API.
 
 Implemented Core contracts are authoritative in
-[Structured Command Contracts](../Runtime/Core/Tools.md) and
-[Modular Features and Module Shutdown](../Runtime/Core/ModularFeaturesAndModuleRetirement.md).
+[Structured Command Contracts](../../../Runtime/Core/Tools.md) and
+[Modular Features and Module Shutdown](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md).
 The editor contract is now documented in
-[Editor Command Service](../Editor/Architecture/EditorTools.md). Console
+[Editor Command Service](../../../Editor/Architecture/EditorTools.md). Console
 decisions remain here until Stage 4 implements them; MCP endpoints remain deferred.
 
 ### Main-thread revision validation
@@ -433,7 +433,7 @@ Validated on 2026-10-15 with windows-msvc-x64 / Win64-Debug-DurinEditor:
   `git diff --check`: passed.
 
 Lasting behavior is documented in
-[Console Toolset Integration](../Editor/Architecture/ConsoleTools.md). DurinMCP
+[Console Toolset Integration](../../../Editor/Architecture/ConsoleTools.md). DurinMCP
 remains a skeleton, and the three unmigrated PIE commands retain their legacy
 callbacks. Stage 5 remains open for final integration contract handoff.
 

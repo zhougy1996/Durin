@@ -4,7 +4,7 @@ Summary: Rebuild task execution ownership and dependency retraction around task 
 
 Last reviewed: 2026-10-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-14
 
 ## Current Status
@@ -81,11 +81,11 @@ timed waits and scheduler shutdown. Each implementation stage requires Core
 concurrency coverage and the workspace build; final validation additionally
 includes affected targets, asset/RHI integration and isolated new cases.
 
-- [Task system contract](../Runtime/Core/TaskSystem.md)
-- [Build workflow](../Agents/BuildAndRun.md)
-- [Test workflow](../Agents/Testing.md)
-- [Documentation workflow](../Agents/Documentation.md)
-- [C++ standards](../Development/Standards/CodingStandards.md)
+- [Task system contract](../../../Runtime/Core/TaskSystem.md)
+- [Build workflow](../../../Agents/BuildAndRun.md)
+- [Test workflow](../../../Agents/Testing.md)
+- [Documentation workflow](../../../Agents/Documentation.md)
+- [C++ standards](../../../Development/Standards/CodingStandards.md)
 
 ## Implementation Stages
 

@@ -4,7 +4,7 @@ Summary: Expose session-owned Python script submission, result polling and coope
 
 Last reviewed: 2026-10-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-16
 
 ## Current Status
@@ -81,9 +81,9 @@ EditorToolService and retain External source/exposure checks. Python itself is
 trusted process code with normal process privileges, not a sandbox; the configured
 MCP bearer token therefore grants script execution when these tools are enabled.
 
-Reuse the [MCP adapter](../Editor/Architecture/MCPTools.md),
-[Python adapter](../Editor/Architecture/PythonTools.md) and
-[editor tool service](../Editor/Architecture/EditorTools.md). Adapter tools use
+Reuse the [MCP adapter](../../../Editor/Architecture/MCPTools.md),
+[Python adapter](../../../Editor/Architecture/PythonTools.md) and
+[editor tool service](../../../Editor/Architecture/EditorTools.md). Adapter tools use
 normal schema descriptions/results, explicit route kinds and collision rejection;
 they do not register global native Toolsets or call Python from GameThread tool
 handlers. Python absence omits these tools while ordinary MCP remains available.
@@ -123,7 +123,7 @@ Completion: an authenticated client can submit, inspect and cancel only its jobs
 
 Dependencies: Stages 0-1.
 
-- [x] Follow [testing](../Agents/Testing.md) and [build/run](../Agents/BuildAndRun.md);
+- [x] Follow [testing](../../../Agents/Testing.md) and [build/run](../../../Agents/BuildAndRun.md);
   run new integration cases together and in isolation, relevant Python/Toolset/
   Console/MCP regressions, and the required workspace all build.
 - [x] Exercise a real SDK client against an application editor: discover, submit

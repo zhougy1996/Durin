@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-The [Material Async Derived Data Build plan](../Plans/MaterialAsyncDerivedDataBuild.md)
+The [Material Async Derived Data Build plan](../Plans/Archive/2026-10/MaterialAsyncDerivedDataBuild.md)
 implements detached cached translation, asynchronous ShaderBuild subscriptions and
 staged material assembly. GameThread captures authored graphs; normalization and
 cache waits now progress through detached continuations. Its acceptance evidence

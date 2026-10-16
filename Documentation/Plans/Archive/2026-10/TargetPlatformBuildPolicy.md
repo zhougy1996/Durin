@@ -4,7 +4,7 @@ Summary: Introduce immutable target policy resolution and explicit family format
 
 Last reviewed: 2026-10-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-10-15
 
 ## Current Status
@@ -21,7 +21,7 @@ or run.
 The completed [material async build plan](MaterialAsyncDerivedDataBuild.md)
 is the baseline: retain translation/Shader cache separation, shared flights,
 bounded execution, and generation-safe application. Coordinate overlapping DDC
-changes with [DDC optimization](DerivedDataCacheOptimization.md); this plan does
+changes with [DDC optimization](../../DerivedDataCacheOptimization.md); this plan does
 not replace its storage or execution work.
 
 ## Goal
@@ -32,12 +32,12 @@ object publication, and Cook transactions. Fail unsupported combinations before
 expensive production or output publication, while allowing valid cached products
 to be used without an available local producer.
 
-Required references: [build protocol](../Runtime/Assets/DerivedDataBuild.md),
-[Cook contract](../Runtime/Assets/Cooking.md),
-[material lifecycle](../Runtime/Rendering/MaterialSystem.md#compile-lifecycle-and-cooked-programs),
-[module ownership](../Workspace/CodeModules.md),
-[build workflow](../Agents/BuildAndRun.md), and
-[test workflow](../Agents/Testing.md).
+Required references: [build protocol](../../../Runtime/Assets/DerivedDataBuild.md),
+[Cook contract](../../../Runtime/Assets/Cooking.md),
+[material lifecycle](../../../Runtime/Rendering/MaterialSystem.md#compile-lifecycle-and-cooked-programs),
+[module ownership](../../../Workspace/CodeModules.md),
+[build workflow](../../../Agents/BuildAndRun.md), and
+[test workflow](../../../Agents/Testing.md).
 
 ## Selected Architecture
 
@@ -250,7 +250,7 @@ of unprepared serialization, selected-variant decoding, cancelled preparation,
 corruption/repair and transactional rollback, cooked-only loading, and generic
 cache-only positive/negative/schema validation without local build.
 
-Lasting contracts are in [target policy](../Runtime/Assets/TargetPlatforms.md),
+Lasting contracts are in [target policy](../../../Runtime/Assets/TargetPlatforms.md),
 the linked Cook/build/material/physics contracts, StaticMesh building, and module
 ownership. No native macOS collision reader or GPU qualification was claimed.
 
@@ -513,13 +513,13 @@ initialization or a previous implementation's report. Keep one source/build
 writer per checkout and never overlap native build process trees.
 
 Implementation commits update this plan and use exact trailers:
-`Plan: Documentation/Plans/TargetPlatformBuildPolicy.md` and
+`Plan: Documentation/Plans/Archive/2026-10/TargetPlatformBuildPolicy.md` and
 `Stage: Stage <N>: <exact stage title above>`. The planning-only commit must not
 claim implementation-stage completion. Follow the repository commit rules.
 
 Validate changed documentation and all plans according to the
-[documentation workflow](../Agents/Documentation.md) and
-[plan lifecycle](AGENTS.md). Complete/archive only after every required stage and
+[documentation workflow](../../../Agents/Documentation.md) and
+[plan lifecycle](../../AGENTS.md). Complete/archive only after every required stage and
 acceptance gate has evidence; unsupported optional capabilities stay explicitly
 unsupported rather than being advertised as implemented.
 
