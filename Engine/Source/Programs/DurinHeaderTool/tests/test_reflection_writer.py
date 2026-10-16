@@ -110,6 +110,10 @@ class TestReflectionSourceWriter:
 
 @pytest.mark.usefixtures("reflection_fixture")
 class TestReflectionWriterIntegration:
+    def test_class_schema_hooks_bind_without_default_object_construction(self):
+        for class_info in self.header_info.classes:
+            assert f"&{class_info.qualified_name}::AppendToClassSchema" in self.generated_cpp
+
     def test_referenced_helpers_share_one_namespace_declaration_block(self):
         declaration_region = self.generated_cpp.split(
             "Durin::FEnumRegistrationInfo", 1

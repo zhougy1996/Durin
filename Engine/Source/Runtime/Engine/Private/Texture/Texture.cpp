@@ -22,6 +22,27 @@
 
 namespace Durin
 {
+	auto DTexture::BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void
+	{
+		Super::BeginCacheForCookedPlatformData(Context);
+		auto* Preparation = FCookPreparationContext::Get(*this, Context);
+		if (!Preparation) { Context.Result = {EObjectCookError::InvalidInput, "Missing texture Cook preparation context."}; return; }
+		if (Context.CheckCancellation()) return;
+		if (IsAsyncCacheComplete()) BeginCachePlatformData();
+		Context.WaitForCompletion = [this, Preparation, &Context] {
+			if (!FinishCachePlatformData() || !HasPlatformData())
+				Preparation->Failure = {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::PlatformData,
+					.ObjectPath = GetObjectPath(), .VirtualPath = Context.Package,
+					.TargetPlatform = Preparation->GetTargetPlatform(), .TargetProfile = Preparation->GetTargetProfile()};
+			(void)Context.CheckCancellation();
+		};
+	}
+	auto DTexture::IsCachedCookedPlatformDataLoaded(const FObjectCookContext&) const -> bool { return IsAsyncCacheComplete(); }
+	auto DTexture::ClearCachedCookedPlatformData(const FObjectCookContext& Context) -> void
+	{
+		if (!IsAsyncCacheComplete()) BlockOnAnyAsyncBuild();
+		Super::ClearCachedCookedPlatformData(Context);
+	}
 	namespace
 	{
 		auto RetireTextureResource(std::unique_ptr<FTextureResource> Resource) -> void

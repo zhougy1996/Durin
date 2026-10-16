@@ -512,7 +512,6 @@ namespace Durin
 			.bRetainEditorOnlyData = bRetainEditorOnlyData,
 			.MaterialConfigurations = MaterialConfigurations,
 			.IsCancelled = IsCancelled,
-			.CookSnapshot = Snapshot,
 			.ReadCookInput = ReadInput,
 			.PreparationFailure = PreparationFailure
 		};
@@ -558,6 +557,8 @@ namespace Durin
 	) -> FCookPlanResult
 	{
 		*PreparationFailure = {};
+		if (!IsValidTarget(TargetPlatform, TargetProfile))
+			return {.Error = {.Code = ECookPlanError::Target, .TargetPlatform = TargetPlatform, .TargetProfile = TargetProfile}};
 		if (const auto Validated = ValidateCookPlanPath(VirtualPackagePath); !Validated) return Validated;
 		if (!Package || !Package->IsAssetPackage()
 			|| Package->GetTopLevelAssets().empty())
@@ -570,6 +571,8 @@ namespace Durin
 			})) return {{.Code = ECookPlanError::DuplicatePath, .VirtualPath = VirtualPackagePath}};
 
 		FAssetPackageSerializationOptions Options = MakePackageSerializationOptions();
+		const FArchiveTarget Target{std::string(GetTargetPlatformName(TargetPlatform)), std::string(GetTargetProfileName(TargetProfile))};
+		if (std::ranges::none_of(Package->GetTopLevelAssets(), [&](const auto* Object) { return IsObjectIncludedForCook(Object, Target); })) return {};
 		FByteBuffer PackageBytes;
 		FByteBuffer Segment;
 		const auto Result = SerializeAssetPackageClosure(
@@ -689,7 +692,8 @@ namespace Durin
 		FCookState State{Context.GetTargetPlatform(), Context.GetTargetProfile()};
 		for (FCookSavePlan& Plan : Plans)
 		{
-			Plan.Contributor = "compatibility-context";
+			Plan.Serializer = AssetPrivate::CookPackageSerializer;
+			Plan.SerializerVersion = AssetPrivate::CookPackageSerializerVersion;
 			Plan.BuildProvenance = "captured";
 			State.Entries.push_back(AssetPrivate::MakeCookStateEntry(Plan));
 		}

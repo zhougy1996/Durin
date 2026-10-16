@@ -17,6 +17,7 @@ namespace Durin
 	class FSoftObjectPtr;
 	class FWeakObjectPtr;
 	class FArchive;
+	struct FObjectCookContext;
 	struct FGuid;
 	template<typename T>
 	class TObjectPtr;
@@ -361,6 +362,7 @@ namespace Durin
 			size_t NumLegacyNames = 0;
 			const FFunctionParams* Functions = nullptr;
 			size_t NumFunctions = 0;
+			void (*CookSchema)(FObjectCookContext&) = nullptr;
 		};
 
 		struct FMetaDataPair

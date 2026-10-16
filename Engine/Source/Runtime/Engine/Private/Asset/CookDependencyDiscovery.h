@@ -19,10 +19,8 @@ namespace Durin::AssetPrivate
 	class FCookDependencyDiscovery
 	{
 	public:
-		// The resolver retains returned immutable registrations for the discovery lifetime.
-		using FResolveContributor = std::function<FCookContributionResult(std::string_view, bool, const FCookContributorRegistration*&)>;
 		ENGINE_API FCookDependencyDiscovery(const FCookRequest& Request, FAssetRegistrySnapshot Registry,
-			FResolveContributor ResolveContributor);
+			FAssetPackageLoadScope& LoadScope, const FCookState* PreviousState = nullptr);
 		FCookDependencyDiscovery(const FCookDependencyDiscovery&) = delete;
 		auto operator=(const FCookDependencyDiscovery&) -> FCookDependencyDiscovery& = delete;
 		ENGINE_API auto Acquire(std::span<const FPackagePath> Roots, const FAssetReferenceStoreCapture& ExternalRoots) -> FCookInputResult;
@@ -32,6 +30,8 @@ namespace Durin::AssetPrivate
 		auto GetRegistry() const -> const FAssetRegistrySnapshot& { return Registry; }
 		auto GetDependencies(const FPackagePath& Path) const -> const std::vector<FCookBuildDependency>& { return Inputs.at(Path).Dependencies; }
 		auto GetRetainedBytes() const -> uint64 { return RetainedBytes; }
+		auto TakeProjections() -> std::vector<FCookInputProjection>;
+		auto GetOmittedPackages() const -> const std::vector<FPackagePath>& { return OmittedPackages; }
 		auto GetStatus() const -> ECookInputStatus { return Failure.Status; }
 		auto GetFailureInfo() const -> std::shared_ptr<const FCookInputFailure> { return Failure.GetDiagnostic(); }
 		auto IsReusable(const FPackagePath& Path) const -> bool;
@@ -46,7 +46,12 @@ namespace Durin::AssetPrivate
 			std::vector<FCookBuildDependency> Dependencies;
 			std::map<std::pair<ECookBuildDependencyKind, std::string>, FByteBuffer> DeclaredValues;
 			bool bDeclared = false;
+			FCookInputProjection Projection;
+			std::unordered_set<std::string> ExcludedObjects;
+			std::vector<std::vector<FCookDependencyDeclaration>> DeclarationGroups;
 		};
+		auto CaptureProjection(const FPackagePath& Path, FInput& Input) -> FCookInputResult;
+		auto MakeContext(const FPackagePath& Path) -> FObjectCookContext;
 		auto AcquirePackage(const FPackagePath& Path) -> FCookInputResult;
 		auto ReadFile(const std::filesystem::path& File, FByteBuffer& Out) -> FCookInputResult;
 		auto Resolve(const FPackagePath& Requested, FPackagePath& Final) -> FCookInputResult;
@@ -57,7 +62,9 @@ namespace Durin::AssetPrivate
 		auto Fail(const FCookContributionResult& Result) -> FCookInputResult { return Fail(Result.Status == ECookContributionStatus::Canceled ? FCookInputResult{ECookInputStatus::Cancelled} : FCookInputResult{ECookInputStatus::InvalidDependency, FormatCookContributionError(Result)}); }
 		const FCookRequest& Request;
 		FAssetRegistrySnapshot Registry;
-		FResolveContributor ResolveContributor;
+		FAssetPackageLoadScope& LoadScope;
+		std::unordered_map<std::string, const FCookInputProjection*> PreviousProjections;
+		std::unordered_map<std::string, std::vector<FCookDependencyDeclaration>> NativeSchemas;
 		FReflectionSchemaCatalog Schema;
 		std::string ShaderBuildIdentity;
 		std::unordered_map<std::string, FByteBuffer> SchemaValues;
@@ -65,6 +72,7 @@ namespace Durin::AssetPrivate
 		std::unordered_map<FPackagePath, FInput> Inputs;
 		std::unordered_set<std::string> UnversionedPackages;
 		std::vector<FPackagePath> RuntimePackages;
+		std::vector<FPackagePath> OmittedPackages;
 		uint64 RetainedBytes = 0;
 	};
 }

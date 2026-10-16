@@ -214,7 +214,8 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
             (f"{legacy_names},", 1),
             (f"{len(class_info.legacy_names)},", 1),
             (f"{generated_statics_name}::Functions," if class_info.functions else "nullptr,", 1),
-            (str(len(class_info.functions)), 1),
+            (str(len(class_info.functions)) + ",", 1),
+            (f"&{class_info.qualified_name}::AppendToClassSchema", 1),
             ("};", 0),
             ("", 0),
         )

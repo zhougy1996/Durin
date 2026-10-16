@@ -17,7 +17,6 @@
 
 namespace Durin
 {
-	namespace AssetPrivate { struct FCookRegistrySnapshot; }
 	struct FAssetPackageSerializationOptions;
 	struct FAssetPathResolveResult;
 	struct FCookOutputRootResult;
@@ -94,6 +93,7 @@ namespace Durin
 		Rebuilt,
 		ReusedOutput,
 		Captured,
+		Omitted,
 		Failed,
 		Cancelled,
 		Unsupported,
@@ -152,9 +152,8 @@ namespace Durin
 		uint64 SegmentFileSize = 0;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
-		uint32 ContributorVersion = 1;
-		uint32 FamilyProducerVersion = 1;
-		std::string Contributor;
+		uint32 SerializerVersion = 1;
+		std::string Serializer;
 		std::string BuildProvenance;
 		bool bRawBulkSegment = false;
 		bool bOpaqueRawSegment = false;
@@ -167,7 +166,7 @@ namespace Durin
 	{
 		FPackagePath RequestedRoot;
 		FPackagePath PackagePath;
-		std::string Contributor;
+		std::string Serializer;
 		ECookPackageStatus Status = ECookPackageStatus::Failed;
 		ECookOperationStage Stage = ECookOperationStage::Discovery;
 		uint64 PackageBytes = 0;
@@ -209,7 +208,7 @@ namespace Durin
 		UndeclaredInput, NoReader, DeclarationCount, DeclarationName, DuplicateDeclaration,
 		PackageDeclaration, ExternalDeclaration, ValueDeclaration, ValueStorage, ReservedKind,
 		BulkIdentity, SchemaClass, SchemaDepth, SchemaFields, SchemaField, SchemaType, SchemaEncoding,
-		SchemaStorage, RootLimit, RootClass, RuntimeEdgeLimit, ReferenceClass, NoRuntimePackages, DependencyStorage, EmptyRuntimeRoot, ExcludedRuntimeReference
+		SchemaStorage, RootLimit, RootClass, RuntimeEdgeLimit, ReferenceClass, DependencyStorage
 	};
 	struct FCookContributionResult;
 	struct FCookInputFailure
@@ -278,7 +277,7 @@ namespace Durin
 		bool bDryRun = false;
 		std::filesystem::path OutputRoot;
 		FPackagePath CurrentPackage;
-		std::string CurrentContributor;
+		std::string CurrentSerializer;
 		std::string AssetIdentity;
 		ECookOperationStage Stage = ECookOperationStage::Discovery;
 		uint64 RetainedOutputBytes = 0;
@@ -320,12 +319,25 @@ namespace Durin
 		FXxHash128 SegmentDigest;
 		uint64 PackageSize = 0;
 		uint64 SegmentSize = 0;
-		uint32 ContributorVersion = 1;
-		uint32 FamilyProducerVersion = 1;
-		std::string Contributor;
+		uint32 SerializerVersion = 1;
+		std::string Serializer;
 		std::string BuildProvenance;
 		uint8 SegmentFlags = 0;
 		std::vector<FCookBuildDependency> BuildDependencies;
+	};
+
+	// Reusable object selection and reevaluable instance declarations, independent
+	// of output entries so omitted and build-only packages are represented too.
+	struct FCookInputProjection
+	{
+		std::string VirtualPackagePath;
+		FXxHash128 SourceFingerprint;
+		FXxHash128 BulkFingerprint;
+		FXxHash128 SchemaFingerprint;
+		bool bReusable = true;
+		// SourcePackage records name inspected objects and contain one eligibility
+		// byte. Other records describe dependencies; ExternalFile values are locators.
+		std::vector<FCookBuildDependency> Records;
 	};
 
 	struct FCookState
@@ -333,6 +345,7 @@ namespace Durin
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		std::vector<FCookStateEntry> Entries;
+		std::vector<FCookInputProjection> Inputs;
 	};
 
 	// Detached non-package output committed by the same manifest-last transaction.
@@ -488,7 +501,7 @@ namespace Durin
 	{
 		ECookCaptureError Error = ECookCaptureError::None;
 		FPackagePath Package;
-		std::string Contributor;
+		std::string Serializer;
 		uint64 ActualPlans = 0;
 		uint64 ExpectedPlans = 1;
 		std::optional<FCookPlanError> PlanCause;
@@ -499,7 +512,7 @@ namespace Durin
 
 	enum class ECookContributionError : uint8
 	{
-		None, Target, PlatformData, Contract, UnsupportedClass, Plan,
+		None, Target, PlatformData, Contract, Plan,
 		SourceMutation, RecipeProvider, ShaderInputs, Preparation, EmptyRuntimeRoot
 	};
 	enum class ECookContributionStatus : uint8 { Ok, Error, Canceled };
@@ -560,13 +573,11 @@ namespace Durin
 		auto SetMaterialConfigurations(std::span<const FMaterialCookConfiguration> Values) -> void
 			{ MaterialConfigurations.assign(Values.begin(), Values.end()); }
 		auto SetCancellationCheck(FCookCancellationCheck Check) -> void { IsCancelled = std::move(Check); }
-		auto SetContributorSnapshot(std::shared_ptr<const AssetPrivate::FCookRegistrySnapshot> Value) -> void { Snapshot = std::move(Value); }
 		auto GetPreparationFailure() const -> const FCookContributionResult& { return *PreparationFailure; }
 		ENGINE_API auto MakePackageSerializationOptions() const
 			-> FAssetPackageSerializationOptions;
 
 	private:
-		std::shared_ptr<const AssetPrivate::FCookRegistrySnapshot> Snapshot;
 		std::shared_ptr<FCookContributionResult> PreparationFailure = std::make_shared<FCookContributionResult>();
 		FReadInput ReadInput;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
@@ -600,56 +611,15 @@ namespace Durin
 		const FAssetPackageSerializationOptions& Options;
 		FBulkData Primary;
 		FBulkData Collision;
+		FObjectCookContext Lifecycle;
+		DObject* Object = nullptr;
+		FCookContributionResult Failure;
+		// Available only for the exact active object and lifecycle invocation.
+		ENGINE_API static auto Get(DObject& Object, const FObjectCookContext& Invocation) -> FCookPreparationContext*;
 		ENGINE_API auto GetTargetPlatform() const -> ECookTargetPlatform;
 		ENGINE_API auto GetTargetProfile() const -> ECookTargetProfile;
 		ENGINE_API auto ReadDeclaredInput(ECookBuildDependencyKind Kind, std::string_view Name, FByteBuffer& Out) const -> FCookInputResult;
 	};
-	enum class ECookObjectDisposition : uint8 { Runtime, SourceOnly };
-	using FCookContributor = std::function<FCookContributionResult(
-		DObject&, std::string_view, FCookPreparationContext&
-	)>;
-	using FCookContributorHandle = uint64;
-
-	// Describes contributor callbacks and the owner retained by active runs.
-	struct FCookContributorRegistration
-	{
-		std::string Name;
-		uint32 ContributorVersion = 1;
-		FCookContributor Prepare;
-		// Pins callback state and native code until the last active run releases
-		// this registration. Empty means the caller guarantees process lifetime.
-		std::shared_ptr<void> LifetimeOwner;
-		// Absence disables incremental reuse. Native callbacks must declare every
-		// external input; automatic source/bulk/hard dependencies are added by Cook.
-		FCookDependencyDeclarationCallback DeclareDependencies;
-		ECookObjectDisposition Disposition = ECookObjectDisposition::Runtime;
-
-		// Callback managers may execute provider code during destruction.
-		~FCookContributorRegistration()
-		{
-			DeclareDependencies = {};
-			Prepare = {};
-		}
-	};
-
-	enum class ECookContributorRegistrationError : uint8 { None, InvalidClass, Name, Version, DuplicateClass, DuplicateName };
-	struct FCookContributorRegistrationResult
-	{
-		ECookContributorRegistrationError Error = ECookContributorRegistrationError::None;
-		FCookContributorHandle Handle = 0;
-		std::string ContributorName;
-		std::string ClassName;
-		uint32 ContributorVersion = 0;
-		uint32 FamilyProducerVersion = 0;
-		explicit operator bool() const { return Error == ECookContributorRegistrationError::None; }
-	};
-	ENGINE_API auto FormatCookContributorRegistrationError(const FCookContributorRegistrationResult& Result) -> std::string;
-	ENGINE_API auto RegisterCookContributor(DClass* Class, FCookContributorRegistration Registration) -> FCookContributorRegistrationResult;
-	// Retires from future runs without waiting; active runs retain the registration.
-	// Callback destruction and owner release occur outside the registration mutex.
-	ENGINE_API auto UnregisterCookContributor(FCookContributorHandle Handle) -> void;
-	ENGINE_API auto RegisterEngineCookContributors(
-		std::vector<FCookContributorHandle>& OutHandles) -> FCookContributorRegistrationResult;
 	ENGINE_API auto SaveCookPackage(
 		DPackage* Package,
 		std::string_view VirtualPackagePath,

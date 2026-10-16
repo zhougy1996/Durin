@@ -4,7 +4,7 @@ Summary: Define authored ShaderBuild caching and compiler-free cooked Shader del
 
 Modules: RenderCore, ShaderBuild, DerivedDataCache, RHI
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-16
 
 ShaderBuild owns Slang dependency resolution, compilation, request coalescing,
 dependency manifests, DDC orchestration, and cooked-library production.
@@ -36,7 +36,7 @@ completion diagnostics are preserved without reconstructing typed causes or
 classifying text. Cook input capture, cooked-library production and ShaderMap
 compilation use `FShaderCompletion` with the same status and diagnostic contract.
 Material Cook preparation returns an optional payload with independent completion.
-Cook contributors propagate cancellation without attaching a failure cause, including
+Cook object preparation propagates cancellation without attaching a failure cause, including
 when the caller cancellation callback has not fired.
 
 Shared output construction, assembly and validation use that completion plus an

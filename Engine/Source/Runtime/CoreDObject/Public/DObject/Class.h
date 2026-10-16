@@ -145,6 +145,9 @@ namespace Durin
 	public:
 		using StaticClassFunctionType = DClass* (*)();
 		using ClassConstructorType = void (*)(const FObjectInitializer&);
+		using CookSchemaFunctionType = void (*)(FObjectCookContext&);
+		CookSchemaFunctionType CookSchema = nullptr;
+		COREDOBJECT_API auto AppendCookSchema(FObjectCookContext& Context) const -> void;
 
 		// the Outer is nullptr now , it will be set to a package later maybe
 		DClass(

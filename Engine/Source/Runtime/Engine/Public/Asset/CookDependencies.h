@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Asset/CookInputResult.h"
+#include "DObject/CookLifecycle.h"
 
 #include "EngineAPI.h"
 #include "Asset/AssetReadResult.h"
@@ -11,12 +12,6 @@
 
 namespace Durin
 {
-	enum class ECookBuildDependencyKind : uint8
-	{
-		SourcePackage = 1, OwnedBulk, DirectPackage, TransitivePackage,
-		ExternalFile, ConfigurationValue, SchemaProducerVersion
-	};
-
 	struct FCookBuildDependency
 	{
 		ECookBuildDependencyKind Kind = ECookBuildDependencyKind::SourcePackage;
@@ -105,16 +100,6 @@ namespace Durin
 		std::span<const FCookPackageBuildInputs> Graph,
 		std::vector<FCookBuildDependency>& OutRecords) -> FCookDependencyGraphResult;
 
-	struct FCookDependencyDeclaration
-	{
-		ECookBuildDependencyKind Kind = ECookBuildDependencyKind::ConfigurationValue;
-		std::string LogicalName;
-		// Acquisition locator only, excluded from persistent identity. ExternalFile only.
-		std::filesystem::path FilePath;
-		// Owned canonical value for ConfigurationValue or SchemaProducerVersion.
-		FByteBuffer Value;
-	};
-
 	struct FCookDependencyRequest
 	{
 		FPackagePath Package;
@@ -128,6 +113,6 @@ namespace Durin
 
 	// Called once per package before cache lookup, without loading authored objects.
 	struct FCookContributionResult;
-	using FCookDependencyDeclarationCallback = std::function<FCookContributionResult(
-		const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&)>;
+	using FCookDependencyDeclarationFunction = FCookContributionResult (*)(
+		const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&);
 }

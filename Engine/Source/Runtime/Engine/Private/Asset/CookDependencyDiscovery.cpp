@@ -1,6 +1,9 @@
 #include "Misc/PackageWriter.h"
 #include "CookDependencyDiscovery.h"
 #include "CookMemoryBudget.h"
+#include "CookBuildProviders.h"
+#include "DObject/DObjectArray.h"
+#include "DObject/Package.h"
 #include "Shader/IShaderBuildModule.h"
 #include "Asset/RegistryOperations.h"
 #include "Asset/References.h"
@@ -35,7 +38,7 @@ namespace Durin
 		case ECookInputError::ExternalDeclaration: return std::format("Invalid external file declaration '{}': file={}, value bytes={}", Failure.Name, Failure.File.string(), Failure.Actual);
 		case ECookInputError::ValueDeclaration: return std::format("Invalid Cook value declaration '{}': file={}, value bytes={}, maximum={}", Failure.Name, Failure.File.string(), Failure.Actual, Failure.Maximum);
 		case ECookInputError::ValueStorage: return std::format("Cook declared value storage limit exceeded: name={}, requested={}, retained={}, maximum={}", Failure.Name, Failure.Actual, Failure.Retained, Failure.MaximumRetained);
-		case ECookInputError::ReservedKind: return std::format("Contributor declared reserved Cook dependency kind {}: {}", static_cast<uint32>(Failure.Kind), Failure.Name);
+		case ECookInputError::ReservedKind: return std::format("Object declared reserved Cook dependency kind {}: {}", static_cast<uint32>(Failure.Kind), Failure.Name);
 		case ECookInputError::BulkIdentity: return std::format("Cook bulk segment identity is invalid: package={}, expected bytes={}, actual bytes={}", Failure.Package.ToString(), Failure.Expected, Failure.Actual);
 		case ECookInputError::SchemaClass: return std::format("Cook schema unavailable: {}", Failure.Name);
 		case ECookInputError::SchemaDepth: return std::format("Cook schema depth limit exceeded: class={}, member={}, depth={}, maximum={}", Failure.Name, Failure.Member, Failure.Actual, Failure.Maximum);
@@ -48,9 +51,6 @@ namespace Durin
 		case ECookInputError::RootClass: return std::format("Cook root class unavailable: package={}, class={}", Failure.Package.ToString(), Failure.Name);
 		case ECookInputError::RuntimeEdgeLimit: return std::format("Cook runtime edge limit exceeded: package={}, edges={}, maximum={}", Failure.Package.ToString(), Failure.Actual, Failure.Maximum);
 		case ECookInputError::ReferenceClass: return std::format("Cook reference class unavailable: package={}, class={}, member={}", Failure.Package.ToString(), Failure.Name, Failure.Member);
-		case ECookInputError::EmptyRuntimeRoot: return "Cook root has no runtime exports: " + Failure.Package.ToString();
-		case ECookInputError::ExcludedRuntimeReference: return "Runtime reference targets an excluded object: " + Failure.Name + " field " + Failure.Member;
-		case ECookInputError::NoRuntimePackages: return "Cook selected no runtime packages.";
 		case ECookInputError::DependencyStorage: return std::format("Cook retained dependency limit exceeded: package={}, name={}, requested={}, retained={}, maximum={}", Failure.Package.ToString(), Failure.Name, Failure.Actual, Failure.Retained, Failure.MaximumRetained);
 		}
 		return "Unknown Cook input error.";
@@ -89,10 +89,12 @@ namespace Durin::AssetPrivate
 	}
 
 	FCookDependencyDiscovery::FCookDependencyDiscovery(const FCookRequest& InRequest,
-		FAssetRegistrySnapshot InRegistry, FResolveContributor InResolve)
-		: Request(InRequest), Registry(std::move(InRegistry)), ResolveContributor(std::move(InResolve)),
+		FAssetRegistrySnapshot InRegistry, FAssetPackageLoadScope& InLoadScope, const FCookState* PreviousState)
+		: Request(InRequest), Registry(std::move(InRegistry)), LoadScope(InLoadScope),
 		Schema(FReflectionSchemaCatalog::Capture())
 	{
+		if (PreviousState) for (const auto& Input : PreviousState->Inputs)
+			PreviousProjections.emplace(Input.VirtualPackagePath, &Input);
 	}
 
 	auto FCookDependencyDiscovery::Fail(FCookInputFailure Cause) -> FCookInputResult
@@ -101,6 +103,210 @@ namespace Durin::AssetPrivate
 		Failure = Cause.ToInputResult();
 
 		return Failure;
+	}
+
+	auto FCookDependencyDiscovery::MakeContext(const FPackagePath& Path) -> FObjectCookContext
+	{
+		auto Context = MakeObjectCookContext({Path, Request.TargetPlatform, Request.TargetProfile,
+			Request.bRetainEditorOnlyData, ShaderBuildIdentity, Request.MaterialConfigurations});
+		Context.IsCancelled = Request.IsCancelled;
+		Context.RequestReader = [this](std::string_view Name) -> std::expected<FByteBuffer, FObjectCookResult> {
+			if (Name != "shader-build") return std::unexpected(FObjectCookResult{EObjectCookError::InvalidInput, "Unknown Cook request value: " + std::string(Name)});
+			if (ShaderBuildIdentity.empty())
+			{
+				const auto Read = GetShaderCookInputIdentity(ShaderBuildIdentity, Request.IsCancelled);
+				if (!Read) return std::unexpected(FObjectCookResult{
+					Read.Status == EShaderBuildStatus::Canceled ? EObjectCookError::Cancelled : EObjectCookError::InvalidInput, Read.Diagnostic});
+			}
+			const auto Bytes = std::as_bytes(std::span(ShaderBuildIdentity));
+			return FByteBuffer(Bytes.begin(), Bytes.end());
+		};
+		return Context;
+	}
+
+	auto FCookDependencyDiscovery::CaptureProjection(const FPackagePath& Path, FInput& Input) -> FCookInputResult
+	{
+		FCookPackageBuildInputs SchemaNode{.Package = Path};
+		if (auto Result = CaptureSchema(Input, SchemaNode); !Result) return Result;
+		std::set<std::string> Classes;
+		for (const auto& Object : Input.Inspection.Objects) Classes.insert(Object.ClassName);
+		for (const auto& Name : Classes)
+		{
+			if (!NativeSchemas.contains(Name))
+			{
+				auto* Class = FindClassByQualifiedName(FName(Name));
+				if (!Class) return Fail(FCookInputFailure{.Error = ECookInputError::SchemaClass, .Package = Path, .Name = Name});
+				auto Context = MakeContext(Path);
+				Context.Package.clear(); // Class schema values cannot depend on the first package encountered.
+				Class->AppendCookSchema(Context);
+				if (!Context.Result) return Fail(FCookInputResult{
+					Context.Result.Error == EObjectCookError::Cancelled ? ECookInputStatus::Cancelled
+						: Context.Result.Error == EObjectCookError::Limit ? ECookInputStatus::LimitExceeded : ECookInputStatus::InvalidDependency,
+					Context.Result.Diagnostic});
+				if (Context.Dependencies.size() > MaximumCookDependencyRecords)
+					return Fail(FCookInputFailure{.Error = ECookInputError::DeclarationCount, .Package = Path,
+						.Actual = Context.Dependencies.size(), .Maximum = MaximumCookDependencyRecords});
+				for (const auto& Declaration : Context.Dependencies)
+					if (Declaration.Kind != ECookBuildDependencyKind::ConfigurationValue
+						&& Declaration.Kind != ECookBuildDependencyKind::SchemaProducerVersion)
+						return Fail(FCookInputResult{ECookInputStatus::InvalidDependency,
+							"Class Cook schemas accept only shared values; declare package/file dependencies in OnCookEvent: " + Name});
+				uint64 SchemaBytes = 0;
+				for (const auto& Declaration : Context.Dependencies)
+					SchemaBytes += Declaration.LogicalName.size() + Declaration.Value.size()
+						+ Declaration.FilePath.native().size() * sizeof(std::filesystem::path::value_type);
+				if (!TryRetainCookBytes(SchemaBytes, RetainedBytes, MaximumDiscoveryBytes))
+					return Fail(FCookInputFailure{.Error = ECookInputError::DependencyStorage, .Package = Path, .Name = Name,
+						.Actual = SchemaBytes, .Maximum = MaximumDiscoveryBytes, .Retained = RetainedBytes});
+				NativeSchemas.emplace(Name, std::move(Context.Dependencies));
+			}
+			const auto& Declarations = NativeSchemas.at(Name);
+			Input.DeclarationGroups.push_back(Declarations);
+			std::vector<FCookBuildDependency> Identity;
+			for (const auto& Declaration : Declarations)
+			{
+				FByteBuffer Value = Declaration.Value;
+				if (!Declaration.FilePath.empty())
+				{
+					const auto Locator = Declaration.FilePath.generic_u8string();
+					const auto Bytes = std::as_bytes(std::span(Locator));
+					Value.assign(Bytes.begin(), Bytes.end());
+				}
+				Identity.push_back({Declaration.Kind, Declaration.LogicalName, std::move(Value)});
+			}
+			FByteBuffer Encoded;
+			if (auto Result = EncodeCookBuildDependencies(Identity, Encoded); !Result)
+				return Fail(FCookInputFailure{.Error = Result.Error == ECookDependencyCodecError::Duplicate ? ECookInputError::DuplicateDeclaration : ECookInputError::ValueDeclaration,
+					.Package = Path, .Kind = Result.Kind, .Name = Result.LogicalName, .Actual = Result.Actual, .Maximum = Result.Maximum});
+			SchemaNode.Inputs.push_back({ECookBuildDependencyKind::SchemaProducerVersion, "native-schema/" + Name, DigestValue(Encoded)});
+		}
+		FBinaryWriter Settings;
+		// A version bump can change instance dependency events or target selection,
+		// so it invalidates their cached projection as well as the output digest.
+		const auto ProjectionVersions = FCustomVersionRegistry::GetAll();
+		Settings.WriteU32(static_cast<uint32>(ProjectionVersions.size()));
+		for (const auto& Version : ProjectionVersions)
+		{
+			Settings.WriteString(Version.Guid.ToString());
+			Settings.WriteU32(static_cast<uint32>(Version.CurrentVersion));
+		}
+		Settings.WriteU32(static_cast<uint32>(Request.TargetPlatform));
+		Settings.WriteU32(static_cast<uint32>(Request.TargetProfile));
+		Settings.WriteU8(Request.bRetainEditorOnlyData);
+		for (const auto& Configuration : Request.MaterialConfigurations)
+		{
+			Settings.WriteU32(static_cast<uint32>(Configuration.Quality));
+			Settings.WriteU32(static_cast<uint32>(Configuration.FeatureLevel));
+		}
+		SchemaNode.Inputs.push_back({ECookBuildDependencyKind::ConfigurationValue, "projection/request", Settings.TakeBytes()});
+		if (auto Result = FingerprintCookBuildDependencies(SchemaNode.Inputs, Input.Projection.SchemaFingerprint); !Result)
+			return Fail(FCookInputResult{ECookInputStatus::InvalidDependency, FormatCookDependencyCodecError(Result)});
+		const auto Previous = PreviousProjections.find(Path.ToString());
+		bool bReuseProjection = Previous != PreviousProjections.end() && Previous->second->bReusable
+			&& Previous->second->SourceFingerprint == Input.Projection.SourceFingerprint
+			&& Previous->second->BulkFingerprint == Input.Projection.BulkFingerprint
+			&& Previous->second->SchemaFingerprint == Input.Projection.SchemaFingerprint;
+		if (bReuseProjection)
+		{
+			const auto& Records = Previous->second->Records;
+			bReuseProjection = std::ranges::count(Records, ECookBuildDependencyKind::SourcePackage, &FCookBuildDependency::Kind) == Input.Inspection.Objects.size();
+			for (const auto& Object : Input.Inspection.Objects)
+				bReuseProjection &= std::ranges::any_of(Records, [&](const auto& Record) {
+					return Record.Kind == ECookBuildDependencyKind::SourcePackage && Record.LogicalName == Object.ObjectPath && Record.Value.size() == 1;
+				});
+		}
+		std::vector<FCookDependencyDeclaration> InstanceDeclarations;
+		if (bReuseProjection)
+		{
+			Input.Projection = *Previous->second;
+			for (const auto& Record : Input.Projection.Records)
+			{
+				if (Record.Kind == ECookBuildDependencyKind::SourcePackage)
+				{
+					if (Record.Value.front() == std::byte{0}) Input.ExcludedObjects.insert(Record.LogicalName);
+					continue;
+				}
+				FCookDependencyDeclaration Declaration{Record.Kind, Record.LogicalName};
+				if (Record.Kind == ECookBuildDependencyKind::ExternalFile)
+				{
+					const std::string Locator(reinterpret_cast<const char*>(Record.Value.data()), Record.Value.size());
+					if (Locator.empty() || Locator.find('\0') != std::string::npos) return Fail(FCookInputFailure{.Error = ECookInputError::ExternalDeclaration, .Package = Path, .Name = Record.LogicalName});
+					Declaration.FilePath = std::filesystem::u8path(Locator);
+				}
+				else Declaration.Value = Record.Value;
+				InstanceDeclarations.push_back(std::move(Declaration));
+			}
+			Input.DeclarationGroups.push_back(std::move(InstanceDeclarations));
+		}
+		else
+		{
+			const auto Loaded = LoadScope.LoadPackage(Path);
+			if (!Loaded) return Fail(ToCookInputResult(AssetReadResultFromError(Loaded.error())));
+			std::map<std::string, DObject*> Objects;
+			std::vector<std::pair<std::string, DObject*>> Pending;
+			for (auto* Asset : (*Loaded)->GetTopLevelAssets()) Pending.emplace_back(Asset->GetName(), Asset);
+			for (size_t Index = 0; Index < Pending.size(); ++Index)
+			{
+				if (Pending.size() > MaximumCookDependencyRecords) return Fail(FCookInputFailure{.Error = ECookInputError::PackageLimit, .Package = Path, .Actual = Pending.size(), .Maximum = MaximumCookDependencyRecords});
+				const auto [RelativePath, Object] = Pending[Index];
+				Objects.emplace(RelativePath, Object);
+				for (auto* Child : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::LiveOnly)) Pending.emplace_back(RelativePath + "/" + Child->GetName(), Child);
+			}
+			for (const auto& Stored : Input.Inspection.Objects)
+			{
+				if (auto Result = CheckCancellation(); !Result) return Result;
+				const auto Found = Objects.find(Stored.ObjectPath);
+				if (Found == Objects.end()) return Fail(FCookInputFailure{.Error = ECookInputError::SchemaClass, .Package = Path, .Name = Stored.ObjectPath});
+				auto Context = MakeContext(Path);
+				auto* Object = Found->second;
+				const bool Included = IsObjectIncludedForCook(Object, Context.Target);
+				if (!Included) Input.ExcludedObjects.insert(Stored.ObjectPath);
+				Input.Projection.Records.push_back({ECookBuildDependencyKind::SourcePackage, Stored.ObjectPath, {Included ? std::byte{1} : std::byte{0}}});
+				Object->OnCookEvent(ECookEvent::PlatformCookDependencies, Context);
+				if (!Context.Result) return Fail(FCookInputResult{Context.Result.Error == EObjectCookError::Cancelled ? ECookInputStatus::Cancelled : ECookInputStatus::InvalidDependency, Context.Result.Diagnostic});
+				if (Context.Dependencies.size() > MaximumCookDependencyRecords) return Fail(FCookInputFailure{.Error = ECookInputError::DeclarationCount, .Package = Path, .Actual = Context.Dependencies.size(), .Maximum = MaximumCookDependencyRecords});
+				for (const auto& Declaration : Context.Dependencies)
+				{
+					if (Declaration.Kind == ECookBuildDependencyKind::SourcePackage || Declaration.Kind == ECookBuildDependencyKind::OwnedBulk)
+						return Fail(FCookInputFailure{.Error = ECookInputError::ReservedKind, .Package = Path, .Name = Declaration.LogicalName});
+					FCookBuildDependency Record{Declaration.Kind, Declaration.LogicalName, Declaration.Value};
+					if (Declaration.Kind == ECookBuildDependencyKind::ExternalFile)
+					{
+						const auto Locator = Declaration.FilePath.generic_u8string();
+						const auto Bytes = std::as_bytes(std::span(Locator));
+						Record.Value.assign(Bytes.begin(), Bytes.end());
+					}
+					else if (Declaration.Kind == ECookBuildDependencyKind::ConfigurationValue || Declaration.Kind == ECookBuildDependencyKind::SchemaProducerVersion)
+						Input.Projection.bReusable = false; // No reevaluation function for an arbitrary instance-computed value.
+					Input.Projection.Records.push_back(std::move(Record));
+				}
+				Input.DeclarationGroups.push_back(std::move(Context.Dependencies));
+			}
+		}
+		uint64 Bytes = 0;
+		if (Input.Projection.Records.size() > MaximumCookDependencyRecords)
+			return Fail(FCookInputFailure{.Error = ECookInputError::DeclarationCount, .Package = Path, .Actual = Input.Projection.Records.size(), .Maximum = MaximumCookDependencyRecords});
+		for (const auto& Group : Input.DeclarationGroups) for (const auto& Declaration : Group)
+			Bytes += Declaration.LogicalName.size() + Declaration.Value.size() + Declaration.FilePath.native().size() * sizeof(std::filesystem::path::value_type);
+		for (const auto& Record : Input.Projection.Records) Bytes += Record.LogicalName.size() + Record.Value.size();
+		if (!TryRetainCookBytes(Bytes, RetainedBytes, MaximumDiscoveryBytes)) return Fail(FCookInputFailure{.Error = ECookInputError::DependencyStorage, .Package = Path, .Actual = Bytes, .Maximum = MaximumDiscoveryBytes, .Retained = RetainedBytes});
+		return {};
+	}
+
+	auto FCookDependencyDiscovery::TakeProjections() -> std::vector<FCookInputProjection>
+	{
+		std::vector<FCookInputProjection> Result;
+		for (auto& [Path, Input] : Inputs)
+		{
+			auto Projection = std::move(Input.Projection);
+			std::ranges::sort(Projection.Records, [](const auto& A, const auto& B) { return std::pair(A.Kind, A.LogicalName) < std::pair(B.Kind, B.LogicalName); });
+			Projection.Records.erase(std::unique(Projection.Records.begin(), Projection.Records.end(), [](const auto& A, const auto& B) {
+				return A.Kind == B.Kind && A.LogicalName == B.LogicalName;
+			}), Projection.Records.end());
+			Result.push_back(std::move(Projection));
+		}
+		std::ranges::sort(Result, {}, &FCookInputProjection::VirtualPackagePath);
+		return Result;
 	}
 
 	auto FCookDependencyDiscovery::Fail(const FCookInputResult& Result) -> FCookInputResult
@@ -158,6 +364,9 @@ namespace Durin::AssetPrivate
 			auto BulkPath = std::filesystem::path(Data->PhysicalPath); BulkPath.replace_extension(".dbulk");
 			if (auto Result = ReadFile(BulkPath, BulkBytes); !Result) return Result;
 		}
+		Input.Projection.VirtualPackagePath = Path.ToString();
+		Input.Projection.SourceFingerprint = FXxHash128::HashBuffer(PackageBytes);
+		Input.Projection.BulkFingerprint = FXxHash128::HashBuffer(BulkBytes);
 		Input.PackageIdentity = DigestValue(PackageBytes);
 		Input.BulkIdentity = DigestValue(BulkBytes);
 		const FAssetPackageCodec* Codec = nullptr;
@@ -178,7 +387,7 @@ namespace Durin::AssetPrivate
 				.Actual = BulkBytes.size(), .Expected = Header.BulkSegmentExtent,
 				.ExpectedDigest = Header.BulkSegmentDigest, .ActualDigest = FXxHash128::HashBuffer(BulkBytes)});
 		Inputs.emplace(Path, std::move(Input));
-		return {};
+		return CaptureProjection(Path, Inputs.at(Path));
 	}
 
 	auto FCookDependencyDiscovery::Resolve(const FPackagePath& Requested, FPackagePath& Final) -> FCookInputResult
@@ -332,15 +541,8 @@ namespace Durin::AssetPrivate
 			return Reference.bEditorOnly || (Property && Property->HasAnyPropertyFlags(EPropertyFlags::EditorOnly));
 		};
 		const auto IsExcluded = [&](const FInput& Input, uint64 Id) {
-			while (Id != 0) {
-				const auto It = std::ranges::find(Input.Inspection.Objects, Id, &FAssetPackageObjectInspection::Id);
-				if (It == Input.Inspection.Objects.end()) break;
-				const FCookContributorRegistration* Family = nullptr;
-				if (auto Result = ResolveContributor(It->ClassName, It->OuterId == 0, Family); !Result) { Fail(Result); return true; }
-				if (Family && Family->Disposition == ECookObjectDisposition::SourceOnly) return true;
-				Id = It->OuterId;
-			}
-			return false;
+			const auto It = std::ranges::find(Input.Inspection.Objects, Id, &FAssetPackageObjectInspection::Id);
+			return It != Input.Inspection.Objects.end() && Input.ExcludedObjects.contains(It->ObjectPath);
 		};
 		std::unordered_set<FPackagePath> Explicit;
 		for (const auto& Root : Pending) {
@@ -361,7 +563,7 @@ namespace Durin::AssetPrivate
 			});
 			if (!Failure) return Failure;
 			if (!HasRuntime) {
-				if (Explicit.contains(Path)) return Fail(FCookInputFailure{.Error = ECookInputError::EmptyRuntimeRoot, .Package = Path});
+				OmittedPackages.push_back(Path);
 				continue;
 			}
 			Runtime.insert(Path);
@@ -394,21 +596,14 @@ namespace Durin::AssetPrivate
 				const bool ExcludedTarget = TargetObject != Target.Inspection.Objects.end() && IsExcluded(Target, TargetObject->Id);
 				const bool ExcludedSource = IsExcluded(Input, Reference.SourceObjectId);
 				if (!Failure) return Failure;
-				if (ExcludedTarget && !ExcludedSource && !IsEditorReference(Reference) && Reference.Kind == EAssetReferenceKind::HardObject)
-					return Fail(FCookInputFailure{.Error = ECookInputError::ExcludedRuntimeReference, .Package = Path, .Name = Reference.TargetPath.ToString(), .Member = Reference.FieldName});
 				if (!ExcludedTarget && !ExcludedSource && (Request.bRetainEditorOnlyData || !IsEditorReference(Reference)))
 					Pending.push_back(Resolution.FinalPath.GetPackagePath());
 			}
 		}
 		RuntimePackages.assign(Runtime.begin(), Runtime.end());
 		std::ranges::sort(RuntimePackages, [](const auto& A, const auto& B) { return A.GetView() < B.GetView(); });
-		if (RuntimePackages.empty()) return Fail(FCookInputFailure{.Error = ECookInputError::NoRuntimePackages});
-
-		const auto ShaderResult = GetShaderCookInputIdentity(ShaderBuildIdentity, Request.IsCancelled);
-		if (ShaderResult.Status == EShaderBuildStatus::Canceled)
-			return Fail(FCookInputResult{ECookInputStatus::Cancelled});
-		if (!ShaderResult)
-			return Fail(FCookInputFailure{.Error = ECookInputError::ShaderInput, .ShaderDiagnostic = ShaderResult.Diagnostic});
+		std::ranges::sort(OmittedPackages);
+		OmittedPackages.erase(std::unique(OmittedPackages.begin(), OmittedPackages.end()), OmittedPackages.end());
 
 		const auto CustomVersionDefinitions = FCustomVersionRegistry::GetAll();
 		std::vector<FCookPackageBuildInputs> Graph;
@@ -443,35 +638,11 @@ namespace Durin::AssetPrivate
 					if (Automatic.insert(Dependency).second) Node.Packages.push_back({Dependency, true});
 				}
 				if (auto Result = CaptureSchema(Input, Node); !Result) return Result;
-				std::vector<const FCookContributorRegistration*> Families;
-				std::unordered_set<std::string> FamilyNames;
-				for (const auto& Object : Input.Inspection.Objects)
-				{
-					const FCookContributorRegistration* Family = nullptr;
-					const auto Result = ResolveContributor(Object.ClassName, Object.OuterId == 0, Family);
-					if (!Result) return Fail(Result);
-					if (Family && !Family->Name.empty())
-					{
-						if (FamilyNames.insert(Family->Name).second) Families.push_back(Family);
-					}
-				}
-				bool bAllDeclared = !Families.empty();
+				const bool bAllDeclared = Input.Projection.bReusable;
 				std::map<std::pair<ECookBuildDependencyKind, std::string>, FCookDependencyDeclaration> PackageDeclarations;
-				for (const auto* Family : Families)
 				{
-					bAllDeclared &= bool(Family->DeclareDependencies);
-					FBinaryWriter Versions;
-					Versions.WriteU32(Family->ContributorVersion);
-					Versions.WriteU32(1);
-					Node.Inputs.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
-						"contributor/" + Family->Name, Versions.TakeBytes()});
-					if (Family->DeclareDependencies)
+					for (const auto& Declarations : Input.DeclarationGroups)
 					{
-						std::vector<FCookDependencyDeclaration> Declarations;
-						const auto Result = Family->DeclareDependencies(
-							{Path, Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData, ShaderBuildIdentity, Request.MaterialConfigurations}, Declarations);
-						if (auto Admission = CheckCancellation(); !Admission) return Admission;
-						if (!Result) return Fail(Result);
 						if (Declarations.size() > MaximumCookDependencyRecords) return Fail(FCookInputFailure{.Error = ECookInputError::DeclarationCount, .Package = Path, .Actual = Declarations.size(), .Maximum = MaximumCookDependencyRecords});
 						std::set<std::pair<ECookBuildDependencyKind, std::string>> Unique;
 						for (const auto& Declaration : Declarations)
@@ -552,6 +723,16 @@ namespace Durin::AssetPrivate
 					}
 				}
 				Input.bDeclared = bAllDeclared;
+				for (const auto& Dependency : Input.Inspection.Header.BuildDependencies)
+				{
+					// Authored metadata is a scheduling aid. A Cook declaration owns
+					// direct/transitive semantics; metadata alone observes source/bulk.
+					if (PackageDeclarations.contains({ECookBuildDependencyKind::DirectPackage, Dependency.ToString()})
+						|| PackageDeclarations.contains({ECookBuildDependencyKind::TransitivePackage, Dependency.ToString()})) continue;
+					FPackagePath Final;
+					if (auto Result = Resolve(Dependency, Final); !Result) return Result;
+					Node.Packages.push_back({Dependency, false});
+				}
 				FBinaryWriter Settings;
 				Settings.WriteU32(static_cast<uint32>(Request.TargetPlatform));
 				Settings.WriteU32(static_cast<uint32>(Request.TargetProfile));

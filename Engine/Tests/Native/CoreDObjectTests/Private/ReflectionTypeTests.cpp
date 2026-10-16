@@ -7040,4 +7040,75 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 	}
 #endif
+TEST(FCoreDObjectCookLifecycleTests, ClassSchemasDoNotConstructDefaultsAndDeduplicateInheritedHooks)
+{
+	using namespace Durin;
+	EnsureDObjectInitialized();
+	DClass Parent(EC_StaticConstructor, "CookSchemaParent", sizeof(DObject), alignof(DObject),
+		EObjectFlags::NoFlags, EClassFlags::Abstract, EClassCastFlags::DClass, nullptr);
+	DClass Child(EC_StaticConstructor, "CookSchemaChild", sizeof(DObject), alignof(DObject),
+		EObjectFlags::NoFlags, EClassFlags::Intrinsic, EClassCastFlags::DClass, nullptr);
+	DClass Leaf(EC_StaticConstructor, "CookSchemaLeaf", sizeof(DObject), alignof(DObject),
+		EObjectFlags::NoFlags, EClassFlags::None, EClassCastFlags::DClass, nullptr);
+	Parent.CookSchema = [](FObjectCookContext& Context) {
+		Context.Dependencies.push_back({ECookBuildDependencyKind::SchemaProducerVersion, "parent", {}, {std::byte{1}}});
+	};
+	Child.SetSuperStructBase(&Parent);
+	Child.CookSchema = Parent.CookSchema;
+	Leaf.SetSuperStructBase(&Child);
+	Leaf.CookSchema = [](FObjectCookContext& Context) {
+		Context.Dependencies.push_back({ECookBuildDependencyKind::SchemaProducerVersion, "leaf", {}, {std::byte{2}}});
+	};
+	FObjectCookContext Context;
+	Leaf.AppendCookSchema(Context);
+	ASSERT_TRUE(Context.Result);
+	ASSERT_EQ(Context.Dependencies.size(), 2u);
+	EXPECT_EQ(Context.Dependencies[0].LogicalName, "parent");
+	EXPECT_EQ(Context.Dependencies[1].LogicalName, "leaf");
+	EXPECT_EQ(Parent.GetDefaultObjectState(), EClassDefaultObjectState::Uninitialized);
+	EXPECT_EQ(Child.GetDefaultObjectState(), EClassDefaultObjectState::Uninitialized);
+	EXPECT_EQ(Leaf.GetDefaultObjectState(), EClassDefaultObjectState::Uninitialized);
+}
+
+TEST(FCoreDObjectCookLifecycleTests, ClassSchemaFailureStopsDerivedContributions)
+{
+	using namespace Durin;
+	EnsureDObjectInitialized();
+	DClass Parent(EC_StaticConstructor, "FailedCookSchemaParent", sizeof(DObject), alignof(DObject),
+		EObjectFlags::NoFlags, EClassFlags::Abstract, EClassCastFlags::DClass, nullptr);
+	DClass Child(EC_StaticConstructor, "FailedCookSchemaChild", sizeof(DObject), alignof(DObject),
+		EObjectFlags::NoFlags, EClassFlags::None, EClassCastFlags::DClass, nullptr);
+	Parent.CookSchema = [](FObjectCookContext& Context) { Context.Result = {EObjectCookError::InvalidInput, "invalid schema"}; };
+	Child.SetSuperStructBase(&Parent);
+	Child.CookSchema = [](FObjectCookContext& Context) { Context.Dependencies.push_back({}); };
+	FObjectCookContext Context;
+	Child.AppendCookSchema(Context);
+	EXPECT_EQ(Context.Result.Error, EObjectCookError::InvalidInput);
+	EXPECT_EQ(Context.Result.Diagnostic, "invalid schema");
+	EXPECT_TRUE(Context.Dependencies.empty());
+}
+
+TEST(FCoreDObjectCookLifecycleTests, RequiredInputsAreCapturedOnceAndRetainTheirFirstFailure)
+{
+	using namespace Durin;
+	FObjectCookContext Context;
+	uint32 Reads = 0;
+	Context.RequestReader = [&](std::string_view Name) -> std::expected<FByteBuffer, FObjectCookResult> {
+		++Reads;
+		if (Name == "quality") return FByteBuffer{std::byte{3}};
+		return std::unexpected(FObjectCookResult{EObjectCookError::InvalidInput, "missing value"});
+	};
+	EXPECT_EQ(Context.RequireRequestValue("quality").size(), 1u);
+	EXPECT_EQ(Context.RequireRequestValue("quality").size(), 1u);
+	EXPECT_EQ(Reads, 1u);
+	ASSERT_EQ(Context.Dependencies.size(), 1u);
+	EXPECT_EQ(Context.Dependencies[0].LogicalName, "request/quality");
+	EXPECT_TRUE(Context.RequireRequestValue("missing").empty());
+	Context.IsCancelled = [] { return true; };
+	EXPECT_FALSE(Context.CheckCancellation());
+	EXPECT_EQ(Context.Result.Error, EObjectCookError::InvalidInput);
+	EXPECT_EQ(Context.Result.Diagnostic, "missing value");
+	EXPECT_TRUE(Context.RequireRequestValue("another").empty());
+	EXPECT_EQ(Reads, 2u);
+}
 } // namespace

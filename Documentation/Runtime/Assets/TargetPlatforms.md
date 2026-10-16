@@ -4,7 +4,7 @@ Summary: Resolve explicit tool targets into immutable capabilities while keeping
 
 Modules: Core, RHI, TargetPlatform, Engine, ShaderBuild, TextureCompressor
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-16
 
 ## Identities and dependencies
 
@@ -56,14 +56,13 @@ Low/High by ES3_1/SM5/SM6 combinations; unsupported or duplicate configurations
 are rejected. The selection is passed through dependency declarations and
 package serialization options. Material declares its canonical configuration
 projection; texture and StaticMesh declarations retain their own recipe identity.
-Discovery collects contributor versions and declarations for all stored object
-classes, including secondary top-level assets and nested objects. Nested objects
-use specific family registrations; the generic DObject fallback only participates
-for top-level exports, so authored expression nodes do not disable reuse. Identical
-cross-family declarations coalesce; conflicting values and duplicate identities
-within one contributor fail admission. A family without declarations prevents
-reuse. The common package publisher is independent of export order. The generic
-coordinator does not compose builder versions.
+Discovery evaluates reflected/native class schemas and persisted object dependency
+projections for every stored class, including secondary exports and nested objects.
+No CDO or independent Cook registration is required. Identical declarations from
+different class/object groups coalesce; conflicting values and duplicate identities
+within one group fail admission. Missing or non-reevaluable instance projections
+require loading/rebuilding. The common publisher is independent of export order;
+the generic coordinator does not compose builder versions.
 
 Engine's package capture finishes every eligible texture compilation and prepares
 material programs and StaticMesh render/
@@ -71,8 +70,11 @@ collision payloads before generic Archive discovery/emission. A bounded scoped
 table owns detached BulkData by object handle, package revision and exact Archive
 target. Nested captures use independent tables. Preparation observes cancellation,
 limits traversal to 65536 objects and retained prepared payloads to 1 GiB, and
-rejects package revision changes. Preparation and capture share transient-subtree, explicit omission and source-only
-object policy from the immutable registration snapshot. Complete field planning
+rejects package revision changes or newly introduced unprepared objects. Preparation
+and capture share transient-subtree, explicit omission and object eligibility
+policy. Policy-stripped hard references become null; packages without runtime
+exports are omitted normally. Class schemas and CookState v4 projections bind
+reuse to the same target and source inputs. Complete field planning
 uses capture's selected object list instead of rediscovering descendants.
 These are retained-storage limits, not total RSS or transient compiler/recipe
 allocation limits. Existing family construction admission and result limits

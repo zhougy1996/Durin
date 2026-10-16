@@ -195,6 +195,7 @@ public: \
 			/*check(Class->GetSuperClass() == SuperClass);*/ \
 			(void)SuperClass; \
 			TClass::IntrinsicClassInit(Class); \
+			Class->CookSchema = &TClass::AppendToClassSchema; \
 			return Class; \
 		} \
 	}; \

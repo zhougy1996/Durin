@@ -43,6 +43,9 @@ namespace Durin
 
 	public:
 		ENGINE_API ~DTexture() override;
+		ENGINE_API auto BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void override;
+		ENGINE_API auto IsCachedCookedPlatformDataLoaded(const FObjectCookContext& Context) const -> bool override;
+		ENGINE_API auto ClearCachedCookedPlatformData(const FObjectCookContext& Context) -> void override;
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostLoad() -> void override;
 		// Full-object edits retire prior work and begin independent authored compilation.

@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-16
 
 ## Ownership
 
@@ -463,7 +463,7 @@ acquisition lock. Test overrides do not replace synchronous production sessions.
 
 ## Family boundaries
 
-Cook registration versions describe family behavior, not DDC recipes. Unified
+Native Cook class-schema versions describe object-family behavior, not DDC recipes. Unified
 package preparation and source-only filtering preserve existing family action
 projections, payload codecs and producer versions. The package publisher owns
 CookState reuse identity separately; its legacy producer-version word is fixed

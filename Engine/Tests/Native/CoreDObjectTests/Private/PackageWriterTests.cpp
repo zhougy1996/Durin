@@ -1,4 +1,5 @@
 #include "DObject/PackageFormat.h"
+#include "DObject/PackageWriterInternal.h"
 #include "Hash/XxHash.h"
 #include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
@@ -291,8 +292,8 @@ TEST(FPackageFormatContractTests, MultipleTopLevelAssetsRoundTripAndProjectExact
 		<< Durin::ObjectPackage::FormatPackageError(WriterDiagnostic);
 	EXPECT_EQ(Read<uint32>(Main, 24), Package::DastV10FormatVersion);
 	const Durin::FXxHash128 FixtureHash = Durin::FXxHash128::HashBuffer(Main);
-	EXPECT_EQ(FixtureHash.HashLow, 6855489284108035300ull);
-	EXPECT_EQ(FixtureHash.HashHigh, 13282341067721308400ull);
+	EXPECT_EQ(FixtureHash.HashLow, 11260223111109423796ull);
+	EXPECT_EQ(FixtureHash.HashHigh, 9867426025646237870ull);
 	Package::FPackageRegistryData Registry;
 	Package::FPackageReaderResult ReaderDiagnostic;
 	ASSERT_TRUE((ReaderDiagnostic = Package::ReadPackageRegistry(
@@ -333,14 +334,14 @@ TEST(FPackageWriterContractTests, FrozenLayoutAndFixtureHashAreExact)
 	EXPECT_EQ(std::string(reinterpret_cast<const char*>(Main.data()), 4), "DURF");
 	EXPECT_EQ(Read<uint32>(Main, 24), Package::DastV10FormatVersion);
 	EXPECT_EQ(Read<uint64>(Main, 40), Main.size());
-	EXPECT_EQ(Main.size(), 1224u);
-	EXPECT_EQ(Read<uint64>(Main, 32), 973u);
+	EXPECT_EQ(Main.size(), 1225u);
+	EXPECT_EQ(Read<uint64>(Main, 32), 974u);
 	EXPECT_EQ(Read<uint64>(Main, 72), Package::DastDirectoryOffset);
 	EXPECT_EQ(Read<uint32>(Main, 80), Package::DastSectionCount);
 	EXPECT_EQ(Read<uint32>(Main, 84), Package::DastSectionEntryBytes);
 	EXPECT_EQ(Read<uint64>(Main, Package::DastDirectoryOffset + 8), Package::DastFirstSectionOffset);
 	constexpr std::array<uint64, Package::DastSectionCount> SectionOffsets{
-		528, 570, 968, 973, 981, 1013, 1054, 1110, 1221};
+		528, 571, 969, 974, 982, 1014, 1055, 1111, 1222};
 	for (uint64 Index = 0; Index < Package::DastSectionCount; ++Index)
 		EXPECT_EQ(Read<uint64>(Main, Package::DastDirectoryOffset + Index * 48 + 8),
 			SectionOffsets[Index]) << Index;
@@ -348,7 +349,7 @@ TEST(FPackageWriterContractTests, FrozenLayoutAndFixtureHashAreExact)
 	const uint64 ImportBytes = Read<uint64>(Main, Package::DastDirectoryOffset + 2 * 48 + 16);
 	EXPECT_EQ(Read<uint64>(Main, 32), ImportOffset + ImportBytes);
 	EXPECT_EQ(Bulk, Bytes({0xaa, 0xbb, 0xcc, 0xdd}));
-	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "9e520a5e489ec8527b730cf0b96b1163");
+	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "cde533724d0b72df31af7adb9d8b61c4");
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Bulk).ToString(), "ab65044d6377f7528d403d7d59bb88f3");
 }
 
@@ -429,7 +430,7 @@ TEST(FPackageWriterContractTests, RedirectWithoutBulkHasFrozenBytes)
 	EXPECT_EQ(Read<uint32>(Main, Package::DastFormatHeaderOffset), 0u);
 	EXPECT_TRUE(Bulk.empty());
 	EXPECT_EQ(Read<uint64>(Main, Package::DastDirectoryOffset + 8 * 48 + 16), 0u);
-	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "bb87b876d085a81fdd6ee423c255e2c0");
+	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "0a1c4ba4b604f7b678737dbd8a69a7e5");
 }
 
 TEST(FPackageWriterContractTests, EveryNativeValueKindHasOneFrozenFixture)
@@ -440,7 +441,7 @@ TEST(FPackageWriterContractTests, EveryNativeValueKindHasOneFrozenFixture)
 	ASSERT_TRUE((Diagnostic = Package::WritePackage(MakeAllKindsFixture(), Main, Bulk)))
 		<< Diagnostic.LogicalPath << ": " << Durin::ObjectPackage::FormatPackageError(Diagnostic);
 	EXPECT_TRUE(Bulk.empty());
-	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "9cf8e6fd6b584069aceed4e76726c63c");
+	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "f3ba42245e8a145f03eeac3e36831dc0");
 
 	Durin::FByteBuffer AlternateNanMain;
 	ASSERT_TRUE(Package::WritePackage(MakeAllKindsFixture(0x7fffffffu), AlternateNanMain, Bulk));
@@ -718,28 +719,31 @@ TEST(FPackageWriterContractTests, WriterFailuresPreserveContextAndOutputs)
 
 TEST(FPackageReaderContractTests, CanonicalValidationPreservesOutput)
 {
-	auto Fixture = MakeFixture();
-	Fixture.Exports.front().Properties.resize(1);
-	Fixture.Schemas.front().Fields.resize(1);
-	Fixture.Exports.front().Properties.front().Type.Kind = Package::EValueKind::I8;
-	Fixture.Schemas.front().Fields.front().Type.Kind = Package::EValueKind::I8;
-	Fixture.Exports.front().Properties.front().Value.Signed = 64;
-	Durin::FByteBuffer Main, Bulk;
-	ASSERT_TRUE(Package::WritePackage(Fixture, Main, Bulk));
-	const auto ValuesOffset = Read<uint64>(Main, Package::DastDirectoryOffset + 6 * 48 + 8);
-	// One export and one scalar field: header, identities, provenance, tag, zigzag value.
-	ASSERT_EQ(Main[ValuesOffset + 12], std::byte(uint8(Package::EValueKind::I8) + 1));
-	ASSERT_EQ(Main[ValuesOffset + 13], std::byte{0x80});
-	ASSERT_EQ(Main[ValuesOffset + 14], std::byte{1});
-	Main[ValuesOffset + 14] = std::byte{2}; // 128 is decodable but outside I8 storage.
-	RehashSection(Main, 6);
-	Package::FLinkerTables Output;
-	Output.Summary.PackagePath = PackagePath("/Game/Sentinel");
-	const auto Result = Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Output);
-	ASSERT_FALSE(Result);
-	EXPECT_EQ(Result.Reason, Package::EPackageReaderReason::CanonicalWriterRejected);
-	EXPECT_EQ(Output.Summary.PackagePath.ToString(), "/Game/Sentinel");
-	Main.clear();
+	for (const uint32 Version : {2u, Package::DastRegistryVersion})
+	{
+		auto Fixture = MakeFixture();
+		Fixture.Exports.front().Properties.resize(1);
+		Fixture.Schemas.front().Fields.resize(1);
+		Fixture.Exports.front().Properties.front().Type.Kind = Package::EValueKind::I8;
+		Fixture.Schemas.front().Fields.front().Type.Kind = Package::EValueKind::I8;
+		Fixture.Exports.front().Properties.front().Value.Signed = 64;
+		Durin::FByteBuffer Main, Bulk;
+		ASSERT_TRUE(Package::WritePackageForRegistryVersion(Fixture, Version, Main, Bulk));
+		const auto ValuesOffset = Read<uint64>(Main, Package::DastDirectoryOffset + 6 * 48 + 8);
+		// One export and one scalar field: header, identities, provenance, tag, zigzag value.
+		ASSERT_EQ(Main[ValuesOffset + 12], std::byte(uint8(Package::EValueKind::I8) + 1));
+		ASSERT_EQ(Main[ValuesOffset + 13], std::byte{0x80});
+		ASSERT_EQ(Main[ValuesOffset + 14], std::byte{1});
+		Main[ValuesOffset + 14] = std::byte{2}; // 128 is decodable but outside I8 storage.
+		RehashSection(Main, 6);
+		Package::FLinkerTables Output;
+		Output.Summary.PackagePath = PackagePath("/Game/Sentinel");
+		const auto Result = Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Output);
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.Reason, Package::EPackageReaderReason::CanonicalWriterRejected);
+		EXPECT_EQ(Output.Summary.PackagePath.ToString(), "/Game/Sentinel");
+		Main.clear();
+	}
 }
 
 TEST(FPackageReaderContractTests, EnvelopeAndNestedValueReasonsSurvivePropagation)
@@ -776,4 +780,22 @@ TEST(FPackageFormatContractTests, ResultFormattingAndSuccessHaveNoRetainedError)
 	EXPECT_TRUE(Result);
 	EXPECT_EQ(Result.Reason, Package::EPackageWriterReason::None);
 	EXPECT_TRUE(Package::FormatPackageError(Result).empty());
+}
+
+TEST(FPackageReaderContractTests, RegistryV2PreservesCanonicalValidationAndUpgradesOnSave)
+{
+	const auto Source = MakeFixture();
+	Durin::FByteBuffer LegacyMain, Bulk;
+	ASSERT_TRUE(Package::WritePackageForRegistryVersion(Source, 2, LegacyMain, Bulk));
+	EXPECT_EQ(Durin::FXxHash128::HashBuffer(LegacyMain).ToString(), "9e520a5e489ec8527b730cf0b96b1163");
+	Package::FLinkerTables Decoded;
+	const auto Result = Package::ReadPackage(LegacyMain, Bulk, Source.Summary.PackagePath, Decoded);
+	ASSERT_TRUE(Result) << Package::FormatPackageError(Result);
+	Package::FLinkerTables Metadata;
+	ASSERT_TRUE(Package::ReadPackageMetadata(LegacyMain, Bulk.size(), Source.Summary.PackagePath, Metadata));
+	Durin::FByteBuffer CurrentMain, CurrentBulk;
+	ASSERT_TRUE(Package::WritePackage(Decoded, CurrentMain, CurrentBulk));
+	EXPECT_NE(LegacyMain, CurrentMain);
+	EXPECT_EQ(Bulk, CurrentBulk);
+	ASSERT_TRUE(Package::ReadPackage(CurrentMain, CurrentBulk, Source.Summary.PackagePath, Metadata));
 }

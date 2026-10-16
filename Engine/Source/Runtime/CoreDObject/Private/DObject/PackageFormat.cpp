@@ -1,4 +1,5 @@
 #include "PackageDiagnosticInternal.h"
+#include "PackageWriterInternal.h"
 #include "DObject/PackageFormat.h"
 
 #include "DObject/CanonicalMapKey.h"
@@ -549,6 +550,9 @@ namespace Durin::ObjectPackage
 					"Summary.SoftPackageDependencies")) return false;
 			for (const std::string& Name : Linker.Summary.SearchableNames)
 				if (!AddName(Frozen.Names, Name, Diagnostic, "Summary.SearchableNames")) return false;
+			for (const FPackagePath& Path : Linker.Summary.BuildPackageDependencies)
+				if (!Path.IsValid() || !AddName(Frozen.Names, Path.ToString(), Diagnostic,
+					"Summary.BuildPackageDependencies")) return false;
 			for (const std::string& Name : Linker.Names)
 				if (!AddName(Frozen.Names, Name, Diagnostic, "Names")) return false;
 
@@ -947,7 +951,7 @@ namespace Durin::ObjectPackage
 
 		auto EncodeSections(const FFrozenPackage& Frozen, std::vector<FSection>& Sections,
 			FByteBuffer* External, uint64 BoundExternalExtent,
-			FXxHash128 BoundExternalHash, FPackageWriterResult* Diagnostic) -> bool
+			FXxHash128 BoundExternalHash, uint32 RegistryVersion, FPackageWriterResult* Diagnostic) -> bool
 		{
 			FByteBuffer Inline;
 			std::vector<FPlacedBulk> Placed;
@@ -972,7 +976,7 @@ namespace Durin::ObjectPackage
 			};
 
 			auto Writer = MakeWriter();
-			Writer->WriteU32(DastRegistryVersion);
+			Writer->WriteU32(RegistryVersion);
 			{
 				Writer->WriteVarUInt(Frozen.ExportOrder.size());
 				std::vector<const FPackageSummary::FTopLevelAsset*> Assets;
@@ -993,7 +997,7 @@ namespace Durin::ObjectPackage
 					Writer->WriteVarUInt(FindNameId(Frozen, Asset->RedirectDestination.ToString()));
 				}
 			}
-			std::array<std::vector<std::string>, 3> RegistryLists;
+			std::array<std::vector<std::string>, 4> RegistryLists;
 			{
 				for (const FPackagePath& Path : Frozen.Source->Summary.HardPackageDependencies)
 					RegistryLists[0].push_back(Path.ToString());
@@ -1001,8 +1005,11 @@ namespace Durin::ObjectPackage
 					RegistryLists[1].push_back(Path.ToString());
 			}
 			RegistryLists[2] = Frozen.Source->Summary.SearchableNames;
-			for (const std::vector<std::string>& List : RegistryLists)
+			for (const auto& Path : Frozen.Source->Summary.BuildPackageDependencies)
+				RegistryLists[3].push_back(Path.ToString());
+			for (size_t ListIndex = 0; ListIndex < (RegistryVersion == 2 ? 3u : 4u); ++ListIndex)
 			{
+				const auto& List = RegistryLists[ListIndex];
 				std::vector<uint32> Ids;
 				for (const std::string& Name : List) Ids.push_back(FindNameId(Frozen, Name));
 				std::ranges::sort(Ids); Ids.erase(std::unique(Ids.begin(), Ids.end()), Ids.end());
@@ -1201,7 +1208,7 @@ namespace Durin::ObjectPackage
 
 	static auto WritePackageInternal(const FLinkerTables& Linker,
 		FByteBuffer& OutPackageBytes,
-		FByteBuffer& OutBulkBytes,
+		FByteBuffer& OutBulkBytes, uint32 RegistryVersion,
 		FPackageWriterResult* OutDiagnostic) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
@@ -1212,7 +1219,7 @@ namespace Durin::ObjectPackage
 		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
 		std::vector<FSection> Sections;
 		FByteBuffer BulkBytes;
-		if (!EncodeSections(Frozen, Sections, &BulkBytes, 0, {}, OutDiagnostic)) return false;
+		if (!EncodeSections(Frozen, Sections, &BulkBytes, 0, {}, RegistryVersion, OutDiagnostic)) return false;
 		FByteBuffer PackageBytes;
 		if (!Assemble(Sections, PackageBytes, OutDiagnostic,
 			Linker.FormatVersion, false)) return false;
@@ -1222,7 +1229,7 @@ namespace Durin::ObjectPackage
 	}
 
 	static auto WritePackageMainInternal(const FLinkerTables& Linker, uint64 ExternalBulkBytes,
-		FXxHash128 ExternalBulkHash, FByteBuffer& OutPackageBytes,
+		FXxHash128 ExternalBulkHash, FByteBuffer& OutPackageBytes, uint32 RegistryVersion,
 		FPackageWriterResult* OutDiagnostic) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
@@ -1234,7 +1241,7 @@ namespace Durin::ObjectPackage
 		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
 		std::vector<FSection> Sections;
 		if (!EncodeSections(Frozen, Sections, nullptr, ExternalBulkBytes,
-			ExternalBulkHash, OutDiagnostic)) return false;
+			ExternalBulkHash, RegistryVersion, OutDiagnostic)) return false;
 		FByteBuffer PackageBytes;
 		if (!Assemble(Sections, PackageBytes, OutDiagnostic,
 			Linker.FormatVersion, false)) return false;
@@ -1250,23 +1257,42 @@ namespace Durin::ObjectPackage
 		return Result;
 	}
 
-	auto WritePackage(const FLinkerTables& Linker,
+	auto WritePackageForRegistryVersion(const FLinkerTables& Linker, uint32 RegistryVersion,
 		FByteBuffer& OutPackageBytes,
 		FByteBuffer& OutBulkBytes) -> FPackageWriterResult
 	{
 		FPackageWriterResult Result;
-		if (!WritePackageInternal(Linker, OutPackageBytes, OutBulkBytes, &Result) && Result.Succeeded())
+		if ((RegistryVersion != 2 && RegistryVersion != DastRegistryVersion)
+			|| (RegistryVersion == 2 && !Linker.Summary.BuildPackageDependencies.empty()))
+			return {EPackageWriterFailure::InvalidValue, "Registry.Version", EPackageWriterReason::IncompleteEncoding};
+		if (!WritePackageInternal(Linker, OutPackageBytes, OutBulkBytes, RegistryVersion, &Result) && Result.Succeeded())
 			Result = {EPackageWriterFailure::InvalidValue, {}, EPackageWriterReason::IncompleteEncoding};
 		return Result;
+	}
+
+	auto WritePackageMainForRegistryVersion(const FLinkerTables& Linker, uint32 RegistryVersion, uint64 ExternalBulkBytes,
+		FXxHash128 ExternalBulkHash, FByteBuffer& OutPackageBytes) -> FPackageWriterResult
+	{
+		FPackageWriterResult Result;
+		if ((RegistryVersion != 2 && RegistryVersion != DastRegistryVersion)
+			|| (RegistryVersion == 2 && !Linker.Summary.BuildPackageDependencies.empty()))
+			return {EPackageWriterFailure::InvalidValue, "Registry.Version", EPackageWriterReason::IncompleteEncoding};
+		if (!WritePackageMainInternal(Linker, ExternalBulkBytes, ExternalBulkHash, OutPackageBytes, RegistryVersion, &Result) && Result.Succeeded())
+			Result = {EPackageWriterFailure::InvalidValue, {}, EPackageWriterReason::IncompleteEncoding};
+		return Result;
+	}
+
+	auto WritePackage(const FLinkerTables& Linker, FByteBuffer& OutPackageBytes,
+		FByteBuffer& OutBulkBytes) -> FPackageWriterResult
+	{
+		return WritePackageForRegistryVersion(Linker, DastRegistryVersion, OutPackageBytes, OutBulkBytes);
 	}
 
 	auto WritePackageMain(const FLinkerTables& Linker, uint64 ExternalBulkBytes,
 		FXxHash128 ExternalBulkHash, FByteBuffer& OutPackageBytes) -> FPackageWriterResult
 	{
-		FPackageWriterResult Result;
-		if (!WritePackageMainInternal(Linker, ExternalBulkBytes, ExternalBulkHash, OutPackageBytes, &Result) && Result.Succeeded())
-			Result = {EPackageWriterFailure::InvalidValue, {}, EPackageWriterReason::IncompleteEncoding};
-		return Result;
+		return WritePackageMainForRegistryVersion(Linker, DastRegistryVersion,
+			ExternalBulkBytes, ExternalBulkHash, OutPackageBytes);
 	}
 
 }

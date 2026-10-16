@@ -397,8 +397,8 @@ TEST(FCookStateTests, IsCanonicalVersionedAndRejectsCorruption)
 	FCookState State{
 		ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game,
-		{{"/Game/B", {1, 2}, {3, 4}, {5, 6}, 12, 8, 2, 3, "texture", "ddc-hit"},
-		 {"/Game/A", {7, 8}, {9, 10}, {}, 11, 0, 4, 5, "generic", "captured"}}
+		{{"/Game/B", {1, 2}, {3, 4}, {5, 6}, 12, 8, 2, "texture", "ddc-hit"},
+		 {"/Game/A", {7, 8}, {9, 10}, {}, 11, 0, 4, "generic", "captured"}}
 	};
 	State.Entries[1].BuildDependencies = {{ECookBuildDependencyKind::ExternalFile,
 		"compiler/include", {std::byte{7}}}};
@@ -444,7 +444,7 @@ TEST(FCookTargetTests, MacOSManifestAndStateRetainTargetIdentity)
 		ECookTargetPlatform::MacOS,
 		ECookTargetProfile::Game,
 		{{"/Game/Scene", {1, 2}, {3, 4}, {}, 16, 0,
-			1, 1, "generic", "captured"}}
+			1, "generic", "captured"}}
 	};
 	FByteBuffer StateBytes;
 	ASSERT_TRUE(EncodeCookState(State, StateBytes));
@@ -459,7 +459,7 @@ TEST(FCookTargetTests, MacOSManifestAndStateRetainTargetIdentity)
 TEST(FCookStateTests, RetainsNestedDependencyErrorsWithoutPartialOutputs)
 {
 	FCookState State{ECookTargetPlatform::Win64, ECookTargetProfile::Game,
-		{{"/Game/State", {}, {}, {}, 1, 0, 1, 1, "generic", "captured"}}};
+		{{"/Game/State", {}, {}, {}, 1, 0, 1, "generic", "captured"}}};
 	State.Entries[0].BuildDependencies = {
 		{ECookBuildDependencyKind::ExternalFile, "source", {}},
 		{ECookBuildDependencyKind::ExternalFile, "source", {}}};
@@ -475,7 +475,7 @@ TEST(FCookStateTests, RetainsNestedDependencyErrorsWithoutPartialOutputs)
 	State.Entries[0].BuildDependencies.clear();
 	ASSERT_TRUE(EncodeCookState(State, Bytes));
 	ASSERT_GE(Bytes.size(), 8u);
-	Bytes[Bytes.size() - 8] = std::byte{255}; // Nested dependency version.
+	Bytes[Bytes.size() - 12] = std::byte{255}; // Nested dependency version, before the v3 projection count.
 	const auto Decoded = DecodeCookState(Bytes, State);
 	EXPECT_FALSE(Decoded);
 	EXPECT_EQ(Decoded.Error, ECookStateError::Dependency);
@@ -486,12 +486,45 @@ TEST(FCookStateTests, RetainsNestedDependencyErrorsWithoutPartialOutputs)
 	EXPECT_TRUE(State.Entries.empty());
 }
 
+TEST(FCookStateTests, PersistsOmittedInputSelectionsAndReevaluableLocatorsCanonically)
+{
+	(void)MakePackageBytes();
+	FCookState State{ECookTargetPlatform::Win64, ECookTargetProfile::Game};
+	State.Inputs.push_back({"/TestCook/BuildOnly", {1, 2}, {3, 4}, {5, 6}, true, {
+		{ECookBuildDependencyKind::SourcePackage, "Source", {std::byte{0}}},
+		{ECookBuildDependencyKind::DirectPackage, "/Game/Dependency", {}},
+		{ECookBuildDependencyKind::ExternalFile, "source-file", {std::byte{'a'}, std::byte{'.'}, std::byte{'x'}}}}});
+	FByteBuffer Bytes;
+	ASSERT_TRUE(EncodeCookState(State, Bytes));
+	FCookState Decoded;
+	ASSERT_TRUE(DecodeCookState(Bytes, Decoded));
+	EXPECT_TRUE(Decoded.Entries.empty());
+	ASSERT_EQ(Decoded.Inputs.size(), 1u);
+	EXPECT_EQ(Decoded.Inputs[0].SourceFingerprint, State.Inputs[0].SourceFingerprint);
+	EXPECT_EQ(Decoded.Inputs[0].BulkFingerprint, State.Inputs[0].BulkFingerprint);
+	EXPECT_EQ(Decoded.Inputs[0].SchemaFingerprint, State.Inputs[0].SchemaFingerprint);
+	EXPECT_TRUE(Decoded.Inputs[0].bReusable);
+	FByteBuffer Again;
+	ASSERT_TRUE(EncodeCookState(Decoded, Again));
+	EXPECT_EQ(Again, Bytes);
+	for (const auto Version : {std::byte{2}, std::byte{3}})
+	{
+		Bytes[4] = Version;
+		EXPECT_FALSE(DecodeCookState(Bytes, Decoded));
+		EXPECT_TRUE(Decoded.Inputs.empty());
+		EXPECT_TRUE(Decoded.Entries.empty());
+	}
+	State.Inputs[0].Records[0].Value = {std::byte{2}};
+	EXPECT_FALSE(EncodeCookState(State, Bytes));
+	EXPECT_TRUE(Bytes.empty());
+}
+
 TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 {
 	(void)MakePackageBytes();
 	FCookRequest Request;
-	const auto Resolve = [](std::string_view, bool, const FCookContributorRegistration*&) -> FCookContributionResult { return {}; };
-	AssetPrivate::FCookDependencyDiscovery Limited(Request, CaptureAssetRegistrySnapshot(), Resolve);
+	FAssetPackageLoadScope LoadScope;
+	AssetPrivate::FCookDependencyDiscovery Limited(Request, CaptureAssetRegistrySnapshot(), LoadScope);
 	std::vector<FPackagePath> Roots(MaximumCookDependencyRecords + 1);
 	const auto Rejected = Limited.Acquire(Roots, {});
 	EXPECT_FALSE(Rejected);
@@ -510,7 +543,7 @@ TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 	FAssetReferenceStoreCapture External;
 	External.Stores.push_back({.ProviderId = "test-root", .Occurrences = {
 		{.TargetPath = Target, .ExpectedClass = "MissingCookRootClass", .bCookRoot = true}}});
-	AssetPrivate::FCookDependencyDiscovery UnknownClass(Request, CaptureAssetRegistrySnapshot(), Resolve);
+	AssetPrivate::FCookDependencyDiscovery UnknownClass(Request, CaptureAssetRegistrySnapshot(), LoadScope);
 	const auto ClassFailure = UnknownClass.Acquire({}, External);
 	External = {};
 	EXPECT_EQ(ClassFailure.Status, ECookInputStatus::InvalidDependency);
@@ -518,11 +551,10 @@ TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 	EXPECT_EQ(UnknownClass.GetFailureInfo()->Error, ECookInputError::RootClass);
 	EXPECT_EQ(UnknownClass.GetFailureInfo()->Package, Target);
 	EXPECT_EQ(UnknownClass.GetFailureInfo()->Name, "MissingCookRootClass");
-	AssetPrivate::FCookDependencyDiscovery Empty(Request, CaptureAssetRegistrySnapshot(), Resolve);
-	const auto EmptyFailure = Empty.Acquire({}, {});
-	EXPECT_EQ(EmptyFailure.Status, ECookInputStatus::InvalidDependency);
-	ASSERT_TRUE(Empty.GetFailureInfo());
-	EXPECT_EQ(Empty.GetFailureInfo()->Error, ECookInputError::NoRuntimePackages);
+	AssetPrivate::FCookDependencyDiscovery Empty(Request, CaptureAssetRegistrySnapshot(), LoadScope);
+    EXPECT_TRUE(Empty.Acquire({}, {}));
+    EXPECT_TRUE(Empty.GetPackages().empty());
+    EXPECT_FALSE(Empty.GetFailureInfo());
 }
 
 TEST(FCookInputTests, MissingReaderClearsOutputAndClassifiesFailure)
@@ -550,7 +582,7 @@ TEST(FCookInputTests, MissingReaderClearsOutputAndClassifiesFailure)
 
 }
 
-TEST(FCookContributorTests, FamilyRejectionsOwnTargetAndNestedPlanContext)
+TEST(FCookObjectLifecycleTests, FamilyRejectionsOwnTargetAndNestedPlanContext)
 {
 	(void)MakePackageBytes();
 	auto* Texture = NewObject<DTexture2D>(nullptr, "ContributionFailure");
@@ -579,196 +611,7 @@ TEST(FCookContributorTests, FamilyRejectionsOwnTargetAndNestedPlanContext)
 
 }
 
-TEST(FCookContributorTests, BatchFailureRetainsCauseAndRollsBackOnlyNewHandles)
-{
-	const FCookContributor Callback = [](DObject&, std::string_view, FCookPreparationContext&) -> FCookContributionResult { return {}; };
-	const auto Invalid = RegisterCookContributor(nullptr, {"invalid", 1, Callback});
-	EXPECT_FALSE(Invalid);
-	EXPECT_EQ(Invalid.Error, ECookContributorRegistrationError::InvalidClass);
-	EXPECT_EQ(Invalid.ContributorName, "invalid");
-	EXPECT_EQ(Invalid.Handle, 0u);
-	const auto Existing = RegisterCookContributor(DTextureCube::StaticClass(), {"existing", 1, Callback});
-	ASSERT_TRUE(Existing);
-	std::vector<FCookContributorHandle> Handles{Existing.Handle};
-	const auto Batch = RegisterEngineCookContributors(Handles);
-	const auto Replacement = RegisterCookContributor(DTexture2D::StaticClass(), {"replacement", 1, Callback});
-	const auto StillRegistered = RegisterCookContributor(DTextureCube::StaticClass(), {"duplicate", 1, Callback});
-	for (const auto Handle : Handles) UnregisterCookContributor(Handle);
-	UnregisterCookContributor(Replacement.Handle);
-	UnregisterCookContributor(StillRegistered.Handle);
-	EXPECT_FALSE(Batch);
-	EXPECT_EQ(Batch.Error, ECookContributorRegistrationError::DuplicateClass);
-	EXPECT_EQ(Batch.ContributorName, "texture-cube");
-	EXPECT_EQ(Batch.ClassName, DTextureCube::StaticClass()->GetQualifiedName().ToString());
-	EXPECT_EQ(Handles, std::vector<FCookContributorHandle>{Existing.Handle});
-	EXPECT_TRUE(Replacement);
-	EXPECT_FALSE(StillRegistered);
-	EXPECT_EQ(StillRegistered.Error, ECookContributorRegistrationError::DuplicateClass);
-}
-
-TEST(FCookContributorTests, RejectsDuplicatesAndAllowsOwnerRetirement)
-{
-	const FCookContributor Contributor = [](DObject&, std::string_view,
-											FCookPreparationContext&) -> FCookContributionResult { return {}; };
-	const FCookContributorHandle First = RegisterCookContributor(
-		DObject::StaticClass(), {"generic-test", 1, Contributor}
-	).Handle;
-	ASSERT_NE(First, 0u);
-	EXPECT_EQ(RegisterCookContributor(DObject::StaticClass(), {"duplicate", 1, Contributor}).Handle, 0u);
-	UnregisterCookContributor(First);
-	const FCookContributorHandle Replacement = RegisterCookContributor(
-		DObject::StaticClass(), {"replacement", 1, Contributor}
-	).Handle;
-	EXPECT_NE(Replacement, 0u);
-	UnregisterCookContributor(Replacement);
-}
-
-TEST(FCookContributorTests, RejectsDuplicateStableNamesAcrossClasses)
-{
-	Testing::InitializeDObjectSystemForTests();
-	const FCookContributor Callback = [](DObject&, std::string_view,
-		FCookPreparationContext&) -> FCookContributionResult { return {}; };
-	const auto First = RegisterCookContributor(DTexture2D::StaticClass(),
-		{"shared-family-identity", 1, Callback});
-	ASSERT_TRUE(First);
-	const auto Duplicate = RegisterCookContributor(DTextureCube::StaticClass(),
-		{"shared-family-identity", 2, Callback});
-	// Retire every returned handle even on the pre-migration implementation.
-	UnregisterCookContributor(Duplicate.Handle);
-	UnregisterCookContributor(First.Handle);
-	EXPECT_FALSE(Duplicate);
-	EXPECT_EQ(Duplicate.Handle, 0u);
-	const auto Replacement = RegisterCookContributor(DTextureCube::StaticClass(),
-		{"shared-family-identity", 2, Callback});
-	EXPECT_TRUE(Replacement);
-	UnregisterCookContributor(Replacement.Handle);
-}
-
-TEST(FCookContributorTests, RunPinsRetiredOwnerUntilCancellationReturns)
-{
-	const FCookContributor Callback = [](DObject&, std::string_view,
-		FCookPreparationContext&) -> FCookContributionResult { return {}; };
-	auto Owner = std::make_shared<int>(42);
-	std::weak_ptr<int> WeakOwner = Owner;
-	const auto Handle = RegisterCookContributor(DObject::StaticClass(),
-		{"pinned-test", 1, Callback, std::move(Owner)}).Handle;
-	ASSERT_NE(Handle, 0u);
-	FCookRequest Request;
-	Request.TargetPlatform = ECookTargetPlatform::Win64;
-	Request.TargetProfile = ECookTargetProfile::Game;
-	Request.bDryRun = true;
-	Request.IsCancelled = [&] {
-		UnregisterCookContributor(Handle);
-		EXPECT_FALSE(WeakOwner.expired());
-		const auto Replacement = RegisterCookContributor(DObject::StaticClass(),
-			{"replacement-test", 1, Callback}).Handle;
-		EXPECT_NE(Replacement, 0u);
-		UnregisterCookContributor(Replacement);
-		return true;
-	};
-	FCookRunResult Result;
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	EXPECT_EQ(Result.Status, ECookRunStatus::Cancelled);
-	EXPECT_TRUE(WeakOwner.expired());
-	UnregisterCookContributor(Handle);
-}
-
-TEST(FCookContributorTests, RunSnapshotDoesNotCopyProviderCallbacks)
-{
-	Testing::InitializeDObjectSystemForTests();
-	struct FCopyProbe
-	{
-		int& Copies;
-		explicit FCopyProbe(int& Value) : Copies(Value) {}
-		FCopyProbe(const FCopyProbe& Other) : Copies(Other.Copies) { ++Copies; }
-		auto operator()(DObject&, std::string_view, FCookPreparationContext&) const -> FCookContributionResult { return {}; }
-	};
-	int Copies = 0;
-	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {"snapshot-copy-probe", 1, FCopyProbe(Copies)});
-	ASSERT_TRUE(Registered);
-	const int Before = Copies;
-	FCookRequest Request{.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
-	Request.bDryRun = true;
-	Request.IsCancelled = [] { return true; };
-	FCookRunResult Result;
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	UnregisterCookContributor(Registered.Handle);
-	EXPECT_EQ(Result.Status, ECookRunStatus::Cancelled);
-	EXPECT_EQ(Copies, Before);
-}
-
-TEST(FCookContributorTests, AdmissionFailureDoesNotReusePreviousPreparationError)
-{
-	(void)MakePackageBytes();
-	FPackagePath Path;
-	ASSERT_TRUE(FPackagePath::TryCreate("/TestCook/PreparationErrorReset", Path));
-	auto* Package = CreatePackage(Path);
-	ASSERT_NE(NewObject<DObject>(Package, "Root"), nullptr);
-	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {"preparation-error", 1,
-		[](DObject&, std::string_view, FCookPreparationContext&) -> FCookContributionResult {
-			return {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::Preparation, .Diagnostic = "first failure"};
-		}});
-	ASSERT_TRUE(Registered);
-	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	const auto First = SaveCookPackage(Package, Path.GetView(), Context);
-	const auto Second = SaveCookPackage(nullptr, Path.GetView(), Context);
-	UnregisterCookContributor(Registered.Handle);
-	EXPECT_TRUE(UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
-	EXPECT_EQ(First.Error, ECookContributionError::Preparation);
-	EXPECT_EQ(Second.Error, ECookContributionError::Plan);
-	ASSERT_TRUE(Second.PlanCause);
-	EXPECT_EQ(Second.PlanCause->Code, ECookPlanError::InvalidPackage);
-	EXPECT_TRUE(Context.GetPreparationFailure());
-	EXPECT_TRUE(Context.GetSavePlans().empty());
-}
-
-TEST(FCookContributorTests, OwnerDestructionCanReenterRegistration)
-{
-	const FCookContributor Callback = [](DObject&, std::string_view,
-		FCookPreparationContext&) -> FCookContributionResult { return {}; };
-	bool Destroyed = false;
-	auto Owner = std::shared_ptr<void>(new int(42), [&](void* Value) {
-		delete static_cast<int*>(Value);
-		const auto Replacement = RegisterCookContributor(DObject::StaticClass(),
-			{"destructor-test", 1, Callback}).Handle;
-		EXPECT_NE(Replacement, 0u);
-		UnregisterCookContributor(Replacement);
-		Destroyed = true;
-	});
-	const auto Handle = RegisterCookContributor(DObject::StaticClass(),
-		{"owner-test", 1, Callback, std::move(Owner)}).Handle;
-	ASSERT_NE(Handle, 0u);
-	EXPECT_FALSE(Destroyed);
-	UnregisterCookContributor(Handle);
-	EXPECT_TRUE(Destroyed);
-}
-
-TEST(FCookContributorTests, CallbackDestructionPrecedesOwnerReleaseEvenWhenRejected)
-{
-	int DestroyedCallbacks = 0;
-	auto MakeRegistration = [&] {
-		auto Owner = std::make_shared<int>(42);
-		std::weak_ptr<int> WeakOwner = Owner;
-		auto CallbackState = std::shared_ptr<void>(new int(7),
-			[&, WeakOwner](void* Value) {
-				EXPECT_FALSE(WeakOwner.expired());
-				++DestroyedCallbacks;
-				delete static_cast<int*>(Value);
-			});
-		return FCookContributorRegistration{"ordered-test", 1,
-			[State = std::move(CallbackState)](DObject&, std::string_view,
-				FCookPreparationContext&) -> FCookContributionResult { return {}; }, std::move(Owner)};
-	};
-	const auto Handle = RegisterCookContributor(DObject::StaticClass(), MakeRegistration()).Handle;
-	ASSERT_NE(Handle, 0u);
-	EXPECT_EQ(DestroyedCallbacks, 0);
-	EXPECT_EQ(RegisterCookContributor(DObject::StaticClass(), MakeRegistration()).Handle, 0u);
-	EXPECT_EQ(DestroyedCallbacks, 1);
-	UnregisterCookContributor(Handle);
-	EXPECT_EQ(DestroyedCallbacks, 2);
-}
-
-TEST(FCookContributorTests, FamilyCookHelpersAreNotPublicApi)
+TEST(FCookObjectLifecycleTests, FamilyCookHelpersAreNotPublicApi)
 {
 	EXPECT_FALSE(HasPublicAddToCook<DTexture2D>);
 	EXPECT_FALSE(HasPublicAddToCook<DTextureCube>);
@@ -991,7 +834,7 @@ TEST(FCookOutputStoreTests, RetainsStateCodecCauseWithoutPublishing)
 	Testing::RemoveTestWorkDirectory(Root);
 	auto Store = CreateLocalLooseCookOutputStore(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	FCookState State{ECookTargetPlatform::Win64, ECookTargetProfile::Game,
-		{{"/Game/Bad", {}, {}, {}, 1, 0, 1, 1, "", "captured"}}};
+		{{"/Game/Bad", {}, {}, {}, 1, 0, 1, "", "captured"}}};
 	FCookRunResult Run;
 	const auto Rejected = Store->Publish({}, State, Run, {}, {});
 	State = {};
@@ -1017,12 +860,12 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 		EXPECT_TRUE(Context.AddRawPackage("/Game/Transactional", MakePackageBytes(), Durin::FByteBuffer(Segment))) << Error;
 		std::vector<FCookSavePlan> Plans;
 		EXPECT_TRUE(Context.TakeSavePlans(Plans)) << Error;
-		Plans[0].Contributor = "opaque-test";
+		Plans[0].Serializer = "opaque-test";
 		Plans[0].BuildProvenance = "captured";
 		return Plans;
 	};
 	auto MakeState = [](const FCookSavePlan& Plan) {
-		return FCookState{ECookTargetPlatform::Win64, ECookTargetProfile::Game, {{Plan.VirtualPath, Plan.InputFingerprint, Plan.PackageDigest, Plan.SegmentDigest, Plan.PackageFileSize, Plan.SegmentFileSize, Plan.ContributorVersion, Plan.FamilyProducerVersion, Plan.Contributor, Plan.BuildProvenance}}};
+		return FCookState{ECookTargetPlatform::Win64, ECookTargetProfile::Game, {{Plan.VirtualPath, Plan.InputFingerprint, Plan.PackageDigest, Plan.SegmentDigest, Plan.PackageFileSize, Plan.SegmentFileSize, Plan.SerializerVersion, Plan.Serializer, Plan.BuildProvenance}}};
 	};
 	std::vector<FCookSavePlan> First = Capture({std::byte{1}, std::byte{2}});
 	std::vector<FCookAuxiliaryOutput> FirstAuxiliary{{
@@ -1138,9 +981,9 @@ TEST(FCookOutputStoreTests, RepairsCorruptReusedOutputAndRejectsCompetingWriter)
 	ASSERT_TRUE(Context.AddRawPackage("/Game/Repair", MakePackageBytes(), {std::byte{4}, std::byte{5}, std::byte{6}})) << Error;
 	std::vector<FCookSavePlan> Plans;
 	ASSERT_TRUE(Context.TakeSavePlans(Plans)) << Error;
-	Plans[0].Contributor = "repair-test";
+	Plans[0].Serializer = "repair-test";
 	Plans[0].BuildProvenance = "captured";
-	FCookState State{ECookTargetPlatform::Win64, ECookTargetProfile::Game, {{Plans[0].VirtualPath, Plans[0].InputFingerprint, Plans[0].PackageDigest, Plans[0].SegmentDigest, Plans[0].PackageFileSize, Plans[0].SegmentFileSize, Plans[0].ContributorVersion, Plans[0].FamilyProducerVersion, Plans[0].Contributor, Plans[0].BuildProvenance}}};
+	FCookState State{ECookTargetPlatform::Win64, ECookTargetProfile::Game, {{Plans[0].VirtualPath, Plans[0].InputFingerprint, Plans[0].PackageDigest, Plans[0].SegmentDigest, Plans[0].PackageFileSize, Plans[0].SegmentFileSize, Plans[0].SerializerVersion, Plans[0].Serializer, Plans[0].BuildProvenance}}};
 	auto Store = CreateLocalLooseCookOutputStore(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	FCookRunResult Result;
 	FCookPublishResult PublishResult = Store->Publish(Plans, State, Result, {}, {});
@@ -1179,7 +1022,7 @@ TEST(FCookOutputStoreTests, CleansOnlyPreviousManifestOwnedStaleFiles)
 		EXPECT_TRUE(Context.AddRawPackage(std::move(Path), MakePackageBytes(), {Value})) << Error;
 		std::vector<FCookSavePlan> Plans;
 		EXPECT_TRUE(Context.TakeSavePlans(Plans)) << Error;
-		Plans[0].Contributor = "stale-test";
+		Plans[0].Serializer = "stale-test";
 		Plans[0].BuildProvenance = "captured";
 		return Plans[0];
 	};
@@ -1188,7 +1031,7 @@ TEST(FCookOutputStoreTests, CleansOnlyPreviousManifestOwnedStaleFiles)
 	auto StateFor = [](std::span<const FCookSavePlan> Plans) {
 		FCookState State{ECookTargetPlatform::Win64, ECookTargetProfile::Game};
 		for (const FCookSavePlan& Plan : Plans)
-			State.Entries.push_back({Plan.VirtualPath, Plan.InputFingerprint, Plan.PackageDigest, Plan.SegmentDigest, Plan.PackageFileSize, Plan.SegmentFileSize, Plan.ContributorVersion, Plan.FamilyProducerVersion, Plan.Contributor, Plan.BuildProvenance});
+			State.Entries.push_back({Plan.VirtualPath, Plan.InputFingerprint, Plan.PackageDigest, Plan.SegmentDigest, Plan.PackageFileSize, Plan.SegmentFileSize, Plan.SerializerVersion, Plan.Serializer, Plan.BuildProvenance});
 		return State;
 	};
 	std::vector<FCookSavePlan> First{Keep, Stale};

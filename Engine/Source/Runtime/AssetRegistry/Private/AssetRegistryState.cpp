@@ -180,6 +180,7 @@ namespace Durin
 					|| !Publication.ReferenceFingerprints.contains(Path)
 					|| Data.ObjectCount == 0 || !PathsCanonical(Data.Dependencies)
 					|| !PathsCanonical(Data.SoftDependencies)
+					|| !PathsCanonical(Data.BuildDependencies)
 					|| !std::ranges::is_sorted(Data.SearchableNames)
 					|| std::adjacent_find(Data.SearchableNames.begin(),
 						Data.SearchableNames.end()) != Data.SearchableNames.end()

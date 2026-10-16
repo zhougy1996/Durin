@@ -122,6 +122,7 @@ namespace Durin
 			FPackagePath RedirectDestination;
 			std::vector<FPackagePath> Dependencies;
 			std::vector<FPackagePath> SoftDependencies;
+			std::vector<FPackagePath> BuildDependencies;
 			std::vector<std::string> SearchableNames;
 			uint64 ObjectCount = 0;
 			uint64 BulkSegmentExtent = 0;
@@ -144,6 +145,7 @@ namespace Durin
 				.FormatVersion = File.FormatVersion,
 				.Dependencies = File.Dependencies,
 				.SoftDependencies = File.SoftDependencies,
+				.BuildDependencies = File.BuildDependencies,
 				.SearchableNames = File.SearchableNames,
 				.ObjectCount = File.ObjectCount,
 				.BulkSegmentExtent = File.BulkSegmentExtent,
@@ -1243,6 +1245,7 @@ namespace Durin
 			.FormatVersion = Header.FormatVersion,
 			.Dependencies = Header.Dependencies,
 			.SoftDependencies = Header.SoftDependencies,
+			.BuildDependencies = Header.BuildDependencies,
 			.SearchableNames = Header.SearchableNames,
 			.ObjectCount = Header.ObjectCount,
 			.BulkSegmentExtent = Header.BulkSegmentExtent,

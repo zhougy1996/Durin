@@ -298,8 +298,10 @@ namespace Durin::PackagePrivate
 				std::string_view ExternalPath;
 				// Runtime-only targets have no persistent identity, including children
 				// whose own flags do not repeat their transient Outer's flags.
-				const bool bExcluded = Value && Options.ObjectFilter && !Options.ObjectFilter(Value);
-				if (bExcluded && !std::ranges::any_of(NodeStack, [](const FCapturedNode* Node) {
+				const bool bExcluded = Value && ((Options.ObjectFilter && !Options.ObjectFilter(Value))
+					|| (Options.bCooking && !IsObjectIncludedForCook(Value, Options.Target)));
+				const bool bPolicyStripped = Value && Options.bCooking && !IsObjectIncludedForCook(Value, Options.Target);
+				if (bExcluded && !bPolicyStripped && !std::ranges::any_of(NodeStack, [](const FCapturedNode* Node) {
 					return Node && Node->ReflectedProperty && Node->ReflectedProperty->HasAnyPropertyFlags(EPropertyFlags::EditorOnly);
 				}))
 				{
@@ -1382,6 +1384,44 @@ namespace Durin
 		std::vector<DObject*> FrozenObjects;
 		for (DObject* Asset : Package->GetTopLevelAssets())
 			PackagePrivate::GatherObjects(Asset, FrozenObjects);
+		std::vector<FPackagePath> BuildDependencies;
+		// One notification per logical capture, before either archive pass. Hooks
+		// may adjust transient save state but cannot extend the captured graph.
+		for (DObject* Object : FrozenObjects)
+		{
+			if (Object->IsTemplateObject() || IsPackageCaptureObjectOmitted(Object, Options.SaveOverrides.get())
+				|| (Options.bCooking && !IsObjectIncludedForCook(Object, Options.Target))
+				|| (Options.ObjectFilter && !Options.ObjectFilter(Object))) continue;
+			FObjectPreSaveContext Context{Options.bCooking, Options.Target};
+			Object->PreSave(Context);
+			if (!Context.Result)
+				return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::ArchiveFailure,
+					.ObjectPath = Object->GetObjectPath(), .ArchiveCode = EArchiveFailureCode::InvalidData,
+					.Message = std::move(Context.Result.Diagnostic)});
+			if (!Options.bCooking)
+			{
+				FObjectCookContext Dependencies;
+				Dependencies.Package = Package->GetPackagePath();
+				Object->OnCookEvent(ECookEvent::PlatformCookDependencies, Dependencies);
+				if (!Dependencies.Result || Dependencies.Dependencies.size() > 65536)
+					return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::ArchiveFailure,
+						.ObjectPath = Object->GetObjectPath(), .ArchiveCode = EArchiveFailureCode::InvalidData,
+						.Message = Dependencies.Result.Diagnostic});
+				for (const auto& Declaration : Dependencies.Dependencies)
+					if (Declaration.Kind == ECookBuildDependencyKind::DirectPackage || Declaration.Kind == ECookBuildDependencyKind::TransitivePackage)
+					{
+						FPackagePath Path;
+						if (!FPackagePath::TryCreate(Declaration.LogicalName, Path) || !Declaration.FilePath.empty()
+							|| !Declaration.Value.empty() || BuildDependencies.size() >= 65536)
+							return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::ArchiveFailure,
+								.ObjectPath = Object->GetObjectPath(), .ArchiveCode = EArchiveFailureCode::InvalidData,
+								.Message = "Invalid or excessive authored build dependency declarations."});
+						BuildDependencies.push_back(std::move(Path));
+					}
+			}
+		}
+		if (!PackagePrivate::HasFrozenPackageGraph(Package, FrozenObjects))
+			return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::DiscoveryMutation});
 		if (DeltaMode == EDefaultDeltaMode::Enabled
 			&& !Options.bCooking)
 		{
@@ -1411,6 +1451,7 @@ namespace Durin
 		std::vector<DObject*> Objects;
 		for (DObject* Object : FrozenObjects)
 			if (!IsPackageCaptureObjectOmitted(Object, Options.SaveOverrides.get())
+				&& (!Options.bCooking || IsObjectIncludedForCook(Object, Options.Target))
 				&& (!Options.ObjectFilter || Options.ObjectFilter(Object)))
 				Objects.push_back(Object);
 		std::unordered_map<DObject*, uint64> ObjectIds;
@@ -1514,6 +1555,9 @@ namespace Durin
 		{
 			return std::unexpected(std::move(LinkerError));
 		}
+		std::ranges::sort(BuildDependencies);
+		BuildDependencies.erase(std::unique(BuildDependencies.begin(), BuildDependencies.end()), BuildDependencies.end());
+		OutLinker.Summary.BuildPackageDependencies = std::move(BuildDependencies);
 		return {};
 	}
 

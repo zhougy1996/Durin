@@ -11,6 +11,10 @@ namespace
 	class DBulkPackageAssetForTest : public Durin::DObject
 	{
 	public:
+        static inline std::function<void(DBulkPackageAssetForTest&, Durin::FObjectCookContext&)> CookHook;
+        auto BeginCacheForCookedPlatformData(Durin::FObjectCookContext& Context) -> void override {
+            DObject::BeginCacheForCookedPlatformData(Context); if (CookHook) CookHook(*this, Context);
+        }
 		explicit DBulkPackageAssetForTest(
 			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
 			: DObject(Initializer), Payload(Durin::FGuid{0x55112233, 0x44556677,

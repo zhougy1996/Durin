@@ -41,10 +41,7 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 	Testing::FScopedMountRegistryFixture Registry(Mounts);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	ASSERT_TRUE(RefreshAssetRegistry());
-	std::vector<FCookContributorHandle> Handles;
 	std::string Error;
-	ASSERT_TRUE(RegisterEngineCookContributors(Handles)) << Error;
-	struct FRetire { std::vector<FCookContributorHandle>& Handles; ~FRetire() { for (auto Handle : Handles) UnregisterCookContributor(Handle); } } Retire{Handles};
 	FPackagePath MaterialPath, WrapperPath, LeafPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/CookFunctionTests/Material", MaterialPath));
 	ASSERT_TRUE(FPackagePath::TryCreate("/CookFunctionTests/Wrapper", WrapperPath));
@@ -103,8 +100,8 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 	{
 		const std::array CookMounts{FMountPoint{.VirtualRoot = "/CookFunctionTests/", .Owner = EMountOwner::Test,
 			.Root = Request.OutputRoot / "CookFunctionTests", .bAutoScan = true}};
-		Testing::FScopedMountRegistryFixture CookRegistry(CookMounts);
-		ASSERT_TRUE(CookRegistry.IsValid()) << CookRegistry.GetError();
+		Testing::FScopedMountRegistryFixture CookMountsFixture(CookMounts);
+		ASSERT_TRUE(CookMountsFixture.IsValid()) << CookMountsFixture.GetError();
 		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		DMaterial* Loaded = nullptr;
 		const auto LoadedResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
@@ -137,10 +134,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	Testing::FScopedMountRegistryFixture Registry(Mounts);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	ASSERT_TRUE(RefreshAssetRegistry());
-	std::vector<FCookContributorHandle> Handles;
 	std::string Error;
-	ASSERT_TRUE(RegisterEngineCookContributors(Handles)) << Error;
-	struct FRetire { std::vector<FCookContributorHandle>& Handles; ~FRetire() { for (auto Handle : Handles) UnregisterCookContributor(Handle); } } Retire{Handles};
 	FPackagePath MaterialPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/CookNormal/Parent", MaterialPath));
 	DMaterial* Material = nullptr;
@@ -188,8 +182,8 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	{
 		const std::array CookMounts{FMountPoint{.VirtualRoot = "/CookNormal/", .Owner = EMountOwner::Test,
 			.Root = Request.OutputRoot / "CookNormal", .bAutoScan = true}};
-		Testing::FScopedMountRegistryFixture CookRegistry(CookMounts);
-		ASSERT_TRUE(CookRegistry.IsValid()) << CookRegistry.GetError();
+		Testing::FScopedMountRegistryFixture CookMountsFixture(CookMounts);
+		ASSERT_TRUE(CookMountsFixture.IsValid()) << CookMountsFixture.GetError();
 		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		DMaterial* Loaded = nullptr;
 		const auto LoadResult = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
@@ -222,20 +216,7 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 	Testing::FScopedMountRegistryFixture Registry(Mounts);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	ASSERT_TRUE(RefreshAssetRegistry());
-	std::vector<FCookContributorHandle> Handles;
 	std::string Error;
-	ASSERT_TRUE(RegisterEngineCookContributors(Handles)) << Error;
-	struct FRetire { std::vector<FCookContributorHandle>& Handles; ~FRetire() { for (auto Handle : Handles) UnregisterCookContributor(Handle); } } Retire{Handles};
-	// The standalone host registers this unversioned fallback for generic assets.
-	// It must not make transitive function dependencies permanently uncacheable.
-	const auto Generic = RegisterCookContributor(DObject::StaticClass(), {"generic-package", 1,
-		[](DObject& Object, std::string_view Path, FCookPreparationContext& Context) -> FCookContributionResult {
-			std::string Error;
-
-			return {};
-		}}).Handle;
-	ASSERT_NE(Generic, 0u);
-	Handles.push_back(Generic);
 
 	FPackagePath MaterialPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Materials/FunctionFixture", MaterialPath));
@@ -269,13 +250,12 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
 	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "Engine/Materials/Functions"));
 	auto FunctionRootRequest = Request;
-	FunctionRootRequest.OutputRoot = Root / "RejectedFunctionRoot";
+	FunctionRootRequest.OutputRoot = Root / "OmittedFunctionRoot";
 	FunctionRootRequest.ExplicitRoots = {FunctionPath};
-	EXPECT_FALSE(FCookCoordinator().Run(FunctionRootRequest, Result));
-	EXPECT_EQ(Result.Error, ECookRunError::InputFailed);
-	ASSERT_TRUE(Result.InputFailure.GetDiagnostic());
-	EXPECT_EQ(Result.InputFailure.GetDiagnostic()->Error, ECookInputError::EmptyRuntimeRoot);
-	EXPECT_FALSE(std::filesystem::exists(FunctionRootRequest.OutputRoot / "CookManifest.bin"));
+	ASSERT_TRUE(FCookCoordinator().Run(FunctionRootRequest, Result));
+	ASSERT_EQ(Result.Packages.size(), 1u);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::Omitted);
+	EXPECT_TRUE(std::filesystem::exists(FunctionRootRequest.OutputRoot / "CookManifest.bin"));
 
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ShutdownAssetManager();
@@ -286,8 +266,8 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 	{
 		const std::array CookMounts{FMountPoint{.VirtualRoot = "/Engine/", .Owner = EMountOwner::Test,
 			.Root = Request.OutputRoot / "Engine", .bAutoScan = true}};
-		Testing::FScopedMountRegistryFixture CookRegistry(CookMounts);
-		ASSERT_TRUE(CookRegistry.IsValid()) << CookRegistry.GetError();
+		Testing::FScopedMountRegistryFixture CookMountsFixture(CookMounts);
+		ASSERT_TRUE(CookMountsFixture.IsValid()) << CookMountsFixture.GetError();
 		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		DMaterial* Loaded = nullptr;
 		{

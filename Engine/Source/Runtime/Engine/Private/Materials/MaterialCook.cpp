@@ -18,6 +18,20 @@
 
 namespace Durin
 {
+	auto DMaterialInterface::BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void
+	{
+		Super::BeginCacheForCookedPlatformData(Context);
+		if (IsDynamicInstance() || Context.CheckCancellation()) return;
+		auto* Preparation = FCookPreparationContext::Get(*this, Context);
+		if (!Preparation) { Context.Result = {EObjectCookError::InvalidInput, "Missing material Cook preparation context."}; return; }
+		const FAssetBuildTaskContext Control{.Cancellation = FCancellationToken(Context.IsCancelled)};
+		auto Built = PrepareCookedProgram(Preparation->GetTargetPlatform(), Preparation->Options.MaterialConfigurations, Control);
+		if (Built.Status == EShaderBuildStatus::Canceled) { Context.Result = {EObjectCookError::Cancelled, {}}; return; }
+		if (!Built)
+			Preparation->Failure = {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::Preparation,
+				.ObjectPath = GetObjectPath(), .VirtualPath = Context.Package, .Diagnostic = std::move(Built.Diagnostic)};
+		else Preparation->Primary = std::move(*Built);
+	}
 	namespace
 	{
 		std::atomic<EMaterialQualityLevel> GMaterialQualityLevel{

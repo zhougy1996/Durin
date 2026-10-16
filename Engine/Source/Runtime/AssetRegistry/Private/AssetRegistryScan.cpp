@@ -99,6 +99,7 @@ namespace Durin::AssetPrivate
 					Header.FormatVersion = CachedIt->second.FormatVersion;
 					Header.Dependencies = CachedIt->second.Dependencies;
 					Header.SoftDependencies = CachedIt->second.SoftDependencies;
+					Header.BuildDependencies = CachedIt->second.BuildDependencies;
 					Header.SearchableNames = CachedIt->second.SearchableNames;
 					Header.ObjectCount = CachedIt->second.ObjectCount;
 					Header.BulkSegmentExtent = CachedIt->second.BulkSegmentExtent;
@@ -151,6 +152,7 @@ namespace Durin::AssetPrivate
 					.FormatVersion = Header.FormatVersion,
 					.Dependencies = Header.Dependencies,
 					.SoftDependencies = Header.SoftDependencies,
+					.BuildDependencies = Header.BuildDependencies,
 					.SearchableNames = Header.SearchableNames,
 					.ObjectCount = Header.ObjectCount,
 					.BulkSegmentExtent = Header.BulkSegmentExtent,
@@ -174,6 +176,7 @@ namespace Durin::AssetPrivate
 					.FormatVersion = Header.FormatVersion,
 					.Dependencies = std::move(Header.Dependencies),
 					.SoftDependencies = std::move(Header.SoftDependencies),
+					.BuildDependencies = std::move(Header.BuildDependencies),
 					.SearchableNames = std::move(Header.SearchableNames),
 					.ObjectCount = Header.ObjectCount,
 					.BulkSegmentExtent = Header.BulkSegmentExtent,

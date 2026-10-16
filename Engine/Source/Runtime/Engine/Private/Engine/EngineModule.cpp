@@ -1,7 +1,4 @@
 #include "Modules/ModuleManager.h"
-#if DURIN_WITH_EDITOR
-#include "Asset/CookRegistry.h"
-#endif
 #include "Collision/CollisionDebugSubsystem.h"
 #include "Materials/MaterialParameterCollection.h"
 #if DURIN_WITH_EDITOR
@@ -22,9 +19,6 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 			MaterialBuildPrivate::OpenTranslationSessions();
 #endif
-#if DURIN_WITH_EDITOR
-			CookRegistrations = std::make_unique<AssetPrivate::FEngineCookRegistrationScope>();
-#endif
 			CollisionDebug = std::make_unique<FWorldSubsystemRegistration>(FWorldSubsystemDescriptor{
 				.Type = DCollisionDebugSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 			MaterialParameterCollections = std::make_unique<FWorldSubsystemRegistration>(FWorldSubsystemDescriptor{
@@ -38,16 +32,10 @@ namespace Durin
 			MaterialBuildPrivate::CloseTranslationSessions();
 			MaterialBuildPrivate::ClearPrograms();
 #endif
-#if DURIN_WITH_EDITOR
-			CookRegistrations.reset();
-#endif
 			MaterialParameterCollections.reset();
 			CollisionDebug.reset();
 		}
 	private:
-#if DURIN_WITH_EDITOR
-		std::unique_ptr<AssetPrivate::FEngineCookRegistrationScope> CookRegistrations;
-#endif
 		std::unique_ptr<FWorldSubsystemRegistration> CollisionDebug;
 		std::unique_ptr<FWorldSubsystemRegistration> MaterialParameterCollections;
 	};

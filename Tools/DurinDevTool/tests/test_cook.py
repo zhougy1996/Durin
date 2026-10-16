@@ -22,7 +22,7 @@ REPOSITORY = RepositoryContext.load(REPOSITORY_ROOT)
 def report(*, status: str = "succeeded", target: str = "win64") -> str:
     return json.dumps(
         {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "status": status,
             "code": status,
             "diagnostic": "done",
@@ -38,7 +38,7 @@ def report(*, status: str = "succeeded", target: str = "win64") -> str:
             "packages": [
                 {
                     "packagePath": "/Game/Root",
-                    "contributor": "generic-package",
+                    "serializer": "generic-package",
                     "status": "captured",
                     "stage": "capture",
                     "code": "captured",
@@ -83,6 +83,16 @@ def test_macos_cook_target_is_selected_and_reported() -> None:
     )
     assert namespace.target == "macos"
     assert cook._read_report(report(target="macos"))["target"] == "macos"
+
+
+def test_omitted_package_report_is_successful_and_distinct_from_failure() -> None:
+    value = json.loads(report())
+    value["packages"][0].update(status="omitted", code="omitted", packageBytes=0, segmentBytes=0)
+    decoded = cook._read_report(json.dumps(value))
+    output = io.StringIO()
+    cook._render_human(decoded, output)
+    assert "1 omitted" in output.getvalue()
+    assert "0 failed" in output.getvalue()
 
 
 def test_cook_maps_stable_native_contract_and_renders_json(tmp_path: Path) -> None:
@@ -145,7 +155,7 @@ def test_cook_maps_stable_native_contract_and_renders_json(tmp_path: Path) -> No
             "--dry-run",
         ]
     ]
-    assert json.loads(output.getvalue())["schemaVersion"] == 1
+    assert json.loads(output.getvalue())["schemaVersion"] == 2
 
 
 def test_cook_rejects_malformed_or_nondeterministic_reports() -> None:
@@ -180,3 +190,12 @@ def test_failed_cook_reads_complete_report_from_process_log(tmp_path: Path) -> N
             repository_context=repository, stdout=output, stderr=io.StringIO(),
             executable_resolver=lambda *_args: tmp_path / "DurinAssetTool") == 1
     assert json.loads(output.getvalue())["target"] == "macos"
+
+
+def test_cook_rejects_retired_contributor_report_without_compatibility_fallback():
+    retired = json.loads(report())
+    retired["schemaVersion"] = 1
+    for package in retired["packages"]:
+        package["contributor"] = package.pop("serializer")
+    with pytest.raises(DevToolError):
+        cook._read_report(json.dumps(retired))

@@ -30,6 +30,7 @@ namespace Durin
 		ENGINE_API explicit DVolumeTexture(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DVolumeTexture() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
+		ENGINE_API static auto AppendToClassSchema(FObjectCookContext& Context) -> void;
 
 #if DURIN_WITH_EDITORONLY_DATA
 		auto GetBuildSettings() const -> const FVolumeTextureBuildSettings& { return BuildSettings; }

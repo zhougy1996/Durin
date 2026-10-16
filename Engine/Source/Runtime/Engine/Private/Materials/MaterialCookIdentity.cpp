@@ -1,4 +1,5 @@
 #include "Asset/CookBuildProviders.h"
+#include "Materials/MaterialInterface.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Serialization/BinaryFormat.h"
 
@@ -30,5 +31,14 @@ namespace Durin::AssetPrivate
 		}
 		Out.push_back({ECookBuildDependencyKind::ConfigurationValue, "material/configurations", {}, Policy.TakeBytes()});
 		return {};
+	}
+}
+
+namespace Durin
+{
+	auto DMaterialInterface::AppendToClassSchema(FObjectCookContext& Context) -> void
+	{
+		(void)Context.RequireRequestValue("shader-build");
+		if (Context.Result) AssetPrivate::AppendNativeCookSchema(Context, "material", 5, AssetPrivate::DeclareMaterialCookInputs);
 	}
 }

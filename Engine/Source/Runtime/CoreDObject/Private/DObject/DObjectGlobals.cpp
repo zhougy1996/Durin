@@ -847,6 +847,7 @@ namespace Durin
 
 		DObjectForceRegistration(Class);
 		Class->SetQualifiedName(FName(Params.QualifiedClassName));
+		Class->CookSchema = Params.CookSchema;
 		Class->SetTypeNames(
 			Params.ShortClassName ? Params.ShortClassName : "",
 			Params.DisplayName ? Params.DisplayName : "",

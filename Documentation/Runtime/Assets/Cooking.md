@@ -2,7 +2,7 @@
 
 Summary: Define offline Cook inputs, dependency reuse, typed failures, and transactional output publication.
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-16
 
 ## Coordinator and input ownership
 
@@ -10,8 +10,7 @@ Target interpretation and immutable operation capabilities follow
 [target platform build policy](TargetPlatforms.md). Each run owns a copy of its
 request before callbacks, including canonical material variant selections.
 Family source roots own native recipe declarations; material configurations are
-declared before Cook lookup. Old material dependency sets safely miss without a
-CookState format change. Unrelated family settings do not enter every DDC key.
+declared before Cook lookup. Unrelated family settings do not enter every DDC key.
 
 Engine package capture prepares material programs and StaticMesh render/collision
 products once before Archive discovery/emission. A bounded invocation-scoped
@@ -23,30 +22,21 @@ program or apply a compiled candidate to the asset.
 
 `FCookContext::AddPackage` accepts canonical cooked package bytes; package
 serialization captures any `FBulkData` ranges and produces the optional raw
-segment. `AddRawPackage` admits an already laid-out opaque segment. Asset families
-prepare objects through class-keyed registrations owned by the Engine module.
-Standalone saves acquire missing built-ins through the same registry and retire
-only their own handles. Stable family names and classes must both be unique.
-`SaveCookPackage` and direct package saves use one common package capture; family
-callbacks cannot publish plans.
+segment. `AddRawPackage` admits an already laid-out opaque segment. Asset classes
+own their Cook lifecycle overrides. `SaveCookPackage` and direct package saves use
+one common package capture; object hooks cannot publish plans. There is no Cook
+contributor registry, registration scope, handle, or registration snapshot.
 
-A coordinator run captures the contributor registration map before its first
-cancellation or provider callback. Resolution for every package uses that map.
-Unregistering retires a contributor from future runs without waiting for active
-runs; replacing it cannot change a captured run's selection. Registrations may
-supply `LifetimeOwner` to retain callback state and native code. An empty owner
-requires the caller to guarantee their process lifetime. Callback wrappers are
-destroyed before the owner, outside the registration mutex, including reentrant
-retirement. The run releases its registrations before opening the output store,
-or on failure, cancellation, or dry-run return. The standalone host loads types
-and providers before package work and keeps their code alive through shutdown.
-Arbitrary native callback state still requires explicit dependency declarations.
+The standalone host loads types and providers before package work, joins their
+operations, releases objects/resources, then unloads native code. Class hooks have
+the same lifetime as their reflected type; operation callbacks do not extend a
+module's lifetime independently.
 
 CMNF entries are sorted by normalized cook-relative path and record kind, required
 flag, byte extent, and XXH3-128 digest. Raw companions use `PackageBulk`;
 package-only output has no companion entry.
 
-Win64/Game and MacOS/Game Cook also supply `Shaders/ShaderLibrary.dslb` as a
+Win64/Game and MacOS/Game Cook with retained runtime packages also supply `Shaders/ShaderLibrary.dslb` as a
 `ShaderLibrary` auxiliary output. It is detached before the store transaction,
 validated by its producer, staged and committed with package outputs, and
 recorded in CMNF. Failure at its stage or commit participates in the same
@@ -105,6 +95,53 @@ includes this dependency policy and invalidates pre-removal payloads. DMAT versi
 7 omits the obsolete authored Program version word; typed IR, generator, compiler
 envelope and payload versions remain independently validated.
 
+## Object lifecycle and selection
+
+`DObject` provides default begin/completion/clear, `PreSave`, dependency-event and
+target-eligibility hooks. `FObjectCookContext` carries generic target/request
+values, declarations and typed results without depending on Engine or its build
+providers. Required named request values become captured dependencies. Native
+`AppendToClassSchema` hooks bind through `FClassParams` and intrinsic construction;
+`DClass::AppendCookSchema` visits distinct hooks root-to-leaf without CDO access.
+Static schema hooks do not call their parent; object virtual overrides do.
+Class schema collection clears the package identity and accepts only shared
+configuration/producer-version values. Declare package and external-file inputs
+in `OnCookEvent`, where the instance and package are available. This prevents a
+once-per-class cache from reusing declarations chosen for the first package.
+
+Engine begins every selected object before waiting on its operation completion
+adapter. The adapter joins owned work and reports bounded failure/cancellation;
+completion is checked independently of success. A still-incomplete operation fails
+rather than polling indefinitely. Scoped teardown joins every started operation
+and clears it after capture, including failure/cancellation and nested captures.
+Texture preparation uses its existing asynchronous platform cache; synchronous
+mesh/material preparation retains existing builders and typed outcomes.
+
+`PreSave` executes once per selected object before archive discovery/emission,
+for authored and cooked saves. Preparation/save hooks must not introduce an
+unprepared persistent object or alter the captured graph. They must not rewrite
+authored state or accepted live render programs. Heavy construction/DDC work stays
+outside serialization. Detached products remain bounded to one capture and exact
+target/revision; serializers consume them without starting build work.
+
+`IsEditorOnly` and `NeedsLoadForTargetPlatform` determine Cook exclusion, including
+excluded ancestors. Material functions are editor-only but remain build inputs.
+A kept hard reference to a valid policy-stripped object serializes null, within
+or across packages, without modifying the live pointer or retaining a dangling
+import. Invalid/missing/wrong-type references and explicit save omissions retain
+their own validation. Soft paths preserve authored identity but do not promote a
+stripped target into runtime output. Retaining diagnostic editor fields cannot
+resurrect an excluded object. A package with no runtime exports is `omitted`, even
+when explicitly requested; mixed packages retain their eligible exports.
+
+Authored saves invoke the dependency event with `bCooking == false`, persisting
+package build edges separately from hard/soft runtime references in Registry v3.
+Other declaration kinds are Cook-only. Metadata aids scheduling; current Cook
+object declarations own direct/transitive semantics, and metadata-only build
+inputs observe source/bulk directly. Registry v2 remains readable. See
+[package persistence](../Core/PackagePersistence.md) and
+[package format](AssetPackages.md#defaults-and-version-policy).
+
 ## Dependency discovery and reuse
 
 `FCookCoordinator` requires the object owner thread and rejects nested runs before
@@ -115,13 +152,20 @@ or retain whole-run package/bulk copies. Ordinary loading provides recursion,
 aliases, cycles, residency and file-backed lazy bulk. Existing residents in this
 process are valid; ordinary non-Cook load/mutation admission remains unchanged.
 
-Contributors prepare derived object state without saving authored files. The
-common publisher captures each retained package once. `FScopedOfflinePreparation` selects synchronous Material work and
-lets StaticMesh build its detached serialization product without editor compilation.
-It does not gate mutation or loading. The host must finish owned work before
-unloading provider code. `DeclareDependencies` executes before every cache lookup without loading
-objects. Absence of a callback disables reuse, including transitive contributors
-without declarations. Declarations use stable logical names and these semantics:
+Object overrides prepare derived state without saving authored files. The common
+publisher captures each retained package once. `FScopedOfflinePreparation` selects
+synchronous Material work and prevents StaticMesh editor compilation during offline
+loading. It does not gate ordinary mutation or loading.
+
+Class schemas are evaluated before reuse without constructing assets. Object
+`OnCookEvent(PlatformCookDependencies)` declarations and eligibility are evaluated
+on a miss and recorded for reevaluation. Complete unchanged projections allow a
+warm hit without asset construction. Missing/legacy projections require loading;
+arbitrary instance-computed configuration/schema values have no reevaluation
+function and deliberately prevent reuse. Empty default hooks are complete and
+need no generic-family registration.
+
+Declarations use stable logical names and these semantics:
 
 - Source package and owned bulk identities are automatic. Hard package references
   are transitive build inputs; soft references affect runtime reachability without
@@ -131,13 +175,13 @@ without declarations. Declarations use stable logical names and these semantics:
   Cycles terminate once per node. Build-only packages do not become runtime roots.
 - External files are hashed during discovery and read again when requested; their
   locator is excluded from identity. Configuration and schema/producer values are owned canonical bytes.
-  Contributors read them through `FCookPreparationContext::ReadDeclaredInput`; undeclared
+  Preparation hooks read them through `FCookPreparationContext::ReadDeclaredInput`; undeclared
   access fails the run even if its immediate error is ignored.
 - Names, kinds, lengths, and values are canonically framed. Family behavior
   versions, relevant reflected schema, target/profile, and editor retention are
   included. Process revisions, timestamps, absolute paths, scheduling, and DDC
   location are excluded. Native constructor defaults, custom serializers, build
-  algorithms, and other unreflected behavior require an explicit contributor or
+  algorithms, and other unreflected behavior require an explicit class-schema or
   producer version bump; callback output is not automatically a complete recipe.
 
 Built-in Texture2D, TextureCube, VolumeTexture, and StaticMesh declarations include
@@ -147,13 +191,24 @@ use ordinary stable files. Sky Light references are normal TextureCube package
 dependencies; filtered lighting is transient GPU state, with no external IBL
 payload. StaticMesh pending authored mutation remains an invalid offline input.
 
-`CookState.bin` version 2 persists canonical per-package dependency records,
-separately from CMNF. Version 1, invalid, duplicate, truncated, or incompatible
-state becomes a full cache miss. A hit additionally validates output size and
-digest and retains those exact verified buffers. Missing/corrupt output is
-recaptured and repaired. Hits, fresh captures, and dry runs share dependency discovery and
-auxiliary-library production. DDC hits, rebuilds, captures, and Cook hits remain
-distinct provenance.
+`CookState.bin` version 4 persists output dependency records and a separate input
+projection table, including omitted/build-only packages. Projections bind source,
+bulk, registered custom-version definitions and current reflected/native schema
+fingerprints to object selections and
+instance declaration descriptors. External file descriptors retain acquisition
+locators separately from content identities. Class schema values are recomputed
+for each run. Versions 1/2/3, invalid, duplicate, truncated or incompatible state
+become safe misses; Cook never repairs or resaves authored inputs. Custom-version
+changes invalidate both the output and the object/dependency projection before
+reuse. Tracking all local custom versions is conservative: it can invalidate
+unrelated packages, unlike UE's per-class used-version tracking.
+
+A hit additionally validates output size/digest and retains those exact buffers.
+Missing/corrupt output is recaptured and repaired. Hits, fresh captures and dry
+runs share dependency evaluation; retained runtime packages also produce the
+auxiliary shader library. DDC hits, rebuilds, captures and Cook hits remain distinct
+provenance. All-omitted runs publish valid empty package manifests/state without
+an unnecessary shader library.
 
 Discovery limits are 65536 packages and graph/runtime edges, 256 MiB per read file, and
 1 GiB of accounted retained input data. Dependency sets use at most 65536 records,
@@ -167,16 +222,13 @@ cancellation between directory entries, read chunks, and library requests.
 
 ## Results and failure ownership
 
-Cook contributor registration returns `FCookContributorRegistrationResult`,
-with success derived from its error code and the new handle exposed separately.
-Failures distinguish class/name/callback/version requirements and duplicate class
-routes, retaining contributor name, qualified class name and version context.
-Engine family batch registration returns the first typed failure and removes only
-handles added by that batch. Existing caller-owned handles remain unchanged.
+`FObjectCookResult` separates generic typed failure/cancellation from completion.
+Engine preparation retains its family-specific `FCookContributionResult` cause;
+registration errors and duplicate route/name diagnostics no longer exist.
 
 Cook discovery retains its first `FCookInputFailure` in its own failure channel;
 `FCookRunResult::InputDiagnostic` receives that owned record alongside the run
-`FCookInputResult` status and diagnostic text. Contributor callbacks return
+`FCookInputResult` status and diagnostic text. Engine preparation returns
 `FCookContributionResult` directly; dependency graphs adapt to Cook input
 status without passing through asset read or write classifications. Cancellation, input write conflicts, file IO,
 file/aggregate byte and package-count limits, unknown packages, undeclared
@@ -186,10 +238,10 @@ Declaration validation uses distinct count, name, duplicate, package, external
 file, value, retained-storage and reserved-kind errors. These own the declaring
 package, kind/name, file and applicable byte/count bounds. Invalid package paths
 retain their complete `FObjectPathError`; payload-shape rejection remains separate
-from path parsing. Declaration failure prevents contributor execution and output
+from path parsing. Declaration failure prevents object preparation and output
 publication, while an earlier retained cause remains valid across later runs.
 Dependency discovery has no string-based failure entrypoint. Root counts and
-classes, runtime edge limits, empty runtime selections, Bulk size/digest mismatch,
+classes, runtime edge limits, Bulk size/digest mismatch,
 schema availability, schema depth/field/type/encoding limits and retained schema
 or dependency storage all produce Cook-owned input failures. Schema failures retain
 class/member identities and limits; Bulk failures retain expected and actual
@@ -251,7 +303,7 @@ on Engine asset classes.
 Coordinator capture failures retain `FCookCaptureResult` in `CaptureCause`.
 Finalization errors own the complete `FCookPlanError`, including nested asset or
 path-resolution causes; successful finalization with an unexpected plan count
-retains actual and expected counts instead. Both carry package and contributor
+retains actual and expected counts instead. Both carry package and serializer
 identity. Failed capture never reaches output publication; later runs reset the
 cause without invalidating copies retained by callers. Formatting remains at the
 run presentation boundary.
@@ -262,7 +314,7 @@ mode separately. The coordinator writes typed codes for every terminal path.
 `dry-run` versus `succeeded`; no string code remains in the run result. Per-package
 results also store no code or diagnostic text: command/JSON uses
 `CookPackageStatusName` and `FormatCookPackageResult` with the structured status,
-while package identity, contributor, stage and byte counts remain independent.
+while package identity, serializer, stage and byte counts remain independent.
 `FCookRunResult` stores no
 diagnostic text; `FormatCookRunError` formats codes, owned identities, counts and
 nested causes at command and test presentation boundaries. Fingerprint failures
@@ -307,11 +359,11 @@ presentation formatting. Status and transaction timing remain independent
 from the cause; existing cleanup and manifest-last publication order are unchanged.
 
 The package publisher uses the stable `engine-package` identity and its own
-serializer version. Each family has one active behavior version. The legacy
-`FamilyProducerVersion` word remains in CookState/manifest-compatible records
-with deterministic value 1; it is not a recipe version. Old records remain
-readable but cannot match the migrated publisher identity. Family recipe,
-function, constants and output versions remain explicit dependency declarations.
+serializer version (currently 4). Native class schemas own behavior versions.
+CookState uses `Serializer`/`SerializerVersion`; there is no retained contributor
+or family-producer compatibility word. Only the current state format is decoded;
+older state is discarded and outputs are recooked. Family recipe, function,
+constants and payload versions remain explicit dependency values.
 
 ## Output transaction
 

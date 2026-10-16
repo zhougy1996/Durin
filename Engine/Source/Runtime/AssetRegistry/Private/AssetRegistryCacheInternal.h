@@ -14,6 +14,7 @@ namespace Durin::AssetPrivate
 		uint32 FormatVersion = 0;
 		std::vector<FPackagePath> Dependencies;
 		std::vector<FPackagePath> SoftDependencies;
+		std::vector<FPackagePath> BuildDependencies;
 		std::vector<std::string> SearchableNames;
 		uint64 ObjectCount = 0;
 		uint64 BulkSegmentExtent = 0;

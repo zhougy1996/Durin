@@ -168,6 +168,8 @@ namespace Durin
 			return MaterialCookDiagnostic;
 		}
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
+		ENGINE_API auto BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void override;
+		ENGINE_API static auto AppendToClassSchema(FObjectCookContext& Context) -> void;
 		// Owner-thread detached preparation; never applies a result to this material.
 		ENGINE_API auto PrepareCookedProgram(ECookTargetPlatform Target,
 			std::span<const FMaterialCookConfiguration> Configurations, const FAssetBuildTaskContext& Control = {})

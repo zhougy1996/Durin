@@ -1,4 +1,7 @@
 #include "Asset/CookBuildProviders.h"
+#include "Texture/Texture2D.h"
+#include "Texture/TextureCube.h"
+#include "Texture/VolumeTexture.h"
 #include "Serialization/BinaryFormat.h"
 #if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/ITextureCompressorModule.h"
@@ -41,4 +44,14 @@ namespace Durin::AssetPrivate
 	{ return DeclareTextureInputs(Request, Out, "texture-cube", 1); }
 	auto DeclareVolumeTextureCookInputs(const FCookDependencyRequest& Request, std::vector<FCookDependencyDeclaration>& Out) -> FCookContributionResult
 	{ return DeclareTextureInputs(Request, Out, "volume-texture", 2); }
+}
+
+namespace Durin
+{
+	auto DTexture2D::AppendToClassSchema(FObjectCookContext& Context) -> void
+	{ AssetPrivate::AppendNativeCookSchema(Context, "texture2d", 2, AssetPrivate::DeclareTexture2DCookInputs); }
+	auto DTextureCube::AppendToClassSchema(FObjectCookContext& Context) -> void
+	{ AssetPrivate::AppendNativeCookSchema(Context, "texture-cube", 2, AssetPrivate::DeclareTextureCubeCookInputs); }
+	auto DVolumeTexture::AppendToClassSchema(FObjectCookContext& Context) -> void
+	{ AssetPrivate::AppendNativeCookSchema(Context, "volume-texture", 2, AssetPrivate::DeclareVolumeTextureCookInputs); }
 }

@@ -4,7 +4,7 @@ Summary: Define Engine-free reflected package capture, synchronous and asynchron
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-09-21
+Last reviewed: 2026-10-16
 
 ## Ownership and Entry Points
 
@@ -66,6 +66,25 @@ and Registry publication. There is no default context or implicit file-only
 fallback. Both reject direct-write flags. Options are copied at submission.
 Rejected admission returns an invalid task and a domain error in `Admission`;
 accepted admission is not successful persistence.
+
+Before archive passes, capture invokes `DObject::PreSave` once per selected
+object with authored/cooked target context. Typed failure aborts capture, and
+persistent graph growth is rejected. Hooks must preserve authoring semantics.
+Authored capture also invokes `OnCookEvent(PlatformCookDependencies)` with
+`bCooking == false`. Valid package declarations populate the separate
+`FPackageSummary::BuildPackageDependencies` list; non-package Cook values are
+ignored during authored saving. These edges create no runtime imports or hard/soft
+references. Registry v3 persists them; canonical verification uses the input section version,
+and public saves always emit v3. Readers also accept Registry v2 without
+build-edge metadata. Engine Cook reevaluates current object declarations rather
+than treating saved metadata as complete cache evidence.
+
+Generic cooked selection applies object/ancestor eligibility even without an
+Engine-supplied filter. Valid policy-stripped hard targets serialize null without
+changing the live pointer. An arbitrary caller filter or explicit save omission
+is not proof of target-policy stripping and retains its existing failure contract.
+Byte-producing capture still requires exports; the Engine Cook entrypoint reports
+omitted packages before invoking it. See [Cooking](../Assets/Cooking.md).
 
 Capture and live-object access run on GameThread. Internally owned BlockingIO
 work stages detached bytes and paths. A registered GameThread continuation

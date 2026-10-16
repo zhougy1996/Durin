@@ -4,7 +4,7 @@ Summary: Define asset identity, canonical DAST v10 packages, runtime residency, 
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
 
-Last reviewed: 2026-09-30
+Last reviewed: 2026-10-16
 
 Durin object assets are stored as versioned `.dasset` packages. A package is a
 residency and persistence container with zero or more independently addressable
@@ -300,8 +300,12 @@ Registry records the package identity and a canonical list of top-level asset
 records. Each record binds an export id to `FTopLevelAssetPath`, class, and an
 optional exact `FObjectPath` redirect destination. Shared sorted
 hard/soft/searchable package facts, export count, and exact external-bulk extent
-and digest remain package-level. No package class, redirect, or main-export id
-exists at package level.
+and digest remain package-level. Registry section version 3 adds a separate sorted
+build-package dependency list from authored save events; it creates no runtime
+imports. Readers also accept section version 2 without that list. Older readers
+reject version 3 explicitly. The outer DAST/payload version remains 10, and the
+rebuildable AssetRegistry cache schema is 6. No package class, redirect, or
+main-export id exists at package level.
 
 ### Defaults And Version Policy
 

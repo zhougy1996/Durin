@@ -1,4 +1,5 @@
 #include "Asset/CookBuildProviders.h"
+#include "StaticMesh/StaticMesh.h"
 #include "Collision/CollisionGeometry.h"
 #include "Serialization/BinaryFormat.h"
 #if DURIN_WITH_EDITORONLY_DATA
@@ -37,4 +38,10 @@ namespace Durin::AssetPrivate
 		return {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::RecipeProvider, .VirtualPath = Request.Package.ToString(),
 			.TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile, .Provider = "static-mesh"};
 	}
+}
+
+namespace Durin
+{
+	auto DStaticMesh::AppendToClassSchema(FObjectCookContext& Context) -> void
+	{ AssetPrivate::AppendNativeCookSchema(Context, "static-mesh", 2, AssetPrivate::DeclareStaticMeshCookInputs); }
 }

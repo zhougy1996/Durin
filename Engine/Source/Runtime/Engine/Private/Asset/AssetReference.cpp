@@ -34,6 +34,7 @@ namespace Durin
 			FPackagePath RedirectDestination;
 			std::vector<FPackagePath> Dependencies;
 			std::vector<FPackagePath> SoftDependencies;
+			std::vector<FPackagePath> BuildDependencies;
 		};
 
 		auto GatherObjects(
@@ -914,6 +915,7 @@ namespace Durin
 		File.RedirectDestination = std::move(Header.RedirectDestination);
 		File.Dependencies = std::move(Header.Dependencies);
 		File.SoftDependencies = std::move(Header.SoftDependencies);
+		File.BuildDependencies = std::move(Header.BuildDependencies);
 		OutFile = std::move(File);
 		return {};
 	}
@@ -952,7 +954,8 @@ namespace Durin
 				.EntryKind = File.EntryKind,
 				.RedirectDestination = std::move(File.RedirectDestination),
 				.Dependencies = std::move(File.Dependencies),
-				.SoftDependencies = std::move(File.SoftDependencies)};
+				.SoftDependencies = std::move(File.SoftDependencies),
+				.BuildDependencies = std::move(File.BuildDependencies)};
 			return {};
 		}
 

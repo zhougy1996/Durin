@@ -8,7 +8,7 @@
     "commitTimeNanoseconds", "rollbackTimeNanoseconds", "packages"
   ],
   "properties": {
-    "schemaVersion": {"const": 1},
+    "schemaVersion": {"const": 2},
     "status": {"enum": ["succeeded", "failed", "cancelled"]},
     "code": {"type": "string"},
     "diagnostic": {"type": "string"},
@@ -27,13 +27,13 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "packagePath", "contributor", "status", "stage", "code",
+          "packagePath", "serializer", "status", "stage", "code",
           "diagnostic", "packageBytes", "segmentBytes"
         ],
         "properties": {
           "packagePath": {"type": "string"},
-          "contributor": {"type": "string"},
-          "status": {"enum": ["cook-hit", "ddc-hit", "rebuilt", "reused-output", "captured", "failed", "cancelled", "unsupported"]},
+          "serializer": {"type": "string"},
+          "status": {"enum": ["cook-hit", "ddc-hit", "rebuilt", "reused-output", "captured", "omitted", "failed", "cancelled", "unsupported"]},
           "stage": {"enum": ["discovery", "load", "prepare", "capture", "stage-segment", "stage-package", "commit-segment", "commit-package", "commit-state", "commit-manifest", "rollback", "stale-cleanup", "writer-lock"]},
           "code": {"type": "string"},
           "diagnostic": {"type": "string"},

@@ -106,7 +106,7 @@ namespace Durin
 		for (const FCookStateEntry* Entry : Entries)
 		{
 			if (!AppendString(Writer, Entry->VirtualPackagePath)
-				|| !AppendString(Writer, Entry->Contributor)
+				|| !AppendString(Writer, Entry->Serializer)
 				|| !AppendString(Writer, Entry->BuildProvenance))
 				return {.Error = ECookStateError::String, .VirtualPath = Entry->VirtualPackagePath, .Maximum = 4096};
 			Writer.WriteHash128(Entry->InputFingerprint);
@@ -114,14 +114,42 @@ namespace Durin
 			Writer.WriteHash128(Entry->SegmentDigest);
 			Writer.WriteU64(Entry->PackageSize);
 			Writer.WriteU64(Entry->SegmentSize);
-			Writer.WriteU32(Entry->ContributorVersion);
-			Writer.WriteU32(Entry->FamilyProducerVersion);
+			Writer.WriteU32(Entry->SerializerVersion);
 			Writer.WriteU8(Entry->SegmentFlags);
 			FByteBuffer Dependencies;
 			if (const auto Encoded = EncodeCookBuildDependencies(Entry->BuildDependencies, Dependencies); !Encoded)
 				return {.Error = ECookStateError::Dependency, .VirtualPath = Entry->VirtualPackagePath, .DependencyCause = Encoded};
 			Writer.WriteU32(static_cast<uint32>(Dependencies.size()));
 			Writer.WriteBytes(Dependencies);
+		}
+		if (State.Inputs.size() > MaximumCookDependencyRecords)
+			return {.Error = ECookStateError::Header, .Actual = State.Inputs.size(), .Maximum = MaximumCookDependencyRecords};
+		std::vector<const FCookInputProjection*> Inputs;
+		for (const auto& Input : State.Inputs) Inputs.push_back(&Input);
+		std::ranges::sort(Inputs, {}, &FCookInputProjection::VirtualPackagePath);
+		Writer.WriteU32(static_cast<uint32>(Inputs.size()));
+		for (size_t Index = 0; Index < Inputs.size(); ++Index)
+		{
+			const auto& Input = *Inputs[Index];
+			for (const auto& Record : Input.Records)
+				if (Record.Kind == ECookBuildDependencyKind::SourcePackage
+					? Record.Value.size() != 1 || std::to_integer<uint8>(Record.Value.front()) > 1
+					: Record.Kind == ECookBuildDependencyKind::OwnedBulk)
+					return {.Error = ECookStateError::Entry, .VirtualPath = Input.VirtualPackagePath};
+			FPackagePath Path;
+			if (!FPackagePath::TryCreate(Input.VirtualPackagePath, Path)
+				|| (Index && Inputs[Index - 1]->VirtualPackagePath == Input.VirtualPackagePath))
+				return {.Error = ECookStateError::Entry, .VirtualPath = Input.VirtualPackagePath};
+			if (!AppendString(Writer, Input.VirtualPackagePath)) return {.Error = ECookStateError::String, .VirtualPath = Input.VirtualPackagePath};
+			Writer.WriteHash128(Input.SourceFingerprint);
+			Writer.WriteHash128(Input.BulkFingerprint);
+			Writer.WriteHash128(Input.SchemaFingerprint);
+			Writer.WriteU8(Input.bReusable ? 1 : 0);
+			FByteBuffer Records;
+			if (auto Encoded = EncodeCookBuildDependencies(Input.Records, Records); !Encoded)
+				return {.Error = ECookStateError::Dependency, .VirtualPath = Input.VirtualPackagePath, .DependencyCause = Encoded};
+			Writer.WriteU32(static_cast<uint32>(Records.size()));
+			Writer.WriteBytes(Records);
 		}
 		if (Writer.HasError())
 			return {.Error = ECookStateError::ByteLimit, .Maximum = MaximumCookStateBytes};
@@ -139,7 +167,7 @@ namespace Durin
 		if (!Reader.Read(Magic) || !Reader.Read(Version) || !Reader.Read(Platform)
 			|| !Reader.Read(Profile) || !Reader.Read(Count) || !Reader.Read(Reserved)
 			|| Magic != CookStateMagic || Version != CookStateVersion || Reserved != 0
-			|| Count > MaximumCookStateEntries || Count > Reader.GetRemainingBytes() / 100
+			|| Count > MaximumCookStateEntries || Count > Reader.GetRemainingBytes() / 85
 			|| (Platform != static_cast<uint32>(ECookTargetPlatform::Win64)
 				&& Platform != static_cast<uint32>(ECookTargetPlatform::MacOS))
 			|| (Profile != static_cast<uint32>(ECookTargetProfile::Game)
@@ -154,7 +182,7 @@ namespace Durin
 		{
 			FCookStateEntry Entry;
 			if (!Reader.ReadString(Entry.VirtualPackagePath)
-				|| !Reader.ReadString(Entry.Contributor)
+				|| !Reader.ReadString(Entry.Serializer)
 				|| !Reader.ReadString(Entry.BuildProvenance)
 				|| !Reader.Read(Entry.InputFingerprint.HashLow)
 				|| !Reader.Read(Entry.InputFingerprint.HashHigh)
@@ -163,8 +191,7 @@ namespace Durin
 				|| !Reader.Read(Entry.SegmentDigest.HashLow)
 				|| !Reader.Read(Entry.SegmentDigest.HashHigh)
 				|| !Reader.Read(Entry.PackageSize) || !Reader.Read(Entry.SegmentSize)
-				|| !Reader.Read(Entry.ContributorVersion)
-				|| !Reader.Read(Entry.FamilyProducerVersion)
+				|| !Reader.Read(Entry.SerializerVersion)
 				|| !Reader.Read(Entry.SegmentFlags))
 				return {.Error = ECookStateError::Entry, .VirtualPath = Entry.VirtualPackagePath, .EntryIndex = Index, .RemainingBytes = Reader.GetRemainingBytes()};
 			if (auto Dependencies = Reader.ReadDependencies(Entry.BuildDependencies); !Dependencies)
@@ -177,6 +204,33 @@ namespace Durin
 				|| (Entry.SegmentFlags & ~(CookStateSegmentRawFieldProjection | CookStateSegmentOpaque)) != 0)
 				return {.Error = ECookStateError::Entry, .VirtualPath = Entry.VirtualPackagePath, .EntryIndex = Index, .RemainingBytes = Reader.GetRemainingBytes()};
 			Candidate.Entries.push_back(std::move(Entry));
+		}
+		uint32 InputCount = 0;
+		if (!Reader.Read(InputCount) || InputCount > MaximumCookDependencyRecords
+			|| InputCount > Reader.GetRemainingBytes() / 57)
+			return {.Error = ECookStateError::Entry, .Actual = InputCount, .Maximum = MaximumCookDependencyRecords};
+		for (uint32 Index = 0; Index < InputCount; ++Index)
+		{
+			FCookInputProjection Input;
+			uint8 Reusable = 0;
+			if (!Reader.ReadString(Input.VirtualPackagePath)
+				|| !Reader.Read(Input.SourceFingerprint.HashLow) || !Reader.Read(Input.SourceFingerprint.HashHigh)
+				|| !Reader.Read(Input.BulkFingerprint.HashLow) || !Reader.Read(Input.BulkFingerprint.HashHigh)
+				|| !Reader.Read(Input.SchemaFingerprint.HashLow) || !Reader.Read(Input.SchemaFingerprint.HashHigh)
+				|| !Reader.Read(Reusable) || Reusable > 1)
+				return {.Error = ECookStateError::Entry, .EntryIndex = Index};
+			FPackagePath Path;
+			if (!FPackagePath::TryCreate(Input.VirtualPackagePath, Path)
+				|| (Index && !(Candidate.Inputs.back().VirtualPackagePath < Input.VirtualPackagePath)))
+				return {.Error = ECookStateError::Entry, .VirtualPath = Input.VirtualPackagePath, .EntryIndex = Index};
+			Input.bReusable = Reusable != 0;
+			if (auto Decoded = Reader.ReadDependencies(Input.Records); !Decoded) return Decoded;
+			for (const auto& Record : Input.Records)
+				if (Record.Kind == ECookBuildDependencyKind::SourcePackage
+					? Record.Value.size() != 1 || std::to_integer<uint8>(Record.Value.front()) > 1
+					: Record.Kind == ECookBuildDependencyKind::OwnedBulk)
+					return {.Error = ECookStateError::Entry, .VirtualPath = Input.VirtualPackagePath};
+			Candidate.Inputs.push_back(std::move(Input));
 		}
 		if (!Reader.IsAtEnd()) return {.Error = ECookStateError::TrailingBytes, .RemainingBytes = Reader.GetRemainingBytes()};
 		OutState = std::move(Candidate);

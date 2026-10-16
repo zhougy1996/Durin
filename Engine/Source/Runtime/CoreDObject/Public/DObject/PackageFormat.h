@@ -15,14 +15,14 @@ namespace Durin::ObjectPackage
 	inline constexpr uint32 DastV10FormatVersion = 10;
 	inline constexpr std::array SupportedPackageReaderVersions{DastV10FormatVersion};
 	// Persisted projections use a policy generation so supported-reader sets cannot alias.
-	inline constexpr uint32 PackageReaderPolicyFingerprint = 0x4150430b;
+	inline constexpr uint32 PackageReaderPolicyFingerprint = 0x4150430c;
 
 	constexpr auto IsSupportedPackageReaderVersion(uint32 Version) -> bool
 	{
 		return std::ranges::contains(SupportedPackageReaderVersions, Version);
 	}
 
-	inline constexpr uint32 DastRegistryVersion = 2;
+	inline constexpr uint32 DastRegistryVersion = 3;
 	inline constexpr uint32 DastTableVersion = 1;
 	inline constexpr uint32 DastFormatHeaderBytes = 32;
 	inline constexpr uint32 DastSectionEntryBytes = 48;
@@ -192,6 +192,7 @@ namespace Durin::ObjectPackage
 		std::vector<FPackageAssetRegistryData> TopLevelAssets;
 		std::vector<FPackagePath> HardPackageReferences;
 		std::vector<FPackagePath> SoftPackageReferences;
+		std::vector<FPackagePath> BuildPackageReferences;
 		std::vector<std::string> SearchableNames;
 		uint64 ExternalBulkBytes = 0;
 		FXxHash128 ExternalBulkHash;

@@ -22,8 +22,8 @@ namespace Durin::AssetPrivate
   Capture.Target.Profile = GetTargetProfileName(Options.TargetProfile);
   Capture.SaveOverrides = Options.SaveOverrides;
   Capture.PropertyFilter = Options.PropertyFilter;
-  if (Capture.bCooking) Capture.ObjectFilter = [Snapshot = Prepared.GetSnapshot()](const DObject* Object) {
-   return Snapshot->Includes(Object);
+  if (Capture.bCooking) Capture.ObjectFilter = [Target = Capture.Target](const DObject* Object) {
+   return IsObjectIncludedForCook(Object, Target);
   };
   if (Package) for (DObject* Asset : Package->GetTopLevelAssets())
    if (auto* Redirector = Cast<DAssetRedirector>(Asset))

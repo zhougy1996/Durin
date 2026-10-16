@@ -22,6 +22,12 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DMaterialFunctionInterface(const FObjectInitializer& Initializer);
+		auto IsEditorOnly() const -> bool override { return true; }
+		static auto AppendToClassSchema(FObjectCookContext& Context) -> void
+		{
+			Context.Dependencies.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
+				"class/material-function-source", {}, {std::byte{1}}});
+		}
 		virtual auto GetFunctionSignature() const -> const FMaterialFunctionSignature& = 0;
 		virtual auto GetFunctionDependencies() const
 			-> std::vector<TObjectPtr<DMaterialFunctionInterface>> = 0;

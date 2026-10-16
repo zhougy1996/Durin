@@ -20,6 +20,7 @@ namespace Durin::AssetPrivate
 		FPackagePath RedirectDestination;
 		std::vector<FPackagePath> Dependencies;
 		std::vector<FPackagePath> SoftDependencies;
+		std::vector<FPackagePath> BuildDependencies;
 	};
 
 	auto RewritePackageReferencesForMutation(

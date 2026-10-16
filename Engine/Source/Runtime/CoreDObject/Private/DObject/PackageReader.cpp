@@ -1,4 +1,5 @@
 #include "PackageDiagnosticInternal.h"
+#include "PackageWriterInternal.h"
 #include "DObject/PackageFormat.h"
 
 #include "Serialization/BinaryEnvelope.h"
@@ -288,7 +289,7 @@ namespace Durin::ObjectPackage
 		auto DecodeRegistry(const FParsedLayout& Layout,
 			const std::vector<std::string>& Names, const FPackagePath& PackagePath,
 			uint64 PhysicalBulkBytes, FPackageRegistryData& Out,
-			FPackageReaderResult* Diagnostic) -> bool
+			FPackageReaderResult* Diagnostic, uint32* OutRegistryVersion = nullptr) -> bool
 		{
 			if (!PackagePath.IsValid()
 				|| !std::ranges::binary_search(Names, PackagePath.GetView(), BytewiseLess))
@@ -298,7 +299,7 @@ namespace Durin::ObjectPackage
 			FBinaryReader Reader(Section(Layout, EDastSection::Registry));
 			uint32 Version = 0;
 			uint64 ExportCount = 0, AssetCount = 0;
-			if (!Reader.ReadU32(Version) || Version != DastRegistryVersion
+			if (!Reader.ReadU32(Version) || (Version != 2 && Version != DastRegistryVersion)
 				|| !Reader.ReadVarUInt(ExportCount) || ExportCount > DastMaximumTableEntries
 				|| !Reader.ReadVarUInt(AssetCount) || AssetCount > ExportCount)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
@@ -348,7 +349,7 @@ namespace Durin::ObjectPackage
 					.ClassName = Names[ClassId - 1],
 					.RedirectDestination = std::move(RedirectDestination)});
 			}
-			for (uint32 ListIndex = 0; ListIndex < 3; ++ListIndex)
+			for (uint32 ListIndex = 0; ListIndex < (Version >= 3 ? 4u : 3u); ++ListIndex)
 			{
 				uint64 Count = 0;
 				if (!Reader.ReadVarUInt(Count) || Count > DastMaximumTableEntries)
@@ -370,7 +371,7 @@ namespace Durin::ObjectPackage
 							return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
 								EPackageReaderReason::DependencyPath, "Registry");
 						(ListIndex == 0 ? Registry.HardPackageReferences
-							: Registry.SoftPackageReferences).push_back(std::move(Path));
+							: ListIndex == 1 ? Registry.SoftPackageReferences : Registry.BuildPackageReferences).push_back(std::move(Path));
 					}
 				}
 			}
@@ -380,6 +381,7 @@ namespace Durin::ObjectPackage
 				|| (Registry.ExternalBulkBytes == 0 && !Registry.ExternalBulkHash.IsZero()))
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
 					EPackageReaderReason::RegistryBulk, "Registry.Bulk");
+			if (OutRegistryVersion) *OutRegistryVersion = Version;
 			Out = std::move(Registry);
 			return true;
 		}
@@ -896,11 +898,12 @@ namespace Durin::ObjectPackage
 			FLinkerTables Linker;
 			Linker.FormatVersion = Layout.FormatVersion;
 			FPackageRegistryData Registry;
+			uint32 RegistryVersion = 0;
 			std::vector<FBulkEntry> BulkEntries;
 			if (!DecodeNames(Layout, Limits, Linker.Names, OutDiagnostic)
 				|| !DecodeImports(Layout, Linker.Names, Limits, Linker.Imports, OutDiagnostic)
 				|| !DecodeRegistry(Layout, Linker.Names, PackagePath, PhysicalBulkBytes,
-					Registry, OutDiagnostic)
+					Registry, OutDiagnostic, &RegistryVersion)
 				|| !DecodeExports(Layout, Linker.Names, Limits, Linker.Exports, OutDiagnostic)
 				|| Registry.ExportCount != Linker.Exports.size()
 				|| !DecodeTypes(Layout, Linker.Names, Limits, Linker.Types, OutDiagnostic)
@@ -918,6 +921,7 @@ namespace Durin::ObjectPackage
 			Linker.Summary.PackagePath = PackagePath;
 			Linker.Summary.HardPackageDependencies = Registry.HardPackageReferences;
 			Linker.Summary.SoftPackageDependencies = Registry.SoftPackageReferences;
+			Linker.Summary.BuildPackageDependencies = Registry.BuildPackageReferences;
 			Linker.Summary.SearchableNames = Registry.SearchableNames;
 			std::unordered_set<uint32> TopLevelExports;
 			for (const FPackageAssetRegistryData& Asset : Registry.TopLevelAssets)
@@ -991,8 +995,8 @@ namespace Durin::ObjectPackage
 			FByteBuffer CanonicalMain;
 			FByteBuffer CanonicalBulk;
 			const auto WriterDiagnostic = bExternalPayloadAvailable
-				? WritePackage(Linker, CanonicalMain, CanonicalBulk)
-				: WritePackageMain(Linker, Registry.ExternalBulkBytes,
+				? WritePackageForRegistryVersion(Linker, RegistryVersion, CanonicalMain, CanonicalBulk)
+				: WritePackageMainForRegistryVersion(Linker, RegistryVersion, Registry.ExternalBulkBytes,
 					Registry.ExternalBulkHash, CanonicalMain);
 			if (!WriterDiagnostic)
 				return Fail(OutDiagnostic, EPackageReaderFailure::NonCanonical,

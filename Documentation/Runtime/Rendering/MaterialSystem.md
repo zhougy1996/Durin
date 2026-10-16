@@ -998,7 +998,7 @@ detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
 Current compatibility versions are DMAT 13, MIR 7, layout 4, pass contract 8,
-and material Cook contributor 5. The independent compile adapter is version 11;
+and material Cook class-schema version 5. The independent compile adapter is version 11;
 normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v10

@@ -767,7 +767,7 @@ namespace
 		FJsonDocument Document;
 		FJsonNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureObject();
-		Root.SetChildValue("schemaVersion", 1);
+		Root.SetChildValue("schemaVersion", 2);
 		Root.SetChildValue("status", CookRunStatusName(Result.Status));
 		Root.SetChildValue("code", Durin::CookRunCodeName(Result));
 		Root.SetChildValue("diagnostic", Durin::FormatCookRunError(Result));
@@ -787,7 +787,7 @@ namespace
 		{
 			FJsonNodeRef PackageNode = PackageArray.AppendObject();
 			PackageNode.SetChildValue("packagePath", Package.PackagePath.GetView());
-			PackageNode.SetChildValue("contributor", Package.Contributor);
+			PackageNode.SetChildValue("serializer", Package.Serializer);
 			PackageNode.SetChildValue("status", CookPackageStatusName(Package.Status));
 			PackageNode.SetChildValue("stage", CookOperationStageName(Package.Stage));
 			PackageNode.SetChildValue("code", CookPackageStatusName(Package.Status));

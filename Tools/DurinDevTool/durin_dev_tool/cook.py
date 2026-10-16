@@ -37,7 +37,7 @@ def _read_report(output: str) -> dict[str, Any]:
             output,
             label="Cook run report",
             source="from DurinAssetTool",
-            schema_path=SCHEMA_DIRECTORY / "cook-run-v1.schema.json",
+            schema_path=SCHEMA_DIRECTORY / "cook-run-v2.schema.json",
         )
     except JsonContractError as exc:
         raise DevToolError(str(exc)) from exc
@@ -54,10 +54,11 @@ def _read_report(output: str) -> dict[str, Any]:
 def _render_human(report: Mapping[str, Any], stdout: TextIO) -> None:
     packages: Sequence[Mapping[str, Any]] = report["packages"]
     hits = sum(package["status"] == "cook-hit" for package in packages)
+    omitted = sum(package["status"] == "omitted" for package in packages)
     failed = sum(package["status"] in {"failed", "unsupported"} for package in packages)
     print(
         f"Cook {report['status']}: {len(packages)} package(s), {hits} Cook hit(s), "
-        f"{failed} failed, {report['changedBytes']} changed byte(s), "
+        f"{omitted} omitted, {failed} failed, {report['changedBytes']} changed byte(s), "
         f"{report['reusedBytes']} reused byte(s).",
         file=stdout,
     )

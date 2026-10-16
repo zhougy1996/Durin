@@ -117,6 +117,13 @@ an absolute path. `--profile` continues to select the host build profile, while
 `--target` selects `win64` or `macos`; `--target-profile` selects the Cook runtime profile. `--dry-run` performs
 discovery and preparation without opening a store transaction.
 
+Cook reports use JSON schema version 2 and `packages[].serializer` to identify
+the package writer; the retired contributor field/report version has no fallback.
+Reports distinguish `captured`, `cook-hit` and `omitted` package outcomes.
+Editor-only or target-excluded roots are omitted successfully; an all-omitted run
+publishes an empty package manifest/state. Mixed result lists are sorted by
+package path, and the human summary counts omissions separately from failures.
+
 Each invocation starts one dedicated Cook process and exits when it finishes.
 Save intended edits and finish imports before launch. Keep participating packages,
 companions, external files, shader sources, configuration and native build code

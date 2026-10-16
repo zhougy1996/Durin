@@ -65,6 +65,18 @@ namespace
 				Ar.SerializeBulkData(Bulk, {.ElementSize = 1, .Alignment = 16});
 			}
 		}
+		auto PreSave(FObjectPreSaveContext& Context) -> void override
+		{
+			DObject::PreSave(Context);
+			if (SaveHook) SaveHook(Context);
+		}
+		std::function<void(FObjectPreSaveContext&)> SaveHook;
+		auto OnCookEvent(ECookEvent Event, FObjectCookContext& Context) const -> void override
+		{
+			DObject::OnCookEvent(Event, Context);
+			if (DependencyHook) DependencyHook(Context);
+		}
+		std::function<void(FObjectCookContext&)> DependencyHook;
 		std::function<void(FArchive&)> CaptureHook;
 		int32 Value = 7;
 		TObjectPtr<DObject> Reference;
@@ -145,6 +157,60 @@ TEST_F(FPackagePersistenceTests, DeltaCompleteAndInternalReferencesRoundTripWith
 			EXPECT_TRUE(std::ranges::any_of(Export.Properties, [](const auto& Tag) { return Tag.Value.Signed == 7; }));
 	}
 }
+TEST_F(FPackagePersistenceTests, AuthoredDependencyEventsPersistBuildEdgesSeparately)
+{
+	FPackagePath BuildInput;
+	ASSERT_TRUE(FPackagePath::TryCreate("/Persistence/BuildOnly", BuildInput));
+	uint32 Calls = 0;
+	Asset->DependencyHook = [&](FObjectCookContext& Context) {
+		EXPECT_FALSE(Context.bCooking);
+		EXPECT_EQ(Context.Package, Path.ToString());
+		++Calls;
+		Context.Dependencies.push_back({ECookBuildDependencyKind::TransitivePackage, BuildInput.ToString()});
+		Context.Dependencies.push_back({ECookBuildDependencyKind::ConfigurationValue, "cook-only-value", {}, {std::byte{1}}});
+	};
+	ASSERT_TRUE(Package->Save(Options));
+	EXPECT_EQ(Calls, 1u);
+	const auto Linker = Read();
+	EXPECT_EQ(Linker.Summary.BuildPackageDependencies, std::vector<FPackagePath>{BuildInput});
+	EXPECT_TRUE(Linker.Summary.HardPackageDependencies.empty());
+	EXPECT_TRUE(Linker.Summary.SoftPackageDependencies.empty());
+	EXPECT_TRUE(Linker.Imports.empty());
+}
+
+TEST_F(FPackagePersistenceTests, InvalidAuthoredBuildDependencyPreventsPublication)
+{
+	Asset->DependencyHook = [](FObjectCookContext& Context) {
+		Context.Dependencies.push_back({ECookBuildDependencyKind::DirectPackage, "invalid-package"});
+	};
+	EXPECT_FALSE(Package->Save(Options));
+	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
+}
+
+TEST_F(FPackagePersistenceTests, PreSaveRunsOnceBeforeBothArchivePasses)
+{
+	uint32 Calls = 0;
+	Asset->SaveHook = [&](FObjectPreSaveContext& Context) {
+		EXPECT_FALSE(Context.bCooking);
+		++Calls;
+	};
+	Asset->CaptureHook = [&](FArchive&) { EXPECT_EQ(Calls, 1u); };
+	ASSERT_TRUE(Package->Save(Options));
+	EXPECT_EQ(Calls, 1u);
+}
+
+TEST_F(FPackagePersistenceTests, PreSaveFailureDoesNotPublishAndGraphGrowthIsRejected)
+{
+	Asset->SaveHook = [](FObjectPreSaveContext& Context) {
+		Context.Result = {EObjectCookError::InvalidInput, "save hook rejected"};
+	};
+	EXPECT_FALSE(Package->Save(Options));
+	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
+	Asset->SaveHook = [&](FObjectPreSaveContext&) { NewObject<DObject>(Asset, "UnexpectedSaveChild"); };
+	EXPECT_FALSE(Package->Save(Options));
+	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
+}
+
 TEST_F(FPackagePersistenceTests, AsyncCompletionMatchesSynchronousBytes)
 {
 	Asset->Value = 42;

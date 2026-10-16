@@ -355,6 +355,7 @@ namespace Durin
 				.FormatVersion = Header.FormatVersion,
 				.Dependencies = Header.Dependencies,
 				.SoftDependencies = Header.SoftDependencies,
+				.BuildDependencies = Header.BuildDependencies,
 				.SearchableNames = Header.SearchableNames,
 				.ObjectCount = Header.ObjectCount,
 				.BulkSegmentExtent = Header.BulkSegmentExtent,

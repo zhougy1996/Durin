@@ -124,6 +124,21 @@ namespace
 
 namespace Durin
 {
+	auto DClass::AppendCookSchema(FObjectCookContext& Context) const -> void
+	{
+		std::vector<const DClass*> Hierarchy;
+		for (auto* Class = this; Class; Class = Class->GetSuperClass()) Hierarchy.push_back(Class);
+		std::vector<CookSchemaFunctionType> Invoked;
+		for (auto It = Hierarchy.rbegin(); It != Hierarchy.rend(); ++It)
+		{
+			const auto Hook = (*It)->CookSchema;
+			if (!Hook || std::ranges::contains(Invoked, Hook)) continue;
+			Invoked.push_back(Hook);
+			Hook(Context);
+			if (!Context.Result) return;
+		}
+	}
+
 	auto DClass::FindFunctionByName(FName Name, bool bIncludeSuper) const -> const FFunction*
 	{
 		if (!bFunctionsLinked)

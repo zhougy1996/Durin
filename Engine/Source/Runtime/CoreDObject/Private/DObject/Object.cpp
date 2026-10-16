@@ -16,6 +16,22 @@
 
 namespace Durin
 {
+	auto DObject::BeginCacheForCookedPlatformData(FObjectCookContext&) -> void {}
+	auto DObject::IsCachedCookedPlatformDataLoaded(const FObjectCookContext&) const -> bool { return true; }
+	auto DObject::ClearCachedCookedPlatformData(const FObjectCookContext&) -> void {}
+	auto DObject::IsEditorOnly() const -> bool { return false; }
+	auto DObject::NeedsLoadForTargetPlatform(const FArchiveTarget&) const -> bool { return true; }
+	auto DObject::OnCookEvent(ECookEvent, FObjectCookContext&) const -> void {}
+	auto DObject::PreSave(FObjectPreSaveContext&) -> void {}
+	auto DObject::AppendToClassSchema(FObjectCookContext&) -> void {}
+	auto IsObjectIncludedForCook(const DObject* Object, const FArchiveTarget& Target) -> bool
+	{
+		if (!Object) return false;
+		for (auto* Current = Object; Current; Current = Current->GetOuter())
+			if (Current->IsTemplateObject() || Current->HasAnyObjectFlags(EObjectFlags::Transient)
+				|| Current->IsEditorOnly() || !Current->NeedsLoadForTargetPlatform(Target)) return false;
+		return true;
+	}
 	namespace
 	{
 		thread_local uint32 PackageDirtySuppressionDepth = 0;

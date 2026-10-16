@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Asset/BulkData.h"
-#include "CookRegistry.h"
+#include "Asset/Cook.h"
 #include "Asset/PackageSerialization.h"
 #include "DObject/ObjectKey.h"
 #include "DObject/PackageCapture.h"
@@ -27,11 +27,11 @@ namespace Durin::AssetPrivate
 		auto operator=(const FScopedCookedPreparation&) -> FScopedCookedPreparation& = delete;
 		auto Prepare(DPackage* Package, const FAssetPackageSerializationOptions& Options) -> std::expected<void, FPackageCaptureError>;
 		static auto Find(const DObject& Object, const FArchiveTarget& Target) -> FPreparedCookedObject*;
-		auto GetSnapshot() const -> const std::shared_ptr<const FCookRegistrySnapshot>& { return Snapshot; }
+		static auto GetContext(DObject& Object, const FObjectCookContext& Invocation) -> FCookPreparationContext*;
 	private:
-		std::unique_ptr<FEngineCookRegistrationScope> Builtins;
-		std::shared_ptr<const FCookRegistrySnapshot> Snapshot;
 		FScopedCookedPreparation* Previous;
+		FCookPreparationContext* Current = nullptr;
+		std::vector<std::unique_ptr<FCookPreparationContext>> Operations;
 		FArchiveTarget Target;
 		std::unordered_map<FObjectKey, FPreparedCookedObject> Products;
 	};

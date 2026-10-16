@@ -11,7 +11,7 @@ namespace Durin::AssetPrivate
 	namespace
 	{
 		constexpr uint32 AssetRegistryMagic = 0x47455241; // AREG
-		constexpr uint32 AssetRegistrySchemaVersion = 5;
+		constexpr uint32 AssetRegistrySchemaVersion = 6;
 		constexpr uint64 MaximumRegistryEntries = 1000000;
 		constexpr uint32 MaximumRegistryDependencies = 100000;
 
@@ -35,6 +35,7 @@ namespace Durin::AssetPrivate
 					}) != Entry.TopLevelAssets.end()
 				|| !PathsCanonical(Entry.Dependencies)
 				|| !PathsCanonical(Entry.SoftDependencies)
+				|| !PathsCanonical(Entry.BuildDependencies)
 				|| !std::ranges::is_sorted(Entry.SearchableNames)
 				|| std::adjacent_find(Entry.SearchableNames.begin(), Entry.SearchableNames.end())
 					!= Entry.SearchableNames.end()) return false;
@@ -184,6 +185,25 @@ namespace Durin::AssetPrivate
 				}
 				Entry.SoftDependencies.push_back(std::move(Dependency));
 			}
+			uint32 BuildCount = 0;
+			if (!Reader.ReadU32(BuildCount) || BuildCount > MaximumRegistryDependencies)
+			{
+				OutWarning = "Ignoring invalid build dependency count in asset registry cache.";
+				OutEntries.clear();
+				return false;
+			}
+			for (uint32 Index = 0; Index < BuildCount; ++Index)
+			{
+				std::string Name;
+				FPackagePath Path;
+				if (!Reader.ReadString(Name) || !FPackagePath::TryCreate(Name, Path))
+				{
+					OutWarning = "Ignoring invalid build dependency in asset registry cache.";
+					OutEntries.clear();
+					return false;
+				}
+				Entry.BuildDependencies.push_back(std::move(Path));
+			}
 			uint32 SearchableCount = 0;
 			if (!Reader.ReadU32(SearchableCount) || SearchableCount > MaximumRegistryDependencies)
 			{
@@ -266,6 +286,8 @@ namespace Durin::AssetPrivate
 			for (const FPackagePath& Dependency : Entry.Dependencies) Writer.WriteString(Dependency.GetView());
 			Writer.WriteU32(static_cast<uint32>(Entry.SoftDependencies.size()));
 			for (const FPackagePath& Dependency : Entry.SoftDependencies) Writer.WriteString(Dependency.GetView());
+			Writer.WriteU32(static_cast<uint32>(Entry.BuildDependencies.size()));
+			for (const FPackagePath& Dependency : Entry.BuildDependencies) Writer.WriteString(Dependency.GetView());
 			Writer.WriteU32(static_cast<uint32>(Entry.SearchableNames.size()));
 			for (const std::string& Name : Entry.SearchableNames) Writer.WriteString(Name);
 			Writer.WriteU64(Entry.ObjectCount);
@@ -313,6 +335,7 @@ namespace Durin::AssetPrivate
 				.FormatVersion = Data.FormatVersion,
 				.Dependencies = Data.Dependencies,
 				.SoftDependencies = Data.SoftDependencies,
+				.BuildDependencies = Data.BuildDependencies,
 				.SearchableNames = Data.SearchableNames,
 				.ObjectCount = Data.ObjectCount,
 				.BulkSegmentExtent = Data.BulkSegmentExtent,

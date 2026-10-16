@@ -26,6 +26,20 @@
 
 namespace Durin
 {
+	auto DStaticMesh::BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void
+	{
+		Super::BeginCacheForCookedPlatformData(Context);
+		auto* Preparation = FCookPreparationContext::Get(*this, Context);
+		if (!Preparation) { Context.Result = {EObjectCookError::InvalidInput, "Missing mesh Cook preparation context."}; return; }
+		if (Context.CheckCancellation()) return;
+		const FAssetBuildTaskContext Control{.Cancellation = FCancellationToken(Context.IsCancelled)};
+		if (HasPendingStaticMeshSourceMutation(*this))
+			Preparation->Failure = {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::SourceMutation,
+				.ObjectPath = GetObjectPath(), .VirtualPath = Context.Package};
+		else if (auto Built = PrepareCookedPayloads(Preparation->GetTargetPlatform(), Preparation->Primary, Preparation->Collision, Control); !Built)
+			Preparation->Failure = {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::Preparation,
+				.ObjectPath = GetObjectPath(), .VirtualPath = Context.Package, .Diagnostic = std::move(Built.error())};
+	}
 	namespace
 	{
 		struct FStaticMeshManagerProduct final

@@ -198,6 +198,7 @@ namespace Durin::ObjectPackage
 		std::vector<FTopLevelAsset> TopLevelAssets;
 		std::vector<FPackagePath> HardPackageDependencies;
 		std::vector<FPackagePath> SoftPackageDependencies;
+		std::vector<FPackagePath> BuildPackageDependencies;
 		std::vector<std::string> SearchableNames;
 
 		auto operator==(const FPackageSummary&) const -> bool = default;

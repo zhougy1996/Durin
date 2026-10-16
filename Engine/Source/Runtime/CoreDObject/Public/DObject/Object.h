@@ -7,6 +7,7 @@
 #include "DObject/AuthoredOverrideLedger.h"
 #include "DObject/PropertyChange.h"
 #include "DObject/ObjectValidation.h"
+#include "DObject/CookLifecycle.h"
 #include "DObjectGlobals.h"
 #include "Misc/Guid.h"
 
@@ -138,6 +139,17 @@ namespace Durin
 		// Projects target-specific persistent state when a cooked Archive explicitly
 		// selects it. The default preserves the ordinary serialization contract.
 		COREDOBJECT_API virtual auto SerializeCooked(FArchive& Ar) -> void;
+
+		// Preparation completes before capture; completion does not imply success.
+		COREDOBJECT_API virtual auto BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void;
+		COREDOBJECT_API virtual auto IsCachedCookedPlatformDataLoaded(const FObjectCookContext& Context) const -> bool;
+		COREDOBJECT_API virtual auto ClearCachedCookedPlatformData(const FObjectCookContext& Context) -> void;
+		COREDOBJECT_API virtual auto IsEditorOnly() const -> bool;
+		COREDOBJECT_API virtual auto NeedsLoadForTargetPlatform(const FArchiveTarget& Target) const -> bool;
+		COREDOBJECT_API virtual auto OnCookEvent(ECookEvent Event, FObjectCookContext& Context) const -> void;
+		COREDOBJECT_API virtual auto PreSave(FObjectPreSaveContext& Context) -> void;
+		// Static binding permits schema queries for classes without a CDO.
+		COREDOBJECT_API static auto AppendToClassSchema(FObjectCookContext& Context) -> void;
 
 		COREDOBJECT_API virtual auto AddReferencedObjects(FReferenceCollector& Collector) -> void;
 

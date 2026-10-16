@@ -73,6 +73,7 @@ namespace Durin
 			Registry.HardPackageReferences.end());
 		Header.SoftDependencies.assign(Registry.SoftPackageReferences.begin(),
 			Registry.SoftPackageReferences.end());
+		Header.BuildDependencies = std::move(Registry.BuildPackageReferences);
 		if (Header.TopLevelAssets.size() == 1)
 		{
 			const auto& First = Header.TopLevelAssets.front();

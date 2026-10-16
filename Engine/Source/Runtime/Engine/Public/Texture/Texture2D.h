@@ -53,6 +53,7 @@ namespace Durin
 		ENGINE_API explicit DTexture2D(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DTexture2D() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
+		ENGINE_API static auto AppendToClassSchema(FObjectCookContext& Context) -> void;
 
 		auto GetUsage() const -> ETextureUsage { return Usage; }
 		auto IsSRGB() const -> bool { return bSRGB; }
