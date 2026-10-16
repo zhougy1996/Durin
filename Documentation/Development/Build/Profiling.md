@@ -21,8 +21,8 @@ On macOS, use `./DevTool dependency prepare --libs tracy,tracy-tools`.
 Use the ordinary Release builds for representative performance captures:
 
 ```powershell
-.\DevTool.bat build --preset Win64-Release-DurinEditor --target all
-.\DevTool.bat build --preset Win64-Release-DurinGame --target all
+.\DevTool.bat build --preset Win64-Release-DurinEditor all
+.\DevTool.bat build --preset Win64-Release-DurinGame all
 ```
 
 `DURIN_ENABLE_TRACY=AUTO` is the default and enables instrumentation for every
@@ -272,7 +272,7 @@ disabled by default. Enable them for a focused investigation:
 
 ```powershell
 .\DevTool.bat configure -DDURIN_VULKAN_DETAILED_PROFILING=ON
-.\DevTool.bat build --target VulkanRHI
+.\DevTool.bat build VulkanRHI
 ```
 
 Restore ordinary capture detail with

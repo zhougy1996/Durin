@@ -59,7 +59,7 @@ class TestCore:
         with pytest.raises(errors.BuildToolError, match='DurinNativeTests') as raised:
             build_recovery.execute_with_recovery_marker(action=models.Action.REBUILD, marker_file=marker, metadata={'pid': 2, 'action': 'rebuild', 'target': 'all'}, operation=operation)
         operation.assert_not_called()
-        assert raised.value.recovery == 'Run rebuild --target DurinNativeTests.'
+        assert raised.value.recovery == 'Run rebuild DurinNativeTests.'
     def test_invalid_or_non_target_recovery_state_falls_back_to_all(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         marker = Path(directory) / 'interrupted.json'

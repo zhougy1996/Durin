@@ -4,13 +4,25 @@ Summary: Define command output, the interactive shell, repository path discovery
 
 Last reviewed: 2026-10-17
 
+## Command Discovery
+
+`help` groups commands by purpose and includes common examples. Run
+`help <command>` or `<command> --help` for the full interface. Command help
+separates routine options from advanced toolchain and display overrides.
+
+`build [TARGET]` and `rebuild [TARGET]` take one positional CMake target,
+defaulting to `all`. Pass application arguments after `run --`; options before
+the separator select DevTool context, and everything after it reaches the
+application unchanged. The former build `--target`, run `--args`, and Cook
+`--target-profile` options are not accepted.
+
 ## Command output and logs
 
 Output separates resolved context, execution stages, child-process output, and
 results. Pass `--plain`, set `NO_COLOR`, or redirect output to disable ANSI styling:
 
 ```powershell
-.\DevTool.bat build --target <Target> --plain
+.\DevTool.bat build <Target> --plain
 ```
 
 Child-process output has four modes, selected with
@@ -32,8 +44,8 @@ retained. Use `--output full` to stream every child-output line, or
 `--output compact` to suppress routine child output in an interactive terminal:
 
 ```powershell
-.\DevTool.bat build --target <Target> --output progress
-.\DevTool.bat build --target <Target> --output compact
+.\DevTool.bat build <Target> --output progress
+.\DevTool.bat build <Target> --output compact
 .\DevTool.bat test CoreConcurrencyTests --output full
 ```
 
@@ -71,18 +83,20 @@ selects a displayed entry, and `preset <full-name>` performs case-insensitive
 selection for later shell commands. Direct commands use `--preset <name>`.
 A bare group with a safe read-only default executes that default; groups without
 one show help. `exit` and `quit` leave the shell.
+`doc`, `doc task`, `doc plan`, `doc roadmap`, and `worktree` default to `list`
+in both direct invocations and the shell; `asset` defaults to read-only `check`.
 
 Representative commands are alternatives, not a sequence:
 
 ```powershell
 .\DevTool.bat presets
 .\DevTool.bat status
-.\DevTool.bat build --target <Target>
+.\DevTool.bat build <Target>
 .\DevTool.bat test CoreConcurrencyTests FTaskSchedulerTests.*
 .\DevTool.bat asset
 .\DevTool.bat asset resave /Game/Characters
-.\DevTool.bat cook --output Saved/Cooked --target win64 --target-profile game
-./DevTool cook --output Saved/Cooked --target macos --target-profile game
+.\DevTool.bat cook --output Saved/Cooked
+./DevTool cook --output Saved/Cooked
 .\DevTool.bat path runtime
 .\DevTool.bat open logs
 ```
@@ -105,7 +119,7 @@ Asset checking and current-format canonical resave are defined by
 without opening an application loop:
 
 ```powershell
-.\DevTool.bat cook --output Saved/Cooked --target win64 --target-profile game
+.\DevTool.bat cook --output Saved/Cooked
 .\DevTool.bat cook --output Saved/Cooked --root /Game/Levels/Entry --dry-run
 .\DevTool.bat cook --output Saved/Cooked --no-incremental --json
 ```
@@ -114,7 +128,9 @@ without opening an application loop:
 `--root` is repeatable and augments the project's configured default Level.
 `--output` resolves relative to the checkout and is passed to the native host as
 an absolute path. `--profile` continues to select the host build profile, while
-`--target` selects `win64` or `macos`; `--target-profile` selects the Cook runtime profile. `--dry-run` performs
+`--target` optionally selects `win64` or `macos`; omission derives it from the
+selected host build profile's platform. An unsupported platform requires an
+explicit target. Cook uses the `game` runtime profile. `--dry-run` performs
 discovery and preparation without opening a store transaction.
 
 Cook reports use JSON schema version 2 and `packages[].serializer` to identify
@@ -138,7 +154,7 @@ and shader intermediates under `<output>/DerivedDataCache` and logs under
 repairs authored packages. These writable destinations must remain outside inputs.
 
 Human output summarizes package counts, validated Cook hits, failures, changed
-bytes, and reused bytes. `--json` validates and emits the version-1 Cook
+bytes, and reused bytes. `--json` validates and emits the version-2 Cook
 run schema with packages in canonical virtual-path order. Native failure reports
 are preserved even when the child exits nonzero; cancellation returns 130,
 ordinary Cook failure returns 1, and success returns 0. The child process uses

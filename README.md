@@ -77,7 +77,7 @@ are already available or can be detected automatically.
 For the first editor launch, build the complete runtime, then run it on Windows:
 
 ```powershell
-.\DevTool.bat build --target all
+.\DevTool.bat build all
 .\DevTool.bat run
 ```
 
@@ -86,7 +86,7 @@ On macOS, use the extensionless launcher. Debug remains the default; select
 
 ```bash
 ./DevTool status
-./DevTool build --target all
+./DevTool build all
 ```
 
 Select the Release preset only when optimized behavior or an explicit gate needs
@@ -102,7 +102,7 @@ Useful commands below are alternatives, not a validation sequence:
 ```powershell
 .\DevTool.bat presets
 .\DevTool.bat status
-.\DevTool.bat build --target LevelEditor
+.\DevTool.bat build LevelEditor
 .\DevTool.bat test CoreConcurrencyTests
 .\DevTool.bat test affected --explain
 ```
@@ -140,7 +140,7 @@ Shell commands do not need a leading slash. Use commands such as `presets`,
 ```text
 DurinDevTool> presets
 DurinDevTool> preset 3
-DurinDevTool> build --target all
+DurinDevTool> build all
 DurinDevTool> run
 DurinDevTool> help test
 DurinDevTool> exit

@@ -143,10 +143,10 @@ Debug Editor preset on Apple Silicon. For initial setup and a first editor launc
 ```bash
 ./DevTool setup
 ./DevTool status
-./DevTool build --target all
+./DevTool build all
 ```
 
-For later edits, use `build --target <Target>` for affected modules and consumers.
+For later edits, use `build <Target>` for affected modules and consumers.
 Build commands configure automatically; fresh configuration and rebuilding are
 reserved for the diagnosed cases in [recovery](#recovery).
 
@@ -229,7 +229,7 @@ Use the root wrapper for routine builds and tests. These examples are
 alternatives, not a sequence; use the smallest sufficient target or selection:
 
 ```powershell
-.\DevTool.bat build --target LevelEditor
+.\DevTool.bat build LevelEditor
 .\DevTool.bat run
 .\DevTool.bat test affected --explain
 .\DevTool.bat test affected --base origin/main --explain
@@ -307,7 +307,7 @@ Release or Shipping runtime preset when configuration-parity qualification is
 required; no separate test preset is needed.
 
 ```powershell
-.\DevTool.bat build --target all
+.\DevTool.bat build all
 .\DevTool.bat run
 .\DevTool.bat run --project Sandbox\Sandbox.dproject
 ```
@@ -331,11 +331,11 @@ missing file or another extension, normalizes the path to an absolute path, and
 passes one `--project=<absolute-path>` argument to the launcher. This validation
 does not initialize CMake, Visual Studio, or the compiler toolchain.
 
-Pass other runtime arguments after the final `--args` option. The typed project
+Pass other runtime arguments after the `--` separator. The typed project
 argument is always forwarded before them:
 
 ```powershell
-.\DevTool.bat run --preset Win64-Debug-DurinGame --project Sandbox\Sandbox.dproject --args --hidden-window
+.\DevTool.bat run --preset Win64-Debug-DurinGame --project Sandbox\Sandbox.dproject -- --hidden-window
 ```
 
 Launch accepts only its documented option grammar. Unknown options, repeated
@@ -349,7 +349,7 @@ stderr and return status `2`; bootstrap/runtime failures return `1`. Only
 them.
 
 For non-interactive lifecycle smoke tests, pass
-`--args --hidden-window --exit-after-ticks=<positive-count>`. The runtime still
+`-- --hidden-window --exit-after-ticks=<positive-count>`. The runtime still
 completes initialization, executes the requested number of engine ticks, and
 uses the normal `FEngineLoop::Exit` path; this option does not impose a
 wall-clock timeout or force-terminate the process.
@@ -357,16 +357,16 @@ wall-clock timeout or force-terminate the process.
 Launch no longer accepts lifecycle-smoke or runtime-smoke options. Use the
 native test registry for supported qualification targets.
 
-Do not repeat `--project` or `--project=...` after `--args` when the typed
+Do not repeat `--project` or `--project=...` after `--` when the typed
 `--project` option is present; DurinDevTool rejects the two project selectors as
-ambiguous. Raw project selection after `--args` remains accepted for backwards
-compatibility when the typed option is absent.
+ambiguous. Raw project selection after `--` is allowed when the typed option
+is absent.
 
 For unattended runtime smoke tests, pass `--hidden-window` to suppress every
 native application window, including secondary UI viewports:
 
 ```powershell
-.\DevTool.bat run --project Sandbox\Sandbox.dproject --args --hidden-window
+.\DevTool.bat run --project Sandbox\Sandbox.dproject -- --hidden-window
 ```
 
 An interactive `DurinDevTool run` can be stopped with Ctrl+C; DurinDevTool terminates
@@ -413,9 +413,9 @@ Select another registered configure preset explicitly when the default profile
 is not the intended target:
 
 ```powershell
-.\DevTool.bat build --preset Win64-Release-DurinEditor --target <Target>
-.\DevTool.bat build --preset Win64-Shipping-DurinGame --target <Target>
-./DevTool build --preset MacOS-arm64-Release-DurinEditor --target <Target>
+.\DevTool.bat build --preset Win64-Release-DurinEditor <Target>
+.\DevTool.bat build --preset Win64-Shipping-DurinGame <Target>
+./DevTool build --preset MacOS-arm64-Release-DurinEditor <Target>
 ```
 
 `CMakePresets.json` remains the configuration source of truth.
@@ -456,7 +456,7 @@ recovery, and build-output ownership remain in this document.
 In particular, clean removes CMake-owned DHT exports, generated sources/headers,
 and stamps, but preserves each module's versioned phase state under
 `<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/<Module>/DHTState/`. An
-unchanged `rebuild --target all` can therefore reconstruct those outputs from
+unchanged `rebuild all` can therefore reconstruct those outputs from
 validated state records without invoking libclang. DHT's INFO summaries report
 parsed and rematerialized header counts; an unchanged warm reconstruction should
 report zero parses.
@@ -538,7 +538,7 @@ Do not start a second build while an earlier CMake, Ninja, compiler, or linker p
 
 `recover` reuses the existing CMake/Ninja tree and incrementally builds the recorded target. It does not clean first, so completed object files and unrelated outputs remain available. If configuration is missing or unusable, the normal build path configures it before continuing. The recovery marker is cleared only after the incremental build succeeds; another interruption or an ordinary build failure preserves it so recovery can be retried.
 
-DurinDevTool reports `Recovery state: rebuild required` and `rebuild --target all` instead when the marker is damaged, from an unsupported older format, or otherwise lacks enough information to resume safely. An explicit `rebuild` remains available as the conservative fallback: rebuilding the recorded target or `all` may clear a valid marker, while an unrelated target may not. Because native-test targets are excluded from `all`, an interrupted test-target build must be resumed with `recover` or rebuilt with its recorded target; `rebuild --target all` intentionally does not claim to recover that test build.
+DurinDevTool reports `Recovery state: rebuild required` and `rebuild all` instead when the marker is damaged, from an unsupported older format, or otherwise lacks enough information to resume safely. An explicit `rebuild` remains available as the conservative fallback: rebuilding the recorded target or `all` may clear a valid marker, while an unrelated target may not. Because native-test targets are excluded from `all`, an interrupted test-target build must be resumed with `recover` or rebuilt with its recorded target; `rebuild all` intentionally does not claim to recover that test build.
 
 When the interrupted operation used a non-default preset, run `status --preset <affected-preset>`, then add `--preset <affected-preset>` to its reported recovery command or select that preset in the interactive shell before recovering.
 

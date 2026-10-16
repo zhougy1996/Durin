@@ -118,16 +118,30 @@ def shell_completion_candidates(
             None,
         )
         if child is None:
+            if current.default_subcommand and completed[argument_index].startswith("-"):
+                current = next(
+                    child for child in current.subcommands
+                    if child.name == current.default_subcommand
+                )
             break
         current = child
         argument_index += 1
 
     if current.subcommands and argument_index == len(completed):
-        return tuple(
-            child.name
-            for child in current.subcommands
-            if child.name.casefold().startswith(prefix.casefold())
-        )
+        if current.default_subcommand and prefix.startswith("-"):
+            current = next(
+                child for child in current.subcommands
+                if child.name == current.default_subcommand
+            )
+        else:
+            return tuple(
+                child.name
+                for child in current.subcommands
+                if child.name.casefold().startswith(prefix.casefold())
+            )
+
+    if current.name == "run" and "--" in completed[1:]:
+        return ()
 
     if completed:
         previous = completed[-1]

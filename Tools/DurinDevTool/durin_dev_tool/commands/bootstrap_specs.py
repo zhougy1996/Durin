@@ -10,6 +10,7 @@ SETUP_COMMAND_SPEC = CommandSpec(
     "setup",
     "prepare this main checkout",
     HANDLER,
+    help_group="Getting started",
     arguments=(
         PLAIN,
         argument(
@@ -29,6 +30,7 @@ SETUP_COMMAND_SPEC = CommandSpec(
 DEPENDENCY_COMMAND_SPEC = CommandSpec(
     "dependency",
     "prepare and validate third-party dependencies",
+    help_group="Workspace",
     subcommands=(
         CommandSpec(
             "prepare",

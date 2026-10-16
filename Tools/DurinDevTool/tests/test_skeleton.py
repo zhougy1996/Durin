@@ -138,6 +138,10 @@ class TestCommandRegistry:
         assert '--output' in shell_completion_candidates(registry, 'build --o')
         assert shell_completion_candidates(registry, 'build --output c') == ('compact',)
         assert shell_completion_candidates(registry, 'build --output=c') == ('--output=compact',)
+        assert shell_completion_candidates(registry, 'doc plan --s') == ('--scope',)
+        assert shell_completion_candidates(registry, 'doc plan --scope c') == ('completed',)
+        assert shell_completion_candidates(registry, 'doc --k') == ('--kind',)
+        assert shell_completion_candidates(registry, 'run -- --p') == ()
 
     def test_shell_completion_ignores_large_numeric_choice_ranges(self) -> None:
         from durin_dev_tool.shell import shell_completion_candidates

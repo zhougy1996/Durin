@@ -121,7 +121,7 @@ process tree has exited. Then inspect the affected preset:
   `status`.
 
 For a non-default preset, pass `--preset <affected-preset>` to `status` and to
-its reported recovery command. Do not substitute `rebuild --target all` for an
+its reported recovery command. Do not substitute `rebuild all` for an
 interrupted native-test target: native-test targets are excluded from `all`.
 
 ### A compiler, linker, configure, clean, or test command failed normally
@@ -172,7 +172,7 @@ For a first launch with no runtime outputs, build the complete runtime for the
 selected preset, then run it:
 
 ```powershell
-.\DevTool.bat build --target all
+.\DevTool.bat build all
 .\DevTool.bat run
 ```
 

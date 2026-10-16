@@ -74,7 +74,7 @@ class TestCore:
         descriptor = Path(directory) / 'Example.dproject'
         descriptor.write_text('{}', encoding='utf-8')
         for arguments in (('--project', 'Other.dproject'), ('--project=Other.dproject',)):
-            with pytest.raises(errors.BuildToolError, match='either through --project or through --args'):
+            with pytest.raises(errors.BuildToolError, match='either through --project or through the -- separator'):
                 request_validation.normalize_run_request(request_fixtures.command_request(models.Action.RUN, options=request_fixtures.RunActionOptions(project_path=descriptor, arguments=arguments)))
     def test_environment_output_collapses_windows_case_duplicates(self) -> None:
         environment = parse_environment_output('PATH=developer\nPath=parent\n', case_insensitive=True)

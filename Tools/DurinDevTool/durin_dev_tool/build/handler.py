@@ -111,11 +111,16 @@ def request_from_namespace(namespace: argparse.Namespace) -> BaseRequest:
             test_explain_affected=bool(namespace_value(namespace, "explain_affected", False)),
         )
     if action is Action.RUN:
+        run_arguments = tuple(namespace_value(namespace, "run_arguments", ()) or ())
+        if run_arguments:
+            if run_arguments[0] != "--":
+                raise BuildToolError("Pass application arguments after 'run --'.")
+            run_arguments = run_arguments[1:]
         return RunRequest(
             context=context,
             output=output,
             project_path=namespace_value(namespace, "project_path", None),
-            run_arguments=tuple(namespace_value(namespace, "run_arguments", ()) or ()),
+            run_arguments=run_arguments,
         )
     if action is Action.PURGE:
         return PurgeRequest(

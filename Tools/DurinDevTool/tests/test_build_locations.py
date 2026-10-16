@@ -170,7 +170,7 @@ class TestBuildLocations:
             build_opener.open_location(location, current_host="windows")
         startfile.assert_not_called()
         assert raised.value.recovery == (
-            "Build the complete runtime first with build --target all."
+            "Build the complete runtime first with build all."
         )
 
     def test_path_command_prints_exact_resolved_path(self) -> None:

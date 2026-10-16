@@ -28,6 +28,7 @@ def lifecycle_command(name: str, summary: str, default_prefix: str) -> CommandSp
     return CommandSpec(
         name,
         summary,
+        default_subcommand="list",
         subcommands=(
             CommandSpec(
                 "list",
@@ -83,6 +84,8 @@ DOCUMENT_FILTERS = (
 COMMAND_SPEC = CommandSpec(
     "doc",
     "discover, validate, and safely change documentation",
+    help_group="Documentation",
+    default_subcommand="list",
     subcommands=(
         CommandSpec("list", "list repository documentation", HANDLER, arguments=DOCUMENT_FILTERS, defaults=(("document_action", "list"),)),
         CommandSpec(

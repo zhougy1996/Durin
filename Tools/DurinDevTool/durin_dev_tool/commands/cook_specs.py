@@ -11,6 +11,8 @@ COMMAND_SPEC = CommandSpec(
     "publish a deterministic project Cook generation",
     "durin_dev_tool.cook:run",
     required_modules=("rich", "jsonschema"),
+    help_group="Assets",
+    epilog="Examples:\n  DevTool cook --output Saved/Cooked\n  DevTool cook --output Saved/MacCook --target macos --dry-run",
     arguments=CONTEXT_ARGUMENTS
     + (
         argument(
@@ -27,13 +29,7 @@ COMMAND_SPEC = CommandSpec(
             required=True,
             help="absolute or repository-relative Cook output root",
         ),
-        argument("--target", choices=("win64", "macos"), required=True),
-        argument(
-            "--target-profile",
-            choices=("game",),
-            required=True,
-            help="Cook target profile",
-        ),
+        argument("--target", choices=("win64", "macos"), default=None, help="Cook platform (default: selected build profile's platform)"),
         argument(
             "--root",
             dest="roots",

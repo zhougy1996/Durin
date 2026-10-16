@@ -27,6 +27,7 @@ JSON_ARGUMENT = argument(
 COMMAND_SPEC = CommandSpec(
     "asset",
     "check, resave, or inspect authored assets",
+    help_group="Assets",
     subcommands=(
         CommandSpec(
             "material-functions",

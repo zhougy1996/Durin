@@ -11,6 +11,7 @@ from ..errors import DevToolError
 class ArgumentSpec:
     flags: tuple[str, ...]
     kwargs: dict[str, object]
+    group: str = ""
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class CommandSpec:
     default_subcommand: str = ""
     defaults: tuple[tuple[str, object], ...] = ()
     epilog: str = ""
+    help_group: str = "Other"
 
     def load_handler(self) -> Callable[..., int]:
         module_name, separator, attribute = self.handler.partition(":")
@@ -33,5 +35,5 @@ class CommandSpec:
         return getattr(module, attribute)
 
 
-def argument(*flags: str, **kwargs: object) -> ArgumentSpec:
-    return ArgumentSpec(flags, kwargs)
+def argument(*flags: str, group: str = "", **kwargs: object) -> ArgumentSpec:
+    return ArgumentSpec(flags, kwargs, group)

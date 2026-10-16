@@ -80,8 +80,14 @@ class CommandRegistry:
         spec: CommandSpec,
     ) -> None:
         parser.set_defaults(_command_spec=spec, **dict(spec.defaults))
+        groups: dict[str, argparse._ArgumentGroup] = {}
         for argument in spec.arguments:
-            parser.add_argument(*argument.flags, **argument.kwargs)
+            target = parser
+            if argument.group:
+                if argument.group not in groups:
+                    groups[argument.group] = parser.add_argument_group(argument.group)
+                target = groups[argument.group]
+            target.add_argument(*argument.flags, **argument.kwargs)
         if spec.subcommands:
             subparsers = parser.add_subparsers(
                 dest=f"{spec.name}_command",
@@ -128,6 +134,7 @@ class CommandRegistry:
                         child is None
                         and current.default_subcommand
                         and normalized[index].startswith("-")
+                        and normalized[index] not in {"-h", "--help"}
                     ):
                         normalized.insert(index, current.default_subcommand)
                         child_name = current.default_subcommand
@@ -147,12 +154,20 @@ class CommandRegistry:
     def format_help(self) -> str:
         width = max(len(spec.name) for spec in self.specifications)
         lines = ["DurinDevTool commands:"]
-        lines.extend(
-            f"  {spec.name:<{width}}  {spec.summary}"
-            for spec in self.specifications
-        )
+        groups: dict[str, list[CommandSpec]] = {}
+        for spec in self.specifications:
+            groups.setdefault(spec.help_group, []).append(spec)
+        for title, commands in groups.items():
+            lines.extend(("", f"{title}:"))
+            lines.extend(f"  {spec.name:<{width}}  {spec.summary}" for spec in commands)
         lines.extend(
             [
+                "",
+                "Common examples:",
+                "  DevTool build Core",
+                "  DevTool test CoreUtilityTests",
+                "  DevTool run -- --hidden-window",
+                "  DevTool doc plan",
                 "",
                 "Run 'DevTool COMMAND --help' for command-specific options.",
                 "Run DevTool without arguments to open the interactive shell.",

@@ -38,7 +38,7 @@ COMMAND_CASES = (
     (("rebuild",), "rebuild"),
     (("test",), "test"),
     (("run",), "run"),
-    (("cook",), "cook --output Saved/Cooked --target win64 --target-profile game"),
+    (("cook",), "cook --output Saved/Cooked --target win64"),
     (("asset", "check"), "asset check --json"),
     (("asset", "identity-audit"), "asset identity-audit --project Sandbox/Sandbox.dproject"),
     (("asset", "material-functions"), "asset material-functions --project Sandbox/Sandbox.dproject"),
@@ -153,6 +153,69 @@ def comparable_namespace(namespace: object) -> dict[str, object]:
 
 
 class TestCommandGrammarContract:
+    @pytest.mark.parametrize("command", ["build", "rebuild"])
+    def test_positional_build_targets_and_default(self, command: str) -> None:
+        from durin_dev_tool.build.handler import request_from_namespace
+
+        registry = CommandRegistry()
+        _, default = registry.parse([command])
+        assert request_from_namespace(default).target == "all"
+        _, selected = registry.parse([command, "Core", "--jobs", "2"])
+        request = request_from_namespace(selected)
+        assert request.target == "Core"
+        assert request.context.jobs == 2
+        with pytest.raises(DevToolError):
+            registry.parse([command, "--target", "Core"])
+
+    def test_run_separator_preserves_application_options_and_values(self) -> None:
+        from durin_dev_tool.build.handler import request_from_namespace
+
+        registry = CommandRegistry()
+        arguments = ["--profile", "application-profile", "--project=Project With Spaces.dproject", "--", ""]
+        _, namespace = registry.parse(["run", "--preset", "host-preset", "--", *arguments])
+        request = request_from_namespace(namespace)
+        assert request.context.preset == "host-preset"
+        assert request.context.profile == ""
+        assert request.run_arguments == tuple(arguments)
+        for command in (["run"], ["run", "--"]):
+            _, namespace = registry.parse(command)
+            assert request_from_namespace(namespace).run_arguments == ()
+        with pytest.raises(DevToolError):
+            registry.parse(["run", "--args", "--hidden-window"])
+        _, namespace = registry.parse(["run", "unexpected"])
+        with pytest.raises(BuildToolError, match="after 'run --'"):
+            request_from_namespace(namespace)
+
+    @pytest.mark.parametrize("path", [("doc",), ("doc", "task"), ("doc", "plan"), ("doc", "roadmap"), ("worktree",)])
+    def test_read_only_groups_default_to_list(self, path: tuple[str, ...]) -> None:
+        registry = CommandRegistry()
+        spec, default = registry.parse(path)
+        explicit_spec, explicit = registry.parse([*path, "list"])
+        assert spec is explicit_spec
+        assert comparable_namespace(default) == comparable_namespace(explicit)
+
+    def test_implicit_plan_list_options_and_group_help(self, capsys) -> None:
+        registry = CommandRegistry()
+        spec, namespace = registry.parse(["doc", "plan", "--scope", "completed"])
+        assert spec.name == "list"
+        assert namespace.scope == "completed"
+        with pytest.raises(SystemExit) as result:
+            registry.parse(["doc", "plan", "--help"])
+        assert result.value.code == 0
+        assert "manage implementation-plan lifecycle" in capsys.readouterr().out
+
+    def test_help_groups_cover_all_commands_and_keep_advanced_options(self) -> None:
+        registry = CommandRegistry()
+        help_text = registry.format_help()
+        assert all(spec.help_group != "Other" for spec in registry.specifications)
+        for spec in registry.specifications:
+            assert sum(line.split()[:1] == [spec.name] for line in help_text.splitlines()) == 1
+        build_help = registry.format_command_help(["build"])
+        assert build_help.index("options:") < build_help.index("advanced options:")
+        assert "--preset" in build_help.split("advanced options:")[0]
+        assert "--environment-setup" in build_help.split("advanced options:")[1]
+        assert "DevTool build Core" in build_help
+
     def test_feature_spec_imports_do_not_eagerly_import_handlers(self) -> None:
         result = subprocess.run(
             [

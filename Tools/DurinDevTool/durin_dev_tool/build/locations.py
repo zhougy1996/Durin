@@ -178,14 +178,14 @@ LOCATION_SPECS = (
         (),
         True,
         _output,
-        "Build the selected preset first with build --target all.",
+        "Build the selected preset first with build all.",
     ),
     LocationSpec(
         "runtime",
         (),
         True,
         _runtime,
-        "Build the complete runtime first with build --target all.",
+        "Build the complete runtime first with build all.",
     ),
     LocationSpec(
         "saved",
@@ -199,7 +199,7 @@ LOCATION_SPECS = (
         (),
         True,
         _configs,
-        "Build the complete runtime first with build --target all.",
+        "Build the complete runtime first with build all.",
     ),
     LocationSpec(
         "runtime-logs",

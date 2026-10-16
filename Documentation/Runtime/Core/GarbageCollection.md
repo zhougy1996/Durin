@@ -326,5 +326,5 @@ Run the focused tests through the repository build driver:
 For changes that affect runtime behavior or public lifecycle contracts, also build the complete registered profile:
 
 ```powershell
-.\DevTool.bat build --target all --plain
+.\DevTool.bat build all --plain
 ```

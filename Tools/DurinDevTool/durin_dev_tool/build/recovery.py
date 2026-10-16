@@ -97,7 +97,7 @@ def execute_with_recovery_marker(
                 + (
                     "recover with the affected preset."
                     if target
-                    else "rebuild --target all with the affected preset."
+                    else "rebuild all with the affected preset."
                 )
             ),
         )
@@ -116,9 +116,9 @@ def execute_with_recovery_marker(
             requested_target == "all" and all_covers_required_target
         ):
             alternatives = (
-                f"Run rebuild --target {required_target}."
+                f"Run rebuild {required_target}."
                 if previous_action == Action.TEST.value
-                else f"Run rebuild --target {required_target}, or rebuild --target all."
+                else f"Run rebuild {required_target}, or rebuild all."
             )
             raise BuildToolError(
                 f'Interrupted target "{required_target}" cannot be recovered by rebuilding '
@@ -130,7 +130,7 @@ def execute_with_recovery_marker(
         if required_target is None:
             raise BuildToolError(
                 "The interrupted DurinDevTool state cannot be resumed safely.",
-                recovery="Run rebuild --target all with the affected preset.",
+                recovery="Run rebuild all with the affected preset.",
             )
         target_override = required_target
         metadata = {**metadata, "target": required_target}

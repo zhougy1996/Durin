@@ -91,6 +91,12 @@ def run(
         profile_name=str(getattr(namespace, "profile", "") or ""),
         preset_name=str(getattr(namespace, "preset", "") or ""),
     )
+    target = namespace.target or selection.profile.platform.casefold()
+    if target not in {"win64", "macos"}:
+        raise DevToolError(
+            f'Cannot infer a Cook target from build platform "{selection.profile.platform}". '
+            "Select --target win64 or --target macos."
+        )
     executable = (
         executable_resolver(namespace, repository.root)
         if executable_resolver
@@ -106,8 +112,8 @@ def run(
         "cook",
         f"--project={project}",
         f"--output={output}",
-        f"--target={namespace.target}",
-        f"--profile={namespace.target_profile}",
+        f"--target={target}",
+        "--profile=game",
         "--json",
     ]
     arguments.extend(f"--root={root}" for root in namespace.roots)

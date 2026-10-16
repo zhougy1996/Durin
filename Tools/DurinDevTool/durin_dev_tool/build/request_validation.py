@@ -12,7 +12,7 @@ from .selection import preset_cache_bool, preset_cache_string
 
 def validate_target(target: str, *, action: Action) -> None:
     if not target:
-        raise BuildToolError(f"{action.value} requires --target <target-name>.")
+        raise BuildToolError(f"{action.value} requires <target-name>.")
     allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.+-")
     if any(character not in allowed for character in target):
         raise BuildToolError(f'Build target contains unsupported characters: "{target}"')
@@ -60,7 +60,7 @@ def normalize_run_request(
     if project_selectors:
         raise BuildToolError(
             "run accepts project selection either through --project or through "
-            "--args, but not both."
+            "the -- separator, but not both."
         )
     return request.with_project_path(project_path)
 

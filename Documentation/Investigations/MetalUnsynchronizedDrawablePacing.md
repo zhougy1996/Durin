@@ -122,7 +122,7 @@ output path; `DURIN_PROBE_EARLY=1` changes application reference retention;
 `DURIN_PROBE_NO_BLIT=1` omits the final copy. These are temporary probe settings,
 not supported production environment variables.
 
-Run through `./DevTool run --project Sandbox/Sandbox.dproject --args
+Run through `./DevTool run --project Sandbox/Sandbox.dproject --
 --exit-after-ticks=480`. Events are buffered in memory and written on shutdown.
 GPU start/end intervals of separate command buffers overlap and must not be
 summed as frame GPU cost. The analysis reports their envelope only, including

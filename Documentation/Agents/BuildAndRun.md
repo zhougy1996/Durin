@@ -5,8 +5,8 @@
 Run from the repository root. These are alternatives, not a command sequence:
 
 ```powershell
-.\DevTool.bat build --target <Target>
-.\DevTool.bat run [arguments...]
+.\DevTool.bat build <Target>
+.\DevTool.bat run [-- arguments...]
 .\DevTool.bat status
 ```
 
@@ -14,7 +14,7 @@ Use the selected host profile's default preset. Add presets only when the
 change requires another runtime or configuration; see
 [routine coverage](../Development/Build/BuildAndRun.md#routine-coverage).
 
-`build` defaults to `all`; prefer the smallest sufficient `--target <Target>`.
+`build` defaults to `all`; prefer the smallest sufficient `<Target>`.
 Build and executable test selections configure automatically when needed.
 `test` also builds its selected targets and dependencies; do not precede it with
 an equivalent build unless a separate build gate or artifact is required.

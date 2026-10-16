@@ -9,7 +9,7 @@ All configuration, builds, and tests that produce Durin outputs must run through
 DurinDevTool:
 
 ```powershell
-.\DevTool.bat build --target <Target>
+.\DevTool.bat build <Target>
 .\DevTool.bat test CoreConcurrencyTests
 ```
 
@@ -21,7 +21,7 @@ Configure/Reload while DurinDevTool owns the checkout.
 For the first editor launch, build the complete runtime through DurinDevTool:
 
 ```powershell
-.\DevTool.bat build --target all
+.\DevTool.bat build all
 ```
 
 For later debugging, rebuild only changed modules and affected consumers when

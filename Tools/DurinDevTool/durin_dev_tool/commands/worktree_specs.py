@@ -8,6 +8,7 @@ HANDLER = "durin_dev_tool.worktree.handler:run"
 COMMAND_SPEC = CommandSpec(
     "worktree",
     "create, prepare, list, open, and remove worktrees",
+    help_group="Workspace",
     subcommands=(
         CommandSpec(
             "open",

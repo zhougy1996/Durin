@@ -59,8 +59,6 @@ def test_cook_command_grammar_is_top_level_and_explicit() -> None:
             "Saved/Cooked",
             "--target",
             "win64",
-            "--target-profile",
-            "game",
             "--root",
             "/Game/Root",
             "--root",
@@ -78,11 +76,52 @@ def test_cook_command_grammar_is_top_level_and_explicit() -> None:
 
 def test_macos_cook_target_is_selected_and_reported() -> None:
     _, namespace = CommandRegistry().parse(
-        ["cook", "--output", "Saved/MacCook", "--target", "macos",
-         "--target-profile", "game"]
+        ["cook", "--output", "Saved/MacCook", "--target", "macos"]
     )
     assert namespace.target == "macos"
     assert cook._read_report(report(target="macos"))["target"] == "macos"
+
+
+@pytest.mark.parametrize(
+    "platform, explicit_target, expected",
+    [("Win64", None, "win64"), ("MacOS", None, "macos"),
+     ("Win64", "macos", "macos"), ("Unsupported", "win64", "win64"),
+     ("Unsupported", None, None)],
+)
+def test_cook_defaults_use_selected_profile_and_forward_game(
+    tmp_path: Path, platform: str, explicit_target: str | None, expected: str | None,
+) -> None:
+    project = tmp_path / "Test.dproject"
+    project.write_text("{}", encoding="utf-8")
+    arguments = ["cook", "--project", str(project), "--output", "Build/Cook", "--dry-run", "--json"]
+    if explicit_target:
+        arguments.extend(["--target", explicit_target])
+    _, namespace = CommandRegistry().parse(arguments)
+    repository = REPOSITORY.at_root(tmp_path)
+    selection = cook.select_runtime(REPOSITORY)
+    selection = replace(selection, repository=repository, profile=replace(selection.profile, platform=platform))
+    runner = mock.Mock(return_value=report(target=expected or "win64"))
+    resolver = mock.Mock(return_value=tmp_path / "DurinAssetTool")
+    with mock.patch.object(cook, "select_runtime", return_value=selection):
+        keywords = dict(repository_root=tmp_path, repository_context=repository,
+                        stdout=io.StringIO(), stderr=io.StringIO(),
+                        command_runner=runner, executable_resolver=resolver)
+        if expected is None:
+            with pytest.raises(DevToolError, match="Cannot infer a Cook target"):
+                cook.run(namespace, **keywords)
+            runner.assert_not_called()
+            resolver.assert_not_called()
+        else:
+            assert cook.run(namespace, **keywords) == 0
+            forwarded = runner.call_args.args[0]
+            assert f"--target={expected}" in forwarded
+            assert "--profile=game" in forwarded
+            assert "--dry-run" in forwarded
+
+
+def test_cook_rejects_removed_target_profile_option() -> None:
+    with pytest.raises(DevToolError):
+        CommandRegistry().parse(["cook", "--output", "Build/Cook", "--target-profile", "game"])
 
 
 def test_omitted_package_report_is_successful_and_distinct_from_failure() -> None:
@@ -116,7 +155,6 @@ def test_cook_maps_stable_native_contract_and_renders_json(tmp_path: Path) -> No
             "project_path": project,
             "output_path": Path("Saved/Cooked"),
             "target": "win64",
-            "target_profile": "game",
             "roots": ["/Game/Root", "/Engine/Default"],
             "no_incremental": True,
             "dry_run": True,
@@ -184,7 +222,7 @@ def test_failed_cook_reads_complete_report_from_process_log(tmp_path: Path) -> N
     log.write_text(report(status="failed", target="macos"), encoding="utf-8")
     _, namespace = CommandRegistry().parse(
         ["cook", "--project", str(project), "--output", str(tmp_path / "Cook"),
-         "--target", "macos", "--target-profile", "game", "--json"]
+         "--target", "macos", "--json"]
     )
     repository = REPOSITORY.at_root(tmp_path)
     selection = replace(cook.select_runtime(REPOSITORY), repository=repository)

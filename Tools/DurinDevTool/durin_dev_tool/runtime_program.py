@@ -105,7 +105,7 @@ def locate_executable(
     if not executable.is_file():
         raise DevToolError(
             f'{description.label} executable was not found: "{executable}". '
-            f"Build it with 'DevTool build --target {description.build_target}'."
+            f"Build it with 'DevTool build {description.build_target}'."
         )
     return executable
 

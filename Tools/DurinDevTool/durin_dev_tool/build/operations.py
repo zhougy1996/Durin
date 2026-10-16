@@ -239,7 +239,7 @@ def show_status(output: BuildOutput, context: BuildContext) -> None:
     if recovery_required:
         values["Recovery target"] = resumable_target or "unknown"
         values["Recovery command"] = (
-            "recover" if resumable_target else f"rebuild --target {recovery_target(marker)}"
+            "recover" if resumable_target else f"rebuild {recovery_target(marker)}"
         )
     if output.plain:
         for label, value in values.items():

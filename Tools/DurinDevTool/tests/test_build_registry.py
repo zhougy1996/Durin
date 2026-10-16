@@ -61,7 +61,7 @@ class TestBuildRegistry:
 
 
     def test_direct_and_shell_entry_paths_dispatch_identical_requests(self) -> None:
-        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh -DFEATURE=ON --define LIMIT=4 --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all', 'test CoreTests Core.* --timeout 45', 'test all --report Build/results.xml', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
+        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh -DFEATURE=ON --define LIMIT=4 --jobs 8', 'build Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild all', 'test CoreTests Core.* --timeout 45', 'test all --report Build/results.xml', 'run --project "Examples/Sandbox/Sandbox.dproject" -- --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
         stdout = io.StringIO()
         stderr = io.StringIO()
 
@@ -251,7 +251,7 @@ class TestBuildRegistry:
                 self.registry.parse(split_shell_command(command))
 
     def test_shell_uses_the_shared_direct_command_grammar(self) -> None:
-        for command in ('build Core', 'rebuild Core', 'run --hidden-window'):
+        for command in ('build --target Core', 'rebuild --target Core', 'run --args --hidden-window', 'run --hidden-window'):
             with pytest.raises(DevToolError):
                 self.registry.parse(split_shell_command(command))
 
@@ -282,9 +282,9 @@ class TestBuildRegistry:
         assert request.context == RequestContext()
 
     def test_build_commands_are_case_insensitive_and_keep_slash_aliases(self) -> None:
-        canonical = vars(self.parse(['build', '--target', 'Core']))
-        assert canonical == vars(self.parse(['BUILD', '--target', 'Core']))
-        assert canonical == vars(self.parse(['/build', '--target', 'Core']))
+        canonical = vars(self.parse(['build', 'Core']))
+        assert canonical == vars(self.parse(['BUILD', 'Core']))
+        assert canonical == vars(self.parse(['/build', 'Core']))
 
 
     def test_build_namespace_constructs_typed_request_without_reparsing(self) -> None:
@@ -444,7 +444,7 @@ class TestBuildRegistry:
         build_help = self.registry.format_command_help(('build',))
         worktree_help = self.registry.format_command_help(('worktree', 'add'))
         assert 'DevTool build' in build_help
-        assert '--target' in build_help
+        assert 'TARGET' in build_help
         assert 'DevTool worktree add' in worktree_help
         assert '--branch' in worktree_help
 

@@ -7,16 +7,18 @@ from .common_specs import CONTEXT_ARGUMENTS, DISPLAY_ARGUMENTS, PLAIN, PRESET, P
 from .specification import ArgumentSpec, CommandSpec, argument
 
 
-CMAKE = argument("--cmake", help="CMake executable override")
-ENVIRONMENT_SETUP = argument("--environment-setup", help="toolchain environment script override")
+CMAKE = argument("--cmake", group="advanced options", help="CMake executable override")
+ENVIRONMENT_SETUP = argument("--environment-setup", group="advanced options", help="toolchain environment script override")
 JOBS = argument("--jobs", type=int, choices=range(1, 257), metavar="1..256", help="build job limit")
 OUTPUT_MODE = argument(
     "--output", dest="output_mode", choices=("auto", "compact", "progress", "full"),
+    group="advanced options",
     default=None, help="child output mode (default: auto)",
 )
 CHILD_OUTPUT_ARGUMENTS = (PLAIN, OUTPUT_MODE)
 TOOL_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, PLAIN, OUTPUT_MODE)
 STATUS_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, PLAIN)
+BUILD_TARGET = argument("target", nargs="?", default="all", metavar="TARGET", help="CMake target (default: all)")
 HANDLER = "durin_dev_tool.build.handler:run"
 
 
@@ -27,6 +29,7 @@ def build_command(
     *,
     action: str | None = None,
     epilog: str = "",
+    help_group: str = "Build and run",
 ) -> CommandSpec:
     return CommandSpec(
         name, summary, HANDLER,
@@ -34,6 +37,7 @@ def build_command(
         required_modules=("rich",),
         defaults=(("build_action", action or name),),
         epilog=epilog,
+        help_group=help_group,
     )
 
 
@@ -69,14 +73,15 @@ CREATE_PROJECT = build_command(
 
 COMMAND_SPECS = (
     build_command("stop", "stop the active build operation", (PLAIN,)),
-    build_command("presets", "list registered presets", CONTEXT_ARGUMENTS + DISPLAY_ARGUMENTS),
-    build_command("preset", "inspect a selected preset", (argument("selected_preset", nargs="?", default=""), PROFILE, PLAIN)),
-    build_command("status", "show build context and toolchain state", STATUS_ARGUMENTS),
+    build_command("presets", "list registered presets", CONTEXT_ARGUMENTS + DISPLAY_ARGUMENTS, help_group="Inspect"),
+    build_command("preset", "inspect a selected preset", (argument("selected_preset", nargs="?", default=""), PROFILE, PLAIN), help_group="Inspect"),
+    build_command("status", "show build context and toolchain state", STATUS_ARGUMENTS, help_group="Inspect"),
     build_command(
         "path", "print a registered repository location",
         CONTEXT_ARGUMENTS + DISPLAY_ARGUMENTS + (argument("location", nargs="?"), argument("--all", dest="all_locations", action="store_true")),
+        help_group="Inspect",
     ),
-    build_command("open", "open a registered repository location", CONTEXT_ARGUMENTS + DISPLAY_ARGUMENTS + (argument("location"),)),
+    build_command("open", "open a registered repository location", CONTEXT_ARGUMENTS + DISPLAY_ARGUMENTS + (argument("location"),), help_group="Inspect"),
     build_command(
         "configure", "configure the selected preset",
         TOOL_ARGUMENTS + (
@@ -91,14 +96,20 @@ COMMAND_SPECS = (
             ),
         ),
     ),
-    build_command("build", "build a CMake target", TOOL_ARGUMENTS + (argument("--target", default="all"),)),
+    build_command(
+        "build", "build a CMake target", TOOL_ARGUMENTS + (BUILD_TARGET,),
+        epilog="Examples:\n  DevTool build Core\n  DevTool build LevelEditor --preset Win64-Release-DurinEditor",
+    ),
     build_command("clean", "clean the selected preset", TOOL_ARGUMENTS),
     build_command("recover", "resume an interrupted build incrementally", TOOL_ARGUMENTS),
     build_command(
         "purge", "delete generated build artifacts",
         CONTEXT_ARGUMENTS + DISPLAY_ARGUMENTS + (argument("--all-presets", action="store_true"), argument("--yes", action="store_true")),
     ),
-    build_command("rebuild", "clean, configure, and build", TOOL_ARGUMENTS + (argument("--target", default="all"),)),
+    build_command(
+        "rebuild", "clean, configure, and build", TOOL_ARGUMENTS + (BUILD_TARGET,),
+        epilog="Example:\n  DevTool rebuild Core",
+    ),
     build_command(
         "test", "list, explain, build, and run native-test selections",
         (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, PLAIN, OUTPUT_MODE) + (
@@ -128,12 +139,14 @@ COMMAND_SPECS = (
         "run", "run the selected preset's existing application",
         CONTEXT_ARGUMENTS + CHILD_OUTPUT_ARGUMENTS + (
             argument("--project", dest="project_path", type=Path, default=None),
-            argument("--args", dest="run_arguments", nargs=argparse.REMAINDER, default=()),
+            argument("run_arguments", nargs=argparse.REMAINDER, metavar="ARG", help="application arguments after --"),
         ),
+        epilog="Examples:\n  DevTool run\n  DevTool run --project Sandbox/Sandbox.dproject -- --hidden-window",
     ),
 )
 
 SCAFFOLDING_COMMAND_SPEC = CommandSpec(
     "create", "create a module or workspace project",
     subcommands=(CREATE_MODULE, CREATE_PROJECT),
+    help_group="Workspace",
 )
