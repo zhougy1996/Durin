@@ -26,6 +26,22 @@ durin_add_native_test(PlatformLibraryContractTests
 # Exercise the public foundation header without a platform-providing PCH.
 set_source_files_properties(Private/PlatformLibraryTests.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 
+set(_durin_process_fixture_dir "${DURIN_PROJECT_ROOT_DIR}/Tests/Fixtures/PlatformProcess")
+add_executable(PlatformProcessFixture "${_durin_process_fixture_dir}/ProcessFixture.cpp")
+durin_target_enable_windows_long_paths(PlatformProcessFixture)
+durin_add_native_test(PlatformProcessContractTests
+	KIND contract
+	DOMAINS core
+	MODULES core
+	STACKS process
+	SOURCES Private/PlatformProcessTests.cpp
+	LIBRARIES Core
+	DEPENDENCIES PlatformProcessFixture
+	INCLUDE_DIRECTORIES "${_durin_process_fixture_dir}"
+	COMPILE_DEFINITIONS "DURIN_PROCESS_FIXTURE_PATH=\"$<TARGET_FILE:PlatformProcessFixture>\""
+)
+set_source_files_properties(Private/PlatformProcessTests.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
 durin_add_native_test(CoreToolTests
 	KIND contract
 	DOMAINS tools

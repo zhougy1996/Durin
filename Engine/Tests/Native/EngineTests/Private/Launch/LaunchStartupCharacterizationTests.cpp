@@ -4,11 +4,11 @@
 
 namespace
 {
-	auto RunLaunchChild(std::string_view Arguments) -> int32
+	auto RunLaunchChild(std::initializer_list<std::string> Arguments) -> int32
 	{
 		int32 ReturnCode = -1;
 		std::string Error;
-		const auto ExecuteProcessResult = Durin::FPlatformProcess::ExecuteProcess(DURIN_LAUNCH_EXECUTABLE, Arguments);
+		const auto ExecuteProcessResult = Durin::FPlatformProcess::ExecuteProcess(DURIN_LAUNCH_EXECUTABLE, Durin::FProcessLaunchOptions{.Arguments = Arguments});
 		Error = ExecuteProcessResult ? std::string{} : ExecuteProcessResult.error().ToString();
 		if (ExecuteProcessResult) ReturnCode = *ExecuteProcessResult;
 		EXPECT_TRUE(ExecuteProcessResult.has_value()) << Error;
@@ -20,13 +20,11 @@ namespace
 TEST(FLaunchStartupCharacterizationTests, BoundedTickExitUsesNormalApplicationShutdown)
 {
 	EXPECT_EQ(RunLaunchChild(
-		"--project-browser --hidden-window --exit-after-ticks=2"), 0u);
+		{"--project-browser", "--hidden-window", "--exit-after-ticks=2"}), 0u);
 }
 
 TEST(FLaunchStartupCharacterizationTests, MissingStartupCommandHandlerBecomesTerminal)
 {
-	const std::string Arguments = std::format(
-		"--project=\"{}\" --hidden-window --startup-command=missing-test-handler",
-		DURIN_LAUNCH_TEST_PROJECT);
-	EXPECT_EQ(RunLaunchChild(Arguments), 2u);
+	EXPECT_EQ(RunLaunchChild({std::format("--project={}", DURIN_LAUNCH_TEST_PROJECT),
+		"--hidden-window", "--startup-command=missing-test-handler"}), 2u);
 }

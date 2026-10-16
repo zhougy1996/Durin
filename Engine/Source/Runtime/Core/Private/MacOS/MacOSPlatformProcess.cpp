@@ -1,4 +1,6 @@
 #include "MacOS/MacOSPlatformProcess.h"
+#include "HAL/ProcessLaunch.h"
+#include <crt_externs.h>
 #include <climits>
 #include <mach-o/dyld.h>
 #include <spawn.h>
@@ -6,7 +8,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-extern char** environ;
 
 namespace Durin
 {
@@ -18,95 +19,69 @@ namespace Durin
 				std::generic_category().message(Error));
 		}
 
-		auto ParseArguments(
-			std::string_view Arguments,
-			std::vector<std::string>& OutArguments,
-			std::string* OutError) -> bool
+		struct FSpawnFileActions
 		{
-			std::string Current;
-			char Quote = '\0';
-			bool Escaped = false;
-			bool HasToken = false;
+			posix_spawn_file_actions_t Value{};
+			bool bInitialized = false;
+			~FSpawnFileActions() { if (bInitialized) posix_spawn_file_actions_destroy(&Value); }
+		};
 
-			for (const char Character : Arguments)
-			{
-				if (Escaped)
-				{
-					Current.push_back(Character);
-					Escaped = false;
-					HasToken = true;
-					continue;
-				}
-				if (Character == '\\' && Quote != '\'')
-				{
-					Escaped = true;
-					HasToken = true;
-					continue;
-				}
-				if ((Character == '\'' || Character == '"')
-					&& (Quote == '\0' || Quote == Character))
-				{
-					Quote = Quote == '\0' ? Character : '\0';
-					HasToken = true;
-					continue;
-				}
-				if (std::isspace(static_cast<unsigned char>(Character))
-					&& Quote == '\0')
-				{
-					if (HasToken)
-					{
-						OutArguments.push_back(std::move(Current));
-						Current.clear();
-						HasToken = false;
-					}
-					continue;
-				}
-				Current.push_back(Character);
-				HasToken = true;
-			}
-
-			if (Escaped || Quote != '\0')
-			{
-				if (OutError)
-					*OutError = "Process arguments contain an unfinished escape or quote.";
-				return false;
-			}
-			if (HasToken) OutArguments.push_back(std::move(Current));
-			return true;
-		}
-
-		auto Spawn(
-			std::string_view Executable,
-			std::vector<std::string> Arguments) -> std::expected<pid_t, FPlatformProcessError>
+		auto Spawn(std::string_view Executable, const FProcessLaunchOptions& Options)
+			-> std::expected<pid_t, FPlatformProcessError>
 		{
-			if (Executable.empty())
-			{
-				return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch, "Process executable path is empty."});
-			}
-
+			if (const auto Valid = Detail::ValidateProcessLaunch(Executable, Options); !Valid)
+				return std::unexpected(Valid.error());
+			const auto Failure = [&](int Error) {
+				return FPlatformProcessError{EPlatformProcessError::Launch,
+					std::format("Could not launch executable: {}.", FormatErrno(Error)), std::string(Executable), Error};
+			};
 			std::string ExecutableStorage(Executable);
+			auto Arguments = Options.Arguments;
 			std::vector<char*> ArgumentPointers;
 			ArgumentPointers.reserve(Arguments.size() + 2);
 			ArgumentPointers.push_back(ExecutableStorage.data());
-			for (std::string& Argument : Arguments)
-				ArgumentPointers.push_back(Argument.data());
+			for (auto& Argument : Arguments) ArgumentPointers.push_back(Argument.data());
 			ArgumentPointers.push_back(nullptr);
 
-			pid_t ChildProcess = 0;
-			const int SpawnResult = posix_spawn(
-				&ChildProcess,
-				ExecutableStorage.c_str(),
-				nullptr,
-				nullptr,
-				ArgumentPointers.data(),
-				environ);
-			if (SpawnResult != 0)
+			std::vector<std::string> EnvironmentStorage;
+			std::vector<char*> EnvironmentPointers;
+			char** Environment = *_NSGetEnviron();
+			if (!Options.EnvironmentOverrides.empty())
 			{
-				return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch,
-					std::format("Could not launch \"{}\": {}.", Executable, FormatErrno(SpawnResult)),
-					std::string(Executable), SpawnResult});
+				std::map<std::string, std::string> Values;
+				for (char** Entry = Environment; Entry && *Entry; ++Entry)
+				{
+					const std::string_view Text(*Entry);
+					const auto Separator = Text.find('=');
+					if (Separator != Text.npos)
+						Values[std::string(Text.substr(0, Separator))] = Text.substr(Separator + 1);
+				}
+				for (const auto& [Name, Value] : Options.EnvironmentOverrides)
+				{
+					if (Value) Values[Name] = *Value;
+					else Values.erase(Name);
+				}
+				for (const auto& [Name, Value] : Values) EnvironmentStorage.push_back(Name + "=" + Value);
+				for (auto& Entry : EnvironmentStorage) EnvironmentPointers.push_back(Entry.data());
+				EnvironmentPointers.push_back(nullptr);
+				Environment = EnvironmentPointers.data();
 			}
 
+			FSpawnFileActions Actions;
+			if (!Options.WorkingDirectory.empty())
+			{
+				const int Initialized = posix_spawn_file_actions_init(&Actions.Value);
+				if (Initialized != 0) return std::unexpected(Failure(Initialized));
+				Actions.bInitialized = true;
+				// Child-only chdir; the parent directory never changes, even on failure.
+				const int DirectoryResult = posix_spawn_file_actions_addchdir_np(&Actions.Value,
+					Options.WorkingDirectory.c_str());
+				if (DirectoryResult != 0) return std::unexpected(Failure(DirectoryResult));
+			}
+			pid_t ChildProcess = 0;
+			const int SpawnResult = posix_spawn(&ChildProcess, ExecutableStorage.c_str(),
+				Actions.bInitialized ? &Actions.Value : nullptr, nullptr, ArgumentPointers.data(), Environment);
+			if (SpawnResult != 0) return std::unexpected(Failure(SpawnResult));
 			return ChildProcess;
 		}
 
@@ -203,13 +178,9 @@ namespace Durin
 
 	auto FMacOSPlatformProcess::LaunchProcess(
 		std::string_view Executable,
-		std::string_view Arguments) -> std::expected<void, FPlatformProcessError>
+		const FProcessLaunchOptions& Options) -> std::expected<void, FPlatformProcessError>
 	{
-		std::string Error;
-		std::vector<std::string> ParsedArguments;
-		if (!ParseArguments(Arguments, ParsedArguments, &Error))
-			return std::unexpected(FPlatformProcessError{EPlatformProcessError::InvalidArguments, std::move(Error), std::string(Executable)});
-		const auto Spawned = Spawn(Executable, std::move(ParsedArguments));
+		const auto Spawned = Spawn(Executable, Options);
 		if (!Spawned) return std::unexpected(Spawned.error());
 		const pid_t ChildProcess = *Spawned;
 		std::thread([ChildProcess] {
@@ -221,13 +192,10 @@ namespace Durin
 
 	auto FMacOSPlatformProcess::ExecuteProcess(
 		std::string_view Executable,
-		std::string_view Arguments) -> std::expected<int32, FPlatformProcessError>
+		const FProcessLaunchOptions& Options) -> std::expected<int32, FPlatformProcessError>
 	{
 		std::string Error;
-		std::vector<std::string> ParsedArguments;
-		if (!ParseArguments(Arguments, ParsedArguments, &Error))
-			return std::unexpected(FPlatformProcessError{EPlatformProcessError::InvalidArguments, std::move(Error), std::string(Executable)});
-		const auto Spawned = Spawn(Executable, std::move(ParsedArguments));
+		const auto Spawned = Spawn(Executable, Options);
 		if (!Spawned) return std::unexpected(Spawned.error());
 		const pid_t ChildProcess = *Spawned;
 		int32 ReturnCode = 0;
@@ -244,7 +212,7 @@ namespace Durin
 			return std::unexpected(FPlatformProcessError{EPlatformProcessError::InvalidArguments, "Path to open is empty."});
 		}
 		const auto Result = ExecuteProcess("/usr/bin/open",
-			std::format("-- \"{}\"", Path));
+			FProcessLaunchOptions{.Arguments = {"--", std::string(Path)}});
 		if (!Result) return std::unexpected(Result.error());
 		const int32 ReturnCode = *Result;
 		if (ReturnCode == 0) return {};

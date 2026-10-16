@@ -177,15 +177,16 @@ namespace Durin::Editor::MainFrame
 		return (RootDirectory / "Build" / "Profiling" / "Tracy").lexically_normal().generic_string();
 	}
 
-	auto FProfilingToolService::BuildCaptureArguments(std::string_view CapturePath) -> std::string
+	auto FProfilingToolService::BuildCaptureArguments(std::string_view CapturePath) -> std::vector<std::string>
 	{
-		return std::format("\"{}\"", std::filesystem::path(CapturePath).lexically_normal().generic_string());
+		const auto Path = std::filesystem::path(CapturePath).lexically_normal().generic_u8string();
+		return {std::string(reinterpret_cast<const char*>(Path.data()), Path.size())};
 	}
 
 	auto FProfilingToolService::BuildConnectionArguments(
 		const Profiling::FConnectionState& Connection,
 		std::string* OutError
-	) -> std::optional<std::string>
+	) -> std::optional<std::vector<std::string>>
 	{
 		if (!Connection.bEnabled)
 		{
@@ -202,7 +203,7 @@ namespace Durin::Editor::MainFrame
 			if (OutError) *OutError = "This Editor's Tracy listener is not ready. Retry shortly; if it stays unavailable, check for occupied ports or a conflicting TRACY_PORT override.";
 			return std::nullopt;
 		}
-		return std::format("-a 127.0.0.1 -p {}", Connection.ListenPort);
+		return std::vector<std::string>{"-a", "127.0.0.1", "-p", std::to_string(Connection.ListenPort)};
 	}
 
 	auto FProfilingToolService::LaunchProfiler(std::string* OutError) const -> bool
@@ -216,7 +217,10 @@ namespace Durin::Editor::MainFrame
 
 		const auto Arguments = BuildConnectionArguments(Profiling::GetConnectionState(), OutError);
 		if (!Arguments) return false;
-		const auto LaunchProcessResult = FPlatformProcess::LaunchProcess(Status.ProfilerPath, *Arguments);
+		const auto Executable = std::filesystem::path(Status.ProfilerPath).u8string();
+		const auto LaunchProcessResult = FPlatformProcess::LaunchProcess(
+			std::string_view(reinterpret_cast<const char*>(Executable.data()), Executable.size()),
+			FProcessLaunchOptions{.Arguments = *Arguments});
 		if (LaunchProcessResult.has_value()) return true;
 		if (OutError)
 			*OutError = std::format(
@@ -245,7 +249,10 @@ namespace Durin::Editor::MainFrame
 			return false;
 		}
 
-		const auto LaunchProcessResult = FPlatformProcess::LaunchProcess(Status.ProfilerPath, BuildCaptureArguments(Capture.generic_string()));
+		const auto Executable = std::filesystem::path(Status.ProfilerPath).u8string();
+		const auto LaunchProcessResult = FPlatformProcess::LaunchProcess(
+			std::string_view(reinterpret_cast<const char*>(Executable.data()), Executable.size()),
+			FProcessLaunchOptions{.Arguments = BuildCaptureArguments(Capture.generic_string())});
 		if (LaunchProcessResult.has_value()) return true;
 		if (OutError)
 			*OutError = std::format(

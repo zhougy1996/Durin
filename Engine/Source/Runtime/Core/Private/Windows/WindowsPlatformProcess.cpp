@@ -1,5 +1,6 @@
 #include "Windows/WindowsPlatformProcess.h"
 #include "Misc/StringConvert.h"
+#include "HAL/ProcessLaunch.h"
 
 #include <shellapi.h>
 
@@ -28,6 +29,115 @@ namespace Durin
 			LocalFree(MessageBuffer);
 			return Result;
 		}
+
+		// Microsoft CRT argv parsing doubles backslashes before quotes and before
+		// the closing quote. Simple arguments need no quotes; empty ones always do.
+		auto QuoteArgument(std::wstring_view Argument) -> std::wstring
+		{
+			if (!Argument.empty() && Argument.find_first_of(L" \t\r\n\"") == Argument.npos)
+				return std::wstring(Argument);
+			std::wstring Result = L"\"";
+			size_t Backslashes = 0;
+			for (const wchar_t Character : Argument)
+			{
+				if (Character == L'\\') { ++Backslashes; continue; }
+				Result.append(Backslashes * (Character == L'"' ? 2 : 1), L'\\');
+				Backslashes = 0;
+				if (Character == L'"') Result.push_back(L'\\');
+				Result.push_back(Character);
+			}
+			Result.append(Backslashes * 2, L'\\');
+			Result.push_back(L'"');
+			return Result;
+		}
+
+		struct FEnvironmentNameLess
+		{
+			auto operator()(const std::wstring& Left, const std::wstring& Right) const -> bool
+			{
+				return CompareStringOrdinal(Left.c_str(), -1, Right.c_str(), -1, TRUE) == CSTR_LESS_THAN;
+			}
+		};
+
+		auto BuildEnvironment(std::string_view Executable, const FProcessLaunchOptions& Options)
+			-> std::expected<std::vector<wchar_t>, FPlatformProcessError>
+		{
+			std::map<std::wstring, std::wstring, FEnvironmentNameLess> Environment;
+			const auto Native = GetEnvironmentStringsW();
+			if (!Native)
+			{
+				const DWORD Error = GetLastError();
+				return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch,
+					FormatWindowsError(Error), std::string(Executable), Error});
+			}
+			std::unique_ptr<wchar_t, decltype(&FreeEnvironmentStringsW)> Snapshot(Native, &FreeEnvironmentStringsW);
+			for (const wchar_t* Entry = Snapshot.get(); *Entry;)
+			{
+				const std::wstring_view Text(Entry);
+				// Preserve Windows' inherited per-drive entries, such as =C:=C:\\.
+				const auto Separator = Text.find(L'=', Text.front() == L'=' ? 1 : 0);
+				if (Separator != Text.npos)
+					Environment[std::wstring(Text.substr(0, Separator))] = Text.substr(Separator + 1);
+				Entry += Text.size() + 1;
+			}
+			std::set<std::wstring, FEnvironmentNameLess> Names;
+			for (const auto& [Name, Value] : Options.EnvironmentOverrides)
+			{
+				auto WideName = StringUtils::Utf8ToWide(Name);
+				if (!Names.insert(WideName).second)
+					return std::unexpected(Detail::InvalidProcessLaunch(Executable,
+						"Environment overrides contain duplicate Windows names differing only in case."));
+				if (Value) Environment[WideName] = StringUtils::Utf8ToWide(*Value);
+				else Environment.erase(WideName);
+			}
+			std::vector<wchar_t> Block;
+			for (const auto& [Name, Value] : Environment)
+			{
+				Block.insert(Block.end(), Name.begin(), Name.end());
+				Block.push_back(L'=');
+				Block.insert(Block.end(), Value.begin(), Value.end());
+				Block.push_back(L'\0');
+			}
+			if (Block.empty()) Block.push_back(L'\0');
+			Block.push_back(L'\0');
+			return Block;
+		}
+
+		auto Spawn(std::string_view Executable, const FProcessLaunchOptions& Options)
+			-> std::expected<PROCESS_INFORMATION, FPlatformProcessError>
+		{
+			if (const auto Valid = Detail::ValidateProcessLaunch(Executable, Options); !Valid)
+				return std::unexpected(Valid.error());
+			const auto WideExecutable = StringUtils::Utf8ToWide(Executable);
+			std::wstring CommandLine = QuoteArgument(WideExecutable);
+			for (const auto& Argument : Options.Arguments)
+			{
+				CommandLine.push_back(L' ');
+				CommandLine += QuoteArgument(StringUtils::Utf8ToWide(Argument));
+			}
+			if (CommandLine.size() >= 32767)
+				return std::unexpected(Detail::InvalidProcessLaunch(Executable, "Windows command line exceeds 32767 UTF-16 units including its terminator."));
+			std::vector<wchar_t> Environment;
+			if (!Options.EnvironmentOverrides.empty())
+			{
+				auto Built = BuildEnvironment(Executable, Options);
+				if (!Built) return std::unexpected(Built.error());
+				Environment = std::move(*Built);
+			}
+			STARTUPINFOW StartupInfo{};
+			StartupInfo.cb = sizeof(StartupInfo);
+			PROCESS_INFORMATION ProcessInfo{};
+			if (!CreateProcessW(WideExecutable.c_str(), CommandLine.data(), nullptr, nullptr, FALSE,
+				CREATE_UNICODE_ENVIRONMENT, Environment.empty() ? nullptr : Environment.data(),
+				Options.WorkingDirectory.empty() ? nullptr : Options.WorkingDirectory.c_str(), &StartupInfo, &ProcessInfo))
+			{
+				const DWORD Error = GetLastError();
+				return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch,
+					std::format("Could not launch executable: {}.", FormatWindowsError(Error)), std::string(Executable), Error});
+			}
+			return ProcessInfo;
+		}
+
 	}
 
 	auto FWindowsPlatformProcess::ExecutablePath() -> const char*
@@ -70,19 +180,13 @@ namespace Durin
 			WaitResult == WAIT_FAILED ? std::optional<int64>(Error) : std::nullopt});
 	}
 
-	auto FWindowsPlatformProcess::LaunchProcess(std::string_view Executable, std::string_view Arguments) -> std::expected<void, FPlatformProcessError>
+	auto FWindowsPlatformProcess::LaunchProcess(std::string_view Executable, const FProcessLaunchOptions& Options)
+		-> std::expected<void, FPlatformProcessError>
 	{
-		std::wstring CommandLine = L"\"" + StringUtils::Utf8ToWide(Executable) + L"\" " + StringUtils::Utf8ToWide(Arguments);
-		STARTUPINFOW StartupInfo{};
-		StartupInfo.cb = sizeof(StartupInfo);
-		PROCESS_INFORMATION ProcessInfo{};
-		if (!CreateProcessW(nullptr, CommandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &StartupInfo, &ProcessInfo))
-		{
-			const DWORD Error = GetLastError();
-			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch, std::format("Could not launch \"{}\": {}.", Executable, FormatWindowsError(Error)), std::string(Executable), Error});
-		}
-		CloseHandle(ProcessInfo.hThread);
-		CloseHandle(ProcessInfo.hProcess);
+		const auto Spawned = Spawn(Executable, Options);
+		if (!Spawned) return std::unexpected(Spawned.error());
+		CloseHandle(Spawned->hThread);
+		CloseHandle(Spawned->hProcess);
 		return {};
 	}
 
@@ -96,22 +200,12 @@ namespace Durin
 		return std::unexpected(FPlatformProcessError{EPlatformProcessError::OpenPath, std::format("Could not open \"{}\": ShellExecuteW returned error {}.", Path, Result), std::string(Path), Result});
 	}
 
-	auto FWindowsPlatformProcess::ExecuteProcess(
-		std::string_view Executable,
-		std::string_view Arguments) -> std::expected<int32, FPlatformProcessError>
+	auto FWindowsPlatformProcess::ExecuteProcess(std::string_view Executable, const FProcessLaunchOptions& Options)
+		-> std::expected<int32, FPlatformProcessError>
 	{
-		std::wstring CommandLine = L"\"" + StringUtils::Utf8ToWide(Executable)
-			+ L"\" " + StringUtils::Utf8ToWide(Arguments);
-		STARTUPINFOW StartupInfo{};
-		StartupInfo.cb = sizeof(StartupInfo);
-		PROCESS_INFORMATION ProcessInfo{};
-		if (!CreateProcessW(nullptr, CommandLine.data(), nullptr, nullptr, FALSE, 0,
-			nullptr, nullptr, &StartupInfo, &ProcessInfo))
-		{
-			const DWORD Error = GetLastError();
-			return std::unexpected(FPlatformProcessError{EPlatformProcessError::Launch, std::format(
-				"Could not launch \"{}\": {}.", Executable, FormatWindowsError(Error)), std::string(Executable), Error});
-		}
+		const auto Spawned = Spawn(Executable, Options);
+		if (!Spawned) return std::unexpected(Spawned.error());
+		const auto& ProcessInfo = *Spawned;
 		CloseHandle(ProcessInfo.hThread);
 		const DWORD WaitResult = WaitForSingleObject(ProcessInfo.hProcess, INFINITE);
 		DWORD ExitCode = 0;

@@ -35,11 +35,11 @@ namespace Durin::Editor::MainFrame
 
 		[[nodiscard]] auto QueryStatus() const -> FTracyToolStatus;
 		[[nodiscard]] auto GetCaptureDirectory() const -> std::string;
-		[[nodiscard]] static auto BuildCaptureArguments(std::string_view CapturePath) -> std::string;
+		[[nodiscard]] static auto BuildCaptureArguments(std::string_view CapturePath) -> std::vector<std::string>;
 		[[nodiscard]] static auto BuildConnectionArguments(
 			const Profiling::FConnectionState& Connection,
 			std::string* OutError = nullptr
-		) -> std::optional<std::string>;
+		) -> std::optional<std::vector<std::string>>;
 
 		auto LaunchProfiler(std::string* OutError = nullptr) const -> bool;
 		auto OpenCapture(std::string_view CapturePath, std::string* OutError = nullptr) const -> bool;

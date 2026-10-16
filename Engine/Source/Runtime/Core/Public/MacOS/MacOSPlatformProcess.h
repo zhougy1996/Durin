@@ -15,13 +15,14 @@ namespace Durin
 		static CORE_API auto CurrentProcessId() -> uint32;
 		[[nodiscard]] static CORE_API auto WaitForProcessExit(
 			uint32 ProcessId) -> std::expected<void, FPlatformProcessError>;
+		// Requires an absolute UTF-8 executable path. Success reports creation, not child exit.
 		[[nodiscard]] static CORE_API auto LaunchProcess(
 			std::string_view Executable,
-			std::string_view Arguments) -> std::expected<void, FPlatformProcessError>;
-		// Nonzero child exit codes are values; launch/wait failures are errors.
+			const FProcessLaunchOptions& Options = {}) -> std::expected<void, FPlatformProcessError>;
+		// Same launch options; waits for exit. Nonzero exit codes are values, not errors.
 		[[nodiscard]] static CORE_API auto ExecuteProcess(
 			std::string_view Executable,
-			std::string_view Arguments) -> std::expected<int32, FPlatformProcessError>;
+			const FProcessLaunchOptions& Options = {}) -> std::expected<int32, FPlatformProcessError>;
 		[[nodiscard]] static CORE_API auto OpenPath(
 			std::string_view Path) -> std::expected<void, FPlatformProcessError>;
 	};

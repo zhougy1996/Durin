@@ -162,11 +162,11 @@ namespace Durin::Editor::MainFrame
 		);
 	}
 
-	TEST_F(FProfilingToolServiceTests, QuotesCapturePaths)
+	TEST_F(FProfilingToolServiceTests, PreservesCapturePathAsOneArgument)
 	{
 		EXPECT_EQ(
 			FProfilingToolService::BuildCaptureArguments("C:/Capture Files/frame.tracy"),
-			R"("C:/Capture Files/frame.tracy")"
+			std::vector<std::string>{"C:/Capture Files/frame.tracy"}
 		);
 	}
 
@@ -176,7 +176,7 @@ namespace Durin::Editor::MainFrame
 		{
 			const auto Arguments = FProfilingToolService::BuildConnectionArguments({true, false, Port});
 			ASSERT_TRUE(Arguments.has_value());
-			EXPECT_EQ(*Arguments, std::format("-a 127.0.0.1 -p {}", Port));
+			EXPECT_EQ(*Arguments, (std::vector<std::string>{"-a", "127.0.0.1", "-p", std::to_string(Port)}));
 		}
 	}
 

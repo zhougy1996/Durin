@@ -88,7 +88,7 @@ TEST(FProjectTests, PlatformProcessDistinguishesExitCodeFromLaunchFailure)
 {
 	const char* CommandProcessor = std::getenv("COMSPEC");
 	ASSERT_NE(CommandProcessor, nullptr);
-	const auto Executed = Durin::FPlatformProcess::ExecuteProcess(CommandProcessor, "/d /c exit 7");
+	const auto Executed = Durin::FPlatformProcess::ExecuteProcess(CommandProcessor, Durin::FProcessLaunchOptions{.Arguments = {"/d", "/c", "exit 7"}});
 	ASSERT_TRUE(Executed) << Executed.error().ToString();
 	EXPECT_EQ(*Executed, 7);
 	const auto Failed = Durin::FPlatformProcess::ExecuteProcess("Z:/DurinTests/MissingProcess.exe", {});
@@ -101,11 +101,11 @@ TEST(FProjectTests, PlatformProcessDistinguishesExitCodeFromLaunchFailure)
 #if defined(__APPLE__)
 TEST(FProjectTests, PlatformProcessExecutesAndReportsNativeReturnCode)
 {
-	const auto ExecuteProcessResult = Durin::FPlatformProcess::ExecuteProcess("/bin/sh", "-c 'exit 7'");
+	const auto ExecuteProcessResult = Durin::FPlatformProcess::ExecuteProcess("/bin/sh", Durin::FProcessLaunchOptions{.Arguments = {"-c", "exit 7"}});
 	ASSERT_TRUE(ExecuteProcessResult) << ExecuteProcessResult.error().ToString();
 	EXPECT_EQ(*ExecuteProcessResult, 7);
 
-	const auto ExecuteProcessResult2 = Durin::FPlatformProcess::ExecuteProcess("/bin/sh", "-c 'unfinished");
+	const auto ExecuteProcessResult2 = Durin::FPlatformProcess::ExecuteProcess("/bin/sh", Durin::FProcessLaunchOptions{.Arguments = {std::string("nul\0arg", 7)}});
 	ASSERT_FALSE(ExecuteProcessResult2);
 	EXPECT_EQ(ExecuteProcessResult2.error().Code, Durin::EPlatformProcessError::InvalidArguments);
 }

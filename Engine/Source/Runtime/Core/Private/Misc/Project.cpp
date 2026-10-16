@@ -21,7 +21,7 @@ namespace Durin
 	namespace
 	{
 		std::optional<FProjectInfo> GCurrentProject;
-		std::optional<std::string> GPendingEditorRelaunchArguments;
+		std::optional<std::vector<std::string>> GPendingEditorRelaunchArguments;
 #ifdef _WIN32
 		HANDLE GProjectEditMutex = nullptr;
 #elif defined(__APPLE__)
@@ -172,7 +172,14 @@ namespace Durin
 
 	auto RelaunchEditorForProject(std::string_view ProjectFile) -> std::expected<void, FProjectError>
 	{
-		GPendingEditorRelaunchArguments = ProjectFile.empty() ? "--project-browser" : std::format("--project=\"{}\"", Normalize(ProjectFile));
+		std::vector<std::string> Arguments;
+		if (ProjectFile.empty()) Arguments.emplace_back("--project-browser");
+		else
+		{
+			const auto Path = std::filesystem::path(Normalize(ProjectFile)).generic_u8string();
+			Arguments.push_back("--project=" + std::string(reinterpret_cast<const char*>(Path.data()), Path.size()));
+		}
+		GPendingEditorRelaunchArguments = std::move(Arguments);
 		RequestEngineExit();
 		return {};
 	}
@@ -180,12 +187,12 @@ namespace Durin
 	auto LaunchPendingEditorRelaunch() -> std::expected<void, FProjectError>
 	{
 		if (!GPendingEditorRelaunchArguments) return {};
-		const std::string HiddenWindowArgument = GIsWindowDisplaySuppressed ? " --hidden-window" : "";
-		const std::string Arguments = std::format(
-			"--wait-for-process={} {}{}", FPlatformProcess::CurrentProcessId(), *GPendingEditorRelaunchArguments, HiddenWindowArgument
-		);
+		FProcessLaunchOptions Options;
+		Options.Arguments.push_back(std::format("--wait-for-process={}", FPlatformProcess::CurrentProcessId()));
+		Options.Arguments.insert(Options.Arguments.end(), GPendingEditorRelaunchArguments->begin(), GPendingEditorRelaunchArguments->end());
+		if (GIsWindowDisplaySuppressed) Options.Arguments.emplace_back("--hidden-window");
 		GPendingEditorRelaunchArguments.reset();
-		if (const auto Launched = FPlatformProcess::LaunchProcess(FPlatformProcess::ExecutablePath(), Arguments); !Launched)
+		if (const auto Launched = FPlatformProcess::LaunchProcess(FPlatformProcess::ExecutablePath(), Options); !Launched)
 			return std::unexpected(FProjectError{EProjectError::Relaunch, Launched.error().ToString()});
 		return {};
 	}
