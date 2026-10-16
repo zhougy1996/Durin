@@ -2,12 +2,10 @@
 
 ## Routine Commands
 
-Run from the repository root:
+Run from the repository root. These are alternatives, not a command sequence:
 
 ```powershell
-.\DevTool.bat configure
 .\DevTool.bat build --target <Target>
-.\DevTool.bat build
 .\DevTool.bat run [arguments...]
 .\DevTool.bat status
 ```
@@ -17,6 +15,11 @@ change requires another runtime or configuration; see
 [routine coverage](../Development/Build/BuildAndRun.md#routine-coverage).
 
 `build` defaults to `all`; prefer the smallest sufficient `--target <Target>`.
+Build and executable test selections configure automatically when needed.
+`test` also builds its selected targets and dependencies; do not precede it with
+an equivalent build unless a separate build gate or artifact is required.
+An `all` build is incremental, not a clean rebuild. Explain which uncovered risk
+requires broader coverage before expanding the target selection.
 Use fresh configuration, clean, rebuild, or purge only for a diagnosed need.
 
 Machine-local tool and build-profile overrides belong in
@@ -46,8 +49,9 @@ and follow the reported recovery command. If clean, fix the cause and retry.
 Ordinary build, test, or application failures do not require recovery or rebuild.
 
 Follow [Testing](Testing.md) for risk-based validation. Use `all` only for an
-explicit gate or integration risk, including for editor changes. When handing
-off a runnable editor, build its required targets and link the verified
+explicit gate or integration risk that bounded consumer builds cannot cover,
+including for editor changes. When handing off a runnable editor, build its
+required targets and link the verified
 executable from the same Agent Build Profile.
 
 ## macOS Application Smoke

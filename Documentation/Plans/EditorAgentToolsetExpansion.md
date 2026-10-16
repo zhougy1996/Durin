@@ -2,7 +2,7 @@
 
 Summary: Extend editor Toolsets beyond PIE with inspection, reversible authoring, explicit persistence, and material graph operations through existing domain services.
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-17
 
 Status: Active
 Completed:
@@ -254,7 +254,9 @@ Depends on Stages 0-5.
 - [ ] Verify provider registration/unregistration, module/host shutdown, stale
   targets, cancellation, malformed requests and domain diagnostics.
 - [ ] Run domain CPU tests plus MCP codec/HTTP and official SDK regressions;
-  validate affected targets and an all build for shared Engine API changes.
+  validate affected targets under the repository's
+  [shared API coverage policy](../../AGENTS.md#task-routing), including an `all`
+  build when that policy requires it.
 - [ ] Use Codex's MCP client against the visible Sandbox editor to inspect,
   edit, undo/redo, save/reload supported fixture content and inspect a material
   draft. Keep test-generated assets/logs in ignored fixture storage.

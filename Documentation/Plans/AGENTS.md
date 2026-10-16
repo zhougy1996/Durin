@@ -53,6 +53,15 @@ Add other sections only when needed for execution or review; omit empty headings
 - Give each stage an observable outcome, concrete tasks, dependencies, and
   completion conditions.
 - Link build and test guidance instead of copying commands.
+- Give broad build, test, or additional-preset gates a concrete risk or
+  integration purpose. Apply them at the stated stage or final acceptance point;
+  do not repeat them after every edit when recorded passing coverage still
+  applies. Preserve explicit gates until their acceptance conditions are met.
+- Final acceptance requires valid evidence covering the final relevant inputs,
+  not a new run merely because the commit identifier changed. Apply the
+  [result reuse policy](../Agents/Testing.md#choose-execution); preserve the
+  tested revision and explain applicability to the final state. Documentation
+  edits still need their applicable document validation.
 
 ## Status Maintenance
 

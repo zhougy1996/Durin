@@ -138,15 +138,17 @@ configuration.
 ## macOS Workflow
 
 Use the extensionless root launcher. The qualified native build target is the
-Debug Editor preset on Apple Silicon:
+Debug Editor preset on Apple Silicon. For initial setup and a first editor launch:
 
 ```bash
 ./DevTool setup
 ./DevTool status
-./DevTool configure
 ./DevTool build --target all
-./DevTool rebuild --target all
 ```
+
+For later edits, use `build --target <Target>` for affected modules and consumers.
+Build commands configure automatically; fresh configuration and rebuilding are
+reserved for the diagnosed cases in [recovery](#recovery).
 
 `setup` is idempotent. Once `.venv` and `.agents/DevTool.user.json` exist, later
 commands use `.venv/bin/python` and the saved `macos-xcode-arm64` profile. If
@@ -223,21 +225,15 @@ junction can erase the corresponding directory in the main worktree. Use
 modified or untracked files. `DevTool worktree` without a leaf command uses the
 safe `list` default; opening terminals always requires `worktree open`.
 
-Use the root wrapper for configuration, builds, and tests:
+Use the root wrapper for routine builds and tests. These examples are
+alternatives, not a sequence; use the smallest sufficient target or selection:
 
 ```powershell
-.\DevTool.bat configure
-.\DevTool.bat configure --fresh
-.\DevTool.bat build
 .\DevTool.bat build --target LevelEditor
 .\DevTool.bat run
-.\DevTool.bat test affected
+.\DevTool.bat test affected --explain
 .\DevTool.bat test affected --base origin/main --explain
 .\DevTool.bat test CoreConcurrencyTests FTaskSchedulerTests.*
-.\DevTool.bat test all
-.\DevTool.bat clean
-.\DevTool.bat recover
-.\DevTool.bat rebuild --target all
 .\DevTool.bat presets
 .\DevTool.bat status
 .\DevTool.bat path build
@@ -249,12 +245,21 @@ Use the root wrapper for configuration, builds, and tests:
 .\DevTool.bat stop
 ```
 
-Run each Python test suite explicitly through pytest:
+Run the affected Python test files explicitly through pytest, for example:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest Tools\DurinDevTool\tests
-.\.venv\Scripts\python.exe -m pytest Engine\Source\Programs\DurinHeaderTool\tests
+.\.venv\Scripts\python.exe -m pytest Tools\DurinDevTool\tests\test_native_test_impact.py
 ```
+
+Expand to the owning suite (`Tools/DurinDevTool/tests` or
+`Engine/Source/Programs/DurinHeaderTool/tests`) when shared mechanisms or uncertain
+impact require it. Run both suites only for changes affecting both tools or an
+explicit gate; unrelated C++ or documentation edits do not require Python tests.
+
+Use `configure` for explicit cache changes or setup diagnosis. Use `--fresh`,
+`clean`, `rebuild`, or `purge` only for a diagnosed need, following
+[clean and purge guidance](#clean-and-purge) and [recovery](#recovery).
+Broad test selection follows the [agent testing workflow](../../Agents/Testing.md).
 
 Commands are case-insensitive for compatibility, but lowercase is canonical.
 `build` and executable `test` selections configure automatically when needed,
@@ -272,6 +277,10 @@ selected preset enables `BUILD_TESTING`. `recover` resumes the target recorded
 by an interrupted operation. `test affected` derives a bounded batch from Git
 changes, while `test all` builds the `DurinNativeTests` aggregate and runs every
 ordinary CTest-registered test. The interactive shell accepts the same forms.
+An `all` build remains incremental; it does not discard existing objects.
+Executable test selections build their targets and dependencies before running,
+so a separate equivalent build is unnecessary unless another gate or artifact
+requires it. An `all` runtime build and a test build cover different target sets.
 `presets`, `status`, `path`, and `open` are also available
 directly, so preset discovery, context inspection, path capture, and artifact
 directory access do not require entering the interactive shell.
@@ -384,14 +393,17 @@ the changed behavior needs its distinct configuration or runtime graph:
 
 | Change or gate | Additional preset coverage |
 | --- | --- |
-| Optimized behavior, configuration-dependent code, concurrency, memory layout, undefined-behavior risk, or a merge/release qualification gate | Corresponding Release Editor preset |
+| A concrete optimization-sensitive or Debug/Release difference in changed behavior, or an explicit merge/release qualification gate | Corresponding Release Editor preset, limited to affected targets unless the gate requires more |
 | Game startup, cooked runtime behavior, runtime-only modules, or an Editor/Game dependency boundary | Corresponding Debug or Release Game preset |
 | Shipping-only macros, logging removal, packaging behavior, or release qualification | Corresponding Shipping Game preset |
 | Profiling integration or instrumentation | Corresponding ordinary Release preset; Shipping when changing exclusion rules |
 
 A Release Editor preset is therefore a periodic or risk-triggered lane, not a
-mandatory companion to every Debug Editor build. Broad runtime and
-configuration matrices belong in a designated integration or qualification
+mandatory companion to every Debug Editor build. Identify the concrete
+optimization or configuration risk before adding it; concurrency, memory-layout,
+or undefined-behavior concerns warrant this lane when the changed behavior needs
+verification under optimization, rather than merely because C++ is involved.
+Broad runtime and configuration matrices belong in a designated integration or qualification
 checkout after the changes under test coexist. Feature worktrees should not
 retain non-default build trees merely because the presets are registered.
 
@@ -401,9 +413,9 @@ Select another registered configure preset explicitly when the default profile
 is not the intended target:
 
 ```powershell
-.\DevTool.bat build --preset Win64-Release-DurinEditor --target all
-.\DevTool.bat rebuild --preset Win64-Shipping-DurinGame --target all
-./DevTool build --preset MacOS-arm64-Release-DurinEditor --target all
+.\DevTool.bat build --preset Win64-Release-DurinEditor --target <Target>
+.\DevTool.bat build --preset Win64-Shipping-DurinGame --target <Target>
+./DevTool build --preset MacOS-arm64-Release-DurinEditor --target <Target>
 ```
 
 `CMakePresets.json` remains the configuration source of truth.

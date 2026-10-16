@@ -2,7 +2,7 @@
 
 Summary: Introduce instance-based RDG access and attachment declarations, expose Base Scene's real raster stages to the graph, and remove predecessor-dependent depth fields and hidden physical bindings from the migrated scene path.
 
-Last reviewed: 2026-10-08
+Last reviewed: 2026-10-17
 
 Status: Active
 Completed:
@@ -94,9 +94,11 @@ while keeping the multi-stage Base Scene callback is not the final architecture.
 
 Follow [build guidance](../Agents/BuildAndRun.md),
 [test guidance](../Agents/Testing.md), and
-[documentation guidance](../Agents/Documentation.md). Shared Engine API changes
-require consumer searches in every project declared in `Durin.dworkspace` and an
-`all` build before handoff. Preserve unrelated working-tree changes.
+[documentation guidance](../Agents/Documentation.md). For shared Engine API
+changes, follow the repository's
+[consumer search and build coverage policy](../../AGENTS.md#task-routing).
+Preserve unrelated working-tree changes. Existing stage-specific GPU, timing,
+and integration gates remain required; recorded builds remain historical evidence.
 
 ## Source Evidence and UE Design Reference
 
@@ -299,7 +301,11 @@ Test owners are `RenderCoreTests/Private/RDGTests.cpp`,
 `RendererRenderTargetLayoutTests.cpp`, `VolumetricCloudSceneContractTests.cpp`,
 `GBufferQualificationTests.cpp`, and RHI/Vulkan/Metal transition and replay tests
 under `Engine/Tests/Native`. Test target selection uses the registry, not these
-filenames. Shared API stages require an `all` build including both game projects.
+filenames. Shared API stages follow the repository's
+[consumer search and build coverage policy](../../AGENTS.md#task-routing),
+including affected consumers in both game projects. Stage-specific integration
+gates remain required; apply the [result reuse policy](AGENTS.md#writing-rules)
+when final relevant inputs are unchanged.
 
 #### Frozen instance API and lowering boundary
 

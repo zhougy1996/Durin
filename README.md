@@ -74,7 +74,7 @@ are already available or can be detected automatically.
 
 ## Build and Run
 
-Build the complete editor runtime, then run it on Windows:
+For the first editor launch, build the complete runtime, then run it on Windows:
 
 ```powershell
 .\DevTool.bat build --target all
@@ -87,31 +87,33 @@ On macOS, use the extensionless launcher. Debug remains the default; select
 ```bash
 ./DevTool status
 ./DevTool build --target all
-./DevTool build --preset MacOS-arm64-Release-DurinEditor --target all
 ```
+
+Select the Release preset only when optimized behavior or an explicit gate needs
+it. After the first complete runtime build, use the smallest target covering the
+changed module and affected consumers; include any newly required runtime modules.
+See the [routine coverage policy](Documentation/Development/Build/BuildAndRun.md#routine-coverage).
 
 For the current macOS qualification scope and known runtime limitations, see
 the detailed [macOS workflow](Documentation/Development/Build/BuildAndRun.md#macos-workflow).
 
-Useful commands include:
+Useful commands below are alternatives, not a validation sequence:
 
 ```powershell
 .\DevTool.bat presets
 .\DevTool.bat status
-.\DevTool.bat configure
 .\DevTool.bat build --target LevelEditor
 .\DevTool.bat test CoreConcurrencyTests
-.\DevTool.bat test all
-.\DevTool.bat clean
-.\DevTool.bat recover
-.\DevTool.bat rebuild --target all
-.\DevTool.bat purge --preset Win64-Debug-DurinEditor
-.\DevTool.bat build --preset Win64-Release-DurinEditor --target all
+.\DevTool.bat test affected --explain
 ```
 
 `build` configures automatically when needed and defaults to target `all`.
 Native-test targets are excluded from that default; `test` requires an explicit
-selection, and `test all` builds and runs all registered native tests.
+selection, and `test all` builds and runs all ordinary registered native tests.
+Inspect affected selection before execution and follow the
+[testing workflow](Documentation/Agents/Testing.md) for broad coverage gates.
+Cleaning, fresh configuration, rebuilding, and purging are recovery or diagnosed
+maintenance actions; an incremental `all` build does not clean existing objects.
 Run `.\DevTool.bat --help` or `.\DevTool.bat <command> --help` to discover the
 complete command set and options. On macOS, substitute `./DevTool` for
 `.\DevTool.bat` in the examples above.

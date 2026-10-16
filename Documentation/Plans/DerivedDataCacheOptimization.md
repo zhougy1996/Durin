@@ -2,7 +2,7 @@
 
 Summary: Harden cache-hit validation and inline dispatch, then simplify DDC ownership, eliminate repeated work, and add maintainable storage and backend composition.
 
-Last reviewed: 2026-10-13
+Last reviewed: 2026-10-17
 
 Status: Active
 Completed:
@@ -311,8 +311,9 @@ bookkeeping rather than merely moving the same complexity behind another helper.
 Acceptance for 3B: producer services outlive callbacks and unload only after drain;
 registration snapshots remain predictable. Reentrant callbacks and shutdown do not
 deadlock. Texture2D/Cube/Volume, mesh render, collision, and Shader cold/warm results
-remain equivalent. Validate affected consumers; any shared Engine API migration
-requires an all build under repository rules. Stage 3 completes only after both
+remain equivalent. Validate affected consumers using the repository's
+[shared API coverage policy](../../AGENTS.md#task-routing), including an `all`
+build when that policy requires it. Stage 3 completes only after both
 3A and 3B pass; do not add DAGs, remote workers, new cache tiers, or storage-format
 changes in this stage. The recorded Shader manifest fixture exception remains
 the only permitted existing integration failure.

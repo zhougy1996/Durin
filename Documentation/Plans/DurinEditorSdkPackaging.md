@@ -2,7 +2,7 @@
 
 Summary: Produce relocatable Source and Binary SDK archives that let external C++ projects build reflected modules and load them in DurinEditor.
 
-Last reviewed: 2026-08-29
+Last reviewed: 2026-10-17
 
 Status: Active
 Completed:
@@ -472,8 +472,14 @@ requirements are reported separately.
 | Runtime layout | Engine-root marker, Engine/third-party/project module lookup, content mounts, shader mounts, config templates, and writable Saved state |
 | Source SDK E2E | Clean extraction, setup, dependency preparation, full Release Editor build, external fixture build, launch, and second-project isolation |
 | Binary SDK E2E | Read-only SDK extraction, external reflected-module build, packaged Editor launch, and negative compatibility/corruption cases |
-| Regression | Existing Engine/Sandbox Debug workflow plus risk-triggered Release Editor full build following the repository build and test guides |
-| Documentation | Changed-document validation during implementation and all-plan validation for lifecycle/status changes |
+| Regression | Affected Engine/Sandbox Debug targets plus risk-triggered affected Release Editor targets under the repository build and test guides; retain the full clean-extraction Release build for Source SDK E2E acceptance |
+| Documentation | Changed-document validation for content and progress updates; all-plan validation for the lifecycle operations required by [plan rules](AGENTS.md#status-maintenance) |
+
+Apply the [result reuse policy](AGENTS.md#writing-rules) to final acceptance.
+Source SDK clean-extraction builds and Binary SDK read-only execution remain
+required package gates. Reuse their receipts only when the package inputs and
+contents, consumer fixture, toolchain, and required environment are unchanged;
+ordinary progress or documentation edits alone do not require another E2E run.
 
 ## Definition of Done
 

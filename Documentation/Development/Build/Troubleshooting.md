@@ -168,7 +168,8 @@ processes have exited for the checkout. See the
 
 ### The runtime executable is missing
 
-Build the complete runtime for the selected preset, then run it:
+For a first launch with no runtime outputs, build the complete runtime for the
+selected preset, then run it:
 
 ```powershell
 .\DevTool.bat build --target all
@@ -177,6 +178,8 @@ Build the complete runtime for the selected preset, then run it:
 
 Use `status` to confirm the selected preset and `path runtime` to print its
 resolved runtime directory.
+If an otherwise complete runtime is missing only its executable or a known
+module, build the owning target and required runtime dependencies instead.
 
 ### The application exits or behaves unexpectedly
 

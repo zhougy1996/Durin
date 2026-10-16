@@ -2,7 +2,7 @@
 
 Summary: Introduce explicit GPU queue submission, completion, and resource retirement contracts across RDG, RHI, and Vulkan, then enable asynchronous compute, split barriers, and safe transient aliasing.
 
-Last reviewed: 2026-09-29
+Last reviewed: 2026-10-17
 
 Status: Active
 Completed:
@@ -380,8 +380,11 @@ Vulkan integration target for actual shared-family and distinct-family work.
 The new cases must cover canceled holes, pending retention without submission,
 out-of-order observations, stale generations, failure after native acceptance,
 partial graph submission, extraction producer failure, fan-out readers and
-descriptor/upload reuse under delayed compute completion. Run affected tests
-and the mandatory shared-API `all` build after implementation changes.
+descriptor/upload reuse under delayed compute completion. Select affected tests
+and shared API consumer builds under the repository's
+[coverage policy](../../AGENTS.md#task-routing). Retain the stage acceptance
+builds and GPU gates below; reuse passing coverage while relevant inputs and
+environment are unchanged instead of repeating it after every edit.
 
 As authorized above, measurement is deferred until an exclusive quiet lane is
 available. Instrument and measure these representative workloads on both the
@@ -603,6 +606,9 @@ without conflating logical lifetime positions with observed GPU completion.
   Stage 0. Adopt dependency compression or joins only with measured benefit.
 - [ ] Run final affected native tests, multi-queue Vulkan integration gates,
   single-queue fallback gates, and an `all` build across the workspace targets.
+  Apply the [result reuse policy](AGENTS.md#writing-rules) when existing receipts
+  cover the final relevant inputs; preserve every gate's queue-topology,
+  hardware, configuration, and timing conditions.
 - [ ] Update the owning runtime contracts and record reproducible completion
   evidence before completing the plan.
 

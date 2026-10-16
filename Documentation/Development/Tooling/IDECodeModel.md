@@ -9,9 +9,8 @@ All configuration, builds, and tests that produce Durin outputs must run through
 DurinDevTool:
 
 ```powershell
-.\DevTool.bat configure
-.\DevTool.bat build --target all
-.\DevTool.bat test CoreTests
+.\DevTool.bat build --target <Target>
+.\DevTool.bat test CoreConcurrencyTests
 ```
 
 An IDE may read an isolated CMake tree or a compilation database, and it may
@@ -19,11 +18,17 @@ launch an executable that DurinDevTool already produced. It must not invoke CMak
 build, Ninja, Clean, Rebuild, install, or a test build. Do not run IDE CMake
 Configure/Reload while DurinDevTool owns the checkout.
 
-Build the complete runtime through DurinDevTool before debugging the editor:
+For the first editor launch, build the complete runtime through DurinDevTool:
 
 ```powershell
 .\DevTool.bat build --target all
 ```
+
+For later debugging, rebuild only changed modules and affected consumers when
+the existing runtime is complete. Build any newly required runtime modules too;
+use `all` when the required runtime closure cannot be bounded reliably. Code
+model use alone does not require building the runtime. The commands above are
+alternatives, not a recurring validation sequence.
 
 The editor executable is
 `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`.

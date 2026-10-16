@@ -2,7 +2,7 @@
 
 Summary: Define native-test discovery, selectors, execution granularity, modes, reports, and failure diagnosis.
 
-Last reviewed: 2026-09-15
+Last reviewed: 2026-10-17
 
 Routine validation decisions belong to [Agent Testing Workflow](../../Agents/Testing.md).
 Target registration, classification, deployment, and resource-lock declarations
@@ -70,6 +70,12 @@ upgrade, run configure to regenerate it before selection.
 Shared discovery, registry, harness, execution, workspace membership, project
 descriptor, or unbounded CMake changes resolve conservatively to `all`. Runtime
 inputs outside modules known to the registry likewise resolve to `all`.
+
+These are conservative selector rules, not proof that every selected target is
+semantically affected. Before execution, inspect `affected --explain` and apply
+the [validation selection policy](../../Agents/Testing.md#choose-execution).
+Use justified bounded coverage when ownership and consumer impact are known;
+retain broad coverage for uncertain impact and explicit acceptance gates.
 
 ## Parameter Contract
 

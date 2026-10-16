@@ -2,7 +2,7 @@
 
 Summary: Define command output, the interactive shell, repository path discovery, documentation lifecycle commands, and workspace scaffolding interface.
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-10-17
 
 ## Command output and logs
 
@@ -10,7 +10,7 @@ Output separates resolved context, execution stages, child-process output, and
 results. Pass `--plain`, set `NO_COLOR`, or redirect output to disable ANSI styling:
 
 ```powershell
-.\DevTool.bat build --target all --plain
+.\DevTool.bat build --target <Target> --plain
 ```
 
 Child-process output has four modes, selected with
@@ -32,8 +32,8 @@ retained. Use `--output full` to stream every child-output line, or
 `--output compact` to suppress routine child output in an interactive terminal:
 
 ```powershell
-.\DevTool.bat build --target all --output progress
-.\DevTool.bat build --target all --output compact
+.\DevTool.bat build --target <Target> --output progress
+.\DevTool.bat build --target <Target> --output compact
 .\DevTool.bat test CoreConcurrencyTests --output full
 ```
 
@@ -72,12 +72,12 @@ selection for later shell commands. Direct commands use `--preset <name>`.
 A bare group with a safe read-only default executes that default; groups without
 one show help. `exit` and `quit` leave the shell.
 
-Representative commands are:
+Representative commands are alternatives, not a sequence:
 
 ```powershell
 .\DevTool.bat presets
 .\DevTool.bat status
-.\DevTool.bat build --target all
+.\DevTool.bat build --target <Target>
 .\DevTool.bat test CoreConcurrencyTests FTaskSchedulerTests.*
 .\DevTool.bat asset
 .\DevTool.bat asset resave /Game/Characters

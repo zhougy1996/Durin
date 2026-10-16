@@ -2,7 +2,7 @@
 
 Summary: Add validated indirect draw and dispatch commands, then prove them through an opt-in GPU-frustum-culling path for compatible static-mesh instances with deterministic CPU fallback.
 
-Last reviewed: 2026-09-30
+Last reviewed: 2026-10-17
 
 Status: Active
 Completed:
@@ -500,9 +500,12 @@ documents.
   fallback, and performance-policy contracts into their owning Runtime and
   Development documents; remove any experimental API classification that has
   satisfied its promotion gates.
-- [ ] Run final changed-document and all-plan validation, affected tests, GPU
-  gates, and the required workspace build on the final revision, then record
-  exact receipts and completion provenance.
+- [ ] Validate changed documents and run all-plan validation for completion.
+  Retain valid affected-test, GPU-gate, and required workspace-build receipts
+  covering the final relevant inputs under the
+  [result reuse policy](AGENTS.md#writing-rules); run missing or invalidated
+  coverage, then record exact tested revisions, applicability to the final state,
+  and completion provenance.
 
 Completion: the feature has an evidence-backed activation policy or documented
 opt-in status, lasting contracts own the implemented behavior, no unsupported
@@ -516,6 +519,9 @@ inferring target names. RHI/RDG CPU contracts, Renderer preparation contracts,
 Vulkan integration, selected rendered-output qualification, and the workspace
 `all` build are independently required according to the stage that changes
 them.
+Preserve these stage-specific acceptance gates; documentation-only closeout
+does not require rerunning valid runtime coverage. Reused GPU or timing evidence
+must still satisfy the gate's backend, hardware, workload, and environment conditions.
 
 GPU correctness may proceed on an available supported host. Timing acceptance
 follows [native-test qualification](../Development/Build/NativeTestQualification.md)

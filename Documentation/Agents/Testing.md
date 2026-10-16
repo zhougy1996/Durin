@@ -5,23 +5,24 @@
 Choose validation by semantic risk. Low-risk text or mechanical edits need diff
 review and compilation when useful; behavior changes need relevant test coverage.
 Honor explicit acceptance gates and report validation performed or omitted.
+Documentation-only changes need document validation and diff review, without
+native builds or tests unless executable behavior or an explicit gate requires them.
 
 Generate Cook packages, manifests, state and DDC records in test fixture directories
 under ignored `Build/`; do not copy generated output snapshots into versioned test
 data. Prefer runtime-generated inputs and focused codec assertions. Historical
 qualification snapshots belong in local ignored storage or CI artifacts.
 
-Use the smallest sufficient selection:
+Use the smallest sufficient selection. These are alternatives; inspect affected
+coverage before executing it:
 
 ```powershell
-.\DevTool.bat test affected
-.\DevTool.bat test affected --base <git-ref>
 .\DevTool.bat test affected --explain
+.\DevTool.bat test affected --base <git-ref> --explain
+.\DevTool.bat test affected
 .\DevTool.bat test <Target> [Suite.Case]
 .\DevTool.bat test "@<domain>"
 .\DevTool.bat test "@domain=<domain>,backend=<backend>"
-.\DevTool.bat test fast-all
-.\DevTool.bat test all
 ```
 
 ## Choose Execution
@@ -63,8 +64,15 @@ Configured concurrency is the default for builds and whole-target CTest scheduli
 it does not parallelize cases for ordinary `test <Target>`.
 
 `test affected` defaults to staged, unstaged, and untracked changes. Use `--base`
-for changes relative to a Git ref, or `--explain` to inspect selection without
-execution. It is the default handoff selection when runtime tests are needed.
+for changes relative to a Git ref. When runtime tests are needed, first inspect
+`affected --explain`; execute it when the resolved coverage fits the task.
+Selection uses module labels and declared test sources, not a production header
+or function dependency graph. Test headers, data, and new or unknown test sources
+can select a whole project's tests; shared infrastructure and unbounded build
+changes can select all ordinary tests. Inspect these expansion reasons before
+execution. Use a named target or registry set instead only when its coverage of
+the changed behavior and consumers is justified; report the reason and remaining
+gates. Keep broad coverage when the impact cannot be bounded reliably.
 
 When the target name is not already known, query the configured test registry
 instead of inferring it from the source tree:
@@ -77,14 +85,24 @@ instead of inferring it from the source tree:
 - Iterate and diagnose with a named target or case. Batch whole-target coverage
   through `affected` or one domain/backend set.
 - Reuse passing results for the final code when relevant inputs and environment
-  are unchanged and recorded coverage satisfies the task and gates. With
+  are unchanged and recorded coverage satisfies the task and gates. Record the
+  tested revision, selection, configuration, and environment; confirm that later
+  changes leave relevant source, fixtures, generated/package inputs, toolchain,
+  and runtime settings unchanged. A new commit identifier or documentation-only
+  edit does not itself invalidate runtime evidence. Rerun affected coverage when
+  relevant inputs change; explicit clean-build, package, backend, hardware, and
+  timing conditions still apply to any reused receipt. With
   unrelated working-tree changes, inspect `affected --explain` and use a
   task-specific registry set when its coverage is clear; report the selection.
 - `fast-all` covers contract, feature, and infrastructure tests; it excludes
   integration, characterization, and qualification. Changed integration behavior
   still needs its target or bounded set.
-- Use `test all` only for an explicit gate, shared runtime/test infrastructure
-  changes, or evidence that bounded coverage is insufficient; state the reason.
+- Use `test fast-all` for justified broad coverage, not as a routine follow-up
+  to passing focused tests. Use `test all` for an explicit gate or when shared
+  runtime/test infrastructure changes or other evidence make bounded coverage
+  insufficient; state the uncovered risk. A shared-file edit alone is not a
+  reason to run every native test; tool-only changes may need focused Python
+  tests and a representative native invocation instead.
 
 Application-hosted tests are never implicit validation. Leave
 `DURIN_ENABLE_APPLICATION_TESTS` off unless the user, selected plan gate, or
@@ -94,6 +112,9 @@ active CI job requires that coverage. When required, first read
 Run GPU qualification only for changed GPU behavior or explicit user, plan, or
 CI requirements. `affected` excludes it; CPU-only fixture changes may need
 compilation of the qualification target, but not GPU execution.
+Ordinary GPU integration targets can still appear in affected selections;
+qualification exclusion does not make the selection CPU-only. Apply the same
+coverage reasoning before executing those targets and preserve explicit GPU gates.
 
 If GPU access is unavailable, retain diagnostics, report execution as not run,
 and retry only when access changes. Optional coverage cannot block completion or

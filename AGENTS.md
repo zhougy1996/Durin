@@ -17,8 +17,13 @@ when it changes or needed context is unavailable.
   contract dependencies when the selected section does not resolve the task.
 - When changing a shared API, search its symbols across the source and test
   roots of every project declared in `Durin.dworkspace`; migrate all consumers.
-  Validate affected project targets as well as the owning module. For shared
-  Engine API migrations, complete an `all` build before handoff.
+  Validate the owning module and affected consumer targets across those projects.
+  Require an `all` build for explicit acceptance gates or when broad ABI,
+  foundational-header, or build-graph changes prevent reliable bounded coverage.
+  Explain the uncovered risk before expanding build or test scope; reuse passing
+  results when relevant inputs and environment are unchanged. Follow the
+  [build](Documentation/Agents/BuildAndRun.md) and
+  [test](Documentation/Agents/Testing.md) workflows for selection.
 
 ## Repository Rules
 
