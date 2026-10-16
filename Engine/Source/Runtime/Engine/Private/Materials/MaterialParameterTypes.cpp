@@ -141,6 +141,10 @@ namespace Durin
 	auto ValidateMaterialStaticProperties(
 		const FMaterialStaticProperties& Properties) -> FMaterialOperationResult
 	{
+		if (!Properties.GeometryUsage || (Properties.GeometryUsage & ~7)
+			|| !Properties.PassUsage || (Properties.PassUsage & ~15)
+			|| ((Properties.GeometryUsage & 4) && !(Properties.GeometryUsage & 1)))
+			return {EMaterialPropertyError::InvalidShaderUsage};
 		switch (Properties.BlendMode)
 		{
 		case EMaterialBlendMode::Opaque:

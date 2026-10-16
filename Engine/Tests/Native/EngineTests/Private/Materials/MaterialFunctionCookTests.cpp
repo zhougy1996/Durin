@@ -1,5 +1,6 @@
 #include "NativeRHIBackendTestSupport.h"
 #include "MaterialFunctionTestSupport.h"
+#include "MaterialCookedProgramTestSupport.h"
 
 namespace
 {
@@ -80,7 +81,7 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	EXPECT_EQ(Result.Packages[0].Status, ECookPackageStatus::CookHit);
 	Edited.Expressions.clear();
-	const auto ExpectedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
+	const auto ExpectedIdentity = Durin::Testing::ExpectedGameMaterialIdentity(*Material);
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ASSERT_TRUE(UnloadPackage(WrapperPath));
 	ASSERT_TRUE(UnloadPackage(LeafPath));
@@ -165,7 +166,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	EXPECT_TRUE(Recipe.Graph.MatchesGraph(*Material));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Material));
 
-	const auto ExpectedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
+	const auto ExpectedIdentity = Durin::Testing::ExpectedGameMaterialIdentity(*Material);
 	FCookRequest Request{.OutputRoot = Root / "Cooked", .TargetPlatform = ECookTargetPlatform::Win64,
 		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {MaterialPath}};
 	FCookRunResult Result;
@@ -239,7 +240,7 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Material));
 
-	const auto ExpectedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
+	const auto ExpectedIdentity = Durin::Testing::ExpectedGameMaterialIdentity(*Material);
 	FCookRequest Request{.OutputRoot = Root / "Cooked", .TargetPlatform = ECookTargetPlatform::Win64,
 		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {MaterialPath}};
 	FCookRunResult Result;

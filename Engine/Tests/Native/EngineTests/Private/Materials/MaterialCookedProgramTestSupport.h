@@ -7,6 +7,16 @@
 
 namespace Durin::Testing
 {
+	inline auto ExpectedGameMaterialIdentity(const DMaterialInterface& Material) -> FMaterialProgramIdentity
+	{
+		FMaterialCompilerEnvironment Environment;
+		check(BuildDefaultMaterialCompilerEnvironment(Environment));
+		Environment.bIncludeEditorPasses = false;
+		auto Snapshot = SnapshotMaterialCompilerInput(Material, std::move(Environment));
+		check(Snapshot);
+		return MIR::Normalize(Snapshot.Snapshot->Input).Identity;
+	}
+
 	inline auto EncodeMaterialCookedProgramFamilyForTest(
 		const FMaterialCompilerResult& Program,
 		const FMaterialStaticProperties& StaticProperties,

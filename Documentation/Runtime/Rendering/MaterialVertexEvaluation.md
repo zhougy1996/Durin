@@ -47,13 +47,13 @@ broadcast metadata. Pixel evaluation stops traversal at each interpolator;
 vertex evaluation traverses its input and the WPO root. Shared expressions may
 execute separately when both stages consume them.
 
-Accepted programs contain four fragment artifacts plus `VertexMain`,
-`SplineVertexMain` and `GPUCullingVertexMain`. The generated dependency closure
-includes the Local and Spline vertex factories. All seven entries, their exact
-frequencies and allowed resource reflection are validated together. MIR version
-8, generator version 12, compiler envelope 11, pass contract 10 and cooked payload
-schema 12 invalidate incompatible cache and cooked artifacts. Schema 12 also
-stores reflected compute thread-group dimensions per compiled stage.
+Accepted programs contain the exact declared geometry/Pass stage set, selected
+from four fragment entries and `VertexMain`, `SplineVertexMain` and
+`GPUCullingVertexMain`. Stage artifacts share independently through ShaderBuild;
+see [shader stage selection and sharing](MaterialShaderStages.md). The generated
+import closure conservatively includes both Local and Spline factories. MIR 8,
+generator revision 14, compile adapter 12, pass contract 11 and cooked payload
+schema 15 invalidate incompatible producer and runtime artifacts.
 
 Local and Spline vertices apply WPO after vertex-factory deformation. GPU-culling
 vertices use the selected instance transform. Clip displacement transforms the

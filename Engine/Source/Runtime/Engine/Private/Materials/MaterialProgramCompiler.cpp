@@ -658,6 +658,9 @@ namespace Durin
 		}
 
 		const auto ShaderProperties = CanonicalizeMaterialShaderProperties(StaticProperties);
+		AppendLittleEndian(Bytes, ShaderProperties.GeometryUsage);
+		AppendLittleEndian(Bytes, ShaderProperties.PassUsage);
+		AppendLittleEndian(Bytes, uint8(Environment.bIncludeEditorPasses));
 		AppendLittleEndian(Bytes, ShaderProperties.BlendMode);
 		AppendLittleEndian(Bytes, ShaderProperties.ShadingModel);
 		AppendLittleEndian(Bytes, CanonicalFloatBits(

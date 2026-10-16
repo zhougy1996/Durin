@@ -80,6 +80,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Volumetric-cloud quality tiers, low-resolution reconstruction, per-view history, invalidation, temporal diagnostics, or 4K budgets | [Volumetric cloud temporal reconstruction](Runtime/Rendering/VolumetricCloudTemporalReconstruction.md) |
 | Shadow quality, bias, PCF, cascades, or contact shadows | [Directional shadows](Runtime/Rendering/DirectionalShadows.md) |
 | Loaded material dependency queries, batch caches, or notification reentrancy | [Scoped material queries](Runtime/Rendering/MaterialQueries.md) |
+| Material geometry/Pass usage, required shader stages, or vertex/pixel artifact reuse | [Shader stage selection and sharing](Runtime/Rendering/MaterialShaderStages.md) |
 | Material vertex roots, World Position Offset, or vertex-to-pixel interpolation | [Material vertex evaluation](Runtime/Rendering/MaterialVertexEvaluation.md) |
 | Primitive or Instance custom numeric channels, stable render instances, or material variation without separate instances | [Primitive and Instance material data](Runtime/Rendering/MaterialCustomData.md) |
 | Material expression emission, output registration, graph traversal, or function invocation caches | [Material expression building](Runtime/Rendering/MaterialExpressionBuilding.md) |

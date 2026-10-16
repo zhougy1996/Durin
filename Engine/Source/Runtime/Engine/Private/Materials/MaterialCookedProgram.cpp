@@ -22,7 +22,7 @@ namespace Durin
 			FArchive& Ar, FMaterialStaticProperties& Properties) -> void
 		{
 			FMaterialStaticProperties Shader = CanonicalizeMaterialShaderProperties(Properties);
-			Ar << Shader.BlendMode << Shader.ShadingModel << Shader.OpacityMaskThreshold;
+			Ar << Shader.GeometryUsage << Shader.PassUsage << Shader.BlendMode << Shader.ShadingModel << Shader.OpacityMaskThreshold;
 			if (Ar.IsLoading())
 			{
 				Durin::FMaterialOperationResult Error;
@@ -161,7 +161,7 @@ namespace Durin
 			uint32 Magic = MaterialCookedProgramMagic;
 			uint32 SchemaVersion = MaterialCookedProgramPayloadSchemaVersion;
 			Ar << Magic << SchemaVersion
-				<< Program.PassContractVersion << TargetPlatform << TargetProfile;
+				<< Program.PassContractVersion << Program.RequiredStages << TargetPlatform << TargetProfile;
 			if (Ar.IsLoading() && !Ar.IsError()
 				&& (Magic != MaterialCookedProgramMagic
 					|| SchemaVersion != MaterialCookedProgramPayloadSchemaVersion
@@ -276,6 +276,9 @@ namespace Durin
 				if (!ShaderFormat::ValidateShaderCode(Shader))
 					return {EMaterialCookError::CookedProgramTargetIncompatible};
 			}
+			if (Program.RequiredStages != SelectMaterialShaderStages(StaticProperties, true)
+				&& Program.RequiredStages != SelectMaterialShaderStages(StaticProperties, false))
+				return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
 			const auto Contract = ValidateMaterialCompilerResult(Program);
 			if (!Contract) return {FMaterialError(Contract)};
 			return {};

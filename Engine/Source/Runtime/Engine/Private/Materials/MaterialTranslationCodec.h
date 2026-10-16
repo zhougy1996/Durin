@@ -4,7 +4,7 @@
 
 namespace Durin::MaterialBuildPrivate
 {
-	inline constexpr uint32 TranslationSchema = 1;
+	inline constexpr uint32 TranslationSchema = 2;
 	inline constexpr uint64 TranslationInputBytes = 2ull * 1024 * 1024;
 	inline constexpr uint64 TranslationOutputBytes = 8ull * 1024 * 1024;
 	ENGINE_API auto EstimateTranslationCaptureBytes(const MIR::FCompilerInput& Input) -> uint64;

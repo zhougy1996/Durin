@@ -85,7 +85,7 @@ namespace Durin::MaterialBuildPrivate
 			template<class T> auto Collections(T& Items) -> void
 			{ Sequence(Items, MaterialParameterCollectionMaxPerMaterial, [&](auto& V) { Value(V.CollectionId); Value(V.SchemaVersion); Layout(V.UniformLayout); }); }
 			template<class T> auto Properties(T& Properties) -> void
-			{ Value(Properties.BlendMode); Value(Properties.ShadingModel); Value(Properties.OpacityMaskThreshold); }
+			{ Value(Properties.GeometryUsage); Value(Properties.PassUsage); Value(Properties.BlendMode); Value(Properties.ShadingModel); Value(Properties.OpacityMaskThreshold); }
 			template<class T> auto Limits(T& Limits) -> void
 			{ Value(Limits.SampledImages); Value(Limits.Samplers); Value(Limits.UniformBuffers); Value(Limits.StageResources); Value(Limits.UniformBufferBytes); }
 			template<class T> auto Source(T& V) -> void { Value(V.ExpressionIndex); Value(V.NodeId); Optional(V.InputIndex); Optional(V.UVFieldIndex); }
@@ -97,7 +97,7 @@ namespace Durin::MaterialBuildPrivate
 			{
 				uint32 Version = TranslationSchema; Value(Version); Good &= Version == TranslationSchema;
 				IR(Input.IR); Parameters(Input.Parameters); Collections(Input.Collections); Properties(Input.StaticProperties); Limits(Input.Environment.ResourceLimits);
-				Value(Input.Environment.Quality); Value(Input.Environment.FeatureLevel);
+				Value(Input.Environment.bIncludeEditorPasses); Value(Input.Environment.Quality); Value(Input.Environment.FeatureLevel);
 				Sequence(Input.Environment.StaticBools, MaterialMaxStaticBoolDeclarations, [&](auto& V) { Value(V.DeclarationId); Value(V.Value); });
 				Sources(Input.Sources);
 			}
@@ -109,7 +109,7 @@ namespace Durin::MaterialBuildPrivate
 					using CodeType = std::decay_t<decltype(Code)>;
 					if constexpr (!std::same_as<CodeType, std::monostate>) Value(Code);
 					if constexpr (std::same_as<CodeType, EMaterialIRError>) Good &= uint32(Code) <= uint32(EMaterialIRError::UnsupportedGenerationNode);
-					else if constexpr (std::same_as<CodeType, EMaterialPropertyError>) Good &= uint32(Code) <= uint32(EMaterialPropertyError::ParentChainContainsUnsupportedMaterialOwner);
+					else if constexpr (std::same_as<CodeType, EMaterialPropertyError>) Good &= uint32(Code) <= uint32(EMaterialPropertyError::InvalidShaderUsage);
 					else if constexpr (std::same_as<CodeType, EMaterialLayoutError>) Good &= uint32(Code) > uint32(EMaterialLayoutError::None) && uint32(Code) <= uint32(EMaterialLayoutError::InvalidReflection);
 					else Good = false; // Only errors produced by detached translation may persist.
 				});
@@ -124,7 +124,7 @@ namespace Durin::MaterialBuildPrivate
 				Value(InputIdentity); bool Succeeded = Product.Status == EMaterialProgramStatus::Ok; Value(Succeeded);
 				if constexpr (Reading) Product.Status = Succeeded ? EMaterialProgramStatus::Ok : EMaterialProgramStatus::Error;
 				auto& Result = Product;
-				IR(Result.IR); Parameters(Result.ActiveParameters); Collections(Result.ActiveCollections); Layout(Result.Layout); Properties(Product.StaticProperties); Limits(Product.ResourceLimits);
+				Value(Product.RequiredStages); IR(Result.IR); Parameters(Result.ActiveParameters); Collections(Result.ActiveCollections); Layout(Result.Layout); Properties(Product.StaticProperties); Limits(Product.ResourceLimits);
 				String(Result.GeneratedSource, 1024 * 1024); Sequence(Product.Sources, MaterialFunctionMaxExpandedNodes, [&](auto& Location) { Source(Location.Source); });
 				auto& Q = Result.Requirements;
 				Value(Q.bMaterialView); Value(Q.bMaterialPrimitive); Value(Q.bCameraPosition); Value(Q.bViewport); Value(Q.bViewTransforms); Value(Q.bObjectTransforms); Value(Q.bBoundsCenter); Value(Q.bTangentFrame); Value(Q.bVertexNormal);
@@ -216,6 +216,7 @@ namespace Durin::MaterialBuildPrivate
 		FBinaryReader Reader(Bytes, {.MaximumTotalBytes = TranslationOutputBytes}); FTransfer<true> Transfer{.Reader = &Reader}; FMaterialTranslatedProgram Product; FXxHash128 Identity;
 		Transfer.Product(Product, Identity); if (!Transfer.Valid() || Identity != InputIdentity) return {};
 		auto& Result = Product;
+		if (Product.RequiredStages != SelectMaterialShaderStages(Consumer.StaticProperties, Consumer.Environment.bIncludeEditorPasses)) return {};
 		if (Product.ResourceLimits != Consumer.Environment.ResourceLimits || Product.StaticProperties != CanonicalizeMaterialShaderProperties(Consumer.StaticProperties)) return {};
 		if (Product)
 		{

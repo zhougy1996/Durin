@@ -106,6 +106,14 @@ namespace Durin
 		DPROPERTY()
 		EMaterialDepthWritePolicy DepthWritePolicy = EMaterialDepthWritePolicy::Automatic;
 
+		// Local=1, Spline=2, GPU-culling Local=4 (GBuffer only).
+		DPROPERTY()
+		uint8 GeometryUsage = 7;
+
+		// Forward=1, GBuffer=2, Shadow=4, HitProxy=8 (editor only).
+		DPROPERTY()
+		uint8 PassUsage = 15;
+
 		// Alpha values below this threshold are discarded by masked passes.
 		DPROPERTY()
 		float OpacityMaskThreshold = 0.333f;

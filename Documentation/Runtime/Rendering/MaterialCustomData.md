@@ -95,10 +95,11 @@ hit proxies and GBuffer share the accepted vertex product. WPO does not expand
 bounds or change collision geometry. Authors must keep bounds conservative for
 their maximum displacement, as required by [vertex evaluation](MaterialVertexEvaluation.md).
 
-MIR/normalization revision 8, generator revision 12 and pass contract 10 invalidate
-incompatible generated programs. Cook retains compiled stages and typed graph
-identity through the existing codec; older pass contracts require recooking.
-The cooked container schema and material parameter layout version are unchanged.
+MIR/normalization revision 8 introduced these numeric reads. Current producer
+and Cook compatibility versions are owned by [shader stage selection](MaterialShaderStages.md).
+Cook retains compiled stages and typed graph identity; incompatible pass
+contracts or container schemas require recooking. The material parameter layout
+version remains independent of primitive/instance channels.
 
 ## Design references
 

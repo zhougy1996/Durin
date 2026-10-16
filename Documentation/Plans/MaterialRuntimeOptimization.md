@@ -1,6 +1,6 @@
 # Material Runtime Optimization Plan
 
-Summary: Optimize material runtime binding, renderer cache retention, and Primitive/Instance numeric variation.
+Summary: Optimize material runtime binding, renderer caches, Primitive/Instance variation, and reusable shader stage products.
 
 Last reviewed: 2026-10-16
 
@@ -8,6 +8,51 @@ Status: Completed
 Completed: 2026-10-16
 
 ## Current Status
+
+Stage 5 is complete on production base `1b80f6c0f`. Stages 0-5 are complete;
+stages 6-8 remain deferred. The implementation and boundaries are documented in
+[shader stage selection and sharing](../Runtime/Rendering/MaterialShaderStages.md).
+The diagnostic lane remains Win64-Debug-DurinEditor, MSVC 14.44.35207 and Tracy.
+
+All three new stage tests passed together and separately in isolated processes.
+All 12 targets in `@domain=material` passed. The complete 12-case Mesh Vulkan
+target passed, and the extended custom-data case passed alone. Texture Cook
+integration passed all three cases, renderer scene contracts all 61, and resource
+reload Vulkan both cases. The final workspace `all` build passed across Engine,
+Sandbox and RoadWeaver. Game package Cook now explicitly verifies six default
+stages and four Local Forward/GBuffer/Shadow stages, preserved non-default usage
+masks in both material and instance, and graph/source stripping. The two-stage
+Local Forward subset also passes the low-level source-free codec round trip.
+
+The forced cold stage fixture performs seven compiler invocations; a warm
+whole-program request performs zero. The first uncached pixel constant edit
+observed four compilations; the final persisted-DDC replay observes zero and
+shares all three vertex binary allocations. Final pair code backing capacities
+sum to 299,328 bytes before accounting for the shared 25,452 vertex bytes; after
+that sharing the pair requires at most 273,876 bytes of code backing capacity.
+This excludes other program metadata and ShaderBuild cache bookkeeping. The
+fixture also proves that WPO, shared layout and varying-interface changes
+invalidate incompatible vertex requests, while pixel-root renumbering does not.
+These are structural Debug observations, with no cold-time or frame-time claim:
+full cold materials now submit seven sessions instead of one seven-entry session.
+
+Vulkan compares reduced five-stage Local/GPU-culling materials against the
+64-dynamic-material reference across Forward, all GBuffer attachments and masked
+shadow depth. Excluding GPU-culling preserves equal pixels with 64 successful
+direct draws and zero indirect draws. Excluded Spline and Shadow uses reject
+Shader Map admission without compiler work, including opaque-shadow fixed code.
+Atomic stage-set validation rejects missing, extra, reordered and mistyped stages.
+The existing aggregate 8 MiB material result bound also charges independent stage
+metadata and backing capacities before retention.
+
+Stage 5 receipts are under `Build/MaterialRuntimeOptimization/`:
+`stage5-stages.{xml,log}`, `stage5-stages-isolated.{xml,log}`,
+`stage5-material.{xml,log}`, `stage5-mesh.{xml,log}`,
+`stage5-custom-gpu.{xml,log}`, `stage5-texture-cook.{xml,log}`,
+`stage5-reload.{xml,log}`, `stage5-scene.{xml,log}` and
+`stage5-all-build.log`. Raw child-log paths are recorded by each launcher log.
+
+Earlier stage receipts follow.
 
 Stage 4 is complete. Its complete 12-case Mesh Vulkan target passed, including
 the custom-data case after the existing animation cases in one process; the
@@ -129,7 +174,7 @@ RendererResourceReloadVulkanTests cases, and the workspace `all` build across
 Engine, Sandbox and RoadWeaver. The final Collection regression additionally
 covers mixed contracts, missing-world defaults, incompatible schema rejection,
 and different retained defaults for one Collection ID without repeated rebinding.
-Stages 0-4 are complete; Stages 5-8 remain deferred.
+The Stage 3 receipt above predates Stage 4 and Stage 5 work.
 
 On the NVIDIA GeForce GTX 1060 6GB diagnostic lane, pooled 360-sample Collection
 RenderView CPU median/p95 changed from 2.189/3.913 ms to 2.315/4.268 ms in the final
@@ -310,13 +355,30 @@ optional vertex Material uniform consistently, but keep its population in
 material composition rather than geometry binding. Preserve strict shader-layout
 conflict rejection. The full Vulkan case and material regressions own this gate.
 
-### Stage 5: Select and share shader-stage products (deferred)
+### Stage 5: Select and share shader-stage products
 
 Scope: explicit geometry/pass usages, editor/Game stage sets and stage-level
 dependency identities. Validation: all declared uses render and Cook source-free;
 missing uses fail admission rather than compile in Game. Count stage artifacts,
 cold/warm compiler work and retained bytes; prove pixel-only changes reuse
 compatible vertex artifacts without weakening atomic required-set admission.
+
+Selected implementation: inherited base-material geometry/pass usage masks default
+to all existing uses. Game Cook excludes HitProxy; editor retains declared uses.
+Each selected entry is submitted independently through ShaderBuild/DDC using
+stage source content rather than whole-material identity. Vertex source excludes
+pixel evaluation but retains the shared layout and varying ABI; incompatible
+layout/varying edits invalidate reuse. Existing bounded ShaderBuild retention,
+cancellation, priorities and exact atomic material admission remain authoritative.
+Shared package shader libraries remain Stage 7. GPU-culling is an optional
+Local mode and requires Local usage for small-group/direct fallback. Excluding
+GPU-culling skips pipeline preparation and retains direct GBuffer rendering.
+
+- [x] Serialize and validate usage declarations, environment and required-stage sets.
+- [x] Generate stable stage closures and cache independent entry products.
+- [x] Prove selection, negative admission, pixel-only vertex reuse and invalidation.
+- [x] Validate source-free Game Cook, Vulkan passes and material regressions.
+- [x] Record artifact/byte/compiler evidence, update runtime contracts, all-build and commit.
 
 ### Stage 6: Extract uniform expressions (deferred)
 

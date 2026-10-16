@@ -206,6 +206,7 @@ namespace Durin
 		ParentCycleOrDepthExceeded,
 		ParentChainNoValidRootMaterial,
 		ParentChainContainsUnsupportedMaterialOwner,
+		InvalidShaderUsage,
 	};
 
 	enum class EMaterialCookError : uint16

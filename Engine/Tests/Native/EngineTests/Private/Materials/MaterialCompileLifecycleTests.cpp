@@ -87,7 +87,7 @@ namespace
 		while (GetMaterialCompilationDiagnostics().SingleFlightConsumers == Before.SingleFlightConsumers && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
 		ASSERT_GT(GetMaterialCompilationDiagnostics().SingleFlightConsumers, Before.SingleFlightConsumers);
 		Cache->Release.Trigger(); ASSERT_TRUE(WaitForMaterialCompile(*A)); ASSERT_TRUE(WaitForMaterialCompile(*B));
-		EXPECT_EQ(A->GetAcceptedCompiledProgram(), B->GetAcceptedCompiledProgram()); EXPECT_EQ(GetShaderBuildStats().Compilations, 1u);
+		EXPECT_EQ(A->GetAcceptedCompiledProgram(), B->GetAcceptedCompiledProgram()); EXPECT_EQ(GetShaderBuildStats().Compilations, MaterialCompiledEntryPoints.size());
 	}
 }
 

@@ -2,6 +2,7 @@
 
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"
+#include "../Materials/MaterialCookedProgramTestSupport.h"
 #include "Threading/Task.h"
 #include "NativeAssetTestSupport.h"
 #include "NativeAssetRuntimeTestSupport.h"
@@ -236,7 +237,7 @@ TEST_F(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(1.0)));
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*SourceMaterial);
 	ASSERT_TRUE(SourceMaterial->GetMaterialCompileStatus().IsCurrent());
-	const auto ExpectedMaterialIdentity = SourceMaterial->GetAcceptedCompiledProgram()->Identity;
+	const auto ExpectedMaterialIdentity = Durin::Testing::ExpectedGameMaterialIdentity(*SourceMaterial);
 
 	Durin::FCookContext First(
 		Durin::ECookTargetPlatform::Win64,

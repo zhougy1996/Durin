@@ -38,6 +38,7 @@ namespace Durin
 		std::string CompilerIdentity;
 		std::string Target;
 		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
+		uint8 RequiredStages = 127;
 		EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
 		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 		std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
@@ -59,6 +60,8 @@ namespace Durin
 
 	ENGINE_API auto TranslatePreparedMaterialProgram(const FMaterialPreparedProgram& Input)
 		-> FMaterialTranslatedProgram;
+	ENGINE_API auto MakeMaterialShaderStageRequests(const FMaterialTranslatedProgram& Translation,
+		bool bForceRecompile) -> std::vector<FGeneratedShaderCompileRequest>;
 	auto BuildMaterialProgramRequirements(const MIR::FModule& IR) -> FMaterialProgramRequirements;
 	ENGINE_API auto MakeMaterialShaderCompileRequest(const FMaterialTranslatedProgram& Translation,
 		bool bForceRecompile) -> FGeneratedShaderCompileRequest;

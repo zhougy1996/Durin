@@ -2,6 +2,7 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialRenderRepresentationTestFixture.h"
 #include "Materials/MaterialCustomVersion.h"
+#include "MaterialCookedProgramTestSupport.h"
 
 TEST(FDefaultMaterialCookTests, ReadFailureRetainsOwnedResourceContext)
 {
@@ -43,7 +44,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	ASSERT_TRUE(SourceLoad) << SourceLoad.error().Message;
 	ASSERT_NE(Source, nullptr);
 	const Durin::FMaterialProgramIdentity ExpectedIdentity =
-		Source->GetAcceptedCompiledProgram()->Identity;
+		Durin::Testing::ExpectedGameMaterialIdentity(*Source);
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(
 		Durin::Testing::CreateTestFixtureDirectory("DefaultMaterialCook"));
@@ -112,6 +113,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Cooked, nullptr);
 	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->CompiledShaders.size(), 6u);
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
 	EXPECT_TRUE(Cooked->GetMaterialCompileStatus().IsCurrent());
 	const auto CookedStatistics = Durin::GetMaterialProgramStatistics(*Cooked);
@@ -159,7 +161,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	Durin::FObjectPath InstancePath;
 	ASSERT_TRUE(Durin::FObjectPath::TryCreate(AuthoredInstance->GetObjectPath(), InstancePath));
 	const Durin::FMaterialProgramIdentity ExpectedIdentity =
-		Source->GetAcceptedCompiledProgram()->Identity;
+		Durin::Testing::ExpectedGameMaterialIdentity(*Source);
 	std::array<Durin::FObjectPath, 3> VariantPaths;
 	std::array<Durin::FMaterialProgramIdentity, 3> VariantIdentities;
 	for (size_t Index = 0; Index < VariantPaths.size(); ++Index)
@@ -173,7 +175,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		Overrides.Values.OpacityMaskThreshold = Index == 0 ? 0.25f : 0.75f;
 		ASSERT_TRUE(Variant->SetParentAndPropertyOverrides(AuthoredInstance, Overrides));
 		ASSERT_TRUE(Variant->GetAcceptedCompiledProgram());
-		VariantIdentities[Index] = Variant->GetAcceptedCompiledProgram()->Identity;
+		VariantIdentities[Index] = Durin::Testing::ExpectedGameMaterialIdentity(*Variant);
 		ASSERT_TRUE(Durin::FObjectPath::TryCreate(Variant->GetObjectPath(), VariantPaths[Index]));
 	}
 
@@ -350,6 +352,9 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		ASSERT_TRUE(LoadedValue);
 	}
 	ASSERT_NE(Source, nullptr);
+	auto UsageProperties = Source->GetStaticProperties();
+	UsageProperties.GeometryUsage = 1; UsageProperties.PassUsage = 7;
+	ASSERT_TRUE(Source->SetStaticProperties(UsageProperties));
 	FMaterialParameterDefinition Tint, Texture;
 	Tint.Id = FGuid::NewGuid(); Tint.Name = FName("CookedTint"); Tint.DisplayName = "Cooked Tint";
 	Tint.Type = EMaterialParameterType::Vector4; Tint.Value = FMaterialParameterValue::MakeVector4(FVector4(0.2, 0.4, 0.7, 1.0));
@@ -419,9 +424,16 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		ASSERT_NE(Loaded, nullptr);
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Layout, ExpectedLayout);
+		EXPECT_EQ(Loaded->GetStaticProperties().GeometryUsage, 1u);
+		EXPECT_EQ(Loaded->GetStaticProperties().PassUsage, 7u);
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->IR.Nodes.empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GeneratedSource.empty());
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->RequiredStages,
+			SelectMaterialShaderStages(Loaded->GetStaticProperties(), false));
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->CompiledShaders.size(), 4u);
+		EXPECT_FALSE(std::ranges::any_of(Loaded->GetAcceptedCompiledProgram()->CompiledShaders,
+			[](const auto& Stage) { return Stage.SourceEntryPoint == "HitProxyFragmentMain"; }));
 		DMaterialInstance* LoadedInstance = nullptr;
 		{
 			auto LoadedValue = LoadObject<DMaterialInstance>(InstancePath);

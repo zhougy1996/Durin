@@ -260,6 +260,7 @@ namespace Durin
 			{
 				switch (Code)
 				{
+				case EMaterialPropertyError::InvalidShaderUsage: return "Material geometry/pass usage masks are invalid.";
 				case EMaterialPropertyError::BlendModeInvalid: return "Material blend mode is invalid.";
 				case EMaterialPropertyError::ShadingModelInvalid: return "Material shading model is invalid.";
 				case EMaterialPropertyError::DepthWritePolicyInvalid: return "Material depth-write policy is invalid.";

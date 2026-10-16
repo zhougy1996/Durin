@@ -32,7 +32,7 @@ namespace Durin::MaterialBuildPrivate
 	struct FMaterialBuildOperation::FState
 	{
 		mutable std::mutex Mutex;
-		std::shared_ptr<FShaderBuildHandle> Shader;
+		std::vector<std::shared_ptr<FShaderBuildHandle>> Shaders;
 		DerivedData::FRequestOwner Owner;
 		DerivedData::FBuildCancellation Cancellation;
 		FTaskCancellationSource CpuCancellation;
@@ -57,10 +57,10 @@ namespace Durin::MaterialBuildPrivate
 	}
 	auto FMaterialBuildOperation::RaisePriority() -> void
 	{
-		std::shared_ptr<FShaderBuildHandle> Shader;
-		{ std::lock_guard Lock(State->Mutex); State->HighPriority = true; Shader = State->Shader; }
+		std::vector<std::shared_ptr<FShaderBuildHandle>> Shaders;
+		{ std::lock_guard Lock(State->Mutex); State->HighPriority = true; Shaders = State->Shaders; }
 		State->Owner.SetPriority(DerivedData::ERequestPriority::High);
-		if (Shader) Shader->SetPriority(EShaderBuildPriority::High);
+		for (const auto& Shader : Shaders) Shader->SetPriority(EShaderBuildPriority::High);
 	}
 	auto FMaterialBuildOperation::Launch(std::function<void()> Work) -> void
 	{
@@ -104,6 +104,15 @@ namespace Durin::MaterialBuildPrivate
 			if (!Admitted) Self->Complete(ValidationError.HasError() ? FMaterialCompilerResult{.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Normalization, .Error = std::move(ValidationError)}}} : FailedMaterial(Admitted.error().Description));
 		});
 	}
+	struct FMaterialBuildOperation::FStageBuild
+	{
+		FMaterialTranslatedProgram Product;
+		std::vector<FGeneratedShaderCompileRequest> Requests;
+		FShaderBuildResult Output{.Status = EShaderBuildStatus::Ok};
+		size_t Next = 0;
+		uint64 RetainedStageBytes = 0;
+		std::chrono::steady_clock::time_point Begin = std::chrono::steady_clock::now();
+	};
 	auto FMaterialBuildOperation::Translated(FMaterialTranslatedProgram Translation) -> void
 	{
 		if (State->Cancellation.IsCancelled()) return Complete(CanceledMaterial());
@@ -111,21 +120,44 @@ namespace Durin::MaterialBuildPrivate
 		{ std::lock_guard Lock(State->Mutex); Decide = std::move(State->OnTranslation); }
 		if (Decide && Decide(Translation) != EMaterialTranslationAction::Compile) return Complete({}, ECompletionDelivery::Handled);
 		if (!Translation) return Complete(AssembleMaterialProgram(std::move(Translation), {}));
+		auto Work = std::make_shared<FStageBuild>();
+		Work->Product = std::move(Translation);
+		Work->Requests = MakeMaterialShaderStageRequests(Work->Product, State->Force);
+		if (Work->Requests.empty()) return Complete(FailedMaterial("Material has no compilable declared uses."));
+		SubmitStage(std::move(Work));
+	}
+	auto FMaterialBuildOperation::SubmitStage(std::shared_ptr<FStageBuild> Work) -> void
+	{
+		if (State->Cancellation.IsCancelled()) return Complete(CanceledMaterial());
+		if (Work->Next == Work->Requests.size())
+		{
+			Work->Product.Timings.CompilationMicroseconds = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Work->Begin).count();
+			return Launch([Self = shared_from_this(), Work] {
+				Self->Complete(AssembleMaterialProgram(std::move(Work->Product), std::move(Work->Output)));
+			});
+		}
 		auto* ShaderBuild = IShaderBuildModule::Get();
 		if (!ShaderBuild) return Complete(FailedMaterial());
-		auto Product = std::make_shared<FMaterialTranslatedProgram>(std::move(Translation));
-		const auto Begin = std::chrono::steady_clock::now();
 		DerivedData::FRequestBarrier Submission(State->Owner);
 		EShaderBuildPriority Priority;
 		{ std::lock_guard Lock(State->Mutex); Priority = State->HighPriority ? EShaderBuildPriority::High : EShaderBuildPriority::Normal; }
-		auto Submitted = ShaderBuild->SubmitGenerated(MakeMaterialShaderCompileRequest(*Product, State->Force),
+		Work->Requests[Work->Next].MaximumOutputBytes = std::min(
+			Work->Requests[Work->Next].MaximumOutputBytes,
+			MaterialCompileMaxResultBytes - Work->RetainedStageBytes);
+		auto Submitted = ShaderBuild->SubmitGenerated(std::move(Work->Requests[Work->Next++]),
 			{.Priority = Priority, .IsCancelled = [Cancellation = State->Cancellation] { return Cancellation.IsCancelled(); }, .bInlineExecution = State->Inline},
-			[Self = shared_from_this(), Product, Begin](FShaderBuildResult Output) {
-				Product->Timings.CompilationMicroseconds = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - Begin).count();
-				Self->Launch([Self, Product, Output = std::move(Output)]() mutable {
-					if (Self->State->Cancellation.IsCancelled()) return Self->Complete(CanceledMaterial());
-					Self->Complete(AssembleMaterialProgram(std::move(*Product), std::move(Output)));
-				});
+			[Self = shared_from_this(), Work](FShaderBuildResult Output) {
+				if (!Output) return Self->Complete(AssembleMaterialProgram(std::move(Work->Product), std::move(Output)));
+				FMaterialCompilerResult StageCost{.CompiledShaders = std::move(Output.CompiledShaders)};
+				// Charge stage metadata and full backing capacities before retaining it.
+				// Independent requests must not multiply the material's aggregate cap.
+				const auto Bytes = EstimateProgramBytes(StageCost);
+				if (Bytes > MaterialCompileMaxResultBytes - Work->RetainedStageBytes)
+					return Self->Complete({.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Bounds,
+						.Error = EMaterialCompileError::CompiledMaterialResultExceedsRetainedResultByteLimit}}});
+				Work->RetainedStageBytes += Bytes;
+				for (auto& Stage : StageCost.CompiledShaders) Work->Output.CompiledShaders.push_back(std::move(Stage));
+				Self->SubmitStage(Work);
 			});
 		std::shared_ptr<FShaderBuildHandle> Shader;
 		if (Submitted) Shader = std::make_shared<FShaderBuildHandle>(std::move(*Submitted));
@@ -135,7 +167,7 @@ namespace Durin::MaterialBuildPrivate
 			.Wait = [Shader] { return Shader->Wait() == EShaderBuildWaitResult::Completed ? DerivedData::ERequestWaitResult::Completed : DerivedData::ERequestWaitResult::WouldBlock; },
 			.RequestCancel = [Shader] { Shader->RequestCancel(); }});
 		{
-			std::lock_guard Lock(State->Mutex); State->Shader = Shader; if (Shader && State->HighPriority) Shader->SetPriority(EShaderBuildPriority::High);
+			std::lock_guard Lock(State->Mutex); if (Shader) State->Shaders.push_back(Shader); if (Shader && State->HighPriority) Shader->SetPriority(EShaderBuildPriority::High);
 		}
 		if (State->Cancellation.IsCancelled() && Shader) Shader->RequestCancel();
 	}

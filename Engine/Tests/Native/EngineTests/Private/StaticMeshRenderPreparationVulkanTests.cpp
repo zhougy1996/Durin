@@ -6,6 +6,7 @@
 #include "LightSceneTestSupport.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "ShaderBuild/ShaderPaths.h"
+#include "Shader/IShaderBuildModule.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Misc/FileHelper.h"
@@ -2203,6 +2204,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		Outputs.BaseColor = {Color->Id}; Outputs.OpacityMask = {Mask->Id}; Outputs.WorldPositionOffset = {Sum->Id};
 		const std::array<DMaterialExpression*, 5> Expressions{Color.Get(), Mask.Get(), Offset.Get(), PrimitiveOffset.Get(), Sum.Get()};
 		FMaterialStaticProperties Properties; Properties.BlendMode = EMaterialBlendMode::Masked;
+		Properties.GeometryUsage = 5; Properties.PassUsage = 7;
 		Properties.bTwoSided = true; Properties.OpacityMaskThreshold = .5f;
 		ASSERT_TRUE(Custom->SetStaticProperties(Properties));
 		ASSERT_TRUE(Custom->SetMaterialExpressions(Expressions, Outputs));
@@ -2337,6 +2339,62 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 					<< " instance_uniform_bytes=" << sizeof(RendererPrivate::FStaticMeshTransformUniform) << '\n';
 			}
 		}
+		auto FindFragmentType = [](std::string_view Entry) -> const FShaderType* {
+			for (const auto* Type : FShaderType::GetTypeList())
+				if (Type->GetFrequency() == EShaderFrequency::Fragment && Type->GetEntryPoint() == Entry) return Type;
+			return nullptr;
+		};
+		// Excluding the optional GPU stage preserves the declared direct route,
+		// even when view policy requests GPU grouping.
+		Properties.GeometryUsage = 1;
+		ASSERT_TRUE(Custom->SetStaticProperties(Properties));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Custom);
+		ASSERT_EQ(Custom->GetAcceptedCompiledProgram()->CompiledShaders.size(), 4u);
+		FObservation LocalOnly; Render(Instanced.Get(), true, ERenderMode::Lit, LocalOnly);
+		EXPECT_EQ(LocalOnly.Pixels, Grouped.Pixels);
+		EXPECT_EQ(LocalOnly.Telemetry.GBuffer.GPUCullingIndirectDraws, 0u);
+		EXPECT_EQ(LocalOnly.Telemetry.GBuffer.GBufferSuccessfulDraws, 64u);
+		{
+			using namespace RendererPrivate;
+			const auto Selected = Custom->GetAcceptedCompiledProgram();
+			const FMaterialShaderMapIdentity Identity{.RenderLayout = Selected->Layout.Identity,
+				.ProgramIdentity = Selected->Identity};
+			FMaterialShaderMap Rejected;
+			const auto Before = GetShaderBuildStats().Compilations;
+			const auto Factory = FindMeshVertexFactory(FXxHash64::HashBuffer("SplineVertexFactory", sizeof("SplineVertexFactory") - 1));
+			const auto* Fragment = FindFragmentType("FragmentMain");
+			ASSERT_TRUE(Factory); ASSERT_NE(Fragment, nullptr);
+			const auto MissingGeometry = InitializeMaterialShaderMap(*Factory->GetShaderType(MaterialMeshPassForward),
+				*Fragment, Factory->GetType(), MaterialMeshPassForward,
+				Identity, {}, Selected.get(), {}, Rejected);
+			EXPECT_FALSE(MissingGeometry); EXPECT_FALSE(Rejected);
+			EXPECT_EQ(MissingGeometry.Status, EShaderBuildStatus::Error);
+			EXPECT_EQ(GetShaderBuildStats().Compilations, Before);
+		}
+		Properties.PassUsage = 1;
+		ASSERT_TRUE(Custom->SetStaticProperties(Properties));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Custom);
+		{
+			using namespace RendererPrivate;
+			const auto Selected = Custom->GetAcceptedCompiledProgram();
+			ASSERT_EQ(Selected->CompiledShaders.size(), 2u);
+			const FMaterialShaderMapIdentity Identity{.RenderLayout = Selected->Layout.Identity,
+				.ProgramIdentity = Selected->Identity};
+			FMaterialShaderMap Rejected;
+			const auto Before = GetShaderBuildStats().Compilations;
+			const auto Factory = FindMeshVertexFactory(FXxHash64::HashBuffer("LocalVertexFactory", sizeof("LocalVertexFactory") - 1));
+			const auto* Fragment = FindFragmentType("OpaqueShadowFragmentMain");
+			ASSERT_TRUE(Factory); ASSERT_NE(Fragment, nullptr);
+			const auto MissingPass = InitializeMaterialShaderMap(*Factory->GetShaderType(MaterialMeshPassShadow),
+				*Fragment, Factory->GetType(), MaterialMeshPassShadow,
+				Identity, {}, Selected.get(), {}, Rejected);
+			EXPECT_FALSE(MissingPass); EXPECT_FALSE(Rejected);
+			EXPECT_EQ(MissingPass.Status, EShaderBuildStatus::Error);
+			EXPECT_EQ(GetShaderBuildStats().Compilations, Before);
+		}
+		Properties.GeometryUsage = 5; Properties.PassUsage = 7;
+		ASSERT_TRUE(Custom->SetStaticProperties(Properties));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Custom);
 		std::reverse(Instances.begin(), Instances.end());
 		Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
 		FObservation Reordered; Render(Instanced.Get(), true, ERenderMode::Lit, Reordered);

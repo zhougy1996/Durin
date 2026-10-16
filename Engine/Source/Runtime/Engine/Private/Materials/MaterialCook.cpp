@@ -45,6 +45,7 @@ namespace Durin
 		if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment, Target->GetShaderTarget()); !Environment) {
 			Context.Result = {EObjectCookError::Preparation, FormatMaterialError(Environment.Error)}; return;
 		}
+		BaseEnvironment.bIncludeEditorPasses = false;
 		struct FMaterialCookWork
 		{
 			std::vector<std::shared_ptr<const MIR::FCompilerInput>> Inputs;
@@ -293,6 +294,7 @@ namespace Durin
 		FMaterialCompilerEnvironment BaseEnvironment;
 		if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment, Target->GetShaderTarget()); !Environment)
 			return FShaderCompletion::Failure(FormatMaterialError(Environment.Error));
+		BaseEnvironment.bIncludeEditorPasses = false;
 		std::vector<FMaterialCompilerResult> Variants;
 		Variants.reserve(Configurations->size());
 		for (const auto& Configuration : *Configurations)

@@ -96,6 +96,19 @@ namespace Durin::RendererPrivate
 		std::span<const FShaderCode> GeneratedStages = MaterialProgram
 			? std::span<const FShaderCode>(MaterialProgram->CompiledShaders)
 			: std::span<const FShaderCode>{};
+		// A declared generated use must never fall through to a fixed-source
+		// compilation when its geometry or pass was excluded at material build.
+		if (MaterialProgram)
+		{
+			const auto RequiredFragment = FragmentType.GetEntryPoint() == "OpaqueShadowFragmentMain"
+				? std::string_view("ShadowFragmentMain") : FragmentType.GetEntryPoint();
+			for (const auto Entry : {RequiredFragment,
+				Factory->UsesGeneratedMaterialVertexStage(MeshPassKey) ? VertexType.GetEntryPoint() : std::string_view{}})
+				if (!Entry.empty() && !std::ranges::any_of(GeneratedStages,
+					[Entry](const auto& Stage) { return Stage.SourceEntryPoint == Entry; }))
+					return std::unexpected(FShaderError{.Code = EShaderError::MissingGeneratedStage,
+						.ExpectedIdentity = std::string(Entry)});
+		}
 		std::vector<FShaderCode> FactoryCompatibleStages;
 		if (!Factory->UsesGeneratedMaterialVertexStage(MeshPassKey))
 		{

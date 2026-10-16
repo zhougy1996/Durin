@@ -12,6 +12,7 @@
 #include "Shader/ShaderDiagnostics.h"
 #include "NativeRHIBackendTestSupport.h"
 #include "Components/StaticMeshComponent.h"
+#include "Shader/IShaderBuildModule.h"
 
 TEST(FMaterialCustomDataTests, NumericRangesAndStableInstanceSnapshotsAreAtomic)
 {
@@ -94,6 +95,170 @@ TEST(FMaterialCustomDataTests, TypedCrossSlotReadsCompileAndRoundTripDetachedTra
 	const auto First = MIR::Normalize(Input), Second = MIR::Normalize(Changed);
 	ASSERT_TRUE(First && Second);
 	EXPECT_NE(First.Identity, Second.Identity);
+}
+
+TEST(FMaterialShaderStageTests, GeometryPassSelectionAndDetachedRoundTripAreExact)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	MIR::FCompilerInput Input{.IR = MakeDefaultMaterialCompilerIR()};
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+	for (uint8 Geometry = 1; Geometry <= 7; ++Geometry)
+		for (uint8 Passes = 1; Passes <= 15; ++Passes)
+			for (bool Editor : {false, true})
+			{
+				SCOPED_TRACE(std::format("geometry={} passes={} editor={}", Geometry, Passes, Editor));
+				Input.StaticProperties.GeometryUsage = Geometry;
+				Input.StaticProperties.PassUsage = Passes;
+				Input.Environment.bIncludeEditorPasses = Editor;
+				if ((Geometry & 4) && !(Geometry & 1))
+				{
+					EXPECT_FALSE(ValidateMaterialStaticProperties(Input.StaticProperties));
+					continue;
+				}
+				ASSERT_TRUE(ValidateMaterialStaticProperties(Input.StaticProperties));
+				const uint8 EffectivePasses = Passes & (Editor ? 15 : 7);
+				const auto Encoded = MaterialBuildPrivate::EncodeTranslationInput(Input);
+				ASSERT_TRUE(Encoded);
+				const auto Decoded = MaterialBuildPrivate::DecodeTranslationInput(Encoded->GetBytes());
+				ASSERT_TRUE(Decoded);
+				EXPECT_EQ(Decoded->Environment.bIncludeEditorPasses, Editor);
+				const auto Translation = TranslatePreparedMaterialProgram({.Normalized = MIR::Normalize(Input),
+					.StaticProperties = Input.StaticProperties, .Environment = Input.Environment});
+				ASSERT_TRUE(Translation);
+				const auto Requests = MakeMaterialShaderStageRequests(Translation, false);
+				size_t Expected = std::popcount(uint8((Geometry & 3) ? EffectivePasses : (EffectivePasses & 2)));
+				if (EffectivePasses)
+				{
+					Expected += bool(Geometry & 1) + bool(Geometry & 2);
+					Expected += bool((Geometry & 4) && (EffectivePasses & 2));
+				}
+				EXPECT_EQ(Requests.size(), Expected);
+				for (const auto& Request : Requests)
+				{
+					ASSERT_EQ(Request.EntryPoints.size(), 1u);
+					EXPECT_EQ(Request.Frequencies.size(), 1u);
+					if (!Editor) EXPECT_NE(Request.EntryPoints.front(), "HitProxyFragmentMain");
+				}
+			}
+	Input.StaticProperties.GeometryUsage = 0;
+	EXPECT_FALSE(ValidateMaterialStaticProperties(Input.StaticProperties));
+	Input.StaticProperties.GeometryUsage = 8;
+	EXPECT_FALSE(ValidateMaterialStaticProperties(Input.StaticProperties));
+	Input.StaticProperties = {}; Input.StaticProperties.PassUsage = 16;
+	EXPECT_FALSE(ValidateMaterialStaticProperties(Input.StaticProperties));
+}
+
+TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmitAtomically)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	MIR::FCompilerInput Input{.IR = MakeDefaultMaterialCompilerIR()};
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+	const auto Before = GetShaderBuildStats();
+	const auto Cold = MIR::Compile(Input, true);
+	ASSERT_TRUE(Cold) << FormatMaterialProgramDiagnostics(Cold.Diagnostics);
+	const auto AfterCold = GetShaderBuildStats();
+	EXPECT_EQ(AfterCold.Compilations - Before.Compilations, 7u);
+	const auto Warm = MIR::Compile(Input);
+	ASSERT_TRUE(Warm);
+	EXPECT_EQ(GetShaderBuildStats().Compilations, AfterCold.Compilations);
+	Input.IR.SurfaceRoot.Inputs[size_t(EMaterialSurfaceOutput::Emissive)].Literal.X = 0.271828f;
+	const auto Pixel = MIR::Compile(Input);
+	ASSERT_TRUE(Pixel) << FormatMaterialProgramDiagnostics(Pixel.Diagnostics);
+	const auto AfterPixel = GetShaderBuildStats();
+	EXPECT_NE(Cold.Identity, Pixel.Identity);
+	EXPECT_GE(AfterPixel.MemoryHits - AfterCold.MemoryHits, 3u);
+	EXPECT_LE(AfterPixel.Compilations - AfterCold.Compilations, 4u);
+	uint64 TotalBytes = 0, SharedVertexBytes = 0;
+	for (size_t Index = 0; Index < Cold.CompiledShaders.size(); ++Index)
+	{
+		const auto& A = Cold.CompiledShaders[Index]; const auto& B = Pixel.CompiledShaders[Index];
+		TotalBytes += A.Code.GetRetainedCapacityBytes() + B.Code.GetRetainedCapacityBytes();
+		if (Index >= 4)
+		{
+			EXPECT_EQ(A.CodeHash, B.CodeHash);
+			EXPECT_TRUE(A.Code.SharesStorageWith(B.Code));
+			SharedVertexBytes += A.Code.GetRetainedCapacityBytes();
+		}
+	}
+	auto MakeRequests = [](const MIR::FCompilerInput& Value) {
+		return MakeMaterialShaderStageRequests(TranslatePreparedMaterialProgram({.Normalized = MIR::Normalize(Value),
+			.StaticProperties = Value.StaticProperties, .Environment = Value.Environment}), false);
+	};
+	const auto OriginalRequests = MakeRequests(Input);
+	auto VertexChange = Input; VertexChange.IR.WorldPositionOffset.Literal.X = 0.125f;
+	const auto VertexRequests = MakeRequests(VertexChange);
+	for (size_t Index = 0; Index < 7; ++Index)
+		if (Index >= 4) EXPECT_NE(OriginalRequests[Index].VirtualPath, VertexRequests[Index].VirtualPath);
+		else EXPECT_EQ(OriginalRequests[Index].VirtualPath, VertexRequests[Index].VirtualPath);
+	auto InterfaceChange = Input;
+	InterfaceChange.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::InstanceCustomData,
+		.ResultType = EMaterialProgramValueType::Float3, .Payload = MIR::FCustomDataRead{3}});
+	auto& Emissive = InterfaceChange.IR.SurfaceRoot.Inputs[size_t(EMaterialSurfaceOutput::Emissive)];
+	Emissive.bExpression = true; Emissive.ExpressionIndex = uint32(InterfaceChange.IR.Nodes.size() - 1);
+	const auto InterfaceRequests = MakeRequests(InterfaceChange);
+	ASSERT_EQ(InterfaceRequests.size(), 7u);
+	for (size_t Index = 4; Index < 7; ++Index)
+		EXPECT_NE(OriginalRequests[Index].VirtualPath, InterfaceRequests[Index].VirtualPath);
+	auto LayoutChange = Input;
+	const FGuid ParameterId(0, 0, 0, 905);
+	LayoutChange.Parameters.push_back({ParameterId, EMaterialParameterType::Scalar});
+	LayoutChange.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Parameter,
+		.ResultType = EMaterialProgramValueType::Float, .Payload = ParameterId});
+	auto& ParameterRoot = LayoutChange.IR.SurfaceRoot.Inputs[size_t(EMaterialSurfaceOutput::Roughness)];
+	ParameterRoot.bExpression = true; ParameterRoot.ExpressionIndex = uint32(LayoutChange.IR.Nodes.size() - 1);
+	const auto LayoutRequests = MakeRequests(LayoutChange);
+	ASSERT_EQ(LayoutRequests.size(), 7u);
+	for (size_t Index = 4; Index < 7; ++Index)
+		EXPECT_NE(OriginalRequests[Index].VirtualPath, LayoutRequests[Index].VirtualPath);
+	Input.Environment.bIncludeEditorPasses = false;
+	const auto Game = MIR::Compile(Input);
+	ASSERT_TRUE(Game);
+	EXPECT_EQ(Game.CompiledShaders.size(), 6u);
+	EXPECT_FALSE(Game.RequiredStages & 8);
+	EXPECT_EQ(GetShaderBuildStats().Compilations, AfterPixel.Compilations);
+	Input.StaticProperties.GeometryUsage = 1; Input.StaticProperties.PassUsage = 1;
+	const auto Selected = MIR::Compile(Input);
+	ASSERT_TRUE(Selected);
+	ASSERT_EQ(Selected.CompiledShaders.size(), 2u);
+	EXPECT_EQ(Selected.CompiledShaders[0].SourceEntryPoint, "FragmentMain");
+	EXPECT_EQ(Selected.CompiledShaders[1].SourceEntryPoint, "VertexMain");
+	EXPECT_TRUE(Selected.CompiledShaders[0].Code.SharesStorageWith(Pixel.CompiledShaders[0].Code));
+	EXPECT_TRUE(Selected.CompiledShaders[1].Code.SharesStorageWith(Pixel.CompiledShaders[4].Code));
+	EXPECT_TRUE(ValidateMaterialCompilerResult(Selected));
+	for (uint32 Kind = 0; Kind < 4; ++Kind)
+	{
+		auto Broken = Selected;
+		if (Kind == 0) Broken.CompiledShaders.pop_back();
+		if (Kind == 1) Broken.CompiledShaders.push_back(Cold.CompiledShaders[5]);
+		if (Kind == 2) std::swap(Broken.CompiledShaders[0], Broken.CompiledShaders[1]);
+		if (Kind == 3) Broken.CompiledShaders[1].Frequency = EShaderFrequency::Fragment;
+		EXPECT_FALSE(ValidateMaterialCompilerResult(Broken));
+	}
+	FByteBuffer Bytes;
+	ASSERT_TRUE(Testing::EncodeMaterialCookedProgramFamilyForTest(Selected, Input.StaticProperties,
+		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes));
+	FMaterialStaticProperties LoadedProperties; std::shared_ptr<const FMaterialCompilerResult> Loaded;
+	ASSERT_TRUE(Testing::DecodeMaterialCookedProgramFamilyForTest(Bytes, ECookTargetPlatform::Win64,
+		ECookTargetProfile::Game, Selected, LoadedProperties, Loaded));
+	ASSERT_TRUE(Loaded);
+	EXPECT_EQ(LoadedProperties, Input.StaticProperties);
+	EXPECT_EQ(Loaded->RequiredStages, Selected.RequiredStages);
+	EXPECT_EQ(Loaded->CompiledShaders.size(), 2u);
+	EXPECT_TRUE(Loaded->GeneratedSource.empty());
+	EXPECT_TRUE(Loaded->IR.Nodes.empty());
+	RecordProperty("cold_stage_compilations_count", AfterCold.Compilations - Before.Compilations);
+	RecordProperty("pixel_edit_stage_compilations_count", AfterPixel.Compilations - AfterCold.Compilations);
+	RecordProperty("shared_vertex_products_count", 3);
+	RecordProperty("shared_vertex_capacity_bytes", SharedVertexBytes);
+	RecordProperty("pair_code_capacity_upper_bound_bytes", TotalBytes - SharedVertexBytes);
+	RecordProperty("authority", "structural_debug_observation");
+	std::cout << "[StageProducts] cold_compiles=" << AfterCold.Compilations - Before.Compilations
+		<< " warm_compiles=0 pixel_edit_compiles=" << AfterPixel.Compilations - AfterCold.Compilations
+		<< " shared_vertex_products=3 pair_retained_capacity_bytes=" << TotalBytes
+		<< " shared_vertex_bytes=" << SharedVertexBytes << " pair_capacity_after_vertex_sharing_bytes=" << TotalBytes - SharedVertexBytes
+		<< " game_stages=6 local_forward_stages=2\n";
 }
 
 TEST(FMaterialProgramCompilerTests, DiagnosticSummaryPreservesOrderAndBoundsPresentation)
@@ -188,6 +353,46 @@ namespace
 	}
 }
 
+TEST(FMaterialShaderStageTests, VertexClosureOrderIgnoresPixelReachabilityAndNodeRenumbering)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	MIR::FCompilerInput Input{.IR = MakeDefaultMaterialCompilerIR()};
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+	auto Add = [&](MIR::FNode Node) {
+		ResolveNodeSemantics(Input.IR, Node);
+		Input.IR.Nodes.push_back(std::move(Node));
+		return uint32(Input.IR.Nodes.size() - 1);
+	};
+	const auto Data = Add({.Opcode = EMaterialProgramOpcode::PrimitiveCustomData,
+		.ResultType = EMaterialProgramValueType::Float3, .Payload = MIR::FCustomDataRead{0}});
+	const auto Value = Add({.Opcode = EMaterialProgramOpcode::Constant,
+		.ResultType = EMaterialProgramValueType::Float3, .Payload = FMaterialProgramLiteral{.1f, .2f, .3f}});
+	const auto Sum = Add({.Opcode = EMaterialProgramOpcode::Add,
+		.ResultType = EMaterialProgramValueType::Float3, .Inputs = {Data, Value}});
+	Input.IR.WorldPositionOffset.bExpression = true; Input.IR.WorldPositionOffset.ExpressionIndex = Sum;
+	auto& Pixel = Input.IR.SurfaceRoot.Inputs[size_t(EMaterialSurfaceOutput::Emissive)];
+	Pixel.bExpression = true; Pixel.ExpressionIndex = Data;
+	const auto First = TranslatePreparedMaterialProgram({.Normalized = MIR::Normalize(Input),
+		.StaticProperties = Input.StaticProperties, .Environment = Input.Environment});
+	ASSERT_TRUE(First);
+	// The same vertex DAG previously encountered through a pixel root is now
+	// first emitted through WPO, reversing normalized dependency numbering.
+	Pixel.bExpression = false; Pixel.Literal = {.17f, .23f, .31f};
+	const auto Second = TranslatePreparedMaterialProgram({.Normalized = MIR::Normalize(Input),
+		.StaticProperties = Input.StaticProperties, .Environment = Input.Environment});
+	ASSERT_TRUE(Second);
+	EXPECT_NE(First.Identity, Second.Identity);
+	const auto A = MakeMaterialShaderStageRequests(First, false);
+	const auto B = MakeMaterialShaderStageRequests(Second, false);
+	ASSERT_EQ(A.size(), 7u); ASSERT_EQ(B.size(), 7u);
+	for (size_t Index = 4; Index < 7; ++Index)
+	{
+		EXPECT_EQ(A[Index].Source, B[Index].Source);
+		EXPECT_EQ(A[Index].VirtualPath, B[Index].VirtualPath);
+	}
+}
+
 TEST(FMaterialTranslationTests, PersistentHitsSkipTransformsAndPayloadResolution)
 {
 	using namespace Durin;
@@ -255,7 +460,7 @@ TEST(FMaterialTranslationTests, CanonicalInputAndTypedOutputHaveIndependentConsu
 	EXPECT_FALSE(DecodeTranslationProduct(Encoded->GetBytes(), {1, 2}, Input));
 	EXPECT_FALSE(DecodeTranslationProduct(Encoded->GetBytes().first(Encoded->size() - 1), Identity, Input));
 	FByteBuffer Wrong(Encoded->begin(), Encoded->end());
-	Wrong.front() = std::byte{2};
+	Wrong.front() = std::byte{TranslationSchema + 1};
 	EXPECT_FALSE(DecodeTranslationProduct(Wrong, Identity, Input));
 	Product.Layout.UniformPayloadSize += 16;
 	auto BadLayout = EncodeTranslationProduct(Product, Identity);
@@ -498,8 +703,13 @@ TEST(FMaterialTranslationTests, SplitCompilationPreservesArtifactsAndRejectsMism
 		"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", &FShaderMacroDefinition::Name);
 	ASSERT_NE(Threshold, Request.ExpectedSourceTree->Macros.end());
 	EXPECT_EQ(Threshold->Value, "1056964608");
-	const auto Output = CompileGeneratedShader(Request);
-	ASSERT_TRUE(Output) << Output.Diagnostic;
+	FShaderBuildResult Output{.Status = EShaderBuildStatus::Ok};
+	for (const auto& StageRequest : MakeMaterialShaderStageRequests(Translation, false))
+	{
+		auto Stage = CompileGeneratedShader(StageRequest);
+		ASSERT_TRUE(Stage) << Stage.Diagnostic;
+		for (auto& Code : Stage.CompiledShaders) Output.CompiledShaders.push_back(std::move(Code));
+	}
 	const auto Split = AssembleMaterialProgram(Translation, Output);
 	const auto Synchronous = MIR::Compile(Input);
 	ASSERT_TRUE(Split);

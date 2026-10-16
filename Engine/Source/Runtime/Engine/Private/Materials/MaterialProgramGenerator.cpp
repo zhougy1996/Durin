@@ -117,7 +117,7 @@ namespace Durin
 	static auto GenerateMaterialProgramSlangImpl(const MIR::FModule& IR,
 		const FMaterialRenderLayout& Layout,
 		std::span<const FMaterialParameterCollectionLayout> Collections,
-		std::string& OutSource) -> FMaterialOperationResult
+		std::string& OutSource, std::optional<EMaterialEvaluationStage> StageFilter = {}) -> FMaterialOperationResult
 	{
 		OutSource.clear();
 		if (IR.Version != MIR::CurrentVersion
@@ -258,12 +258,15 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 		for (const auto Stage : {EMaterialEvaluationStage::Vertex, EMaterialEvaluationStage::Pixel})
 		{
 			const bool bVertex = Stage == EMaterialEvaluationStage::Vertex;
+			if (StageFilter && *StageFilter != Stage) continue;
 			std::vector<bool> Reachable(IR.Nodes.size());
+			std::vector<uint32> EvaluationOrder;
 			std::function<void(uint32)> Visit = [&](uint32 Index) {
 				if (Reachable[Index]) return;
 				Reachable[Index] = true;
 				if (!bVertex && IR.Nodes[Index].Opcode == EMaterialProgramOpcode::VertexInterpolator) return;
 				for (const auto Child : IR.Nodes[Index].Inputs) Visit(Child);
+				if (bVertex) EvaluationOrder.push_back(Index);
 			};
 			if (bVertex)
 			{
@@ -276,9 +279,12 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				? "VSOutput EvaluateGeneratedVertex(VSOutput input, MaterialPrimitiveUniform MaterialPrimitive, out float3 offset)\n{\n"
 				: "FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)\n{\n";
 			std::vector<std::string> Expressions(IR.Nodes.size());
-			for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
+			uint32 LocalIndex = 0;
+			if (!bVertex)
+				for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
+					if (Reachable[Index]) EvaluationOrder.push_back(Index);
+			for (const uint32 Index : EvaluationOrder)
 			{
-				if (!Reachable[Index]) continue;
 				const MIR::FNode& Node = IR.Nodes[Index];
 				auto Input = [&](size_t Slot) -> const std::string& {
 					return Expressions[Node.Inputs[Slot]];
@@ -503,10 +509,11 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					OutSource.clear();
 					return {FMaterialError(EMaterialIRError::UnsupportedGenerationNode, Index)};
 				}
-				Expressions[Index] = std::format("n{}", Index);
+				const auto SymbolIndex = bVertex ? LocalIndex++ : Index;
+				Expressions[Index] = std::format("n{}", SymbolIndex);
 				if (Node.ResultType != EMaterialProgramValueType::Texture2D)
 					OutSource += std::format("    {} n{} = {};\n",
-						SlangType(Node.ResultType), Index, Expression);
+						SlangType(Node.ResultType), SymbolIndex, Expression);
 				else
 					Expressions[Index] = std::move(Expression);
 			}
@@ -560,7 +567,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				Outputs[6], Outputs[7]);
 			}
 		} // Stage-specific expression closures.
-		OutSource += R"(
+		if (StageFilter != EMaterialEvaluationStage::Pixel) OutSource += R"(
 [[vk::binding(24, 1)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
 [[vk::binding(28, 1)]] StructuredBuffer<uint> VisibleInstances;
 [[vk::binding(29, 1)]] StructuredBuffer<MaterialPrimitiveUniform> InstanceTransforms;
@@ -598,6 +605,8 @@ VSOutput GPUCullingVertexMain(FLocalVertexFactoryInput input, uint instanceId : 
     return EvaluateGeneratedGeometry(GetLocalVertexFactoryIntermediates(input),
         InstanceTransforms[VisibleInstances[instanceId]]);
 }
+)";
+		if (StageFilter != EMaterialEvaluationStage::Vertex) OutSource += R"(
 struct FResolvedGeneratedSurfaceShading
 {
     FMaterialNormalFrame normalFrame;
@@ -1059,22 +1068,25 @@ float4 FragmentMain(
 			PreviousCollection = Collection.CollectionId;
 		}
 		return ValidateMaterialCompiledStages(
-			Result.CompiledShaders, Result.Layout, {}, Result.ActiveCollections);
+			Result.CompiledShaders, Result.Layout, {}, Result.ActiveCollections, Result.RequiredStages);
 	}
 
 	auto ValidateMaterialCompiledStages(std::span<const FShaderCode> Stages,
 		const FMaterialRenderLayout& Layout, const FMaterialCompilerResourceLimits& Limits,
-		std::span<const FMaterialParameterCollectionLayout> Collections)
+		std::span<const FMaterialParameterCollectionLayout> Collections, uint8 RequiredStages)
 		-> FMaterialLayoutValidationResult
 	{
 		const auto Rejected = FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
 		const auto Valid = ValidateCompiledMaterialLayout(Layout, Limits);
 		if (!Valid) return Valid;
 		constexpr auto Entries = MaterialCompiledEntryPoints;
-		if (Stages.size() != Entries.size()) return Rejected;
-		for (uint32 Index = 0; Index < Stages.size(); ++Index)
+		if (!RequiredStages || (RequiredStages & ~127) || !(RequiredStages & 15)
+			|| !(RequiredStages & 112) || Stages.size() != std::popcount(RequiredStages)) return Rejected;
+		uint32 Position = 0;
+		for (uint32 Index = 0; Index < Entries.size(); ++Index)
 		{
-			const auto& Stage = Stages[Index];
+			if (!(RequiredStages & (1 << Index))) continue;
+			const auto& Stage = Stages[Position++];
 			if (Stage.Code.IsEmpty() || Stage.SourceEntryPoint != Entries[Index]
 				|| Stage.Frequency != (Index < 4 ? EShaderFrequency::Fragment : EShaderFrequency::Vertex) || !Stage.Reflection.PushConstantRanges.empty()
 				|| Stage.Reflection.ResourceBindings.size()
@@ -1164,6 +1176,7 @@ float4 FragmentMain(
 		Result.CompilerIdentity = Input.Environment.CompilerIdentity;
 		Result.Target = Input.Environment.Target;
 		Result.PassContractVersion = Input.Environment.PassContractVersion;
+		Result.RequiredStages = SelectMaterialShaderStages(Input.StaticProperties, Input.Environment.bIncludeEditorPasses);
 		Result.Quality = Input.Environment.Quality;
 		Result.FeatureLevel = Input.Environment.FeatureLevel;
 		Result.StaticBools = Input.Environment.StaticBools;
@@ -1217,8 +1230,9 @@ float4 FragmentMain(
 		Request.VirtualPath = "/Generated/Materials/" + Result.Identity.ToString();
 		Request.Source = Result.GeneratedSource;
 		auto Options = MakeMaterialShaderCompileOptions(Request.Target, CanonicalizeMaterialShaderProperties(Translation.StaticProperties));
-		for (const auto* Entry : Options.EntryPoints) Request.EntryPoints.emplace_back(Entry);
-		Request.Frequencies = std::move(Options.Frequencies);
+		for (uint32 Index = 0; Index < Options.EntryPoints.size(); ++Index)
+			if (Translation.RequiredStages & (1 << Index))
+			{ Request.EntryPoints.emplace_back(Options.EntryPoints[Index]); Request.Frequencies.push_back(Options.Frequencies[Index]); }
 		Request.Macros = std::move(Options.Macros);
 		Request.AllowedImportVirtualPrefixes = {
 			"/Engine/Material/", "/Engine/Lighting/", "/Engine/VertexFactory/"};
@@ -1229,11 +1243,41 @@ float4 FragmentMain(
 				{
 				FShaderSourceTreeDescription Environment;
 				Environment.VirtualPath = Dependency.VirtualPath; Environment.ContentHash = Dependency.ContentHash;
-				Environment.EntryPoints = Request.EntryPoints; Environment.Frequencies = Request.Frequencies;
+				for (const auto Entry : MaterialCompiledEntryPoints) Environment.EntryPoints.emplace_back(Entry);
+				Environment.Frequencies.assign(4, EShaderFrequency::Fragment);
+				Environment.Frequencies.insert(Environment.Frequencies.end(), 3, EShaderFrequency::Vertex);
 				Environment.Macros = MakeMaterialShaderCompileOptions(Request.Target, {.OpacityMaskThreshold = 0.5f}).Macros;
 				Environment.bCompleteClosure = true; Request.ExpectedSourceTree = std::move(Environment);
 			}
 		return Request;
+	}
+
+	auto MakeMaterialShaderStageRequests(const FMaterialTranslatedProgram& Translation,
+		bool bForceRecompile) -> std::vector<FGeneratedShaderCompileRequest>
+	{
+		std::vector<FGeneratedShaderCompileRequest> Requests;
+		if (!Translation) return Requests;
+		auto Base = MakeMaterialShaderCompileRequest(Translation, bForceRecompile);
+		Base.Source.clear();
+		std::array<std::string, 2> Sources;
+		for (uint32 Index = 0; Index < MaterialCompiledEntryPoints.size(); ++Index)
+		{
+			if (!(Translation.RequiredStages & (1 << Index))) continue;
+			const uint32 Vertex = Index >= 4;
+			if (Sources[Vertex].empty() && !GenerateMaterialProgramSlangImpl(Translation.IR,
+				Translation.Layout, Translation.ActiveCollections, Sources[Vertex],
+				Vertex ? EMaterialEvaluationStage::Vertex : EMaterialEvaluationStage::Pixel)) return {};
+			auto Request = Base;
+			Request.Source = Sources[Vertex];
+			Request.VirtualPath = "/Generated/MaterialStages/" + FXxHash128::HashBuffer(Request.Source).ToString();
+			Request.EntryPoints = {std::string(MaterialCompiledEntryPoints[Index])};
+			Request.Frequencies = {Vertex ? EShaderFrequency::Vertex : EShaderFrequency::Fragment};
+			// Pixel properties cannot change vertex code. Shared layout/varyings and
+			// the verified import environment still participate in the stage key.
+			if (Vertex) Request.Macros = MakeMaterialShaderCompileOptions(Request.Target, {}).Macros;
+			Requests.push_back(std::move(Request));
+		}
+		return Requests;
 	}
 
 	auto AssembleMaterialProgram(FMaterialTranslatedProgram Translation,
@@ -1241,7 +1285,7 @@ float4 FragmentMain(
 	{
 		FMaterialCompilerResult Result{
 			.Identity = Translation.Identity, .CompilerIdentity = std::move(Translation.CompilerIdentity), .Target = std::move(Translation.Target),
-			.PassContractVersion = Translation.PassContractVersion, .Quality = Translation.Quality, .FeatureLevel = Translation.FeatureLevel,
+			.PassContractVersion = Translation.PassContractVersion, .RequiredStages = Translation.RequiredStages, .Quality = Translation.Quality, .FeatureLevel = Translation.FeatureLevel,
 			.StaticBools = std::move(Translation.StaticBools), .IR = std::move(Translation.IR),
 			.ActiveParameters = std::move(Translation.ActiveParameters), .ActiveCollections = std::move(Translation.ActiveCollections),
 			.Layout = std::move(Translation.Layout), .Requirements = Translation.Requirements,
@@ -1261,7 +1305,7 @@ float4 FragmentMain(
 		const auto Reflection = std::ranges::all_of(Output.CompiledShaders,
 			[&](const auto& Shader) { return Shader.Target == Target; })
 			? ValidateMaterialCompiledStages(Output.CompiledShaders,
-				Result.Layout, Translation.ResourceLimits, Result.ActiveCollections)
+				Result.Layout, Translation.ResourceLimits, Result.ActiveCollections, Result.RequiredStages)
 			: FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
 		if (!Reflection)
 		{

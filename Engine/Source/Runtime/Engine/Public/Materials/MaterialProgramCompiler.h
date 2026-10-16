@@ -23,10 +23,24 @@ namespace Durin
 	// Opaque producer identity; algorithm changes invalidate builds, not DMAT admission.
 	ENGINE_API auto GetMaterialBuildVersion() -> uint64;
 	ENGINE_API auto GetMaterialCompileAdapterVersion() -> uint32;
-	inline constexpr uint32 CurrentMaterialPassContractVersion = 10;
+	inline constexpr uint32 CurrentMaterialPassContractVersion = 11;
 	inline constexpr std::array<std::string_view, 7> MaterialCompiledEntryPoints{
 		"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain",
 		"VertexMain", "SplineVertexMain", "GPUCullingVertexMain"};
+
+	// Canonical entry-bit order matches MaterialCompiledEntryPoints.
+	constexpr auto SelectMaterialShaderStages(const FMaterialStaticProperties& Properties,
+		bool bIncludeEditorPasses = true) -> uint8
+	{
+		const uint8 Passes = Properties.PassUsage & (bIncludeEditorPasses ? 15 : 7);
+		if (!Passes) return 0;
+		const bool Regular = (Properties.GeometryUsage & 3) != 0;
+		uint8 Stages = Regular ? Passes : (Passes & 2);
+		if (Regular && (Properties.GeometryUsage & 1)) Stages |= 1 << 4;
+		if (Regular && (Properties.GeometryUsage & 2)) Stages |= 1 << 5;
+		if ((Properties.GeometryUsage & 4) && (Passes & 2)) Stages |= 1 << 6;
+		return Stages;
+	}
 
 	struct FMaterialCompilerDependency
 	{
@@ -50,6 +64,7 @@ namespace Durin
 		uint32 AdapterVersion = GetMaterialCompileAdapterVersion();
 		std::string Target = "vulkan-spirv-1.5";
 		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
+		bool bIncludeEditorPasses = true;
 		EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
 		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 		std::vector<FStaticBoolValue> StaticBools;
@@ -255,6 +270,7 @@ namespace Durin
 		std::string CompilerIdentity;
 		std::string Target;
 		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
+		uint8 RequiredStages = 127;
 		EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
 		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 		std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
@@ -335,7 +351,8 @@ namespace Durin
 	[[nodiscard]] ENGINE_API auto ValidateMaterialCompiledStages(
 		std::span<const FShaderCode> Stages, const FMaterialRenderLayout& Layout,
 		const FMaterialCompilerResourceLimits& Limits = {},
-		std::span<const FMaterialParameterCollectionLayout> Collections = {})
+		std::span<const FMaterialParameterCollectionLayout> Collections = {},
+		uint8 RequiredStages = 127)
 		-> FMaterialLayoutValidationResult;
 	[[nodiscard]] ENGINE_API auto GenerateMaterialProgramSlang(
 		const MIR::FModule& IR) -> FMaterialSourceGenerationResult;

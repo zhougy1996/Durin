@@ -383,7 +383,7 @@ reload advances the generation and makes the next material compilation
 revalidate the manifest.
 
 The synchronous compiler lowers that IR to bounded deterministic Slang using
-stable IR-index symbols and exact floating-point bit expressions. RenderCore
+stable stage-local vertex symbols and IR-index pixel symbols and exact floating-point bit expressions. RenderCore
 accepts the generated root as owned memory, resolves only allowlisted virtual
 imports, retains cache/artifact ownership, compiles forward, GBuffer, and
 masked-shadow and integer Hit Proxy fragments, and accepts only correctly typed reflected bindings
@@ -391,7 +391,7 @@ from each pass's closed allowlist. Unused material textures, samplers, and
 uniform fields may therefore be optimized out; a default material contains no
 material texture-sample expressions or texture-role bindings.
 The complete value-owned result includes identity, IR, source, dependencies,
-seven compiled stages, phase timings, and bounded diagnostics; any failure
+the exact declared compiled stage set, phase timings, and bounded diagnostics; any failure
 retains no publishable partial stage set.
 
 ### Final surface evaluation
@@ -526,6 +526,9 @@ not invoke template creation, and unsupported graphs require deliberate reconstr
 
 ## Compile Lifecycle and Cooked Programs
 
+[Shader stage selection and sharing](MaterialShaderStages.md) owns geometry/Pass
+usage declarations, editor/Game stage sets and reusable stage cache identities.
+
 Engine registers `DMaterial` and `DMaterialInstance` to the built-in `Durin.Material` typed manager of its
 [asset-compilation aggregate](../Assets/AssetCompilation.md) between task-system
 startup and shutdown. `DMaterialInterface` owns non-reflected compilation state.
@@ -533,8 +536,8 @@ GameThread snapshots root graph/declarations, expanded functions, source mapping
 and effective owner properties into a detached request. A task-backed
 `Material.Translate` session normalizes MIR and generates Slang; successful
 translations join by final semantic program identity before asynchronous
-ShaderBuild submission. A CPU continuation validates and assembles all seven
-stages, then the GameThread mailbox applies the qualified candidate. Neither
+independent ShaderBuild stage submissions. A CPU continuation validates and assembles
+the exact required set, then the GameThread mailbox applies the qualified candidate. Neither
 translation nor Shader cache I/O holds a material producer worker. Workers retain no
 `DObject`, editor, Renderer, RHI, registry, or borrowed-container state. The
 only synchronous compatibility path is process bootstrap or tooling without an
@@ -562,7 +565,7 @@ cancellation when a flight loses its last consumer, and leaves the accepted
 last-known-good program visible. GameThread admits a mailbox result only when
 the live object-handle generation, authored revision, request generation,
 dependency generation, parent-chain revision, target, and program identity all match. Successful
-admission atomically replaces the complete seven-stage result and proxy state;
+admission atomically replaces the complete required-stage result and proxy state;
 current compilation failure or admission rejection retires the complete accepted
 program, layout, values and resources and publishes ErrorMaterial through the
 ordinary render proxy path. This includes normalization and dependency failures

@@ -34,6 +34,8 @@ namespace Durin::MaterialBuildPrivate
 	private:
 		enum class ECompletionDelivery { Deliver, Handled };
 		struct FState;
+		struct FStageBuild;
+		auto SubmitStage(std::shared_ptr<FStageBuild> Work) -> void;
 		std::unique_ptr<FState> State;
 		auto Launch(std::function<void()> Work) -> void;
 		auto Translated(FMaterialTranslatedProgram Translation) -> void;
