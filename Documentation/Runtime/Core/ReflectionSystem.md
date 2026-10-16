@@ -1,104 +1,53 @@
-# Generated Reflection System
+# Reflection System
 
-Summary: Define reflected type registration, generated metadata, properties, and serialization integration.
+Summary: Define runtime type identity, registration, class defaults, enum metadata, and reflection contract ownership.
 
 Modules: CoreDObject
 
 Last reviewed: 2026-10-16
 
-This document describes the reflection framework that is currently implemented in Durin. Object lifetime and collector semantics are documented separately in [Garbage Collection](GarbageCollection.md).
-
 ## Overview
 
-Durin reflection uses selected C++ headers as the source of truth. A module lists reflected headers in its `.dmodule` file under `ReflectHeaders`. During configure/build, DurinHeaderTool scans those headers and writes generated files under:
+DurinHeaderTool extracts selected C++ headers listed in a module's `.dmodule`
+`ReflectHeaders` field. Generated registration publishes qualified type identities
+and immutable runtime descriptors: `DClass` for `DCLASS`, `DStruct` for `DSTRUCT`,
+and `DEnum` for `DENUM`. Classes and structs use `GENERATED_BODY()`.
 
-```text
-Engine/Intermediate/Build/<Platform>/<RuntimeVariant>/<Module>/DHT
-```
+The contracts are owned by the following documents:
 
-Generated files are atomically replaced. DHT serializes conflicting project
-metadata writers and commands that write the same module; independent modules
-may run concurrently. Debug, Release, and Profiling presets in one
-worktree share configuration-independent generated files.
+| Task | Owning document |
+| --- | --- |
+| Header parsing, symbol exports, generated files, and build integration | [Reflection generation](../../Development/Tooling/ReflectionGeneration.md) |
+| Property types, metadata, registration, containers, and field compatibility | [Property reflection](PropertyReflection.md) |
+| Struct lifecycle capabilities, detached values, comparison, and type defaults | [Reflected struct operations](StructOperations.md) |
+| `DFUNCTION` signatures, parameter storage, inheritance, and invocation | [Native function reflection](FunctionReflection.md) |
+| Object lifetime, reference schemas, and collection | [Garbage collection](GarbageCollection.md) |
+| Archives, duplication, defaults, and authored override intent | [Serialization](Serialization.md) |
+| Details editing and transactions | [Reflected property editing](../../Editor/Architecture/ReflectedPropertyEditing.md) |
 
-The current system supports:
+`DSTRUCT()` preserves normal C++ copy/move behavior. [Core math aliases](Math.md)
+cannot depend on `CoreDObject`; their externally registered intrinsic structs
+still appear as ordinary `FStructProperty` values. Explicit `FVector*d` and
+`FQuatd` spellings resolve to the default-double descriptors.
 
-- `DCLASS()` classes with `GENERATED_BODY()`
-- fully qualified runtime type identities, such as `Durin::AActor`
-- namespace-scoped generated helpers, such as
-  `::Durin::Z_Construct_DClass_AActor`
-- module export files as thin reflected-symbol indexes
-- clean-surviving module phase state for incremental generation and output repair
-- generated `.gen.h` and `.gen.cpp` files
-- generated class registration into `DClass`
-- generated enum registration into `DEnum`
-- generated value-struct registration into `DStruct`
-- generated property metadata for reflected `DPROPERTY()` fields
-- primitive, `std::byte`, `std::string`, enum, struct, object-pointer, fixed C
-  array, `std::vector`, and `std::unordered_map` property nodes
-- a distinct UE-style `FEditorBulkData` property node with opaque atomic
-  serialization and identity callbacks (not an Array or Blob alias)
-- nested container property metadata, with recursive array/map inner property trees
-- runtime `DObject::IsA` and `Cast<T>` based on the `DClass` hierarchy
-- runtime `DObject` registration in `GDObjectArray`
-- manual object destruction and minimal mark-sweep garbage collection
-- reflected scalar/string/object-reference serialization through `FArchive`
-- minimal in-memory object graph save/load helpers
-
-The system does not currently implement editable class defaults, hot reload,
-general archetype chains, schema migrations, weak
-references, incremental/concurrent GC, or complete metadata specifier parsing.
-
-Native `DFUNCTION` registration, inheritance, and no-argument invocation are
-defined in [Native function reflection](FunctionReflection.md). Functions are
-independent of property schemas and serialization.
-
-`DSTRUCT()` value types generate `StaticStruct()` and `DStruct` metadata without changing normal C++ copy/move behavior. [Core math aliases](Math.md) cannot depend on `CoreDObject`, so float vectors, their default double-precision counterparts, `FQuatf`, `FQuat`, `FMatrix4f`, and `FTransform` are registered externally as intrinsic structs and still appear as ordinary `FStructProperty` values. Explicit `FVector*d` and `FQuatd` source spellings use the existing default-double descriptors rather than creating persistent aliases.
-
-## Parsing Scope And Generated-File Naming
-
-See [Reflection generation](../../Development/Tooling/ReflectionGeneration.md#parsing-scope-and-generated-file-naming).
-
-## Build Integration
-
-See [Reflection generation](../../Development/Tooling/ReflectionGeneration.md#build-integration).
-
-## Symbol Model
-
-See [Reflection generation](../../Development/Tooling/ReflectionGeneration.md#symbol-model).
-
-## Export Files
-
-See [Reflection generation](../../Development/Tooling/ReflectionGeneration.md#export-files).
-
-## Persistent Generation State
-
-See [Reflection generation](../../Development/Tooling/ReflectionGeneration.md#persistent-generation-state).
-
-## Generated Header Contract
-
-See [Reflection generation](../../Development/Tooling/ReflectionGeneration.md#generated-header-contract).
-
-## Generated Source Contract
-
-See [Reflection generation](../../Development/Tooling/ReflectionGeneration.md#generated-source-contract).
+Runtime descriptors are immutable after registration; hot reload and runtime
+property mutation are unsupported. Class defaults are immutable and do not
+provide general archetype chains. Serialization compatibility uses the explicit
+alias and deprecated-field contracts rather than an automatic schema migration.
 
 ## Runtime Type Data
 
-`DurinCodeGen::FClassParams` passes generated class metadata into `DurinCodeGen::ConstructDClass(...)`:
+`DurinCodeGen::ConstructDClass(...)` consumes `FClassParams` with the class
+resolver, qualified and short names, presentation and default-object names,
+serialized legacy names, property and function descriptors, and the class-owned
+Cook schema hook. The generated C++ contract is defined by
+[Reflection generation](../../Development/Tooling/ReflectionGeneration.md#generated-source-contract).
 
-- no-register class function
-- qualified class name
-- short class name
-- optional editor display name from `DCLASS(DisplayName = "...")`
-- optional default object name from `DCLASS(DefaultObjectName = "...")`
-- optional `LegacyNames = "Former::QualifiedName;Older::QualifiedName"` on `DCLASS`,
-  `DSTRUCT`, and `DENUM` for read-only compatibility with serialized identities
-  emitted before a qualified C++ namespace move; generated and runtime identity
-  always follow the declaration's current namespace, and recognized legacy
-  names are canonicalized at the asset read boundary
-- property parameter array
-- property count
+Type declarations may author `LegacyNames = "Former::QualifiedName;Older::QualifiedName"`
+on `DCLASS`, `DSTRUCT`, and `DENUM` for serialized identities predating a C++
+namespace move. Runtime and newly serialized identities always follow the current
+namespace. `DCLASS(DisplayName = "...")` and `DCLASS(DefaultObjectName = "...")`
+separately control editor labels and unnamed instance naming.
 
 `DClass` keeps runtime identity, C++ spelling, editor presentation, and instance naming separate. `QualifiedName` is the current serialized/type-lookup identity and `ShortName` remains the C++ class spelling. Legacy aliases are accepted only by serialized-name lookup and never by ordinary qualified-name lookup or new saves. `DisplayName` is used by editor UI, while `DefaultObjectName` is used when an instance is created without an explicit name. When metadata is omitted, Durin removes the conventional `A`/`D` prefix when followed by an uppercase letter; display names additionally split CamelCase words. For example, `AStaticMeshActor` defaults to display name `Static Mesh Actor` and object name `StaticMeshActor`.
 
@@ -111,14 +60,14 @@ metadata and this catalog remains an unavailable-type compatibility failure.
 Aliases may be removed only after every supported authored-content baseline has
 zero findings, canonical-resave CI passes, authored diffs have been reviewed,
 and the compatibility policy for external content has been recorded separately.
-The current repository baseline has completed that process for retired
-identities, so their concrete `LegacyNames` registrations are absent. The
-generic mechanism and owner-scoped alias tests remain available for future
-bounded migrations.
 
 `ConstructDClass(...)` forces class registration, then uses the shared `ConstructProperties(...)` entry to create and attach owned property trees in declaration order. `AddOwnedProperty(...)` installs ownership and calls `AddCppProperty(...)` to attach the root. Container inner/key/value properties are constructed recursively and owned by their containing `FArrayProperty` or `FMapProperty`; they are not inserted into the class property chain.
 
-### Class Default Objects
+`DStructBase` stores its superclass through `SuperStructBase`.
+`DClass::GetSuperClass()` exposes this as a `DClass*`. `DObject::IsA(...)` walks
+that hierarchy; `Cast<T>` uses `T::StaticClass()` and `IsA`.
+
+## Class Default Objects
 
 Every eligible reflected class owns one immutable class default object after its
 registration batch completes. Eligibility requires a valid constructor and
@@ -131,7 +80,7 @@ Registration batches expand superclass chains and construct base-before-derived,
 then qualified-name order. Defaults are not published until the whole batch
 succeeds. A default has Outer equal to its `DClass`, a
 `Default__<ShortClassName>` name, and `ClassDefaultObject | Transient` flags.
-The four authored actor defaults may create their fixed-name component templates
+Authored actor defaults may create their fixed-name component templates
 with `DefaultSubobject | Transient`; arbitrary archetype graphs are not supported.
 
 Class defaults are created eagerly and published atomically after reflection
@@ -150,190 +99,10 @@ queries must explicitly choose `EObjectQueryScope::LiveOnly` or
 `IncludeTemplates`; asset, world, editor, and loaded-instance queries use the
 former, while reflection diagnostics and lifecycle code use the latter.
 
-### Leaf Property Registration
-
-Built-in leaf records use typed authoring descriptors while owner property
-arrays remain `const FPropertyParamsBase* const*`. The common base is a
-non-authorable dispatch header containing only name, flags, array dimension,
-offset, fixed kind/layout discriminants, an optional paired mutable/const value
-accessor, and optional metadata. Runtime registration validates the layout and
-common pairs before reading a family descriptor.
-
-Bool, fixed-width signed/unsigned/floating-point Numerical, String, Name, and
-Guid records are constrained `TPlainPropertyParams<TValue, Kind>` aliases. A
-direct or nested generated record contains only name, flags, array dimension,
-offset, and optional final metadata pointer/count; kind, layout, size,
-alignment, and lifecycle callbacks are fixed by the alias. External intrinsic
-registration uses the same constructor or `WithAccessors(...)` for a paired
-accessor-backed field with offset zero.
-
-Enum records add one `DEnum` resolver. The resolved descriptor is the authority
-for the supported underlying kind and size. Object records use
-`FObjectPropertyParams::Raw<T>(...)` or `ObjectPtr<T>(...)` and add one class
-resolver. Those factories install exact `T*` or `TObjectPtr<T>` size,
-alignment, value operations, and logical get/set callbacks. Consequently
-`FObjectProperty` never interprets `TObjectPtr<T>` storage as `FObjectPtr`;
-Archive, Engine, and GC still use `IsObjectPtrWrapper()` to preserve the
-intentional raw-versus-strong-reference policy distinction.
-
-Every built-in leaf property supports default construction, destruction, copy
-construction, and copy assignment. Scalars and Enums use their exact fixed
-type, String/Name/Guid use their C++ value type, raw Object defaults to null,
-and ObjectPtr operations use the declared wrapper specialization. Fixed arrays
-apply those operations per element through the property stride. Intentional
-custom `None` registrations use `FGenericPropertyParams` and must explicitly
-supply element/value size, alignment, and all four operations; those facts are
-not part of the common base.
-
-### Struct Property Registration
-
-Struct-property registration describes schema and field access, while the
-referenced `DStruct` describes the value stored there. The typed parameter
-record fixes the generated kind/layout pair to `Struct`; runtime construction
-validates that pair, the resolver and descriptor, descriptor size/alignment,
-the optional accessor pair, and the optional metadata pair before publishing
-the property. `FStructProperty` retains the resolved descriptor and derives its
-element stride from that descriptor rather than from generated C++ layout or
-lifecycle callbacks.
-
-DurinHeaderTool authors direct and nested records automatically. External
-intrinsic registration uses the same contract: construct
-`FStructPropertyParams` with name, flags, array dimension, byte offset, and a
-resolver returning the referenced `DStruct`. Use
-`FStructPropertyParams::WithAccessors(...)` only when the containing type must
-expose paired mutable/const accessors instead of a byte offset; accessor-backed
-records keep offset `0`. Optional metadata is the final pointer/count pair.
-Neither form supplies value construction, destruction, copying, size, or
-alignment. The intrinsic struct's own `FStructParams` and `FDStructOps` remain
-the authority for those facts.
-
-Transactional struct loading also supports an accessor-backed struct field.
-It constructs a temporary offset-zero property using the same `DStruct`, loads
-and repairs that detached value, then copy-assigns through the original field's
-accessor. This keeps matrix-column loading atomic without pretending that a GLM
-column has a portable byte offset.
-
-`DurinCodeGen::ConstructDEnum(...)` forces enum registration for generated
-`DEnum` singletons. `DEnum` stores qualified name, short name, display name,
-scoped flag, underlying kind/size, and a read-only value table. Generated UTF-8
-pointers are copied into process-lifetime runtime strings during construction.
-
-`DStructBase` stores its superclass through `SuperStructBase`. `DClass::GetSuperClass()` exposes this as a `DClass*`.
-
-`DObject::IsA(const DClass*)` walks the `DClass` superclass chain. `Cast<T>` uses `T::StaticClass()` and `IsA`.
-
-## Byte And Blob Properties
-
-`std::byte` is a distinct reflected one-byte leaf. It is not numeric: generic
-property editing presents hexadecimal byte data and does not apply arithmetic,
-range, or decimal controls. Fixed C arrays of `std::byte` retain fixed-array
-shape.
-
-A direct `FByteBuffer` is generated as one owned Blob property with logical
-Archive kind `Bytes`; it is not an `FArrayProperty` and exposes only a read-only
-byte-count summary in generic Details. `std::vector<std::byte>` is the private
-implementation of `FByteBuffer`, not a second reflected spelling. Blob
-construction, destruction, copy, exact equality, snapshots, duplication, and
-Archive loading operate on the complete array. Blob values contain no object
-references and cannot be Map keys or targets of indexed authored overrides.
-
-`std::vector<uint8>` remains the existing numeric `Array<UInt8>` contract.
-DurinHeaderTool does not infer Blob intent from a field name or size. The first
-Blob contract admits only a direct field: nested Blob containers, custom
-allocators, and Blob Map participation are rejected during generation.
-`FByteView` and `FMutableByteView` are borrowed API types and are not reflected
-properties; reflected byte storage must use `FByteBuffer`.
-
-## Reflected Struct Operations
-
-`DSTRUCT()` opts a value type into metadata; it does not promise that generic
-code can construct, copy, compare, serialize, repair, or trace that type. Each
-`DStruct` instead owns one immutable, process-lifetime `FDStructOps` table. The
-version-1 table advertises default construction, destruction (including the
-separate trivially-destructible fact), copy construction, copy assignment, zero
-construction, logical identity, runtime Archive serialization,
-post-deserialize repair, hidden-reference collection, and completeness of the
-authored reflected-field representation. `DStruct` exposes matching capability
-queries and never changes the table after registration.
-
-Generated structs register `GetDStructOps<T>()`; externally described intrinsic
-structs use the same path. `TDStructOpsTraits<T>` derives safe mechanical
-defaults from the C++ type and lets an audited specialization disable or replace
-an operation or enable an optional callback. The specialization is
-compile-checked against the callback signature before its operation is emitted.
-Current non-mechanical specializations provide deterministic mathematical
-defaults for vector, quaternion, matrix, and color structs. The former mutable
-three-callback registration path and ambiguous struct copy operation no longer
-exist.
-
-Consequently, seeing a reflected struct as a direct property, fixed array
-element, vector element, or map key/value never requests a C++ operation from
-the property declaration itself. Construction, destruction, copying,
-alignment, identity, serialization, repair, and hidden-reference traversal are
-all capability-checked through the referenced `DStruct` and its `FDStructOps`.
-
-Construction callbacks require aligned uninitialized storage; copy assignment
-requires a live destination. `FReflectedValueStorage` is the common aligned RAII
-owner used for detached reflected values and tracks whether exactly one value is
-live. It destroys only a successfully constructed value. Generic storage,
-container mutation, editor drafts, Archive loading, and authored struct loading
-preflight the operations they require before allocation or mutation. An
-unsupported request returns `DStructOperationUnavailable` with the operation
-and qualified struct name.
-
-Default struct identity recursively compares every non-`Transient` reflected
-field. Arrays are ordered, maps compare key/value associations rather than
-iteration order, object values use pointer identity, and `float`/`double`
-compare complete bit patterns. Thus signed zero remains distinct and NaNs are
-identical only when sign, exponent, and payload bits match. A declared
-`Identical` callback is authoritative for the complete struct value and is not
-combined with a field walk.
-
-Eligible `DStruct` values also publish one immutable deterministic type default
-during the registration batch. Eligibility requires complete authored fields,
-deterministic default construction and destruction, and no custom Archive
-serializer; unavailable structs retain a stable reason rather than a partial
-value. Publication is atomic, aligned storage is destroyed exactly once, hidden
-strong references are rooted through the struct's collection contract, and
-module teardown releases defaults before their callbacks can unload. Explicit
-Struct values compare against this type default, never against nested memory in
-a containing class default.
-
-`ComparePropertyValues(...)` returns `Identical`, `Different`, or `Unsupported`
-with a stable logical path, kind, and reason. Unsupported operations are not an
-ordinary difference and cannot authorize omission. The comparison grammar is
-recursive and bounded to depth 64: fixed arrays and Arrays are positional, Maps
-use canonical logical key tokens and compare key/value associations independent
-of iteration order, hard references may use a supplied default-object graph,
-soft references compare canonical paths, and floating-point values compare
-their complete bits. Descriptor cycles, missing container operations,
-incomplete/custom Struct semantics, duplicate Map keys, excessive counts, and
-malformed values fail with a typed diagnostic.
-
-Reflected GC traversal visits the compiled schema first and then invokes one
-optional `CollectReferences` callback for strong references outside reflected
-fields. Callback authors must not repeat reflected references. Detached
-property snapshots root the deduplicated union of schema and callback
-references and compare materialized values through the same logical-identity
-rules.
-
-## Garbage Collection Integration
-
-`NewObject<T>(Outer, Name)` constructs reflected runtime objects and registers them in `GDObjectArray`. After generated properties are attached, every `DClass` and `DStruct` compiles an immutable internal GC reference schema containing only reflected `TObjectPtr` paths through supported containers and nested structs. Class schemas include inherited operations, while struct schemas are reused wherever that value type appears. Collection executes this schema without reinterpreting the complete property chain. Raw reflected `DObject*` properties are not GC strong references.
-
-GC schema tokens are an internal execution detail rather than a public reflection API. Serialization, duplication, editing, and general property iteration continue to interpret `FProperty` metadata because they require non-reference fields and different traversal semantics. The current reflection model has no hot reload or runtime property mutation, so schemas are assembled once and are not invalidated.
-
-Outer hierarchy queries, one-way `Child -> Outer` reachability, root management, object handles, garbage requests, GC-controlled destruction, and automatic collection policy are specified in [Garbage Collection](GarbageCollection.md).
-
-## Serialization Integration
-
-Reflection supplies stable type, field, container, flag, and logical-value
-metadata to object serialization, duplication, property snapshots, and authored
-packages. Archive capabilities, scopes, object graphs, default-relative
-planning, authored override intent, and transactional failure behavior are
-defined by [Serialization](Serialization.md).
-
 ## Enum Metadata
+
+`DurinCodeGen::ConstructDEnum(...)` publishes generated `DEnum` singletons.
+Generated UTF-8 names are copied into process-lifetime runtime strings.
 
 `DENUM()` supports scoped and unscoped C++ enums. The generated `DEnum` metadata stores:
 
@@ -349,8 +118,7 @@ from the short name by removing a conventional leading `E` when the next
 character is uppercase, then humanizes word boundaries. Enumerator labels
 humanize their identifiers without removing a prefix. `DEnum` exposes
 `FindValueRecordByName(...)` and `FindValueRecordByValue(...)`; the latter returns
-the first declaration when aliases share a numeric value. The compatibility
-name/value lookup functions preserve their existing behavior.
+the first declaration when aliases share a numeric value.
 
 Enum metadata and reflective access use a canonical `uint64` value channel. Signed
 values are sign-extended into that channel, while unsigned values preserve their
@@ -363,299 +131,7 @@ invalid records and editor code displays their numeric representation.
 
 Enum properties use `FEnumProperty`. The property still stores the ordinary property metadata such as name, offset, array dimension, and size, and additionally references the generated `DEnum` singleton for the enum type.
 
-## Property Metadata
+## Related Documentation
 
-The current generated property metadata supports these scalar and value kinds:
-
-- `int8`, `int16`, `int32`, `int64`
-- `uint8`, `uint16`, `uint32`, `uint64`
-- `float`
-- `double`
-- `bool`
-- `std::string`
-- reflected enum values
-- reflected `DObject*` pointers
-- reflected hard `TObjectPtr<T>` values
-- reflected soft `TSoftObjectPtr<T>` values
-- reflected struct values
-
-The runtime property node stores:
-
-- name
-- flags
-- array dimension
-- byte offset
-- element size
-- generated property kind
-- referenced class for hard- and soft-object properties
-- referenced enum for enum properties
-- owner field/property for nested property trees
-
-Concrete property types live in `DObject/DurinPropertyTypes.h`. `DObject/Property.h` keeps the common `FProperty` base and value-pointer helpers.
-
-Supported property node types are:
-
-- `FNumericProperty`
-- `FBoolProperty`
-- `FStringProperty` for `std::string`
-- `FEnumProperty`
-- `FObjectProperty`
-- `FSoftObjectProperty`
-- `FArrayProperty`
-- `FMapProperty`
-- `FStructProperty`
-
-`DPROPERTY(AlwaysSerialize)` marks a required wire field. Default-delta planning
-emits its complete value even when equal to the paired default. This flag is
-independent of editor presentation and persistent Forced overrides. Material
-package compatibility uses registered custom versions instead of reflected markers.
-`Transient` still excludes a field from authored serialization.
-
-### Typed authoring metadata
-
-First-party property presentation and numeric authoring constraints are written
-as ordinary `DPROPERTY` specifiers:
-
-```cpp
-DPROPERTY(Edit, DisplayName = "Exposure", ToolTip = "Camera exposure bias.",
-    Category = "Camera", Units = "Unitless", Step = "0.1", Precision = 2,
-    ClampMin = "-10", ClampMax = "10", UIMin = "-5", UIMax = "5")
-float Exposure = 0.0f;
-```
-
-`DisplayName`, `ToolTip`, and `Category` accept non-empty quoted strings on a
-reflected direct or fixed-array field. `Units`, `Step`, `Precision`,
-`ClampMin`, `ClampMax`, `UIMin`, and `UIMax` require `Edit` and apply to scalar
-integer/float properties and the components of the intrinsic float/double
-vectors and quaternions. They do not apply to bool, string, enum, object,
-container, matrix, or arbitrary struct properties. Numeric metadata on a
-containing property never implicitly flows into Array/Map elements or nested
-struct fields.
-
-`Units` accepts `Unitless`, `Percent`, `Degrees`, `Radians`, `Seconds`,
-`Milliseconds`, `Meters`, `Centimeters`, `Millimeters`, or `Kilometers`.
-`Step` must be positive and finite. `Precision` is limited to 0..9 for float
-values and 0..17 for double values. UI bounds must be ordered and remain inside
-hard bounds when both are present. A decimal float spelling is converted once
-to its declared float or double channel; integer spellings must be integral and
-fit the exact declared width. Consequently full-range `uint64` metadata never
-passes through `double`.
-
-DHT rejects duplicate selected keys, malformed or non-finite numbers, invalid
-units, inapplicable keys, and inconsistent ranges with a source-located
-`DHT-META` diagnostic. A selected typed key may not also be supplied through
-`MetaData`; unrelated extension metadata remains supported. Generated
-`FPropertyMetadataParams` records keep signed, unsigned, float, and double
-numbers in distinct channels. Registration validates hand-authored records and
-copies them into immutable `FPropertyMetadata`. The three presentation strings
-are also mirrored into raw metadata lookup for compatibility, while first-party
-consumers use `GetTypedMetadata()`.
-
-`ClampMin` and `ClampMax` constrain new editor-authored proposals through
-`ValidatePropertyEditValue()`, which returns `std::expected<void, FPropertyEditValueError>` with
-owned property routes, array bounds, and exact numeric channels. Formatting is
-explicit through `ToString`. Validation happens on detached
-draft storage before an edit session or transaction mutates the object. Package
-loading deliberately does not call this property-edit validator and therefore does
-not clamp or repair historical data. `UIMin` and `UIMax` only configure editor
-presentation.
-
-`FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct hard-object-reference access for GC and serialization. `FSoftObjectProperty::GetSoftObjectPtr(...)` exposes the bounded untyped `FSoftObjectPtr` reflection boundary; authored identity is read and written through `GetPath()` and `SetPath(FObjectPath)`, while typed application code uses `TSoftObjectPtr<T>`. `FWeakObjectProperty::GetWeakObjectPtr(...)` exposes its exact wrapper and expected class. `FStringProperty` exposes a `std::string*` pointer helper. Array and Map properties expose the capability-checked container operations described below. The `Resize`, `Insert`, and `RenameKey` convenience APIs return `std::expected<void, FPropertyContainerError>`, preserving backend codes, unavailable lifecycle requirements, owned property/Struct identities, and array bounds or resize counts; they have no string error outputs. Map operations expose mutable mapped values while keeping keys immutable in place; key edits use copy, uniqueness validation, and node-based rename operations so hashing and equality invariants remain intact.
-
-DurinHeaderTool recognizes direct and fixed-array `TSoftObjectPtr<T>` fields and
-soft values nested through supported Array, Map-value, and reflected-struct
-paths. `T` must resolve to a reflected `DObject` subclass. Raw wrapper aliases,
-unresolved or non-object targets, soft Map keys, and unsupported qualifiers are
-rejected rather than emitted with incomplete metadata. `FSoftObjectProperty`
-is a distinct property kind: serialization and editor access use its exact
-authored `FObjectPath`, while GC deliberately excludes it from the strong-reference
-schema. DHT also recognizes typed `TWeakObjectPtr<T>` in direct, fixed-array,
-Array, Map-value, and reflected-Struct positions. The top-level property must
-be explicitly `Transient`, and weak Map keys are invalid. Generated weak
-properties retain exact wrapper lifecycle operations and the expected class;
-they are non-owning runtime state and never acquire a soft path identity.
-
-Generated leaf records do not emit element-size expressions. Plain aliases own
-their exact C++ value type, Enum records resolve their underlying type, and
-Object/SoftObject factories instantiate their declared storage type. Reflected
-struct properties likewise emit no element-size expression because their
-resolved `DStruct` owns size and alignment. This keeps ABI ownership with the
-compiler-built descriptor and prevents synthetic parser declarations or host
-STL contents from changing runtime property sizes.
-
-`DStructBase::GetChildProperties()` exposes only properties declared directly on that reflected type. Storage inheritance follows `GetInheritanceSuper()`; functions retain parent metadata identity without inheriting parameter storage. Layout and chain changes use checked APIs and are rejected after `Link()`. Use `FindPropertyByName(...)` or the property iteration helpers when inherited properties should be visible.
-
-## Serialized Property Aliases
-
-A durable reflected field may declare read-only compatibility names when its C++
-member is renamed:
-
-```cpp
-DPROPERTY(LegacyNames = "OldExposure;ExposureValue")
-float ExposureEV = 0.0f;
-```
-
-DHT requires an explicitly quoted semicolon-separated list of unqualified C++
-identifiers. Within one declaring class or struct, an alias must differ from its
-property's current name and must not collide with any current property name or
-another property alias. Generated property descriptors carry the aliases as
-first-class compatibility data, and runtime registration repeats the collision
-checks for manually authored descriptors.
-
-`FindPropertyByName(...)` remains current-name-only. Serialized readers use
-`FindPropertyBySerializedName(...)`, scoped to the field's declaring class or
-struct, and canonicalize a recognized alias to the property's current name at
-the bytes-to-runtime boundary. Type signatures are still checked independently;
-an alias permits a rename only and does not make a type change compatible.
-Canonical saves, authored-override paths, compatibility catalogs, and reference
-routes use the current property name. If one stored schema contains both a
-current name and an alias that resolve to the same property, the schema is
-rejected as ambiguous rather than applying two values in record order. Moving a
-field between declaring types is not covered by property aliases.
-
-## Deprecated Properties
-
-Use a deprecated property when a stored field cannot be handled by a
-`LegacyNames` rename because its logical type or meaning changed:
-
-```cpp
-DPROPERTY()
-float Distance = 0.0f;
-
-DPROPERTY(Deprecated)
-int32 Distance_DEPRECATED = 0;
-```
-
-`Deprecated` is explicit; the `_DEPRECATED` suffix alone has no special
-behavior. An explicitly deprecated field must use that suffix, cannot be
-`Edit` or `Transient`. The historical stored name is inferred by removing the
-suffix; deprecated-property annotations do not accept migration targets,
-custom-version domains, or version bounds.
-
-Routing is exact on declaring type, inferred historical name, and logical type
-signature. It happens before a reused current name is considered, so an old
-integer `Distance` loads into `Distance_DEPRECATED` while the current float
-`Distance` remains untouched. The owning class performs semantic conversion in
-`PostLoad`; reflected structs do so in `PostDeserialize`. Those callbacks can
-use `WasDeprecatedPropertyLoaded` to distinguish a consumed old route from an
-unloaded deprecated member holding its C++ default. Any rejection rolls back
-the complete load.
-
-If the stored and current fields have the same name and logical type, keep one
-current property and perform any version-dependent in-place conversion in the
-owning callback. A deprecated route is for a historical schema shape that can
-be distinguished by reflection, not for every semantic version change.
-
-Deprecated fields are load-only: current Archive saves, default deltas,
-canonical schemas, Details panels, and current authored ledgers exclude them.
-Migration code owns both value conversion and any authored-intent transfer. It
-can call `SetAuthoredOverride` for each current path whose explicit or forced
-state must survive the resave; splits, merges, and conditional targets therefore
-remain ordinary migration logic rather than reflection metadata. Compatibility
-and canonical-resave reports expose each consumed route as remaining migration
-debt. A route should be removed only after the supported content baseline
-contains no matching evidence and the normal compatibility-policy gate has
-approved retirement.
-
-## Container Properties
-
-DurinHeaderTool currently recognizes these standard library container spellings for `DPROPERTY()` fields:
-
-- `std::vector<T>`
-- `std::unordered_map<K, V>`
-
-`std::vector<T>` creates an `FArrayProperty` whose `Inner` points at the generated property metadata for `T`.
-
-`std::unordered_map<K, V>` creates an `FMapProperty` whose `KeyProp` and `ValueProp` describe the key and value types.
-
-Generated Array and Map records are typed `FArrayPropertyParams` and
-`FMapPropertyParams`. Each record owns the nested logical property descriptors
-and resolves one immutable, process-lifetime `FArrayOps` or `FMapOps` table for
-its concrete storage specialization. Generated source does not contain
-property-local count, element, traversal, construction, insertion, or removal
-functions. The current reusable adapters accept only default-form
-`std::vector<T>` and `std::unordered_map<K, V>`; storage is a replaceable C++
-backend and is not part of reflected type identity or serialized schema.
-
-The version-2 operation tables advertise individual capabilities instead of
-assuming every container can perform every operation. Consumers request and
-check only what they need: count and const/mutable traversal, indexed Array
-element access, resizing, Map lookup/insertion/removal/key rename, and detached
-construction plus transactional commit. Missing capability slots return a
-typed `EContainerOpResult`; a property is never treated as empty and a mutation
-is never silently skipped. Map traversal is single-pass and callback-scoped.
-There is no indexed Map API, no persistent iterator identity, and no permission
-to retain entry pointers across structural mutation.
-
-Array/Map tables also advertise optional `CopyConstruct` and `CopyAssign`
-callbacks. Generated properties install these callbacks into the ordinary
-`FProperty` value lifecycle, so `FReflectedValueStorage::CopyConstruct` works
-for copyable containers, including nested containers. Copies own independent
-container storage; object references retain their normal pointer semantics.
-The standard adapters check nested element copyability instead of trusting a
-container's declared copy constructor. Unsupported copies remain explicit
-capability failures. Copy assignment builds a temporary and uses a nonthrowing
-swap, preserving the destination if copying fails and supporting self-assignment.
-The `FProperty` copy boundary reports thrown copy callbacks as failure; failed
-construction leaves value storage non-live. The strong assignment guarantee
-belongs to these container adapters, not arbitrary user-defined struct assignment.
-Table version 2 is an in-process descriptor change and requires consumers to
-rebuild; it does not change serialized property identity or the asset format.
-
-Array/Map loading uses `FDetachedContainerStorage`: input is decoded into a
-managed temporary container, counts are bounded before allocation, duplicate
-logical Map keys are rejected, and the destination is committed only after all
-nested values and post-deserialize work succeed. Failure leaves the destination
-logically unchanged. GC, runtime Archive, snapshots, Engine, and editor
-property access all use the same checked operations.
-
-Containers may be nested up to `MAX_CONTAINER_PROPERTY_DEPTH` in DurinHeaderTool, currently 4. For example:
-
-```cpp
-DPROPERTY()
-std::vector<std::vector<int32>> NestedScores;
-
-DPROPERTY()
-std::unordered_map<std::string, std::vector<DObject*>> Groups;
-```
-
-Nested generated parameter records use path-style names and postorder generation:
-
-- `NestedScores_Inner_Inner`
-- `NestedScores_Inner`
-- `NestedScores`
-- `Groups_Value_Inner`
-- `Groups_Value`
-- `Groups`
-
-Only the top-level field uses `STRUCT_OFFSET`. Nested inner/key/value properties use offset `0` because they describe an element type, not a field within the reflected class. Struct descriptors at either level still resolve the same referenced `DStruct` and do not carry local value-operation thunks.
-
-Container key restrictions are intentionally stricter than value restrictions. Map keys may be primitive, `bool`, `std::string`, reflected enum, or reflected struct types. Map keys may not be `DObject*` or another container. Vector inner types and map values may be primitive, `bool`, `std::string`, reflected enum, reflected struct, reflected `DObject*`, or another supported container within the depth limit.
-
-Canonical writers do not persist `std::unordered_map` iteration or bucket
-order. They build a logical token for each supported key and sort entries by
-that token. The canonical key domain includes bool, integers, floating-point
-values, reflected enums, strings, `FName`, `FGuid`, and complete ordinary
-reflected structs composed recursively from supported fields. Object/container
-keys and structs with hidden state or custom identity/serialization operations
-cannot be canonicalized and fail before output. Ordinary streaming Archives
-retain traversal order unless they explicitly advertise canonical Map output.
-
-Unsupported `DPROPERTY()` types fail DHT with stable diagnostics. This includes
-unknown templates, smart pointers, non-reflected object pointers, references,
-containers nested deeper than the configured limit, and aliases whose meaning
-is available only from a neutralized include. `std::vector<bool>`, custom vector
-allocators, custom unordered-map hash/equality/allocator arguments, and
-unsupported Map key kinds are rejected during generation rather than failing
-later in generated C++.
-
-Runtime nested metadata can be walked with `ForEachNestedProperty(...)`. The helper visits array inner properties and map key/value properties recursively. Nested properties also expose their containing property through `FProperty::GetOwnerProperty()`.
-
-## Verification
-
-DurinHeaderTool parser and generator tests cover extraction, namespace lookup,
-export identity, generated output, and recovery behavior. Native CoreDObject and
-asset tests cover runtime metadata, properties, serialization, duplication, and
-container behavior. Test selection and execution follow
-[Native C++ Tests](../../Development/Build/NativeTests.md) and
-[Build and Run](../../Development/Build/BuildAndRun.md).
+- [Runtime lifecycle](RuntimeLifecycle.md)
+- [Editor function actions](../../Editor/Architecture/EditorFunctionActions.md)

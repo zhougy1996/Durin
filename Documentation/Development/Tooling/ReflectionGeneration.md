@@ -88,7 +88,7 @@ reparsing their headers. CMake stamps and byproducts, persistent DHT phase
 state, parser-worker scheduling, cache invalidation, output repair, and logging
 are build-system responsibilities defined by
 [Build System](../Build/BuildSystem.md). They do not alter the
-runtime reflection schema defined below.
+runtime [reflection contracts](../../Runtime/Core/ReflectionSystem.md).
 
 `GENERATED_BODY()` identities include source line numbers, so any reflected
 header edit remains a direct generation input even when its public export is
@@ -291,28 +291,15 @@ cross-namespace helper references. File-only compiled-in registration
 aggregates have internal linkage and point at the qualified per-type symbols.
 Intrinsic `DObject` and math-struct helpers follow the same contract.
 
-The v2 helper ABI is an atomic binary migration. Outputs, export schema, parser
-context, phase state, dependency snapshots, tool identity, and generator
-context are versioned together. Schema-v5 exports and schema-v1 phase bundles
-are rejected or invalidated and regenerated; no forwarding wrappers preserve
-the former flattened global symbols. All dependent modules must regenerate and
-relink together. Runtime `QualifiedName`, `/Cpp/<Module>` ownership, serialized
-type names, and legacy-name behavior are unchanged.
-
 Member offsets in generated property records, native parameter records, and
 runtime properties use 32-bit storage. Members beyond 64 KiB retain their full
 target-compiler offset; array dimensions and element strides keep their existing
-16-bit limits. This record ABI change requires dependent modules to regenerate
-and relink together. Native function aggregate size retains its 65535-byte limit.
+16-bit limits. Native function aggregate size retains its 65535-byte limit.
 
-Struct-valued fields use the concrete
-`DurinCodeGen::FStructPropertyParams` record. DurinHeaderTool emits the field
-name, flags, array dimension, top-level offset (or `0` for a nested container
-descriptor), optional metadata, and a qualified resolver for the referenced
-`DStruct`. Direct fields, fixed C++ arrays, vector inner descriptors, and map
-key/value descriptors all use this typed record. It deliberately contains no
-property-local `sizeof`/`alignof`, initialization, destruction, or copy thunk;
-those facts belong to the referenced struct descriptor.
+Generated struct fields use the shared
+[struct property registration contract](../../Runtime/Core/PropertyReflection.md#struct-property-registration).
+The resolved `DStruct` owns value layout and operations for direct, fixed-array,
+and nested container descriptors.
 
 `DENUM()` declarations are explicit reflected enum opt-ins. `DENUM(DisplayName = "...")`
 optionally supplies the editor-facing type label. An enumerator can similarly use

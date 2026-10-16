@@ -64,7 +64,7 @@ package registry entries, writes references, swaps detached containers, and
 invalidates soft caches. It does not notify observers. Map keys are rebuilt and
 checked for collisions before commit; GC's temporary collector pointers are
 never retained as writable slots. Container copying uses the shared reflected
-value lifecycle described in [Reflection System](ReflectionSystem.md).
+value lifecycle described in [Property reflection](PropertyReflection.md#container-properties).
 
 Native collector owners require an `IObjectReplacementParticipant`; additional
 native strong handles require exact ownership claims. Participants prepare all

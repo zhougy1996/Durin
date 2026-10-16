@@ -177,6 +177,9 @@ widgets instead of expanding into member rows.
 
 ## Typed Metadata Presentation and Bounds
 
+Authoring syntax, applicability, and runtime metadata ownership are defined by
+[Property reflection](../../Runtime/Core/PropertyReflection.md#typed-authoring-metadata).
+
 The generic property view reads `FProperty::GetTypedMetadata()` for first-party
 presentation. `DisplayName` replaces the humanized field label, `ToolTip` is
 shown together with the reflected type, and `Category` groups visible fields
@@ -626,22 +629,6 @@ Camera Details similarly routes FOV, clip planes, aspect-ratio mode, and custom
 ratio through a stable `ProjectionSettings -> Leaf` path. The draft snapshots
 the whole settings structure so its pre hook can clamp one field and safely
 update another; Cancel and Undo restore the complete projection state.
-
-## Validation
-
-Automated coverage groups the contracts above into:
-
-| Area | Covered scenarios |
-| --- | --- |
-| Edit sessions | Preview/commit/cancel, no-op and edit-away-and-back terminal events, one continuous transaction, no history for cancelled/rejected/no-op edits, pre-apply rejection, and retryable cancel failure |
-| History and documents | Undo/Redo dirty checkpoints, branch revisions, bounded eviction, invalid checkpoints, failed operations, multi-package transitions, and level save/activation/replacement/discard handoff |
-| Reflected values | Object/snapshot lifetime, stable array/map paths, structural restoration, semantic rejection/normalization/reactions, and object `Edit` enumeration/filtering/search/fixed-array labels |
-| Material and mesh hosts | Render invalidation, GUID-resolved definitions/overrides/orphans, shared history, fixed slot rows, index-scoped transactions, Reset/Clear All, dormant entries, search, read-only mode, and material type filtering |
-| Viewport hosts | Gizmo completion/cancellation/net-zero edits; spline point/tangent cancellation, structure, stable GUIDs and immutable publication; camera clamping/cancellation, nested paths and aspect ratio; Undo/Redo for each |
-
-Host-level automation covers object and document replacement plus read-only
-transitions. Interactive checks cover workspace close, PIE, and editor shutdown,
-and hidden-window editor startup is part of final validation.
 
 ## Related Code
 

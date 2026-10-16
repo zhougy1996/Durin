@@ -538,6 +538,6 @@ it does not retain a resolver operation or require a recursive result hierarchy.
 
 - [Package persistence](PackagePersistence.md): reflected capture, save operations and staged commit.
 
-- [Generated Reflection System](ReflectionSystem.md)
+- [Reflection system](ReflectionSystem.md)
 - [Asset Packages](../Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../Assets/AssetDataLifecycle.md)

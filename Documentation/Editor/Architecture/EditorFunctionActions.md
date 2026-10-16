@@ -86,18 +86,6 @@ failure, reports through `Context.ReportError`, requests refresh, conservatively
 marks the target package dirty, and invalidates its saved checkpoint. There is
 no automatic retry or promise of atomic rollback.
 
-## First Consumer And Coverage
-
-The private generated `DPointLightComponent::NormalizeSettings` action in the
-Light category canonicalizes its own authored color, intensity, and range.
-`DLightComponent` refreshes transient render state for full-object notifications
-and property Undo/Redo notifications.
-
-`EditorPropertyTests` covers virtual dispatch, replay without reinvocation,
-no-op package state, finalization failure, admission, reentrancy, layout visibility,
-active edit ordering, and an ImGui click deferred until all rows finish. The
-point-light case exercises the generated private invoker and package Undo/Redo.
-
 ## Related Documentation
 
 - [Native function reflection](../../Runtime/Core/FunctionReflection.md)
