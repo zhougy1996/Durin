@@ -20,7 +20,13 @@ loader dependency of MainFrame or DurinPython.
 `DURIN_ENABLE_PYTHON=OFF` explicitly selects that unavailable implementation.
 
 Builds package the standard library as `python313.zip` and deploy it with
-`python313.dll` and the PSF license through normal runtime/test deployment.
+`python313.dll`, the PSF license and `durin-python.zip` through normal runtime/test
+deployment. The `durin` package lives in `DurinPython/Python/durin`; its tool
+facade, invocation handles and output adapter are ordinary Python modules.
+The private built-in `_durin` module supplies the native request binding and
+exception types, re-exported by `durin` with their existing exception names.
+Python-only edits rebuild and redeploy the package without requiring a native
+module relink.
 The private ABI table explicitly resolves the required symbols. The DLL stays
 loaded for process lifetime. A process-wide owner permits only one active Durin
 interpreter. Python-backed providers and GameThread callbacks into Python are
@@ -31,7 +37,8 @@ short public native calls. GetJobResult is named explicitly to avoid the Windows
 GetJob macro; all consumers use that exported native API.
 The worker initializes and finalizes CPython. Isolated PyConfig disables site,
 environment search paths, bytecode writes and signal-handler installation; only
-the deployed standard-library zip is added to its module search path. Native
+the deployed standard-library and Durin package zips are added to its module
+search path. Native
 extension packages and user-created background Python work are unsupported.
 Trusted Python remains ordinary process code, not a sandbox.
 

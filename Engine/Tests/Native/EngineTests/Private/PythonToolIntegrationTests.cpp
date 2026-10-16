@@ -101,6 +101,29 @@ namespace
         int Calls = 0;
     };
 
+    TEST_F(FPythonToolIntegrationTests, ImportsDeployedPackageAndPreservesNativeExceptions)
+    {
+        auto Result = Wait(Submit(R"PY(
+import durin
+import _durin
+import sys
+assert durin.__spec__.submodule_search_locations is not None
+assert 'durin-python.zip' in durin.__file__
+assert _durin.__spec__.origin == 'built-in'
+assert durin.ToolError is _durin.ToolError
+assert durin.CancelledError is _durin.CancelledError
+assert durin.ToolError.__module__ == 'durin'
+assert durin.CancelledError.__module__ == 'durin'
+assert issubclass(durin.ToolError, RuntimeError)
+assert issubclass(durin.CancelledError, BaseException)
+assert not issubclass(durin.CancelledError, Exception)
+assert sys.stdout.write('package') == 7
+sys.stdout.flush()
+print(' imported')
+)PY"));
+        EXPECT_EQ(EPythonJobState::Succeeded, Result.State) << Result.Error;
+        EXPECT_EQ("package imported\n", Result.Output);
+    }
     TEST_F(FPythonToolIntegrationTests, CapturesOutputAndUsesFreshGlobals)
     {
         auto First = Wait(Submit("x = 42\nprint('hello', x)"));

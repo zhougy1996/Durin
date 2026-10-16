@@ -336,7 +336,7 @@ namespace Durin
             catch (...) { PyErr_SetString(PyExc_RuntimeError, "Native Python adapter failure."); return nullptr; }
         }
         PyMethodDef Methods[] = {{"_request", Request, METH_VARARGS, nullptr}, {nullptr, nullptr, 0, nullptr}};
-        PyModuleDef Module = {PyModuleDef_HEAD_INIT, "durin", nullptr, -1, Methods};
+        PyModuleDef Module = {PyModuleDef_HEAD_INIT, "_durin", nullptr, -1, Methods};
         auto InitModule() -> PyObject*
         {
             FPy Result(PyModule_Create(&Module)); if (!Result) return nullptr;
@@ -347,31 +347,6 @@ namespace Durin
                 PyModule_AddObjectRef(Result.get(), "CancelledError", CancelledError) < 0) return nullptr;
             return Result.release();
         }
-        constexpr const char* Bootstrap = R"PY(
-class _Invocation:
-    def __init__(self, identity): self._identity = identity
-    def state(self): return _request('state', self._identity)
-    def result(self, timeout=30.0): return _request('result', (*self._identity, timeout))
-    def cancel(self): return _request('cancel', self._identity)
-class _Tools:
-    def __init__(self, owner): self._owner = owner
-    def _check(self): _request('owner', (self._owner,))
-    def list(self):
-        self._check()
-        return _request('list', ())
-    def describe(self, toolset, tool):
-        self._check()
-        return _request('describe', (toolset, tool))
-    def submit(self, toolset, tool, arguments, *, version=None):
-        self._check()
-        return _Invocation(_request('submit', (toolset, tool, arguments, version)))
-    def call(self, toolset, tool, arguments, *, version=None, timeout=30.0):
-        return self.submit(toolset, tool, arguments, version=version).result(timeout)
-class _Output:
-    def write(self, text): return _request('write', (text,))
-    def flush(self): pass
-tools = _Tools(0)
-)PY";
         auto PythonError() -> std::string
         {
             FPy Error(PyErr_GetRaisedException());
@@ -452,24 +427,25 @@ tools = _Tools(0)
         auto Run(std::promise<std::string> Initialized) -> void
         {
             static std::once_flag Registration;
-            std::call_once(Registration, [] { PyImport_AppendInittab("durin", InitModule); });
+            std::call_once(Registration, [] { PyImport_AppendInittab("_durin", InitModule); });
             PyConfig Config; PyConfig_InitIsolatedConfig(&Config);
             Config.site_import = 0; Config.write_bytecode = 0; Config.install_signal_handlers = 0;
             Config.parse_argv = 0; Config.module_search_paths_set = 1;
             auto Zip = (Directory / "python313.zip").wstring();
             PyStatus Status = PyWideStringList_Append(&Config.module_search_paths, Zip.c_str());
+            auto Package = (Directory / "durin-python.zip").wstring();
+            if (!PyStatus_Exception(Status)) Status = PyWideStringList_Append(&Config.module_search_paths, Package.c_str());
             if (!PyStatus_Exception(Status)) Status = Py_InitializeFromConfig(&Config);
             PyConfig_Clear(&Config);
             if (PyStatus_Exception(Status))
             { Initialized.set_value(Status.err_msg ? Status.err_msg : "CPython initialization failed."); return; }
             FPy Durin(PyImport_ImportModule("durin"));
-            FPy Boot(Durin ? PyRun_String(Bootstrap, Py_file_input, PyModule_GetDict(Durin.get()), PyModule_GetDict(Durin.get())) : nullptr);
-            if (!Boot)
+            if (!Durin)
             {
-                Initialized.set_value(PythonError()); Boot.reset(); Durin.reset();
+                Initialized.set_value(PythonError()); Durin.reset();
                 Py_CLEAR(ToolError); Py_CLEAR(CancelledError); Py_FinalizeEx(); return;
             }
-            Boot.reset(); Durin.reset(); Initialized.set_value("");
+            Durin.reset(); Initialized.set_value("");
             for (;;)
             {
                 PyThreadState* Thread = PyEval_SaveThread();
@@ -515,7 +491,8 @@ tools = _Tools(0)
             Directory = std::filesystem::u8path(FPlatformProcess::ExecutablePath()).parent_path();
             if (!std::filesystem::exists(Directory / "python313.zip")) Directory = FPaths::EngineThirdPartyRuntimeBinariesDir();
         }
-        if (!std::filesystem::exists(Directory / "python313.zip") || !std::filesystem::exists(Directory / "python313.dll"))
+        if (!std::filesystem::exists(Directory / "python313.zip") || !std::filesystem::exists(Directory / "python313.dll") ||
+            !std::filesystem::exists(Directory / "durin-python.zip"))
         { InterpreterOwned = false; return std::unexpected("Packaged Python runtime is missing; prepare python and rebuild DurinPython."); }
         // Resolve only the qualified DLL; retain it for process lifetime.
         const auto Library = FPlatformLibrary::Load(Directory / "python313.dll");
