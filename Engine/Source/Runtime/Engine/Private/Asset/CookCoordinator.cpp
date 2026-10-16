@@ -475,7 +475,7 @@ namespace Durin
 							return Finish(ECookRunStatus::Failed, ECookRunError::FingerprintFailed);
 						}
 						const auto Prior = PriorEntries.find(Path.ToString());
-						bool bCookHit = Inputs.IsReusable(Path)
+						bool bCookHit = Inputs.CanReuseOutput(Path)
 										&& Prior != PriorEntries.end()
 										&& Prior->second->Serializer == CookPackageSerializer
 										&& Prior->second->InputFingerprint == Fingerprint

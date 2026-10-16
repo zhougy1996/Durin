@@ -1,5 +1,8 @@
 #include "Asset/CookBuildProviders.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
+#include "Materials/MaterialCustomVersion.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Serialization/BinaryFormat.h"
 
@@ -38,7 +41,18 @@ namespace Durin
 {
 	auto DMaterialInterface::AppendToClassSchema(FObjectCookContext& Context) -> void
 	{
+		Context.VersionCoveredClasses.insert("Durin::DMaterialInterface");
+		Context.UsedCustomVersions.insert(FMaterialGraphVersion::Guid);
+		Context.UsedCustomVersions.insert(FMaterialOutputVersion::Guid);
+		Context.UsedCustomVersions.insert(FMaterialFunctionVersion::Guid);
+		Context.UsedCustomVersions.insert(FMaterialInstanceVersion::Guid);
 		(void)Context.RequireRequestValue("shader-build");
+		(void)Context.RequireRequestValue("material/configurations");
 		if (Context.Result) AssetPrivate::AppendNativeCookSchema(Context, "material", 5, AssetPrivate::DeclareMaterialCookInputs);
 	}
+	auto DMaterial::AppendToClassSchema(FObjectCookContext& Context) -> void
+	{ Context.VersionCoveredClasses.insert("Durin::DMaterial"); }
+	auto DMaterialInstance::AppendToClassSchema(FObjectCookContext& Context) -> void
+	{ Context.VersionCoveredClasses.insert("Durin::DMaterialInstance"); }
+
 }

@@ -1,5 +1,6 @@
 #include "Asset/CookBuildProviders.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshCustomVersion.h"
 #include "Collision/CollisionGeometry.h"
 #include "Serialization/BinaryFormat.h"
 #if DURIN_WITH_EDITORONLY_DATA
@@ -43,5 +44,5 @@ namespace Durin::AssetPrivate
 namespace Durin
 {
 	auto DStaticMesh::AppendToClassSchema(FObjectCookContext& Context) -> void
-	{ AssetPrivate::AppendNativeCookSchema(Context, "static-mesh", 2, AssetPrivate::DeclareStaticMeshCookInputs); }
+	{ Context.VersionCoveredClasses.insert("Durin::DStaticMesh"); Context.UsedCustomVersions.insert(FStaticMeshSourceVersion::Guid); AssetPrivate::AppendNativeCookSchema(Context, "static-mesh", 2, AssetPrivate::DeclareStaticMeshCookInputs); }
 }

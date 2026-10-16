@@ -144,7 +144,7 @@ namespace Durin
 			Writer.WriteHash128(Input.SourceFingerprint);
 			Writer.WriteHash128(Input.BulkFingerprint);
 			Writer.WriteHash128(Input.SchemaFingerprint);
-			Writer.WriteU8(Input.bReusable ? 1 : 0);
+			Writer.WriteU8(Input.bCanReuseWithoutLoading ? 1 : 0);
 			FByteBuffer Records;
 			if (auto Encoded = EncodeCookBuildDependencies(Input.Records, Records); !Encoded)
 				return {.Error = ECookStateError::Dependency, .VirtualPath = Input.VirtualPackagePath, .DependencyCause = Encoded};
@@ -223,7 +223,7 @@ namespace Durin
 			if (!FPackagePath::TryCreate(Input.VirtualPackagePath, Path)
 				|| (Index && !(Candidate.Inputs.back().VirtualPackagePath < Input.VirtualPackagePath)))
 				return {.Error = ECookStateError::Entry, .VirtualPath = Input.VirtualPackagePath, .EntryIndex = Index};
-			Input.bReusable = Reusable != 0;
+			Input.bCanReuseWithoutLoading = Reusable != 0;
 			if (auto Decoded = Reader.ReadDependencies(Input.Records); !Decoded) return Decoded;
 			for (const auto& Record : Input.Records)
 				if (Record.Kind == ECookBuildDependencyKind::SourcePackage

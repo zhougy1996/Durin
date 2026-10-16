@@ -40,6 +40,15 @@ namespace Durin
 	// Complete snapshots retain every selected value; Delta follows paired defaults.
 	enum class EAssetPackageSaveMode : uint8 { Delta, Complete };
 
+	// Owner-thread observations of outstanding reservations, not physical allocator peaks.
+	struct FCookPreparationMetrics
+	{
+		uint32 AdmittedOperations = 0;
+		uint32 PeakAdmittedOperations = 0;
+		uint64 PeakReservedBytes = 0;
+		uint64 RetainedProductBytes = 0;
+	};
+
 	struct FAssetPackageSerializationOptions
 	{
 		EAssetPackageSaveDomain Domain = EAssetPackageSaveDomain::Authored;
@@ -54,6 +63,10 @@ namespace Durin
 		std::function<bool()> IsCancelled;
 		std::function<FCookInputResult(ECookBuildDependencyKind, std::string_view, FByteBuffer&)> ReadCookInput;
 		std::shared_ptr<FCookContributionResult> PreparationFailure;
+		// Scheduling envelopes do not participate in cooked identities.
+		uint32 MaximumConcurrentPreparation = 4;
+		uint64 MaximumPreparationWorkingSetBytes = 512ull * 1024 * 1024;
+		FCookPreparationMetrics* PreparationMetrics = nullptr;
 	};
 
 	enum class EAssetBundleSavePhase : uint8

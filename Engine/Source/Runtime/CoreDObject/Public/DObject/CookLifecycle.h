@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Serialization/Archive.h"
+#include "Misc/Guid.h"
 #include "CoreDObjectAPI.h"
 
 namespace Durin
@@ -42,6 +43,8 @@ namespace Durin
 		std::string Package;
 		bool bCooking = false;
 		bool bRetainEditorOnlyData = false;
+		// Set false when native inputs cannot be fully declared; independent of loading.
+		bool bDependenciesComplete = true;
 		std::function<bool()> IsCancelled;
 		// Owner-thread blocking completion adapter. It must join owned work and
 		// report a bounded result, including cancellation; never throw on teardown.
@@ -49,6 +52,11 @@ namespace Durin
 		std::map<std::string, FByteBuffer> RequestValues;
 		std::set<std::string> RequestedValues;
 		std::function<std::expected<FByteBuffer, FObjectCookResult>(std::string_view)> RequestReader;
+		// Class hooks qualify exact class names after auditing inherited/nested native
+		// behavior. Inherited hooks do not automatically qualify new subclasses.
+		std::set<std::string> VersionCoveredClasses;
+		std::set<FGuid> UsedCustomVersions;
+		std::set<std::string> ConstructedClasses;
 		std::vector<FCookDependencyDeclaration> Dependencies;
 		FObjectCookResult Result;
 

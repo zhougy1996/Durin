@@ -10247,7 +10247,7 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	});
 	WrongThread.join();
 
-    // Arbitrary instance-computed values have no reevaluation function and must miss.
+    // Instance values require loaded reevaluation, but stable complete values can hit.
     ++DPackageAssetForTest::CookVersion;
     DPackageAssetForTest::CookInstanceHook = [](FObjectCookContext& Context) {
         Context.Dependencies.push_back({ECookBuildDependencyKind::ConfigurationValue,"unreevaluable",{}, {std::byte{1}}});
@@ -10256,7 +10256,8 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	for (int Run = 0; Run < 2; ++Run)
 	{
 		ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
-		EXPECT_NE(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+		EXPECT_EQ(Result.Packages.front().Status, Run == 0 ? ECookPackageStatus::Captured : ECookPackageStatus::CookHit);
+		EXPECT_EQ(FindPackage(Path.GetView()), nullptr);
 	}
 }
 

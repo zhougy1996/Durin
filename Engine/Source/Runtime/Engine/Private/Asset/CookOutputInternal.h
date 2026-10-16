@@ -7,7 +7,7 @@ namespace Durin::AssetPrivate
 	inline constexpr std::string_view CookPackageSerializer = "engine-package";
 	inline constexpr uint32 CookPackageSerializerVersion = 4;
 	inline constexpr uint32 CookStateMagic = 0x54414e53; // SNAT
-	inline constexpr uint32 CookStateVersion = 4;
+	inline constexpr uint32 CookStateVersion = 5;
 	inline constexpr uint64 MaximumCookStateBytes = 256ull * 1024 * 1024;
 	inline constexpr uint32 MaximumCookStateEntries = 1'000'000;
 	inline constexpr uint8 CookStateSegmentRawFieldProjection = 1 << 0;

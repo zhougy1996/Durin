@@ -5,6 +5,8 @@
 
 namespace Durin::MaterialBuildPrivate
 {
+	// Native-test seam: bool is true before delivery, false after it; never throw.
+	ENGINE_API auto SetMaterialBuildCompletionHookForTests(std::function<void(EMaterialQualityLevel, bool)> Hook) -> void;
 	enum class EMaterialTranslationAction { Compile, Reuse, Join };
 	struct FMaterialBuildResult
 	{

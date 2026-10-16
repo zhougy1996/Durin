@@ -4,16 +4,18 @@ Summary: Separate dependency projection reuse from cooked output reuse, narrow p
 
 Last reviewed: 2026-10-16
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-16
 
 ## Current Status
 
-Planning only. No implementation stage has started. This plan follows the
+All seven stages and required gates are complete. Runtime code was qualified at
+`54267e5cd`; the completion commit changes only a pre-existing test expectation
+and acceptance documentation. This plan follows the
 completed [registry removal plan](CookObjectLifecycleAndRegistryRemoval.md) and
 its follow-up review. The implementation baseline is `5829f77d6`.
 
-Current findings:
+Baseline findings:
 
 - Instance-computed configuration/version declarations disable projection reuse;
   that flag also disables output reuse and can propagate to dependents.
@@ -24,8 +26,141 @@ Current findings:
 - Preparation precedes PreSave. Capture freezes persistent object membership
   before PreSave and verifies it before/after archive passes.
 
-Only the plan document is authorized in this planning change. Implementation,
-source migration, output cleanup, builds and native tests belong to later work.
+Stage 0 decisions (2026-10-16):
+
+- Persist `bCanReuseWithoutLoading` on projections; evaluate current dependency
+  completeness independently and let the coordinator compare output fingerprints.
+- Use CookState v5, reject v4 without a compatibility reader, retain report v2.
+- Qualified classes explicitly identify their exact covered class and used version
+  GUIDs through class-owned hooks. Unqualified classes retain global versions;
+  inherited coverage cannot silently qualify a new subclass. Start with audited
+  texture leaves and mesh/material owners; packages with unaudited children retain
+  fallback. Automatic runtime-import transitive edges remain conservative.
+- Use existing Core tasks and detached material build operations. Default package
+  admission is four operations and a 512 MiB working reservation, with a 1 GiB
+  retained product bound. Admission drains earlier work on the owner thread before
+  capturing another snapshot when needed. Single operations exceeding the working
+  budget fail explicitly. No owner-thread completion pumping is required by workers.
+- Mesh source/settings and physics capture are owner-thread work; detached build
+  and encoding are worker work. Material snapshot already requires the game thread;
+  its build operation accepts immutable inputs and supports cancellation and join.
+- Baseline at `fa1565d39`: CookFunctionalTests 27/27, AssetCookTests 37/37.
+  Reports: `Build/NativeTestResults/CookPrecisionBaseline.xml` and
+  `Build/NativeTestResults/CookPrecisionAssetBaseline.xml`. Existing functional
+  fixtures cover cold/warm output hits, configuration changes, stored declarations,
+  class schemas, build-only inputs and forbidden graph mutation; new cases extend
+  them for loaded-value hits, scoped versions and controlled async overlap.
+
+Stage 1 validation: CookFunctionalTests 28/28 and AssetCookTests 37/37 passed.
+Reports: `Build/NativeTestResults/CookPrecisionStage1.xml` and
+`Build/NativeTestResults/CookPrecisionState5.xml`. Stable loaded values skip
+preparation; changed values and explicit incomplete declarations recapture.
+CookState v5 rejects earlier headers without a legacy reader. Shared API `all`
+build and full qualification remain Stage 6 gates.
+
+Stage 2 validation: CookFunctionalTests 29/29 passed; report
+`Build/NativeTestResults/CookPrecisionStage2.xml`. Exact class coverage plus current
+used GUID definitions now governs both projection and output fingerprints. Explicit
+constructed-class closure contributes reflected and native schemas. An incomplete
+class keeps global versions and conservative request settings. Qualified unrelated
+version/configuration changes preserve output hits without constructing objects;
+Cook-only version and constructed-schema changes recapture. Material owners retain
+all four audited material-domain versions; unaudited expression/BodySetup/import
+classes keep package fallback. Inherited/nested reflected fields remain in schema
+hashes and source-recorded GUIDs remain current-version inputs. Automatic runtime
+imports stay transitive: native transformations can consume imported derived state,
+so there is no demonstrated narrower contract. Existing explicit direct/transitive,
+build-only, alias and omission tests remain passing. No automatic edge was weakened.
+
+Stage 3 validation: CookFunctionalTests 31/31 passed; report
+`Build/NativeTestResults/CookPrecisionStage3.xml`. Controlled two-worker barriers
+prove overlap; one-slot/one-reservation capture proves admission drains and makes
+progress; oversized admission launches no work. Failure tests prove other started
+work is canceled/joined and clears run before returning without publication. Common
+operations capture owned results and publish only on the owner thread; request
+cancellation is polled by the owner, not invoked by worker code. Working reservation
+and retained product limits are distinct. Existing lifecycle/cancellation, Texture,
+nested/direct capture and graph guards remain passing. Provider cancellation remains
+cooperative; joins are not claimed to be hard timeouts.
+
+Stage 4 validation: CookFunctionalTests 32/32 passed; report
+`Build/NativeTestResults/CookPrecisionStage4.xml`. A package with render-only,
+convex-hull and triangle-mesh assets has byte-identical captures at default and
+single-operation budgets and leaves authored/live products unchanged. Existing
+cold/DDC-warm/Cook-warm family, target rejection and cancellation cases pass.
+Mesh Begin now reserves before capture and launches detached render/physics work;
+physics input tasks retain immutable source values and captured mode/policy, never
+BodySetup. Synchronous preparation uses the same detached work function. A compile
+check caught a borrowed material-slot span; the final snapshot owns a vector.
+
+Stage 5 validation: CookFunctionalTests 35/35 passed; report
+`Build/NativeTestResults/CookPrecisionStage5.xml`. A controlled delivery hook forces
+High completion ahead of Low and proves independently progressing variants. Mixed
+Mesh/Material captures, multiple material owners and parent instances produce the
+same bytes at default and single-owner admission. Translation game-thread producer
+counts do not increase. Cancellation while a result delivery is still active joins
+requests before returning empty output. Existing function, collection, selected
+configuration, negative compile, cold/warm and cooked-only cases pass. PreSave tests
+use separate captures to prove both revision mutation and graph growth still fail.
+Prepared Mesh source/metadata/render revisions and Material parent/function revisions
+are rechecked before consuming products and after capture; ordinary saves retain
+existing graph checks. Shader/compiler recipes and the CLI report schema are unchanged.
+
+Stage 6 integration review: direct package edges no longer inherit the target's
+native-input incompleteness; transitive edges still do. A focused fixture proves
+both behaviors and resumed reuse after complete reevaluation. Class-hook metadata
+is bounded and invocation-only readers/values are discarded after collection.
+A missing constructed-class schema refreshes the immutable catalog after lazy
+registration; isolation exposed and now covers this case. Owner-thread metrics
+measure outstanding reservation peaks independently from physical memory.
+
+Integration qualification: CookFunctionalTests 36/36 passed as a shared process;
+36/36 also passed isolated after the lazy-registration fix. Cook CLI tests passed
+7/7 using the repository virtual environment; only pytest cache persistence was
+blocked, not test/report output. Reports are `Build/NativeTestResults/` files
+`CookPrecisionIntegration.xml`, `CookPrecisionIsolated.xml`, and
+`CookPrecisionCli.xml`. Retired-symbol scan is
+`Build/CookPrecisionRetiredSymbolScan.txt`.
+
+### Final acceptance
+
+| Gate | Result | Evidence under `Build/` |
+| --- | --- | --- |
+| Shared API/workspace build | Editor `all` passed, including Engine/Sandbox/RoadWeaver consumers | `.agent-state/logs/20261016-152857-708645-40976-cmake.log` |
+| Non-editor consumers | Game `all` passed | `.agent-state/logs/20261016-153237-377307-40272-cmake.log` |
+| Functional/isolation | 36/36 shared-process; 36/36 isolated, one scheduling slot | `NativeTestResults/CookPrecisionIntegration.xml`, `NativeTestResults/CookPrecisionIsolated.xml` |
+| Full native coverage | 109/110 targets passed initially; the sole obsolete expectation was migrated, then the entire AssetPackageTests target passed 190/190 cases | `NativeTestResults/CookPrecisionFullNative.xml`, `NativeTestResults/CookPrecisionAssetPackageRecheck.xml` |
+| CLI consumers | 7/7 passed, unchanged report v2 | `NativeTestResults/CookPrecisionCli.xml` |
+| Standalone Cook | Cold 7 captured/1 omitted; DDC-warm forced 7 captured/1 omitted; Cook-warm 7 hits/1 omitted | `CookPrecisionCold.json`, `CookPrecisionDdcWarm.json`, `CookPrecisionWarm.json` |
+| Determinism/source preservation | All 11 package/segment SHA-256 digests match across three runs; all 27 authored asset/segment hashes unchanged | `CookPrecisionSmokeEvidence.json` |
+| Source scan | No retired independent-registry/legacy-producer compatibility symbols | `CookPrecisionRetiredSymbolScan.txt` |
+
+The initial full-native batch exposed the old assertion in
+`FPackageAssetTests.CookReusesDeclaredInputsAndLoadsOrdinaryPackages`: it required
+a miss even after stable loaded instance values were reevaluated. The migrated test
+now requires initial capture after its version bump, then a warm output hit, and
+checks ordinary loaded packages are unloaded afterward. The original failed report
+is retained; it is not relabeled as a clean batch. All 110 targets have current
+passing coverage by combining the 109 unchanged target results with the complete
+190-case recheck. No runtime implementation changed after that batch.
+
+Standalone reproduction uses `Sandbox/Sandbox.dproject`, target `win64`, profile
+`game`, fresh output `Build/CookPrecisionSmoke`, roots `/Engine/Models/Box` and
+`/Engine/Materials/Functions/UVTransform`, plus configured project/built-in roots.
+The second run adds `--no-incremental`; the third uses normal incremental Cook.
+Changed/reused bytes are 6,015,299/0, 6,015,299/0 and 0/6,015,299 respectively.
+The root owns its initially empty DDC; no shared cache was deleted. Prepared bytes,
+reservation and compile counters are covered by deterministic functional assertions;
+the single-slot reservation observation (1,024 bytes) is also in GoogleTest XML.
+Raw reports and summary are `CookPrecisionValidationSummary.json` and
+`CookPrecisionSmokeEvidence.json`. No wall-time speedup is claimed.
+
+Retained limits: package-local overlap only; owner-thread capture and ordinary
+load behavior; conservative coverage fallback and automatic transitive imports;
+cooperative cancellation/join; no persistent PreSave expansion or captured-input
+mutation. Without a running task scheduler, direct adapters retain synchronous
+execution. General dependency-function registration, automatic config interception,
+server/Blueprint cases and a cross-package scheduler remain outside this plan.
 
 ## Goal
 
@@ -183,17 +318,17 @@ semantics and must not be copied wholesale.
 Dependencies: none. Outcome: explicit coverage and operation contracts with a
 reproducible baseline before changing reuse behavior.
 
-- [ ] Confirm names/storage for the three reuse decisions and the rules for
+- [x] Confirm names/storage for the three reuse decisions and the rules for
   propagating genuine dependency incompleteness through direct/transitive edges.
-- [ ] Inventory built-in class/policy/serializer versions, nested structs,
+- [x] Inventory built-in class/policy/serializer versions, nested structs,
   constructed classes and request keys; identify incomplete fallback users.
-- [ ] Audit Mesh/Material capture ownership, provider lifetime/thread affinity,
+- [x] Audit Mesh/Material capture ownership, provider lifetime/thread affinity,
   completion delivery and cancellation granularity. Select existing task/provider
   primitives and explicit concurrent-operation/working-memory budgets.
-- [ ] Establish focused fixtures for stable/changing instance values, unrelated
+- [x] Establish focused fixtures for stable/changing instance values, unrelated
   versions/configurations, build-only dependencies, multiple objects/configurations,
   and prohibited PreSave mutations. Record cold/DDC-warm/Cook-warm counts.
-- [ ] Choose the state schema transition and miss-reason/report policy. Update
+- [x] Choose the state schema transition and miss-reason/report policy. Update
   this plan with concrete choices before implementation depends on them.
 
 Gate: baseline is reproducible; no unknown coverage is treated as precise; async
@@ -203,16 +338,16 @@ ownership and admission have a documented path to progress and teardown.
 
 Dependencies: Stage 0. Outcome: loaded reevaluation can still produce an output hit.
 
-- [ ] Introduce independent projection validation and dependency completeness state;
+- [x] Introduce independent projection validation and dependency completeness state;
   stop deriving completeness from the old projection reusable flag.
-- [ ] Reevaluate instance-computed values after loading, then compare full output
+- [x] Reevaluate instance-computed values after loading, then compare full output
   inputs; propagate only genuine incompleteness to dependents.
-- [ ] Preserve declaration read checks and eligibility/dependency reevaluation when
+- [x] Preserve declaration read checks and eligibility/dependency reevaluation when
   their governing inputs change. Unsupported descriptors safely miss or fail with
   a typed reason, never reuse stale opaque values.
-- [ ] Persist the selected new state semantics and remove retired cooked-state
+- [x] Persist the selected new state semantics and remove retired cooked-state
   fallback code. Migrate affected report/CLI consumers if their contract changes.
-- [ ] Verify no-load hit, loaded output hit, changed-value miss and incomplete-input
+- [x] Verify no-load hit, loaded output hit, changed-value miss and incomplete-input
   rejection, including direct and transitive dependents and corrupt/old state.
 
 Gate: unchanged instance values cause no preparation/output rewrite after required
@@ -222,17 +357,17 @@ reevaluation; changed values invalidate all and only justified dependents.
 
 Dependencies: Stage 1. Outcome: qualified inputs stop responding to unrelated changes.
 
-- [ ] Add type-owned current-version/constructed-class coverage, including inherited,
+- [x] Add type-owned current-version/constructed-class coverage, including inherited,
   nested, policy and Cook-only usage. Keep global fallback for incomplete coverage.
-- [ ] Replace global version hashing for qualified types in both projection and
+- [x] Replace global version hashing for qualified types in both projection and
   output paths; validate required declarations before any no-load decision.
-- [ ] Split governing request inputs from consumed output inputs. Stop putting
+- [x] Split governing request inputs from consumed output inputs. Stop putting
   material configurations into unrelated qualified packages' projection identities.
-- [ ] Audit automatic package edges; narrow proven cases with tests and document
+- [x] Audit automatic package edges; narrow proven cases with tests and document
   why remaining conservative edges are required. Preserve build-only and alias edges.
-- [ ] Test relevant/unrelated version bumps, newly introduced Cook-only versions,
+- [x] Test relevant/unrelated version bumps, newly introduced Cook-only versions,
   nested serializers, constructed classes and selection/declaration branch changes.
-- [ ] Verify missing coverage retains conservative invalidation, and configuration
+- [x] Verify missing coverage retains conservative invalidation, and configuration
   changes rebuild affected material variants without forcing unrelated projection loads.
 
 Gate: each removed global/transitive dependency has a positive invalidation test
@@ -243,17 +378,17 @@ and an unrelated-change hit test; incomplete paths retain safe fallback behavior
 Dependencies: Stage 1; Stage 2 must pass before final integration. Outcome: shared
 operation ownership supports real package-local overlap without lifecycle leaks.
 
-- [ ] Implement operation state, readiness/result separation, synchronized adoption
+- [x] Implement operation state, readiness/result separation, synchronized adoption
   and provider lifetime retention using the selected existing primitives.
-- [ ] Add admission and peak working-memory accounting for snapshots, active work
+- [x] Add admission and peak working-memory accounting for snapshots, active work
   and retained products. Define oversized single-operation failure explicitly.
-- [ ] Preserve all-Begin-before-join behavior where admission allows; make progress
+- [x] Preserve all-Begin-before-join behavior where admission allows; make progress
   under a one-operation budget and avoid owner-thread completion deadlocks.
-- [ ] Wire cancellation to active providers and cancel/join/clear all started work
+- [x] Wire cancellation to active providers and cancel/join/clear all started work
   on success, launch failure, later-object failure, capture failure and cancellation.
-- [ ] Keep Texture behavior and nested/direct captures correct; no heavy work in
+- [x] Keep Texture behavior and nested/direct captures correct; no heavy work in
   Serialize, polling queries or PreSave.
-- [ ] Use controlled worker barriers to prove overlap, bounded admission, failure
+- [x] Use controlled worker barriers to prove overlap, bounded admission, failure
   completion and cleanup; timeouts fail tests rather than strand process trees.
 
 Gate: deterministic fixtures demonstrate overlap and bounded progress; all exit
@@ -264,15 +399,15 @@ paths end tasks before destroying their state. No cross-package scheduler requir
 Dependencies: Stage 3. Outcome: Mesh Begin captures inputs and returns while admitted
 render/collision preparation runs independently.
 
-- [ ] Split object capture from render/collision build and payload encoding; remove
+- [x] Split object capture from render/collision build and payload encoding; remove
   worker reads of Mesh, BodySetup and borrowed live RenderData.
-- [ ] Retain immutable source/bulk inputs and exact settings/target identities;
+- [x] Retain immutable source/bulk inputs and exact settings/target identities;
   reuse worker-safe builders without publishing live editor resources.
-- [ ] Integrate typed completion/cancellation and detached product adoption with
+- [x] Integrate typed completion/cancellation and detached product adoption with
   common operations. Preserve pending-source-mutation rejection.
-- [ ] Test render-only, simple/complex collision, source and supported fallback
+- [x] Test render-only, simple/complex collision, source and supported fallback
   paths, cold/DDC-warm results, multiple meshes and mixed Texture/Mesh packages.
-- [ ] Compare deterministic payloads/load behavior and recipe identities with the
+- [x] Compare deterministic payloads/load behavior and recipe identities with the
   baseline; prove cancellation and rejection leave source/live state unchanged.
 
 Gate: independent mesh operations overlap within budget, bytes remain equivalent
@@ -283,15 +418,15 @@ for unchanged semantics, and runtime loading does not require build providers.
 Dependencies: Stage 3; integrate with Stage 4 for mixed-package acceptance. Outcome:
 Material Begin snapshots configurations and submits detached compilation work.
 
-- [ ] Capture all required graph/function/collection/static-property data on the
+- [x] Capture all required graph/function/collection/static-property data on the
   game thread; submit owned immutable compiler inputs per canonical configuration.
-- [ ] Reuse/adapt build operations without editor live-program publication, retry
+- [x] Reuse/adapt build operations without editor live-program publication, retry
   queue side effects or callbacks that require an unavailable game-thread pump.
-- [ ] Define cancellation/failure across variants, reserve snapshot memory before
+- [x] Define cancellation/failure across variants, reserve snapshot memory before
   dispatch, and aggregate successful variants in deterministic order.
-- [ ] Test parent/static overrides, function and collection dependencies, multiple
+- [x] Test parent/static overrides, function and collection dependencies, multiple
   quality/feature configurations, duplicate work, DDC hits and compiler failures.
-- [ ] Prove shuffled completion order preserves bytes/identities and that cancellation
+- [x] Prove shuffled completion order preserves bytes/identities and that cancellation
   during translation/compile ends requests before cleanup. Cover mixed Mesh/Material
   packages and unsupported targets/configurations.
 
@@ -302,14 +437,14 @@ overlaps, and accepted live programs and authored object graphs remain unchanged
 
 Dependencies: Stages 1-5. Outcome: complete consumer migration and documented behavior.
 
-- [ ] Run the acceptance matrix below and investigate unexplained regressions.
-- [ ] Verify PreSave expansion, removal/reparenting and prepared-input mutation are
+- [x] Run the acceptance matrix below and investigate unexplained regressions.
+- [x] Verify PreSave expansion, removal/reparenting and prepared-input mutation are
   still rejected appropriately; keep normal transient-save hooks functional.
-- [ ] Scan all workspace projects/tools for obsolete flags, cooked-state readers,
+- [x] Scan all workspace projects/tools for obsolete flags, cooked-state readers,
   synchronous heavy Begin paths and accidental registry/central dispatch additions.
-- [ ] Update [Cooking](../Runtime/Assets/Cooking.md) and affected owning contracts;
+- [x] Update [Cooking](../Runtime/Assets/Cooking.md) and affected owning contracts;
   keep implemented invariants there and stage/evidence records in this plan.
-- [ ] Record tested revision, exact selections, reproducible settings, counts and
+- [x] Record tested revision, exact selections, reproducible settings, counts and
   raw evidence paths; close only passed gates and complete plan lifecycle validation.
 
 Gate: every mandatory matrix row passes or an explicit scope decision is recorded

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Asset/CookInputResult.h"
+#include "Asset/AssetBuildTaskContext.h"
 #include "Asset/AssetWriteResult.h"
 
 #include "Asset/AssetReadResult.h"
@@ -334,7 +335,7 @@ namespace Durin
 		FXxHash128 SourceFingerprint;
 		FXxHash128 BulkFingerprint;
 		FXxHash128 SchemaFingerprint;
-		bool bReusable = true;
+		bool bCanReuseWithoutLoading = true;
 		// SourcePackage records name inspected objects and contain one eligibility
 		// byte. Other records describe dependencies; ExternalFile values are locators.
 		std::vector<FCookBuildDependency> Records;
@@ -604,6 +605,13 @@ namespace Durin
 	ENGINE_API auto PublishCookContext(FCookContext& Context,
 		const std::filesystem::path& OutputRoot) -> FCookContextPublishResult;
 
+	struct FCookPreparationProducts
+	{
+		FBulkData Primary;
+		FBulkData Collision;
+	};
+	using FCookDetachedWork = TMoveOnlyFunction<std::expected<FCookPreparationProducts, std::string>(const FAssetBuildTaskContext&)>;
+
 	// Object preparation can produce scoped payloads and read frozen inputs, but
 	// cannot capture packages or publish output.
 	struct FCookPreparationContext
@@ -614,6 +622,14 @@ namespace Durin
 		FObjectCookContext Lifecycle;
 		DObject* Object = nullptr;
 		FCookContributionResult Failure;
+		// Reserve before capturing inputs. Only the capture owner invokes this adapter.
+		std::function<bool(uint64)> ReserveWorkingSet;
+		uint64 WorkingSetBytes = 0;
+		bool bAdopted = false;
+		std::function<void()> CancelWork;
+		// Owner-thread guard, also checked after PreSave before prepared data is read.
+		std::function<bool()> ValidatePreparedInputs;
+		ENGINE_API auto StartDetachedWork(FCookDetachedWork Work) -> void;
 		// Available only for the exact active object and lifecycle invocation.
 		ENGINE_API static auto Get(DObject& Object, const FObjectCookContext& Invocation) -> FCookPreparationContext*;
 		ENGINE_API auto GetTargetPlatform() const -> ECookTargetPlatform;

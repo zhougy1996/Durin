@@ -466,8 +466,7 @@ acquisition lock. Test overrides do not replace synchronous production sessions.
 Native Cook class-schema versions describe object-family behavior, not DDC recipes. Unified
 package preparation and source-only filtering preserve existing family action
 projections, payload codecs and producer versions. The package publisher owns
-CookState reuse identity separately; its legacy producer-version word is fixed
-to 1. Platform resolution supplies capabilities while the family boundary
+CookState reuse identity separately through explicit serializer identity/version. Platform resolution supplies capabilities while the family boundary
 validates its request profile.
 
 Texture2D, TextureCube, and VolumeTexture use a texture-owned inline session for
@@ -539,8 +538,10 @@ for source preservation and application without changing cached representations.
 
 StaticMesh render and physics collision each use a family-owned session with
 separate definitions/actions and request inputs. StaticMesh render owners use a
-persistent task-backed session; synchronous Build, detached import and Cook retain
-an inline session. Both share input validation, request limits and typed output
+persistent task-backed session; synchronous Build and detached import retain
+an inline session. Cook executes its detached synchronous builder adapter on a
+worker after owner-thread capture; package admission and teardown follow
+[Cooking](Cooking.md#object-lifecycle-and-selection). Both share input validation, request limits and typed output
 consumption. Owner callbacks retain detached build completions, and the GameThread
 pump dispatches CPU assembly and ray preparation after build-owner retirement.
 The captured builder version defines the asynchronous request. Physics keeps its

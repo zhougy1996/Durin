@@ -1,5 +1,6 @@
 #include "Physics/PhysicsDerivedData.h"
 #include "Physics/PhysicsCookHelper.h"
+#include "Physics/PhysicsMeshInputTask.h"
 #include "Asset/OfflinePreparation.h"
 #include "Asset/CookedPreparation.h"
 #include "Logging/LogMacros.h"
@@ -26,19 +27,77 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto BuildStaticCookedMetadataIdentity(const DStaticMesh& Mesh) -> uint64;
+		auto CaptureMeshCookWork(DStaticMesh& Mesh, ECookTargetPlatform Platform, const FAssetBuildTaskContext& Control)
+			-> std::expected<FCookDetachedWork, std::string>;
+		auto EstimateMeshCookWork(DStaticMesh& Mesh) -> std::expected<uint64, std::string>
+		{
+			FAssetBuildMemoryEstimate Memory{MaximumAssetBuildRequestBytes, 1024 * 1024};
+			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) {
+				if (!Memory.Add(Mesh.GetCookedRenderData().GetMetadata().LogicalSize, 1)
+					|| !Memory.Add(Mesh.GetCookedCollisionData().GetMetadata().LogicalSize, 1))
+					return std::unexpected("Cook mesh payload exceeds its working-set budget.");
+				return Memory.Bytes;
+			}
+#if DURIN_WITH_EDITORONLY_DATA
+			if (Mesh.GetSource().IsValid()) {
+				if (!Memory.Add(Mesh.GetSource().GetGeometryBulk().GetPayloadSize(), 64)
+					|| !Memory.Add(Mesh.GetSource().GetMeshCount(), 1024)
+					|| !Memory.Add(Mesh.GetMaterialSlots().size(), 32768))
+					return std::unexpected("Cook mesh source exceeds its working-set budget.");
+			} else
+#endif
+			if (const auto* Render = Mesh.GetRenderData()) {
+				for (const auto& LOD : Render->LODResources)
+					if (!Memory.Add(LOD.VertexBuffers.PositionVertexBuffer.GetPositions().size(), 512)
+						|| !Memory.Add(LOD.IndexBuffer.GetIndices().size(), 192))
+						return std::unexpected("Cook mesh projection exceeds its working-set budget.");
+			}
+			if (Mesh.GetBodySetup() && Mesh.GetBodySetup()->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None) {
+				auto Input = Mesh.CreatePhysicsMeshInputTask();
+				if (!Input) return std::unexpected(Input.error());
+				if (!Memory.Add((*Input)->GetWorkingSetBytes(), 1)) return std::unexpected("Cook collision exceeds its working-set budget.");
+			}
+			return Memory.Bytes;
+		}
+	}
+
 	auto DStaticMesh::BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void
 	{
 		Super::BeginCacheForCookedPlatformData(Context);
 		auto* Preparation = FCookPreparationContext::Get(*this, Context);
 		if (!Preparation) { Context.Result = {EObjectCookError::InvalidInput, "Missing mesh Cook preparation context."}; return; }
 		if (Context.CheckCancellation()) return;
-		const FAssetBuildTaskContext Control{.Cancellation = FCancellationToken(Context.IsCancelled)};
-		if (HasPendingStaticMeshSourceMutation(*this))
+		if (HasPendingStaticMeshSourceMutation(*this)) {
 			Preparation->Failure = {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::SourceMutation,
-				.ObjectPath = GetObjectPath(), .VirtualPath = Context.Package};
-		else if (auto Built = PrepareCookedPayloads(Preparation->GetTargetPlatform(), Preparation->Primary, Preparation->Collision, Control); !Built)
-			Preparation->Failure = {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::Preparation,
-				.ObjectPath = GetObjectPath(), .VirtualPath = Context.Package, .Diagnostic = std::move(Built.error())};
+				.ObjectPath = GetObjectPath(), .VirtualPath = Context.Package}; return;
+		}
+		auto Bytes = EstimateMeshCookWork(*this);
+		if (!Bytes) { Context.Result = {EObjectCookError::Limit, std::move(Bytes.error())}; return; }
+		if (!Preparation->ReserveWorkingSet(*Bytes)) return;
+		const FAssetBuildTaskContext Control{.Cancellation = FCancellationToken(Context.IsCancelled), .MaximumWorkingSetBytes = *Bytes};
+		auto Captured = CaptureMeshCookWork(*this, Preparation->GetTargetPlatform(), Control);
+		if (!Captured) { Context.Result = {EObjectCookError::Preparation, std::move(Captured.error())}; return; }
+		const auto Metadata = BuildStaticCookedMetadataIdentity(*this);
+		const auto RenderRevision = GetRenderResourceStatus().Revision;
+#if DURIN_WITH_EDITORONLY_DATA
+		const auto SourceIdentity = GetSource().GetIdentity();
+		const auto Size = GetNormalizedSize();
+#endif
+		Preparation->ValidatePreparedInputs = [this, Metadata, RenderRevision
+#if DURIN_WITH_EDITORONLY_DATA
+			, SourceIdentity, Size
+#endif
+		] {
+			return Metadata == BuildStaticCookedMetadataIdentity(*this) && RenderRevision == GetRenderResourceStatus().Revision
+#if DURIN_WITH_EDITORONLY_DATA
+				&& SourceIdentity == GetSource().GetIdentity() && Size == GetNormalizedSize()
+#endif
+				;
+		};
+		Preparation->StartDetachedWork(std::move(*Captured));
 	}
 	namespace
 	{
@@ -106,82 +165,121 @@ namespace Durin
 		Super::Serialize(Ar);
 	}
 
+	namespace
+	{
+		auto CaptureMeshCookWork(DStaticMesh& Mesh, ECookTargetPlatform Platform, const FAssetBuildTaskContext& Control)
+			-> std::expected<FCookDetachedWork, std::string>
+		{
+			if (Control.IsCancelled()) return std::unexpected("Cook mesh capture was cancelled.");
+			auto* Body = Mesh.GetBodySetup();
+			const bool HasCollision = Body && Body->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None;
+#if DURIN_WITH_EDITOR
+			const auto Target = ResolveTargetPlatform(Platform);
+			if (!Target || (HasCollision && !Target->SupportsCollisionPayload()))
+#else
+			if (GetTargetPlatformName(Platform).empty() || (HasCollision && Platform != ECookTargetPlatform::Win64))
+#endif
+				return std::unexpected("StaticMesh collision representation is unsupported for the requested target.");
+			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) {
+				if (GetAssetRuntimeConfiguration().GetCookTargetPlatform() != Platform || !Mesh.GetCookedRenderData().HasData()
+					|| (HasCollision && !Mesh.GetCookedCollisionData().HasData()))
+					return std::unexpected("StaticMesh cooked data is unavailable or targets another platform.");
+				return FCookDetachedWork([Product = FCookPreparationProducts{Mesh.GetCookedRenderData(), Mesh.GetCookedCollisionData()}]
+					(const FAssetBuildTaskContext&) mutable -> std::expected<FCookPreparationProducts, std::string> { return std::move(Product); });
+			}
+#if DURIN_WITH_EDITORONLY_DATA
+			std::optional<FStaticMeshBuildRequest> Request;
+			if (Mesh.GetSource().IsValid()) {
+				Request.emplace(FStaticMeshBuildRequest{.Settings = MakeStaticMeshBuildSettings(Mesh.GetMaterialSlots(), Mesh.GetNormalizedSize()), .Source = Mesh.GetSource()});
+				Request->bPersistDerivedData = false;
+				Request->Source.ReleaseGeometry();
+			}
+#endif
+			std::optional<FStaticMeshPayloadData> Projection;
+#if DURIN_WITH_EDITORONLY_DATA
+			if (!Request)
+#endif
+			{
+				if (!Mesh.GetRenderData()) return std::unexpected("StaticMesh cooked render data is unavailable.");
+				Projection.emplace();
+				if (const auto Made = MakeStaticMeshPayloadData(*Mesh.GetRenderData(), *Projection); !Made)
+					return std::unexpected(FormatStaticMeshPayloadError(Made.error()));
+			}
+			std::unique_ptr<FPhysicsMeshInputTask> Physics;
+			FCookBodySetupInfo CookInfo;
+			if (HasCollision) {
+				auto Captured = Mesh.CreatePhysicsMeshInputTask();
+				if (!Captured) return std::unexpected(Captured.error());
+				Physics = std::move(*Captured); CookInfo = Body->GetCookInfo({}, false);
+				if (Physics->GetWorkingSetBytes() > Control.MaximumWorkingSetBytes)
+					return std::unexpected("Cook physics input exceeds its reservation.");
+			}
+			return FCookDetachedWork([
+#if DURIN_WITH_EDITORONLY_DATA
+				Request = std::move(Request),
+#endif
+				Projection = std::move(Projection), Physics = std::move(Physics), CookInfo = std::move(CookInfo),
+				Slots = std::vector<FMeshMaterialSlotDefinition>(Mesh.GetMaterialSlots().begin(), Mesh.GetMaterialSlots().end()), Platform](const FAssetBuildTaskContext& Control) mutable
+				-> std::expected<FCookPreparationProducts, std::string> {
+				if (Control.IsCancelled()) return std::unexpected("Cook mesh preparation was cancelled.");
+#if DURIN_WITH_EDITORONLY_DATA
+				if (Request) {
+					auto Built = BuildStaticMeshRenderData(std::move(*Request), Control); Request.reset();
+					if (Control.IsCancelled()) return std::unexpected("Cook render construction was cancelled.");
+					if (!Built) return std::unexpected(Built.error());
+					Projection.emplace();
+					if (const auto Made = MakeStaticMeshPayloadData(**Built, *Projection); !Made)
+						return std::unexpected(FormatStaticMeshPayloadError(Made.error()));
+				}
+#endif
+				std::string Error;
+				if (!ValidateStaticMeshMaterialSlotMapping(*Projection, Slots, Error)) return std::unexpected(std::move(Error));
+				const FArchiveTarget ArchiveTarget{std::string(GetTargetPlatformName(Platform)), "Game"};
+				FByteBuffer RenderBytes;
+				FCanonicalMemoryWriter RenderWriter(RenderBytes, EArchivePurpose::CookedPayload, {.Target = ArchiveTarget});
+				Projection->Serialize(RenderWriter); Projection.reset();
+				if (RenderWriter.IsError()) return std::unexpected(RenderWriter.GetFailure()->Message);
+				auto Render = FBulkData::TryCreateDetached(RenderBytes);
+				if (!Render) return std::unexpected(FormatBulkDataError(Render.error()));
+				FCookPreparationProducts Products{std::move(*Render), {}};
+				if (Physics) {
+					auto Data = Physics->Execute(Control); Physics.reset();
+					if (Control.IsCancelled()) return std::unexpected("Cook collision preparation was cancelled.");
+					if (!Data) return std::unexpected(Data.error());
+					CookInfo.TriangleMeshDesc = std::move(*Data);
+					auto Input = FPhysicsCookHelper::Capture(std::move(CookInfo), Control, static_cast<EAssetPayloadTargetPlatform>(Platform));
+					if (Control.IsCancelled()) return std::unexpected("Cook collision capture was cancelled.");
+					if (!Input) return std::unexpected(Input.error());
+					auto Built = FPhysicsCookHelper::CookCaptured(*Input, Control);
+					if (Control.IsCancelled()) return std::unexpected("Cook collision construction was cancelled.");
+					if (!Built) return std::unexpected(Built.error());
+					const auto& Geometry = Input->GetMode() == EBodySetupCollisionSourceMode::ConvexHullFromLOD0 ? Built->Simple : Built->Complex;
+					FPhysicsCollisionPayloadData Payload;
+					if (const auto Made = MakePhysicsCollisionPayloadData(Geometry, Input->GetPolicy(), Payload); !Made)
+						return std::unexpected(FormatPhysicsCollisionPayloadError(Made.error()));
+					FByteBuffer Bytes;
+					FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload, {.Target = ArchiveTarget});
+					Payload.Serialize(Writer);
+					if (Writer.IsError()) return std::unexpected(Writer.GetFailure()->Message);
+					auto Bulk = FBulkData::TryCreateDetached(Bytes);
+					if (!Bulk) return std::unexpected(FormatBulkDataError(Bulk.error()));
+					Products.Collision = std::move(*Bulk);
+				}
+				if (Control.IsCancelled()) return std::unexpected("Cook mesh preparation was cancelled.");
+				return Products;
+			});
+		}
+	}
+
 	auto DStaticMesh::PrepareCookedPayloads(ECookTargetPlatform Platform, FBulkData& Render,
 		FBulkData& Collision, const FAssetBuildTaskContext& Control) -> std::expected<void, std::string>
 	{
 		Render = {}; Collision = {};
-		if (Control.IsCancelled()) return std::unexpected("Cook mesh preparation was cancelled.");
-		const bool HasCollision = BodySetup && BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None;
-#if DURIN_WITH_EDITOR
-		const auto Target = ResolveTargetPlatform(Platform);
-		if (!Target
-			|| (HasCollision && !Target->SupportsCollisionPayload()))
-			return std::unexpected("StaticMesh collision representation is unsupported for the requested target.");
-#else
-		if (GetTargetPlatformName(Platform).empty() || (HasCollision && Platform != ECookTargetPlatform::Win64))
-			return std::unexpected("StaticMesh collision representation is unsupported for the requested target.");
-#endif
-		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
-		{
-			if (GetAssetRuntimeConfiguration().GetCookTargetPlatform() != Platform || !CookedRenderData.HasData()
-				|| (HasCollision && !CookedCollisionData.HasData()))
-				return std::unexpected("StaticMesh cooked data is unavailable or targets another platform.");
-			Render = CookedRenderData; Collision = CookedCollisionData;
-			return {};
-		}
-		std::unique_ptr<FStaticMeshRenderData> Detached;
-		const FStaticMeshRenderData* Projection = RenderData.get();
-#if DURIN_WITH_EDITORONLY_DATA
-		if (GetSource().IsValid())
-		{
-			FStaticMeshBuildRequest Request{.Settings = MakeStaticMeshBuildSettings(GetMaterialSlots(), GetNormalizedSize()), .Source = GetSource()};
-			Request.bPersistDerivedData = false;
-			auto Built = BuildStaticMeshRenderData(std::move(Request), Control);
-			if (Control.IsCancelled()) return std::unexpected("Cook render construction was cancelled.");
-			if (!Built) return std::unexpected(Built.error());
-			Detached = std::move(*Built); Projection = Detached.get();
-		}
-#endif
-		if (!Projection) return std::unexpected("StaticMesh cooked render data is unavailable.");
-		FStaticMeshPayloadData Payload;
-		if (const auto Built = MakeStaticMeshPayloadData(*Projection, Payload); !Built)
-			return std::unexpected(FormatStaticMeshPayloadError(Built.error()));
-		std::string Error;
-		if (!ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, Error)) return std::unexpected(std::move(Error));
-		const FArchiveTarget ArchiveTarget{std::string(GetTargetPlatformName(Platform)), "Game"};
-		FByteBuffer RenderBytes;
-		FCanonicalMemoryWriter RenderWriter(RenderBytes, EArchivePurpose::CookedPayload, {.Target = ArchiveTarget});
-		Payload.Serialize(RenderWriter);
-		if (RenderWriter.IsError()) return std::unexpected(RenderWriter.GetFailure()->Message);
-		auto RenderBulk = FBulkData::TryCreateDetached(RenderBytes);
-		if (!RenderBulk) return std::unexpected(FormatBulkDataError(RenderBulk.error()));
-		FBulkData CollisionBulk;
-		if (HasCollision)
-		{
-			auto Data = GetPhysicsTriMeshData();
-			if (!Data) return std::unexpected(Data.error());
-			auto Input = FPhysicsCookHelper::Capture(BodySetup->GetCookInfo(std::move(*Data), false), Control,
-				static_cast<EAssetPayloadTargetPlatform>(Platform));
-			if (Control.IsCancelled()) return std::unexpected("Cook collision capture was cancelled.");
-			if (!Input) return std::unexpected(Input.error());
-			auto Built = FPhysicsCookHelper::CookCaptured(*Input, Control);
-			if (Control.IsCancelled()) return std::unexpected("Cook collision construction was cancelled.");
-			if (!Built) return std::unexpected(Built.error());
-			const auto& Geometry = BodySetup->GetCollisionSourceMode() == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
-				? Built->Simple : Built->Complex;
-			FPhysicsCollisionPayloadData CollisionPayload;
-			if (const auto Made = MakePhysicsCollisionPayloadData(Geometry, BodySetup->GetCollisionQueryPolicy(), CollisionPayload); !Made)
-				return std::unexpected(FormatPhysicsCollisionPayloadError(Made.error()));
-			FByteBuffer CollisionBytes;
-			FCanonicalMemoryWriter Writer(CollisionBytes, EArchivePurpose::CookedPayload, {.Target = ArchiveTarget});
-			CollisionPayload.Serialize(Writer);
-			if (Writer.IsError()) return std::unexpected(Writer.GetFailure()->Message);
-			auto Bulk = FBulkData::TryCreateDetached(CollisionBytes);
-			if (!Bulk) return std::unexpected(FormatBulkDataError(Bulk.error()));
-			CollisionBulk = std::move(*Bulk);
-		}
-		if (Control.IsCancelled()) return std::unexpected("Cook mesh preparation was cancelled.");
-		Render = std::move(*RenderBulk); Collision = std::move(CollisionBulk);
+		auto Captured = CaptureMeshCookWork(*this, Platform, Control);
+		if (!Captured) return std::unexpected(Captured.error());
+		auto Built = (*Captured)(Control);
+		if (!Built) return std::unexpected(Built.error());
+		Render = std::move(Built->Primary); Collision = std::move(Built->Collision);
 		return {};
 	}
 

@@ -1,6 +1,15 @@
 #include "MaterialBuildOperation.h"
 #include "MaterialProgramCache.h"
 #include "Materials/MaterialCompileLifecycle.h"
+namespace Durin::MaterialBuildPrivate
+{
+	namespace {
+		std::mutex CompletionHookMutex;
+		std::function<void(EMaterialQualityLevel, bool)> CompletionHook;
+	}
+	auto SetMaterialBuildCompletionHookForTests(std::function<void(EMaterialQualityLevel, bool)> Hook) -> void
+	{ std::lock_guard Lock(CompletionHookMutex); CompletionHook = std::move(Hook); }
+}
 #if DURIN_WITH_EDITOR
 #include "MaterialTranslation.h"
 #include "MaterialTranslationCodec.h"
@@ -140,7 +149,14 @@ namespace Durin::MaterialBuildPrivate
 		}
 		if (Result && EstimateProgramBytes(Result) > MaterialCompileMaxResultBytes) Result = {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Bounds, .Error = EMaterialCompileError::CompiledMaterialResultExceedsRetainedResultByteLimit}}};
 		if (State->Cancellation.IsCancelled()) Result = CanceledMaterial();
-		if (Delivery == ECompletionDelivery::Deliver && Callback) Callback(std::move(Result));
+		if (Delivery == ECompletionDelivery::Deliver && Callback) {
+			std::function<void(EMaterialQualityLevel, bool)> Hook;
+			{ std::lock_guard Lock(CompletionHookMutex); Hook = CompletionHook; }
+			const auto Quality = Result.Quality;
+			if (Hook) Hook(Quality, true);
+			Callback(std::move(Result));
+			if (Hook) Hook(Quality, false);
+		}
 	}
 	auto FMaterialBuildOperation::Cancel() -> void
 	{

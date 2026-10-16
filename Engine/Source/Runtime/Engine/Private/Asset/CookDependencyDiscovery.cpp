@@ -127,11 +127,14 @@ namespace Durin::AssetPrivate
 	auto FCookDependencyDiscovery::CaptureProjection(const FPackagePath& Path, FInput& Input) -> FCookInputResult
 	{
 		FCookPackageBuildInputs SchemaNode{.Package = Path};
-		if (auto Result = CaptureSchema(Input, SchemaNode); !Result) return Result;
-		std::set<std::string> Classes;
-		for (const auto& Object : Input.Inspection.Objects) Classes.insert(Object.ClassName);
-		for (const auto& Name : Classes)
+		for (const auto& Object : Input.Inspection.Objects) Input.SchemaClasses.insert(Object.ClassName);
+		std::vector<std::string> Classes(Input.SchemaClasses.begin(), Input.SchemaClasses.end());
+		bool PreciseVersions = true;
+		std::set<FGuid> UsedVersions;
+		for (const auto& Version : Input.Inspection.CustomVersions) UsedVersions.insert(Version.Guid);
+		for (size_t ClassIndex = 0; ClassIndex < Classes.size(); ++ClassIndex)
 		{
+			const auto Name = Classes[ClassIndex];
 			if (!NativeSchemas.contains(Name))
 			{
 				auto* Class = FindClassByQualifiedName(FName(Name));
@@ -151,16 +154,35 @@ namespace Durin::AssetPrivate
 						&& Declaration.Kind != ECookBuildDependencyKind::SchemaProducerVersion)
 						return Fail(FCookInputResult{ECookInputStatus::InvalidDependency,
 							"Class Cook schemas accept only shared values; declare package/file dependencies in OnCookEvent: " + Name});
-				uint64 SchemaBytes = 0;
+				if (Context.UsedCustomVersions.size() > MaximumCookDependencyRecords
+					|| Context.ConstructedClasses.size() > MaximumCookDependencyRecords
+					|| Context.VersionCoveredClasses.size() > MaximumCookDependencyRecords)
+					return Fail(FCookInputResult{ECookInputStatus::LimitExceeded, "Cook class metadata exceeds its record bound."});
+				uint64 SchemaBytes = Context.UsedCustomVersions.size() * sizeof(FGuid);
+				for (const auto* Names : {&Context.ConstructedClasses, &Context.VersionCoveredClasses})
+					for (const auto& Entry : *Names) {
+						if (Entry.empty() || Entry.size() > 4096 || Entry.find('\0') != std::string::npos)
+							return Fail(FCookInputResult{ECookInputStatus::InvalidDependency, "Invalid Cook class metadata name."});
+						SchemaBytes += Entry.size();
+					}
 				for (const auto& Declaration : Context.Dependencies)
 					SchemaBytes += Declaration.LogicalName.size() + Declaration.Value.size()
 						+ Declaration.FilePath.native().size() * sizeof(std::filesystem::path::value_type);
 				if (!TryRetainCookBytes(SchemaBytes, RetainedBytes, MaximumDiscoveryBytes))
 					return Fail(FCookInputFailure{.Error = ECookInputError::DependencyStorage, .Package = Path, .Name = Name,
 						.Actual = SchemaBytes, .Maximum = MaximumDiscoveryBytes, .Retained = RetainedBytes});
-				NativeSchemas.emplace(Name, std::move(Context.Dependencies));
+				Context.RequestValues.clear(); Context.RequestReader = {}; Context.IsCancelled = {};
+				NativeSchemas.emplace(Name, std::move(Context));
 			}
-			const auto& Declarations = NativeSchemas.at(Name);
+			const auto& Native = NativeSchemas.at(Name);
+			PreciseVersions &= Native.VersionCoveredClasses.contains(Name);
+			Input.bDependenciesComplete &= Native.bDependenciesComplete;
+			UsedVersions.insert(Native.UsedCustomVersions.begin(), Native.UsedCustomVersions.end());
+			for (const auto& Constructed : Native.ConstructedClasses)
+				if (Input.SchemaClasses.insert(Constructed).second) Classes.push_back(Constructed);
+			if (Classes.size() > MaximumCookDependencyRecords)
+				return Fail(FCookInputFailure{.Error = ECookInputError::DeclarationCount, .Package = Path, .Actual = Classes.size(), .Maximum = MaximumCookDependencyRecords});
+			const auto& Declarations = Native.Dependencies;
 			Input.DeclarationGroups.push_back(Declarations);
 			std::vector<FCookBuildDependency> Identity;
 			for (const auto& Declaration : Declarations)
@@ -180,20 +202,27 @@ namespace Durin::AssetPrivate
 					.Package = Path, .Kind = Result.Kind, .Name = Result.LogicalName, .Actual = Result.Actual, .Maximum = Result.Maximum});
 			SchemaNode.Inputs.push_back({ECookBuildDependencyKind::SchemaProducerVersion, "native-schema/" + Name, DigestValue(Encoded)});
 		}
-		FBinaryWriter Settings;
-		// A version bump can change instance dependency events or target selection,
-		// so it invalidates their cached projection as well as the output digest.
-		const auto ProjectionVersions = FCustomVersionRegistry::GetAll();
-		Settings.WriteU32(static_cast<uint32>(ProjectionVersions.size()));
-		for (const auto& Version : ProjectionVersions)
+		// A class hook may register a lazily constructed class after this run's
+		// initial catalog snapshot. Refresh only when its immutable schema is absent.
+		if (std::ranges::any_of(Input.SchemaClasses, [this](const auto& Name) { return !Schema.FindClass(Name); }))
+			Schema = FReflectionSchemaCatalog::Capture();
+		if (auto Result = CaptureSchema(Input, SchemaNode); !Result) return Result;
+		for (const auto& Version : FCustomVersionRegistry::GetAll())
 		{
-			Settings.WriteString(Version.Guid.ToString());
-			Settings.WriteU32(static_cast<uint32>(Version.CurrentVersion));
+			if (PreciseVersions && !UsedVersions.contains(Version.Guid)) continue;
+			FBinaryWriter Value;
+			Value.WriteU32(static_cast<uint32>(Version.CurrentVersion));
+			Input.VersionInputs.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
+				"custom-version/" + Version.Guid.ToString(), Value.TakeBytes()});
+			UsedVersions.erase(Version.Guid);
 		}
+		if (!UsedVersions.empty()) return Fail(FCookInputResult{ECookInputStatus::InvalidDependency, "Unknown declared Cook custom version: " + UsedVersions.begin()->ToString()});
+		SchemaNode.Inputs.insert(SchemaNode.Inputs.end(), Input.VersionInputs.begin(), Input.VersionInputs.end());
+		FBinaryWriter Settings;
 		Settings.WriteU32(static_cast<uint32>(Request.TargetPlatform));
 		Settings.WriteU32(static_cast<uint32>(Request.TargetProfile));
 		Settings.WriteU8(Request.bRetainEditorOnlyData);
-		for (const auto& Configuration : Request.MaterialConfigurations)
+		if (!PreciseVersions) for (const auto& Configuration : Request.MaterialConfigurations)
 		{
 			Settings.WriteU32(static_cast<uint32>(Configuration.Quality));
 			Settings.WriteU32(static_cast<uint32>(Configuration.FeatureLevel));
@@ -202,7 +231,7 @@ namespace Durin::AssetPrivate
 		if (auto Result = FingerprintCookBuildDependencies(SchemaNode.Inputs, Input.Projection.SchemaFingerprint); !Result)
 			return Fail(FCookInputResult{ECookInputStatus::InvalidDependency, FormatCookDependencyCodecError(Result)});
 		const auto Previous = PreviousProjections.find(Path.ToString());
-		bool bReuseProjection = Previous != PreviousProjections.end() && Previous->second->bReusable
+		bool bReuseProjection = Previous != PreviousProjections.end() && Previous->second->bCanReuseWithoutLoading && Input.bDependenciesComplete
 			&& Previous->second->SourceFingerprint == Input.Projection.SourceFingerprint
 			&& Previous->second->BulkFingerprint == Input.Projection.BulkFingerprint
 			&& Previous->second->SchemaFingerprint == Input.Projection.SchemaFingerprint;
@@ -263,6 +292,8 @@ namespace Durin::AssetPrivate
 				if (!Included) Input.ExcludedObjects.insert(Stored.ObjectPath);
 				Input.Projection.Records.push_back({ECookBuildDependencyKind::SourcePackage, Stored.ObjectPath, {Included ? std::byte{1} : std::byte{0}}});
 				Object->OnCookEvent(ECookEvent::PlatformCookDependencies, Context);
+				Input.bDependenciesComplete &= Context.bDependenciesComplete;
+				Input.Projection.bCanReuseWithoutLoading &= Context.bDependenciesComplete;
 				if (!Context.Result) return Fail(FCookInputResult{Context.Result.Error == EObjectCookError::Cancelled ? ECookInputStatus::Cancelled : ECookInputStatus::InvalidDependency, Context.Result.Diagnostic});
 				if (Context.Dependencies.size() > MaximumCookDependencyRecords) return Fail(FCookInputFailure{.Error = ECookInputError::DeclarationCount, .Package = Path, .Actual = Context.Dependencies.size(), .Maximum = MaximumCookDependencyRecords});
 				for (const auto& Declaration : Context.Dependencies)
@@ -277,12 +308,13 @@ namespace Durin::AssetPrivate
 						Record.Value.assign(Bytes.begin(), Bytes.end());
 					}
 					else if (Declaration.Kind == ECookBuildDependencyKind::ConfigurationValue || Declaration.Kind == ECookBuildDependencyKind::SchemaProducerVersion)
-						Input.Projection.bReusable = false; // No reevaluation function for an arbitrary instance-computed value.
+						Input.Projection.bCanReuseWithoutLoading = false; // No reevaluation function for an arbitrary instance-computed value.
 					Input.Projection.Records.push_back(std::move(Record));
 				}
 				Input.DeclarationGroups.push_back(std::move(Context.Dependencies));
 			}
 		}
+		Input.Projection.bCanReuseWithoutLoading &= Input.bDependenciesComplete;
 		uint64 Bytes = 0;
 		if (Input.Projection.Records.size() > MaximumCookDependencyRecords)
 			return Fail(FCookInputFailure{.Error = ECookInputError::DeclarationCount, .Package = Path, .Actual = Input.Projection.Records.size(), .Maximum = MaximumCookDependencyRecords});
@@ -402,9 +434,7 @@ namespace Durin::AssetPrivate
 
 	auto FCookDependencyDiscovery::CaptureSchema(FInput& Input, FCookPackageBuildInputs& Node) -> FCookInputResult
 	{
-		std::unordered_set<std::string> Names;
-		for (const auto& Object : Input.Inspection.Objects) Names.insert(Object.ClassName);
-		for (const auto& Name : Names)
+		for (const auto& Name : Input.SchemaClasses)
 		{
 			if (const auto Existing = SchemaValues.find(Name); Existing != SchemaValues.end())
 			{
@@ -605,7 +635,6 @@ namespace Durin::AssetPrivate
 		std::ranges::sort(OmittedPackages);
 		OmittedPackages.erase(std::unique(OmittedPackages.begin(), OmittedPackages.end()), OmittedPackages.end());
 
-		const auto CustomVersionDefinitions = FCustomVersionRegistry::GetAll();
 		std::vector<FCookPackageBuildInputs> Graph;
 		std::unordered_set<FPackagePath> Declared;
 		while (Declared.size() < Inputs.size())
@@ -619,14 +648,7 @@ namespace Durin::AssetPrivate
 				Declared.insert(Path);
 				auto& Input = Inputs.at(Path);
 				FCookPackageBuildInputs Node{.Package = Path};
-				// Include local format definitions before reuse is considered, including cooked-only formats.
-				for (const auto& Version : CustomVersionDefinitions)
-				{
-					FBinaryWriter Value;
-					Value.WriteU32(static_cast<uint32>(Version.CurrentVersion));
-					Node.Inputs.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
-						"custom-version/" + Version.Guid.ToString(), Value.TakeBytes()});
-				}
+				Node.Inputs = Input.VersionInputs;
 				Node.Inputs.push_back({ECookBuildDependencyKind::SourcePackage, Path.ToString(), Input.PackageIdentity});
 				Node.Inputs.push_back({ECookBuildDependencyKind::OwnedBulk, Path.ToString(), Input.BulkIdentity});
 				std::unordered_set<FPackagePath> Automatic;
@@ -638,7 +660,7 @@ namespace Durin::AssetPrivate
 					if (Automatic.insert(Dependency).second) Node.Packages.push_back({Dependency, true});
 				}
 				if (auto Result = CaptureSchema(Input, Node); !Result) return Result;
-				const bool bAllDeclared = Input.Projection.bReusable;
+
 				std::map<std::pair<ECookBuildDependencyKind, std::string>, FCookDependencyDeclaration> PackageDeclarations;
 				{
 					for (const auto& Declarations : Input.DeclarationGroups)
@@ -722,7 +744,7 @@ namespace Durin::AssetPrivate
 						}
 					}
 				}
-				Input.bDeclared = bAllDeclared;
+
 				for (const auto& Dependency : Input.Inspection.Header.BuildDependencies)
 				{
 					// Authored metadata is a scheduling aid. A Cook declaration owns
@@ -745,11 +767,10 @@ namespace Durin::AssetPrivate
 				Node.Packages.erase(std::unique(Node.Packages.begin(), Node.Packages.end(), [](const auto& A, const auto& B) {
 					return A.Package == B.Package;
 				}), Node.Packages.end());
+				for (const auto& Edge : Node.Packages) if (Edge.bTransitive) Input.TransitiveBuildPackages.push_back(Edge.Package);
 				Graph.push_back(std::move(Node));
 			}
 		}
-		for (const auto& [Path, Input] : Inputs)
-			if (!Input.bDeclared) UnversionedPackages.insert(Path.ToString());
 		FCookBuildDependencyGraph Dependencies;
 		if (const auto Initialized = Dependencies.Initialize(Graph); !Initialized)
 			return Fail(Initialized.ToInputResult());
@@ -768,12 +789,18 @@ namespace Durin::AssetPrivate
 		return {};
 	}
 
-	auto FCookDependencyDiscovery::IsReusable(const FPackagePath& Path) const -> bool
+	auto FCookDependencyDiscovery::CanReuseOutput(const FPackagePath& Path) const -> bool
 	{
-		if (!Inputs.at(Path).bDeclared) return false;
-		for (const auto& Dependency : Inputs.at(Path).Dependencies)
-			if (Dependency.Kind == ECookBuildDependencyKind::SourcePackage)
-				if (UnversionedPackages.contains(Dependency.LogicalName)) return false;
+		std::unordered_set<FPackagePath> Seen;
+		std::vector<FPackagePath> Pending{Path};
+		while (!Pending.empty()) {
+			auto Current = Pending.back(); Pending.pop_back();
+			if (!Seen.insert(Current).second) continue;
+			const auto& Input = Inputs.at(Current);
+			if (!Input.bDependenciesComplete) return false;
+			// A direct edge observes stable source/bulk, not the target's native inputs.
+			Pending.insert(Pending.end(), Input.TransitiveBuildPackages.begin(), Input.TransitiveBuildPackages.end());
+		}
 		return true;
 	}
 

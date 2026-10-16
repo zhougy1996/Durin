@@ -503,7 +503,7 @@ TEST(FCookStateTests, PersistsOmittedInputSelectionsAndReevaluableLocatorsCanoni
 	EXPECT_EQ(Decoded.Inputs[0].SourceFingerprint, State.Inputs[0].SourceFingerprint);
 	EXPECT_EQ(Decoded.Inputs[0].BulkFingerprint, State.Inputs[0].BulkFingerprint);
 	EXPECT_EQ(Decoded.Inputs[0].SchemaFingerprint, State.Inputs[0].SchemaFingerprint);
-	EXPECT_TRUE(Decoded.Inputs[0].bReusable);
+	EXPECT_TRUE(Decoded.Inputs[0].bCanReuseWithoutLoading);
 	FByteBuffer Again;
 	ASSERT_TRUE(EncodeCookState(Decoded, Again));
 	EXPECT_EQ(Again, Bytes);

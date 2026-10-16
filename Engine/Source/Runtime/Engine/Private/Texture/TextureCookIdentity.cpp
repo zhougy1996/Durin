@@ -49,9 +49,9 @@ namespace Durin::AssetPrivate
 namespace Durin
 {
 	auto DTexture2D::AppendToClassSchema(FObjectCookContext& Context) -> void
-	{ AssetPrivate::AppendNativeCookSchema(Context, "texture2d", 2, AssetPrivate::DeclareTexture2DCookInputs); }
+	{ Context.VersionCoveredClasses.insert("Durin::DTexture2D"); AssetPrivate::AppendNativeCookSchema(Context, "texture2d", 2, AssetPrivate::DeclareTexture2DCookInputs); }
 	auto DTextureCube::AppendToClassSchema(FObjectCookContext& Context) -> void
-	{ AssetPrivate::AppendNativeCookSchema(Context, "texture-cube", 2, AssetPrivate::DeclareTextureCubeCookInputs); }
+	{ Context.VersionCoveredClasses.insert("Durin::DTextureCube"); AssetPrivate::AppendNativeCookSchema(Context, "texture-cube", 2, AssetPrivate::DeclareTextureCubeCookInputs); }
 	auto DVolumeTexture::AppendToClassSchema(FObjectCookContext& Context) -> void
-	{ AssetPrivate::AppendNativeCookSchema(Context, "volume-texture", 2, AssetPrivate::DeclareVolumeTextureCookInputs); }
+	{ Context.VersionCoveredClasses.insert("Durin::DVolumeTexture"); AssetPrivate::AppendNativeCookSchema(Context, "volume-texture", 2, AssetPrivate::DeclareVolumeTextureCookInputs); }
 }

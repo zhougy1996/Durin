@@ -109,20 +109,43 @@ configuration/producer-version values. Declare package and external-file inputs
 in `OnCookEvent`, where the instance and package are available. This prevents a
 once-per-class cache from reusing declarations chosen for the first package.
 
-Engine begins every selected object before waiting on its operation completion
-adapter. The adapter joins owned work and reports bounded failure/cancellation;
-completion is checked independently of success. A still-incomplete operation fails
-rather than polling indefinitely. Scoped teardown joins every started operation
-and clears it after capture, including failure/cancellation and nested captures.
-Texture preparation uses its existing asynchronous platform cache; synchronous
-mesh/material preparation retains existing builders and typed outcomes.
+Engine starts independent selected objects before joining, subject to bounded
+admission. Mesh Begin captures immutable source/settings and physics-input tasks;
+worker work builds/encodes detached products without reading Mesh or BodySetup.
+Material Begin snapshots every configuration on the game thread and submits
+`FMaterialBuildOperation` requests; completed variants are encoded in canonical
+order, independent of callback order. Neither path publishes live editor resources.
+Texture retains its existing platform-cache lifecycle. Small/cooked-only paths and
+explicit synchronous adapters remain supported. Without a running task scheduler,
+detached adapters execute synchronously; ordinary load-time compilation retains its
+existing policy.
+
+`FAssetPackageSerializationOptions` defaults to four outstanding preparation
+reservations, 512 MiB of working reservations, and a separate 1 GiB retained-product
+limit. Reserve before capturing inputs; admission can join/adopt earlier operations
+to make progress under smaller budgets. Mesh uses checked geometry/physics envelopes;
+Material reserves 64 MiB per variant for snapshot, compilation and encoding overlap.
+Oversized work fails explicitly. Optional owner-thread `PreparationMetrics` report
+reservation peaks and retained product bytes, not physical allocator measurements.
+Scheduling limits do not enter recipe or output identities.
+
+Completion is distinct from success and from request termination. Common teardown
+cancels all outstanding work, joins owned tasks/requests and clears every started
+object, including failed, canceled and nested captures. Worker callbacks never need
+a game-thread pump to finish. Request cancellation is polled on the owner thread
+and latched into provider tokens. Joining is cooperative and has no hard timeout;
+a lifecycle query still reporting incomplete after its join adapter fails the save.
+Cross-package overlap and simultaneous targets on one object are unsupported.
 
 `PreSave` executes once per selected object before archive discovery/emission,
-for authored and cooked saves. Preparation/save hooks must not introduce an
-unprepared persistent object or alter the captured graph. They must not rewrite
-authored state or accepted live render programs. Heavy construction/DDC work stays
-outside serialization. Detached products remain bounded to one capture and exact
-target/revision; serializers consume them without starting build work.
+for authored and cooked saves. The persistent graph remains frozen: no new/deleted
+exports, reparenting or generated packages. Hooks may adjust supported transient
+save state but cannot rewrite authored state, accepted live programs or captured
+build inputs. Package edit revision and Mesh source/metadata/render and Material
+parent/function revisions are checked before product consumption and after capture.
+These guards supplement graph equality; direct untracked native writes remain
+unsupported. Heavy construction/DDC work stays outside serialization and PreSave.
+Detached products are bounded to one capture and exact target/revision.
 
 `IsEditorOnly` and `NeedsLoadForTargetPlatform` determine Cook exclusion, including
 excluded ancestors. Material functions are editor-only but remain build inputs.
@@ -154,16 +177,20 @@ process are valid; ordinary non-Cook load/mutation admission remains unchanged.
 
 Object overrides prepare derived state without saving authored files. The common
 publisher captures each retained package once. `FScopedOfflinePreparation` selects
-synchronous Material work and prevents StaticMesh editor compilation during offline
-loading. It does not gate ordinary mutation or loading.
+ordinary synchronous load-time preparation and suppresses StaticMesh editor
+compilation during offline loading. Explicit detached Cook preparation can run
+asynchronously within that scope. Ordinary mutation/loading admission is unchanged.
 
 Class schemas are evaluated before reuse without constructing assets. Object
 `OnCookEvent(PlatformCookDependencies)` declarations and eligibility are evaluated
-on a miss and recorded for reevaluation. Complete unchanged projections allow a
-warm hit without asset construction. Missing/legacy projections require loading;
-arbitrary instance-computed configuration/schema values have no reevaluation
-function and deliberately prevent reuse. Empty default hooks are complete and
-need no generic-family registration.
+on a projection miss and recorded for reevaluation. Projection
+`bCanReuseWithoutLoading` is independent of current dependency completeness and
+output fingerprint comparison. Arbitrary instance-computed configuration/schema
+values require loading and reevaluation each run; unchanged complete values can
+still hit outputs without preparing or recapturing. Hooks with genuinely untracked
+inputs set `bDependenciesComplete = false`; incompleteness propagates through
+transitive build edges, while direct edges observe only source/bulk. Empty default
+hooks follow the complete-declaration contract and need no family registration.
 
 Declarations use stable logical names and these semantics:
 
@@ -191,17 +218,32 @@ use ordinary stable files. Sky Light references are normal TextureCube package
 dependencies; filtered lighting is transient GPU state, with no external IBL
 payload. StaticMesh pending authored mutation remains an invalid offline input.
 
-`CookState.bin` version 4 persists output dependency records and a separate input
-projection table, including omitted/build-only packages. Projections bind source,
-bulk, registered custom-version definitions and current reflected/native schema
-fingerprints to object selections and
-instance declaration descriptors. External file descriptors retain acquisition
-locators separately from content identities. Class schema values are recomputed
-for each run. Versions 1/2/3, invalid, duplicate, truncated or incompatible state
-become safe misses; Cook never repairs or resaves authored inputs. Custom-version
-changes invalidate both the output and the object/dependency projection before
-reuse. Tracking all local custom versions is conservative: it can invalidate
-unrelated packages, unlike UE's per-class used-version tracking.
+Class-owned `VersionCoveredClasses` explicitly qualifies exact class names after
+an audit of inherited/nested native behavior. New subclasses do not inherit that
+qualification implicitly. `UsedCustomVersions` identifies current local definitions,
+including policy and Cook-only paths before projection reuse. Source-recorded GUIDs
+also contribute their current local versions. Missing definitions fail discovery.
+`ConstructedClasses` adds a bounded closure of reflected/native schemas even when
+those classes are absent from authored exports. This metadata uses the object/type
+system and introduces no separate evaluator registry.
+
+Qualified packages hash only used custom versions and class-declared governing
+configuration inputs. Unknown/incomplete class coverage retains all registered
+versions and conservative request settings. Built-in texture leaves, StaticMesh and
+material owners declare audited coverage; unaudited children such as expression,
+import and BodySetup classes retain package fallback. Material owners conservatively
+retain the material-domain versions. Build-only classes remain dependencies after
+runtime stripping. Automatic hard imports remain transitive; explicit declarations
+retain their direct/transitive semantics. Native behavior changes still require
+an appropriate schema/version bump.
+
+`CookState.bin` version 5 persists output dependencies and a separate input projection
+table, including omitted/build-only packages. Projections bind source, bulk and current
+reflected/native/version/schema inputs to object selections and descriptors. External
+file descriptors keep locators separate from content identities. Class schemas are
+recomputed each run. Earlier, invalid, duplicate, truncated or incompatible state
+becomes a safe miss without legacy migration readers. Cook never repairs or resaves
+authored inputs; authored package compatibility remains independent of CookState.
 
 A hit additionally validates output size/digest and retains those exact buffers.
 Missing/corrupt output is recaptured and repaired. Hits, fresh captures and dry

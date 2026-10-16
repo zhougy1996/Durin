@@ -34,10 +34,12 @@
 #include "Serialization/BinaryFormat.h"
 #include "Serialization/CustomVersion.h"
 #include "StaticMesh/StaticMesh.h"
+#include "Physics/BodySetup.h"
 #include "Threading/Task.h"
 
 #include <gtest/gtest.h>
 #include "../../../../Source/Runtime/Engine/Private/Materials/MaterialTranslation.h"
+#include "../../../../Source/Runtime/Engine/Private/Materials/MaterialBuildOperation.h"
 
 namespace
 {
@@ -270,6 +272,76 @@ TEST_F(FCookFunctionalTests, CancellationJoinsAndClearsEveryStartedOperationWith
 	EXPECT_TRUE(Cook.GetSavePlans().empty());
 }
 
+TEST_F(FCookFunctionalTests, DetachedPreparationOverlapsAndAdmissionCanDrainOneSlot)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("CookAsyncAdmission");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/AsyncAdmission", Path));
+	auto* Package = CreatePackage(Path);
+	NewObject<DCookReferenceFixture>(Package, "First");
+	NewObject<DCookReferenceFixture>(Package, "Second");
+	std::mutex Mutex; std::condition_variable Changed;
+	uint32 Entered = 0;
+	bool RequireOverlap = true;
+	DCookReferenceFixture::PrepareHook = [&](DObject&, std::string_view, FCookPreparationContext& Context) -> FCookContributionResult {
+		if (Context.ReserveWorkingSet(1024)) Context.StartDetachedWork([&](const FAssetBuildTaskContext&) -> std::expected<FCookPreparationProducts, std::string> {
+			std::unique_lock Lock(Mutex); ++Entered; Changed.notify_all();
+			if (RequireOverlap && !Changed.wait_for(Lock, std::chrono::seconds(5), [&] { return Entered == 2; }))
+				return std::unexpected("Independent Cook tasks failed to overlap.");
+			return FCookPreparationProducts{};
+		});
+		return {};
+	};
+	FAssetPackageSerializationOptions Options{.Domain = EAssetPackageSaveDomain::Cooked,
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	Options.MaximumConcurrentPreparation = 2; Options.MaximumPreparationWorkingSetBytes = 2048;
+	FCookPreparationMetrics Metrics; Options.PreparationMetrics = &Metrics;
+	FByteBuffer Bytes;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Bytes, Options));
+	EXPECT_EQ(Entered, 2u); EXPECT_EQ(DCookReferenceFixture::Clears, 2u);
+	EXPECT_EQ(Metrics.AdmittedOperations, 2u); EXPECT_EQ(Metrics.PeakAdmittedOperations, 2u);
+	EXPECT_EQ(Metrics.PeakReservedBytes, 2048u);
+	RequireOverlap = false; Entered = 0;
+	Options.MaximumConcurrentPreparation = 1; Options.MaximumPreparationWorkingSetBytes = 1024;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Bytes, Options));
+	EXPECT_EQ(Entered, 2u); EXPECT_EQ(DCookReferenceFixture::Clears, 4u);
+	EXPECT_EQ(Metrics.PeakAdmittedOperations, 1u); EXPECT_EQ(Metrics.PeakReservedBytes, 1024u);
+	RecordProperty("single_slot_peak_reserved_bytes", Metrics.PeakReservedBytes);
+	Options.MaximumPreparationWorkingSetBytes = 512;
+	Entered = 0;
+	EXPECT_FALSE(SerializeAssetPackageBytes(Package, Bytes, Options));
+	EXPECT_EQ(Entered, 0u);
+}
+
+TEST_F(FCookFunctionalTests, DetachedFailureCancelsAndJoinsOtherStartedWork)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("CookAsyncFailure");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/AsyncFailure", Path));
+	auto* Package = CreatePackage(Path);
+	NewObject<DCookReferenceFixture>(Package, "First"); NewObject<DCookReferenceFixture>(Package, "Second");
+	std::atomic<uint32> Ended = 0;
+	uint32 Index = 0;
+	DCookReferenceFixture::PrepareHook = [&](DObject&, std::string_view, FCookPreparationContext& Context) -> FCookContributionResult {
+		const bool Fail = Index++ == 0;
+		if (Context.ReserveWorkingSet(1024)) Context.StartDetachedWork([&, Fail](const FAssetBuildTaskContext& Control) -> std::expected<FCookPreparationProducts, std::string> {
+			if (!Fail) {
+				const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+				while (!Control.IsCancelled() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+			}
+			++Ended; return std::unexpected("Injected Cook failure.");
+		});
+		return {};
+	};
+	FCookContext Cook(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	EXPECT_FALSE(Cook.AddPackage(Path.ToString(), Package));
+	// A queued canceled operation may exit before invoking its work body.
+	EXPECT_GE(Ended.load(), 1u); EXPECT_EQ(DCookReferenceFixture::Clears, 2u);
+	EXPECT_TRUE(Cook.GetSavePlans().empty());
+}
+
 TEST_F(FCookFunctionalTests, IncompleteOperationsFailWithoutPollingOrPublishing)
 {
 	const auto Fixture = Testing::CreateTestFixtureDirectory("CookLifecycleIncomplete");
@@ -304,6 +376,143 @@ TEST_F(FCookFunctionalTests, PreparationCannotAddAnUnpreparedPersistentObject)
 	EXPECT_FALSE(Cook.AddPackage(Path.ToString(), Package));
 	EXPECT_EQ(DCookReferenceFixture::Clears, 1u);
 	EXPECT_TRUE(Cook.GetSavePlans().empty());
+}
+
+TEST_F(FCookFunctionalTests, MultipleMeshesProduceIdenticalBytesAcrossAdmissionBudgets)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("CookMeshBudgets");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/MeshBudgets", Path));
+	auto* Package = CreatePackage(Path);
+	for (uint32 Index = 0; Index < 3; ++Index) {
+		auto* Mesh = NewObject<DStaticMesh>(Package, FName(std::format("Mesh{}", Index)));
+		FMeshDescription Geometry; Geometry.PolygonGroups.push_back({"Material", 0, "Material"});
+		auto& Section = Geometry.Sections.emplace_back(); Section.Name = "Tetrahedron";
+		Section.Positions = {{0,0,0}, {1,0,0}, {0,1,0}, {0,0,1}};
+		Section.Indices = {0,2,1, 0,1,3, 1,2,3, 2,0,3};
+		FStaticMeshSource Source; ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
+		*DStaticMesh::StaticClass()->FindPropertyByName("Source")->ContainerPtrToValuePtr<FStaticMeshSource>(Mesh) = std::move(Source);
+		*DStaticMesh::StaticClass()->FindPropertyByName("MaterialSlots")->ContainerPtrToValuePtr<std::vector<FMeshMaterialSlotDefinition>>(Mesh) = {{.Name = "Material"}};
+		if (Index) {
+			auto* Body = NewObject<DBodySetup>(Mesh, "BodySetup");
+			Body->SetCollisionSourceMode(Index == 1 ? EBodySetupCollisionSourceMode::ConvexHullFromLOD0 : EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+			ASSERT_TRUE(Mesh->SetBodySetup(Body));
+		}
+	}
+	FAssetPackageSerializationOptions Options{.Domain = EAssetPackageSaveDomain::Cooked,
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	FByteBuffer Concurrent, Sequential;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Concurrent, Options));
+	Options.MaximumConcurrentPreparation = 1;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Sequential, Options));
+	EXPECT_EQ(Concurrent, Sequential);
+	for (auto* Object : Package->GetTopLevelAssets()) {
+		auto* Mesh = Cast<DStaticMesh>(Object); ASSERT_NE(Mesh, nullptr);
+		EXPECT_FALSE(Mesh->GetCookedRenderData().HasData());
+		EXPECT_FALSE(Mesh->GetCookedCollisionData().HasData());
+		EXPECT_EQ(Mesh->GetRenderData(), nullptr);
+	}
+}
+
+TEST_F(FCookFunctionalTests, MaterialVariantsOverlapAndShuffledDeliveryKeepsMixedPackageBytes)
+{
+	Testing::FScopedRHIBackendOverride Backend("vulkan");
+	const auto Fixture = Testing::CreateTestFixtureDirectory("CookMaterialAsyncVariants");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/AsyncVariants", Path));
+	auto* Package = CreatePackage(Path);
+	auto* Material = NewObject<DMaterial>(Package, "Material");
+	auto Properties = Material->GetStaticProperties(); Properties.BlendMode = EMaterialBlendMode::Masked; Properties.OpacityMaskThreshold = 0.473237f;
+	ASSERT_TRUE(Material->SetStaticProperties(Properties));
+	auto* Mesh = NewObject<DStaticMesh>(Package, "Mesh");
+	FMeshDescription Geometry; Geometry.PolygonGroups.push_back({"Material", 0, "Material"});
+	auto& Section = Geometry.Sections.emplace_back(); Section.Name = "Triangle";
+	Section.Positions = {{0,0,0}, {1,0,0}, {0,1,0}}; Section.Indices = {0,1,2};
+	FStaticMeshSource Source; ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
+	*DStaticMesh::StaticClass()->FindPropertyByName("Source")->ContainerPtrToValuePtr<FStaticMeshSource>(Mesh) = std::move(Source);
+	*DStaticMesh::StaticClass()->FindPropertyByName("MaterialSlots")->ContainerPtrToValuePtr<std::vector<FMeshMaterialSlotDefinition>>(Mesh) = {{.Name = "Material", .DefaultMaterial = Material}};
+	const auto Accepted = Material->GetAcceptedCompiledProgram();
+	const auto GameThreadProducers = MaterialBuildPrivate::GetTranslationStats().GameThreadProducers;
+	std::mutex Mutex; std::condition_variable Delivered;
+	bool HighDelivered = false;
+	std::vector<EMaterialQualityLevel> Order;
+	struct FResetHook { ~FResetHook() { MaterialBuildPrivate::SetMaterialBuildCompletionHookForTests({}); } } Reset;
+	MaterialBuildPrivate::SetMaterialBuildCompletionHookForTests([&](EMaterialQualityLevel Quality, bool Before) {
+		std::unique_lock Lock(Mutex);
+		if (Before && Quality == EMaterialQualityLevel::Low)
+			EXPECT_TRUE(Delivered.wait_for(Lock, std::chrono::seconds(5), [&] { return HighDelivered; }));
+		if (!Before) {
+			Order.push_back(Quality);
+			if (Quality == EMaterialQualityLevel::High) { HighDelivered = true; Delivered.notify_all(); }
+		}
+	});
+	FAssetPackageSerializationOptions Options{.Domain = EAssetPackageSaveDomain::Cooked,
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	Options.MaterialConfigurations = {{EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5}, {EMaterialQualityLevel::High, ERHIFeatureLevel::SM5}};
+	FByteBuffer Shuffled, Sequential;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Shuffled, Options));
+	ASSERT_FALSE(Order.empty()); EXPECT_EQ(Order.front(), EMaterialQualityLevel::High);
+	MaterialBuildPrivate::SetMaterialBuildCompletionHookForTests({});
+	Options.MaximumConcurrentPreparation = 1;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Sequential, Options));
+	EXPECT_EQ(Shuffled, Sequential);
+	// Qualify several material owners separately from the controlled callback stall,
+	// so a two-worker scheduler cannot be occupied by two deliberately stalled lows.
+	auto* Instance = NewObject<DMaterialInstance>(Package, "Instance"); ASSERT_TRUE(Instance->SetParent(Material));
+	NewObject<DMaterial>(Package, "Duplicate");
+	Options.MaximumConcurrentPreparation = 4;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Shuffled, Options));
+	Options.MaximumConcurrentPreparation = 1;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Sequential, Options));
+	EXPECT_EQ(Shuffled, Sequential);
+	EXPECT_EQ(MaterialBuildPrivate::GetTranslationStats().GameThreadProducers, GameThreadProducers);
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
+	EXPECT_FALSE(Material->GetCookedProgramData().HasData());
+	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
+}
+
+TEST_F(FCookFunctionalTests, MaterialCancellationAfterResultReadinessJoinsBeforeReturning)
+{
+	Testing::FScopedRHIBackendOverride Backend("vulkan");
+	const auto Fixture = Testing::CreateTestFixtureDirectory("CookMaterialCancelReady");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/CancelReady", Path));
+	auto* Package = CreatePackage(Path); NewObject<DMaterial>(Package, "Material");
+	std::atomic<bool> Ready = false, Observed = false;
+	struct FResetHook { ~FResetHook() { MaterialBuildPrivate::SetMaterialBuildCompletionHookForTests({}); } } Reset;
+	MaterialBuildPrivate::SetMaterialBuildCompletionHookForTests([&](EMaterialQualityLevel, bool Before) {
+		if (Before && !Ready.exchange(true)) {
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+			while (!Observed.load() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+			EXPECT_TRUE(Observed.load());
+		}
+	});
+	FAssetPackageSerializationOptions Options{.Domain = EAssetPackageSaveDomain::Cooked,
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	Options.MaterialConfigurations = {{EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5}, {EMaterialQualityLevel::High, ERHIFeatureLevel::SM5}};
+	Options.IsCancelled = [&] { if (!Ready.load()) return false; Observed = true; return true; };
+	FByteBuffer Bytes;
+	EXPECT_FALSE(SerializeAssetPackageBytes(Package, Bytes, Options));
+	EXPECT_TRUE(Observed.load()); EXPECT_TRUE(Bytes.empty());
+}
+
+TEST_F(FCookFunctionalTests, PreSaveStillRejectsGraphGrowthAndInputMutation)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("CookPreSaveFreeze");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/PreSaveFreeze", Path));
+	auto* Package = CreatePackage(Path); auto* Root = NewObject<DCookReferenceFixture>(Package, "Root");
+	DCookReferenceFixture::SaveHook = [&](FObjectPreSaveContext&) { Package->MarkDirty(); };
+	FCookContext Cook(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	EXPECT_FALSE(Cook.AddPackage(Path.ToString(), Package)); EXPECT_TRUE(Cook.GetSavePlans().empty());
+	DCookReferenceFixture::SaveHook = [&](FObjectPreSaveContext&) { NewObject<DObject>(Root, "Unexpected"); };
+	FCookContext SecondCook(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	EXPECT_FALSE(SecondCook.AddPackage(Path.ToString(), Package)); EXPECT_TRUE(SecondCook.GetSavePlans().empty());
+	EXPECT_EQ(DCookReferenceFixture::Begins, 2u);
 }
 
 TEST_F(FCookFunctionalTests, MacOSMeshCollisionTargetBaseline)
@@ -805,7 +1014,141 @@ TEST_F(FCookFunctionalTests, SecondaryClassSchemasControlReuseAndConflicts)
 	Version = 3;
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
-	EXPECT_NE(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+}
+
+TEST_F(FCookFunctionalTests, LoadedInstanceValuesCanHitButIncompleteInputsCannot)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("LoadedValueReuse");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/LoadedValue", Path));
+	auto* Package = CreatePackage(Path);
+	ASSERT_NE(NewObject<DCookReferenceFixture>(Package, "Source"), nullptr);
+	ASSERT_TRUE(SavePackage(Package)); ASSERT_TRUE(UnloadPackage(Package));
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	uint8 Value = 1;
+	uint32 Evaluations = 0;
+	bool Complete = true;
+	DCookReferenceFixture::InstanceHook = [&](FObjectCookContext& Context) {
+		++Evaluations;
+		Context.bDependenciesComplete = Complete;
+		Context.Dependencies.push_back({ECookBuildDependencyKind::ConfigurationValue, "instance-value", {}, {std::byte{Value}}});
+	};
+	FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
+	FCookRunResult Result;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(DCookReferenceFixture::Begins, 1u);
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Evaluations, 2u);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+	EXPECT_EQ(DCookReferenceFixture::Begins, 1u);
+	Value = 2;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::Captured);
+	EXPECT_EQ(DCookReferenceFixture::Begins, 2u);
+	Complete = false;
+	for (uint32 Index = 0; Index < 2; ++Index) {
+		ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+		EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::Captured);
+	}
+}
+
+TEST_F(FCookFunctionalTests, QualifiedSchemasIgnoreUnrelatedInputsAndObserveConstructedClasses)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("ScopedCookVersions");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/ScopedVersions", Path));
+	auto* Package = CreatePackage(Path);
+	ASSERT_NE(NewObject<DCookReferenceFixture>(Package, "Source"), nullptr);
+	ASSERT_TRUE(SavePackage(Package)); ASSERT_TRUE(UnloadPackage(Package));
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	auto Version = FGuid::NewGuid();
+	ASSERT_TRUE(FCustomVersionRegistry::Register({Version, 7, "ScopedCookVersion"}));
+	bool CompleteCoverage = true;
+	DCookReferenceFixture::SchemaHook = [&](FObjectCookContext& Context) {
+		if (CompleteCoverage) Context.VersionCoveredClasses.insert(DCookReferenceFixture::StaticClass()->GetQualifiedName().ToString());
+		Context.UsedCustomVersions.insert(Version);
+		Context.ConstructedClasses.insert(DCookSecondaryFixture::StaticClass()->GetQualifiedName().ToString());
+	};
+	uint8 ConstructedVersion = 1;
+	DCookSecondaryFixture::SecondarySchema = [&](FObjectCookContext& Context) {
+		Context.VersionCoveredClasses.insert(DCookSecondaryFixture::StaticClass()->GetQualifiedName().ToString());
+		Context.Dependencies.push_back({ECookBuildDependencyKind::SchemaProducerVersion, "constructed-version", {}, {std::byte{ConstructedVersion}}});
+	};
+	FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
+	FCookRunResult Result;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	const auto Constructions = DCookReferenceFixture::Constructions;
+	ASSERT_TRUE(FCustomVersionRegistry::Register({FGuid::NewGuid(), 1, "UnrelatedCookVersion"}));
+	Request.MaterialConfigurations = {{EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5}};
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+	EXPECT_EQ(DCookReferenceFixture::Constructions, Constructions);
+	// A Cook-only declared version is current even though it was absent in the source file.
+	Version = FGuid::NewGuid();
+	ASSERT_TRUE(FCustomVersionRegistry::Register({Version, 8, "ScopedCookOnlyVersion"}));
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::Captured);
+	ConstructedVersion = 2;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::Captured);
+	CompleteCoverage = false;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+	ASSERT_TRUE(FCustomVersionRegistry::Register({FGuid::NewGuid(), 1, "FallbackCookVersion"}));
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::Captured);
+}
+
+TEST_F(FCookFunctionalTests, IncompleteNativeInputsPropagateOnlyThroughTransitiveBuildEdges)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("CookIncompleteEdges");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Root, Build;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/EdgeRoot", Root));
+	ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/EdgeBuild", Build));
+	for (const auto& Path : {Root, Build}) {
+		auto* Package = CreatePackage(Path); NewObject<DCookReferenceFixture>(Package, "Source");
+		ASSERT_TRUE(SavePackage(Package)); ASSERT_TRUE(UnloadPackage(Package));
+	}
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	uint8 Policy = 1, Value = 1;
+	bool Complete = false;
+	DCookReferenceFixture::SchemaHook = [&](FObjectCookContext& Context) {
+		Context.Dependencies.push_back({ECookBuildDependencyKind::SchemaProducerVersion, "edge-policy", {}, {std::byte{Policy}}});
+	};
+	DCookReferenceFixture::InstanceHook = [&](FObjectCookContext& Context) {
+		if (Context.Package == Root.ToString()) Context.Dependencies.push_back({Policy == 1 ? ECookBuildDependencyKind::DirectPackage : ECookBuildDependencyKind::TransitivePackage, Build.ToString()});
+		else {
+			Context.bDependenciesComplete = Complete;
+			Context.Dependencies.push_back({ECookBuildDependencyKind::ConfigurationValue, "build-value", {}, {std::byte{Value}}});
+		}
+	};
+	FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Root}};
+	FCookRunResult Result;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	++Value;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	ASSERT_EQ(Result.Packages.size(), 1u); EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+	Policy = 2;
+	for (uint32 Index = 0; Index < 2; ++Index) {
+		ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+		EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::Captured);
+	}
+	Complete = true;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+	++Value;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << FormatCookRunError(Result);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::Captured);
 }
 
 TEST_F(FCookFunctionalTests, CustomVersionsInvalidateStoredObjectDeclarations)

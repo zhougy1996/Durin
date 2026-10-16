@@ -34,7 +34,7 @@ namespace Durin::AssetPrivate
 		auto GetOmittedPackages() const -> const std::vector<FPackagePath>& { return OmittedPackages; }
 		auto GetStatus() const -> ECookInputStatus { return Failure.Status; }
 		auto GetFailureInfo() const -> std::shared_ptr<const FCookInputFailure> { return Failure.GetDiagnostic(); }
-		auto IsReusable(const FPackagePath& Path) const -> bool;
+		auto CanReuseOutput(const FPackagePath& Path) const -> bool;
 	private:
 		struct FInput
 		{
@@ -45,8 +45,11 @@ namespace Durin::AssetPrivate
 			std::vector<FAssetReferenceEdge> References;
 			std::vector<FCookBuildDependency> Dependencies;
 			std::map<std::pair<ECookBuildDependencyKind, std::string>, FByteBuffer> DeclaredValues;
-			bool bDeclared = false;
+			bool bDependenciesComplete = true;
 			FCookInputProjection Projection;
+			std::set<std::string> SchemaClasses;
+			std::vector<FCookBuildDependency> VersionInputs;
+			std::vector<FPackagePath> TransitiveBuildPackages;
 			std::unordered_set<std::string> ExcludedObjects;
 			std::vector<std::vector<FCookDependencyDeclaration>> DeclarationGroups;
 		};
@@ -64,13 +67,12 @@ namespace Durin::AssetPrivate
 		FAssetRegistrySnapshot Registry;
 		FAssetPackageLoadScope& LoadScope;
 		std::unordered_map<std::string, const FCookInputProjection*> PreviousProjections;
-		std::unordered_map<std::string, std::vector<FCookDependencyDeclaration>> NativeSchemas;
+		std::unordered_map<std::string, FObjectCookContext> NativeSchemas;
 		FReflectionSchemaCatalog Schema;
 		std::string ShaderBuildIdentity;
 		std::unordered_map<std::string, FByteBuffer> SchemaValues;
 		FCookInputResult Failure;
 		std::unordered_map<FPackagePath, FInput> Inputs;
-		std::unordered_set<std::string> UnversionedPackages;
 		std::vector<FPackagePath> RuntimePackages;
 		std::vector<FPackagePath> OmittedPackages;
 		uint64 RetainedBytes = 0;
