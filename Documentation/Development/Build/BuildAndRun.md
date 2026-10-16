@@ -82,7 +82,7 @@ it accepts valid automatic or already-configured settings and fails with an
 actionable message instead of waiting for input.
 Because Setup must install DurinDevTool's Python packages, its terminal styling
 uses a standard-library-only fallback until the prepared environment is ready.
-`setup --plain` and `NO_COLOR` disable that styling as usual.
+`setup --color never` and `NO_COLOR` disable that styling as usual.
 
 In a normal checkout, `DevTool setup` creates `.venv` and installs the pinned
 Python dependencies from `requirements.txt` (including the `clang.cindex`
@@ -292,7 +292,7 @@ unusable or incompatible build tree always fresh-configure before building.
 
 For output modes, command logs, and heartbeats, see
 [Command output and logs](../Tooling/DurinDevTool.md#command-output-and-logs).
-Use `--output full` for complete streamed diagnostics; `--plain` disables styling.
+Use `--log-mode full` for complete streamed diagnostics; `--color never` disables styling.
 macOS application-hosted tests use the ordinary `test` commands and require the
 [application-test admission workflow](NativeTests.md#application-hosted-tests).
 
@@ -428,7 +428,7 @@ IDE indexing.
 ## Asset Maintenance
 
 `asset` uses the configured game project and defaults to read-only `check`.
-Override the project with `--project <descriptor>`; add `--json` for automation.
+Override the project with `--project <descriptor>`; add `--format json` for automation.
 
 | Command | Purpose |
 | --- | --- |

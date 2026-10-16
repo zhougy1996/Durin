@@ -290,7 +290,7 @@ def run_shell(
             command_io = CommandIO(
                 stdout,
                 stderr,
-                plain=bool(getattr(namespace, "plain", False)),
+                color=str(getattr(namespace, "color", "auto")),
             )
             result = registry.execute(
                 spec,

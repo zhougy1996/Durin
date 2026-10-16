@@ -3,21 +3,21 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .common_specs import CONTEXT_ARGUMENTS, DISPLAY_ARGUMENTS, PLAIN, PRESET, PROFILE
+from .common_specs import CONTEXT_ARGUMENTS, DISPLAY_ARGUMENTS, COLOR, PRESET, PROFILE
 from .specification import ArgumentSpec, CommandSpec, argument
 
 
 CMAKE = argument("--cmake", group="advanced options", help="CMake executable override")
 ENVIRONMENT_SETUP = argument("--environment-setup", group="advanced options", help="toolchain environment script override")
 JOBS = argument("--jobs", type=int, choices=range(1, 257), metavar="1..256", help="build job limit")
-OUTPUT_MODE = argument(
-    "--output", dest="output_mode", choices=("auto", "compact", "progress", "full"),
+LOG_MODE = argument(
+    "--log-mode", dest="output_mode", choices=("auto", "compact", "progress", "full"),
     group="advanced options",
-    default=None, help="child output mode (default: auto)",
+    default=None, help="child log presentation (default: auto)",
 )
-CHILD_OUTPUT_ARGUMENTS = (PLAIN, OUTPUT_MODE)
-TOOL_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, PLAIN, OUTPUT_MODE)
-STATUS_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, PLAIN)
+CHILD_OUTPUT_ARGUMENTS = (COLOR, LOG_MODE)
+TOOL_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, COLOR, LOG_MODE)
+STATUS_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, COLOR)
 BUILD_TARGET = argument("target", nargs="?", default="all", metavar="TARGET", help="CMake target (default: all)")
 HANDLER = "durin_dev_tool.build.handler:run"
 
@@ -56,7 +56,7 @@ CREATE_MODULE = build_command(
         argument("--optional-private-dependency", dest="optional_private_dependencies", action="append", default=None),
         argument("--enable", dest="enablements", action="append", default=None),
         argument("--dry-run", action="store_true"),
-        PLAIN,
+        COLOR,
     ),
     action="create-module",
 )
@@ -66,15 +66,15 @@ CREATE_PROJECT = build_command(
         argument("create_name", metavar="NAME"),
         argument("--path", dest="destination_path", type=Path, required=True),
         argument("--dry-run", action="store_true"),
-        PLAIN,
+        COLOR,
     ),
     action="create-project",
 )
 
 COMMAND_SPECS = (
-    build_command("stop", "stop the active build operation", (PLAIN,)),
+    build_command("stop", "stop the active build operation", (COLOR,)),
     build_command("presets", "list registered presets", CONTEXT_ARGUMENTS + DISPLAY_ARGUMENTS, help_group="Inspect"),
-    build_command("preset", "inspect a selected preset", (argument("selected_preset", nargs="?", default=""), PROFILE, PLAIN), help_group="Inspect"),
+    build_command("preset", "inspect a selected preset", (argument("selected_preset", nargs="?", default=""), PROFILE, COLOR), help_group="Inspect"),
     build_command("status", "show build context and toolchain state", STATUS_ARGUMENTS, help_group="Inspect"),
     build_command(
         "path", "print a registered repository location",
@@ -112,7 +112,7 @@ COMMAND_SPECS = (
     ),
     build_command(
         "test", "list, explain, build, and run native-test selections",
-        (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, PLAIN, OUTPUT_MODE) + (
+        (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, COLOR, LOG_MODE) + (
             argument("selection", nargs="?", default="", metavar="SELECTION", help="target, @set selector, affected, fast-all, all, or list"),
             argument("case_filter", nargs="?", default="", metavar="FILTER", help="GoogleTest Suite.Case filter; query text for test list"),
             argument("--isolate", action="store_true", help="run each case in a separate process (named target or @set; routine mode only)"),

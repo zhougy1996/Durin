@@ -38,8 +38,8 @@ COMMAND_CASES = (
     (("rebuild",), "rebuild"),
     (("test",), "test"),
     (("run",), "run"),
-    (("cook",), "cook --output Saved/Cooked --target win64"),
-    (("asset", "check"), "asset check --json"),
+    (("cook",), "cook --output-dir Saved/Cooked --target win64"),
+    (("asset", "check"), "asset check --format json"),
     (("asset", "identity-audit"), "asset identity-audit --project Sandbox/Sandbox.dproject"),
     (("asset", "material-functions"), "asset material-functions --project Sandbox/Sandbox.dproject"),
     (("asset", "material-template"), "asset material-template /Game/Materials/PBRSurfaceMaterial_MR --project Sandbox/Sandbox.dproject"),
@@ -153,6 +153,35 @@ def comparable_namespace(namespace: object) -> dict[str, object]:
 
 
 class TestCommandGrammarContract:
+
+    def test_output_parameters_have_one_meaning(self) -> None:
+        registry = CommandRegistry()
+        _, build = registry.parse(['build', 'Core', '--log-mode', 'full', '--color', 'never'])
+        assert build.output_mode == 'full'
+        assert build.color == 'never'
+        _, cook = registry.parse(['cook', '--output-dir', 'Build/Cook', '--format', 'json'])
+        assert cook.output_path == Path('Build/Cook')
+        assert cook.output_format == 'json'
+        for command in (['asset'], ['asset', 'check'], ['asset', 'resave', '/Game']):
+            _, report = registry.parse([*command, '--format', 'json'])
+            assert report.output_format == 'json'
+
+    @pytest.mark.parametrize('arguments', [
+        ['build', '--output', 'full'], ['build', '--plain'], ['build', '--log', 'full'],
+        ['cook', '--output', 'Build/Cook'], ['cook', '--output-dir', 'Build/Cook', '--json'],
+        ['asset', '--json'], ['asset', 'resave', '/Game', '--json'],
+        ['build', '--output-dir', 'Build/Cook'], ['build', '--format', 'json'],
+        ['cook', '--output-dir', 'Build/Cook', '--log-mode', 'full'],
+    ])
+    def test_removed_or_inapplicable_output_options_are_rejected(self, arguments) -> None:
+        with pytest.raises(DevToolError):
+            CommandRegistry().parse(arguments)
+
+    def test_registered_flags_do_not_reintroduce_ambiguous_output_names(self) -> None:
+        def flags(spec):
+            return [flag for arg in spec.arguments for flag in arg.flags] + [flag for child in spec.subcommands for flag in flags(child)]
+        for spec in CommandRegistry().specifications:
+            assert not {'--plain', '--json', '--output'}.intersection(flags(spec))
     @pytest.mark.parametrize("command", ["build", "rebuild"])
     def test_positional_build_targets_and_default(self, command: str) -> None:
         from durin_dev_tool.build.handler import request_from_namespace
@@ -354,7 +383,7 @@ class TestCommandBoundaryContract:
 
     def test_registry_uses_supplied_context_and_io_without_rediscovery(self) -> None:
         repository = RepositoryContext.load(REPOSITORY_ROOT)
-        command_io = CommandIO(io.StringIO(), io.StringIO(), plain=True)
+        command_io = CommandIO(io.StringIO(), io.StringIO(), color="never")
         observed: dict[str, object] = {}
 
         def handler(namespace: object, **keywords: object) -> int:

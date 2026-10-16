@@ -86,7 +86,7 @@ def run(
     **_: object,
 ) -> int:
     repository = repository_context or RepositoryContext.load(repository_root)
-    io = command_io or CommandIO(stdout, stderr, plain=getattr(namespace, "plain", False))
+    io = command_io or CommandIO(stdout, stderr, color=getattr(namespace, "color", "auto"))
     try:
         action = _ACTIONS.get(namespace.worktree_action)
         if action is None:

@@ -54,7 +54,7 @@ def prepare_configure_dependencies(context: BuildContext, output: BuildOutput) -
     command_io = CommandIO(
         stdout=output.console.file,
         stderr=output.error_console.file,
-        plain=output.plain,
+        color="never" if output.plain else "always",
     )
     configuration = dependency_configuration(context)
     try:

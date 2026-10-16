@@ -11,6 +11,7 @@ from typing import Callable, TextIO
 
 from ..context import CommandIO, RepositoryContext
 from ..errors import DevToolError
+from ..display import color_enabled
 from ..python_environment import restart_prepared_shell
 from .models import BootstrapError, DependencyRequest
 from . import application
@@ -37,13 +38,11 @@ def _enable_virtual_terminal(stream: TextIO) -> bool:
 class _BootstrapOutput:
     """Add lightweight styling before the prepared environment can provide Rich."""
 
-    def __init__(self, stream: TextIO, *, plain: bool) -> None:
+    def __init__(self, stream: TextIO, *, color: str) -> None:
         self.stream = stream
         self.styled = (
-            not plain
-            and "NO_COLOR" not in os.environ
-            and bool(getattr(stream, "isatty", lambda: False)())
-            and _enable_virtual_terminal(stream)
+            color_enabled(color, stream)
+            and (color == "always" or _enable_virtual_terminal(stream))
         )
 
     def write(self, text: str) -> int:
@@ -141,14 +140,15 @@ def run(
     **_: object,
 ) -> int:
     repository = repository_context or RepositoryContext.load(repository_root)
-    styled_stdout = _BootstrapOutput(stdout, plain=getattr(namespace, "plain", False))
-    styled_stderr = _BootstrapOutput(stderr, plain=getattr(namespace, "plain", False))
-    io = command_io or CommandIO(styled_stdout, styled_stderr, plain=getattr(namespace, "plain", False))
+    color = getattr(namespace, "color", "auto")
+    styled_stdout = _BootstrapOutput(stdout, color=color)
+    styled_stderr = _BootstrapOutput(stderr, color=color)
+    io = command_io or CommandIO(styled_stdout, styled_stderr, color=color)
     if command_io is not None:
         io = CommandIO(
-            _BootstrapOutput(command_io.stdout, plain=command_io.plain),
-            _BootstrapOutput(command_io.stderr, plain=command_io.plain),
-            plain=command_io.plain,
+            _BootstrapOutput(command_io.stdout, color=command_io.color),
+            _BootstrapOutput(command_io.stderr, color=command_io.color),
+            color=command_io.color,
         )
     try:
         action = _ACTIONS.get(namespace.bootstrap_action)

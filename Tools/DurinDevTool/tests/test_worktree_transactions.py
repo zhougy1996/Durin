@@ -25,7 +25,7 @@ class TestWorktreeTool:
             source=None,
             link_type='auto',
             dry_run=False,
-            plain=True,
+            color="never",
         )
         session: dict[str, object] = {}
         with mock.patch.object(worktree_transactions, 'prepare_worktree'), mock.patch.object(

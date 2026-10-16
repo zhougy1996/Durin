@@ -90,7 +90,7 @@ class TestCore:
     def test_recover_builds_incrementally_without_cleaning(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
         context = build_context.BuildContext(request_fixtures.command_request(models.Action.RECOVER), models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={'PATH': 'cached'})
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         build_directory = Path(directory)
         with mock.patch.object(build_core, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_core, 'cache_is_usable', return_value=True), mock.patch.object(build_core, 'ninja_uses_english_msvc_prefix', return_value=True), mock.patch.object(build_core, 'run_command') as run:

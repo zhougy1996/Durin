@@ -55,7 +55,7 @@ def test_cook_command_grammar_is_top_level_and_explicit() -> None:
     _, namespace = CommandRegistry().parse(
         [
             "cook",
-            "--output",
+            "--output-dir",
             "Saved/Cooked",
             "--target",
             "win64",
@@ -65,18 +65,18 @@ def test_cook_command_grammar_is_top_level_and_explicit() -> None:
             "/Engine/Default",
             "--no-incremental",
             "--dry-run",
-            "--json",
+            "--format", "json",
         ]
     )
     assert namespace.roots == ["/Game/Root", "/Engine/Default"]
     assert namespace.no_incremental
     assert namespace.dry_run
-    assert namespace.format_name == "json"
+    assert namespace.output_format == "json"
 
 
 def test_macos_cook_target_is_selected_and_reported() -> None:
     _, namespace = CommandRegistry().parse(
-        ["cook", "--output", "Saved/MacCook", "--target", "macos"]
+        ["cook", "--output-dir", "Saved/MacCook", "--target", "macos"]
     )
     assert namespace.target == "macos"
     assert cook._read_report(report(target="macos"))["target"] == "macos"
@@ -93,7 +93,7 @@ def test_cook_defaults_use_selected_profile_and_forward_game(
 ) -> None:
     project = tmp_path / "Test.dproject"
     project.write_text("{}", encoding="utf-8")
-    arguments = ["cook", "--project", str(project), "--output", "Build/Cook", "--dry-run", "--json"]
+    arguments = ["cook", "--project", str(project), "--output-dir", "Build/Cook", "--dry-run", "--format", "json"]
     if explicit_target:
         arguments.extend(["--target", explicit_target])
     _, namespace = CommandRegistry().parse(arguments)
@@ -121,7 +121,7 @@ def test_cook_defaults_use_selected_profile_and_forward_game(
 
 def test_cook_rejects_removed_target_profile_option() -> None:
     with pytest.raises(DevToolError):
-        CommandRegistry().parse(["cook", "--output", "Build/Cook", "--target-profile", "game"])
+        CommandRegistry().parse(["cook", "--output-dir", "Build/Cook", "--target-profile", "game"])
 
 
 def test_omitted_package_report_is_successful_and_distinct_from_failure() -> None:
@@ -158,7 +158,7 @@ def test_cook_maps_stable_native_contract_and_renders_json(tmp_path: Path) -> No
             "roots": ["/Game/Root", "/Engine/Default"],
             "no_incremental": True,
             "dry_run": True,
-            "format_name": "json",
+            "output_format": "json",
         },
     )()
     calls: list[list[str]] = []
@@ -221,8 +221,8 @@ def test_failed_cook_reads_complete_report_from_process_log(tmp_path: Path) -> N
     log = tmp_path / "cook.log"
     log.write_text(report(status="failed", target="macos"), encoding="utf-8")
     _, namespace = CommandRegistry().parse(
-        ["cook", "--project", str(project), "--output", str(tmp_path / "Cook"),
-         "--target", "macos", "--json"]
+        ["cook", "--project", str(project), "--output-dir", str(tmp_path / "Cook"),
+         "--target", "macos", "--format", "json"]
     )
     repository = REPOSITORY.at_root(tmp_path)
     selection = replace(cook.select_runtime(REPOSITORY), repository=repository)

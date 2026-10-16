@@ -152,7 +152,7 @@ command logs with:
 .\DevTool.bat open logs
 ```
 
-Use `--output full` to stream all child output on the next run, or `--plain` to
+Use `--log-mode full` to stream all child output on the next run, or `--color never` to
 disable styling. Logs are stored under `Build/.agent-state/logs/`.
 
 ### The checkout lock cannot be opened on Windows

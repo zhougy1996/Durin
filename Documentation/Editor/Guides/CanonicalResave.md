@@ -35,7 +35,7 @@ writing:
 
 Each positional scope selects an exact package when one exists and every package
 below that path. Use `--all` instead of scopes for the complete project, and
-`--project <descriptor>` only to override the configured default. Add `--json`
+`--project <descriptor>` only to override the configured default. Add `--format json`
 for automation. The lower-level host accepts the corresponding
 `DurinAssetTool resave --project=<project.dproject> <scope>...` grammar.
 
@@ -84,8 +84,8 @@ without their original image files. Update executables first: Zstd source codec 
 cannot be read by older tools. Preview and apply use the same package selection:
 
 ```powershell
-.\DevTool.bat asset resave --all --recompress-texture-sources --json
-.\DevTool.bat asset resave --all --recompress-texture-sources --apply --json
+.\DevTool.bat asset resave --all --recompress-texture-sources --format json
+.\DevTool.bat asset resave --all --recompress-texture-sources --apply --format json
 ```
 
 With this option, scopes and `--all` include compatible current packages even

@@ -446,6 +446,19 @@ class TestUnifiedCommand:
             outputs.append(stdout.getvalue())
         assert outputs[0] == outputs[1]
 
+    @pytest.mark.parametrize('color', ['auto', 'always', 'never'])
+    @pytest.mark.parametrize('output_format', ['terminal', 'markdown'])
+    def test_plan_listing_color_uses_the_command_stream(self, color, output_format) -> None:
+        import os
+        arguments = ['doc', 'plan', '--format', output_format, '--color', color]
+        spec, namespace = self.registry.parse(arguments)
+        stdout = io.StringIO()
+        with mock.patch.dict(os.environ, {'NO_COLOR': '1', 'TERM': 'dumb'}):
+            result = self.registry.execute(spec, namespace, repository_root=self.repository,
+                                           stdout=stdout, stderr=io.StringIO())
+        assert result == 0
+        assert ('\x1b[' in stdout.getvalue()) == (output_format == 'terminal' and color == 'always')
+
     def test_validate_and_archive_defaults_have_direct_and_shell_output_parity(self) -> None:
         for arguments in (['doc', 'plan', 'validate', '--scope', 'active'], ['doc', 'plan', 'archive', '2099-01']):
             outputs: list[str] = []

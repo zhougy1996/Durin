@@ -18,7 +18,7 @@ class RequestContext:
 
 @dataclass(frozen=True)
 class OutputOptions:
-    plain: bool = False
+    color: str = "auto"
     mode: OutputMode = OutputMode.AUTO
 
 
@@ -48,8 +48,8 @@ class BaseRequest:
         return self.context.jobs
 
     @property
-    def plain(self) -> bool:
-        return self.output.plain
+    def color(self) -> str:
+        return self.output.color
 
     @property
     def output_mode(self) -> OutputMode:

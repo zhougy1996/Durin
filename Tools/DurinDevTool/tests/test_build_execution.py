@@ -27,7 +27,7 @@ class TestCore:
              mock.patch.object(operations, "analyze_affected_tests", return_value=affected), \
              mock.patch.object(operations, "execute_context") as execute:
             operations.dispatch_request(SimpleNamespace(request=request, context=context),
-                                        BuildOutput(plain=True, stdout=stream), repository=SimpleNamespace(root=tmp_path))
+                                        BuildOutput(color="never", stdout=stream), repository=SimpleNamespace(root=tmp_path))
         execute.assert_not_called()
         assert context.request is request
         assert "changed.cpp" in stream.getvalue()
@@ -45,7 +45,7 @@ class TestCore:
         affected = SimpleNamespace(run_all=selection == "all", targets=() if selection == "empty" else (object(),),
             names=("CoreTests",), reasons=("test impact",))
         output_stream = io.StringIO()
-        output = BuildOutput(plain=True, stdout=output_stream)
+        output = BuildOutput(color="never", stdout=output_stream)
         acquired = SimpleNamespace(request=request, context=context)
         with mock.patch.object(operations, 'discover_changed_paths', return_value=('Engine/Source/Core.cpp',)), \
              mock.patch.object(operations, 'load_affected_registry'), \
@@ -68,7 +68,7 @@ class TestCore:
     def test_native_test_failure_does_not_leave_recovery_marker(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
         context = build_context.BuildContext(request_fixtures.command_request(models.Action.TEST, options=request_fixtures.TestActionOptions(target='CoreTests')), models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=1, environment={})
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
         marker = root / 'interrupted.json'
@@ -79,7 +79,7 @@ class TestCore:
     def test_all_native_test_failure_does_not_leave_recovery_marker(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
         context = build_context.BuildContext(request_fixtures.command_request(models.Action.TEST, options=request_fixtures.TestActionOptions(target='all')), models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=1, environment={})
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         root = Path(tmp_path_factory.mktemp('case'))
         marker = root / 'interrupted.json'
         lock = root / 'checkout.lock'

@@ -42,7 +42,7 @@ def make_context(
 
 
 def make_output() -> BuildOutput:
-    return BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+    return BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
 
 
 def test_debug_configure_prepares_only_debug_ordinary_and_test_dependencies() -> None:

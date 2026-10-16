@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .common_specs import CONTEXT_ARGUMENTS
+from .common_specs import CONTEXT_ARGUMENTS, REPORT_FORMAT
 from .specification import CommandSpec, argument
 
 
@@ -14,14 +14,6 @@ PROJECT_ARGUMENT = argument(
     type=Path,
     default=None,
     help="project descriptor (defaults to the configured game project)",
-)
-JSON_ARGUMENT = argument(
-    "--json",
-    dest="format_name",
-    action="store_const",
-    const="json",
-    default="human",
-    help="write stable machine-readable JSON",
 )
 
 COMMAND_SPEC = CommandSpec(
@@ -66,7 +58,7 @@ COMMAND_SPEC = CommandSpec(
             arguments=CONTEXT_ARGUMENTS
             + (
                 PROJECT_ARGUMENT,
-                JSON_ARGUMENT,
+                REPORT_FORMAT,
             ),
         ),
         CommandSpec(
@@ -99,7 +91,7 @@ COMMAND_SPEC = CommandSpec(
                     action="store_true",
                     help="recompress texture sources with Zstd, including current packages",
                 ),
-                JSON_ARGUMENT,
+                REPORT_FORMAT,
             ),
         ),
     ),

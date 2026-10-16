@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .common_specs import PLAIN
+from .common_specs import COLOR
 from .specification import CommandSpec, argument
 
 
@@ -12,7 +12,7 @@ SETUP_COMMAND_SPEC = CommandSpec(
     HANDLER,
     help_group="Getting started",
     arguments=(
-        PLAIN,
+        COLOR,
         argument(
             "--non-interactive",
             action="store_true",
@@ -53,6 +53,7 @@ DEPENDENCY_COMMAND_SPEC = CommandSpec(
                 argument("--with-tests", action="store_true"),
                 argument("--with-development", action="store_true"),
                 argument("--cmake", dest="dependency_cmake", default=None),
+                COLOR,
             ),
             defaults=(("bootstrap_action", "dependency-prepare"),),
         ),
@@ -60,6 +61,7 @@ DEPENDENCY_COMMAND_SPEC = CommandSpec(
             "validate",
             "validate every third-party dependency manifest",
             HANDLER,
+            arguments=(COLOR,),
             defaults=(("bootstrap_action", "dependency-validate"),),
         ),
     ),

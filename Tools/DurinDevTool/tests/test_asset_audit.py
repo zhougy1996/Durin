@@ -87,7 +87,7 @@ def with_deprecated_route_evidence(value: dict[str, object]) -> dict[str, object
 
 
 def run_handler(
-    tmp_path: Path, report_text: str, format_name: str = "json", command: str = "check",
+    tmp_path: Path, report_text: str, output_format: str = "json", command: str = "check",
 ) -> tuple[int, str, str]:
     executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()
@@ -96,7 +96,7 @@ def run_handler(
     namespace = type("Namespace", (), {
         "asset_command": command,
         "project_path": project,
-        "format_name": format_name,
+        "output_format": output_format,
         "baseline": False,
     })()
     output = io.StringIO()
@@ -133,7 +133,7 @@ def test_asset_production_path_uses_runtime_program_service(tmp_path: Path) -> N
     namespace = type("Namespace", (), {
         "asset_command": "check",
         "project_path": project,
-        "format_name": "json",
+        "output_format": "json",
         "baseline": False,
     })()
     selection = asset.select_runtime(REPOSITORY)
@@ -166,7 +166,7 @@ def test_asset_direct_call_loads_only_the_explicit_repository_root(tmp_path: Pat
     namespace = type("Namespace", (), {
         "asset_command": "check",
         "project_path": project,
-        "format_name": "json",
+        "output_format": "json",
         "baseline": False,
     })()
     with mock.patch.object(
@@ -187,9 +187,9 @@ def test_registry_defaults_to_check_and_rejects_removed_commands() -> None:
     _, namespace = registry.parse(["asset"])
     assert namespace.asset_command == "check"
     assert namespace.project_path is None
-    _, option_namespace = registry.parse(["asset", "--json"])
+    _, option_namespace = registry.parse(["asset", "--format", "json"])
     assert option_namespace.asset_command == "check"
-    assert option_namespace.format_name == "json"
+    assert option_namespace.output_format == "json"
     for removed_command in ("audit", "storage"):
         with pytest.raises(DevToolError, match="invalid choice"):
             registry.parse(["asset", removed_command])
@@ -198,15 +198,15 @@ def test_registry_defaults_to_check_and_rejects_removed_commands() -> None:
 def test_selected_asset_command_grammar_is_frozen() -> None:
     registry = CommandRegistry()
     _, check_namespace = registry.parse(
-        ["asset", "check", "--project", "Sandbox/Sandbox.dproject", "--json"]
+        ["asset", "check", "--project", "Sandbox/Sandbox.dproject", "--format", "json"]
     )
     assert check_namespace.asset_command == "check"
-    assert check_namespace.format_name == "json"
+    assert check_namespace.output_format == "json"
 
     _, resave_namespace = registry.parse(
         [
             "asset", "resave", "/Game/Characters", "/Engine/Materials",
-            "--apply", "--json",
+            "--apply", "--format", "json",
         ]
     )
     assert resave_namespace.asset_command == "resave"
@@ -223,7 +223,7 @@ def test_asset_check_uses_configured_default_project(tmp_path: Path) -> None:
     namespace = type("Namespace", (), {
         "asset_command": "check",
         "project_path": None,
-        "format_name": "json",
+        "output_format": "json",
         "baseline": False,
     })()
     calls: list[tuple[list[str], dict[str, object]]] = []
@@ -267,7 +267,7 @@ def test_asset_resave_maps_scopes_and_write_intent_to_native_command(tmp_path: P
         "scopes": ["/Game/Characters", "/Engine/Materials/Default"],
         "whole_project": False,
         "apply": True,
-        "format_name": "json",
+        "output_format": "json",
     })()
     calls: list[list[str]] = []
 
@@ -305,7 +305,7 @@ def test_asset_resave_requires_exactly_one_selection_style(tmp_path: Path) -> No
             "scopes": scopes,
             "whole_project": whole_project,
             "apply": False,
-            "format_name": "human",
+            "output_format": "terminal",
         })()
         with pytest.raises(DevToolError, match="scope|--all"):
             asset.run(
@@ -376,7 +376,7 @@ def test_human_output_groups_orthogonal_states(tmp_path: Path) -> None:
     result, output, _ = run_handler(
         tmp_path,
         report(package("/Game/A", inspection="Failed", compatibility="Unsupported", freshness="Stale", code="IoFailure")),
-        format_name="human",
+        output_format="terminal",
     )
     assert result == 0
     assert "0 compatible, 0 incompatible, 1 unsupported, 1 failed, 1 stale" in output
@@ -391,7 +391,7 @@ def test_human_output_exposes_resave_evidence(tmp_path: Path) -> None:
     result, output, _ = run_handler(
         tmp_path,
         report(value),
-        format_name="human",
+        output_format="terminal",
     )
     assert result == 0
     assert "1 resave recommended" in output
@@ -414,7 +414,7 @@ def test_cancel_and_process_failure_are_distinct(tmp_path: Path) -> None:
     project.touch()
     namespace = type("Namespace", (), {
         "asset_command": "check", "project_path": project,
-        "format_name": "json", "baseline": False,
+        "output_format": "json", "baseline": False,
     })()
     errors = io.StringIO()
 
@@ -452,7 +452,7 @@ def test_check_invocation_is_read_only_and_missing_project_fails_before_launch(t
     authored.write_bytes(b"DAST authored bytes")
     namespace = type(
         "Namespace", (),
-        {"asset_command": "check", "project_path": project, "format_name": "json", "baseline": False},
+        {"asset_command": "check", "project_path": project, "output_format": "json", "baseline": False},
     )()
     before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
     calls: list[tuple[list[str], Path]] = []
@@ -496,7 +496,7 @@ def test_texture_recompression_flag_preserves_preview_apply_boundary(tmp_path: P
     project = tmp_path / "Test.dproject"
     project.write_text("{}", encoding="utf-8")
     namespace = type("Namespace", (), dict(asset_command="resave", project_path=project,
-        format_name="json", whole_project=True, scopes=[], apply=apply,
+        output_format="json", whole_project=True, scopes=[], apply=apply,
         recompress_texture_sources=True))()
     calls = []
     def runner(arguments, **kwargs):

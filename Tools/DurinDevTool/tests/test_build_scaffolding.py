@@ -301,10 +301,10 @@ class TestModuleScaffolding:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
         self.create_workspace(root)
-        request = parse_build_request(['create', 'module', 'Utility', '--project', 'Sandbox/Sandbox.dproject', '--enable', 'none', '--dry-run', '--plain'])
+        request = parse_build_request(['create', 'module', 'Utility', '--project', 'Sandbox/Sandbox.dproject', '--enable', 'none', '--dry-run', '--color', 'never'])
         before = self.snapshot(root)
         stdout = io.StringIO()
-        build_cli.execute_create_request(request, BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO()), root=root)
+        build_cli.execute_create_request(request, BuildOutput(color="never", stdout=stdout, stderr=io.StringIO()), root=root)
         assert self.snapshot(root) == before
         assert 'Source/Runtime/Utility/Utility.dmodule' in stdout.getvalue()
         conflict = root / 'Sandbox' / 'Source' / 'Runtime' / 'Utility'
@@ -350,16 +350,16 @@ class TestProjectScaffolding:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
         TestModuleScaffolding.create_workspace(root)
-        request = parse_build_request(['create', 'project', 'MyGame', '--path', 'MyGame', '--dry-run', '--plain'])
+        request = parse_build_request(['create', 'project', 'MyGame', '--path', 'MyGame', '--dry-run', '--color', 'never'])
         before = self.snapshot(root)
         stdout = io.StringIO()
-        build_cli.execute_create_request(request, BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO()), root=root)
+        build_cli.execute_create_request(request, BuildOutput(color="never", stdout=stdout, stderr=io.StringIO()), root=root)
         assert self.snapshot(root) == before
         assert 'MyGame/MyGame.dproject' in stdout.getvalue()
         assert 'replace file: CMakeLists.txt' in stdout.getvalue()
         create_request = parse_build_request(['create', 'project', 'MyGame', '--path', 'MyGame'])
         stdout = io.StringIO()
-        build_cli.execute_create_request(create_request, BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO()), root=root)
+        build_cli.execute_create_request(create_request, BuildOutput(color="never", stdout=stdout, stderr=io.StringIO()), root=root)
         assert 'Created project "MyGame"' in stdout.getvalue()
 
     def test_project_creation_rejects_names_paths_and_unsafe_registration(self, tmp_path_factory: pytest.TempPathFactory) -> None:

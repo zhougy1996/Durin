@@ -18,21 +18,42 @@ application unchanged. The former build `--target`, run `--args`, and Cook
 
 ## Command output and logs
 
+Output options have separate meanings:
+
+| Option | Purpose and supported commands |
+| --- | --- |
+| `--log-mode auto\|compact\|progress\|full` | Child-process log presentation for configure, build, clean, recover, rebuild, test, and run |
+| `--output-dir PATH` | Cook output directory; independent of stdout format |
+| `--format terminal\|json` | Cook and asset check/resave result format |
+| `--format terminal\|markdown\|json` | Documentation results, limited to each command's supported formats |
+| `--color auto\|always\|never` | Styled build, setup/dependency, scaffolding, location, and plan/roadmap listing output |
+
+The former `--output`, `--json`, and `--plain` options are rejected. Long options
+must be spelled in full. `test --report [PATH]` remains the XML report file
+selection; it does not select stdout format or log presentation. Commands that
+only emit one format, such as `asset identity-audit`, keep that fixed format.
+
+`--color auto` is the default: it enables ANSI styling for terminals unless
+`NO_COLOR` is set or `TERM=dumb`. Explicit `always` and `never` override automatic
+detection and `NO_COLOR`. Forcing color does not enable progress output on a
+redirected stream; log presentation still uses actual terminal detection.
+JSON and Markdown result renderers never add ANSI styling.
+
 Output separates resolved context, execution stages, child-process output, and
-results. Pass `--plain`, set `NO_COLOR`, or redirect output to disable ANSI styling:
+results. Pass `--color never` to disable ANSI styling:
 
 ```powershell
-.\DevTool.bat build <Target> --plain
+.\DevTool.bat build <Target> --color never
 ```
 
 Child-process output has four modes, selected with
-`--output auto|compact|progress|full`. The default `auto` mode selects progress
+`--log-mode auto|compact|progress|full`. The default `auto` mode selects progress
 output in an interactive terminal and compact output when stdout is redirected
 or consumed by an Agent. Progress mode updates routine Ninja `[n/total]` status
 in place and hides DHT DEBUG/INFO lines from the terminal while preserving DHT
 warnings, other child output, compiler diagnostics, and the complete command
 log. Empty child-output records do not finalize an active Ninja progress line.
-Use `--output full` when routine DHT diagnostics must also be streamed.
+Use `--log-mode full` when routine DHT diagnostics must also be streamed.
 When explicitly requested without an interactive terminal, progress mode falls
 back to compact output.
 Compact mode keeps stage boundaries, command lines, heartbeats, and final
@@ -40,13 +61,13 @@ results, but suppresses routine CMake, Ninja, and successful GoogleTest lines.
 It writes the complete raw output under `Build/.agent-state/logs/`, reports the
 log path before each child command starts, and prints a bounded diagnostic
 excerpt plus the log path when a child fails. The newest 40 command logs are
-retained. Use `--output full` to stream every child-output line, or
-`--output compact` to suppress routine child output in an interactive terminal:
+retained. Use `--log-mode full` to stream every child-output line, or
+`--log-mode compact` to suppress routine child output in an interactive terminal:
 
 ```powershell
-.\DevTool.bat build <Target> --output progress
-.\DevTool.bat build <Target> --output compact
-.\DevTool.bat test CoreConcurrencyTests --output full
+.\DevTool.bat build <Target> --log-mode progress
+.\DevTool.bat build <Target> --log-mode compact
+.\DevTool.bat test CoreConcurrencyTests --log-mode full
 ```
 
 Compact native-test runs also enable GoogleTest's brief output mode. Test
@@ -55,14 +76,14 @@ excerpt; application or library messages are always preserved in the full log.
 In styled terminal output, GoogleTest and CTest running, passed, skipped, and
 failed statuses are colored consistently even when the child process disables
 its own terminal colors.
-`--plain` controls styling independently and does not select an output volume.
+`--color` controls styling independently and does not select an output volume.
 
 Compact mode emits a short heartbeat every 30 seconds while a child command
 remains alive. It reports elapsed time and the latest CMake/Ninja status when
 available, including Ninja's completed count and action. Logs are flushed as
 lines arrive so they can be read during execution. Non-interactive callers need
-no extra flags; the redundant `--agent` option has been removed. Use `--plain`
-and `--output compact` to request the same display explicitly in a terminal.
+no extra flags; the redundant `--agent` option has been removed. Use `--color never`
+and `--log-mode compact` to request the same display explicitly in a terminal.
 Progress and full output modes stream child output without default heartbeats.
 
 ## Interactive Shell
@@ -96,8 +117,8 @@ Representative commands are alternatives, not a sequence:
 .\DevTool.bat test CoreConcurrencyTests FTaskSchedulerTests.* --explain
 .\DevTool.bat asset
 .\DevTool.bat asset resave /Game/Characters
-.\DevTool.bat cook --output Saved/Cooked
-./DevTool cook --output Saved/Cooked
+.\DevTool.bat cook --output-dir Saved/Cooked
+./DevTool cook --output-dir Saved/Cooked
 .\DevTool.bat path runtime
 .\DevTool.bat open logs
 ```
@@ -123,14 +144,14 @@ Asset checking and current-format canonical resave are defined by
 without opening an application loop:
 
 ```powershell
-.\DevTool.bat cook --output Saved/Cooked
-.\DevTool.bat cook --output Saved/Cooked --root /Game/Levels/Entry --dry-run
-.\DevTool.bat cook --output Saved/Cooked --no-incremental --json
+.\DevTool.bat cook --output-dir Saved/Cooked
+.\DevTool.bat cook --output-dir Saved/Cooked --root /Game/Levels/Entry --dry-run
+.\DevTool.bat cook --output-dir Saved/Cooked --no-incremental --format json
 ```
 
 `--project` selects a registered project; omission uses the configured default.
 `--root` is repeatable and augments the project's configured default Level.
-`--output` resolves relative to the checkout and is passed to the native host as
+`--output-dir` resolves relative to the checkout and is passed to the native host as
 an absolute path. `--profile` continues to select the host build profile, while
 `--target` optionally selects `win64` or `macos`; omission derives it from the
 selected host build profile's platform. An unsupported platform requires an
@@ -158,7 +179,7 @@ and shader intermediates under `<output>/DerivedDataCache` and logs under
 repairs authored packages. These writable destinations must remain outside inputs.
 
 Human output summarizes package counts, validated Cook hits, failures, changed
-bytes, and reused bytes. `--json` validates and emits the version-2 Cook
+bytes, and reused bytes. `--format json` validates and emits the version-2 Cook
 run schema with packages in canonical virtual-path order. Native failure reports
 are preserved even when the child exits nonzero; cancellation returns 130,
 ordinary Cook failure returns 1, and success returns 0. The child process uses
@@ -167,7 +188,7 @@ the standard heartbeat, interruption, and command-log policy.
 ## Repository Locations
 
 `path <location>` writes one absolute native path without a label. `path --all
---plain` writes stable tab-separated `name<TAB>path` records. Names are
+--color never` writes stable tab-separated `name<TAB>path` records. Names are
 case-insensitive:
 
 | Location | Resolved directory |
@@ -252,7 +273,7 @@ PCH are default; `--link static` and `--pch <Name>` select alternatives.
 Preview without creating files or changing descriptors:
 
 ```powershell
-.\DevTool.bat create module Gameplay --project Sandbox\Sandbox.dproject --private-dependency Core --dry-run --plain
+.\DevTool.bat create module Gameplay --project Sandbox\Sandbox.dproject --private-dependency Core --dry-run --color never
 ```
 
 Creation validates names, dependencies, variants, paths, and CMake collisions
@@ -273,7 +294,7 @@ identifiers and case-insensitively unique among projects, modules, and CMake
 targets. The command creates the project descriptor, CMake setup, `Configs` and
 `Content`, a same-named runtime module, and the `Durin.dworkspace` project entry.
 
-Use `--dry-run --plain` to preview. Project-tree creation and the workspace manifest edit
+Use `--dry-run --color never` to preview. Project-tree creation and the workspace manifest edit
 form one transaction: failure restores the manifest byte-for-byte and removes
 only paths created by the invocation. Installed-engine projects, external roots,
 and nested workspace project paths are not supported. Project files come from

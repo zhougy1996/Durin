@@ -118,9 +118,12 @@ Run `.\DevTool.bat --help` or `.\DevTool.bat <command> --help` to discover the
 complete command set and options. On macOS, substitute `./DevTool` for
 `.\DevTool.bat` in the examples above.
 
-Use `--plain` when styled output is not wanted. DurinDevTool selects plain output
-automatically for non-interactive terminals and when `NO_COLOR` is set. Complete
-child-process logs are retained under `Build/.agent-state/logs/`.
+Use `--color never` to disable styling. The default `--color auto` selects plain
+output for non-interactive streams and when `NO_COLOR` is set; `--color always`
+forces ANSI styling. Complete child-process logs are retained under
+`Build/.agent-state/logs/`. Log presentation, output directories, result formats,
+and color policy are defined in the
+[command output contract](Documentation/Development/Tooling/DurinDevTool.md#command-output-and-logs).
 
 ## Interactive Shell
 

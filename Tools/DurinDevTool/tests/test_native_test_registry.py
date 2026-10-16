@@ -137,7 +137,7 @@ def test_explanation_resolves_execution_policy_without_running(
     stream = io.StringIO()
     with mock.patch.object(operations, "load_native_test_registry", return_value=registry), \
          mock.patch.object(operations, "execute_context") as execute:
-        operations.dispatch_request(acquired, BuildOutput(plain=True, stdout=stream), repository=mock.Mock())
+        operations.dispatch_request(acquired, BuildOutput(color="never", stdout=stream), repository=mock.Mock())
     execute.assert_not_called()
     rendered = stream.getvalue()
     assert tuple(line.split("\t")[0] for line in rendered.splitlines() if "\t" in line) == expected
@@ -158,7 +158,7 @@ def test_explanation_does_not_admit_special_targets_without_mode(registry: Nativ
         with mock.patch.object(operations, "load_native_test_registry", return_value=registry), \
              mock.patch.object(operations, "execute_context") as execute, \
              pytest.raises(BuildToolError, match="-only"):
-            operations.dispatch_request(acquired, BuildOutput(plain=True, stdout=io.StringIO()), repository=mock.Mock())
+            operations.dispatch_request(acquired, BuildOutput(color="never", stdout=io.StringIO()), repository=mock.Mock())
         execute.assert_not_called()
 
 

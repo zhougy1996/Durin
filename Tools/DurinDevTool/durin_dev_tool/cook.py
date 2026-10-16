@@ -123,7 +123,7 @@ def run(
         arguments.append("--dry-run")
 
     process_output = BuildOutput(
-        plain=True,
+        color="never",
         output_mode=OutputMode.COMPACT,
         stdout=io.StringIO(),
         stderr=stderr,
@@ -154,7 +154,7 @@ def run(
             raise
 
     report = _read_report(native_output)
-    if namespace.format_name == "json":
+    if namespace.output_format == "json":
         print(json.dumps(report, separators=(",", ":"), ensure_ascii=False), file=stdout)
     else:
         _render_human(report, stdout)

@@ -38,6 +38,10 @@ COMMAND_SPECS = (
 
 
 class DevToolArgumentParser(argparse.ArgumentParser):
+    def __init__(self, *args, **kwargs) -> None:
+        kwargs["allow_abbrev"] = False
+        super().__init__(*args, **kwargs)
+
     def error(self, message: str) -> None:
         raise DevToolError(f"{message}\nRun 'DevTool help' for command usage.")
 
@@ -242,7 +246,10 @@ class CommandRegistry:
                 if repository_root is None:
                     raise
                 repository = RepositoryContext.load().at_root(repository_root)
-        io = command_io or CommandIO(stdout or sys.stdout, stderr or sys.stderr)
+        io = command_io or CommandIO(
+            stdout or sys.stdout, stderr or sys.stderr,
+            color=str(getattr(namespace, "color", "auto")),
+        )
         if spec.required_modules:
             require_prepared_environment(
                 repository,

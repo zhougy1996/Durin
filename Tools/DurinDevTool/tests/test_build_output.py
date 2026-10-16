@@ -11,6 +11,24 @@ from durin_dev_tool.build.output import BuildOutput
 
 class TestOutput:
 
+    @pytest.mark.parametrize('color', ['auto', 'always', 'never'])
+    @pytest.mark.parametrize('terminal', [False, True])
+    @pytest.mark.parametrize('no_color', [False, True])
+    @pytest.mark.parametrize('dumb', [False, True])
+    def test_color_policy_does_not_change_log_presentation(self, color, terminal, no_color, dumb) -> None:
+        stream = io.StringIO()
+        environment = {'TERM': 'dumb' if dumb else 'xterm'}
+        if no_color:
+            environment['NO_COLOR'] = '1'
+        expected_color = color == 'always' or (color == 'auto' and terminal and not no_color and not dumb)
+        with mock.patch.dict(os.environ, environment, clear=True), \
+             mock.patch.object(stream, 'isatty', return_value=terminal):
+            output = BuildOutput(color=color, stdout=stream)
+            output.success('Complete')
+        assert output.plain == (not expected_color)
+        assert ('\x1b[' in stream.getvalue()) == expected_color
+        assert output.resolved_output_mode is (models.OutputMode.PROGRESS if terminal else models.OutputMode.COMPACT)
+
     @pytest.mark.parametrize('error', [False, True])
     def test_rules_fit_output_stream_after_terminal_resize(self, error: bool) -> None:
         stdout, stderr = io.StringIO(), io.StringIO()
@@ -79,7 +97,7 @@ class TestOutput:
     def test_plain_output_has_no_ansi_sequences(self) -> None:
         stdout = io.StringIO()
         stderr = io.StringIO()
-        output = BuildOutput(plain=True, stdout=stdout, stderr=stderr, force_terminal=True)
+        output = BuildOutput(color="never", stdout=stdout, stderr=stderr, force_terminal=True)
         output.success('done')
         output.failure(errors.BuildToolError('failed'), None, 1.0)
         assert '\x1b[' not in stdout.getvalue() + stderr.getvalue()
@@ -113,7 +131,7 @@ class TestOutput:
 
     def test_progress_mode_replaces_ninja_status_and_streams_other_output(self) -> None:
         stdout = io.StringIO()
-        output = BuildOutput(plain=True, output_mode=models.OutputMode.PROGRESS, stdout=stdout, stderr=io.StringIO(), force_terminal=True)
+        output = BuildOutput(color="never", output_mode=models.OutputMode.PROGRESS, stdout=stdout, stderr=io.StringIO(), force_terminal=True)
         output.child_output('[1/2] Building first.cpp\n')
         output.child_output('\n')
         output.child_output('[2/2] Linking result.dll\n')
@@ -128,7 +146,7 @@ class TestOutput:
     def test_progress_fits_actual_terminal_despite_inherited_columns(self, columns: int) -> None:
         stdout = io.StringIO()
         with mock.patch.dict(os.environ, {'COLUMNS': '160'}):
-            output = BuildOutput(plain=True, stdout=stdout, force_terminal=True)
+            output = BuildOutput(color="never", stdout=stdout, force_terminal=True)
             with mock.patch.object(stdout, 'fileno', return_value=77), mock.patch(
                 'os.get_terminal_size', return_value=os.terminal_size((columns, 30)),
             ):
@@ -141,7 +159,7 @@ class TestOutput:
 
     def test_plain_progress_padding_fits_after_terminal_shrinks(self) -> None:
         stdout = io.StringIO()
-        output = BuildOutput(plain=True, stdout=stdout, force_terminal=True)
+        output = BuildOutput(color="never", stdout=stdout, force_terminal=True)
         with mock.patch.object(stdout, 'fileno', return_value=77), mock.patch(
             'os.get_terminal_size', return_value=os.terminal_size((160, 30)),
         ) as terminal_size:
@@ -188,7 +206,7 @@ class TestOutput:
 
     def test_progress_mode_hides_routine_dht_logs_but_preserves_diagnostics(self) -> None:
         stdout = io.StringIO()
-        output = BuildOutput(plain=True, output_mode=models.OutputMode.PROGRESS, stdout=stdout, stderr=io.StringIO(), force_terminal=True)
+        output = BuildOutput(color="never", output_mode=models.OutputMode.PROGRESS, stdout=stdout, stderr=io.StringIO(), force_terminal=True)
         output.child_output('[1/2] [DHT] Generating reflection files for Core\n')
         output.child_output('[INFO] [DHT] Reflection Core: up to date\n')
         output.child_output('[DEBUG] [DHT] Reflection Core: preparing manifest\n')
@@ -200,7 +218,7 @@ class TestOutput:
         assert '[1/2] [DHT] Generating reflection files for Core\n' in text
 
         full_stdout = io.StringIO()
-        full = BuildOutput(plain=True, output_mode=models.OutputMode.FULL, stdout=full_stdout, stderr=io.StringIO())
+        full = BuildOutput(color="never", output_mode=models.OutputMode.FULL, stdout=full_stdout, stderr=io.StringIO())
         full.child_output('[INFO] [DHT] Reflection Core: up to date\n')
         assert '[INFO] [DHT] Reflection Core: up to date' in full_stdout.getvalue()
 
@@ -216,7 +234,7 @@ class TestOutput:
 
     def test_runtime_log_level_coloring_respects_plain_output(self) -> None:
         stdout = io.StringIO()
-        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO(), force_terminal=True, output_mode=models.OutputMode.FULL)
+        output = BuildOutput(color="never", stdout=stdout, stderr=io.StringIO(), force_terminal=True, output_mode=models.OutputMode.FULL)
         output.child_output('[12:34:56][error]Runtime error\n', colorize_log_levels=True)
         assert '\x1b[' not in stdout.getvalue()
 
@@ -253,7 +271,7 @@ class TestOutput:
     def test_native_test_coloring_respects_plain_output(self) -> None:
         stdout = io.StringIO()
         output = BuildOutput(
-            plain=True,
+            color="never",
             stdout=stdout,
             stderr=io.StringIO(),
             force_terminal=True,
@@ -264,7 +282,7 @@ class TestOutput:
 
     def test_failure_summary_contains_command_exit_code_and_recovery(self) -> None:
         stderr = io.StringIO()
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=stderr)
         error = errors.BuildToolError('compile failed', command=['cmake', '--build', 'Build'], exit_code=1, recovery='fix the compiler error')
         output.failure(error, None, 2.5)
         text = stderr.getvalue()
@@ -301,7 +319,7 @@ class TestOutput:
 
     def test_failure_without_derived_context_uses_available_request_details(self) -> None:
         stderr = io.StringIO()
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=stderr)
         request = request_fixtures.command_request(
             models.Action.TEST,
             context=requests.RequestContext(preset='debug'),
@@ -316,7 +334,7 @@ class TestOutput:
 
     def test_failure_without_target_uses_ascii_placeholder(self) -> None:
         stderr = io.StringIO()
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=stderr)
         request = request_fixtures.command_request(
             models.Action.TEST,
             context=requests.RequestContext(preset='debug'),
@@ -334,7 +352,7 @@ class TestOutput:
 
     def test_plain_stage_uses_ascii_boundary(self) -> None:
         stdout = io.StringIO()
-        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=stdout, stderr=io.StringIO())
         with output.stage('Build'):
             pass
         assert '== Build ==' in stdout.getvalue()

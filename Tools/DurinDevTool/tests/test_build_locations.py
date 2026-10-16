@@ -189,7 +189,7 @@ class TestBuildLocations:
             "windows",
         )
         stdout = io.StringIO()
-        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=stdout, stderr=io.StringIO())
         location = build_locations.ResolvedLocation(
             next(spec for spec in build_locations.LOCATION_SPECS if spec.name == "runtime"),
             Path("resolved/runtime"),
@@ -219,7 +219,7 @@ class TestBuildLocations:
             "windows",
         )
         stdout = io.StringIO()
-        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=stdout, stderr=io.StringIO())
         location = build_locations.ResolvedLocation(
             next(spec for spec in build_locations.LOCATION_SPECS if spec.name == "binaries"),
             Path("resolved/binaries"),
@@ -243,7 +243,7 @@ class TestBuildLocations:
         preset = make_preset()
         request = request_fixtures.command_request(
             models.Action.PATH,
-            output=requests.OutputOptions(plain=True),
+            output=requests.OutputOptions(color="never"),
             options=request_fixtures.LocationActionOptions(all_locations=True),
         )
         context = build_context.BuildContext(
@@ -255,7 +255,7 @@ class TestBuildLocations:
             "windows",
         )
         stdout = io.StringIO()
-        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=stdout, stderr=io.StringIO())
         build_operations.execute_location_request(request, context, output)
         lines = stdout.getvalue().splitlines()
         assert len(lines) == len(build_locations.LOCATION_SPECS)

@@ -320,11 +320,11 @@ Lifecycle and GC changes must cover:
 Run the focused tests through the repository build driver:
 
 ```powershell
-.\DevTool.bat test CoreDObjectTests --plain
+.\DevTool.bat test CoreDObjectTests --color never
 ```
 
 For changes that affect runtime behavior or public lifecycle contracts, also build the complete registered profile:
 
 ```powershell
-.\DevTool.bat build all --plain
+.\DevTool.bat build all --color never
 ```

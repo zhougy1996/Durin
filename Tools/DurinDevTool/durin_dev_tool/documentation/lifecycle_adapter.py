@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TextIO
 
 from ..errors import DevToolError
+from ..display import color_enabled
 from .adapter_common import output_format
 from .archive import ArchivePreview, apply_lifecycle_archive, preview_lifecycle_archive
 from .lifecycle import LifecycleConfig
@@ -85,7 +86,7 @@ def run(
             documents,
             scope=namespace.scope,
             output_format=output_format(namespace, interactive=interactive),
-            color=namespace.color,
+            color="always" if color_enabled(namespace.color, stdout) else "never",
         ), file=stdout)
         return 0
     if action == "context":

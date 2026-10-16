@@ -151,7 +151,7 @@ def test_stale_execution_refreshes_before_selection_and_explain_is_read_only(tmp
     monkeypatch.setattr(operations, "load_native_test_registry", lambda _: fresh if calls else old)
     monkeypatch.setattr(operations, "execute_context", lambda *args, **kwargs: calls.append("configure"))
     stream = io.StringIO()
-    result = operations.load_affected_registry(context, BuildOutput(plain=True, stdout=stream), tmp_path)
+    result = operations.load_affected_registry(context, BuildOutput(color="never", stdout=stream), tmp_path)
     assert context.request is initial_request
     assert calls == ([] if explain else ["configure"])
     assert result == (old if explain else fresh)
@@ -173,5 +173,5 @@ def test_failed_refresh_restores_original_request(tmp_path, monkeypatch):
 
     monkeypatch.setattr(operations, "execute_context", fail)
     with pytest.raises(BuildToolError, match="configure failed"):
-        operations.load_affected_registry(context, BuildOutput(plain=True, stdout=io.StringIO()), tmp_path)
+        operations.load_affected_registry(context, BuildOutput(color="never", stdout=io.StringIO()), tmp_path)
     assert context.request is request

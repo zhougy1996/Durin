@@ -136,7 +136,7 @@ def _invoke_asset_program(
     command_runner: Callable[..., str] | None,
 ) -> str | None:
     process_output = BuildOutput(
-        plain=True,
+        color="never",
         output_mode=OutputMode.COMPACT,
         stdout=io.StringIO(),
         stderr=stderr,
@@ -185,7 +185,7 @@ def _run_check(
     if native_output is None:
         return 130
     report = _read_report(native_output)
-    if namespace.format_name == "json":
+    if namespace.output_format == "json":
         print(json.dumps(report, separators=(",", ":"), ensure_ascii=False), file=stdout)
     else:
         _render_human(report, stdout)
@@ -225,7 +225,7 @@ def _run_scoped_operation(
         arguments.append("--recompress-texture-sources")
     if bool(getattr(namespace, "apply", False)):
         arguments.append("--apply")
-    if getattr(namespace, "format_name", "human") == "json":
+    if getattr(namespace, "output_format", "terminal") == "json":
         arguments.append("--json")
 
     native_output = _invoke_asset_program(

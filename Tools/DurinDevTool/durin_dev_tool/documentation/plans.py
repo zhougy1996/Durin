@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import os
 import re
 import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Iterable, Sequence
+from ..display import color_enabled
 
 
 SUMMARY_PATTERN = re.compile(r"^Summary: (?P<summary>.+)$")
@@ -507,18 +507,6 @@ def render_markdown(
     return "\n".join(lines)
 
 
-def _color_enabled(mode: str) -> bool:
-    if mode == "always":
-        return True
-    if mode == "never":
-        return False
-    return (
-        sys.stdout.isatty()
-        and "NO_COLOR" not in os.environ
-        and os.environ.get("TERM") != "dumb"
-    )
-
-
 def _styled(text: str, code: str, enabled: bool) -> str:
     return f"\033[{code}m{text}\033[0m" if enabled else text
 
@@ -529,7 +517,7 @@ def render_terminal(
     *,
     color: str,
 ) -> str:
-    use_color = _color_enabled(color)
+    use_color = color_enabled(color, sys.stdout)
     status_colors = {
         PlanStatus.ACTIVE: "32",
         PlanStatus.COMPLETED: "33",
@@ -581,7 +569,7 @@ def render_listing(
         )
 
     def archive_terminal(archive_plans: Sequence[Plan]) -> str:
-        use_color = _color_enabled(color)
+        use_color = color_enabled(color, sys.stdout)
         months = sorted(
             {plan.path.parent.name for plan in archive_plans},
             reverse=True,
@@ -629,7 +617,7 @@ def render_listing(
             f"# {heading}\n\n{body}" for heading, body in groups
         )
 
-    use_color = _color_enabled(color)
+    use_color = color_enabled(color, sys.stdout)
     if scope == "archive":
         return archive_terminal(plans)
     if scope != "all":

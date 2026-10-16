@@ -31,7 +31,7 @@ def run(
     command_io = CommandIO(
         output,
         errors,
-        plain=bool(getattr(namespace, "plain", False)),
+        color=str(getattr(namespace, "color", "auto")),
     )
     return active_registry.execute(
         spec,

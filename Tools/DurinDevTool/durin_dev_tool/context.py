@@ -37,11 +37,11 @@ class CommandIO:
 
     stdout: TextIO
     stderr: TextIO
-    plain: bool = False
+    color: str = "auto"
 
     @classmethod
-    def system(cls, *, plain: bool = False) -> "CommandIO":
-        return cls(sys.stdout, sys.stderr, plain=plain)
+    def system(cls, *, color: str = "auto") -> "CommandIO":
+        return cls(sys.stdout, sys.stderr, color=color)
 
     def out(self, message: object = "") -> None:
         print(message, file=self.stdout)

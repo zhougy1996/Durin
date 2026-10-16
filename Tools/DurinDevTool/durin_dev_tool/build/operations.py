@@ -542,7 +542,7 @@ def execute_request(
 ) -> int:
     started = perf_counter()
     output = BuildOutput(
-        plain=request.plain,
+        color=request.color,
         output_mode=request.output_mode,
         stdout=stdout,
         stderr=stderr,

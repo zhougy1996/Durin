@@ -48,7 +48,7 @@ def request_from_namespace(namespace: argparse.Namespace) -> BaseRequest:
         jobs=namespace_value(namespace, "jobs", None),
     )
     output = OutputOptions(
-        plain=bool(namespace_value(namespace, "plain", False)),
+        color=str(namespace_value(namespace, "color", "auto")),
         mode=OutputMode(namespace_value(namespace, "output_mode", OutputMode.AUTO)),
     )
     if action is Action.CONFIGURE:

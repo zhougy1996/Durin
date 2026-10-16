@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .common_specs import CONTEXT_ARGUMENTS
+from .common_specs import CONTEXT_ARGUMENTS, REPORT_FORMAT
 from .specification import CommandSpec, argument
 
 
@@ -12,7 +12,7 @@ COMMAND_SPEC = CommandSpec(
     "durin_dev_tool.cook:run",
     required_modules=("rich", "jsonschema"),
     help_group="Assets",
-    epilog="Examples:\n  DevTool cook --output Saved/Cooked\n  DevTool cook --output Saved/MacCook --target macos --dry-run",
+    epilog="Examples:\n  DevTool cook --output-dir Saved/Cooked\n  DevTool cook --output-dir Saved/MacCook --target macos --dry-run",
     arguments=CONTEXT_ARGUMENTS
     + (
         argument(
@@ -23,7 +23,7 @@ COMMAND_SPEC = CommandSpec(
             help="project descriptor (defaults to the configured game project)",
         ),
         argument(
-            "--output",
+            "--output-dir",
             dest="output_path",
             type=Path,
             required=True,
@@ -48,13 +48,6 @@ COMMAND_SPEC = CommandSpec(
             action="store_true",
             help="capture and report plans without opening an output transaction",
         ),
-        argument(
-            "--json",
-            dest="format_name",
-            action="store_const",
-            const="json",
-            default="human",
-            help="write stable machine-readable JSON",
-        ),
+        REPORT_FORMAT,
     ),
 )

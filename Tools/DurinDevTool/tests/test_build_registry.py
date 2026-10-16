@@ -61,7 +61,7 @@ class TestBuildRegistry:
 
 
     def test_direct_and_shell_entry_paths_dispatch_identical_requests(self) -> None:
-        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh -DFEATURE=ON --define LIMIT=4 --jobs 8', 'build Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild all', 'test CoreTests Core.* --timeout 45', 'test all --report Build/results.xml', 'run --project "Examples/Sandbox/Sandbox.dproject" -- --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
+        commands = ('stop --color never', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --color never', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh -DFEATURE=ON --define LIMIT=4 --jobs 8', 'build Core --log-mode compact', 'clean --color never', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild all', 'test CoreTests Core.* --timeout 45', 'test all --report Build/results.xml', 'run --project "Examples/Sandbox/Sandbox.dproject" -- --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
         stdout = io.StringIO()
         stderr = io.StringIO()
 
@@ -267,7 +267,7 @@ class TestBuildRegistry:
     def test_discovery_commands_reject_child_output_mode(self) -> None:
         for command in ('presets', 'status', 'path root', 'open root', 'purge'):
             with pytest.raises(DevToolError, match='unrecognized arguments'):
-                self.registry.parse([*split_shell_command(command), '--output', 'full'])
+                self.registry.parse([*split_shell_command(command), '--log-mode', 'full'])
 
     def test_removed_compatibility_inputs_are_rejected(self) -> None:
         for command in (
@@ -346,17 +346,17 @@ class TestBuildRegistry:
 
     def test_build_output_options_do_not_need_agent_preset(self) -> None:
         request = handler.request_from_namespace(self.parse(['build']))
-        assert not request.plain
+        assert request.color == 'auto'
         assert request.output_mode is OutputMode.AUTO
         explicit = handler.request_from_namespace(
-            self.parse(['build', '--plain', '--output', 'compact'])
+            self.parse(['build', '--color', 'never', '--log-mode', 'compact'])
         )
-        assert explicit.plain
+        assert explicit.color == 'never'
         assert explicit.output_mode is OutputMode.COMPACT
         for command in ('configure', 'build', 'clean', 'recover', 'rebuild', 'test'):
             help_text = self.registry.format_command_help((command,))
             assert '--agent' not in help_text
-            assert '--output' in help_text
+            assert '--log-mode' in help_text
 
     def test_preset_command_preserves_inspection_semantics(self) -> None:
         spec, namespace = self.registry.parse(['preset', 'Win64-Debug-DurinEditor'])
@@ -400,9 +400,9 @@ class TestBuildRegistry:
         state: dict[str, object] = {}
         with mock.patch.object(build_operations, 'create_build_context', return_value=base), mock.patch.object(build_operations, 'prepare_toolchain_environment', side_effect=prepare_environment) as prepare_environment_context, mock.patch.object(build_operations, 'prepare_command_context', side_effect=prepare_command) as prepare_command_context, mock.patch.object(build_operations, 'derive_build_context', side_effect=derive), mock.patch.object(build_operations, 'execute_context') as execute:
             for request in (
-                request_fixtures.command_request(Action.BUILD, output=OutputOptions(plain=True), options=request_fixtures.BuildActionOptions(target='Core')),
-                request_fixtures.command_request(Action.PRESET, context=RequestContext(preset='release'), output=OutputOptions(plain=True)),
-                request_fixtures.command_request(Action.BUILD, output=OutputOptions(plain=True), options=request_fixtures.BuildActionOptions(target='Core')),
+                request_fixtures.command_request(Action.BUILD, output=OutputOptions(color="never"), options=request_fixtures.BuildActionOptions(target='Core')),
+                request_fixtures.command_request(Action.PRESET, context=RequestContext(preset='release'), output=OutputOptions(color="never")),
+                request_fixtures.command_request(Action.BUILD, output=OutputOptions(color="never"), options=request_fixtures.BuildActionOptions(target='Core')),
             ):
                 assert build_operations.execute_request(request, session_state=state, stdout=io.StringIO(), stderr=io.StringIO()) == 0
         prepare_environment_context.assert_called_once_with(base)
@@ -467,7 +467,7 @@ class TestBuildRegistry:
         request = request_fixtures.command_request(
             Action.PRESET,
             context=RequestContext(preset='2'),
-            output=OutputOptions(plain=True),
+            output=OutputOptions(color="never"),
         )
         with mock.patch.object(build_operations, 'create_build_context', return_value=base):
             assert build_operations.execute_request(
@@ -515,7 +515,7 @@ class TestBuildRegistry:
 
         plain_stdout = io.StringIO()
         plain_output = build_operations.BuildOutput(
-            plain=True,
+            color="never",
             stdout=plain_stdout,
             stderr=io.StringIO(),
         )

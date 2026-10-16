@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .specification import CommandSpec, argument
+from .common_specs import COLOR
 
 
 HANDLER = "durin_dev_tool.documentation.handler:run"
@@ -15,7 +16,7 @@ PLAN_LIST_ARGUMENTS = (
     argument("--query", help="filter by title or filename"),
     argument("--all-results", action="store_true", help="allow an unfiltered archive or all-scope listing"),
     argument("--format", choices=("markdown", "terminal"), default=None, dest="output_format"),
-    argument("--color", choices=("auto", "always", "never"), default="auto"),
+    COLOR,
 )
 PLAN_VALIDATE_ARGUMENTS = (argument("--scope", choices=PLAN_SCOPES, default="all"),)
 PLAN_ARCHIVE_ARGUMENTS = (

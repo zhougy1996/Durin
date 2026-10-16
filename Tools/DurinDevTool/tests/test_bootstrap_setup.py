@@ -253,20 +253,28 @@ class TestSetupOrchestration:
         with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
             handler, '_enable_virtual_terminal', return_value=True
         ):
-            output = handler._BootstrapOutput(stream, plain=False)
+            output = handler._BootstrapOutput(stream, color="auto")
             print('Durin setup completed successfully.', file=output)
         assert '\x1b[1;32m' in stream.getvalue()
 
     def test_setup_fallback_respects_plain_output(self) -> None:
         stream = io.StringIO()
-        output = handler._BootstrapOutput(stream, plain=True)
+        output = handler._BootstrapOutput(stream, color="never")
         print('Durin setup completed successfully.', file=output)
         assert '\x1b[' not in stream.getvalue()
+
+    @pytest.mark.parametrize('color', ['auto', 'always', 'never'])
+    def test_setup_fallback_color_policy_with_redirected_output(self, color) -> None:
+        stream = io.StringIO()
+        with mock.patch.dict(os.environ, {'NO_COLOR': '1', 'TERM': 'dumb'}):
+            output = handler._BootstrapOutput(stream, color=color)
+            output.write('Setup completed successfully.\n')
+        assert ('\x1b[' in stream.getvalue()) == (color == 'always')
 
     def test_setup_fallback_exposes_child_process_file_descriptor(self) -> None:
         stream = mock.Mock()
         stream.fileno.return_value = 42
-        output = handler._BootstrapOutput(stream, plain=True)
+        output = handler._BootstrapOutput(stream, color="never")
         assert output.fileno() == 42
         stream.fileno.assert_called_once_with()
 
@@ -338,7 +346,7 @@ class TestSetupOrchestration:
         assert raised.value is failure
 
     def test_expected_preflight_failure_is_reported_as_devtool_error(self) -> None:
-        namespace = argparse.Namespace(bootstrap_action='setup', plain=True)
+        namespace = argparse.Namespace(bootstrap_action='setup', color="never")
         failure = preflight.PreflightError('missing prerequisite')
         with mock.patch.object(bootstrap_application, 'setup_checkout', side_effect=failure), pytest.raises(handler.DevToolError, match='missing prerequisite') as raised:
             handler.run(
@@ -350,7 +358,7 @@ class TestSetupOrchestration:
         assert raised.value is failure
 
     def test_unexpected_bootstrap_runtime_error_retains_identity_and_traceback(self) -> None:
-        namespace = argparse.Namespace(bootstrap_action='setup', plain=True)
+        namespace = argparse.Namespace(bootstrap_action='setup', color="never")
         failure = RuntimeError('unexpected defect')
 
         def fail_setup(

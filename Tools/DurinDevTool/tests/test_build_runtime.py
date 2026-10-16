@@ -28,12 +28,12 @@ class TestCore:
         preset = self.make_preset()
         request = request_fixtures.command_request(models.Action.RUN, options=request_fixtures.RunActionOptions())
         context = build_context.BuildContext(request, models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows')
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         with mock.patch.object(runtime_program, 'runtime_executable_path', return_value=Path('missing/DurinEditor.exe')), pytest.raises(DevToolError, match='was not found'):
             build_runtime.run_application(context, output)
     def test_run_application_waits_for_relaunched_descendants(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
         project = root / '示例 Project' / 'Example.dproject'
@@ -53,7 +53,7 @@ class TestCore:
         process.stdout = io.StringIO()
         process.wait.return_value = 0
         process_job = mock.Mock()
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         with mock.patch.object(build_process, 'command_log_path', return_value=directory / 'command.log'), mock.patch.object(build_process.subprocess, 'Popen', return_value=process), mock.patch.object(build_process.subprocess, 'CREATE_NEW_PROCESS_GROUP', 512, create=True), mock.patch.object(build_process, 'WindowsProcessJob', return_value=process_job), mock.patch.object(build_process.os, 'name', 'nt'):
             build_process.run_command(['DurinEditor.exe'], environment={}, output=output, wait_for_descendants=True, cwd=directory, state_directory=directory)
@@ -67,7 +67,7 @@ class TestCore:
         process.poll.return_value = 0
         process_job = mock.Mock()
         process_job.wait.side_effect = KeyboardInterrupt
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         with mock.patch.object(build_process, 'command_log_path', return_value=directory / 'command.log'), mock.patch.object(build_process.subprocess, 'Popen', return_value=process), mock.patch.object(build_process.subprocess, 'CREATE_NEW_PROCESS_GROUP', 512, create=True), mock.patch.object(build_process, 'WindowsProcessJob', return_value=process_job), mock.patch.object(build_process.os, 'name', 'nt'), pytest.raises(errors.BuildToolError, match='Application run was interrupted'):
             build_process.run_command(['DurinEditor.exe'], environment={}, output=output, recovery_required_on_interrupt=False, wait_for_descendants=True, cwd=directory, state_directory=directory)

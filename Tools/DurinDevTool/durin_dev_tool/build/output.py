@@ -14,6 +14,7 @@ from rich.control import Control
 from rich.rule import Rule
 from rich.segment import ControlType
 from rich.text import Text
+from ..display import color_enabled
 
 from .build_context import BuildContext
 from .errors import BuildToolError
@@ -67,7 +68,7 @@ class BuildOutput:
     def __init__(
         self,
         *,
-        plain: bool = False,
+        color: str = "auto",
         output_mode: OutputMode = OutputMode.AUTO,
         stdout: TextIO | None = None,
         stderr: TextIO | None = None,
@@ -75,12 +76,12 @@ class BuildOutput:
     ):
         stdout = stdout or sys.stdout
         stderr = stderr or sys.stderr
-        no_color = plain or "NO_COLOR" in os.environ
         stdout_is_terminal = bool(getattr(stdout, "isatty", lambda: False)())
         output_is_terminal = stdout_is_terminal if force_terminal is None else force_terminal
-        if force_terminal is None:
-            force_terminal = stdout_is_terminal and not no_color
-        self.plain = no_color or not force_terminal
+        use_color = color_enabled(color, stdout)
+        if color == "auto" and force_terminal is not None:
+            use_color = force_terminal and "NO_COLOR" not in os.environ and os.environ.get("TERM") != "dumb"
+        self.plain = not use_color
         self.output_mode = output_mode
         if output_mode is OutputMode.AUTO:
             self.resolved_output_mode = (
@@ -94,14 +95,16 @@ class BuildOutput:
         self.progress = self.resolved_output_mode is OutputMode.PROGRESS
         self.console = Console(
             file=stdout,
-            force_terminal=False if self.plain else force_terminal,
+            force_terminal=use_color,
+            color_system="standard" if color == "always" else "auto",
             no_color=self.plain,
             highlight=False,
             soft_wrap=True,
         )
         self.error_console = Console(
             file=stderr,
-            force_terminal=False if self.plain else force_terminal,
+            force_terminal=use_color,
+            color_system="standard" if color == "always" else "auto",
             no_color=self.plain,
             highlight=False,
             soft_wrap=True,
@@ -322,7 +325,7 @@ class BuildOutput:
             "Build directory": preset_build_directory(context.preset, root=paths.root),
             "CMake": context.cmake or "not required",
             "Build jobs": context.jobs or "not required",
-            "Child output": (
+            "Log mode": (
                 f"auto ({self.resolved_output_mode.value})"
                 if self.output_mode is OutputMode.AUTO
                 else (

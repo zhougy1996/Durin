@@ -24,7 +24,7 @@ class TestCore:
         preset = self.make_preset()
         context = build_context.BuildContext(request_fixtures.command_request(models.Action.TEST, options=request_fixtures.TestActionOptions(target='CoreTests', filter='Core.*')), models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', environment={})
         context.request = replace(context.request, test_report_enabled=report_enabled)
-        output = BuildOutput(plain=True, output_mode=models.OutputMode.COMPACT, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", output_mode=models.OutputMode.COMPACT, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         with mock.patch.object(build_runtime, 'test_executable_path', return_value=Path(directory) / 'CoreTests.exe') as executable_path, mock.patch.object(build_runtime, 'run_command') as run:
             executable_path.return_value.touch()
@@ -56,7 +56,7 @@ class TestCore:
             jobs=1,
             environment={},
         )
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         resolved = mock.Mock(
             names=('LaunchTests',),
             targets=(mock.Mock(resolved_execution_host=resolved_host),),
@@ -82,7 +82,7 @@ class TestCore:
             preset,
             'windows',
         )
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         with mock.patch.object(
             build_runtime,
             'load_native_test_registry',
@@ -93,7 +93,7 @@ class TestCore:
         preset = self.make_preset()
         cmake = 'C:/Tools/CMake/bin/cmake.exe'
         context = build_context.BuildContext(request_fixtures.command_request(models.Action.TEST, options=request_fixtures.TestActionOptions(target='ALL', report_path=Path('Build/results.xml'), timeout_seconds=60)), models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake=cmake, jobs=4, environment={'PATH': 'cached'})
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         build_directory = Path('Build/debug')
         with mock.patch.object(build_runtime, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_runtime, 'run_command') as run:
             build_runtime.run_all_native_tests(context, output)
@@ -129,7 +129,7 @@ class TestCore:
             environment={'PATH': 'cached'},
             resolved_test_targets=('MonaViewportTests', 'ViewportTests'),
         )
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         build_directory = Path('Build/debug')
         with mock.patch.object(build_runtime, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_runtime, 'run_command') as run:
             build_runtime.run_selected_native_tests(context, output)
@@ -165,7 +165,7 @@ class TestCore:
             environment={},
             resolved_test_targets=('MonaViewportTests', 'ViewportTests'),
         )
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         build_directory = Path(tmp_path_factory.mktemp('case'))
         with mock.patch.object(build_core, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_core, 'cache_is_usable', return_value=True), mock.patch.object(build_core, 'run_command') as run:
             build_core.perform_action(context, output)
@@ -190,7 +190,7 @@ class TestCore:
         context = build_context.BuildContext(request, models.LocalConfig(), self.make_profile(),
             {'debug': preset}, preset, 'windows', cmake='cmake', jobs=12,
             environment={}, resolved_test_targets=('MaterialCompilerTests',))
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         output.context(context)
         assert 'Build jobs: 12' in output.console.file.getvalue()
         assert f'Test scheduling slots: {expected}' in output.console.file.getvalue()
@@ -233,7 +233,7 @@ class TestCore:
             environment={},
             resolved_test_targets=('RendererQualificationTests',),
         )
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         with mock.patch.object(build_runtime, 'run_command') as run:
             build_runtime.run_selected_native_tests(context, output)
         command = run.call_args.args[0]
@@ -250,7 +250,7 @@ class TestCore:
         request = request_fixtures.command_request(models.Action.TEST, options=request_fixtures.TestActionOptions(target='all', mode=models.TestMode.STRESS))
         context = build_context.BuildContext(request, models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={'PATH': 'cached'})
         stdout = io.StringIO()
-        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=stdout, stderr=io.StringIO())
         with mock.patch.object(build_runtime.secrets, 'randbelow', return_value=40), mock.patch.object(build_runtime, 'run_command') as run:
             build_runtime.run_all_native_tests(context, output)
         assert run.call_args.kwargs['environment'] == {
@@ -266,7 +266,7 @@ class TestCore:
         request = request_fixtures.command_request(models.Action.TEST, options=request_fixtures.TestActionOptions(target='all'))
         context = build_context.BuildContext(request, models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={})
         stdout = io.StringIO()
-        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=stdout, stderr=io.StringIO())
         with mock.patch.object(build_runtime, 'run_command', side_effect=errors.BuildToolError('failed')), pytest.raises(errors.BuildToolError, match='failed'):
             build_runtime.run_all_native_tests(context, output)
         diagnostic = stdout.getvalue()
@@ -275,7 +275,7 @@ class TestCore:
         preset = self.make_preset()
         request = request_fixtures.command_request(models.Action.TEST, options=request_fixtures.TestActionOptions(target='all', mode=models.TestMode.STRESS))
         context = build_context.BuildContext(request, models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={'GTEST_RANDOM_SEED': 'invalid'})
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         with pytest.raises(errors.BuildToolError, match='must be an integer'):
             build_runtime.run_all_native_tests(context, output)
     def test_stress_selection_rejects_invalid_environment_seed(self) -> None:
@@ -299,7 +299,7 @@ class TestCore:
             environment={'GTEST_RANDOM_SEED': 'invalid'},
             resolved_test_targets=('ViewportTests',),
         )
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         with pytest.raises(errors.BuildToolError, match='must be an integer'):
             build_runtime.run_selected_native_tests(context, output)
     def test_stress_selection_uses_shared_random_invocation(self) -> None:
@@ -325,7 +325,7 @@ class TestCore:
             resolved_test_targets=('ViewportTests',),
         )
         stdout = io.StringIO()
-        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=stdout, stderr=io.StringIO())
         with mock.patch.object(build_runtime, 'run_command') as run:
             build_runtime.run_selected_native_tests(context, output)
         assert run.call_args.args[0][-3:] == ['--timeout', '60', '--schedule-random']
@@ -337,7 +337,7 @@ class TestCore:
         assert 'GoogleTest shuffle seed: 41' in stdout.getvalue()
     def test_configure_preserves_cache_unless_fresh_is_requested(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         with mock.patch.object(build_core, 'preset_build_directory', return_value=Path(directory)), mock.patch.object(build_core, 'prepare_configure_dependencies') as prepare, mock.patch.object(build_core, 'require_english_msvc_ninja_prefix'), mock.patch.object(build_core, 'run_command') as run:
             context = build_context.BuildContext(request_fixtures.command_request(models.Action.CONFIGURE, options=request_fixtures.BuildActionOptions()), models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', environment={})
@@ -363,7 +363,7 @@ class TestCore:
             assert prepare.call_count == 3
     def test_configure_recovers_an_unusable_existing_cache_with_fresh(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         cache = Path(directory) / 'CMakeCache.txt'
         cache.write_text('CMAKE_MAKE_PROGRAM:FILEPATH=CMAKE_MAKE_PROGRAM-NOTFOUND\n', encoding='utf-8')
@@ -373,7 +373,7 @@ class TestCore:
         assert run.call_args.args[0] == ['cmake', '--fresh', '--preset', 'debug']
     def test_all_native_tests_build_the_explicit_aggregate_target(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         directory = Path(tmp_path_factory.mktemp('case'))
         (directory / 'CMakeCache.txt').write_text('CMAKE_MAKE_PROGRAM:FILEPATH=ninja\n', encoding='utf-8')
         (directory / 'build.ninja').touch()
@@ -392,7 +392,7 @@ class TestCore:
         assert build_core.cache_is_usable(cache)
     def test_build_fresh_configures_cache_without_ninja_graph(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
-        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output = BuildOutput(color="never", stdout=io.StringIO(), stderr=io.StringIO())
         directory = Path(tmp_path_factory.mktemp('case'))
         (directory / 'CMakeCache.txt').write_text(
             'CMAKE_MAKE_PROGRAM:FILEPATH=ninja\n', encoding='utf-8'
