@@ -23,8 +23,6 @@ namespace Durin
 		uint64 Id;
 		/** Cast flags used for casting to other classes */
 		uint64 CastFlags;
-		/** Class flags */
-		EClassFlags ClassFlags;
 		/** Super of this class */
 		FFieldClass* SuperClass;
 		/** Function to construct an instance of this class */

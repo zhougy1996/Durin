@@ -89,9 +89,17 @@ namespace
 		return Class;
 	}
 
-	auto MakeFunction(DClass* Owner, const char* Name, EFunctionFlags Flags = EFunctionFlags::Virtual) -> DFunction*
+	auto MakeFunction(DClass* Owner, const char* Name, EFunctionFlags Flags = EFunctionFlags::Virtual,
+		const DurinCodeGen::FFunctionLayoutParams* Layout = nullptr,
+		FNativeFunctionPtr Native = +[](DObject&, FFunctionFrame&, void*) {}) -> DFunction*
 	{
-		return DurinCodeGen::ConstructDFunction(Owner, {Name, nullptr, Flags | EFunctionFlags::Native, "Actions", Name, "", +[](DObject&, FFunctionFrame&, void*) {}});
+		return DurinCodeGen::ConstructDFunction(Owner, {Name, Layout, Flags | EFunctionFlags::Native, "Actions", Name, "", Native});
+	}
+
+	auto MakeFunction(DClass* Owner, const char* Name, const DurinCodeGen::FFunctionLayoutParams& Layout,
+		FNativeFunctionPtr Native = +[](DObject&, FFunctionFrame&, void*) {}) -> DFunction*
+	{
+		return MakeFunction(Owner, Name, EFunctionFlags::None, &Layout, Native);
 	}
 
 	class DRecursiveFunctionTarget : public DObject
@@ -408,7 +416,7 @@ TEST(DFunctionReflectionTests, LinkingFinalizesLayoutAndFailedValidationCanBeRep
 	TNativePropertyParams<int32> Value("Value", 0, EPropertyFlags::Parm);
 	const FPropertyParamsBase* Properties[]{&Value.Params};
 	auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
-	auto* Function = ConstructDFunction(Owner, {"Run", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}});
+	auto* Function = MakeFunction(Owner, "Run", Layout);
 	EXPECT_FALSE(Function->ArePropertiesLinked());
 	Function->SetStructureLayout(1, 1);
 	Owner->RegisterFunctions({Function});
@@ -531,7 +539,7 @@ TEST(DFunctionReflectionTests, LayoutValidationRejectsOverlapMissingLifecycleAnd
 	auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, std::size(Properties));
 	auto Construct = [&](const FFunctionLayoutParams& Input, EFunctionLinkError Expected) {
 		auto* Owner = MakeFunctionClass("Tests::DLayoutValidation");
-		auto* Function = ConstructDFunction(Owner, {"Run", &Input, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}});
+		auto* Function = MakeFunction(Owner, "Run", Input);
 		Owner->RegisterFunctions({Function});
 		EXPECT_EQ(Owner->LinkFunctions(), Expected);
 		return Function;
@@ -563,7 +571,7 @@ TEST(DFunctionReflectionTests, NestedStorageDiagnosticsUseTheSharedValidatorAndC
 	TNativePropertyParams<FValues> Values("Values", 0, EPropertyFlags::Parm);
 	const FPropertyParamsBase* Properties[]{&Values.Params};
 	auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
-	auto* Function = ConstructDFunction(Owner, {"Run", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}});
+	auto* Function = MakeFunction(Owner, "Run", Layout);
 	Owner->RegisterFunctions({Function});
 	auto* Map = static_cast<FMapProperty*>(Function->GetChildProperties());
 	auto* Inner = static_cast<FArrayProperty*>(Map->GetValueProp())->GetInner();
@@ -586,7 +594,7 @@ TEST(DFunctionReflectionTests, NestedStorageDiagnosticsUseTheSharedValidatorAndC
 TEST(DFunctionReflectionTests, ClassLinkReportsTheFunctionWithAMissingNativeEntry)
 {
 	auto* Owner = MakeFunctionClass("Tests::DMissingNativeEntryDiagnostic");
-	auto* Function = DurinCodeGen::ConstructDFunction(Owner, {"Run", nullptr, EFunctionFlags::Native, "", "", "", nullptr});
+	auto* Function = MakeFunction(Owner, "Run", EFunctionFlags::None, nullptr, nullptr);
 	Owner->RegisterFunctions({Function});
 	EXPECT_EQ(Owner->LinkFunctions(), EFunctionLinkError::InvalidDescriptor);
 	EXPECT_EQ(ToString(Owner->GetFunctionLinkDiagnostic()), "Tests::DMissingNativeEntryDiagnostic::Run: native function entry is missing");
@@ -637,7 +645,7 @@ TEST(DFunctionReflectionTests, PropertyRolesAreValidatedBeforeLinking)
 		TNativePropertyParams<int32> Value("Value", 0, Flags);
 		const FPropertyParamsBase* Properties[]{&Value.Params};
 		auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
-		Owner->RegisterFunctions({ConstructDFunction(Owner, {"Run", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}})});
+		Owner->RegisterFunctions({MakeFunction(Owner, "Run", Layout)});
 		EXPECT_EQ(Owner->LinkFunctions(), EFunctionLinkError::InvalidDescriptor);
 	}
 }
@@ -651,7 +659,7 @@ TEST(DFunctionReflectionTests, ReturnFieldDoesNotConflictWithAnInputNamedReturnV
 	TNativePropertyParams<int32> Return("ReturnValue", offsetof(FArguments, Result), EPropertyFlags::Parm | EPropertyFlags::ReturnParm | EPropertyFlags::OutParm);
 	const FPropertyParamsBase* Properties[]{&Input.Params, &Return.Params};
 	auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 2);
-	Owner->RegisterFunctions({ConstructDFunction(Owner, {"Run", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}})});
+	Owner->RegisterFunctions({MakeFunction(Owner, "Run", Layout)});
 	EXPECT_EQ(Owner->LinkFunctions(), EFunctionLinkError::None);
 	EXPECT_NE(Owner->FindFunctionByName("Run")->GetParameterProperty(0), Owner->FindFunctionByName("Run")->GetReturnProperty());
 }
@@ -664,10 +672,10 @@ TEST(DFunctionReflectionTests, ParameterAggregateDestructionRunsAfterNativeExcep
 	TNativePropertyParams<std::string> Text("Text", STRUCT_OFFSET_UINT16(FObservedParameters, Text), EPropertyFlags::Parm | EPropertyFlags::ReferenceParm | EPropertyFlags::ConstParm);
 	const FPropertyParamsBase* Properties[]{&Text.Params};
 	auto Layout = MakeFunctionLayoutParams<FObservedParameters>(Properties, std::size(Properties));
-	Class->RegisterFunctions({DurinCodeGen::ConstructDFunction(Class, {"Throw", &Layout, EFunctionFlags::Native, "Actions", "Throw", "", +[](DObject&, FFunctionFrame& Frame, void*) {
+	Class->RegisterFunctions({MakeFunction(Class, "Throw", Layout, +[](DObject&, FFunctionFrame& Frame, void*) {
 			EXPECT_EQ(Frame.GetParameter<std::string>(0), "owned value");
 			throw std::runtime_error("parameter body");
-		}})});
+		})});
 	ASSERT_EQ(Class->LinkFunctions(), EFunctionLinkError::None);
 	TStrongObjectPtr<DObject> Target(NewObject(Class, nullptr, "ParameterLifecycleTarget"));
 	const auto* Function = Class->FindFunctionByName("Throw");
@@ -695,10 +703,8 @@ TEST(DFunctionReflectionTests, LinkingRejectsAParameterTypeMismatchEvenWhenSizeA
 	const FPropertyParamsBase* FloatProperties[]{&FloatValue.Params};
 	auto Integer = MakeFunctionLayoutParams<FIntegerArguments>(IntegerProperties, 1);
 	auto Float = MakeFunctionLayoutParams<FFloatArguments>(FloatProperties, 1);
-	const auto Flags = EFunctionFlags::Native | EFunctionFlags::Virtual;
-	const auto Native = +[](DObject&, FFunctionFrame&, void*) {};
-	Derived->RegisterFunctions({DurinCodeGen::ConstructDFunction(Derived, {"Run", &Float, Flags, "", "", "", Native})});
-	Base->RegisterFunctions({DurinCodeGen::ConstructDFunction(Base, {"Run", &Integer, Flags, "", "", "", Native})});
+	Derived->RegisterFunctions({MakeFunction(Derived, "Run", EFunctionFlags::Virtual, &Float)});
+	Base->RegisterFunctions({MakeFunction(Base, "Run", EFunctionFlags::Virtual, &Integer)});
 	EXPECT_EQ(Derived->LinkFunctions(), EFunctionLinkError::SignatureMismatch);
 	EXPECT_EQ(Derived->GetFunctionLinkDiagnostic().OwnerClass, "Tests::DTypedFunctionDerived");
 	EXPECT_EQ(Derived->GetFunctionLinkDiagnostic().PropertyPath, "Renamed");
@@ -874,7 +880,7 @@ TEST(DFunctionReflectionTests, CachedParameterSchemaObservesLaterStructRegistrat
 	TNativePropertyParams<FValues> Values("Values", 0, EPropertyFlags::Parm);
 	const FPropertyParamsBase* Properties[]{&Values.Params};
 	auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
-	auto* Function = ConstructDFunction(Owner, {"Run", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}});
+	auto* Function = MakeFunction(Owner, "Run", Layout);
 	Owner->RegisterFunctions({Function});
 	ASSERT_EQ(Owner->LinkFunctions(), EFunctionLinkError::None);
 	{
@@ -919,7 +925,7 @@ TEST(DFunctionReflectionTests, CachedReturnSchemaRunsNativeStructCollectorsWitho
 		EPropertyFlags::Parm | EPropertyFlags::ReturnParm | EPropertyFlags::OutParm);
 	const FPropertyParamsBase* Properties[]{&Result.Params};
 	auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
-	auto* Function = ConstructDFunction(Owner, {"Run", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}});
+	auto* Function = MakeFunction(Owner, "Run", Layout);
 	Owner->RegisterFunctions({Function});
 	ASSERT_EQ(Owner->LinkFunctions(), EFunctionLinkError::None);
 	const FObjectKey Key(NewObject<DObject>(nullptr, "NativeCollectorReturnOnlyObject"));

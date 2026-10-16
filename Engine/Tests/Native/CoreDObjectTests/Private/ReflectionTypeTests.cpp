@@ -2052,11 +2052,6 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		return ConstructDStruct(Params);
 	}
 
-	void EnsureDObjectInitialized()
-	{
-		Durin::Testing::InitializeDObjectSystemForTests();
-	}
-
 	struct FTypedStructPropertyOwnerForTest
 	{
 		Durin::FVector3 Direct;
@@ -2463,7 +2458,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, IntrinsicTypesUseTypeAndStructBaseHierarchy)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		EXPECT_TRUE(Durin::IsFNameInitialized());
 		EXPECT_TRUE(Durin::FName("None").IsNone());
 		EXPECT_EQ(Durin::FindClassByQualifiedName("Durin::DObject"), Durin::DObject::StaticClass());
@@ -2561,7 +2556,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, PropertyLegacyNamesAreOwnerScopedSerializedAliases)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DClass* Class = DOverrideContainerOwnerForTest::StaticClass();
 		Durin::FProperty* Current = Class->FindPropertyByName("Values", false);
 		ASSERT_NE(Current, nullptr);
@@ -2581,7 +2576,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, ClassDefaultObjectHasStableIdentityAndSurvivesGarbageCollection)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		EXPECT_EQ(Durin::DObject::StaticClass()->GetDefaultObjectState(), Durin::EClassDefaultObjectState::Ineligible);
 		EXPECT_EQ(Durin::DObject::StaticClass()->GetDefaultObjectReason(), Durin::EClassDefaultObjectReason::Intrinsic);
 		EXPECT_EQ(Durin::DPackage::StaticClass()->GetDefaultObjectState(), Durin::EClassDefaultObjectState::Ineligible);
@@ -2641,7 +2636,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, RecursiveDefaultObjectConstructionRollsBackTheWholeObject)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::CollectGarbage();
 		Durin::DClass* Class = DRecursiveDefaultObjectForTest::StaticClass();
 		(void)DLifecycleTestObject::StaticClass();
@@ -2663,7 +2658,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, DefaultObjectGraphPairsStableSubobjectsAndResolvesClassBaselines)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DClass* Class = DDefaultGraphOwnerForTest::StaticClass();
 		const std::array Batch{Class};
 		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
@@ -2736,7 +2731,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, DefaultDeltaPlanCanonicalizesReflectedAndNativeClassDifferences)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DClass* Class = DDefaultGraphOwnerForTest::StaticClass();
 		const std::array Batch{Class};
 		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
@@ -2917,7 +2912,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, DefaultDeltaPlanUsesAuthoritativeStructIdentity)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DClass* Class = DAuthoritativeDeltaOwnerForTest::StaticClass();
 		const std::array Batch{Class};
 		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
@@ -2953,7 +2948,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, AuthoredOverrideLedgerIsCanonicalTransactionalAndCopied)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DClass* Class = DDefaultGraphOwnerForTest::StaticClass();
 		const std::array Batch{Class};
 		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
@@ -3099,7 +3094,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, AuthoredOverridesReplaceContainersAcrossStructuralEdits)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DClass* Class = DOverrideContainerOwnerForTest::StaticClass();
 		const std::array ClassBatch{Class};
 		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(ClassBatch));
@@ -3201,7 +3196,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, NoDeltaEmitsCompleteGraphWithoutManufacturingOverrides)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DClass* Class = DDefaultGraphOwnerForTest::StaticClass();
 		const std::array Batch{Class};
 		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
@@ -3261,7 +3256,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, ClassDefaultMatchesReflectedAndNativeArchiveDefaults)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DClass* Class = DLifecycleReferenceOwnerForTest::StaticClass();
 		const std::array Batch{Class};
 		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
@@ -3293,7 +3288,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, ClassDefaultBatchIgnoresInputRegistrationOrder)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		auto MakeClass = [](const char* Name, Durin::DClass* SuperClass) {
 			auto* Class = new Durin::DClass(
 				Durin::EC_StaticConstructor,
@@ -3344,7 +3339,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, DeferredRegistrationOwnsTemporaryNames)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		auto* Struct = new Durin::DStruct(
 			Durin::EC_StaticConstructor,
@@ -3373,7 +3368,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, NewObjectKeepsClassAndCastBehavior)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("CoreDObjectTestObject"));
 
@@ -3385,7 +3380,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, AbstractClassesRetainHierarchyButRejectConstruction)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DClass AbstractClass(
 			Durin::EC_StaticConstructor,
 			Durin::FName("DAbstractObjectForTest"),
@@ -3412,7 +3407,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, OuterIndexTracksRegistrationRenameReparentGarbageAndRemoval)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		Durin::DObject* FirstOuter = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("OuterIndexFirst"));
 		Durin::DObject* SecondOuter = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("OuterIndexSecond"));
@@ -3454,7 +3449,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, HierarchyGarbageMarkingVisitsPrivateDeepAndReorderedChildren)
 	{
 		using namespace Durin;
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
 		FPackagePath Path;
 		ASSERT_TRUE(FPackagePath::TryCreate("/CoreTests/PrivateGarbage", Path));
@@ -3494,7 +3489,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, DestroyingWideOuterDetachesAllReachableChildren)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		constexpr size_t ChildCount = 1024;
 		Durin::DObject* Outer = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WideOuter"));
@@ -3521,7 +3516,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, PackageRetainsAllTopLevelAssetsAndBuildsStructuralObjectPaths)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/Package", Path));
@@ -3557,7 +3552,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, CreatePackageInitializesStandaloneAndRejectsDuplicatePaths)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/CreatedPackage", Path));
@@ -3588,7 +3583,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, NewObjectFlagsDrivePublicAndConfigurableStandaloneLifetime)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DObject* Object = Durin::NewObject(
 			Durin::DObject::StaticClass(), nullptr, "FlaggedObject",
 			Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone);
@@ -3612,7 +3607,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, CppPackagesOwnReflectedTypesAndAreStableRoots)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		Durin::DPackage* CorePackage = Durin::FindPackage("/Cpp/CoreDObject");
 		ASSERT_NE(CorePackage, nullptr);
@@ -3643,7 +3638,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, MarkAsGarbageDefersPhysicalDestructionUntilGarbageCollection)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		DLifecycleTestObject::ResetLifecycleCounts();
 
 		auto* Object = Durin::NewObject<DLifecycleTestObject>(nullptr, Durin::FName("GarbageRequestTestObject"));
@@ -3672,7 +3667,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	{
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				auto* Object = Durin::NewObject<DLifecycleTestObject>(
 					nullptr, Durin::FName("RecursiveGarbageCollectionObject"));
 				Object->bCollectGarbageInBeginDestroy = true;
@@ -3685,7 +3680,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, GarbageCollectionWaitsForFinishReadinessWithoutRepeatingCallbacks)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::CollectGarbage();
 		DLifecycleTestObject::ResetLifecycleCounts();
 		auto* Object = Durin::NewObject<DLifecycleTestObject>(nullptr, Durin::FName("DeferredFinishTestObject"));
@@ -3720,7 +3715,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, ShutdownDestructionCompletesAfterOneFlushAndSecondCollection)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		DLifecycleTestObject::ResetLifecycleCounts();
 		FShutdownDestroyScheduler Scheduler;
 		auto* Object = Durin::NewObject<DLifecycleTestObject>(
@@ -3747,7 +3742,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, GarbageCollectionKeepsRootAndCollectsUnreachableObjects)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		Durin::DObject* RootedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("RootedGCTestObject"));
 		Durin::DObject* UnreachableObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("UnreachableGCTestObject"));
@@ -3764,7 +3759,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, GarbageObjectIsCollectedEvenWhenRooted)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("RootedGarbageObject"));
 		Durin::TObjectPtr<Durin::DObject> ObjectPtr = Object;
 		Durin::AddToRoot(Object);
@@ -3852,7 +3847,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, OnlyTObjectPtrPropertiesKeepReferencedObjectsReachable)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(nullptr, Durin::FName("GCReferenceOwner"));
 		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCReferencedObject"));
@@ -3873,7 +3868,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, RootedOuterDoesNotKeepChildReachable)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		Durin::DObject* Outer = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCOuterObject"));
 		auto* Inner = Durin::NewObject<DLifecycleTestObject>(Outer, Durin::FName("GCInnerObject"));
@@ -3890,7 +3885,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, GarbageCollectionDestroysUnreachableOuterHierarchyOnce)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		DLifecycleTestObject::ResetLifecycleCounts();
 
 		auto* Outer = Durin::NewObject<DLifecycleTestObject>(nullptr, Durin::FName("GCUnreachableOuter"));
@@ -3906,7 +3901,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, RootedChildKeepsOuterChainButNotSiblingReachable)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		Durin::DObject* Outer = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCReverseOuter"));
 		Durin::DObject* Inner = Durin::NewObject<Durin::DObject>(Outer, Durin::FName("GCReverseInner"));
@@ -3927,7 +3922,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, ExplicitNativeReferenceKeepsObjectReachable)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(nullptr, Durin::FName("GCNativeReferenceOwner"));
 		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCNativeReferencedObject"));
@@ -3946,7 +3941,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, ExplicitGarbageOuterDoesNotDestroyRootedChild)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		Durin::DObject* Outer = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCExplicitOuter"));
 		Durin::DObject* Inner = Durin::NewObject<Durin::DObject>(Outer, Durin::FName("GCExplicitInner"));
@@ -3964,7 +3959,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, HierarchyGarbageMarkingUsesCurrentOuterTreeAndHonorsReparenting)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		Durin::DObject* OriginalOuter = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("HierarchyOriginalOuter"));
 		Durin::DObject* DoomedChild = Durin::NewObject<Durin::DObject>(OriginalOuter, Durin::FName("HierarchyDoomedChild"));
@@ -3997,7 +3992,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, CollectionRequestsSurviveNestedDeferralAndDisabledScheduling)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::CollectGarbage();
 		Durin::ConfigureAutomaticGarbageCollection({.bEnabled = false}, 0.0);
 		Durin::TObjectPtr<Durin::DObject> Object = Durin::NewObject<Durin::DObject>(nullptr, "DeferredCollection");
@@ -4023,7 +4018,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, AutomaticGarbageCollectionPhysicallyRemovesMarkedHierarchy)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::FGarbageCollectionSettings Settings;
 		Settings.IntervalSeconds = 0.0;
 		Settings.PendingKillThreshold = 1;
@@ -4043,7 +4038,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, AutomaticGarbageCollectionFindsReferenceRemovalAtMaximumInterval)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::CollectGarbage();
 		Durin::FGarbageCollectionSettings Settings;
 		Settings.IntervalSeconds = 60.0;
@@ -4079,7 +4074,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, RootSetIsIdempotentAndStrongPointersAreComposable)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DObject* RootedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCIdempotentRoot"));
 
 		Durin::AddToRoot(RootedObject);
@@ -4107,7 +4102,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, DeepOuterChainUsesIterativeMarkAndDestroy)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		constexpr uint32 ChainLength = 10000;
 		Durin::DObject* Outermost = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCDeepOuter0"));
 		Durin::DObject* Innermost = Outermost;
@@ -4129,7 +4124,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, VectorTObjectPtrPropertiesKeepElementsReachable)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(nullptr, Durin::FName("GCVectorReferenceOwner"));
 		Durin::DObject* RawReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCRawVectorReferencedObject"));
@@ -4153,7 +4148,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, CompiledReferenceSchemaTraversesInheritanceStructsArraysAndMaps)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		// Match generated registration ordering where a derived class can first see
 		// provisional superclass metadata, then verify superclass finalization rebuilds it.
 		DGCReferenceSchemaDerivedForTest::StaticClass();
@@ -4217,7 +4212,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, MapPropertySupportsEditorMutationOperations)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		auto* Owner = Durin::NewObject<DGCReferenceSchemaDerivedForTest>(nullptr, Durin::FName("MapPropertyMutationOwner"));
 		auto* Property = static_cast<Durin::FMapProperty*>(Owner->GetClass()->FindPropertyByName("DirectMap"));
 		ASSERT_NE(Property, nullptr);
@@ -4272,7 +4267,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, PropertyValueIteratorVisitsNestedStorageAndFixedArrays)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		auto* Owner = Durin::NewObject<DEditorOnlyArchiveOwnerForTest>(nullptr, "ValueIteratorOwner");
 		Durin::FPropertyValueIterator It(Owner->GetClass(), Owner);
 		std::vector<int32> Values;
@@ -4311,7 +4306,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, PropertyValueIteratorSkipsOnlyCurrentSubtree)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		auto* Owner = Durin::NewObject<DEditorOnlyArchiveOwnerForTest>(nullptr, "ValueIteratorSkipOwner");
 		auto* Fixed = Owner->GetClass()->FindPropertyByName("Fixed");
 		Durin::FPropertyValueIterator It(Fixed, Owner);
@@ -4408,7 +4403,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, PropertyValueIteratorHonorsInheritanceDeprecationAndAccessors)
 	{
 		using namespace Durin;
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		DGCReferenceSchemaBaseForTest::StaticClass();
 		auto* Owner = NewObject<DGCReferenceSchemaDerivedForTest>(nullptr, "ValueIteratorDerived");
 		FPropertyValueIterator Inherited(Owner->GetClass(), Owner, {.bRecursive = false});
@@ -4442,7 +4437,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, PropertyValueIteratorFiltersLeavesAndReportsContainerPaths)
 	{
 		using namespace Durin;
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		auto* Owner = NewObject<DEditorOnlyArchiveOwnerForTest>(nullptr, "ValueIteratorPaths");
 		Owner->Array.push_back({13, 14});
 		FPropertyValueIterator It(Owner->GetClass(), Owner, {.Kind = DurinCodeGen::EPropertyGenFlags::Int32});
@@ -4521,7 +4516,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, EditorOnlyFilteringRecursesThroughStructContainers)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		class FFieldRecordingArchive final : public Durin::FObjectArchive
 		{
 		public:
@@ -4564,7 +4559,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, ObjectGraphSerializationRoundTripsScalarStringAndObjectReference)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(nullptr, Durin::FName("SerializedOwner"));
 		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("SerializedReference"));
@@ -4726,7 +4721,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, ObjectGraphDiscoveryFreezesScopeAndPublishesAtomically)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(
 			nullptr, Durin::FName("FrozenDiscoveryOwner"));
 		Durin::DObject* LateReference = Durin::NewObject<Durin::DObject>(
@@ -4761,7 +4756,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, DuplicateArchiveRemapsInternalReferencesSharesExternalAndCleansFailures)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		auto* Source = Durin::NewObject<DLifecycleReferenceOwnerForTest>(
 			nullptr, Durin::FName("DuplicateArchiveSource"));
 		auto* Inner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(
@@ -4834,7 +4829,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, GenericMemoryArchiveRejectsProcessObjectAddresses)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(
 			nullptr, Durin::FName("GenericMemoryArchiveReference"));
 		Durin::FByteBuffer Bytes;
@@ -4848,7 +4843,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, TObjectPtrWrapsDObjectReferencesWithoutOwnership)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("ObjectPtrReferencedObject"));
 		Durin::TObjectPtr<Durin::DObject> ObjectPtr;
@@ -4896,7 +4891,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, ObjectKeysRetainIdentityWithoutRetainingObjects)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::CollectGarbage();
 		auto* First = Durin::NewObject<Durin::DObject>(nullptr, "ObjectKeyFirst");
 		const Durin::FObjectKey Key(First);
@@ -4924,7 +4919,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, WeakObjectPtrResolvesLiveObjectAndResets)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		Durin::TWeakObjectPtr<Durin::DObject> WeakObject;
 		EXPECT_EQ(WeakObject.Get(), nullptr);
@@ -4951,7 +4946,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, WeakObjectPtrRejectsGarbageBeforeObjectRemoval)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrGarbageObject"));
 		Durin::TWeakObjectPtr<Durin::DObject> WeakObject = Object;
@@ -4969,7 +4964,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, WeakObjectPtrUsesObjectSerialNumberToRejectReusedSlot)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::CollectGarbage();
 
 		Durin::DObject* First = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrFirst"));
@@ -4998,7 +4993,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, WeakObjectPtrCanBeCarriedAcrossWorkerAndResolvedOnGameThread)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrCarriedObject"));
 		Durin::TWeakObjectPtr<Durin::DObject> WeakObject = Object;
@@ -5015,7 +5010,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, WeakObjectPtrMayOutliveObjectWhileCarriedByWorker)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 
 		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrWorkerLifetimeObject"));
 		Durin::TWeakObjectPtr<Durin::DObject> WeakObject = Object;
@@ -5054,7 +5049,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, BooleanPathFactoriesPreserveOutputOnFailure)
 	{
 		using namespace Durin;
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
 		FPackagePath Package;
 		static_assert(std::is_same_v<decltype(FPackagePath::TryCreate("", Package)), bool>);
@@ -5095,7 +5090,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, PathErrorsPreserveCodesContextAndOutput)
 	{
 		using namespace Durin;
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
 		FPackagePath Package;
 		ASSERT_TRUE(FPackagePath::TryCreate("/CoreTests/PathDiagnostic", Package));
@@ -5155,7 +5150,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, SoftObjectPtrUsesPathIdentityAndWeakLoadedState)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/SoftObjectValue", Path));
@@ -5222,7 +5217,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, SoftObjectArchiveRetainsPathCauseAndFirstFailure)
 	{
 		using namespace Durin;
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
 		FObjectPath Original;
 		ASSERT_TRUE(FObjectPath::TryCreate("/CoreTests/SoftArchive.Asset", Original));
@@ -5258,7 +5253,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, SoftObjectSnapshotRetainsPathCauseWithoutPublishing)
 	{
 		using namespace Durin;
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
 		auto* Property = GetSoftObjectPropertyOwner()->FindPropertyByName("Direct", false);
 		ASSERT_NE(Property, nullptr);
@@ -5286,7 +5281,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, SoftObjectGraphRetainsPathCauseAndRetiresCandidates)
 	{
 		using namespace Durin;
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
 		auto* Owner = NewObject<DLifecycleReferenceOwnerForTest>(nullptr, "SoftGraphFailure");
 		FObjectPath Path;
@@ -5319,7 +5314,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, SoftObjectPtrRejectsInvalidObjectsWithoutMutation)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/SoftObjectValidation", Path));
@@ -5387,7 +5382,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, SoftObjectPropertySupportsTypedDirectNestedAndDetachedValues)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		EnsurePackageTestMount();
 		Durin::DStruct* OwnerStruct = GetSoftObjectPropertyOwner();
 		auto* Direct = static_cast<Durin::FSoftObjectProperty*>(OwnerStruct->FindPropertyByName("Direct", false));
@@ -5493,7 +5488,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, WeakObjectPropertySupportsTransientTypedContainersWithoutRootingTargets)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DStruct* OwnerStruct = GetWeakObjectPropertyOwner();
 		auto* Direct = static_cast<Durin::FWeakObjectProperty*>(OwnerStruct->FindPropertyByName("Direct", false));
 		auto* Fixed = static_cast<Durin::FWeakObjectProperty*>(OwnerStruct->FindPropertyByName("Fixed", false));
@@ -5534,7 +5529,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, WeakObjectPropertySchemaIgnoresDirectArrayAndMapTargets)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(nullptr, "WeakSchemaOwner");
 		Durin::DObject* Target = Durin::NewObject<Durin::DObject>(nullptr, "WeakSchemaTarget");
 		Owner->WeakReference = Target;
@@ -5559,7 +5554,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	{
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				Durin::FSoftObjectPtr Reference;
 				std::thread Worker([&Reference]() {
 					(void)Reference.Get();
@@ -5573,7 +5568,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, ReusedObjectSlotInvalidatesOldHandleObjectSerialNumber)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::CollectGarbage();
 		Durin::DObject* First = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("ObjectHandleFirst"));
 		const Durin::FObjectHandle FirstHandle = Durin::MakeObjectHandle(First);
@@ -5591,7 +5586,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, ObjectAndGarbageCountsTrackLiveObjectsWithoutCompaction)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::CollectGarbage();
 		const uint64 InitialCount = Durin::GDObjectArray.GetNum();
 		Durin::DObject* A = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCCountA"));
@@ -5752,7 +5747,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, ConstructDClassAttachesGeneratedPropertiesToStructBase)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		static const Durin::DurinCodeGen::FInt32PropertyParams ValuePropertyParams = {
 			"Value",
 			Durin::EPropertyFlags::None,
@@ -6037,7 +6032,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, TypedBuiltInLeavesSupportDetachedDefaultDestroyAndCopy)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DStruct* Struct = GetBuiltInLeafOwnerStructForTest();
 		ASSERT_NE(Struct, nullptr);
 
@@ -6182,7 +6177,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Unsupported.Fail(Durin::EArchiveFailureCode::InvalidData, "replacement failure");
 		EXPECT_EQ(Unsupported.GetFailure()->Code, Durin::EArchiveFailureCode::UnsupportedCapability);
 
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(
 			nullptr, Durin::FName("SemanticArchiveScopeObject"));
 		ASSERT_NE(Object, nullptr);
@@ -6269,7 +6264,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, BuiltInMathStructsExposeNestedFieldMetadataAndOperations)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DStruct* FloatVector2Struct = Durin::Z_Construct_DStruct_FVector2f();
 		Durin::DStruct* FloatVectorStruct = Durin::Z_Construct_DStruct_FVector3f();
 		Durin::DStruct* FloatVector4Struct = Durin::Z_Construct_DStruct_FVector4f();
@@ -6431,7 +6426,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, PrecisionSpecificQuaternionAndMatrixStructsExposeCanonicalSchemas)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DStruct* FloatVector4Struct = Durin::Z_Construct_DStruct_FVector4f();
 		Durin::DStruct* FloatQuatStruct = Durin::Z_Construct_DStruct_FQuatf();
 		Durin::DStruct* FloatMatrixStruct = Durin::Z_Construct_DStruct_FMatrix4f();
@@ -6674,7 +6669,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, PublishedStructDefaultsRootReferencesUntilModuleRelease)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		StructOpsTest::DefaultReferenceTarget = Durin::NewObject<Durin::DObject>(
 			nullptr, Durin::FName("StructDefaultReferenceTarget"));
 		Durin::DObject* Target = StructOpsTest::DefaultReferenceTarget;
@@ -6792,7 +6787,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationSupportsOffsetsAccessorsAndMetadata)
 	{
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DStruct* OwnerStruct = GetTypedStructPropertyOwner();
 		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_FVector3();
 		auto* Direct = static_cast<Durin::FStructProperty*>(OwnerStruct->FindPropertyByName("Direct", false));
@@ -6818,7 +6813,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationDefersUnavailableCapabilitiesToUse)
 	{
 		std::expected<void, Durin::FPropertyValueError> ValueResult;
-		EnsureDObjectInitialized();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::DStruct* OwnerStruct = GetUnavailableStructPropertyOwner();
 		auto* DeletedDefault = static_cast<Durin::FStructProperty*>(OwnerStruct->FindPropertyByName("DeletedDefault", false));
 		auto* MoveOnly = static_cast<Durin::FStructProperty*>(OwnerStruct->FindPropertyByName("MoveOnly", false));
@@ -6857,7 +6852,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 	{
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				Durin::DurinCodeGen::FInt32PropertyParams Params{
 					"Historical", Durin::EPropertyFlags::Deprecated, 1, 0};
 				ConstructInvalidStructProperty(Params);
@@ -6866,7 +6861,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				Durin::DurinCodeGen::FInt32PropertyParams Params{
 					"Historical_DEPRECATED",
 					Durin::EPropertyFlags::Deprecated | Durin::EPropertyFlags::Transient, 1, 0};
@@ -6876,7 +6871,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				constexpr Durin::FPropertyMetadataParams Metadata{
 					.Step = Durin::FPropertyMetadataNumber::FromUnsigned(1)
 				};
@@ -6890,7 +6885,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				Durin::DurinCodeGen::FInt32PropertyParams Params = {
 					"KindMismatch", Durin::EPropertyFlags::None, 1, 0
 				};
@@ -6901,7 +6896,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				const Durin::DurinCodeGen::FStructPropertyParams Params = {
 					"MissingResolver", Durin::EPropertyFlags::None, 1, 0, nullptr
 				};
@@ -6911,7 +6906,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				const Durin::DurinCodeGen::FStructPropertyParams Params = {
 					"NullDescriptor", Durin::EPropertyFlags::None, 1, 0, &GetNullStructDescriptor
 				};
@@ -6921,7 +6916,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				const Durin::DurinCodeGen::FStructPropertyParams Params = {
 					"InvalidSize", Durin::EPropertyFlags::None, 1, 0, &GetZeroSizeStructDescriptor
 				};
@@ -6931,7 +6926,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				const Durin::DurinCodeGen::FStructPropertyParams Params = {
 					"InvalidAlignment", Durin::EPropertyFlags::None, 1, 0, &GetInvalidAlignmentStructDescriptor
 				};
@@ -6941,7 +6936,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				const Durin::DurinCodeGen::FStructPropertyParams Params =
 					Durin::DurinCodeGen::FStructPropertyParams::WithAccessors(
 						"AccessorPairMismatch",
@@ -6957,7 +6952,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				Durin::DurinCodeGen::FStructPropertyParams Params = {
 					"MetadataMismatch",
 					Durin::EPropertyFlags::None,
@@ -6972,7 +6967,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				const Durin::DurinCodeGen::FEnumPropertyParams Params = {
 					"MissingEnumResolver", Durin::EPropertyFlags::None, 1, 0, nullptr
 				};
@@ -6982,7 +6977,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				const Durin::DurinCodeGen::FEnumPropertyParams Params = {
 					"InvalidEnumSize", Durin::EPropertyFlags::None, 1, 0,
 					&GetInvalidBuiltInLeafEnumForTest
@@ -6993,7 +6988,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				auto Params = Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>(
 					"MissingObjectAccess", Durin::EPropertyFlags::None, 1, 0,
 					&Durin::DObject::StaticClass
@@ -7005,7 +7000,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				const Durin::DurinCodeGen::FGenericPropertyParams Params = {
 					"InvalidGeneric", Durin::EPropertyFlags::None, 1, 0, 0,
 					Durin::DurinCodeGen::MakePropertyValueOps<int32>()
@@ -7016,7 +7011,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				const auto Params = Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<Durin::TWeakObjectPtr<Durin::DObject>>(
 					"PersistentWeak", Durin::EPropertyFlags::None, 1, 0, &Durin::DObject::StaticClass);
 				ConstructInvalidStructProperty(Params);
@@ -7025,7 +7020,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 		);
 		EXPECT_DEATH(
 			([] {
-				EnsureDObjectInitialized();
+				Durin::Testing::InitializeDObjectSystemForTests();
 				using FWeakPtr = Durin::TWeakObjectPtr<Durin::DObject>;
 				const auto Key = Durin::DurinCodeGen::FWeakObjectPropertyParams::Create<FWeakPtr>(
 					"WeakKey", Durin::EPropertyFlags::None, 1, 0, &Durin::DObject::StaticClass);
@@ -7043,7 +7038,7 @@ TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidM
 TEST(FCoreDObjectCookLifecycleTests, ClassSchemasDoNotConstructDefaultsAndDeduplicateInheritedHooks)
 {
 	using namespace Durin;
-	EnsureDObjectInitialized();
+	Durin::Testing::InitializeDObjectSystemForTests();
 	DClass Parent(EC_StaticConstructor, "CookSchemaParent", sizeof(DObject), alignof(DObject),
 		EObjectFlags::NoFlags, EClassFlags::Abstract, EClassCastFlags::DClass, nullptr);
 	DClass Child(EC_StaticConstructor, "CookSchemaChild", sizeof(DObject), alignof(DObject),
@@ -7073,7 +7068,7 @@ TEST(FCoreDObjectCookLifecycleTests, ClassSchemasDoNotConstructDefaultsAndDedupl
 TEST(FCoreDObjectCookLifecycleTests, ClassSchemaFailureStopsDerivedContributions)
 {
 	using namespace Durin;
-	EnsureDObjectInitialized();
+	Durin::Testing::InitializeDObjectSystemForTests();
 	DClass Parent(EC_StaticConstructor, "FailedCookSchemaParent", sizeof(DObject), alignof(DObject),
 		EObjectFlags::NoFlags, EClassFlags::Abstract, EClassCastFlags::DClass, nullptr);
 	DClass Child(EC_StaticConstructor, "FailedCookSchemaChild", sizeof(DObject), alignof(DObject),

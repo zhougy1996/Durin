@@ -9,7 +9,6 @@ namespace Durin
 	FFieldClass::FFieldClass(const char* InCPPName, uint64 InId, uint64 InCastFlags, FFieldClass* InSuperClass, FFieldConstructFuncType InConstructFunc)
 		: Id(InId)
 		, CastFlags(InCastFlags)
-		, ClassFlags(EClassFlags::None)
 		, SuperClass(InSuperClass)
 		, ConstructFunc(InConstructFunc)
 	{

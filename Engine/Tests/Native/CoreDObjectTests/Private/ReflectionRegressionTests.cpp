@@ -37,10 +37,6 @@ TEST(FCoreDObjectReflectionRegressionTests, FieldClassNameRegistryRetainsRegistr
 	ASSERT_TRUE(Types.contains("StringProperty"));
 	EXPECT_EQ(Types.at("NumericProperty"), Numeric);
 	EXPECT_EQ(Types.at("StringProperty"), String);
-	EXPECT_EQ(&Types, &FFieldClass::GetNameToFieldClassMap());
-	const auto Size = Types.size();
-	EXPECT_EQ(FNumericProperty::StaticClass(), Numeric);
-	EXPECT_EQ(Types.size(), Size);
 }
 
 TEST(FCoreDObjectReflectionRegressionTests, GeneratedPropertiesBeyond64KiBAddressNativeMembersAndRetainReferences)

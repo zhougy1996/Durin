@@ -298,14 +298,6 @@ namespace Durin
 		require(SuperObject == SuperStructBase);
 	}
 
-	auto DStructBase::RegisterDependencies() -> void
-	{
-		if (SuperStructBase)
-		{
-			SuperStructBase->RegisterDependencies();
-		}
-	}
-
 	auto DStructBase::ForEachProperty(const std::function<void(FProperty*)>& Visitor, bool bIncludeSuper) const -> void
 	{
 		if (auto* Super = bIncludeSuper ? GetInheritanceSuper() : nullptr)

@@ -72,7 +72,6 @@ namespace Durin
 		auto GetMinAlignment() const -> uint32 { return MinAlignment; }
 
 		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
-		auto RegisterDependencies() -> void;
 
 		COREDOBJECT_API auto ForEachProperty(const std::function<void(FProperty*)>& Visitor, bool bIncludeSuper = true) const -> void;
 
