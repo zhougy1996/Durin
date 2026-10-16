@@ -59,8 +59,46 @@ namespace Durin
 	auto DSceneComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		if (IsAppliedChange(Event) && Event.MemberProperty
+		if (!bAttachmentUndoPending && IsAppliedChange(Event) && Event.MemberProperty
 			&& Event.MemberProperty->NamePrivate == FName("RelativeTransform")) UpdateComponentToWorld();
+	}
+
+	auto DSceneComponent::PreEditUndo() -> void
+	{
+		Super::PreEditUndo();
+		PreUndoAttachParent = AttachParent.Get();
+		bAttachmentUndoPending = true;
+	}
+
+	auto DSceneComponent::PostEditUndo() -> void
+	{
+		if (!bAttachmentUndoPending)
+		{
+			Super::PostEditUndo();
+			return;
+		}
+		DSceneComponent* PreviousParent = PreUndoAttachParent.Get();
+		DSceneComponent* Parent = AttachParent.Get();
+		if (PreviousParent && PreviousParent != Parent) PreviousParent->RemoveAttachChild(this);
+		if (Parent && std::ranges::none_of(Parent->AttachChildren,
+			[this](const TObjectPtr<DSceneComponent>& Child) { return Child.Get() == this; }))
+		{
+			Parent->AttachChildren.emplace_back(this);
+		}
+		PreUndoAttachParent.Reset();
+		bAttachmentUndoPending = false;
+#if DURIN_WITH_EDITOR
+		if (AActor* Owner = GetOwner(); Owner && Owner->GetRootComponent() == this)
+		{
+			AActor* PreviousParentActor = PreviousParent ? PreviousParent->GetOwner() : nullptr;
+			if (PreviousParentActor == Owner) PreviousParentActor = nullptr;
+			if (PreviousParentActor != Owner->GetAttachParentActor())
+				if (auto* Level = Cast<DLevel>(Owner->GetOuter())) Level->NotifyEditorActorHierarchyChanged();
+		}
+#endif
+		Super::PostEditUndo();
+		// All authored fields are restored, and the parent can propagate future moves again.
+		UpdateComponentToWorld();
 	}
 
 	auto DSceneComponent::BeginDestroy() -> void

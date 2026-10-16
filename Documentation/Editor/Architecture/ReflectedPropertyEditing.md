@@ -43,15 +43,25 @@ leaf container is null and the full draft root remains available.
 `DObject::PostEditChangeProperty(const FPropertyChangedEvent&)` is the common
 notification hook. Its default implementation is a no-op.
 
-After synchronous transaction Undo/Redo has applied all records, the transactor
-calls `DObject::PostEditUndo()` once per distinct attempted property-record target.
-On replay failure, this callback runs after compensation, against the final
-recovered state; validation failures before replay emit no callback. Custom
+After transaction validation and before any Undo/Redo record is applied, the
+transactor calls `DObject::PreEditUndo()` once per distinct property-record target.
+Its default implementation is a no-op. After all records have been applied, it
+calls `DObject::PostEditUndo()` once on each of those targets. On replay failure,
+the post callback runs after compensation against the final recovered state,
+including targets prepared before replay but not reached; validation failures
+before replay emit neither callback. Custom
 changes continue to own their domain synchronization. The default implementation
 calls `PostEditChange()`, producing a full-object property notification with no
 member or leaf. Per-property replay notifications retain their Undo/Redo origin
 and precede this completion hook. Overrides may use `PostEditUndo()` to rebuild
 state that depends on multiple restored fields or objects.
+
+Scene components remember their pre-replay attachment parent without retaining
+it. During replay they defer reflected transform updates; completion removes the
+old parent's child entry, restores unique membership in the current parent,
+updates Actor hierarchy revisions for root reparenting, and recalculates world
+transforms through the normal render/physics notification path. Children and
+world transforms remain derived state rather than transaction snapshots.
 
 Actor visibility follows the UE setter split: `SetHidden()` only assigns
 `bHidden`, while `SetActorHiddenInGame()` synchronizes owned components and marks

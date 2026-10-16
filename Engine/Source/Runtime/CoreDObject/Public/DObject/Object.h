@@ -183,6 +183,10 @@ namespace Durin
 		// Dispatches a committed full-object edit through PostEditChangeProperty.
 		COREDOBJECT_API auto PostEditChange() -> void;
 
+		// Called before any property records in an Undo/Redo transaction are applied.
+		// Capture runtime state needed to reconcile restored fields in PostEditUndo.
+		COREDOBJECT_API virtual auto PreEditUndo() -> void;
+
 		// Called once after this object's transaction replay (Undo or Redo), including
 		// compensation on failure. The default dispatches a full-object PostEditChange.
 		COREDOBJECT_API virtual auto PostEditUndo() -> void;

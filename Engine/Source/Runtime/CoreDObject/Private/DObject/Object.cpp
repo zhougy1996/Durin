@@ -394,6 +394,10 @@ namespace Durin
 		PostEditChangeProperty({});
 	}
 
+	auto DObject::PreEditUndo() -> void
+	{
+	}
+
 	auto DObject::PostEditUndo() -> void
 	{
 		PostEditChange();

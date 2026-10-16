@@ -29,6 +29,15 @@ TEST(FReflectedPropertyEditSessionTests, PostEditUndoRunsOncePerObjectAfterAllFi
 	}
 	EXPECT_EQ(First->PostUndoCount, 0u);
 	EXPECT_EQ(Second->PostUndoCount, 0u);
+	EXPECT_EQ(First->PreUndoCount, 0u);
+	EXPECT_EQ(Second->PreUndoCount, 0u);
+	auto ExpectBeforeUndo = [&] {
+		EXPECT_EQ(First->Value, 11);
+		EXPECT_EQ(First->GuidValue, ChangedGuid);
+		EXPECT_EQ(Second->Value, 22);
+	};
+	First->PreUndo = ExpectBeforeUndo;
+	Second->PreUndo = ExpectBeforeUndo;
 	auto ExpectRestored = [&] {
 		EXPECT_EQ(First->Value, 0);
 		EXPECT_EQ(First->GuidValue, Durin::FGuid{});
@@ -39,6 +48,8 @@ TEST(FReflectedPropertyEditSessionTests, PostEditUndoRunsOncePerObjectAfterAllFi
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(First->PostUndoCount, 1u);
 	EXPECT_EQ(Second->PostUndoCount, 1u);
+	EXPECT_EQ(First->PreUndoCount, 1u);
+	EXPECT_EQ(Second->PreUndoCount, 1u);
 	auto ExpectReapplied = [&] {
 		EXPECT_EQ(First->Value, 11);
 		EXPECT_EQ(First->GuidValue, ChangedGuid);
@@ -46,9 +57,13 @@ TEST(FReflectedPropertyEditSessionTests, PostEditUndoRunsOncePerObjectAfterAllFi
 	};
 	First->PostUndo = ExpectReapplied;
 	Second->PostUndo = ExpectReapplied;
+	First->PreUndo = ExpectRestored;
+	Second->PreUndo = ExpectRestored;
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(First->PostUndoCount, 2u);
 	EXPECT_EQ(Second->PostUndoCount, 2u);
+	EXPECT_EQ(First->PreUndoCount, 2u);
+	EXPECT_EQ(Second->PreUndoCount, 2u);
 	ASSERT_TRUE(Transactions.Get()->Reset());
 	Durin::MarkObjectHierarchyAsGarbage(First);
 	Durin::MarkObjectHierarchyAsGarbage(Second);
@@ -84,6 +99,44 @@ TEST(FReflectedPropertyEditSessionTests, PostEditUndoSeesCompensatedStateAfterRe
 	EXPECT_EQ(Second->PostUndoCount, 1u);
 	ExpectCompensated();
 	EXPECT_TRUE(Transactions.Get()->CanUndo());
+	ASSERT_TRUE(Transactions.Get()->Reset());
+	Durin::MarkObjectHierarchyAsGarbage(First);
+	Durin::MarkObjectHierarchyAsGarbage(Second);
+	Durin::CollectGarbage();
+}
+
+TEST(FReflectedPropertyEditSessionTests, RejectedReplayBalancesUndoHooksForUnreachedTargets)
+{
+	InitializeDObjectSystem();
+	auto* First = Durin::NewObject<DReflectedTransactionTestObject>(nullptr, "UnreachedReplayTarget");
+	auto* Second = Durin::NewObject<DReflectedTransactionTestObject>(nullptr, "RejectingReplayTarget");
+	FTestTransactorOwner Transactions;
+	{
+		Durin::Editor::FScopedTransaction Transaction(Transactions.Get(), {"test", "Reject first replay record"});
+		Transaction.Modify(First);
+		Transaction.Modify(Second);
+		First->Value = 11;
+		Second->Value = 22;
+	}
+	Second->PreChange = [](Durin::FPropertyEditProposal&) -> std::expected<void, Durin::FObjectValidationError> {
+		return std::unexpected(Durin::FObjectValidationError{
+			.Code = Durin::EObjectValidationError::PropertyRejected,
+			.PropertyReason = Durin::EPropertyEditRejection::Rejected});
+	};
+	EXPECT_FALSE(Transactions.Get()->Undo());
+	EXPECT_EQ(First->Value, 11);
+	EXPECT_EQ(Second->Value, 22);
+	EXPECT_EQ(First->PreChangeCount, 0u);
+	EXPECT_EQ(First->PreUndoCount, 1u);
+	EXPECT_EQ(First->PostUndoCount, 1u);
+	EXPECT_EQ(Second->PreUndoCount, 1u);
+	EXPECT_EQ(Second->PostUndoCount, 1u);
+	Second->PreChange = {};
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_EQ(First->Value, 0);
+	EXPECT_EQ(Second->Value, 0);
+	EXPECT_EQ(First->PreUndoCount, 2u);
+	EXPECT_EQ(First->PostUndoCount, 2u);
 	ASSERT_TRUE(Transactions.Get()->Reset());
 	Durin::MarkObjectHierarchyAsGarbage(First);
 	Durin::MarkObjectHierarchyAsGarbage(Second);

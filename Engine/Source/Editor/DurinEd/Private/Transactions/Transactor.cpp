@@ -363,6 +363,19 @@ namespace Durin::Editor
 		std::vector<size_t> Applied;
 		Applied.reserve(Records.size());
 		std::vector<FPersistentObjectRef> ReplayTargets;
+		if (Origin != EPropertyChangeOrigin::Edit)
+		{
+			for (const FTransactionRecord& Record : Records)
+			{
+				if (DObject* Object = Record.GetObjectTarget())
+				{
+					const FPersistentObjectRef Target(Object);
+					if (!std::ranges::contains(ReplayTargets, Target)) ReplayTargets.push_back(Target);
+				}
+			}
+			for (const FPersistentObjectRef& Target : ReplayTargets)
+				if (DObject* Object = Target.Resolve()) Object->PreEditUndo();
+		}
 		auto NotifyReplayTargets = [&] {
 			for (const FPersistentObjectRef& Target : ReplayTargets)
 				if (DObject* Object = Target.Resolve()) Object->PostEditUndo();
@@ -370,14 +383,6 @@ namespace Durin::Editor
 		for (size_t Step = 0; Step < Records.size(); ++Step)
 		{
 			const size_t Index = bUndo ? Records.size() - 1 - Step : Step;
-			if (Origin != EPropertyChangeOrigin::Edit)
-			{
-				if (DObject* Object = Records[Index].GetObjectTarget())
-				{
-					const FPersistentObjectRef Target(Object);
-					if (!std::ranges::contains(ReplayTargets, Target)) ReplayTargets.push_back(Target);
-				}
-			}
 			if (const auto Application = Records[Index].Apply(bUndo, Origin); !Application)
 			{
 				FTransactionApplyError Error{.Status = ETransactionApplyFailure::Restored,
