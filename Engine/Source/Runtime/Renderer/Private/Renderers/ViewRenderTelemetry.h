@@ -78,6 +78,7 @@ namespace Durin
 		size_t PersistentCommandMisses = 0;
 		size_t PrimitiveUniformUploads = 0;
 		size_t SurfaceMaterialPreparations = 0;
+		size_t PreparedSurfaceBindingBatches = 0;
 	};
 
 	struct FSplineMeshRenderTelemetry

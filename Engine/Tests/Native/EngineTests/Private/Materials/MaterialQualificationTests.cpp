@@ -62,6 +62,71 @@ namespace
 
 }
 
+TEST(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModule("RenderCore");
+	const bool OwnsThread = GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Stopped;
+	if (OwnsThread) InitRenderingThread();
+	struct FShutdown { bool Owns; ~FShutdown() { if (Owns) ShutdownRenderingThread(); } } Shutdown{OwnsThread};
+	const auto Root = Testing::CreateTestFixtureDirectory("MaterialProxyBaseline");
+	std::string Csv = "parameters,proxies,run,sample,publication_resolve_ns,cached_resolve_ns\n";
+	struct FMeasure { static constexpr auto GetName() -> const char* { return "MaterialProxyBaseline"; } };
+	for (const uint32 Count : {8u, 32u, 128u})
+	{
+		auto Program = std::make_shared<FMaterialCompilerResult>();
+		FMaterialLocalRenderLayer Layer;
+		for (uint32 Index = 0; Index < Count; ++Index)
+		{
+			const FGuid Id{Index + 1, 0, 0, 1};
+			Program->ActiveParameters.push_back({Id, EMaterialParameterType::Scalar});
+			Layer.Parameters.push_back({Id, static_cast<float>(Index)});
+		}
+		const auto Layout = CompileMaterialLayout(Program->ActiveParameters);
+		ASSERT_TRUE(Layout);
+		Program->Layout = Layout.Layout;
+		Layer.CompiledProgram = Program;
+		Layer.StaticProperties = FMaterialStaticProperties{};
+		std::array<FMaterialRenderProxyRef, 32> Proxies;
+		for (auto& Proxy : Proxies) Proxy = new FMaterialRenderProxy;
+		EnqueueRenderCommand<FMeasure>([&](FRHICommandListImmediate&) {
+			uint64 Version = 0;
+			for (uint32 Run = 0; Run < 3; ++Run)
+			{
+				std::vector<int64> Samples;
+				for (int32 Sample = -30; Sample < 120; ++Sample)
+				{
+					Layer.Parameters[0].Value = static_cast<float>(++Version);
+					const auto Begin = std::chrono::steady_clock::now();
+					for (auto& Proxy : Proxies)
+					{
+						EXPECT_TRUE(Proxy->ApplyPublication_RenderThread({Layer, Version}));
+						EXPECT_FALSE(Proxy->Resolve_RenderThread().Representation.IsError());
+					}
+					const auto Resolved = std::chrono::steady_clock::now();
+					for (auto& Proxy : Proxies) (void)Proxy->Resolve_RenderThread();
+					const auto End = std::chrono::steady_clock::now();
+					if (Sample < 0) continue;
+					const auto Ns = std::chrono::duration_cast<std::chrono::nanoseconds>(Resolved - Begin).count();
+					Samples.push_back(Ns);
+					Csv += std::format("{},{},{},{},{},{}\n", Count, Proxies.size(), Run, Sample, Ns,
+						std::chrono::duration_cast<std::chrono::nanoseconds>(End - Resolved).count());
+				}
+				std::ranges::sort(Samples);
+				std::cout << "[MaterialProxyBaseline] parameters=" << Count << " proxies=" << Proxies.size()
+					<< " run=" << Run << " median_ns=" << Samples[59] << " p95_ns=" << Samples[113] << '\n';
+			}
+		});
+		FlushRenderingCommands();
+	}
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Csv)), Root / "samples.csv"));
+	RecordProperty("authority", "diagnostic-host-build");
+	RecordProperty("warmup_count", 30);
+	RecordProperty("sample_count", 120);
+	RecordProperty("run_count", 3);
+	std::cout << "[MaterialProxyBaseline] csv=" << (Root / "samples.csv").generic_string() << '\n';
+}
+
 TEST(FMaterialQualificationTests, StagedBuildWorkloadBaseline)
 {
 	using namespace Durin;

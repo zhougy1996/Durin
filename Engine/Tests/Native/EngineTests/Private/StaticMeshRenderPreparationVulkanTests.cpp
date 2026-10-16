@@ -2287,6 +2287,51 @@ TEST(FMaterialParameterCollectionVulkanTests,
 				*Scene, FLightComponentId(901), Light), nullptr);
 		}
 		FlushRenderingCommands();
+		if (const auto* Benchmark = std::getenv("DURIN_MATERIAL_CACHE_BENCHMARK");
+			Benchmark && std::string_view(Benchmark) == "1")
+		{
+			const auto Root = Testing::CreateTestFixtureDirectory("MaterialCollectionBaseline");
+			std::string Csv = "run,sample,render_view_ns,command_hits,command_misses,surface_preparations,binding_batches\n";
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+				FSceneView View;
+				View.ViewportWidth = 192; View.ViewportHeight = 108;
+				View.Settings.Mode.RenderMode = ERenderMode::Unlit;
+				View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+				const auto Target = GDynamicRHI->RHICreateTexture(Commands,
+					FRHITextureCreateDesc::Create2D("CollectionBenchmark", 192, 108, EPixelFormat::SRGBA8_UNORM)
+						.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource));
+				ASSERT_TRUE(Target);
+				static FViewRenderTelemetry Telemetry;
+				SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Telemetry = Value; });
+				for (uint32 Run = 0; Run < 3; ++Run)
+				{
+					std::vector<int64> Samples;
+					for (int32 Sample = -30; Sample < 120; ++Sample)
+					{
+						++GRenderFrameCounterRenderThread;
+						GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+						const auto Begin = std::chrono::steady_clock::now();
+						const auto Result = Renderer.RenderView(Commands, RedWorld.Get(), View, Target, false, {});
+						const auto Ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin).count();
+						EXPECT_EQ(Result, ERenderViewResult::Success);
+						GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+						if (Sample < 0) continue;
+						Samples.push_back(Ns);
+						Csv += std::format("{},{},{},{},{},{},{}\n", Run, Sample, Ns,
+							Telemetry.StaticMesh.PersistentCommandHits, Telemetry.StaticMesh.PersistentCommandMisses,
+							Telemetry.StaticMesh.SurfaceMaterialPreparations, Telemetry.StaticMesh.PreparedSurfaceBindingBatches);
+					}
+					std::ranges::sort(Samples);
+					std::cout << "[MaterialCollectionBaseline] run=" << Run << " median_ns=" << Samples[59]
+						<< " p95_ns=" << Samples[113] << '\n';
+				}
+				SetViewRenderTelemetrySink(nullptr);
+			});
+			FlushRenderingCommands();
+			ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Csv)), Root / "samples.csv"));
+			RecordProperty("authority", "diagnostic-host-build");
+			std::cout << "[MaterialCollectionBaseline] csv=" << (Root / "samples.csv").generic_string() << '\n';
+		}
 
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
 			[&](FRHICommandListImmediate& Commands) {

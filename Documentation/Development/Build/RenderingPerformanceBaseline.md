@@ -35,6 +35,7 @@ acceptance.
 | `RDGQualificationTests` | Backend-free synthetic graph compilation; diagnostic on every host | declaration/compile median and p95, deterministic dump, dependency count |
 | `VulkanCreationQualificationTests` | Real Vulkan cold/hot/concurrent creation and checked binding submission | shader/PSO/resource creation time, instrumentation overhead, allocation and request pressure; binding producer and queue/replay CPU samples |
 | `MaterialCreationQualificationTests` | Fixed production material frames | producer/render/GPU completion spans, synchronous operations, queue and native creation counts |
+| `MaterialQualificationTests` | Backend-free material publication/resolve and compiler/editor workloads | parameter-scale proxy publication/resolve median/p95, cached resolve cost, compiler/layout costs |
 | `StaticMeshRenderPreparationVulkanTests` | Mixed StaticMesh/Spline preparation with 64 primitives and 256 draws | preparation median/p95 and owned container capacity |
 | `DirectionalShadowBaselineVulkanTests` | Single and cascaded shadow preparation plus rendered output | logical/discovery/static preparation, GPU shadow time, output parity |
 | `HDRDisplayMappingQualificationTests` | 1920x1080 copy and FXAA routes | GPU median/p95 and incremental FXAA cost |
@@ -46,6 +47,26 @@ own a stable performance, scale, or memory workload and publish reproducible
 observations. Correctness-only Vulkan integration remains outside this catalog.
 
 ### Binding Update and Submission Workload
+
+`FMaterialQualificationTests.ProxyPublicationAndResolveBaseline` measures 32
+proxies with 8, 32 and 128 scalar parameters. Each of three runs has 30 warm-ups
+and 120 samples. Each sample changes one value, publishes and resolves every
+proxy, then measures unchanged cached resolution separately. Assertions and
+publication copies remain inside the measured interval on both revisions. This
+isolates proxy work, not GameThread instance mutation or GPU execution. The
+fixture writes `MaterialProxyBaseline/samples.csv` and prints per-run median/p95.
+
+Set `DURIN_MATERIAL_CACHE_BENCHMARK=1` for
+`FMaterialParameterCollectionVulkanTests.WorldSnapshotsDriveForwardGBufferAndMaskedShadowValues`
+in `StaticMeshRenderPreparationVulkanTests` to collect an additional three-run,
+30-warm-up/120-sample Collection workload. It measures `RenderView` CPU work for
+two masked sections at 192x108, with a fixed world snapshot and Unlit view;
+frame begin/end and readback are outside the interval. The CSV includes command
+hits/misses, surface preparation and binding-batch counts. It is not GPU frame
+time. Ordinary execution retains correctness checks without repeated sampling.
+Retain work with `DURIN_TEST_KEEP_WORK=1` and record the exact revision, command,
+build/Tracy settings and log/XML alongside each CSV. Debug or nonexclusive runs
+are diagnostic; these fixtures impose no device-independent timing threshold.
 
 `FVulkanCreationQualificationTests.BindingUpdateAndSubmission` uses the checked
 `DeferredBufferVersions.slang` input for graphics and compute, each with direct

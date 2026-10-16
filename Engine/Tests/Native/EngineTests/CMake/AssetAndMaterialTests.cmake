@@ -700,7 +700,7 @@ durin_add_native_test(MaterialPackageTests
 
 durin_add_native_test(MaterialQualificationTests
 	KIND qualification
-	DOMAINS material
+	DOMAINS material render-performance
 	MODULES engine material-editor renderer
 	STACKS editor renderer
 	TIMEOUT 900

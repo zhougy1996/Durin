@@ -174,6 +174,7 @@ namespace Durin
 		Telemetry.StaticMesh.PersistentCommandMisses = Resolved.Observations.PersistentCommandMisses;
 		Telemetry.StaticMesh.PrimitiveUniformUploads = Resolved.Observations.PrimitiveUniformUploads;
 		Telemetry.StaticMesh.SurfaceMaterialPreparations = Resolved.Observations.SurfaceMaterialPreparations;
+		Telemetry.StaticMesh.PreparedSurfaceBindingBatches = Resolved.Observations.PreparedSurfaceBindingBatches;
 	}
 
 
