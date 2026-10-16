@@ -1,6 +1,7 @@
 import pytest
 import io
 import json
+import os
 import shutil
 import sys
 import zipfile
@@ -250,13 +251,16 @@ class TestThirdPartyBootstrap:
             dependency_sources.urllib.request,
             'urlretrieve',
             side_effect=lambda _url, destination: shutil.copy2(archive_path, destination),
-        ):
+        ), mock.patch.object(Path, 'chmod', autospec=True, side_effect=Path.chmod) as chmod:
             dependency_sources.ensure_archive_source(
                 manifest, 'MacOS', REPOSITORY.at_root(root), CommandIO.system()
             )
         installed = root / manifest['source_dirs_by_platform']['MacOS'] / executable
         assert installed.is_file()
-        assert installed.stat().st_mode & 0o111 == 0o111
+        chmod.assert_any_call(installed, installed.stat().st_mode | 0o111)
+        # Windows chmod only controls read-only state; POSIX persists execute bits.
+        if os.name == 'posix':
+            assert installed.stat().st_mode & 0o111 == 0o111
 
     def test_optional_tool_package_skips_unsupported_platform(self) -> None:
         manifest = self.make_tool_manifest()
