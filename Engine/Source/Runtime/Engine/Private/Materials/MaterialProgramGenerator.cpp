@@ -1046,12 +1046,13 @@ float4 FragmentMain(
 	auto ValidateMaterialCompilerResult(const FMaterialCompilerResult& Result)
 		-> FMaterialLayoutValidationResult
 	{
-		if (!Result || !Result.Identity.IsValid()
+		if (!Result || !Result.Artifact || !Result.Identity.IsValid()
 			|| Result.PassContractVersion != CurrentMaterialPassContractVersion)
 			return {.Error = EMaterialLayoutError::InvalidIdentity};
-		const auto Expected = CompileMaterialLayout(Result.ActiveParameters);
+		const auto& Artifact = Result.GetArtifact();
+		const auto Expected = CompileMaterialLayout(Artifact.ActiveParameters);
 		if (!Expected) return Expected.Validation;
-		if (Expected.Layout != Result.Layout) return {.Error = EMaterialLayoutError::InvalidField};
+		if (Expected.Layout != Artifact.Layout) return {.Error = EMaterialLayoutError::InvalidField};
 		if (Result.ActiveCollections.size() > MaterialParameterCollectionMaxPerMaterial)
 			return {.Error = EMaterialLayoutError::ResourceLimit};
 		FGuid PreviousCollection;
@@ -1068,7 +1069,7 @@ float4 FragmentMain(
 			PreviousCollection = Collection.CollectionId;
 		}
 		return ValidateMaterialCompiledStages(
-			Result.CompiledShaders, Result.Layout, {}, Result.ActiveCollections, Result.RequiredStages);
+			Artifact.CompiledShaders, Artifact.Layout, {}, Result.ActiveCollections, Result.RequiredStages);
 	}
 
 	auto ValidateMaterialCompiledStages(std::span<const FShaderCode> Stages,
@@ -1079,29 +1080,28 @@ float4 FragmentMain(
 		const auto Rejected = FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
 		const auto Valid = ValidateCompiledMaterialLayout(Layout, Limits);
 		if (!Valid) return Valid;
-		constexpr auto Entries = MaterialCompiledEntryPoints;
-		if (!RequiredStages || (RequiredStages & ~127) || !(RequiredStages & 15)
-			|| !(RequiredStages & 112) || Stages.size() != std::popcount(RequiredStages)) return Rejected;
+		if (!RequiredStages || (RequiredStages & ~MaterialAllStageMask) || !(RequiredStages & MaterialFragmentStageMask)
+			|| !(RequiredStages & MaterialVertexStageMask) || Stages.size() != std::popcount(RequiredStages)) return Rejected;
 		uint32 Position = 0;
-		for (uint32 Index = 0; Index < Entries.size(); ++Index)
+		for (const auto& Entry : MaterialShaderEntries)
 		{
-			if (!(RequiredStages & (1 << Index))) continue;
+			if (!(RequiredStages & Entry.GetBit())) continue;
 			const auto& Stage = Stages[Position++];
-			if (Stage.Code.IsEmpty() || Stage.SourceEntryPoint != Entries[Index]
-				|| Stage.Frequency != (Index < 4 ? EShaderFrequency::Fragment : EShaderFrequency::Vertex) || !Stage.Reflection.PushConstantRanges.empty()
+			if (Stage.Code.IsEmpty() || Stage.SourceEntryPoint != Entry.Name
+				|| Stage.Frequency != Entry.Frequency || !Stage.Reflection.PushConstantRanges.empty()
 				|| Stage.Reflection.ResourceBindings.size()
 					> 2 * Layout.ResourceFieldCount + 12 + Collections.size())
 				return Rejected;
 			std::unordered_set<uint64> Seen;
 			for (const auto& Binding : Stage.Reflection.ResourceBindings)
 			{
-				if (Binding.SetIndex > 1 || Binding.ArraySize != 1 || Binding.StageFlags != (Index < 4 ? EShaderStageFlags::Fragment : EShaderStageFlags::Vertex)
+				if (Binding.SetIndex > 1 || Binding.ArraySize != 1 || Binding.StageFlags != (Entry.Frequency == EShaderFrequency::Vertex ? EShaderStageFlags::Vertex : EShaderStageFlags::Fragment)
 					|| !Seen.insert((uint64(Binding.SetIndex) << 32) | Binding.BindingIndex).second) return Rejected;
 				ERHIBindingType Expected;
 				const auto Slot = Binding.BindingIndex;
 				const bool bCollection = Slot >= 3 && Slot < 3 + Collections.size();
 				const bool bPrimitive = Binding.SetIndex == 1 && Slot == 0;
-				const bool bMaterialSet = bPrimitive || Slot == 2 || Slot == 27 || (Index >= 4 && (Slot == 24 || Slot == 28 || Slot == 29))
+				const bool bMaterialSet = bPrimitive || Slot == 2 || Slot == 27 || (Entry.Frequency == EShaderFrequency::Vertex && (Slot == 24 || Slot == 28 || Slot == 29))
 					|| bCollection || Slot >= MaterialTextureBindingBase;
 				if (Binding.SetIndex != (bMaterialSet ? 1u : 0u)) return Rejected;
 				if (bPrimitive)
@@ -1114,22 +1114,22 @@ float4 FragmentMain(
 					Expected = ERHIBindingType::UniformBuffer;
 					if (Binding.Name != "MaterialView") return Rejected;
 				}
-				else if (Index == 5 && Slot == 24)
+				else if (Entry.Entry == EMaterialShaderEntry::SplineVertex && Slot == 24)
 				{
 					Expected = ERHIBindingType::UniformBuffer;
 					if (Binding.Name != "SplineMesh") return Rejected;
 				}
-				else if (Index == 6 && (Slot == 28 || Slot == 29))
+				else if (Entry.Entry == EMaterialShaderEntry::GPUCullingVertex && (Slot == 28 || Slot == 29))
 				{
 					Expected = ERHIBindingType::StorageBuffer;
 					if (Binding.Name != (Slot == 28 ? "VisibleInstances" : "InstanceTransforms")) return Rejected;
 				}
-				else if (Slot == 2 || (Index == 0 && Slot == 1))
+				else if (Slot == 2 || (Entry.Entry == EMaterialShaderEntry::Forward && Slot == 1))
 				{
 					Expected = ERHIBindingType::UniformBuffer;
 					if (Binding.Name != (Slot == 2 ? "Material" : "Lighting")) return Rejected;
 				}
-				else if (Index == 3 && Slot == 27)
+				else if (Entry.Entry == EMaterialShaderEntry::HitProxy && Slot == 27)
 				{
 					Expected = ERHIBindingType::UniformBuffer;
 					if (Binding.Name != "HitProxy") return Rejected;
@@ -1140,8 +1140,8 @@ float4 FragmentMain(
 					if (Binding.Name != std::format("MaterialCollection{}", Slot - 3))
 						return Rejected;
 				}
-				else if (Index == 0 && (Slot == 19 || Slot == 20 || Slot == 21 || Slot == 25)) Expected = ERHIBindingType::Texture;
-				else if (Index == 0 && (Slot == 22 || Slot == 26)) Expected = ERHIBindingType::Sampler;
+				else if (Entry.Entry == EMaterialShaderEntry::Forward && (Slot == 19 || Slot == 20 || Slot == 21 || Slot == 25)) Expected = ERHIBindingType::Texture;
+				else if (Entry.Entry == EMaterialShaderEntry::Forward && (Slot == 22 || Slot == 26)) Expected = ERHIBindingType::Sampler;
 				else if (Slot >= MaterialTextureBindingBase && Slot - MaterialTextureBindingBase < 2u * Layout.ResourceFieldCount)
 					Expected = (Slot - MaterialTextureBindingBase) % 2 == 0 ? ERHIBindingType::Texture : ERHIBindingType::Sampler;
 				else return Rejected;
@@ -1231,7 +1231,7 @@ float4 FragmentMain(
 		Request.Source = Result.GeneratedSource;
 		auto Options = MakeMaterialShaderCompileOptions(Request.Target, CanonicalizeMaterialShaderProperties(Translation.StaticProperties));
 		for (uint32 Index = 0; Index < Options.EntryPoints.size(); ++Index)
-			if (Translation.RequiredStages & (1 << Index))
+			if (Translation.RequiredStages & MaterialShaderEntries[Index].GetBit())
 			{ Request.EntryPoints.emplace_back(Options.EntryPoints[Index]); Request.Frequencies.push_back(Options.Frequencies[Index]); }
 		Request.Macros = std::move(Options.Macros);
 		Request.AllowedImportVirtualPrefixes = {
@@ -1243,9 +1243,11 @@ float4 FragmentMain(
 				{
 				FShaderSourceTreeDescription Environment;
 				Environment.VirtualPath = Dependency.VirtualPath; Environment.ContentHash = Dependency.ContentHash;
-				for (const auto Entry : MaterialCompiledEntryPoints) Environment.EntryPoints.emplace_back(Entry);
-				Environment.Frequencies.assign(4, EShaderFrequency::Fragment);
-				Environment.Frequencies.insert(Environment.Frequencies.end(), 3, EShaderFrequency::Vertex);
+				for (const auto& Entry : MaterialShaderEntries)
+				{
+					Environment.EntryPoints.emplace_back(Entry.Name);
+					Environment.Frequencies.push_back(Entry.Frequency);
+				}
 				Environment.Macros = MakeMaterialShaderCompileOptions(Request.Target, {.OpacityMaskThreshold = 0.5f}).Macros;
 				Environment.bCompleteClosure = true; Request.ExpectedSourceTree = std::move(Environment);
 			}
@@ -1260,18 +1262,18 @@ float4 FragmentMain(
 		auto Base = MakeMaterialShaderCompileRequest(Translation, bForceRecompile);
 		Base.Source.clear();
 		std::array<std::string, 2> Sources;
-		for (uint32 Index = 0; Index < MaterialCompiledEntryPoints.size(); ++Index)
+		for (const auto& Entry : MaterialShaderEntries)
 		{
-			if (!(Translation.RequiredStages & (1 << Index))) continue;
-			const uint32 Vertex = Index >= 4;
+			if (!(Translation.RequiredStages & Entry.GetBit())) continue;
+			const uint32 Vertex = Entry.Frequency == EShaderFrequency::Vertex;
 			if (Sources[Vertex].empty() && !GenerateMaterialProgramSlangImpl(Translation.IR,
 				Translation.Layout, Translation.ActiveCollections, Sources[Vertex],
 				Vertex ? EMaterialEvaluationStage::Vertex : EMaterialEvaluationStage::Pixel)) return {};
 			auto Request = Base;
 			Request.Source = Sources[Vertex];
 			Request.VirtualPath = "/Generated/MaterialStages/" + FXxHash128::HashBuffer(Request.Source).ToString();
-			Request.EntryPoints = {std::string(MaterialCompiledEntryPoints[Index])};
-			Request.Frequencies = {Vertex ? EShaderFrequency::Vertex : EShaderFrequency::Fragment};
+			Request.EntryPoints = {std::string(Entry.Name)};
+			Request.Frequencies = {Entry.Frequency};
 			// Pixel properties cannot change vertex code. Shared layout/varyings and
 			// the verified import environment still participate in the stage key.
 			if (Vertex) Request.Macros = MakeMaterialShaderCompileOptions(Request.Target, {}).Macros;
@@ -1283,13 +1285,16 @@ float4 FragmentMain(
 	auto AssembleMaterialProgram(FMaterialTranslatedProgram Translation,
 		FShaderBuildResult Output) -> FMaterialCompilerResult
 	{
+		auto Artifact = std::make_shared<FMaterialProgramArtifact>(FMaterialProgramArtifact{
+			.ActiveParameters = std::move(Translation.ActiveParameters), .Layout = std::move(Translation.Layout),
+			.Requirements = Translation.Requirements, .Dependencies = std::move(Translation.Dependencies)});
 		FMaterialCompilerResult Result{
 			.Identity = Translation.Identity, .CompilerIdentity = std::move(Translation.CompilerIdentity), .Target = std::move(Translation.Target),
 			.PassContractVersion = Translation.PassContractVersion, .RequiredStages = Translation.RequiredStages, .Quality = Translation.Quality, .FeatureLevel = Translation.FeatureLevel,
-			.StaticBools = std::move(Translation.StaticBools), .IR = std::move(Translation.IR),
-			.ActiveParameters = std::move(Translation.ActiveParameters), .ActiveCollections = std::move(Translation.ActiveCollections),
-			.Layout = std::move(Translation.Layout), .Requirements = Translation.Requirements,
-			.GeneratedSource = std::move(Translation.GeneratedSource), .Dependencies = std::move(Translation.Dependencies),
+			.StaticBools = std::move(Translation.StaticBools), .ActiveCollections = std::move(Translation.ActiveCollections),
+			.Artifact = Artifact,
+			.DebugData = std::make_shared<const FMaterialProgramDebugData>(FMaterialProgramDebugData{
+				.IR = std::move(Translation.IR), .GeneratedSource = std::move(Translation.GeneratedSource)}),
 			.Timings = Translation.Timings, .Diagnostics = std::move(Translation.Diagnostics)};
 		if (Translation.Status == EMaterialProgramStatus::Canceled || Output.Status == EShaderBuildStatus::Canceled)
 			return {.Status = EMaterialProgramStatus::Canceled};
@@ -1305,7 +1310,7 @@ float4 FragmentMain(
 		const auto Reflection = std::ranges::all_of(Output.CompiledShaders,
 			[&](const auto& Shader) { return Shader.Target == Target; })
 			? ValidateMaterialCompiledStages(Output.CompiledShaders,
-				Result.Layout, Translation.ResourceLimits, Result.ActiveCollections, Result.RequiredStages)
+				Artifact->Layout, Translation.ResourceLimits, Result.ActiveCollections, Result.RequiredStages)
 			: FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
 		if (!Reflection)
 		{
@@ -1314,13 +1319,13 @@ float4 FragmentMain(
 				FMaterialError(Reflection)));
 			return Result;
 		}
-		Result.CompiledShaders = std::move(Output.CompiledShaders);
+		Artifact->CompiledShaders = std::move(Output.CompiledShaders);
 		Result.Status = EMaterialProgramStatus::Ok;
 		return Result;
 	}
 
 	auto MIR::Compile(const MIR::FCompilerInput& Input, bool bForceRecompile) -> FMaterialCompilerResult
 	{
-		return MaterialBuildPrivate::CompileMaterialInput(Input, bForceRecompile).Program;
+		return *MaterialBuildPrivate::CompileMaterialInput(Input, bForceRecompile).Program;
 	}
 }

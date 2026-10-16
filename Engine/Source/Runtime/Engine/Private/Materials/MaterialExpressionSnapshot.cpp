@@ -291,7 +291,7 @@ namespace Durin
 				Result->Validation.Diagnostics.push_back({.Error = EMaterialExpressionError::NoAcceptedCompiledProgram});
 				return Result;
 			}
-			for (const auto& Parameter : Program->ActiveParameters) Result->ParameterIds.insert(Parameter.Id);
+			for (const auto& Parameter : Program->GetArtifact().ActiveParameters) Result->ParameterIds.insert(Parameter.Id);
 			Result->Validation.bSucceeded = true;
 			ParameterReachabilityProgramRevision = 0;
 			ParameterReachabilityFunctionOwners.clear();

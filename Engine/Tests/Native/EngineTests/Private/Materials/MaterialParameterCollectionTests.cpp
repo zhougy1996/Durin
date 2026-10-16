@@ -270,6 +270,9 @@ TEST_F(FMaterialParameterCollectionTests,
 	const auto Refreshed = Material->GetAcceptedCompiledProgram();
 	ASSERT_TRUE(Refreshed);
 	EXPECT_EQ(Refreshed->Identity, FirstIdentity);
+	EXPECT_EQ(Refreshed->Artifact, First->Artifact);
+	EXPECT_EQ(Refreshed->DebugData, First->DebugData);
+	EXPECT_EQ(First->ActiveCollections.front().DefaultPayload, FirstDefaults);
 	EXPECT_EQ(Material->GetMaterialCompileStatus().CacheOutcome,
 		EMaterialCompileCacheOutcome::RetainedHit);
 	ASSERT_EQ(Refreshed->ActiveCollections.size(), 1u);
@@ -287,6 +290,7 @@ TEST_F(FMaterialParameterCollectionTests,
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game,
 		*Refreshed, DecodedProperties, Decoded))) << FormatMaterialError(Error.Error);
 	ASSERT_TRUE(Decoded);
+	EXPECT_FALSE(Decoded->DebugData);
 	ASSERT_EQ(Decoded->ActiveCollections.size(), 1u);
 	EXPECT_EQ(Decoded->Identity, FirstIdentity);
 	EXPECT_EQ(Decoded->ActiveCollections.front(),

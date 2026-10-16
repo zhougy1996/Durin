@@ -1827,8 +1827,8 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 			const auto Program = LoadedMaterial->GetAcceptedCompiledProgram();
 			ASSERT_TRUE(Program) << Durin::FormatMaterialError(LoadedMaterial->GetMaterialCookDiagnostic());
 			EXPECT_TRUE(LoadedMaterial->GetMaterialCompileStatus().IsCurrent());
-			EXPECT_TRUE(Program->IR.Nodes.empty());
-			EXPECT_TRUE(Program->GeneratedSource.empty());
+			EXPECT_TRUE(Program->GetDebugData().IR.Nodes.empty());
+			EXPECT_TRUE(Program->GetDebugData().GeneratedSource.empty());
 			EXPECT_GT(LoadedMaterial->GetCookedProgramData().GetMetadata().LogicalSize, 0u);
 			EXPECT_FALSE(LoadedMaterial->GetRenderData().Representation.IsError());
 		}

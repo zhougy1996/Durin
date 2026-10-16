@@ -220,22 +220,22 @@ namespace Durin
 
 	auto FMaterialRenderProxy::UpdateParameterBindings() -> void
 	{
-		bool bCurrent = BindingProgram == LocalLayer.CompiledProgram
+		bool bCurrent = BindingArtifact == (LocalLayer.CompiledProgram ? LocalLayer.CompiledProgram->Artifact : nullptr)
 			&& ParameterBindings.size() == LocalLayer.Parameters.size();
 		for (size_t Index = 0; bCurrent && Index < ParameterBindings.size(); ++Index)
 			bCurrent = ParameterBindings[Index].Id == LocalLayer.Parameters[Index].Id
 				&& ParameterBindings[Index].Type == LocalLayer.Parameters[Index].GetType();
 		if (bCurrent) return;
-		BindingProgram = LocalLayer.CompiledProgram;
+		BindingArtifact = LocalLayer.CompiledProgram ? LocalLayer.CompiledProgram->Artifact : nullptr;
 		ParameterBindings.clear();
-		if (!BindingProgram) return;
+		if (!BindingArtifact) return;
 		std::unordered_map<FGuid, uint32> Fields;
-		Fields.reserve(BindingProgram->Layout.Fields.size());
-		for (uint32 Index = 0; Index < BindingProgram->Layout.Fields.size(); ++Index)
-			Fields.emplace(BindingProgram->Layout.Fields[Index].ParameterId, Index);
+		Fields.reserve(BindingArtifact->Layout.Fields.size());
+		for (uint32 Index = 0; Index < BindingArtifact->Layout.Fields.size(); ++Index)
+			Fields.emplace(BindingArtifact->Layout.Fields[Index].ParameterId, Index);
 		std::unordered_map<FGuid, EMaterialParameterType> Active;
-		Active.reserve(BindingProgram->ActiveParameters.size());
-		for (const auto& Parameter : BindingProgram->ActiveParameters) Active.emplace(Parameter.Id, Parameter.Type);
+		Active.reserve(BindingArtifact->ActiveParameters.size());
+		for (const auto& Parameter : BindingArtifact->ActiveParameters) Active.emplace(Parameter.Id, Parameter.Type);
 		ParameterBindings.reserve(LocalLayer.Parameters.size());
 		for (const auto& Parameter : LocalLayer.Parameters)
 		{
@@ -270,18 +270,18 @@ namespace Durin
 				LocalLayer.CompiledProgram->Identity;
 		}
 		FMaterialRenderRepresentationBuilder RepresentationBuilder = CachedResolvedData.CompiledProgram
-			&& CachedResolvedData.CompiledProgram->Layout.Identity.Version == CompiledMaterialRenderLayoutVersion
-			&& CachedResolvedData.CompiledProgram->Layout.Identity != CachedResolvedData.Representation.GetLayout().Identity
-			? FMaterialRenderRepresentationBuilder(CachedResolvedData.CompiledProgram->Layout)
+			&& CachedResolvedData.CompiledProgram->GetArtifact().Layout.Identity.Version == CompiledMaterialRenderLayoutVersion
+			&& CachedResolvedData.CompiledProgram->GetArtifact().Layout.Identity != CachedResolvedData.Representation.GetLayout().Identity
+			? FMaterialRenderRepresentationBuilder(CachedResolvedData.CompiledProgram->GetArtifact().Layout)
 			: FMaterialRenderRepresentationBuilder(CachedResolvedData.Representation);
 		bool bRepresentationValid = true;
 		if (CachedResolvedData.CompiledProgram)
-			CachedResolvedData.PlanningPassIdentity.ShaderMap.RenderLayout = CachedResolvedData.CompiledProgram->Layout.Identity;
+			CachedResolvedData.PlanningPassIdentity.ShaderMap.RenderLayout = CachedResolvedData.CompiledProgram->GetArtifact().Layout.Identity;
 		UpdateParameterBindings();
 		uint64 IndexedWrites = 0;
 		for (size_t Index = 0; Index < LocalLayer.Parameters.size(); ++Index)
 		{
-			if (!BindingProgram) break;
+			if (!BindingArtifact) break;
 			if (!ParameterBindings[Index].bActive) continue;
 			const auto FieldIndex = ParameterBindings[Index].FieldIndex;
 			++IndexedWrites;

@@ -869,8 +869,8 @@ TEST(FMaterialInstanceTests, RenderLayerResolvesMixedOverridesAndRefreshesEachBu
 		ASSERT_FALSE(Data.Representation.IsError());
 		ExpectColorNear(GetMaterialBinding(Data).BaseColor,
 			FVector4f(static_cast<float>(Color.x), static_cast<float>(Color.y), static_cast<float>(Color.z), Opacity));
-		EXPECT_EQ(std::ranges::find(Data.CompiledProgram->ActiveParameters, Stale.ParameterId,
-			&FMaterialCompilerParameterDeclaration::Id), Data.CompiledProgram->ActiveParameters.end());
+		EXPECT_EQ(std::ranges::find(Data.CompiledProgram->GetArtifact().ActiveParameters, Stale.ParameterId,
+			&FMaterialCompilerParameterDeclaration::Id), Data.CompiledProgram->GetArtifact().ActiveParameters.end());
 	};
 	CheckLayer(.3f, FVector3(FVector3f(.2f, .4f, .6f)));
 	ASSERT_TRUE(Child->ClearScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName()));

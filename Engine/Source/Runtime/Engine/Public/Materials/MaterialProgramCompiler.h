@@ -24,21 +24,63 @@ namespace Durin
 	ENGINE_API auto GetMaterialBuildVersion() -> uint64;
 	ENGINE_API auto GetMaterialCompileAdapterVersion() -> uint32;
 	inline constexpr uint32 CurrentMaterialPassContractVersion = 11;
-	inline constexpr std::array<std::string_view, 7> MaterialCompiledEntryPoints{
-		"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain",
-		"VertexMain", "SplineVertexMain", "GPUCullingVertexMain"};
+	// Values are the persisted canonical stage-bit order. Append rather than reorder.
+	enum class EMaterialShaderEntry : uint8
+	{
+		Forward, GBuffer, Shadow, HitProxy, LocalVertex, SplineVertex, GPUCullingVertex,
+	};
+	struct FMaterialShaderEntryDescriptor
+	{
+		EMaterialShaderEntry Entry;
+		std::string_view Name;
+		EShaderFrequency Frequency;
+		uint8 GeometryUsage;
+		uint8 PassUsage;
+		bool bEditorOnly = false;
+		constexpr auto GetBit() const -> uint8 { return uint8(1u << static_cast<uint8>(Entry)); }
+	};
+	inline constexpr std::array MaterialShaderEntries{
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::Forward, "FragmentMain", EShaderFrequency::Fragment, 3, 1},
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::GBuffer, "GeometryFragmentMain", EShaderFrequency::Fragment, 7, 2},
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::Shadow, "ShadowFragmentMain", EShaderFrequency::Fragment, 3, 4},
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::HitProxy, "HitProxyFragmentMain", EShaderFrequency::Fragment, 3, 8, true},
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::LocalVertex, "VertexMain", EShaderFrequency::Vertex, 1, 15},
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::SplineVertex, "SplineVertexMain", EShaderFrequency::Vertex, 2, 15},
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::GPUCullingVertex, "GPUCullingVertexMain", EShaderFrequency::Vertex, 4, 2},
+	};
+	constexpr auto MaterialShaderEntryBit(EMaterialShaderEntry Entry) -> uint8
+	{
+		return MaterialShaderEntries[static_cast<uint8>(Entry)].GetBit();
+	}
+	constexpr auto MaterialShaderStageMask(EShaderFrequency Frequency) -> uint8
+	{
+		uint8 Mask = 0;
+		for (const auto& Entry : MaterialShaderEntries)
+			if (Entry.Frequency == Frequency) Mask |= Entry.GetBit();
+		return Mask;
+	}
+	inline constexpr uint8 MaterialFragmentStageMask = MaterialShaderStageMask(EShaderFrequency::Fragment);
+	inline constexpr uint8 MaterialVertexStageMask = MaterialShaderStageMask(EShaderFrequency::Vertex);
+	inline constexpr uint8 MaterialAllStageMask = MaterialFragmentStageMask | MaterialVertexStageMask;
+	inline constexpr auto MaterialCompiledEntryPoints = [] {
+		std::array<std::string_view, MaterialShaderEntries.size()> Names;
+		for (size_t Index = 0; Index < Names.size(); ++Index) Names[Index] = MaterialShaderEntries[Index].Name;
+		return Names;
+	}();
 
-	// Canonical entry-bit order matches MaterialCompiledEntryPoints.
 	constexpr auto SelectMaterialShaderStages(const FMaterialStaticProperties& Properties,
 		bool bIncludeEditorPasses = true) -> uint8
 	{
-		const uint8 Passes = Properties.PassUsage & (bIncludeEditorPasses ? 15 : 7);
-		if (!Passes) return 0;
-		const bool Regular = (Properties.GeometryUsage & 3) != 0;
-		uint8 Stages = Regular ? Passes : (Passes & 2);
-		if (Regular && (Properties.GeometryUsage & 1)) Stages |= 1 << 4;
-		if (Regular && (Properties.GeometryUsage & 2)) Stages |= 1 << 5;
-		if ((Properties.GeometryUsage & 4) && (Passes & 2)) Stages |= 1 << 6;
+		uint8 Passes = 0;
+		for (const auto& Entry : MaterialShaderEntries)
+			if (Entry.Frequency == EShaderFrequency::Fragment && (!Entry.bEditorOnly || bIncludeEditorPasses))
+				Passes |= Entry.PassUsage;
+		Passes &= Properties.PassUsage;
+		uint8 Stages = 0;
+		for (const auto& Entry : MaterialShaderEntries)
+			if ((!Entry.bEditorOnly || bIncludeEditorPasses)
+				&& (Properties.GeometryUsage & Entry.GeometryUsage) && (Passes & Entry.PassUsage))
+				Stages |= Entry.GetBit();
 		return Stages;
 	}
 
@@ -263,6 +305,21 @@ namespace Durin
 	};
 
 	enum class EMaterialProgramStatus : uint8 { Ok, Error, Canceled };
+	// Immutable compiled data shared independently of request configuration and defaults.
+	struct FMaterialProgramArtifact
+	{
+		std::vector<FMaterialCompilerParameterDeclaration> ActiveParameters;
+		FMaterialRenderLayout Layout;
+		FMaterialProgramRequirements Requirements;
+		std::vector<FMaterialCompilerDependency> Dependencies;
+		std::vector<FShaderCode> CompiledShaders;
+	};
+	// Editor observations are retained separately and absent from cooked programs.
+	struct FMaterialProgramDebugData
+	{
+		MIR::FModule IR;
+		std::string GeneratedSource;
+	};
 	struct FMaterialCompilerResult
 	{
 		EMaterialProgramStatus Status = EMaterialProgramStatus::Error;
@@ -270,22 +327,26 @@ namespace Durin
 		std::string CompilerIdentity;
 		std::string Target;
 		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
-		uint8 RequiredStages = 127;
+		uint8 RequiredStages = MaterialAllStageMask;
 		EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
 		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 		std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
-		MIR::FModule IR;
-		// Sorted unique runtime binding contract, published with these shaders.
-		// Values and resource references remain owned by material definitions/instances.
-		std::vector<FMaterialCompilerParameterDeclaration> ActiveParameters;
 		std::vector<FMaterialParameterCollectionLayout> ActiveCollections;
-		FMaterialRenderLayout Layout;
-		FMaterialProgramRequirements Requirements;
-		std::string GeneratedSource;
-		std::vector<FMaterialCompilerDependency> Dependencies;
-		std::vector<FShaderCode> CompiledShaders;
+		std::shared_ptr<const FMaterialProgramArtifact> Artifact;
+		std::shared_ptr<const FMaterialProgramDebugData> DebugData;
 		FMaterialCompileTimings Timings;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
+
+		auto GetArtifact() const -> const FMaterialProgramArtifact&
+		{
+			static const FMaterialProgramArtifact Empty;
+			return Artifact ? *Artifact : Empty;
+		}
+		auto GetDebugData() const -> const FMaterialProgramDebugData&
+		{
+			static const FMaterialProgramDebugData Empty;
+			return DebugData ? *DebugData : Empty;
+		}
 
 		explicit operator bool() const { return Status == EMaterialProgramStatus::Ok; }
 	};
@@ -352,7 +413,7 @@ namespace Durin
 		std::span<const FShaderCode> Stages, const FMaterialRenderLayout& Layout,
 		const FMaterialCompilerResourceLimits& Limits = {},
 		std::span<const FMaterialParameterCollectionLayout> Collections = {},
-		uint8 RequiredStages = 127)
+		uint8 RequiredStages = MaterialAllStageMask)
 		-> FMaterialLayoutValidationResult;
 	[[nodiscard]] ENGINE_API auto GenerateMaterialProgramSlang(
 		const MIR::FModule& IR) -> FMaterialSourceGenerationResult;

@@ -119,7 +119,7 @@ namespace Durin
 			bool bActive = false;
 		};
 		auto UpdateParameterBindings() -> void;
-		std::shared_ptr<const FMaterialCompilerResult> BindingProgram;
+		std::shared_ptr<const FMaterialProgramArtifact> BindingArtifact;
 		std::vector<FParameterBinding> ParameterBindings;
 		ENGINE_API auto ApplyPendingPublication_RenderThread() -> bool;
 

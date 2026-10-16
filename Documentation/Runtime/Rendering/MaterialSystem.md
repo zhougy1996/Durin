@@ -526,6 +526,19 @@ not invoke template creation, and unsupported graphs require deliberate reconstr
 
 ## Compile Lifecycle and Cooked Programs
 
+`FMaterialCompilerResult` owns request configuration, Collection defaults,
+diagnostics and timing observations. Its immutable `FMaterialProgramArtifact`
+shares the active parameter contract, render layout, requirements, dependencies
+and Shader records. Optional `FMaterialProgramDebugData` separately shares MIR
+and generated source; cooked programs omit it. Configuration/default rebinding
+copies only the result wrapper and retains both shared owners. The synchronous
+build path and asynchronous publication both retain one shared result; the
+value-returning `MIR::Compile` compatibility API copies that wrapper explicitly.
+Proxy parameter indices follow artifact identity, so rebinding defaults or an
+equivalent configuration does not rebuild the parameter mapping. Existing
+assembly, publication, Cook and Renderer validation boundaries remain in force;
+result byte budgets conservatively charge shared backing storage in full.
+
 [Shader stage selection and sharing](MaterialShaderStages.md) owns geometry/Pass
 usage declarations, editor/Game stage sets and reusable stage cache identities.
 

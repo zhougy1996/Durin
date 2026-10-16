@@ -10,9 +10,9 @@ namespace Durin::MaterialBuildPrivate
 	enum class EMaterialTranslationAction { Compile, Reuse, Join };
 	struct FMaterialBuildResult
 	{
-		FMaterialCompilerResult Program;
+		// Always populated, including failure; consumers share the accepted wrapper.
+		std::shared_ptr<const FMaterialCompilerResult> Program;
 		std::vector<MIR::FSource> Sources;
-		std::shared_ptr<const FMaterialCompilerResult> Shared;
 		bool RetainedHit = false;
 	};
 	// Engine-owned continuation lifetime. Result readiness and request end differ.

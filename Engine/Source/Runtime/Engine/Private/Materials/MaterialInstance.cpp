@@ -532,9 +532,9 @@ namespace Durin
 			if (!Definition)
 				return Reject(FMaterialError(EMaterialParameterError::NotFound),
 					Index, Update.ParameterId);
-			const auto Active = std::ranges::find(Program->ActiveParameters,
+			const auto Active = std::ranges::find(Program->GetArtifact().ActiveParameters,
 				Update.ParameterId, &FMaterialCompilerParameterDeclaration::Id);
-			if (Active == Program->ActiveParameters.end()
+			if (Active == Program->GetArtifact().ActiveParameters.end()
 				|| !Reachability->ParameterIds.contains(Update.ParameterId))
 				return Reject(FMaterialError(EMaterialParameterError::Unreachable),
 					Index, Update.ParameterId);

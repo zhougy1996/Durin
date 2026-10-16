@@ -1213,7 +1213,7 @@ namespace Durin
 					== EVertexDeformationDomain::Local
 					&& Item.Command->Geometry.bIndexed
 					&& (!Item.Command->Material.CompiledProgram
-						|| (Item.Command->Material.CompiledProgram->RequiredStages & (1 << 6))))
+						|| (Item.Command->Material.CompiledProgram->RequiredStages & MaterialShaderEntryBit(EMaterialShaderEntry::GPUCullingVertex))))
 				{
 					auto GPUPipeline = GBuffer.EnsurePipeline_RenderThread({.Material = Item.Command->PipelineKey.Material, .CompiledProgram = Item.Command->Material.CompiledProgram, .Rasterizer = Item.Command->PipelineKey.Rasterizer, .Depth = Item.Command->PipelineKey.Depth, .VertexDeclaration = Geometry.GetVertexDeclaration(), .FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey, .bGPUCulling = true, .Topology = Item.Command->PipelineKey.Topology});
 					ResolvedView.Draws[Item.ResolvedIndex]

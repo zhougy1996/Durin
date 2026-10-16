@@ -113,7 +113,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Cooked, nullptr);
 	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
-	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->CompiledShaders.size(), 6u);
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetArtifact().CompiledShaders.size(), 6u);
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
 	EXPECT_TRUE(Cooked->GetMaterialCompileStatus().IsCurrent());
 	const auto CookedStatistics = Durin::GetMaterialProgramStatistics(*Cooked);
@@ -243,7 +243,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		return Object.FindField("Program") != nullptr;
 	}));
 	EXPECT_TRUE(Cooked->GetExpressionCollection().Expressions.empty());
-	EXPECT_FALSE(Cooked->GetAcceptedCompiledProgram()->ActiveParameters.empty());
+	EXPECT_FALSE(Cooked->GetAcceptedCompiledProgram()->GetArtifact().ActiveParameters.empty());
 	Durin::DMaterialInstance* Instance = nullptr;
 	{
 		auto Loaded = Durin::LoadObject<Durin::DMaterialInstance>(InstancePath);
@@ -266,8 +266,8 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		ASSERT_TRUE(Variant->GetAcceptedCompiledProgram());
 		EXPECT_EQ(Variant->GetAcceptedCompiledProgram()->Identity, VariantIdentities[Index]);
 		EXPECT_NE(Variant->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
-		EXPECT_TRUE(Variant->GetAcceptedCompiledProgram()->IR.Nodes.empty());
-		EXPECT_TRUE(Variant->GetAcceptedCompiledProgram()->GeneratedSource.empty());
+		EXPECT_TRUE(Variant->GetAcceptedCompiledProgram()->GetDebugData().IR.Nodes.empty());
+		EXPECT_TRUE(Variant->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
 		EXPECT_FALSE(Variant->GetRenderData().Representation.IsError());
 		ExpectColorNear(GetMaterialBinding(Variant->GetRenderData()).BaseColor,
 			Durin::FVector4f(0.8f, 0.3f, 0.1f, 1.0f));
@@ -390,7 +390,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		{}, {Graph.Outputs.Emissive.Connection, Testing::MakeLink(*InstanceData)});
 	ASSERT_TRUE(Graph.Apply(*Source));
 	ASSERT_NE(Source->GetAcceptedCompiledProgram(), nullptr);
-	const auto ExpectedLayout = Source->GetAcceptedCompiledProgram()->Layout;
+	const auto ExpectedLayout = Source->GetAcceptedCompiledProgram()->GetArtifact().Layout;
 	auto* Instance = NewObject<DMaterialInstance>(Source->GetPackage(), "CustomCookedOverrides");
 	ASSERT_TRUE(Instance->SetParent(Source));
 	ASSERT_TRUE(Instance->SetParameterValue(Tint.Id, FMaterialParameterValue::MakeVector4(FVector4(0.8, 0.3, 0.1, 1.0))));
@@ -423,16 +423,16 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		}
 		ASSERT_NE(Loaded, nullptr);
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
-		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Layout, ExpectedLayout);
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetArtifact().Layout, ExpectedLayout);
 		EXPECT_EQ(Loaded->GetStaticProperties().GeometryUsage, 1u);
 		EXPECT_EQ(Loaded->GetStaticProperties().PassUsage, 7u);
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
-		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->IR.Nodes.empty());
-		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GeneratedSource.empty());
+		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().IR.Nodes.empty());
+		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->RequiredStages,
 			SelectMaterialShaderStages(Loaded->GetStaticProperties(), false));
-		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->CompiledShaders.size(), 4u);
-		EXPECT_FALSE(std::ranges::any_of(Loaded->GetAcceptedCompiledProgram()->CompiledShaders,
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetArtifact().CompiledShaders.size(), 4u);
+		EXPECT_FALSE(std::ranges::any_of(Loaded->GetAcceptedCompiledProgram()->GetArtifact().CompiledShaders,
 			[](const auto& Stage) { return Stage.SourceEntryPoint == "HitProxyFragmentMain"; }));
 		DMaterialInstance* LoadedInstance = nullptr;
 		{

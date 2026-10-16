@@ -170,9 +170,11 @@ namespace Durin
 	auto MakeMaterialShaderCompileOptions(FShaderTargetIdentity Target, const FMaterialStaticProperties& Properties) -> FShaderCompileOptions
 	{
 		FShaderCompileOptions Options; Options.Target = Target;
-		for (const auto Entry : MaterialCompiledEntryPoints) Options.EntryPoints.push_back(Entry.data());
-		Options.Frequencies.assign(4, EShaderFrequency::Fragment);
-		Options.Frequencies.insert(Options.Frequencies.end(), 3, EShaderFrequency::Vertex);
+		for (const auto& Entry : MaterialShaderEntries)
+		{
+			Options.EntryPoints.push_back(Entry.Name.data());
+			Options.Frequencies.push_back(Entry.Frequency);
+		}
 		Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", std::to_string(static_cast<uint8>(Properties.BlendMode)));
 		Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", std::to_string(static_cast<uint8>(Properties.ShadingModel)));
 		Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(Properties.OpacityMaskThreshold)));
@@ -698,8 +700,7 @@ namespace Durin
 		for (size_t Index = 0; Index < EntryPoints.size(); ++Index)
 		{
 			AppendString(Bytes, EntryPoints[Index]);
-			AppendLittleEndian(Bytes, static_cast<uint8>(Index < 4
-				? EShaderFrequency::Fragment : EShaderFrequency::Vertex));
+			AppendLittleEndian(Bytes, static_cast<uint8>(MaterialShaderEntries[Index].Frequency));
 		}
 		return {.Digest = FXxHash128::HashBuffer(Bytes)};
 	}

@@ -94,10 +94,12 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 		{FGuid{4,0,0,1}, FVector4(0.6, 0.7, 0.8, 0.9)},
 		{FGuid{5,0,0,1}, FMaterialLocalTextureValue{.TextureFallback = EMaterialTextureFallback::Black}}};
 	auto Program = std::make_shared<FMaterialCompilerResult>();
-	for (const auto& Parameter : Layer.Parameters) Program->ActiveParameters.push_back({Parameter.Id, Parameter.GetType()});
-	const auto Layout = CompileMaterialLayout(Program->ActiveParameters);
+	auto Artifact = std::make_shared<FMaterialProgramArtifact>();
+	Program->Artifact = Artifact;
+	for (const auto& Parameter : Layer.Parameters) Artifact->ActiveParameters.push_back({Parameter.Id, Parameter.GetType()});
+	const auto Layout = CompileMaterialLayout(Program->GetArtifact().ActiveParameters);
 	ASSERT_TRUE(Layout);
-	Program->Layout = Layout.Layout;
+	Artifact->Layout = Layout.Layout;
 	Layer.CompiledProgram = Program;
 	Layer.StaticProperties = FMaterialStaticProperties{};
 	FMaterialRenderProxyRef Proxy = new FMaterialRenderProxy;
@@ -106,10 +108,16 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 		const auto Before = GetMaterialRenderProxyCounters();
 		for (uint64 Version = 1; Version <= 3; ++Version)
 		{
+			if (Version == 2)
+			{
+				auto Configured = std::make_shared<FMaterialCompilerResult>(*Program);
+				Configured->Quality = EMaterialQualityLevel::Low;
+				Layer.CompiledProgram = std::move(Configured);
+			}
 			Layer.Parameters[0].Value = 0.1f * Version;
 			ASSERT_TRUE(Proxy->ApplyPublication_RenderThread({Layer, Version}));
 			const auto& Actual = Proxy->Resolve_RenderThread().Representation;
-			FMaterialRenderRepresentationBuilder ExpectedBuilder(Program->Layout);
+			FMaterialRenderRepresentationBuilder ExpectedBuilder(Program->GetArtifact().Layout);
 			for (const auto& Parameter : Layer.Parameters) ASSERT_TRUE(ApplyMaterialLocalRenderParameter(ExpectedBuilder, Parameter));
 			FMaterialRenderRepresentation Expected;
 			FMaterialRenderValidationDiagnostic Diagnostic;
@@ -123,8 +131,10 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 		EXPECT_EQ(GetMaterialRenderProxyCounters().IndexedParameterWriteCount - Before.IndexedParameterWriteCount, 15u);
 		// Removing the first declaration shifts every later field's index.
 		auto Replacement = std::make_shared<FMaterialCompilerResult>(*Program);
-		Replacement->ActiveParameters.erase(Replacement->ActiveParameters.begin());
-		Replacement->Layout = CompileMaterialLayout(Replacement->ActiveParameters).Layout;
+		auto ReplacementArtifact = std::make_shared<FMaterialProgramArtifact>(Program->GetArtifact());
+		Replacement->Artifact = ReplacementArtifact;
+		ReplacementArtifact->ActiveParameters.erase(Replacement->GetArtifact().ActiveParameters.begin());
+		ReplacementArtifact->Layout = CompileMaterialLayout(Replacement->GetArtifact().ActiveParameters).Layout;
 		Layer.CompiledProgram = Replacement;
 		ASSERT_TRUE(Proxy->ApplyPublication_RenderThread({Layer, 4}));
 		const auto& Changed = Proxy->Resolve_RenderThread().Representation;
@@ -142,7 +152,7 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 		FMaterialRenderValidationDiagnostic Diagnostic;
 		for (const uint32 Index : {0u, 1u, 99u})
 		{
-			FMaterialRenderRepresentationBuilder Invalid(Program->Layout);
+			FMaterialRenderRepresentationBuilder Invalid(Program->GetArtifact().Layout);
 			EXPECT_FALSE(Invalid.SetParameterAtIndex(Index, Layer.Parameters[0]));
 			FMaterialRenderRepresentation Output;
 			EXPECT_FALSE(Invalid.Build(Output, Diagnostic));

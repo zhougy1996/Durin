@@ -906,7 +906,7 @@ namespace Durin
 			Status.TaskId = 0; Status.CacheOutcome = EMaterialCompileCacheOutcome::None;
 			Material.CompilationOwner.MaterialCompileDiagnostics.clear();
 			auto Build = MaterialBuildPrivate::CompileMaterialInput(Input, bForceRecompile);
-			auto& Compiled = Build.Program;
+			const auto& Compiled = *Build.Program;
 			Status.RequestedIdentity = Compiled.Identity;
 			Material.CompilationOwner.RequestedExpressionSources = Build.Sources.empty() ? Input.Sources : Build.Sources;
 			FMaterialCompileResult Result{
@@ -917,8 +917,8 @@ namespace Durin
 				.State = Compiled.Status == EMaterialProgramStatus::Canceled ? EMaterialCompileState::Canceled : Compiled ? EMaterialCompileState::Ready : EMaterialCompileState::Failed,
 				.Category = Compiled.Status == EMaterialProgramStatus::Canceled ? EMaterialCompileResultCategory::Cancellation : Compiled || Compiled.Diagnostics.empty() ? EMaterialCompileResultCategory::None : MapProgramCategory(Compiled.Diagnostics.front().Category),
 				.CacheOutcome = Build.RetainedHit ? EMaterialCompileCacheOutcome::RetainedHit : bForceRecompile ? EMaterialCompileCacheOutcome::Forced : EMaterialCompileCacheOutcome::Compiled,
-				.CompiledProgram = Build.Shared};
-			if (!Compiled) for (auto& Diagnostic : Compiled.Diagnostics) Result.Diagnostics.push_back({.Category = MapProgramCategory(Diagnostic.Category), .Source = std::move(Diagnostic), .AssetPath = Material.GetObjectPath(), .Generation = Status.RequestGeneration});
+				.CompiledProgram = Build.Program};
+			if (!Compiled) for (const auto& Diagnostic : Compiled.Diagnostics) Result.Diagnostics.push_back({.Category = MapProgramCategory(Diagnostic.Category), .Source = Diagnostic, .AssetPath = Material.GetObjectPath(), .Generation = Status.RequestGeneration});
 			Admit(Material, std::move(Result), Context);
 			return Status.State == EMaterialCompileState::Ready;
 		}
@@ -1001,7 +1001,7 @@ namespace Durin
 						Status.State = EMaterialCompileState::Superseded;
 						return false;
 					}
-					for (const auto& Parameter : Candidate.CompiledProgram->ActiveParameters)
+					for (const auto& Parameter : Candidate.CompiledProgram->GetArtifact().ActiveParameters)
 					{
 						FResolvedMaterialParameter Resolved;
 						if (!Material.ResolveParameterValue(Parameter.Id, Resolved)

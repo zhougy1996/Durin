@@ -11,13 +11,19 @@ namespace Durin::MaterialBuildPrivate
 	}
 	auto EstimateProgramBytes(const FMaterialCompilerResult& Result) -> uint64
 	{
-		uint64 Size = sizeof(Result) + Result.GeneratedSource.capacity() + Result.CompilerIdentity.capacity() + Result.Target.capacity()
-			+ Result.IR.Nodes.capacity() * sizeof(MIR::FNode) + Result.ActiveParameters.capacity() * sizeof(FMaterialCompilerParameterDeclaration)
-			+ Result.Layout.Fields.capacity() * sizeof(FMaterialRenderField) + Result.CompiledShaders.capacity() * sizeof(FShaderCode);
-		for (const auto& Node : Result.IR.Nodes) Size += Node.Inputs.capacity() * sizeof(uint32);
-		for (const auto& Dependency : Result.Dependencies) Size += sizeof(Dependency) + Dependency.VirtualPath.capacity();
+		const auto& Artifact = Result.GetArtifact();
+		const auto& DebugData = Result.GetDebugData();
+		// Charge the full transitive capacity even when another program also shares it.
+		uint64 Size = sizeof(Result) + (Result.Artifact ? sizeof(FMaterialProgramArtifact) : 0)
+			+ (Result.DebugData ? sizeof(FMaterialProgramDebugData) : 0)
+			+ Result.StaticBools.capacity() * sizeof(FMaterialCompilerEnvironment::FStaticBoolValue)
+			+ DebugData.GeneratedSource.capacity() + Result.CompilerIdentity.capacity() + Result.Target.capacity()
+			+ DebugData.IR.Nodes.capacity() * sizeof(MIR::FNode) + Artifact.ActiveParameters.capacity() * sizeof(FMaterialCompilerParameterDeclaration)
+			+ Artifact.Layout.Fields.capacity() * sizeof(FMaterialRenderField) + Artifact.CompiledShaders.capacity() * sizeof(FShaderCode);
+		for (const auto& Node : DebugData.IR.Nodes) Size += Node.Inputs.capacity() * sizeof(uint32);
+		for (const auto& Dependency : Artifact.Dependencies) Size += sizeof(Dependency) + Dependency.VirtualPath.capacity();
 		for (const auto& Collection : Result.ActiveCollections) Size += sizeof(Collection) + Collection.AssetPath.capacity() + Collection.DefaultPayload.capacity() + Collection.UniformLayout.Fields.capacity() * sizeof(FMaterialRenderField);
-		for (const auto& Shader : Result.CompiledShaders)
+		for (const auto& Shader : Artifact.CompiledShaders)
 		{
 			Size += Shader.SourceEntryPoint.capacity() + Shader.BinaryEntryPoint.capacity() + Shader.DebugName.capacity() + Shader.Code.GetRetainedCapacityBytes();
 			for (const auto& Binding : Shader.Reflection.ResourceBindings) Size += sizeof(Binding) + Binding.Name.capacity();

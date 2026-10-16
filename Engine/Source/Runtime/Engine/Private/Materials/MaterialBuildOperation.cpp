@@ -148,7 +148,9 @@ namespace Durin::MaterialBuildPrivate
 			{.Priority = Priority, .IsCancelled = [Cancellation = State->Cancellation] { return Cancellation.IsCancelled(); }, .bInlineExecution = State->Inline},
 			[Self = shared_from_this(), Work](FShaderBuildResult Output) {
 				if (!Output) return Self->Complete(AssembleMaterialProgram(std::move(Work->Product), std::move(Output)));
-				FMaterialCompilerResult StageCost{.CompiledShaders = std::move(Output.CompiledShaders)};
+				auto StageArtifact = std::make_shared<FMaterialProgramArtifact>();
+				StageArtifact->CompiledShaders = std::move(Output.CompiledShaders);
+				FMaterialCompilerResult StageCost{.Artifact = StageArtifact};
 				// Charge stage metadata and full backing capacities before retaining it.
 				// Independent requests must not multiply the material's aggregate cap.
 				const auto Bytes = EstimateProgramBytes(StageCost);
@@ -156,7 +158,7 @@ namespace Durin::MaterialBuildPrivate
 					return Self->Complete({.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Bounds,
 						.Error = EMaterialCompileError::CompiledMaterialResultExceedsRetainedResultByteLimit}}});
 				Work->RetainedStageBytes += Bytes;
-				for (auto& Stage : StageCost.CompiledShaders) Work->Output.CompiledShaders.push_back(std::move(Stage));
+				for (auto& Stage : StageArtifact->CompiledShaders) Work->Output.CompiledShaders.push_back(std::move(Stage));
 				Self->SubmitStage(Work);
 			});
 		std::shared_ptr<FShaderBuildHandle> Shader;
@@ -208,19 +210,21 @@ namespace Durin::MaterialBuildPrivate
 	}
 	auto CompileMaterialInput(const MIR::FCompilerInput& Input, bool Force) -> FMaterialBuildResult
 	{
-		if (EstimateTranslationCaptureBytes(Input) > TranslationInputBytes) return {.Program = FailedMaterial()};
+		if (EstimateTranslationCaptureBytes(Input) > TranslationInputBytes)
+			return {.Program = std::make_shared<const FMaterialCompilerResult>(FailedMaterial())};
 		auto Operation = std::make_shared<FMaterialBuildOperation>();
-		if (!Operation->TryReserve()) return {.Program = FailedMaterial()};
+		if (!Operation->TryReserve()) return {.Program = std::make_shared<const FMaterialCompilerResult>(FailedMaterial())};
 		FMaterialBuildResult Result;
 		Operation->Start(std::make_shared<const MIR::FCompilerInput>(Input), Force, {},
 			[Force, &Input, &Result](auto& Product) {
 				for (const auto& Location : Product.Sources) Result.Sources.push_back(Location.Source);
 				if (Product && !Force) if (auto Retained = ConfigureProgram(FindProgram(Product.Identity), Input))
-				{ Result.Program = *Retained; Result.Shared = std::move(Retained); Result.RetainedHit = true; return EMaterialTranslationAction::Reuse; }
+				{ Result.Program = std::move(Retained); Result.RetainedHit = true; return EMaterialTranslationAction::Reuse; }
 				return EMaterialTranslationAction::Compile;
-			}, [&](auto Value) { Result.Program = std::move(Value); });
+			}, [&](auto Value) { Result.Program = std::make_shared<const FMaterialCompilerResult>(std::move(Value)); });
 		Operation->Wait();
-		if (Result.Program && !Result.Shared) Result.Shared = RetainProgram(std::make_shared<const FMaterialCompilerResult>(Result.Program), Force);
+		if (*Result.Program && !Result.RetainedHit)
+			Result.Program = ConfigureProgram(RetainProgram(std::move(Result.Program), Force), Input);
 		return Result;
 	}
 }
@@ -232,7 +236,7 @@ namespace Durin::MaterialBuildPrivate
 	FMaterialBuildOperation::~FMaterialBuildOperation() = default;
 	auto FMaterialBuildOperation::Start(std::shared_ptr<const MIR::FCompilerInput>, bool, FTaskCancellationToken,
 		std::function<EMaterialTranslationAction(FMaterialTranslatedProgram&)>, std::function<void(FMaterialCompilerResult)> Completion, std::shared_ptr<const FMaterialTranslationInput> EncodedInput) -> void
-	{ Completion(CompileMaterialInput({}, false).Program); }
+	{ Completion(*CompileMaterialInput({}, false).Program); }
 	auto FMaterialBuildOperation::TryReserve() -> bool { return false; }
 	auto FMaterialBuildOperation::RaisePriority() -> void {}
 	auto FMaterialBuildOperation::Cancel() -> void {}
@@ -240,6 +244,7 @@ namespace Durin::MaterialBuildPrivate
 	auto FMaterialBuildOperation::IsFinished() const -> bool { return true; }
 	auto FMaterialBuildOperation::GetTaskId() const -> uint64 { return 0; }
 	auto CompileMaterialInput(const MIR::FCompilerInput&, bool) -> FMaterialBuildResult
-	{ return {.Program = {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Compile, .Error = EMaterialCompileError::NoAuthoredProgram}}}}; }
+	{ return {.Program = std::make_shared<const FMaterialCompilerResult>(FMaterialCompilerResult{
+		.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Compile, .Error = EMaterialCompileError::NoAuthoredProgram}}})}; }
 }
 #endif

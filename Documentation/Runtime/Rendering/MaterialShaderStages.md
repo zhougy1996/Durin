@@ -27,6 +27,11 @@ rejected transactionally.
 | 4 | `ShadowFragmentMain` |
 | 8 | `HitProxyFragmentMain` |
 
+`MaterialShaderEntries` is the canonical descriptor table for entry names,
+frequencies, persisted stage bits, geometry/Pass eligibility and editor-only
+selection. Compile options, identity encoding, source requests and stage
+validation consume that contract; Renderer uses named entry bits rather than
+positional constants. The existing seven-entry order and Cook schema are unchanged.
 `SelectMaterialShaderStages` computes their union in canonical entry order.
 GPU-culling contributes a vertex only when GBuffer is selected. All declared
 passes share the selected direct geometry entries. Editor compilation retains

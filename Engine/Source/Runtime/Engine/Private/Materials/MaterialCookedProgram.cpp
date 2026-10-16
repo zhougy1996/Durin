@@ -154,6 +154,7 @@ namespace Durin
 		auto SerializePayload(
 			FArchive& Ar,
 			FMaterialCompilerResult& Program,
+			FMaterialProgramArtifact& Artifact,
 			FMaterialStaticProperties& StaticProperties,
 			ECookTargetPlatform& TargetPlatform,
 			ECookTargetProfile& TargetProfile) -> void
@@ -180,10 +181,10 @@ namespace Durin
 				Ar, Program.Target, MaterialCookedProgramMaxStringBytes);
 			SerializeStaticProperties(Ar, StaticProperties);
 			SerializeProgramConfiguration(Ar, Program);
-			SerializeLayout(Ar, Program.Layout);
-			SerializeRequirements(Ar, Program.Requirements);
+			SerializeLayout(Ar, Artifact.Layout);
+			SerializeRequirements(Ar, Artifact.Requirements);
 			SerializeBoundedSequence(
-				Ar, Program.ActiveParameters, MaterialProgramMaxReferencedParameterCount,
+				Ar, Artifact.ActiveParameters, MaterialProgramMaxReferencedParameterCount,
 				[](FArchive& Inner, FMaterialCompilerParameterDeclaration& Parameter) {
 					Inner << Parameter.Id << Parameter.Type;
 				});
@@ -193,12 +194,12 @@ namespace Durin
 					SerializeCollectionLayout(Inner, Collection);
 				});
 			SerializeBoundedSequence(
-				Ar, Program.Dependencies, 64,
+				Ar, Artifact.Dependencies, 64,
 				[](FArchive& Inner, FMaterialCompilerDependency& Dependency) {
 					SerializeDependency(Inner, Dependency);
 				});
 			SerializeBoundedSequence(
-				Ar, Program.CompiledShaders, MaterialCompiledEntryPoints.size(),
+				Ar, Artifact.CompiledShaders, MaterialCompiledEntryPoints.size(),
 				[](FArchive& Inner, FShaderCode& Shader) {
 					SerializeShader(Inner, Shader);
 				});
@@ -236,10 +237,10 @@ namespace Durin
 			// Producer identity is provenance. Target, pass ABI, layouts and code hashes
 			// determine compatibility even when an editor compiler is available.
 			if (const auto Validation = ValidateMaterialStaticProperties(StaticProperties); !Validation) return Validation;
-			if (Program.ActiveParameters.size() > MaterialProgramMaxReferencedParameterCount)
+			if (Program.GetArtifact().ActiveParameters.size() > MaterialProgramMaxReferencedParameterCount)
 				return {EMaterialCookError::ActiveParameterCountExceedsLimit};
 			FGuid PreviousId;
-			for (const auto& Parameter : Program.ActiveParameters)
+			for (const auto& Parameter : Program.GetArtifact().ActiveParameters)
 			{
 
 				if (!Parameter.Id.IsValid()
@@ -265,7 +266,7 @@ namespace Durin
 					return {EMaterialCookError::ActiveParameterContractInvalid};
 				PreviousCollection = Collection.CollectionId;
 			}
-			for (const FShaderCode& Shader : Program.CompiledShaders)
+			for (const FShaderCode& Shader : Program.GetArtifact().CompiledShaders)
 			{
 				if (Shader.BinaryEntryPoint.empty()
 					|| !ShaderFormat::ValidateCodeHash(Shader.Code, Shader.CodeHash))
@@ -303,10 +304,11 @@ namespace Durin
 		if (const auto Validation = ValidateDecodedProgram(
 				Program, StaticProperties, TargetPlatform, false); !Validation) return Validation;
 		FMaterialCompilerResult Copy = Program;
+		FMaterialProgramArtifact Artifact = Program.GetArtifact();
 		FMaterialStaticProperties PropertyCopy = StaticProperties;
 		FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::CookedPayload);
 		SerializePayload(
-			Ar, Copy, PropertyCopy, TargetPlatform, TargetProfile);
+			Ar, Copy, Artifact, PropertyCopy, TargetPlatform, TargetProfile);
 		if (Ar.IsError())
 		{
 			const auto Error = FMaterialError::FromArchive(*Ar.GetFailure());
@@ -347,11 +349,13 @@ namespace Durin
 		if (ChecksumReader.IsError() || StoredChecksum != FXxHash128::HashBuffer(Payload))
 			return {EMaterialCookError::CookedProgramChecksumInvalid};
 		FMaterialCompilerResult Candidate;
+		auto Artifact = std::make_shared<FMaterialProgramArtifact>();
+		Candidate.Artifact = Artifact;
 		FMaterialStaticProperties CandidateProperties;
 		ECookTargetPlatform Platform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile Profile = ECookTargetProfile::Invalid;
 		FCanonicalMemoryReader Ar(Payload, EArchivePurpose::CookedPayload);
-		SerializePayload(Ar, Candidate, CandidateProperties, Platform, Profile);
+		SerializePayload(Ar, Candidate, *Artifact, CandidateProperties, Platform, Profile);
 		if (Ar.IsError() || !RequireArchiveEnd(Ar))
 		{
 			return {FMaterialError::FromArchive(*Ar.GetFailure())};

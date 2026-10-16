@@ -473,7 +473,7 @@ TEST(FMaterialCompileLifecycleTests,
 	ASSERT_TRUE(ParameterValidation);
 	auto* PendingInstance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PendingParameterEdit");
 	ASSERT_TRUE(PendingInstance->SetParent(First));
-	EXPECT_TRUE(First->GetAcceptedCompiledProgram()->ActiveParameters.empty());
+	EXPECT_TRUE(First->GetAcceptedCompiledProgram()->GetArtifact().ActiveParameters.empty());
 	ASSERT_TRUE(PendingInstance->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.2, 0.4)));
 	ASSERT_TRUE(WaitForMaterialCompile(*First));
@@ -877,14 +877,14 @@ TEST(FMaterialCompileLifecycleTests,
 	const FMaterialProgramStatistics Current = GetMaterialProgramStatistics(*Root);
 	EXPECT_EQ(Current.State, EMaterialProgramStatisticsState::Current);
 	EXPECT_EQ(Current.ProgramIdentity, Program->Identity);
-	EXPECT_EQ(Current.NormalizedIRNodeCount, Program->IR.Nodes.size());
-	EXPECT_EQ(Current.ActiveParameterCount, Program->ActiveParameters.size());
-	EXPECT_EQ(Current.UniformPayloadBytes, Program->Layout.UniformPayloadSize);
-	EXPECT_EQ(Current.GeneratedSourceBytes, Program->GeneratedSource.size());
-	EXPECT_EQ(Current.CompiledShaderCount, Program->CompiledShaders.size());
-	EXPECT_EQ(Current.DependencyCount, Program->Dependencies.size());
+	EXPECT_EQ(Current.NormalizedIRNodeCount, Program->GetDebugData().IR.Nodes.size());
+	EXPECT_EQ(Current.ActiveParameterCount, Program->GetArtifact().ActiveParameters.size());
+	EXPECT_EQ(Current.UniformPayloadBytes, Program->GetArtifact().Layout.UniformPayloadSize);
+	EXPECT_EQ(Current.GeneratedSourceBytes, Program->GetDebugData().GeneratedSource.size());
+	EXPECT_EQ(Current.CompiledShaderCount, Program->GetArtifact().CompiledShaders.size());
+	EXPECT_EQ(Current.DependencyCount, Program->GetArtifact().Dependencies.size());
 	uint64 ExpectedCodeBytes = 0;
-	for (const auto& Shader : Program->CompiledShaders)
+	for (const auto& Shader : Program->GetArtifact().CompiledShaders)
 		ExpectedCodeBytes += !Shader.Code.IsEmpty() ? Shader.Code.size() : 0;
 	EXPECT_EQ(Current.CompiledCodeBytes, ExpectedCodeBytes);
 	EXPECT_FALSE(Current.bSizeOverflow);
@@ -963,9 +963,9 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_EQ(DecodedProgram->Identity,
 		Material->GetAcceptedCompiledProgram()->Identity);
 	EXPECT_EQ(DecodedProperties, Material->GetStaticProperties());
-	EXPECT_EQ(DecodedProgram->ActiveParameters,
-		Material->GetAcceptedCompiledProgram()->ActiveParameters);
-	EXPECT_EQ(DecodedProgram->ActiveParameters.size(), 36u);
+	EXPECT_EQ(DecodedProgram->GetArtifact().ActiveParameters,
+		Material->GetAcceptedCompiledProgram()->GetArtifact().ActiveParameters);
+	EXPECT_EQ(DecodedProgram->GetArtifact().ActiveParameters.size(), 36u);
 	std::vector<Durin::FMaterialCompilerResult> FamilyPrograms;
 	for (const auto Quality : {Durin::EMaterialQualityLevel::Low,
 		Durin::EMaterialQualityLevel::High})
@@ -998,14 +998,14 @@ TEST(FMaterialCompileLifecycleTests,
 		Durin::ECookTargetPlatform::Win64, Durin::ECookTargetProfile::Game,
 		Durin::EMaterialQualityLevel::Low, Durin::ERHIFeatureLevel::SM6,
 		MissingStatic, DecodedProperties, DecodedProgram)));
-	ASSERT_EQ(DecodedProgram->CompiledShaders.size(),
-		Material->GetAcceptedCompiledProgram()->CompiledShaders.size());
-	for (size_t Index = 0; Index < DecodedProgram->CompiledShaders.size(); ++Index)
+	ASSERT_EQ(DecodedProgram->GetArtifact().CompiledShaders.size(),
+		Material->GetAcceptedCompiledProgram()->GetArtifact().CompiledShaders.size());
+	for (size_t Index = 0; Index < DecodedProgram->GetArtifact().CompiledShaders.size(); ++Index)
 	{
 		const Durin::FShaderCode& Decoded =
-			DecodedProgram->CompiledShaders[Index];
+			DecodedProgram->GetArtifact().CompiledShaders[Index];
 		const Durin::FShaderCode& Source =
-			Material->GetAcceptedCompiledProgram()->CompiledShaders[Index];
+			Material->GetAcceptedCompiledProgram()->GetArtifact().CompiledShaders[Index];
 		EXPECT_EQ(Decoded.Frequency, Source.Frequency);
 		EXPECT_EQ(Decoded.SourceEntryPoint, Source.SourceEntryPoint);
 		EXPECT_EQ(Decoded.BinaryEntryPoint, Source.BinaryEntryPoint);
@@ -1014,15 +1014,17 @@ TEST(FMaterialCompileLifecycleTests,
 		ASSERT_TRUE(!Source.Code.IsEmpty());
 		EXPECT_TRUE(std::ranges::equal(Decoded.Code.GetBytes(), Source.Code.GetBytes()));
 	}
-	EXPECT_TRUE(DecodedProgram->IR.Nodes.empty());
-	EXPECT_TRUE(DecodedProgram->GeneratedSource.empty());
-	ASSERT_FALSE(DecodedProgram->ActiveParameters.empty());
+	EXPECT_TRUE(DecodedProgram->GetDebugData().IR.Nodes.empty());
+	EXPECT_TRUE(DecodedProgram->GetDebugData().GeneratedSource.empty());
+	ASSERT_FALSE(DecodedProgram->GetArtifact().ActiveParameters.empty());
 	for (int Corruption = 0; Corruption < 3; ++Corruption)
 	{
 		auto Invalid = *DecodedProgram;
-		if (Corruption == 0) Invalid.ActiveParameters.push_back(Invalid.ActiveParameters.front());
-		if (Corruption == 1) Invalid.ActiveParameters.front().Id = {};
-		if (Corruption == 2) Invalid.ActiveParameters.front().Type =
+		auto InvalidArtifact = std::make_shared<Durin::FMaterialProgramArtifact>(DecodedProgram->GetArtifact());
+		Invalid.Artifact = InvalidArtifact;
+		if (Corruption == 0) InvalidArtifact->ActiveParameters.push_back(InvalidArtifact->ActiveParameters.front());
+		if (Corruption == 1) InvalidArtifact->ActiveParameters.front().Id = {};
+		if (Corruption == 2) InvalidArtifact->ActiveParameters.front().Type =
 			static_cast<Durin::EMaterialParameterType>(255);
 		Durin::FByteBuffer InvalidBytes;
 		EXPECT_FALSE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(Invalid, DecodedProperties,
@@ -1073,8 +1075,10 @@ TEST(FMaterialCompileLifecycleTests, MetalCookedProgramPreservesStageBindingMaps
 	ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material));
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 	auto Program = *Material->GetAcceptedCompiledProgram();
+	auto Artifact = std::make_shared<Durin::FMaterialProgramArtifact>(Program.GetArtifact());
+	Program.Artifact = Artifact;
 	Program.Target = "metal-msl-2.0";
-	for (auto& Shader : Program.CompiledShaders)
+	for (auto& Shader : Artifact->CompiledShaders)
 	{
 		Shader.Target = Durin::MetalShaderTarget;
 		Shader.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
@@ -1102,20 +1106,20 @@ TEST(FMaterialCompileLifecycleTests, MetalCookedProgramPreservesStageBindingMaps
 		Program.Quality, Program.FeatureLevel, {}, Properties, Decoded);
 	ASSERT_TRUE(Result) << Durin::FormatMaterialError(Result.Error);
 	ASSERT_TRUE(Decoded);
-	for (size_t Index = 0; Index < Program.CompiledShaders.size(); ++Index)
+	for (size_t Index = 0; Index < Artifact->CompiledShaders.size(); ++Index)
 	{
-		EXPECT_EQ(Decoded->CompiledShaders[Index].Target, Durin::MetalShaderTarget);
-		EXPECT_EQ(Durin::ShaderFormat::DecodeMetalMetadata(Decoded->CompiledShaders[Index].Frequency, Decoded->CompiledShaders[Index].PlatformData.GetBytes())->Bindings,
-			Durin::ShaderFormat::DecodeMetalMetadata(Program.CompiledShaders[Index].Frequency, Program.CompiledShaders[Index].PlatformData.GetBytes())->Bindings);
-		EXPECT_EQ(Durin::ShaderFormat::DecodeMetalMetadata(Decoded->CompiledShaders[Index].Frequency, Decoded->CompiledShaders[Index].PlatformData.GetBytes())->Identity,
-			Durin::ShaderFormat::DecodeMetalMetadata(Program.CompiledShaders[Index].Frequency, Program.CompiledShaders[Index].PlatformData.GetBytes())->Identity);
+		EXPECT_EQ(Decoded->GetArtifact().CompiledShaders[Index].Target, Durin::MetalShaderTarget);
+		EXPECT_EQ(Durin::ShaderFormat::DecodeMetalMetadata(Decoded->GetArtifact().CompiledShaders[Index].Frequency, Decoded->GetArtifact().CompiledShaders[Index].PlatformData.GetBytes())->Bindings,
+			Durin::ShaderFormat::DecodeMetalMetadata(Artifact->CompiledShaders[Index].Frequency, Artifact->CompiledShaders[Index].PlatformData.GetBytes())->Bindings);
+		EXPECT_EQ(Durin::ShaderFormat::DecodeMetalMetadata(Decoded->GetArtifact().CompiledShaders[Index].Frequency, Decoded->GetArtifact().CompiledShaders[Index].PlatformData.GetBytes())->Identity,
+			Durin::ShaderFormat::DecodeMetalMetadata(Artifact->CompiledShaders[Index].Frequency, Artifact->CompiledShaders[Index].PlatformData.GetBytes())->Identity);
 	}
 	EXPECT_FALSE(Durin::DecodeMaterialCookedProgramFamily(Bytes,
 		Durin::ECookTargetPlatform::Win64, Durin::ECookTargetProfile::Game,
 		Program.Quality, Program.FeatureLevel, {}, Properties, Decoded));
-	auto CorruptedMetadata = Durin::FByteBuffer(Program.CompiledShaders.front().PlatformData.begin(), Program.CompiledShaders.front().PlatformData.end());
+	auto CorruptedMetadata = Durin::FByteBuffer(Artifact->CompiledShaders.front().PlatformData.begin(), Artifact->CompiledShaders.front().PlatformData.end());
 	CorruptedMetadata.back() ^= std::byte{1};
-	Program.CompiledShaders.front().PlatformData = Durin::FSharedByteBuffer::Take(std::move(CorruptedMetadata));
+	Artifact->CompiledShaders.front().PlatformData = Durin::FSharedByteBuffer::Take(std::move(CorruptedMetadata));
 	EXPECT_FALSE(Durin::EncodeMaterialCookedProgramFamily(Programs,
 		Material->GetStaticProperties(), Durin::ECookTargetPlatform::MacOS,
 		Durin::ECookTargetProfile::Game, Bytes));

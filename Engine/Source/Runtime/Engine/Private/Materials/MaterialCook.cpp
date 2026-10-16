@@ -196,7 +196,7 @@ namespace Durin
 			return FailCooked(
 				EMaterialCookError::StaticPropertiesMismatch);
 		}
-		for (const auto& Parameter : ProgramCandidate->ActiveParameters)
+		for (const auto& Parameter : ProgramCandidate->GetArtifact().ActiveParameters)
 		{
 			const auto* Definition = FindParameterDefinition(Parameter.Id);
 			if (!Definition || Definition->Type != Parameter.Type)

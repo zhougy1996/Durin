@@ -77,11 +77,11 @@ namespace Durin::RendererPrivate
 				return std::unexpected(FShaderError{.Code = EShaderError::MaterialProgramIdentityMismatch,
 					.ExpectedIdentity = Identity.ProgramIdentity.ToString(),
 					.ActualIdentity = MaterialProgram->Identity.ToString()});
-			if (MaterialProgram->Layout.Identity != Identity.RenderLayout)
+			if (MaterialProgram->GetArtifact().Layout.Identity != Identity.RenderLayout)
 				return std::unexpected(FShaderError{.Code = EShaderError::MaterialLayoutMismatch,
 					.ExpectedIdentity = Identity.RenderLayout.Id.ToString(),
-					.ActualIdentity = MaterialProgram->Layout.Identity.Id.ToString(),
-					.Expected = Identity.RenderLayout.Version, .Actual = MaterialProgram->Layout.Identity.Version});
+					.ActualIdentity = MaterialProgram->GetArtifact().Layout.Identity.Id.ToString(),
+					.Expected = Identity.RenderLayout.Version, .Actual = MaterialProgram->GetArtifact().Layout.Identity.Version});
 			if (MaterialProgram->PassContractVersion != CurrentMaterialPassContractVersion)
 				return std::unexpected(FShaderError{.Code = EShaderError::MaterialPassContractMismatch,
 					.Expected = CurrentMaterialPassContractVersion, .Actual = MaterialProgram->PassContractVersion});
@@ -94,7 +94,7 @@ namespace Durin::RendererPrivate
 		const std::array<const FShaderType*, 2> Types{
 			&VertexType, &FragmentType};
 		std::span<const FShaderCode> GeneratedStages = MaterialProgram
-			? std::span<const FShaderCode>(MaterialProgram->CompiledShaders)
+			? std::span<const FShaderCode>(MaterialProgram->GetArtifact().CompiledShaders)
 			: std::span<const FShaderCode>{};
 		// A declared generated use must never fall through to a fixed-source
 		// compilation when its geometry or pass was excluded at material build.

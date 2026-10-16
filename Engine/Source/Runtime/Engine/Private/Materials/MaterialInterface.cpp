@@ -238,20 +238,20 @@ namespace Durin
 			? EMaterialProgramStatisticsState::Current
 			: EMaterialProgramStatisticsState::LastKnownGood;
 		Result.ProgramIdentity = Program->Identity;
-		Result.NormalizedIRNodeCount = Program->IR.Nodes.size();
-		Result.ActiveParameterCount = Program->ActiveParameters.size();
-		Result.UniformPayloadBytes = Program->Layout.UniformPayloadSize;
-		Result.TextureCount = std::ranges::count_if(Program->Layout.Fields,
+		Result.NormalizedIRNodeCount = Program->GetDebugData().IR.Nodes.size();
+		Result.ActiveParameterCount = Program->GetArtifact().ActiveParameters.size();
+		Result.UniformPayloadBytes = Program->GetArtifact().Layout.UniformPayloadSize;
+		Result.TextureCount = std::ranges::count_if(Program->GetArtifact().Layout.Fields,
 			[](const FMaterialRenderField& Field) {
 				return Field.Storage == EMaterialRenderFieldStorage::Resource
 					&& Field.Type == EMaterialRenderValueType::Texture2D;
 			});
 		Result.SamplerCount = Result.TextureCount;
-		Result.GeneratedSourceBytes = Program->GeneratedSource.size();
-		Result.CompiledShaderCount = Program->CompiledShaders.size();
-		Result.DependencyCount = Program->Dependencies.size();
+		Result.GeneratedSourceBytes = Program->GetDebugData().GeneratedSource.size();
+		Result.CompiledShaderCount = Program->GetArtifact().CompiledShaders.size();
+		Result.DependencyCount = Program->GetArtifact().Dependencies.size();
 		Result.PhaseTimings = Program->Timings;
-		for (const FShaderCode& Shader : Program->CompiledShaders)
+		for (const FShaderCode& Shader : Program->GetArtifact().CompiledShaders)
 		{
 			const uint64 Bytes = Shader.Code.size();
 			if (Bytes > std::numeric_limits<uint64>::max() - Result.CompiledCodeBytes)
@@ -538,18 +538,18 @@ namespace Durin
 		Result.CompiledProgram = GetAcceptedCompiledProgram();
 		Result.Representation = FMaterialRenderRepresentation{};
 		FMaterialRenderRepresentationBuilder RepresentationBuilder = Result.CompiledProgram
-			&& Result.CompiledProgram->Layout.Identity.Version == CompiledMaterialRenderLayoutVersion
-			&& Result.CompiledProgram->Layout.Identity != Result.Representation.GetLayout().Identity
-			? FMaterialRenderRepresentationBuilder(Result.CompiledProgram->Layout)
+			&& Result.CompiledProgram->GetArtifact().Layout.Identity.Version == CompiledMaterialRenderLayoutVersion
+			&& Result.CompiledProgram->GetArtifact().Layout.Identity != Result.Representation.GetLayout().Identity
+			? FMaterialRenderRepresentationBuilder(Result.CompiledProgram->GetArtifact().Layout)
 			: FMaterialRenderRepresentationBuilder(Result.Representation);
 		bool bRepresentationValid = true;
 		if (Result.CompiledProgram)
-			Result.PlanningPassIdentity.ShaderMap.RenderLayout = Result.CompiledProgram->Layout.Identity;
+			Result.PlanningPassIdentity.ShaderMap.RenderLayout = Result.CompiledProgram->GetArtifact().Layout.Identity;
 		const auto LocalLayer = BuildMaterialLocalRenderLayer();
 		for (const auto& Parameter : LocalLayer.Parameters)
 		{
 			if (!Result.CompiledProgram) continue;
-			const auto& Parameters = Result.CompiledProgram->ActiveParameters;
+			const auto& Parameters = Result.CompiledProgram->GetArtifact().ActiveParameters;
 			const auto Active = std::ranges::find(Parameters, Parameter.Id,
 				&FMaterialCompilerParameterDeclaration::Id);
 			if (Active == Parameters.end() || Active->Type != Parameter.GetType()) continue;
@@ -717,8 +717,8 @@ namespace Durin
 		Retained.reserve(CompilationOwner.RenderLayer.Parameters.size());
 		for (const auto& Parameter : CompilationOwner.RenderLayer.Parameters)
 			Retained.emplace(Parameter.Id, &Parameter);
-		Result.Parameters.reserve(Result.CompiledProgram->ActiveParameters.size());
-		for (const auto& Parameter : Result.CompiledProgram->ActiveParameters)
+		Result.Parameters.reserve(Result.CompiledProgram->GetArtifact().ActiveParameters.size());
+		for (const auto& Parameter : Result.CompiledProgram->GetArtifact().ActiveParameters)
 		{
 			const auto Resolved = Parameters.find(Parameter.Id);
 			if (Resolved != Parameters.end() && Resolved->second.Definition->Type == Parameter.Type)

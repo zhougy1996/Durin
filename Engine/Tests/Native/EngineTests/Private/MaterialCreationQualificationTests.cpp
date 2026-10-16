@@ -168,16 +168,16 @@ namespace Durin
 			ASSERT_TRUE(Program);
 			if (Round == 0)
 			{
-				for (size_t Index = 0; Index < Program->CompiledShaders.size(); ++Index)
+				for (size_t Index = 0; Index < Program->GetArtifact().CompiledShaders.size(); ++Index)
 				{
-					FrozenShaders.emplace_back(Program->CompiledShaders[Index].Code.begin(), Program->CompiledShaders[Index].Code.end());
+					FrozenShaders.emplace_back(Program->GetArtifact().CompiledShaders[Index].Code.begin(), Program->GetArtifact().CompiledShaders[Index].Code.end());
 					ASSERT_TRUE(FFileHelper::SaveArrayToFile(FrozenShaders.back(),
 						Output / std::format("material-shader{}.spv", Index)));
 				}
 			}
-			ASSERT_EQ(FrozenShaders.size(), Program->CompiledShaders.size());
+			ASSERT_EQ(FrozenShaders.size(), Program->GetArtifact().CompiledShaders.size());
 			for (size_t Index = 0; Index < FrozenShaders.size(); ++Index)
-				ASSERT_TRUE(std::ranges::equal(FrozenShaders[Index], Program->CompiledShaders[Index].Code.GetBytes()));
+				ASSERT_TRUE(std::ranges::equal(FrozenShaders[Index], Program->GetArtifact().CompiledShaders[Index].Code.GetBytes()));
 			Life.Proxy = Life.Material->GetMaterialRenderProxy();
 			Life.Scene = std::make_unique<FSceneTestOwner>();
 			FSceneInterfaceTestAccess::AddPrimitiveProxy(**Life.Scene, FPrimitiveComponentId(1),
