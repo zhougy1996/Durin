@@ -1,4 +1,6 @@
 #include "WorldTestSupport.h"
+#include "Editor/EditorTransactionTestSupport.h"
+#include "PropertyEditor/PropertyEditing.h"
 #include "Preview/PreviewScene.h"
 #include "IRendererModule.h"
 #include "Rendering/LightSceneProxy.h"
@@ -206,12 +208,12 @@ TEST(FWorldTests, LightComponentRebuildsAndRetiresExactProxyTokens)
 	Durin::FLightSceneProxy* RebuiltToken = Scene.LastAddedLight;
 	EXPECT_NE(RebuiltToken, FirstToken);
 
-	Light->SetHidden(true);
+	Light->SetActorHiddenInGame(true);
 	EXPECT_EQ(Scene.RemoveLightCount, 2u);
 	EXPECT_EQ(Scene.LastRemovedLight, RebuiltToken);
 	EXPECT_TRUE(Scene.Lights.empty());
 
-	Light->SetHidden(false);
+	Light->SetActorHiddenInGame(false);
 	EXPECT_EQ(Scene.AddLightCount, 3u);
 	Durin::FLightSceneProxy* VisibleToken = Scene.LastAddedLight;
 	Component->UnregisterComponent();
@@ -219,6 +221,106 @@ TEST(FWorldTests, LightComponentRebuildsAndRetiresExactProxyTokens)
 	EXPECT_EQ(Scene.LastRemovedLight, VisibleToken);
 	EXPECT_TRUE(Scene.Lights.empty());
 
+	World->SetRenderScene(nullptr);
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FWorldTests, RawHiddenAssignmentHasNoComponentSideEffects)
+{
+	Durin::DWorld* World = CreateWorld();
+	FWorldSceneLifecycleTestScene Scene;
+	World->SetRenderScene(&Scene);
+	auto* Light = World->SpawnActor<Durin::ADirectionalLightActor>("RawHiddenLight");
+	ASSERT_TRUE(Scene.Lights.contains(Light->GetLightComponent()));
+	Light->SetHidden(true);
+	EXPECT_TRUE(Light->IsHidden());
+	EXPECT_TRUE(Scene.Lights.contains(Light->GetLightComponent()));
+	Light->PostEditChange();
+	EXPECT_TRUE(Scene.Lights.empty());
+	Light->SetActorHiddenInGame(false);
+	EXPECT_TRUE(Scene.Lights.contains(Light->GetLightComponent()));
+	const uint32 Added = Scene.AddLightCount;
+	Light->SetActorHiddenInGame(false);
+	EXPECT_EQ(Scene.AddLightCount, Added);
+	World->SetRenderScene(nullptr);
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FWorldTests, ActorVisibilityUndoRedoSynchronizesComponentSceneState)
+{
+	for (const bool bInitiallyHidden : {false, true})
+	{
+		Durin::DWorld* World = CreateWorld();
+		FWorldSceneLifecycleTestScene Scene;
+		World->SetRenderScene(&Scene);
+		auto* Light = World->SpawnActor<Durin::ADirectionalLightActor>("VisibilityLight");
+		auto* Mesh = World->SpawnActor<Durin::AStaticMeshActor>("VisibilityMesh");
+		// Actor visibility must not overwrite the component's independent visibility.
+		Mesh->GetStaticMeshComponent()->SetVisible(false);
+		Light->SetActorHiddenInGame(bInitiallyHidden);
+		Mesh->SetActorHiddenInGame(bInitiallyHidden);
+		Durin::Tests::FTestTransactorOwner Transactions;
+		{
+			Durin::Editor::FScopedTransaction Transaction(Transactions.Get(), {"test", "Toggle actor visibility"});
+			Transaction.Modify(Light);
+			Transaction.Modify(Mesh);
+			Light->SetActorHiddenInGame(!bInitiallyHidden);
+			Mesh->SetActorHiddenInGame(!bInitiallyHidden);
+		}
+		auto ExpectVisibility = [&](bool bHidden) {
+			EXPECT_EQ(Light->IsHidden(), bHidden);
+			EXPECT_EQ(Mesh->IsHidden(), bHidden);
+			EXPECT_EQ(Scene.Lights.contains(Light->GetLightComponent()), !bHidden);
+			EXPECT_FALSE(Mesh->GetStaticMeshComponent()->IsVisible());
+		};
+		ExpectVisibility(!bInitiallyHidden);
+		ASSERT_TRUE(Transactions->Undo());
+		ExpectVisibility(bInitiallyHidden);
+		ASSERT_TRUE(Transactions->Redo());
+		ExpectVisibility(!bInitiallyHidden);
+		ASSERT_TRUE(Transactions->Undo());
+		ExpectVisibility(bInitiallyHidden);
+		ASSERT_TRUE(Transactions->Reset());
+		World->SetRenderScene(nullptr);
+		Durin::MarkObjectHierarchyAsGarbage(World);
+		Durin::CollectGarbage();
+	}
+}
+
+TEST(FWorldTests, ReflectedActorVisibilitySynchronizesInteractiveCancelAndHistory)
+{
+	Durin::DWorld* World = CreateWorld();
+	FWorldSceneLifecycleTestScene Scene;
+	World->SetRenderScene(&Scene);
+	auto* Light = World->SpawnActor<Durin::ADirectionalLightActor>("ReflectedVisibilityLight");
+	auto* Hidden = Light->GetClass()->FindPropertyByName("bHidden");
+	ASSERT_NE(Hidden, nullptr);
+	Light->SetActorHiddenInGame(true);
+	Durin::FPropertyValueSnapshot HiddenValue;
+	ASSERT_TRUE(Durin::CapturePropertyValue(Hidden, Light, 0, HiddenValue));
+	Light->SetActorHiddenInGame(false);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Editor::FPropertyEditSession Session;
+	const auto Target = Durin::Editor::FPropertyEditTarget::ForMember(Light, Hidden);
+	ASSERT_TRUE(Session.Begin(Target, "Hide light", Transactions.Get()));
+	ASSERT_TRUE(Session.Apply(HiddenValue));
+	EXPECT_TRUE(Light->IsHidden());
+	EXPECT_TRUE(Scene.Lights.empty());
+	ASSERT_TRUE(Session.Cancel());
+	EXPECT_FALSE(Light->IsHidden());
+	EXPECT_TRUE(Scene.Lights.contains(Light->GetLightComponent()));
+	EXPECT_FALSE(Transactions->CanUndo());
+	ASSERT_TRUE(Session.Begin(Target, "Hide light", Transactions.Get()));
+	ASSERT_TRUE(Session.Apply(HiddenValue));
+	ASSERT_TRUE(Session.Commit());
+	EXPECT_TRUE(Scene.Lights.empty());
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_TRUE(Scene.Lights.contains(Light->GetLightComponent()));
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_TRUE(Scene.Lights.empty());
+	ASSERT_TRUE(Transactions->Reset());
 	World->SetRenderScene(nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();

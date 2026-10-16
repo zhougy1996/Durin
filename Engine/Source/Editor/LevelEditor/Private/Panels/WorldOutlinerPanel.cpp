@@ -184,7 +184,7 @@ namespace Durin::Editor::Level
 		{
 			if (!Actor || Actor->IsHidden() == bHidden) continue;
 			Transaction.Modify(Actor.Get());
-			Actor->SetHidden(bHidden);
+			Actor->SetActorHiddenInGame(bHidden);
 		}
 	}
 

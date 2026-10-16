@@ -43,6 +43,22 @@ leaf container is null and the full draft root remains available.
 `DObject::PostEditChangeProperty(const FPropertyChangedEvent&)` is the common
 notification hook. Its default implementation is a no-op.
 
+After synchronous transaction Undo/Redo has applied all records, the transactor
+calls `DObject::PostEditUndo()` once per distinct attempted property-record target.
+On replay failure, this callback runs after compensation, against the final
+recovered state; validation failures before replay emit no callback. Custom
+changes continue to own their domain synchronization. The default implementation
+calls `PostEditChange()`, producing a full-object property notification with no
+member or leaf. Per-property replay notifications retain their Undo/Redo origin
+and precede this completion hook. Overrides may use `PostEditUndo()` to rebuild
+state that depends on multiple restored fields or objects.
+
+Actor visibility follows the UE setter split: `SetHidden()` only assigns
+`bHidden`, while `SetActorHiddenInGame()` synchronizes owned components and marks
+the package dirty. Actor property edits and full-object completion notifications
+refresh component visibility from canonical storage after native reconstruction;
+they never overwrite a primitive component's independent `bVisible` state.
+
 `FPropertyChangedEvent` separates three independent dimensions:
 
 - `Phase`: `Interactive`, `Committed`, or `Cancelled`;

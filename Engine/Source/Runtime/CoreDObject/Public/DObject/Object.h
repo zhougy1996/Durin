@@ -183,6 +183,10 @@ namespace Durin
 		// Dispatches a committed full-object edit through PostEditChangeProperty.
 		COREDOBJECT_API auto PostEditChange() -> void;
 
+		// Called once after this object's transaction replay (Undo or Redo), including
+		// compensation on failure. The default dispatches a full-object PostEditChange.
+		COREDOBJECT_API virtual auto PostEditUndo() -> void;
+
 		// Editor mutation state stays outside DObject; this synchronous hook only
 		// lets the object refresh state derived from a successfully changed value.
 		COREDOBJECT_API virtual auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void;

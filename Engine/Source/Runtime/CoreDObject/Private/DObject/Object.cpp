@@ -394,6 +394,11 @@ namespace Durin
 		PostEditChangeProperty({});
 	}
 
+	auto DObject::PostEditUndo() -> void
+	{
+		PostEditChange();
+	}
+
 	auto DObject::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		(void)Event;

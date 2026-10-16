@@ -59,7 +59,9 @@ namespace Durin
 		ENGINE_API auto GetActorTransform() const -> FTransform;
 		ENGINE_API auto SetActorTransform(const FTransform& InTransform) -> bool;
 		auto IsHidden() const -> bool { return bHidden; }
+		// Assigns bHidden only; use SetActorHiddenInGame to synchronize components.
 		ENGINE_API auto SetHidden(bool bInHidden) -> void;
+		ENGINE_API virtual auto SetActorHiddenInGame(bool bNewHidden) -> void;
 
 		ENGINE_API auto AttachToActor(AActor* ParentActor, EAttachmentTransformRule Rule = EAttachmentTransformRule::KeepWorld) -> bool;
 		ENGINE_API auto DetachFromActor(EDetachmentTransformRule Rule = EDetachmentTransformRule::KeepWorld) -> bool;
@@ -157,6 +159,7 @@ namespace Durin
 		};
 
 		auto InitializeDefaults() -> void;
+		auto NotifyComponentsVisibilityChanged() -> void;
 		ENGINE_API auto AddAuthoredComponent(DActorComponent* Component) -> void;
 		auto RebuildOwnedComponentsFromAuthored() -> void;
 		auto ValidateComponentOwnership() const -> void;

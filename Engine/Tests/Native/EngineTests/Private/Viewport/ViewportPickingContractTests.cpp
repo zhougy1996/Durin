@@ -147,9 +147,9 @@ TEST(FViewportPickingContractTests, InvalidatesRetiredTargetsButNotCameraMotion)
 
 	const Durin::Editor::Level::FViewportPickSubmission Hidden = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
 	State->CompleteFirst(Hidden.Ticket);
-	Fixture.Actor->SetHidden(true);
+	Fixture.Actor->SetActorHiddenInGame(true);
 	EXPECT_EQ(Fixture.Client.PollViewportPick(Hidden.Ticket).Status, Durin::Editor::Level::EViewportPickStatus::Invalidated);
-	Fixture.Actor->SetHidden(false);
+	Fixture.Actor->SetActorHiddenInGame(false);
 
 	const Durin::Editor::Level::FViewportPickSubmission Reregistered = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
 	Fixture.Actor->GetStaticMeshComponent()->UnregisterComponent();

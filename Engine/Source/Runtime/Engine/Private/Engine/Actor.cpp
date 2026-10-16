@@ -4,6 +4,7 @@
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Property.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 
@@ -187,8 +188,19 @@ namespace Durin
 
 	auto AActor::SetHidden(bool bInHidden) -> void
 	{
-		if (bHidden == bInHidden) return;
 		bHidden = bInHidden;
+	}
+
+	auto AActor::SetActorHiddenInGame(bool bNewHidden) -> void
+	{
+		if (bHidden == bNewHidden) return;
+		SetHidden(bNewHidden);
+		NotifyComponentsVisibilityChanged();
+		MarkPackageDirty();
+	}
+
+	auto AActor::NotifyComponentsVisibilityChanged() -> void
+	{
 		const std::vector<TObjectPtr<DActorComponent>> Components = GetComponentsSnapshot();
 		for (const TObjectPtr<DActorComponent>& Component : Components)
 		{
@@ -200,7 +212,6 @@ namespace Durin
 				Component->OnOwnerVisibilityChanged();
 			}
 		}
-		MarkPackageDirty();
 	}
 
 	auto AActor::AttachToActor(AActor* ParentActor, EAttachmentTransformRule Rule) -> bool
@@ -369,6 +380,11 @@ namespace Durin
 	{
 		Super::PostEditChangeProperty(Event);
 		RequestNativeReconstruction();
+		// PostEditUndo dispatches a full-object edit after all transaction fields settle.
+		// Direct property edits also bypass SetActorHiddenInGame and need synchronization.
+		if (!Event.MemberProperty || (Event.MemberProperty->NamePrivate == FName("bHidden")
+			&& Event.Origin == EPropertyChangeOrigin::Edit))
+			NotifyComponentsVisibilityChanged();
 	}
 
 	auto AActor::PostLoad() -> void

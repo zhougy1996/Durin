@@ -279,7 +279,7 @@ TEST(FWorldTests, TracksEditorActorHierarchyRevision)
 	const auto AfterChildSpawn = Level->GetEditorActorHierarchyRevision();
 	EXPECT_GT(AfterChildSpawn, AfterParentSpawn);
 
-	Child->SetHidden(true);
+	Child->SetActorHiddenInGame(true);
 	EXPECT_EQ(Level->GetEditorActorHierarchyRevision(), AfterChildSpawn);
 	Durin::FTransform Transform;
 	Transform.Translation = {1.0, 2.0, 3.0};
@@ -316,9 +316,9 @@ TEST(FWorldTests, TracksActorVisibility)
 	Durin::AActor* Actor = World->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Actor, nullptr);
 	EXPECT_FALSE(Actor->IsHidden());
-	Actor->SetHidden(true);
+	Actor->SetActorHiddenInGame(true);
 	EXPECT_TRUE(Actor->IsHidden());
-	Actor->SetHidden(false);
+	Actor->SetActorHiddenInGame(false);
 	EXPECT_FALSE(Actor->IsHidden());
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();

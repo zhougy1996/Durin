@@ -220,7 +220,7 @@ namespace Durin::Editor::Level
 					if (!Level.ContainsActor(It->Actor)) { bRestored = false; continue; }
 					It->Actor->GetStaticMeshComponent()->SetStaticMesh(It->Previous.StaticMesh.Get());
 					bRestored = It->Actor->SetActorTransform(It->Previous.Transform) && bRestored;
-					It->Actor->SetHidden(It->Previous.bHidden);
+					It->Actor->SetActorHiddenInGame(It->Previous.bHidden);
 				}
 				for (auto It = Created.rbegin(); It != Created.rend(); ++It)
 					if (Level.ContainsActor(*It)) bRestored = Level.DestroyActor(*It) && bRestored;
@@ -236,7 +236,7 @@ namespace Durin::Editor::Level
 					if (!Actor || Actor->GetFName() != State.Name) { bRestored = false; continue; }
 					Actor->GetStaticMeshComponent()->SetStaticMesh(State.StaticMesh.Get());
 					bRestored = Actor->SetActorTransform(State.Transform) && bRestored;
-					Actor->SetHidden(State.bHidden);
+					Actor->SetActorHiddenInGame(State.bHidden);
 				}
 				if (Package && !bPackageWasDirty) Package->ClearDirty();
 				return bRestored;
@@ -362,7 +362,7 @@ namespace Durin::Editor::Level
 				{
 					return FailAfterMutation({.Code = ::Durin::Editor::ETransactionCustomError::TransformWrite, .TargetLabel = Destination->Name.ToString(), .MemberIndex = Index});
 				}
-				Actor->SetHidden(Destination->bHidden);
+				Actor->SetActorHiddenInGame(Destination->bHidden);
 				#if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
 				if (ConsumeInjectedFailure(Testing::EStaticMeshLevelMutationFailurePoint::AfterUpdate))
 					return FailAfterMutation({.Code = ::Durin::Editor::ETransactionCustomError::InjectedMutation, .MemberIndex = Index, .MutationPhase = ::Durin::Editor::ETransactionMutationPhase::Update});

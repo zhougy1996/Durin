@@ -431,7 +431,7 @@ TEST(FVolumetricCloudSceneContractTests, ComponentRegistrationPublishesCompleteI
 	Component->SetPriority(50);
 	Observation = ObserveClouds(*Scene);
 	EXPECT_EQ(Observation.Count, 1u);
-	Actor->SetHidden(true);
+	Actor->SetActorHiddenInGame(true);
 	EXPECT_EQ(ObserveClouds(*Scene).Count, 1u);
 	Component->UnregisterComponent();
 	EXPECT_EQ(ObserveClouds(*Scene).Count, 0u);

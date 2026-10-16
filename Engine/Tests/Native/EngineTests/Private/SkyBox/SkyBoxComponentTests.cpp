@@ -123,7 +123,7 @@ TEST(FSkyLightTests, SelectsDeterministicallyAndRetiresExactSnapshots)
 	ASSERT_TRUE(Selected);
 	EXPECT_GT(Selected->RequestSerial, Frozen->RequestSerial);
 	EXPECT_EQ(Selected->SourceEpoch, Frozen->SourceEpoch);
-	Second->SetHidden(true);
+	Second->SetActorHiddenInGame(true);
 	Selected = Observe();
 	ASSERT_TRUE(Selected);
 	EXPECT_EQ(Selected->PersistentId, A->GetPersistentId());
@@ -245,9 +245,9 @@ TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProper
 	EXPECT_EQ(Observation.Data.Tint, Durin::FVector3f(0.2f, 0.4f, 0.6f));
 	EXPECT_EQ(Observation.Data.Intensity, 3.0f);
 
-	Actor->SetHidden(true);
+	Actor->SetActorHiddenInGame(true);
 	EXPECT_FALSE(ObserveSkyBoxes(*Scene).bHasSkyBox);
-	Actor->SetHidden(false);
+	Actor->SetActorHiddenInGame(false);
 	EXPECT_TRUE(ObserveSkyBoxes(*Scene).bHasSkyBox);
 	Component->UnregisterComponent();
 	EXPECT_FALSE(ObserveSkyBoxes(*Scene).bHasSkyBox);

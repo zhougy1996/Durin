@@ -131,6 +131,15 @@ namespace
 			}
 		}
 
+		// Observe replay completion separately from the per-property event stream.
+		auto PostEditUndo() -> void override
+		{
+			++PostUndoCount;
+			if (PostUndo) PostUndo();
+		}
+
+		uint32 PostUndoCount = 0;
+		std::function<void()> PostUndo;
 		std::vector<FCapturedChange> Changes;
 		std::function<std::expected<void, Durin::FObjectValidationError>(Durin::FPropertyEditProposal&)> PreChange;
 		uint32 PreChangeCount = 0;
