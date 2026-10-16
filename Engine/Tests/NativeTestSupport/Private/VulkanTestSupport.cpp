@@ -30,10 +30,10 @@ namespace Durin::VulkanRHI
 			return GetVulkanDeviceForTest(RHI);
 		}
 
-		auto GetTestDispatcher() -> vk::DispatchLoaderDynamic
+		auto GetTestDispatcher() -> VULKAN_HPP_DISPATCH_LOADER_DYNAMIC_TYPE
 		{
 			auto& RHI = *static_cast<IVulkanDynamicRHI*>(GDynamicRHI);
-			vk::DispatchLoaderDynamic Dispatcher;
+			VULKAN_HPP_DISPATCH_LOADER_DYNAMIC_TYPE Dispatcher;
 			Dispatcher.init(::vkGetInstanceProcAddr);
 			Dispatcher.init(RHI.RHIGetVkInstance());
 			Dispatcher.init(RHI.RHIGetVkDevice());
