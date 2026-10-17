@@ -63,6 +63,8 @@ namespace Durin
 		virtual auto RHIBindIndexBuffer(FRHIBuffer* IndexBuffer, uint32 Offset) -> void = 0;
 		virtual auto RHITransitionBuffers(std::span<const FRHIBufferTransition> Transitions) -> void = 0;
 		virtual auto RHITransitionTextures(std::span<const FRHITextureTransition> Transitions) -> void = 0;
+		virtual auto RHIAliasingBarrier(const FRHITransientAliasingBarrier& Barrier) -> void
+		{ requiref(false, "This RHI context does not support transient aliasing."); }
 		virtual auto RHIBeginTransition(const std::shared_ptr<FRHITransition>&) -> void {}
 		virtual auto RHIEndTransition(const std::shared_ptr<FRHITransition>& Transition) -> void
 		{

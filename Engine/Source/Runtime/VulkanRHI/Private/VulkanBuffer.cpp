@@ -66,7 +66,7 @@ namespace Durin::VulkanRHI
 	}
 
 	FVulkanBuffer::FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc,
-		bool bConcurrentReadOnly, vk::Result* OutResult)
+		bool bConcurrentReadOnly, vk::Result* OutResult, FVulkanBuffer* AliasSource)
 		: FRHIBuffer(InCreateDesc)
 		, Device(InDevice)
 		, StateTracker(InCreateDesc.Size)
@@ -108,8 +108,18 @@ namespace Durin::VulkanRHI
 		}
 
 		const FVulkanMemoryManager& MemoryManager = Device.GetMemoryManager();
-		const vk::Result Result = MemoryManager.CreateBuffer(
-			Allocation, Buffer, AllocationCandidate, BufferInfo, DebugName.c_str());
+		bAllowAliasing = InCreateDesc.Aliasing == ERHITransientAliasing::Enabled || AliasSource != nullptr;
+		vk::Result Result;
+		if (AliasSource)
+		{
+			require(AliasSource->bAllowAliasing && !bConcurrentReadOnly
+				&& AllocationCandidate == EVulkanAllocationClassCandidate::DeviceLocal && &AliasSource->Device == &Device);
+			AliasOwner = AliasSource->AliasOwner ? AliasSource->AliasOwner.GetReference() : AliasSource;
+			Allocation = AliasSource->Allocation;
+			Result = MemoryManager.CreateAliasingBuffer(Allocation, BufferInfo, Buffer);
+		}
+		else Result = MemoryManager.CreateBuffer(Allocation, Buffer, AllocationCandidate,
+			BufferInfo, DebugName.c_str(), bAllowAliasing);
 		if (OutResult) *OutResult = Result;
 		if (Result != vk::Result::eSuccess)
 		{
@@ -286,7 +296,11 @@ namespace Durin::VulkanRHI
 			GDynamicBufferWriteProfile.FallbackReservedBytes.fetch_sub(GetSize(), std::memory_order_relaxed);
 		if (bMappedWriteBacking || bDiscardWriteFallbackBacking) PublishDynamicBufferWriteProfile();
 #endif
-		if (Buffer && Allocation.IsValid())
+		if (Buffer && AliasOwner)
+		{
+			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Buffer, Buffer);
+		}
+		else if (Buffer && Allocation.IsValid())
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(
 				FDeferredDeletionQueue::EType::Buffer, Buffer, Allocation);
@@ -406,6 +420,25 @@ namespace Durin::VulkanRHI
 		}
 		const vk::DeviceSize InvalidateSize = Size != 0 ? Size : VK_WHOLE_SIZE;
 		Device.GetMemoryManager().Invalidate(GetBackingBuffer()->Allocation, Offset, InvalidateSize);
+	}
+
+	auto FVulkanDynamicRHI::RHICreateAliasedBuffer(const FRHIBufferCreateDesc& Desc, FRHIBuffer* Source) -> FBufferRHIRef
+	{
+		if (!Source || !FVulkanBuffer::Cast(Source)->IsAliasable()
+			|| EnumHasAnyFlags(Desc.Usage, EBufferUsageFlags::Dynamic | EBufferUsageFlags::KeepCPUAccessible)
+			|| Desc.InitialData.Data) return {};
+		FRHIBufferCreateDesc Normalized = Desc;
+		if (EnumHasAnyFlags(Normalized.Usage, EBufferUsageFlags::Static)) Normalized.Usage |= EBufferUsageFlags::DestinationCopy;
+		if (Source->GetSize() != Normalized.Size || Source->GetStride() != Normalized.Stride
+			|| Source->GetUsage() != Normalized.Usage) return {};
+		vk::Result Result;
+		FBufferRHIRef Buffer = new FVulkanBuffer(*Device, Normalized, false, &Result, FVulkanBuffer::Cast(Source));
+		if (Result != vk::Result::eSuccess)
+		{
+			if (!IsRecoverableVulkanCreationError(Result)) ThrowVulkanError(Result, "Vulkan aliased buffer allocation");
+			LogVulkanCreationFailure(Result, "aliased buffer", Desc.DebugName ? Desc.DebugName : "");
+		}
+		return Result == vk::Result::eSuccess ? Buffer : FBufferRHIRef{};
 	}
 
 	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList,

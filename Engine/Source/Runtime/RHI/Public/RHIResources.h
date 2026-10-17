@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Experimental/RHITransientAliasing.h"
 
 #include "RHIAPI.h"
 #include "RHIDefinitions.h"
@@ -543,6 +544,8 @@ namespace Durin
 	// Adds diagnostic identity to the immutable texture creation contract.
 	struct FRHITextureCreateDesc : public FRHITextureDesc
 	{
+		// Permits distinct native resources to share this allocation under explicit handoffs.
+		ERHITransientAliasing Aliasing = ERHITransientAliasing::Disabled;
 		static auto Create(const char* InDebugName, ETextureDimension InDimension) -> FRHITextureCreateDesc
 		{
 			return {InDebugName, InDimension};
@@ -1737,6 +1740,7 @@ namespace Durin
 	// Adds initial upload data and diagnostic identity to buffer creation.
 	struct FRHIBufferCreateDesc : public FRHIBufferDesc
 	{
+		ERHITransientAliasing Aliasing = ERHITransientAliasing::Disabled;
 		static auto Create(const char* InDebugName, EBufferUsageFlags InUsage) -> FRHIBufferCreateDesc
 		{
 			return {InDebugName, InUsage};

@@ -4,7 +4,7 @@ Summary: Define the source and semantic stability boundary of public RHI headers
 
 Modules: RHI, RenderCore, ShaderFormat, VulkanRHI, MetalRHI
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-17
 
 ## Directory Contract
 
@@ -172,8 +172,13 @@ is additionally covered by deterministic contracts and earlier native fixtures;
 unavailable macOS queue topologies and the separately deferred Windows Vulkan
 run remain recorded coverage gaps rather than implied passes.
 
-Transient aliasing is not a public experimental contract until its owning stage
-introduces a complete header and behavior boundary.
+Transient aliasing now has an explicit value boundary in
+`Experimental/RHITransientAliasing.h`. Its creation selectors, DynamicRHI query
+and aliased factories, and recorded aliasing barrier remain experimental; the
+mixed stable headers include this boundary transitively. The owning
+[resource contract](RHIResourceViewsAndTransfers.md#experimental-transient-aliasing)
+defines capability fallback, ordering and backing retention. Default production
+adoption and performance qualification remain open.
 
 ## Change and Promotion Rules
 

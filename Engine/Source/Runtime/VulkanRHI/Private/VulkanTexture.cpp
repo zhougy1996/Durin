@@ -107,7 +107,7 @@ namespace Durin::VulkanRHI
 	}
 
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc,
-		vk::Result* OutResult)
+		vk::Result* OutResult, FVulkanTexture* AliasSource)
 		: FRHITexture(InCreateDesc)
 		, Device(InDevice)
 		, OwnerType(EImageOwnerType::LocalOwner)
@@ -122,13 +122,21 @@ namespace Durin::VulkanRHI
 		const bool bStorage = EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::Storage);
 		checkf(!bStorage || !bDepthStencil, "Vulkan storage images do not support depth/stencil textures in this RHI");
 		checkf(!bStorage || InCreateDesc.NumSamples == 1, "Vulkan storage images must be single-sampled");
-		const vk::ImageCreateInfo ImageInfo = BuildTextureImageCreateInfo(InCreateDesc);
+		bAllowAliasing = InCreateDesc.Aliasing == ERHITransientAliasing::Enabled || AliasSource != nullptr;
+		auto ImageInfo = BuildTextureImageCreateInfo(InCreateDesc);
+		if (bAllowAliasing || AliasSource) ImageInfo.flags |= vk::ImageCreateFlagBits::eAlias;
 
 		FVulkanMemoryManager& MemoryManager = InDevice.GetMemoryManager();
-		const vk::Result ImageResult =
-			MemoryManager.CreateImage(Allocation, Image,
-				EVulkanAllocationClassCandidate::DeviceLocal, ImageInfo,
-				DebugName.c_str());
+		vk::Result ImageResult;
+		if (AliasSource)
+		{
+			require(AliasSource->bAllowAliasing && !AliasSource->HasExternalBacking() && &AliasSource->Device == &Device);
+			AliasOwner = AliasSource->AliasOwner ? AliasSource->AliasOwner.GetReference() : AliasSource;
+			Allocation = AliasSource->Allocation;
+			ImageResult = MemoryManager.CreateAliasingImage(Allocation, ImageInfo, Image);
+		}
+		else ImageResult = MemoryManager.CreateImage(Allocation, Image,
+			EVulkanAllocationClassCandidate::DeviceLocal, ImageInfo, DebugName.c_str(), bAllowAliasing);
 		if (OutResult) *OutResult = ImageResult;
 		if (ImageResult != vk::Result::eSuccess)
 		{
@@ -166,7 +174,11 @@ namespace Durin::VulkanRHI
 			{
 				Device.NotifyDeleted_Image(Image);
 			}
-			if (Image && Allocation.IsValid())
+			if (Image && AliasOwner)
+			{
+				Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Image, Image);
+			}
+			else if (Image && Allocation.IsValid())
 			{
 				Device.GetDeferredDeletionQueue().EnqueueResource(
 					FDeferredDeletionQueue::EType::Image, Image, Allocation);
@@ -216,6 +228,28 @@ namespace Durin::VulkanRHI
 			Device.GetDeferredDeletionQueue().EnqueueResource(
 				FDeferredDeletionQueue::EType::Sampler, Sampler);
 		}
+	}
+
+	auto FVulkanDynamicRHI::RHICreateAliasedTexture(const FRHITextureCreateDesc& Desc, FRHITexture* Source) -> FTextureRHIRef
+	{
+		if (!Source) return {};
+		const auto Normalized = NormalizeTextureCreateDesc(Desc);
+		const auto* NativeSource = static_cast<FVulkanTexture*>(Source);
+		if (!NativeSource->IsAliasable() || !IsNormalizedTextureSupported(Normalized)
+			|| Source->GetDimension() != Normalized.Dimension || Source->GetFlags() != Normalized.Flags
+			|| Source->GetSizeX() != uint32(Normalized.Extent.x) || Source->GetSizeY() != uint32(Normalized.Extent.y)
+			|| Source->GetSizeZ() != Normalized.Depth || Source->GetArraySize() != Normalized.ArraySize
+			|| Source->GetNumMips() != Normalized.NumMips || Source->GetNumSamples() != Normalized.NumSamples
+			|| Source->GetFormat() != Normalized.Format) return {};
+		vk::Result Result;
+		FTextureRHIRef Texture = new FVulkanTexture(*Device, Normalized, &Result,
+			static_cast<FVulkanTexture*>(Source));
+		if (Result != vk::Result::eSuccess)
+		{
+			if (!IsRecoverableVulkanCreationError(Result)) ThrowVulkanError(Result, "Vulkan aliased texture allocation");
+			LogVulkanCreationFailure(Result, "aliased texture", Desc.DebugName ? Desc.DebugName : "");
+		}
+		return Result == vk::Result::eSuccess ? Texture : FTextureRHIRef{};
 	}
 
 	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandListBase& RHICmdList,

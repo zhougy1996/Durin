@@ -31,6 +31,32 @@ fallible and publish a complete counted view or null. Vulkan creates a native
 buffer view only for formatted buffers and an exact native image view for each
 texture description. Native view destruction uses the deferred deletion path.
 
+## Experimental Transient Aliasing
+
+`Experimental/RHITransientAliasing.h` owns the opt-in allocation policy and
+memory-handoff value. `FRHITextureCreateDesc::Aliasing` and
+`FRHIBufferCreateDesc::Aliasing` default to disabled. The related DynamicRHI
+support query and aliased factories, and command-list/context aliasing barriers,
+remain experimental while multi-queue qualification is open.
+
+A supported aliased factory creates a distinct compatible native image/buffer
+bound to its source's allocation and retains the backing owner. It returns null
+on creation failure. Vulkan uses alias-enabled VMA allocations, alias image flags
+and separate native handles; each alias has its own resource-state tracker.
+Mapped/dynamic buffers are excluded. Metal and unimplemented backends report
+unsupported and retain independent allocations.
+
+`AliasingBarrier` retains the before/after resources and records a memory barrier
+outside render passes. Null `Before` acquires previously ordered pooled backing;
+otherwise the resources must be distinct. Queue waits must already prove that
+all previous users precede acquisition. The barrier does not transfer native
+resource ownership or establish queue ordering itself. Queue waits, ownership
+acquires, memory barriers and initial discard/layout transitions together order
+the new resource before its first recorded use; resource layouts are not inherited
+from another alias. Replay storage and alias owners keep all
+native handles and the shared allocation alive through GPU completion; only the
+root frees memory, after all aliases retire.
+
 ## Uniform and Storage Buffers
 
 `FRHIUniformBuffer` derives directly from `FRHIResource`, independently of

@@ -380,26 +380,15 @@ namespace Durin::VulkanRHI
 					auto Parameters = Graph.AllocParameters<FGraphRasterBoundaryParameters>();
 					Parameters->Color = {ColorHandle, {ERHITextureAspect::Color, 1, 1, 0, 1}, Load};
 					Parameters->Depth = {DepthHandle, {ERHITextureAspect::Depth, 1, 1, 0, 1}, Load};
-					Graph.AddPass(Load == ERHIRenderTargetLoadAction::Clear ? "Clear" : "Load", ERDGPassType::Graphics,
-						std::move(Parameters), [Load, Reuse](FRHICommandListImmediate& List,
-							const FGraphRasterBoundaryParameters& Values, const FRDGParameterResolver& Resolver) {
-							const auto ColorBinding = MakeRDGNativeAttachmentBinding(Resolver.GetColorAttachment(Values.Color));
-							const auto DepthBinding = MakeRDGNativeAttachmentBinding(Resolver.GetDepthStencilAttachment(Values.Depth));
-							FRHIRenderPassInfo Pass;
-							Pass.RenderTargetLayout.NumColorRenderTargets = 1;
-							Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget = MakeRDGAttachmentLayout(
-								EPixelFormat::RGBA8_UNORM, ERHIAccess::ColorAttachmentReadWrite, Load);
-							Pass.RenderTargetLayout.bHasDepthStencil = true;
-							Pass.RenderTargetLayout.DepthStencilAttachment = MakeRDGAttachmentLayout(
-								EPixelFormat::D32, ERHIAccess::DepthStencilReadWrite, Load);
-							ColorBinding.BindColor(Pass, 0);
-							DepthBinding.BindDepthStencil(Pass);
-							Pass.ColorClearValues[0] = FClearValueBinding(Reuse == 0 ? 1.0f : 0.0f,
-								Reuse == 0 ? 0.0f : 1.0f, 0.0f, 1.0f);
-							Pass.DepthStencilClearValue = FClearValueBinding(0.25f, 0u);
-							List.BeginRenderPass(Pass, "GraphAttachmentBoundary");
-							List.EndRenderPass();
-						});
+					FRDGRasterPassOptions Options;
+					Options.ColorClearValues[0] = FClearValueBinding(Reuse == 0 ? 1.0f : 0.0f,
+						Reuse == 0 ? 0.0f : 1.0f, 0.0f, 1.0f);
+					Options.DepthStencilClearValue = FClearValueBinding(0.25f, 0u);
+					Graph.AddRasterPass(Load == ERHIRenderTargetLoadAction::Clear ? "Clear" : "Load",
+						std::move(Parameters), [](FRHICommandListImmediate& List,
+							const FGraphRasterBoundaryParameters&, const FRDGParameterResolver&) {
+							EXPECT_TRUE(List.IsInsideRenderPass());
+						}, Options);
 				}
 				auto Parameters = Graph.AllocParameters<FGraphSampleBoundaryParameters>();
 				Parameters->Inputs[0] = {ColorHandle, {ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Read, ERHIAccess::GraphicsShaderRead};
@@ -411,6 +400,8 @@ namespace Durin::VulkanRHI
 					});
 				const auto Result = Graph.Execute(Commands);
 				ASSERT_TRUE(Result) << ToString(Result.error());
+				EXPECT_FALSE(Graph.GetPasses()[0].bRasterEnd);
+				EXPECT_FALSE(Graph.GetPasses()[1].bRasterBegin);
 				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
 				EXPECT_EQ(static_cast<FVulkanTexture*>(Color.GetReference())->GetStateTracker().Get(ERHITextureAspect::Color, 1, 0), ERHIAccess::GraphicsShaderRead);
 				EXPECT_EQ(static_cast<FVulkanTexture*>(Depth.GetReference())->GetStateTracker().Get(ERHITextureAspect::Depth, 1, 0), ERHIAccess::GraphicsShaderRead);
@@ -549,6 +540,132 @@ namespace Durin::VulkanRHI
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
 		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Prefix, 1'000'000'000), ERHIGPUWaitResult::Complete);
 		WaitForAllVulkanSubmissionsForTesting();
+	}
+
+	TEST(FVulkanResourceTransitionTests, TransientBufferAliasingOwnsDistinctHandlesAndPreservesCopiedBytes)
+	{
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			struct FRHIScope
+			{
+				explicit FRHIScope(const char* Value) { _putenv_s("DURIN_RHI_EXECUTION", Value); }
+				~FRHIScope() { if (GDynamicRHI) RHIExit(); _putenv_s("DURIN_RHI_EXECUTION", ""); }
+			} Scope(Mode);
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+			auto& Commands = FRHICommandListImmediate::Get();
+			Commands.SwitchPipeline(ERHIPipeline::Graphics);
+			auto Desc = FRHIBufferCreateDesc::Create("AliasedBuffer", 64, 4,
+				EBufferUsageFlags::DestinationCopy | EBufferUsageFlags::SourceCopy);
+			Desc.Aliasing = ERHITransientAliasing::Enabled;
+			auto Root = GDynamicRHI->RHICreateBuffer(Commands, Desc);
+			ASSERT_TRUE(Root);
+			auto Alias = GDynamicRHI->RHICreateAliasedBuffer(Desc, Root);
+			ASSERT_TRUE(Alias);
+			auto* A = FVulkanBuffer::Cast(Root.GetReference());
+			auto* B = FVulkanBuffer::Cast(Alias.GetReference());
+			EXPECT_NE(A->GetHandle(), B->GetHandle());
+			EXPECT_TRUE(A->SharesBackingAllocationWith(*B));
+			auto Texture = RHICreateTexture(FRHITextureCreateDesc::Create2D("AliasReadback", 4, 4, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::DestinationCopy | ETextureCreateFlags::CPUReadback | ETextureCreateFlags::ShaderResource));
+			ASSERT_TRUE(Texture);
+			for (uint32 Reuse = 0; Reuse != 2; ++Reuse)
+			{
+				const FByteBuffer Initial(64, std::byte{17});
+				const FByteBuffer Expected(64, Reuse == 0 ? std::byte{91} : std::byte{173});
+				Commands.AliasingBarrier({nullptr, Root});
+				Commands.WriteBuffer(Root, 0, Initial);
+				Commands.AliasingBarrier({Root, Alias});
+				Commands.WriteBuffer(Alias, 0, Expected);
+				Commands.TransitionBuffers(std::array{FRHIBufferTransition{Alias, 0, 64, ERHIAccess::TransferWrite, ERHIAccess::TransferRead}});
+				Commands.TransitionTextures(std::array{FRHITextureTransition{Texture, {ERHITextureAspect::Color, 0, 1, 0, 1}, ERHIAccess::Discard, ERHIAccess::TransferWrite}});
+				Commands.CopyBufferToTexture(Alias, Texture, std::array{FRHIBufferTextureCopyRegion{.TextureExtent = {4, 4, 1}}});
+				FByteBuffer Actual;
+				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Texture, 0, 0, Actual));
+				EXPECT_EQ(Actual, Expected);
+			}
+		}
+	}
+
+	TEST(FVulkanResourceTransitionTests, TransientImageAliasingPreservesPixelsAcrossGraphs)
+	{
+		class FAllocator final : public FRDGAllocator
+		{
+		public:
+			FTextureRHIRef Root;
+			std::map<uint32, FTextureRHIRef> Textures;
+			auto Allocate(std::span<const FRDGAllocationRequest> Requests, FRDGAllocatedResources& Output) -> FRDGAllocationResult override
+			{
+				Textures.clear();
+				for (const auto& Request : Requests)
+				{
+					auto Desc = FRHITextureCreateDesc::Create("AliasingTest", Request.TextureDesc.Dimension);
+					static_cast<FRHITextureDesc&>(Desc) = Request.TextureDesc;
+					Desc.Aliasing = ERHITransientAliasing::Enabled;
+					if (Request.AliasSourceId == UINT32_MAX)
+					{
+						if (!Root) Root = GDynamicRHI->RHICreateTexture(FRHICommandListImmediate::Get(), Desc);
+						Textures[Request.ResourceId] = Root;
+					}
+					else Textures[Request.ResourceId] = GDynamicRHI->RHICreateAliasedTexture(Desc, Textures.at(Request.AliasSourceId));
+					if (!Output.SetTexture(Request.ResourceId, Textures[Request.ResourceId], 1, "fixture", Request.AliasSourceId))
+						return std::unexpected(FRDGAllocationFailure{ERDGAllocationError::PhysicalAllocationFailed, Request.ResourceId});
+				}
+				return {};
+			}
+		};
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			struct FRHIScope
+			{
+				explicit FRHIScope(const char* Value) { _putenv_s("DURIN_RHI_EXECUTION", Value); }
+				~FRHIScope() { if (GDynamicRHI) RHIExit(); _putenv_s("DURIN_RHI_EXECUTION", ""); }
+			} Scope(Mode);
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+			auto& Commands = FRHICommandListImmediate::Get();
+			FAllocator Allocator;
+			auto Depth = RHICreateTexture(FRHITextureCreateDesc::Create2D("AliasDepth", 8, 8, EPixelFormat::D32)
+				.SetFlags(ETextureCreateFlags::DepthStencilTargetable));
+			ASSERT_TRUE(Depth);
+			for (uint32 Reuse = 0; Reuse != 2; ++Reuse)
+			{
+				FRDGBuilder Graph;
+				Graph.SetTransientAliasingEnabled(true);
+				const auto DepthHandle = Graph.RegisterExternalTexture(Depth, "Depth", ERHIAccess::Discard, ERHIAccess::DepthStencilReadWrite);
+				for (uint32 Index = 0; Index != 3; ++Index)
+				{
+					const auto Color = Graph.CreateTexture({.Texture = FRHITextureCreateDesc::Create2D("AliasColor", 8, 8, EPixelFormat::RGBA8_UNORM)
+						.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback)}, std::format("Color{}", Index));
+					auto Parameters = Graph.AllocParameters<FGraphRasterBoundaryParameters>();
+					Parameters->Color = {Color, {ERHITextureAspect::Color, 0, 1, 0, 1}, ERHIRenderTargetLoadAction::Clear};
+					Parameters->Depth = {DepthHandle, {ERHITextureAspect::Depth, 0, 1, 0, 1}, ERHIRenderTargetLoadAction::Clear};
+					FRDGRasterPassOptions Options;
+					Options.ColorClearValues[0] = FClearValueBinding(Reuse == 0 ? 1.0f : 0.0f, Reuse == 0 ? 0.0f : 1.0f, Index / 2.0f, 1.0f);
+					Graph.AddRasterPass(std::format("Clear{}", Index), std::move(Parameters),
+						[](FRHICommandListImmediate&, const FGraphRasterBoundaryParameters&, const FRDGParameterResolver&) {}, Options);
+				}
+				const auto Result = Graph.Execute(Commands, &Allocator);
+				ASSERT_TRUE(Result) << ToString(Result.error());
+				ASSERT_EQ(Graph.GetExecutionPlan().AliasingHandoffs.size(), 2u);
+				ASSERT_EQ(Allocator.Textures.size(), 3u);
+				auto* Root = static_cast<FVulkanTexture*>(Allocator.Root.GetReference());
+				for (const auto& [Id, Texture] : Allocator.Textures)
+				{
+					const auto* Alias = static_cast<FVulkanTexture*>(Texture.GetReference());
+					EXPECT_TRUE(Alias->SharesBackingAllocationWith(*Root));
+					if (Alias != Root) EXPECT_NE(Alias->Image, Root->Image);
+				}
+				FByteBuffer Bytes;
+				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Allocator.Textures.rbegin()->second, 0, 0, Bytes));
+				ASSERT_EQ(Bytes.size(), 8u * 8u * 4u);
+				for (size_t Index = 0; Index < Bytes.size(); Index += 4)
+				{
+					EXPECT_EQ(Bytes[Index], Reuse == 0 ? std::byte{255} : std::byte{0});
+					EXPECT_EQ(Bytes[Index + 1], Reuse == 0 ? std::byte{0} : std::byte{255});
+					EXPECT_EQ(Bytes[Index + 2], std::byte{255});
+					EXPECT_EQ(Bytes[Index + 3], std::byte{255});
+				}
+			}
+		}
 	}
 
 	TEST(FVulkanResourceTransitionTests, RenderGraphTransitionsReplayThroughVulkanStateTracking)

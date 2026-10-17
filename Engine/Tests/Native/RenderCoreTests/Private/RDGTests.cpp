@@ -411,6 +411,7 @@ namespace Durin
 			bool bFail = false;
 			FRDGAllocationFailure Failure{ERDGAllocationError::AllocatorFailure};
 			bool bOmitResources = false;
+			bool bAliasResources = false;
 			uint32 AllocationCount = 0;
 			std::function<void()> OnAllocate;
 			std::vector<FRDGAllocationRequest> LastRequests;
@@ -435,9 +436,13 @@ namespace Durin
 
 					return {};
 				}
+				std::unordered_map<uint32, uint64> AllocationIds;
 				for (const FRDGAllocationRequest& Request : Requests)
 				{
 					++AllocationCount;
+					const uint32 AliasSource = bAliasResources ? Request.AliasSourceId : UINT32_MAX;
+					const uint64 AllocationId = AliasSource == UINT32_MAX ? AllocationCount : AllocationIds.at(AliasSource);
+					AllocationIds[Request.ResourceId] = AllocationId;
 					if (Request.Kind == ERDGResourceKind::Texture)
 					{
 						FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create(
@@ -449,7 +454,7 @@ namespace Durin
 								? TextureOverride : MakeRefCount<FRHITexture>(Desc));
 						CreatedTextures.push_back(Texture);
 						if (!OutResources.SetTexture(Request.ResourceId,
-							std::move(Texture), AllocationCount)) return std::unexpected(FRDGAllocationFailure{ERDGAllocationError::AllocationPublicationFailed});
+							std::move(Texture), AllocationId, "allocated", AliasSource)) return std::unexpected(FRDGAllocationFailure{ERDGAllocationError::AllocationPublicationFailed});
 					}
 					else
 					{
@@ -460,7 +465,7 @@ namespace Durin
 									FRHIBufferCreateDesc::Create("TestRDG",
 										Request.BufferDesc)));
 						if (!OutResources.SetBuffer(Request.ResourceId,
-							std::move(Buffer), AllocationCount)) return std::unexpected(FRDGAllocationFailure{ERDGAllocationError::AllocationPublicationFailed});
+							std::move(Buffer), AllocationId, "allocated", AliasSource)) return std::unexpected(FRDGAllocationFailure{ERDGAllocationError::AllocationPublicationFailed});
 					}
 				}
 
@@ -999,6 +1004,124 @@ namespace Durin
 			return Dump;
 		}
 	} // namespace
+
+	TEST_F(FRDGTests, GraphRasterOwnsBoundariesAndMergesOnlyCompatibleAttachments)
+	{
+		class FContext final : public FBarrierRecordingContext
+		{
+		public:
+			uint32 Begins = 0, Ends = 0;
+			bool bInside = false;
+			auto RHIBeginRenderPass(const FRHIRenderPassInfo& Info, FName) -> void override
+			{
+				EXPECT_FALSE(bInside);
+				bInside = true;
+				++Begins;
+				EXPECT_EQ(Info.ColorRenderTargetViews[0]->GetDesc().Range.FirstMip, 0u);
+			}
+			auto RHIEndRenderPass() -> void override { EXPECT_TRUE(bInside); bInside = false; ++Ends; }
+			auto RHITransitionTextures(std::span<const FRHITextureTransition> Transitions) -> void override
+			{ EXPECT_FALSE(bInside); FBarrierRecordingContext::RHITransitionTextures(Transitions); }
+		};
+		for (uint32 Scenario = 0; Scenario != 4; ++Scenario)
+		{
+			FContext Backend;
+			FRHICommandListExecutor Executor(Backend);
+			FRDGBuilder Builder;
+			auto Physical = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D("Raster", 16, 16,
+				EPixelFormat::RGBA8_UNORM).SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource));
+			const auto Texture = Builder.RegisterExternalTexture(Physical, "Raster", ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead);
+			for (uint32 Index = 0; Index != 2; ++Index)
+			{
+				auto Parameters = Builder.AllocParameters<FRuntimeAttachmentParameters>();
+				Parameters->Color = FRDGColorAttachmentBinding{Texture, WholeColor(),
+					Index == 0 || Scenario == 1 || Scenario == 3 ? ERHIRenderTargetLoadAction::Clear : ERHIRenderTargetLoadAction::Load,
+					Scenario == 3 && Index == 0 ? ERHIRenderTargetStoreAction::DontCare : ERHIRenderTargetStoreAction::Store};
+				FRDGRasterPassOptions Options;
+				Options.bAllowMerge = Scenario != 2;
+				Builder.AddRasterPass(std::format("Raster{}", Index), std::move(Parameters),
+					[](FRHICommandListImmediate& Commands, const FRuntimeAttachmentParameters&, const FRDGParameterResolver&) {
+						EXPECT_TRUE(Commands.IsInsideRenderPass());
+					}, Options);
+			}
+			ASSERT_TRUE(Builder.Execute(Executor.GetImmediateCommandList()));
+			const bool bMerged = Scenario == 0;
+			EXPECT_EQ(Builder.GetPasses()[0].bRasterEnd, !bMerged);
+			EXPECT_EQ(Builder.GetPasses()[1].bRasterBegin, !bMerged);
+			EXPECT_EQ(Builder.Capture().Passes[1].bRasterBegin, !bMerged);
+			ExpectCapturedBarriersMatchPlan(Builder);
+			Executor.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			EXPECT_EQ(Backend.Begins, bMerged ? 1u : 2u);
+			EXPECT_EQ(Backend.Begins, Backend.Ends);
+			EXPECT_FALSE(Backend.bInside);
+		}
+	}
+
+	TEST_F(FRDGTests, TransientAliasingRequiresAllTerminalQueueUsersAndExcludesExports)
+	{
+		for (uint32 Scenario = 0; Scenario != 5; ++Scenario)
+		{
+			FRDGBuilder Builder;
+			Builder.SetTransientAliasingEnabled(true);
+			Builder.SetAsyncComputeEnabled(Scenario != 0);
+			const FRDGBufferDesc Desc{.Buffer = FRHIBufferDesc{64, 4, EBufferUsageFlags::UnorderedAccess}};
+			const auto A = Builder.CreateBuffer(Desc, "A");
+			const auto B = Builder.CreateBuffer(Desc, "B");
+			const auto Write = FRDGBuilderTestAccessor::AddPass(Builder, "WriteA", ERDGPassType::Compute);
+			FRDGBuilderTestAccessor::UseBuffer(Builder, Write, A, 0, 64, ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+			Builder.SetPassAsyncComputeEligible(Write);
+			const auto GraphicsRead = FRDGBuilderTestAccessor::AddPass(Builder, "GraphicsReadA", ERDGPassType::Graphics);
+			FRDGBuilderTestAccessor::UseBuffer(Builder, GraphicsRead, A, 0, 64, ERDGUse::Read, ERHIAccess::GraphicsShaderRead);
+			const auto AsyncRead = FRDGBuilderTestAccessor::AddPass(Builder, "AsyncReadA", ERDGPassType::Compute);
+			FRDGBuilderTestAccessor::UseBuffer(Builder, AsyncRead, A, 0, 64, ERDGUse::Read, ERHIAccess::ComputeShaderRead);
+			Builder.SetPassAsyncComputeEligible(AsyncRead);
+			if (Scenario >= 2)
+			{
+				const auto Join = FRDGBuilderTestAccessor::AddPass(Builder, "GraphicsJoinA", ERDGPassType::Graphics);
+				FRDGBuilderTestAccessor::UseBuffer(Builder, Join, A, 0, 64, ERDGUse::Read, ERHIAccess::GraphicsShaderRead);
+			}
+			const auto WriteB = FRDGBuilderTestAccessor::AddPass(Builder, "WriteB", ERDGPassType::Compute);
+			FRDGBuilderTestAccessor::UseBuffer(Builder, WriteB, B, 0, 64, ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+			if (Scenario >= 2) Builder.AddPassDependency(AsyncRead, WriteB);
+			FBufferRHIRef Export;
+			if (Scenario == 3) Builder.QueueBufferExtraction(A, &Export, ERHIAccess::GraphicsShaderRead);
+			if (Scenario == 4) Builder.QueueBufferExtraction(B, &Export, ERHIAccess::GraphicsShaderRead);
+			ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Builder));
+			EXPECT_EQ(Builder.GetExecutionPlan().AliasingHandoffs.size(), Scenario == 0 || Scenario == 2 ? 1u : 0u);
+		}
+	}
+
+	TEST_F(FRDGTests, PhysicalAliasingRecordsAcquireBeforeFirstUseAndPreservesIndependentFallback)
+	{
+		class FContext final : public FBarrierRecordingContext
+		{
+		public:
+			uint32 Acquires = 0, Handoffs = 0;
+			auto RHIAliasingBarrier(const FRHITransientAliasingBarrier& Barrier) -> void override
+			{ EXPECT_NE(Barrier.Before, Barrier.After); if (Barrier.Before) ++Handoffs; else ++Acquires; }
+		};
+		for (bool bAlias : {false, true})
+		{
+			FContext Backend;
+			FRHICommandListExecutor Executor(Backend);
+			FRDGBuilder Builder;
+			Builder.SetTransientAliasingEnabled(true);
+			const FRDGBufferDesc Desc{.Buffer = FRHIBufferDesc{64, 4, EBufferUsageFlags::UnorderedAccess}};
+			for (uint32 Index = 0; Index != 3; ++Index)
+			{
+				const auto Buffer = Builder.CreateBuffer(Desc, std::format("Buffer{}", Index));
+				const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, std::format("Write{}", Index), ERDGPassType::Compute);
+				FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Buffer, 0, 64, ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+			}
+			FTestRDGAllocator Allocator;
+			Allocator.bAliasResources = bAlias;
+			ASSERT_TRUE(Builder.Execute(Executor.GetImmediateCommandList(), &Allocator));
+			EXPECT_EQ(Builder.GetExecutionPlan().AliasingHandoffs.size(), 2u);
+			Executor.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			EXPECT_EQ(Backend.Acquires, bAlias ? 1u : 0u);
+			EXPECT_EQ(Backend.Handoffs, bAlias ? 2u : 0u);
+		}
+	}
 
 	TEST_F(FRDGTests, RuntimeAttachmentFreezesNativePolicyAndExactView)
 	{
@@ -2425,6 +2548,42 @@ namespace Durin
 		}
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 		EXPECT_EQ(Replay, (std::vector<int>{1, 2}));
+	}
+
+	TEST_F(FRDGTests, GPUHazardsDoNotSerializeCPURecording)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		struct FStopScheduler { ~FStopScheduler() { ShutdownTaskScheduler(); } } StopScheduler;
+		FBarrierRecordingContext Backend;
+		FRHICommandListExecutor Executor(Backend);
+		FRDGBuilder Builder;
+		auto Physical = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("Shared",
+			64, 4, EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::UnorderedAccess));
+		const auto Buffer = Builder.RegisterExternalBuffer(Physical, "Shared",
+			ERHIAccess::ComputeShaderReadWrite, ERHIAccess::ComputeShaderReadWrite);
+		std::atomic<uint32> Entered = 0;
+		std::vector<uint32> Replay;
+		for (uint32 Index = 0; Index != 2; ++Index)
+		{
+			auto Parameters = Builder.AllocParameters<FInstanceAccessParameters>();
+			Parameters->Buffer = FRDGBufferAccess{Buffer, 0, 64,
+				Index == 0 ? ERDGUse::Write : ERDGUse::Read,
+				Index == 0 ? ERHIAccess::ComputeShaderReadWrite : ERHIAccess::ComputeShaderRead, Index == 0};
+			Builder.AddRecordingPass(std::format("GPU{}", Index), ERDGPassType::Compute, std::move(Parameters),
+				[&, Index](FRHICommandList& Commands, const FInstanceAccessParameters&, const FRDGParameterResolver&) {
+					Entered.fetch_add(1);
+					const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+					while (Entered.load() != 2 && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+					EXPECT_EQ(Entered.load(), 2u);
+					Commands.EnqueueLambda([&, Index] { Replay.push_back(Index); });
+				}, ERDGRecordingPolicy::Parallel);
+		}
+		ASSERT_TRUE(Builder.Execute(Executor.GetImmediateCommandList()));
+		ASSERT_EQ(Builder.GetDependencies().size(), 1u);
+		EXPECT_FALSE(Builder.GetDependencies()[0].bRecordingPrerequisite);
+		Executor.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		EXPECT_EQ(Replay, (std::vector<uint32>{0, 1}));
 	}
 
 	TEST_F(FRDGTests, ParallelRecordingRunsWorkersBeforeOrderedTypedConsumer)

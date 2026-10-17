@@ -21,7 +21,7 @@ remains.
 | 2: Explicit execution plan | Completed | Preserve deterministic planning and single-queue behavior |
 | 3: Async compute and multi-queue lifetime safety | Accepted for the available macOS scope; Windows Vulkan qualification deferred by operator | Preserve opt-in behavior; complete the separate Windows driver-worker investigation when a Windows host is available |
 | 4: Split barriers | Implementation complete; fallback accepted on available macOS scope | Native event-capable Vulkan output/performance qualification on a supported device |
-| 5: Transient aliasing and final qualification | Not accepted; all stage tasks remain open | Dependency-aware aliasing, performance and final workspace validation |
+| 5: Transient aliasing and final qualification | Initial implementation complete; Windows correctness validated; not accepted | Broader aliasing topology and performance qualification |
 
 The implemented path includes RDG async eligibility and deterministic queue
 assignment, physical RHI submission scopes, Vulkan cross-queue waits and
@@ -78,13 +78,63 @@ environment, report paths, and remaining gaps are in the
 This closes measurement discovery and local pipeline setup, not the quiet-lane
 baseline or numerical-budget gate.
 
+### 2026-10-17 RDG Alignment Implementation
+
+The operator explicitly requested graph-owned raster boundaries/merging,
+separate CPU/GPU recording dependencies and transient aliasing after a source
+review. This authorizes Stage 5 implementation before the remaining Stage 4
+qualification; it does not close those gates. Aliasing remains disabled by
+default in builders and per-view renderer options. The experimental RHI value
+boundary is `Experimental/RHITransientAliasing.h`; native Vulkan aliases use
+distinct resource handles sharing VMA backing, with retained owners and explicit
+memory handoffs. Exact compatible descriptions and submission queue clocks prove
+reuse, including epilogue work. Unsupported allocators keep independent backing.
+
+Raster migration covers Forward, Hybrid Bootstrap, Retained Forward and Sorted
+Translucency. Immediate raster bodies are graph-owned; compatible neighbors may
+merge inside one submission. Explicit/token/typed-value edges constrain CPU
+recording, while texture/buffer hazards constrain ordered replay. This work does
+not expand callback thread-safety promises or enable async scheduling by default.
+Validation used source base `e59c8e067162f25598851563d415034397985c9b` plus
+this commit's implementation, on Windows/MSVC 14.44, preset
+`Win64-Debug-DurinEditor`, Vulkan SDK 1.3.296.0, GTX 1060 6GB (Vulkan API 1.4.312,
+driver `0x91908000`). The workspace `all` build passed (receipt
+`Build/.agent-state/logs/20261017-163551-736926-27624-cmake.log`).
+
+Final whole-target receipts under `Build/.agent-state/logs/`:
+
+| Target | Result | Receipt basename |
+| --- | --- | --- |
+| RenderContractTests | 226/226 | `20261017-163830-518141-28932-RenderContractTests.log` |
+| RendererRDGAllocatorTests | 11/11 | `20261017-163842-743214-31260-RendererRDGAllocatorTests.log` |
+| RendererSceneContractTests | 61/61 | `20261017-163859-284545-36180-RendererSceneContractTests.log` |
+| RHICommandListTests | 143/143 | `20261017-163910-204800-18088-RHICommandListTests.log` |
+| RHIThreadTests | 16/16 | `20261017-163925-379628-23428-RHIThreadTests.log` |
+| RHIResourceTransitionValidationTests | 8/8 | `20261017-163930-138954-40528-RHIResourceTransitionValidationTests.log` |
+| VulkanRHIIntegrationTests | 107/107 | `20261017-163954-760613-43152-VulkanRHIIntegrationTests.log` |
+| StaticMeshRenderPreparationVulkanTests | 12/12 | `20261017-164142-752303-30540-StaticMeshRenderPreparationVulkanTests.log` |
+
+Native image and buffer tests use distinct handles on shared allocation backing,
+read back exact pixels/bytes, and exercise inline/threaded replay and ordered
+reuse. CPU cases cover overlapping logical queues, terminal readers, exports,
+independent allocation fallback and allocator failure/recovery. This adds fresh
+Windows correctness evidence without closing the prior NVIDIA driver-worker
+investigation, dedicated-family aliasing coverage, Metal runtime acceptance or
+quiet-lane performance gates. The SDK helper uses the type of the default Vulkan
+Hpp dispatcher instead of a newer SDK-only macro; this equivalent type selection
+expanded `affected` to all targets. Named renderer/RHI targets were selected for
+its bounded behavior and the changed runtime paths; `all` covered project
+compilation/linking. Source/test inputs were unchanged after these final runs;
+later documentation-only edits reuse those receipts.
+
 ### Next Work
 
 Stage 4 native split acceptance needs a non-portability Vulkan device that
 supports synchronization2 and native events, plus the deferred quiet-lane
 performance comparison. Apple M4 / MoltenVK does not expose native events and
-correctly takes the full-barrier fallback. Do not begin Stage 5 or enable split
-barriers by default until those remaining Stage 4 gates close. The Windows
+correctly takes the full-barrier fallback. The 2026-10-17 operator request permits
+Stage 5 implementation before these gates close; split barriers and transient
+aliasing must remain disabled by default pending qualification. The Windows
 driver-worker investigation must not be silently closed by later passing runs.
 
 Historical checkpoints and exact log names are retained in
@@ -592,12 +642,12 @@ Dependencies: Stage 4.
 Outcome: transient memory may be reused across non-overlapping GPU lifetimes
 without conflating logical lifetime positions with observed GPU completion.
 
-- [ ] Model allocation acquire/discard positions using submission dependencies
+- [x] Model allocation acquire/discard positions using submission dependencies
   and queue intervals. Prove ordering across all prior users before aliasing;
   a scalar first/last pass interval is insufficient across independent queues.
-- [ ] Generate aliasing handoffs through the same execution-plan machinery and
+- [x] Generate aliasing handoffs through the same execution-plan machinery and
   reject reuse when lifetimes can overlap on any participating queue.
-- [ ] Keep backing heap destruction and CPU-side recycling governed by actual
+- [x] Keep backing heap destruction and CPU-side recycling governed by actual
   GPU completion even when graph-local aliasing was planned in advance.
 - [ ] Test overlapping async lifetimes, safe ordered reuse, multiple terminal
   readers, extracted resources, and independent graphs sharing allocator pools.

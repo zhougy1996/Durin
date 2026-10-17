@@ -35,7 +35,7 @@ namespace Durin::VulkanRHI
 		// Nullable factories check OutResult before publication. Required internal
 		// allocations omit it and propagate native failures.
 		VULKANRHI_API FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc,
-			bool bConcurrentReadOnly = false, vk::Result* OutResult = nullptr);
+			bool bConcurrentReadOnly = false, vk::Result* OutResult = nullptr, FVulkanBuffer* AliasSource = nullptr);
 
 		VULKANRHI_API ~FVulkanBuffer() override;
 		// CPU-only logical slice; no native allocation or mapping calls.
@@ -60,6 +60,9 @@ namespace Durin::VulkanRHI
 		auto CommitMappedWrite(FVulkanCommandListContext& Context,
 			std::shared_ptr<FRHIDynamicBufferWriteRange> Range, uint32 Offset, uint32 Size) -> void;
 		auto GetDebugName() const -> std::string_view { return DebugName; }
+		auto IsAliasable() const -> bool { return bAllowAliasing; }
+		auto SharesBackingAllocationWith(const FVulkanBuffer& Other) const -> bool
+		{ return Allocation.IsValid() && Allocation.Handle == Other.Allocation.Handle; }
 
 		VULKANRHI_API auto GetMappedPointer() const -> void*;
 		auto GetAllocationClass() const -> EVulkanAllocationClassCandidate
@@ -84,6 +87,8 @@ namespace Durin::VulkanRHI
 		vk::Buffer Buffer{};
 
 		FVulkanAllocation Allocation{};
+		TRefCountPtr<FVulkanBuffer> AliasOwner;
+		bool bAllowAliasing = false;
 
 		FVulkanBufferStateTracker StateTracker;
 		std::string DebugName;

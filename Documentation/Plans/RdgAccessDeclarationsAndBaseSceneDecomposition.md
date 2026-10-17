@@ -59,6 +59,14 @@ was a graph-owned payload containing physical bindings; moving that payload into
 graph storage had not made its texture accesses visible to the compiler. Stage 3
 removes that transport.
 
+The 2026-10-17 follow-up requested graph-managed raster boundaries and merging.
+Forward, Hybrid Bootstrap, Retained Forward and Sorted Translucency now use the
+new raster entry point; Production Deferred and legacy multi-operation features
+retain callback-owned boundaries. This supersedes the callback ownership choice
+for those four migrated stages while preserving their attachment and typed-result
+contracts. The [multi-queue plan](RdgRhiMultiQueueExecution.md#2026-10-17-rdg-alignment-implementation)
+records related recording/aliasing implementation and validation scope.
+
 ## Goal
 
 A pass declares its own resource usage through parameter instances. The compiler

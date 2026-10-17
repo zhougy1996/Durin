@@ -53,7 +53,7 @@ namespace Durin
 			FResolvedSceneResources& ResolvedSceneResources;
 
 			auto RenderSceneTranslucency_RenderThread(
-				FRHICommandListImmediate&, const FSceneGeometryRecordInputs&, const FRHIRenderPassInfo&, const FSceneColorPassResult&, const FVolumetricCloudPassResult&
+				FRHICommandListImmediate&, const FSceneGeometryRecordInputs&, const FSceneColorPassResult&, const FVolumetricCloudPassResult&
 			) -> FSceneColorPassResult;
 		};
 	} // namespace
@@ -95,7 +95,7 @@ namespace Durin
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}
 			};
 		}
-		(void)Graph.AddPass(SceneColorPassName, ERDGPassType::Graphics, std::move(Parameters), [Recorder, &Publication = Inputs.Publication, RecordInputs, bVolumetricCloudComposite, Failure, bRequiresDeferredOpaque](FRHICommandListImmediate& Commands, const FSceneColorPassParameters& PassParameters, const FRDGParameterResolver& Resolver) mutable {
+		auto Record = [Recorder, &Publication = Inputs.Publication, RecordInputs, bVolumetricCloudComposite, Failure, bRequiresDeferredOpaque](FRHICommandListImmediate& Commands, const FSceneColorPassParameters& PassParameters, const FRDGParameterResolver& Resolver) mutable {
 			auto& SceneColorResult = Resolver.WriteValue(
 				PassParameters.Completion
 			);
@@ -118,41 +118,34 @@ namespace Durin
 				SceneColorResult = Input;
 				if (Input.IsSuccess())
 				{
-					FRHIRenderPassInfo Native;
-					const auto Color = MakeRDGNativeAttachmentBinding(Resolver.GetColorAttachment(PassParameters.Resources.SceneColorOutput));
-					const auto Depth = MakeRDGNativeAttachmentBinding(Resolver.GetDepthStencilAttachment(PassParameters.Resources.SceneDepthOutput));
-					Native.RenderTargetLayout.NumColorRenderTargets = 1;
-					Native.RenderTargetLayout.ColorAttachments[0].RenderTarget = Color.Layout;
-					Native.RenderTargetLayout.bHasDepthStencil = true;
-					Native.RenderTargetLayout.DepthStencilAttachment = Depth.Layout;
-					Color.BindColor(Native, 0);
-					Depth.BindDepthStencil(Native);
-					SceneColorResult = Recorder.RenderSceneTranslucency_RenderThread(Commands, RecordInputs, Native, Input, VolumetricCloudResult);
+					SceneColorResult = Recorder.RenderSceneTranslucency_RenderThread(Commands, RecordInputs, Input, VolumetricCloudResult);
 				}
 			}
 			Publication = SceneColorResult;
 			if (!SceneColorResult.IsSuccess()) return;
 			ReduceStaticMeshTelemetry(RecordInputs.Receiver.StaticMeshes, Recorder.ResolvedSceneResources.Receiver.StaticMeshes, Recorder.Telemetry.View);
-		});
+		};
+		if (bRequiresDeferredOpaque)
+			(void)Graph.AddRasterPass(SceneColorPassName, std::move(Parameters), std::move(Record));
+		else
+			(void)Graph.AddPass(SceneColorPassName, ERDGPassType::Graphics, std::move(Parameters), std::move(Record));
 		return {.Completion = SceneColorCompletion, .Color = Inputs.BaseScene.Color, .Depth = Inputs.BaseScene.Depth, .CloudComposite = Inputs.VolumetricCloud.Composite};
 	}
 
 	auto FSceneColorRecorder::RenderSceneTranslucency_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneGeometryRecordInputs& Inputs,
-		const FRHIRenderPassInfo& Native,
 		const FSceneColorPassResult& BaseScene,
 		const FVolumetricCloudPassResult& VolumetricCloud
 	) -> FSceneColorPassResult
 	{
 		check(IsInRenderingThread());
-		check(!CommandList.IsInsideRenderPass());
+		check(CommandList.IsInsideRenderPass());
 		if (!BaseScene.IsSuccess()) return BaseScene;
 		const FSceneView& View = Inputs.View;
 		if (View.Settings.Mode.RenderMode != ERenderMode::Lit
 			|| View.Settings.Mode.RasterMode != ERasterMode::Solid)
 			return BaseScene;
-		if (Native.ColorRenderTargets[0] == nullptr || Native.DepthStencilRenderTarget == nullptr) return {};
 		auto SetViewRect = [&CommandList, &View]() {
 			CommandList.SetViewport(
 				static_cast<float>(View.ViewportX),
@@ -173,7 +166,6 @@ namespace Durin
 			CommandList, SortedTranslucencyTimingSink
 		);
 
-		CommandList.BeginRenderPass(Native, "HybridSortedTranslucencyRenderPass");
 		SetViewRect();
 		FMeshDrawBindingGroup TranslucentBindings;
 		for (const FPreparedTranslucentSceneDraw& Draw :
@@ -188,7 +180,6 @@ namespace Durin
 					ResolvedSceneResources.Receiver.StaticMeshes, true, &TranslucentBindings
 				);
 		}
-		CommandList.EndRenderPass();
 		SortedTranslucencyTiming.Commit();
 		// Lit opaque/masked sections were already consumed by GBuffer + deferred
 		// lighting, so the retained-forward attempted count intentionally does not

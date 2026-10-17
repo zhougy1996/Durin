@@ -116,6 +116,13 @@ namespace Durin
 		FTransfers InitialReleases;
 		std::vector<bool> WaitForInitial;
 		std::vector<std::vector<uint32>> Predecessors;
+		struct FRaster final
+		{
+			FRHIRenderPassInfo Info;
+			std::vector<FRDGNativeAttachmentBinding> Bindings;
+		};
+		std::vector<FRaster> RasterPasses;
+		std::vector<std::vector<std::pair<FRHIResource*, FRHIResource*>>> AliasingBarriers;
 
 		auto PhysicalQueue(ERDGQueueAssignment Queue) const -> FRHIQueueId
 		{
@@ -213,6 +220,17 @@ namespace Durin
 			}
 			for (const FRDGAllocationRequest& Request : Compiled->AllocationRequests)
 			{
+				if (Candidate.AliasSources[Request.ResourceId] != UINT32_MAX)
+				{
+					const uint32 Source = Candidate.AliasSources[Request.ResourceId];
+					if (Source != Request.AliasSourceId || Source >= Candidate.AllocationIds.size()
+						|| Candidate.AllocationIds[Source] == 0
+						|| Candidate.AllocationIds[Source] != Candidate.AllocationIds[Request.ResourceId]
+						|| (Candidate.Textures[Request.ResourceId] && Candidate.Textures[Request.ResourceId] == Candidate.Textures[Source])
+						|| (Candidate.Buffers[Request.ResourceId] && Candidate.Buffers[Request.ResourceId] == Candidate.Buffers[Source]))
+						return std::unexpected(FRDGAllocationError{FRDGAllocationFailure{
+							ERDGAllocationError::AllocationKindInvalid, Request.ResourceId}});
+				}
 				const bool bReady = Request.Kind == ERDGResourceKind::Texture
 					? static_cast<bool>(Candidate.Textures[Request.ResourceId])
 					: static_cast<bool>(Candidate.Buffers[Request.ResourceId]);
@@ -243,6 +261,7 @@ namespace Durin
 			for (const FRDGAllocationRequest& Request : Compiled->AllocationRequests)
 			{
 				auto& Resource = Compiled->Backings[Request.ResourceId];
+				Resource.AliasSourceId = Candidate.AliasSources[Request.ResourceId];
 				Resource.AllocationDisposition =
 					Candidate.AllocationDispositions[Request.ResourceId];
 				Resource.PhysicalAllocationId =
@@ -252,6 +271,7 @@ namespace Durin
 					auto& Capture = Diagnostics->Resources[Request.ResourceId];
 					Capture.AllocationDisposition = Resource.AllocationDisposition;
 					Capture.PhysicalAllocationId = Resource.PhysicalAllocationId;
+					Capture.AliasSourceId = Resource.AliasSourceId;
 				}
 				if (Request.Kind == ERDGResourceKind::Texture)
 					Resource.Texture = std::move(
@@ -277,6 +297,56 @@ namespace Durin
 		for (const auto& Pass : Compiled->Passes)
 			Context.PreparedPassBarriers.push_back(PrepareBarrierBatch(Pass.Barriers, Compiled->Backings, Context.PreparedTransitions));
 		Context.PreparedEpilogue = PrepareBarrierBatch(Compiled->FinalBarriers, Compiled->Backings, Context.PreparedTransitions);
+		Context.RasterPasses.resize(Compiled->Passes.size());
+		Context.AliasingBarriers.resize(Compiled->Passes.size());
+		auto PhysicalResource = [&](uint32 Id) -> FRHIResource* {
+			const auto& Backing = Compiled->Backings[Id];
+			return Backing.Texture ? static_cast<FRHIResource*>(Backing.Texture.GetReference())
+				: static_cast<FRHIResource*>(Backing.Buffer.GetReference());
+		};
+		std::unordered_set<uint32> AcquiredRoots;
+		for (const auto& Handoff : Compiled->ExecutionPlan.AliasingHandoffs)
+		{
+			if (Compiled->Backings[Handoff.AfterResource].AliasSourceId != Handoff.BeforeResource) continue;
+			Context.AliasingBarriers[Handoff.ConsumerPass].emplace_back(
+				PhysicalResource(Handoff.BeforeResource), PhysicalResource(Handoff.AfterResource));
+			uint32 Root = Handoff.BeforeResource;
+			while (Compiled->Backings[Root].AliasSourceId != UINT32_MAX) Root = Compiled->Backings[Root].AliasSourceId;
+			if (AcquiredRoots.insert(Root).second)
+				Context.AliasingBarriers[Compiled->ResourceLifetimes[Root].FirstPass].emplace_back(nullptr, PhysicalResource(Root));
+		}
+		for (uint32 Index = 0; Index < Compiled->Passes.size(); ++Index)
+		{
+			const auto& Pass = Compiled->Passes[Index];
+			if (!Pass.bRaster) continue;
+			const auto& Declaration = State->Passes[Pass.DeclarationIndex];
+			auto& Native = Context.RasterPasses[Index];
+			std::ranges::copy(Declaration.Raster->ColorClearValues, Native.Info.ColorClearValues);
+			Native.Info.DepthStencilClearValue = Declaration.Raster->DepthStencilClearValue;
+			for (const auto& Use : Declaration.Uses)
+			{
+				if (!Use.bGraphAttachment) continue;
+				Native.Bindings.push_back(MakeRDGNativeAttachmentBinding({
+					.Texture = Compiled->Backings[Use.ResourceIndex].Texture.GetReference(),
+					.Range = Use.TextureRange, .LoadAction = Use.LoadAction,
+					.StoreAction = Use.bStore ? ERHIRenderTargetStoreAction::Store : ERHIRenderTargetStoreAction::DontCare,
+					.Access = Use.Access, .bGraphBoundary = true}));
+				const auto& Binding = Native.Bindings.back();
+				auto& Layout = Native.Info.RenderTargetLayout;
+				if (Use.Access == ERHIAccess::ColorAttachmentReadWrite)
+				{
+					const uint32 Slot = Layout.NumColorRenderTargets++;
+					Layout.ColorAttachments[Slot].RenderTarget = Binding.Layout;
+					Binding.BindColor(Native.Info, Slot);
+				}
+				else
+				{
+					Layout.bHasDepthStencil = true;
+					Layout.DepthStencilAttachment = Binding.Layout;
+					Binding.BindDepthStencil(Native.Info);
+				}
+			}
+		}
 		Context.Queues = GDynamicRHI ? &GDynamicRHI->RHIGetQueueCapabilities() : nullptr;
 		Context.bExplicitSubmissions = Context.Queues && !Context.Queues->Queues.empty();
 		Context.bAsync = State->bAsyncComputeEnabled && Context.bExplicitSubmissions
@@ -390,6 +460,12 @@ namespace Durin
 			return Recorded;
 		};
 		std::deque<FRHICommandList> ReadyRecordings;
+		struct FCloseRaster final
+		{
+			FRHICommandListImmediate& Commands;
+			bool bOpen = false;
+			~FCloseRaster() { if (bOpen) Commands.EndRenderPass(); }
+		};
 		auto PrepareRecordingWave = [&](uint32 First) -> bool {
 			auto Eligible = [&](uint32 Index) {
 				const auto& Runtime = Compiled->RuntimePasses[Index];
@@ -479,6 +555,7 @@ namespace Durin
 				}
 				~FCloseSubmission() { Close(); }
 			} CloseSubmission{CommandList, Context.bExplicitSubmissions};
+			FCloseRaster Raster{CommandList};
 			for (const auto& Transfer : Context.Acquires[Batch.Id.Index]) CommandList.AcquireQueueOwnership(Transfer);
 			for (const auto& Transition : Context.TransitionEnds[Batch.Id.Index]) CommandList.EndTransition(Transition);
 			if (Batch.bEpilogue)
@@ -509,6 +586,7 @@ namespace Durin
 						DURIN_PROFILE_CPU_ZONE_NAMED("RDG.RecordPass");
 						DURIN_PROFILE_CPU_ZONE_TEXT(std::string_view(Pass.Name).substr(0, 128));
 						// Keep barriers between uploads, including overlapping writes.
+						for (const auto& [Before, After] : Context.AliasingBarriers[UploadIndex]) Uploads.AliasingBarrier({Before, After});
 						RecordBarrierBatch(Uploads, Context.PreparedPassBarriers[UploadIndex], Context.PreparedTransitions);
 						const FRDGPassResources Resources(*this, UploadIndex);
 						const FRDGParameterResolver Resolver(Resources, Runtime.ParameterLayout,
@@ -524,7 +602,14 @@ namespace Durin
 				const auto& Pass = Compiled->Passes[Index];
 				DURIN_PROFILE_CPU_ZONE_TEXT(std::string_view(Pass.Name).substr(0, 128));
 				const auto& Runtime = Compiled->RuntimePasses[Index];
+				for (const auto& [Before, After] : Context.AliasingBarriers[Index]) CommandList.AliasingBarrier({Before, After});
 				RecordBarrierBatch(CommandList, Context.PreparedPassBarriers[Index], Context.PreparedTransitions);
+				if (Pass.bRasterBegin)
+				{
+					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+					CommandList.BeginRenderPass(Context.RasterPasses[Index].Info, FName(Pass.Name));
+					Raster.bOpen = true;
+				}
 				if ((Runtime.ParameterizedExecute && *Runtime.ParameterizedExecute)
 					|| (Runtime.RecordingExecute && *Runtime.RecordingExecute))
 				{
@@ -544,6 +629,11 @@ namespace Durin
 						CommandList.QueueCommandList(std::move(Recorded));
 					}
 					else (*Runtime.ParameterizedExecute)(CommandList, Resolver);
+				}
+				if (Pass.bRasterEnd)
+				{
+					CommandList.EndRenderPass();
+					Raster.bOpen = false;
 				}
 			}
 			for (const auto& Transition : Context.TransitionBegins[Batch.Id.Index]) CommandList.BeginTransition(Transition);
@@ -655,10 +745,11 @@ namespace Durin
 
 	auto FRDGAllocatedResources::SetTexture(uint32 ResourceId,
 		FTextureRHIRef Texture, uint64 AllocationId,
-		std::string_view Disposition) -> bool
+		std::string_view Disposition, uint32 AliasSourceId) -> bool
 	{
 		if (ResourceId >= Textures.size() || !Texture) return false;
 		Textures[ResourceId] = std::move(Texture);
+		AliasSources[ResourceId] = AliasSourceId;
 		AllocationIds[ResourceId] = AllocationId;
 		AllocationDispositions[ResourceId] = Disposition;
 		return true;
@@ -666,10 +757,11 @@ namespace Durin
 
 	auto FRDGAllocatedResources::SetBuffer(uint32 ResourceId,
 		FBufferRHIRef Buffer, uint64 AllocationId,
-		std::string_view Disposition) -> bool
+		std::string_view Disposition, uint32 AliasSourceId) -> bool
 	{
 		if (ResourceId >= Buffers.size() || !Buffer) return false;
 		Buffers[ResourceId] = std::move(Buffer);
+		AliasSources[ResourceId] = AliasSourceId;
 		AllocationIds[ResourceId] = AllocationId;
 		AllocationDispositions[ResourceId] = Disposition;
 		return true;

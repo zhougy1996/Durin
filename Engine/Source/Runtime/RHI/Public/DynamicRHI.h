@@ -280,6 +280,13 @@ namespace Durin
 		// Creates a complete resource, or logs a recoverable failure and returns null.
 		virtual auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc)
 			-> FTextureRHIRef = 0;
+		virtual auto RHISupportsTransientAliasing() const -> bool { return false; }
+		// Source must be aliasable and descriptor-compatible. Null means allocation failure.
+		// The returned resource owns the shared backing independently of graph lifetime.
+		virtual auto RHICreateAliasedTexture(const FRHITextureCreateDesc& Desc, FRHITexture* Source)
+			-> FTextureRHIRef { return {}; }
+		virtual auto RHICreateAliasedBuffer(const FRHIBufferCreateDesc& Desc, FRHIBuffer* Source)
+			-> FBufferRHIRef { return {}; }
 		// Process CPU retirement and completed GPU deletions without waiting for GPU idle.
 		// Called on the rendering thread before allocating under memory pressure.
 		RHI_API virtual auto RHICollectCompletedResources() -> void;

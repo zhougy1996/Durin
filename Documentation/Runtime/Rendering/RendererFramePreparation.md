@@ -385,8 +385,11 @@ The Renderer RDG allocator keys retained entries by the complete allocation-
 compatible description: dimension, flags, format, extent, depth, array size,
 mip/sample counts, and clear binding/value for textures, or size, stride, and
 usage for buffers. Debug names, graph IDs, pass names, and feature routes are
-excluded. Equal descriptions reserve distinct entries within one execution;
-inactive compatible entries may be reused by a later execution. The 640 MiB
+excluded. Aliasable and ordinary backing use separate compatibility buckets.
+Equal descriptions reserve distinct entries unless the opted-in RDG plan proves
+a compatible transient alias. One pool entry owns each shared allocation, while
+aliases own distinct RHI resources retaining that backing. Inactive compatible
+entries may be reused by a later execution. The 640 MiB
 named graph-wide structural policy rejects an oversized active batch. Before any
 creation, the allocator reserves all reusable entries for the complete batch,
 then evicts the oldest unreserved entries until retained bytes plus missing
@@ -405,8 +408,11 @@ every returned RHI reference alive through recording.
 Feature release clears feature-local views and persistent payloads; the allocator
 owner performs deterministic transient release before the shared coordinator
 is released. Device invalidation reconstructs demanded textures under the new
-generation. The allocator does not alias physical memory, infer scheduling, or
-introduce synchronization.
+generation. The allocator follows compiler-proven alias requests only when the
+backend supports native alias creation. Allocation statistics count shared backing
+bytes once; recording emits the compiler-selected handoffs. The allocator does
+not infer scheduling or introduce synchronization. Alias creation failure aborts
+publication before graph callbacks, with the ordinary transaction/recovery rules.
 
 ## Render Graph Frame Schedule
 
@@ -638,8 +644,9 @@ The graph preserves imported initial/final access, persistent view-state
 history, optional fallback policy, and the temporal/output transaction while
 compiling equivalent RHI transition batches. It does not introduce a second
 scene-preparation model, mutable blackboard, public pass registry, or alternate
-feature interface. Physical aliasing, asynchronous compute, multiple queues,
-pass merging, and PSO centralization remain separate measured decisions.
+feature interface. Graph-managed raster boundaries merge compatible neighboring
+passes within a submission. Transient aliasing and asynchronous compute remain
+explicit per-view opt-ins; PSO centralization remains a separate decision.
 
 ## Scene Budgets and Capture
 

@@ -85,11 +85,12 @@ namespace Durin::VulkanRHI
 	auto FVulkanMemoryManager::CreateImage(FVulkanAllocation& OutAllocation,
 		vk::Image& OutImage, EVulkanAllocationClassCandidate Candidate,
 		const vk::ImageCreateInfo& ImageCreateInfo,
-		const char* DebugName /* = nullptr */) const -> vk::Result
+		const char* DebugName, bool bAllowAliasing) const -> vk::Result
 	{
 		OutAllocation = {};
 		OutImage = nullptr;
 		VmaAllocationCreateInfo AllocCreateInfo{};
+		if (bAllowAliasing) AllocCreateInfo.flags |= VMA_ALLOCATION_CREATE_CAN_ALIAS_BIT;
 		AllocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 		AllocCreateInfo.preferredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
@@ -130,11 +131,12 @@ namespace Durin::VulkanRHI
 	auto FVulkanMemoryManager::CreateBuffer(FVulkanAllocation& OutAllocation,
 		vk::Buffer& OutBuffer, EVulkanAllocationClassCandidate Candidate,
 		const vk::BufferCreateInfo& BufferCreateInfo,
-		const char* DebugName) const -> vk::Result
+		const char* DebugName, bool bAllowAliasing) const -> vk::Result
 	{
 		OutAllocation = {};
 		OutBuffer = nullptr;
 		VmaAllocationCreateInfo AllocCreateInfo{};
+		if (bAllowAliasing) AllocCreateInfo.flags |= VMA_ALLOCATION_CREATE_CAN_ALIAS_BIT;
 		switch (Candidate)
 		{
 		case EVulkanAllocationClassCandidate::DeviceLocal:
@@ -203,6 +205,26 @@ namespace Durin::VulkanRHI
 			vmaSetAllocationName(Allocator, OutAllocation.Handle, DebugName);
 		}
 		return vk::Result::eSuccess;
+	}
+
+	auto FVulkanMemoryManager::CreateAliasingImage(const FVulkanAllocation& Allocation,
+		const vk::ImageCreateInfo& Info, vk::Image& Image) const -> vk::Result
+	{
+		VkImage Native = VK_NULL_HANDLE;
+		const auto Result = vmaCreateAliasingImage(Allocator, Allocation.Handle,
+			reinterpret_cast<const VkImageCreateInfo*>(&Info), &Native);
+		Image = Native;
+		return static_cast<vk::Result>(Result);
+	}
+
+	auto FVulkanMemoryManager::CreateAliasingBuffer(const FVulkanAllocation& Allocation,
+		const vk::BufferCreateInfo& Info, vk::Buffer& Buffer) const -> vk::Result
+	{
+		VkBuffer Native = VK_NULL_HANDLE;
+		const auto Result = vmaCreateAliasingBuffer(Allocator, Allocation.Handle,
+			reinterpret_cast<const VkBufferCreateInfo*>(&Info), &Native);
+		Buffer = Native;
+		return static_cast<vk::Result>(Result);
 	}
 
 	auto FVulkanMemoryManager::DestroyImage(FVulkanAllocation& InAllocation, vk::Image InImage) const -> void

@@ -23,6 +23,7 @@ namespace Durin
 			EClearBinding ClearBinding = EClearBinding::None;
 			std::array<std::byte, sizeof(FClearValueBinding::FClearValue)>
 				ClearValue{};
+			bool bAliasable = false;
 
 			auto operator==(const FTextureDescriptorKey&) const -> bool = default;
 		};
@@ -32,6 +33,7 @@ namespace Durin
 			uint32 Size = 0;
 			uint32 Stride = 0;
 			EBufferUsageFlags Usage = EBufferUsageFlags::None;
+			bool bAliasable = false;
 
 			auto operator==(const FBufferDescriptorKey&) const -> bool = default;
 		};
@@ -55,6 +57,7 @@ namespace Durin
 					Combine(Hash, Value);
 				for (std::byte Value : Key.ClearValue)
 					Combine(Hash, std::to_integer<uint64>(Value));
+				Combine(Hash, Key.bAliasable);
 				return Hash;
 			}
 
@@ -64,6 +67,7 @@ namespace Durin
 				Combine(Hash, Key.Size);
 				Combine(Hash, Key.Stride);
 				Combine(Hash, uint64(Key.Usage));
+				Combine(Hash, Key.bAliasable);
 				return Hash;
 			}
 		};
@@ -80,7 +84,8 @@ namespace Durin
 				.ArraySize = Desc.ArraySize,
 				.NumMips = Desc.NumMips,
 				.NumSamples = Desc.NumSamples,
-				.ClearBinding = Desc.ClearValue.Binding};
+				.ClearBinding = Desc.ClearValue.Binding,
+				.bAliasable = Desc.Aliasing == ERHITransientAliasing::Enabled};
 			std::memcpy(Key.ClearValue.data(), &Desc.ClearValue.ClearValue,
 				Key.ClearValue.size());
 			return Key;
@@ -275,6 +280,15 @@ namespace Durin
 		};
 
 		std::vector<uint64> RequestLogicalBytes;
+		const bool bNativeAliasing = GDynamicRHI->RHISupportsTransientAliasing();
+		std::unordered_set<uint32> AliasingResources;
+		if (bNativeAliasing)
+			for (const auto& Request : Requests)
+				if (Request.AliasSourceId != UINT32_MAX)
+				{
+					AliasingResources.insert(Request.ResourceId);
+					AliasingResources.insert(Request.AliasSourceId);
+				}
 		RequestLogicalBytes.reserve(Requests.size());
 		uint64 RequestedBytes = 0;
 		for (const FRDGAllocationRequest& Request : Requests)
@@ -288,7 +302,8 @@ namespace Durin
 				LogicalBytes = GetLogicalTextureBytes(Desc);
 			}
 			RequestLogicalBytes.push_back(LogicalBytes);
-			RequestedBytes = AddSaturated(RequestedBytes, LogicalBytes);
+			if (!bNativeAliasing || Request.AliasSourceId == UINT32_MAX)
+				RequestedBytes = AddSaturated(RequestedBytes, LogicalBytes);
 		}
 		if (!FRendererRDGAllocationPolicy::IsBatchWithinStructuralBudget(
 			RequestedBytes))
@@ -307,9 +322,13 @@ namespace Durin
 			uint64 AllocationId = 0;
 			bool bReuseHit = false;
 			bool bExtracted = false;
+			bool bAliased = false;
+			uint32 AliasSourceId = UINT32_MAX;
 		};
 		std::vector<FCandidate> Candidates;
 		Candidates.reserve(Requests.size());
+		std::unordered_map<uint32, size_t> CandidateIndices;
+		CandidateIndices.reserve(Requests.size());
 		std::unordered_set<uint64> ActiveAllocationIds;
 		ActiveAllocationIds.reserve(Requests.size());
 		const uint64 FirstNewSequence = State->NextSequence;
@@ -370,17 +389,23 @@ namespace Durin
 		{
 			const auto& Request = Requests[RequestIndex];
 			const uint64 LogicalBytes = RequestLogicalBytes[RequestIndex];
+			if (bNativeAliasing && Request.AliasSourceId != UINT32_MAX)
+			{
+				PlannedAllocationIds.push_back(0);
+				continue;
+			}
 			if (Request.Kind == ERDGResourceKind::Texture)
 			{
 				auto Desc = FRHITextureCreateDesc::Create("RDGPlan", Request.TextureDesc.Dimension);
 				static_cast<FRHITextureDesc&>(Desc) = Request.TextureDesc;
+				Desc.Aliasing = AliasingResources.contains(Request.ResourceId) ? ERHITransientAliasing::Enabled : ERHITransientAliasing::Disabled;
 				PlanCandidate(State->Textures, MakeDescriptorKey(Desc),
 					LogicalBytes);
 			}
 			else if (Request.Kind == ERDGResourceKind::Buffer)
 				PlanCandidate(State->Buffers,
 					FBufferDescriptorKey{Request.BufferDesc.Size, Request.BufferDesc.Stride,
-						Request.BufferDesc.Usage}, LogicalBytes);
+						Request.BufferDesc.Usage, AliasingResources.contains(Request.ResourceId)}, LogicalBytes);
 			else return Fail(ERDGAllocationError::AllocationKindInvalid,
 				Request.ResourceId);
 		}
@@ -476,12 +501,42 @@ namespace Durin
 			FCandidate Candidate{.ResourceId = Request.ResourceId,
 				.AllocationId = PlannedAllocationIds[RequestIndex],
 				.bExtracted = Request.bExtracted};
+			if (bNativeAliasing && Request.AliasSourceId != UINT32_MAX)
+			{
+				const auto FoundSource = CandidateIndices.find(Request.AliasSourceId);
+				if (FoundSource == CandidateIndices.end() || Request.bExtracted)
+					return Fail(ERDGAllocationError::AllocationKindInvalid, Request.ResourceId);
+				const auto* Source = &Candidates[FoundSource->second];
+				if (Source->bExtracted) return Fail(ERDGAllocationError::AllocationKindInvalid, Request.ResourceId);
+				Candidate.AllocationId = Source->AllocationId;
+				Candidate.bAliased = true;
+				Candidate.AliasSourceId = Request.AliasSourceId;
+				if (Request.Kind == ERDGResourceKind::Texture && Source->Texture)
+				{
+					auto Desc = FRHITextureCreateDesc::Create("RDGAliasedTexture", Request.TextureDesc.Dimension);
+					static_cast<FRHITextureDesc&>(Desc) = Request.TextureDesc;
+					Desc.Aliasing = ERHITransientAliasing::Enabled;
+					Candidate.Texture = GDynamicRHI->RHICreateAliasedTexture(Desc, Source->Texture.GetReference());
+				}
+				else if (Request.Kind == ERDGResourceKind::Buffer && Source->Buffer)
+				{
+					auto Desc = FRHIBufferCreateDesc::Create("RDGAliasedBuffer", Request.BufferDesc);
+					Desc.Aliasing = ERHITransientAliasing::Enabled;
+					Candidate.Buffer = GDynamicRHI->RHICreateAliasedBuffer(Desc, Source->Buffer.GetReference());
+				}
+				if (!Candidate.Texture && !Candidate.Buffer)
+					return Fail(ERDGAllocationError::PhysicalAllocationFailed, Request.ResourceId);
+				CandidateIndices.emplace(Candidate.ResourceId, Candidates.size());
+				Candidates.push_back(std::move(Candidate));
+				continue;
+			}
 			FAllocationStepResult ReserveResult;
 			if (Request.Kind == ERDGResourceKind::Texture)
 			{
 				FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create(
 					"RDGTexture", Request.TextureDesc.Dimension);
 				static_cast<FRHITextureDesc&>(Desc) = Request.TextureDesc;
+				Desc.Aliasing = AliasingResources.contains(Request.ResourceId) ? ERHITransientAliasing::Enabled : ERHITransientAliasing::Disabled;
 				ReserveResult = ReserveCandidate(State->Textures,
 					MakeDescriptorKey(Desc), LogicalBytes,
 					Request, [&] {
@@ -495,12 +550,13 @@ namespace Durin
 			else if (Request.Kind == ERDGResourceKind::Buffer)
 			{
 				const FBufferDescriptorKey Key{Request.BufferDesc.Size,
-					Request.BufferDesc.Stride, Request.BufferDesc.Usage};
+					Request.BufferDesc.Stride, Request.BufferDesc.Usage, AliasingResources.contains(Request.ResourceId)};
 				ReserveResult = ReserveCandidate(State->Buffers, Key,
 					LogicalBytes, Request,
 					[&] {
-						return GDynamicRHI->RHICreateBuffer(FRHICommandListImmediate::Get(),
-							FRHIBufferCreateDesc::Create("RDGBuffer", Request.BufferDesc));
+						auto Desc = FRHIBufferCreateDesc::Create("RDGBuffer", Request.BufferDesc);
+						Desc.Aliasing = AliasingResources.contains(Request.ResourceId) ? ERHITransientAliasing::Enabled : ERHITransientAliasing::Disabled;
+						return GDynamicRHI->RHICreateBuffer(FRHICommandListImmediate::Get(), Desc);
 					},
 					[](FCandidate& OutCandidate, const FBufferRHIRef& Buffer) {
 						OutCandidate.Buffer = Buffer;
@@ -517,6 +573,7 @@ namespace Durin
 				PublishStatistics(0, 0);
 				return ReserveResult;
 			}
+			CandidateIndices.emplace(Candidate.ResourceId, Candidates.size());
 			Candidates.push_back(std::move(Candidate));
 		}
 
@@ -526,10 +583,10 @@ namespace Durin
 			const bool bPublished = Candidate.Texture
 				? Published.SetTexture(Candidate.ResourceId,
 					std::move(Candidate.Texture), Candidate.AllocationId,
-					Candidate.bReuseHit ? "reuse-hit" : "reuse-miss")
+					Candidate.bAliased ? "transient-alias" : Candidate.bReuseHit ? "reuse-hit" : "reuse-miss", Candidate.AliasSourceId)
 				: Published.SetBuffer(Candidate.ResourceId,
 					std::move(Candidate.Buffer), Candidate.AllocationId,
-					Candidate.bReuseHit ? "reuse-hit" : "reuse-miss");
+					Candidate.bAliased ? "transient-alias" : Candidate.bReuseHit ? "reuse-hit" : "reuse-miss", Candidate.AliasSourceId);
 			if (!bPublished)
 				return Fail(ERDGAllocationError::AllocationPublicationFailed,
 					Candidate.ResourceId);

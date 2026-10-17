@@ -60,12 +60,17 @@ namespace Durin::VulkanRHI
 		auto CreateImage(FVulkanAllocation& OutAllocation, vk::Image& OutImage,
 			EVulkanAllocationClassCandidate Candidate,
 			const vk::ImageCreateInfo& ImageCreateInfo,
-			const char* DebugName = nullptr) const -> vk::Result;
+			const char* DebugName = nullptr, bool bAllowAliasing = false) const -> vk::Result;
 
 		auto CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer,
 			EVulkanAllocationClassCandidate Candidate,
 			const vk::BufferCreateInfo& BufferCreateInfo,
-			const char* DebugName = nullptr) const -> vk::Result;
+			const char* DebugName = nullptr, bool bAllowAliasing = false) const -> vk::Result;
+
+		auto CreateAliasingImage(const FVulkanAllocation& Allocation, const vk::ImageCreateInfo& Info,
+			vk::Image& Image) const -> vk::Result;
+		auto CreateAliasingBuffer(const FVulkanAllocation& Allocation, const vk::BufferCreateInfo& Info,
+			vk::Buffer& Buffer) const -> vk::Result;
 
 		auto DestroyImage(FVulkanAllocation& InAllocation, vk::Image InImage) const -> void;
 

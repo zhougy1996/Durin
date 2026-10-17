@@ -958,6 +958,18 @@ namespace Durin
 			std::shared_ptr<FRHITransition> Transition;
 		};
 
+		struct FAliasingBarrierCommand
+		{
+			FAliasingBarrierCommand(FRHIResource* InBefore, FRHIResource* InAfter)
+				: Before(InBefore), After(InAfter) {}
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetOperationContext("AliasingBarrier")
+					.RHIAliasingBarrier({Before.GetReference(), After.GetReference()});
+			}
+			TRefCountPtr<FRHIResource> Before, After;
+		};
+
 		struct FEndTransitionCommand
 		{
 			explicit FEndTransitionCommand(std::shared_ptr<FRHITransition> InTransition)
@@ -2021,6 +2033,14 @@ namespace Durin
 			"Invalid RHI texture transition batch: {}", ToString(ValidationResult.error()));
 #endif
 		RecordCommand<FTextureTransitionCommand>(Transitions);
+	}
+
+	auto FRHICommandListBase::AliasingBarrier(const FRHITransientAliasingBarrier& Barrier) -> void
+	{
+		const auto [Before, After] = Barrier;
+		requiref(After && Before != After && !bInsideRenderPass,
+			"Aliasing requires distinct resources outside render passes.");
+		RecordCommand<FAliasingBarrierCommand>(Before, After);
 	}
 
 	auto FRHICommandListBase::BeginTransition(

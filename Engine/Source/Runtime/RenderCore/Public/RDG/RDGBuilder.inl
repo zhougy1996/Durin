@@ -3,6 +3,18 @@
 // Template implementation for RDG.h; include RDG/RDG.h when authoring graphs.
 namespace Durin
 {
+	template<typename ParameterStruct, typename ExecuteFunction>
+	requires CRDGParameters<ParameterStruct>
+		&& std::invocable<ExecuteFunction&, FRHICommandListImmediate&, const ParameterStruct&, const FRDGParameterResolver&>
+	auto FRDGBuilder::AddRasterPass(std::string_view Name, TRDGParametersRef<ParameterStruct>&& Parameters,
+		ExecuteFunction&& ExecuteCallback, const FRDGRasterPassOptions& Options) -> FRDGPassHandle
+	{
+		const auto Pass = AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+			std::forward<ExecuteFunction>(ExecuteCallback));
+		SetRasterPass(Pass, Options);
+		return Pass;
+	}
+
 	template<typename T, typename... Args>
 	requires std::constructible_from<T, Args...> && std::destructible<T>
 	auto FRDGBuilder::CreateValue(std::string_view Name, std::string_view StableTypeName,

@@ -48,6 +48,7 @@ namespace Durin
 		auto* OutputTarget = Logical.OutputTarget;
 		const auto& Options = Logical.Options;
 		Graph.SetAsyncComputeEnabled(Options.bEnableAsyncCompute);
+		Graph.SetTransientAliasingEnabled(Options.bEnableTransientAliasing);
 		const auto& Features = Context.Features;
 		const auto& PreparedEditorAssistance = Logical.EditorAssistance;
 		auto* CloudWeatherTexture = Resolved.CloudWeatherTexture;

@@ -824,7 +824,7 @@ namespace Durin
 
 	FRDGAllocatedResources::FRDGAllocatedResources(uint32 Count)
 		: Textures(Count), Buffers(Count), AllocationIds(Count),
-		  AllocationDispositions(Count)
+		  AliasSources(Count, UINT32_MAX), AllocationDispositions(Count)
 	{
 	}
 

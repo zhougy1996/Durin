@@ -98,6 +98,8 @@ namespace Durin
 
 		RHI_API auto BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void;
 		RHI_API auto EndRenderPass() -> void;
+		// Orders all previous backing accesses before a distinct aliased resource's first use.
+		RHI_API auto AliasingBarrier(const FRHITransientAliasingBarrier& Barrier) -> void;
 		RHI_API auto BeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetTexture) -> void;
 		RHI_API auto EndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void;
 		RHI_API auto SetGraphicsPipelineState(FRHIGraphicsPipelineState& State) -> void;

@@ -32,7 +32,7 @@ namespace Durin::VulkanRHI
 		// Nullable factories check OutResult before publication; required internal
 		// allocations omit it and propagate native failures.
 		VULKANRHI_API FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc,
-			vk::Result* OutResult = nullptr);
+			vk::Result* OutResult = nullptr, FVulkanTexture* AliasSource = nullptr);
 
 		VULKANRHI_API FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage);
 
@@ -46,13 +46,16 @@ namespace Durin::VulkanRHI
 			return ViewBackingGeneration;
 		}
 		auto HasExternalBacking() const -> bool { return OwnerType == EImageOwnerType::ExternalOwner; }
+		auto IsAliasable() const -> bool { return bAllowAliasing; }
+		auto SharesBackingAllocationWith(const FVulkanTexture& Other) const -> bool
+		{ return Allocation.IsValid() && Allocation.Handle == Other.Allocation.Handle; }
 		auto GetAllocationClass() const -> EVulkanAllocationClassCandidate
 		{
 			return Allocation.Class;
 		}
 		auto GetBackendAllocationBytes() const -> uint64 override
 		{
-			return static_cast<uint64>(Allocation.GetSize());
+			return AliasOwner ? 0 : static_cast<uint64>(Allocation.GetSize());
 		}
 		VULKANRHI_API auto GetMemoryPropertyFlags() const -> vk::MemoryPropertyFlags;
 
@@ -75,6 +78,8 @@ namespace Durin::VulkanRHI
 		FVulkanDevice& Device;
 
 		FVulkanAllocation Allocation{};
+		TRefCountPtr<FVulkanTexture> AliasOwner;
+		bool bAllowAliasing = false;
 
 		EImageOwnerType OwnerType = EImageOwnerType::None;
 

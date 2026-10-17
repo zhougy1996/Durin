@@ -244,6 +244,8 @@ namespace Durin
 		// Eligible passes still fall back to the graphics queue when the backend
 		// or execution allocator cannot provide an independent compute queue.
 		bool bEnableAsyncCompute = false;
+		// Opt in to dependency-proven transient backing aliasing on capable backends.
+		bool bEnableTransientAliasing = false;
 		// Explicit pilot opt-in. Unsupported capabilities or preparation failures
 		// deterministically retain the direct GBuffer submission path.
 		bool bEnableGPUCulling = false;

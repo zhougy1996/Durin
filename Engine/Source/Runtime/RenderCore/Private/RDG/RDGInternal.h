@@ -57,6 +57,7 @@ namespace Durin::RDGPrivate
 		FTextureRHIRef Texture;
 		FBufferRHIRef Buffer;
 		uint64 PhysicalAllocationId = 0;
+		uint32 AliasSourceId = UINT32_MAX;
 		std::string AllocationDisposition;
 	};
 
@@ -116,6 +117,7 @@ namespace Durin::RDGPrivate
 		std::string Name;
 		ERDGPassType Type = ERDGPassType::Graphics;
 		bool bAsyncComputeEligible = false;
+		std::optional<FRDGRasterPassOptions> Raster;
 		std::vector<FGraphUse> Uses;
 		std::vector<uint32> Prerequisites;
 		FRDGParameterizedPassExecute ParameterizedExecute;

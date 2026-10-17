@@ -24,6 +24,14 @@ namespace Durin
 	// Logical scheduling role, independent of physical backend topology.
 	enum class ERDGQueueAssignment : uint8 { Graphics, AsyncCompute };
 
+	// Attachment slots follow parameter declaration order. Clear values are setup data.
+	struct FRDGRasterPassOptions final
+	{
+		std::array<FClearValueBinding, MaxSimultaneousRenderTargets> ColorClearValues{};
+		FClearValueBinding DepthStencilClearValue{1.0f, 0u};
+		bool bAllowMerge = true;
+	};
+
 	// Describes whether a pass observes or replaces one declared resource range.
 	enum class ERDGUse : uint8
 	{

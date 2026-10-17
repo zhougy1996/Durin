@@ -150,6 +150,7 @@ namespace Durin
 				: Compiled->Backings[Index].AllocationDisposition.empty() ? "pending"
 				: Compiled->Backings[Index].AllocationDisposition;
 			Capture.PhysicalAllocationId = Compiled->Backings[Index].PhysicalAllocationId;
+			Capture.AliasSourceId = Compiled->Backings[Index].AliasSourceId;
 		}
 
 		// Reconstruct the same deterministic layout only on explicit inspection.
@@ -171,7 +172,11 @@ namespace Durin
 			Passes, TrackingUses, Compiled->Passes, Compiled->ResourceLifetimes, nullptr, State->bAsyncComputeEnabled,
 			[&](const FRDGTransitionCapture& Event, size_t) -> bool
 			{
-				Result->Transitions.push_back(Event);
+				auto Transition = Event;
+				if (!Event.bFinal && Event.Kind == ERDGTransitionKind::RHIBarrier
+					&& Compiled->Passes[Event.PassIndex].bRaster && !Compiled->Passes[Event.PassIndex].bRasterBegin)
+					Transition.Kind = ERDGTransitionKind::RasterOrdered;
+				Result->Transitions.push_back(Transition);
 				return true;
 			}, [&](uint32 DeclarationIndex, const FGraphUse& Use, size_t CellIndex, const FRangeCell& Cell, bool bWrites)
 			{
@@ -282,7 +287,8 @@ namespace Durin
 			Result.Passes.push_back({Pass.Name, Pass.Type, Pass.DeclarationIndex,
 				Pass.ParameterStructName,
 				static_cast<uint32>(Pass.Barriers.GetBufferTransitions().size()),
-				static_cast<uint32>(Pass.Barriers.GetTextureTransitions().size())});
+				static_cast<uint32>(Pass.Barriers.GetTextureTransitions().size()),
+				Pass.bRaster, Pass.bRasterBegin, Pass.bRasterEnd});
 		return Result;
 	}
 
@@ -340,12 +346,16 @@ namespace Durin
 				<< " textures=" << Pass.Barriers.GetTextureTransitions().size();
 			if (!Pass.ParameterStructName.empty())
 				Output << " parameters=" << Pass.ParameterStructName;
+			if (Pass.bRaster)
+				Output << " raster-begin=" << Pass.bRasterBegin << " raster-end=" << Pass.bRasterEnd;
 			Output << '\n';
 		}
 		for (const auto& Edge : Compiled->Dependencies)
 			Output << "edge " << Edge.BeforePass << "->" << Edge.AfterPass
 				<< " kind=" << DependencyKindName(Edge.Kind)
-				<< " cause=" << Edge.Cause << '\n';
+				<< " cause=" << Edge.Cause << " recording-prerequisite=" << Edge.bRecordingPrerequisite << '\n';
+		for (const auto& Alias : Compiled->ExecutionPlan.AliasingHandoffs)
+			Output << "alias " << Alias.BeforeResource << "->" << Alias.AfterResource << " pass=" << Alias.ConsumerPass << '\n';
 		Output << "final buffers=" << Compiled->FinalBarriers.GetBufferTransitions().size()
 			<< " textures=" << Compiled->FinalBarriers.GetTextureTransitions().size() << '\n';
 		for (const auto& Lifetime : Compiled->ResourceLifetimes)
@@ -433,7 +443,7 @@ namespace Durin
 				<< Transition.BufferOffset << " size=" << Transition.BufferSize
 				<< " discard=" << Transition.bDiscardContents
 				<< " kind=" << (Transition.Kind == ERDGTransitionKind::RHIBarrier
-					? "rhi-barrier" : "pass-managed")
+					? "rhi-barrier" : Transition.Kind == ERDGTransitionKind::RasterOrdered ? "raster-ordered" : "pass-managed")
 				<< " final=" << Transition.bFinal << '\n';
 		return Output.str();
 	}

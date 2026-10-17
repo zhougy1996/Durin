@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-10-09
+Last reviewed: 2026-10-17
 
 ## Reading and Calling the Graph
 
@@ -182,6 +182,27 @@ execution state. Compilation never mutates a command list.
 - An attachment `Load` requires prior contents. A `DontCare` store invalidates
   its contents and cannot satisfy a later producer requirement.
 
+### Transient Backing Aliasing
+
+`SetTransientAliasingEnabled` opts a builder into alias planning and defaults to
+false. Renderer forwards `FSceneViewRenderOptions::bEnableTransientAliasing`, also
+false by default. Compatible texture or device-local buffer descriptions are
+bucketed deterministically. Each candidate must follow every prior user on both
+logical queues, including epilogue transitions; first/last scalar positions are
+only an additional same-submission ordering check. Planning adds no waits to
+force reuse. External, extracted, explicitly finalized, CPU-accessible resources
+and acquisitions inside merged raster passes are excluded.
+
+`ExecutionPlan.AliasingHandoffs` and allocation requests preserve the logical
+proof. Capable allocators return distinct resource objects sharing one allocation
+ID and explicitly identify `AliasSourceId`; independent allocation remains the
+fallback. Preparation validates this relation before callbacks. Recording acquires
+reused pooled backing at its first use and emits memory handoffs before alias
+pass bodies, alongside the required queue acquires and initial transitions. Texture layouts and buffer state remain per resource.
+Native resource owners and existing retirement proofs keep backing alive through
+all GPU uses; a planned handoff is never a CPU recycling/completion proof.
+Captures distinguish planned handoffs from actual `AliasSourceId` publication.
+
 ## Compilation and Ordering
 
 The executable sequence is the declaration sequence filtered by retention.
@@ -240,7 +261,8 @@ compiler, range analysis, transitions, or capture generation.
 
 Every resource reports its first/last retained scheduled pass. A resource used
 only by unreachable passes reports a culled lifetime. These logical intervals
-do not authorize physical aliasing.
+alone do not authorize physical aliasing; the optional policy below additionally
+proves submission reachability.
 
 ## Transition and Execution Contract
 
@@ -306,9 +328,11 @@ These callbacks default to serial recording. `ERDGRecordingPolicy::Parallel`
 declares an independent CPU callback: it may read frozen parameters/resources and
 access declared typed values, but cannot mutate renderer caches, global telemetry
 or graph metadata, launch child tasks, or depend on RHI/owner-thread progress.
-Eligible consecutive callbacks form waves of at most eight. Every compiled
-dependency, including typed-value and explicit edges, cuts a wave before its
-consumer; serial callbacks also cut waves. Single-pass waves and unavailable
+Eligible consecutive callbacks form waves of at most eight. CPU prerequisites
+(typed values, logical tokens and explicit edges) cut a wave before their consumer;
+GPU texture/buffer hazards preserve replay order without serializing recording.
+Deduplicated edges retain CPU authority even when another GPU cause upgrades
+retention. Serial callbacks also cut waves. Single-pass waves and unavailable
 schedulers run inline. Worker results are joined in pass order and the complete
 wave must succeed before any of its lists is queued. Failure or cancellation
 discards that wave and drains every launched task; earlier queued waves remain.
@@ -529,9 +553,21 @@ their managed publication contracts. Pipeline and recording callers must select
 the same helper; full layout equality and pipeline cache keys include actions
 and entry/exit state, so the two policies are distinct cache entries.
 
-Forward, hybrid bootstrap, production deferred, retained forward, and sorted
-translucency use ordinary graph attachment bindings. Each callback owns one
-native raster pass and retains its exact native view owners until recording.
+`AddRasterPass` owns native Begin/End boundaries around an immediate callback
+that records the raster body. Color slots follow frozen parameter declaration
+order; options provide clear values and an explicit `bAllowMerge` escape hatch.
+Preparation resolves every counted attachment view before callbacks. Consecutive
+compatible passes merge within one submission only: exact attachment identities,
+ranges and accesses must agree, intermediate stores must preserve contents and
+subsequent loads must be `Load`. New barriers, non-attachment GPU writes, managed
+transitions and queue/submission frontiers prevent merging. The first load/clear
+and final store remain native operations; internal attachment ordering is captured
+as `RasterOrdered`, excluded from executable barrier counts. Failure closes the
+native raster boundary before closing its GPU submission.
+
+Forward, hybrid bootstrap, retained forward and sorted translucency use this
+entry point. Production deferred still uses an ordinary graph attachment with a
+callback-owned boundary.
 Sampled depth is a separate declared read in the production lighting callback;
 no attachment access is selected from a predecessor's runtime route. Legacy
 GBuffer, AO/cloud multi-operation callbacks and hit-proxy layouts retain their
@@ -636,14 +672,14 @@ retirement messages likewise remain owned by their separate contracts.
 
 `GetExecutionPlan()` exposes immutable logical submission records. Each
 bounded group contains at most eight consecutive ordinary passes on one logical
-queue. If the first batch is ordinary, its single pass remains independent so
-early RHI replay can begin while later passes are still recording. Upload
+queue. The first ordinary batch stays single-pass for prompt RHI replay, except
+when consecutive graph-owned raster passes share its batching opportunity. Upload
 helpers retain their separate byte/count-bounded grouping and
 never mix with ordinary passes. A cross-queue producer ends its ordinary batch;
 a consumer with an external queue dependency or ownership acquire starts one.
 This preserves fork/join frontiers instead of moving waits earlier or signals
-later across independent work. Pass callbacks, raster boundaries and prologue
-barriers remain distinct and ordered inside the batch. An epilogue batch follows
+later across independent work. Pass callbacks stay distinct and ordered inside the batch; compatible raster
+boundaries and their redundant attachment barriers may merge as described above. An epilogue batch follows
 when the graph has work. Empty graphs create no synthetic batch.
 Batch pass intervals index the compact scheduled pass array, not declaration
 indices; culling therefore cannot leave a dangling submission reference.
@@ -655,8 +691,8 @@ retain the graphics role. Eligibility, policy and physical hardware availability
 are separate inputs. Both setters are building-only declarations.
 The scene renderer exposes this policy through the per-view
 `FSceneViewRenderOptions::bEnableAsyncCompute` opt-in, which defaults to false.
-The production contact-shadow compute pass is the first eligible workload;
-fragment contact shadows and all other production passes remain on graphics.
+The production contact-shadow compute and GBuffer GPU-culling passes are eligible
+workloads; fragment contact shadows and other production passes remain on graphics.
 When the allocator or backend cannot provide independent compute, enabling the
 option preserves the graph and maps both roles to graphics.
 Dependencies preserve compiler causes, add FIFO edges within each logical

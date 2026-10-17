@@ -16,6 +16,7 @@ namespace Durin
 		std::string Preparation;
 		std::string AllocationDisposition;
 		uint64 PhysicalAllocationId = 0;
+		uint32 AliasSourceId = UINT32_MAX;
 		std::string ValueType;
 		EPixelFormat TextureFormat = EPixelFormat::Unknown;
 		FIntPoint TextureExtent{0, 0};
@@ -75,7 +76,8 @@ namespace Durin
 	enum class ERDGTransitionKind : uint8
 	{
 		RHIBarrier,
-		PassManaged
+		PassManaged,
+		RasterOrdered
 	};
 
 	// Records one exact pointer-free transition at a pass or graph boundary.
@@ -167,6 +169,9 @@ namespace Durin
 		std::string ParameterStructName;
 		uint32 BufferTransitions = 0;
 		uint32 TextureTransitions = 0;
+		bool bRaster = false;
+		bool bRasterBegin = false;
+		bool bRasterEnd = false;
 	};
 
 	// Owns an immutable diagnostic snapshot independent of graph/RHI lifetimes.

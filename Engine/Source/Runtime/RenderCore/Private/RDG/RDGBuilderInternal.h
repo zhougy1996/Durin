@@ -10,6 +10,7 @@ namespace Durin
 	struct FRDGBuilder::FState
 	{
 		bool bAsyncComputeEnabled = false;
+		bool bTransientAliasingEnabled = false;
 		uint64 CompileMicroseconds = 0;
 		uint64 ExecuteMicroseconds = 0;
 		FRDGPhaseTimings Phases;

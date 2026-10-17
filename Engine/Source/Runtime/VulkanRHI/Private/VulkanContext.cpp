@@ -781,6 +781,16 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	auto FVulkanCommandListContext::RHIAliasingBarrier(const FRHITransientAliasingBarrier& Handoff) -> void
+	{
+		CheckVulkanRHIThread();
+		require(Handoff.After);
+		const vk::MemoryBarrier Barrier(vk::AccessFlagBits::eMemoryRead | vk::AccessFlagBits::eMemoryWrite,
+			vk::AccessFlagBits::eMemoryRead | vk::AccessFlagBits::eMemoryWrite);
+		GetCommandBuffer()->GetHandle().pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
+			vk::PipelineStageFlagBits::eAllCommands, {}, Barrier, {}, {});
+	}
+
 	auto FVulkanCommandListContext::RHITransitionTextures(
 		std::span<const FRHITextureTransition> Transitions) -> void
 	{

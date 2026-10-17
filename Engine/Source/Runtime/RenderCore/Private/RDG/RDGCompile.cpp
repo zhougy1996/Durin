@@ -63,7 +63,7 @@ namespace Durin::RDGPrivate
 			const FGraphResource* Resource = nullptr, uint32 UseIndex = UINT32_MAX,
 			uint32 OtherUseIndex = UINT32_MAX, std::string_view OtherPath = {}) -> FRDGUseErrorContext;
 		auto AddDependencyEdge(FDependencyGraph& Graph, uint32 Before,
-			uint32 After, const std::string& Cause, ERDGDependencyKind Kind)
+			uint32 After, const std::string& Cause, ERDGDependencyKind Kind, bool bRecordingPrerequisite = false)
 			-> std::expected<void, std::variant<FRDGDependencyError, FRDGLimitError>>;
 		auto ValidateGraphResources(std::span<const FGraphResource> Resources)
 			-> std::expected<void, FRDGIdentityError>;
@@ -262,7 +262,7 @@ namespace Durin::RDGPrivate
 		}
 
 		auto AddDependencyEdge(FDependencyGraph& Graph, uint32 Before,
-			uint32 After, const std::string& Cause, ERDGDependencyKind Kind)
+			uint32 After, const std::string& Cause, ERDGDependencyKind Kind, bool bRecordingPrerequisite)
 			-> std::expected<void, std::variant<FRDGDependencyError, FRDGLimitError>>
 		{
 			if (Before >= After)
@@ -274,6 +274,7 @@ namespace Durin::RDGPrivate
 			if (Found != Graph.EdgeIndices.end())
 			{
 				auto& Existing = Graph.Dependencies[Found->second];
+				Existing.bRecordingPrerequisite |= bRecordingPrerequisite;
 				if (Existing.Kind == ERDGDependencyKind::Execution
 					&& Kind != ERDGDependencyKind::Execution)
 				{
@@ -288,7 +289,7 @@ namespace Durin::RDGPrivate
 					Graph.MaxDependencies});
 			}
 			Graph.EdgeIndices.emplace(Key, Graph.Dependencies.size());
-			Graph.Dependencies.push_back({Before, After, Cause, Kind});
+			Graph.Dependencies.push_back({Before, After, Cause, Kind, bRecordingPrerequisite});
 			return {};
 		}
 
@@ -352,7 +353,7 @@ namespace Durin::RDGPrivate
 					if (Prerequisite >= Passes.size())
 						return std::unexpected(FRDGDependencyError{ERDGDependencyError::ProducerHandleInvalid, Prerequisite, PassIndex});
 					if (auto Error = AddDependencyEdge(Graph, Prerequisite, PassIndex, "explicit",
-						ERDGDependencyKind::Explicit); !Error.has_value()) return Error;
+						ERDGDependencyKind::Explicit, true); !Error.has_value()) return Error;
 				}
 				if (!Pass.bDeclarationsValidated)
 					if (auto Error = ValidatePassDeclarations(Pass, Resources); !Error.has_value())
@@ -450,7 +451,7 @@ namespace Durin::RDGPrivate
 						{
 							if (Cell.Producer != std::numeric_limits<uint32>::max())
 								if (auto Error = AddDependencyEdge(Graph, Cell.Producer, PassIndex,
-									Resource.Name, ERDGDependencyKind::Value); !Error.has_value()) return Error;
+										Resource.Name, ERDGDependencyKind::Value, Use.Kind == ERDGResourceKind::Token); !Error.has_value()) return Error;
 							// Passes are visited in declaration order; repeated reads
 							// by this pass can only be the last reader.
 							if (Cell.Readers.empty() || Cell.Readers.back() != PassIndex)
@@ -466,14 +467,14 @@ namespace Durin::RDGPrivate
 							|| (Use.Kind == ERDGResourceKind::Buffer && !bFullBufferDiscard))
 							&& Cell.Producer != std::numeric_limits<uint32>::max())
 							if (auto Error = AddDependencyEdge(Graph, Cell.Producer, PassIndex,
-								Resource.Name, ERDGDependencyKind::Value); !Error.has_value()) return Error;
+								Resource.Name, ERDGDependencyKind::Value, Use.Kind == ERDGResourceKind::Token); !Error.has_value()) return Error;
 						for (uint32 Reader : Cell.Readers)
 							if (auto Error = AddDependencyEdge(Graph, Reader, PassIndex, Resource.Name,
-								ERDGDependencyKind::Execution); !Error.has_value()) return Error;
+								ERDGDependencyKind::Execution, Use.Kind == ERDGResourceKind::Token); !Error.has_value()) return Error;
 						if (Cell.Readers.empty()
 							&& Cell.Producer != std::numeric_limits<uint32>::max())
 							if (auto Error = AddDependencyEdge(Graph, Cell.Producer, PassIndex,
-								Resource.Name, ERDGDependencyKind::Execution); !Error.has_value()) return Error;
+								Resource.Name, ERDGDependencyKind::Execution, Use.Kind == ERDGResourceKind::Token); !Error.has_value()) return Error;
 						Cell.Producer = Use.bStore
 							? PassIndex : std::numeric_limits<uint32>::max();
 						Cell.bProduced = Use.bStore;
@@ -976,6 +977,9 @@ namespace Durin
 					.ParameterLayout = Pass.ParameterLayout,
 					.Parameters = Pass.Parameters,
 					.OptionalAliases = Pass.OptionalAliases.View()};
+				CompiledPass.bRaster = Pass.Raster.has_value();
+				CompiledPass.bRasterBegin = CompiledPass.bRaster;
+				CompiledPass.bRasterEnd = CompiledPass.bRaster;
 				Runtime.ResourceIndices.reserve(Pass.Uses.size());
 				size_t ValueUseCount = 0;
 				size_t BufferUseCount = 0;
@@ -1017,6 +1021,7 @@ namespace Durin
 				const uint32 Before = DeclarationToSubmission[Edge.BeforePass];
 				const uint32 After = DeclarationToSubmission[Edge.AfterPass];
 				require(Before != UINT32_MAX && After != UINT32_MAX && Before < After);
+				if (!Edge.bRecordingPrerequisite) continue;
 				auto& Boundary = CompiledState->RuntimePasses[After].PrerequisiteEnd;
 				Boundary = std::max(Boundary, Before + 1);
 			}
@@ -1107,7 +1112,8 @@ namespace Durin
 					&& UploadBytes <= MaxUploadBatchBytes - UploadBatchBytes;
 				const bool bJoinPasses = Index != 0 && UploadBytes == 0 && UploadBatchBytes == 0
 					// Preserve prompt dispatch of the first ordinary pass to the RHI thread.
-					&& Execution.Batches.size() > 1
+					&& (Execution.Batches.size() > 1
+						|| (CompiledState->Passes[Index - 1].bRaster && CompiledState->Passes[Index].bRaster))
 					&& Execution.Batches.back().Queue == Queue
 					&& Execution.Batches.back().NumPasses < MaxPassesPerSubmission
 					&& !CrossQueueIncoming[Index] && !CrossQueueOutgoing[Index - 1];
@@ -1133,6 +1139,54 @@ namespace Durin
 			}
 			for (auto& Submission : DeclarationToSubmission)
 				if (Submission != UINT32_MAX) Submission = PassToSubmission[Submission];
+			// Merge only inside an existing submission: never move a queue wait,
+			// signal or native boundary across a fork/join frontier.
+			for (uint32 Index = 1; Index < ScheduledCount; ++Index)
+			{
+				auto& Previous = CompiledState->Passes[Index - 1];
+				auto& Current = CompiledState->Passes[Index];
+				if (!Previous.bRaster || !Current.bRaster || PassToSubmission[Index - 1] != PassToSubmission[Index]) continue;
+				const auto& Before = Passes[Previous.DeclarationIndex];
+				const auto& After = Passes[Current.DeclarationIndex];
+				if (!Before.Raster->bAllowMerge || !After.Raster->bAllowMerge
+					|| !Current.Barriers.GetBufferTransitions().empty()) continue;
+				std::vector<const FGraphUse*> Attachments;
+				for (const auto& Use : Before.Uses) if (Use.bGraphAttachment) Attachments.push_back(&Use);
+				size_t Slot = 0;
+				bool bCompatible = true;
+				for (const auto& Use : After.Uses)
+				{
+					if (!Use.bGraphAttachment)
+					{
+						if (Use.Kind != ERDGResourceKind::Token && IsWriteUse(Use.Use)) bCompatible = false;
+						continue;
+					}
+					if (Slot >= Attachments.size()) { bCompatible = false; break; }
+					const auto& Prior = *Attachments[Slot++];
+					if (Use.ResourceIndex != Prior.ResourceIndex || !RangesEqual(Use, Prior)
+						|| Use.Access != Prior.Access || !Prior.bStore || !Use.bStore
+						|| Use.LoadAction != ERHIRenderTargetLoadAction::Load) bCompatible = false;
+				}
+				for (const auto& Use : Before.Uses)
+					if (!Use.bGraphAttachment && Use.Kind != ERDGResourceKind::Token && IsWriteUse(Use.Use)) bCompatible = false;
+				for (const auto& Barrier : Current.Barriers.GetTextureTransitions())
+					if (!std::ranges::any_of(Attachments, [&](const FGraphUse* Use) {
+						return Use->ResourceIndex == Barrier.ResourceId && Use->TextureRange == Barrier.Range
+							&& Barrier.ExpectedBefore == Use->Access && Barrier.RequiredAfter == Use->Access
+							&& !Barrier.bDiscardContents;
+					})) bCompatible = false;
+				if (bCompatible && Slot == Attachments.size())
+				{
+					Previous.bRasterEnd = false;
+					Current.bRasterBegin = false;
+					FBarrierBatchAccess::Textures(Current.Barriers).clear();
+				}
+			}
+			std::erase_if(Execution.Handoffs, [&](const FRDGResourceHandoff& Handoff) {
+				return Handoff.Consumer.Index < ScheduledCount
+					&& CompiledState->Passes[Handoff.Consumer.Index].bRaster
+					&& !CompiledState->Passes[Handoff.Consumer.Index].bRasterBegin;
+			});
 			for (auto& Handoff : Execution.Handoffs)
 			{
 				Handoff.ConsumerPass = Handoff.Consumer.Index;
@@ -1206,6 +1260,81 @@ namespace Durin
 						.LastPass = Lifetime.LastPass,
 						.ObservationTag = Resource.ObservationTag,
 						.bExtracted = Resource.IsExported()});
+				}
+			}
+			// Two logical queue clocks prove every terminal prior user precedes
+			// acquisition. Scalar pass intervals alone cannot prove async ordering.
+			if (State->bTransientAliasingEnabled)
+			{
+				std::vector<std::array<uint32, 2>> Clocks(Execution.Batches.size(), {0, 0});
+				std::vector<std::vector<uint32>> Predecessors(Execution.Batches.size());
+				for (const auto& Edge : Execution.Dependencies)
+					Predecessors[Edge.After.Index].push_back(Edge.Before.Index);
+				for (const auto& Batch : Execution.Batches)
+				{
+					auto& Clock = Clocks[Batch.Id.Index];
+					for (uint32 Before : Predecessors[Batch.Id.Index])
+						for (size_t Queue = 0; Queue != 2; ++Queue)
+							Clock[Queue] = std::max(Clock[Queue], Clocks[Before][Queue]);
+					Clock[static_cast<size_t>(Batch.Queue)] = Batch.Id.Index + 1;
+				}
+				std::vector<std::array<uint32, 2>> LastUsers(ResourceCount, {0, 0});
+				for (uint32 Index = 0; Index < ScheduledCount; ++Index)
+				{
+					const uint32 Submission = PassToSubmission[Index];
+					const auto Queue = static_cast<size_t>(Execution.Batches[Submission].Queue);
+					for (uint32 ResourceId : CompiledState->RuntimePasses[Index].ResourceIndices)
+						LastUsers[ResourceId][Queue] = Submission + 1;
+				}
+				std::map<std::array<uint64, 10>, std::vector<size_t>> AliasBuckets;
+				if (!Execution.Batches.empty() && Execution.Batches.back().bEpilogue)
+				{
+					const uint32 End = Execution.Batches.back().Id.Index + 1;
+					for (const auto& Transition : CompiledState->FinalBarriers.GetTextureTransitions()) LastUsers[Transition.ResourceId][0] = End;
+					for (const auto& Transition : CompiledState->FinalBarriers.GetBufferTransitions()) LastUsers[Transition.ResourceId][0] = End;
+				}
+				for (size_t Index = 0; Index < CompiledState->AllocationRequests.size(); ++Index)
+				{
+					auto& Request = CompiledState->AllocationRequests[Index];
+					const auto& Resource = State->Resources[Request.ResourceId];
+					if (Request.bExtracted || Resource.FinalAccess != ERHIAccess::None
+						|| (Resource.Kind == ERDGResourceKind::Buffer && EnumHasAnyFlags(Resource.BufferDesc.Usage,
+							EBufferUsageFlags::Dynamic | EBufferUsageFlags::KeepCPUAccessible))
+						|| (CompiledState->Passes[Request.FirstPass].bRaster && !CompiledState->Passes[Request.FirstPass].bRasterBegin)) continue;
+					std::array<uint64, 10> Key{};
+					Key[0] = static_cast<uint64>(Request.Kind);
+					if (Request.Kind == ERDGResourceKind::Texture)
+					{
+						const auto& Desc = Request.TextureDesc;
+						Key = {Key[0], uint64(Desc.Dimension), uint64(Desc.Flags), uint64(Desc.Format),
+							uint64(Desc.Extent.x), uint64(Desc.Extent.y), Desc.Depth, Desc.ArraySize, Desc.NumMips, Desc.NumSamples};
+					}
+					else
+					{
+						Key[1] = Request.BufferDesc.Size;
+						Key[2] = Request.BufferDesc.Stride;
+						Key[3] = uint64(Request.BufferDesc.Usage);
+					}
+					auto& AliasTails = AliasBuckets[Key];
+					bool bAssigned = false;
+					for (auto& Tail : AliasTails)
+					{
+						if (!Work.Visit()) return std::unexpected(Work.Error());
+						const auto& Prior = CompiledState->AllocationRequests[Tail];
+						if (Prior.Kind != Request.Kind || Prior.LastPass >= Request.FirstPass) continue;
+						if (Request.Kind == ERDGResourceKind::Texture
+							? !TextureDescriptionsEqual(Prior.TextureDesc, Request.TextureDesc)
+							: !BufferDescriptionsEqual(Prior.BufferDesc, Request.BufferDesc)) continue;
+						const auto& Clock = Clocks[PassToSubmission[Request.FirstPass]];
+						const auto& Last = LastUsers[Prior.ResourceId];
+						if (Clock[0] < Last[0] || Clock[1] < Last[1]) continue;
+						Request.AliasSourceId = Prior.ResourceId;
+						Execution.AliasingHandoffs.push_back({Prior.ResourceId, Request.ResourceId, Request.FirstPass});
+						Tail = Index;
+						bAssigned = true;
+						break;
+					}
+					if (!bAssigned) AliasTails.push_back(Index);
 				}
 			}
 			std::ranges::sort(CompiledState->Dependencies,

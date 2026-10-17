@@ -195,6 +195,8 @@ namespace Durin
 		uint32 AfterPass = 0;
 		std::string Cause;
 		ERDGDependencyKind Kind = ERDGDependencyKind::Execution;
+		// CPU payload/order dependencies constrain callback recording; GPU hazards do not.
+		bool bRecordingPrerequisite = false;
 
 		auto operator==(const FRDGDependency&) const -> bool = default;
 	};
@@ -285,6 +287,14 @@ namespace Durin
 		auto operator==(const FRDGSplitBarrierBatch&) const -> bool = default;
 	};
 
+	struct FRDGAliasingHandoff final
+	{
+		uint32 BeforeResource = 0;
+		uint32 AfterResource = 0;
+		uint32 ConsumerPass = 0;
+		auto operator==(const FRDGAliasingHandoff&) const -> bool = default;
+	};
+
 	// Immutable logical execution data, prepared and replayed through separate state.
 	struct FRDGExecutionPlan final
 	{
@@ -292,6 +302,7 @@ namespace Durin
 		std::vector<FRDGSubmissionDependency> Dependencies;
 		std::vector<FRDGResourceHandoff> Handoffs;
 		std::vector<FRDGSplitBarrierBatch> SplitBarriers;
+		std::vector<FRDGAliasingHandoff> AliasingHandoffs;
 		auto operator==(const FRDGExecutionPlan&) const -> bool = default;
 	};
 
@@ -384,5 +395,8 @@ namespace Durin
 		uint32 DeclarationIndex = 0;
 		std::string ParameterStructName;
 		FRDGBarrierBatch Barriers;
+		bool bRaster = false;
+		bool bRasterBegin = false;
+		bool bRasterEnd = false;
 	};
 } // namespace Durin

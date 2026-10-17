@@ -2846,6 +2846,20 @@ namespace Durin::Tests
 			uint64 LiveBytes = 0, PeakBytes = 0;
 			uint32 Creates = 0, Collections = 0;
 			uint32 FailOnCreate = 0;
+			bool bSupportAliasing = false;
+			uint32 AliasCreates = 0, FailOnAlias = 0;
+			auto RHISupportsTransientAliasing() const -> bool override { return bSupportAliasing; }
+			template<typename Resource> class TAlias final : public Resource
+			{
+			public:
+				template<typename Desc> TAlias(const Desc& Description, Resource* InSource)
+					: Resource(Description), Source(InSource) {}
+				TRefCountPtr<Resource> Source;
+			};
+			auto RHICreateAliasedTexture(const FRHITextureCreateDesc& Desc, FRHITexture* Source) -> FTextureRHIRef override
+			{ if (++AliasCreates == FailOnAlias) return {}; return MakeRefCount<TAlias<FRHITexture>>(Desc, Source); }
+			auto RHICreateAliasedBuffer(const FRHIBufferCreateDesc& Desc, FRHIBuffer* Source) -> FBufferRHIRef override
+			{ if (++AliasCreates == FailOnAlias) return {}; return MakeRefCount<TAlias<FRHIBuffer>>(Desc, Source); }
 			auto Init(const FRHIInitializationContext&) -> void override {}
 			auto Shutdown() -> void override {}
 			auto RHIBeginFrame(const FRHIBeginFrameArgs&) -> void override {}
@@ -2980,6 +2994,51 @@ namespace Durin::Tests
 	}
 
 #if defined(DURIN_RENDERER_RDG_ALLOCATOR_TESTS)
+	TEST(FRendererRDGAllocatorTests, GraphAliasingSharesOnePoolEntryAndRecoversFromAliasCreationFailure)
+	{
+		FAllocatorRenderingThreadScope RenderingThread;
+		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+			FRDGAllocationTestRHI RHI;
+			RHI.bSupportAliasing = true;
+			FRendererResourceCoordinator Coordinator;
+			FRendererRDGAllocator Allocator(Coordinator);
+			uint32 Callbacks = 0;
+			auto Execute = [&]() {
+				FRHICommandListExecutor Executor;
+				FRDGBuilder Graph;
+				Graph.SetTransientAliasingEnabled(true);
+				for (uint32 Index = 0; Index != 3; ++Index)
+				{
+					const auto Buffer = Graph.CreateBuffer({.Buffer = FRHIBufferDesc(64, 4, EBufferUsageFlags::UnorderedAccess)}, std::format("Buffer{}", Index));
+					const auto Pass = FRDGBuilderTestAccessor::AddPass(Graph, std::format("Write{}", Index), ERDGPassType::Compute,
+						[&](FRHICommandListImmediate&, const FRDGPassResources&) { ++Callbacks; });
+					FRDGBuilderTestAccessor::UseBuffer(Graph, Pass, Buffer, 0, 64, ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+				}
+				const auto Result = Graph.Execute(Executor.GetImmediateCommandList(), &Allocator);
+				if (Result)
+				{
+					const auto Capture = Graph.Capture();
+					EXPECT_EQ(Capture.AllocationStatistics.ActiveBytes, 64u);
+					EXPECT_EQ(Capture.AllocationStatistics.RetainedResources, 1u);
+					EXPECT_EQ(Capture.Resources[0].PhysicalAllocationId, Capture.Resources[2].PhysicalAllocationId);
+				}
+				return Result;
+			};
+			ASSERT_TRUE(Execute());
+			ASSERT_TRUE(Execute());
+			EXPECT_EQ(RHI.Creates, 1u);
+			EXPECT_EQ(RHI.AliasCreates, 4u);
+			EXPECT_EQ(Callbacks, 6u);
+			RHI.FailOnAlias = 6;
+			EXPECT_FALSE(Execute());
+			EXPECT_EQ(Callbacks, 6u);
+			RHI.FailOnAlias = 0;
+			ASSERT_TRUE(Execute());
+			EXPECT_EQ(Callbacks, 9u);
+		});
+		FlushRenderingCommands();
+	}
+
 	TEST(FRendererRDGAllocatorTests, CreationFailureAbortsGraphAndNextExecutionCanSucceed)
 	{
 		FAllocatorRenderingThreadScope RenderingThread;

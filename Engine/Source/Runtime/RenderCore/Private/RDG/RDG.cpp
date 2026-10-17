@@ -916,6 +916,24 @@ namespace Durin
 		State->Passes[Pass.Index].RootReason = std::string(Reason);
 	}
 
+	auto FRDGBuilder::SetRasterPass(FRDGPassHandle Pass, const FRDGRasterPassOptions& Options) -> void
+	{
+		RequireBuilding();
+		if (!Pass.IsValid() || Pass.Owner != State->Owner || Pass.Index >= State->Passes.size()) return;
+		auto& Declaration = State->Passes[Pass.Index];
+		uint32 Colors = 0, Depths = 0;
+		for (const auto& Use : Declaration.Uses)
+		{
+			requiref(!Use.bPassManagedTransition, "Graph raster passes cannot contain managed transitions.");
+			if (!Use.bGraphAttachment) continue;
+			if (Use.Access == ERHIAccess::ColorAttachmentReadWrite) ++Colors;
+			else ++Depths;
+		}
+		requiref(Colors <= MaxSimultaneousRenderTargets && Depths <= 1 && Colors + Depths != 0,
+			"Graph raster passes require supported ordinary attachment bindings.");
+		Declaration.Raster = Options;
+	}
+
 	auto FRDGBuilder::SetPassAsyncComputeEligible(FRDGPassHandle Pass, bool bEligible) -> void
 	{
 		RequireBuilding();
@@ -933,6 +951,12 @@ namespace Durin
 	{
 		RequireBuilding();
 		State->bAsyncComputeEnabled = bEnabled;
+	}
+
+	auto FRDGBuilder::SetTransientAliasingEnabled(bool bEnabled) -> void
+	{
+		RequireBuilding();
+		State->bTransientAliasingEnabled = bEnabled;
 	}
 
 	auto FRDGBuilder::EnablePassCulling() -> void

@@ -99,6 +99,13 @@ namespace Durin
 			TRDGParametersRef<ParameterStruct>&& Parameters, ExecuteFunction&& ExecuteCallback,
 			ERDGRecordingPolicy Policy = ERDGRecordingPolicy::Serial) -> FRDGPassHandle;
 		// Optional scheduling policy and explicit dependencies.
+		// The graph opens/closes the native raster pass. The callback records its body only.
+		template<typename ParameterStruct, typename ExecuteFunction>
+		requires CRDGParameters<ParameterStruct>
+			&& std::invocable<ExecuteFunction&, FRHICommandListImmediate&, const ParameterStruct&, const FRDGParameterResolver&>
+		auto AddRasterPass(std::string_view Name, TRDGParametersRef<ParameterStruct>&& Parameters,
+			ExecuteFunction&& ExecuteCallback, const FRDGRasterPassOptions& Options = {}) -> FRDGPassHandle;
+
 		// Building only: Producer must precede Consumer in this builder. Retaining
 		// Consumer retains Producer; invalid declarations fail compilation.
 		RENDERCORE_API auto AddPassDependency(FRDGPassHandle Producer,
@@ -110,6 +117,7 @@ namespace Durin
 		// that an independent physical queue is available during execution.
 		RENDERCORE_API auto SetPassAsyncComputeEligible(FRDGPassHandle Pass, bool bEligible = true) -> void;
 		RENDERCORE_API auto SetAsyncComputeEnabled(bool bEnabled) -> void;
+		RENDERCORE_API auto SetTransientAliasingEnabled(bool bEnabled) -> void;
 		RENDERCORE_API auto SetBudget(const FRDGBudget& Budget) -> void;
 
 		// 3. Compile, prepare, record, and publish outputs in one execution.
@@ -137,6 +145,7 @@ namespace Durin
 		RENDERCORE_API auto Dump() const -> std::string;
 
 	private:
+		RENDERCORE_API auto SetRasterPass(FRDGPassHandle Pass, const FRDGRasterPassOptions& Options) -> void;
 		auto FindTextureUploadDesc(FRDGTextureHandle Texture) -> const FRHITextureDesc*;
 		auto QueueTextureUploadData(FRDGTextureHandle Texture,
 			std::shared_ptr<const FRHITextureUploadData> Data) -> FRDGPassHandle;

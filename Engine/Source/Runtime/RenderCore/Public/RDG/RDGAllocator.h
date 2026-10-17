@@ -67,6 +67,9 @@ namespace Durin
 		// Their counted references own them thereafter; no implicit pool return.
 		bool bExtracted = false;
 		std::shared_ptr<const FRDGAllocationRetirement> Retirement;
+		// Immediate predecessor sharing compatible backing, proven by submission reachability.
+		// Unsupported allocators may allocate independent storage instead.
+		uint32 AliasSourceId = UINT32_MAX;
 	};
 
 	struct FRDGAllocationStatistics final
@@ -88,10 +91,10 @@ namespace Durin
 	public:
 		auto SetTexture(uint32 ResourceId, FTextureRHIRef Texture,
 			uint64 AllocationId = 0,
-			std::string_view Disposition = "allocated") -> bool;
+			std::string_view Disposition = "allocated", uint32 AliasSourceId = UINT32_MAX) -> bool;
 		auto SetBuffer(uint32 ResourceId, FBufferRHIRef Buffer,
 			uint64 AllocationId = 0,
-			std::string_view Disposition = "allocated") -> bool;
+			std::string_view Disposition = "allocated", uint32 AliasSourceId = UINT32_MAX) -> bool;
 		auto SetStatistics(const FRDGAllocationStatistics& InStatistics) -> void
 		{
 			Statistics = InStatistics;
@@ -103,6 +106,7 @@ namespace Durin
 		std::vector<FTextureRHIRef> Textures;
 		std::vector<FBufferRHIRef> Buffers;
 		std::vector<uint64> AllocationIds;
+		std::vector<uint32> AliasSources;
 		std::vector<std::string> AllocationDispositions;
 		FRDGAllocationStatistics Statistics;
 	};
