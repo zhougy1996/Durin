@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import re
 
 from durin_header_tool.parser.cpp_source_scanner import CppSourceScanner
+from durin_header_tool.parser.source_context import HeaderSourceContext, source_context_for
 
 _INCLUDE_PATTERN = re.compile(r'^[ \t]*#[ \t]*include\b[^\r\n]*$', re.MULTILINE)
 
@@ -180,9 +181,9 @@ def _class_specifiers_from_payload(
     )
 
 
-def _replace_macro_calls(source: str, macro_name: str, replacement) -> str:
+def _replace_macro_calls(source: str, macro_name: str, replacement, *, context: HeaderSourceContext | None = None) -> str:
     pattern = re.compile(rf"\b{re.escape(macro_name)}\s*\(")
-    scanner = CppSourceScanner(source)
+    scanner = source_context_for(source, context).scanner
     search_from = 0
     pieces: list[str] = []
     output_from = 0
@@ -211,16 +212,30 @@ def _replace_macro_calls(source: str, macro_name: str, replacement) -> str:
         pieces.extend((source[output_from:match.start()], replacement_text))
         output_from = closing_parenthesis + 1
         search_from = closing_parenthesis + 1
+    if not pieces:
+        # Keep snapshot identity when no marker was rewritten.
+        return source
     pieces.append(source[output_from:])
     return "".join(pieces)
 
 
-def _make_dht_parse_source(source: str) -> tuple[str, dict[int, _DMetaUse]]:
+def _make_dht_parse_source(source: str, *, context: HeaderSourceContext | None = None) -> tuple[str, dict[int, _DMetaUse]]:
     # Includes are deliberately not part of DHT's semantic input. Replacing
     # directive text while retaining its newline keeps every later source
     # location stable for generated-body and metadata diagnostics.
-    source = _INCLUDE_PATTERN.sub("", source)
+    if context is not None:
+        source = source_context_for(source, context).source
+    stripped_source = _INCLUDE_PATTERN.sub("", source)
+    if stripped_source != source:
+        source = stripped_source
+        context = None
     dmeta_uses: dict[int, _DMetaUse] = {}
+
+    def rewrite_marker(macro_name: str, replacement) -> None:
+        nonlocal source, context
+        if context is None or context.source is not source:
+            context = HeaderSourceContext(source)
+        source = _replace_macro_calls(source, macro_name, replacement, context=context)
 
     def replace_dmeta(payload: str, line: int, column: int) -> str:
         _display_name_from_payload(payload, "DMETA", line, column)
@@ -230,7 +245,7 @@ def _make_dht_parse_source(source: str) -> tuple[str, dict[int, _DMetaUse]]:
 
     # Record DMETA before rewriting other markers so diagnostics retain its
     # original source location even when markers share a line.
-    source = _replace_macro_calls(source, "DMETA", replace_dmeta)
+    rewrite_marker("DMETA", replace_dmeta)
     def replace_dclass(payload: str, line: int, column: int) -> str:
         _class_specifiers_from_payload(payload, line, column)
         return (
@@ -238,7 +253,7 @@ def _make_dht_parse_source(source: str) -> tuple[str, dict[int, _DMetaUse]]:
             f"void DHT_CLASS_{line}_{column}();"
         )
 
-    source = _replace_macro_calls(source, "DCLASS", replace_dclass)
+    rewrite_marker("DCLASS", replace_dclass)
     def replace_dstruct(payload: str, line: int, column: int) -> str:
         _display_name_from_payload(payload, "DSTRUCT", line, column)
         return (
@@ -246,7 +261,7 @@ def _make_dht_parse_source(source: str) -> tuple[str, dict[int, _DMetaUse]]:
             f"void DHT_STRUCT_{line}_{column}();"
         )
 
-    source = _replace_macro_calls(source, "DSTRUCT", replace_dstruct)
+    rewrite_marker("DSTRUCT", replace_dstruct)
 
     def replace_denum(payload: str, line: int, column: int) -> str:
         _display_name_from_payload(payload, "DENUM", line, column)
@@ -255,21 +270,20 @@ def _make_dht_parse_source(source: str) -> tuple[str, dict[int, _DMetaUse]]:
             f"void DHT_ENUM_{line}_{column}();"
         )
 
-    source = _replace_macro_calls(source, "DENUM", replace_denum)
+    rewrite_marker("DENUM", replace_denum)
     def replace_dproperty(payload: str, line: int, column: int) -> str:
         _validate_property_payload(payload, line, column)
         return f'__attribute__((annotate("{_annotation_payload("DPROPERTY", payload)}")))'
 
-    source = _replace_macro_calls(source, "DPROPERTY", replace_dproperty)
+    rewrite_marker("DPROPERTY", replace_dproperty)
 
     def replace_dfunction(payload: str, line: int, column: int) -> str:
         from durin_header_tool.parser.function_parser import function_metadata
         function_metadata(payload, f"DFUNCTION at line {line}, column {column}")
         return f'__attribute__((annotate("{_annotation_payload("DFUNCTION", payload)}")))'
 
-    source = _replace_macro_calls(source, "DFUNCTION", replace_dfunction)
-    source = _replace_macro_calls(
-        source,
+    rewrite_marker("DFUNCTION", replace_dfunction)
+    rewrite_marker(
         "GENERATED_BODY",
         lambda _payload, _line, _column: "void DHT_GENERATED_BODY();",
     )

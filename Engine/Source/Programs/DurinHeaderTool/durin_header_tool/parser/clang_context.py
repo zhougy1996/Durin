@@ -9,9 +9,10 @@ import clang.cindex
 from durin_header_tool import config as configs
 from durin_header_tool.model.export_info import ExportedSymbolInfo
 from durin_header_tool.parser.annotation_rewriter import _DMetaUse, _make_dht_parse_source
+from durin_header_tool.parser.source_context import HeaderSourceContext, source_context_for
 
 ExportedSymbols: TypeAlias = dict[str, ExportedSymbolInfo]
-PARSER_CONTEXT_VERSION = "target-predefines-v16-function-defaults"
+PARSER_CONTEXT_VERSION = "target-predefines-v20-canonical-source-context"
 _FILE_ID_READABLE_PREFIX_LENGTH = 48
 _INCLUDE_PATTERN = re.compile(r'^[ \t]*#[ \t]*include\b[^\r\n]*$', re.MULTILINE)
 _TYPE_DECLARATION_PATTERN = re.compile(r"\b(?:class|struct|enum(?:\s+class)?)\s+([A-Za-z_]\w*)")
@@ -68,7 +69,7 @@ def _clang_args(module_name: str, export_mode: bool) -> list[str]:
     return args
 
 
-def _validate_preprocessor_context(source: str) -> None:
+def _validate_preprocessor_context(source: str, *, context: HeaderSourceContext | None = None) -> None:
     known_macros = {
         "_DHT_PARSER",
         "_DHT_EXPORTS_PARSER",
@@ -86,12 +87,29 @@ def _validate_preprocessor_context(source: str) -> None:
         "__x86_64__",
     }
     locally_defined: set[str] = set()
-    for line_number, line in enumerate(source.splitlines(), start=1):
-        directive = re.match(r"\s*#\s*(define|undef|ifdef|ifndef|if|elif)\b(.*)", line)
-        if not directive:
+    scanner = source_context_for(source, context).scanner
+    offset = 0
+    for line_number, line in enumerate(source.splitlines(keepends=True), start=1):
+        line_start = offset
+        offset += len(line)
+        if "#" not in line:
             continue
-        kind, payload = directive.groups()
-        payload = payload.strip()
+        # Comments are whitespace before a directive as well as inside its
+        # condition. Keep offsets intact so the original lexical states also
+        # exclude apparent directives inside multiline string literals.
+        uncommented = "".join(
+            " " if scanner.is_comment_position(line_start + index) else character
+            for index, character in enumerate(line)
+        )
+        directive = re.match(r"\s*(#)\s*(define|undef|ifdef|ifndef|if|elif)\b(.*)", uncommented)
+        if not directive or not scanner.is_code_position(line_start + directive.start(1)):
+            continue
+        kind = directive.group(2)
+        payload_start = line_start + directive.start(3)
+        payload = "".join(
+            character if scanner.is_code_position(payload_start + index) else " "
+            for index, character in enumerate(directive.group(3))
+        ).strip()
         if kind == "define":
             name = re.match(r"([A-Za-z_]\w*)", payload)
             if name:
@@ -209,9 +227,11 @@ def _parse_translation_unit(
     source: str,
     export_mode: bool,
     exported_symbols: ExportedSymbols | None = None,
+    *,
+    context: HeaderSourceContext | None = None,
 ) -> tuple[clang.cindex.TranslationUnit, dict[int, _DMetaUse]]:
     index = clang.cindex.Index.create()
-    parsed_source, dmeta_uses = _make_dht_parse_source(source)
+    parsed_source, dmeta_uses = _make_dht_parse_source(source, context=context)
     prelude_path = header_path.parent / f".__dht_prelude_{header_path.stem}.h"
     unsaved_files = [
         (str(header_path), parsed_source),

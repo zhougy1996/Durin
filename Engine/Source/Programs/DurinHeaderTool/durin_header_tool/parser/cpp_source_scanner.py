@@ -45,6 +45,16 @@ class CppSourceScanner:
                 position = end
                 continue
 
+            character = self.source[position]
+            if character in "0123456789" or (
+                character == "." and position + 1 < len(self.source)
+                and self.source[position + 1] in "0123456789"
+            ):
+                end = self._number_end(position)
+                if end is not None:
+                    position = end
+                    continue
+
             raw_end = self._raw_string_end(position)
             if raw_end is not None:
                 states[position:raw_end] = [self._RAW_STRING] * (raw_end - position)
@@ -73,6 +83,27 @@ class CppSourceScanner:
 
             position += 1
         return states
+
+    def _number_end(self, position: int) -> int | None:
+        # Consume preprocessing-number tokens, not numeric values. Apostrophes
+        # inside these tokens are separators; other quotes still start character
+        # literals, including the quote after an identifier prefix such as u8.
+        if position and (self.source[position - 1].isalnum() or self.source[position - 1] == "_"):
+            return None
+        end = position + 1
+        while end < len(self.source):
+            character = self.source[end]
+            if character.isalnum() or character in "_.":
+                end += 1
+            elif character in "+-" and self.source[end - 1] in "eEpP":
+                end += 1
+            elif character == "'" and end + 1 < len(self.source) and (
+                self.source[end + 1].isalnum() or self.source[end + 1] == "_"
+            ):
+                end += 1
+            else:
+                break
+        return end
 
     def _raw_string_end(self, position: int) -> int | None:
         if self.source[position:position + 2] != 'R"':

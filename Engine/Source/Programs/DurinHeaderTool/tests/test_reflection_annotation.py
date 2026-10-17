@@ -327,6 +327,40 @@ namespace Fixture
         ):
             parse_reflection_header("Fixture", header)
 
+    @pytest.mark.parametrize("export_mode", [False, True])
+    def test_commented_conditions_do_not_block_later_reflected_declarations(self, export_mode):
+        header = "Public/CommentedConditional.h"
+        (self.module_dir / header).write_text('''/*
+#if DOCUMENTATION_FEATURE
+#define DOCUMENTATION_FEATURE 1
+#endif
+*/
+const char* Example = R"example(
+#ifndef STRING_FEATURE
+#endif
+)example";
+#if NDEBUG // This comment is not a macro dependency.
+DCLASS()
+class FConditional {
+    GENERATED_BODY()
+    DPROPERTY()
+    int32 Value;
+    DFUNCTION()
+    void Run();
+};
+#endif
+''', encoding="utf-8")
+        config = DurinModuleConfig(module_name="Fixture", module_dir=self.module_dir, reflect_headers=[header])
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+        ):
+            info = parse_reflection_header("Fixture", header, export_mode=export_mode)
+        assert [c.short_name for c in info.classes] == ["FConditional"]
+        assert info.classes[0].generated_body_line > 0
+        assert [p.name for p in info.classes[0].properties] == ["Value"]
+        assert [f.name for f in info.classes[0].functions] == ["Run"]
+
     def test_target_predefines_are_truthful_and_non_overlapping(self):
         from durin_header_tool.parser.clang_context import _clang_args
 

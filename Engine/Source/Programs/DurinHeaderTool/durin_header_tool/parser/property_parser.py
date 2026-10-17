@@ -23,6 +23,7 @@ from durin_header_tool.model.reflection_info import (
     ReflectedStructInfo,
 )
 from durin_header_tool.parser.cpp_source_scanner import CppSourceScanner
+from durin_header_tool.parser.source_context import HeaderSourceContext, source_context_for
 from durin_header_tool.resolver.reflection_resolver import (
     resolve_symbol,
     resolve_symbol_name,
@@ -30,7 +31,6 @@ from durin_header_tool.resolver.reflection_resolver import (
 )
 
 from durin_header_tool.parser.reflection_ast_helpers import (
-    _cursor_source_line_range,
     _get_annotation,
     _qualified_name,
 )
@@ -44,18 +44,26 @@ _BYTE_BUFFER_TYPE_SPELLINGS = frozenset(("FByteBuffer", "Durin::FByteBuffer", ":
 
 @dataclass(frozen=True)
 class HeaderPropertyContext:
-    source: str
-    scanner: CppSourceScanner
-    lines: tuple[str, ...]
+    source_context: HeaderSourceContext
     soft_object_aliases: frozenset[str]
     weak_object_aliases: frozenset[str]
 
+    @property
+    def source(self) -> str:
+        return self.source_context.source
+
+    @property
+    def scanner(self) -> CppSourceScanner:
+        return self.source_context.scanner
+
+    @property
+    def lines(self) -> tuple[str, ...]:
+        return self.source_context.lines
+
     @classmethod
-    def from_source(cls, source: str) -> "HeaderPropertyContext":
+    def from_source(cls, source: str, *, source_context: HeaderSourceContext | None = None) -> "HeaderPropertyContext":
         return cls(
-            source=source,
-            scanner=CppSourceScanner(source),
-            lines=tuple(source.splitlines()),
+            source_context=source_context_for(source, source_context),
             soft_object_aliases=frozenset(_soft_object_alias_names(source)),
             weak_object_aliases=frozenset(_weak_object_alias_names(source)),
         )
@@ -490,18 +498,15 @@ def _scan_source_properties_for_class(
 ) -> list[ReflectedPropertyInfo]:
     context = context or HeaderPropertyContext.from_source(source)
     properties: list[ReflectedPropertyInfo] = []
-    start_line, end_line = _cursor_source_line_range(source, class_cursor)
-    if start_line == 0:
+    source_context = source_context_for(source, context.source_context)
+    start_line = class_cursor.extent.start.line
+    bounds = source_context.scope_bounds(start_line, class_cursor.extent.start.column)
+    if bounds is None:
         return properties
 
     scanner = context.scanner
-    class_start = scanner.position_from_line_column(start_line, class_cursor.extent.start.column)
-    opening_brace = scanner.find_next_code_position("{", class_start)
-    if opening_brace is None:
-        return properties
-    closing_brace = scanner.find_matching_brace(opening_brace)
-    if closing_brace is None:
-        return properties
+    opening_brace, closing_brace = bounds
+    end_line = scanner.line_number(closing_brace)
 
     in_class = False
     pending_annotation = ""

@@ -16,6 +16,7 @@ from durin_header_tool.model.reflection_info import (
     ReflectedStructInfo,
 )
 from durin_header_tool.parser.cpp_source_scanner import CppSourceScanner
+from durin_header_tool.parser.source_context import HeaderSourceContext
 from durin_header_tool.parser.function_parser import parse_functions, validate_function_inheritance
 from durin_header_tool.resolver.reflection_resolver import (
     resolve_symbol,
@@ -178,7 +179,8 @@ def parse_reflection_header(
     module_config = configs.get_module_config(module_name)
     header_path = (module_config.module_dir / header).resolve()
     source = header_path.read_text(encoding="utf-8")
-    _validate_preprocessor_context(source)
+    source_context = HeaderSourceContext(source)
+    _validate_preprocessor_context(source, context=source_context)
     tu, dmeta_uses = _parse_translation_unit(
         module_name,
         header,
@@ -186,15 +188,21 @@ def parse_reflection_header(
         source,
         export_mode,
         exported_symbols,
+        context=source_context,
     )
     skipped_lines = _skipped_source_lines(tu, header_path)
-    source = "".join(
-        "".join("\n" if char == "\n" else " " for char in line)
-        if number in skipped_lines else line
-        for number, line in enumerate(source.splitlines(keepends=True), start=1)
-    )
+    if skipped_lines:
+        source = "".join(
+            "".join("\n" if char == "\n" else " " for char in line)
+            if number in skipped_lines else line
+            for number, line in enumerate(source.splitlines(keepends=True), start=1)
+        )
     dmeta_uses = {key: use for key, use in dmeta_uses.items() if use.line not in skipped_lines}
-    property_context = HeaderPropertyContext.from_source(source)
+    if source != source_context.source:
+        source_context = HeaderSourceContext(source)
+    # Masking may produce an equal copy; keep subsequent checks identity-only.
+    source = source_context.source
+    property_context = HeaderPropertyContext.from_source(source, source_context=source_context)
 
     classes: list[ReflectedClassInfo] = []
     enums: list[ReflectedEnumInfo] = []
@@ -234,7 +242,7 @@ def parse_reflection_header(
                     header=header,
                     api=module_config.api_macro,
                     namespace_path=namespace_path,
-                    generated_body_line=_scan_generated_body_line(source, child),
+                    generated_body_line=_scan_generated_body_line(source, child, context=source_context),
                     legacy_names=_string_list_metadata_from_annotation(
                         pending_dstruct_annotation, "LegacyNames"
                     ),
@@ -283,7 +291,7 @@ def parse_reflection_header(
                 class_specifiers = _class_specifiers_from_payload(
                     class_payload, child.location.line, child.location.column
                 )
-                source_base_name = _source_base_name(source, child)
+                source_base_name = _source_base_name(source, child, context=source_context)
                 ast_base_name = _base_qualified_name(child)
                 base_qualified_name = source_base_name or ast_base_name
                 if exported_symbols and source_base_name and ast_base_name:
@@ -313,7 +321,7 @@ def parse_reflection_header(
                     api=module_config.api_macro,
                     namespace_path=namespace_path,
                     base_qualified_name=base_qualified_name,
-                    generated_body_line=_scan_generated_body_line(source, child),
+                    generated_body_line=_scan_generated_body_line(source, child, context=source_context),
                     is_abstract=class_specifiers.is_abstract,
                     no_class_default_object=class_specifiers.no_class_default_object,
                     display_name=class_specifiers.display_name,
@@ -392,7 +400,7 @@ def parse_reflection_header(
     def count_function_marker(payload, line, column):
         function_markers.append((line, column))
         return ""
-    _replace_macro_calls(source, "DFUNCTION", count_function_marker)
+    _replace_macro_calls(source, "DFUNCTION", count_function_marker, context=source_context)
     if len(function_markers) != sum(len(c.functions) for c in classes):
         raise ValueError(f"{header}: DFUNCTION requires a supported method in a reflected DCLASS; "
                          "templates and unattached annotations are unsupported")

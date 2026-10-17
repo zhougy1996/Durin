@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 SYMBOL_NAME_SCHEME = "namespace-scoped-v2"
-TOOL_VERSION = "33"
+TOOL_VERSION = "37"
 
 
 @dataclass(frozen=True, order=True)

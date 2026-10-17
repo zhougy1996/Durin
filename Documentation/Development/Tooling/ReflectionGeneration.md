@@ -30,6 +30,11 @@ meaning exists only in an ordinary included header is rejected with a stable
 non-hermetic-dependency diagnostic. Meanings declared directly in the current
 header remain valid.
 
+Preprocessor dependency checks use lexical code positions. Directive examples in
+comments or string literals do not affect conditional validation or the set of
+locally defined macros. Comments surrounding real directives or inside their
+conditions are whitespace, and diagnostics retain original source line numbers.
+
 Reflected base and property type lookup follows a deterministic subset of C++
 namespace lookup. An unqualified spelling is tried in the declaring namespace,
 then each enclosing namespace, and finally the global namespace. A relatively
@@ -59,6 +64,25 @@ Clang translation units are parsed without function bodies. Reflection consumes
 declaration signatures, fields, constructor and destructor declarations, enum
 constants, and annotation attributes; inline implementation bodies are outside
 the reflection model and must not be made an extraction dependency.
+
+Source scanning recognizes digit separators inside numeric preprocessing tokens,
+including decimal, hexadecimal, binary, octal, and floating-point spellings.
+Separators in ordinary initializers or skipped function bodies cannot hide later
+reflection markers. Numeric value validity remains the native compiler's concern;
+character literals and their encoding prefixes retain their own lexical state.
+
+Each header parse owns a `HeaderSourceContext` for its immutable source snapshot.
+Preprocessor validation, property recovery, type-range queries, generated-body
+lookup, base-declaration lookup, and function-marker admission share its scanner
+and a lazily created line table. Scope bounds and generated-body lines are computed
+once on demand. Unchanged masking results retain the original source object so
+per-type context checks use identity rather than repeated whole-text comparisons.
+Annotation rewriting reuses a context while text is unchanged and replaces it
+when a rewrite changes the source; its initial pass also reuses the parser's
+context when include removal leaves the source unchanged. Conditional-branch
+masking creates a new context only when its text differs. Contexts are not cached across headers,
+parse calls, targets, or runtime variants, and explicit reuse with different
+source text is rejected.
 
 DFUNCTION parameter extraction separates the declaration from its default
 initializer tokens. Native default expressions do not participate in reflected
@@ -219,7 +243,7 @@ The hermetic prelude declares all referenced identities before ancestor methods.
 The public export contract uses schema v12. Private export-phase state v3
 retains unresolved bare names as `Named` until the complete symbol set resolves
 them to `Struct` or `Enum`, including map keys. Resolved exports reject `Named`
-and unsupported map keys. Tool identity v33 and parser context v16 invalidate
+and unsupported map keys. Tool identity v37 and parser context v20 invalidate
 previous generated sources and cached parse models. Primitive spellings, object
 wrappers, and reference qualifiers share the same function type definitions
 between parsing, synthetic ancestor declarations, and generated thunks.

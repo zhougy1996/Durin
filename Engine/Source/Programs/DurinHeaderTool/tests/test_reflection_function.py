@@ -29,6 +29,51 @@ def declaration(method):
     return "DCLASS() class AActions { GENERATED_BODY() " + method + " };"
 
 
+@pytest.mark.parametrize("numeric_declaration", [
+    "int Plain = 1'000;",
+    "void Helper() { int Local = 1'000; }",
+    "DFUNCTION() int Run(int Value = 1'000);",
+])
+def test_digit_separators_do_not_hide_later_reflection_markers(tmp_path, numeric_declaration):
+    source = '''
+    DCLASS()
+    class AActions {
+        GENERATED_BODY()
+        ''' + numeric_declaration + '''
+        DFUNCTION() void Next();
+        DPROPERTY()
+        int32 Later;
+    };
+    DENUM() enum class EAfter : int { Ready DMETA(DisplayName = "Ready") = 1 };
+    DSTRUCT()
+    struct FAfter {
+        GENERATED_BODY()
+        DPROPERTY()
+        int32 Value;
+    };
+    DCLASS()
+    class AAfter {
+        GENERATED_BODY()
+        DFUNCTION() void Last();
+    };
+    '''
+    info = parse(tmp_path, source)
+    assert [c.short_name for c in info.classes] == ["AActions", "AAfter"]
+    first = info.classes[0]
+    assert [f.name for f in first.functions] == (["Run", "Next"] if "DFUNCTION" in numeric_declaration else ["Next"])
+    assert [p.name for p in first.properties] == ["Later"]
+    assert [f.name for f in info.classes[1].functions] == ["Last"]
+    assert info.classes[1].generated_body_line > 0
+    assert [e.short_name for e in info.enums] == ["EAfter"]
+    assert [s.short_name for s in info.structs] == ["FAfter"]
+    assert [p.name for p in info.structs[0].properties] == ["Value"]
+    generated = generate_cpp_content(info, {})
+    assert "Invoke_Next" in generated and "Invoke_Last" in generated
+    if "DFUNCTION" in numeric_declaration:
+        assert first.functions[0].parameters[0].default_value == "1000LL"
+        assert "static_cast<::int32>(1000LL)" in generated
+
+
 def test_private_virtual_noexcept_function_generation(tmp_path):
     info = parse(tmp_path, declaration('private: DFUNCTION(CallInEditor, DisplayName="Do, It") virtual void Run() noexcept;'))
     function = info.classes[0].functions[0]

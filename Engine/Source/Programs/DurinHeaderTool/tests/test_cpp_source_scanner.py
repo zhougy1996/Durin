@@ -66,3 +66,24 @@ def test_scanner_maps_source_positions():
 def test_scanner_reports_unterminated_quoted_arguments():
     with pytest.raises(ValueError, match="unterminated quoted string"):
         CppSourceScanner('DisplayName = "broken').split_macro_arguments()
+
+
+@pytest.mark.parametrize("literal", [
+    "1'000", "1'000'000ULL", "0xCA'FE", "0b1010'0011", "07'77",
+    "1.2'5e+1'0", ".1'25", "0x1.a'fp+1'0", "1'000.0f",
+])
+def test_numeric_separators_leave_following_markers_and_delimiters_in_code(literal):
+    source = f"Factory({literal}, {{ 2, 3 }}) DFUNCTION()"
+    scanner = CppSourceScanner(source)
+    assert scanner.is_code_position(source.index("DFUNCTION"))
+    assert all(scanner.is_code_position(index) for index, character in enumerate(source) if character == "'")
+    assert scanner.find_matching_parenthesis(source.index("(")) == source.index(")")
+    assert CppSourceScanner(f"{literal}, Next").split_macro_arguments() == [literal, " Next"]
+
+
+@pytest.mark.parametrize("literal", ["'1'", "u8'1'", "u'1'", "U'1'", "L'1'", r"'\''"])
+def test_numeric_token_detection_preserves_character_literals(literal):
+    source = f"{literal}; DFUNCTION()"
+    scanner = CppSourceScanner(source)
+    assert not scanner.is_code_position(source.index("'"))
+    assert scanner.is_code_position(source.index("DFUNCTION"))

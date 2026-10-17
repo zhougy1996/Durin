@@ -2,9 +2,7 @@ import re
 
 import clang.cindex
 from durin_header_tool.model.reflection_info import NamespaceSegment
-from durin_header_tool.parser.cpp_source_scanner import CppSourceScanner
-
-_GENERATED_BODY_PATTERN = re.compile(r"\bGENERATED_BODY\s*\(")
+from durin_header_tool.parser.source_context import HeaderSourceContext, source_context_for
 
 
 def _get_annotation(cursor: clang.cindex.Cursor) -> str:
@@ -56,41 +54,22 @@ def _qualified_name(cursor: clang.cindex.Cursor) -> str:
     return f"{namespace}::{cursor.spelling}" if namespace else cursor.spelling
 
 
-def _source_scope_end_line(source: str, start_line: int, start_column: int) -> int:
-    scanner = CppSourceScanner(source)
-    position = scanner.position_from_line_column(start_line, start_column)
-    opening_brace = scanner.find_next_code_position("{", position)
-    if opening_brace is None:
-        return 0
-    closing_brace = scanner.find_matching_brace(opening_brace)
-    if closing_brace is not None:
-        return scanner.line_number(closing_brace)
-    return 0
+def _cursor_source_line_range(source: str, cursor: clang.cindex.Cursor, *,
+                              context: HeaderSourceContext | None = None) -> tuple[int, int]:
+    context = source_context_for(source, context)
+    return context.scope_line_range(cursor.extent.start.line, cursor.extent.start.column)
 
 
-def _cursor_source_line_range(source: str, cursor: clang.cindex.Cursor) -> tuple[int, int]:
-    scanner = CppSourceScanner(source)
-    line_count = scanner.line_count
-    start_line = cursor.extent.start.line
-    if start_line <= 0 or start_line > line_count:
-        return 0, 0
-    end_line = _source_scope_end_line(source, start_line, cursor.extent.start.column)
-    return (start_line, end_line) if end_line >= start_line else (0, 0)
-
-
-def _scan_generated_body_line(source: str, class_cursor: clang.cindex.Cursor) -> int:
-    start_line, end_line = _cursor_source_line_range(source, class_cursor)
+def _scan_generated_body_line(source: str, class_cursor: clang.cindex.Cursor, *,
+                              context: HeaderSourceContext | None = None) -> int:
+    context = source_context_for(source, context)
+    start_line, end_line = context.scope_line_range(class_cursor.extent.start.line, class_cursor.extent.start.column)
     if start_line == 0:
         return 0
 
     # Synthetic member locations can collapse to the class declaration in PCH or
     # error-recovery ASTs. The cursor extent selects the class; source owns macro lines.
-    scanner = CppSourceScanner(source)
-    for match in _GENERATED_BODY_PATTERN.finditer(source):
-        line = scanner.line_number(match.start())
-        if start_line <= line <= end_line and scanner.is_code_position(match.start()):
-            return line
-    return 0
+    return context.generated_body_line(start_line, end_line)
 
 
 def _is_default_constructor(cursor: clang.cindex.Cursor) -> bool:
@@ -117,8 +96,9 @@ def _base_qualified_name(class_cursor: clang.cindex.Cursor) -> str:
     return ""
 
 
-def _source_base_name(source: str, class_cursor: clang.cindex.Cursor) -> str:
-    lines = source.splitlines()
+def _source_base_name(source: str, class_cursor: clang.cindex.Cursor, *,
+                      context: HeaderSourceContext | None = None) -> str:
+    lines = source_context_for(source, context).lines
     start = max(class_cursor.location.line - 1, 0)
     declaration = " ".join(lines[start:min(start + 6, len(lines))])
     declaration = declaration.split("{", 1)[0]
