@@ -355,7 +355,7 @@ class TestCommandGrammarContract:
             _, namespace = registry.parse(command)
             assert request_from_namespace(namespace).run_arguments == ()
         with pytest.raises(DevToolError):
-            registry.parse(["run", "--args", "--hidden-window"])
+            registry.parse(["run", "--args", "--exit-after-ticks=3"])
         _, namespace = registry.parse(["run", "unexpected"])
         with pytest.raises(BuildToolError, match="after 'run --'"):
             request_from_namespace(namespace)

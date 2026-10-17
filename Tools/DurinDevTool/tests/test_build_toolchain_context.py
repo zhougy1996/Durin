@@ -34,7 +34,7 @@ class TestCore:
         descriptor = root / 'Games' / '示例 Project' / 'Example.dproject'
         descriptor.parent.mkdir(parents=True)
         descriptor.write_text('{}', encoding='utf-8')
-        request = request_fixtures.command_request(models.Action.RUN, options=request_fixtures.RunActionOptions(project_path=Path('Games') / '示例 Project' / 'Example.dproject', arguments=('--hidden-window', 'argument with spaces')))
+        request = request_fixtures.command_request(models.Action.RUN, options=request_fixtures.RunActionOptions(project_path=Path('Games') / '示例 Project' / 'Example.dproject', arguments=('--exit-after-ticks=3', 'argument with spaces')))
         normalized = request_validation.normalize_run_request(request, root=root)
         assert normalized.project_path == descriptor.resolve()
         assert normalized.run_arguments == request.run_arguments

@@ -80,15 +80,13 @@ namespace Durin
 		FLaunchStartupCommandRequest& StartupCommand = Request.Automation.StartupCommand;
 		if (StartupCommand.Name)
 		{
-			std::string Error;
-			const auto ConfigureStartupCommandResult = ConfigureStartupCommand(std::move(*StartupCommand.Name), std::move(StartupCommand.Arguments));
-			Error = ConfigureStartupCommandResult ? std::string{} : ConfigureStartupCommandResult.error().ToString();
-			if (!ConfigureStartupCommandResult.has_value())
+			if (const auto Result = ConfigureStartupCommand(
+					std::move(*StartupCommand.Name), std::move(StartupCommand.Arguments)); !Result)
 			{
-				std::fprintf(stderr, "Durin: --startup-command could not be configured: %s\n", Error.c_str());
+				std::fprintf(stderr, "Durin: --startup-command could not be configured: %s\n",
+					Result.error().ToString().c_str());
 				return 2;
 			}
-			Request.Host.bSuppressWindowDisplay = true;
 		}
 
 		FEngineLoop EngineLoop;

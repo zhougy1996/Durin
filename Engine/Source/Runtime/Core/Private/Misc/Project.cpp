@@ -190,7 +190,6 @@ namespace Durin
 		FProcessLaunchOptions Options;
 		Options.Arguments.push_back(std::format("--wait-for-process={}", FPlatformProcess::CurrentProcessId()));
 		Options.Arguments.insert(Options.Arguments.end(), GPendingEditorRelaunchArguments->begin(), GPendingEditorRelaunchArguments->end());
-		if (GIsWindowDisplaySuppressed) Options.Arguments.emplace_back("--hidden-window");
 		GPendingEditorRelaunchArguments.reset();
 		if (const auto Launched = FPlatformProcess::LaunchProcess(FPlatformProcess::ExecutablePath(), Options); !Launched)
 			return std::unexpected(FProjectError{EProjectError::Relaunch, Launched.error().ToString()});

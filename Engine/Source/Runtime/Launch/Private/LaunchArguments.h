@@ -9,7 +9,6 @@ namespace Durin
 	{
 		std::optional<std::string> ProjectFile;
 		bool bOpenProjectBrowser = false;
-		bool bSuppressWindowDisplay = false;
 	};
 
 	// Owns process coordination that must complete before engine startup.

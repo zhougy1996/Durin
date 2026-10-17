@@ -92,7 +92,6 @@ namespace Durin
 						return *Result.Error;
 					Parsed.Request.Automation.ExitAfterTicks = TickCount;
 				}
-				else if (Argument == "--hidden-window") Parsed.Request.Host.bSuppressWindowDisplay = true;
 				else if (Argument == "--project-browser") Parsed.Request.Host.bOpenProjectBrowser = true;
 				else if (Option == "--project" && Equals != std::string_view::npos)
 					Parsed.Request.Host.ProjectFile = std::string(Value);

@@ -233,4 +233,4 @@ The issue is ready to close when all of the following hold:
 5. Generated exports, reflection sources, manifests, cleanup, locking, and
    interrupted-process recovery remain deterministic and race-free.
 6. Focused DHT tests and a full `all` build pass for the same preset, followed
-   by the required hidden-window DurinEditor smoke test.
+   by the normal-window DurinEditor smoke test with `--exit-after-ticks`.

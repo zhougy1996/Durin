@@ -294,7 +294,7 @@ source-only intent and do not claim runtime support.
 
 The lasting validation owners are the target-level RHI initialization and render
 contract tests, the GPU-serialized Vulkan integration target, the native-test
-aggregate, the full runtime build, and normal hidden-window Editor/Game startup
+aggregate, the full runtime build, and normal-window Editor/Game startup
 and shutdown through DurinDevTool. Test registration totals are discovered by
 the current native-test framework and are not part of this contract.
 

@@ -105,7 +105,7 @@ def main() -> None:
         env.update(DURIN_MCP_PORT=str(port), DURIN_MCP_TOKEN_FILE=str(token_file), DURIN_PYTHON_SCRIPT=str(ui_script))
         with (evidence / "python-sdk-editor.log").open("w", encoding="utf-8") as log:
             process = subprocess.Popen([str(ROOT / "DevTool.bat"), "run", "--project", "Sandbox/Sandbox.dproject",
-                                        "--args", "--hidden-window", "--exit-after-ticks=900"],
+                                        "--", "--exit-after-ticks=900"],
                                        cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
             try:
                 result = asyncio.run(exercise(port, token, ready, process))

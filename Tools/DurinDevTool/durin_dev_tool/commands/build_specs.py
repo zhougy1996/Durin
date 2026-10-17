@@ -148,7 +148,7 @@ COMMAND_SPECS = (
             argument("--project", dest="project_path", type=Path, default=None),
             argument("run_arguments", nargs=argparse.REMAINDER, metavar="ARG", help="application arguments after --"),
         ),
-        epilog="Examples:\n  DevTool run\n  DevTool run --project Sandbox/Sandbox.dproject -- --hidden-window",
+        epilog="Examples:\n  DevTool run\n  DevTool run --project Sandbox/Sandbox.dproject -- --exit-after-ticks=3",
     ),
 )
 

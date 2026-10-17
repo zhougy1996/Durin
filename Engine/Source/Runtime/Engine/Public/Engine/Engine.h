@@ -23,7 +23,6 @@ namespace Durin
 		// Launch creates the real primary native window before RHI device
 		// admission and transfers the Mona-level owner here for viewport setup.
 		std::shared_ptr<MWindow> StartupWindow;
-		bool bHeadless = false;
 	};
 
 	class DCameraComponent;

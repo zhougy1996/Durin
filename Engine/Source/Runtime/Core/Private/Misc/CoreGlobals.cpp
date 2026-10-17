@@ -5,7 +5,6 @@
 namespace Durin
 {
 	bool GIsRequestingExit = false;
-	bool GIsWindowDisplaySuppressed = false;
 
 	uint32 GGameThreadId = 0;
 	bool GIsGameThreadIdInitialized = false;

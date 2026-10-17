@@ -170,19 +170,19 @@ the preset's explicit `OFF` value. External-volume checkouts may enable the
 option after the one-time interactive macOS permission is approved; unattended
 validation should prefer an already authorized checkout.
 
-The same LaunchServices boundary applies to `DevTool run`, including
-`--hidden-window`: that flag suppresses native windows but does not bypass
-macOS application services. Do not run application smoke tests in a Codex
+The same LaunchServices boundary applies to `DevTool run` and normal-window
+application smoke tests. Do not run application smoke tests in a Codex
 sandbox by default; build the target and report execution as not run. Run one
 only when explicitly requested in an already authorized context. A restricted
 sandbox may stall before the first tick, where `--exit-after-ticks` cannot help.
-A successful hidden run is evidenced by DurinDevTool's zero exit receipt.
+A successful smoke run is evidenced by DurinDevTool's zero exit receipt.
 
 The current native baseline qualifies setup, dependency preparation, fresh
 configuration, and the complete Debug Editor link closure. The generated
 executables and dylibs are arm64, and shared libraries retain `@rpath` install
 names. The ordinary Sandbox and Project Browser paths have also passed bounded
-hidden-window startup, rendering, and clean-shutdown smoke tests.
+startup, rendering, and clean-shutdown smoke tests (historically run with
+window display suppressed).
 
 This does not yet declare complete macOS product support. Visible Editor-window
 input and close behavior, multi-monitor and multi-viewport interaction, the
@@ -340,7 +340,7 @@ Pass other runtime arguments after the `--` separator. The typed project
 argument is always forwarded before them:
 
 ```powershell
-.\DevTool.bat run --preset Win64-Debug-DurinGame --project Sandbox\Sandbox.dproject -- --hidden-window
+.\DevTool.bat run --preset Win64-Debug-DurinGame --project Sandbox\Sandbox.dproject -- --exit-after-ticks=3
 ```
 
 Launch accepts only its documented option grammar. Unknown options, repeated
@@ -353,33 +353,30 @@ stderr and return status `2`; bootstrap/runtime failures return `1`. Only
 `--project <path>` remain accepted, but a process may supply exactly one of
 them.
 
-For non-interactive lifecycle smoke tests, pass
-`-- --hidden-window --exit-after-ticks=<positive-count>`. The runtime still
-completes initialization, executes the requested number of engine ticks, and
-uses the normal `FEngineLoop::Exit` path; this option does not impose a
-wall-clock timeout or force-terminate the process.
-
-Launch no longer accepts lifecycle-smoke or runtime-smoke options. Use the
-native test registry for supported qualification targets.
-
 Do not repeat `--project` or `--project=...` after `--` when the typed
 `--project` option is present; DurinDevTool rejects the two project selectors as
 ambiguous. Raw project selection after `--` is allowed when the typed option
 is absent.
 
-For unattended runtime smoke tests, pass `--hidden-window` to suppress every
-native application window, including secondary UI viewports:
+For bounded lifecycle smoke tests, use normal window startup:
 
 ```powershell
-.\DevTool.bat run --project Sandbox\Sandbox.dproject -- --hidden-window
+.\DevTool.bat run --project Sandbox\Sandbox.dproject -- --exit-after-ticks=3
 ```
 
-An interactive `DurinDevTool run` can be stopped with Ctrl+C; DurinDevTool terminates
-the tracked application job and any relaunched descendants. For a timed Windows
-smoke test, launch the runtime with PowerShell `Start-Process`, pass
-`--hidden-window`, retain the process returned by `-PassThru`, and stop that
-process after verification. `-WindowStyle Hidden` only affects process startup
-and is not a substitute for the application argument.
+`--exit-after-ticks=<positive-count>` counts completed engine ticks after
+initialization and exits through `FEngineLoop::Exit`. Automated runners need an
+external wall-clock timeout to bound initialization failures. Smoke tests and
+startup commands use the normal visible-window rendering path, including the
+editor's first-presentation gate.
+
+Launch rejects `--hidden-window`, `--headless`, and dedicated lifecycle/runtime
+smoke options. Use the native test registry for qualification targets.
+[RHI Headless initialization](../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md#device-and-queue-publication)
+remains available for GPU tests without a presentation target.
+
+An interactive `DurinDevTool run` can be stopped with Ctrl+C; DurinDevTool
+terminates the tracked application job and any relaunched descendants.
 
 ## Preset Selection
 

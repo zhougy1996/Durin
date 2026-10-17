@@ -24,11 +24,10 @@ namespace
 TEST(FLaunchArgumentsTests, ParsesOwnedRequestDomainsAndNormalizesProjectForms)
 {
 	auto Equals = Parse({"--wait-for-process=42", "--project=Sandbox/Sandbox.dproject",
-		"--hidden-window", "--exit-after-ticks=7"});
+		"--exit-after-ticks=7"});
 	ASSERT_TRUE(Equals);
 	EXPECT_EQ(Equals.Request->ProcessCoordination.WaitForProcessId, 42u);
 	EXPECT_EQ(Equals.Request->Host.ProjectFile, "Sandbox/Sandbox.dproject");
-	EXPECT_TRUE(Equals.Request->Host.bSuppressWindowDisplay);
 	EXPECT_EQ(Equals.Request->Automation.ExitAfterTicks, 7u);
 
 	auto Separate = Parse({"--project", "Sandbox/Sandbox.dproject"});
@@ -51,7 +50,7 @@ TEST(FLaunchArgumentsTests, RejectsUnknownDuplicateAndMixedProjectForms)
 	ExpectRejected({"--unknown"}, "--unknown");
 	ExpectRejected({"--engine-asset-service-lifecycle-smoke"},
 		"--engine-asset-service-lifecycle-smoke");
-	ExpectRejected({"--hidden-window", "--hidden-window"}, "--hidden-window");
+	ExpectRejected({"--project-browser", "--project-browser"}, "--project-browser");
 	ExpectRejected({"--project=One", "--project", "Two"}, "--project");
 	ExpectRejected({"--exit-after-ticks=1", "--exit-after-ticks=2"}, "--exit-after-ticks");
 }
@@ -60,7 +59,7 @@ TEST(FLaunchArgumentsTests, RejectsEmptyMalformedZeroOverflowAndTrailingNumericV
 {
 	ExpectRejected({"--project="}, "--project");
 	ExpectRejected({"--project"}, "--project");
-	ExpectRejected({"--project", "--hidden-window"}, "--project");
+	ExpectRejected({"--project", "--project-browser"}, "--project");
 	ExpectRejected({"--wait-for-process=0"}, "--wait-for-process");
 	ExpectRejected({"--wait-for-process=abc"}, "--wait-for-process");
 	ExpectRejected({"--exit-after-ticks=12x"}, "--exit-after-ticks");
@@ -82,9 +81,10 @@ TEST(FLaunchArgumentsTests, RepeatedCallsRetainNoParserState)
 	EXPECT_TRUE(Parse({}));
 }
 
-TEST(FLaunchArgumentsTests, RejectsRemovedLifecycleDiagnostics)
+TEST(FLaunchArgumentsTests, RejectsUnsupportedWindowAndDiagnosticOptions)
 {
 	for (const std::string_view Option : {
+		"--hidden-window", "--headless",
 		"--task-scheduler-lifecycle-smoke", "--editor-pie-lifecycle-smoke",
 		"--native-gameplay-lifecycle-smoke", "--renderer-contact-runtime-smoke",
 		"--sky-lighting-runtime-smoke", "--native-crash-at=running",

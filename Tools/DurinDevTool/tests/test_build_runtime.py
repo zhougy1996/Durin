@@ -39,12 +39,12 @@ class TestCore:
         project = root / '示例 Project' / 'Example.dproject'
         project.parent.mkdir()
         project.touch()
-        context = build_context.BuildContext(request_fixtures.command_request(models.Action.RUN, options=request_fixtures.RunActionOptions(project_path=project.resolve(), arguments=('--hidden-window', 'argument with spaces'))), models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows')
+        context = build_context.BuildContext(request_fixtures.command_request(models.Action.RUN, options=request_fixtures.RunActionOptions(project_path=project.resolve(), arguments=('--exit-after-ticks=3', 'argument with spaces'))), models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows')
         executable = root / 'DurinEditor.exe'
         executable.touch()
         with mock.patch.object(runtime_program, 'runtime_executable_path', return_value=executable), mock.patch.object(runtime_program, 'run_command') as run:
             build_runtime.run_application(context, output)
-        assert run.call_args.args[0] == [str(executable), f'--project={project.resolve()}', '--hidden-window', 'argument with spaces']
+        assert run.call_args.args[0] == [str(executable), f'--project={project.resolve()}', '--exit-after-ticks=3', 'argument with spaces']
         assert run.call_args.kwargs['wait_for_descendants']
         assert not run.call_args.kwargs['show_heartbeat']
         assert run.call_args.kwargs['colorize_log_levels']

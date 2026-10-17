@@ -187,7 +187,7 @@ class CommandRegistry:
                 "Common examples:",
                 "  DevTool build Core",
                 "  DevTool test CoreUtilityTests",
-                "  DevTool run -- --hidden-window",
+                "  DevTool run -- --exit-after-ticks=3",
                 "  DevTool doc plan",
                 "",
                 "Run 'DevTool COMMAND --help' for command-specific options.",

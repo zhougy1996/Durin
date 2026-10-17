@@ -57,7 +57,6 @@ namespace Durin
 		DURIN_PROFILE_THREAD("GameThread");
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
-		GIsWindowDisplaySuppressed = Params.bSuppressWindowDisplay;
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
 
@@ -257,13 +256,11 @@ namespace Durin
 
 		FEngineInitContext EngineInitContext;
 		EngineInitContext.StartupWindow = StartupWindow;
-		EngineInitContext.bHeadless = GIsWindowDisplaySuppressed;
 		EngineInitContext.PumpStartupFrame = []() {
 			constexpr double StartupWaitSeconds = 1.0 / 60.0;
 			auto& Application = Mona::FMonaApplication::Get();
 			Application.Tick();
 			if (IsEngineExitRequested()) return false;
-			if (GIsWindowDisplaySuppressed) return true;
 			if (Application.AreAllWindowsMinimized())
 			{
 				Application.WaitForEvents(StartupWaitSeconds);

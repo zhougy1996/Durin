@@ -5,7 +5,6 @@
 #include "Application/GenericApplicationMessageHandler.h"
 #include "Application/ModalLoopTick.h"
 #include "ApplicationCore.h"
-#include "CoreGlobals.h"
 
 #if defined(__APPLE__)
 #include "MacOS/MacOSCustomTitleBarBridge.h"
@@ -976,7 +975,6 @@ namespace Durin
 
 	auto FGlfwWindow::Show() -> void
 	{
-		if (GIsWindowDisplaySuppressed) return;
 		glfwShowWindow(GlfwWindow);
 	}
 

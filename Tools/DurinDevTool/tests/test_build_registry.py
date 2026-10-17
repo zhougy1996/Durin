@@ -307,7 +307,7 @@ class TestBuildRegistry:
                 self.registry.parse(split_shell_command(command))
 
     def test_shell_uses_the_shared_direct_command_grammar(self) -> None:
-        for command in ('build --target Core', 'rebuild --target Core', 'run --args --hidden-window', 'run --hidden-window'):
+        for command in ('build --target Core', 'rebuild --target Core', 'run --args --exit-after-ticks=3', 'run --exit-after-ticks=3'):
             with pytest.raises(DevToolError):
                 self.registry.parse(split_shell_command(command))
 

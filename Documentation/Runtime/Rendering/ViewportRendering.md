@@ -215,8 +215,8 @@ transfers ownership exactly once. The candidate's native handle is only a
 defensive wrong-window check: `FGenericWindow` has no presentation identity or
 token. A mismatched or duplicate adoption fails without silently creating a
 replacement surface. Detached and later viewports do not request adoption and
-create independent surfaces. Headless initialization creates no presentation
-candidate.
+create independent surfaces. Explicit RHI Headless initialization creates no
+presentation candidate; the normal engine launch path uses presentation startup.
 
 ## Editor Viewport Path
 

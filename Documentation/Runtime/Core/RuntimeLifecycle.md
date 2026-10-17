@@ -92,17 +92,17 @@ pool in one lifetime; partial pool startup fails closed. After startup,
 startup; the engine does not expose a partially initialized task system.
 
 `FEngineLoop::Init()` handles common runtime startup, including
-`ApplicationCore`, the platform half of `Mona`, the hidden primary window,
+`ApplicationCore`, the platform half of `Mona`, the initially hidden primary window,
 `RHI`, the rendering thread, Mona rendering, and `GEngine`. Launch creates the
 final primary `MWindow` and its native window before `RHIInit()`, then passes an
 explicit presentation `FRHIInitializationContext` containing the native handle.
 Vulkan creates and owns a startup presentation candidate before device
 selection. Launch carries one explicit adoption intent into Mona rendering, and
 the startup viewport transfers that candidate exactly once; later viewports
-create their own surfaces. Headless startup instead uses the explicit headless
-context and creates no surface. Render-command admission opens immediately
-after `RHIInit()` and before Mona rendering, editor previews, or engine
-initialization can enqueue work.
+create their own surfaces. Explicit RHI-only Headless initialization creates
+no surface; normal engine startup always uses the presentation context.
+Render-command admission opens immediately after `RHIInit()` and before Mona
+rendering, editor previews, or engine initialization can enqueue work.
 
 Mona rendering initialization is backend-neutral. In an editor runtime, Launch
 then loads MonaImGui and requires it to install the active backend before
@@ -125,9 +125,9 @@ Current engine selection is semantic:
 Host-specific startup then lives in the concrete engine overrides.
 
 Concrete engine initialization returns `bool` and logs errors where they occur.
-Launch supplies an `FEngineInitContext` with the primary startup window, a
-startup-frame pump, and the headless policy; editor modules do not depend on
-Launch internals. Editor and Game adopt that same window rather than creating
+Launch supplies an `FEngineInitContext` with the primary startup window and a
+startup-frame pump; editor modules do not depend on Launch internals.
+Editor and Game adopt that same window rather than creating
 a replacement after RHI initialization. The parsed `FEngineStartupParams` is
 passed directly to `FEngineLoop::PreInit()` without an intermediate conversion.
 
@@ -165,11 +165,10 @@ workspace activation plus default-Level opening to a terminal result before it
 returns. The Editor loads `AssetForgeBuiltins` before the base Engine performs
 its atomic catalog scan so concrete editor-only import data classes are
 registered. Built-in
-authoring UI starts with workspace activation. Visible startup first pumps a real Mona/ImGui frame and waits for the
-Vulkan presentation path to publish `FirstPresent`; hidden startup skips that
-presentation gate. Project Browser initialization completes after its visible
-host frame, or immediately after shell construction in headless mode, without
-loading project workspaces.
+authoring UI starts with workspace activation. Startup pumps a real Mona/ImGui
+frame and waits for the presentation path to publish `FirstPresent`, including
+bounded smoke runs and startup commands. Project Browser initialization completes
+after its visible host frame without loading project workspaces.
 
 The startup pump processes application events and submits a loading-only frame
 through the existing RHI begin/end, Mona render, frame synchronization, and

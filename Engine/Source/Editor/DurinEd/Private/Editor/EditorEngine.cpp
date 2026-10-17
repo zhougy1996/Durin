@@ -143,12 +143,10 @@ namespace Durin
 		{
 			if (!InitContext.PumpStartupFrame())
 				return false;
-			const bool bFirstPresentAvailable = InitContext.bHeadless
-				|| Profiling::GetStartupMilestoneMilliseconds(
-					Profiling::EStartupMilestone::FirstPresent) >= 0.0;
+			const bool bFirstPresentAvailable = Profiling::GetStartupMilestoneMilliseconds(
+				Profiling::EStartupMilestone::FirstPresent) >= 0.0;
 			const Editor::Host::EBootstrapStepStatus Status =
-				EditorHost->AdvanceBootstrap(
-					bFirstPresentAvailable);
+				EditorHost->AdvanceBootstrap(bFirstPresentAvailable);
 			if (Status == Editor::Host::EBootstrapStepStatus::Ready) break;
 			if (Status == Editor::Host::EBootstrapStepStatus::Failed)
 			{
