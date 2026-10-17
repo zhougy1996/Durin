@@ -2,28 +2,82 @@
 
 Summary: Validate RoadWeaver graph semantics and preview authoritative final road curves created on planes or spheres.
 
-Last reviewed: 2026-09-09
+Last reviewed: 2026-10-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-18
 
 ## Current Status
 
-The previous raw-curve plus instance-projection design has been superseded by
-persisted final Cartesian curves. This architecture correction includes explicit
-plane/sphere creation and fitting, fixed planet ownership, asset station
-validation, legacy asset/instance conversion, and transient preview regression
-coverage. Checkpoint validation completed on Win64-Debug-DurinEditor: `DevTool.bat test
-affected` passed the road, spline, asset and world targets. Its sole failure was
-`FVolumetricCloudSceneVulkanTests.EnabledCloudTraversesOffscreenAndPresentRoutes`
-at the compile-time budget assertion; the exact case passed an isolated rerun
-without source changes. The final `DevTool.bat test RoadGraphContractTests`
-passed after adding multi-section fitting coverage. `DevTool.bat build` completed
-target `all`; changed-document validation passed.
+P0 is complete. Persisted final Cartesian curves own road geometry, explicit
+plane/sphere fitting and fixed planet identity. Current-schema persistence,
+validation, derived preview lifecycle, editor transaction replay, viewport picking
+and material display have acceptance evidence. This closes the foundation only;
+the later road-authoring, junction and terrain milestones remain separate work.
 
-The broader P0 foundation is still active: interactive picking, complete editor
-transaction replay and visual material qualification are not implied by this
-architecture checkpoint. No traffic, terrain or radius-change tooling is started.
+Closeout on 2026-10-18 used source base
+`1c0c3718c0e02f5a0b27fc8d3266e7eb87a9171a` plus this closeout's test-only
+changes, `MacOS-arm64-Debug-DurinEditor`, macOS 27.0.1, Xcode 26.6 and Apple M4
+(10 GPU cores, 16 GB unified memory). Production source is unchanged. New test
+targets were compiled; the earlier workspace `all`/editor build evidence remains
+applicable rather than requiring another broad build for test/document changes.
+
+| Acceptance selection | Result |
+| --- | --- |
+| `./DevTool test affected --report Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/RoadSurfaceAffected.xml` | All three RoadWeaver targets passed: RoadGraphContractTests 14/14, RoadSceneIntegrationTests 5/5 and RoadEditorIntegrationTests 8/8. |
+| `./DevTool test RoadEditorIntegrationTests --isolate --test-jobs 4 --report Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/RoadEditorIsolated.xml` | All eight plane/sphere cases also passed individually. |
+| `RoadViewportQualificationTests --mode qualification`, `DURIN_RHI_BACKEND=metal` | Both plane/sphere cases passed on native Metal with threaded RHI. |
+| Same qualification, `DURIN_RHI_BACKEND=vulkan` | Both cases passed on MoltenVK, Apple M4 Vulkan 1.3.334, driver `0x28a1`, validation enabled and threaded RHI; no VUID/validation errors. |
+| `./DevTool run --project RoadWeaver/RoadWeaver.dproject -- --exit-after-ticks=3` | Real Metal editor window loaded the default road level, presented, completed three ticks and shut down normally. |
+
+The editor integration fixture uses the real `FPropertyEditSession` and
+`DTransBuffer`, not manually delivered Undo/Redo notifications. Complete road-array
+addition/removal replays preserve IDs and exact serialized definitions, rebuild
+valid generated previews and restore the saved package revision. Cancel rolls
+back the interactive candidate without adding history. Duplicate lane identities
+are rejected without changing data, preview snapshots or Dirty state. The
+whole-object `FScopedTransaction::Modify` path is qualified separately.
+
+The viewport fixture drives the production LevelEditor selection mode with
+normalized mouse input and the real GPU hit-proxy backend, without a fake picking
+backend. Ordinary clicks select the generated road, Ctrl-click toggles it and
+blank-space clicks clear selection on both surfaces. A 40 m, two-lane preview
+(sphere radius 100 m) renders at 256x192 with authored red/green unlit materials;
+material overrides visibly replace the road color. Checked pixels number 4188
+for the plane and 3874 for the sphere for each color on both backends. All four
+paired Metal/MoltenVK RGB images match byte-for-byte and were visually inspected.
+These are correctness/image receipts, not performance qualification.
+
+GPU execution used the authorized host environment outside the Codex sandbox.
+Reproduce with `DURIN_RHI_BACKEND=metal` or `vulkan`, `DURIN_TEST_KEEP_WORK=1` and
+`./DevTool test RoadViewportQualificationTests --mode qualification --report`.
+The final per-case reports are `RoadViewportMetalCases.xml` and
+`RoadViewportVulkanCases.xml`, with corresponding CTest reports
+`RoadViewportMetal.xml` and `RoadViewportVulkan.xml`, all under
+`Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/`. Set `GTEST_OUTPUT=xml:`
+to an absolute report path to retain per-case properties. Raw native logs,
+PPM captures, hashes and exact-image comparison results are retained under
+`Build/Qualification/RoadSurfaceFoundation/` (`images.json`). Final GPU launcher
+logs are `Build/.agent-state/logs/20261018-062452-666968-37039-ctest.log` and
+`20261018-062423-777297-36739-ctest.log` in the same directory. Affected and isolated
+logs are `20261018-062514-089838-37176-ctest.log` and
+`20261018-062530-249910-37221-ctest.log` there.
+The successful window smoke log is
+`Build/.agent-state/logs/20261018-062546-852223-37260-DurinEditor.log`.
+
+Earlier failed attempts remain in the launcher logs: unrelated application-test
+discovery timed out while an old cache override enabled those optional tests;
+restoring the preset's `DURIN_ENABLE_APPLICATION_TESTS=OFF` resolved discovery.
+Fixture development also corrected asset-package initialization, unique package
+identities, scene Release ordering and the RHI frame boundary around input-driven
+GPU picking. No production workaround was needed. The final successful receipts
+cover these corrections; later documentation-only changes reuse those results.
+
+The earlier Win64 checkpoint passed the workspace `all` build and road/spline/
+asset/world validation. Its unrelated cloud compile-time-budget failure passed
+an isolated rerun without source changes. It is historical coverage, not a new
+Windows receipt for this closeout. No remaining foundation acceptance gate is
+deferred to that platform.
 
 ## Goal
 
@@ -62,7 +116,7 @@ Completion: implemented contracts are documented outside this plan.
 - [x] Route accepted asset mutations and reflected replay notifications through
   the existing mutation listener boundary; reject invalid candidates atomically.
 - [x] Add schema 3 legacy station conversion and retain invalid data with diagnostics.
-- [ ] Qualify full editor Undo/Redo/Cancel of road structural edits.
+- [x] Qualify full editor Undo/Redo/Cancel of road structural edits.
 
 Completion: graph publication and complete editor replay agree.
 
@@ -89,7 +143,7 @@ Completion: final curve, preview and distance queries have one geometry meaning.
 - [x] Qualify transient export exclusion, converted-curve round trips, checked-in
   L_RoadNet opening and GC without Dirty changes.
 - [x] Preserve Ready/Stale/Error diagnostics, component reuse, preflight and detach.
-- [ ] Qualify interactive picking and visual material display for both surfaces.
+- [x] Qualify interactive picking and visual material display for both surfaces.
 
 Completion: scene generation and user-visible editor interaction are qualified.
 
@@ -97,7 +151,7 @@ Completion: scene generation and user-visible editor interaction are qualified.
 
 - [x] Publish the final geometry and migration contracts in the runtime domain.
 - [x] Record checkpoint affected-test and full editor build evidence.
-- [ ] Complete the outstanding editor replay/picking/material gates before marking
+- [x] Complete the outstanding editor replay/picking/material gates before marking
   the broader roadmap P0 complete.
 
 Completion: all stage gates pass; no broader completion is inferred from this checkpoint.

@@ -4,6 +4,8 @@ Summary: Define final-curve road authority, explicit plane/sphere authoring, fix
 
 Modules: RoadWeaver, RoadWeaverEditor, Engine
 
+Last reviewed: 2026-10-18
+
 ## Authority and coordinates
 
 `FRoad.ReferenceLine` is the sole persisted final geometry. Its ordinary
@@ -118,5 +120,21 @@ Unsupported schemas cannot preview as Ready. Transient subtree exclusion and
 GC attachment-cleanup Dirty suppression remain intact. The loader no longer
 repairs historical generated-component persistence flags. Road integration
 tests open a sandbox copy of the current checked-in level and collect obsolete
-generated components without setting Dirty. This does not substitute for the
-interactive picking or full editor transaction replay qualification gates.
+generated components without setting Dirty.
+
+## Editor history and viewport interaction
+
+Road structural edits use complete validated `Definition` candidates through
+the [editor transactor and property-editing services](../../Editor/Architecture/Transactors.md).
+Undo/Redo and interactive property-session Cancel restore the accepted graph and
+notify bound preview actors, which rebuild their generated geometry from that
+same definition. Rejected candidates leave the asset, preview and package Dirty
+state unchanged. The general scoped-transaction Cancel contract still discards
+history without reverting an already applied native mutation.
+
+Generated road SplineMesh components participate in the ordinary GPU viewport
+hit-proxy path. Scene selection resolves their owning road actor; ordinary,
+Ctrl-toggle and blank-space selection retain the standard LevelEditor behavior.
+Their source mesh material slots and per-component overrides use the Engine
+material path on both plane and sphere previews. No road-specific CPU picking
+fallback or alternate material renderer is used.

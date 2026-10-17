@@ -2,24 +2,23 @@
 
 Summary: Evolve RoadWeaver's authored road graph into editable roads on planar and spherical surfaces, with junctions, terrain integration, and bounded incremental construction.
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-10-18
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Planning only; no implementation milestone has passed. Static review found an
-authored `DRoadNet` graph, lane sections, junction connections, validation,
-schema/revision fields, and a straight-road asset creation dialog. RoadWeaver
-does not yet connect that asset to road surface generation or viewport road
-editing. Engine Spline evaluation, path frames, SplineMesh rendering, picking,
-and optional collision are reusable foundations, not completed road features.
-This assessment has not been verified by a build or runtime session.
+P0 is complete through
+[Road Surface Foundation](../Plans/RoadSurfaceFoundation.md), including final-curve
+plane/sphere previews, validated graph publication, persistence, full editor
+transaction replay, GPU viewport picking and material display. The plan records
+the 2026-10-18 Apple M4 Metal/MoltenVK closeout and earlier build evidence.
+The geometry contract is owned by [Road Geometry](../Runtime/World/RoadGeometry.md).
 
-P0 is selected as the first bounded implementation:
-[Road Surface Foundation](../Plans/RoadSurfaceFoundation.md). Later child plans
-are proposed names only and become active after their entry gates pass.
+P1 is the next milestone; no viewport road-authoring or cross-section work is
+claimed complete by P0. Later child plans remain proposed names and become
+active only after their entry gates pass.
 
 ## Outcome
 
@@ -60,7 +59,7 @@ newer authoring.
 
 ## Milestones
 
-- [ ] P0: **Road Surface Foundation** — harden authored contracts and produce a
+- [x] P0: **Road Surface Foundation** — harden authored contracts and produce a
   scene preview from `DRoadNet` using analytic plane and sphere providers.
   Entry: existing RoadWeaver and Spline source available. Exit: all gates in the
   linked active plan pass, including persistence, spherical deviation/frame
