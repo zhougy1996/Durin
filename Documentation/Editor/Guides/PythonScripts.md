@@ -11,7 +11,7 @@ The first supported host is Windows x64 with packaged CPython 3.13.15. Prepare
 the SDK before configuring/building the editor:
 
 ```powershell
-.\DevTool.bat dependency prepare --libs python
+.\DevTool.bat dependency prepare python
 ```
 
 Then follow [build/run guidance](../../Agents/BuildAndRun.md). Python is optional;

@@ -433,7 +433,7 @@ def ensure_development_tools(
         [
             str(python),
             str(repository.root / "Tools/DurinDevTool/durin_dev_tool/__main__.py"),
-            "dependency", "prepare", "--libs", "tracy-tools",
+            "dependency", "prepare", "tracy-tools",
         ],
         cwd=repository.root,
         command_io=command_io,

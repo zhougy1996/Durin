@@ -125,6 +125,10 @@ forces ANSI styling. Complete child-process logs are retained under
 and color policy are defined in the
 [command output contract](Documentation/Development/Tooling/DurinDevTool.md#command-output-and-logs).
 
+Commands with preview support execute by default; add `--dry-run` to preview
+their primary change. The supported commands and incidental-write boundaries
+are defined in [preview and execution](Documentation/Development/Tooling/DurinDevTool.md#preview-and-execution).
+
 ## Interactive Shell
 
 Run DurinDevTool without arguments, or use `shell`, to keep a preset and

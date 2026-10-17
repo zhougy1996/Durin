@@ -335,7 +335,7 @@ Pass other runtime arguments after the `--` separator. The typed project
 argument is always forwarded before them:
 
 ```powershell
-.\DevTool.bat run --preset Win64-Debug-DurinGame --project Sandbox\Sandbox.dproject -- --hidden-window
+.\DevTool.bat run --preset debug-game --project Sandbox\Sandbox.dproject -- --hidden-window
 ```
 
 Launch accepts only its documented option grammar. Unknown options, repeated
@@ -413,9 +413,9 @@ Select another registered configure preset explicitly when the default profile
 is not the intended target:
 
 ```powershell
-.\DevTool.bat build --preset Win64-Release-DurinEditor <Target>
-.\DevTool.bat build --preset Win64-Shipping-DurinGame <Target>
-./DevTool build --preset MacOS-arm64-Release-DurinEditor <Target>
+.\DevTool.bat build --preset release-editor <Target>
+.\DevTool.bat build --preset shipping-game <Target>
+./DevTool build --preset release-editor <Target>
 ```
 
 `CMakePresets.json` remains the configuration source of truth.
@@ -434,7 +434,7 @@ Override the project with `--project <descriptor>`; add `--format json` for auto
 | --- | --- |
 | `asset check` | Report schema, canonicalization, and corruption findings without writes |
 | `asset identity-audit` | Write a JSON inventory of objects and hard/soft/redirect references without loading or changing assets |
-| `asset resave <scope>...` or `asset resave --all` | Preview canonical rewrites; `--apply` authorizes writes |
+| `asset resave <scope>...` or `asset resave --all` | Write canonical rewrites; `--dry-run` previews without saving authored assets |
 
 For scope selection, command examples, and safe rewrite procedures, use
 [Canonical Resave](../../Editor/Guides/CanonicalResave.md). Compatibility belongs
@@ -464,8 +464,8 @@ report zero parses.
 `purge` removes the selected preset's configured build and install trees plus its project output and generated-metadata roots:
 
 ```powershell
-.\DevTool.bat purge --preset Win64-Release-DurinEditor
-.\DevTool.bat purge --preset Win64-Release-DurinEditor --yes
+.\DevTool.bat purge --preset release-editor
+.\DevTool.bat purge --preset release-editor --yes
 ```
 
 Inside the interactive shell:

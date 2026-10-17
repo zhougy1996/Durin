@@ -25,6 +25,17 @@ EXPECTED_LOCATION_CONTRACT = (
 )
 class TestBuildRegistry:
 
+    @pytest.mark.parametrize('selector', ['release-editor', 'DEBUG-GAME', '2'])
+    def test_direct_and_shell_preset_selection_resolve_identically(self, selector) -> None:
+        from durin_dev_tool.context import RepositoryContext
+        repository = RepositoryContext.load(REPOSITORY_ROOT)
+        request = handler.request_from_namespace(self.parse(['status', '--preset', selector]))
+        with mock.patch.object(build_operations, 'prepare_toolchain_context') as prepare:
+            direct = build_operations.acquire_request_context(request, session=None, repository_context=repository)
+            shell = build_operations.acquire_request_context(request, session=build_operations.BuildSession(), repository_context=repository)
+        assert direct.context.preset.name == shell.context.preset.name
+        prepare.assert_not_called()
+
     @pytest.fixture(autouse=True)
     def _setup_registry(self) -> None:
         self.registry = CommandRegistry()
@@ -61,7 +72,7 @@ class TestBuildRegistry:
 
 
     def test_direct_and_shell_entry_paths_dispatch_identical_requests(self) -> None:
-        commands = ('stop --color never', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --color never', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh -DFEATURE=ON --define LIMIT=4 --jobs 8', 'build Core --log-mode compact', 'clean --color never', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild all', 'test CoreTests Core.* --timeout 45', 'test all --report Build/results.xml', 'run --project "Examples/Sandbox/Sandbox.dproject" -- --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
+        commands = ('stop --color never', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --color never', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh -DFEATURE=ON --define LIMIT=4 --jobs 8', 'build Core --log-mode compact', 'clean --color never', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild all', 'test CoreTests Core.* --timeout 45', 'test all --report Build/results.xml', 'run --project "Examples/Sandbox/Sandbox.dproject" -- --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-deps Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
         stdout = io.StringIO()
         stderr = io.StringIO()
 
@@ -183,6 +194,13 @@ class TestBuildRegistry:
         explanation = handler.request_from_namespace(self.parse(["test", *arguments, "--explain"]))
         request_validation.validate_request(explanation, request_fixtures.make_preset())
         assert explanation == replace(execution, test_explain=True)
+
+    @pytest.mark.parametrize('extra', [[], ['--explain']])
+    def test_fast_all_filter_error_does_not_recommend_impossible_isolation(self, extra) -> None:
+        request = handler.request_from_namespace(self.parse(['test', 'fast-all', 'Suite.Case', *extra]))
+        with pytest.raises(DevToolError, match='aggregate selections') as error:
+            request_validation.validate_request(request, request_fixtures.make_preset())
+        assert '--isolate' not in str(error.value)
 
     @pytest.mark.parametrize("selection", ["MaterialCompilerTests", "@viewport"])
     @pytest.mark.parametrize("extra,workers", [([], None), (["--test-jobs", "1"], 1)])
@@ -475,7 +493,8 @@ class TestBuildRegistry:
                 stdout=stdout,
                 stderr=stderr,
             ) == 0
-        assert 'CMake preset selected: "release"' in stdout.getvalue()
+        assert 'CMake preset: "release"' in stdout.getvalue()
+        assert 'selected' not in stdout.getvalue()
         assert stderr.getvalue() == ''
 
     def test_nested_help_uses_registered_leaf_parser(self) -> None:

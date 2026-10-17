@@ -67,7 +67,7 @@ def test_enabled_configure_prepares_tracy_client_without_tools() -> None:
         dependencies.prepare_configure_dependencies(context, make_output())
     assert prepare.call_count == 2
     tracy_request = prepare.call_args_list[1].args[1]
-    assert tracy_request.libraries == "tracy"
+    assert tracy_request.libraries == ("tracy",)
     assert not tracy_request.with_development
     assert "tracy-tools" not in tracy_request.libraries
 
@@ -85,7 +85,7 @@ def test_configure_definitions_override_preset_dependency_selection() -> None:
     ordinary_request = prepare.call_args_list[0].args[1]
     assert ordinary_request.config == "Release"
     assert not ordinary_request.with_tests
-    assert prepare.call_args_list[1].args[1].libraries == "tracy"
+    assert prepare.call_args_list[1].args[1].libraries == ("tracy",)
 
 
 def test_dependency_failure_is_reported_as_build_failure() -> None:
@@ -103,7 +103,7 @@ def test_automatic_dependency_policy(configuration: str, tracy: str | None) -> N
     expected = configuration != "Shipping" and tracy != "OFF"
     assert prepare.call_count == (2 if expected else 1)
     if expected:
-        assert prepare.call_args_list[1].args[1].libraries == "tracy"
+        assert prepare.call_args_list[1].args[1].libraries == ("tracy",)
 
 
 def test_explicit_off_overrides_automatic_policy() -> None:

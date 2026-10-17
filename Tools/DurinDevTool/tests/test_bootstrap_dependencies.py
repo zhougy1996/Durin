@@ -16,6 +16,29 @@ REPOSITORY = RepositoryContext.load(REPOSITORY_ROOT)
 
 class TestThirdPartyBootstrap:
 
+    def test_named_dependencies_are_deduplicated_and_comma_lists_are_rejected(self) -> None:
+        selected = dependency_manifests.select_manifests(
+            self.make_manifests(), DependencyRequest(libraries=('tracy', 'normal', 'tracy')),
+        )
+        assert [manifest['name'] for manifest in selected] == ['tracy', 'normal']
+        with pytest.raises(BootstrapError, match='Unknown third-party libraries'):
+            dependency_manifests.select_manifests(
+                self.make_manifests(), DependencyRequest(libraries=('tracy,normal',)),
+            )
+
+    @pytest.mark.parametrize('config,expected', [('debug', 'Debug'), ('release', 'Release'), ('all', 'All')])
+    def test_dependency_cli_normalizes_selection_at_the_boundary(self, config, expected) -> None:
+        from durin_dev_tool.registry import CommandRegistry
+        from durin_dev_tool.bootstrap import application
+        registry = CommandRegistry()
+        spec, namespace = registry.parse(['dependency', 'prepare', 'tracy', '--config', config, 'tracy-tools'])
+        with mock.patch.object(application, 'prepare_dependency_plan') as prepare:
+            assert registry.execute(spec, namespace, repository_root=REPOSITORY_ROOT,
+                                    stdout=io.StringIO(), stderr=io.StringIO()) == 0
+        request = prepare.call_args.args[1]
+        assert request.libraries == ('tracy', 'tracy-tools')
+        assert request.config == expected
+
     @staticmethod
     def make_manifests() -> list[dict[str, object]]:
         return [{'name': 'normal', 'kind': 'direct_source', 'source_dir': 'normal', 'source': {'type': 'git', 'tag': 'v1'}}, {'name': 'tests', 'kind': 'direct_source', 'test_only': True, 'source_dir': 'tests', 'source': {'type': 'git', 'tag': 'v1'}}, {'name': 'tracy', 'kind': 'direct_source', 'development_only': True, 'source_dir': 'tracy', 'source': {'type': 'git', 'tag': 'v0.14.1'}}, {'name': 'tracy-tools', 'kind': 'tool_package', 'development_only': True, 'allow_unsupported_platform': True, 'source_dir': 'tracy-tools', 'source': {'type': 'archive', 'platforms': {'Win64': {'url': 'https://example.invalid/tracy-tools.zip', 'archive_name': 'tracy-tools.zip', 'required_files': ['tracy-profiler.exe']}}}}]
@@ -48,7 +71,7 @@ class TestThirdPartyBootstrap:
         )
 
     def test_explicit_development_dependency_preserves_requested_order(self) -> None:
-        selected = dependency_manifests.select_manifests(self.make_manifests(), DependencyRequest(libraries='tracy,normal'))
+        selected = dependency_manifests.select_manifests(self.make_manifests(), DependencyRequest(libraries=('tracy', 'normal')))
         assert [manifest['name'] for manifest in selected] == ['tracy', 'normal']
 
     def test_shared_install_commands_receive_toolchain_environment(self, tmp_path_factory: pytest.TempPathFactory) -> None:
@@ -180,7 +203,7 @@ class TestThirdPartyBootstrap:
 
     @staticmethod
     def make_tool_manifest(*, sha256: str='0' * 64) -> dict[str, object]:
-        return {'name': 'tracy-tools', 'version': '0.14.1', 'kind': 'tool_package', 'development_only': True, 'allow_unsupported_platform': True, 'repair_command': 'DevTool.bat dependency prepare --libs tracy,tracy-tools', 'source_dir': 'packages/tracy-tools/0.14.1/Win64', 'source': {'type': 'archive', 'platforms': {'Win64': {'url': 'https://example.invalid/windows-0.14.1.zip', 'archive_name': 'windows-0.14.1.zip', 'sha256': sha256, 'required_files': ['tracy-profiler.exe', 'tracy-capture.exe']}}}}
+        return {'name': 'tracy-tools', 'version': '0.14.1', 'kind': 'tool_package', 'development_only': True, 'allow_unsupported_platform': True, 'repair_command': 'DevTool.bat dependency prepare tracy tracy-tools', 'source_dir': 'packages/tracy-tools/0.14.1/Win64', 'source': {'type': 'archive', 'platforms': {'Win64': {'url': 'https://example.invalid/windows-0.14.1.zip', 'archive_name': 'windows-0.14.1.zip', 'sha256': sha256, 'required_files': ['tracy-profiler.exe', 'tracy-capture.exe']}}}}
 
     def test_archive_sha256_must_be_64_hexadecimal_digits(self) -> None:
         manifest = self.make_tool_manifest(sha256='not-a-digest')
@@ -294,8 +317,8 @@ class TestRelocatedManifest:
             for item in dependency_manifests.load_manifests(REPOSITORY)
             if item['name'] == 'tracy-tools'
         )
-        assert manifest['repair_command'] == 'DevTool.bat dependency prepare --libs tracy,tracy-tools'
-        assert manifest['repair_commands_by_platform']['MacOS'] == './DevTool dependency prepare --libs tracy,tracy-tools'
+        assert manifest['repair_command'] == 'DevTool.bat dependency prepare tracy tracy-tools'
+        assert manifest['repair_commands_by_platform']['MacOS'] == './DevTool dependency prepare tracy tracy-tools'
         assert (REPOSITORY_ROOT / 'DevTool.bat').is_file()
         assert (REPOSITORY_ROOT / 'DevTool').is_file()
         source = manifest['source']['platforms']['MacOS']

@@ -113,7 +113,7 @@ def select_manifests(
     request: DependencyRequest,
 ) -> list[dict[str, Any]]:
     if request.use_all == bool(request.libraries):
-        raise BootstrapError("Specify exactly one of --all or --libs.")
+        raise BootstrapError("Specify dependency names or --all, but not both.")
     if request.use_all:
         return [
             manifest
@@ -121,7 +121,7 @@ def select_manifests(
             if (request.with_tests or not manifest.get("test_only", False))
             and (request.with_development or not manifest.get("development_only", False))
         ]
-    names = [name.strip() for name in (request.libraries or "").split(",") if name.strip()]
+    names = tuple(dict.fromkeys(request.libraries))
     by_name = {manifest["name"]: manifest for manifest in manifests}
     unknown = [name for name in names if name not in by_name]
     if unknown:

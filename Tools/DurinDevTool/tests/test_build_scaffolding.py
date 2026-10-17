@@ -204,7 +204,7 @@ class TestModuleScaffolding:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
         _, sandbox_project = self.create_workspace(root)
-        request = parse_build_request(['create', 'module', 'Gameplay', '--project', 'Sandbox/Sandbox.dproject', '--private-dependency', 'Core'])
+        request = parse_build_request(['create', 'module', 'Gameplay', '--project', 'Sandbox/Sandbox.dproject', '--deps', 'Core'])
         plan = build_scaffolding.plan_module_creation(request, root)
         assert len(plan.operations) == 9
         build_scaffolding.execute_plan(plan)
@@ -226,7 +226,7 @@ class TestModuleScaffolding:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
         _, sandbox_project = self.create_workspace(root)
-        request = parse_build_request(['create', 'module', 'SceneEditor', '--project', 'Sandbox/Sandbox.dproject', '--kind', 'editor', '--link', 'static', '--pch', 'SharedPCH_Core', '--private-dependency', 'Core', '--public-dependency', 'Sandbox', '--optional-private-dependency', 'DurinEd', '--optional-public-dependency', 'AssetCore', '--enable', 'DurinEditor', '--enable', 'DurinGame'])
+        request = parse_build_request(['create', 'module', 'SceneEditor', '--project', 'Sandbox/Sandbox.dproject', '--kind', 'editor', '--link', 'static', '--pch', 'SharedPCH_Core', '--deps', 'Core', '--public-deps', 'Sandbox', '--optional-deps', 'DurinEd', '--optional-public-deps', 'AssetCore', '--enable', 'DurinEditor', '--enable', 'DurinGame'])
         build_scaffolding.execute_plan(build_scaffolding.plan_module_creation(request, root))
         module_root = root / 'Sandbox' / 'Source' / 'Editor' / 'SceneEditor'
         descriptor = json.loads((module_root / 'SceneEditor.dmodule').read_text(encoding='utf-8'))
@@ -246,7 +246,7 @@ class TestModuleScaffolding:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
         _, sandbox_project = self.create_workspace(root)
-        request = parse_build_request(['create', 'module', 'WorldTools', '--project', 'Sandbox/Sandbox.dproject', '--path', 'Source/Features/World Tools', '--kind', 'editor', '--private-dependency', 'Core'])
+        request = parse_build_request(['create', 'module', 'WorldTools', '--project', 'Sandbox/Sandbox.dproject', '--path', 'Source/Features/World Tools', '--kind', 'editor', '--deps', 'Core'])
         build_scaffolding.execute_plan(build_scaffolding.plan_module_creation(request, root))
         module_root = root / 'Sandbox' / 'Source' / 'Features' / 'World Tools'
         project = json.loads(sandbox_project.read_text(encoding='utf-8'))

@@ -13,16 +13,16 @@ can use `setup --skip-development-tools`; configure/build do not install these
 tools. Existing workspaces can install or repair them explicitly:
 
 ```powershell
-.\DevTool.bat dependency prepare --libs tracy,tracy-tools
+.\DevTool.bat dependency prepare tracy tracy-tools
 ```
 
-On macOS, use `./DevTool dependency prepare --libs tracy,tracy-tools`.
+On macOS, use `./DevTool dependency prepare tracy tracy-tools`.
 
 Use the ordinary Release builds for representative performance captures:
 
 ```powershell
-.\DevTool.bat build --preset Win64-Release-DurinEditor all
-.\DevTool.bat build --preset Win64-Release-DurinGame all
+.\DevTool.bat build --preset release-editor all
+.\DevTool.bat build --preset release-game all
 ```
 
 `DURIN_ENABLE_TRACY=AUTO` is the default and enables instrumentation for every
@@ -46,7 +46,7 @@ is the official `tracy-profiler.app` bundle. To install or repair the tools
 without rerunning setup:
 
 ```powershell
-.\DevTool.bat dependency prepare --libs tracy,tracy-tools
+.\DevTool.bat dependency prepare tracy tracy-tools
 ```
 
 After opening a project in DurinEditor, use `Tools > Profiling`:
@@ -146,7 +146,7 @@ If a connection fails:
    than assuming 8086.
 3. Remove a shared `TRACY_PORT` override or assign unique fixed ports.
 4. Run
-   `.\DevTool.bat dependency prepare --libs tracy,tracy-tools`
+   `.\DevTool.bat dependency prepare tracy tracy-tools`
    if tool status reports a missing or mismatched installation.
 
 ## Instrumentation Surface

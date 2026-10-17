@@ -24,12 +24,12 @@ apply the recommended set. The apply is a sequence of bounded atomic package
 units, so cancellation or failure can leave earlier packages complete; the
 terminal report is the authority for the outcome.
 
-DurinDevTool uses the configured game project by default and previews without
-writing:
+DurinDevTool uses the configured game project and saves by default. Add
+`--dry-run` to preview without saving authored assets:
 
 ```powershell
-.\DevTool.bat asset resave /Game
-.\DevTool.bat asset resave /Game/Example --apply
+.\DevTool.bat asset resave /Game --dry-run
+.\DevTool.bat asset resave /Game/Example
 .\DevTool.bat asset resave --all
 ```
 
@@ -44,7 +44,7 @@ projects. Repeat with `--project` for each project descriptor; shared Engine
 content needs only one pass. Project modules are loaded before schema capture
 so project-defined asset classes participate in inspection and resave.
 
-The `asset material-functions --apply` command validates the shipped reusable
+The `asset material-functions` command validates the shipped reusable
 functions and initializes missing DefaultMaterial. It preserves function implementation
 edits and rejects incompatible interfaces. Missing functions must be restored from
 the shipped Engine content; the command never generates replacements. It does not upgrade
@@ -60,9 +60,11 @@ does not read v9. Format upgrades must be applied with a reader that still
 supports the source revision before retiring that reader.
 
 Canonical resave always writes the current canonical DURF/DAST v10 closure;
-there is no format-selection or legacy-writer option. `--apply` is the only
-option that authorizes writes, and package-level rollback is automatic on
-verification or catalog-publication failure.
+there is no format-selection or legacy-writer option. DevTool executes writes
+by default and `--dry-run` previews. Package-level
+rollback is automatic on verification or catalog-publication failure.
+The lower-level native host retains its own explicit-write interface;
+DevTool translates execution intent when invoking it.
 Before apply, check out the reported authored files in source control. After
 apply, review the package diffs and rerun the same dry-run; a successful second
 scan is empty and a second apply is a no-op.
@@ -84,8 +86,8 @@ without their original image files. Update executables first: Zstd source codec 
 cannot be read by older tools. Preview and apply use the same package selection:
 
 ```powershell
+.\DevTool.bat asset resave --all --recompress-texture-sources --dry-run --format json
 .\DevTool.bat asset resave --all --recompress-texture-sources --format json
-.\DevTool.bat asset resave --all --recompress-texture-sources --apply --format json
 ```
 
 With this option, scopes and `--all` include compatible current packages even
@@ -119,11 +121,11 @@ project because its root list includes the launcher program.
 ## Explicit PBR material template
 
 Create an optional Metallic/Roughness instance parent at a chosen unused package
-path. The command previews by default; `--apply` creates and saves the material:
+path. The command creates and saves by default; `--dry-run` previews it:
 
 ```powershell
+.\DevTool.bat asset material-template /Game/Materials/PBRSurfaceMaterial_MR --project Sandbox/Sandbox.dproject --dry-run
 .\DevTool.bat asset material-template /Game/Materials/PBRSurfaceMaterial_MR --project Sandbox/Sandbox.dproject
-.\DevTool.bat asset material-template /Game/Materials/PBRSurfaceMaterial_MR --project Sandbox/Sandbox.dproject --apply
 ```
 
 The template exposes independent value, texture, and UV parameters for every
@@ -141,8 +143,8 @@ Inspect material/function graphs, current schemas, parameter owners and
 instance overrides before changing shared material content:
 
 ```powershell
+.\DevTool.bat asset material-functions --project Sandbox/Sandbox.dproject --dry-run
 .\DevTool.bat asset material-functions --project Sandbox/Sandbox.dproject
-.\DevTool.bat asset material-functions --project Sandbox/Sandbox.dproject --apply
 ```
 
 Apply repeats the inventory before writing. It loads the shipped `UVTransform`,

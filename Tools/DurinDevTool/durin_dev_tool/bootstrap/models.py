@@ -14,7 +14,7 @@ class BootstrapError(DevToolError):
 @dataclass(frozen=True)
 class DependencyRequest:
     use_all: bool = False
-    libraries: str | None = None
+    libraries: tuple[str, ...] = ()
     config: str = "All"
     with_tests: bool = False
     with_development: bool = False

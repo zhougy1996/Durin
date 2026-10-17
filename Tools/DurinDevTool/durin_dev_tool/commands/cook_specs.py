@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .common_specs import CONTEXT_ARGUMENTS, REPORT_FORMAT
+from .common_specs import CONTEXT_ARGUMENTS, DRY_RUN, REPORT_FORMAT
 from .specification import CommandSpec, argument
 
 
@@ -12,6 +12,7 @@ COMMAND_SPEC = CommandSpec(
     "durin_dev_tool.cook:run",
     required_modules=("rich", "jsonschema"),
     help_group="Assets",
+    usage="%(prog)s --output-dir PATH [options]",
     epilog="Examples:\n  DevTool cook --output-dir Saved/Cooked\n  DevTool cook --output-dir Saved/MacCook --target macos --dry-run",
     arguments=CONTEXT_ARGUMENTS
     + (
@@ -43,11 +44,7 @@ COMMAND_SPEC = CommandSpec(
             action="store_true",
             help="capture every selected package instead of accepting Cook hits",
         ),
-        argument(
-            "--dry-run",
-            action="store_true",
-            help="capture and report plans without opening an output transaction",
-        ),
+        DRY_RUN,
         REPORT_FORMAT,
     ),
 )

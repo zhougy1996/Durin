@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .common_specs import DRY_RUN
 from .specification import CommandSpec, argument
 
 
@@ -14,7 +15,7 @@ COMMAND_SPEC = CommandSpec(
             "open",
             "open a terminal tab for every worktree",
             HANDLER,
-            arguments=(argument("--dry-run", action="store_true"),),
+            arguments=(DRY_RUN,),
             defaults=(("worktree_action", "open"),),
         ),
         CommandSpec(
@@ -45,7 +46,7 @@ COMMAND_SPEC = CommandSpec(
                 argument("path", nargs="?", help="linked worktree path"),
                 argument("--source", help="prepared source worktree or Engine/External path"),
                 argument("--link-type", choices=("auto", "junction", "symlink"), default="auto"),
-                argument("--dry-run", action="store_true"),
+                DRY_RUN,
             ),
             defaults=(("worktree_action", "prepare"),),
         ),
@@ -56,7 +57,7 @@ COMMAND_SPEC = CommandSpec(
             arguments=(
                 argument("path", help="linked worktree path"),
                 argument("--force", action="store_true"),
-                argument("--dry-run", action="store_true"),
+                DRY_RUN,
             ),
             defaults=(("worktree_action", "remove"),),
         ),

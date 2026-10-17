@@ -51,8 +51,8 @@ does not accept `--jobs`.
 The default is `Build/NativeTestResults/<Preset>/<Selection>.xml`. Direct runs
 produce GoogleTest XML; CTest runs produce JUnit XML. Empty affected selections
 write no report and leave any previous report unchanged; check the command log.
-Use the positional case filter. The former `--parallel [N]` is replaced by
-`--isolate [--test-jobs N]`; routine execution needs no `--mode`.
+Use the positional case filter and `--isolate [--test-jobs N]` for isolated
+execution; routine execution needs no `--mode`.
 
 Existing CTest resource locks and execution-host rules still apply; parallelism does not authorize GPU
 or application-hosted coverage. A failure that also occurs when run alone is an

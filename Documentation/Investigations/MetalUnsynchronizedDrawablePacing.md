@@ -148,7 +148,7 @@ possible waits. Presented callback dispatch time is recorded separately from
 All 14 diagnostic Editor processes exited successfully. The temporary source
 changes were removed; the instrumentation patch remains only in the ignored
 local evidence directory. No production drawable-count policy was changed.
-`./DevTool build --target all` passed after restoration (receipt
+The complete runtime build passed after restoration (receipt
 `Build/.agent-state/logs/20261005-153223-843815-63030-cmake.log`).
 `./DevTool doc validate --scope changed` and `git diff --check` passed.
 The user's pre-existing scene asset edit remains outside this change.
@@ -189,6 +189,6 @@ Raw samples: `30hz-three.csv`, `30hz-two.csv`, `30hz-three-repeat.csv`, and
 `20261005-173509-338574-64461-DurinEditor.log` in `Build/.agent-state/logs/`.
 
 Only the two Metal source files were temporarily instrumented for this follow-up;
-both were restored and `./DevTool build --target MetalRHI` passed afterward
+both were restored and the MetalRHI target build passed afterward
 (`20261005-173525-107556-64483-cmake.log`). The display remains at the user's
 30 Hz setting. No production policy change was retained.

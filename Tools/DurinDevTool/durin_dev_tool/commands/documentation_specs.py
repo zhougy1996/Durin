@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .specification import CommandSpec, argument
-from .common_specs import COLOR
+from .common_specs import COLOR, DRY_RUN
 
 
 HANDLER = "durin_dev_tool.documentation.handler:run"
@@ -21,7 +21,7 @@ PLAN_LIST_ARGUMENTS = (
 PLAN_VALIDATE_ARGUMENTS = (argument("--scope", choices=PLAN_SCOPES, default="all"),)
 PLAN_ARCHIVE_ARGUMENTS = (
     argument("month", help="completion month in YYYY-MM form"),
-    argument("--dry-run", action="store_true", help="preview without applying the archive"),
+    DRY_RUN,
 )
 
 
@@ -113,7 +113,7 @@ COMMAND_SPEC = CommandSpec(
             arguments=(
                 argument("source_path", metavar="SOURCE"),
                 argument("destination_path", metavar="DESTINATION"),
-                argument("--dry-run", action="store_true"),
+                DRY_RUN,
                 DOCUMENT_OUTPUT,
             ),
             defaults=(("document_action", "move"),),
@@ -129,7 +129,7 @@ COMMAND_SPEC = CommandSpec(
                     HANDLER,
                     arguments=(
                         argument("task_path", metavar="PATH"),
-                        argument("--dry-run", action="store_true"),
+                        DRY_RUN,
                         DOCUMENT_OUTPUT,
                     ),
                     defaults=(("task_action", "remove"),),

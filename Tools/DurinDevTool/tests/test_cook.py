@@ -88,12 +88,15 @@ def test_macos_cook_target_is_selected_and_reported() -> None:
      ("Win64", "macos", "macos"), ("Unsupported", "win64", "win64"),
      ("Unsupported", None, None)],
 )
+@pytest.mark.parametrize("dry_run", [False, True])
 def test_cook_defaults_use_selected_profile_and_forward_game(
-    tmp_path: Path, platform: str, explicit_target: str | None, expected: str | None,
+    tmp_path: Path, platform: str, explicit_target: str | None, expected: str | None, dry_run: bool,
 ) -> None:
     project = tmp_path / "Test.dproject"
     project.write_text("{}", encoding="utf-8")
-    arguments = ["cook", "--project", str(project), "--output-dir", "Build/Cook", "--dry-run", "--format", "json"]
+    arguments = ["cook", "--project", str(project), "--output-dir", "Build/Cook", "--format", "json"]
+    if dry_run:
+        arguments.append("--dry-run")
     if explicit_target:
         arguments.extend(["--target", explicit_target])
     _, namespace = CommandRegistry().parse(arguments)
@@ -116,7 +119,7 @@ def test_cook_defaults_use_selected_profile_and_forward_game(
             forwarded = runner.call_args.args[0]
             assert f"--target={expected}" in forwarded
             assert "--profile=game" in forwarded
-            assert "--dry-run" in forwarded
+            assert ("--dry-run" in forwarded) == dry_run
 
 
 def test_cook_rejects_removed_target_profile_option() -> None:

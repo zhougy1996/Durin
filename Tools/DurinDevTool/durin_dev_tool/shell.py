@@ -11,6 +11,7 @@ from typing import Callable, TextIO
 from .context import CommandIO, RepositoryContext
 from .errors import DevToolError
 from .registry import CommandRegistry
+from .commands.specification import ArgumentSpec
 
 
 def split_windows_command_line(line: str) -> list[str]:
@@ -78,10 +79,92 @@ def _matching_choices(argument: object, prefix: str) -> tuple[str, ...]:
     return tuple(value for value in values if value.casefold().startswith(prefix.casefold()))
 
 
+def _pending_argument(arguments: tuple[ArgumentSpec, ...], tokens: list[str]) -> ArgumentSpec | None:
+    """Track value consumption, including lists and options using =value."""
+    options = {flag: argument for argument in arguments for flag in argument.flags if flag.startswith('-')}
+    positionals = iter(argument for argument in arguments if not argument.flags[0].startswith('-'))
+    positional = next(positionals, None)
+    pending = None
+    consumed = 0
+    for token in tokens:
+        if token == '--':
+            return None
+        option, separator, _value = token.partition('=')
+        if token.startswith('-'):
+            pending = options.get(option)
+            consumed = int(bool(separator))
+            if pending is not None:
+                nargs = pending.kwargs.get('nargs', 1)
+                if pending.kwargs.get('action') in {'store_true', 'store_false', 'count'} or nargs == 0:
+                    pending = None
+                elif separator:
+                    pending = None
+            continue
+        if pending is not None:
+            consumed += 1
+            nargs = pending.kwargs.get('nargs', 1)
+            if nargs not in ('+', '*') and consumed >= (nargs if isinstance(nargs, int) else 1):
+                pending = None
+        elif positional is not None and positional.kwargs.get('nargs') not in ('+', '*'):
+            positional = next(positionals, None)
+    return pending or positional
+
+
+def _repository_choices(
+    argument: ArgumentSpec, tokens: list[str], repository: RepositoryContext | None,
+    session_state: dict[str, object] | None,
+) -> tuple[str, ...]:
+    destination = argument.kwargs.get('dest', argument.flags[0].lstrip('-').replace('-', '_'))
+    dependencies = {'private_dependencies', 'public_dependencies', 'optional_private_dependencies', 'optional_public_dependencies'}
+    if destination not in {'preset', 'selected_preset', 'profile', *dependencies}:
+        return ()
+    try:
+        repository = repository or RepositoryContext.load()
+        if destination in dependencies:
+            from .build.descriptors import descriptor_schema_directory, load_project_descriptor
+            from .build.workspace_manifest import load_workspace_manifest
+            names = {
+                name for entry in load_workspace_manifest(repository.root)
+                for name in load_project_descriptor(entry.descriptor, schema_directory=descriptor_schema_directory(repository)).module_dirs
+            }
+            return tuple(sorted(names, key=str.casefold))
+        from .build.config_io import load_configure_presets, load_local_config, load_profiles
+        from .build.selection import preset_short_name, select_profile
+        from .build.settings import BuildPaths
+        paths = BuildPaths.from_repository(repository)
+        profiles = load_profiles(paths.profile_file)
+        if destination == 'profile':
+            from .build.selection import host_name
+            return tuple(name for name, profile in profiles.items() if profile.host == host_name())
+        requested_profile = ''
+        for index, token in enumerate(tokens):
+            if token.startswith('--profile='):
+                requested_profile = token.partition('=')[2]
+            elif token == '--profile' and index + 1 < len(tokens):
+                requested_profile = tokens[index + 1]
+        session = (session_state or {}).get('build_session')
+        context = getattr(session, 'context', None)
+        if not requested_profile and context is not None:
+            profile = context.profile
+        else:
+            config = load_local_config(paths.local_config_file)
+            profile = select_profile(profiles, requested=requested_profile, configured=config.default_build_profile, profile_file=paths.profile_file)
+        presets = load_configure_presets(paths.preset_file)
+        short_names = [preset_short_name(presets.get(name)) for name in profile.presets]
+        unique = [name for name in short_names if name and short_names.count(name) == 1]
+        return tuple(dict.fromkeys((*unique, *profile.presets, *(str(index) for index in range(1, len(profile.presets) + 1)))))
+    except (DevToolError, OSError, ValueError):
+        # Incomplete checkout/configuration must not interrupt line editing.
+        return ()
+
+
 def shell_completion_candidates(
     registry: CommandRegistry,
     line: str,
     cursor_position: int | None = None,
+    *,
+    repository_context: RepositoryContext | None = None,
+    session_state: dict[str, object] | None = None,
 ) -> tuple[str, ...]:
     before_cursor = line[:cursor_position]
     match = re.search(r"(?:^|\s)(\S*)$", before_cursor)
@@ -98,6 +181,15 @@ def shell_completion_candidates(
         return tuple(
             name for name in names if name.casefold().startswith(prefix.casefold())
         )
+
+    if completed[0].casefold() == "help":
+        candidates = registry.specifications
+        for name in completed[1:]:
+            spec = next((item for item in candidates if item.name == name.casefold()), None)
+            if spec is None:
+                return ()
+            candidates = spec.subcommands
+        return tuple(item.name for item in candidates if item.name.casefold().startswith(prefix.casefold()))
 
     current = next(
         (
@@ -135,27 +227,19 @@ def shell_completion_candidates(
             )
         else:
             return tuple(
-                child.name
-                for child in current.subcommands
-                if child.name.casefold().startswith(prefix.casefold())
+                name
+                for name in (*(child.name for child in current.subcommands), '-h', '--help')
+                if name.casefold().startswith(prefix.casefold())
             )
 
     if current.name == "run" and "--" in completed[1:]:
         return ()
 
-    if completed:
-        previous = completed[-1]
-        previous_argument = next(
-            (
-                argument
-                for argument in current.arguments
-                if previous in argument.flags
-            ),
-            None,
-        )
-        if previous_argument is not None:
-            if previous_argument.kwargs.get("choices") is not None:
-                return _matching_choices(previous_argument, prefix)
+    def values(argument: ArgumentSpec, value_prefix: str) -> tuple[str, ...]:
+        if argument.kwargs.get('choices') is not None:
+            return _matching_choices(argument, value_prefix)
+        return tuple(value for value in _repository_choices(argument, completed[argument_index:], repository_context, session_state)
+                     if value.casefold().startswith(value_prefix.casefold()))
 
     if "=" in prefix:
         option, value_prefix = prefix.split("=", 1)
@@ -167,14 +251,15 @@ def shell_completion_candidates(
             ),
             None,
         )
-        if (
-            option_argument is not None
-            and option_argument.kwargs.get("choices") is not None
-        ):
+        if option_argument is not None:
             return tuple(
                 f"{option}={choice}"
-                for choice in _matching_choices(option_argument, value_prefix)
+                for choice in values(option_argument, value_prefix)
             )
+
+    pending = _pending_argument(current.arguments, completed[argument_index:])
+    if pending is not None and not prefix.startswith('-'):
+        return values(pending, prefix)
 
     options = (
         flag
@@ -185,12 +270,12 @@ def shell_completion_candidates(
     )
     return tuple(
         option
-        for option in options
+        for option in (*options, '-h', '--help')
         if option.casefold().startswith(prefix.casefold())
     )
 
 
-def _configure_readline_completion(registry: CommandRegistry) -> None:
+def _configure_readline_completion(registry: CommandRegistry, **context: object) -> None:
     try:
         import readline
     except ImportError:
@@ -205,6 +290,7 @@ def _configure_readline_completion(registry: CommandRegistry) -> None:
                 registry,
                 readline.get_line_buffer(),
                 readline.get_endidx(),
+                **context,
             )
         return matches[state] if state < len(matches) else None
 
@@ -216,14 +302,14 @@ def _configure_readline_completion(registry: CommandRegistry) -> None:
         readline.parse_and_bind("tab: complete")
 
 
-def _interactive_input(registry: CommandRegistry, stdout: TextIO) -> Callable[[str], str]:
+def _interactive_input(registry: CommandRegistry, stdout: TextIO, **context: object) -> Callable[[str], str]:
     if not sys.stdin.isatty() or not stdout.isatty():
         return input
     try:
         from prompt_toolkit import PromptSession
         from prompt_toolkit.completion import Completer, Completion
     except ImportError:
-        _configure_readline_completion(registry)
+        _configure_readline_completion(registry, **context)
         return input
 
     class RegistryCompleter(Completer):
@@ -234,7 +320,7 @@ def _interactive_input(registry: CommandRegistry, stdout: TextIO) -> Callable[[s
             match = re.search(r"(?:^|\s)(\S*)$", before_cursor)
             prefix = match.group(1) if match else ""
             for candidate in shell_completion_candidates(
-                registry, text, cursor_position
+                registry, text, cursor_position, **context
             ):
                 yield Completion(candidate, start_position=-len(prefix))
 
@@ -255,11 +341,11 @@ def run_shell(
     input_func: Callable[[str], str] = input,
 ) -> int:
     print("Durin Developer Tool shell", file=stdout)
-    print("Type help for available commands.", file=stdout)
+    print("Type help for available commands; press Tab to complete commands and values.", file=stdout)
     session_state: dict[str, object] = {}
     repository = repository_context or RepositoryContext.load(repository_root)
     read_input = (
-        _interactive_input(registry, stdout) if input_func is input else input_func
+        _interactive_input(registry, stdout, repository_context=repository, session_state=session_state) if input_func is input else input_func
     )
     while True:
         try:

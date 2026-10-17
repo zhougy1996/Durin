@@ -9,12 +9,50 @@ Last reviewed: 2026-10-17
 `help` groups commands by purpose and includes common examples. Run
 `help <command>` or `<command> --help` for the full interface. Command help
 separates routine options from advanced toolchain and display overrides.
+Bare command groups without a safe default, such as `create` and `dependency`,
+show the same help in direct invocations and the shell. `help <command-path>`
+supports Tab completion in the shell.
 
 `build [TARGET]` and `rebuild [TARGET]` take one positional CMake target,
 defaulting to `all`. Pass application arguments after `run --`; options before
 the separator select DevTool context, and everything after it reaches the
-application unchanged. The former build `--target`, run `--args`, and Cook
-`--target-profile` options are not accepted.
+application unchanged.
+
+Options may appear between multiple positional selections, for example
+`asset resave /Game/A --dry-run /Game/B`. Values belonging to an option still
+follow that option. `run` retains its explicit `--` boundary: application
+arguments after it are forwarded unchanged and are not parsed as DevTool options.
+
+Dependency preparation follows the same positional selection style:
+`dependency prepare tracy tracy-tools --config debug`, or `dependency prepare
+--all`. Configuration values are lowercase (`debug`, `release`, `all`); see
+[Third-Party Dependency Preparation](../Build/ThirdPartyBootstrap.md#entry-points).
+
+## Preview And Execution
+
+Action commands execute by default. Commands with preview support accept
+`--dry-run` to skip their primary change.
+This rule is identical in direct invocations and the interactive shell.
+
+| Commands | Default action | With `--dry-run` |
+| --- | --- | --- |
+| `asset resave`, `asset material-template`, `asset material-functions` | Save selected packages, create a template, or initialize missing DefaultMaterial | Inspect and report without saving authored assets |
+| `create module`, `create project` | Create and register the requested item | Validate and show the creation plan |
+| `doc move`, `doc task remove`, `doc plan archive`, `doc roadmap archive` | Apply and validate the transactional change | Show the change without applying it |
+| `worktree prepare`, `worktree remove` | Prepare links or remove the selected worktree | Show the operation without modifying the worktree |
+| `worktree open` | Launch worktree terminals | List planned terminal launches |
+| `cook` | Publish a Cook generation | Prepare and report without publishing a generation |
+
+Preview is a per-command capability, not a global switch. Commands without that
+capability reject `--dry-run`; test selection uses its read-only `--explain`
+interface. Read-only discovery commands need neither flag, and bare `asset`
+still selects read-only `check`. `--yes` answers purge confirmation and `--force`
+permits discarding worktree changes; neither selects preview or execution.
+
+Preview skips the primary change, not all incidental writes. Native asset and
+Cook processes can write diagnostic logs and runtime/cache state; Cook writes
+its DDC and logs under the selected output directory even during a dry run.
+See the owning command contract for the exact boundary.
 
 ## Command output and logs
 
@@ -28,9 +66,8 @@ Output options have separate meanings:
 | `--format terminal\|markdown\|json` | Documentation results, limited to each command's supported formats |
 | `--color auto\|always\|never` | Styled build, setup/dependency, scaffolding, location, and plan/roadmap listing output |
 
-The former `--output`, `--json`, and `--plain` options are rejected. Long options
-must be spelled in full. `test --report [PATH]` remains the XML report file
-selection; it does not select stdout format or log presentation. Commands that
+Long options must be spelled in full. `test --report [PATH]` selects the XML
+report file; it does not select stdout format or log presentation. Commands that
 only emit one format, such as `asset identity-audit`, keep that fixed format.
 
 `--color auto` is the default: it enables ANSI styling for terminals unless
@@ -82,7 +119,7 @@ Compact mode emits a short heartbeat every 30 seconds while a child command
 remains alive. It reports elapsed time and the latest CMake/Ninja status when
 available, including Ninja's completed count and action. Logs are flushed as
 lines arrive so they can be read during execution. Non-interactive callers need
-no extra flags; the redundant `--agent` option has been removed. Use `--color never`
+no extra flags. Use `--color never`
 and `--log-mode compact` to request the same display explicitly in a terminal.
 Progress and full output modes stream child output without default heartbeats.
 
@@ -99,9 +136,25 @@ test command resolves that environment; later commands and preset switches
 reuse it. Read-only and artifact commands remain available when the toolchain is
 unavailable.
 
-The prompt displays the selected preset. `preset` shows it, `preset <number>`
-selects a displayed entry, and `preset <full-name>` performs case-insensitive
-selection for later shell commands. Direct commands use `--preset <name>`.
+The prompt displays the selected preset. `presets` lists short names, full CMake
+names, and numbered entries. Prefer stable short names such as `release-editor`
+or `debug-game`; names are case-insensitive. Both `preset <selector>` and direct
+`--preset <selector>` accept the same short name, full name, or displayed number.
+Short names are derived from configuration and runtime variant; if two presets
+share a short name, use the full name. Inside the shell, `preset <selector>`
+selects the preset for later commands. Direct `preset <selector>` inspects that
+selection for the current invocation; direct operations use `--preset`.
+`preset` alone inspects the current selection.
+
+Tab completes command and `help` paths, option names (including `--help`), and
+option choices. Preset values complete short names, full names, and displayed
+numbers after `preset`, `--preset`, or `--preset=`; candidates follow the shell's
+current profile or an explicit `--profile`. Dependency lists such as
+`--deps Core En` complete registered workspace modules at every list position;
+the next option ends the list. Completion uses current repository metadata
+without initializing the build toolchain. Application arguments after `run --`
+are left to the application.
+
 A bare group with a safe read-only default executes that default; groups without
 one show help. `exit` and `quit` leave the shell.
 `doc`, `doc task`, `doc plan`, `doc roadmap`, and `worktree` default to `list`
@@ -117,6 +170,7 @@ Representative commands are alternatives, not a sequence:
 .\DevTool.bat test CoreConcurrencyTests FTaskSchedulerTests.* --explain
 .\DevTool.bat asset
 .\DevTool.bat asset resave /Game/Characters
+.\DevTool.bat asset resave /Game/Characters --dry-run
 .\DevTool.bat cook --output-dir Saved/Cooked
 ./DevTool cook --output-dir Saved/Cooked
 .\DevTool.bat path runtime
@@ -134,7 +188,7 @@ are defined by [Native Test Execution](../Build/NativeTests.md); target
 construction is defined by [Native Test Authoring](../Build/NativeTestAuthoring.md).
 All test selections use `--explain` for read-only resolution; `test list [query]`
 discovers targets. Explanation preserves the execution selection's mode and
-filter rules; the old `test explain <selection>` verb is not accepted.
+filter rules.
 Asset checking and current-format canonical resave are defined by
 [Build and Run](../Build/BuildAndRun.md#asset-maintenance).
 
@@ -238,7 +292,7 @@ Each mutation verifies current fingerprints, writes atomically, repairs
 Markdown references where required, validates repository documentation plus
 plan and roadmap lifecycle metadata, and rolls back on failure. Its success
 output is the validation receipt; do not immediately repeat an equivalent
-validator. The former `--apply` spelling remains accepted for compatibility.
+validator. Omit `--dry-run` to execute the change.
 
 `doc plan context <query>` resolves exactly one plan and emits its metadata,
 current status, per-stage task counts, the first stage with open tasks, the
@@ -253,9 +307,9 @@ Create a module with one command. The project descriptor may be relative to the
 workspace root or absolute:
 
 ```powershell
-.\DevTool.bat create module Gameplay --project Sandbox\Sandbox.dproject --kind runtime --private-dependency Core --private-dependency Engine
-.\DevTool.bat create module SceneEditor --project Sandbox\Sandbox.dproject --kind editor --private-dependency DurinEd
-.\DevTool.bat create module AssetRecipes --project Sandbox\Sandbox.dproject --kind developer --private-dependency Core
+.\DevTool.bat create module Gameplay --project Sandbox\Sandbox.dproject --deps Core Engine
+.\DevTool.bat create module SceneEditor --project Sandbox\Sandbox.dproject --kind editor --deps DurinEd
+.\DevTool.bat create module AssetRecipes --project Sandbox\Sandbox.dproject --kind developer --deps Core
 ```
 
 Without `--path`, runtime modules use `Source/Runtime/<Name>` and `BaseModules`;
@@ -266,14 +320,17 @@ classification. `--path` may select another nonoverlapping location inside the
 owning project.
 
 Use `--enable none`, `--enable base`, or repeated `--enable <RuntimeVariant>` to
-replace default enablement. Public, private, optional-public, and
-optional-private dependency options are repeatable. Shared linkage and a self
-PCH are default; `--link static` and `--pch <Name>` select alternatives.
+replace default enablement. `--deps Core Engine` selects private dependencies;
+use `--public-deps`, `--optional-deps`, or `--optional-public-deps` for the other
+visibility/optionality combinations. Each accepts multiple names and may be
+repeated. Put the module name before these lists; the next option ends a list.
+Shared linkage and a self PCH are default; `--link static` and `--pch <Name>`
+select alternatives.
 
 Preview without creating files or changing descriptors:
 
 ```powershell
-.\DevTool.bat create module Gameplay --project Sandbox\Sandbox.dproject --private-dependency Core --dry-run --color never
+.\DevTool.bat create module Gameplay --project Sandbox\Sandbox.dproject --deps Core --dry-run --color never
 ```
 
 Creation validates names, dependencies, variants, paths, and CMake collisions

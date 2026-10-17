@@ -210,7 +210,7 @@ class TestCore:
 
     def test_all_native_tests_reject_gtest_filter(self) -> None:
         request = request_fixtures.command_request(models.Action.TEST, options=request_fixtures.TestActionOptions(target='all', filter='Core.*'))
-        with pytest.raises(errors.BuildToolError, match='cannot be used with test all'):
+        with pytest.raises(errors.BuildToolError, match='aggregate selections'):
             request_validation.validate_request(request, self.make_preset())
     def test_qualification_mode_selects_only_qualification_registrations(self) -> None:
         preset = self.make_preset()

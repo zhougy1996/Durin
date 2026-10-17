@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .common_specs import CONTEXT_ARGUMENTS, REPORT_FORMAT
+from .common_specs import CONTEXT_ARGUMENTS, DRY_RUN, REPORT_FORMAT
 from .specification import CommandSpec, argument
 
 
@@ -23,13 +23,12 @@ COMMAND_SPEC = CommandSpec(
     subcommands=(
         CommandSpec(
             "material-functions",
-            "inspect shipped standard functions and initialize missing DefaultMaterial",
+            "validate shipped standard functions and initialize missing DefaultMaterial",
             HANDLER,
             required_modules=("rich",),
             arguments=CONTEXT_ARGUMENTS + (
                 PROJECT_ARGUMENT,
-                argument("--apply", action="store_true",
-                         help="validate shipped standard functions and save missing DefaultMaterial"),
+                DRY_RUN,
             ),
         ),
         CommandSpec(
@@ -40,7 +39,7 @@ COMMAND_SPEC = CommandSpec(
             arguments=CONTEXT_ARGUMENTS + (
                 argument("destination", metavar="PACKAGE", help="destination package, such as /Game/Materials/PBRSurfaceMaterial_MR"),
                 PROJECT_ARGUMENT,
-                argument("--apply", action="store_true", help="create the previewed template; existing assets are never replaced"),
+                DRY_RUN,
             ),
         ),
         CommandSpec(
@@ -63,8 +62,9 @@ COMMAND_SPEC = CommandSpec(
         ),
         CommandSpec(
             "resave",
-            "preview or apply canonical resaves",
+            "resave authored packages in the canonical format",
             HANDLER,
+            usage="%(prog)s SCOPE... [options]\n       %(prog)s --all [options]",
             required_modules=("rich",),
             arguments=CONTEXT_ARGUMENTS
             + (
@@ -81,11 +81,7 @@ COMMAND_SPEC = CommandSpec(
                     action="store_true",
                     help="select the whole project",
                 ),
-                argument(
-                    "--apply",
-                    action="store_true",
-                    help="write the previewed resaves",
-                ),
+                DRY_RUN,
                 argument(
                     "--recompress-texture-sources",
                     action="store_true",

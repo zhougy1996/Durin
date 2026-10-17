@@ -206,12 +206,39 @@ def test_selected_asset_command_grammar_is_frozen() -> None:
     _, resave_namespace = registry.parse(
         [
             "asset", "resave", "/Game/Characters", "/Engine/Materials",
-            "--apply", "--format", "json",
+            "--format", "json",
         ]
     )
     assert resave_namespace.asset_command == "resave"
     assert resave_namespace.scopes == ["/Game/Characters", "/Engine/Materials"]
-    assert resave_namespace.apply
+    assert not resave_namespace.dry_run
+
+
+@pytest.mark.parametrize("command,selection", [
+    ("resave", ["/Game/Example"]),
+    ("material-template", ["/Game/Materials/Example"]),
+    ("material-functions", []),
+])
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_cli_asset_write_intent_reaches_native_host(tmp_path: Path, command: str, selection: list[str], dry_run: bool) -> None:
+    executable = tmp_path / "DurinAssetTool.exe"
+    executable.touch()
+    project = tmp_path / "Test.dproject"
+    project.write_text("{}", encoding="utf-8")
+    arguments = ["asset", command, *selection, "--project", str(project)]
+    if dry_run:
+        arguments.append("--dry-run")
+    _, namespace = CommandRegistry().parse(arguments)
+    calls = []
+    def runner(arguments, **kwargs):
+        calls.append(arguments)
+        return "{}"
+    assert asset.run(namespace, repository_root=tmp_path, repository_context=REPOSITORY,
+                     stdout=io.StringIO(), stderr=io.StringIO(),
+                     executable_resolver=lambda *_: executable, command_runner=runner) == 0
+    assert len(calls) == 1
+    assert ("--apply" in calls[0]) == (not dry_run)
+    assert "--dry-run" not in calls[0]
 
 
 def test_asset_check_uses_configured_default_project(tmp_path: Path) -> None:
@@ -266,7 +293,7 @@ def test_asset_resave_maps_scopes_and_write_intent_to_native_command(tmp_path: P
         "project_path": project,
         "scopes": ["/Game/Characters", "/Engine/Materials/Default"],
         "whole_project": False,
-        "apply": True,
+        "dry_run": False,
         "output_format": "json",
     })()
     calls: list[list[str]] = []
@@ -304,7 +331,7 @@ def test_asset_resave_requires_exactly_one_selection_style(tmp_path: Path) -> No
             "project_path": project,
             "scopes": scopes,
             "whole_project": whole_project,
-            "apply": False,
+            "dry_run": True,
             "output_format": "terminal",
         })()
         with pytest.raises(DevToolError, match="scope|--all"):
@@ -489,14 +516,14 @@ def test_check_invocation_is_read_only_and_missing_project_fails_before_launch(t
         )
 
 
-@pytest.mark.parametrize("apply", [False, True])
-def test_texture_recompression_flag_preserves_preview_apply_boundary(tmp_path: Path, apply: bool) -> None:
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_texture_recompression_flag_preserves_preview_apply_boundary(tmp_path: Path, dry_run: bool) -> None:
     executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()
     project = tmp_path / "Test.dproject"
     project.write_text("{}", encoding="utf-8")
     namespace = type("Namespace", (), dict(asset_command="resave", project_path=project,
-        output_format="json", whole_project=True, scopes=[], apply=apply,
+        output_format="json", whole_project=True, scopes=[], dry_run=dry_run,
         recompress_texture_sources=True))()
     calls = []
     def runner(arguments, **kwargs):
@@ -507,16 +534,16 @@ def test_texture_recompression_flag_preserves_preview_apply_boundary(tmp_path: P
         executable_resolver=lambda *_: executable, command_runner=runner) == 0
     assert "--recompress-texture-sources" in calls[0]
     assert "--all" in calls[0]
-    assert ("--apply" in calls[0]) == apply
+    assert ("--apply" in calls[0]) == (not dry_run)
 
 
-@pytest.mark.parametrize("apply", [False, True])
-def test_material_function_initialization_previews_unless_explicit_apply(tmp_path: Path, apply: bool) -> None:
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_material_function_initialization_executes_unless_dry_run(tmp_path: Path, dry_run: bool) -> None:
     executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()
     project = tmp_path / "Test.dproject"
     project.write_text("{}", encoding="utf-8")
-    namespace = argparse.Namespace(asset_command="material-functions", project_path=project, apply=apply)
+    namespace = argparse.Namespace(asset_command="material-functions", project_path=project, dry_run=dry_run)
     calls = []
     def runner(arguments, **kwargs):
         calls.append(arguments)
@@ -526,18 +553,18 @@ def test_material_function_initialization_previews_unless_explicit_apply(tmp_pat
             stdout=io.StringIO(), stderr=io.StringIO(),
             executable_resolver=lambda *_: executable, command_runner=runner)
     assert run() == 0
-    assert calls == [[str(executable), "material-functions", f"--project={project}"] + (["--apply"] if apply else [])]
+    assert calls == [[str(executable), "material-functions", f"--project={project}"] + (["--apply"] if not dry_run else [])]
 
 
-@pytest.mark.parametrize("apply", [False, True])
-def test_material_template_forwards_destination_and_explicit_apply(tmp_path: Path, apply: bool) -> None:
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_material_template_forwards_destination_and_dry_run(tmp_path: Path, dry_run: bool) -> None:
     executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()
     project = tmp_path / "Test.dproject"
     project.write_text("{}", encoding="utf-8")
     destination = "/Game/Materials/PBRSurfaceMaterial_MR"
     namespace = argparse.Namespace(asset_command="material-template", project_path=project,
-                                   destination=destination, apply=apply)
+                                   destination=destination, dry_run=dry_run)
     calls = []
     def runner(arguments, **kwargs):
         calls.append(arguments)
@@ -546,4 +573,4 @@ def test_material_template_forwards_destination_and_explicit_apply(tmp_path: Pat
         stdout=io.StringIO(), stderr=io.StringIO(),
         executable_resolver=lambda *_: executable, command_runner=runner) == 0
     assert calls == [[str(executable), "material-template", f"--project={project}", destination]
-                     + (["--apply"] if apply else [])]
+                     + (["--apply"] if not dry_run else [])]

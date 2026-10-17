@@ -4,7 +4,7 @@ from .specification import argument
 
 
 PROFILE = argument("--profile", group="advanced options", help="host build profile")
-PRESET = argument("--preset", help="registered CMake configure preset")
+PRESET = argument("--preset", help="preset short name, full name, or number from presets")
 COLOR = argument(
     "--color",
     group="advanced options",
@@ -14,6 +14,11 @@ COLOR = argument(
 )
 CONTEXT_ARGUMENTS = (PROFILE, PRESET)
 DISPLAY_ARGUMENTS = (COLOR,)
+
+DRY_RUN = argument(
+    "--dry-run", action="store_true",
+    help="preview the action instead of applying it (default: execute)",
+)
 
 REPORT_FORMAT = argument(
     "--format", dest="output_format", choices=("terminal", "json"),

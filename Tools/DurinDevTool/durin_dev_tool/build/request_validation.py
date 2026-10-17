@@ -92,12 +92,12 @@ def validate_request(request: ConcreteRequest, preset: ConfigurePreset) -> None:
     if (
         request.action is Action.TEST
         and request.test_operation == "run"
-        and request.target.casefold() == "all"
+        and request.target.casefold() in {"all", "fast-all"}
         and request.test_filter
     ):
         raise BuildToolError(
             "A case filter requires a single native test target and cannot be used with "
-            "test all."
+            "aggregate selections (all or fast-all)."
         )
     if request.action is Action.TEST and request.test_operation == "run":
         if request.test_mode is TestMode.ISOLATION:
@@ -107,7 +107,7 @@ def validate_request(request: ConcreteRequest, preset: ConfigurePreset) -> None:
                     recovery="Run test <target-or-@set> --isolate --test-jobs 4.",
                 )
         elif request.test_filter and (
-            request.target.startswith("@") or request.target.casefold() == "fast-all"
+            request.target.startswith("@")
         ):
             raise BuildToolError(
                 "A case filter on a set requires --isolate.",

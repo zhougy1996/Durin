@@ -27,8 +27,7 @@ without configuring, building, or executing tests. It accepts named targets,
 admission rules as execution; the output includes the execution mode and any
 GoogleTest filter. Case filters are reported as patterns, without launching an
 executable to enumerate matching cases. `test list [query]` remains a separate
-discovery command and does not accept `--explain`. The former
-`test explain <selection>` syntax is rejected.
+discovery command and does not accept `--explain`.
 The former `EngineTests` and `MaterialTests` executables are not runnable targets;
 their source directory names do not identify the focused targets that replaced them.
 Do not maintain target counts or inventories here; discovery and reports are the
@@ -111,11 +110,6 @@ Discovery (`list` and any selection with `--explain`) rejects `--report`,
 `--mode`, `--isolate`, or case filter. Report, scheduling, and timeout options
 combine with each supported execution mode.
 
-Migration: replace `--parallel` with `--isolate`, and `--parallel N` with
-`--isolate --test-jobs N`. The old flag is rejected rather than silently changing
-from process isolation to scheduling alone. The removed `--filter`, `--mode report`,
-and `--mode isolation` forms remain unsupported.
-
 ## Execution and Reports
 
 ```powershell
@@ -147,6 +141,8 @@ A positional GoogleTest filter supports `*`, `?`, colon-separated alternatives,
 and exclusions after `-`. Isolation accepts an optional filter and requires a
 named target or `@set`. `all` does not accept an executable-specific positional
 filter. `--isolate` combines with `--test-jobs` and `--report`, but not `--mode`.
+`fast-all` also rejects case filters; select a named target or isolated `@set`
+when filtering cases.
 Routine runs omit `--mode`; case isolation uses `--isolate`.
 Stress randomizes CTest scheduling and GoogleTest order and prints a reproducible
 shuffle seed, forwarded to GoogleTest and reproducible with `GTEST_RANDOM_SEED`.

@@ -1,5 +1,6 @@
 
 import io
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -43,7 +44,7 @@ COMMAND_CASES = (
     (("asset", "identity-audit"), "asset identity-audit --project Sandbox/Sandbox.dproject"),
     (("asset", "material-functions"), "asset material-functions --project Sandbox/Sandbox.dproject"),
     (("asset", "material-template"), "asset material-template /Game/Materials/PBRSurfaceMaterial_MR --project Sandbox/Sandbox.dproject"),
-    (("asset", "resave"), "asset resave /Game/Characters --apply"),
+    (("asset", "resave"), "asset resave /Game/Characters"),
     (
         ("create", "module"),
         "create module Sample --project Sandbox/Sandbox.dproject",
@@ -154,6 +155,150 @@ def comparable_namespace(namespace: object) -> dict[str, object]:
 
 class TestCommandGrammarContract:
 
+    def test_current_documentation_and_help_examples_parse(self) -> None:
+        registry = CommandRegistry()
+        examples = []
+        files = [REPOSITORY_ROOT / 'README.md', *(REPOSITORY_ROOT / 'Documentation').rglob('*.md')]
+        for path in files:
+            if any(part in {'Archive', 'Plans', 'Roadmaps', 'Investigations', 'Local'} for part in path.parts):
+                continue
+            fenced = False
+            for line_number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+                if line.strip().startswith('```'):
+                    fenced = not fenced
+                    continue
+                match = re.match(r'^\s*(?:\.\\DevTool\.bat|\./DevTool|DurinDevTool>)\s+(.+)$', line)
+                if fenced and match:
+                    command = match[1].split(' # ', 1)[0].strip()
+                    if line.lstrip().startswith('DurinDevTool>') and command in {'exit', 'quit'}:
+                        continue
+                    if any(token in command for token in ('<', '...', '[', '`')) or command.endswith('\\'):
+                        continue
+                    examples.append((f'{path.name}:{line_number}', command))
+        def help_examples(spec):
+            for line in spec.epilog.splitlines():
+                if line.strip().startswith('DevTool '):
+                    examples.append((f'help {spec.name}', line.strip()[len('DevTool '):]))
+            for child in spec.subcommands:
+                help_examples(child)
+        for spec in registry.specifications:
+            help_examples(spec)
+        assert len(examples) > 50
+        failures = []
+        for location, command in examples:
+            try:
+                registry.parse(split_shell_command(command))
+            except DevToolError as error:
+                failures.append(f'{location}: {command}: {error}')
+        assert not failures, '\n'.join(failures[:5])
+
+    def test_module_dependency_lists_are_concise_and_preserve_categories(self) -> None:
+        from durin_dev_tool.build.handler import request_from_namespace
+        _, namespace = CommandRegistry().parse([
+            'create', 'module', 'Gameplay', '--project', 'Sandbox/Sandbox.dproject',
+            '--deps', 'Core', 'Engine', '--deps', 'InputCore',
+            '--public-deps', 'AssetCore', '--optional-deps', 'DurinEd',
+            '--optional-public-deps', 'CoreAssets',
+        ])
+        request = request_from_namespace(namespace)
+        assert request.private_dependencies == ('Core', 'Engine', 'InputCore')
+        assert request.public_dependencies == ('AssetCore',)
+        assert request.optional_private_dependencies == ('DurinEd',)
+        assert request.optional_public_dependencies == ('CoreAssets',)
+        for flag in ('--private-dependency', '--public-dependency', '--optional-private-dependency', '--optional-public-dependency'):
+            with pytest.raises(DevToolError):
+                CommandRegistry().parse(['create', 'module', 'Gameplay', '--project', 'Sandbox/Sandbox.dproject', flag, 'Core'])
+
+    @pytest.mark.parametrize('path', [('test',), ('cook',), ('create', 'module'), ('asset', 'resave')])
+    def test_direct_and_command_help_have_the_same_concise_usage(self, path) -> None:
+        from contextlib import redirect_stdout
+        registry = CommandRegistry()
+        stdout = io.StringIO()
+        with redirect_stdout(stdout), pytest.raises(SystemExit) as result:
+            registry.parse([*path, '--help'])
+        assert result.value.code == 0
+        assert stdout.getvalue().strip() == registry.format_command_help(path)
+        assert '[options]' in stdout.getvalue().splitlines()[0]
+
+    @pytest.mark.parametrize('canonical,mixed', [
+        (['asset', 'resave', '/Game/A', '/Game/B', '--dry-run'],
+         ['asset', 'resave', '/Game/A', '--dry-run', '/Game/B']),
+        (['dependency', 'prepare', 'tracy', 'tracy-tools', '--config', 'debug'],
+         ['dependency', 'prepare', 'tracy', '--config', 'debug', 'tracy-tools']),
+    ])
+    def test_variadic_selections_allow_options_between_names(self, canonical, mixed) -> None:
+        registry = CommandRegistry()
+        spec, expected = registry.parse(canonical)
+        mixed_spec, actual = registry.parse(mixed)
+        assert mixed_spec is spec
+        assert comparable_namespace(actual) == comparable_namespace(expected)
+        assert comparable_namespace(registry.parse(canonical)[1]) == comparable_namespace(expected)
+
+    def test_intermixed_parsing_does_not_duplicate_repeated_options(self) -> None:
+        from durin_dev_tool.commands.specification import argument
+        registry = CommandRegistry(specifications=(CommandSpec(
+            'probe', 'probe parsing', arguments=(
+                argument('names', nargs='*'), argument('--tag', action='append', default=[]),
+            ),
+        ),))
+        arguments = ['probe', 'first', '--tag', 'x', 'second', '--tag', 'y']
+        for _ in range(2):
+            _, namespace = registry.parse(arguments)
+            assert namespace.names == ['first', 'second']
+            assert namespace.tag == ['x', 'y']
+
+    def test_intermixed_dependency_names_preserve_option_terminator(self) -> None:
+        _, namespace = CommandRegistry().parse(['dependency', 'prepare', '--', '--all'])
+        assert not namespace.all_dependencies
+        assert namespace.libraries == ['--all']
+
+    @pytest.mark.parametrize('command', ['create', 'dependency'])
+    def test_bare_command_groups_show_help_without_executing(self, command) -> None:
+        registry = CommandRegistry()
+        stdout, stderr = io.StringIO(), io.StringIO()
+        assert cli.run([command], registry=registry, repository_root=REPOSITORY_ROOT,
+                       stdout=stdout, stderr=stderr) == 0
+        assert stdout.getvalue().strip() == registry.format_command_help([command])
+        assert stderr.getvalue() == ''
+        with pytest.raises(DevToolError):
+            registry.parse([command, 'unknown'])
+
+    @pytest.mark.parametrize('arguments', [
+        ['dependency', 'prepare', '--libs', 'tracy'],
+        ['dependency', 'prepare', 'tracy', '--config', 'Debug'],
+    ])
+    def test_retired_dependency_syntax_is_rejected(self, arguments) -> None:
+        with pytest.raises(DevToolError):
+            CommandRegistry().parse(arguments)
+
+    def test_previewable_commands_share_execute_by_default_and_dry_run(self) -> None:
+        registry = CommandRegistry()
+        previewable = set()
+        for path, command in COMMAND_CASES:
+            spec, namespace = registry.parse(split_shell_command(command))
+            if any('--dry-run' in argument.flags for argument in spec.arguments):
+                previewable.add(path)
+                assert namespace.dry_run is False
+                _, preview = registry.parse([*split_shell_command(command), '--dry-run'])
+                assert preview.dry_run is True
+                with pytest.raises(DevToolError):
+                    registry.parse([*split_shell_command(command), '--apply'])
+        assert previewable == {
+            ('asset', 'resave'), ('asset', 'material-functions'), ('asset', 'material-template'),
+            ('create', 'module'), ('create', 'project'), ('cook',),
+            ('doc', 'move'), ('doc', 'task', 'remove'), ('doc', 'plan', 'archive'), ('doc', 'roadmap', 'archive'),
+            ('worktree', 'open'), ('worktree', 'prepare'), ('worktree', 'remove'),
+        }
+
+    @pytest.mark.parametrize('arguments', [
+        ['asset', 'check'], ['asset', 'identity-audit'], ['doc', 'list'],
+        ['test', 'CoreTests'], ['build', 'Core'], ['worktree', 'add', '../example'],
+    ])
+    def test_nonpreviewable_commands_reject_mutation_mode_flags(self, arguments) -> None:
+        for flag in ('--dry-run', '--apply'):
+            with pytest.raises(DevToolError):
+                CommandRegistry().parse([*arguments, flag])
+
     def test_output_parameters_have_one_meaning(self) -> None:
         registry = CommandRegistry()
         _, build = registry.parse(['build', 'Core', '--log-mode', 'full', '--color', 'never'])
@@ -181,7 +326,7 @@ class TestCommandGrammarContract:
         def flags(spec):
             return [flag for arg in spec.arguments for flag in arg.flags] + [flag for child in spec.subcommands for flag in flags(child)]
         for spec in CommandRegistry().specifications:
-            assert not {'--plain', '--json', '--output'}.intersection(flags(spec))
+            assert not {'--plain', '--json', '--output', '--apply'}.intersection(flags(spec))
     @pytest.mark.parametrize("command", ["build", "rebuild"])
     def test_positional_build_targets_and_default(self, command: str) -> None:
         from durin_dev_tool.build.handler import request_from_namespace

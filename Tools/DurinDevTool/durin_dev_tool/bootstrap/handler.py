@@ -111,8 +111,8 @@ def _run_dependency_prepare(command: _BootstrapCommand) -> None:
         command.repository,
         DependencyRequest(
             use_all=namespace.all_dependencies,
-            libraries=namespace.libraries,
-            config=namespace.dependency_config,
+            libraries=tuple(namespace.libraries),
+            config=namespace.dependency_config.capitalize(),
             with_tests=namespace.with_tests,
             with_development=namespace.with_development,
             cmake_command=namespace.dependency_cmake,

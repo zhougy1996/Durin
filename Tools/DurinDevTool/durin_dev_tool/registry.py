@@ -54,6 +54,7 @@ class CommandRegistry:
         self.specifications = tuple(specifications)
         self._by_name = {spec.name: spec for spec in self.specifications}
         self._parser: DevToolArgumentParser | None = None
+        self._intermixed_parsers: dict[int, tuple[int, argparse.ArgumentParser]] = {}
 
     def parser(self) -> DevToolArgumentParser:
         if self._parser is None:
@@ -75,15 +76,19 @@ class CommandRegistry:
                 epilog=spec.epilog or None,
                 formatter_class=argparse.RawDescriptionHelpFormatter,
             )
-            self._configure_parser(command_parser, spec)
+            self._configure_parser(command_parser, spec, path=(spec.name,))
         return parser
 
     def _configure_parser(
         self,
         parser: argparse.ArgumentParser,
         spec: CommandSpec,
+        *,
+        path: tuple[str, ...] = (),
     ) -> None:
         parser.set_defaults(_command_spec=spec, **dict(spec.defaults))
+        if spec.usage:
+            parser.usage = spec.usage
         groups: dict[str, argparse._ArgumentGroup] = {}
         for argument in spec.arguments:
             target = parser
@@ -92,6 +97,10 @@ class CommandRegistry:
                     groups[argument.group] = parser.add_argument_group(argument.group)
                 target = groups[argument.group]
             target.add_argument(*argument.flags, **argument.kwargs)
+        if path and not spec.subcommands and any(
+            argument.kwargs.get("nargs") == "*" for argument in spec.arguments
+        ):
+            self._intermixed_parsers[id(spec)] = (len(path), parser)
         if spec.subcommands:
             subparsers = parser.add_subparsers(
                 dest=f"{spec.name}_command",
@@ -106,7 +115,7 @@ class CommandRegistry:
                     epilog=child.epilog or None,
                     formatter_class=argparse.RawDescriptionHelpFormatter,
                 )
-                self._configure_parser(child_parser, child)
+                self._configure_parser(child_parser, child, path=(*path, child.name) if path else ())
 
     def parse(self, arguments: Sequence[str]) -> tuple[CommandSpec, argparse.Namespace]:
         if not arguments:
@@ -123,7 +132,7 @@ class CommandRegistry:
                 while current.subcommands:
                     if len(normalized) == index:
                         if not current.default_subcommand:
-                            break
+                            return self.parse(["help", *normalized])
                         normalized.append(current.default_subcommand)
                     child_name = normalized[index].removeprefix("/").lower()
                     child = next(
@@ -152,7 +161,15 @@ class CommandRegistry:
                     normalized[index] = child_name
                     current = child
                     index += 1
-        namespace = self.parser().parse_args(normalized)
+        namespace, unknown = self.parser().parse_known_args(normalized)
+        intermixed = self._intermixed_parsers.get(id(namespace._command_spec))
+        if intermixed is not None:
+            depth, parser = intermixed
+            # Parse the leaf without inherited values so repeated options are not
+            # appended twice, then retain the parent command-path metadata.
+            vars(namespace).update(vars(parser.parse_intermixed_args(normalized[depth:])))
+        elif unknown:
+            self.parser().error(f"unrecognized arguments: {' '.join(unknown)}")
         return namespace._command_spec, namespace
 
     def format_help(self) -> str:

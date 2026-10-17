@@ -26,6 +26,7 @@ class CommandSpec:
     defaults: tuple[tuple[str, object], ...] = ()
     epilog: str = ""
     help_group: str = "Other"
+    usage: str = ""
 
     def load_handler(self) -> Callable[..., int]:
         module_name, separator, attribute = self.handler.partition(":")

@@ -12,10 +12,16 @@ Common commands:
 ```powershell
 .\DevTool.bat dependency prepare --all --with-tests
 .\DevTool.bat dependency prepare --all --with-development
-.\DevTool.bat dependency prepare --libs tracy,tracy-tools
-.\DevTool.bat dependency prepare --libs glm,spdlog --config Debug
+.\DevTool.bat dependency prepare tracy tracy-tools
+.\DevTool.bat dependency prepare glm spdlog --config debug
 .\DevTool.bat dependency validate
 ```
+
+`dependency prepare NAME...` selects explicit dependencies. Names may be
+separated by options, and duplicates are prepared once in first-mentioned
+order. Use `--all` instead of names for the default set; mixing both or supplying
+neither is an error. `--config debug|release|all` selects the build configuration
+and defaults to `all`.
 
 On macOS, use the same command surface through the POSIX launcher:
 
@@ -172,7 +178,7 @@ architecture, install names, and runtime behavior have been verified.
 
 - `--all` skips test-only dependencies unless `--with-tests` is supplied.
 - `--all` skips development-only dependencies unless `--with-development` is
-  supplied. Explicit `--libs <name>` selection remains available.
+  supplied. Explicit `dependency prepare <name>` selection remains available.
 - `DevTool setup` does not acquire repository-managed third-party dependencies.
   The first configure for a preset prepares ordinary dependencies only for its
   effective Debug or Release configuration and includes test dependencies when
@@ -181,7 +187,7 @@ architecture, install names, and runtime behavior have been verified.
 - Tracy `v0.14.1` source and matching Windows/macOS host tools are development-only and
   licensed under BSD-3-Clause. Profiling presets prepare only the Tracy client
   source before their first configure. Use
-  `DevTool dependency prepare --libs tracy,tracy-tools` to prepare or repair the
+  `DevTool dependency prepare tracy tracy-tools` to prepare or repair the
   client and tools together. Unsupported host platforms are skipped without
   blocking ordinary dependency preparation.
   The upstream binary archive does not include its license file; the prepared

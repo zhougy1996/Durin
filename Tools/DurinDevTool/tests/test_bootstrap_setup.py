@@ -213,7 +213,7 @@ class TestBootstrapRegistry:
         self.registry = CommandRegistry()
 
     def test_bootstrap_commands_are_available_without_prepared_environment(self) -> None:
-        commands = (['setup'], ['dependency', 'prepare', '--libs', 'tracy'], ['dependency', 'validate'], ['worktree', 'open', '--dry-run'], ['worktree', 'list'], ['worktree', 'add', 'feature'], ['worktree', 'prepare'], ['worktree', 'remove', 'feature'])
+        commands = (['setup'], ['dependency', 'prepare', 'tracy'], ['dependency', 'validate'], ['worktree', 'open', '--dry-run'], ['worktree', 'list'], ['worktree', 'add', 'feature'], ['worktree', 'prepare'], ['worktree', 'remove', 'feature'])
         for arguments in commands:
             specification, _ = self.registry.parse(arguments)
             assert not specification.required_modules
@@ -232,9 +232,9 @@ class TestBootstrapRegistry:
         assert run.call_args.kwargs['interactive'] is False
 
     def test_dependency_prepare_requires_exactly_one_selection_mode(self) -> None:
-        for arguments in (['dependency', 'prepare'], ['dependency', 'prepare', '--all', '--libs', 'tracy']):
+        for arguments in (['dependency', 'prepare'], ['dependency', 'prepare', '--all', 'tracy']):
             specification, namespace = self.registry.parse(arguments)
-            with pytest.raises(Exception, match='exactly one'):
+            with pytest.raises(BootstrapError, match='dependency names or --all'):
                 self.registry.execute(specification, namespace, repository_root=REPOSITORY_ROOT, stdout=io.StringIO(), stderr=io.StringIO())
 
     def test_worktree_add_rejects_conflicting_modes(self) -> None:
@@ -317,7 +317,7 @@ class TestSetupOrchestration:
             setup.ensure_development_tools(repository, python, command_io)
         run.assert_called_once_with(
             [str(python), str(repository.root / 'Tools/DurinDevTool/durin_dev_tool/__main__.py'),
-             'dependency', 'prepare', '--libs', 'tracy-tools'],
+             'dependency', 'prepare', 'tracy-tools'],
             cwd=repository.root, command_io=command_io,
         )
 

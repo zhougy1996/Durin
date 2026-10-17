@@ -76,7 +76,7 @@ def prepare_configure_dependencies(context: BuildContext, output: BuildOutput) -
             prepare_dependencies(
                 repository,
                 DependencyRequest(
-                    libraries="tracy",
+                    libraries=("tracy",),
                     config=configuration,
                     cmake_command=context.cmake,
                 ),

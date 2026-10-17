@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .common_specs import CONTEXT_ARGUMENTS, DISPLAY_ARGUMENTS, COLOR, PRESET, PROFILE
+from .common_specs import CONTEXT_ARGUMENTS, DISPLAY_ARGUMENTS, COLOR, DRY_RUN, PRESET, PROFILE
 from .specification import ArgumentSpec, CommandSpec, argument
 
 
@@ -30,6 +30,7 @@ def build_command(
     action: str | None = None,
     epilog: str = "",
     help_group: str = "Build and run",
+    usage: str = "",
 ) -> CommandSpec:
     return CommandSpec(
         name, summary, HANDLER,
@@ -38,6 +39,7 @@ def build_command(
         defaults=(("build_action", action or name),),
         epilog=epilog,
         help_group=help_group,
+        usage=usage,
     )
 
 
@@ -50,22 +52,24 @@ CREATE_MODULE = build_command(
         argument("--kind", dest="module_kind", choices=("runtime", "editor", "developer"), default="runtime"),
         argument("--link", dest="link_type", choices=("shared", "static"), default="shared"),
         argument("--pch", default=""),
-        argument("--public-dependency", dest="public_dependencies", action="append", default=None),
-        argument("--private-dependency", dest="private_dependencies", action="append", default=None),
-        argument("--optional-public-dependency", dest="optional_public_dependencies", action="append", default=None),
-        argument("--optional-private-dependency", dest="optional_private_dependencies", action="append", default=None),
+        argument("--public-deps", dest="public_dependencies", nargs="+", action="extend", default=None, metavar="MODULE"),
+        argument("--deps", dest="private_dependencies", nargs="+", action="extend", default=None, metavar="MODULE", help="private module dependencies"),
+        argument("--optional-public-deps", dest="optional_public_dependencies", nargs="+", action="extend", default=None, metavar="MODULE"),
+        argument("--optional-deps", dest="optional_private_dependencies", nargs="+", action="extend", default=None, metavar="MODULE", help="optional private module dependencies"),
         argument("--enable", dest="enablements", action="append", default=None),
-        argument("--dry-run", action="store_true"),
+        DRY_RUN,
         COLOR,
     ),
     action="create-module",
+    usage="%(prog)s NAME --project PROJECT [options]",
+    epilog="Examples:\n  DevTool create module Gameplay --project Sandbox/Sandbox.dproject --deps Core Engine\n  DevTool create module Gameplay --project Sandbox/Sandbox.dproject --deps Core Engine --dry-run",
 )
 CREATE_PROJECT = build_command(
     "project", "create and register a workspace project",
     (
         argument("create_name", metavar="NAME"),
         argument("--path", dest="destination_path", type=Path, required=True),
-        argument("--dry-run", action="store_true"),
+        DRY_RUN,
         COLOR,
     ),
     action="create-project",
@@ -74,7 +78,7 @@ CREATE_PROJECT = build_command(
 COMMAND_SPECS = (
     build_command("stop", "stop the active build operation", (COLOR,)),
     build_command("presets", "list registered presets", CONTEXT_ARGUMENTS + DISPLAY_ARGUMENTS, help_group="Inspect"),
-    build_command("preset", "inspect a selected preset", (argument("selected_preset", nargs="?", default=""), PROFILE, COLOR), help_group="Inspect"),
+    build_command("preset", "inspect a preset; select it for later shell commands", (argument("selected_preset", nargs="?", default=""), PROFILE, COLOR), help_group="Inspect"),
     build_command("status", "show build context and toolchain state", STATUS_ARGUMENTS, help_group="Inspect"),
     build_command(
         "path", "print a registered repository location",
@@ -98,7 +102,7 @@ COMMAND_SPECS = (
     ),
     build_command(
         "build", "build a CMake target", TOOL_ARGUMENTS + (BUILD_TARGET,),
-        epilog="Examples:\n  DevTool build Core\n  DevTool build LevelEditor --preset Win64-Release-DurinEditor",
+        epilog="Examples:\n  DevTool build Core\n  DevTool build LevelEditor --preset release-editor",
     ),
     build_command("clean", "clean the selected preset", TOOL_ARGUMENTS),
     build_command("recover", "resume an interrupted build incrementally", TOOL_ARGUMENTS),
@@ -123,6 +127,7 @@ COMMAND_SPECS = (
             argument("--base", default="", metavar="REF", help="Git base for test affected (default: current staged, unstaged, and untracked changes)"),
             argument("--explain", action="store_true", help="explain any test selection without building or running"),
         ),
+        usage="%(prog)s SELECTION [FILTER] [options]",
         epilog=(
             "Common examples:\n"
             "  DevTool test CoreUtilityTests\n"

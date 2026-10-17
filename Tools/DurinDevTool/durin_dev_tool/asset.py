@@ -223,7 +223,8 @@ def _run_scoped_operation(
         arguments.append("--all")
     if bool(getattr(namespace, "recompress_texture_sources", False)):
         arguments.append("--recompress-texture-sources")
-    if bool(getattr(namespace, "apply", False)):
+    # The native host previews by default; DevTool action commands execute by default.
+    if not namespace.dry_run:
         arguments.append("--apply")
     if getattr(namespace, "output_format", "terminal") == "json":
         arguments.append("--json")
@@ -283,7 +284,7 @@ def run(
         arguments = [command, f"--project={project}"]
         if command == "material-template":
             arguments.append(namespace.destination)
-        if command in ("material-functions", "material-template") and bool(getattr(namespace, "apply", False)):
+        if command in ("material-functions", "material-template") and not namespace.dry_run:
             arguments.append("--apply")
         native_output = _invoke_asset_program(
             selection,
