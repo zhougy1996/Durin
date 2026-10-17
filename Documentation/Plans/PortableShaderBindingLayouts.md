@@ -2,12 +2,95 @@
 
 Summary: Preserve one logical binding layout across backends, move target-specific shader data out of common RHI types, and prepare native binding operations before draw and dispatch.
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-18
 
 ## Current Status
+
+On 2026-10-18 the operator explicitly authorized this plan's complex performance
+qualification to be waived, with completion conditional on the remaining
+correctness gates. This supersedes the original final timing and native memory
+comparison requirements, including the two-platform Release/Tracy-off A/A noise
+gate, candidate median/p95 comparisons, pipeline preparation time/retained-memory
+matrix, and raw timing samples. None of those measurements is reported as
+passing. Structural prepared-binding invariants and native correctness remain
+required. This waiver is local to this plan and does not relax other plans.
+
+Completed on 2026-10-18 against `412736409` plus this commit's two new native
+regression fixtures. Production runtime sources remain unchanged from
+`1c0c3718c`. The prior Windows Vulkan correctness receipts remain accepted;
+the now-available Apple M4 host supplies native Metal compilation and execution.
+No two-platform timing, native memory improvement, or performance parity is
+claimed. Historical open-gate statements below are superseded only by this
+explicit closeout disposition.
+
+### Final correctness acceptance
+
+Environment: Apple M4 (10 GPU cores, 16 GB), macOS 27.0.1, Xcode 26.6,
+`MacOS-arm64-Debug-DurinEditor`, Tracy enabled. Native GPU execution used the
+authorized host outside the Codex sandbox. These are correctness receipts;
+there was no performance measurement or quiet-lane claim.
+
+| Selection | Final result |
+| --- | --- |
+| `./DevTool test '@domain=shader' --report` | 7/7 registered routine targets passed: ShaderFormat, Metal binding plans, reflection/contracts, builder, cache/transport, cooked libraries and Cook integration. |
+| `RHIPipelineCreationTests`, `RHICommandListTests`, `RenderContractTests` | 14/14, 143/143 and 227/227 passed. |
+| `MaterialCookTests`, `MaterialCompilerTests`, `MaterialCompileLifecycleTests` | 7/7, 93/93 and 18/18 passed. |
+| `MTL_DEBUG_LAYER=1 ./DevTool test MetalRHIHeadlessTests --mode qualification --report` | 46/46 passed with Metal API validation. Both new sparse-binding cases also pass independently through positional filters in qualification mode. |
+| Reused `MetalShaderQualificationTests` at `412736409` | 17/17 passed in the baseline native environment. Includes resource arrays, push/storage output, authored ImGui output, compiled production material variants, lit/unlit pixels and masked discard. This fixture does not establish Metal API validation. |
+| Retained Windows Vulkan acceptance | The five public-conformance, uniform-capture and storage/sampled cases, shader/RHI/Material targets and shared-API workspace builds in the Windows simplification summary remain the Windows receipts. No fresh Windows execution is claimed. |
+
+The new compute regression exercises set 7, bindings 65000/65535, two dynamic
+uniform array elements, four distinct 256-byte-aligned offsets, partial updates,
+push constants, direct and indirect dispatch, new native encoders, distinct
+shader/PSO replacement and same-PSO reset. Exact uint readback is checked in
+inline and threaded replay. The graphics regression binds the same sparse
+dynamic array to vertex slots 16/17 and fragment slots 0/1. A single-stage
+parameter update fans out through the shared state; checked pixels establish
+both-stage execution and partial element replacement in both replay modes.
+Compiler metadata normalizes dynamic uniforms to ordinary uniform bindings;
+the pipeline and parameter updates retain the dynamic-offset contract.
+
+`MetalBindingPlanTests` retains the structural gate: 100 batches/500 prepared
+operations add zero map builds, metadata decodes, parameter lookups or mapping
+allocations, including first submission. Native source review confirms direct
+and indirect compute share `EncodeComputeDispatch`, graphics routes share
+`BindGraphicsParameters`, and both traverse prepared operations without those
+mapping activities. Native push uploads and resource retention remain expected
+submission work. These counters and source checks establish the bounded
+structural invariant, not native timing or total allocation measurements.
+
+Final reports are under `Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/`:
+`PortableBindingsShaderDomain.xml`, `PortableBindings-<Target>.xml` for the six
+named CPU targets, `PortableBindingsMetalHeadless.xml`,
+`PortableBindingsMetalHeadlessCases.xml`, `PortableBindingsSparseCompute.xml`
+and `PortableBindingsSparseGraphics.xml`. The reused shader reports are
+`MetalCloseoutShaders.xml` and `MetalCloseoutShaderCases.xml`. Final headless
+build/test logs are `Build/.agent-state/logs/20261018-070325-485632-49375-cmake.log`
+and `20261018-070325-614740-49375-ctest.log`. Local hashes, selections and report
+counts are retained under ignored
+`Build/Qualification/PlanEvidence/PortableShaderBindingLayouts/2026-10-18-MacOS/`.
+The first new compute fixture attempt rejected noncanonical dynamic-uniform
+metadata; the fixture was corrected before the final passing runs, without a
+runtime workaround or relaxed assertion.
+
+An optional extra macOS `VulkanRHIIntegrationTests` invocation found that target
+absent from the default registry/build graph: it requires explicitly enabled
+LaunchServices application tests. It did not execute and is not a passing
+receipt. This does not replace the selected Windows Vulkan evidence with a
+MoltenVK result or require changing the host's application-test configuration.
+
+Only two opt-in qualification sources and plan documentation changed. Their complete
+target and isolated filters cover the additions; `test affected --explain`
+selects no routine tests. Runtime, shader, generated/package inputs and the
+toolchain remain unchanged for reused results. Existing shared-API `all` build
+receipts remain applicable; no new shared API or production implementation was
+introduced. Owning graphics/compute, shader artifact and public RHI contracts
+already describe the implemented behavior and need no competing specification.
+
+### Historical Status Through 2026-10-15
 
 Stage 0 preparation is complete against reference revision
 `192f80a392e3cc26b6eb240c65f190da7fb11f35`. The workspace consumer inventory,
@@ -278,16 +361,20 @@ including first use. Parameter-update costs are measured separately and together
 
 Dependencies: Stage 3.
 
-- [ ] Run format, cache/transport, Material cooked, RHI validation, RenderCore
+- [x] Run format, cache/transport, Material cooked, RHI validation, RenderCore
   reflection, Vulkan, and native Metal fixtures selected in Stage 0.
-- [ ] Compare checked rendered/compute outputs for shared-stage bindings, sparse
+- [x] Compare checked rendered/compute outputs for shared-stage bindings, sparse
   logical indices, arrays, dynamic uniform offsets, storage resources, and push
   constants. Include malformed schema/count/slot and code-map mismatch cases.
-- [ ] Measure pipeline preparation time/memory and parameter-update-plus-submit
-  CPU median/p95 for unchanged resources, per-draw changes, and pipeline changes.
-  Report raw samples and lookup/allocation counts; compare identical workloads.
-- [ ] Validate on Windows Vulkan and macOS native Metal; cross-compilation or CPU
-  format tests alone do not close native Metal correctness/performance gates.
+- [x] Disposition preparation time/memory and parameter-update-plus-submit
+  median/p95 comparisons: waived by the operator on 2026-10-18, including raw
+  timing samples and the two-platform noise/regression matrix. Structural
+  lookup/allocation counters remain required and pass; performance is not
+  reported as accepted by measurement.
+- [x] Validate correctness on Windows Vulkan and macOS native Metal using the
+  retained Windows and final native Mac receipts. Cross-compilation and CPU
+  format tests do not substitute for native execution. The operator waived
+  this plan's separate native performance gates on 2026-10-18.
 - [x] Complete affected project validation and the shared Engine API `all` build.
 - [x] Unify compiled code and reflection ownership, remove the separate artifact
   and repeated layout construction, and preserve validation and prepared bindings.
@@ -296,10 +383,12 @@ Dependencies: Stage 3.
 - [x] Update owning runtime/module contracts, retain evidence in this plan, and
   reconcile dependent Metal qualification work without declaring unrelated gates
   passed.
-- [ ] Mark complete only after required platform receipts are available.
+- [x] Mark complete after required correctness receipts and the explicit
+  performance-waiver disposition are available.
 
-Exit: correctness gates pass, hot-path invariants hold, and agreed CPU/memory
-regression limits pass. Unavailable hardware remains an explicit open gate.
+Exit: correctness gates pass and hot-path invariants hold. The original
+CPU/memory regression limits remain documented below but are waived for this
+closeout by the operator's 2026-10-18 decision, not claimed to have passed.
 
 ## Stage 0 Execution Record
 
@@ -638,6 +727,11 @@ Engine API `all` build passed in 1.18 seconds with receipt
 
 ## Stage 4 Windows Receipts and Open Gates
 
+This section records the 2026-10-15 checkpoint. Its unavailable-Mac and final
+performance prerequisites are resolved by the final native correctness receipts
+and explicit performance waiver in Current Status, respectively. The historical
+failed/noisy timing observations retain their original interpretation.
+
 Candidate implementation revision: `f8a6d837c` (following Stage 2 `47689c4c7`
 and Stage 1 `52b90de28`). Validation used `Win64-Debug-DurinEditor`; it is
 correctness and structural evidence, not a timing configuration.
@@ -799,8 +893,10 @@ Build-only checks passed for `ShaderBuildQualificationTests`,
 `MaterialCreationQualificationTests` for `57ac14164`. These opt-in targets were
 not executed as performance qualification.
 
-Native macOS compilation/output/timing and the existing stable timing gates
-remain open.
+At that checkpoint, native macOS compilation/output/timing and stable timing
+remained open. Current Status records the final native correctness receipts and
+the operator's explicit performance waiver; the historical timing observations
+are not promoted to passing results.
 
 ## Validation and Contract References
 

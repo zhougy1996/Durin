@@ -1227,6 +1227,107 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 	}
 }
 
+TEST(FMetalRHIHeadlessTests, SparseDynamicArraysFanOutAcrossGraphicsStages)
+{
+	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+	for (const char* Mode : {"inline", "threaded"})
+	{
+		SCOPED_TRACE(Mode);
+		FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+		ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Headless()));
+		FScopedRHIExit Exit;
+		auto& Commands = Durin::FRHICommandListImmediate::Get();
+		const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\n"
+			"struct V { float4 position [[position]]; float2 value; };\n"
+			"vertex V vertexMain(uint id [[vertex_id]], constant float4& a [[buffer(16)]], "
+			"constant float4& b [[buffer(17)]]) { "
+			"float2 p[3]={float2(-1,-1),float2(3,-1),float2(-1,3)}; "
+			"V o; o.position=float4(p[id],0,1); o.value=float2(a.x,b.y); return o; }\n"
+			"fragment float4 fragmentMain(V in [[stage_in]], constant float4& a [[buffer(0)]], "
+			"constant float4& b [[buffer(1)]]) { return float4(in.value.x,a.y,in.value.y*b.z,1); }\n";
+		Durin::FByteBuffer Code;
+		for (char Character : Source) Code.push_back(std::byte(Character));
+		auto MakeShader = [&](const char* Entry, Durin::EShaderFrequency Frequency, uint32_t Slot) {
+			auto Desc = Durin::FMetalShaderFixture::Create(Entry, Frequency, Code, Durin::FXxHash128::HashBuffer(Code));
+			Desc.Target = Durin::MetalShaderTarget;
+			Desc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
+			Desc.SetEntryPoint(Entry);
+			Desc.Bindings = {{7, 65000, Durin::ERHIBindingType::UniformBuffer, Slot, 2}};
+			Desc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(Frequency, Desc.Bindings, Desc.PushSlot);
+			return Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc));
+		};
+		auto Vertex = MakeShader("vertexMain", Durin::EShaderFrequency::Vertex, 16);
+		auto Fragment = MakeShader("fragmentMain", Durin::EShaderFrequency::Fragment, 0);
+		ASSERT_TRUE(Vertex);
+		ASSERT_TRUE(Fragment);
+		auto Declaration = Durin::GDynamicRHI->RHICreateVertexDeclaration({});
+		ASSERT_TRUE(Declaration);
+		std::array<float, 256> Values{};
+		// Red, cyan and blue at three distinct aligned dynamic offsets.
+		Values[64] = 1.0f;
+		Values[129] = 1.0f;
+		Values[130] = 1.0f;
+		Values[194] = 1.0f;
+		auto UniformDesc = Durin::FRHIBufferCreateDesc::Create("Shared sparse colors", sizeof(Values), 0,
+			Durin::EBufferUsageFlags::UniformBuffer);
+		UniformDesc.InitialData = {.Data = Values.data(), .Size = sizeof(Values)};
+		auto Uniform = Durin::GDynamicRHI->RHICreateBuffer(Commands, UniformDesc);
+		ASSERT_TRUE(Uniform);
+		auto View = Durin::GDynamicRHI->RHICreateBufferView(Uniform.GetReference(),
+			{.Offset = 0, .Size = 16, .Type = Durin::ERHIBufferViewType::Uniform});
+		ASSERT_TRUE(View);
+		std::array<Durin::FRHIShaderParameterResource, 2> Parameters{{
+			{.Resource = View.GetReference(), .SetIndex = 7, .BindingIndex = 65000, .ArrayElement = 0,
+				.Type = Durin::ERHIBindingType::UniformBufferDynamic, .Offset = 256, .Size = 16},
+			{.Resource = View.GetReference(), .SetIndex = 7, .BindingIndex = 65000, .ArrayElement = 1,
+				.Type = Durin::ERHIBindingType::UniformBufferDynamic, .Offset = 512, .Size = 16}}};
+		auto ColorDesc = Durin::FRHITextureCreateDesc::Create2D("Shared sparse pixels", 3, 1, Durin::EPixelFormat::RGBA8_UNORM);
+		ColorDesc.SetFlags(Durin::ETextureCreateFlags::RenderTargetable | Durin::ETextureCreateFlags::CPUReadback);
+		auto Color = Durin::GDynamicRHI->RHICreateTexture(Commands, ColorDesc);
+		ASSERT_TRUE(Color);
+		Durin::FRHIRenderPassInfo Pass;
+		Pass.RenderTargetLayout.NumColorRenderTargets = 1;
+		Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = Durin::EPixelFormat::RGBA8_UNORM;
+		Pass.ColorRenderTargets[0] = Color.GetReference();
+		Pass.ColorClearValues[0] = Durin::FClearValueBinding(0, 0, 0, 1);
+		Durin::FGraphicsPipelineStateInitializer Initializer;
+		Initializer.VertexDeclaration = Declaration.GetReference();
+		Initializer.BoundShaders = {Vertex.GetReference(), Fragment.GetReference()};
+		Initializer.RenderTargetLayout = Pass.RenderTargetLayout;
+		Initializer.RasterizerState.CullMode = Durin::ERHICullMode::None;
+		Initializer.PipelineLayout.BindingLayouts.resize(8);
+		Initializer.PipelineLayout.BindingLayouts[7].BindingLayouts = {{
+			Durin::EShaderStageFlags::Vertex | Durin::EShaderStageFlags::Fragment,
+			65000, Durin::ERHIBindingType::UniformBufferDynamic, 2}};
+		auto Pipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState("Sparse stage fanout", Initializer);
+		ASSERT_TRUE(Pipeline);
+		const auto Signal = Commands.BeginGPUSubmission(
+			{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+		Commands.SwitchPipeline(Durin::ERHIPipeline::Graphics);
+		Commands.BeginRenderPass(Pass, "SparseStageFanout");
+		Commands.SetGraphicsPipelineState(*Pipeline);
+		// A single vertex-stage update must reach both stages at their different native slots.
+		Commands.SetShaderParameters(Vertex.GetReference(), Parameters);
+		Commands.SetViewport(0, 0, 0, 1, 1, 1);
+		Commands.Draw({.VertexCount = 3});
+		Parameters[1].Offset = 768;
+		Commands.SetShaderParameters(Fragment.GetReference(), std::span(Parameters).subspan(1, 1));
+		Commands.SetViewport(1, 0, 0, 2, 1, 1);
+		Commands.Draw({.VertexCount = 3});
+		Commands.EndRenderPass();
+		Commands.EndGPUSubmission();
+		Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread, Durin::ERHISubmitFlags::SubmitToGPU);
+		ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000), Durin::ERHIGPUWaitResult::Complete);
+		Durin::FByteBuffer Pixels;
+		ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(Commands, Color.GetReference(), 0, 0, Pixels));
+		ASSERT_EQ(Pixels.size(), 12u);
+		const std::array<uint8_t, 12> Expected{255, 0, 255, 255, 255, 0, 0, 255, 0, 0, 0, 255};
+		for (size_t Byte = 0; Byte < Expected.size(); ++Byte)
+			EXPECT_EQ(std::to_integer<uint8_t>(Pixels[Byte]), Expected[Byte]) << Byte;
+		Durin::RHIExit();
+	}
+}
+
 TEST(FMetalRHIHeadlessTests, D32DepthRejectsFarDrawInBothExecutionModes)
 {
 	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");

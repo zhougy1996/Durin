@@ -84,8 +84,9 @@ Initial core runs exposed the stale fixture contracts and remain failed runs;
 the final receipts cover their corrections. The separate
 [Slang reflection investigation](../Investigations/SlangReflectionContextLifetime.md)
 remains open: these passes do not attribute its original intermittent crash.
-Advanced queue/split/aliasing and Portable Shader Binding Layouts acceptance
-retain their own ownership and outstanding gates.
+Advanced queue/split/aliasing retains its own outstanding gates. Portable Shader
+Binding Layouts records its separate correctness acceptance and operator-approved
+performance waiver in [its own closeout](PortableShaderBindingLayouts.md#current-status).
 
 ## Historical Implementation Evidence Through 2026-10-15
 

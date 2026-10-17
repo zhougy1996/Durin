@@ -520,6 +520,136 @@ TEST(FMetalRHIComputeTests, RecordedDispatchWritesStructuredBufferInBothExecutio
 	}
 }
 
+TEST(FMetalRHIComputeTests, SparseDynamicArraysSurviveEncoderRestartAndPipelineReplacement)
+{
+	@autoreleasepool
+	{
+		FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			SCOPED_TRACE(Mode);
+			FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+			ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Headless()));
+			FScopedRHIExit Exit;
+			auto& Commands = Durin::FRHICommandListImmediate::Get();
+			const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\n"
+				"kernel void first(constant uint& a [[buffer(0)]], "
+				"constant uint& b [[buffer(1)]], device uint* out [[buffer(2)]], "
+				"constant uint& index [[buffer(3)]]) { out[index] = a + 2*b; }\n"
+				"kernel void second(constant uint& a [[buffer(0)]], "
+				"constant uint& b [[buffer(1)]], device uint* out [[buffer(2)]], "
+				"constant uint& index [[buffer(3)]]) { out[index] = a + 3*b; }\n";
+			Durin::FByteBuffer Code;
+			for (char Character : Source) Code.push_back(std::byte(Character));
+			auto MakeShader = [&](const char* Entry) {
+				auto Desc = Durin::FMetalShaderFixture::Create(Entry,
+					Durin::EShaderFrequency::Compute, Code, Durin::FXxHash128::HashBuffer(Code));
+				Desc.Target = Durin::MetalShaderTarget;
+				Desc.CodeFormat = Durin::EShaderCodeFormat::Msl20Source;
+				Desc.ComputeThreadGroupSize = {1, 1, 1};
+				Desc.SetEntryPoint(Entry);
+				Desc.Bindings = {
+					{7, 65000, Durin::ERHIBindingType::UniformBuffer, 0, 2},
+					{7, 65535, Durin::ERHIBindingType::StorageBuffer, 2, 1}};
+				Desc.PushSlot = 3;
+				Desc.RemapIdentity = Durin::ComputeMetalBindingRemapIdentity(
+					Durin::EShaderFrequency::Compute, Desc.Bindings, Desc.PushSlot);
+				return Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc));
+			};
+			auto First = MakeShader("first");
+			auto Second = MakeShader("second");
+			ASSERT_TRUE(First);
+			ASSERT_TRUE(Second);
+			Durin::FComputePipelineStateInitializer Initializer;
+			Initializer.PipelineLayout.BindingLayouts.resize(8);
+			Initializer.PipelineLayout.BindingLayouts[7].BindingLayouts = {
+				{Durin::EShaderStageFlags::Compute, 65000, Durin::ERHIBindingType::UniformBufferDynamic, 2},
+				{Durin::EShaderStageFlags::Compute, 65535, Durin::ERHIBindingType::StorageBuffer, 1}};
+			Initializer.PipelineLayout.PushConstantRanges = {{Durin::EShaderStageFlags::Compute, 0, 4}};
+			Initializer.ComputeShader = First.GetReference();
+			auto FirstPipeline = Durin::GDynamicRHI->RHICreateComputePipelineState("SparseFirst", Initializer);
+			Initializer.ComputeShader = Second.GetReference();
+			auto SecondPipeline = Durin::GDynamicRHI->RHICreateComputePipelineState("SparseSecond", Initializer);
+			ASSERT_TRUE(FirstPipeline);
+			ASSERT_TRUE(SecondPipeline);
+			std::array<uint32_t, 256> UniformData{};
+			UniformData[0] = 100;
+			UniformData[64] = 7;
+			UniformData[128] = 11;
+			UniformData[192] = 19;
+			auto UniformDesc = Durin::FRHIBufferCreateDesc::Create("Sparse uniform offsets",
+				sizeof(UniformData), 0, Durin::EBufferUsageFlags::UniformBuffer);
+			UniformDesc.InitialData = {.Data = UniformData.data(), .Size = sizeof(UniformData)};
+			auto Uniform = Durin::GDynamicRHI->RHICreateBuffer(Commands, UniformDesc);
+			ASSERT_TRUE(Uniform);
+			auto UniformView = Durin::GDynamicRHI->RHICreateBufferView(Uniform.GetReference(),
+				{.Offset = 0, .Size = 16, .Type = Durin::ERHIBufferViewType::Uniform});
+			ASSERT_TRUE(UniformView);
+			const std::array<uint32_t, 4> Zeros{};
+			auto OutputDesc = Durin::FRHIBufferCreateDesc::Create("Sparse binding output", sizeof(Zeros), 4,
+				Durin::EBufferUsageFlags::StructuredBuffer | Durin::EBufferUsageFlags::UnorderedAccess
+					| Durin::EBufferUsageFlags::KeepCPUAccessible);
+			OutputDesc.InitialData = {.Data = Zeros.data(), .Size = sizeof(Zeros)};
+			auto Output = Durin::GDynamicRHI->RHICreateBuffer(Commands, OutputDesc);
+			ASSERT_TRUE(Output);
+			auto OutputView = Durin::GDynamicRHI->RHICreateBufferView(Output.GetReference(),
+				{.Offset = 0, .Size = sizeof(Zeros), .Type = Durin::ERHIBufferViewType::StructuredStorage});
+			ASSERT_TRUE(OutputView);
+			std::array<Durin::FRHIShaderParameterResource, 3> Parameters{{
+				{.Resource = UniformView.GetReference(), .SetIndex = 7, .BindingIndex = 65000,
+					.ArrayElement = 0, .Type = Durin::ERHIBindingType::UniformBufferDynamic, .Offset = 256, .Size = 16},
+				{.Resource = UniformView.GetReference(), .SetIndex = 7, .BindingIndex = 65000,
+					.ArrayElement = 1, .Type = Durin::ERHIBindingType::UniformBufferDynamic, .Offset = 512, .Size = 16},
+				{.Resource = OutputView.GetReference(), .SetIndex = 7, .BindingIndex = 65535,
+					.Type = Durin::ERHIBindingType::StorageBuffer}}};
+			const Durin::FRHIDispatchIndirectArguments Args{1, 1, 1};
+			auto ArgsDesc = Durin::FRHIBufferCreateDesc::Create("Sparse indirect args", sizeof(Args), 4,
+				Durin::EBufferUsageFlags::DrawIndirect);
+			ArgsDesc.InitialData = {.Data = &Args, .Size = sizeof(Args)};
+			auto Arguments = Durin::GDynamicRHI->RHICreateBuffer(Commands, ArgsDesc);
+			ASSERT_TRUE(Arguments);
+			const auto Signal = Commands.BeginGPUSubmission(
+				{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Compute});
+			Commands.SwitchPipeline(Durin::ERHIPipeline::Compute);
+			Commands.SetComputePipelineState(*FirstPipeline);
+			Commands.SetShaderParameters(First.GetReference(), Parameters);
+			uint32_t Index = 0;
+			Commands.PushConstants(Durin::EShaderStageFlags::Compute, 0, sizeof(Index), &Index);
+			Commands.Dispatch(1, 1, 1);
+			// Each dispatch creates a fresh native encoder. Only one dense element changes.
+			Parameters[1].Offset = 768;
+			Commands.SetShaderParameters(First.GetReference(), std::span(Parameters).subspan(1, 1));
+			Index = 1;
+			Commands.PushConstants(Durin::EShaderStageFlags::Compute, 0, sizeof(Index), &Index);
+			Commands.DispatchIndirect(Arguments.GetReference(), 0);
+			Commands.SetComputePipelineState(*SecondPipeline);
+			Commands.SetShaderParameters(Second.GetReference(), Parameters);
+			Index = 2;
+			Commands.PushConstants(Durin::EShaderStageFlags::Compute, 0, sizeof(Index), &Index);
+			Commands.Dispatch(1, 1, 1);
+			// Even rebinding the same PSO resets state; republish every resource and push byte.
+			Commands.SetComputePipelineState(*SecondPipeline);
+			Parameters[0].Offset = 512;
+			Parameters[1].Offset = 256;
+			Commands.SetShaderParameters(Second.GetReference(), Parameters);
+			Index = 3;
+			Commands.PushConstants(Durin::EShaderStageFlags::Compute, 0, sizeof(Index), &Index);
+			Commands.DispatchIndirect(Arguments.GetReference(), 0);
+			Commands.EndGPUSubmission();
+			Commands.ImmediateFlush(Durin::EImmediateFlushType::FlushRHIThread, Durin::ERHISubmitFlags::SubmitToGPU);
+			ASSERT_EQ(Durin::GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000),
+				Durin::ERHIGPUWaitResult::Complete);
+			const auto* Values = static_cast<const uint32_t*>(
+				static_cast<Durin::FMetalBuffer*>(Output.GetReference())->GetHandle()->contents());
+			ASSERT_NE(Values, nullptr);
+			const std::array<uint32_t, 4> Expected{29, 45, 64, 32};
+			for (size_t Element = 0; Element < Expected.size(); ++Element)
+				EXPECT_EQ(Values[Element], Expected[Element]) << Element;
+			Durin::RHIExit();
+		}
+	}
+}
+
 TEST(FMetalRHIComputeTests, StorageWriteThenSampleUsesNativeTextureAndSamplerViews)
 {
 	@autoreleasepool
