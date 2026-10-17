@@ -353,22 +353,10 @@ namespace Durin
 					const FMaterialShaderMapIdentity& Identity =
 						Material.PlanningPassIdentity.ShaderMap;
 					FShaderCompileOptions CompileOptions;
+					// Material permutations are already in CompiledProgram. Fixed stages
+					// must match their material-independent preparation requests.
 					CompileOptions.bForceRecompile =
 						Coordinator.ShouldForceShaderRecompile_RenderThread();
-					CompileOptions.Macros.emplace_back(
-						"DURIN_MATERIAL_BLEND_MODE",
-						std::to_string(static_cast<uint8>(Identity.BlendMode))
-					);
-					CompileOptions.Macros.emplace_back(
-						"DURIN_MATERIAL_SHADING_MODEL",
-						std::to_string(static_cast<uint8>(Identity.ShadingModel))
-					);
-					CompileOptions.Macros.emplace_back(
-						"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS",
-						std::to_string(std::bit_cast<uint32>(
-							Identity.OpacityMaskThreshold
-						))
-					);
 					FShaderType& VertexShaderType = *Factory->GetShaderType(MeshPass);
 					FShaderType& FragmentShaderType =
 						FSurfaceFragmentShader::StaticType();

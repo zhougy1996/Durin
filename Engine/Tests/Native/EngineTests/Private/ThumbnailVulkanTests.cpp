@@ -33,6 +33,7 @@
 #include "Shader/ShaderMapPreparation.h"
 #include "Shader/IShaderBuildModule.h"
 #include "Shader/Shader.h"
+#include "RenderResourceCreation.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 
@@ -253,10 +254,24 @@ TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 	ASSERT_TRUE(GetShaderRuntimeRequestBuildTypes(
 		{.Owner = "TextureEditor", .Name = "TextureEditor.Preview"}, Types));
 	const auto Before = GetShaderBuildStats();
+	TRenderResourceCreationSlot<std::shared_ptr<FShaderMapBase>> Slot;
+	const FRenderResourceGeneration Generation;
+	uint32 Diagnostics = 0;
+	auto Resolve = [&] {
+		return Slot.Resolve(Generation, [&] {
+			using FResult = TRenderResourceCreateResult<std::shared_ptr<FShaderMapBase>>;
+			auto Map = std::make_shared<FShaderMapBase>();
+			const auto Completion = Map->InitializeFromShaderTypes(Types, {});
+			if (Completion) return FResult::Success(std::move(Map));
+			return FResult::Failure({.Category = ERenderResourceCreateErrorCategory::ShaderCompile,
+				.Cause = Completion.Diagnostic});
+		}, [&](const FRenderResourceCreateDiagnostic&) { ++Diagnostics; });
+	};
 	{
 		FPreparedShaderMapScope Scope;
-		FShaderMapBase Map;
-		EXPECT_FALSE(Map.InitializeFromShaderTypes(Types, {}));
+		EXPECT_EQ(Resolve(), nullptr);
+		EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Pending);
+		EXPECT_EQ(Diagnostics, 0u);
 	}
 	EXPECT_EQ(GetShaderBuildStats().Compilations, Before.Compilations);
 	auto First = FShaderMapPreparation::Request("TextureEditor", {"TextureEditor.Preview"});
@@ -272,9 +287,11 @@ TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 	std::ranges::reverse(Types);
 	{
 		FPreparedShaderMapScope Scope;
-		FShaderMapBase Map;
-		ASSERT_TRUE(Map.InitializeFromShaderTypes(Types, {}));
-		for (const auto* Type : Types) EXPECT_NE(Map.GetShader(Type), nullptr);
+		const auto* Map = Resolve();
+		ASSERT_NE(Map, nullptr);
+		for (const auto* Type : Types) EXPECT_NE((*Map)->GetShader(Type), nullptr);
+		EXPECT_EQ(FPreparedShaderMapScope::GetPendingRequestCount(), 0u);
+		EXPECT_EQ(Diagnostics, 0u);
 	}
 	EXPECT_EQ(GetShaderBuildStats().DependencyResolutions, Prepared.DependencyResolutions);
 	EXPECT_EQ(GetShaderBuildStats().Compilations, Prepared.Compilations);

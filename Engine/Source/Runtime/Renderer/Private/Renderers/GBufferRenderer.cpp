@@ -184,18 +184,6 @@ namespace Durin
 				FShaderCompileOptions Options;
 				Options.bForceRecompile =
 					Coordinator.ShouldForceShaderRecompile_RenderThread();
-				Options.Macros.emplace_back(
-					"DURIN_MATERIAL_BLEND_MODE",
-					std::to_string(static_cast<uint8>(
-						ShaderKey.Material.BlendMode)));
-				Options.Macros.emplace_back(
-					"DURIN_MATERIAL_SHADING_MODEL",
-					std::to_string(static_cast<uint8>(
-						ShaderKey.Material.ShadingModel)));
-				Options.Macros.emplace_back(
-					"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS",
-					std::to_string(std::bit_cast<uint32>(
-						ShaderKey.Material.OpacityMaskThreshold)));
 				const uint32 MeshPass = ShaderKey.bGPUCulling
 					? RendererPrivate::MaterialMeshPassGBufferGPUCulling
 					: RendererPrivate::MaterialMeshPassGBuffer;

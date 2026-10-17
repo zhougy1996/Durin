@@ -6,6 +6,7 @@
 #include "Misc/AssertionMacros.h"
 #include "RenderPipelineCreation.h"
 #include "Shader/ShaderDiagnostics.h"
+#include "Shader/ShaderMapPreparation.h"
 
 namespace Durin
 {
@@ -200,7 +201,8 @@ namespace Durin
 	};
 
 	// Owns one complete renderer payload and its generation-scoped attempt state.
-	// Pipeline requests may defer an attempt. Only Ready exposes a payload;
+	// Shader preparation and pipeline requests may defer an attempt.
+	// Only Ready exposes a payload;
 	// a new attempt invalidates the previous generation before invoking its factory.
 	template <typename PayloadType>
 	class TRenderResourceCreationSlot
@@ -236,9 +238,11 @@ namespace Durin
 			PayloadGeneration = {};
 			Availability = ERenderResourceAvailability::Pending;
 			FRenderPipelineRequestScope PipelineScope(PipelineRequests, Generation);
+			const uint64 PendingShadersBefore = FPreparedShaderMapScope::GetPendingRequestCount();
 			auto Result = std::forward<FactoryType>(Factory)();
 			bResolving = false;
-			if (PipelineScope.HasPending())
+			if (PipelineScope.HasPending()
+				|| FPreparedShaderMapScope::GetPendingRequestCount() != PendingShadersBefore)
 			{
 				bHasAttempt = false;
 				return nullptr;

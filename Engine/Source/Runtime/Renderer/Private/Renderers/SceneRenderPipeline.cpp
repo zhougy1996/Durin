@@ -167,6 +167,8 @@ namespace Durin
 		{
 			FRenderPipelinePreparationBatch Batch;
 			const auto Result = (this->*Stage)(CommandList, Context);
+			if (FPreparedShaderMapScope::GetPendingRequestCount() != 0)
+				return ERenderViewResult::RendererResourcesPending;
 			if (Batch.GetRequestCount() > FRenderPipelinePreparationBatch::MaximumRequests - JoinedRequests)
 				return ERenderViewResult::RendererResourcesUnavailable;
 			ERenderPipelinePreparationWait WaitResult;

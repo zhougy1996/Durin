@@ -37,6 +37,9 @@ namespace Durin
 		~FPreparedShaderMapScope();
 		FPreparedShaderMapScope(const FPreparedShaderMapScope&) = delete;
 		static auto IsActive() -> bool;
+		// Counts unavailable CPU outputs encountered in the current outer capture.
+		// Resource attempts compare before/after counts to defer only their own work.
+		static auto GetPendingRequestCount() -> uint64;
 	};
 
 	RENDERCORE_API auto ClearShaderMapPreparations() -> void;

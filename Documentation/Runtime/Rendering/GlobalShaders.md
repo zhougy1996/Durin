@@ -4,7 +4,7 @@ Summary: Define registration, atomic set ownership, typed lookup, generation rec
 
 Modules: RenderCore, Renderer, ShaderFormat
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-17
 
 ## Category and Ownership
 
@@ -119,6 +119,13 @@ invalidation. Preparation does not construct typed maps or RHI objects on worker
 `FPreparedShaderMapScope` forbids synchronous compilation during thumbnail capture;
 typed maps consume the prepared output in their requested stage order. Other
 rendering consumers retain their existing synchronous demand contract.
+Unavailable prepared outputs defer the resource attempt as `Pending`, without
+publishing a failure or suppressing a same-generation retry. Pending observations
+are local to the current capture; each slot defers only when its own factory
+encounters an unavailable output. Scene capture returns `RendererResourcesPending`
+before graph execution so the thumbnail owner can retry. Fixed material stages
+use material-independent requests: material permutation macros belong to the
+accepted generated program, not to the fixed opaque-shadow preparation.
 
 Normal lookup and lifecycle operations occur on the rendering thread after
 RenderCore initialization. Renderer owns command admission but passes values

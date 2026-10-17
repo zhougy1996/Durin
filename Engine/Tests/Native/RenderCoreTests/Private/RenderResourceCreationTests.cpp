@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "RenderResourceCreation.h"
+#include "Shader/Shader.h"
 #include "DynamicRHI.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
@@ -124,6 +125,42 @@ namespace Durin
 				.Cause = FShaderError{.Code = EShaderError::InvalidCompileRequest},
 				.RetryDependencies = RetryDependencies,
 			};
+		}
+
+		TEST(FRenderResourceCreationTests, UnpreparedShadersDeferOnlyTheirAttemptAndRetryWithoutGenerationChange)
+		{
+			FShaderType Type("PendingSlotShader", "/Unit/PendingSlot", EShaderFrequency::Vertex, "VertexMain");
+			const FShaderType* Types[] = {&Type};
+			FSlot Slot;
+			FRenderResourceGeneration Generation;
+			uint32 Diagnostics = 0;
+			auto Report = [&](const FRenderResourceCreateDiagnostic&) { ++Diagnostics; };
+			{
+				FPreparedShaderMapScope Scope;
+				EXPECT_EQ(FPreparedShaderMapScope::GetPendingRequestCount(), 0u);
+				EXPECT_EQ(Slot.Resolve(Generation, [&] {
+					FShaderMapBase Map;
+					const auto Completion = Map.InitializeFromShaderTypes(Types, {});
+					EXPECT_FALSE(Completion);
+					return FResult::Failure(MakeError());
+				}, Report), nullptr);
+				EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Pending);
+				EXPECT_FALSE(Slot.GetFailure());
+				EXPECT_EQ(Diagnostics, 0u);
+				EXPECT_EQ(FPreparedShaderMapScope::GetPendingRequestCount(), 1u);
+				// An earlier pending shader must not hide an independent terminal error.
+				FSlot FailedSlot;
+				EXPECT_EQ(FailedSlot.Resolve(Generation, [] { return FResult::Failure(MakeError()); }, Report), nullptr);
+				EXPECT_EQ(FailedSlot.GetAvailability(), ERenderResourceAvailability::Failed);
+				EXPECT_EQ(Diagnostics, 1u);
+			}
+			FPreparedShaderMapScope NextCapture;
+			EXPECT_EQ(FPreparedShaderMapScope::GetPendingRequestCount(), 0u);
+			const auto* Product = Slot.Resolve(Generation, [] { return FResult::Success(42); }, Report);
+			ASSERT_NE(Product, nullptr);
+			EXPECT_EQ(*Product, 42);
+			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Ready);
+			EXPECT_EQ(Diagnostics, 1u);
 		}
 
 		TEST(FRenderResourceCreationTests, CancellationDoesNotReportFailureOrSuppressRetry)

@@ -27,6 +27,7 @@ namespace Durin
 		std::mutex PreparationMutex;
 		std::vector<std::shared_ptr<FPreparedShaderMapState>> Preparations;
 		thread_local uint32 PreparedScopeDepth = 0;
+		thread_local uint64 PendingPreparedRequests = 0;
 		std::atomic<uint64> PreparationEpoch = 1;
 		std::atomic_bool ForcePreparation = false;
 
@@ -624,9 +625,16 @@ namespace Durin
 		return Ready;
 	}
 
-	FPreparedShaderMapScope::FPreparedShaderMapScope() { ++PreparedScopeDepth; }
+	FPreparedShaderMapScope::FPreparedShaderMapScope()
+	{
+		if (PreparedScopeDepth++ == 0) PendingPreparedRequests = 0;
+	}
 	FPreparedShaderMapScope::~FPreparedShaderMapScope() { --PreparedScopeDepth; }
 	auto FPreparedShaderMapScope::IsActive() -> bool { return PreparedScopeDepth != 0; }
+	auto FPreparedShaderMapScope::GetPendingRequestCount() -> uint64
+	{
+		return IsActive() ? PendingPreparedRequests : 0;
+	}
 
 	auto ClearShaderMapPreparations() -> void
 	{
@@ -686,7 +694,10 @@ namespace Durin
 			if (Prepared->Output) return {Prepared->Output->Status, Prepared->Output->Diagnostic};
 		}
 		if (PreparedScopeDepth != 0)
+		{
+			++PendingPreparedRequests;
 			return std::unexpected(FShaderError{.Code = EShaderError::CompilationNotStarted});
+		}
 		auto* Module = IShaderBuildModule::Get();
 		if (!Module)
 		{
