@@ -73,14 +73,14 @@ namespace Durin
 		const auto Report = Tests::ProcessFixture::ReadReport(ReportPath);
 		ASSERT_TRUE(Report);
 		EXPECT_EQ(Report->Arguments, Launch.Arguments);
-		EXPECT_TRUE(std::filesystem::equivalent(std::filesystem::u8path(Report->WorkingDirectory), std::filesystem::current_path()));
+		EXPECT_TRUE(std::filesystem::equivalent(std::filesystem::path(std::u8string(Report->WorkingDirectory.begin(), Report->WorkingDirectory.end())), std::filesystem::current_path()));
 	}
 
 	TEST_F(FPlatformProcessTests, UsesChildWorkingDirectoryAndUnicodeExecutable)
 	{
 		const auto Directory = Root / std::filesystem::path(u8"\u5b50\u8fdb\u7a0b \U0001f30d");
 		std::filesystem::create_directory(Directory);
-		const auto Source = std::filesystem::u8path(Executable);
+		const auto Source = std::filesystem::path(std::u8string(Executable.begin(), Executable.end()));
 		const auto Copy = Directory / (std::filesystem::path(u8"\u7a0b\u5e8f with spaces") += Source.extension());
 		std::filesystem::copy_file(Source, Copy);
 		const auto ParentDirectory = std::filesystem::current_path();
@@ -91,7 +91,7 @@ namespace Durin
 		EXPECT_EQ(*Result, 0);
 		const auto Report = Tests::ProcessFixture::ReadReport(ReportPath);
 		ASSERT_TRUE(Report);
-		EXPECT_TRUE(std::filesystem::equivalent(std::filesystem::u8path(Report->WorkingDirectory), Directory));
+		EXPECT_TRUE(std::filesystem::equivalent(std::filesystem::path(std::u8string(Report->WorkingDirectory.begin(), Report->WorkingDirectory.end())), Directory));
 		EXPECT_EQ(std::filesystem::current_path(), ParentDirectory);
 	}
 
@@ -157,7 +157,7 @@ namespace Durin
 		const auto Report = WaitForReport();
 		ASSERT_TRUE(Report);
 		EXPECT_EQ(Report->Arguments, Launch.Arguments);
-		EXPECT_TRUE(std::filesystem::equivalent(std::filesystem::u8path(Report->WorkingDirectory), Root));
+		EXPECT_TRUE(std::filesystem::equivalent(std::filesystem::path(std::u8string(Report->WorkingDirectory.begin(), Report->WorkingDirectory.end())), Root));
 		EXPECT_FALSE(std::filesystem::exists(ReleasePath));
 		EXPECT_FALSE(std::filesystem::exists(Root / "report.txt.finished"));
 	}

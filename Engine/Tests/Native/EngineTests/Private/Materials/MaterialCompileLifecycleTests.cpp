@@ -1,6 +1,7 @@
 #include "MetalShaderFormat.h"
 #include "ShaderBuildTestSupport.h"
 #include "Shader/IShaderBuildModule.h"
+#include "ShaderBuild/ShaderPaths.h"
 #include "Materials/MaterialExpressionBuild.h"
 #include "NativeRHIBackendTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
@@ -232,6 +233,20 @@ auto QualifyEditScheduling() -> void
 	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 3);
 }
 
+}
+
+TEST(FMaterialCompileLifecycleTests, ShaderBuildStartupIsVisibleToLinkedCalls)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	ASSERT_NE(FModuleManager::Get().LoadModule("ShaderBuild"), nullptr);
+	// A second dylib image can start successfully while linked calls still see
+	// an empty mount registry and an uninitialized compiler service.
+	ASSERT_TRUE(std::filesystem::is_regular_file(FShaderPaths::SourcePath("/Engine/MaterialCompilerEnvironment")));
+	FMaterialCompilerEnvironment Environment;
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	ShaderBuildPrivate::ResetServiceForTests();
 }
 
 TEST(FMaterialCompileLifecycleTests, RetryQueueBoundsChecksAndRotatesWithoutDuplicates)
@@ -852,6 +867,7 @@ TEST(FMaterialCompileLifecycleTests,
 		EMaterialProgramStatisticsState::Absent);
 	auto* Root = NewObject<DMaterial>(nullptr, "StatisticsRoot");
 	ASSERT_TRUE(Testing::MakePBRMaterialExpressionsForTest().Apply(*Root));
+	ASSERT_TRUE(WaitForMaterialCompile(*Root));
 	ASSERT_TRUE(Root->GetAcceptedCompiledProgram());
 	const auto Program = Root->GetAcceptedCompiledProgram();
 	const uint64 CompileGeneration = Root->GetMaterialCompileStatus().RequestGeneration;
@@ -878,6 +894,8 @@ TEST(FMaterialCompileLifecycleTests,
 	Overrides.bOverrideBlendMode = true;
 	Overrides.Values.BlendMode = EMaterialBlendMode::Masked;
 	ASSERT_TRUE(Variant->SetPropertyOverrides(Overrides));
+	ASSERT_TRUE(WaitForMaterialCompile(*Same));
+	ASSERT_TRUE(WaitForMaterialCompile(*Variant));
 	auto* Dynamic = DMaterialInstance::CreateDynamic(Root, nullptr, "StatisticsDynamic");
 	ASSERT_TRUE(Dynamic);
 	EXPECT_EQ(GetMaterialProgramStatistics(*Dynamic).State,
@@ -917,6 +935,7 @@ TEST(FMaterialCompileLifecycleTests,
 		nullptr, "CookedProgramRoundTrip");
 	auto Validation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material);
 	ASSERT_TRUE(Validation);
+	ASSERT_TRUE(WaitForMaterialCompile(*Material));
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 
 	Durin::FByteBuffer FirstBytes;
@@ -1054,6 +1073,7 @@ TEST(FMaterialCompileLifecycleTests, MetalCookedProgramPreservesStageBindingMaps
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "MetalCookedProgramRoundTrip");
 	ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material));
+	ASSERT_TRUE(WaitForMaterialCompile(*Material));
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 	auto Program = *Material->GetAcceptedCompiledProgram();
 	auto Artifact = std::make_shared<Durin::FMaterialProgramArtifact>(Program.GetArtifact());

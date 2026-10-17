@@ -323,6 +323,17 @@ Instrumented builds produce one shared `TracyClient.dll` in the selected runtime
 variant directory. Every instrumented module links that same process-wide
 runtime. Shipping outputs contain no Tracy runtime.
 
+The client uses manual lifetime management. `Profiling::FProcessSession` in the
+application, asset-tool, and native-test entry points starts the shared client
+after process static initialization and stops it after accepted work drains.
+Each process declares exactly one non-nested guard before its instrumented
+scopes and drains instrumented work before the guard is destroyed. The guard
+directly starts and stops Tracy without reference counting or synchronization.
+Instrumentation is inactive before startup and after shutdown, so library
+constructors and destructors cannot implicitly start profiler workers. This also
+prevents startup-time network discovery from loading system libraries concurrently
+with the process loader's final startup publication.
+
 The initial integration covers CPU frame, thread, task, renderer, and asset
 boundaries. GPU, allocation, lock, frame-image, sampling, and call-stack
 instrumentation remain outside this workflow.

@@ -1,6 +1,6 @@
 # Native Test Authoring
 
-Last reviewed: 2026-09-15
+Last reviewed: 2026-10-18
 
 This document defines native-test source ownership, target declarations,
 deployment, writable sandboxes, lifecycle isolation, and resource policy.
@@ -38,6 +38,13 @@ target-owned `POST_BUILD` copies into the shared directory.
 Unchanged shared deployments remain incremental. Two external files with the
 same destination filename are rejected during configuration unless they resolve
 to the same source file.
+
+On macOS, test executables and Engine/project modules place `@loader_path`
+before build-tree rpaths. Linked dependencies and module-manager loads then use
+the same deployed dylib images in `Bin/`, sharing module startup state and shader
+mount registries instead of loading a second copy from the runtime directory.
+The harness parses flags in a private argument-pointer array, preserving the
+process's original `argv` for lazy macOS Foundation initialization.
 
 `durin_add_native_test(...)` derives each test's deployable runtime closure during
 its internal registration

@@ -2748,8 +2748,11 @@ namespace Durin
 
 		if (Mode == ETaskShutdownMode::Cancel)
 		{
-			if (Queue) Queue->CancelAll();
+			// Accepted dependencies can become ready while cancellation releases
+			// captures or waits for external producers. Retain internal dispatch
+			// until the scheduler has terminalized the entire accepted graph.
 			SchedulerToDestroy->Shutdown(false);
+			if (Queue) Queue->CancelAll();
 		}
 		else
 		{

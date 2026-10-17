@@ -36,6 +36,7 @@ namespace Durin
 			DURIN_RUNTIME_VARIANT, DURIN_BUILD_TYPE_STRING, GetEngineVersionString());
 		if (!InstallProcessCrashHandler()) return 1;
 		FProcessCrashHandlerGuard CrashHandlerGuard;
+		Profiling::FProcessSession ProfilingSession;
 		DURIN_PROFILE_CPU_ZONE_NAMED("Startup.Process");
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::ProcessEntry);
 

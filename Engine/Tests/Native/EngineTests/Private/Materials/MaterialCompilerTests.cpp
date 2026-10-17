@@ -199,6 +199,7 @@ TEST(FMaterialShaderStageTests, GeometryPassSelectionAndDetachedRoundTripAreExac
 TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmitAtomically)
 {
 	using namespace Durin;
+	Testing::FScopedRHIBackendOverride Backend("vulkan");
 	InitializeDObjectSystem();
 	MIR::FCompilerInput Input{.IR = MakeDefaultMaterialCompilerIR()};
 	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));

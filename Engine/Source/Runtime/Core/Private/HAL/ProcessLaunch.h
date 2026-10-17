@@ -37,7 +37,7 @@ namespace Durin::Detail
 	{
 		if (Executable.empty() || !IsProcessUtf8(Executable))
 			return std::unexpected(InvalidProcessLaunch(Executable, "Executable must be nonempty UTF-8 without NULs."));
-		if (!std::filesystem::u8path(Executable).is_absolute())
+		if (!std::filesystem::path(std::u8string(Executable.begin(), Executable.end())).is_absolute())
 			return std::unexpected(InvalidProcessLaunch(Executable, "Executable must be an absolute path; PATH search is not performed."));
 		for (const auto& Argument : Options.Arguments)
 			if (!IsProcessUtf8(Argument))

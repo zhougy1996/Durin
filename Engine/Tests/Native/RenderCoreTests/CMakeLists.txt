@@ -2,6 +2,14 @@ set(_durin_render_core_private_dir
 	"${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private")
 set(_durin_shader_build_private_dir
 	"${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private")
+set(_durin_shader_compiler_definitions)
+set(_durin_shader_compiler_options)
+if(APPLE AND DURIN_WITH_EDITOR)
+	# White-box compiler sources must use the producer's backend revision too.
+	list(APPEND _durin_shader_compiler_definitions
+		DURIN_SHADER_SPIRV_CROSS_REVISION="$<TARGET_PROPERTY:ShaderBuild,DURIN_SHADER_SPIRV_CROSS_REVISION>")
+	set(_durin_shader_compiler_options COMPILE_DEFINITIONS ${_durin_shader_compiler_definitions})
+endif()
 
 durin_add_native_test(RenderShaderCookedLibraryTests
 	KIND contract
@@ -30,10 +38,12 @@ durin_add_native_test(RenderShaderContractTests
 	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
 	TIMEOUT 600
 	PRIVATE_SOURCE_OWNER ShaderBuild
-	COMPILE_DEFINITIONS DURIN_ENGINE_SHADER_SOURCE_DIR="${DURIN_PROJECT_ROOT_DIR}/Shaders/Slang"
+	COMPILE_DEFINITIONS ${_durin_shader_compiler_definitions}
+		DURIN_ENGINE_SHADER_SOURCE_DIR="${DURIN_PROJECT_ROOT_DIR}/Shaders/Slang"
 )
 
 durin_add_native_test(RenderShaderCacheTests
+	${_durin_shader_compiler_options}
 	KIND feature
 	DOMAINS shader
 	MODULES rendercore shaderbuild derived-data-cache
@@ -54,6 +64,7 @@ durin_add_native_test(RenderShaderCacheTests
 )
 
 durin_add_native_test(RenderShaderBuilderTests
+	${_durin_shader_compiler_options}
 	KIND feature
 	DOMAINS shader
 	MODULES rendercore shaderbuild derived-data-cache
@@ -78,6 +89,7 @@ durin_add_native_test(RenderShaderBuilderTests
 )
 
 durin_add_native_test(ShaderBuildQualificationTests
+	${_durin_shader_compiler_options}
 	KIND qualification
 	DOMAINS shader derived-data
 	MODULES rendercore shaderbuild derived-data-cache

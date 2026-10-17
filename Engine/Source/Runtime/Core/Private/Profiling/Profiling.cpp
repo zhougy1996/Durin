@@ -11,9 +11,24 @@ namespace tracy
 
 namespace Durin::Profiling
 {
+	FProcessSession::FProcessSession()
+	{
+#if DURIN_WITH_TRACY
+		tracy::StartupProfiler();
+#endif
+	}
+
+	FProcessSession::~FProcessSession()
+	{
+#if DURIN_WITH_TRACY
+		tracy::ShutdownProfiler();
+#endif
+	}
+
 	auto GetConnectionState() noexcept -> FConnectionState
 	{
 #if DURIN_WITH_TRACY
+		if (!TracyIsStarted) return {true, false, 0};
 		return {true, TracyIsConnected, tracy::DurinGetListenPort()};
 #else
 		return {};
@@ -172,7 +187,7 @@ namespace Durin::Profiling
 			GProgramIdentityStorage.emplace_back(ProgramIdentity);
 		const std::string_view StoredIdentity = GProgramIdentityStorage.back();
 #if DURIN_WITH_TRACY
-		TracySetProgramName(StoredIdentity.data());
+		if (TracyIsStarted) TracySetProgramName(StoredIdentity.data());
 #endif
 		return StoredIdentity;
 	}

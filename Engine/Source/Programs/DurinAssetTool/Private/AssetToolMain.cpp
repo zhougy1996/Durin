@@ -1,5 +1,6 @@
 #include "HAL/PlatformLibrary.h"
 #include "HAL/PlatformProcess.h"
+#include "Profiling/Profiling.h"
 #include "Asset/PackageSerialization.h"
 #if DURIN_WITH_EDITOR
 #include "AssetTools/IAssetTools.h"
@@ -869,6 +870,7 @@ namespace
 
 int main(int ArgC, char** ArgV)
 {
+	Durin::Profiling::FProcessSession ProfilingSession;
 	std::signal(SIGINT, HandleInterrupt);
 	FOptions Options;
 	std::string Error;

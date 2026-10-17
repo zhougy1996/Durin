@@ -74,8 +74,19 @@ namespace Durin
 				if (Initialized != 0) return std::unexpected(Failure(Initialized));
 				Actions.bInitialized = true;
 				// Child-only chdir; the parent directory never changes, even on failure.
-				const int DirectoryResult = posix_spawn_file_actions_addchdir_np(&Actions.Value,
-					Options.WorkingDirectory.c_str());
+				int DirectoryResult;
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+				if (__builtin_available(macOS 26.0, *))
+					DirectoryResult = posix_spawn_file_actions_addchdir(&Actions.Value, Options.WorkingDirectory.c_str());
+				else
+#endif
+				{
+					// Older macOS releases only provide the nonstandard spelling.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+					DirectoryResult = posix_spawn_file_actions_addchdir_np(&Actions.Value, Options.WorkingDirectory.c_str());
+#pragma clang diagnostic pop
+				}
 				if (DirectoryResult != 0) return std::unexpected(Failure(DirectoryResult));
 			}
 			pid_t ChildProcess = 0;

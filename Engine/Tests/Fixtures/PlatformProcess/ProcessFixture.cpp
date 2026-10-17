@@ -65,17 +65,19 @@ int main(int Count, char** Arguments)
 	Report.WorkingDirectory.assign(reinterpret_cast<const char*>(Directory.data()), Directory.size());
 	for (size_t Index = 0; Index < EnvironmentNames.size(); ++Index)
 		Report.Environment[Index] = Environment(EnvironmentNames[Index]);
-	if (!WriteReport(std::filesystem::u8path(Report.Arguments.front()), Report)) return 91;
+	const auto& ReportArgument = Report.Arguments.front();
+	const auto ReportPath = std::filesystem::path(std::u8string(ReportArgument.begin(), ReportArgument.end()));
+	if (!WriteReport(ReportPath, Report)) return 91;
 	if (const auto Release = Environment("DURIN_PROCESS_PROBE_RELEASE"))
 	{
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-		while (!std::filesystem::exists(std::filesystem::u8path(*Release)))
+		while (!std::filesystem::exists(std::filesystem::path(std::u8string(Release->begin(), Release->end()))))
 		{
 			if (std::chrono::steady_clock::now() >= Deadline) return 92;
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		}
 	}
-	std::ofstream(std::filesystem::u8path(Report.Arguments.front() + ".finished")).close();
+	std::ofstream(std::filesystem::path(ReportPath).concat(".finished")).close();
 	const auto ExitCode = Environment("DURIN_PROCESS_PROBE_EXIT");
 	return ExitCode ? std::stoi(*ExitCode) : 0;
 }

@@ -10,6 +10,7 @@ if(APPLE)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${shader_spirv_cross_manifest}")
     file(READ "${shader_spirv_cross_manifest}" shader_spirv_cross_json)
     string(JSON shader_spirv_cross_revision GET "${shader_spirv_cross_json}" source commit)
+    set_property(TARGET ShaderBuild PROPERTY DURIN_SHADER_SPIRV_CROSS_REVISION "${shader_spirv_cross_revision}")
     target_compile_definitions(ShaderBuild PRIVATE DURIN_SHADER_SPIRV_CROSS_REVISION="${shader_spirv_cross_revision}")
 endif()
 

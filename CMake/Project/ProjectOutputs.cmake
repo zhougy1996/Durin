@@ -5,6 +5,11 @@ include_guard(GLOBAL)
 include("${CMAKE_CURRENT_LIST_DIR}/TargetDependencyClosure.cmake")
 
 function(durin_target_set_runtime_outputs target)
+	if(APPLE)
+		# Deployed modules must resolve the colocated dependency copies before
+		# CMake's build-tree rpaths, keeping linked and dlopen module state shared.
+		set_property(TARGET ${target} APPEND PROPERTY BUILD_RPATH "@loader_path")
+	endif()
 	set_target_properties(${target} PROPERTIES
 		RUNTIME_OUTPUT_DIRECTORY "${DURIN_PROJECT_RUNTIME_OUTPUT_DIR}"
 		LIBRARY_OUTPUT_DIRECTORY "${DURIN_PROJECT_RUNTIME_OUTPUT_DIR}"

@@ -24,6 +24,7 @@ namespace Durin
 		class FEngineThreadPoolTestGuard
 		{
 		public:
+			FEngineThreadPoolTestGuard() { EnsureGameThreadForTaskTest(); }
 			~FEngineThreadPoolTestGuard() { ShutdownTaskScheduler(false); }
 		};
 		auto WaitOffGameThread(const Tasks::Private::FTaskHandle& Task) -> FTaskWaitResult
@@ -742,6 +743,42 @@ namespace Durin
 			EXPECT_EQ(Handoff.GetState(), Mode == ETaskShutdownMode::Drain
 				? ETaskState::Succeeded : ETaskState::Canceled);
 		}
+	}
+
+	TEST(FTaskCompositionTests, CancelShutdownAllowsCompletionFromDeferredCaptureDestruction)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		auto Source = Tasks::TCompletionSource<void>::Create();
+		auto Handoff = Tasks::Then(Source.TakeTask(), Tasks::ETaskExecutor::GameThreadDeferred,
+			{}, [] { ADD_FAILURE() << "Canceled continuation must not execute."; });
+		int ReleasedCaptures = 0;
+		auto Capture = std::shared_ptr<int>(new int(0), [Source, &ReleasedCaptures](int* Value) {
+			delete Value;
+			++ReleasedCaptures;
+			// Cancellation releases the queued callable before its task finishes
+			// publishing. Completing another accepted task may dispatch a continuation.
+			EXPECT_TRUE(Source.TrySetValue());
+		});
+		auto Queued = Tasks::LaunchTask(Tasks::ETaskExecutor::GameThreadDeferred, {},
+			[Capture = std::move(Capture)] {
+				(void)Capture;
+				ADD_FAILURE() << "Canceled task must not execute.";
+			});
+
+		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+
+		EXPECT_EQ(ReleasedCaptures, 1);
+		EXPECT_EQ(Queued.GetState(), ETaskState::Canceled);
+		EXPECT_EQ(Handoff.GetState(), ETaskState::Canceled);
+		EXPECT_EQ(GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth, 0u);
+		EXPECT_FALSE(GetGameThreadDeferredWorkQueueDiagnostics().bInstalled);
+		EXPECT_EQ(GetGameThreadDeferredWorkQueueDiagnostics().RejectedCount, 0u);
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().CurrentTaskReservationCount, 0u);
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().RejectedTaskCount, 0u);
 	}
 
 	TEST(FTaskCompositionTests, ResultAccessWaitsAndPreservesUniqueOwnershipUntilTaken)

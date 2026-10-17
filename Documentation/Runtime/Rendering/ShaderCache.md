@@ -213,12 +213,15 @@ mounted source discovery uses a per-input identity gate; it covers neither
 compilation nor DDC I/O. Other source identities prepare independently.
 Each Slang compiler/resolver call exclusively leases a global session; all derived
 objects are destroyed before returning that lease. Idle contexts are reused only
-on their originating thread; asynchronous continuations never migrate a pooled
-Slang context between threads. Pool locks cover only the idle
+within their originating thread lifetime; asynchronous continuations never migrate
+a pooled Slang context between threads. Pool locks cover only the idle
 inventory, with at most four idle sessions retained per pool. Active contexts follow
 the caller's worker/admission budget; acquisition creates a context when none is
-idle instead of blocking a worker behind another compilation. Shutdown requires
-all calls and their leases to drain before destroying the builder. Module startup
+idle instead of blocking a worker behind another compilation.
+Thread identity uses a retained per-thread token rather than `std::thread::id`,
+which may be recycled after a thread exits. A new thread therefore cannot inherit
+a departed thread's Slang context even if the OS reuses its identifier.
+Shutdown requires all calls and their leases to drain before destroying the builder. Module startup
 constructs the compiler service and freezes registration before constructing the
 builder. Shutdown closes builder admission, cancels and joins accepted subscribers, then
 closes and drains both service sessions before releasing compiler contexts.

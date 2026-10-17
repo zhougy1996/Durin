@@ -4,6 +4,10 @@
 
 #include "Shader/Shader.h"
 #include "SlangShaderCompiler.h"
+#include "SlangShaderDependencyResolver.h"
+
+#include <barrier>
+#include <exception>
 
 
 namespace Durin
@@ -209,6 +213,92 @@ namespace Durin
 	protected:
 		Testing::FScopedRHIBackendOverride Backend{"vulkan"};
 	};
+
+	TEST_F(FShaderReflectionTests, PooledSessionsDoNotCrossThreadLifetimes)
+	{
+		FSlangGlobalSessionPool Pool;
+		slang::IGlobalSession* FirstSession = nullptr;
+		slang::IGlobalSession* NextSession = nullptr;
+		std::thread First([&] {
+			auto Lease = Pool.Acquire();
+			FirstSession = Lease.operator->();
+		});
+		First.join();
+		std::thread Next([&] {
+			auto Lease = Pool.Acquire();
+			NextSession = Lease.operator->();
+		});
+		Next.join();
+		// std::thread::id can be recycled after join; this is still a new thread.
+		EXPECT_NE(FirstSession, NextSession);
+	}
+
+	TEST_F(FShaderReflectionTests, PooledSessionsSurviveResolverChurnAndConcurrentReflection)
+	{
+		constexpr std::string_view Source = R"(
+[[vk::binding(0, 0)]] Texture2D<float4> Inputs[2];
+[[vk::binding(1, 0)]] SamplerState InputSamplers[2];
+[[vk::binding(2, 0)]] RWStructuredBuffer<uint> Output;
+[shader("compute")]
+[numthreads(2, 1, 1)]
+void ComputeMain(uint3 id : SV_DispatchThreadID)
+{
+    Output[id.x] = uint(Inputs[id.x].SampleLevel(InputSamplers[id.x], float2(0.5, 0.5), 0).r * 255);
+}
+)";
+		FSlangShaderCompiler Compiler;
+		std::barrier Start(6);
+		std::vector<std::future<std::string>> Workers;
+		for (uint32 Worker = 0; Worker < 6; ++Worker)
+			Workers.push_back(std::async(std::launch::async, [&] {
+				FShaderCompileOptions Options;
+				Options.Target = VulkanShaderTarget;
+				Options.VirtualShaderPath = "/Unit/SessionLifetime";
+				Options.EntryPoints = {"ComputeMain"};
+				Options.Frequencies = {EShaderFrequency::Compute};
+				Start.arrive_and_wait();
+				for (uint32 Iteration = 0; Iteration < 16; ++Iteration)
+				{
+					{
+						FSlangShaderDependencyResolver Resolver;
+						std::vector<std::string> Dependencies;
+						const auto Resolved = Resolver.ResolveSource("SessionLifetime", "/Unit/SessionLifetime.slang", Source, Options, Dependencies);
+						if (!Resolved) return FormatShaderError(Resolved.error());
+					}
+					const auto Result = Compiler.CompileSource("SessionLifetime", "/Unit/SessionLifetime.slang", Source, Options);
+					if (!Result) return FormatShaderError(Result.Error);
+					if (Result.CompiledShaders.size() != 1 || Result.CompiledShaders.front().Reflection.ResourceBindings.size() != 3)
+						return std::string("Reflection lost resource bindings after resolver destruction.");
+				}
+				return std::string{};
+			}));
+		for (auto& Worker : Workers) EXPECT_EQ(Worker.get(), "");
+	}
+
+	TEST_F(FShaderReflectionTests, CompilerSessionsSurviveSequentialWorkerLifetimes)
+	{
+		FSlangShaderCompiler Compiler;
+		const auto Path = (std::filesystem::path(DURIN_TEST_DATA_DIR) / "StorageResources.slang").string();
+		FShaderCompileOptions Options;
+		Options.Target = VulkanShaderTarget;
+		Options.EntryPoints = {"fragmentMain"};
+		Options.Frequencies = {EShaderFrequency::Fragment};
+		for (uint32 Iteration = 0; Iteration < 16; ++Iteration)
+		{
+			SCOPED_TRACE(Iteration);
+			FShaderCompilerOutput Output;
+			std::exception_ptr Failure;
+			std::thread Worker([&] {
+				try { Output = Compiler.Compile(Path, Options); }
+				catch (...) { Failure = std::current_exception(); }
+			});
+			Worker.join();
+			if (Failure) std::rethrow_exception(Failure);
+			ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+			ASSERT_EQ(Output.CompiledShaders.size(), 1u);
+			EXPECT_FALSE(Output.CompiledShaders.front().Reflection.ResourceBindings.empty());
+		}
+	}
 
 	TEST_F(FShaderReflectionTests, ReflectsStorageBuffersAndImages)
 	{

@@ -254,6 +254,11 @@ function(add_durin_test target_name)
 		${ARGN}
 		"${_durin_native_test_main}"
 	)
+	if(APPLE)
+		# Match module-manager loads beside the executable rather than linking
+		# one build-tree copy and starting a second copy from the test Bin.
+		set_property(TARGET ${target_name} APPEND PROPERTY BUILD_RPATH "@loader_path")
+	endif()
 	set_property(TARGET ${target_name} PROPERTY
 		_DURIN_NATIVE_TEST_MAIN "${_durin_native_test_main}")
 	if(MSVC)

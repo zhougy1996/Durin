@@ -32,11 +32,12 @@ namespace Durin
 
 		auto Acquire() -> FLease
 		{
+			const auto& Thread = CurrentThreadIdentity();
 			Slang::ComPtr<slang::IGlobalSession> Session;
 			{
 				std::lock_guard Lock(Mutex);
 				for (size_t Index = 0; Index < IdleCount; ++Index)
-					if (Idle[Index].Thread == std::this_thread::get_id())
+					if (Idle[Index].Thread == Thread)
 					{ Session = std::move(Idle[Index].Session); Idle[Index] = std::move(Idle[--IdleCount]); break; }
 			}
 			// Both construction and destruction may be expensive; never hold the
@@ -48,16 +49,25 @@ namespace Durin
 		}
 
 	private:
+		struct FThreadIdentity {};
+		static auto CurrentThreadIdentity() -> const std::shared_ptr<const FThreadIdentity>&
+		{
+			// OS thread identifiers may be recycled after a thread exits. Retaining
+			// this token with the session identifies one actual thread lifetime.
+			thread_local const auto Identity = std::make_shared<const FThreadIdentity>();
+			return Identity;
+		}
+
 		auto Release(Slang::ComPtr<slang::IGlobalSession> Session) -> void
 		{
 			std::lock_guard Lock(Mutex);
-			if (IdleCount < Idle.size()) Idle[IdleCount++] = {std::this_thread::get_id(), std::move(Session)};
+			if (IdleCount < Idle.size()) Idle[IdleCount++] = {CurrentThreadIdentity(), std::move(Session)};
 		}
 
 		// Bound retained memory after bursts. Active contexts are bounded by the
 		// caller's admission/worker budget, not another blocking queue here.
 		std::mutex Mutex;
-		struct FIdleSession { std::thread::id Thread; Slang::ComPtr<slang::IGlobalSession> Session; };
+		struct FIdleSession { std::shared_ptr<const FThreadIdentity> Thread; Slang::ComPtr<slang::IGlobalSession> Session; };
 		std::array<FIdleSession, 4> Idle;
 		size_t IdleCount = 0;
 	};

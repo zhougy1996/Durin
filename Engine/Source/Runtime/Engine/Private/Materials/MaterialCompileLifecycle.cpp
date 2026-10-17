@@ -22,12 +22,13 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "Threading/RunnableThread.h"
 #include "Serialization/BinaryFormat.h"
+#include "Templates/AtomicSharedPtr.h"
 
 namespace Durin::MaterialBuildPrivate
 {
-	static std::atomic<std::shared_ptr<const std::function<void()>>> ResultFanoutHook;
+	static TAtomicSharedPtr<const std::function<void()>> ResultFanoutHook;
 	auto SetResultFanoutHookForTests(std::function<void()> Hook) -> void
-	{ ResultFanoutHook.store(Hook ? std::make_shared<const std::function<void()>>(std::move(Hook)) : nullptr); }
+	{ ResultFanoutHook.Store(Hook ? std::make_shared<const std::function<void()>>(std::move(Hook)) : nullptr); }
 }
 
 namespace Durin
@@ -485,7 +486,7 @@ namespace Durin
 					EMaterialCompileResultCategory::None;
 				try
 				{
-					if (const auto Hook = MaterialBuildPrivate::ResultFanoutHook.load()) (*Hook)();
+					if (const auto Hook = MaterialBuildPrivate::ResultFanoutHook.Load()) (*Hook)();
 					if (CompletionState == EMaterialCompileState::Ready)
 					{
 						if (Retained) Program = std::move(Retained);

@@ -156,8 +156,9 @@ namespace Durin
 
 		ModuleInfo->State = EModuleState::Loading;
 		DURIN_TRACE(STR("Try load: {}"), ModuleInfo->FileName);
-		const auto RequestedPath = std::filesystem::u8path(ModuleInfo->FileName);
-		const auto ExecutableDirectory = std::filesystem::u8path(FPlatformProcess::ExecutablePath()).parent_path();
+		const auto RequestedPath = std::filesystem::path(std::u8string(ModuleInfo->FileName.begin(), ModuleInfo->FileName.end()));
+		const std::string_view ExecutablePath = FPlatformProcess::ExecutablePath();
+		const auto ExecutableDirectory = std::filesystem::path(std::u8string(ExecutablePath.begin(), ExecutablePath.end())).parent_path();
 		const auto InitialPath = RequestedPath.is_absolute() ? RequestedPath : ExecutableDirectory / RequestedPath;
 		auto Loaded = FPlatformLibrary::Load(InitialPath);
 		if (!Loaded && !RequestedPath.is_absolute() && !FPaths::ProjectDir().empty())

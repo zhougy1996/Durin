@@ -271,7 +271,7 @@ namespace Durin::AssetPrivate
 				{
 					const std::string Locator(reinterpret_cast<const char*>(Record.Value.data()), Record.Value.size());
 					if (Locator.empty() || Locator.find('\0') != std::string::npos) return Fail(FCookInputFailure{.Error = ECookInputError::ExternalDeclaration, .Package = Path, .Name = Record.LogicalName});
-					Declaration.FilePath = std::filesystem::u8path(Locator);
+					Declaration.FilePath = std::filesystem::path(std::u8string(Locator.begin(), Locator.end()));
 				}
 				else Declaration.Value = Record.Value;
 				InstanceDeclarations.push_back(std::move(Declaration));

@@ -4,7 +4,7 @@ Summary: Define accepted CPU work, typed ownership, dependencies, cancellation, 
 
 Modules: Core
 
-Last reviewed: 2026-10-14
+Last reviewed: 2026-10-18
 
 ## Construction And Acceptance
 
@@ -373,6 +373,9 @@ is rejected and scheduler instances never overlap.
 deferred work without the frame budget and drains the entire graph before
 uninstalling the adapter and joining pools. Cancel terminalizes queued/waiting
 work and requests cooperative cancellation of running bodies, then joins them.
+The deferred adapter retains internal dispatch until the accepted graph is
+terminal, including completion publications from external producers and capture
+destructors during cancellation. Only then is its queue closed and uninstalled.
 Worker-only owners may use ShutdownTaskScheduler. Recursive deferred pump or
 shutdown from a deferred callback is rejected. Queue depth, running bodies and
 nonterminal reservations are zero at successful shutdown.

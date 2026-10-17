@@ -28,8 +28,8 @@ namespace Durin
 			auto CopyFixture(const std::filesystem::path& Directory) -> std::filesystem::path
 			{
 				std::filesystem::create_directories(Directory);
-				const auto Source = std::filesystem::u8path(DURIN_LIBRARY_FIXTURE_PATH);
-				const auto Dependency = std::filesystem::u8path(DURIN_LIBRARY_DEPENDENCY_PATH);
+				const auto Source = std::filesystem::path(u8"" DURIN_LIBRARY_FIXTURE_PATH);
+				const auto Dependency = std::filesystem::path(u8"" DURIN_LIBRARY_DEPENDENCY_PATH);
 				std::filesystem::copy_file(Source, Directory / Source.filename());
 				std::filesystem::copy_file(Dependency, Directory / Dependency.filename());
 				return Directory / Source.filename();
@@ -66,7 +66,7 @@ namespace Durin
 	{
 		const auto Directory = Root / "missing-dependency";
 		std::filesystem::create_directories(Directory);
-		const auto Source = std::filesystem::u8path(DURIN_LIBRARY_FIXTURE_PATH);
+		const auto Source = std::filesystem::path(u8"" DURIN_LIBRARY_FIXTURE_PATH);
 		const auto Library = Directory / Source.filename();
 		std::filesystem::copy_file(Source, Library);
 		const auto Loaded = FPlatformLibrary::Load(Library);
@@ -148,7 +148,8 @@ namespace Durin
 
 	TEST_F(FPlatformLibraryTests, ExecutablePathIsAbsoluteUtf8)
 	{
-		const auto Path = std::filesystem::u8path(FPlatformProcess::ExecutablePath());
+		const std::string_view Executable = FPlatformProcess::ExecutablePath();
+		const auto Path = std::filesystem::path(std::u8string(Executable.begin(), Executable.end()));
 		EXPECT_TRUE(Path.is_absolute());
 		EXPECT_TRUE(std::filesystem::is_regular_file(Path));
 	}

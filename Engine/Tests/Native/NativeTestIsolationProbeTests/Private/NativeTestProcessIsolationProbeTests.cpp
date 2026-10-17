@@ -10,10 +10,26 @@
 #include <regex>
 #include <string_view>
 
+#if defined(__APPLE__)
+#include <crt_externs.h>
+#endif
+
 namespace
 {
 	using namespace std::chrono_literals;
 }
+
+#if defined(__APPLE__)
+TEST(FNativeTestProcessSandboxTests, PreservesProcessArgumentsAfterFlagParsing)
+{
+	const int Count = *_NSGetArgc();
+	char** Arguments = *_NSGetArgv();
+	ASSERT_GT(Count, 0);
+	for (int Index = 0; Index < Count; ++Index)
+		ASSERT_NE(Arguments[Index], nullptr) << "Process argument " << Index;
+	EXPECT_EQ(Arguments[Count], nullptr);
+}
+#endif
 
 TEST(FNativeTestProcessSandboxTests, ProvidesCanonicalUniqueRunDirectory)
 {

@@ -12,6 +12,17 @@
 
 namespace Durin::Profiling
 {
+	// Declare once at process entry, before instrumented scopes. Do not nest.
+	// Drain instrumented work before destruction; no workers start during library initialization.
+	class FProcessSession final
+	{
+	public:
+		CORE_API FProcessSession();
+		CORE_API ~FProcessSession();
+		FProcessSession(const FProcessSession&) = delete;
+		auto operator=(const FProcessSession&) -> FProcessSession& = delete;
+	};
+
 	struct FConnectionState
 	{
 		bool bEnabled = false;
@@ -181,7 +192,7 @@ namespace Durin::Profiling
 
 		inline auto TaskEnqueued(uint64 TaskId,  uint16 OwnerId, uint16 CategoryId, uint8 Target) noexcept -> void
 		{
-			if (!TracyIsConnected) return;
+			if (!TracyIsStarted || !TracyIsConnected) return;
 			const Private::FTaskProfilerMessage Message = Private::FormatTaskProfilerMessage(
 				"enqueue", TaskId, OwnerId, CategoryId, Target, 0);
 			TracyMessage(Message.Bytes.data(), Message.Length);
@@ -191,7 +202,7 @@ namespace Durin::Profiling
 
 		inline auto TaskTerminal(uint64 TaskId,  uint16 OwnerId, uint16 CategoryId, uint8 Target, uint8 TerminalReason) noexcept -> void
 		{
-			if (!TracyIsConnected) return;
+			if (!TracyIsStarted || !TracyIsConnected) return;
 			const Private::FTaskProfilerMessage Message = Private::FormatTaskProfilerMessage(
 				"terminal", TaskId, OwnerId, CategoryId, Target, TerminalReason);
 			TracyMessage(Message.Bytes.data(), Message.Length);
@@ -207,7 +218,7 @@ namespace Durin::Profiling
 			uint64 ResultBytes,
 			uint64 RetainedResultBytes) noexcept -> void
 		{
-			if (!TracyIsConnected) return;
+			if (!TracyIsStarted || !TracyIsConnected) return;
 			const Private::FTaskProfilerSlot& Slot = Private::GetTaskProfilerSlot(OwnerId, CategoryId);
 			const std::array<uint64, static_cast<size_t>(Private::ETaskProfilerPlot::Count)> Values{
 				QueueDepth, Running, Rejected, PayloadBytes, ResultBytes, RetainedResultBytes
@@ -219,8 +230,8 @@ namespace Durin::Profiling
 		}
 	}
 
-	#define DURIN_PROFILE_CPU_ZONE() ZoneScoped
-	#define DURIN_PROFILE_CPU_ZONE_NAMED(Name) ZoneScopedN(Name)
+	#define DURIN_PROFILE_CPU_ZONE() ZoneNamed(___tracy_scoped_zone, TracyIsStarted)
+	#define DURIN_PROFILE_CPU_ZONE_NAMED(Name) ZoneNamedN(___tracy_scoped_zone, Name, TracyIsStarted)
 	// Attach bounded detail to the current zone; evaluate only while connected.
 	#define DURIN_PROFILE_CPU_ZONE_TEXT(Text) \
 		do { if (ZoneIsActive) { \
@@ -229,15 +240,15 @@ namespace Durin::Profiling
 			ZoneText(DurinProfileTextView.data(), DurinProfileTextView.size()); \
 		} } while (false)
 	#define DURIN_PROFILE_TASK_EXECUTION_ZONE(DebugName, TaskId, OwnerId, CategoryId, Target) \
-		ZoneScopedN("Task.Execute"); \
+		ZoneNamedN(___tracy_scoped_zone, "Task.Execute", TracyIsStarted); \
 		if (ZoneIsActive) { \
 			const auto DurinTaskProfilerExecutionMessage = ::Durin::Profiling::Private::FormatTaskProfilerMessage( \
 				"execute", TaskId, OwnerId, CategoryId, Target, 0, DebugName); \
 			ZoneText(DurinTaskProfilerExecutionMessage.Bytes.data(), DurinTaskProfilerExecutionMessage.Length); \
 		}
-	#define DURIN_PROFILE_FRAME_MARK() FrameMark
-	#define DURIN_PROFILE_STARTUP_FIRST_PRESENT() TracyMessageL("Startup.FirstPresent")
-	#define DURIN_PROFILE_THREAD(Name) tracy::SetThreadName(Name)
+	#define DURIN_PROFILE_FRAME_MARK() do { if (TracyIsStarted) { FrameMark; } } while (false)
+	#define DURIN_PROFILE_STARTUP_FIRST_PRESENT() do { if (TracyIsStarted) { TracyMessageL("Startup.FirstPresent"); } } while (false)
+	#define DURIN_PROFILE_THREAD(Name) do { if (TracyIsStarted) tracy::SetThreadName(Name); } while (false)
 	#define DURIN_PROFILE_PROGRAM_IDENTITY(RuntimeVariant, ProjectName, ProcessId) \
 		::Durin::Profiling::SetProgramIdentity(RuntimeVariant, ProjectName, ProcessId)
 #else

@@ -1,5 +1,8 @@
 # Engineering Investigations
 
+- [Slang reflection context lifetime](SlangReflectionContextLifetime.md) —
+  a recycled-thread session-pool defect is repaired; the original SDK reflection
+  crash's ownership and causal relationship to that defect remain unproven.
 - [Vulkan integration driver worker crash](VulkanIntegrationDriverWorkerCrash.md) —
   normal-run captures locate an invalid indirect callback in an NVIDIA worker;
   the callback record's corruption or lifetime owner remains unresolved.

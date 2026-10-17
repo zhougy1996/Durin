@@ -4,6 +4,26 @@
 
 namespace Durin
 {
+#if DURIN_WITH_TRACY
+	namespace
+	{
+		auto CaptureProfilerStartupState() -> bool
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Tests.Profiling.StaticInitialization");
+			DURIN_PROFILE_FRAME_MARK();
+			DURIN_PROFILE_THREAD("StaticInitializationProbe");
+			return TracyIsStarted;
+		}
+		const bool ProfilerStartedBeforeMain = CaptureProfilerStartupState();
+	}
+
+	TEST(FProfilingTests, StartsAfterStaticInitialization)
+	{
+		EXPECT_FALSE(ProfilerStartedBeforeMain);
+		EXPECT_TRUE(TracyIsStarted);
+	}
+#endif
+
 	TEST(FProfilingTests, FormatsExplicitAndFallbackProgramIdentities)
 	{
 		EXPECT_EQ(
@@ -44,13 +64,15 @@ namespace Durin
 #if DURIN_WITH_TRACY
 	TEST(FProfilingTests, EnabledIdentityMacroEvaluatesArgumentsOnce)
 	{
-		int EvaluationCount = 0;
+		int RuntimeEvaluations = 0, ProjectEvaluations = 0, ProcessEvaluations = 0;
 		DURIN_PROFILE_PROGRAM_IDENTITY(
-			(++EvaluationCount, "DurinEditor"),
-			(++EvaluationCount, "ProfilingTest"),
-			(++EvaluationCount, 42)
+			(++RuntimeEvaluations, "DurinEditor"),
+			(++ProjectEvaluations, "ProfilingTest"),
+			(++ProcessEvaluations, 42)
 		);
-		EXPECT_EQ(EvaluationCount, 3);
+		EXPECT_EQ(RuntimeEvaluations, 1);
+		EXPECT_EQ(ProjectEvaluations, 1);
+		EXPECT_EQ(ProcessEvaluations, 1);
 		EXPECT_EQ(Profiling::GetProgramIdentity(), "DurinEditor | ProfilingTest | PID 42");
 	}
 #endif

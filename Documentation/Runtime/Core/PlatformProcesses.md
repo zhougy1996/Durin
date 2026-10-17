@@ -59,7 +59,8 @@ Parent environment enumeration uses `GetEnvironmentStringsW`; no parent
 `SetEnvironmentVariable` calls are made.
 
 macOS passes the array directly to `posix_spawn`. Working directories use
-`posix_spawn_file_actions_addchdir_np` (macOS 10.15 or later). Environment
+`posix_spawn_file_actions_addchdir` on macOS 26 or later, with
+`posix_spawn_file_actions_addchdir_np` for older systems (macOS 10.15 or later). Environment
 overrides are case-sensitive and merge into a child-owned snapshot obtained
 through `_NSGetEnviron`. No parent `chdir`, `setenv` or `unsetenv` is performed.
 Callers must synchronize unrelated concurrent parent environment mutations

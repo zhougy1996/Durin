@@ -4,6 +4,7 @@
 #include "CoreMinimal.h"
 #include "HAL/PlatformProcess.h"
 #include "Misc/Guid.h"
+#include "Profiling/Profiling.h"
 #include "Threading/Task.h"
 
 #include <gtest/gtest.h>
@@ -378,6 +379,12 @@ namespace Durin::Testing
 		char** Arguments,
 		const std::filesystem::path& WorkRoot) -> int
 	{
+		Profiling::FProcessSession ProfilingSession;
+		// Flag parsing compacts argv. Keep the process's original array intact:
+		// macOS Foundation may read it lazily from a background runtime thread.
+		std::vector<char*> ParsedArguments(Arguments, Arguments + ArgumentCount);
+		ParsedArguments.push_back(nullptr);
+		Arguments = ParsedArguments.data();
 		const bool DeathTestChild =
 			IsGoogleTestDeathChild(ArgumentCount, Arguments);
 		const bool KeepWorkArgument =
