@@ -128,8 +128,8 @@ def _repository_choices(
                 for name in load_project_descriptor(entry.descriptor, schema_directory=descriptor_schema_directory(repository)).module_dirs
             }
             return tuple(sorted(names, key=str.casefold))
-        from .build.config_io import load_configure_presets, load_local_config, load_profiles
-        from .build.selection import preset_short_name, select_profile
+        from .build.config_io import load_local_config, load_profiles
+        from .build.selection import select_profile
         from .build.settings import BuildPaths
         paths = BuildPaths.from_repository(repository)
         profiles = load_profiles(paths.profile_file)
@@ -149,10 +149,7 @@ def _repository_choices(
         else:
             config = load_local_config(paths.local_config_file)
             profile = select_profile(profiles, requested=requested_profile, configured=config.default_build_profile, profile_file=paths.profile_file)
-        presets = load_configure_presets(paths.preset_file)
-        short_names = [preset_short_name(presets.get(name)) for name in profile.presets]
-        unique = [name for name in short_names if name and short_names.count(name) == 1]
-        return tuple(dict.fromkeys((*unique, *profile.presets, *(str(index) for index in range(1, len(profile.presets) + 1)))))
+        return (*profile.presets, *(str(index) for index in range(1, len(profile.presets) + 1)))
     except (DevToolError, OSError, ValueError):
         # Incomplete checkout/configuration must not interrupt line editing.
         return ()

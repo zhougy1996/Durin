@@ -25,7 +25,7 @@ EXPECTED_LOCATION_CONTRACT = (
 )
 class TestBuildRegistry:
 
-    @pytest.mark.parametrize('selector', ['release-editor', 'DEBUG-GAME', '2'])
+    @pytest.mark.parametrize('selector', ['Win64-Release-DurinEditor', 'WIN64-DEBUG-DURINGAME', '2'])
     def test_direct_and_shell_preset_selection_resolve_identically(self, selector) -> None:
         from durin_dev_tool.context import RepositoryContext
         repository = RepositoryContext.load(REPOSITORY_ROOT)
@@ -521,6 +521,8 @@ class TestBuildRegistry:
 
     def test_styled_preset_table_highlights_state_without_changing_plain_output(self) -> None:
         context = self.shell_context()
+        context.profile.presets = ('Win64-Debug-DurinEditor', 'Win64-Release-DurinEditor')
+        context.profile.default_preset = context.profile.presets[0]
         styled_stdout = io.StringIO()
         with mock.patch.dict(os.environ):
             os.environ.pop('NO_COLOR', None)
@@ -530,7 +532,7 @@ class TestBuildRegistry:
                 stderr=io.StringIO(),
                 force_terminal=True,
             )
-        build_operations.show_presets(styled_output, context, 'debug')
+        build_operations.show_presets(styled_output, context, context.profile.default_preset)
 
         plain_stdout = io.StringIO()
         plain_output = build_operations.BuildOutput(
@@ -538,11 +540,14 @@ class TestBuildRegistry:
             stdout=plain_stdout,
             stderr=io.StringIO(),
         )
-        build_operations.show_presets(plain_output, context, 'debug')
+        build_operations.show_presets(plain_output, context, context.profile.default_preset)
 
+        assert 'debug-editor' not in styled_stdout.getvalue()
+        assert 'release-editor' not in styled_stdout.getvalue()
+        assert 'Win64-Debug-DurinEditor' in styled_stdout.getvalue()
         assert '\x1b[' in styled_stdout.getvalue()
         assert '\x1b[1;32m' in styled_stdout.getvalue()
         assert plain_stdout.getvalue().splitlines() == [
-            '   1  debug [default, current]',
-            '   2  release',
+            '   1  Win64-Debug-DurinEditor [default, current]',
+            '   2  Win64-Release-DurinEditor',
         ]

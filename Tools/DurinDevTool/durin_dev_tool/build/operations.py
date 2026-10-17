@@ -15,7 +15,7 @@ from .build_context import BuildContext, create_build_context, derive_build_cont
 from .errors import BuildToolError
 from .models import Action, TestMode
 from .requests import BaseRequest, ConcreteRequest, SimpleRequest, ConfigureRequest
-from .selection import preset_cache_string, preset_short_name, resolve_preset_name, tracy_enabled
+from .selection import preset_cache_string, resolve_preset_name, tracy_enabled
 from .settings import CMAKE_ENV_VARS, JOBS_ENV_VAR, BuildPaths, default_build_paths
 from .locations import resolve_all_locations, resolve_location
 from .opener import open_location
@@ -129,14 +129,6 @@ def confirm_purge(output: BuildOutput, paths: Sequence[Path], all_presets: bool)
 
 
 def show_presets(output: BuildOutput, context: BuildContext, current_preset: str) -> None:
-    short_names = {name: preset_short_name(context.presets.get(name)) for name in context.profile.presets}
-
-    def display_name(name: str) -> str:
-        short = short_names[name]
-        if short and list(short_names.values()).count(short) == 1 and short != name.casefold():
-            return f"{short}  ({name})"
-        return name
-
     if output.plain:
         for index, preset in enumerate(context.profile.presets, start=1):
             markers = []
@@ -145,7 +137,7 @@ def show_presets(output: BuildOutput, context: BuildContext, current_preset: str
             if preset == current_preset:
                 markers.append("current")
             suffix = f' [{", ".join(markers)}]' if markers else ""
-            output.info(escape(f"  {index:>2}  {display_name(preset)}{suffix}"))
+            output.info(escape(f"  {index:>2}  {preset}{suffix}"))
         return
     rows: list[tuple[str, object]] = []
     for index, preset in enumerate(context.profile.presets, start=1):
@@ -157,7 +149,7 @@ def show_presets(output: BuildOutput, context: BuildContext, current_preset: str
                 markers.append(", ")
             markers.append("current", style="bold green")
         preset_text = Text(
-            display_name(preset),
+            preset,
             style="bold green" if preset == current_preset else "",
         )
         if markers:
@@ -169,7 +161,7 @@ def show_presets(output: BuildOutput, context: BuildContext, current_preset: str
 
 
 def resolve_preset_selector(value: str, context: BuildContext) -> str:
-    return resolve_preset_name(value, context.profile, context.presets)
+    return resolve_preset_name(value, context.profile)
 
 
 def show_status(output: BuildOutput, context: BuildContext) -> None:

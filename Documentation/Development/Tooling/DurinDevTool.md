@@ -136,18 +136,17 @@ test command resolves that environment; later commands and preset switches
 reuse it. Read-only and artifact commands remain available when the toolchain is
 unavailable.
 
-The prompt displays the selected preset. `presets` lists short names, full CMake
-names, and numbered entries. Prefer stable short names such as `release-editor`
-or `debug-game`; names are case-insensitive. Both `preset <selector>` and direct
-`--preset <selector>` accept the same short name, full name, or displayed number.
-Short names are derived from configuration and runtime variant; if two presets
-share a short name, use the full name. Inside the shell, `preset <selector>`
+The prompt displays the selected preset. `presets` lists full CMake preset names
+and numbered entries. Both `preset <selector>` and direct `--preset <selector>`
+accept a full name (case-insensitive) or a displayed number. Numbers follow the
+selected profile's list order; use full names in scripts and documentation.
+Inside the shell, `preset <selector>`
 selects the preset for later commands. Direct `preset <selector>` inspects that
 selection for the current invocation; direct operations use `--preset`.
 `preset` alone inspects the current selection.
 
 Tab completes command and `help` paths, option names (including `--help`), and
-option choices. Preset values complete short names, full names, and displayed
+option choices. Preset values complete full names and displayed
 numbers after `preset`, `--preset`, or `--preset=`; candidates follow the shell's
 current profile or an explicit `--profile`. Dependency lists such as
 `--deps Core En` complete registered workspace modules at every list position;

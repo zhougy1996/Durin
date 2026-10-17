@@ -23,9 +23,12 @@ requires broader coverage before expanding the target selection.
 Use fresh configuration, clean, rebuild, or purge only for a diagnosed need.
 
 Machine-local tool and build-profile overrides belong in
-`.agents/DevTool.user.json`. If it is missing or setup is required, use
-`.\DevTool.bat setup` in the main checkout or follow the complete guide for a
-linked worktree.
+`.agents/DevTool.user.json`. For AI-assisted setup, follow
+[local toolchain configuration](../Development/Tooling/DevToolSetup.md): edit only
+the local overrides, then run `.\DevTool.bat setup --non-interactive` directly
+in the main checkout. Use `setup --check` only for inspection without initialization. In a linked worktree,
+use the shared configuration and `worktree prepare`; `setup --check` remains
+available without initializing the checkout.
 
 Configure, build, rebuild, and commands that invoke them are long-running.
 Where process timeouts are supported, allow at least 10 minutes, or one hour

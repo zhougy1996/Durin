@@ -26,10 +26,12 @@ machine state.
 
 ### CMake or Visual Studio cannot be detected
 
-Rerun interactive setup and confirm the detected paths, or edit the relevant
-override in `.agents/DevTool.user.json`. Setup preserves existing local
-configuration and validates the selected CMake executable and Visual Studio
-environment script before saving them.
+Edit the relevant override in `.agents/DevTool.user.json`, then rerun
+`setup --non-interactive`. Use `setup --check` for inspection without initialization. Follow the
+[AI-assisted configuration workflow](../Tooling/DevToolSetup.md) for the template,
+schema, and exact fields. Interactive setup automatically uses a single usable
+candidate, offers numbered choices only for ambiguity, and accepts text paths
+when discovery fails.
 
 For unattended environments, `setup --non-interactive` accepts valid saved or
 automatically detected settings and otherwise exits with an actionable error.

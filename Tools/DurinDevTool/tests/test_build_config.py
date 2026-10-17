@@ -19,27 +19,21 @@ BUILD_PATHS = settings.BuildPaths.from_repository(RepositoryContext.load(REPO_RO
 class TestBuildConfig:
 
     @pytest.mark.parametrize('profile_name', ['windows-msvc-x64', 'macos-xcode-arm64'])
-    @pytest.mark.parametrize('short', ['release-editor', 'debug-game'])
-    def test_preset_short_names_full_names_and_numbers_share_resolution(self, profile_name, short) -> None:
+    def test_preset_full_names_and_numbers_share_resolution(self, profile_name) -> None:
         profile = config_io.load_profiles(BUILD_PATHS.profile_file)[profile_name]
         presets = config_io.load_configure_presets(BUILD_PATHS.preset_file)
-        selected = selection.select_preset(profile, presets, requested=short, preset_file=BUILD_PATHS.preset_file)
-        number = str(profile.presets.index(selected.name) + 1)
-        for value in (short.upper(), selected.name.swapcase(), number):
-            assert selection.select_preset(profile, presets, requested=value, preset_file=BUILD_PATHS.preset_file) is selected
+        for number, name in enumerate(profile.presets, start=1):
+            for value in (name, name.swapcase(), str(number)):
+                assert selection.select_preset(profile, presets, requested=value, preset_file=BUILD_PATHS.preset_file) is presets[name]
 
-    def test_preset_short_names_reject_ambiguity_and_invalid_numbers(self) -> None:
-        from dataclasses import replace
-        profile = config_io.load_profiles(BUILD_PATHS.profile_file)['windows-msvc-x64']
+    @pytest.mark.parametrize('profile_name', ['windows-msvc-x64', 'macos-xcode-arm64'])
+    def test_preset_aliases_and_invalid_numbers_are_rejected(self, profile_name) -> None:
+        profile = config_io.load_profiles(BUILD_PATHS.profile_file)[profile_name]
         presets = config_io.load_configure_presets(BUILD_PATHS.preset_file)
-        original = selection.select_preset(profile, presets, requested='release-editor', preset_file=BUILD_PATHS.preset_file)
-        duplicate = replace(original, name='AnotherReleaseEditor')
-        presets = {**presets, duplicate.name: duplicate}
-        profile = replace(profile, presets=(*profile.presets, duplicate.name))
-        with pytest.raises(errors.BuildToolError, match='ambiguous'):
-            selection.select_preset(profile, presets, requested='release-editor', preset_file=BUILD_PATHS.preset_file)
-        assert selection.select_preset(profile, presets, requested=original.name, preset_file=BUILD_PATHS.preset_file) is original
-        for value in ('0', '999'):
+        for value in ('debug-editor', 'release-editor', 'debug-game', 'release-game', 'shipping-game', 'RELEASE-EDITOR'):
+            with pytest.raises(errors.BuildToolError, match='Unknown preset'):
+                selection.select_preset(profile, presets, requested=value, preset_file=BUILD_PATHS.preset_file)
+        for value in ('0', str(len(profile.presets) + 1)):
             with pytest.raises(errors.BuildToolError, match='Invalid preset number'):
                 selection.select_preset(profile, presets, requested=value, preset_file=BUILD_PATHS.preset_file)
 

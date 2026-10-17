@@ -9,9 +9,10 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from ..build.config_io import load_local_config
+from ..build.models import LocalConfig
 from ..context import RepositoryContext
 from ..toolchain import capture_setup_environment, capture_windows_environment, find_command, find_vsdevcmd
-from .preflight import PreflightError, check_cmake, check_msvc_version, find_ninja
+from .preflight import PreflightError, toolchain_errors
 
 DEFAULT_ENVIRONMENT_ARGUMENTS = ("-arch=x64", "-host_arch=x64")
 
@@ -38,12 +39,13 @@ def configured_cmake_command(
     repository_root: Path | None = None,
     *,
     repository_context: RepositoryContext | None = None,
+    config: LocalConfig | None = None,
 ) -> str:
     repository = _repository(repository_root, repository_context)
     if environment_command := os.environ.get("CMAKE_COMMAND"):
         return environment_command
     config_path = repository.root / repository.config.paths.local_build_config
-    config = load_local_config(config_path)
+    config = config if config is not None else load_local_config(config_path)
     return config.cmake_command or "cmake"
 
 
@@ -51,10 +53,11 @@ def configured_visual_studio_environment(
     repository_root: Path | None = None,
     *,
     repository_context: RepositoryContext | None = None,
+    config: LocalConfig | None = None,
 ) -> tuple[Path | None, list[str]]:
     repository = _repository(repository_root, repository_context)
     config_path = repository.root / repository.config.paths.local_build_config
-    config = load_local_config(config_path)
+    config = config if config is not None else load_local_config(config_path)
     script = config.environment_setup.script
     configured_script = Path(script).expanduser().resolve() if script else None
     return configured_script, list(config.environment_setup.arguments)
@@ -85,11 +88,15 @@ def select_toolchain(
     environment_script: Path | None = None,
     environment_arguments: Sequence[str] | None = None,
     repository_context: RepositoryContext | None = None,
+    config: LocalConfig | None = None,
 ) -> ToolchainSelection:
     repository = _repository(repository_root, repository_context)
+    if config is None:
+        config = load_local_config(repository.root / repository.config.paths.local_build_config)
     configured_script, configured_arguments = configured_visual_studio_environment(
         repository.root,
         repository_context=repository,
+        config=config,
     )
     script = environment_script or configured_script
     if sys.platform == "win32":
@@ -125,6 +132,7 @@ def select_toolchain(
     configured_cmake = cmake_command or configured_cmake_command(
         repository.root,
         repository_context=repository,
+        config=config,
     )
     executable = resolve_cmake_executable(configured_cmake, environment)
     return ToolchainSelection(
@@ -142,6 +150,7 @@ def resolve_toolchain(
     environment_script: Path | None = None,
     environment_arguments: Sequence[str] | None = None,
     repository_context: RepositoryContext | None = None,
+    config: LocalConfig | None = None,
 ) -> ToolchainSelection:
     repository = _repository(repository_root, repository_context)
     selection = select_toolchain(
@@ -150,20 +159,8 @@ def resolve_toolchain(
         environment_script=environment_script,
         environment_arguments=environment_arguments,
         repository_context=repository,
+        config=config,
     )
-    if cmake_error := check_cmake(
-        repository.root,
-        environment=selection.environment,
-        command=selection.cmake_command,
-        repository_context=repository,
-    ):
-        raise PreflightError(cmake_error)
-    if not find_ninja(selection.environment):
-        message = "Ninja was not found in PATH"
-        if sys.platform == "win32":
-            message += " or in the selected Visual Studio installation"
-        raise PreflightError(message + ".")
-    if sys.platform == "win32":
-        if msvc_error := check_msvc_version(selection.environment):
-            raise PreflightError(msvc_error)
+    if errors := toolchain_errors(repository, selection):
+        raise PreflightError("\n".join(errors))
     return selection

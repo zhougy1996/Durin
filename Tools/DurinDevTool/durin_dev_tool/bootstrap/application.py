@@ -8,7 +8,7 @@ from ..context import CommandIO, RepositoryContext
 from . import manifests
 from .dependency_service import prepare_dependencies
 from .models import DependencyRequest
-from .setup import setup_repository
+from .setup import check_setup_configuration, setup_repository
 
 
 def validate_dependencies(repository: RepositoryContext, command_io: CommandIO) -> int:

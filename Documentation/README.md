@@ -13,6 +13,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Setup, build, test, worktree, or runtime problem | [Troubleshooting](Development/Build/Troubleshooting.md) |
 | Configuring, building, running, or recovering for task validation | [Agent build and run workflow](Agents/BuildAndRun.md) |
 | Changing build/run workflows, output layout, setup, or recovery behavior | [Build and run](Development/Build/BuildAndRun.md) |
+| AI-assisted local toolchain configuration or setup checks | [DevTool setup configuration](Development/Tooling/DevToolSetup.md) |
 | Reflected type identity, registration, class defaults, or enum metadata | [Reflection system](Runtime/Core/ReflectionSystem.md) |
 | DPROPERTY types, typed metadata, containers, or serialized field compatibility | [Property reflection](Runtime/Core/PropertyReflection.md) |
 | DSTRUCT value capabilities, detached storage, logical comparison, or type defaults | [Reflected struct operations](Runtime/Core/StructOperations.md) |

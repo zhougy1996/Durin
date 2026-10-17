@@ -15,6 +15,39 @@ REPOSITORY = RepositoryContext.load(REPOSITORY_ROOT)
 
 class TestSetupPreflight:
 
+    def test_prepare_reads_config_and_checks_each_tool_once(self, tmp_path) -> None:
+        from durin_dev_tool.bootstrap import toolchain_setup
+        config = tmp_path / '.agents/DevTool.user.json'
+        config.parent.mkdir()
+        script = tmp_path / 'VsDevCmd.bat'
+        cmake = str(tmp_path / 'cmake.exe')
+        config.write_text(json.dumps({'version': 1, 'cmake': {'command': cmake}, 'toolchain': {'environmentScript': str(script)}}), encoding='utf-8')
+        with mock.patch.object(setup.sys, 'platform', 'win32'), mock.patch.object(setup, 'load_local_config', wraps=setup.load_local_config) as load, mock.patch.object(toolchain_selection, 'load_local_config', side_effect=AssertionError('configuration was read again')), mock.patch.object(toolchain_setup, 'capture_windows_environment', return_value={}) as capture, mock.patch.object(toolchain_setup, 'resolve_cmake_executable', return_value=cmake), mock.patch.object(toolchain_setup, 'check_cmake', return_value=None) as check_cmake, mock.patch.object(preflight, 'check_cmake', side_effect=AssertionError('CMake was checked again')), mock.patch.object(preflight, 'check_msvc_version', return_value=None) as check_msvc, mock.patch.object(preflight, 'find_ninja', return_value='ninja') as ninja, mock.patch.object(preflight, 'find_command', return_value='git'), mock.patch.object(preflight, 'check_windows_long_paths', return_value=None), mock.patch.object(preflight, 'check_vulkan_sdk', return_value=None):
+            selected = setup.prepare_setup(REPOSITORY.at_root(tmp_path), CommandIO.system(), interactive=False)
+        assert selected.cmake_command == cmake
+        for probe in (load, capture, check_cmake, check_msvc, ninja):
+            probe.assert_called_once()
+
+    def test_independent_preflight_still_checks_the_complete_toolchain(self) -> None:
+        selection = toolchain_selection.ToolchainSelection('cmake', None, (), {})
+        with mock.patch.object(preflight, 'find_command', return_value='git'), mock.patch.object(preflight, 'check_windows_long_paths', return_value=None), mock.patch.object(preflight, 'check_cmake', return_value='bad CMake') as cmake, mock.patch.object(preflight, 'find_ninja', return_value=None), mock.patch.object(preflight, 'check_msvc_version', return_value='bad MSVC'), mock.patch.object(preflight, 'check_vulkan_sdk', return_value=None):
+            errors = preflight.collect_errors(REPOSITORY_ROOT, selection=selection, current_platform='win32')
+        cmake.assert_called_once()
+        assert 'bad CMake' in errors and 'bad MSVC' in errors
+        assert any('Ninja' in error for error in errors)
+
+    def test_standalone_resolution_reuses_the_parsed_config(self) -> None:
+        from durin_dev_tool.build.models import LocalConfig
+        with mock.patch.object(toolchain_selection.sys, 'platform', 'darwin'), mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(toolchain_selection, 'load_local_config', return_value=LocalConfig()) as load, mock.patch.object(toolchain_selection, 'resolve_cmake_executable', return_value='/usr/local/bin/cmake'), mock.patch.object(toolchain_selection, 'toolchain_errors', return_value=[]):
+            selected = toolchain_selection.resolve_toolchain(repository_context=REPOSITORY)
+        load.assert_called_once()
+        assert selected.cmake_command == '/usr/local/bin/cmake'
+        assert selected.environment_script is None
+
+    def test_toolchain_checks_cannot_be_skipped_without_a_selection(self) -> None:
+        with pytest.raises(ValueError, match='checked toolchain selection'):
+            preflight.collect_errors(REPOSITORY_ROOT, toolchain_checked=True)
+
     def test_windows_long_paths_policy_error_is_actionable(self) -> None:
         with mock.patch.object(preflight, 'read_windows_long_paths_enabled', return_value=False):
             error = preflight.check_windows_long_paths()
@@ -41,21 +74,21 @@ class TestSetupPreflight:
             assert toolchain.find_command('cmake', {'Path': 'custom-path'}) == 'cmake'
         which.assert_called_once_with('cmake', path='custom-path')
 
-    def test_setup_interactively_confirms_automatic_toolchain(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+    def test_macos_setup_automatically_uses_valid_toolchain(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         root = Path(tmp_path_factory.mktemp('case'))
         selection = toolchain_selection.ToolchainSelection('C:/cmake/bin/cmake.exe', root / 'VsDevCmd.bat', ('-arch=x64',), {'PATH': 'ready'})
-        with mock.patch.object(setup, 'resolve_toolchain', return_value=selection), mock.patch('builtins.input', return_value=''):
+        with mock.patch.object(setup.sys, 'platform', 'darwin'), mock.patch.object(setup, 'resolve_toolchain', return_value=selection), mock.patch('builtins.input', side_effect=AssertionError('must not prompt')):
             assert setup.select_setup_toolchain(root, interactive=True) == selection
 
-    def test_setup_interactively_accepts_manual_toolchain(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+    def test_macos_setup_interactively_accepts_manual_toolchain(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         root = Path(tmp_path_factory.mktemp('case'))
         selection = toolchain_selection.ToolchainSelection('C:/cmake/bin/cmake.exe', root / 'VsDevCmd.bat', ('-arch=x64',), {'PATH': 'ready'})
-        with mock.patch.object(setup, 'resolve_toolchain', side_effect=[preflight.PreflightError('automatic detection failed'), selection]), mock.patch('builtins.input', side_effect=['C:/cmake/bin/cmake.exe', str(root / 'VsDevCmd.bat'), '-arch=x64']):
+        with mock.patch.object(setup.sys, 'platform', 'darwin'), mock.patch.object(setup, 'resolve_toolchain', side_effect=[preflight.PreflightError('automatic detection failed'), selection]), mock.patch('builtins.input', side_effect=['C:/cmake/bin/cmake.exe', str(root / 'VsDevCmd.bat'), '-arch=x64']):
             assert setup.select_setup_toolchain(root, interactive=True) == selection
 
     def test_setup_non_interactive_reports_unusable_automatic_toolchain(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         root = Path(tmp_path_factory.mktemp('case'))
-        with mock.patch.object(setup, 'resolve_toolchain', side_effect=preflight.PreflightError('automatic detection failed')), pytest.raises(BootstrapError, match='--non-interactive'):
+        with mock.patch.object(setup.sys, 'platform', 'darwin'), mock.patch.object(setup, 'resolve_toolchain', side_effect=preflight.PreflightError('automatic detection failed')), pytest.raises(BootstrapError, match='--non-interactive'):
             setup.select_setup_toolchain(root, interactive=False)
 
     def test_toolchain_config_is_saved_without_overwriting_other_settings(self, tmp_path_factory: pytest.TempPathFactory) -> None:

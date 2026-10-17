@@ -14,6 +14,11 @@ SETUP_COMMAND_SPEC = CommandSpec(
     arguments=(
         COLOR,
         argument(
+            "--check",
+            action="store_true",
+            help="check local configuration and prerequisites without prompts, writing setup files, or installing tools",
+        ),
+        argument(
             "--non-interactive",
             action="store_true",
             help="use configured or automatically detected toolchain settings without prompting",

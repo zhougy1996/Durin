@@ -102,7 +102,7 @@ COMMAND_SPECS = (
     ),
     build_command(
         "build", "build a CMake target", TOOL_ARGUMENTS + (BUILD_TARGET,),
-        epilog="Examples:\n  DevTool build Core\n  DevTool build LevelEditor --preset release-editor",
+        epilog="Examples:\n  DevTool build Core\n  DevTool build LevelEditor --preset Win64-Release-DurinEditor",
     ),
     build_command("clean", "clean the selected preset", TOOL_ARGUMENTS),
     build_command("recover", "resume an interrupted build incrementally", TOOL_ARGUMENTS),

@@ -104,7 +104,7 @@ def parse_environment_output(
     return normalized
 
 
-def find_vsdevcmd(environment: Mapping[str, str]) -> Path:
+def _visual_studio_installations(environment: Mapping[str, str], *, latest: bool) -> list[Path]:
     candidates = [
         root / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
         for root in _program_files_roots(environment)
@@ -115,7 +115,7 @@ def find_vsdevcmd(environment: Mapping[str, str]) -> Path:
 
     command = [
         str(vswhere),
-        "-latest",
+        "-latest" if latest else "-sort",
         "-products",
         "*",
         "-version",
@@ -136,7 +136,19 @@ def find_vsdevcmd(environment: Mapping[str, str]) -> Path:
         raise ToolchainError(
             "Visual Studio 2022 or newer with Desktop development with C++ was not found."
         )
-    script = Path(installation) / "Common7" / "Tools" / "VsDevCmd.bat"
+    return [Path(value.strip()) for value in installation.splitlines() if value.strip()]
+
+
+def find_vsdevcmds(environment: Mapping[str, str]) -> tuple[Path, ...]:
+    """List installed C++ toolchains, newest first, for interactive setup."""
+    scripts = (root / "Common7" / "Tools" / "VsDevCmd.bat"
+               for root in _visual_studio_installations(environment, latest=False))
+    return tuple(script for script in scripts if script.is_file())
+
+
+def find_vsdevcmd(environment: Mapping[str, str]) -> Path:
+    installation = _visual_studio_installations(environment, latest=True)[0]
+    script = installation / "Common7" / "Tools" / "VsDevCmd.bat"
     if not script.is_file():
         raise ToolchainError(f'Visual Studio environment script is missing: "{script}"')
     return script

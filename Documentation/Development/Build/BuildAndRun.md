@@ -72,14 +72,19 @@ validates the Visual Studio English language pack when it first initializes
 MSVC. Setup
 initializes only the main checkout; a linked worktree exits with an error
 directing the caller to `DevTool worktree prepare`.
-On Windows, the first interactive setup shows automatic CMake and
-`VsDevCmd.bat` detection for confirmation and can save validated absolute paths
-in `.agents/DevTool.user.json`. On macOS, setup automatically selects the
-`macos-xcode-arm64` profile and normally persists an inherited environment;
-`toolchain.environmentScript` is needed only when a repeatable local SDK script
-override is desired. Use `DevTool setup --non-interactive` for scripts or CI;
-it accepts valid automatic or already-configured settings and fails with an
-actionable message instead of waiting for input.
+Local toolchain configuration is the primary setup interface for people and AI
+assistants. Follow [DevTool setup configuration](../Tooling/DevToolSetup.md) to
+edit `.agents/DevTool.user.json` and initialize the main checkout directly with
+`DevTool setup --non-interactive`. Use `DevTool setup --check` as an optional
+inspection without initialization; both commands share the same preparation stage.
+Windows setup automatically uses a single validated candidate for each missing
+component; only multiple usable candidates require a numbered choice in a
+terminal. Failed components retain text-path fallback and independent retries.
+Non-interactive ambiguity or invalid explicit configuration fails with the field
+to edit. No file browsing windows are opened.
+On macOS, setup automatically selects the `macos-xcode-arm64` profile and normally
+persists an inherited environment; `toolchain.environmentScript` is needed only
+for a repeatable local SDK script override.
 Because Setup must install DurinDevTool's Python packages, its terminal styling
 uses a standard-library-only fallback until the prepared environment is ready.
 `setup --color never` and `NO_COLOR` disable that styling as usual.
@@ -335,7 +340,7 @@ Pass other runtime arguments after the `--` separator. The typed project
 argument is always forwarded before them:
 
 ```powershell
-.\DevTool.bat run --preset debug-game --project Sandbox\Sandbox.dproject -- --hidden-window
+.\DevTool.bat run --preset Win64-Debug-DurinGame --project Sandbox\Sandbox.dproject -- --hidden-window
 ```
 
 Launch accepts only its documented option grammar. Unknown options, repeated
@@ -413,9 +418,9 @@ Select another registered configure preset explicitly when the default profile
 is not the intended target:
 
 ```powershell
-.\DevTool.bat build --preset release-editor <Target>
-.\DevTool.bat build --preset shipping-game <Target>
-./DevTool build --preset release-editor <Target>
+.\DevTool.bat build --preset Win64-Release-DurinEditor <Target>
+.\DevTool.bat build --preset Win64-Shipping-DurinGame <Target>
+./DevTool build --preset MacOS-arm64-Release-DurinEditor <Target>
 ```
 
 `CMakePresets.json` remains the configuration source of truth.
@@ -464,8 +469,8 @@ report zero parses.
 `purge` removes the selected preset's configured build and install trees plus its project output and generated-metadata roots:
 
 ```powershell
-.\DevTool.bat purge --preset release-editor
-.\DevTool.bat purge --preset release-editor --yes
+.\DevTool.bat purge --preset Win64-Release-DurinEditor
+.\DevTool.bat purge --preset Win64-Release-DurinEditor --yes
 ```
 
 Inside the interactive shell:

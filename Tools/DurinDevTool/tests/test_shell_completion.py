@@ -23,19 +23,24 @@ def complete(line, **kwargs):
     return shell_completion_candidates(CommandRegistry(), line, **kwargs)
 
 
-@pytest.mark.parametrize('line', ['preset rel', 'build --preset rel', 'build Core --preset REL'])
-def test_short_presets_complete_without_preparing_toolchain(line):
+@pytest.mark.parametrize('line', ['preset Win64-Release', 'build --preset Win64-Release', 'build Core --preset WIN64-RELEASE'])
+def test_full_presets_complete_without_preparing_toolchain(line):
     with mock.patch('durin_dev_tool.build.operations.prepare_toolchain_context') as prepare:
-        assert complete(line) == ('release-editor', 'release-game')
+        assert complete(line) == ('Win64-Release-DurinEditor', 'Win64-Release-DurinGame')
     prepare.assert_not_called()
 
 
 def test_preset_numbers_full_names_and_equals_values():
     assert complete('preset 2') == ('2',)
-    assert complete('build --preset=rel') == ('--preset=release-editor', '--preset=release-game')
+    assert complete('build --preset=Win64-Release') == ('--preset=Win64-Release-DurinEditor', '--preset=Win64-Release-DurinGame')
     assert complete('build --preset Win64-Release-DurinE') == ('Win64-Release-DurinEditor',)
-    assert complete('preset --profile=windows-msvc-x64 rel') == ('release-editor', 'release-game')
-    assert complete('build --profile invalid --preset rel') == ()
+    assert complete('preset --profile=windows-msvc-x64 Win64-Release') == ('Win64-Release-DurinEditor', 'Win64-Release-DurinGame')
+    assert complete('build --profile invalid --preset Win64-Release') == ()
+
+
+@pytest.mark.parametrize('line', ['preset rel', 'build --preset debug-', 'build --preset=release-'])
+def test_preset_aliases_are_not_completed(line):
+    assert complete(line) == ()
 
 
 def test_completion_uses_session_profile_and_explicit_override():
@@ -76,14 +81,14 @@ def test_help_paths_and_current_options_exclude_retired_syntax():
                  'create module Demo --optional-private-dependency', 'create module Demo --optional-public-dependency',
                  'asset resave --apply', 'test --parallel'):
         assert complete(line) == ()
-    assert complete('run -- --preset rel') == ()
+    assert complete('run -- --preset Win64-Release') == ()
 
 
 def test_cursor_position_and_incomplete_configuration_are_safe():
-    line = 'build --preset rel Core'
-    assert shell_completion_candidates(CommandRegistry(), line, len('build --preset rel')) == ('release-editor', 'release-game')
+    line = 'build --preset Win64-Release Core'
+    assert shell_completion_candidates(CommandRegistry(), line, len('build --preset Win64-Release')) == ('Win64-Release-DurinEditor', 'Win64-Release-DurinGame')
     repository = RepositoryContext.load(ROOT).at_root(ROOT / 'Build' / 'MissingCompletionCheckout')
-    assert complete('preset rel', repository_context=repository) == ()
+    assert complete('preset Win64-Release', repository_context=repository) == ()
     assert complete('create module Demo --deps Co', repository_context=repository) == ()
     assert complete('build --h', repository_context=repository) == ('--help',)
 
@@ -96,9 +101,9 @@ def test_prompt_toolkit_completion_replaces_only_the_current_prefix():
     with mock.patch('durin_dev_tool.shell.sys.stdin.isatty', return_value=True), mock.patch('prompt_toolkit.PromptSession') as prompt:
         _interactive_input(CommandRegistry(), mock.Mock(isatty=lambda: True), repository_context=repository, session_state=state)
     completer = prompt.call_args.kwargs['completer']
-    matches = list(completer.get_completions(Document('build --preset=rel'), None))
-    assert [item.text for item in matches] == ['--preset=release-editor', '--preset=release-game']
-    assert all(item.start_position == -len('--preset=rel') for item in matches)
+    matches = list(completer.get_completions(Document('build --preset=Win64-Release'), None))
+    assert [item.text for item in matches] == ['--preset=Win64-Release-DurinEditor', '--preset=Win64-Release-DurinGame']
+    assert all(item.start_position == -len('--preset=Win64-Release') for item in matches)
 
 
 def test_readline_completion_uses_the_same_repository_values():
@@ -116,7 +121,7 @@ def test_shell_passes_live_session_state_to_completion():
     import io
     from durin_dev_tool.shell import run_shell
     repository = RepositoryContext.load(ROOT)
-    read = mock.Mock(side_effect=['preset release-editor', 'exit'])
+    read = mock.Mock(side_effect=['preset Win64-Release-DurinEditor', 'exit'])
     with mock.patch('durin_dev_tool.shell._interactive_input', return_value=read) as interactive:
         assert run_shell(registry=CommandRegistry(), repository_root=ROOT, repository_context=repository,
                          stdout=io.StringIO(), stderr=io.StringIO()) == 0

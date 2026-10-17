@@ -4,7 +4,7 @@ from .specification import argument
 
 
 PROFILE = argument("--profile", group="advanced options", help="host build profile")
-PRESET = argument("--preset", help="preset short name, full name, or number from presets")
+PRESET = argument("--preset", help="full preset name or number from presets")
 COLOR = argument(
     "--color",
     group="advanced options",

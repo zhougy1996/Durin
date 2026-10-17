@@ -224,6 +224,46 @@ class TestBootstrapRegistry:
         assert namespace.non_interactive
         assert not namespace.skip_development_tools
 
+    def test_check_routes_to_read_only_validation_without_setup_or_shell_restart(self) -> None:
+        specification, namespace = self.registry.parse(['setup', '--check'])
+        with mock.patch.object(bootstrap_application, 'check_setup_configuration') as check, mock.patch.object(bootstrap_application, 'setup_checkout') as initialize, mock.patch.object(handler, 'restart_prepared_shell') as restart:
+            self.registry.execute(specification, namespace, repository_root=REPOSITORY_ROOT,
+                                  stdout=io.StringIO(), stderr=io.StringIO(), session_state={})
+        check.assert_called_once()
+        initialize.assert_not_called()
+        restart.assert_not_called()
+
+    @pytest.mark.parametrize('valid', [True, False])
+    def test_check_never_writes_checkout_files(self, tmp_path, valid) -> None:
+        repository = RepositoryContext.load().at_root(tmp_path)
+        config = tmp_path / '.agents/DevTool.user.json'
+        config.parent.mkdir()
+        original = b'{"version": 1, "build": {"parallelJobs": 7}}'
+        config.write_bytes(original)
+        selection = toolchain_selection.ToolchainSelection('cmake', None, (), {})
+        output = io.StringIO()
+        with mock.patch.object(setup, 'select_setup_toolchain', return_value=selection) as select, mock.patch.object(setup, 'validate_prerequisites', side_effect=None if valid else setup.PreflightError('invalid SDK')):
+            if valid:
+                setup.check_setup_configuration(repository, CommandIO(output, io.StringIO()))
+            else:
+                with pytest.raises(setup.PreflightError):
+                    setup.check_setup_configuration(repository, CommandIO(output, io.StringIO()))
+        assert select.call_args.kwargs['interactive'] is False
+        assert config.read_bytes() == original
+        assert sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob('*')) == ['.agents', '.agents/DevTool.user.json']
+        assert 'Template:' in output.getvalue() and 'Schema:' in output.getvalue()
+
+    def test_check_rejects_invalid_config_before_toolchain_discovery(self, tmp_path) -> None:
+        config = tmp_path / '.agents/DevTool.user.json'
+        config.parent.mkdir()
+        config.write_text('{"version": 2}', encoding='utf-8')
+        output = io.StringIO()
+        with mock.patch('durin_dev_tool.bootstrap.toolchain_setup.visual_studio_candidates') as discover, pytest.raises(setup.DevToolError):
+            setup.check_setup_configuration(RepositoryContext.load().at_root(tmp_path), CommandIO(output, io.StringIO()))
+        discover.assert_not_called()
+        assert 'Schema:' in output.getvalue()
+        assert config.read_text(encoding='utf-8') == '{"version": 2}'
+
     def test_setup_forwards_development_tools_opt_out(self) -> None:
         specification, namespace = self.registry.parse(['setup', '--non-interactive', '--skip-development-tools'])
         with mock.patch.object(bootstrap_application, 'setup_checkout') as run:
@@ -287,6 +327,24 @@ class TestSetupOrchestration:
         with mock.patch.object(setup, 'select_setup_toolchain', return_value=selection), mock.patch.object(setup, 'validate_prerequisites', side_effect=lambda _, **__: events.append('preflight')), mock.patch.object(setup, 'ensure_agent_config', side_effect=lambda *_args, **_kwargs: events.append('config')), mock.patch.object(setup, 'save_toolchain_config', side_effect=lambda *_args, **_kwargs: events.append('toolchain')), mock.patch.object(setup, 'ensure_vscode_configuration', side_effect=lambda *_args, **_kwargs: events.append('vscode')), mock.patch.object(setup, 'ensure_python_environment', side_effect=lambda *_args, **_kwargs: events.append('python') or python), mock.patch.object(setup, 'ensure_development_tools', side_effect=lambda *_args: events.append('tools')):
             assert setup.setup_repository(root) == python
         assert events == ['preflight', 'config', 'toolchain', 'vscode', 'python', 'tools']
+
+    @pytest.mark.parametrize('check_only', [False, True])
+    def test_setup_and_check_use_the_same_preparation_stage(self, tmp_path, check_only) -> None:
+        repository = RepositoryContext.load().at_root(tmp_path)
+        selection = toolchain_selection.ToolchainSelection('cmake', None, (), {})
+        command_io = CommandIO(io.StringIO(), io.StringIO())
+        with mock.patch.object(setup, 'prepare_setup', return_value=selection) as prepare, mock.patch.object(setup, 'ensure_agent_config'), mock.patch.object(setup, 'save_toolchain_config'), mock.patch.object(setup, 'ensure_vscode_configuration'), mock.patch.object(setup, 'ensure_python_environment', return_value=tmp_path / 'python'), mock.patch.object(setup, 'ensure_development_tools'):
+            if check_only:
+                setup.check_setup_configuration(repository, command_io)
+            else:
+                setup.setup_repository(repository, command_io)
+        prepare.assert_called_once_with(repository, command_io, interactive=False)
+
+    def test_failed_preparation_prevents_setup_mutations(self, tmp_path) -> None:
+        with mock.patch.object(setup, 'prepare_setup', side_effect=setup.PreflightError('invalid SDK')), mock.patch.object(setup, 'ensure_agent_config') as config, mock.patch.object(setup, 'ensure_vscode_configuration') as vscode, mock.patch.object(setup, 'ensure_python_environment') as python, mock.patch.object(setup, 'ensure_development_tools') as tools, pytest.raises(setup.PreflightError):
+            setup.setup_repository(tmp_path)
+        for mutation in (config, vscode, python, tools):
+            mutation.assert_not_called()
 
     def test_linked_worktree_setup_points_only_to_unified_prepare(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')

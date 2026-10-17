@@ -264,6 +264,28 @@ def check_windows_long_paths() -> str | None:
     )
 
 
+def compiler_environment_errors(environment: Mapping[str, str], *, current_platform: str | None = None) -> list[str]:
+    platform_name = current_platform or sys.platform
+    errors: list[str] = []
+    if not find_ninja(environment):
+        message = "Ninja was not found in PATH"
+        if platform_name == "win32":
+            message += " or in the selected Visual Studio installation"
+        errors.append(message + ".")
+    if platform_name == "win32":
+        if error := check_msvc_version(environment):
+            errors.append(error)
+    return errors
+
+
+def toolchain_errors(repository: RepositoryContext, selection: ToolchainSelection, *, current_platform: str | None = None) -> list[str]:
+    errors = compiler_environment_errors(selection.environment, current_platform=current_platform)
+    if error := check_cmake(repository.root, environment=selection.environment,
+                            command=selection.cmake_command, repository_context=repository):
+        errors.insert(0, error)
+    return errors
+
+
 def collect_errors(
     repository_root: Path | None = None,
     *,
@@ -271,8 +293,11 @@ def collect_errors(
     repository_context: RepositoryContext | None = None,
     current_platform: str | None = None,
     machine: str | None = None,
+    toolchain_checked: bool = False,
 ) -> list[str]:
     repository = _repository(repository_root, repository_context)
+    if toolchain_checked and selection is None:
+        raise ValueError("A checked toolchain selection is required to skip toolchain checks.")
     platform_name = current_platform or sys.platform
     errors: list[str] = []
     if sys.version_info < MINIMUM_PYTHON:
@@ -311,21 +336,8 @@ def collect_errors(
             errors.append(xcode_error)
         if clang_error := check_apple_clang(toolchain_environment):
             errors.append(clang_error)
-    if cmake_error := check_cmake(
-        repository.root,
-        environment=toolchain_environment,
-        command=selected.cmake_command,
-        repository_context=repository,
-    ):
-        errors.append(cmake_error)
-    if not find_ninja(toolchain_environment):
-        message = "Ninja was not found in PATH"
-        if platform_name == "win32":
-            message += " or in the selected Visual Studio installation"
-        errors.append(message + ".")
-    if platform_name == "win32":
-        if msvc_error := check_msvc_version(toolchain_environment):
-            errors.append(msvc_error)
+    if not toolchain_checked:
+        errors.extend(toolchain_errors(repository, selected, current_platform=platform_name))
     if vulkan_error := check_vulkan_sdk(
         toolchain_environment,
         current_platform=platform_name,
@@ -340,14 +352,16 @@ def validate_prerequisites(
     selection: ToolchainSelection | None = None,
     repository_context: RepositoryContext | None = None,
     command_io: CommandIO | None = None,
+    toolchain_checked: bool = False,
 ) -> None:
-    """Validate every prerequisite before setup mutates repository state."""
+    """Validate prerequisites before mutation; reuse toolchain checks only from this preparation attempt."""
     repository = _repository(repository_root, repository_context)
     io = command_io or CommandIO.system()
     io.out("Checking Durin setup prerequisites...")
     errors = collect_errors(
         repository.root,
         selection=selection,
+        toolchain_checked=toolchain_checked,
         repository_context=repository,
     )
     if errors:

@@ -10,9 +10,9 @@ The `render-performance` native-test domain is the single discovery and batch
 execution entry point for repository-owned rendering measurements:
 
 ```bash
-./DevTool configure --preset release-editor -DDURIN_ENABLE_TRACY=OFF
+./DevTool configure --preset MacOS-arm64-Release-DurinEditor -DDURIN_ENABLE_TRACY=OFF
 ./DevTool test list "render-performance"
-./DevTool test "@domain=render-performance" --mode qualification --preset release-editor --test-jobs 1 --report
+./DevTool test "@domain=render-performance" --mode qualification --preset MacOS-arm64-Release-DurinEditor --test-jobs 1 --report
 ```
 
 Keep the targets separate. Each target owns a coherent module/backend lifecycle,

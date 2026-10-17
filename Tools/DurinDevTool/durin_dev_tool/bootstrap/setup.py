@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shlex
 import shutil
 import subprocess
@@ -14,9 +13,10 @@ from typing import Mapping, Sequence
 from ..context import CommandIO, RepositoryContext
 from ..errors import DevToolError
 from ..python_environment import prepared_python_path
-from ..toolchain import find_command, find_vsdevcmd
+from ..toolchain import find_command
 from ..build.config_io import load_configure_presets, load_local_config, load_profiles
 from ..build.errors import BuildToolError
+from ..build.models import LocalConfig
 from ..build.selection import (
     host_name,
     preset_cache_string,
@@ -32,11 +32,9 @@ from .agent_config import (
 from .models import BootstrapError
 from .preflight import PreflightError, validate_prerequisites
 from .toolchain_selection import (
-    DEFAULT_ENVIRONMENT_ARGUMENTS,
     ToolchainSelection,
     configured_cmake_command,
     configured_visual_studio_environment,
-    find_vsdevcmd,
     resolve_toolchain,
 )
 
@@ -306,37 +304,23 @@ def _prompt_value(label: str, default: str = "") -> str:
     return value or default
 
 
-def _confirm_toolchain(selection: ToolchainSelection, command_io: CommandIO) -> bool:
-    command_io.out("Automatically detected toolchain:")
-    command_io.out(f'  CMake: {selection.cmake_command}')
-    if selection.environment_script is None:
-        command_io.out("  Environment: inherited from the current process")
-    else:
-        command_io.out(f'  Environment script: {selection.environment_script}')
-        command_io.out(f'  Arguments: {" ".join(selection.environment_arguments)}')
-    return _prompt_value("Use these settings?", "Y").casefold() in {"y", "yes"}
-
-
-def _manual_toolchain_selection(
+def _manual_macos_toolchain_selection(
     repository: RepositoryContext,
     command_io: CommandIO,
     *,
     default_cmake: str,
     default_script: Path | None,
     default_arguments: Sequence[str],
-    current_platform: str,
+    config: LocalConfig,
 ) -> ToolchainSelection:
     while True:
         cmake_command = _prompt_value("CMake executable or command", default_cmake)
         script_value = _prompt_value(
-            "VsDevCmd.bat path" if current_platform == "win32" else "Environment setup script path (optional)",
+            "Environment setup script path (optional)",
             str(default_script) if default_script else "",
         )
-        if current_platform == "win32" and not script_value:
-            command_io.out("VsDevCmd.bat path is required.")
-            continue
         arguments_text = _prompt_value(
-            "VsDevCmd.bat arguments" if current_platform == "win32" else "Environment script arguments",
+            "Environment script arguments",
             " ".join(default_arguments),
         )
         try:
@@ -349,6 +333,7 @@ def _manual_toolchain_selection(
                 ),
                 environment_arguments=arguments,
                 repository_context=repository,
+                config=config,
             )
         except (DevToolError, ValueError) as exc:
             command_io.out(f"Toolchain settings are not usable: {exc}")
@@ -366,24 +351,33 @@ def select_setup_toolchain(
     repository = _repository(repository)
     command_io = _command_io(command_io)
     repository_root = repository.root
-    config_exists = config_path(repository_root, repository).is_file()
+    config = load_local_config(config_path(repository_root, repository))
+    if sys.platform == "win32":
+        from .toolchain_setup import select_windows_toolchain
+
+        script, arguments = configured_visual_studio_environment(repository_root, repository_context=repository, config=config)
+        return select_windows_toolchain(
+            repository, command_io,
+            configured_script=script,
+            configured_cmake=config.cmake_command,
+            configured_arguments=arguments,
+            interactive=interactive,
+        )
     automatic_error = ""
     try:
         selection = resolve_toolchain(
             repository_root,
             repository_context=repository,
+            config=config,
         )
     except DevToolError as exc:
         automatic_error = str(exc)
         selection = None
-    if selection is not None and (config_exists or not interactive):
-        return selection
-    if selection is not None and _confirm_toolchain(selection, command_io):
+    if selection is not None:
         return selection
     if not interactive:
-        detail = automatic_error if selection is None else "automatic settings were declined"
         raise BootstrapError(
-            f"Toolchain setup was not confirmed: {detail}. "
+            f"Toolchain setup failed: {automatic_error}. "
             "Set cmake.command or an optional toolchain.environmentScript in "
             '".agents/DevTool.user.json" when automatic discovery is insufficient, '
             "then rerun with --non-interactive."
@@ -392,34 +386,50 @@ def select_setup_toolchain(
     configured_script, configured_arguments = configured_visual_studio_environment(
         repository_root,
         repository_context=repository,
+        config=config,
     )
-    if configured_script is None:
-        try:
-            configured_script = find_vsdevcmd(os.environ)
-        except DevToolError:
-            pass
     default_cmake = configured_cmake_command(
         repository_root,
         repository_context=repository,
+        config=config,
     )
-    if selection is not None:
-        default_cmake = selection.cmake_command
-        configured_script = selection.environment_script
-        configured_arguments = list(selection.environment_arguments)
-    if selection is None:
-        command_io.out(f"Automatic toolchain detection failed: {automatic_error}")
-    return _manual_toolchain_selection(
+    command_io.out(f"Automatic toolchain detection failed: {automatic_error}")
+    return _manual_macos_toolchain_selection(
         repository,
         command_io,
         default_cmake=default_cmake,
         default_script=configured_script,
-        default_arguments=(
-            configured_arguments or DEFAULT_ENVIRONMENT_ARGUMENTS
-            if sys.platform == "win32"
-            else configured_arguments
-        ),
-        current_platform=sys.platform,
+        default_arguments=configured_arguments,
+        config=config,
     )
+
+
+def prepare_setup(
+    repository: RepositoryContext, command_io: CommandIO, *, interactive: bool,
+) -> ToolchainSelection:
+    """Resolve and validate once before either checking or initializing a checkout."""
+    selection = select_setup_toolchain(repository, command_io, interactive=interactive)
+    validate_prerequisites(repository.root, selection=selection, repository_context=repository,
+                           command_io=command_io, toolchain_checked=True)
+    return selection
+
+
+def check_setup_configuration(
+    repository: RepositoryContext | Path,
+    command_io: CommandIO | None = None,
+) -> None:
+    """Check AI-edited configuration without initializing or modifying a checkout."""
+    repository = _repository(repository)
+    command_io = _command_io(command_io)
+    command_io.out(f'Local configuration: {config_path(repository.root, repository)}')
+    command_io.out(f'Template: {repository.resolve(repository.config.paths.local_build_config_template)}')
+    command_io.out(f'Schema: {repository.root / "Tools/DurinDevTool/DevTool.user.schema.json"}')
+    command_io.out('Set cmake.command and toolchain.environmentScript/environmentArguments when discovery is ambiguous or unavailable.')
+    command_io.out('CMAKE_COMMAND overrides cmake.command; check or unset it when changing CMake.')
+    selection = prepare_setup(repository, command_io, interactive=False)
+    command_io.out(f'CMake: {selection.cmake_command}')
+    command_io.out(f'Environment script: {selection.environment_script or "inherited"}')
+    command_io.out('Configuration check passed. No setup files were written or tools installed.')
 
 
 def ensure_development_tools(
@@ -457,17 +467,7 @@ def setup_repository(
             "Run 'DevTool worktree prepare' from this linked worktree instead."
         )
     try:
-        selection = select_setup_toolchain(
-            repository,
-            command_io,
-            interactive=interactive,
-        )
-        validate_prerequisites(
-            repository_root,
-            selection=selection,
-            repository_context=repository,
-            command_io=command_io,
-        )
+        selection = prepare_setup(repository, command_io, interactive=interactive)
         try:
             ensure_agent_config(repository_root, repository, command_io)
         except AgentConfigError as exc:

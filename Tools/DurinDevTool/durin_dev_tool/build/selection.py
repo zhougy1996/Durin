@@ -53,15 +53,7 @@ def select_profile(
     )
 
 
-def preset_short_name(preset: ConfigurePreset | None) -> str:
-    if not isinstance(preset, ConfigurePreset):
-        return ""
-    configuration = preset_cache_string(preset, "CMAKE_BUILD_TYPE", required=False)
-    runtime = preset_cache_string(preset, "DURIN_RUNTIME_VARIANT", required=False)
-    return f"{configuration}-{runtime.removeprefix('Durin')}".casefold() if configuration and runtime else ""
-
-
-def resolve_preset_name(value: str, profile: BuildProfile, presets: Mapping[str, ConfigurePreset]) -> str:
+def resolve_preset_name(value: str, profile: BuildProfile) -> str:
     if value.isdigit():
         if 1 <= int(value) <= len(profile.presets):
             return profile.presets[int(value) - 1]
@@ -69,14 +61,9 @@ def resolve_preset_name(value: str, profile: BuildProfile, presets: Mapping[str,
     exact = next((name for name in profile.presets if name.casefold() == value.casefold()), None)
     if exact is not None:
         return exact
-    matches = [name for name in profile.presets if preset_short_name(presets.get(name)) == value.casefold()]
-    if len(matches) == 1:
-        return matches[0]
-    if matches:
-        raise BuildToolError(f'Preset selector "{value}" is ambiguous. Use a full name: {", ".join(matches)}.')
     raise BuildToolError(
         f'Unknown preset "{value}". Available presets: {", ".join(profile.presets)}. '
-        "Run presets for short selectors and numbered choices."
+        "Run presets for full names and numbered choices."
     )
 
 
@@ -87,7 +74,7 @@ def select_preset(
     requested: str = "",
     preset_file: Path,
 ) -> ConfigurePreset:
-    selected_name = resolve_preset_name(requested, profile, presets) if requested else profile.default_preset
+    selected_name = resolve_preset_name(requested, profile) if requested else profile.default_preset
     if selected_name not in profile.presets:
         raise BuildToolError(
             f'Preset "{selected_name}" is not enabled for this build profile. '

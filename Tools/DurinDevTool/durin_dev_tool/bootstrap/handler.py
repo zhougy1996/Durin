@@ -81,6 +81,9 @@ class _BootstrapCommand:
 
 
 def _run_setup(command: _BootstrapCommand) -> None:
+    if getattr(command.namespace, "check", False):
+        application.check_setup_configuration(command.repository, command.command_io)
+        return
     interactive = (
         not getattr(command.namespace, "non_interactive", False)
         and bool(getattr(sys.stdin, "isatty", lambda: False)())
