@@ -82,6 +82,7 @@ namespace Durin
 							if (auto* Camera = Cast<ACameraActor>(Actor)) { AfterCamera = Camera; break; }
 				RetainActors();
 			}
+			auto IsSynchronous() const -> bool override { return true; }
 			auto GetDescription() const -> std::string_view override { return Description; }
 			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
@@ -218,6 +219,7 @@ namespace Durin
 		{
 		public:
 			FActorRenameChange(DLevel& InLevel, AActor& InActor, FName InAfter) : Level(&InLevel), Actor(&InActor), Before(InActor.GetFName()), After(InAfter), Packages{InLevel.GetPackage()} {}
+			auto IsSynchronous() const -> bool override { return true; }
 			auto GetDescription() const -> std::string_view override { return "Rename actor"; }
 			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }

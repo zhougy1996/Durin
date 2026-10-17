@@ -247,12 +247,14 @@ namespace
 		}
 
 		auto GetDescription() const -> std::string_view override { return "Test custom change"; }
+		auto IsSynchronous() const -> bool override { return bSynchronous; }
 		auto GetDetails(Durin::Editor::ETransactionOperation) const -> std::string override
 		{
 			return Details;
 		}
 		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
 		{
+			if (ReplayProbe) ReplayProbe();
 			if (Operation == Durin::Editor::ETransactionOperation::Undo)
 			{
 				if (bFailUndo) { return {{.Code = Durin::Editor::ETransactionCustomError::InjectedMutation}}; }
@@ -317,6 +319,8 @@ namespace
 		bool bThrowRedo = false;
 		bool bDeferUndo = false;
 		bool bPending = false;
+		bool bSynchronous = false;
+		std::function<void()> ReplayProbe;
 	};
 
 	// Qualifies expression-style deletion: history owns the detached child, not a garbage object.
@@ -736,10 +740,17 @@ TEST(FTransBufferTests, RejectsRecursiveTransitionStates)
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "RecursiveBarrierTransBuffer");
 	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
-	for (const auto State : {Durin::Editor::ETransactorState::Undoing,
-		Durin::Editor::ETransactorState::Redoing})
+	for (const auto State : {Durin::Editor::ETransactorState::Executing,
+		Durin::Editor::ETransactorState::Undoing, Durin::Editor::ETransactorState::Redoing,
+		Durin::Editor::ETransactorState::RecoveryRequired, Durin::Editor::ETransactorState::Destroying})
 	{
 		Durin::FTransBufferTestAccess::SetState(*Buffer, State);
+		EXPECT_FALSE(Buffer->CanExecuteSynchronousChange());
+		int Value = 1;
+		auto Change = std::make_unique<FTestCustomChange>(Value, 1, 2);
+		Change->bSynchronous = true;
+		EXPECT_EQ(Buffer->Execute(std::move(Change)).Code, Durin::Editor::ETransactorResultCode::Rejected);
+		EXPECT_EQ(Value, 1);
 		EXPECT_EQ(Buffer->Begin({"test", "recursive"}).Code,
 			Durin::Editor::ETransactorResultCode::Rejected);
 		EXPECT_EQ(Buffer->Undo().Code, Durin::Editor::ETransactorResultCode::Rejected);
@@ -1089,6 +1100,183 @@ TEST(FTransBufferTests, ExecutesCustomChangesAndPreservesCursorOnFailure)
 	EXPECT_EQ(Value, 2);
 }
 
+TEST(FTransBufferTests, SynchronousChangesJoinNestedRecordingAndPreserveOuterContext)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "GroupedCustomChanges"));
+	int Value = 1;
+	const auto Outer = Buffer->Begin({"outer", "Grouped edit"});
+	ASSERT_TRUE(Outer);
+	const auto Inner = Buffer->Begin({"inner", "Ignored description"});
+	ASSERT_TRUE(Inner);
+	auto First = std::make_unique<FTestCustomChange>(Value, 1, 2);
+	First->bSynchronous = true;
+	First->ReplayProbe = [&] {
+		EXPECT_FALSE(Buffer->CanExecuteSynchronousChange());
+		EXPECT_EQ(Buffer->Begin({}).Code, ETransactorResultCode::Rejected);
+		EXPECT_EQ(Buffer->End(Inner.ScopeId).Code, ETransactorResultCode::Rejected);
+		EXPECT_EQ(Buffer->Execute(std::make_unique<FTestCustomChange>(Value, 1, 9)).Code,
+			ETransactorResultCode::Rejected);
+	};
+	const auto Joined = Buffer->Execute(std::move(First));
+	ASSERT_TRUE(Joined);
+	EXPECT_EQ(Joined.TransactionId, Outer.TransactionId);
+	EXPECT_EQ(Joined.ScopeId, Inner.ScopeId);
+	EXPECT_EQ(Value, 2);
+	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	ASSERT_TRUE(Buffer->End(Inner.ScopeId));
+	auto Second = std::make_unique<FTestCustomChange>(Value, 2, 3);
+	Second->bSynchronous = true;
+	ASSERT_TRUE(Buffer->Execute(std::move(Second)));
+	EXPECT_EQ(Buffer->Undo().Code, ETransactorResultCode::Rejected);
+	ASSERT_TRUE(Buffer->End(Outer.ScopeId));
+	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Buffer->GetUndoDescription(), "Grouped edit");
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Value, 1);
+	ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(Value, 3);
+}
+
+TEST(FTransBufferTests, RecordingRejectsNonSynchronousChangesAndRetainsPriorRecordsOnFailure)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "FailedGroupedChanges"));
+	int Value = 1;
+	const auto Outer = Buffer->Begin({.Description = "Surviving edit"});
+	ASSERT_TRUE(Outer);
+	EXPECT_EQ(Buffer->Execute(std::make_unique<FTestCustomChange>(Value, 1, 99)).Code,
+		ETransactorResultCode::Rejected);
+	EXPECT_EQ(Value, 1);
+	auto Good = std::make_unique<FTestCustomChange>(Value, 1, 2);
+	Good->bSynchronous = true;
+	ASSERT_TRUE(Buffer->Execute(std::move(Good)));
+	auto Overflow = std::make_unique<FTestCustomChange>(Value, 2, 99);
+	Overflow->bSynchronous = true;
+	Overflow->bOverflowed = true;
+	EXPECT_EQ(Buffer->Execute(std::move(Overflow)).Code, ETransactorResultCode::Failed);
+	EXPECT_EQ(Value, 2);
+	auto Growing = std::make_unique<FTestCustomChange>(Value, 2, 99);
+	Growing->bSynchronous = true;
+	Growing->bOverflowOnRedo = true;
+	EXPECT_EQ(Buffer->Execute(std::move(Growing)).Code, ETransactorResultCode::Failed);
+	EXPECT_EQ(Value, 2);
+	auto Bad = std::make_unique<FTestCustomChange>(Value, 2, 99);
+	Bad->bSynchronous = true;
+	Bad->bFailRedo = true;
+	EXPECT_EQ(Buffer->Execute(std::move(Bad)).Code, ETransactorResultCode::Failed);
+	EXPECT_EQ(Buffer->GetState(), ETransactorState::Recording);
+	EXPECT_EQ(Value, 2);
+	ASSERT_TRUE(Buffer->End(Outer.ScopeId));
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Value, 1);
+	ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(Value, 2);
+}
+
+TEST(FTransBufferTests, CancelingJoinedChangeDiscardsRecordingWithoutRevertingEdits)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "CanceledGroupedChanges"));
+	int Value = 1;
+	const auto Outer = Buffer->Begin({});
+	const auto Inner = Buffer->Begin({});
+	auto Change = std::make_unique<FTestCustomChange>(Value, 1, 2);
+	Change->bSynchronous = true;
+	ASSERT_TRUE(Buffer->Execute(std::move(Change)));
+	EXPECT_EQ(Buffer->Cancel(Inner.ScopeId).Code, ETransactorResultCode::Discarded);
+	EXPECT_EQ(Value, 2);
+	EXPECT_EQ(Buffer->End(Outer.ScopeId).Code, ETransactorResultCode::NoOp);
+	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+}
+
+TEST(FTransBufferTests, JoinedAppliedChangeAndPropertyCaptureCommitTogetherAndReplaceRedoOnlyAtEnd)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "MixedGroupedChanges"));
+	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "GroupedProperty"));
+	int Value = 1;
+	const auto Prior = Buffer->Execute(std::make_unique<FTestCustomChange>(Value, 1, 2));
+	ASSERT_TRUE(Prior);
+	ASSERT_TRUE(Buffer->Undo());
+	FScopedTransaction Outer(Buffer.Get(), {.Description = "Property and applied change"});
+	ASSERT_TRUE(Outer.TryModify(Target.Get()));
+	Target->Value = 42;
+	Value = 3;
+	auto Change = std::make_unique<FTestCustomChange>(Value, 1, 3);
+	Change->bSynchronous = true;
+	ASSERT_TRUE(Buffer->CommitApplied(std::move(Change)));
+	EXPECT_EQ(Buffer->GetRedoId(), Prior.TransactionId);
+	ASSERT_TRUE(Outer.End());
+	EXPECT_EQ(Buffer->GetRedoCount(), 0u);
+	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Value, 1);
+	EXPECT_EQ(Target->Value, 0);
+	ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(Value, 3);
+	EXPECT_EQ(Target->Value, 42);
+}
+
+TEST(FTransBufferTests, JoinedRecoveryRetainsOuterAndFailedParticipants)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "GroupedRecovery"));
+	auto* FirstTarget = NewObject<DTransactionRecordParticipant>(nullptr, "GroupedFirstReference");
+	auto* FailedTarget = NewObject<DTransactionRecordParticipant>(nullptr, "GroupedFailedReference");
+	int Value = 1;
+	const auto Outer = Buffer->Begin({});
+	auto First = std::make_unique<FTestCustomChange>(Value, 1, 2, FirstTarget);
+	First->bSynchronous = true;
+	ASSERT_TRUE(Buffer->Execute(std::move(First)));
+	auto Bad = std::make_unique<FTestCustomChange>(Value, 2, 3, FailedTarget);
+	Bad->bSynchronous = true;
+	Bad->bThrowRedo = true;
+	const auto Failure = Buffer->Execute(std::move(Bad));
+	EXPECT_EQ(Failure.Code, ETransactorResultCode::RecoveryRequired);
+	ASSERT_NE(Failure.ApplyCause, nullptr);
+	EXPECT_EQ(Failure.ApplyCause->RecordIndex, 1u);
+	EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired);
+	EXPECT_EQ(Buffer->End(Outer.ScopeId).Code, ETransactorResultCode::Rejected);
+	EXPECT_FALSE(Buffer->CanExecuteSynchronousChange());
+	FCountingReferenceCollector Collector;
+	Buffer->AddReferencedObjects(Collector);
+	EXPECT_TRUE(std::ranges::contains(Collector.References, FirstTarget));
+	EXPECT_TRUE(std::ranges::contains(Collector.References, FailedTarget));
+}
+
+TEST(FTransBufferTests, JoinedAccountingCompensationFailureBlocksOuterScope)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "GroupedAccountingRecovery"));
+	int Value = 1;
+	const auto Outer = Buffer->Begin({});
+	auto Change = std::make_unique<FTestCustomChange>(Value, 1, 2);
+	Change->bSynchronous = true;
+	Change->bOverflowOnRedo = true;
+	Change->bFailUndo = true;
+	const auto Failure = Buffer->Execute(std::move(Change));
+	EXPECT_EQ(Failure.Code, ETransactorResultCode::RecoveryRequired);
+	ASSERT_NE(Failure.PreparationCause, nullptr);
+	ASSERT_TRUE(Failure.PreparationCause->FailureCause.has_value());
+	EXPECT_EQ(Failure.PreparationCause->FailureCause->Code, ETransactorFailure::EntryAccounting);
+	EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired);
+	EXPECT_EQ(Buffer->Cancel(Outer.ScopeId).Code, ETransactorResultCode::Rejected);
+	EXPECT_EQ(Value, 2);
+}
+
 TEST(FTransBufferTests, DeferredCustomChangeBlocksAndCompletesExactlyOnce)
 {
 	InitializeDObjectSystem();
@@ -1103,6 +1291,11 @@ TEST(FTransBufferTests, DeferredCustomChangeBlocksAndCompletesExactlyOnce)
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_TRUE(Buffer->IsTransactionPending(Commit.TransactionId));
 	EXPECT_EQ(Buffer->GetState(), Durin::Editor::ETransactorState::Undoing);
+	EXPECT_FALSE(Buffer->CanExecuteSynchronousChange());
+	auto Blocked = std::make_unique<FTestCustomChange>(Value, 5, 99);
+	Blocked->bSynchronous = true;
+	EXPECT_EQ(Buffer->Execute(std::move(Blocked)).Code, Durin::Editor::ETransactorResultCode::Rejected);
+	EXPECT_EQ(Value, 5);
 	EXPECT_EQ(Buffer->Redo().Code, Durin::Editor::ETransactorResultCode::Rejected);
 	EXPECT_EQ(Buffer->Begin({"test", "blocked"}).Code,
 		Durin::Editor::ETransactorResultCode::Rejected);

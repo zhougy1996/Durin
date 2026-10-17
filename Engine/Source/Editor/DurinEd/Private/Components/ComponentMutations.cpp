@@ -60,6 +60,7 @@ namespace Durin
 				bTransient = bInTransient;
 				bDuplicate = bInDuplicate;
 			}
+			auto IsSynchronous() const -> bool override { return true; }
 			auto GetDescription() const -> std::string_view override { return bRemove ? "Delete component" : bDuplicate ? "Duplicate component" : "Add component"; }
 			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
@@ -177,6 +178,7 @@ namespace Durin
 		class FComponentEditChange : public ITransactionCustomChange
 		{
 		public:
+			auto IsSynchronous() const -> bool override { return true; }
 			FComponentEditChange(AActor& InOwner, DActorComponent& InComponent)
 				: Owner(&InOwner), Component(&InComponent), Packages{InOwner.GetPackage()} {}
 			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }

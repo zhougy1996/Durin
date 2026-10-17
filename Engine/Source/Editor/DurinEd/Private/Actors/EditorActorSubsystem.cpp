@@ -53,8 +53,8 @@ namespace Durin
 			return Reject(EActorEditError::InvalidTarget, "The owning World is unavailable or shutting down.");
 		if (auto* World = Level->GetWorld(); World && World->GetPlayState() != EWorldPlayState::Stopped)
 			return Reject(EActorEditError::PlayState, "Actor editing requires a stopped World.");
-		if (!IsValid(Transactions) || !Transactions->CanBeginStandaloneTransaction())
-			return Reject(EActorEditError::HistoryUnavailable, "Actor editing requires an idle editor transactor.");
+		if (!IsValid(Transactions) || !Transactions->CanExecuteSynchronousChange())
+			return Reject(EActorEditError::HistoryUnavailable, "Actor editing requires an idle or recording editor transactor.");
 		return Transactions;
 	}
 

@@ -126,9 +126,13 @@ with the host and an explicit read-only policy. Native non-document adapters mus
 also state that policy; selection is never an implicit target.
 
 Admission requires the game thread, a live registered service and open work gate,
-the same host, its current editor Level, stopped PIE/World play and an idle host
-transactor. Detached, foreign, template or unsupported participants fail before
-preparation. Results distinguish Changed, NoOp and Failed, retain resulting
+the same host, its current editor Level, stopped PIE/World play and an idle or
+recording host transactor. Synchronous Actor and Component changes join the
+innermost recording scope and commit with the outer transaction, retaining its
+description; with no outer scope they submit an independent history entry.
+Executing, Undoing, Redoing, pending asynchronous operations, RecoveryRequired
+and Destroying still reject admission. Detached, foreign, template or unsupported
+participants fail before preparation. Results distinguish Changed, NoOp and Failed, retain resulting
 participants and transactor failure evidence, and provide an owned display message.
 Same-name rename and same-parent reparent produce no history entry. Empty or
 duplicate batch participants are rejected; valid batches submit once.

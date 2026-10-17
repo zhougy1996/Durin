@@ -12,6 +12,8 @@
 
 #include "Transactor.gen.h"
 
+namespace Durin { class DTransBuffer; }
+
 namespace Durin::Editor
 {
 	using FTransactionScopeId = uint64;
@@ -180,6 +182,7 @@ namespace Durin::Editor
 	// Owns one immutable candidate or retained transaction and all of its record data.
 	class FTransaction
 	{
+		friend class ::Durin::DTransBuffer;
 	public:
 		DURINED_API FTransaction(FTransactionId Id, FTransactionContext Context);
 		FTransaction(const FTransaction&) = delete;
@@ -282,6 +285,7 @@ namespace Durin
 		DURINED_API virtual auto HasPendingOperation() const -> bool;
 		// Admission for independent UI commands, rather than nested recording scopes.
 		DURINED_API virtual auto CanBeginStandaloneTransaction() const -> bool;
+		DURINED_API virtual auto CanExecuteSynchronousChange() const -> bool;
 		DURINED_API virtual auto GetUndoId() const -> Editor::FTransactionId;
 		DURINED_API virtual auto GetRedoId() const -> Editor::FTransactionId;
 		DURINED_API virtual auto GetUndoDescription() const -> std::string_view;
@@ -364,6 +368,9 @@ namespace Durin
 
 		auto GetState() const -> Editor::ETransactorState { return State; }
 		auto CanBeginStandaloneTransaction() const -> bool override { return State == Editor::ETransactorState::Idle; }
+		auto CanExecuteSynchronousChange() const -> bool override
+		{ return State == Editor::ETransactorState::Idle
+			|| (State == Editor::ETransactorState::Recording && !Savepoints.empty()); }
 		auto GetMemoryBudget() const -> size_t { return MemoryBudget; }
 		auto GetHistoryCount() const -> size_t { return History.size(); }
 		auto GetUndoCount() const -> size_t { return Cursor; }
@@ -398,6 +405,8 @@ namespace Durin
 		auto CloseScope(Editor::FTransactionScopeId ScopeId, bool bCancel)
 			-> Editor::FTransactorResult;
 		auto FinalizePending(bool bRevertOnFailure = false) -> Editor::FTransactorResult;
+		auto ExecuteInRecording(std::unique_ptr<Editor::ITransactionCustomChange> Change, bool bAlreadyApplied)
+			-> Editor::FTransactorResult;
 		auto CompleteDeferredOperation(
 			Editor::ETransactionOperation Operation,
 			Editor::FTransactionId TransactionId,

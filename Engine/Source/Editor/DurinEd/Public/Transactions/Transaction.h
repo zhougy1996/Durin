@@ -103,6 +103,9 @@ namespace Durin::Editor
 		// identities beneath automatically scanned mounted content.
 		virtual auto MutatesMountedContent() const -> bool { return false; }
 		virtual auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult = 0;
+		// Opt in only when Execute, Undo and Redo always complete synchronously.
+		// Such changes may join an existing recording transaction.
+		virtual auto IsSynchronous() const -> bool { return false; }
 		virtual auto IsDeferredOperationPending() const -> bool { return false; }
 		virtual auto SetDeferredOperationCompletion(
 			FTransactionDeferredCompletion Completion) -> void { (void)Completion; }

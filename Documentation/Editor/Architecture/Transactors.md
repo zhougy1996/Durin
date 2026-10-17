@@ -78,7 +78,24 @@ Tests, independent tools, and hosts without `GEditor` may use the explicit
 `Record(...)` and `UpdateRecord(...)` are advanced property-editing entry points
 bound to the exact scope token. Custom file, asynchronous, creation/deletion,
 and domain-compensation operations continue to use `Execute(...)` or
-`CommitApplied(...)`.
+`CommitApplied(...)`. Custom changes explicitly declaring `IsSynchronous()`
+may join an existing recording transaction through either entry point. The
+declaration requires Execute, Undo and Redo to finish synchronously; deferred
+changes retain their standalone-only execution contract.
+
+Execute applies a joined change immediately; CommitApplied records an already
+applied change without replaying it. Both contribute one record to the innermost
+scope and return the outer transaction ID and current scope ID. Joining preserves
+the outer context, description, prior records and redo branch until the
+outermost End commits one history entry. Without an outer scope, Execute keeps
+its standalone behavior. Joined replay runs behind the Executing barrier;
+recursive recording, execution, Undo and Redo remain rejected. Preparation or
+restored execution failure leaves the outer recording usable, while incomplete
+compensation retains both prior records and the failed participant in
+RecoveryRequired. A purportedly synchronous change starting deferred work is
+also a contract failure requiring recovery. Cancel continues to discard
+records without reverting applied mutations. Python transaction grouping is
+not exposed by this native composition support.
 
 `FTransactorResult` and `CommitApplied(...)` are `[[nodiscard]]`. A caller that
 applies a mutation before recording it must handle a rejected history commit,

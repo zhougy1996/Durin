@@ -817,6 +817,7 @@ namespace Durin
 	auto DTransactor::CanRedo() const -> bool { return false; }
 	auto DTransactor::HasPendingOperation() const -> bool { return false; }
 	auto DTransactor::CanBeginStandaloneTransaction() const -> bool { return false; }
+	auto DTransactor::CanExecuteSynchronousChange() const -> bool { return false; }
 	auto DTransactor::GetUndoId() const -> FTransactionId { return 0; }
 	auto DTransactor::GetRedoId() const -> FTransactionId { return 0; }
 	auto DTransactor::GetUndoDescription() const -> std::string_view { return {}; }
@@ -909,6 +910,8 @@ namespace Durin
 		bool bAlreadyApplied) -> FTransactorResult
 	{
 		CheckThread();
+		if (State == ETransactorState::Recording && !Savepoints.empty() && Change && Change->IsSynchronous())
+			return ExecuteInRecording(std::move(Change), bAlreadyApplied);
 		if (State != ETransactorState::Idle)
 			return Reject(ETransactorRejectionReason::ExecuteState);
 		if (!Change) return Reject(ETransactorRejectionReason::MissingCustom);
@@ -964,6 +967,77 @@ namespace Durin
 		Pending.emplace(std::move(Transaction));
 		State = ETransactorState::Recording;
 		return FinalizePending(!bAlreadyApplied);
+	}
+
+	auto DTransBuffer::ExecuteInRecording(
+		std::unique_ptr<ITransactionCustomChange> Change, bool bAlreadyApplied) -> FTransactorResult
+	{
+		// Keep the outer scope and context intact; only the new change is applied.
+		// Deferral protects the candidate's references until Pending owns its record.
+		FGarbageCollectionDeferralScope DeferCollection;
+		check(Pending && !Savepoints.empty());
+		const auto ScopeId = Savepoints.back().ScopeId;
+		FTransaction Candidate(Pending->GetId(), Pending->GetContext());
+		Candidate.AddRecord(std::move(Change));
+		State = ETransactorState::Executing;
+		size_t CandidateBytes = 0, PendingBytes = 0;
+		const auto CanAccount = [&] {
+			return Candidate.TryGetOwnedSize(CandidateBytes) && Pending->TryGetOwnedSize(PendingBytes)
+				&& CandidateBytes <= std::numeric_limits<size_t>::max() - PendingBytes;
+		};
+		const auto AccountingFailure = [&] {
+			return FTransactorResult{.Code = ETransactorResultCode::Failed, .TransactionId = Pending->GetId(),
+				.FailureCause = FTransactorFailure{.Code = ETransactorFailure::EntryAccounting}};
+		};
+		if (!CanAccount())
+		{
+			State = ETransactorState::Recording;
+			return AccountingFailure();
+		}
+		for (DPackage* Package : Candidate.GetAffectedPackages())
+			if (IsValid(Package) && Package->IsAssetPackage()) EnsurePackageState(*Package);
+		FTransactionApplyResult Applied;
+		if (!bAlreadyApplied) Applied = Candidate.Apply(false, EPropertyChangeOrigin::Edit);
+		if (Candidate.IsDeferredOperationPending())
+		{
+			if (Applied) Applied = std::unexpected(FTransactionApplyError{
+				.Message = "A synchronous transaction change started deferred work."});
+			Applied.error().Status = ETransactionApplyFailure::RecoveryRequired;
+		}
+		bool bAccountingCompensationFailed = false;
+		if (Applied && !bAlreadyApplied && !CanAccount())
+		{
+			Applied = Candidate.Apply(true, EPropertyChangeOrigin::Edit);
+			if (Applied && !Candidate.IsDeferredOperationPending())
+			{
+				State = ETransactorState::Recording;
+				return AccountingFailure();
+			}
+			if (Applied) Applied = std::unexpected(FTransactionApplyError{
+				.Message = "Joined change accounting compensation did not finish synchronously."});
+			Applied.error().Status = ETransactionApplyFailure::RecoveryRequired;
+			bAccountingCompensationFailed = true;
+		}
+		if (!Applied && Applied.error().Status != ETransactionApplyFailure::RecoveryRequired)
+		{
+			auto Failure = HandleApplyFailure(Candidate, std::move(Applied.error()));
+			State = ETransactorState::Recording;
+			return Failure;
+		}
+		const auto RecordId = Pending->Records.size() + 1;
+		Pending->Records.push_back(std::move(Candidate.Records.front()));
+		if (!Applied)
+		{
+			Applied.error().RecordIndex += RecordId - 1;
+			PreparePackageTransitions(*Pending);
+			auto Failure = HandleApplyFailure(*Pending, std::move(Applied.error()));
+			if (bAccountingCompensationFailed)
+				Failure.PreparationCause = std::make_shared<FTransactorResult>(AccountingFailure());
+			return Failure;
+		}
+		State = ETransactorState::Recording;
+		return {.Code = ETransactorResultCode::Succeeded, .TransactionId = Pending->GetId(),
+			.ScopeId = ScopeId, .RecordId = RecordId};
 	}
 
 	auto DTransBuffer::UpdateRecord(
