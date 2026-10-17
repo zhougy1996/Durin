@@ -150,12 +150,19 @@ namespace Durin
 	};
 
 	enum class EToolSource : uint8 { Native, Console, External };
+	// Detached client identity and lifetime; closing a transport session cancels its owned work.
+	struct FToolClientContext
+	{
+		std::string Id;
+		FToolCancellationToken Cancellation;
+	};
 	struct FToolContext
 	{
 		std::string InvocationId;
 		std::string SessionId;
 		EToolSource Source = EToolSource::Native;
 		FToolCancellationToken Cancellation;
+		FToolClientContext Client;
 	};
 
 	enum class EToolStatus : uint8 { Succeeded, Failed };

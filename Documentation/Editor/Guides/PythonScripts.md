@@ -3,7 +3,7 @@
 Summary: Prepare the optional Windows Python runtime and run trusted scripts against the selected editor's Toolsets.
 Modules: DurinPython, MainFrame, DurinEd
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-17
 
 ## Prepare and Run
 
@@ -22,8 +22,9 @@ To explicitly disable embedding, configure with
 restore it after preparing the SDK. The disabled build retains the panel and
 reports that Python is unavailable when a script is requested.
 
-Open Window > Python Scripts, enter an absolute path to a UTF-8 `.py` file, and
-select Run. The panel displays job state, captured output and exception details.
+Open Window > Python Scripts, enter an absolute or project-relative path to a
+UTF-8 `.py` file, and select Run. The panel displays job state, captured output
+and exception details.
 Cancel requests cooperative cancellation. Scripts run in the editor process with
 normal process privileges; use trusted scripts. No packages are installed from
 the user's Python environment.

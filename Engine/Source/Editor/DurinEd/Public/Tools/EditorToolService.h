@@ -55,7 +55,8 @@ namespace Durin
 		FEditorToolService(const FEditorToolService&) = delete;
 		auto operator=(const FEditorToolService&) -> FEditorToolService& = delete;
 		[[nodiscard]] DURINED_API auto GetCatalog() const -> FEditorToolCatalog;
-		[[nodiscard]] DURINED_API auto Submit(const FToolRequest& Request, EToolSource Source = EToolSource::Native)
+		[[nodiscard]] DURINED_API auto Submit(const FToolRequest& Request, EToolSource Source = EToolSource::Native,
+			const FToolClientContext& Client = {})
 			-> std::expected<FEditorToolInvocationId, FToolDiagnostic>;
 		[[nodiscard]] DURINED_API auto GetInvocation(FEditorToolInvocationId Id) -> std::expected<FEditorToolInvocation, FToolDiagnostic>;
 		[[nodiscard]] DURINED_API auto Cancel(FEditorToolInvocationId Id) -> FToolValidationResult;

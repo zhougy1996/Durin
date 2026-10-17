@@ -2,6 +2,10 @@
 #include "MCPServer.h"
 #include "MCPCodec.h"
 #include "PythonRuntime.h"
+#include "PythonToolset.h"
+#include "Misc/Paths.h"
+#include "NativeTestSupport.h"
+#include "Threading/RunnableThread.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/NativeToolset.h"
 #include "Editor/EditorEngine.h"
@@ -58,12 +62,14 @@ namespace
             ASSERT_TRUE(Host->RefreshEditorSubsystems()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
             Runtime = std::make_shared<FPythonRuntime>();
             auto Started = Runtime->Start(); ASSERT_TRUE(Started) << Started.error();
-            auto Listening = Server.Start(*Host, {.BearerToken = std::string(Token), .PythonRuntime = Runtime});
+            PythonTools = CreatePythonToolset(Runtime);
+            PythonRegistration = FModularFeatureRegistry::Get().RegisterFeature(*PythonTools);
+            auto Listening = Server.Start(*Host, {.BearerToken = std::string(Token)});
             ASSERT_TRUE(Listening) << Listening.error(); Port = *Listening; Session = Connect();
         }
         auto TearDown() -> void override
         {
-            Server.Stop(); Runtime->Stop();
+            Server.Stop(); PythonRegistration.Reset(); PythonTools.reset(); Runtime->Stop();
             Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); Host.Reset(); CollectGarbage();
         }
         auto Headers(std::string_view Owner) -> httplib::Headers
@@ -89,10 +95,20 @@ namespace
             httplib::Client Client("127.0.0.1", Port); Client.set_read_timeout(3, 0);
             auto Result = Client.Post("/mcp", Headers(Owner), Body(std::move(Method), std::move(Params)), "application/json");
             EXPECT_TRUE(Result); if (!Result) return {};
-            EXPECT_EQ(200, Result->status) << Result->body; return Result->body;
+            EXPECT_EQ(200, Result->status) << Result->body;
+            const auto Data = Result->body.find("data: ");
+            if (Data == std::string::npos) return Result->body;
+            return Result->body.substr(Data + 6, Result->body.find('\n', Data) - Data - 6);
         }
         auto Call(std::string_view Owner, std::string Tool, FObject Args = {}) -> std::string
-        { return Post(Owner, "tools/call", {{"name", std::move(Tool)}, {"arguments", std::move(Args)}}); }
+        {
+            auto Future = std::async(std::launch::async, [this, Owner = std::string(Owner), Tool = std::move(Tool), Args = std::move(Args)]() mutable {
+                return Post(Owner, "tools/call", {{"name", std::move(Tool)}, {"arguments", std::move(Args)}});
+            });
+            while (Future.wait_for(std::chrono::milliseconds(1)) != std::future_status::ready)
+                if (IsInGameThread()) Tools->TickTools();
+            return Future.get();
+        }
         auto Submit(std::string Code, std::string_view Owner = {}) -> std::string
         {
             auto ReplyText = Call(Owner.empty() ? Session : Owner, "editor.python.submit", {{"code", std::move(Code)}});
@@ -118,31 +134,68 @@ namespace
         }
         FMCPServer Server;
         std::shared_ptr<FPythonRuntime> Runtime;
+        std::unique_ptr<FNativeToolset> PythonTools;
+        FModularFeatureRegistration PythonRegistration;
         TStrongObjectPtr<FMCPPythonTestEditor> Host;
         DEditorToolSubsystem* Tools = nullptr;
         uint16 Port = 0;
         std::string Session;
     };
 
-    TEST_F(FMCPPythonJobTests, AdvertisesJobsAndReturnsAdmissionBeforeEditorTick)
+    TEST_F(FMCPPythonJobTests, AdvertisesRegisteredToolsetAndReturnsAdmissionBeforeScriptCompletion)
     {
         auto Listed = Post(Session, "tools/list");
         for (const auto Name : {"editor.python.submit", "editor.python.status", "editor.python.cancel", "editor.pie.status"})
             EXPECT_NE(std::string::npos, Listed.find(Name));
         auto Id = Submit("import durin\nprint(durin.tools.call('editor.pie', 'status', {})['state'])");
         auto Snapshot = Call(Session, "editor.python.status", {{"job_id", Id}});
-        EXPECT_FALSE(IsError(Snapshot)); EXPECT_NE("succeeded", DataString(Snapshot, "state"));
+        EXPECT_FALSE(IsError(Snapshot));
         auto Result = Wait(Id); EXPECT_EQ("succeeded", DataString(Result, "state")); EXPECT_EQ("stopped\n", DataString(Result, "output"));
     }
-    TEST_F(FMCPPythonJobTests, ReportsFailureAsAJobSnapshotWithDiagnosticFilename)
+    TEST_F(FMCPPythonJobTests, ReportsScriptFailureAsAJobSnapshot)
     {
-        auto Submitted = Call(Session, "editor.python.submit", {{"code", "raise ValueError('script failed')"}, {"filename", "agent_script.py"}});
+        auto Submitted = Call(Session, "editor.python.submit", {{"code", "raise ValueError('script failed')"}});
         ASSERT_FALSE(IsError(Submitted)); auto Result = Wait(DataString(Submitted, "job_id"), false);
         EXPECT_FALSE(IsError(Result)); EXPECT_EQ("failed", DataString(Result, "state"));
-        EXPECT_NE(std::string::npos, DataString(Result, "error").find("agent_script.py"));
+        EXPECT_NE(std::string::npos, DataString(Result, "error").find("<durin>"));
         EXPECT_NE(std::string::npos, DataString(Result, "error").find("ValueError: script failed"));
     }
-    TEST_F(FMCPPythonJobTests, CancelsRunningAndQueuedJobsWithoutAnEditorTick)
+    TEST_F(FMCPPythonJobTests, CapturesProjectRelativeFilesBeforeExecutionAndAcceptsAbsoluteFiles)
+    {
+        struct FRestoreProject { std::string Old = FPaths::ProjectFile(); ~FRestoreProject() { (void)FPaths::SetProjectFile(Old); } } Restore;
+        const auto Root = Testing::CreateTestFixtureDirectory("MCPPythonFiles");
+        const auto Project = Root / "Test.dproject";
+        { std::ofstream Stream(Project); Stream << "{}"; }
+        ASSERT_TRUE(FPaths::SetProjectFile(Project.generic_string()));
+        const auto Path = Root / "snapshot.py";
+        { std::ofstream Stream(Path); Stream << '#' << std::string(70000, ' ') << "\nprint('original snapshot')\nprint(__file__)"; }
+        const auto Blocker = Submit("while True:\n    pass\n");
+        auto Submitted = Call(Session, "editor.python.submit", {{"file", "snapshot.py"}});
+        ASSERT_FALSE(IsError(Submitted));
+        { std::ofstream Stream(Path); Stream << "raise RuntimeError('modified after submission')"; }
+        EXPECT_FALSE(IsError(Call(Session, "editor.python.cancel", {{"job_id", Blocker}})));
+        auto Result = Wait(DataString(Submitted, "job_id"));
+        EXPECT_EQ("succeeded", DataString(Result, "state"));
+        EXPECT_NE(std::string::npos, DataString(Result, "output").find("original snapshot"));
+        EXPECT_NE(std::string::npos, DataString(Result, "output").find("snapshot.py"));
+        { std::ofstream Stream(Path); Stream << "print('absolute script')"; }
+        auto Absolute = Call(Session, "editor.python.submit", {{"file", Path.generic_string()}});
+        ASSERT_FALSE(IsError(Absolute)); EXPECT_EQ("absolute script\n", DataString(Wait(DataString(Absolute, "job_id")), "output"));
+        { std::ofstream Stream(Path); Stream << "raise ValueError('file traceback')"; }
+        auto Failure = Call(Session, "editor.python.submit", {{"file", "snapshot.py"}}); ASSERT_FALSE(IsError(Failure));
+        auto Failed = Wait(DataString(Failure, "job_id")); EXPECT_EQ("failed", DataString(Failed, "state"));
+        EXPECT_NE(std::string::npos, DataString(Failed, "error").find("snapshot.py"));
+    }
+    TEST_F(FMCPPythonJobTests, RejectsMissingOversizedAndConflictingFileInputsBeforeCreatingAJob)
+    {
+        const auto Root = Testing::CreateTestFixtureDirectory("MCPPythonInvalidFiles");
+        const auto Path = Root / "large.py";
+        { std::ofstream Stream(Path); Stream << std::string(1024 * 1024 + 1, ' '); }
+        for (auto Args : {FObject{{"file", Path.generic_string()}}, FObject{{"file", (Root / "missing.py").generic_string()}},
+            FObject{{"file", Path.generic_string()}, {"filename", "alias.py"}}})
+            EXPECT_TRUE(IsError(Call(Session, "editor.python.submit", std::move(Args))));
+    }
+    TEST_F(FMCPPythonJobTests, CancelsRunningAndQueuedJobsThroughToolset)
     {
         auto Running = Submit("while True:\n    pass\n");
         auto Queued = Submit("print('must not run')");
@@ -166,7 +219,8 @@ namespace
     TEST_F(FMCPPythonJobTests, ValidatesSubmissionAndPreservesExternalToolExposure)
     {
         for (auto Args : {FObject{}, FObject{{"code", 1}}, FObject{{"code", "pass"}, {"source", "Native"}},
-            FObject{{"code", std::string(65537, ' ')}}, FObject{{"code", "pass"}, {"filename", std::string(4097, 'x')}}})
+            FObject{{"code", "pass"}, {"file", "script.py"}}, FObject{{"file", ""}}, FObject{{"file", 7}},
+            FObject{{"code", std::string(65537, ' ')}}, FObject{{"code", "pass"}, {"filename", "legacy.py"}}})
             EXPECT_TRUE(IsError(Call(Session, "editor.python.submit", std::move(Args))));
         EXPECT_EQ("succeeded", DataString(Wait(Submit("#" + std::string(65535, ' ')), false), "state"));
         auto Result = Wait(Submit("import durin\ndurin.tools.call('editor.pie', 'pause', {'paused': True})"));
@@ -241,26 +295,31 @@ namespace
         EXPECT_EQ("shared interpreter\n", DataString(Result, "output"));
         EXPECT_TRUE(IsError(Call(Session, "editor.python.status", {{"job_id", std::to_string(*LocalJob)}})));
         auto Id = Submit("while True:\n    pass\n");
-        std::atomic<bool> Done = false;
         auto Reader = std::async(std::launch::async, [&] {
-            while (!Done) { (void)Call(Session, "editor.python.status", {{"job_id", Id}}); std::this_thread::sleep_for(std::chrono::milliseconds(2)); }
+            return Call(Session, "editor.python.status", {{"job_id", Id}});
         });
-        Runtime->Stop(); Done = true; Reader.get();
+        Runtime->Stop();
+        while (Reader.wait_for(std::chrono::milliseconds(1)) != std::future_status::ready) Tools->TickTools();
+        EXPECT_TRUE(IsError(Reader.get()));
         EXPECT_TRUE(IsError(Call(Session, "editor.python.status", {{"job_id", Id}})));
         EXPECT_NE(std::string::npos, Post(Session, "ping").find("result"));
     }
-    TEST_F(FMCPPythonJobTests, OmitsScriptToolsWithoutARuntimeAndRejectsCatalogCollisions)
+    TEST_F(FMCPPythonJobTests, DiscoversPythonOnlyThroughRegisteredToolsetsAndRejectsAmbiguousProviders)
     {
         Server.Stop();
+        PythonRegistration.Reset(); (void)Tools->ListToolsets();
         auto Without = Server.Start(*Host, {.BearerToken = std::string(Token)}); ASSERT_TRUE(Without); Port = *Without; Session = Connect();
         EXPECT_EQ(std::string::npos, Post(Session, "tools/list").find("editor.python."));
-        Server.Stop(); auto With = Server.Start(*Host, {.BearerToken = std::string(Token), .PythonRuntime = Runtime});
+        PythonRegistration = FModularFeatureRegistry::Get().RegisterFeature(*PythonTools);
+        Server.Stop(); auto With = Server.Start(*Host, {.BearerToken = std::string(Token)});
         ASSERT_TRUE(With); Port = *With; Session = Connect();
         FToolDescriptor Descriptor{.Name = "submit", .bExposeExternally = true}; FToolBinding Binding{Descriptor};
         Binding.Handler = [](const auto&, const auto&) { return FToolResult{EToolStatus::Succeeded, FObject{}}; };
         FNativeToolset Collision("editor.python", "collision", {std::move(Binding)});
         auto Registration = FModularFeatureRegistry::Get().RegisterFeature(Collision); (void)Tools->ListToolsets();
         httplib::Client Client("127.0.0.1", Port); auto Listed = Client.Post("/mcp", Headers(Session), Body("tools/list"), "application/json");
-        ASSERT_TRUE(Listed); EXPECT_EQ(500, Listed->status); EXPECT_NE(std::string::npos, Listed->body.find("collision"));
+        ASSERT_TRUE(Listed); EXPECT_EQ(200, Listed->status);
+        EXPECT_EQ(std::string::npos, Listed->body.find("editor.python.submit"));
+        EXPECT_FALSE(Tools->GetService()->GetCatalog().Diagnostics.empty());
     }
 }

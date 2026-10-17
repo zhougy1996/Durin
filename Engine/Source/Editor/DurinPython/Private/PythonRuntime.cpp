@@ -37,6 +37,7 @@ namespace Durin
             uint64 Id = 0, Session = 0;
             EToolSource Source = EToolSource::External;
             std::shared_ptr<FEditorToolService> Endpoint;
+            FToolClientContext Client;
             std::string Code, Filename;
             std::atomic<bool> Cancelled{false};
             std::mutex Mutex;
@@ -60,7 +61,7 @@ namespace Durin
         auto CheckCancelled() -> bool
         {
             if (!CurrentJob) { PyErr_SetString(PyExc_RuntimeError, "No active Durin script job."); return true; }
-            if (CurrentJob->Cancelled || std::chrono::steady_clock::now() >= CurrentJob->Deadline)
+            if (CurrentJob->Cancelled || CurrentJob->Client.Cancellation.IsCancellationRequested() || std::chrono::steady_clock::now() >= CurrentJob->Deadline)
             {
                 CurrentJob->Cancelled = true;
                 PyErr_SetString(CancelledError, "Script cancelled, session closed, or deadline exceeded; effects are not rolled back.");
@@ -278,7 +279,7 @@ namespace Durin
                     if (!V || V > std::numeric_limits<uint32>::max()) return Fail("Version outside uint32 range.");
                     Contract = static_cast<uint32>(V);
                 }
-                auto Submitted = CurrentJob->Endpoint->Submit({{Set, Name}, Contract, std::move(*Value)}, CurrentJob->Source);
+                auto Submitted = CurrentJob->Endpoint->Submit({{Set, Name}, Contract, std::move(*Value)}, CurrentJob->Source, CurrentJob->Client);
                 if (!Submitted) return RaiseTool({Submitted.error()});
                 const uint64 Id = NextIdentity++;
                 CurrentJob->Invocations.emplace(Id, *Submitted);
@@ -307,11 +308,11 @@ namespace Durin
                     do
                     {
                         Result = CurrentJob->Endpoint->GetInvocation(It->second);
-                        if (!Result || Result->Result || Op == "state" || CurrentJob->Cancelled) break;
+                        if (!Result || Result->Result || Op == "state" || CurrentJob->Cancelled || CurrentJob->Client.Cancellation.IsCancellationRequested()) break;
                         if (std::chrono::steady_clock::now() >= Deadline) { TimedOut = true; break; }
                         std::this_thread::sleep_for(std::chrono::milliseconds(5));
                     } while (true);
-                    if (CurrentJob->Cancelled || TimedOut) (void)CurrentJob->Endpoint->Cancel(It->second);
+                    if (CurrentJob->Cancelled || CurrentJob->Client.Cancellation.IsCancellationRequested() || TimedOut) (void)CurrentJob->Endpoint->Cancel(It->second);
                 }
                 catch (...) { PyEval_RestoreThread(Thread); throw; }
                 PyEval_RestoreThread(Thread);
@@ -364,7 +365,7 @@ namespace Durin
 
     struct FPythonRuntime::FImpl
     {
-        struct FSession { std::shared_ptr<FEditorToolService> Endpoint; EToolSource Source; };
+        struct FSession { std::shared_ptr<FEditorToolService> Endpoint; EToolSource Source; FToolClientContext Client; };
         mutable std::mutex Mutex;
         std::condition_variable Wake;
         std::map<uint64, FSession> Sessions;
@@ -383,6 +384,19 @@ namespace Durin
             {
                 Job->Result.State = EPythonJobState::Cancelled; Job->Endpoint.reset();
                 std::erase(Queue, Job); Job->Code.clear();
+            }
+        }
+        // Caller holds Mutex. Client lifetimes are detached cancellation identities, not callbacks.
+        auto PruneClients() -> void
+        {
+            std::erase_if(Sessions, [](const auto& Entry) { return Entry.second.Client.Cancellation.IsCancellationRequested(); });
+            for (const auto& [Id, Job] : Jobs)
+            {
+                (void)Id;
+                if (!Job->Client.Cancellation.IsCancellationRequested()) continue;
+                bool Active;
+                { std::lock_guard Lock(Job->Mutex); Active = !Terminal(Job->Result.State); }
+                if (Active) Cancel(Job);
             }
         }
 #if DURIN_WITH_PYTHON
@@ -450,12 +464,15 @@ namespace Durin
             {
                 PyThreadState* Thread = PyEval_SaveThread();
                 std::shared_ptr<FJob> Job;
+                bool Exit = false;
                 {
                     std::unique_lock Lock(Mutex); Wake.wait(Lock, [&] { return Stopping || !Queue.empty(); });
+                    PruneClients();
+                    Exit = Stopping;
                     if (!Queue.empty()) { Job = Queue.front(); Queue.pop_front(); }
                 }
                 PyEval_RestoreThread(Thread);
-                if (!Job) break;
+                if (!Job) { if (Exit) break; continue; }
                 {
                     std::lock_guard Lock(Job->Mutex);
                     if (Job->Result.State == EPythonJobState::Cancelled) continue;
@@ -530,13 +547,15 @@ namespace Durin
         if (Impl->Worker.joinable()) Impl->Worker.join();
         Impl.reset(); InterpreterOwned = false;
     }
-    auto FPythonRuntime::CreateSession(std::shared_ptr<FEditorToolService> Endpoint, EToolSource Source) -> std::expected<uint64, std::string>
+    auto FPythonRuntime::CreateSession(std::shared_ptr<FEditorToolService> Endpoint, EToolSource Source, const FToolClientContext& Client) -> std::expected<uint64, std::string>
     {
         std::shared_lock LifecycleLock(LifecycleMutex);
         if (!Impl || !Endpoint) return std::unexpected("Python runtime or editor endpoint is unavailable.");
         std::lock_guard Lock(Impl->Mutex);
+        Impl->PruneClients();
+        if (Client.Cancellation.IsCancellationRequested()) return std::unexpected("Python client session is closed.");
         if (Impl->Stopping || Impl->Sessions.size() >= 8) return std::unexpected("Python session admission is closed or full.");
-        const uint64 Id = NextIdentity++; Impl->Sessions.emplace(Id, FImpl::FSession{std::move(Endpoint), Source}); return Id;
+        const uint64 Id = NextIdentity++; Impl->Sessions.emplace(Id, FImpl::FSession{std::move(Endpoint), Source, Client}); return Id;
     }
     auto FPythonRuntime::CloseSession(uint64 Session) -> void
     {
@@ -553,6 +572,7 @@ namespace Durin
         if (Code.size() > MaxSource || Code.find('\0') != std::string::npos || Filename.size() > 4096 || Filename.find('\0') != std::string::npos)
             return std::unexpected("Script source/filename exceeds limits or contains NUL.");
         std::lock_guard Lock(Impl->Mutex);
+        Impl->PruneClients();
         auto It = Impl->Sessions.find(Session);
         if (Impl->Stopping || It == Impl->Sessions.end()) return std::unexpected("Python session is closed or unknown.");
         size_t Outstanding = 0;
@@ -566,26 +586,37 @@ namespace Durin
         }
         auto Job = std::make_shared<FJob>(); Job->Id = NextIdentity++; Job->Session = Session;
         Job->Endpoint = It->second.Endpoint; Job->Source = It->second.Source;
+        Job->Client = It->second.Client;
         Job->Code = std::move(Code); Job->Filename = std::move(Filename);
         Impl->Jobs.emplace(Job->Id, Job); Impl->Queue.push_back(Job); Impl->Wake.notify_one(); return Job->Id;
     }
     auto FPythonRuntime::RunFile(uint64 Session, const std::filesystem::path& Path) -> std::expected<uint64, std::string>
     {
-        if (!Path.is_absolute()) return std::unexpected("Script path must be absolute.");
-        std::ifstream Stream(Path, std::ios::binary);
+        if (Path.empty()) return std::unexpected("Script path is empty.");
+        auto Resolved = Path;
+        if (!Resolved.is_absolute())
+        {
+            if (Resolved.has_root_path()) return std::unexpected("Relative scripts must not specify a drive or root.");
+            const auto Project = std::filesystem::path(FPaths::ProjectDir());
+            if (!Project.is_absolute()) return std::unexpected("An absolute project directory is required for relative scripts.");
+            Resolved = Project / Resolved;
+        }
+        Resolved = Resolved.lexically_normal();
+        const auto Filename = Resolved.u8string();
+        if (Filename.size() > 4096 || Filename.find(u8'\0') != std::u8string::npos) return std::unexpected("Invalid Python script path.");
+        std::ifstream Stream(Resolved, std::ios::binary);
         if (!Stream) return std::unexpected("Could not open Python script.");
         std::string Source(MaxSource + 1, '\0'); Stream.read(Source.data(), static_cast<std::streamsize>(Source.size()));
         const auto Count = Stream.gcount();
         if (Stream.bad() || Count > static_cast<std::streamsize>(MaxSource)) return std::unexpected("Script read failed or source exceeds 1 MiB.");
         Source.resize(static_cast<size_t>(Count));
-        const auto Filename = Path.u8string();
         return RunString(Session, std::move(Source), std::string(reinterpret_cast<const char*>(Filename.data()), Filename.size()));
     }
     auto FPythonRuntime::GetJobResult(uint64 Job) const -> std::expected<FPythonJobResult, std::string>
     {
         std::shared_lock LifecycleLock(LifecycleMutex);
         if (!Impl) return std::unexpected("Python runtime is unavailable.");
-        std::lock_guard Lock(Impl->Mutex); auto It = Impl->Jobs.find(Job);
+        std::lock_guard Lock(Impl->Mutex); Impl->PruneClients(); auto It = Impl->Jobs.find(Job);
         if (It == Impl->Jobs.end()) return std::unexpected("Python job is unknown or expired.");
         std::lock_guard JobLock(It->second->Mutex); return It->second->Result;
     }

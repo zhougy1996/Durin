@@ -3,7 +3,7 @@
 Summary: DurinPython runs trusted scripts on one interpreter worker and submits editor Toolsets through a session-bound detached endpoint.
 Modules: DurinPython, DurinEd, MainFrame, Core
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-17
 
 ## Ownership and Runtime
 
@@ -100,8 +100,11 @@ output buffer; overflow fails the job even if the script catches the write error
 | Tool wait | 0-30 seconds, default 30, capped by job deadline |
 | Receipt polling interval | 5 ms |
 
-RunFile accepts only explicit absolute paths, reads bounded source and does not
-change process cwd or sys.path. Jobs expose Queued, Running, Succeeded, Failed and
+RunFile accepts absolute paths or paths relative to FPaths::ProjectDir, reads
+bounded source before queue admission and does not change process cwd or sys.path.
+Its resolved absolute path becomes __file__ and the traceback filename. Later
+edits do not alter queued source; imports are still resolved when execution occurs.
+Jobs expose Queued, Running, Succeeded, Failed and
 Cancelled snapshots. Tool handles preserve the native receipt state vocabulary.
 Unknown/evicted IDs fail explicitly. Completed jobs own no editor endpoint.
 
@@ -131,9 +134,16 @@ optional `DURIN_PYTHON_SCRIPT` absolute path submits one trusted startup script;
 normal startup runs no script. Terminal results are also emitted to the editor log.
 Host destruction stops Python before releasing editor UI/host state; module
 shutdown repeats the idempotent stop.
-When MCP is enabled, EnsureRuntime shares this interpreter with DurinMCP before
-UI session creation. MCP owns separate External sessions/jobs and closes them
-before the Python owner stops. Stopping MCP does not stop the interpreter or UI
+EnsureRuntime registers `CreatePythonToolset(Runtime)` as `editor.python`. Its
+submit/status/cancel handlers work through native, console and MCP tool dispatch.
+The definition and registration belong to DurinPython and are removed before
+runtime shutdown. PythonRuntime remains independently callable from C++ and UI.
+The Toolset scopes opaque job handles by editor endpoint, source and client ID.
+FToolClientContext supplies a detached client cancellation token; runtime sessions,
+jobs and script-originated tool requests preserve it without retaining transport
+objects. Closing an MCP client cancels its work even without another editor tick.
+When MCP is enabled, EnsureRuntime shares this interpreter before UI session
+creation. Stopping MCP does not stop the interpreter or UI
 jobs. Native shared ownership and lifecycle locking make late queries return an
 unavailable result after owner shutdown rather than accessing freed state. See
 the [MCP job contract](MCPTools.md#python-script-jobs) for external operations.

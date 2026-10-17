@@ -3,7 +3,7 @@
 Summary: DurinMCP exposes external editor Toolsets and session-owned Python script jobs through authenticated loopback Streamable HTTP.
 Modules: DurinMCP, DurinPython, HTTPServer, DurinEd, MainFrame, Core
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-17
 
 ## Ownership and Entry Points
 
@@ -139,30 +139,36 @@ cancellation compete for one state transition; cleanup cannot overwrite the winn
 
 ## Python Script Jobs
 
-When the owner attaches a running FPythonRuntime in FMCPServerOptions, discovery
-also advertises three adapter-owned tools. These use normal MCP tools/call;
-they are not a protocol Tasks extension or native FToolResult::OperationId.
-Routes are explicit and advertised-name collisions with native Toolsets reject
-the catalog. Script tools do not execute through GameThread provider callbacks.
-Their scripts still call native Toolsets through the existing editor tool service.
+DurinPython registers the native `editor.python` Toolset when its runtime starts.
+MCP discovers and invokes it through the same EditorToolService path as other
+Toolsets; MCPServer has no Python-specific catalog, routing or job map. These are
+ordinary MCP tools/call operations, not a protocol Tasks extension. Their short
+handlers run at the GameThread tool safe point and require editor ticking; scripts
+run asynchronously on the Python worker. Submit returns job admission without
+waiting for script completion.
 
 | Tool | Input | Successful data |
 | --- | --- | --- |
-| `editor.python.submit` | Required `code` string, up to 64 KiB UTF-8; optional `filename`, up to 4096 bytes, default `<mcp>` | `{job_id}` after admission only |
+| `editor.python.submit` | Exactly one of `code` (up to 64 KiB UTF-8) or `file` (path up to 4096 bytes) | `{job_id}` after admission only |
 | `editor.python.status` | Required session-owned `job_id` string | `{job_id, state, output, error}` |
 | `editor.python.cancel` | Required session-owned `job_id` string | `{job_id, cancellation_requested}` |
 
-Inputs are closed objects validated against Core schemas. There is no remote file
-path runner or source/host override. Submit is non-idempotent and is never retried
+Inputs are closed objects validated against Core schemas; the handler checks the
+code/file exclusive choice. `file` names a file on the editor machine. Relative
+paths resolve against FPaths::ProjectDir, never the process working directory.
+Source is read with the runtime's 1 MiB bound before queueing, so later file edits
+do not change an admitted job. Its resolved absolute path supplies `__file__` and
+traceback filenames; inline code uses `<durin>`. There is no filename/source/host
+override. Submit is non-idempotent and is never retried
 automatically, including when a response is lost. Status is read-only; cancel is
 idempotent and cooperative. All data uses the normal structuredContent.data envelope.
 
 Job IDs are opaque strings scoped by the MCP session, separate from JSON-RPC IDs.
-Every submitting MCP session lazily obtains its own External Python session bound
-to the selected editor endpoint. Unknown, foreign or expired IDs fail without
+The Toolset lazily obtains an External Python session for each submitting client,
+bound to the selected editor endpoint. Unknown, foreign or expired IDs fail without
 revealing other sessions' jobs. The global Python retention/queue limits apply;
-each MCP session retains at most 64 job mappings and evicts its oldest terminal
-mapping when necessary. Runtime evictions are observed as expired jobs.
+client mappings discard evicted runtime jobs. Runtime evictions are observed as
+expired jobs.
 
 Status snapshots expose queued, running, succeeded, failed or cancelled. Polling
 a failed script succeeds as a status query, with state=failed and its traceback
@@ -172,8 +178,10 @@ Python runtime's 64 KiB budgets, truncated only at complete UTF-8 boundaries.
 poll status to observe its actual outcome. It is false if no request can be made,
 including terminal jobs or a concurrent retention eviction.
 
-MCP session deletion, idle expiry and server stop close its Python session and
-cancel owned jobs, including unfinished native tool calls. They do not stop the
+MCP session deletion, idle expiry and server stop cancel the generic client lifetime
+passed in FToolContext.Client. Python observes it in tracing and tool waits and
+cleans queued jobs and closed sessions on runtime access/worker dispatch. Closing
+a client does not require another editor tick. These operations do not stop the
 shared runtime or cancel UI/other-client sessions. HTTP disconnect does not cancel
 admitted scripts. notifications/cancelled addresses an in-flight RPC only; after
 submit returns, cancel the job through editor.python.cancel. The job retains its

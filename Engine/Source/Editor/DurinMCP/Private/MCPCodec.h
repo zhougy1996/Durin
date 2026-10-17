@@ -11,15 +11,12 @@ namespace Durin::MCP
 	inline constexpr size_t MaxResponseBytes = 16 * 1024 * 1024;
 	using FObject = FToolValue::FObject;
 	using FArray = FToolValue::FArray;
-	// Adapter-owned jobs are routed explicitly, never through a native provider name match.
-	enum class EToolRoute { Editor, PythonSubmit, PythonStatus, PythonCancel };
 	struct FAdvertisedTool
 	{
 		FToolAddress Address;
 		uint32 ContractVersion;
 		FToolSchema Input;
 		FToolValue Description;
-		EToolRoute Route = EToolRoute::Editor;
 	};
 	using FCatalog = std::map<std::string, FAdvertisedTool, std::less<>>;
 	struct FRequest
@@ -39,7 +36,6 @@ namespace Durin::MCP
 	auto ParseRequest(std::string_view Text) -> std::expected<FRequest, FRequestError>;
 	auto Serialize(const FToolValue& Value) -> std::string;
 	auto BuildCatalog(const FEditorToolCatalog& Native) -> std::expected<FCatalog, std::string>;
-	auto BuildPythonCatalog() -> std::expected<FCatalog, std::string>;
 	auto Schema(const FToolSchema& Native) -> FToolValue;
 	auto ConvertArguments(FToolValue Value, const FToolSchema& Native) -> FToolValue;
 	auto Find(const FToolValue& Value, std::string_view Key) -> const FToolValue&;

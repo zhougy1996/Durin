@@ -1,4 +1,5 @@
 #include "DurinPythonModule.h"
+#include "PythonToolset.h"
 #include "Editor/EditorEngine.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Threading/RunnableThread.h"
@@ -13,6 +14,8 @@ namespace Durin
             auto Started = Runtime->Start();
             if (!Started) return std::unexpected(Started.error());
             Running = true;
+            Toolset = CreatePythonToolset(Runtime);
+            ToolsetRegistration = FModularFeatureRegistry::Get().RegisterFeature(*Toolset);
         }
         return Runtime;
     }
@@ -28,6 +31,7 @@ namespace Durin
     }
     auto FDurinPythonModule::StopRuntime() noexcept -> void
     {
+        ToolsetRegistration.Reset(); Toolset.reset();
         Runtime->CloseSession(Session); Session = 0; Runtime->Stop(); Running = false;
     }
     IMPLEMENT_MODULE(FDurinPythonModule, DurinPython)

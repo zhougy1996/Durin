@@ -49,7 +49,7 @@ async def exercise(port: int, token: str, ready: Path, process: subprocess.Popen
                 return result.structured_content["data"]
 
             async def submit(code: str) -> str:
-                return (await call("submit", {"code": code, "filename": "agent_sdk.py"}))["job_id"]
+                return (await call("submit", {"code": code}))["job_id"]
 
             async def wait(job: str) -> dict:
                 for _ in range(1000):
@@ -72,7 +72,7 @@ print('SDK_PYTHON_JOBS_OK')
             assert success["state"] == "succeeded", success
             assert success["output"] == "SDK_PYTHON_JOBS_OK\n", success
             failure = await wait(await submit("print('before failure')\nraise ValueError('SDK expected failure')"))
-            assert failure["state"] == "failed" and "agent_sdk.py" in failure["error"], failure
+            assert failure["state"] == "failed" and "<durin>" in failure["error"], failure
             assert "SDK expected failure" in failure["error"], failure
             running = await submit("while True:\n    pass\n")
             cancellation = await call("cancel", {"job_id": running})

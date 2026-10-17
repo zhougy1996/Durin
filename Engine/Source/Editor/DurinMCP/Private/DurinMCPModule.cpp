@@ -46,8 +46,7 @@ namespace Durin
 		while (!Token.empty() && (Token.back() == '\r' || Token.back() == '\n')) Token.pop_back();
 		FMCPServerOptions Options{.Port = Port, .BearerToken = std::move(Token)};
 		auto Python = FModuleManager::LoadModuleChecked<FDurinPythonModule>("DurinPython").EnsureRuntime();
-		if (Python) Options.PythonRuntime = *Python;
-		else DURIN_WARN("MCP Python tools unavailable: {}", Python.error());
+		if (!Python) DURIN_WARN("MCP Python tools unavailable: {}", Python.error());
 		auto Started = Server.Start(Editor, Options);
 		if (!Started) DURIN_WARN("MCP disabled: {}", Started.error());
 		else DURIN_INFO("MCP listening at http://127.0.0.1:{}/mcp", *Started);

@@ -239,6 +239,30 @@ TEST_F(FEditorToolTests, EnforcesQueueCapacityCancellationAndPerTickDispatchBudg
 	EXPECT_EQ(EToolError::Busy, Endpoint->Submit(Request()).error().Code);
 }
 
+TEST_F(FEditorToolTests, ClientLifetimeIsIndependentFromInvocationCancellationAndBlocksQueuedExecution)
+{
+	FTestToolset Toolset;
+	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
+	auto Endpoint = Tools->GetService(); (void)Tools->ListToolsets();
+	FToolCancellationSource ClientLifetime;
+	FToolClientContext Client{"client-a", ClientLifetime.GetToken()};
+	FToolCancellationToken Captured;
+	Toolset.Action = [&](const auto& Input, const FToolContext& Context) {
+		EXPECT_EQ("client-a", Context.Client.Id); EXPECT_FALSE(Context.Client.Cancellation.IsCancellationRequested());
+		Captured = Context.Client.Cancellation;
+		return FToolResult{EToolStatus::Succeeded, Input.Arguments};
+	};
+	auto First = Endpoint->Submit(Request(), EToolSource::External, Client); ASSERT_TRUE(First);
+	Tools->TickTools(); ASSERT_TRUE(Endpoint->GetInvocation(*First)->Result);
+	ASSERT_TRUE(Endpoint->Cancel(*First)); EXPECT_FALSE(Captured.IsCancellationRequested());
+	auto Queued = Endpoint->Submit(Request(), EToolSource::External, Client); ASSERT_TRUE(Queued);
+	ClientLifetime.Cancel(); EXPECT_TRUE(Captured.IsCancellationRequested());
+	Tools->TickTools(); EXPECT_EQ(1, Toolset.Executions);
+	EXPECT_EQ(EToolError::Cancelled, Endpoint->GetInvocation(*Queued)->Result->Diagnostics.front().Code);
+	EXPECT_EQ(EToolError::Cancelled, Endpoint->Submit(Request(), EToolSource::External, Client).error().Code);
+}
+
 TEST_F(FEditorToolTests, DistinguishesExpiredUnknownAndActiveInvocationsWithoutTombstones)
 {
 	FTestToolset Toolset;

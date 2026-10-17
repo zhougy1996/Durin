@@ -3,7 +3,7 @@
 Summary: Enable the local DurinMCP endpoint and connect Codex or another MCP 2025-06-18 Streamable HTTP client.
 Modules: DurinMCP, DurinPython, MainFrame
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-17
 
 ## Enable the Server
 
@@ -140,7 +140,6 @@ Inside the connected SDK client context above:
 ```python
 submitted = await client.call_tool("editor.python.submit", {
     "code": "import durin\nprint(durin.tools.call('editor.pie', 'status', {}))",
-    "filename": "agent_script.py",
 })
 assert not submitted.is_error
 job_id = submitted.structured_content["data"]["job_id"]
@@ -158,8 +157,21 @@ while True:
 # await client.call_tool("editor.python.cancel", {"job_id": job_id})
 ```
 
-Submit returns admission, not script success. Code is limited to 64 KiB UTF-8;
-filename is a diagnostic label, not a server file to load. Status returns actual
+To run a file already present on the editor machine, submit instead:
+
+```python
+submitted = await client.call_tool("editor.python.submit", {"file": "Scripts/setup_scene.py"})
+```
+
+Supply exactly one of code and file. Relative file paths use the project directory;
+absolute paths are accepted. The source is read at submission, before Python job
+queueing, with a 1 MiB limit. Editing the file afterward does not change that job.
+The resolved path sets __file__ and traceback filenames; no cwd/sys.path is changed.
+Inline code uses the diagnostic filename `<durin>`.
+
+These are native Toolset calls and require the editor to tick for admission,
+query and cancellation handling. Scripts execute asynchronously; submit returns
+admission, not script success. Inline code is limited to 64 KiB UTF-8. Status returns actual
 state plus bounded output/traceback; a failed script has state=failed even though
 the status query itself succeeds. Job IDs belong only to the creating MCP session.
 Session deletion/expiry cancels its work; an HTTP disconnect alone does not.

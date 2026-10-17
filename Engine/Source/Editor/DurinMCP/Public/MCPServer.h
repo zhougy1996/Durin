@@ -6,14 +6,11 @@
 namespace Durin
 {
 	class DEditorEngine;
-	class FPythonRuntime;
 	struct FMCPServerOptions
 	{
 		uint16 Port = 0;
 		std::string BearerToken;
 		std::chrono::milliseconds CallTimeout{30000};
-		// Optional, already-started owner runtime; server owns only per-client sessions/jobs.
-		std::shared_ptr<FPythonRuntime> PythonRuntime;
 	};
 	// One explicitly selected editor; control-thread start/stop, worker-owned transport.
 	class FMCPServer final

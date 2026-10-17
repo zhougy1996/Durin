@@ -21,5 +21,7 @@ namespace Durin
         std::shared_ptr<FPythonRuntime> Runtime = std::make_shared<FPythonRuntime>();
         bool Running = false;
         uint64 Session = 0;
+        std::unique_ptr<IToolset> Toolset;
+        FModularFeatureRegistration ToolsetRegistration;
     };
 }

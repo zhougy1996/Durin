@@ -4,7 +4,7 @@ Summary: Define owned tool values, bounded schema validation, provider interface
 
 Modules: Core
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-17
 
 ## Ownership and Scope
 
@@ -75,6 +75,12 @@ The calling host constructs `FToolContext` with trusted invocation/session
 identity, source, and cancellation token. Business arguments cannot replace
 these fields. A `FToolCancellationSource` owns the cooperative signal; tokens
 can only observe it. Cancellation does not stop code or roll back domain edits.
+
+An optional `FToolClientContext` carries a detached client ID and cancellation
+token in `FToolContext.Client`, separately from the individual invocation token.
+EditorToolService admits it through native parameters, not tool arguments. Closing
+a transport client can therefore cancel its domain-owned asynchronous jobs after
+the original invocation has completed, without retaining transport objects.
 
 `IToolset` describes one named `FToolsetDescriptor` containing a description
 and local `FToolDescriptor` entries, checks availability without side effects,

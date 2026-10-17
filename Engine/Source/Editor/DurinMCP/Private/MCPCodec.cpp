@@ -190,58 +190,6 @@ namespace Durin::MCP
 		}
 		return Result;
 	}
-	auto BuildPythonCatalog() -> std::expected<FCatalog, std::string>
-	{
-		FEditorToolCatalog Native;
-		FEditorToolsetCatalogEntry Group;
-		Group.Descriptor.Name = "editor.python";
-		auto JobId = FToolSchema(EToolValueType::String); JobId.MinSize = 1; JobId.MaxSize = 128;
-		for (const auto Name : {"submit", "status", "cancel"})
-		{
-			FToolDescriptor Tool; Tool.Name = Name; Tool.bExposeExternally = true;
-			Tool.Effects = EToolEffect::ReadOnly; Tool.RetryPolicy = EToolRetryPolicy::Idempotent;
-			Tool.Output.Properties.emplace("job_id", JobId); Tool.Output.Required = {"job_id"};
-			if (Tool.Name == "submit")
-			{
-				Tool.Description = "Submit trusted Python code in this editor process (not sandboxed). Returns a session-owned job_id after admission; poll status for completion. No automatic retry.";
-				Tool.Effects = EToolEffect::MutatesMemory | EToolEffect::WritesStorage | EToolEffect::External;
-				Tool.RetryPolicy = EToolRetryPolicy::Unsafe;
-				auto Code = FToolSchema(EToolValueType::String); Code.MaxSize = 64 * 1024;
-				auto Filename = FToolSchema(EToolValueType::String); Filename.MaxSize = 4096; Filename.Default = "<mcp>";
-				Tool.Input.Properties.emplace("code", std::move(Code));
-				Tool.Input.Properties.emplace("filename", std::move(Filename)); Tool.Input.Required = {"code"};
-			}
-			else
-			{
-				Tool.Input.Properties.emplace("job_id", JobId); Tool.Input.Required = {"job_id"};
-				if (Tool.Name == "status")
-				{
-					Tool.Description = "Query this MCP session's Python job. Returns actual state, bounded captured output and traceback; failed scripts are represented by state=failed.";
-					auto State = FToolSchema(EToolValueType::String); State.Enum = {"queued", "running", "succeeded", "failed", "cancelled"};
-					auto Text = FToolSchema(EToolValueType::String); Text.MaxSize = 64 * 1024;
-					Tool.Output.Properties.emplace("state", std::move(State));
-					Tool.Output.Properties.emplace("output", Text); Tool.Output.Properties.emplace("error", Text);
-					Tool.Output.Required = {"job_id", "state", "output", "error"};
-				}
-				else
-				{
-					Tool.Description = "Request cooperative cancellation of this session's Python job. Does not imply termination or rollback; query status afterward.";
-					Tool.Effects = EToolEffect::MutatesMemory;
-					Tool.Output.Properties.emplace("cancellation_requested", FToolSchema(EToolValueType::Boolean));
-					Tool.Output.Required = {"job_id", "cancellation_requested"};
-				}
-			}
-			Group.Descriptor.Tools.push_back(std::move(Tool));
-		}
-		Native.Toolsets.push_back(std::move(Group));
-		auto Catalog = BuildCatalog(Native); if (!Catalog) return Catalog;
-		for (auto& [Name, Tool] : *Catalog)
-		{
-			(void)Name;
-			Tool.Route = Tool.Address.Tool == "submit" ? EToolRoute::PythonSubmit : Tool.Address.Tool == "status" ? EToolRoute::PythonStatus : EToolRoute::PythonCancel;
-		}
-		return Catalog;
-	}
 	auto ConvertArguments(FToolValue Value, const FToolSchema& Native) -> FToolValue
 	{
 		if (Native.Type == EToolValueType::Integer)

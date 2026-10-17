@@ -197,7 +197,7 @@ namespace Durin
 				if (!ValidDiagnostics(Available.Diagnostics)) return Failure(EToolError::LimitExceeded, "Toolset availability diagnostics exceed the contract.");
 				if (!Available.bAvailable && Available.Diagnostics.empty()) Available.Diagnostics.push_back(Diagnostic(EToolError::ToolUnavailable, "Tool is unavailable in the current state."));
 				if (Availability) *Availability = Available;
-				if (!Gate->IsOpen() || Entry.Context.Cancellation.IsCancellationRequested()) return Failure(EToolError::Cancelled, "Tool cancelled before execution.");
+				if (!Gate->IsOpen() || Entry.Context.Cancellation.IsCancellationRequested() || Entry.Context.Client.Cancellation.IsCancellationRequested()) return Failure(EToolError::Cancelled, "Tool cancelled before execution.");
 				if (!Available.bAvailable) return FToolResult{EToolStatus::Failed, {}, std::move(Available.Diagnostics)};
 				if (!HostReady(Host)) return Failure(EToolError::Busy, "Editor left the dispatch safe point during availability checking.");
 				if (AvailabilityOnly) return FToolResult{EToolStatus::Succeeded};
@@ -354,8 +354,12 @@ namespace Durin
 		}
 		return Result;
 	}
-	auto FEditorToolService::Submit(const FToolRequest& Request, EToolSource Source) -> std::expected<FEditorToolInvocationId, FToolDiagnostic>
+	auto FEditorToolService::Submit(const FToolRequest& Request, EToolSource Source, const FToolClientContext& Client) -> std::expected<FEditorToolInvocationId, FToolDiagnostic>
 	{
+		if (Client.Id.size() > 128 || Client.Id.find('\0') != std::string::npos)
+			return std::unexpected(Diagnostic(EToolError::InvalidArguments, "Invalid tool client identity."));
+		if (Client.Cancellation.IsCancellationRequested())
+			return std::unexpected(Diagnostic(EToolError::Cancelled, "Tool client session is closed."));
 		if (auto Check = ValidateRequest(Request, Source); !Check) return std::unexpected(BoundedDiagnostic(Check.error()));
 		std::scoped_lock Lock(Impl->Mutex);
 		Impl->Prune();
@@ -367,6 +371,7 @@ namespace Durin
 		if (Impl->Queue.size() >= Impl->Limits.MaxQueued || Bytes > Impl->Limits.MaxQueuedBytes - Impl->QueuedBytes) return std::unexpected(Diagnostic(EToolError::Busy, "Tool queue capacity exceeded."));
 		const auto Id = Impl->NextSequence++;
 		Impl->SetContext(*Entry, Id, Source);
+		Entry->Context.Client = Client;
 		Impl->Invocations.emplace(Id, std::move(Entry)); Impl->Queue.push_back(Id); Impl->QueuedBytes += Bytes;
 		return FEditorToolInvocationId{Impl->Session, Id};
 	}

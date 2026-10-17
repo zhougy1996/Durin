@@ -36,11 +36,11 @@ namespace Durin
         DURINPYTHON_API auto Stop() noexcept -> void;
         // Acquire the endpoint from the explicitly selected editor on GameThread.
         DURINPYTHON_API auto CreateSession(std::shared_ptr<FEditorToolService> Endpoint,
-            EToolSource Source = EToolSource::External) -> std::expected<uint64, std::string>;
+            EToolSource Source = EToolSource::External, const FToolClientContext& Client = {}) -> std::expected<uint64, std::string>;
         DURINPYTHON_API auto CloseSession(uint64 Session) -> void;
         DURINPYTHON_API auto RunString(uint64 Session, std::string Code,
             std::string Filename = "<durin>") -> std::expected<uint64, std::string>;
-        // Absolute paths only; bounded UTF-8 source, no process cwd/sys.path mutation.
+        // Relative paths use the project directory; contents are captured before queueing.
         DURINPYTHON_API auto RunFile(uint64 Session, const std::filesystem::path& Path) -> std::expected<uint64, std::string>;
         DURINPYTHON_API auto GetJobResult(uint64 Job) const -> std::expected<FPythonJobResult, std::string>;
         DURINPYTHON_API auto CancelJob(uint64 Job) -> bool;

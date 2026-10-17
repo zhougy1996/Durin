@@ -1,4 +1,5 @@
 #include "PythonRuntime.h"
+#include "PythonToolset.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/NativeToolset.h"
 #include "Editor/EditorEngine.h"
@@ -153,6 +154,46 @@ print(' imported')
         { std::ofstream File(Path); File << std::string(1024 * 1024 + 1, ' '); }
         EXPECT_FALSE(Runtime.RunFile(Session, Path));
         EXPECT_FALSE(Runtime.RunString(Session, std::string(1024 * 1024 + 1, ' ')));
+    }
+    TEST_F(FPythonToolIntegrationTests, ScriptJobsUseTheSameNativeToolsetWithoutMCP)
+    {
+        auto Definition = CreatePythonToolset(std::shared_ptr<FPythonRuntime>(&Runtime, [](auto*) {}));
+        auto Published = FModularFeatureRegistry::Get().RegisterFeature(*Definition);
+        auto Description = Tools->DescribeToolset("editor.python"); ASSERT_TRUE(Description);
+        ASSERT_EQ(3u, Description->Descriptor.Tools.size());
+        for (const auto& Tool : Description->Descriptor.Tools) EXPECT_TRUE(ValidateToolDescriptor(Tool));
+        const auto Call = [&](std::string Name, FToolValue::FObject Args) {
+            return Tools->CallNow({{"editor.python", std::move(Name)}, 1, std::move(Args)});
+        };
+        EXPECT_EQ(EToolStatus::Failed, Call("submit", {{"code", "pass"}, {"file", "script.py"}}).Status);
+        auto Submitted = Call("submit", {{"code", "while True:\n    pass\n"}});
+        ASSERT_EQ(EToolStatus::Succeeded, Submitted.Status);
+        const auto Id = std::get<FToolValue::FObject>(Submitted.Data.Data).at("job_id");
+        EXPECT_EQ(EToolStatus::Succeeded, Call("status", {{"job_id", Id}}).Status);
+        EXPECT_EQ(EToolStatus::Succeeded, Call("cancel", {{"job_id", Id}}).Status);
+        const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        std::string State;
+        while (std::chrono::steady_clock::now() < Deadline)
+        {
+            auto Result = Call("status", {{"job_id", Id}});
+            State = std::get<std::string>(std::get<FToolValue::FObject>(Result.Data.Data).at("state").Data);
+            if (State == "cancelled") break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        EXPECT_EQ("cancelled", State);
+    }
+    TEST_F(FPythonToolIntegrationTests, DetachedClientClosureCancelsItsJobsWithoutAnotherEditorTick)
+    {
+        FToolCancellationSource Lifetime;
+        auto Client = Runtime.CreateSession(Tools->GetService(), EToolSource::External, {"detached-client", Lifetime.GetToken()});
+        ASSERT_TRUE(Client);
+        auto Running = Runtime.RunString(*Client, "while True:\n    pass\n"); ASSERT_TRUE(Running); WaitRunning(*Running);
+        auto Queued = Runtime.RunString(*Client, "print('must not execute')"); ASSERT_TRUE(Queued);
+        Lifetime.Cancel();
+        EXPECT_EQ(EPythonJobState::Cancelled, Wait(*Running, false).State);
+        auto Snapshot = Wait(*Queued, false); EXPECT_EQ(EPythonJobState::Cancelled, Snapshot.State); EXPECT_TRUE(Snapshot.Output.empty());
+        EXPECT_FALSE(Runtime.RunString(*Client, "pass"));
+        EXPECT_EQ(EPythonJobState::Succeeded, Wait(Submit("print('other session')"), false).State);
     }
     TEST_F(FPythonToolIntegrationTests, BoundsOutputAndRecoversForTheNextJob)
     {

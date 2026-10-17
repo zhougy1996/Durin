@@ -4,7 +4,6 @@
 #include "Tools/EditorToolSubsystem.h"
 #include "Editor/EditorEngine.h"
 #include "Threading/RunnableThread.h"
-#include "PythonRuntime.h"
 
 namespace Durin
 {
@@ -91,8 +90,7 @@ namespace Durin
 		{
 			bool Initialized = false;
 			std::chrono::steady_clock::time_point Used;
-			uint64 PythonSession = 0;
-			std::map<std::string, uint64, std::less<>> PythonJobs;
+			FToolCancellationSource Cancellation;
 		};
 		std::mutex SessionMutex;
 		std::map<std::string, FSession, std::less<>> Sessions;
@@ -100,8 +98,7 @@ namespace Durin
 		std::map<FCallKey, std::shared_ptr<FPending>> PendingCalls;
 		auto CloseSessionLocked(std::string_view Id) -> void
 		{
-			if (auto It = Sessions.find(Id); It != Sessions.end() && It->second.PythonSession && Options.PythonRuntime)
-				Options.PythonRuntime->CloseSession(It->second.PythonSession);
+			if (auto It = Sessions.find(Id); It != Sessions.end()) It->second.Cancellation.Cancel();
 			std::erase_if(PendingCalls, [&](const auto& Entry) {
 				if (Entry.first.first != Id) return false;
 				Entry.second->Cancel(); return true;
@@ -153,78 +150,9 @@ namespace Durin
 			{
 				auto Built = MCP::BuildCatalog(Native);
 				if (!Built) return std::unexpected(Built.error());
-				if (Options.PythonRuntime)
-				{
-					auto Python = MCP::BuildPythonCatalog(); if (!Python) return std::unexpected(Python.error());
-					Built->merge(*Python);
-					if (!Python->empty()) return std::unexpected("MCP Python tool name collision; catalog rejected.");
-				}
 				Catalog = std::make_shared<const MCP::FCatalog>(std::move(*Built)); Revision = Native.Revision;
 			}
 			return Catalog;
-		}
-		auto PythonCall(const MCP::FRequest& Request, const std::string& SessionId, const MCP::FAdvertisedTool& Tool,
-			const FToolRequest& Native, FHTTPResponse& Response) -> void
-		{
-			using namespace MCP;
-			auto Failure = [&](EToolError Code, std::string Message) {
-				Send(Response, ToolResult(Request.Id, {EToolStatus::Failed, {}, {{Code, std::move(Message), {}}}}));
-			};
-			FToolDescriptor Descriptor; Descriptor.Name = Native.Address.Tool;
-			Descriptor.ContractVersion = Tool.ContractVersion; Descriptor.Input = Tool.Input;
-			auto Prepared = PrepareToolArguments(Descriptor, Native);
-			if (!Prepared) { Send(Response, ToolResult(Request.Id, {EToolStatus::Failed, {}, {Prepared.error()}})); return; }
-			std::lock_guard Lock(SessionMutex);
-			auto Owner = Sessions.find(SessionId);
-			if (Stopping || Owner == Sessions.end()) { Failure(EToolError::ToolUnavailable, "MCP session is closed."); return; }
-			auto& Session = Owner->second; auto& Runtime = *Options.PythonRuntime;
-			if (Tool.Route == EToolRoute::PythonSubmit)
-			{
-				std::erase_if(Session.PythonJobs, [&](const auto& Entry) { return !Runtime.GetJobResult(Entry.second); });
-				std::optional<std::string> Evict;
-				if (Session.PythonJobs.size() >= 64)
-				{
-					uint64 Oldest = UINT64_MAX;
-					for (const auto& [Id, NativeId] : Session.PythonJobs)
-					{
-						auto Snapshot = Runtime.GetJobResult(NativeId);
-						if (Snapshot && Snapshot->State != EPythonJobState::Queued && Snapshot->State != EPythonJobState::Running && NativeId < Oldest)
-						{ Oldest = NativeId; Evict = Id; }
-					}
-					if (!Evict) { Failure(EToolError::LimitExceeded, "MCP Python job retention is full."); return; }
-				}
-				if (!Session.PythonSession)
-				{
-					auto Created = Runtime.CreateSession(Service, EToolSource::External);
-					if (!Created) { Failure(EToolError::ToolUnavailable, Created.error()); return; }
-					Session.PythonSession = *Created;
-				}
-				auto Submitted = Runtime.RunString(Session.PythonSession, std::string(Text(Find(Prepared->Arguments, "code"))),
-					std::string(Text(Find(Prepared->Arguments, "filename"))));
-				if (!Submitted) { Failure(EToolError::Busy, Submitted.error()); return; }
-				if (Evict) Session.PythonJobs.erase(*Evict);
-				std::random_device Random;
-				std::string Id;
-				do { Id = std::format("{:08x}{:08x}{:08x}{:08x}", Random(), Random(), Random(), Random()); }
-				while (Session.PythonJobs.contains(Id));
-				Session.PythonJobs.emplace(Id, *Submitted);
-				Send(Response, ToolResult(Request.Id, {EToolStatus::Succeeded, FObject{{"job_id", Id}}})); return;
-			}
-			const auto Id = Text(Find(Prepared->Arguments, "job_id"));
-			auto Job = Session.PythonJobs.find(Id);
-			if (Job == Session.PythonJobs.end()) { Failure(EToolError::TargetNotFound, "Unknown or expired Python job for this MCP session."); return; }
-			auto Snapshot = Runtime.GetJobResult(Job->second);
-			if (!Snapshot) { Failure(EToolError::InvocationExpired, "Unknown or expired Python job for this MCP session."); return; }
-			FObject Data{{"job_id", std::string(Id)}};
-			if (Tool.Route == EToolRoute::PythonCancel)
-				Data.emplace("cancellation_requested", Runtime.CancelJob(Job->second));
-			else
-			{
-				constexpr const char* Names[] = {"queued", "running", "succeeded", "failed", "cancelled"};
-				Data.emplace("state", Names[static_cast<size_t>(Snapshot->State)]);
-				Data.emplace("output", std::move(Snapshot->Output)); Data.emplace("error", std::move(Snapshot->Error));
-			}
-			Send(Response, ToolResult(Request.Id, {EToolStatus::Succeeded, std::move(Data)}));
 		}
 		auto Call(const MCP::FRequest& Request, const std::string& SessionId, FHTTPResponse& Response) -> void
 		{
@@ -243,7 +171,6 @@ namespace Durin
 			{ Send(Response, Error(Request.Id, -32602, "Tool arguments must be an object.")); return; }
 			FToolRequest Native{It->second.Address, It->second.ContractVersion,
 				ConvertArguments(std::move(Arguments), It->second.Input)};
-			if (It->second.Route != EToolRoute::Editor) { PythonCall(Request, SessionId, It->second, Native, Response); return; }
 			std::unique_lock SessionLock(SessionMutex);
 			if (!Sessions.contains(SessionId) || Stopping) { Send(Response, Error(Request.Id, -32600, "Session is closed."), 404); return; }
 			const FCallKey Key{SessionId, Serialize(Request.Id)};
@@ -255,7 +182,7 @@ namespace Durin
 			if (PendingCalls.size() >= 32) { Send(Response, Error(Request.Id, -32603, "MCP pending call limit reached."), 503); return; }
 			if (LiveCalls >= 6) { Send(Response, Error(Request.Id, -32603, "MCP active call limit reached."), 503); return; }
 			auto Pending = std::make_shared<FPending>();
-			auto Admitted = Service->Submit(Native, EToolSource::External);
+			auto Admitted = Service->Submit(Native, EToolSource::External, {SessionId, Sessions.at(SessionId).Cancellation.GetToken()});
 			if (!Admitted) { Send(Response, ToolResult(Request.Id, {EToolStatus::Failed, {}, {Admitted.error()}})); return; }
 			Pending->Service = Service; Pending->Invocation = *Admitted; Pending->RPCId = Request.Id;
 			Pending->State = FPending::EState::Pending;

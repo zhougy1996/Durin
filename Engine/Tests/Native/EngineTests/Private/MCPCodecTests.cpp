@@ -89,22 +89,6 @@ namespace
 		Native.Toolsets.push_back(Native.Toolsets[0]);
 		EXPECT_FALSE(BuildCatalog(Native));
 	}
-	TEST(FMCPCodecTests, DescribesPythonJobRoutesAndSchemasExplicitly)
-	{
-		auto Catalog = BuildPythonCatalog(); ASSERT_TRUE(Catalog); ASSERT_EQ(3u, Catalog->size());
-		EXPECT_EQ(EToolRoute::PythonSubmit, Catalog->at("editor.python.submit").Route);
-		EXPECT_EQ(EToolRoute::PythonStatus, Catalog->at("editor.python.status").Route);
-		EXPECT_EQ(EToolRoute::PythonCancel, Catalog->at("editor.python.cancel").Route);
-		for (const auto& [Name, Tool] : *Catalog)
-		{
-			(void)Name;
-			FToolDescriptor Descriptor; Descriptor.Name = Tool.Address.Tool; Descriptor.Input = Tool.Input;
-			EXPECT_TRUE(ValidateToolDescriptor(Descriptor));
-		}
-		const auto& Submit = Catalog->at("editor.python.submit");
-		EXPECT_EQ(65536u, Submit.Input.Properties.at("code").MaxSize);
-		EXPECT_FALSE(std::get<bool>(Find(Find(Submit.Description, "annotations"), "idempotentHint").Data));
-	}
 	TEST(FMCPCodecTests, ListsTheCompleteCatalogInNameOrder)
 	{
 		FEditorToolCatalog Native;
