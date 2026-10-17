@@ -1,8 +1,5 @@
 #include "Workspace/LevelEditorContext.h"
 
-#include "DObject/Package.h"
-#include "Editor/EditorEngine.h"
-#include "Transactions/Transaction.h"
 #include "Engine/World.h"
 #include "Engine/Level.h"
 #include "Components/ActorComponent.h"
@@ -149,13 +146,4 @@ namespace Durin::Editor::Level
 		return Actor && std::ranges::contains(SelectedActors, Actor, [](const TObjectPtr<AActor>& Entry) { return Entry.Get(); });
 	}
 
-	auto FLevelEditorContext::InvalidatePackageSavedState(DPackage* Package) const -> void
-	{
-		if (!Package && Level) Package = Level->GetPackage();
-		if (!Package || !Package->IsAssetPackage()) return;
-		if (GEditor)
-			GEditor->GetTransactor()->InvalidateSavedState(*Package);
-		else
-			Package->MarkDirty();
-	}
 } // namespace Durin::Editor::Level

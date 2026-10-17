@@ -30,7 +30,7 @@ namespace Durin::Editor::Level
 		auto RebuildFilterCache(std::string_view Filter) -> void;
 		auto IsNodeVisible(uint32 NodeIndex) const -> bool;
 		auto IsDescendantOf(const AActor* Actor, const AActor* CandidateAncestor) const -> bool;
-		auto GetActorDepth(const AActor* Actor) const -> uint32;
+		auto DuplicateSelectedActors(FLevelEditorContext& Context) -> void;
 		auto SetActorVisibility(const std::vector<TObjectPtr<AActor>>& TargetActors, bool bHidden) -> void;
 		auto ShowAllActors() -> void;
 		auto AreAllActorsHidden(const std::vector<TObjectPtr<AActor>>& Actors) const -> bool;

@@ -4,7 +4,7 @@ Summary: Define levels, actors, world ownership, lifecycle mutation, and iterati
 
 Modules: Engine
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-10-17
 
 `DLevel` is the persistent scene asset. A packaged level is a top-level asset
 in a `.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays.
@@ -17,6 +17,16 @@ Actors index transient generated components by stable native-construction keys.
 Those components also participate in unified live ownership and World/editor
 lifecycles but are excluded from authored package and duplication state. See
 [Native Actor Construction](NativeConstruction.md).
+
+`DLevel::SetActorPresence` provides reversible editor membership without changing
+object identity or terminal destruction state. Removal unregisters Actor Tick and
+components, updates Level ordering and primary-camera fallback, and leaves owned
+component graphs intact. Restoration accepts an insertion index and can defer
+component registration until the caller restores attachment state. It rejects
+play transitions, invalid ownership, duplicate membership and name collisions.
+The editor owns attachment snapshots, registration-state restoration, collector
+retention and persistence admission; see
+[Actor structure commands](../../Editor/Architecture/ViewportEditing.md#actor-structure-commands).
 
 `DWorld` is a runtime or editor session container. It activates at most one level, forwards actor APIs to that level, and registers or unregisters the level's components when switching. Each active Level owns the non-owning registry for stable Actor and Component Tick functions; Level detachment clears that registry before the World endpoint is removed. Tick ownership, groups, mutation, and lifetime rules are defined by [Tick Scheduling](TickScheduling.md). Replacing a transient level structurally owned by the world marks that complete level hierarchy as garbage. A persistent packaged level is structurally owned by its package instead, so switching worlds does not destroy it; an object that must survive a transient world must likewise be explicitly reparented before world retirement.
 

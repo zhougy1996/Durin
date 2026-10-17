@@ -53,6 +53,12 @@ namespace Durin
 		ENGINE_API auto AddInstanceComponent(DClass* ComponentClass, FName InName = FName()) -> DActorComponent*;
 		ENGINE_API auto RenameComponent(DActorComponent* Component, FName RequestedName) -> bool;
 		ENGINE_API auto DestroyInstanceComponent(DActorComponent* Component) -> bool;
+		// Editor structural history retains the same object while it is absent. Removal
+		// tears down registration/creation and attachments without marking it as garbage;
+		// restoration publishes prepared fields without automatic attachment or root selection.
+		// Gameplay, default subobjects and generated components are not admitted.
+		ENGINE_API auto SetInstanceComponentPresence(DActorComponent* Component, bool bPresent, bool bRegister = true,
+			size_t InstanceIndex = std::numeric_limits<size_t>::max()) -> bool;
 		ENGINE_API auto IsInstanceComponent(const DActorComponent* Component) const -> bool;
 		ENGINE_API auto OwnsComponent(const DActorComponent* Component) const -> bool;
 

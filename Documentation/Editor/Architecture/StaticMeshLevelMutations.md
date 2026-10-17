@@ -3,18 +3,17 @@
 Summary: Plan and execute reversible StaticMesh actor commands with compact outcomes.
 Modules: LevelEditor, DurinEd, Engine
 
-`FStaticMeshLevelMutations` is the reusable structural-editing boundary
-for ordinary `AStaticMeshActor` instances. The Scene Viewport and World
-Outliner use it instead of directly spawning, renaming, or destroying supported
-StaticMesh Actors.
+`FStaticMeshLevelMutations` is the reusable planned-batch boundary for ordinary
+`AStaticMeshActor` instances. Interactive Outliner and viewport structure commands
+use the general [Actor command boundary](ViewportEditing.md#actor-structure-commands).
 
 ## Supported boundary
 
 The first boundary accepts exact `AStaticMeshActor` objects with their default
 `DStaticMeshComponent`, no instance components, and no Actor attachment parent
 or children. Derived classes, additional component graphs, and attached Actors
-remain explicit unsupported cases; their legacy Outliner behavior is not
-presented as transaction-backed structural editing.
+remain explicit unsupported cases for this compact batch API. They are supported
+by the general Actor structure commands.
 
 Each detached Actor state contains the exact name, StaticMesh reference,
 transform, and visibility. A request contains one or more create, update,
@@ -43,10 +42,14 @@ flag if a defensive runtime failure still occurs.
 ## Transactions and saved state
 
 One changed batch creates one `Editor::ITransactionCustomChange`; an unchanged
-update creates none. `DTransBuffer` owns and executes the change, while the P3
-compatibility facade advances and restores the target Level package's editor
+update creates none. `DTransBuffer` owns and executes the change and restores the target Level package's editor
 revision relative to its saved checkpoint. Interactive callers never save as
 part of execution.
+
+Creation/removal delegates to the shared identity-preserving Actor membership
+record. The batch retains exact participants, including their component graphs;
+undo, redo and injected-failure compensation restore the same instances rather
+than spawning replacements. Source-state validation also requires exact identity.
 
 Create and rename callers receive the exact resulting Actor names and publish
 selection through `FLevelEditorContext`. Deletion clears invalid selection.
@@ -55,12 +58,9 @@ or asset loading.
 
 ## Current integrations
 
-- Dropping a StaticMesh asset in the Scene Viewport plans its final transform,
-  creates it transactionally, and selects the resulting Actor.
-- Creating, renaming, or deleting supported StaticMesh Actors in the World
-  Outliner uses the same service.
-- Unsupported Actor/component graphs retain their existing explicit
-  non-structural-transaction behavior.
+- Programmatic planned batches retain compact state validation and atomic rollback.
+- StaticMesh and SkyBox placement, Outliner commands, and Select-mode shortcuts
+  share identity-preserving Actor membership rather than terminal destruction.
 ## Related code
 
 - `Engine/Source/Editor/LevelEditor/Public/StaticMeshLevelMutations.h`

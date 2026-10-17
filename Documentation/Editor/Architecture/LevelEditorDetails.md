@@ -4,7 +4,7 @@ Summary: Define Actor/Component inspection targets, component aggregation, gener
 
 Modules: LevelEditor, DurinEd, Engine
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-17
 
 ## Host Ownership
 
@@ -45,6 +45,48 @@ a component. If an inspected component stops belonging to the current Actor,
 Details falls back to the Actor. These target transitions continue through
 the property view's owner-context handling so an active preview is committed or
 restored before its owner changes.
+
+## Component Structure History
+
+The component tree routes component addition, deletion, duplication, renaming,
+and reparenting through `FComponentMutations` and the application transactor.
+Each operation is one structural record, with package revision tracking and
+preflight rejection before writes. Generated components, read-only targets,
+and actors participating in play are rejected. Deletion and duplication require
+instance membership; duplication also rejects the root component.
+
+Removal unregisters and uninitializes the component, routes its destruction
+notification, removes authored/owned/instance membership, and clears its root
+role when applicable. Scene children detach with their world transforms intact.
+The record retains the exact component and its Outer subtree through collector
+references; absent objects are transient and excluded from package capture.
+Undo restores membership order, root role, parent/child attachments and relative
+transforms before restoring the previous registration state. Older property
+records therefore continue to resolve the same object. Discarding history lets
+an absent component be collected normally.
+
+Duplication uses the ordinary object-graph duplication pipeline, including owned
+subobject remapping and `PostLoad` derived-state rebuilding. Copied fields and
+attachment state are prepared before the first creation/registration callbacks.
+An unattached source stays unattached with its authored world transform. These
+operations share the lifecycle-preserving `AActor::SetInstanceComponentPresence`
+primitive; ordinary runtime destruction retains its terminal garbage semantics.
+
+Rename records retain exact object identity and before/after names. Initial name
+allocation avoids all live siblings, including inactive components retained by
+history. Replay requires the expected current name and rejects a destination-name
+collision before writing; it never substitutes another name during undo or redo.
+Live native components, including the root, can be renamed; template objects
+cannot. Name changes preserve root/ownership roles and render registration.
+
+Reparenting records retain both parents and both authored relative transforms.
+Initial execution preserves the component's world transform; undo and redo restore
+the captured relative transform through the normal attach/detach APIs, rebuilding
+both child lists, descendant world transforms, and render updates. Root moves,
+foreign destinations, generated components, and cycles are rejected. Replay also
+rejects an unexpected current parent or an unavailable destination before writing.
+No-op renames and reparenting create no history entry. Both commands participate
+in package saved revisions without manual saved-state invalidation.
 
 ## Generated Components
 

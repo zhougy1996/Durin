@@ -210,10 +210,38 @@ between component-local and world coordinates, and resolve every update by
 point GUID. A tangent selection produces one tangent target; a point
 multi-selection produces one target per selected point.
 
+## Actor Structure Commands
+
+`FActorMutations` owns editor Actor addition, batch deletion, duplication, and
+renaming. Outliner commands and Select-mode shortcuts use this boundary;
+StaticMesh asset placement prepares its mesh and final transform before first
+registration. Actor structural edits use one application history entry per
+command and package revision transitions, without manual saved-state invalidation.
+
+Membership records retain exact Actor identities and complete Outer trees across
+absence. Removal unregisters components and Tick functions, detaches boundary
+attachments with world transforms intact, and excludes absent graphs from package
+capture through the Actor's transient flag. Restoration preserves Level ordering,
+primary camera selection, authored attachments and descendant transforms, and
+the previous component registration state. Terminal runtime destruction remains
+separate: reversible editor removal does not route `OnActorDestroyed`, EndPlay,
+or garbage marking. Inactive graphs become collectible when history releases them.
+
+Duplication uses ordinary owned-graph duplication and remaps editable references
+and attachments between selected graphs. Derived component data is rebuilt before
+publication. Rename retains identity and exact before/after names; initial name
+allocation includes inactive history-owned siblings. No-op renames create no entry.
+Replay validates membership, names, camera selection, and the complete proposed
+attachment graph before writes. Conflicts preserve history for a repaired retry.
+Play transitions and read-only commands are rejected. Prepared objects from
+rejected initial commands retire without reserving names for later edits.
+
 ## Built-In Modes
 
 `Select` is always available. It owns Actor picking, Ctrl toggling, component
 visualization selection, and Actor transform targets.
+It also routes Actor duplicate/delete shortcuts through the structure command
+boundary; domain modes retain authority over their own structural shortcuts.
 
 `Spline` is available only when the selected component is an editable
 `DSplineComponent`. It seeds the first point when entered without a point

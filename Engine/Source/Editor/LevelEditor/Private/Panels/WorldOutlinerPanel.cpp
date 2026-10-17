@@ -7,7 +7,6 @@
 #include "Panels/WorldOutlinerPresentation.h"
 
 #include "Actors/CameraActor.h"
-#include "Actors/StaticMeshActor.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
@@ -23,7 +22,7 @@
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
-#include "StaticMeshLevelMutations.h"
+#include "Operations/ActorMutations.h"
 
 namespace Durin::Editor::Level
 {
@@ -53,29 +52,6 @@ namespace Durin::Editor::Level
 			case EDetachmentTransformRule::KeepRelative: return "Keep Relative";
 			}
 			return "Unknown";
-		}
-
-		auto MakeUniqueActorName(DLevel& Level, FName Requested, const AActor* Ignored = nullptr) -> FName
-		{
-			if (AActor* Existing = Level.FindActorByName(Requested); !Existing || Existing == Ignored) return Requested;
-			const std::string Base = Requested.ToString();
-			for (uint32 Suffix = 2;; ++Suffix)
-			{
-				FName Candidate(std::format("{}_{}", Base, Suffix));
-				if (AActor* Existing = Level.FindActorByName(Candidate); !Existing || Existing == Ignored) return Candidate;
-			}
-		}
-
-		auto ExecuteStaticMeshRequest(FLevelEditorContext& Context,
-			FStaticMeshLevelMutationRequest Request) -> FStaticMeshLevelMutationResult
-		{
-			Request.bReadOnly = Context.bReadOnly;
-			const FStaticMeshLevelMutationPlan Plan = FStaticMeshLevelMutations::Plan(Request);
-			return FStaticMeshLevelMutations::Execute(Plan, {
-				.OpenLevel = Context.Level,
-				.Transactions = GEditor ? GEditor->GetTransactor() : nullptr,
-				.bReadOnly = Context.bReadOnly,
-			});
 		}
 
 		auto LevelDisplayName(const DLevel* Level) -> std::string
@@ -172,9 +148,16 @@ namespace Durin::Editor::Level
 		return HierarchyModel.IsDescendantOf(Actor, CandidateAncestor);
 	}
 
-	auto FWorldOutlinerPanel::GetActorDepth(const AActor* Actor) const -> uint32
+	auto FWorldOutlinerPanel::DuplicateSelectedActors(FLevelEditorContext& Context) -> void
 	{
-		return HierarchyModel.GetDepth(Actor);
+		std::vector<AActor*> Actors;
+		for (const auto& Actor : Context.GetSelectedActors()) Actors.push_back(Actor.Get());
+		const auto Result = FActorMutations::Duplicate(*Context.Level, Actors,
+			GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly);
+		if (!Result) { Context.SetError(Result.Message); return; }
+		Actors.clear();
+		for (const auto& Actor : Result.Actors) Actors.push_back(Actor.Get());
+		Context.SetSelectedActors(Actors);
 	}
 
 	auto FWorldOutlinerPanel::SetActorVisibility(const std::vector<TObjectPtr<AActor>>& TargetActors, bool bHidden) -> void
@@ -259,6 +242,7 @@ namespace Durin::Editor::Level
 				}
 			}
 			if (ImGui::MenuItem("Rename", "F2")) BeginActorRename(Actor);
+			if (ImGui::MenuItem("Duplicate", "Ctrl+D")) DuplicateSelectedActors(Context);
 			if (ImGui::MenuItem("Delete", "Del")) bRequestDelete = true;
 		}
 		ImGui::EndPopup();
@@ -412,30 +396,15 @@ namespace Durin::Editor::Level
 					if (!ContainsInsensitive(DisplayName, ActorTypeSearchText.data())) continue;
 					if (ImGui::MenuItem(DisplayName.c_str()))
 					{
-						AActor* Actor = nullptr;
-						if (Class == AStaticMeshActor::StaticClass())
+						const auto Result = FActorMutations::Add(*Context.Level, Class, FName(), FTransform{},
+							GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly);
+						if (Result)
 						{
-							auto Request = FStaticMeshLevelMutations::CaptureTarget(*Context.Level);
-							Request.Description = "Create static mesh actor";
-							const FName Name = MakeUniqueActorName(*Context.Level, FName(Class->GetDefaultObjectName()));
-							Request.Mutations.push_back({.Kind = EStaticMeshLevelMutationKind::Create, .TargetName = Name});
-							const FStaticMeshLevelMutationResult Result = ExecuteStaticMeshRequest(Context, std::move(Request));
-							if (!Result)
-							{
-								Context.SetError(Result.Message);
-								continue;
-							}
-							else if (!Result.ResultActorNames.empty()) Actor = Context.Level->FindActorByName(Result.ResultActorNames.front());
-						}
-						else Actor = Context.World->SpawnActor(Class, FName(Class->GetDefaultObjectName()));
-						if (Actor)
-						{
-							if (Class != AStaticMeshActor::StaticClass()) Context.InvalidatePackageSavedState(Actor->GetPackage());
-							Context.SelectActor(Actor);
+							Context.SelectActor(Result.Actors.front().Get());
 							bLevelSelected = false;
 						}
 						else
-							Context.SetError(std::format("Failed to create actor of class {}.", Class->GetQualifiedName()));
+							Context.SetError(Result.Message);
 					}
 				}
 				ImGui::EndMenu();
@@ -481,6 +450,8 @@ namespace Durin::Editor::Level
 		}
 		if (!Context.bReadOnly && !Context.GetSelectedActors().empty() && bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete, false))
 			bRequestDelete = true;
+		if (!Context.bReadOnly && !Context.GetSelectedActors().empty() && bOutlinerFocused && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false))
+			DuplicateSelectedActors(Context);
 	}
 
 	auto FWorldOutlinerPanel::DrawRenameDialog(FLevelEditorContext& Context, std::string_view LevelName) -> void
@@ -491,26 +462,8 @@ namespace Durin::Editor::Level
 		const EEditorRenameDialogResult RenameResult = RenameDialog.Draw(RenamePopupTitle, CurrentRenameName, [&](std::string_view NewName) -> std::string {
 			if (bRenameActor)
 			{
-				if (auto* StaticMeshActor = Cast<AStaticMeshActor>(RenamingActor.Get());
-					StaticMeshActor && FStaticMeshLevelMutations::IsSupportedActor(*StaticMeshActor))
-				{
-					auto Request = FStaticMeshLevelMutations::CaptureTarget(*Context.Level);
-					Request.Description = "Rename static mesh actor";
-					Request.Mutations.push_back({
-						.Kind = EStaticMeshLevelMutationKind::Rename,
-						.TargetName = StaticMeshActor->GetFName(),
-						.Desired = {.Name = MakeUniqueActorName(*Context.Level, FName(NewName), StaticMeshActor)},
-					});
-					const FStaticMeshLevelMutationResult Result = ExecuteStaticMeshRequest(Context, std::move(Request));
-					if (!Result) return Result.Message;
-					if (!Result.ResultActorNames.empty()) Context.SelectActor(Context.Level->FindActorByName(Result.ResultActorNames.front()));
-				}
-				else
-				{
-					if (!Context.Level->RenameActor(RenamingActor.Get(), FName(NewName))) return "Failed to rename actor.";
-					Context.InvalidatePackageSavedState(RenamingActor->GetPackage());
-				}
-				return {};
+				return FActorMutations::Rename(*Context.Level, RenamingActor.Get(), FName(NewName),
+					GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly).Message;
 			}
 			return Context.RenameLevel && Context.RenameLevel(NewName) ? std::string() : "Failed to rename level.";
 		});
@@ -525,42 +478,19 @@ namespace Durin::Editor::Level
 	{
 		if (ImGui::BeginPopupModal("Delete Actors?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 		{
-			const bool bAllSupportedStaticMeshes = !PendingDeleteActors.empty()
-				&& std::ranges::all_of(PendingDeleteActors, [](const TObjectPtr<AActor>& Actor) {
-					auto* StaticMeshActor = Cast<AStaticMeshActor>(Actor.Get());
-					return StaticMeshActor && FStaticMeshLevelMutations::IsSupportedActor(*StaticMeshActor);
-				});
 			ImGui::Text("Delete %zu actor(s)?", PendingDeleteActors.size());
 			for (size_t Index = 0; Index < std::min<size_t>(PendingDeleteActors.size(), 5); ++Index)
 				if (PendingDeleteActors[Index]) ImGui::BulletText("%s", PendingDeleteActors[Index]->GetName().c_str());
 			if (PendingDeleteActors.size() > 5) ImGui::TextDisabled("... and %zu more", PendingDeleteActors.size() - 5);
-			ImGui::TextDisabled(bAllSupportedStaticMeshes ? "This action can be undone." : "This action cannot be undone.");
+			ImGui::TextDisabled("This action can be undone.");
 			if (ImGui::Button("Delete"))
 			{
-				std::ranges::sort(PendingDeleteActors, [this](const TObjectPtr<AActor>& Left, const TObjectPtr<AActor>& Right) { return GetActorDepth(Left.Get()) > GetActorDepth(Right.Get()); });
-				bool bDestroyedAny = false;
-				if (bAllSupportedStaticMeshes)
-				{
-					auto Request = FStaticMeshLevelMutations::CaptureTarget(*Context.Level);
-					Request.Description = PendingDeleteActors.size() == 1 ? "Delete static mesh actor" : "Delete static mesh actors";
-					for (const TObjectPtr<AActor>& Actor : PendingDeleteActors)
-						Request.Mutations.push_back({.Kind = EStaticMeshLevelMutationKind::Remove, .TargetName = Actor->GetFName()});
-					const FStaticMeshLevelMutationResult Result = ExecuteStaticMeshRequest(Context, std::move(Request));
-					if (!Result) Context.SetError(Result.Message);
-					else bDestroyedAny = Result.bChanged;
-				}
-				else
-				{
-					for (const TObjectPtr<AActor>& Actor : PendingDeleteActors)
-					{
-						if (!Actor) continue;
-						if (!Context.World->DestroyActor(Actor.Get()))
-							Context.SetError(std::format("Failed to delete '{}'.", Actor->GetName()));
-						else bDestroyedAny = true;
-					}
-					if (bDestroyedAny) Context.InvalidatePackageSavedState();
-				}
-				Context.ClearSelection();
+				std::vector<AActor*> Actors;
+				for (const auto& Actor : PendingDeleteActors) Actors.push_back(Actor.Get());
+				const auto Result = FActorMutations::Remove(*Context.Level, Actors,
+					GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly);
+				if (!Result) Context.SetError(Result.Message);
+				else Context.ClearSelection();
 				PendingDeleteActors.clear();
 				ImGui::CloseCurrentPopup();
 			}

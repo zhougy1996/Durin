@@ -199,6 +199,39 @@ namespace Durin
 		return true;
 	}
 
+	auto DLevel::SetActorPresence(AActor* Actor, bool bPresent, size_t ActorIndex, bool bRegisterComponents) -> bool
+	{
+		if (!IsValid(Actor) || Actor->IsTemplateObject() || Actor->GetOuter() != this || Actor->IsBeingDestroyed()
+			|| Actor->HasBegunPlay() || (OwningWorld && (OwningWorld->HasBegunPlay() || OwningWorld->IsEndingPlay()))
+			|| ContainsActor(Actor) == bPresent) return false;
+		if (bPresent)
+		{
+			if (FindActorByName(Actor->GetFName())) return false;
+			Actors.insert(Actors.begin() + std::min(ActorIndex, Actors.size()), Actor);
+			if (OwningWorld) Actor->RegisterTickFunction(this);
+			if (bRegisterComponents) OnActorAdded(Actor);
+			if (!PrimaryCameraActor) PrimaryCameraActor = Cast<ACameraActor>(Actor);
+		}
+		else
+		{
+			Actor->UnregisterTickFunction();
+			for (const auto& Component : Actor->GetComponentsSnapshot())
+				if (Component) Component->UnregisterComponent();
+			std::erase_if(Actors, [Actor](const auto& Entry) { return Entry.Get() == Actor; });
+			if (PrimaryCameraActor.Get() == Actor)
+			{
+				PrimaryCameraActor = nullptr;
+				for (const auto& Remaining : Actors)
+					if (auto* Camera = Cast<ACameraActor>(Remaining.Get())) { PrimaryCameraActor = Camera; break; }
+			}
+		}
+#if DURIN_WITH_EDITOR
+		NotifyEditorActorHierarchyChanged();
+#endif
+		MarkPackageDirty();
+		return true;
+	}
+
 	auto DLevel::DestroyAllActors() -> void
 	{
 		const std::vector<TObjectPtr<AActor>> Snapshot = Actors;

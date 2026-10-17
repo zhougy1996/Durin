@@ -1,8 +1,10 @@
 #include "SkyBoxPlacement.h"
+#include "Operations/ActorMutations.h"
 
 #include "Actors/SkyBoxActor.h"
 #include "Components/SkyBoxComponent.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Transactions/Transactor.h"
@@ -38,12 +40,14 @@ namespace Durin::Editor::Level
 
 		auto MakeUniqueActorName(DLevel& Level, FName Requested) -> FName
 		{
-			if (!Level.FindActorByName(Requested)) return Requested;
+			const auto Objects = GDObjectArray.GetObjectsWithOuter(&Level, EObjectQueryScope::LiveOnly);
+			auto Occupied = [&](FName Name) { return std::ranges::any_of(Objects, [Name](DObject* Object) { return Object->GetFName() == Name; }); };
+			if (!Occupied(Requested)) return Requested;
 			const std::string Base = Requested.ToString();
 			for (uint32 Suffix = 2;; ++Suffix)
 			{
 				FName Candidate(std::format("{}_{}", Base, Suffix));
-				if (!Level.FindActorByName(Candidate)) return Candidate;
+				if (!Occupied(Candidate)) return Candidate;
 			}
 		}
 
@@ -55,9 +59,24 @@ namespace Durin::Editor::Level
 				: Level(InLevel), TextureCube(InTextureCube), ActorName(InActorName)
 			{
 				AffectedPackages.front() = InLevel ? InLevel->GetPackage() : nullptr;
+				if (!InLevel || !IsValid(InTextureCube)) return;
+				FScopedPackageDirtySuppression SuppressPreparation;
+				auto* Prepared = NewObject<ASkyBoxActor>(InLevel, ActorName);
+				if (!Prepared || !Prepared->RequestNativeReconstruction())
+				{ if (Prepared) MarkObjectHierarchyAsGarbage(Prepared); return; }
+				Prepared->GetSkyBoxComponent()->SetTextureCube(InTextureCube);
+				AActor* Base = Prepared;
+				Presence = FActorMutations::MakePresenceChange(*InLevel, {&Base, 1}, false, "Place sky box");
+				Prepared->SetTransient(true);
+				Actor = Prepared;
+			}
+			~FCreateSkyBoxTransaction() override
+			{
+				if (!bEverPublished && IsValid(Actor.Get()) && Level && !Level->ContainsActor(Actor.Get())) MarkObjectHierarchyAsGarbage(Actor.Get());
 			}
 
 			auto GetDescription() const -> std::string_view override { return "Place sky box"; }
+			auto GetAllocatedSize() const -> size_t override { return Presence ? Presence->GetAllocatedSize() : 0; }
 			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override
 			{
@@ -72,25 +91,15 @@ namespace Durin::Editor::Level
 				const auto Reject = [&](Code Error) -> ::Durin::Editor::FTransactionCustomResult {
 					return {{.Code = Error, .TargetPath = Level ? Level->GetObjectPath() : std::string{}, .TargetLabel = ActorName.ToString()}};
 				};
-				if (!Level) return Reject(Code::TargetUnavailable);
-				if (Operation == ::Durin::Editor::ETransactionOperation::Undo)
-				{
-					ASkyBoxActor* Existing = Actor.Get();
-					if (!Existing || !Level->ContainsActor(Existing)) return Reject(Code::ActorMembership);
-					if (!Level->DestroyActor(Existing)) return Reject(Code::ActorDestroy);
-					Actor = nullptr;
-					return {};
-				}
-				if (!IsValid(TextureCube.Get())) return Reject(Code::ResourceUnavailable);
-				if (Level->FindActorByName(ActorName)) return Reject(Code::ActorNameCollision);
-				auto* Created = Level->SpawnActor<ASkyBoxActor>(ActorName);
-				if (!Created) return Reject(Code::ActorSpawn);
-				Created->GetSkyBoxComponent()->SetTextureCube(TextureCube.Get());
-				Actor = Created;
-				return {};
+				if (!Level || !Presence) return Reject(Code::TargetUnavailable);
+				if (Operation != ::Durin::Editor::ETransactionOperation::Undo && !IsValid(TextureCube.Get())) return Reject(Code::ResourceUnavailable);
+				auto Result = Presence->Replay(Operation);
+				if (Result) bEverPublished = true;
+				return Result;
 			}
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{
+				if (Presence) Presence->AddReferencedObjects(Collector);
 				for (DObject* Object : {static_cast<DObject*>(Level.Get()),
 					static_cast<DObject*>(TextureCube.Get()),
 					static_cast<DObject*>(Actor.Get())})
@@ -101,6 +110,8 @@ namespace Durin::Editor::Level
 			TObjectPtr<DLevel> Level;
 			TObjectPtr<DTextureCube> TextureCube;
 			TObjectPtr<ASkyBoxActor> Actor;
+			std::unique_ptr<::Durin::Editor::ITransactionCustomChange> Presence;
+			bool bEverPublished = false;
 			FName ActorName;
 			std::array<DPackage*, 1> AffectedPackages{};
 		};

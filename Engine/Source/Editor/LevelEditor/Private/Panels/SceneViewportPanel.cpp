@@ -30,7 +30,7 @@
 #include "Widgets/MWindow.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
-#include "StaticMeshLevelMutations.h"
+#include "Operations/ActorMutations.h"
 #include "SkyBoxPlacement.h"
 #include "Texture/TextureCube.h"
 
@@ -46,16 +46,6 @@ namespace Durin::Editor::Level
 			return Error == std::errc{} && End == Text.data() + Text.size() && std::isfinite(OutValue);
 		}
 
-		auto MakeUniqueActorName(DLevel& Level, FName Requested) -> FName
-		{
-			if (!Level.FindActorByName(Requested)) return Requested;
-			const std::string Base = Requested.ToString();
-			for (uint32 Suffix = 2;; ++Suffix)
-			{
-				FName Candidate(std::format("{}_{}", Base, Suffix));
-				if (!Level.FindActorByName(Candidate)) return Candidate;
-			}
-		}
 	} // namespace
 
 	FSceneViewportPanel::FSceneViewportPanel()
@@ -329,24 +319,13 @@ namespace Durin::Editor::Level
 							if (SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction))
 								PlacementTransform.Translation = Origin + Direction * 5.0;
 
-							auto Request = FStaticMeshLevelMutations::CaptureTarget(*Context.Level);
-							Request.bReadOnly = Context.bReadOnly;
-							Request.Description = "Place static mesh actor";
-							Request.Mutations.push_back({
-								.Kind = EStaticMeshLevelMutationKind::Create,
-								.TargetName = MakeUniqueActorName(*Context.Level, FName(AssetPath.GetAssetPath().GetAssetName())),
-								.Desired = {.StaticMesh = StaticMesh, .Transform = PlacementTransform},
-							});
-							const FStaticMeshLevelMutationPlan Plan = FStaticMeshLevelMutations::Plan(Request);
-							const FStaticMeshLevelMutationResult ApplyResult = FStaticMeshLevelMutations::Execute(Plan, {
-								.OpenLevel = Context.Level,
-								.Transactions = GEditor ? GEditor->GetTransactor() : nullptr,
-								.bReadOnly = Context.bReadOnly,
-							});
+							const auto ApplyResult = FActorMutations::Add(*Context.Level, AStaticMeshActor::StaticClass(),
+								FName(AssetPath.GetAssetPath().GetAssetName()), PlacementTransform,
+								GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly,
+								[StaticMesh](AActor& Created) { static_cast<AStaticMeshActor&>(Created).GetStaticMeshComponent()->SetStaticMesh(StaticMesh); });
 							if (!ApplyResult)
 								Context.SetError(ApplyResult.Message);
-							else if (!ApplyResult.ResultActorNames.empty())
-								Actor = Context.Level->FindActorByName(ApplyResult.ResultActorNames.front());
+							else Actor = ApplyResult.Actors.front().Get();
 						}
 						else if (DTextureCube* TextureCube = Cast<DTextureCube>(Asset))
 						{
@@ -365,18 +344,6 @@ namespace Durin::Editor::Level
 							Context.SetError("Only StaticMesh and TextureCube assets can be placed in the scene viewport.");
 						if (Actor)
 						{
-							FSceneView View;
-							uint32 Width = 0;
-							uint32 Height = 0;
-							FLevelEditorViewportClient::ResolveViewportExtent({VpMax.x - VpMin.x, VpMax.y - VpMin.y}, Width, Height);
-							ViewportClient->BuildViewMatrices(Width, Height, View);
-							const ImVec2 Mouse = ImGui::GetMousePos();
-							FVector3 Origin, Direction;
-							if (!Actor->IsA<AStaticMeshActor>() && !Actor->IsA<ASkyBoxActor>()
-								&& SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction)
-								&& Actor->GetRootComponent())
-								Actor->GetRootComponent()->SetWorldLocation(Origin + Direction * 5.0);
-							if (!Actor->IsA<AStaticMeshActor>() && !Actor->IsA<ASkyBoxActor>()) Context.InvalidatePackageSavedState(Actor->GetPackage());
 							Context.SelectActor(Actor);
 						}
 					}

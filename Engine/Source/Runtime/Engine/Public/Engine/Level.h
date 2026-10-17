@@ -36,6 +36,10 @@ namespace Durin
 		}
 
 		ENGINE_API auto DestroyActor(AActor* Actor) -> bool;
+		// Reversible editor membership; leaves object/component identity and terminal
+		// destruction callbacks intact. Callers restore attachments before registration.
+		ENGINE_API auto SetActorPresence(AActor* Actor, bool bPresent,
+			size_t ActorIndex = std::numeric_limits<size_t>::max(), bool bRegisterComponents = true) -> bool;
 		ENGINE_API auto DestroyAllActors() -> void;
 		ENGINE_API auto ContainsActor(const AActor* Actor) const -> bool;
 		ENGINE_API auto FindActorByName(FName Name) const -> AActor*;

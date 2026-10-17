@@ -4,6 +4,7 @@
 #include "Viewport/LevelEditorViewportClient.h"
 #include "Viewport/TransformGizmo.h"
 #include "Workspace/LevelEditorContext.h"
+#include "Operations/ActorMutations.h"
 
 namespace Durin::Editor::Level
 {
@@ -27,6 +28,23 @@ namespace Durin::Editor::Level
 				FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> bool override
 			{
 				LastClient = &Client;
+				if (!Context.bReadOnly && Context.Level && !Context.GetSelectedActors().empty() && (Input.bDuplicate || Input.bDelete))
+				{
+					std::vector<AActor*> Actors;
+					for (const auto& Actor : Context.GetSelectedActors()) Actors.push_back(Actor.Get());
+					const bool bDuplicate = Input.bDuplicate;
+					const auto Result = bDuplicate ? FActorMutations::Duplicate(*Context.Level, Actors, Transactions)
+						: FActorMutations::Remove(*Context.Level, Actors, Transactions);
+					if (!Result) Context.SetError(Result.Message);
+					else
+					{
+						Actors.clear();
+						if (bDuplicate) for (const auto& Actor : Result.Actors) Actors.push_back(Actor.Get());
+						Context.SetSelectedActors(Actors);
+					}
+					Input.bDuplicate = Input.bDelete = false;
+					return true;
+				}
 				const FTransformGizmoTargetSet Targets = GetGizmoTargets(Context);
 				Client.GetTransformGizmo().Update(Targets, View, Input, Transactions);
 				if (Client.GetTransformGizmo().IsHovered() || Client.GetTransformGizmo().IsDragging())

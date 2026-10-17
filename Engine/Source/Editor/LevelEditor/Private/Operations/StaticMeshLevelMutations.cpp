@@ -1,7 +1,9 @@
 #include "StaticMeshLevelMutations.h"
+#include "Operations/ActorMutations.h"
 
 #include "Actors/StaticMeshActor.h"
 #include "Components/StaticMeshComponent.h"
+#include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Transactions/Transactor.h"
@@ -177,7 +179,8 @@ namespace Durin::Editor::Level
 		}
 
 		auto ApplyStates(DLevel& Level, std::span<const FStaticMeshActorMutationDelta> Deltas,
-			bool bAfter) -> ::Durin::Editor::FTransactionCustomResult
+			bool bAfter, std::vector<TObjectPtr<AStaticMeshActor>>& Identities,
+			std::vector<std::unique_ptr<::Durin::Editor::ITransactionCustomChange>>& Presence) -> ::Durin::Editor::FTransactionCustomResult
 		{
 			if (DWorld* World = Level.GetWorld(); World && World->IsEndingPlay())
 			{
@@ -191,6 +194,8 @@ namespace Durin::Editor::Level
 				if (!Source) continue;
 				auto Validated = ValidateState(Level, *Source);
 				if (!Validated) { Validated.Error.MemberIndex = Index; return {std::move(Validated.Error)}; }
+				if (Identities[Index].Get() != Validated.Actor)
+					return {{.Code = ::Durin::Editor::ETransactionCustomError::ActorChanged, .MemberIndex = Index}};
 				Sources[Index] = Validated.Actor;
 				SourceActors.insert(Sources[Index]);
 			}
@@ -206,8 +211,7 @@ namespace Durin::Editor::Level
 				FStaticMeshActorMutationState Previous;
 			};
 			std::vector<FRenameJournalEntry> Renames;
-			std::vector<FStaticMeshActorMutationState> Removed;
-			std::vector<AStaticMeshActor*> Created;
+			std::vector<size_t> Removed, Created;
 			std::vector<FUpdateJournalEntry> Updates;
 			DPackage* Package = Level.GetPackage();
 			const bool bPackageWasDirty = Package && Package->IsDirty();
@@ -222,22 +226,16 @@ namespace Durin::Editor::Level
 					bRestored = It->Actor->SetActorTransform(It->Previous.Transform) && bRestored;
 					It->Actor->SetActorHiddenInGame(It->Previous.bHidden);
 				}
+				const auto Reverse = bAfter ? ::Durin::Editor::ETransactionOperation::Undo : ::Durin::Editor::ETransactionOperation::Redo;
 				for (auto It = Created.rbegin(); It != Created.rend(); ++It)
-					if (Level.ContainsActor(*It)) bRestored = Level.DestroyActor(*It) && bRestored;
+					bRestored = static_cast<bool>(Presence[*It]->Replay(Reverse)) && bRestored;
 				for (auto It = Renames.rbegin(); It != Renames.rend(); ++It)
 				{
 					if (!Level.ContainsActor(It->Actor)) { bRestored = false; continue; }
 					bRestored = Level.RenameActor(It->Actor, It->PreviousName) && bRestored;
 					bRestored = It->Actor->GetFName() == It->PreviousName && bRestored;
 				}
-				for (const FStaticMeshActorMutationState& State : Removed)
-				{
-					auto* Actor = Level.SpawnActor<AStaticMeshActor>(State.Name);
-					if (!Actor || Actor->GetFName() != State.Name) { bRestored = false; continue; }
-					Actor->GetStaticMeshComponent()->SetStaticMesh(State.StaticMesh.Get());
-					bRestored = Actor->SetActorTransform(State.Transform) && bRestored;
-					Actor->SetActorHiddenInGame(State.bHidden);
-				}
+				for (size_t Index : Removed) bRestored = static_cast<bool>(Presence[Index]->Replay(Reverse)) && bRestored;
 				if (Package && !bPackageWasDirty) Package->ClearDirty();
 				return bRestored;
 			};
@@ -315,9 +313,11 @@ namespace Durin::Editor::Level
 				const auto& Destination = bAfter ? Deltas[Index].After : Deltas[Index].Before;
 				if (Source && !Destination)
 				{
-					if (!Level.DestroyActor(Sources[Index]))
-						return FailAfterMutation({.Code = ::Durin::Editor::ETransactionCustomError::ActorDestroy, .TargetLabel = Source->Name.ToString(), .MemberIndex = Index});
-					Removed.push_back(*Source);
+					AActor* Actor = Sources[Index];
+					if (!Presence[Index]) Presence[Index] = FActorMutations::MakePresenceChange(Level, {&Actor, 1}, true, "Remove static mesh actor");
+					if (const auto Result = Presence[Index]->Replay(bAfter ? ::Durin::Editor::ETransactionOperation::Redo : ::Durin::Editor::ETransactionOperation::Undo); !Result)
+						return FailAfterMutation(Result.Error);
+					Removed.push_back(Index);
 					#if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
 					if (ConsumeInjectedFailure(Testing::EStaticMeshLevelMutationFailurePoint::AfterRemove))
 						return FailAfterMutation({.Code = ::Durin::Editor::ETransactionCustomError::InjectedMutation, .MemberIndex = Index, .MutationPhase = ::Durin::Editor::ETransactionMutationPhase::Remove});
@@ -333,13 +333,27 @@ namespace Durin::Editor::Level
 				AStaticMeshActor* Actor = Sources[Index];
 				if (!Source)
 				{
-					Actor = Level.SpawnActor<AStaticMeshActor>(Destination->Name);
-					if (!Actor || Actor->GetFName() != Destination->Name)
+					Actor = Identities[Index].Get();
+					if (!Presence[Index])
 					{
-						if (Actor) Level.DestroyActor(Actor);
-						return FailAfterMutation({.Code = ::Durin::Editor::ETransactionCustomError::ActorSpawn, .TargetLabel = Destination->Name.ToString(), .MemberIndex = Index});
+						FScopedPackageDirtySuppression SuppressPreparation;
+						Actor = NewObject<AStaticMeshActor>(&Level, Destination->Name);
+						if (!Actor || !Actor->RequestNativeReconstruction())
+						{
+							if (Actor) MarkObjectHierarchyAsGarbage(Actor);
+							return FailAfterMutation({.Code = ::Durin::Editor::ETransactionCustomError::ActorSpawn, .MemberIndex = Index});
+						}
+						Actor->GetStaticMeshComponent()->SetStaticMesh(Destination->StaticMesh.Get());
+						Actor->SetActorTransform(Destination->Transform);
+						Actor->SetActorHiddenInGame(Destination->bHidden);
+						Identities[Index] = Actor;
+						AActor* BaseActor = Actor;
+						Presence[Index] = FActorMutations::MakePresenceChange(Level, {&BaseActor, 1}, false, "Create static mesh actor");
+						Actor->SetTransient(true);
 					}
-					Created.push_back(Actor);
+					if (const auto Result = Presence[Index]->Replay(bAfter ? ::Durin::Editor::ETransactionOperation::Redo : ::Durin::Editor::ETransactionOperation::Undo); !Result)
+						return FailAfterMutation(Result.Error);
+					Created.push_back(Index);
 					#if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
 					if (ConsumeInjectedFailure(Testing::EStaticMeshLevelMutationFailurePoint::AfterCreate))
 						return FailAfterMutation({.Code = ::Durin::Editor::ETransactionCustomError::InjectedMutation, .MemberIndex = Index, .MutationPhase = ::Durin::Editor::ETransactionMutationPhase::Create});
@@ -378,9 +392,20 @@ namespace Durin::Editor::Level
 				: Level(Plan.Level), Description(Plan.Description), Deltas(Plan.Deltas)
 			{
 				AffectedPackages.front() = Plan.Package.Get();
+				Identities.resize(Deltas.size());
+				Presence.resize(Deltas.size());
+				for (size_t Index = 0; Index < Deltas.size(); ++Index)
+					if (Deltas[Index].Before) Identities[Index] = Cast<AStaticMeshActor>(Level->FindActorByName(Deltas[Index].Before->Name));
 			}
 
 			auto GetDescription() const -> std::string_view override { return Description; }
+			auto GetAllocatedSize() const -> size_t override
+			{
+				size_t Bytes = Description.capacity() + Deltas.capacity() * sizeof(FStaticMeshActorMutationDelta)
+					+ Identities.capacity() * sizeof(TObjectPtr<AStaticMeshActor>) + Presence.capacity() * sizeof(decltype(Presence)::value_type);
+				for (const auto& Change : Presence) if (Change) Bytes += Change->GetAllocatedSize();
+				return Bytes;
+			}
 			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetDetails(::Durin::Editor::ETransactionOperation) const -> std::string override
 			{
@@ -393,6 +418,8 @@ namespace Durin::Editor::Level
 			{
 				DObject* Object = Level.Get();
 				if (Object) Collector.AddReferencedObject(Object);
+				for (const auto& Actor : Identities) { Object = Actor.Get(); if (Object) Collector.AddReferencedObject(Object); }
+				for (const auto& Change : Presence) if (Change) Change->AddReferencedObjects(Collector);
 				for (const FStaticMeshActorMutationDelta& Delta : Deltas)
 					for (const FStaticMeshActorMutationState* State : {
 						Delta.Before ? &*Delta.Before : nullptr,
@@ -408,7 +435,7 @@ namespace Durin::Editor::Level
 			auto Apply(bool bAfter) -> ::Durin::Editor::FTransactionCustomResult
 			{
 				if (!Level) return {{.Code = ::Durin::Editor::ETransactionCustomError::TargetUnavailable}};
-				auto Result = ApplyStates(*Level, Deltas, bAfter);
+				auto Result = ApplyStates(*Level, Deltas, bAfter, Identities, Presence);
 				if (!Result)
 				{
 					Result.Error.TargetPath = Level->GetObjectPath();
@@ -420,6 +447,8 @@ namespace Durin::Editor::Level
 			TObjectPtr<DLevel> Level;
 			std::string Description;
 			std::vector<FStaticMeshActorMutationDelta> Deltas;
+			std::vector<TObjectPtr<AStaticMeshActor>> Identities;
+			std::vector<std::unique_ptr<::Durin::Editor::ITransactionCustomChange>> Presence;
 			std::array<DPackage*, 1> AffectedPackages{};
 		};
 	}

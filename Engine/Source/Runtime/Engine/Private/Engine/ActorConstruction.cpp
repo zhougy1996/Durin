@@ -111,7 +111,10 @@ namespace Durin
 		for (const FDesiredEntry& Entry : Desired) DesiredComponents.insert(Entry.Component);
 
 		Actor.GeneratedComponents = Next;
-		Actor.OwnedComponents = Actor.AuthoredComponents;
+		// Authored components can finish PostLoad before their Actor. A duplicated
+		// instance component then needs its native ownership flag rebuilt as well.
+		Actor.OwnedComponents.clear();
+		for (const auto& Component : Actor.AuthoredComponents) Actor.AddOwnedComponent(Component.Get());
 		for (const FDesiredEntry& Entry : Desired)
 		{
 			Actor.AddOwnedComponent(Entry.Component);

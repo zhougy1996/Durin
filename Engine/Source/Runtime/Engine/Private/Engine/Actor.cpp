@@ -156,6 +156,58 @@ namespace Durin
 		return true;
 	}
 
+	auto AActor::SetInstanceComponentPresence(DActorComponent* Component, bool bPresent, bool bRegister, size_t InstanceIndex) -> bool
+	{
+		if (!IsValid(Component) || Component->GetOwner() != this || IsBeingDestroyed()
+			|| Component->IsBeingDestroyed() || HasBegunPlay() || Component->HasBegunPlay()
+			|| Component->HasAnyObjectFlags(EObjectFlags::ClassDefaultObject | EObjectFlags::DefaultSubobject)
+			|| Component->GetCreationMethod() == EComponentCreationMethod::Generated) return false;
+		if (bPresent)
+		{
+			if (OwnsComponent(Component)) return false;
+			for (const auto& Existing : OwnedComponents)
+				if (Existing && Existing->GetFName() == Component->GetFName()) return false;
+			Component->SetCreationMethod(EComponentCreationMethod::Instance);
+			DActorComponent* Next = InstanceIndex < InstanceComponents.size() ? InstanceComponents[InstanceIndex].Get() : nullptr;
+			AddAuthoredComponent(Component);
+			AddOwnedComponent(Component);
+			InstanceComponents.emplace_back(Component);
+			if (Next)
+			{
+				for (auto* Components : {&AuthoredComponents, &OwnedComponents, &InstanceComponents})
+				{
+					auto It = std::ranges::find_if(*Components, [Next](const auto& Entry) { return Entry.Get() == Next; });
+					std::rotate(It, std::prev(Components->end()), Components->end());
+				}
+			}
+			Component->OnComponentCreated();
+			if (bRegister) Component->RegisterComponent();
+		}
+		else
+		{
+			if (!IsInstanceComponent(Component)) return false;
+			if (auto* SceneComponent = Cast<DSceneComponent>(Component))
+			{
+				const auto Children = SceneComponent->GetAttachChildren();
+				for (const auto& Child : Children)
+					if (Child && Child->GetAttachParent() == SceneComponent)
+						Child->DetachFromComponent(EDetachmentTransformRule::KeepWorld);
+				if (SceneComponent->GetAttachParent()) SceneComponent->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
+				if (RootComponent == SceneComponent) SetRootComponent(nullptr);
+			}
+			Component->UnregisterComponent();
+			if (Component->bHasBeenCreated)
+			{
+				Component->OnComponentDestroyed();
+				check(!Component->bHasBeenCreated);
+			}
+			RemoveOwnedComponent(Component);
+		}
+		ValidateComponentOwnership();
+		MarkPackageDirty();
+		return true;
+	}
+
 	auto AActor::IsInstanceComponent(const DActorComponent* Component) const -> bool
 	{
 		return Component && std::ranges::any_of(InstanceComponents, [Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; });

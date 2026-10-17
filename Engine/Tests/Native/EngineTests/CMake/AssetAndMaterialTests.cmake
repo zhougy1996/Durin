@@ -276,9 +276,12 @@ durin_add_native_test(LevelMutationTests
 		"LevelEditor-owned mutation white-box coverage keeps structural transaction implementations private."
 	COMPILE_DEFINITIONS LEVELEDITOR_EXPORTS DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION=1
 	SOURCES Private/Editor/StaticMeshLevelMutationTests.cpp Private/Editor/WorldOutlinerActorAttachmentTests.cpp
+		Private/Editor/ComponentMutationTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Operations/StaticMeshLevelMutations.cpp
 		${_durin_level_editor_private}/Panels/ActorAttachmentTransaction.cpp
+		${_durin_level_editor_private}/Operations/ComponentMutations.cpp
+		${_durin_level_editor_private}/Operations/ActorMutations.cpp
 	LIBRARIES Core CoreDObject Engine DurinEd
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private

@@ -66,6 +66,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	ASSERT_TRUE(Level->DestroyActor(Conflict));
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Message, "The requested actor name is occupied.");
+	EXPECT_EQ(Level->FindActorByName("Sky"), Actor);
 	Actor = Durin::Cast<Durin::ASkyBoxActor>(Level->FindActorByName("Sky"));
 	ASSERT_NE(Actor, nullptr);
 	EXPECT_EQ(Durin::ASkyBoxActor::StaticClass()->GetDisplayName(), "Sky Box Actor");

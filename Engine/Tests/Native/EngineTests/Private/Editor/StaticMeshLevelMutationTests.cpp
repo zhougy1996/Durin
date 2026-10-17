@@ -132,7 +132,7 @@ TEST(FStaticMeshLevelMutationTests, UpdatesRenamesAndRemovesSupportedActors)
 	EXPECT_DOUBLE_EQ(UpdateActor->GetActorTransform().Translation.x, 0.0);
 	EXPECT_NE(Fixture.Level->FindActorByName("RenameMe"), nullptr);
 	EXPECT_EQ(Fixture.Level->FindActorByName("Renamed"), nullptr);
-	EXPECT_NE(Fixture.Level->FindActorByName("RemoveMe"), nullptr);
+	EXPECT_EQ(Fixture.Level->FindActorByName("RemoveMe"), RemoveActor);
 	Transactions->Reset();
 }
 

@@ -4,7 +4,7 @@ Summary: Define exact editor transaction object identity, collector-enumerated r
 
 Modules: CoreDObject, DurinEd
 
-Last reviewed: 2026-09-22
+Last reviewed: 2026-10-17
 
 ## Scope
 
@@ -150,8 +150,10 @@ operation; there are no per-record manual roots to unwind.
 Transaction references follow the ordinary CoreDObject reachability rules. A
 directly referenced child keeps its complete Outer chain alive. Referencing an
 Outer does not retain children or siblings. Object creation and deletion need
-explicit future records; a persistent reference never resurrects a garbage
-object.
+explicit structural records; a persistent reference never resurrects a garbage
+object. [Component structure history](LevelEditorDetails.md#component-structure-history)
+retains the component and its complete Outer subtree while membership is absent,
+then restores the same live identity through lifecycle and attachment APIs.
 
 ## Related Documentation
 

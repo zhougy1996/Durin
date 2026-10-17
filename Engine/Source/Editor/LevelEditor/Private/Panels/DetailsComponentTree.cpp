@@ -1,8 +1,8 @@
 #include "Panels/DetailsComponentTree.h"
+#include "Operations/ComponentMutations.h"
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
-#include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "Engine/Actor.h"
@@ -75,46 +75,17 @@ namespace Durin::Editor::Level
 			RenameDialog.Open(Component->GetName());
 		};
 		auto DuplicateComponent = [&](DActorComponent* Source) {
-			if (!Source || !Actor->IsInstanceComponent(Source)) return;
-			DActorComponent* Duplicate = Actor->AddInstanceComponent(Source->GetClass(), Source->GetFName());
-			if (!Duplicate)
-			{
-				Context.SetError(std::format("Failed to duplicate component '{}'.", Source->GetName()));
-				return;
-			}
-			Duplicate->UnregisterComponent();
-			const std::unordered_map<DObject*, DObject*> ReferenceMap{{Source, Duplicate}};
-			if (const auto CopyResult = CopyEditableObjectProperties(Source, Duplicate, ReferenceMap); !CopyResult)
-			{
-				Actor->DestroyInstanceComponent(Duplicate);
-				Context.SetError(std::format("Failed to duplicate component '{}': {}", Source->GetName(), ToString(CopyResult.error())));
-				return;
-			}
-			if (auto* SourceScene = Cast<DSceneComponent>(Source); SourceScene)
-			{
-				auto* DuplicateScene = Cast<DSceneComponent>(Duplicate);
-				DSceneComponent* Parent = SourceScene->GetAttachParent();
-				if (DuplicateScene && Parent && !DuplicateScene->AttachToComponent(Parent, EAttachmentTransformRule::KeepRelative))
-				{
-					Actor->DestroyInstanceComponent(Duplicate);
-					Context.SetError(std::format("Failed to attach duplicated component '{}'.", Source->GetName()));
-					return;
-				}
-				PendingExpandComponent = Parent;
-			}
-			Duplicate->RegisterComponent();
-			Context.SelectComponent(Duplicate);
-			Context.InvalidatePackageSavedState(Actor->GetPackage());
+			const auto Result = FComponentMutations::Duplicate(*Actor, Source,
+				GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly);
+			if (!Result) { Context.SetError(Result.Message); return; }
+			Context.SelectComponent(Result.Component);
+			if (auto* Scene = Cast<DSceneComponent>(Result.Component)) PendingExpandComponent = Scene->GetAttachParent();
 		};
 		auto ReparentComponent = [&](DSceneComponent* Moving, DSceneComponent* Parent) {
-			if (!Moving || !Parent || Moving == Actor->GetRootComponent() || Moving->GetOwner() != Actor || Parent->GetOwner() != Actor) return;
-			if (!Moving->AttachToComponent(Parent, EAttachmentTransformRule::KeepWorld))
-			{
-				Context.SetError(std::format("Failed to attach '{}' to '{}'.", Moving->GetName(), Parent->GetName()));
-				return;
-			}
+			const auto Result = FComponentMutations::Reparent(*Actor, Moving, Parent,
+				GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly);
+			if (!Result) { Context.SetError(Result.Message); return; }
 			PendingExpandComponent = Parent;
-			Context.InvalidatePackageSavedState(Actor->GetPackage());
 		};
 
 		std::unordered_set<DActorComponent*> Visited;
@@ -155,7 +126,7 @@ namespace Durin::Editor::Level
 				if (ImGui::MenuItem("Add Component")) QueueAddComponent(nullptr, false);
 				if (SceneComponent && ImGui::MenuItem("Add Child Component")) QueueAddComponent(SceneComponent, true);
 				ImGui::Separator();
-				if (ImGui::MenuItem("Rename", "F2")) BeginRenameComponent(Component);
+				if (ImGui::MenuItem("Rename", "F2", false, !Component->IsTemplateObject())) BeginRenameComponent(Component);
 				if (bIsInstance && !bIsRoot)
 				{
 					if (ImGui::MenuItem("Duplicate Component", "Ctrl+D")) DuplicateComponent(Component);
@@ -289,6 +260,7 @@ namespace Durin::Editor::Level
 		if (!Context.bReadOnly && bComponentsFocused && !IO.WantTextInput && Context.GetSelectedComponent())
 		{
 			if (ImGui::IsKeyPressed(ImGuiKey_F2, false)
+				&& !Context.GetSelectedComponent()->IsTemplateObject()
 				&& Context.GetSelectedComponent()->GetCreationMethod() != EComponentCreationMethod::Generated)
 				BeginRenameComponent(Context.GetSelectedComponent());
 			if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false) && Actor->IsInstanceComponent(Context.GetSelectedComponent()) && Context.GetSelectedComponent() != Actor->GetRootComponent()) DuplicateComponent(Context.GetSelectedComponent());
@@ -300,9 +272,8 @@ namespace Durin::Editor::Level
 		}
 		DActorComponent* RenameTarget = RenamingComponent.Get();
 		const EEditorRenameDialogResult RenameResult = RenameDialog.Draw("Rename Component", RenameTarget ? RenameTarget->GetName() : std::string_view(), [&](std::string_view NewName) -> std::string {
-			if (!RenameTarget || !Actor->RenameComponent(RenameTarget, FName(NewName))) return "Failed to rename component.";
-			Context.InvalidatePackageSavedState(Actor->GetPackage());
-			return {};
+			return FComponentMutations::Rename(*Actor, RenameTarget, FName(NewName),
+				GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly).Message;
 		});
 		if (RenameResult != EEditorRenameDialogResult::None) RenamingComponent = nullptr;
 		if (bOpenAddPopup) ImGui::OpenPopup("Add Component");
@@ -322,28 +293,15 @@ namespace Durin::Editor::Level
 				ImGui::PushID(Class);
 				if (ImGui::Selectable(DisplayName.c_str()))
 				{
-					DActorComponent* NewComponent = Actor->AddInstanceComponent(Class, FName(Class->GetDefaultObjectName()));
-					bool bSucceeded = NewComponent != nullptr;
-					if (bSucceeded && bAddComponentAsChild)
-					{
-						auto* NewSceneComponent = Cast<DSceneComponent>(NewComponent);
-						DSceneComponent* Parent = AddComponentParent.Get();
-						bSucceeded = NewSceneComponent && Parent && NewSceneComponent->AttachToComponent(Parent, EAttachmentTransformRule::SnapToTarget);
-						if (!bSucceeded)
-							Actor->DestroyInstanceComponent(NewComponent);
-						else
-							PendingExpandComponent = Parent;
-					}
-					if (!bSucceeded)
-					{
-						Context.SetError(std::format("Failed to add component of class {}.", Class->GetQualifiedName()));
-					}
+					const auto Result = bAddComponentAsChild && !AddComponentParent
+						? FComponentMutationResult{nullptr, "The component parent is unavailable."}
+						: FComponentMutations::Add(*Actor, Class, bAddComponentAsChild ? AddComponentParent.Get() : nullptr,
+							GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly);
+					if (!Result) Context.SetError(Result.Message);
 					else
 					{
-						Context.SelectComponent(NewComponent);
-						Context.InvalidatePackageSavedState(Actor->GetPackage());
-						if (auto* NewSceneComponent = Cast<DSceneComponent>(NewComponent); !bAddComponentAsChild && NewSceneComponent)
-							PendingExpandComponent = NewSceneComponent->GetAttachParent();
+						Context.SelectComponent(Result.Component);
+						if (auto* Scene = Cast<DSceneComponent>(Result.Component)) PendingExpandComponent = Scene->GetAttachParent();
 					}
 					ImGui::CloseCurrentPopup();
 				}
@@ -358,15 +316,14 @@ namespace Durin::Editor::Level
 		{
 			ImGui::Text("Delete component '%s'?", PendingDeleteComponent ? PendingDeleteComponent->GetName().c_str() : "");
 			ImGui::TextDisabled("Its scene children will remain on the actor and keep their world transforms.");
-			ImGui::TextDisabled("This action cannot be undone.");
+			ImGui::TextDisabled("This action can be undone.");
 			if (ImGui::Button("Delete"))
 			{
 				DActorComponent* Component = PendingDeleteComponent.Get();
-				if (Component && !Actor->DestroyInstanceComponent(Component))
-					Context.SetError("Failed to delete component.");
-				else if (Component)
-					Context.InvalidatePackageSavedState(Actor->GetPackage());
-				if (Context.GetSelectedComponent() == Component) Context.SelectComponent(nullptr);
+				const auto Result = FComponentMutations::Remove(*Actor, Component,
+					GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly);
+				if (!Result) Context.SetError(Result.Message);
+				else if (Context.GetSelectedComponent() == Component) Context.SelectComponent(nullptr);
 				PendingDeleteComponent = nullptr;
 				ImGui::CloseCurrentPopup();
 			}

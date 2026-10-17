@@ -1,4 +1,5 @@
 #include "ViewportTestSupport.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "Components/SplineMeshComponent.h"
 #include "LevelEditorViewportEditing.h"
 #include "StaticMesh/StaticMesh.h"
@@ -166,6 +167,35 @@ TEST(FViewportPickingContractTests, InvalidatesRetiredTargetsButNotCameraMotion)
 	ASSERT_TRUE(Fixture.Level->DestroyActor(Fixture.Actor));
 	Durin::CollectGarbage();
 	EXPECT_EQ(Fixture.Client.PollViewportPick(Destroyed.Ticket).Status, Durin::Editor::Level::EViewportPickStatus::Invalidated);
+}
+
+TEST(FViewportPickingContractTests, SelectModeDuplicateAndDeleteUseStructuralHistory)
+{
+	FPickingFixture Fixture;
+	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Editor::Level::FLevelEditorContext Context;
+	Context.Synchronize(Fixture.World);
+	Context.SelectActor(Fixture.Actor);
+	Durin::Editor::Level::FLevelViewportEditModeManager Manager;
+	Durin::Editor::Level::FLevelEditorViewportInput Input;
+	Input.bDuplicate = true;
+	ASSERT_TRUE(Manager.Tick(Context, Fixture.Client, Fixture.View, Input, Transactions.Get()));
+	auto* Copy = Context.GetPrimarySelectedActor();
+	ASSERT_NE(Copy, nullptr);
+	EXPECT_NE(Copy, Fixture.Actor);
+	EXPECT_TRUE(Fixture.Level->ContainsActor(Copy));
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_FALSE(Fixture.Level->ContainsActor(Copy));
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_TRUE(Fixture.Level->ContainsActor(Copy));
+	Context.SelectActor(Copy);
+	Input.bDelete = true;
+	ASSERT_TRUE(Manager.Tick(Context, Fixture.Client, Fixture.View, Input, Transactions.Get()));
+	EXPECT_FALSE(Fixture.Level->ContainsActor(Copy));
+	EXPECT_TRUE(Context.GetSelectedActors().empty());
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_TRUE(Fixture.Level->ContainsActor(Copy));
+	Manager.Shutdown(&Context);
 }
 
 TEST(FViewportPickingContractTests, CancelsPendingWorkOnModeAndViewportExit)

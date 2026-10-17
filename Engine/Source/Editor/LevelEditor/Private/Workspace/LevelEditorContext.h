@@ -57,7 +57,6 @@ namespace Durin::Editor::Level
 		auto GetSelectedSubElements() const -> const std::vector<FEditorSubElementSelection>& { return SelectedSubElements; }
 		auto IsSubElementSelected(const FEditorSubElementSelection& Element) const -> bool;
 		auto SetError(std::string Message) const -> void { if (ReportError) ReportError(std::move(Message)); }
-		auto InvalidatePackageSavedState(DPackage* Package = nullptr) const -> void;
 
 	private:
 		std::vector<TObjectPtr<AActor>> SelectedActors;
