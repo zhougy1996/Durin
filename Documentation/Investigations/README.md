@@ -23,9 +23,10 @@
   commands, so fixed worker and pool limits cannot both avoid oversubscription
   and lend idle compiler capacity to critical-path reflection generation.
 - [Metal unsynchronized drawable pacing](MetalUnsynchronizedDrawablePacing.md) —
-  three drawables retain a 60 Hz presentation cadence with synchronization off,
-  even after removing scene redraw and the final blit; two remove the ceiling
-  on the measured M4 host, while the underlying system policy remains unresolved.
+  native controls isolate a titled/opaque/three-drawable display-path throttle;
+  title-bit and opacity transitions reverse it, and traces confirm direct-display
+  versus compositor output. Two drawables remove the local ceiling; private
+  system policy and production/cross-machine qualification remain unresolved.
 
 This index lists verified unresolved investigations only. Authoring and
 lifecycle rules are in `AGENTS.md`; resolved history belongs in Git, an archived

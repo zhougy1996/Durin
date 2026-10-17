@@ -2,20 +2,40 @@
 
 **Status:** Open
 
-**Last reviewed:** 2026-10-05
+**Last reviewed:** 2026-10-18
 
 ## Scope And Verdict
 
 On the measured Apple M4/macOS/display configuration, a Metal viewport with
 `displaySyncEnabled=false` and three drawables presents at 60 Hz. Two drawables
-remove that ceiling. The remaining question is why the system presentation path
-changes its behavior with pool capacity; no production policy change is selected
-by this investigation.
+remove that ceiling in the measured Editor workload. The
+[native-window follow-up](#native-window-follow-up-on-2026-10-18) reproduces the
+same throttle in an AppKit/Metal program without the engine, GLFW, frame fences,
+or an RHI command queue. The engine is not necessary to produce this behavior.
 
-The evidence locates the sustained throttle at drawable acquisition and
-presentation/recycling. It does not establish a universal triple-buffering rule,
-an Apple driver defect, or an independently reproduced Core Animation defect.
-Two drawables are a verified local workaround, not a cross-machine qualification.
+The sustained throttle is refresh-coupled drawable presentation/recycling:
+`nextDrawable()` waits for Core Animation's drawable-availability semaphore, and
+that wait propagates through the RHI queue to RenderThread and GameThread.
+The [lifecycle and display-path controls](#lifecycle-and-display-path-controls-on-2026-10-18)
+isolate a reversible interaction among `NSWindowStyleMaskTitled`, layer opacity,
+and the three-drawable direct-to-display path. Clearing only the title bit or
+only layer opacity removes the throttle; restoring either restores it. A Metal
+System Trace confirms the opaque path displays the probe's surfaces directly,
+whereas nonopaque phases use compositor output surfaces. The private system
+policy behind that interaction remains unknown. This is not a universal
+triple-buffering rule or an established Apple driver defect. Two drawables are
+a verified local workaround, not a cross-machine qualification.
+
+The previous investigation restored all experimental source changes. Production
+`FMetalViewport::ApplyRequestedPresentationPolicy()` still changes only
+`displaySyncEnabled` and leaves the default three-drawable pool intact, explaining
+why the same symptom remains after disabling synchronization. A bounded repair
+candidate is described below; no production policy change is made here.
+
+The [UE 5.8.3 source comparison](#ue-583-source-comparison-on-2026-10-18)
+finds no VSync-dependent drawable-pool reduction. Its macOS native-present path
+retains the default pool capacity of three and additionally forces layer
+synchronization outside the running-game/fullscreen case.
 
 Relevant contracts: [viewport rendering](../Runtime/Rendering/ViewportRendering.md)
 and [performance measurement authority](../Development/Build/RenderingPerformanceBaseline.md).
@@ -131,9 +151,9 @@ possible waits. Presented callback dispatch time is recorded separately from
 
 ## Remaining Validation Gaps
 
-- A minimal native Metal window outside the engine is needed before assigning
-  the behavior exclusively to macOS/Core Animation rather than an interaction
-  with the host window and submission path.
+- The native-window follow-up removes the engine, GLFW, and custom title bar as
+  necessary causes. It still shares the same OS, GPU, display, and BetterDisplay
+  environment; it does not identify the private system scheduling rule.
 - A Metal System Trace can distinguish GPU resource waits, WindowServer
   scheduling, and drawable recycling; the current timestamps do not reveal the
   private system policy responsible for the three-versus-two difference.
@@ -192,3 +212,383 @@ Only the two Metal source files were temporarily instrumented for this follow-up
 both were restored and the MetalRHI target build passed afterward
 (`20261005-173525-107556-64483-cmake.log`). The display remains at the user's
 30 Hz setting. No production policy change was retained.
+
+## Native Window Follow-Up On 2026-10-18
+
+### Current Editor And Independent Reproduction
+
+The source baseline is `1c0c3718c0e02f5a0b27fc8d3266e7eb87a9171a`.
+The running Editor's `20261018-053138-25980` log confirms
+`policy=Unsynchronized`, `requestedSync=false`, `displaySyncEnabled=false`, and
+`maximumDrawableCount=3`. A read-only stack sample reaches:
+
+```text
+FMetalCommandContextImpl::RHIEndDrawingViewport
+  -[CAMetalLayer nextDrawable]
+    CAMetalLayerPrivateNextDrawableLocked
+      _dispatch_semaphore_wait_slow
+        semaphore_timedwait_trap
+```
+
+This matches the reported Tracy chain: drawable acquisition blocks RHI replay,
+RHI admission backpressure blocks RenderThread, and a render fence blocks
+GameThread. These enclosing CPU zones are waiting time, not independent rendering
+costs that should be summed. `GetPresentMode()` reports Immediate from the layer's
+configuration; it does not measure the realized recycling cadence.
+
+A separate Objective-C++ probe creates an AppKit window and `CAMetalLayer`, with
+an optional GLFW host using the repository's installed GLFW library. It has no
+Durin modules, RHI queue, render thread, or frame fences. The matched path clears
+one shared offscreen texture, commits it, obtains a drawable, and submits a
+second command buffer containing the final copy and presentation. Each frame has
+an autorelease pool; application drawable references do not survive the frame.
+
+Controlled runs use a 3840x1920 sRGB drawable, `framebufferOnly=false`,
+`presentsWithTransaction=false`, and synchronization off. Every process runs
+300 frames; analysis selects frames 60 through 279. The optional 5 ms CPU-side
+sleep models time between submissions; it is not a 60 Hz timer or display link.
+Each host alternates 3 -> 2 -> 3 drawables in separate processes.
+
+| Native host / CPU delay | Drawables | Acquisition FPS | Mean acquisition wait (ms) | Mean final-copy GPU span (ms) | Mean GPU-end-to-present interval (ms) |
+| --- | --- | --- | --- | --- | --- |
+| AppKit / 5 ms | 3 | 59.985 | 10.282 | 0.788 | 31.685 |
+| AppKit / 5 ms | 2 | 125.826 | 1.651 | 0.856 | 8.616 |
+| AppKit / 5 ms, repeat | 3 | 60.002 | 10.234 | 0.877 | 31.582 |
+| GLFW / 5 ms | 3 | 59.998 | 10.281 | 0.881 | 31.590 |
+| GLFW / 5 ms | 2 | 132.668 | 1.244 | 0.812 | 8.501 |
+| GLFW / no delay | 3 | 59.987 | 16.452 | 0.854 | 31.564 |
+| GLFW / no delay | 2 | 184.548 | 5.222 | 0.957 | 8.521 |
+| GLFW / no delay, repeat | 3 | 59.997 | 16.448 | 0.863 | 31.562 |
+
+The three-drawable presented intervals remain approximately 16.668 ms. The
+offscreen clear precedes the measured final-copy command buffer, so the GPU span
+column is not total frame GPU cost. This remains a diagnostic comparison, not a
+Release performance baseline or a physical-panel FPS measurement.
+
+Per-run metadata records no running DurinEditor or Tracy profiler before or after
+these controlled runs. BetterDisplay remains running. Logs identify Apple M4,
+macOS 27.0.1/build 26A434, and a 60.000 Hz display. Each process reports all
+300 GPU completions, all 300 presented callbacks, and zero command-buffer errors.
+
+Earlier exploratory runs had a concurrent Editor/profiler and different host
+and submission settings. Some submitted about 120 frames/s with three drawables,
+with approximately half receiving `presentedTime=0`; others submitted about
+60 frames/s with two. The concurrent Editor exited before the controlled series.
+These observations reinforce the configuration boundary of the workaround;
+they do not isolate a necessary window style, CPU delay, or concurrent-process
+cause. Custom title bars and GLFW are not necessary to reproduce the controlled
+throttle, and three drawables do not universally impose 60 FPS.
+
+### Presentation API And Runtime Policy Controls
+
+On the native GLFW/custom-title-bar path with the 5 ms delay, replacing
+`MTLCommandBuffer::presentDrawable()` with `MTLDrawable::present()` in a scheduled
+handler still produces 59.999 FPS with three drawables. Waiting until scheduled
+and then calling `present()` directly produces 59.997 FPS. These API substitutions
+do not repair this reproduced ceiling. They may have other submission benefits;
+[MoltenVK uses the scheduled-handler form](https://github.com/KhronosGroup/MoltenVK/blob/main/MoltenVK/MoltenVK/GPUObjects/MVKImage.mm),
+but that is not evidence that it fixes this issue.
+
+A single native GLFW process then changes both layer properties at the drawing
+boundary, without recreating the layer or adding a GPU-idle wait. Each phase has
+120 frames; analysis selects local frames 40 through 109:
+
+| Phase | Drawables | Synchronization | Acquisition FPS | Mean acquisition wait (ms) |
+| --- | --- | --- | --- | --- |
+| Initial | 3 | On | 60.004 | 16.426 |
+| Disable and reduce pool | 2 | Off | 183.339 | 5.268 |
+| Restore pool only | 3 | Off | 59.994 | 16.451 |
+| Reduce pool again | 2 | Off | 190.468 | 5.029 |
+| Restore synchronized policy | 3 | On | 60.001 | 16.414 |
+
+The measured texture identities cycle through two or three textures as requested.
+All 600 GPU completions and presented callbacks arrive with zero errors. This
+verifies the native transition sequence locally; it does not qualify production
+Editor policy switching, resizing, multiple windows, or image contents.
+
+### Bounded Repair Candidate And Remaining Attribution
+
+For `Unsynchronized`, explicitly request two drawables along with
+`displaySyncEnabled=false` in `FMetalViewport::ApplyRequestedPresentationPolicy()`.
+Retain three drawables for `FramePaced`; apply both settings on the existing RHI
+drawing boundary and log their read-back values. Qualify the existing native
+viewport tests plus visible Editor switching, resize, and multiple-window paths
+before adopting that policy. Do not introduce a GPU-idle wait every frame or
+expand the RHI/frame-fence queue to conceal the presentation wait. Changes to
+`BestEffort` need their own bounded-acquisition contract review.
+
+This is a targeted workaround for the independently reproduced native
+presentation/recycling behavior. Public APIs expose pool size and synchronization
+intent, not the private WindowServer/Core Animation recycling decision. Apple's
+[drawable acquisition contract](https://developer.apple.com/documentation/quartzcore/cametallayer/nextdrawable())
+explicitly permits waiting when the pool is occupied; disabling synchronization
+does not turn acquisition into a nonblocking operation. No evidence here assigns
+the private behavior specifically to an Apple GPU driver defect.
+
+An attempted five-second Metal System Trace could not attach because Editor
+process 25980 had already exited. No trace was recorded and no replacement Editor
+was launched. A BetterDisplay-off control, another OS/display/device, and system
+trace attribution remain open. The native program was compiled with Apple clang
+using `-O2`; it is not an engine Release/Tracy-off acceptance run.
+
+Probe source, runner, raw CSVs, per-run logs, process metadata, the Editor policy
+excerpt, and stack sample are retained under ignored
+`Build/.agent-state/metal-pacing-20261018/`. The matched controls are
+`*-large-control-appkit-delay5`, `*-large-control-glfw-delay5`, and
+`*-large-control-glfw-fast`; the transition samples are `policy-switch.csv` and
+`policy-switch-summary.json`. The local `README.md` records reproduction commands.
+The October 5 raw-evidence directory was not present in this checkout or the main
+checkout during this follow-up; its historical receipts above have not been
+revalidated. Production source remains unchanged.
+
+## UE 5.8.3 Source Comparison On 2026-10-18
+
+### Public Artifact And Verification Boundary
+
+A publicly pullable, third-party development image contains the requested source:
+[`wukakuki/unreal-engine:dev-5.8.3`](https://hub.docker.com/layers/wukakuki/unreal-engine/dev-5.8.3/images/sha256-cb46b38e25eae49cbe1480255c796622679ad7ef53b732c9309bb29923894745).
+The pinned manifest digest is
+`sha256:cb46b38e25eae49cbe1480255c796622679ad7ef53b732c9309bb29923894745`.
+The extracted `Engine/Build/Build.version` identifies 5.8.3, changelist 58210709,
+compatible changelist 55116800, promoted build, branch `++UE5+Release-5.8`.
+This establishes the artifact's internal version identity; it does not authenticate
+its source against Epic's access-controlled upstream Git repository.
+
+The manifest digest and the complete base-layer digest were verified. A bounded
+stream of the source layer saved all 106 source/header/build-rule files in
+`Engine/Source/Runtime/Apple/MetalRHI/`, with individual SHA-256 receipts.
+The source-layer stream stopped after that directory; its complete layer digest
+was **not** verified. No container executable or engine binary was run.
+The three key files also match the publicly readable
+[Arkfall mirror at commit 546b25d9e1eead201ec92ae6580cd471abec39ea](https://github.com/Arkfall-Development/UnrealEngine/tree/546b25d9e1eead201ec92ae6580cd471abec39ea/Engine/Source/Runtime/Apple/MetalRHI),
+whose own version file says 5.8.2. That is a corroborating code comparison,
+not an independent 5.8.3 version certificate.
+
+| Extracted file | SHA-256 |
+| --- | --- |
+| `Private/MetalViewport.cpp` | `f2c87a1e972a5c9545f2e67acd87c2e64789f3c1e6f136ca50062fda26dda877` |
+| `Private/MetalDevice.cpp` | `e1e351754ce1ca0ef361ca2502c2ac4a616fc7d3f2a6c30eb3aee6d327768291` |
+| `Public/MetalViewport.h` | `32b02fe49ff23114fdd9a27008cbf5e5db39348438fd51f0d9228f005ca4ba06` |
+
+The extracted files, version, retrieval helper, manifest, and receipts remain in
+ignored `Build/.agent-state/ue583-source-review/`. The following line numbers are
+relative to that extracted MetalRHI directory. Findings describe static source
+behavior, not a UE runtime measurement on this Mac.
+
+### Drawable Capacity And VSync Policy
+
+`Private/MetalViewport.cpp:244` creates a new `CAMetalLayer`. Searches across the
+extracted module find no `maximumDrawableCount` getter/setter or corresponding
+capitalized selector. Consequently the native initialization path retains
+Apple's [default maximum drawable count of three](https://developer.apple.com/documentation/quartzcore/cametallayer/maximumdrawablecount).
+Neither enabling nor disabling VSync changes that capacity. Capacity does not
+prove that three textures are allocated or simultaneously held in every frame.
+
+`FMetalViewport::Present()` sets layer synchronization at lines 1117 and 1121
+using `bLockToVsync || (!(IsRunningGame() && bIsFullScreen))`:
+
+| Native-present case | `displaySyncEnabled` | Maximum drawable capacity |
+| --- | --- | --- |
+| VSync requested | `true` | Default 3 |
+| VSync disabled; running game and viewport marked fullscreen | `false` | Default 3 |
+| VSync disabled; editor or viewport not marked fullscreen | `true` | Default 3 |
+
+This condition does not by itself distinguish exclusive fullscreen from borderless
+fullscreen. Caller-side classification and custom-present overrides were not
+audited. The two `BackBuffer[2]` slots in `Public/MetalViewport.h:137,200` are
+accessor storage, not the layer's drawable pool. `ResizeBackBuffer()` at lines
+500-501 can assign both slots the same `FMetalSurface`; the array is not evidence
+of either two drawables or two independently allocated intermediate textures.
+
+### Acquisition, Presentation, And Independent Throttles
+
+- `Private/MetalViewport.cpp:50-55,740-742`: `rhi.Metal.NonBlockingPresent` defaults
+  to zero, so acquisition calls `nextDrawable()` without an availability precheck.
+  Enabling this independent option gates acquisition on `isDrawableAvailable`,
+  declared through `CAMetalLayerSPI`. VSync does not toggle it. This is an SPI
+  path, not a recommendation to adopt an undocumented availability API in Durin.
+- `Private/MetalViewport.cpp:1060-1076`: macOS attaches a scheduled handler that
+  calls each drawable's `present()`. The adjacent `presentDrawable()` and minimum
+  presentation-duration code is the non-macOS branch. A completion handler at
+  lines 1038-1058 releases retained drawables and signals the frame semaphore.
+- `Private/MetalDevice.cpp:290` creates that GPU-completion semaphore with capacity
+  three, or one with `-gpulockstep`. `Private/MetalViewport.cpp:1098` waits on it.
+  This limits outstanding GPU frames independently of the layer's drawable pool
+  and does not change with VSync.
+- `Private/MetalDevice.cpp:256-260,434-437` also supports an optional platform
+  frame-pacer event. Its platform implementation and effective configuration were
+  not retrieved, so this review does not establish whether that throttle is
+  enabled in a particular UE application.
+- Intermediate-backbuffer selection is separate: the module's initial
+  `GMetalSupportsIntermediateBackBuffer` value is zero, and command-line/config
+  state can affect it. The intermediate path blits to the drawable at
+  `Private/MetalViewport.cpp:961-978`. It does not set drawable-pool capacity.
+
+The native call chain is `RHIEndDrawingViewport()` -> queued graphics command ->
+`FMetalRHICommandContext::EndDrawingViewport()` -> `FMetalViewport::Present()` ->
+`PresentDrawLayers()`. At lines 1315-1347 a custom presenter may replace native
+presentation; otherwise the incoming `bLockToVsync` reaches the condition above.
+
+UE therefore does not supply precedent for an automatic two-drawable VSync-off
+policy. Its macOS scheduled-handler presentation is also already covered by the
+native control above, where changing only that API did not remove the reproduced
+three-drawable ceiling. The two-drawable Durin repair candidate remains a locally
+measured workaround, with the same production and cross-machine qualification
+requirements; the UE source comparison adds no runtime acceptance result.
+
+## Lifecycle And Display-Path Controls On 2026-10-18
+
+### UE And Durin Lifetime Comparison
+
+The following comparison uses the extracted UE native macOS direct-backbuffer
+path. It is source inspection plus isolated native controls, not execution of
+UE 5.8.3 or a complete emulation of its renderer.
+
+| Boundary | UE 5.8.3 | Current Durin Metal |
+| --- | --- | --- |
+| Acquire | Presentable `FMetalSurface::GetDrawableTexture()` lazily acquires the cached drawable on texture access | Submit offscreen rendering, then acquire in `RHIEndDrawingViewport()` |
+| Record and submit | Default unretained command-buffer resource references; queue payload submission commits work | Retained command-buffer resource references; commit a separate final-copy command buffer |
+| Present | Scheduled handler calls drawable `present()` | Command buffer `presentDrawable()` |
+| Application ownership | Retain cached drawable; clear viewport/surface references at viewport end; an extra drawable reference survives to GPU completion | Completion payload owns drawable and final-copy textures; release them in completion |
+| Outstanding frames | GPU-completion semaphore initially 3, or 1 with `-gpulockstep` | RHI/backpressure and frame synchronization; no equivalent native present semaphore |
+
+Additional UE locations are `Private/MetalTexture.cpp:1268-1318`,
+`Private/MetalCommandQueue.cpp:106-137`, `Private/MetalSubmission.cpp:202-208`,
+and `Private/MetalViewport.cpp:784-788,893-918,1038-1076,1347-1354`.
+Neither implementation needs to keep an application-owned drawable reference
+until physical scanout. GPU completion and displayed-surface retirement are
+different events.
+
+### Isolated Lifecycle Controls
+
+The new native controls use Apple M4, macOS 27.0.1/build 26A434, and a
+PHL 27E1N5900 at 3840x2160 / logical 1920x1080, 60 Hz, without display mirroring.
+The ordinary drawable is 3840x1920, BGRA8 sRGB, and animated every frame.
+Each run has 300 frames; analysis selects frames 60-279. All valid runs report
+300 GPU completions, 300 presented callbacks, and zero command-buffer errors.
+Rates below count acquisitions/submissions, not physical monitor refreshes.
+
+| Control, ordinary titled opaque window | Drawable capacity | Submission FPS |
+| --- | --- | --- |
+| Durin-style late acquisition, final blit, completion ownership | 3 | 59.993 |
+| Drop extra application drawable/texture ownership after commit | 3 | 59.995 |
+| Leave the layer's default count untouched | 3 | 59.994 |
+| Acquire before offscreen rendering | 3 | 59.984 |
+| Encode offscreen rendering and final copy in one command buffer | 3 | 59.987 |
+| Direct render, early acquisition, scheduled present, 3-frame semaphore | 3 | 59.997 |
+| Same direct path, GPU semaphore reduced to 1 or 2 | 3 | 59.997 / 59.996 |
+| Direct path with unretained command-buffer references, as in UE | 3 | 59.997 |
+| Durin-style path with two drawables | 2 | 210.133 |
+| Direct/scheduled path with two drawables | 2 | 194.753 |
+| Synchronized two-drawable control | 2 | 60.003 |
+
+The titled opaque three-drawable baseline waits 16.488 ms on acquisition.
+Commit-to-scheduled is only 0.151 ms, but commit-to-GPU-start is 15.416 ms;
+the final GPU span is 0.824 ms and GPU-end-to-completion is 0.333 ms.
+GPU-end-to-presented is another 31.596 ms. With two drawables, commit-to-GPU-start
+falls to 0.280 ms and GPU-end-to-presented to 8.107 ms. Combining commands moves
+waiting inside the command-buffer GPU envelope; it does not remove the throttle.
+Explicit `waitUntilCompleted()` likewise only moves the waiting location.
+These results do not support repairing this ceiling by changing extra retains,
+acquisition timing, the present API, or GPU frame-semaphore capacity alone.
+
+### Reversible Window And Opacity Controls
+
+Fullscreen coverage is not necessary to remove the ceiling. A small window with
+the title bit removed also submits faster, whereas a titled window covering the
+screen remains near 60 FPS. `framebufferOnly=true` with direct rendering still
+produces 59.992 FPS. The stronger controls keep the same native window, view,
+layer, drawable dimensions, count of 3, and `displaySyncEnabled=false`, changing
+one property repeatedly at the main-thread/native boundary:
+
+| Phase | `Titled` bit control: mask and FPS | Opacity control: value and FPS |
+| --- | --- | --- |
+| 0 | 15: 59.998 | `true`: 59.978 |
+| 1 | 14: 412.237 | `false`: 423.613 |
+| 2 | 15: 59.996 | `true`: 59.989 |
+| 3 | 14: 386.384 | `false`: 489.523 |
+| 4 | 15: 59.986 | `true`: 59.983 |
+
+Only `NSWindowStyleMaskTitled` differs between masks 15 and 14. The opacity
+control leaves the style mask at 15. All 600 completions and presented callbacks
+arrive in each control, without errors. Positive presented timestamps are a
+separate measure: the fast nonopaque/no-title phases have about 35-36 positive
+timestamps out of 70 selected frames, versus 70 in paced phases. Increased
+submission rate does not mean every submitted frame is physically displayed.
+A matched two-drawable title-bit sequence remains above 150 FPS in every phase.
+
+An attached Metal System Trace successfully records probe PID43567. Its IOSurface
+events identify three probe surfaces, IDs 304, 347, and 353. Of 504 displayed-probe
+intervals, 502 carry `Direct to Display: Yes`; their mean duration is 16.668 ms.
+A second successful trace records the same-window opacity sequence in PID45806,
+with an 8 ms synthetic CPU delay to limit event volume. It alternates between
+the probe's three directly displayed surfaces (IDs 195, 196, 292) and compositor
+output surfaces (IDs 7, 8, 10) marked `Direct to Display: No`, matching the
+opaque/nonopaque alternation. Both probes finish normally. This corroborates
+display-path selection, not just a change in CPU-side reference counting.
+Apple documents opacity as a condition for
+[direct-to-display eligibility](https://developer.apple.com/documentation/metal/managing-your-game-window-for-metal-in-macos).
+The exact private reason that this configuration retains refresh pacing with
+three drawables and synchronization disabled is not exposed by these traces.
+
+A third successful trace, PID47349, keeps the titled opaque window but requests
+two drawables, again with an 8 ms synthetic CPU delay. Its input surface IDs are
+32 and 197; neither appears as a directly displayed probe surface, and all 824
+displayed-output intervals carry `Direct to Display: No`. The complete traced
+probe reports 1800 completions, 1800 presented callbacks, and zero errors; its
+selected frames 300-1499 submit at 96.165 FPS under tracing and the added delay.
+Thus the two-drawable candidate also leaves the reproduced direct-display path,
+without changing window decorations or the layer's opacity contract.
+
+With the user's authorization, BetterDisplay is then quit for a matched control
+and relaunched in a `finally` block. Display reports before, during, and after
+are identical. With its process absent, the titled opaque three-drawable repeats
+produce 60.296 and 59.990 FPS; two drawables produce 210.721 FPS, and three with
+`opaque=false` produce 299.420 FPS. A running BetterDisplay process is therefore
+not necessary for this reproduction; this does not undo or exclude persistent
+display settings it may have applied previously.
+
+### Cause Boundary And Repair Choice
+
+The causal boundary is the native displayed-surface path and its retirement
+pressure under the measured titled/opaque/three-drawable configuration.
+`displaySyncEnabled=false` does not prevent that path from progressing at the
+display cadence. Its wait reaches Durin at `nextDrawable()` and propagates through
+the existing RHI queue to the render/game waits visible in the supplied trace.
+The source/runtime difference with UE is also narrower than pool size: UE's
+ordinary editor/windowed native path explicitly keeps layer synchronization on.
+Its default three-drawable pool is not evidence of unlimited windowed submission.
+
+Durin's [`FGlfwWindow`](../../Engine/Source/Runtime/ApplicationCore/Private/Window/GlfwWindow.cpp)
+creates decorated windows and an opaque layer. Its
+[custom-title bridge](../../Engine/Source/Runtime/ApplicationCore/Private/MacOS/MacOSCustomTitleBarBridge.mm)
+hides the title and adds `FullSizeContentView` while preserving the `Titled` bit.
+That matches the independently reproduced configuration. Replacing the command
+submission/lifetime pipeline is not justified by the controls.
+
+The preferred bounded repair candidate remains a presentation-policy change:
+request count 2 plus synchronization off for `Unsynchronized`, and count 3 plus
+synchronization on for `FramePaced`, at the existing native drawing boundary.
+Read back and log both values. Keep the existing completion ownership and do not
+add per-frame GPU-idle waits. Changing all windows to borderless affects native
+window behavior; marking every layer nonopaque sacrifices opacity/display-path
+assumptions. Both are useful controls, not preferred general repairs.
+The two-drawable candidate can incur WindowServer composition work in exchange
+for avoiding this observed direct-display throttle; it is a compatibility
+workaround, not a repair to Apple's private display implementation.
+`BestEffort` needs its own bounded-acquisition review, as noted above.
+
+Production adoption still needs policy-switch, pending-frame resize, multi-window,
+teardown, and rendered-output coverage in the real backend, plus a visible Editor
+check and another OS/device when available. No native timing assertion should
+require every Mac to exceed 60 FPS. Probe programs were compiled with `-O2`, not
+measured as a Release/Tracy-off Editor acceptance run. The underlying private
+display policy and cross-machine behavior remain unresolved.
+
+New raw CSVs, process/display receipts, versioned native sources, runners, trace
+exports, and source fingerprints are retained under ignored
+`Build/.agent-state/metal-lifecycle-20261018/`. Its README records commands and
+sample selection. The initial launched trace was killed at its recording limit;
+a later no-title trace timed out during finalization. Neither is attribution
+evidence. The three successful attached traces above are distinct from those
+attempts. Production source remains unchanged.
