@@ -2,12 +2,98 @@
 
 Summary: Introduce instance-based RDG access and attachment declarations, expose Base Scene's real raster stages to the graph, and remove predecessor-dependent depth fields and hidden physical bindings from the migrated scene path.
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-18
 
 ## Current Status
+
+On 2026-10-18 the operator requested local closeout and explicitly authorized
+waiving overly complex performance qualification. This plan's quiet-lane
+baseline, numeric CPU/GPU timing comparisons and named-adapter timing budgets
+are waived for closeout, not reported as passing. Correctness, graph captures,
+attachment/depth semantics, failure propagation and supported native Metal
+execution remain required. Existing Windows correctness evidence is retained;
+this decision does not waive independent multi-queue or GPU-culling plan gates.
+Completed on 2026-10-18 against `943cd3598` plus this closeout's native fixtures
+and registration. Production runtime sources remain unchanged from `1c0c3718c`.
+The available Apple M4 supplies native Metal and headless MoltenVK correctness
+evidence; retained Windows records supply the original window/present and
+workload acceptance. The original device-qualified performance limits are not
+claimed passed.
+
+### Final correctness acceptance
+
+Environment: Apple M4 (10 GPU cores, 16 GB), macOS 27.0.1, Xcode 26.6,
+`MacOS-arm64-Debug-DurinEditor`, Tracy enabled. GPU execution ran in the
+authorized host outside the Codex sandbox. `MTL_DEBUG_LAYER=1` enabled Metal API
+validation. MoltenVK reported Vulkan API 1.3.334, driver `0x28a1`, with one shared
+graphics/compute queue; this is not dedicated-queue or native split-event
+qualification.
+
+| Selection | Result |
+| --- | --- |
+| `MetalSceneQualificationTests --mode qualification --report` | 4/4 passed: native Metal and MoltenVK, each inline/threaded. Each case performs 19 scene submissions: 14 successful readbacks and five expected raster-stage failures. All four variants also pass independently through positional filters. |
+| Captured native outputs | All 28 inline/threaded image pairs match exactly. All 14 Metal/MoltenVK image pairs also match exactly, including the resized offscreen output and geometry-bearing routes. |
+| `RendererSceneContractTests`, `RendererRDGAllocatorTests`, `VolumetricCloudSceneContractTests` | 61/61, 11/11 and 7/7 passed. |
+| Reused current RenderCore/RHI/Material evidence | `943cd3598` records 227 RenderContract, 143 RHI command, 14 pipeline, 93 Material compiler, seven Material Cook and 18 lifecycle cases passing; shader domain 7/7 targets, native Metal headless 46/46 and shader qualification 17/17 also pass. Their source/fixture inputs are unchanged by this closeout. |
+| `./DevTool build all` | Current workspace incremental build passed, covering the Engine, Sandbox and RoadWeaver build graph and the new test registration. |
+
+The shared scene fixture preserves the original Vulkan window-backed route and
+adds a headless entry point, avoiding a duplicate scene model. New native cases
+do not initialize AppKit, a layer or a drawable. The original window wrapper
+still selects the presentation entry point and retains its LaunchServices
+admission. No fresh window-backed Vulkan run is claimed in this closeout.
+Current Road Surface Foundation/Metal RHI receipts remain applicable to bounded
+native presentation, editor picking and preview output because runtime inputs
+are unchanged; neither those receipts nor headless captures imply a new window
+stress or performance result.
+
+The final matrix records forward-only and forward with diagnostic GBuffer,
+isolated deferred, production plus isolated deferred, opaque/masked GBuffer
+geometry with retained unlit and sorted translucent geometry, full/half/disabled
+AO, compute/fragment contact visibility, compute/fragment cloud visibility and
+spatial/composite work, disabled/missing cloud inputs, and 96x64/128x72 offscreen
+output. Successful GBuffer, retained and translucent draw counters establish
+actual geometry execution. Compute/fragment cloud output retains the original
+one-byte tolerance; contact output matches exactly. Captures assert each
+decomposed stage, explicit GBuffer/depth reads, absence of managed transitions
+in migrated callbacks, per-layer shadow handoffs, external-only final states,
+and bounded batches. Initial cloud cohorts retain 11/14 passes, 20/30 edges,
+22/39/27 executable texture transitions and at most four planned batches, with
+allocation success and pool reuse. These are structural/correctness checks,
+not timing acceptance.
+
+Forward, HybridBootstrap, ProductionDeferred, RetainedForward and
+SortedTranslucency failures preserve the original error result, produce no
+readback and publish no successful telemetry. Each successful view publishes
+telemetry exactly once. Early fixture attempts exposed empty-scene culling and
+duplicate asset-compiler registration; the final fixture uses real geometry,
+an actual diagnostic consumer and the existing active compiler service. No
+production workaround or relaxed original output assertion was introduced.
+
+Reports are under `Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/`:
+`RdgAccessMetalScene.xml`, `RdgAccessMetalSceneCases.xml`,
+`RdgAccess-<backend>_<mode>.xml`, and `RdgAccess-<Target>.xml` for the three CPU
+targets. Final scene build/test logs are
+`Build/.agent-state/logs/20261018-072006-076981-54211-cmake.log` and
+`20261018-072010-461272-54211-ctest.log`. The all-build receipt is
+`20261018-072219-548265-54446-cmake.log`. Raw graph dumps, RGBA readbacks, exact
+comparison results and source/report hashes are retained under ignored
+`Build/Qualification/PlanEvidence/RdgAccessDeclarationsAndBaseSceneDecomposition/2026-10-18-MacOS/`.
+
+`test affected --explain` expands to the Engine test project because a new
+shared test header is not mapped to a narrower owner. Its only consumers are
+the existing Vulkan scene wrapper and new native scene target. The shared body
+is compiled and executed on Metal and MoltenVK, the owning scene/allocator/cloud
+contracts pass, unchanged RenderCore/RHI contracts are reused, and `all` covers
+workspace compilation/linking. This bounded selection addresses the changed
+test behavior without treating every Engine feature as affected production
+code. Permanent graph, renderer preparation and RHI contracts already describe
+the implemented behavior and remain authoritative.
+
+### Historical Status Through 2026-10-17
 
 Stage 0 is in progress under the user's 2026-10-08 execution request. The source
 inventory, API decisions and pass boundary table below are frozen before runtime
@@ -397,7 +483,8 @@ GBuffer; hybrid opaque/masked plus retained non-GBuffer/unlit geometry; isolated
 deferred only; production plus isolated deferred; full/half AO and disabled AO;
 compute/fragment contact and cloud visibility; cloud spatial/composite disabled
 and enabled; sorted translucency; offscreen/present; editor sampled depth.
-Captures/readbacks for this matrix are still an open evidence task.
+The final captures/readbacks and retained Windows workload coverage are recorded
+in Current Status.
 
 Preserve view clear color, viewport/scissor and reverse-Z clear (0 versus 1).
 Forward sky failure returns `RequiredEnvironmentUnavailable` before finalization.
@@ -461,16 +548,19 @@ Outcome: an implementable API/boundary decision record and a reproducible baseli
 - [x] Inventory all wrappers, metadata constructors, resolver methods, layout
   helpers, pipeline cache consumers, and graph uses affected across all workspace
   projects; distinguish ordinary and pass-managed transitions.
-- [ ] Record the exact forward/hybrid/debug/qualification feature matrix and
+- [x] Record the exact forward/hybrid/debug/qualification feature matrix and
   graph captures, rendered output, clear/load/store semantics, failure results,
   timing scopes, and geometry/telemetry finalization sites.
 - [x] Freeze explicit-access and attachment types, use/access validation, static
   convenience routing, shared lowering ownership, and read-only depth scope.
 - [x] Specify every migrated pass's actual color/depth states and remove any
   assumption that shader-readable depth also denotes depth attachment usage.
-- [ ] Define numeric regression thresholds and a quiet-lane baseline using the
+- [x] Disposition the original numeric regression thresholds and quiet-lane
+  baseline: waived for closeout by the operator on 2026-10-18. Original limits
+  remain in the historical decision record; no stable timing result is claimed.
+  Preserve the selected registered GPU cases and supported backend environments.
+  The original protocol remains the
   [rendering baseline protocol](../Development/Build/RenderingPerformanceBaseline.md).
-  Record selected registered GPU cases and supported backend environments.
 
 Gate: decisions resolve the above choices, with baseline evidence and an exact
 change inventory. Missing GPU evidence is recorded as outstanding, not inferred
@@ -665,7 +755,8 @@ do not waive those acceptance conditions.
 ### Stage 5: Qualify, document, and remove migration scaffolding
 
 Depends on: Stages 1-4.
-Outcome: accepted implementation with permanent contracts and measured costs.
+Outcome: accepted correctness with permanent contracts and an explicit
+performance-qualification disposition.
 
 - [x] Remove temporary adapters and obsolete helpers/types in the migrated scope;
   retain only explicitly documented managed users outside that scope.
@@ -682,11 +773,12 @@ Outcome: accepted implementation with permanent contracts and measured costs.
   Investigate any threshold breach; do not require unchanged pass counts.
 - [x] Complete the required `all` build and affected project validation, retaining
   the independently reproduced Windows Metal target-policy exception.
-- [ ] Record Metal compilation/runtime evidence on a supported host according to
+- [x] Record Metal compilation/runtime evidence on a supported host according to
   changed semantics; do not report Windows-only validation as Metal qualification.
 - [x] Update the permanent contracts listed below and validate documentation and plans.
-- [ ] Record stable performance and required backend/hardware acceptance receipts
-  before completing this plan.
+- [x] Record required backend correctness receipts and the operator's
+  2026-10-18 waiver of stable performance and named-adapter timing acceptance.
+  No timing, native memory improvement or dedicated-queue result is inferred.
 
 Gate: required evidence is recorded with environment, selected cases and results.
 Unavailable GPU/backend gates remain open until satisfied or explicitly changed

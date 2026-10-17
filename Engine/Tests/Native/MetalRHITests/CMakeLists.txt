@@ -1,7 +1,8 @@
 if(NOT APPLE)
 	durin_exclude_native_test_sources(
 		RATIONALE "Native Metal device admission requires macOS."
-		SOURCES Private/MetalRHIHeadlessTests.cpp Private/MetalRHIResourceTests.mm Private/MetalSkyLightingTests.cpp)
+		SOURCES Private/MetalRHIHeadlessTests.cpp Private/MetalRHIResourceTests.mm Private/MetalSkyLightingTests.cpp
+			Private/MetalSceneQualificationTests.cpp)
 	return()
 endif()
 
@@ -36,6 +37,25 @@ durin_add_native_test(MetalRHIHeadlessTests
 )
 
 # Scene-owned environment filtering exercises the complete renderer lifecycle.
+durin_add_native_test(MetalSceneQualificationTests
+    KIND qualification
+    DOMAINS renderer
+    MODULES renderer engine
+    BACKENDS metal vulkan
+    STACKS renderer
+    SOURCES Private/MetalSceneQualificationTests.cpp
+    LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer MetalRHI VulkanRHI
+    INCLUDE_DIRECTORIES
+        "${CMAKE_SOURCE_DIR}/Engine/Tests/Native/EngineTests/Private"
+        "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private"
+    REQUIRES editor
+    REQUIREMENT_RATIONALE "Compiles authored scene shaders for production RDG route qualification."
+    ENVIRONMENTS authored-shaders
+    RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+    HEAVY_RUNTIME_RATIONALE "Exercises headless native Metal graph stages, attachment handoffs, readback and failure propagation."
+    TIMEOUT 600
+)
+
 durin_add_native_test(MetalSkyLightingTests
     KIND qualification
     DOMAINS renderer sky-box
