@@ -112,6 +112,39 @@ namespace
 				SPVC_COMPILER_OPTION_MSL_VERSION, SPVC_MAKE_MSL_VERSION(2, 0, 0));
 		if (Result == SPVC_SUCCESS)
 			Result = spvc_compiler_install_compiler_options(Compiler, Options);
+		if (Result == SPVC_SUCCESS && Shader.Frequency == Durin::EShaderFrequency::Vertex)
+		{
+			// Keep the current view/primitive uniforms separate from vertex stream slot 2.
+			unsigned NextBuffer = 3, NextTexture = 0, NextSampler = 0;
+			for (const auto& Resource : Shader.Reflection.ResourceBindings)
+			{
+				spvc_msl_resource_binding_2 Binding;
+				spvc_msl_resource_binding_init_2(&Binding);
+				Binding.stage = SpvExecutionModelVertex;
+				Binding.desc_set = Resource.SetIndex;
+				Binding.binding = Resource.BindingIndex;
+				Binding.count = Resource.ArraySize;
+				if (Resource.Type == Durin::ERHIBindingType::Texture || Resource.Type == Durin::ERHIBindingType::StorageImage)
+				{
+					Binding.msl_texture = NextTexture;
+					NextTexture += Binding.count;
+				}
+				else if (Resource.Type == Durin::ERHIBindingType::Sampler)
+				{
+					Binding.msl_sampler = NextSampler;
+					NextSampler += Binding.count;
+				}
+				else if (Resource.Name == "MaterialView") Binding.msl_buffer = 0;
+				else if (Resource.Name == "MaterialPrimitive") Binding.msl_buffer = 1;
+				else
+				{
+					Binding.msl_buffer = NextBuffer;
+					NextBuffer += Binding.count;
+				}
+				Result = spvc_compiler_msl_add_resource_binding_2(Compiler, &Binding);
+				if (Result != SPVC_SUCCESS) break;
+			}
+		}
 		if (Result == SPVC_SUCCESS) Result = spvc_compiler_compile(Compiler, &Source);
 		const std::string Metal = Result == SPVC_SUCCESS && Source ? Source : "";
 		if (Metal.empty()) Error = spvc_context_get_last_error_string(Context);
@@ -214,7 +247,7 @@ TEST(FMetalMaterialQualificationTests, ProductionMaterialDirectMslCompiles)
 				const auto Entry = Durin::MaterialCompiledEntryPoints[Index];
 				SCOPED_TRACE(std::string(bTextured ? "lit masked " : "unlit ") + std::string(Entry));
 				std::string Error;
-				const auto MSL = CompileMaterialDirectMSL(Compiled.GeneratedSource, Entry, Error);
+				const auto MSL = CompileMaterialDirectMSL(Compiled.GetDebugData().GeneratedSource, Entry, Error);
 				ASSERT_FALSE(MSL.empty()) << Error;
 				NSString* Source = [[NSString alloc] initWithBytes:MSL.data()
 					length:MSL.size() encoding:NSUTF8StringEncoding];
@@ -249,12 +282,12 @@ TEST(FMetalMaterialQualificationTests, ProductionMaterialVariantsCompileAsMetalL
 			const auto Compiled = Durin::MIR::Compile(Input);
 			ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
 				: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
-			ASSERT_EQ(Compiled.CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
-			EXPECT_EQ(Compiled.Layout.ResourceFieldCount, bTextured ? 1u : 0u);
-			EXPECT_EQ(Compiled.Layout.Fields.size(), bTextured ? 4u : 0u);
+			ASSERT_EQ(Compiled.GetArtifact().CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
+			EXPECT_EQ(Compiled.GetArtifact().Layout.ResourceFieldCount, bTextured ? 1u : 0u);
+			EXPECT_EQ(Compiled.GetArtifact().Layout.Fields.size(), bTextured ? 4u : 0u);
 			ASSERT_TRUE(Durin::ValidateMaterialCompiledStages(
-				Compiled.CompiledShaders, Compiled.Layout));
-			for (const auto& Shader : Compiled.CompiledShaders)
+				Compiled.GetArtifact().CompiledShaders, Compiled.GetArtifact().Layout));
+			for (const auto& Shader : Compiled.GetArtifact().CompiledShaders)
 			{
 				SCOPED_TRACE(Shader.SourceEntryPoint);
 				std::string CrossError;
@@ -298,7 +331,7 @@ TEST(FMetalMaterialQualificationTests, ProductionLitAndUnlitMaterialDrawProduceC
 			id<MTLFunction> FragmentFunction = nil;
 			for (const int Index : {bLit ? 1 : 0, 4})
 			{
-				const auto& Shader = Compiled.CompiledShaders[Index];
+				const auto& Shader = Compiled.GetArtifact().CompiledShaders[Index];
 				std::string CrossError;
 				const std::string MetalCode = TranslateMaterialStage(Shader, CrossError);
 				ASSERT_FALSE(MetalCode.empty()) << CrossError;
@@ -326,10 +359,10 @@ TEST(FMetalMaterialQualificationTests, ProductionLitAndUnlitMaterialDrawProduceC
 			{
 				VertexDesc.attributes[Index].format = Formats[Index];
 				VertexDesc.attributes[Index].offset = Offsets[Index];
-				VertexDesc.attributes[Index].bufferIndex = 1;
+				VertexDesc.attributes[Index].bufferIndex = 2;
 			}
-			VertexDesc.layouts[1].stride = 96;
-			VertexDesc.layouts[1].stepFunction = MTLVertexStepFunctionPerVertex;
+			VertexDesc.layouts[2].stride = 96;
+			VertexDesc.layouts[2].stepFunction = MTLVertexStepFunctionPerVertex;
 			MTLRenderPipelineDescriptor* PipelineDesc = [MTLRenderPipelineDescriptor new];
 			PipelineDesc.vertexFunction = VertexFunction;
 			PipelineDesc.fragmentFunction = FragmentFunction;
@@ -360,10 +393,11 @@ TEST(FMetalMaterialQualificationTests, ProductionLitAndUnlitMaterialDrawProduceC
 			}
 			struct FPrimitive
 			{
-				float Matrices[4][16];
+				float Matrices[3][16];
 				float Bounds[4], Transform[4];
+				float WorldOrigin[2][4], CustomData[2][8][4];
 			};
-			static_assert(sizeof(FPrimitive) == 288);
+			static_assert(sizeof(FPrimitive) == 512);
 			FPrimitive Primitive = {};
 			for (auto& Matrix : Primitive.Matrices)
 				for (int Index = 0; Index < 4; ++Index) Matrix[Index * 5] = 1;
@@ -393,10 +427,19 @@ TEST(FMetalMaterialQualificationTests, ProductionLitAndUnlitMaterialDrawProduceC
 				Pass.colorAttachments[Index].storeAction = MTLStoreActionStore;
 				Pass.colorAttachments[Index].clearColor = MTLClearColorMake(0, 0, 0, 0);
 			}
-			std::array<float, 48> ViewUniform{};
-			id<MTLBuffer> ViewBuffer = bLit ? [Device newBufferWithBytes:ViewUniform.data()
-				length:sizeof(ViewUniform) options:MTLResourceStorageModeShared] : nil;
-			if (bLit) ASSERT_NE(ViewBuffer, nil);
+			// Mirrors MaterialViewUniform in Material/MeshUniforms.slang.
+			struct FView
+			{
+				float Parameters[4], Camera[4], Viewport[4], ReciprocalViewport[4];
+				float Matrices[3][16], WorldOrigin[2][4];
+			};
+			static_assert(sizeof(FView) == 288);
+			FView ViewUniform{};
+			for (auto& Matrix : ViewUniform.Matrices)
+				for (int Index = 0; Index < 4; ++Index) Matrix[Index * 5] = 1;
+			id<MTLBuffer> ViewBuffer = [Device newBufferWithBytes:&ViewUniform
+				length:sizeof(ViewUniform) options:MTLResourceStorageModeShared];
+			ASSERT_NE(ViewBuffer, nil);
 			id<MTLCommandQueue> Queue = [Device newCommandQueue];
 			ASSERT_NE(Queue, nil);
 			id<MTLCommandBuffer> Command = [Queue commandBuffer];
@@ -404,9 +447,10 @@ TEST(FMetalMaterialQualificationTests, ProductionLitAndUnlitMaterialDrawProduceC
 			ASSERT_NE(Encoder, nil);
 			[Encoder setRenderPipelineState:Pipeline];
 			[Encoder setFrontFacingWinding:MTLWindingCounterClockwise];
-			[Encoder setVertexBuffer:PrimitiveBuffer offset:0 atIndex:0];
-			[Encoder setVertexBuffer:VertexBuffer offset:0 atIndex:1];
-			if (bLit) [Encoder setFragmentBuffer:ViewBuffer offset:0 atIndex:0];
+			[Encoder setVertexBuffer:ViewBuffer offset:0 atIndex:0];
+			[Encoder setVertexBuffer:PrimitiveBuffer offset:0 atIndex:1];
+			[Encoder setVertexBuffer:VertexBuffer offset:0 atIndex:2];
+			[Encoder setFragmentBuffer:ViewBuffer offset:0 atIndex:0];
 			[Encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
 			[Encoder endEncoding];
 			[Command commit];
@@ -449,9 +493,9 @@ TEST(FMetalMaterialQualificationTests, MaskedMaterialSamplesTextureAndDiscardsBe
 		const auto Compiled = Durin::MIR::Compile(Input);
 		ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
 			: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
-		ASSERT_EQ(Compiled.Layout.UniformPayloadSize, 64u);
-		ASSERT_EQ(Compiled.Layout.ResourceFieldCount, 1u);
-		const auto& Shader = Compiled.CompiledShaders[0];
+		ASSERT_EQ(Compiled.GetArtifact().Layout.UniformPayloadSize, 64u);
+		ASSERT_EQ(Compiled.GetArtifact().Layout.ResourceFieldCount, 1u);
+		const auto& Shader = Compiled.GetArtifact().CompiledShaders[0];
 		ASSERT_EQ(Shader.SourceEntryPoint, "FragmentMain");
 		std::string CrossError;
 		const std::string MetalCode = TranslateMaterialStage(Shader, CrossError);
@@ -512,7 +556,7 @@ TEST(FMetalMaterialQualificationTests, MaskedMaterialSamplesTextureAndDiscardsBe
 			SCOPED_TRACE(bDiscard ? "masked fragment discarded" : "textured fragment retained");
 			std::array<float, 16> Uniform{};
 			unsigned MatchedFields = 0;
-			for (const auto& Field : Compiled.Layout.Fields)
+			for (const auto& Field : Compiled.GetArtifact().Layout.Fields)
 			{
 				if (Field.Storage != Durin::EMaterialRenderFieldStorage::Uniform) continue;
 				ASSERT_EQ(Field.Offset % sizeof(float), 0u);

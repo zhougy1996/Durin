@@ -311,6 +311,8 @@ TEST(FMetalRHIBufferTests, DeferredUniformVersionsReachSeparateDispatches)
 			Values[0] = 13;
 			Values[1] = 1;
 			Commands.UpdateUniformBuffer(Uniform, std::as_bytes(std::span{Values}));
+			// Parameter binding captures an allocation; explicitly bind the new version.
+			Commands.SetShaderParameters(Shader.GetReference(), std::span(Parameters).first(1));
 			Commands.Dispatch(1, 1, 1);
 			Commands.EndGPUSubmission();
 			Uniform = nullptr;

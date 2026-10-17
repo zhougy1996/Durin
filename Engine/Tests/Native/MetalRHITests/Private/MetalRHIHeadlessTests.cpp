@@ -635,7 +635,7 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			-1.0f, 3.0f};
 		auto VertexBufferDesc = Durin::FRHIBufferCreateDesc::Create(
 			"Metal triangle vertices", sizeof(Positions), sizeof(float) * 2,
-			Durin::EBufferUsageFlags::VertexBuffer);
+			Durin::EBufferUsageFlags::VertexBuffer | Durin::EBufferUsageFlags::DestinationCopy);
 		VertexBufferDesc.InitialData = {.Data = Positions,
 			.Size = sizeof(Positions)};
 		auto VertexBufferResult = Durin::GDynamicRHI->RHICreateBuffer(

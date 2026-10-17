@@ -6,6 +6,8 @@ structural candidate rules.
 
 Modules: RHI, VulkanRHI, MetalRHI, ApplicationCore
 
+Last reviewed: 2026-10-18
+
 ## Public Capability Contract
 
 `FDynamicRHI::RHIGetCapabilities()` returns null until one backend has completed
@@ -146,8 +148,10 @@ with Apple GPU Family 9+. It creates a native device and one physical queue.
 The Cocoa window installs the layer before RHI startup; Metal retains it during
 viewport use, renders to an owned offscreen back buffer, then blits to an
 available drawable and presents. The headless layer qualification covers clear,
-present, resize, and viewport recreation in inline and threaded modes; real
-window minimize/close behavior and visible output remain to be qualified.
+present, resize, and viewport recreation in inline and threaded modes. Bounded
+real-window startup, visible presentation and normal shutdown are verified on
+the Apple M4 Debug Editor cohort. Repeated real-window resize/minimize/close
+and edit/reload stress remain outside accepted closeout coverage.
 Empty logical submissions publish a single-queue topology, stay pending through
 CPU replay, and complete after native Metal command-buffer completion; shutdown
 cancels replayed work that was never submitted. Metal publishes conservative
@@ -286,11 +290,20 @@ entry and no failed candidate changes cache lookup or size.
 
 ## Supported Profile and Validation Boundary
 
-The supported runtime matrix is Win64 Debug Editor, Release Editor, and Shipping
-Game. Debug owns focused native and hardware-backed failure/WSI coverage.
+The established Win64 runtime matrix is Debug Editor, Release Editor, and
+Shipping Game. Debug owns focused native and hardware-backed failure/WSI coverage.
 Release and Shipping qualify normal diagnostic-off startup; Shipping never
-links the Editor detached-viewport path. Existing Apple portability branches are
-source-only intent and do not claim runtime support.
+links the Editor detached-viewport path.
+
+The macOS Metal admission baseline is macOS 27+ on Apple Silicon with Apple GPU
+Family 9+. Current bounded native functional validation names Apple M4,
+macOS 27.0.1 and Debug Editor: real resource/binding/command output, native-layer
+lifecycle, selected shader/material pixels and basic normal-window presentation/
+shutdown. Other device/OS cohorts require their own receipts before expanding
+the release claim. Full scene/preview image parity, extended real-window stress,
+current-schema Cook/Game package requalification and comparable performance
+were waived in the [Metal closeout](../../Plans/MetalRHI.md#current-status);
+the bounded results establish no acceptance in those areas.
 
 The lasting validation owners are the target-level RHI initialization and render
 contract tests, the GPU-serialized Vulkan integration target, the native-test

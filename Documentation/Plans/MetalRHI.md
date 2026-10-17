@@ -1,13 +1,96 @@
 # Metal RHI Plan
 
-Summary: Deliver the native Metal backend for macOS Apple Silicon and track shader, lifecycle, editor, cooked-game, image-parity, and performance qualification.
+Summary: Deliver the native Metal backend for macOS Apple Silicon with bounded native correctness evidence and explicit closeout qualification waivers.
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-18
 
 ## Current Status
+
+Completed on 2026-10-18 on the Apple M4 host under an operator-authorized
+reduced acceptance scope. The operator requested completion and explicitly
+authorized skipping overly complex validation. The selected closeout retains current native compilation,
+bounded Metal RHI/shader GPU correctness, and basic visible-window startup,
+presentation and normal shutdown. It reuses relevant current road-preview/
+material output. Earlier Cook/Game receipts remain historical; they do not
+requalify packages after the later shader/binding schema changes.
+
+The operator-authorized exceptions are the exhaustive parameter/format matrix
+beyond registered bounded fixtures, the complete paired lighting/shadow/AO/cloud/
+post-process scene and editor-preview capture matrix, repeated real-window
+resize/minimize/close and edit/reload stress, fresh end-to-end Cook/Game package
+requalification after the schema changes, and Release/Tracy-off CPU/GPU,
+preparation/memory and presentation performance comparisons. These checks are
+waived for this plan's closeout; no full image-parity, lifecycle-stress or
+performance result is established by that disposition. Existing capabilities,
+support queries and production defaults are unchanged. Any encountered core
+correctness failure still requires repair or an explicit unresolved result.
+
+This changes this plan's final acceptance conditions before execution. It does
+not waive the separate Windows/native Metal correctness or timing gates in
+[Portable Shader Binding Layouts](PortableShaderBindingLayouts.md), nor the
+remaining hardware gates in the RDG plans. The historical receipts and original
+matrix below retain their original scope and authority.
+
+### Final bounded acceptance
+
+Source base: `9ac473bab`, plus this closeout's fixture/document changes. Runtime
+sources are unchanged from `1c0c3718c`; the intervening road closeout adds tests
+and documentation only. Environment: Apple M4 (10 GPU cores, 16 GB), macOS
+27.0.1, Xcode 26.6, `MacOS-arm64-Debug-DurinEditor`, Tracy enabled. GPU tests ran
+in the authorized host environment outside the Codex sandbox. No timing lane or
+performance result is claimed.
+
+| Selection | Result and scope |
+| --- | --- |
+| `MTL_DEBUG_LAYER=1 ./DevTool test MetalRHIHeadlessTests --mode qualification --report` | 44/44 passed with Metal API validation. Includes inline/threaded admission, selection/fallback, resources, upload/readback, prepared bindings, direct/indirect graphics and compute, paired ImGui/hit-proxy output, viewport-layer recovery, completion and retirement. |
+| `./DevTool test MetalShaderQualificationTests --mode qualification --report` | 17/17 passed in the baseline native environment: shader/material libraries, resource arrays, push/storage output, lit/unlit GBuffer pixels and masked texture/discard checks. This direct-native fixture receipt does not claim Metal API validation. |
+| Reused `RoadViewportQualificationTests` receipts from `9ac473bab` | Both plane/sphere cases pass on Metal and MoltenVK; production click selection and authored red/green materials work. All four paired 256x192 RGB captures match exactly. These bounded images do not replace the waived full-scene matrix. |
+| Reused `./DevTool run --project RoadWeaver/RoadWeaver.dproject -- --exit-after-ticks=3` | Native Metal window startup, first presentation, default road-level load, three completed ticks and normal shutdown passed. |
+
+The two target builds cover current native Metal dependencies and the repaired
+fixtures. No shared Engine API or production source changed, so retained
+workspace/editor build evidence remains applicable without another `all` build.
+`test affected --explain` selects no routine targets: the three changed native
+sources belong to these explicit qualification targets, which were executed
+through their registered selections. Later documentation-only changes reuse
+the passing receipts.
+
+Fixture repairs preserve the existing assertions. The triangle upload declares
+`DestinationCopy` for its explicit `TransferWrite` transition. The deferred
+uniform case explicitly rebinds the updated allocation under the existing
+immutable-allocation capture contract, preserving checked 7/13 outputs. Native
+material tests use `GetArtifact()`/`GetDebugData()`, explicitly remap all reflected
+vertex resources around stream slot 2, and supply the current 512-byte primitive
+and 288-byte camera-relative view uniforms with identity transforms. Original
+pixel tolerances are unchanged; no production workaround was introduced.
+
+Final reports are `MetalCloseoutHeadless.xml`, `MetalCloseoutHeadlessCases.xml`,
+`MetalCloseoutShaders.xml` and `MetalCloseoutShaderCases.xml` under
+`Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/`. Use
+`DURIN_TEST_KEEP_WORK=1` and an absolute `GTEST_OUTPUT=xml:<path>` to retain work
+and per-case XML. Native output and initial failed-run summaries are retained
+under `Build/Qualification/MetalRHI/`. Final launcher logs are
+`Build/.agent-state/logs/20261018-064630-950061-42073-ctest.log` and
+`20261018-065037-148378-43329-ctest.log` in the same directory; build logs are
+`20261018-064627-252106-42073-cmake.log` and
+`20261018-065034-167959-43329-cmake.log` there. The reused road image/report paths
+and normal-window log `20261018-062546-852223-37260-DurinEditor.log` are recorded
+in [Road Surface Foundation](RoadSurfaceFoundation.md#current-status).
+
+Initial core runs exposed the stale fixture contracts and remain failed runs;
+the final receipts cover their corrections. The separate
+[Slang reflection investigation](../Investigations/SlangReflectionContextLifetime.md)
+remains open: these passes do not attribute its original intermittent crash.
+Advanced queue/split/aliasing and Portable Shader Binding Layouts acceptance
+retain their own ownership and outstanding gates.
+
+## Historical Implementation Evidence Through 2026-10-15
+
+The following status assessments are preserved at their recorded checkpoints.
+The 2026-10-18 closeout decision above supersedes their remaining-gate wording.
 
 The backend is implemented and macOS now selects Metal by default. The remaining
 work is qualification, not initial backend bring-up. This plan remains Active:
@@ -545,9 +628,11 @@ Dependencies: current RHI contracts and the repository's pinned shader toolchain
 - [x] Exercise representative vertex/fragment and compute shaders, material
   permutations, resource arrays, push constants, and vertex inputs through
   Slang's direct Metal output using the pinned toolchain.
-- [ ] Verify actual parameter layouts and rendered/readback output, including
+- [x] Verify actual parameter layouts and rendered/readback output in the bounded
+  registered native fixtures, including
   entry-point names, matrix layout, resource indices, constant-data offsets,
-  coordinate conventions, and required storage-texture/format support.
+  coordinate conventions, and required storage-texture/format support. The
+  exhaustive matrix beyond these fixtures is waived by the closeout decision.
 - [x] If direct output cannot satisfy the baseline, evaluate SPIR-V-to-MSL
   translation with explicit binding remaps. Record the selected route, dependency
   implications, limitations, and any toolchain upgrade before expanding work.
@@ -645,13 +730,16 @@ remain unverified.
 - [x] Decouple ApplicationCore startup from unconditional Vulkan requirements;
   retain the existing Vulkan startup path and headless initialization contract.
 - [x] Create the Metal device, baseline queue, and immutable capability report.
-- [ ] Implement native layer/drawable ownership and viewport creation,
-  presentation, resize, minimization, close, and shutdown behavior.
+- [x] Implement native layer/drawable ownership and viewport creation,
+  presentation, resize, minimization, close, and shutdown behavior. Accept the
+  bounded native-layer and normal-window receipts; repeated real-window
+  resize/minimize/close qualification is waived by the closeout decision.
 - [x] Verify both inline and threaded command execution ownership where applicable.
 
-Acceptance: a selectable Metal application presents a clear frame and survives
-repeated resize/minimize/close cycles; headless initialization works; Vulkan
-startup remains valid. Missing drawables and startup failures produce defined
+Acceptance: a selectable Metal application presents and shuts down normally;
+headless initialization and bounded native-layer tests pass, and Vulkan startup
+remains valid. Repeated real-window resize/minimize/close cycles are dispositioned
+by the closeout waiver. Missing drawables and startup failures produce defined
 outcomes without leaked ownership or teardown hangs.
 
 ### Stage 2: Implement resources, submission, and lifetime correctness
@@ -677,8 +765,8 @@ reuse. Unsupported operations follow the documented capability/error contract.
 ### Stage 3: Implement shaders, bindings, and graphics/compute execution
 
 Dependencies: Stage 0 route and target decisions and Stage 2 resource execution
-established. The broader Stage 0 format qualification remains open; completion
-of these implementation checks does not close that gate.
+established. Bounded Stage 0 native correctness is accepted; the broader format
+matrix is dispositioned by the 2026-10-18 closeout waiver.
 
 - [x] Integrate the selected shader route into ShaderBuild and runtime shader
   loading, with target-specific cache and cooked-artifact separation.
@@ -699,31 +787,36 @@ replacement preserve resource lifetimes and target identity.
 
 Dependencies: Stage 3 production execution accepted.
 
-- [ ] Run editor UI, material preview, and a representative scene including the
-  agreed lighting, shadow, post-processing, and compute workloads.
-- [ ] Exercise repeated viewport creation/destruction, resize, material changes,
-  reload, and application shutdown with validation diagnostics enabled.
-- [x] Cook target-specific content and launch the game without a ShaderBuild
-  runtime dependency; test missing and incompatible shader-library diagnostics.
-- [ ] Compare Metal and Vulkan/MoltenVK output on the same scenes, resolutions,
-  camera states, and settings. Record tolerances and investigate mismatches.
-- [ ] Measure CPU/GPU frame timing, shader/pipeline preparation, memory, and
-  presentation behavior using comparable workloads and declared timing methods.
-  Record regressions and uncertainty rather than assuming a performance win.
-- [ ] Document implemented behavior in owning Runtime/Development contracts;
+- [x] Accept bounded native UI/material/compute fixtures, the road-preview image
+  receipt and real editor startup; waive the complete lighting/shadow/post-process/
+  compute and editor-preview scene matrix under the closeout decision.
+- [x] Accept native viewport-layer/recovery coverage and normal-window shutdown;
+  waive repeated real-window creation/resize/minimize/close and edit/reload stress.
+- [x] Retain historical target-specific Cook/Game and incompatible-library
+  diagnostic receipts. Fresh end-to-end package requalification after later
+  shader/binding schema changes is waived for this closeout.
+- [x] Accept bounded ImGui/hit-proxy and road Metal/MoltenVK output receipts;
+  waive the full paired scene/camera/settings capture matrix. No full-scene parity
+  conclusion is drawn from the bounded comparisons.
+- [x] Record the operator-authorized waiver of CPU/GPU frame timing, shader/
+  pipeline preparation, memory and presentation performance qualification.
+  No comparable performance baseline or regression budget is accepted.
+- [x] Document implemented behavior and validation limits in the owning runtime contract;
   complete affected validation and the workspace-wide build when shared Engine
   APIs change, preserving Vulkan consumer coverage.
 
-Acceptance: the declared editor and cooked-game workload matrix passes on the
-named hardware, remaining limitations are explicit, and output/performance
-receipts support the declared baseline. Default adoption has already been
-decided separately; that decision does not satisfy these qualification gates.
-Advanced Metal optimizations remain separate work.
+Acceptance: required bounded native correctness and normal-window receipts pass
+on the named hardware, and the operator-authorized exceptions above are explicitly
+dispositioned. Full workload/image parity, stress, fresh Cook/Game packaging and
+comparable performance are unqualified in this closeout. Advanced Metal
+optimizations remain separate work.
 
 ## Validation and Handoff
 
 Follow [build and run guidance](../Agents/BuildAndRun.md) and
 [native-test guidance](../Agents/Testing.md) for implementation validation.
+The 2026-10-18 operator-approved scope in Current Status controls final acceptance;
+waived checks are recorded as exceptions rather than passing runs.
 Use the [rendering performance baseline](../Development/Build/RenderingPerformanceBaseline.md)
 for comparable measurements. Reuse existing conformance contracts where possible
 and add Metal-specific execution tests for native behavior; Vulkan test passes
