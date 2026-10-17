@@ -104,6 +104,33 @@ namespace Durin::FunctionFixtures
 	public:
 		explicit DParameterTarget(const Durin::FObjectInitializer& Initializer) : DObject(Initializer) {}
 		DFUNCTION()
+		virtual auto NativeDefault(int32 Value = 17) -> int32 { return Value; }
+		inline static int32 NativeOnlyValue = 31;
+		DFUNCTION()
+		auto NativeOnlyDefault(int32 Value = NativeOnlyValue) -> int32 { return Value; }
+		DFUNCTION()
+		auto NativeUnsignedNegation(int64 Value = -0xffffffff) -> int64 { return Value; }
+		DFUNCTION()
+		auto MutableDefault(int32& Value = NativeOnlyValue) -> void { ++Value; }
+		DFUNCTION()
+		auto PartialDefault(int32 Required, int32 Value = 23) -> int32 { return Required + Value; }
+		DFUNCTION()
+		auto ZeroDefault(int32 Value = 0) -> const int32 { return Value; }
+		DFUNCTION()
+		auto NullReferenceDefault(Durin::DObject* const& Value = nullptr) -> Durin::DObject* { return Value; }
+		DFUNCTION()
+		auto LiteralDefaults(bool Flag = true, int8 I8 = -128, int16 I16 = -32768,
+			int32 I32 = -2147483648, int64 I64 = -9223372036854775807LL,
+			uint8 U8 = 255, uint16 U16 = 65535, uint32 U32 = 4294967295U,
+			uint64 U64 = 18446744073709551615ULL, float F = 1.25f, double D = -2.5,
+			const std::string& Text = "default\ntext", EFunctionState State = EFunctionState::Ready,
+			Durin::DObject* Object = nullptr) -> int32
+		{ return Flag ? static_cast<int32>(Text.size()) : 0; }
+		DFUNCTION()
+		auto Overloaded(const std::string& Text = "default") const noexcept -> int32 { return static_cast<int32>(Text.size()); }
+		auto Overloaded(std::string&) const -> int32 { return -100; }
+		auto Overloaded(int*) -> int32 { return -200; }
+		DFUNCTION()
 		auto Combine(int32 Value, const std::string& Prefix, std::string& Output) const -> std::string
 		{
 			Output = Prefix + std::to_string(Value);
@@ -189,6 +216,8 @@ namespace Durin::FunctionFixtures
 	public:
 		explicit DParameterDerived(const Durin::FObjectInitializer& Initializer) : DParameterTarget(Initializer) {}
 		DFUNCTION()
+		auto NativeDefault(int32 Value = 29) -> int32 override { return Value * 2; }
+		DFUNCTION()
 		auto Scale(int32 Renamed) -> int32 override { return Renamed * 3; }
 		DFUNCTION()
 		auto Transform(const FFunctionPayload& Input, FFunctionPayload& Renamed) -> FFunctionPayload override
@@ -203,5 +232,24 @@ namespace Durin::FunctionFixtures
 		auto EchoWeak(Durin::TWeakObjectPtr<Durin::DObject> Input,
 			Durin::TWeakObjectPtr<Durin::DObject>& Renamed) -> Durin::TWeakObjectPtr<Durin::DObject> override
 		{ Renamed = Input; return Input; }
+	};
+
+	DCLASS(NoClassDefaultObject)
+	class DDefaultInherited : public DParameterTarget
+	{
+		GENERATED_BODY()
+	public:
+		explicit DDefaultInherited(const Durin::FObjectInitializer& Initializer) : DParameterTarget(Initializer) {}
+		auto NativeDefault(int32 Value = 43) -> int32 override { return Value * 3; }
+	};
+
+	DCLASS(NoClassDefaultObject)
+	class DDefaultOmitted : public DParameterTarget
+	{
+		GENERATED_BODY()
+	public:
+		explicit DDefaultOmitted(const Durin::FObjectInitializer& Initializer) : DParameterTarget(Initializer) {}
+		DFUNCTION()
+		auto NativeDefault(int32 Value) -> int32 override { return Value * 4; }
 	};
 }

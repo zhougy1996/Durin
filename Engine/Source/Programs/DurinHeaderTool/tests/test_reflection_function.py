@@ -35,7 +35,7 @@ def test_private_virtual_noexcept_function_generation(tmp_path):
     assert function.is_virtual and function.call_in_editor
     assert function.display_name == "Do, It"
     cpp = generate_cpp_content(info, {})
-    assert "static_cast<AActions&>(Target).Run();" in cpp
+    assert "(static_cast<AActions&>(Target).*Method_Run)();" in cpp
     assert ").AActions::Run(" not in cpp  # Preserve native virtual dispatch.
     assert "FFunctionParams" in cpp
     assert "static void Invoke_Run(Durin::DObject& Target, Durin::FFunctionFrame&, void*)" in cpp
@@ -45,7 +45,7 @@ def test_private_virtual_noexcept_function_generation(tmp_path):
     "DFUNCTION() void Run(int = 0);", "DFUNCTION() static void Run();",
     "DFUNCTION() void Run() &;", "DFUNCTION() virtual void Run() = 0;",
     "DFUNCTION() void Run(...);", "DFUNCTION() template<class T> void Run();",
-    "DFUNCTION() void Run(); void Run(int);", "DFUNCTION() int Value;",
+    "DFUNCTION() void Run(); DFUNCTION() void Run(int Value);", "DFUNCTION() int Value;",
     "DFUNCTION(RPC) void Run();", "DFUNCTION(CallInEditor, CallInEditor) void Run();",
     "DFUNCTION(Category=1) void Run();",
     "DFUNCTION() void operator()();", "DFUNCTION() void Run() volatile;",
@@ -58,6 +58,43 @@ def test_unsupported_function_rejected(tmp_path, method):
 
 def void_signature():
     return {"Const": False, "Return": "Void", "Parameters": []}
+
+
+@pytest.mark.parametrize("expression", ["17", "MissingFromInclude", "Factory<int, int>(1, 2)",
+                                        "([] { return 3; })()", "int{4}"])
+def test_default_expression_does_not_change_signature(tmp_path, expression):
+    info = parse(tmp_path, declaration(f"DFUNCTION() int Run(int Value = {expression});"))
+    function = info.classes[0].functions[0]
+    assert function.parameters[0].name == "Value"
+    assert function.parameters[0].kind == "Int32"
+    assert function.signature == {"Const": False, "Return": "Int32",
+                                  "Parameters": [{"Type": "Int32", "Passing": "Value"}]}
+
+
+@pytest.mark.parametrize("overload", ["void Run(int);", "void Run(int*);", "void Run() const;",
+                                       "template<class T> void Run(T);", "void Run(int Value = 3);"])
+def test_one_reflected_entry_can_have_ordinary_overloads(tmp_path, overload):
+    info = parse(tmp_path, declaration("DFUNCTION() void Run(); " + overload))
+    assert len(info.classes[0].functions) == 1
+    cpp = generate_cpp_content(info, {})
+    assert "static_cast<void (AActions::*)()>(&AActions::Run)" in cpp
+    assert ".*Method_Run" in cpp
+
+
+def test_const_only_reflected_overloads_remain_rejected(tmp_path):
+    with pytest.raises(ValueError, match="overloads"):
+        parse(tmp_path, declaration("DFUNCTION() int Run(); DFUNCTION() int Run() const;"))
+
+
+def test_method_pointer_preserves_top_level_const_return(tmp_path):
+    info = parse(tmp_path, declaration("DFUNCTION() const int Run(int Value = 0);"))
+    assert "static_cast<::int32 const (AActions::*)(::int32)>" in generate_cpp_content(info, {})
+
+
+def test_const_reference_and_nested_default_declarations(tmp_path):
+    info = parse(tmp_path, declaration(
+        'DFUNCTION() auto Run(const std::string& Text = "a,b={}", int Count = Unknown(1, 2)) const -> int;'))
+    assert [p.passing for p in info.classes[0].functions[0].parameters] == ["ConstReference", "Value"]
 
 
 def base_symbol(virtual=True):
@@ -100,6 +137,15 @@ def test_unannotated_virtual_override_preserves_inherited_slot(tmp_path):
     info = parse(tmp_path,
         "DCLASS() class AActions : public ABase { GENERATED_BODY() void Run() override; };",
         {"ABase": base_symbol()})
+    assert not info.classes[0].functions
+
+
+def test_unannotated_override_default_is_not_signature_identity(tmp_path):
+    base = base_symbol()
+    base.Functions[0]["Signature"]["Parameters"] = [{"Type": "Int32", "Passing": "Value"}]
+    info = parse(tmp_path,
+        "DCLASS() class AActions : public ABase { GENERATED_BODY() void Run(int Value = Missing()) override; };",
+        {"ABase": base})
     assert not info.classes[0].functions
 
 
@@ -209,7 +255,7 @@ def test_const_input_output_and_string_return_generation(tmp_path):
     assert function.is_const and function.return_kind == "String"
     assert [p.passing for p in function.parameters] == ["Value", "ConstReference", "Reference"]
     generated = generate_cpp_content(info, {})
-    assert "static_cast<const AActions&>(Target).Combine(" in generated
+    assert "(static_cast<const AActions&>(Target).*Method_Combine)(" in generated
     assert "*static_cast<std::string*>(Result) =" in generated
     assert "EFunctionFlags::Const" in generated
 
@@ -218,7 +264,7 @@ def test_const_input_output_and_string_return_generation(tmp_path):
     "DFUNCTION() void Run(int* Value);", "DFUNCTION() int& Run();",
     "DFUNCTION() void Run(std::string&& Value);", "DFUNCTION() void Run(int Values[2]);",
     "DFUNCTION() void Run(std::vector<bool> Values);", "DFUNCTION() Mystery Run();",
-    "DFUNCTION() void Run(int);", "DFUNCTION() void Run(int Value = 4);",
+    "DFUNCTION() void Run(int);",
 ])
 def test_unsupported_parameter_ownership_or_type_is_rejected(tmp_path, method):
     with pytest.raises(ValueError, match="DFUNCTION"):
@@ -410,6 +456,63 @@ def test_enum_reference_export_and_cross_header_overrides(tmp_path, cpp):
     assert info.classes[0].functions[0].signature == base.Functions[0]["Signature"]
     dependencies = resolved_symbol_dependencies_for_header(info, symbols)
     assert (mode.QualifiedName if cpp == "EMode" else base.QualifiedName) in dependencies
+
+
+@pytest.mark.parametrize("cpp, expression, expected", [
+    ("bool", "false", "false"), ("int8", "-128", "-128LL"),
+    ("int8", "128", None), ("uint8", "-1", None), ("int32", "-1U", None),
+    ("int64", "-0xffffffff", None), ("int64", "-0xffffffffL", None),
+    ("int64", "-0xffffffffLL", "-4294967295LL"),
+    ("int64", "-9223372036854775807LL", "-9223372036854775807LL"),
+    ("uint64", "18446744073709551615ULL", "18446744073709551615ULL"),
+    ("uint64", "18446744073709551616ULL", None), ("int", "0xff", "255LL"),
+    ("float", "1.25f", "1.25f"), ("double", "-2.5", "-2.5"),
+    ("float", "1e100", None), ("double", "1e999", None),
+    ("std::string", '"a\\n" "b"', '"a\\n" "b"'),
+    ("std::string", 'MakeString("x")', None),
+    ("std::vector<int>", "{1, 2}", None), ("Durin::FName", 'Durin::FName("x")', None),
+    ("int", "FromStrippedInclude", None), ("int", "Factory<int, int>(1, 2)", None),
+    ("int&", "NativeGlobal", None), ("AActions*", "nullptr", "nullptr"),
+    ("AActions*", "GetObject()", None),
+])
+def test_reflected_default_literal_subset(tmp_path, cpp, expression, expected):
+    info = parse(tmp_path, declaration(f"DFUNCTION() void Run({cpp} Value = {expression});"))
+    parameter = info.classes[0].functions[0].parameters[0]
+    assert parameter.default_expression is not None
+    assert parameter.default_value == expected
+    generated = generate_cpp_content(info, {})
+    assert ("EFunctionDefaultState::NativeOnly" in generated) == (expected is None)
+    assert "Defaults_Run" in generated
+
+
+def test_enum_default_uses_exact_reflected_type(tmp_path):
+    source = "DENUM() enum class EMode : uint8 { Ready = 7 }; "
+    info = parse(tmp_path, source + declaration("DFUNCTION() void Run(EMode Value = EMode::Ready);"))
+    assert info.classes[0].functions[0].parameters[0].default_value == "::EMode::Ready"
+
+
+def test_default_only_export_edit_invalidates_dependents_without_signature_change(tmp_path):
+    from durin_header_tool.extractors.export_symbol_extractor import extract_header_export_symbols
+    header = tmp_path / "Public/Functions.h"
+    header.parent.mkdir()
+    config = DurinModuleConfig(module_name="Fixture", module_dir=tmp_path, reflect_headers=["Public/Functions.h"])
+    results = []
+    for value in (7, 9):
+        header.write_text(declaration(f"DFUNCTION() virtual int Run(int Value = {value});"), encoding="utf-8")
+        with (mock.patch.object(configs, "get_module_config", return_value=config),
+              mock.patch.object(configs, "collect_all_dependent_modules", return_value=set())):
+            results.append(extract_header_export_symbols("Fixture", "Public/Functions.h")["AActions"])
+    assert results[0].Functions[0]["Signature"] == results[1].Functions[0]["Signature"]
+    assert results[0].Functions[0]["Defaults"] == ["7"]
+    assert ExportedSymbolInfo.from_json(results[1].to_json()) == results[1]
+    derived = parse(tmp_path, "DCLASS() class ADerived : public AActions { GENERATED_BODY() };",
+                    {"AActions": results[0]})
+    assert (resolved_symbol_dependencies_for_header(derived, {"AActions": results[0]})
+            != resolved_symbol_dependencies_for_header(derived, {"AActions": results[1]}))
+    corrupt = results[0].to_json()
+    corrupt["Functions"][0]["Defaults"] = [1]
+    with pytest.raises(ValueError, match="defaults"):
+        ExportedSymbolInfo.from_json(corrupt)
 
 
 def test_unresolved_named_types_are_private_to_export_phase_cache():

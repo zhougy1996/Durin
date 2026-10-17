@@ -7,6 +7,7 @@ from durin_header_tool.model.reflection_info import ReflectedFunctionInfo, Refle
 from durin_header_tool.parser.cpp_source_scanner import CppSourceScanner
 from durin_header_tool.parser.reflection_ast_helpers import _get_annotation
 from durin_header_tool.model.function_signature import validate_function_type, resolve_function_type, FUNCTION_VALUE_KINDS, FUNCTION_OBJECT_WRAPPERS
+from durin_header_tool.model.function_defaults import reflected_default
 from durin_header_tool.parser.property_parser import _split_template_args
 
 
@@ -31,10 +32,12 @@ def function_metadata(payload: str, location: str) -> dict:
 
 def _declaration_tokens(member) -> list[str]:
     result = []
+    parentheses = 0
     for token in member.get_tokens():
-        if token.spelling == "{":
+        if token.spelling == "{" and parentheses == 0:
             break
         result.append(token.spelling)
+        parentheses += (token.spelling == "(") - (token.spelling == ")")
     return result
 
 
@@ -157,8 +160,11 @@ def _signature_parts(member, *, require_concrete: bool, symbols=None, namespace=
     parameters = []
     for index, argument in enumerate(member.get_arguments()):
         parameter_tokens = [token.spelling for token in argument.get_tokens()]
+        default_expression = None
         if "=" in parameter_tokens:
-            return None  # Reflected storage has no implicit C++ default-argument evaluation.
+            equals = parameter_tokens.index("=")
+            default_expression = " ".join(parameter_tokens[equals + 1:])
+            parameter_tokens = parameter_tokens[:equals]
         if argument.spelling:
             if not parameter_tokens or parameter_tokens[-1] != argument.spelling:
                 return None
@@ -168,7 +174,10 @@ def _signature_parts(member, *, require_concrete: bool, symbols=None, namespace=
         value = _value_type(parameter_tokens, allow_reference=True, **context)
         if not value or value[0] == "Void":
             return None
-        parameters.append(ReflectedFunctionParameterInfo(argument.spelling or f"p{index}", *value))
+        parameter = ReflectedFunctionParameterInfo(argument.spelling or f"p{index}", *value,
+                                                   default_expression=default_expression)
+        parameter.default_value = reflected_default(parameter, symbols)
+        parameters.append(parameter)
     return result[0], parameters, member.is_const_method()
 
 
@@ -193,7 +202,10 @@ def parse_functions(cursor, header: str, symbols=None, namespace="", allow_unkno
         if parts is None:
             raise ValueError(f"{location}: unsupported native function signature or parameter/default argument")
         return_kind, parameters, is_const = parts
-        if sum(m.spelling == member.spelling for m in members) != 1:
+        same_name = [m for m in members if m.spelling == member.spelling]
+        if (sum(_get_annotation(m).startswith("DFUNCTION") for m in same_name) != 1
+                or any(m.kind not in (clang.CursorKind.CXX_METHOD, clang.CursorKind.FUNCTION_TEMPLATE)
+                       for m in same_name)):
             raise ValueError(f"{location}: reflected overloads are unsupported")
         metadata = function_metadata(annotation.partition(",")[2], location)
         # An override can be semantically unresolved in the hermetic export parse.
@@ -203,7 +215,7 @@ def parse_functions(cursor, header: str, symbols=None, namespace="", allow_unkno
             name=member.spelling, source_line=member.location.line,
             is_virtual=member.is_virtual_method() or is_override,
             is_final="final" in declaration_tokens, return_kind=return_kind,
-            parameters=parameters, is_const=is_const,
+            parameters=parameters, is_const=is_const, return_const=member.result_type.is_const_qualified(),
             call_in_editor=metadata.get("CallInEditor", False),
             category=metadata.get("Category", "Actions"),
             display_name=metadata.get("DisplayName", ""), tool_tip=metadata.get("ToolTip", "")))

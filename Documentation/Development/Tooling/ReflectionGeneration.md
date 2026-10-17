@@ -2,7 +2,7 @@
 
 Summary: Define DurinHeaderTool parsing, symbol exports, and generated C++ contracts.
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-17
 
 ## Parsing Scope And Generated-File Naming
 
@@ -59,6 +59,14 @@ Clang translation units are parsed without function bodies. Reflection consumes
 declaration signatures, fields, constructor and destructor declarations, enum
 constants, and annotation attributes; inline implementation bodies are outside
 the reflection model and must not be made an extraction dependency.
+
+DFUNCTION parameter extraction separates the declaration from its default
+initializer tokens. Native default expressions do not participate in reflected
+signature identity or require visibility of ordinary included declarations.
+Parameter buffers retain value initialization and calls still supply all slots.
+One reflected entry may coexist with ordinary same-class C++ overloads. Generated
+statics select an exact typed member pointer and call through it; multiple
+annotated overloads and hiding of inherited reflected names remain rejected.
 
 The parser may therefore use a partial Clang translation unit that contains
 diagnostics unrelated to the reflection declarations being extracted. Such
@@ -135,11 +143,11 @@ Each reflected module writes:
 <Module>.export
 ```
 
-The export file uses schema v11 JSON:
+The export file uses schema v12 JSON:
 
 ```json
 {
-  "SchemaVersion": 11,
+  "SchemaVersion": 12,
   "Module": "Engine",
   "Symbols": {
     "Durin::AActor": {
@@ -165,14 +173,18 @@ model. Exports are used for symbol resolution during parsing/generation, not as
 the full runtime reflection database.
 
 Class exports also contain `Functions`, a list of reflected method `Name`,
-`Signature`, `Virtual`, `Final`, and declaration `Line` summaries. DHT uses one
+`Signature`, `Virtual`, `Final`, and declaration `Line` summaries. Generated
+summaries also carry `Defaults`, an ordered list of tokenized native expressions
+or null for parameters without defaults. Omitted lists mean no declared defaults
+in handwritten summaries. Defaults affect dependency snapshots and regeneration,
+but not signature compatibility. DHT uses one
 native-signature validator for annotated declarations and unannotated overrides;
 it rejects incompatible hiding and overrides of reflected final declarations
 across header/module boundaries. All ancestor summaries enter
 a descendant header's incremental dependency snapshot. The hermetic synthetic
 prelude exposes supported ancestor method declarations; ordinary includes and
 method bodies remain outside extraction. Generated invokers live inside the
-existing friended class statics helper and use ordinary member calls. See
+existing friended class statics helper and call selected typed member pointers. See
 [Native function reflection](../../Runtime/Core/FunctionReflection.md) for the
 supported signatures, metadata, and runtime registration contract. Generated
 function statics emit `TNativePropertyParams<T>` records, an ordered property record
@@ -204,13 +216,22 @@ unreflected or wrong-kind references fail before generation. Function-only type
 dependencies enter incremental snapshots, including nested and return types.
 The hermetic prelude declares all referenced identities before ancestor methods.
 
-The public export contract remains schema v11. Private export-phase state v3
+The public export contract uses schema v12. Private export-phase state v3
 retains unresolved bare names as `Named` until the complete symbol set resolves
 them to `Struct` or `Enum`, including map keys. Resolved exports reject `Named`
-and unsupported map keys. Tool identity v32 and parser context v15 invalidate
+and unsupported map keys. Tool identity v33 and parser context v16 invalidate
 previous generated sources and cached parse models. Primitive spellings, object
 wrappers, and reference qualifiers share the same function type definitions
 between parsing, synthetic ancestor declarations, and generated thunks.
+
+Function parameters retain default provenance separately from their type/passing
+signature. The restricted literal parser classifies each declaration default as
+reflected or native-only; arbitrary expressions never become runtime code.
+Generated sparse default tables use typed immutable value factories, while
+parameter aggregates keep value initialization. The target compiler checks
+literal conversions, escape decoding, enum entries and exact selected member
+types. Reflected defaults are explicitly applied by owned parameter buffers;
+see the [runtime default contract](../../Runtime/Core/FunctionReflection.md#parameter-defaults).
 
 Export files should only change when the exported reflected-symbol contract changes. Whitespace-only edits in a reflected header may force the owning module's export command to run, but should not rewrite the public `.export` file if the symbol index is unchanged. This keeps downstream modules from regenerating purely because an upstream header timestamp changed.
 

@@ -187,9 +187,11 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
                 name = _cpp_string_literal(function.name)
                 rest = ", ".join(_cpp_string_literal(v) for v in (
                     function.category, function.display_name, function.tool_tip))
+                defaults = (f", {generated_statics_name}::Defaults_{function.name}, std::size({generated_statics_name}::Defaults_{function.name})"
+                            if any(p.default_expression is not None for p in function.parameters) else "")
                 _append_line(class_builder,
                     f"{{ {name}, {function_layout_record(function, generated_statics_name)}, {flags}, {rest}, "
-                    f"&{generated_statics_name}::Invoke_{function.name} }},", 1)
+                    f"&{generated_statics_name}::Invoke_{function.name}{defaults} }},", 1)
             class_builder.append("};\n\n")
         property_params = f"{generated_statics_name}::PropertyParams" if has_properties else "nullptr"
         property_count = len(properties)

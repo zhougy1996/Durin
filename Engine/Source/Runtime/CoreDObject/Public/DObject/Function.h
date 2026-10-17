@@ -32,6 +32,8 @@ namespace Durin
 		auto GetParameterProperty(size_t Index) const -> const FProperty* { require(ArePropertiesLinked()); require(Index < ParameterProperties.size()); return ParameterProperties[Index]; }
 		auto GetNumInputParms() const -> size_t { require(ArePropertiesLinked()); return ParameterProperties.size(); }
 		auto GetNumParms() const -> size_t { require(ArePropertiesLinked()); return ParameterProperties.size() + bool(ReturnProperty); }
+		COREDOBJECT_API auto GetParameterDefault(size_t Index) const -> const FFunctionParameterDefault*;
+		template<typename T> auto GetParameterDefaultValue(size_t Index) const -> const T&;
 		auto GetParmsSize() const -> uint32 { return GetStructureSize(); }
 		COREDOBJECT_API auto GetReturnValueOffset() const -> uint32;
 		auto GetFunctionFlags() const -> EFunctionFlags { return FunctionFlags; }
@@ -55,6 +57,8 @@ namespace Durin
 		FFunctionLinkDiagnostic LinkDiagnostic;
 		std::shared_ptr<const Private::FGCReferenceSchema> ParameterReferenceSchema;
 		std::vector<const FProperty*> ParameterProperties;
+		std::vector<FFunctionParameterDefault> ParameterDefaults;
+		bool bInvalidDefaultRecords = false;
 		const FProperty* ReturnProperty = nullptr;
 		void (*InitializeParameters)(void*) = nullptr;
 		void (*DestroyParameters)(void*) = nullptr;

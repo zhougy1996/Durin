@@ -10,7 +10,7 @@ from durin_header_tool.model.reflection_info import (
     make_generated_symbol,
 )
 
-EXPORT_SCHEMA_VERSION = 11
+EXPORT_SCHEMA_VERSION = 12
 
 
 class ModuleExportSchemaMismatchError(ValueError):
@@ -94,7 +94,9 @@ class ExportedSymbolInfo:
             raise ValueError("Exported Functions must be an array")
         names = set()
         for function in functions:
-            if (not isinstance(function, dict) or set(function) != {"Name", "Virtual", "Final", "Signature", "Line"}
+            if (not isinstance(function, dict) or set(function) not in (
+                    {"Name", "Virtual", "Final", "Signature", "Line"},
+                    {"Name", "Virtual", "Final", "Signature", "Line", "Defaults"})
                     or not isinstance(function["Name"], str) or not function["Name"]
                     or function["Name"] in names
                     or not isinstance(function["Virtual"], bool)
@@ -104,6 +106,12 @@ class ExportedSymbolInfo:
                     or type(function["Line"]) is not int or function["Line"] < 1):
                 raise ValueError("Invalid exported function summary")
             names.add(function["Name"])
+            if "Defaults" in function and (
+                    not isinstance(function["Defaults"], list)
+                    or len(function["Defaults"]) != len(function["Signature"]["Parameters"])
+                    or any(value is not None and (not isinstance(value, str) or not value)
+                           for value in function["Defaults"])):
+                raise ValueError("Invalid exported function defaults")
         decoded = dict(data)
         decoded["NamespacePath"] = tuple(namespace_path)
         symbol = cls(**decoded)

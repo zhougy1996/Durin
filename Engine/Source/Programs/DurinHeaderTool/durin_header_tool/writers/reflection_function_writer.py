@@ -4,7 +4,11 @@ from durin_header_tool.writers.reflection_writer_common import _cpp_string_liter
 
 def function_declarations(function, owner: str) -> str:
     traits = f"FMethod_{function.name}"
-    lines = [_line(f"using {traits} = Durin::DurinCodeGen::TNativeFunctionTraits<decltype(&{owner}::{function.name})>;", 1),
+    arguments = ", ".join(function_parameter_cpp_type(p.kind, p.passing) for p in function.parameters)
+    result_type = function_cpp_type(function.return_kind) + (" const" if function.return_const else "")
+    method_type = f"{result_type} ({owner}::*)({arguments})" + (" const" if function.is_const else "")
+    lines = [_line(f"inline static constexpr auto Method_{function.name} = static_cast<{method_type}>(&{owner}::{function.name});", 1),
+             _line(f"using {traits} = Durin::DurinCodeGen::TNativeFunctionTraits<decltype(Method_{function.name})>;", 1),
              _line(f"static_assert(std::is_same_v<std::remove_cv_t<typename {traits}::ReturnType>, "
                    f"{function_cpp_type(function.return_kind)}>);", 1),
              _line(f"static_assert({traits}::IsConst == {'true' if function.is_const else 'false'});", 1)]
@@ -12,6 +16,19 @@ def function_declarations(function, owner: str) -> str:
     for index, parameter in enumerate(function.parameters):
         cpp = function_parameter_cpp_type(parameter.kind, parameter.passing)
         lines.append(_line(f"static_assert(std::is_same_v<typename {traits}::template ArgumentType<{index}>, {cpp}>);", 1))
+    defaults = [(index, p) for index, p in enumerate(function.parameters) if p.default_expression is not None]
+    if defaults:
+        lines.append(_line(f"inline static const Durin::FFunctionParameterDefault Defaults_{function.name}[] = {{", 1))
+        for index, parameter in defaults:
+            expression = _cpp_string_literal(parameter.default_expression)
+            if parameter.default_value is None:
+                value = f"{{{index}, Durin::EFunctionDefaultState::NativeOnly, {expression}}}"
+            else:
+                cpp = function_cpp_type(parameter.kind)
+                value = (f"Durin::DurinCodeGen::MakeFunctionParameterDefault<{cpp}>"
+                         f"({index}, {expression}, static_cast<{cpp}>({parameter.default_value}))")
+            lines.append(_line(value + ",", 2))
+        lines.append(_line("};", 1))
     has_storage = bool(function.parameters) or function.return_kind != "Void"
     if has_storage:
         aggregate = f"FParams_{function.name}"
@@ -47,7 +64,7 @@ def function_declarations(function, owner: str) -> str:
     arguments = ", ".join(f"Frame.GetParameter<{function_cpp_type(p.kind)}>({i})"
                           for i, p in enumerate(function.parameters))
     target = ("const " if function.is_const else "") + owner
-    call = f"static_cast<{target}&>(Target).{function.name}({arguments})"
+    call = f"(static_cast<{target}&>(Target).*Method_{function.name})({arguments})"
     if function.return_kind != "Void":
         call = f"*static_cast<{function_cpp_type(function.return_kind)}*>(Result) = " + call
     lines.append(_line(f"static void Invoke_{function.name}(Durin::DObject& Target, {frame}, {result}) {{ {call}; }}", 1))

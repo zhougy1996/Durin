@@ -75,7 +75,7 @@ class TestReflectionAstAndState:
             content = save_module_export_file(self.export_info)
         data = json.loads(content)
 
-        assert data["SchemaVersion"] == 11
+        assert data["SchemaVersion"] == 12
         actor = data["Symbols"]["Fixture::ASampleActor"]
         assert actor["QualifiedName"] == "Fixture::ASampleActor"
         assert "GeneratedHelperName" not in actor

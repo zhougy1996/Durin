@@ -291,6 +291,209 @@ TEST(DFunctionReflectionTests, NativeExceptionUnwindsTheCallFrameWithoutConverti
 	EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), nullptr);
 }
 
+TEST(DFunctionReflectionTests, NativeDefaultsDoNotChangeBufferInitializationOrDispatch)
+{
+	Testing::InitializeDObjectSystemForTests();
+	TStrongObjectPtr<FunctionFixtures::DParameterTarget> Target(NewObject<FunctionFixtures::DParameterTarget>(nullptr, "NativeDefaults"));
+	EXPECT_EQ(Target->NativeDefault(), 17);
+	const auto* Function = Target->GetClass()->FindFunctionByName("NativeDefault");
+	ASSERT_NE(Function, nullptr);
+	FFunctionParameterBuffer Buffer(*Function);
+	EXPECT_EQ(Buffer.GetParameter<int32>(0), 0);
+	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	EXPECT_EQ(Buffer.GetReturnValue<int32>(), 0);
+	Buffer.GetParameter<int32>(0) = 23;
+	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	EXPECT_EQ(Buffer.GetReturnValue<int32>(), 23);
+}
+
+TEST(DFunctionReflectionTests, GeneratedMethodSelectionIgnoresOrdinaryOverloads)
+{
+	Testing::InitializeDObjectSystemForTests();
+	TStrongObjectPtr<FunctionFixtures::DParameterTarget> Target(NewObject<FunctionFixtures::DParameterTarget>(nullptr, "Overloads"));
+	const auto* Function = Target->GetClass()->FindFunctionByName("Overloaded");
+	ASSERT_NE(Function, nullptr);
+	FFunctionParameterBuffer Buffer(*Function);
+	Buffer.GetParameter<std::string>(0) = "chosen";
+	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	EXPECT_EQ(Buffer.GetReturnValue<int32>(), 6);
+}
+
+TEST(DFunctionReflectionTests, ReflectedLiteralDefaultsAreTypedOwnedAndExplicit)
+{
+	using namespace FunctionFixtures;
+	Testing::InitializeDObjectSystemForTests();
+	TStrongObjectPtr<DParameterTarget> Target(NewObject<DParameterTarget>(nullptr, "LiteralDefaults"));
+	const auto* Function = Target->GetClass()->FindFunctionByName("LiteralDefaults");
+	ASSERT_NE(Function, nullptr);
+	EXPECT_TRUE(Function->GetParameterDefaultValue<bool>(0));
+	EXPECT_EQ(Function->GetParameterDefaultValue<int8>(1), -128);
+	EXPECT_EQ(Function->GetParameterDefaultValue<int16>(2), -32768);
+	EXPECT_EQ(Function->GetParameterDefaultValue<int32>(3), std::numeric_limits<int32>::min());
+	EXPECT_EQ(Function->GetParameterDefaultValue<int64>(4), -9223372036854775807LL);
+	EXPECT_EQ(Function->GetParameterDefaultValue<uint8>(5), 255);
+	EXPECT_EQ(Function->GetParameterDefaultValue<uint16>(6), 65535);
+	EXPECT_EQ(Function->GetParameterDefaultValue<uint32>(7), 4294967295U);
+	EXPECT_EQ(Function->GetParameterDefaultValue<uint64>(8), std::numeric_limits<uint64>::max());
+	EXPECT_EQ(Function->GetParameterDefaultValue<float>(9), 1.25f);
+	EXPECT_EQ(Function->GetParameterDefaultValue<double>(10), -2.5);
+	EXPECT_EQ(Function->GetParameterDefaultValue<std::string>(11), "default\ntext");
+	EXPECT_EQ(Function->GetParameterDefaultValue<EFunctionState>(12), EFunctionState::Ready);
+	EXPECT_EQ(Function->GetParameterDefaultValue<DObject*>(13), nullptr);
+	FFunctionParameterBuffer Buffer(*Function);
+	EXPECT_FALSE(Buffer.GetParameter<bool>(0));
+	EXPECT_TRUE(Buffer.GetParameter<std::string>(11).empty());
+	ASSERT_TRUE(Buffer.ApplyDefaults({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}));
+	EXPECT_EQ(Buffer.GetParameter<uint64>(8), std::numeric_limits<uint64>::max());
+	EXPECT_EQ(Buffer.GetParameter<EFunctionState>(12), EFunctionState::Ready);
+	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	EXPECT_EQ(Buffer.GetReturnValue<int32>(), 12);
+	Buffer.GetParameter<std::string>(11) = "changed";
+	Buffer.GetParameter<bool>(0) = false;
+	Buffer.GetParameter<DObject*>(13) = Target.Get();
+	ASSERT_TRUE(Buffer.ApplyDefaults({9}));
+	EXPECT_FALSE(Buffer.GetParameter<bool>(0));
+	EXPECT_EQ(Buffer.GetParameter<DObject*>(13), Target.Get());
+	EXPECT_EQ(Function->GetParameterDefaultValue<std::string>(11), "default\ntext");
+	FFunctionParameterBuffer Another(*Function);
+	ASSERT_TRUE(Another.ApplyDefaults({11}));
+	EXPECT_EQ(Another.GetParameter<std::string>(11), "default\ntext");
+}
+
+TEST(DFunctionReflectionTests, DefaultRequestsPreflightAllIndexesWithoutPartialWrites)
+{
+	Testing::InitializeDObjectSystemForTests();
+	TStrongObjectPtr<FunctionFixtures::DParameterTarget> Target(NewObject<FunctionFixtures::DParameterTarget>(nullptr, "DefaultPreflight"));
+	const auto* Function = Target->GetClass()->FindFunctionByName("PartialDefault");
+	ASSERT_NE(Function, nullptr);
+	EXPECT_EQ(Function->GetParameterDefault(0), nullptr);
+	FFunctionParameterBuffer Buffer(*Function);
+	Buffer.GetParameter<int32>(1) = 99;
+	auto Error = Buffer.ApplyDefaults({1, 0});
+	ASSERT_FALSE(Error); EXPECT_EQ(Error.error().Code, EFunctionDefaultError::MissingDefault);
+	EXPECT_EQ(Error.error().ParameterIndex, 0u);
+	EXPECT_EQ(Buffer.GetParameter<int32>(1), 99);
+	Error = Buffer.ApplyDefaults({1, 1});
+	ASSERT_FALSE(Error); EXPECT_EQ(Error.error().Code, EFunctionDefaultError::DuplicateIndex);
+	EXPECT_EQ(Buffer.GetParameter<int32>(1), 99);
+	Error = Buffer.ApplyDefaults({1, 2}); // Return storage is not a parameter input.
+	ASSERT_FALSE(Error); EXPECT_EQ(Error.error().Code, EFunctionDefaultError::InvalidIndex);
+	EXPECT_EQ(Buffer.GetParameter<int32>(1), 99);
+	ASSERT_TRUE(Buffer.ApplyDefaults({1}));
+	EXPECT_EQ(Buffer.GetParameter<int32>(0), 0);
+	EXPECT_EQ(Buffer.GetParameter<int32>(1), 23);
+	const auto* NativeOnly = Target->GetClass()->FindFunctionByName("NativeOnlyDefault");
+	ASSERT_NE(NativeOnly, nullptr);
+	EXPECT_EQ(NativeOnly->GetParameterDefault(0)->State, EFunctionDefaultState::NativeOnly);
+	FFunctionParameterBuffer NativeBuffer(*NativeOnly);
+	Error = NativeBuffer.ApplyDefaults({0});
+	ASSERT_FALSE(Error); EXPECT_EQ(Error.error().Code, EFunctionDefaultError::NativeOnly);
+	EXPECT_EQ(NativeBuffer.GetParameter<int32>(0), 0);
+	const auto* UnsignedNegation = Target->GetClass()->FindFunctionByName("NativeUnsignedNegation");
+	ASSERT_NE(UnsignedNegation, nullptr);
+	EXPECT_EQ(UnsignedNegation->GetParameterDefault(0)->State, EFunctionDefaultState::NativeOnly);
+	EXPECT_EQ(Target->NativeUnsignedNegation(), 1);
+	const auto* Mutable = Target->GetClass()->FindFunctionByName("MutableDefault");
+	ASSERT_NE(Mutable, nullptr);
+	FFunctionParameterBuffer MutableBuffer(*Mutable);
+	Error = MutableBuffer.ApplyDefaults({0});
+	ASSERT_FALSE(Error); EXPECT_EQ(Error.error().Code, EFunctionDefaultError::NotInput);
+	const auto* Zero = Target->GetClass()->FindFunctionByName("ZeroDefault");
+	ASSERT_NE(Zero, nullptr);
+	EXPECT_EQ(Zero->GetParameterDefaultValue<int32>(0), 0);
+	FFunctionParameterBuffer ZeroBuffer(*Zero);
+	ZeroBuffer.GetParameter<int32>(0) = 7;
+	ASSERT_TRUE(ZeroBuffer.ApplyDefaults({0}));
+	EXPECT_EQ(ZeroBuffer.GetParameter<int32>(0), 0);
+	const auto* NullReference = Target->GetClass()->FindFunctionByName("NullReferenceDefault");
+	ASSERT_NE(NullReference, nullptr);
+	FFunctionParameterBuffer NullBuffer(*NullReference);
+	ASSERT_TRUE(NullBuffer.ApplyDefaults({0}));
+	EXPECT_EQ(Target->ProcessEvent(NullReference, NullBuffer.GetView()), EFunctionInvokeError::None);
+	EXPECT_EQ(NullBuffer.GetReturnValue<DObject*>(), nullptr);
+}
+
+TEST(DFunctionReflectionTests, DefaultsFollowEffectiveDescriptorsRatherThanNativeOverrideDeclarations)
+{
+	using namespace FunctionFixtures;
+	Testing::InitializeDObjectSystemForTests();
+	TStrongObjectPtr<DParameterDerived> Annotated(NewObject<DParameterDerived>(nullptr, "AnnotatedDefaults"));
+	const auto* Function = Annotated->GetClass()->FindFunctionByName("NativeDefault");
+	ASSERT_NE(Function, nullptr);
+	EXPECT_EQ(Function->GetParameterDefaultValue<int32>(0), 29);
+	FFunctionParameterBuffer Buffer(*Function);
+	ASSERT_TRUE(Buffer.ApplyDefaults({0}));
+	EXPECT_EQ(Annotated->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	EXPECT_EQ(Buffer.GetReturnValue<int32>(), 58);
+	TStrongObjectPtr<DDefaultInherited> Unannotated(NewObject<DDefaultInherited>(nullptr, "InheritedDefaults"));
+	Function = Unannotated->GetClass()->FindFunctionByName("NativeDefault");
+	ASSERT_NE(Function, nullptr);
+	EXPECT_EQ(Function, DParameterTarget::StaticClass()->FindFunctionByName("NativeDefault"));
+	EXPECT_EQ(Function->GetParameterDefaultValue<int32>(0), 17);
+	EXPECT_EQ(Unannotated->NativeDefault(), 129);
+	FFunctionParameterBuffer Inherited(*Function);
+	ASSERT_TRUE(Inherited.ApplyDefaults({0}));
+	EXPECT_EQ(Unannotated->ProcessEvent(Function, Inherited.GetView()), EFunctionInvokeError::None);
+	EXPECT_EQ(Inherited.GetReturnValue<int32>(), 51);
+	const auto* Omitted = DDefaultOmitted::StaticClass()->FindFunctionByName("NativeDefault");
+	ASSERT_NE(Omitted, nullptr);
+	EXPECT_EQ(Omitted->GetParameterDefault(0), nullptr);
+}
+
+TEST(DFunctionReflectionTests, LinkingRejectsInvalidDefaultRecordsAndOwnsValidValues)
+{
+	using namespace DurinCodeGen;
+	struct FArguments { int32 Value; };
+	TNativePropertyParams<int32> Value("Value", 0, EPropertyFlags::Parm);
+	const FPropertyParamsBase* Properties[]{&Value.Params};
+	auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
+	int32 Counter = 0;
+	auto Construct = [&](const std::vector<FFunctionParameterDefault>& Defaults, bool Valid) {
+		auto* Owner = MakeFunctionClass(std::format("Tests::DDefaultRecords{}", Counter++).c_str());
+		FFunctionParams Params{"Run", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}, Defaults.data(), Defaults.size()};
+		auto* Function = ConstructDFunction(Owner, Params);
+		Owner->RegisterFunctions({Function});
+		EXPECT_EQ(Owner->LinkFunctions(), Valid ? EFunctionLinkError::None : EFunctionLinkError::InvalidDescriptor);
+		return Function;
+	};
+	auto Default = MakeFunctionParameterDefault<int32>(0, "42", 42);
+	auto* Valid = Construct({Default}, true);
+	Default.Value.reset(); // Descriptor owns its copied record and value.
+	EXPECT_EQ(Valid->GetParameterDefaultValue<int32>(0), 42);
+	Construct({Default}, false);
+	Default = MakeFunctionParameterDefault<int32>(1, "42", 42); Construct({Default}, false);
+	Default.ParameterIndex = 0; Construct({Default, Default}, false);
+	Construct({MakeFunctionParameterDefault<float>(0, "1.f", 1.f)}, false);
+	Default.State = EFunctionDefaultState::NativeOnly; Construct({Default}, false);
+	Default.State = EFunctionDefaultState::None; Construct({Default}, false);
+	Default.State = EFunctionDefaultState::Reflected; Default.Expression.clear(); Construct({Default}, false);
+}
+
+TEST(DFunctionReflectionTests, DefaultLinkValidationChecksRolesEnumsAndNullObjects)
+{
+	using namespace DurinCodeGen;
+	using namespace FunctionFixtures;
+	int32 Counter = 0;
+	auto Check = [&]<typename T>(T Value, FFunctionParameterDefault Default, EPropertyFlags Flags = EPropertyFlags::Parm) {
+		struct FArguments { T Value; };
+		TNativePropertyParams<T> Property("Value", 0, Flags);
+		const FPropertyParamsBase* Properties[]{&Property.Params};
+		auto Layout = MakeFunctionLayoutParams<FArguments>(Properties, 1);
+		auto* Owner = MakeFunctionClass(std::format("Tests::DDefaultTypeValidation{}", Counter++).c_str());
+		FFunctionParams Params{"Run", &Layout, EFunctionFlags::Native, "", "", "", +[](DObject&, FFunctionFrame&, void*) {}, &Default, 1};
+		auto* Function = ConstructDFunction(Owner, Params);
+		Owner->RegisterFunctions({Function});
+		EXPECT_EQ(Owner->LinkFunctions(), EFunctionLinkError::InvalidDescriptor);
+		(void)Value;
+	};
+	Check(int32{}, MakeFunctionParameterDefault<int32>(0, "1", 1), EPropertyFlags::Parm | EPropertyFlags::ReferenceParm | EPropertyFlags::OutParm);
+	Check(int32{}, MakeFunctionParameterDefault<int32>(0, "1", 1), EPropertyFlags::Parm | EPropertyFlags::ReturnParm | EPropertyFlags::OutParm);
+	Check(EFunctionState{}, MakeFunctionParameterDefault<EOtherFunctionState>(0, "Other", EOtherFunctionState::Other));
+	Check(static_cast<DObject*>(nullptr), MakeFunctionParameterDefault<DObject*>(0, "non-null", DObject::StaticClass()));
+	Check(TObjectPtr<DObject>{}, MakeFunctionParameterDefault<TObjectPtr<DObject>>(0, "{}", {}));
+	Check(std::string{}, FFunctionParameterDefault{0, EFunctionDefaultState::Reflected, "text"});
+}
+
 TEST(DFunctionReflectionTests, GeneratedStringArgumentsReferenceOutputAndReturnUseInitializedStorage)
 {
 	Testing::InitializeDObjectSystemForTests();

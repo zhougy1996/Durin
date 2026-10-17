@@ -35,7 +35,8 @@ def _extract_header_export_symbols_impl(
             BaseQualifiedName=class_info.base_qualified_name,
             IsAbstract=class_info.is_abstract,
             Functions=[{"Name": f.name, "Virtual": f.is_virtual, "Final": f.is_final,
-                        "Signature": f.signature, "Line": f.source_line}
+                        "Signature": f.signature, "Line": f.source_line,
+                        "Defaults": [p.default_expression for p in f.parameters]}
                        for f in class_info.functions],
         )
     for enum_info in header_info.enums:

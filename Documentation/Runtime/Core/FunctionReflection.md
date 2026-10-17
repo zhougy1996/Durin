@@ -4,7 +4,7 @@ Summary: Define generated native function descriptors, inheritance, and unified 
 
 Modules: CoreDObject
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-17
 
 ## Authoring And Scope
 
@@ -25,12 +25,19 @@ spellings map to the corresponding supported fixed-width type. Public,
 protected, private, virtual, `final`, and `noexcept` methods are supported.
 Parameters pass by value, `const T&` (input), or `T&` (input/output); returns
 are by value or void. Object references also support `T*&` and `T* const&`;
-const pointees are unsupported. Default arguments, non-object pointers, rvalue
+const pointees are unsupported. Native default arguments are accepted and follow
+ordinary C++ call-site rules. Reflection callers still supply complete parameter
+storage; value initialization does not evaluate declared default arguments.
+Non-object pointers, rvalue
 references, reference returns, C arrays, unreflected enums/structs,
 untyped `FSoftObjectPtr`/`FWeakObjectPtr`, `TStrongObjectPtr`, method ref qualifiers,
-pure-virtual annotations, templates, variadics, declaring-class overloads,
+pure-virtual annotations, templates, variadics, multiple reflected overloads,
 free/static functions, and `DSTRUCT` methods are rejected. The definition must
-link normally. Reflected parameter storage does not evaluate C++ default arguments.
+link normally.
+
+One annotated method may coexist with ordinary unannotated overloads in its
+declaring class. Generated code selects and invokes its exact member pointer,
+including const/reference modes, while preserving native virtual dispatch.
 
 ```cpp
 DFUNCTION(CallInEditor, Category = "Light", DisplayName = "Normalize Settings",
@@ -84,7 +91,7 @@ Identical size/alignment alone does not make two composite types compatible.
 Virtual/final override policy is checked separately.
 
 `DurinCodeGen::FClassParams` accepts a trailing function pointer/count pair.
-Generated statics helpers make type-correct casts and ordinary member calls;
+Generated statics helpers select and call exact typed member pointers;
 the existing generated friend grants access to non-public methods. The generated
 native ABI is `void(DObject&, FFunctionFrame&, void* Result)`. DHT emits a C++
 aggregate with value storage for each parameter and, when present, a return field.
@@ -289,6 +296,67 @@ enums without injecting incomplete enum declarations into authored headers.
 The mapping is process-local, is never serialized, and follows module lifetime;
 an unreflected or retired native enum has no resolver and returns null. Runtime
 metadata construction and lookup use the normal reflection registration thread.
+
+## Parameter Defaults
+
+Default arguments are declaration conveniences for native C++ callers. Reflected
+calls always pass complete initialized storage. Buffer construction and
+ProcessEvent never evaluate declaration defaults or infer omission from zero,
+false, an empty string, or null.
+
+`DFunction::GetParameterDefault(Index)` returns null for a parameter without a
+declared default. Otherwise its immutable `FFunctionParameterDefault` record
+reports `NativeOnly` or `Reflected` and retains tokenized expression provenance.
+`GetParameterDefaultValue<T>(Index)` in `FunctionParameters.h` provides checked
+typed inspection of an available reflected value; wrong types or unavailable
+values are programmer-contract failures, like typed buffer access.
+
+DHT reflects bool literals; range-checked signed/unsigned integer literals;
+finite decimal float/double literals; ordinary escaped or adjacent string
+literals; constants qualified by the parameter's reflected enum type (and bare
+enumerators for unscoped enums); and `nullptr` for raw object pointers. Native
+compilation performs string escape decoding and verifies emitted enum constants.
+These defaults support value and const-reference inputs. Calls, macros, named
+constants, target-dependent unsigned negation of integer literals, raw/prefixed strings, struct/math construction, containers, object
+wrappers, non-null objects, and mutable-reference defaults remain native-only.
+Unsupported forms do not invalidate an otherwise supported declaration and
+never silently become a type's value-initialized default.
+
+`FFunctionParameterBuffer::ApplyDefaults` accepts an explicit span or initializer
+list of omitted input indexes. It checks the complete request before writes:
+invalid or duplicate indexes, mutable-reference outputs, missing defaults, and
+native-only defaults return `FFunctionDefaultError` with the failing parameter
+index. The return property is never an input index. Valid requests copy-assign
+only selected initialized slots, leaving caller-supplied values untouched.
+Native assignment failure returns `AssignmentFailed`; earlier assignments may
+have completed, and the operation does not promise exception rollback.
+
+```cpp
+// DFUNCTION() auto Rebuild(int32 Quality = 2, bool Force = false) -> void;
+FFunctionParameterBuffer Parameters(*Function);
+Parameters.GetParameter<bool>(1) = true; // Explicit caller value.
+const auto Defaults = Parameters.ApplyDefaults({0});
+if (Defaults)
+{
+    Object->ProcessEvent(Function, Parameters.GetView());
+}
+```
+
+Generated `FFunctionParams` carry sparse default records. Construction copies
+them into DFunction with immutable owned native values; Link validates indexes,
+roles, supported kinds, exact native/enum identity, and null-only raw object
+values before sealing. Handwritten registration uses the same typed
+`MakeFunctionParameterDefault<T>` factory and validation. Native-only records
+carry provenance without a value. No second parameter property graph is built.
+Defaults exist in non-editor builds and share descriptor/module lifetime.
+Strings are independent owned values; null object defaults add no GC roots.
+
+Defaults are excluded from signature compatibility. An annotated override owns
+its complete local default records, including the absence of defaults; defaults
+are never merged from its parent. An unannotated virtual override keeps the
+inherited descriptor and its defaults, while C++ direct calls retain normal
+static-declaration default selection. These facilities do not change the
+void/no-argument CallInEditor admission rule.
 
 ## Inheritance And Lookup
 

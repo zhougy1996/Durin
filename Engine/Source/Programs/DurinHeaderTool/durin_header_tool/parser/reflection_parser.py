@@ -361,7 +361,7 @@ def parse_reflection_header(
                     function_symbols[local.qualified_name] = ExportedSymbolInfo(
                         Kind=local.generated_symbol.kind,
                         ShortName=local.short_name, Namespace=local.namespace, QualifiedName=local.qualified_name,
-                        Header=local.header, API=local.api)
+                        Header=local.header, API=local.api, IsScoped=getattr(local, "is_scoped", False))
                 reflected_class.functions = parse_functions(child, header, function_symbols,
                                                             declaring_namespace, allow_unknown=export_mode)
                 if exported_symbols and not export_mode:

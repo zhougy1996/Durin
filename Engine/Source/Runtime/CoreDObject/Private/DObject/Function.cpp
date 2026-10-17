@@ -64,6 +64,8 @@ namespace Durin
 		DisplayName(Params.DisplayName && *Params.DisplayName ? Params.DisplayName : StringUtils::HumanizeName(Params.Name)),
 		ToolTip(Params.ToolTip ? Params.ToolTip : ""), NativeFunction(Params.NativeFunction)
 	{
+		bInvalidDefaultRecords = Params.NumDefaults != 0 && !Params.Defaults;
+		if (Params.Defaults) ParameterDefaults.assign(Params.Defaults, Params.Defaults + Params.NumDefaults);
 		SetStructureLayout(Params.Layout ? Params.Layout->ParmsSize : 0, Params.Layout ? Params.Layout->ParmsAlignment : 1);
 		if (const auto* Layout = Params.Layout)
 		{
@@ -81,6 +83,14 @@ namespace Durin
 	{
 		require(ArePropertiesLinked());
 		return ReturnProperty ? ReturnProperty->GetOffset() : std::numeric_limits<uint32>::max();
+	}
+
+	auto DFunction::GetParameterDefault(size_t Index) const -> const FFunctionParameterDefault*
+	{
+		require(ArePropertiesLinked() && Index < ParameterProperties.size());
+		for (const auto& Default : ParameterDefaults)
+			if (Default.ParameterIndex == Index) return &Default;
+		return nullptr;
 	}
 
 	auto DFunction::Invoke(DObject& Target, FFunctionFrame& Frame, void* Result) const -> void
@@ -138,8 +148,9 @@ namespace Durin
 		std::vector<FRange> Ranges;
 		std::unordered_set<FName> Names;
 		auto Fail = [&](std::string Path, std::string Reason) { return FailLink(EFunctionLinkError::InvalidDescriptor, std::move(Path), std::move(Reason)); };
+		if (bInvalidDefaultRecords) return Fail({}, "default record count requires a record pointer");
 		if (!GetChildProperties())
-			return (GetStructureSize() == 0 && GetMinAlignment() == 1 && !InitializeParameters && !DestroyParameters)
+			return (ParameterDefaults.empty() && GetStructureSize() == 0 && GetMinAlignment() == 1 && !InitializeParameters && !DestroyParameters)
 				|| Fail({}, "void/no-argument functions require an empty aggregate layout and no lifecycle callbacks");
 		if (!GetStructureSize() || GetStructureSize() > std::numeric_limits<uint16>::max()) return Fail({}, "parameter aggregate size must be in [1, 65535]");
 		if (!GetMinAlignment() || (GetMinAlignment() & (GetMinAlignment() - 1)) || GetStructureSize() % GetMinAlignment())
@@ -170,6 +181,35 @@ namespace Durin
 		std::ranges::sort(Ranges, {}, &FRange::Start);
 		for (size_t Index = 1; Index < Ranges.size(); ++Index)
 			if (Ranges[Index - 1].End > Ranges[Index].Start) return Fail(Ranges[Index].Name, "parameter storage overlaps '" + Ranges[Index - 1].Name + "'");
+		std::unordered_set<size_t> DefaultIndexes;
+		for (const auto& Default : ParameterDefaults)
+		{
+			if (Default.ParameterIndex >= ParameterProperties.size()) return Fail({}, "default parameter index is out of range");
+			const auto& Property = *ParameterProperties[Default.ParameterIndex];
+			const auto Path = Property.NamePrivate.ToString();
+			if (!DefaultIndexes.insert(Default.ParameterIndex).second) return Fail(Path, "default parameter index is duplicated");
+			if (Default.Expression.empty()) return Fail(Path, "default expression provenance is missing");
+			if (Default.State == EFunctionDefaultState::NativeOnly)
+			{
+				if (Default.Value || Default.Matches) return Fail(Path, "native-only default cannot publish a reflected value");
+				continue;
+			}
+			if (Default.State != EFunctionDefaultState::Reflected || !Default.Value || !Default.Matches)
+				return Fail(Path, "reflected default requires an immutable typed value");
+			if (Property.HasAnyPropertyFlags(EPropertyFlags::OutParm)) return Fail(Path, "reflected defaults require input parameters");
+			using K = DurinCodeGen::EPropertyGenFlags;
+			switch (Property.GetKind())
+			{
+			case K::Bool: case K::Int8: case K::Int16: case K::Int32: case K::Int64:
+			case K::UInt8: case K::UInt16: case K::UInt32: case K::UInt64:
+			case K::Float: case K::Double: case K::String: case K::Enum: break;
+			case K::Object:
+				if (Property.IsObjectPtrWrapper()) return Fail(Path, "object wrapper defaults are native-only");
+				break;
+			default: return Fail(Path, "parameter kind does not support reflected defaults");
+			}
+			if (!Default.Matches(Property, Default.Value.get())) return Fail(Path, "default native type, enum identity or null object value is invalid");
+		}
 		return true;
 	}
 
@@ -219,6 +259,29 @@ namespace Durin
 		GetFunctionBuffers().erase(this);
 		Function.DestroyParameters(Storage);
 		::operator delete(Storage, std::align_val_t(std::max<size_t>(Function.GetMinAlignment(), alignof(std::max_align_t))));
+	}
+
+	auto FFunctionParameterBuffer::ApplyDefaults(std::span<const size_t> OmittedInputs) -> std::expected<void, FFunctionDefaultError>
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		std::unordered_set<size_t> Seen;
+		for (const auto Index : OmittedInputs)
+		{
+			if (Index >= Function.GetNumInputParms()) return std::unexpected(FFunctionDefaultError{EFunctionDefaultError::InvalidIndex, Index});
+			if (!Seen.insert(Index).second) return std::unexpected(FFunctionDefaultError{EFunctionDefaultError::DuplicateIndex, Index});
+			if (Function.GetParameterProperty(Index)->HasAnyPropertyFlags(EPropertyFlags::OutParm))
+				return std::unexpected(FFunctionDefaultError{EFunctionDefaultError::NotInput, Index});
+			const auto* Default = Function.GetParameterDefault(Index);
+			if (!Default) return std::unexpected(FFunctionDefaultError{EFunctionDefaultError::MissingDefault, Index});
+			if (Default->State != EFunctionDefaultState::Reflected) return std::unexpected(FFunctionDefaultError{EFunctionDefaultError::NativeOnly, Index});
+		}
+		for (const auto Index : OmittedInputs)
+		{
+			const auto* Property = Function.GetParameterProperty(Index);
+			if (!Property->CopyAssignValue(Property->GetValuePtr(Storage), Function.GetParameterDefault(Index)->Value.get()))
+				return std::unexpected(FFunctionDefaultError{EFunctionDefaultError::AssignmentFailed, Index});
+		}
+		return {};
 	}
 
 	namespace Private

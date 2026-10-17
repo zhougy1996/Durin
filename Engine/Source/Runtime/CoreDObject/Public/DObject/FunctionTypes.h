@@ -8,6 +8,24 @@ namespace Durin
 	class DObject;
 	class DFunction;
 	class FFunctionFrame;
+	class FProperty;
+	enum class EFunctionDefaultState : uint8 { None, NativeOnly, Reflected };
+	// Sparse generated record copied into its function. Values are immutable native
+	// objects; Matches checks exact property identity and the supported value subset.
+	struct FFunctionParameterDefault
+	{
+		size_t ParameterIndex = 0;
+		EFunctionDefaultState State = EFunctionDefaultState::NativeOnly;
+		std::string Expression;
+		std::shared_ptr<const void> Value;
+		bool (*Matches)(const FProperty&, const void*) = nullptr;
+	};
+	enum class EFunctionDefaultError : uint8 { InvalidIndex, DuplicateIndex, NotInput, MissingDefault, NativeOnly, AssignmentFailed };
+	struct FFunctionDefaultError
+	{
+		EFunctionDefaultError Code;
+		size_t ParameterIndex;
+	};
 	using FNativeFunctionPtr = void (*)(DObject&, FFunctionFrame&, void* Result);
 	enum class EFunctionFlags : uint32 { None = 0, CallInEditor = 1, Virtual = 2, Native = 4, Final = 8, Const = 16 };
 	ENUM_CLASS_FLAGS(EFunctionFlags);

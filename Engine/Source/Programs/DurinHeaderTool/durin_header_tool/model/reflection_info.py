@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 SYMBOL_NAME_SCHEME = "namespace-scoped-v2"
-TOOL_VERSION = "32"
+TOOL_VERSION = "33"
 
 
 @dataclass(frozen=True, order=True)
@@ -224,6 +224,8 @@ class ReflectedFunctionParameterInfo:
     name: str
     kind: str | dict
     passing: str = "Value"
+    default_expression: str | None = None
+    default_value: str | None = None
 
 
 @dataclass
@@ -233,6 +235,7 @@ class ReflectedFunctionInfo:
     is_virtual: bool = False
     is_final: bool = False
     is_const: bool = False
+    return_const: bool = False
     return_kind: str | dict = "Void"
     parameters: list[ReflectedFunctionParameterInfo] = field(default_factory=list)
     call_in_editor: bool = False

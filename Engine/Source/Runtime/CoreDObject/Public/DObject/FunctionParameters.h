@@ -148,6 +148,14 @@ namespace Durin
 		return Private::FunctionValue<T>(*GetFunction().GetParameterProperty(Index), GetParameters());
 	}
 
+	template<typename T> auto DFunction::GetParameterDefaultValue(size_t Index) const -> const T&
+	{
+		const auto* Default = GetParameterDefault(Index);
+		require(Default && Default->State == EFunctionDefaultState::Reflected);
+		require(Private::FunctionTypeMatches<T>(*GetParameterProperty(Index)));
+		return *static_cast<const T*>(Default->Value.get());
+	}
+
 	// Owns initialized native parameter aggregate storage. Metadata/module lifetime must
 	// cover this scope; GetView() is borrowed by the synchronous ProcessEvent call.
 	class FFunctionParameterBuffer final
@@ -158,6 +166,11 @@ namespace Durin
 		FFunctionParameterBuffer(const FFunctionParameterBuffer&) = delete;
 		auto operator=(const FFunctionParameterBuffer&) -> FFunctionParameterBuffer& = delete;
 		auto GetView() const -> FMutableByteView { return {static_cast<std::byte*>(Storage), Function.GetParmsSize()}; }
+		COREDOBJECT_API auto ApplyDefaults(std::span<const size_t> OmittedInputs) -> std::expected<void, FFunctionDefaultError>;
+		auto ApplyDefaults(std::initializer_list<size_t> OmittedInputs) -> std::expected<void, FFunctionDefaultError>
+		{
+			return ApplyDefaults(std::span<const size_t>(OmittedInputs.begin(), OmittedInputs.size()));
+		}
 		template<typename T> auto GetParameter(size_t Index) -> T&
 		{
 			return Private::FunctionValue<T>(*Function.GetParameterProperty(Index), GetView());
@@ -176,6 +189,16 @@ namespace Durin
 
 namespace Durin::DurinCodeGen
 {
+	template<typename T> auto MakeFunctionParameterDefault(size_t Index, std::string Expression, T Value) -> FFunctionParameterDefault
+	{
+		return {Index, EFunctionDefaultState::Reflected, std::move(Expression), std::make_shared<const T>(std::move(Value)),
+			+[](const FProperty& Property, const void* Storage) {
+				if (!Storage || !Private::FunctionTypeMatches<T>(Property)) return false;
+				if constexpr (std::is_pointer_v<T>) return *static_cast<const T*>(Storage) == nullptr;
+				else return true;
+			}};
+	}
+
 	// These holders keep nested generated records alive until the shared constructor
 	// consumes them. All concrete field creation stays in ConstructProperty.
 	template<typename T> auto MakeNativeLeafPropertyParams(const char* Name, uint32 Offset, EPropertyFlags Flags)
@@ -241,6 +264,7 @@ namespace Durin::DurinCodeGen
 	// Generated assertions compare extracted schemas with the actual target-compiler
 	// method type, preventing implicit conversions from hiding a parser/type mismatch.
 	template<typename T> struct TNativeFunctionTraits;
+	template<typename T> struct TNativeFunctionTraits<T const> : TNativeFunctionTraits<T> {};
 	template<typename R, typename C, typename... Args> struct TNativeFunctionTraits<R(C::*)(Args...)>
 	{
 		using ReturnType = R;

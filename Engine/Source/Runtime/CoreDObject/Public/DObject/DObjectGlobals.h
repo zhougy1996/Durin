@@ -360,6 +360,8 @@ namespace Durin
 			const char* DisplayName;
 			const char* ToolTip;
 			FNativeFunctionPtr NativeFunction;
+			const FFunctionParameterDefault* Defaults = nullptr;
+			size_t NumDefaults = 0;
 		};
 
 		struct FClassParams
