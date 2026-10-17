@@ -1,8 +1,8 @@
 # Editor Subsystems
 
-Summary: Define per-editor native services, Actor/Component editing, and notification ownership and update timing.
+Summary: Define per-editor native services, reflected PIE controls, Actor/Component editing, and notification ownership and update timing.
 
-Modules: DurinEd, MainFrame, Engine
+Modules: DurinEd, LevelEditor, MainFrame, Engine
 
 Last reviewed: 2026-10-17
 
@@ -20,10 +20,11 @@ name concrete Editor types registered in the same snapshot. The host enumerates
 both collections for GC. Runtime Engine has no dependency on DurinEd.
 
 Editor Init loads project providers and AssetForgeBuiltins, runs base Init,
-retains EditorWorld, loads MainFrame, then initializes Editor services before
+retains EditorWorld, loads MainFrame and LevelEditor, then initializes Editor services before
 CreateEditorHost exposes consumers. The constructor-created transactor is
 available; the shell is not yet created. DurinEd's module startup registers the
-Actor editing, notification and [tool](EditorTools.md) services. A returned failure, cancellation or exception retires
+Actor editing, notification and [tool](EditorTools.md) services. LevelEditor
+registers the Level editing service and PIE Toolset. A returned failure, cancellation or exception retires
 partial host state and prevents successful initialization.
 
 Shutdown closes both collections' gates, stops PIE, shuts down EditorWorld,
@@ -31,6 +32,37 @@ destroys shell consumers, then deinitializes Editor services. Base shutdown
 retires the remaining World and Engine services. Initialization and update
 operation scopes defer requested destruction until callbacks unwind. Explicit
 retirement is idempotent and BeginDestroy supplies the same fallback path.
+
+## Level Editor Play Controls
+
+`DLevelEditorSubsystem` in `Editor/LevelEditorSubsystem.h` belongs to LevelEditor,
+which depends publicly on DurinEd's subsystem contract. Each editor owns one instance
+that survives repeated PIE sessions. Its `DFUNCTION` entrypoints are
+`GetPlayStatus()`, `StartPlaySession()`, `StopPlaySession()` and
+`SetPlaySessionPaused(bool bPaused)`. They return the reflected
+`FLevelEditorPlayResult` containing `bSucceeded`, `Message` and `State`.
+Admission requires GameThread, a live service registered with its owning host
+and an open subsystem work gate. Rejected admission leaves State empty; admitted
+calls report `stopped`, `playing` or `paused`, including business failures.
+
+The subsystem owns script-facing domain checks and delegates actual play-world
+creation, teardown and pause changes to `DEditorEngine`. Stopping or pausing
+without an active session fails; starting without a current editor level fails.
+These methods are not `CallInEditor` actions and do not create Undo transactions
+or automatically grant Python/MCP exposure. The existing `editor.pie` Toolset
+resolves this service on its admitting host and converts successful results to
+the unchanged `{message, state}` contract; failures remain DomainFailure
+diagnostics. Python and MCP continue through the existing tool service.
+
+LevelEditor's module startup publishes both the subsystem provider and PIE
+Toolset without constructing a workspace or native window. Normal editor Init
+loads the module before freezing the editor subsystem snapshot; workspace
+activation reuses that loaded module. Minimal native hosts using only
+`InitializeEditorSubsystems()` load LevelEditor explicitly before initialization
+when they require PIE scripting. Loading it afterward does not add a service to
+an existing host. MCP and Python adapters discover the Toolset generically and
+do not acquire a LevelEditor compile-time dependency. Tests that dynamically
+load it declare LevelEditor in their runtime deployment closure.
 
 ## Actor Editing
 

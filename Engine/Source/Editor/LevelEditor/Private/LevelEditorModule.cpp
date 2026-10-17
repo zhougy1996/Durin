@@ -1,5 +1,7 @@
 #include "Preview/StudioLighting.h"
 #include "LevelEditorModule.h"
+#include "Editor/LevelEditorSubsystem.h"
+#include "Tools/PIEToolset.h"
 
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Icons/FontAwesomeIcons.h"
@@ -68,6 +70,9 @@ namespace Durin
 
 	struct FLevelEditorModule::FIntegrationState
 	{
+		std::unique_ptr<FEditorSubsystemRegistration> Levels;
+		std::unique_ptr<FNativeToolset> PIE;
+		FModularFeatureRegistration PIERegistration;
 		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration> TypePresentations;
 		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration>
 			ContentBrowserExtensions;
@@ -119,10 +124,17 @@ namespace Durin
 		DetailCustomizationHandles.push_back(Editor::FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DVolumetricCloudComponent::StaticClass(), CreateVolumetricCloudDetailsCustomization()));
 		checkf(std::ranges::all_of(CustomizationHandles, [](FLevelEditorCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in customizations must register exactly once");
 		checkf(std::ranges::all_of(DetailCustomizationHandles, [](Editor::FDetailCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in detail customizations must register exactly once");
+		Integration->Levels = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
+			.Type = DLevelEditorSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
+		Integration->PIE = CreatePIEToolset();
+		Integration->PIERegistration = FModularFeatureRegistry::Get().RegisterFeature(*Integration->PIE);
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
 	{
+		Integration->PIERegistration.Reset();
+		Integration->PIE.reset();
+		Integration->Levels.reset();
 		UnregisterLevelEditorWorkspace();
 		if (GEditor)
 			checkf(GEditor->GetTransactor()

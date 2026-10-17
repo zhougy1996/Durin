@@ -1,7 +1,7 @@
 #include "Tools/PIEToolset.h"
 #include "Tools/EditorToolService.h"
 #include "Editor/EditorEngine.h"
-#include "Engine/World.h"
+#include "Editor/LevelEditorSubsystem.h"
 
 namespace Durin
 {
@@ -11,19 +11,10 @@ namespace Durin
 		{
 			return {EToolStatus::Failed, {}, {{EToolError::DomainFailure, std::move(Message), {}}}};
 		}
-		auto State(const DEditorEngine& Editor) -> std::string
+		auto ToToolResult(FLevelEditorPlayResult Result) -> FToolResult
 		{
-			return !Editor.IsPlaying() ? "stopped" : Editor.IsPlaySessionPaused() ? "paused" : "playing";
-		}
-		auto Success(const DEditorEngine& Editor, std::string Message) -> FToolResult
-		{
-			return {EToolStatus::Succeeded, FToolValue::FObject{{"message", std::move(Message)}, {"state", State(Editor)}}};
-		}
-		auto Pause(DEditorEngine& Editor, bool Paused) -> FToolResult
-		{
-			if (!Editor.IsPlaying()) return Failure("No Play session is active.");
-			Editor.SetPlaySessionPaused(Paused);
-			return Success(Editor, Paused ? "Play paused." : "Play resumed.");
+			if (!Result.bSucceeded) return Failure(std::move(Result.Message));
+			return {EToolStatus::Succeeded, FToolValue::FObject{{"message", std::move(Result.Message)}, {"state", std::move(Result.State)}}};
 		}
 	}
 	auto CreatePIEToolset() -> std::unique_ptr<FNativeToolset>
@@ -54,22 +45,12 @@ namespace Durin
 			Binding.Handler = [](const FToolRequest& Request, const FToolContext& Context) -> FToolResult {
 				auto* Editor = GetToolEditor(Context);
 				if (!Editor) return Failure("The admitting editor is unavailable.");
-				if (Request.Address.Tool == "status") return Success(*Editor,
-					!Editor->IsPlaying() ? "Stopped" : Editor->IsPlaySessionPaused() ? "Paused" : "Playing");
-				if (Request.Address.Tool == "play")
-				{
-					if (!Editor->GetEditorWorld()) return Failure("The editor world is unavailable.");
-					std::string Error;
-					return Editor->StartPlaySession(Editor->GetEditorWorld()->GetCurrentLevel(), &Error)
-						? Success(*Editor, "Play session started.") : Failure(std::move(Error));
-				}
-				if (Request.Address.Tool == "stop")
-				{
-					if (!Editor->IsPlaying()) return Failure("No Play session is active.");
-					Editor->StopPlaySession();
-					return Success(*Editor, "Play session stopped.");
-				}
-				return Pause(*Editor, std::get<bool>(std::get<FToolValue::FObject>(Request.Arguments.Data).at("paused").Data));
+				auto* Levels = Editor->GetEditorSubsystem<DLevelEditorSubsystem>();
+				if (!Levels) return Failure("The level editor service is unavailable.");
+				if (Request.Address.Tool == "status") return ToToolResult(Levels->GetPlayStatus());
+				if (Request.Address.Tool == "play") return ToToolResult(Levels->StartPlaySession());
+				if (Request.Address.Tool == "stop") return ToToolResult(Levels->StopPlaySession());
+				return ToToolResult(Levels->SetPlaySessionPaused(std::get<bool>(std::get<FToolValue::FObject>(Request.Arguments.Data).at("paused").Data)));
 			};
 			Bindings.push_back(std::move(Binding));
 		}

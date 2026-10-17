@@ -2,6 +2,8 @@
     "ModuleName": "LevelEditor",
     "LinkType": "Shared",
     "PCH": "SharedPCH_DurinEd",
+    "PublicDependencies": ["DurinEd"],
+    "ReflectHeaders": ["Public/Editor/LevelEditorSubsystem.h"],
     "PrivateDependencies": [
 		"AssetTools",
         "Core",
@@ -13,7 +15,6 @@
         "Mona",
         "MonaImGui",
         "AssetForgeBuiltins",
-		"DurinEd",
 		"ContentBrowser"
 	]
 }

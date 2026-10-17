@@ -2,7 +2,10 @@
 #include "Panels/ConsoleToolArguments.h"
 #include "Tools/NativeToolset.h"
 #include "Editor/EditorEngine.h"
+#include "Modules/ModuleManager.h"
+#include "Editor/LevelEditorSubsystem.h"
 #include "DObject/Class.h"
+#include "DObject/FunctionParameters.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Engine/World.h"
 #include "Engine/Level.h"
@@ -56,6 +59,7 @@ namespace Durin::Editor::MainFrame
 			auto SetUp() -> void override
 			{
 				Testing::InitializeDObjectSystemForTests();
+				ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
 				Host = NewHost();
 				Adapter = std::make_unique<FConsoleToolAdapter>(*Host, Legacy);
 				Temp = Testing::CreateTestFixtureDirectory("ConsoleTools");
@@ -318,5 +322,81 @@ namespace Durin::Editor::MainFrame
 		EXPECT_EQ("paused", ResultField(Adapter->Execute("editor.pie/status"), "state"));
 		EXPECT_TRUE(Adapter->Execute("editor.pie/stop").bSuccess); EXPECT_FALSE(Host->IsPlaying());
 		FEditorEngineTestAccess::SetEditorWorld(*Host, nullptr);
+	}
+	TEST_F(FConsoleToolTests, ReflectedPIEEntrypointsShareToolStateAndPreserveFailures)
+	{
+		auto* Levels = Host->GetEditorSubsystem<DLevelEditorSubsystem>(); ASSERT_NE(nullptr, Levels);
+		auto Invoke = [&](const char* Name, std::optional<bool> Paused = {}) {
+			const auto* Function = Levels->GetClass()->FindFunctionByName(Name);
+			EXPECT_NE(nullptr, Function);
+			if (!Function) return FLevelEditorPlayResult{};
+			FFunctionParameterBuffer Parameters(*Function);
+			if (Paused) Parameters.GetParameter<bool>(0) = *Paused;
+			EXPECT_EQ(EFunctionInvokeError::None, Levels->ProcessEvent(Function, Parameters.GetView()));
+			return Parameters.GetReturnValue<FLevelEditorPlayResult>();
+		};
+		EXPECT_EQ("stopped", Invoke("GetPlayStatus").State);
+		auto MissingWorld = Invoke("StartPlaySession");
+		EXPECT_FALSE(MissingWorld.bSucceeded); EXPECT_EQ("The editor world is unavailable.", MissingWorld.Message);
+		EXPECT_FALSE(Invoke("SetPlaySessionPaused", true).bSucceeded);
+		EXPECT_EQ("No Play session is active.", Invoke("StopPlaySession").Message);
+
+		auto* World = NewObject<DWorld>(Host, "ReflectedEditorWorld"); World->SetWorldType(EWorldType::Editor);
+		ASSERT_TRUE(World->InitializeSubsystems());
+		auto* Level = NewObject<DLevel>(World, "ReflectedEditorLevel"); ASSERT_TRUE(World->SetCurrentLevel(Level));
+		FEditorEngineTestAccess::SetEditorWorld(*Host, World);
+		auto Started = Invoke("StartPlaySession"); ASSERT_TRUE(Started.bSucceeded) << Started.Message;
+		EXPECT_EQ("Play session started.", Started.Message); EXPECT_EQ("playing", Started.State);
+		EXPECT_FALSE(Invoke("StartPlaySession").bSucceeded);
+		EXPECT_EQ("playing", ResultField(Adapter->Execute("editor.pie/status"), "state"));
+		auto Paused = Invoke("SetPlaySessionPaused", true); EXPECT_TRUE(Paused.bSucceeded);
+		EXPECT_EQ("paused", Paused.State); EXPECT_TRUE(Host->GetPlayWorld()->IsPaused());
+		EXPECT_TRUE(Invoke("SetPlaySessionPaused", true).bSucceeded);
+		EXPECT_TRUE(Adapter->Execute("editor.pie/pause --paused false").bSuccess);
+		EXPECT_EQ("playing", Invoke("GetPlayStatus").State);
+		auto Stopped = Invoke("StopPlaySession"); EXPECT_TRUE(Stopped.bSucceeded);
+		EXPECT_EQ("Play session stopped.", Stopped.Message); EXPECT_EQ("stopped", Stopped.State);
+		EXPECT_EQ(Levels, Host->GetEditorSubsystem<DLevelEditorSubsystem>());
+		EXPECT_TRUE(Invoke("StartPlaySession").bSucceeded);
+		EXPECT_TRUE(Invoke("StopPlaySession").bSucceeded);
+	}
+	TEST_F(FConsoleToolTests, LevelEditorOwnsThePlayProviderBeforeTheHostSnapshot)
+	{
+		const auto Providers = FSubsystemRegistration::Snapshot(DEditorSubsystem::StaticClass());
+		const auto Count = std::ranges::count_if(Providers, [](const auto& Entry) {
+			return Entry.Descriptor.Type == DLevelEditorSubsystem::StaticClass()
+				&& Entry.Descriptor.Provider == FName("LevelEditor");
+		});
+		EXPECT_EQ(1, Count);
+		ASSERT_NE(nullptr, Host->GetEditorSubsystem<DLevelEditorSubsystem>());
+		auto PIE = Tools()->DescribeToolset("editor.pie"); ASSERT_TRUE(PIE);
+		EXPECT_EQ(4u, PIE->Descriptor.Tools.size());
+		EXPECT_TRUE(Adapter->Execute("editor.pie/status").bSuccess);
+	}
+	TEST_F(FConsoleToolTests, LevelEditorPlayServiceIsHostBoundAndRejectsWrongThreadAndRetirement)
+	{
+		auto* Other = NewHost();
+		TStrongObjectPtr<DLevelEditorSubsystem> Levels(Host->GetEditorSubsystem<DLevelEditorSubsystem>());
+		ASSERT_TRUE(Levels);
+		EXPECT_NE(Levels.Get(), Other->GetEditorSubsystem<DLevelEditorSubsystem>());
+		FEditorEngineTestAccess::SetState(*Host, EPlayState::Playing);
+		EXPECT_TRUE(Levels->SetPlaySessionPaused(true).bSucceeded);
+		EXPECT_FALSE(Other->IsPlaying());
+		auto* Service = Levels.Get(); // The owning strong reference remains on GameThread until the worker joins.
+		auto WrongThread = std::async(std::launch::async, [Service] {
+			return std::array{Service->GetPlayStatus(), Service->StartPlaySession(), Service->StopPlaySession(), Service->SetPlaySessionPaused(false)};
+		}).get();
+		for (const auto& Result : WrongThread)
+		{
+			EXPECT_FALSE(Result.bSucceeded); EXPECT_EQ("Play controls require the game thread.", Result.Message);
+		}
+		EXPECT_TRUE(Host->IsPlaySessionPaused());
+		FEditorEngineTestAccess::SetState(*Host, EPlayState::Stopped);
+		Host->PrepareForShutdown();
+		EXPECT_FALSE(Levels->GetPlayStatus().bSucceeded);
+		EXPECT_FALSE(Levels->StartPlaySession().bSucceeded);
+		EXPECT_FALSE(Levels->StopPlaySession().bSucceeded);
+		EXPECT_FALSE(Levels->SetPlaySessionPaused(false).bSucceeded);
+		EXPECT_TRUE(Other->GetEditorSubsystem<DLevelEditorSubsystem>()->GetPlayStatus().bSucceeded);
 	}
 }

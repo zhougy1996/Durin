@@ -108,6 +108,13 @@ namespace Durin
 
 		EditorHost =
 			&FModuleManager::LoadModuleChecked<IEditorHost>("MainFrame");
+		// Publish level services before the editor subsystem snapshot is frozen.
+		// Loading the provider does not create a workspace or a native window.
+		if (!FModuleManager::Get().LoadModule("LevelEditor"))
+		{
+			DURIN_ERROR("Editor initialization requires LevelEditor subsystem providers.");
+			return false;
+		}
 		if (auto Result = InitializeEditorSubsystems(); !Result)
 		{
 			DURIN_ERROR("{}", Result.Message);

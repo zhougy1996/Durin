@@ -2,6 +2,7 @@
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/NativeToolset.h"
 #include "Editor/EditorEngine.h"
+#include "Modules/ModuleManager.h"
 #include "DObject/Class.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Engine/World.h"
@@ -38,6 +39,7 @@ namespace
         auto SetUp() -> void override
         {
             Testing::InitializeDObjectSystemForTests();
+            ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
             Host = TStrongObjectPtr<FPythonTestEditor>(NewObject<FPythonTestEditor>(nullptr, {}));
             ASSERT_TRUE(Host->Start()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
             auto Started = Runtime.Start(); ASSERT_TRUE(Started) << Started.error();

@@ -2,9 +2,9 @@
 
 Summary: Define Console discovery, typed Toolset invocation, explicit PIE controls, and host-owned result presentation.
 
-Modules: MainFrame, DurinEd, Core
+Modules: MainFrame, LevelEditor, DurinEd, Core
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-17
 
 ## Ownership and Routing
 
@@ -79,10 +79,12 @@ replacement editor.
 
 ## PIE Tools
 
-DurinEd registers the module-owned `editor.pie` Toolset at module startup and
+LevelEditor registers the module-owned `editor.pie` Toolset at module startup and
 unregisters it before destroying its native bindings. Each handler resolves its
-admitting host through `GetToolEditor(Context)` and calls existing PIE services.
-The handlers own domain checks; the dispatcher adds no implicit Undo transaction.
+admitting host through `GetToolEditor(Context)` and calls its
+[`DLevelEditorSubsystem`](EditorSubsystems.md#level-editor-play-controls).
+The subsystem owns domain checks and delegates PIE lifetime to `DEditorEngine`;
+handlers retain tool metadata and result conversion. The dispatcher adds no implicit Undo transaction.
 All successful results contain `message` and a `state` field of `stopped`,
 `playing`, or `paused`.
 
@@ -99,5 +101,5 @@ queued calls. Console uses the same structured result format for every tool.
 
 The four migrated callbacks are removed from EditorEngine's legacy registry.
 `pie.step`, `pie.physics`, `pie.apply`, `clear`, `asset.fixup_redirectors`, viewport,
-and renderer commands retain their existing legacy paths. DurinMCP remains a
-skeleton and no MCP endpoint is implemented.
+and renderer commands retain their existing legacy paths. The same PIE Toolset
+is exposed through [MCP](MCPTools.md) and [Python](PythonTools.md).

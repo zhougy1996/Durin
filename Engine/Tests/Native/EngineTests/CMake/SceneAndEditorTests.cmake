@@ -469,13 +469,15 @@ durin_add_native_test(MCPCodecTests
 durin_add_native_test(MCPIntegrationTests
 	KIND integration
 	DOMAINS mcp
-	MODULES durin-mcp durin-ed
+	MODULES durin-mcp durin-ed level-editor
 	STACKS editor
 	PRIVATE_SOURCE_OWNER DurinMCP
 	PRIVATE_SOURCE_RATIONALE "DurinMCP-owned integration assertions reuse the private wire codec without exporting protocol types."
 	SOURCES Private/MCPIntegrationTests.cpp
 	PRIVATE_SOURCES ${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinMCP/Private/MCPCodec.cpp
 	LIBRARIES Core CoreDObject Engine DurinEd DurinMCP httplib::httplib
+	RUNTIME_ONLY_TARGETS LevelEditor
+	RUNTIME_ONLY_RATIONALE "Loads LevelEditor before the CPU editor subsystem snapshot to publish PIE services and tools."
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinMCP/Private
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Runs the real local MCP server against an explicitly initialized editor host."
@@ -486,7 +488,7 @@ set_source_files_properties(Private/MCPIntegrationTests.cpp PROPERTIES SKIP_PREC
 durin_add_native_test(EditorHostToolTests
 	KIND feature
 	DOMAINS editor-shell
-	MODULES durin-ed main-frame
+	MODULES durin-ed main-frame level-editor
 	STACKS editor
 	PRIVATE_SOURCE_OWNER MainFrame
 	PRIVATE_SOURCE_RATIONALE
@@ -498,7 +500,7 @@ durin_add_native_test(EditorHostToolTests
 		${_durin_main_frame_private}/Panels/ConsoleToolArguments.cpp
 		${_durin_main_frame_private}/Settings/EditorSettingsWindow.cpp
 		${_durin_main_frame_private}/Settings/HostSettings.cpp
-	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd
+	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd LevelEditor
 	INCLUDE_DIRECTORIES ${_durin_main_frame_private}
 	COMPILE_DEFINITIONS MAINFRAME_EXPORTS
 	REQUIRES editor

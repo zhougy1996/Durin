@@ -5,6 +5,7 @@
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/NativeToolset.h"
 #include "Editor/EditorEngine.h"
+#include "Modules/ModuleManager.h"
 #include "DObject/Class.h"
 #include "DObject/StrongObjectPtr.h"
 #include "NativeDObjectTestSupport.h"
@@ -51,6 +52,7 @@ namespace
         auto SetUp() -> void override
         {
             Testing::InitializeDObjectSystemForTests();
+            ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
             Host = TStrongObjectPtr<FMCPPythonTestEditor>(NewObject<FMCPPythonTestEditor>(nullptr, {}));
             ASSERT_TRUE(Host->Start()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
             Runtime = std::make_shared<FPythonRuntime>();
