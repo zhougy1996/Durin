@@ -56,7 +56,10 @@ and [material document](../../Engine/Source/Editor/MaterialEditor/Public/Materia
 
 - DurinEd owns editor-wide context, object/property adapters, and history tools.
   MainFrame registers the document provider with its host's FWorkspaceManager.
-  LevelEditor owns scene, selection, and viewport tools; AssetTools owns asset
+  LevelEditor owns scene adapters, selection, and viewport tools. General Actor
+  and Component mutations must call DurinEd's `DEditorActorSubsystem`; specialized
+  batches compose its structural changes, following the
+  [Actor subsystem plan](EditorActorSubsystem.md). AssetTools owns asset
   queries and operations; MaterialEditor owns graph tools.
 - Use FNativeToolset and explicit descriptors/bindings. Register/unregister
   through existing module/host lifetimes. Stateless module providers resolve the

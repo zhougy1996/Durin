@@ -3431,21 +3431,22 @@ TEST(FMaterialGraphOperationsTests, GraphSessionRetainsHistoryFailureAcrossRollb
 	const auto Before = CaptureExpressions(*Material.Get());
 	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
 	Durin::Tests::FTestTransactorOwner Transactions;
-	ASSERT_TRUE(Transactions->SetLimits({.MaximumEntries = 256, .MaximumOwnedBytes = 1}));
+	const auto Busy = Transactions->Begin({.Description = "Busy graph history"});
+	ASSERT_TRUE(Busy);
 	const auto Rejected = Document.SetConstantValue(NodeId, FMaterialParameterValue::MakeScalar(.75f), Transactions.Get());
 	EXPECT_FALSE(Rejected);
 	EXPECT_EQ(Rejected.GetStatus(), EMaterialGraphCommandStatus::Rejected);
-	EXPECT_NE(Rejected.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
+	EXPECT_NE(Rejected.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
 	EXPECT_EQ(Rejected.Message.find("Unable to record the graph edit."), 0u);
 	EXPECT_EQ(CaptureExpressions(*Material.Get()), Before);
 	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	EXPECT_FALSE(Transactions->CanUndo());
-	ASSERT_TRUE(Transactions->SetLimits({}));
+	ASSERT_EQ(Transactions->Cancel(Busy.ScopeId).Code, ETransactorResultCode::Discarded);
 	ASSERT_TRUE(Document.SetConstantValue(NodeId, FMaterialParameterValue::MakeScalar(.75f), Transactions.Get()));
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material.Get()), Before);
 
-	EXPECT_NE(Rejected.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
+	EXPECT_NE(Rejected.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
 }
 
 TEST(FMaterialGraphOperationsTests, GraphAssignmentReportsClassMismatchAndAllowsRetry)
@@ -3492,14 +3493,15 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	ASSERT_TRUE(Created);
 	const auto ParameterId = Created.AffectedParameterIds.front();
 	Tests::FTestTransactorOwner Transactions;
-	ASSERT_TRUE(Transactions->SetLimits({.MaximumOwnedBytes = 1}));
+	const auto Busy = Transactions->Begin({.Description = "Busy graph history"});
+	ASSERT_TRUE(Busy);
 	FMaterialGraphParameterEditSession Edit;
 	ASSERT_TRUE(Edit.Begin(*Material, ParameterId, Transactions.Get()));
 	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.75f)));
 	const auto Failed = Edit.Commit();
 	EXPECT_FALSE(Failed);
 	EXPECT_EQ(Failed.GetStatus(), EMaterialGraphCommandStatus::Rejected);
-	EXPECT_NE(Failed.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
+	EXPECT_NE(Failed.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
 	EXPECT_TRUE(Edit.IsActive());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .75f);
@@ -3508,13 +3510,14 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	ASSERT_TRUE(Edit.Begin(*Material, ParameterId, Transactions.Get()));
 	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.5f)));
 	EXPECT_FALSE(Edit.Commit());
-	ASSERT_TRUE(Transactions->SetLimits({}));
+	ASSERT_EQ(Transactions->Cancel(Busy.ScopeId).Code, ETransactorResultCode::Discarded);
 	ASSERT_TRUE(Edit.Commit());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
 
 	ASSERT_TRUE(Transactions->Reset());
-	ASSERT_TRUE(Transactions->SetLimits({.MaximumOwnedBytes = 1}));
+	const auto MoveBusy = Transactions->Begin({.Description = "Busy graph history"});
+	ASSERT_TRUE(MoveBusy);
 	const auto NodeId = Created.GeneratedNodeIds.front();
 	const auto Before = Material->GetMaterialGraphPresentation();
 	FMaterialGraphMoveSession Move;
@@ -3523,15 +3526,15 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	const auto MoveFailure = Move.Commit();
 	EXPECT_FALSE(MoveFailure);
 	EXPECT_EQ(MoveFailure.GetStatus(), EMaterialGraphCommandStatus::Rejected);
-	EXPECT_NE(MoveFailure.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
+	EXPECT_NE(MoveFailure.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
 	EXPECT_TRUE(Move.IsActive());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
-	ASSERT_TRUE(Transactions->SetLimits({}));
+	ASSERT_EQ(Transactions->Cancel(MoveBusy.ScopeId).Code, ETransactorResultCode::Discarded);
 	ASSERT_TRUE(Move.Commit());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
-	EXPECT_NE(Failed.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
-	EXPECT_NE(MoveFailure.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
+	EXPECT_NE(Failed.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
+	EXPECT_NE(MoveFailure.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
 }
 
 TEST(FMaterialGraphOperationsTests, DirectParameterHistoryFailureRestoresValueAndReportsFailure)
@@ -3547,23 +3550,24 @@ TEST(FMaterialGraphOperationsTests, DirectParameterHistoryFailureRestoresValueAn
 	ASSERT_TRUE(Created);
 	const auto ParameterId = Created.AffectedParameterIds.front();
 	Tests::FTestTransactorOwner Transactions;
-	ASSERT_TRUE(Transactions->SetLimits({.MaximumOwnedBytes = 1}));
+	const auto Busy = Transactions->Begin({.Description = "Busy graph history"});
+	ASSERT_TRUE(Busy);
 	const auto Failed = FMaterialGraphOperations::SetParameterValue(*Material, ParameterId,
 		FMaterialParameterValue::MakeScalar(.75f), Transactions.Get());
 	EXPECT_FALSE(Failed);
 	EXPECT_EQ(Failed.GetStatus(), EMaterialGraphCommandStatus::Rejected);
-	EXPECT_NE(Failed.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
+	EXPECT_NE(Failed.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
 	EXPECT_TRUE(Failed.CleanupMessage.empty());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
-	ASSERT_TRUE(Transactions->SetLimits({}));
+	ASSERT_EQ(Transactions->Cancel(Busy.ScopeId).Code, ETransactorResultCode::Discarded);
 	const auto Retried = FMaterialGraphOperations::SetParameterValue(*Material, ParameterId,
 		FMaterialParameterValue::MakeScalar(.75f), Transactions.Get());
 	ASSERT_TRUE(Retried);
 	EXPECT_EQ(Retried.AffectedNodeIds, Created.GeneratedNodeIds);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
-	EXPECT_NE(Failed.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
+	EXPECT_NE(Failed.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
 }
 
 TEST(FMaterialGraphOperationsTests, ParameterSessionRejectionsReportFailureAndAllowRetry)

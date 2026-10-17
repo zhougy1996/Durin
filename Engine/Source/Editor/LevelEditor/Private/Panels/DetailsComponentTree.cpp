@@ -1,5 +1,5 @@
 #include "Panels/DetailsComponentTree.h"
-#include "Operations/ComponentMutations.h"
+#include "Actors/EditorActorSubsystem.h"
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
@@ -75,15 +75,13 @@ namespace Durin::Editor::Level
 			RenameDialog.Open(Component->GetName());
 		};
 		auto DuplicateComponent = [&](DActorComponent* Source) {
-			const auto Result = FComponentMutations::Duplicate(*Actor, Source,
-				GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly);
+			const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DuplicateComponent(*Actor, Source, {Context.EditorHost, Context.bReadOnly}) : FComponentEditResult{nullptr, "Actor editing service is unavailable."});
 			if (!Result) { Context.SetError(Result.Message); return; }
 			Context.SelectComponent(Result.Component);
 			if (auto* Scene = Cast<DSceneComponent>(Result.Component)) PendingExpandComponent = Scene->GetAttachParent();
 		};
 		auto ReparentComponent = [&](DSceneComponent* Moving, DSceneComponent* Parent) {
-			const auto Result = FComponentMutations::Reparent(*Actor, Moving, Parent,
-				GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly);
+			const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->ReparentComponent(*Actor, Moving, Parent, {Context.EditorHost, Context.bReadOnly}) : FComponentEditResult{nullptr, "Actor editing service is unavailable."});
 			if (!Result) { Context.SetError(Result.Message); return; }
 			PendingExpandComponent = Parent;
 		};
@@ -272,8 +270,7 @@ namespace Durin::Editor::Level
 		}
 		DActorComponent* RenameTarget = RenamingComponent.Get();
 		const EEditorRenameDialogResult RenameResult = RenameDialog.Draw("Rename Component", RenameTarget ? RenameTarget->GetName() : std::string_view(), [&](std::string_view NewName) -> std::string {
-			return FComponentMutations::Rename(*Actor, RenameTarget, FName(NewName),
-				GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly).Message;
+			return (Context.GetActorEditor() ? Context.GetActorEditor()->RenameComponent(*Actor, RenameTarget, FName(NewName), {Context.EditorHost, Context.bReadOnly}) : FComponentEditResult{nullptr, "Actor editing service is unavailable."}).Message;
 		});
 		if (RenameResult != EEditorRenameDialogResult::None) RenamingComponent = nullptr;
 		if (bOpenAddPopup) ImGui::OpenPopup("Add Component");
@@ -294,9 +291,8 @@ namespace Durin::Editor::Level
 				if (ImGui::Selectable(DisplayName.c_str()))
 				{
 					const auto Result = bAddComponentAsChild && !AddComponentParent
-						? FComponentMutationResult{nullptr, "The component parent is unavailable."}
-						: FComponentMutations::Add(*Actor, Class, bAddComponentAsChild ? AddComponentParent.Get() : nullptr,
-							GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly);
+						? FComponentEditResult{nullptr, "The component parent is unavailable."}
+						: (Context.GetActorEditor() ? Context.GetActorEditor()->AddComponent(*Actor, Class, bAddComponentAsChild ? AddComponentParent.Get() : nullptr, {Context.EditorHost, Context.bReadOnly}) : FComponentEditResult{nullptr, "Actor editing service is unavailable."});
 					if (!Result) Context.SetError(Result.Message);
 					else
 					{
@@ -320,8 +316,7 @@ namespace Durin::Editor::Level
 			if (ImGui::Button("Delete"))
 			{
 				DActorComponent* Component = PendingDeleteComponent.Get();
-				const auto Result = FComponentMutations::Remove(*Actor, Component,
-					GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly);
+				const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DeleteComponent(*Actor, Component, {Context.EditorHost, Context.bReadOnly}) : FComponentEditResult{nullptr, "Actor editing service is unavailable."});
 				if (!Result) Context.SetError(Result.Message);
 				else if (Context.GetSelectedComponent() == Component) Context.SelectComponent(nullptr);
 				PendingDeleteComponent = nullptr;

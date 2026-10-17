@@ -4,7 +4,7 @@ Summary: Define the reflected editor transactor service, executable property rec
 
 Modules: DurinEd
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-17
 
 ## Service Ownership
 
@@ -96,16 +96,16 @@ and Destroying states. Begin
 is rejected during transitions and destruction. Public buffer rejection gates
 classify the reason with `ETransactorRejectionReason` and retain an owned
 `RejectionCause`: current state, requested identifier, active transaction/scope,
-Undo/Redo heads, history count, owned bytes, configured/requested limits and
+Undo/Redo heads, history count, owned bytes and
 module name. `FTransactorResult` stores structured causes and notice kinds/counts
 without a message field. `FormatTransactorResult` generates presentation text at
 UI, event and log boundaries; decisions never depend on that text. `FailureCause` separately
-classifies scoped capture/preparation, expired objects, byte accounting and
-budget failures, retaining snapshot/record causes and relevant owner/member,
+classifies scoped capture/preparation, expired objects and byte-accounting
+failures, retaining snapshot/record causes and relevant owner/member,
 array index, byte bounds or module facts. Scope cleanup results are retained
 as `CleanupCause`; when cleanup rejection takes precedence, `PreparationCause`
-preserves the original preparation failure. Undo, Redo, Reset, and limit
-changes are rejected while recording. Undo validates all records before
+preserves the original preparation failure. Undo, Redo and Reset
+are rejected while recording. Undo validates all records before
 writing, then applies property records in reverse order; Redo applies them
 forward. Partial failure rolls back records already applied and leaves the
 cursor unchanged. `FTransactionRecordResult` aliases
@@ -186,18 +186,49 @@ in-memory object and property edits do not advance it.
 
 ## Bounds And Accounting
 
-Production limits are 256 retained entries and 64 MiB of owned native bytes.
+Production uses a fixed 64 MiB owned-native-byte budget, without an entry-count
+cap or a dynamic-limit API. `GetMemoryBudget` exposes the configured budget;
+only private native-test setup can select a different initial budget.
 Accounted size includes each transaction object, owned context and description
 capacity, record-container capacity, record envelopes, encoded payload
 capacity, hard-reference tables, and each custom-change object plus its
 reported native allocations. It excludes the transitive managed graph
 reached through collector edges. All size aggregation is overflow-checked.
 
-A finalized entry larger than the byte limit is not retained. Otherwise the
-buffer evicts oldest undoable entries until both limits hold, without evicting
-the new commit. A limit change that would require deleting the redo branch is
-rejected without changing the active limits. Removed record data and object
-edges are erased before the operation returns.
+Custom Execute checks candidate accounting before replay. If replay makes
+accounting invalid or overflows size aggregation, the buffer compensates the executed change
+before rejecting it and retains the existing redo branch. Failed compensation
+requires recovery and retains the pending participant graph. An internal custom
+change reporting incomplete rollback or throwing during replay also locks history into RecoveryRequired.
+Deferred compensation cannot complete a synchronous finalization failure: it
+requires recovery and retains the pending entry. Pending recovery entries block
+module draining until the owning buffer is retired.
+Already-applied property recordings are not automatically compensated.
+The byte budget never rejects a valid edit. Before appending a successful new
+transaction, the buffer trims oldest existing entries while that old history
+occupies at least the budget. The incoming transaction does not participate in
+that comparison, so it remains undoable even when oversized. There is no special
+minimum-entry rule. Replacing a redo branch removes that suffix and skips byte
+trimming of the remaining undo prefix. Undo and Redo do not trim history.
+Canceled, no-op and failed submissions leave history unchanged. Removed record
+data and object edges are erased before successful finalization returns.
+
+UE 5.3.2 source confirms that a newly completed oversized transaction remains
+undoable. `UTransBuffer::BeginInternal` trims existing history before appending
+the next transaction, while `End` finalizes without a byte-limit rejection.
+See Epic's source in the pinned public mirror:
+[TransBuffer.h](https://github.com/chenyong2github/UnrealEngine/blob/c865e168d0935b8e5f4bd865ddcc1c733c8ce7cf/Engine/Source/Editor/UnrealEd/Classes/Editor/TransBuffer.h#L70)
+and [EditorTransaction.cpp](https://github.com/chenyong2github/UnrealEngine/blob/c865e168d0935b8e5f4bd865ddcc1c733c8ce7cf/Engine/Source/Editor/UnrealEd/Private/EditorTransaction.cpp#L1275).
+Durin uses the same old-history byte comparison and redo-branch alternative,
+but delays destructive trimming until successful finalization, immediately before
+appending the new transaction. This avoids UE's additional removed-transaction
+storage and restoration on Cancel or a transient transaction. During recording,
+old history remains visible and retained; after successful commit, byte-based
+history selection follows the inspected UE algorithm. No dynamic limit changes
+or count-based evictions are supported.
+This source check covers UE 5.3.2, not uninspected later versions. UE's public
+[FChange::GetSize](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core/FChange/GetSize)
+also documents approximate accounting and oldest-entry trimming.
 
 ## Collector And Shutdown Contract
 

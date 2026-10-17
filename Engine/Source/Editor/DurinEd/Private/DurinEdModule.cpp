@@ -1,4 +1,5 @@
 #include "Modules/ModuleManager.h"
+#include "Actors/EditorActorSubsystem.h"
 #include "Notifications/EditorNotificationSubsystem.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/PIEToolset.h"
@@ -11,6 +12,8 @@ namespace Durin
 	public:
 		auto StartupModule() -> void override
 		{
+			Actors = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
+				.Type = DEditorActorSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 			Notifications = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
 				.Type = DEditorNotificationSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 			Tools = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
@@ -18,8 +21,9 @@ namespace Durin
 			PIE = CreatePIEToolset();
 			PIERegistration = FModularFeatureRegistry::Get().RegisterFeature(*PIE);
 		}
-		auto ShutdownModule() -> void override { PIERegistration.Reset(); PIE.reset(); Tools.reset(); Notifications.reset(); }
+		auto ShutdownModule() -> void override { PIERegistration.Reset(); PIE.reset(); Tools.reset(); Notifications.reset(); Actors.reset(); }
 	private:
+		std::unique_ptr<FEditorSubsystemRegistration> Actors;
 		std::unique_ptr<FNativeToolset> PIE;
 		FModularFeatureRegistration PIERegistration;
 		std::unique_ptr<FEditorSubsystemRegistration> Notifications;

@@ -1,10 +1,10 @@
 # Editor Subsystems
 
-Summary: Define per-editor native services and the notification subsystem's ownership and update phase.
+Summary: Define per-editor native services, Actor/Component editing, and notification ownership and update timing.
 
 Modules: DurinEd, MainFrame, Engine
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-17
 
 ## Host Contract
 
@@ -23,7 +23,7 @@ Editor Init loads project providers and AssetForgeBuiltins, runs base Init,
 retains EditorWorld, loads MainFrame, then initializes Editor services before
 CreateEditorHost exposes consumers. The constructor-created transactor is
 available; the shell is not yet created. DurinEd's module startup registers the
-notification and [tool](EditorTools.md) services. A returned failure, cancellation or exception retires
+Actor editing, notification and [tool](EditorTools.md) services. A returned failure, cancellation or exception retires
 partial host state and prevents successful initialization.
 
 Shutdown closes both collections' gates, stops PIE, shuts down EditorWorld,
@@ -31,6 +31,40 @@ destroys shell consumers, then deinitializes Editor services. Base shutdown
 retires the remaining World and Engine services. Initialization and update
 operation scopes defer requested destruction until callbacks unwind. Explicit
 retirement is idempotent and BeginDestroy supplies the same fallback path.
+
+## Actor Editing
+
+`DEditorActorSubsystem` in `Actors/EditorActorSubsystem.h` provides general Actor
+spawn/delete/duplicate/rename/attach/detach and owned Component structural edits.
+Resolve it through the admitting host's `GetEditorSubsystem<DEditorActorSubsystem>()`.
+Each call identifies its Level or owning Actor and supplies `FActorEditContext`
+with the host and an explicit read-only policy. Native non-document adapters must
+also state that policy; selection is never an implicit target.
+
+Admission requires the game thread, a live registered service and open work gate,
+the same host, its current editor Level, stopped PIE/World play and an idle host
+transactor. Detached, foreign, template or unsupported participants fail before
+preparation. Results distinguish Changed, NoOp and Failed, retain resulting
+participants and transactor failure evidence, and provide an owned display message.
+Same-name rename and same-parent reparent produce no history entry. Empty or
+duplicate batch participants are rejected; valid batches submit once.
+
+World admission reads the full play state, including subsystem BeginPlay before
+Actor play dispatch, and rejects a requested shutdown before teardown occurs.
+Replay uses the same World boundaries and requires the owner still belong to
+its Level. Component admission checks the thread before reading owner state.
+
+DurinEd owns general replay code and module tags; runtime Level/Actor methods
+remain mechanisms. `MakeActorPresenceChange` exports opaque structural-change
+ownership for specialized compound commands. Their owners retain responsibility
+for private preparation and cleanup before publication. Preparation callbacks
+are synchronous and never stored in history. There is one host transactor;
+independent native-test injection is private to test access.
+
+Document adapters retain selection, focus, confirmation and error presentation.
+The subsystem does not retain a LevelEditor context or depend on UI modules.
+See [structural history](ViewportEditing.md#actor-structure-commands) and
+[Component history](LevelEditorDetails.md#component-structure-history).
 
 ## Notifications
 

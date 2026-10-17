@@ -47,7 +47,10 @@ revision relative to its saved checkpoint. Interactive callers never save as
 part of execution.
 
 Creation/removal delegates to the shared identity-preserving Actor membership
-record. The batch retains exact participants, including their component graphs;
+record exported by DurinEd's `MakeActorPresenceChange` composition seam. SkyBox
+placement uses the same seam. Specialized owners clean up abandoned unpublished
+actors and retain their own policy and compound history entry. The batch retains
+exact participants, including their component graphs;
 undo, redo and injected-failure compensation restore the same instances rather
 than spawning replacements. Source-state validation also requires exact identity.
 

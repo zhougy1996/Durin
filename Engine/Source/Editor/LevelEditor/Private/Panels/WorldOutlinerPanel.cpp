@@ -3,7 +3,6 @@
 #include "Profiling/Profiling.h"
 
 #include "DObject/Package.h"
-#include "Panels/ActorAttachmentTransaction.h"
 #include "Panels/WorldOutlinerPresentation.h"
 
 #include "Actors/CameraActor.h"
@@ -22,7 +21,7 @@
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
-#include "Operations/ActorMutations.h"
+#include "Actors/EditorActorSubsystem.h"
 
 namespace Durin::Editor::Level
 {
@@ -152,8 +151,7 @@ namespace Durin::Editor::Level
 	{
 		std::vector<AActor*> Actors;
 		for (const auto& Actor : Context.GetSelectedActors()) Actors.push_back(Actor.Get());
-		const auto Result = FActorMutations::Duplicate(*Context.Level, Actors,
-			GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly);
+		const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DuplicateActors(*Context.Level, Actors, {Context.EditorHost, Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
 		if (!Result) { Context.SetError(Result.Message); return; }
 		Actors.clear();
 		for (const auto& Actor : Result.Actors) Actors.push_back(Actor.Get());
@@ -270,19 +268,12 @@ namespace Durin::Editor::Level
 					if (HasSelectedAncestor(Context.GetSelectedActors(), Candidate)) continue;
 					MoveActors.push_back(Candidate);
 				}
-				std::vector<FActorAttachmentTransaction::FEntry> Entries;
-				Entries.reserve(MoveActors.size());
-				for (AActor* Moving : MoveActors)
+				if (!MoveActors.empty())
 				{
-					Entries.push_back(MakeActorAttachmentEntry(*Moving, *Actor, AttachmentRule));
-				}
-				if (!Entries.empty())
-				{
-					auto Transaction = std::make_unique<FActorAttachmentTransaction>(std::move(Entries), true);
-					const bool bSucceeded = GEditor
-						? static_cast<bool>(GEditor->GetTransactor()->Execute(std::move(Transaction)))
-						: static_cast<bool>(Transaction->Replay(::Durin::Editor::ETransactionOperation::Redo));
-					if (!bSucceeded) Context.SetError(std::format("Failed to attach selected actors to '{}'.", Actor->GetName()));
+					const auto Result = Context.GetActorEditor()
+						? Context.GetActorEditor()->AttachActors(*Context.Level, MoveActors, Actor, AttachmentRule, {Context.EditorHost, Context.bReadOnly})
+						: FActorEditResult{{}, "Actor editing service is unavailable."};
+					if (!Result) Context.SetError(Result.Message);
 				}
 			}
 			ImGui::EndDragDropTarget();
@@ -342,21 +333,19 @@ namespace Durin::Editor::Level
 		if (Context.bReadOnly || !ImGui::BeginDragDropTarget()) return;
 		if (ImGui::AcceptDragDropPayload(ActorPayloadType))
 		{
-			std::vector<FActorAttachmentTransaction::FEntry> Entries;
-			for (const TObjectPtr<AActor>& Selected : Context.GetSelectedActors())
+			std::vector<AActor*> Actors;
+			for (const auto& Selected : Context.GetSelectedActors())
 			{
-				AActor* Actor = Selected.Get();
-				if (!Actor || !Actor->GetAttachParentActor()) continue;
-				if (HasSelectedAncestor(Context.GetSelectedActors(), Actor)) continue;
-				Entries.push_back(MakeActorDetachmentEntry(*Actor, DetachmentRule));
+				auto* Actor = Selected.Get();
+				if (!Actor || !Actor->GetAttachParentActor() || HasSelectedAncestor(Context.GetSelectedActors(), Actor)) continue;
+				Actors.push_back(Actor);
 			}
-			if (!Entries.empty())
+			if (!Actors.empty())
 			{
-				auto Transaction = std::make_unique<FActorAttachmentTransaction>(std::move(Entries), false);
-				const bool bSucceeded = GEditor
-					? static_cast<bool>(GEditor->GetTransactor()->Execute(std::move(Transaction)))
-					: static_cast<bool>(Transaction->Replay(::Durin::Editor::ETransactionOperation::Redo));
-				if (!bSucceeded) Context.SetError("Failed to detach selected actors.");
+				const auto Result = Context.GetActorEditor()
+					? Context.GetActorEditor()->DetachActors(*Context.Level, Actors, DetachmentRule, {Context.EditorHost, Context.bReadOnly})
+					: FActorEditResult{{}, "Actor editing service is unavailable."};
+				if (!Result) Context.SetError(Result.Message);
 			}
 		}
 		ImGui::EndDragDropTarget();
@@ -396,8 +385,7 @@ namespace Durin::Editor::Level
 					if (!ContainsInsensitive(DisplayName, ActorTypeSearchText.data())) continue;
 					if (ImGui::MenuItem(DisplayName.c_str()))
 					{
-						const auto Result = FActorMutations::Add(*Context.Level, Class, FName(), FTransform{},
-							GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly);
+						const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->SpawnActor(*Context.Level, Class, FName(), FTransform{}, {Context.EditorHost, Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
 						if (Result)
 						{
 							Context.SelectActor(Result.Actors.front().Get());
@@ -462,8 +450,7 @@ namespace Durin::Editor::Level
 		const EEditorRenameDialogResult RenameResult = RenameDialog.Draw(RenamePopupTitle, CurrentRenameName, [&](std::string_view NewName) -> std::string {
 			if (bRenameActor)
 			{
-				return FActorMutations::Rename(*Context.Level, RenamingActor.Get(), FName(NewName),
-					GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly).Message;
+				return (Context.GetActorEditor() ? Context.GetActorEditor()->RenameActor(*Context.Level, RenamingActor.Get(), FName(NewName), {Context.EditorHost, Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."}).Message;
 			}
 			return Context.RenameLevel && Context.RenameLevel(NewName) ? std::string() : "Failed to rename level.";
 		});
@@ -487,8 +474,7 @@ namespace Durin::Editor::Level
 			{
 				std::vector<AActor*> Actors;
 				for (const auto& Actor : PendingDeleteActors) Actors.push_back(Actor.Get());
-				const auto Result = FActorMutations::Remove(*Context.Level, Actors,
-					GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly);
+				const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DestroyActors(*Context.Level, Actors, {Context.EditorHost, Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
 				if (!Result) Context.SetError(Result.Message);
 				else Context.ClearSelection();
 				PendingDeleteActors.clear();

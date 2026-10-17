@@ -47,9 +47,6 @@ namespace Durin::Editor
 		case ETransactorRejectionReason::ModuleName: return "A module name is required.";
 		case ETransactorRejectionReason::ModulePending: return "A deferred custom change from the module is still pending.";
 		case ETransactorRejectionReason::ModuleRecording: return "A custom change from the module is still being recorded.";
-		case ETransactorRejectionReason::LimitsState: return "Limits can change only while idle.";
-		case ETransactorRejectionReason::ZeroLimits: return "Transaction limits must be non-zero.";
-		case ETransactorRejectionReason::RedoLimits: return "The requested limits cannot retain the current redo branch.";
 		}
 		return {};
 	}
@@ -93,9 +90,7 @@ namespace Durin::Editor
 					Error.Member, Error.RecordCause ? FormatTransactionObjectRecordError(*Error.RecordCause) : std::string{}); break;
 			case ETransactorFailure::EntryAccounting: Message = "Transaction byte accounting overflowed."; break;
 			case ETransactorFailure::RetainedAccounting: Message = "Retained transaction byte accounting overflowed."; break;
-			case ETransactorFailure::ByteLimit: Message = "The transaction exceeded the owned-byte limit."; break;
 			case ETransactorFailure::ModuleAccounting: Message = "Retained transaction byte accounting overflowed during module drain."; break;
-			case ETransactorFailure::InconsistentAccounting: Message = "Retained transaction byte accounting is inconsistent."; break;
 			}
 		}
 		else switch (Result.Notice)
@@ -197,8 +192,9 @@ namespace Durin::Editor
 		return Message;
 	}
 
-	auto FTransactionRecord::Apply(bool bBefore, EPropertyChangeOrigin Origin) -> FTransactionRecordResult
+	auto FTransactionRecord::Apply(bool bBefore, EPropertyChangeOrigin Origin, bool* OutRecoveryRequired) -> FTransactionRecordResult
 	{
+		if (OutRecoveryRequired) *OutRecoveryRequired = false;
 		return std::visit([&](auto& Record) -> FTransactionRecordResult {
 			using T = std::decay_t<decltype(Record)>;
 			if constexpr (std::is_same_v<T, FTransactionObjectRecord>)
@@ -209,8 +205,25 @@ namespace Durin::Editor
 			else
 			{
 				if (!Record) return std::unexpected(std::string("The custom transaction change is unavailable."));
-				if (const auto Applied = Record->Replay(bBefore ? ETransactionOperation::Undo : ETransactionOperation::Redo); !Applied)
-					return std::unexpected(FormatTransactionCustomError(Applied.Error));
+				try
+				{
+					if (const auto Applied = Record->Replay(bBefore ? ETransactionOperation::Undo : ETransactionOperation::Redo); !Applied)
+					{
+						for (const auto* Error = &Applied.Error; Error; Error = Error->CleanupCause.get())
+							if (OutRecoveryRequired && Error->Code == ETransactionCustomError::RollbackIncomplete) *OutRecoveryRequired = true;
+						return std::unexpected(FormatTransactionCustomError(Applied.Error));
+					}
+				}
+				catch (const std::exception& Error)
+				{
+					if (OutRecoveryRequired) *OutRecoveryRequired = true;
+					return std::unexpected(std::format("Custom transaction replay threw: {}", Error.what()));
+				}
+				catch (...)
+				{
+					if (OutRecoveryRequired) *OutRecoveryRequired = true;
+					return std::unexpected(std::string("Custom transaction replay threw an unknown exception."));
+				}
 			}
 			return {};
 		}, Data);
@@ -359,6 +372,7 @@ namespace Durin::Editor
 
 	auto FTransaction::Apply(bool bUndo, EPropertyChangeOrigin Origin) -> FTransactionApplyResult
 	{
+		FGarbageCollectionDeferralScope DeferCollection;
 		if (auto Result = Validate(); !Result) return Result;
 		std::vector<size_t> Applied;
 		Applied.reserve(Records.size());
@@ -383,7 +397,8 @@ namespace Durin::Editor
 		for (size_t Step = 0; Step < Records.size(); ++Step)
 		{
 			const size_t Index = bUndo ? Records.size() - 1 - Step : Step;
-			if (const auto Application = Records[Index].Apply(bUndo, Origin); !Application)
+			bool bRecordRecoveryRequired = false;
+			if (const auto Application = Records[Index].Apply(bUndo, Origin, &bRecordRecoveryRequired); !Application)
 			{
 				FTransactionApplyError Error{.Status = ETransactionApplyFailure::Restored,
 					.RecordIndex = Index, .Message = Application.error()};
@@ -392,7 +407,7 @@ namespace Durin::Editor
 					if (const auto Rollback = Records[*It].Apply(!bUndo, Origin); !Rollback)
 						Error.RollbackFailures.push_back({*It, Rollback.error()});
 				}
-				if (!Error.RollbackFailures.empty()) Error.Status = ETransactionApplyFailure::RecoveryRequired;
+				if (bRecordRecoveryRequired || !Error.RollbackFailures.empty()) Error.Status = ETransactionApplyFailure::RecoveryRequired;
 				NotifyReplayTargets();
 				return std::unexpected(std::move(Error));
 			}
@@ -832,14 +847,14 @@ namespace Durin
 	}
 
 	auto DTransBuffer::Reject(ETransactorRejectionReason Reason, uint64 RequestedId,
-		std::string_view ModuleName, std::optional<FTransactionBufferLimits> RequestedLimits) const -> FTransactorResult
+		std::string_view ModuleName) const -> FTransactorResult
 	{
 		FTransactorRejection Rejection{.Reason = Reason, .State = State,
 			.RequestedId = RequestedId, .PendingId = Pending ? Pending->GetId() : PendingTransactionId,
 			.ScopeId = Savepoints.empty() ? 0 : Savepoints.back().ScopeId,
 			.UndoHead = GetUndoId(), .RedoHead = GetRedoId(),
 			.HistoryCount = History.size(), .OwnedBytes = OwnedBytes,
-			.Limits = Limits, .RequestedLimits = RequestedLimits, .ModuleName = std::string(ModuleName)};
+			.ModuleName = std::string(ModuleName)};
 		return {.Code = ETransactorResultCode::Rejected,
 			.RejectionCause = std::move(Rejection)};
 	}
@@ -907,6 +922,14 @@ namespace Durin
 		const FTransactionId TransactionId = Transaction.GetId();
 		if (!bAlreadyApplied)
 		{
+			size_t CandidateBytes = 0;
+			if (!Transaction.TryGetOwnedSize(CandidateBytes))
+				return {.Code = ETransactorResultCode::Failed, .TransactionId = TransactionId,
+					.FailureCause = FTransactorFailure{.Code = ETransactorFailure::EntryAccounting}};
+
+		}
+		if (!bAlreadyApplied)
+		{
 			State = ETransactorState::Executing;
 			PendingTransactionId = TransactionId;
 			PendingOperation = ETransactionOperation::Execute;
@@ -920,6 +943,11 @@ namespace Durin
 			{
 				Transaction.SetDeferredOperationCompletion({});
 				PendingTransactionId = 0;
+				if (ApplyResult.error().Status == ETransactionApplyFailure::RecoveryRequired)
+				{
+					Pending.emplace(std::move(Transaction));
+					return HandleApplyFailure(*Pending, std::move(ApplyResult.error()));
+				}
 				return HandleApplyFailure(Transaction, std::move(ApplyResult.error()));
 			}
 			if (Transaction.IsDeferredOperationPending())
@@ -935,7 +963,7 @@ namespace Durin
 
 		Pending.emplace(std::move(Transaction));
 		State = ETransactorState::Recording;
-		return FinalizePending();
+		return FinalizePending(!bAlreadyApplied);
 	}
 
 	auto DTransBuffer::UpdateRecord(
@@ -997,7 +1025,7 @@ namespace Durin
 		return FinalizePending();
 	}
 
-	auto DTransBuffer::FinalizePending() -> FTransactorResult
+	auto DTransBuffer::FinalizePending(bool bRevertOnFailure) -> FTransactorResult
 	{
 		const FTransactionId TransactionId = Pending->GetId();
 		Pending->RemoveNoOpRecords();
@@ -1009,53 +1037,60 @@ namespace Durin
 			return {.Code = ETransactorResultCode::NoOp, .TransactionId = TransactionId};
 		}
 		PreparePackageTransitions(*Pending);
-
-		size_t EntryBytes = 0;
-		if (!Pending->TryGetOwnedSize(EntryBytes))
+		auto RejectFinalization = [&](FTransactorFailure Cause) -> FTransactorResult
 		{
-			QueueEvent(ETransactionEventType::Failed, *Pending, "Transaction byte accounting overflowed.");
+			FTransactorResult Result{.Code = ETransactorResultCode::Failed,
+				.TransactionId = TransactionId, .FailureCause = std::move(Cause)};
+			if (bRevertOnFailure)
+			{
+				State = ETransactorState::Executing;
+				if (auto Restored = Pending->Apply(true, EPropertyChangeOrigin::Edit); !Restored)
+				{
+					auto Error = std::move(Restored.error());
+					Error.Status = ETransactionApplyFailure::RecoveryRequired;
+					auto Recovery = HandleApplyFailure(*Pending, std::move(Error));
+					Recovery.PreparationCause = std::make_shared<FTransactorResult>(std::move(Result));
+					return Recovery;
+				}
+				if (Pending->IsDeferredOperationPending())
+				{
+					auto Recovery = HandleApplyFailure(*Pending, {
+						.Status = ETransactionApplyFailure::RecoveryRequired,
+						.Message = "Rejected transaction compensation did not finish synchronously."});
+					Recovery.PreparationCause = std::make_shared<FTransactorResult>(std::move(Result));
+					return Recovery;
+				}
+			}
+			QueueEvent(ETransactionEventType::Failed, *Pending, FormatTransactorResult(Result));
 			Pending.reset();
 			State = ETransactorState::Idle;
-			return {.Code = ETransactorResultCode::Failed, .TransactionId = TransactionId,
-				.FailureCause = FTransactorFailure{.Code = ETransactorFailure::EntryAccounting}};
+			return Result;
+		};
+		size_t EntryBytes = 0;
+		if (!Pending->TryGetOwnedSize(EntryBytes))
+			return RejectFinalization({.Code = ETransactorFailure::EntryAccounting});
+		// Validate retained accounting before replacing the redo branch.
+		size_t RetainedBytes = 0;
+		for (size_t Index = 0; Index < Cursor; ++Index)
+		{
+			size_t Bytes = 0;
+			if (!History[Index].TryGetOwnedSize(Bytes) || RetainedBytes > std::numeric_limits<size_t>::max() - Bytes)
+				return RejectFinalization({.Code = ETransactorFailure::RetainedAccounting, .Actual = RetainedBytes});
+			RetainedBytes += Bytes;
 		}
-
+		if (RetainedBytes > std::numeric_limits<size_t>::max() - EntryBytes)
+			return RejectFinalization({.Code = ETransactorFailure::RetainedAccounting, .Actual = RetainedBytes});
 		if (Cursor < History.size())
 		{
 			for (size_t Index = Cursor; Index < History.size(); ++Index)
-				QueueEvent(ETransactionEventType::Discarded, History[Index],
-					"A new commit replaced the redo branch.");
+				QueueEvent(ETransactionEventType::Discarded, History[Index], "A new commit replaced the redo branch.");
 			History.erase(History.begin() + Cursor, History.end());
 		}
-		if (!RecalculateOwnedBytes())
+		else
 		{
-			QueueEvent(ETransactionEventType::Failed, *Pending,
-				"Retained transaction byte accounting overflowed.");
-			Pending.reset();
-			State = ETransactorState::Idle;
-			return {.Code = ETransactorResultCode::Failed, .TransactionId = TransactionId,
-				.FailureCause = FTransactorFailure{.Code = ETransactorFailure::RetainedAccounting, .Actual = OwnedBytes}};
+			OwnedBytes = RetainedBytes;
+			TrimHistoryToBudget();
 		}
-		if (EntryBytes > Limits.MaximumOwnedBytes)
-		{
-			QueueEvent(ETransactionEventType::Discarded, *Pending,
-				"The transaction exceeded the owned-byte limit.");
-			Pending.reset();
-			RecalculateOwnedBytes();
-			State = ETransactorState::Idle;
-			return {.Code = ETransactorResultCode::Discarded, .TransactionId = TransactionId,
-				.FailureCause = FTransactorFailure{.Code = ETransactorFailure::ByteLimit, .Actual = EntryBytes, .Limit = Limits.MaximumOwnedBytes}};
-		}
-		if (OwnedBytes > std::numeric_limits<size_t>::max() - EntryBytes)
-		{
-			QueueEvent(ETransactionEventType::Failed, *Pending,
-				"Retained transaction byte accounting overflowed.");
-			Pending.reset();
-			State = ETransactorState::Idle;
-			return {.Code = ETransactorResultCode::Failed, .TransactionId = TransactionId,
-				.FailureCause = FTransactorFailure{.Code = ETransactorFailure::RetainedAccounting, .Actual = OwnedBytes}};
-		}
-
 		History.push_back(std::move(*Pending));
 		Pending.reset();
 		Cursor = History.size();
@@ -1063,7 +1098,6 @@ namespace Durin
 		if (History.back().MutatesMountedContent()) NotifyMountedContentMutation();
 		QueueEvent(ETransactionEventType::Executed, History.back());
 		RecalculateOwnedBytes();
-		EnforceLimits();
 		State = ETransactorState::Idle;
 		return {.Code = ETransactorResultCode::Succeeded, .TransactionId = TransactionId};
 	}
@@ -1213,7 +1247,7 @@ namespace Durin
 		if (Operation == ETransactionOperation::Execute)
 		{
 			State = ETransactorState::Recording;
-			const FTransactorResult Result = FinalizePending();
+			const FTransactorResult Result = FinalizePending(true);
 			if (TransactionCompletion)
 			{
 				FTransactionCompletionResult Finalized;
@@ -1297,9 +1331,9 @@ namespace Durin
 			if (Active && Active->IsOwnedByModule(ModuleName))
 				return Reject(ETransactorRejectionReason::ModulePending, 0, ModuleName);
 		}
-		if (State == ETransactorState::Recording && Pending
-			&& Pending->IsOwnedByModule(ModuleName))
-			return Reject(ETransactorRejectionReason::ModuleRecording, 0, ModuleName);
+		if (Pending && Pending->IsOwnedByModule(ModuleName))
+			return Reject(State == ETransactorState::Recording
+				? ETransactorRejectionReason::ModuleRecording : ETransactorRejectionReason::ModulePending, 0, ModuleName);
 		size_t Removed = 0;
 		for (size_t Index = History.size(); Index-- > 0;)
 		{
@@ -1319,40 +1353,6 @@ namespace Durin
 		return {.Code = Removed == 0 ? ETransactorResultCode::NoOp
 			: ETransactorResultCode::Succeeded,
 			.Notice = ETransactorNotice::ModuleDrain, .NoticeCount = Removed};
-	}
-
-	auto DTransBuffer::SetLimits(FTransactionBufferLimits InLimits) -> FTransactorResult
-	{
-		CheckThread();
-		if (State != ETransactorState::Idle) return Reject(ETransactorRejectionReason::LimitsState, 0, {}, InLimits);
-		if (InLimits.MaximumEntries == 0 || InLimits.MaximumOwnedBytes == 0)
-			return Reject(ETransactorRejectionReason::ZeroLimits, 0, {}, InLimits);
-		size_t ProjectedCount = History.size();
-		size_t ProjectedBytes = OwnedBytes;
-		size_t RemovalCount = 0;
-		while ((ProjectedCount > InLimits.MaximumEntries
-			|| ProjectedBytes > InLimits.MaximumOwnedBytes)
-			&& RemovalCount < Cursor)
-		{
-			size_t EntryBytes = 0;
-			if (!History[RemovalCount].TryGetOwnedSize(EntryBytes)
-				|| EntryBytes > ProjectedBytes)
-			{
-				return {.Code = ETransactorResultCode::Failed,
-					.FailureCause = FTransactorFailure{.Code = ETransactorFailure::InconsistentAccounting, .Actual = EntryBytes, .Limit = ProjectedBytes, .Index = RemovalCount}};
-			}
-			ProjectedBytes -= EntryBytes;
-			--ProjectedCount;
-			++RemovalCount;
-		}
-		if (ProjectedCount > InLimits.MaximumEntries
-			|| ProjectedBytes > InLimits.MaximumOwnedBytes)
-		{
-			return Reject(ETransactorRejectionReason::RedoLimits, 0, {}, InLimits);
-		}
-		Limits = InLimits;
-		EnforceLimits();
-		return {.Code = ETransactorResultCode::Succeeded};
 	}
 
 	auto DTransBuffer::ConsumeEvents() -> std::vector<FTransactionEvent>
@@ -1706,29 +1706,24 @@ namespace Durin
 		return std::make_shared<FTransactorReloadParticipant>(*Buffer, Packages);
 	}
 
-	auto DTransBuffer::EnforceLimits() -> void
+	auto DTransBuffer::TrimHistoryToBudget() -> void
 	{
-		while (!History.empty()
-			&& Cursor != 0
-			&& (History.size() > Limits.MaximumEntries || OwnedBytes > Limits.MaximumOwnedBytes))
+		// Only the old history participates; the incoming transaction may exceed the budget.
+		size_t RemovalCount = 0;
+		while (RemovalCount < History.size() && OwnedBytes >= MemoryBudget)
 		{
-			FTransactionEvent Event{
-				.Type = ETransactionEventType::Evicted,
-				.Operation = ETransactionOperation::Execute,
-				.Id = History.front().GetId(),
-				.Description = History.front().GetContext().Description,
-			};
-			History.erase(History.begin());
-			if (Cursor != 0) --Cursor;
-			Events.push_back(std::move(Event));
-			if (!RecalculateOwnedBytes())
-			{
-				History.clear();
-				Cursor = 0;
-				OwnedBytes = 0;
-				break;
-			}
+			const auto& Transaction = History[RemovalCount];
+			size_t EntryBytes = 0;
+			verify(Transaction.TryGetOwnedSize(EntryBytes));
+			check(EntryBytes <= OwnedBytes);
+			OwnedBytes -= EntryBytes;
+			Events.push_back({.Type = ETransactionEventType::Evicted,
+				.Operation = ETransactionOperation::Execute, .Id = Transaction.GetId(),
+				.Description = Transaction.GetContext().Description});
+			++RemovalCount;
 		}
+		History.erase(History.begin(), History.begin() + RemovalCount);
+		Cursor -= RemovalCount;
 	}
 
 	auto DTransBuffer::QueueEvent(

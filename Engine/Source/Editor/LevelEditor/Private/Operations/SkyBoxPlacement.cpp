@@ -1,5 +1,5 @@
 #include "SkyBoxPlacement.h"
-#include "Operations/ActorMutations.h"
+#include "Actors/EditorActorSubsystem.h"
 
 #include "Actors/SkyBoxActor.h"
 #include "Components/SkyBoxComponent.h"
@@ -66,7 +66,7 @@ namespace Durin::Editor::Level
 				{ if (Prepared) MarkObjectHierarchyAsGarbage(Prepared); return; }
 				Prepared->GetSkyBoxComponent()->SetTextureCube(InTextureCube);
 				AActor* Base = Prepared;
-				Presence = FActorMutations::MakePresenceChange(*InLevel, {&Base, 1}, false, "Place sky box");
+				Presence = MakeActorPresenceChange(*InLevel, {&Base, 1}, false, "Place sky box");
 				Prepared->SetTransient(true);
 				Actor = Prepared;
 			}

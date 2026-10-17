@@ -212,8 +212,9 @@ multi-selection produces one target per selected point.
 
 ## Actor Structure Commands
 
-`FActorMutations` owns editor Actor addition, batch deletion, duplication, and
-renaming. Outliner commands and Select-mode shortcuts use this boundary;
+DurinEd's `DEditorActorSubsystem` owns editor Actor addition, batch deletion,
+duplication, renaming and attachment/detachment. Outliner commands and Select-mode
+shortcuts resolve this boundary through their document's editor host;
 StaticMesh asset placement prepares its mesh and final transform before first
 registration. Actor structural edits use one application history entry per
 command and package revision transitions, without manual saved-state invalidation.

@@ -1,4 +1,6 @@
-#include "Operations/ActorMutations.h"
+#include "Actors/EditorActorSubsystem.h"
+#include "Actors/ActorEditingScope.h"
+#include "Actors/ActorEditingValidation.h"
 
 #include "Actors/CameraActor.h"
 #include "Components/ActorComponent.h"
@@ -14,15 +16,11 @@
 #include "Engine/World.h"
 #include "Transactions/Transactor.h"
 
-namespace Durin::Editor::Level
+namespace Durin
 {
+	using namespace Editor;
 	namespace
 	{
-		auto CanEdit(DLevel& Level, bool bReadOnly = false) -> bool
-		{
-			return !bReadOnly && IsValid(&Level) && !Level.IsTemplateObject()
-				&& (!Level.GetWorld() || (!Level.GetWorld()->HasBegunPlay() && !Level.GetWorld()->IsEndingPlay()));
-		}
 		auto UniqueName(DLevel& Level, FName Requested, AActor* Ignored = nullptr) -> FName
 		{
 			const auto Objects = GDObjectArray.GetObjectsWithOuter(&Level, EObjectQueryScope::LiveOnly);
@@ -48,7 +46,8 @@ namespace Durin::Editor::Level
 		class FActorPresenceChange final : public ITransactionCustomChange
 		{
 		public:
-			FActorPresenceChange(DLevel& InLevel, std::span<AActor* const> InActors, bool bInRemove, std::string InDescription)
+			FActorPresenceChange(DLevel& InLevel, std::span<AActor* const> InActors, bool bInRemove, std::string InDescription,
+				std::span<const FAttachmentState> PreparedAttachments = {})
 				: Level(&InLevel), Description(std::move(InDescription)), bRemove(bInRemove), BeforeCamera(InLevel.GetPrimaryCameraActor())
 			{
 				Packages[0] = InLevel.GetPackage();
@@ -74,6 +73,7 @@ namespace Durin::Editor::Level
 							if (Selected.contains(Actor) != Selected.contains(Parent->GetOwner()))
 								Attachments.push_back({Child, Parent, Child->GetRelativeTransform()});
 						}
+				Attachments.insert(Attachments.end(), PreparedAttachments.begin(), PreparedAttachments.end());
 				AfterCamera = BeforeCamera;
 				if (bRemove && Selected.contains(BeforeCamera.Get())) AfterCamera = nullptr;
 				if (!AfterCamera)
@@ -83,7 +83,7 @@ namespace Durin::Editor::Level
 				RetainActors();
 			}
 			auto GetDescription() const -> std::string_view override { return Description; }
-			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
+			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
 			auto GetAllocatedSize() const -> size_t override
 			{
@@ -103,10 +103,15 @@ namespace Durin::Editor::Level
 			}
 			auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult override
 			{
+				FScopedPackageDirtySuppression SuppressReplay;
 				const bool bAfter = Operation != ETransactionOperation::Undo;
 				const bool bPresent = bAfter != bRemove;
 				const auto Reject = [](ETransactionCustomError Code) -> FTransactionCustomResult { return {{.Code = Code}}; };
-				if (!IsValid(Level.Get()) || !CanEdit(*Level)) return Reject(ETransactionCustomError::TargetUnavailable);
+				const auto Interrupted = []() -> FTransactionCustomResult {
+					return {{.Code = ETransactionCustomError::TargetUnavailable,
+						.CleanupCause = std::make_shared<FTransactionCustomError>(FTransactionCustomError{.Code = ETransactionCustomError::RollbackIncomplete})}};
+				};
+				if (!CanEditActorLevel(Level.Get())) return Reject(ETransactionCustomError::TargetUnavailable);
 				if (Level->GetPrimaryCameraActor() != (bAfter ? BeforeCamera : AfterCamera).Get()) return Reject(ETransactionCustomError::ActorChanged);
 				auto* DesiredCamera = (bAfter ? AfterCamera : BeforeCamera).Get();
 				if (DesiredCamera && (!IsValid(DesiredCamera) || (!Level->ContainsActor(DesiredCamera)
@@ -155,9 +160,13 @@ namespace Durin::Editor::Level
 					for (const auto& Link : Attachments) verify(Link.Child->DetachFromComponent(EDetachmentTransformRule::KeepWorld));
 					for (auto It = States.rbegin(); It != States.rend(); ++It)
 					{
+						if (!CanEditActorOwner(It->Actor.Get())) return Interrupted();
 						It->Registered.clear();
 						for (const auto& Component : It->Actor->GetComponents()) if (Component->IsRegistered()) It->Registered.push_back(Component);
-						verify(Level->SetActorPresence(It->Actor.Get(), false));
+						if (!Level->SetActorPresence(It->Actor.Get(), false)
+							|| !CanEditActorLevel(Level.Get()) || !IsValid(It->Actor.Get()) || It->Actor->IsBeingDestroyed()
+							|| Level->ContainsActor(It->Actor.Get()))
+							return Interrupted();
 						It->Actor->SetTransient(true);
 					}
 				}
@@ -165,8 +174,10 @@ namespace Durin::Editor::Level
 				{
 					for (const auto& State : States)
 					{
+						if (!IsValid(State.Actor.Get()) || State.Actor->IsBeingDestroyed()) return Interrupted();
 						State.Actor->SetTransient(State.bTransient);
-						verify(Level->SetActorPresence(State.Actor.Get(), true, State.Index, false));
+						if (!Level->SetActorPresence(State.Actor.Get(), true, State.Index, false)
+							|| !CanEditActorOwner(State.Actor.Get())) return Interrupted();
 						if (!State.bTick) State.Actor->GetPrimaryActorTick().UnregisterTickFunction();
 					}
 					for (const auto& Link : Attachments)
@@ -175,14 +186,20 @@ namespace Durin::Editor::Level
 						Link.Child->SetRelativeTransform(Link.Relative);
 					}
 					for (const auto& State : States)
-						for (const auto& Component : State.Registered) if (IsValid(Component.Get()) && State.Actor->OwnsComponent(Component.Get())) Component->RegisterComponent();
+						for (const auto& Component : State.Registered)
+						{
+							if (IsValid(Component.Get()) && State.Actor->OwnsComponent(Component.Get())) Component->RegisterComponent();
+							if (!CanEditActorOwner(State.Actor.Get())) return Interrupted();
+						}
 				}
-				verify(Level->SetPrimaryCameraActor((bAfter ? AfterCamera : BeforeCamera).Get()));
+				RetainActors();
+				if (!Level->SetPrimaryCameraActor((bAfter ? AfterCamera : BeforeCamera).Get())) return Interrupted();
 				return {};
 			}
 		private:
 			auto RetainTree(DObject* Object) -> void
 			{
+				if (!IsValid(Object)) return;
 				Retained.emplace_back(Object);
 				for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::LiveOnly)) RetainTree(Child);
 			}
@@ -202,13 +219,14 @@ namespace Durin::Editor::Level
 		public:
 			FActorRenameChange(DLevel& InLevel, AActor& InActor, FName InAfter) : Level(&InLevel), Actor(&InActor), Before(InActor.GetFName()), After(InAfter), Packages{InLevel.GetPackage()} {}
 			auto GetDescription() const -> std::string_view override { return "Rename actor"; }
-			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
+			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{ for (DObject* Object : {static_cast<DObject*>(Level.Get()), static_cast<DObject*>(Actor.Get())}) if (Object) Collector.AddReferencedObject(Object); }
 			auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult override
 			{
-				if (!IsValid(Level.Get()) || !CanEdit(*Level) || !IsValid(Actor.Get()) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Level->ContainsActor(Actor.Get())) return {{.Code = ETransactionCustomError::ActorMembership}};
+				FScopedPackageDirtySuppression SuppressReplay;
+				if (!CanEditActorLevel(Level.Get()) || !IsValid(Actor.Get()) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Level->ContainsActor(Actor.Get())) return {{.Code = ETransactionCustomError::ActorMembership}};
 				const bool bAfter = Operation != ETransactionOperation::Undo;
 				const FName Name = bAfter ? After : Before;
 				if (Actor->GetFName() != (bAfter ? Before : After)) return {{.Code = ETransactionCustomError::ActorChanged}};
@@ -223,105 +241,157 @@ namespace Durin::Editor::Level
 			FName Before, After;
 			std::array<DPackage*, 1> Packages;
 		};
-		auto Execute(std::unique_ptr<ITransactionCustomChange> Change, std::vector<TObjectPtr<AActor>> Actors, DTransactor& Transactions) -> FActorMutationResult
+		auto Execute(std::unique_ptr<ITransactionCustomChange> Change, std::vector<TObjectPtr<AActor>> Actors, DTransactor& Transactions) -> FActorEditResult
 		{
 			const auto Result = Transactions.Execute(std::move(Change));
-			if (!Result)
+			if (!Result && Result.Code != ETransactorResultCode::RecoveryRequired)
 				for (const auto& Actor : Actors)
 					if (IsValid(Actor.Get()))
 						if (auto* Level = Cast<DLevel>(Actor->GetOuter()); Level && !Level->ContainsActor(Actor.Get())) MarkObjectHierarchyAsGarbage(Actor.Get());
-			return Result ? FActorMutationResult{std::move(Actors), {}} : FActorMutationResult{{}, FormatTransactorResult(Result)};
+			return Result ? FActorEditResult{std::move(Actors), {}, EActorEditStatus::Changed, EActorEditError::None, Result} : FActorEditResult{{}, FormatTransactorResult(Result), EActorEditStatus::Failed, EActorEditError::HistoryRejected, Result};
 		}
 	}
 
-	auto FActorMutations::MakePresenceChange(DLevel& Level, std::span<AActor* const> Actors, bool bRemove, std::string Description) -> std::unique_ptr<ITransactionCustomChange>
-	{ return std::make_unique<FActorPresenceChange>(Level, Actors, bRemove, std::move(Description)); }
+	auto Editor::MakeActorPresenceChange(DLevel& Level, std::span<AActor* const> Actors, bool bRemove, std::string Description) -> std::unique_ptr<ITransactionCustomChange>
+	{
+		if (!CanEditActorLevel(&Level) || Actors.empty()) return {};
+		std::unordered_set<AActor*> Unique;
+		for (auto* Actor : Actors)
+			if (!IsValid(Actor) || Actor->GetOuter() != &Level || Actor->IsBeingDestroyed() || Actor->HasBegunPlay()
+				|| Level.ContainsActor(Actor) != bRemove || !Unique.insert(Actor).second) return {};
+		return std::make_unique<FActorPresenceChange>(Level, Actors, bRemove, std::move(Description));
+	}
 
-	auto FActorMutations::Add(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
-		DTransactor* Transactions, bool bReadOnly, std::function<void(AActor&)> Configure) -> FActorMutationResult
+	auto DEditorActorSubsystem::SpawnActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
+		const FActorEditContext& Context, std::function<void(AActor&)> Configure) -> FActorEditResult
 	{
-		if (!CanEdit(Level, bReadOnly) || !Transactions || !CanConstructObjectOfClass(Class, AActor::StaticClass())) return {{}, "Invalid actor creation target."};
-		AActor* Actor = nullptr;
+		auto Admission = Admit(Context, &Level);
+		if (!Admission) return Admission.error();
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> FActorEditResult
 		{
-			FScopedPackageDirtySuppression SuppressPreparation;
-			Actor = NewObject<AActor>(Class, &Level, UniqueName(Level, Name.IsNone() ? FName(Class->GetDefaultObjectName()) : Name));
-			if (Actor && Actor->RequestNativeReconstruction())
+			auto* Transactions = *Admission;
+			if (!CanConstructObjectOfClass(Class, AActor::StaticClass())) return {{}, "Invalid actor creation target."};
+			AActor* Actor = nullptr;
 			{
-				Actor->SetActorTransform(Transform);
-				if (Configure) Configure(*Actor);
-			}
-			else { if (Actor) MarkObjectHierarchyAsGarbage(Actor); return {{}, "Actor construction failed."}; }
-		}
-		auto Change = MakePresenceChange(Level, {&Actor, 1}, false, "Add actor");
-		Actor->SetTransient(true);
-		return Execute(std::move(Change), {Actor}, *Transactions);
-	}
-	auto FActorMutations::Remove(DLevel& Level, std::span<AActor* const> Actors, DTransactor* Transactions, bool bReadOnly) -> FActorMutationResult
-	{
-		if (!CanEdit(Level, bReadOnly) || !Transactions || Actors.empty()) return {{}, "Invalid actor deletion target."};
-		std::unordered_set<AActor*> Unique;
-		for (AActor* Actor : Actors)
-			if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return {{}, "Invalid actor deletion selection."};
-		return Execute(MakePresenceChange(Level, Actors, true, "Delete actors"), {Actors.begin(), Actors.end()}, *Transactions);
-	}
-	auto FActorMutations::Duplicate(DLevel& Level, std::span<AActor* const> Actors, DTransactor* Transactions, bool bReadOnly) -> FActorMutationResult
-	{
-		if (!CanEdit(Level, bReadOnly) || !Transactions || Actors.empty()) return {{}, "Invalid actor duplication target."};
-		std::unordered_set<AActor*> Unique;
-		for (AActor* Actor : Actors)
-			if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return {{}, "Invalid actor duplication selection."};
-		std::vector<TObjectPtr<AActor>> Copies;
-		std::vector<AActor*> Raw;
-		std::unique_ptr<ITransactionCustomChange> Change;
-		{
-			FScopedPackageDirtySuppression SuppressPreparation;
-			std::unordered_map<DObject*, DObject*> Duplicates;
-			for (AActor* Source : Actors)
-			{
-				std::unordered_map<DObject*, DObject*> Graph;
-				auto Copy = DuplicateObject(Source, &Level, UniqueName(Level, Source->GetFName()), &Graph);
-				if (!Copy) { for (const auto& Actor : Copies) MarkObjectHierarchyAsGarbage(Actor.Get()); return {{}, ToString(Copy.error())}; }
-				Copies.push_back(*Copy);
-				Raw.push_back(*Copy);
-				Duplicates.insert(Graph.begin(), Graph.end());
-				// Duplication remaps the complete owned graph and runs PostLoad before publication.
-			}
-			// Reconnect references between selected graphs as well as within each Outer tree.
-			for (const auto& [Source, Copy] : Duplicates)
-			{
-				if (!IsValid(Copy)) continue;
-				if (const auto Result = CopyEditableObjectProperties(Source, Copy, Duplicates); !Result)
-				{ for (const auto& Actor : Copies) MarkObjectHierarchyAsGarbage(Actor.Get()); return {{}, ToString(Result.error())}; }
-				if (auto* Scene = Cast<DSceneComponent>(Copy))
+				FScopedPackageDirtySuppression SuppressPreparation;
+				Actor = NewObject<AActor>(Class, &Level, UniqueName(Level, Name.IsNone() ? FName(Class->GetDefaultObjectName()) : Name));
+				if (Actor && Actor->RequestNativeReconstruction())
 				{
-					auto* Parent = static_cast<DSceneComponent*>(Source)->GetAttachParent();
-					if (auto It = Duplicates.find(Parent); It != Duplicates.end()) Parent = static_cast<DSceneComponent*>(It->second);
-					if (Parent) verify(Scene->AttachToComponent(Parent, EAttachmentTransformRule::KeepRelative));
-					else { if (Scene->GetAttachParent()) Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative); Scene->UpdateComponentToWorld(); }
+					Actor->SetActorTransform(Transform);
+					if (Configure)
+					{
+						try { Configure(*Actor); }
+						catch (...) { MarkObjectHierarchyAsGarbage(Actor); return {{}, "Actor preparation failed."}; }
+					}
+					if (auto Revalidated = Admit(Context, &Level, nullptr, true); !Revalidated)
+					{ if (IsValid(Actor)) MarkObjectHierarchyAsGarbage(Actor); return Revalidated.error(); }
+					if (!IsValid(Actor)) return {{}, "The prepared actor is unavailable."};
+				}
+				else { if (Actor) MarkObjectHierarchyAsGarbage(Actor); return {{}, "Actor construction failed."}; }
+			}
+			auto Change = MakeActorPresenceChange(Level, {&Actor, 1}, false, "Add actor");
+			Actor->SetTransient(true);
+			return Execute(std::move(Change), {Actor}, *Transactions);
+
+		});
+	}
+	auto DEditorActorSubsystem::DestroyActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> FActorEditResult
+	{
+		auto Admission = Admit(Context, &Level);
+		if (!Admission) return Admission.error();
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> FActorEditResult
+		{
+			auto* Transactions = *Admission;
+			if (Actors.empty()) return {{}, "Invalid actor deletion target."};
+			std::unordered_set<AActor*> Unique;
+			for (AActor* Actor : Actors)
+				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return {{}, "Invalid actor deletion selection."};
+			return Execute(MakeActorPresenceChange(Level, Actors, true, "Delete actors"), {Actors.begin(), Actors.end()}, *Transactions);
+
+		});
+	}
+	auto DEditorActorSubsystem::DuplicateActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> FActorEditResult
+	{
+		auto Admission = Admit(Context, &Level);
+		if (!Admission) return Admission.error();
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> FActorEditResult
+		{
+			auto* Transactions = *Admission;
+			if (Actors.empty()) return {{}, "Invalid actor duplication target."};
+			std::unordered_set<AActor*> Unique;
+			for (AActor* Actor : Actors)
+				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return {{}, "Invalid actor duplication selection."};
+			std::vector<TObjectPtr<AActor>> Copies;
+			std::vector<AActor*> Raw;
+			std::unique_ptr<ITransactionCustomChange> Change;
+			{
+				FScopedPackageDirtySuppression SuppressPreparation;
+				std::unordered_map<DObject*, DObject*> Duplicates;
+				for (AActor* Source : Actors)
+				{
+					std::unordered_map<DObject*, DObject*> Graph;
+					auto Copy = DuplicateObject(Source, &Level, UniqueName(Level, Source->GetFName()), &Graph);
+					if (!Copy) { for (const auto& Actor : Copies) MarkObjectHierarchyAsGarbage(Actor.Get()); return {{}, ToString(Copy.error())}; }
+					Copies.push_back(*Copy);
+					Raw.push_back(*Copy);
+					Duplicates.insert(Graph.begin(), Graph.end());
+					// Duplication remaps the complete owned graph and runs PostLoad before publication.
+				}
+				const std::unordered_set<AActor*> CopiedOwners(Raw.begin(), Raw.end());
+				std::vector<FAttachmentState> PreparedAttachments;
+				// Reconnect references between selected graphs as well as within each Outer tree.
+				for (const auto& [Source, Copy] : Duplicates)
+				{
+					if (!IsValid(Copy)) continue;
+					if (const auto Result = CopyEditableObjectProperties(Source, Copy, Duplicates); !Result)
+					{ for (const auto& Actor : Copies) MarkObjectHierarchyAsGarbage(Actor.Get()); return {{}, ToString(Result.error())}; }
+					if (auto* Scene = Cast<DSceneComponent>(Copy))
+					{
+						auto* Parent = static_cast<DSceneComponent*>(Source)->GetAttachParent();
+						if (auto It = Duplicates.find(Parent); It != Duplicates.end()) Parent = static_cast<DSceneComponent*>(It->second);
+						if (Parent && !CopiedOwners.contains(Parent->GetOwner()))
+						{
+							const auto Relative = Scene->GetRelativeTransform();
+							PreparedAttachments.push_back({Scene, Parent, Relative});
+							if (Scene->GetAttachParent()) Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
+							Scene->SetWorldTransform(FTransform::Combine(Parent->GetWorldTransform(), Relative));
+						}
+						else if (Parent) verify(Scene->AttachToComponent(Parent, EAttachmentTransformRule::KeepRelative));
+						else { if (Scene->GetAttachParent()) Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative); Scene->UpdateComponentToWorld(); }
+					}
+				}
+				// Rebuild derived data after editable cross-graph references are remapped.
+				for (AActor* Actor : Raw)
+					for (const auto& Component : Actor->GetComponentsSnapshot())
+						if (IsValid(Component.Get()) && Component->GetCreationMethod() != EComponentCreationMethod::Generated) Component->PostLoad();
+				Change = std::make_unique<FActorPresenceChange>(Level, Raw, false, "Duplicate actors", PreparedAttachments);
+				// External parent child lists are changed only by successful replay.
+				for (AActor* Actor : Raw)
+				{
+					for (const auto& Component : Actor->GetComponents())
+						if (auto* Scene = Cast<DSceneComponent>(Component.Get()); Scene && Scene->GetAttachParent() && !CopiedOwners.contains(Scene->GetAttachParent()->GetOwner()))
+							Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
+					Actor->SetTransient(true);
 				}
 			}
-			// Rebuild derived data after editable cross-graph references are remapped.
-			for (AActor* Actor : Raw)
-				for (const auto& Component : Actor->GetComponentsSnapshot())
-					if (IsValid(Component.Get()) && Component->GetCreationMethod() != EComponentCreationMethod::Generated) Component->PostLoad();
-			Change = MakePresenceChange(Level, Raw, false, "Duplicate actors");
-			// Boundary links are published by replay, rather than left visible after rejection.
-			const std::unordered_set<AActor*> CopiedOwners(Raw.begin(), Raw.end());
-			for (AActor* Actor : Raw)
-			{
-				for (const auto& Component : Actor->GetComponents())
-					if (auto* Scene = Cast<DSceneComponent>(Component.Get()); Scene && Scene->GetAttachParent() && !CopiedOwners.contains(Scene->GetAttachParent()->GetOwner()))
-						Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
-				Actor->SetTransient(true);
-			}
-		}
-		return Execute(std::move(Change), std::move(Copies), *Transactions);
+			if (auto Revalidated = Admit(Context, &Level, nullptr, true); !Revalidated)
+			{ for (const auto& Actor : Copies) if (IsValid(Actor.Get())) MarkObjectHierarchyAsGarbage(Actor.Get()); return Revalidated.error(); }
+			return Execute(std::move(Change), std::move(Copies), *Transactions);
+
+		});
 	}
-	auto FActorMutations::Rename(DLevel& Level, AActor* Actor, FName Name, DTransactor* Transactions, bool bReadOnly) -> FActorMutationResult
+	auto DEditorActorSubsystem::RenameActor(DLevel& Level, AActor* Actor, FName Name, const FActorEditContext& Context) -> FActorEditResult
 	{
-		if (!CanEdit(Level, bReadOnly) || !Transactions || !IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsTemplateObject() || Name.IsNone()) return {{}, "Invalid actor rename target."};
-		Name = UniqueName(Level, Name, Actor);
-		if (Actor->GetFName() == Name) return {{Actor}, {}};
-		return Execute(std::make_unique<FActorRenameChange>(Level, *Actor, Name), {Actor}, *Transactions);
+		auto Admission = Admit(Context, &Level);
+		if (!Admission) return Admission.error();
+		return RunActorEdit(GetEditor(), bEditing, [&]() -> FActorEditResult
+		{
+			auto* Transactions = *Admission;
+			if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsTemplateObject() || Name.IsNone()) return {{}, "Invalid actor rename target."};
+			Name = UniqueName(Level, Name, Actor);
+			if (Actor->GetFName() == Name) return {{Actor}, {}, EActorEditStatus::NoOp, EActorEditError::None};
+			return Execute(std::make_unique<FActorRenameChange>(Level, *Actor, Name), {Actor}, *Transactions);
+
+		});
 	}
 }

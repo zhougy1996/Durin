@@ -12,7 +12,7 @@ namespace Durin
 	class AActor;
 }
 
-namespace Durin::Editor::Level
+namespace Durin::Editor
 {
 	// Restores actor parentage and world transforms for one hierarchy edit.
 	class FActorAttachmentTransaction final : public ::Durin::Editor::ITransactionCustomChange
@@ -30,12 +30,14 @@ namespace Durin::Editor::Level
 		FActorAttachmentTransaction(std::vector<FEntry> InEntries, bool bInAttaching);
 
 		auto GetDescription() const -> std::string_view override;
-		auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
+		auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
 		auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override;
 		auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
 		auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult override
 		{ return Apply(Operation != ETransactionOperation::Undo); }
 		auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override;
+		auto GetAllocatedSize() const -> size_t override
+		{ return Entries.capacity() * sizeof(FEntry) + AffectedPackages.capacity() * sizeof(DPackage*); }
 
 	private:
 		auto Apply(bool bAfter) -> FTransactionCustomResult;

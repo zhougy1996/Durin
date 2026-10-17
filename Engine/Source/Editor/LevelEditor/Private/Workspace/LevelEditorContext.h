@@ -19,6 +19,8 @@ namespace Durin
 	class DLevel;
 	class DPackage;
 	class FPackagePath;
+	class DEditorEngine;
+	class DEditorActorSubsystem;
 }
 
 namespace Durin::Editor::Level
@@ -26,6 +28,8 @@ namespace Durin::Editor::Level
 	// Shares active world, selection, play, and viewport state across editor panels.
 	struct FLevelEditorContext
 	{
+		DEditorEngine* EditorHost = nullptr;
+		auto GetActorEditor() const -> DEditorActorSubsystem*;
 		DWorld* World = nullptr;
 		DLevel* Level = nullptr;
 		bool bReadOnly = false;
@@ -59,6 +63,8 @@ namespace Durin::Editor::Level
 		auto SetError(std::string Message) const -> void { if (ReportError) ReportError(std::move(Message)); }
 
 	private:
+		DEditorActorSubsystem* TestActorEditor = nullptr;
+		friend struct FLevelEditorActorTestAccess;
 		std::vector<TObjectPtr<AActor>> SelectedActors;
 		TObjectPtr<AActor> PrimarySelectedActor;
 		TObjectPtr<AActor> SelectionAnchor;

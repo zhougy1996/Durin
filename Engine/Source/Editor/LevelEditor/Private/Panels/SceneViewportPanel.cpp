@@ -30,7 +30,7 @@
 #include "Widgets/MWindow.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
-#include "Operations/ActorMutations.h"
+#include "Actors/EditorActorSubsystem.h"
 #include "SkyBoxPlacement.h"
 #include "Texture/TextureCube.h"
 
@@ -319,10 +319,7 @@ namespace Durin::Editor::Level
 							if (SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction))
 								PlacementTransform.Translation = Origin + Direction * 5.0;
 
-							const auto ApplyResult = FActorMutations::Add(*Context.Level, AStaticMeshActor::StaticClass(),
-								FName(AssetPath.GetAssetPath().GetAssetName()), PlacementTransform,
-								GEditor ? GEditor->GetTransactor() : nullptr, Context.bReadOnly,
-								[StaticMesh](AActor& Created) { static_cast<AStaticMeshActor&>(Created).GetStaticMeshComponent()->SetStaticMesh(StaticMesh); });
+							const auto ApplyResult = (Context.GetActorEditor() ? Context.GetActorEditor()->SpawnActor(*Context.Level, AStaticMeshActor::StaticClass(), FName(AssetPath.GetAssetPath().GetAssetName()), PlacementTransform, {Context.EditorHost, Context.bReadOnly}, [StaticMesh](AActor& Created) { static_cast<AStaticMeshActor&>(Created).GetStaticMeshComponent()->SetStaticMesh(StaticMesh); }) : FActorEditResult{{}, "Actor editing service is unavailable."});
 							if (!ApplyResult)
 								Context.SetError(ApplyResult.Message);
 							else Actor = ApplyResult.Actors.front().Get();

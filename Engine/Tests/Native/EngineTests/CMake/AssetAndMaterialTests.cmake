@@ -273,15 +273,12 @@ durin_add_native_test(LevelMutationTests
 	STACKS editor
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
-		"LevelEditor-owned mutation white-box coverage keeps structural transaction implementations private."
+		"Specialized StaticMesh compound replay uses LevelEditor private sources. Generic Actor and Component coverage calls the DurinEd service."
 	COMPILE_DEFINITIONS LEVELEDITOR_EXPORTS DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION=1
-	SOURCES Private/Editor/StaticMeshLevelMutationTests.cpp Private/Editor/WorldOutlinerActorAttachmentTests.cpp
+	SOURCES Private/Editor/StaticMeshLevelMutationTests.cpp Private/Editor/EditorActorAttachmentTests.cpp
 		Private/Editor/ComponentMutationTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Operations/StaticMeshLevelMutations.cpp
-		${_durin_level_editor_private}/Panels/ActorAttachmentTransaction.cpp
-		${_durin_level_editor_private}/Operations/ComponentMutations.cpp
-		${_durin_level_editor_private}/Operations/ActorMutations.cpp
 	LIBRARIES Core CoreDObject Engine DurinEd
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private

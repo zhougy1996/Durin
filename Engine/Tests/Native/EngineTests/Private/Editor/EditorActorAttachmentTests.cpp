@@ -6,14 +6,13 @@
 #include "DObject/ObjectLifecycle.h"
 #include "Transactions/Transaction.h"
 #include "Engine/Level.h"
-#include "Panels/ActorAttachmentTransaction.h"
+#include "Editor/EditorActorSubsystemTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 
 namespace
 {
 	using namespace Durin;
 	using namespace Durin::Editor;
-	using namespace Durin::Editor::Level;
 
 	struct FAttachmentFixture
 	{
@@ -22,7 +21,7 @@ namespace
 		FAttachmentFixture()
 		{
 			Testing::InitializeDObjectSystemForTests();
-			Level = NewObject<DLevel>(nullptr, "OutlinerAttachmentLevel");
+			Level = NewObject<DLevel>(nullptr, "EditorActorAttachmentLevel");
 		}
 
 		~FAttachmentFixture()
@@ -47,7 +46,7 @@ namespace
 	}
 }
 
-TEST(WorldOutlinerActorAttachmentTests, MultiActorReparentAndDetachRoundTripAsTransactions)
+TEST(FEditorActorAttachmentTests, MultiActorReparentAndDetachRoundTripAsTransactions)
 {
 	FAttachmentFixture Fixture;
 	auto* OldParent = Fixture.Level->SpawnActor<ACameraActor>("OldParent");
@@ -68,12 +67,9 @@ TEST(WorldOutlinerActorAttachmentTests, MultiActorReparentAndDetachRoundTripAsTr
 	ASSERT_TRUE(Second->SetActorTransform(SecondTransform));
 
 	Durin::Tests::FTestTransactorOwner Transactions;
-	std::vector<FActorAttachmentTransaction::FEntry> AttachEntries{
-		{First, OldParent, NewParent, FirstTransform, FirstTransform},
-		{Second, nullptr, NewParent, SecondTransform, SecondTransform},
-	};
-	ASSERT_TRUE(Transactions->Execute(
-		std::make_unique<FActorAttachmentTransaction>(std::move(AttachEntries), true)));
+	Durin::Tests::FTestActorEditor Editor(Transactions.Get());
+	std::array<AActor*, 2> Actors{First, Second};
+	ASSERT_TRUE(Editor->AttachActors(*Fixture.Level, Actors, NewParent, EAttachmentTransformRule::KeepWorld, {nullptr, false}));
 	EXPECT_EQ(Transactions->GetUndoDescription(), "Attach actors");
 	EXPECT_EQ(First->GetAttachParentActor(), NewParent);
 	EXPECT_EQ(Second->GetAttachParentActor(), NewParent);
@@ -90,12 +86,7 @@ TEST(WorldOutlinerActorAttachmentTests, MultiActorReparentAndDetachRoundTripAsTr
 	EXPECT_EQ(First->GetAttachParentActor(), NewParent);
 	EXPECT_EQ(Second->GetAttachParentActor(), NewParent);
 
-	std::vector<FActorAttachmentTransaction::FEntry> DetachEntries{
-		{First, NewParent, nullptr, FirstTransform, FirstTransform},
-		{Second, NewParent, nullptr, SecondTransform, SecondTransform},
-	};
-	ASSERT_TRUE(Transactions->Execute(
-		std::make_unique<FActorAttachmentTransaction>(std::move(DetachEntries), false)));
+	ASSERT_TRUE(Editor->DetachActors(*Fixture.Level, Actors, EDetachmentTransformRule::KeepWorld, {nullptr, false}));
 	EXPECT_EQ(Transactions->GetUndoDescription(), "Detach actors");
 	EXPECT_EQ(First->GetAttachParentActor(), nullptr);
 	EXPECT_EQ(Second->GetAttachParentActor(), nullptr);
@@ -108,7 +99,7 @@ TEST(WorldOutlinerActorAttachmentTests, MultiActorReparentAndDetachRoundTripAsTr
 	EXPECT_EQ(Second->GetAttachParentActor(), nullptr);
 }
 
-TEST(WorldOutlinerActorAttachmentTests, SelectedTransformRulesProduceReversibleResults)
+TEST(FEditorActorAttachmentTests, SelectedTransformRulesProduceReversibleResults)
 {
 	FAttachmentFixture Fixture;
 	auto* Parent = Fixture.Level->SpawnActor<ACameraActor>("Parent");
@@ -123,11 +114,9 @@ TEST(WorldOutlinerActorAttachmentTests, SelectedTransformRulesProduceReversibleR
 	ASSERT_TRUE(Child->SetActorTransform(ChildTransform));
 
 	Durin::Tests::FTestTransactorOwner Transactions;
-	std::vector<FActorAttachmentTransaction::FEntry> Entries;
-	Entries.push_back(MakeActorAttachmentEntry(
-		*Child, *Parent, EAttachmentTransformRule::KeepRelative));
-	ASSERT_TRUE(Transactions->Execute(
-		std::make_unique<FActorAttachmentTransaction>(std::move(Entries), true)));
+	Durin::Tests::FTestActorEditor Editor(Transactions.Get());
+	AActor* Target = Child;
+	ASSERT_TRUE(Editor->AttachActors(*Fixture.Level, {&Target, 1}, Parent, EAttachmentTransformRule::KeepRelative, {nullptr, false}));
 	EXPECT_EQ(Child->GetAttachParentActor(), Parent);
 	FTransform CombinedTransform = FTransform::Combine(ParentTransform, ChildTransform);
 	ExpectTransformNear(Child->GetActorTransform(), CombinedTransform);
@@ -147,23 +136,37 @@ TEST(WorldOutlinerActorAttachmentTests, SelectedTransformRulesProduceReversibleR
 	EXPECT_EQ(Child->GetAttachParentActor(), nullptr);
 	ExpectTransformNear(Child->GetActorTransform(), ChildTransform);
 
-	Entries.push_back(MakeActorAttachmentEntry(
-		*Child, *Parent, EAttachmentTransformRule::SnapToTarget));
-	ASSERT_TRUE(Transactions->Execute(
-		std::make_unique<FActorAttachmentTransaction>(std::move(Entries), true)));
+	ASSERT_TRUE(Editor->AttachActors(*Fixture.Level, {&Target, 1}, Parent, EAttachmentTransformRule::SnapToTarget, {nullptr, false}));
 	EXPECT_EQ(Child->GetAttachParentActor(), Parent);
 	ExpectTransformNear(Child->GetActorTransform(), ParentTransform);
 	ASSERT_TRUE(Transactions->Undo());
 
 	ASSERT_TRUE(Child->AttachToActor(Parent, EAttachmentTransformRule::KeepRelative));
 	CombinedTransform = Child->GetActorTransform();
-	Entries.push_back(MakeActorDetachmentEntry(
-		*Child, EDetachmentTransformRule::KeepRelative));
-	ASSERT_TRUE(Transactions->Execute(
-		std::make_unique<FActorAttachmentTransaction>(std::move(Entries), false)));
+	ASSERT_TRUE(Editor->DetachActors(*Fixture.Level, {&Target, 1}, EDetachmentTransformRule::KeepRelative, {nullptr, false}));
 	EXPECT_EQ(Child->GetAttachParentActor(), nullptr);
 	ExpectTransformNear(Child->GetActorTransform(), ChildTransform);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Child->GetAttachParentActor(), Parent);
 	ExpectTransformNear(Child->GetActorTransform(), CombinedTransform);
+}
+
+TEST(FEditorActorAttachmentTests, SnapToExistingParentStillChangesTransform)
+{
+	FAttachmentFixture Fixture;
+	auto* Parent = Fixture.Level->SpawnActor<ACameraActor>("SnapParent");
+	auto* Child = Fixture.Level->SpawnActor<ACameraActor>("SnapChild");
+	ASSERT_TRUE(Child->AttachToActor(Parent));
+	FTransform Before;
+	Before.Translation = {4.0, 5.0, 6.0};
+	ASSERT_TRUE(Child->SetActorTransform(Before));
+	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Tests::FTestActorEditor Editor(Transactions.Get());
+	AActor* Target = Child;
+	const auto Result = Editor->AttachActors(*Fixture.Level, {&Target, 1}, Parent, EAttachmentTransformRule::SnapToTarget, {nullptr, false});
+	ASSERT_TRUE(Result) << Result.Message;
+	EXPECT_TRUE(Result.Changed());
+	ExpectTransformNear(Child->GetActorTransform(), Parent->GetActorTransform());
+	ASSERT_TRUE(Transactions->Undo());
+	ExpectTransformNear(Child->GetActorTransform(), Before);
 }

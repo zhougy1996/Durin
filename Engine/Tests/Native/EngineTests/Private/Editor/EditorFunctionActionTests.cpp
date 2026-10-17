@@ -240,25 +240,26 @@ TEST_F(FEditorFunctionTests, AdmissionAndReentrancyPreventNativeMutation)
 	EXPECT_EQ(CanExecuteEditorFunction(Context, OldRequest), EEditorFunctionError::InvalidTarget);
 }
 
-TEST_F(FEditorFunctionTests, FinalizationFailureReportsInvocationAndInvalidatesCheckpoint)
+TEST_F(FEditorFunctionTests, OversizedActionRemainsUndoableAndPreservesCheckpoint)
 {
-	Tests::FTestTransactorOwner Buffer;
+	Tests::FTestTransactorOwner Buffer("OversizedAction", 1);
 	auto* Package = MakeActionPackage();
 	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(Package, "FailedHistoryAction"));
 	Buffer->EstablishSavedState(*Package);
-	ASSERT_TRUE(Buffer->SetLimits({.MaximumEntries = 4, .MaximumOwnedBytes = 1}));
 	FPropertyView View;
 	std::string Error;
 	FPropertyViewContext Context{.Transactor = Buffer.Get(), .ReportError = [&](std::string Message) { Error = std::move(Message); }};
 	const auto Result = ExecuteEditorFunction(View, Context, Request(Target));
 	EXPECT_TRUE(Result.bInvoked);
-	EXPECT_EQ(Result.Error, EEditorFunctionError::History);
+	EXPECT_EQ(Result.Error, EEditorFunctionError::None);
 	EXPECT_EQ(Target->Value, 5);
-	EXPECT_FALSE(Error.empty());
+	EXPECT_TRUE(Error.empty());
 	EXPECT_TRUE(Package->IsDirty());
 	ASSERT_TRUE(Buffer->GetPackageRevisionState(*Package));
-	EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->bCheckpointValid);
-	EXPECT_FALSE(Buffer->CanUndo());
+	EXPECT_TRUE(Buffer->GetPackageRevisionState(*Package)->bCheckpointValid);
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Target->Value, 0);
+	EXPECT_FALSE(Package->IsDirty());
 }
 
 TEST_F(FEditorFunctionTests, LayoutDeduplicatesHidesAndSearchesInheritedActions)
@@ -462,10 +463,9 @@ TEST_F(FEditorFunctionTests, RejectedBeforeCaptureBlocksNativeInvocationAndClose
 	EXPECT_EQ(Result.History.CleanupCause->Code, ETransactorResultCode::Discarded);
 }
 
-TEST_F(FEditorFunctionTests, FailedPropertyEditCompletionRetainsEditAndBlocksAction)
+TEST_F(FEditorFunctionTests, OversizedPropertyEditCompletesBeforeActionAndLatestActionRemainsUndoable)
 {
-	Tests::FTestTransactorOwner Buffer;
-	ASSERT_TRUE(Buffer->SetLimits({.MaximumEntries = 4, .MaximumOwnedBytes = 1}));
+	Tests::FTestTransactorOwner Buffer("OversizedAction", 1);
 	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "UnfinishedActionEdit"));
 	FPropertyView View;
 	FPropertyViewContext Context{.Transactor = Buffer.Get()};
@@ -474,14 +474,14 @@ TEST_F(FEditorFunctionTests, FailedPropertyEditCompletionRetainsEditAndBlocksAct
 		*Property->ContainerPtrToValuePtr<int32>(Storage, Index) = 7;
 	}, true));
 	const auto Result = ExecuteEditorFunction(View, Context, Request(Target));
-	EXPECT_EQ(Result.Error, EEditorFunctionError::ActiveEdit);
-	EXPECT_FALSE(Result.bInvoked);
-	EXPECT_TRUE(View.IsEditing());
-	EXPECT_EQ(Target->Invocations, 0);
-	EXPECT_EQ(ExecuteEditorFunction(View, Context, Request(Target)).Error, EEditorFunctionError::ActiveEdit);
-	EXPECT_EQ(Target->Invocations, 0);
-	EXPECT_TRUE(View.FinishActiveEdit(&Context, true));
-	EXPECT_EQ(Target->Value, 0);
+	EXPECT_EQ(Result.Error, EEditorFunctionError::None);
+	EXPECT_TRUE(Result.bInvoked);
+	EXPECT_FALSE(View.IsEditing());
+	EXPECT_EQ(Target->Invocations, 1);
+	EXPECT_EQ(Target->Value, 12);
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Target->Value, 7);
+	EXPECT_FALSE(Buffer->CanUndo());
 }
 
 TEST_F(FEditorFunctionTests, RootIdentityDoesNotDependOnParentDescriptorRegistrationOrder)

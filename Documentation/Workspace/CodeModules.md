@@ -44,7 +44,8 @@ direction.
 Within `DurinEd`, `Public/` and `Private/` use matching responsibility folders:
 `Editor/` for engine, host, and subsystem lifecycle; `Workspace/` for documents
 and workspace UI; `Transactions/` for history; `PropertyEditor/` for reflected
-editing; `Notifications/` for notifications; `Asset/` for retention, pickers,
+editing; `Actors/` for the Actor subsystem and structural composition,
+`Components/` for owned Component structural replay; `Notifications/` for notifications; `Asset/` for retention, pickers,
 and drag/drop; `Import/` for import helpers and reimport contracts; and `Async/`
 for compensating operations. `Factories/`, `Preview/`, `Thumbnail/`, and
 `Source/` retain their dedicated responsibilities. Place new files with their
@@ -53,7 +54,7 @@ folder. Module entrypoints and API export headers remain at the root.
 
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
-| `DurinEd` | Shared editor services: Toolset discovery and invocation, generic object factories, reimport handlers, workspaces, reflected property editing, transactions, previews, thumbnails, source references, and editor UI infrastructure | [source](../../Engine/Source/Editor/DurinEd) |
+| `DurinEd` | Shared editor services: Actor/Component editing and structural history, Toolset discovery and invocation, generic object factories, reimport handlers, workspaces, reflected property editing, transactions, previews, thumbnails, source references, and editor UI infrastructure | [source](../../Engine/Source/Editor/DurinEd) |
 | `DurinMCP` | Authenticated local MCP Streamable HTTP policy, Toolset discovery/calls, session-owned Python jobs and cancellation over HTTPServer | [source](../../Engine/Source/Editor/DurinMCP) |
 | `DurinPython` | Optional embedded Python runtime, editor-bound script jobs, Toolset bindings, captured results and cooperative cancellation | [source](../../Engine/Source/Editor/DurinPython) |
 | `AssetTools` | Reusable editor policy and orchestration for package-backed creation, import, duplicate, save/resave, relocation, and redirector fix-up; owns relocation/fix-up workflows and staging, deletion operations, confirmed selection/reference policy, and deletion companion providers over Engine package mechanisms | [source](../../Engine/Source/Editor/AssetTools) |

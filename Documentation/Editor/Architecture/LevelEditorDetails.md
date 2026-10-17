@@ -49,7 +49,7 @@ restored before its owner changes.
 ## Component Structure History
 
 The component tree routes component addition, deletion, duplication, renaming,
-and reparenting through `FComponentMutations` and the application transactor.
+and reparenting through the host's `DEditorActorSubsystem` and application transactor.
 Each operation is one structural record, with package revision tracking and
 preflight rejection before writes. Generated components, read-only targets,
 and actors participating in play are rejected. Deletion and duplication require
@@ -64,6 +64,13 @@ Undo restores membership order, root role, parent/child attachments and relative
 transforms before restoring the previous registration state. Older property
 records therefore continue to resolve the same object. Discarding history lets
 an absent component be collected normally.
+
+Replay revalidates the owner's Level membership and stopped, non-closing World.
+Retention refreshes the complete Outer subtree before removal and after lifecycle
+callbacks, including subobjects added after publication. Callback removal of the
+component or retirement of its owner cannot report a successful edit; incomplete
+compensation requires recovery. Replay suppresses incidental package dirty marks
+so rejected operations do not advance package revisions.
 
 Duplication uses the ordinary object-graph duplication pipeline, including owned
 subobject remapping and `PostLoad` derived-state rebuilding. Copied fields and

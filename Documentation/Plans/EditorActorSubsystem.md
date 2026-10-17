@@ -4,22 +4,76 @@ Summary: Move general Actor and Component editing and structural history into Du
 
 Last reviewed: 2026-10-17
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-17
 
 ## Current Status
 
-Planning only; implementation has not started. Inspected baseline:
-`432fee00632ab7e2895287f6193484f5275f4990`, including structural history change
-`a8f4fe836`. Actor/Component presence, duplication, rename and reparent replay
-already retain exact identities. This plan preserves those semantics while
-moving ownership and establishing a reusable service boundary.
+All stages completed on 2026-10-17. General Actor/Component edits and structural
+history are DurinEd-owned, production callers use the host subsystem, and
+specialized SkyBox/StaticMesh commands compose opaque presence changes. Selection
+and gizmo gestures retain their document/LevelEditor ownership. No additional
+history owner or DurinEd dependency on LevelEditor/UI was introduced.
 
-The user selected DEditorActorSubsystem in DurinEd, migration of general Actor
-operations and transaction implementations, consolidation of Component editing
-infrastructure, and retention of selection in document context. Complete Stage 0
-before production API migration. This document does not authorize starting the
-implementation as part of the planning handoff.
+The selected UE reference remains a responsibility boundary; selection stays
+with the document as explicitly chosen. Stage 0 contracts were resolved before
+production migration. Stages 1-4 were implemented and validated together as
+authorized by the user.
+
+The follow-up review is complete: structural replay and failure recovery now
+cover detached owners, callback interruption and World transition/closing gates.
+Single oversized edits remain undoable under a soft history budget. The final
+review matrix passed 699 whole-target cases plus the isolated selections below;
+obsolete capacity assertions and historical attachment-test naming were cleaned up.
+The subsequent UE 5.3.2 source audit confirmed immediate Undo for oversized
+transactions while documenting the different trimming time, and removed repeated
+admission checks and dead branches without adding states or changing budgets.
+The byte-only capacity cleanup is also complete: no count cap or dynamic-limit
+API remains. Old-history trimming follows the inspected UE byte comparison,
+deferred until successful finalization to preserve failed/canceled history without
+new recovery storage. The final matrix passed 702 cases and isolated transaction
+validation; see the capacity-cleanup evidence below.
+
+### Resolved Stage 0 contracts
+
+- `DEditorActorSubsystem` owns `SpawnActor`, `DestroyActors`, `DuplicateActors`,
+  `RenameActor`, `AttachActors`, `DetachActors`, and Component add/delete/duplicate/
+  rename/reparent. Every call supplies its Level or owning Actor and an explicit
+  `FActorEditContext(Host, bReadOnly)`; non-document native callers must explicitly
+  supply their editability policy too. No active selection is consulted.
+- Results distinguish Changed, NoOp and Failed, carry an admission/domain error,
+  resulting participants, presentation message, and the original transactor result
+  on submission. Same-name rename and same-parent reparent are successful NoOps;
+  empty batches are rejected. Batches validate all inputs before one submission.
+- A private friend native-test seam injects a transactor into an independently
+  constructed service. Production services require their registered host, open
+  work gate, editor World ownership, stopped PIE and an idle host transactor.
+- Export only `MakeActorPresenceChange` for specialized SkyBox/StaticMesh compound
+  changes. It returns opaque change ownership; specialized owners keep prepared
+  actors private and clean up abandoned/rejected preparations. General commands
+  dispose unpublished objects on failure. History retains complete Outer trees.
+- Workspace audit: Engine owns all general consumers listed above. Sandbox and
+  RoadWeaver have no consumers of these helpers or editor structural mechanisms.
+  StaticMesh's temporary/final renames remain specialized compound replay.
+  Runtime World/Level construction, loading and gameplay remain mechanisms.
+  Remaining direct Editor calls are asset preview/thumbnail scenes, new-Level
+  studio-light initialization and the PIE editor camera; these are construction
+  or gameplay setup rather than document structural commands.
+- DurinEd registers the service beside Tools/Notifications; general replay tags
+  become DurinEd. No stored preparation callbacks enter history. Relevant discovered
+  targets are LevelMutationTests, ViewportTests, SkyBoxTests, SplineTests,
+  EditorShellTests and WorldTests, plus the DurinEd and LevelEditor module builds.
+  Test CMake registrations stop compiling migrated private LevelEditor sources.
+- Validation exposed a pre-existing Execute finalization hole: rejected history
+  could leave published changes without history. Candidate accounting now runs
+  before replay, rejected finalization compensates before replacing redo, and
+  incomplete compensation enters RecoveryRequired. This is required by the
+  selected rejected-submission contract. Already-applied property recordings are
+  not automatically compensated. Acceptance includes EditorOperationTests for
+  transaction records and EditorPropertyTests for property-editing regression.
+  The review follow-up replaced hard single-entry byte rejection with a soft
+  history budget: evict oldest undoable entries and retain the newest complete
+  entry even when oversized. Accounting overflow remains a real failure.
 
 ## Goal
 
@@ -156,15 +210,15 @@ identifies an existing structural caller that requires one.
 Outcome: concrete signatures and a complete consumer/validation map.
 Dependencies: none.
 
-- [ ] Audit Actor/Component edits and structural changes across every workspace
+- [x] Audit Actor/Component edits and structural changes across every workspace
   project; distinguish runtime mechanisms, general editing and specialized policy.
-- [ ] Finalize public operations, target/editability context, typed results,
+- [x] Finalize public operations, target/editability context, typed results,
   no-op behavior, supported batch atomicity and internal test injection.
-- [ ] Specify prepared-object ownership and the minimal cross-module composition
+- [x] Specify prepared-object ownership and the minimal cross-module composition
   API needed by SkyBox and StaticMesh; prove one logical history entry per command.
-- [ ] Map subsystem registration, module tags, retirement and test target/build
+- [x] Map subsystem registration, module tags, retirement and test target/build
   dependencies; record exact affected targets from DevTool discovery.
-- [ ] Update this plan with resolved API choices before implementation. Completion
+- [x] Update this plan with resolved API choices before implementation. Completion
   requires no unresolved ownership, read-only admission or composition contract.
 
 ### Stage 1: Establish DurinEd Actor editing ownership
@@ -172,13 +226,13 @@ Dependencies: none.
 Outcome: working host subsystem and DurinEd-owned Actor structural history.
 Dependencies: Stage 0.
 
-- [ ] Register DEditorActorSubsystem using the existing lifecycle contract.
-- [ ] Move general Actor preparation, presence, rename and attachment changes to
+- [x] Register DEditorActorSubsystem using the existing lifecycle contract.
+- [x] Move general Actor preparation, presence, rename and attachment changes to
   DurinEd; implement service admission and submission without LevelEditor includes.
-- [ ] Export the narrow structural composition seam and migrate native test seams.
-- [ ] Verify host separation, unavailable/retiring service rejection, exact identity,
+- [x] Export the narrow structural composition seam and migrate native test seams.
+- [x] Verify host separation, unavailable/retiring service rejection, exact identity,
   GC retention, attach/detach replay, rejected submission and abandoned preparation.
-- [ ] Completion: owning module and relevant test targets compile; focused tests
+- [x] Completion: owning module and relevant test targets compile; focused tests
   pass, with migrated changes tagged to the correct module.
 
 ### Stage 2: Consolidate Component editing infrastructure
@@ -186,14 +240,14 @@ Dependencies: Stage 0.
 Outcome: owned Component editing uses the same admission/history foundation.
 Dependencies: Stage 1.
 
-- [ ] Move Component add/delete/duplicate/rename/reparent implementation to DurinEd
+- [x] Move Component add/delete/duplicate/rename/reparent implementation to DurinEd
   and expose the agreed service methods; share only mechanisms with identical
   semantics, keeping Actor and Component replay constraints explicit.
-- [ ] Preserve creation-method restrictions, root protection, authored ownership,
+- [x] Preserve creation-method restrictions, root protection, authored ownership,
   subtree retention, registration and child attachment restoration.
-- [ ] Verify Component errors and no-ops through the new result contract and
+- [x] Verify Component errors and no-ops through the new result contract and
   reject detached, foreign-owner, generated or otherwise unsupported targets.
-- [ ] Completion: Component structural regression tests pass through the new
+- [x] Completion: Component structural regression tests pass through the new
   boundary, including isolated execution of new lifecycle/failure cases.
 
 ### Stage 3: Unify existing editor callers
@@ -201,16 +255,16 @@ Dependencies: Stage 1.
 Outcome: all existing general editing paths use the new service or composition API.
 Dependencies: Stages 1 and 2.
 
-- [ ] Migrate Outliner, viewport shortcuts and placement, and DetailsComponentTree.
+- [x] Migrate Outliner, viewport shortcuts and placement, and DetailsComponentTree.
   Remove panel-built attachment changes and per-caller general transaction logic.
-- [ ] Migrate SkyBox and StaticMesh composite workflows while preserving their
+- [x] Migrate SkyBox and StaticMesh composite workflows while preserving their
   specialized preparation, atomic replay and single history entry.
-- [ ] Keep document selection/focus/error handling in adapters; verify stale
+- [x] Keep document selection/focus/error handling in adapters; verify stale
   selection reconciliation and consistency between Outliner and viewport actions.
-- [ ] Remove obsolete ActorMutations/ComponentMutations interfaces, private-header
+- [x] Remove obsolete ActorMutations/ComponentMutations interfaces, private-header
   test dependencies and build registrations; search every workspace project for
   legacy includes/symbols and accidental bypasses.
-- [ ] Completion: consumer targets compile and relevant placement, structural,
+- [x] Completion: consumer targets compile and relevant placement, structural,
   Details and viewport contract tests pass without a private LevelEditor API bridge.
 
 ### Stage 4: Validate integration and document final contracts
@@ -218,15 +272,15 @@ Dependencies: Stages 1 and 2.
 Outcome: final service ownership and preserved behavior are evidenced.
 Dependencies: Stage 3.
 
-- [ ] Run the bounded final validation matrix below and record tested revision,
+- [x] Run the bounded final validation matrix below and record tested revision,
   selections, preset/environment, outcomes and any remaining gates here.
-- [ ] Update EditorSubsystems, TransactionRecords, LevelEditorDetails,
+- [x] Update EditorSubsystems, TransactionRecords, LevelEditorDetails,
   ViewportEditing and StaticMeshLevelMutations contracts, plus CodeModules/routing
   only where ownership or task triggers changed. Reconcile the Toolset plan's
   scene-operation ownership so it does not introduce a competing mutation path.
-- [ ] Confirm no DurinEd dependency on LevelEditor/UI, no duplicate public command
+- [x] Confirm no DurinEd dependency on LevelEditor/UI, no duplicate public command
   implementation, no selection ownership transfer and no second history.
-- [ ] Complete only after all required gates pass; follow plan lifecycle rules
+- [x] Complete only after all required gates pass; follow plan lifecycle rules
   for completion and later archive.
 
 ## Validation and Acceptance
@@ -234,7 +288,7 @@ Dependencies: Stage 3.
 Follow [Build and Run](../Agents/BuildAndRun.md) and
 [Testing](../Agents/Testing.md), using DevTool's host-selected profile and registry
 discovery rather than guessed target names. Inspect affected coverage before
-execution. This planning change requires document validation and diff review only.
+execution. Implementation requires the bounded runtime and consumer validation below.
 
 Implementation coverage must include:
 
@@ -257,8 +311,225 @@ be bounded, and record the uncovered risk before expansion. Native tests do not
 substitute for a consumer build where that consumer is outside test dependencies.
 Reuse applicable passing results when relevant inputs remain unchanged.
 
-Record concise evidence here; generated reports/logs belong under ignored Build/.
-Validate changed documents and run the all-plan validator for plan lifecycle edits.
+### Initial implementation validation (25c35507a)
+
+Validated on Windows/MSVC using the host-selected
+`Win64-Debug-DurinEditor` preset, build jobs 14. Tested source/test inputs are the
+implementation in `25c35507a`, based on `71a855e090395bf1065524f4cdedc61cdbcf341a`.
+Subsequent edits only record documentation completion. Native execution is direct
+and requires no open editor widget. A sandbox-only C1902 was resolved by using
+the documented unsandboxed build path.
+
+| Selection | Outcome |
+| --- | --- |
+| `build LevelEditor` (including DurinEd/DHT dependencies) | Passed |
+| `LevelMutationTests` | 42 passed |
+| `EditorOperationTests` | 85 passed |
+| `EditorPropertyTests` | 67 passed |
+| `WorldTests` | 171 passed |
+| `ViewportTests` | 100 passed |
+| `SkyBoxTests` | 13 passed |
+| `SplineTests` | 48 passed |
+| `EditorShellTests` | 59 passed |
+| `MaterialGraphEditingTests` (shared record API consumer) | 104 passed |
+| `LevelMutationTests FActorMutationTests.* --isolate --test-jobs 1` | 15 passed independently |
+| `LevelMutationTests WorldOutlinerActorAttachmentTests.* --isolate --test-jobs 1` | 3 passed independently |
+| `WorldTests FWorldSubsystemTests.Actor* --isolate --test-jobs 1` | 2 passed independently |
+| `EditorOperationTests FTransBufferTests.* --isolate --test-jobs 1` | 27 passed independently |
+| Changed-document validation, all-plan validation, Git diff review | Passed |
+
+The nine whole-target selections total 689 passing cases. Property and material
+results are reused: the transactor/record implementation, their sources, fixtures,
+shader environment and toolchain did not change during the final Actor-only
+preparation corrections. Other affected targets were rerun against those changes.
+Reports are under `Build/NativeTestResults/Win64-Debug-DurinEditor/`; full build,
+test and isolation receipts are under `Build/.agent-state/logs/` on 2026-10-17
+(14:37-14:46 local time). The final Actor isolation receipt is
+`20261017-144624-727906-28208-ctest.log`; transaction isolation is
+`20261017-144453-727264-39132-ctest.log`.
+
+Coverage includes retained identity/GC, attachment transforms and conflicts,
+component lifecycle and generated/root restrictions, multi-host/read-only/PIE
+admission, unavailable/recovering history, callback retirement and reentrancy,
+rejected submission and compensation recovery, module drain ownership, private
+preparation boundary links, compound workflows and adapter selection reconciliation.
+Workspace searches found no Sandbox/RoadWeaver consumers or legacy private
+mutation interfaces. The shared `FTransactionRecord::Apply` consumers are DurinEd,
+its native tests and MaterialGraphEditingTests, all covered above. No broad
+foundational-header or build-graph change requires an all-build. No manual UI or
+GPU qualification was required or run; no required gates remain open.
+
+### Review follow-up (2026-10-17)
+
+The user requested a second review of UE alignment, failed-transaction rollback,
+lifecycle boundaries and obsolete tests, then explicitly removed hard rejection
+of a single oversized edit. The public UE subsystem reference still defines
+responsibilities; document selection and the one-oversized-entry history policy
+remain explicit Durin decisions.
+
+The review fixed these issues:
+
+- Component replay now rejects a detached owner and all structural replay rejects
+  subsystem BeginPlay and a requested World shutdown before deferred teardown.
+  Wrong-thread component calls reject before dereferencing the owner.
+- Actor/component lifecycle callbacks that retire participants or close the World
+  cannot report success. Incomplete effects enter recovery instead. Structural
+  replay suppresses incidental package dirty marks; successful history transitions
+  remain the authority for package revisions.
+- Component history refreshes the complete Outer subtree before removal and after
+  callbacks, retaining subobjects created after initial publication. Actor history
+  also refreshes retention after replay.
+- Custom replay exceptions, incomplete initial compensation and asynchronous
+  finalization compensation retain the pending participant graph in recovery.
+  A module cannot drain executable changes still owned by that pending entry.
+- The byte limit now trims oldest undoable entries while preserving the latest
+  complete edit, even when that entry alone exceeds the budget. Invalid size
+  accounting still rejects safely, compensates synchronously and preserves redo.
+
+Cleanup removed the obsolete byte-limit failure code and exact hard-limit test,
+renamed attachment tests to `FEditorActorAttachmentTests`, and migrated property
+and function tests to successful oversized edits. Material graph rollback/retry
+tests now use a busy transactor to exercise actual submission rejection instead
+of relying on the removed capacity policy. Historical initial-run counts above
+were corrected from 789 to 689.
+
+Validated the follow-up source/test changes based on `25c35507a` with Windows/MSVC,
+`Win64-Debug-DurinEditor`, build jobs 14. `build LevelEditor` passed. Every whole
+target below was rerun with `--report` against the final relevant inputs.
+
+| Target | Passed |
+| --- | --- |
+| LevelMutationTests | 48 |
+| EditorOperationTests | 87 |
+| EditorPropertyTests | 67 |
+| WorldTests | 173 |
+| ViewportTests | 100 |
+| SkyBoxTests | 13 |
+| SplineTests | 48 |
+| EditorShellTests | 59 |
+| MaterialGraphEditingTests | 104 |
+
+The nine reports total **699 passing cases**, computed from their XML counts.
+Reports are under `Build/NativeTestResults/Win64-Debug-DurinEditor/`. Final whole
+target receipts are under `Build/.agent-state/logs/` on 2026-10-17, 15:08-15:10
+local time; the LevelEditor build receipt is
+`20261017-150808-578320-43284-cmake.log` and final material consumer receipt is
+`20261017-150949-524994-31656-MaterialGraphEditingTests.log`.
+
+Serial isolated selections also passed, each case in its own process:
+
+| Selection | Passed |
+| --- | --- |
+| LevelMutationTests `FActorMutationTests.*` | 18 |
+| LevelMutationTests `FComponentMutationTests.*` | 19 |
+| LevelMutationTests `FEditorActorAttachmentTests.*` | 3 |
+| EditorOperationTests `FTransBufferTests.*` | 29 |
+| WorldTests `FWorldSubsystemTests.Actor*` | 4 |
+| EditorPropertyTests `FEditorFunctionTests.Oversized*` | 2 |
+| MaterialGraphEditingTests `FMaterialGraphOperationsTests.*HistoryFailure*` | 3 |
+
+The isolated counts total 78; these overlap the whole-target cases. Reports use
+`review-*-isolated.xml` beside the whole-target XML. Receipts are under the same
+log root at 15:10-15:11, ending with
+`20261017-151100-770348-29184-ctest.log`. Changed-document and all-plan validation
+and Git diff review passed. No required gates remain open.
+
+The new World queries are inline reads without layout changes. Searches across
+Engine, Sandbox and RoadWeaver found no additional consumers of the removed
+transactor failure code. The bounded Engine/DurinEd/LevelEditor and material
+consumer matrix covers the changed executable contracts; no all-build or manual
+UI/GPU qualification was required.
+
+### UE source audit and redundancy cleanup (2026-10-17)
+
+Checked Epic's UE 5.3.2 source at mirror revision
+`c865e168d0935b8e5f4bd865ddcc1c733c8ce7cf`. `BeginInternal` trims existing history
+before appending a new transaction; `End` does not reject or remove that transaction
+for exceeding MaxMemory. Thus immediate Undo for oversized edits agrees with
+Durin, while trimming time differs. The owning
+[transactor contract](../Editor/Architecture/Transactors.md#bounds-and-accounting)
+records pinned source references and the version boundary. No later UE version
+is claimed verified.
+
+Removed nine repeated read-only/transactor/owner admission sequences already
+covered by `Admit`, two forwarding validation helpers, repeated owner predicates
+already covered by the replay helper, and two unreachable transaction branches.
+Preparation callback revalidation, replay validation and recovery remain necessary.
+The one-entry trimming condition introduces no new state. Durin's count cap and
+dynamic limit-change behavior are additional policies; searches found no
+production `SetLimits` callers, only native tests.
+
+Validated source changes based on `f498fd7a1` with Windows/MSVC,
+`Win64-Debug-DurinEditor`, build jobs 14: `build LevelEditor`,
+`LevelMutationTests --report` (48) and `EditorOperationTests --report` (87) passed.
+The 135 cases cover the owning Actor/Component service and transaction buffer;
+no shared API, fixture or budget behavior changed. Other consumers retain the
+earlier full-matrix evidence. Receipts end in
+`20261017-151501-900308-33784-cmake.log`,
+`20261017-151510-436379-40304-LevelMutationTests.log` and
+`20261017-151512-774235-22696-EditorOperationTests.log` under the existing log root.
+Changed-document validation and diff review passed.
+
+### Byte-only capacity cleanup (2026-10-17)
+
+The user selected removal of the entry-count cap and unused dynamic-limit API.
+Capacity will use only the fixed 64 MiB native-byte budget. Before a successful
+new transaction is appended, trim old history from the front while its size is
+at least the budget; do not include the incoming transaction in that decision.
+As in the inspected UE source, replacing a redo branch skips byte trimming.
+Unlike UE's Begin-time removal and Cancel-time restoration, defer destructive
+history changes until successful finalization. This preserves cancellation,
+no-op and failed-submission history without adding rollback storage or states.
+Remove SetLimits, its diagnostics and the explicit one-entry retention rule.
+Tests may select an initial byte budget through private test access only.
+
+Removed the limits structure, SetLimits/GetLimits, three dynamic-limit rejection
+reasons, limit snapshots in rejection results and the now-unused inconsistent-
+accounting failure. The remaining production configuration is a single byte
+budget with a read-only getter. Native tests select their initial budget through
+existing private friend access, guarded against setup after transactions begin.
+Eviction now calculates the removable prefix and erases it once, without
+repeated whole-history accounting or an explicit minimum record count.
+
+Tests cover 300 retained entries under budget, exact-budget eviction, oversized
+recording and custom edits, canceled/no-op/failed submissions, redo replacement,
+and collection of evicted participants. Obsolete dynamic-limit assertions were
+removed; property/function/Actor budget tests use initial test configuration.
+
+The affected-test resolver conservatively expands the common native-test helper
+change to all Engine targets. Explicit source searches bound executable consumers
+of the changed transaction header to DurinEd, LevelEditor and MaterialEditor;
+Sandbox and RoadWeaver have no consumers. Use the nine existing owning/consumer
+targets plus the LevelEditor build and isolated transaction cases, rather than
+unrelated runtime, GPU or infrastructure suites. No foundational headers or
+build-graph contracts changed.
+
+Validated the changes based on `2da784f61` with Windows/MSVC,
+`Win64-Debug-DurinEditor`, build jobs 14. `build LevelEditor` passed. The nine
+whole-target selections were rerun with `--report` against final source inputs:
+
+| Target | Passed |
+| --- | --- |
+| EditorOperationTests | 90 |
+| EditorPropertyTests | 67 |
+| LevelMutationTests | 48 |
+| WorldTests | 173 |
+| ViewportTests | 100 |
+| SkyBoxTests | 13 |
+| SplineTests | 48 |
+| EditorShellTests | 59 |
+| MaterialGraphEditingTests | 104 |
+
+XML reports total **702 passing cases**. Serial isolation of
+`EditorOperationTests FTransBufferTests.* --isolate --test-jobs 1` also passed
+32 cases, including every new budget case. Reports are under the existing
+`Build/NativeTestResults/Win64-Debug-DurinEditor/` root; isolation uses
+`byte-budget-transactor-isolated.xml`. Receipts under `Build/.agent-state/logs/`
+on 2026-10-17, 15:20-15:24 local time include
+`20261017-152040-984353-2108-cmake.log`,
+`20261017-152335-149375-13848-MaterialGraphEditingTests.log` and
+`20261017-152357-759097-44668-ctest.log`. Changed-document and all-plan validation,
+source/consumer searches and Git diff review passed. No required gates remain open.
 
 ## Required References
 

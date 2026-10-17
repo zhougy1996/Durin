@@ -1,3 +1,13 @@
+#include "Editor/EditorActorSubsystemTestSupport.h"
+#include "Workspace/LevelEditorContext.h"
+
+namespace Durin::Editor::Level
+{
+	struct FLevelEditorActorTestAccess
+	{
+		static auto Inject(FLevelEditorContext& Context, DEditorActorSubsystem* Service) -> void { Context.TestActorEditor = Service; }
+	};
+}
 #include "ViewportTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Components/SplineMeshComponent.h"
@@ -175,6 +185,8 @@ TEST(FViewportPickingContractTests, SelectModeDuplicateAndDeleteUseStructuralHis
 	Durin::Tests::FTestTransactorOwner Transactions;
 	Durin::Editor::Level::FLevelEditorContext Context;
 	Context.Synchronize(Fixture.World);
+	Durin::Tests::FTestActorEditor Editor(Transactions.Get());
+	Durin::Editor::Level::FLevelEditorActorTestAccess::Inject(Context, Editor.operator->());
 	Context.SelectActor(Fixture.Actor);
 	Durin::Editor::Level::FLevelViewportEditModeManager Manager;
 	Durin::Editor::Level::FLevelEditorViewportInput Input;

@@ -39,6 +39,11 @@ Actor attachment replay distinguishes empty selection, unavailable participants,
 parent mismatch, invalid parents, cycles and write rejection. Validation errors
 retain participant index/count and expected/actual parent paths where available;
 validation finishes before writes and existing compensation ordering is preserved.
+General Actor presence, rename, attachment and Component structural records are
+implemented and module-tagged in DurinEd. Specialized SkyBox/StaticMesh compound
+records retain LevelEditor tags and compose opaque DurinEd presence changes.
+Incomplete internal compensation propagates through record application to the
+transactor recovery disposition instead of becoming a retryable failure message.
 Sky box creation and texture replay distinguish unavailable resources/targets,
 actor membership, name collision and spawn/destroy rejection. Creation failures
 retain the level path and requested actor name; collision rejection leaves the
@@ -154,6 +159,11 @@ explicit structural records; a persistent reference never resurrects a garbage
 object. [Component structure history](LevelEditorDetails.md#component-structure-history)
 retains the component and its complete Outer subtree while membership is absent,
 then restores the same live identity through lifecycle and attachment APIs.
+
+Record application defers garbage collection across callbacks. A custom replay
+exception becomes an owned failure with recovery required because its side
+effects are unknown. Failed Execute entries remain collector-visible in pending
+recovery storage, preserving their participant graphs and module references.
 
 ## Related Documentation
 

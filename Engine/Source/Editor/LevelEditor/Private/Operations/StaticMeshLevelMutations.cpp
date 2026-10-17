@@ -1,5 +1,5 @@
 #include "StaticMeshLevelMutations.h"
-#include "Operations/ActorMutations.h"
+#include "Actors/EditorActorSubsystem.h"
 
 #include "Actors/StaticMeshActor.h"
 #include "Components/StaticMeshComponent.h"
@@ -314,7 +314,7 @@ namespace Durin::Editor::Level
 				if (Source && !Destination)
 				{
 					AActor* Actor = Sources[Index];
-					if (!Presence[Index]) Presence[Index] = FActorMutations::MakePresenceChange(Level, {&Actor, 1}, true, "Remove static mesh actor");
+					if (!Presence[Index]) Presence[Index] = MakeActorPresenceChange(Level, {&Actor, 1}, true, "Remove static mesh actor");
 					if (const auto Result = Presence[Index]->Replay(bAfter ? ::Durin::Editor::ETransactionOperation::Redo : ::Durin::Editor::ETransactionOperation::Undo); !Result)
 						return FailAfterMutation(Result.Error);
 					Removed.push_back(Index);
@@ -348,7 +348,7 @@ namespace Durin::Editor::Level
 						Actor->SetActorHiddenInGame(Destination->bHidden);
 						Identities[Index] = Actor;
 						AActor* BaseActor = Actor;
-						Presence[Index] = FActorMutations::MakePresenceChange(Level, {&BaseActor, 1}, false, "Create static mesh actor");
+						Presence[Index] = MakeActorPresenceChange(Level, {&BaseActor, 1}, false, "Create static mesh actor");
 						Actor->SetTransient(true);
 					}
 					if (const auto Result = Presence[Index]->Replay(bAfter ? ::Durin::Editor::ETransactionOperation::Redo : ::Durin::Editor::ETransactionOperation::Undo); !Result)

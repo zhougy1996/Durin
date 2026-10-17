@@ -154,6 +154,9 @@ namespace Durin
 		ENGINE_API auto SetRenderScene(FSceneInterface* InRenderScene) -> void;
 		auto HasBegunPlay() const -> bool { return !bBeginningSubsystemPlay && (PlayState == EWorldPlayState::BeginningPlay || PlayState == EWorldPlayState::Playing); }
 		auto IsEndingPlay() const -> bool { return PlayState == EWorldPlayState::EndingPlay; }
+		// Includes subsystem BeginPlay, before HasBegunPlay becomes true for Actors.
+		auto GetPlayState() const -> EWorldPlayState { return PlayState; }
+		auto IsShutdownRequested() const -> bool { return bShutdownRequested; }
 		auto IsPaused() const -> bool { return bPaused; }
 		// Finite nonnegative gameplay multiplier, captured once at Tick entry; zero is not pause.
 		ENGINE_API auto SetTimeScale(float InTimeScale) -> bool;

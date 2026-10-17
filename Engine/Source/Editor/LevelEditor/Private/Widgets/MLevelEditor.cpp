@@ -100,6 +100,7 @@ namespace Durin::Editor::Level
 	auto MLevelEditor::InitializeContext() -> void
 	{
 		Context = std::make_unique<FLevelEditorContext>();
+		Context->EditorHost = GEditor;
 		Context->ReportError = [this](std::string Message) { SetError(std::move(Message)); };
 		Context->RenameLevel = [this](std::string_view NewName) {
 			return DocumentController && DocumentController->RenameCurrentLevel(NewName);

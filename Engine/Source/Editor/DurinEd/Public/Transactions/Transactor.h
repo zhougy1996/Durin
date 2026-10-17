@@ -24,16 +24,6 @@ namespace Durin::Editor
 		FPersistentObjectRef PrimaryObject;
 	};
 
-	// Bounds retained native allocations; managed graphs reached through records are excluded.
-	struct FTransactionBufferLimits
-	{
-		size_t MaximumEntries = 256;
-		size_t MaximumOwnedBytes = 64u * 1024u * 1024u;
-
-		friend auto operator==(const FTransactionBufferLimits&, const FTransactionBufferLimits&)
-			-> bool = default;
-	};
-
 	// Identifies the current non-reentrant operation performed by a transactor.
 	enum class ETransactorState : uint8
 	{
@@ -88,7 +78,7 @@ namespace Durin::Editor
 		BeginState, RecordScope, RecordOrder, ExecuteState, MissingCustom,
 		UpdateScope, UpdateOrder, MissingRecord, CloseScope, CloseOrder, UndoState,
 		UndoHead, RedoState, RedoHead, ResetState, CompletionIdentity,
-		ModuleName, ModulePending, ModuleRecording, LimitsState, ZeroLimits, RedoLimits
+		ModuleName, ModulePending, ModuleRecording
 	};
 	struct FTransactorRejection
 	{
@@ -101,8 +91,6 @@ namespace Durin::Editor
 		FTransactionId RedoHead = 0;
 		size_t HistoryCount = 0;
 		size_t OwnedBytes = 0;
-		FTransactionBufferLimits Limits;
-		std::optional<FTransactionBufferLimits> RequestedLimits;
 		std::string ModuleName;
 	};
 	DURINED_API auto FormatTransactorRejection(const FTransactorRejection& Rejection) -> std::string;
@@ -111,8 +99,8 @@ namespace Durin::Editor
 	{
 		Unsupported, InactiveModify, InvalidObject, InactiveRecord, InactiveUpdate,
 		CaptureBefore, PrepareRecord, ExpiredObject, CaptureAfter, FinalizeRecord,
-		EntryAccounting, RetainedAccounting, ByteLimit,
-		ModuleAccounting, InconsistentAccounting, MissingTransactor, ActiveScope
+		EntryAccounting, RetainedAccounting,
+		ModuleAccounting, MissingTransactor, ActiveScope
 	};
 	struct FTransactorFailure
 	{
@@ -172,7 +160,7 @@ namespace Durin::Editor
 		auto IsNoOp() const -> bool;
 		DURINED_API auto Apply(
 			bool bBefore,
-			EPropertyChangeOrigin Origin) -> FTransactionRecordResult;
+			EPropertyChangeOrigin Origin, bool* OutRecoveryRequired = nullptr) -> FTransactionRecordResult;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
 		DURINED_API auto IsDeferredOperationPending() const -> bool;
@@ -357,8 +345,6 @@ namespace Durin
 			Editor::ETransactionOperation Operation) const -> std::string override;
 		DURINED_API auto DiscardCustomChangesByModule(std::string_view ModuleName)
 			-> Editor::FTransactorResult override;
-		DURINED_API auto SetLimits(Editor::FTransactionBufferLimits Limits)
-			-> Editor::FTransactorResult;
 		DURINED_API auto CanUndo() const -> bool override;
 		DURINED_API auto CanRedo() const -> bool override;
 		DURINED_API auto HasPendingOperation() const -> bool override;
@@ -378,7 +364,7 @@ namespace Durin
 
 		auto GetState() const -> Editor::ETransactorState { return State; }
 		auto CanBeginStandaloneTransaction() const -> bool override { return State == Editor::ETransactorState::Idle; }
-		auto GetLimits() const -> Editor::FTransactionBufferLimits { return Limits; }
+		auto GetMemoryBudget() const -> size_t { return MemoryBudget; }
 		auto GetHistoryCount() const -> size_t { return History.size(); }
 		auto GetUndoCount() const -> size_t { return Cursor; }
 		auto GetRedoCount() const -> size_t { return History.size() - Cursor; }
@@ -408,11 +394,10 @@ namespace Durin
 		auto HandleApplyFailure(const Editor::FTransaction& Transaction, Editor::FTransactionApplyError Error) -> Editor::FTransactorResult;
 		auto CheckThread() const -> void;
 		auto Reject(Editor::ETransactorRejectionReason Reason, uint64 RequestedId = 0,
-			std::string_view ModuleName = {},
-			std::optional<Editor::FTransactionBufferLimits> RequestedLimits = {}) const -> Editor::FTransactorResult;
+			std::string_view ModuleName = {}) const -> Editor::FTransactorResult;
 		auto CloseScope(Editor::FTransactionScopeId ScopeId, bool bCancel)
 			-> Editor::FTransactorResult;
-		auto FinalizePending() -> Editor::FTransactorResult;
+		auto FinalizePending(bool bRevertOnFailure = false) -> Editor::FTransactorResult;
 		auto CompleteDeferredOperation(
 			Editor::ETransactionOperation Operation,
 			Editor::FTransactionId TransactionId,
@@ -422,7 +407,7 @@ namespace Durin
 		auto FindTransaction(Editor::FTransactionId TransactionId) const
 			-> const Editor::FTransaction*;
 		auto RecalculateOwnedBytes() -> bool;
-		auto EnforceLimits() -> void;
+		auto TrimHistoryToBudget() -> void;
 		auto QueueEvent(Editor::ETransactionEventType Type,
 			const Editor::FTransaction& Transaction,
 			std::string Details = {}) -> void;
@@ -435,7 +420,7 @@ namespace Durin
 		auto EnsurePackageState(DPackage& Package) -> FTrackedPackageState&;
 		auto SynchronizeDirtyState(FTrackedPackageState& State) -> void;
 
-		Editor::FTransactionBufferLimits Limits;
+		size_t MemoryBudget = 64u * 1024u * 1024u;
 		Editor::ETransactorState State = Editor::ETransactorState::Idle;
 		Editor::FTransactionId NextTransactionId = 1;
 		Editor::FTransactionScopeId NextScopeId = 1;

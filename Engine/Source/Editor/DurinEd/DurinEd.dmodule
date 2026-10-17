@@ -16,6 +16,7 @@
         "MonaImGui"
     ],
 	"ReflectHeaders": [
+        "Public/Actors/EditorActorSubsystem.h",
         "Public/Tools/EditorToolSubsystem.h",
         "Public/Editor/EditorSubsystem.h",
         "Public/Notifications/EditorNotificationSubsystem.h",

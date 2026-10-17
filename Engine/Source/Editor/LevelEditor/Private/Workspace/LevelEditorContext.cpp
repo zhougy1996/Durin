@@ -4,9 +4,15 @@
 #include "Engine/Level.h"
 #include "Components/ActorComponent.h"
 #include "Engine/Actor.h"
+#include "Editor/EditorEngine.h"
+#include "Actors/EditorActorSubsystem.h"
 
 namespace Durin::Editor::Level
 {
+	auto FLevelEditorContext::GetActorEditor() const -> DEditorActorSubsystem*
+	{
+		return TestActorEditor ? TestActorEditor : (EditorHost ? EditorHost->GetEditorSubsystem<DEditorActorSubsystem>() : nullptr);
+	}
 	auto FLevelEditorContext::Synchronize(DWorld* CurrentWorld) -> void
 	{
 		DLevel* CurrentLevel = CurrentWorld ? CurrentWorld->GetCurrentLevel() : nullptr;

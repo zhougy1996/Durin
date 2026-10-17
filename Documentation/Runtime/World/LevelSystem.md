@@ -104,6 +104,11 @@ operations. Private implementations compose the steps of transition and
 shutdown without reopening public admission. Play state describes gameplay;
 the operation phase describes the active execution stack.
 
+`GetPlayState()` exposes the full play phase, including subsystem BeginPlay while
+`HasBegunPlay()` is still false. `IsShutdownRequested()` exposes the closing
+intent before deferred teardown. Editor structural commands and history replay
+use both queries to reject work throughout those lifecycle boundaries.
+
 EndPlay and shutdown called during an operation record intent. Shutdown also
 closes subsystem work gates immediately. Forward dispatch stops at the next
 callback boundary, while reverse cleanup remains paired. The operation exits

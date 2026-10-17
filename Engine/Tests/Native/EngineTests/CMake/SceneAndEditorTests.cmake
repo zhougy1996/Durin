@@ -18,7 +18,6 @@ durin_add_native_test(SplineTests
 		${_durin_level_editor_private}/Viewport/LevelEditorViewportClient.cpp
 		${_durin_level_editor_private}/Viewport/ViewportPickingService.cpp
 		${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
-		${_durin_level_editor_private}/Operations/ActorMutations.cpp
 		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
 	LIBRARIES
@@ -67,7 +66,6 @@ durin_add_native_test(SkyBoxTests
 		Private/SkyBox/SkyBoxEditorTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Operations/SkyBoxPlacement.cpp
-		${_durin_level_editor_private}/Operations/ActorMutations.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES Core CoreDObject Engine AssetTools MeshBuilder AssetForgeBuiltins RenderCore Renderer DurinEd
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data

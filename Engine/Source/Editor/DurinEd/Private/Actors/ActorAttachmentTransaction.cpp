@@ -1,9 +1,12 @@
-#include "Panels/ActorAttachmentTransaction.h"
+#include "Actors/ActorAttachmentTransaction.h"
+#include "Actors/ActorEditingValidation.h"
 
 #include "Engine/Actor.h"
+#include "Engine/Level.h"
+#include "Engine/World.h"
 #include "DObject/ObjectLifecycle.h"
 
-namespace Durin::Editor::Level
+namespace Durin::Editor
 {
 	namespace
 	{
@@ -12,13 +15,16 @@ namespace Durin::Editor::Level
 			AActor* Actor = Entry.Actor.Get();
 			AActor* ExpectedParent = bAfter ? Entry.BeforeParent.Get() : Entry.AfterParent.Get();
 			AActor* DesiredParent = bAfter ? Entry.AfterParent.Get() : Entry.BeforeParent.Get();
-			if (!Actor || !Actor->GetRootComponent()) return {{.Code = ETransactionCustomError::TargetUnavailable}};
+			auto* Level = IsValid(Actor) ? Cast<DLevel>(Actor->GetOuter()) : nullptr;
+			if (!CanEditActorOwner(Actor) || !Actor->GetRootComponent())
+				return {{.Code = ETransactionCustomError::TargetUnavailable}};
 			if (Actor->GetAttachParentActor() != ExpectedParent)
 				return {{.Code = ETransactionCustomError::ParentMismatch, .TargetPath = Actor->GetObjectPath(),
 					.ExpectedParentPath = ExpectedParent ? ExpectedParent->GetObjectPath() : std::string{},
 					.ActualParentPath = Actor->GetAttachParentActor() ? Actor->GetAttachParentActor()->GetObjectPath() : std::string{}}};
 			if (!DesiredParent) return {};
-			if (DesiredParent == Actor || !DesiredParent->GetRootComponent()
+			if (!IsValid(DesiredParent) || !Level->ContainsActor(DesiredParent) || DesiredParent->IsBeingDestroyed()
+				|| DesiredParent->HasBegunPlay() || DesiredParent == Actor || !DesiredParent->GetRootComponent()
 				|| DesiredParent->GetOuter() != Actor->GetOuter())
 				return {{.Code = ETransactionCustomError::ParentInvalid, .TargetPath = Actor->GetObjectPath(),
 					.ExpectedParentPath = DesiredParent->GetObjectPath()}};
@@ -103,6 +109,7 @@ namespace Durin::Editor::Level
 
 	auto FActorAttachmentTransaction::Apply(bool bAfter) -> FTransactionCustomResult
 	{
+		FScopedPackageDirtySuppression SuppressReplay;
 		if (Entries.empty()) return {{.Code = ETransactionCustomError::EmptySelection}};
 		for (size_t Index = 0; Index < Entries.size(); ++Index)
 			if (auto Validated = CanApplyEntry(Entries[Index], bAfter); !Validated)
@@ -124,6 +131,10 @@ namespace Durin::Editor::Level
 				continue;
 			}
 
+			// The rejecting write may already have changed parentage before transform
+			// restoration failed. Compensate it as well as successful earlier entries.
+			bool bRestored = SetParentAndTransform(*Actor, (bAfter ? Entry.BeforeParent : Entry.AfterParent).Get(),
+				bAfter ? Entry.BeforeTransform : Entry.AfterTransform);
 			while (AppliedCount > 0)
 			{
 				const FEntry& Applied = Entries[--AppliedCount];
@@ -131,12 +142,14 @@ namespace Durin::Editor::Level
 				{
 					AActor* PreviousParent = bAfter ? Applied.BeforeParent.Get() : Applied.AfterParent.Get();
 					const FTransform& PreviousTransform = bAfter ? Applied.BeforeTransform : Applied.AfterTransform;
-					SetParentAndTransform(*AppliedActor, PreviousParent, PreviousTransform);
+					bRestored = SetParentAndTransform(*AppliedActor, PreviousParent, PreviousTransform) && bRestored;
 				}
+				else bRestored = false;
 			}
 			return {{.Code = ETransactionCustomError::AttachmentWrite, .TargetPath = Actor->GetObjectPath(),
 				.ExpectedParentPath = Parent ? Parent->GetObjectPath() : std::string{}, .NodeCount = Entries.size(),
-				.MemberIndex = static_cast<size_t>(&Entry - Entries.data())}};
+				.MemberIndex = static_cast<size_t>(&Entry - Entries.data()),
+				.CleanupCause = bRestored ? nullptr : std::make_shared<FTransactionCustomError>(FTransactionCustomError{.Code = ETransactionCustomError::RollbackIncomplete})}};
 		}
 		return {};
 	}
