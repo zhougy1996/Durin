@@ -461,19 +461,26 @@ namespace Durin::Tests
 		EXPECT_TRUE(Observations.bDestroyed);
 	}
 
-	TEST(FModuleManagerLifecycleTests, LiveCodeLeaseRejectsUnloadBeforeShutdown)
+	TEST(FModuleManagerLifecycleTests, UnsafeModulePostponesShutdownWithoutMutation)
 	{
-		FManagedModuleObservations Observations;
-		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(
-			"ManagedModuleLease", std::make_unique<FManagedTestModule>(Observations)));
+		class FSafePointModule final : public IModuleInterface
+		{
+		public:
+			auto SupportsDynamicReloading() const -> bool override { return true; }
+			auto CanShutdownModule() const -> bool override { return Safe; }
+			auto ShutdownModule() -> void override { ++ShutdownCount; }
+			bool Safe = false;
+			int ShutdownCount = 0;
+		};
 		auto& Manager = FModuleManager::Get();
-		auto Lease = Manager.AcquireCodeLease("ManagedModuleLease");
-		ASSERT_NE(nullptr, Lease);
-		EXPECT_FALSE(Manager.UnloadModule("ManagedModuleLease"));
-		EXPECT_FALSE(Observations.bShutdown);
-		EXPECT_TRUE(Manager.IsModuleLoaded("ManagedModuleLease"));
-		Lease.reset();
-		EXPECT_TRUE(Manager.UnloadModule("ManagedModuleLease"));
+		auto* Module = static_cast<FSafePointModule*>(FModuleTestHarness::InstallStartedModule("ManagedModuleSafePoint", std::make_unique<FSafePointModule>()));
+		ASSERT_NE(nullptr, Module);
+		EXPECT_FALSE(Manager.UnloadModule("ManagedModuleSafePoint"));
+		EXPECT_EQ(0, Module->ShutdownCount); EXPECT_TRUE(Manager.IsModuleLoaded("ManagedModuleSafePoint"));
+		Module->Safe = true;
+		Manager.ShutdownModule("ManagedModuleSafePoint"); EXPECT_EQ(1, Module->ShutdownCount);
+		Module->Safe = false; // A stopped module never re-runs its safe-point check or shutdown hook.
+		EXPECT_TRUE(Manager.UnloadModule("ManagedModuleSafePoint"));
 	}
 
 	TEST(FModuleManagerLifecycleTests, WrongThreadUnloadDoesNotChangeState)

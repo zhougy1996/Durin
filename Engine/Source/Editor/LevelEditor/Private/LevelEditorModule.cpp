@@ -130,11 +130,18 @@ namespace Durin
 		Integration->PIERegistration = FModularFeatureRegistry::Get().RegisterFeature(*Integration->PIE);
 	}
 
+	LEVELEDITOR_API auto FLevelEditorModule::CanShutdownModule() const -> bool
+	{
+		return FEditorSubsystemCollection::CanSynchronizeAll();
+	}
+
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
 	{
+		require(CanShutdownModule());
 		Integration->PIERegistration.Reset();
 		Integration->PIE.reset();
 		Integration->Levels.reset();
+		FEditorSubsystemCollection::SynchronizeAll();
 		UnregisterLevelEditorWorkspace();
 		if (GEditor)
 			checkf(GEditor->GetTransactor()

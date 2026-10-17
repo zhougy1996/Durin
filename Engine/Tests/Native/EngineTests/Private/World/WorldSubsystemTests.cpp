@@ -218,26 +218,36 @@ TEST_F(FWorldSubsystemTests, CollisionStateIsIsolatedAndClearedAcrossDetachShutd
 	Editor->Shutdown(); EXPECT_FALSE(Editor->IsCollisionDebugDrawEnabled());
 }
 
-TEST_F(FWorldSubsystemTests, RejectsProviderRetirementUntilGarbageObjectsReleaseCode)
+TEST_F(FWorldSubsystemTests, ProviderRequiresFrozenWorldShutdownAndOwnsRegistrationCleanup)
 {
 	class FProvider : public IModuleInterface
 	{
 	public:
 		auto SupportsDynamicReloading() const -> bool override { return true; }
+		auto StartupModule() -> void override
+		{
+			Registration = std::make_unique<FWorldSubsystemRegistration>(FWorldSubsystemDescriptor{
+				.Type = FSubsystemProbeA::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
+		}
+		auto CanShutdownModule() const -> bool override { return !World || World->GetSubsystemState() == EWorldSubsystemState::Shutdown; }
+		auto ShutdownModule() -> void override { require(CanShutdownModule()); Registration.reset(); }
+		DWorld* World = nullptr;
+		std::unique_ptr<FWorldSubsystemRegistration> Registration;
 	};
-	FModuleTestHarness::InstallStartedModule("WorldSubsystemFixtureProvider", std::make_unique<FProvider>());
-	FWorldSubsystemRegistration A({.Type = FSubsystemProbeA::StaticClass(), .Provider = "WorldSubsystemFixtureProvider"});
+	auto* Provider = static_cast<FProvider*>(FModuleTestHarness::InstallStartedModule("WorldSubsystemFixtureProvider", std::make_unique<FProvider>()));
+	ASSERT_NE(nullptr, Provider);
 	auto* World = MakeWorld(); ASSERT_TRUE(World->InitializeSubsystems());
+	Provider->World = World;
 	auto Gate = World->GetSubsystem<FSubsystemProbeA>()->GetWorkGate();
 	auto& Manager = FModuleManager::Get();
 	EXPECT_FALSE(Manager.UnloadModule("WorldSubsystemFixtureProvider"));
 	EXPECT_TRUE(Manager.IsModuleLoaded("WorldSubsystemFixtureProvider"));
 	World->Shutdown();
-	EXPECT_FALSE(Manager.UnloadModule("WorldSubsystemFixtureProvider"));
+	EXPECT_FALSE(Gate->IsOpen());
+	// Probe classes live in the test executable, so this fixture can release its logical module.
+	EXPECT_TRUE(Manager.UnloadModule("WorldSubsystemFixtureProvider"));
 	CollectGarbage();
-	EXPECT_FALSE(Manager.UnloadModule("WorldSubsystemFixtureProvider"));
-	Gate.reset();
-	Manager.ShutdownModule("WorldSubsystemFixtureProvider");
+	FWorldSubsystemRegistration Stale({.Type = FSubsystemProbeA::StaticClass(), .Provider = "WorldSubsystemFixtureProvider"});
 	EXPECT_EQ(MakeWorld()->InitializeSubsystems().Error, EWorldSubsystemError::ProviderUnavailable);
 }
 

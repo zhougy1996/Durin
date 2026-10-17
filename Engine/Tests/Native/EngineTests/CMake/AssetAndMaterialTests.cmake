@@ -93,6 +93,7 @@ durin_add_native_test(EditorOperationTests
 	SOURCES
 		Private/Editor/CompensatingAsyncOperationTests.cpp
 		Private/Editor/EditorToolTests.cpp
+		Private/Editor/EditorSubsystemTests.cpp
 		Private/Editor/FactoryTests.cpp
 		Private/Editor/TransactionRecordTests.cpp
 	LIBRARIES Core CoreDObject Engine AssetTools DurinEd

@@ -18,7 +18,13 @@ namespace Durin
 			Tools = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
 				.Type = DEditorToolSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 		}
-		auto ShutdownModule() -> void override { Tools.reset(); Notifications.reset(); Actors.reset(); }
+		auto CanShutdownModule() const -> bool override { return FEditorSubsystemCollection::CanSynchronizeAll(); }
+		auto ShutdownModule() -> void override
+		{
+			require(CanShutdownModule());
+			Tools.reset(); Notifications.reset(); Actors.reset();
+			FEditorSubsystemCollection::SynchronizeAll();
+		}
 	private:
 		std::unique_ptr<FEditorSubsystemRegistration> Actors;
 		std::unique_ptr<FEditorSubsystemRegistration> Notifications;

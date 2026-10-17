@@ -58,7 +58,7 @@ determined by `dlerror`, not by the pointer value.
 reference; a failed result leaves it with the caller. Null handles are rejected.
 The API cannot validate a stale non-null handle, track borrowed pointers, or
 make concurrent lookup/calls versus unload safe. Owners synchronize lifetime.
-Engine module startup, shutdown, code leases, and residency remain owned by
+Engine module startup, shutdown, and residency remain owned by
 the module manager rather than the native loader.
 
 ## Contract Coverage

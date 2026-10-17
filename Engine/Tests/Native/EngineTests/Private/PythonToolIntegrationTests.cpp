@@ -39,9 +39,10 @@ namespace
         auto SetUp() -> void override
         {
             Testing::InitializeDObjectSystemForTests();
-            ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
             Host = TStrongObjectPtr<FPythonTestEditor>(NewObject<FPythonTestEditor>(nullptr, {}));
-            ASSERT_TRUE(Host->Start()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
+            ASSERT_TRUE(Host->Start());
+            ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
+            ASSERT_TRUE(Host->RefreshEditorSubsystems()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
             auto Started = Runtime.Start(); ASSERT_TRUE(Started) << Started.error();
             auto Created = Runtime.CreateSession(Tools->GetService()); ASSERT_TRUE(Created); Session = *Created;
         }

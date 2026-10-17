@@ -22,7 +22,7 @@ namespace Durin
 		DURINED_API auto GetEditor() const -> DEditorEngine*;
 	};
 
-	// Explicit provider token for future Editor hosts.
+	// Explicit provider token; live Editor hosts reconcile publication changes at safe points.
 	class FEditorSubsystemRegistration : public FSubsystemRegistration
 	{
 	public:
@@ -35,6 +35,14 @@ namespace Durin
 	{
 	public:
 		DURINED_API explicit FEditorSubsystemCollection(DEditorEngine& Host);
+		DURINED_API ~FEditorSubsystemCollection() override;
 		DURINED_API auto Initialize() -> FSubsystemResult;
+		DURINED_API auto Synchronize(bool bForce = false) -> FSubsystemResult;
+		// Providers preflight before removing tokens, then synchronize inside ShutdownModule.
+		DURINED_API static auto CanSynchronizeAll() -> bool;
+		DURINED_API static auto SynchronizeAll() -> void;
+	private:
+		uint64 LastRevision = UINT64_MAX;
+		FSubsystemResult LastResult;
 	};
 }

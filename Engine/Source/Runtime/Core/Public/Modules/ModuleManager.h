@@ -29,6 +29,8 @@ namespace Durin
 		virtual auto StartupModule() -> void {}
 		// Runtime DLL release is opt-in; process shutdown does not consult this flag.
 		virtual auto SupportsDynamicReloading() const -> bool { return false; }
+		// Read-only safe-point check. False postpones the entire shutdown without cleanup.
+		virtual auto CanShutdownModule() const -> bool { return true; }
 		// Stop external entry points, drain work, and release every externally stored
 		// callback/object before returning. Cleanup failure is a lifecycle contract error.
 		// Also cleans partially initialized state if StartupModule throws.
@@ -58,7 +60,6 @@ namespace Durin
 		std::atomic<EModuleState> State = EModuleState::Registered;
 		uint32 LoadOrder = 0;
 		uint64 OwnerGeneration = 0;
-		std::atomic<uint64> CodeLeaseCount = 0;
 		std::shared_ptr<Detail::FModuleOwnerState> ModuleOwner;
 	};
 
@@ -89,16 +90,15 @@ namespace Durin
 		CORE_API auto FindModule(const FName& InModuleName) -> FModuleInfoPtr;
 		CORE_API auto LoadModule(const FName& InModuleName) -> IModuleInterface*;
 		CORE_API auto LoadModuleChecked(const FName& InModuleName) -> IModuleInterface&;
-		// Pins an active load generation until every copy is released. Control-thread admission only.
-		CORE_API auto AcquireCodeLease(FName ModuleName) -> std::shared_ptr<void>;
 		CORE_API auto IsModuleLoaded(const FName& InModuleName) -> bool;
 		CORE_API auto GetModule(const FName& InModuleName) -> IModuleInterface*;
 		// Control-thread safe point only: dependent consumers and external dispatch are stopped.
 		// Calls ShutdownModule once and retains the instance and DLL until unload/process exit.
+		// Requires CanShutdownModule(); the provider owns all cleanup before returning.
 		// Independent of SupportsDynamicReloading. Cleanup failures must not be ignored.
 		CORE_API auto ShutdownModule(const FName& InModuleName) -> void;
-		// Runtime DLL release requires explicit dynamic-reload support and no code leases.
-		// Returns false for rejected requests. Shutdown contract failures propagate.
+		// Runtime DLL release requires explicit dynamic-reload support and module-owned shutdown.
+		// False at an unsafe point leaves an active module unchanged. Cleanup failures propagate.
 		CORE_API auto UnloadModule(const FName& InModuleName) -> bool;
 		CORE_API auto StartProcessingNewlyLoadedObjects() -> void;
 		CORE_API auto SetProcessLoadedObjectsCallback(std::function<void()> Callback) -> void;

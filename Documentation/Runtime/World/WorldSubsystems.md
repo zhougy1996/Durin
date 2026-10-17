@@ -4,7 +4,7 @@ Summary: Define native per-World service registration, ownership, lifecycle, Tic
 
 Modules: Engine, Core, DurinEd
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-10-17
 
 ## Registration And Ownership
 
@@ -30,7 +30,7 @@ services. `GetSubsystem<T>()` performs exact concrete lookup, returns null for
 absent or incompletely initialized types, and never constructs an object.
 Registration, lookup, mutation, and lifecycle callbacks are game-thread-only.
 
-Shared descriptor ordering, rollback, GC and code-lease mechanics are owned by
+Shared descriptor ordering, rollback, GC and work cancellation are owned by
 [the common subsystem contract](../Core/Subsystems.md). `DWorldSubsystem` derives
 from `DSubsystem`; World result/state/error/work-gate names remain compatibility
 aliases. World eligibility, play, Level and Tick policy stay in this adapter.

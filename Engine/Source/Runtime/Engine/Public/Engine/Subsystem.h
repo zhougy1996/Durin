@@ -29,9 +29,9 @@ namespace Durin
 		auto GetCancellationToken() const -> FTaskCancellationToken { return Cancellation.GetToken(); }
 	private:
 		FTaskCancellationSource Cancellation;
-		std::shared_ptr<void> ProviderLease;
-		std::shared_ptr<void> RuntimeLease;
+		bool bDeinitialized = false;
 		friend class FSubsystemCollection;
+		friend class DSubsystem;
 	};
 
 	// Shared transient service contract; scope adapters coordinate host destruction.
@@ -45,10 +45,10 @@ namespace Durin
 		virtual auto Initialize() -> FSubsystemResult { return {}; }
 		virtual auto Deinitialize() noexcept -> void {}
 		auto GetWorkGate() const -> std::shared_ptr<const FSubsystemWorkGate> { return WorkGate; }
+	protected:
+		auto HasCompletedDeinitialization() const -> bool { return WorkGate && WorkGate->bDeinitialized; }
 	private:
 		std::shared_ptr<FSubsystemWorkGate> WorkGate;
-		// Keeps provider code resident through physical destruction, not just retirement.
-		std::shared_ptr<void> ProviderLease;
 		friend class FSubsystemCollection;
 	};
 
@@ -58,6 +58,8 @@ namespace Durin
 		DClass* Type = nullptr;
 		FName Provider;
 		std::vector<DClass*> Dependencies;
+		// Assigned by a publication token; distinguishes retirement/replacement of the same type.
+		uint64 RegistrationIdentity = 0;
 	};
 
 	// Frozen native registration, with optional opaque policy interpreted only by its scope adapter.
@@ -67,7 +69,7 @@ namespace Durin
 		std::any Policy;
 	};
 
-	// Provider-owned publication token; mutation affects future host snapshots only.
+	// Provider-owned publication token; dynamic scope adapters reconcile changes at safe points.
 	class FSubsystemRegistration
 	{
 	public:
@@ -76,6 +78,7 @@ namespace Durin
 		FSubsystemRegistration(const FSubsystemRegistration&) = delete;
 		auto operator=(const FSubsystemRegistration&) -> FSubsystemRegistration& = delete;
 		ENGINE_API static auto Snapshot(DClass* Scope) -> std::vector<FSubsystemRegistrationSnapshot>;
+		ENGINE_API static auto GetRevision() -> uint64;
 	private:
 		uint64 Identity;
 	};
@@ -97,10 +100,11 @@ namespace Durin
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void;
 		auto IsDispatching() const -> bool { return bInitializing; }
 	protected:
+		// Explicit opt-in for dynamic scope adapters; Engine/World retain frozen membership.
+		ENGINE_API auto Reconcile(std::vector<FSubsystemDescriptor> Descriptors) -> FSubsystemResult;
 		struct FEntry
 		{
 			FSubsystemDescriptor Descriptor;
-			std::shared_ptr<void> Lease;
 			TObjectPtr<DSubsystem> Object;
 			bool bInitialized = false;
 		};

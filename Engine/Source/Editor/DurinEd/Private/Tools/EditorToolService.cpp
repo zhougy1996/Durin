@@ -65,7 +65,7 @@ namespace Durin
 		auto HostReady(DEditorEngine& Host) -> bool
 		{
 			const auto* Buffer = Cast<DTransBuffer>(Host.GetTransactor());
-			return Host.GetEditorSubsystemState() == ESubsystemState::Ready && Buffer
+			return Host.GetEditorSubsystemState() == ESubsystemState::Ready && !Host.AreEditorSubsystemsUpdating() && Buffer
 				&& Buffer->GetState() == Editor::ETransactorState::Idle;
 		}
 		struct FHostBinding;

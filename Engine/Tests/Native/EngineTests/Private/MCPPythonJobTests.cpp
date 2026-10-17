@@ -52,9 +52,10 @@ namespace
         auto SetUp() -> void override
         {
             Testing::InitializeDObjectSystemForTests();
-            ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
             Host = TStrongObjectPtr<FMCPPythonTestEditor>(NewObject<FMCPPythonTestEditor>(nullptr, {}));
-            ASSERT_TRUE(Host->Start()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
+            ASSERT_TRUE(Host->Start());
+            ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
+            ASSERT_TRUE(Host->RefreshEditorSubsystems()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
             Runtime = std::make_shared<FPythonRuntime>();
             auto Started = Runtime->Start(); ASSERT_TRUE(Started) << Started.error();
             auto Listening = Server.Start(*Host, {.BearerToken = std::string(Token), .PythonRuntime = Runtime});

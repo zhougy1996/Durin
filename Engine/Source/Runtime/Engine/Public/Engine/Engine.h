@@ -97,6 +97,7 @@ namespace Durin
 		ENGINE_API virtual auto CloseSubsystemWork() -> void;
 		virtual auto RetireHostConsumers() -> void {}
 		ENGINE_API virtual auto AreHostConsumersIdle() -> bool;
+		auto IsHostOperationIdle() -> bool { return HostOperationDepth == 0 && !bPreparingShutdown && AreHostConsumersIdle(); }
 		ENGINE_API auto InitializeEngineSubsystems() -> FSubsystemResult;
 		FEngineSubsystemCollection EngineSubsystems;
 		bool bShutdownRequested = false;

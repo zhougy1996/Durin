@@ -60,6 +60,7 @@ namespace Durin
 	// Requests collection at a later safe point, including when automatic GC is disabled.
 	COREDOBJECT_API auto RequestGarbageCollection(const FGarbageCollectionOptions& Options = {}) -> void;
 	COREDOBJECT_API auto IsGarbageCollectionDeferred() -> bool;
+	COREDOBJECT_API auto IsGarbageCollecting() -> bool;
 	COREDOBJECT_API auto IsGarbageCollectionRequested() -> bool;
 	// Collects at a safe point; inside a deferral region it records a request instead.
 	COREDOBJECT_API auto CollectGarbage(

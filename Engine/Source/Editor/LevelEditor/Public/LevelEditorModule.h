@@ -39,6 +39,7 @@ namespace Durin
 		LEVELEDITOR_API FLevelEditorModule();
 		LEVELEDITOR_API ~FLevelEditorModule() override;
 		LEVELEDITOR_API auto StartupModule() -> void override;
+		LEVELEDITOR_API auto CanShutdownModule() const -> bool override;
 		LEVELEDITOR_API auto ShutdownModule() -> void override;
 		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 			::Durin::Editor::DThumbnailManager& ThumbnailManager,

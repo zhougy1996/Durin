@@ -249,15 +249,6 @@ namespace Durin
 		return ModuleInfo->Module.get();
 	}
 
-	auto FModuleManager::AcquireCodeLease(FName ModuleName) -> std::shared_ptr<void>
-	{
-		if (!IsControlThread()) return {};
-		auto Info = FindModule(ModuleName);
-		if (!Info || Info->State.load() != EModuleState::Active) return {};
-		++Info->CodeLeaseCount;
-		return std::shared_ptr<void>(Info.get(), [Info](void*) { --Info->CodeLeaseCount; });
-	}
-
 	auto FModuleManager::ShutdownModule(const FName& InModuleName) -> void
 	{
 		requiref(IsControlThread(), "Module shutdown must run on the module-control thread.");
@@ -266,8 +257,7 @@ namespace Durin
 		if (!Info || !Info->Module || Info->State.load() == EModuleState::StoppedMapped) return;
 		requiref(Info->State.load() == EModuleState::Active,
 			"Module {} cannot shut down recursively or after failed cleanup.", InModuleName.ToString());
-		requiref(Info->CodeLeaseCount.load() == 0,
-			"Module {} still has live consumers at shutdown.", InModuleName.ToString());
+		requiref(Info->Module->CanShutdownModule(), "Module {} shutdown requires its owning subsystem's safe point.", InModuleName.ToString());
 		Info->State = EModuleState::ShuttingDown;
 		try
 		{
@@ -298,7 +288,8 @@ namespace Durin
 		if (!Info || !Info->Module) return false;
 		const auto State = Info->State.load();
 		if ((State != EModuleState::Active && State != EModuleState::StoppedMapped)
-			|| !Info->Module->SupportsDynamicReloading() || Info->CodeLeaseCount.load() != 0)
+			|| !Info->Module->SupportsDynamicReloading()
+			|| (State == EModuleState::Active && !Info->Module->CanShutdownModule()))
 		{
 			DURIN_ERROR(STR("Module {} does not permit runtime unload in its current state."), InModuleName.ToString());
 			return false;

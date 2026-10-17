@@ -15,12 +15,13 @@ inherited `GetSubsystem<T>()` still selects Engine types. Editor services have
 no implicit PIE World requirement and survive repeated PIE start/stop.
 
 `FEditorSubsystemRegistration` accepts the common descriptor. Keep tokens in the
-providing module and publish them before host initialization. Dependencies must
-name concrete Editor types registered in the same snapshot. The host enumerates
+providing module. Registration and token destruction publish changes for existing
+and future hosts; instances change only at a host safe point. Dependencies name
+concrete Editor types in the same collection. The host enumerates
 both collections for GC. Runtime Engine has no dependency on DurinEd.
 
 Editor Init loads project providers and AssetForgeBuiltins, runs base Init,
-retains EditorWorld, loads MainFrame and LevelEditor, then initializes Editor services before
+retains EditorWorld, loads MainFrame, then initializes currently available Editor services before
 CreateEditorHost exposes consumers. The constructor-created transactor is
 available; the shell is not yet created. DurinEd's module startup registers the
 Actor editing, notification and [tool](EditorTools.md) services. LevelEditor
@@ -55,14 +56,65 @@ the unchanged `{message, state}` contract; failures remain DomainFailure
 diagnostics. Python and MCP continue through the existing tool service.
 
 LevelEditor's module startup publishes both the subsystem provider and PIE
-Toolset without constructing a workspace or native window. Normal editor Init
-loads the module before freezing the editor subsystem snapshot; workspace
-activation reuses that loaded module. Minimal native hosts using only
-`InitializeEditorSubsystems()` load LevelEditor explicitly before initialization
-when they require PIE scripting. Loading it afterward does not add a service to
-an existing host. MCP and Python adapters discover the Toolset generically and
-do not acquire a LevelEditor compile-time dependency. Tests that dynamically
-load it declare LevelEditor in their runtime deployment closure.
+Toolset without constructing a workspace or native window. Workspace activation
+loads LevelEditor normally; no hard-coded pre-initialization load is required.
+The next editor Tick reconciles services before draining tool requests. Minimal
+native hosts may load LevelEditor after `InitializeEditorSubsystems()` and then
+call `RefreshEditorSubsystems()` at an idle boundary before driving tools.
+MCP and Python adapters keep their existing interfaces and generic Toolset
+routing. Dynamic test providers belong in the runtime deployment closure.
+
+## Controlled Dynamic Membership
+
+Only Editor collections opt into reconciliation; Engine and World collections
+retain frozen membership. `RefreshEditorSubsystems()` is a checked native safe
+point and returns `FSubsystemResult`. It rejects wrong threads, active host/World
+operations, collection callbacks, feature dispatch, GC and non-idle history.
+Registration inside Initialize, Deinitialize or another callback is deferred to
+a later pass. Tool execution is unavailable during reconciliation. Each pass
+uses an owned snapshot; a callback cannot alter the pass being processed.
+Providers still in module Startup are not instantiated. Initial module loading
+and later loading therefore share the same registration mechanism.
+
+Registration identities distinguish replacement from an unchanged type. Valid
+services initialize in deterministic dependency order. Missing dependencies,
+duplicate types and cycles exclude affected services while retaining unrelated
+instances. Removing or replacing a dependency also retires its dependents:
+all affected work gates close first, then Deinitialize runs in reverse dependency
+order, with dependencies still queryable during dependent cleanup. Objects are
+marked as garbage; their physical destruction does not shut down the host.
+An unsuccessful addition rolls back that pass's new instances, including the
+failed object, while retaining pre-existing services. Host shutdown during an
+update aborts additions and completes host retirement after callbacks unwind.
+
+Failed passes are not retried every frame. A publication change retries the
+pending graph; an explicit `RefreshEditorSubsystems(true)` can retry an unchanged
+failed batch. Its result exposes missing-dependency, duplicate, cycle, provider,
+initialization and safe-point diagnostics to native hosts.
+
+Providers own removal in `ShutdownModule()`: DurinEd and LevelEditor destroy
+their registration tokens and call `FEditorSubsystemCollection::SynchronizeAll()`
+before releasing the remaining provider resources. This removes per-host instances
+and dependent services before shutdown returns. There is no module-manager
+consumer callback or separate suppressed-registration list.
+
+Their read-only `CanShutdownModule()` calls `CanSynchronizeAll()` to preflight
+all live Editor collections. Initialization, cleanup, host callbacks, GC, feature
+dispatch and non-idle history postpone the entire shutdown. `UnloadModule()`
+returns false without changing an active module at an unsafe point; explicit
+`ShutdownModule()` requires the caller to establish that safe point. Providers
+check it again before mutating registrations, including direct cleanup after
+partially completed startup. Requests from callbacks must be retried after they
+unwind.
+
+Work gates provide cancellation, not module residency. Providers must finish
+module-owned work and detach external callbacks in their existing ShutdownModule
+contract. DurinEd and LevelEditor remain process-resident: unregistering their
+services marks the objects as garbage for later GC without releasing their DLLs.
+A provider that opts into `SupportsDynamicReloading()` must also ensure no live
+object, reflected type, callable or task can enter its code after shutdown.
+Dynamic service membership does not imply reflected-module hot reload support;
+ModuleManager does not implement that object/type teardown protocol.
 
 ## Actor Editing
 

@@ -20,6 +20,7 @@
 #include "Engine/World.h"
 #include "Editor/EditorHost.h"
 #include "Modules/ModuleManager.h"
+#include "Threading/RunnableThread.h"
 #include "Misc/Project.h"
 #include "Profiling/Profiling.h"
 #include "RenderingThread.h"
@@ -108,13 +109,6 @@ namespace Durin
 
 		EditorHost =
 			&FModuleManager::LoadModuleChecked<IEditorHost>("MainFrame");
-		// Publish level services before the editor subsystem snapshot is frozen.
-		// Loading the provider does not create a workspace or a native window.
-		if (!FModuleManager::Get().LoadModule("LevelEditor"))
-		{
-			DURIN_ERROR("Editor initialization requires LevelEditor subsystem providers.");
-			return false;
-		}
 		if (auto Result = InitializeEditorSubsystems(); !Result)
 		{
 			DURIN_ERROR("{}", Result.Message);
@@ -193,6 +187,7 @@ namespace Durin
 	auto DEditorEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
 		if (bShutdownRequested) { PrepareForShutdown(); return; }
+		(void)RefreshEditorSubsystems();
 		FHostOperationScope Operation(*this);
 		if (auto* Tools = GetEditorSubsystem<DEditorToolSubsystem>()) Tools->TickTools();
 		if (bShutdownRequested) return;
@@ -208,6 +203,20 @@ namespace Durin
 		}
 		if (EditorWorld && EditorWorld.Get() != GetWorld()) EditorWorld->Tick({.DeltaSeconds = DeltaSeconds});
 		DEngine::Tick(DeltaSeconds, bIdleMode);
+	}
+
+	auto DEditorEngine::CanRefreshEditorSubsystems() -> bool
+	{
+		return IsInGameThread() && !IsGarbageCollecting() && !bShutdownRequested && IsHostOperationIdle()
+			&& (!GetTransactor() || GetTransactor()->CanBeginStandaloneTransaction())
+			&& !FModularFeatureRegistry::Get().IsDispatching() && !EditorSubsystems.IsDispatching()
+			&& EditorSubsystems.GetState() == ESubsystemState::Ready;
+	}
+	auto DEditorEngine::RefreshEditorSubsystems(bool bForce) -> FSubsystemResult
+	{
+		if (!CanRefreshEditorSubsystems()) return {ESubsystemError::InvalidState, "Editor subsystem update requires a host safe point."};
+		FHostOperationScope Operation(*this);
+		return EditorSubsystems.Synchronize(bForce);
 	}
 
 	auto DEditorEngine::CloseSubsystemWork() -> void

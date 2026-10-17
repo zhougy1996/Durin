@@ -385,6 +385,8 @@ namespace Durin
 		else GCollectionRequest = Options;
 	}
 
+	auto IsGarbageCollecting() -> bool { CheckObjectThread(); return GIsGarbageCollecting; }
+
 	auto IsGarbageCollectionDeferred() -> bool
 	{
 		CheckObjectThread();

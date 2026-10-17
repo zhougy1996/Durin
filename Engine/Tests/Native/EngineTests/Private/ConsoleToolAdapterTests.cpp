@@ -59,8 +59,9 @@ namespace Durin::Editor::MainFrame
 			auto SetUp() -> void override
 			{
 				Testing::InitializeDObjectSystemForTests();
-				ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
 				Host = NewHost();
+				ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
+				ASSERT_TRUE(Host->RefreshEditorSubsystems());
 				Adapter = std::make_unique<FConsoleToolAdapter>(*Host, Legacy);
 				Temp = Testing::CreateTestFixtureDirectory("ConsoleTools");
 			}
@@ -360,7 +361,7 @@ namespace Durin::Editor::MainFrame
 		EXPECT_TRUE(Invoke("StartPlaySession").bSucceeded);
 		EXPECT_TRUE(Invoke("StopPlaySession").bSucceeded);
 	}
-	TEST_F(FConsoleToolTests, LevelEditorOwnsThePlayProviderBeforeTheHostSnapshot)
+	TEST_F(FConsoleToolTests, LevelEditorPublishesPlayServicesIntoAnExistingHost)
 	{
 		const auto Providers = FSubsystemRegistration::Snapshot(DEditorSubsystem::StaticClass());
 		const auto Count = std::ranges::count_if(Providers, [](const auto& Entry) {

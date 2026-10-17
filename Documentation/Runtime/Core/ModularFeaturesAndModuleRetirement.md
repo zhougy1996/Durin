@@ -4,7 +4,7 @@ Summary: Define typed feature invocation, module-owned cleanup, and explicit nat
 
 Modules: Core
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-17
 
 ## Feature Contract
 
@@ -54,8 +54,8 @@ states, waiting, timeout, or self-wait protocol.
 `UnloadModule` called during feature dispatch returns false before entering
 Shutdown or changing module state. `ShutdownModule` during dispatch is a contract
 violation. Schedule these operations at a later safe point after the entire
-feature call stack returns. A scope is not a code lease and never waits for a
-worker. Modules supporting unload must independently stop producers, synchronize
+feature call stack returns. A scope never waits for a worker or pins module code.
+Modules supporting unload must independently stop producers, synchronize
 workers and retained callbacks, unregister features, and destroy their resources
 while code is mapped. Unregistration alone does not make unload safe.
 
@@ -79,25 +79,32 @@ outer scope. Identity supplies attribution, not resource ownership.
 
 - `IModuleInterface::ShutdownModule() -> void` closes entry points, waits for work,
   and releases module-owned registrations and resources before returning.
+- `IModuleInterface::CanShutdownModule() const -> bool` is a read-only module-owned
+  safe-point check, defaulting to true. False postpones cleanup without changing
+  state. Editor providers use it to require idle hosts before removing services;
+  it does not perform cleanup or coordinate consumers in ModuleManager.
 - `FModuleManager::ShutdownModule(Name) -> void` invokes that hook once, then marks
   the module `StoppedMapped`. It retains the module instance and DLL for staged
   process exit. An absent or already stopped module is a no-op. Shutdown requires
-  no live code leases and does not consult `SupportsDynamicReloading()`.
+  CanShutdownModule to succeed and does not consult `SupportsDynamicReloading()`.
 - `UnloadModule(Name) -> bool` is explicit runtime DLL release. It rejects wrong
-  threads, missing instances, invalid states, live code leases, and modules that
-  have not opted into dynamic reloading. Otherwise it shuts down the module,
-  destroys the instance while code is mapped, and releases the library. An
-  already stopped instance is not shut down twice.
+  threads, feature dispatch, missing instances, invalid states, modules that have
+  not opted into dynamic reloading, and active modules whose CanShutdownModule
+  returns false. Those rejections leave the active module unchanged. Otherwise it
+  calls the module's shutdown hook, destroys the instance while code is mapped,
+  and releases the library. An already stopped instance is not checked for
+  shutdown readiness or shut down twice. The manager
+  has no consumer-retirement callbacks, code-lease counter or resource drain;
+  provider registrations and cleanup belong to the module.
 - `ShutdownModulesAtExit(DeferredModules) -> void` calls active modules in reverse
   order of **Startup completion**, skipping explicitly deferred and already stopped
   modules. It leaves libraries mapped for operating-system reclamation.
 
 `SupportsDynamicReloading()` defaults to `false`. Shutdown during process exit is
-independent of this capability. MeshBuilder and TextureCompressor explicitly opt in
-because their external build sessions retain code leases. ShaderBuild opts in
-to support switching from the drained compiler provider to cooked shader data.
-VulkanRHI opts in because RHI teardown
-destroys its backend and joins its threads before releasing the DLL. A reflected
+independent of this capability. MeshBuilder, TextureCompressor and ShaderBuild
+remain process-resident and use their ordinary shutdown contracts. VulkanRHI opts
+in because RHI teardown destroys its backend and joins its threads before releasing
+the DLL. A reflected
 module without a complete native-type/object teardown protocol must not opt in.
 
 Shutdown failure is a lifecycle contract error, not a recoverable retirement

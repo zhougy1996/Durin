@@ -94,6 +94,9 @@ namespace Durin
 		template<typename T> requires std::is_base_of_v<DEditorSubsystem, T>
 		auto GetEditorSubsystem() const -> T* { return static_cast<T*>(EditorSubsystems.Find(T::StaticClass())); }
 		auto GetEditorSubsystemState() const -> ESubsystemState { return EditorSubsystems.GetState(); }
+		DURINED_API auto CanRefreshEditorSubsystems() -> bool;
+		auto AreEditorSubsystemsUpdating() const -> bool { return EditorSubsystems.IsDispatching(); }
+		DURINED_API auto RefreshEditorSubsystems(bool bForce = false) -> FSubsystemResult;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		// MainFrame phase: after transaction event publication and before notification drawing.
 		DURINED_API auto UpdateNotifications(float DeltaSeconds) -> void;

@@ -4,7 +4,7 @@ Summary: Define shared native subsystem registration, construction, retention, r
 
 Modules: Engine, Core, CoreDObject
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-10-17
 
 ## Scope And Ownership
 
@@ -52,8 +52,9 @@ remains queryable during dependent cleanup until its own Deinitialize returns.
 
 `FSubsystemRegistration` stores scope identity and optional opaque adapter
 policy. The common kernel does not interpret callback or Tick policy. Collection
-membership freezes before user factories execute. Token removal and later
-registration affect future collections only. World's descriptor retains its
+membership freezes before user factories execute. Engine and World token changes
+affect future collections only. Editor collections explicitly opt into controlled
+reconciliation at host safe points; see the Editor subsystem contract. World's descriptor retains its
 existing aggregate layout and eligibility fields.
 
 ## Common Lifecycle
@@ -93,11 +94,16 @@ checks IsOpen before resolving endpoints or publishing. Closing a gate does not
 join workers, release their captures or stop code already running. Never wait on
 the game thread for a completion that needs that same thread.
 
-Frozen entries and objects retain provider module code leases; objects keep the
-lease through physical destruction. Detached gates retain provider and Engine
-code independently. Module shutdown fails with OutstandingCodeLease while those
-leases remain. Deinitialize unregisters external callbacks and releases resources;
-module-owned tasks still use the module async-operation protocol.
+Work gates only cancel work; they do not pin provider or Engine code. Deinitialize
+unregisters external callbacks and releases resources; module-owned tasks still
+use the module async-operation protocol and must finish before module shutdown
+returns. Providers remain process-resident unless they implement the complete
+object, reflected-type and callable cleanup needed for dynamic DLL release.
+There is no code-lease accounting in subsystem objects or ModuleManager.
+Editor providers remove
+tokens and synchronize live collections inside their own ShutdownModule; Engine
+and World providers still require their frozen host collections to be shut down
+by their owners.
 
 ## Engine Host Sequence
 
