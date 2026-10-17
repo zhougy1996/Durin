@@ -163,6 +163,7 @@ namespace Durin
 		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> FragmentPassBindings;
 		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> HybridFragmentPassBindings;
 		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> GBufferFragmentPassBindings;
+		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> GBufferGPUCullingFragmentPassBindings;
 		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> SurfaceBindings;
 		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> HybridSurfaceBindings;
 		std::shared_ptr<const RendererPrivate::FPreparedSurfaceMaterialBindings> GBufferBindings;

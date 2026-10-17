@@ -3,6 +3,8 @@
 #include "CoreMinimal.h"
 
 #include "RendererAPI.h"
+#include "RHIResources.h"
+#include "RHITextureReadback.h"
 #include "Renderers/VolumetricCloudSpatialRenderer.h"
 #include "Renderers/VolumetricCloudShadowRenderer.h"
 
@@ -11,6 +13,32 @@
 
 namespace Durin
 {
+	struct FGPUCullingVisibilityCounts
+	{
+		uint32 Candidates = 0;
+		uint32 Visible = 0;
+		uint32 Culled = 0;
+	};
+
+	// Optional observation only. Rendering never consumes this asynchronous result.
+	class RENDERER_API FGPUCullingVisibilityQuery final
+	{
+	public:
+		FGPUCullingVisibilityQuery(uint32 Candidates,
+			std::span<const FRHIDrawIndexedIndirectArguments> ExpectedArguments);
+		auto GetReadback() const -> std::shared_ptr<FRHITextureReadback> { return Readback; }
+		auto GetState() const -> ERHITextureReadbackState;
+		auto GetCounts() const -> std::optional<FGPUCullingVisibilityCounts>;
+	private:
+		auto ResolveLocked() const -> void;
+		uint32 CandidateCount;
+		std::vector<FRHIDrawIndexedIndirectArguments> Expected;
+		std::shared_ptr<FRHITextureReadback> Readback = std::make_shared<FRHITextureReadback>();
+		mutable std::mutex Mutex;
+		mutable ERHITextureReadbackState State = ERHITextureReadbackState::Pending;
+		mutable std::optional<FGPUCullingVisibilityCounts> Counts;
+	};
+
 	struct FVisibilityRenderTelemetry
 	{
 		size_t SubmittedPrimitives = 0;
@@ -202,6 +230,15 @@ namespace Durin
 		size_t GBufferSplineMeshSuccessfulDraws = 0;
 		size_t GBufferSplineMeshRejectedDraws = 0;
 		size_t GBufferSplineMeshSkippedDraws = 0;
+		size_t GPUCullingPolicyDisabledViews = 0;
+		size_t GPUCullingBelowThresholdCandidates = 0;
+		size_t GPUCullingIncompatibleCandidates = 0;
+		size_t GPUCullingPreparationUnavailableCandidates = 0;
+		// Compiled logical roles are distinct from the backend physical topology.
+		size_t GPUCullingPhysicalGraphicsQueueViews = 0;
+		size_t GPUCullingPhysicalComputeQueueViews = 0;
+		size_t GPUCullingScheduledGraphicsQueueViews = 0;
+		size_t GPUCullingScheduledAsyncQueueViews = 0;
 		size_t GPUCullingRequestedViews = 0;
 		size_t GPUCullingDispatchedViews = 0;
 		size_t GPUCullingFallbackViews = 0;
@@ -213,8 +250,7 @@ namespace Durin
 		size_t GPUCullingCommands = 0;
 		size_t GPUCullingIndirectDraws = 0;
 		size_t GPUCullingDirectFallbackDraws = 0;
-		size_t GPUCullingVisibleInstances = 0;
-		size_t GPUCullingCulledInstances = 0;
+		std::shared_ptr<const FGPUCullingVisibilityQuery> GPUCullingVisibility;
 		size_t GPUCullingOverflowCandidates = 0;
 		size_t GPUCullingBufferBytes = 0;
 		size_t GPUCullingAsyncComputeEligibleViews = 0;
@@ -306,6 +342,7 @@ namespace Durin
 	// Development/profiling seam. The command-local snapshot is delivered once
 	// per successful RenderView invocation and is never retained by Renderer.
 	RENDERER_API auto SetViewRenderTelemetrySink(FViewRenderTelemetrySink Sink) -> void;
+	RENDERER_API auto IsViewRenderTelemetryObserved() -> bool;
 	RENDERER_API auto EmitViewRenderTelemetrySnapshot(
 		const FViewRenderTelemetry& Telemetry
 	) -> void;

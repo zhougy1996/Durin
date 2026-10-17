@@ -1,4 +1,5 @@
 #include "Renderers/RendererRDGAllocator.h"
+#include "Renderers/SceneRendererProfiling.h"
 
 #include "RenderResourceCreation.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -352,6 +353,11 @@ namespace Durin
 			PublishStatistics(0, 0);
 			return std::unexpected(FRDGAllocationFailure{Reason, ResourceId});
 		};
+
+		if (const auto FailedTag = GetRendererQualificationPolicy().FailedAllocationObservation)
+			for (const auto& Request : Requests)
+				if (Request.ObservationTag == *FailedTag)
+					return Fail(ERDGAllocationError::PhysicalAllocationFailed, Request.ResourceId);
 
 		// Reserve the entire reusable set before eviction, including later requests
 		// with duplicate descriptors. Allocation IDs survive vector compaction.

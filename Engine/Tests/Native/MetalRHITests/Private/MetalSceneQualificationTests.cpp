@@ -37,6 +37,11 @@ namespace Durin
 		QualifySceneRenderRoutes(false);
 	}
 
+	TEST_P(FMetalSceneQualificationTests, GPUCullingPreservesAttachmentsCountsAndFallback)
+	{
+		QualifySceneRenderRoutes(false, true);
+	}
+
 	INSTANTIATE_TEST_SUITE_P(ReplayModes, FMetalSceneQualificationTests,
 		::testing::Values(FSceneReplay{"metal", "inline"}, FSceneReplay{"metal", "threaded"},
 			FSceneReplay{"vulkan", "inline"}, FSceneReplay{"vulkan", "threaded"}),

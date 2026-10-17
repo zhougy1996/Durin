@@ -1,4 +1,5 @@
 #include "Renderers/SceneRenderer.h"
+#include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneRenderingService.h"
 #include "RDG/RDG.h"
 
@@ -227,6 +228,11 @@ namespace Durin
 			.MaxCompileMicroseconds = 5000,
 			.MaxExecuteMicroseconds = 250000,
 		};
+		if (Logical.Options.bEnableGPUCulling)
+		{
+			// One compute producer and two optional diagnostic-copy consumers.
+			SceneRenderBudget.RegressionMaxPasses += IsViewRenderTelemetryObserved() ? 3 : 1;
+		}
 		if (Features.RequiresProductionDeferred())
 		{
 			// Measured scene routes: three Base Scene stages replace one callback;

@@ -22,6 +22,10 @@ namespace Durin
 		RetainedForward,
 		SortedTranslucency,
 	};
+	enum class EGPUCullingFailure : uint8
+	{
+		None, ShaderUnavailable, PipelineUnavailable, MetadataBudget, CommandAdmission,
+	};
 	// Feature-bounded development routes. This type is Renderer-private so
 	// production submissions cannot request qualification-only execution.
 	struct FRendererQualificationPolicy
@@ -31,6 +35,8 @@ namespace Durin
 		bool bEnableGroundTruthAmbientOcclusion = false;
 		bool bForceFragmentContactVisibility = false;
 		bool bForceFragmentVolumetricCloud = false;
+		EGPUCullingFailure GPUCullingFailure = EGPUCullingFailure::None;
+		std::optional<uint32> FailedAllocationObservation;
 		ESceneRasterFailure RasterFailure = ESceneRasterFailure::None;
 	};
 

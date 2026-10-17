@@ -428,7 +428,7 @@ static_assert(!CHasReadyDrawHash<Durin::FResolvedStaticMeshView>);
 static_assert(!CHasMaterialBindingHash<Durin::FResolvedStaticMeshView>);
 static_assert(CHasRenderObservations<Durin::FResolvedStaticMeshView>);
 static_assert(!CHasDirectExecutionCounters<Durin::FResolvedStaticMeshView>);
-static_assert(static_cast<uint8>(Durin::ERDGAllocationObservation::Count) == 12);
+static_assert(static_cast<uint8>(Durin::ERDGAllocationObservation::Count) == 16);
 
 TEST(FRendererSceneContractTests, RDGAllocationPolicyKeepsStructuralBoundary)
 {
@@ -990,6 +990,54 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanIsOptInAndPreservesIndexe
 	EXPECT_FLOAT_EQ(Plan->Transforms[0].BoundsCenter.y, 4.0f);
 	EXPECT_FLOAT_EQ(Plan->Transforms[0].BoundsCenter.z, 5.0f);
 	EXPECT_FLOAT_EQ(Plan->Transforms[0].BoundsCenter.w, 1.0f);
+
+	constexpr size_t PerCandidateBytes = sizeof(FGBufferGPUCullingCandidate) + sizeof(uint32)
+		+ sizeof(RendererPrivate::FStaticMeshTransformUniform);
+	const size_t ExactBudget = Plan->Candidates.size() * PerCandidateBytes + sizeof(FRHIDrawIndexedIndirectArguments);
+	size_t Overflow = 0;
+	FGPUCullingAdmissionDiagnostics Admission;
+	EXPECT_TRUE(BuildGBufferGPUCullingPlan(Prepared, Resolved, View, true, true, &Overflow, ExactBudget, &Admission));
+	EXPECT_EQ(Overflow, 0u);
+	EXPECT_EQ(Admission.BelowThresholdCandidates, 0u);
+	EXPECT_FALSE(BuildGBufferGPUCullingPlan(Prepared, Resolved, View, true, true, &Overflow, ExactBudget - 1));
+	EXPECT_EQ(Overflow, 64u);
+	EXPECT_FALSE(BuildGBufferGPUCullingPlan(Prepared, Resolved, View, true, true, &Overflow, 0));
+	EXPECT_EQ(Overflow, 64u);
+	{
+		auto ManyPrepared = Prepared;
+		auto ManyResolved = Resolved;
+		const size_t MaximumGroups = FGBufferGPUCullingPlan::MaximumGeneratedBytes / ExactBudget;
+		for (size_t Group = 1; Group <= MaximumGroups; ++Group)
+		{
+			auto GroupCommand = std::make_shared<FMeshDrawDescription>(*Command);
+			for (uint32 Index = 0; Index < 64; ++Index)
+			{
+				auto Draw = Prepared.Opaque[Index];
+				Draw.Command = GroupCommand;
+				Draw.ResolvedIndex = static_cast<uint32>(ManyResolved.Draws.size());
+				ManyPrepared.Opaque.push_back(Draw);
+				ManyResolved.Draws.push_back(Resolved.Draws[Index]);
+			}
+		}
+		const auto ManyPlan = BuildGBufferGPUCullingPlan(ManyPrepared, ManyResolved, View, true, true, &Overflow);
+		ASSERT_TRUE(ManyPlan);
+		ASSERT_EQ(ManyPlan->Arguments.size(), MaximumGroups);
+		EXPECT_EQ(Overflow, 64u);
+		for (size_t Group = 0; Group < MaximumGroups; ++Group)
+		{
+			EXPECT_EQ(ManyPlan->Arguments[Group].FirstInstance, Group * 64);
+			EXPECT_EQ(ManyPlan->Candidates[Group * 64].ArgumentIndex, Group);
+		}
+	}
+	{
+		auto Small = Prepared;
+		Small.Opaque.pop_back();
+		EXPECT_FALSE(BuildGBufferGPUCullingPlan(Small, Resolved, View, true, true, nullptr,
+			FGBufferGPUCullingPlan::MaximumGeneratedBytes, &Admission));
+		EXPECT_EQ(Admission.BelowThresholdCandidates, 63u);
+		Small.Opaque.clear();
+		EXPECT_FALSE(BuildGBufferGPUCullingPlan(Small, Resolved, View, true, true));
+	}
 
 	for (auto& Primitive : Prepared.Primitives)
 		Primitive.VertexDomain = EVertexDeformationDomain::Spline;
@@ -1629,6 +1677,64 @@ TEST(FRendererSceneContractTests, ViewStateReportsEveryFrozenDiscontinuityCause)
 		));
 		EXPECT_FALSE((*Contexts)[Index].bHistoryValid);
 	}
+}
+
+TEST(FRendererSceneContractTests, GPUVisibilityQueryDistinguishesPendingZeroAndReusableCompletedCounts)
+{
+	using namespace Durin;
+	const std::array Expected{FRHIDrawIndexedIndirectArguments{6, 0, 3, -2, 0},
+		FRHIDrawIndexedIndirectArguments{6, 0, 3, -2, 64}};
+	FGPUCullingVisibilityQuery Query(128, Expected);
+	EXPECT_EQ(Query.GetState(), ERHITextureReadbackState::Pending);
+	EXPECT_FALSE(Query.GetCounts());
+	auto Actual = Expected;
+	Actual[1].InstanceCount = 64;
+	const auto Bytes = std::as_bytes(std::span(Actual));
+	Query.GetReadback()->Complete(FByteBuffer(Bytes.begin(), Bytes.end()));
+	for (int Observer = 0; Observer < 2; ++Observer)
+	{
+		const auto Counts = Query.GetCounts();
+		ASSERT_TRUE(Counts);
+		EXPECT_EQ(Query.GetState(), ERHITextureReadbackState::Ready);
+		EXPECT_EQ(Counts->Candidates, 128u);
+		EXPECT_EQ(Counts->Visible, 64u);
+		EXPECT_EQ(Counts->Culled, 64u);
+	}
+	FGPUCullingVisibilityQuery Zero(128, Expected);
+	const auto ZeroBytes = std::as_bytes(std::span(Expected));
+	Zero.GetReadback()->Complete(FByteBuffer(ZeroBytes.begin(), ZeroBytes.end()));
+	ASSERT_TRUE(Zero.GetCounts());
+	EXPECT_EQ(Zero.GetCounts()->Visible, 0u);
+	EXPECT_EQ(Zero.GetCounts()->Culled, 128u);
+}
+
+TEST(FRendererSceneContractTests, GPUVisibilityQueryRejectsMalformedCapacityAndIdentityWithoutPublishingCounts)
+{
+	using namespace Durin;
+	const std::array Expected{FRHIDrawIndexedIndirectArguments{6, 0, 3, -2, 0}};
+	for (int Fault = 0; Fault < 4; ++Fault)
+	{
+		SCOPED_TRACE(Fault);
+		FGPUCullingVisibilityQuery Query(64, Expected);
+		auto Actual = Expected;
+		if (Fault == 0) Actual[0].InstanceCount = 65;
+		if (Fault == 1) Actual[0].FirstIndex = 0;
+		if (Fault == 2) Actual[0].FirstInstance = 1;
+		const auto Bytes = std::as_bytes(std::span(Actual));
+		FByteBuffer Payload(Bytes.begin(), Bytes.end());
+		if (Fault == 3) Payload.pop_back();
+		Query.GetReadback()->Complete(std::move(Payload));
+		EXPECT_FALSE(Query.GetCounts());
+		EXPECT_EQ(Query.GetState(), ERHITextureReadbackState::Failed);
+	}
+	FGPUCullingVisibilityQuery Canceled(64, Expected);
+	Canceled.GetReadback()->Cancel();
+	EXPECT_EQ(Canceled.GetState(), ERHITextureReadbackState::Canceled);
+	EXPECT_FALSE(Canceled.GetCounts());
+	FGPUCullingVisibilityQuery Failed(64, Expected);
+	Failed.GetReadback()->Fail();
+	EXPECT_EQ(Failed.GetState(), ERHITextureReadbackState::Failed);
+	EXPECT_FALSE(Failed.GetCounts());
 }
 
 TEST(FRendererSceneContractTests, TelemetrySnapshotSeamDeliversOneImmutableValue)

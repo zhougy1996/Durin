@@ -34,7 +34,11 @@
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneVisibility.h"
+#include "Renderers/RendererRDGAllocator.h"
+#include "Resources/RendererResourceCoordinator.h"
 #include "SceneViewProjection.h"
+#include "Shader/IShaderBuildModule.h"
+#include "Shader/Shader.h"
 #include "SceneTestAccess.h"
 #include "Texture/VolumeTexture.h"
 #include "Window/GenericWindow.h"
@@ -77,6 +81,66 @@ namespace Durin
 				("graph-" + std::to_string(GSceneCloudGraphCaptures.size()) + ".txt"));
 			Output << Capture.Dump;
 			EXPECT_TRUE(Output.good());
+		}
+
+		FShaderRHIRef GCullingDepthShader;
+		FComputePipelineStateRHIRef GCullingDepthPipeline;
+		std::array<std::shared_ptr<FRHITextureReadback>, 5> GCullingAttachments;
+		auto CaptureCullingAttachments(FRHICommandListImmediate& Commands, FRHITexture* Material,
+			FRHITexture* Normals, FRHITexture* Surface, FRHITexture* Emissive, FRHITexture* Depth) -> void
+		{
+			const std::array Textures{Material, Normals, Surface, Emissive, Depth};
+			for (size_t I = 0; I < Textures.size(); ++I)
+			{
+				auto* Source = Textures[I];
+				if (I == 4)
+				{
+					auto Copy = GDynamicRHI->RHICreateTexture(Commands,
+						FRHITextureCreateDesc::Create2D("CullingDepth", Source->GetSizeX(), Source->GetSizeY(), EPixelFormat::RGBA8_UNORM)
+						.SetFlags(ETextureCreateFlags::DestinationCopy | ETextureCreateFlags::CPUReadback));
+					ASSERT_NE(Copy, nullptr);
+					const FRHITextureSubresourceRange DepthRange{ERHITextureAspect::Depth, 0, 1, 0, 1};
+					const FRHITextureSubresourceRange ColorRange{ERHITextureAspect::Color, 0, 1, 0, 1};
+					Commands.TransitionTextures(std::array{FRHITextureTransition{Source, DepthRange,
+						ERHIAccess::GraphicsShaderRead, ERHIAccess::ComputeShaderRead},
+						FRHITextureTransition{Copy, ColorRange, ERHIAccess::Discard, ERHIAccess::TransferWrite}});
+					const uint32 Bytes = Source->GetSizeX() * Source->GetSizeY() * sizeof(uint32);
+					auto Buffer = GDynamicRHI->RHICreateBuffer(Commands, FRHIBufferCreateDesc::Create("CullingDepthBits", Bytes,
+						sizeof(uint32), EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::SourceCopy));
+					ASSERT_NE(Buffer, nullptr);
+					Commands.TransitionBuffers(std::array{FRHIBufferTransition{Buffer, 0, Bytes, ERHIAccess::None, ERHIAccess::ComputeShaderReadWrite}});
+					auto BufferView = GDynamicRHI->RHICreateBufferView(Buffer, {.Offset = 0, .Size = Bytes, .Type = ERHIBufferViewType::StructuredStorage});
+					ASSERT_NE(BufferView, nullptr);
+					Commands.SwitchPipeline(ERHIPipeline::Compute);
+					Commands.SetComputePipelineState(*GCullingDepthPipeline);
+					const std::array Parameters{FRHIShaderParameterResource{.Resource = Source, .BindingIndex = 0, .Type = ERHIBindingType::Texture},
+						FRHIShaderParameterResource{.Resource = BufferView.GetReference(), .BindingIndex = 1, .Type = ERHIBindingType::StorageBuffer}};
+					Commands.SetShaderParameters(GCullingDepthShader, Parameters);
+					Commands.Dispatch((Source->GetSizeX() + 7) / 8, (Source->GetSizeY() + 7) / 8, 1);
+					Commands.SwitchPipeline(ERHIPipeline::Graphics);
+					Commands.TransitionBuffers(std::array{FRHIBufferTransition{Buffer, 0, Bytes, ERHIAccess::ComputeShaderReadWrite,
+						ERHIAccess::TransferRead}});
+					Commands.CopyBufferToTexture(Buffer, Copy, std::array{FRHIBufferTextureCopyRegion{
+						.TextureExtent = {Source->GetSizeX(), Source->GetSizeY(), 1}}});
+					GCullingAttachments[I] = Commands.EnqueueTextureReadback(Copy);
+					Commands.TransitionTextures(std::array{FRHITextureTransition{Source, DepthRange,
+						ERHIAccess::ComputeShaderRead, ERHIAccess::GraphicsShaderRead}});
+					continue;
+				}
+				const auto Range = FRHITextureSubresourceRange{I == 4 ? ERHITextureAspect::Depth : ERHITextureAspect::Color, 0, 1, 0, 1};
+				const auto Access = ERHIAccess::GraphicsShaderRead;
+				auto Copy = GDynamicRHI->RHICreateTexture(Commands,
+					FRHITextureCreateDesc::Create2D("CullingAttachment", Source->GetSizeX(), Source->GetSizeY(), Source->GetFormat())
+					.SetFlags(ETextureCreateFlags::DestinationCopy | ETextureCreateFlags::CPUReadback));
+				ASSERT_NE(Copy, nullptr);
+				Commands.TransitionTextures(std::array{FRHITextureTransition{Source, Range, Access, ERHIAccess::TransferRead},
+					FRHITextureTransition{Copy, Range, ERHIAccess::Discard, ERHIAccess::TransferWrite}});
+				Commands.CopyTexture(Source, Copy, std::array{FRHITextureCopyRegion{
+					.SourceAspect = Range.Aspects, .DestinationAspect = Range.Aspects,
+					.Extent = {Source->GetSizeX(), Source->GetSizeY(), 1}}});
+				GCullingAttachments[I] = Commands.EnqueueTextureReadback(Copy);
+				Commands.TransitionTextures(std::array{FRHITextureTransition{Source, Range, ERHIAccess::TransferRead, Access}});
+			}
 		}
 
 		auto BuildViewMatrix(const FVector3& Location, const FVector3& Forward)
@@ -153,7 +217,7 @@ namespace Durin
 		};
 	} // namespace
 
-	inline auto QualifySceneRenderRoutes(bool bPresentation) -> void
+	inline auto QualifySceneRenderRoutes(bool bPresentation, bool bGPUCullingQualification = false) -> void
 	{
 		class FTestApplication final : public FGenericApplication
 		{
@@ -240,8 +304,11 @@ namespace Durin
 		FRendererQualificationPolicy ExtraPolicy;
 		FSceneViewRenderOptions ExtraOptions;
 		bool bContactShadows = false;
+		bool bObserveTelemetry = true;
+		bool bDisableCPUCulling = false;
+		FVector3 WorldShift{};
 		uint32 OffscreenOrdinal = 0;
-		auto RenderOffscreen = [&Renderer, Scene, &ExtraPolicy, &ExtraOptions, &bContactShadows, &OffscreenOrdinal](
+		auto RenderOffscreen = [&Renderer, Scene, &ExtraPolicy, &ExtraOptions, &bContactShadows, &OffscreenOrdinal, &bDisableCPUCulling, &WorldShift, &bObserveTelemetry](
 								   bool bForceFragment, bool bAmbientOcclusion = true,
 			EGroundTruthAmbientOcclusionQuality AOQuality = EGroundTruthAmbientOcclusionQuality::HalfResolution,
 			ERenderMode RenderMode = ERenderMode::Lit,
@@ -255,7 +322,7 @@ namespace Durin
 			);
 			EnqueueRenderCommand<FSceneCloudRender>(
 				[&Renderer, Scene, Pixels, Result, bForceFragment, bAmbientOcclusion, AOQuality, RenderMode,
-					Failure, Width, Height, Policy = ExtraPolicy, Options = ExtraOptions, bContactShadows](
+					Failure, Width, Height, Policy = ExtraPolicy, Options = ExtraOptions, bContactShadows, bDisableCPUCulling, WorldShift](
 					FRHICommandListImmediate& CommandList
 				) {
 					FTextureRHIRef Output = GDynamicRHI->RHICreateTexture(
@@ -270,6 +337,10 @@ namespace Durin
 					++GRenderFrameCounterRenderThread;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 					FSceneView View = MakeSceneCloudView(Width, Height);
+					View.ViewLocation += WorldShift;
+					View.ViewMatrix = BuildViewMatrix(View.ViewLocation, Math::Normalize(FVector3{1, 0, 0.1}));
+					View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
+					if (bDisableCPUCulling) View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
 					View.Settings.Mode.RenderMode = RenderMode;
 					View.Settings.AmbientOcclusion.bEnabled = bAmbientOcclusion;
 					View.Settings.AmbientOcclusion.Quality = AOQuality;
@@ -286,13 +357,15 @@ namespace Durin
 					if (*Result == ERenderViewResult::Success)
 					{
 						GDynamicRHI->RHIReadTexture2D(CommandList, Output, 0, 0, *Pixels);
+						CommandList.PollTextureReadbacks();
+						CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 					}
 				}
 			);
 			FlushRenderingCommands();
 			const auto Expected = Failure == ESceneRasterFailure::HybridBootstrap || Failure == ESceneRasterFailure::Forward
 				? ERenderViewResult::RequiredEnvironmentUnavailable
-				: Failure != ESceneRasterFailure::None ? ERenderViewResult::RendererResourcesUnavailable : ERenderViewResult::Success;
+				: Failure != ESceneRasterFailure::None || ExtraPolicy.FailedAllocationObservation ? ERenderViewResult::RendererResourcesUnavailable : ERenderViewResult::Success;
 			EXPECT_EQ(*Result, Expected);
 			++OffscreenOrdinal;
 			std::cout << "RDG_SCENE_CASE index=" << OffscreenOrdinal
@@ -305,7 +378,7 @@ namespace Durin
 				<< ",width=" << Width << ",height=" << Height << ",bytes=" << Pixels->size() << '\n';
 			if (Expected == ERenderViewResult::Success)
 			{
-				EXPECT_EQ(GSceneCloudTelemetryPublications, PublicationsBefore + 1);
+				EXPECT_EQ(GSceneCloudTelemetryPublications, PublicationsBefore + (bObserveTelemetry ? 1 : 0));
 				EXPECT_EQ(Pixels->size(), static_cast<size_t>(Width) * Height * 4);
 				std::ofstream Output(GSceneCloudEvidenceRoot /
 					("pixels-" + std::to_string(OffscreenOrdinal) + ".rgba"), std::ios::binary);
@@ -636,8 +709,8 @@ namespace Durin
 		UVs[0] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
 		LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.Init(std::move(UVs), 4, 1);
 		LOD.VertexBuffers.ColorVertexBuffer.Init(std::vector<FVector4f>(4, FVector4f(1)), 4);
-		LOD.IndexBuffer.Init({0, 1, 2, 0, 2, 3});
-		LOD.Sections.push_back({.Name = "Route", .FirstIndex = 0, .IndexCount = 6,
+		LOD.IndexBuffer.Init(bGPUCullingQualification ? std::vector<uint32>{0, 0, 0, 0, 1, 2, 0, 2, 3} : std::vector<uint32>{0, 1, 2, 0, 2, 3});
+		LOD.Sections.push_back({.Name = "Route", .FirstIndex = bGPUCullingQualification ? 3u : 0u, .IndexCount = 6,
 			.MinVertexIndex = 0, .MaxVertexIndex = 3, .MaterialSlotIndex = 0,
 			.LocalBounds = FBox({0, -40, -40}, {0, 40, 40})});
 		LOD.LocalBounds = LOD.Sections[0].LocalBounds;
@@ -702,6 +775,181 @@ namespace Durin
 		EXPECT_EQ(*ComputeContact, *FragmentContact);
 		ExtraPolicy = {};
 		bContactShadows = false;
+
+		if (bGPUCullingQualification)
+		{
+			FShaderCompileOptions DepthOptions;
+			DepthOptions.Target = std::string_view(Backend ? Backend : "") == "metal" ? MetalShaderTarget : VulkanShaderTarget;
+			DepthOptions.EntryPoints = {"ComputeMain"};
+			DepthOptions.Frequencies = {EShaderFrequency::Compute};
+			const auto CullCode = IShaderBuildModule::Get()->CompileMounted("/Engine/GBufferGPUCulling", [&] { auto C = DepthOptions; C.EntryPoints = {"CullMain"}; return C; }());
+			ASSERT_TRUE(CullCode) << CullCode.Diagnostic;
+			{
+				std::ofstream Output(GSceneCloudEvidenceRoot / "culling-native-code.bin", std::ios::binary);
+				const auto Bytes = CullCode.CompiledShaders[0].Code.GetBytes();
+				Output.write(reinterpret_cast<const char*>(Bytes.data()), Bytes.size());
+			}
+			{
+				auto Options = DepthOptions; Options.EntryPoints = {"GPUCullingVertexMain"}; Options.Frequencies = {EShaderFrequency::Vertex};
+				Options.Macros = {{"DURIN_GPU_CULLING", "1"}};
+				const auto Code = IShaderBuildModule::Get()->CompileMounted("/Engine/StaticMeshBasePass", Options);
+				ASSERT_TRUE(Code) << Code.Diagnostic;
+				std::ofstream Output(GSceneCloudEvidenceRoot / "culling-vertex-native.bin", std::ios::binary);
+				const auto Bytes = Code.CompiledShaders[0].Code.GetBytes();
+				Output.write(reinterpret_cast<const char*>(Bytes.data()), Bytes.size());
+			}
+			const auto DepthCode = IShaderBuildModule::Get()->CompileMounted("/Engine/Qualification/DepthObservation", DepthOptions);
+			ASSERT_TRUE(DepthCode) << DepthCode.Diagnostic;
+			EnqueueRenderCommand<FSceneCloudRender>([&](FRHICommandListImmediate&) {
+				GCullingDepthShader = GDynamicRHI->RHICreateShader(MakeShaderCreateDesc(DepthCode.CompiledShaders[0]));
+				ASSERT_NE(GCullingDepthShader, nullptr);
+				FComputePipelineStateInitializer Initializer;
+				Initializer.ComputeShader = GCullingDepthShader;
+				ASSERT_TRUE(BuildPipelineLayoutFromShaders(DepthCode.CompiledShaders, Initializer.PipelineLayout));
+				GCullingDepthPipeline = GDynamicRHI->RHICreateComputePipelineState("CullingDepthObservation", Initializer);
+				ASSERT_NE(GCullingDepthPipeline, nullptr);
+			});
+			FlushRenderingCommands();
+			bDisableCPUCulling = true;
+			SetGBufferCaptureSink(CaptureCullingAttachments);
+			bool bBoundary = false;
+			auto InstallGroups = [&](uint32 VisiblePerGroup, bool TwoGroups) {
+				for (uint32 Group = 0; Group < (TwoGroups ? 2u : 1u); ++Group)
+					for (uint32 Index = 0; Index < 64; ++Index)
+					{
+						const uint32 Id = Index == 0 ? (Group == 0 ? 10001 : 10003) : 11000 + Group * 64 + Index;
+						const FVector3 Position = WorldShift + FVector3{bBoundary ? 100.0 : 100.0 + Index * 3 + Group * 5,
+							Index < VisiblePerGroup ? (bBoundary ? 100.0 : -35.0 + Group * 70 + (Index % 8) * 2) : 1000000.0,
+							bBoundary ? 2510.0 : 2510.0 + (Index / 8) * 2};
+						EXPECT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
+							std::make_unique<FStaticMeshSceneProxy>(Geometry.get(), std::vector<FMaterialRenderProxyRef>{
+								(Group == 0 ? LitMaterial : MaskedMaterial)->GetMaterialRenderProxy()}), Math::TranslationMatrix(Position)));
+					}
+				FlushRenderingCommands();
+			};
+			auto TakeAttachments = [] {
+				std::array<FByteBuffer, 5> Result;
+				for (size_t I = 0; I < Result.size(); ++I)
+				{
+					EXPECT_NE(GCullingAttachments[I], nullptr);
+					if (!GCullingAttachments[I]) continue;
+					EXPECT_EQ(GCullingAttachments[I]->GetState(), ERHITextureReadbackState::Ready) << I;
+					EXPECT_TRUE(GCullingAttachments[I]->TakePixels(Result[I]));
+					EXPECT_FALSE(Result[I].empty()) << I;
+				}
+				return Result;
+			};
+			auto CheckParity = [&](uint32 VisiblePerGroup, bool TwoGroups, bool Async, uint32 Width = 96) {
+				SCOPED_TRACE(::testing::Message() << "boundary=" << bBoundary << " visible=" << VisiblePerGroup << " two=" << TwoGroups << " async=" << Async << " width=" << Width);
+				InstallGroups(VisiblePerGroup, TwoGroups);
+				ExtraOptions.bEnableGPUCulling = false;
+				ExtraOptions.bEnableAsyncCompute = Async;
+				const auto Direct = RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution,
+					ERenderMode::Lit, ESceneRasterFailure::None, Width);
+				const auto DirectAttachments = TakeAttachments();
+				ExtraOptions.bEnableGPUCulling = true;
+				const auto Indirect = RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::HalfResolution,
+					ERenderMode::Lit, ESceneRasterFailure::None, Width);
+				EXPECT_EQ(*Direct, *Indirect);
+				const auto IndirectAttachments = TakeAttachments();
+				for (size_t A = 0; A < DirectAttachments.size(); ++A)
+				{
+					const auto& D = DirectAttachments[A];
+					const auto& G = IndirectAttachments[A];
+					EXPECT_EQ(D.size(), G.size());
+					size_t Differences = 0;
+					for (size_t I = 0; I < std::min(D.size(), G.size()); ++I) Differences += D[I] != G[I];
+					EXPECT_EQ(Differences, 0u) << "attachment=" << A;
+					for (const auto& [Name, Bytes] : {std::pair{"direct", &D}, std::pair{"indirect", &G}})
+					{
+						std::ofstream Output(GSceneCloudEvidenceRoot / ("attachment-" + std::to_string(OffscreenOrdinal)
+							+ "-" + std::to_string(A) + "-" + Name + ".bin"), std::ios::binary);
+						Output.write(reinterpret_cast<const char*>(Bytes->data()), Bytes->size());
+					}
+				}
+				const auto& T = GSceneCloudTelemetry.GBuffer;
+				const uint32 Groups = TwoGroups ? 2 : 1;
+				EXPECT_EQ(T.GPUCullingDispatchedViews, 1u);
+				EXPECT_EQ(T.GPUCullingFallbackViews, 0u);
+				EXPECT_EQ(T.GPUCullingCandidates, Groups * 64);
+				EXPECT_EQ(T.GPUCullingGroups, Groups);
+				EXPECT_EQ(T.GPUCullingScheduledGraphicsQueueViews, Async ? 0u : 1u);
+				EXPECT_EQ(T.GPUCullingPhysicalGraphicsQueueViews, 1u);
+				EXPECT_EQ(T.GPUCullingPhysicalComputeQueueViews, 0u);
+				EXPECT_EQ(T.GPUCullingScheduledAsyncQueueViews, Async ? 1u : 0u);
+				EXPECT_EQ(T.GPUCullingIndirectDraws, Groups);
+				ASSERT_NE(T.GPUCullingVisibility, nullptr);
+				ASSERT_EQ(T.GPUCullingVisibility->GetState(), ERHITextureReadbackState::Ready);
+				const auto Counts = T.GPUCullingVisibility->GetCounts();
+				ASSERT_TRUE(Counts);
+				EXPECT_EQ(Counts->Visible, Groups * VisiblePerGroup);
+				EXPECT_EQ(Counts->Culled, Groups * (64 - VisiblePerGroup));
+				std::cout << "GPU_CULLING_PARITY candidates=" << Counts->Candidates << ",visible=" << Counts->Visible
+					<< ",culled=" << Counts->Culled << ",groups=" << Groups << ",async_requested=" << Async << '\n';
+			};
+			CheckParity(0, false, false);
+			CheckParity(32, false, false);
+			CheckParity(64, false, true);
+			bBoundary = true;
+			CheckParity(64, false, true);
+			bBoundary = false;
+			CheckParity(32, true, true);
+			CheckParity(64, true, false, 112);
+			CheckParity(64, true, false, 96); // pool reuse after resize
+			for (uint32 Repeat = 0; Repeat < 4; ++Repeat) CheckParity(Repeat % 2 ? 64 : 0, true, Repeat % 2 != 0);
+			WorldShift = FVector3{1e12, -1e12, 1e12};
+			CheckParity(32, true, true);
+			WorldShift = {};
+			InstallGroups(32, true);
+			ExtraOptions.bEnableGPUCulling = false;
+			const auto Reference = RenderOffscreen(false, false);
+			ExtraOptions.bEnableGPUCulling = true;
+			bObserveTelemetry = false;
+			SetViewRenderTelemetrySink(nullptr);
+			SetGBufferCaptureSink(nullptr);
+			EXPECT_EQ(*Reference, *RenderOffscreen(false, false));
+			EXPECT_FALSE(std::ranges::any_of(GSceneCloudGraphCaptures.back().Resources, [](const auto& Resource) {
+				return Resource.Name == "Scene.GBuffer.GPUCulling.Counters";
+			}));
+			bObserveTelemetry = true;
+			SetViewRenderTelemetrySink(CaptureSceneCloudTelemetry);
+			SetGBufferCaptureSink(CaptureCullingAttachments);
+			for (const auto Failure : {EGPUCullingFailure::ShaderUnavailable, EGPUCullingFailure::PipelineUnavailable,
+				EGPUCullingFailure::MetadataBudget, EGPUCullingFailure::CommandAdmission})
+			{
+				ExtraOptions.bEnableGPUCulling = true;
+				ExtraPolicy.GPUCullingFailure = Failure;
+				EXPECT_EQ(*Reference, *RenderOffscreen(false, false));
+				EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GPUCullingDispatchedViews, 0u);
+				EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GPUCullingFallbackViews, 1u);
+				if (const auto Query = GSceneCloudTelemetry.GBuffer.GPUCullingVisibility)
+					EXPECT_EQ(Query->GetState(), ERHITextureReadbackState::Canceled);
+			}
+			ExtraPolicy = {};
+			for (const auto Tag : {ERDGAllocationObservation::GPUCullingCandidates, ERDGAllocationObservation::GPUCullingVisible,
+				ERDGAllocationObservation::GPUCullingArguments, ERDGAllocationObservation::GPUCullingTransforms})
+			{
+				ExtraPolicy.FailedAllocationObservation = static_cast<uint32>(Tag);
+				RenderOffscreen(false, false);
+				ExtraPolicy = {};
+				EXPECT_EQ(*Reference, *RenderOffscreen(false, false));
+				EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GPUCullingDispatchedViews, 1u);
+			}
+			for (const auto Cause : {ERendererResourceInvalidationCause::ShaderChanged,
+				ERendererResourceInvalidationCause::Device, ERendererResourceInvalidationCause::ManualRetry})
+			{
+				Renderer.RequestResourceInvalidation(Cause);
+				FlushRenderingCommands();
+				EXPECT_EQ(*Reference, *RenderOffscreen(false, false));
+				EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GPUCullingDispatchedViews, 1u);
+			}
+			SetGBufferCaptureSink(nullptr);
+			GCullingAttachments = {};
+			GCullingDepthShader = nullptr;
+			GCullingDepthPipeline = nullptr;
+			ExtraOptions = {};
+			bDisableCPUCulling = false;
+		}
 
 		// Each injected raster failure executes the real authored route and must
 		// survive later cloud/sorted stages without becoming a successful publication.

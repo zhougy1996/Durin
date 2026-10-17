@@ -1,5 +1,6 @@
 #include "Renderers/SurfaceMaterial.h"
 #include "Renderers/GBufferRenderer.h"
+#include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/MeshVertexFactory.h"
 
 #include "Renderers/MeshRendererShared.h"
@@ -156,6 +157,8 @@ namespace Durin
 	auto FGBufferRenderer::EnsurePipeline_RenderThread(
 		const FPipelineRequest& Request) -> std::shared_ptr<const FPipeline>
 	{
+		if (Request.bGPUCulling && GetRendererQualificationPolicy().GPUCullingFailure
+			== EGPUCullingFailure::PipelineUnavailable) return nullptr;
 		if (Request.VertexDeclaration == nullptr
 			|| Request.Material.ShaderMap.BlendMode
 				== EMaterialBlendMode::Translucent
@@ -330,6 +333,8 @@ namespace Durin
 
 	auto FGBufferRenderer::EnsureGPUCullingResources_RenderThread() -> bool
 	{
+		if (GetRendererQualificationPolicy().GPUCullingFailure
+			== EGPUCullingFailure::ShaderUnavailable) return false;
 		using FPayload = FState::FGPUCullingPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
 		return State->GPUCulling.Resolve(
@@ -384,6 +389,9 @@ namespace Durin
 		const FRDGShaderParameterScope& GraphShaderParameters) -> bool
 	{
 		check(!CommandList.IsInsideRenderPass());
+		const auto Failure = GetRendererQualificationPolicy().GPUCullingFailure;
+		if (Failure == EGPUCullingFailure::ShaderUnavailable
+			|| Failure == EGPUCullingFailure::CommandAdmission) return false;
 		auto* Payload = State->GPUCulling.GetPayload();
 		if (Payload == nullptr || CandidateCount == 0) return false;
 		FGBufferGPUCullingUniform Uniform;

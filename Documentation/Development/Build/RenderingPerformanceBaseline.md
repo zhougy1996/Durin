@@ -2,7 +2,7 @@
 
 Summary: Define the reproducible RHI, RDG, and Renderer performance qualification selection, measurement ownership, authority, and comparison rules.
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-18
 
 ## Selection
 
@@ -84,6 +84,15 @@ time. Ordinary execution retains correctness checks without repeated sampling.
 Retain work with `DURIN_TEST_KEEP_WORK=1` and record the exact revision, command,
 build/Tracy settings and log/XML alongside each CSV. Debug or nonexclusive runs
 are diagnostic; these fixtures impose no device-independent timing threshold.
+
+The compatible-instance [GBuffer culling path](../../Runtime/Rendering/GBuffer.md#compatible-instance-culling)
+remains explicitly opt-in. Its 64-candidate admission floor is not an automatic
+activation threshold. The 2026-10-18 plan closeout waived complex timing
+qualification and makes no speedup, crossover, independent-queue overlap or
+memory-performance claim. Enabling an automatic policy or expanding into
+multi-draw, bindless grouping, GPU Scene or Hi-Z still requires a separate
+measured justification under this protocol. Native correctness receipts do not
+replace those measurements.
 
 `FVulkanCreationQualificationTests.BindingUpdateAndSubmission` uses the checked
 `DeferredBufferVersions.slang` input for graphics and compute, each with direct

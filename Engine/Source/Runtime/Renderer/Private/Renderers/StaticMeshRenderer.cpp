@@ -871,6 +871,13 @@ namespace Durin
 					if (!PreparePass(Draw, 1u, GBuffer->GetFragmentShader(*Record.GBufferPipeline),
 						GBuffer->GetSurfaceLayout(*Record.GBufferPipeline), Record.GBufferFragmentPassBindings)) return false;
 				}
+				if (Record.GBufferGPUCullingPipeline && (!GBuffer || !PreparePass(Draw, 1u,
+					GBuffer->GetFragmentShader(*Record.GBufferGPUCullingPipeline),
+					GBuffer->GetSurfaceLayout(*Record.GBufferGPUCullingPipeline), Record.GBufferGPUCullingFragmentPassBindings)))
+				{
+					Record.GBufferGPUCullingPipeline.reset();
+					Record.GBufferGPUCullingBindings.reset();
+				}
 				return true;
 			};
 			if (ResolvedView.PersistentCommandsReused[Draw.ResolvedIndex])
@@ -908,6 +915,7 @@ namespace Durin
 				Command->Record.FragmentPassBindings.reset();
 				Command->Record.HybridFragmentPassBindings.reset();
 				Command->Record.GBufferFragmentPassBindings.reset();
+				Command->Record.GBufferGPUCullingFragmentPassBindings.reset();
 				State->DrawCommands.insert_or_assign(CommandKey, FState::FCommandEntry{std::move(Command), ++State->CacheSerial});
 				FState::TrimCache(State->DrawCommands);
 				return true;
@@ -1262,7 +1270,8 @@ namespace Durin
 		if (!BindingGroup.Apply(Pipeline.get(), VertexBindings.get(), FragmentBindings.get(), [&] {
 			if (!GBuffer.BindPipeline_RenderThread(CommandList, *Pipeline, VertexBindings, *FragmentBindings)) return false;
 			if (!bGPUCulling && (!Record.GBufferVertexPassBindings || !Record.GBufferVertexPassBindings->Bind(CommandList))) return false;
-			return Record.GBufferFragmentPassBindings && Record.GBufferFragmentPassBindings->Bind(CommandList);
+			const auto& PassBindings = bGPUCulling ? Record.GBufferGPUCullingFragmentPassBindings : Record.GBufferFragmentPassBindings;
+			return PassBindings && PassBindings->Bind(CommandList);
 		})) return false;
 		Geometry.Bind(CommandList);
 		if (IndirectArguments != nullptr)

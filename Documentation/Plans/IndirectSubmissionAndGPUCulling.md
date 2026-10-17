@@ -2,52 +2,116 @@
 
 Summary: Add validated indirect draw and dispatch commands, then prove them through an opt-in GPU-frustum-culling path for compatible static-mesh instances with deterministic CPU fallback.
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-18
 
 ## Current Status
 
-The RHI already carries an indirect-buffer creation flag and Vulkan maps that
-flag to native indirect-buffer usage, but the public command surface has no
-indirect draw or dispatch operation and `ERHIAccess` has no indirect-argument
-read state. Renderer geometry submission remains direct or directly instanced.
+Completed on 2026-10-18 on Apple M4. The default remains direct rendering;
+compatible opaque and masked GBuffer instance groups have an explicit opt-in.
+The operator waived complex reference/candidate timing, quiet-lane noise checks
+and automatic-threshold measurements. No speedup or measured crossover is
+claimed. The 64-candidate floor and 4 MiB storage ceiling remain structural
+admission rules. Multi-draw, bindless grouping, GPU Scene and Hi-Z have no
+measured trigger and are outside this completed scope. This waiver does not
+close the native-event gate in the separate multi-queue plan.
 
-The prerequisite command ownership, exact buffer transitions, synchronous
-compute, queue-qualified completion, opt-in asynchronous compute, split-barrier
-fallback, RDG parameter-driven dependencies, common geometry batches, render
-performance catalog, and Tracy instrumentation are implemented. This plan does
-not depend on native split-event support: full-barrier lowering must remain a
-correct fallback on MoltenVK and other unsupported devices.
+Closeout repaired three native correctness defects: the Metal constant-buffer
+layout is now the same 80-byte matrix-plus-uint4 ABI as the CPU; GPU graphics
+permutations own their own per-pass fragment bindings; generated and fixed
+vertex entries add `SV_StartInstanceLocation` to relative `SV_InstanceID` before
+addressing each group's visible-index range. Generator revision 15 invalidates
+cached material translation products containing the old entry. The existing
+builder already admitted masked GBuffer groups; the opaque-only Stage 0 wording
+is superseded by native qualification of both opaque and masked groups here.
+Masked shadow, spline, translucent, hit-proxy and editor-assistance passes stay
+direct.
 
-Stage 0 is complete. The first public contract is a stable, single-command
-indirect family; native multi-draw is not part of this plan's API. The selected
-production consumer is the opaque GBuffer static-mesh path and the frozen
-reference workload is `GBufferQualificationTests`. Hardware timing remains an
-open Stage 5 gate, so production selection stays explicitly opt-in.
+Per-view telemetry now publishes asynchronous validated visible/culled counts,
+admission/fallback attribution, exact successful direct/indirect draw totals,
+and both logical RDG assignment and physical queue mapping. Registering a view
+telemetry observer explicitly authors two rooted diagnostic copy passes;
+unobserved rendering adds neither copy nor readback. Queries distinguish
+Pending/Ready/Failed/Canceled from a real zero-visible result. Rendering never
+waits for or uses CPU-visible counts. This replaces the original absolute
+no-readback wording with a no-readback-rendering policy. Graph-wide allocation
+rejection preserves transactional view failure; shader/pipeline/budget and
+pre-record command admission rejection preserve direct fallback.
 
-Stage 1 implementation is complete; all 114 `RHICommandListTests` pass,
-including exact replay, placement, capability, pipeline-state, range, usage,
-and retained-buffer coverage. `VulkanRHIIntegrationTests` also pass on the
-current Apple M4 host. Stage 2 is complete. All 203 `RenderContractTests` pass,
-including exact indirect-range planning, compute-written indexed-draw and
-dispatch replay, cross-queue handoff/fallback planning, extraction,
-cancellation, failure, and retirement coverage.
+### Final acceptance receipts
 
-The Stage 3 core path is implemented through the opt-in production pilot: the
-GBuffer path now forms stable compatible groups, applies the frozen 64-instance
-and 4 MiB admission bounds, performs compute AABB-frustum culling and bounded
-compaction, and consumes exact indexed-indirect and visible-transform ranges.
-The direct path remains the default and handles every excluded or pre-dispatch
-failure case. CPU contract and shader-cook coverage pass on the current host.
-The 20 affected routine binaries and the required shared-API `all` build pass.
-The registered GBuffer qualification fixture also passes on Apple M4 with 64
-compatible instances split between 32 visible and 32 frustum-rejected bounds:
-the direct and indirect paths match byte-for-byte across all four GBuffer
-attachments, and the indirect route reports one compute dispatch, group,
-command, draw, and GPU timestamp. GPU-visible/culled readback telemetry plus the
-remaining Stage 4 parity, failure, lifetime, and stress matrix remain open.
+Tested input is base revision `00644cbe20eb83dd6141c45badf1825f897b26be` plus
+this closeout's source/fixture changes. Exact SHA-256 inputs are retained in
+`Build/Qualification/IndirectCullingFinalInputs.json`. No relevant source,
+fixture, shader or runtime-setting change follows the recorded runs. The
+configuration is `MacOS-arm64-Debug-DurinEditor`, Tracy enabled, application
+tests disabled, Apple M4; Vulkan API 1.3.334, driver `0x28a1`, MoltenVK from
+SDK 1.4.357.0. Native GPU runs used the authorized unsandboxed environment.
+
+- `MetalSceneQualificationTests --mode qualification`: 8/8, including four
+  Metal/Vulkan × inline/threaded culling cases with `MTL_DEBUG_LAYER=1` and
+  `DURIN_VULKAN_VALIDATION=on`; native validation is clean. Each culling case
+  executes 60 submissions: 51 successful outputs and nine deliberate failures.
+  The 12 direct/indirect pairs cover zero/partial/full visibility, conservative
+  camera-boundary bounds, distinct transforms, two opaque/masked groups,
+  nonzero first index/argument offset/first instance, resize/reuse, repeated
+  visibility changes and a 1e12 world origin. All final colors, four GBuffer
+  attachments and sampled D32 bits agree exactly: 48 pairs / 288 outputs.
+- `MetalSceneQualificationTests '*GPUCulling*' --mode qualification`: 4/4
+  with `MTL_DEBUG_LAYER=0` and `DURIN_VULKAN_VALIDATION=off`, the same 48-pair
+  correctness matrix. Each validation setting retains 240 attachment pairs.
+  The validation-on run also has 171/171 identical image/attachment artifacts
+  between replay modes per backend and across the two backends.
+- The scene matrix exercises unavailable compute shader, GPU PSO, metadata
+  budget and command admission, plus candidate/visible/argument/transform
+  allocation failure and next-frame recovery. No observer produces no counter
+  carrier; shader/device/manual resource-generation invalidation reconstructs
+  a working indirect path. Existing raster failures cannot publish later
+  success. Submission/completion cancellation and failure are injected at the
+  supported RHI/RDG contract seams; these are not claims of a destructive
+  physical-device-loss test.
+- `MetalRHIHeadlessTests --mode qualification`: 46/46 with Metal API
+  validation, including native indirect commands, exact completion/ownership,
+  cancellation, readback and shutdown behavior. Full output is retained in
+  `Build/Qualification/IndirectCullingHeadless.log`.
+- `RendererSceneContractTests`: 63/63, including immutable query-state/count
+  validation, indexed argument preservation, 63/64 admission, exact/one-byte-
+  over budget, empty inputs, maximum command groups and group-wise overflow,
+  excluded deformation and translated-origin bounds/transforms.
+- `RendererRDGAllocatorTests`: 11/11; `RenderContractTests`: 227/227;
+  `RHICommandListTests`: 143/143. These retain exact indirect ranges, compute
+  producers, parameter/pipeline/geometry owners, canceled recording, failed
+  submission quarantine, unrelated-queue completion and pool retirement gates.
+- `MaterialCompilerTests`: 93/93; `MaterialCookTests`: 7/7;
+  `RenderShaderCookIntegrationTests`: 1/1. Generated GPU entry and cache identity
+  changes preserve cooked and authored shader consumers.
+- `./DevTool build all` passed for Engine, Sandbox and RoadWeaver. Its receipt
+  is `Build/.agent-state/logs/20261018-075342-726429-60668-cmake.log`.
+  `affected --explain` expanded to all Engine tests because of the shared
+  qualification header. The named owning Renderer/RHI/RDG/material selections
+  above replace unrelated asset/editor/platform tests; native scene cases
+  explicitly cover the opt-in GPU gates excluded by ordinary affected runs.
+
+Native XML receipts use the `IndirectCulling*` prefix under
+`Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/`. Full GPU logs and
+pixels/graph/attachment evidence are retained under
+`Build/Qualification/IndirectCullingValidated.log`,
+`Build/Qualification/IndirectCullingUnvalidated.log`, and
+`Build/Qualification/IndirectCullingValidationOn/` / `IndirectCullingValidationOff/`.
+The headless production scene/RHI fixtures provide current-host correctness
+coverage without enabling unavailable application-hosted wrappers; those
+wrapper target names are not reported as newly executed.
+
+Logical async batches map to the same physical graphics queue on this M4.
+Independent physical compute and native Vulkan events are unavailable, not
+reported as passes. Full-barrier/shared-queue fallbacks pass; the separate
+multi-queue plan retains its hardware gate. Shadows remain an independent
+direct consumer; this pilot does not introduce an indirect shadow-output gate.
+Lasting grouping, ABI, telemetry, fallback and opt-in rules live in the
+[GBuffer contract](../Runtime/Rendering/GBuffer.md#compatible-instance-culling)
+and [performance baseline](../Development/Build/RenderingPerformanceBaseline.md).
 
 ## Goal
 
@@ -434,7 +498,7 @@ arguments.
 - [x] Route only the selected compatible opaque groups through indexed indirect
   draw; retain existing direct execution for every excluded pass, group, and
   failure outcome.
-- [ ] Publish per-view candidate, visible, culled, group, command, byte,
+- [x] Publish per-view candidate, visible, culled, group, command, byte,
   overflow, fallback-reason, queue-assignment, and timing telemetry without
   logging every frame.
 
@@ -450,20 +514,20 @@ Outcome: indirect submission is behaviorally interchangeable with the selected
 direct path within its declared compatibility domain and cannot lose, duplicate,
 or prematurely recycle work.
 
-- [ ] Compare final color, scene depth, every active GBuffer attachment, and any
+- [x] Compare final color, scene depth, every active GBuffer attachment, and any
   selected shadow output for zero, partial, and full visibility; include camera
   boundary and large-world-coordinate cases relevant to current bounds math.
-- [ ] Cover one/many groups, first instance, base vertex, first index, instance
+- [x] Cover one/many groups, first instance, base vertex, first index, instance
   ranges, nonzero argument offsets, exact-capacity and overflow inputs, empty
   buffers, and maximum admitted command counts.
-- [ ] Inject shader, PSO, argument/visible buffer allocation, metadata budget,
+- [x] Inject shader, PSO, argument/visible buffer allocation, metadata budget,
   command admission, submission, completion, resize, and resource-generation
   failures at their supported seams; verify either pre-record direct fallback or
   the established terminal failure outcome.
-- [ ] Exercise inline/threaded RHI, async policy on/off, graphics-queue fallback,
+- [x] Exercise inline/threaded RHI, async policy on/off, graphics-queue fallback,
   available independent queues, validation on/off, repeated pool reuse,
   renderer recovery, and shutdown with pending work.
-- [ ] Verify unrelated completion cannot release candidate, visible, argument,
+- [x] Verify unrelated completion cannot release candidate, visible, argument,
   descriptor, pipeline, or geometry owners needed by an outstanding indirect
   submission.
 - [x] Run the affected registered native selections, required Vulkan GPU
@@ -483,24 +547,22 @@ Outcome: measured evidence selects a bounded production policy or retains an
 honest explicit opt-in, and temporary plan rules move to their owning Runtime
 documents.
 
-- [ ] Compare frozen reference and candidate revisions using the shared
-  performance protocol across selected candidate counts and visibility ratios;
-  keep correctness and timing executions separate.
-- [ ] Record CPU preparation/record/replay, GPU compute/graphics, command,
-  barrier, submission, descriptor/PSO, upload, retained-memory, and retirement
-  observations with adapter, driver, resolution, warm-up, sample count, and
-  instrumentation state.
-- [ ] Select and test an activation threshold only if the measurements support
-  it. Preserve an explicit override and deterministic direct fallback around the
-  threshold.
-- [ ] Decide whether native multi-draw, bindless grouping, GPU Scene/Hi-Z, or
+- [x] Operator-waived on 2026-10-18: complex reference/candidate timing and
+  quiet-lane qualification. Correctness remains independently qualified above.
+- [x] Retain correctness counters, captures, adapter and instrumentation
+  metadata above. Repeated performance/retirement-latency sampling is operator-
+  waived; no performance measurements are synthesized.
+- [x] Retain the default-disabled explicit override and deterministic fallback.
+  Automatic threshold selection is operator-waived and remains disabled; the
+  64-candidate floor is tested as a structural admission rule.
+- [x] Decide whether native multi-draw, bindless grouping, GPU Scene/Hi-Z, or
   transient aliasing has a measured next-step trigger. Do not implement those
   follow-ups in this plan.
-- [ ] Move the accepted command, RDG, geometry grouping, culling, telemetry,
+- [x] Move the accepted command, RDG, geometry grouping, culling, telemetry,
   fallback, and performance-policy contracts into their owning Runtime and
   Development documents; remove any experimental API classification that has
   satisfied its promotion gates.
-- [ ] Validate changed documents and run all-plan validation for completion.
+- [x] Validate changed documents and run all-plan validation for completion.
   Retain valid affected-test, GPU-gate, and required workspace-build receipts
   covering the final relevant inputs under the
   [result reuse policy](AGENTS.md#writing-rules); run missing or invalidated

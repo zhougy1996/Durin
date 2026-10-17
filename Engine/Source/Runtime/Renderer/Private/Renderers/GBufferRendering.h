@@ -39,12 +39,34 @@ namespace Durin
 			-> const FRDGParametersMetadata*;
 	};
 
+	struct FGBufferGPUCullingCopyParameters final
+	{
+		TRDGValueRead<FGBufferPassResult> Completion;
+		FRDGBufferParameter Arguments;
+		FRDGTextureParameter Target;
+		static RENDERER_API auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*;
+	};
+	struct FGBufferGPUCullingReadbackParameters final
+	{
+		FRDGTextureParameter Target;
+		static RENDERER_API auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*;
+	};
+
+	struct FGPUCullingAdmissionDiagnostics final
+	{
+		size_t BelowThresholdCandidates = 0;
+		size_t IncompatibleCandidates = 0;
+		size_t PreparationUnavailableCandidates = 0;
+	};
+
 	RENDERER_API auto BuildGBufferGPUCullingPlan(
 		const FPreparedStaticMeshView& Prepared,
 		const FResolvedStaticMeshView& Resolved,
 		const FSceneView& View,
 		bool bRequested, bool bIndirectDrawSupported,
-		size_t* OutOverflowCandidates = nullptr)
+		size_t* OutOverflowCandidates = nullptr,
+		size_t MaximumGeneratedBytes = FGBufferGPUCullingPlan::MaximumGeneratedBytes,
+		FGPUCullingAdmissionDiagnostics* OutDiagnostics = nullptr)
 		-> std::shared_ptr<FGBufferGPUCullingPlan>;
 
 	struct FGBufferPassParameters final

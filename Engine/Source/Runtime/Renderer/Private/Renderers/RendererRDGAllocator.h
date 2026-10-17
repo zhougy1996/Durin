@@ -24,6 +24,10 @@ namespace Durin
 		VolumetricCloudFragment,
 		VolumetricCloudCompute,
 		VolumetricCloudComposite,
+		GPUCullingCandidates,
+		GPUCullingVisible,
+		GPUCullingArguments,
+		GPUCullingTransforms,
 		Count,
 	};
 

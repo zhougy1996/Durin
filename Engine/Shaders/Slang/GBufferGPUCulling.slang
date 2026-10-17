@@ -11,8 +11,8 @@ struct Candidate
 struct CullingUniform
 {
     float4x4 viewProjection;
-    uint candidateCount;
-    uint3 padding;
+    // One aligned vector has the same 80-byte ABI on SPIR-V and Metal.
+    uint4 candidateCountAndPadding;
 };
 
 [[vk::binding(0, 0)]] StructuredBuffer<Candidate> Candidates;
@@ -25,7 +25,7 @@ struct CullingUniform
 void CullMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     const uint index = dispatchThreadId.x;
-    if (index >= Params.candidateCount)
+    if (index >= Params.candidateCountAndPadding.x)
         return;
 
     const Candidate candidate = Candidates[index];

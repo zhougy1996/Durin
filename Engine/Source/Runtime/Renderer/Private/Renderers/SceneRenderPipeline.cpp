@@ -141,6 +141,24 @@ namespace Durin
 		if (!ExecuteGraph_RenderThread(
 			Graph, CommandList, OutRenderGraphCapture))
 			return ERenderViewResult::RendererResourcesUnavailable;
+		// Report the compiled assignment, independently of the async request bit.
+		if (Telemetry.View.GBuffer.GPUCullingDispatchedViews != 0)
+		{
+			const auto Passes = Graph.GetPasses();
+			for (uint32 Index = 0; Index < Passes.size(); ++Index)
+				if (Passes[Index].Name == "Scene.GBuffer.GPUCulling")
+					for (const auto& Batch : Graph.GetExecutionPlan().Batches)
+						if (Index >= Batch.FirstPass && Index - Batch.FirstPass < Batch.NumPasses)
+						{
+							const auto Queues = GDynamicRHI->RHIGetQueueCapabilities();
+							if (Batch.Queue == ERDGQueueAssignment::AsyncCompute && Queues.Compute != Queues.Graphics)
+								++Telemetry.View.GBuffer.GPUCullingPhysicalComputeQueueViews;
+							else ++Telemetry.View.GBuffer.GPUCullingPhysicalGraphicsQueueViews;
+							if (Batch.Queue == ERDGQueueAssignment::AsyncCompute)
+								++Telemetry.View.GBuffer.GPUCullingScheduledAsyncQueueViews;
+							else ++Telemetry.View.GBuffer.GPUCullingScheduledGraphicsQueueViews;
+						}
+		}
 		if (!Composition.SceneColorPublication.IsSuccess())
 			return Composition.SceneColorPublication.Result;
 		if (Composition.PostProcessPublication.Result

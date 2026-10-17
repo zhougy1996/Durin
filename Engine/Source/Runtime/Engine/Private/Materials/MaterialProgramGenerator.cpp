@@ -600,10 +600,11 @@ VSOutput SplineVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_I
     return EvaluateGeneratedGeometry(GetSplineMeshVertexFactoryIntermediates(input, SplineMesh), MaterialPrimitive);
 }
 [shader("vertex")]
-VSOutput GPUCullingVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID)
+VSOutput GPUCullingVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID,
+    uint firstInstance : SV_StartInstanceLocation)
 {
     return EvaluateGeneratedGeometry(GetLocalVertexFactoryIntermediates(input),
-        InstanceTransforms[VisibleInstances[instanceId]]);
+        InstanceTransforms[VisibleInstances[instanceId + firstInstance]]);
 }
 )";
 		if (StageFilter != EMaterialEvaluationStage::Vertex) OutSource += R"(
