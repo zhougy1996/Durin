@@ -3,7 +3,7 @@
 Summary: Enable the local DurinMCP endpoint and connect Codex or another MCP 2025-06-18 Streamable HTTP client.
 Modules: DurinMCP, DurinPython, MainFrame
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-18
 
 ## Enable the Server
 
@@ -194,21 +194,40 @@ editor launcher requires exclusive checkout ownership.
 
 ## Reproduce SDK Acceptance
 
-The checked-in driver starts the registered native CPU editor host through
-DevTool and uses a test-only token. It does not connect to a production editor.
-From the repository root, install `mcp==2.3.0` into ignored `Build/MCP/site`, then
-run:
+`DevTool mcp sdk-test` is the explicit official SDK interoperability gate. It
+starts a native CPU editor host with a test-only token. No GPU or application
+host is required. Install the pinned SDK into ignored `Build/MCP/site` using
+the prepared Python environment, then run from the repository root.
 
-```powershell
-python -m pip install --target Build/MCP/site 'mcp==2.3.0'
-python Engine/Tests/Native/EngineTests/Scripts/MCPClientSmoke.py
+On macOS:
+
+```sh
+.venv/bin/python -m pip install --upgrade --target Build/MCP/site 'mcp==2.3.0'
+./DevTool mcp sdk-test
 ```
 
-Use `--discovery-only` for discovery alone. The driver retains its native launch
-log in `Build/MCP/sdk-native.log`; ordinary invocation/cancellation regressions
-are registered under `MCPIntegrationTests`. Follow
-[testing guidance](../../Agents/Testing.md) for native selections and reports.
-The full driver verifies PIE calls and both queued and running cancellation.
+On Windows:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install --upgrade --target Build/MCP/site 'mcp==2.3.0'
+.\DevTool.bat mcp sdk-test
+```
+
+The command accepts `--profile` and `--preset` and uses the selected host's
+DevTool launcher to build and run the native host. Missing, incomplete, or
+incorrectly versioned SDK dependencies fail before launch. It retains the native
+log in `Build/MCP/sdk-native.log` and a successful host report in
+`Build/MCP/sdk-native.xml`. Acceptance requires SDK assertions and exactly one
+executed, passing native host case; an empty, disabled, or skipped selection fails.
+
+The native host case `FMCPIntegrationTests.DISABLED_ServesOfficialSDKClient` is
+disabled in ordinary native runs. Only the SDK driver enables it and supplies
+its control environment; enabling it without the driver fails. Ordinary
+invocation/cancellation regressions remain in `MCPIntegrationTests`; follow
+[testing guidance](../../Agents/Testing.md) for selections and reports.
+Run the SDK gate when changing MCP protocol, transport, or cancellation behavior,
+or in a dedicated CI lane. It verifies negotiation, discovery, PIE calls and
+both queued and running cancellation.
 It waits for an opened queued response and a native running marker, rather than
 relying on delays to infer cancellation states. Test markers live in the native
 harness sandbox; they are not production MCP tools or files.

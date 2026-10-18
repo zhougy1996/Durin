@@ -21,6 +21,7 @@ from .commands.core_specs import COMMAND_SPECS as CORE_COMMAND_SPECS
 from .commands.cache_specs import COMMAND_SPEC as CACHE_COMMAND_SPEC
 from .commands.cook_specs import COMMAND_SPEC as COOK_COMMAND_SPEC
 from .commands.documentation_specs import COMMAND_SPEC as DOCUMENTATION_COMMAND_SPEC
+from .commands.mcp_specs import COMMAND_SPEC as MCP_COMMAND_SPEC
 from .commands.specification import CommandSpec
 from .commands.worktree_specs import COMMAND_SPEC as WORKTREE_COMMAND_SPEC
 
@@ -29,6 +30,7 @@ COMMAND_SPECS = (
     *CORE_COMMAND_SPECS,
     SETUP_COMMAND_SPEC,
     *BUILD_COMMAND_SPECS,
+    MCP_COMMAND_SPEC,
     COOK_COMMAND_SPEC,
     CACHE_COMMAND_SPEC,
     ASSET_COMMAND_SPEC,

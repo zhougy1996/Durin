@@ -28,6 +28,11 @@ Dependency preparation follows the same positional selection style:
 --all`. Configuration values are lowercase (`debug`, `release`, `all`); see
 [Third-Party Dependency Preparation](../Build/ThirdPartyBootstrap.md#entry-points).
 
+`mcp sdk-test [--profile PROFILE] [--preset PRESET]` runs the explicit official
+Python SDK interoperability gate against a native CPU editor host, separately
+from ordinary native-test selections. See [SDK acceptance](../../Editor/Guides/LocalMCP.md#reproduce-sdk-acceptance)
+for pinned dependency installation, supported host launchers, and evidence.
+
 ## Preview And Execution
 
 Action commands execute by default. Commands with preview support accept

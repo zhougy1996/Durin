@@ -382,11 +382,14 @@ namespace
 		Host->PrepareForShutdown(); auto Closed = Closing.get(); ASSERT_TRUE(Closed);
 		EXPECT_NE(std::string::npos, Closed->body.find("\"isError\":true")); EXPECT_EQ(1, Calls);
 	}
-	TEST_F(FMCPIntegrationTests, ServesOfficialSDKClient)
+	// Only the explicit SDK acceptance driver enables this host. Ordinary native
+	// runs and CTest discovery keep it disabled rather than reporting a skip.
+	TEST_F(FMCPIntegrationTests, DISABLED_ServesOfficialSDKClient)
 	{
 		const char* Control = std::getenv("DURIN_MCP_SMOKE_CONTROL");
 		const char* PortText = std::getenv("DURIN_MCP_SMOKE_PORT");
-		if (!Control || !PortText) GTEST_SKIP() << "Run the checked-in MCPClientSmoke.py harness for SDK acceptance.";
+		ASSERT_NE(nullptr, Control) << "Use DevTool mcp sdk-test to launch the SDK host.";
+		ASSERT_NE(nullptr, PortText) << "Use DevTool mcp sdk-test to launch the SDK host.";
 		uint16 FixedPort = 0;
 		auto [End, EC] = std::from_chars(PortText, PortText + std::strlen(PortText), FixedPort);
 		ASSERT_EQ(std::errc{}, EC); ASSERT_EQ('\0', *End);

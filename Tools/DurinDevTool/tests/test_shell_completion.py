@@ -121,10 +121,11 @@ def test_shell_passes_live_session_state_to_completion():
     import io
     from durin_dev_tool.shell import run_shell
     repository = RepositoryContext.load(ROOT)
-    read = mock.Mock(side_effect=['preset Win64-Release-DurinEditor', 'exit'])
+    read = mock.Mock(side_effect=['preset 2', 'exit'])
     with mock.patch('durin_dev_tool.shell._interactive_input', return_value=read) as interactive:
         assert run_shell(registry=CommandRegistry(), repository_root=ROOT, repository_context=repository,
                          stdout=io.StringIO(), stderr=io.StringIO()) == 0
     context = interactive.call_args.kwargs
     assert context['repository_context'] is repository
-    assert context['session_state']['build_session'].preset == 'Win64-Release-DurinEditor'
+    session = context['session_state']['build_session']
+    assert session.preset == session.context.profile.presets[1]

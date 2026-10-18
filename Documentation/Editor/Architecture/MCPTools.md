@@ -3,7 +3,7 @@
 Summary: DurinMCP exposes external editor Toolsets and session-owned Python script jobs through authenticated loopback Streamable HTTP.
 Modules: DurinMCP, DurinPython, HTTPServer, DurinEd, MainFrame, Core
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-18
 
 ## Ownership and Entry Points
 
@@ -238,7 +238,10 @@ ownership, limits, Unicode output, runtime sharing and closure over real HTTP.
 `MCPPythonClientSmoke.py` exercises the official SDK against a real editor with
 both UI and MCP Python sessions. `MCPCodecTests` covers the detached wire/schema boundary. `MCPIntegrationTests`
 uses a real listener and CPU editor host to cover admission, dispatch,
-cancellation, errors, and teardown. The checked-in `MCPClientSmoke.py` driver uses
-the official Python SDK 2.3.0 against the same native host. Its explicit SDK host
-case skips when the driver is absent; see [connection setup](../Guides/LocalMCP.md)
-for reproduction. No GPU or application-hosted test is required for these paths.
+cancellation, errors, and teardown. The explicit `DevTool mcp sdk-test` gate uses
+the official Python SDK 2.3.0 against the same native host through the checked-in
+`MCPClientSmoke.py` driver. Its host case is disabled in ordinary native runs and
+explicitly enabled by the driver. Missing SDK prerequisites or a host that does
+not execute and pass fail the gate; see [connection setup](../Guides/LocalMCP.md#reproduce-sdk-acceptance)
+for macOS and Windows reproduction. No GPU or application-hosted test is required
+for these paths.
