@@ -134,6 +134,8 @@ namespace Durin::Mona
 			}
 			if (const std::optional<FIntPoint> PendingExtent = ViewportInfo->TakePendingResize())
 			{
+				// Resize is a main-thread RHI call; retire old draws before replacing their back buffer.
+				if (GRenderingThread) FlushRenderingCommands();
 				GDynamicRHI->RHIResizeViewport(
 					ViewportInfo->ViewportRHI.GetReference(),
 					static_cast<uint32>(PendingExtent->x),

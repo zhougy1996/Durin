@@ -6,6 +6,8 @@
 #include "RHI.h"
 #include "RHIContext.h"
 #include "RenderingThread.h"
+#include "Rendering/MonaRHIRenderer.h"
+#include "Widgets/MWindow.h"
 #include "Runtime/MonaImGui/Private/Backend/ImGuiRHIViewportData.h"
 
 namespace Durin
@@ -34,7 +36,11 @@ namespace Durin
 			auto RHISubmitCommands() -> void override {}
 			auto RHIGetDefaultContext() -> IRHICommandContext* override { return this; }
 			auto RHICreateViewport(const FRHIViewportCreateInfo&) -> FViewportRHIRef override { return {}; }
-			auto RHIResizeViewport(FRHIViewport*, uint32, uint32, bool) -> void override {}
+			auto RHIResizeViewport(FRHIViewport*, uint32, uint32, bool) -> void override
+			{
+				++ResizeCount;
+				if (OnResize) OnResize();
+			}
 			auto RHIGetViewportBackBuffer(FRHIViewport*) -> FTextureRHIRef override { return {}; }
 			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&)
 				-> FGraphicsPipelineStateRHIRef override { return {}; }
@@ -96,6 +102,8 @@ namespace Durin
 			uint32 TransitionCount = 0;
 			uint32 UploadCount = 0;
 			uint32 GPUIdleCount = 0;
+			uint32 ResizeCount = 0;
+			std::function<void()> OnResize;
 			bool bCreatedOnRenderThread = true;
 			bool bFailCreation = false;
 		};
@@ -173,6 +181,46 @@ namespace Durin
 		EXPECT_EQ(RHI.CreationCount, 2u);
 		EXPECT_EQ(RHI.TransitionCount, 1u);
 		EXPECT_EQ(RHI.GPUIdleCount, 0u);
+	}
+
+	TEST_F(FSceneViewportResourceTests, MonaResizeDrainsEarlierFramesBeforeReplacingTheTarget)
+	{
+		class FWindowViewport final : public FRHIViewport
+		{
+		public:
+			auto GetBackBuffer(FRHICommandListImmediate&) -> FTextureRHIRef override { return {}; }
+			auto GetFormat() const -> EPixelFormat override { return EPixelFormat::SRGBA8_UNORM; }
+		};
+		MWindow Window;
+		Mona::FMonaRHIRenderer Renderer(false);
+		auto* Info = new Mona::FMonaViewportInfo();
+		Info->ViewportRHI = new FWindowViewport();
+		Info->SubmittedExtent = {1000, 680};
+		Info->QueueResize({900, 600});
+		Renderer.WindowToViewportInfoMap.emplace(&Window, Info);
+		std::promise<void> Release;
+		auto Ready = Release.get_future().share();
+		std::atomic<bool> Consumed{false};
+		bool bResizeAfterPriorFrame = false;
+		RHI.OnResize = [&] { bResizeAfterPriorFrame = Consumed.load(); };
+		ENQUEUE_RENDER_COMMAND(ConsumePreResizeWindowFrame)([Ready, &Consumed](FRHICommandListImmediate&) {
+			Ready.wait();
+			Consumed = true;
+		});
+		std::jthread Unblock([&Release] {
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			Release.set_value();
+		});
+		Renderer.PrepareViewportForDraw(Window);
+		EXPECT_TRUE(bResizeAfterPriorFrame);
+		EXPECT_EQ(RHI.ResizeCount, 1u);
+		Info->QueueResize({900, 600});
+		Renderer.PrepareViewportForDraw(Window);
+		EXPECT_EQ(RHI.ResizeCount, 1u);
+		EXPECT_EQ(RHI.GPUIdleCount, 0u);
+		Unblock.join();
+		FlushRenderingCommands();
+		RHI.OnResize = {};
 	}
 
 	TEST_F(FSceneViewportResourceTests, ImGuiWindowDestructionDrainsBorrowedDrawSnapshots)

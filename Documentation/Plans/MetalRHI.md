@@ -106,6 +106,12 @@ The implemented policy is owned by
 The bounded Stage 1/4 receipt below does not close the broader lifecycle,
 image-parity, cooked-game, or Release performance gates.
 
+The subsequent Mona resize repair closes the reproduced secondary-window shrink
+assertion in the normal Debug Editor. Mona drains older render/RHI work before
+the existing main-thread resize call; MetalRHI's dependency graph and API remain
+unchanged. The broader validation-enabled Editor gate remains open because
+`IconStyle` triggers a separate 16-byte/32-byte buffer-size validation failure.
+
 [Portable shader binding layouts](PortableShaderBindingLayouts.md) implemented
 target-format extraction, generic owned artifacts, and prepared Metal binding
 operations in `52b90de28`, `47689c4c7`, and `f8a6d837c`. Common RHI no longer
@@ -141,6 +147,48 @@ startup/ownership contract is in
 Historical receipts below retain the revision and scope at which they were
 recorded; they are not current support declarations. Later evidence supersedes
 older notes about ARC, two render targets, Vulkan defaults and missing sky lighting.
+
+2026-10-18 Mona resize follow-up, base `51d461152` plus the resize barrier and
+ordering regression, on the same M4/macOS/Xcode Debug/Tracy host:
+
+- Root cause: `PrepareViewportForDraw()` calls the main-thread resize interface
+  while older render commands may still be queued. Metal replaces its back buffer
+  immediately; an older ImGui snapshot for `1000x680` can then bind a `900x600`
+  target. Vulkan already queues its resize through RenderThread/RHI. The repair
+  keeps ordering in Mona, which already owns RenderCore, by draining older work
+  only when it consumes a new pending extent. No backend dependency, public API,
+  ImGui scaling workaround, or GPU-idle wait is introduced.
+- Actual Editor log `20261018-163314-351863-74853-DurinEditor.log` under
+  `Build/.agent-state/logs/` passes all 13 native-window phases: primary/secondary
+  shrink and growth, VSync toggles, up to three windows, eight simultaneous resize
+  rounds with synchronization off and eight with it on, close/recreate, and normal
+  shutdown. Temporary geometry diagnostics report zero snapshot/target extent
+  mismatches. This uses native application APIs in the real Editor, not manual
+  mouse-driven gesture acceptance or a performance baseline.
+- `./DevTool test affected --report Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/MonaResize.xml`
+  passes InputActionTests, MonaViewportTests and ViewportTests. The new
+  `FSceneViewportResourceTests.MonaResizeDrainsEarlierFramesBeforeReplacingTheTarget`
+  case fails with the barrier removed and passes independently after restoration
+  (`MonaResizeBefore.xml` / `MonaResizeAfter.xml` in the same report directory).
+  It checks old-frame consumption precedes backend resize, duplicate extents
+  do not resize again, and no GPU-idle call is introduced. The affected receipt
+  and real Editor run apply to the final identical source; temporary probes do
+  not change the resize implementation.
+- After probe removal, the normal MainFrame build and 120-tick Editor smoke pass
+  (`20261018-163651-409511-76343-cmake.log` and
+  `20261018-163704-245920-76570-DurinEditor.log`). Original Editor settings are
+  restored byte-for-byte. Final MetalRHI dylib dependencies remain Core, RHI and
+  ShaderFormat, with no RenderCore dependency.
+- The separate `MTL_DEBUG_LAYER=1` Editor run fails before resize in
+  `20261018-162300-886569-71637-DurinEditor.log`: `IconStyle` supplies 16 bytes while
+  the shader requires 32. This is retained as a failed validation lane, not counted
+  as window-lifecycle acceptance. The normal Debug run retains the engine's strict
+  viewport/scissor checks. The buffer-size issue is outside this resize repair.
+- Raw diagnostic sources, source hashes, original settings, test reports and
+  failure receipts are retained under ignored
+  `Build/.agent-state/imgui-resize-20261018/`. Temporary Editor/ImGui probes are
+  removed from the final source. The owning contract is
+  [viewport resize ordering](../Runtime/Rendering/ViewportRendering.md#output-policies).
 
 2026-10-18 bounded Stage 1/4 receipt, base `d33a3634d` plus the fixed-capacity
 viewport/test change, Apple M4, macOS 27.0.1 (26A434), Xcode 26.6 (17F113), macOS

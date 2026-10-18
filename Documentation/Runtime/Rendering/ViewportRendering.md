@@ -93,9 +93,14 @@ evidence and the unresolved private display policy are recorded in the
 Window resize follows a request/prepare boundary. Platform framebuffer callbacks
 overwrite the window's latest pending extent without enqueueing RHI work. Immediately
 before a scene or ImGui window submits its draw, `PrepareViewportForDraw()` consumes
-that extent and queues `RHIResizeViewport()` ahead of the draw and present commands.
-An accessor never resizes a viewport, and intermediate native sizes do not accumulate
-as render commands.
+that extent. When RenderThread is active, Mona drains previously accepted render
+and RHI commands before calling the main-thread `RHIResizeViewport()` interface.
+This keeps older ImGui draw snapshots paired with their original back buffer even
+when a backend, such as Metal, replaces that buffer immediately. The barrier runs
+only for a new extent; ordinary frames and duplicate sizes do not add a wait, and
+no GPU-idle wait is added. An accessor never resizes a viewport, and intermediate
+native sizes do not accumulate as render commands. Backend modules do not acquire
+a RenderCore dependency for this ordering guarantee.
 
 On Windows, the native move/resize modal loop continues to request engine frames on
 its timer. Each modal continuation drains its render and RHI work before returning to

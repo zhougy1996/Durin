@@ -609,5 +609,9 @@ Raw test logs, temporary diagnostic sources, fingerprints and runtime phase
 summaries are retained under ignored
 `Build/.agent-state/metal-two-drawables-editor-20261018/`. The production change
 only sets capacity at viewport creation; policy switches still change only
-`displaySyncEnabled`. The secondary resize failure remains a separate lifecycle
-qualification gap and is not concealed by the passing presentation-policy cases.
+`displaySyncEnabled`. The secondary resize failure from that run was repaired by
+the subsequent Mona ordering change recorded in the plan's follow-up receipt:
+older render/RHI work is drained before the main-thread resize call. The final
+normal Debug Editor completes all 13 window phases with no extent mismatch.
+Manual gesture coverage and the separate validation-enabled `IconStyle` buffer
+failure remain open; neither changes the drawable-pacing attribution above.
