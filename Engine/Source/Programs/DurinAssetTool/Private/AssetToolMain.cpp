@@ -3,6 +3,7 @@
 #include "Profiling/Profiling.h"
 #include "Asset/PackageSerialization.h"
 #if DURIN_WITH_EDITOR
+#include "DerivedDataCache/DerivedDataCacheDiagnostics.h"
 #include "AssetTools/IAssetTools.h"
 #include "Materials/DefaultMaterialService.h"
 #include "AssetForge/Builtins/StandardMaterialFunctions.h"
@@ -967,6 +968,9 @@ int main(int ArgC, char** ArgV)
 			Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
 			Durin::ShutdownAssetManager();
 			Durin::CollectGarbage();
+#if DURIN_WITH_EDITOR
+			Durin::DerivedData::LogCacheDiagnostics();
+#endif
 		}
 	} EditorServices;
 #if DURIN_WITH_EDITOR

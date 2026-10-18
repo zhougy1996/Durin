@@ -18,7 +18,7 @@ durin_add_native_test(TextureTests
 		Private/Texture/SingleAssetImportTests.cpp
 		Private/Texture/EquirectangularTextureCubeTests.cpp
 		Private/TextureCubeTests.cpp
-	INCLUDE_DIRECTORIES ${_durin_texture_test_include_directories}
+	INCLUDE_DIRECTORIES "${DURIN_PROJECT_SOURCE_DIR}/Developer/DerivedDataCache/Private" ${_durin_texture_test_include_directories}
 	LIBRARIES ${_durin_texture_test_libraries} DerivedDataCache bc7enc_rdo::bc7enc_rdo
 	HEAVY_RUNTIME_RATIONALE "Exercises editor texture import, build, cache, and render-resource contracts."
 	DATA_DIRECTORIES "${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport" "${CMAKE_CURRENT_SOURCE_DIR}/Data"

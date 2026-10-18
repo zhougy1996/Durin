@@ -240,3 +240,20 @@ TEST(FBuildExecutionTests, QueuedProducerUsesOnePreparationAndSkipsProductionOnW
 	EXPECT_EQ(H.Function->Builds, 1u);
 	EXPECT_EQ(H.Cache->Puts, 1u);
 }
+
+TEST(FBuildExecutionTests, EarlyInlineResultsAndWarmNegativeHitsRemainEquivalent)
+{
+	for (bool Negative : {false, true})
+	{
+		FHarness H; H.Function->Fail = Negative;
+		FBuildRequestOptions Options; Options.Policy.ResultDelivery = EBuildResultDelivery::BeforePersistence;
+		auto Cold = H.Run(Options), Warm = H.Run(Options);
+		EXPECT_EQ(Cold.GetStatus(), Negative ? EStatus::Error : EStatus::Ok);
+		EXPECT_EQ(Warm.GetStatus(), Cold.GetStatus());
+		ASSERT_TRUE(Cold.GetOutput()); ASSERT_TRUE(Warm.GetOutput());
+		EXPECT_EQ(H.Function->Builds, 1u); EXPECT_EQ(H.Cache->Puts, 1u); EXPECT_EQ(H.Resolver->Resolves, 1u);
+		EXPECT_TRUE(HasBuildExecutionFlag(Warm.GetExecutionFlags(), EBuildExecutionFlags::CacheQueryHit));
+		EXPECT_EQ(Cold.GetOutput()->GetValues().size(), Warm.GetOutput()->GetValues().size());
+		if (!Negative) EXPECT_EQ(Cold.GetOutput()->GetValues()[0].Value.GetRawHash(), Warm.GetOutput()->GetValues()[0].Value.GetRawHash());
+	}
+}

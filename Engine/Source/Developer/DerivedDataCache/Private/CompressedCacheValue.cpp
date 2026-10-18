@@ -15,11 +15,12 @@ namespace Durin::DerivedData
 	}
 
 	auto FCompressedCacheValue::Compress(const FValue& Value, uint64 MaximumEncodedBytes,
-		uint64 MaximumWorkingBytes) -> std::expected<FCompressedCacheValue, FCacheError>
+		uint64 MaximumWorkingBytes, uint64* WorkingBytes) -> std::expected<FCompressedCacheValue, FCacheError>
 	try
 	{
 		if (!Value.HasData() || Value.GetRawHash().IsZero())
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Compression requires resident value data."});
+		if (WorkingBytes) *WorkingBytes = 0;
 		const uint64 RawSize = Value.GetRawSize();
 		if (MaximumEncodedBytes < EnvelopeBytes || MaximumWorkingBytes < EnvelopeBytes) return TooLarge();
 		FByteBuffer Compressed;
@@ -31,6 +32,7 @@ namespace Durin::DerivedData
 		if (RawSize >= 256 && !ZSTD_isError(ContextBytes) && ContextBytes <= MaximumWorkingBytes - EnvelopeBytes
 			&& CandidateBytes <= (MaximumWorkingBytes - EnvelopeBytes - ContextBytes) / 2)
 		{
+			if (WorkingBytes) *WorkingBytes = CandidateBytes + ContextBytes;
 			Compressed.resize(CandidateBytes);
 			const auto Size = ZSTD_compress(Compressed.data(), Compressed.size(), Payload.data(), Payload.size(), 3);
 			if (!ZSTD_isError(Size) && Size < RawSize)
@@ -42,6 +44,7 @@ namespace Durin::DerivedData
 		const uint64 Scratch = UseCompression ? CandidateBytes : 0;
 		if (Payload.size() > MaximumEncodedBytes - EnvelopeBytes || Scratch > MaximumWorkingBytes - EnvelopeBytes
 			|| Payload.size() > MaximumWorkingBytes - EnvelopeBytes - Scratch) return TooLarge();
+		if (WorkingBytes) *WorkingBytes = std::max(*WorkingBytes, Scratch + Payload.size() + EnvelopeBytes);
 		FBinaryWriter W({.MaximumTotalBytes = MaximumEncodedBytes}); W.Reserve(Payload.size() + EnvelopeBytes);
 		W.WriteHeader({BlobMagic, 1, uint32(UseCompression)});
 		W.WriteHash128(Value.GetRawHash()); W.WriteU64(RawSize); W.WriteU64(Payload.size()); W.WriteBytes(Payload);

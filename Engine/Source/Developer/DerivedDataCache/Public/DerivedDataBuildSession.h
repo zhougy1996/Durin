@@ -25,6 +25,8 @@ namespace Durin::DerivedData
 		FBuildRequest() = default;
 		DERIVEDDATACACHE_API auto RequestCancel() const -> bool;
 		DERIVEDDATACACHE_API auto Cancel() const -> bool;
+		// Result notification may precede retirement when explicitly requested.
+		DERIVEDDATACACHE_API auto IsResultReady() const -> bool;
 		DERIVEDDATACACHE_API auto IsComplete() const -> bool;
 		DERIVEDDATACACHE_API auto Wait() const -> ERequestWaitResult;
 	private:

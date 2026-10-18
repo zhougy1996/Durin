@@ -15,13 +15,14 @@ namespace Durin::DerivedData
 		uint64 DecodedBytes = 0;
 		uint64 PeakWorkingSetBytes = 0;
 		uint64 DurationNanoseconds = 0;
+		// Distinct requested blobs resolved; coalesced reads can charge zero ReadBytes.
 		uint32 ValuesRead = 0;
 	};
 	struct FCacheGetRequest
 	{
 		FCacheKey Key;
 		FBuildOutputLimits OutputLimits;
-		// Manifest plus each requested blob, including repeated references.
+		// Manifest plus each distinct requested blob identity and raw size.
 		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
 		// Retained payload/codec storage; excludes descriptor and allocator overhead.
 		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
@@ -36,6 +37,16 @@ namespace Durin::DerivedData
 
 	using FCacheGetResult = std::expected<std::optional<FCacheRecord>, FCacheError>;
 
+	struct FCacheStoreStats
+	{
+		// Successful physical I/O and per-identity codec calls. Peak covers retained
+		// inputs plus blob verification/encoding after manifest construction; it
+		// excludes transient CB assembly, which has a separate workspace preflight.
+		uint64 ReadBytes = 0, WrittenBytes = 0, CompressedBytes = 0;
+		uint64 PeakWorkingSetBytes = 0;
+		uint32 BlobsReused = 0, BlobsCompressed = 0, BlobsWritten = 0;
+	};
+
 	struct FCachePutRequest
 	{
 		FCacheRecord Record;
@@ -44,6 +55,8 @@ namespace Durin::DerivedData
 		uint64 MaximumRawBytes = 2ull * 1024 * 1024 * 1024;
 		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;
 		std::function<bool()> ShouldCancel;
+		// Borrowed only by synchronous Put; async dispatch does not retain this pointer.
+		FCacheStoreStats* Stats = nullptr;
 	};
 
 	using FCachePutResult = std::expected<void, FCacheError>;

@@ -22,6 +22,9 @@ from durin_dev_tool.worktree import transactions as worktree_transactions
 
 
 COMMAND_CASES = (
+    (("cache", "inspect"), "cache inspect --root Build/DDC"),
+    (("cache", "verify"), "cache verify --root Build/DDC"),
+    (("cache", "clear"), "cache clear --root Build/DDC"),
     (("help",), "help"),
     (("shell",), "shell"),
     (("setup",), "setup"),
@@ -75,6 +78,7 @@ COMMAND_CASES = (
 )
 
 EXPECTED_COMMAND_PATHS = {
+    ("cache",), ("cache", "inspect"), ("cache", "verify"), ("cache", "clear"),
     ("help",),
     ("shell",),
     ("setup",),

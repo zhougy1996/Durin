@@ -12,6 +12,7 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Asset/OfflinePreparation.h"
+#include "DerivedDataCache/DerivedDataCacheDiagnostics.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
@@ -458,10 +459,30 @@ TEST_F(FCookFunctionalTests, PreparationCannotAddAnUnpreparedPersistentObject)
 TEST_F(FCookFunctionalTests, MultipleMeshesProduceIdenticalBytesAcrossAdmissionBudgets)
 {
 	const auto Fixture = Testing::CreateTestFixtureDirectory("CookMeshBudgets");
+	struct FRestoreCacheRoot
+	{
+		std::string Previous = FPaths::DerivedDataCacheDir();
+		~FRestoreCacheRoot() { FPaths::SetDerivedDataCacheDirForTests(Previous); }
+	} RestoreCacheRoot;
+	const auto CacheRoot = Fixture / "DerivedDataCache";
+	FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
+	const auto Counters = [](std::string_view Name) {
+		for (const auto& Bucket : DerivedData::GetCacheDiagnostics().Buckets)
+			if (Bucket.Bucket == Name) return Bucket.Counters;
+		return DerivedData::FCacheDiagnosticCounters{};
+	};
 	Testing::FScopedMountRegistryFixture Mounts;
 	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
 	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/MeshBudgets", Path));
 	auto* Package = CreatePackage(Path);
+	struct FBodyState
+	{
+		DBodySetup* Body;
+		uint64 Revision, BuildRevision, RequestGeneration;
+		EPhysicsMeshBuildStatus Status;
+		std::optional<std::string> Error;
+	};
+	std::vector<FBodyState> BodyStates;
 	for (uint32 Index = 0; Index < 3; ++Index) {
 		auto* Mesh = NewObject<DStaticMesh>(Package, FName(std::format("Mesh{}", Index)));
 		FMeshDescription Geometry; Geometry.PolygonGroups.push_back({"Material", 0, "Material"});
@@ -473,23 +494,77 @@ TEST_F(FCookFunctionalTests, MultipleMeshesProduceIdenticalBytesAcrossAdmissionB
 		*DStaticMesh::StaticClass()->FindPropertyByName("MaterialSlots")->ContainerPtrToValuePtr<std::vector<FMeshMaterialSlotDefinition>>(Mesh) = {{.Name = "Material"}};
 		if (Index) {
 			auto* Body = NewObject<DBodySetup>(Mesh, "BodySetup");
-			Body->SetCollisionSourceMode(Index == 1 ? EBodySetupCollisionSourceMode::ConvexHullFromLOD0 : EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 			ASSERT_TRUE(Mesh->SetBodySetup(Body));
+			// Initialize stored settings without scheduling an editor collision build.
+			*DBodySetup::StaticClass()->FindPropertyByName("CollisionSourceMode")->ContainerPtrToValuePtr<EBodySetupCollisionSourceMode>(Body) =
+				Index == 1 ? EBodySetupCollisionSourceMode::ConvexHullFromLOD0 : EBodySetupCollisionSourceMode::TriangleMeshFromLOD0;
+			ASSERT_FALSE(Body->GetResidentSimpleGeometry());
+			ASSERT_FALSE(Body->GetResidentComplexGeometry());
+			BodyStates.push_back({Body, Body->GetRevision(), Body->GetCollisionBuildRevision(),
+				Body->GetPhysicsMeshRequestGeneration(), Body->GetPhysicsMeshBuildStatus(), Body->GetPhysicsMeshBuildError()});
 		}
 	}
 	FAssetPackageSerializationOptions Options{.Domain = EAssetPackageSaveDomain::Cooked,
 		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	Package->ClearDirty();
+	FByteBuffer AuthoredBefore;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Package, AuthoredBefore));
+	const auto CheckAssetState = [&] {
+		FByteBuffer AuthoredAfter;
+		ASSERT_TRUE(SerializeAssetPackageBytes(Package, AuthoredAfter));
+		EXPECT_EQ(AuthoredBefore, AuthoredAfter);
+		EXPECT_FALSE(Package->IsDirty());
+		for (const auto& State : BodyStates) {
+			EXPECT_EQ(State.Body->GetRevision(), State.Revision);
+			EXPECT_EQ(State.Body->GetCollisionBuildRevision(), State.BuildRevision);
+			EXPECT_EQ(State.Body->GetPhysicsMeshRequestGeneration(), State.RequestGeneration);
+			EXPECT_EQ(State.Body->GetPhysicsMeshBuildStatus(), State.Status);
+			EXPECT_EQ(State.Body->GetPhysicsMeshBuildError(), State.Error);
+			EXPECT_FALSE(State.Body->GetResidentSimpleGeometry());
+			EXPECT_FALSE(State.Body->GetResidentComplexGeometry());
+		}
+		for (auto* Object : Package->GetTopLevelAssets()) {
+			auto* Mesh = Cast<DStaticMesh>(Object); ASSERT_NE(Mesh, nullptr);
+			EXPECT_FALSE(Mesh->GetCookedRenderData().HasData());
+			EXPECT_FALSE(Mesh->GetCookedCollisionData().HasData());
+			EXPECT_EQ(Mesh->GetRenderData(), nullptr);
+		}
+	};
+	const auto Before = Counters("StaticMesh");
+	const auto CollisionBefore = Counters("StaticMeshCollision");
 	FByteBuffer Concurrent, Sequential;
 	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Concurrent, Options));
+	CheckAssetState();
+	const auto Cold = Counters("StaticMesh");
+	EXPECT_GT(Cold.Misses, Before.Misses);
+	EXPECT_GT(Cold.Puts, Before.Puts);
+	EXPECT_GT(Cold.WrittenBytes, Before.WrittenBytes);
+	const auto CollisionCold = Counters("StaticMeshCollision");
+	// The convex and triangle modes each build and persist an independent record.
+	EXPECT_EQ(CollisionCold.Misses - CollisionBefore.Misses, 2u);
+	EXPECT_EQ(CollisionCold.BuildFallbacks - CollisionBefore.BuildFallbacks, 2u);
+	EXPECT_EQ(CollisionCold.Puts - CollisionBefore.Puts, 2u);
+	EXPECT_GT(CollisionCold.WrittenBytes, CollisionBefore.WrittenBytes);
+	EXPECT_EQ(CollisionCold.StoreFailures, CollisionBefore.StoreFailures);
+	const auto ColdCache = Inventory(CacheRoot);
 	Options.MaximumConcurrentPreparation = 1;
 	ASSERT_TRUE(SerializeAssetPackageBytes(Package, Sequential, Options));
+	CheckAssetState();
+	const auto Warm = Counters("StaticMesh");
+	EXPECT_GT(Warm.Gets, Cold.Gets);
+	EXPECT_EQ(Warm.Gets - Cold.Gets, Warm.Hits - Cold.Hits);
+	EXPECT_EQ(Warm.Misses, Cold.Misses);
+	EXPECT_EQ(Warm.BuildFallbacks, Cold.BuildFallbacks);
+	EXPECT_EQ(Warm.Puts, Cold.Puts);
+	const auto CollisionWarm = Counters("StaticMeshCollision");
+	EXPECT_EQ(CollisionWarm.Gets - CollisionCold.Gets, 2u);
+	EXPECT_EQ(CollisionWarm.Hits - CollisionCold.Hits, 2u);
+	EXPECT_EQ(CollisionWarm.Misses, CollisionCold.Misses);
+	EXPECT_EQ(CollisionWarm.BuildFallbacks, CollisionCold.BuildFallbacks);
+	EXPECT_EQ(CollisionWarm.Puts, CollisionCold.Puts);
+	EXPECT_EQ(CollisionWarm.WrittenBytes, CollisionCold.WrittenBytes);
+	EXPECT_EQ(Inventory(CacheRoot), ColdCache);
 	EXPECT_EQ(Concurrent, Sequential);
-	for (auto* Object : Package->GetTopLevelAssets()) {
-		auto* Mesh = Cast<DStaticMesh>(Object); ASSERT_NE(Mesh, nullptr);
-		EXPECT_FALSE(Mesh->GetCookedRenderData().HasData());
-		EXPECT_FALSE(Mesh->GetCookedCollisionData().HasData());
-		EXPECT_EQ(Mesh->GetRenderData(), nullptr);
-	}
 }
 
 TEST_F(FCookFunctionalTests, MaterialVariantsOverlapAndShuffledDeliveryKeepsMixedPackageBytes)

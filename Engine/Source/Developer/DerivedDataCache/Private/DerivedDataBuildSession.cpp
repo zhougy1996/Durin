@@ -3,6 +3,7 @@
 #include "DerivedDataCache/DerivedDataCacheAsync.h"
 #include "Logging/LogMacros.h"
 #include "RequestOwnerPrivate.h"
+#include "CacheDiagnosticsPrivate.h"
 
 namespace Durin::DerivedData
 {
@@ -62,6 +63,23 @@ namespace Durin::DerivedData
 			std::weak_ptr<FBuildSessionState> Owner;
 			std::shared_ptr<FRequestData> Data;
 			FBuildCompletionCallback Callback;
+			bool ResultReady = false;
+
+			auto Deliver(FBuildCompleteParams Completion) -> void
+			{
+				const bool bCancelled = Cancellation.IsCancelled();
+				auto Session = Owner.lock();
+				FRequestOwnerScope Scope(Group.get(), this, Session.get());
+				FBuildCompletionCallback Notify;
+				{
+					std::lock_guard Lock(Mutex);
+					if (ResultReady) return;
+					if (bCancelled || Cancellation.IsCancellationRequested()) Completion = FBuildCompletionAccess::Canceled(std::move(Completion));
+					if (Completion.GetStatus() == EStatus::Canceled) Cancellation.Cancel();
+					ResultReady = true; Notify = std::exchange(Callback, {});
+				}
+				try { if (Notify) Notify(std::move(Completion)); } catch (...) {}
+			}
 
 			auto Finish(FBuildCompleteParams Completion) -> void
 			{
@@ -75,7 +93,7 @@ namespace Durin::DerivedData
 					State = ERequestState::Completing;
 					if (bCancelled || Cancellation.IsCancellationRequested()) Completion = Private::FBuildCompletionAccess::Canceled(std::move(Completion));
 					if (Completion.GetStatus() == EStatus::Canceled) Cancellation.Cancel();
-					Notify = std::move(Callback);
+					ResultReady = true; Notify = std::exchange(Callback, {});
 					Retired = std::move(Data);
 				}
 				Complete([&] {
@@ -164,9 +182,12 @@ namespace Durin::DerivedData
 						: std::expected<FBuildOutput, FCacheError>(std::unexpected(FCacheError{
 							ECacheError::Corrupt, "Cache output schema does not match the build function."}));
 					if (Output) { Work.reset(); Finish(FBuildCompletionAccess::Ok(std::move(*Output), Key, EBuildExecutionFlags::CacheQueryHit)); return; }
+					Private::ObserveCache(Key, (**Result).GetSchema() != Function.OutputType || (**Result).GetSchemaVersion() != Function.OutputSchema
+						? Private::ECacheObservation::SchemaRejected : Private::ECacheObservation::RecordRejected);
 					Result = std::unexpected(std::move(Output.error()));
 				}
 				if (!Result) CacheFailure("read", Result.error());
+				if (Work->Options.Policy.BuildLocal) Private::ObserveCache(Key, Private::ECacheObservation::Fallback);
 				Work.reset(); ContinueLocal();
 			}
 			catch (...) { InfrastructureFailure(); }
@@ -179,6 +200,8 @@ namespace Durin::DerivedData
 				const auto Policy = Work->Options.Policy;
 				Work->LocalCompletion = std::move(Completion);
 				auto Record = FCacheRecord::FromOutput(*Work->LocalCompletion->GetCacheKey(), *Work->LocalCompletion->GetOutput(), Policy.PersistenceLimits);
+				if (Policy.ResultDelivery == EBuildResultDelivery::BeforePersistence)
+					Deliver(*Work->LocalCompletion);
 				if (!Record) { Work.reset(); ReceiveStore(std::unexpected(std::move(Record.error()))); return; }
 				const std::array Requests{FCachePutRequest{std::move(*Record), Policy.MaximumEncodedBytes, Policy.OutputLimits.MaximumTotalBytes, Policy.MaximumWorkingSetBytes,
 					[Cancel = Work->Options.Cancellation] { return Cancel.IsCancelled(); }}};
@@ -429,6 +452,11 @@ namespace Durin::DerivedData
 	auto FBuildRequest::Wait() const -> ERequestWaitResult
 	{ return State ? State->Wait() : ERequestWaitResult::InvalidRequest; }
 
+	auto FBuildRequest::IsResultReady() const -> bool
+	{
+		if (!State) return false;
+		std::lock_guard Lock(State->Mutex); return State->ResultReady;
+	}
 	auto FBuildRequest::IsComplete() const -> bool
 	{
 		if (!State) return false;
@@ -465,6 +493,8 @@ namespace Durin::DerivedData
 			{
 				std::lock_guard Lock(Owner->Mutex);
 				if (Owner->Closed) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::Closed, "Build session is closed."});
+				if (Options.Policy.ResultDelivery > EBuildResultDelivery::BeforePersistence)
+					return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Invalid result delivery policy."});
 				if (!Completion) return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Build completion callback is missing."});
 				if (Inputs.IsValid() && Options.InputResolver)
 					return std::unexpected(FBuildAdmissionError{EBuildAdmissionReason::InvalidRequest, "Build inputs and a request resolver are mutually exclusive."});

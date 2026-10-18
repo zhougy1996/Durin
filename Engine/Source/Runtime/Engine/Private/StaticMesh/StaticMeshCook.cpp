@@ -191,7 +191,6 @@ namespace Durin
 			std::optional<FStaticMeshBuildRequest> Request;
 			if (Mesh.GetSource().IsValid()) {
 				Request.emplace(FStaticMeshBuildRequest{.Settings = MakeStaticMeshBuildSettings(Mesh.GetMaterialSlots(), Mesh.GetNormalizedSize()), .Source = Mesh.GetSource()});
-				Request->bPersistDerivedData = false;
 				Request->Source.ReleaseGeometry();
 			}
 #endif
@@ -210,7 +209,7 @@ namespace Durin
 			if (HasCollision) {
 				auto Captured = Mesh.CreatePhysicsMeshInputTask();
 				if (!Captured) return std::unexpected(Captured.error());
-				Physics = std::move(*Captured); CookInfo = Body->GetCookInfo({}, false);
+				Physics = std::move(*Captured); CookInfo = Body->GetCookInfo({});
 				if (Physics->GetWorkingSetBytes() > Control.MaximumWorkingSetBytes)
 					return std::unexpected("Cook physics input exceeds its reservation.");
 			}

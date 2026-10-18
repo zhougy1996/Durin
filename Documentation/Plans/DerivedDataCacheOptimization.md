@@ -1,16 +1,19 @@
 # Derived Data Cache Optimization Plan
 
-Summary: Harden cache-hit validation and inline dispatch, then simplify DDC ownership, eliminate repeated work, and add maintainable storage and backend composition.
+Summary: Harden cache-hit validation and inline dispatch, then simplify DDC ownership, eliminate repeated work, and add bounded diagnostics and offline local-storage maintenance.
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-18
 
 ## Current Status
 
-Stages 0 through 3 are complete with the recorded integration-validation exception
-below; Stage 4 is next and subsequent stages have not started. The 2026-10-13
+Stages 0 through 5 are complete, including the reduced Stage 5 diagnostics and
+offline maintenance scope. Shared backends, online collection, and further
+execution/storage extensions are explicitly deferred, not remaining acceptance
+gates. This local-cache optimization plan is complete as of 2026-10-18. The historical Shader dependency-manifest fixture exception recorded
+below was fixed and its current tests pass in the 2026-10-18 follow-up. The 2026-10-13
 architecture review revised Stage 3 to simplify dispatch policy and public
 integration before adding further infrastructure. Stage 2 completion records
 validated behavior, not a requirement to retain every implementation mechanism.
@@ -121,6 +124,168 @@ Stage 3B evidence (Win64-Debug-DurinEditor, 2026-10-13):
   Texture: `Build/.agent-state/logs/20261013-044531-947087-67352-TextureTests.log`.
   Mesh: `Build/.agent-state/logs/20261013-044844-959776-78696-StaticMeshTests.log`.
   Reports remain in `Build/NativeTestResults/Win64-Debug-DurinEditor/`.
+
+Shader fixture follow-up (MacOS-arm64-Debug-DurinEditor, 2026-10-18):
+
+- The historical failure expected eight dependencies although the shader also
+  imports `Material/SpecularAntialiasing`, yielding nine. Commit `891c7c3ae`
+  replaced the stale count assertion with the explicit expected dependency paths.
+- At revision `e6d758a854461c8853e3464bf5bfe06ede2c8609`,
+  `FShaderBuilderTests.ErrorTerminalRecordsCompleteColdAndWarmBaseline` passed
+  alone, recording nine dependencies and completing its cold/warm assertions.
+  The full RenderShaderBuilderTests target then passed all 33 current cases.
+- Reproduction: `./DevTool test RenderShaderBuilderTests
+  FShaderBuilderTests.ErrorTerminalRecordsCompleteColdAndWarmBaseline --report`,
+  followed by `./DevTool test RenderShaderBuilderTests --report`.
+  Report: `Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/RenderShaderBuilderTests.xml`.
+  Isolated-case log: `Build/.agent-state/logs/20261018-162124-112993-70919-RenderShaderBuilderTests.log`.
+  Full-target log: `Build/.agent-state/logs/20261018-162133-548310-71189-RenderShaderBuilderTests.log`.
+  This follow-up does not rerun or replace the historical Win64 integration coverage.
+
+Stage 4 evidence (MacOS-arm64-Debug-DurinEditor, 2026-10-18):
+
+- Request-local version/hash/raw-size reuse shares immutable decoded backing across
+  IDs, including empty and selected values. Logical limits still count every output
+  value; physical encoded/workspace limits count distinct content. Put verifies raw
+  content before reuse and preserves atomic repair/publication on corruption or
+  failure. Regression coverage includes a valid envelope with damaged raw bytes.
+- Existing encoded-read coalescing now bounds retained flights and joined waiters,
+  permits independent overflow, and separates caller cancellation from shared work.
+  Canceling either a leader or a waiter does not cancel another caller's result.
+- Opt-in early delivery preserves exactly-once callbacks, positive/negative output,
+  inline behavior, reentrant close/drain, and single-worker progress. Pending Put
+  stays owned after delivery; subsequent cancellation/failure cannot revoke output.
+  Explicit callback extraction avoids relying on moved-from `std::function` state.
+- Audited source/test roots across Engine, Sandbox, and RoadWeaver. No production
+  whole-record codec consumer remains; five fixture source files use the private
+  codec boundary. Public policy/request layout changes received an `all` build.
+- The five-target `@module=derived-data-cache` set passed, including Build/Cache,
+  Shader Builder/Cache, and AsyncTaskPilot lifecycle tests. Five focused Build cases
+  and six Cache cases also passed in separate processes. An existing owner-dependency
+  fixture declared its owner before events captured by cancellation callbacks;
+  moving the owner after those captures fixes teardown access to destroyed mutexes.
+- TextureTests passed all 150 cases; StaticMeshTests passed all 186. Reports are in
+  `Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/`; isolated receipts are
+  `Build/Stage4/build-isolated.xml` and `Build/Stage4/cache-isolated.xml`.
+- Final all-build log: `Build/.agent-state/logs/20261018-164718-807317-80841-cmake.log`.
+  Final module log: `Build/.agent-state/logs/20261018-164642-847044-80780-ctest.log`.
+  Texture log: `Build/.agent-state/logs/20261018-164416-323303-79693-TextureTests.log`.
+  Mesh log: `Build/.agent-state/logs/20261018-164440-596652-79988-StaticMeshTests.log`.
+  The tested source/test tree is base revision `149bffa4c` plus the Stage 4 changes
+  committed with this evidence; subsequent evidence edits change documentation only.
+  Validation is native macOS CPU coverage; Windows and GPU qualification were not run.
+
+Stage 4 measurements use a fresh fixture with 64 IDs sharing one 8 KiB compressible
+allocation. The before run restores `149bffa4c`'s record-cache implementation with
+store-statistics instrumentation only; the after run uses Stage 4 reuse. The local
+reproduction script is `Build/Stage4/measure_baseline.py`, and the case is
+`FCacheTests.MeasuresRepeatedBlobWork`. These are work-count and accounted-memory
+observations, not a qualified end-to-end throughput claim.
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| Blob reads / raw bytes decoded | 64 / 524288 | 1 / 8192 |
+| Total read bytes | 19713 | 14484 |
+| Peak query payload/codec bytes | 634740 | 118644 |
+| Cold per-blob encoding calls / publications | 64 / 64 | 1 / 1 |
+| Warm per-blob encoding calls / publications | 64 / 64 | 0 / 0 |
+| Warm total write bytes, including manifest | 19713 | 14401 |
+| Warm post-manifest payload/codec peak bytes | 1334353 | 126836 |
+
+Warm reuse adds one 83-byte verification read; it still validates and inflates that
+content before skipping compression/publication. Store peaks exclude transient CB
+assembly, which retains its separate bounded preflight; these metrics are not RSS.
+Before/after receipts are `Build/Stage4/before.xml` and `Build/Stage4/after.xml`, with
+raw logs `Build/.agent-state/logs/20261018-164035-672408-78160-DerivedDataCacheTests.log`
+and `Build/.agent-state/logs/20261018-164057-852233-78500-DerivedDataCacheTests.log`.
+Later edits affect cancellation-statistics accounting and the private fixture codec,
+not the measured successful structured-record path, so these measurements apply.
+
+A controlled continuation fixture holds Put scheduling for at least 20 ms. Default
+delivery took 21–25 ms; early delivery took 13–40 microseconds while owner/request
+retirement still waited for persistence or its cancellation. Samples are in
+`Build/.agent-state/logs/20261018-163927-014333-77560-DerivedDataBuildTests.log`.
+This demonstrates the delivery boundary rather than production latency. The later
+canceled-notification token latch does not change these delivered positive/negative
+samples; final whole-target and isolated tests cover the final implementation.
+
+Stage 5 evidence (MacOS-arm64-Debug-DurinEditor, 2026-10-18):
+
+- Reduced scope was selected before implementation: process-local basic diagnostics
+  and explicit-root offline inspect/verify/clear. No online reclamation, quota/age
+  policy, orphan reclaim, shared backend, DAG, remote worker, or range-read API was
+  implemented or required for completion; reopening criteria are recorded below.
+- Added totals, 64 bucket slots plus overflow, backend outcome/I/O/codec/latency
+  counters, async queue/admission observations, and rebuild/schema-rejection counts.
+  Editor exit and the native asset/Cook host log drained `DDCStats` summaries.
+  Telemetry observation/log failures cannot alter cache results or host shutdown.
+- Shared process ownership spans record access/publication; exclusive maintenance
+  refuses active roots and concurrent maintenance. Native tests and an independent
+  CLI process prove conflict and termination recovery. Clear preflights containment,
+  refuses links, removes records before values, preserves unrelated siblings and
+  the lock file, and can resume after cancellation. Verify detects raw corruption
+  even with a valid envelope, missing values, unsupported namespaces, and budgets.
+- The final five-target `@module=derived-data-cache` set passed. Nine focused Cache
+  cases and the Build fallback/schema case passed in isolated processes. TextureTests
+  passed all 150 cases; StaticMeshTests passed all 186. DevTool cache/command contract
+  tests passed all 64 cases. Ten explicit-root CLI checks passed, including native
+  lock conflicts, killed-owner recovery, limit failures, and repeatable clear.
+- The new Core/DDC-only DurinCacheTool and Editor-only summary hooks received a
+  final workspace `all` build. Affected analysis selects all because Engine's CMake
+  gains a program target and Launch gains an optional dependency; runtime execution
+  stays bounded to DDC/asset consumers and offline tooling because these changes
+  add no unrelated rendering/GPU behavior. Workspace API audit found no direct
+  Sandbox/RoadWeaver consumers to migrate; real Sandbox Cook exercises Engine paths.
+- Final build: `Build/.agent-state/logs/20261018-171805-976039-85778-cmake.log`.
+  Final module: `Build/.agent-state/logs/20261018-171729-290774-85675-ctest.log`.
+  Texture: `Build/.agent-state/logs/20261018-171426-896584-85321-TextureTests.log`.
+  Mesh: `Build/.agent-state/logs/20261018-171526-199225-85501-StaticMeshTests.log`.
+  Reports remain under `Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/`,
+  with isolated reports in `Build/Stage5/cache-isolated.xml` and `build-isolated.xml`.
+  CLI receipts/reproduction are `Build/Stage5/cli-smoke.json` and `cli_smoke.py`.
+- Tested inputs are base revision `5eda544fd` plus this Stage 5 source/test tree.
+  After the final tests/build only evidence/documentation changed. Native Windows
+  execution and Editor application/GPU qualification were not run or required.
+
+A real Sandbox Cook diagnostic baseline used two fresh processes with identical
+project inputs, target and cache root:
+
+```sh
+./DevTool cook --output-dir Build/Stage5/SandboxCook --target macos --dry-run --no-incremental --format json
+```
+
+The first run used a fresh output/cache directory. Both runs captured the same seven
+packages without publishing a Cook generation or changing authored packages. Before
+and after inspection/verification ran only after the Cook processes had exited.
+
+| Observation | Cold | Warm |
+| --- | ---: | ---: |
+| DDC queries / hits / misses | 40 / 0 / 40 | 40 / 39 / 1 |
+| Structured Puts / store failures | 39 / 0 | 0 / 0 |
+| Read / written bytes | 5470 / 2737743 | 2743213 / 0 |
+| Blob encodes | 196 | 0 |
+| Cook-reported elapsed seconds | 4.63 | 1.46 |
+| Retained manifests / blobs | 39 / 196 | 39 / 196 |
+| Encoded file-size total bytes | 2737743 | 2737743 |
+
+The warm miss is the StaticMesh bucket, with no Put observed; this is a measured
+follow-up opportunity rather than a shared-cache requirement. Post-run verify
+validated all 235 current files with no corruption, unsupported files, or missing
+values, while retaining two unrelated root entries. This small single-pair sample
+validates operational observations, not stable speedup or long-term cache growth.
+The later best-effort logging exception guard does not change the sampled normal
+path; the final source/build checks cover that guard.
+
+Cook reports, parsed counters, inventories, and verification are retained as
+`Build/Stage5/cook-{cold,warm}.json`, `cook-{cold,warm}-stats.json`,
+`cook-{cold,warm}-inventory.json`, and `cook-cache-verify.json`.
+Raw workload logs are
+`Build/Stage5/SandboxCook/Logs/Durin-Durin-20261018-171011-84943.log` and
+`Build/Stage5/SandboxCook/Logs/Durin-Durin-20261018-171200-85145.log`.
+The [storage contract](../Runtime/Assets/DerivedDataCacheStorage.md#bounded-diagnostics)
+owns implemented counters, ownership, maintenance limits and baseline procedure;
+the [DevTool interface](../Development/Tooling/DurinDevTool.md#offline-local-cache-maintenance)
+owns commands and exit/report behavior.
 
 ## Goal
 
@@ -315,8 +480,8 @@ remain equivalent. Validate affected consumers using the repository's
 [shared API coverage policy](../../AGENTS.md#task-routing), including an `all`
 build when that policy requires it. Stage 3 completes only after both
 3A and 3B pass; do not add DAGs, remote workers, new cache tiers, or storage-format
-changes in this stage. The recorded Shader manifest fixture exception remains
-the only permitted existing integration failure.
+changes in this stage. The historical Shader manifest fixture exception was
+resolved as recorded in the follow-up above.
 
 ### Stage 4: Reuse blob work and separate result delivery from persistence
 
@@ -325,14 +490,29 @@ Dependencies: Stages 2 and 3.
 Boundary: cache owns content reuse; resource owners control when usable results are
 published. Persistence remains owned work through shutdown, including buffer lifetime.
 
-- [ ] Deduplicate requested blobs by versioned identity and raw size, sharing
+Selected Stage 4 decisions (2026-10-18):
+
+- Request-local reuse keys include supported blob identity version, raw hash, and
+  raw size. Encoded/workspace budgets count distinct requested content; logical
+  output limits continue to count every descriptor.
+- Retain the existing encoded-read coalescer, bounded to 64 flights and 64 joined
+  waiters per flight, with independent overflow and per-caller cancellation.
+  Request-local measurements confirm the primary read/decode reduction; cross-request
+  decoded-buffer sharing remains deferred to avoid coupling request workspace budgets.
+- `BeforePersistence` result delivery is opt-in; default behavior still waits for
+  persistence. Request/owner waits and shutdown retain persistence ownership after
+  notification, and later cancellation cannot revoke the delivered output.
+- Whole-record codecs move to the private fixture boundary after the workspace
+  consumer audit; manifest/value production APIs and persisted identities remain.
+
+- [x] Deduplicate requested blobs by versioned identity and raw size, sharing
   immutable decoded backing across value IDs; keep physical/logical budgets explicit.
-- [ ] Reuse valid stored content and retain atomic replacement for damaged blobs.
-- [ ] Add bounded in-flight read sharing only after request-local reuse is measured;
+- [x] Reuse valid stored content and retain atomic replacement for damaged blobs.
+- [x] Add bounded in-flight read sharing only after request-local reuse is measured;
   separate waiter cancellation from shared work cancellation.
-- [ ] Define opt-in early result delivery and a separate persistence-retirement
+- [x] Define opt-in early result delivery and a separate persistence-retirement
   contract, retaining a mode that waits for persistence.
-- [ ] Remove whole-record codecs from production API after auditing every workspace
+- [x] Remove whole-record codecs from production API after auditing every workspace
   consumer; retain necessary fixture support privately.
 
 Acceptance: repeated identities perform one physical read/decode per request and
@@ -343,65 +523,59 @@ and captures. Store failure cannot invalidate a delivered result. Cold/warm byte
 equivalence, negative hits, budgets, and cancellation pass. Record before/after
 physical I/O, codec work, delivery latency, and retained-memory measurements.
 
-### Stage 5: Add observability and safe storage maintenance
+### Stage 5: Add basic diagnostics and offline maintenance
 
 Dependencies: Stage 4.
 
-Boundary: diagnostics and maintenance are cache services, separate from persisted
-recipe metadata and business completion status. Collection owns the complete
-publication/read lifetime protocol.
+Scope revision (2026-10-18): local cache correctness and reuse are implemented.
+There is no measured requirement for shared storage or online collection. Complete
+this plan with a small operational foundation rather than more cache architecture.
 
-- [ ] Add bounded per-bucket/backend hit, rejection, fallback, queue, codec, store
-  failure, latency, and storage-usage counters without affecting keys or records.
-- [ ] Provide offline inspect/verify/clear/reclaim tooling with exclusive ownership.
-- [ ] Select publication epochs or leases before implementing online reclamation;
-  include retained readers, blob-before-manifest writers, and legacy namespaces.
-- [ ] Define quota/age policy, cancellation, crash recovery, and bounded maintenance I/O.
+- [x] Add bounded process-local totals and per-bucket statistics for hit/miss,
+  invalid records, backend/store failure, admission rejection, rebuild fallback,
+  queue delay, request latency, and physical I/O/codec work. Keep these outside keys,
+  persisted records, and completion status; provide a snapshot and shutdown summary.
+- [x] Add explicit-root offline inspect/verify/clear commands. Inspect reports
+  physical disk usage; verify applies existing manifest/blob integrity checks with
+  file/read/workspace limits and cancellation. Clear removes recognized record/value
+  storage only, preserving unrelated root contents.
+- [x] Protect ordinary cache use with shared process ownership and maintenance with
+  exclusive nonblocking OS ownership. Refuse active roots, unsafe paths/symlinks,
+  and concurrent maintenance; release crashed owners through the OS lock lifetime.
+- [x] Validate observations, bounded cardinality, ownership exclusion/recovery,
+  integrity errors, cancellation, and contained repeatable clearing. Document how
+  to collect editor/cook baselines when representative runs are available.
 
-Acceptance: diagnostics distinguish normal miss, invalid record, backend failure,
-and capacity rejection. Offline maintenance refuses active storage. Online collection
-cannot delete blobs belonging to in-progress publications or retained readers;
-fault-injection and concurrent reader/writer/collector tests prove the selected
-protocol. Quotas converge after readers retire, and maintenance is restartable.
+Acceptance: diagnostics distinguish a normal miss, rejected record, backend failure,
+and admission rejection without changing build results. All offline operations
+refuse an actively owned root; inspection/verification do not delete content, and
+clear cannot traverse links or remove unknown siblings. Verification and scans have
+explicit limits, return incomplete/error rather than a false success, and stop
+cooperatively. Real editor/cook timings are follow-up measurements, not a synthetic
+performance gate; do not claim end-to-end gains from fixture timings. Run focused
+DDC/tool tests and affected consumer compilation/coverage under repository policy.
 
-### Stage 6: Compose local and shared cache backends
+### Deferred work and reopening criteria
 
-Dependencies: Stages 2, 4, and 5.
+- **Former Stage 5 online collection and policy:** no online GC, publication
+  epochs/leases, quota/age eviction, selective orphan reclaim, background scans, or
+  automatic deletion in this stage. Reopen only when measured cache growth or
+  disk-pressure incidents justify it, with a separate publication/read lifetime
+  protocol and crash/concurrency acceptance plan.
+- **Stage 6 shared/local backend composition:** deferred. Reopen only for an
+  identified multi-machine/CI consumer, measured duplicate build cost and expected
+  shared-hit benefit, and an operational owner. A separate plan must cover
+  cryptographic identity/versioning, authentication, timeout/fallback, promotion,
+  local-only behavior, and interrupted/concurrent publication.
+- **Stage 7 execution/storage extensions:** DAGs, remote workers, and value-range
+  reads are deferred. Start with representative editor/cook observations; reopen
+  only for a named consumer and measured bottleneck, in a separate bounded plan.
+  Existing selected-value queries are sufficient until a consumer needs partial
+  bytes within a value. No placeholder extension interfaces are required.
 
-Boundary: backend composition owns routing, query/store policy, promotion, health,
-and maintenance configuration; build functions and asset families stay backend-neutral.
-
-- [ ] Add explicit local/shared query and store controls with per-value overrides
-  only where a consumer needs them; preserve full-output Build semantics.
-- [ ] Implement fast-to-slow lookup and bounded promotion into faster stores.
-- [ ] Version cryptographic blob identity before admitting untrusted shared storage;
-  verify raw content and define action/namespace isolation independently.
-- [ ] Add timeout/degraded-backend policy, authentication configuration, read-only
-  seed/prewarm support, and local-only operation.
-
-Acceptance: shared hits promote safely; shared outages fall back within a configured
-deadline; policy prevents forbidden remote reads/writes. Local-only operation needs
-no network service. Unsupported identity versions do not alias existing blobs;
-tampered remote content is rejected. Concurrent writers and interrupted promotion
-preserve readable records. End-to-end asset results remain backend-independent.
-
-### Stage 7: Qualify consumer-driven extensions
-
-Dependencies: Stage 6 for distributed work; earlier stages may supply measurements.
-
-Boundary: graph execution and worker protocol belong to DDC only when selected;
-source capture and publication stay with producers. Chunk reads belong to cache
-storage and require a concrete partial-data consumer.
-
-- [ ] Measure representative editor/cook workloads and record which remaining costs
-  justify transitive build dependencies, remote workers, or value-range reads.
-- [ ] For each selected extension, define a separate implementation plan with
-  identity/versioning, cancellation, memory, failure, and deterministic-result gates.
-- [ ] Explicitly defer extensions without measured consumers; do not introduce
-  placeholder interfaces merely to mirror UE.
-
-Acceptance: each extension has either a linked executable plan or an evidence-backed
-deferral. This stage does not require implementing all UE capabilities.
+These deferrals are deliberate scope decisions, not completed implementations.
+Stage 5 acceptance completes the selected scope of this plan without implementing
+Stages 6–7 or the deferred online-maintenance features.
 
 ## Validation and Handoff
 

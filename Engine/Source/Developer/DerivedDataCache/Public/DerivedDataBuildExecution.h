@@ -43,10 +43,14 @@ namespace Durin::DerivedData
 		std::string Diagnostic;
 	};
 
+	enum class EBuildResultDelivery : uint8 { AfterPersistence, BeforePersistence };
+
 	struct FBuildPolicy
 	{
 		bool QueryCache = true, BuildLocal = true, StoreOnBuild = true;
 		bool ForceBuild = false;
+		// Early notification leaves persistence tracked by request/owner/session waits.
+		EBuildResultDelivery ResultDelivery = EBuildResultDelivery::AfterPersistence;
 		FBuildOutputLimits InputLimits, OutputLimits, PersistenceLimits;
 		uint64 MaximumEncodedBytes = FCacheRecord::DefaultMaximumEncodedBytes;
 		// Cache payload/codec workspace only; producer reservations belong to the asset scheduler.

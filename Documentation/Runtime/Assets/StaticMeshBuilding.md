@@ -128,6 +128,9 @@ render and required collision projections before package Archive capture; missin
 required collision fails Cook. Invocation-scoped products are qualified by object
 handle, package revision and target. SerializeCooked consumes prepared bulk only,
 and existing direct Engine package-save APIs install preparation automatically.
+Cook render and collision preparation query and persist shared DDC results, so a
+later Cook can reuse construction even when its package output must be regenerated.
+Cache persistence does not publish live editor resources or save authored assets.
 See [target platform policy](TargetPlatforms.md) for the tool/runtime boundary
 and the explicitly unsupported MacOS collision representation.
 Cooked decoding validates both existing payloads and prepares bounds/ray data

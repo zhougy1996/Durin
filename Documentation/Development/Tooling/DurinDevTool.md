@@ -2,7 +2,7 @@
 
 Summary: Define command output, the interactive shell, repository path discovery, documentation lifecycle commands, and workspace scaffolding interface.
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-18
 
 ## Command Discovery
 
@@ -237,6 +237,33 @@ run schema with packages in canonical virtual-path order. Native failure reports
 are preserved even when the child exits nonzero; cancellation returns 130,
 ordinary Cook failure returns 1, and success returns 0. The child process uses
 the standard heartbeat, interruption, and command-log policy.
+
+## Offline Local Cache Maintenance
+
+Build `DurinCacheTool` with `build DurinCacheTool`, then run an explicit-root command:
+
+```powershell
+.\DevTool.bat cache inspect --root Build/ExampleDDC
+.\DevTool.bat cache verify --root Build/ExampleDDC --format json
+.\DevTool.bat cache clear --root Build/ExampleDDC
+```
+
+All three commands refuse roots held by a cache user or another maintenance process.
+Inspection may create the persistent ownership file; clear requires that marker and
+executes immediately, deleting only `records/` and `values/`. Unknown root siblings
+are retained. There is no background cleanup, remote cache configuration, selective
+orphan reclaim, or `--dry-run` option. Run inspect before deciding to clear.
+
+Limits are `--max-entries` (default 100000, maximum 1000000), `--max-file-bytes`
+(default 256 MiB), `--max-read-bytes` (1 GiB total), and `--max-working-bytes`
+(512 MiB retained payload/codec workspace). Counts, byte sizes, verification
+failures, unsupported files, and bounded diagnostics use version-1 JSON reports.
+A complete, valid report returns 0; corruption/missing/unsupported content, active
+ownership, limits, or incomplete operations return nonzero. Native report failures
+are retained in JSON output; invalid options/process failures use normal DevTool
+errors. Ctrl-C stops the current process; OS locks recover without deleting a lock
+file. See [cache storage](../../Runtime/Assets/DerivedDataCacheStorage.md#offline-ownership-and-maintenance)
+for containment, clearing order, cancellation, and verification contracts.
 
 ## Repository Locations
 

@@ -10,7 +10,7 @@ namespace Durin::DerivedData
 	{
 	public:
 		DERIVEDDATACACHE_API static auto Compress(const FValue& Value, uint64 MaximumEncodedBytes,
-			uint64 MaximumWorkingBytes) -> std::expected<FCompressedCacheValue, FCacheError>;
+			uint64 MaximumWorkingBytes, uint64* WorkingBytes = nullptr) -> std::expected<FCompressedCacheValue, FCacheError>;
 		DERIVEDDATACACHE_API static auto Load(FSharedByteBuffer Bytes, uint64 MaximumRawBytes,
 			uint64 MaximumEncodedBytes) -> std::expected<FCompressedCacheValue, FCacheError>;
 		DERIVEDDATACACHE_API auto Decompress(uint64 MaximumWorkingBytes) const -> std::expected<FValue, FCacheError>;

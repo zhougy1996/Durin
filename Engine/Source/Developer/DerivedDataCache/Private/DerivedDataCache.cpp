@@ -1,6 +1,8 @@
 #include "DerivedDataCache/DerivedDataCache.h"
 
 #include "DerivedDataCacheStorage.h"
+#include "CacheStorageOwnership.h"
+#include "CacheDiagnosticsPrivate.h"
 #include "FileSystemCacheBackend.h"
 #include "CompressedCacheValue.h"
 #include "Misc/Paths.h"
@@ -38,6 +40,24 @@ namespace Durin::DerivedData
 		{
 		public:
 			auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult override
+			{
+				FCacheQueryStats Stats;
+				auto Result = GetImpl(Request, &Stats);
+				if (Request.Stats) *Request.Stats = Stats;
+				Private::ObserveCacheGet(Request.Key, Result, Stats); return Result;
+			}
+			auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
+			{
+				const auto Start = std::chrono::steady_clock::now();
+				FCacheStoreStats Stats;
+				auto Result = PutImpl(Request, &Stats);
+				if (Request.Stats) *Request.Stats = Stats;
+				Private::ObserveCachePut(Request.Record.GetKey(), Result, Stats,
+					std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Start).count());
+				return Result;
+			}
+		private:
+			auto GetImpl(const FCacheGetRequest& Request, FCacheQueryStats* Destination) const -> FCacheGetResult
 			try
 			{
 				FCacheQueryStats Stats;
@@ -51,7 +71,7 @@ namespace Durin::DerivedData
 						Stats.DurationNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Start).count();
 						if (Destination) *Destination = Stats;
 					}
-				} Publish{Stats, Request.Stats, Start};
+				} Publish{Stats, Destination, Start};
 				const auto Canceled = [&] { return Request.ShouldCancel && Request.ShouldCancel(); };
 				const auto CancelError = [] { return std::unexpected(FCacheError{ECacheError::Canceled, "Cache query canceled."}); };
 				if (Request.Mode > ECacheGetMode::SelectedValues
@@ -64,6 +84,8 @@ namespace Durin::DerivedData
 					|| std::adjacent_find(Required.begin(), Required.end()) != Required.end())
 					return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Selected value IDs must be valid and unique."});
 				if (Canceled()) return CancelError();
+				auto Lease = Private::AcquireCacheStorageOwnership();
+				if (!Lease) return std::unexpected(std::move(Lease.error()));
 				auto Stored = GCacheStorage.Get({Request.Key,
 					std::min(Request.MaximumEncodedBytes, Request.MaximumWorkingSetBytes), ECacheStorageNamespace::Records});
 				if (Stored && *Stored) Stats.ReadBytes = Stats.PeakWorkingSetBytes = (**Stored).GetSize();
@@ -79,21 +101,31 @@ namespace Durin::DerivedData
 					if (!Record->FindValue(Id)) return std::unexpected(FCacheError{ECacheError::MissingValue, "Required value is absent from manifest."});
 				uint64 EncodedBytes = ManifestBytes, ResidentBytes = ManifestBytes;
 				std::vector<FValueWithId> Values;
+				std::unordered_map<std::string, FValue> Resolved;
 				for (const auto& Item : Record->GetValues())
 				{
 					if (Request.Mode == ECacheGetMode::MetadataOnly
 						|| (Request.Mode == ECacheGetMode::SelectedValues && !std::ranges::binary_search(Required, Item.Id))) continue;
 					if (Canceled()) return CancelError();
+					const auto Identity = std::format("{}:{}:{}", FCacheBlobIdentity::Version,
+						Item.Value.GetRawHash().ToString(), Item.Value.GetRawSize());
+					if (const auto Existing = Resolved.find(Identity); Existing != Resolved.end())
+					{
+						Values.push_back({Item.Id, Existing->second});
+						continue;
+					}
 					if (EncodedBytes == Request.MaximumEncodedBytes || ResidentBytes == Request.MaximumWorkingSetBytes)
 						return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "No budget remains for referenced value data."});
 					const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("Content"), Item.Value.GetRawHash());
 					uint64 ReadBytes = 0;
 					auto Blob = GCacheStorage.Get({Key, std::min(Request.MaximumEncodedBytes - EncodedBytes,
-						Request.MaximumWorkingSetBytes - ResidentBytes), ECacheStorageNamespace::Values, &ReadBytes});
+						Request.MaximumWorkingSetBytes - ResidentBytes), ECacheStorageNamespace::Values, &ReadBytes, Request.ShouldCancel});
+					Stats.ReadBytes += ReadBytes;
+					Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, ResidentBytes + ReadBytes);
 					if (!Blob) return std::unexpected(std::move(Blob.error()));
 					if (!*Blob) return std::unexpected(FCacheError{Request.Mode == ECacheGetMode::SelectedValues ? ECacheError::MissingValue : ECacheError::Corrupt, "Manifest references a missing value blob."});
 					const uint64 BlobBytes = (**Blob).GetSize(); EncodedBytes += BlobBytes;
-					Stats.ReadBytes += ReadBytes; ++Stats.ValuesRead;
+					++Stats.ValuesRead;
 					Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, ResidentBytes + BlobBytes);
 					if (Canceled()) return CancelError();
 					auto Compressed = FCompressedCacheValue::Load(std::move(**Blob), Item.Value.GetRawSize(), BlobBytes);
@@ -108,6 +140,7 @@ namespace Durin::DerivedData
 					Stats.DecodedBytes += Value->GetRawSize();
 					if (Canceled()) return CancelError();
 					ResidentBytes += Compressed->IsCompressed() ? Value->GetRawSize() : BlobBytes;
+					Resolved.emplace(Identity, *Value);
 					Values.push_back({Item.Id, std::move(*Value)});
 				}
 				auto Complete = Request.Mode == ECacheGetMode::FullRecord ? Record->WithValues(Values) : Record->WithSelectedValues(Values);
@@ -116,12 +149,20 @@ namespace Durin::DerivedData
 			}
 			catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache read allocation failed."}); }
 
-			auto Put(const FCachePutRequest& Request) const -> FCachePutResult override
+			auto PutImpl(const FCachePutRequest& Request, FCacheStoreStats* Destination) const -> FCachePutResult
 			try
 			{
+				FCacheStoreStats Stats;
+				struct FPublishStats
+				{
+					FCacheStoreStats& Stats; FCacheStoreStats* Destination;
+					~FPublishStats() { if (Destination) *Destination = Stats; }
+				} Publish{Stats, Destination};
 				const auto Canceled = [&] { return Request.ShouldCancel && Request.ShouldCancel(); };
 				const auto CancelError = [] { return std::unexpected(FCacheError{ECacheError::Canceled, "Cache persistence canceled."}); };
 				if (Canceled()) return CancelError();
+				auto Lease = Private::AcquireCacheStorageOwnership();
+				if (!Lease) return std::unexpected(std::move(Lease.error()));
 				if (!Request.Record.IsValid())
 					return std::unexpected(FCacheError{ECacheError::InvalidRequest,
 						"Cache put request has no record."});
@@ -152,21 +193,65 @@ namespace Durin::DerivedData
 				auto Manifest = Request.Record.EncodeManifest(Request.MaximumEncodedBytes, Request.MaximumWorkingSetBytes - ResidentBytes);
 				if (!Manifest) return std::unexpected(std::move(Manifest.error()));
 				uint64 EncodedBytes = Manifest->GetSize();
+				const uint64 RetainedBytes = ResidentBytes + Manifest->GetSize();
+				Stats.PeakWorkingSetBytes = RetainedBytes;
+				std::unordered_set<std::string> Published;
 				for (const auto& Item : Request.Record.GetValues())
 				{
 					if (Canceled()) return CancelError();
-					auto Blob = FCompressedCacheValue::Compress(Item.Value, Request.MaximumEncodedBytes - EncodedBytes,
-						Request.MaximumWorkingSetBytes - ResidentBytes - Manifest->GetSize());
+					const auto Identity = std::format("{}:{}:{}", FCacheBlobIdentity::Version,
+						Item.Value.GetRawHash().ToString(), Item.Value.GetRawSize());
+					if (!Published.emplace(Identity).second) continue;
+					const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("Content"), Item.Value.GetRawHash());
+					const uint64 Workspace = Request.MaximumWorkingSetBytes - RetainedBytes;
+					const uint64 EncodedBudget = Request.MaximumEncodedBytes - EncodedBytes;
+					if (!EncodedBudget || !Workspace)
+						return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "No budget remains for persistence."});
+					// Validate raw identity as well as the envelope before trusting stored content.
+					// Leave this scope before compression so repair does not retain invalid bytes.
+					bool Reused = false;
+					{
+						uint64 ReadBytes = 0;
+						auto Existing = GCacheStorage.Get({Key, std::min(EncodedBudget, Workspace), ECacheStorageNamespace::Values, &ReadBytes, Request.ShouldCancel});
+						Stats.ReadBytes += ReadBytes;
+						Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, RetainedBytes + ReadBytes);
+						if (!Existing && Existing.error().Code != ECacheError::Corrupt && Existing.error().Code != ECacheError::ValueTooLarge)
+							return std::unexpected(std::move(Existing.error()));
+						if (Existing && *Existing)
+						{
+							const uint64 BlobBytes = (**Existing).GetSize();
+							Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, RetainedBytes + BlobBytes);
+							auto Blob = FCompressedCacheValue::Load(std::move(**Existing), Item.Value.GetRawSize(), EncodedBudget);
+							if (Blob && Blob->GetRawHash() == Item.Value.GetRawHash() && Blob->GetRawSize() == Item.Value.GetRawSize())
+							{
+								if (Blob->GetDecompressionWorkingBytes() > Workspace - BlobBytes)
+									return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Stored content verification exceeds persistence workspace."});
+								Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, RetainedBytes + BlobBytes + Blob->GetDecompressionWorkingBytes());
+								auto Value = Blob->Decompress(Workspace - BlobBytes);
+								if (!Value && Value.error().Code != ECacheError::Corrupt) return std::unexpected(std::move(Value.error()));
+								Reused = Value.has_value();
+								if (Reused) { EncodedBytes += BlobBytes; ++Stats.BlobsReused; }
+							}
+						}
+					}
+					if (Canceled()) return CancelError();
+					if (Reused) continue;
+					uint64 CodecBytes = 0;
+					auto Blob = FCompressedCacheValue::Compress(Item.Value, EncodedBudget, Workspace, &CodecBytes);
+					Stats.PeakWorkingSetBytes = std::max(Stats.PeakWorkingSetBytes, RetainedBytes + CodecBytes);
 					if (!Blob) return std::unexpected(std::move(Blob.error()));
+					++Stats.BlobsCompressed; Stats.CompressedBytes += Item.Value.GetRawSize();
 					if (Canceled()) return CancelError();
 					EncodedBytes += Blob->GetEncoded().GetSize();
-					const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("Content"), Item.Value.GetRawHash());
 					auto Saved = GCacheStorage.Put({Key, Blob->GetEncoded().GetBytes(), Blob->GetEncoded().GetSize(), ECacheStorageNamespace::Values});
 					if (!Saved) return std::unexpected(std::move(Saved.error()));
+					++Stats.BlobsWritten; Stats.WrittenBytes += Blob->GetEncoded().GetSize();
 				}
 				// All required content is complete before the manifest becomes visible.
 				if (Canceled()) return CancelError();
-				return GCacheStorage.Put({Request.Record.GetKey(), Manifest->GetBytes(), Manifest->GetSize(), ECacheStorageNamespace::Records});
+				auto Saved = GCacheStorage.Put({Request.Record.GetKey(), Manifest->GetBytes(), Manifest->GetSize(), ECacheStorageNamespace::Records});
+				if (Saved) Stats.WrittenBytes += Manifest->GetSize();
+				return Saved;
 			}
 			catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache write allocation failed."}); }
 		};
@@ -268,19 +353,42 @@ namespace Durin::DerivedData
 		const auto Root = FPaths::DerivedDataCacheDir(); const auto Bucket = Request.Key.GetBucket().ToString();
 		const auto Identity = std::format("{}:{}|{}:{}|{}|{}", Root.size(), Root, Bucket.size(), Bucket,
 			Request.Key.ToString(), Request.MaximumValueBytes);
-		return Coalescer.Get(Identity, Read, Request.ReadBytes);
+		return Coalescer.Get(Identity, Read, Request.ReadBytes, Request.ShouldCancel);
 	}
-	auto FCacheReadCoalescer::Get(std::string Key, std::function<FCacheStorageGetResult()> Read, uint64* ReadBytes) -> FCacheStorageGetResult
+	auto FCacheReadCoalescer::Get(std::string Key, std::function<FCacheStorageGetResult()> Read,
+		uint64* ReadBytes, std::function<bool()> ShouldCancel) -> FCacheStorageGetResult
 	{
 		if (ReadBytes) *ReadBytes = 0;
+		const auto Canceled = [&] { return ShouldCancel && ShouldCancel(); };
+		const auto CancelError = []() -> FCacheStorageGetResult { return std::unexpected(FCacheError{ECacheError::Canceled, "Blob read waiter canceled."}); };
+		if (Canceled()) return CancelError();
 		std::shared_future<FCacheStorageGetResult> Future;
 		std::promise<FCacheStorageGetResult> Promise;
-		bool Leader;
+		std::shared_ptr<FRead> Flight;
+		bool Leader = false, Joined = false;
 		{
 			std::lock_guard Lock(Mutex);
-			const auto Existing = Pending.find(Key); Leader = Existing == Pending.end();
-			if (Leader) { Future = Promise.get_future().share(); Pending.emplace(Key, Future); }
-			else { Future = Existing->second; ++CoalescedReads; }
+			const auto Existing = Pending.find(Key);
+			if (Existing != Pending.end() && Existing->second->Waiters < MaximumWaiters)
+			{
+				Flight = Existing->second; Future = Flight->Future; ++Flight->Waiters;
+				Joined = true; ++CoalescedReads;
+			}
+			else if (Existing == Pending.end() && Pending.size() < MaximumReads)
+			{
+				Future = Promise.get_future().share(); Pending.emplace(Key, std::make_shared<FRead>(FRead{Future})); Leader = true;
+			}
+		}
+		// Cancellation belongs to the caller, never to another caller's physical read.
+		if (!Leader && !Joined)
+		{
+			try
+			{
+				auto Result = Read();
+				if (ReadBytes && Result && *Result) *ReadBytes = (**Result).GetSize();
+				return Canceled() ? CancelError() : Result;
+			}
+			catch (...) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Overflow cache read threw."}); }
 		}
 		if (Leader)
 		{
@@ -293,6 +401,24 @@ namespace Durin::DerivedData
 			catch (...) { Promise.set_exception(std::current_exception()); }
 			{ std::lock_guard Lock(Mutex); Pending.erase(Key); }
 		}
+		bool CanceledWaiter = false;
+		if (Joined)
+		{
+			try
+			{
+				while (Future.wait_for(std::chrono::milliseconds(2)) != std::future_status::ready)
+					if (Canceled()) { CanceledWaiter = true; break; }
+			}
+			catch (...)
+			{
+				std::lock_guard Lock(Mutex);
+				--Flight->Waiters;
+				throw;
+			}
+			std::lock_guard Lock(Mutex);
+			--Flight->Waiters;
+		}
+		if (CanceledWaiter || Canceled()) return CancelError();
 		try { return Future.get(); }
 		catch (...) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Coalesced cache read threw."}); }
 	}

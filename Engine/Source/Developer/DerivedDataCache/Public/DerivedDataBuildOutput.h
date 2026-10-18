@@ -108,11 +108,7 @@ namespace Durin::DerivedData
 		// Other values and the source record remain unchanged.
 		DERIVEDDATACACHE_API auto WithSelectedValues(std::span<const FValueWithId> Values) const -> std::expected<FCacheRecord, FCacheError>;
 		DERIVEDDATACACHE_API auto FindValue(FValueId Id) const -> const FValue*;
-		DERIVEDDATACACHE_API auto Encode(uint64 MaximumBytes = DefaultMaximumEncodedBytes) const -> std::expected<FSharedByteBuffer, FCacheError>;
-		DERIVEDDATACACHE_API static auto CompressEncoded(const FSharedByteBuffer& RawRecord,
-			uint64 MaximumBytes = DefaultMaximumEncodedBytes) -> std::expected<FSharedByteBuffer, FCacheError>;
-		DERIVEDDATACACHE_API static auto Decode(const FCacheKey& ExpectedKey, FSharedByteBuffer Bytes,
-			FBuildOutputLimits Limits = {}, uint64 MaximumEncodedBytes = DefaultMaximumEncodedBytes) -> std::expected<FCacheRecord, FCacheError>;
+
 		auto IsValid() const -> bool { return State != nullptr; }
 		DERIVEDDATACACHE_API auto GetKey() const -> FCacheKey;
 		DERIVEDDATACACHE_API auto FindMeta(FValueId Id) const -> FCbObjectView;

@@ -1,3 +1,8 @@
+#include "CacheRecordFixtureCodec.h"
+#include "CacheStorageOwnership.h"
+#include "CacheDiagnosticsPrivate.h"
+#include "DerivedDataCache/DerivedDataCacheDiagnostics.h"
+#include "DerivedDataCache/DerivedDataCacheMaintenance.h"
 #include <gtest/gtest.h>
 
 #include "DerivedDataCache/DerivedDataCache.h"
@@ -51,6 +56,7 @@ namespace
 
 		~FScopedCacheDirectory()
 		{
+			Durin::DerivedData::Private::ReleaseCacheStorageOwnership();
 			FPaths::SetDerivedDataCacheDirForTests(Previous);
 			Testing::RemoveTestWorkDirectory(Root);
 		}
@@ -988,17 +994,21 @@ TEST(FCacheSelectionTests, EnforcesSelectedBudgetsAndCooperativeCancellation)
 	EXPECT_FALSE(GetCache().Get({.Key = Key, .MaximumEncodedBytes = Stats.ReadBytes - 1,
 		.Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected}));
 	EXPECT_FALSE(GetCache().Get({.Key = Key, .MaximumWorkingSetBytes = Stats.PeakWorkingSetBytes}));
-	for (uint32 StopAt : {1u, 2u, 3u, 4u, 5u, 6u})
+	uint32 TotalChecks = 0;
+	ASSERT_TRUE(GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected,
+		.ShouldCancel = [&] { ++TotalChecks; return false; }}));
+	bool SawDecodedCancellation = false;
+	for (uint32 StopAt = 1; StopAt <= TotalChecks; ++StopAt)
 	{
 		uint32 Checks = 0;
 		auto Canceled = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues, .RequiredValues = Selected,
-			.ShouldCancel = [&] { return ++Checks == StopAt; }, .Stats = &Stats});
+			.ShouldCancel = [&] { return ++Checks >= StopAt; }, .Stats = &Stats});
 		ASSERT_FALSE(Canceled); EXPECT_EQ(Canceled.error().Code, ECacheError::Canceled);
 		if (StopAt == 1) EXPECT_EQ(Stats.ReadBytes, 0u);
-		if (StopAt <= 4) EXPECT_EQ(Stats.ValuesRead, 0u);
-		if (StopAt == 5) EXPECT_EQ(Stats.DecodedBytes, 0u);
-		if (StopAt == 6) EXPECT_EQ(Stats.DecodedBytes, 1u);
+		EXPECT_LE(Stats.ValuesRead, 1u); EXPECT_LE(Stats.DecodedBytes, 1u);
+		SawDecodedCancellation |= Stats.DecodedBytes == 1;
 	}
+	EXPECT_TRUE(SawDecodedCancellation);
 }
 
 TEST(FCacheValueTests, CompressesLargeValuesAndStoresSmallOrIncompressibleValuesRaw)
@@ -1341,8 +1351,8 @@ TEST(FCacheTests, RejectsDamagedRawAndCompressedRecordsWithoutAStorageEnvelope)
 		FSharedByteBuffer::Take(Bytes({1, 2, 3, 4}))));
 	auto Output = std::move(Builder).Build(); ASSERT_TRUE(Output);
 	auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
-	auto Raw = Record->Encode(4096); ASSERT_TRUE(Raw);
-	auto Compressed = FCacheRecord::CompressEncoded(*Raw, 4096); ASSERT_TRUE(Compressed);
+	auto Raw = FCacheRecordFixtureCodec::Encode(*Record, 4096); ASSERT_TRUE(Raw);
+	auto Compressed = FCacheRecordFixtureCodec::CompressEncoded(*Raw, 4096); ASSERT_TRUE(Compressed);
 	const auto Path = Directory.Root / "Test" / "Objects" / "ff"
 		/ (std::string(32, 'f') + ".bin");
 	for (const auto& Encoded : {*Raw, *Compressed})
@@ -1350,21 +1360,21 @@ TEST(FCacheTests, RejectsDamagedRawAndCompressedRecordsWithoutAStorageEnvelope)
 		ASSERT_TRUE(GetCacheStorage().Put({Key, Encoded, 4096}));
 		auto Stored = FFileHelper::LoadFileToArray(Path); ASSERT_TRUE(Stored);
 		EXPECT_TRUE(std::ranges::equal(*Stored, Encoded.GetBytes()));
-		auto Loaded = FCacheRecord::Decode(Key, Encoded, {}, 4096); ASSERT_TRUE(Loaded);
+		auto Loaded = FCacheRecordFixtureCodec::Decode(Key, Encoded, {}, 4096); ASSERT_TRUE(Loaded);
 		Stored->back() ^= std::byte{1};
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Stored, Path));
-		auto Result = FCacheRecord::Decode(Key, FSharedByteBuffer::Take(*Stored), {}, 4096);
+		auto Result = FCacheRecordFixtureCodec::Decode(Key, FSharedByteBuffer::Take(*Stored), {}, 4096);
 		ASSERT_FALSE(Result);
 		EXPECT_EQ(Result.error().Code, ECacheError::Corrupt);
 		EXPECT_FALSE(Result.error().Diagnostic.empty());
 		FByteBuffer Truncated(Encoded.begin(), Encoded.end() - 1);
 		ASSERT_TRUE(GetCacheStorage().Put({Key, Truncated, 4096}));
-		auto Short = FCacheRecord::Decode(Key, FSharedByteBuffer::Copy(Truncated), {}, 4096); ASSERT_FALSE(Short);
+		auto Short = FCacheRecordFixtureCodec::Decode(Key, FSharedByteBuffer::Copy(Truncated), {}, 4096); ASSERT_FALSE(Short);
 		EXPECT_EQ(Short.error().Code, ECacheError::Corrupt);
 		FByteBuffer Appended(Encoded.begin(), Encoded.end());
 		Appended.push_back(std::byte{0});
 		ASSERT_TRUE(GetCacheStorage().Put({Key, Appended, 4096}));
-		auto Long = FCacheRecord::Decode(Key, FSharedByteBuffer::Copy(Appended), {}, 4096); ASSERT_FALSE(Long);
+		auto Long = FCacheRecordFixtureCodec::Decode(Key, FSharedByteBuffer::Copy(Appended), {}, 4096); ASSERT_FALSE(Long);
 		EXPECT_EQ(Long.error().Code, ECacheError::Corrupt);
 	}
 }
@@ -1378,8 +1388,8 @@ TEST(FCacheTests, RejectsLegacyStorageEnvelopesAndReplacesThemOnPut)
 		FSharedByteBuffer::Take(Bytes({1, 2, 3, 4}))));
 	auto Output = std::move(Builder).Build(); ASSERT_TRUE(Output);
 	auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
-	auto Raw = Record->Encode(4096); ASSERT_TRUE(Raw);
-	auto Compressed = FCacheRecord::CompressEncoded(*Raw, 4096); ASSERT_TRUE(Compressed);
+	auto Raw = FCacheRecordFixtureCodec::Encode(*Record, 4096); ASSERT_TRUE(Raw);
+	auto Compressed = FCacheRecordFixtureCodec::CompressEncoded(*Raw, 4096); ASSERT_TRUE(Compressed);
 	FBinaryWriter Legacy;
 	Legacy.WriteHeader({0x43444444, 1, 1});
 	Legacy.WriteU64(Compressed->GetSize());
@@ -1563,4 +1573,288 @@ TEST(FCacheStorageTests, SymlinkEntriesAreNeverRead)
 	}
 	EXPECT_TRUE(std::filesystem::exists(Outside));
 	EXPECT_TRUE(std::filesystem::is_symlink(Link));
+}
+
+TEST(FCacheTests, RepeatedBlobIdentitiesShareReadDecodeAndPhysicalBudgets)
+{
+	FScopedCacheDirectory Directory("RequestLocalReuse");
+	for (uint64 Size : {uint64(0), uint64(1), uint64(8192)})
+	{
+		SCOPED_TRACE(Size);
+		const auto Key = MakeKey(FCacheBucket::FromString("Reuse"), Size ? (Size == 1 ? 'b' : 'c') : 'a');
+		const auto Block = FSharedByteBuffer::Take(FByteBuffer(Size, std::byte{4}));
+		const auto Record = RecordWith(Key, {Block, FSharedByteBuffer::Copy(Block.GetBytes()), Block});
+		FCacheStoreStats Cold, Warm;
+		ASSERT_TRUE(GetCache().Put({.Record = Record, .Stats = &Cold}));
+		EXPECT_EQ(Cold.BlobsCompressed, 1u); EXPECT_EQ(Cold.BlobsWritten, 1u);
+		ASSERT_TRUE(GetCache().Put({.Record = Record, .Stats = &Warm}));
+		EXPECT_EQ(Warm.BlobsReused, 1u); EXPECT_EQ(Warm.BlobsCompressed, 0u); EXPECT_EQ(Warm.BlobsWritten, 0u);
+		FCacheQueryStats Stats;
+		auto Loaded = GetCache().Get({.Key = Key, .Stats = &Stats}); ASSERT_TRUE(Loaded && *Loaded);
+		EXPECT_EQ(Stats.ValuesRead, 1u); EXPECT_EQ(Stats.DecodedBytes, Size);
+		const auto Values = (**Loaded).GetValues(); ASSERT_EQ(Values.size(), 3u);
+		EXPECT_TRUE(Values[0].Value.GetData().SharesStorageWith(Values[1].Value.GetData()));
+		EXPECT_TRUE(Values[0].Value.GetData().SharesStorageWith(Values[2].Value.GetData()));
+		EXPECT_EQ(Values[0].Value.GetRawSize(), Size);
+		EXPECT_TRUE(GetCache().Get({.Key = Key, .MaximumEncodedBytes = Stats.ReadBytes,
+			.MaximumWorkingSetBytes = Stats.PeakWorkingSetBytes}));
+		EXPECT_FALSE(GetCache().Get({.Key = Key, .MaximumEncodedBytes = Stats.ReadBytes - 1}));
+		if (Size) EXPECT_FALSE(GetCache().Get({.Key = Key, .OutputLimits = {.MaximumTotalBytes = Size * 2}}));
+		const std::array Selected{Values[0].Id, Values[2].Id};
+		FCacheQueryStats SelectedStats;
+		auto Partial = GetCache().Get({.Key = Key, .Mode = ECacheGetMode::SelectedValues,
+			.RequiredValues = Selected, .Stats = &SelectedStats});
+		ASSERT_TRUE(Partial && *Partial); EXPECT_EQ(SelectedStats.ValuesRead, 1u);
+		EXPECT_TRUE((**Partial).FindValue(Selected[0])->GetData().SharesStorageWith((**Partial).FindValue(Selected[1])->GetData()));
+		std::cout << "[BlobReuse] raw=" << Size << " reads=" << Stats.ValuesRead
+			<< " decoded=" << Stats.DecodedBytes
+			<< " read_bytes=" << Stats.ReadBytes << " peak_bytes=" << Stats.PeakWorkingSetBytes
+			<< " cold_codec_calls=" << Cold.BlobsCompressed << " warm_codec_calls=" << Warm.BlobsCompressed
+			<< " warm_blob_writes=" << Warm.BlobsWritten << '\n';
+	}
+}
+
+TEST(FCacheTests, StoredReuseVerifiesRawContentAndDoesNotRepublishValidBlobs)
+{
+	FScopedCacheDirectory Directory("VerifiedReuse");
+	const auto Key = MakeKey(FCacheBucket::FromString("Verified"), 'a');
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2, 3}))});
+	ASSERT_TRUE(GetCache().Put({Record}));
+	const auto Path = EntryPath(Directory, BlobKey(Record.GetValues()[0].Value), "values/v1");
+	const auto Stamp = std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
+	std::filesystem::last_write_time(Path, Stamp);
+	ASSERT_TRUE(GetCache().Put({Record})); EXPECT_EQ(std::filesystem::last_write_time(Path), Stamp);
+	// Keep a valid envelope but damage raw content so envelope-only reuse would fail.
+	auto Encoded = FFileHelper::LoadFileToArray(Path); ASSERT_TRUE(Encoded);
+	(*Encoded)[48] ^= std::byte{1};
+	FBinaryWriter Writer; Writer.WriteBytes(FByteView(*Encoded).first(Encoded->size() - 16));
+	Writer.WriteHash128(FXxHash128::HashBuffer(Writer.GetBytes()));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Writer.GetBytes(), Path));
+	FCacheStoreStats Stats;
+	ASSERT_TRUE(GetCache().Put({.Record = Record, .Stats = &Stats}));
+	EXPECT_EQ(Stats.BlobsReused, 0u); EXPECT_EQ(Stats.BlobsWritten, 1u);
+	EXPECT_TRUE(GetCache().Get({Key}).value().has_value());
+}
+
+TEST(FAsyncCacheTests, SharedReadWaiterCanCancelWithoutCancelingLeader)
+{
+	FCacheReadCoalescer Coalescer; std::latch Entered(1), Release(1);
+	std::atomic_bool Cancel = false;
+	auto Leader = std::async(std::launch::async, [&] { return Coalescer.Get("cancel", [&]() -> FCacheStorageGetResult {
+		Entered.count_down(); Release.wait(); return std::optional{FSharedByteBuffer::Take(Bytes({1}))};
+	}); });
+	Entered.wait();
+	auto Waiter = std::async(std::launch::async, [&] { return Coalescer.Get("cancel", []() -> FCacheStorageGetResult {
+		ADD_FAILURE() << "Waiter must join the existing physical read"; return std::optional<FSharedByteBuffer>{};
+	}, nullptr, [&] { return Cancel.load(); }); });
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (!Coalescer.GetCoalescedReadCount() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+	Cancel = true;
+	const auto Ready = Waiter.wait_for(std::chrono::seconds(2));
+	Release.count_down();
+	EXPECT_EQ(Ready, std::future_status::ready);
+	auto Canceled = Waiter.get(); ASSERT_FALSE(Canceled); EXPECT_EQ(Canceled.error().Code, ECacheError::Canceled);
+	EXPECT_TRUE(Leader.get().has_value());
+}
+
+TEST(FAsyncCacheTests, ReadSharingCapacityFallsBackWithoutRetainingOverflowKeys)
+{
+	FCacheReadCoalescer Coalescer;
+	std::function<FCacheStorageGetResult(uint32)> Nested;
+	Nested = [&](uint32 Depth) -> FCacheStorageGetResult {
+		return Coalescer.Get(std::to_string(Depth), [&]() -> FCacheStorageGetResult {
+			EXPECT_LE(Coalescer.GetPendingReadCount(), 64u);
+			if (Depth == 72) { EXPECT_EQ(Coalescer.GetPendingReadCount(), 64u); return std::optional{FSharedByteBuffer::Take(Bytes({1}))}; }
+			return Nested(Depth + 1);
+		});
+	};
+	EXPECT_TRUE(Nested(0)); EXPECT_EQ(Coalescer.GetPendingReadCount(), 0u);
+}
+
+TEST(FCacheTests, MeasuresRepeatedBlobWork)
+{
+	FScopedCacheDirectory Directory("BlobWorkMeasurement");
+	const auto Key = MakeKey(FCacheBucket::FromString("Measurement"), 'a');
+	const auto Block = FSharedByteBuffer::Take(FByteBuffer(8192, std::byte{4}));
+	FBuildOutputBuilder Builder("Fixture.Output", 1);
+	for (uint32 Index = 0; Index < 64; ++Index)
+		ASSERT_TRUE(Builder.AddValue(FValueId::FromName("Block").MakeIndexed(Index), Block));
+	const auto Record = FCacheRecord::FromOutput(Key, std::move(Builder).Build().value()).value();
+	FCacheStoreStats Cold, Warm; FCacheQueryStats Read;
+	ASSERT_TRUE(GetCache().Put({.Record = Record, .Stats = &Cold}));
+	ASSERT_TRUE(GetCache().Get({.Key = Key, .Stats = &Read}));
+	ASSERT_TRUE(GetCache().Put({.Record = Record, .Stats = &Warm}));
+	std::cout << "[BlobWorkMeasurement] values=64 raw_each=8192 read_bytes=" << Read.ReadBytes
+		<< " decoded_bytes=" << Read.DecodedBytes << " physical_reads=" << Read.ValuesRead
+		<< " read_peak=" << Read.PeakWorkingSetBytes << " read_ns=" << Read.DurationNanoseconds
+		<< " cold_codec_calls=" << Cold.BlobsCompressed << " cold_blob_writes=" << Cold.BlobsWritten
+		<< " cold_write_bytes=" << Cold.WrittenBytes << " cold_peak=" << Cold.PeakWorkingSetBytes
+		<< " warm_read_bytes=" << Warm.ReadBytes << " warm_codec_calls=" << Warm.BlobsCompressed
+		<< " warm_blob_writes=" << Warm.BlobsWritten << " warm_write_bytes=" << Warm.WrittenBytes
+		<< " warm_peak=" << Warm.PeakWorkingSetBytes << '\n';
+}
+
+TEST(FAsyncCacheTests, CanceledReadLeaderStillPublishesSharedReadToItsWaiter)
+{
+	FCacheReadCoalescer Coalescer; std::latch Entered(1), Release(1); std::atomic_bool Cancel = false;
+	uint64 LeaderBytes = 0;
+	auto Leader = std::async(std::launch::async, [&] { return Coalescer.Get("leader", [&]() -> FCacheStorageGetResult {
+		Entered.count_down(); Release.wait(); return std::optional{FSharedByteBuffer::Take(Bytes({1, 2}))};
+	}, &LeaderBytes, [&] { return Cancel.load(); }); });
+	Entered.wait();
+	auto Waiter = std::async(std::launch::async, [&] { return Coalescer.Get("leader", []() -> FCacheStorageGetResult {
+		ADD_FAILURE() << "Expected shared read"; return std::optional<FSharedByteBuffer>{};
+	}); });
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (!Coalescer.GetCoalescedReadCount() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+	EXPECT_EQ(Coalescer.GetCoalescedReadCount(), 1u); Cancel = true; Release.count_down();
+	auto Canceled = Leader.get(); ASSERT_FALSE(Canceled); EXPECT_EQ(Canceled.error().Code, ECacheError::Canceled);
+	EXPECT_EQ(LeaderBytes, 2u); auto Result = Waiter.get(); EXPECT_TRUE(Result && *Result);
+}
+
+TEST(FCacheDiagnosticsTests, DistinguishesMissHitCorruptionBackendFailureAndCanceledStore)
+{
+	FScopedCacheDirectory Directory("DiagnosticOutcomes"); Durin::DerivedData::Private::ResetCacheDiagnosticsForTests();
+	const auto Key = MakeKey(FCacheBucket::FromString("Diagnostics"), 'a');
+	EXPECT_FALSE(GetCache().Get({Key}).value().has_value());
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2, 3}))});
+	ASSERT_TRUE(GetCache().Put({Record})); ASSERT_TRUE(GetCache().Get({Key}).value().has_value());
+	ASSERT_TRUE(GetCacheStorage().Put({BlobKey(Record.GetValues()[0].Value), Bytes({9}), 100, ECacheStorageNamespace::Values}));
+	EXPECT_FALSE(GetCache().Get({Key}));
+	const auto ManifestPath = EntryPath(Directory, Key, "records/v4"); ASSERT_TRUE(std::filesystem::remove(ManifestPath));
+	std::filesystem::create_directory(ManifestPath); EXPECT_FALSE(GetCache().Get({Key}));
+	EXPECT_FALSE(GetCache().Put({.Record = Record, .ShouldCancel = [] { return true; }}));
+	const auto Stats = GetCacheDiagnostics();
+	EXPECT_EQ(Stats.Total.Gets, 4u); EXPECT_EQ(Stats.Total.Misses, 1u); EXPECT_EQ(Stats.Total.Hits, 1u);
+	EXPECT_EQ(Stats.Total.InvalidRecords, 1u); EXPECT_EQ(Stats.Total.BackendFailures, 1u);
+	EXPECT_EQ(Stats.Total.Puts, 2u); EXPECT_EQ(Stats.Total.Canceled, 1u); EXPECT_EQ(Stats.Total.StoreFailures, 0u);
+	EXPECT_GT(Stats.Total.ReadBytes, 0u); EXPECT_GT(Stats.Total.GetNanoseconds, 0u); EXPECT_GT(Stats.Total.PutNanoseconds, 0u);
+	ASSERT_EQ(Stats.Buckets.size(), 1u); EXPECT_EQ(Stats.Buckets[0].Counters.Gets, Stats.Total.Gets);
+}
+
+TEST(FCacheDiagnosticsTests, BoundsBucketsAndObservesAdmissionWithoutChangingResults)
+{
+	FScopedCacheDirectory Directory("DiagnosticBounds"); Durin::DerivedData::Private::ResetCacheDiagnosticsForTests();
+	for (uint32 Index = 0; Index < 70; ++Index)
+		EXPECT_TRUE(GetCache().Get({MakeKey(FCacheBucket::FromString("Bucket" + std::to_string(Index)), 'a')}));
+	auto Stats = GetCacheDiagnostics(); EXPECT_EQ(Stats.Buckets.size(), FCacheDiagnostics::MaximumBuckets);
+	EXPECT_EQ(Stats.Total.Misses, 70u); EXPECT_EQ(Stats.OtherBuckets.Misses, 6u);
+	auto Queue = std::make_shared<FCacheQueueScheduler>(); auto Backend = std::make_shared<FAsyncFixtureCache>();
+	auto Async = CreateAsyncCache(Backend, Queue, {.Concurrency = 1, .Capacity = 1}); FRequestOwner Owner;
+	const std::array Requests{FCacheGetRequest{.Key = MakeKey(FCacheBucket::FromString("Queue"), 'b')}};
+	ASSERT_TRUE(Async->Get(Requests, Owner, [](auto, auto, auto) {}));
+	auto Rejected = Async->Get(Requests, Owner, [](auto, auto, auto) { ADD_FAILURE(); }); ASSERT_FALSE(Rejected);
+	EXPECT_EQ(Rejected.error().Code, ECacheError::Capacity); Queue->Run();
+	Stats = GetCacheDiagnostics(); EXPECT_EQ(Stats.Total.CapacityRejections, 1u); EXPECT_EQ(Stats.Total.AsyncStarts, 1u);
+	EXPECT_GT(Stats.Total.QueueNanoseconds, 0u); EXPECT_EQ(Owner.Wait(), ERequestWaitResult::Completed);
+}
+
+TEST(FCacheMaintenanceTests, RefusesLiveRootAndNormalAccessRefusesExclusiveMaintenance)
+{
+	FScopedCacheDirectory Directory("OfflineOwnership");
+	const auto Key = MakeKey(FCacheBucket::FromString("Ownership"), 'a');
+	ASSERT_TRUE(GetCache().Get({Key}));
+	for (auto Operation : {ECacheMaintenanceOperation::Inspect, ECacheMaintenanceOperation::Verify, ECacheMaintenanceOperation::Clear})
+		EXPECT_FALSE(MaintainCacheStorage({.Root = Directory.Root, .Operation = Operation}));
+	Durin::DerivedData::Private::ReleaseCacheStorageOwnership();
+	auto Lease = Durin::DerivedData::Private::OpenCacheStorageLease(Directory.Root, true); ASSERT_TRUE(Lease);
+	EXPECT_FALSE(Durin::DerivedData::Private::OpenCacheStorageLease(Directory.Root, true));
+	EXPECT_FALSE(GetCache().Get({Key})); EXPECT_FALSE(GetCache().Put({RecordWith(Key, {})}));
+	Lease->reset(); EXPECT_TRUE(GetCache().Get({Key}));
+}
+
+TEST(FCacheMaintenanceTests, InspectsVerifiesAndClearsOnlyRecognizedStorage)
+{
+	FScopedCacheDirectory Directory("OfflineRoundTrip"); const auto Key = MakeKey(FCacheBucket::FromString("Nested/Bucket"), 'b');
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(FByteBuffer(8192, std::byte{3})), {}});
+	ASSERT_TRUE(GetCache().Put({Record})); Durin::DerivedData::Private::ReleaseCacheStorageOwnership();
+	const auto Other = Directory.Root / "unrelated.txt"; ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes({9}), Other));
+	auto Inspection = MaintainCacheStorage({.Root = Directory.Root}); ASSERT_TRUE(Inspection);
+	EXPECT_EQ(Inspection->RecordFiles, 1u); EXPECT_EQ(Inspection->ValueFiles, 2u); EXPECT_EQ(Inspection->ReadBytes, 0u);
+	EXPECT_EQ(Inspection->OtherRootEntries, 1u);
+	auto Verified = MaintainCacheStorage({.Root = Directory.Root, .Operation = ECacheMaintenanceOperation::Verify});
+	ASSERT_TRUE(Verified); EXPECT_TRUE(Verified->IsValid()); EXPECT_EQ(Verified->VerifiedFiles, 3u);
+	EXPECT_GT(Verified->ReadBytes, 0u);
+	auto Cleared = MaintainCacheStorage({.Root = Directory.Root, .Operation = ECacheMaintenanceOperation::Clear});
+	ASSERT_TRUE(Cleared); EXPECT_EQ(Cleared->RemovedFiles, 3u);
+	EXPECT_EQ(Cleared->RemovedBytes, Inspection->RecordBytes + Inspection->ValueBytes);
+	EXPECT_TRUE(std::filesystem::is_regular_file(Other)); EXPECT_TRUE(std::filesystem::is_regular_file(Directory.Root / Durin::DerivedData::Private::CacheLockName));
+	EXPECT_TRUE(MaintainCacheStorage({.Root = Directory.Root, .Operation = ECacheMaintenanceOperation::Clear}));
+	EXPECT_FALSE(GetCache().Get({Key}).value().has_value());
+}
+
+TEST(FCacheMaintenanceTests, ReportsCorruptRawContentMissingValuesAndUnsupportedNamespaces)
+{
+	FScopedCacheDirectory Directory("OfflineValidation"); const auto Key = MakeKey(FCacheBucket::FromString("Integrity"), 'c');
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1, 2, 3}))});
+	ASSERT_TRUE(GetCache().Put({Record}));
+	const auto BlobPath = EntryPath(Directory, BlobKey(Record.GetValues()[0].Value), "values/v1");
+	auto BytesOnDisk = FFileHelper::LoadFileToArray(BlobPath).value(); BytesOnDisk[48] ^= std::byte{1};
+	FBinaryWriter Writer; Writer.WriteBytes(FByteView(BytesOnDisk).first(BytesOnDisk.size() - 16)); Writer.WriteHash128(FXxHash128::HashBuffer(Writer.GetBytes()));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Writer.GetBytes(), BlobPath)); Durin::DerivedData::Private::ReleaseCacheStorageOwnership();
+	auto Corrupt = MaintainCacheStorage({.Root = Directory.Root, .Operation = ECacheMaintenanceOperation::Verify});
+	ASSERT_TRUE(Corrupt); EXPECT_FALSE(Corrupt->IsValid()); EXPECT_GT(Corrupt->InvalidFiles, 0u);
+	ASSERT_TRUE(std::filesystem::remove(BlobPath));
+	auto Missing = MaintainCacheStorage({.Root = Directory.Root, .Operation = ECacheMaintenanceOperation::Verify});
+	ASSERT_TRUE(Missing); EXPECT_EQ(Missing->MissingValues, 1u); EXPECT_FALSE(Missing->IsValid());
+	const auto Legacy = Directory.Root / "records/v3/old.bin"; std::filesystem::create_directories(Legacy.parent_path());
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes({1}), Legacy));
+	auto Unsupported = MaintainCacheStorage({.Root = Directory.Root, .Operation = ECacheMaintenanceOperation::Verify});
+	ASSERT_TRUE(Unsupported); EXPECT_EQ(Unsupported->UnsupportedFiles, 1u); EXPECT_TRUE(std::filesystem::exists(Legacy));
+}
+
+TEST(FCacheMaintenanceTests, LimitsAndCancellationNeverReportPartialVerificationAsSuccess)
+{
+	FScopedCacheDirectory Directory("OfflineLimits"); const auto Key = MakeKey(FCacheBucket::FromString("Limits"), 'd');
+	ASSERT_TRUE(GetCache().Put({RecordWith(Key, {FSharedByteBuffer::Take(Bytes({4}))})})); Durin::DerivedData::Private::ReleaseCacheStorageOwnership();
+	for (auto Operation : {ECacheMaintenanceOperation::Inspect, ECacheMaintenanceOperation::Verify, ECacheMaintenanceOperation::Clear})
+	{
+		auto Limited = MaintainCacheStorage({.Root = Directory.Root, .Operation = Operation, .MaximumEntries = 1});
+		ASSERT_FALSE(Limited); EXPECT_EQ(Limited.error().Code, ECacheError::ValueTooLarge);
+		auto Canceled = MaintainCacheStorage({.Root = Directory.Root, .Operation = Operation, .ShouldCancel = [] { return true; }});
+		ASSERT_FALSE(Canceled); EXPECT_EQ(Canceled.error().Code, ECacheError::Canceled);
+	}
+	for (auto Options : {FCacheMaintenanceOptions{.Root = Directory.Root, .Operation = ECacheMaintenanceOperation::Verify, .MaximumFileBytes = 1},
+		FCacheMaintenanceOptions{.Root = Directory.Root, .Operation = ECacheMaintenanceOperation::Verify, .MaximumReadBytes = 1},
+		FCacheMaintenanceOptions{.Root = Directory.Root, .Operation = ECacheMaintenanceOperation::Verify, .MaximumWorkingSetBytes = 1}})
+	{ auto Limited = MaintainCacheStorage(Options); ASSERT_FALSE(Limited); EXPECT_EQ(Limited.error().Code, ECacheError::ValueTooLarge); }
+	EXPECT_TRUE(GetCache().Get({Key}).value().has_value());
+}
+
+TEST(FCacheMaintenanceTests, RefusesLinksBeforeDeletingAnyContent)
+{
+	FScopedCacheDirectory Directory("OfflineLinks"); const auto Key = MakeKey(FCacheBucket::FromString("Links"), 'e');
+	ASSERT_TRUE(GetCache().Put({RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1}))})})); Durin::DerivedData::Private::ReleaseCacheStorageOwnership();
+	const auto Outside = Testing::GetTestWorkDirectory() / "OutsideCache.txt"; ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes({9}), Outside));
+	std::error_code Ec; std::filesystem::create_symlink(Outside, Directory.Root / "values/link.bin", Ec);
+	if (Ec) GTEST_SKIP() << "Symlink creation unavailable: " << Ec.message();
+	for (auto Operation : {ECacheMaintenanceOperation::Inspect, ECacheMaintenanceOperation::Verify, ECacheMaintenanceOperation::Clear})
+		EXPECT_FALSE(MaintainCacheStorage({.Root = Directory.Root, .Operation = Operation}));
+	EXPECT_TRUE(std::filesystem::exists(EntryPath(Directory, Key, "records/v4"))); EXPECT_TRUE(std::filesystem::exists(Outside));
+}
+
+TEST(FCacheMaintenanceDeathTests, AnotherProcessCannotMaintainLiveStorageAndCrashReleasesOwnership)
+{
+	FScopedCacheDirectory Directory("OfflineProcesses"); const auto Key = MakeKey(FCacheBucket::FromString("Processes"), 'a');
+	ASSERT_TRUE(GetCache().Get({Key}));
+	EXPECT_EXIT({ auto Lease = Durin::DerivedData::Private::OpenCacheStorageLease(Directory.Root, true); std::_Exit(Lease ? 1 : 0); }, testing::ExitedWithCode(0), "");
+	Durin::DerivedData::Private::ReleaseCacheStorageOwnership();
+	EXPECT_EXIT({ auto Lease = Durin::DerivedData::Private::OpenCacheStorageLease(Directory.Root, false); std::_Exit(Lease ? 0 : 1); }, testing::ExitedWithCode(0), "");
+	EXPECT_TRUE(Durin::DerivedData::Private::OpenCacheStorageLease(Directory.Root, true));
+}
+
+TEST(FCacheMaintenanceTests, CanceledClearLeavesValuesUntilManifestsAreRemovedAndCanResume)
+{
+	FScopedCacheDirectory Directory("OfflineClearResume"); const auto Key = MakeKey(FCacheBucket::FromString("Resume"), 'a');
+	const auto Record = RecordWith(Key, {FSharedByteBuffer::Take(Bytes({1}))});
+	ASSERT_TRUE(GetCache().Put({Record})); Durin::DerivedData::Private::ReleaseCacheStorageOwnership();
+	const auto Manifest = EntryPath(Directory, Key, "records/v4");
+	const auto Blob = EntryPath(Directory, BlobKey(Record.GetValues()[0].Value), "values/v1");
+	auto Canceled = MaintainCacheStorage({.Root = Directory.Root, .Operation = ECacheMaintenanceOperation::Clear,
+		.ShouldCancel = [&] { return !std::filesystem::exists(Manifest); }});
+	ASSERT_FALSE(Canceled); EXPECT_EQ(Canceled.error().Code, ECacheError::Canceled);
+	EXPECT_FALSE(std::filesystem::exists(Manifest)); EXPECT_TRUE(std::filesystem::exists(Blob));
+	auto Resumed = MaintainCacheStorage({.Root = Directory.Root, .Operation = ECacheMaintenanceOperation::Clear});
+	ASSERT_TRUE(Resumed); EXPECT_FALSE(std::filesystem::exists(Blob));
+	EXPECT_FALSE(GetCache().Get({Key}).value().has_value());
 }

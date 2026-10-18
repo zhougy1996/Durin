@@ -1,3 +1,4 @@
+#include "CacheRecordFixtureCodec.h"
 #include "Physics/PhysicsDerivedData.h"
 #include "Physics/PhysicsSharedOutput.h"
 #include <gtest/gtest.h>
@@ -1473,10 +1474,10 @@ TEST(FStaticMeshPayloadCodecTests, SharedOutputRestoresRawAndCompressedRecordsWi
 		ASSERT_TRUE(Output) << Output.error();
 		const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("MeshOutputFixture"), FXxHash128::HashBuffer("mesh"));
 		auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
-		auto Encoded = Record->Encode(); ASSERT_TRUE(Encoded);
-		if (Compressed) Encoded = FCacheRecord::CompressEncoded(*Encoded);
+		auto Encoded = FCacheRecordFixtureCodec::Encode(*Record); ASSERT_TRUE(Encoded);
+		if (Compressed) Encoded = FCacheRecordFixtureCodec::CompressEncoded(*Encoded);
 		ASSERT_TRUE(Encoded);
-		auto Loaded = FCacheRecord::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
+		auto Loaded = FCacheRecordFixtureCodec::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
 		auto Warm = Loaded->ToOutput(Key); ASSERT_TRUE(Warm);
 		EXPECT_FALSE(Warm->FindValue(StaticMeshStreamId(0))->GetData().GetNativeView<FVector3f>());
 		auto Render = StaticMeshPrivate::AssembleSharedOutput(*Warm); ASSERT_TRUE(Render) << Render.error();
@@ -1614,10 +1615,10 @@ TEST(FStaticMeshPayloadCodecTests, CollisionSharedOutputRetainsColdArraysAndPres
 		ExpectedPayload.Serialize(ExpectedWriter); ASSERT_FALSE(ExpectedWriter.IsError());
 		const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("CollisionOutputFixture"), FXxHash128::HashBuffer("collision"));
 		auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
-		auto Encoded = Record->Encode(); ASSERT_TRUE(Encoded);
-		if (Compressed) Encoded = FCacheRecord::CompressEncoded(*Encoded);
+		auto Encoded = FCacheRecordFixtureCodec::Encode(*Record); ASSERT_TRUE(Encoded);
+		if (Compressed) Encoded = FCacheRecordFixtureCodec::CompressEncoded(*Encoded);
 		ASSERT_TRUE(Encoded);
-		auto Loaded = FCacheRecord::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
+		auto Loaded = FCacheRecordFixtureCodec::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
 		auto Warm = Loaded->ToOutput(Key); ASSERT_TRUE(Warm);
 		EXPECT_FALSE(Warm->FindValue(CollisionBlockId(Hull ? 0 : 1, 0))->GetData().GetNativeView<FVector3>());
 		auto Assembled = PhysicsPrivate::AssembleSharedOutput(*Warm, Mode, Policy); ASSERT_TRUE(Assembled) << Assembled.error();

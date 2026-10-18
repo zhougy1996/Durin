@@ -1,5 +1,6 @@
 #include "FileSystemCacheBackend.h"
 #include "DerivedDataValue.h"
+#include "CacheStorageOwnership.h"
 
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -40,6 +41,8 @@ namespace Durin::DerivedData
 	auto FFileSystemCacheBackend::Get(const FCacheStorageGetRequest& Request) const
 		-> FCacheStorageGetResult
 	{
+		auto Lease = Private::AcquireCacheStorageOwnership();
+		if (!Lease) return std::unexpected(std::move(Lease.error()));
 		if (Request.MaximumValueBytes == 0)
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache get request is invalid."});
 		auto EntryPath = GetEntryPath(Request.Key, Request.Namespace);
@@ -106,6 +109,8 @@ namespace Durin::DerivedData
 	auto FFileSystemCacheBackend::Put(const FCacheStoragePutRequest& Request) const
 		-> FCacheStoragePutResult
 	{
+		auto Lease = Private::AcquireCacheStorageOwnership();
+		if (!Lease) return std::unexpected(std::move(Lease.error()));
 		if (Request.MaximumValueBytes == 0)
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache put request is invalid."});
 		if (Request.Value.size() > Request.MaximumValueBytes)

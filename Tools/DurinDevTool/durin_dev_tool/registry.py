@@ -18,6 +18,7 @@ from .commands.asset_specs import COMMAND_SPEC as ASSET_COMMAND_SPEC
 from .commands.bootstrap_specs import DEPENDENCY_COMMAND_SPEC, SETUP_COMMAND_SPEC
 from .commands.build_specs import COMMAND_SPECS as BUILD_COMMAND_SPECS, SCAFFOLDING_COMMAND_SPEC
 from .commands.core_specs import COMMAND_SPECS as CORE_COMMAND_SPECS
+from .commands.cache_specs import COMMAND_SPEC as CACHE_COMMAND_SPEC
 from .commands.cook_specs import COMMAND_SPEC as COOK_COMMAND_SPEC
 from .commands.documentation_specs import COMMAND_SPEC as DOCUMENTATION_COMMAND_SPEC
 from .commands.specification import CommandSpec
@@ -29,6 +30,7 @@ COMMAND_SPECS = (
     SETUP_COMMAND_SPEC,
     *BUILD_COMMAND_SPECS,
     COOK_COMMAND_SPEC,
+    CACHE_COMMAND_SPEC,
     ASSET_COMMAND_SPEC,
     SCAFFOLDING_COMMAND_SPEC,
     DOCUMENTATION_COMMAND_SPEC,

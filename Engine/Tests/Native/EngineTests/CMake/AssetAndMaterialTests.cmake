@@ -39,6 +39,7 @@ durin_add_native_test(DerivedDataCacheTests
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	HEAVY_RUNTIME_RATIONALE "Exercises the Developer-only derived-data cache contract."
+	INCLUDE_DIRECTORIES "${DURIN_PROJECT_SOURCE_DIR}/Developer/DerivedDataCache/Private"
 )
 
 durin_add_native_test(DerivedDataBuildTests
@@ -49,6 +50,7 @@ durin_add_native_test(DerivedDataBuildTests
 	LIBRARIES Core DerivedDataCache
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Exercises authoring-only build definitions and cache execution without Engine."
+	INCLUDE_DIRECTORIES "${DURIN_PROJECT_SOURCE_DIR}/Developer/DerivedDataCache/Private"
 )
 
 durin_add_native_test(AssetDetailCustomizationTests
@@ -785,7 +787,7 @@ durin_add_native_test(StaticMeshTests
 		Renderer
 		DurinEd
 		StaticMeshEditor
-	INCLUDE_DIRECTORIES
+	INCLUDE_DIRECTORIES "${DURIN_PROJECT_SOURCE_DIR}/Developer/DerivedDataCache/Private"
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_level_editor_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public

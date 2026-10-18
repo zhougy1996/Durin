@@ -1,5 +1,6 @@
 #include "DerivedDataCache/DerivedDataCacheAsync.h"
 #include "RequestOwnerPrivate.h"
+#include "CacheDiagnosticsPrivate.h"
 
 namespace Durin::DerivedData::Private
 {
@@ -16,6 +17,7 @@ namespace Durin::DerivedData::Private
 		FCacheGetCallback GetCallback;
 		FCachePutCallback PutCallback;
 		uint32 Index = 0;
+		std::chrono::steady_clock::time_point QueuedAt;
 		uint64 QueuedTurn = 0; // Protected by Cache->Mutex.
 		uint64 RetainedBytes = 0;
 		bool Admitted = false; // Protected by Cache->Mutex.
@@ -74,6 +76,8 @@ namespace Durin::DerivedData::Private
 	auto FCacheOperation::Run() -> void
 	{
 		if (Started.exchange(true)) return;
+		ObserveCache(PutRequest ? PutRequest->Record.GetKey() : GetRequest.Key, ECacheObservation::AsyncStart,
+			std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - QueuedAt).count());
 		FCacheGetResult Result = std::unexpected(CanceledError());
 		FCachePutResult Saved = std::unexpected(CanceledError());
 		FCacheQueryStats Stats;
@@ -198,7 +202,7 @@ namespace Durin::DerivedData::Private
 				Handle->Operations.assign(Operations.begin(), Operations.end());
 				try { for (auto& Op : Operations)
 				{
-					Op->Cache = State; Op->QueuedTurn = State->DispatchTurn;
+					Op->Cache = State; Op->QueuedTurn = State->DispatchTurn; Op->QueuedAt = std::chrono::steady_clock::now();
 					Op->WaitDomain = State->Scheduler->IsInline() ? nullptr : State.get();
 					{ std::lock_guard OperationLock(Op->Mutex); Op->Group = Owner.Begin(Op); }
 					State->All.push_back(Op); State->Pending.push_back(Op);
@@ -224,7 +228,10 @@ namespace Durin::DerivedData::Private
 			if (Requests.empty() || !Callback)
 				return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Invalid asynchronous cache batch."});
 			if (Requests.size() > State->Capacity)
+			{
+				ObserveCache({}, ECacheObservation::CapacityRejected);
 				return std::unexpected(FCacheError{ECacheError::Capacity, "Asynchronous cache batch exceeds capacity."});
+			}
 			std::vector<std::shared_ptr<FCacheOperation>> Ops; Ops.reserve(Requests.size());
 			for (uint32 I = 0; I < Requests.size(); ++I)
 			{
@@ -233,7 +240,10 @@ namespace Durin::DerivedData::Private
 				Op->GetRequest.RequiredValues = {}; Op->Ids.assign(Requests[I].RequiredValues.begin(), Requests[I].RequiredValues.end());
 				Op->GetCallback = Callback; Ops.push_back(std::move(Op));
 			}
-			return Admit(std::move(Ops), Owner);
+			auto Result = Admit(std::move(Ops), Owner);
+			if (!Result && Result.error().Code == ECacheError::Capacity)
+				for (const auto& Request : Requests) ObserveCache(Request.Key, ECacheObservation::CapacityRejected);
+			return Result;
 		}
 		catch (...) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache batch admission failed."}); }
 		auto Put(std::span<const FCachePutRequest> Requests, IRequestOwner& Owner, FCachePutCallback Callback)
@@ -243,11 +253,17 @@ namespace Durin::DerivedData::Private
 			if (Requests.empty() || !Callback)
 				return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Invalid asynchronous cache batch."});
 			if (Requests.size() > State->Capacity)
+			{
+				ObserveCache({}, ECacheObservation::CapacityRejected);
 				return std::unexpected(FCacheError{ECacheError::Capacity, "Asynchronous cache batch exceeds capacity."});
+			}
 			std::vector<std::shared_ptr<FCacheOperation>> Ops; Ops.reserve(Requests.size());
 			for (uint32 I = 0; I < Requests.size(); ++I)
-			{ auto Op = std::make_shared<FCacheOperation>(); Op->Index = I; Op->PutRequest = Requests[I]; Op->PutCallback = Callback; Ops.push_back(std::move(Op)); }
-			return Admit(std::move(Ops), Owner);
+			{ auto Op = std::make_shared<FCacheOperation>(); Op->Index = I; Op->PutRequest = Requests[I]; Op->PutRequest->Stats = nullptr; Op->PutCallback = Callback; Ops.push_back(std::move(Op)); }
+			auto Result = Admit(std::move(Ops), Owner);
+			if (!Result && Result.error().Code == ECacheError::Capacity)
+				for (const auto& Request : Requests) ObserveCache(Request.Record.GetKey(), ECacheObservation::CapacityRejected);
+			return Result;
 		}
 		catch (...) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Cache batch admission failed."}); }
 		auto Close() -> void override

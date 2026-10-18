@@ -1,4 +1,5 @@
 #include "DerivedDataBuildOutput.h"
+#include "CacheRecordFixtureCodec.h"
 #include "DerivedDataBuildValidation.h"
 #include "Serialization/BinaryFormat.h"
 #include <zstd.h>
@@ -409,23 +410,23 @@ namespace Durin::DerivedData
 		return It != Values.end() && It->Id == Id ? &It->Value : nullptr;
 	}
 
-	auto FCacheRecord::Encode(uint64 MaximumBytes) const -> std::expected<FSharedByteBuffer, FCacheError>
+	auto FCacheRecordFixtureCodec::Encode(const FCacheRecord& Record, uint64 MaximumBytes) -> std::expected<FSharedByteBuffer, FCacheError>
 	try
 	{
-		if (!State) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache record is empty."});
-		if (std::ranges::any_of(State->Values, [](const auto& Item) { return !Item.Value.HasData(); }))
+		if (!Record.IsValid()) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Cache record is empty."});
+		if (std::ranges::any_of(Record.GetValues(), [](const auto& Item) { return !Item.Value.HasData(); }))
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Schema-2 encoding requires resident value data."});
-		const auto& Output = *State;
+		const auto& Output = Record;
 		std::vector<FSharedByteBuffer> Metadata;
-		for (const auto& Item : Output.Metadata) Metadata.push_back(CanonicalObjectEncoding(Item.Object.GetBytes()));
+		for (const auto& Item : Output.GetMetadata()) Metadata.push_back(CanonicalObjectEncoding(Item.Object.GetBytes()));
 		FBinaryWriter W({.MaximumTotalBytes = MaximumBytes}); W.WriteHeader({CacheRecordMagic, CacheRecordSchema, 0});
-		W.WriteString(State->Key.GetBucket().ToString()); W.WriteHash128(State->Key.GetHash()); W.WriteString(Output.Schema); W.WriteU32(Output.SchemaVersion);
-		W.WriteU32(uint32(Output.Values.size())); W.WriteU32(uint32(Output.Metadata.size())); W.WriteU32(uint32(Output.Messages.size()));
-		for (const auto& Item : Output.Values) { W.WriteBytes(std::as_bytes(std::span(Item.Id.GetBytes()))); W.WriteU64(Item.Value.GetRawSize()); W.WriteHash128(Item.Value.GetRawHash()); }
-		for (size_t Index = 0; Index < Output.Metadata.size(); ++Index)
-		{ W.WriteBytes(std::as_bytes(std::span(Output.Metadata[Index].Id.GetBytes()))); W.WriteU64(Metadata[Index].GetSize()); W.WriteHash128(FXxHash128::HashBuffer(Metadata[Index].GetBytes())); }
-		for (const auto& M : Output.Messages) { W.WriteU8(uint8(M.Severity)); W.WriteString(M.Text); }
-		for (const auto& Item : Output.Values) W.WriteBytes(Item.Value.GetData().GetBytes());
+		W.WriteString(Record.GetKey().GetBucket().ToString()); W.WriteHash128(Record.GetKey().GetHash()); W.WriteString(Output.GetSchema()); W.WriteU32(Output.GetSchemaVersion());
+		W.WriteU32(uint32(Output.GetValues().size())); W.WriteU32(uint32(Output.GetMetadata().size())); W.WriteU32(uint32(Output.GetMessages().size()));
+		for (const auto& Item : Output.GetValues()) { W.WriteBytes(std::as_bytes(std::span(Item.Id.GetBytes()))); W.WriteU64(Item.Value.GetRawSize()); W.WriteHash128(Item.Value.GetRawHash()); }
+		for (size_t Index = 0; Index < Output.GetMetadata().size(); ++Index)
+		{ W.WriteBytes(std::as_bytes(std::span(Output.GetMetadata()[Index].Id.GetBytes()))); W.WriteU64(Metadata[Index].GetSize()); W.WriteHash128(FXxHash128::HashBuffer(Metadata[Index].GetBytes())); }
+		for (const auto& M : Output.GetMessages()) { W.WriteU8(uint8(M.Severity)); W.WriteString(M.Text); }
+		for (const auto& Item : Output.GetValues()) W.WriteBytes(Item.Value.GetData().GetBytes());
 		for (const auto& Object : Metadata) W.WriteBytes(Object.GetBytes());
 		if (W.HasError()) return std::unexpected(FCacheError{ECacheError::ValueTooLarge, "Cache record encoding exceeds its byte budget."});
 		const auto Hash = FXxHash128::HashBuffer(W.GetBytes()); W.WriteHash128(Hash);
@@ -434,7 +435,7 @@ namespace Durin::DerivedData
 	}
 	catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Allocation"}); }
 
-	auto FCacheRecord::CompressEncoded(const FSharedByteBuffer& Raw, uint64 MaximumBytes) -> std::expected<FSharedByteBuffer, FCacheError>
+	auto FCacheRecordFixtureCodec::CompressEncoded(const FSharedByteBuffer& Raw, uint64 MaximumBytes) -> std::expected<FSharedByteBuffer, FCacheError>
 	try
 	{
 		FBinaryReader R(Raw.GetBytes()); if (!R.ReadAndValidateHeader(CacheRecordMagic, CacheRecordSchema, 0)) return std::unexpected(FCacheError{ECacheError::InvalidRequest, "Compression requires a raw cache record."});
@@ -447,7 +448,7 @@ namespace Durin::DerivedData
 	}
 	catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Allocation"}); }
 
-	auto FCacheRecord::Decode(const FCacheKey& ExpectedKey, FSharedByteBuffer Bytes, FBuildOutputLimits Limits, uint64 MaximumBytes) -> std::expected<FCacheRecord, FCacheError>
+	auto FCacheRecordFixtureCodec::Decode(const FCacheKey& ExpectedKey, FSharedByteBuffer Bytes, FBuildOutputLimits Limits, uint64 MaximumBytes) -> std::expected<FCacheRecord, FCacheError>
 	try
 	{
 		auto Corrupt = [] { return std::unexpected(FCacheError{ECacheError::Corrupt, "Cache record envelope is malformed or unsupported."}); };
@@ -474,13 +475,18 @@ namespace Durin::DerivedData
 			if (D.Size > BodySize - Offset) return Corrupt();
 			auto Data = Bytes.MakeView(Offset, D.Size);
 			if (!Builder.AddValue(D.Id, std::move(Data))) return Corrupt();
-			// AddValue constructs FValue and hashes the payload once. Compare that
-			// identity with the persisted descriptor instead of scanning it again.
-			if (Builder.State->Data.Values.back().Value.GetRawHash() != D.Hash) return Corrupt();
 			Offset += D.Size;
 		}
 		for (const auto& D : Meta) { if (D.Size > BodySize - Offset) return Corrupt(); auto Data = Bytes.MakeView(Offset, D.Size); if (FXxHash128::HashBuffer(Data.GetBytes()) != D.Hash) return Corrupt(); auto Object = FCbObject::TryLoad(Data); if (!Object || !Builder.AddMeta(D.Id, std::move(*Object))) return Corrupt(); Offset += D.Size; }
-		if (Offset != BodySize) return Corrupt(); for (auto& M : Messages) if (!Builder.AddMessage(M.Severity, std::move(M.Text))) return Corrupt(); auto Output = std::move(Builder).Build(); if (!Output) return Corrupt(); return FromOutput(ExpectedKey, *Output, Limits);
+		if (Offset != BodySize) return Corrupt(); for (auto& M : Messages) if (!Builder.AddMessage(M.Severity, std::move(M.Text))) return Corrupt(); auto Output = std::move(Builder).Build(); if (!Output) return Corrupt();
+		// Inspect the validated public values instead of accessing builder internals
+		// or hashing their immutable payloads a second time in this fixture codec.
+		for (const auto& D : Values)
+		{
+			const auto* Value = Output->FindValue(D.Id);
+			if (!Value || Value->GetRawHash() != D.Hash) return Corrupt();
+		}
+		return FCacheRecord::FromOutput(ExpectedKey, *Output, Limits);
 	}
 	catch (const std::bad_alloc&) { return std::unexpected(FCacheError{ECacheError::StorageFailure, "Allocation"}); }
 

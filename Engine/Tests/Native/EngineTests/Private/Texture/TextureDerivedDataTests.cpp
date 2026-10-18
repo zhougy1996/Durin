@@ -1,3 +1,4 @@
+#include "CacheRecordFixtureCodec.h"
 #include "Runtime/Engine/Private/Texture/TextureBuildInternal.h"
 #include "Runtime/Engine/Private/Texture/TextureDerivedDataBuild.h"
 #include "DerivedDataBuildSession.h"
@@ -842,13 +843,13 @@ TEST(FTextureDerivedDataTests, DecodedCacheRecordsAssembleSharedMipsWithIdentica
 	const auto Key = DerivedData::FCacheKey::FromHash(DerivedData::FCacheBucket::FromString("TextureOutputFixture"), FXxHash128::HashBuffer("encoded"));
 	auto Record = DerivedData::FCacheRecord::FromOutput(Key, *Output);
 	ASSERT_TRUE(Record);
-	auto Raw = Record->Encode();
+	auto Raw = DerivedData::FCacheRecordFixtureCodec::Encode(*Record);
 	ASSERT_TRUE(Raw);
 	for (bool bCompress : {false, true})
 	{
-		auto Stored = bCompress ? DerivedData::FCacheRecord::CompressEncoded(*Raw) : Raw;
+		auto Stored = bCompress ? DerivedData::FCacheRecordFixtureCodec::CompressEncoded(*Raw) : Raw;
 		ASSERT_TRUE(Stored);
-		auto LoadedRecord = DerivedData::FCacheRecord::Decode(Key, *Stored);
+		auto LoadedRecord = DerivedData::FCacheRecordFixtureCodec::Decode(Key, *Stored);
 		ASSERT_TRUE(LoadedRecord);
 		auto Loaded = LoadedRecord->ToOutput(Key);
 		ASSERT_TRUE(Loaded);

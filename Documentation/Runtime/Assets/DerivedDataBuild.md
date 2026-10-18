@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-18
 
 ## Ownership
 
@@ -162,7 +162,8 @@ trip. Typed assembly and publication remain owner-controlled.
 ## Policy and cache behavior
 
 `FBuildPolicy` controls cache query, local build, store-on-build, force build,
-input/output/persistence limits, encoded-byte limits, and maximum working set.
+input/output/persistence limits, encoded-byte limits, maximum working set, and
+result delivery relative to persistence.
 Successful completion always returns its validated output. Compression and
 encoding are cache implementation details, not build service or request policy.
 Tests may replace the complete structured cache interface for deterministic
@@ -334,8 +335,14 @@ in-flight immutable blob allocation. The read is forgotten immediately after
 completion, including failures; this is not a resident hot cache. Each consumer
 still validates the blob and inflates under its own budget. Query read-byte
 statistics charge physical reads to the leader; followers charge zero blob-read
-bytes while still counting logical value resolution/decoded bytes and their
-conservative retained workspace.
+bytes while still counting their own distinct-identity resolution/decoded bytes
+and conservative retained workspace. The table holds at most 64 physical reads,
+with at most 64 joined waiters per read; overflow proceeds independently without
+retaining another table entry. Waiter cancellation stops only that wait, and a
+canceled leader still publishes a completed physical read to its other waiters.
+Synchronous filesystem I/O itself remains non-interruptible. Cross-request sharing
+retains encoded reads only; decoding is request-local so its cancellation and
+workspace budget remain independent.
 
 Scheduled builds prepare action identity, submit a full async Get, and release
 the Worker task. A usable full hit completes directly; misses/rejections resume
@@ -343,7 +350,19 @@ resolution and production on the captured producer scheduler. Metadata descripti
 runs once, full output conversion remains mandatory, and priority/budget are
 preserved across continuations. A valid local output is retained through async
 Put; write admission, serialization, dispatch, backend failure, or a dropped write
-cannot discard it. Request cancellation still clears the final output. Wait handles
+cannot discard it. By default, `EBuildResultDelivery::AfterPersistence` delays
+notification until persistence responds, and request cancellation clears the final
+output. Opt-in `BeforePersistence` notifies exactly once with the validated local
+output before submitting Put, including deterministic negative outputs. Cancellation
+before notification still returns Canceled; cancellation or store failure afterward
+can stop persistence but cannot revoke or replace an already delivered result.
+The result callback and its captures retire after notification. `IsResultReady`
+reports that notification has begun; `IsComplete` and request Wait still track the
+remaining persistence response and request retirement. Owner Wait also joins cache
+request buffers and native dispatch captures. Session/service Close cancels remaining
+persistence, and Drain continues to include it. Reentrant waits keep returning
+WouldBlock. Inline cache execution may still persist synchronously before Build
+returns, so early delivery does not promise background execution. Wait handles
 follow each stage and use Core helping; close/drain spans every stage and callback.
 Callbacks have no fixed thread affinity. Infrastructure failures after action
 preparation retain the known key; deterministic messages and cache diagnostics

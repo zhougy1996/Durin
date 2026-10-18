@@ -1,3 +1,4 @@
+#include "CacheRecordFixtureCodec.h"
 #include "DerivedDataBuildOutput.h"
 #include "Serialization/BinaryFormat.h"
 #include <gtest/gtest.h>
@@ -26,7 +27,7 @@ TEST(FDerivedDataBuildOutputTests, ObservationsStayBoundedAndNeverEnterCacheReco
 	EXPECT_FALSE(First.CheckLimits({.MaximumObservationBytes = 1})); EXPECT_FALSE(First.CheckLimits({.MaximumObservations = 0}));
 	auto A = FCacheRecord::FromOutput(Key(), First).value(), B = FCacheRecord::FromOutput(Key(), Second).value();
 	EXPECT_TRUE(std::ranges::equal(A.EncodeManifest()->GetBytes(), B.EncodeManifest()->GetBytes()));
-	EXPECT_TRUE(std::ranges::equal(A.Encode()->GetBytes(), B.Encode()->GetBytes()));
+	EXPECT_TRUE(std::ranges::equal(FCacheRecordFixtureCodec::Encode(A)->GetBytes(), FCacheRecordFixtureCodec::Encode(B)->GetBytes()));
 	EXPECT_TRUE(A.ToOutput(Key())->GetObservations().empty());
 	const auto Encoded = A.EncodeManifest().value(); auto Loaded = FCacheRecord::DecodeManifest(Key(), Encoded); ASSERT_TRUE(Loaded);
 	EXPECT_FALSE(Loaded->ToOutput(Key())); // Values are attachments until resolved.
@@ -45,8 +46,8 @@ TEST(FDerivedDataBuildOutputTests, StructuredManifestPreservesLargeTablesAndReje
 	EXPECT_TRUE(FCacheRecord::DecodeManifest(Key(), Encoded, {.MaximumMetadataBytes = MetadataLimit}));
 	EXPECT_FALSE(FCacheRecord::DecodeManifest(Key(), Encoded, {.MaximumMetadataBytes = MetadataLimit - 1}));
 	const auto Resolved = Loaded->WithValues(Record.GetValues()).value();
-	EXPECT_TRUE(std::ranges::equal(Record.Encode()->GetBytes(), Resolved.Encode()->GetBytes()));
-	EXPECT_TRUE(FCacheRecord::Decode(Key(), Resolved.Encode().value(), {.MaximumMetadataBytes = MetadataLimit}));
+	EXPECT_TRUE(std::ranges::equal(FCacheRecordFixtureCodec::Encode(Record)->GetBytes(), FCacheRecordFixtureCodec::Encode(Resolved)->GetBytes()));
+	EXPECT_TRUE(FCacheRecordFixtureCodec::Decode(Key(), FCacheRecordFixtureCodec::Encode(Resolved).value(), {.MaximumMetadataBytes = MetadataLimit}));
 	ASSERT_EQ(Loaded->GetValues().size(), 600u); EXPECT_TRUE(Loaded->GetMetadata()[0].Object.GetBytes().SharesStorageWith(Encoded));
 	EXPECT_TRUE(std::ranges::equal(Encoded.GetBytes(), Loaded->EncodeManifest()->GetBytes()));
 	EXPECT_TRUE(Record.EncodeManifest(Encoded.GetSize())); EXPECT_FALSE(Record.EncodeManifest(Encoded.GetSize() - 1));
@@ -129,10 +130,10 @@ TEST(FDerivedDataBuildOutputTests, DescriptorOnlyRecordsCannotBecomeCompleteOutp
 	}
 	const auto Incomplete = Reference.ToOutput(Key()); ASSERT_FALSE(Incomplete);
 	EXPECT_EQ(Incomplete.error().Code, ECacheError::InvalidRequest);
-	const auto Encoded = Reference.Encode(); ASSERT_FALSE(Encoded);
+	const auto Encoded = FCacheRecordFixtureCodec::Encode(Reference); ASSERT_FALSE(Encoded);
 	EXPECT_EQ(Encoded.error().Code, ECacheError::InvalidRequest);
 	EXPECT_TRUE(Record->ToOutput(Key()));
-	EXPECT_TRUE(Record->Encode());
+	EXPECT_TRUE(FCacheRecordFixtureCodec::Encode(*Record));
 	EXPECT_FALSE(FCacheRecord{}.RemoveValueData().IsValid());
 }
 
@@ -177,20 +178,20 @@ TEST(FDerivedDataBuildOutputTests, TransientLogsAreReturnedButNotCacheable)
 
 TEST(FDerivedDataBuildOutputTests, RawAndCompressedRecordsRoundTripWithRetainedViews)
 {
-	auto Built = Output(); auto Record = FCacheRecord::FromOutput(Key(), Built); ASSERT_TRUE(Record); auto Raw = Record->Encode(); ASSERT_TRUE(Raw); auto Decoded = FCacheRecord::Decode(Key(), *Raw); ASSERT_TRUE(Decoded); auto Loaded = Decoded->ToOutput(Key()); ASSERT_TRUE(Loaded); EXPECT_TRUE(Loaded->FindValue(FValueId::FromName("A"))->GetData().SharesStorageWith(*Raw));
-	auto Compressed = FCacheRecord::CompressEncoded(*Raw); ASSERT_TRUE(Compressed); auto Inflated = FCacheRecord::Decode(Key(), *Compressed); ASSERT_TRUE(Inflated); EXPECT_TRUE(Inflated->ToOutput(Key()).has_value());
+	auto Built = Output(); auto Record = FCacheRecord::FromOutput(Key(), Built); ASSERT_TRUE(Record); auto Raw = FCacheRecordFixtureCodec::Encode(*Record); ASSERT_TRUE(Raw); auto Decoded = FCacheRecordFixtureCodec::Decode(Key(), *Raw); ASSERT_TRUE(Decoded); auto Loaded = Decoded->ToOutput(Key()); ASSERT_TRUE(Loaded); EXPECT_TRUE(Loaded->FindValue(FValueId::FromName("A"))->GetData().SharesStorageWith(*Raw));
+	auto Compressed = FCacheRecordFixtureCodec::CompressEncoded(*Raw); ASSERT_TRUE(Compressed); auto Inflated = FCacheRecordFixtureCodec::Decode(Key(), *Compressed); ASSERT_TRUE(Inflated); EXPECT_TRUE(Inflated->ToOutput(Key()).has_value());
 }
 
 TEST(FDerivedDataBuildOutputTests, CorruptionAndWrongKeysAreRejected)
 {
-	auto Record = FCacheRecord::FromOutput(Key(), Output()).value(); auto Raw = Record.Encode().value(); FByteBuffer Corrupt(Raw.begin(), Raw.end()); Corrupt[Corrupt.size() / 2] ^= std::byte{1}; EXPECT_FALSE(FCacheRecord::Decode(Key(), FSharedByteBuffer::Take(std::move(Corrupt))));
-	auto Other = FCacheKey::FromHash(FCacheBucket::FromString("OutputFixtures"), FXxHash128::HashBuffer("other")); EXPECT_FALSE(FCacheRecord::Decode(Other, Raw));
+	auto Record = FCacheRecord::FromOutput(Key(), Output()).value(); auto Raw = FCacheRecordFixtureCodec::Encode(Record).value(); FByteBuffer Corrupt(Raw.begin(), Raw.end()); Corrupt[Corrupt.size() / 2] ^= std::byte{1}; EXPECT_FALSE(FCacheRecordFixtureCodec::Decode(Key(), FSharedByteBuffer::Take(std::move(Corrupt))));
+	auto Other = FCacheKey::FromHash(FCacheBucket::FromString("OutputFixtures"), FXxHash128::HashBuffer("other")); EXPECT_FALSE(FCacheRecordFixtureCodec::Decode(Other, Raw));
 }
 
 TEST(FDerivedDataBuildOutputTests, PayloadHashesAreCheckedEvenWithAValidEnvelopeHash)
 {
 	auto Record = FCacheRecord::FromOutput(Key(), Output()).value();
-	auto Raw = Record.Encode().value();
+	auto Raw = FCacheRecordFixtureCodec::Encode(Record).value();
 	for (std::string_view Payload : {"large", "meta"})
 	{
 		FByteBuffer Body(Raw.begin(), Raw.end() - 16);
@@ -201,7 +202,7 @@ TEST(FDerivedDataBuildOutputTests, PayloadHashesAreCheckedEvenWithAValidEnvelope
 		FBinaryWriter Writer;
 		Writer.WriteBytes(Body);
 		Writer.WriteHash128(FXxHash128::HashBuffer(Body));
-		auto Decoded = FCacheRecord::Decode(Key(), FSharedByteBuffer::Take(Writer.TakeBytes()));
+		auto Decoded = FCacheRecordFixtureCodec::Decode(Key(), FSharedByteBuffer::Take(Writer.TakeBytes()));
 		ASSERT_FALSE(Decoded);
 		EXPECT_EQ(Decoded.error().Code, ECacheError::Corrupt);
 	}
@@ -211,8 +212,8 @@ TEST(FDerivedDataBuildOutputTests, ReusedOutputStillEnforcesStricterLimitsAndKey
 {
 	auto Built = Output();
 	auto Record = FCacheRecord::FromOutput(Key(), Built); ASSERT_TRUE(Record);
-	auto Raw = Record->Encode(); ASSERT_TRUE(Raw);
-	auto Loaded = FCacheRecord::Decode(Key(), *Raw); ASSERT_TRUE(Loaded);
+	auto Raw = FCacheRecordFixtureCodec::Encode(*Record); ASSERT_TRUE(Raw);
+	auto Loaded = FCacheRecordFixtureCodec::Decode(Key(), *Raw); ASSERT_TRUE(Loaded);
 	for (const auto& Candidate : {*Record, *Loaded})
 	{
 		auto Warm = Candidate.ToOutput(Key()); ASSERT_TRUE(Warm);

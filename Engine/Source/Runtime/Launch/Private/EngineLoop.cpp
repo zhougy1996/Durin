@@ -1,3 +1,6 @@
+#if DURIN_WITH_EDITOR
+#include "DerivedDataCache/DerivedDataCacheDiagnostics.h"
+#endif
 #include "DObject/Package.h"
 #include "Texture/Texture.h"
 #include "EngineLoop.h"
@@ -414,6 +417,9 @@ namespace Durin
 		ShutdownTaskSystem(bGameThreadDeferredExecutorStarted
 			? ETaskShutdownMode::Drain : ETaskShutdownMode::Cancel);
 		bGameThreadDeferredExecutorStarted = false;
+#if DURIN_WITH_EDITOR
+		DerivedData::LogCacheDiagnostics();
+#endif
 
 		if (GRenderingThread)
 		{

@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "operation",
+    "root",
+    "complete",
+    "valid"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "operation": {
+      "enum": [
+        "inspect",
+        "verify",
+        "clear"
+      ]
+    },
+    "root": {
+      "type": "string"
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "valid": {
+      "type": "boolean"
+    },
+    "diagnostic": {
+      "type": "string"
+    },
+    "errorCode": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "diagnostics": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "string"
+      }
+    },
+    "recordFiles": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "recordBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "valueFiles": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "valueBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "readBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "verifiedFiles": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "invalidFiles": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "unsupportedFiles": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "missingValues": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "removedFiles": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "removedBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "otherRootEntries": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "complete": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "recordFiles",
+          "recordBytes",
+          "valueFiles",
+          "valueBytes",
+          "readBytes",
+          "verifiedFiles",
+          "invalidFiles",
+          "unsupportedFiles",
+          "missingValues",
+          "removedFiles",
+          "removedBytes",
+          "otherRootEntries",
+          "diagnostics"
+        ]
+      },
+      "else": {
+        "required": [
+          "diagnostic",
+          "errorCode"
+        ],
+        "properties": {
+          "valid": {
+            "const": false
+          }
+        }
+      }
+    }
+  ]
+}

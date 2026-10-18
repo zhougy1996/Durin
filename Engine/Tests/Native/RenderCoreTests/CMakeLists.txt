@@ -57,7 +57,7 @@ durin_add_native_test(RenderShaderCacheTests
 		${_durin_shader_build_private_dir}/ShaderDependencyManifestStore.cpp
 		${_durin_shader_build_private_dir}/SlangShaderDependencyResolver.cpp
 	LIBRARIES Core RHI RenderCore DerivedDataCache ShaderBuild Slang_Imported
-	INCLUDE_DIRECTORIES "${_durin_render_core_private_dir}" "${_durin_shader_build_private_dir}"
+	INCLUDE_DIRECTORIES "${DURIN_PROJECT_SOURCE_DIR}/Developer/DerivedDataCache/Private" "${_durin_render_core_private_dir}" "${_durin_shader_build_private_dir}"
 	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
 	TIMEOUT 600
 	PRIVATE_SOURCE_OWNER ShaderBuild

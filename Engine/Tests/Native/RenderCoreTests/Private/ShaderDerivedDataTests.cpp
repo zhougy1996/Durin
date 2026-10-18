@@ -1,3 +1,4 @@
+#include "CacheRecordFixtureCodec.h"
 #include "MetalShaderFormat.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "ShaderBuild/ShaderPaths.h"
@@ -689,10 +690,10 @@ namespace Durin
 			auto Output = ShaderSharedOutput::Make(Options, Product); ASSERT_TRUE(Output);
 			const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("ShaderOutputFixture"), FXxHash128::HashBuffer("shader"));
 			auto Record = FCacheRecord::FromOutput(Key, *Output); ASSERT_TRUE(Record);
-			auto Encoded = Record->Encode(); ASSERT_TRUE(Encoded);
-			if (Compressed) Encoded = FCacheRecord::CompressEncoded(*Encoded);
+			auto Encoded = FCacheRecordFixtureCodec::Encode(*Record); ASSERT_TRUE(Encoded);
+			if (Compressed) Encoded = FCacheRecordFixtureCodec::CompressEncoded(*Encoded);
 			ASSERT_TRUE(Encoded);
-			auto Loaded = FCacheRecord::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
+			auto Loaded = FCacheRecordFixtureCodec::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
 			auto Warm = Loaded->ToOutput(Key); ASSERT_TRUE(Warm);
 			const auto* Code = Warm->FindValue(ShaderValueId(0, false))->GetData().data();
 			auto Assembled = ShaderSharedOutput::Assemble(Options, *Warm); ASSERT_TRUE(Assembled);
