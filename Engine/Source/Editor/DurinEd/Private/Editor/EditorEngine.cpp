@@ -9,6 +9,7 @@
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"
 #include "DObject/Archive.h"
+#include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Actors/CameraActor.h"
@@ -714,4 +715,14 @@ namespace Durin
 		return Service->GetManager();
 	}
 
+}
+
+namespace Durin
+{
+    auto DEditorEngine::GetEditorSubsystem(DClass* Type) const -> DEditorSubsystem*
+    {
+        if (!IsInGameThread() || !IsValid(Type) || !Type->IsChildOf(DEditorSubsystem::StaticClass())
+            || EditorSubsystems.GetState() != ESubsystemState::Ready || EditorSubsystems.IsDispatching()) return nullptr;
+        return static_cast<DEditorSubsystem*>(EditorSubsystems.Find(Type));
+    }
 }

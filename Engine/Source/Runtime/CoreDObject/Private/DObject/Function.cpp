@@ -64,7 +64,9 @@ namespace Durin
 		DisplayName(Params.DisplayName && *Params.DisplayName ? Params.DisplayName : StringUtils::HumanizeName(Params.Name)),
 		ToolTip(Params.ToolTip ? Params.ToolTip : ""), NativeFunction(Params.NativeFunction)
 	{
-		bInvalidDefaultRecords = Params.NumDefaults != 0 && !Params.Defaults;
+		SetScriptExposure(Params.ScriptExposure);
+        require(HasAnyFunctionFlags(EFunctionFlags::ScriptCallable) == Params.ScriptExposure.Has(EScriptExposure::Callable));
+        bInvalidDefaultRecords = Params.NumDefaults != 0 && !Params.Defaults;
 		if (Params.Defaults) ParameterDefaults.assign(Params.Defaults, Params.Defaults + Params.NumDefaults);
 		SetStructureLayout(Params.Layout ? Params.Layout->ParmsSize : 0, Params.Layout ? Params.Layout->ParmsAlignment : 1);
 		if (const auto* Layout = Params.Layout)

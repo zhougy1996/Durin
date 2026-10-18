@@ -27,7 +27,7 @@ namespace Durin
 		size_t ParameterIndex;
 	};
 	using FNativeFunctionPtr = void (*)(DObject&, FFunctionFrame&, void* Result);
-	enum class EFunctionFlags : uint32 { None = 0, CallInEditor = 1, Virtual = 2, Native = 4, Final = 8, Const = 16 };
+	enum class EFunctionFlags : uint32 { None = 0, CallInEditor = 1, Virtual = 2, Native = 4, Final = 8, Const = 16, ScriptCallable = 32 };
 	ENUM_CLASS_FLAGS(EFunctionFlags);
 	enum class EFunctionInvokeError : uint8
 	{

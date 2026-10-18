@@ -200,7 +200,7 @@ namespace Durin
 		} while (Changed);
 		auto Keep = [&](const FEntry& Entry) { return SameRegistration(Entry) && !Retiring.contains(Entry.Descriptor.Type); };
 		for (auto& Entry : Entries)
-			if (!Keep(Entry) && Entry.Object && Entry.Object->WorkGate) Entry.Object->WorkGate->Cancellation.RequestCancellation();
+			if (!Keep(Entry) && Entry.Object && Entry.Object->WorkGate) { Entry.Object->WorkGate->Cancellation.RequestCancellation(); NotifyObjectReferencesInvalidated(*Entry.Object); }
 		for (size_t Index = Entries.size(); Index-- > 0;)
 			if (auto& Entry = Entries[Index]; !Keep(Entry) && Entry.Object)
 			{
@@ -214,7 +214,7 @@ namespace Durin
 			for (size_t Index = Entries.size(); Index-- > Base;)
 				if (auto* Object = Entries[Index].Object.Get())
 				{
-					if (Object->WorkGate) Object->WorkGate->Cancellation.RequestCancellation();
+					if (Object->WorkGate) { Object->WorkGate->Cancellation.RequestCancellation(); NotifyObjectReferencesInvalidated(*Object); }
 					Object->Deinitialize(); MarkObjectHierarchyAsGarbage(Object);
 					if (Object->WorkGate) Object->WorkGate->bDeinitialized = true;
 				}
@@ -249,7 +249,7 @@ namespace Durin
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		bClosed = true;
 		for (auto& Entry : Entries)
-			if (auto* Object = Entry.Object.Get(); Object && Object->WorkGate) Object->WorkGate->Cancellation.RequestCancellation();
+			if (auto* Object = Entry.Object.Get(); Object && Object->WorkGate) { Object->WorkGate->Cancellation.RequestCancellation(); NotifyObjectReferencesInvalidated(*Object); }
 	}
 
 	auto FSubsystemCollection::Shutdown() -> void

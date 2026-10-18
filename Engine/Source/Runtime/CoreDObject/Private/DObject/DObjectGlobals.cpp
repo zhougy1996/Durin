@@ -764,7 +764,16 @@ namespace Durin
 
 	auto DurinCodeGen::ConstructProperty(const FFieldVariant& Owner, const FPropertyParamsBase& Params) -> std::shared_ptr<FProperty>
 	{
-		return ConstructGeneratedProperty(Owner, &Params);
+        auto Property = ConstructGeneratedProperty(Owner, &Params);
+        if (Property)
+        {
+            const auto ReadWrite = Property->HasAnyPropertyFlags(EPropertyFlags::ScriptReadWrite);
+            require(!ReadWrite || !Property->HasAnyPropertyFlags(EPropertyFlags::ScriptReadOnly | EPropertyFlags::ReadOnly | EPropertyFlags::NonTransactional));
+            if (ReadWrite && Owner.IsDObject() && Cast<DClass>(Owner.ToDObject()))
+                require(Property->HasAnyPropertyFlags(EPropertyFlags::Edit));
+            FScriptExposure Name; Name.Name = Property->GetMetaData("ScriptName"); require(Name.Validate());
+        }
+        return Property;
 	}
 
 	auto FObjectInitializer::Get() -> const FObjectInitializer&
@@ -910,6 +919,7 @@ namespace Durin
 		DObjectForceRegistration(Class);
 		Class->SetQualifiedName(FName(Params.QualifiedClassName));
 		Class->CookSchema = Params.CookSchema;
+        Class->SetScriptExposure(Params.ScriptExposure);
 		Class->SetTypeNames(
 			Params.ShortClassName ? Params.ShortClassName : "",
 			Params.DisplayName ? Params.DisplayName : "",
@@ -938,6 +948,7 @@ namespace Durin
 		DEnum* Enum = Params.EnumNoRegisterFunc();
 
 		DObjectForceRegistration(Enum);
+        Enum->SetScriptExposure(Params.ScriptExposure);
 		Private::RegisterQualifiedEnum(Enum);
 		Private::RegisterLegacyEnumNames(
 			Enum, std::span(Params.LegacyNames, Params.NumLegacyNames));
@@ -949,6 +960,7 @@ namespace Durin
 	{
 		DStruct* Struct = Params.StructNoRegisterFunc();
 		DObjectForceRegistration(Struct);
+        Struct->SetScriptExposure(Params.ScriptExposure);
 		Private::RegisterQualifiedStruct(Struct);
 		Private::RegisterLegacyStructNames(
 			Struct, std::span(Params.LegacyNames, Params.NumLegacyNames));

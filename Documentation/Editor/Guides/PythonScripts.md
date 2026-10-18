@@ -144,8 +144,12 @@ total-elapsed JobDeadline, including queueing and suspension; the default has no
 fixed deadline. It cannot preempt native code. Tool values follow Core limits; each
 job retains at most 256 submissions and 256 live continuations.
 Use builtin/pure-Python standard-library facilities. Native extension packages,
-background Python threads, cancellation suppression, and direct engine-object
-bindings are outside the supported first release.
+background Python threads and cancellation suppression remain unsupported.
+Exposed native types are available through durin.get_type(qualified_name), and
+get_editor_subsystem(type) returns an existing exposed service on the selected
+Host. These object wrappers currently support identity, inheritance and
+get_name/get_class introspection. General reflected function calls, value
+construction and property editing are not yet available.
 
 Use ScopedEditorTransaction when multiple native edits should share one history
 entry. A job alone does not create a transaction. Completed edits remain if a

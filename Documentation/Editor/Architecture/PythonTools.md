@@ -1,6 +1,6 @@
 # Python Toolset Adapter
 
-Summary: Run trusted GameThread scripts and cooperative continuations with shared native tool completion and per-editor transactions.
+Summary: Embed trusted editor scripts with native Toolsets, reflected type/object wrappers and transaction scopes.
 Modules: DurinPython, DurinEd, MainFrame, Core
 
 Last reviewed: 2026-10-18
@@ -33,6 +33,46 @@ Isolated PyConfig disables site, environment paths, bytecode writes and signal
 handlers. Only the two deployed zips enter sys.path. Native extension packages,
 Python-backed providers, background Python threads, and native callbacks into
 Python are unsupported. Trusted Python is ordinary process code, not a sandbox.
+
+## Reflected Types and Object Wrappers
+
+DurinPython also owns an interpreter-local native type registry. ScriptType
+classes/structs/enums and classes with script-exposed members are published as
+CPython heap types. Ancestors and exposed signature dependencies receive wrappers
+without granting unmarked methods or native object constructors. Types retain
+native inheritance; get_type(qualified_name) resolves canonical identities.
+Top-level aliases omit the native type prefix. Colliding aliases are omitted with
+a diagnostic, leaving qualified lookup available. Generated Python declarations
+are not executable binding implementations.
+
+`durin.get_editor_subsystem(type)` returns the selected Host's existing service,
+wrapped with native identity and a non-owning Python factory observation. Object
+wrappers expose get_name/get_class as bootstrap introspection helpers. Classes
+are immutable and cannot be instantiated or subclassed in Python. Reflected
+method dispatch, native value construction/conversion and reflected property
+reads/writes are not available yet; they are separate implementation stages.
+
+A live wrapper holds a collector-visible native strong reference. Host/target
+object keys and endpoint gate identity qualify factory identity. Imported state
+may retain a wrapper across jobs or sessions on the same live Host; each native
+access rechecks active-job admission, cancellation, module and service lifetime.
+Cross-Host access fails even through a cached bound method. Hash/equality/repr do
+not dereference native memory. Native destruction, subsystem retirement and Host
+closure purge wrapper roots before physical collection; old wrappers cannot
+revive when a replacement service has the same native class. Stop purges roots
+and discards all interpreter-owned type/factory state before CPython finalization.
+Native types come from non-unloadable active modules or the process-lifetime
+CoreDObject foundation/bootstrap. Runtime native type unloading is unsupported.
+
+DurinEd's FScopedEditorScriptCall supplies synchronous Host/endpoint, source,
+cancellation and edit-policy context without a Python dependency. Nested scopes
+restore their predecessor and keep separate errors. A Host target-policy token
+reports live document editability. LevelEditor registers one alongside its Level
+context; read-only/unavailable or conflicting providers reject writes. Native
+FPythonSessionOptions defaults to DocumentManaged; headless callers must explicitly
+select NonDocumentReadOnly or NonDocumentReadWrite. Python/remote arguments cannot
+change this policy. These policies establish admission for future editor writes;
+Stage 1 does not yet expose Actor mutations or property setters.
 
 ## Sessions and Invocation
 

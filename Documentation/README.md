@@ -28,7 +28,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Editor toolset catalog, queued invocation, cancellation, detached endpoints, or external adapter seam | [Editor tool service](Editor/Architecture/EditorTools.md) |
 | Console tool syntax, JSON argument files, merged help/completion, or PIE tool calls | [Console Toolset integration](Editor/Architecture/ConsoleTools.md) |
 | Local MCP transport, external Toolset discovery/calls/cancellation, or client connection setup | [MCP adapter](Editor/Architecture/MCPTools.md), [connection guide](Editor/Guides/LocalMCP.md) |
-| Embedded Python scripts, Python Toolset calls, script jobs, or interpreter lifecycle | [Python adapter](Editor/Architecture/PythonTools.md), [script guide](Editor/Guides/PythonScripts.md) |
+| Embedded Python scripts, reflected type/object wrappers, Python Toolset calls, script jobs, or interpreter lifecycle | [Python adapter](Editor/Architecture/PythonTools.md), [script guide](Editor/Guides/PythonScripts.md) |
 | Runtime HTTP listeners, routes, chunked responses, or transport shutdown | [HTTP server](Runtime/Networking/HTTPServer.md) |
 | Dependencies, bootstrap, or worktrees | [Third-party bootstrap](Development/Build/ThirdPartyBootstrap.md) |
 | Selecting or running native tests for task validation | [Agent testing workflow](Agents/Testing.md) |

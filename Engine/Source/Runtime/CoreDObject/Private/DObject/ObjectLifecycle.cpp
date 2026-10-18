@@ -14,6 +14,30 @@
 
 namespace Durin
 {
+    namespace
+    {
+        struct FPurgeObserver { std::function<void(DObject&)> Callback; bool Active = true; };
+        auto PurgeObservers() -> std::map<uint64, std::shared_ptr<FPurgeObserver>>&
+        { static std::map<uint64, std::shared_ptr<FPurgeObserver>> Values; return Values; }
+        uint64 NextPurgeObserver = 1;
+    }
+    FObjectReferencePurgeRegistration::FObjectReferencePurgeRegistration(std::function<void(DObject&)> Callback)
+        : Identity(NextPurgeObserver++)
+    {
+        CheckGameThread(); require(Callback);
+        PurgeObservers().emplace(Identity, std::make_shared<FPurgeObserver>(FPurgeObserver{std::move(Callback)}));
+    }
+    FObjectReferencePurgeRegistration::~FObjectReferencePurgeRegistration()
+    {
+        CheckGameThread(); auto It = PurgeObservers().find(Identity);
+        if (It != PurgeObservers().end()) { It->second->Active = false; PurgeObservers().erase(It); }
+    }
+    auto NotifyObjectReferencesInvalidated(DObject& Object) -> void
+    {
+        CheckGameThread(); const auto Snapshot = PurgeObservers();
+        for (const auto& [Id, Observer] : Snapshot) if (Observer->Active) Observer->Callback(Object);
+    }
+
 	namespace
 	{
 		FGarbageCollectionStats GLastGarbageCollectionStats;
@@ -55,6 +79,7 @@ namespace Durin
 			if (!Object || !GDObjectArray.Contains(Object) || IsPermanentObject(Object) || Object->IsGarbage()
 				|| (Object->IsTemplateObject() && !bAllowTemplate)) return;
 			Object->SetInternalFlags(EObjectInternalFlags::Garbage);
+            NotifyObjectReferencesInvalidated(*Object);
 			GDObjectArray.NotifyObjectMarkedGarbage();
 		}
 

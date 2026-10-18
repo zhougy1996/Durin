@@ -17,6 +17,18 @@ namespace Durin
 		virtual auto AddReferencedObject(DObject*& Object) -> void = 0;
 	};
 
+    // Native observers release external GC edges before irreversible object teardown.
+    class FObjectReferencePurgeRegistration final
+    {
+    public:
+        COREDOBJECT_API explicit FObjectReferencePurgeRegistration(std::function<void(DObject&)> Callback);
+        COREDOBJECT_API ~FObjectReferencePurgeRegistration();
+        FObjectReferencePurgeRegistration(const FObjectReferencePurgeRegistration&) = delete;
+        auto operator=(const FObjectReferencePurgeRegistration&) -> FObjectReferencePurgeRegistration& = delete;
+    private:
+        uint64 Identity;
+    };
+    COREDOBJECT_API auto NotifyObjectReferencesInvalidated(DObject& Object) -> void;
 	// Summarizes the most recent mark-and-sweep collection and its phase timings.
 	struct FGarbageCollectionStats
 	{

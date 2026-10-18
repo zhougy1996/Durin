@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "DObject/Object.h"
+#include "DObject/ScriptExposure.h"
 
 namespace Durin
 {
@@ -11,8 +12,17 @@ namespace Durin
 	// Provides the common object identity for all reflected runtime metadata.
 	class DType : public DObject
 	{
+		FScriptExposure ScriptExposure;
+		bool bScriptExposureSet = false;
 	public:
 		DECLARE_CLASS_INTRINSIC_API(DType, DObject, COREDOBJECT_API)
+        auto GetScriptExposure() const -> const FScriptExposure& { return ScriptExposure; }
+        auto SetScriptExposure(FScriptExposure Value) -> void
+        {
+            require(Value.Validate());
+            require(!bScriptExposureSet || ScriptExposure == Value);
+            ScriptExposure = std::move(Value); bScriptExposureSet = true;
+        }
 
 		DType(EStaticConstructor, EObjectFlags InFlags)
 			: DObject(EC_StaticConstructor, InFlags)

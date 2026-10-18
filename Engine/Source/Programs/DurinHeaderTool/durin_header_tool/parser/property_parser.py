@@ -1,3 +1,4 @@
+from durin_header_tool.parser.script_exposure import script_exposure
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -100,6 +101,9 @@ _PROPERTY_KIND_BY_TYPE = {
 
 _PROPERTY_FLAG_BY_SPECIFIER = {
     "Edit": "Edit",
+    "ScriptReadOnly": "ScriptReadOnly",
+    "ScriptReadWrite": "ScriptReadWrite",
+    "ScriptNoExport": "ScriptNoExport",
     "Transient": "Transient",
     "NonTransactional": "NonTransactional",
     "ReadOnly": "ReadOnly",
@@ -377,7 +381,12 @@ def _apply_property_annotation(
 ) -> ReflectedPropertyInfo | None:
     _validate_property_specifiers(annotation, location)
     if prop:
+        script = script_exposure(_annotation_entries(annotation), {"ScriptReadOnly", "ScriptReadWrite", "ScriptName", "ScriptNoExport"}, location)
+        if script.get("ScriptReadWrite") and ("Durin::EPropertyFlags::ReadOnly" in prop.flags or "Durin::EPropertyFlags::NonTransactional" in prop.flags):
+            raise ValueError(f"{location}: ScriptReadWrite conflicts with ReadOnly/NonTransactional")
         prop.metadata = _property_metadata_from_annotation(annotation)
+        if "ScriptName" in script:
+            prop.metadata.append(("ScriptName", script["ScriptName"]))
         prop.legacy_names = _string_list_metadata_from_annotation(annotation, "LegacyNames")
         prop.typed_metadata = _typed_metadata_from_annotation(prop, annotation, location)
         prop.deprecation = _deprecation_from_annotation(prop, annotation, location)

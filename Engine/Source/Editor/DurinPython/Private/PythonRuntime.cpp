@@ -21,6 +21,7 @@
 #endif
 #pragma pop_macro("_DEBUG")
 #include "PythonABI.h"
+#include "PythonReflection.h"
 #endif
 
 namespace Durin
@@ -51,6 +52,7 @@ namespace Durin
             EToolSource Source = EToolSource::External;
             std::shared_ptr<FEditorToolService> Endpoint;
             FToolClientContext Client;
+            FPythonSessionOptions Options;
             std::string Code, Filename;
             FToolCancellationSource Cancellation;
             std::shared_ptr<const FSubsystemWorkGate> Gate;
@@ -84,6 +86,7 @@ namespace Durin
         PyObject* ToolError = nullptr;
         PyObject* CancelledError = nullptr;
         PyObject* NotReady = nullptr;
+        PyObject* ScriptAccessError = nullptr;
 
         auto Fail(const char* Message) -> PyObject* { PyErr_SetString(PyExc_ValueError, Message); return nullptr; }
         auto CheckCancelled() -> bool
@@ -274,6 +277,16 @@ namespace Durin
             if (!CurrentJob) { PyErr_SetString(PyExc_RuntimeError, "No active Durin script job."); return nullptr; }
             if (CurrentJob->Cleaning && !Cleanup) { PyErr_SetString(CancelledError, "New work is forbidden during job cleanup."); return nullptr; }
             if (!Cleanup && CheckCancelled()) return nullptr;
+            if (Op == "reflect_type")
+            {
+                const char* Name; if (!PyArg_ParseTuple(Params, "s", &Name)) return nullptr;
+                return PythonReflection::GetType(Name);
+            }
+            if (Op == "editor_subsystem")
+            {
+                PyObject* Type; if (!PyArg_ParseTuple(Params, "O", &Type)) return nullptr;
+                return PythonReflection::GetEditorSubsystem(Type);
+            }
             if (Op == "transaction_begin")
             {
                 const char* Description;
@@ -401,11 +414,13 @@ namespace Durin
             FPy Result(PyModule_Create(&Module)); if (!Result) return nullptr;
             ToolError = PyErr_NewException("durin.ToolError", PyExc_RuntimeError, nullptr);
             CancelledError = PyErr_NewException("durin.CancelledError", PyExc_BaseException, nullptr);
+            ScriptAccessError = PyErr_NewException("durin.ScriptAccessError", PyExc_RuntimeError, nullptr);
             NotReady = PyErr_NewException("durin.NotReady", PyExc_RuntimeError, nullptr);
-            if (!ToolError || !CancelledError || !NotReady) return nullptr;
+            if (!ToolError || !CancelledError || !NotReady || !ScriptAccessError) return nullptr;
             if (PyModule_AddObjectRef(Result.get(), "ToolError", ToolError) < 0 ||
                 PyModule_AddObjectRef(Result.get(), "CancelledError", CancelledError) < 0 ||
-                PyModule_AddObjectRef(Result.get(), "NotReady", NotReady) < 0) return nullptr;
+                PyModule_AddObjectRef(Result.get(), "NotReady", NotReady) < 0 ||
+                PyModule_AddObjectRef(Result.get(), "ScriptAccessError", ScriptAccessError) < 0) return nullptr;
             return Result.release();
         }
         auto PythonError() -> std::string
@@ -425,7 +440,7 @@ namespace Durin
 
     struct FPythonRuntime::FImpl : IEditorScriptPump
     {
-        struct FSession { std::shared_ptr<FEditorToolService> Endpoint; EToolSource Source; FToolClientContext Client; };
+        struct FSession { std::shared_ptr<FEditorToolService> Endpoint; EToolSource Source; FToolClientContext Client; FPythonSessionOptions Options; };
         mutable std::mutex Mutex;
         std::map<uint64, FSession> Sessions;
         std::map<uint64, std::shared_ptr<FJob>> Jobs;
@@ -606,10 +621,17 @@ namespace Durin
                 return Error;
             }
             FPy Durin(PyImport_ImportModule("durin"));
+            if (Durin && !PythonReflection::Start(Durin.get(), ScriptAccessError, []() -> std::optional<FEditorScriptCallContext> {
+                if (!CurrentJob || CurrentJob->Cleaning || !IsValid(CurrentEditor)) return {};
+                if (CheckCancelled()) return {};
+                return FEditorScriptCallContext{CurrentEditor, CurrentJob->Gate,
+                    static_cast<EEditorScriptEditPolicy>(CurrentJob->Options.EditPolicy),
+                    CurrentJob->Cancellation.GetToken(), CurrentJob->Client, CurrentJob->Source};
+            })) Durin.reset();
             if (!Durin)
             {
                 auto Error = PythonError(); Durin.reset();
-                Py_CLEAR(ToolError); Py_CLEAR(CancelledError); Py_CLEAR(NotReady); Py_FinalizeEx(); return Error;
+                PythonReflection::Stop(); Py_CLEAR(ScriptAccessError); Py_CLEAR(ToolError); Py_CLEAR(CancelledError); Py_CLEAR(NotReady); Py_FinalizeEx(); return Error;
             }
             Durin.reset(); ThreadState = PyEval_SaveThread(); return {};
         }
@@ -623,7 +645,7 @@ namespace Durin
                 (void)Id;
                 if (Job->Started) { Job->Cancellation.Cancel(); Finish(*Job, EPythonJobState::Cancelled); }
             }
-            Py_CLEAR(ToolError); Py_CLEAR(CancelledError); Py_CLEAR(NotReady);
+            PythonReflection::Stop(); Py_CLEAR(ScriptAccessError); Py_CLEAR(ToolError); Py_CLEAR(CancelledError); Py_CLEAR(NotReady);
             if (Py_FinalizeEx() < 0) DURIN_ERROR("Python finalization reported cleanup failures.");
             ReleaseInterpreter();
         }
@@ -631,6 +653,7 @@ namespace Durin
         auto CloseEndpoint(const std::shared_ptr<FEditorToolService>& Endpoint) -> void override
         {
 #if DURIN_WITH_PYTHON
+            PythonReflection::PurgeGate(Endpoint->GetWorkGate().get());
             std::vector<std::shared_ptr<FJob>> Closing;
             {
                 std::lock_guard Lock(Mutex);
@@ -666,8 +689,10 @@ namespace Durin
                     std::lock_guard JobLock(Job->Mutex); Job->Result.State = EPythonJobState::Running;
                 }
                 ++Steps; Job->LastPump = Round; CurrentEditor = Job->Endpoint == Endpoint ? &Editor : nullptr;
+                const bool Published = PythonReflection::Publish();
+                if (!Published) { const auto Error = PythonError(); std::lock_guard Lock(Job->Mutex); Job->Result.Error = Error; }
                 bool Cancelled = Job->Cancellation.GetToken().IsCancellationRequested();
-                const bool Success = Cancelled ? false : Enter(*Job, false);
+                const bool Success = Cancelled || !Published ? false : Enter(*Job, false);
                 Cancelled = Job->Cancellation.GetToken().IsCancellationRequested();
                 if (!Success || Cancelled || (Job->Continuations.empty() && Settled(*Job)))
                     Finish(*Job, Success ? EPythonJobState::Succeeded : EPythonJobState::Failed);
@@ -744,7 +769,7 @@ namespace Durin
 #endif
         Impl->Registration.Reset(); Impl.reset();
     }
-    auto FPythonRuntime::CreateSession(std::shared_ptr<FEditorToolService> Endpoint, EToolSource Source, const FToolClientContext& Client) -> std::expected<uint64, std::string>
+    auto FPythonRuntime::CreateSession(std::shared_ptr<FEditorToolService> Endpoint, EToolSource Source, const FToolClientContext& Client, const FPythonSessionOptions& Options) -> std::expected<uint64, std::string>
     {
         std::shared_lock LifecycleLock(LifecycleMutex);
         if (!Impl || Impl->Stopping || !Endpoint || !Endpoint->GetWorkGate()->IsOpen()) return std::unexpected("Python runtime or editor endpoint is unavailable.");
@@ -752,7 +777,7 @@ namespace Durin
         Impl->PruneClients();
         if (Client.Cancellation.IsCancellationRequested()) return std::unexpected("Python client session is closed.");
         if (Impl->Stopping || Impl->Sessions.size() >= 8) return std::unexpected("Python session admission is closed or full.");
-        const uint64 Id = NextIdentity++; Impl->Sessions.emplace(Id, FImpl::FSession{std::move(Endpoint), Source, Client}); return Id;
+        const uint64 Id = NextIdentity++; Impl->Sessions.emplace(Id, FImpl::FSession{std::move(Endpoint), Source, Client, Options}); return Id;
     }
     auto FPythonRuntime::CloseSession(uint64 Session) -> void
     {
@@ -782,7 +807,7 @@ namespace Durin
         }
         auto Job = std::make_shared<FJob>(); Job->Id = NextIdentity++; Job->Session = Session;
         Job->Endpoint = It->second.Endpoint; Job->Gate = Job->Endpoint->GetWorkGate(); Job->Source = It->second.Source;
-        Job->Client = It->second.Client;
+        Job->Client = It->second.Client; Job->Options = It->second.Options;
         if (Impl->JobDeadline)
         {
             const auto Now = std::chrono::steady_clock::now();

@@ -106,6 +106,11 @@ def _display_name_from_payload(payload: str, macro_name: str, line: int, column:
             raise ValueError(f"{location}: empty metadata entry")
         key, separator, raw_value = entry.partition("=")
         key = key.strip()
+        if key.startswith("Script"):
+            from durin_header_tool.parser.script_exposure import script_exposure
+            allowed = {"ScriptType", "ScriptName", "ScriptNoExport"} if macro_name in ("DSTRUCT", "DENUM") else {"ScriptName", "ScriptNoExport"}
+            script_exposure(entries, allowed, location)
+            continue
         if not separator:
             raise ValueError(f"{location}: metadata '{key}' requires = \"...\"")
         if key not in allowed_keys:
@@ -145,6 +150,8 @@ def _class_specifiers_from_payload(
             raise ValueError(f"{location}: empty class specifier")
         key, separator, raw_value = entry.partition("=")
         key = key.strip()
+        if key.startswith("Script"):
+            continue  # validated and retained by script_exposure
         if not separator:
             if key not in ("Abstract", "NoClassDefaultObject"):
                 raise ValueError(f"{location}: unsupported class specifier '{key}'")

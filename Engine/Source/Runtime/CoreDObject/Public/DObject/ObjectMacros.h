@@ -103,6 +103,9 @@ namespace Durin
 		ReferenceParm = 1 << 9,
 		ConstParm = 1 << 10,
 		NonTransactional = 1 << 11,
+        ScriptReadOnly = 1 << 12,
+        ScriptReadWrite = 1 << 13,
+        ScriptNoExport = 1 << 14,
 	};
 
 	enum class EObjectInternalFlags

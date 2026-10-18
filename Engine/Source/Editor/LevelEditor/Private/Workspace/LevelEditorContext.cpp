@@ -18,8 +18,15 @@ namespace Durin::Editor::Level
 		DLevel* CurrentLevel = CurrentWorld ? CurrentWorld->GetCurrentLevel() : nullptr;
 		if (World != CurrentWorld || Level != CurrentLevel)
 		{
+            ScriptEditPolicy.reset();
 			World = CurrentWorld;
 			Level = CurrentLevel;
+            if (IsValid(EditorHost) && IsValid(Level))
+                ScriptEditPolicy = std::make_unique<FEditorScriptTargetPolicyRegistration>(*EditorHost, *Level, [this] {
+                    if (!IsValid(EditorHost) || !IsValid(Level) || !IsValid(World) || Level->GetWorld() != World
+                        || World->GetCurrentLevel() != Level) return EEditorScriptTargetAccess::Unavailable;
+                    return bReadOnly || EditorHost->IsPlaying() ? EEditorScriptTargetAccess::ReadOnly : EEditorScriptTargetAccess::Writable;
+                });
 			ClearSelection();
 			return;
 		}

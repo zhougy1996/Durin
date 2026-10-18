@@ -7,6 +7,15 @@ namespace Durin::PythonABI
 {
     struct FAPI
     {
+        decltype(&::_Py_NotImplementedStruct) p_Py_NotImplementedStruct = nullptr;
+        decltype(&::PyExc_AttributeError) pPyExc_AttributeError = nullptr;
+        decltype(&::PyExc_ReferenceError) pPyExc_ReferenceError = nullptr;
+        decltype(&::PyExc_TypeError) pPyExc_TypeError = nullptr;
+        decltype(&::PyDict_GetItemString) pPyDict_GetItemString = nullptr;
+        decltype(&::PyTuple_Pack) pPyTuple_Pack = nullptr;
+        decltype(&::PyObject_Free) pPyObject_Free = nullptr;
+        decltype(&::PyType_GenericAlloc) pPyType_GenericAlloc = nullptr;
+        decltype(&::PyType_FromSpecWithBases) pPyType_FromSpecWithBases = nullptr;
         decltype(&::PyFloat_AsDouble) pPyFloat_AsDouble = nullptr;
         decltype(&::PyGC_Collect) pPyGC_Collect = nullptr;
         decltype(&::_Py_Dealloc) p_Py_Dealloc = nullptr;
@@ -301,6 +310,33 @@ namespace Durin::PythonABI
             if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyWideStringList_Append"); Symbol)
                 pPyWideStringList_Append = reinterpret_cast<decltype(pPyWideStringList_Append)>(*Symbol);
             else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyType_FromSpecWithBases"); Symbol)
+                pPyType_FromSpecWithBases = reinterpret_cast<decltype(pPyType_FromSpecWithBases)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyType_GenericAlloc"); Symbol)
+                pPyType_GenericAlloc = reinterpret_cast<decltype(pPyType_GenericAlloc)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyObject_Free"); Symbol)
+                pPyObject_Free = reinterpret_cast<decltype(pPyObject_Free)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyTuple_Pack"); Symbol)
+                pPyTuple_Pack = reinterpret_cast<decltype(pPyTuple_Pack)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyDict_GetItemString"); Symbol)
+                pPyDict_GetItemString = reinterpret_cast<decltype(pPyDict_GetItemString)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyExc_TypeError"); Symbol)
+                pPyExc_TypeError = reinterpret_cast<decltype(pPyExc_TypeError)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyExc_ReferenceError"); Symbol)
+                pPyExc_ReferenceError = reinterpret_cast<decltype(pPyExc_ReferenceError)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyExc_AttributeError"); Symbol)
+                pPyExc_AttributeError = reinterpret_cast<decltype(pPyExc_AttributeError)>(*Symbol);
+            else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "_Py_NotImplementedStruct"); Symbol)
+                p_Py_NotImplementedStruct = reinterpret_cast<decltype(p_Py_NotImplementedStruct)>(*Symbol);
+            else return std::unexpected(Symbol.error());
             return {};
         }
     };
@@ -384,3 +420,21 @@ namespace Durin::PythonABI
 #define Py_XDECREF(object) do { if (object) Py_DECREF(object); } while (false)
 
 #define PyGC_Collect Durin::PythonABI::API.pPyGC_Collect
+
+#define PyType_FromSpecWithBases Durin::PythonABI::API.pPyType_FromSpecWithBases
+
+#define PyType_GenericAlloc Durin::PythonABI::API.pPyType_GenericAlloc
+
+#define PyObject_Free Durin::PythonABI::API.pPyObject_Free
+
+#define PyTuple_Pack Durin::PythonABI::API.pPyTuple_Pack
+
+#define PyDict_GetItemString Durin::PythonABI::API.pPyDict_GetItemString
+
+#define PyExc_TypeError (*Durin::PythonABI::API.pPyExc_TypeError)
+
+#define PyExc_ReferenceError (*Durin::PythonABI::API.pPyExc_ReferenceError)
+
+#define PyExc_AttributeError (*Durin::PythonABI::API.pPyExc_AttributeError)
+
+#define _Py_NotImplementedStruct (*Durin::PythonABI::API.p_Py_NotImplementedStruct)

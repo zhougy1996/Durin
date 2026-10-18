@@ -1,3 +1,4 @@
+from durin_header_tool.writers.reflection_script_writer import script_record
 from durin_header_tool.model.export_info import ExportedSymbolInfo
 from durin_header_tool.model.reflection_info import (
     ReflectedClassInfo,
@@ -179,7 +180,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
         if class_info.functions:
             class_builder.append(f"const Durin::DurinCodeGen::FFunctionParams {generated_statics_name}::Functions[] = {{\n")
             for function in class_info.functions:
-                flag_names = (["Native"] + (["CallInEditor"] if function.call_in_editor else [])
+                flag_names = (["Native"] + (["ScriptCallable"] if function.script.get("ScriptCallable") else []) + (["CallInEditor"] if function.call_in_editor else [])
                               + (["Virtual"] if function.is_virtual else [])
                               + (["Final"] if function.is_final else [])
                               + (["Const"] if function.is_const else []))
@@ -188,10 +189,10 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
                 rest = ", ".join(_cpp_string_literal(v) for v in (
                     function.category, function.display_name, function.tool_tip))
                 defaults = (f", {generated_statics_name}::Defaults_{function.name}, std::size({generated_statics_name}::Defaults_{function.name})"
-                            if any(p.default_expression is not None for p in function.parameters) else "")
+                            if any(p.default_expression is not None for p in function.parameters) else ", nullptr, 0")
                 _append_line(class_builder,
                     f"{{ {name}, {function_layout_record(function, generated_statics_name)}, {flags}, {rest}, "
-                    f"&{generated_statics_name}::Invoke_{function.name}{defaults} }},", 1)
+                    f"&{generated_statics_name}::Invoke_{function.name}{defaults}, {script_record(function)} }},", 1)
             class_builder.append("};\n\n")
         property_params = f"{generated_statics_name}::PropertyParams" if has_properties else "nullptr"
         property_count = len(properties)
@@ -217,7 +218,8 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
             (f"{len(class_info.legacy_names)},", 1),
             (f"{generated_statics_name}::Functions," if class_info.functions else "nullptr,", 1),
             (str(len(class_info.functions)) + ",", 1),
-            (f"&{class_info.qualified_name}::AppendToClassSchema", 1),
+            (f"&{class_info.qualified_name}::AppendToClassSchema,", 1),
+            (script_record(class_info, header.module_name), 1),
             ("};", 0),
             ("", 0),
         )
@@ -334,7 +336,7 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
             display_name = _cpp_string_literal(value_info.display_name) if value_info.display_name else "nullptr"
             _append_line(
                 builder,
-                f"{{ {_cpp_string_literal(value_info.name)}, static_cast<::uint64>({value_info.value}), {display_name} }},",
+                f"{{ {_cpp_string_literal(value_info.name)}, static_cast<::uint64>({value_info.value}), {display_name}" + (f", {script_record(value_info)}" if value_info.script else "") + " },",
                 1,
             )
         builder.append("};\n\n")
@@ -359,7 +361,8 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
         (f"{values_ref},", 1),
         (f"{len(enum_info.values)},", 1),
         (f"{legacy_names},", 1),
-        (str(len(enum_info.legacy_names)), 1),
+        (str(len(enum_info.legacy_names)) + ",", 1),
+        (script_record(enum_info, package_path.removeprefix("/Cpp/")), 1),
         ("};", 0),
         ("", 0),
     )
@@ -376,7 +379,7 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
         (f"for (size_t Index = 0; Index < {generated_statics_name}::EnumParams.NumValues; ++Index)", 2),
         ("{", 2),
         (f"const Durin::DurinCodeGen::FEnumValueParams& ValueParams = {generated_statics_name}::EnumParams.Values[Index];", 3),
-        ("Values.push_back({ Durin::FName(ValueParams.NameUTF8), ValueParams.Value, ValueParams.DisplayName ? ValueParams.DisplayName : \"\" });", 3),
+        ("Values.push_back({ Durin::FName(ValueParams.NameUTF8), ValueParams.Value, ValueParams.DisplayName ? ValueParams.DisplayName : \"\", ValueParams.ScriptExposure });", 3),
         ("}", 2),
         ("Singleton = new Durin::DEnum(", 2),
         ("Durin::EC_StaticConstructor,", 3),
@@ -442,7 +445,7 @@ def _struct_definitions(struct_info: ReflectedStructInfo, symbols: ExportedSymbo
         f"const Durin::DurinCodeGen::FStructParams {statics}::StructParams = {{ "
         f"{struct_info.generated_helper_no_register_name}, \"{struct_info.qualified_name}\", \"{struct_info.short_name}\", "
         f"sizeof({struct_info.qualified_name}), alignof({struct_info.qualified_name}), {prop_ref}, {len(properties)}, "
-        f"&Durin::GetDStructOps<{struct_info.qualified_name}>(), {legacy_names}, {len(struct_info.legacy_names)} }};\n\n"
+        f"&Durin::GetDStructOps<{struct_info.qualified_name}>(), {legacy_names}, {len(struct_info.legacy_names)}, {script_record(struct_info, package_path.removeprefix('/Cpp/'))} }};\n\n"
     )
     builder.append(
         f"Durin::DStruct* {struct_info.generated_helper_no_register_name}()\n{{\n"

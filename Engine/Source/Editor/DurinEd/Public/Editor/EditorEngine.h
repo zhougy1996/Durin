@@ -95,6 +95,7 @@ namespace Durin
 		DURINED_API auto BeginTransaction(std::string_view Context, std::string_view Description, DObject* PrimaryObject = nullptr) -> int32;
 		DURINED_API auto EndTransaction() -> int32;
 		DURINED_API auto CancelTransaction(int32 StartIndex = 0) -> void;
+		DURINED_API auto GetEditorSubsystem(DClass* Type) const -> DEditorSubsystem*;
 		template<typename T> requires std::is_base_of_v<DEditorSubsystem, T>
 		auto GetEditorSubsystem() const -> T* { return static_cast<T*>(EditorSubsystems.Find(T::StaticClass())); }
 		auto GetEditorSubsystemState() const -> ESubsystemState { return EditorSubsystems.GetState(); }

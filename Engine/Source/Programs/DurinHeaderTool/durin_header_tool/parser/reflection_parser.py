@@ -1,3 +1,5 @@
+from durin_header_tool.parser.property_parser import _annotation_entries
+from durin_header_tool.parser.script_exposure import script_exposure
 from dataclasses import dataclass
 from pathlib import Path
 import re
@@ -108,10 +110,12 @@ def _make_enum(
                     name=child.spelling,
                     value=int(child.enum_value),
                     display_name=display_name,
+                    script=script_exposure(_annotation_entries(value_annotation), {"ScriptName", "ScriptNoExport"}, header) if dmeta_use_id is not None else {},
                 )
             )
     return ReflectedEnumInfo(
         short_name=enum_cursor.spelling,
+        script=script_exposure(_annotation_entries(annotation), {"ScriptType", "ScriptName", "ScriptNoExport"}, header),
         namespace=_semantic_namespace(enum_cursor),
         qualified_name=qualified_name,
         header=header,
@@ -236,6 +240,7 @@ def parse_reflection_header(
                 declaring_namespace = _semantic_namespace(child)
                 namespace_path = _semantic_namespace_path(child)
                 reflected_struct = ReflectedStructInfo(
+                    script=script_exposure(_annotation_entries(pending_dstruct_annotation), {"ScriptType", "ScriptName", "ScriptNoExport"}, header),
                     short_name=child.spelling,
                     namespace=declaring_namespace,
                     qualified_name=qualified_name,
@@ -314,6 +319,7 @@ def parse_reflection_header(
                         )
                     base_qualified_name = ast_base_identity or source_base_identity or base_qualified_name
                 reflected_class = ReflectedClassInfo(
+                    script=script_exposure(_annotation_entries(pending_dclass_annotation), {"ScriptType", "ScriptName", "ScriptNoExport"}, header),
                     short_name=child.spelling,
                     namespace=declaring_namespace,
                     qualified_name=qualified_name,
@@ -364,6 +370,9 @@ def parse_reflection_header(
                 _validate_property_deprecations(
                     reflected_class.qualified_name, reflected_class.properties
                 )
+                for prop in reflected_class.properties:
+                    if "Durin::EPropertyFlags::ScriptReadWrite" in prop.flags and "Durin::EPropertyFlags::Edit" not in prop.flags:
+                        raise ValueError(f"{header}: ScriptReadWrite object property requires Edit")
                 function_symbols = dict(exported_symbols or {})
                 for local in [*structs, *enums, *classes, reflected_class]:
                     function_symbols[local.qualified_name] = ExportedSymbolInfo(

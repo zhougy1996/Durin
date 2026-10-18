@@ -270,6 +270,7 @@ namespace Durin
 		FName Name;
 		uint64 Value = 0;
 		std::string DisplayName;
+        FScriptExposure ScriptExposure;
 	};
 
 	// Describes a reflected enum's representation and ordered value records.

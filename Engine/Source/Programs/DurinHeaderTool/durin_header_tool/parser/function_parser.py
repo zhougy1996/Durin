@@ -1,4 +1,5 @@
 """The deliberately small native function signature contract."""
+from durin_header_tool.parser.script_exposure import script_exposure
 import re
 
 import clang.cindex as clang
@@ -12,10 +13,12 @@ from durin_header_tool.parser.property_parser import _split_template_args
 
 
 def function_metadata(payload: str, location: str) -> dict:
-    result = {}
+    result = script_exposure(CppSourceScanner(payload).split_macro_arguments(), {"ScriptCallable", "ScriptName", "ScriptNoExport"}, location)
     for entry in CppSourceScanner(payload).split_macro_arguments():
         key, separator, value = entry.strip().partition("=")
         key = key.strip()
+        if key.startswith("Script"):
+            continue
         if key in result:
             raise ValueError(f"{location}: duplicate {key}")
         if key == "CallInEditor" and not separator:
@@ -217,6 +220,7 @@ def parse_functions(cursor, header: str, symbols=None, namespace="", allow_unkno
             is_final="final" in declaration_tokens, return_kind=return_kind,
             parameters=parameters, is_const=is_const, return_const=member.result_type.is_const_qualified(),
             call_in_editor=metadata.get("CallInEditor", False),
+            script={key: value for key, value in metadata.items() if key.startswith("Script")},
             category=metadata.get("Category", "Actions"),
             display_name=metadata.get("DisplayName", ""), tool_tip=metadata.get("ToolTip", "")))
     return functions

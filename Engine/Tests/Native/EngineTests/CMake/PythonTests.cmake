@@ -17,7 +17,7 @@ endif()
 if(NOT TARGET DurinCPython OR NOT TARGET DurinPython)
     durin_exclude_native_test_sources(
         RATIONALE "Requires the optional qualified CPython SDK and editor module."
-        SOURCES Private/PythonToolIntegrationTests.cpp Private/MCPPythonJobTests.cpp)
+        SOURCES Private/PythonToolIntegrationTests.cpp Private/MCPPythonJobTests.cpp Private/PythonReflectionIntegrationTests.cpp)
     return()
 endif()
 durin_add_native_test(PythonToolIntegrationTests
@@ -51,3 +51,27 @@ durin_add_native_test(MCPPythonJobTests
     HEAVY_RUNTIME_RATIONALE "Validates cross-adapter job lifecycle without GPU startup."
 )
 set_source_files_properties(Private/MCPPythonJobTests.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
+set(_python_fixture_dir "${CMAKE_CURRENT_BINARY_DIR}/PythonFixture")
+file(GLOB_RECURSE _python_fixture_dht_sources CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/Engine/Source/Programs/DurinHeaderTool/durin_header_tool/*.py")
+add_custom_command(
+    OUTPUT "${_python_fixture_dir}/PythonReflectionTestTypes.gen.h" "${_python_fixture_dir}/PythonReflectionTestTypes.gen.cpp"
+    COMMAND "${Python_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/GeneratePythonReflectionFixture.py" "${_python_fixture_dir}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/GeneratePythonReflectionFixture.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Private/PythonReflectionTestTypes.h" ${_python_fixture_dht_sources}
+    VERBATIM)
+durin_add_native_test(PythonReflectionIntegrationTests
+    KIND integration
+    DOMAINS python reflection
+    MODULES durin-python durin-ed core-dobject
+    STACKS editor
+    SOURCES Private/PythonReflectionIntegrationTests.cpp
+    LIBRARIES Core CoreDObject Engine DurinEd DurinPython
+    REQUIRES editor
+    REQUIREMENT_RATIONALE "Qualifies native reflection wrapping against the real optional CPython runtime."
+    HEAVY_RUNTIME_RATIONALE "Owns one interpreter and CPU-only editor hosts, without application or GPU startup."
+)
+target_sources(PythonReflectionIntegrationTests PRIVATE "${_python_fixture_dir}/PythonReflectionTestTypes.gen.cpp")
+target_include_directories(PythonReflectionIntegrationTests PRIVATE "${_python_fixture_dir}" "${CMAKE_CURRENT_SOURCE_DIR}/Private")
+target_compile_definitions(PythonReflectionIntegrationTests PRIVATE PYTHONFIXTURE_API=)

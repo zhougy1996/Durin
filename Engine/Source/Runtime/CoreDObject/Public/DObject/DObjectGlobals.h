@@ -7,6 +7,7 @@
 #include "ObjectMacros.h"
 #include "StructOps.h"
 #include "FunctionTypes.h"
+#include "ScriptExposure.h"
 
 namespace Durin
 {
@@ -324,6 +325,7 @@ namespace Durin
 			const char* NameUTF8;
 			uint64 Value;
 			const char* DisplayName;
+            FScriptExposure ScriptExposure;
 		};
 
 		struct FEnumParams
@@ -339,6 +341,7 @@ namespace Durin
 			size_t NumValues;
 			const char* const* LegacyNames = nullptr;
 			size_t NumLegacyNames = 0;
+            FScriptExposure ScriptExposure;
 		};
 
 		struct FFunctionLayoutParams
@@ -362,6 +365,7 @@ namespace Durin
 			FNativeFunctionPtr NativeFunction;
 			const FFunctionParameterDefault* Defaults = nullptr;
 			size_t NumDefaults = 0;
+            FScriptExposure ScriptExposure;
 		};
 
 		struct FClassParams
@@ -378,6 +382,7 @@ namespace Durin
 			const FFunctionParams* Functions = nullptr;
 			size_t NumFunctions = 0;
 			void (*CookSchema)(FObjectCookContext&) = nullptr;
+            FScriptExposure ScriptExposure;
 		};
 
 		struct FMetaDataPair
@@ -1144,6 +1149,7 @@ namespace Durin
 			const FDStructOps* Ops = nullptr;
 			const char* const* LegacyNames = nullptr;
 			size_t NumLegacyNames = 0;
+            FScriptExposure ScriptExposure;
 		};
 
 		COREDOBJECT_API auto ConstructDFunction(DClass* Owner, const FFunctionParams& Params) -> DFunction*;

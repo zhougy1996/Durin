@@ -67,6 +67,25 @@ and the compatibility policy for external content has been recorded separately.
 `DClass::GetSuperClass()` exposes this as a `DClass*`. `DObject::IsA(...)` walks
 that hierarchy; `Cast<T>` uses `T::StaticClass()` and `IsA`.
 
+## Script Exposure Metadata
+
+Native types own copied FScriptExposure metadata independently of any interpreter.
+DCLASS/DSTRUCT/DENUM accept ScriptType, ScriptName and ScriptNoExport. DFUNCTION
+accepts ScriptCallable, ScriptName and ScriptNoExport; CallInEditor remains a
+separate editor action flag. DPROPERTY accepts ScriptReadOnly/ScriptReadWrite,
+ScriptName and ScriptNoExport; enum values accept ScriptName/ScriptNoExport through
+DMETA. The generated registration records retain native module provenance.
+Exposure records are immutable after publication and equivalent handwritten
+records are validated at registration. ScriptReadWrite conflicts with ReadOnly
+and NonTransactional, and native object fields additionally require Edit.
+
+These markers do not register Toolsets or imply remote tool discovery. The
+[Python adapter](../../Editor/Architecture/PythonTools.md#reflected-types-and-object-wrappers)
+owns script-visible names, wrapper policy and the currently supported operations.
+CoreDObject supplies reflection metadata and native dispatch without a Python
+runtime dependency. Signature-default and dispatch semantics remain defined by
+[native function reflection](FunctionReflection.md).
+
 ## Class Default Objects
 
 Every eligible reflected class owns one immutable class default object after its

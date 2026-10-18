@@ -4,6 +4,7 @@
 
 #include "DObject/ObjectPtr.h"
 #include "LevelEditorSelection.h"
+#include "Tools/EditorScriptCall.h"
 
 namespace Durin::Editor
 {
@@ -63,6 +64,7 @@ namespace Durin::Editor::Level
 		auto SetError(std::string Message) const -> void { if (ReportError) ReportError(std::move(Message)); }
 
 	private:
+        std::unique_ptr<FEditorScriptTargetPolicyRegistration> ScriptEditPolicy;
 		DEditorActorSubsystem* TestActorEditor = nullptr;
 		friend struct FLevelEditorActorTestAccess;
 		std::vector<TObjectPtr<AActor>> SelectedActors;

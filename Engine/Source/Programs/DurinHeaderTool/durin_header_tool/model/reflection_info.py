@@ -114,6 +114,7 @@ class ReflectedEnumValueInfo:
     name: str
     value: int
     display_name: str = ""
+    script: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -131,6 +132,7 @@ class ReflectedEnumInfo:
     display_name: str = ""
     legacy_names: list[str] = field(default_factory=list)
     values: list[ReflectedEnumValueInfo] = field(default_factory=list)
+    script: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.namespace_path:
@@ -242,6 +244,7 @@ class ReflectedFunctionInfo:
     category: str = "Actions"
     display_name: str = ""
     tool_tip: str = ""
+    script: dict = field(default_factory=dict)
 
     @property
     def signature(self) -> dict:
@@ -269,6 +272,7 @@ class ReflectedClassInfo:
     legacy_names: list[str] = field(default_factory=list)
     properties: list[ReflectedPropertyInfo] = field(default_factory=list)
     functions: list[ReflectedFunctionInfo] = field(default_factory=list)
+    script: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.namespace_path:
@@ -322,6 +326,7 @@ class ReflectedStructInfo:
     generated_body_line: int = 0
     legacy_names: list[str] = field(default_factory=list)
     properties: list[ReflectedPropertyInfo] = field(default_factory=list)
+    script: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.namespace_path:

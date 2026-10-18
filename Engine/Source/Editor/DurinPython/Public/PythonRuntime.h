@@ -15,6 +15,9 @@ namespace Durin
         std::string Error;
     };
 
+    enum class EPythonEditPolicy : uint8 { DocumentManaged, NonDocumentReadOnly, NonDocumentReadWrite };
+    struct FPythonSessionOptions { EPythonEditPolicy EditPolicy = EPythonEditPolicy::DocumentManaged; };
+
     // Optional runtime directory supports deployment verification and native hosts.
     struct FPythonRuntimeOptions
     {
@@ -38,7 +41,7 @@ namespace Durin
         DURINPYTHON_API auto Stop() noexcept -> void;
         // Acquire the endpoint from the explicitly selected editor on GameThread.
         DURINPYTHON_API auto CreateSession(std::shared_ptr<FEditorToolService> Endpoint,
-            EToolSource Source = EToolSource::External, const FToolClientContext& Client = {}) -> std::expected<uint64, std::string>;
+            EToolSource Source = EToolSource::External, const FToolClientContext& Client = {}, const FPythonSessionOptions& Options = {}) -> std::expected<uint64, std::string>;
         DURINPYTHON_API auto CloseSession(uint64 Session) -> void;
         DURINPYTHON_API auto RunString(uint64 Session, std::string Code,
             std::string Filename = "<durin>") -> std::expected<uint64, std::string>;
