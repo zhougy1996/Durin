@@ -1,4 +1,6 @@
 #include "Editor/EditorActorSubsystemTestSupport.h"
+#include "Editor/EditorCommand.h"
+#include "Actors/ActorChange.h"
 
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Actors/StaticMeshActor.h"
@@ -98,6 +100,7 @@ namespace
 		{
 			World = NewObject<DWorld>(nullptr, "ComponentTestWorld");
 			Root = std::make_unique<TStrongObjectPtr<DWorld>>(World);
+			World->SetWorldType(EWorldType::Editor);
 			EXPECT_TRUE(World->InitializeSubsystems());
 			EXPECT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "Level")));
 			World->SetRenderScene(&Scene);
@@ -164,7 +167,7 @@ TEST(FActorMutationTests, DeletionRestoresEarlierPropertyHistoryExternalAttachme
 	ASSERT_TRUE(Grandchild->GetRootComponent()->AttachToComponent(Light, EAttachmentTransformRule::KeepRelative));
 	{
 		Editor::FScopedTransaction Transaction(F.Transactions.Get(), {"test", "Edit actor before delete"});
-		Transaction.Modify(Actor->GetRootComponent());
+		(void)Actor->GetRootComponent()->Modify();
 		Actor->GetRootComponent()->SetRelativeLocation({9.0, 0.0, 0.0});
 	}
 	const auto Before = Grandchild->GetActorTransform().Translation;
@@ -344,7 +347,7 @@ TEST(FActorMutationTests, RejectionIsAtomicAndHistoryDiscardCollectsInactiveActo
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
-	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Executing);
+	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Undoing);
 	const auto Count = Level->GetActors().size();
 	EXPECT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->SpawnActor(*Level, AStaticMeshActor::StaticClass(), "Blocked", FTransform{}, {nullptr, false}));
 	EXPECT_EQ(Level->GetActors().size(), Count);
@@ -367,8 +370,8 @@ TEST(FActorMutationTests, MixedSynchronousEditsJoinOuterTransactionAndReplayInOr
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
 	Tests::FTestActorEditor Editor(F.Transactions.Get());
-	const auto Outer = F.Transactions->Begin({.Description = "Build actor hierarchy"});
-	ASSERT_TRUE(Outer);
+	const auto Outer = F.Transactions->Begin("test", "Build actor hierarchy");
+	ASSERT_GE(Outer, 0);
 	const auto Spawned = Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "Grouped", {}, {nullptr, false});
 	ASSERT_TRUE(Spawned);
 	auto* Actor = Spawned.Actors.front().Get();
@@ -390,9 +393,9 @@ TEST(FActorMutationTests, MixedSynchronousEditsJoinOuterTransactionAndReplayInOr
 	auto* Duplicate = Duplicated.Actors.front().Get();
 	std::array<AActor*, 1> Duplicates{Duplicate};
 	ASSERT_TRUE(Editor->DestroyActors(*Level, Duplicates, {nullptr, false}));
-	EXPECT_EQ(Spawned.History->TransactionId, Outer.TransactionId);
+	EXPECT_EQ(Spawned.History->TransactionId, F.Transactions->GetLastResult().TransactionId);
 	EXPECT_EQ(F.Transactions->GetHistoryCount(), 0u);
-	ASSERT_TRUE(F.Transactions->End(Outer.ScopeId));
+	ASSERT_TRUE(F.Transactions->End());
 	EXPECT_EQ(F.Transactions->GetHistoryCount(), 1u);
 	EXPECT_EQ(F.Transactions->GetUndoDescription(), "Build actor hierarchy");
 	CollectGarbage();
@@ -423,12 +426,12 @@ TEST(FActorMutationTests, JoinedChangesKeepOnePackageRevisionAndRestoreCleanChec
 	auto* Level = NewObject<DLevel>(Package, "Level");
 	Package->ClearDirty();
 	Tests::FTestActorEditor Editor(F.Transactions.Get());
-	const auto Outer = F.Transactions->Begin({.Description = "Populate level"});
-	ASSERT_TRUE(Outer);
+	const auto Outer = F.Transactions->Begin("test", "Populate level");
+	ASSERT_GE(Outer, 0);
 	const auto First = Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "First", {}, {nullptr, false});
 	ASSERT_TRUE(First);
 	ASSERT_TRUE(Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "Second", {}, {nullptr, false}));
-	ASSERT_TRUE(F.Transactions->End(Outer.ScopeId));
+	ASSERT_TRUE(F.Transactions->End());
 	EXPECT_TRUE(Package->IsDirty());
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_FALSE(Package->IsDirty());
@@ -444,7 +447,7 @@ TEST(FActorMutationTests, TransitionStatesRejectAllActorEditingBeforePreparation
 	auto* Level = F.World->GetCurrentLevel();
 	Tests::FTestActorEditor Editor(F.Transactions.Get());
 	const auto Count = Level->GetActors().size();
-	for (auto State : {ETransactorState::Executing, ETransactorState::Undoing,
+	for (auto State : {ETransactorState::Undoing,
 		ETransactorState::Redoing, ETransactorState::RecoveryRequired, ETransactorState::Destroying})
 	{
 		FTransBufferTestAccess::SetState(*F.Transactions.Get(), State);
@@ -526,7 +529,7 @@ TEST(FComponentMutationTests, DeletionPreservesIdentityForEarlierPropertyHistory
 	const auto Instances = F.Actor->GetInstanceComponents();
 	{
 		Editor::FScopedTransaction Transaction(F.Transactions.Get(), {"test", "Edit light before deletion"});
-		Transaction.Modify(Light);
+		(void)Light->Modify();
 		Light->SetRelativeLocation({9.0, 0.0, 0.0});
 	}
 	const auto Before = Child->GetWorldLocation();
@@ -623,7 +626,7 @@ TEST(FComponentMutationTests, RejectionDoesNotPublishAndDiscardedInactiveCompone
 {
 	FComponentFixture F;
 	const auto Count = F.Actor->GetComponents().size();
-	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Executing);
+	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Undoing);
 	ASSERT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {nullptr, false}));
 	EXPECT_EQ(F.Actor->GetComponents().size(), Count);
 	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Idle);
@@ -668,7 +671,7 @@ TEST(FComponentMutationTests, RenamePreservesIdentityAndEarlierPropertyHistory)
 	const auto Path = Light->GetObjectPath();
 	{
 		Editor::FScopedTransaction Transaction(F.Transactions.Get(), {"test", "Edit before rename"});
-		Transaction.Modify(Light);
+		(void)Light->Modify();
 		Light->SetRelativeLocation({9.0, 0.0, 0.0});
 	}
 	const auto Instances = F.Actor->GetInstanceComponents();
@@ -1011,15 +1014,15 @@ TEST(FActorMutationTests, UnavailableServiceAndRecoveringHistoryRejectBeforePrep
 	auto* Level = F.World->GetCurrentLevel();
 	Durin::Tests::FTestActorEditor Unavailable(nullptr);
 	EXPECT_EQ(Unavailable->SpawnActor(*Level, AActor::StaticClass(), "Unavailable", {}, {nullptr, false}).Error, EActorEditError::Unavailable);
-	class FIncompleteChange final : public ITransactionCustomChange
+	class FIncompleteChange final : public FActorCommandChange
 	{
 	public:
 		auto GetDescription() const -> std::string_view override { return "Incomplete compensation fixture"; }
-		auto Replay(ETransactionOperation) -> FTransactionCustomResult override
-		{ return {{.Code = ETransactionCustomError::RollbackIncomplete}}; }
+		auto Replay(ETransactionOperation) -> FActorChangeResult override
+		{ return {{.Code = EActorChangeError::RollbackIncomplete}}; }
 	};
 	Durin::Tests::FTestTransactorOwner Recovering("RecoveringActorHistory");
-	EXPECT_EQ(Recovering->Execute(std::make_unique<FIncompleteChange>()).Code, ETransactorResultCode::RecoveryRequired);
+	EXPECT_EQ(Durin::Editor::ApplyEditorChange(*Recovering, std::make_unique<FIncompleteChange>()).Code, ETransactorResultCode::RecoveryRequired);
 	Durin::Tests::FTestActorEditor Editor(Recovering.Get());
 	EXPECT_EQ(Editor->SpawnActor(*Level, AActor::StaticClass(), "RecoveryBlocked", {}, {nullptr, false}).Error, EActorEditError::HistoryUnavailable);
 	EXPECT_EQ(Level->FindActorByName("RecoveryBlocked"), nullptr);
@@ -1089,7 +1092,7 @@ TEST(FComponentMutationTests, AdditionHistoryRetainsSubobjectsCreatedAfterPublic
 	EXPECT_FALSE(WeakPayload.IsValid());
 }
 
-TEST(FActorMutationTests, FailedStructuralAccountingRestoresPackageDirtinessAndRevision)
+TEST(FActorMutationTests, UnrecordableStructuralEditRemainsAppliedAndInvalidatesCheckpoint)
 {
 	FComponentFixture F;
 	const auto Directory = Testing::CreateTestFixtureDirectory("RejectedStructuralFinalization");
@@ -1103,32 +1106,32 @@ TEST(FActorMutationTests, FailedStructuralAccountingRestoresPackageDirtinessAndR
 	auto* Actor = NewObject<AStaticMeshActor>(Level, "PreparedActor");
 	ASSERT_TRUE(Actor->RequestNativeReconstruction());
 	AActor* Raw = Actor;
-	class FOverflowingPresence final : public ITransactionCustomChange
+	class FOverflowingPresence final : public FActorCommandChange
 	{
 	public:
-		explicit FOverflowingPresence(std::unique_ptr<ITransactionCustomChange> InChange) : Change(std::move(InChange)) {}
+		explicit FOverflowingPresence(std::unique_ptr<FActorCommandChange> InChange) : Change(std::move(InChange)) {}
 		auto GetDescription() const -> std::string_view override { return "Overflowing presence fixture"; }
 		auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Change->GetAffectedPackages(); }
 		auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override { Change->AddReferencedObjects(Collector); }
 		auto GetAllocatedSize() const -> size_t override { return bApplied ? std::numeric_limits<size_t>::max() : Change->GetAllocatedSize(); }
-		auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult override
+		auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
 		{
 			auto Result = Change->Replay(Operation);
 			if (Result) bApplied = Operation != ETransactionOperation::Undo;
 			return Result;
 		}
-		std::unique_ptr<ITransactionCustomChange> Change;
+		std::unique_ptr<FActorCommandChange> Change;
 		bool bApplied = false;
 	};
 	auto Change = std::make_unique<FOverflowingPresence>(MakeActorPresenceChange(*Level, {&Raw, 1}, false, "Prepared actor"));
 	Package->ClearDirty();
 	F.Transactions->EstablishSavedState(*Package);
 	const auto BeforeRevision = Package->GetEditRevision();
-	const auto Result = F.Transactions->Execute(std::move(Change));
+	const auto Result = Durin::Editor::ApplyEditorChange(*F.Transactions, std::move(Change));
 	EXPECT_EQ(Result.Code, ETransactorResultCode::Failed);
-	EXPECT_FALSE(Level->ContainsActor(Actor));
-	EXPECT_FALSE(Package->IsDirty());
-	EXPECT_EQ(Package->GetEditRevision(), BeforeRevision);
+	EXPECT_TRUE(Level->ContainsActor(Actor));
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_GE(Package->GetEditRevision(), BeforeRevision);
 	ASSERT_TRUE(F.Transactions->Reset());
 	MarkObjectHierarchyAsGarbage(Package);
 }

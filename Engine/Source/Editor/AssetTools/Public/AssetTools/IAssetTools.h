@@ -33,7 +33,7 @@ namespace Durin
 			DClass* AssetClass,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
-			EObjectFlags Flags = EObjectFlags::Public)
+			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional)
 			-> FAssetToolsResult = 0;
 
 		// Preflight creates no packages and decodes no sources. It is advisory;
@@ -51,7 +51,7 @@ namespace Durin
 			std::string_view Filename,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
-			EObjectFlags Flags = EObjectFlags::Public)
+			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional)
 			-> FAssetToolsResult = 0;
 
 		auto CreatePackageLeafAssetForTesting(
@@ -59,7 +59,7 @@ namespace Durin
 			DClass* AssetClass,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
-			EObjectFlags Flags = EObjectFlags::Public) -> FAssetToolsResult
+			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional) -> FAssetToolsResult
 		{
 			FTopLevelAssetPath AssetPath;
 			if (!FTopLevelAssetPath::TryCreate(
@@ -73,7 +73,7 @@ namespace Durin
 			std::string_view Filename,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
-			EObjectFlags Flags = EObjectFlags::Public) -> FAssetToolsResult
+			EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional) -> FAssetToolsResult
 		{
 			FTopLevelAssetPath AssetPath;
 			if (!FTopLevelAssetPath::TryCreate(

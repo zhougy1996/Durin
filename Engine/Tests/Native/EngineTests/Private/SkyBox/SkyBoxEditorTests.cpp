@@ -33,8 +33,8 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(LevelPath, Level));
 	Durin::Tests::FTestTransactorOwner Transactions;
-	const auto Scope = Transactions->Begin({.Description = "Block sky placement"});
-	ASSERT_TRUE(Scope);
+	Durin::FTransBufferTestAccess::SetState(*Transactions, Durin::Editor::ETransactorState::Undoing);
+
 	const auto Blocked = Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
 		*Level, CubeResult.Asset, "Sky", Transactions.Get());
 	ASSERT_FALSE(Blocked);
@@ -42,7 +42,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	EXPECT_FALSE(Blocked.Message.empty());
 	const auto RejectionMessage = Blocked.Message;
 	EXPECT_EQ(Level->FindActorByName("Sky"), nullptr);
-	(void)Transactions->Cancel(Scope.ScopeId);
+	Durin::FTransBufferTestAccess::SetState(*Transactions, Durin::Editor::ETransactorState::Idle);
 
 	const Durin::Editor::Level::FSkyBoxPlacementResult Placement =
 		Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
@@ -56,7 +56,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	EXPECT_EQ(Level->FindActorByName("Sky"), nullptr);
 	auto* Conflict = Level->SpawnActor<Durin::ASkyBoxActor>("Sky");
 	ASSERT_NE(Conflict, nullptr);
-	const auto Rejected = Transactions->Redo();
+	const auto Rejected = Transactions->RedoExpected(0);
 	ASSERT_FALSE(Rejected);
 	ASSERT_TRUE(Rejected.ApplyCause);
 	const auto& Message = Rejected.ApplyCause->Message;

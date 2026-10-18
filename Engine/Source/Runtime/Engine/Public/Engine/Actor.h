@@ -79,6 +79,7 @@ namespace Durin
 		ENGINE_API virtual auto EndPlay() -> void;
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto PostLoad() -> void override;
+		ENGINE_API auto Modify(bool bAlwaysMarkDirty = true) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		auto HasBegunPlay() const -> bool { return PlayState != EActorPlayState::NotBegun; }
 		auto IsBeginningPlay() const -> bool { return PlayState == EActorPlayState::BeginningPlay; }
@@ -199,7 +200,7 @@ namespace Durin
 		TObjectPtr<DSceneComponent> RootComponent;
 
 		// Every currently live component owned by this actor; never serialized.
-		DPROPERTY(Transient)
+		DPROPERTY(Transient, NonTransactional)
 		std::vector<TObjectPtr<DActorComponent>> OwnedComponents;
 
 		// Persistent native and per-instance authored component state.

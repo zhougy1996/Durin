@@ -163,7 +163,7 @@ namespace
 		explicit DReflectedTransactionTestObject(
 			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
 			: DEditObserver(Initializer)
-		{}
+		{ SetFlags(Durin::EObjectFlags::Transactional); }
 
 		static void __DefaultConstructor(const Durin::FObjectInitializer& Initializer)
 		{

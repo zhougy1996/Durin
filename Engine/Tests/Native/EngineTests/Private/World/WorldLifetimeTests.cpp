@@ -240,7 +240,7 @@ TEST(FWorldTests, ComponentReparentUndoRedoRestoresHierarchyTransformsAndLightPu
 	for (const auto Rule : {Durin::EAttachmentTransformRule::KeepRelative, Durin::EAttachmentTransformRule::KeepWorld,
 		Durin::EAttachmentTransformRule::SnapToTarget})
 	{
-		auto* World = CreateWorld();
+		auto* World = CreateWorld(nullptr, Durin::EWorldType::Editor);
 		FWorldSceneLifecycleTestScene Scene;
 		World->SetRenderScene(&Scene);
 		auto* First = World->SpawnActor<Durin::AStaticMeshActor>("FirstParent")->GetRootComponent();
@@ -257,7 +257,8 @@ TEST(FWorldTests, ComponentReparentUndoRedoRestoresHierarchyTransformsAndLightPu
 		Durin::Tests::FTestTransactorOwner Transactions;
 		{
 			Durin::Editor::FScopedTransaction Transaction(Transactions.Get(), {"test", "Reparent component"});
-			Transaction.Modify(Child);
+			ASSERT_TRUE(Child->HasAnyObjectFlags(Durin::EObjectFlags::Transactional)) << "child=" << int(Child->GetObjectFlags()) << " outer=" << int(Child->GetOuter()->GetObjectFlags()) << " world=" << int(World->GetWorldType());
+			ASSERT_TRUE(Child->Modify());
 			ASSERT_TRUE(Child->AttachToComponent(Second, Rule));
 		}
 		const auto AfterRelative = Child->GetRelativeTransform();
@@ -271,7 +272,7 @@ TEST(FWorldTests, ComponentReparentUndoRedoRestoresHierarchyTransformsAndLightPu
 			EXPECT_EQ(Scene.LightLocations.at(Child), Child->GetWorldLocation());
 		};
 		uint64 Revision = World->GetCurrentLevel()->GetEditorActorHierarchyRevision();
-		ASSERT_TRUE(Transactions->Undo());
+		ASSERT_TRUE(Transactions->Undo()) << Durin::Editor::FormatTransactorResult(Transactions->GetLastResult());
 		EXPECT_GT(World->GetCurrentLevel()->GetEditorActorHierarchyRevision(), Revision);
 		ExpectAttachment(First, Second, 12.0);
 		Second->SetWorldLocation({120.0, 0.0, 0.0});
@@ -287,7 +288,7 @@ TEST(FWorldTests, ComponentReparentUndoRedoRestoresHierarchyTransformsAndLightPu
 		ExpectAttachment(Second, First, ReappliedX);
 		Second->SetWorldLocation({130.0, 0.0, 0.0});
 		ExpectAttachment(Second, First, ReappliedX + 10.0);
-		ASSERT_TRUE(Transactions->Undo());
+		ASSERT_TRUE(Transactions->Undo()) << Durin::Editor::FormatTransactorResult(Transactions->GetLastResult());
 		ExpectAttachment(First, Second, 42.0);
 		ASSERT_TRUE(Transactions->Reset());
 		World->SetRenderScene(nullptr);
@@ -300,7 +301,7 @@ TEST(FWorldTests, ComponentDetachUndoRedoRestoresParentAndTransform)
 {
 	for (const auto Rule : {Durin::EDetachmentTransformRule::KeepRelative, Durin::EDetachmentTransformRule::KeepWorld})
 	{
-		auto* World = CreateWorld();
+		auto* World = CreateWorld(nullptr, Durin::EWorldType::Editor);
 		auto* Parent = World->SpawnActor<Durin::AStaticMeshActor>("Parent")->GetRootComponent();
 		auto* Child = World->SpawnActor<Durin::AStaticMeshActor>("Child")->GetRootComponent();
 		Parent->SetWorldLocation({10.0, 0.0, 0.0});
@@ -309,13 +310,14 @@ TEST(FWorldTests, ComponentDetachUndoRedoRestoresParentAndTransform)
 		Durin::Tests::FTestTransactorOwner Transactions;
 		{
 			Durin::Editor::FScopedTransaction Transaction(Transactions.Get(), {"test", "Detach component"});
-			Transaction.Modify(Child);
+			ASSERT_TRUE(Child->HasAnyObjectFlags(Durin::EObjectFlags::Transactional)) << "child=" << int(Child->GetObjectFlags()) << " outer=" << int(Child->GetOuter()->GetObjectFlags()) << " world=" << int(World->GetWorldType());
+			ASSERT_TRUE(Child->Modify());
 			ASSERT_TRUE(Child->DetachFromComponent(Rule));
 		}
 		const auto DetachedLocation = Child->GetWorldLocation();
 		for (int32 Repeat = 0; Repeat < 2; ++Repeat)
 		{
-			ASSERT_TRUE(Transactions->Undo());
+			ASSERT_TRUE(Transactions->Undo()) << Durin::Editor::FormatTransactorResult(Transactions->GetLastResult());
 			EXPECT_EQ(Child->GetAttachParent(), Parent);
 			EXPECT_EQ(CountAttachedChildEntries(Parent, Child), 1u);
 			EXPECT_EQ(Child->GetWorldLocation(), Parent->GetWorldLocation() + Durin::FVector3(2.0, 0.0, 0.0));
@@ -336,7 +338,7 @@ TEST(FWorldTests, ComponentHierarchyUndoRedoHandlesBothRecordOrders)
 {
 	for (const bool bParentFirst : {false, true})
 	{
-		auto* World = CreateWorld();
+		auto* World = CreateWorld(nullptr, Durin::EWorldType::Editor);
 		auto* First = World->SpawnActor<Durin::AStaticMeshActor>("First")->GetRootComponent();
 		auto* Second = World->SpawnActor<Durin::AStaticMeshActor>("Second")->GetRootComponent();
 		First->SetRelativeLocation({1.0, 0.0, 0.0});
@@ -345,12 +347,12 @@ TEST(FWorldTests, ComponentHierarchyUndoRedoHandlesBothRecordOrders)
 		Durin::Tests::FTestTransactorOwner Transactions;
 		{
 			Durin::Editor::FScopedTransaction Transaction(Transactions.Get(), {"test", "Reverse hierarchy"});
-			Transaction.Modify(bParentFirst ? Second : First);
-			Transaction.Modify(bParentFirst ? First : Second);
+			(void)(bParentFirst ? Second : First)->Modify();
+			(void)(bParentFirst ? First : Second)->Modify();
 			ASSERT_TRUE(First->DetachFromComponent(Durin::EDetachmentTransformRule::KeepWorld));
 			ASSERT_TRUE(Second->AttachToComponent(First, Durin::EAttachmentTransformRule::KeepWorld));
 		}
-		ASSERT_TRUE(Transactions->Undo());
+		ASSERT_TRUE(Transactions->Undo()) << Durin::Editor::FormatTransactorResult(Transactions->GetLastResult());
 		EXPECT_EQ(First->GetAttachParent(), Second);
 		EXPECT_EQ(Second->GetAttachParent(), nullptr);
 		EXPECT_EQ(CountAttachedChildEntries(Second, First), 1u);
@@ -372,7 +374,7 @@ TEST(FWorldTests, ComponentHierarchyUndoRedoHandlesBothRecordOrders)
 
 TEST(FWorldTests, UnregisteredComponentAttachmentUndoRedoRestoresRotationAndScale)
 {
-	auto* World = CreateWorld();
+	auto* World = CreateWorld(nullptr, Durin::EWorldType::Editor);
 	auto* First = World->SpawnActor<Durin::AStaticMeshActor>("First")->GetRootComponent();
 	auto* Second = World->SpawnActor<Durin::AStaticMeshActor>("Second")->GetRootComponent();
 	auto* Child = World->SpawnActor<Durin::AStaticMeshActor>("Child")->GetRootComponent();
@@ -392,7 +394,8 @@ TEST(FWorldTests, UnregisteredComponentAttachmentUndoRedoRestoresRotationAndScal
 	Durin::Tests::FTestTransactorOwner Transactions;
 	{
 		Durin::Editor::FScopedTransaction Transaction(Transactions.Get(), {"test", "Reparent unregistered component"});
-		Transaction.Modify(Child);
+		ASSERT_TRUE(Child->HasAnyObjectFlags(Durin::EObjectFlags::Transactional)) << "child=" << int(Child->GetObjectFlags()) << " outer=" << int(Child->GetOuter()->GetObjectFlags()) << " world=" << int(World->GetWorldType());
+			ASSERT_TRUE(Child->Modify());
 		ASSERT_TRUE(Child->AttachToComponent(Second, Durin::EAttachmentTransformRule::KeepRelative));
 	}
 	const auto AfterWorld = Child->GetComponentToWorldMatrix();
@@ -403,7 +406,7 @@ TEST(FWorldTests, UnregisteredComponentAttachmentUndoRedoRestoresRotationAndScal
 				EXPECT_NEAR(Actual[Column][Row], Expected[Column][Row], 1.e-8);
 		EXPECT_FALSE(Child->IsRegistered());
 	};
-	ASSERT_TRUE(Transactions->Undo());
+	ASSERT_TRUE(Transactions->Undo()) << Durin::Editor::FormatTransactorResult(Transactions->GetLastResult());
 	ExpectWorld(BeforeWorld);
 	ASSERT_TRUE(Transactions->Redo());
 	ExpectWorld(AfterWorld);
@@ -438,7 +441,7 @@ TEST(FWorldTests, ActorVisibilityUndoRedoSynchronizesComponentSceneState)
 {
 	for (const bool bInitiallyHidden : {false, true})
 	{
-		Durin::DWorld* World = CreateWorld();
+		Durin::DWorld* World = CreateWorld(nullptr, Durin::EWorldType::Editor);
 		FWorldSceneLifecycleTestScene Scene;
 		World->SetRenderScene(&Scene);
 		auto* Light = World->SpawnActor<Durin::ADirectionalLightActor>("VisibilityLight");
@@ -450,8 +453,8 @@ TEST(FWorldTests, ActorVisibilityUndoRedoSynchronizesComponentSceneState)
 		Durin::Tests::FTestTransactorOwner Transactions;
 		{
 			Durin::Editor::FScopedTransaction Transaction(Transactions.Get(), {"test", "Toggle actor visibility"});
-			Transaction.Modify(Light);
-			Transaction.Modify(Mesh);
+			(void)Light->Modify();
+			(void)Mesh->Modify();
 			Light->SetActorHiddenInGame(!bInitiallyHidden);
 			Mesh->SetActorHiddenInGame(!bInitiallyHidden);
 		}
@@ -462,11 +465,11 @@ TEST(FWorldTests, ActorVisibilityUndoRedoSynchronizesComponentSceneState)
 			EXPECT_FALSE(Mesh->GetStaticMeshComponent()->IsVisible());
 		};
 		ExpectVisibility(!bInitiallyHidden);
-		ASSERT_TRUE(Transactions->Undo());
+		ASSERT_TRUE(Transactions->Undo()) << Durin::Editor::FormatTransactorResult(Transactions->GetLastResult());
 		ExpectVisibility(bInitiallyHidden);
 		ASSERT_TRUE(Transactions->Redo());
 		ExpectVisibility(!bInitiallyHidden);
-		ASSERT_TRUE(Transactions->Undo());
+		ASSERT_TRUE(Transactions->Undo()) << Durin::Editor::FormatTransactorResult(Transactions->GetLastResult());
 		ExpectVisibility(bInitiallyHidden);
 		ASSERT_TRUE(Transactions->Reset());
 		World->SetRenderScene(nullptr);
@@ -502,7 +505,7 @@ TEST(FWorldTests, ReflectedActorVisibilitySynchronizesInteractiveCancelAndHistor
 	ASSERT_TRUE(Session.Apply(HiddenValue));
 	ASSERT_TRUE(Session.Commit());
 	EXPECT_TRUE(Scene.Lights.empty());
-	ASSERT_TRUE(Transactions->Undo());
+	ASSERT_TRUE(Transactions->Undo()) << Durin::Editor::FormatTransactorResult(Transactions->GetLastResult());
 	EXPECT_TRUE(Scene.Lights.contains(Light->GetLightComponent()));
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_TRUE(Scene.Lights.empty());
@@ -662,4 +665,21 @@ TEST(FWorldTests, PreviewHostReportsInitializationFailureAndClosesItsWorld)
 	}
 	Durin::CollectGarbage();
 	Durin::GEngine = PreviousEngine;
+}
+
+TEST(FWorldTests, ActorModifyRecordsTheNativeRootTransform)
+{
+	using namespace Durin; using namespace Durin::Editor;
+	auto* World = CreateWorld(nullptr, EWorldType::Editor);
+	auto* Actor = World->SpawnActor<AStaticMeshActor>("ActorModifyTransform");
+	Tests::FTestTransactorOwner Transactions;
+	{
+		FScopedTransaction Scope(Transactions.Get(), {"test", "Move actor through Modify"});
+		ASSERT_TRUE(Actor->Modify());
+		FTransform Transform = Actor->GetActorTransform(); Transform.Translation = {7.0, 8.0, 9.0};
+		Actor->SetActorTransform(Transform);
+	}
+	ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(Actor->GetActorTransform().Translation, FVector3(0.0));
+	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Actor->GetActorTransform().Translation, FVector3(7.0, 8.0, 9.0));
+	ASSERT_TRUE(Transactions->Reset()); MarkObjectHierarchyAsGarbage(World); CollectGarbage();
 }

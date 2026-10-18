@@ -17,6 +17,14 @@ namespace Durin
 		InitializeDefaults();
 	}
 
+	auto AActor::Modify(bool bAlwaysMarkDirty) -> bool
+	{
+		bool bRecorded = Super::Modify(bAlwaysMarkDirty);
+		if (RootComponent && RootComponent->GetCreationMethod() != EComponentCreationMethod::Generated)
+			bRecorded = RootComponent->Modify(bAlwaysMarkDirty) || bRecorded;
+		return bRecorded;
+	}
+
 	AActor::~AActor()
 	{
 		UnregisterTickFunction();

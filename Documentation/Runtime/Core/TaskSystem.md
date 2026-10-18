@@ -210,6 +210,28 @@ Preallocated terminal hooks run outside internal locks without scheduling a
 new task. Source known-requirement construction also supports internal
 composition such as empty fan-in and dynamically bound inner tasks.
 
+`TCompletionSource<T>::CreateDetached()` reuses the same node, result storage,
+terminal publication and abandonment contract without scheduler admission. It
+creates no callable or execution queue and remains valid across scheduler startup
+and shutdown. Use it for bounded owner-managed data completion, such as ToolService;
+it does not register pending work for scheduler drain. Owners must stop/drain
+producers themselves. `MakeReadyTask(Value)` returns its already settled shared
+result. Detached nodes are not scheduler prerequisites or nested execution work.
+Erased-handle Cancel returns false for these observation-only nodes; only their
+producer can acknowledge cancellation. Domain cancellation uses its own token.
+
+`TSharedTask::Subscribe(Callback)` returns a move-only `FTaskSubscription`.
+Notification runs once, possibly inline, on the completing/subscribing thread.
+It runs after result storage publication, before task terminal publication may
+become visible: only mark work runnable, then read readiness at the owner boundary.
+`FTaskReadiness` plus `ObserveReady` supplies a Core-owned data/code marker for
+host observers that must safely detach from late producers. Generic callback owners
+still synchronize in-flight callbacks before unloading their own code.
+Dropping/Resetting observation releases its captures and does not cancel domain
+work; an already in-flight notification may finish. Notification exceptions are
+contained. `WithLifetime(SharedOwner)` attaches ownership to the copied shared task
+and its result aliases; this supports accounting that outlives receipt eviction.
+
 ## Dependencies, Waiting And CPU Policy
 
 `Tasks::AddNested(Task)` adds a completion dependency to the currently executing

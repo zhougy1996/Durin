@@ -8,6 +8,7 @@ namespace Durin::PythonABI
     struct FAPI
     {
         decltype(&::PyFloat_AsDouble) pPyFloat_AsDouble = nullptr;
+        decltype(&::PyGC_Collect) pPyGC_Collect = nullptr;
         decltype(&::_Py_Dealloc) p_Py_Dealloc = nullptr;
         decltype(&::_Py_NoneStruct) p_Py_NoneStruct = nullptr;
         decltype(&::_Py_TrueStruct) p_Py_TrueStruct = nullptr;
@@ -42,7 +43,6 @@ namespace Durin::PythonABI
         decltype(&::PyExc_BaseException) pPyExc_BaseException = nullptr;
         decltype(&::PyExc_OverflowError) pPyExc_OverflowError = nullptr;
         decltype(&::PyExc_RuntimeError) pPyExc_RuntimeError = nullptr;
-        decltype(&::PyExc_TimeoutError) pPyExc_TimeoutError = nullptr;
         decltype(&::PyExc_ValueError) pPyExc_ValueError = nullptr;
         decltype(&::PyFloat_FromDouble) pPyFloat_FromDouble = nullptr;
         decltype(&::PyFloat_Type) pPyFloat_Type = nullptr;
@@ -82,6 +82,9 @@ namespace Durin::PythonABI
         decltype(&::PyWideStringList_Append) pPyWideStringList_Append = nullptr;
         auto Load(FModuleHandle Library) -> std::expected<void, FPlatformLibraryError>
         {
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyGC_Collect"); Symbol)
+                pPyGC_Collect = reinterpret_cast<decltype(pPyGC_Collect)>(*Symbol);
+            else return std::unexpected(Symbol.error());
             if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyFloat_AsDouble"); Symbol)
                 pPyFloat_AsDouble = reinterpret_cast<decltype(pPyFloat_AsDouble)>(*Symbol);
             else return std::unexpected(Symbol.error());
@@ -186,9 +189,6 @@ namespace Durin::PythonABI
             else return std::unexpected(Symbol.error());
             if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyExc_RuntimeError"); Symbol)
                 pPyExc_RuntimeError = reinterpret_cast<decltype(pPyExc_RuntimeError)>(*Symbol);
-            else return std::unexpected(Symbol.error());
-            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyExc_TimeoutError"); Symbol)
-                pPyExc_TimeoutError = reinterpret_cast<decltype(pPyExc_TimeoutError)>(*Symbol);
             else return std::unexpected(Symbol.error());
             if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyExc_ValueError"); Symbol)
                 pPyExc_ValueError = reinterpret_cast<decltype(pPyExc_ValueError)>(*Symbol);
@@ -340,7 +340,6 @@ namespace Durin::PythonABI
 #define PyExc_BaseException (*Durin::PythonABI::API.pPyExc_BaseException)
 #define PyExc_OverflowError (*Durin::PythonABI::API.pPyExc_OverflowError)
 #define PyExc_RuntimeError (*Durin::PythonABI::API.pPyExc_RuntimeError)
-#define PyExc_TimeoutError (*Durin::PythonABI::API.pPyExc_TimeoutError)
 #define PyExc_ValueError (*Durin::PythonABI::API.pPyExc_ValueError)
 #define PyFloat_FromDouble Durin::PythonABI::API.pPyFloat_FromDouble
 #define PyFloat_Type (*Durin::PythonABI::API.pPyFloat_Type)
@@ -383,3 +382,5 @@ namespace Durin::PythonABI
 #define Py_DECREF(object) Py_DecRef(reinterpret_cast<PyObject*>(object))
 #undef Py_XDECREF
 #define Py_XDECREF(object) do { if (object) Py_DECREF(object); } while (false)
+
+#define PyGC_Collect Durin::PythonABI::API.pPyGC_Collect

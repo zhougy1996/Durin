@@ -144,7 +144,8 @@ MCP discovers and invokes it through the same EditorToolService path as other
 Toolsets; MCPServer has no Python-specific catalog, routing or job map. These are
 ordinary MCP tools/call operations, not a protocol Tasks extension. Their short
 handlers run at the GameThread tool safe point and require editor ticking; scripts
-run asynchronously on the Python worker. Submit returns job admission without
+run through the GameThread script pump, with explicit cooperative continuations.
+Submit returns job admission without
 waiting for script completion.
 
 | Tool | Input | Successful data |
@@ -179,17 +180,18 @@ poll status to observe its actual outcome. It is false if no request can be made
 including terminal jobs or a concurrent retention eviction.
 
 MCP session deletion, idle expiry and server stop cancel the generic client lifetime
-passed in FToolContext.Client. Python observes it in tracing and tool waits and
-cleans queued jobs and closed sessions on runtime access/worker dispatch. Closing
-a client does not require another editor tick. These operations do not stop the
+passed in FToolContext.Client. Python observes it in tracing, binding calls and continuation admission. Queued
+jobs cancel on runtime access; active/suspended Python cleanup runs at the next
+owner-thread boundary. Signalling client closure needs no editor tick. These operations do not stop the
 shared runtime or cancel UI/other-client sessions. HTTP disconnect does not cancel
 admitted scripts. notifications/cancelled addresses an in-flight RPC only; after
 submit returns, cancel the job through editor.python.cancel. The job retains its
-original cooperative runtime deadline independently of later status queries.
+optional total-elapsed runtime deadline independently of later status queries;
+the runtime default has no mandatory deadline. MCP RPC deadlines remain unchanged.
 
 Runtime lifecycle locking protects short native calls during owner shutdown, and
 the shared native handle prevents dangling runtime access. Start/Stop initialize
-and finalize CPython only on its worker. No HTTP worker initializes an interpreter,
+and finalize CPython only on GameThread. No HTTP worker initializes an interpreter,
 accesses DObjects or waits for a script to complete. See the
 [Python adapter](PythonTools.md) for supported scripts and shutdown limitations.
 

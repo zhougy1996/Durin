@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Actors/ActorChange.h"
+
 #include "CoreMinimal.h"
 
 #include "Transactions/Transaction.h"
@@ -15,7 +17,7 @@ namespace Durin
 namespace Durin::Editor
 {
 	// Restores actor parentage and world transforms for one hierarchy edit.
-	class FActorAttachmentTransaction final : public ::Durin::Editor::ITransactionCustomChange
+	class FActorAttachmentTransaction final : public ::Durin::Editor::FActorCommandChange
 	{
 	public:
 		struct FEntry
@@ -30,18 +32,17 @@ namespace Durin::Editor
 		FActorAttachmentTransaction(std::vector<FEntry> InEntries, bool bInAttaching);
 
 		auto GetDescription() const -> std::string_view override;
-		auto IsSynchronous() const -> bool override { return true; }
 		auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
 		auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override;
 		auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-		auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult override
+		auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
 		{ return Apply(Operation != ETransactionOperation::Undo); }
 		auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override;
 		auto GetAllocatedSize() const -> size_t override
 		{ return Entries.capacity() * sizeof(FEntry) + AffectedPackages.capacity() * sizeof(DPackage*); }
 
 	private:
-		auto Apply(bool bAfter) -> FTransactionCustomResult;
+		auto Apply(bool bAfter) -> FActorChangeResult;
 
 		std::vector<FEntry> Entries;
 		std::vector<DPackage*> AffectedPackages;

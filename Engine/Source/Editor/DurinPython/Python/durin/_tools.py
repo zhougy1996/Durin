@@ -24,5 +24,6 @@ class _Tools:
         self._check()
         return _Invocation(_request("submit", (toolset, tool, arguments, version)))
 
-    def call(self, toolset, tool, arguments, *, version=None, timeout=30.0):
-        return self.submit(toolset, tool, arguments, version=version).result(timeout)
+    def call(self, toolset, tool, arguments, *, version=None):
+        self._check()
+        return _request("call", (toolset, tool, arguments, version))

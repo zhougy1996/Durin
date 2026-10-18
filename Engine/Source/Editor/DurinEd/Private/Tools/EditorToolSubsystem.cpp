@@ -1,5 +1,6 @@
 #include "Tools/EditorToolSubsystem.h"
 #include "Editor/EditorEngine.h"
+#include "Tools/EditorScriptPump.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -24,7 +25,11 @@ namespace Durin
 	}
 	auto DEditorToolSubsystem::Deinitialize() noexcept -> void
 	{
-		if (Service) Service->Close();
+		if (Service)
+		{
+			Service->Close();
+			(void)FModularFeatureRegistry::Get().InvokeAll<IEditorScriptPump>([&](auto& Pump) { Pump.CloseEndpoint(Service); });
+		}
 		Service.reset();
 	}
 	auto DEditorToolSubsystem::GetService() const -> std::shared_ptr<FEditorToolService>
@@ -64,12 +69,22 @@ namespace Durin
 		});
 		return Availability;
 	}
-	auto DEditorToolSubsystem::CallNow(const FToolRequest& Request, EToolSource Source) -> FToolResult
+	auto DEditorToolSubsystem::CallNow(const FToolRequest& Request, EToolSource Source,
+		const FToolClientContext& Client, FToolCancellationToken Cancellation) -> FToolResult
 	{
 		if (!IsInGameThread()) return Unavailable(EToolError::WrongThread);
 		if (!CanCallNow()) return {EToolStatus::Failed, {}, {{EToolError::Busy, "Editor is outside the tool dispatch safe point.", {}}}};
 		auto Result = Unavailable();
-		GetEditor()->DispatchSubsystemCallback([&] { Result = Service->Call(*GetEditor(), Request, Source, false); });
+		GetEditor()->DispatchSubsystemCallback([&] { Result = Service->Call(*GetEditor(), Request, Source, false, nullptr, Client, Cancellation); });
+		return Result;
+	}
+	auto DEditorToolSubsystem::SubmitNow(const FToolRequest& Request, EToolSource Source,
+		const FToolClientContext& Client, FToolCancellationToken Cancellation) -> std::expected<FEditorToolSubmission, FToolDiagnostic>
+	{
+		if (!IsInGameThread()) return std::unexpected(Unavailable(EToolError::WrongThread).Diagnostics.front());
+		if (!CanCallNow()) return std::unexpected(Unavailable(EToolError::Busy).Diagnostics.front());
+		std::expected<FEditorToolSubmission, FToolDiagnostic> Result = std::unexpected(Unavailable().Diagnostics.front());
+		GetEditor()->DispatchSubsystemCallback([&] { Result = Service->SubmitNow(*GetEditor(), Request, Source, Client, Cancellation); });
 		return Result;
 	}
 	auto DEditorToolSubsystem::TickTools() -> void
@@ -77,5 +92,11 @@ namespace Durin
 		require(IsInGameThread());
 		if (!CanCallNow()) return;
 		GetEditor()->DispatchSubsystemCallback([&] { Service->Drain(*GetEditor()); });
+	}
+	auto DEditorToolSubsystem::TickScripts() -> void
+	{
+		require(IsInGameThread());
+		if (!CanCallNow()) return;
+		GetEditor()->DispatchSubsystemCallback([&] { Service->PumpScripts(*GetEditor(), Service); });
 	}
 }

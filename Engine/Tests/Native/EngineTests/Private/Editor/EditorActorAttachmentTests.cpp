@@ -122,7 +122,7 @@ TEST(FEditorActorAttachmentTests, SelectedTransformRulesProduceReversibleResults
 	ExpectTransformNear(Child->GetActorTransform(), CombinedTransform);
 
 	ASSERT_TRUE(Child->DetachFromActor(EDetachmentTransformRule::KeepWorld));
-	const auto Rejected = Transactions->Undo();
+	const auto Rejected = Transactions->UndoExpected(0);
 	ASSERT_FALSE(Rejected);
 	ASSERT_TRUE(Rejected.ApplyCause);
 	const auto& Message = Rejected.ApplyCause->Message;

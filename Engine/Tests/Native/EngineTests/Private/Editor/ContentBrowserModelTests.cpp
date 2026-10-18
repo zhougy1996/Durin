@@ -1,4 +1,5 @@
 #include "NativeAssetBuildTestSupport.h"
+#include "Actors/ActorChange.h"
 #include "AssetTools/Relocation.h"
 #include "AssetTools/RedirectorFixup.h"
 #include "AssetTools/MutationTesting.h"
@@ -154,11 +155,11 @@ namespace
 		auto GetDetails() const -> const std::string& { return Details; }
 	};
 
-	class FNoOpEditorTransaction final : public Durin::Editor::ITransactionCustomChange
+	class FNoOpEditorTransaction final : public Durin::Editor::FActorCommandChange
 	{
 	public:
 		auto GetDescription() const -> std::string_view override { return "No-op"; }
-		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
+		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
 		{
 			if (Operation == Durin::Editor::ETransactionOperation::Undo)
 			{

@@ -1,4 +1,5 @@
 #include "Viewport/TransformGizmo.h"
+#include "Actors/ActorChange.h"
 
 #include "Components/SceneComponent.h"
 #include "Transactions/Transaction.h"
@@ -107,7 +108,7 @@ namespace Durin::Editor::Level
 		}
 
 		// Restores before/after transforms for every target changed by one gizmo drag.
-		class FTransformTargetTransaction final : public ::Durin::Editor::ITransactionCustomChange
+		class FTransformTargetTransaction final : public ::Durin::Editor::FActorCommandChange
 		{
 		public:
 			struct FEntry
@@ -134,7 +135,7 @@ namespace Durin::Editor::Level
 			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override { return BuildDetails(Operation != ::Durin::Editor::ETransactionOperation::Undo); }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-			auto Replay(::Durin::Editor::ETransactionOperation Operation) -> ::Durin::Editor::FTransactionCustomResult override
+			auto Replay(::Durin::Editor::ETransactionOperation Operation) -> ::Durin::Editor::FActorChangeResult override
 			{ return Apply(Operation != ::Durin::Editor::ETransactionOperation::Undo); }
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{
@@ -191,17 +192,17 @@ namespace Durin::Editor::Level
 				return Result;
 			}
 
-			auto Apply(bool bAfter) -> ::Durin::Editor::FTransactionCustomResult
+			auto Apply(bool bAfter) -> ::Durin::Editor::FActorChangeResult
 			{
-				::Durin::Editor::FTransactionCustomResult Result;
+				::Durin::Editor::FActorChangeResult Result;
 				for (size_t Index = 0; Index < Entries.size(); ++Index)
 				{
 					FEntry& Entry = Entries[Index];
-					auto Code = ::Durin::Editor::ETransactionCustomError::None;
-					if (!Entry.Target || !Entry.Target->IsValid()) Code = ::Durin::Editor::ETransactionCustomError::TargetUnavailable;
-					else if (!Entry.Target->SetTransform(bAfter ? Entry.After : Entry.Before)) Code = ::Durin::Editor::ETransactionCustomError::TransformWrite;
+					auto Code = ::Durin::Editor::EActorChangeError::None;
+					if (!Entry.Target || !Entry.Target->IsValid()) Code = ::Durin::Editor::EActorChangeError::TargetUnavailable;
+					else if (!Entry.Target->SetTransform(bAfter ? Entry.After : Entry.Before)) Code = ::Durin::Editor::EActorChangeError::TransformWrite;
 					// Preserve the first cause while retaining the existing all-target replay policy.
-					if (Result && Code != ::Durin::Editor::ETransactionCustomError::None)
+					if (Result && Code != ::Durin::Editor::EActorChangeError::None)
 						Result.Error = {.Code = Code, .TargetLabel = Entry.Target ? Entry.Target->GetLabel() : std::string{},
 							.NodeCount = Entries.size(), .MemberIndex = Index};
 				}
@@ -552,7 +553,7 @@ namespace Durin::Editor::Level
 			}
 			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" :
 																															  "Scale";
-			const auto Recorded = Transactions->CommitApplied(
+			const auto Recorded = Transactions->StoreUndo(
 				std::make_unique<FTransformTargetTransaction>(
 					Action, DragCollectionLabel, std::move(Entries)));
 			if (!Recorded)

@@ -101,6 +101,9 @@ namespace Durin
 		COREDOBJECT_API auto GetPackage() const -> DPackage*;
 		COREDOBJECT_API auto GetObjectPath() const -> std::string;
 		COREDOBJECT_API auto MarkPackageDirty() -> void;
+		COREDOBJECT_API virtual auto Modify(bool bAlwaysMarkDirty = true) -> bool;
+		auto SetFlags(EObjectFlags Flags) -> void { ObjectFlags |= Flags; }
+		auto ClearFlags(EObjectFlags Flags) -> void { ObjectFlags &= ~Flags; }
 
 		auto GetObjectFlags() const -> EObjectFlags { return ObjectFlags; }
 		// Changes persistence admission without changing construction/template identity.

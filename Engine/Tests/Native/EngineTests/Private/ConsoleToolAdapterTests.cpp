@@ -12,9 +12,21 @@
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Transactions/Transactor.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "Json/Json.h"
 
 #include <gtest/gtest.h>
+
+namespace
+{
+	struct FReplayBarrier
+	{
+		explicit FReplayBarrier(Durin::DTransactor* Transactor) : Buffer(static_cast<Durin::DTransBuffer&>(*Transactor))
+		{ Durin::FTransBufferTestAccess::SetState(Buffer, Durin::Editor::ETransactorState::Undoing); }
+		~FReplayBarrier() { Durin::FTransBufferTestAccess::SetState(Buffer, Durin::Editor::ETransactorState::Idle); }
+		Durin::DTransBuffer& Buffer;
+	};
+}
 
 namespace Durin
 {
@@ -256,7 +268,7 @@ namespace Durin::Editor::MainFrame
 	{
 		FEditorEngineTestAccess::SetState(*Host, EPlayState::Playing);
 		{
-			FScopedTransaction Transaction(Host->GetTransactor(), {"defer tools"});
+			FReplayBarrier Transaction(Host->GetTransactor());
 			EXPECT_FALSE(Tools()->CanCallNow());
 			EXPECT_NE(std::string::npos, Adapter->Execute("editor.pie/pause --paused true").Message.find("Queued invocation"));
 			EXPECT_NE(std::string::npos, Adapter->Execute("editor.pie/pause --paused false").Message.find("Queued invocation"));
@@ -279,7 +291,7 @@ namespace Durin::Editor::MainFrame
 		EXPECT_FALSE(Adapter->Execute("tests/echo").bSuccess);
 		Tools()->TickTools(); EXPECT_TRUE(Adapter->Poll().empty()); EXPECT_EQ(1, Calls);
 		{
-			FScopedTransaction Transaction(Host->GetTransactor(), {"defer tools"});
+			FReplayBarrier Transaction(Host->GetTransactor());
 			EXPECT_TRUE(Adapter->Execute("tests/echo").bSuccess);
 		}
 		Tools()->TickTools();
@@ -291,7 +303,7 @@ namespace Durin::Editor::MainFrame
 	{
 		Register();
 		{
-			FScopedTransaction Transaction(Host->GetTransactor(), {"defer tools"});
+			FReplayBarrier Transaction(Host->GetTransactor());
 			EXPECT_TRUE(Adapter->Execute("tests/echo").bSuccess); Adapter.reset();
 		}
 		Tools()->TickTools(); EXPECT_EQ(0, Calls);
@@ -301,7 +313,7 @@ namespace Durin::Editor::MainFrame
 	{
 		Register();
 		{
-			FScopedTransaction Transaction(Host->GetTransactor(), {"defer tools"});
+			FReplayBarrier Transaction(Host->GetTransactor());
 			EXPECT_TRUE(Adapter->Execute("tests/echo").bSuccess);
 		}
 		Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host); Editors.clear(); CollectGarbage();

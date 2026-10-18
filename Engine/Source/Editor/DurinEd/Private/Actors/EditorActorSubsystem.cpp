@@ -1,4 +1,5 @@
 #include "Actors/EditorActorSubsystem.h"
+#include "Editor/EditorCommand.h"
 #include "Actors/ActorEditingScope.h"
 #include "Actors/ActorAttachmentTransaction.h"
 #include "Editor/EditorEngine.h"
@@ -53,7 +54,7 @@ namespace Durin
 			return Reject(EActorEditError::InvalidTarget, "The owning World is unavailable or shutting down.");
 		if (auto* World = Level->GetWorld(); World && World->GetPlayState() != EWorldPlayState::Stopped)
 			return Reject(EActorEditError::PlayState, "Actor editing requires a stopped World.");
-		if (!IsValid(Transactions) || !Transactions->CanExecuteSynchronousChange())
+		if (!IsValid(Transactions) || !Transactions->CanTransact())
 			return Reject(EActorEditError::HistoryUnavailable, "Actor editing requires an idle or recording editor transactor.");
 		return Transactions;
 	}
@@ -76,7 +77,7 @@ namespace Durin
 			if (Entries.empty()) return {{}, {}, EActorEditStatus::NoOp, EActorEditError::None};
 			std::vector<TObjectPtr<AActor>> Actors;
 			for (const auto& Entry : Entries) Actors.push_back(Entry.Actor);
-			const auto Result = Transactions.Execute(std::make_unique<FActorAttachmentTransaction>(std::move(Entries), bAttach));
+			const auto Result = ::Durin::Editor::ApplyEditorChange(Transactions, std::make_unique<FActorAttachmentTransaction>(std::move(Entries), bAttach));
 			return Result ? FActorEditResult{std::move(Actors), {}, EActorEditStatus::Changed, EActorEditError::None, Result}
 				: FActorEditResult{{}, FormatTransactorResult(Result), EActorEditStatus::Failed, EActorEditError::HistoryRejected, Result};
 		}

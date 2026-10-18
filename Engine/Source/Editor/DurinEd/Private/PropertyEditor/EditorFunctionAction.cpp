@@ -43,7 +43,7 @@ namespace Durin::Editor
 			|| Function->GetRootFunction().GetOuterDClass()->GetQualifiedName() != Request.RootOwner)
 			return EEditorFunctionError::FunctionUnavailable;
 		if (!Context.Transactor) return EEditorFunctionError::MissingTransactor;
-		if (!Context.Transactor->CanBeginStandaloneTransaction()) return EEditorFunctionError::BusyTransactor;
+		if (!Context.Transactor->CanTransact()) return EEditorFunctionError::BusyTransactor;
 		return EEditorFunctionError::None;
 	}
 
@@ -76,25 +76,23 @@ namespace Durin::Editor
 			FExecutionGuard() { bExecutingFunction = true; }
 			~FExecutionGuard() { bExecutingFunction = false; }
 		} Guard;
-		FScopedTransaction Transaction;
-		Result.History = Transaction.BeginChecked(Transactor.Get(), {
+		FScopedTransaction Transaction(Transactor.Get(), {
 			.Name = Request.RootOwner.ToString() + "::" + Request.FunctionName.ToString(),
 			.Description = Function->GetDisplayName(), .PrimaryObject = FPersistentObjectRef(Target.Get())});
-		if (!Result.History) { Result.Error = EEditorFunctionError::History; return Report(); }
-		Result.History = Transaction.TryModify(Target.Get());
-		if (!Result.History && Result.History.Code != ETransactorResultCode::NoOp)
-		{ Result.Error = EEditorFunctionError::History; return Report(); }
+		(void)Target->Modify();
 		const auto Invoked = Target->ProcessEvent(Function, {});
 		if (Invoked != EFunctionInvokeError::None)
 		{
-			Result.History = Transaction.Cancel();
+			Transaction.Cancel();
+			Result.History = Transactor->GetLastResult();
 			Result.Error = Result.History.Code != ETransactorResultCode::Discarded
 				? EEditorFunctionError::History : EEditorFunctionError::Invocation;
 			return Report();
 		}
 		Result.bInvoked = true;
 		Target->PostEditChange();
-		Result.History = Transaction.End();
+		(void)Transaction.End();
+		Result.History = Transactor->GetLastResult();
 		Result.bChanged = Result.History.Code == ETransactorResultCode::Succeeded;
 		if (Result.History.Code != ETransactorResultCode::Succeeded && Result.History.Code != ETransactorResultCode::NoOp)
 		{

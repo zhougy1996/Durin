@@ -117,35 +117,6 @@ namespace Durin::Editor::Texture
 				Cause.InputCause = Validation.error();
 				return Reject(std::move(Cause));
 			}
-			if (Proposal.Origin != EPropertyChangeOrigin::Edit)
-			{
-				if (!Texture->GetPackage() || !Texture->GetSource().IsValid())
-				{
-					FTexture2DPropertyEditCause Cause;
-					Cause.Code = ETexture2DPropertyEditError::Source;
-					Cause.HasPackage = Texture->GetPackage() != nullptr;
-					Cause.HasSource = Texture->GetSource().IsValid();
-					return Reject(std::move(Cause));
-				}
-				auto Request = Texture->CreateBuildRequest(Settings);
-				if (!Request)
-				{
-					FTexture2DPropertyEditCause Cause;
-					Cause.Code = ETexture2DPropertyEditError::Source;
-					Cause.InputCause = Request.error();
-					return Reject(std::move(Cause));
-				}
-				const auto Built = BuildTexture2DSynchronously(*Texture, std::move(*Request), {
-					.bMarkPackageDirty = true,
-					.bReportLoadMutation = false,
-					.bSourceDecoderInvoked = false,
-				});
-				if (Built) return {};
-				FTexture2DPropertyEditCause Cause;
-				Cause.Code = ETexture2DPropertyEditError::Compilation;
-				Cause.Diagnostic = FormatTexture2DCompilationError(Built.error());
-				return Reject(std::move(Cause));
-			}
 
 			const TWeakObjectPtr<DTexture2D> WeakTexture(Texture);
 			auto MakeDeferredResult = [ObjectPath = Object.GetObjectPath(),

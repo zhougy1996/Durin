@@ -35,6 +35,7 @@ namespace Durin
 		Public = 1 << 4,
 		// Object remains alive without an ordinary reflected reference.
 		Standalone = 1 << 5,
+		Transactional = 1 << 6,
 	};
 
 	enum class EClassFlags
@@ -101,6 +102,7 @@ namespace Durin
 		ReturnParm = 1 << 8,
 		ReferenceParm = 1 << 9,
 		ConstParm = 1 << 10,
+		NonTransactional = 1 << 11,
 	};
 
 	enum class EObjectInternalFlags

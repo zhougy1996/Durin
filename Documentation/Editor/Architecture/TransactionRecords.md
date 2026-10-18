@@ -4,7 +4,7 @@ Summary: Define exact editor transaction object identity, collector-enumerated r
 
 Modules: CoreDObject, DurinEd
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-18
 
 ## Scope
 
@@ -21,53 +21,22 @@ run on the game thread under CoreDObject's synchronous collection contract.
 
 ## Custom Replay Results
 
-`FTransactionRecord::Apply` calls `ITransactionCustomChange::Replay` and formats
-its `FTransactionCustomError` into the record result message. Material parameter replay reports
-an unavailable target or a material write error with owned parameter identity and
-nested `FMaterialError`; the record boundary renders that cause once.
-Material presentation replay distinguishes expired targets from rejected writes,
-owning the captured target path and changed/candidate node count. Captured path
-storage participates in transaction memory accounting.
-Material graph object replay distinguishes expired owners/members from externally
-changed membership. Member restoration retains locator or property-snapshot causes
-and the failed member index; successful earlier restores are compensated in the
-existing reverse order before returning the original typed failure.
-Transform gizmo replay retains the first unavailable/rejecting target's label,
-index and total target count while preserving its existing all-target application
-policy. A later repaired replay does not mutate the earlier failure evidence.
-Actor attachment replay distinguishes empty selection, unavailable participants,
-parent mismatch, invalid parents, cycles and write rejection. Validation errors
-retain participant index/count and expected/actual parent paths where available;
-validation finishes before writes and existing compensation ordering is preserved.
-General Actor presence, rename, attachment and Component structural records are
-implemented and module-tagged in DurinEd. Specialized SkyBox/StaticMesh compound
-records retain LevelEditor tags and compose opaque DurinEd presence changes.
-Incomplete internal compensation propagates through record application to the
-transactor recovery disposition instead of becoming a retryable failure message.
-Sky box creation and texture replay distinguish unavailable resources/targets,
-actor membership, name collision and spawn/destroy rejection. Creation failures
-retain the level path and requested actor name; collision rejection leaves the
-existing actor and redo history available for a repaired retry.
-Sky box placement exposes a compact error classification, owned `Message`,
-result actor and changed flag. It formats transaction and direct-replay failures
-inside the command boundary.
+`FCommandChange` exposes synchronous Apply/Revert with a generic owned message
+and a recovery-required disposition. It carries no Actor or Material error types,
+deferred completion, or synchronous qualification flag. Initial domain execution
+is separate from StoreUndo retention; Undo calls Revert and Redo calls Apply.
 
-The static mesh batch change carries typed state-validation and mutation causes.
-Errors own level/name/index context, injected mutation phase and a nested
-incomplete-rollback cause. Internal state validation and application return typed
-results directly, with no error-output parameter. Replay preserves distinct actor
-constraints for unsupported class, component graph, attached parent/children and
-play transitions.
+Actor/Component and LevelEditor changes retain typed `FActorChangeError` in their
+domain adapter. MaterialEditor owns its independent `FMaterialChangeError`,
+including material diagnostic causes. Domain composition and rollback preserve
+these causes until conversion at the generic history boundary. Incomplete rollback
+or an exception propagates a recovery disposition, rather than a retryable message.
+Descriptions/details are presentation metadata and do not store failure state.
 
-The outer static mesh plan/execution boundary exposes `Error`, `Message` and an
-optional-by-sentinel mutation index alongside business data. It formats the
-complete transaction or direct-replay failure before returning. Viewport and
-outliner callers consume the message directly; they do not traverse history
-causes. The public actor-support query returns a boolean.
-`Replay` is the required typed entry point for every custom change. The interface
-has no boolean Undo/Redo methods or legacy rejection adapter. Typed replay errors
-remain local to that API; record results expose messages. Operation details are
-presentation metadata, not failure storage.
+Bound custom records retain an exact owning object for UE-style per-object
+recording and object summaries. Unbound composite records enumerate their own
+participants. Both must report hard references, modified packages, native owned
+allocations, and the module whose executable code/deleter they retain.
 
 ## Exact Participant Identity
 
@@ -102,6 +71,15 @@ every hard handle. A stale, physically removed, or garbage hard reference makes
 restore fail rather than substituting another object. Weak references decode
 their original handle and naturally remain invalid when the target is gone.
 
+## Transaction Snapshot Filtering
+
+Whole-object transaction capture selects the runtime Transaction archive purpose.
+It includes Transient fields and excludes NonTransactional/Deprecated fields
+inside reflected struct payloads as well as object members. The payload retains
+this mode for restore. Ordinary property snapshots keep their existing persistence
+filtering; the two policies do not share an exclusion flag. A transaction snapshot
+retains only hard identities actually serialized by that transaction archive.
+
 ## Focused Object Snapshots
 
 A focused snapshot owns:
@@ -129,10 +107,11 @@ caller's existing storage. Errors
 remain valid across successful retries. `FormatTransactionSnapshotError` is
 used only by presentation or pending outer result adapters.
 
-Detached restore does not mutate a live `DObject`, emit editor notifications,
-or bypass `PreEditChangeProperty` and `PostEditChangeProperty`. Executable
-`FTransactionObjectRecord` values own both before and after payloads and feed
-them through the validated editor mutation pipeline. Capture returns `std::expected<FTransactionObjectRecord, FTransactionObjectRecordError>`;
+Detached snapshot restore operates on caller-owned storage and emits no editor
+notifications. Executable `FTransactionObjectRecord` values own before/after
+payloads, check structure/type/identity, and restore historical state directly.
+They bypass new-edit proposal validation/normalization and emit replay
+notifications followed by the enclosing transaction's object completion hooks. Capture returns `std::expected<FTransactionObjectRecord, FTransactionObjectRecordError>`;
 validation and application return `std::expected<void, FTransactionObjectRecordError>`.
 Object-record rejections preserve exact owner identity, member/snapshot/leaf facts,
 payload validity and kinds, selected history side, and typed member, path,
@@ -162,7 +141,7 @@ then restores the same live identity through lifecycle and attachment APIs.
 
 Record application defers garbage collection across callbacks. A custom replay
 exception becomes an owned failure with recovery required because its side
-effects are unknown. Failed Execute entries remain collector-visible in pending
+effects are unknown. Failed domain execution requiring recovery remains collector-visible in pending
 recovery storage, preserving their participant graphs and module references.
 
 ## Related Documentation

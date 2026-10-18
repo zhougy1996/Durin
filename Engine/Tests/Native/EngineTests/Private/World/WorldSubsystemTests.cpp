@@ -854,14 +854,14 @@ TEST_F(FWorldSubsystemTests, ActorEditingAdmitsOnlyItsLiveHostAndEditableStopped
 	EXPECT_EQ(Service->SpawnActor(*Level, AActor::StaticClass(), "ReadOnly", {}, {First.Get(), true}).Error, EActorEditError::ReadOnly);
 	EXPECT_EQ(Service->SpawnActor(*Level, AActor::StaticClass(), "Foreign", {}, {Second.Get(), false}).Error, EActorEditError::ForeignHost);
 	EXPECT_EQ(Service->SpawnActor(*Second->GetEditorWorld()->GetCurrentLevel(), AActor::StaticClass(), "ForeignLevel", {}, Context).Error, EActorEditError::InvalidTarget);
-	const auto Pending = First->GetTransactor()->Begin({.Description = "Grouped host history"});
-	ASSERT_TRUE(Pending);
+	const auto Pending = First->GetTransactor()->Begin("test", "Grouped host history");
+	ASSERT_GE(Pending, 0);
 	const auto Grouped = Service->SpawnActor(*Level, AActor::StaticClass(), "Grouped", {}, Context);
 	ASSERT_TRUE(Grouped) << Grouped.Message;
 	ASSERT_TRUE(Grouped.History.has_value());
-	EXPECT_EQ(Grouped.History->TransactionId, Pending.TransactionId);
+	EXPECT_EQ(Grouped.History->TransactionId, First->GetTransactor()->GetLastResult().TransactionId);
 	EXPECT_EQ(First->GetTransactor()->GetUndoId(), 0u);
-	ASSERT_TRUE(First->GetTransactor()->End(Pending.ScopeId));
+	ASSERT_TRUE(First->GetTransactor()->End());
 	EXPECT_EQ(First->GetTransactor()->GetUndoDescription(), "Grouped host history");
 	ASSERT_TRUE(First->GetTransactor()->Undo());
 	EXPECT_FALSE(Level->ContainsActor(Grouped.Actors.front().Get()));

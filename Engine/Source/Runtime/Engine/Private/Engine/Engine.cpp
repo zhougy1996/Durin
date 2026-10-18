@@ -124,7 +124,7 @@ namespace Durin
 
 	DEngine::~DEngine() = default;
 
-	DEngine::FHostOperationScope::FHostOperationScope(DEngine& InHost, bool bInFlushOnExit) : Host(InHost), bFlushOnExit(bInFlushOnExit) { ++Host.HostOperationDepth; }
+	DEngine::FHostOperationScope::FHostOperationScope(DEngine& InHost, bool bInFlushOnExit) : RecorderBinding(InHost.GetObjectTransactionRecorder()), Host(InHost), bFlushOnExit(bInFlushOnExit) { ++Host.HostOperationDepth; }
 	DEngine::FHostOperationScope::~FHostOperationScope()
 	{
 		if (--Host.HostOperationDepth == 0 && bFlushOnExit && Host.bShutdownRequested) Host.PrepareForShutdown();

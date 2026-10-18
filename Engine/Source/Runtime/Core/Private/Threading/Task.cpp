@@ -578,6 +578,15 @@ namespace Durin
 			--ReservedDependents;
 		}
 
+		auto ActivateDetachedCompletion() -> void
+		{
+			std::lock_guard Lock(Mutex);
+			State = ETaskState::Running;
+			bAdmissionPending = false;
+			bExternalCompletion = true;
+			bUnknownExecutionRequirement = true;
+			bDetachedCompletion = true;
+		}
 		auto ConfigureExternal(bool bUnknown) -> void
 		{
 			std::lock_guard Lock(Mutex);
@@ -590,6 +599,7 @@ namespace Durin
 			return State == ETaskState::Running && !bExternalCompletion && !DeferredExecution;
 		}
 		auto IsExternal() const -> bool { return bExternalCompletion; }
+		auto IsDetachedCompletion() const -> bool { return bDetachedCompletion; }
 		auto BindTerminal(std::shared_ptr<Private::FTaskTerminalHook> Hook) -> void
 		{
 			ETaskState Terminal;
@@ -938,6 +948,7 @@ namespace Durin
 		size_t ReservedDependents = 0;
 		bool bTerminalHooksFinished = false;
 		bool bExternalCompletion = false;
+		bool bDetachedCompletion = false;
 		uint32 PendingNestedCount = 0;
 		std::vector<std::weak_ptr<FTaskStateData>> NestedPrerequisites;
 		std::vector<std::weak_ptr<FTaskStateData>> CompletionParents;
@@ -3111,6 +3122,17 @@ namespace Durin
 
 
 
+		auto FTaskRuntimeAccess::CreateDetachedCompletion(FTaskCompletionFunction&& Completion, uint64 ResultBytes) -> FTaskHandle
+		{
+			auto State = std::make_shared<FTaskStateData>("DetachedCompletion", std::weak_ptr<FTaskScheduler>{},
+				std::make_shared<FTaskSchedulerLifetimeAccounting>(), nullptr, std::move(Completion),
+				FTaskCancellationToken{}, std::vector<std::shared_ptr<FTaskStateData>>{}, 0,
+				ETaskDependencyKind::Completion, false, ETaskTarget::AnyWorker, ETaskPriority::Normal,
+				0, false, false, ResultBytes, FTaskAttribution{}, FTaskGenerationToken{}, std::nullopt);
+			State->ActivateDetachedCompletion();
+			return FTaskHandle(std::move(State));
+		}
+
 		auto FTaskRuntimeAccess::BindTerminal(const FTaskHandle& Task, std::shared_ptr<FTaskTerminalHook> Hook) -> void
 		{
 			require(Task.State && Hook && Hook->Function);
@@ -3214,7 +3236,7 @@ namespace Durin
 
 	auto CancelTask(const FTaskHandle& Task) -> bool
 	{
-		return Task.State && Task.State->RequestCancellation("Task cancellation was requested through its handle.");
+		return Task.State && !Task.State->IsDetachedCompletion() && Task.State->RequestCancellation("Task cancellation was requested through its handle.");
 	}
 
 	auto WaitTask(const FTaskHandle& Task) -> FTaskWaitResult

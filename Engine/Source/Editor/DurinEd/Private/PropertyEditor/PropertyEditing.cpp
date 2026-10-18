@@ -669,7 +669,6 @@ namespace Durin::Editor
 		case ETransactionObjectRecordError::SnapshotRoot: return "Transaction object records require an object-owned top-level snapshot member.";
 		case ETransactionObjectRecordError::Payload: return "Transaction object record payloads do not match the snapshot member.";
 		case ETransactionObjectRecordError::Path: return "Transaction property path no longer matches its reflected member.";
-		case ETransactionObjectRecordError::Deferred: return "Deferred property validation is unavailable during P2 history restore.";
 		default: return "Transaction object record operation failed.";
 		}
 	}
@@ -812,6 +811,22 @@ namespace Durin::Editor
 		return {};
 	}
 
+	auto FTransactionObjectRecord::CaptureAfter() -> std::expected<void, FTransactionObjectRecordError>
+	{
+		FPropertyEditTarget Resolved;
+		if (auto Result = BuildTarget(Resolved); !Result) return Result;
+		FPropertyValueSnapshotPayload Value;
+		if (auto Result = CapturePropertyValuePayload(Resolved.SnapshotProperty,
+			Resolved.SnapshotContainer, Resolved.SnapshotArrayIndex, Value, Before.IsTransacting()); !Result)
+		{
+			auto Failure = Reject(ETransactionObjectRecordError::Payload);
+			Failure.error().Before = false;
+			return Failure;
+		}
+		After = std::move(Value);
+		return {};
+	}
+
 	auto FTransactionObjectRecord::Apply(
 		bool bBefore,
 		EPropertyChangeOrigin Origin) const -> std::expected<void, FTransactionObjectRecordError>
@@ -823,22 +838,16 @@ namespace Durin::Editor
 			return Result;
 		}
 		const FPropertyValueSnapshotPayload& Value = bBefore ? Before : After;
-		const FMutationExecutionResult Result = ExecuteMutation(
-			TargetValue, &Value, nullptr, EMutationOperation::Apply,
-			EPropertyChangePhase::Committed, Origin);
-		if (!Result)
+		if (const auto Restored = RestoreTargetValue(TargetValue, Value); !Restored)
 		{
 			auto Failure = Reject(ETransactionObjectRecordError::Mutation);
 			Failure.error().Before = bBefore;
-			Failure.error().MutationCause = std::make_shared<FPropertyMutationError>(Result.Error);
+			auto Mutation = RejectMutation(TargetValue, EPropertyChangePhase::Committed, Origin, EPropertyMutationError::Publication).error();
+			Mutation.SnapshotCause = Restored.error();
+			Failure.error().MutationCause = std::make_shared<FPropertyMutationError>(std::move(Mutation));
 			return Failure;
 		}
-		if (Result.IsDeferred())
-		{
-			auto Failure = Reject(ETransactionObjectRecordError::Deferred);
-			Failure.error().Before = bBefore;
-			return Failure;
-		}
+		NotifyMutation(TargetValue, EPropertyChangePhase::Committed, Origin);
 		TargetValue.Object->MarkPackageDirty();
 		return {};
 	}
@@ -924,7 +933,7 @@ namespace Durin::Editor
 			return Result;
 		}
 		Target.Object = TargetObject.Get();
-		Transactor = InTransactor;
+		Transactor = Target.SnapshotProperty->HasAnyPropertyFlags(EPropertyFlags::NonTransactional) ? nullptr : InTransactor;
 		Description = InDescription.empty()
 			? std::format("Edit {}", Target.MemberProperty->NamePrivate)
 			: InDescription;
@@ -942,38 +951,44 @@ namespace Durin::Editor
 				.Description = Description,
 				.PrimaryObject = FPersistentObjectRef(Target.Object),
 			});
-			if (!TransactionScope->IsActive())
+			if (!TransactionScope->IsOutstanding())
 			{
 				auto Result = Reject("The reflected-property transactor rejected the edit scope.");
 				Reset();
 				return Result;
 			}
-			auto Capture = FTransactionObjectRecord::Capture(
-				Target, OriginalValue, CurrentValue);
-			if (!Capture)
+			// Capture other reflected fields that edit reactions may author, too.
+			if (!Target.Object->Modify())
 			{
-				auto Result = Reject(FormatTransactionObjectRecordError(Capture.error()));
-				const auto Cleanup = TransactionScope->Cancel();
-				if (Cleanup.Code == ETransactorResultCode::Rejected
-					|| Cleanup.Code == ETransactorResultCode::Failed
-					|| Cleanup.Code == ETransactorResultCode::RecoveryRequired)
-					Result.Message += " Cleanup also failed: " + FormatTransactorResult(Cleanup);
-				Reset();
-				return Result;
+				auto Capture = FTransactionObjectRecord::Capture(
+					Target, OriginalValue, CurrentValue);
+				if (!Capture)
+				{
+					auto Result = Reject(FormatTransactionObjectRecordError(Capture.error()));
+					TransactionScope->Cancel();
+					const auto Cleanup = Transactor->GetLastResult();
+					if (Cleanup.Code == ETransactorResultCode::Rejected
+						|| Cleanup.Code == ETransactorResultCode::Failed
+						|| Cleanup.Code == ETransactorResultCode::RecoveryRequired)
+						Result.Message += " Cleanup also failed: " + FormatTransactorResult(Cleanup);
+					Reset();
+					return Result;
+				}
+				const auto RecordResult = Transactor->Record(std::move(*Capture));
+				if (!RecordResult)
+				{
+					auto Result = Reject(FormatTransactorResult(RecordResult.error()));
+					TransactionScope->Cancel();
+					const auto Cleanup = Transactor->GetLastResult();
+					if (Cleanup.Code == ETransactorResultCode::Rejected
+						|| Cleanup.Code == ETransactorResultCode::Failed
+						|| Cleanup.Code == ETransactorResultCode::RecoveryRequired)
+						Result.Message += " Cleanup also failed: " + FormatTransactorResult(Cleanup);
+					Reset();
+					return Result;
+				}
+				TransactionRecordId = *RecordResult;
 			}
-			const FTransactorResult RecordResult = TransactionScope->Record(std::move(*Capture));
-			if (!RecordResult)
-			{
-				auto Result = Reject(FormatTransactorResult(RecordResult));
-				const auto Cleanup = TransactionScope->Cancel();
-				if (Cleanup.Code == ETransactorResultCode::Rejected
-					|| Cleanup.Code == ETransactorResultCode::Failed
-					|| Cleanup.Code == ETransactorResultCode::RecoveryRequired)
-					Result.Message += " Cleanup also failed: " + FormatTransactorResult(Cleanup);
-				Reset();
-				return Result;
-			}
-			TransactionRecordId = RecordResult.RecordId;
 		}
 		bActive = true;
 		return {};
@@ -1097,7 +1112,7 @@ namespace Durin::Editor
 
 	auto FPropertyEditSession::UpdateTransactorRecord() -> FPropertyEditOperationResult
 	{
-		if (!Transactor || !TransactionScope || !TransactionScope->IsActive()) return {};
+		if (!Transactor || !TransactionScope || !TransactionScope->IsOutstanding() || TransactionRecordId == 0) return {};
 		auto Capture = FTransactionObjectRecord::Capture(
 			Target, OriginalValue, CurrentValue);
 		if (!Capture)
@@ -1106,7 +1121,7 @@ namespace Durin::Editor
 			return Result;
 		}
 		const FTransactorResult Result =
-			TransactionScope->UpdateRecord(TransactionRecordId, std::move(*Capture));
+			Transactor->UpdateRecord(TransactionRecordId, std::move(*Capture));
 		if (Result) return {};
 		auto Failure = Reject(FormatTransactorResult(Result));
 		return Failure;
@@ -1115,7 +1130,7 @@ namespace Durin::Editor
 	auto FPropertyEditSession::Commit() -> FPropertyEditOperationResult
 	{
 		if (!bActive) return Reject("No reflected-property edit session is active.");
-		if (Transactor && (!TransactionScope || !TransactionScope->IsActive()))
+		if (Transactor && (!TransactionScope || !TransactionScope->IsOutstanding()))
 			return Reject("The property transaction scope is unavailable. Cancel this edit before retrying.");
 		const bool bChanged = HasChanges();
 		if (const auto Mutation = ExecuteMutation(Target, nullptr, nullptr, EMutationOperation::NotifyOnly,
@@ -1129,10 +1144,11 @@ namespace Durin::Editor
 			Target.Object->MarkPackageDirty();
 			FTransactorResult TransactorResult{
 				.Code = ETransactorResultCode::NoOp};
-			if (TransactionScope && TransactionScope->IsActive())
+			if (TransactionScope && TransactionScope->IsOutstanding())
 			{
 				if (const auto Update = UpdateTransactorRecord(); !Update) return Update;
-				TransactorResult = TransactionScope->End();
+				(void)TransactionScope->End();
+				TransactorResult = Transactor->GetLastResult();
 				if (TransactorResult.Code == ETransactorResultCode::Rejected
 					|| TransactorResult.Code == ETransactorResultCode::Discarded
 					|| TransactorResult.Code == ETransactorResultCode::Failed
@@ -1143,9 +1159,10 @@ namespace Durin::Editor
 				}
 			}
 		}
-		else if (TransactionScope && TransactionScope->IsActive())
+		else if (TransactionScope && TransactionScope->IsOutstanding())
 		{
-			const FTransactorResult Result = TransactionScope->Cancel();
+			(void)TransactionScope->End();
+			const FTransactorResult Result = Transactor->GetLastResult();
 			if (Result.Code == ETransactorResultCode::Rejected
 				|| Result.Code == ETransactorResultCode::Failed
 				|| Result.Code == ETransactorResultCode::RecoveryRequired)
@@ -1172,9 +1189,10 @@ namespace Durin::Editor
 			if (Result.AppliedValue.IsValid()) CurrentValue = std::move(Result.AppliedValue);
 			return Failure;
 		}
-		if (TransactionScope && TransactionScope->IsActive())
+		if (TransactionScope && TransactionScope->IsOutstanding())
 		{
-			const FTransactorResult CancelResult = TransactionScope->Cancel();
+			TransactionScope->Cancel();
+			const FTransactorResult CancelResult = Transactor->GetLastResult();
 			if (CancelResult.Code == ETransactorResultCode::Rejected
 				|| CancelResult.Code == ETransactorResultCode::Failed
 				|| CancelResult.Code == ETransactorResultCode::RecoveryRequired)
@@ -1198,7 +1216,7 @@ namespace Durin::Editor
 		CancelDeferredEdit = {};
 		DeferredOwnerState.reset();
 		bDeferredPending = false;
-		if (TransactionScope && TransactionScope->IsActive())
+		if (TransactionScope && TransactionScope->IsOutstanding())
 			(void)TransactionScope->Cancel();
 		TransactionScope.reset();
 		TransactionRecordId = 0;

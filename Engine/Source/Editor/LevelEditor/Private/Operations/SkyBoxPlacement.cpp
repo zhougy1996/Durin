@@ -1,4 +1,6 @@
 #include "SkyBoxPlacement.h"
+#include "Editor/EditorCommand.h"
+#include "Actors/ActorChange.h"
 #include "Actors/EditorActorSubsystem.h"
 
 #include "Actors/SkyBoxActor.h"
@@ -52,7 +54,7 @@ namespace Durin::Editor::Level
 		}
 
 		// Creates and removes one actor while preserving its requested level identity.
-		class FCreateSkyBoxTransaction final : public ::Durin::Editor::ITransactionCustomChange
+		class FCreateSkyBoxTransaction final : public ::Durin::Editor::FActorCommandChange
 		{
 		public:
 			FCreateSkyBoxTransaction(DLevel* InLevel, DTextureCube* InTextureCube, FName InActorName)
@@ -85,10 +87,10 @@ namespace Durin::Editor::Level
 					: std::format("Create sky box '{}'", ActorName);
 			}
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-			auto Replay(::Durin::Editor::ETransactionOperation Operation) -> ::Durin::Editor::FTransactionCustomResult override
+			auto Replay(::Durin::Editor::ETransactionOperation Operation) -> ::Durin::Editor::FActorChangeResult override
 			{
-				using Code = ::Durin::Editor::ETransactionCustomError;
-				const auto Reject = [&](Code Error) -> ::Durin::Editor::FTransactionCustomResult {
+				using Code = ::Durin::Editor::EActorChangeError;
+				const auto Reject = [&](Code Error) -> ::Durin::Editor::FActorChangeResult {
 					return {{.Code = Error, .TargetPath = Level ? Level->GetObjectPath() : std::string{}, .TargetLabel = ActorName.ToString()}};
 				};
 				if (!Level || !Presence) return Reject(Code::TargetUnavailable);
@@ -110,14 +112,14 @@ namespace Durin::Editor::Level
 			TObjectPtr<DLevel> Level;
 			TObjectPtr<DTextureCube> TextureCube;
 			TObjectPtr<ASkyBoxActor> Actor;
-			std::unique_ptr<::Durin::Editor::ITransactionCustomChange> Presence;
+			std::unique_ptr<::Durin::Editor::FActorCommandChange> Presence;
 			bool bEverPublished = false;
 			FName ActorName;
 			std::array<DPackage*, 1> AffectedPackages{};
 		};
 
 		// Restores the cube reference on one existing skybox component.
-		class FSetSkyBoxTextureTransaction final : public ::Durin::Editor::ITransactionCustomChange
+		class FSetSkyBoxTextureTransaction final : public ::Durin::Editor::FActorCommandChange
 		{
 		public:
 			FSetSkyBoxTextureTransaction(DSkyBoxComponent* InComponent, DTextureCube* InBefore, DTextureCube* InAfter)
@@ -129,7 +131,7 @@ namespace Durin::Editor::Level
 			auto GetDescription() const -> std::string_view override { return "Set sky box texture"; }
 			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-			auto Replay(::Durin::Editor::ETransactionOperation Operation) -> ::Durin::Editor::FTransactionCustomResult override
+			auto Replay(::Durin::Editor::ETransactionOperation Operation) -> ::Durin::Editor::FActorChangeResult override
 			{ return Apply(Operation == ::Durin::Editor::ETransactionOperation::Undo ? Before.Get() : After.Get()); }
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{
@@ -140,10 +142,10 @@ namespace Durin::Editor::Level
 			}
 
 		private:
-			auto Apply(DTextureCube* TextureCube) -> ::Durin::Editor::FTransactionCustomResult
+			auto Apply(DTextureCube* TextureCube) -> ::Durin::Editor::FActorChangeResult
 			{
-				if (!Component) return {{.Code = ::Durin::Editor::ETransactionCustomError::TargetUnavailable}};
-				if (TextureCube && !IsValid(TextureCube)) return {{.Code = ::Durin::Editor::ETransactionCustomError::ResourceUnavailable,
+				if (!Component) return {{.Code = ::Durin::Editor::EActorChangeError::TargetUnavailable}};
+				if (TextureCube && !IsValid(TextureCube)) return {{.Code = ::Durin::Editor::EActorChangeError::ResourceUnavailable,
 					.TargetPath = Component->GetObjectPath()}};
 				Component->SetTextureCube(TextureCube);
 				return {};
@@ -182,11 +184,11 @@ namespace Durin::Editor::Level
 		{
 			return {.Error = Code, .Message = FormatSkyBoxPlacementError(Code)};
 		};
-		auto Apply = [&](std::unique_ptr<ITransactionCustomChange> Transaction) -> FSkyBoxPlacementResult
+		auto Apply = [&](std::unique_ptr<FActorCommandChange> Transaction) -> FSkyBoxPlacementResult
 		{
 			if (Transactions)
 			{
-				auto Applied = Transactions->Execute(std::move(Transaction));
+				auto Applied = ::Durin::Editor::ApplyEditorChange(*Transactions, std::move(Transaction));
 				if (Applied) return {};
 				auto Result = Reject(ESkyBoxPlacementError::Transaction);
 				Result.Message = FormatTransactorResult(Applied);
@@ -195,7 +197,7 @@ namespace Durin::Editor::Level
 			auto Applied = Transaction->Replay(ETransactionOperation::Redo);
 			if (Applied) return {};
 			auto Result = Reject(ESkyBoxPlacementError::Replay);
-			Result.Message = FormatTransactionCustomError(Applied.Error);
+			Result.Message = FormatActorChangeError(Applied.Error);
 			return Result;
 		};
 		if (bReadOnly) return Reject(ESkyBoxPlacementError::ReadOnly);

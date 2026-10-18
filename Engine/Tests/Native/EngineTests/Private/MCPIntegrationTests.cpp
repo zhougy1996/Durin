@@ -448,4 +448,26 @@ namespace
 		FEditorEngineTestAccess::SetEditorWorld(*Host, nullptr);
 		Testing::RemoveTestWorkDirectory(Fixture);
 	}
+	TEST_F(FMCPIntegrationTests, PendingNativeCompletionKeepsExistingWireResultUntilValidatedTick)
+	{
+		auto Source = FToolCompletionSource::CreateDetached(); auto Future = Tasks::Share(Source.TakeTask());
+		FToolDescriptor Descriptor{.Name = "echo", .Output = FToolSchema(EToolValueType::Boolean), .bExposeExternally = true, .bMayPend = true};
+		FToolBinding Binding{Descriptor};
+		Binding.AsyncHandler = [this, Future](const auto&, const auto& Context) {
+			++Calls; EXPECT_EQ(Host.Get(), GetToolEditor(Context)); return Future;
+		};
+		Toolset = std::make_unique<FNativeToolset>("tests", "Pending compatibility fixture", std::vector<FToolBinding>{std::move(Binding)});
+		Registration = FModularFeatureRegistry::Get().RegisterFeature(*Toolset); (void)Tools->ListToolsets();
+		auto Pending = BeginCall();
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+		while (!Calls && std::chrono::steady_clock::now() < Deadline) { Tools->TickTools(); std::this_thread::yield(); }
+		ASSERT_EQ(1, Calls); EXPECT_EQ(std::future_status::timeout, Pending.wait_for(std::chrono::milliseconds(0)));
+		Source.TrySetValue({EToolStatus::Succeeded, true});
+		EXPECT_EQ(std::future_status::timeout, Pending.wait_for(std::chrono::milliseconds(0)));
+		auto Response = Pump(Pending); ASSERT_TRUE(Response); EXPECT_EQ(200, Response->status);
+		EXPECT_NE(std::string::npos, Response->body.find("\"isError\":false"));
+		EXPECT_NE(std::string::npos, Response->body.find("\"data\":true"));
+		EXPECT_EQ(1, Calls); EXPECT_EQ(0u, Host->GetTransactor()->GetQueueLength());
+	}
+
 }

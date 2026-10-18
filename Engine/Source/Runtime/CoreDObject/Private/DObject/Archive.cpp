@@ -49,7 +49,7 @@ namespace Durin
 		const FPropertyValueSnapshotPayload& Other) const -> bool
 	{
 		if (this == &Other) return true;
-		if (Property != Other.Property) return false;
+		if (Property != Other.Property || bTransacting != Other.bTransacting) return false;
 		if (!Property) return true;
 
 		FReflectedValueStorage Left;
@@ -107,7 +107,11 @@ namespace Durin
 		auto ShouldSerializeReflectedProperty(const FArchive& Ar, const FProperty* Property) -> bool
 		{
 			if (!Property) return false;
-			if (Property->HasAnyPropertyFlags(EPropertyFlags::Transient)
+			if (Ar.GetPurpose() == EArchivePurpose::Transaction)
+			{
+				if (Property->HasAnyPropertyFlags(EPropertyFlags::NonTransactional)) return false;
+			}
+			else if (Property->HasAnyPropertyFlags(EPropertyFlags::Transient)
 				&& !ShouldSerializeTransientWeakProperty(Ar, Property)) return false;
 			if (Property->IsDeprecated()
 				&& (Ar.IsSaving()
@@ -825,7 +829,7 @@ namespace Durin
 			return std::unexpected(std::move(Error));
 		}
 
-		auto ValidateSnapshotProperty(const FProperty* Property) -> std::expected<void, FPropertySnapshotError>
+		auto ValidateSnapshotProperty(const FProperty* Property, bool bTransacting = false) -> std::expected<void, FPropertySnapshotError>
 		{
 			if (!Property)
 			{
@@ -865,9 +869,11 @@ namespace Durin
 				}
 				std::expected<void, FPropertySnapshotError> Result;
 				StructProperty->GetStruct()->ForEachProperty([&](FProperty* Field) {
-					if (Result && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
+					if (Result && Field && (bTransacting
+						? !Field->HasAnyPropertyFlags(EPropertyFlags::NonTransactional | EPropertyFlags::Deprecated)
+						: !Field->HasAnyPropertyFlags(EPropertyFlags::Transient)))
 					{
-						Result = ValidateSnapshotProperty(Field);
+						Result = ValidateSnapshotProperty(Field, bTransacting);
 						if (!Result) Result.error().PropertyRoute.insert(Result.error().PropertyRoute.begin(), Property->NamePrivate.ToString());
 					}
 				}, false);
@@ -883,7 +889,7 @@ namespace Durin
 				{
 					return SnapshotFailure(EPropertySnapshotError::MissingArrayOperations, Property);
 				}
-				auto Result = ValidateSnapshotProperty(ArrayProperty->GetInner());
+				auto Result = ValidateSnapshotProperty(ArrayProperty->GetInner(), bTransacting);
 				if (!Result) Result.error().PropertyRoute.insert(Result.error().PropertyRoute.begin(), Property->NamePrivate.ToString());
 				return Result;
 			}
@@ -902,8 +908,8 @@ namespace Durin
 					Failure.error().Cause = Result.error();
 					return Failure;
 				}
-				auto Result = ValidateSnapshotProperty(MapProperty->GetKeyProp());
-				if (Result) Result = ValidateSnapshotProperty(MapProperty->GetValueProp());
+				auto Result = ValidateSnapshotProperty(MapProperty->GetKeyProp(), bTransacting);
+				if (Result) Result = ValidateSnapshotProperty(MapProperty->GetValueProp(), bTransacting);
 				if (!Result) Result.error().PropertyRoute.insert(Result.error().PropertyRoute.begin(), Property->NamePrivate.ToString());
 				return Result;
 			}
@@ -1351,7 +1357,7 @@ namespace Durin
 			EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
 			| EArchiveCapability::Position
 			| EArchiveCapability::SoftObjectReferences
-			| (Purpose == EArchivePurpose::PropertySnapshot ? EArchiveCapability::CanonicalMapOrder : EArchiveCapability::None)})
+			| ((Purpose == EArchivePurpose::PropertySnapshot || Purpose == EArchivePurpose::Transaction) ? EArchiveCapability::CanonicalMapOrder : EArchiveCapability::None)})
 		, Bytes(InBytes)
 	{
 	}
@@ -1368,7 +1374,7 @@ namespace Durin
 			| EArchiveCapability::Position
 			| EArchiveCapability::SoftObjectReferences
 			| EArchiveCapability::RemainingPayload
-			| (Purpose == EArchivePurpose::PropertySnapshot ? EArchiveCapability::CanonicalMapOrder : EArchiveCapability::None)})
+			| ((Purpose == EArchivePurpose::PropertySnapshot || Purpose == EArchivePurpose::Transaction) ? EArchiveCapability::CanonicalMapOrder : EArchiveCapability::None)})
 		, Bytes(InBytes)
 	{
 	}
@@ -1621,7 +1627,8 @@ namespace Durin
 		const FProperty* Property,
 		const void* Container,
 		uint32 ArrayIndex,
-		FPropertyValueSnapshotPayload& OutPayload
+		FPropertyValueSnapshotPayload& OutPayload,
+		bool bTransacting
 	) -> std::expected<void, FPropertySnapshotError>
 	{
 		constexpr auto Operation = EPropertySnapshotOperation::Capture;
@@ -1629,7 +1636,7 @@ namespace Durin
 		{
 			return SnapshotFailure(EPropertySnapshotError::NullContainer, Property, ArrayIndex, Operation);
 		}
-		if (auto Result = ValidateSnapshotProperty(Property); !Result)
+		if (auto Result = ValidateSnapshotProperty(Property, bTransacting); !Result)
 		{
 			Result.error().Operation = Operation;
 			return Result;
@@ -1642,8 +1649,8 @@ namespace Durin
 		class FSnapshotWriter final : public FObjectMemoryWriter
 		{
 		public:
-			FSnapshotWriter(FByteBuffer& InBytes, std::vector<FObjectKey>& InReferences)
-				: FObjectMemoryWriter(InBytes, EArchivePurpose::PropertySnapshot), References(InReferences)
+			FSnapshotWriter(FByteBuffer& InBytes, std::vector<FObjectKey>& InReferences, bool bTransacting)
+				: FObjectMemoryWriter(InBytes, bTransacting ? EArchivePurpose::Transaction : EArchivePurpose::PropertySnapshot), References(InReferences)
 			{
 				EnableCapabilities(EArchiveCapability::ObjectReferences);
 			}
@@ -1677,7 +1684,8 @@ namespace Durin
 
 		FPropertyValueSnapshotPayload Payload;
 		Payload.Property = Property;
-		FSnapshotWriter Writer(Payload.Bytes, Payload.ReferencedObjectKeys);
+		Payload.bTransacting = bTransacting;
+		FSnapshotWriter Writer(Payload.Bytes, Payload.ReferencedObjectKeys, bTransacting);
 		SerializePropertyValue(Writer, const_cast<FProperty*>(Property), const_cast<void*>(Container), ArrayIndex, true);
 		if (Writer.IsError())
 		{
@@ -1701,8 +1709,9 @@ namespace Durin
 			std::vector<FObjectKey>& References;
 		};
 		FSnapshotReferenceCollector ReferenceCollector(Payload.ReferencedObjectKeys);
-		Private::FGCReferenceSchemaRegistry::VisitProperty(
-			const_cast<FProperty*>(Property), const_cast<void*>(Container), ArrayIndex, ReferenceCollector);
+		if (!bTransacting)
+			Private::FGCReferenceSchemaRegistry::VisitProperty(
+				const_cast<FProperty*>(Property), const_cast<void*>(Container), ArrayIndex, ReferenceCollector);
 		OutPayload = std::move(Payload);
 		return {};
 	}
@@ -1719,7 +1728,7 @@ namespace Durin
 		{
 			return SnapshotFailure(EPropertySnapshotError::NullContainer, Property, ArrayIndex, Operation);
 		}
-		if (auto Result = ValidateSnapshotProperty(Property); !Result)
+		if (auto Result = ValidateSnapshotProperty(Property, Payload.bTransacting); !Result)
 		{
 			Result.error().Operation = Operation;
 			return Result;
@@ -1742,11 +1751,14 @@ namespace Durin
 		class FSnapshotReader final : public FObjectMemoryReader
 		{
 		public:
-			FSnapshotReader(const FByteBuffer& InBytes, const std::vector<FObjectKey>& InReferences)
-				: FObjectMemoryReader(InBytes, EArchivePurpose::PropertySnapshot), References(InReferences)
+			FSnapshotReader(const FByteBuffer& InBytes, const std::vector<FObjectKey>& InReferences, bool bTransacting)
+				: FObjectMemoryReader(InBytes, bTransacting ? EArchivePurpose::Transaction : EArchivePurpose::PropertySnapshot), References(InReferences)
 			{
 				EnableCapabilities(EArchiveCapability::ObjectReferences);
 			}
+			auto GetStructBaseline() -> EArchiveStructBaseline override
+			{ return IsTransacting() ? EArchiveStructBaseline::Parent : EArchiveStructBaseline::Complete; }
+
 			auto SerializeObjectReference(DObject*& Object) -> void override
 			{
 				uint64 Id = 0;
@@ -1781,7 +1793,7 @@ namespace Durin
 			const std::vector<FObjectKey>& References;
 		};
 
-		FSnapshotReader Reader(Payload.Bytes, Payload.ReferencedObjectKeys);
+		FSnapshotReader Reader(Payload.Bytes, Payload.ReferencedObjectKeys, Payload.bTransacting);
 		SerializeReflectedPropertyValue(
 			Reader, *const_cast<FProperty*>(Property), Container, ArrayIndex, true);
 		if (!Reader.IsError() && Reader.GetRemainingPayloadBytes() != 0)

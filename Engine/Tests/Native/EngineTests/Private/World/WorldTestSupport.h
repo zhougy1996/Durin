@@ -58,9 +58,9 @@ namespace
 		return World;
 	}
 
-	auto CreateWorld(Durin::DObject* Outer = nullptr) -> Durin::DWorld*
+	auto CreateWorld(Durin::DObject* Outer = nullptr, Durin::EWorldType Type = Durin::EWorldType::Game) -> Durin::DWorld*
 	{
-		Durin::DWorld* World = CreateEmptyWorld(Outer);
+		Durin::DWorld* World = CreateEmptyWorld(Outer, Type);
 		EXPECT_TRUE(World->SetCurrentLevel(Durin::NewObject<Durin::DLevel>(World, "TestLevel")));
 		return World;
 	}

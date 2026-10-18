@@ -1,4 +1,6 @@
 #include "Actors/EditorActorSubsystem.h"
+#include "Editor/EditorCommand.h"
+#include "Actors/ActorChange.h"
 #include "Actors/ActorEditingScope.h"
 #include "Actors/ActorEditingValidation.h"
 
@@ -43,7 +45,7 @@ namespace Durin
 			FTransform Relative;
 		};
 
-		class FActorPresenceChange final : public ITransactionCustomChange
+		class FActorPresenceChange final : public FActorCommandChange
 		{
 		public:
 			FActorPresenceChange(DLevel& InLevel, std::span<AActor* const> InActors, bool bInRemove, std::string InDescription,
@@ -82,7 +84,6 @@ namespace Durin
 							if (auto* Camera = Cast<ACameraActor>(Actor)) { AfterCamera = Camera; break; }
 				RetainActors();
 			}
-			auto IsSynchronous() const -> bool override { return true; }
 			auto GetDescription() const -> std::string_view override { return Description; }
 			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
@@ -102,43 +103,43 @@ namespace Durin
 					for (DObject* Object : {static_cast<DObject*>(Link.Child.Get()), static_cast<DObject*>(Link.Parent.Get())})
 						if (Object) Collector.AddReferencedObject(Object);
 			}
-			auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult override
+			auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
 			{
 				FScopedPackageDirtySuppression SuppressReplay;
 				const bool bAfter = Operation != ETransactionOperation::Undo;
 				const bool bPresent = bAfter != bRemove;
-				const auto Reject = [](ETransactionCustomError Code) -> FTransactionCustomResult { return {{.Code = Code}}; };
-				const auto Interrupted = []() -> FTransactionCustomResult {
-					return {{.Code = ETransactionCustomError::TargetUnavailable,
-						.CleanupCause = std::make_shared<FTransactionCustomError>(FTransactionCustomError{.Code = ETransactionCustomError::RollbackIncomplete})}};
+				const auto Reject = [](EActorChangeError Code) -> FActorChangeResult { return {{.Code = Code}}; };
+				const auto Interrupted = []() -> FActorChangeResult {
+					return {{.Code = EActorChangeError::TargetUnavailable,
+						.CleanupCause = std::make_shared<FActorChangeError>(FActorChangeError{.Code = EActorChangeError::RollbackIncomplete})}};
 				};
-				if (!CanEditActorLevel(Level.Get())) return Reject(ETransactionCustomError::TargetUnavailable);
-				if (Level->GetPrimaryCameraActor() != (bAfter ? BeforeCamera : AfterCamera).Get()) return Reject(ETransactionCustomError::ActorChanged);
+				if (!CanEditActorLevel(Level.Get())) return Reject(EActorChangeError::TargetUnavailable);
+				if (Level->GetPrimaryCameraActor() != (bAfter ? BeforeCamera : AfterCamera).Get()) return Reject(EActorChangeError::ActorChanged);
 				auto* DesiredCamera = (bAfter ? AfterCamera : BeforeCamera).Get();
 				if (DesiredCamera && (!IsValid(DesiredCamera) || (!Level->ContainsActor(DesiredCamera)
-					&& (!bPresent || std::ranges::none_of(States, [DesiredCamera](const auto& State) { return State.Actor.Get() == DesiredCamera; }))))) return Reject(ETransactionCustomError::ActorMembership);
+					&& (!bPresent || std::ranges::none_of(States, [DesiredCamera](const auto& State) { return State.Actor.Get() == DesiredCamera; }))))) return Reject(EActorChangeError::ActorMembership);
 				for (const auto& State : States)
 				{
 					auto* Actor = State.Actor.Get();
 					if (!IsValid(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || Actor->GetOuter() != Level.Get()
-						|| Level->ContainsActor(Actor) == bPresent) return Reject(ETransactionCustomError::ActorMembership);
-					if (Actor->GetFName() != State.Name) return Reject(ETransactionCustomError::ActorChanged);
+						|| Level->ContainsActor(Actor) == bPresent) return Reject(EActorChangeError::ActorMembership);
+					if (Actor->GetFName() != State.Name) return Reject(EActorChangeError::ActorChanged);
 					if (bPresent)
-						if (auto* Collision = Level->FindActorByName(Actor->GetFName()); Collision && Collision != Actor) return Reject(ETransactionCustomError::ActorNameCollision);
+						if (auto* Collision = Level->FindActorByName(Actor->GetFName()); Collision && Collision != Actor) return Reject(EActorChangeError::ActorNameCollision);
 					for (const auto& Component : Actor->GetComponents())
-						if (!IsValid(Component.Get()) || Component->IsBeingDestroyed() || Component->HasBegunPlay()) return Reject(ETransactionCustomError::TargetUnavailable);
+						if (!IsValid(Component.Get()) || Component->IsBeingDestroyed() || Component->HasBegunPlay()) return Reject(EActorChangeError::TargetUnavailable);
 				}
 				for (const auto& Link : Attachments)
 				{
-					if (!IsValid(Link.Child.Get()) || !IsValid(Link.Parent.Get()) || Link.Child->IsBeingDestroyed() || Link.Parent->IsBeingDestroyed()) return Reject(ETransactionCustomError::ParentInvalid);
+					if (!IsValid(Link.Child.Get()) || !IsValid(Link.Parent.Get()) || Link.Child->IsBeingDestroyed() || Link.Parent->IsBeingDestroyed()) return Reject(EActorChangeError::ParentInvalid);
 					for (DSceneComponent* Scene : {Link.Child.Get(), Link.Parent.Get()})
 					{
 						auto* Owner = Scene->GetOwner();
 						if (!IsValid(Owner) || Owner->GetOuter() != Level.Get() || !Owner->OwnsComponent(Scene)
-							|| (!Level->ContainsActor(Owner) && std::ranges::none_of(States, [Owner](const auto& State) { return State.Actor.Get() == Owner; }))) return Reject(ETransactionCustomError::ParentInvalid);
+							|| (!Level->ContainsActor(Owner) && std::ranges::none_of(States, [Owner](const auto& State) { return State.Actor.Get() == Owner; }))) return Reject(EActorChangeError::ParentInvalid);
 					}
-					if (Link.Child->GetAttachParent() != (bPresent ? nullptr : Link.Parent.Get())) return Reject(ETransactionCustomError::ParentMismatch);
-					if (bPresent && (Link.Parent.Get() == Link.Child.Get() || Link.Parent->IsAttachedTo(Link.Child.Get()))) return Reject(ETransactionCustomError::ParentCycle);
+					if (Link.Child->GetAttachParent() != (bPresent ? nullptr : Link.Parent.Get())) return Reject(EActorChangeError::ParentMismatch);
+					if (bPresent && (Link.Parent.Get() == Link.Child.Get() || Link.Parent->IsAttachedTo(Link.Child.Get()))) return Reject(EActorChangeError::ParentCycle);
 				}
 				if (bPresent)
 				{
@@ -149,7 +150,7 @@ namespace Durin
 						std::unordered_set<DSceneComponent*> Visited;
 						for (auto* Parent = Link.Parent.Get(); Parent;)
 						{
-							if (Parent == Link.Child.Get() || !Visited.insert(Parent).second) return Reject(ETransactionCustomError::ParentCycle);
+							if (Parent == Link.Child.Get() || !Visited.insert(Parent).second) return Reject(EActorChangeError::ParentCycle);
 							const auto It = Parents.find(Parent);
 							Parent = It == Parents.end() ? Parent->GetAttachParent() : It->second;
 						}
@@ -215,25 +216,24 @@ namespace Durin
 			std::array<DPackage*, 1> Packages{};
 		};
 
-		class FActorRenameChange final : public ITransactionCustomChange
+		class FActorRenameChange final : public FActorCommandChange
 		{
 		public:
 			FActorRenameChange(DLevel& InLevel, AActor& InActor, FName InAfter) : Level(&InLevel), Actor(&InActor), Before(InActor.GetFName()), After(InAfter), Packages{InLevel.GetPackage()} {}
-			auto IsSynchronous() const -> bool override { return true; }
 			auto GetDescription() const -> std::string_view override { return "Rename actor"; }
 			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{ for (DObject* Object : {static_cast<DObject*>(Level.Get()), static_cast<DObject*>(Actor.Get())}) if (Object) Collector.AddReferencedObject(Object); }
-			auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult override
+			auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
 			{
 				FScopedPackageDirtySuppression SuppressReplay;
-				if (!CanEditActorLevel(Level.Get()) || !IsValid(Actor.Get()) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Level->ContainsActor(Actor.Get())) return {{.Code = ETransactionCustomError::ActorMembership}};
+				if (!CanEditActorLevel(Level.Get()) || !IsValid(Actor.Get()) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Level->ContainsActor(Actor.Get())) return {{.Code = EActorChangeError::ActorMembership}};
 				const bool bAfter = Operation != ETransactionOperation::Undo;
 				const FName Name = bAfter ? After : Before;
-				if (Actor->GetFName() != (bAfter ? Before : After)) return {{.Code = ETransactionCustomError::ActorChanged}};
+				if (Actor->GetFName() != (bAfter ? Before : After)) return {{.Code = EActorChangeError::ActorChanged}};
 				for (DObject* Object : GDObjectArray.GetObjectsWithOuter(Level.Get(), EObjectQueryScope::LiveOnly))
-					if (Object != Actor.Get() && Object->GetFName() == Name) return {{.Code = ETransactionCustomError::ActorNameCollision}};
+					if (Object != Actor.Get() && Object->GetFName() == Name) return {{.Code = EActorChangeError::ActorNameCollision}};
 				verify(Level->RenameActor(Actor.Get(), Name));
 				return {};
 			}
@@ -243,9 +243,9 @@ namespace Durin
 			FName Before, After;
 			std::array<DPackage*, 1> Packages;
 		};
-		auto Execute(std::unique_ptr<ITransactionCustomChange> Change, std::vector<TObjectPtr<AActor>> Actors, DTransactor& Transactions) -> FActorEditResult
+		auto Execute(std::unique_ptr<FActorCommandChange> Change, std::vector<TObjectPtr<AActor>> Actors, DTransactor& Transactions) -> FActorEditResult
 		{
-			const auto Result = Transactions.Execute(std::move(Change));
+			const auto Result = ::Durin::Editor::ApplyEditorChange(Transactions, std::move(Change));
 			if (!Result && Result.Code != ETransactorResultCode::RecoveryRequired)
 				for (const auto& Actor : Actors)
 					if (IsValid(Actor.Get()))
@@ -254,7 +254,7 @@ namespace Durin
 		}
 	}
 
-	auto Editor::MakeActorPresenceChange(DLevel& Level, std::span<AActor* const> Actors, bool bRemove, std::string Description) -> std::unique_ptr<ITransactionCustomChange>
+	auto Editor::MakeActorPresenceChange(DLevel& Level, std::span<AActor* const> Actors, bool bRemove, std::string Description) -> std::unique_ptr<FActorCommandChange>
 	{
 		if (!CanEditActorLevel(&Level) || Actors.empty()) return {};
 		std::unordered_set<AActor*> Unique;
@@ -276,7 +276,7 @@ namespace Durin
 			AActor* Actor = nullptr;
 			{
 				FScopedPackageDirtySuppression SuppressPreparation;
-				Actor = NewObject<AActor>(Class, &Level, UniqueName(Level, Name.IsNone() ? FName(Class->GetDefaultObjectName()) : Name));
+				Actor = NewObject<AActor>(Class, &Level, UniqueName(Level, Name.IsNone() ? FName(Class->GetDefaultObjectName()) : Name), EObjectFlags::Transactional);
 				if (Actor && Actor->RequestNativeReconstruction())
 				{
 					Actor->SetActorTransform(Transform);
@@ -325,7 +325,7 @@ namespace Durin
 				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return {{}, "Invalid actor duplication selection."};
 			std::vector<TObjectPtr<AActor>> Copies;
 			std::vector<AActor*> Raw;
-			std::unique_ptr<ITransactionCustomChange> Change;
+			std::unique_ptr<FActorCommandChange> Change;
 			{
 				FScopedPackageDirtySuppression SuppressPreparation;
 				std::unordered_map<DObject*, DObject*> Duplicates;

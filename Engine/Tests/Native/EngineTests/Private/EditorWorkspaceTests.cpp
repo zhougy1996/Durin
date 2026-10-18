@@ -1,4 +1,6 @@
 #include "Asset/Asset.h"
+#include "Editor/EditorTransactionTestSupport.h"
+#include "Actors/ActorChange.h"
 #include "AssetRegistry/Publication.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
@@ -46,7 +48,7 @@ namespace
 		}
 	};
 
-	class FAppliedPackageEdit final : public Durin::Editor::ITransactionCustomChange
+	class FAppliedPackageEdit final : public Durin::Editor::FActorCommandChange
 	{
 	public:
 		explicit FAppliedPackageEdit(Durin::DPackage& InPackage)
@@ -59,7 +61,7 @@ namespace
 		{
 			return Package;
 		}
-		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
+		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
 		{
 			if (Operation == Durin::Editor::ETransactionOperation::Undo)
 			{
@@ -189,14 +191,14 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 	EXPECT_TRUE(TransProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient));
 	{
 		Durin::Editor::FScopedTransaction GlobalScope("Global editor transaction");
-		ASSERT_TRUE(GlobalScope.IsActive());
-		EXPECT_EQ(GlobalScope.Cancel().Code,
-			Durin::Editor::ETransactorResultCode::Discarded);
+		ASSERT_TRUE(GlobalScope.IsOutstanding());
+		GlobalScope.Cancel();
+		EXPECT_FALSE(GlobalScope.IsOutstanding());
 	}
 
-	const auto Scope = Buffer->Begin({"test", "Open during shutdown",
-		Durin::Editor::FPersistentObjectRef(Editor)});
-	ASSERT_TRUE(Scope);
+	const auto Scope = Buffer->Begin("test", "Open during shutdown");
+	ASSERT_GE(Scope, 0);
+	Buffer->SetPrimaryUndoObject(Editor);
 	const Durin::Editor::FPropertyEditTarget Target =
 		Durin::Editor::FPropertyEditTarget::ForMember(Editor, TransProperty);
 	Durin::FPropertyValueSnapshotPayload Snapshot;
@@ -204,7 +206,7 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 	ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValuePayload(TransProperty, Editor, 0, Snapshot))) << Durin::ToString(SnapshotResult.error());
 	auto Capture = Durin::Editor::FTransactionObjectRecord::Capture(Target, Snapshot, Snapshot);
 	ASSERT_TRUE(Capture) << Durin::Editor::FormatTransactionObjectRecordError(Capture.error());
-	ASSERT_TRUE(Buffer->Record(Scope.ScopeId, std::move(*Capture)));
+	ASSERT_TRUE(Durin::FTransBufferTestAccess::Record(*Buffer, std::move(*Capture)));
 	Editor->BeginDestroy();
 	EXPECT_EQ(Editor->GetTransactor(), nullptr);
 	EXPECT_EQ(Buffer->GetState(), Durin::Editor::ETransactorState::Destroying);
@@ -246,7 +248,7 @@ TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
 	EXPECT_EQ(OpenRevision->CurrentRevision, OpenRevision->SavedRevision);
 
 	Package->MarkDirty();
-	ASSERT_TRUE(Transactions.CommitApplied(
+	ASSERT_TRUE(Transactions.StoreUndo(
 		std::make_unique<FAppliedPackageEdit>(*Package)));
 	EXPECT_TRUE(Package->IsDirty());
 	ASSERT_TRUE(Documents.Undo());

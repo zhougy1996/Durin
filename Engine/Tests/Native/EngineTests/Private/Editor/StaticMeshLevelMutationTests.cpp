@@ -216,7 +216,7 @@ TEST(FStaticMeshLevelMutationTests, RedoRefusesNameCollisionWithoutChangingHisto
 	auto* Collision = Fixture.Level->SpawnActor<Durin::ACameraActor>("Managed");
 	ASSERT_NE(Collision, nullptr);
 
-	const auto Rejected = Transactions->Redo();
+	const auto Rejected = Transactions->RedoExpected(0);
 	ASSERT_FALSE(Rejected);
 	ASSERT_TRUE(Rejected.ApplyCause);
 	const auto& Message = Rejected.ApplyCause->Message;

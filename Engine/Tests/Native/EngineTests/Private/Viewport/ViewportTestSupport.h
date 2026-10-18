@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Actors/ActorChange.h"
+
 #include "CoreMinimal.h"
 
 #include "Viewport/ViewportPickingService.h"
@@ -54,7 +56,7 @@
 
 namespace
 {
-	class FCountingTransaction final : public Durin::Editor::ITransactionCustomChange
+	class FCountingTransaction final : public Durin::Editor::FActorCommandChange
 	{
 	public:
 		explicit FCountingTransaction(int& InValue, int InDelta = 1) : Value(InValue), Delta(InDelta) {}
@@ -63,7 +65,7 @@ namespace
 		{
 			return Operation == Durin::Editor::ETransactionOperation::Undo ? "Counter changed backward" : "Counter changed forward";
 		}
-		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
+		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
 		{
 			if (Operation == Durin::Editor::ETransactionOperation::Undo)
 			{
@@ -83,22 +85,22 @@ namespace
 		bool bFailUndo = false;
 		bool bFailRedo = false;
 	};
-	class FControlledTransaction final : public Durin::Editor::ITransactionCustomChange
+	class FControlledTransaction final : public Durin::Editor::FActorCommandChange
 	{
 	public:
 		FControlledTransaction(int& InValue, FTransactionControl& InControl) : Value(InValue), Control(InControl) {}
 		auto GetDescription() const -> std::string_view override { return "Controlled"; }
-		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
+		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
 		{
 			if (Operation == Durin::Editor::ETransactionOperation::Undo)
 			{
-				if (Control.bFailUndo) return {{.Code = Durin::Editor::ETransactionCustomError::InjectedMutation}};
+				if (Control.bFailUndo) return {{.Code = Durin::Editor::EActorChangeError::InjectedMutation}};
 				--Value;
 				return {};
 			}
 			else
 			{
-				if (Control.bFailRedo) return {{.Code = Durin::Editor::ETransactionCustomError::InjectedMutation}};
+				if (Control.bFailRedo) return {{.Code = Durin::Editor::EActorChangeError::InjectedMutation}};
 				++Value;
 				return {};
 			}
@@ -108,7 +110,7 @@ namespace
 		FTransactionControl& Control;
 	};
 
-	class FPackageCountingTransaction final : public Durin::Editor::ITransactionCustomChange
+	class FPackageCountingTransaction final : public Durin::Editor::FActorCommandChange
 	{
 	public:
 		FPackageCountingTransaction(
@@ -126,17 +128,17 @@ namespace
 
 		auto GetDescription() const -> std::string_view override { return "Package Counting"; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { return Packages; }
-		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
+		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
 		{
 			if (Operation == Durin::Editor::ETransactionOperation::Undo)
 			{
-				if (Control && Control->bFailUndo) return {{.Code = Durin::Editor::ETransactionCustomError::InjectedMutation}};
+				if (Control && Control->bFailUndo) return {{.Code = Durin::Editor::EActorChangeError::InjectedMutation}};
 				Value -= Delta;
 				return {};
 			}
 			else
 			{
-				if (Control && Control->bFailRedo) return {{.Code = Durin::Editor::ETransactionCustomError::InjectedMutation}};
+				if (Control && Control->bFailRedo) return {{.Code = Durin::Editor::EActorChangeError::InjectedMutation}};
 				Value += Delta;
 				return {};
 			}

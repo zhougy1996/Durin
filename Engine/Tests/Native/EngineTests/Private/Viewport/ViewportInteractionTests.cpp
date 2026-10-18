@@ -151,7 +151,7 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	EXPECT_EQ(Transactions->GetUndoDescription(), "Translate 'Probe'");
 	const auto BeforeRejectedUndo = Target->Transform;
 	Target->bValid = false;
-	const auto Rejected = Transactions->Undo();
+	const auto Rejected = Transactions->UndoExpected(0);
 	ASSERT_FALSE(Rejected);
 	ASSERT_TRUE(Rejected.ApplyCause);
 	const auto& Message = Rejected.ApplyCause->Message;
@@ -408,7 +408,7 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	ExpectVectorNear(Actor->GetActorTransform().Translation, InitialLocation);
 	EXPECT_FALSE(Package->IsDirty());
 	EXPECT_FALSE(TransformTransactions->CanUndo());
-	EXPECT_TRUE(TransformTransactions->ConsumeEvents().empty());
+	EXPECT_TRUE(Durin::Tests::CollectTransactionEvents(*TransformTransactions).empty());
 
 	DragInput.bCancel = false;
 	DragInput.bLeftMousePressed = true;
@@ -421,7 +421,7 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
 	EXPECT_FALSE(Package->IsDirty());
 	EXPECT_FALSE(TransformTransactions->CanUndo());
-	EXPECT_TRUE(TransformTransactions->ConsumeEvents().empty());
+	EXPECT_TRUE(Durin::Tests::CollectTransactionEvents(*TransformTransactions).empty());
 
 	DragInput.bCancel = false;
 	DragInput.bLeftMousePressed = true;
@@ -434,7 +434,7 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
 	DragInput.bLeftMouseDown = false;
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
-	const std::vector<Durin::Editor::FTransactionEvent> TransformEvents = TransformTransactions->ConsumeEvents();
+	const std::vector<Durin::Editor::FTransactionEvent> TransformEvents = Durin::Tests::CollectTransactionEvents(*TransformTransactions);
 	ASSERT_EQ(TransformEvents.size(), 1);
 	EXPECT_EQ(TransformEvents.front().Description, "Translate 'Selected'");
 	EXPECT_NE(TransformEvents.front().Details.find("'Selected'"), std::string::npos);

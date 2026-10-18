@@ -13,6 +13,7 @@
 #include "Workspace/WorkspaceManager.h"
 #include "Workspace/WorkspaceUI.h"
 #include "Editor/EditorEngine.h"
+#include "DObject/WeakObjectPtr.h"
 #include "Transactions/Transaction.h"
 #include "Notifications/Notification.h"
 #include "ContentBrowser/ContentBrowserTool.h"
@@ -1340,58 +1341,62 @@ namespace Durin
 		});
 
 		auto EditorRootWidget = std::make_shared<MFunctionWidget>();
-		EditorRootWidget->Construct([WeakContext,
+		EditorRootWidget->Construct([WeakContext, EditorHost = TWeakObjectPtr<DEditorEngine>(&Editor),
 			ViewState = FMainFrameViewState{}]() mutable {
-			const std::shared_ptr<FBootstrapContext> Context =
-				WeakContext.lock();
-			if (!Context) return;
-			ObserveHostWindowState(
-				*Context->HostSettings, *Context->RootWindow);
-			const bool bReadyWorkspace = Context->State == EBootstrapState::Ready
-				&& Context->bHasProject && Context->LevelEditorModule
-				&& Context->MaterialEditorModule && Context->TextureEditorModule
-				&& Context->StaticMeshEditorModule
-				&& Context->ContentBrowserTool;
-			const FRHITexture* BrandTexture = Context->BrandTexture->UpdateAndGetTexture();
-			if (Context->RootWindow->GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar)
-			{
-				DrawCustomEditorTitleBar(
-					*Context->WorkspaceManager,
-					*Context->RootWindow,
-					BrandTexture,
-					*Context->ProfilingTools,
-					bReadyWorkspace && !Context->bProjectBrowserOpen,
-					ViewState);
-			}
-			if (bReadyWorkspace && !Context->bProjectBrowserOpen)
-			{
-				auto& ThumbnailPool = Editor::GetDefaultThumbnailManager().GetSharedPool();
-				ThumbnailPool.BeginFrame();
-				DrawWorkspaceHost(
-					*Context->WorkspaceManager,
-					*Context->HostSettings,
-					*Context->RootWindow,
-					*Context->ProfilingTools,
-					ViewState,
-					*Context->AssetCompatibilityWindow,
-					*Context->ContentBrowserTool,
-					*Context->Console,
-					*Context->PythonScripts,
-					*Context->Activity);
-				ThumbnailPool.EndFrame();
+			auto* Host = EditorHost.Get();
+			if (!Host) return;
+			Host->DispatchSubsystemCallback([&] {
+				const std::shared_ptr<FBootstrapContext> Context =
+					WeakContext.lock();
+				if (!Context) return;
+				ObserveHostWindowState(
+					*Context->HostSettings, *Context->RootWindow);
+				const bool bReadyWorkspace = Context->State == EBootstrapState::Ready
+					&& Context->bHasProject && Context->LevelEditorModule
+					&& Context->MaterialEditorModule && Context->TextureEditorModule
+					&& Context->StaticMeshEditorModule
+					&& Context->ContentBrowserTool;
+				const FRHITexture* BrandTexture = Context->BrandTexture->UpdateAndGetTexture();
+				if (Context->RootWindow->GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar)
+				{
+					DrawCustomEditorTitleBar(
+						*Context->WorkspaceManager,
+						*Context->RootWindow,
+						BrandTexture,
+						*Context->ProfilingTools,
+						bReadyWorkspace && !Context->bProjectBrowserOpen,
+						ViewState);
+				}
+				if (bReadyWorkspace && !Context->bProjectBrowserOpen)
+				{
+					auto& ThumbnailPool = Editor::GetDefaultThumbnailManager().GetSharedPool();
+					ThumbnailPool.BeginFrame();
+					DrawWorkspaceHost(
+						*Context->WorkspaceManager,
+						*Context->HostSettings,
+						*Context->RootWindow,
+						*Context->ProfilingTools,
+						ViewState,
+						*Context->AssetCompatibilityWindow,
+						*Context->ContentBrowserTool,
+						*Context->Console,
+						*Context->PythonScripts,
+						*Context->Activity);
+					ThumbnailPool.EndFrame();
+					DrawExitConfirmation(*Context);
+					return;
+				}
+				if (Context->bProjectBrowserOpen || !Context->bHasProject
+					|| Context->State == EBootstrapState::Failed)
+				{
+					Context->ProjectBrowser->Draw(
+						BrandTexture, bReadyWorkspace && Context->bProjectBrowserOpen);
+					DrawExitConfirmation(*Context);
+					return;
+				}
+				DrawLoadingState(*Context);
 				DrawExitConfirmation(*Context);
-				return;
-			}
-			if (Context->bProjectBrowserOpen || !Context->bHasProject
-				|| Context->State == EBootstrapState::Failed)
-			{
-				Context->ProjectBrowser->Draw(
-					BrandTexture, bReadyWorkspace && Context->bProjectBrowserOpen);
-				DrawExitConfirmation(*Context);
-				return;
-			}
-			DrawLoadingState(*Context);
-			DrawExitConfirmation(*Context);
+			});
 		});
 		Context.RootWindow->SetContent(EditorRootWidget);
 

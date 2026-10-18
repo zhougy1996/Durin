@@ -1,4 +1,5 @@
 #include "Tools/EditorToolService.h"
+#include "Tools/EditorScriptPump.h"
 #include "Editor/EditorEngine.h"
 #include "DObject/Object.h"
 #include "Threading/RunnableThread.h"
@@ -64,9 +65,9 @@ namespace Durin
 		}
 		auto HostReady(DEditorEngine& Host) -> bool
 		{
-			const auto* Buffer = Cast<DTransBuffer>(Host.GetTransactor());
-			return Host.GetEditorSubsystemState() == ESubsystemState::Ready && !Host.AreEditorSubsystemsUpdating() && Buffer
-				&& Buffer->GetState() == Editor::ETransactorState::Idle;
+			const auto* Transactor = Host.GetTransactor();
+			return Host.GetEditorSubsystemState() == ESubsystemState::Ready && !Host.AreEditorSubsystemsUpdating() && Transactor
+				&& Transactor->CanTransact();
 		}
 		struct FHostBinding;
 		thread_local FHostBinding* GBinding = nullptr;
@@ -89,6 +90,19 @@ namespace Durin
 	struct FEditorToolService::FImpl
 	{
 		struct FRoute { FToolDescriptor Descriptor; uint64 ToolsetIdentity = 0; size_t Bytes = 0; };
+		struct FAccounting
+		{
+			std::atomic<size_t> Count{0}, Bytes{0};
+		};
+		static constexpr size_t TerminalReserve = 1024;
+		struct FCharge
+		{
+			std::shared_ptr<FAccounting> Accounting;
+			size_t Bytes = TerminalReserve;
+			explicit FCharge(std::shared_ptr<FAccounting> InAccounting) : Accounting(std::move(InAccounting))
+			{ ++Accounting->Count; Accounting->Bytes += Bytes; }
+			~FCharge() { Accounting->Bytes -= Bytes; --Accounting->Count; }
+		};
 		struct FInvocation
 		{
 			FToolRequest Request;
@@ -96,7 +110,13 @@ namespace Durin
 			FToolCancellationSource Cancellation;
 			FToolContext Context;
 			EToolInvocationState State = EToolInvocationState::Queued;
-			std::optional<FToolResult> Result;
+			bool Dispatching = false;
+			FToolFuture Raw;
+			FToolCompletionSource Completion = FToolCompletionSource::CreateDetached();
+			FToolFuture Future = Tasks::Share(Completion.TakeTask());
+			std::shared_ptr<FCharge> Charge;
+			Tasks::FTaskSubscription Observation;
+			Tasks::FTaskReadiness Ready;
 			size_t Bytes = 0;
 			FClock::time_point Completed;
 		};
@@ -114,11 +134,16 @@ namespace Durin
 		uint64 NextSequence = 1;
 		uint64 CatalogRevision = 0;
 		uint64 FeatureRevision = 0;
+		std::shared_ptr<FAccounting> Accounting = std::make_shared<FAccounting>();
+		size_t PendingCount = 0, PendingBytes = 0;
 		size_t QueuedBytes = 0;
 		size_t CompletedBytes = 0;
 		bool HasCatalog = false;
 		bool Closed = false;
-		bool Executing = false; // GameThread only, never consulted by endpoint worker methods.
+		bool Executing = false; // GameThread only.
+		bool ScriptExecuting = false; // Protected by Mutex.
+		uint64 PythonControlIdentity = 0;
+		FPythonJobControl PythonControl;
 
 		explicit FImpl(std::shared_ptr<const FSubsystemWorkGate> InGate) : Gate(std::move(InGate))
 		{
@@ -142,12 +167,22 @@ namespace Durin
 		auto Complete(uint64 Id, FToolResult Result, EToolInvocationState State = EToolInvocationState::Completed) -> void
 		{
 			auto& Entry = *Invocations.at(Id);
-			Entry.Route.reset();
-			Entry.Request = {};
-			Entry.Result = std::move(Result);
+			if (Entry.State == EToolInvocationState::Running) { --PendingCount; PendingBytes -= Entry.Bytes; }
+			Entry.Observation.Reset(); Entry.Raw = {};
+			Entry.Route.reset(); Entry.Request = {};
+			const auto Bytes = ResultBytes(Result);
+			if (Entry.Charge)
+			{
+				if (Bytes > Limits.MaxCompletedBytes || (Bytes > Entry.Charge->Bytes
+					&& Bytes - Entry.Charge->Bytes > Limits.MaxCompletedBytes - std::min(Limits.MaxCompletedBytes, Accounting->Bytes.load())))
+					Result = Failure(EToolError::LimitExceeded, "Live tool results exceed the service byte budget.");
+				const auto ChargedBytes = std::max(TerminalReserve, ResultBytes(Result));
+				Accounting->Bytes += ChargedBytes - Entry.Charge->Bytes; Entry.Charge->Bytes = ChargedBytes;
+			}
+			Entry.Completion.TrySetValue(std::move(Result));
 			Entry.State = State;
 			Entry.Completed = FClock::now();
-			Entry.Bytes = ResultBytes(*Entry.Result);
+			Entry.Bytes = ResultBytes(*Entry.Future.GetResultShared());
 			CompletedBytes += Entry.Bytes;
 			Completed.push_back(Id);
 			Prune();
@@ -156,6 +191,7 @@ namespace Durin
 		{
 			if (Closed) return;
 			Closed = true;
+			PythonControl = {}; PythonControlIdentity = 0;
 			Routes.clear(); Toolsets.clear();
 			CatalogDiagnostics.clear();
 			++CatalogRevision;
@@ -168,7 +204,9 @@ namespace Durin
 				Invocations.at(Id)->Cancellation.Cancel();
 				Complete(Id, Failure(EToolError::Cancelled, "Editor tool service closed before execution."), EToolInvocationState::Cancelled);
 			}
-			for (auto& [Id, Entry] : Invocations) if (Entry->State == EToolInvocationState::Running) Entry->Cancellation.Cancel();
+			std::vector<uint64> Running;
+			for (auto& [Id, Entry] : Invocations) if (Entry->State == EToolInvocationState::Running) { Entry->Cancellation.Cancel(); if (!Entry->Dispatching) Running.push_back(Id); }
+			for (auto Id : Running) Complete(Id, Failure(EToolError::Cancelled, "Editor closed; pending completion detached without rollback."), EToolInvocationState::Cancelled);
 		}
 		auto SetContext(FInvocation& Entry, uint64 Id, EToolSource Source) -> void
 		{
@@ -188,27 +226,64 @@ namespace Durin
 			Entry->Bytes = sizeof(FInvocation) + Request.Address.Toolset.size() + Request.Address.Tool.size() + ValueBytes(Entry->Request.Arguments) + Route->second->Bytes;
 			return Entry;
 		}
-		auto Run(DEditorEngine& Host, FInvocation& Entry, bool AvailabilityOnly, FToolAvailability* Availability) -> FToolResult
+		auto Run(DEditorEngine& Host, FInvocation& Entry, bool AvailabilityOnly, FToolAvailability* Availability) -> FToolFuture
 		{
-			if (!Gate->IsOpen() || Entry.Cancellation.GetToken().IsCancellationRequested()) return Failure(EToolError::Cancelled, "Tool admission closed.");
+			if (!Gate->IsOpen() || Entry.Cancellation.GetToken().IsCancellationRequested()) return ReadyToolResult(Failure(EToolError::Cancelled, "Tool admission closed."));
 			auto Call = FModularFeatureRegistry::Get().InvokeRegistered<IToolset>(Entry.Route->ToolsetIdentity, [&](auto& Toolset) {
 				FHostBinding Binding(Host, Entry.Context);
 				auto Available = Toolset.CheckAvailability(Entry.Request, Entry.Context);
-				if (!ValidDiagnostics(Available.Diagnostics)) return Failure(EToolError::LimitExceeded, "Toolset availability diagnostics exceed the contract.");
+				if (!ValidDiagnostics(Available.Diagnostics)) return ReadyToolResult(Failure(EToolError::LimitExceeded, "Toolset availability diagnostics exceed the contract."));
 				if (!Available.bAvailable && Available.Diagnostics.empty()) Available.Diagnostics.push_back(Diagnostic(EToolError::ToolUnavailable, "Tool is unavailable in the current state."));
 				if (Availability) *Availability = Available;
-				if (!Gate->IsOpen() || Entry.Context.Cancellation.IsCancellationRequested() || Entry.Context.Client.Cancellation.IsCancellationRequested()) return Failure(EToolError::Cancelled, "Tool cancelled before execution.");
-				if (!Available.bAvailable) return FToolResult{EToolStatus::Failed, {}, std::move(Available.Diagnostics)};
-				if (!HostReady(Host)) return Failure(EToolError::Busy, "Editor left the dispatch safe point during availability checking.");
-				if (AvailabilityOnly) return FToolResult{EToolStatus::Succeeded};
+				if (!Gate->IsOpen() || Entry.Context.Cancellation.IsCancellationRequested() || Entry.Context.Client.Cancellation.IsCancellationRequested()) return ReadyToolResult(Failure(EToolError::Cancelled, "Tool cancelled before execution."));
+				if (!Available.bAvailable) return ReadyToolResult({EToolStatus::Failed, {}, std::move(Available.Diagnostics)});
+				if (!HostReady(Host)) return ReadyToolResult(Failure(EToolError::Busy, "Editor left the dispatch safe point during availability checking."));
+				if (AvailabilityOnly) return ReadyToolResult({EToolStatus::Succeeded});
 				return Toolset.Call(Entry.Request, Entry.Context);
 			});
-			if (Call.Status == EFeatureInvokeStatus::Unavailable) return Failure(EToolError::ToolUnavailable, "The admitted toolset is no longer registered.");
-			if (!Call.WasInvoked() || !Call.Value) return Failure(EToolError::InternalError, "Toolset threw an exception.");
-			auto Result = std::move(*Call.Value);
+			if (Call.Status == EFeatureInvokeStatus::Unavailable) return ReadyToolResult(Failure(EToolError::ToolUnavailable, "The admitted toolset is no longer registered."));
+			if (!Call.WasInvoked() || !Call.Value) return ReadyToolResult(Failure(EToolError::InternalError, "Toolset threw an exception."));
+			return std::move(*Call.Value);
+		}
+		auto Resolve(FInvocation& Entry, bool AvailabilityOnly = false) -> FToolResult
+		{
+			if (!Entry.Raw.IsValid()) return Failure(EToolError::InvalidOutput, "Provider returned an invalid Future.");
+			if (!Entry.Raw.IsCompleted()) return Failure(EToolError::InvalidOutput, "Synchronous provider returned a pending Future; effects are not rolled back.");
+			if (auto Value = Entry.Raw.GetResultShared()) return ValidateResult(Entry, *Value, AvailabilityOnly);
+			if (Entry.Raw.GetState() == ETaskState::Canceled) return Failure(EToolError::Cancelled, "Provider acknowledged cancellation.");
+			return Failure(EToolError::InternalError, "Provider completion failed or was abandoned.");
+		}
+		auto ReserveTerminal(FInvocation& Entry) -> bool
+		{
+			Prune();
+			// Receipt ownership can be dropped under pressure; consumer pins remain charged.
+			while (!Completed.empty() && (Accounting->Count >= Limits.MaxRetained
+				|| TerminalReserve > Limits.MaxCompletedBytes - std::min(Limits.MaxCompletedBytes, Accounting->Bytes.load())))
+			{
+				const auto Id = Completed.front(); Completed.pop_front();
+				CompletedBytes -= Invocations.at(Id)->Bytes; Invocations.erase(Id);
+			}
+			if (Accounting->Count >= Limits.MaxRetained
+				|| TerminalReserve > Limits.MaxCompletedBytes - std::min(Limits.MaxCompletedBytes, Accounting->Bytes.load())) return false;
+			Entry.Charge = std::make_shared<FCharge>(Accounting);
+			Entry.Future = Entry.Future.WithLifetime(Entry.Charge);
+			return true;
+		}
+		// Caller holds Mutex; provider execution has already returned.
+		auto FinishDispatch(uint64 Id, FToolFuture Raw) -> void
+		{
+			auto& Entry = *Invocations.at(Id);
+			Entry.Raw = std::move(Raw); Entry.Dispatching = false;
+			if (!Open() && Entry.Raw.IsValid() && !Entry.Raw.IsCompleted())
+			{ Complete(Id, Failure(EToolError::Cancelled, "Editor closed during dispatch; pending completion detached."), EToolInvocationState::Cancelled); return; }
+			if (!Entry.Raw.IsValid() || Entry.Raw.IsCompleted() || !Entry.Route->Descriptor.bMayPend) Complete(Id, Resolve(Entry));
+			else Entry.Observation = Entry.Raw.ObserveReady(Entry.Ready);
+		}
+		auto ValidateResult(const FInvocation& Entry, const FToolResult& Result, bool AvailabilityOnly = false) -> FToolResult
+		{
 			if (!ValidDiagnostics(Result.Diagnostics)) return Failure(EToolError::LimitExceeded, "Toolset result diagnostics exceed the contract.");
-			if (Result.OperationId || (Result.Status != EToolStatus::Succeeded && Result.Status != EToolStatus::Failed))
-				return Failure(EToolError::InvalidOutput, "Only synchronous tool results are supported.");
+			if (Result.Status != EToolStatus::Succeeded && Result.Status != EToolStatus::Failed)
+				return Failure(EToolError::InvalidOutput, "Invalid terminal tool status.");
 			if (auto Check = ValidateToolValue(Result.Data); !Check) return Failure(EToolError::InvalidOutput, Check.error().Message);
 			if (!AvailabilityOnly && Result.Status == EToolStatus::Succeeded)
 				if (auto Check = ValidateToolOutput(Entry.Route->Descriptor, Result.Data); !Check)
@@ -217,9 +292,12 @@ namespace Durin
 					if (Item.Code != EToolError::LimitExceeded) Item.Code = EToolError::InvalidOutput;
 					return {EToolStatus::Failed, {}, {BoundedDiagnostic(std::move(Item))}};
 				}
-			if (Result.Status == EToolStatus::Failed && Result.Diagnostics.empty()) Result.Diagnostics.push_back(Diagnostic(EToolError::DomainFailure, "Tool failed without a diagnostic."));
+			// Bound raw trees before sizing/copying; unused reserved capacity is still charged.
 			if (ResultBytes(Result) > Limits.MaxCompletedBytes) return Failure(EToolError::LimitExceeded, "Toolset result exceeds the service byte budget.");
-			return Result;
+			auto Validated = Result;
+			if (Validated.Status == EToolStatus::Failed && Validated.Diagnostics.empty()) Validated.Diagnostics.push_back(Diagnostic(EToolError::DomainFailure, "Tool failed without a diagnostic."));
+			if (ResultBytes(Validated) > Limits.MaxCompletedBytes) return Failure(EToolError::LimitExceeded, "Toolset result exceeds the service byte budget.");
+			return Validated;
 		}
 	};
 
@@ -368,11 +446,31 @@ namespace Durin
 		if (!Admitted) return std::unexpected(Admitted.error());
 		auto Entry = std::move(*Admitted);
 		const auto Bytes = Entry->Bytes;
-		if (Impl->Queue.size() >= Impl->Limits.MaxQueued || Bytes > Impl->Limits.MaxQueuedBytes - Impl->QueuedBytes) return std::unexpected(Diagnostic(EToolError::Busy, "Tool queue capacity exceeded."));
+		const bool DetachedControl = Impl->ScriptExecuting && Impl->PythonControl && Request.Address.Toolset == "editor.python"
+			&& (Request.Address.Tool == "status" || Request.Address.Tool == "cancel")
+			&& Entry->Route->ToolsetIdentity == Impl->PythonControlIdentity;
+		if (Bytes > Impl->Limits.MaxQueuedBytes || Bytes > Impl->Limits.MaxPendingBytes || (!DetachedControl
+			&& (Impl->Queue.size() >= Impl->Limits.MaxQueued || Bytes > Impl->Limits.MaxQueuedBytes - Impl->QueuedBytes)))
+			return std::unexpected(Diagnostic(EToolError::Busy, "Tool queue capacity exceeded."));
+		if (!Impl->ReserveTerminal(*Entry)) return std::unexpected(Diagnostic(EToolError::Busy, "Live tool result capacity exceeded."));
 		const auto Id = Impl->NextSequence++;
 		Impl->SetContext(*Entry, Id, Source);
 		Entry->Context.Client = Client;
-		Impl->Invocations.emplace(Id, std::move(Entry)); Impl->Queue.push_back(Id); Impl->QueuedBytes += Bytes;
+		// During a script, only these two controls bypass Tick. No provider or
+		// DObject is called: the pump's feature scope pins the published code.
+		if (DetachedControl)
+		{
+			FToolResult Result;
+			try { Result = Impl->PythonControl(Entry->Request, Entry->Context); }
+			catch (...) { Result = Failure(EToolError::InternalError, "Python job control failed."); }
+			Result = Impl->ValidateResult(*Entry, std::move(Result));
+			Impl->Invocations.emplace(Id, std::move(Entry));
+			Impl->Complete(Id, std::move(Result));
+		}
+		else
+		{
+			Impl->Invocations.emplace(Id, std::move(Entry)); Impl->Queue.push_back(Id); Impl->QueuedBytes += Bytes;
+		}
 		return FEditorToolInvocationId{Impl->Session, Id};
 	}
 	auto FEditorToolService::GetInvocation(FEditorToolInvocationId Id) -> std::expected<FEditorToolInvocation, FToolDiagnostic>
@@ -383,7 +481,19 @@ namespace Durin
 		if (Id.Session != Impl->Session || Id.Sequence == 0 || Id.Sequence >= Impl->NextSequence) return std::unexpected(Diagnostic(EToolError::TargetNotFound, "Unknown invocation identity."));
 		const auto Found = Impl->Invocations.find(Id.Sequence);
 		if (Found == Impl->Invocations.end()) return FEditorToolInvocation{EToolInvocationState::Expired, Failure(EToolError::InvocationExpired, "Invocation result expired.")};
-		return FEditorToolInvocation{Found->second->State, Found->second->Result};
+		auto Result = Found->second->Future.GetResultShared();
+		return FEditorToolInvocation{Found->second->State, std::move(Result)};
+	}
+	auto FEditorToolService::RetainInvocation(FEditorToolInvocationId Id) -> std::expected<FToolFuture, FToolDiagnostic>
+	{
+		std::scoped_lock Lock(Impl->Mutex);
+		if (!Impl->Open()) Impl->CloseLocked();
+		Impl->Prune();
+		if (Id.Session != Impl->Session || !Id.Sequence || Id.Sequence >= Impl->NextSequence)
+			return std::unexpected(Diagnostic(EToolError::TargetNotFound, "Unknown invocation identity."));
+		const auto Found = Impl->Invocations.find(Id.Sequence);
+		if (Found == Impl->Invocations.end()) return std::unexpected(Diagnostic(EToolError::InvocationExpired, "Invocation result expired."));
+		return Found->second->Future;
 	}
 	auto FEditorToolService::Cancel(FEditorToolInvocationId Id) -> FToolValidationResult
 	{
@@ -406,19 +516,24 @@ namespace Durin
 	auto FEditorToolService::Configure(const FEditorToolLimits& Limits) -> FToolValidationResult
 	{
 		if (!IsInGameThread()) return std::unexpected(Diagnostic(EToolError::WrongThread, "Tool configuration requires GameThread."));
-		if (!Limits.MaxQueued || !Limits.MaxCompleted || !Limits.MaxCatalogTools || !Limits.MaxCatalogToolsets || !Limits.MaxDispatchPerTick
+		if (!Limits.MaxPending || !Limits.MaxPendingBytes || !Limits.MaxRetained || !Limits.MaxQueued || !Limits.MaxCompleted || !Limits.MaxCatalogTools || !Limits.MaxCatalogToolsets || !Limits.MaxDispatchPerTick
 			|| !Limits.MaxCatalogBytes || !Limits.MaxQueuedBytes || !Limits.MaxCompletedBytes || Limits.TickBudget.count() <= 0 || Limits.ResultTTL.count() < 0)
 			return std::unexpected(Diagnostic(EToolError::InvalidArguments, "Invalid tool service limits."));
 		std::scoped_lock Lock(Impl->Mutex);
 		if (!Impl->Open()) return std::unexpected(Diagnostic(EToolError::ToolUnavailable, "Tool service closed."));
-		if (Impl->Executing || !Impl->Queue.empty()) return std::unexpected(Diagnostic(EToolError::Busy, "Configure requires an idle tool service."));
+		if (Impl->Executing || !Impl->Queue.empty() || Impl->PendingCount) return std::unexpected(Diagnostic(EToolError::Busy, "Configure requires an idle tool service."));
+		if (Impl->Accounting->Count > Limits.MaxRetained || Impl->Accounting->Bytes > Limits.MaxCompletedBytes)
+			return std::unexpected(Diagnostic(EToolError::Busy, "Configure would undercount live consumer results."));
 		Impl->Limits = Limits; Impl->HasCatalog = false;
 		Impl->Routes.clear(); Impl->Toolsets.clear(); Impl->CatalogDiagnostics.clear(); ++Impl->CatalogRevision;
 		Impl->Prune(); return {};
 	}
 	auto FEditorToolService::Call(DEditorEngine& Editor, const FToolRequest& Request, EToolSource Source,
-		bool AvailabilityOnly, FToolAvailability* Availability) -> FToolResult
+		bool AvailabilityOnly, FToolAvailability* Availability, const FToolClientContext& Client,
+		FToolCancellationToken Cancellation) -> FToolResult
 	{
+		if (Client.Id.size() > 128 || Client.Id.find('\0') != std::string::npos)
+			return Failure(EToolError::InvalidArguments, "Invalid tool client identity.");
 		if (!CanDispatch(Editor)) return Failure(EToolError::Busy, "Editor tool dispatch is not at an idle safe point.");
 		FExecutingScope Scope(Impl->Executing);
 		RefreshCatalog();
@@ -431,9 +546,43 @@ namespace Durin
 			Entry = std::move(*Admitted);
 			if (Entry->Bytes > Impl->Limits.MaxQueuedBytes) return Failure(EToolError::Busy, "Tool input exceeds the service byte budget.");
 			Impl->SetContext(*Entry, Impl->NextSequence++, Source);
+			Entry->Context.Client = Client; Entry->Context.Cancellation = Cancellation;
 			Entry->State = EToolInvocationState::Running;
 		}
-		return Impl->Run(Editor, *Entry, AvailabilityOnly, Availability);
+		if (!AvailabilityOnly && Entry->Route->Descriptor.bMayPend) return Failure(EToolError::Busy, "CallNow rejects tools that may pend before provider dispatch.");
+		Entry->Raw = Impl->Run(Editor, *Entry, AvailabilityOnly, Availability);
+		return Impl->Resolve(*Entry, AvailabilityOnly);
+	}
+	auto FEditorToolService::SubmitNow(DEditorEngine& Editor, const FToolRequest& Request, EToolSource Source,
+		const FToolClientContext& Client, FToolCancellationToken Cancellation) -> std::expected<FEditorToolSubmission, FToolDiagnostic>
+	{
+		if (!CanDispatch(Editor)) return std::unexpected(Diagnostic(EToolError::Busy, "Editor is outside the tool safe point."));
+		if (Client.Id.size() > 128 || Client.Id.find('\0') != std::string::npos)
+			return std::unexpected(Diagnostic(EToolError::InvalidArguments, "Invalid client identity."));
+		if (Client.Cancellation.IsCancellationRequested() || Cancellation.IsCancellationRequested())
+			return std::unexpected(Diagnostic(EToolError::Cancelled, "Invocation owner is cancelled."));
+		if (auto Check = ValidateRequest(Request, Source); !Check) return std::unexpected(BoundedDiagnostic(Check.error()));
+		FExecutingScope Scope(Impl->Executing); RefreshCatalog();
+		FImpl::FInvocation* Entry;
+		FEditorToolSubmission Submission;
+		{
+			std::scoped_lock Lock(Impl->Mutex);
+			auto Admitted = Impl->Admit(Request, Source); if (!Admitted) return std::unexpected(Admitted.error());
+			auto Owned = std::move(*Admitted);
+			if (Impl->PendingCount >= Impl->Limits.MaxPending || Owned->Bytes > Impl->Limits.MaxPendingBytes - Impl->PendingBytes
+				|| Owned->Bytes > Impl->Limits.MaxQueuedBytes || !Impl->ReserveTerminal(*Owned))
+				return std::unexpected(Diagnostic(EToolError::Busy, "Invocation capacity exceeded before dispatch."));
+			Submission.Id = {Impl->Session, Impl->NextSequence++};
+			Impl->SetContext(*Owned, Submission.Id.Sequence, Source); Owned->Context.Client = Client;
+			Owned->Context.Cancellation = Owned->Cancellation.GetToken().WithParent(Cancellation);
+			Owned->State = EToolInvocationState::Running; Owned->Dispatching = true;
+			++Impl->PendingCount; Impl->PendingBytes += Owned->Bytes;
+			Submission.Future = Owned->Future; Entry = Owned.get();
+			Impl->Invocations.emplace(Submission.Id.Sequence, std::move(Owned));
+		}
+		auto Raw = Impl->Run(Editor, *Entry, false, nullptr);
+		{ std::scoped_lock Lock(Impl->Mutex); Impl->FinishDispatch(Submission.Id.Sequence, std::move(Raw)); }
+		return Submission;
 	}
 	auto FEditorToolService::Drain(DEditorEngine& Editor) -> void
 	{
@@ -442,6 +591,14 @@ namespace Durin
 		RefreshCatalog();
 		FEditorToolLimits Limits;
 		{ std::scoped_lock Lock(Impl->Mutex); Limits = Impl->Limits; Impl->Prune(); }
+		// Producer notifications only mark readiness. Final validation/publication belongs here.
+		{
+			std::scoped_lock Lock(Impl->Mutex);
+			std::vector<uint64> Ready;
+			for (auto& [Id, Entry] : Impl->Invocations)
+				if (Entry->State == EToolInvocationState::Running && Entry->Ready.IsReady() && Entry->Raw.IsCompleted()) Ready.push_back(Id);
+			for (auto Id : Ready) Impl->Complete(Id, Impl->Resolve(*Impl->Invocations.at(Id)));
+		}
 		const auto Start = FClock::now();
 		for (size_t Count = 0; Count < Limits.MaxDispatchPerTick && (Count == 0 || FClock::now() - Start < Limits.TickBudget); ++Count)
 		{
@@ -452,14 +609,38 @@ namespace Durin
 				std::scoped_lock Lock(Impl->Mutex);
 				if (!Impl->Open()) { Impl->CloseLocked(); break; }
 				if (Impl->Queue.empty()) break;
+				if (Impl->PendingCount >= Limits.MaxPending || Impl->Invocations.at(Impl->Queue.front())->Bytes > Limits.MaxPendingBytes - Impl->PendingBytes) break;
 				Id = Impl->Queue.front(); Impl->Queue.pop_front();
 				Entry = Impl->Invocations.at(Id).get(); Impl->QueuedBytes -= Entry->Bytes;
+				++Impl->PendingCount; Impl->PendingBytes += Entry->Bytes; Entry->Dispatching = true;
 				Entry->State = EToolInvocationState::Running;
 			}
-			auto Result = Impl->Run(Editor, *Entry, false, nullptr);
+			auto Raw = Impl->Run(Editor, *Entry, false, nullptr);
 			std::scoped_lock Lock(Impl->Mutex);
-			Impl->Complete(Id, std::move(Result));
+			Impl->FinishDispatch(Id, std::move(Raw));
 		}
+	}
+	auto FEditorToolService::GetWorkGate() const -> std::shared_ptr<const FSubsystemWorkGate> { return Impl->Gate; }
+	auto FEditorToolService::BindPythonJobControl(uint64 Identity, FPythonJobControl Control) -> void
+	{
+		require(IsInGameThread());
+		std::scoped_lock Lock(Impl->Mutex);
+		if (!Impl->Open()) return;
+		Impl->PythonControlIdentity = Identity; Impl->PythonControl = std::move(Control);
+	}
+	auto FEditorToolService::PumpScripts(DEditorEngine& Editor, const std::shared_ptr<FEditorToolService>& Endpoint) -> void
+	{
+		if (!CanDispatch(Editor)) return;
+		RefreshCatalog();
+		{
+			std::scoped_lock Lock(Impl->Mutex);
+			if (Impl->ScriptExecuting) return;
+			Impl->ScriptExecuting = true;
+		}
+		(void)FModularFeatureRegistry::Get().InvokeAll<IEditorScriptPump>([&](auto& Pump) {
+			if (CanDispatch(Editor)) Pump.Pump(Editor, Endpoint);
+		});
+		std::scoped_lock Lock(Impl->Mutex); Impl->ScriptExecuting = false;
 	}
 	auto FEditorToolService::Close() noexcept -> void { std::scoped_lock Lock(Impl->Mutex); Impl->CloseLocked(); }
 }

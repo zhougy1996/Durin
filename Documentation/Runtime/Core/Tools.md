@@ -68,13 +68,16 @@ with an ASCII lowercase letter and continues with lowercase letters, digits,
 or underscores. Names are case-sensitive and never normalized. ContractVersion
 is nonzero and independent of module load generation. Inputs have an object
 root. Descriptors declare description, output schema, effect flags, retry
-semantics, and explicit external exposure metadata. Exposure is not an access
+semantics, whether execution may pend (`bMayPend`, false by default), and explicit
+external exposure metadata. Exposure is not an access
 grant; calling hosts apply their own admission policy.
 
 The calling host constructs `FToolContext` with trusted invocation/session
 identity, source, and cancellation token. Business arguments cannot replace
 these fields. A `FToolCancellationSource` owns the cooperative signal; tokens
-can only observe it. Cancellation does not stop code or roll back domain edits.
+can only observe it. WithParent composes an invocation observation with an existing
+job signal; invocation cancellation still has its own source. Cancellation does not
+stop code or roll back domain edits.
 
 An optional `FToolClientContext` carries a detached client ID and cancellation
 token in `FToolContext.Client`, separately from the individual invocation token.
@@ -91,12 +94,25 @@ must revalidate live targets and state. Host dispatch validates successful
 output against the descriptor. Provider exceptions are contained by the
 modular-feature invocation boundary, not reported as successful domain results.
 
-`FToolResult` distinguishes synchronous success and failure and carries
-owned Data and diagnostics. Its default is failure. OperationId is reserved for
-future domain-owned long work and implies no scheduler. Queued/Running/Completed/
-Cancelled/Expired invocation states describe host submission, not another
-provider execution protocol. The domain owns transactions and reports the actual
-completion stage; dispatcher code must not promise automatic rollback or Undo.
+`IToolset::Call` returns `FToolFuture` (`Tasks::TSharedTask<FToolResult>`).
+`ReadyToolResult` adapts synchronous handlers through scheduler-independent shared
+task storage; `FToolCompletionSource::CreateDetached()` supplies pending outcomes.
+The feature interface version is 2. Read results nonblockingly through
+`GetResultShared()`; do not wait or run a nested editor loop on GameThread.
+`FToolResult` carries final success/failure, owned Data and diagnostics. Its
+default is failure. There is no separate operation identity in the result.
+Queued/Running/Completed/Cancelled/Expired invocation states describe host
+submission; Running includes pending completion. The domain owns transactions;
+Future lifetime never implies automatic recording or rollback.
+
+A synchronous host rejects may-pend descriptors before provider callbacks.
+A synchronous descriptor returning pending violates the contract after possible
+effects; the host must fail without retry. The calling host validates both ready
+and delayed terminal output before publishing its authoritative result. Task
+abandonment/failure is distinct from a successful task carrying a failed tool
+result. Cancellation signals intent; a domain must acknowledge it and can still
+report successful applied work. Subscribe callbacks only mark work runnable;
+resolve editor objects and enter interpreters at their owning execution boundary.
 
 ## Provider Lifetime
 
@@ -128,7 +144,8 @@ See [modular features and module shutdown](ModularFeaturesAndModuleRetirement.md
 
 `Tools/NativeToolset.h` provides immutable `FNativeToolset` groups implementing
 `IToolset`. An `FToolBinding` combines an owned descriptor, a normalized-request
-handler, and an optional advisory availability callback. Construction rejects
+synchronous handler (adapted to a ready Future) or AsyncHandler, and an optional
+advisory availability callback. Construction requires exactly one handler and rejects
 invalid metadata, duplicate local names, and missing handlers. Register the group
 through the same typed feature registry and keep its token in the owning module.
 The calling host prepares arguments once with `PrepareToolArguments` before

@@ -26,7 +26,7 @@ namespace
 	class DFunctionTarget : public DObject
 	{
 	public:
-		explicit DFunctionTarget(const FObjectInitializer& Initializer) : DObject(Initializer) {}
+		explicit DFunctionTarget(const FObjectInitializer& Initializer) : DObject(Initializer) { SetFlags(EObjectFlags::Transactional); }
 		static void __DefaultConstructor(const FObjectInitializer& Initializer)
 		{ new (Initializer.GetObj()) DFunctionTarget(Initializer); }
 		virtual void Run() { ++Invocations; Value += 5; if (DuringCall) DuringCall(); }
@@ -138,26 +138,6 @@ namespace
 		}
 	};
 
-	class DRejectCaptureTransactor : public DTransactor
-	{
-	public:
-		explicit DRejectCaptureTransactor(const FObjectInitializer& Init)
-			: DTransactor(Init), Inner(NewObject<DTransBuffer>(this, "Inner")) {}
-		static void __DefaultConstructor(const FObjectInitializer& Init) { new (Init.GetObj()) DRejectCaptureTransactor(Init); }
-		static auto StaticClass() -> DClass*
-		{
-			static auto* Class = MakeActionTestClass<DRejectCaptureTransactor>("Tests::DRejectCaptureTransactor", DTransactor::StaticClass());
-			return Class;
-		}
-		auto Record(FTransactionScopeId, FTransactionObjectRecord) -> FTransactorResult override
-		{ return {.Code = ETransactorResultCode::Failed, .FailureCause = FTransactorFailure{.Code = ETransactorFailure::Unsupported}}; }
-		auto Begin(const FTransactionContext& Context) -> FTransactorResult override { return Inner->Begin(Context); }
-		auto Cancel(FTransactionScopeId Scope) -> FTransactorResult override { return Inner->Cancel(Scope); }
-		auto CanBeginStandaloneTransaction() const -> bool override { return Inner->CanBeginStandaloneTransaction(); }
-		auto GetState() const -> ETransactorState { return Inner->GetState(); }
-	private:
-		TStrongObjectPtr<DTransBuffer> Inner;
-	};
 
 	auto Request(DObject* Object, FName Name = "Run") -> FEditorFunctionRequest
 	{
@@ -227,14 +207,14 @@ TEST_F(FEditorFunctionTests, AdmissionAndReentrancyPreventNativeMutation)
 	EXPECT_EQ(ExecuteEditorFunction(View, Context, Request(Target)).Error, EEditorFunctionError::MissingTransactor);
 	Context.Transactor = Buffer.Get();
 	FScopedTransaction Busy(Buffer.Get(), {"test", "Busy"});
-	EXPECT_EQ(ExecuteEditorFunction(View, Context, Request(Target)).Error, EEditorFunctionError::BusyTransactor);
+	EXPECT_TRUE(ExecuteEditorFunction(View, Context, Request(Target)).bInvoked);
 	(void)Busy.Cancel();
-	EXPECT_EQ(Target->Invocations, 0);
+	EXPECT_EQ(Target->Invocations, 1);
 	Target->DuringCall = [&] {
 		EXPECT_EQ(ExecuteEditorFunction(View, Context, Request(Target)).Error, EEditorFunctionError::Reentrant);
 	};
 	EXPECT_TRUE(ExecuteEditorFunction(View, Context, Request(Target)).bInvoked);
-	EXPECT_EQ(Target->Invocations, 1);
+	EXPECT_EQ(Target->Invocations, 2);
 	const auto OldRequest = Request(Target);
 	MarkObjectHierarchyAsGarbage(Target);
 	EXPECT_EQ(CanExecuteEditorFunction(Context, OldRequest), EEditorFunctionError::InvalidTarget);
@@ -308,7 +288,7 @@ TEST_F(FEditorFunctionTests, GeneratedPrivatePointLightActionSupportsUndoAndNoOp
 	EXPECT_TRUE(NoOp.bInvoked);
 	EXPECT_FALSE(NoOp.bChanged);
 	EXPECT_EQ(NoOp.Error, EEditorFunctionError::None);
-	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
 	const auto* Default = DPointLightComponent::StaticClass()->GetDefaultObject();
 	ASSERT_NE(Default, nullptr);
@@ -339,20 +319,15 @@ TEST_F(FEditorFunctionTests, ActivePropertyEditCommitsBeforeIndependentAction)
 	EXPECT_EQ(Target->Value, 0);
 }
 
-TEST_F(FEditorFunctionTests, CheckedScopeReportsBeforeCaptureFailureWithoutMutation)
+TEST_F(FEditorFunctionTests, DisabledAndMissingEditorScopesRemainInert)
 {
 	Tests::FTestTransactorOwner Buffer;
-	FScopedTransaction Scope;
-	const auto Missing = Scope.BeginChecked(nullptr, {"test", "Missing"});
-	ASSERT_TRUE(Missing.FailureCause);
-	EXPECT_EQ(Missing.FailureCause->Code, ETransactorFailure::MissingTransactor);
-	ASSERT_TRUE(Scope.BeginChecked(Buffer.Get(), {"test", "Before capture"}));
-	const auto AlreadyActive = Scope.BeginChecked(Buffer.Get(), {"test", "Second begin"});
-	ASSERT_TRUE(AlreadyActive.FailureCause);
-	EXPECT_EQ(AlreadyActive.FailureCause->Code, ETransactorFailure::ActiveScope);
-	EXPECT_FALSE(Scope.TryModify(nullptr));
+	FScopedTransaction Missing(nullptr, {"test", "Missing"});
+	EXPECT_FALSE(Missing.IsOutstanding());
+	FScopedTransaction Disabled(Buffer.Get(), {"test", "Disabled"}, false);
+	EXPECT_FALSE(Disabled.IsOutstanding());
+	EXPECT_FALSE(Buffer->IsActive());
 	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
-	EXPECT_EQ(Scope.Cancel().Code, ETransactorResultCode::Discarded);
 }
 
 TEST_F(FEditorFunctionTests, DetailsClickExecutesOnlyAfterAllRowsAndRequestsRefresh)
@@ -448,19 +423,19 @@ TEST_F(FEditorFunctionTests, EffectiveOverrideCanRemoveTheInheritedEditorButton)
 	EXPECT_EQ(Target->Value, 10);
 }
 
-TEST_F(FEditorFunctionTests, RejectedBeforeCaptureBlocksNativeInvocationAndClosesScope)
+TEST_F(FEditorFunctionTests, NonTransactionalTargetStillExecutesNativeAction)
 {
-	TStrongObjectPtr<DRejectCaptureTransactor> Buffer(NewObject<DRejectCaptureTransactor>(nullptr, "RejectActionCapture"));
-	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "BeforeCaptureAction"));
+	Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "UnrecordedAction"));
+	Target->ClearFlags(EObjectFlags::Transactional);
 	FPropertyView View;
 	FPropertyViewContext Context{.Transactor = Buffer.Get()};
 	const auto Result = ExecuteEditorFunction(View, Context, Request(Target));
-	EXPECT_EQ(Result.Error, EEditorFunctionError::History);
-	EXPECT_FALSE(Result.bInvoked);
-	EXPECT_EQ(Target->Invocations, 0);
-	EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle);
-	ASSERT_TRUE(Result.History.CleanupCause);
-	EXPECT_EQ(Result.History.CleanupCause->Code, ETransactorResultCode::Discarded);
+	EXPECT_EQ(Result.Error, EEditorFunctionError::None);
+	EXPECT_TRUE(Result.bInvoked);
+	EXPECT_FALSE(Result.bChanged);
+	EXPECT_EQ(Target->Invocations, 1);
+	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
 }
 
 TEST_F(FEditorFunctionTests, OversizedPropertyEditCompletesBeforeActionAndLatestActionRemainsUndoable)

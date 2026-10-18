@@ -6,6 +6,7 @@
 #include "Asset/PackageSerialization.h"
 #include "Asset/Asset.h"
 #include "DObject/Object.h"
+#include "DObject/DObjectArray.h"
 #include "DObject/Package.h"
 #include "Editor/EditorEngine.h"
 #include "Transactions/Transaction.h"
@@ -127,6 +128,13 @@ namespace Durin::Editor
 	{
 		DocumentHost.RequestFocus(Document.Id);
 		if (!Object) return false;
+		std::vector<DObject*> AuthoredObjects{Object};
+		for (size_t Index = 0; Index < AuthoredObjects.size(); ++Index)
+		{
+			AuthoredObjects[Index]->SetFlags(EObjectFlags::Transactional);
+			for (DObject* Child : GDObjectArray.GetObjectsWithOuter(AuthoredObjects[Index], EObjectQueryScope::LiveOnly))
+				AuthoredObjects.push_back(Child);
+		}
 		if (GEditor)
 		{
 			if (DPackage* Package = Object->GetPackage())

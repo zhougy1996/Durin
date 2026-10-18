@@ -9,7 +9,7 @@ namespace Durin
 		std::set<std::string> Names;
 		for (const auto& Binding : Bindings)
 		{
-			if (!Binding.Handler || !Names.insert(Binding.Descriptor.Name).second) throw std::invalid_argument("Tool bindings require unique names and handlers.");
+			if (static_cast<bool>(Binding.Handler) == static_cast<bool>(Binding.AsyncHandler) || !Names.insert(Binding.Descriptor.Name).second) throw std::invalid_argument("Tool bindings require unique names and handlers.");
 			if (auto Check = ValidateToolDescriptor(Binding.Descriptor); !Check) throw std::invalid_argument(Check.error().Message);
 			Descriptor.Tools.push_back(Binding.Descriptor);
 		}
@@ -28,12 +28,12 @@ namespace Durin
 		if (Request.ContractVersion != Binding->Descriptor.ContractVersion) return {false, {{EToolError::VersionMismatch, "Tool contract version does not match.", {}}}};
 		return Binding->Availability ? Binding->Availability(Request, Context) : FToolAvailability{};
 	}
-	auto FNativeToolset::Call(const FToolRequest& Request, const FToolContext& Context) -> FToolResult
+	auto FNativeToolset::Call(const FToolRequest& Request, const FToolContext& Context) -> FToolFuture
 	{
 		const auto* Binding = Find(Request);
-		if (!Binding) return {EToolStatus::Failed, {}, {{EToolError::ToolUnavailable, "Tool is not owned by this toolset.", {}}}};
+		if (!Binding) return ReadyToolResult({EToolStatus::Failed, {}, {{EToolError::ToolUnavailable, "Tool is not owned by this toolset.", {}}}});
 		if (Request.ContractVersion != Binding->Descriptor.ContractVersion)
-			return {EToolStatus::Failed, {}, {{EToolError::VersionMismatch, "Tool contract version does not match.", {}}}};
-		return Binding->Handler(Request, Context);
+			return ReadyToolResult({EToolStatus::Failed, {}, {{EToolError::VersionMismatch, "Tool contract version does not match.", {}}}});
+		return Binding->AsyncHandler ? Binding->AsyncHandler(Request, Context) : ReadyToolResult(Binding->Handler(Request, Context));
 	}
 }

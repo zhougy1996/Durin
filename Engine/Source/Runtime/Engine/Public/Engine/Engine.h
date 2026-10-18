@@ -9,6 +9,7 @@
 #include "Engine/World.h"
 #include "Engine/EngineSubsystem.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/ObjectTransaction.h"
 
 #include "Engine.gen.h"
 
@@ -91,9 +92,11 @@ namespace Durin
 			ENGINE_API ~FHostOperationScope();
 		private:
 			FGarbageCollectionDeferralScope Deferral;
+			FScopedObjectTransactionBinding RecorderBinding;
 			DEngine& Host;
 			bool bFlushOnExit;
 		};
+		virtual auto GetObjectTransactionRecorder() const -> std::shared_ptr<FObjectTransaction> { return {}; }
 		ENGINE_API virtual auto CloseSubsystemWork() -> void;
 		virtual auto RetireHostConsumers() -> void {}
 		ENGINE_API virtual auto AreHostConsumersIdle() -> bool;

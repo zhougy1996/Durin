@@ -1092,7 +1092,7 @@ TEST(FReflectedPropertyViewTests, DraftRetainsInitializationAndRestoreCausesAcro
 	EXPECT_EQ(Object->Value, 5);
 }
 
-TEST(FReflectedPropertyViewTests, TransactionRecordRetainsMutationCausesAcrossRetry)
+TEST(FReflectedPropertyViewTests, HistoricalRecordsBypassNewEditExtensionValidation)
 {
 	using namespace Durin;
 	using namespace Durin::Editor;
@@ -1127,29 +1127,17 @@ TEST(FReflectedPropertyViewTests, TransactionRecordRetainsMutationCausesAcrossRe
 			if (&Owner != Object || !Reject) return {};
 			return RejectPropertyEdit(Owner, Proposal, EPropertyEditRejection::IncompleteDraft);
 		}});
-	const auto Rejected = Record.Apply(false, EPropertyChangeOrigin::Redo);
-	ASSERT_FALSE(Rejected);
-	EXPECT_EQ(Rejected.error().Code, ETransactionObjectRecordError::Mutation);
-	ASSERT_TRUE(Rejected.error().MutationCause);
-	EXPECT_EQ(Rejected.error().MutationCause->Code, EPropertyMutationError::ExtensionValidation);
-	EXPECT_EQ(Rejected.error().MutationCause->Origin, EPropertyChangeOrigin::Redo);
-	ASSERT_TRUE(Rejected.error().MutationCause->ValidationCause);
-	EXPECT_EQ(Rejected.error().MutationCause->ValidationCause->PropertyReason, EPropertyEditRejection::IncompleteDraft);
-	EXPECT_EQ(Object->Value, 5);
-	FTransaction History(42, {.Description = "Typed property history"});
-	History.AddRecord(Record);
-	const auto HistoryFailure = History.Apply(false, EPropertyChangeOrigin::Redo);
-	ASSERT_FALSE(HistoryFailure);
-	EXPECT_EQ(HistoryFailure.error().Status, ETransactionApplyFailure::Restored);
-	EXPECT_EQ(HistoryFailure.error().RecordIndex, 0u);
-	EXPECT_EQ(HistoryFailure.error().Message, FormatPropertyMutationError(*Rejected.error().MutationCause));
-	EXPECT_EQ(Object->Value, 5);
-	Reject = false;
 	ASSERT_TRUE(Record.Apply(false, EPropertyChangeOrigin::Redo));
 	EXPECT_EQ(Object->Value, 6);
+	FTransaction History(42, {.Description = "Historical property state"});
+	History.AddRecord(Record);
+	ASSERT_TRUE(History.Apply(true, EPropertyChangeOrigin::Undo));
+	EXPECT_EQ(Object->Value, 5);
+	ASSERT_TRUE(History.Apply(false, EPropertyChangeOrigin::Redo));
+	EXPECT_EQ(Object->Value, 6);
+	Reject = false;
 	ASSERT_TRUE(Record.Apply(true, EPropertyChangeOrigin::Undo));
 	EXPECT_EQ(Object->Value, 5);
-	EXPECT_EQ(Rejected.error().MutationCause->ValidationCause->PropertyReason, EPropertyEditRejection::IncompleteDraft);
 	EXPECT_EQ(Invalid.error().Code, ETransactionObjectRecordError::Payload);
 }
 

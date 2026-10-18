@@ -163,6 +163,7 @@ namespace Durin
 		if (!DestinationPackage)
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
 				"The destination package could not be created.");
+		DestinationPackage->SetFlags(EObjectFlags::Transactional);
 		const auto Duplicated = DuplicateObject(
 			SourceAsset, DestinationPackage,
 			FName(DestinationAssetPath.GetAssetName()));

@@ -1,5 +1,11 @@
 #include "PythonRuntime.h"
 #include "Tools/EditorToolService.h"
+#include "Tools/EditorToolSubsystem.h"
+#include "Tools/EditorScriptPump.h"
+#include "Editor/EditorEngine.h"
+#include "Transactions/Transactor.h"
+#include "DObject/WeakObjectPtr.h"
+#include "Threading/RunnableThread.h"
 #include "Misc/Paths.h"
 #include "HAL/PlatformProcess.h"
 #include "HAL/PlatformLibrary.h"
@@ -10,6 +16,9 @@
 #undef _DEBUG
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+#if PY_VERSION_HEX != 0x030d0ff0 || defined(Py_GIL_DISABLED)
+#error Durin embedding requires the CPython 3.13.15 release GIL ABI
+#endif
 #pragma pop_macro("_DEBUG")
 #include "PythonABI.h"
 #endif
@@ -31,6 +40,10 @@ namespace Durin
         auto Terminal(EPythonJobState State) -> bool
         { return State != EPythonJobState::Queued && State != EPythonJobState::Running; }
 
+#if DURIN_WITH_PYTHON
+        struct FPyDelete { auto operator()(PyObject* Object) const -> void { Py_XDECREF(Object); } };
+        using FPy = std::unique_ptr<PyObject, FPyDelete>;
+#endif
         // Owned job data is independent of editor/provider objects.
         struct FJob
         {
@@ -39,12 +52,27 @@ namespace Durin
             std::shared_ptr<FEditorToolService> Endpoint;
             FToolClientContext Client;
             std::string Code, Filename;
-            std::atomic<bool> Cancelled{false};
+            FToolCancellationSource Cancellation;
+            std::shared_ptr<const FSubsystemWorkGate> Gate;
             std::mutex Mutex;
             FPythonJobResult Result;
             bool OutputOverflow = false;
-            std::chrono::steady_clock::time_point Deadline;
-            std::map<uint64, FEditorToolInvocationId> Invocations;
+            std::optional<std::chrono::steady_clock::time_point> Deadline;
+            std::map<uint64, FEditorToolSubmission> Invocations;
+            struct FScope
+            {
+                uint64 Id;
+                std::unique_ptr<Editor::FScopedTransaction> Native;
+                TWeakObjectPtr<DTransactor> Owner;
+            };
+            std::vector<FScope> Scopes;
+#if DURIN_WITH_PYTHON
+            struct FContinuation { FPy Object; uint64 Waiting = 0; };
+            std::deque<FContinuation> Continuations;
+            FPy Globals, Tools, Output;
+            bool Started = false, Cleaning = false, InContinuation = false;
+            uint64 LastPump = 0;
+#endif
         };
     }
 
@@ -52,18 +80,18 @@ namespace Durin
     namespace
     {
         thread_local FJob* CurrentJob = nullptr;
+        thread_local DEditorEngine* CurrentEditor = nullptr;
         PyObject* ToolError = nullptr;
         PyObject* CancelledError = nullptr;
+        PyObject* NotReady = nullptr;
 
-        struct FPyDelete { auto operator()(PyObject* Object) const -> void { Py_XDECREF(Object); } };
-        using FPy = std::unique_ptr<PyObject, FPyDelete>;
         auto Fail(const char* Message) -> PyObject* { PyErr_SetString(PyExc_ValueError, Message); return nullptr; }
         auto CheckCancelled() -> bool
         {
             if (!CurrentJob) { PyErr_SetString(PyExc_RuntimeError, "No active Durin script job."); return true; }
-            if (CurrentJob->Cancelled || CurrentJob->Client.Cancellation.IsCancellationRequested() || std::chrono::steady_clock::now() >= CurrentJob->Deadline)
+            if (CurrentJob->Cancellation.GetToken().IsCancellationRequested() || CurrentJob->Client.Cancellation.IsCancellationRequested() || !CurrentJob->Gate->IsOpen() || (CurrentJob->Deadline && std::chrono::steady_clock::now() >= *CurrentJob->Deadline))
             {
-                CurrentJob->Cancelled = true;
+                CurrentJob->Cancellation.Cancel();
                 PyErr_SetString(CancelledError, "Script cancelled, session closed, or deadline exceeded; effects are not rolled back.");
                 return true;
             }
@@ -224,12 +252,61 @@ namespace Durin
                     if (Descriptor.Name == Tool && (CurrentJob->Source != EToolSource::External || Descriptor.bExposeExternally)) return Descriptor;
             PyErr_SetString(ToolError, "Unknown, unavailable, or unexposed tool."); return {};
         }
+        auto FinishScope(FJob::FScope& Scope, bool Cancel) -> std::string
+        {
+            const bool Outstanding = Scope.Native->IsOutstanding();
+            if (Cancel) Scope.Native->Cancel(); else (void)Scope.Native->End();
+            auto* Owner = Scope.Owner.Get();
+            if (!Outstanding || !Owner) return {};
+            const auto& Result = Owner->GetLastResult();
+            using Editor::ETransactorResultCode;
+            if (Result.Code == ETransactorResultCode::Failed || Result.Code == ETransactorResultCode::RecoveryRequired
+                || Result.Code == ETransactorResultCode::Rejected) return Editor::FormatTransactorResult(Result);
+            return {};
+        }
         auto RequestImpl(PyObject*, PyObject* Args) -> PyObject*
         {
-            if (CheckCancelled()) return nullptr;
             const char* Operation; PyObject* Params;
             if (!PyArg_ParseTuple(Args, "sO!", &Operation, &PyTuple_Type, &Params)) return nullptr;
             const std::string_view Op(Operation);
+            const bool TransactionCleanup = Op == "transaction_end" || Op == "transaction_cancel";
+            const bool Cleanup = TransactionCleanup || (CurrentJob && CurrentJob->Cleaning && (Op == "write" || Op == "owner"));
+            if (!CurrentJob) { PyErr_SetString(PyExc_RuntimeError, "No active Durin script job."); return nullptr; }
+            if (CurrentJob->Cleaning && !Cleanup) { PyErr_SetString(CancelledError, "New work is forbidden during job cleanup."); return nullptr; }
+            if (!Cleanup && CheckCancelled()) return nullptr;
+            if (Op == "transaction_begin")
+            {
+                const char* Description;
+                if (!PyArg_ParseTuple(Params, "s", &Description)) return nullptr;
+                const auto Id = NextIdentity++;
+                auto* Owner = CurrentEditor->GetTransactor();
+                auto Scope = std::make_unique<Editor::FScopedTransaction>(Owner, Editor::FTransactionContext{.Description = Description});
+                if (!Scope->IsOutstanding()) return Fail("The editor rejected transaction recording.");
+                CurrentJob->Scopes.push_back({Id, std::move(Scope), TWeakObjectPtr<DTransactor>(Owner)});
+                return Py_BuildValue("KK", static_cast<unsigned long long>(CurrentJob->Id), static_cast<unsigned long long>(Id));
+            }
+            if (TransactionCleanup)
+            {
+                unsigned long long Owner, Id;
+                if (!PyArg_ParseTuple(Params, "KK", &Owner, &Id)) return nullptr;
+                if (Owner != CurrentJob->Id) return Fail("Transaction belongs to another script job.");
+                const auto It = std::ranges::find(CurrentJob->Scopes, Id, [](const auto& Scope) { return Scope.Id; });
+                if (It != CurrentJob->Scopes.end())
+                {
+                    const auto Error = FinishScope(*It, Op == "transaction_cancel");
+                    CurrentJob->Scopes.erase(It);
+                    if (!Error.empty()) { PyErr_SetString(PyExc_RuntimeError, Error.c_str()); return nullptr; }
+                }
+                Py_RETURN_NONE;
+            }
+            if (Op == "defer")
+            {
+                PyObject* Work;
+                if (!PyArg_ParseTuple(Params, "O", &Work)) return nullptr;
+                if (CurrentJob->Continuations.size() + (CurrentJob->InContinuation ? 1 : 0) >= 256) return Fail("Script continuation budget exceeded.");
+                Py_IncRef(Work); CurrentJob->Continuations.push_back({FPy(Work)});
+                Py_RETURN_NONE;
+            }
             if (Op == "owner")
             {
                 unsigned long long Owner;
@@ -258,7 +335,7 @@ namespace Durin
                             Values.emplace_back(FToolValue::FObject{{"toolset", Set.Descriptor.Name}, {"tool", Tool.Name}, {"version", static_cast<uint64>(Tool.ContractVersion)}, {"description", Tool.Description}});
                 return ToPython(Values);
             }
-            if (Op == "describe" || Op == "submit")
+            if (Op == "describe" || Op == "submit" || Op == "call")
             {
                 const char* Set; const char* Name; PyObject* Input = nullptr; PyObject* Version = Py_None;
                 if (Op == "describe") { if (!PyArg_ParseTuple(Params, "ss", &Set, &Name)) return nullptr; }
@@ -267,7 +344,7 @@ namespace Durin
                 if (Op == "describe") return ToPython(FToolValue::FObject{{"toolset", Set}, {"tool", Name},
                     {"version", static_cast<uint64>(Descriptor->ContractVersion)}, {"description", Descriptor->Description},
                     {"input", SchemaValue(Descriptor->Input)}, {"output", SchemaValue(Descriptor->Output)}});
-                if (CurrentJob->Invocations.size() >= 256) return Fail("Script invocation budget exceeded.");
+                if (Op == "submit" && CurrentJob->Invocations.size() >= 256) return Fail("Script invocation budget exceeded.");
                 if (!PyDict_CheckExact(Input)) return Fail("Tool arguments must be a dict.");
                 FConversion Conversion; auto Value = Conversion.From(Input, &Descriptor->Input); if (!Value) return nullptr;
                 uint32 Contract = Descriptor->ContractVersion;
@@ -279,54 +356,35 @@ namespace Durin
                     if (!V || V > std::numeric_limits<uint32>::max()) return Fail("Version outside uint32 range.");
                     Contract = static_cast<uint32>(V);
                 }
-                auto Submitted = CurrentJob->Endpoint->Submit({{Set, Name}, Contract, std::move(*Value)}, CurrentJob->Source, CurrentJob->Client);
+                auto* Tools = CurrentEditor->GetEditorSubsystem<DEditorToolSubsystem>();
+                if (!Tools) { PyErr_SetString(ToolError, "Editor tools are unavailable."); return nullptr; }
+                FToolRequest Request{{Set, Name}, Contract, std::move(*Value)};
+                if (Op == "call")
+                {
+                    auto Result = Tools->CallNow(Request, CurrentJob->Source, CurrentJob->Client, CurrentJob->Cancellation.GetToken());
+                    if (CheckCancelled()) return nullptr;
+                    return Result.Status == EToolStatus::Succeeded ? ToPython(Result.Data) : RaiseTool(Result.Diagnostics);
+                }
+                auto Submitted = Tools->SubmitNow(Request, CurrentJob->Source, CurrentJob->Client, CurrentJob->Cancellation.GetToken());
                 if (!Submitted) return RaiseTool({Submitted.error()});
-                const uint64 Id = NextIdentity++;
-                CurrentJob->Invocations.emplace(Id, *Submitted);
+                const uint64 Id = Submitted->Id.Sequence;
+                CurrentJob->Invocations.emplace(Id, std::move(*Submitted));
+                if (CheckCancelled()) return nullptr;
                 return Py_BuildValue("KK", static_cast<unsigned long long>(CurrentJob->Id), static_cast<unsigned long long>(Id));
             }
             if (Op == "state" || Op == "cancel" || Op == "result")
             {
-                unsigned long long Owner, Id; double Timeout = 30;
-                if (!PyArg_ParseTuple(Params, "KK|d", &Owner, &Id, &Timeout)) return nullptr;
+                unsigned long long Owner, Id;
+                if (!PyArg_ParseTuple(Params, "KK", &Owner, &Id)) return nullptr;
                 if (Owner != CurrentJob->Id) return Fail("Invocation belongs to another script job/session.");
                 auto It = CurrentJob->Invocations.find(Id);
                 if (It == CurrentJob->Invocations.end()) return Fail("Unknown invocation handle.");
-                if (!std::isfinite(Timeout) || Timeout < 0 || Timeout > 30) return Fail("Timeout must be between 0 and 30 seconds.");
                 if (Op == "cancel")
-                {
-                    auto Result = CurrentJob->Endpoint->Cancel(It->second);
-                    if (!Result) return RaiseTool({Result.error()});
-                    Py_RETURN_NONE;
-                }
-                std::expected<FEditorToolInvocation, FToolDiagnostic> Result = std::unexpected(FToolDiagnostic{});
-                const auto Deadline = std::min(CurrentJob->Deadline, std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(Timeout)));
-                bool TimedOut = false;
-                PyThreadState* Thread = PyEval_SaveThread();
-                try
-                {
-                    do
-                    {
-                        Result = CurrentJob->Endpoint->GetInvocation(It->second);
-                        if (!Result || Result->Result || Op == "state" || CurrentJob->Cancelled || CurrentJob->Client.Cancellation.IsCancellationRequested()) break;
-                        if (std::chrono::steady_clock::now() >= Deadline) { TimedOut = true; break; }
-                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                    } while (true);
-                    if (CurrentJob->Cancelled || CurrentJob->Client.Cancellation.IsCancellationRequested() || TimedOut) (void)CurrentJob->Endpoint->Cancel(It->second);
-                }
-                catch (...) { PyEval_RestoreThread(Thread); throw; }
-                PyEval_RestoreThread(Thread);
-                if (CheckCancelled()) return nullptr;
-                if (TimedOut) { PyErr_SetString(PyExc_TimeoutError, "Tool wait timed out; cancellation requested without rollback guarantee."); return nullptr; }
-                if (!Result) return RaiseTool({Result.error()});
-                if (Op == "state")
-                {
-                    const char* Names[] = {"queued", "running", "completed", "cancelled", "expired"};
-                    return PyUnicode_FromString(Names[static_cast<size_t>(Result->State)]);
-                }
-                if (!Result->Result) { PyErr_SetString(ToolError, "Tool receipt has no final result."); return nullptr; }
-                if (Result->Result->Status != EToolStatus::Succeeded) return RaiseTool(Result->Result->Diagnostics);
-                return ToPython(Result->Result->Data);
+                { (void)CurrentJob->Endpoint->Cancel(It->second.Id); Py_RETURN_NONE; }
+                auto Result = It->second.Future.GetResultShared();
+                if (Op == "state") return PyUnicode_FromString(Result ? "completed" : "running");
+                if (!Result) { PyErr_SetString(NotReady, "Invocation has not completed; yield the handle to wait cooperatively."); return nullptr; }
+                return Result->Status == EToolStatus::Succeeded ? ToPython(Result->Data) : RaiseTool(Result->Diagnostics);
             }
             return Fail("Unknown Durin binding operation.");
         }
@@ -343,9 +401,11 @@ namespace Durin
             FPy Result(PyModule_Create(&Module)); if (!Result) return nullptr;
             ToolError = PyErr_NewException("durin.ToolError", PyExc_RuntimeError, nullptr);
             CancelledError = PyErr_NewException("durin.CancelledError", PyExc_BaseException, nullptr);
-            if (!ToolError || !CancelledError) return nullptr;
+            NotReady = PyErr_NewException("durin.NotReady", PyExc_RuntimeError, nullptr);
+            if (!ToolError || !CancelledError || !NotReady) return nullptr;
             if (PyModule_AddObjectRef(Result.get(), "ToolError", ToolError) < 0 ||
-                PyModule_AddObjectRef(Result.get(), "CancelledError", CancelledError) < 0) return nullptr;
+                PyModule_AddObjectRef(Result.get(), "CancelledError", CancelledError) < 0 ||
+                PyModule_AddObjectRef(Result.get(), "NotReady", NotReady) < 0) return nullptr;
             return Result.release();
         }
         auto PythonError() -> std::string
@@ -363,22 +423,31 @@ namespace Durin
     }
 #endif
 
-    struct FPythonRuntime::FImpl
+    struct FPythonRuntime::FImpl : IEditorScriptPump
     {
         struct FSession { std::shared_ptr<FEditorToolService> Endpoint; EToolSource Source; FToolClientContext Client; };
         mutable std::mutex Mutex;
-        std::condition_variable Wake;
         std::map<uint64, FSession> Sessions;
         std::map<uint64, std::shared_ptr<FJob>> Jobs;
         std::deque<std::shared_ptr<FJob>> Queue;
-        std::thread Worker;
+        bool Executing = false;
+        uint64 PumpSerial = 0;
+        FModularFeatureRegistration Registration;
+#if DURIN_WITH_PYTHON
+        PyThreadState* ThreadState = nullptr;
+        bool OwnsInterpreter = true;
+        auto ReleaseInterpreter() -> void
+        {
+            if (std::exchange(OwnsInterpreter, false)) InterpreterOwned = false;
+        }
+#endif
         bool Stopping = false;
         std::filesystem::path Directory;
+        std::optional<std::chrono::milliseconds> JobDeadline;
 
         auto Cancel(const std::shared_ptr<FJob>& Job) -> void
         {
-            Job->Cancelled = true;
-            // The worker owns the invocation map; its interruptible wait performs native cancellation.
+            Job->Cancellation.Cancel();
             std::lock_guard Lock(Job->Mutex);
             if (Job->Result.State == EPythonJobState::Queued)
             {
@@ -389,56 +458,134 @@ namespace Durin
         // Caller holds Mutex. Client lifetimes are detached cancellation identities, not callbacks.
         auto PruneClients() -> void
         {
-            std::erase_if(Sessions, [](const auto& Entry) { return Entry.second.Client.Cancellation.IsCancellationRequested(); });
+            std::erase_if(Sessions, [](const auto& Entry) { return Entry.second.Client.Cancellation.IsCancellationRequested() || !Entry.second.Endpoint->GetWorkGate()->IsOpen(); });
             for (const auto& [Id, Job] : Jobs)
             {
                 (void)Id;
-                if (!Job->Client.Cancellation.IsCancellationRequested()) continue;
                 bool Active;
                 { std::lock_guard Lock(Job->Mutex); Active = !Terminal(Job->Result.State); }
-                if (Active) Cancel(Job);
+                if (!Active) continue;
+                const bool Expired = Job->Deadline && std::chrono::steady_clock::now() >= *Job->Deadline;
+                if (!Expired && !Job->Client.Cancellation.IsCancellationRequested() && Job->Gate->IsOpen()) continue;
+                if (Expired) { std::lock_guard JobLock(Job->Mutex); if (Job->Result.Error.empty()) Job->Result.Error = "Script deadline exceeded; effects are not rolled back."; }
+                Cancel(Job);
             }
         }
 #if DURIN_WITH_PYTHON
-        auto Execute(FJob& Job) -> void
+        auto AppendError(FJob& Job, std::string Error) -> void
         {
-            CurrentJob = &Job; Job.Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-            FPy Globals(PyDict_New()); FPy Name(PyUnicode_FromString("__main__"));
-            FPy File(PyUnicode_DecodeUTF8(Job.Filename.data(), static_cast<Py_ssize_t>(Job.Filename.size()), "strict"));
-            FPy Sys(PyImport_ImportModule("sys")); FPy Durin(PyImport_ImportModule("durin"));
-            FPy Tools(Durin ? PyObject_CallMethod(Durin.get(), "_Tools", "K", static_cast<unsigned long long>(Job.Id)) : nullptr);
-            FPy Output(Durin ? PyObject_CallMethod(Durin.get(), "_Output", nullptr) : nullptr);
+            std::lock_guard Lock(Job.Mutex);
+            if (!Job.Result.Error.empty()) Job.Result.Error += "\n";
+            Job.Result.Error += Error;
+            if (Job.Result.Error.size() > MaxOutput) Job.Result.Error.resize(Utf8Prefix(Job.Result.Error, MaxOutput));
+        }
+        auto Settled(const FJob& Job) const -> bool
+        {
+            return std::ranges::all_of(Job.Invocations, [](const auto& Entry) { return Entry.second.Future.IsCompleted(); });
+        }
+        auto Runnable(const FJob& Job) const -> bool
+        {
+            if (Job.Cancellation.GetToken().IsCancellationRequested()) return true;
+            if (!Job.Started) return true;
+            if (Job.Continuations.empty()) return Settled(Job);
+            const auto Id = Job.Continuations.front().Waiting;
+            return !Id || Job.Invocations.at(Id).Future.IsCompleted();
+        }
+        auto Step(FJob& Job) -> bool
+        {
+            if (!Job.Started)
+            {
+                Job.Started = true; Job.Globals.reset(PyDict_New());
+                FPy Name(PyUnicode_FromString("__main__"));
+                FPy File(PyUnicode_DecodeUTF8(Job.Filename.data(), static_cast<Py_ssize_t>(Job.Filename.size()), "strict"));
+                if (!Job.Globals || !Name || !File || PyDict_SetItemString(Job.Globals.get(), "__name__", Name.get()) < 0
+                    || PyDict_SetItemString(Job.Globals.get(), "__file__", File.get()) < 0) return false;
+                FPy Source(PyUnicode_DecodeUTF8(Job.Code.data(), static_cast<Py_ssize_t>(Job.Code.size()), "strict"));
+                FPy Code(Source ? Py_CompileString(Job.Code.c_str(), Job.Filename.c_str(), Py_file_input) : nullptr);
+                FPy Result(Code ? PyEval_EvalCode(Code.get(), Job.Globals.get(), Job.Globals.get()) : nullptr);
+                return static_cast<bool>(Result);
+            }
+            if (Job.Continuations.empty()) return true;
+            auto Continuation = std::move(Job.Continuations.front()); Job.Continuations.pop_front();
+            Job.InContinuation = true;
+            struct FStepExit { FJob& Job; ~FStepExit() { Job.InContinuation = false; } } StepExit{Job};
+            auto Failed = [&]() { Job.Continuations.push_front(std::move(Continuation)); return false; };
+            FPy Value, Error;
+            if (Continuation.Waiting)
+            {
+                auto Result = Job.Invocations.at(Continuation.Waiting).Future.GetResultShared();
+                if (!Result) return Failed();
+                if (Result->Status == EToolStatus::Succeeded) Value.reset(ToPython(Result->Data));
+                else { (void)RaiseTool(Result->Diagnostics); Error.reset(PyErr_GetRaisedException()); }
+                if (PyErr_Occurred()) return Failed();
+            }
+            FPy Result(PyObject_CallMethod(Continuation.Object.get(), "step", "OO", Value ? Value.get() : Py_None, Error ? Error.get() : Py_None));
+            int Done = 0; unsigned long long Owner = 0, Id = 0;
+            if (!Result || !PyArg_ParseTuple(Result.get(), "pKK", &Done, &Owner, &Id)) return Failed();
+            if (Id && (Owner != Job.Id || !Job.Invocations.contains(Id))) { Fail("Yielded invocation belongs to another job."); return Failed(); }
+            if (!Done) { Continuation.Waiting = Id; Job.Continuations.push_front(std::move(Continuation)); }
+            return true;
+        }
+        // Every entry binds the full job facade/output/trace context, including close/finally.
+        auto Enter(FJob& Job, bool Cleanup) -> bool
+        {
+            CurrentJob = &Job; Job.Cleaning = Cleanup;
+            FPy Sys(PyImport_ImportModule("sys")), Durin(PyImport_ImportModule("durin"));
             FPy OldOut(Sys ? PyObject_GetAttrString(Sys.get(), "stdout") : nullptr);
             FPy OldErr(Sys ? PyObject_GetAttrString(Sys.get(), "stderr") : nullptr);
-            bool Ready = Globals && Name && File && Sys && Tools && Output && OldOut && OldErr;
-            if (Ready) Ready = PyDict_SetItemString(Globals.get(), "__name__", Name.get()) == 0 &&
-                PyDict_SetItemString(Globals.get(), "__file__", File.get()) == 0 &&
-                PyObject_SetAttrString(Durin.get(), "tools", Tools.get()) == 0 &&
-                PyObject_SetAttrString(Sys.get(), "stdout", Output.get()) == 0 && PyObject_SetAttrString(Sys.get(), "stderr", Output.get()) == 0;
-            FPy Source(Ready ? PyUnicode_DecodeUTF8(Job.Code.data(), static_cast<Py_ssize_t>(Job.Code.size()), "strict") : nullptr);
-            FPy Code(Source ? Py_CompileString(Job.Code.c_str(), Job.Filename.c_str(), Py_file_input) : nullptr);
-            PyEval_SetTrace(Trace, nullptr);
-            FPy Result(Code ? PyEval_EvalCode(Code.get(), Globals.get(), Globals.get()) : nullptr);
-            PyEval_SetTrace(nullptr, nullptr);
-            std::string Error = Result ? "" : PythonError();
+            FPy OldTools(Durin ? PyObject_GetAttrString(Durin.get(), "tools") : nullptr);
+            if (!Job.Tools && Durin) Job.Tools.reset(PyObject_CallMethod(Durin.get(), "_Tools", "K", static_cast<unsigned long long>(Job.Id)));
+            if (!Job.Output && Durin) Job.Output.reset(PyObject_CallMethod(Durin.get(), "_Output", nullptr));
+            bool Ready = Sys && Durin && OldOut && OldErr && OldTools && Job.Tools && Job.Output;
+            if (Ready) Ready = PyObject_SetAttrString(Durin.get(), "tools", Job.Tools.get()) == 0
+                && PyObject_SetAttrString(Sys.get(), "stdout", Job.Output.get()) == 0 && PyObject_SetAttrString(Sys.get(), "stderr", Job.Output.get()) == 0;
+            bool Success = Ready;
+            try
+            {
+                if (Cleanup)
+                {
+                    for (const auto& [Id, Invocation] : Job.Invocations) { (void)Id; (void)Job.Endpoint->Cancel(Invocation.Id); }
+                    while (!Job.Continuations.empty())
+                    {
+                        auto Continuation = std::move(Job.Continuations.front()); Job.Continuations.pop_front();
+                        FPy Closed(PyObject_CallMethod(Continuation.Object.get(), "close", nullptr));
+                        if (!Closed) { AppendError(Job, "Generator cleanup failed: " + PythonError()); Success = false; }
+                    }
+                    Job.Globals.reset();
+                    if (PyGC_Collect() < 0 || PyErr_Occurred()) { AppendError(Job, "Python reference cleanup failed: " + PythonError()); Success = false; }
+                    while (!Job.Scopes.empty())
+                    {
+                        const auto Error = FinishScope(Job.Scopes.back(), false); Job.Scopes.pop_back();
+                        if (!Error.empty()) { AppendError(Job, "Transaction cleanup failed: " + Error); Success = false; }
+                    }
+                }
+                else if (Ready)
+                {
+                    PyEval_SetTrace(Trace, nullptr);
+                    Success = Step(Job);
+                    PyEval_SetTrace(nullptr, nullptr);
+                }
+            }
+            catch (const std::exception& Error) { PyEval_SetTrace(nullptr, nullptr); AppendError(Job, Error.what()); Success = false; }
+            catch (...) { PyEval_SetTrace(nullptr, nullptr); AppendError(Job, "Native continuation failure."); Success = false; }
+            if (!Success && PyErr_Occurred()) AppendError(Job, PythonError());
+            if (Job.OutputOverflow) { AppendError(Job, "Script output exceeded 64 KiB."); Success = false; }
             if (Sys && OldOut) (void)PyObject_SetAttrString(Sys.get(), "stdout", OldOut.get());
             if (Sys && OldErr) (void)PyObject_SetAttrString(Sys.get(), "stderr", OldErr.get());
-            PyErr_Clear();
-            for (const auto& [Id, Invocation] : Job.Invocations)
-            {
-                (void)Id;
-                auto Receipt = Job.Endpoint->GetInvocation(Invocation);
-                if (Receipt && !Receipt->Result) (void)Job.Endpoint->Cancel(Invocation);
-            }
-            {
-                std::lock_guard Lock(Job.Mutex);
-                Job.Result.State = Job.Cancelled ? EPythonJobState::Cancelled : Result && !Job.OutputOverflow ? EPythonJobState::Succeeded : EPythonJobState::Failed;
-                Job.Result.Error = Job.OutputOverflow ? "Script output exceeded 64 KiB." : std::move(Error);
-            }
-            CurrentJob = nullptr;
-            Job.Endpoint.reset(); Job.Invocations.clear(); Job.Code.clear();
+            if (Durin && OldTools) (void)PyObject_SetAttrString(Durin.get(), "tools", OldTools.get());
+            if (Cleanup) { Job.Tools.reset(); Job.Output.reset(); Job.Invocations.clear(); Job.Code.clear(); Job.Started = false; }
+            PyErr_Clear(); Job.Cleaning = false; CurrentJob = nullptr;
+            return Success;
         }
-        auto Run(std::promise<std::string> Initialized) -> void
+        auto Finish(FJob& Job, EPythonJobState Outcome) -> void
+        {
+            if (!Enter(Job, true) && Outcome == EPythonJobState::Succeeded) Outcome = EPythonJobState::Failed;
+            Job.Endpoint.reset();
+            std::lock_guard Lock(Job.Mutex);
+            Job.Result.State = Job.Cancellation.GetToken().IsCancellationRequested() || Job.Client.Cancellation.IsCancellationRequested() || !Job.Gate->IsOpen()
+                ? EPythonJobState::Cancelled : Outcome;
+        }
+        auto Initialize() -> std::string
         {
             static std::once_flag Registration;
             std::call_once(Registration, [] { PyImport_AppendInittab("_durin", InitModule); });
@@ -450,54 +597,100 @@ namespace Durin
             auto Package = (Directory / "durin-python.zip").wstring();
             if (!PyStatus_Exception(Status)) Status = PyWideStringList_Append(&Config.module_search_paths, Package.c_str());
             if (!PyStatus_Exception(Status)) Status = Py_InitializeFromConfig(&Config);
+            const std::string Error = PyStatus_Exception(Status)
+                ? (Status.err_msg ? Status.err_msg : "CPython initialization failed.") : "";
             PyConfig_Clear(&Config);
-            if (PyStatus_Exception(Status))
-            { Initialized.set_value(Status.err_msg ? Status.err_msg : "CPython initialization failed."); return; }
+            if (!Error.empty())
+            {
+                if (Py_IsInitialized()) Py_FinalizeEx();
+                return Error;
+            }
             FPy Durin(PyImport_ImportModule("durin"));
             if (!Durin)
             {
-                Initialized.set_value(PythonError()); Durin.reset();
-                Py_CLEAR(ToolError); Py_CLEAR(CancelledError); Py_FinalizeEx(); return;
+                auto Error = PythonError(); Durin.reset();
+                Py_CLEAR(ToolError); Py_CLEAR(CancelledError); Py_CLEAR(NotReady); Py_FinalizeEx(); return Error;
             }
-            Durin.reset(); Initialized.set_value("");
-            for (;;)
+            Durin.reset(); ThreadState = PyEval_SaveThread(); return {};
+        }
+        auto Finalize() -> void
+        {
+            if (!ThreadState) return;
+            PyEval_RestoreThread(std::exchange(ThreadState, nullptr));
+            CurrentEditor = nullptr;
+            for (auto& [Id, Job] : Jobs)
             {
-                PyThreadState* Thread = PyEval_SaveThread();
-                std::shared_ptr<FJob> Job;
-                bool Exit = false;
-                {
-                    std::unique_lock Lock(Mutex); Wake.wait(Lock, [&] { return Stopping || !Queue.empty(); });
-                    PruneClients();
-                    Exit = Stopping;
-                    if (!Queue.empty()) { Job = Queue.front(); Queue.pop_front(); }
-                }
-                PyEval_RestoreThread(Thread);
-                if (!Job) { if (Exit) break; continue; }
-                {
-                    std::lock_guard Lock(Job->Mutex);
-                    if (Job->Result.State == EPythonJobState::Cancelled) continue;
-                    Job->Result.State = EPythonJobState::Running;
-                }
-                try { Execute(*Job); }
-                catch (const std::exception& Error)
-                {
-                    PyEval_SetTrace(nullptr, nullptr); PyErr_Clear(); CurrentJob = nullptr;
-                    for (const auto& [Id, Invocation] : Job->Invocations) { (void)Id; (void)Job->Endpoint->Cancel(Invocation); }
-                    Job->Endpoint.reset(); Job->Code.clear();
-                    std::lock_guard Lock(Job->Mutex); Job->Result.State = EPythonJobState::Failed; Job->Result.Error = Error.what();
-                }
+                (void)Id;
+                if (Job->Started) { Job->Cancellation.Cancel(); Finish(*Job, EPythonJobState::Cancelled); }
             }
-            Py_CLEAR(ToolError); Py_CLEAR(CancelledError);
-            Py_FinalizeEx();
+            Py_CLEAR(ToolError); Py_CLEAR(CancelledError); Py_CLEAR(NotReady);
+            if (Py_FinalizeEx() < 0) DURIN_ERROR("Python finalization reported cleanup failures.");
+            ReleaseInterpreter();
         }
 #endif
+        auto CloseEndpoint(const std::shared_ptr<FEditorToolService>& Endpoint) -> void override
+        {
+#if DURIN_WITH_PYTHON
+            std::vector<std::shared_ptr<FJob>> Closing;
+            {
+                std::lock_guard Lock(Mutex);
+                for (const auto& [Id, Job] : Jobs) if (Job->Endpoint == Endpoint) { Cancel(Job); Closing.push_back(Job); }
+            }
+            if (Executing || !ThreadState) return;
+            Executing = true; PyEval_RestoreThread(std::exchange(ThreadState, nullptr)); CurrentEditor = nullptr;
+            for (auto& Job : Closing) if (Job->Started) { Finish(*Job, EPythonJobState::Cancelled); std::lock_guard Lock(Mutex); std::erase(Queue, Job); }
+            ThreadState = PyEval_SaveThread(); Executing = false;
+#else
+            (void)Endpoint;
+#endif
+        }
+        auto Pump(DEditorEngine& Editor, const std::shared_ptr<FEditorToolService>& Endpoint) -> void override
+        {
+#if DURIN_WITH_PYTHON
+            if (Executing || !ThreadState) return;
+            Executing = true;
+            PyEval_RestoreThread(std::exchange(ThreadState, nullptr));
+            size_t Remaining;
+            { std::lock_guard Lock(Mutex); PruneClients(); Remaining = Queue.size(); }
+            const auto Start = std::chrono::steady_clock::now();
+            const auto Round = ++PumpSerial;
+            for (size_t Steps = 0; Remaining-- && Steps < 16 && (Steps == 0 || std::chrono::steady_clock::now() - Start < std::chrono::milliseconds(2));)
+            {
+                std::shared_ptr<FJob> Job;
+                {
+                    std::lock_guard Lock(Mutex);
+                    if (Queue.empty()) break;
+                    Job = Queue.front(); Queue.pop_front();
+                    if (Job->LastPump == Round || (Job->Endpoint != Endpoint && !Job->Cancellation.GetToken().IsCancellationRequested()) || !Runnable(*Job))
+                    { Queue.push_back(Job); continue; }
+                    std::lock_guard JobLock(Job->Mutex); Job->Result.State = EPythonJobState::Running;
+                }
+                ++Steps; Job->LastPump = Round; CurrentEditor = Job->Endpoint == Endpoint ? &Editor : nullptr;
+                bool Cancelled = Job->Cancellation.GetToken().IsCancellationRequested();
+                const bool Success = Cancelled ? false : Enter(*Job, false);
+                Cancelled = Job->Cancellation.GetToken().IsCancellationRequested();
+                if (!Success || Cancelled || (Job->Continuations.empty() && Settled(*Job)))
+                    Finish(*Job, Success ? EPythonJobState::Succeeded : EPythonJobState::Failed);
+                else { std::lock_guard Lock(Mutex); Queue.push_back(Job); }
+                CurrentEditor = nullptr;
+            }
+            ThreadState = PyEval_SaveThread(); Executing = false;
+            if (Stopping) Finalize();
+#else
+            (void)Editor; (void)Endpoint;
+#endif
+        }
     };
 
     FPythonRuntime::FPythonRuntime() = default;
-    FPythonRuntime::~FPythonRuntime() { Stop(); }
+    FPythonRuntime::~FPythonRuntime() { require(IsInGameThread()); Stop(); }
     auto FPythonRuntime::Start(const FPythonRuntimeOptions& Options) -> std::expected<void, std::string>
     {
+        if (!IsInGameThread() || FModularFeatureRegistry::Get().IsDispatching())
+            return std::unexpected("Python Start requires a GameThread safe point outside provider dispatch.");
+        if (Options.JobDeadline && Options.JobDeadline->count() <= 0) return std::unexpected("JobDeadline must be positive when set.");
         std::unique_lock LifecycleLock(LifecycleMutex);
+        if (Impl && Impl->Stopping && !Impl->Executing) StopLocked();
         if (Impl) return std::unexpected("Python runtime already started.");
 #if DURIN_WITH_PYTHON
         bool Expected = false;
@@ -508,11 +701,11 @@ namespace Durin
             Directory = std::filesystem::u8path(FPlatformProcess::ExecutablePath()).parent_path();
             if (!std::filesystem::exists(Directory / "python313.zip")) Directory = FPaths::EngineThirdPartyRuntimeBinariesDir();
         }
-        if (!std::filesystem::exists(Directory / "python313.zip") || !std::filesystem::exists(Directory / "python313.dll") ||
+        if (!std::filesystem::exists(Directory / "python313.zip") || !std::filesystem::exists(Directory / DURIN_PYTHON_LIBRARY) ||
             !std::filesystem::exists(Directory / "durin-python.zip"))
         { InterpreterOwned = false; return std::unexpected("Packaged Python runtime is missing; prepare python and rebuild DurinPython."); }
         // Resolve only the qualified DLL; retain it for process lifetime.
-        const auto Library = FPlatformLibrary::Load(Directory / "python313.dll");
+        const auto Library = FPlatformLibrary::Load(Directory / DURIN_PYTHON_LIBRARY);
         if (!Library)
         { InterpreterOwned = false; return std::unexpected(Library.error().ToString()); }
         const auto Symbols = PythonABI::API.Load(*Library);
@@ -520,11 +713,10 @@ namespace Durin
         { InterpreterOwned = false; return std::unexpected(Symbols.error().ToString()); }
         if (Py_IsInitialized())
         { InterpreterOwned = false; return std::unexpected("An existing Python interpreter is not owned by Durin."); }
-        Impl = std::make_unique<FImpl>(); Impl->Directory = std::move(Directory);
-        std::promise<std::string> Initialized; auto Ready = Initialized.get_future();
-        Impl->Worker = std::thread([this, Promise = std::move(Initialized)]() mutable { Impl->Run(std::move(Promise)); });
-        auto Error = Ready.get();
+        Impl = std::make_unique<FImpl>(); Impl->Directory = std::move(Directory); Impl->JobDeadline = Options.JobDeadline;
+        auto Error = Impl->Initialize();
         if (!Error.empty()) { StopLocked(); return std::unexpected(std::move(Error)); }
+        Impl->Registration = FModularFeatureRegistry::Get().RegisterFeature<IEditorScriptPump>(*Impl);
         return {};
 #else
         (void)Options;
@@ -533,6 +725,7 @@ namespace Durin
     }
     auto FPythonRuntime::Stop() noexcept -> void
     {
+        require(IsInGameThread());
         std::unique_lock LifecycleLock(LifecycleMutex);
         StopLocked();
     }
@@ -543,14 +736,18 @@ namespace Durin
             std::lock_guard Lock(Impl->Mutex); Impl->Stopping = true; Impl->Sessions.clear();
             for (const auto& [Id, Job] : Impl->Jobs) { (void)Id; Impl->Cancel(Job); }
         }
-        Impl->Wake.notify_all();
-        if (Impl->Worker.joinable()) Impl->Worker.join();
-        Impl.reset(); InterpreterOwned = false;
+        // Stop called by a native handler only signals cancellation. The pump
+        // finalizes after that handler and the script have actually returned.
+        if (Impl->Executing || FModularFeatureRegistry::Get().IsDispatching()) return;
+#if DURIN_WITH_PYTHON
+        Impl->Finalize(); Impl->ReleaseInterpreter();
+#endif
+        Impl->Registration.Reset(); Impl.reset();
     }
     auto FPythonRuntime::CreateSession(std::shared_ptr<FEditorToolService> Endpoint, EToolSource Source, const FToolClientContext& Client) -> std::expected<uint64, std::string>
     {
         std::shared_lock LifecycleLock(LifecycleMutex);
-        if (!Impl || !Endpoint) return std::unexpected("Python runtime or editor endpoint is unavailable.");
+        if (!Impl || Impl->Stopping || !Endpoint || !Endpoint->GetWorkGate()->IsOpen()) return std::unexpected("Python runtime or editor endpoint is unavailable.");
         std::lock_guard Lock(Impl->Mutex);
         Impl->PruneClients();
         if (Client.Cancellation.IsCancellationRequested()) return std::unexpected("Python client session is closed.");
@@ -563,12 +760,11 @@ namespace Durin
         if (!Impl) return;
         std::lock_guard Lock(Impl->Mutex); Impl->Sessions.erase(Session);
         for (const auto& [Id, Job] : Impl->Jobs) { (void)Id; if (Job->Session == Session) Impl->Cancel(Job); }
-        Impl->Wake.notify_all();
     }
     auto FPythonRuntime::RunString(uint64 Session, std::string Code, std::string Filename) -> std::expected<uint64, std::string>
     {
         std::shared_lock LifecycleLock(LifecycleMutex);
-        if (!Impl) return std::unexpected("Python runtime is unavailable.");
+        if (!Impl || Impl->Stopping) return std::unexpected("Python runtime is unavailable.");
         if (Code.size() > MaxSource || Code.find('\0') != std::string::npos || Filename.size() > 4096 || Filename.find('\0') != std::string::npos)
             return std::unexpected("Script source/filename exceeds limits or contains NUL.");
         std::lock_guard Lock(Impl->Mutex);
@@ -585,10 +781,17 @@ namespace Durin
             Impl->Jobs.erase(Victim);
         }
         auto Job = std::make_shared<FJob>(); Job->Id = NextIdentity++; Job->Session = Session;
-        Job->Endpoint = It->second.Endpoint; Job->Source = It->second.Source;
+        Job->Endpoint = It->second.Endpoint; Job->Gate = Job->Endpoint->GetWorkGate(); Job->Source = It->second.Source;
         Job->Client = It->second.Client;
+        if (Impl->JobDeadline)
+        {
+            const auto Now = std::chrono::steady_clock::now();
+            if (*Impl->JobDeadline > std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::time_point::max() - Now))
+                return std::unexpected("JobDeadline exceeds the clock range.");
+            Job->Deadline = Now + *Impl->JobDeadline;
+        }
         Job->Code = std::move(Code); Job->Filename = std::move(Filename);
-        Impl->Jobs.emplace(Job->Id, Job); Impl->Queue.push_back(Job); Impl->Wake.notify_one(); return Job->Id;
+        Impl->Jobs.emplace(Job->Id, Job); Impl->Queue.push_back(Job); return Job->Id;
     }
     auto FPythonRuntime::RunFile(uint64 Session, const std::filesystem::path& Path) -> std::expected<uint64, std::string>
     {
@@ -615,7 +818,7 @@ namespace Durin
     auto FPythonRuntime::GetJobResult(uint64 Job) const -> std::expected<FPythonJobResult, std::string>
     {
         std::shared_lock LifecycleLock(LifecycleMutex);
-        if (!Impl) return std::unexpected("Python runtime is unavailable.");
+        if (!Impl || Impl->Stopping) return std::unexpected("Python runtime is unavailable.");
         std::lock_guard Lock(Impl->Mutex); Impl->PruneClients(); auto It = Impl->Jobs.find(Job);
         if (It == Impl->Jobs.end()) return std::unexpected("Python job is unknown or expired.");
         std::lock_guard JobLock(It->second->Mutex); return It->second->Result;
@@ -623,10 +826,10 @@ namespace Durin
     auto FPythonRuntime::CancelJob(uint64 Job) -> bool
     {
         std::shared_lock LifecycleLock(LifecycleMutex);
-        if (!Impl) return false;
+        if (!Impl || Impl->Stopping) return false;
         std::lock_guard Lock(Impl->Mutex); auto It = Impl->Jobs.find(Job);
         if (It == Impl->Jobs.end()) return false;
         { std::lock_guard JobLock(It->second->Mutex); if (Terminal(It->second->Result.State)) return false; }
-        Impl->Cancel(It->second); Impl->Wake.notify_all(); return true;
+        Impl->Cancel(It->second); return true;
     }
 }

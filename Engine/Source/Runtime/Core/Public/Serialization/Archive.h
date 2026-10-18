@@ -32,7 +32,8 @@ namespace Durin
 		DerivedDataPayload,
 		CookedPackage,
 		CookedPayload,
-		BulkData
+		BulkData,
+		Transaction
 	};
 
 	// Advertises optional behavior implemented by an archive specialization.
@@ -192,6 +193,7 @@ namespace Durin
 		auto IsFilterEditorOnly() const -> bool { return State.bFilterEditorOnly; }
 		auto IsByteSwapping() const -> bool { return std::endian::native != std::endian::little; }
 		auto GetPurpose() const -> EArchivePurpose { return State.Purpose; }
+		auto IsTransacting() const -> bool { return State.Purpose == EArchivePurpose::Transaction; }
 		auto GetBulkDataPolicy() const -> EArchiveBulkDataPolicy { return State.BulkDataPolicy; }
 		auto GetTarget() const -> const FArchiveTarget& { return State.Target; }
 		auto HasCapability(EArchiveCapability Capability) const -> bool

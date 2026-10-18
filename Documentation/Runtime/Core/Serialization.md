@@ -211,7 +211,7 @@ Struct nested in a fixed array, Array, or Map value cannot bypass the policy.
 The owning container field selects whether its complete value participates;
 container elements do not carry a separate policy.
 
-Purpose selects Discovery, ObjectGraph, Duplicate, PropertySnapshot,
+Purpose selects Discovery, ObjectGraph, Duplicate, PropertySnapshot, Transaction,
 EditableCopy, AuthoredPackage, DerivedDataKey, DerivedDataPayload,
 CookedPackage, CookedPayload, or BulkData. Capabilities describe structured
 fields, bounded raw payloads, canonical Map order, hard and soft references,
@@ -503,6 +503,14 @@ unavailable operations, invalid storage, and copy exceptions are distinct codes.
 No diagnostic-output overload remains. Copy failure context survives detached
 storage cleanup; failed attempts to construct into live storage preserve its
 value. Pending Archive and editor contracts format explicitly at their adapters.
+
+Transaction snapshot capture opts into `EArchivePurpose::Transaction` through
+`CapturePropertyValuePayload(..., true)`. The payload preserves that mode during
+restore, and `FArchive::IsTransacting()` exposes it to serializers. Reflected
+transaction fields include Transient and exclude NonTransactional/Deprecated;
+ordinary snapshots retain their existing policy. Struct restore seeds omitted
+transaction fields from their current values. Hard-reference tables include the
+serialized transaction fields, so excluded fields do not acquire history retention.
 
 Property snapshot capture/restore APIs return `std::expected<void, FPropertySnapshotError>`, with
 owned validation context, operation and array indices, exact reference-table

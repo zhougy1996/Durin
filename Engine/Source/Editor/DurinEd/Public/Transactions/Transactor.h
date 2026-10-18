@@ -5,6 +5,8 @@
 #include "DurinEdAPI.h"
 #include "AssetRegistry/ContentChanges.h"
 #include "DObject/Object.h"
+#include "DObject/ObjectTransaction.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Transactions/Transaction.h"
 #include "Transactions/TransactionObjectRecord.h"
 #include "Transactions/TransactionRecord.h"
@@ -12,11 +14,12 @@
 
 #include "Transactor.gen.h"
 
-namespace Durin { class DTransBuffer; }
+namespace Durin { class DTransactor; class DTransBuffer; }
 
 namespace Durin::Editor
 {
-	using FTransactionScopeId = uint64;
+
+	class FPropertyEditSession;
 
 	// Describes one producing tool and the optional primary participant for a transaction.
 	struct FTransactionContext
@@ -31,7 +34,6 @@ namespace Durin::Editor
 	{
 		Idle,
 		Recording,
-		Executing,
 		Undoing,
 		Redoing,
 		Destroying,
@@ -77,10 +79,10 @@ namespace Durin::Editor
 
 	enum class ETransactorRejectionReason : uint8
 	{
-		BeginState, RecordScope, RecordOrder, ExecuteState, MissingCustom,
-		UpdateScope, UpdateOrder, MissingRecord, CloseScope, CloseOrder, UndoState,
-		UndoHead, RedoState, RedoHead, ResetState, CompletionIdentity,
-		ModuleName, ModulePending, ModuleRecording
+		BeginState, RecordScope, ExecuteState, MissingCustom,
+		UpdateScope, MissingRecord, UndoState,
+		UndoHead, RedoState, RedoHead, ResetState,
+		ModuleName, ModuleState
 	};
 	struct FTransactorRejection
 	{
@@ -88,7 +90,7 @@ namespace Durin::Editor
 		ETransactorState State = ETransactorState::Idle;
 		uint64 RequestedId = 0;
 		FTransactionId PendingId = 0;
-		FTransactionScopeId ScopeId = 0;
+
 		FTransactionId UndoHead = 0;
 		FTransactionId RedoHead = 0;
 		size_t HistoryCount = 0;
@@ -97,48 +99,33 @@ namespace Durin::Editor
 	};
 	DURINED_API auto FormatTransactorRejection(const FTransactorRejection& Rejection) -> std::string;
 
-	enum class ETransactorFailure : uint8
-	{
-		Unsupported, InactiveModify, InvalidObject, InactiveRecord, InactiveUpdate,
-		CaptureBefore, PrepareRecord, ExpiredObject, CaptureAfter, FinalizeRecord,
-		EntryAccounting, RetainedAccounting,
-		ModuleAccounting, MissingTransactor, ActiveScope
-	};
+	enum class ETransactorFailure : uint8 { Unsupported, EntryAccounting, RetainedAccounting, ModuleAccounting };
 	struct FTransactorFailure
 	{
 		ETransactorFailure Code = ETransactorFailure::Unsupported;
-		FObjectKey Owner;
-		std::string Member;
 		std::string Module;
-		uint32 ArrayIndex = 0;
 		size_t Actual = 0;
-		size_t Limit = 0;
-		size_t Index = 0;
-		std::optional<FPropertySnapshotError> SnapshotCause;
-		std::optional<FTransactionObjectRecordError> RecordCause;
 	};
 
-	enum class ETransactorNotice : uint8 { None, NoMembers, InactiveScope, NothingUndo, NothingRedo, ModuleDrain };
+	enum class ETransactorNotice : uint8 { None, NothingUndo, NothingRedo, ModuleDrain };
 
 	struct [[nodiscard]] FTransactorResult
 	{
 		ETransactorResultCode Code = ETransactorResultCode::Rejected;
 		FTransactionId TransactionId = 0;
-		FTransactionScopeId ScopeId = 0;
-		uint64 RecordId = 0;
+
 		ETransactorNotice Notice = ETransactorNotice::None;
 		size_t NoticeCount = 0;
 		std::shared_ptr<const FTransactionApplyError> ApplyCause;
 		std::optional<FTransactorRejection> RejectionCause;
 		std::optional<FTransactorFailure> FailureCause;
-		std::shared_ptr<const FTransactorResult> CleanupCause;
-		std::shared_ptr<const FTransactorResult> PreparationCause;
 
 		auto IsSuccess() const -> bool { return Code == ETransactorResultCode::Succeeded; }
 		explicit operator bool() const { return IsSuccess(); }
 	};
 
 	DURINED_API auto FormatTransactorResult(const FTransactorResult& Result) -> std::string;
+	DURINED_API auto ApplyEditorChange(DTransactor& Transactor, std::unique_ptr<FCommandChange> Change) -> FTransactorResult;
 
 	struct FTransactionPackageRevisionTransition
 	{
@@ -155,19 +142,17 @@ namespace Durin::Editor
 	public:
 		explicit FTransactionRecord(FTransactionObjectRecord Record)
 			: Data(std::move(Record)) {}
-		explicit FTransactionRecord(std::unique_ptr<ITransactionCustomChange> Change)
-			: Data(std::move(Change)) {}
+		explicit FTransactionRecord(std::unique_ptr<FCommandChange> Change, DObject* Object = nullptr)
+			: Data(std::move(Change)), CustomObject(Object) {}
 
 		DURINED_API auto Validate() const -> FTransactionRecordResult;
+		DURINED_API auto CaptureAfter() -> FTransactionRecordResult;
 		auto IsNoOp() const -> bool;
 		DURINED_API auto Apply(
 			bool bBefore,
 			EPropertyChangeOrigin Origin, bool* OutRecoveryRequired = nullptr) -> FTransactionRecordResult;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
-		DURINED_API auto IsDeferredOperationPending() const -> bool;
-		DURINED_API auto SetDeferredOperationCompletion(
-			FTransactionDeferredCompletion Completion) -> void;
 		DURINED_API auto GetDetails(ETransactionOperation Operation) const -> std::string;
 		DURINED_API auto GetAffectedPackages() const -> std::span<DPackage* const>;
 		DURINED_API auto MutatesMountedContent() const -> bool;
@@ -175,8 +160,10 @@ namespace Durin::Editor
 		DURINED_API auto GetObjectTarget() const -> DObject*;
 
 	private:
+		friend class FTransaction;
 		std::variant<FTransactionObjectRecord,
-			std::unique_ptr<ITransactionCustomChange>> Data;
+			std::unique_ptr<FCommandChange>> Data;
+		FPersistentObjectRef CustomObject;
 	};
 
 	// Owns one immutable candidate or retained transaction and all of its record data.
@@ -194,10 +181,11 @@ namespace Durin::Editor
 		auto GetContext() const -> const FTransactionContext& { return Context; }
 		auto GetRecordCount() const -> size_t { return Records.size(); }
 		DURINED_API auto AddRecord(FTransactionObjectRecord Record) -> uint64;
-		DURINED_API auto AddRecord(std::unique_ptr<ITransactionCustomChange> Change) -> uint64;
+		DURINED_API auto AddRecord(std::unique_ptr<FCommandChange> Change, DObject* Object = nullptr) -> uint64;
 		DURINED_API auto UpdateRecord(uint64 RecordId, FTransactionObjectRecord Record) -> bool;
-		DURINED_API auto TruncateRecords(size_t Count) -> void;
 		DURINED_API auto RemoveNoOpRecords() -> void;
+		DURINED_API auto SaveObject(DObject* Object) -> FTransactionRecordResult;
+		DURINED_API auto FinalizeObjects() -> FTransactionRecordResult;
 		DURINED_API auto Validate() const -> FTransactionApplyResult;
 		DURINED_API auto Apply(
 			bool bUndo,
@@ -205,11 +193,9 @@ namespace Durin::Editor
 		) -> FTransactionApplyResult;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		DURINED_API auto TryGetOwnedSize(size_t& OutBytes) const -> bool;
-		DURINED_API auto IsDeferredOperationPending() const -> bool;
-		DURINED_API auto SetDeferredOperationCompletion(
-			FTransactionDeferredCompletion Completion) -> void;
 		DURINED_API auto GetDetails(ETransactionOperation Operation) const -> std::string;
 		DURINED_API auto GetAffectedPackages() const -> std::vector<DPackage*>;
+		DURINED_API auto GetTransactionObjects() const -> std::vector<DObject*>;
 		DURINED_API auto MutatesMountedContent() const -> bool;
 		DURINED_API auto IsOwnedByModule(std::string_view ModuleName) const -> bool;
 		auto GetPackageTransitions() const
@@ -227,6 +213,8 @@ namespace Durin::Editor
 		FTransactionId Id = 0;
 		FTransactionContext Context;
 		std::vector<FTransactionRecord> Records;
+		std::vector<FPersistentObjectRef> CapturedObjects;
+		std::vector<uint64> CapturedRecordIds;
 		std::vector<FTransactionPackageRevisionTransition> PackageTransitions;
 	};
 }
@@ -243,55 +231,45 @@ namespace Durin
 		GENERATED_BODY()
 
 	public:
-		DURINED_API virtual auto Begin(const Editor::FTransactionContext& Context)
-			-> Editor::FTransactorResult;
-		DURINED_API virtual auto Record(
-			Editor::FTransactionScopeId ScopeId,
-			Editor::FTransactionObjectRecord Record)
-			-> Editor::FTransactorResult;
-		DURINED_API virtual auto Execute(
-			std::unique_ptr<Editor::ITransactionCustomChange> Change,
-			bool bAlreadyApplied = false) -> Editor::FTransactorResult;
-		[[nodiscard]] DURINED_API virtual auto CommitApplied(
-			std::unique_ptr<Editor::ITransactionCustomChange> Change)
-			-> Editor::FTransactorResult;
-		DURINED_API virtual auto UpdateRecord(
-			Editor::FTransactionScopeId ScopeId,
-			uint64 RecordId,
-			Editor::FTransactionObjectRecord Record) -> Editor::FTransactorResult;
-		DURINED_API virtual auto End(Editor::FTransactionScopeId ScopeId)
-			-> Editor::FTransactorResult;
-		DURINED_API virtual auto Cancel(Editor::FTransactionScopeId ScopeId)
-			-> Editor::FTransactorResult;
-		DURINED_API virtual auto Undo() -> Editor::FTransactorResult;
-		DURINED_API virtual auto Undo(Editor::FTransactionId ExpectedId)
-			-> Editor::FTransactorResult;
-		DURINED_API virtual auto Redo() -> Editor::FTransactorResult;
-		DURINED_API virtual auto Redo(Editor::FTransactionId ExpectedId)
-			-> Editor::FTransactorResult;
-		DURINED_API virtual auto Reset() -> Editor::FTransactorResult;
-		DURINED_API virtual auto SetTransactionCompletion(
-			Editor::FTransactionId TransactionId,
-			Editor::FTransactionDeferredCompletion Completion) -> Editor::FTransactorResult;
-		DURINED_API virtual auto IsTransactionPending(
-			Editor::FTransactionId TransactionId) const -> bool;
+		DURINED_API virtual auto Begin(std::string_view Context, std::string_view Description) -> int32;
+		DURINED_API virtual auto End() -> int32;
+		DURINED_API virtual auto Cancel(int32 StartIndex = 0) -> void;
+		DURINED_API virtual auto IsActive() const -> bool;
+		// Internal scope validity; zero means no supported live recording.
+		virtual auto GetRecordingId() const -> Editor::FTransactionId { return 0; }
+		auto GetObjectTransactionRecorder() const -> std::shared_ptr<FObjectTransaction> { return Recorder; }
+		DURINED_API auto BeginDestroy() -> void override;
+		DURINED_API virtual auto SaveObject(DObject* Object) -> bool;
+		DURINED_API virtual auto StoreUndo(DObject* Object, std::unique_ptr<Editor::FCommandChange> Change) -> Editor::FTransactorResult;
+		auto StoreUndo(std::unique_ptr<Editor::FCommandChange> Change) -> Editor::FTransactorResult
+		{ return StoreUndo(nullptr, std::move(Change)); }
+		DURINED_API virtual auto Undo(bool bCanRedo = true) -> bool;
+		DURINED_API virtual auto UndoExpected(Editor::FTransactionId ExpectedId) -> Editor::FTransactorResult;
+		DURINED_API virtual auto Redo() -> bool;
+		DURINED_API virtual auto RedoExpected(Editor::FTransactionId ExpectedId) -> Editor::FTransactorResult;
+		DURINED_API virtual auto Reset(std::string_view Reason = {}) -> Editor::FTransactorResult;
+		DURINED_API virtual auto CanTransact() const -> bool;
+		DURINED_API virtual auto SetPrimaryUndoObject(DObject* Object) -> void;
+		auto GetLastResult() const -> const Editor::FTransactorResult& { return LastResult; }
 		DURINED_API virtual auto GetTransactionDetails(
 			Editor::FTransactionId TransactionId,
 			Editor::ETransactionOperation Operation) const -> std::string;
 		DURINED_API virtual auto DiscardCustomChangesByModule(std::string_view ModuleName)
 			-> Editor::FTransactorResult;
-		DURINED_API virtual auto CanUndo() const -> bool;
-		DURINED_API virtual auto CanRedo() const -> bool;
-		DURINED_API virtual auto HasPendingOperation() const -> bool;
-		// Admission for independent UI commands, rather than nested recording scopes.
-		DURINED_API virtual auto CanBeginStandaloneTransaction() const -> bool;
-		DURINED_API virtual auto CanExecuteSynchronousChange() const -> bool;
+		DURINED_API virtual auto CanUndo(std::string* Reason = nullptr) const -> bool;
+		DURINED_API virtual auto CanRedo(std::string* Reason = nullptr) const -> bool;
 		DURINED_API virtual auto GetUndoId() const -> Editor::FTransactionId;
 		DURINED_API virtual auto GetRedoId() const -> Editor::FTransactionId;
 		DURINED_API virtual auto GetUndoDescription() const -> std::string_view;
 		DURINED_API virtual auto GetRedoDescription() const -> std::string_view;
-		DURINED_API virtual auto ConsumeEvents()
-			-> std::vector<Editor::FTransactionEvent>;
+		using FTransactionListener = std::function<void(const Editor::FTransactionEvent&)>;
+		DURINED_API auto AddTransactionListener(FTransactionListener Listener) -> uint64;
+		DURINED_API auto RemoveTransactionListener(uint64 Handle) -> void;
+		DURINED_API virtual auto DispatchEvents() -> void;
+		DURINED_API virtual auto GetQueueLength() const -> size_t;
+		DURINED_API virtual auto GetTransaction(size_t Index) const -> const Editor::FTransaction*;
+		DURINED_API auto GetUndoContext() const -> Editor::FTransactionContext;
+		DURINED_API auto GetRedoContext() const -> Editor::FTransactionContext;
 		DURINED_API virtual auto GetMountedContentMutationRevision() const -> uint64;
 		DURINED_API virtual auto NotifyMountedContentMutation() -> void;
 		DURINED_API virtual auto NotifyMountedContentMutation(FContentChangeBatch Changes) -> void;
@@ -305,6 +283,17 @@ namespace Durin
 
 	protected:
 		DURINED_API explicit DTransactor(const FObjectInitializer& ObjectInitializer);
+		Editor::FTransactorResult LastResult;
+		std::shared_ptr<FObjectTransaction> Recorder;
+		std::map<uint64, FTransactionListener> Listeners;
+		uint64 NextListener = 1;
+	private:
+		friend auto Editor::ApplyEditorChange(DTransactor&, std::unique_ptr<Editor::FCommandChange>) -> Editor::FTransactorResult;
+		DURINED_API virtual auto ReportChangeFailure(std::unique_ptr<Editor::FCommandChange> Change, Editor::FCommandChangeError Error) -> Editor::FTransactorResult;
+		friend class Editor::FPropertyEditSession;
+		friend struct FTransBufferTestAccess;
+		DURINED_API virtual auto Record(Editor::FTransactionObjectRecord Record) -> std::expected<uint64, Editor::FTransactorResult>;
+		DURINED_API virtual auto UpdateRecord(uint64 RecordId, Editor::FTransactionObjectRecord Record) -> Editor::FTransactorResult;
 	};
 
 	// Owns bounded transaction data, structural history position, and GC-visible references.
@@ -315,44 +304,31 @@ namespace Durin
 
 	public:
 		DURINED_API explicit DTransBuffer(const FObjectInitializer& ObjectInitializer);
-		DURINED_API auto Begin(const Editor::FTransactionContext& Context)
-			-> Editor::FTransactorResult override;
-		DURINED_API auto Record(
-			Editor::FTransactionScopeId ScopeId,
-			Editor::FTransactionObjectRecord Record)
-			-> Editor::FTransactorResult override;
-		DURINED_API auto Execute(
-			std::unique_ptr<Editor::ITransactionCustomChange> Change,
-			bool bAlreadyApplied = false) -> Editor::FTransactorResult override;
-		DURINED_API auto UpdateRecord(
-			Editor::FTransactionScopeId ScopeId,
-			uint64 RecordId,
-			Editor::FTransactionObjectRecord Record) -> Editor::FTransactorResult override;
-		DURINED_API auto End(Editor::FTransactionScopeId ScopeId)
-			-> Editor::FTransactorResult override;
-		DURINED_API auto Cancel(Editor::FTransactionScopeId ScopeId)
-			-> Editor::FTransactorResult override;
-		DURINED_API auto Undo() -> Editor::FTransactorResult override;
-		DURINED_API auto Undo(Editor::FTransactionId ExpectedId)
-			-> Editor::FTransactorResult override;
-		DURINED_API auto Redo() -> Editor::FTransactorResult override;
-		DURINED_API auto Redo(Editor::FTransactionId ExpectedId)
-			-> Editor::FTransactorResult override;
-		DURINED_API auto Reset() -> Editor::FTransactorResult override;
-		DURINED_API auto SetTransactionCompletion(
-			Editor::FTransactionId TransactionId,
-			Editor::FTransactionDeferredCompletion Completion) -> Editor::FTransactorResult override;
-		DURINED_API auto IsTransactionPending(
-			Editor::FTransactionId TransactionId) const -> bool override;
+		DURINED_API auto Begin(std::string_view Context, std::string_view Description) -> int32 override;
+		DURINED_API auto End() -> int32 override;
+		DURINED_API auto Cancel(int32 StartIndex = 0) -> void override;
+		auto IsActive() const -> bool override { return ActiveCount != 0; }
+		auto GetRecordingId() const -> Editor::FTransactionId override { return ActiveCount && Pending ? Pending->GetId() : 0; }
+		DURINED_API auto SaveObject(DObject* Object) -> bool override;
+		DURINED_API auto StoreUndo(DObject* Object, std::unique_ptr<Editor::FCommandChange> Change) -> Editor::FTransactorResult override;
+		using DTransactor::StoreUndo;
+		DURINED_API auto Undo(bool bCanRedo = true) -> bool override;
+		DURINED_API auto UndoExpected(Editor::FTransactionId ExpectedId) -> Editor::FTransactorResult override;
+		DURINED_API auto Redo() -> bool override;
+		DURINED_API auto RedoExpected(Editor::FTransactionId ExpectedId) -> Editor::FTransactorResult override;
+		DURINED_API auto Reset(std::string_view Reason = {}) -> Editor::FTransactorResult override;
+		auto CanTransact() const -> bool override { return State == Editor::ETransactorState::Idle || State == Editor::ETransactorState::Recording; }
+		DURINED_API auto SetPrimaryUndoObject(DObject* Object) -> void override;
 		DURINED_API auto GetTransactionDetails(
 			Editor::FTransactionId TransactionId,
 			Editor::ETransactionOperation Operation) const -> std::string override;
 		DURINED_API auto DiscardCustomChangesByModule(std::string_view ModuleName)
 			-> Editor::FTransactorResult override;
-		DURINED_API auto CanUndo() const -> bool override;
-		DURINED_API auto CanRedo() const -> bool override;
-		DURINED_API auto HasPendingOperation() const -> bool override;
-		DURINED_API auto ConsumeEvents() -> std::vector<Editor::FTransactionEvent> override;
+		DURINED_API auto CanUndo(std::string* Reason = nullptr) const -> bool override;
+		DURINED_API auto CanRedo(std::string* Reason = nullptr) const -> bool override;
+		DURINED_API auto DispatchEvents() -> void override;
+		auto GetQueueLength() const -> size_t override { return History.size(); }
+		auto GetTransaction(size_t Index) const -> const Editor::FTransaction* override { return Index < History.size() ? &History[Index] : nullptr; }
 		DURINED_API auto GetMountedContentMutationRevision() const -> uint64 override;
 		DURINED_API auto NotifyMountedContentMutation() -> void override;
 		DURINED_API auto NotifyMountedContentMutation(FContentChangeBatch Changes) -> void override;
@@ -367,10 +343,6 @@ namespace Durin
 		DURINED_API auto BeginDestroy() -> void override;
 
 		auto GetState() const -> Editor::ETransactorState { return State; }
-		auto CanBeginStandaloneTransaction() const -> bool override { return State == Editor::ETransactorState::Idle; }
-		auto CanExecuteSynchronousChange() const -> bool override
-		{ return State == Editor::ETransactorState::Idle
-			|| (State == Editor::ETransactorState::Recording && !Savepoints.empty()); }
 		auto GetMemoryBudget() const -> size_t { return MemoryBudget; }
 		auto GetHistoryCount() const -> size_t { return History.size(); }
 		auto GetUndoCount() const -> size_t { return Cursor; }
@@ -383,34 +355,26 @@ namespace Durin
 
 	private:
 		friend class FTransactorReloadParticipant;
-		struct FSavepoint
-		{
-			Editor::FTransactionScopeId ScopeId = 0;
-			size_t RecordCount = 0;
-			size_t OwnedBytes = 0;
-		};
+		DURINED_API auto ReportChangeFailure(std::unique_ptr<Editor::FCommandChange> Change, Editor::FCommandChangeError Error) -> Editor::FTransactorResult override;
 
+		DURINED_API auto Record(Editor::FTransactionObjectRecord Record) -> std::expected<uint64, Editor::FTransactorResult> override;
+		DURINED_API auto UpdateRecord(uint64 RecordId, Editor::FTransactionObjectRecord Record) -> Editor::FTransactorResult override;
+		auto ReleaseRecording() -> void;
 		struct FTrackedPackageState
 		{
 			Editor::FPersistentObjectRef Package;
 			Editor::FRevisionId CurrentRevision = 0;
 			Editor::FRevisionId SavedRevision = 0;
 			bool bCheckpointValid = false;
+			uint64 ObservedEditRevision = 0;
 		};
 
+		auto RefreshOutsideEdits() -> void;
 		auto HandleApplyFailure(const Editor::FTransaction& Transaction, Editor::FTransactionApplyError Error) -> Editor::FTransactorResult;
 		auto CheckThread() const -> void;
 		auto Reject(Editor::ETransactorRejectionReason Reason, uint64 RequestedId = 0,
 			std::string_view ModuleName = {}) const -> Editor::FTransactorResult;
-		auto CloseScope(Editor::FTransactionScopeId ScopeId, bool bCancel)
-			-> Editor::FTransactorResult;
-		auto FinalizePending(bool bRevertOnFailure = false) -> Editor::FTransactorResult;
-		auto ExecuteInRecording(std::unique_ptr<Editor::ITransactionCustomChange> Change, bool bAlreadyApplied)
-			-> Editor::FTransactorResult;
-		auto CompleteDeferredOperation(
-			Editor::ETransactionOperation Operation,
-			Editor::FTransactionId TransactionId,
-			Editor::FTransactionCompletionResult Result) -> void;
+		auto FinalizePending() -> Editor::FTransactorResult;
 		auto FindTransaction(Editor::FTransactionId TransactionId)
 			-> Editor::FTransaction*;
 		auto FindTransaction(Editor::FTransactionId TransactionId) const
@@ -432,17 +396,13 @@ namespace Durin
 		size_t MemoryBudget = 64u * 1024u * 1024u;
 		Editor::ETransactorState State = Editor::ETransactorState::Idle;
 		Editor::FTransactionId NextTransactionId = 1;
-		Editor::FTransactionScopeId NextScopeId = 1;
+		int32 ActiveCount = 0;
+		std::string ResetReason;
 		std::optional<Editor::FTransaction> Pending;
-		std::vector<FSavepoint> Savepoints;
 		std::vector<Editor::FTransaction> History;
 		size_t Cursor = 0;
 		size_t OwnedBytes = 0;
 		std::vector<Editor::FTransactionEvent> Events;
-		Editor::FTransactionId PendingTransactionId = 0;
-		Editor::ETransactionOperation PendingOperation =
-			Editor::ETransactionOperation::Execute;
-		Editor::FTransactionDeferredCompletion TransactionCompletion;
 		Editor::FRevisionId NextRevision = 1;
 		uint64 MountedContentMutationRevision = 1;
 		FContentChangeJournal MountedContentChanges;
@@ -460,44 +420,24 @@ namespace Durin
 
 namespace Durin::Editor
 {
-	// Move-only RAII boundary with automatic reflected-object before/after recording.
+	// Delineates one level of the current editor recording transaction.
 	class FScopedTransaction
 	{
 	public:
-		DURINED_API FScopedTransaction();
-		[[nodiscard]] DURINED_API auto BeginChecked(DTransactor* InTransactor, FTransactionContext Context) -> FTransactorResult;
-		[[nodiscard]] DURINED_API auto TryModify(DObject* Object) -> FTransactorResult;
-		// Uses the editor's active transactor. An absent editor leaves the scope inactive.
-		DURINED_API explicit FScopedTransaction(std::string_view Description);
-		DURINED_API FScopedTransaction(DTransactor* Transactor, FTransactionContext Context);
+		DURINED_API explicit FScopedTransaction(std::string_view Description, bool bShouldActuallyTransact = true);
+		DURINED_API FScopedTransaction(std::string_view Context, std::string_view Description, DObject* PrimaryObject, bool bShouldActuallyTransact = true);
+		DURINED_API FScopedTransaction(DTransactor* Transactor, FTransactionContext Context, bool bShouldActuallyTransact = true);
 		DURINED_API ~FScopedTransaction();
 		FScopedTransaction(const FScopedTransaction&) = delete;
 		auto operator=(const FScopedTransaction&) -> FScopedTransaction& = delete;
 		DURINED_API FScopedTransaction(FScopedTransaction&& Other) noexcept;
-		DURINED_API auto operator=(FScopedTransaction&& Other) noexcept
-			-> FScopedTransaction&;
-		// Best-effort captures reflected members before mutation and their final values
-		// at scope end. Repeated calls are idempotent, and recording failure does not
-		// prevent the caller's mutation.
-		DURINED_API auto Modify(DObject* Object) -> void;
-		auto Modify(DObject& Object) -> void { Modify(&Object); }
-		// Advanced property-editing entry points keep records bound to this exact scope.
-		[[nodiscard]] DURINED_API auto Record(FTransactionObjectRecord Record)
-			-> FTransactorResult;
-		[[nodiscard]] DURINED_API auto UpdateRecord(
-			uint64 RecordId,
-			FTransactionObjectRecord Record) -> FTransactorResult;
-		DURINED_API auto End() -> FTransactorResult;
-		DURINED_API auto Cancel() -> FTransactorResult;
-		auto IsActive() const -> bool { return Transactor != nullptr && ScopeId != 0; }
-
+		DURINED_API auto operator=(FScopedTransaction&& Other) noexcept -> FScopedTransaction&;
+		DURINED_API auto End() -> int32;
+		DURINED_API auto Cancel() -> void;
+		DURINED_API auto IsOutstanding() const -> bool;
 	private:
-		struct FModifiedProperty;
-		auto CaptureModifiedObject(DObject* Object) -> FTransactorResult;
-		auto PrepareModifiedRecords() -> FTransactorResult;
-
-		DTransactor* Transactor = nullptr;
-		FTransactionScopeId ScopeId = 0;
-		std::vector<std::unique_ptr<FModifiedProperty>> ModifiedProperties;
+		TStrongObjectPtr<DTransactor> Transactor;
+		FTransactionId RecordingId = 0;
+		int32 StartIndex = -1;
 	};
 }

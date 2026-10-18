@@ -14,7 +14,7 @@ namespace Durin::Editor
 	struct FPropertyMutationError;
 	enum class ETransactionObjectRecordError : uint8
 	{
-		None, Target, SnapshotRoot, Payload, Member, Path, Draft, Mutation, Deferred
+		None, Target, SnapshotRoot, Payload, Member, Path, Draft, Mutation
 	};
 	struct FTransactionObjectRecordError
 	{
@@ -53,7 +53,7 @@ namespace Durin::Editor
 		DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
 	};
 
-	// Stores executable before/after property data while delegating application to the validated editor pipeline.
+	// Stores stable before/after member data for historical restore.
 	class FTransactionObjectRecord
 	{
 	public:
@@ -64,6 +64,7 @@ namespace Durin::Editor
 
 		auto IsNoOp() const -> bool { return Before == After; }
 		DURINED_API auto Validate() const -> std::expected<void, FTransactionObjectRecordError>;
+		DURINED_API auto CaptureAfter() -> std::expected<void, FTransactionObjectRecordError>;
 		DURINED_API auto Apply(
 			bool bBefore,
 			EPropertyChangeOrigin Origin) const -> std::expected<void, FTransactionObjectRecordError>;
@@ -75,6 +76,7 @@ namespace Durin::Editor
 		auto GetAfter() const -> const FPropertyValueSnapshotPayload& { return After; }
 
 	private:
+		friend class FTransaction;
 		auto BuildTarget(FPropertyEditTarget& OutTarget) const -> std::expected<void, FTransactionObjectRecordError>;
 		auto Reject(ETransactionObjectRecordError Code) const -> std::expected<void, FTransactionObjectRecordError>;
 

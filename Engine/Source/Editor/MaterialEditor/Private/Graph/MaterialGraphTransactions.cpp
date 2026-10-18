@@ -1,4 +1,5 @@
 #include "MaterialGraphEditInternals.h"
+#include "Graph/MaterialGraphChange.h"
 #include "MaterialGraphDocument.h"
 #include "Materials/MaterialExpressionEditing.h"
 
@@ -27,7 +28,7 @@ namespace Durin::Editor::Material
 
 		// Replays only changed positions so unrelated presentation edits survive undo.
 		class FMaterialGraphPresentationTransaction final
-			: public ITransactionCustomChange
+			: public FMaterialCommandChange
 		{
 		public:
 			FMaterialGraphPresentationTransaction(
@@ -87,7 +88,7 @@ namespace Durin::Editor::Material
 			{
 				return AffectedPackages;
 			}
-			auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult override
+			auto Replay(ETransactionOperation Operation) -> FMaterialChangeResult override
 			{ return Apply(Operation == ETransactionOperation::Undo); }
 			auto GetAllocatedSize() const -> size_t override
 			{
@@ -97,10 +98,10 @@ namespace Durin::Editor::Material
 			}
 
 		private:
-			auto Apply(bool bBefore) -> FTransactionCustomResult
+			auto Apply(bool bBefore) -> FMaterialChangeResult
 			{
 				DObject* Target = Material.Get();
-				if (!Target) return {{.Code = ETransactionCustomError::TargetUnavailable, .TargetPath = TargetPath, .NodeCount = NodeChanges.size()}};
+				if (!Target) return {{.Code = EMaterialChangeError::TargetUnavailable, .TargetPath = TargetPath, .NodeCount = NodeChanges.size()}};
 				FMaterialGraphPresentation Candidate =
 					ReadGraphPresentation(*Target);
 				for (const FMaterialGraphNodePresentationChange& Change : NodeChanges)
@@ -129,7 +130,7 @@ namespace Durin::Editor::Material
 				}
 				const auto Count = Candidate.Nodes.size();
 				if (WriteGraphPresentation(*Target, std::move(Candidate)) == EMaterialGraphPresentationResult::Rejected)
-					return {{.Code = ETransactionCustomError::PresentationWrite, .TargetPath = TargetPath, .NodeCount = Count}};
+					return {{.Code = EMaterialChangeError::PresentationWrite, .TargetPath = TargetPath, .NodeCount = Count}};
 				return {};
 			}
 
@@ -141,7 +142,7 @@ namespace Durin::Editor::Material
 		};
 
 		// Retains both parameter values and their texture references for undo/redo.
-		class FMaterialGraphParameterTransaction final : public ITransactionCustomChange
+		class FMaterialGraphParameterTransaction final : public FMaterialCommandChange
 		{
 		public:
 			FMaterialGraphParameterTransaction(
@@ -169,7 +170,7 @@ namespace Durin::Editor::Material
 			{
 				return AffectedPackages;
 			}
-			auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult override
+			auto Replay(ETransactionOperation Operation) -> FMaterialChangeResult override
 			{ return Apply(Operation == ETransactionOperation::Undo ? BeforeValue : AfterValue); }
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{
@@ -178,12 +179,12 @@ namespace Durin::Editor::Material
 			}
 
 		private:
-			auto Apply(const FMaterialParameterValue& Value) -> FTransactionCustomResult
+			auto Apply(const FMaterialParameterValue& Value) -> FMaterialChangeResult
 			{
 				DMaterial* Target = Material.Get();
-				if (!Target) return {{.Code = ETransactionCustomError::TargetUnavailable, .ParameterId = ParameterId}};
+				if (!Target) return {{.Code = EMaterialChangeError::TargetUnavailable, .ParameterId = ParameterId}};
 				const auto Applied = Target->SetParameterValue(ParameterId, Value);
-				if (!Applied) return {{.Code = ETransactionCustomError::MaterialWrite, .ParameterId = ParameterId,
+				if (!Applied) return {{.Code = EMaterialChangeError::MaterialWrite, .ParameterId = ParameterId,
 					.MaterialCause = std::make_shared<FMaterialError>(Applied.Error)}};
 				return {};
 			}
@@ -204,7 +205,7 @@ namespace Durin::Editor::Material
 			const FMaterialGraphPresentation& BeforePresentation,
 			const FMaterialGraphPresentation& AfterPresentation,
 			std::string Description)
-			-> std::unique_ptr<ITransactionCustomChange>
+			-> std::unique_ptr<FMaterialCommandChange>
 		{
 			return std::make_unique<FMaterialGraphPresentationTransaction>(
 				Material, BeforePresentation, AfterPresentation, std::move(Description));
@@ -215,7 +216,7 @@ namespace Durin::Editor::Material
 			FGuid ParameterId,
 			FMaterialParameterValue BeforeValue,
 			FMaterialParameterValue AfterValue)
-			-> std::unique_ptr<ITransactionCustomChange>
+			-> std::unique_ptr<FMaterialCommandChange>
 		{
 			return std::make_unique<FMaterialGraphParameterTransaction>(
 				Material, ParameterId, std::move(BeforeValue), std::move(AfterValue));
@@ -230,7 +231,7 @@ namespace Durin::Editor::Material
 		{
 			if (!IsValid(&Material))
 				return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-			if (Transactions && Transactions->HasPendingOperation())
+			if (Transactions && !Transactions->CanTransact())
 				return RejectCommand("The editor transactor is busy.");
 
 			std::vector<FGuid> Ids;
@@ -238,15 +239,19 @@ namespace Durin::Editor::Material
 			CandidatePresentation = SanitizeMaterialGraphPresentation(CandidatePresentation, Ids);
 			const auto BeforePresentation = ReadGraphPresentation(Material);
 			if (BeforePresentation == CandidatePresentation) return {.Status = EMaterialGraphCommandStatus::NoChange};
+			FScopedTransaction Recording(Transactions, {"MaterialGraph", Description});
 			if (Transactions)
 			{
-				const auto Recorded = Transactions->CommitApplied(
+				const auto Recorded = Transactions->StoreUndo(&Material,
 					MakeMaterialGraphPresentationTransaction(Material, BeforePresentation, CandidatePresentation, std::move(Description)));
 				if (!Recorded) return RejectCommand("Unable to record the graph edit. " + FormatTransactorResult(Recorded));
 			}
 			// The validated candidate is published only after history accepts the edit.
 			const auto Result = WriteGraphPresentation(Material, std::move(CandidatePresentation));
 			check(Result != EMaterialGraphPresentationResult::Rejected);
+			(void)Recording.End();
+			if (Transactions && Transactions->GetLastResult().Code == ETransactorResultCode::Failed)
+				return RejectCommand(FormatTransactorResult(Transactions->GetLastResult()));
 			std::ranges::sort(Affected);
 			Affected.erase(std::unique(Affected.begin(), Affected.end()), Affected.end());
 			return {

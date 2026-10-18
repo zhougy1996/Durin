@@ -261,6 +261,7 @@ namespace Durin
 		FPropertyValueSnapshotPayload() = default;
 		auto IsValid() const -> bool { return Property != nullptr; }
 		auto GetProperty() const -> const FProperty* { return Property; }
+		auto IsTransacting() const -> bool { return bTransacting; }
 		auto GetBytes() const -> const FByteBuffer& { return Bytes; }
 		auto GetReferencedObjectKeys() const -> const std::vector<FObjectKey>&
 		{
@@ -272,10 +273,11 @@ namespace Durin
 
 	private:
 		const FProperty* Property = nullptr;
+		bool bTransacting = false;
 		FByteBuffer Bytes;
 		std::vector<FObjectKey> ReferencedObjectKeys;
 		friend COREDOBJECT_API auto CapturePropertyValuePayload(
-			const FProperty*, const void*, uint32, FPropertyValueSnapshotPayload&) -> std::expected<void, FPropertySnapshotError>;
+			const FProperty*, const void*, uint32, FPropertyValueSnapshotPayload&, bool) -> std::expected<void, FPropertySnapshotError>;
 		friend COREDOBJECT_API auto RestorePropertyValuePayload(
 			const FProperty*, void*, uint32, const FPropertyValueSnapshotPayload&) -> std::expected<void, FPropertySnapshotError>;
 	};
@@ -306,7 +308,7 @@ namespace Durin
 		friend COREDOBJECT_API auto RestorePropertyValue(const FProperty*, void*, uint32, const FPropertyValueSnapshot&) -> std::expected<void, FPropertySnapshotError>;
 	};
 
-	COREDOBJECT_API auto CapturePropertyValuePayload(const FProperty* Property, const void* Container, uint32 ArrayIndex, FPropertyValueSnapshotPayload& OutPayload) -> std::expected<void, FPropertySnapshotError>;
+	COREDOBJECT_API auto CapturePropertyValuePayload(const FProperty* Property, const void* Container, uint32 ArrayIndex, FPropertyValueSnapshotPayload& OutPayload, bool bTransacting = false) -> std::expected<void, FPropertySnapshotError>;
 	COREDOBJECT_API auto RestorePropertyValuePayload(const FProperty* Property, void* Container, uint32 ArrayIndex, const FPropertyValueSnapshotPayload& Payload) -> std::expected<void, FPropertySnapshotError>;
 	COREDOBJECT_API auto ArePropertySnapshotTypesCompatible(
 		const FProperty* CapturedProperty, const FProperty* CandidateProperty) -> bool;

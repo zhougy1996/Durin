@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Actors/ActorChange.h"
+
 #include "CoreMinimal.h"
 #include "Editor/EditorSubsystem.h"
 #include "Transactions/Transactor.h"
@@ -42,7 +44,7 @@ namespace Durin::Editor
 	// Native compound owners supply prepared, unpublished actors. The returned change
 	// retains identities for replay; the preparer owns cleanup until publication.
 	DURINED_API auto MakeActorPresenceChange(DLevel& Level, std::span<AActor* const> Actors,
-		bool bRemove, std::string Description) -> std::unique_ptr<ITransactionCustomChange>;
+		bool bRemove, std::string Description) -> std::unique_ptr<FActorCommandChange>;
 }
 
 namespace Durin

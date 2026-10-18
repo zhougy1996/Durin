@@ -24,6 +24,24 @@ namespace Durin::Tasks
 		}
 	}
 
+	auto SubscribeTask(const FTaskHandle& Task, std::function<void(ETaskState)> Callback) -> FTaskSubscription
+	{
+		require(Task.IsValid() && Callback);
+		FTaskSubscription Subscription;
+		Subscription.Callback = std::make_shared<std::function<void(ETaskState)>>(std::move(Callback));
+		auto Hook = std::make_shared<Durin::Private::FTaskTerminalHook>();
+		Hook->Function = [Weak = std::weak_ptr(Subscription.Callback)](ETaskState State) {
+			if (auto Pinned = Weak.lock()) { try { (*Pinned)(State); } catch (...) {} }
+		};
+		Durin::Private::FTaskRuntimeAccess::BindTerminal(Task, std::move(Hook));
+		return Subscription;
+	}
+	FTaskReadiness::FTaskReadiness() : State(std::make_shared<std::atomic<bool>>(false)) {}
+	auto ObserveTaskReady(const FTaskHandle& Task, const FTaskReadiness& Readiness) -> FTaskSubscription
+	{
+		return SubscribeTask(Task, [State = Readiness.State](ETaskState) { State->store(true, std::memory_order_release); });
+	}
+
 	auto AddNested(const FTaskHandle& Completion) -> void
 	{
 		if (auto Error = Durin::Private::FTaskRuntimeAccess::AddNested(Completion))

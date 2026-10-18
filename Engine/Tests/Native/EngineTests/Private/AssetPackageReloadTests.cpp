@@ -541,7 +541,7 @@ TEST_F(FAssetPackageReloadTests, ReloadRetiresCrossPackageHistoryAndInvalidatesT
 		Editor::FScopedTransaction Scope(Transactions, {"test", "Cross-package edit"});
 		for (DTexture2D* Texture : Textures)
 		{
-			Scope.Modify(Texture);
+			(void)Texture->Modify();
 			Texture->SetBuildSettings(Texture->GetUsage(), !Texture->IsSRGB(),
 				Texture->GetMaxResolution(), Texture->GetCompressionQuality(),
 				Texture->GetAlphaMipMode(), Texture->GetAlphaCoverageThreshold());
@@ -686,11 +686,12 @@ TEST_F(FAssetPackageReloadTests, SkyLightUndoRedoAndPackageReopenPreserveSourceA
     ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path,Actor));
     auto* Light=Actor->GetSkyLightComponent();
     const auto Identity=Light->GetPersistentId();
+    Light->SetFlags(EObjectFlags::Transactional);
     auto* Transactions=NewObject<DTransBuffer>(nullptr,"SkyLightHistory");
     TStrongObjectPtr<DTransBuffer> Root(Transactions);
     {
         Editor::FScopedTransaction Scope(Transactions,{"test","Change Sky Light"});
-        Scope.Modify(Light);
+        (void)Light->Modify();
         Light->SetSource(ESkyLightSourceMode::CapturedSky,nullptr);
         Light->SetIntensity(3);
         ASSERT_TRUE(Scope.End());

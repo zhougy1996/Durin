@@ -1,3 +1,19 @@
+if(TARGET DurinPython AND NOT TARGET DurinCPython)
+    durin_add_native_test(PythonRuntimeUnavailableTests
+        KIND contract
+        DOMAINS python
+        MODULES durin-python
+        STACKS editor
+        SOURCES Private/PythonRuntimeUnavailableTests.cpp
+        LIBRARIES Core CoreDObject DurinPython
+        REQUIRES editor
+        REQUIREMENT_RATIONALE "Verifies the optional interpreter-unavailable contract without a Python loader dependency."
+    )
+else()
+    durin_exclude_native_test_sources(
+        RATIONALE "The unavailable-runtime contract requires the editor module without an enabled CPython SDK."
+        SOURCES Private/PythonRuntimeUnavailableTests.cpp)
+endif()
 if(NOT TARGET DurinCPython OR NOT TARGET DurinPython)
     durin_exclude_native_test_sources(
         RATIONALE "Requires the optional qualified CPython SDK and editor module."

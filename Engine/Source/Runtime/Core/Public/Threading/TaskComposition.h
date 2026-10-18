@@ -187,11 +187,54 @@ namespace Durin::Tasks
 	// A void task retains the same move-only ownership and completion contract.
 	using FTask = TTask<void>;
 
+	// Dropping observation never cancels the producer. An in-flight callback may finish.
+	class FTaskSubscription
+	{
+	public:
+		FTaskSubscription() = default;
+		FTaskSubscription(FTaskSubscription&&) noexcept = default;
+		auto operator=(FTaskSubscription&&) noexcept -> FTaskSubscription& = default;
+		FTaskSubscription(const FTaskSubscription&) = delete;
+		auto operator=(const FTaskSubscription&) -> FTaskSubscription& = delete;
+		auto Reset() -> void { Callback.reset(); }
+	private:
+		friend CORE_API auto SubscribeTask(const FTaskHandle&, std::function<void(ETaskState)>) -> FTaskSubscription;
+		std::shared_ptr<std::function<void(ETaskState)>> Callback;
+	};
+
+	CORE_API auto SubscribeTask(const FTaskHandle& Task, std::function<void(ETaskState)> Callback) -> FTaskSubscription;
+	// Core-owned data and notification code can safely outlive a retired host observer.
+	class FTaskReadiness
+	{
+	public:
+		CORE_API FTaskReadiness();
+		auto IsReady() const -> bool { return State->load(std::memory_order_acquire); }
+	private:
+		std::shared_ptr<std::atomic<bool>> State;
+		friend CORE_API auto ObserveTaskReady(const FTaskHandle&, const FTaskReadiness&) -> FTaskSubscription;
+	};
+	CORE_API auto ObserveTaskReady(const FTaskHandle& Task, const FTaskReadiness& Readiness) -> FTaskSubscription;
+
 	// Explicit immutable fan-out shares the result storage without a consuming alias.
 	template<typename T>
 	class TSharedTask : public Private::FTaskHandle
 	{
 	public:
+		// Notification may run inline on the completing thread. Only mark work runnable;
+		// do not wait, enter an interpreter, or resolve host objects from this callback.
+		auto Subscribe(std::function<void(ETaskState)> Callback) const -> FTaskSubscription
+		{
+			return SubscribeTask(*this, std::move(Callback));
+		}
+		auto ObserveReady(const FTaskReadiness& Readiness) const -> FTaskSubscription { return ObserveTaskReady(*this, Readiness); }
+
+		// Both task copies and result aliases retain the attachment.
+		auto WithLifetime(std::shared_ptr<void> Lifetime) const -> TSharedTask
+		{
+			auto Copy = *this;
+			Copy.LifetimePin = std::make_shared<std::pair<std::shared_ptr<void>, std::shared_ptr<void>>>(LifetimePin, std::move(Lifetime));
+			return Copy;
+		}
 		auto GetResultShared() const -> std::shared_ptr<const TTaskValue<T>>
 		{
 			if (!IsCompleted() || GetState() != ETaskState::Succeeded) return {};
@@ -570,6 +613,16 @@ namespace Durin::Tasks
 			}
 		};
 	public:
+		// Data-only completion independent of scheduler admission and shutdown.
+		static auto CreateDetached() -> TCompletionSource
+		{
+			auto Source = std::make_shared<FSource>();
+			Source->Storage = std::make_shared<TUniqueTaskResultState<TTaskValue<T>>>(Detail::ResultBytes<T>());
+			Source->Handle = Durin::Private::FTaskRuntimeAccess::CreateDetachedCompletion(
+				[Storage = Source->Storage](ETaskState Terminal) { Storage->Complete(Terminal); }, Detail::ResultBytes<T>());
+			Source->Storage->BindProducer(Source->Handle);
+			return TCompletionSource(std::move(Source));
+		}
 		// External producer in the scheduler lifetime.
 		static auto Create(const FTaskExecutionOptions& Options = {}) -> TCompletionSource
 		{
@@ -634,6 +687,15 @@ namespace Durin::Tasks
 		explicit TCompletionSource(std::shared_ptr<FSource> InSource) : Source(std::move(InSource)) {}
 		std::shared_ptr<FSource> Source;
 	};
+
+	template<typename T>
+	auto MakeReadyTask(T Value) -> TSharedTask<T>
+	{
+		auto Source = TCompletionSource<T>::CreateDetached();
+		auto Task = Share(Source.TakeTask());
+		Source.TrySetValue(std::move(Value));
+		return Task;
+	}
 
 	namespace Detail
 	{

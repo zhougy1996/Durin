@@ -1,6 +1,7 @@
 #include "Widgets/EditorNotificationOverlay.h"
 
 #include "Editor/EditorEngine.h"
+#include "DObject/DObjectGlobals.h"
 #include "Notifications/Notification.h"
 #include "Transactions/Transaction.h"
 #include "Icons/FontAwesomeIcons.h"
@@ -105,9 +106,22 @@ namespace Durin::Editor::MainFrame
 		bFocusHistoryRequested = false;
 	}
 
+	FEditorNotificationOverlay::~FEditorNotificationOverlay()
+	{
+		if (auto* Source = Cast<DTransactor>(ResolveObjectKey(TransactionSource))) Source->RemoveTransactionListener(TransactionListener);
+	}
+
 	auto FEditorNotificationOverlay::UpdateNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::DTransactor& Transactions) -> void
 	{
-		PublishTransactionEvents(Notifications, Transactions);
+		if (TransactionSource != FObjectKey(&Transactions))
+		{
+			if (auto* Source = Cast<DTransactor>(ResolveObjectKey(TransactionSource))) Source->RemoveTransactionListener(TransactionListener);
+			TransactionSource = FObjectKey(&Transactions);
+			TransactionListener = Transactions.AddTransactionListener([&Notifications, &Transactions](const auto& Event) {
+				PublishTransactionEvent(Notifications, Transactions, Event);
+			});
+		}
+		Transactions.DispatchEvents();
 		if (GEditor) GEditor->UpdateNotifications(ImGui::GetIO().DeltaTime);
 	}
 
@@ -454,19 +468,17 @@ namespace Durin::Editor::MainFrame
 		ImGui::End();
 	}
 
-	auto FEditorNotificationOverlay::PublishTransactionEvents(::Durin::Editor::FNotificationManager& Notifications, ::Durin::DTransactor& Transactions) -> void
+	auto FEditorNotificationOverlay::PublishTransactionEvent(::Durin::Editor::FNotificationManager& Notifications, ::Durin::DTransactor& Transactions, const ::Durin::Editor::FTransactionEvent& Event) -> void
 	{
-		for (::Durin::Editor::FTransactionEvent& Event : Transactions.ConsumeEvents())
-		{
 			::Durin::Editor::FNotificationDesc Desc;
 			if (Event.Type == ::Durin::Editor::ETransactionEventType::Failed)
 			{
 				Desc.Type = ::Durin::Editor::ENotificationType::Error;
 				Desc.Message = std::format("Failed to {} {}", FailureOperation(Event.Operation), Event.Description);
-				Desc.Details = std::move(Event.Details);
+				Desc.Details = Event.Details;
 				Desc.DurationSeconds = 0.0f;
 				Notifications.Post(std::move(Desc));
-				continue;
+				return;
 			}
 
 			const bool bOffersRedo = Event.Type == ::Durin::Editor::ETransactionEventType::Undone;
@@ -480,14 +492,14 @@ namespace Durin::Editor::MainFrame
 			case ::Durin::Editor::ETransactionEventType::Executed:
 			default: Desc.Message = Event.Description; break;
 			}
-			Desc.Details = std::move(Event.Details);
+			Desc.Details = Event.Details;
 			Desc.Presentation = ::Durin::Editor::ENotificationPresentation::StatusBar;
 
 			if (Event.Type == ::Durin::Editor::ETransactionEventType::Discarded
 				|| Event.Type == ::Durin::Editor::ETransactionEventType::Evicted)
 			{
 				Notifications.Post(std::move(Desc));
-				continue;
+				return;
 			}
 
 			const ::Durin::Editor::FTransactionId Id = Event.Id;
@@ -498,13 +510,12 @@ namespace Durin::Editor::MainFrame
 			};
 			Action.Invoke = [&Transactions, Id, bOffersRedo] {
 				const auto Result = bOffersRedo
-					? Transactions.Redo(Id) : Transactions.Undo(Id);
+					? Transactions.RedoExpected(Id) : Transactions.UndoExpected(Id);
 				if (!Result)
 					DURIN_ERROR("Unable to apply notification history action: {}",
 						FormatTransactorResult(Result));
 			};
 			Desc.Action = std::move(Action);
 			Notifications.Post(std::move(Desc));
-		}
 	}
 }

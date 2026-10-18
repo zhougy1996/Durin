@@ -2951,7 +2951,7 @@ TEST(FMaterialGraphOperationsTests, InvalidTypesRemainEditableAndUndoRestoresDia
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
 }
 
-TEST(FMaterialGraphOperationsTests, BusyTransactorLeavesLiveObjectsAndNotificationsUnchanged)
+TEST(FMaterialGraphOperationsTests, GraphChangesJoinAnOuterRecording)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -2966,15 +2966,17 @@ TEST(FMaterialGraphOperationsTests, BusyTransactorLeavesLiveObjectsAndNotificati
 	uint32 Notifications = 0;
 	const auto Observer = Material->GetGraphChanges().Subscribe(*Material, [&](const auto&) { ++Notifications; });
 	Durin::Tests::FTestTransactorOwner Transactions;
-	const auto Pending = Transactions->Begin({.Description = "Other operation"});
-	ASSERT_TRUE(Pending);
-	EXPECT_FALSE(Document.Connect(FMaterialGraphPinAddress::Input(Destination.GeneratedNodeIds.front(), 0), FMaterialGraphPinAddress::Output({Source.GeneratedNodeIds.front()}), false, Transactions.Get()));
-	EXPECT_EQ(CaptureExpressions(*Material), Before);
+	const auto Pending = Transactions->Begin("test", "Other operation");
+	ASSERT_GE(Pending, 0);
+	EXPECT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(Destination.GeneratedNodeIds.front(), 0), FMaterialGraphPinAddress::Output({Source.GeneratedNodeIds.front()}), false, Transactions.Get()));
+	EXPECT_NE(CaptureExpressions(*Material), Before);
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
-	EXPECT_EQ(Material->GetMaterialProgramRevision(), Revision);
-	EXPECT_EQ(Notifications, 0u);
+	EXPECT_GT(Material->GetMaterialProgramRevision(), Revision);
+	EXPECT_EQ(Notifications, 1u);
 	EXPECT_EQ(Transactions->GetHistoryCount(), 0u);
-	(void)Transactions->Cancel(Pending.ScopeId);
+	EXPECT_EQ(Transactions->End(), 1);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	Material->GetGraphChanges().Unsubscribe(Observer);
 }
 
@@ -2993,7 +2995,7 @@ TEST(FMaterialGraphOperationsTests, ReplayRejectsParticipantsReplacedOutsideHist
 	ASSERT_TRUE(Material->SetMaterialExpressions(Nodes));
 	const auto Before = CaptureExpressions(*Material);
 	const auto Revision = Material->GetMaterialProgramRevision();
-	const auto Failed = Transactions->Undo();
+	const auto Failed = Transactions->UndoExpected(0);
 	ASSERT_FALSE(Failed);
 	ASSERT_TRUE(Failed.ApplyCause);
 	EXPECT_EQ(Failed.ApplyCause->Message, "The graph participants changed outside history.");
@@ -3431,22 +3433,21 @@ TEST(FMaterialGraphOperationsTests, GraphSessionRetainsHistoryFailureAcrossRollb
 	const auto Before = CaptureExpressions(*Material.Get());
 	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
 	Durin::Tests::FTestTransactorOwner Transactions;
-	const auto Busy = Transactions->Begin({.Description = "Busy graph history"});
-	ASSERT_TRUE(Busy);
+	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
 	const auto Rejected = Document.SetConstantValue(NodeId, FMaterialParameterValue::MakeScalar(.75f), Transactions.Get());
 	EXPECT_FALSE(Rejected);
 	EXPECT_EQ(Rejected.GetStatus(), EMaterialGraphCommandStatus::Rejected);
-	EXPECT_NE(Rejected.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
-	EXPECT_EQ(Rejected.Message.find("Unable to record the graph edit."), 0u);
+	EXPECT_NE(Rejected.Message.find("The editor transactor is busy."), std::string::npos);
+	EXPECT_FALSE(Rejected.Message.empty());
 	EXPECT_EQ(CaptureExpressions(*Material.Get()), Before);
 	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	EXPECT_FALSE(Transactions->CanUndo());
-	ASSERT_EQ(Transactions->Cancel(Busy.ScopeId).Code, ETransactorResultCode::Discarded);
+	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
 	ASSERT_TRUE(Document.SetConstantValue(NodeId, FMaterialParameterValue::MakeScalar(.75f), Transactions.Get()));
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material.Get()), Before);
 
-	EXPECT_NE(Rejected.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
+	EXPECT_NE(Rejected.Message.find("The editor transactor is busy."), std::string::npos);
 }
 
 TEST(FMaterialGraphOperationsTests, GraphAssignmentReportsClassMismatchAndAllowsRetry)
@@ -3493,48 +3494,49 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	ASSERT_TRUE(Created);
 	const auto ParameterId = Created.AffectedParameterIds.front();
 	Tests::FTestTransactorOwner Transactions;
-	const auto Busy = Transactions->Begin({.Description = "Busy graph history"});
-	ASSERT_TRUE(Busy);
 	FMaterialGraphParameterEditSession Edit;
+	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
 	ASSERT_TRUE(Edit.Begin(*Material, ParameterId, Transactions.Get()));
 	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.75f)));
+	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
 	const auto Failed = Edit.Commit();
 	EXPECT_FALSE(Failed);
 	EXPECT_EQ(Failed.GetStatus(), EMaterialGraphCommandStatus::Rejected);
-	EXPECT_NE(Failed.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
+	EXPECT_NE(Failed.Message.find("The editor transactor is busy."), std::string::npos);
 	EXPECT_TRUE(Edit.IsActive());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .75f);
 	ASSERT_TRUE(Edit.Cancel());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
+	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
 	ASSERT_TRUE(Edit.Begin(*Material, ParameterId, Transactions.Get()));
 	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.5f)));
+	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
 	EXPECT_FALSE(Edit.Commit());
-	ASSERT_EQ(Transactions->Cancel(Busy.ScopeId).Code, ETransactorResultCode::Discarded);
+	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
 	ASSERT_TRUE(Edit.Commit());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
 
 	ASSERT_TRUE(Transactions->Reset());
-	const auto MoveBusy = Transactions->Begin({.Description = "Busy graph history"});
-	ASSERT_TRUE(MoveBusy);
 	const auto NodeId = Created.GeneratedNodeIds.front();
 	const auto Before = Material->GetMaterialGraphPresentation();
 	FMaterialGraphMoveSession Move;
 	ASSERT_TRUE(Move.Begin(*Material, std::array{NodeId}, Transactions.Get()));
 	ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{NodeId, 777, 222}}));
+	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
 	const auto MoveFailure = Move.Commit();
 	EXPECT_FALSE(MoveFailure);
 	EXPECT_EQ(MoveFailure.GetStatus(), EMaterialGraphCommandStatus::Rejected);
-	EXPECT_NE(MoveFailure.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
+	EXPECT_NE(MoveFailure.Message.find("The editor transactor is busy."), std::string::npos);
 	EXPECT_TRUE(Move.IsActive());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
-	ASSERT_EQ(Transactions->Cancel(MoveBusy.ScopeId).Code, ETransactorResultCode::Discarded);
+	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
 	ASSERT_TRUE(Move.Commit());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
-	EXPECT_NE(Failed.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
-	EXPECT_NE(MoveFailure.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
+	EXPECT_NE(Failed.Message.find("The editor transactor is busy."), std::string::npos);
+	EXPECT_NE(MoveFailure.Message.find("The editor transactor is busy."), std::string::npos);
 }
 
 TEST(FMaterialGraphOperationsTests, DirectParameterHistoryFailureRestoresValueAndReportsFailure)
@@ -3550,24 +3552,23 @@ TEST(FMaterialGraphOperationsTests, DirectParameterHistoryFailureRestoresValueAn
 	ASSERT_TRUE(Created);
 	const auto ParameterId = Created.AffectedParameterIds.front();
 	Tests::FTestTransactorOwner Transactions;
-	const auto Busy = Transactions->Begin({.Description = "Busy graph history"});
-	ASSERT_TRUE(Busy);
+	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
 	const auto Failed = FMaterialGraphOperations::SetParameterValue(*Material, ParameterId,
 		FMaterialParameterValue::MakeScalar(.75f), Transactions.Get());
 	EXPECT_FALSE(Failed);
 	EXPECT_EQ(Failed.GetStatus(), EMaterialGraphCommandStatus::Rejected);
-	EXPECT_NE(Failed.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
+	EXPECT_NE(Failed.Message.find("The editor transactor is busy."), std::string::npos);
 	EXPECT_TRUE(Failed.CleanupMessage.empty());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
-	ASSERT_EQ(Transactions->Cancel(Busy.ScopeId).Code, ETransactorResultCode::Discarded);
+	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
 	const auto Retried = FMaterialGraphOperations::SetParameterValue(*Material, ParameterId,
 		FMaterialParameterValue::MakeScalar(.75f), Transactions.Get());
 	ASSERT_TRUE(Retried);
 	EXPECT_EQ(Retried.AffectedNodeIds, Created.GeneratedNodeIds);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
-	EXPECT_NE(Failed.Message.find("Custom transaction execution requires an idle transactor."), std::string::npos);
+	EXPECT_NE(Failed.Message.find("The editor transactor is busy."), std::string::npos);
 }
 
 TEST(FMaterialGraphOperationsTests, ParameterSessionRejectionsReportFailureAndAllowRetry)

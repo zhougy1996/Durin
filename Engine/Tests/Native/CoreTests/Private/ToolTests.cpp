@@ -31,9 +31,9 @@ namespace Durin::Tests
 			{
 				return {!Context.Cancellation.IsCancellationRequested(), {}};
 			}
-			auto Call(const FToolRequest& InRequest, const FToolContext&) -> FToolResult override
+			auto Call(const FToolRequest& InRequest, const FToolContext&) -> FToolFuture override
 			{
-				return {EToolStatus::Succeeded, InRequest.Arguments};
+				return ReadyToolResult({EToolStatus::Succeeded, InRequest.Arguments});
 			}
 		};
 	}
@@ -296,7 +296,7 @@ namespace Durin::Tests
 				return Value.Call(*Prepared, Context);
 			});
 			ASSERT_TRUE(Invocation.WasInvoked());
-			Result = *Invocation.Value;
+			Result = *Invocation.Value->GetResultShared();
 			Registration.Reset();
 		}
 		EXPECT_EQ(EToolStatus::Succeeded, Result.Status);
@@ -361,7 +361,7 @@ namespace Durin::Tests
 		FNativeToolset Set("math", "Arithmetic tools", {std::move(Binding)});
 		FToolRequest Input{{"math", "add"}, 1, FToolValue::FObject{{"left", 1}}};
 		auto Prepared = PrepareToolArguments(Set.DescribeToolset().Tools.front(), Input); ASSERT_TRUE(Prepared);
-		auto Result = Set.Call(*Prepared, FToolContext{"typed"});
+		auto Result = (*Set.Call(*Prepared, FToolContext{"typed"}).GetResultShared());
 		ASSERT_EQ(EToolStatus::Succeeded, Result.Status);
 		EXPECT_EQ(FToolValue(uint64{9007199254740994ull}), Result.Data);
 		EXPECT_EQ(1, TypedCalls);
@@ -370,7 +370,7 @@ namespace Durin::Tests
 		EXPECT_EQ(1, TypedCalls);
 		Input.Address.Toolset = "other";
 		EXPECT_FALSE(Set.CheckAvailability(Input, {}).bAvailable);
-		EXPECT_EQ(EToolError::ToolUnavailable, Set.Call(Input, {}).Diagnostics.front().Code);
+		EXPECT_EQ(EToolError::ToolUnavailable, (*Set.Call(Input, {}).GetResultShared()).Diagnostics.front().Code);
 	}
 
 	TEST(FToolTests, BindsOwnedStringsArraysScalarsAndConstReferences)
@@ -382,7 +382,7 @@ namespace Durin::Tests
 		FToolRequest Input{{"test", "values"}, 1, FToolValue::FObject{
 			{"enabled", true}, {"count", 2}, {"scale", 1.5}, {"label", "label"}, {"values", FToolValue::FArray{3, 4}}}};
 		auto Prepared = PrepareToolArguments(Set.DescribeToolset().Tools.front(), Input); ASSERT_TRUE(Prepared);
-		auto Result = Set.Call(*Prepared, {});
+		auto Result = (*Set.Call(*Prepared, {}).GetResultShared());
 		ASSERT_EQ(EToolStatus::Succeeded, Result.Status);
 		EXPECT_EQ((FToolValue(FToolValue::FArray{"label", "done"})), Result.Data);
 		EXPECT_TRUE(ValidateToolOutput(Set.DescribeToolset().Tools.front(), Result.Data));
@@ -395,7 +395,7 @@ namespace Durin::Tests
 		EXPECT_EQ(EToolValueType::Null, Binding.Descriptor.Output.Type);
 		FNativeToolset Set("test", "", {std::move(Binding)});
 		auto Prepared = PrepareToolArguments(Set.DescribeToolset().Tools.front(), {{"test", "touch"}, 1}); ASSERT_TRUE(Prepared);
-		auto Result = Set.Call(*Prepared, {});
+		auto Result = (*Set.Call(*Prepared, {}).GetResultShared());
 		EXPECT_EQ(EToolStatus::Succeeded, Result.Status);
 		EXPECT_EQ(FToolValue{}, Result.Data);
 		EXPECT_EQ(1, TypedCalls);
@@ -446,10 +446,10 @@ namespace Durin::Tests
 		FNativeToolset Set("tests", "", {std::move(Binding)});
 		auto Prepared = PrepareToolArguments(Set.DescribeToolset().Tools.front(), Request());
 		ASSERT_TRUE(Prepared);
-		EXPECT_EQ(EToolStatus::Succeeded, Set.Call(*Prepared, {}).Status);
+		EXPECT_EQ(EToolStatus::Succeeded, (*Set.Call(*Prepared, {}).GetResultShared()).Status);
 		EXPECT_EQ(&*Prepared, Seen);
 		EXPECT_TRUE(std::get<bool>(std::get<FToolValue::FObject>(Seen->Arguments.Data).at("enabled").Data));
 		Prepared->ContractVersion = 2;
-		EXPECT_EQ(EToolError::VersionMismatch, Set.Call(*Prepared, {}).Diagnostics.front().Code);
+		EXPECT_EQ(EToolError::VersionMismatch, (*Set.Call(*Prepared, {}).GetResultShared()).Diagnostics.front().Code);
 	}
 }

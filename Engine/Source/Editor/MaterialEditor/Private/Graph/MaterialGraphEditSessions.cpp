@@ -40,7 +40,7 @@ namespace Durin::Editor::Material
 		if (!Cast<DMaterial>(&Owner) && !Cast<DMaterialFunction>(&Owner)) return RejectCommand("Unsupported graph owner.");
 		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount)
 			return RejectCommand("The graph move selection is empty or exceeds the node bound.");
-		if (Transactions && Transactions->HasPendingOperation()) return RejectCommand("The editor transactor is busy.");
+		if (Transactions && !Transactions->CanTransact()) return RejectCommand("The editor transactor is busy.");
 		Impl->NodeIds.clear();
 		const auto& Expressions = FMaterialExpressionEditing::GetExpressions(Owner);
 		for (const auto& Id : NodeIds)
@@ -140,7 +140,7 @@ namespace Durin::Editor::Material
 		if (Impl->bActive) return RejectCommand("A material parameter edit is already active.");
 		if (!IsValid(&Material))
 			return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		if (Transactions && Transactions->HasPendingOperation())
+		if (Transactions && !Transactions->CanTransact())
 			return RejectCommand("The editor transactor is busy.");
 		FResolvedMaterialParameter Resolved;
 		if (!Material.ResolveParameterValue(ParameterId, Resolved)
@@ -194,7 +194,7 @@ namespace Durin::Editor::Material
 			Impl->bActive = false;
 			return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		}
-		if (Impl->Transactions && Impl->Transactions->HasPendingOperation())
+		if (Impl->Transactions && !Impl->Transactions->CanTransact())
 			return RejectCommand("The editor transactor is busy.");
 		if (Impl->BeforeValue.GetType() == EMaterialParameterType::Texture)
 		{
@@ -202,15 +202,19 @@ namespace Durin::Editor::Material
 			Impl->CurrentValue.GetTexture().Texture = Impl->CurrentTexture.Get();
 		}
 		const bool bChanged = Impl->BeforeValue != Impl->CurrentValue;
+		FScopedTransaction Recording(Impl->Transactions, {"MaterialGraph", "Edit material parameter"});
 		if (bChanged && Impl->Transactions)
 		{
-			const auto Recorded = Impl->Transactions->CommitApplied(
+			const auto Recorded = Impl->Transactions->StoreUndo(Material,
 				MakeMaterialGraphParameterTransaction(
 					*Material, Impl->ParameterId,
 					Impl->BeforeValue, Impl->CurrentValue));
 			if (!Recorded) return RejectCommand("Unable to record the graph edit. " + FormatTransactorResult(Recorded));
 		}
 		if (bChanged) Material->MarkPackageDirty();
+		(void)Recording.End();
+		if (Impl->Transactions && Impl->Transactions->GetLastResult().Code == ETransactorResultCode::Failed)
+			return RejectCommand(FormatTransactorResult(Impl->Transactions->GetLastResult()));
 		Impl->BeforeTexture.Reset();
 		Impl->CurrentTexture.Reset();
 		Impl->bActive = false;
@@ -229,6 +233,7 @@ namespace Durin::Editor::Material
 		if (!Material)
 			return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		const bool bChanged = Impl->BeforeValue != Impl->CurrentValue;
+		FScopedTransaction Recording(Impl->Transactions, {"MaterialGraph", "Edit material parameter"});
 		if (bChanged)
 		{
 			FScopedPackageDirtySuppression SuppressPackageRevision;

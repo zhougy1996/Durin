@@ -11,6 +11,8 @@ namespace Durin
 		FToolDescriptor Descriptor;
 		std::function<FToolResult(const FToolRequest&, const FToolContext&)> Handler;
 		std::function<FToolAvailability(const FToolRequest&, const FToolContext&)> Availability;
+		// Choose exactly one handler. Existing synchronous bindings use the ready adapter.
+		std::function<FToolFuture(const FToolRequest&, const FToolContext&)> AsyncHandler;
 	};
 
 	// Immutable after construction. The module retains this object and its feature token.
@@ -21,7 +23,7 @@ namespace Durin
 		CORE_API auto DescribeToolset() const -> FToolsetDescriptor override;
 		CORE_API auto CheckAvailability(const FToolRequest&, const FToolContext&) -> FToolAvailability override;
 		// Requires arguments prepared against this toolset descriptor by the calling host.
-		CORE_API auto Call(const FToolRequest&, const FToolContext&) -> FToolResult override;
+		CORE_API auto Call(const FToolRequest&, const FToolContext&) -> FToolFuture override;
 	private:
 		auto Find(const FToolRequest&) const -> const FToolBinding*;
 		FToolsetDescriptor Descriptor;

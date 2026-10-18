@@ -453,7 +453,7 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdent
 	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
 	ASSERT_TRUE(View.FinishActiveEdit(&Context, true));
 	ExpectVectorNear(Actor->GetSplineComponent()->GetSplinePoint(1)->Position, {100.0, 0.0, 0.0});
-	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	EXPECT_TRUE(Level->GetPackage()->IsDirty());
 
 	ASSERT_TRUE(SubmitPosition({130.0, 30.0, 0.0}, true));
 	ASSERT_TRUE(View.FinishActiveEdit(&Context, false));
@@ -543,4 +543,31 @@ TEST(FSplineCurveTests, DistanceTableResolvesNonuniformCollinearAndInflectedCubi
 			for (int I = 0; I <= 100; ++I)
 				EXPECT_NEAR(Data->EvaluateAtLocalDistance(I).Position.x, I, 1.e-4);
 	}
+}
+
+TEST(FSplineMeshActorEditingTests, ActorModifyRestoresInputsAfterGeneratedComponentsRetire)
+{
+	using namespace Durin; using namespace Durin::Editor;
+	InitializeDObjectSystem();
+	auto* Level = NewObject<DLevel>(nullptr, "GeneratedTransactionLevel");
+	TStrongObjectPtr<DLevel> Root(Level);
+	auto* Actor = Level->SpawnActor<ASplineMeshActor>("GeneratedTransactionActor");
+	Actor->SetPathMesh(DStaticMesh::CreateDebugTriangle(Level));
+	Actor->GetSplineComponent()->SetSplinePoints({MakePoint({0.0, 0.0, 0.0}), MakePoint({100.0, 0.0, 0.0}), MakePoint({200.0, 0.0, 0.0})});
+	ASSERT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
+	Tests::FTestTransactorOwner Transactions;
+	{
+		FScopedTransaction Scope(Transactions.Get(), {"test", "Edit actor construction input"});
+		ASSERT_TRUE(Actor->Modify());
+		Actor->GetSplineComponent()->SetSplinePoints({MakePoint({0.0, 0.0, 0.0}), MakePoint({200.0, 0.0, 0.0})});
+	}
+	CollectGarbage();
+	ASSERT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 1u);
+	ASSERT_TRUE(Transactions->Undo()) << FormatTransactorResult(Transactions->GetLastResult());
+	EXPECT_EQ(Actor->GetSplineComponent()->GetNumSplinePoints(), 3u);
+	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
+	ASSERT_TRUE(Transactions->Redo()) << FormatTransactorResult(Transactions->GetLastResult());
+	EXPECT_EQ(Actor->GetSplineComponent()->GetNumSplinePoints(), 2u);
+	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 1u);
+	ASSERT_TRUE(Transactions->Reset()); MarkObjectHierarchyAsGarbage(Level); Root.Reset(); CollectGarbage();
 }

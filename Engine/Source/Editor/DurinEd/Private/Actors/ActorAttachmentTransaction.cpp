@@ -1,4 +1,5 @@
 #include "Actors/ActorAttachmentTransaction.h"
+#include "Actors/ActorChange.h"
 #include "Actors/ActorEditingValidation.h"
 
 #include "Engine/Actor.h"
@@ -10,26 +11,26 @@ namespace Durin::Editor
 {
 	namespace
 	{
-		auto CanApplyEntry(const FActorAttachmentTransaction::FEntry& Entry, bool bAfter) -> FTransactionCustomResult
+		auto CanApplyEntry(const FActorAttachmentTransaction::FEntry& Entry, bool bAfter) -> FActorChangeResult
 		{
 			AActor* Actor = Entry.Actor.Get();
 			AActor* ExpectedParent = bAfter ? Entry.BeforeParent.Get() : Entry.AfterParent.Get();
 			AActor* DesiredParent = bAfter ? Entry.AfterParent.Get() : Entry.BeforeParent.Get();
 			auto* Level = IsValid(Actor) ? Cast<DLevel>(Actor->GetOuter()) : nullptr;
 			if (!CanEditActorOwner(Actor) || !Actor->GetRootComponent())
-				return {{.Code = ETransactionCustomError::TargetUnavailable}};
+				return {{.Code = EActorChangeError::TargetUnavailable}};
 			if (Actor->GetAttachParentActor() != ExpectedParent)
-				return {{.Code = ETransactionCustomError::ParentMismatch, .TargetPath = Actor->GetObjectPath(),
+				return {{.Code = EActorChangeError::ParentMismatch, .TargetPath = Actor->GetObjectPath(),
 					.ExpectedParentPath = ExpectedParent ? ExpectedParent->GetObjectPath() : std::string{},
 					.ActualParentPath = Actor->GetAttachParentActor() ? Actor->GetAttachParentActor()->GetObjectPath() : std::string{}}};
 			if (!DesiredParent) return {};
 			if (!IsValid(DesiredParent) || !Level->ContainsActor(DesiredParent) || DesiredParent->IsBeingDestroyed()
 				|| DesiredParent->HasBegunPlay() || DesiredParent == Actor || !DesiredParent->GetRootComponent()
 				|| DesiredParent->GetOuter() != Actor->GetOuter())
-				return {{.Code = ETransactionCustomError::ParentInvalid, .TargetPath = Actor->GetObjectPath(),
+				return {{.Code = EActorChangeError::ParentInvalid, .TargetPath = Actor->GetObjectPath(),
 					.ExpectedParentPath = DesiredParent->GetObjectPath()}};
 			for (AActor* Parent = DesiredParent; Parent; Parent = Parent->GetAttachParentActor())
-				if (Parent == Actor) return {{.Code = ETransactionCustomError::ParentCycle, .TargetPath = Actor->GetObjectPath(),
+				if (Parent == Actor) return {{.Code = EActorChangeError::ParentCycle, .TargetPath = Actor->GetObjectPath(),
 					.ExpectedParentPath = DesiredParent->GetObjectPath()}};
 			return {};
 		}
@@ -107,10 +108,10 @@ namespace Durin::Editor
 				if (Object) Collector.AddReferencedObject(Object);
 	}
 
-	auto FActorAttachmentTransaction::Apply(bool bAfter) -> FTransactionCustomResult
+	auto FActorAttachmentTransaction::Apply(bool bAfter) -> FActorChangeResult
 	{
 		FScopedPackageDirtySuppression SuppressReplay;
-		if (Entries.empty()) return {{.Code = ETransactionCustomError::EmptySelection}};
+		if (Entries.empty()) return {{.Code = EActorChangeError::EmptySelection}};
 		for (size_t Index = 0; Index < Entries.size(); ++Index)
 			if (auto Validated = CanApplyEntry(Entries[Index], bAfter); !Validated)
 			{
@@ -146,10 +147,10 @@ namespace Durin::Editor
 				}
 				else bRestored = false;
 			}
-			return {{.Code = ETransactionCustomError::AttachmentWrite, .TargetPath = Actor->GetObjectPath(),
+			return {{.Code = EActorChangeError::AttachmentWrite, .TargetPath = Actor->GetObjectPath(),
 				.ExpectedParentPath = Parent ? Parent->GetObjectPath() : std::string{}, .NodeCount = Entries.size(),
 				.MemberIndex = static_cast<size_t>(&Entry - Entries.data()),
-				.CleanupCause = bRestored ? nullptr : std::make_shared<FTransactionCustomError>(FTransactionCustomError{.Code = ETransactionCustomError::RollbackIncomplete})}};
+				.CleanupCause = bRestored ? nullptr : std::make_shared<FActorChangeError>(FActorChangeError{.Code = EActorChangeError::RollbackIncomplete})}};
 		}
 		return {};
 	}

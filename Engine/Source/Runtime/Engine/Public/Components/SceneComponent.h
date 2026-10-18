@@ -89,7 +89,7 @@ private:
 		FTransform RelativeTransform;
 
 		// Derived world transform rebuilt from RelativeTransform and the attachment chain.
-		DPROPERTY(ReadOnly, Transient)
+		DPROPERTY(ReadOnly, Transient, NonTransactional)
 		FTransform ComponentToWorld;
 
 		auto CanAttachTo(const DSceneComponent* Parent) const -> bool;
@@ -98,7 +98,7 @@ private:
 		DPROPERTY()
 		TObjectPtr<DSceneComponent> AttachParent;
 
-		DPROPERTY(Transient)
+		DPROPERTY(Transient, NonTransactional)
 		std::vector<TObjectPtr<DSceneComponent>> AttachChildren;
 
 		// Runtime attachment before replay; the reflected parent is overwritten by history.

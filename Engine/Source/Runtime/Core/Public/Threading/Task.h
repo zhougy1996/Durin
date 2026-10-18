@@ -455,6 +455,8 @@ namespace Durin
 		};
 		struct FTaskRuntimeAccess
 		{
+			// Detached completion reuses task storage without admitting a scheduled body.
+			CORE_API static auto CreateDetachedCompletion(FTaskCompletionFunction&& Completion, uint64 ResultBytes) -> FTaskHandle;
 			CORE_API static auto GetCurrentTaskId() -> uint64;
 			CORE_API static auto IsExecutingIndependentCPU() -> bool;
 			CORE_API static auto IsCancellationRequested(const FTaskHandle& Task) -> bool;

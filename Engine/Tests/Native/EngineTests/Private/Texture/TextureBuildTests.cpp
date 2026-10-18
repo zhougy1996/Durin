@@ -2393,6 +2393,7 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTexture2D* Texture = Result.Asset;
 	ASSERT_NE(Texture, nullptr);
+	Texture->SetFlags(Durin::EObjectFlags::Transactional);
 	ASSERT_NE(Texture->GetPackage(), nullptr);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 
@@ -2612,7 +2613,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 		}));
 	}
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
-	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
+	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 	EXPECT_FALSE(Transactions->CanUndo());
 	// The mutation barrier waits for the predecessor; release the fixture's worker gate first.
 	{
@@ -2627,7 +2628,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	EXPECT_FALSE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_FALSE(Texture->HasPlatformData());
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
-	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
+	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 	EXPECT_FALSE(Transactions->CanUndo());
 
 	bEntered = false;
@@ -2661,13 +2662,13 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	ASSERT_TRUE(Transactions->CanUndo());
 	const Durin::Editor::FTransactionId UndoId = Transactions->GetUndoId();
 	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_FALSE(Transactions->HasPendingOperation());
+	EXPECT_TRUE(Transactions->CanTransact());
 	EXPECT_NE(Transactions->GetUndoId(), UndoId);
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_TRUE(Transactions->CanRedo());
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
-	// Undo returns to the saved revision; Redo reapplies the authored change.
-	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
+	// Earlier uncaptured/canceled Modify calls invalidated the old saved checkpoint.
+	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::DataMask);
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());

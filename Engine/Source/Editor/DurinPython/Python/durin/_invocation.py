@@ -10,8 +10,8 @@ class _Invocation:
     def state(self):
         return _request("state", self._identity)
 
-    def result(self, timeout=30.0):
-        return _request("result", (*self._identity, timeout))
+    def result(self):
+        return _request("result", self._identity)
 
     def cancel(self):
         return _request("cancel", self._identity)

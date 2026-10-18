@@ -46,6 +46,18 @@ namespace Durin
 		if (GEditor == this) GEditor = nullptr;
 	}
 
+	auto DEditorEngine::BeginTransaction(std::string_view Description) -> int32
+	{ return BeginTransaction({}, Description); }
+	auto DEditorEngine::BeginTransaction(std::string_view Context, std::string_view Description, DObject* PrimaryObject) -> int32
+	{
+		if (!Trans) return -1;
+		const auto Index = Trans->Begin(Context, Description);
+		if (Index >= 0) Trans->SetPrimaryUndoObject(PrimaryObject);
+		return Index;
+	}
+	auto DEditorEngine::EndTransaction() -> int32 { return Trans ? Trans->End() : 0; }
+	auto DEditorEngine::CancelTransaction(int32 StartIndex) -> void { if (Trans) Trans->Cancel(StartIndex); }
+
 	auto DEditorEngine::AddReferencedObjects(FReferenceCollector& Collector) -> void
 	{
 		Super::AddReferencedObjects(Collector);
@@ -189,7 +201,11 @@ namespace Durin
 		if (bShutdownRequested) { PrepareForShutdown(); return; }
 		(void)RefreshEditorSubsystems();
 		FHostOperationScope Operation(*this);
-		if (auto* Tools = GetEditorSubsystem<DEditorToolSubsystem>()) Tools->TickTools();
+		if (auto* Tools = GetEditorSubsystem<DEditorToolSubsystem>())
+		{
+			Tools->TickTools();
+			Tools->TickScripts();
+		}
 		if (bShutdownRequested) return;
 		ReleaseRetiredPlaySessions();
 		if (IsPlayingInNewWindow() && PlayWindow)
@@ -208,7 +224,7 @@ namespace Durin
 	auto DEditorEngine::CanRefreshEditorSubsystems() -> bool
 	{
 		return IsInGameThread() && !IsGarbageCollecting() && !bShutdownRequested && IsHostOperationIdle()
-			&& (!GetTransactor() || GetTransactor()->CanBeginStandaloneTransaction())
+			&& (!GetTransactor() || GetTransactor()->CanTransact())
 			&& !FModularFeatureRegistry::Get().IsDispatching() && !EditorSubsystems.IsDispatching()
 			&& EditorSubsystems.GetState() == ESubsystemState::Ready;
 	}

@@ -3,6 +3,7 @@
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/DefaultDeltaPlan.h"
 #include "DObject/Object.h"
+#include "DObject/ObjectTransaction.h"
 #include "DObject/ObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
 #include "DObject/SoftObjectPtr.h"
@@ -7107,3 +7108,20 @@ TEST(FCoreDObjectCookLifecycleTests, RequiredInputsAreCapturedOnceAndRetainTheir
 	EXPECT_EQ(Reads, 2u);
 }
 } // namespace
+
+TEST(FObjectModifyTests, RuntimeNeutralBridgeRequiresTransactionalParticipation)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	TStrongObjectPtr<DObject> Object(NewObject<DObject>(nullptr, "RuntimeModifyBridge"));
+	EXPECT_FALSE(Object->Modify(false));
+	int Captures = 0;
+	FObjectTransaction Recorder{&Captures, [](void* Owner, DObject*) { ++*static_cast<int*>(Owner); return true; }};
+	struct FRestoreRecorder { FObjectTransaction* Previous; ~FRestoreRecorder() { GUndo = Previous; } } Restore{GUndo};
+	GUndo = &Recorder;
+	EXPECT_FALSE(Object->Modify(false)); EXPECT_EQ(Captures, 0);
+	Object->SetFlags(EObjectFlags::Transactional);
+	EXPECT_TRUE(Object->Modify(false)); EXPECT_EQ(Captures, 1);
+	Object->ClearFlags(EObjectFlags::Transactional);
+	EXPECT_FALSE(Object->Modify()); EXPECT_EQ(Captures, 1);
+}

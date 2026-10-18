@@ -52,16 +52,15 @@ rather than silently accepting an edit without history.
 
 Target and host transactor are strongly retained during synchronous execution.
 Requests do not retain objects across frames. There is no fallback to another
-editor's history. `CanBeginStandaloneTransaction()` defaults to false on the
-abstract transactor and admits only Idle on `DTransBuffer`.
+editor's history. `CanTransact()` admits Idle and ordinary Recording through the abstract service.
+Nested actions join that recording; replay, recovery, and destruction remain unavailable.
 
 ## Transactions And Author Obligations
 
-The adapter begins a checked scope on `Context.Transactor` using the label,
-slot identity, and primary target. `TryModify` captures the target's non-transient
-reflected members before native code runs. Failed begin/capture blocks invocation
-and preserves structured recording/cleanup diagnostics. This is separate from
-the existing best-effort `Modify` convenience API.
+The adapter opens a normal scope on `Context.Transactor` with the action label,
+slot identity, and primary target, then calls `Target->Modify()`. The return value
+reports recording and does not veto invocation; nontransactional native actions
+can still execute. Capture failures remain available through diagnostics.
 
 Invocation enters the target's virtual `DObject::ProcessEvent` with an explicit
 empty parameter view; the adapter does not bypass object dispatch or use a
@@ -71,13 +70,15 @@ invented. The body must preserve its invariants; arbitrary C++ calls cannot use
 detached pre-write validation. Adapted methods should not duplicate this terminal
 notification. Undo/Redo restore before/after values through ordinary property
 notifications; they never run the method again. Derived state must reconstruct
-through edit and replay hooks. Unchanged state creates no history or dirty
-transition. Successful recording uses existing package revisions/checkpoints.
+through edit and replay hooks. Unchanged state creates no history entry, but Modify still marks the package
+dirty. Successful recording uses existing package revisions/checkpoints.
 
-Capture is not recursive. Methods must not edit other objects/components, change
+Capture follows virtual Modify; Actor includes its native root component. It
+does not traverse arbitrary participants. Methods must not edit other uncaptured
+objects/components, change
 ownership, create/delete objects, change files, perform external effects, destroy
 the target, pump events, open modal loops, or start deferred authored work.
-Nested scopes obey LIFO rules but do not extend the single-object contract.
+Nested scopes share the transaction and do not extend the action adapter's single-object capture contract.
 Reconstructible transient derived caches are allowed. Complex commands need an
 explicit domain/custom-change adapter; a signature cannot prove undoability.
 

@@ -1,4 +1,5 @@
 #include "MaterialGraphEditSession.h"
+#include "Graph/MaterialGraphChange.h"
 #include "Materials/Material.h"
 #include "DObject/Class.h"
 #include "DObject/Property.h"
@@ -33,17 +34,17 @@ namespace Durin::Editor::Material::GraphEditInternals
 					.transform([&](auto Snapshot) { After = std::move(Snapshot); });
 			}
 			auto IsNoOp() const -> bool { return Before.GetPayload() == After.GetPayload(); }
-			auto Restore(bool bBefore) const -> FTransactionCustomResult
+			auto Restore(bool bBefore) const -> FMaterialChangeResult
 			{
 				auto Resolved = Before.GetMember().Resolve(Object());
 				if (!Resolved)
 				{
 					Resolved.error().Owner = Before.GetTarget().GetKey();
-					return {{.Code = ETransactionCustomError::MemberUnavailable,
+					return {{.Code = EMaterialChangeError::MemberUnavailable,
 						.MemberCause = std::make_shared<FTransactionSnapshotError>(std::move(Resolved.error()))}};
 				}
 				const auto Restored = RestorePropertyValuePayload(*Resolved, Object(), Index(), (bBefore ? Before : After).GetPayload());
-				if (!Restored) return {{.Code = ETransactionCustomError::PropertyRestore,
+				if (!Restored) return {{.Code = EMaterialChangeError::PropertyRestore,
 					.PropertyCause = std::make_shared<FPropertySnapshotError>(Restored.error())}};
 				return {};
 			}
@@ -70,7 +71,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 			for (auto& E : Nodes) Current.emplace_back(E.Get());
 			FMaterialExpressionEditing::ReconcileOwnership(Owner, Previous);
 		}
-		class FGraphObjectChange final : public ITransactionCustomChange
+		class FGraphObjectChange final : public FMaterialCommandChange
 		{
 		public:
 			TWeakObjectPtr<DObject> Owner;
@@ -84,24 +85,24 @@ namespace Durin::Editor::Material::GraphEditInternals
 			auto GetDescription() const -> std::string_view override { return Description; }
 			auto GetOwningModule() const -> std::string_view override { return "MaterialEditor"; }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
-			auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult override
+			auto Replay(ETransactionOperation Operation) -> FMaterialChangeResult override
 			{ return Apply(Operation == ETransactionOperation::Undo); }
-			auto Apply(bool bBefore) -> FTransactionCustomResult
+			auto Apply(bool bBefore) -> FMaterialChangeResult
 			{
-				if (!Owner.IsValid()) return {{.Code = ETransactionCustomError::TargetUnavailable}};
+				if (!Owner.IsValid()) return {{.Code = EMaterialChangeError::TargetUnavailable}};
 				for (size_t Index = 0; Index < Members.size(); ++Index)
-					if (!Members[Index].Object()) return {{.Code = ETransactionCustomError::MemberUnavailable, .MemberIndex = Index}};
+					if (!Members[Index].Object()) return {{.Code = EMaterialChangeError::MemberUnavailable, .MemberIndex = Index}};
 				const auto& Current = FMaterialExpressionEditing::GetExpressions(*Owner.Get());
 				if (bStructural)
 				{
-					if (Current != (bBefore ? AfterNodes : BeforeNodes)) return {{.Code = ETransactionCustomError::MembershipChanged, .NodeCount = Current.size()}};
+					if (Current != (bBefore ? AfterNodes : BeforeNodes)) return {{.Code = EMaterialChangeError::MembershipChanged, .NodeCount = Current.size()}};
 				}
 				else
 				{
 					// An external bulk replacement must not turn an old object record
 					// into a successful edit of detached, no-longer-visible expressions.
 					for (const auto& M : Members)
-						if (std::ranges::none_of(Current, [&](auto& E) { return E.Get() == M.Object(); })) return {{.Code = ETransactionCustomError::MembershipChanged, .NodeCount = Current.size()}};
+						if (std::ranges::none_of(Current, [&](auto& E) { return E.Get() == M.Object(); })) return {{.Code = EMaterialChangeError::MembershipChanged, .NodeCount = Current.size()}};
 				}
 				// Restore all fields before deriving owner state or notifying observers.
 				size_t Applied = 0;
@@ -218,7 +219,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 	}
 	auto FGraphEditSession::Commit(std::string Description, DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
-		if (Transactions && Transactions->HasPendingOperation()) return RejectCommand("The editor transactor is busy.");
+		if (Transactions && !Transactions->CanTransact()) return RejectCommand("The editor transactor is busy.");
 		const bool bGraphWritten = !Impl->Members.empty() || !std::ranges::equal(Expressions, Impl->Original,
 			{}, [](auto& E) { return E.Get(); }, [](auto& E) { return E.Get(); });
 		if (bGraphWritten)
@@ -323,11 +324,12 @@ namespace Durin::Editor::Material::GraphEditInternals
 			Change->AfterPresentation = Presentation;
 		}
 		const bool bSemantic = Change->bStructural || !Change->Members.empty();
+		FScopedTransaction Recording(Transactions, {"MaterialGraph", std::string(Change->GetDescription())});
 		// Record before publishing dirty/revision/compile effects. A rejected history
 		// commit leaves the scope responsible for restoring the original live fields.
 		if (Transactions)
 		{
-			const auto Recorded = Transactions->CommitApplied(std::move(Change));
+			const auto Recorded = Transactions->StoreUndo(&Impl->Owner, std::move(Change));
 			if (!Recorded) return RejectCommand("Unable to record the graph edit. " + FormatTransactorResult(Recorded));
 		}
 		std::vector<DMaterialExpression*> Previous;
@@ -337,6 +339,9 @@ namespace Durin::Editor::Material::GraphEditInternals
 		FScopedMaterialGraphChange Batch(Impl->Owner);
 		WritePresentation(Impl->Owner, Presentation);
 		if (bSemantic) FMaterialExpressionEditing::Publish(Impl->Owner);
+		(void)Recording.End();
+		if (Transactions && Transactions->GetLastResult().Code == ETransactorResultCode::Failed)
+			return RejectCommand(FormatTransactorResult(Transactions->GetLastResult()));
 		return {.Status = EMaterialGraphCommandStatus::Succeeded};
 	}
 }

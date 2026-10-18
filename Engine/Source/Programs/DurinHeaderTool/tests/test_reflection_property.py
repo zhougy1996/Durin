@@ -361,6 +361,12 @@ class TestReflectionProperties:
         assert prop.typed_metadata is not None
         assert prop.typed_metadata.step == "8"
 
+    def test_nontransactional_and_transient_flags_are_independent(self):
+        assert property_parser._property_flags_from_annotation("DPROPERTY, NonTransactional") == "Durin::EPropertyFlags::NonTransactional"
+        flags = property_parser._property_flags_from_annotation("DPROPERTY, Transient, NonTransactional")
+        assert "Durin::EPropertyFlags::Transient" in flags
+        assert "Durin::EPropertyFlags::NonTransactional" in flags
+
     def test_deprecated_property_route_is_inferred_from_the_member_name(self):
         actor = next(info for info in self.header_info.classes if info.short_name == "ASampleActor")
         prop = next(item for item in actor.properties if item.name == "Value_DEPRECATED")

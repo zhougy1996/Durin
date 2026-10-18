@@ -123,6 +123,7 @@ namespace
                 auto Result = Call(Owner.empty() ? Session : Owner, "editor.python.status", {{"job_id", std::string(Id)}});
                 const auto State = DataString(Result, "state");
                 if (State != "queued" && State != "running") return Result;
+                Tools->TickScripts();
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
             }
             ADD_FAILURE() << "MCP Python job did not finish."; return {};
@@ -199,10 +200,22 @@ namespace
     {
         auto Running = Submit("while True:\n    pass\n");
         auto Queued = Submit("print('must not run')");
-        auto Cancelled = Call(Session, "editor.python.cancel", {{"job_id", Queued}}); EXPECT_FALSE(IsError(Cancelled));
-        EXPECT_EQ("cancelled", DataString(Wait(Queued, false), "state"));
-        EXPECT_FALSE(IsError(Call(Session, "editor.python.cancel", {{"job_id", Running}})));
+        auto Controls = std::async(std::launch::async, [&] {
+            const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            std::string State;
+            while (std::chrono::steady_clock::now() < Deadline)
+            {
+                State = DataString(Call(Session, "editor.python.status", {{"job_id", Running}}), "state");
+                if (State == "running") break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            EXPECT_EQ("running", State);
+            EXPECT_FALSE(IsError(Call(Session, "editor.python.cancel", {{"job_id", Queued}})));
+            EXPECT_FALSE(IsError(Call(Session, "editor.python.cancel", {{"job_id", Running}})));
+        });
+        Tools->TickScripts(); Controls.get();
         EXPECT_EQ("cancelled", DataString(Wait(Running, false), "state"));
+        EXPECT_EQ("cancelled", DataString(Wait(Queued, false), "state"));
         EXPECT_EQ("", DataString(Wait(Queued, false), "output"));
     }
     TEST_F(FMCPPythonJobTests, RejectsForeignUnknownAndMalformedJobIds)
@@ -240,6 +253,7 @@ namespace
         const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         while (std::chrono::steady_clock::now() < Deadline)
         {
+            Tools->TickScripts();
             auto Job = Runtime->GetJobResult(*LocalJob);
             if (Job && Job->State == EPythonJobState::Succeeded) { EXPECT_EQ("runtime still alive\n", Job->Output); return; }
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -288,6 +302,7 @@ namespace
         const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         while (std::chrono::steady_clock::now() < Deadline)
         {
+            Tools->TickScripts();
             auto Snapshot = Runtime->GetJobResult(*LocalJob); if (Snapshot && Snapshot->State == EPythonJobState::Succeeded) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }

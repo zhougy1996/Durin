@@ -17,9 +17,10 @@ namespace Durin
             FToolCancellationToken Cancellation;
             std::map<std::string, uint64, std::less<>> Jobs;
         };
-        struct FState
+        struct FState : std::enable_shared_from_this<FState>
         {
             std::shared_ptr<FPythonRuntime> Runtime;
+            std::mutex Mutex;
             std::map<std::string, FClient> Clients;
             ~FState() { for (const auto& [Key, Client] : Clients) { (void)Key; Runtime->CloseSession(Client.Session); } }
             auto Call(const FToolRequest& Request, const FToolContext& Context) -> FToolResult
@@ -27,6 +28,30 @@ namespace Durin
                 auto* Editor = GetToolEditor(Context);
                 auto* Tools = Editor ? Editor->GetEditorSubsystem<DEditorToolSubsystem>() : nullptr;
                 if (!Tools || !Runtime) return Failure(EToolError::ToolUnavailable, "Python runtime or admitting editor is unavailable.");
+                if (Request.Address.Tool == "submit")
+                {
+                    auto Endpoint = Tools->GetService();
+                    for (const auto& Set : Endpoint->GetCatalog().Toolsets)
+                        if (Set.Descriptor.Name == "editor.python")
+                            Endpoint->BindPythonJobControl(Set.ToolsetIdentity,
+                                [Weak = weak_from_this()](const auto& Control, const auto& Caller) {
+                                    const auto State = Weak.lock();
+                                    return State ? State->DetachedCall(Control, Caller)
+                                        : Failure(EToolError::ToolUnavailable, "Python job provider retired.");
+                                });
+                }
+                return Dispatch(Request, Context, Tools->GetService());
+            }
+            auto DetachedCall(const FToolRequest& Request, const FToolContext& Context) -> FToolResult
+            {
+                if (Request.Address.Tool != "status" && Request.Address.Tool != "cancel")
+                    return Failure(EToolError::ToolUnavailable, "Only detached job status/cancel is supported.");
+                return Dispatch(Request, Context, nullptr);
+            }
+            auto Dispatch(const FToolRequest& Request, const FToolContext& Context,
+                std::shared_ptr<FEditorToolService> Endpoint) -> FToolResult
+            {
+                std::lock_guard Lock(Mutex);
                 std::erase_if(Clients, [&](const auto& Entry) {
                     if (!Entry.second.Cancellation.IsCancellationRequested()) return false;
                     Runtime->CloseSession(Entry.second.Session); return true;
@@ -40,7 +65,7 @@ namespace Durin
                     auto It = Clients.find(Key);
                     if (It == Clients.end())
                     {
-                        auto Session = Runtime->CreateSession(Tools->GetService(), Context.Source, Context.Client);
+                        auto Session = Runtime->CreateSession(std::move(Endpoint), Context.Source, Context.Client);
                         if (!Session) return Failure(EToolError::ToolUnavailable, Session.error());
                         It = Clients.emplace(Key, FClient{*Session, Context.Client.Cancellation, {}}).first;
                     }

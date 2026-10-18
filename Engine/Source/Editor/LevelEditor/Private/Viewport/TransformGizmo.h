@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Actors/ActorChange.h"
+
 #include "CoreMinimal.h"
 
 #include "DObject/ObjectPtr.h"
@@ -9,7 +11,7 @@
 namespace Durin
 {
 	class DTransactor;
-	class ITransactionCustomChange;
+	class FActorCommandChange;
 }
 
 namespace Durin::Editor

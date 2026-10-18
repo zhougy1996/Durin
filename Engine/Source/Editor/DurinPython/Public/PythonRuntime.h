@@ -19,12 +19,14 @@ namespace Durin
     struct FPythonRuntimeOptions
     {
         std::filesystem::path RuntimeDirectory;
+        // Total elapsed time from admission, including queueing and suspension.
+        std::optional<std::chrono::milliseconds> JobDeadline;
     };
 
-    // Owns one interpreter/worker. Native submission/query/cancel calls are thread-safe;
-    // Start/Stop are owner operations serialized against short public API calls.
-    // Stop joins after cancelling waits and never depends on a future editor tick.
-    // Unsupported scripts which suppress cancellation or block in native code must return.
+    // One interpreter owned by GameThread. Jobs execute at the editor script
+    // pump, outside tool provider dispatch. Submission/query/cancel are detached.
+    // Start/Stop and destruction belong to GameThread. Stop during a callback
+    // signals cancellation; finalization waits for script/native return.
     class FPythonRuntime final
     {
     public:

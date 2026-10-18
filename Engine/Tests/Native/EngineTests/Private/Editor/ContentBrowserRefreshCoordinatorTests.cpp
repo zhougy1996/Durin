@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include "Editor/EditorCommand.h"
+#include "Actors/ActorChange.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 
@@ -9,7 +11,7 @@ using namespace Durin::Editor::ContentBrowser::Private;
 
 namespace
 {
-	class FRefreshTestTransaction final : public Durin::Editor::ITransactionCustomChange
+	class FRefreshTestTransaction final : public Durin::Editor::FActorCommandChange
 	{
 	public:
 		explicit FRefreshTestTransaction(bool bInMutatesMountedContent)
@@ -25,7 +27,7 @@ namespace
 		{
 			return bMutatesMountedContent;
 		}
-		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
+		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FActorChangeResult override
 		{
 			if (Operation == Durin::Editor::ETransactionOperation::Undo)
 			{
@@ -48,7 +50,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	Durin::Tests::FTestTransactorOwner Transactions;
 	const uint64 InitialRevision =
 		Transactions->GetMountedContentMutationRevision();
-	ASSERT_TRUE(Transactions->Execute(
+	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Transactions,
 		std::make_unique<FRefreshTestTransaction>(false)));
 	EXPECT_EQ(
 		Transactions->GetMountedContentMutationRevision(), InitialRevision);
@@ -66,7 +68,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	Durin::Tests::FTestTransactorOwner Transactions;
 	const uint64 InitialRevision =
 		Transactions->GetMountedContentMutationRevision();
-	ASSERT_TRUE(Transactions->Execute(
+	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Transactions,
 		std::make_unique<FRefreshTestTransaction>(true)));
 	EXPECT_EQ(
 		Transactions->GetMountedContentMutationRevision(), InitialRevision + 1);

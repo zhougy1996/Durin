@@ -130,7 +130,11 @@ namespace Durin
 		if (OwningWorld && OwningWorld->IsEndingPlay()) return nullptr;
 		if (!CanConstructObjectOfClass(ActorClass, AActor::StaticClass())) return nullptr;
 		const FName RequestedName = InName.IsNone() ? FName(ActorClass->GetDefaultObjectName()) : InName;
-		AActor* Actor = NewObject<AActor>(ActorClass, this, MakeUniqueActorName(RequestedName));
+		EObjectFlags Flags = EObjectFlags::NoFlags;
+#if DURIN_WITH_EDITOR
+		if (!OwningWorld || OwningWorld->GetWorldType() == EWorldType::Editor) Flags |= EObjectFlags::Transactional;
+#endif
+		AActor* Actor = NewObject<AActor>(ActorClass, this, MakeUniqueActorName(RequestedName), Flags);
 		if (!Actor) return nullptr;
 		Actors.emplace_back(Actor);
 		if (!Actor->RequestNativeReconstruction())

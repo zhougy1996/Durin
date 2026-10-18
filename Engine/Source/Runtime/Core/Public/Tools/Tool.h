@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Modules/ModularFeature.h"
+#include "Threading/TaskComposition.h"
 
 namespace Durin
 {
@@ -96,6 +97,7 @@ namespace Durin
 		EToolEffect Effects = EToolEffect::ReadOnly;
 		EToolRetryPolicy RetryPolicy = EToolRetryPolicy::Unsafe;
 		bool bExposeExternally = false;
+		bool bMayPend = false;
 	};
 
 	// Explicit two-part identity; tool names are local to their owning toolset.
@@ -127,10 +129,15 @@ namespace Durin
 	public:
 		[[nodiscard]] auto IsCancellationRequested() const -> bool
 		{
-			return State && State->load(std::memory_order_acquire);
+			return (State && State->load(std::memory_order_acquire)) || (Parent && Parent->IsCancellationRequested());
+		}
+		[[nodiscard]] auto WithParent(const FToolCancellationToken& Token) const -> FToolCancellationToken
+		{
+			auto Combined = *this; Combined.Parent = std::make_shared<FToolCancellationToken>(Token); return Combined;
 		}
 	private:
 		std::shared_ptr<std::atomic<bool>> State;
+		std::shared_ptr<const FToolCancellationToken> Parent;
 		friend class FToolCancellationSource;
 	};
 
@@ -172,9 +179,11 @@ namespace Durin
 		EToolStatus Status = EToolStatus::Failed;
 		FToolValue Data;
 		std::vector<FToolDiagnostic> Diagnostics;
-		// Reserved for domain-owned asynchronous work; no scheduler is implied.
-		std::optional<std::string> OperationId;
 	};
+	using FToolFuture = Tasks::TSharedTask<FToolResult>;
+	using FToolCompletionSource = Tasks::TCompletionSource<FToolResult>;
+	inline auto ReadyToolResult(FToolResult Result) -> FToolFuture { return Tasks::MakeReadyTask(std::move(Result)); }
+
 	struct FToolAvailability
 	{
 		bool bAvailable = true;
@@ -186,11 +195,11 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Durin.Toolset";
-		static constexpr uint32 FeatureVersion = 1;
+		static constexpr uint32 FeatureVersion = 2;
 		virtual auto DescribeToolset() const -> FToolsetDescriptor = 0;
 		virtual auto CheckAvailability(const FToolRequest&, const FToolContext&) -> FToolAvailability = 0;
 		// The caller validates/normalizes Arguments once before availability and execution.
-		virtual auto Call(const FToolRequest&, const FToolContext&) -> FToolResult = 0;
+		virtual auto Call(const FToolRequest&, const FToolContext&) -> FToolFuture = 0;
 	};
 
 	using FToolValidationResult = std::expected<void, FToolDiagnostic>;

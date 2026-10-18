@@ -20,7 +20,7 @@ namespace Durin
 		std::string Filename;
 		const DFactory* Factory = nullptr;
 		DObject* Context = nullptr;
-		EObjectFlags Flags = EObjectFlags::Public;
+		EObjectFlags Flags = EObjectFlags::Public | EObjectFlags::Transactional;
 	};
 
 	enum class EAssetImportError : uint8 { None, Path, Class, Filename, Destination, FileInspection, FileExists, AmbiguousFactory, MissingFactory, UnsupportedFactory, DuplicatePackage };

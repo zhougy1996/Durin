@@ -193,8 +193,9 @@ Selection remains in FLevelEditorContext, including reconciliation after deletio
 and Undo/Redo. The subsystem neither retains that context nor selects returned
 objects. This work does not change property editing, introduce general Actor
 conversion/clipboard features, or implement Python/MCP tools. Future tools must
-call this service; coordinate that boundary with the
-[Editor Agent Toolset Expansion plan](EditorAgentToolsetExpansion.md).
+call this service. The [Editor Execution Foundation Plan](EditorExecutionFoundation.md)
+owns shared execution/transaction mechanisms; concrete tool exposure is deferred
+and is not an acceptance dependency of either plan.
 
 Transform gizmo gestures and their heterogeneous target protocol remain owned by
 LevelEditor. Preserve their continuous-edit/one-gesture history semantics; do not

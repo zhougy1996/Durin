@@ -91,6 +91,10 @@ namespace Durin
 		DURINED_API auto PrepareForShutdown() -> void override;
 		DURINED_API auto BeginDestroy() -> void override;
 		auto GetTransactor() const -> DTransactor* { return Trans.Get(); }
+		DURINED_API auto BeginTransaction(std::string_view Description) -> int32;
+		DURINED_API auto BeginTransaction(std::string_view Context, std::string_view Description, DObject* PrimaryObject = nullptr) -> int32;
+		DURINED_API auto EndTransaction() -> int32;
+		DURINED_API auto CancelTransaction(int32 StartIndex = 0) -> void;
 		template<typename T> requires std::is_base_of_v<DEditorSubsystem, T>
 		auto GetEditorSubsystem() const -> T* { return static_cast<T*>(EditorSubsystems.Find(T::StaticClass())); }
 		auto GetEditorSubsystemState() const -> ESubsystemState { return EditorSubsystems.GetState(); }
@@ -142,6 +146,7 @@ namespace Durin
 			const FViewportClient* SourceClient) -> void;
 
 		auto InitEditorInternal(const FEngineInitContext& Context) -> bool;
+		auto GetObjectTransactionRecorder() const -> std::shared_ptr<FObjectTransaction> override { return Trans ? Trans->GetObjectTransactionRecorder() : nullptr; }
 		DURINED_API auto CloseSubsystemWork() -> void override;
 		DURINED_API auto RetireHostConsumers() -> void override;
 		DURINED_API auto AreHostConsumersIdle() -> bool override;

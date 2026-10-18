@@ -235,6 +235,7 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "SplineModeWorld");
+	World->SetWorldType(Durin::EWorldType::Editor);
 	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "SplineModeLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
@@ -294,6 +295,7 @@ TEST(FSplineMeshActorViewportTests, PointTargetUpdatesGeneratedIdentityAndCancel
 {
 	InitializeDObjectSystem();
 	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "SplineMeshViewportWorld");
+	World->SetWorldType(Durin::EWorldType::Editor);
 	EXPECT_TRUE(World->InitializeSubsystems());
 	auto* Level = Durin::NewObject<Durin::DLevel>(World, "SplineMeshViewportLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));

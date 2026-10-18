@@ -1550,4 +1550,69 @@ namespace Durin
 		EXPECT_EQ(0u, Diagnostics.CurrentTaskReservationCount);
 	}
 
+	TEST(FTaskCompositionTests, DetachedCompletionRetainsValueAndLifetimeWithoutScheduler)
+	{
+		auto Source = Tasks::TCompletionSource<std::string>::CreateDetached();
+		auto Task = Tasks::Share(Source.TakeTask());
+		EXPECT_FALSE(Task.IsCompleted());
+		EXPECT_FALSE(Tasks::Cancel(Task)); // Observation cannot replace a domain outcome.
+		EXPECT_FALSE(Task.GetResultShared());
+		int Calls = 0;
+		Tasks::FTaskReadiness Signal;
+		auto Observation = Task.ObserveReady(Signal);
+		EXPECT_FALSE(Signal.IsReady());
+		auto Subscription = Task.Subscribe([&](ETaskState State) { EXPECT_EQ(ETaskState::Succeeded, State); ++Calls; });
+		EXPECT_TRUE(Source.TrySetValue("owned"));
+		EXPECT_FALSE(Source.TrySetValue("duplicate"));
+		ASSERT_TRUE(Task.IsCompleted());
+		EXPECT_EQ(1, Calls);
+		EXPECT_TRUE(Signal.IsReady());
+		auto Lifetime = std::make_shared<int>(7);
+		std::weak_ptr<int> Weak = Lifetime;
+		auto Retained = Task.WithLifetime(std::move(Lifetime)).GetResultShared();
+		Task = {};
+		EXPECT_FALSE(Weak.expired());
+		EXPECT_EQ("owned", *Retained);
+		Retained.reset();
+		EXPECT_TRUE(Weak.expired());
+		auto Ready = Tasks::MakeReadyTask(42);
+		auto Late = Ready.Subscribe([&](ETaskState) { ++Calls; });
+		EXPECT_EQ(2, Calls);
+		EXPECT_EQ(42, *Ready.GetResultShared());
+	}
+
+	TEST(FTaskCompositionTests, DetachedCompletionAbandonmentAndUnsubscribeDoNotCancelDomainWork)
+	{
+		Tasks::TSharedTask<int> Abandoned;
+		{
+			auto Source = Tasks::TCompletionSource<int>::CreateDetached();
+			Abandoned = Tasks::Share(Source.TakeTask());
+		}
+		EXPECT_EQ(ETaskState::Failed, Abandoned.GetState());
+		EXPECT_EQ(Tasks::ETaskFailureCode::AbandonedSource, Abandoned.GetFailure().Code);
+		auto Source = Tasks::TCompletionSource<int>::CreateDetached();
+		auto Task = Tasks::Share(Source.TakeTask());
+		int Calls = 0;
+		auto Subscription = Task.Subscribe([&](ETaskState) { ++Calls; });
+		Subscription.Reset();
+		EXPECT_TRUE(Source.TrySetValue(9));
+		EXPECT_EQ(0, Calls);
+		EXPECT_EQ(9, *Task.GetResultShared());
+	}
+
+	TEST(FTaskCompositionTests, DetachedSubscriptionCompletionRaceNotifiesExactlyOnce)
+	{
+		for (int Iteration = 0; Iteration < 128; ++Iteration)
+		{
+			auto Source = Tasks::TCompletionSource<int>::CreateDetached();
+			auto Task = Tasks::Share(Source.TakeTask());
+			std::atomic<int> Calls{0};
+			std::thread Producer([Source] { EXPECT_TRUE(Source.TrySetValue(1)); });
+			auto Subscription = Task.Subscribe([&](ETaskState) { ++Calls; });
+			Producer.join();
+			EXPECT_EQ(1, Calls.load());
+			EXPECT_EQ(1, *Task.GetResultShared());
+		}
+	}
+
 }

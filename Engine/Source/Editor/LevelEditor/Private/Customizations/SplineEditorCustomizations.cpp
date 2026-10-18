@@ -51,7 +51,7 @@ namespace Durin::Editor::Level
 				.Name = "SplineEdit",
 				.Description = std::move(Description),
 			});
-			Transaction.Modify(Spline);
+			(void)Spline.Modify();
 			if (!Edit()) return false;
 			return true;
 		}

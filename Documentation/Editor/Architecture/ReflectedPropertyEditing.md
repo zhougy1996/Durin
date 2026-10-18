@@ -208,14 +208,21 @@ discarding the preview state.
 
 ## History Submission
 
-The session opens one scoped transaction and updates the pending record's after
-payload as previews change the live value. Commit ends that scope after the
+The session opens one scope and calls Modify for transaction-owned object
+capture, including fields authored by edit reactions. When whole-object capture
+is unavailable, the existing focused backend updates a pending member record
+as previews change the live value. Commit ends that scope after the
 Committed notification; it records the already-applied value without a second
-write. Cancelled and no-op edits create no history entry or package revision.
+write. An unchanged nested commit ends its action without canceling an enclosing
+recording. Cancellation discards the shared native recording; preview restoration
+remains the edit session's separate responsibility. No-op/canceled Modify can
+leave a dirty package without a history entry.
 
 `FTransactionObjectRecord` reconstructs the target from its exact object identity,
-member locator, path, and before/after payloads. Undo/Redo use the same detached
-validation, canonical write, and notification path. Record identity and payload
+member locator, path, and before/after payloads. Undo/Redo check structural/type/identity validity and restore historical
+payloads directly, bypassing new-edit proposal validators and normalization.
+New edits continue to use detached validation; replay emits the normal
+property notifications followed by balanced object completion hooks. Record identity and payload
 rules belong to [Transaction records](TransactionRecords.md#focused-object-snapshots);
 ordering, rollback, and recovery belong to [Transactors](Transactors.md#structural-history-and-barriers).
 

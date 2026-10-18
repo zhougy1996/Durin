@@ -165,7 +165,8 @@ namespace
 		ASSERT_EQ(Actor->GetAlignments().size(), 2u);
 		ASSERT_EQ(Session.Cancel().GetStatus(), Editor::EPropertyEditResult::Changed);
 		ExpectPreview(Original);
-		EXPECT_FALSE(Package->IsDirty());
+		// Native Modify marks dirty even when preview restoration or rejection leaves no history.
+		EXPECT_TRUE(Package->IsDirty());
 		EXPECT_EQ(Transactor->GetHistoryCount(), 0u);
 	}
 
@@ -180,7 +181,8 @@ namespace
 		EXPECT_EQ(Session.Commit().GetStatus(), Editor::EPropertyEditResult::NoChange);
 		ExpectPreview(Original);
 		EXPECT_EQ(Actor->GetAlignments().front(), Before);
-		EXPECT_FALSE(Package->IsDirty());
+		// Native Modify marks dirty even when preview restoration or rejection leaves no history.
+		EXPECT_TRUE(Package->IsDirty());
 		EXPECT_EQ(Transactor->GetHistoryCount(), 0u);
 	}
 
@@ -190,7 +192,7 @@ namespace
 		std::string Error;
 		{
 			Editor::FScopedTransaction Transaction(Transactor, {"road", "Add road using Modify"});
-			Transaction.Modify(Asset);
+			ASSERT_TRUE(Asset->Modify());
 			ASSERT_TRUE(Asset->SetDefinition(Changed, Error)) << Error;
 		}
 		ExpectPreview(Changed);

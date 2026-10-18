@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Graph/MaterialGraphChange.h"
+
 #include "CoreMinimal.h"
 #include "Materials/Material.h"
 
@@ -41,14 +43,14 @@ namespace Durin::Editor::Material::GraphEditInternals
 		const FMaterialGraphPresentation& BeforePresentation,
 		const FMaterialGraphPresentation& AfterPresentation,
 		std::string Description)
-		-> std::unique_ptr<ITransactionCustomChange>;
+		-> std::unique_ptr<FMaterialCommandChange>;
 
 	MATERIALEDITOR_API auto MakeMaterialGraphParameterTransaction(
 		DMaterial& Material,
 		FGuid ParameterId,
 		FMaterialParameterValue BeforeValue,
 		FMaterialParameterValue AfterValue)
-		-> std::unique_ptr<ITransactionCustomChange>;
+		-> std::unique_ptr<FMaterialCommandChange>;
 
 	auto CommitPresentationChange(
 		DObject& Material,
