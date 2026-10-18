@@ -1,6 +1,58 @@
 #include "Workspace/WorkspaceManager.h"
 
 #include "DObject/AssetPath.h"
+#include "Asset/Load.h"
+#include "DObject/SoftObjectPtr.h"
+#include "DObject/WeakObjectPtr.h"
+#include "Subsystems/AssetEditorSubsystem.h"
+
+namespace Durin::Editor::Detail
+{
+	// A document is one editor instance; the shared workspace is its presentation host.
+	class FWorkspaceAssetEditorInstance final : public IAssetEditorInstance,
+		public std::enable_shared_from_this<FWorkspaceAssetEditorInstance>
+	{
+	public:
+		FWorkspaceAssetEditorInstance(FWorkspaceManager& InManager, FDocumentId InId,
+			FName InName, DAssetEditorSubsystem* InSubsystem)
+			: Manager(InManager), Id(InId), Name(InName), Subsystem(InSubsystem) {}
+		~FWorkspaceAssetEditorInstance() override
+		{
+			if (auto* Service = Subsystem.Get()) Service->NotifyEditorClosed(this);
+		}
+		auto GetEditorName() const -> FName override { return Name; }
+		auto FocusWindow(DObject*) -> void override
+		{
+			const auto KeepAlive = shared_from_this();
+			(void)Manager.ActivateDocument(Id);
+			LastActivationTime = FTime::Seconds();
+		}
+		auto GetLastActivationTime() -> double override { return LastActivationTime; }
+		auto RecordActivation() -> void { LastActivationTime = FTime::Seconds(); }
+		auto CloseWindow(EAssetEditorCloseReason) -> bool override
+		{
+			const auto KeepAlive = shared_from_this();
+			return Manager.RequestCloseDocument(Id) == EDocumentCloseResult::Closed;
+		}
+		auto SetAsset(DObject* Object) -> void
+		{
+			if (Asset == FObjectKey(Object)) return;
+			if (auto* Service = Subsystem.Get())
+			{
+				Service->NotifyEditorClosed(this);
+				if (Object) Service->NotifyAssetOpened(Object, this);
+			}
+			Asset = FObjectKey(Object);
+		}
+	private:
+		FWorkspaceManager& Manager;
+		FDocumentId Id;
+		FName Name;
+		double LastActivationTime = FTime::Seconds();
+		TWeakObjectPtr<DAssetEditorSubsystem> Subsystem;
+		FObjectKey Asset;
+	};
+}
 
 namespace Durin::Editor::Detail
 {
@@ -32,6 +84,9 @@ namespace Durin::Editor::Detail
 		std::unordered_map<uint64, FDocumentTab> DeferredDocumentOpens;
 		std::unordered_map<std::string, FRegisteredWorkspace> Workspaces;
 		std::unordered_map<std::string, FRegisteredAssetEditor> AssetEditors;
+		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditorSubsystem;
+		std::unordered_map<uint64, std::shared_ptr<FWorkspaceAssetEditorInstance>> EditorInstances;
+		std::function<void()> SynchronizeAssetEditors;
 	};
 
 	auto UnregisterWorkspaceBatch(FWorkspaceRegistryState& State, uint64 RegistrationId) -> void
@@ -73,6 +128,7 @@ namespace Durin::Editor::Detail
 		std::erase_if(State.Workspaces, [RegistrationId](const auto& Pair) {
 			return Pair.second.RegistrationId == RegistrationId;
 		});
+		if (State.SynchronizeAssetEditors) State.SynchronizeAssetEditors();
 
 		if (!bActiveDocumentRemoved) return;
 		State.ActiveDocumentId = {};
@@ -121,15 +177,48 @@ namespace Durin::Editor
 		RegistrationId = 0;
 	}
 
-	FWorkspaceManager::FWorkspaceManager()
+	FWorkspaceManager::FWorkspaceManager(DAssetEditorSubsystem* AssetEditors)
 		: State(std::make_shared<Detail::FWorkspaceRegistryState>())
 	{
+		if (AssetEditors)
+		{
+			require(AssetEditors->CanCall());
+			require(AssetEditors->WorkspaceManager == nullptr);
+			AssetEditors->WorkspaceManager = this;
+			State->AssetEditorSubsystem = AssetEditors;
+			State->SynchronizeAssetEditors = [this] { SynchronizeAssetEditors(); };
+		}
 		AssetMoveObserverHandle = RegisterAssetMoveObserver(this);
 	}
 
 	FWorkspaceManager::~FWorkspaceManager()
 	{
+		State->SynchronizeAssetEditors = {};
+		State->EditorInstances.clear();
+		if (auto* Service = State->AssetEditorSubsystem.Get(); Service && Service->WorkspaceManager == this)
+			Service->WorkspaceManager = nullptr;
 		UnregisterAssetMoveObserver(AssetMoveObserverHandle);
+	}
+
+	auto FWorkspaceManager::SynchronizeAssetEditors() -> void
+	{
+		auto* Service = State->AssetEditorSubsystem.Get();
+		if (!Service) return;
+		std::unordered_set<uint64> OpenDocuments;
+		for (const auto& Document : State->Documents)
+		{
+			FObjectPath Path;
+			if (!FObjectPath::TryCreate(Document.ResourceId, Path)) continue;
+			FSoftObjectPtr Reference(Path);
+			const auto Resolved = ResolveSoftObject(Reference, DObject::StaticClass());
+			auto* Asset = Resolved ? Resolved->Object : nullptr;
+			OpenDocuments.insert(Document.Id.Value);
+			auto& Instance = State->EditorInstances[Document.Id.Value];
+			if (!Instance) Instance = std::make_shared<Detail::FWorkspaceAssetEditorInstance>(
+				*this, Document.Id, FName(Document.WorkspaceType.GetValue()), Service);
+			Instance->SetAsset(Asset);
+		}
+		std::erase_if(State->EditorInstances, [&](const auto& Pair) { return !OpenDocuments.contains(Pair.first); });
 	}
 
 	auto FWorkspaceManager::OnAssetsRelocated(
@@ -223,6 +312,7 @@ namespace Durin::Editor
 			*Existing = std::move(Candidate);
 			Workspace->ActivateDocument(*Existing);
 			State->ActiveDocumentId = Existing->Id;
+			SynchronizeAssetEditors();
 			return Existing->Id;
 		}
 
@@ -246,6 +336,7 @@ namespace Durin::Editor
 		State->Documents.push_back(std::move(Document));
 		Workspace->ActivateDocument(State->Documents.back());
 		State->ActiveDocumentId = State->Documents.back().Id;
+		SynchronizeAssetEditors();
 		return State->Documents.back().Id;
 	}
 
@@ -273,7 +364,13 @@ namespace Durin::Editor
 		if (!OpenedDocument) return false;
 		Workspace->ActivateDocument(*OpenedDocument);
 		State->ActiveDocumentId = OpenedDocument->Id;
+		SynchronizeAssetEditors();
 		return true;
+	}
+
+	auto FWorkspaceManager::CanOpenAsset(std::string_view AssetClassName) const -> bool
+	{
+		return State->AssetEditors.contains(std::string(AssetClassName));
 	}
 
 	auto FWorkspaceManager::OpenAsset(std::string ResourceId, std::string_view AssetClassName) -> bool
@@ -308,6 +405,8 @@ namespace Durin::Editor
 		if (!RequestDeactivateActiveDocument(DocumentId)) return false;
 		Workspace->ActivateDocument(*Document);
 		State->ActiveDocumentId = DocumentId;
+		if (const auto Instance = State->EditorInstances.find(DocumentId.Value); Instance != State->EditorInstances.end())
+			Instance->second->RecordActivation();
 		return true;
 	}
 
@@ -360,6 +459,7 @@ namespace Durin::Editor
 		const size_t ClosedIndex = static_cast<size_t>(std::distance(State->Documents.begin(), Found));
 		const bool bWasActive = State->ActiveDocumentId == DocumentId;
 		State->Documents.erase(Found);
+		SynchronizeAssetEditors();
 		if (!bWasActive) return EDocumentCloseResult::Closed;
 
 		State->ActiveDocumentId = {};
@@ -436,6 +536,7 @@ namespace Durin::Editor
 		if (!Previous || !Replacement || Previous == Replacement) return;
 		for (const auto& Workspace : GetRegisteredWorkspaces())
 			Workspace->OnPackageReloaded(Previous, Replacement);
+		SynchronizeAssetEditors();
 	}
 
 	auto FWorkspaceManager::RemapResourceId(
@@ -457,6 +558,7 @@ namespace Durin::Editor
 			(void)Id;
 			Remap(Document);
 		}
+		SynchronizeAssetEditors();
 	}
 
 	auto FWorkspaceManager::GetDocuments() const -> const std::vector<FDocumentTab>&

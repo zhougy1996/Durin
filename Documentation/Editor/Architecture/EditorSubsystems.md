@@ -4,7 +4,7 @@ Summary: Define per-editor native services, reflected PIE controls, Actor/Compon
 
 Modules: DurinEd, LevelEditor, MainFrame, Engine
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-18
 
 ## Host Contract
 
@@ -24,7 +24,7 @@ Editor Init loads project providers and AssetForgeBuiltins, runs base Init,
 retains EditorWorld, loads MainFrame, then initializes currently available Editor services before
 CreateEditorHost exposes consumers. The constructor-created transactor is
 available; the shell is not yet created. DurinEd's module startup registers the
-Actor editing, notification and [tool](EditorTools.md) services. LevelEditor
+Actor editing, asset editor, notification and [tool](EditorTools.md) services. LevelEditor
 registers the Level editing service and PIE Toolset. A returned failure, cancellation or exception retires
 partial host state and prevents successful initialization.
 
@@ -33,6 +33,51 @@ destroys shell consumers, then deinitializes Editor services. Base shutdown
 retires the remaining World and Engine services. Initialization and update
 operation scopes defer requested destruction until callbacks unwind. Explicit
 retirement is idempotent and BeginDestroy supplies the same fallback path.
+
+## Asset Editors
+
+`DAssetEditorSubsystem` in `Subsystems/AssetEditorSubsystem.h` follows the core
+native asset-editor lifecycle of UE's `UAssetEditorSubsystem`. Each Editor owns
+an independent service. `OpenEditorForAsset(DObject*)` first finds and focuses an
+existing primary `IAssetEditorInstance`; otherwise it resolves the exact-class
+workspace route. Path overloads load the asset before routing. Batch opening
+deduplicates objects, attempts every distinct input, and returns aggregate success;
+an accepted deferred request is not yet an actually opened editor. A recursive
+open of the same asset is rejected while its open/focus callback is in progress.
+
+`NotifyAssetOpened`, `NotifyAssetsOpened`, `NotifyAssetClosed` and
+`NotifyEditorClosed` maintain non-owning, many-to-many associations in both
+directions. Duplicate notification is idempotent. Object keys distinguish object
+identity across GC and replacement; the registry does not keep assets alive.
+`FindEditorForAsset` selects a primary instance, `FindEditorsForAsset` includes
+secondary instances, and `GetAllEditedAssets`/`GetAllOpenEditors` enumerate the
+current associations. Instance owners must notify before destroying their code
+or instance. Returned pointers are borrowed until the next editor lifecycle change.
+
+`CloseAllEditorsForAsset`, `CloseOtherEditors` and `CloseAllAssetEditors` forward
+the corresponding `EAssetEditorCloseReason` to each instance. Close requests use
+snapshots and recheck membership before entering callbacks, so an earlier close
+may remove a later instance. A rejected close or pending dirty-document modal
+is not reported as a completed close. Service calls require the game thread,
+registered owning host and open work gate. Open/focus/close callbacks use the
+host operation scope; shutdown closes admission immediately and defers resource
+retirement until callbacks unwind. Close notifications remain legal during cleanup.
+
+MainFrame supplies its host-owned `FWorkspaceManager` to the service's workspace
+adapter. The service does not own tabs or the main window. Each committed asset
+document has one `IAssetEditorInstance` adapter. Successful open, deferred
+completion, singleton resource replacement, close, route removal, package reload
+and resource relocation update the associations. Tracking only resolves resident
+objects and never loads additional packages. Destroying the manager detaches its
+routing endpoint and instances before Editor services deinitialize. Native hosts
+may construct a manager with their own service without creating a window.
+
+This implements the supported object/path open, lookup, notification and close
+subset of UE's API, using Durin's `D` object prefix, standard containers and
+Workspace document host. UE Toolkit hosting modes, AssetDefinition-based dispatch,
+read-only open methods, restore/MRU, analytics, editor modes and lifecycle multicast
+events are not provided by this contract. Concrete module startup/rollback remains
+in MainFrame; introducing the service does not change module loading policy.
 
 ## Level Editor Play Controls
 

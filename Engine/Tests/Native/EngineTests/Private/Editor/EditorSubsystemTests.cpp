@@ -1,6 +1,11 @@
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorSubsystem.h"
 #include "Tools/EditorToolSubsystem.h"
+#include "Subsystems/AssetEditorSubsystem.h"
+#include "Workspace/WorkspaceManager.h"
+#include "DObject/Package.h"
+#include "Misc/MountPathTestSupport.h"
+#include "NativeTestSupport.h"
 #include "DObject/Class.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Modules/ModuleTestSupport.h"
@@ -268,5 +273,226 @@ namespace
 		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(Name, std::move(Provider)));
 		ASSERT_TRUE(Host->RefreshEditorSubsystems()); ASSERT_NE(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
 		EXPECT_TRUE(FModuleManager::Get().UnloadModule(Name)); CollectGarbage();
+	}
+
+	class FTestAssetEditorInstance final : public IAssetEditorInstance
+	{
+	public:
+		auto GetEditorName() const -> FName override { return "TestAssetEditor"; }
+		auto IsPrimaryEditor() const -> bool override { return bPrimary; }
+		auto FocusWindow(DObject*) -> void override { ++FocusCount; if (Focus) Focus(); }
+		auto GetLastActivationTime() -> double override { return 0.0; }
+		auto CloseWindow(EAssetEditorCloseReason Reason) -> bool override
+		{ LastCloseReason = Reason; ++CloseCount; return Close ? Close() : false; }
+		EAssetEditorCloseReason LastCloseReason = EAssetEditorCloseReason::AssetEditorHostClosed;
+		bool bPrimary = true;
+		int FocusCount = 0;
+		int CloseCount = 0;
+		std::function<void()> Focus;
+		std::function<bool()> Close;
+	};
+
+	TEST_F(FEditorSubsystemTests, AssetEditorsTrackManyToManyAssociationsAndFocusThePrimary)
+	{
+		auto* Host = NewHost();
+		auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
+		ASSERT_NE(nullptr, Service);
+		auto* Other = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto* First = NewObject<DObject>(Host, "FirstAsset");
+		auto* Second = NewObject<DObject>(Host, "SecondAsset");
+		FTestAssetEditorInstance Primary, Secondary;
+		Secondary.bPrimary = false;
+		Service->NotifyAssetOpened(First, &Secondary);
+		Service->NotifyAssetsOpened({First, Second, First}, &Primary);
+		EXPECT_EQ(2u, Service->FindEditorsForAsset(First).size());
+		EXPECT_EQ(2u, Service->GetAllEditedAssets().size());
+		EXPECT_EQ(2u, Service->GetAllOpenEditors().size());
+		EXPECT_TRUE(Other->GetAllOpenEditors().empty());
+		EXPECT_EQ(&Primary, Service->FindEditorForAsset(First, true));
+		EXPECT_EQ(1, Primary.FocusCount);
+		EXPECT_EQ(0, Secondary.FocusCount);
+		EXPECT_TRUE(Service->OpenEditorForAsset(First));
+		EXPECT_EQ(2, Primary.FocusCount);
+		Primary.Focus = [&] { EXPECT_FALSE(Service->OpenEditorForAsset(First)); };
+		EXPECT_TRUE(Service->OpenEditorForAsset(First));
+		Service->NotifyAssetClosed(First, &Primary);
+		EXPECT_EQ(nullptr, Service->FindEditorForAsset(First, false));
+		EXPECT_EQ(&Primary, Service->FindEditorForAsset(Second, false));
+		Service->NotifyEditorClosed(&Primary);
+		Service->NotifyEditorClosed(&Secondary);
+		EXPECT_TRUE(Service->GetAllEditedAssets().empty());
+		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+	}
+
+	TEST_F(FEditorSubsystemTests, AssetEditorCallsRejectWorkersAndCloseOtherEditorsPreservesTheException)
+	{
+		auto* Host = NewHost();
+		auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto* Asset = NewObject<DObject>(Host, "Asset");
+		FTestAssetEditorInstance Kept, Closed;
+		Service->NotifyAssetOpened(Asset, &Kept);
+		Service->NotifyAssetOpened(Asset, &Closed);
+		std::thread Worker([&] {
+			EXPECT_FALSE(Service->OpenEditorForAsset(Asset));
+			EXPECT_TRUE(Service->FindEditorsForAsset(Asset).empty());
+			EXPECT_FALSE(Service->CloseAllAssetEditors());
+			Service->NotifyEditorClosed(&Kept);
+		});
+		Worker.join();
+		Closed.Close = [&] { Service->NotifyEditorClosed(&Closed); return true; };
+		Service->CloseOtherEditors(Asset, &Kept);
+		EXPECT_EQ(0, Kept.CloseCount);
+		EXPECT_EQ(1, Closed.CloseCount);
+		EXPECT_EQ(EAssetEditorCloseReason::CloseOtherEditors, Closed.LastCloseReason);
+		EXPECT_EQ(&Kept, Service->FindEditorForAsset(Asset, false));
+		Service->NotifyEditorClosed(&Kept);
+	}
+
+	TEST_F(FEditorSubsystemTests, AssetEditorCloseHonorsVetoAndToleratesRegistryMutation)
+	{
+		auto* Host = NewHost();
+		auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto* Asset = NewObject<DObject>(Host, "Asset");
+		FTestAssetEditorInstance First, Second;
+		Service->NotifyAssetsOpened({Asset}, &First);
+		Service->NotifyAssetsOpened({Asset}, &Second);
+		EXPECT_FALSE(Service->CloseAllAssetEditors());
+		EXPECT_EQ(EAssetEditorCloseReason::CloseAllAssetEditors, First.LastCloseReason);
+		EXPECT_EQ(0, Service->CloseAllEditorsForAsset(Asset));
+		EXPECT_EQ(EAssetEditorCloseReason::CloseAllEditorsForAsset, First.LastCloseReason);
+		First.Close = [&] {
+			Service->NotifyEditorClosed(&First);
+			Service->NotifyEditorClosed(&Second);
+			return true;
+		};
+		const int PreviousSecondCloses = Second.CloseCount;
+		EXPECT_EQ(1, Service->CloseAllEditorsForAsset(Asset));
+		EXPECT_EQ(PreviousSecondCloses, Second.CloseCount);
+		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+	}
+
+	TEST_F(FEditorSubsystemTests, AssetEditorCallbacksKeepHostAliveUntilRetirementBoundary)
+	{
+		auto* Host = NewHost();
+		auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
+		auto* Asset = NewObject<DObject>(Host, "Asset");
+		FTestAssetEditorInstance Instance;
+		Service->NotifyAssetOpened(Asset, &Instance);
+		Instance.Focus = [&] {
+			Host->PrepareForShutdown();
+			EXPECT_EQ(ESubsystemState::Ready, Host->GetEditorSubsystemState());
+			EXPECT_FALSE(Service->GetWorkGate()->IsOpen());
+		};
+		EXPECT_EQ(nullptr, Service->FindEditorForAsset(Asset, true));
+		EXPECT_FALSE(Service->OpenEditorForAsset(Asset));
+		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+		Service->NotifyEditorClosed(&Instance);
+	}
+
+	class FAssetEditorWorkspace final : public Editor::IWorkspace
+	{
+	public:
+		auto GetWorkspaceType() const -> const Editor::FWorkspaceTypeId& override { return Type; }
+		auto OpenDocument(const Editor::FDocumentTab& Document) -> Editor::EDocumentOpenResult override
+		{ LastRequestedId = Document.Id; ++OpenCount; return OpenResult; }
+		auto ActivateDocument(const Editor::FDocumentTab&) -> void override { ++FocusCount; }
+		auto RequestCloseDocument(const Editor::FDocumentTab&) -> Editor::EDocumentCloseResult override
+		{ return bDirty ? Editor::EDocumentCloseResult::PendingConfirmation : Editor::EDocumentCloseResult::Closed; }
+		auto DiscardDocument(const Editor::FDocumentTab&) -> bool override { bDirty = false; return true; }
+		auto DrawWorkspace(bool) -> bool override { return true; }
+		auto ResetLayout() -> void override {}
+		Editor::FWorkspaceTypeId Type{"AssetEditorTest"};
+		Editor::EDocumentOpenResult OpenResult = Editor::EDocumentOpenResult::Opened;
+		Editor::FDocumentId LastRequestedId;
+		int OpenCount = 0;
+		int FocusCount = 0;
+		bool bDirty = false;
+	};
+
+	TEST_F(FEditorSubsystemTests, AssetEditorWorkspaceTracksActualOpenDeferredCloseAndUnregistration)
+	{
+		Testing::FScopedMountRegistryFixture Mounts;
+		Testing::RegisterMountPointForTests("/AssetEditorTests/", Testing::GetTestWorkDirectory().generic_string() + "/");
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate("/AssetEditorTests/Package", Path));
+		auto* Package = CreatePackage(Path);
+		ASSERT_NE(nullptr, Package);
+		TStrongObjectPtr<DPackage> KeepPackage(Package);
+		auto* Asset = NewObject<DObject>(Package, "Asset");
+		auto* Host = NewHost();
+		auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
+		{
+			Editor::FWorkspaceManager Manager(Service);
+			auto Workspace = std::make_shared<FAssetEditorWorkspace>();
+			Editor::FWorkspaceRegistrationBatch Batch;
+			Batch.Workspaces.push_back({{.WorkspaceType = Workspace->Type, .DisplayName = "Test", .RootKey = "AssetEditorTest"}, Workspace});
+			Batch.AssetEditors.push_back({.AssetClassName = "Durin::DObject", .WorkspaceType = Workspace->Type});
+			auto Registration = Manager.RegisterBatch(std::move(Batch));
+			ASSERT_TRUE(Registration);
+			EXPECT_TRUE(Service->CanOpenEditorForAsset(Asset));
+			EXPECT_TRUE(Service->OpenEditorForAsset(Asset));
+			ASSERT_EQ(1u, Service->GetAllOpenEditors().size());
+			EXPECT_TRUE(Service->OpenEditorForAsset(Asset));
+			EXPECT_EQ(1, Workspace->OpenCount);
+			Workspace->bDirty = true;
+			EXPECT_EQ(0, Service->CloseAllEditorsForAsset(Asset));
+			ASSERT_NE(nullptr, Manager.GetPendingCloseDocument());
+			EXPECT_EQ(1u, Service->GetAllOpenEditors().size());
+			EXPECT_EQ(Editor::EDocumentCloseResult::Closed, Manager.ResolvePendingDocumentClose(Editor::EDocumentCloseResponse::Discard));
+			EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+			Workspace->OpenResult = Editor::EDocumentOpenResult::Deferred;
+			EXPECT_TRUE(Service->OpenEditorForAsset(Asset));
+			EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+			ASSERT_TRUE(Manager.CompleteDeferredDocumentOpen(Workspace->LastRequestedId, true));
+			EXPECT_EQ(1u, Service->GetAllOpenEditors().size());
+			Registration.Reset();
+			EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+			EXPECT_FALSE(Service->CanOpenEditorForAsset(Asset));
+		}
+		EXPECT_FALSE(Service->OpenEditorForAsset(Asset));
+		MarkObjectHierarchyAsGarbage(Package);
+	}
+
+	TEST_F(FEditorSubsystemTests, AssetEditorSingletonKeepsItsOldAssociationUntilDeferredReplacementCommits)
+	{
+		Testing::FScopedMountRegistryFixture Mounts;
+		Testing::RegisterMountPointForTests("/AssetEditorTests/", Testing::GetTestWorkDirectory().generic_string() + "/");
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate("/AssetEditorTests/Singleton", Path));
+		auto* Package = CreatePackage(Path);
+		ASSERT_NE(nullptr, Package);
+		TStrongObjectPtr<DPackage> KeepPackage(Package);
+		auto* First = NewObject<DObject>(Package, "First");
+		auto* Second = NewObject<DObject>(Package, "Second");
+		auto* Service = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
+		{
+			Editor::FWorkspaceManager Manager(Service);
+			auto Workspace = std::make_shared<FAssetEditorWorkspace>();
+			Editor::FWorkspaceRegistrationBatch Batch;
+			Batch.Workspaces.push_back({{.WorkspaceType = Workspace->Type, .DisplayName = "Test", .RootKey = "SingletonTest"}, Workspace});
+			Batch.AssetEditors.push_back({.AssetClassName = "Durin::DObject", .WorkspaceType = Workspace->Type,
+				.DocumentPolicy = Editor::EDocumentPolicy::Singleton, .SingletonDocumentKey = "Shared", .SingletonLabel = "Shared"});
+			auto Registration = Manager.RegisterBatch(std::move(Batch));
+			ASSERT_TRUE(Registration);
+			EXPECT_TRUE(Service->OpenEditorForAssets({First, First}));
+			EXPECT_EQ(1, Workspace->OpenCount);
+			auto* Instance = Service->FindEditorForAsset(First, false);
+			ASSERT_NE(nullptr, Instance);
+			Workspace->OpenResult = Editor::EDocumentOpenResult::Deferred;
+			EXPECT_TRUE(Service->OpenEditorForAsset(Second));
+			EXPECT_EQ(Instance, Service->FindEditorForAsset(First, false));
+			EXPECT_EQ(nullptr, Service->FindEditorForAsset(Second, false));
+			ASSERT_TRUE(Manager.CompleteDeferredDocumentOpen(Workspace->LastRequestedId, false));
+			EXPECT_EQ(Instance, Service->FindEditorForAsset(First, false));
+			EXPECT_TRUE(Service->OpenEditorForAsset(Second));
+			ASSERT_TRUE(Manager.CompleteDeferredDocumentOpen(Workspace->LastRequestedId, true));
+			EXPECT_EQ(nullptr, Service->FindEditorForAsset(First, false));
+			EXPECT_EQ(Instance, Service->FindEditorForAsset(Second, false));
+			Manager.RemapResourceId(Second->GetObjectPath(), First->GetObjectPath());
+			EXPECT_EQ(Instance, Service->FindEditorForAsset(First, false));
+			EXPECT_EQ(nullptr, Service->FindEditorForAsset(Second, false));
+		}
+		EXPECT_TRUE(Service->GetAllOpenEditors().empty());
+		MarkObjectHierarchyAsGarbage(Package);
 	}
 }

@@ -6,6 +6,8 @@
 #include "Workspace/Workspace.h"
 #include "Asset/MutationExtensions.h"
 
+namespace Durin { class DAssetEditorSubsystem; }
+
 namespace Durin::Editor
 {
 	// Couples a workspace implementation with its host descriptor.
@@ -58,7 +60,7 @@ namespace Durin::Editor
 	class FWorkspaceManager final : private IAssetMoveObserver
 	{
 	public:
-		DURINED_API FWorkspaceManager();
+		DURINED_API explicit FWorkspaceManager(DAssetEditorSubsystem* AssetEditors = nullptr);
 		DURINED_API ~FWorkspaceManager();
 		FWorkspaceManager(const FWorkspaceManager&) = delete;
 		auto operator=(const FWorkspaceManager&) -> FWorkspaceManager& = delete;
@@ -70,6 +72,7 @@ namespace Durin::Editor
 		DURINED_API auto OpenDocument(FDocumentRequest Request) -> FDocumentId;
 		DURINED_API auto CompleteDeferredDocumentOpen(FDocumentId DocumentId, bool bSucceeded) -> bool;
 		DURINED_API auto OpenAsset(std::string ResourceId, std::string_view AssetClassName) -> bool;
+		DURINED_API auto CanOpenAsset(std::string_view AssetClassName) const -> bool;
 		DURINED_API auto ActivateDocument(FDocumentId DocumentId) -> bool;
 		DURINED_API auto ActivateWorkspace(const FWorkspaceTypeId& WorkspaceType) -> bool;
 		DURINED_API auto OpenDefaultWorkspaces() -> bool;
@@ -96,6 +99,7 @@ namespace Durin::Editor
 		DURINED_API auto GetWorkspaceDescriptors() const -> std::vector<FWorkspaceDescriptor>;
 
 	private:
+		auto SynchronizeAssetEditors() -> void;
 		auto OnAssetsRelocated(
 			std::span<const FAssetRelocationMapping> Mappings) -> void override;
 		auto FindDocument(FDocumentId DocumentId) -> FDocumentTab*;

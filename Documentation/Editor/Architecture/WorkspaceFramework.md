@@ -200,6 +200,14 @@ workspace and notification state. Concrete editor modules may unload only after
 those steps, so no route, document, provider, session, preview object, import,
 or queued upload can retain module code.
 
+Asset opening from the Content Browser enters the per-host
+[`DAssetEditorSubsystem`](EditorSubsystems.md#asset-editors), which focuses an
+existing primary editor before dispatching a new open through the workspace
+routes. MainFrame binds its manager to that service. Committed documents supply
+`IAssetEditorInstance` adapters; deferred opens enter the asset-editor registry
+only after completion. Workspace close, lease removal, resource replacement,
+relocation and package reload update the same associations.
+
 ## Document Ownership
 
 `Editor::FDocumentTab` is document identity and presentation metadata, not a

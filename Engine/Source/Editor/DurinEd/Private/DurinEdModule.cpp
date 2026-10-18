@@ -2,6 +2,7 @@
 #include "Actors/EditorActorSubsystem.h"
 #include "Notifications/EditorNotificationSubsystem.h"
 #include "Tools/EditorToolSubsystem.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 
 namespace Durin
 {
@@ -17,18 +18,21 @@ namespace Durin
 				.Type = DEditorNotificationSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 			Tools = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
 				.Type = DEditorToolSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
+			AssetEditors = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
+				.Type = DAssetEditorSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 		}
 		auto CanShutdownModule() const -> bool override { return FEditorSubsystemCollection::CanSynchronizeAll(); }
 		auto ShutdownModule() -> void override
 		{
 			require(CanShutdownModule());
-			Tools.reset(); Notifications.reset(); Actors.reset();
+			AssetEditors.reset(); Tools.reset(); Notifications.reset(); Actors.reset();
 			FEditorSubsystemCollection::SynchronizeAll();
 		}
 	private:
 		std::unique_ptr<FEditorSubsystemRegistration> Actors;
 		std::unique_ptr<FEditorSubsystemRegistration> Notifications;
 		std::unique_ptr<FEditorSubsystemRegistration> Tools;
+		std::unique_ptr<FEditorSubsystemRegistration> AssetEditors;
 	};
 	IMPLEMENT_MODULE(FDurinEdModule, DurinEd)
 }

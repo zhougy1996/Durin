@@ -13,6 +13,7 @@
 #include "Workspace/WorkspaceManager.h"
 #include "Workspace/WorkspaceUI.h"
 #include "Editor/EditorEngine.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Transactions/Transaction.h"
 #include "Notifications/Notification.h"
@@ -82,6 +83,7 @@ namespace Durin::Editor::MainFrame
 		std::shared_ptr<FHostSettings> HostSettings;
 		std::shared_ptr<MWindow> RootWindow;
 		std::shared_ptr<Editor::FWorkspaceManager> WorkspaceManager;
+		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
 		std::shared_ptr<FProjectBrowser> ProjectBrowser;
 		std::unique_ptr<FEditorBrandTexture> BrandTexture;
 		std::shared_ptr<FProfilingToolService> ProfilingTools;
@@ -329,10 +331,14 @@ namespace Durin::Editor::MainFrame
 				if (bWorkspaceReady)
 				{
 					ContentBrowser::FConstructionServices Services{
-						.OpenAsset = [&Context](const std::string& Path,
-							const std::string& AssetClassName) {
-							return Context.WorkspaceManager->OpenAsset(
-								Path, AssetClassName);
+						.OpenAsset = [Service = Context.AssetEditors](const std::string& Path,
+							const std::string&) {
+							auto* AssetEditors = Service.Get();
+							if (!AssetEditors || !AssetEditors->GetWorkGate()->IsOpen()) return false;
+							FObjectPath ObjectPath;
+							if (!FObjectPath::TryCreate(Path, ObjectPath)) return false;
+							const auto Loaded = LoadObject<DObject>(ObjectPath);
+							return Loaded && *Loaded && AssetEditors->OpenEditorForAsset(*Loaded);
 						},
 						.GetMountedContentMutationRevision = [] {
 							return GEditor
@@ -1268,7 +1274,9 @@ namespace Durin
 		MonaImGui::SetGlobalUIScale(Context.HostSettings->GetUIScale());
 		Context.RootWindow = std::move(StartupWindow);
 		MonaImGui::BindMainViewportToWindow(Context.RootWindow);
-		Context.WorkspaceManager = std::make_shared<Editor::FWorkspaceManager>();
+		Context.AssetEditors = Editor.GetEditorSubsystem<DAssetEditorSubsystem>();
+		check(Context.AssetEditors.IsValid());
+		Context.WorkspaceManager = std::make_shared<Editor::FWorkspaceManager>(Context.AssetEditors.Get());
 		Context.ProjectBrowser = std::make_shared<FProjectBrowser>();
 		Context.BrandTexture = std::make_unique<FEditorBrandTexture>();
 		std::string BrandTextureError;
