@@ -4,6 +4,54 @@
 
 namespace Durin
 {
+	TEST(FShaderFormatTests, BinaryMetalProfileRequiresLibraryAndPreservesBindingContract)
+	{
+		ASSERT_TRUE(IsMetalShaderTarget(MetalLibraryShaderTarget));
+		EXPECT_NE(MetalLibraryShaderTarget, MetalShaderTarget);
+		ASSERT_TRUE(ShaderFormat::ResolveMetalCompileSettings(MetalLibraryShaderTarget));
+		auto Unknown = MetalLibraryShaderTarget;
+		Unknown.SettingsDigest.HashLow ^= 1;
+		EXPECT_FALSE(IsMetalShaderTarget(Unknown));
+
+		FByteBuffer Bytes(88);
+		Bytes[0] = std::byte{'M'}; Bytes[1] = std::byte{'T'};
+		Bytes[2] = std::byte{'L'}; Bytes[3] = std::byte{'B'};
+		Bytes[16] = std::byte{88};
+		FShaderCode Shader;
+		Shader.Target = MetalLibraryShaderTarget;
+		Shader.CodeFormat = EShaderCodeFormat::MetalLibrary;
+		Shader.Frequency = EShaderFrequency::Fragment;
+		// An opaque library need not contain the entry name as plain text.
+		Shader.BinaryEntryPoint = "fragment_entry_not_in_bytes";
+		Shader.Code = FSharedByteBuffer::Copy(Bytes);
+		Shader.CodeHash = FXxHash128::HashBuffer(Shader.Code);
+		Shader.Reflection.ResourceBindings.push_back({.Name = "Texture", .StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 2, .BindingIndex = 31, .Type = ERHIBindingType::Texture, .ArraySize = 2});
+		const auto Bindings = ShaderFormat::BuildLogicalBindings(Shader.Reflection);
+		const auto Map = ShaderFormat::BuildMetalBindingMap(Shader.Frequency, Bindings, false);
+		ASSERT_TRUE(Map);
+		const auto Metadata = ShaderFormat::EncodeMetalMetadata(Shader.Frequency, *Map);
+		ASSERT_TRUE(Metadata);
+		Shader.PlatformData = *Metadata;
+		ASSERT_TRUE(ShaderFormat::ValidateShaderCode(Shader));
+		const auto Identity = ShaderFormat::ComputeShaderIdentity(Shader);
+		Shader.CodeFormat = EShaderCodeFormat::Msl20Source;
+		EXPECT_FALSE(ShaderFormat::ValidateShaderCode(Shader));
+		EXPECT_NE(ShaderFormat::ComputeShaderIdentity(Shader), Identity);
+		Shader.CodeFormat = EShaderCodeFormat::MetalLibrary;
+		Shader.Target = MetalShaderTarget;
+		EXPECT_FALSE(ShaderFormat::ValidateShaderCode(Shader));
+		Shader.Target = MetalLibraryShaderTarget;
+		Shader.Reflection.ResourceBindings[0].ArraySize = 3;
+		EXPECT_FALSE(ShaderFormat::ValidateShaderCode(Shader));
+		for (size_t Size = 0; Size < Bytes.size(); ++Size)
+			EXPECT_FALSE(ShaderFormat::ValidateMetalLibrary(FByteView(Bytes).first(Size)));
+		Bytes[16] = std::byte{87};
+		EXPECT_FALSE(ShaderFormat::ValidateMetalLibrary(Bytes));
+		Bytes[16] = std::byte{88}; Bytes[0] = std::byte{0};
+		EXPECT_FALSE(ShaderFormat::ValidateMetalLibrary(Bytes));
+	}
+
 	TEST(FShaderFormatTests, CanonicalMetalCodecRoundTripsSparseArraysForEveryStage)
 	{
 		for (const auto Frequency : {EShaderFrequency::Vertex, EShaderFrequency::Fragment, EShaderFrequency::Compute})

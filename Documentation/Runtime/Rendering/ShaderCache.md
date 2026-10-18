@@ -4,7 +4,7 @@ Summary: Define authored ShaderBuild caching and compiler-free cooked Shader del
 
 Modules: RenderCore, ShaderBuild, DerivedDataCache, RHI
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-18
 
 ShaderBuild owns Slang dependency resolution, compilation, request coalescing,
 dependency manifests, DDC orchestration, and cooked-library production.
@@ -57,10 +57,11 @@ tests assert codes, context, and publication behavior rather than English text.
 
 ## Storage layers and ownership
 
-The runtime uses four bounded or reclaimable layers:
+The runtime uses bounded or reclaimable layers:
 
 - ShaderBuild-private, machine-local dependency manifests;
 - one portable DDC value for each exact compiled-output request;
+- an independent native-library DDC product for each source/profile/producer recipe;
 - a 128-entry in-process compiled-output LRU;
 - weak Shader-map resource entries retained only by live Shader maps.
 
@@ -288,6 +289,30 @@ DerivedDataCache dependency, and DurinGame selects neither ShaderBuild nor DDC.
 
 ## Cooked delivery
 
+MacOS Game selects a distinct `MetalLibraryShaderTarget`; authoring and
+EditorValidation preserve the original `Msl20Source` profile. ShaderBuild first
+reuses the ordinary MSL stage product, then submits an independent
+`Durin.Metal.Library` build action through a continuation. The native action
+keys explicit MSL bytes, immutable binary profile and compiler/SDK version and
+build provenance. Host installation/scratch paths are excluded. It stores one
+opaque library per stage in the Shader DDC bucket; logical reflection, entry
+and compact binding metadata remain with the final Shader artifact. Force
+bypasses both source and library reuse. Strict binary requests never substitute
+source output when native production fails.
+
+The native producer explicitly selects Xcode's `Metal` toolchain, bounds active
+processes and producers to two, captures at most 16 KiB of diagnostics, and
+cancels/reaps its process group on cancellation or a 120-second deadline. Source
+constants are limited to 1 MiB, intermediate and library output to 64 MiB each;
+the caller's aggregate output budget still applies. Native action cache hits
+need no producer execution once its explicit provenance has been captured.
+The default high-level binary request discovers that provenance locally.
+An owner can capture `GetNativeLibraryProducerIdentity` earlier and supply it as
+`FShaderBuildRequestOptions::NativeProducerIdentity`. That path performs no SDK
+discovery. `bNativeCacheOnly` requires explicit provenance and forbids native
+local execution; a miss or corrupt value fails rather than invoking tools.
+Source-only requests and forced cache-only requests reject those options.
+
 Cook freezes the target-eligible non-Material request inventory and asks
 ShaderBuild to resolve each exact request through the ordinary memory/DDC/
 compiler path. It publishes `Shaders/ShaderLibrary.dslb` in the same Cook
@@ -304,7 +329,10 @@ Launch selects one immutable Shader-data domain before demand. Authored mode
 uses the module; Cooked Game mode opens only the qualified library below the
 Cook root. Missing, corrupt, incomplete, wrong-target, or wrong-profile data is
 a bounded content failure and never falls back to source, manifests, DDC, Slang,
-or a compiler module. Material `ProgramData` remains package-owned.
+or a compiler module. Material `ProgramData` remains package-owned. MacOS Game
+libraries and material programs from the former MSL profile require recooking.
+The native loader reads binary bytes and resolves the recorded function;
+`metallib` loading does not imply that device-specific PSOs are already created.
 
 ## Compatibility
 
@@ -324,6 +352,9 @@ The former variant directories, per-entry-point `.spv` files, and
 `.reflect.json` sidecars are neither read nor migrated. Disposable old data is a
 cold miss. Payload readability changes bump schema; output-semantic changes bump
 builder/key identity even when the payload remains readable.
+
+Loading owners can retain the same ShaderMap and pipeline resources through
+[load preparation](LoadPreparation.md) before covered scene drawing.
 
 ## Related Documentation
 

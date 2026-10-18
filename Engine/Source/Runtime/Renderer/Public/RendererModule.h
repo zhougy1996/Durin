@@ -32,6 +32,12 @@ namespace Durin
 			ERendererResourceInvalidationCause Cause) -> FConsoleCommandResult;
 		RENDERER_API auto GetResourceInvalidationSnapshot_RenderThread() const
 			-> FRendererResourceInvalidationSnapshot;
+		// Pump on the render thread with the actual upcoming scene/view/output.
+		// Pending never joins PSOs or draws; callers retain the handle through activation.
+		RENDERER_API auto PrepareViewResources(
+			FRHICommandListImmediate& CommandList, FSceneInterface* Scene,
+			const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput,
+			const FSceneViewRenderOptions& Options, const FRenderResourcePreparation& Preparation) -> void override;
 		RENDERER_API auto RenderView(
 			FRHICommandListImmediate& CommandList,
 			FSceneInterface* Scene,

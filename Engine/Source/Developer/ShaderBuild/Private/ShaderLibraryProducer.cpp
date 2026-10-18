@@ -1,4 +1,5 @@
 #include "ShaderLibraryProducer.h"
+#include "MetalLibraryBuild.h"
 #include "Hash/CanonicalHash.h"
 #include "ShaderBuildVersion.h"
 #include "Shader/ShaderCompiledOutput.h"
@@ -46,6 +47,13 @@ namespace Durin
 		if (!Platform) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
 		const auto Resolved = ResolveTargetPlatform(*Platform);
 		if (!Resolved || Profile == ECookTargetProfile::Invalid) return std::unexpected(FShaderError{.Code = EShaderError::InvalidCompileRequest});
+		std::string NativeProducer;
+		if (Resolved->GetCookedShaderTarget() == MetalLibraryShaderTarget && TargetProfile == EShaderTargetProfile::Game)
+		{
+			const auto Native = GetMetalLibraryProducerIdentity(DerivedData::FBuildCancellation(IsCancelled));
+			if (!Native) return FShaderCompletion::Failure(Native.error());
+			NativeProducer = *Native;
+		}
 		std::vector<FShaderRuntimeRequest> Inventory;
 		if (auto Result = FreezeShaderRuntimeInventory(TargetPlatform, TargetProfile, Inventory); !Result) return Result;
 		if (Inventory.empty())
@@ -61,7 +69,7 @@ namespace Durin
 			FShaderCompileOptions Options;
 			if (!MakeCompileOptions(Types, Options))
 				return std::unexpected(FShaderError{.Code = EShaderError::RequestBuildTypesMismatch, .ActualIdentity = Request.Name});
-			Options.Target = Resolved->GetShaderTarget();
+			Options.Target = TargetProfile == EShaderTargetProfile::Game ? Resolved->GetCookedShaderTarget() : Resolved->GetShaderTarget();
 			Options.SourceArtifacts = Artifacts;
 			FShaderBuildResult Output = Builder.GetOrCompile(
 				Options.VirtualShaderPath, Options);
@@ -75,6 +83,11 @@ namespace Durin
 			Production.Update("DurinCookedShaderProduction_v1");
 			Production.UpdateValue(RuntimeIdentity);
 			Production.Update(Builder.GetCompilerEnvironmentIdentity());
+			if (!NativeProducer.empty())
+			{
+				UpdateCanonicalHash(Production, MetalLibraryBuildVersion);
+				UpdateCanonicalHashString(Production, NativeProducer);
+			}
 			UpdateCanonicalHash(Production, Builder.GetBuildVersion());
 			UpdateCanonicalHash(Production, ShaderBuildPrivate::LibraryProductionRevision);
 			const auto Descriptor = GetShaderBuildDescriptor();

@@ -1,8 +1,19 @@
 #include "Engine/GameEngine.h"
 
 #include "Asset/Asset.h"
+#include "Asset/CookedMeshLoadManager.h"
+#include "Components/MeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Components/SplineMeshComponent.h"
+#include "StaticMesh/StaticMesh.h"
+#include "DObject/StrongObjectPtr.h"
+#include "DObject/WeakObjectPtr.h"
+#include "DObject/ObjectLifecycle.h"
+#include "Materials/MaterialInterface.h"
+#include "Materials/MaterialProgramPreparation.h"
 #include "CoreGlobals.h"
 #include "Engine/Level.h"
+#include "Engine/Actor.h"
 #include "Engine/ProjectGameSettings.h"
 #include "Engine/World.h"
 #include "Misc/Project.h"
@@ -15,6 +26,65 @@
 
 namespace Durin
 {
+	struct FGameStartupPreparation
+	{
+		TStrongObjectPtr<DLevel> Level;
+		DClass* GameMode = nullptr;
+		std::vector<FWeakObjectPtr> Meshes, ActiveMeshes;
+		size_t NextMesh = 0;
+		bool MeshesCollected = false;
+		std::vector<FWeakObjectPtr> Materials;
+		std::vector<FMaterialProgramPreparation> Active;
+		size_t Next = 0;
+		bool Collected = false;
+	};
+
+	// Request initial geometry before registration; an empty manager alone does
+	// not mean metadata-only meshes have become resident.
+	static auto PumpStartupGeometry(FGameStartupPreparation& Loading) -> std::expected<bool, std::string>
+	{
+		if (!Loading.MeshesCollected)
+		{
+			std::unordered_set<DStaticMesh*> Seen;
+			for (const auto& Actor : Loading.Level->GetActors())
+				if (IsValid(Actor.Get()))
+					for (const auto* Component : Actor->FindComponentsByClass<DMeshComponent>())
+					{
+						auto* Mesh = [&]() -> DStaticMesh* {
+							if (const auto* Static = Cast<DStaticMeshComponent>(Component)) return Static->GetStaticMesh();
+							if (const auto* Spline = Cast<DSplineMeshComponent>(Component)) return Spline->GetStaticMesh();
+							return nullptr;
+						}();
+						if (IsValid(Mesh) && Seen.insert(Mesh).second) Loading.Meshes.emplace_back(Mesh);
+					}
+			Loading.MeshesCollected = true;
+			if (Loading.Meshes.size() > 4096) return std::unexpected("Default level geometry preparation exceeds 4096 owners.");
+		}
+		bool Failed = false;
+		std::erase_if(Loading.ActiveMeshes, [&](const auto& Owner) {
+			auto* Mesh = Cast<DStaticMesh>(Owner.Get());
+			if (!IsValid(Mesh)) { Failed = true; return true; }
+			const auto Status = Mesh->GetRenderDataLoadStatus();
+			if (Status.CpuPhase == ECookedMeshCpuPhase::Failed || Status.CpuPhase == ECookedMeshCpuPhase::Cancelled
+				|| Status.GpuPhase == ECookedMeshGpuPhase::Failed) { Failed = true; return true; }
+			return Status.CpuPhase == ECookedMeshCpuPhase::CpuReady && Status.GpuPhase == ECookedMeshGpuPhase::Ready;
+		});
+		if (Failed) return std::unexpected("Default level geometry preparation failed or was unloaded.");
+		while (Loading.ActiveMeshes.size() < 4 && Loading.NextMesh < Loading.Meshes.size())
+		{
+			if (const auto* Manager = GetCookedMeshLoadManager())
+			{
+				const auto Pending = Manager->GetDiagnostics();
+				if (Pending.InFlightCount + Pending.PendingRequestCount >= 8) break;
+			}
+			auto* Mesh = Cast<DStaticMesh>(Loading.Meshes[Loading.NextMesh++].Get());
+			if (!IsValid(Mesh)) return std::unexpected("Default level geometry was unloaded during preparation.");
+			(void)Mesh->RequestRenderDataAndResources();
+			Loading.ActiveMeshes.emplace_back(Mesh);
+		}
+		return Loading.NextMesh == Loading.Meshes.size() && Loading.ActiveMeshes.empty();
+	}
+
 	DGameEngine::DGameEngine(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
@@ -90,6 +160,13 @@ namespace Durin
 						if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
 						else Level = *Loaded;
 					}
+					if (Result && GetAssetRuntimeConfiguration().RequiresCookedPayload())
+					{
+						StartupPreparation = std::make_shared<FGameStartupPreparation>();
+						StartupPreparation->Level = Level;
+						StartupPreparation->GameMode = GameMode.GameModeClass;
+						return true;
+					}
 					if (Result && GetWorld()->SetCurrentLevel(Level))
 					{
 						const FWorldPlayResult PlayResult = GetWorld()->BeginPlay({.GameModeClass = GameMode.GameModeClass});
@@ -117,8 +194,76 @@ namespace Durin
 		return true;
 	}
 
+	auto DGameEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
+	{
+		if (bShutdownRequested) { StartupPreparation.reset(); return Super::Tick(DeltaSeconds, bIdleMode); }
+		if (StartupPreparation)
+		{
+			FHostOperationScope Operation(*this);
+			const auto Pending = StartupPreparation;
+			PumpCookedMeshLoadManager();
+			if (bShutdownRequested) return;
+			auto& Loading = *Pending;
+			const auto Geometry = PumpStartupGeometry(Loading);
+			if (!Geometry) { StartupError = Geometry.error(); StartupPreparation.reset(); DURIN_ERROR("{}", StartupError); return; }
+			if (!*Geometry) return;
+			if (!Loading.Collected)
+			{
+				std::unordered_set<DMaterialInterface*> Seen;
+				for (const auto& Actor : Loading.Level->GetActors())
+					if (IsValid(Actor.Get()))
+						for (const auto* Mesh : Actor->FindComponentsByClass<DMeshComponent>())
+							for (uint32 Slot = 0; Slot < Mesh->GetNumMaterials(); ++Slot)
+								for (auto* Material = Mesh->GetMaterial(Slot); IsValid(Material) && Seen.insert(Material).second; Material = Material->GetParent())
+									if (!Material->IsDynamicInstance()) Loading.Materials.emplace_back(Material);
+				Loading.Collected = true;
+				if (Loading.Materials.size() > 4096)
+				{
+					StartupError = "Default level material preparation exceeds 4096 owners.";
+					StartupPreparation.reset(); return;
+				}
+			}
+			bool Failed = false;
+			std::erase_if(Loading.Active, [&](auto& Program) {
+				const auto State = Program.Poll();
+				if (State == EMaterialProgramPreparationState::Pending) return false;
+				if (State != EMaterialProgramPreparationState::Ready)
+				{
+					Failed = true;
+					StartupError = "Default level material preparation failed: " + Program.GetDiagnostic();
+				}
+				return true;
+			});
+			if (bShutdownRequested) { StartupPreparation.reset(); return; }
+			if (Failed) { StartupPreparation.reset(); DURIN_ERROR("{}", StartupError); return; }
+			while (Loading.Active.size() < 8 && Loading.Next < Loading.Materials.size())
+			{
+				auto* Material = Cast<DMaterialInterface>(Loading.Materials[Loading.Next++].Get());
+				if (!IsValid(Material)) { StartupError = "Default level material was unloaded during preparation."; StartupPreparation.reset(); return; }
+				Loading.Active.push_back(FMaterialProgramPreparation::Request(*Material));
+			}
+			if (!Loading.Active.empty() || Loading.Next < Loading.Materials.size()) return;
+			DURIN_DEBUG("Cooked startup material programs prepared: {}", Loading.Materials.size());
+			auto Level = Loading.Level;
+			auto* GameMode = Loading.GameMode;
+			StartupPreparation.reset();
+			if (!GetWorld()->SetCurrentLevel(Level.Get())) { StartupError = "Prepared default level could not activate."; return; }
+			if (GetMainSceneViewport()) GetMainSceneViewport()->RequestResourcePreparation();
+			const auto Play = GetWorld()->BeginPlay({.GameModeClass = GameMode});
+			if (!Play) { StartupError = Play.Message; DURIN_ERROR("{}", StartupError); return; }
+		}
+		Super::Tick(DeltaSeconds, bIdleMode);
+	}
+
+	auto DGameEngine::CloseSubsystemWork() -> void
+	{
+		StartupPreparation.reset();
+		Super::CloseSubsystemWork();
+	}
+
 	auto DGameEngine::BeginDestroy() -> void
 	{
+		StartupPreparation.reset();
 		ReleaseGameMouseCapture();
 		DEngine::BeginDestroy();
 	}

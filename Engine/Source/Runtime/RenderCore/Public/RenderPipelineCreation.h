@@ -34,17 +34,18 @@ namespace Durin
 	};
 
 	// Retains shared cache identities for one transactional slot.
-	class RENDERCORE_API FRenderPipelineRequests
+	class FRenderPipelineRequests
 	{
 	public:
-		FRenderPipelineRequests();
-		~FRenderPipelineRequests();
-		FRenderPipelineRequests(FRenderPipelineRequests&&) noexcept;
-		auto operator=(FRenderPipelineRequests&&) noexcept -> FRenderPipelineRequests&;
-		auto Reset() -> void;
+		RENDERCORE_API FRenderPipelineRequests();
+		RENDERCORE_API ~FRenderPipelineRequests();
+		RENDERCORE_API FRenderPipelineRequests(FRenderPipelineRequests&&) noexcept;
+		RENDERCORE_API auto operator=(FRenderPipelineRequests&&) noexcept -> FRenderPipelineRequests&;
+		RENDERCORE_API auto Reset() -> void;
+		RENDERCORE_API auto RetainForPreparation() const -> void;
 	private:
 		struct FState;
-		std::unique_ptr<FState> State;
+		std::shared_ptr<FState> State;
 		friend class FRenderPipelineRequestScope;
 	};
 

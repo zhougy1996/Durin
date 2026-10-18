@@ -4,7 +4,7 @@ Summary: Resolve explicit tool targets into immutable capabilities while keeping
 
 Modules: Core, RHI, TargetPlatform, Engine, ShaderBuild, TextureCompressor
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-18
 
 ## Identities and dependencies
 
@@ -25,8 +25,13 @@ load a compiler, inspect the active GPU, acquire DDC sessions, or create tasks.
 `ResolveTargetPlatform` validates the platform and returns an immutable
 `FTargetPlatformDescription`. Current Win64 and MacOS Shader selections are
 Vulkan/SPIR-V and Metal/MSL respectively. Explicit material Shader identities
-are validated against that selection by the material compiler. Resolution has
-no settings wrapper while each platform has only one supported Shader target.
+are validated against the resolved authoring or Cook selection by the material
+compiler. `GetShaderTarget` preserves the authoring selection;
+`GetCookedShaderTarget` selects the distinct MetalLibrary profile for MacOS Game
+Cook and leaves Win64 unchanged. EditorValidation Shader libraries retain MSL.
+The binary profile uses MSL 2.0, minimum macOS 14.0 and offline optimization;
+compiler/SDK provenance belongs to ShaderBuild's product identity, not runtime
+device admission. Resolution has no mutable settings wrapper.
 Requests retain resolved values, not a mutable configuration registry. Explicit material target environments use family limits rather than
 the active RHI device's feature/resource limits.
 

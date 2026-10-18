@@ -84,8 +84,8 @@ namespace Durin::ShaderFormat
 	}
 	auto ResolveMetalCompileSettings(const FShaderTargetIdentity& Target) -> std::optional<FMetalCompileSettings>
 	{
-		if (Target != MetalShaderTarget) return {};
-		return FMetalCompileSettings{};
+		if (!IsMetalShaderTarget(Target)) return {};
+		return FMetalCompileSettings{.MinimumMacOSVersion = Target == MetalLibraryShaderTarget ? 140000u : 0u};
 	}
 
 	auto ValidateMetalCode(FByteView Code) -> bool
@@ -94,6 +94,19 @@ namespace Durin::ShaderFormat
 		// Headerless kernels and comments preceding includes are valid MSL inputs.
 		return !Code.empty() && Code.size() <= 64ull * 1024 * 1024
 			&& std::ranges::find(Code, std::byte{0}) == Code.end();
+	}
+
+	auto ValidateMetalLibrary(FByteView Code) -> bool
+	{
+		// Only structural admission is SDK-independent. The native loader validates
+		// sections, platform compatibility and functions before device publication.
+		if (Code.size() < 88 || Code.size() > 64ull * 1024 * 1024) return false;
+		constexpr std::array Magic{std::byte{'M'}, std::byte{'T'}, std::byte{'L'}, std::byte{'B'}};
+		if (!std::ranges::equal(Code.first(4), Magic)) return false;
+		uint64 DeclaredSize = 0;
+		for (uint32 Index = 0; Index < 8; ++Index)
+			DeclaredSize |= uint64(std::to_integer<uint8>(Code[16 + Index])) << (Index * 8);
+		return DeclaredSize == Code.size();
 	}
 
 

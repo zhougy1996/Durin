@@ -213,9 +213,9 @@ namespace Durin
 		{
 			const bool bMetal = TargetPlatform == ECookTargetPlatform::MacOS;
 			const FShaderTargetIdentity ExpectedTarget = bMetal
-				? MetalShaderTarget : VulkanShaderTarget;
+				? MetalLibraryShaderTarget : VulkanShaderTarget;
 			const std::string_view ExpectedName = bMetal
-				? "metal-msl-2.0" : "vulkan-spirv-1.5";
+				? "metal-library-1" : "vulkan-spirv-1.5";
 			if (!Program.Identity.IsValid() || Program.CompilerIdentity.empty()
 				|| Program.Target.empty()
 				|| Program.PassContractVersion

@@ -4,7 +4,7 @@ Summary: Define reflected BulkData values, canonical DAST v10 placement, package
 
 Modules: Engine, CoreDObject, AssetRegistry
 
-Last reviewed: 2026-09-21
+Last reviewed: 2026-10-18
 
 BulkData is a reflected field contract. The field owns bounded logical storage
 facts and optional memory; the package owns physical placement and integrity;
@@ -46,6 +46,14 @@ the lease resets/destructs, and a successful resize invalidates prior write view
 Lease moves transfer ownership; resetting an empty lease is harmless. Leases
 retain their storage when the owning BulkData value is replaced. Copies may not
 snapshot actively write-locked storage.
+
+`GetContentRevision` is a transient nonzero generation for asynchronous admission.
+Copies/replacement create a new storage generation; entering an exclusive write
+lease advances it before bytes can change. Reads, lock release and unload/reload
+of the same package range preserve it. Moves transfer it with the storage. It is
+never serialized or included in portable content hashes. Owners compare it along
+with object/configuration identity before publishing detached results, including
+same-sized inline replacements whose range metadata is unchanged.
 
 Matching release bookkeeping is private and uses development `check` assertions;
 callers no longer expose unmatched unlock operations. `TryUnload` distinguishes

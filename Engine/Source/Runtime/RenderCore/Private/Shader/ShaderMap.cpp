@@ -4,6 +4,7 @@
 #include "RHIGlobals.h"
 #include "Shader/IShaderBuildModule.h"
 #include "Shader/ShaderMapPreparation.h"
+#include "RenderResourcePreparation.h"
 #include "Shader/ShaderCookedLibrary.h"
 #include "Shader/ShaderData.h"
 #include "ShaderBindingInternal.h"
@@ -47,7 +48,8 @@ namespace Durin
 	FShaderCompileOptions::FShaderCompileOptions()
 		: Target(GetActiveRHIBackend().value_or(
 			ResolveRHIBackend(std::getenv("DURIN_RHI_BACKEND")).value_or(ERHIBackend::Vulkan))
-			== ERHIBackend::Metal ? MetalShaderTarget : VulkanShaderTarget)
+			== ERHIBackend::Metal ? (GetConfiguredShaderTarget() == MetalLibraryShaderTarget
+				? MetalLibraryShaderTarget : MetalShaderTarget) : VulkanShaderTarget)
 	{
 	}
 
@@ -382,6 +384,7 @@ namespace Durin
 
 			const FShaderCode& CompiledShader = Code->GetCompiledShader(ShaderIndex);
 			const FRHIShaderCreateDesc ShaderCreateDesc = MakeShaderCreateDesc(Code->GetSharedShaderCode(ShaderIndex));
+			FRenderResourcePreparationScope::BeforeShader();
 			Shaders[ShaderIndex] = GDynamicRHI->RHICreateShader(ShaderCreateDesc);
 
 			if (bRequired)
@@ -466,6 +469,18 @@ namespace Durin
 			checkf(CacheEntry.Code && CacheEntry.Resource, "Shader map cache entry must contain valid code and resource");
 			Code = std::move(CacheEntry.Code);
 			Resource = std::move(CacheEntry.Resource);
+		}
+
+		if (FRenderResourcePreparationScope::IsActive())
+		{
+			uint64 Bytes = sizeof(FShaderMapResourceCode);
+			for (uint32 Index = 0; Index < Code->GetNumShaders(); ++Index)
+			{
+				const auto& Stage = Code->GetCompiledShader(Index);
+				Bytes += sizeof(FShaderCode) + Stage.Code.size() + Stage.PlatformData.size();
+			}
+			FRenderResourcePreparationScope::Retain(Code, Bytes);
+			FRenderResourcePreparationScope::Retain(Resource, sizeof(FShaderMapResource));
 		}
 
 		for (uint32 ShaderIndex = 0; ShaderIndex < ShaderTypes.size(); ++ShaderIndex)

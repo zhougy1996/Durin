@@ -45,10 +45,13 @@ namespace Durin::ShaderFormat
 	{
 		uint32 MslLanguageVersion = 200;
 		uint32 BindingRemapSchema = 1;
+		// Binary profile 1 is macOS-only and requires macOS 14 or later.
+		uint32 MinimumMacOSVersion = 0;
 	};
 	SHADERFORMAT_API auto ResolveMetalCompileSettings(const FShaderTargetIdentity& Target)
 		-> std::optional<FMetalCompileSettings>;
 	SHADERFORMAT_API auto ValidateMetalCode(FByteView Code) -> bool;
+	SHADERFORMAT_API auto ValidateMetalLibrary(FByteView Code) -> bool;
 
 	// Decoded schema-1 compiler-agreed slots. Native function/device checks belong to MetalRHI.
 	struct FMetalBindingMap

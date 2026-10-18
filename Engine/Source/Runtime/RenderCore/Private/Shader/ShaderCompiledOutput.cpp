@@ -58,7 +58,7 @@ namespace Durin::ShaderCompiledOutput
 
 		auto IsValidRequest(const FShaderCompileOptions& Options) -> bool
 		{
-			if ((Options.Target != VulkanShaderTarget && Options.Target != MetalShaderTarget)
+			if ((Options.Target != VulkanShaderTarget && !IsMetalShaderTarget(Options.Target))
 				|| Options.EntryPoints.empty()
 				|| Options.EntryPoints.size() != Options.Frequencies.size()
 				|| Options.EntryPoints.size() > MaximumEntryPoints) return false;
@@ -237,14 +237,14 @@ namespace Durin::ShaderCompiledOutput
 			FByteBuffer Code;
 			if (!Reader.ReadBytes(Code, CodeBytes, GMaximumCodeBytes)
 				|| !ShaderFormat::ValidateCode(Target, Target.OutputFormat, Code))
-				return std::unexpected(FShaderError{.Code = Target == MetalShaderTarget
+				return std::unexpected(FShaderError{.Code = IsMetalShaderTarget(Target)
 					? EShaderError::PayloadMslInvalid : EShaderError::PayloadSpirvInvalid, .Index = Index});
 			Shader.Frequency = static_cast<EShaderFrequency>(Frequency);
 			Shader.Target = Target;
 			Shader.CodeFormat = EShaderCodeFormat(Format);
 			Shader.CodeHash = {HashLow, HashHigh};
 			if (!ShaderFormat::ValidateCodeHash(Code, Shader.CodeHash))
-				return std::unexpected(FShaderError{.Code = Target == MetalShaderTarget
+				return std::unexpected(FShaderError{.Code = IsMetalShaderTarget(Target)
 					? EShaderError::PayloadMslHashMismatch : EShaderError::PayloadSpirvHashMismatch, .Index = Index});
 			Shader.Code = FSharedByteBuffer::Take(std::move(Code));
 

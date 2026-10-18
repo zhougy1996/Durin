@@ -126,6 +126,28 @@ durin_add_native_test(RenderShaderCookIntegrationTests
 		"Loads Renderer by production module name before invoking Cook. ShaderBuild is linked."
 	HEAVY_RUNTIME_RATIONALE "Loads Renderer so Cook can freeze the runtime Global Shader request inventory."
 )
+if(APPLE)
+durin_add_native_test(MetalShaderCookIntegrationTests
+	KIND integration
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Produces native MacOS Cooked shaders using editor-only ShaderBuild and the Metal toolchain."
+	DOMAINS shader asset-cook
+	MODULES rendercore renderer shaderbuild
+	BACKENDS metal
+	SOURCES Private/MetalShaderCookIntegrationTests.cpp
+	LIBRARIES Core RHI RenderCore DerivedDataCache ShaderBuild Slang_Imported
+	INCLUDE_DIRECTORIES "${_durin_render_core_private_dir}" "${_durin_shader_build_private_dir}"
+	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
+	TIMEOUT 600
+	RUNTIME_ONLY_TARGETS Renderer
+	RUNTIME_ONLY_RATIONALE "Loads Renderer to freeze and load the complete binary MacOS Shader inventory."
+	HEAVY_RUNTIME_RATIONALE "Runs the native Metal toolchain and verifies source-free Cooked Shader loading after irreversible producer shutdown."
+)
+else()
+	durin_exclude_native_test_sources(
+		RATIONALE "Native metallib production requires the macOS Metal toolchain."
+		SOURCES Private/MetalShaderCookIntegrationTests.cpp)
+endif()
 else()
 	durin_exclude_native_test_sources(
 		RATIONALE "Authoring-only Shader compiler, cache, and builder coverage is excluded from the runtime-only Game closure."
@@ -135,6 +157,7 @@ else()
 			Private/ShaderBuilderTests.cpp
 			Private/ShaderBuildQualificationTests.cpp
 			Private/ShaderCookIntegrationTests.cpp
+			Private/MetalShaderCookIntegrationTests.cpp
 	)
 endif()
 

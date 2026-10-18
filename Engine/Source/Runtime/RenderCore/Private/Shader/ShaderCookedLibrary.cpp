@@ -78,10 +78,10 @@ namespace Durin
 					|| Profile == EShaderTargetProfile::EditorValidation);
 		}
 
-		auto TargetForPlatform(EShaderTargetPlatform Platform) -> FShaderTargetIdentity
+		auto TargetForPlatform(EShaderTargetPlatform Platform, EShaderTargetProfile Profile) -> FShaderTargetIdentity
 		{
 			return Platform == EShaderTargetPlatform::MacOS
-				? MetalShaderTarget : VulkanShaderTarget;
+				? (Profile == EShaderTargetProfile::Game ? MetalLibraryShaderTarget : MetalShaderTarget) : VulkanShaderTarget;
 		}
 
 		auto IsEligible(
@@ -131,7 +131,7 @@ namespace Durin
 			std::vector<std::string>& OutEntryStorage) -> bool
 		{
 			OutOptions = {};
-			OutOptions.Target = TargetForPlatform(Request.TargetPlatform);
+			OutOptions.Target = TargetForPlatform(Request.TargetPlatform, Request.TargetProfile);
 			OutEntryStorage.clear();
 			OutEntryStorage.reserve(Request.Members.size());
 			for (const FShaderRuntimeRequestMember& Member : Request.Members)

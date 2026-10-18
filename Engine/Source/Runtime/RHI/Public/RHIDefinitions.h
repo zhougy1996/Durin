@@ -6,7 +6,7 @@
 namespace Durin
 {
 	enum class EShaderRuntimeBackend : uint32 { Vulkan = 1, Metal = 2 };
-	enum class EShaderCodeFormat : uint32 { Spirv15 = 1, Msl20Source = 2 };
+	enum class EShaderCodeFormat : uint32 { Spirv15 = 1, Msl20Source = 2, MetalLibrary = 3 };
 
 	struct FShaderTargetIdentity
 	{
@@ -25,6 +25,16 @@ namespace Durin
 		EShaderTargetPlatform::MacOS, EShaderRuntimeBackend::Metal,
 		EShaderCodeFormat::Spirv15, EShaderCodeFormat::Msl20Source,
 		FXxHash128::HashBuffer("Durin.ShaderTargetProfile.2.1", 29)};
+	// Binary libraries use a distinct immutable profile; the editor source profile
+	// above retains its original identity and serialized meaning.
+	inline const FShaderTargetIdentity MetalLibraryShaderTarget{
+		EShaderTargetPlatform::MacOS, EShaderRuntimeBackend::Metal,
+		EShaderCodeFormat::Spirv15, EShaderCodeFormat::MetalLibrary,
+		FXxHash128::HashBuffer("Durin.ShaderTargetProfile.MetalLibrary.1", sizeof("Durin.ShaderTargetProfile.MetalLibrary.1") - 1)};
+	inline auto IsMetalShaderTarget(const FShaderTargetIdentity& Target) -> bool
+	{
+		return Target == MetalShaderTarget || Target == MetalLibraryShaderTarget;
+	}
 
 	constexpr uint32 FrameInFlight = 2;
 

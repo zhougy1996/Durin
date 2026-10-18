@@ -191,10 +191,10 @@ namespace Durin
 		const auto Platform = ToCookTargetPlatform(SelectedTarget.Platform);
 		const auto Resolved = Platform ? ResolveTargetPlatform(*Platform)
 			: std::expected<FTargetPlatformDescription, ETargetPlatformError>{std::unexpected(ETargetPlatformError::UnknownPlatform)};
-		if (!Resolved || Resolved->GetShaderTarget() != SelectedTarget) return {FMaterialError::FromExternal(EMaterialCompileError::ShaderEnvironmentUnavailable,
+		if (!Resolved || (Resolved->GetShaderTarget() != SelectedTarget && Resolved->GetCookedShaderTarget() != SelectedTarget)) return {FMaterialError::FromExternal(EMaterialCompileError::ShaderEnvironmentUnavailable,
 			"Material shader target is unsupported.")};
 #endif
-		const bool bMetal = SelectedTarget == MetalShaderTarget;
+		const bool bMetal = IsMetalShaderTarget(SelectedTarget);
 		Options = MakeMaterialShaderCompileOptions(SelectedTarget, {.OpacityMaskThreshold = 0.5f});
 		FShaderSourceDependencyFingerprint SourceTree;
 		FShaderOperationResult ProviderError;
@@ -204,7 +204,8 @@ namespace Durin
 		}
 
 		FMaterialCompilerEnvironment Environment;
-		Environment.Target = bMetal ? "metal-msl-2.0" : "vulkan-spirv-1.5";
+		Environment.Target = SelectedTarget == MetalLibraryShaderTarget ? "metal-library-1"
+			: bMetal ? "metal-msl-2.0" : "vulkan-spirv-1.5";
 		if (const auto* Capabilities = !Target && GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr)
 		{
 			Environment.FeatureLevel = Capabilities->FeatureLevel;
@@ -215,7 +216,7 @@ namespace Durin
 			Limits.StageResources = std::min(Limits.StageResources, Capabilities->MaxFragmentResources);
 			Limits.UniformBufferBytes = std::min(Limits.UniformBufferBytes, Capabilities->MaxUniformBufferRange);
 		}
-		const auto* ShaderBuild = IShaderBuildModule::Get();
+		auto* ShaderBuild = IShaderBuildModule::Get();
 		const uint64 ShaderBuildVersion = ShaderBuild ? ShaderBuild->GetBuildVersion() : 0;
 		if (!ShaderBuildVersion)
 			return {FMaterialError::FromExternal(EMaterialCompileError::ShaderEnvironmentUnavailable,
@@ -223,6 +224,12 @@ namespace Durin
 		const auto Adapter = ShaderBuild->GetCompileAdapterVersion();
 		Environment.CompilerIdentity = std::format("ShaderBuild:{:016x};adapter={}:{}:{}",
 			ShaderBuildVersion, Adapter.FunctionVersion, Adapter.ConstantsSchema, Adapter.OutputSchema);
+		if (SelectedTarget == MetalLibraryShaderTarget)
+		{
+			const auto Producer = ShaderBuild->GetTargetProducerIdentity(SelectedTarget);
+			if (!Producer) return {FMaterialError::FromExternal(EMaterialCompileError::ShaderEnvironmentUnavailable, Producer.error())};
+			Environment.CompilerIdentity += ";native=" + *Producer;
+		}
 		Environment.Dependencies.push_back({
 			.VirtualPath = std::move(SourceTree.VirtualPath),
 			.ContentHash = SourceTree.ContentHash});

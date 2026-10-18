@@ -365,6 +365,8 @@ namespace Durin
 					if (RendererModule != nullptr)
 					{
 						const FSceneViewRenderOptions Options{};
+						if (!SceneViewport->PrepareResources_RenderThread(*RendererModule, CommandList, Scene, View, RenderTargetRHI, false, Options)) return;
+						FRenderResourcePreparationUseScope PreparedUse(SceneViewport->GetResourcePreparation_RenderThread());
 						Result = RendererModule->RenderView(
 							CommandList, Scene, View, RenderTargetRHI, false, Options,
 							&Statistics, RenderGraphCapture.get()
@@ -425,6 +427,12 @@ namespace Durin
 							if (RendererModule != nullptr)
 							{
 								const FSceneViewRenderOptions Options{};
+								if (!SceneViewport->PrepareResources_RenderThread(*RendererModule, CommandList, Scene, View, BackBuffer, true, Options))
+								{
+									CommandList.EndDrawingViewport(ViewportRHI, false, false);
+									return;
+								}
+								FRenderResourcePreparationUseScope PreparedUse(SceneViewport->GetResourcePreparation_RenderThread());
 								Result = RendererModule->RenderView(
 									CommandList, Scene, View, BackBuffer, true, Options,
 									&Statistics, RenderGraphCapture.get()

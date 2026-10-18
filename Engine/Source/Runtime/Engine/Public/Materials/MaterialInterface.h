@@ -18,6 +18,7 @@
 
 namespace Durin
 {
+	class FMaterialProgramPreparation;
 	class FObjectCacheContext;
 	template<typename T> class TObjectCacheIterator;
 	// Owning-thread invalidation of parameter definitions, values, ancestry or reachability.
@@ -191,6 +192,8 @@ namespace Durin
 
 	protected:
 		ENGINE_API auto PostEditChangePropertyWithContext(const FPropertyChangedEvent& Event, FObjectCacheContext& Context) -> void;
+		ENGINE_API auto AdmitCookedProgram(const FMaterialStaticProperties& Properties,
+			std::shared_ptr<const FMaterialCompilerResult> Program) -> FMaterialOperationResult;
 		ENGINE_API auto LoadCookedProgram() -> FMaterialOperationResult;
 		// A transient runtime owner can select only an already compiled compatible variant.
 		ENGINE_API auto AdoptParentRuntimeProgram() -> bool;
@@ -217,6 +220,7 @@ namespace Durin
 	private:
 		auto BroadcastParameterChanges(const TObjectCacheIterator<DMaterialInterface>& Dependents) -> void;
 	private:
+		friend class FMaterialProgramPreparation;
 		friend struct Private::FMaterialCompilationLifecycle;
 #if DURIN_WITH_EDITORONLY_DATA
 		DPROPERTY(EditorOnly)

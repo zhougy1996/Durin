@@ -18,6 +18,11 @@ namespace Durin
 		std::function<bool()> IsCancelled;
 		// Explicit caller-boundary execution, usable without the Core scheduler.
 		bool bInlineExecution = false;
+		// Optional previously captured native producer provenance. This permits
+		// exact native-action cache replay without probing an installed SDK.
+		std::string NativeProducerIdentity;
+		// Requires explicit provenance; a native miss/corrupt hit fails without tools.
+		bool bNativeCacheOnly = false;
 	};
 	using FShaderBuildCompletion = std::function<void(FShaderBuildResult)>;
 	class IShaderBuildRequest

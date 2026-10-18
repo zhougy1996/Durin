@@ -1,10 +1,24 @@
 #include "MetalShaderFormat.h"
+#include "MetalShaderStatistics.h"
 #include "MetalPipeline.h"
 #include "MetalResourceDescriptors.h"
 #include "RHIShaderParameters.h"
+#include <dispatch/dispatch.h>
 
 namespace Durin
 {
+	namespace
+	{
+		std::atomic<uint64> SourceCompileAttempts = 0, BinaryLoadAttempts = 0, FunctionsCreated = 0;
+		std::atomic<uint64> GraphicsPipelinesCreated = 0, ComputePipelinesCreated = 0;
+		std::atomic<uint64> SourceLibraryMicroseconds = 0, BinaryLibraryMicroseconds = 0;
+	}
+	auto GetMetalShaderCreationStatistics() -> FMetalShaderCreationStatistics
+	{
+		return {SourceCompileAttempts.load(), BinaryLoadAttempts.load(), FunctionsCreated.load(),
+			GraphicsPipelinesCreated.load(), ComputePipelinesCreated.load(),
+			SourceLibraryMicroseconds.load(), BinaryLibraryMicroseconds.load()};
+	}
 	auto ToMetalVertexFormat(EVertexElementType Type) -> MTL::VertexFormat
 	{
 		switch (Type)
@@ -118,7 +132,7 @@ namespace Durin
 			|| Initializer.RasterizerState.LineWidth != 1.0f)
 			return nullptr;
 		auto Key = BuildGraphicsPipelineStateKey(Initializer, nullptr);
-		if (!Key || Key->Target != MetalShaderTarget) return nullptr;
+		if (!Key || !IsMetalShaderTarget(Key->Target)) return nullptr;
 		auto* Vertex = dynamic_cast<FMetalShader*>(
 			Initializer.BoundShaders.VertexShader);
 		auto* Fragment = dynamic_cast<FMetalShader*>(
@@ -217,6 +231,7 @@ namespace Durin
 			&& Initializer.DepthStencilState.bEnableWrite);
 		auto DepthStencil = NS::TransferPtr(Device->newDepthStencilState(DepthDesc.get()));
 		if (!DepthStencil) return nullptr;
+		GraphicsPipelinesCreated.fetch_add(1, std::memory_order_relaxed);
 		return new FMetalGraphicsPipelineState(Vertex, Fragment,
 			Initializer.VertexDeclaration, std::move(Pipeline),
 			Initializer.RenderTargetLayout, Initializer.RasterizerState,
@@ -229,7 +244,7 @@ namespace Durin
 	{
 		const FMetalAutoreleasePool Pool;
 		if (!Device || !Initializer.ComputeShader
-			|| Initializer.ComputeShader->GetTarget() != MetalShaderTarget)
+			|| !IsMetalShaderTarget(Initializer.ComputeShader->GetTarget()))
 			return nullptr;
 		auto Key = BuildComputePipelineStateKey(Initializer, nullptr);
 		if (!Key) return nullptr;
@@ -250,6 +265,7 @@ namespace Durin
 		const auto Group = Shader->GetComputeThreadGroupSize();
 		if (uint64(Group[0]) * Group[1] * Group[2]
 			> Pipeline->maxTotalThreadsPerThreadgroup()) return nullptr;
+		ComputePipelinesCreated.fetch_add(1, std::memory_order_relaxed);
 		return new FMetalComputePipelineState(Shader,
 			std::move(Key->PipelineLayout), std::move(Pipeline), std::move(Bindings));
 	}
@@ -258,23 +274,41 @@ namespace Durin
 		-> TRefCountPtr<FRHIShader>
 	{
 		const auto& Desc = InDesc;
-		if (!Device || Desc.Target != MetalShaderTarget || !Desc.CodeOwner
+		if (!Device || !IsMetalShaderTarget(Desc.Target) || !Desc.CodeOwner
 			|| !ShaderFormat::ValidateShaderCreateDesc(Desc)) return nullptr;
 		auto Map = ShaderFormat::DecodeMetalMetadata(Desc.Frequency, Desc.CodeOwner->PlatformData.GetBytes());
 		if (!Map) return nullptr;
 		const FMetalAutoreleasePool Pool;
-		const std::string_view Source(
-			reinterpret_cast<const char*>(Desc.Code.data()), Desc.Code.size());
-		const std::string SourceText(Source);
-		auto Text = NS::TransferPtr(NS::String::alloc()->init(SourceText.c_str(), NS::UTF8StringEncoding));
-		if (!Text) return nullptr;
-		auto Options = NS::TransferPtr(MTL::CompileOptions::alloc()->init());
-		Options->setLanguageVersion(MTL::LanguageVersion2_0);
 		NS::Error* Error = nullptr;
-		auto Library = NS::TransferPtr(Device->newLibrary(Text.get(), Options.get(), &Error));
+		NS::SharedPtr<MTL::Library> Library;
+		const auto LibraryBegin = std::chrono::steady_clock::now();
+		if (Desc.CodeFormat == EShaderCodeFormat::MetalLibrary)
+		{
+			// The default dispatch-data destructor copies these immutable bytes;
+			// Metal may retain the data independently of this creation descriptor.
+			const auto Data = dispatch_data_create(Desc.Code.data(), Desc.Code.size(), nullptr, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+			if (!Data) return nullptr;
+			BinaryLoadAttempts.fetch_add(1, std::memory_order_relaxed);
+			Library = NS::TransferPtr(Device->newLibrary(Data, &Error));
+			dispatch_release(Data);
+			BinaryLibraryMicroseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
+				std::chrono::steady_clock::now() - LibraryBegin).count(), std::memory_order_relaxed);
+		}
+		else
+		{
+			const std::string SourceText(reinterpret_cast<const char*>(Desc.Code.data()), Desc.Code.size());
+			auto Text = NS::TransferPtr(NS::String::alloc()->init(SourceText.c_str(), NS::UTF8StringEncoding));
+			if (!Text) return nullptr;
+			auto Options = NS::TransferPtr(MTL::CompileOptions::alloc()->init());
+			Options->setLanguageVersion(MTL::LanguageVersion2_0);
+			SourceCompileAttempts.fetch_add(1, std::memory_order_relaxed);
+			Library = NS::TransferPtr(Device->newLibrary(Text.get(), Options.get(), &Error));
+			SourceLibraryMicroseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
+				std::chrono::steady_clock::now() - LibraryBegin).count(), std::memory_order_relaxed);
+		}
 		if (!Library)
 		{
-			DURIN_ERROR("Metal shader library compilation failed: {}",
+			DURIN_ERROR("Metal shader library creation failed (format {}): {}", uint32(Desc.CodeFormat),
 				CopyMetalError(Error));
 			return nullptr;
 		}
@@ -287,6 +321,7 @@ namespace Durin
 			: Desc.Frequency == EShaderFrequency::Fragment
 				? MTL::FunctionTypeFragment : MTL::FunctionTypeKernel;
 		if (Function->functionType() != Expected) return nullptr;
+		FunctionsCreated.fetch_add(1, std::memory_order_relaxed);
 		return new FMetalShader(Desc, std::move(*Map), std::move(Library), std::move(Function));
 	}
 }

@@ -15,6 +15,10 @@ namespace Durin
 	public:
 		auto GetPlatform() const -> ECookTargetPlatform { return Platform; }
 		auto GetShaderTarget() const -> const FShaderTargetIdentity& { return ShaderTarget; }
+		auto GetCookedShaderTarget() const -> FShaderTargetIdentity
+		{
+			return Platform == ECookTargetPlatform::MacOS ? MetalLibraryShaderTarget : ShaderTarget;
+		}
 		TARGETPLATFORM_API auto SupportsCollisionPayload() const -> bool;
 	private:
 		friend TARGETPLATFORM_API auto ResolveTargetPlatform(ECookTargetPlatform)

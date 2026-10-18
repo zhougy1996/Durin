@@ -38,6 +38,7 @@ namespace Durin
     auto FSceneRenderingService::UpdatePendingScenes_RenderThread(FRHICommandListImmediate& Commands) -> void
     {
         CheckRenderingThread();
+        PrunePreparations_RenderThread();
         for (auto* Scene : PendingSkyScenes)
         {
             UpdateSkyLighting_RenderThread(Commands,*Scene);
@@ -86,6 +87,7 @@ namespace Durin
 	auto FSceneRenderingService::ReleaseDeviceResources_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
+		RetirePreparations_RenderThread();
 		DefaultTextures.ReleaseResources_RenderThread();
 		EnvironmentLighting.ReleaseResources_RenderThread();
 		SurfaceMaterials.ReleaseResources_RenderThread();
@@ -160,6 +162,7 @@ namespace Durin
 	) -> void
 	{
 		check(IsInRenderingThread());
+		RetirePreparations_RenderThread();
 		if (Cause == ERendererResourceInvalidationCause::Device)
 			ViewStates.InvalidateAll(
 				ESceneViewDiscontinuity::DeviceInvalidation
@@ -185,6 +188,63 @@ namespace Durin
 					},
 			}
 		);
+	}
+
+	auto FSceneRenderingService::PrunePreparations_RenderThread() -> void
+	{
+		CheckRenderingThread();
+		std::erase_if(Preparations, [](const auto& Owner) {
+			const auto State = Owner.Preparation.GetProgress().State;
+			if (Owner.Preparation.HasOtherOwners() && State != ERenderResourcePreparationState::Canceled
+				&& State != ERenderResourcePreparationState::Stale) return false;
+			Owner.Preparation.Retire_RenderThread(State == ERenderResourcePreparationState::Stale
+				? State : ERenderResourcePreparationState::Canceled);
+			return true;
+		});
+	}
+
+	auto FSceneRenderingService::RetirePreparations_RenderThread(FScene* Scene) -> void
+	{
+		CheckRenderingThread();
+		std::erase_if(Preparations, [Scene](const auto& Owner) {
+			if (Scene && Owner.Scene != Scene) return false;
+			Owner.Preparation.Retire_RenderThread(ERenderResourcePreparationState::Stale);
+			return true;
+		});
+	}
+
+	auto FSceneRenderingService::PrepareViewResources_RenderThread(
+		FRHICommandListImmediate& CommandList, FScene* Scene, const FSceneView& View,
+		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
+		const FRenderResourcePreparation& Preparation) -> void
+	{
+		CheckRenderingThread();
+		PrunePreparations_RenderThread();
+		if (!Preparation.IsValid()) return;
+		const auto Status = Preparation.GetProgress().State;
+		if (Status == ERenderResourcePreparationState::Stale || Status == ERenderResourcePreparationState::Canceled
+			|| Status == ERenderResourcePreparationState::Failed) return;
+		const auto Existing = std::ranges::find_if(Preparations, [&](const auto& Owner) {
+			return Owner.Preparation.IsSameRequest(Preparation);
+		});
+		if (!Scene || !OutputTarget || !GDynamicRHI || (Existing != Preparations.end() && Existing->Scene != Scene))
+			return Preparation.Retire_RenderThread(ERenderResourcePreparationState::Failed);
+		if (Existing == Preparations.end())
+		{
+			if (Preparations.size() >= 4) return Preparation.Retire_RenderThread(ERenderResourcePreparationState::Failed);
+			Preparations.push_back({Scene, Preparation});
+		}
+		FRenderResourcePreparationScope Scope(Preparation);
+		try
+		{
+			const auto Result = FSceneRenderPipeline(*this).Execute_RenderThread(CommandList, Scene, View,
+				OutputTarget, bPresentOutput, Options, nullptr, nullptr);
+			Scope.Complete(Result == ERenderViewResult::Success, Result != ERenderViewResult::Success
+				&& Result != ERenderViewResult::RendererResourcesPending);
+		}
+		catch (const FRenderResourcePreparationYield&) { Scope.Complete(false); }
+		catch (const FRenderResourcePreparationCapacityExceeded&) { Scope.Complete(false, true); }
+		catch (const std::bad_alloc&) { Scope.Complete(false, true); }
 	}
 
 	auto FSceneRenderingService::RenderView_RenderThread(

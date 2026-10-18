@@ -1,4 +1,6 @@
 #include "MetalShaderFixture.h"
+#include "MetalBuffer.h"
+#include "MetalShaderStatistics.h"
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
@@ -46,7 +48,7 @@ namespace
 }
 
 #if DURIN_WITH_EDITOR
-TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProductionRHI)
+static auto QualifyImGuiShaderBuild(const Durin::FShaderTargetIdentity& MetalTarget) -> void
 {
 	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
 	if (!Durin::GIsGameThreadIdInitialized)
@@ -58,7 +60,7 @@ TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProduct
 	auto* Builder = Durin::IShaderBuildModule::Get();
 	ASSERT_NE(Builder, nullptr);
 	Durin::FShaderCompileOptions Options;
-	Options.Target = Durin::MetalShaderTarget;
+	Options.Target = MetalTarget;
 	Options.EntryPoints = {"VertexMain", "FragmentMain"};
 	Options.Frequencies = {Durin::EShaderFrequency::Vertex,
 		Durin::EShaderFrequency::Fragment};
@@ -84,12 +86,34 @@ TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProduct
 			ASSERT_TRUE(Durin::RHIInit(Durin::FRHIInitializationContext::Headless()));
 			FScopedRHIExit Exit;
 			auto& Commands = Durin::FRHICommandListImmediate::Get();
+			const auto ShaderStatsBefore = Durin::GetMetalShaderCreationStatistics();
 			auto Vertex = Durin::GDynamicRHI->RHICreateShader(
 				Durin::MakeShaderCreateDesc(Compiled.CompiledShaders[0]));
 			auto Fragment = Durin::GDynamicRHI->RHICreateShader(
 				Durin::MakeShaderCreateDesc(Compiled.CompiledShaders[1]));
 			ASSERT_TRUE(Vertex);
 			ASSERT_TRUE(Fragment);
+			if (std::string_view(BackendName) == "metal" && MetalTarget == Durin::MetalLibraryShaderTarget)
+			{
+				const auto After = Durin::GetMetalShaderCreationStatistics();
+				EXPECT_EQ(After.SourceCompileAttempts, ShaderStatsBefore.SourceCompileAttempts);
+				EXPECT_EQ(After.BinaryLoadAttempts - ShaderStatsBefore.BinaryLoadAttempts, 2u);
+				EXPECT_EQ(After.FunctionsCreated - ShaderStatsBefore.FunctionsCreated, 2u);
+				auto MissingEntry = Compiled.CompiledShaders[0];
+				MissingEntry.BinaryEntryPoint = "MissingBinaryEntry";
+				MissingEntry.ShaderIdentity = Durin::ShaderFormat::ComputeShaderIdentity(MissingEntry);
+				EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Durin::MakeShaderCreateDesc(MissingEntry)));
+				auto InvalidLibrary = Compiled.CompiledShaders[0];
+				Durin::FByteBuffer Envelope(88);
+				Envelope[0] = std::byte{'M'}; Envelope[1] = std::byte{'T'};
+				Envelope[2] = std::byte{'L'}; Envelope[3] = std::byte{'B'}; Envelope[16] = std::byte{88};
+				InvalidLibrary.Code = Durin::FSharedByteBuffer::Take(std::move(Envelope));
+				InvalidLibrary.CodeHash = Durin::FXxHash128::HashBuffer(InvalidLibrary.Code);
+				InvalidLibrary.ShaderIdentity = Durin::ShaderFormat::ComputeShaderIdentity(InvalidLibrary);
+				ASSERT_TRUE(Durin::ShaderFormat::ValidateShaderCode(InvalidLibrary));
+				EXPECT_FALSE(Durin::GDynamicRHI->RHICreateShader(Durin::MakeShaderCreateDesc(InvalidLibrary)));
+				EXPECT_EQ(Durin::GetMetalShaderCreationStatistics().SourceCompileAttempts, ShaderStatsBefore.SourceCompileAttempts);
+			}
 			struct FImGuiVertex
 			{
 				float Position[2];
@@ -230,6 +254,75 @@ TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProduct
 						- int(MetalPixels[ModeIndex][Index])), 1);
 			}
 		}
+	}
+}
+
+TEST(FMetalRHIHeadlessTests, AuthoredImGuiShaderBuildMatchesVulkanThroughProductionRHI)
+{
+	QualifyImGuiShaderBuild(Durin::MetalShaderTarget);
+}
+
+TEST(FMetalRHIHeadlessTests, BinaryImGuiShaderBuildMatchesVulkanThroughProductionRHI)
+{
+	QualifyImGuiShaderBuild(Durin::MetalLibraryShaderTarget);
+}
+
+TEST(FMetalRHIHeadlessTests, BinaryComputeWritesStorageInBothExecutionModes)
+{
+	using namespace Durin;
+	FScopedEnvironmentVariable Backend("DURIN_RHI_BACKEND", "metal");
+	if (!GIsGameThreadIdInitialized)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
+	}
+	ASSERT_TRUE(FModuleManager::Get().LoadModule("ShaderBuild"));
+	auto* Builder = IShaderBuildModule::Get();
+	ASSERT_TRUE(Builder);
+	FGeneratedShaderCompileRequest Request;
+	Request.Target = MetalLibraryShaderTarget;
+	Request.VirtualPath = "/Generated/MetalBinaryComputeQualification";
+	Request.Source = "[[vk::binding(0,0)]] RWStructuredBuffer<uint> Result; [shader(\"compute\")][numthreads(1,1,1)] void ComputeMain(uint3 id : SV_DispatchThreadID) { Result[id.x] = 0x12345678u; }";
+	Request.EntryPoints = {"ComputeMain"}; Request.Frequencies = {EShaderFrequency::Compute};
+	const auto Built = Builder->CompileGenerated(Request);
+	ASSERT_TRUE(Built) << Built.Diagnostic;
+	ASSERT_EQ(Built.CompiledShaders.size(), 1u);
+	for (const char* Mode : {"inline", "threaded"})
+	{
+		SCOPED_TRACE(Mode);
+		FScopedEnvironmentVariable Execution("DURIN_RHI_EXECUTION", Mode);
+		ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
+		FScopedRHIExit Exit;
+		auto& Commands = FRHICommandListImmediate::Get();
+		const auto Before = GetMetalShaderCreationStatistics();
+		auto Shader = GDynamicRHI->RHICreateShader(MakeShaderCreateDesc(Built.CompiledShaders[0]));
+		ASSERT_TRUE(Shader);
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader.GetReference();
+		ASSERT_TRUE(BuildPipelineLayoutFromReflection(std::span(&Built.CompiledShaders[0].Reflection, 1), Initializer.PipelineLayout));
+		auto Pipeline = GDynamicRHI->RHICreateComputePipelineState("BinaryComputeQualification", Initializer);
+		ASSERT_TRUE(Pipeline);
+		auto Buffer = GDynamicRHI->RHICreateBuffer(Commands, FRHIBufferCreateDesc::Create("BinaryComputeResult", 4, 4,
+			EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::KeepCPUAccessible));
+		ASSERT_TRUE(Buffer);
+		auto View = GDynamicRHI->RHICreateBufferView(Buffer.GetReference(), {.Offset = 0, .Size = 4, .Type = ERHIBufferViewType::StructuredStorage});
+		ASSERT_TRUE(View);
+		const FRHIShaderParameterResource Parameter{.Resource = View.GetReference(), .SetIndex = 0, .BindingIndex = 0, .Type = ERHIBindingType::StorageBuffer};
+		const auto Signal = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+		Commands.SwitchPipeline(ERHIPipeline::Compute);
+		Commands.SetComputePipelineState(*Pipeline);
+		Commands.SetShaderParameters(Shader.GetReference(), std::span(&Parameter, 1));
+		Commands.Dispatch(1, 1, 1);
+		Commands.EndGPUSubmission();
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+		ASSERT_EQ(GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000), ERHIGPUWaitResult::Complete);
+		const auto* Data = static_cast<FMetalBuffer*>(Buffer.GetReference())->GetHandle()->contents();
+		ASSERT_TRUE(Data);
+		uint32 Value = 0; std::memcpy(&Value, Data, sizeof(Value));
+		EXPECT_EQ(Value, 0x12345678u);
+		const auto After = GetMetalShaderCreationStatistics();
+		EXPECT_EQ(After.SourceCompileAttempts, Before.SourceCompileAttempts);
+		EXPECT_EQ(After.BinaryLoadAttempts - Before.BinaryLoadAttempts, 1u);
+		EXPECT_EQ(After.ComputePipelinesCreated - Before.ComputePipelinesCreated, 1u);
 	}
 }
 

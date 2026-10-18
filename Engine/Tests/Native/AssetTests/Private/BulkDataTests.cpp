@@ -1194,3 +1194,37 @@ TEST(FPackageResourceTests, RejectedReadOwnsRequestedBoundsWithoutAdmittingIo)
 	const auto Invalid = FPackageResourceRequest{}.Wait();
 	EXPECT_EQ(Invalid.error().Reason, EPackageResourceReadReason::InvalidRequest);
 }
+
+TEST(FRuntimeBulkDataTests, ContentRevisionRejectsReplacementAndWritesWithoutReadChurn)
+{
+	using namespace Durin;
+	const auto Bytes = MakeBytes({1, 2, 3, 4});
+	auto Created = FBulkData::TryCreateDetached(Bytes);
+	ASSERT_TRUE(Created);
+	auto Data = std::move(*Created);
+	const auto Revision = Data.GetContentRevision();
+	ASSERT_NE(Revision, 0u);
+	{
+		auto Read = Data.AcquireRead();
+		ASSERT_TRUE(Read);
+		EXPECT_EQ(Data.GetContentRevision(), Revision);
+	}
+	EXPECT_EQ(Data.GetContentRevision(), Revision);
+	FBulkData Snapshot = Data;
+	const auto SnapshotRevision = Snapshot.GetContentRevision();
+	EXPECT_NE(SnapshotRevision, Revision);
+	{
+		auto Write = Data.AcquireWrite();
+		ASSERT_TRUE(Write.TryResize(4));
+		Write.GetBytes()[0] = std::byte{9};
+		EXPECT_NE(Data.GetContentRevision(), Revision);
+	}
+	EXPECT_EQ(Snapshot.GetContentRevision(), SnapshotRevision);
+	const auto WrittenRevision = Data.GetContentRevision();
+	Data = Snapshot;
+	EXPECT_NE(Data.GetContentRevision(), WrittenRevision);
+	EXPECT_EQ(Data.GetMetadata().LogicalSize, Bytes.size());
+	auto Read = Data.AcquireRead();
+	ASSERT_TRUE(Read);
+	EXPECT_EQ(Read.Lock.GetBytes()[0], std::byte{1});
+}

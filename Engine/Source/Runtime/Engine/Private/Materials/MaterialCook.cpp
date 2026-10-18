@@ -42,7 +42,7 @@ namespace Durin
 		// Per variant: bounded snapshot, translation/assembly, program and family encoding overlap.
 		if (!Preparation->ReserveWorkingSet(Configurations->size() * 64ull * 1024 * 1024)) return;
 		FMaterialCompilerEnvironment BaseEnvironment;
-		if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment, Target->GetShaderTarget()); !Environment) {
+		if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment, Target->GetCookedShaderTarget()); !Environment) {
 			Context.Result = {EObjectCookError::Preparation, FormatMaterialError(Environment.Error)}; return;
 		}
 		BaseEnvironment.bIncludeEditorPasses = false;
@@ -189,6 +189,17 @@ namespace Durin
 		{
 			return FailCooked(Decoded.Error);
 		}
+		Read.Lock.Reset();
+		return AdmitCookedProgram(PayloadProperties, std::move(ProgramCandidate));
+	}
+
+	auto DMaterialInterface::AdmitCookedProgram(const FMaterialStaticProperties& PayloadProperties,
+		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate) -> FMaterialOperationResult
+	{
+		auto FailCooked = [&](FMaterialError Error) -> FMaterialOperationResult {
+			MaterialCookDiagnostic = Error;
+			return {std::move(Error)};
+		};
 		auto ExpectedProperties = GetStaticProperties();
 		ExpectedProperties.OpacityMaskThreshold = CanonicalizeMaterialShaderProperties(ExpectedProperties).OpacityMaskThreshold;
 		if (PayloadProperties != ExpectedProperties)
@@ -229,7 +240,6 @@ namespace Durin
 			}
 			ProgramCandidate = std::move(ResolvedProgram);
 		}
-		Read.Lock.Reset();
 
 		CompilationOwner.RenderLayer.CompiledProgram = std::move(ProgramCandidate);
 		CompilationOwner.RenderLayer.StaticProperties = PayloadProperties;
@@ -292,7 +302,7 @@ namespace Durin
 		if (!Target)
 			return FShaderCompletion::Failure("Material Cook target or configuration is unsupported.");
 		FMaterialCompilerEnvironment BaseEnvironment;
-		if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment, Target->GetShaderTarget()); !Environment)
+		if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment, Target->GetCookedShaderTarget()); !Environment)
 			return FShaderCompletion::Failure(FormatMaterialError(Environment.Error));
 		BaseEnvironment.bIncludeEditorPasses = false;
 		std::vector<FMaterialCompilerResult> Variants;

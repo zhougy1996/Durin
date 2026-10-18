@@ -124,6 +124,9 @@ namespace Durin
 
 		ENGINE_API auto GetState() const -> EBulkDataState;
 		ENGINE_API auto GetMetadata() const -> FBulkDataMetadata;
+		// Transient generation for asynchronous publication. Storage replacement
+		// and write admission change it; reads/unloading do not. Never serialize it.
+		ENGINE_API auto GetContentRevision() const -> uint64;
 		ENGINE_API auto HasData() const -> bool;
 		ENGINE_API auto AcquireRead() -> FBulkDataReadResult;
 		// Requires detached or empty storage with no active locks.

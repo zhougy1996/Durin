@@ -124,8 +124,10 @@ TEST(FBuildContinuationTests, OwnerWaitIncludesTrackedNativeTaskEnd)
 TEST(FBuildContinuationTests, OwnerWaitIncludesDependencyAddedByEarlierWait)
 {
 	FThreadEvent Entered, Release, Finished;
-	FRequestOwner Owner;
 	std::atomic_bool Added = false, Ready = false;
+	// Owner destruction can invoke dependency cancellation after Wait completes.
+	// Keep every borrowed event/flag alive until that boundary.
+	FRequestOwner Owner;
 	Owner.TrackDependency({.IsFinished = [&] { return Added.load(); }, .Wait = [&] {
 		if (!Added.exchange(true)) Owner.TrackDependency({.IsFinished = [&] { return Ready.load(); },
 			.Wait = [&] { Entered.Trigger(); Release.Wait(); Ready = true; return ERequestWaitResult::Completed; }, .RequestCancel = [&] { Release.Trigger(); }});

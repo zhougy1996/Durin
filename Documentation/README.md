@@ -74,6 +74,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/ViewportRendering.md) |
 | Persistent view identity, previous-frame metadata, temporal discontinuity, or history lifetime | [Persistent view state](Runtime/Rendering/PersistentViewState.md) |
 | Render-resource state, deferred C++ cleanup, producer teardown, or registry auditing | [Render resource lifecycle](Runtime/Rendering/RenderResourceLifecycle.md) |
+| Loading-time material program, native Shader/PSO preparation, or scene activation readiness | [Load preparation](Runtime/Rendering/LoadPreparation.md) |
 | Renderer resource creation failure, retry, fallback, or device invalidation | [Renderer resource recovery](Runtime/Rendering/RendererResourceRecovery.md) |
 | Fixed non-Material shader registration, typed global lookup, atomic shader sets, or shader/pipeline generation coupling | [Global shaders](Runtime/Rendering/GlobalShaders.md) |
 | Render Graph, RDG, pass declarations, dependencies, barriers, or graph captures | [Render Graph](Runtime/Rendering/RenderGraph.md) |

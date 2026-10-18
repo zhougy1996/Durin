@@ -338,6 +338,7 @@ namespace Durin
 		PublishedSkyBoxProxy = nullptr;
 		EnqueueRenderCommand("ReleaseScene", [this](FRHICommandListImmediate&) {
 			CheckRenderingThread();
+			if (Renderer) Renderer->RetirePreparations_RenderThread(this);
 			Clear_RenderThread();
 			LifecycleState.store(ELifecycleState::Released, std::memory_order_release);
 		});

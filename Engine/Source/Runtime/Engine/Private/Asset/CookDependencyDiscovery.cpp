@@ -128,6 +128,14 @@ namespace Durin::AssetPrivate
 				const auto Read = GetShaderCookInputIdentity(ShaderBuildIdentity, Request.IsCancelled);
 				if (!Read) return std::unexpected(FObjectCookResult{
 					Read.Status == EShaderBuildStatus::Canceled ? EObjectCookError::Cancelled : EObjectCookError::InvalidInput, Read.Diagnostic});
+				if (Request.TargetPlatform == ECookTargetPlatform::MacOS)
+				{
+					auto* Module = IShaderBuildModule::Get();
+					const auto Producer = Module ? Module->GetTargetProducerIdentity(MetalLibraryShaderTarget)
+						: std::expected<std::string, std::string>{std::unexpected("ShaderBuild is unavailable.")};
+					if (!Producer) { ShaderBuildIdentity.clear(); return std::unexpected(FObjectCookResult{EObjectCookError::InvalidInput, Producer.error()}); }
+					ShaderBuildIdentity += ";metal-library-v1=" + *Producer;
+				}
 			}
 			const auto Bytes = std::as_bytes(std::span(ShaderBuildIdentity));
 			return FByteBuffer(Bytes.begin(), Bytes.end());

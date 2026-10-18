@@ -19,7 +19,7 @@ namespace Durin
 		{
 			if (Target == VulkanShaderTarget) return true;
 		#if defined(__APPLE__)
-			return Target == MetalShaderTarget;
+			return IsMetalShaderTarget(Target);
 		#else
 			return false;
 		#endif

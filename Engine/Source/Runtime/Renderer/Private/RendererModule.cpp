@@ -250,6 +250,16 @@ namespace Durin
 		RenderingService->RenderHitProxies_RenderThread(Commands, static_cast<FScene*>(Scene), Request);
 	}
 
+	auto FRendererModule::PrepareViewResources(
+		FRHICommandListImmediate& CommandList, FSceneInterface* Scene,
+		const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput,
+		const FSceneViewRenderOptions& Options, const FRenderResourcePreparation& Preparation) -> void
+	{
+		if (!RenderingService) return Preparation.Retire_RenderThread(ERenderResourcePreparationState::Failed);
+		RenderingService->PrepareViewResources_RenderThread(CommandList, dynamic_cast<FScene*>(Scene),
+			View, OutputTarget, bPresentOutput, Options, Preparation);
+	}
+
 	auto FRendererModule::RenderView(
 		FRHICommandListImmediate& CommandList,
 		FSceneInterface* Scene,

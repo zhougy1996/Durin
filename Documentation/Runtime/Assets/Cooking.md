@@ -2,7 +2,7 @@
 
 Summary: Define offline Cook inputs, dependency reuse, typed failures, and transactional output publication.
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-18
 
 ## Coordinator and input ownership
 
@@ -106,8 +106,10 @@ providers. Required named request values become captured dependencies. Native
 Static schema hooks do not call their parent; object virtual overrides do.
 Family hooks write declarations directly into this context. Material shader identity
 and the canonical configuration set are each captured once through required request
-values; material Cook schema version 6 invalidates the previous duplicate declaration
-layout. Texture and Mesh schema evaluation does not parse material request values.
+values; material Cook schema version 7 invalidates packages predating the binary
+MacOS Shader selection. For MacOS, the required Shader build identity also binds
+the native Metal compiler and SDK provenance before package reuse. Texture and
+Mesh schema evaluation does not parse material request values.
 Class schema collection clears the package identity and accepts only shared
 configuration/producer-version values. Declare package and external-file inputs
 in `OnCookEvent`, where the instance and package are available. This prevents a

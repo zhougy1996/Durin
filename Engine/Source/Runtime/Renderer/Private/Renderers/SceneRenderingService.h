@@ -66,6 +66,10 @@ namespace Durin
 		auto ReleaseViewStates_RenderThread() -> size_t;
 		auto GetViewStateCount_RenderThread() const -> size_t;
 		auto RenderHitProxies_RenderThread(FRHICommandListImmediate&, FScene*, const FHitProxyRenderRequest&) -> void;
+		auto RetirePreparations_RenderThread(FScene* Scene = nullptr) -> void;
+		auto PrepareViewResources_RenderThread(FRHICommandListImmediate& CommandList, FScene* Scene,
+			const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput,
+			const FSceneViewRenderOptions& Options, const FRenderResourcePreparation& Preparation) -> void;
 		auto RenderView_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FScene* Scene,
@@ -99,6 +103,9 @@ namespace Durin
 			ERendererResourceInvalidationCause Cause
 		) -> void;
 
+		struct FPreparationOwner { FScene* Scene; FRenderResourcePreparation Preparation; };
+		std::vector<FPreparationOwner> Preparations;
+		auto PrunePreparations_RenderThread() -> void;
 		FRendererResourceCoordinator Coordinator;
 		FRendererRDGAllocator RDGAllocator;
 		FDefaultTextureResources DefaultTextures;

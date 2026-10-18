@@ -9,6 +9,24 @@
 
 namespace Durin
 {
+	auto FSceneViewport::PrepareResources_RenderThread(IRendererModule& Renderer, FRHICommandListImmediate& Commands,
+		FSceneInterface* Scene, const FSceneView& View, FRHITexture* Output, bool bPresent,
+		const FSceneViewRenderOptions& Options) -> bool
+	{
+		CheckRenderingThread();
+		if (bResourcePreparationRequested.exchange(false)
+			|| ResourcePreparation.GetProgress().State == ERenderResourcePreparationState::Stale)
+			ResourcePreparation = FRenderResourcePreparation::Create();
+		if (!ResourcePreparation.IsValid()) return true;
+		if (ResourcePreparation.GetProgress().State == ERenderResourcePreparationState::Ready) return true;
+		Renderer.PrepareViewResources(Commands, Scene, View, Output, bPresent, Options, ResourcePreparation);
+		const auto Progress = ResourcePreparation.GetProgress();
+		if (Progress.State == ERenderResourcePreparationState::Ready)
+			DURIN_DEBUG("Scene resources prepared: shaders={}, pipelines={}, objects={}, accounted-bytes={}",
+				Progress.ShaderAdmissions, Progress.PipelineAdmissions, Progress.RetainedObjects, Progress.AccountedBytes);
+		return Progress.State == ERenderResourcePreparationState::Ready;
+	}
+
 	auto FSceneViewport::CreateWindowBacked(
 		FViewportClient* InViewportClient,
 		const std::shared_ptr<MWindow>& InWindow) -> std::shared_ptr<FSceneViewport>

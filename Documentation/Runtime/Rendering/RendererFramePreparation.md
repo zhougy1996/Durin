@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-18
 
 ## Ownership Boundary
 
@@ -18,6 +18,10 @@ shadow, and optional volumetric cloud. The temporal transaction, resolved
 execution resources, final feature decisions, pass results, and telemetry
 occupy the `Transaction`, `Resolved`, `Features`, and `Observation` partitions
 of the same submission-owned `FSceneFrameContext`, not fields of the logical plan.
+
+[Load preparation](LoadPreparation.md) may pump the same resource phases before
+drawing. Each pump owns a fresh logical snapshot and stops before temporal or
+graph submission.
 
 Logical geometry is immutable after publication. StaticMesh and SplineMesh
 providers submit `FMeshBatch` values through `CollectMeshBatches`. Engine owns

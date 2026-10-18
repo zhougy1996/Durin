@@ -62,11 +62,14 @@ namespace Durin
 			auto Output = MakeOutput();
 			for (auto& Shader : Output.CompiledShaders)
 			{
-				Shader.Target = MetalShaderTarget;
-				Shader.CodeFormat = EShaderCodeFormat::Msl20Source;
+				Shader.Target = MetalLibraryShaderTarget;
+				Shader.CodeFormat = EShaderCodeFormat::MetalLibrary;
 				Shader.BinaryEntryPoint = "main0";
-				const std::string Source = "#include <metal_stdlib>\nusing namespace metal;\nvoid main0() {}\n";
-				Shader.Code = FSharedByteBuffer::Copy(std::as_bytes(std::span(Source)));
+				FByteBuffer Library(88);
+				Library[0] = std::byte{'M'}; Library[1] = std::byte{'T'};
+				Library[2] = std::byte{'L'}; Library[3] = std::byte{'B'};
+				Library[16] = std::byte{88};
+				Shader.Code = FSharedByteBuffer::Take(std::move(Library));
 				Shader.CodeHash = FXxHash128::HashBuffer(Shader.Code);
 				auto Map = ShaderFormat::BuildMetalBindingMap(Shader.Frequency, ShaderFormat::BuildLogicalBindings(Shader.Reflection), !Shader.Reflection.PushConstantRanges.empty());
 				if (!Map) return {.Error = {.Code = EShaderError::MetalBindingRemapInvalid}};
@@ -190,7 +193,7 @@ namespace Durin
 		EXPECT_FALSE((Error = FShaderCookedLibrary::OpenBytes(std::make_shared<const Durin::FByteBuffer>(Bytes), EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, {}, Library)));
 	}
 
-	TEST(FShaderCookedLibraryTests, MacOSLibraryKeepsMslAndRejectsVulkanAdmission)
+	TEST(FShaderCookedLibraryTests, MacOSLibraryKeepsBinaryAndRejectsVulkanAdmission)
 	{
 		auto Request = MakeRequest();
 		Request.TargetPlatform = EShaderTargetPlatform::MacOS;
@@ -211,15 +214,15 @@ namespace Durin
 		FShaderCompilerOutput Loaded;
 		ASSERT_TRUE((Error = Library.Load(Request, Loaded))) << FormatShaderError(Error.error());
 		ASSERT_EQ(Loaded.CompiledShaders.size(), 2u);
-		EXPECT_EQ(Loaded.CompiledShaders[0].Target, MetalShaderTarget);
-		EXPECT_EQ(Loaded.CompiledShaders[0].CodeFormat, EShaderCodeFormat::Msl20Source);
+		EXPECT_EQ(Loaded.CompiledShaders[0].Target, MetalLibraryShaderTarget);
+		EXPECT_EQ(Loaded.CompiledShaders[0].CodeFormat, EShaderCodeFormat::MetalLibrary);
 		EXPECT_EQ(Loaded.CompiledShaders[0].BinaryEntryPoint, "main0");
 		EXPECT_EQ(ShaderFormat::DecodeMetalMetadata(Loaded.CompiledShaders[0].Frequency, Loaded.CompiledShaders[0].PlatformData.GetBytes())->Identity,
 			ShaderFormat::DecodeMetalMetadata(Output.CompiledShaders[0].Frequency, Output.CompiledShaders[0].PlatformData.GetBytes())->Identity);
 		FByteBuffer Corrupt = Bytes;
 		const uint64 PayloadOffset = ReadU64At(Corrupt, 52);
 		ASSERT_LT(PayloadOffset, Corrupt.size());
-		const std::string_view Marker = "#include <metal_stdlib>";
+		const std::string_view Marker = "MTLB";
 		const auto Found = std::ranges::search(Corrupt.begin() + PayloadOffset,
 			Corrupt.end(), std::as_bytes(std::span(Marker)).begin(),
 			std::as_bytes(std::span(Marker)).end());

@@ -1,6 +1,7 @@
 #include "RenderPipelineCreation.h"
 #include "RenderResourceCreation.h"
 #include "DynamicRHI.h"
+#include "RenderResourcePreparation.h"
 
 namespace Durin
 {
@@ -77,6 +78,7 @@ namespace Durin
 				const uint64 Bytes = sizeof(FEntry) - sizeof(TKey) + GetPipelineKeyOwnedBytes(Key);
 				if (Entries.size() >= 256 || Bytes > 1024 * 1024 - KeyBytes)
 					return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
+				FRenderResourcePreparationScope::BeforePipeline();
 				TResult Result;
 				if constexpr (Graphics) Result = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer, Name);
 				else Result = PipelineStateCache::PrecacheComputePipelineState(Initializer, Name);
@@ -97,6 +99,10 @@ namespace Durin
 	FRenderPipelineRequests::FRenderPipelineRequests(FRenderPipelineRequests&&) noexcept = default;
 	auto FRenderPipelineRequests::operator=(FRenderPipelineRequests&&) noexcept -> FRenderPipelineRequests& = default;
 	auto FRenderPipelineRequests::Reset() -> void { State.reset(); }
+	auto FRenderPipelineRequests::RetainForPreparation() const -> void
+	{
+		if (State) FRenderResourcePreparationScope::Retain(State, sizeof(FState) + State->KeyBytes);
+	}
 	static thread_local FRenderPipelineRequestScope* Current = nullptr;
 	FRenderPipelineRequestScope::FRenderPipelineRequestScope(FRenderPipelineRequests& InRequests,
 		const FRenderResourceGeneration& InGeneration)
@@ -109,10 +115,14 @@ namespace Durin
 	auto FRenderPipelineRequestScope::Graphics(FName Name, const FGraphicsPipelineStateInitializer& Initializer)
 		-> FGraphicsPipelineStateRHIRef
 	{
-		if (!Current || !IsTaskSchedulerRunning()) return GDynamicRHI->RHICreateGraphicsPipelineState(Name, Initializer);
+		if (!Current || !IsTaskSchedulerRunning())
+		{
+			FRenderResourcePreparationScope::BeforePipeline();
+			return GDynamicRHI->RHICreateGraphicsPipelineState(Name, Initializer);
+		}
 		if (!Current->Requests.State)
 		{
-			Current->Requests.State = std::make_unique<FRenderPipelineRequests::FState>();
+			Current->Requests.State = std::make_shared<FRenderPipelineRequests::FState>();
 			Current->Requests.State->Generation = Current->Generation;
 		}
 		bool RetryAdmission = false;
@@ -131,10 +141,14 @@ namespace Durin
 	auto FRenderPipelineRequestScope::Compute(FName Name, const FComputePipelineStateInitializer& Initializer)
 		-> FComputePipelineStateRHIRef
 	{
-		if (!Current || !IsTaskSchedulerRunning()) return GDynamicRHI->RHICreateComputePipelineState(Name, Initializer);
+		if (!Current || !IsTaskSchedulerRunning())
+		{
+			FRenderResourcePreparationScope::BeforePipeline();
+			return GDynamicRHI->RHICreateComputePipelineState(Name, Initializer);
+		}
 		if (!Current->Requests.State)
 		{
-			Current->Requests.State = std::make_unique<FRenderPipelineRequests::FState>();
+			Current->Requests.State = std::make_shared<FRenderPipelineRequests::FState>();
 			Current->Requests.State->Generation = Current->Generation;
 		}
 		bool RetryAdmission = false;

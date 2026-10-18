@@ -36,6 +36,8 @@ namespace Durin
 	RENDERCORE_API auto InitializeShaderData(FShaderDataConfiguration Configuration) -> FShaderOperationResult;
 	RENDERCORE_API auto ShutdownShaderData() -> void;
 	RENDERCORE_API auto GetShaderDataDomain() -> EShaderDataDomain;
+	// Defaults can be constructed before process Shader initialization in tools.
+	RENDERCORE_API auto GetConfiguredShaderTarget() -> std::optional<FShaderTargetIdentity>;
 	RENDERCORE_API auto LoadCookedShaderRuntimeRequest(
 		std::string_view RequestName,
 		std::span<const FShaderType* const> ShaderTypes,

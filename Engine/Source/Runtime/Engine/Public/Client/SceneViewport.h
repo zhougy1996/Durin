@@ -7,11 +7,15 @@
 #include "RDG/RDGDiagnostics.h"
 #include "ViewRenderStatistics.h"
 #include "SceneViewState.h"
+#include "RenderResourcePreparation.h"
 
 #include "MonaCoreFwd.h"
 
 namespace Durin
 {
+	class FRHICommandListImmediate;
+	struct FSceneView;
+	struct FSceneViewRenderOptions;
 	class FViewportClient;
 	class IRendererModule;
 	class FSceneInterface;
@@ -61,6 +65,15 @@ namespace Durin
 		ENGINE_API auto RequestHistoryReset() const -> void;
 		ENGINE_API auto ConsumeHistoryReset() const -> bool;
 
+		// Explicit loading barrier; later streamed combinations use demand preparation.
+		auto RequestResourcePreparation() -> void { bResourcePreparationRequested = true; }
+		ENGINE_API auto PrepareResources_RenderThread(IRendererModule& Renderer, FRHICommandListImmediate& Commands,
+			FSceneInterface* Scene, const FSceneView& View, FRHITexture* Output, bool bPresent,
+			const FSceneViewRenderOptions& Options) -> bool;
+		auto GetResourcePreparation_RenderThread() const -> const FRenderResourcePreparation& { return ResourcePreparation; }
+		auto GetResourcePreparationProgress_RenderThread() const -> FRenderResourcePreparationProgress
+		{ return ResourcePreparation.GetProgress(); }
+
 		ENGINE_API auto PrepareDisplay(const FVector2f& DesiredSize) -> void override;
 		ENGINE_API auto GetDisplayTexture() const -> const FTextureRHIRef& override;
 
@@ -98,6 +111,8 @@ namespace Durin
 
 		static auto SanitizeDisplayExtent(const FVector2f& DesiredSize) -> FVector2f;
 
+		std::atomic_bool bResourcePreparationRequested = false;
+		FRenderResourcePreparation ResourcePreparation;
 		EOutputPolicy OutputPolicy = EOutputPolicy::Window;
 		std::weak_ptr<MWindow> Window;
 		FVector2f OffscreenExtent = {640.0f, 360.0f};

@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-18
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -657,7 +657,12 @@ artifacts follow ShaderBuild's cache-miss/repair contract.
 
 Cook prepares detached Win64 or MacOS Game programs from captured authored
 inputs and never substitutes ErrorMaterial or requires an accepted live render
-program. Preparation runs before package Archive discovery/emission; serialization
+program. MacOS Game selects the binary Metal library profile; authoring retains
+the MSL source profile. Native compiler/SDK provenance participates in the
+captured compiler identity and Cook reuse, while runtime admission requires no
+installed compiler. Each selected stage retains its reflection and Metal binding
+metadata alongside its binary code. Older MacOS source-profile Game programs
+require recooking. Preparation runs before package Archive discovery/emission; serialization
 consumes the qualified prepared bulk. The explicit target is independent of the
 active RHI device. [Target policy](../Assets/TargetPlatforms.md) owns platform
 capabilities; the material family owns legal variant selection and its Cook
@@ -674,7 +679,9 @@ and complete shader code/reflection set. Equivalent selected programs may share
 immutable artifacts by identity. The family is uncompressed, 16-byte aligned,
 bounded to 8 MiB, and protected by an internal checksum plus the DAST field range
 and raw-segment extent/hash contract. Metadata load is range-free; first
-render-layer construction locks and decodes the exact requested configuration.
+render-layer construction locks and decodes the exact requested configuration,
+unless an explicit [program preparation owner](LoadPreparation.md#object-and-program-readiness)
+has already decoded and admitted it.
 The default compiler environment records ShaderBuild's opaque build identity and
 separate adapter function/constants/output versions in its existing
 `CompilerIdentity` provenance string, so compiler/algorithm upgrades

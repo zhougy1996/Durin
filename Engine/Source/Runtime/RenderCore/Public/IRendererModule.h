@@ -8,6 +8,7 @@
 #include "ViewRenderStatistics.h"
 #include "RHIResources.h"
 #include "Shader/ShaderMapPreparation.h"
+#include "RenderResourcePreparation.h"
 
 namespace Durin
 {
@@ -44,6 +45,12 @@ namespace Durin
 		virtual auto InvalidateViewState(FSceneViewStateId Id) -> void = 0;
 		virtual auto InvalidateAllViewStates() -> void = 0;
 		// A non-null capture output requests one owning graph snapshot for this view.
+		// Pump on the render thread with the actual upcoming scene/view/output.
+		// Pending never joins PSOs or draws; callers retain the handle through activation.
+		virtual auto PrepareViewResources(
+			FRHICommandListImmediate& CommandList, FSceneInterface* Scene,
+			const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput,
+			const FSceneViewRenderOptions& Options, const FRenderResourcePreparation& Preparation) -> void { Preparation.Retire_RenderThread(ERenderResourcePreparationState::Failed); }
 		virtual auto RenderView(
 			FRHICommandListImmediate& CommandList,
 			FSceneInterface* Scene,

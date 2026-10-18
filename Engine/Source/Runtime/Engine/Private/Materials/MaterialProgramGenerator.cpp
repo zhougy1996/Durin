@@ -1226,7 +1226,8 @@ float4 FragmentMain(
 		if (!Translation) return {};
 		const auto& Result = Translation;
 		FGeneratedShaderCompileRequest Request;
-		Request.Target = Result.Target == "metal-msl-2.0"
+		Request.Target = Result.Target == "metal-library-1" ? MetalLibraryShaderTarget
+			: Result.Target == "metal-msl-2.0"
 			? MetalShaderTarget : VulkanShaderTarget;
 		Request.VirtualPath = "/Generated/Materials/" + Result.Identity.ToString();
 		Request.Source = Result.GeneratedSource;
@@ -1307,7 +1308,8 @@ float4 FragmentMain(
 				FMaterialError::FromExternal(EMaterialCompileError::ShaderCompilerFailed, Output.Diagnostic)));
 			return Result;
 		}
-		const auto Target = Result.Target == "metal-msl-2.0" ? MetalShaderTarget : VulkanShaderTarget;
+		const auto Target = Result.Target == "metal-library-1" ? MetalLibraryShaderTarget
+			: Result.Target == "metal-msl-2.0" ? MetalShaderTarget : VulkanShaderTarget;
 		const auto Reflection = std::ranges::all_of(Output.CompiledShaders,
 			[&](const auto& Shader) { return Shader.Target == Target; })
 			? ValidateMaterialCompiledStages(Output.CompiledShaders,

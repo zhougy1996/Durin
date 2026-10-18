@@ -2,6 +2,8 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialRenderRepresentationTestFixture.h"
 #include "Materials/MaterialCustomVersion.h"
+#include "Materials/MaterialProgramPreparation.h"
+#include "Shader/IShaderBuildModule.h"
 #include "MaterialCookedProgramTestSupport.h"
 
 TEST(FDefaultMaterialCookTests, ReadFailureRetainsOwnedResourceContext)
@@ -28,9 +30,9 @@ TEST(FDefaultMaterialCookTests, ReadFailureRetainsOwnedResourceContext)
 	EXPECT_EQ(Error.ResourceCause->SystemError, std::make_error_code(std::errc::io_error));
 }
 
-TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
+static auto QualifyDefaultMaterialCook(bool Metal) -> void
 {
-	Durin::Testing::FScopedRHIBackendOverride Backend("vulkan");
+	Durin::Testing::FScopedRHIBackendOverride Backend(Metal ? "metal" : "vulkan");
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
@@ -44,12 +46,12 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	ASSERT_TRUE(SourceLoad) << SourceLoad.error().Message;
 	ASSERT_NE(Source, nullptr);
 	const Durin::FMaterialProgramIdentity ExpectedIdentity =
-		Durin::Testing::ExpectedGameMaterialIdentity(*Source);
+		Durin::Testing::ExpectedGameMaterialIdentity(*Source, Metal ? Durin::MetalLibraryShaderTarget : Durin::VulkanShaderTarget);
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(
 		Durin::Testing::CreateTestFixtureDirectory("DefaultMaterialCook"));
 	Durin::FCookContext Cook(
-		Durin::ECookTargetPlatform::Win64,
+		Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	std::string Error;
 	ASSERT_TRUE(Durin::SaveCookPackage((*Source).GetPackage(), Durin::DefaultMaterialPackagePath, Cook)) << Error;
@@ -112,9 +114,59 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	}
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Cooked, nullptr);
+	// Explicit program preparation starts before accepted-program demand.
+	auto CanceledPreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
+	auto ProgramPreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
+	CanceledPreparation.Cancel();
+	EXPECT_EQ(CanceledPreparation.Poll(), Durin::EMaterialProgramPreparationState::Canceled);
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	while (ProgramPreparation.Poll() == Durin::EMaterialProgramPreparationState::Pending
+		&& std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+	ASSERT_EQ(ProgramPreparation.Poll(), Durin::EMaterialProgramPreparationState::Ready)
+		<< ProgramPreparation.GetDiagnostic();
+	ASSERT_NE(ProgramPreparation.GetProgram(), nullptr);
+	EXPECT_EQ(ProgramPreparation.GetProgram(), Cooked->GetAcceptedCompiledProgram());
+	auto StalePreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
+	const auto OriginalQuality = Durin::GetMaterialQualityLevel();
+	ASSERT_TRUE(Durin::SetMaterialQualityLevel(OriginalQuality == Durin::EMaterialQualityLevel::High
+		? Durin::EMaterialQualityLevel::Low : Durin::EMaterialQualityLevel::High));
+	EXPECT_EQ(StalePreparation.Poll(), Durin::EMaterialProgramPreparationState::Stale);
+	ASSERT_TRUE(Durin::SetMaterialQualityLevel(OriginalQuality));
 	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->GetArtifact().CompiledShaders.size(), 6u);
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
+	for (const auto& Shader : Cooked->GetAcceptedCompiledProgram()->GetArtifact().CompiledShaders)
+	{
+		EXPECT_EQ(Shader.Target, Metal ? Durin::MetalLibraryShaderTarget : Durin::VulkanShaderTarget);
+		EXPECT_TRUE(Durin::ShaderFormat::ValidateShaderCode(Shader));
+	}
+	auto ReplacedPreparation = Durin::FMaterialProgramPreparation::Request(*Cooked);
+	const auto VersionBeforeReplace = Cooked->GetRenderStateVersion();
+	// Deliberately replace identical inline storage without a material edit event.
+	auto& Storage = const_cast<Durin::FBulkData&>(Cooked->GetCookedProgramData());
+	Durin::FBulkData StorageSnapshot = Storage;
+	const auto SizeBeforeReplace = Storage.GetMetadata().LogicalSize;
+	Storage = StorageSnapshot;
+	EXPECT_EQ(Storage.GetMetadata().LogicalSize, SizeBeforeReplace);
+	EXPECT_EQ(Cooked->GetRenderStateVersion(), VersionBeforeReplace);
+	EXPECT_EQ(ReplacedPreparation.Poll(), Durin::EMaterialProgramPreparationState::Stale);
+	const auto ProgramBeforeCanceledResave = Cooked->GetAcceptedCompiledProgram();
+	const Durin::FAssetBuildTaskContext CanceledControl{.Cancellation = Durin::FCancellationToken([] { return true; })};
+	const auto CanceledResave = Cooked->PrepareCookedProgram(Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64, {}, CanceledControl);
+	EXPECT_EQ(CanceledResave.Status, Durin::EShaderBuildStatus::Canceled);
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), ProgramBeforeCanceledResave);
+	const auto BuildsBeforeResave = Durin::IShaderBuildModule::Get()->GetStats().Compilations;
+	auto Resaved = Cooked->PrepareCookedProgram(Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64, {});
+	ASSERT_TRUE(Resaved) << Resaved.Diagnostic;
+	auto ResavedRead = Resaved->AcquireRead();
+	ASSERT_TRUE(ResavedRead);
+	Durin::FMaterialStaticProperties ResavedProperties;
+	std::shared_ptr<const Durin::FMaterialCompilerResult> ResavedProgram;
+	ASSERT_TRUE(Durin::DecodeMaterialCookedProgramFamily(ResavedRead.Lock.GetBytes(),
+		Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game, Durin::GetMaterialQualityLevel(), Durin::ERHIFeatureLevel::SM5, {}, ResavedProperties, ResavedProgram));
+	EXPECT_EQ(ResavedProgram->Identity, ExpectedIdentity);
+	EXPECT_EQ(Durin::IShaderBuildModule::Get()->GetStats().Compilations, BuildsBeforeResave);
 	EXPECT_TRUE(Cooked->GetMaterialCompileStatus().IsCurrent());
 	const auto CookedStatistics = Durin::GetMaterialProgramStatistics(*Cooked);
 	EXPECT_EQ(CookedStatistics.State,
@@ -133,6 +185,18 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 }
+
+TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
+{
+	QualifyDefaultMaterialCook(false);
+}
+
+#if defined(__APPLE__)
+TEST(FDefaultMaterialCookTests, MacOSBuiltInRootPublishesAndLoadsBinaryStages)
+{
+	QualifyDefaultMaterialCook(true);
+}
+#endif
 
 TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 {

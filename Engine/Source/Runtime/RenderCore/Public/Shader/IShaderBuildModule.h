@@ -58,6 +58,16 @@ namespace Durin
 			FShaderBuildRequestOptions Options, FShaderBuildCompletion Completion)
 			-> std::expected<FShaderBuildHandle, FShaderBuildAdmissionError> = 0;
 		virtual auto GetCompilerEnvironmentIdentity() -> std::string = 0;
+		// Capture for exact native-library cache replay through request options.
+		virtual auto GetNativeLibraryProducerIdentity() -> std::expected<std::string, std::string>
+		{ return std::unexpected("Native shader producer identity is unavailable."); }
+		// Target-specific producer provenance is captured before program/Cook reuse.
+		// Source-only implementations explicitly reject native library production.
+		virtual auto GetTargetProducerIdentity(const FShaderTargetIdentity& Target) -> std::expected<std::string, std::string>
+		{
+			if (Target == VulkanShaderTarget || Target == MetalShaderTarget) return GetCompilerEnvironmentIdentity();
+			return std::unexpected("Native shader producer identity is unavailable.");
+		}
 		virtual auto BuildSourceDependencyManifest(
 			std::string_view VirtualShaderPath,
 			const FShaderCompileOptions& Options,

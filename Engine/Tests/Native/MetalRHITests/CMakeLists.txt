@@ -2,11 +2,12 @@ if(NOT APPLE)
 	durin_exclude_native_test_sources(
 		RATIONALE "Native Metal device admission requires macOS."
 		SOURCES Private/MetalRHIHeadlessTests.cpp Private/MetalRHIResourceTests.mm Private/MetalSkyLightingTests.cpp
-			Private/MetalSceneQualificationTests.cpp)
+			Private/MetalSceneQualificationTests.cpp Private/MetalCookedScenePreparationTests.cpp)
 	return()
 endif()
 
 enable_language(OBJCXX)
+set_source_files_properties(Private/MetalRHIHeadlessTests.cpp PROPERTIES COMPILE_FLAGS "-fblocks")
 set_source_files_properties(Private/MetalRHIResourceTests.mm PROPERTIES
 	SKIP_PRECOMPILE_HEADERS ON COMPILE_FLAGS "-fobjc-arc")
 find_library(METAL_FRAMEWORK Metal REQUIRED)
@@ -73,4 +74,24 @@ durin_add_native_test(MetalSkyLightingTests
     RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
     HEAVY_RUNTIME_RATIONALE "Exercises headless Metal scene-owned environment filtering and GPU readback."
     TIMEOUT 600
+)
+
+# Cook once, retire the producer, then exercise two real device lifetimes.
+durin_add_native_test(MetalCookedScenePreparationTests
+    KIND qualification
+    DOMAINS renderer shader asset-cook
+    MODULES renderer engine rendercore shaderbuild
+    BACKENDS metal
+    STACKS renderer
+    SOURCES Private/MetalCookedScenePreparationTests.cpp
+    LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer MetalRHI
+    INCLUDE_DIRECTORIES
+        "${CMAKE_SOURCE_DIR}/Engine/Tests/Native/EngineTests/Private"
+        "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private"
+    REQUIRES editor
+    REQUIREMENT_RATIONALE "Builds binary material/fixed products before retiring ShaderBuild for cooked runtime qualification."
+    ENVIRONMENTS authored-shaders
+    RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+    HEAVY_RUNTIME_RATIONALE "Exercises compiler-free native Metal scene preparation, first draw, scene release and device recreation."
+    TIMEOUT 300
 )

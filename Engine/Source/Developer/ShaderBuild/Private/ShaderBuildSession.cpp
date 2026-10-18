@@ -1,4 +1,5 @@
 #include "ShaderBuildSession.h"
+#include "MetalLibraryBuild.h"
 #include "ShaderBuildVersion.h"
 #include "ShaderSharedOutput.h"
 #include "ShaderCaptureLimits.h"
@@ -362,6 +363,7 @@ namespace Durin
 			Options.Cache = Cache;
 			Service = CreateBuild(std::move(Options));
 			require(Service->Register(std::make_shared<FFunction>(Compiler)));
+			require(Service->Register(CreateMetalLibraryBuildFunction()));
 			auto Created = Service->CreateSession({}, CreateInlineBuildScheduler()); require(Created);
 			Session = std::move(*Created); Compiler->ProducerMicroseconds = 0; Closed = false;
 		}

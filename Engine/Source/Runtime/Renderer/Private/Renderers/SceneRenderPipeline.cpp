@@ -77,7 +77,7 @@ namespace Durin
 		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
 		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture) -> ERenderViewResult
 	{
-		if (Service.RenderSubmissionSerial != std::numeric_limits<uint64>::max())
+		if (!FRenderResourcePreparationScope::IsActive() && Service.RenderSubmissionSerial != std::numeric_limits<uint64>::max())
 			++Service.RenderSubmissionSerial;
 		check(IsInRenderingThread());
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderView");
@@ -132,6 +132,7 @@ namespace Durin
 		const auto FeatureResult = ResolvePipelineStage_RenderThread(CommandList, Context,
 			&FSceneRenderPipeline::PrepareFeatureResources_RenderThread);
 		if (FeatureResult != ERenderViewResult::Success) return FeatureResult;
+		if (FRenderResourcePreparationScope::IsActive()) return ERenderViewResult::Success;
 		FSceneRenderViewStateSubmission ViewStateSubmission(ViewState);
 		BeginTemporalState_RenderThread(Context);
 		FRDGBuilder Graph;
@@ -190,7 +191,7 @@ namespace Durin
 			if (Batch.GetRequestCount() > FRenderPipelinePreparationBatch::MaximumRequests - JoinedRequests)
 				return ERenderViewResult::RendererResourcesUnavailable;
 			ERenderPipelinePreparationWait WaitResult;
-			if (FPreparedShaderMapScope::IsActive() && Batch.GetRequestCount() != 0)
+			if ((FPreparedShaderMapScope::IsActive() || FRenderResourcePreparationScope::IsActive()) && Batch.GetRequestCount() != 0)
 				return ERenderViewResult::RendererResourcesPending;
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.WaitForPreparedPipelines");

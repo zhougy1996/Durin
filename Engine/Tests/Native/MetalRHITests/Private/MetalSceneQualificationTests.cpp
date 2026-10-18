@@ -1,4 +1,5 @@
 #include "SceneRenderQualification.h"
+#include "MetalShaderStatistics.h"
 
 namespace Durin
 {
@@ -45,6 +46,20 @@ namespace Durin
 	TEST_P(FMetalSceneQualificationTests, AliasingPolicyPreservesSceneAndUnsupportedCapabilityFallback)
 	{
 		QualifySceneRenderRoutes(false, false, true);
+	}
+
+	TEST_P(FMetalSceneQualificationTests, PreparedSceneFirstDrawReusesNativeShadersAndPipelines)
+	{
+		FMetalShaderCreationStatistics Before;
+		QualifySceneRenderRoutes(false, false, false, true, [&](bool Starting) {
+			if (std::string_view(GetParam().Backend) != "metal") return;
+			if (Starting) { Before = GetMetalShaderCreationStatistics(); return; }
+			const auto After = GetMetalShaderCreationStatistics();
+			EXPECT_EQ(After.FunctionsCreated, Before.FunctionsCreated);
+			EXPECT_EQ(After.SourceCompileAttempts, Before.SourceCompileAttempts);
+			EXPECT_EQ(After.GraphicsPipelinesCreated, Before.GraphicsPipelinesCreated);
+			EXPECT_EQ(After.ComputePipelinesCreated, Before.ComputePipelinesCreated);
+		});
 	}
 
 	INSTANTIATE_TEST_SUITE_P(ReplayModes, FMetalSceneQualificationTests,

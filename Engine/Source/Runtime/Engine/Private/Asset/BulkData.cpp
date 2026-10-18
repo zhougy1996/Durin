@@ -4,9 +4,17 @@ namespace Durin
 {
 	namespace AssetPrivate
 	{
+		static std::atomic_uint64_t NextContentRevision = 1;
+		static auto AllocateContentRevision() -> uint64
+		{
+			const auto Result = NextContentRevision.fetch_add(1, std::memory_order_relaxed);
+			require(Result != 0 && Result != std::numeric_limits<uint64>::max());
+			return Result;
+		}
 		struct FBulkDataState
 		{
 			mutable std::mutex Mutex;
+			uint64 ContentRevision = AllocateContentRevision();
 			FBulkDataMetadata Metadata;
 			std::shared_ptr<FByteBuffer> Allocation;
 			EBulkDataState State = EBulkDataState::Empty;
@@ -119,6 +127,12 @@ namespace Durin
 	{
 		std::lock_guard Lock(State->Mutex);
 		return State->Metadata;
+	}
+
+	auto FBulkData::GetContentRevision() const -> uint64
+	{
+		std::lock_guard Lock(State->Mutex);
+		return State->ContentRevision;
 	}
 
 	auto FBulkData::HasData() const -> bool
@@ -237,6 +251,7 @@ namespace Durin
 		else if (State->Allocation.use_count() != 1)
 			State->Allocation = std::make_shared<FByteBuffer>(*State->Allocation);
 		State->Metadata.Range.Resource.reset();
+		State->ContentRevision = AssetPrivate::AllocateContentRevision();
 		State->State = EBulkDataState::WriteLocked;
 		return FBulkDataWriteScope(State);
 	}

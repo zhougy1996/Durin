@@ -11,6 +11,7 @@ namespace Durin
 		{
 			std::mutex Mutex;
 			std::optional<FShaderDataConfiguration> Configuration;
+			std::atomic<EShaderCodeFormat> DefaultFormat{EShaderCodeFormat{0}};
 			std::vector<FShaderRuntimeRequest> Requests;
 			FShaderCookedLibrary Library;
 		};
@@ -74,6 +75,9 @@ namespace Durin
 			return std::unexpected(FShaderError{.Code = EShaderError::DataAlreadyInitialized});
 		}
 		State.Configuration = std::move(Configuration);
+		State.DefaultFormat.store(State.Configuration->TargetPlatform != EShaderTargetPlatform::MacOS
+			? EShaderCodeFormat::Spirv15 : State.Configuration->Domain == EShaderDataDomain::Cooked
+			? EShaderCodeFormat::MetalLibrary : EShaderCodeFormat::Msl20Source, std::memory_order_release);
 
 		return {};
 	}
@@ -85,6 +89,20 @@ namespace Durin
 		State.Library = {};
 		State.Requests.clear();
 		State.Configuration.reset();
+		State.DefaultFormat.store(EShaderCodeFormat{0}, std::memory_order_release);
+	}
+
+	auto GetConfiguredShaderTarget() -> std::optional<FShaderTargetIdentity>
+	{
+		// Library loading holds the configuration lock while constructing options.
+		// Read only the independently published immutable default here.
+		switch (ShaderDataState().DefaultFormat.load(std::memory_order_acquire))
+		{
+		case EShaderCodeFormat::Spirv15: return VulkanShaderTarget;
+		case EShaderCodeFormat::Msl20Source: return MetalShaderTarget;
+		case EShaderCodeFormat::MetalLibrary: return MetalLibraryShaderTarget;
+		default: return {};
+		}
 	}
 
 	auto GetShaderDataDomain() -> EShaderDataDomain

@@ -5,6 +5,7 @@
 #include "Misc/CoreTypes.h"
 #include "Misc/AssertionMacros.h"
 #include "RenderPipelineCreation.h"
+#include "RenderResourcePreparation.h"
 #include "Shader/ShaderDiagnostics.h"
 #include "Shader/ShaderMapPreparation.h"
 
@@ -247,14 +248,12 @@ namespace Durin
 				bHasAttempt = false;
 				return nullptr;
 			}
-			PipelineRequests.Reset();
-			if (Result.IsCanceled()) { bHasAttempt = false; Failure.reset(); FailureFingerprint.reset(); bFailureReported = false; Availability = ERenderResourceAvailability::Canceled; return nullptr; }
+			if (Result.IsCanceled()) { PipelineRequests.Reset(); bHasAttempt = false; Failure.reset(); FailureFingerprint.reset(); bFailureReported = false; Availability = ERenderResourceAvailability::Canceled; return nullptr; }
 			bHasAttempt = true;
 			AttemptedGeneration = Generation;
 			if (Result.HasPayload())
 			{
-				std::optional<PayloadType> Candidate;
-				Candidate.emplace(Result.TakePayload());
+				auto Candidate = std::make_shared<PayloadType>(Result.TakePayload());
 				Payload.swap(Candidate);
 				PayloadGeneration = Generation;
 				const bool bReportRecovery = bFailureReported;
@@ -273,9 +272,10 @@ namespace Durin
 							.Error = std::move(RecoveredError),
 						});
 				}
-				return &*Payload;
+				return GetPayload();
 			}
 
+			PipelineRequests.Reset();
 			const auto PreviousFingerprint = FailureFingerprint;
 			Failure.emplace(Result.TakeError());
 			Failure->AttemptedGeneration = Generation;
@@ -295,12 +295,18 @@ namespace Durin
 
 		auto GetPayload() -> PayloadType*
 		{
-			return Availability == ERenderResourceAvailability::Ready && Payload ? &*Payload : nullptr;
+			if (Availability != ERenderResourceAvailability::Ready || !Payload) return nullptr;
+			PipelineRequests.RetainForPreparation();
+			FRenderResourcePreparationScope::Retain(Payload, sizeof(PayloadType));
+			return Payload.get();
 		}
 
 		auto GetPayload() const -> const PayloadType*
 		{
-			return Availability == ERenderResourceAvailability::Ready && Payload ? &*Payload : nullptr;
+			if (Availability != ERenderResourceAvailability::Ready || !Payload) return nullptr;
+			PipelineRequests.RetainForPreparation();
+			FRenderResourcePreparationScope::Retain(Payload, sizeof(PayloadType));
+			return Payload.get();
 		}
 
 		auto GetFailure() const -> const FRenderResourceCreateError*
@@ -400,7 +406,7 @@ namespace Durin
 
 		ERenderResourceGenerationDependency PayloadDependencies;
 		FRenderPipelineRequests PipelineRequests;
-		std::optional<PayloadType> Payload;
+		std::shared_ptr<PayloadType> Payload;
 		std::optional<FRenderResourceCreateError> Failure;
 		std::optional<size_t> FailureFingerprint;
 		FRenderResourceGeneration PayloadGeneration;

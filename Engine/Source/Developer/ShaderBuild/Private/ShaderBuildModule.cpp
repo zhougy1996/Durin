@@ -1,4 +1,5 @@
 #include "ShaderBuildSession.h"
+#include "MetalLibraryBuild.h"
 #include "ShaderBuildTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "Shader/IShaderBuildModule.h"
@@ -73,6 +74,17 @@ namespace Durin
 			FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult override
 		{
 			return Builder->BuildSourceTreeFingerprint(VirtualShaderPath, Options, OutFingerprint);
+		}
+
+		auto GetNativeLibraryProducerIdentity() -> std::expected<std::string, std::string> override
+		{ return GetMetalLibraryProducerIdentity(); }
+
+		auto GetTargetProducerIdentity(const FShaderTargetIdentity& Target) -> std::expected<std::string, std::string> override
+		{
+			if (Target != MetalLibraryShaderTarget) return IShaderBuildModule::GetTargetProducerIdentity(Target);
+			auto Native = GetMetalLibraryProducerIdentity();
+			if (!Native) return std::unexpected(Native.error());
+			return std::format("{};metal-library={};native={}", GetCompilerEnvironmentIdentity(), MetalLibraryBuildVersion, *Native);
 		}
 
 		auto GetCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled) -> FShaderCompletion override

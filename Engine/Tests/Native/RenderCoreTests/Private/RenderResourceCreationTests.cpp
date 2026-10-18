@@ -7,6 +7,8 @@
 #include "HAL/PlatformLTS.h"
 #include "Threading/ThreadEvent.h"
 #include "RHICommandList.h"
+#include "Threading/Runnable.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
@@ -702,5 +704,133 @@ namespace Durin
 				Slot.GetAvailability(),
 				ERenderResourceAvailability::Uninitialized);
 		}
+		TEST(FRenderResourceCreationTests, LoadingPreparationBudgetsRetainsCachedPayloadsAndCancelsIndependently)
+		{
+			class FPreparationTask final : public FRunnable
+			{
+			public:
+				auto Run() -> uint32 override
+				{
+					auto Owner = FRenderResourcePreparation::Create();
+					auto Other = FRenderResourcePreparation::Create();
+					auto Resource = std::make_shared<int>(7);
+					std::weak_ptr<int> Weak = Resource;
+					{
+						FRenderResourcePreparationScope Scope(Owner);
+						FRenderResourcePreparationScope::Retain(Resource, 4);
+						FRenderResourcePreparationScope::Retain(Resource, 8);
+						EXPECT_EQ(Owner.GetProgress().AccountedBytes, 8u);
+						uint32 Admitted = 0;
+						try { for (; Admitted < 100; ++Admitted) FRenderResourcePreparationScope::BeforeShader(); }
+						catch (const FRenderResourcePreparationYield&) {}
+						EXPECT_GE(Admitted, 1u); EXPECT_LE(Admitted, 8u);
+						Scope.Complete(false);
+					}
+					{
+						FRenderResourcePreparationScope Scope(Other);
+						FRenderResourcePreparationScope::Retain(Resource, 4);
+						Scope.Complete(true);
+					}
+					{
+						FRenderResourcePreparationUseScope Use(Other);
+						FRenderResourcePreparationScope::BeforeShader();
+						FRenderResourcePreparationScope::BeforePipeline();
+					}
+					EXPECT_EQ(Other.GetProgress().UncoveredShaderAdmissions, 1u);
+					EXPECT_EQ(Other.GetProgress().UncoveredPipelineAdmissions, 1u);
+					EXPECT_EQ(Other.GetProgress().State, ERenderResourcePreparationState::Ready);
+					Resource.reset();
+					Owner.RequestCancel();
+					Owner.Retire_RenderThread(ERenderResourcePreparationState::Canceled);
+					EXPECT_FALSE(Weak.expired());
+					EXPECT_EQ(Other.GetProgress().State, ERenderResourcePreparationState::Ready);
+					Other.Retire_RenderThread(ERenderResourcePreparationState::Stale);
+					EXPECT_TRUE(Weak.expired());
+
+					FSlot Slot;
+					Slot.Resolve({}, [] { return FResult::Success(42); }, [](const auto&) {});
+					auto Cached = FRenderResourcePreparation::Create();
+					{
+						FRenderResourcePreparationScope Scope(Cached);
+						EXPECT_EQ(*Slot.GetPayload(), 42);
+						Scope.Complete(true);
+					}
+					Slot.Reset();
+					EXPECT_EQ(Cached.GetProgress().RetainedObjects, 1u);
+					{
+						FRenderResourcePreparationScope Scope(Cached);
+						EXPECT_THROW(FRenderResourcePreparationScope::Retain(std::make_shared<int>(),
+							257ull * 1024 * 1024), FRenderResourcePreparationCapacityExceeded);
+					}
+					auto Reloaded = FRenderResourcePreparation::Create();
+					{
+						FRenderResourcePreparationScope Scope(Reloaded);
+						Scope.Complete(true);
+					}
+					AdvanceShaderReloadGeneration();
+					EXPECT_EQ(Reloaded.GetProgress().State, ERenderResourcePreparationState::Stale);
+					Cached.Retire_RenderThread(ERenderResourcePreparationState::Canceled);
+					EXPECT_EQ(Cached.GetProgress().RetainedObjects, 0u);
+					return 0;
+				}
+			} Task;
+			std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Task, "PreparationContract", 0,
+				EThreadPriority::Normal, EThreadRole::RenderingThread));
+			ASSERT_NE(Thread, nullptr);
+			Thread->WaitForCompletion();
+		}
+
+		TEST(FRenderResourceCreationTests, PreparedPipelineRequestsSurviveSlotEviction)
+		{
+			ASSERT_EQ(GDynamicRHI, nullptr);
+			GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
+			ASSERT_TRUE(InitializeTaskScheduler(1));
+			struct FStop { ~FStop() { ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } Stop;
+			struct FReset { ~FReset() { GDynamicRHI = nullptr; } } Reset;
+			FPipelineSlotTestRHI RHI; GDynamicRHI = &RHI;
+			class FPreparationTask final : public FRunnable
+			{
+			public:
+				explicit FPreparationTask(FPipelineSlotTestRHI& InRHI) : RHI(InRHI) {}
+				FPipelineSlotTestRHI& RHI;
+				auto Run() -> uint32 override
+				{
+					auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+					FComputePipelineStateInitializer Initializer;
+					Initializer.ComputeShader = Shader;
+					Initializer.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
+						EShaderStageFlags::Compute, 0, ERHIBindingType::UniformBuffer);
+					auto Factory = [&] {
+						auto Pipeline = FRenderPipelineRequestScope::Compute("retained", Initializer);
+						return Pipeline ? FResult::Success(42) : FResult::Failure(MakeError());
+					};
+					FSlot PreparedSlot;
+					auto Preparation = FRenderResourcePreparation::Create();
+					const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+					while (!PreparedSlot.GetPayload() && std::chrono::steady_clock::now() < Deadline)
+					{
+						FRenderResourcePreparationScope Scope(Preparation);
+						FRenderPipelinePreparationBatch Batch;
+						PreparedSlot.Resolve({}, Factory, [](const auto&) {});
+						Scope.Complete(PreparedSlot.GetPayload() != nullptr);
+						std::this_thread::yield();
+					}
+					EXPECT_EQ(Preparation.GetProgress().State, ERenderResourcePreparationState::Ready);
+					EXPECT_EQ(RHI.Creations.load(), 1u);
+					PreparedSlot.Reset();
+					FSlot ActivatedSlot;
+					const auto* Activated = ActivatedSlot.Resolve({}, Factory, [](const auto&) {});
+					EXPECT_NE(Activated, nullptr);
+					EXPECT_EQ(RHI.Creations.load(), 1u);
+					Preparation.Retire_RenderThread(ERenderResourcePreparationState::Canceled);
+					EXPECT_NE(ActivatedSlot.GetPayload(), nullptr);
+					return 0;
+				}
+			} Task(RHI);
+			std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Task, "PreparationEviction", 0,
+				EThreadPriority::Normal, EThreadRole::RenderingThread));
+			ASSERT_NE(Thread, nullptr); Thread->WaitForCompletion();
+		}
+
 	}
 }

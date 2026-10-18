@@ -178,8 +178,8 @@ namespace Durin
 		case EShaderError::PayloadEntryInvalid: return "Shader payload entry identity is invalid.";
 		case EShaderError::PayloadSpirvInvalid: return "Shader payload SPIR-V is invalid.";
 		case EShaderError::PayloadSpirvHashMismatch: return "Shader payload SPIR-V hash is invalid.";
-		case EShaderError::PayloadMslInvalid: return "Shader payload MSL source is invalid.";
-		case EShaderError::PayloadMslHashMismatch: return "Shader payload MSL source hash is invalid.";
+		case EShaderError::PayloadMslInvalid: return "Shader payload Metal code is invalid.";
+		case EShaderError::PayloadMslHashMismatch: return "Shader payload Metal code hash is invalid.";
 		case EShaderError::PayloadBindingCountInvalid: return "Shader payload binding count is invalid.";
 		case EShaderError::PayloadPushConstantCountInvalid: return "Shader payload push-constant count is invalid.";
 		case EShaderError::PayloadTrailingBytes: return "Shader payload contains trailing bytes.";

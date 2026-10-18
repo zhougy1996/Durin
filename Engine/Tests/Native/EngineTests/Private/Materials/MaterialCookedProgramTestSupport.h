@@ -7,10 +7,11 @@
 
 namespace Durin::Testing
 {
-	inline auto ExpectedGameMaterialIdentity(const DMaterialInterface& Material) -> FMaterialProgramIdentity
+	inline auto ExpectedGameMaterialIdentity(const DMaterialInterface& Material,
+		std::optional<FShaderTargetIdentity> Target = {}) -> FMaterialProgramIdentity
 	{
 		FMaterialCompilerEnvironment Environment;
-		check(BuildDefaultMaterialCompilerEnvironment(Environment));
+		check(BuildDefaultMaterialCompilerEnvironment(Environment, Target));
 		Environment.bIncludeEditorPasses = false;
 		auto Snapshot = SnapshotMaterialCompilerInput(Material, std::move(Environment));
 		check(Snapshot);

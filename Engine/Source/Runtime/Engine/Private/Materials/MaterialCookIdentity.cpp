@@ -21,7 +21,7 @@ namespace Durin
 		if (Shader.empty()) {
 			Context.Result = {EObjectCookError::InvalidInput, "Material Cook requires a shader-build identity."}; return;
 		}
-		AssetPrivate::AppendCookSchemaVersion(Context, "material", 6);
+		AssetPrivate::AppendCookSchemaVersion(Context, "material", 7);
 		FBinaryWriter Recipe;
 		Recipe.WriteU64(GetMaterialBuildVersion());
 		Recipe.WriteU32(GetMaterialCompileAdapterVersion());

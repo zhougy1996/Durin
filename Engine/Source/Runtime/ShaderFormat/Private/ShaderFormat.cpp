@@ -56,7 +56,8 @@ namespace Durin::ShaderFormat
 	{
 		if (Target == VulkanShaderTarget)
 			return Format == EShaderCodeFormat::Spirv15 && ValidateVulkanCode(Code);
-		return ResolveMetalCompileSettings(Target) && Format == EShaderCodeFormat::Msl20Source && ValidateMetalCode(Code);
+		if (!ResolveMetalCompileSettings(Target) || Format != Target.OutputFormat) return false;
+		return Format == EShaderCodeFormat::MetalLibrary ? ValidateMetalLibrary(Code) : ValidateMetalCode(Code);
 	}
 
 	auto ComputeShaderIdentity(const FShaderCode& Shader) -> FXxHash128
@@ -172,8 +173,11 @@ namespace Durin::ShaderFormat
 			|| !ValidateLogicalInterface(Frequency, Bindings, PushRanges)) return false;
 		if (Target == VulkanShaderTarget)
 			return Metadata.empty();
-		const std::string_view Source(reinterpret_cast<const char*>(Code.data()), Code.size());
-		if (!Source.contains(EntryPoint)) return false;
+		if (Format == EShaderCodeFormat::Msl20Source)
+		{
+			const std::string_view Source(reinterpret_cast<const char*>(Code.data()), Code.size());
+			if (!Source.contains(EntryPoint)) return false;
+		}
 		const auto Map = DecodeMetalMetadata(Frequency, Metadata);
 		const auto Expected = BuildMetalBindingMap(Frequency, Bindings, !PushRanges.empty());
 		return Map && Expected && Map->Bindings == Expected->Bindings

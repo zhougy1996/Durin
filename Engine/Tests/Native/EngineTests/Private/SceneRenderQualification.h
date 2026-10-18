@@ -217,7 +217,8 @@ namespace Durin
 		};
 	} // namespace
 
-	inline auto QualifySceneRenderRoutes(bool bPresentation, bool bGPUCullingQualification = false, bool bAliasingQualification = false) -> void
+	inline auto QualifySceneRenderRoutes(bool bPresentation, bool bGPUCullingQualification = false, bool bAliasingQualification = false, bool bPrepareResources = false,
+		std::function<void(bool)> ObservePreparedDraw = {}) -> void
 	{
 		class FTestApplication final : public FGenericApplication
 		{
@@ -308,7 +309,7 @@ namespace Durin
 		bool bDisableCPUCulling = false;
 		FVector3 WorldShift{};
 		uint32 OffscreenOrdinal = 0;
-		auto RenderOffscreen = [&Renderer, Scene, &ExtraPolicy, &ExtraOptions, &bContactShadows, &OffscreenOrdinal, &bDisableCPUCulling, &WorldShift, &bObserveTelemetry](
+		auto RenderOffscreen = [&Renderer, Scene, &ExtraPolicy, &ExtraOptions, &bContactShadows, &OffscreenOrdinal, &bDisableCPUCulling, &WorldShift, &bObserveTelemetry, bPrepareResources, ObservePreparedDraw](
 								   bool bForceFragment, bool bAmbientOcclusion = true,
 			EGroundTruthAmbientOcclusionQuality AOQuality = EGroundTruthAmbientOcclusionQuality::HalfResolution,
 			ERenderMode RenderMode = ERenderMode::Lit,
@@ -322,7 +323,7 @@ namespace Durin
 			);
 			EnqueueRenderCommand<FSceneCloudRender>(
 				[&Renderer, Scene, Pixels, Result, bForceFragment, bAmbientOcclusion, AOQuality, RenderMode,
-					Failure, Width, Height, Policy = ExtraPolicy, Options = ExtraOptions, bContactShadows, bDisableCPUCulling, WorldShift](
+					Failure, Width, Height, Policy = ExtraPolicy, Options = ExtraOptions, bContactShadows, bDisableCPUCulling, WorldShift, bPrepareResources, ObservePreparedDraw](
 					FRHICommandListImmediate& CommandList
 				) {
 					FTextureRHIRef Output = GDynamicRHI->RHICreateTexture(
@@ -349,9 +350,29 @@ namespace Durin
 					SelectedPolicy.bForceFragmentVolumetricCloud = bForceFragment;
 					SelectedPolicy.RasterFailure = Failure;
 					FScopedRendererQualificationPolicy Qualification(SelectedPolicy);
+					FRenderResourcePreparation Preparation;
+					const bool Prepare = bPrepareResources && Failure == ESceneRasterFailure::None
+						&& !Policy.FailedAllocationObservation;
+					if (Prepare)
+					{
+						Preparation = FRenderResourcePreparation::Create();
+						const auto DrawsBefore = CommandList.GetNumRecordedDrawCommands();
+						const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+						do
+						{
+							Renderer.PrepareViewResources(CommandList, Scene, View, Output, false, Options, Preparation);
+							CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+							std::this_thread::yield();
+						} while (Preparation.GetProgress().State == ERenderResourcePreparationState::Pending
+							&& std::chrono::steady_clock::now() < Deadline);
+						EXPECT_EQ(Preparation.GetProgress().State, ERenderResourcePreparationState::Ready);
+						EXPECT_EQ(CommandList.GetNumRecordedDrawCommands(), DrawsBefore);
+						if (ObservePreparedDraw) ObservePreparedDraw(true);
+					}
 					*Result = Renderer.RenderView(
 						CommandList, Scene, View, Output, false, Options
 					);
+					if (Prepare && ObservePreparedDraw) ObservePreparedDraw(false);
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 					CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 					if (*Result == ERenderViewResult::Success)
