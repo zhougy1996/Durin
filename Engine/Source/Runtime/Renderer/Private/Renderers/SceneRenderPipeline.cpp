@@ -424,20 +424,17 @@ namespace Durin
 				FeaturePlan.CloudSpatial.Decision = Prepared;
 			}
 			bool FixedPipelinesReady = true;
-			if (FeaturePlan.GBuffer.IsEnabled()
-				&& Context.Logical.Options.bEnableGPUCulling)
-			{
-				const FRHICapabilities* Capabilities = GDynamicRHI
-					? GDynamicRHI->RHIGetCapabilities() : nullptr;
-				if (Capabilities != nullptr && Capabilities->bSupportsIndirectDraw)
-					(void)Service.GBufferRenderer
-						.EnsureGPUCullingResources_RenderThread();
-			}
+			const FRHICapabilities* Capabilities = GDynamicRHI
+				? GDynamicRHI->RHIGetCapabilities() : nullptr;
+			const bool bPrepareGPUCulling = Context.Logical.Options.bEnableGPUCulling
+				&& Capabilities != nullptr && Capabilities->bSupportsIndirectDraw;
+			if (FeaturePlan.GBuffer.IsEnabled() && bPrepareGPUCulling)
+				(void)Service.GBufferRenderer.EnsureGPUCullingResources_RenderThread();
 			if (FeaturePlan.GBuffer.IsEnabled())
 				FixedPipelinesReady = StaticMeshRenderer.PrepareGBufferPipelines_RenderThread(
 					Service.GBufferRenderer, PreparedView.Receiver.StaticMeshes,
 					ResolvedSceneResources.Receiver.StaticMeshes,
-					Context.Logical.Options.bEnableGPUCulling) && FixedPipelinesReady;
+					bPrepareGPUCulling) && FixedPipelinesReady;
 			if (FixedPipelinesReady)
 				FixedPipelinesReady = StaticMeshRenderer.PrepareUniforms_RenderThread(CommandList,
 					Context.Logical.Scene, RenderView,

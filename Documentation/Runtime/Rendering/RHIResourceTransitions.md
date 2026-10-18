@@ -95,8 +95,17 @@ available and `DURIN_VULKAN_SPLIT_BARRIERS=1` explicitly selects the diagnostic
 policy. Portability-subset devices are conservatively kept on the full-barrier
 fallback because Durin does not enable their optional event feature; Apple
 MoltenVK additionally reports native events unsupported. Native split remains
-off by default until its performance gate is qualified; support is not inferred
-from multi-queue availability.
+off by default: the multi-queue plan's complex performance acceptance was waived,
+which does not establish a performance benefit or authorize automatic activation.
+Support is not inferred from multi-queue availability.
+
+`VulkanQueueQualificationTests` requires actual event support, checks native
+`VkEvent` creation and retention after caller/replay references are released,
+and compares compute-written buffer ranges and images against full barriers in
+inline and threaded modes. Its RDG case spans native submission batches.
+SwiftShader supplies software-device Vulkan API correctness coverage on macOS;
+MoltenVK instead exercises the explicitly unsupported full-barrier fallback.
+Neither result establishes independent GPU queue overlap.
 
 ## Metal State Authority
 
@@ -192,7 +201,8 @@ timeline wait and does not wait on the CPU. Explicit GPU submission seals both
 provisioned contexts and the coordinator orders producer before consumer using
 the [submission batch contract](VulkanMemoryAndGPUCompletion.md#completion-domains).
 An unsubmitted producer must be present in that batch. Production RDG scheduling
-still uses graphics.
+uses graphics by default; explicitly opted-in async compute additionally requires
+a distinct provisioned queue and a multi-queue-aware allocator.
 
 Ordinary transition commands still emit full barriers on their recording queue.
 Counted resource views and recorded transfers

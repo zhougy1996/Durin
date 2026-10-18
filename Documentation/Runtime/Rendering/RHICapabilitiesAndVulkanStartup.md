@@ -90,11 +90,17 @@ diagnostics only in Debug, `on` requests them in Debug or Release, `off` never
 requests them, and Shipping always disables them. The Khronos validation layer
 and debug-utils extension are independent optional diagnostics.
 
+On macOS, the MoltenVK layer-settings extension and its instance feature chain
+are attached only when advertised. A non-portability ICD can therefore run the
+headless path without MoltenVK-specific settings. Devices advertising
+`VK_KHR_portability_subset` must enable it; native non-portability devices do not
+inherit that device requirement from the host operating system.
+
 ## Device and Queue Publication
 
 Every physical device is evaluated locally before ranking. Hard requirements
 are Vulkan 1.1, `VK_KHR_swapchain`, `fillModeNonSolid`,
-`shaderDrawParameters`, nonzero 2D/3D/cube limits, at least six array layers,
+nonzero 2D/3D/cube limits, at least six array layers,
 positive storage-buffer alignment/range and direct-dispatch group-count limits,
 and one queue family with queue
 zero, graphics and compute flags, and presentation support. In presentation
@@ -103,6 +109,12 @@ mode Vulkan creates the real startup surface first and calls
 Headless mode creates no surface and selects the lowest graphics/compute family
 without publishing a presentation claim. Rejected devices never receive a
 ranking position.
+
+`shaderDrawParameters` is optional for direct graphics and compute. The device
+enables it only when supported and conservatively publishes indirect graphics
+support only with that feature. Renderer GPU-culling preparation uses the same
+capability gate as execution, including shader permutations; an unsupported
+request stays on direct drawing without compiling base-instance shaders.
 
 Suitable devices rank deterministically by device type, descending 2D limit,
 descending API version, then ascending vendor ID, device ID, and name. Complete
@@ -119,9 +131,10 @@ choices fall back to graphics when unavailable. Independent provisioning
 requires the timeline-semaphore feature and either Vulkan 1.2 or the Vulkan
 1.1 timeline extension; feature and extension enablement use the candidate's
 owned feature chain. Provisioned physical IDs appear in `RHIGetQueueCapabilities`,
-but `bIndependentCompute` remains false until production resource-use and
-ownership migration is complete. A later main or
-ImGui detached surface must support that provisioned family.
+and `bIndependentCompute` reflects a distinct provisioned compute queue.
+RDG scheduling additionally requires explicit builder/view opt-in and an
+allocator supporting multi-queue lifetime proofs. A later main or
+ImGui detached surface must support the graphics/presentation family.
 `FVulkanDevice::SetupPresentQueue` only validates compatibility; it never creates
 a wrapper for an unprovisioned family. An incompatible surface fails its new
 swapchain/viewport candidate before native swapchain creation and cannot disturb

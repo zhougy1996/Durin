@@ -69,8 +69,9 @@ namespace Durin::VulkanRHI
 			Result.RejectionReasons.emplace_back("missing required fillModeNonSolid feature");
 		if (!Input.bIndependentBlend)
 			Result.RejectionReasons.emplace_back("missing required independentBlend feature");
-		if (!Input.bShaderDrawParameters)
-			Result.RejectionReasons.emplace_back("missing required shaderDrawParameters feature");
+		// Direct/compute work remains executable without shader-visible base-instance
+		// parameters. Indirect graphics capability is conservatively gated separately.
+		Result.bEnableShaderDrawParameters = Input.bShaderDrawParameters;
 		if (Input.MaxImageDimension2D == 0)
 			Result.RejectionReasons.emplace_back("maxImageDimension2D is zero");
 		if (Input.MaxImageDimensionCube == 0)
@@ -312,6 +313,7 @@ namespace Durin::VulkanRHI
 		TransferQueueFamilyIndex = GraphicsQueueFamilyIndex;
 		DeviceExtensions = std::move(InEvaluation.EnabledExtensions);
 		bSupportsSwapchainMaintenance1 = InEvaluation.bEnableSwapchainMaintenance1;
+		bSupportsShaderDrawParameters = InEvaluation.bEnableShaderDrawParameters;
 		bSupportsSynchronization2 = InEvaluation.bEnableSynchronization2;
 		bSupportsEvents = InEvaluation.bEnableEvents;
 	}
@@ -447,7 +449,7 @@ namespace Durin::VulkanRHI
 		DeviceInfo.setPEnabledFeatures(&DeviceFeatures);
 		DeviceInfo.setEnabledExtensionCount(static_cast<uint32>(DeviceExtensionNames.size()));
 		DeviceInfo.setPpEnabledExtensionNames(DeviceExtensionNames.data());
-		Vulkan11Features.shaderDrawParameters = vk::True;
+		Vulkan11Features.shaderDrawParameters = bSupportsShaderDrawParameters ? vk::True : vk::False;
 		DeviceInfo.setPNext(&Vulkan11Features);
 		void* FeatureTail = &Vulkan11Features;
 		if (bSupportsSynchronization2)

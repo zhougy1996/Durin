@@ -217,7 +217,7 @@ namespace Durin
 		};
 	} // namespace
 
-	inline auto QualifySceneRenderRoutes(bool bPresentation, bool bGPUCullingQualification = false) -> void
+	inline auto QualifySceneRenderRoutes(bool bPresentation, bool bGPUCullingQualification = false, bool bAliasingQualification = false) -> void
 	{
 		class FTestApplication final : public FGenericApplication
 		{
@@ -949,6 +949,36 @@ namespace Durin
 			GCullingDepthPipeline = nullptr;
 			ExtraOptions = {};
 			bDisableCPUCulling = false;
+		}
+
+		if (bAliasingQualification)
+		{
+			bContactShadows = true;
+			for (uint32 Repeat = 0; Repeat < 4; ++Repeat)
+			{
+				const uint32 Width = Repeat % 2 ? 112 : 96;
+				ExtraOptions = {};
+				const auto Direct = RenderOffscreen(false, true, EGroundTruthAmbientOcclusionQuality::HalfResolution,
+					ERenderMode::Lit, ESceneRasterFailure::None, Width);
+				ExtraOptions.bEnableTransientAliasing = true;
+				ExtraOptions.bEnableAsyncCompute = Repeat % 2 != 0;
+				const bool UnsupportedIndirect = !GDynamicRHI->RHIGetCapabilities()->bSupportsIndirectDraw;
+				ExtraOptions.bEnableGPUCulling = UnsupportedIndirect;
+				EXPECT_EQ(*Direct, *RenderOffscreen(false, true, EGroundTruthAmbientOcclusionQuality::HalfResolution,
+					ERenderMode::Lit, ESceneRasterFailure::None, Width));
+				if (UnsupportedIndirect)
+				{
+					EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GPUCullingUnsupportedFallbackViews, 1u);
+					EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GPUCullingDispatchedViews, 0u);
+					EXPECT_GT(GSceneCloudTelemetry.GBuffer.GPUCullingDirectFallbackDraws, 0u);
+				}
+				const auto& Capture = GSceneCloudGraphCaptures.back();
+				std::cout << "SCENE_ALIASING mode=" << (std::getenv("DURIN_RHI_EXECUTION") ? std::getenv("DURIN_RHI_EXECUTION") : "default")
+					<< ",native_supported=" << GDynamicRHI->RHISupportsTransientAliasing()
+					<< ",handoffs=" << Capture.ExecutionPlan.AliasingHandoffs.size() << ",width=" << Width << '\n';
+			}
+			ExtraOptions = {};
+			bContactShadows = false;
 		}
 
 		// Each injected raster failure executes the real authored route and must

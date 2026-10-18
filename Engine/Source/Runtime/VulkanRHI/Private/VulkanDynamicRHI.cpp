@@ -133,7 +133,7 @@ namespace Durin::VulkanRHI
 				Limits.maxComputeWorkGroupCount[0],
 				Limits.maxComputeWorkGroupCount[1],
 				Limits.maxComputeWorkGroupCount[2]};
-			CapabilityCandidate.bSupportsIndirectDraw = true;
+			CapabilityCandidate.bSupportsIndirectDraw = Device->SupportsShaderDrawParameters();
 			CapabilityCandidate.bSupportsIndirectDispatch = true;
 			const auto Float32 = Device->GetGpu().getFormatProperties(vk::Format::eR32G32B32A32Sfloat).optimalTilingFeatures;
 	        const auto Float16 = Device->GetGpu().getFormatProperties(vk::Format::eR16G16B16A16Sfloat).optimalTilingFeatures;
@@ -484,8 +484,11 @@ namespace Durin::VulkanRHI
 				RequiredExtension);
 #ifdef __APPLE__
 		ExtensionRequestInput.bRequirePortabilityEnumeration = true;
-		ExtensionRequestInput.SurfaceProviderRequiredExtensions.emplace_back(
-			VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
+		// This is a MoltenVK configuration interface, not a platform-wide
+		// requirement: headless non-portability ICDs may omit it.
+		if (std::ranges::contains(NegotiationInput.AvailableExtensions, VK_EXT_LAYER_SETTINGS_EXTENSION_NAME))
+			ExtensionRequestInput.SurfaceProviderRequiredExtensions.emplace_back(
+				VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
 #endif
 		const FVulkanInstanceExtensionRequest ExtensionRequest =
 			BuildVulkanInstanceExtensionRequest(ExtensionRequestInput);
@@ -550,7 +553,8 @@ namespace Durin::VulkanRHI
 			&bUseMetalArgumentBuffers);
 		const vk::LayerSettingsCreateInfoEXT MoltenVKLayerSettings(
 			1, &MetalArgumentBufferSetting);
-		InstanceInfo.setPNext(&MoltenVKLayerSettings);
+		if (std::ranges::contains(Negotiation.EnabledExtensions, VK_EXT_LAYER_SETTINGS_EXTENSION_NAME))
+			InstanceInfo.setPNext(&MoltenVKLayerSettings);
 #endif
 
 		if (ExtensionRequest.bEnablePortabilityEnumeration)
@@ -654,14 +658,15 @@ namespace Durin::VulkanRHI
 			Candidate.Input.bFillModeNonSolid = Features.fillModeNonSolid == vk::True;
 			Candidate.Input.bIndependentBlend = Features.independentBlend == vk::True;
 			Candidate.Input.bRequirePresentation = bRequirePresentation;
+			for (const vk::ExtensionProperties& Extension : Gpu.enumerateDeviceExtensionProperties())
+				Candidate.Input.AvailableExtensions.emplace_back(Extension.extensionName.data());
 #ifdef __APPLE__
-			Candidate.Input.bRequirePortabilitySubset = true;
+			Candidate.Input.bRequirePortabilitySubset = std::ranges::contains(
+				Candidate.Input.AvailableExtensions, "VK_KHR_portability_subset");
 			// Portability event features are neither required nor enabled by Durin's
 			// device chain; publish the conservative full-barrier fallback.
 			Candidate.Input.bEventsFeature = false;
 #endif
-			for (const vk::ExtensionProperties& Extension : Gpu.enumerateDeviceExtensionProperties())
-				Candidate.Input.AvailableExtensions.emplace_back(Extension.extensionName.data());
 
 			vk::PhysicalDeviceVulkan11Features Vulkan11Features;
 			vk::PhysicalDeviceFeatures2 Features2;

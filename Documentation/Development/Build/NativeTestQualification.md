@@ -2,7 +2,7 @@
 
 Summary: Define GPU environment admission, quiet timing lanes, and Vulkan creation memory measurement policy for explicit native-test qualification.
 
-Last reviewed: 2026-09-15
+Last reviewed: 2026-10-18
 
 Use this document only for hardware, performance, scale, or memory qualification.
 Routine selection follows [Agent Testing Workflow](../../Agents/Testing.md);
@@ -22,6 +22,25 @@ normal sandbox-escalation approval and run the exact registered qualification
 selection outside the sandbox. Record the unsandboxed device name and receipt;
 never bypass authorization or weaken the test to turn sandbox initialization
 failure into a pass.
+
+### Native Vulkan Event and Aliasing Qualification
+
+`VulkanQueueQualificationTests` is a headless, authored-shader qualification
+target. Run `./DevTool test VulkanQueueQualificationTests --mode qualification
+--report` with `DURIN_VULKAN_VALIDATION=on`. Native-event cases require
+synchronization2 and native events and fail on unsupported devices rather than
+counting full-barrier fallback as a pass. On MoltenVK, select
+`'*NativeAliasing*'` to run only the native aliasing cases; use
+`MetalSceneQualificationTests` for production-scene and full-barrier fallback.
+
+To select an alternate ICD, supply a task-local `--environment-setup` script
+that sources the host SDK setup first and then sets `VK_DRIVER_FILES` and
+`VK_ICD_FILENAMES` to the same ICD manifest. Host setup can overwrite environment
+variables supplied only before the launcher. Record the actual selected device,
+API/driver versions, queue families/counts, and manifest/library hashes.
+Software ICD execution validates Vulkan API behavior and exact output, not GPU
+performance or unavailable independent queue topologies. The 2026-10-18 closeout
+matrix is recorded in the [multi-queue plan](../../Plans/RdgRhiMultiQueueExecution.md).
 
 ## Performance Qualification and Concurrent Agents
 

@@ -2,26 +2,102 @@
 
 Summary: Introduce explicit GPU queue submission, completion, and resource retirement contracts across RDG, RHI, and Vulkan, then enable asynchronous compute, split barriers, and safe transient aliasing.
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-10-18
 
 ## Current Status
+
+Completed on 2026-10-18 for the accepted available-host scope, using source
+base `ba202066be340e4c2aa6045e5dc75b11d80d262f` plus this commit. The operator
+explicitly waived complex performance acceptance, including the quiet-lane
+baseline, numerical budgets, overlap, memory and retirement-cost comparisons.
+No performance benefit is claimed; async scheduling, native split barriers and
+transient aliasing remain opt-in and disabled by default. The earlier explicit
+Windows qualification deferral remains in force. Physical independent queues
+and dedicated-family native aliasing were not newly qualified on this machine;
+existing topology receipts and CPU dependency/lifetime proofs retain their
+stated scope. The separate NVIDIA driver-worker investigation remains open.
+
+The closeout adds headless `VulkanQueueQualificationTests` and production-scene
+alias-policy coverage. Real Vulkan events now execute on SwiftShader, with
+compute-written buffer subranges and images matching full barriers, retained
+native event ownership after replay, and RDG begin/end pairs spanning native
+submission batches. Native distinct-handle/shared-backing buffer reuse and
+image reuse across graphs pass on both SwiftShader and MoltenVK. Scene policy
+on/off output matches on Metal, MoltenVK and SwiftShader; these scenes produce
+zero alias handoffs, so native alias execution evidence comes from the dedicated
+fixture, not the policy comparison.
+
+Vulkan startup now admits non-portability macOS ICDs without MoltenVK-only
+settings, enables portability-subset requirements only for advertising devices,
+and treats shader draw parameters as optional for direct/compute work. Indirect
+graphics capability and Renderer GPU-culling shader preparation share the
+feature gate. SwiftShader lacks draw parameters; its production-scene test
+verifies the requested GPU-culling route falls back to direct draws.
+
+Final environment: macOS arm64, Apple M4, `MacOS-arm64-Debug-DurinEditor`,
+Vulkan SDK/validation 1.4.357.0, inline and threaded replay. MoltenVK exposes
+Vulkan 1.3.334, driver `0x28a1`, and takes the full-barrier fallback with the
+split policy requested. MoltenVK enumerates four general-purpose families, each
+with one queue; none is compute-only and family zero has no second queue, so the
+existing `auto`/`dedicated`/`same-family` policies cannot provision independent
+compute here. Enumeration is preserved in
+`Build/Qualification/MultiQueueMoltenVKDevice.txt`. SwiftShader Device
+(LLVM 10.0.0), CPU, exposes Vulkan 1.3.0, driver `0x1400000`, one graphics/compute/transfer family with one queue.
+Its actual native event API coverage is software-device correctness, not GPU
+event timing or physical overlap. The fixed task-local ICD comes from Chrome
+155.0.8059.82; manifest SHA-256
+`d717d915e31e7c27948b80b36ab34e2d897888114c5c7d0af835f93eb53e58f5`, library
+SHA-256 `8da13c2383d08eaa8248868fa6ffed845062c7792e38c0678fd72f693363753e`.
+ICD inputs and setup script remain under ignored `Build/Qualification/`.
+
+Final receipts (all relative to this checkout):
+
+| Selection | Result | Receipt |
+| --- | --- | --- |
+| `VulkanQueueQualificationTests`, SwiftShader, validation on | 7/7; actual native events, RDG split batches, buffer/image aliasing | `Build/Qualification/MultiQueueNativeEvents.log`; launcher `Build/.agent-state/logs/20261018-134333-800151-63907-ctest.log` |
+| `VulkanQueueQualificationTests '*NativeAliasing*'`, MoltenVK, validation on | 2/2; native buffer/image aliasing | `Build/Qualification/MultiQueueMoltenVKAliasing.log`; launcher `Build/.agent-state/logs/20261018-134334-612782-63933-ctest.log` |
+| `MetalSceneQualificationTests`, Metal/MoltenVK, Metal debug layer and Vulkan validation on, split policy requested | 12/12; scene routes, culling regressions, alias policy/fallback | `Build/Qualification/MultiQueueScenes.log`; launcher `Build/.agent-state/logs/20261018-134314-361041-63797-ctest.log` |
+| `MetalSceneQualificationTests '*GraphStages*vulkan*:*AliasingPolicy*vulkan*'`, SwiftShader, validation on | 4/4; scene output and unsupported indirect fallback | `Build/Qualification/MultiQueueSoftwareScenes.log`; launcher `Build/.agent-state/logs/20261018-134335-427607-63947-ctest.log` |
+| `@module=rhi+rendercore+renderer,kind=contract` | 14 targets, 588/588 cases | `Build/Qualification/MultiQueueContracts.log`; launcher `Build/.agent-state/logs/20261018-134406-350481-63984-ctest.log` |
+| Workspace `all` build | Passed | `Build/.agent-state/logs/20261018-134422-886246-64217-cmake.log` |
+
+The contract selection includes RHICommandList 143, RenderContract 227,
+RendererRDGAllocator 11 and RendererSceneContract 63 cases. It covers overlapping
+logical queues, terminal readers, extraction/import readiness, ordered reuse,
+failed retirement under unrelated completion, pressure and recovery. The
+existing Windows native queue/topology receipts below are retained as historical
+coverage, not rerun claims. The current machine cannot supply their unavailable
+physical topologies. No dedicated-family native aliasing pass is inferred.
+
+The `all` gate covers Engine, Sandbox and RoadWeaver compilation/linking after
+the Vulkan startup and Renderer policy changes. Symbol audits across their
+source/test roots found no further consumers to migrate. The macOS application-
+hosted Vulkan integration target is excluded in this preset; the new headless
+admission, transition and aliasing fixture covers the changed backend path.
+Final GPU logs contain no Vulkan validation errors. XML reports are under
+`Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/MultiQueue*.xml`.
+Source and test inputs were unchanged after these runs; later documentation
+edits reuse their results. Lasting startup, split/fallback and reproduction
+contracts are in the owning runtime and native qualification documents.
+
+| Stage | Final disposition |
+| --- | --- |
+| 0: Contracts and ownership | Accepted; complex performance baseline/budgets waived on 2026-10-18 |
+| 1: Single-queue completion and retirement | Completed; current regression coverage passed |
+| 2: Explicit execution plan | Completed; current regression coverage passed |
+| 3: Async compute and multi-queue lifetime safety | Accepted available-host scope; earlier Windows platform deferral preserved |
+| 4: Split barriers | Native SwiftShader event and MoltenVK full-fallback correctness passed; performance waived |
+| 5: Transient aliasing and final qualification | Current native aliasing, CPU lifetime/topology, scene fallback and all-build gates passed; unavailable physical topology boundary retained; performance waived |
+
+### Acceptance History Through 2026-09-29
 
 Reviewed against source and Git history on 2026-09-29 from `1a5adf336`, with
 the Stage 4 implementation and current evidence recorded by this document's
 commit. The operator's explicit deferral of unavailable Windows qualification
 remains.
-
-| Stage | Status | Remaining acceptance |
-| --- | --- | --- |
-| 0: Contracts and ownership | Audit/API decisions and a local diagnostic baseline recorded | Authoritative quiet-lane baseline and measured regression budgets |
-| 1: Single-queue completion and retirement | Completed | Preserve the passed contracts through later changes |
-| 2: Explicit execution plan | Completed | Preserve deterministic planning and single-queue behavior |
-| 3: Async compute and multi-queue lifetime safety | Accepted for the available macOS scope; Windows Vulkan qualification deferred by operator | Preserve opt-in behavior; complete the separate Windows driver-worker investigation when a Windows host is available |
-| 4: Split barriers | Implementation complete; fallback accepted on available macOS scope | Native event-capable Vulkan output/performance qualification on a supported device |
-| 5: Transient aliasing and final qualification | Initial implementation complete; Windows correctness validated; not accepted | Broader aliasing topology and performance qualification |
 
 The implemented path includes RDG async eligibility and deterministic queue
 assignment, physical RHI submission scopes, Vulkan cross-queue waits and
@@ -127,15 +203,13 @@ its bounded behavior and the changed runtime paths; `all` covered project
 compilation/linking. Source/test inputs were unchanged after these final runs;
 later documentation-only edits reuse those receipts.
 
-### Next Work
+### Remaining Platform Boundary
 
-Stage 4 native split acceptance needs a non-portability Vulkan device that
-supports synchronization2 and native events, plus the deferred quiet-lane
-performance comparison. Apple M4 / MoltenVK does not expose native events and
-correctly takes the full-barrier fallback. The 2026-10-17 operator request permits
-Stage 5 implementation before these gates close; split barriers and transient
-aliasing must remain disabled by default pending qualification. The Windows
-driver-worker investigation must not be silently closed by later passing runs.
+Automatic activation requires a future measured policy decision. The current
+performance waiver supplies no regression budget or speedup claim. Deferred
+Windows hardware qualification and dedicated-family native aliasing require a
+suitable host; the separate driver-worker investigation remains independently
+tracked. These are preserved scope boundaries, not current-machine passes.
 
 Historical checkpoints and exact log names are retained in
 [Historical Implementation Evidence](#historical-implementation-evidence).
@@ -224,9 +298,9 @@ inventory and named validation gates, before implementation changes behavior.
   and distinguish resource object reuse from backing-memory aliasing.
 - [x] Record selected API boundaries, backend capability requirements and test
   selections; use the completed sync-point migration for current API authority.
-- [ ] Measure a representative performance baseline and freeze acceptable
-  regression thresholds. The 2026-09-11 operator exception permits implementation
-  before measurement; it does not waive final performance acceptance.
+- [x] Resolve representative performance baseline and regression-budget acceptance.
+  Explicitly waived by the operator on 2026-10-18; no numerical budget or measured
+  benefit is claimed, and automatic activation remains disabled.
 
 Completion: each lifetime-sensitive consumer has an identified owner and
 completion authority; unresolved protocol decisions are closed and recorded.
@@ -585,14 +659,14 @@ consumers without changing their synchronization or lifetime guarantees.
   accesses, and transition-object retention through its final backend use.
 - [x] Centralize transition creation after required backings are prepared;
   add a creation queue only where batching or parallel creation needs it.
-- [ ] Compare full and split lowering with CPU plan tests and Vulkan validation
-  and output-equivalence tests on supported hardware. CPU split/full comparison
-  and Vulkan full fallback pass; the available portability device cannot create
-  native events, so native split and performance evidence remain open.
+- [x] Compare full and split lowering with CPU plan tests, Vulkan validation and
+  exact output tests. Actual SwiftShader native events pass buffer/image and RDG
+  cross-batch cases; MoltenVK full fallback passes. This is software-device native
+  event correctness; GPU timing is waived and independent overlap is not claimed.
 
 Completion: split lowering preserves results and synchronization; forced full
-barriers remain a tested fallback, and performance stays within the Stage 0
-baseline or has an explicitly reviewed adjustment.
+barriers remain a tested fallback, and performance acceptance has the explicit
+2026-10-18 operator waiver, with automatic activation disabled.
 
 #### Stage 4 Implementation Checkpoint (2026-09-29)
 
@@ -649,21 +723,26 @@ without conflating logical lifetime positions with observed GPU completion.
   reject reuse when lifetimes can overlap on any participating queue.
 - [x] Keep backing heap destruction and CPU-side recycling governed by actual
   GPU completion even when graph-local aliasing was planned in advance.
-- [ ] Test overlapping async lifetimes, safe ordered reuse, multiple terminal
+- [x] Test overlapping async lifetimes, safe ordered reuse, multiple terminal
   readers, extracted resources, and independent graphs sharing allocator pools.
-- [ ] Measure CPU compile/prepare/submit cost, GPU overlap, peak transient memory,
-  retirement backlog, and waits on the representative workloads selected in
-  Stage 0. Adopt dependency compression or joins only with measured benefit.
-- [ ] Run final affected native tests, multi-queue Vulkan integration gates,
+  CPU dependency/retirement proofs and current native shared-queue alias reuse
+  pass; unavailable dedicated-family native aliasing remains under the earlier
+  platform qualification deferral, without a new hardware-pass claim.
+- [x] Resolve CPU compile/prepare/submit, GPU overlap, peak transient memory,
+  retirement backlog and wait-cost acceptance: complex measurements explicitly
+  waived on 2026-10-18. Do not infer a benefit or adopt further dependency
+  compression/joins without measurements.
+- [x] Run final affected native tests, multi-queue Vulkan integration gates,
   single-queue fallback gates, and an `all` build across the workspace targets.
   Apply the [result reuse policy](AGENTS.md#writing-rules) when existing receipts
   cover the final relevant inputs; preserve every gate's queue-topology,
   hardware, configuration, and timing conditions.
-- [ ] Update the owning runtime contracts and record reproducible completion
+- [x] Update the owning runtime contracts and record reproducible completion
   evidence before completing the plan.
 
-Completion: correctness gates and frozen performance budgets pass; diagnostics
-explain queue assignment, handoffs, aliasing decisions, and retirement waits.
+Completion: available-host correctness gates pass within the retained platform
+qualification deferral; complex performance budgets have the explicit operator
+waiver. Diagnostics explain queue assignment, handoffs, aliasing and retirement.
 
 ## Validation and Handoff
 

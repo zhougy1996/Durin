@@ -61,6 +61,7 @@ namespace Durin::VulkanRHI
 		int32 GraphicsPresentQueueFamilyIndex = -1;
 		int32 ComputeQueueFamilyIndex = -1;
 		uint32 ComputeQueueIndex = 0;
+		bool bEnableShaderDrawParameters = false;
 		bool bEnableTimelineSemaphores = false;
 		bool bEnableSynchronization2 = false;
 		bool bEnableEvents = true;
@@ -216,6 +217,7 @@ namespace Durin::VulkanRHI
 		auto GetPresentQueue() const -> FVulkanQueue* { return PresentQueue; }
 
 		auto SupportsSwapchainMaintenance1() const -> bool { return bSupportsSwapchainMaintenance1; }
+		auto SupportsShaderDrawParameters() const -> bool { return bSupportsShaderDrawParameters; }
 		auto SupportsSynchronization2() const -> bool { return bSupportsSynchronization2; }
 		auto SupportsTimelineSemaphores() const -> bool { return bSupportsTimelineSemaphores; }
 		auto GetComputeQueue() const -> FVulkanQueue* { return ComputeQueue; }
@@ -346,6 +348,7 @@ namespace Durin::VulkanRHI
 		std::vector<std::string> DeviceExtensions;
 
 		bool bSupportsSwapchainMaintenance1 = false;
+		bool bSupportsShaderDrawParameters = false;
 		bool bSupportsSynchronization2 = false;
 		bool bSupportsEvents = true;
 

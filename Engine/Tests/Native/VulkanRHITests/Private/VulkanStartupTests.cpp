@@ -180,7 +180,6 @@ namespace Durin::VulkanRHI
 			FCase{"MissingSwapchainExtension", [](auto& Input) { Input.AvailableExtensions.clear(); }},
 			FCase{"MissingFillModeNonSolid", [](auto& Input) { Input.bFillModeNonSolid = false; }},
 			FCase{"MissingIndependentBlend", [](auto& Input) { Input.bIndependentBlend = false; }},
-			FCase{"MissingShaderDrawParameters", [](auto& Input) { Input.bShaderDrawParameters = false; }},
 			FCase{"InvalidImageDimension2D", [](auto& Input) { Input.MaxImageDimension2D = 0; }},
 			FCase{"InvalidImageDimensionCube", [](auto& Input) { Input.MaxImageDimensionCube = 0; }},
 			FCase{"InsufficientArrayLayers", [](auto& Input) { Input.MaxImageArrayLayers = 5; }},

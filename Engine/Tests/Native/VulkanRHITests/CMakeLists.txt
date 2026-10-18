@@ -1,3 +1,20 @@
+# Headless RHI/RDG correctness does not require the window/application fixture.
+durin_add_native_test(VulkanQueueQualificationTests
+    KIND qualification
+    DOMAINS renderer rhi-creation
+    MODULES rhi rendercore vulkan-rhi
+    BACKENDS vulkan
+    SOURCES Private/VulkanQueueQualificationTests.cpp
+    LIBRARIES Core RHI RenderCore VulkanRHI Vulkan::Vulkan
+    REQUIRES editor
+    REQUIREMENT_RATIONALE "Compiles the authored compute producer for native event qualification."
+    ENVIRONMENTS authored-shaders
+    INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Private"
+    RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+    HEAVY_RUNTIME_RATIONALE "Qualifies native Vulkan events, exact resource ownership and transient aliasing without presentation. Native-event cases require a supporting ICD."
+    TIMEOUT 600
+)
+
 if(APPLE AND NOT DURIN_ENABLE_APPLICATION_TESTS)
 	durin_exclude_native_test_sources(
 		RATIONALE
