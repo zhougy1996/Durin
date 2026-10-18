@@ -2,7 +2,7 @@
 
 Summary: Define window-backed viewports, render targets, presentation, resize recovery, and editor assistance rendering.
 
-Modules: ApplicationCore, Engine, LevelEditor, MonaCore, Mona, RenderCore, Renderer, RHI
+Modules: ApplicationCore, Engine, LevelEditor, MetalRHI, MonaCore, Mona, RenderCore, Renderer, RHI
 
 This document explains how Durin connects Mona widgets, scene viewports, and RHI render targets for both standalone game windows and editor viewport panels.
 
@@ -65,7 +65,7 @@ GPU coordinate ownership is defined by [Camera relative rendering](CameraRelativ
 
 Window-backed viewports render directly to the native window backbuffer. Render-target-backed viewports render into an offscreen texture that can later be shown by UI code.
 
-`EViewportPresentationPolicy::FramePaced` selects FIFO; `BestEffort` prefers
+On Vulkan, `EViewportPresentationPolicy::FramePaced` selects FIFO; `BestEffort` prefers
 Mailbox, then Immediate, then FIFO and bounds acquisition waits. `Unsynchronized`
 prefers Immediate, then Mailbox, then FIFO while retaining blocking acquisition.
 `FRHIViewport::RequestPresentationPolicy()` accepts a thread-safe request which
@@ -76,6 +76,19 @@ their creation policy and report Unavailable. Mona's optional application-thread
 policy override covers existing and future windows; it leaves per-window defaults
 in effect when unset. The editor control is defined by
 [Viewport Rendering Diagnostics](../../Editor/Architecture/ViewportRenderingDiagnostics.md).
+
+Metal sets `CAMetalLayer.maximumDrawableCount=2` once at viewport creation and
+preserves ApplicationCore's `opaque=true` layer contract for every presentation
+policy. `FramePaced` sets `displaySyncEnabled=true` and publishes FIFO;
+`Unsynchronized` and `BestEffort` set it false and publish Immediate. Policy
+changes apply at the native drawing boundary and change only
+`displaySyncEnabled`; they do not resize the drawable pool or recreate the
+layer. Resize and viewport recreation retain the same two-drawable capacity.
+This avoids the refresh-coupled drawable recycling observed with titled, opaque,
+three-drawable windows on the qualified Mac. It does not guarantee a submission
+rate above the display refresh rate on every workload or system. Diagnostic
+evidence and the unresolved private display policy are recorded in the
+[Metal drawable pacing investigation](../../Investigations/MetalUnsynchronizedDrawablePacing.md).
 
 Window resize follows a request/prepare boundary. Platform framebuffer callbacks
 overwrite the window's latest pending extent without enqueueing RHI work. Immediately

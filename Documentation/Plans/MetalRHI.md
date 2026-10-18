@@ -98,6 +98,14 @@ work is qualification, not initial backend bring-up. This plan remains Active:
 window lifecycle, the complete parameter/format and paired-scene image matrix,
 and comparable performance measurements have not all been accepted.
 
+The 2026-10-18 presentation repair fixes every Metal viewport's drawable capacity
+at two while retaining `opaque=true`; VSync changes only `displaySyncEnabled`.
+This supersedes the earlier experimental-only status of the drawable workaround.
+The implemented policy is owned by
+[viewport output policies](../Runtime/Rendering/ViewportRendering.md#output-policies).
+The bounded Stage 1/4 receipt below does not close the broader lifecycle,
+image-parity, cooked-game, or Release performance gates.
+
 [Portable shader binding layouts](PortableShaderBindingLayouts.md) implemented
 target-format extraction, generic owned artifacts, and prepared Metal binding
 operations in `52b90de28`, `47689c4c7`, and `f8a6d837c`. Common RHI no longer
@@ -134,6 +142,46 @@ Historical receipts below retain the revision and scope at which they were
 recorded; they are not current support declarations. Later evidence supersedes
 older notes about ARC, two render targets, Vulkan defaults and missing sky lighting.
 
+2026-10-18 bounded Stage 1/4 receipt, base `d33a3634d` plus the fixed-capacity
+viewport/test change, Apple M4, macOS 27.0.1 (26A434), Xcode 26.6 (17F113), macOS
+SDK 26.5, arm64 Debug/Tracy, Metal with threaded RHI:
+
+- `MTL_DEBUG_LAYER=1 ./DevTool test MetalRHIHeadlessTests 'FMetalRHIViewportTests.*' --mode qualification --report Build/NativeTestResults/MacOS-arm64-Debug-DurinEditor/MetalDrawablePolicy.xml`
+  passed all four cases. Coverage includes inline/threaded policy boundaries,
+  fixed capacity/opacity, resize, recreation, pixel readback, and unavailable
+  drawables. Build/test logs are `20261018-160209-755414-69221-cmake.log` and
+  `20261018-160213-251653-69221-ctest.log` under `Build/.agent-state/logs/`.
+- A temporary in-process Editor probe used the settings save/renderer override
+  path and actual native windows. Phases 0-10 checked VSync on/off, primary-window
+  resize, one/two detached ImGui windows, global policy propagation, secondary
+  enlargement, close, and recreation. All observed layers retained count 2 and
+  opacity. In `20261018-160014-896569-69079-DurinEditor.log`, synchronized phases
+  were approximately 60 FPS, unsynchronized single-window phases 190-230 FPS,
+  and the three-window unsynchronized phase 160 FPS. These are short diagnostic
+  submission/frame-loop samples, not physical display rates or a performance
+  acceptance baseline.
+- The full Editor probe **failed** when shrinking a secondary native window:
+  draw data requested `1000x680` after the render target became `900x600`, causing
+  the Metal viewport-bounds assertion. A prior three-drawable control reproduced
+  the same bounds assertion during programmatic secondary-window shrink
+  (`20261018-155841-955755-68910-DurinEditor.log`). The first probe also resized
+  the primary window too late during UI construction; that probe timing was
+  corrected. None of these failed runs is counted as lifecycle acceptance.
+  Secondary shrink and manual pointer-driven gestures remain open. No Mona/UI
+  resize repair is included in this bounded drawable-policy change.
+- Temporary probes were removed and `MainFrame` rebuilt. Final `MetalRHI` was
+  rebuilt by the passing qualification selection. The normal Editor then passed
+  `./DevTool run --project Sandbox/Sandbox.dproject -- --exit-after-ticks=120`
+  with `DURIN_RHI_BACKEND=metal`, including ordinary shutdown, in
+  `20261018-160231-533789-69263-DurinEditor.log`. Original Editor settings were
+  restored byte-for-byte. Probe sources, hashes and phase summaries are retained
+  under ignored `Build/.agent-state/metal-two-drawables-editor-20261018/`.
+
+This receipt leaves Stage 1/4's broader unchecked gates below unchanged. No
+shared API changed, so targeted Metal tests and the affected Editor modules were
+used instead of a workspace-wide build. Another device/OS and the declared
+Release/Tracy-off comparison remain unqualified.
+
 - `MetalCppMigration.md` Stage 4/5 receipts establish actual delayed completion,
   timeout, shutdown with work outstanding, retained resources, upload/readback,
   empty submissions, simulated failure, repeated layer creation and missing
@@ -151,8 +199,9 @@ older notes about ARC, two render targets, Vulkan defaults and missing sky light
 - [Drawable pacing investigation](../Investigations/MetalUnsynchronizedDrawablePacing.md)
   records successful real Editor diagnostic runs at 60/30 Hz and the restored
   production `all` build. Those Debug/Tracy measurements do not establish the
-  Release/Tracy-off Metal/Vulkan performance baseline. The two-drawable workaround
-  remains outside this plan's production policy.
+  Release/Tracy-off Metal/Vulkan performance baseline. Fixed two-drawable capacity
+  is now the production workaround; the original captures remain historical
+  attribution evidence.
 
 Closeout rerun on the Apple M4 host, source base `298ca965f` plus the fixture
 repair in this change, using `MacOS-arm64-Debug-DurinEditor`:

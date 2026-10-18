@@ -21,6 +21,8 @@ namespace Durin
 			Layer->setDevice(Device.get());
 			Layer->setPixelFormat(ToMetalPixelFormat(Format));
 			Layer->setFramebufferOnly(false);
+			// Keep the pool fixed: three-drawable direct display can throttle unsynchronized windows.
+			Layer->setMaximumDrawableCount(2);
 			Resize(Width, Height);
 			ApplyRequestedPresentationPolicy();
 		}

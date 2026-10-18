@@ -25,8 +25,8 @@
 - [Metal unsynchronized drawable pacing](MetalUnsynchronizedDrawablePacing.md) —
   native controls isolate a titled/opaque/three-drawable display-path throttle;
   title-bit and opacity transitions reverse it, and traces confirm direct-display
-  versus compositor output. Two drawables remove the local ceiling; private
-  system policy and production/cross-machine qualification remain unresolved.
+  versus compositor output. Production now fixes the pool at two; private
+  system policy and cross-machine behavior remain unresolved.
 
 This index lists verified unresolved investigations only. Authoring and
 lifecycle rules are in `AGENTS.md`; resolved history belongs in Git, an archived

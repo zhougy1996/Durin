@@ -1,6 +1,6 @@
 # Metal Unsynchronized Drawable Pacing
 
-**Status:** Open
+**Status:** Open for the private native display policy and cross-machine qualification; the production workaround is implemented.
 
 **Last reviewed:** 2026-10-18
 
@@ -26,11 +26,12 @@ policy behind that interaction remains unknown. This is not a universal
 triple-buffering rule or an established Apple driver defect. Two drawables are
 a verified local workaround, not a cross-machine qualification.
 
-The previous investigation restored all experimental source changes. Production
-`FMetalViewport::ApplyRequestedPresentationPolicy()` still changes only
-`displaySyncEnabled` and leaves the default three-drawable pool intact, explaining
-why the same symptom remains after disabling synchronization. A bounded repair
-candidate is described below; no production policy change is made here.
+The earlier investigation restored its experimental source changes, leaving the
+default three-drawable pool and the original symptom intact. The subsequent
+production repair fixes `maximumDrawableCount=2` for every policy while preserving
+`opaque=true`. VSync continues to change only `displaySyncEnabled`. The lasting
+contract is in [viewport output policies](../Runtime/Rendering/ViewportRendering.md#output-policies);
+this investigation retains the evidence and unresolved native policy boundary.
 
 The [UE 5.8.3 source comparison](#ue-583-source-comparison-on-2026-10-18)
 finds no VSync-dependent drawable-pool reduction. Its macOS native-present path
@@ -566,24 +567,21 @@ hides the title and adds `FullSizeContentView` while preserving the `Titled` bit
 That matches the independently reproduced configuration. Replacing the command
 submission/lifetime pipeline is not justified by the controls.
 
-The preferred bounded repair candidate remains a presentation-policy change:
-request count 2 plus synchronization off for `Unsynchronized`, and count 3 plus
-synchronization on for `FramePaced`, at the existing native drawing boundary.
-Read back and log both values. Keep the existing completion ownership and do not
-add per-frame GPU-idle waits. Changing all windows to borderless affects native
-window behavior; marking every layer nonopaque sacrifices opacity/display-path
-assumptions. Both are useful controls, not preferred general repairs.
-The two-drawable candidate can incur WindowServer composition work in exchange
-for avoiding this observed direct-display throttle; it is a compatibility
-workaround, not a repair to Apple's private display implementation.
-`BestEffort` needs its own bounded-acquisition review, as noted above.
+The user-selected production repair fixes the pool capacity at two for all
+policies, retaining the opaque layer and existing completion ownership. No
+per-frame GPU-idle wait or presentation/lifetime rewrite is introduced. A
+synchronized native control produces approximately 60 FPS with either capacity;
+it supplies no evidence that the synchronized path needs three. Keeping a fixed
+capacity also avoids pool reconfiguration during VSync toggles. The lasting
+behavior belongs to the viewport contract linked above.
 
-Production adoption still needs policy-switch, pending-frame resize, multi-window,
-teardown, and rendered-output coverage in the real backend, plus a visible Editor
-check and another OS/device when available. No native timing assertion should
-require every Mac to exceed 60 FPS. Probe programs were compiled with `-O2`, not
-measured as a Release/Tracy-off Editor acceptance run. The underlying private
-display policy and cross-machine behavior remain unresolved.
+Two drawables can incur WindowServer composition work in exchange for avoiding
+the observed direct-display throttle. This remains a compatibility workaround
+for the measured system. Another OS/device, manual pointer-driven window gestures,
+and the underlying private display policy remain unqualified. `BestEffort` still
+needs its separate bounded-acquisition review. No native timing assertion should
+require every Mac to exceed 60 FPS. Native probes and Debug/Tracy Editor timings
+do not establish a Release/Tracy-off performance baseline.
 
 New raw CSVs, process/display receipts, versioned native sources, runners, trace
 exports, and source fingerprints are retained under ignored
@@ -591,4 +589,25 @@ exports, and source fingerprints are retained under ignored
 sample selection. The initial launched trace was killed at its recording limit;
 a later no-title trace timed out during finalization. Neither is attribution
 evidence. The three successful attached traces above are distinct from those
-attempts. Production source remains unchanged.
+attempts. Those experiments did not change production policy; the later fixed-pool
+adoption is recorded above and in the qualification receipt below.
+
+### Fixed-Capacity Production Qualification On 2026-10-18
+
+The [Metal plan's bounded Stage 1/4 receipt](../Plans/MetalRHI.md#closeout-evidence-and-remaining-work)
+records the final source selection, four passing Metal-API-validation viewport
+tests, restored-production Editor startup/presentation/shutdown, and the failed
+secondary-window shrink case. It also distinguishes completed multi-window
+policy checks from the incomplete full lifecycle run. The short real Editor
+sample reaches approximately 190-230 FPS with one unsynchronized window and
+160 FPS with three windows, versus approximately 60 FPS when synchronized. All
+sampled layers keep capacity two and opacity true. These Debug/Tracy submission
+rates confirm removal of the local refresh ceiling, not a cross-system or
+Release performance guarantee.
+
+Raw test logs, temporary diagnostic sources, fingerprints and runtime phase
+summaries are retained under ignored
+`Build/.agent-state/metal-two-drawables-editor-20261018/`. The production change
+only sets capacity at viewport creation; policy switches still change only
+`displaySyncEnabled`. The secondary resize failure remains a separate lifecycle
+qualification gap and is not concealed by the passing presentation-policy cases.

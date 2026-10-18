@@ -4,7 +4,7 @@ Summary: Define Level Editor render controls, the viewport statistics summary, a
 
 Modules: LevelEditor, Engine, RenderCore, Renderer
 
-Last reviewed: 2026-10-13
+Last reviewed: 2026-10-18
 
 ## Ownership
 
@@ -59,8 +59,10 @@ defaults on and persists as `Display.VSyncEnabled` in `EditorHostSettings.yaml`.
 Turning it off requests immediate presentation; unsupported platforms fall back
 to Mailbox or FIFO. A per-window actual-mode readout exposes synchronized fallback
 instead of implying that the requested mode was selected. Changes apply at the
-next window drawing boundary by recreating its swapchain, without replacing the
-RHI viewport object or changing scene settings.
+next window drawing boundary without replacing the RHI viewport object or
+changing scene settings. Vulkan recreates its swapchain. Metal changes only
+`displaySyncEnabled`, retaining an opaque layer and a fixed two-drawable pool;
+see the [viewport presentation contract](../../Runtime/Rendering/ViewportRendering.md#output-policies).
 
 Overview reports the smoothed wall-clock frame interval and directly measured
 main-thread elapsed times for four non-overlapping call ranges:
