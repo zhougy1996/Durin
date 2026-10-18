@@ -137,25 +137,26 @@ namespace Durin::Editor::Level
 	// Returns the frame rate from the shared stable timing snapshot.
 	auto GetStableEditorFramesPerSecond() -> float;
 
+	// Reserve three digits so changing FPS values never moves the HUD controls.
+	inline auto GetViewportFpsBadgeWidth() -> float
+	{
+		return ImGui::CalcTextSize("999 FPS").x + MonaImGui::ScaleUI(14.0f);
+	}
+
 	inline auto CalculateViewportStatisticsOverlayLayout(
 		const ImVec2& ViewportMin,
 		const ImVec2& ViewportMax,
-		bool bExpanded,
-		float FramesPerSecond = GAverageFPS) -> FViewportStatisticsOverlayLayout
+		bool bExpanded) -> FViewportStatisticsOverlayLayout
 	{
-		char FpsText[32];
-		snprintf(FpsText, sizeof(FpsText), "%.0f FPS", FramesPerSecond);
-		const ImVec2 TextSize = ImGui::CalcTextSize(FpsText);
 		const float OverlayHeight = std::max(
 			MonaImGui::ScaleUI(30.0f),
 			ImGui::GetFontSize() + MonaImGui::ScaleUI(12.0f));
-		const float HorizontalPadding = MonaImGui::ScaleUI(7.0f);
 		FViewportStatisticsOverlayLayout Layout;
 		Layout.BadgeMax = ImVec2(
 			ViewportMax.x - MonaImGui::ScaleUI(10.0f),
 			ViewportMin.y + MonaImGui::ScaleUI(8.0f) + OverlayHeight);
 		Layout.BadgeMin = ImVec2(
-			Layout.BadgeMax.x - TextSize.x - HorizontalPadding * 2.0f,
+			Layout.BadgeMax.x - GetViewportFpsBadgeWidth(),
 			ViewportMin.y + MonaImGui::ScaleUI(8.0f));
 
 		const float Margin = MonaImGui::ScaleUI(10.0f);

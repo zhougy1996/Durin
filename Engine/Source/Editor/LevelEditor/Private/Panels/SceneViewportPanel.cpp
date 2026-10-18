@@ -289,8 +289,7 @@ namespace Durin::Editor::Level
 					: FSceneViewportStatisticsSnapshot{};
 				const FViewportStatisticsOverlayLayout InitialStatisticsLayout =
 					CalculateViewportStatisticsOverlayLayout(
-						VpMin, VpMax, bShowStatistics,
-						GetStableEditorFramesPerSecond());
+						VpMin, VpMax, bShowStatistics);
 				const bool bStatisticsInitiallyHovered =
 					InitialStatisticsLayout.Contains(ImGui::GetMousePos());
 				if (!Context.bReadOnly && !bStatisticsInitiallyHovered
@@ -355,8 +354,7 @@ namespace Durin::Editor::Level
 					&EditModeManager, VpMin, VpMax);
 				const FViewportStatisticsOverlayLayout StatisticsLayout =
 					CalculateViewportStatisticsOverlayLayout(
-						VpMin, VpMax, bShowStatistics,
-						GetStableEditorFramesPerSecond());
+						VpMin, VpMax, bShowStatistics);
 				const bool bStatisticsHovered =
 					StatisticsLayout.Contains(ImGui::GetMousePos());
 				bViewportHovered = bViewportImageHovered && !bStatisticsHovered;

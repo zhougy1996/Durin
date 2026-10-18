@@ -815,9 +815,7 @@ namespace Durin::Editor::Level
 
 		if (ViewportClient != nullptr)
 		{
-			char FpsText[32];
-			snprintf(FpsText, sizeof(FpsText), "%.0f FPS", GAverageFPS);
-			const float FpsWidth = ImGui::CalcTextSize(FpsText).x + MonaImGui::ScaleUI(14.0f);
+			const float FpsWidth = GetViewportFpsBadgeWidth();
 			const float CurrentSpeed = ViewportClient->GetMovementSpeed();
 			const std::string SpeedLabel = CurrentSpeed >= 1.0f
 				? std::format("{:.0f}", CurrentSpeed)
@@ -1397,7 +1395,7 @@ namespace Durin::Editor::Level
 		const float StableFramesPerSecond = GetStableEditorFramesPerSecond();
 		FViewportStatisticsOverlayLayout Layout =
 			CalculateViewportStatisticsOverlayLayout(
-				ViewportMin, ViewportMax, bExpanded, StableFramesPerSecond);
+				ViewportMin, ViewportMax, bExpanded);
 		const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();
 		ImGui::PushClipRect(ViewportMin, ViewportMax, true);
 		const ImVec2 BadgeSize(
@@ -1415,7 +1413,7 @@ namespace Durin::Editor::Level
 		{
 			bExpanded = !bExpanded;
 			Layout = CalculateViewportStatisticsOverlayLayout(
-				ViewportMin, ViewportMax, bExpanded, StableFramesPerSecond);
+				ViewportMin, ViewportMax, bExpanded);
 		}
 		ImGui::SetCursorScreenPos(SavedCursor);
 
