@@ -91,10 +91,13 @@ namespace Durin::Editor
 		DURINED_API auto Save(::Durin::DObject* Object,
 			const std::function<bool()>& BeforeSave,
 			const std::function<void(std::string)>& ReportError) -> bool;
+		// Supply the document's manager to migrate its roots during reload; AfterReload
+		// refreshes workspace consumers before the old generation retires.
 		DURINED_API auto Discard(::Durin::DObject* Object,
 			const std::function<void()>& BeforeDiscard = {},
 			const std::function<void(::Durin::DPackage*, ::Durin::DPackage*)>& AfterReload = {},
-			const std::function<void(std::string)>& ReportError = {}) -> bool;
+			const std::function<void(std::string)>& ReportError = {},
+			FWorkspaceManager* WorkspaceManager = nullptr) -> bool;
 
 		DURINED_API auto CanUndo() const -> bool;
 		DURINED_API auto CanRedo() const -> bool;

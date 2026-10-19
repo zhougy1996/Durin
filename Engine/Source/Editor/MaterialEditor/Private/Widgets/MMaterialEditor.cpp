@@ -397,7 +397,7 @@ namespace Durin::Editor::Material
 		return Documents.Discard(Material, {},
 			[this](DPackage* Previous, DPackage* Replacement) {
 				WorkspaceManager.NotifyPackageReloaded(Previous, Replacement);
-			}, [this](std::string Message) { SetError(std::move(Message)); });
+			}, [this](std::string Message) { SetError(std::move(Message)); }, &WorkspaceManager);
 	}
 
 	auto MMaterialEditor::OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void

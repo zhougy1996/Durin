@@ -5,6 +5,10 @@
 #include "ApplicationCoreGlobals.h"
 #include "Application/MonaEventHandler.h"
 #include "Documents/LevelDocumentRevisionState.h"
+#include "Asset/Load.h"
+#include "DObject/StrongObjectPtr.h"
+#include "DObject/GarbageCollectionScheduler.h"
+#include "Misc/Time.h"
 #include "Math/Operations.h"
 #include "MonaImGui.h"
 #include "Runtime/MonaImGui/Private/Backend/ImGuiMonaImpl.h"
@@ -678,6 +682,60 @@ TEST(FEditorTransactionManagerTests, ClearForgetsMetadataWithoutReusingRevisionI
 	EXPECT_FALSE(Manager->GetPackageRevisionState(*First).has_value());
 	Manager->EstablishSavedState(*Second);
 	EXPECT_GT(Manager->GetPackageRevisionState(*Second)->CurrentRevision, BeforeClear);
+}
+
+TEST(FLevelDocumentResidencyTests, CloseReleasesWorldReferenceAndSchedulesCollection)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	Testing::FScopedMountRegistryFixture MountFixture;
+	Testing::RegisterMountPointForTests("/Test/", Testing::GetTestWorkDirectory().generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/Test/DeferredLevelRetirement", Path));
+	DPackage* Package = CreatePackage(Path);
+	ASSERT_NE(Package, nullptr);
+	Package->MarkDirty();
+	auto* Level = NewObject<DLevel>(Package, "Level", EObjectFlags::Public);
+	TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, "ClosingResidencyWorld"));
+	ASSERT_TRUE(World->InitializeSubsystems());
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	TWeakObjectPtr<DPackage> WeakPackage(Package);
+	{
+		FGarbageCollectionDeferralScope Callback;
+		ASSERT_TRUE(World->SetCurrentLevel(nullptr));
+		ASSERT_TRUE(ReleasePackageResidency(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
+		EXPECT_EQ(WeakPackage.Get(), Package);
+		EXPECT_FALSE(Package->HasAnyObjectFlags(EObjectFlags::Standalone));
+		EXPECT_TRUE(IsGarbageCollectionRequested());
+		EXPECT_EQ(TryCollectGarbage(FTime::Seconds()), EGarbageCollectionTrigger::None);
+	}
+	EXPECT_EQ(TryCollectGarbage(FTime::Seconds()), EGarbageCollectionTrigger::Requested);
+	EXPECT_EQ(WeakPackage.Get(), nullptr);
+	World->Shutdown();
+}
+
+TEST(FLevelDocumentResidencyTests, ReactivatedLevelRemainsAliveThroughWorldOwnership)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	Testing::FScopedMountRegistryFixture MountFixture;
+	Testing::RegisterMountPointForTests("/Test/", Testing::GetTestWorkDirectory().generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/Test/ReactivatedLevelRetirement", Path));
+	DPackage* Package = CreatePackage(Path);
+	ASSERT_NE(Package, nullptr);
+	auto* Level = NewObject<DLevel>(Package, "Level", EObjectFlags::Public);
+	TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, "ReactivatedResidencyWorld"));
+	ASSERT_TRUE(World->InitializeSubsystems());
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	TWeakObjectPtr<DPackage> WeakPackage(Package);
+	ASSERT_TRUE(ReleasePackageResidency(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	CollectGarbage();
+	EXPECT_EQ(WeakPackage.Get(), Package);
+	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
+	World->Shutdown();
+	CollectGarbage();
+	EXPECT_EQ(WeakPackage.Get(), nullptr);
 }
 
 TEST(FLevelDocumentRevisionStateTests, AdvancesCheckpointOnlyAfterSuccessfulSave)

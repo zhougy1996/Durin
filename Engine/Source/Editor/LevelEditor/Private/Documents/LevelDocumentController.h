@@ -3,11 +3,14 @@
 #include "CoreMinimal.h"
 
 #include "Documents/DocumentDialogPresenters.h"
+#include "Asset/Load.h"
 #include "DObject/SoftObjectPtr.h"
+#include "DObject/WeakObjectPtr.h"
 
 namespace Durin
 {
 	class DLevel;
+	class DWorld;
 }
 
 namespace Durin::Editor::Level
@@ -54,6 +57,7 @@ namespace Durin::Editor::Level
 		auto OpenDefaultLevel() -> bool;
 		auto SaveCurrentLevel() -> bool;
 		auto RenameCurrentLevel(std::string_view NewName) -> bool;
+		auto CloseLevel() -> bool;
 
 	private:
 		// Selects the modal confirmation that must be resolved before continuing.
@@ -67,7 +71,7 @@ namespace Durin::Editor::Level
 		auto OpenLevel(std::string_view Path) -> ELevelDocumentOpenResult;
 		auto ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool;
 		auto CompletePendingDocumentOpen(bool bSucceeded) -> void;
-		auto ActivateLevel(DLevel* Level) -> bool;
+		auto ActivateLevel(DLevel* Level, FAssetPackageLoadScope& LoadScope) -> bool;
 		auto SetError(std::string Message) const -> void;
 
 		FLevelEditorContext& Context;
@@ -83,6 +87,9 @@ namespace Durin::Editor::Level
 		std::string PendingLevelPath;
 		std::string PendingProjectFile;
 		FUnsavedLevelDialogPresenter UnsavedLevelDialog;
+		FAssetPackageLoadScope ActiveLoadScope;
+		TWeakObjectPtr<DPackage> DocumentPackage;
+		TWeakObjectPtr<DWorld> DocumentWorld;
 		bool bPendingDocumentOpen = false;
 	};
 } // namespace Durin::Editor::Level

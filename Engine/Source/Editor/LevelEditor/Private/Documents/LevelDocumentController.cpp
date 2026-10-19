@@ -178,24 +178,19 @@ namespace Durin::Editor::Level
 		if (!Result)
 		{
 			SetError(Result.error().Message);
-			(void)LoadScope.Release();
+			(void)LoadScope.ReleaseResidency();
 			return false;
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
 		bool bActivated = false;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument.Activation");
-			bActivated = ActivateLevel(Level);
+			bActivated = ActivateLevel(Level, LoadScope);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationComplete);
 		if (!bActivated)
 		{
-			const auto ReleaseResult =
-				LoadScope.Release();
-			if (!ReleaseResult)
-				DURIN_WARN(
-					"Failed to release packages after default-level activation failed: {}",
-					ReleaseResult.Message);
+			(void)LoadScope.ReleaseResidency();
 			return false;
 		}
 		return true;
@@ -220,15 +215,12 @@ namespace Durin::Editor::Level
 		if (!Result)
 		{
 			SetError(Result.error().Message);
-			(void)LoadScope.Release();
+			(void)LoadScope.ReleaseResidency();
 			return ELevelDocumentOpenResult::Rejected;
 		}
-		if (!ActivateLevel(Level))
+		if (!ActivateLevel(Level, LoadScope))
 		{
-			const auto ReleaseResult =
-				LoadScope.Release();
-			if (!ReleaseResult)
-				DURIN_WARN("Failed to release packages after level activation failed: {}", ReleaseResult.Message);
+			(void)LoadScope.ReleaseResidency();
 			return ELevelDocumentOpenResult::Rejected;
 		}
 		PendingAction = ELevelDocumentAction::None;
@@ -341,7 +333,32 @@ namespace Durin::Editor::Level
 		return true;
 	}
 
-	auto FLevelDocumentController::ActivateLevel(DLevel* Level) -> bool
+	auto FLevelDocumentController::CloseLevel() -> bool
+	{
+		if (DocumentWorld.IsValid() && GEditor && GEditor->IsPlaying()) return false;
+		DWorld* World = DocumentWorld.Get();
+		DPackage* Package = DocumentPackage.Get();
+		if (World && World->GetCurrentLevel())
+		{
+			// The authoritative world can have been updated by package reload.
+			Package = World->GetCurrentLevel()->GetPackage();
+			SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
+			SessionSettings.Save(&SceneViewportPanel);
+			SceneViewportPanel.PrepareForLevelChange(Context);
+			if (!World->SetCurrentLevel(nullptr)) return false;
+			FLevelDocumentRevisionState::Activate(GetLevelTransactions(), Package, nullptr);
+			Context.Synchronize(World);
+			SceneViewportPanel.RestoreCameraState(nullptr, nullptr);
+		}
+		const auto Result = ActiveLoadScope.ReleaseResidency(
+			Package && Package->IsAssetPackage() ? Package : nullptr, EAssetPackageUnloadPolicy::DiscardUnsaved);
+		if (!Result) { SetError(Result.Message); return false; }
+		DocumentPackage.Reset();
+		DocumentWorld.Reset();
+		return true;
+	}
+
+	auto FLevelDocumentController::ActivateLevel(DLevel* Level, FAssetPackageLoadScope& LoadScope) -> bool
 	{
 		if (!Context.World || !Level)
 		{
@@ -352,6 +369,7 @@ namespace Durin::Editor::Level
 		SessionSettings.Save(&SceneViewportPanel);
 		DLevel* Previous = Context.World->GetCurrentLevel();
 		DPackage* PreviousPackage = Previous ? Previous->GetPackage() : nullptr;
+		if (Previous != Level) SceneViewportPanel.PrepareForLevelChange(Context);
 		if (!Context.World->SetCurrentLevel(Level))
 		{
 			SetError("The level is already active in another world.");
@@ -360,15 +378,16 @@ namespace Durin::Editor::Level
 		FLevelDocumentRevisionState::Activate(GetLevelTransactions(), PreviousPackage, Level->GetPackage());
 		Context.Synchronize(Context.World);
 		SessionSettings.RestoreViewportState(Level, SceneViewportPanel);
-		if (PreviousPackage && PreviousPackage != Level->GetPackage())
+		if (PreviousPackage != Level->GetPackage())
 		{
-			FPackagePath PreviousPath;
-			if (FPackagePath::TryCreate(PreviousPackage->GetPackagePath(), PreviousPath))
-			{
-				auto Result = UnloadPackage(PreviousPath);
-				if (!Result && Result.Error != EAssetReadError::NotFound) DURIN_WARN("Failed to unload previous level: {}", Result.Message);
-			}
+			const auto Result = ActiveLoadScope.ReleaseResidency(
+				PreviousPackage && PreviousPackage->IsAssetPackage() ? PreviousPackage : nullptr,
+				EAssetPackageUnloadPolicy::DiscardUnsaved);
+			if (!Result) DURIN_WARN("Failed to release previous level residency: {}", Result.Message);
+			ActiveLoadScope = std::move(LoadScope);
 		}
+		DocumentPackage = Level->GetPackage();
+		DocumentWorld = Context.World;
 		return true;
 	}
 

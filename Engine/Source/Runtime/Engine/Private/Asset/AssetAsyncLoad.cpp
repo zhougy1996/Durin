@@ -7,6 +7,7 @@
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Misc/FileHelper.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/TaskComposition.h"
@@ -80,10 +81,18 @@ namespace Durin
 		FAsyncLoadCallback Callback;
 		TStrongObjectPtr<DPackage> Package;
 		TStrongObjectPtr<DObject> Object;
+		FAssetPackageLoadScope LoadScope;
 	};
 
 	FAsyncLoadHandle::FAsyncLoadHandle() : Impl(std::make_unique<FImpl>()) {}
-	FAsyncLoadHandle::~FAsyncLoadHandle() { CheckAsyncLoadThread(); }
+	FAsyncLoadHandle::~FAsyncLoadHandle()
+	{
+		CheckAsyncLoadThread();
+		// Like a streamable handle, release this request's retention only. Other
+		// handles and live object references remain independent GC owners.
+		(void)Impl->LoadScope.ReleaseResidency();
+		if (Impl->Package.IsValid()) RequestGarbageCollection();
+	}
 	auto FAsyncLoadHandle::GetState() const -> EAsyncLoadState { CheckAsyncLoadThread(); return Impl->State; }
 	auto FAsyncLoadHandle::IsComplete() const -> bool
 	{
@@ -151,6 +160,7 @@ namespace Durin
 			DPackage* Package = nullptr;
 			DObject* Object = nullptr;
 			FAssetReadResult Result;
+			FAssetPackageLoadScope LoadScope;
 			{
 				// Preserve the synchronous loader's SCC ordering, rollback and publication.
 				// No uncaptured dependency may silently perform disk I/O on GameThread.
@@ -159,19 +169,21 @@ namespace Durin
 					~FRestore() { Slot = Value; } } Restore{Loader.AsyncInputs, Previous};
 				if (State.ObjectPath)
 				{
-					auto Loaded = Loader.LoadObject(*State.ObjectPath, State.ExpectedClass, &State.Report);
+					auto Loaded = LoadScope.LoadObject(*State.ObjectPath, State.ExpectedClass, &State.Report);
 					Object = Loaded.value_or(nullptr);
 					if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
 					Package = Object ? Object->GetPackage() : nullptr;
 				}
 				else
 				{
-					auto Loaded = Loader.LoadPackage(State.PackagePath, &State.Report);
+					auto Loaded = LoadScope.LoadPackage(State.PackagePath, &State.Report);
 					Package = Loaded.value_or(nullptr);
 					if (!Loaded) Result = AssetReadResultFromError(Loaded.error());
 				}
 			}
 			Complete(Handle, std::move(Result), Package, Object);
+			if (State.State == EAsyncLoadState::Succeeded) State.LoadScope = std::move(LoadScope);
+			else (void)LoadScope.ReleaseResidency();
 		}
 
 	public:

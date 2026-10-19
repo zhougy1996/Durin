@@ -369,7 +369,8 @@ the registration revision is an availability check, not a provider lifetime pin.
 Deletion never rewrites persistent paths. Preparation evaluates the selected
 target, complete direct/upstream alias closure, unified reference projection,
 registered external stores, residency, and exact files. Alias-only deletion,
-broken aliases, incomplete alias closure, dirty/loading packages, unsafe paths,
+broken aliases, incomplete alias closure, dirty/loading packages, open levels,
+rooted/native-owned objects, external live GC references, unsafe paths,
 and changed fingerprints are blocked. After confirmation, maximal roots are
 permanently removed and no Engine recovery copy, Undo record, Restore command,
 or reverse callback is retained. Recovery belongs to version control. A partial
@@ -387,6 +388,22 @@ referencers, dirty/loading packages, and stale catalog state. After the physical
 callback, `PublishPackageRemoval` removes matching catalog entries only when
 their package files are absent. An empty, moved-from, blocked, or previously
 executed AssetTools operation cannot invoke the callback.
+
+`ValidatePackageRemovalReferences` inspects current object references without
+collecting or modifying graphs. AssetTools uses it during preparation and
+confirmation validation; Engine repeats it after host file-validation callbacks,
+before marking any selected graph as garbage. Opening a level or acquiring a
+strong reference after confirmation therefore rejects the whole batch before
+physical deletion. Close the level/editor or release its owner before retrying;
+confirmation never authorizes forced destruction of an active graph.
+
+Workspace asset documents hold native strong references for their entire open
+lifetime, including inactive tabs and read-only inspectors. This protects
+materials, material instances/functions/parameter collections, textures, volume
+textures, and static meshes through the same reference check without a deletion
+type whitelist. Closing or unregistering a document releases its own reference;
+other consumers may continue to retain the asset. Discard participates in atomic
+package reload to migrate document roots before retiring the old generation.
 
 ContentBrowser hashes each surviving confirmed file once per execution attempt,
 after asset policy validation, and shares those freshly verified identities through

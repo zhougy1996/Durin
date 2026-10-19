@@ -8,6 +8,11 @@
 
 namespace Durin
 {
+	// Read-only admission check for open levels, roots, native owners and external
+	// live GC references. References within the complete removal set are allowed.
+	ENGINE_API auto ValidatePackageRemovalReferences(std::span<const FPackagePath> Packages,
+		FPackagePath* OutBlockedPackage = nullptr) -> FAssetWriteResult;
+
 	// Validates the entire expected set before retiring its resident object graphs.
 	// Rejects cooked mode, stale metadata, loading/dirty packages and outside hard
 	// referencers. References within the set are allowed. Main-thread authoring only.

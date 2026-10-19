@@ -68,6 +68,7 @@ namespace Durin::Editor::Level
 			SessionSettings.CaptureViewportState(*Context, *SceneViewportPanel);
 			SessionSettings.Save(SceneViewportPanel);
 		}
+		if (DocumentController) (void)DocumentController->CloseLevel();
 		DocumentController.reset();
 		AssetMoveCoordinator.reset();
 	}
@@ -374,6 +375,7 @@ namespace Durin::Editor::Level
 	{
 		if (!RequestDeactivate()) return ::Durin::Editor::EDocumentCloseResult::Rejected;
 		if (IsDocumentDirty(Document)) return ::Durin::Editor::EDocumentCloseResult::PendingConfirmation;
+		if (DocumentController && !DocumentController->CloseLevel()) return ::Durin::Editor::EDocumentCloseResult::Rejected;
 		return ::Durin::Editor::EDocumentCloseResult::Closed;
 	}
 

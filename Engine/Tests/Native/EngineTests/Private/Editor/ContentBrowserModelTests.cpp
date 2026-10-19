@@ -17,6 +17,9 @@
 #include "AssetTools/IAssetTools.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
+#include "DObject/StrongObjectPtr.h"
+#include "Engine/Level.h"
+#include "Engine/World.h"
 #include "Transactions/Transaction.h"
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
@@ -2287,6 +2290,80 @@ TEST_F(FContentBrowserModelTests, UnrelatedStandardPackageDamageDoesNotInvalidat
 	EXPECT_FALSE(std::filesystem::exists(SelectedFile));
 	EXPECT_TRUE(std::filesystem::exists(OutsideFile));
 	ASSERT_TRUE(std::filesystem::remove(OutsideFile));
+}
+
+TEST_F(FContentBrowserModelTests, DeletionRejectsOpenLevelAndAllowsDeletionAfterClose)
+{
+	InitializeDObjectSystem();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/OpenLevelDeletion", Path));
+	DLevel* Level = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Level));
+	ASSERT_TRUE(SavePackage(Level->GetPackage()));
+	const std::filesystem::path File = FindAssetExact(Path)->PhysicalPath;
+	TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, "DeletionWorld"));
+	ASSERT_TRUE(World->InitializeSubsystems());
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	FAssetDeletionOperation Operation;
+	EXPECT_FALSE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {Path}}, Operation));
+	EXPECT_TRUE(std::ranges::any_of(Operation.GetBlockers(), [&](const auto& Blocker) {
+		return Blocker.Kind == EAssetDeletionBlocker::ExternalLoadedReference
+			&& Blocker.AssetPath == Path && Blocker.Details.find("Close the level") != std::string::npos;
+	}));
+	EXPECT_EQ(World->GetCurrentLevel(), Level);
+	EXPECT_FALSE(Level->IsGarbage());
+	EXPECT_TRUE(std::filesystem::exists(File));
+	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
+	World->Shutdown();
+	ASSERT_TRUE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {Path}}, Operation));
+	ASSERT_TRUE(Operation.Delete({.Delete = [&](auto& Removed) -> FAssetWriteResult {
+		std::error_code Error;
+		if (!std::filesystem::remove(File, Error)) return {EAssetWriteError::IoError, Error.message()};
+		Removed.push_back(File);
+		return {};
+	}}));
+	EXPECT_FALSE(std::filesystem::exists(File));
+	EXPECT_EQ(FindAssetExact(Path), nullptr);
+}
+
+TEST_F(FContentBrowserModelTests, DeletionRechecksLevelOpenedAfterConfirmationAndDuringFileValidation)
+{
+	InitializeDObjectSystem();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/LateOpenLevelDeletion", Path));
+	DLevel* Level = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Level));
+	ASSERT_TRUE(SavePackage(Level->GetPackage()));
+	DPackage* Package = Level->GetPackage();
+	const std::filesystem::path File = FindAssetExact(Path)->PhysicalPath;
+	TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, "LateDeletionWorld"));
+	ASSERT_TRUE(World->InitializeSubsystems());
+	FAssetDeletionOperation Operation;
+	ASSERT_TRUE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {Path}}, Operation));
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	EXPECT_EQ(Operation.Validate().Error, EAssetWriteError::InUse);
+	uint32 Deletes = 0;
+	const auto Delete = [&](auto&) -> FAssetWriteResult { ++Deletes; return {}; };
+	EXPECT_FALSE(Operation.Delete({.Delete = Delete}));
+	EXPECT_EQ(Deletes, 0u);
+	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
+	EXPECT_TRUE(Operation.Validate());
+	EXPECT_FALSE(Operation.Delete({
+		.Delete = Delete,
+		.ValidateFiles = [&](FAssetDeletionFileIdentities& Identities) -> FAssetWriteResult {
+			if (!World->SetCurrentLevel(Level)) return {EAssetWriteError::InUse, "Could not open level."};
+			const auto Identity = FFileHelper::HashFileXx128(File);
+			if (!Identity) return {EAssetWriteError::IoError, Identity.error().ToString()};
+			Identities.emplace(File.generic_string(), *Identity);
+			return {};
+		}}));
+	EXPECT_EQ(Deletes, 0u);
+	EXPECT_EQ(FindResidentPackage(Path), Package);
+	EXPECT_EQ(World->GetCurrentLevel(), Level);
+	EXPECT_FALSE(Level->IsGarbage());
+	EXPECT_TRUE(std::filesystem::exists(File));
+	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
+	World->Shutdown();
 }
 
 TEST_F(FContentBrowserModelTests, DeletionSharesFreshHostHashesAndRequiresCompleteEvidence)

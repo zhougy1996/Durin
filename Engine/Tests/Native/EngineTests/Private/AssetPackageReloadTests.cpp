@@ -12,6 +12,8 @@
 #include "DObject/Archive.h"
 #include "Transactions/Transactor.h"
 #include "Workspace/WorkspaceRootWindow.h"
+#include "Workspace/WorkspaceManager.h"
+#include "Asset/PackageRemoval.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialFunction.h"
@@ -28,6 +30,19 @@
 
 namespace
 {
+	class FReloadTestWorkspace final : public Durin::Editor::IWorkspace
+	{
+	public:
+		auto GetWorkspaceType() const -> const Durin::Editor::FWorkspaceTypeId& override { return Type; }
+		auto OpenDocument(const Durin::Editor::FDocumentTab&) -> Durin::Editor::EDocumentOpenResult override
+		{ return Durin::Editor::EDocumentOpenResult::Opened; }
+		auto ActivateDocument(const Durin::Editor::FDocumentTab&) -> void override {}
+		auto DrawWorkspace(bool) -> bool override { return false; }
+		auto ResetLayout() -> void override {}
+	private:
+		Durin::Editor::FWorkspaceTypeId Type{"ReloadTest"};
+	};
+
 	auto CaptureFunctionExpressions(const Durin::DMaterialFunction& Function)
 		-> std::vector<Durin::TStrongObjectPtr<Durin::DMaterialExpression>>
 	{
@@ -112,12 +127,24 @@ namespace
 			else Cloud->SetBaseDensityTexture(Texture);
 
 			Durin::Editor::FEditableAssetDocumentModel Documents;
+			Durin::Editor::FWorkspaceManager Manager;
+			auto Workspace = std::make_shared<FReloadTestWorkspace>();
+			auto Registration = Manager.RegisterBatch({.Workspaces = {{
+				.Descriptor = {.WorkspaceType = Workspace->GetWorkspaceType(),
+					.DisplayName = "Reload test", .RootKey = "ReloadTest"}, .Workspace = Workspace}}});
+			const auto Document = Manager.OpenDocument({.WorkspaceType = Workspace->GetWorkspaceType(),
+				.DocumentKey = Texture->GetObjectPath(), .ResourceId = Texture->GetObjectPath(), .Label = "Texture"});
+			ASSERT_TRUE(Document.IsValid());
+			const std::array Paths{Path};
+			EXPECT_EQ(Durin::ValidatePackageRemovalReferences(Paths).Error, Durin::EAssetWriteError::InUse);
 			ASSERT_TRUE(Documents.Activate({.Id = {1}, .ResourceId = Path.ToString()}, Texture));
 			std::string Error;
 			ASSERT_TRUE(SetSource(*Texture, std::byte{91}, Error)) << Error;
 			Texture->GetPackage()->MarkDirty();
 			ASSERT_NE(Texture->GetSource().GetIdentity(), SavedIdentity);
-			ASSERT_TRUE(Documents.Discard(Texture));
+			ASSERT_TRUE(Documents.Discard(Texture, {}, [&](auto* Previous, auto* Replacement) {
+				Manager.NotifyPackageReloaded(Previous, Replacement);
+			}, {}, &Manager));
 
 			T* Referenced = nullptr;
 			if constexpr (std::is_same_v<T, Durin::DTexture2D>) Referenced = Cloud->GetWeatherTexture();
@@ -129,6 +156,9 @@ namespace
 			ASSERT_TRUE(Durin::SavePackage(Referenced->GetPackage()));
 			Cloud->SetWeatherTexture(nullptr);
 			Cloud->SetBaseDensityTexture(nullptr);
+			EXPECT_EQ(Durin::ValidatePackageRemovalReferences(Paths).Error, Durin::EAssetWriteError::InUse);
+			EXPECT_EQ(Manager.RequestCloseDocument(Document), Durin::Editor::EDocumentCloseResult::Closed);
+			EXPECT_TRUE(Durin::ValidatePackageRemovalReferences(Paths));
 			ASSERT_TRUE(Durin::UnloadPackage(Path));
 			Texture = nullptr;
 			{

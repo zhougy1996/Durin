@@ -125,7 +125,7 @@ namespace Durin::Editor::Texture
 		return Documents.Discard(Find(Document.ResourceId), {},
 			[this](DPackage* Previous, DPackage* Replacement) {
 				Manager.NotifyPackageReloaded(Previous, Replacement);
-			}, [this](std::string Message) { SetError(std::move(Message)); });
+			}, [this](std::string Message) { SetError(std::move(Message)); }, &Manager);
 	}
 
 	auto MVolumeTextureEditor::OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void

@@ -141,7 +141,7 @@ namespace Durin::Editor::Material
 		auto* Document = Find(Tab.ResourceId);
 		return Document && Documents.Discard(Document->Function(), [this] { RequestDeactivate(); },
 			[this](DPackage* Old, DPackage* New) { Manager.NotifyPackageReloaded(Old, New); },
-			[this](std::string Message) { Error = std::move(Message); });
+			[this](std::string Message) { Error = std::move(Message); }, &Manager);
 	}
 	auto MMaterialFunctionEditor::IsDocumentDirty(const FDocumentTab& Tab) const -> bool
 	{

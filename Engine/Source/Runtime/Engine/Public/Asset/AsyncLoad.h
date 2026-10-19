@@ -40,6 +40,9 @@ namespace Durin
 		friend class FAsyncAssetLoadService;
 	};
 
+	// Successful handles retain their objects. Destruction releases only cache
+	// residency introduced by this request and requests scheduled GC; resident-hit
+	// cache ownership and other handles' strong references remain independent.
 	// Deferred, including resident hits and ordinary errors. Lifetime/guard rejection
 	// returns a failed handle without a callback. Higher priority starts first.
 	// Completion means object readiness, not compilation or render-resource readiness.

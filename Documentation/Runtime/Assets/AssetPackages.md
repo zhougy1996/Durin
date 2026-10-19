@@ -116,8 +116,8 @@ that registration. New asset packages begin `NewlyCreated`; a successful first
 save clears that state only after file and catalog publication.
 `DPackage::IsDirty()` independently records unsaved contents.
 
-Every ordinary asset package is `Standalone`, so GC retains registered
-residency without a manual root. `DPackage` registers and strongly retains all
+Ordinary asset loads initially cache packages as `Standalone`, so GC retains
+registered residency without a manual root. `DPackage` registers and strongly retains all
 of its direct persistent exports; no distinguished `Asset` pointer exists.
 Descendants remain alive through their top-level graph's actual GC strong
 references, not merely through Outer. Compiled-in reflection metadata instead
@@ -135,7 +135,22 @@ object calls specify `LoadObject<T>(Path)`. The returned pointer observes existi
 package residency; it does not transfer ownership or promise rollback on failure.
 `FAssetPackageLoadScope` uses the same value contract and records completed
 dependencies even when the requested root fails. Its explicit `Release()` remains
-the residency cleanup boundary.
+the synchronous residency cleanup boundary. `ReleaseResidency()` instead drops
+the scope's admitted packages' cache retention and requests GC at the engine-loop
+safe point. It never collects synchronously or requires independent users to drop
+their references. An optional exact root covers resident-hit document opens;
+explicit discard applies only to that root. Modified dependencies remain cached,
+and dependencies cached before this scope are untouched.
+
+`ReleasePackageResidency` drops only the target package's `Standalone` retention.
+The active World, reflected hard references, native strong pointers, and successful
+async handles independently keep their graphs alive. A graph still referenced
+after ordinary release is expected, not an unload failure. Level document close
+and replacement detach the old World/selection/history references and release
+their load scope through this scheduled path. Package resources and soft-cache
+invalidation follow actual package graph retirement; releasing one user does not
+retire resources still used by another user. Explicit `UnloadPackage` retains its
+synchronous attempt-and-report contract below.
 
 The optional caller-owned `FAssetLoadReport*` remains available on either branch,
 including mutation and canonicalization evidence emitted before a root failure.
@@ -170,7 +185,10 @@ input file leases have been released, may enqueue more requests, and never run
 inside a recursive pump. `Cancel()` suppresses undelivered callbacks, including
 for an already completed request, without cancelling other consumers of the
 same package. Dropping a successful handle releases its strong references;
-ordinary Standalone package residency still follows the unload contract below.
+cache residency introduced by that request is released for scheduled GC, while
+pre-existing cached packages retain their earlier residency. Other handles and
+hard references continue to keep shared assets alive. Failed async loads also
+release their independently completed clean dependencies through scheduled GC.
 
 The initial implementation coalesces active requests for the same root package,
 starts higher-priority pending requests first, and limits detached reads to two

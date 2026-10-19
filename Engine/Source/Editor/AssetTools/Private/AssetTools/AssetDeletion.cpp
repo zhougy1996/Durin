@@ -317,6 +317,9 @@ namespace Durin
 					CompanionResult.Message);
 			OutToken.Entries.push_back(std::move(Entry));
 		}
+		FPackagePath BlockedPackage;
+		if (const auto References = ValidatePackageRemovalReferences(SortedPaths, &BlockedPackage); !References)
+			AddBlocker(EAssetDeletionBlocker::ExternalLoadedReference, BlockedPackage, {}, {}, References.Message);
 		CompanionScope = OutToken.PhysicalRoots;
 		for (const auto& Entry : Entries)
 			CompanionScope.insert(CompanionScope.end(), Entry.CompanionFiles.begin(), Entry.CompanionFiles.end());
@@ -601,6 +604,9 @@ namespace Durin
 			if (Files != Entry.CompanionFiles)
 				return Error(EAssetWriteError::InUse, "Selected companion files changed after confirmation.");
 		}
+		std::vector<FPackagePath> Paths;
+		for (const auto& Entry : Entries) Paths.push_back(Entry.RegistryEntry.PackagePath);
+		if (const auto References = ValidatePackageRemovalReferences(Paths); !References) return References;
 		std::unordered_map<FPackagePath, std::vector<std::filesystem::path>> Companions;
 		for (const auto& [Path, Data] : PreparedSnapshot.Catalog.Assets)
 		{

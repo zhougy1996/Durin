@@ -245,6 +245,44 @@ namespace Durin
 		return Result;
 	}
 
+	auto ReleasePackageResidency(DPackage* Package, EAssetPackageUnloadPolicy Policy) -> FAssetReadResult
+	{
+		CheckSoftObjectThread();
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("ReleasePackageResidency", ""); !Result) return Result;
+		if (!IsValid(Package) || !Package->IsAssetPackage() || Package->IsGraphPrivate())
+			return Error(EAssetReadError::InvalidPackageType, "The package to release is invalid.");
+		auto& Loader = FAssetRuntimeState::Get().GetLoadService();
+		if (Loader.FindResidentPackage(Package->GetPackagePathIdentity()) != Package)
+			return Error(EAssetReadError::NotFound, "The package is not the resident package at its path.");
+		if (Loader.IsPackageLoading(Package->GetPackagePathIdentity()))
+			return Error(EAssetReadError::InUse, "The package is still loading.");
+		if ((Package->IsDirty() || Package->IsNewlyCreated()) && Policy == EAssetPackageUnloadPolicy::RejectUnsaved)
+			return Error(EAssetReadError::InUse, "Package has unsaved state; explicit discard policy is required.");
+		Package->SetStandaloneResidency(false);
+		RequestGarbageCollection();
+		return {};
+	}
+
+	auto FAssetPackageLoadScope::ReleaseResidency(DPackage* Root, EAssetPackageUnloadPolicy Policy) -> FAssetReadResult
+	{
+		CheckSoftObjectThread();
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("ReleaseResidency", ""); !Result) return Result;
+		if (Root)
+		{
+			const auto Result = ReleasePackageResidency(Root, Policy);
+			if (!Result) return Result;
+		}
+		for (const auto& Entry : Packages)
+		{
+			DPackage* Package = Entry.Get();
+			if (!IsValid(Package) || Package == Root || Package->IsGraphPrivate()) continue;
+			// A modified dependency belongs to its editing user, not the closing map.
+			(void)ReleasePackageResidency(Package);
+		}
+		Packages.clear();
+		return {};
+	}
+
 	auto FAssetLoadReport::HasNonUpgradeMutations() const -> bool
 	{
 		return std::ranges::any_of(Mutations, [](const FAssetLoadMutation& Mutation) {
@@ -285,6 +323,14 @@ namespace Durin
 			Loader,
 			RuntimeConfiguration,
 			bAcceptingRequests)
+		, PackageRetirement([](DObject& Object) {
+			// Retirement follows actual graph teardown, not release of a user's references.
+			auto* Package = Cast<DPackage>(&Object);
+			if (!Package || !Package->IsGarbage() || !Package->IsAssetPackage()
+				|| Package->IsGraphPrivate() || FindPackage(Package->GetPackagePath()) != Package) return;
+			GetPackageResourceManager().RetirePackage(Package->GetPackagePath());
+			InvalidateSoftObjectCaches();
+		})
 	{
 	}
 

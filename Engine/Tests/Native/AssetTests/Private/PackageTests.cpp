@@ -44,6 +44,7 @@
 #include "DObject/PackageFormat.h"
 #include "DObject/PropertyKindTraits.h"
 #include "DObject/WeakObjectPtr.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
@@ -1834,6 +1835,73 @@ TEST_F(FAsyncAssetLoadTests, ColdObjectAndPackageRequestsSharePublicationAndReta
 	EXPECT_TRUE(UnloadPackage(Path));
 }
 
+TEST_F(FAsyncAssetLoadTests, LastHandleReleasesNewResidencyWithoutInvalidatingOtherConsumers)
+{
+	using namespace Durin;
+	const auto Path = SaveAsset("AsyncOwnedResidency");
+	ASSERT_TRUE(UnloadPackage(Path));
+	auto First = LoadPackageAsync(Path);
+	auto Second = LoadPackageAsync(Path);
+	ASSERT_TRUE(PumpUntil([&] { return First->IsComplete() && Second->IsComplete(); }));
+	ASSERT_TRUE(First->GetResult());
+	ASSERT_TRUE(Second->GetResult());
+	DPackage* Package = Second->GetLoadedPackage();
+	First.reset();
+	EXPECT_EQ(FindResidentPackage(Path), Package);
+	EXPECT_TRUE(IsGarbageCollectionRequested());
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(Path), Package);
+	EXPECT_EQ(Second->GetLoadedPackage(), Package);
+	Second.reset();
+	EXPECT_EQ(FindResidentPackage(Path), Package);
+	EXPECT_TRUE(IsGarbageCollectionRequested());
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+}
+
+TEST_F(FAsyncAssetLoadTests, ResidentHitReleasePreservesEarlierCachedResidency)
+{
+	using namespace Durin;
+	const auto Path = SaveAsset("AsyncExistingResidency");
+	DPackage* Package = FindResidentPackage(Path);
+	auto Handle = LoadPackageAsync(Path);
+	ASSERT_TRUE(PumpUntil([&] { return Handle->IsComplete(); }));
+	ASSERT_TRUE(Handle->GetResult());
+	Handle.reset();
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(Path), Package);
+	ASSERT_TRUE(UnloadPackage(Path));
+}
+
+TEST_F(FAsyncAssetLoadTests, FailedRequestSchedulesCompletedDependencyResourcesForCollection)
+{
+	using namespace Durin;
+	const auto RootPath = SaveAsset("AsyncResidencyFailure");
+	FPackagePath BulkPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/AsyncResidencyFailureBulk", BulkPath));
+	DBulkPackageAssetForTest* Bulk = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(BulkPath, Bulk));
+	ASSERT_TRUE(Bulk->Payload.UpdatePayload(FByteBuffer(EditorBulkDataExternalThreshold + 1, std::byte{0x31})));
+	static_cast<DPackageAssetForTest*>(FindResidentPackage(RootPath)->GetTopLevelAssets()[0])->ExternalReference = Bulk;
+	ASSERT_TRUE(SavePackage(Bulk->GetPackage()));
+	ASSERT_TRUE(SavePackage(FindResidentPackage(RootPath)));
+	ASSERT_TRUE(UnloadPackage(RootPath));
+	ASSERT_TRUE(UnloadPackage(BulkPath));
+	GRejectPackageAssetDeserialize = true;
+	auto Handle = LoadPackageAsync(RootPath);
+	ASSERT_TRUE(PumpUntil([&] { return Handle->IsComplete(); }));
+	GRejectPackageAssetDeserialize = false;
+	EXPECT_FALSE(Handle->GetResult());
+	EXPECT_EQ(FindResidentPackage(RootPath), nullptr);
+	ASSERT_NE(FindResidentPackage(BulkPath), nullptr);
+	const auto Resource = GetPackageResourceManager().FindPackage(BulkPath.ToString());
+	ASSERT_NE(Resource, nullptr);
+	EXPECT_FALSE(Resource->IsRetired());
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(BulkPath), nullptr);
+	EXPECT_TRUE(Resource->IsRetired());
+}
+
 TEST_F(FAsyncAssetLoadTests, ResidentCallbacksAreDeferredAndCanEnqueueWithoutReentry)
 {
 	using namespace Durin;
@@ -2602,6 +2670,7 @@ TEST(FPackageAssetTests, ExplicitLoadScopeNeverClaimsPublishedReplacementWhileOl
 	EXPECT_EQ(FindResidentPackage(Path), Candidate);
 	EXPECT_TRUE(Scope.Release());
 	EXPECT_EQ(FindResidentPackage(Path), Candidate);
+	EXPECT_TRUE(Scope.ReleaseResidency());
 	EXPECT_TRUE(Candidate->HasAnyObjectFlags(EObjectFlags::Standalone));
 	EXPECT_TRUE(Replacement.Retire());
 	CollectGarbage();
@@ -2653,6 +2722,125 @@ TEST(FPackageAssetTests, ExplicitLoadScopeSavedDependencyExceptionDoesNotFollowR
 	ASSERT_TRUE(Scope.Release(std::span{&CurrentOwner, 1}));
 	EXPECT_EQ(FindResidentPackage(DependencyPath), nullptr);
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(OwnerPath));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(DependencyPath));
+}
+
+TEST(FPackageAssetTests, ScheduledResidencyReleasePreservesSharedDependencyUntilLastUserCloses)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath FirstPath, SecondPath, BulkPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ResidencyFirst", FirstPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ResidencySecond", SecondPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ResidencyShared", BulkPath));
+	DPackageAssetForTest *First = nullptr, *Second = nullptr;
+	DBulkPackageAssetForTest* Bulk = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FirstPath, First));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SecondPath, Second));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(BulkPath, Bulk));
+	ASSERT_TRUE(Bulk->Payload.UpdatePayload(FByteBuffer(EditorBulkDataExternalThreshold + 1, std::byte{0x31})));
+	First->ExternalReference = Bulk;
+	Second->ExternalReference = Bulk;
+	ASSERT_TRUE(SavePackage(Bulk->GetPackage()));
+	ASSERT_TRUE(SavePackage(First->GetPackage()));
+	ASSERT_TRUE(SavePackage(Second->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(FirstPath));
+	ASSERT_TRUE(UnloadPackage(SecondPath));
+	ASSERT_TRUE(UnloadPackage(BulkPath));
+	const auto ResourceCount = GetPackageResourceManager().GetRegisteredPackageCount();
+	FAssetPackageLoadScope FirstScope, SecondScope;
+	const auto LoadedFirst = FirstScope.LoadPackage(FirstPath);
+	const auto LoadedSecond = SecondScope.LoadPackage(SecondPath);
+	ASSERT_TRUE(LoadedFirst);
+	ASSERT_TRUE(LoadedSecond);
+	const auto Resource = GetPackageResourceManager().FindPackage(BulkPath.ToString());
+	ASSERT_NE(Resource, nullptr);
+	ASSERT_TRUE(FirstScope.ReleaseResidency(*LoadedFirst));
+	// Release is legal inside callbacks and does not synchronously collect anything.
+	EXPECT_EQ(FindResidentPackage(FirstPath), *LoadedFirst);
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(FirstPath), nullptr);
+	ASSERT_NE(FindResidentPackage(BulkPath), nullptr);
+	EXPECT_FALSE(FindResidentPackage(BulkPath)->HasAnyObjectFlags(EObjectFlags::Standalone));
+	EXPECT_FALSE(Resource->IsRetired());
+	ASSERT_TRUE(SecondScope.ReleaseResidency(*LoadedSecond));
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(SecondPath), nullptr);
+	EXPECT_EQ(FindResidentPackage(BulkPath), nullptr);
+	EXPECT_TRUE(Resource->IsRetired());
+	EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), ResourceCount);
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(FirstPath));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(SecondPath));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(BulkPath));
+}
+
+TEST(FPackageAssetTests, ScheduledResidencyReleaseKeepsIndependentStrongUsersAndUnsavedPackages)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ResidencyStrongUser", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	DPackage* Package = Asset->GetPackage();
+	ASSERT_TRUE(SavePackage(Package));
+	TStrongObjectPtr<DObject> EditorUser(Asset);
+	ASSERT_TRUE(ReleasePackageResidency(Package));
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(Path), Package);
+	EXPECT_EQ(EditorUser.Get(), Asset);
+	EditorUser.Reset();
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+
+	const auto Reloaded = LoadPackage(Path);
+	ASSERT_TRUE(Reloaded);
+	Package = *Reloaded;
+	Package->MarkDirty();
+	EXPECT_EQ(ReleasePackageResidency(Package).Error, EAssetReadError::InUse);
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(Path), Package);
+	ASSERT_TRUE(ReleasePackageResidency(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
+TEST(FPackageAssetTests, ScheduledScopeReleasePreservesModifiedDependenciesAndPreexistingCache)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath RootPath, DependencyPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ResidencyDirtyRoot", RootPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ResidencyDirtyDependency", DependencyPath));
+	DPackageAssetForTest *Root = nullptr, *Dependency = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(RootPath, Root));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(DependencyPath, Dependency));
+	Root->ExternalReference = Dependency;
+	ASSERT_TRUE(SavePackage(Dependency->GetPackage()));
+	ASSERT_TRUE(SavePackage(Root->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(RootPath));
+	ASSERT_TRUE(UnloadPackage(DependencyPath));
+	FAssetPackageLoadScope Scope;
+	auto Loaded = Scope.LoadPackage(RootPath);
+	ASSERT_TRUE(Loaded);
+	FindResidentPackage(DependencyPath)->MarkDirty();
+	(*Loaded)->MarkDirty();
+	ASSERT_TRUE(Scope.ReleaseResidency(*Loaded, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(RootPath), nullptr);
+	ASSERT_NE(FindResidentPackage(DependencyPath), nullptr);
+	EXPECT_TRUE(FindResidentPackage(DependencyPath)->IsDirty());
+	ASSERT_TRUE(SavePackage(FindResidentPackage(DependencyPath)));
+	// A later scope must not claim a dependency already cached by an earlier user.
+	Loaded = Scope.LoadPackage(RootPath);
+	ASSERT_TRUE(Loaded);
+	ASSERT_TRUE(Scope.ReleaseResidency(*Loaded));
+	CollectGarbage();
+	EXPECT_EQ(FindResidentPackage(RootPath), nullptr);
+	EXPECT_NE(FindResidentPackage(DependencyPath), nullptr);
+	ASSERT_TRUE(UnloadPackage(DependencyPath));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(RootPath));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(DependencyPath));
 }
 
@@ -9322,6 +9510,37 @@ TEST(FPackageAssetTests, PackageRemovalValidatesEveryResidentBeforeRetiringAny)
 	EXPECT_EQ(Durin::GetAssetCatalogRevision(), Revision);
 	EXPECT_TRUE(std::filesystem::exists(Packages.front().PhysicalPath));
 	EXPECT_TRUE(std::filesystem::exists(Packages.back().PhysicalPath));
+}
+
+TEST(FPackageAssetTests, PackageRemovalRejectsNativeAndUnsavedLiveReferencesBeforeRetiringBatch)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath FirstPath, SecondPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/RemovalLiveFirst", FirstPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/RemovalLiveSecond", SecondPath));
+	DPackageAssetForTest *First = nullptr, *Second = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FirstPath, First));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SecondPath, Second));
+	ASSERT_TRUE(SavePackage(First->GetPackage()));
+	ASSERT_TRUE(SavePackage(Second->GetPackage()));
+	const std::array Packages{*FindAssetExact(FirstPath), *FindAssetExact(SecondPath)};
+	const uint64 Revision = GetAssetCatalogRevision();
+	TStrongObjectPtr<DObject> NativeOwner(Second);
+	EXPECT_EQ(ReleasePackagesForRemoval(Packages, Revision).Error, EAssetWriteError::InUse);
+	EXPECT_FALSE(First->IsGarbage());
+	EXPECT_FALSE(Second->IsGarbage());
+	NativeOwner.Reset();
+	Second->ExternalReference = First; // Deliberately absent from the saved reference index.
+	EXPECT_EQ(ReleasePackagesForRemoval(std::span{Packages}.first(1), Revision).Error, EAssetWriteError::InUse);
+	EXPECT_FALSE(First->IsGarbage());
+	EXPECT_TRUE(std::filesystem::exists(Packages.front().PhysicalPath));
+	// Both graphs can still be deleted together; their internal edge is allowed.
+	ASSERT_TRUE(ReleasePackagesForRemoval(Packages, Revision));
+	EXPECT_EQ(FindResidentPackage(FirstPath), nullptr);
+	EXPECT_EQ(FindResidentPackage(SecondPath), nullptr);
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(FirstPath));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(SecondPath));
 }
 
 TEST(FPackageAssetTests, PackageRemovalReleasesInternalReferencesAndPublishesOnlyAbsentFiles)

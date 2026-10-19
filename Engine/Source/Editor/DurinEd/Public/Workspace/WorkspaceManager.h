@@ -6,7 +6,7 @@
 #include "Workspace/Workspace.h"
 #include "Asset/MutationExtensions.h"
 
-namespace Durin { class DAssetEditorSubsystem; }
+namespace Durin { class DAssetEditorSubsystem; class IPackageReloadParticipant; }
 
 namespace Durin::Editor
 {
@@ -57,6 +57,7 @@ namespace Durin::Editor
 	};
 
 	// Owns workspace registrations, open documents, and active-host transitions.
+	// Every resolved asset document retains its asset until closed or unregistered.
 	class FWorkspaceManager final : private IAssetMoveObserver
 	{
 	public:
@@ -81,6 +82,9 @@ namespace Durin::Editor
 		DURINED_API auto ResolvePendingDocumentClose(EDocumentCloseResponse Response) -> EDocumentCloseResult;
 		DURINED_API auto RefreshDocumentState() -> void;
 		DURINED_API auto NotifyPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void;
+		// Migrates this manager's open-document strong references during atomic reload.
+		// Call NotifyPackageReloaded after publication to refresh editor UI and indexing.
+		DURINED_API auto CreateDocumentReloadParticipant() -> std::shared_ptr<IPackageReloadParticipant>;
 		// Settles previews and refreshes all documents without closing tabs. Pending operations veto exit.
 		DURINED_API auto PrepareForExit() -> bool;
 		// Saves every dirty document, including non-closable tabs; failure keeps all tabs open.

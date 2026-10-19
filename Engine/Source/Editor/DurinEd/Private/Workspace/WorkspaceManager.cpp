@@ -2,7 +2,9 @@
 
 #include "DObject/AssetPath.h"
 #include "Asset/Load.h"
+#include "Asset/PackageReload.h"
 #include "DObject/SoftObjectPtr.h"
+#include "DObject/StrongObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 
@@ -36,21 +38,26 @@ namespace Durin::Editor::Detail
 		}
 		auto SetAsset(DObject* Object) -> void
 		{
-			if (Asset == FObjectKey(Object)) return;
+			if (Asset.GetKey() != FObjectKey(Object)) Asset = FStrongObjectPtr(Object);
+			if (RegisteredAsset == FObjectKey(Object)) return;
 			if (auto* Service = Subsystem.Get())
 			{
 				Service->NotifyEditorClosed(this);
 				if (Object) Service->NotifyAssetOpened(Object, this);
 			}
-			Asset = FObjectKey(Object);
+			RegisteredAsset = FObjectKey(Object);
 		}
+		auto GetAsset() const -> DObject* { return Asset.Get(); }
+		auto CommitReload(FStrongObjectPtr&& Replacement) noexcept -> void { Asset = std::move(Replacement); }
 	private:
 		FWorkspaceManager& Manager;
 		FDocumentId Id;
 		FName Name;
 		double LastActivationTime = FTime::Seconds();
 		TWeakObjectPtr<DAssetEditorSubsystem> Subsystem;
-		FObjectKey Asset;
+		FStrongObjectPtr Asset;
+		// Index notifications follow reload publication, outside its noexcept commit.
+		FObjectKey RegisteredAsset;
 	};
 }
 
@@ -87,6 +94,57 @@ namespace Durin::Editor::Detail
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditorSubsystem;
 		std::unordered_map<uint64, std::shared_ptr<FWorkspaceAssetEditorInstance>> EditorInstances;
 		std::function<void()> SynchronizeAssetEditors;
+	};
+
+	// Rebinds document roots atomically; workspace UI notification follows publication.
+	class FWorkspaceDocumentReloadParticipant final : public IPackageReloadParticipant
+	{
+	public:
+		explicit FWorkspaceDocumentReloadParticipant(std::shared_ptr<FWorkspaceRegistryState> InState)
+			: State(std::move(InState)) {}
+		auto Prepare(const FObjectReplacementMap& Map) -> std::expected<void, FObjectReplacementError> override
+		{
+			Bindings.clear();
+			Instances = State->EditorInstances;
+			for (const auto& [Id, Instance] : Instances)
+				if (const auto* Entry = Map.Find(Instance->GetAsset()))
+				{
+					if (!Entry->Replacement)
+						return std::unexpected(FObjectReplacementError{
+							.Code = EObjectReplacementError::UnmappedReference,
+							.ObjectPath = Entry->Previous->GetObjectPath()});
+					Bindings.push_back({Instance, FObjectKey(Entry->Previous), FStrongObjectPtr(Entry->Replacement)});
+				}
+			return {};
+		}
+		auto Validate() const -> bool override
+		{
+			if (Instances != State->EditorInstances) return false;
+			return std::ranges::all_of(Bindings, [](const FBinding& Binding) {
+				return FObjectKey(Binding.Instance->GetAsset()) == Binding.Previous;
+			});
+		}
+		auto CoversNativeReferences(const DObject&) const -> bool override { return false; }
+		auto GetStrongReferenceCount(const DObject& Object) const -> uint32 override
+		{
+			return static_cast<uint32>(std::ranges::count(Bindings, FObjectKey(&Object), &FBinding::Previous));
+		}
+		auto Commit() noexcept -> void override
+		{
+			for (auto& Binding : Bindings) Binding.Instance->CommitReload(std::move(Binding.Replacement));
+		}
+		auto Abort() noexcept -> void override { Bindings.clear(); Instances.clear(); }
+		auto CanRetire() const -> bool override { return true; }
+	private:
+		struct FBinding
+		{
+			std::shared_ptr<FWorkspaceAssetEditorInstance> Instance;
+			FObjectKey Previous;
+			FStrongObjectPtr Replacement;
+		};
+		std::shared_ptr<FWorkspaceRegistryState> State;
+		std::unordered_map<uint64, std::shared_ptr<FWorkspaceAssetEditorInstance>> Instances;
+		std::vector<FBinding> Bindings;
 	};
 
 	auto UnregisterWorkspaceBatch(FWorkspaceRegistryState& State, uint64 RegistrationId) -> void
@@ -180,13 +238,13 @@ namespace Durin::Editor
 	FWorkspaceManager::FWorkspaceManager(DAssetEditorSubsystem* AssetEditors)
 		: State(std::make_shared<Detail::FWorkspaceRegistryState>())
 	{
+		State->SynchronizeAssetEditors = [this] { SynchronizeAssetEditors(); };
 		if (AssetEditors)
 		{
 			require(AssetEditors->CanCall());
 			require(AssetEditors->WorkspaceManager == nullptr);
 			AssetEditors->WorkspaceManager = this;
 			State->AssetEditorSubsystem = AssetEditors;
-			State->SynchronizeAssetEditors = [this] { SynchronizeAssetEditors(); };
 		}
 		AssetMoveObserverHandle = RegisterAssetMoveObserver(this);
 	}
@@ -203,7 +261,6 @@ namespace Durin::Editor
 	auto FWorkspaceManager::SynchronizeAssetEditors() -> void
 	{
 		auto* Service = State->AssetEditorSubsystem.Get();
-		if (!Service) return;
 		std::unordered_set<uint64> OpenDocuments;
 		for (const auto& Document : State->Documents)
 		{
@@ -219,6 +276,11 @@ namespace Durin::Editor
 			Instance->SetAsset(Asset);
 		}
 		std::erase_if(State->EditorInstances, [&](const auto& Pair) { return !OpenDocuments.contains(Pair.first); });
+	}
+
+	auto FWorkspaceManager::CreateDocumentReloadParticipant() -> std::shared_ptr<IPackageReloadParticipant>
+	{
+		return std::make_shared<Detail::FWorkspaceDocumentReloadParticipant>(State);
 	}
 
 	auto FWorkspaceManager::OnAssetsRelocated(

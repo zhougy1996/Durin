@@ -184,7 +184,8 @@ namespace Durin::Editor
 	auto FEditableAssetDocumentModel::Discard(DObject* Object,
 		const std::function<void()>& BeforeDiscard,
 		const std::function<void(DPackage*, DPackage*)>& AfterReload,
-		const std::function<void(std::string)>& ReportError) -> bool
+		const std::function<void(std::string)>& ReportError,
+		FWorkspaceManager* WorkspaceManager) -> bool
 	{
 		if (!CanSave(Object)) return false;
 		if (BeforeDiscard) BeforeDiscard();
@@ -192,6 +193,7 @@ namespace Durin::Editor
 		FPackagePath PackagePath;
 		if (!FPackagePath::TryCreate(PreviousPackage->GetPackagePath(), PackagePath)) return false;
 		FPackageReloadRequest Request{.Packages = {PreviousPackage}};
+		if (WorkspaceManager) Request.Participants.push_back(WorkspaceManager->CreateDocumentReloadParticipant());
 		if (GEditor)
 		{
 			auto Participant = CreateTransactorReloadParticipant(

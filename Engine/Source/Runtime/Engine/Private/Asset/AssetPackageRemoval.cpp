@@ -4,6 +4,12 @@
 #include "Asset/PackageRemoval.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
+#include "DObject/Class.h"
+#include "DObject/DObjectArray.h"
+#include "DObject/Function.h"
+#include "DObject/StrongObjectPtr.h"
+#include "Engine/Level.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
@@ -13,6 +19,56 @@ namespace Durin
 		{
 			return {Code, std::move(Message)};
 		}
+	}
+
+	auto ValidatePackageRemovalReferences(std::span<const FPackagePath> Paths,
+		FPackagePath* OutBlockedPackage) -> FAssetWriteResult
+	{
+		CheckGameThread();
+		if (OutBlockedPackage) *OutBlockedPackage = {};
+		std::unordered_set<DPackage*> Packages;
+		for (const auto& Path : Paths)
+			if (auto* Package = FindResidentPackage(Path)) Packages.insert(Package);
+		if (Packages.empty()) return {};
+		auto Reject = [&](DPackage& Package, std::string Reason) {
+			if (OutBlockedPackage) *OutBlockedPackage = Package.GetPackagePathIdentity();
+			return Error(EAssetWriteError::InUse, std::move(Reason));
+		};
+		const auto Objects = GDObjectArray.GetAll(EObjectQueryScope::LiveOnly);
+		for (DObject* Object : Objects)
+		{
+			if (!IsValid(Object)) continue;
+			DPackage* Package = Object->GetPackage();
+			if (!Packages.contains(Package)) continue;
+			if (const auto* Level = Cast<DLevel>(Object); Level && Level->GetWorld())
+				return Reject(*Package, std::format("Level {} is open in a world. Close the level before deleting it.", Object->GetObjectPath()));
+			if (Object->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
+				return Reject(*Package, std::format("Asset {} contains rooted object {} and cannot be deleted.", Package->GetPackagePath(), Object->GetObjectPath()));
+		}
+		class FRemovalReferenceCollector final : public FReferenceCollector
+		{
+		public:
+			explicit FRemovalReferenceCollector(const std::unordered_set<DPackage*>& InPackages) : Packages(InPackages) {}
+			auto AddReferencedObject(DObject*& Object) -> void override
+			{
+				if (!BlockedPackage && IsValid(Object) && Packages.contains(Object->GetPackage()))
+					BlockedPackage = Object->GetPackage();
+			}
+			const std::unordered_set<DPackage*>& Packages;
+			DPackage* BlockedPackage = nullptr;
+		} Collector(Packages);
+		Private::AddStrongObjectReferences(Collector);
+		Private::AddFunctionParameterReferences(Collector);
+		if (Collector.BlockedPackage)
+			return Reject(*Collector.BlockedPackage, std::format("Asset {} is retained by an active native owner or function call. Close its editor or finish the operation before deleting it.", Collector.BlockedPackage->GetPackagePath()));
+		for (DObject* Object : Objects)
+		{
+			if (!IsValid(Object) || Packages.contains(Object->GetPackage())) continue;
+			Object->AddReferencedObjects(Collector);
+			if (Collector.BlockedPackage)
+				return Reject(*Collector.BlockedPackage, std::format("Asset {} is referenced by live object {}. Close its level or editor before deleting it.", Collector.BlockedPackage->GetPackagePath(), Object->GetObjectPath()));
+		}
+		return {};
 	}
 
 	auto FAssetMutationCoordinator::ValidatePackageRemoval(
@@ -64,6 +120,10 @@ namespace Durin
 					"Asset {} has unsaved changes.", Path.ToString()));
 			Packages.push_back(Loaded);
 		}
+		std::vector<FPackagePath> Paths;
+		for (const auto& Entry : Entries) Paths.push_back(Entry.PackagePath);
+		const auto References = ValidatePackageRemovalReferences(Paths);
+		if (!References) return References;
 		for (DPackage* Package : Packages)
 		{
 			MarkObjectHierarchyAsGarbage(Package);

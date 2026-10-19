@@ -1,4 +1,5 @@
 #include "Asset/Asset.h"
+#include "Asset/PackageRemoval.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Actors/ActorChange.h"
 #include "AssetRegistry/Publication.h"
@@ -18,6 +19,9 @@
 #include "Workspace/WorkspaceUI.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "Materials/MaterialFunction.h"
+#include "Materials/MaterialParameterCollection.h"
+#include "StaticMesh/StaticMesh.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
 #include "MonaImGui.h"
@@ -25,6 +29,7 @@
 #include "Texture/Texture.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
+#include "Texture/VolumeTexture.h"
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
 
@@ -603,6 +608,84 @@ TEST(FEditorWorkspaceManagerTests, OpensAndSwitchesMultiplePerResourceDocumentsI
 
 	EXPECT_TRUE(Manager.ActivateDocument(Manager.GetDocuments()[0].Id));
 	EXPECT_EQ(Workspace->LastActivatedResource, "/Game/Materials/M_Stone");
+}
+
+TEST(FEditorWorkspaceManagerTests, OpenAssetDocumentsRetainEveryAssetFamilyAndBlockRemovalUntilClosed)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	Testing::InitializeDObjectSystemForTests();
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/OpenDocumentTests/", Testing::GetTestWorkDirectory().generic_string() + "/");
+	const std::array Classes{DMaterial::StaticClass(), DMaterialInstance::StaticClass(),
+		DTexture2D::StaticClass(), DVolumeTexture::StaticClass(), DStaticMesh::StaticClass(),
+		DMaterialFunction::StaticClass(), DMaterialParameterCollection::StaticClass()};
+	for (size_t Index = 0; Index < Classes.size(); ++Index)
+	{
+		SCOPED_TRACE(Classes[Index]->GetQualifiedName().ToString());
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/OpenDocumentTests/Asset{}", Index), Path));
+		auto* Package = CreatePackage(Path);
+		ASSERT_NE(Package, nullptr);
+		auto* Asset = NewObject(Classes[Index], Package, FName(std::format("Asset{}", Index)));
+		ASSERT_NE(Asset, nullptr);
+		Package->ClearDirty();
+		const FObjectKey Key(Asset);
+		const std::array Paths{Path};
+		EXPECT_TRUE(ValidatePackageRemovalReferences(Paths));
+		FWorkspaceManager Manager;
+		auto Workspace = std::make_shared<FTestWorkspace>("AssetEditor");
+		auto Registration = Manager.RegisterBatch({.Workspaces = {MakeWorkspaceRegistration(Workspace)}});
+		const auto Id = Manager.OpenDocument({.WorkspaceType = Workspace->GetWorkspaceType(),
+			.DocumentKey = Asset->GetObjectPath(), .ResourceId = Asset->GetObjectPath(), .Label = "Asset"});
+		ASSERT_TRUE(Id.IsValid());
+		// A different active tab must not release the first document's ownership.
+		ASSERT_TRUE(Manager.OpenDocument({.WorkspaceType = Workspace->GetWorkspaceType(),
+			.DocumentKey = "Other", .Label = "Other"}).IsValid());
+		EXPECT_EQ(ValidatePackageRemovalReferences(Paths).Error, EAssetWriteError::InUse);
+		Package->SetStandaloneResidency(false);
+		CollectGarbage();
+		ASSERT_NE(Key.ResolveObjectPtr(), nullptr);
+		Workspace->CloseResult = EDocumentCloseResult::PendingConfirmation;
+		EXPECT_EQ(Manager.RequestCloseDocument(Id), EDocumentCloseResult::PendingConfirmation);
+		EXPECT_EQ(Manager.ResolvePendingDocumentClose(EDocumentCloseResponse::Cancel), EDocumentCloseResult::Cancelled);
+		EXPECT_EQ(ValidatePackageRemovalReferences(Paths).Error, EAssetWriteError::InUse);
+		const auto SharedId = Manager.OpenDocument({.WorkspaceType = Workspace->GetWorkspaceType(),
+			.DocumentKey = "Shared", .ResourceId = Asset->GetObjectPath(), .Label = "Shared asset"});
+		ASSERT_TRUE(SharedId.IsValid());
+		Workspace->CloseResult = EDocumentCloseResult::Closed;
+		EXPECT_EQ(Manager.RequestCloseDocument(Id), EDocumentCloseResult::Closed);
+		EXPECT_EQ(ValidatePackageRemovalReferences(Paths).Error, EAssetWriteError::InUse);
+		EXPECT_EQ(Manager.RequestCloseDocument(SharedId), EDocumentCloseResult::Closed);
+		EXPECT_TRUE(ValidatePackageRemovalReferences(Paths));
+		CollectGarbage();
+		EXPECT_EQ(Key.ResolveObjectPtr(), nullptr);
+	}
+}
+
+TEST(FEditorWorkspaceManagerTests, UnregisteringWorkspaceReleasesOpenDocumentRootsWithoutSubsystem)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	Testing::InitializeDObjectSystemForTests();
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/UnregisterDocumentTests/", Testing::GetTestWorkDirectory().generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/UnregisterDocumentTests/Asset", Path));
+	auto* Package = CreatePackage(Path);
+	auto* Asset = NewObject<DTexture2D>(Package, "Asset");
+	Package->ClearDirty();
+	const std::array Paths{Path};
+	FWorkspaceManager Manager;
+	auto Workspace = std::make_shared<FTestWorkspace>("AssetEditor");
+	auto Registration = Manager.RegisterBatch({.Workspaces = {MakeWorkspaceRegistration(Workspace)}});
+	ASSERT_TRUE(Manager.OpenDocument({.WorkspaceType = Workspace->GetWorkspaceType(),
+		.DocumentKey = Asset->GetObjectPath(), .ResourceId = Asset->GetObjectPath(), .Label = "Asset"}).IsValid());
+	EXPECT_EQ(ValidatePackageRemovalReferences(Paths).Error, EAssetWriteError::InUse);
+	Registration.Reset();
+	EXPECT_TRUE(ValidatePackageRemovalReferences(Paths));
+	MarkObjectHierarchyAsGarbage(Package);
+	CollectGarbage();
 }
 
 TEST(FEditorWorkspaceManagerTests, RemapsOpenPerResourceDocumentsAfterAssetRelocation)

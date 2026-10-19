@@ -81,7 +81,7 @@ namespace Durin::Editor::Material
 		return Documents.Discard(Collection, {},
 			[this](DPackage* Previous, DPackage* Replacement) {
 				Manager.NotifyPackageReloaded(Previous, Replacement);
-			}, [this](std::string Message) { Report(std::move(Message)); });
+			}, [this](std::string Message) { Report(std::move(Message)); }, &Manager);
 	}
 
 	auto MMaterialParameterCollectionEditor::OnPackageReloaded(

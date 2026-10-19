@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "AssetRuntimeServicesInternal.h"
+#include "DObject/ObjectLifecycle.h"
 
 namespace Durin
 {
@@ -34,5 +35,6 @@ namespace Durin
 		bool bAcceptingRequests = true;
 		FAssetLoadService Loader;
 		FAssetMutationCoordinator Mutations;
+		FObjectReferencePurgeRegistration PackageRetirement;
 	};
 }

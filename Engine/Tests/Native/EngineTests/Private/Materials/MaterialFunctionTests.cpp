@@ -1631,11 +1631,15 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	ASSERT_TRUE(OriginalGraph.Apply(*Wrapper));
 	ASSERT_TRUE(SavePackage(Wrapper->GetPackage()));
 	ASSERT_TRUE(Material->CompileEdits());
+	// Drain detached expression copies from earlier edits before asserting that
+	// no live owner still references the function selected for deletion.
+	CollectGarbage();
 	const std::array Removed{LeafPath, MovedPath};
 	FAssetDeletionOperation UnreferencedDeletion;
 	const auto PreparedDeletion = IAssetTools::Get().PrepareDeletion(
 		{.AssetPaths = {LeafPath, MovedPath}}, UnreferencedDeletion);
-	ASSERT_TRUE(PreparedDeletion) << PreparedDeletion.Message;
+	ASSERT_TRUE(PreparedDeletion) << PreparedDeletion.Message
+		<< (UnreferencedDeletion.GetBlockers().empty() ? "" : UnreferencedDeletion.GetBlockers().front().Details);
 	ASSERT_TRUE(Testing::RemoveAssetPackagesForTests(Removed));
 	EXPECT_TRUE(Material->GetAcceptedCompiledProgram());
 	MaterialRoot.Reset();
