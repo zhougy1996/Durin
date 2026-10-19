@@ -411,9 +411,9 @@ namespace Durin
 		(void)Event;
 	}
 
-	thread_local FObjectTransaction* GUndo = nullptr;
 	namespace
 	{
+		thread_local FObjectTransaction* LegacyRecorder = nullptr;
 		thread_local std::shared_ptr<FObjectTransaction> BoundRecorder;
 		thread_local size_t RecorderBindingDepth = 0;
 		thread_local std::vector<std::weak_ptr<FObjectTransaction>> RecordingCandidates;
@@ -422,6 +422,8 @@ namespace Durin
 			return Recorder && Recorder->Owner && (!Recorder->ObjectOwner || IsValid(Recorder->ObjectOwner));
 		}
 	}
+	auto GetLegacyObjectTransactionRecorder() -> FObjectTransaction* { return LegacyRecorder; }
+	auto SetLegacyObjectTransactionRecorder(FObjectTransaction* Recorder) -> void { LegacyRecorder = Recorder; }
 	auto RegisterObjectTransaction(const std::shared_ptr<FObjectTransaction>& Recorder) -> void
 	{
 		CheckGameThread();
@@ -440,7 +442,7 @@ namespace Durin
 	{
 		CheckGameThread();
 		if (RecorderBindingDepth) return IsLiveRecorder(BoundRecorder) ? BoundRecorder.get() : nullptr;
-		if (GUndo) return GUndo;
+		if (LegacyRecorder) return LegacyRecorder;
 		std::erase_if(RecordingCandidates, [](const auto& Weak) { auto Pinned = Weak.lock(); return !IsLiveRecorder(Pinned); });
 		// Unbound entry is deterministic only with one live recording.
 		return RecordingCandidates.size() == 1 ? RecordingCandidates.front().lock().get() : nullptr;

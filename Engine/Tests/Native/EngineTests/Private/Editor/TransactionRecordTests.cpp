@@ -1486,7 +1486,7 @@ TEST(FTransBufferTests, NativeBeginEndAndInnerCancelUseUEActiveCounts)
 	Buffer->Cancel(Inner);
 	EXPECT_FALSE(Buffer->IsActive()); EXPECT_EQ(Buffer->End(), 0);
 	EXPECT_EQ(Buffer->GetHistoryCount(), 0u); EXPECT_EQ(Target->Value, 2);
-	EXPECT_EQ(GUndo, nullptr);
+	EXPECT_EQ(GetLegacyObjectTransactionRecorder(), nullptr);
 	EXPECT_EQ(Buffer->Begin("test", "Next"), 0);
 	EXPECT_EQ(Buffer->Begin("test", "Nested"), 1);
 	EXPECT_EQ(Buffer->End(), 2); EXPECT_TRUE(Buffer->IsActive());
@@ -1686,7 +1686,7 @@ TEST(FTransBufferTests, InvalidReplayAccountingPreservesCursorAndRequiresRecover
 	const auto Id = Buffer->GetRedoId(); EXPECT_FALSE(Buffer->Redo());
 	EXPECT_EQ(Buffer->GetLastResult().Code, ETransactorResultCode::RecoveryRequired);
 	EXPECT_EQ(Buffer->GetRedoId(), Id); EXPECT_EQ(Buffer->GetUndoId(), 0u); EXPECT_FALSE(Buffer->CanTransact());
-	EXPECT_EQ(Value, 1); EXPECT_EQ(GUndo, nullptr);
+	EXPECT_EQ(Value, 1); EXPECT_EQ(GetLegacyObjectTransactionRecorder(), nullptr);
 }
 
 TEST(FTransBufferTests, ModuleRetirementCannotEraseAReplayingRecord)

@@ -14,8 +14,10 @@ namespace Durin
 		bool (*SaveObject)(void* Owner, DObject* Object) = nullptr;
 		DObject* ObjectOwner = nullptr;
 	};
-	// Legacy explicit bridge injection. Ordinary recording resolves live candidates below.
-	extern COREDOBJECT_API thread_local FObjectTransaction* GUndo;
+	// Legacy explicit bridge injection for the calling thread; the caller owns the recorder.
+	// Ordinary recording resolves live candidates below. Keep TLS storage inside CoreDObject.
+	COREDOBJECT_API auto GetLegacyObjectTransactionRecorder() -> FObjectTransaction*;
+	COREDOBJECT_API auto SetLegacyObjectTransactionRecorder(FObjectTransaction* Recorder) -> void;
 	COREDOBJECT_API auto RegisterObjectTransaction(const std::shared_ptr<FObjectTransaction>& Recorder) -> void;
 	COREDOBJECT_API auto UnregisterObjectTransaction(const std::shared_ptr<FObjectTransaction>& Recorder) -> void;
 	COREDOBJECT_API auto GetObjectTransactionRecorder() -> FObjectTransaction*;

@@ -7117,8 +7117,9 @@ TEST(FObjectModifyTests, RuntimeNeutralBridgeRequiresTransactionalParticipation)
 	EXPECT_FALSE(Object->Modify(false));
 	int Captures = 0;
 	FObjectTransaction Recorder{&Captures, [](void* Owner, DObject*) { ++*static_cast<int*>(Owner); return true; }};
-	struct FRestoreRecorder { FObjectTransaction* Previous; ~FRestoreRecorder() { GUndo = Previous; } } Restore{GUndo};
-	GUndo = &Recorder;
+	struct FRestoreRecorder { FObjectTransaction* Previous; ~FRestoreRecorder() { SetLegacyObjectTransactionRecorder(Previous); } } Restore{GetLegacyObjectTransactionRecorder()};
+	SetLegacyObjectTransactionRecorder(&Recorder);
+	EXPECT_EQ(GetLegacyObjectTransactionRecorder(), &Recorder);
 	EXPECT_FALSE(Object->Modify(false)); EXPECT_EQ(Captures, 0);
 	Object->SetFlags(EObjectFlags::Transactional);
 	EXPECT_TRUE(Object->Modify(false)); EXPECT_EQ(Captures, 1);
