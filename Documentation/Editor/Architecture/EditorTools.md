@@ -4,12 +4,12 @@ Summary: Define per-editor tool discovery, exact provider routing, bounded cross
 
 Modules: Core, DurinEd
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-10-19
 
 ## Ownership and Entry Points
 
 DurinEd registers `DEditorToolSubsystem` before editor subsystem initialization.
-Each editor owns one service, independent of PIE and `GEditor`. MainFrame's
+The active editor owns one service shared by windows, clients and PIE controls. MainFrame's
 [Console adapter and LevelEditor PIE tools](ConsoleTools.md) and the
 [MCP adapter](MCPTools.md) consume this service. [Core tool contracts](../../Runtime/Core/Tools.md)
 remain the authority for values, schemas, provider interfaces, and feature lifetime.
@@ -72,7 +72,7 @@ Replay, recovery, and shutdown defer queued work.
 Execution rechecks host admission between availability checking and execution,
 and before every queued invocation. Same-service reentrant execution returns Busy.
 
-All provider callbacks run through `DispatchSubsystemCallback`, preserving host
+All provider callbacks run through the active editor's `DispatchSubsystemCallback`, preserving host
 and GC lifetime through synchronous return. A provider may request host shutdown;
 gates close immediately while destruction waits for the host boundary. Tick stops
 before subsequent editor/world work after such a request. A native immediate
@@ -83,7 +83,7 @@ callback defers cleanup until the next host Tick/shutdown boundary, matching the
 provider availability/execution callback for that context object. It returns
 null for a copied/fabricated context, another thread, or outside the callback.
 Do not retain its editor pointer. Core context stays engine-independent; provider
-implementations can obtain an explicit host without consulting `GEditor`.
+implementations receive the active editor through their validated callback context. Client/session identities remain independent of editor identity.
 
 Provider exceptions become InternalError. Availability failure prevents execution;
 execution still owns authoritative domain checks and transactions. Successful

@@ -703,14 +703,14 @@ TEST(FTransBufferTests, ScopedModifyRecordsChangedMembersAndPrunesNoOps)
 		(void)Target->Modify();
 		EXPECT_EQ(EndRecording(NoChange, *Buffer).Code, Durin::Editor::ETransactorResultCode::NoOp);
 	}
-	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 
 	{
 		Durin::Editor::FScopedTransaction Change(Buffer, {"test", "Change value"});
 		(void)Target->Modify();
 		Target->Value = 42;
 	}
-	ASSERT_EQ(Buffer->GetHistoryCount(), 1u);
+	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Target->Value, 0);
 	ASSERT_TRUE(Buffer->Redo());
@@ -722,7 +722,7 @@ TEST(FTransBufferTests, ScopedModifyRecordsChangedMembersAndPrunesNoOps)
 		Target->Value = 81;
 		EXPECT_EQ(CancelRecording(Canceled, *Buffer).Code, Durin::Editor::ETransactorResultCode::Discarded);
 	}
-	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	EXPECT_EQ(Target->Value, 81);
 }
 
@@ -736,7 +736,7 @@ TEST(FTransBufferTests, UndoCountTracksUndoneEntriesAcrossReplayAndBranchReplace
 	auto ExpectCounts = [&](size_t Undoable, size_t Undone) {
 		EXPECT_EQ(Buffer->GetUndoableCount(), Undoable);
 		EXPECT_EQ(Buffer->GetUndoCount(), Undone);
-		EXPECT_EQ(Buffer->GetHistoryCount(), Undoable + Undone);
+		EXPECT_EQ(Buffer->GetQueueLength(), Undoable + Undone);
 	};
 	auto Commit = [&] {
 		FScopedTransaction Scope(Buffer.Get(), {.Description = "Change value"});
@@ -783,7 +783,7 @@ TEST(FTransBufferTests, NestedModifyPreservesOutermostFinalState)
 	}
 	Target->Value = 3;
 	ASSERT_TRUE(EndRecording(Outer, *Buffer));
-	ASSERT_EQ(Buffer->GetHistoryCount(), 1u);
+	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Target->Value, 0);
 	ASSERT_TRUE(Buffer->Redo());
@@ -805,11 +805,11 @@ TEST(FTransBufferTests, MoveOnlyScopeClosesOnceAndCancelIsIdempotent)
 		EXPECT_FALSE(First.IsOutstanding());
 		EXPECT_TRUE(Second.IsOutstanding());
 	}
-	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	Durin::Editor::FScopedTransaction Canceled(Buffer, {"test", "Canceled"});
 	EXPECT_EQ(CancelRecording(Canceled, *Buffer).Code, Durin::Editor::ETransactorResultCode::Discarded);
 	EXPECT_FALSE(Canceled.IsOutstanding());
-	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 }
 
 TEST(FTransBufferTests, MaintainsCursorBranchIdsAndEvents)
@@ -839,10 +839,10 @@ TEST(FTransBufferTests, MaintainsCursorBranchIdsAndEvents)
 	EXPECT_TRUE(Buffer->Undo());
 	const auto Branch = Commit("Branch");
 	EXPECT_EQ(Buffer->GetUndoCount(), 0u);
-	EXPECT_EQ(Buffer->GetHistoryCount(), 2u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 2u);
 	EXPECT_GT(Branch.TransactionId, Second.TransactionId);
 
-	EXPECT_EQ(Buffer->GetHistoryCount(), 2u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 2u);
 	EXPECT_EQ(Buffer->GetUndoDescription(), "Branch");
 	const auto Events = ReadTransactionEvents(*Buffer);
 	ASSERT_GE(Events.size(), 7u);
@@ -865,7 +865,7 @@ TEST(FTransBufferTests, OversizedRecordingRemainsUndoableAndPreservesFailedUndoC
 	(void)Target->Modify();
 	Target->Numbers.push_back(1);
 	ASSERT_TRUE(EndRecording(Oversized, *Buffer));
-	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	EXPECT_GT(Buffer->GetOwnedBytes(), 1u);
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_TRUE(Target->Numbers.empty());
@@ -914,7 +914,7 @@ TEST(FTransBufferTests, ExpectedIdsPreserveHistoryPosition)
 		Durin::Editor::ETransactorResultCode::Rejected);
 	EXPECT_EQ(Buffer->GetRedoId(), Second.TransactionId);
 
-	EXPECT_EQ(Buffer->GetHistoryCount(), 2u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 2u);
 	EXPECT_EQ(Buffer->GetUndoableCount(), 1u);
 	ASSERT_TRUE(Buffer->RedoExpected(Second.TransactionId));
 	EXPECT_EQ(Buffer->GetUndoId(), Second.TransactionId);
@@ -953,7 +953,7 @@ TEST(FTransBufferTests, ForgetPackageRetiresHardSnapshotDependenciesOnBothSidesO
 	}
 	ASSERT_TRUE(Buffer->Undo());
 	Buffer->ForgetPackage(*Package);
-	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	EXPECT_EQ(Buffer->GetUndoId(), UnrelatedId);
 	EXPECT_FALSE(Buffer->CanRedo());
 	Target->Hard = nullptr;
@@ -974,7 +974,7 @@ TEST(FTransBufferTests, ForgetPackageRetiresCustomLifetimeDependencies)
 	int Value = 0;
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 0, 1, Participant)));
 	Buffer->ForgetPackage(*Package);
-	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	EXPECT_EQ(Buffer->GetOwnedBytes(), 0u);
 	EXPECT_EQ(Value, 1);
 	Durin::CollectGarbage();
@@ -1148,13 +1148,13 @@ TEST(FTransBufferTests, SynchronousChangesJoinNestedRecordingAndPreserveOuterCon
 	EXPECT_EQ(Joined.TransactionId, Outer.TransactionId);
 	EXPECT_EQ(Joined.TransactionId, Outer.TransactionId);
 	EXPECT_EQ(Value, 2);
-	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	ASSERT_TRUE(EndRecording(*Buffer));
 	auto Second = std::make_unique<FTestCustomChange>(Value, 2, 3);
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Buffer, std::move(Second)));
 	EXPECT_EQ(Buffer->UndoExpected(Durin::Editor::FTransactionId{0}).Code, ETransactorResultCode::Rejected);
 	ASSERT_TRUE(EndRecording(*Buffer));
-	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	EXPECT_EQ(Buffer->GetUndoDescription(), "Grouped edit");
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Value, 1);
@@ -1176,7 +1176,7 @@ TEST(FTransBufferTests, CancelingJoinedChangeDiscardsRecordingWithoutRevertingEd
 	EXPECT_EQ(CancelRecording(*Buffer, Inner.Index).Code, ETransactorResultCode::Discarded);
 	EXPECT_EQ(Value, 2);
 	EXPECT_FALSE(Buffer->IsActive());
-	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 }
 
 TEST(FTransBufferTests, JoinedAppliedChangeAndPropertyCaptureCommitTogetherAndReplaceRedoOnlyAtEnd)
@@ -1199,7 +1199,7 @@ TEST(FTransBufferTests, JoinedAppliedChangeAndPropertyCaptureCommitTogetherAndRe
 	EXPECT_EQ(Buffer->GetRedoId(), Prior.TransactionId);
 	ASSERT_TRUE(EndRecording(Outer, *Buffer));
 	EXPECT_EQ(Buffer->GetUndoCount(), 0u);
-	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Value, 1);
 	EXPECT_EQ(Target->Value, 0);
@@ -1248,7 +1248,7 @@ TEST(FTransBufferTests, CustomReferencesAndModuleDrainReleaseHistory)
 	Durin::CollectGarbage();
 	EXPECT_NE(Durin::ResolveObjectKey(Handle), nullptr);
 	ASSERT_TRUE(Buffer->DiscardCustomChangesByModule("TestModule"));
-	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	Durin::CollectGarbage();
 	EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
 }
@@ -1421,7 +1421,7 @@ TEST(FTransBufferTests, OversizedHistoryIsTrimmedOnlyBeforeTheNextSuccessfulComm
 	Growing->bGrowOnRedo = true;
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Buffer, std::move(Growing)));
 	EXPECT_EQ(Value, 2);
-	EXPECT_EQ(Buffer->GetHistoryCount(), 2u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 2u);
 	EXPECT_GT(Buffer->GetOwnedBytes(), Buffer->GetMemoryBudget());
 	const auto Head = Buffer->GetUndoId();
 	const auto Bytes = Buffer->GetOwnedBytes();
@@ -1437,13 +1437,13 @@ TEST(FTransBufferTests, OversizedHistoryIsTrimmedOnlyBeforeTheNextSuccessfulComm
 	EXPECT_FALSE(Durin::Editor::ApplyEditorChange(*Buffer, std::move(Failing)));
 	EXPECT_EQ(Buffer->GetOwnedBytes(), Bytes);
 	EXPECT_EQ(Buffer->GetUndoId(), Head);
-	EXPECT_EQ(Buffer->GetHistoryCount(), 2u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 2u);
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Value, 1);
 	ASSERT_TRUE(Buffer->Redo());
 	EXPECT_EQ(Value, 2);
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 2, 3)));
-	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Value, 2);
 }
@@ -1456,7 +1456,7 @@ TEST(FTransBufferTests, ByteBudgetDoesNotImposeAnEntryCountLimit)
 	int Value = 0;
 	for (int Index = 0; Index < 300; ++Index)
 		ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, Index, Index + 1)));
-	EXPECT_EQ(Buffer->GetHistoryCount(), 300u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 300u);
 	EXPECT_LT(Buffer->GetOwnedBytes(), Buffer->GetMemoryBudget());
 	for (int Index = 0; Index < 300; ++Index) ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Value, 0);
@@ -1474,9 +1474,9 @@ TEST(FTransBufferTests, OldHistoryAtTheByteBudgetIsTrimmedBeforeAppending)
 	Tests::FTestTransactorOwner Buffer("ExactByteBudget", Measurement->GetOwnedBytes());
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 1, 2)));
 	EXPECT_EQ(Buffer->GetOwnedBytes(), Buffer->GetMemoryBudget());
-	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 2, 3)));
-	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Value, 2);
 }
@@ -1503,7 +1503,7 @@ TEST(FTransBufferTests, RedoBranchReplacementDoesNotAlsoTrimTheUndoPrefix)
 	EXPECT_EQ(Buffer->GetRedoId(), RedoId);
 	(void)ReadTransactionEvents(*Buffer);
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 1, 3)));
-	EXPECT_EQ(Buffer->GetHistoryCount(), 2u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 2u);
 	EXPECT_EQ(Buffer->GetUndoCount(), 0u);
 	const auto Events = ReadTransactionEvents(*Buffer);
 	EXPECT_TRUE(std::ranges::none_of(Events, [](const auto& Event) { return Event.Type == ETransactionEventType::Evicted; }));
@@ -1525,8 +1525,8 @@ TEST(FTransBufferTests, NativeBeginEndAndInnerCancelUseUEActiveCounts)
 	ASSERT_TRUE(Target->Modify()); Target->Value = 2;
 	Buffer->Cancel(Inner);
 	EXPECT_FALSE(Buffer->IsActive()); EXPECT_EQ(Buffer->End(), 0);
-	EXPECT_EQ(Buffer->GetHistoryCount(), 0u); EXPECT_EQ(Target->Value, 2);
-	EXPECT_FALSE(HasObjectTransactionBinding());
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u); EXPECT_EQ(Target->Value, 2);
+	EXPECT_EQ(GUndo, nullptr);
 	EXPECT_EQ(Buffer->Begin("test", "Next"), 0);
 	EXPECT_EQ(Buffer->Begin("test", "Nested"), 1);
 	EXPECT_EQ(Buffer->End(), 2); EXPECT_TRUE(Buffer->IsActive());
@@ -1572,7 +1572,7 @@ TEST(FTransBufferTests, ModifyMarksDirtyWithoutRequiringAnActiveRecording)
 	Package->ClearDirty(); Target->ClearFlags(EObjectFlags::Transactional);
 	Tests::FTestTransactorOwner Buffer; EXPECT_EQ(Buffer->Begin("test", "Unrecorded"), 0);
 	EXPECT_FALSE(Target->Modify()); Target->Value = 5; EXPECT_EQ(Buffer->End(), 1);
-	EXPECT_EQ(Buffer->GetHistoryCount(), 0u); EXPECT_TRUE(Package->IsDirty());
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u); EXPECT_TRUE(Package->IsDirty());
 }
 
 TEST(FTransBufferTests, IndependentListenersReceiveTheSamePostTransitionEvents)
@@ -1632,7 +1632,7 @@ TEST(FTransBufferTests, UndoWithoutRedoDiscardsTheRedoSuffix)
 	ASSERT_TRUE(ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 0, 1)));
 	ASSERT_TRUE(ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 1, 2)));
 	ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Undo(false));
-	EXPECT_EQ(Value, 0); EXPECT_EQ(Buffer->GetHistoryCount(), 0u); EXPECT_FALSE(Buffer->CanRedo());
+	EXPECT_EQ(Value, 0); EXPECT_EQ(Buffer->GetQueueLength(), 0u); EXPECT_FALSE(Buffer->CanRedo());
 }
 
 TEST(FTransBufferTests, UnrecordedAndCanceledModifyCannotClearDirtyOnUndo)
@@ -1685,9 +1685,9 @@ TEST(FTransBufferTests, TransactionFiltersApplyInsideReflectedStructs)
 	}
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->Nested.Count, 0); EXPECT_EQ(Target->Nested.Session, 0); EXPECT_EQ(Target->Nested.Ignored, 3);
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Nested.Count, 1); EXPECT_EQ(Target->Nested.Session, 2); EXPECT_EQ(Target->Nested.Ignored, 3);
-	const auto Count = Buffer->GetHistoryCount();
+	const auto Count = Buffer->GetQueueLength();
 	{ FScopedTransaction Scope(Buffer.Get(), {"test", "Excluded field only"}); ASSERT_TRUE(Target->Modify()); Target->Nested.Ignored = 7; }
-	EXPECT_EQ(Buffer->GetHistoryCount(), Count);
+	EXPECT_EQ(Buffer->GetQueueLength(), Count);
 }
 
 TEST(FTransBufferTests, ExcludedStructReferencesDoNotAcquireHistoryRetention)
@@ -1712,7 +1712,7 @@ TEST(FTransBufferTests, InvalidInitialAccountingRejectsBeforeMutation)
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	int Value = 0; auto Change = std::make_unique<FTestCustomChange>(Value, 0, 1); Change->bOverflowed = true;
 	const auto Result = ApplyEditorChange(*Buffer, std::move(Change));
-	EXPECT_EQ(Result.Code, ETransactorResultCode::Failed); EXPECT_EQ(Value, 0); EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	EXPECT_EQ(Result.Code, ETransactorResultCode::Failed); EXPECT_EQ(Value, 0); EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	EXPECT_TRUE(Buffer->CanTransact());
 }
 
@@ -1726,7 +1726,7 @@ TEST(FTransBufferTests, InvalidReplayAccountingPreservesCursorAndRequiresRecover
 	const auto Id = Buffer->GetRedoId(); EXPECT_FALSE(Buffer->Redo());
 	EXPECT_EQ(Buffer->GetLastResult().Code, ETransactorResultCode::RecoveryRequired);
 	EXPECT_EQ(Buffer->GetRedoId(), Id); EXPECT_EQ(Buffer->GetUndoId(), 0u); EXPECT_FALSE(Buffer->CanTransact());
-	EXPECT_EQ(Value, 1); EXPECT_FALSE(HasObjectTransactionBinding());
+	EXPECT_EQ(Value, 1); EXPECT_EQ(GUndo, nullptr);
 }
 
 TEST(FTransBufferTests, ModuleRetirementCannotEraseAReplayingRecord)
@@ -1737,10 +1737,10 @@ TEST(FTransBufferTests, ModuleRetirementCannotEraseAReplayingRecord)
 	ASSERT_TRUE(ApplyEditorChange(*Buffer, std::move(Change)));
 	Retained->ReplayProbe = [&] {
 		EXPECT_EQ(Buffer->DiscardCustomChangesByModule("ReplayOwnedModule").Code, ETransactorResultCode::Rejected);
-		EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+		EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	};
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Value, 0);
-	ASSERT_TRUE(Buffer->DiscardCustomChangesByModule("ReplayOwnedModule")); EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	ASSERT_TRUE(Buffer->DiscardCustomChangesByModule("ReplayOwnedModule")); EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 }
 
 TEST(FTransBufferTests, GeneratedReferencesRemainOwnedByConstruction)
@@ -1789,67 +1789,69 @@ TEST(FTransBufferTests, DestroyedTransactorInvalidatesRetainedScopeBeforeCleanup
 	Buffer->BeginDestroy();
 	EXPECT_FALSE(Scope.IsOutstanding());
 	EXPECT_EQ(0, Scope.End());
-	EXPECT_EQ(nullptr, GetObjectTransactionRecorder());
+	EXPECT_EQ(nullptr, GUndo);
 }
 
-TEST(FTransBufferTests, HostExecutionBindingSupportsABAAndNonLifoRecordingCompletion)
+TEST(FTransBufferTests, OnlyOneBufferCanPublishTheCurrentRecording)
 {
-	using namespace Durin;
-	using namespace Durin::Editor;
-	InitializeDObjectSystem();
-	TStrongObjectPtr<DEditorEngine> A(NewObject<DEditorEngine>(nullptr, "ExecutionHostA"));
-	TStrongObjectPtr<DEditorEngine> B(NewObject<DEditorEngine>(nullptr, "ExecutionHostB"));
-	TStrongObjectPtr<DTransactionRecordParticipant> Left(NewObject<DTransactionRecordParticipant>(nullptr, "ExecutionLeft"));
-	TStrongObjectPtr<DTransactionRecordParticipant> Right(NewObject<DTransactionRecordParticipant>(nullptr, "ExecutionRight"));
-	std::unique_ptr<FScopedTransaction> First, Second;
-	A->DispatchSubsystemCallback([&] {
-		First = std::make_unique<FScopedTransaction>(A->GetTransactor(), FTransactionContext{.Description = "A"});
-		ASSERT_TRUE(Left->Modify()); Left->Value = 1;
-	});
-	B->DispatchSubsystemCallback([&] {
-		EXPECT_FALSE(Right->Modify(false)); // An idle host never joins A's suspended recording.
-		Second = std::make_unique<FScopedTransaction>(B->GetTransactor(), FTransactionContext{.Description = "B"});
-		ASSERT_TRUE(Right->Modify()); Right->Value = 2;
-	});
-	EXPECT_FALSE(Left->Modify(false)); // Ambiguous unbound entry cannot select a host.
-	A->DispatchSubsystemCallback([&] {
-		FScopedTransaction Inner(A->GetTransactor(), {.Description = "A inner"});
-		ASSERT_TRUE(Left->Modify()); Left->Value = 3;
-		B->DispatchSubsystemCallback([&] { ASSERT_TRUE(Right->Modify()); Right->Value = 4; });
-		ASSERT_TRUE(Left->Modify()); Left->Value = 5;
-	});
-	EXPECT_EQ(1, First->End()); // A completes before the later-opened B.
-	EXPECT_TRUE(Second->IsOutstanding());
-	EXPECT_TRUE(A->GetTransactor()->Undo()); EXPECT_EQ(0, Left->Value); EXPECT_EQ(4, Right->Value);
-	EXPECT_TRUE(A->GetTransactor()->Redo()); EXPECT_EQ(5, Left->Value);
-	EXPECT_EQ(1, Second->End());
-	EXPECT_TRUE(B->GetTransactor()->Undo()); EXPECT_EQ(0, Right->Value); EXPECT_EQ(5, Left->Value);
-	EXPECT_TRUE(B->GetTransactor()->Redo()); EXPECT_EQ(4, Right->Value);
-	First.reset(); Second.reset();
-	MarkObjectHierarchyAsGarbage(A.Get()); MarkObjectHierarchyAsGarbage(B.Get());
-	A.Reset(); B.Reset(); CollectGarbage();
+    using namespace Durin;
+    using namespace Durin::Editor;
+    InitializeDObjectSystem(); Tests::FTestTransactorOwner First("FirstRecording"), Second("SecondRecording");
+    TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "SingleRecordingTarget"));
+    FScopedTransaction Scope(First.Get(), {.Description = "First"});
+    auto* Current = GUndo;
+    ASSERT_NE(Current, nullptr);
+    EXPECT_EQ(Second->Begin("test", "Competing"), -1);
+    EXPECT_FALSE(Second->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(Target->Value, 0, 1)));
+    EXPECT_EQ(Second->GetQueueLength(), 0u);
+    EXPECT_EQ(GUndo, Current);
+    ASSERT_TRUE(Target->Modify()); Target->Value = 2;
+    EXPECT_TRUE(Current->ContainsObject(Target.Get()));
+    EXPECT_EQ(Scope.End(), 1);
+    EXPECT_EQ(GUndo, nullptr);
+    FScopedTransaction Next(Second.Get(), {.Description = "Second"});
+    EXPECT_TRUE(Next.IsOutstanding());
+    EXPECT_NE(GUndo, nullptr);
+    Next.Cancel();
+    EXPECT_EQ(GUndo, nullptr);
+    ASSERT_TRUE(First->Undo()); EXPECT_EQ(Target->Value, 0);
 }
 
-TEST(FTransBufferTests, HostRetirementCannotRestoreItsRecorderOverAnotherHost)
+TEST(FTransBufferTests, EditorConvenienceScopesExposeContextsAndRetireBeforeReplacement)
 {
-	using namespace Durin;
-	using namespace Durin::Editor;
-	InitializeDObjectSystem();
-	Tests::FTestTransactorOwner A("RetiringA"), B("SurvivingB");
-	FScopedTransaction First(A.Get(), {.Description = "A"}), Second(B.Get(), {.Description = "B"});
-	{
-		FScopedObjectTransactionBinding Outer(A->GetObjectTransactionRecorder());
-		{
-			FScopedObjectTransactionBinding Inner(B->GetObjectTransactionRecorder());
-			A->BeginDestroy();
-			EXPECT_EQ(B->GetObjectTransactionRecorder().get(), GetObjectTransactionRecorder());
-		}
-		EXPECT_EQ(nullptr, GetObjectTransactionRecorder());
-	}
-	EXPECT_FALSE(First.IsOutstanding());
-	EXPECT_TRUE(Second.IsOutstanding());
-	EXPECT_EQ(B->GetObjectTransactionRecorder().get(), GetObjectTransactionRecorder());
-	EXPECT_EQ(1, Second.End());
+    using namespace Durin;
+    using namespace Durin::Editor;
+    InitializeDObjectSystem();
+    TStrongObjectPtr<DEditorEngine> First(NewObject<DEditorEngine>(nullptr, "FirstEditorLifetime"));
+    ASSERT_TRUE(First->ActivateEditor());
+    TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "EditorContextTarget"));
+    {
+        FScopedTransaction Scope("test", "Editor edit", Target.Get());
+        ASSERT_TRUE(Scope.IsOutstanding());
+        ASSERT_TRUE(Target->Modify()); Target->Value = 3;
+    }
+    auto* Buffer = First->GetTransactor();
+    EXPECT_EQ(Buffer->GetQueueLength(), 1u);
+    EXPECT_EQ(Buffer->GetUndoContext().Description, "Editor edit");
+    EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject.Resolve(), Target.Get());
+    ASSERT_TRUE(Buffer->Undo());
+    EXPECT_EQ(Buffer->GetUndoCount(), 1u);
+    EXPECT_EQ(Buffer->GetRedoContext().Description, "Editor edit");
+    ASSERT_TRUE(Buffer->Redo());
+    FScopedTransaction Stale("Before shutdown");
+    ASSERT_TRUE(Stale.IsOutstanding());
+    First->PrepareForShutdown();
+    EXPECT_EQ(GEditor, nullptr); EXPECT_EQ(GUndo, nullptr);
+    EXPECT_FALSE(Stale.IsOutstanding());
+    TStrongObjectPtr<DEditorEngine> Second(NewObject<DEditorEngine>(nullptr, "SecondEditorLifetime"));
+    ASSERT_TRUE(Second->ActivateEditor());
+    FScopedTransaction Next("After shutdown");
+    ASSERT_TRUE(Next.IsOutstanding());
+    auto* Current = GUndo;
+    EXPECT_EQ(Stale.End(), 0);
+    EXPECT_EQ(GUndo, Current);
+    Next.Cancel(); Second->PrepareForShutdown();
+    EXPECT_EQ(GUndo, nullptr); EXPECT_EQ(GEditor, nullptr);
 }
 
 TEST(FTransBufferTests, HostDestructionInvalidatesSuspendedScopeAndReleasesGcReferences)
@@ -1869,26 +1871,5 @@ TEST(FTransBufferTests, HostDestructionInvalidatesSuspendedScopeAndReleasesGcRef
 	EXPECT_FALSE(Scope.IsOutstanding());
 	EXPECT_EQ(0, Scope.End());
 	EXPECT_EQ(nullptr, WeakTarget.Get());
-	EXPECT_EQ(nullptr, GetObjectTransactionRecorder());
-}
-
-TEST(FTransBufferTests, HostMarkedGarbageCannotRestoreRecorderBeforeDeferredDestruction)
-{
-	using namespace Durin;
-	using namespace Durin::Editor;
-	InitializeDObjectSystem(); Tests::FTestTransactorOwner A("GarbagePrior"), B("LiveCurrent");
-	FScopedTransaction First(A.Get(), {.Description = "A"}), Second(B.Get(), {.Description = "B"});
-	{
-		FScopedObjectTransactionBinding Outer(A->GetObjectTransactionRecorder());
-		{
-			FScopedObjectTransactionBinding Inner(B->GetObjectTransactionRecorder());
-			MarkObjectHierarchyAsGarbage(A.Get());
-			EXPECT_EQ(B->GetObjectTransactionRecorder().get(), GetObjectTransactionRecorder());
-		}
-		EXPECT_EQ(nullptr, GetObjectTransactionRecorder());
-	}
-	EXPECT_FALSE(First.IsOutstanding());
-	EXPECT_EQ(B->GetObjectTransactionRecorder().get(), GetObjectTransactionRecorder());
-	EXPECT_EQ(1, Second.End());
-	CollectGarbage();
+	EXPECT_EQ(nullptr, GUndo);
 }

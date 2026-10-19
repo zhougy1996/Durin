@@ -547,30 +547,40 @@ namespace Durin
 	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FEditorSubsystemProbe)
 }
 
-TEST_F(FWorldSubsystemTests, HostsKeepIndependentCollectionsAcrossWorldLifetimesAndGC)
+TEST_F(FWorldSubsystemTests, OneEditorKeepsServicesAcrossEditorPlayAndPreviewWorldContexts)
 {
 	FEngineSubsystemRegistration EngineToken({.Type = FEngineSubsystemProbe::StaticClass()});
 	FEditorSubsystemRegistration EditorToken({.Type = FEditorSubsystemProbe::StaticClass()});
 	TStrongObjectPtr<FSubsystemEditorHost> First(NewObject<FSubsystemEditorHost>(nullptr, {}));
 	TStrongObjectPtr<FSubsystemEditorHost> Second(NewObject<FSubsystemEditorHost>(nullptr, {}));
-	for (auto* Host : {First.Get(), Second.Get()}) { ASSERT_TRUE(Host->StartEngine()); ASSERT_TRUE(Host->StartEditor()); }
+	ASSERT_TRUE(First->StartEngine()); ASSERT_TRUE(First->StartEditor());
 	auto* EngineService = First->GetSubsystem<FEngineSubsystemProbe>();
 	auto* EditorService = First->GetEditorSubsystem<FEditorSubsystemProbe>();
 	auto* Notifications = &First->GetNotificationManager();
 	ASSERT_NE(EngineService, nullptr); ASSERT_NE(EditorService, nullptr);
 	EXPECT_EQ(EngineService->GetEngine(), First.Get());
 	EXPECT_EQ(EditorService->GetEditor(), First.Get());
-	EXPECT_NE(Second->GetSubsystem<FEngineSubsystemProbe>(), EngineService);
+	EXPECT_EQ(Second->GetSubsystem<FEngineSubsystemProbe>(), nullptr); EXPECT_EQ(GEditor, First.Get());
 	auto* EditorWorld = NewObject<DWorld>(First.Get(), {});
 	Worlds.emplace_back(EditorWorld);
 	EditorWorld->SetWorldType(EWorldType::Editor);
 	ASSERT_TRUE(EditorWorld->InitializeSubsystems());
 	ASSERT_TRUE(EditorWorld->SetCurrentLevel(NewObject<DLevel>(EditorWorld, "EditorLevel")));
 	First->SetEditorWorld(EditorWorld);
+	EXPECT_EQ(First->GetEditorWorldContext().World(), EditorWorld);
+	EXPECT_EQ(First->GetEditorWorldContext().WorldType, EWorldType::Editor);
+	auto* PreviewWorld = NewObject<DWorld>(First.Get(), "ContextPreviewWorld");
+	Worlds.emplace_back(PreviewWorld); PreviewWorld->SetWorldType(EWorldType::Preview);
+	ASSERT_TRUE(PreviewWorld->InitializeSubsystems()); First->RegisterWorldContext(*PreviewWorld);
+	EXPECT_EQ(First->GetWorldContextFromWorld(PreviewWorld)->WorldType, EWorldType::Preview);
 	for (int Session = 0; Session < 2; ++Session) {
 		ASSERT_TRUE(First->StartPlay(EditorWorld->GetCurrentLevel()));
 		EXPECT_NE(First->GetPlayWorld(), nullptr);
+		ASSERT_NE(First->GetPIEWorldContext(), nullptr);
+		EXPECT_EQ(First->GetPIEWorldContext()->World(), First->GetPlayWorld());
+		EXPECT_EQ(First->GetWorldContexts().size(), 3u);
 		First->StopPlaySession();
+		EXPECT_EQ(First->GetPIEWorldContext(), nullptr);
 		EXPECT_EQ(First->GetWorld(), EditorWorld);
 		EXPECT_EQ(First->GetSubsystem<FEngineSubsystemProbe>(), EngineService);
 		EXPECT_EQ(First->GetEditorSubsystem<FEditorSubsystemProbe>(), EditorService);
@@ -579,9 +589,11 @@ TEST_F(FWorldSubsystemTests, HostsKeepIndependentCollectionsAcrossWorldLifetimes
 	CollectGarbage();
 	EXPECT_EQ(First->GetSubsystem<FEngineSubsystemProbe>(), EngineService);
 	EXPECT_EQ(First->GetEditorSubsystem<FEditorSubsystemProbe>(), EditorService);
+	PreviewWorld->Shutdown();
+	EXPECT_EQ(First->GetWorldContextFromWorld(PreviewWorld), nullptr);
 	First->PrepareForShutdown(); First->PrepareForShutdown();
 	EXPECT_EQ(First->GetSubsystem<FEngineSubsystemProbe>(), nullptr);
-	EXPECT_NE(Second->GetSubsystem<FEngineSubsystemProbe>(), nullptr);
+	ASSERT_TRUE(Second->StartEngine()); ASSERT_TRUE(Second->StartEditor()); EXPECT_EQ(GEditor, Second.Get());
 	Second->PrepareForShutdown();
 }
 
@@ -836,7 +848,7 @@ TEST_F(FWorldSubsystemTests, ActorEditingAdmitsOnlyItsLiveHostAndEditableStopped
 	using namespace Durin::Editor;
 	TStrongObjectPtr<FSubsystemEditorHost> First(NewObject<FSubsystemEditorHost>(nullptr, {}));
 	TStrongObjectPtr<FSubsystemEditorHost> Second(NewObject<FSubsystemEditorHost>(nullptr, {}));
-	for (auto* Host : {First.Get(), Second.Get()})
+	for (auto* Host : {First.Get()})
 	{
 		ASSERT_TRUE(Host->StartEngine()); ASSERT_TRUE(Host->StartEditor());
 		auto* World = NewObject<DWorld>(Host, {});
@@ -853,7 +865,10 @@ TEST_F(FWorldSubsystemTests, ActorEditingAdmitsOnlyItsLiveHostAndEditableStopped
 	const FActorEditContext Context{First.Get(), false};
 	EXPECT_EQ(Service->SpawnActor(*Level, AActor::StaticClass(), "ReadOnly", {}, {First.Get(), true}).Error, EActorEditError::ReadOnly);
 	EXPECT_EQ(Service->SpawnActor(*Level, AActor::StaticClass(), "Foreign", {}, {Second.Get(), false}).Error, EActorEditError::ForeignHost);
-	EXPECT_EQ(Service->SpawnActor(*Second->GetEditorWorld()->GetCurrentLevel(), AActor::StaticClass(), "ForeignLevel", {}, Context).Error, EActorEditError::InvalidTarget);
+	auto* OtherWorld = NewObject<DWorld>(First.Get(), "OtherDocumentWorld"); Worlds.emplace_back(OtherWorld);
+	OtherWorld->SetWorldType(EWorldType::Preview); ASSERT_TRUE(OtherWorld->InitializeSubsystems());
+	ASSERT_TRUE(OtherWorld->SetCurrentLevel(NewObject<DLevel>(OtherWorld, "OtherDocumentLevel")));
+	EXPECT_EQ(Service->SpawnActor(*OtherWorld->GetCurrentLevel(), AActor::StaticClass(), "ForeignLevel", {}, Context).Error, EActorEditError::InvalidTarget);
 	const auto Pending = First->GetTransactor()->Begin("test", "Grouped host history");
 	ASSERT_GE(Pending, 0);
 	const auto Grouped = Service->SpawnActor(*Level, AActor::StaticClass(), "Grouped", {}, Context);

@@ -167,7 +167,7 @@ namespace
 		ExpectPreview(Original);
 		// Native Modify marks dirty even when preview restoration or rejection leaves no history.
 		EXPECT_TRUE(Package->IsDirty());
-		EXPECT_EQ(Transactor->GetHistoryCount(), 0u);
+		EXPECT_EQ(Transactor->GetQueueLength(), 0u);
 	}
 
 	TEST_P(FRoadEditorIntegrationTests, InvalidStructuralDraftIsAtomicAndLeavesNoHistory)
@@ -183,7 +183,7 @@ namespace
 		EXPECT_EQ(Actor->GetAlignments().front(), Before);
 		// Native Modify marks dirty even when preview restoration or rejection leaves no history.
 		EXPECT_TRUE(Package->IsDirty());
-		EXPECT_EQ(Transactor->GetHistoryCount(), 0u);
+		EXPECT_EQ(Transactor->GetQueueLength(), 0u);
 	}
 
 	TEST_P(FRoadEditorIntegrationTests, ScopedWholeObjectStructuralEditReplaysThroughRoadValidation)

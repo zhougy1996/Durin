@@ -238,7 +238,10 @@ namespace Durin::Editor::MainFrame
 
 	TEST_F(FConsoleToolTests, PIECallsUseTheAdmittingEditorAndRejectRemovedCompatibilityCommands)
 	{
-		auto* Other = NewHost(); EXPECT_EQ(Other, GEditor);
+		auto* Other = NewObject<FConsoleTestEditor>(nullptr, "InactiveConsoleEditor");
+		Editors.emplace_back(Other);
+		EXPECT_EQ(Host, GEditor);
+		EXPECT_FALSE(Other->ActivateEditor());
 		for (const auto* Removed : {"pie.status", "pie.play", "pie.stop", "pie.pause", "pie.pause toggle", "editor.pie/toggle_pause"})
 			EXPECT_FALSE(Adapter->Execute(Removed).bSuccess) << Removed;
 		EXPECT_TRUE(Adapter->FindCompletions("pie.").empty());
@@ -388,13 +391,10 @@ namespace Durin::Editor::MainFrame
 	}
 	TEST_F(FConsoleToolTests, LevelEditorPlayServiceIsHostBoundAndRejectsWrongThreadAndRetirement)
 	{
-		auto* Other = NewHost();
 		TStrongObjectPtr<DLevelEditorSubsystem> Levels(Host->GetEditorSubsystem<DLevelEditorSubsystem>());
 		ASSERT_TRUE(Levels);
-		EXPECT_NE(Levels.Get(), Other->GetEditorSubsystem<DLevelEditorSubsystem>());
 		FEditorEngineTestAccess::SetState(*Host, EPlayState::Playing);
 		EXPECT_TRUE(Levels->SetPlaySessionPaused(true).bSucceeded);
-		EXPECT_FALSE(Other->IsPlaying());
 		auto* Service = Levels.Get(); // The owning strong reference remains on GameThread until the worker joins.
 		auto WrongThread = std::async(std::launch::async, [Service] {
 			return std::array{Service->GetPlayStatus(), Service->StartPlaySession(), Service->StopPlaySession(), Service->SetPlaySessionPaused(false)};
@@ -410,6 +410,8 @@ namespace Durin::Editor::MainFrame
 		EXPECT_FALSE(Levels->StartPlaySession().bSucceeded);
 		EXPECT_FALSE(Levels->StopPlaySession().bSucceeded);
 		EXPECT_FALSE(Levels->SetPlaySessionPaused(false).bSucceeded);
+		auto* Other = NewHost();
+		EXPECT_NE(Levels.Get(), Other->GetEditorSubsystem<DLevelEditorSubsystem>());
 		EXPECT_TRUE(Other->GetEditorSubsystem<DLevelEditorSubsystem>()->GetPlayStatus().bSucceeded);
 	}
 }

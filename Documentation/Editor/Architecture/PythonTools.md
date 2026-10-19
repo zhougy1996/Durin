@@ -3,7 +3,7 @@
 Summary: Embed trusted editor scripts with native Toolsets, reflected type/object wrappers and transaction scopes.
 Modules: DurinPython, DurinEd, MainFrame, Core
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-10-19
 
 ## Ownership and Runtime
 
@@ -140,8 +140,8 @@ scopes close in reverse entry order before the terminal snapshot is published;
 retaining a Python scope in imported state cannot keep recording across jobs.
 A scope may span yield and keeps the editor's global recording open: UI/native
 edits and other jobs on that host join it. Undo/Redo follows the native recording
-state. Different hosts have separate histories and execution bindings; suspension
-releases the binding, not the recording. Scope validity uses the native transaction
+state. Sessions share the active editor's history; suspension
+releases interpreter execution, not the recording. Scope validity uses the native transaction
 ID and GC-visible transactor ownership so stale helpers cannot alter a replacement.
 Prefer waiting/preparation outside recording, then revalidate and apply in a short
 synchronous scope. No isolation, automatic splitting or rollback is supplied.
@@ -217,7 +217,7 @@ without adding a general asynchronous provider scheduler or changing transport.
 
 `PythonToolIntegrationTests` exercises deployed CPython, ready/pending completion,
 ordered/fair continuations, real return-to-tick boundaries, global recording,
-result-dependent short apply, cancellation/finally, two hosts and teardown.
+result-dependent short apply, cancellation/finally, multiple client sessions and sequential editor teardown.
 `MCPPythonJobTests` verifies existing transport consumers with the explicit script
 pump. Follow [usage](../Guides/PythonScripts.md), [testing](../../Agents/Testing.md)
 and [build guidance](../../Agents/BuildAndRun.md).

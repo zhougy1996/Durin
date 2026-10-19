@@ -39,24 +39,32 @@ namespace Durin
 		: Super(ObjectInitializer), EditorSubsystems(*this)
 	{
 		Trans = NewObject<DTransBuffer>(this, "Transactor", EObjectFlags::Transient);
-		GEditor = this;
 	}
 
 	DEditorEngine::~DEditorEngine()
 	{
 		if (GEditor == this) GEditor = nullptr;
 	}
+	auto DEditorEngine::ActivateEditor() -> bool
+	{
+		CheckGameThread();
+		if (bShutdownRequested || !IsValid(this) || (GEditor && GEditor != this)) return false;
+		GEditor = this;
+		return true;
+	}
 
 	auto DEditorEngine::BeginTransaction(std::string_view Description) -> int32
 	{ return BeginTransaction({}, Description); }
 	auto DEditorEngine::BeginTransaction(std::string_view Context, std::string_view Description, DObject* PrimaryObject) -> int32
 	{
-		if (!Trans) return -1;
+		if (!CanTransact()) return -1;
 		const auto Index = Trans->Begin(Context, Description);
 		if (Index >= 0) Trans->SetPrimaryUndoObject(PrimaryObject);
 		return Index;
 	}
 	auto DEditorEngine::EndTransaction() -> int32 { return Trans ? Trans->End() : 0; }
+	auto DEditorEngine::CanTransact() const -> bool
+	{ return GEditor == this && !bShutdownRequested && Trans && Trans->CanTransact(); }
 	auto DEditorEngine::CancelTransaction(int32 StartIndex) -> void { if (Trans) Trans->Cancel(StartIndex); }
 
 	auto DEditorEngine::AddReferencedObjects(FReferenceCollector& Collector) -> void
@@ -67,6 +75,7 @@ namespace Durin
 
 	auto DEditorEngine::InitializeEditorSubsystems() -> FSubsystemResult
 	{
+		if (!ActivateEditor()) return {ESubsystemError::InvalidState, "Only one editor engine may be active."};
 		FHostOperationScope Operation(*this);
 		if (!FModuleManager::Get().LoadModule("DurinEd"))
 			return {ESubsystemError::ProviderUnavailable, "DurinEd subsystem providers could not start."};
@@ -75,7 +84,7 @@ namespace Durin
 
 	auto DEditorEngine::Init(const FEngineInitContext& Context) -> bool
 	{
-		if (bEditorInitStarted || bShutdownRequested)
+		if (bEditorInitStarted || !ActivateEditor())
 		{
 			DURIN_ERROR("Editor initialization is one-shot.");
 			return false;
@@ -244,23 +253,21 @@ namespace Durin
 		Super::CloseSubsystemWork();
 	}
 
-	auto DEditorEngine::AreHostConsumersIdle() -> bool
-	{
-		return Super::AreHostConsumersIdle()
-			&& (!EditorWorld || EditorWorld->IsReadyForFinishDestroy())
-			&& (!PlayWorld || PlayWorld->IsReadyForFinishDestroy());
-	}
-
 	auto DEditorEngine::RetireHostConsumers() -> void
 	{
 		TeardownPlaySession();
+		if (Trans) Trans->Cancel();
 		if (EditorWorld) EditorWorld->Shutdown();
 		if (EditorHost) EditorHost->DestroyEditorHost();
 		EditorSubsystems.Shutdown();
 		PreviewMeshResources.reset();
 	}
 
-	auto DEditorEngine::PrepareForShutdown() -> void { Super::PrepareForShutdown(); }
+	auto DEditorEngine::PrepareForShutdown() -> void
+	{
+		Super::PrepareForShutdown();
+		if (bShutdownComplete && GEditor == this) GEditor = nullptr;
+	}
 
 	auto DEditorEngine::BeginDestroy() -> void
 	{
@@ -284,6 +291,14 @@ namespace Durin
 	{
 		return PlayWindowViewportClient.get();
 	}
+	auto DEditorEngine::GetEditorWorldContext() const -> const FWorldContext&
+	{
+		const auto* Context = GetWorldContextFromWorld(EditorWorld.Get());
+		checkf(Context, "The editor World is not initialized.");
+		return *Context;
+	}
+	auto DEditorEngine::GetPIEWorldContext() const -> const FWorldContext*
+	{ return GetWorldContextFromWorld(PlayWorld.Get()); }
 
 	auto DEditorEngine::InitializePlayWindowViewportClient(
 		const FViewportClient* SourceClient) -> void

@@ -126,9 +126,9 @@ else:
         Result = Run("assert builtins.cached() == builtins.proxy.get_name()", *Other);
         EXPECT_EQ(Result.State, EPythonJobState::Succeeded) << Result.Error;
     }
-    TEST_F(PythonReflectionTests, ForeignHostCachedMethodsRejectAndOriginalHostRemainsUsable)
+    TEST_F(PythonReflectionTests, RetiredEditorCachedMethodsRejectAfterSequentialReplacement)
     {
-        Save();
+        Save(); Host->PrepareForShutdown();
         TStrongObjectPtr<FPythonReflectionEditor> Other(NewObject<FPythonReflectionEditor>(nullptr, {})); ASSERT_TRUE(Other->Start());
         auto* OtherTools = Other->GetEditorSubsystem<DEditorToolSubsystem>(); ASSERT_NE(OtherTools, nullptr);
         auto Created = Runtime.CreateSession(OtherTools->GetService()); ASSERT_TRUE(Created);
@@ -136,14 +136,14 @@ else:
 assert builtins.proxy != durin.get_editor_subsystem(durin.ReflectionService)
 try:
     builtins.cached()
-except durin.ScriptAccessError:
+except ReferenceError:
     pass
 else:
-    raise AssertionError('foreign cached method admitted')
+    raise AssertionError('retired editor cached method admitted')
 )", *Created, OtherTools);
         EXPECT_EQ(Result.State, EPythonJobState::Succeeded) << Result.Error;
         Runtime.CloseSession(*Created); Other->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Other.Get()); Other.Reset();
-        Pass("assert builtins.cached() == builtins.proxy.get_name()");
+        EXPECT_FALSE(Runtime.RunString(Session, "pass"));
     }
     TEST_F(PythonReflectionTests, RetiredServicePurgesRootsAndCannotReviveCachedBoundMethods)
     {

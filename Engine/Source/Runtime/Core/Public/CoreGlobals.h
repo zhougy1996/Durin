@@ -8,6 +8,9 @@ namespace Durin
 {
 	class FRunnableThread;
 	class FConfigCacheJson;
+	class ITransaction;
+	// Current GameThread recording; its owner clears this before releasing storage.
+	extern CORE_API ITransaction* GUndo;
 
 	// Don't modify this global variable directly, use the provided functions instead.
 	// RequestEngineExit() and IsEngineExitRequested() are the functions to use.

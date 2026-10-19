@@ -143,7 +143,6 @@ TEST_F(FEditorToolTests, NativeAndCrossThreadCallsShareNormalizationAndExplicitH
 	FTestToolset Toolset;
 	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
 	auto* First = MakeHost();
-	auto* Second = MakeHost(); // GEditor points here; dispatch must still bind First.
 	auto* Tools = First->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	FToolContext Copy;
@@ -172,7 +171,7 @@ TEST_F(FEditorToolTests, NativeAndCrossThreadCallsShareNormalizationAndExplicitH
 	ASSERT_TRUE(Completed->Result.has_value());
 	EXPECT_EQ(Direct.Data, Completed->Result->Data);
 	EXPECT_EQ(2, Toolset.Executions);
-	EXPECT_FALSE(Second->GetEditorSubsystem<DEditorToolSubsystem>()->GetService()->GetInvocation(*Id));
+	EXPECT_EQ(Endpoint->GetInvocation(*Id)->State, EToolInvocationState::Completed);
 }
 
 TEST_F(FEditorToolTests, AvailabilityAndArgumentFailuresNeverExecuteAndWrongThreadIsRejected)

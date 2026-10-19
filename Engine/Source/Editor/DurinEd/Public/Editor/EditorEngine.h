@@ -84,6 +84,9 @@ namespace Durin
 	public:
 		DURINED_API explicit DEditorEngine(const FObjectInitializer& ObjectInitializer);
 		DURINED_API ~DEditorEngine() override;
+		// Launch and headless hosts retain the engine until shutdown completes.
+		// Construction alone never changes the process editor.
+		DURINED_API auto ActivateEditor() -> bool;
 		auto GetInitialWorldType() const -> EWorldType override { return EWorldType::Editor; }
 		DURINED_API auto Init(const FEngineInitContext& Context)
 			-> bool override;
@@ -92,9 +95,10 @@ namespace Durin
 		DURINED_API auto BeginDestroy() -> void override;
 		auto GetTransactor() const -> DTransactor* { return Trans.Get(); }
 		DURINED_API auto BeginTransaction(std::string_view Description) -> int32;
-		DURINED_API auto BeginTransaction(std::string_view Context, std::string_view Description, DObject* PrimaryObject = nullptr) -> int32;
-		DURINED_API auto EndTransaction() -> int32;
-		DURINED_API auto CancelTransaction(int32 StartIndex = 0) -> void;
+		DURINED_API auto BeginTransaction(std::string_view Context, std::string_view Description, DObject* PrimaryObject = nullptr) -> int32 override;
+		DURINED_API auto EndTransaction() -> int32 override;
+		DURINED_API auto CancelTransaction(int32 StartIndex = 0) -> void override;
+		DURINED_API auto CanTransact() const -> bool override;
 		DURINED_API auto GetEditorSubsystem(DClass* Type) const -> DEditorSubsystem*;
 		template<typename T> requires std::is_base_of_v<DEditorSubsystem, T>
 		auto GetEditorSubsystem() const -> T* { return static_cast<T*>(EditorSubsystems.Find(T::StaticClass())); }
@@ -125,6 +129,8 @@ namespace Durin
 		auto IsPlaySessionPaused() const -> bool { return PlayState == Editor::EPlayState::Paused; }
 		auto GetEditorWorld() const -> DWorld* { return EditorWorld.Get(); }
 		auto GetPlayWorld() const -> DWorld* { return PlayWorld.Get(); }
+		DURINED_API auto GetEditorWorldContext() const -> const FWorldContext&;
+		DURINED_API auto GetPIEWorldContext() const -> const FWorldContext*;
 		auto IsPlayingInNewWindow() const -> bool { return IsPlaying() && PlayDestination == Editor::EPlayDestination::NewWindow; }
 		auto GetMouseCaptureState() const -> Editor::EMouseCaptureState { return MouseCaptureState; }
 		auto IsPlayMouseCaptured() const -> bool { return MouseCaptureState == Editor::EMouseCaptureState::Captured; }
@@ -147,10 +153,8 @@ namespace Durin
 			const FViewportClient* SourceClient) -> void;
 
 		auto InitEditorInternal(const FEngineInitContext& Context) -> bool;
-		auto GetObjectTransactionRecorder() const -> std::shared_ptr<FObjectTransaction> override { return Trans ? Trans->GetObjectTransactionRecorder() : nullptr; }
 		DURINED_API auto CloseSubsystemWork() -> void override;
 		DURINED_API auto RetireHostConsumers() -> void override;
-		DURINED_API auto AreHostConsumersIdle() -> bool override;
 		FEditorSubsystemCollection EditorSubsystems;
 		// Retained across preview windows and thumbnail jobs; retired after the shell.
 		std::unique_ptr<Editor::FPreviewMeshResources> PreviewMeshResources;
@@ -199,6 +203,7 @@ namespace Durin
 		IEditorHost* EditorHost = nullptr;
 
 		friend struct FEditorEngineTestAccess;
+		friend class FEditorSubsystemCollection;
 		friend class FSubsystemEditorHost;
 	};
 

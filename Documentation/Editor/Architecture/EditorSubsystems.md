@@ -4,19 +4,24 @@ Summary: Define per-editor native services, reflected PIE controls, Actor/Compon
 
 Modules: DurinEd, LevelEditor, MainFrame, Engine
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-10-19
 
 ## Host Contract
 
+There is one active editor engine per process. Construction is inert;
+ActivateEditor, full Init and headless subsystem initialization reject a second
+active editor. Shutdown releases activation only after callback and World work
+is quiescent. A later editor lifetime can then activate without reusing old gates.
+
 `DEditorSubsystem` extends the [common subsystem contract](../../Runtime/Core/Subsystems.md)
-in DurinEd. `DEditorEngine` owns an Editor collection separately from its inherited
+in DurinEd. The single active `DEditorEngine` owns an Editor collection separately from its inherited
 Engine collection. `GetEditorSubsystem<T>()` selects exact Editor types;
 inherited `GetSubsystem<T>()` still selects Engine types. Editor services have
 no implicit PIE World requirement and survive repeated PIE start/stop.
 
 `FEditorSubsystemRegistration` accepts the common descriptor. Keep tokens in the
-providing module. Registration and token destruction publish changes for existing
-and future hosts; instances change only at a host safe point. Dependencies name
+providing module. Registration and token destruction publish changes for the active editor
+and later editor lifetimes; instances change only at a host safe point. Dependencies name
 concrete Editor types in the same collection. The host enumerates
 both collections for GC. Runtime Engine has no dependency on DurinEd.
 
@@ -37,8 +42,8 @@ retirement is idempotent and BeginDestroy supplies the same fallback path.
 ## Asset Editors
 
 `DAssetEditorSubsystem` in `Subsystems/AssetEditorSubsystem.h` follows the core
-native asset-editor lifecycle of UE's `UAssetEditorSubsystem`. Each Editor owns
-an independent service. `OpenEditorForAsset(DObject*)` first finds and focuses an
+native asset-editor lifecycle of UE's `UAssetEditorSubsystem`. The active editor owns
+the service. `OpenEditorForAsset(DObject*)` first finds and focuses an
 existing primary `IAssetEditorInstance`; otherwise it resolves the exact-class
 workspace route. Path overloads load the asset before routing. Batch opening
 deduplicates objects, attempts every distinct input, and returns aggregate success;
@@ -139,12 +144,12 @@ initialization and safe-point diagnostics to native hosts.
 
 Providers own removal in `ShutdownModule()`: DurinEd and LevelEditor destroy
 their registration tokens and call `FEditorSubsystemCollection::SynchronizeAll()`
-before releasing the remaining provider resources. This removes per-host instances
+before releasing the remaining provider resources. This removes active-editor instances
 and dependent services before shutdown returns. There is no module-manager
 consumer callback or separate suppressed-registration list.
 
 Their read-only `CanShutdownModule()` calls `CanSynchronizeAll()` to preflight
-all live Editor collections. Initialization, cleanup, host callbacks, GC, feature
+the active Editor collection. Initialization, cleanup, host callbacks, GC, feature
 dispatch and non-idle history postpone the entire shutdown. `UnloadModule()`
 returns false without changing an active module at an unsafe point; explicit
 `ShutdownModule()` requires the caller to establish that safe point. Providers

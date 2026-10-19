@@ -3,7 +3,7 @@
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/DefaultDeltaPlan.h"
 #include "DObject/Object.h"
-#include "DObject/ObjectTransaction.h"
+#include "Misc/ITransaction.h"
 #include "DObject/ObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
 #include "DObject/SoftObjectPtr.h"
@@ -7116,10 +7116,16 @@ TEST(FObjectModifyTests, RuntimeNeutralBridgeRequiresTransactionalParticipation)
 	TStrongObjectPtr<DObject> Object(NewObject<DObject>(nullptr, "RuntimeModifyBridge"));
 	EXPECT_FALSE(Object->Modify(false));
 	int Captures = 0;
-	auto Recorder = std::make_shared<FObjectTransaction>();
-	Recorder->Owner = &Captures;
-	Recorder->SaveObject = [](void* Owner, DObject*) { ++*static_cast<int*>(Owner); return true; };
-	FScopedObjectTransactionBinding Binding(Recorder);
+	struct FRecorder final : ITransaction
+	{
+		explicit FRecorder(int& InCaptures) : Captures(InCaptures) {}
+		auto SaveObject(DObject* Target) -> void override { ++Captures; Saved = Target; }
+		auto ContainsObject(const DObject* Target) const -> bool override { return Saved == Target; }
+		int& Captures;
+		DObject* Saved = nullptr;
+	} Recorder(Captures);
+	struct FRestoreTransaction { ITransaction* Previous; ~FRestoreTransaction() { GUndo = Previous; } } Restore{GUndo};
+	GUndo = &Recorder;
 	EXPECT_FALSE(Object->Modify(false)); EXPECT_EQ(Captures, 0);
 	Object->SetFlags(EObjectFlags::Transactional);
 	EXPECT_TRUE(Object->Modify(false)); EXPECT_EQ(Captures, 1);

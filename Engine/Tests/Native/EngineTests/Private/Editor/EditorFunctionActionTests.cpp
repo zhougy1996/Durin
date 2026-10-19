@@ -178,7 +178,7 @@ TEST_F(FEditorFunctionTests, InheritedVirtualActionRecordsValuesAndNeverReinvoke
 	EXPECT_TRUE(Action.bChanged);
 	EXPECT_EQ(Target->Value, 10);
 	EXPECT_EQ(Target->DerivedValue, 20);
-	ASSERT_EQ(Buffer->GetHistoryCount(), 1u);
+	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Target->Value, 0);
 	EXPECT_EQ(Target->DerivedValue, 0);
@@ -289,7 +289,7 @@ TEST_F(FEditorFunctionTests, GeneratedPrivatePointLightActionSupportsUndoAndNoOp
 	EXPECT_FALSE(NoOp.bChanged);
 	EXPECT_EQ(NoOp.Error, EEditorFunctionError::None);
 	EXPECT_TRUE(Package->IsDirty());
-	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	const auto* Default = DPointLightComponent::StaticClass()->GetDefaultObject();
 	ASSERT_NE(Default, nullptr);
 	auto TemplateRequest = ActionRequest;
@@ -312,7 +312,7 @@ TEST_F(FEditorFunctionTests, ActivePropertyEditCommitsBeforeIndependentAction)
 	ASSERT_EQ(Result.Error, EEditorFunctionError::None);
 	EXPECT_FALSE(View.IsEditing());
 	EXPECT_EQ(Target->Value, 12);
-	ASSERT_EQ(Buffer->GetHistoryCount(), 2u);
+	ASSERT_EQ(Buffer->GetQueueLength(), 2u);
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Target->Value, 7);
 	ASSERT_TRUE(Buffer->Undo());
@@ -327,7 +327,7 @@ TEST_F(FEditorFunctionTests, DisabledAndMissingEditorScopesRemainInert)
 	FScopedTransaction Disabled(Buffer.Get(), {"test", "Disabled"}, false);
 	EXPECT_FALSE(Disabled.IsOutstanding());
 	EXPECT_FALSE(Buffer->IsActive());
-	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 }
 
 TEST_F(FEditorFunctionTests, DetailsClickExecutesOnlyAfterAllRowsAndRequestsRefresh)
@@ -379,7 +379,7 @@ TEST_F(FEditorFunctionTests, DetailsClickExecutesOnlyAfterAllRowsAndRequestsRefr
 	EXPECT_TRUE(Clicked.bRefreshRequested);
 	EXPECT_TRUE(Clicked.bChanged);
 	EXPECT_EQ(Target->Invocations, 1);
-	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 }
 
 TEST_F(FEditorFunctionTests, ParameterizedFunctionsAreReflectedButExcludedFromEditorActions)
@@ -398,7 +398,7 @@ TEST_F(FEditorFunctionTests, ParameterizedFunctionsAreReflectedButExcludedFromEd
 	EXPECT_EQ(Layout.GetVisibleRowCount(), 1u);
 	FPropertyView View;
 	EXPECT_FALSE(ExecuteEditorFunction(View, Context, Request(Target, "WithArgs")).bInvoked);
-	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	FFunctionParameterBuffer Parameters(*Function);
 	Parameters.GetParameter<int32>(0) = 4;
 	EXPECT_EQ(Target->ProcessEvent(Function, Parameters.GetView()), EFunctionInvokeError::None);
@@ -435,7 +435,7 @@ TEST_F(FEditorFunctionTests, NonTransactionalTargetStillExecutesNativeAction)
 	EXPECT_TRUE(Result.bInvoked);
 	EXPECT_FALSE(Result.bChanged);
 	EXPECT_EQ(Target->Invocations, 1);
-	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 }
 
 TEST_F(FEditorFunctionTests, OversizedPropertyEditCompletesBeforeActionAndLatestActionRemainsUndoable)

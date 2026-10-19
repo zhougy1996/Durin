@@ -2973,7 +2973,7 @@ TEST(FMaterialGraphOperationsTests, GraphChangesJoinAnOuterRecording)
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
 	EXPECT_GT(Material->GetMaterialProgramRevision(), Revision);
 	EXPECT_EQ(Notifications, 1u);
-	EXPECT_EQ(Transactions->GetHistoryCount(), 0u);
+	EXPECT_EQ(Transactions->GetQueueLength(), 0u);
 	EXPECT_EQ(Transactions->End(), 1);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);

@@ -4,7 +4,7 @@ Summary: Define levels, actors, world ownership, lifecycle mutation, and iterati
 
 Modules: Engine
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-19
 
 `DLevel` is the persistent scene asset. A packaged level is a top-level asset
 in a `.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays.
@@ -73,6 +73,21 @@ redirector Fix Up is the only transaction that rewrites the setting. Projects
 without a default level start with an empty editor; missing or invalid defaults
 and failed level loads are non-fatal.
 
+## Engine World Contexts
+
+One active editor engine owns the editor session and its services. Editor, PIE
+and preview Worlds are separate contexts, not separate editor engines.
+`DEngine::GetWorldContexts()` and `GetWorldContextFromWorld()` expose borrowed
+role/World views. Contexts contain weak identities; existing engine fields or
+preview owners retain World lifetime. Do not retain a context address across
+registration/removal. SetWorld registers an active World, previews explicitly
+register their World, and World shutdown removes its context.
+
+`DEditorEngine::GetEditorWorldContext()` requires an initialized editor World;
+`GetPIEWorldContext()` returns null outside PIE. Context roles do not change the
+single shared editor transaction history. World operation boundaries and render
+fences still govern destruction. The context list also closes World admission
+and checks operation quiescence during engine shutdown.
 ## World Play State
 
 `DWorld` publishes one authoritative game-thread play state:

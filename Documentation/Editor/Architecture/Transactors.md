@@ -2,36 +2,29 @@
 
 Summary: Define UE-shaped native recording, synchronous Undo/Redo, package checkpoints, history notifications, and collector ownership.
 
-Modules: CoreDObject, DurinEd
+Modules: Core, CoreDObject, Engine, DurinEd
 
 Last reviewed: 2026-10-19
 
 ## Service Ownership
 
-`DTransactor` is the abstract reflected service. `DEditorEngine` retains one
-transient `DTransBuffer` in `Trans`. Application Undo/Redo, property editors,
-domain commands, Activity History, and notifications share this ordered history.
-`DEditorEngine::BeginTransaction`, `EndTransaction`, and `CancelTransaction`
-forward to that service. Scoped native recordings receive their owning host's
-transactor explicitly.
+The process has one active `DEditorEngine`, published during activation rather
+than object construction. It owns one transient `DTransBuffer` in `Trans`.
+Windows, documents, tools and script sessions share this ordered history.
+`DEngine` exposes BeginTransaction, EndTransaction, CancelTransaction and
+CanTransact; the editor implements them through its transactor.
 
-CoreDObject defines the runtime-neutral `FObjectTransaction` bridge. Host operation
-scopes bind their recorder only while native/UI/tool/Python callbacks execute,
-including a host with no active recording. Nested synchronous host entry restores
-only a still-live prior binding, including rejection of a garbage-marked owner
-before deferred destruction runs. Ending a callback releases its binding and never
-ends recording. MainFrame's root widget enters its explicitly captured host's
-callback scope; native ApplyEditorChange and Undo/Redo bind their owning transactor.
-CoreDObject has no editor dependency or second history owner.
+Core defines the runtime-neutral `ITransaction` capture interface and ordinary
+GameThread pointer `GUndo`. Outermost Begin publishes the pending `FTransaction`;
+End, Cancel, owner retirement and destruction clear it before releasing storage.
+A competing buffer cannot begin while another recording is published. There is
+no candidate registry or host recorder binding stack. Object capture retains
+Durin's typed failures through the owning buffer; CoreDObject has no editor dependency.
 
-For unbound native Begin/Modify, the bridge resolves a single live recording.
-With multiple recordings it declines capture until the caller supplies an explicit
-`FScopedObjectTransactionBinding` or host callback boundary. This preserves ordinary
-single-host native use without selecting another suspended host's history. End,
-Cancel and destruction remove recording candidates.
-Without a resolved recording, Modify keeps its normal dirty behavior and returns
-false. Execution bindings retain recorder storage, whose owner is invalidated at
-transactor destruction; they do not keep a destroyed host valid.
+Host callback scopes protect execution and GC lifetime, not transaction routing.
+Ending a callback never ends recording. Without a current recording, Modify
+keeps its normal dirty behavior and returns false. Undo/Redo reject an active
+recording and do not expose replay as a new recording.
 
 ## Transactions And Scoped Recording
 
@@ -54,11 +47,12 @@ This source version's `Cancel(StartIndex)` cancels the entire active recording,
 including cancellation by an inner scope. It does not restore applied edits.
 The index is an activity count, never a history ID or an isolated savepoint.
 
-`FScopedTransaction` requires an explicit `DTransactor*` and `FTransactionContext`;
-it never resolves a transactor from `GEditor` or the current execution binding.
-It provides `bShouldActuallyTransact`, `Cancel()`, `IsOutstanding()`, and optional
-explicit End. Its destructor ends an outstanding action. Null transactors and
-disabled scopes remain inert.
+`FScopedTransaction` provides UE-shaped description and full-context constructors
+using the active editor. A disabled scope or unavailable editor remains inert.
+The explicit-transactor overload supports native composition and independent
+low-level buffer tests; it cannot open a competing concurrent recording.
+Cancel(), IsOutstanding() and optional End are retained, and destruction ends
+an outstanding action.
 Scope helpers retain a GC-visible exact transactor reference and its existing
 active transaction ID. End, Cancel, IsOutstanding and destruction first validate
 that same live recording. Cancel/End followed by a replacement Begin makes old
@@ -66,12 +60,12 @@ helpers inert; their nested action count cannot close or cancel the replacement.
 Destroyed transactors invalidate helper cleanup. There is no public owner token,
 private history, extra recording generation, object snapshot or checked preparation
 in the helper. Explicit scopes may remain open between host execution boundaries;
-same-host callers join that global recording and other hosts keep distinct histories.
+all callers on the active editor join that global recording.
 
 ### Everyday Object Editing
 
 ```cpp
-Editor::FScopedTransaction Transaction(EditorHost->GetTransactor(), {.Description = "Move Actor"});
+Editor::FScopedTransaction Transaction("Move Actor");
 Actor->Modify();
 Actor->SetActorTransform(NewTransform);
 ```
@@ -105,11 +99,11 @@ No-op pruning and cancellation do not promise to clear dirtiness.
 
 ## Structural History And Barriers
 
-`DTransactor::GetHistoryCount()` reports the retained history size, including
+`DTransactor::GetQueueLength()` reports the retained history size, including
 both Undo and Redo entries. `GetTransaction(Index)` reads an entry in that history.
 `DTransBuffer::GetUndoCount()` follows UE's meaning: the number of transactions
 already undone and available for Redo. `GetUndoableCount()` reports entries before
-the cursor that can be undone. Their sum equals `GetHistoryCount()`. For example,
+the cursor that can be undone. Their sum equals `GetQueueLength()`. For example,
 after three commits and two Undo operations, the counts are two undone and one
 undoable. Redo decreases the undone count; committing a new branch discards the
 remaining Redo entries and resets that count to zero.

@@ -1349,9 +1349,9 @@ namespace Durin
 		});
 
 		auto EditorRootWidget = std::make_shared<MFunctionWidget>();
-		EditorRootWidget->Construct([WeakContext, EditorHost = TWeakObjectPtr<DEditorEngine>(&Editor),
+		EditorRootWidget->Construct([WeakContext,
 			ViewState = FMainFrameViewState{}]() mutable {
-			auto* Host = EditorHost.Get();
+			auto* Host = GEditor;
 			if (!Host) return;
 			Host->DispatchSubsystemCallback([&] {
 				const std::shared_ptr<FBootstrapContext> Context =

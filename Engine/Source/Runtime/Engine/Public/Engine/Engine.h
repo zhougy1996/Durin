@@ -4,12 +4,13 @@
 
 #include "EngineAPI.h"
 #include "DObject/ObjectPtr.h"
+#include "DObject/WeakObjectPtr.h"
 #include "Input/GameInputState.h"
 #include "SceneOwnership.h"
 #include "Engine/World.h"
 #include "Engine/EngineSubsystem.h"
 #include "DObject/ObjectLifecycle.h"
-#include "DObject/ObjectTransaction.h"
+#include "Misc/ITransaction.h"
 
 #include "Engine.gen.h"
 
@@ -36,6 +37,16 @@ namespace Durin
 	class FSceneInterface;
 	struct FSceneView;
 
+	// Identifies a World's role in one engine; it does not own an editor or window.
+	struct FWorldContext
+	{
+		EWorldType WorldType = EWorldType::Game;
+		auto World() const -> DWorld* { return CurrentWorld.Get(); }
+	private:
+		TWeakObjectPtr<DWorld> CurrentWorld;
+		friend class DEngine;
+	};
+
 	// Coordinates the active world, scene viewports, input state, and renderer module.
 	DCLASS(NoClassDefaultObject)
 	class DEngine : public DObject
@@ -53,6 +64,10 @@ namespace Durin
 		ENGINE_API virtual auto Tick(float DeltaSeconds, bool bIdleMode) -> void;
 		// Detaches host-owned consumers while the task system and objects are still alive.
 		ENGINE_API virtual auto PrepareForShutdown() -> void;
+		ENGINE_API virtual auto BeginTransaction(std::string_view Context, std::string_view Description, DObject* PrimaryObject = nullptr) -> int32;
+		ENGINE_API virtual auto EndTransaction() -> int32;
+		ENGINE_API virtual auto CancelTransaction(int32 StartIndex = 0) -> void;
+		virtual auto CanTransact() const -> bool { return false; }
 
 		// External callbacks close admission immediately but retire consumers at the next host boundary.
 		ENGINE_API auto DispatchSubsystemCallback(std::function<void()> Callback) -> void;
@@ -62,6 +77,10 @@ namespace Durin
 		ENGINE_API auto RegisterAuxiliarySceneViewport(const std::shared_ptr<FSceneViewport>& InSceneViewport) -> void;
 		ENGINE_API auto UnregisterAuxiliarySceneViewport(const FSceneViewport* InSceneViewport) -> void;
 		ENGINE_API virtual auto SetWorld(DWorld* InWorld) -> void;
+		ENGINE_API auto RegisterWorldContext(DWorld& World) -> void;
+		ENGINE_API auto DestroyWorldContext(DWorld* World) -> void;
+		ENGINE_API auto GetWorldContextFromWorld(const DWorld* World) const -> const FWorldContext*;
+		auto GetWorldContexts() const -> std::span<const FWorldContext> { return WorldContexts; }
 
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
@@ -92,11 +111,9 @@ namespace Durin
 			ENGINE_API ~FHostOperationScope();
 		private:
 			FGarbageCollectionDeferralScope Deferral;
-			FScopedObjectTransactionBinding RecorderBinding;
 			DEngine& Host;
 			bool bFlushOnExit;
 		};
-		virtual auto GetObjectTransactionRecorder() const -> std::shared_ptr<FObjectTransaction> { return {}; }
 		ENGINE_API virtual auto CloseSubsystemWork() -> void;
 		virtual auto RetireHostConsumers() -> void {}
 		ENGINE_API virtual auto AreHostConsumersIdle() -> bool;
@@ -118,6 +135,7 @@ namespace Durin
 			DWorld& World;
 		};
 		std::vector<DWorld*> InitializingWorlds;
+		std::vector<FWorldContext> WorldContexts;
 		friend class DWorld;
 		auto InitInternal(const FEngineInitContext& Context) -> bool;
 		uint32 HostOperationDepth = 0;

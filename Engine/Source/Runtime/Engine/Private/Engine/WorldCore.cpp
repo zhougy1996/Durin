@@ -85,6 +85,7 @@ namespace Durin
 		SetCurrentLevelInternal(nullptr, true);
 		Subsystems.Shutdown();
 		RenderScene = nullptr;
+		if (auto* Engine = Cast<DEngine>(GetOuter())) Engine->DestroyWorldContext(this);
 	}
 
 	auto DWorld::IsReadyForFinishDestroy() -> bool

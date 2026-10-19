@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	ITransaction* GUndo = nullptr;
 	bool GIsRequestingExit = false;
 
 	uint32 GGameThreadId = 0;

@@ -1,5 +1,7 @@
 #include "Transactions/Transactor.h"
 
+#include "Editor/EditorEngine.h"
+
 #include "PropertyEditor/PropertyEditing.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectArray.h"
@@ -222,8 +224,8 @@ namespace Durin::Editor
 		return CustomObject.Resolve();
 	}
 
-	FTransaction::FTransaction(FTransactionId InId, FTransactionContext InContext)
-		: Id(InId)
+	FTransaction::FTransaction(FTransactionId InId, FTransactionContext InContext, DTransBuffer* InRecordingOwner)
+		: RecordingOwner(InRecordingOwner), Id(InId)
 		, Context(std::move(InContext))
 	{
 	}
@@ -263,7 +265,17 @@ namespace Durin::Editor
 		return true;
 	}
 
-	auto FTransaction::SaveObject(DObject* Object) -> FTransactionRecordResult
+	auto FTransaction::SaveObject(DObject* Object) -> void
+	{
+		if (RecordingOwner) (void)RecordingOwner->SaveObject(Object);
+		else (void)CaptureObject(Object);
+	}
+	auto FTransaction::ContainsObject(const DObject* Object) const -> bool
+	{
+		return std::ranges::any_of(CapturedObjects, [&](const auto& Ref) { return Ref.Resolve() == Object; })
+			|| std::ranges::any_of(Records, [&](const auto& Record) { return Record.GetObjectTarget() == Object; });
+	}
+	auto FTransaction::CaptureObject(DObject* Object) -> FTransactionRecordResult
 	{
 		// A custom record already owns this object's undo representation, as in UE.
 		if (std::ranges::any_of(Records, [&](const auto& Record) {
@@ -489,6 +501,12 @@ namespace Durin::Editor
 		return true;
 	}
 
+	FScopedTransaction::FScopedTransaction(std::string_view Description, bool bShouldActuallyTransact)
+		: FScopedTransaction(GEditor && GEditor->CanTransact() ? GEditor->GetTransactor() : nullptr,
+			{.Description = std::string(Description)}, bShouldActuallyTransact) {}
+	FScopedTransaction::FScopedTransaction(std::string_view Context, std::string_view Description, DObject* PrimaryObject, bool bShouldActuallyTransact)
+		: FScopedTransaction(GEditor && GEditor->CanTransact() ? GEditor->GetTransactor() : nullptr,
+			{std::string(Context), std::string(Description), FPersistentObjectRef(PrimaryObject)}, bShouldActuallyTransact) {}
 	FScopedTransaction::FScopedTransaction(DTransactor* InTransactor, FTransactionContext Context, bool bShouldActuallyTransact)
 	{
 		if (bShouldActuallyTransact && InTransactor)
@@ -543,9 +561,6 @@ namespace Durin
 	DTransactor::DTransactor(const FObjectInitializer& ObjectInitializer)
 		: DObject(ObjectInitializer)
 	{
-		Recorder = std::make_shared<FObjectTransaction>(FObjectTransaction{this, [](void* Owner, DObject* Object) {
-			return static_cast<DTransactor*>(Owner)->SaveObject(Object);
-		}, this});
 	}
 
 	namespace
@@ -587,8 +602,22 @@ namespace Durin
 	{ if (!Listener) return 0; const auto Id = NextListener++; Listeners.emplace(Id, std::move(Listener)); return Id; }
 	auto DTransactor::RemoveTransactionListener(uint64 Handle) -> void { Listeners.erase(Handle); }
 	auto DTransactor::DispatchEvents() -> void {}
-	auto DTransactor::GetHistoryCount() const -> size_t { return 0; }
+	auto DTransactor::GetQueueLength() const -> size_t { return 0; }
 	auto DTransactor::GetTransaction(size_t) const -> const FTransaction* { return nullptr; }
+	auto DTransactor::GetUndoContext(bool bCheckWhetherUndoPossible) const -> FTransactionContext
+	{
+		if (bCheckWhetherUndoPossible && !CanUndo()) return {};
+		for (size_t Index = GetQueueLength(); Index-- > 0;)
+			if (auto* Transaction = GetTransaction(Index); Transaction && Transaction->GetId() == GetUndoId()) return Transaction->GetContext();
+		return {};
+	}
+	auto DTransactor::GetRedoContext() const -> FTransactionContext
+	{
+		if (!CanRedo()) return {};
+		for (size_t Index = 0; Index < GetQueueLength(); ++Index)
+			if (auto* Transaction = GetTransaction(Index); Transaction && Transaction->GetId() == GetRedoId()) return Transaction->GetContext();
+		return {};
+	}
 	auto DTransactor::GetMountedContentMutationRevision() const -> uint64 { return 1; }
 	auto DTransactor::NotifyMountedContentMutation() -> void {}
 	auto DTransactor::NotifyMountedContentMutation(FContentChangeBatch) -> void { NotifyMountedContentMutation(); }
@@ -625,23 +654,17 @@ namespace Durin
 			.RejectionCause = std::move(Rejection)};
 	}
 
-	auto DTransactor::BeginDestroy() -> void
-	{
-		UnregisterObjectTransaction(Recorder);
-		Recorder->Owner = nullptr; Recorder->ObjectOwner = nullptr;
-		DObject::BeginDestroy();
-	}
-
 	auto DTransBuffer::Begin(std::string_view Context, std::string_view Description) -> int32
 	{
 		CheckThread();
-		if (!CanTransact()) { LastResult = Reject(ETransactorRejectionReason::BeginState); return -1; }
+		if (!CanTransact() || (GUndo && (!Pending || GUndo != &*Pending)))
+		{ LastResult = Reject(ETransactorRejectionReason::BeginState); return -1; }
 		const int32 Index = ActiveCount++;
 		if (Index == 0)
 		{
 			RefreshOutsideEdits();
-			Pending.emplace(NextTransactionId++, FTransactionContext{std::string(Context), std::string(Description)});
-			RegisterObjectTransaction(Recorder);
+			Pending.emplace(NextTransactionId++, FTransactionContext{std::string(Context), std::string(Description)}, this);
+			GUndo = &*Pending;
 			State = ETransactorState::Recording;
 		}
 		LastResult = {.Code = ETransactorResultCode::Succeeded, .TransactionId = Pending->GetId()};
@@ -649,7 +672,7 @@ namespace Durin
 	}
 	auto DTransBuffer::ReleaseRecording() -> void
 	{
-		UnregisterObjectTransaction(Recorder);
+		if (Pending && GUndo == &*Pending) GUndo = nullptr;
 		ActiveCount = 0;
 	}
 	auto DTransBuffer::SetPrimaryUndoObject(DObject* Object) -> void
@@ -659,7 +682,7 @@ namespace Durin
 		CheckThread();
 		if (State != ETransactorState::Recording || !Pending || !IsValid(Object)) return false;
 		if (auto* Package = Object->GetPackage(); Package && Package->IsAssetPackage()) EnsurePackageState(*Package);
-		if (auto Result = Pending->SaveObject(Object); !Result)
+		if (auto Result = Pending->CaptureObject(Object); !Result)
 		{
 			LastResult = {.Code = ETransactorResultCode::Failed, .TransactionId = Pending->GetId(),
 				.ApplyCause = std::make_shared<FTransactionApplyError>(FTransactionApplyError{.Message = Result.error()})};
@@ -712,7 +735,7 @@ namespace Durin
 			if (Object) Acknowledge(Object->GetPackage());
 			for (DPackage* Package : Change->GetAffectedPackages()) Acknowledge(Package);
 		}
-		if (bStandalone) (void)Begin("CustomChange", Change->GetDescription());
+		if (bStandalone && Begin("CustomChange", Change->GetDescription()) < 0) return LastResult;
 		for (DPackage* Package : Change->GetAffectedPackages())
 			if (IsValid(Package) && Package->IsAssetPackage()) EnsurePackageState(*Package);
 		Pending->AddRecord(std::move(Change), Object);
@@ -723,7 +746,6 @@ namespace Durin
 	auto DTransBuffer::End() -> int32
 	{
 		CheckThread();
-		FScopedObjectTransactionBinding Binding(Recorder);
 		const int32 Result = ActiveCount;
 		if (ActiveCount == 0) return 0;
 		if (State != ETransactorState::Recording || !Pending) return 0;
@@ -747,7 +769,7 @@ namespace Durin
 		if (State != ETransactorState::Recording || !Pending) return;
 		LastResult = {.Code = ETransactorResultCode::Discarded, .TransactionId = Pending->GetId()};
 		QueueEvent(ETransactionEventType::Discarded, *Pending, "Transaction recording canceled; applied edits remain.");
-		Pending.reset(); ReleaseRecording(); State = ETransactorState::Idle;
+		ReleaseRecording(); Pending.reset(); State = ETransactorState::Idle;
 		RefreshOutsideEdits();
 	}
 
@@ -828,8 +850,7 @@ namespace Durin
 	auto DTransBuffer::UndoExpected(FTransactionId ExpectedId) -> FTransactorResult
 	{
 		CheckThread();
-		FScopedObjectTransactionBinding Binding(Recorder);
-		if (State != ETransactorState::Idle) return Reject(ETransactorRejectionReason::UndoState, ExpectedId);
+		if (State != ETransactorState::Idle || GUndo) return Reject(ETransactorRejectionReason::UndoState, ExpectedId);
 		if (Cursor == 0) return {.Code = ETransactorResultCode::NoOp, .Notice = ETransactorNotice::NothingUndo};
 		RefreshOutsideEdits();
 		FTransaction& Transaction = History[Cursor - 1];
@@ -858,8 +879,7 @@ namespace Durin
 	auto DTransBuffer::RedoExpected(FTransactionId ExpectedId) -> FTransactorResult
 	{
 		CheckThread();
-		FScopedObjectTransactionBinding Binding(Recorder);
-		if (State != ETransactorState::Idle) return Reject(ETransactorRejectionReason::RedoState, ExpectedId);
+		if (State != ETransactorState::Idle || GUndo) return Reject(ETransactorRejectionReason::RedoState, ExpectedId);
 		if (Cursor >= History.size())
 			return {.Code = ETransactorResultCode::NoOp, .Notice = ETransactorNotice::NothingRedo};
 		RefreshOutsideEdits();

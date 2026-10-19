@@ -548,7 +548,7 @@ TEST_F(FAssetPackageReloadTests, ReloadRetiresCrossPackageHistoryAndInvalidatesT
 		}
 		ASSERT_TRUE(Scope.End());
 	}
-	ASSERT_EQ(Transactions->GetHistoryCount(), 1u);
+	ASSERT_EQ(Transactions->GetQueueLength(), 1u);
 	ASSERT_TRUE(Textures[1]->GetPackage()->IsDirty());
 
 	FPackageReloadRequest Request{.Packages = {Textures[0]->GetPackage()}};
@@ -558,7 +558,7 @@ TEST_F(FAssetPackageReloadTests, ReloadRetiresCrossPackageHistoryAndInvalidatesT
 		return Point == EPackageReloadFaultPoint::PrepareHistory;
 	};
 	EXPECT_EQ(ReloadPackages(Request).GetResult().Status, EPackageReloadStatus::Failed);
-	EXPECT_EQ(Transactions->GetHistoryCount(), 1u);
+	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
 	EXPECT_TRUE(Transactions->CanUndo());
 	for (size_t Index = 0; Index < Paths.size(); ++Index)
 	{
@@ -568,7 +568,7 @@ TEST_F(FAssetPackageReloadTests, ReloadRetiresCrossPackageHistoryAndInvalidatesT
 	Request.ShouldFail = {};
 	auto Operation = ReloadPackages(Request);
 	ASSERT_TRUE(Operation.Wait());
-	EXPECT_EQ(Transactions->GetHistoryCount(), 0u);
+	EXPECT_EQ(Transactions->GetQueueLength(), 0u);
 	EXPECT_FALSE(Transactions->GetPackageRevisionState(*Textures[0]->GetPackage()).has_value());
 	const auto OtherState = Transactions->GetPackageRevisionState(*Textures[1]->GetPackage());
 	ASSERT_TRUE(OtherState.has_value());

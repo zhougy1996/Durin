@@ -394,9 +394,9 @@ TEST(FActorMutationTests, MixedSynchronousEditsJoinOuterTransactionAndReplayInOr
 	std::array<AActor*, 1> Duplicates{Duplicate};
 	ASSERT_TRUE(Editor->DestroyActors(*Level, Duplicates, {nullptr, false}));
 	EXPECT_EQ(Spawned.History->TransactionId, F.Transactions->GetLastResult().TransactionId);
-	EXPECT_EQ(F.Transactions->GetHistoryCount(), 0u);
+	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
 	ASSERT_TRUE(F.Transactions->End());
-	EXPECT_EQ(F.Transactions->GetHistoryCount(), 1u);
+	EXPECT_EQ(F.Transactions->GetQueueLength(), 1u);
 	EXPECT_EQ(F.Transactions->GetUndoDescription(), "Build actor hierarchy");
 	CollectGarbage();
 	ASSERT_TRUE(F.Transactions->Undo());

@@ -124,7 +124,10 @@ namespace Durin
 
 	DEngine::~DEngine() = default;
 
-	DEngine::FHostOperationScope::FHostOperationScope(DEngine& InHost, bool bInFlushOnExit) : RecorderBinding(InHost.GetObjectTransactionRecorder()), Host(InHost), bFlushOnExit(bInFlushOnExit) { ++Host.HostOperationDepth; }
+	DEngine::FHostOperationScope::FHostOperationScope(DEngine& InHost, bool bInFlushOnExit) : Host(InHost), bFlushOnExit(bInFlushOnExit) { ++Host.HostOperationDepth; }
+	auto DEngine::BeginTransaction(std::string_view, std::string_view, DObject*) -> int32 { return -1; }
+	auto DEngine::EndTransaction() -> int32 { return 0; }
+	auto DEngine::CancelTransaction(int32) -> void {}
 	DEngine::FHostOperationScope::~FHostOperationScope()
 	{
 		if (--Host.HostOperationDepth == 0 && bFlushOnExit && Host.bShutdownRequested) Host.PrepareForShutdown();
@@ -312,12 +315,18 @@ namespace Durin
 		GameInputState.FinishGameTick();
 	}
 
-	auto DEngine::AreHostConsumersIdle() -> bool { return !MainWorld || MainWorld->IsReadyForFinishDestroy(); }
+	auto DEngine::AreHostConsumersIdle() -> bool
+	{
+		for (const auto& Context : WorldContexts)
+			if (auto* World = Context.World(); World && !World->IsReadyForFinishDestroy()) return false;
+		return !MainWorld || MainWorld->IsReadyForFinishDestroy();
+	}
 
 	auto DEngine::CloseSubsystemWork() -> void
 	{
 		EngineSubsystems.CloseWork();
-		if (MainWorld) MainWorld->RequestShutdown();
+		const auto Contexts = WorldContexts;
+		for (const auto& Context : Contexts) if (auto* World = Context.World()) World->RequestShutdown();
 		for (DWorld* World : InitializingWorlds) World->RequestShutdown();
 	}
 
@@ -489,6 +498,7 @@ namespace Durin
 
 	auto DEngine::SetWorld(DWorld* InWorld) -> void
 	{
+		if (InWorld) RegisterWorldContext(*InWorld);
 		if (MainWorld.Get() == InWorld) return;
 		LastCameraViewSource = nullptr;
 		bHasCameraViewSource = false;
@@ -500,6 +510,26 @@ namespace Durin
 		if (MainWorld) MainWorld->SetRenderScene(nullptr);
 		MainWorld = InWorld;
 		if (MainWorld) MainWorld->SetRenderScene(MainScene.get());
+	}
+	auto DEngine::RegisterWorldContext(DWorld& World) -> void
+	{
+		CheckGameThread();
+		for (auto& Context : WorldContexts)
+			if (Context.World() == &World) { Context.WorldType = World.GetWorldType(); return; }
+		FWorldContext Context;
+		Context.WorldType = World.GetWorldType(); Context.CurrentWorld = &World;
+		WorldContexts.push_back(std::move(Context));
+	}
+	auto DEngine::DestroyWorldContext(DWorld* World) -> void
+	{
+		CheckGameThread();
+		std::erase_if(WorldContexts, [&](const auto& Context) { return !Context.World() || Context.World() == World; });
+	}
+	auto DEngine::GetWorldContextFromWorld(const DWorld* World) const -> const FWorldContext*
+	{
+		if (!World) return nullptr;
+		for (const auto& Context : WorldContexts) if (Context.World() == World) return &Context;
+		return nullptr;
 	}
 
 	auto DEngine::SetGameInputEnabled(bool bEnabled) -> void

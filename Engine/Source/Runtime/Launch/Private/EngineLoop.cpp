@@ -196,6 +196,9 @@ namespace Durin
 		GEngine = NewObject<DGameEngine>(nullptr, "GameEngine");
 #endif
 		AddToRoot(GEngine);
+#if DURIN_WITH_EDITOR
+		if (!static_cast<DEditorEngine*>(GEngine)->ActivateEditor()) return false;
+#endif
 
 		if (!InitializeApplicationCore())
 		{

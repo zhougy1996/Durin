@@ -7,12 +7,6 @@
 
 namespace Durin
 {
-	namespace
-	{
-		auto Collections() -> std::vector<FEditorSubsystemCollection*>&
-		{ static auto* Value = new std::vector<FEditorSubsystemCollection*>(); return *Value; }
-	}
-
 	DEditorSubsystem::DEditorSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DEditorSubsystem::BeginDestroy() -> void
 	{
@@ -27,7 +21,7 @@ namespace Durin
 		return !Host || Host->IsReadyForFinishDestroy();
 	}
 	auto DEditorSubsystem::GetEditor() const -> DEditorEngine* { return Cast<DEditorEngine>(GetOuter()); }
-	FEditorSubsystemCollection::FEditorSubsystemCollection(DEditorEngine& Host) : FSubsystemCollection(Host, DEditorSubsystem::StaticClass()) { Collections().push_back(this); }
+	FEditorSubsystemCollection::FEditorSubsystemCollection(DEditorEngine& Host) : FSubsystemCollection(Host, DEditorSubsystem::StaticClass()) {}
 	auto FEditorSubsystemCollection::Initialize() -> FSubsystemResult
 	{
 		std::vector<FSubsystemDescriptor> Selected;
@@ -38,7 +32,7 @@ namespace Durin
 		}
 		return FSubsystemCollection::Initialize(std::move(Selected));
 	}
-	FEditorSubsystemCollection::~FEditorSubsystemCollection() { std::erase(Collections(), this); }
+	FEditorSubsystemCollection::~FEditorSubsystemCollection() = default;
 	auto FEditorSubsystemCollection::Synchronize(bool bForce) -> FSubsystemResult
 	{
 		const auto Revision = FSubsystemRegistration::GetRevision();
@@ -69,22 +63,19 @@ namespace Durin
 	auto FEditorSubsystemCollection::CanSynchronizeAll() -> bool
 	{
 		if (IsGarbageCollecting() || FModularFeatureRegistry::Get().IsDispatching()) return false;
-		for (auto* Collection : Collections())
-			if (Collection->IsDispatching() || Collection->GetState() == ESubsystemState::Initializing
-				|| Collection->GetState() == ESubsystemState::ShuttingDown) return false;
-		for (auto* Collection : Collections())
-			if (Collection->GetState() == ESubsystemState::Ready && !static_cast<DEditorEngine&>(Collection->Host).CanRefreshEditorSubsystems()) return false;
+		if (!GEditor) return true;
+		const auto& Collection = GEditor->EditorSubsystems;
+		if (Collection.IsDispatching() || Collection.GetState() == ESubsystemState::Initializing
+			|| Collection.GetState() == ESubsystemState::ShuttingDown) return false;
+		if (Collection.GetState() == ESubsystemState::Ready && !GEditor->CanRefreshEditorSubsystems()) return false;
 		return true;
 	}
 	auto FEditorSubsystemCollection::SynchronizeAll() -> void
 	{
 		requiref(CanSynchronizeAll(), "Editor providers must unregister at an idle host safe point.");
-		// No host can be physically destroyed by another host's cleanup callbacks.
 		FGarbageCollectionDeferralScope Deferral;
-		const auto Hosts = Collections();
-		for (auto* Collection : Hosts)
-			if (Collection->GetState() == ESubsystemState::Ready)
-				(void)static_cast<DEditorEngine&>(Collection->Host).RefreshEditorSubsystems(true);
+		if (GEditor && GEditor->GetEditorSubsystemState() == ESubsystemState::Ready)
+			(void)GEditor->RefreshEditorSubsystems(true);
 	}
 
 }

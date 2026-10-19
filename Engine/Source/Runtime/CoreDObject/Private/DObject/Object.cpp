@@ -1,5 +1,5 @@
 #include "DObject/Object.h"
-#include "DObject/ObjectTransaction.h"
+#include "Misc/ITransaction.h"
 
 #include "DObject/Archive.h"
 #include "DObject/DObjectGlobals.h"
@@ -411,54 +411,15 @@ namespace Durin
 		(void)Event;
 	}
 
-	namespace
-	{
-		thread_local std::shared_ptr<FObjectTransaction> BoundRecorder;
-		thread_local size_t RecorderBindingDepth = 0;
-		thread_local std::vector<std::weak_ptr<FObjectTransaction>> RecordingCandidates;
-		auto IsLiveRecorder(const std::shared_ptr<FObjectTransaction>& Recorder) -> bool
-		{
-			return Recorder && Recorder->Owner && (!Recorder->ObjectOwner || IsValid(Recorder->ObjectOwner));
-		}
-	}
-	auto RegisterObjectTransaction(const std::shared_ptr<FObjectTransaction>& Recorder) -> void
-	{
-		CheckGameThread();
-		UnregisterObjectTransaction(Recorder);
-		RecordingCandidates.push_back(Recorder);
-	}
-	auto UnregisterObjectTransaction(const std::shared_ptr<FObjectTransaction>& Recorder) -> void
-	{
-		CheckGameThread();
-		std::erase_if(RecordingCandidates, [&](const auto& Weak) {
-			auto Pinned = Weak.lock(); return !IsLiveRecorder(Pinned) || Pinned == Recorder;
-		});
-	}
-	auto HasObjectTransactionBinding() -> bool { return RecorderBindingDepth != 0; }
-	auto GetObjectTransactionRecorder() -> FObjectTransaction*
-	{
-		CheckGameThread();
-		if (RecorderBindingDepth) return IsLiveRecorder(BoundRecorder) ? BoundRecorder.get() : nullptr;
-		std::erase_if(RecordingCandidates, [](const auto& Weak) { auto Pinned = Weak.lock(); return !IsLiveRecorder(Pinned); });
-		// Unbound entry is deterministic only with one live recording.
-		return RecordingCandidates.size() == 1 ? RecordingCandidates.front().lock().get() : nullptr;
-	}
-	FScopedObjectTransactionBinding::FScopedObjectTransactionBinding(std::shared_ptr<FObjectTransaction> Recorder)
-		: Previous(std::exchange(BoundRecorder, std::move(Recorder))) { CheckGameThread(); ++RecorderBindingDepth; }
-	FScopedObjectTransactionBinding::~FScopedObjectTransactionBinding()
-	{
-		CheckGameThread(); --RecorderBindingDepth;
-		BoundRecorder = IsLiveRecorder(Previous) ? std::move(Previous) : nullptr;
-	}
-
-
 	auto DObject::Modify(bool bAlwaysMarkDirty) -> bool
 	{
 		CheckGameThread();
-		const auto* Recorder = GetObjectTransactionRecorder();
-		const bool bRecorded = IsValid(this) && !IsTemplateObject()
-			&& HasAnyObjectFlags(EObjectFlags::Transactional) && Recorder && Recorder->SaveObject
-			&& Recorder->SaveObject(Recorder->Owner, this);
+		bool bRecorded = false;
+		if (IsValid(this) && !IsTemplateObject() && HasAnyObjectFlags(EObjectFlags::Transactional) && GUndo)
+		{
+			GUndo->SaveObject(this);
+			bRecorded = GUndo->ContainsObject(this);
+		}
 		if (bRecorded || bAlwaysMarkDirty) MarkPackageDirty();
 		return bRecorded;
 	}

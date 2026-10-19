@@ -73,19 +73,18 @@ namespace
 		std::vector<TStrongObjectPtr<FDynamicEditorHost>> Hosts;
 	};
 
-	TEST_F(FEditorSubsystemTests, AddsAndRemovesPerHostInstancesWithoutRetiringTheHost)
+	TEST_F(FEditorSubsystemTests, AddsAndRemovesInstancesWithoutRetiringTheActiveEditor)
 	{
-		auto* First = NewHost(); auto* Second = NewHost();
+		auto* First = NewHost();
 		auto* Tools = First->GetEditorSubsystem<DEditorToolSubsystem>();
 		auto Registration = RegisterA();
 		EXPECT_EQ(nullptr, First->GetEditorSubsystem<FDynamicEditorA>());
-		ASSERT_TRUE(First->RefreshEditorSubsystems()); ASSERT_TRUE(Second->RefreshEditorSubsystems());
+		ASSERT_TRUE(First->RefreshEditorSubsystems());
 		auto* A = First->GetEditorSubsystem<FDynamicEditorA>(); ASSERT_NE(nullptr, A);
-		EXPECT_NE(A, Second->GetEditorSubsystem<FDynamicEditorA>());
+		EXPECT_EQ(A->GetEditor(), First);
 		auto Gate = A->GetWorkGate(); Registration.reset();
 		EXPECT_TRUE(Gate->IsOpen());
 		ASSERT_TRUE(First->RefreshEditorSubsystems()); EXPECT_FALSE(Gate->IsOpen());
-		ASSERT_TRUE(Second->RefreshEditorSubsystems());
 		FDynamicEditorA::Destroy = [&](auto&) {
 			EXPECT_TRUE(IsGarbageCollecting());
 			EXPECT_EQ(ESubsystemError::InvalidState, First->RefreshEditorSubsystems().Error);
@@ -95,6 +94,22 @@ namespace
 		EXPECT_EQ(ESubsystemState::Ready, First->GetEditorSubsystemState());
 		EXPECT_EQ(Tools, First->GetEditorSubsystem<DEditorToolSubsystem>());
 		EXPECT_EQ(nullptr, First->GetEditorSubsystem<FDynamicEditorA>());
+	}
+
+	TEST_F(FEditorSubsystemTests, ConstructionCannotReplaceActiveEditorAndActivationIsExclusive)
+	{
+		auto* First = NewHost();
+		TStrongObjectPtr<FDynamicEditorHost> Second(NewObject<FDynamicEditorHost>(nullptr, "InactiveEditor"));
+		EXPECT_EQ(GEditor, First);
+		EXPECT_EQ(Second->Start().Error, ESubsystemError::InvalidState);
+		EXPECT_EQ(GEditor, First);
+		First->PrepareForShutdown();
+		EXPECT_EQ(GEditor, nullptr);
+		ASSERT_TRUE(Second->Start());
+		EXPECT_EQ(GEditor, Second.Get());
+		Second->PrepareForShutdown();
+		EXPECT_EQ(GEditor, nullptr);
+		EXPECT_FALSE(First->ActivateEditor());
 	}
 
 	TEST_F(FEditorSubsystemTests, ResolvesLateDependenciesAndRetiresDependentsFirst)
@@ -243,23 +258,22 @@ namespace
 		EXPECT_FALSE(Gate->IsOpen()); EXPECT_EQ(1, *Stopped);
 		EXPECT_EQ(ESubsystemState::Ready, Host->GetEditorSubsystemState());
 	}
-	TEST_F(FEditorSubsystemTests, ExplicitModuleShutdownRemovesDependenciesAcrossHostsBeforeReturning)
+	TEST_F(FEditorSubsystemTests, ExplicitModuleShutdownRemovesActiveEditorDependenciesBeforeReturning)
 	{
-		auto* First = NewHost(); auto* Second = NewHost();
+		auto* First = NewHost();
 		const FName Name("DynamicEditorExplicitShutdownTest"); auto Stopped = std::make_shared<int>(0);
 		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(Name, std::make_unique<FDynamicProvider>(Stopped)));
 		FEditorSubsystemRegistration B({.Type = FDynamicEditorB::StaticClass(), .Dependencies = {FDynamicEditorA::StaticClass()}});
-		ASSERT_TRUE(First->RefreshEditorSubsystems()); ASSERT_TRUE(Second->RefreshEditorSubsystems());
+		ASSERT_TRUE(First->RefreshEditorSubsystems());
 		auto FirstGate = First->GetEditorSubsystem<FDynamicEditorB>()->GetWorkGate();
-		auto SecondGate = Second->GetEditorSubsystem<FDynamicEditorB>()->GetWorkGate();
-		Second->DispatchSubsystemCallback([&] {
+		First->DispatchSubsystemCallback([&] {
 			EXPECT_FALSE(FModuleManager::Get().UnloadModule(Name));
-			EXPECT_TRUE(FirstGate->IsOpen()); EXPECT_TRUE(SecondGate->IsOpen());
+			EXPECT_TRUE(FirstGate->IsOpen());
 		});
 		FModuleManager::Get().ShutdownModule(Name);
-		EXPECT_EQ(1, *Stopped); EXPECT_FALSE(FirstGate->IsOpen()); EXPECT_FALSE(SecondGate->IsOpen());
+		EXPECT_EQ(1, *Stopped); EXPECT_FALSE(FirstGate->IsOpen());
 		EXPECT_EQ(nullptr, First->GetEditorSubsystem<FDynamicEditorA>());
-		EXPECT_EQ(nullptr, Second->GetEditorSubsystem<FDynamicEditorB>());
+		EXPECT_EQ(nullptr, First->GetEditorSubsystem<FDynamicEditorB>());
 		CollectGarbage(); EXPECT_TRUE(FModuleManager::Get().UnloadModule(Name));
 	}
 	TEST_F(FEditorSubsystemTests, DoesNotInstantiateAProviderUntilItsModuleStartupCompletes)
@@ -297,7 +311,6 @@ namespace
 		auto* Host = NewHost();
 		auto* Service = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
 		ASSERT_NE(nullptr, Service);
-		auto* Other = NewHost()->GetEditorSubsystem<DAssetEditorSubsystem>();
 		auto* First = NewObject<DObject>(Host, "FirstAsset");
 		auto* Second = NewObject<DObject>(Host, "SecondAsset");
 		FTestAssetEditorInstance Primary, Secondary;
@@ -307,7 +320,6 @@ namespace
 		EXPECT_EQ(2u, Service->FindEditorsForAsset(First).size());
 		EXPECT_EQ(2u, Service->GetAllEditedAssets().size());
 		EXPECT_EQ(2u, Service->GetAllOpenEditors().size());
-		EXPECT_TRUE(Other->GetAllOpenEditors().empty());
 		EXPECT_EQ(&Primary, Service->FindEditorForAsset(First, true));
 		EXPECT_EQ(1, Primary.FocusCount);
 		EXPECT_EQ(0, Secondary.FocusCount);

@@ -65,9 +65,8 @@ namespace Durin
 		}
 		auto HostReady(DEditorEngine& Host) -> bool
 		{
-			const auto* Transactor = Host.GetTransactor();
-			return Host.GetEditorSubsystemState() == ESubsystemState::Ready && !Host.AreEditorSubsystemsUpdating() && Transactor
-				&& Transactor->CanTransact();
+			return GEditor == &Host && Host.GetEditorSubsystemState() == ESubsystemState::Ready
+				&& !Host.AreEditorSubsystemsUpdating() && Host.CanTransact();
 		}
 		struct FHostBinding;
 		thread_local FHostBinding* GBinding = nullptr;

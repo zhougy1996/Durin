@@ -215,7 +215,7 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 	Editor->BeginDestroy();
 	EXPECT_EQ(Editor->GetTransactor(), nullptr);
 	EXPECT_EQ(Buffer->GetState(), Durin::Editor::ETransactorState::Destroying);
-	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	EXPECT_EQ(Buffer->GetOwnedBytes(), 0u);
 }
 
@@ -225,6 +225,7 @@ TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
 	auto* Editor = Durin::NewObject<Durin::DEditorEngine>(
 		nullptr, "EditableAssetDocumentEditor");
 	ASSERT_NE(Editor, nullptr);
+	ASSERT_TRUE(Editor->ActivateEditor());
 	Durin::Testing::FScopedMountRegistryFixture MountFixture;
 	Durin::Testing::RegisterMountPointForTests(
 		"/EditableAssetDocumentTests/",
