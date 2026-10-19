@@ -209,7 +209,7 @@ TEST(FReflectedPropertyEditSessionTests, ContinuousCommitCreatesOneUndoRedoTrans
 	EXPECT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_TRUE(Transactions.Get()->CanUndo());
 	EXPECT_FALSE(Transactions.Get()->CanRedo());
-	EXPECT_EQ(Transactions.Get()->GetUndoDescription(), "Edit Value");
+	EXPECT_EQ(Transactions.Get()->GetUndoContext(false).Description, "Edit Value");
 	ASSERT_EQ(Durin::Tests::CollectTransactionEvents(*Transactions.Get()).size(), 1u);
 
 	ASSERT_TRUE(Transactions.Get()->Undo());

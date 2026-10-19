@@ -552,7 +552,7 @@ TEST_F(FContentBrowserModelTests, RelocationDoesNotEnterEditorUndoHistory)
 	Durin::Tests::FTestTransactorOwner Transactions;
 	ASSERT_TRUE(IAssetTools::Get().RelocateAssets({
 		.Mappings = {Mapping}}));
-	EXPECT_TRUE(Transactions->GetUndoDescription().empty());
+	EXPECT_TRUE(Transactions->GetUndoContext(false).Description.empty());
 	EXPECT_EQ(ResolveAssetPathForOperation(SourcePath).FinalPath,
 		DestinationPath);
 

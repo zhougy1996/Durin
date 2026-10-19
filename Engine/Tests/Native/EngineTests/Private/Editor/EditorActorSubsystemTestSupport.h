@@ -3,24 +3,54 @@
 #include "CoreMinimal.h"
 #include "Actors/EditorActorSubsystem.h"
 #include "DObject/StrongObjectPtr.h"
+#include "Editor/EditorEngine.h"
+#include "Engine/Level.h"
+#include "Engine/World.h"
+#include "NativeDObjectTestSupport.h"
 
 namespace Durin
 {
-	struct FEditorActorSubsystemTestAccess
+	struct FEditorEngineTestAccess
 	{
-		static auto Inject(DEditorActorSubsystem& Service, DTransactor* Transactions) -> void { Service.TestTransactions = Transactions; }
+		static auto InitializeActorEditor(DEditorEngine& Editor, DWorld& World) -> FSubsystemResult
+		{
+			Editor.EditorWorld = &World;
+			Editor.SetWorld(&World);
+			return Editor.InitializeEditorSubsystems();
+		}
 	};
 }
 namespace Durin::Tests
 {
-	// Independent service instances exercise production operations with one test history.
-	class FTestActorEditor
+	// Real editor-owned services without application, renderer or window startup.
+	class FActorEditorFixture
 	{
 	public:
-		explicit FTestActorEditor(DTransactor* Transactions) : Service(NewObject<DEditorActorSubsystem>(nullptr, {}))
-		{ FEditorActorSubsystemTestAccess::Inject(*Service, Transactions); }
-		auto operator->() const -> DEditorActorSubsystem* { return Service.Get(); }
+		FActorEditorFixture()
+		{
+			Testing::InitializeDObjectSystemForTests();
+			Editor = NewObject<DEditorEngine>(nullptr, "ActorTestEditor");
+			World = NewObject<DWorld>(Editor.Get(), "ActorTestWorld");
+			if (!World->SetWorldType(EWorldType::Editor) || !World->InitializeSubsystems()
+				|| !World->SetCurrentLevel(NewObject<DLevel>(World.Get(), "ActorTestLevel"))
+				|| !FEditorEngineTestAccess::InitializeActorEditor(*Editor, *World))
+				throw std::runtime_error("Actor editor fixture initialization failed.");
+		}
+		~FActorEditorFixture()
+		{
+			Shutdown();
+			MarkObjectHierarchyAsGarbage(Editor.Get());
+			World = nullptr;
+			Editor = nullptr;
+			CollectGarbage();
+		}
+		auto Shutdown() -> void { Editor->PrepareForShutdown(); }
+		auto GetEditor() const -> DEditorEngine* { return Editor.Get(); }
+		auto GetWorld() const -> DWorld* { return World.Get(); }
+		auto GetActorEditor() const -> DEditorActorSubsystem* { return Editor->GetEditorSubsystem<DEditorActorSubsystem>(); }
+		auto GetTransactions() const -> DTransBuffer* { return Cast<DTransBuffer>(Editor->GetTransactor()); }
 	private:
-		TStrongObjectPtr<DEditorActorSubsystem> Service;
+		TStrongObjectPtr<DEditorEngine> Editor;
+		TStrongObjectPtr<DWorld> World;
 	};
 }

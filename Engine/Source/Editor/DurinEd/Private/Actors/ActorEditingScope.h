@@ -21,8 +21,7 @@ namespace Durin::Editor
 		std::invoke_result_t<F> Result;
 		Result.Error = decltype(Result.Error)::Unavailable;
 		Result.Message = "The actor editing host retired before execution.";
-		if (Host) Host->DispatchSubsystemCallback([&] { Result = Operation(); });
-		else Result = Operation();
+		Host->DispatchSubsystemCallback([&] { Result = Operation(); });
 		return Result;
 	}
 }

@@ -117,8 +117,13 @@ A successful new commit replaces the redo suffix. IDs remain monotonic across
 Reset. Ordinary `Undo(bool bCanRedo = true)` and `Redo()` need no expected ID;
 `Undo(false)` discards the redo suffix. `UndoExpected` and `RedoExpected` are
 optional guarded extensions. `CanUndo`/`CanRedo` can explain unavailability;
-Reset retains a caller-supplied reason. Queue, transaction, context, object, and
-description queries expose the same native history without consuming it.
+Reset retains a caller-supplied reason. GetUndoContext/GetRedoContext are the
+canonical virtual history presentation queries. The buffer reads the cursor
+directly and returns an owned context value. GetUndoContext() is empty when
+Undo is unavailable; GetUndoContext(false) reads the previous entry even while
+recording. GetRedoContext() is empty when Redo is unavailable. Workspace label
+adapters derive owned strings from these contexts, so labels survive history
+replacement/reset. The transactor has no separate description-query interface.
 
 Idle and Recording accept ordinary composition through `CanTransact()`.
 Undoing, Redoing, RecoveryRequired, and Destroying reject it. Undo/Redo cannot

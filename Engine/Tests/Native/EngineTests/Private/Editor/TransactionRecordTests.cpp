@@ -843,7 +843,7 @@ TEST(FTransBufferTests, MaintainsCursorBranchIdsAndEvents)
 	EXPECT_GT(Branch.TransactionId, Second.TransactionId);
 
 	EXPECT_EQ(Buffer->GetQueueLength(), 2u);
-	EXPECT_EQ(Buffer->GetUndoDescription(), "Branch");
+	EXPECT_EQ(Buffer->GetUndoContext(false).Description, "Branch");
 	const auto Events = ReadTransactionEvents(*Buffer);
 	ASSERT_GE(Events.size(), 7u);
 	EXPECT_EQ(Events.back().Type, Durin::Editor::ETransactionEventType::Executed);
@@ -1155,7 +1155,7 @@ TEST(FTransBufferTests, SynchronousChangesJoinNestedRecordingAndPreserveOuterCon
 	EXPECT_EQ(Buffer->UndoExpected(Durin::Editor::FTransactionId{0}).Code, ETransactorResultCode::Rejected);
 	ASSERT_TRUE(EndRecording(*Buffer));
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
-	EXPECT_EQ(Buffer->GetUndoDescription(), "Grouped edit");
+	EXPECT_EQ(Buffer->GetUndoContext(false).Description, "Grouped edit");
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Value, 1);
 	ASSERT_TRUE(Buffer->Redo());
@@ -1815,6 +1815,52 @@ TEST(FTransBufferTests, OnlyOneBufferCanPublishTheCurrentRecording)
     Next.Cancel();
     EXPECT_EQ(GUndo, nullptr);
     ASSERT_TRUE(First->Undo()); EXPECT_EQ(Target->Value, 0);
+}
+
+TEST(FTransBufferTests, ContextQueriesFollowCursorAndAvailabilityThroughTheBaseInterface)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	InitializeDObjectSystem();
+	Tests::FTestTransactorOwner Buffer("ContextQueries");
+	DTransactor* History = Buffer.Get();
+	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "ContextQueryTarget"));
+	auto Record = [&](std::string_view Description, int Value) {
+		FScopedTransaction Scope(Buffer.Get(), {"ContextQuery", std::string(Description), FPersistentObjectRef(Target.Get())});
+		EXPECT_TRUE(Scope.IsOutstanding());
+		EXPECT_TRUE(Target->Modify());
+		Target->Value = Value;
+	};
+	EXPECT_TRUE(History->GetUndoContext().Description.empty());
+	EXPECT_TRUE(History->GetRedoContext().Description.empty());
+	Record("First", 1);
+	Record("Second", 2);
+	const auto SavedContext = History->GetUndoContext();
+	EXPECT_EQ(SavedContext.Name, "ContextQuery");
+	EXPECT_EQ(SavedContext.Description, "Second");
+	EXPECT_EQ(SavedContext.PrimaryObject.Resolve(), Target.Get());
+	ASSERT_TRUE(History->Undo());
+	EXPECT_EQ(History->GetUndoContext().Description, "First");
+	EXPECT_EQ(History->GetRedoContext().Description, "Second");
+	{
+		FScopedTransaction Pending(Buffer.Get(), {.Description = "Pending"});
+		EXPECT_TRUE(History->GetUndoContext().Description.empty());
+		EXPECT_EQ(History->GetUndoContext(false).Description, "First");
+		EXPECT_TRUE(History->GetRedoContext().Description.empty());
+		Pending.Cancel();
+	}
+	EXPECT_EQ(History->GetRedoContext().Description, "Second");
+	ASSERT_TRUE(History->Redo());
+	EXPECT_EQ(History->GetUndoContext().Description, "Second");
+	ASSERT_TRUE(History->Undo());
+	Record("Branch", 3);
+	EXPECT_EQ(History->GetUndoContext().Description, "Branch");
+	EXPECT_TRUE(History->GetRedoContext().Description.empty());
+	EXPECT_EQ(History->GetQueueLength(), 2u);
+	ASSERT_TRUE(History->Reset());
+	EXPECT_TRUE(History->GetUndoContext(false).Description.empty());
+	EXPECT_TRUE(History->GetRedoContext().Description.empty());
+	EXPECT_EQ(SavedContext.Description, "Second");
 }
 
 TEST(FTransBufferTests, EditorConvenienceScopesExposeContextsAndRetireBeforeReplacement)

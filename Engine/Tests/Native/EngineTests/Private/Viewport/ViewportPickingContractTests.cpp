@@ -1,13 +1,6 @@
 #include "Editor/EditorActorSubsystemTestSupport.h"
 #include "Workspace/LevelEditorContext.h"
 
-namespace Durin::Editor::Level
-{
-	struct FLevelEditorActorTestAccess
-	{
-		static auto Inject(FLevelEditorContext& Context, DEditorActorSubsystem* Service) -> void { Context.TestActorEditor = Service; }
-	};
-}
 #include "ViewportTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Components/SplineMeshComponent.h"
@@ -65,6 +58,7 @@ namespace
 
 	struct FPickingFixture
 	{
+		Durin::Tests::FActorEditorFixture Editor;
 		Durin::DWorld* World = nullptr;
 		Durin::DLevel* Level = nullptr;
 		Durin::AStaticMeshActor* Actor = nullptr;
@@ -74,10 +68,8 @@ namespace
 		FPickingFixture()
 		{
 			InitializeDObjectSystem();
-			World = Durin::NewObject<Durin::DWorld>(nullptr, "PickingContractWorld");
-			EXPECT_TRUE(World->InitializeSubsystems());
-			Level = Durin::NewObject<Durin::DLevel>(World, "PickingContractLevel");
-			expect_true(World->SetCurrentLevel(Level));
+			World = Editor.GetWorld();
+			Level = World->GetCurrentLevel();
 			Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle(Level);
 			Actor = Level->SpawnActor<Durin::AStaticMeshActor>("Target");
 			expect_ne(Actor, nullptr);
@@ -88,11 +80,6 @@ namespace
 			expect_true(Client.BuildViewMatrices(800, 600, View));
 		}
 
-		~FPickingFixture()
-		{
-			Durin::MarkObjectHierarchyAsGarbage(World);
-			Durin::CollectGarbage();
-		}
 
 	private:
 		static auto expect_true(bool Value) -> void { if (!Value) throw std::runtime_error("fixture setup failed"); }
@@ -182,16 +169,15 @@ TEST(FViewportPickingContractTests, InvalidatesRetiredTargetsButNotCameraMotion)
 TEST(FViewportPickingContractTests, SelectModeDuplicateAndDeleteUseStructuralHistory)
 {
 	FPickingFixture Fixture;
-	Durin::Tests::FTestTransactorOwner Transactions;
+	auto* Transactions = Fixture.Editor.GetTransactions();
 	Durin::Editor::Level::FLevelEditorContext Context;
+	Context.EditorHost = Fixture.Editor.GetEditor();
 	Context.Synchronize(Fixture.World);
-	Durin::Tests::FTestActorEditor Editor(Transactions.Get());
-	Durin::Editor::Level::FLevelEditorActorTestAccess::Inject(Context, Editor.operator->());
 	Context.SelectActor(Fixture.Actor);
 	Durin::Editor::Level::FLevelViewportEditModeManager Manager;
 	Durin::Editor::Level::FLevelEditorViewportInput Input;
 	Input.bDuplicate = true;
-	ASSERT_TRUE(Manager.Tick(Context, Fixture.Client, Fixture.View, Input, Transactions.Get()));
+	ASSERT_TRUE(Manager.Tick(Context, Fixture.Client, Fixture.View, Input, Transactions));
 	auto* Copy = Context.GetPrimarySelectedActor();
 	ASSERT_NE(Copy, nullptr);
 	EXPECT_NE(Copy, Fixture.Actor);
@@ -202,7 +188,7 @@ TEST(FViewportPickingContractTests, SelectModeDuplicateAndDeleteUseStructuralHis
 	EXPECT_TRUE(Fixture.Level->ContainsActor(Copy));
 	Context.SelectActor(Copy);
 	Input.bDelete = true;
-	ASSERT_TRUE(Manager.Tick(Context, Fixture.Client, Fixture.View, Input, Transactions.Get()));
+	ASSERT_TRUE(Manager.Tick(Context, Fixture.Client, Fixture.View, Input, Transactions));
 	EXPECT_FALSE(Fixture.Level->ContainsActor(Copy));
 	EXPECT_TRUE(Context.GetSelectedActors().empty());
 	ASSERT_TRUE(Transactions->Undo());

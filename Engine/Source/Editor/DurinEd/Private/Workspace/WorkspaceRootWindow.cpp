@@ -241,16 +241,16 @@ namespace Durin::Editor
 		return GEditor && GEditor->GetTransactor()->CanRedo();
 	}
 
-	auto FEditableAssetDocumentModel::GetUndoDescription() const -> std::string_view
+	auto FEditableAssetDocumentModel::GetUndoDescription() const -> std::string
 	{
 		return CanUndo()
-			? GEditor->GetTransactor()->GetUndoDescription() : std::string_view{};
+			? GEditor->GetTransactor()->GetUndoContext().Description : std::string{};
 	}
 
-	auto FEditableAssetDocumentModel::GetRedoDescription() const -> std::string_view
+	auto FEditableAssetDocumentModel::GetRedoDescription() const -> std::string
 	{
 		return CanRedo()
-			? GEditor->GetTransactor()->GetRedoDescription() : std::string_view{};
+			? GEditor->GetTransactor()->GetRedoContext().Description : std::string{};
 	}
 
 	auto FEditableAssetDocumentModel::Undo() -> bool

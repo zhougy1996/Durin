@@ -151,7 +151,7 @@ namespace Durin::Editor::Level
 	{
 		std::vector<AActor*> Actors;
 		for (const auto& Actor : Context.GetSelectedActors()) Actors.push_back(Actor.Get());
-		const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DuplicateActors(*Context.Level, Actors, {Context.EditorHost, Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
+		const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DuplicateActors(*Context.Level, Actors, {Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
 		if (!Result) { Context.SetError(Result.Message); return; }
 		Actors.clear();
 		for (const auto& Actor : Result.Actors) Actors.push_back(Actor.Get());
@@ -271,7 +271,7 @@ namespace Durin::Editor::Level
 				if (!MoveActors.empty())
 				{
 					const auto Result = Context.GetActorEditor()
-						? Context.GetActorEditor()->AttachActors(*Context.Level, MoveActors, Actor, AttachmentRule, {Context.EditorHost, Context.bReadOnly})
+						? Context.GetActorEditor()->AttachActors(*Context.Level, MoveActors, Actor, AttachmentRule, {Context.bReadOnly})
 						: FActorEditResult{{}, "Actor editing service is unavailable."};
 					if (!Result) Context.SetError(Result.Message);
 				}
@@ -343,7 +343,7 @@ namespace Durin::Editor::Level
 			if (!Actors.empty())
 			{
 				const auto Result = Context.GetActorEditor()
-					? Context.GetActorEditor()->DetachActors(*Context.Level, Actors, DetachmentRule, {Context.EditorHost, Context.bReadOnly})
+					? Context.GetActorEditor()->DetachActors(*Context.Level, Actors, DetachmentRule, {Context.bReadOnly})
 					: FActorEditResult{{}, "Actor editing service is unavailable."};
 				if (!Result) Context.SetError(Result.Message);
 			}
@@ -385,7 +385,7 @@ namespace Durin::Editor::Level
 					if (!ContainsInsensitive(DisplayName, ActorTypeSearchText.data())) continue;
 					if (ImGui::MenuItem(DisplayName.c_str()))
 					{
-						const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->SpawnActor(*Context.Level, Class, FName(), FTransform{}, {Context.EditorHost, Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
+						const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->SpawnActor(*Context.Level, Class, FName(), FTransform{}, {Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
 						if (Result)
 						{
 							Context.SelectActor(Result.Actors.front().Get());
@@ -450,7 +450,7 @@ namespace Durin::Editor::Level
 		const EEditorRenameDialogResult RenameResult = RenameDialog.Draw(RenamePopupTitle, CurrentRenameName, [&](std::string_view NewName) -> std::string {
 			if (bRenameActor)
 			{
-				return (Context.GetActorEditor() ? Context.GetActorEditor()->RenameActor(*Context.Level, RenamingActor.Get(), FName(NewName), {Context.EditorHost, Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."}).Message;
+				return (Context.GetActorEditor() ? Context.GetActorEditor()->RenameActor(*Context.Level, RenamingActor.Get(), FName(NewName), {Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."}).Message;
 			}
 			return Context.RenameLevel && Context.RenameLevel(NewName) ? std::string() : "Failed to rename level.";
 		});
@@ -474,7 +474,7 @@ namespace Durin::Editor::Level
 			{
 				std::vector<AActor*> Actors;
 				for (const auto& Actor : PendingDeleteActors) Actors.push_back(Actor.Get());
-				const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DestroyActors(*Context.Level, Actors, {Context.EditorHost, Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
+				const auto Result = (Context.GetActorEditor() ? Context.GetActorEditor()->DestroyActors(*Context.Level, Actors, {Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
 				if (!Result) Context.SetError(Result.Message);
 				else Context.ClearSelection();
 				PendingDeleteActors.clear();

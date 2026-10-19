@@ -87,7 +87,7 @@ TEST(FStaticMeshLevelMutationTests, AppliesOneAtomicBatchAndRestoresSavedRevisio
 	EXPECT_NE(Fixture.Level->FindActorByName("Floor"), nullptr);
 	EXPECT_NE(Fixture.Level->FindActorByName("Wall"), nullptr);
 	EXPECT_TRUE(Fixture.Package->IsDirty());
-	EXPECT_EQ(Transactions->GetUndoDescription(), "Create graybox pieces");
+	EXPECT_EQ(Transactions->GetUndoContext(false).Description, "Create graybox pieces");
 
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Fixture.Level->FindActorByName("Floor"), nullptr);

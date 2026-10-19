@@ -65,8 +65,6 @@ namespace Durin::Editor::Level
 
 	private:
         std::unique_ptr<FEditorScriptTargetPolicyRegistration> ScriptEditPolicy;
-		DEditorActorSubsystem* TestActorEditor = nullptr;
-		friend struct FLevelEditorActorTestAccess;
 		std::vector<TObjectPtr<AActor>> SelectedActors;
 		TObjectPtr<AActor> PrimarySelectedActor;
 		TObjectPtr<AActor> SelectionAnchor;

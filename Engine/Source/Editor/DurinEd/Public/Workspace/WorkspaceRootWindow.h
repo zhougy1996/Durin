@@ -98,8 +98,8 @@ namespace Durin::Editor
 
 		DURINED_API auto CanUndo() const -> bool;
 		DURINED_API auto CanRedo() const -> bool;
-		DURINED_API auto GetUndoDescription() const -> std::string_view;
-		DURINED_API auto GetRedoDescription() const -> std::string_view;
+		DURINED_API auto GetUndoDescription() const -> std::string;
+		DURINED_API auto GetRedoDescription() const -> std::string;
 		DURINED_API auto Undo() -> bool;
 		DURINED_API auto Redo() -> bool;
 

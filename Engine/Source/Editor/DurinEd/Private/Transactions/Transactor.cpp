@@ -595,8 +595,6 @@ namespace Durin
 
 	auto DTransactor::GetUndoId() const -> FTransactionId { return 0; }
 	auto DTransactor::GetRedoId() const -> FTransactionId { return 0; }
-	auto DTransactor::GetUndoDescription() const -> std::string_view { return {}; }
-	auto DTransactor::GetRedoDescription() const -> std::string_view { return {}; }
 
 	auto DTransactor::AddTransactionListener(FTransactionListener Listener) -> uint64
 	{ if (!Listener) return 0; const auto Id = NextListener++; Listeners.emplace(Id, std::move(Listener)); return Id; }
@@ -604,20 +602,8 @@ namespace Durin
 	auto DTransactor::DispatchEvents() -> void {}
 	auto DTransactor::GetQueueLength() const -> size_t { return 0; }
 	auto DTransactor::GetTransaction(size_t) const -> const FTransaction* { return nullptr; }
-	auto DTransactor::GetUndoContext(bool bCheckWhetherUndoPossible) const -> FTransactionContext
-	{
-		if (bCheckWhetherUndoPossible && !CanUndo()) return {};
-		for (size_t Index = GetQueueLength(); Index-- > 0;)
-			if (auto* Transaction = GetTransaction(Index); Transaction && Transaction->GetId() == GetUndoId()) return Transaction->GetContext();
-		return {};
-	}
-	auto DTransactor::GetRedoContext() const -> FTransactionContext
-	{
-		if (!CanRedo()) return {};
-		for (size_t Index = 0; Index < GetQueueLength(); ++Index)
-			if (auto* Transaction = GetTransaction(Index); Transaction && Transaction->GetId() == GetRedoId()) return Transaction->GetContext();
-		return {};
-	}
+	auto DTransactor::GetUndoContext(bool) const -> FTransactionContext { return {}; }
+	auto DTransactor::GetRedoContext() const -> FTransactionContext { return {}; }
 	auto DTransactor::GetMountedContentMutationRevision() const -> uint64 { return 1; }
 	auto DTransactor::NotifyMountedContentMutation() -> void {}
 	auto DTransactor::NotifyMountedContentMutation(FContentChangeBatch) -> void { NotifyMountedContentMutation(); }
@@ -1054,15 +1040,15 @@ namespace Durin
 		return Cursor >= History.size() ? 0 : History[Cursor].GetId();
 	}
 
-	auto DTransBuffer::GetUndoDescription() const -> std::string_view
+	auto DTransBuffer::GetUndoContext(bool bCheckWhetherUndoPossible) const -> FTransactionContext
 	{
-		return Cursor == 0 ? std::string_view{} : History[Cursor - 1].GetContext().Description;
+		if (Cursor == 0 || (bCheckWhetherUndoPossible && !CanUndo())) return {};
+		return History[Cursor - 1].GetContext();
 	}
 
-	auto DTransBuffer::GetRedoDescription() const -> std::string_view
+	auto DTransBuffer::GetRedoContext() const -> FTransactionContext
 	{
-		return Cursor >= History.size() ? std::string_view{}
-			: std::string_view(History[Cursor].GetContext().Description);
+		return CanRedo() ? History[Cursor].GetContext() : FTransactionContext{};
 	}
 
 	auto DTransBuffer::AllocateRevision() -> FRevisionId

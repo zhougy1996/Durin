@@ -15,12 +15,11 @@ namespace Durin::Editor
 	// Document owners and native adapters must state editability explicitly.
 	struct FActorEditContext
 	{
-		DEditorEngine* Host;
 		bool bReadOnly;
-		FActorEditContext(DEditorEngine* InHost, bool bInReadOnly) : Host(InHost), bReadOnly(bInReadOnly) {}
+		FActorEditContext(bool bInReadOnly) : bReadOnly(bInReadOnly) {}
 	};
 	enum class EActorEditStatus : uint8 { Failed, NoOp, Changed };
-	enum class EActorEditError : uint8 { None, WrongThread, Unavailable, ReadOnly, ForeignHost, InvalidTarget, PlayState, HistoryUnavailable, InvalidOperation, HistoryRejected };
+	enum class EActorEditError : uint8 { None, WrongThread, Unavailable, ReadOnly, InvalidTarget, PlayState, HistoryUnavailable, InvalidOperation, HistoryRejected };
 	struct FActorEditResult
 	{
 		std::vector<TObjectPtr<AActor>> Actors;
@@ -49,7 +48,6 @@ namespace Durin::Editor
 
 namespace Durin
 {
-	struct FEditorActorSubsystemTestAccess;
 	// General actor/component edits share the admitting editor host's history.
 	DCLASS(NoClassDefaultObject)
 	class DEditorActorSubsystem : public DEditorSubsystem
@@ -74,8 +72,6 @@ namespace Durin
 	private:
 		auto Admit(const Editor::FActorEditContext& Context, DLevel* Level, AActor* Owner = nullptr,
 			bool bDuringEdit = false) const -> std::expected<DTransactor*, Editor::FActorEditResult>;
-		DTransactor* TestTransactions = nullptr;
 		bool bEditing = false;
-		friend struct FEditorActorSubsystemTestAccess;
 	};
 }

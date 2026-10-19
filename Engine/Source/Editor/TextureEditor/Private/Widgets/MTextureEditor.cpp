@@ -265,12 +265,12 @@ namespace Durin::Editor::Texture
 		return Documents.CanRedo();
 	}
 
-	auto MTextureEditor::GetUndoDescription() const -> std::string_view
+	auto MTextureEditor::GetUndoDescription() const -> std::string
 	{
 		return Documents.GetUndoDescription();
 	}
 
-	auto MTextureEditor::GetRedoDescription() const -> std::string_view
+	auto MTextureEditor::GetRedoDescription() const -> std::string
 	{
 		return Documents.GetRedoDescription();
 	}

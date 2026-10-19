@@ -871,7 +871,6 @@ TEST_F(FWorldSubsystemTests, ActorEditingAdmitsOnlyItsLiveHostAndEditableStopped
 {
 	using namespace Durin::Editor;
 	TStrongObjectPtr<FSubsystemEditorHost> First(NewObject<FSubsystemEditorHost>(nullptr, {}));
-	TStrongObjectPtr<FSubsystemEditorHost> Second(NewObject<FSubsystemEditorHost>(nullptr, {}));
 	for (auto* Host : {First.Get()})
 	{
 		ASSERT_TRUE(Host->StartEngine()); ASSERT_TRUE(Host->StartEditor());
@@ -886,9 +885,9 @@ TEST_F(FWorldSubsystemTests, ActorEditingAdmitsOnlyItsLiveHostAndEditableStopped
 	auto* Service = First->GetEditorSubsystem<DEditorActorSubsystem>();
 	ASSERT_NE(Service, nullptr);
 	TStrongObjectPtr<DEditorActorSubsystem> Retained(Service);
-	const FActorEditContext Context{First.Get(), false};
-	EXPECT_EQ(Service->SpawnActor(*Level, AActor::StaticClass(), "ReadOnly", {}, {First.Get(), true}).Error, EActorEditError::ReadOnly);
-	EXPECT_EQ(Service->SpawnActor(*Level, AActor::StaticClass(), "Foreign", {}, {Second.Get(), false}).Error, EActorEditError::ForeignHost);
+	const FActorEditContext Context{false};
+	EXPECT_EQ(Service->SpawnActor(*Level, AActor::StaticClass(), "ReadOnly", {}, {true}).Error, EActorEditError::ReadOnly);
+	EXPECT_EQ(Service->GetEditor(), First.Get());
 	auto* OtherWorld = NewObject<DWorld>(First.Get(), "OtherDocumentWorld"); Worlds.emplace_back(OtherWorld);
 	OtherWorld->SetWorldType(EWorldType::Preview); ASSERT_TRUE(OtherWorld->InitializeSubsystems());
 	ASSERT_TRUE(OtherWorld->SetCurrentLevel(NewObject<DLevel>(OtherWorld, "OtherDocumentLevel")));
@@ -901,7 +900,7 @@ TEST_F(FWorldSubsystemTests, ActorEditingAdmitsOnlyItsLiveHostAndEditableStopped
 	EXPECT_EQ(Grouped.History->TransactionId, First->GetTransactor()->GetLastResult().TransactionId);
 	EXPECT_EQ(First->GetTransactor()->GetUndoId(), 0u);
 	ASSERT_TRUE(First->GetTransactor()->End());
-	EXPECT_EQ(First->GetTransactor()->GetUndoDescription(), "Grouped host history");
+	EXPECT_EQ(First->GetTransactor()->GetUndoContext(false).Description, "Grouped host history");
 	ASSERT_TRUE(First->GetTransactor()->Undo());
 	EXPECT_FALSE(Level->ContainsActor(Grouped.Actors.front().Get()));
 	ASSERT_TRUE(First->GetTransactor()->Redo());
@@ -917,7 +916,6 @@ TEST_F(FWorldSubsystemTests, ActorEditingAdmitsOnlyItsLiveHostAndEditableStopped
 	First->StopPlaySession();
 	First->PrepareForShutdown();
 	EXPECT_EQ(Service->SpawnActor(*Level, AActor::StaticClass(), "Retired", {}, Context).Error, EActorEditError::Unavailable);
-	Second->PrepareForShutdown();
 }
 
 TEST_F(FWorldSubsystemTests, ActorPreparationCannotPublishAfterItsHostClosesAdmission)
@@ -934,7 +932,7 @@ TEST_F(FWorldSubsystemTests, ActorPreparationCannotPublishAfterItsHostClosesAdmi
 	auto* Service = Host->GetEditorSubsystem<DEditorActorSubsystem>();
 	ASSERT_NE(Service, nullptr);
 	AActor* Prepared = nullptr;
-	const auto Result = Service->SpawnActor(*Level, AActor::StaticClass(), "RetiringPreparation", {}, {Host.Get(), false}, [&](AActor& Actor) {
+	const auto Result = Service->SpawnActor(*Level, AActor::StaticClass(), "RetiringPreparation", {}, {false}, [&](AActor& Actor) {
 		Prepared = &Actor;
 		Host->PrepareForShutdown();
 	});
@@ -959,7 +957,7 @@ TEST_F(FWorldSubsystemTests, ActorEditingRejectsSubsystemBeginPlayBeforeActorPla
 	auto* Actor = Level->SpawnActor<ACameraActor>("LifecycleOwner");
 	auto* Service = Host->GetEditorSubsystem<DEditorActorSubsystem>();
 	ASSERT_NE(Service, nullptr);
-	ASSERT_TRUE(Service->RenameComponent(*Actor, Actor->GetRootComponent(), "RecordedRoot", {Host.Get(), false}));
+	ASSERT_TRUE(Service->RenameComponent(*Actor, Actor->GetRootComponent(), "RecordedRoot", {false}));
 	const auto UndoId = Host->GetTransactor()->GetUndoId();
 	int Calls = 0;
 	FSubsystemProbeA::Callback = [&](FSubsystemProbeA&, std::string_view Event) {
@@ -967,7 +965,7 @@ TEST_F(FWorldSubsystemTests, ActorEditingRejectsSubsystemBeginPlayBeforeActorPla
 		++Calls;
 		EXPECT_FALSE(World->HasBegunPlay());
 		EXPECT_EQ(World->GetPlayState(), EWorldPlayState::BeginningPlay);
-		EXPECT_EQ(Service->SpawnActor(*Level, AActor::StaticClass(), "Beginning", {}, {Host.Get(), false}).Error, Editor::EActorEditError::PlayState);
+		EXPECT_EQ(Service->SpawnActor(*Level, AActor::StaticClass(), "Beginning", {}, {false}).Error, Editor::EActorEditError::PlayState);
 		EXPECT_FALSE(Host->GetTransactor()->Undo());
 		EXPECT_EQ(Host->GetTransactor()->GetUndoId(), UndoId);
 	};
@@ -992,12 +990,12 @@ TEST_F(FWorldSubsystemTests, ActorEditingRejectsWorldShutdownRequestBeforeTeardo
 	auto* Actor = Level->SpawnActor<ACameraActor>("ClosingOwner");
 	auto* Service = Host->GetEditorSubsystem<DEditorActorSubsystem>();
 	ASSERT_NE(Service, nullptr);
-	ASSERT_TRUE(Service->RenameComponent(*Actor, Actor->GetRootComponent(), "RecordedRoot", {Host.Get(), false}));
+	ASSERT_TRUE(Service->RenameComponent(*Actor, Actor->GetRootComponent(), "RecordedRoot", {false}));
 	const auto UndoId = Host->GetTransactor()->GetUndoId();
 	World->RequestShutdown();
 	EXPECT_EQ(World->GetCurrentLevel(), Level);
 	EXPECT_TRUE(World->IsShutdownRequested());
-	EXPECT_EQ(Service->SpawnActor(*Level, AActor::StaticClass(), "Closing", {}, {Host.Get(), false}).Error, Editor::EActorEditError::InvalidTarget);
+	EXPECT_EQ(Service->SpawnActor(*Level, AActor::StaticClass(), "Closing", {}, {false}).Error, Editor::EActorEditError::InvalidTarget);
 	EXPECT_FALSE(Host->GetTransactor()->Undo());
 	EXPECT_EQ(Host->GetTransactor()->GetUndoId(), UndoId);
 	Host->PrepareForShutdown();

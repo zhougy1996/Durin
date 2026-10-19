@@ -148,7 +148,7 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	EXPECT_EQ(
 		Transactions->GetMountedContentMutationRevision(),
 		MountedContentRevision);
-	EXPECT_EQ(Transactions->GetUndoDescription(), "Translate 'Probe'");
+	EXPECT_EQ(Transactions->GetUndoContext(false).Description, "Translate 'Probe'");
 	const auto BeforeRejectedUndo = Target->Transform;
 	Target->bValid = false;
 	const auto Rejected = Transactions->UndoExpected(0);

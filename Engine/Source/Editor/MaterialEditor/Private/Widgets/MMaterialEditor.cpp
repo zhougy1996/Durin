@@ -579,12 +579,12 @@ namespace Durin::Editor::Material
 		return Documents.CanRedo();
 	}
 
-	auto MMaterialEditor::GetUndoDescription() const -> std::string_view
+	auto MMaterialEditor::GetUndoDescription() const -> std::string
 	{
 		return Documents.GetUndoDescription();
 	}
 
-	auto MMaterialEditor::GetRedoDescription() const -> std::string_view
+	auto MMaterialEditor::GetRedoDescription() const -> std::string
 	{
 		return Documents.GetRedoDescription();
 	}

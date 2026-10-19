@@ -732,12 +732,14 @@ namespace Durin::Editor::MainFrame
 			}
 			if (ImGui::BeginMenu("Edit"))
 			{
-				const std::string UndoLabel = ActiveWorkspace && ActiveWorkspace->CanUndo() && !ActiveWorkspace->GetUndoDescription().empty()
-					? std::format("Undo {}", ActiveWorkspace->GetUndoDescription()) : "Undo";
-				const std::string RedoLabel = ActiveWorkspace && ActiveWorkspace->CanRedo() && !ActiveWorkspace->GetRedoDescription().empty()
-					? std::format("Redo {}", ActiveWorkspace->GetRedoDescription()) : "Redo";
-				if (ImGui::MenuItem(UndoLabel.c_str(), "Ctrl+Z", false, ActiveWorkspace && ActiveWorkspace->CanUndo())) ActiveWorkspace->Undo();
-				if (ImGui::MenuItem(RedoLabel.c_str(), "Ctrl+Y", false, ActiveWorkspace && ActiveWorkspace->CanRedo())) ActiveWorkspace->Redo();
+				const bool bCanUndo = ActiveWorkspace && ActiveWorkspace->CanUndo();
+				const bool bCanRedo = ActiveWorkspace && ActiveWorkspace->CanRedo();
+				const auto UndoDescription = bCanUndo ? ActiveWorkspace->GetUndoDescription() : std::string{};
+				const auto RedoDescription = bCanRedo ? ActiveWorkspace->GetRedoDescription() : std::string{};
+				const std::string UndoLabel = UndoDescription.empty() ? "Undo" : std::format("Undo {}", UndoDescription);
+				const std::string RedoLabel = RedoDescription.empty() ? "Redo" : std::format("Redo {}", RedoDescription);
+				if (ImGui::MenuItem(UndoLabel.c_str(), "Ctrl+Z", false, bCanUndo)) ActiveWorkspace->Undo();
+				if (ImGui::MenuItem(RedoLabel.c_str(), "Ctrl+Y", false, bCanRedo)) ActiveWorkspace->Redo();
 				ImGui::Separator();
 				if (ImGui::MenuItem("Editor Preferences...")) FEditorSettingsRegistry::Get().RequestOpen("editor.appearance");
 				for (const std::shared_ptr<Editor::IWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();

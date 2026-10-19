@@ -58,8 +58,8 @@ namespace Durin::Editor::Level
 		LEVELEDITOR_API auto SaveActiveDocument() -> bool override;
 		LEVELEDITOR_API auto CanUndo() const -> bool override;
 		LEVELEDITOR_API auto CanRedo() const -> bool override;
-		LEVELEDITOR_API auto GetUndoDescription() const -> std::string_view override;
-		LEVELEDITOR_API auto GetRedoDescription() const -> std::string_view override;
+		LEVELEDITOR_API auto GetUndoDescription() const -> std::string override;
+		LEVELEDITOR_API auto GetRedoDescription() const -> std::string override;
 		LEVELEDITOR_API auto Undo() -> bool override;
 		LEVELEDITOR_API auto Redo() -> bool override;
 		LEVELEDITOR_API auto DrawFileMenu() -> void override;

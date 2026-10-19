@@ -536,14 +536,14 @@ namespace Durin::Editor::Level
 		return !(GEditor && GEditor->IsPlaying()) && !bDragging && GEditor && GEditor->GetTransactor()->CanRedo();
 	}
 
-	auto MLevelEditor::GetUndoDescription() const -> std::string_view
+	auto MLevelEditor::GetUndoDescription() const -> std::string
 	{
-		return CanUndo() ? GEditor->GetTransactor()->GetUndoDescription() : std::string_view{};
+		return CanUndo() ? GEditor->GetTransactor()->GetUndoContext().Description : std::string{};
 	}
 
-	auto MLevelEditor::GetRedoDescription() const -> std::string_view
+	auto MLevelEditor::GetRedoDescription() const -> std::string
 	{
-		return CanRedo() ? GEditor->GetTransactor()->GetRedoDescription() : std::string_view{};
+		return CanRedo() ? GEditor->GetTransactor()->GetRedoContext().Description : std::string{};
 	}
 
 	auto MLevelEditor::Undo() -> bool

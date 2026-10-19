@@ -447,7 +447,7 @@ TEST(FEditorTransactionManagerTests, UsesStableIdsAndRejectsStaleUndoRequests)
 	Durin::Tests::FTestTransactorOwner Manager;
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value)));
 	EXPECT_TRUE(Manager->CanUndo());
-	EXPECT_EQ(Manager->GetUndoDescription(), "Counting");
+	EXPECT_EQ(Manager->GetUndoContext(false).Description, "Counting");
 	const Durin::Editor::FTransactionId FirstId = Manager->GetUndoId();
 	ASSERT_NE(FirstId, 0);
 	ASSERT_TRUE(Durin::Editor::ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value)));

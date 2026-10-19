@@ -33,8 +33,8 @@ namespace Durin::Editor::Level
 					std::vector<AActor*> Actors;
 					for (const auto& Actor : Context.GetSelectedActors()) Actors.push_back(Actor.Get());
 					const bool bDuplicate = Input.bDuplicate;
-					const auto Result = bDuplicate ? (Context.GetActorEditor() ? Context.GetActorEditor()->DuplicateActors(*Context.Level, Actors, {Context.EditorHost, Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."})
-						: (Context.GetActorEditor() ? Context.GetActorEditor()->DestroyActors(*Context.Level, Actors, {Context.EditorHost, Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
+					const auto Result = bDuplicate ? (Context.GetActorEditor() ? Context.GetActorEditor()->DuplicateActors(*Context.Level, Actors, {Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."})
+						: (Context.GetActorEditor() ? Context.GetActorEditor()->DestroyActors(*Context.Level, Actors, {Context.bReadOnly}) : FActorEditResult{{}, "Actor editing service is unavailable."});
 					if (!Result) Context.SetError(Result.Message);
 					else
 					{

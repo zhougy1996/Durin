@@ -11,7 +11,7 @@ namespace Durin::Editor::Level
 {
 	auto FLevelEditorContext::GetActorEditor() const -> DEditorActorSubsystem*
 	{
-		return TestActorEditor ? TestActorEditor : (EditorHost ? EditorHost->GetEditorSubsystem<DEditorActorSubsystem>() : nullptr);
+		return EditorHost ? EditorHost->GetEditorSubsystem<DEditorActorSubsystem>() : nullptr;
 	}
 	auto FLevelEditorContext::Synchronize(DWorld* CurrentWorld) -> void
 	{

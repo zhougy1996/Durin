@@ -31,21 +31,16 @@ namespace Durin
 		}
 		if (bEditing && !bDuringEdit) return Reject(EActorEditError::HistoryUnavailable, "An actor edit is already in progress.");
 		if (Context.bReadOnly) return Reject(EActorEditError::ReadOnly, "The document is read-only.");
-		DTransactor* Transactions = TestTransactions;
-		if (!Transactions)
-		{
-			auto* Host = GetEditor();
-			const auto Gate = GetWorkGate();
-			if (!IsValid(Host) || !Gate || !Gate->IsOpen() || Host->GetEditorSubsystem<DEditorActorSubsystem>() != this)
-				return Reject(EActorEditError::Unavailable, "The actor editing service is unavailable or retiring.");
-			if (Context.Host != Host) return Reject(EActorEditError::ForeignHost, "The edit belongs to another editor host.");
-			if (Host->IsPlaying()) return Reject(EActorEditError::PlayState, "Actor editing is unavailable during play-in-editor.");
-			if (!IsValid(Level) || !IsValid(Host->GetEditorWorld()) || Level->GetWorld() != Host->GetEditorWorld()
-				|| Host->GetEditorWorld()->GetCurrentLevel() != Level)
-				return Reject(EActorEditError::InvalidTarget, "The Level is not owned by this editor host.");
-			Transactions = Host->GetTransactor();
-		}
-		else if (Context.Host) return Reject(EActorEditError::ForeignHost, "An independent operation cannot admit an editor host.");
+		auto* Host = GetEditor();
+		const auto Gate = GetWorkGate();
+		if (!IsValid(Host) || Host != GEditor || !Gate || !Gate->IsOpen()
+			|| Host->GetEditorSubsystem<DEditorActorSubsystem>() != this)
+			return Reject(EActorEditError::Unavailable, "The actor editing service is unavailable or retiring.");
+		if (Host->IsPlaying()) return Reject(EActorEditError::PlayState, "Actor editing is unavailable during play-in-editor.");
+		if (!IsValid(Level) || !IsValid(Host->GetEditorWorld()) || Level->GetWorld() != Host->GetEditorWorld()
+			|| Host->GetEditorWorld()->GetCurrentLevel() != Level)
+			return Reject(EActorEditError::InvalidTarget, "The Level is not owned by this editor.");
+		auto* Transactions = Host->GetTransactor();
 		if (!IsValid(Level) || Level->IsTemplateObject()
 			|| (Owner && (!IsValid(Owner) || Owner->IsTemplateObject() || Owner->IsBeingDestroyed() || Owner->HasBegunPlay()
 				|| Owner->GetOuter() != Level || !Level->ContainsActor(Owner))))

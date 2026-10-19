@@ -34,8 +34,8 @@ namespace Durin::Editor::Texture
 		TEXTUREEDITOR_API auto SaveActiveDocument() -> bool override;
 		TEXTUREEDITOR_API auto CanUndo() const -> bool override;
 		TEXTUREEDITOR_API auto CanRedo() const -> bool override;
-		TEXTUREEDITOR_API auto GetUndoDescription() const -> std::string_view override;
-		TEXTUREEDITOR_API auto GetRedoDescription() const -> std::string_view override;
+		TEXTUREEDITOR_API auto GetUndoDescription() const -> std::string override;
+		TEXTUREEDITOR_API auto GetRedoDescription() const -> std::string override;
 		TEXTUREEDITOR_API auto Undo() -> bool override;
 		TEXTUREEDITOR_API auto Redo() -> bool override;
 		TEXTUREEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;

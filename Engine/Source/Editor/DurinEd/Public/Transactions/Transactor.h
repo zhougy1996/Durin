@@ -261,16 +261,14 @@ namespace Durin
 		DURINED_API virtual auto CanRedo(std::string* Reason = nullptr) const -> bool;
 		DURINED_API virtual auto GetUndoId() const -> Editor::FTransactionId;
 		DURINED_API virtual auto GetRedoId() const -> Editor::FTransactionId;
-		DURINED_API virtual auto GetUndoDescription() const -> std::string_view;
-		DURINED_API virtual auto GetRedoDescription() const -> std::string_view;
 		using FTransactionListener = std::function<void(const Editor::FTransactionEvent&)>;
 		DURINED_API auto AddTransactionListener(FTransactionListener Listener) -> uint64;
 		DURINED_API auto RemoveTransactionListener(uint64 Handle) -> void;
 		DURINED_API virtual auto DispatchEvents() -> void;
 		DURINED_API virtual auto GetQueueLength() const -> size_t;
 		DURINED_API virtual auto GetTransaction(size_t Index) const -> const Editor::FTransaction*;
-		DURINED_API auto GetUndoContext(bool bCheckWhetherUndoPossible = true) const -> Editor::FTransactionContext;
-		DURINED_API auto GetRedoContext() const -> Editor::FTransactionContext;
+		DURINED_API virtual auto GetUndoContext(bool bCheckWhetherUndoPossible = true) const -> Editor::FTransactionContext;
+		DURINED_API virtual auto GetRedoContext() const -> Editor::FTransactionContext;
 		virtual auto GetUndoCount() const -> size_t { return 0; }
 		DURINED_API virtual auto GetMountedContentMutationRevision() const -> uint64;
 		DURINED_API virtual auto NotifyMountedContentMutation() -> void;
@@ -351,8 +349,8 @@ namespace Durin
 		auto GetOwnedBytes() const -> size_t { return OwnedBytes; }
 		DURINED_API auto GetUndoId() const -> Editor::FTransactionId override;
 		DURINED_API auto GetRedoId() const -> Editor::FTransactionId override;
-		DURINED_API auto GetUndoDescription() const -> std::string_view override;
-		DURINED_API auto GetRedoDescription() const -> std::string_view override;
+		DURINED_API auto GetUndoContext(bool bCheckWhetherUndoPossible = true) const -> Editor::FTransactionContext override;
+		DURINED_API auto GetRedoContext() const -> Editor::FTransactionContext override;
 
 	private:
 		friend class FTransactorReloadParticipant;

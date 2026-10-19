@@ -32,9 +32,9 @@ namespace Durin::Editor::Material
 		auto SaveActiveDocument() -> bool override;
 		auto CanUndo() const -> bool override { return Documents.CanUndo(); }
 		auto CanRedo() const -> bool override { return Documents.CanRedo(); }
-		auto GetUndoDescription() const -> std::string_view override
+		auto GetUndoDescription() const -> std::string override
 			{ return Documents.GetUndoDescription(); }
-		auto GetRedoDescription() const -> std::string_view override
+		auto GetRedoDescription() const -> std::string override
 			{ return Documents.GetRedoDescription(); }
 		auto Undo() -> bool override { return Documents.Undo(); }
 		auto Redo() -> bool override { return Documents.Redo(); }

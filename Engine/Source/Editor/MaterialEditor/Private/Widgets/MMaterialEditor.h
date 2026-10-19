@@ -50,8 +50,8 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API auto SaveActiveDocument() -> bool override;
 		MATERIALEDITOR_API auto CanUndo() const -> bool override;
 		MATERIALEDITOR_API auto CanRedo() const -> bool override;
-		MATERIALEDITOR_API auto GetUndoDescription() const -> std::string_view override;
-		MATERIALEDITOR_API auto GetRedoDescription() const -> std::string_view override;
+		MATERIALEDITOR_API auto GetUndoDescription() const -> std::string override;
+		MATERIALEDITOR_API auto GetRedoDescription() const -> std::string override;
 		MATERIALEDITOR_API auto Undo() -> bool override;
 		MATERIALEDITOR_API auto Redo() -> bool override;
 		MATERIALEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;

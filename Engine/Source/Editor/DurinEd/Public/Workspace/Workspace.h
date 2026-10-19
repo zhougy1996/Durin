@@ -46,8 +46,8 @@ namespace Durin::Editor
 		virtual auto SaveActiveDocument() -> bool { return false; }
 		virtual auto CanUndo() const -> bool { return false; }
 		virtual auto CanRedo() const -> bool { return false; }
-		virtual auto GetUndoDescription() const -> std::string_view { return {}; }
-		virtual auto GetRedoDescription() const -> std::string_view { return {}; }
+		virtual auto GetUndoDescription() const -> std::string { return {}; }
+		virtual auto GetRedoDescription() const -> std::string { return {}; }
 		virtual auto Undo() -> bool { return false; }
 		virtual auto Redo() -> bool { return false; }
 		virtual auto DrawFileMenu() -> void {}

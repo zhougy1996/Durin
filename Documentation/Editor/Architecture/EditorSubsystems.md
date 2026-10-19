@@ -172,11 +172,12 @@ ModuleManager does not implement that object/type teardown protocol.
 spawn/delete/duplicate/rename/attach/detach and owned Component structural edits.
 Resolve it through the admitting host's `GetEditorSubsystem<DEditorActorSubsystem>()`.
 Each call identifies its Level or owning Actor and supplies `FActorEditContext`
-with the host and an explicit read-only policy. Native non-document adapters must
+with an explicit read-only policy. The service resolves its owning active editor;
+callers cannot select a different host or history. Native non-document adapters must
 also state that policy; selection is never an implicit target.
 
 Admission requires the game thread, a live registered service and open work gate,
-the same host, its current editor Level, stopped PIE/World play and an idle or
+its current editor Level, stopped PIE/World play and an idle or
 recording host transactor. Synchronous Actor and Component changes join the
 innermost recording scope and commit with the outer transaction, retaining its
 description; with no outer scope they submit an independent history entry.
@@ -196,8 +197,9 @@ DurinEd owns general replay code and module tags; runtime Level/Actor methods
 remain mechanisms. `MakeActorPresenceChange` exports opaque structural-change
 ownership for specialized compound commands. Their owners retain responsibility
 for private preparation and cleanup before publication. Preparation callbacks
-are synchronous and never stored in history. There is one host transactor;
-independent native-test injection is private to test access.
+are synchronous and never stored in history. There is one editor transactor.
+Native Actor service tests initialize real editor subsystems and use their
+editor-owned history; production services have no injected-history or hostless mode.
 
 Document adapters retain selection, focus, confirmation and error presentation.
 The subsystem does not retain a LevelEditor context or depend on UI modules.

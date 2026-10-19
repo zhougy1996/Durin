@@ -261,6 +261,11 @@ TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
 	EXPECT_FALSE(Package->IsDirty());
 	ASSERT_TRUE(Documents.Redo());
 	EXPECT_TRUE(Package->IsDirty());
+	const auto UndoLabel = Documents.GetUndoDescription();
+	EXPECT_EQ(UndoLabel, "Edit Asset");
+	ASSERT_TRUE(Transactions.Reset());
+	EXPECT_TRUE(Documents.GetUndoDescription().empty());
+	EXPECT_EQ(UndoLabel, "Edit Asset");
 
 	Durin::MarkObjectHierarchyAsGarbage(Package);
 	Durin::MarkAsGarbage(Editor);

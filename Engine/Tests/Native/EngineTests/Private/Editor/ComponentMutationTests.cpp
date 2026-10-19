@@ -95,30 +95,22 @@ namespace
 
 	struct FComponentFixture
 	{
-		static auto Initialize() -> std::string_view { Testing::InitializeDObjectSystemForTests(); return "ComponentTransactions"; }
-		FComponentFixture() : Transactions(Initialize())
+		FComponentFixture() : Transactions(Editor.GetTransactions())
 		{
-			World = NewObject<DWorld>(nullptr, "ComponentTestWorld");
-			Root = std::make_unique<TStrongObjectPtr<DWorld>>(World);
-			World->SetWorldType(EWorldType::Editor);
-			EXPECT_TRUE(World->InitializeSubsystems());
-			EXPECT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "Level")));
+			World = Editor.GetWorld();
 			World->SetRenderScene(&Scene);
 			Actor = World->SpawnActor<AStaticMeshActor>("Owner");
 		}
 		~FComponentFixture()
 		{
-			EXPECT_TRUE(Transactions->Reset());
 			World->SetRenderScene(nullptr);
-			MarkObjectHierarchyAsGarbage(World);
-			Root.reset();
-			CollectGarbage();
+			Editor.Shutdown();
 		}
+		Tests::FActorEditorFixture Editor;
 		FComponentTestScene Scene;
 		DWorld* World = nullptr;
 		AActor* Actor = nullptr;
-		std::unique_ptr<TStrongObjectPtr<DWorld>> Root;
-		Tests::FTestTransactorOwner Transactions;
+		TStrongObjectPtr<DTransBuffer> Transactions;
 	};
 }
 
@@ -130,7 +122,7 @@ TEST(FActorMutationTests, EveryConstructibleActorClassRetainsIdentityAcrossUndoR
 	{
 		if (!CanConstructObjectOfClass(Class, AActor::StaticClass())) continue;
 		SCOPED_TRACE(Class->GetName());
-		const auto Added = Durin::Tests::FTestActorEditor(F.Transactions.Get())->SpawnActor(*Level, Class, FName(), FTransform{}, {nullptr, false});
+		const auto Added = F.Editor.GetActorEditor()->SpawnActor(*Level, Class, FName(), FTransform{}, {false});
 		ASSERT_TRUE(Added) << Added.Message;
 		auto* Actor = Added.Actors.front().Get();
 		const auto Components = Actor->GetComponentsSnapshot();
@@ -146,7 +138,7 @@ TEST(FActorMutationTests, EveryConstructibleActorClassRetainsIdentityAcrossUndoR
 		EXPECT_TRUE(Actor->GetPrimaryActorTick().IsTickFunctionRegistered());
 		for (const auto& Component : Components) EXPECT_TRUE(Component->IsRegistered());
 		AActor* Source = Actor;
-		const auto Copies = Durin::Tests::FTestActorEditor(F.Transactions.Get())->DuplicateActors(*Level, {&Source, 1}, {nullptr, false});
+		const auto Copies = F.Editor.GetActorEditor()->DuplicateActors(*Level, {&Source, 1}, {false});
 		ASSERT_TRUE(Copies) << Copies.Message;
 		ASSERT_EQ(Copies.Actors.size(), 1u);
 		EXPECT_EQ(Copies.Actors.front()->GetClass(), Class);
@@ -172,7 +164,7 @@ TEST(FActorMutationTests, DeletionRestoresEarlierPropertyHistoryExternalAttachme
 	}
 	const auto Before = Grandchild->GetActorTransform().Translation;
 	AActor* Target = Actor;
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->DestroyActors(*Level, {&Target, 1}, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->DestroyActors(*Level, {&Target, 1}, {false}));
 	EXPECT_EQ(Actor->GetAttachParentActor(), nullptr);
 	EXPECT_EQ(Grandchild->GetRootComponent()->GetAttachParent(), nullptr);
 	EXPECT_EQ(Grandchild->GetActorTransform().Translation, Before);
@@ -207,7 +199,7 @@ TEST(FActorMutationTests, MixedBatchDeletionRestoresActorOrderPrimaryCameraAndUn
 	ASSERT_TRUE(Second->AttachToActor(First, EAttachmentTransformRule::KeepRelative));
 	const auto Order = Level->GetActors();
 	std::array<AActor*, 2> Targets{First, F.Actor};
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->DestroyActors(*Level, Targets, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->DestroyActors(*Level, Targets, {false}));
 	EXPECT_EQ(Level->GetPrimaryCameraActor(), Second);
 	EXPECT_EQ(Second->GetAttachParentActor(), nullptr);
 	CollectGarbage();
@@ -233,7 +225,7 @@ TEST(FActorMutationTests, DuplicationRemapsSelectedHierarchyOwnedComponentsAndSp
 	auto* Light = Source->AddInstanceComponent(FStructuralTestLight::StaticClass(), "Light");
 	Source->SetActorHiddenInGame(true);
 	std::array<AActor*, 2> Targets{F.Actor, Source};
-	const auto Result = Durin::Tests::FTestActorEditor(F.Transactions.Get())->DuplicateActors(*Level, Targets, {nullptr, false});
+	const auto Result = F.Editor.GetActorEditor()->DuplicateActors(*Level, Targets, {false});
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_EQ(Result.Actors.size(), 2u);
 	auto* ParentCopy = Result.Actors[0].Get();
@@ -262,7 +254,7 @@ TEST(FActorMutationTests, SingleActorDuplicationRestoresItsExternalParentAndRoot
 	auto* Source = Level->SpawnActor<AStaticMeshActor>("Attached");
 	ASSERT_TRUE(Source->AttachToActor(F.Actor, EAttachmentTransformRule::KeepRelative));
 	AActor* Target = Source;
-	const auto Duplicated = Durin::Tests::FTestActorEditor(F.Transactions.Get())->DuplicateActors(*Level, {&Target, 1}, {nullptr, false});
+	const auto Duplicated = F.Editor.GetActorEditor()->DuplicateActors(*Level, {&Target, 1}, {false});
 	ASSERT_TRUE(Duplicated) << Duplicated.Message;
 	auto* Copy = Duplicated.Actors.front().Get();
 	EXPECT_EQ(Copy->GetAttachParentActor(), F.Actor);
@@ -271,7 +263,7 @@ TEST(FActorMutationTests, SingleActorDuplicationRestoresItsExternalParentAndRoot
 	CollectGarbage();
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_EQ(Copy->GetAttachParentActor(), F.Actor);
-	const auto Rootless = Durin::Tests::FTestActorEditor(F.Transactions.Get())->SpawnActor(*Level, AActor::StaticClass(), "Rootless", FTransform{}, {nullptr, false});
+	const auto Rootless = F.Editor.GetActorEditor()->SpawnActor(*Level, AActor::StaticClass(), "Rootless", FTransform{}, {false});
 	ASSERT_TRUE(Rootless);
 	EXPECT_EQ(Rootless.Actors.front()->GetRootComponent(), nullptr);
 	ASSERT_TRUE(F.Transactions->Undo());
@@ -285,7 +277,7 @@ TEST(FActorMutationTests, BatchConflictRejectsEveryWriteAndRetainsHistoryForRetr
 	auto* Level = F.World->GetCurrentLevel();
 	auto* Other = Level->SpawnActor<AActor>("Other");
 	std::array<AActor*, 2> Targets{F.Actor, Other};
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->DestroyActors(*Level, Targets, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->DestroyActors(*Level, Targets, {false}));
 	auto* Conflict = Level->SpawnActor<AActor>(Other->GetFName());
 	const auto Head = F.Transactions->GetUndoId();
 	EXPECT_FALSE(F.Transactions->Undo());
@@ -309,7 +301,7 @@ TEST(FActorMutationTests, CombinedAttachmentCyclesRejectRestorationBeforeAnyMemb
 	ASSERT_TRUE(F.Actor->AttachToActor(Other, EAttachmentTransformRule::KeepRelative));
 	ASSERT_TRUE(ExternalChild->AttachToComponent(Internal, EAttachmentTransformRule::KeepRelative));
 	AActor* Target = F.Actor;
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->DestroyActors(*Level, {&Target, 1}, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->DestroyActors(*Level, {&Target, 1}, {false}));
 	ASSERT_TRUE(Other->GetRootComponent()->AttachToComponent(ExternalChild, EAttachmentTransformRule::KeepWorld));
 	const auto Head = F.Transactions->GetUndoId();
 	EXPECT_FALSE(F.Transactions->Undo());
@@ -328,9 +320,9 @@ TEST(FActorMutationTests, RenamePreservesIdentityAndRejectsConflictingReplayWith
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
 	const auto Before = F.Actor->GetFName();
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->RenameActor(*Level, F.Actor, "Renamed", {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameActor(*Level, F.Actor, "Renamed", {false}));
 	const auto Head = F.Transactions->GetUndoId();
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->RenameActor(*Level, F.Actor, "Renamed", {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameActor(*Level, F.Actor, "Renamed", {false}));
 	EXPECT_EQ(F.Transactions->GetUndoId(), Head);
 	auto* Conflict = Level->SpawnActor<AActor>(Before);
 	EXPECT_FALSE(F.Transactions->Undo());
@@ -349,14 +341,14 @@ TEST(FActorMutationTests, RejectionIsAtomicAndHistoryDiscardCollectsInactiveActo
 	auto* Level = F.World->GetCurrentLevel();
 	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Undoing);
 	const auto Count = Level->GetActors().size();
-	EXPECT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->SpawnActor(*Level, AStaticMeshActor::StaticClass(), "Blocked", FTransform{}, {nullptr, false}));
+	EXPECT_FALSE(F.Editor.GetActorEditor()->SpawnActor(*Level, AStaticMeshActor::StaticClass(), "Blocked", FTransform{}, {false}));
 	EXPECT_EQ(Level->GetActors().size(), Count);
 	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Idle);
 	std::array<AActor*, 2> Invalid{F.Actor, F.Actor};
-	EXPECT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->DestroyActors(*Level, Invalid, {nullptr, false}));
-	EXPECT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->DuplicateActors(*Level, Invalid, {nullptr, false}));
-	EXPECT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->RenameActor(*Level, F.Actor, "ReadOnly", {nullptr, true}));
-	const auto Added = Durin::Tests::FTestActorEditor(F.Transactions.Get())->SpawnActor(*Level, AStaticMeshActor::StaticClass(), "Disposable", FTransform{}, {nullptr, false});
+	EXPECT_FALSE(F.Editor.GetActorEditor()->DestroyActors(*Level, Invalid, {false}));
+	EXPECT_FALSE(F.Editor.GetActorEditor()->DuplicateActors(*Level, Invalid, {false}));
+	EXPECT_FALSE(F.Editor.GetActorEditor()->RenameActor(*Level, F.Actor, "ReadOnly", {true}));
+	const auto Added = F.Editor.GetActorEditor()->SpawnActor(*Level, AStaticMeshActor::StaticClass(), "Disposable", FTransform{}, {false});
 	ASSERT_TRUE(Added);
 	TWeakObjectPtr<AActor> Weak(Added.Actors.front().Get());
 	ASSERT_TRUE(F.Transactions->Undo());
@@ -369,35 +361,35 @@ TEST(FActorMutationTests, MixedSynchronousEditsJoinOuterTransactionAndReplayInOr
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
-	Tests::FTestActorEditor Editor(F.Transactions.Get());
+	auto* Editor = F.Editor.GetActorEditor();
 	const auto Outer = F.Transactions->Begin("test", "Build actor hierarchy");
 	ASSERT_GE(Outer, 0);
-	const auto Spawned = Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "Grouped", {}, {nullptr, false});
+	const auto Spawned = Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "Grouped", {}, {false});
 	ASSERT_TRUE(Spawned);
 	auto* Actor = Spawned.Actors.front().Get();
-	ASSERT_TRUE(Editor->RenameActor(*Level, Actor, "GroupedRenamed", {nullptr, false}));
+	ASSERT_TRUE(Editor->RenameActor(*Level, Actor, "GroupedRenamed", {false}));
 	std::array<AActor*, 1> Actors{Actor};
-	ASSERT_TRUE(Editor->AttachActors(*Level, Actors, F.Actor, EAttachmentTransformRule::KeepWorld, {nullptr, false}));
-	const auto Added = Editor->AddComponent(*Actor, DSceneComponent::StaticClass(), nullptr, {nullptr, false});
+	ASSERT_TRUE(Editor->AttachActors(*Level, Actors, F.Actor, EAttachmentTransformRule::KeepWorld, {false}));
+	const auto Added = Editor->AddComponent(*Actor, DSceneComponent::StaticClass(), nullptr, {false});
 	ASSERT_TRUE(Added);
-	ASSERT_TRUE(Editor->RenameComponent(*Actor, Added.Component, "GroupedComponent", {nullptr, false}));
-	const auto ComponentCopy = Editor->DuplicateComponent(*Actor, Added.Component, {nullptr, false});
+	ASSERT_TRUE(Editor->RenameComponent(*Actor, Added.Component, "GroupedComponent", {false}));
+	const auto ComponentCopy = Editor->DuplicateComponent(*Actor, Added.Component, {false});
 	ASSERT_TRUE(ComponentCopy);
 	ASSERT_TRUE(Editor->ReparentComponent(*Actor, static_cast<DSceneComponent*>(ComponentCopy.Component),
-		static_cast<DSceneComponent*>(Added.Component), {nullptr, false}));
-	ASSERT_TRUE(Editor->DeleteComponent(*Actor, ComponentCopy.Component, {nullptr, false}));
-	ASSERT_TRUE(Editor->DetachActors(*Level, Actors, EDetachmentTransformRule::KeepWorld, {nullptr, false}));
-	ASSERT_TRUE(Editor->AttachActors(*Level, Actors, F.Actor, EAttachmentTransformRule::KeepWorld, {nullptr, false}));
-	const auto Duplicated = Editor->DuplicateActors(*Level, Actors, {nullptr, false});
+		static_cast<DSceneComponent*>(Added.Component), {false}));
+	ASSERT_TRUE(Editor->DeleteComponent(*Actor, ComponentCopy.Component, {false}));
+	ASSERT_TRUE(Editor->DetachActors(*Level, Actors, EDetachmentTransformRule::KeepWorld, {false}));
+	ASSERT_TRUE(Editor->AttachActors(*Level, Actors, F.Actor, EAttachmentTransformRule::KeepWorld, {false}));
+	const auto Duplicated = Editor->DuplicateActors(*Level, Actors, {false});
 	ASSERT_TRUE(Duplicated);
 	auto* Duplicate = Duplicated.Actors.front().Get();
 	std::array<AActor*, 1> Duplicates{Duplicate};
-	ASSERT_TRUE(Editor->DestroyActors(*Level, Duplicates, {nullptr, false}));
+	ASSERT_TRUE(Editor->DestroyActors(*Level, Duplicates, {false}));
 	EXPECT_EQ(Spawned.History->TransactionId, F.Transactions->GetLastResult().TransactionId);
 	EXPECT_EQ(F.Transactions->GetQueueLength(), 0u);
 	ASSERT_TRUE(F.Transactions->End());
 	EXPECT_EQ(F.Transactions->GetQueueLength(), 1u);
-	EXPECT_EQ(F.Transactions->GetUndoDescription(), "Build actor hierarchy");
+	EXPECT_EQ(F.Transactions->GetUndoContext(false).Description, "Build actor hierarchy");
 	CollectGarbage();
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_FALSE(Level->ContainsActor(Actor));
@@ -424,13 +416,14 @@ TEST(FActorMutationTests, JoinedChangesKeepOnePackageRevisionAndRestoreCleanChec
 	Package->InitializeAssetPackage(Path);
 	TStrongObjectPtr<DPackage> PackageRoot(Package);
 	auto* Level = NewObject<DLevel>(Package, "Level");
+	ASSERT_TRUE(F.World->SetCurrentLevel(Level));
 	Package->ClearDirty();
-	Tests::FTestActorEditor Editor(F.Transactions.Get());
+	auto* Editor = F.Editor.GetActorEditor();
 	const auto Outer = F.Transactions->Begin("test", "Populate level");
 	ASSERT_GE(Outer, 0);
-	const auto First = Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "First", {}, {nullptr, false});
+	const auto First = Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "First", {}, {false});
 	ASSERT_TRUE(First);
-	ASSERT_TRUE(Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "Second", {}, {nullptr, false}));
+	ASSERT_TRUE(Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "Second", {}, {false}));
 	ASSERT_TRUE(F.Transactions->End());
 	EXPECT_TRUE(Package->IsDirty());
 	ASSERT_TRUE(F.Transactions->Undo());
@@ -445,7 +438,7 @@ TEST(FActorMutationTests, TransitionStatesRejectAllActorEditingBeforePreparation
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
-	Tests::FTestActorEditor Editor(F.Transactions.Get());
+	auto* Editor = F.Editor.GetActorEditor();
 	const auto Count = Level->GetActors().size();
 	for (auto State : {ETransactorState::Undoing,
 		ETransactorState::Redoing, ETransactorState::RecoveryRequired, ETransactorState::Destroying})
@@ -453,7 +446,7 @@ TEST(FActorMutationTests, TransitionStatesRejectAllActorEditingBeforePreparation
 		FTransBufferTestAccess::SetState(*F.Transactions.Get(), State);
 		bool bConfigured = false;
 		const auto Result = Editor->SpawnActor(*Level, ACameraActor::StaticClass(), "Rejected", {},
-			{nullptr, false}, [&](AActor&) { bConfigured = true; });
+			{false}, [&](AActor&) { bConfigured = true; });
 		EXPECT_FALSE(Result);
 		EXPECT_EQ(Result.Error, EActorEditError::HistoryUnavailable);
 		EXPECT_FALSE(bConfigured);
@@ -465,7 +458,7 @@ TEST(FActorMutationTests, TransitionStatesRejectAllActorEditingBeforePreparation
 TEST(FComponentMutationTests, AdditionUndoRedoBalancesLifecycleAndSceneMembership)
 {
 	FComponentFixture F;
-	const auto Added = Durin::Tests::FTestActorEditor(F.Transactions.Get())->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), F.Actor->GetRootComponent(), {nullptr, false});
+	const auto Added = F.Editor.GetActorEditor()->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), F.Actor->GetRootComponent(), {false});
 	ASSERT_TRUE(Added) << Added.Message;
 	auto* Light = static_cast<FStructuralTestLight*>(Added.Component);
 	EXPECT_EQ(Light->Created, 1u);
@@ -504,7 +497,7 @@ TEST(FComponentMutationTests, AdditionPreservesDefaultsAndExplicitChildSnapsBefo
 {
 	FComponentFixture F;
 	F.Actor->GetRootComponent()->SetWorldLocation({10.0, 0.0, 0.0});
-	const auto Added = Durin::Tests::FTestActorEditor(F.Transactions.Get())->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {nullptr, false});
+	const auto Added = F.Editor.GetActorEditor()->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {false});
 	ASSERT_TRUE(Added) << Added.Message;
 	auto* Light = static_cast<FStructuralTestLight*>(Added.Component);
 	EXPECT_EQ(Light->GetWorldLocation(), FVector3(3.0, 0.0, 0.0));
@@ -512,7 +505,7 @@ TEST(FComponentMutationTests, AdditionPreservesDefaultsAndExplicitChildSnapsBefo
 	ASSERT_TRUE(F.Transactions->Undo());
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_EQ(Light->GetWorldLocation(), FVector3(3.0, 0.0, 0.0));
-	const auto Child = Durin::Tests::FTestActorEditor(F.Transactions.Get())->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), Light, {nullptr, false});
+	const auto Child = F.Editor.GetActorEditor()->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), Light, {false});
 	ASSERT_TRUE(Child) << Child.Message;
 	EXPECT_EQ(static_cast<DSceneComponent*>(Child.Component)->GetRelativeLocation(), FVector3(0.0));
 	EXPECT_EQ(static_cast<FStructuralTestLight*>(Child.Component)->CreatedLocation, Light->GetWorldLocation());
@@ -533,7 +526,7 @@ TEST(FComponentMutationTests, DeletionPreservesIdentityForEarlierPropertyHistory
 		Light->SetRelativeLocation({9.0, 0.0, 0.0});
 	}
 	const auto Before = Child->GetWorldLocation();
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->DeleteComponent(*F.Actor, Light, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->DeleteComponent(*F.Actor, Light, {false}));
 	EXPECT_FALSE(Light->IsRegistered());
 	EXPECT_EQ(Child->GetAttachParent(), nullptr);
 	EXPECT_EQ(Child->GetWorldLocation(), Before);
@@ -565,7 +558,7 @@ TEST(FComponentMutationTests, DuplicationRebuildsSplineCacheAndPreservesDetached
 	ASSERT_TRUE(Source->DetachFromComponent());
 	Source->SetWorldLocation({7.0, 0.0, 0.0});
 	auto* Payload = NewObject<DObject>(Source, "Payload");
-	const auto Result = Durin::Tests::FTestActorEditor(F.Transactions.Get())->DuplicateComponent(*F.Actor, Source, {nullptr, false});
+	const auto Result = F.Editor.GetActorEditor()->DuplicateComponent(*F.Actor, Source, {false});
 	ASSERT_TRUE(Result) << Result.Message;
 	auto* Copy = static_cast<DSplineComponent*>(Result.Component);
 	EXPECT_NE(Copy, Source);
@@ -591,7 +584,7 @@ TEST(FComponentMutationTests, DuplicatePublishesCopiedFieldsBeforeFirstLifecycle
 	FComponentFixture F;
 	auto* Source = static_cast<FStructuralTestLight*>(F.Actor->AddInstanceComponent(FStructuralTestLight::StaticClass(), "Source"));
 	Source->SetRelativeLocation({8.0, 0.0, 0.0});
-	const auto Result = Durin::Tests::FTestActorEditor(F.Transactions.Get())->DuplicateComponent(*F.Actor, Source, {nullptr, false});
+	const auto Result = F.Editor.GetActorEditor()->DuplicateComponent(*F.Actor, Source, {false});
 	ASSERT_TRUE(Result) << Result.Message;
 	auto* Copy = static_cast<FStructuralTestLight*>(Result.Component);
 	EXPECT_EQ(Copy->Created, 1u);
@@ -609,11 +602,11 @@ TEST(FComponentMutationTests, RootDeletionAndUnregisteredStateRoundTrip)
 {
 	FComponentFixture F;
 	auto* Empty = F.World->SpawnActor<AActor>("Empty");
-	const auto Result = Durin::Tests::FTestActorEditor(F.Transactions.Get())->AddComponent(*Empty, DSceneComponent::StaticClass(), nullptr, {nullptr, false});
+	const auto Result = F.Editor.GetActorEditor()->AddComponent(*Empty, DSceneComponent::StaticClass(), nullptr, {false});
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(Empty->GetRootComponent(), Result.Component);
 	Result.Component->UnregisterComponent();
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->DeleteComponent(*Empty, Result.Component, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->DeleteComponent(*Empty, Result.Component, {false}));
 	EXPECT_EQ(Empty->GetRootComponent(), nullptr);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(Empty->GetRootComponent(), Result.Component);
@@ -627,12 +620,12 @@ TEST(FComponentMutationTests, RejectionDoesNotPublishAndDiscardedInactiveCompone
 	FComponentFixture F;
 	const auto Count = F.Actor->GetComponents().size();
 	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Undoing);
-	ASSERT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {nullptr, false}));
+	ASSERT_FALSE(F.Editor.GetActorEditor()->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {false}));
 	EXPECT_EQ(F.Actor->GetComponents().size(), Count);
 	FTransBufferTestAccess::SetState(*F.Transactions.Get(), ETransactorState::Idle);
-	ASSERT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->DeleteComponent(*F.Actor, F.Actor->GetRootComponent(), {nullptr, false}));
-	ASSERT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {nullptr, true}));
-	const auto Added = Durin::Tests::FTestActorEditor(F.Transactions.Get())->AddComponent(*F.Actor, DStaticMeshComponent::StaticClass(), nullptr, {nullptr, false});
+	ASSERT_FALSE(F.Editor.GetActorEditor()->DeleteComponent(*F.Actor, F.Actor->GetRootComponent(), {false}));
+	ASSERT_FALSE(F.Editor.GetActorEditor()->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {true}));
+	const auto Added = F.Editor.GetActorEditor()->AddComponent(*F.Actor, DStaticMeshComponent::StaticClass(), nullptr, {false});
 	ASSERT_TRUE(Added);
 	EXPECT_TRUE(F.Scene.Primitives.contains(static_cast<DPrimitiveComponent*>(Added.Component)));
 	TWeakObjectPtr<DActorComponent> Weak(Added.Component);
@@ -647,9 +640,9 @@ TEST(FComponentMutationTests, ConflictingRootRejectsUndoWithoutPartialRestoratio
 {
 	FComponentFixture F;
 	auto* Owner = F.World->SpawnActor<AActor>("RootOwner");
-	const auto Added = Durin::Tests::FTestActorEditor(F.Transactions.Get())->AddComponent(*Owner, DSceneComponent::StaticClass(), nullptr, {nullptr, false});
+	const auto Added = F.Editor.GetActorEditor()->AddComponent(*Owner, DSceneComponent::StaticClass(), nullptr, {false});
 	ASSERT_TRUE(Added);
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->DeleteComponent(*Owner, Added.Component, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->DeleteComponent(*Owner, Added.Component, {false}));
 	auto* Replacement = static_cast<DSceneComponent*>(Owner->AddInstanceComponent(DSceneComponent::StaticClass(), "Replacement"));
 	const auto Head = F.Transactions->GetUndoId();
 	EXPECT_FALSE(F.Transactions->Undo());
@@ -675,11 +668,11 @@ TEST(FComponentMutationTests, RenamePreservesIdentityAndEarlierPropertyHistory)
 		Light->SetRelativeLocation({9.0, 0.0, 0.0});
 	}
 	const auto Instances = F.Actor->GetInstanceComponents();
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->RenameComponent(*F.Actor, Light, "Renamed", {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameComponent(*F.Actor, Light, "Renamed", {false}));
 	EXPECT_EQ(Light->GetFName(), FName("Renamed"));
 	EXPECT_NE(Light->GetObjectPath(), Path);
 	const auto Head = F.Transactions->GetUndoId();
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->RenameComponent(*F.Actor, Light, "Renamed", {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameComponent(*F.Actor, Light, "Renamed", {false}));
 	EXPECT_EQ(F.Transactions->GetUndoId(), Head);
 	CollectGarbage();
 	ASSERT_TRUE(F.Transactions->Undo());
@@ -701,7 +694,7 @@ TEST(FComponentMutationTests, RenameNativeRootRestoresNameWithoutChangingRootOrR
 	FComponentFixture F;
 	auto* Root = F.Actor->GetRootComponent();
 	const auto Before = Root->GetFName();
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->RenameComponent(*F.Actor, Root, "RenamedRoot", {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameComponent(*F.Actor, Root, "RenamedRoot", {false}));
 	EXPECT_EQ(Root->GetFName(), FName("RenamedRoot"));
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(Root->GetFName(), Before);
@@ -715,12 +708,12 @@ TEST(FComponentMutationTests, RenameNativeRootRestoresNameWithoutChangingRootOrR
 TEST(FComponentMutationTests, RenameReservesInactiveNamesAndConflictsRejectBeforeWrites)
 {
 	FComponentFixture F;
-	const auto Inactive = Durin::Tests::FTestActorEditor(F.Transactions.Get())->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {nullptr, false});
+	const auto Inactive = F.Editor.GetActorEditor()->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {false});
 	ASSERT_TRUE(Inactive);
 	const auto Reserved = Inactive.Component->GetFName();
 	ASSERT_TRUE(F.Transactions->Undo());
 	auto* Component = F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Original");
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->RenameComponent(*F.Actor, Component, Reserved, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameComponent(*F.Actor, Component, Reserved, {false}));
 	EXPECT_NE(Component->GetFName(), Reserved);
 	const auto After = Component->GetFName();
 	auto* Conflict = F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Original");
@@ -749,7 +742,7 @@ TEST(FComponentMutationTests, ReparentRestoresBothSidesDescendantsAndRenderTrans
 	ASSERT_TRUE(Child->AttachToComponent(Light, EAttachmentTransformRule::KeepRelative));
 	Child->SetRelativeLocation({2.0, 0.0, 0.0});
 	const auto Instances = F.Actor->GetInstanceComponents();
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->ReparentComponent(*F.Actor, Light, Parent, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, Light, Parent, {false}));
 	EXPECT_EQ(Light->GetWorldLocation(), FVector3(14.0, 0.0, 0.0));
 	EXPECT_EQ(Light->GetRelativeLocation(), FVector3(-16.0, 0.0, 0.0));
 	for (int Repeat = 0; Repeat < 2; ++Repeat)
@@ -787,19 +780,19 @@ TEST(FComponentMutationTests, ReparentSupportsDetachedStateAndRejectsInvalidEdit
 	ASSERT_TRUE(Child->AttachToComponent(Component, EAttachmentTransformRule::KeepRelative));
 	auto* Foreign = F.World->SpawnActor<AStaticMeshActor>("Foreign");
 	const auto Before = Component->GetWorldLocation();
-	EXPECT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->ReparentComponent(*F.Actor, Component, Child, {nullptr, false}));
-	EXPECT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->ReparentComponent(*F.Actor, Component, Foreign->GetRootComponent(), {nullptr, false}));
-	EXPECT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->ReparentComponent(*F.Actor, F.Actor->GetRootComponent(), Component, {nullptr, false}));
-	EXPECT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->ReparentComponent(*F.Actor, Component, nullptr, {nullptr, true}));
-	EXPECT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->RenameComponent(*F.Actor, Component, "New", {nullptr, true}));
-	EXPECT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->RenameComponent(*F.Actor, Foreign->GetRootComponent(), "New", {nullptr, false}));
-	EXPECT_FALSE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->RenameComponent(*F.Actor, Component, FName(), {nullptr, false}));
+	EXPECT_FALSE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, Component, Child, {false}));
+	EXPECT_FALSE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, Component, Foreign->GetRootComponent(), {false}));
+	EXPECT_FALSE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, F.Actor->GetRootComponent(), Component, {false}));
+	EXPECT_FALSE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, Component, nullptr, {true}));
+	EXPECT_FALSE(F.Editor.GetActorEditor()->RenameComponent(*F.Actor, Component, "New", {true}));
+	EXPECT_FALSE(F.Editor.GetActorEditor()->RenameComponent(*F.Actor, Foreign->GetRootComponent(), "New", {false}));
+	EXPECT_FALSE(F.Editor.GetActorEditor()->RenameComponent(*F.Actor, Component, FName(), {false}));
 	EXPECT_FALSE(F.Transactions->CanUndo());
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->ReparentComponent(*F.Actor, Component, nullptr, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, Component, nullptr, {false}));
 	EXPECT_EQ(Component->GetAttachParent(), nullptr);
 	EXPECT_EQ(Component->GetWorldLocation(), Before);
 	const auto Head = F.Transactions->GetUndoId();
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->ReparentComponent(*F.Actor, Component, nullptr, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, Component, nullptr, {false}));
 	EXPECT_EQ(F.Transactions->GetUndoId(), Head);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(Component->GetAttachParent(), F.Actor->GetRootComponent());
@@ -812,7 +805,7 @@ TEST(FComponentMutationTests, ReparentRejectsChangedParentAndCyclesWithoutMoving
 	FComponentFixture F;
 	auto* Moving = static_cast<DSceneComponent*>(F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Moving"));
 	auto* Parent = static_cast<DSceneComponent*>(F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Parent"));
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->ReparentComponent(*F.Actor, Moving, Parent, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, Moving, Parent, {false}));
 	ASSERT_TRUE(Moving->DetachFromComponent());
 	const auto Head = F.Transactions->GetUndoId();
 	EXPECT_FALSE(F.Transactions->Undo());
@@ -833,15 +826,15 @@ TEST(FComponentMutationTests, ReparentRejectsChangedParentAndCyclesWithoutMoving
 TEST(FComponentMutationTests, AllComponentStructureCommandsShareOneHistoryAcrossCollection)
 {
 	FComponentFixture F;
-	const auto Added = Durin::Tests::FTestActorEditor(F.Transactions.Get())->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {nullptr, false});
-	const auto Parent = Durin::Tests::FTestActorEditor(F.Transactions.Get())->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {nullptr, false});
+	const auto Added = F.Editor.GetActorEditor()->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {false});
+	const auto Parent = F.Editor.GetActorEditor()->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {false});
 	ASSERT_TRUE(Added);
 	ASSERT_TRUE(Parent);
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->RenameComponent(*F.Actor, Added.Component, "Renamed", {nullptr, false}));
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->ReparentComponent(*F.Actor, static_cast<DSceneComponent*>(Added.Component), static_cast<DSceneComponent*>(Parent.Component), {nullptr, false}));
-	const auto Copy = Durin::Tests::FTestActorEditor(F.Transactions.Get())->DuplicateComponent(*F.Actor, Added.Component, {nullptr, false});
+	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameComponent(*F.Actor, Added.Component, "Renamed", {false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, static_cast<DSceneComponent*>(Added.Component), static_cast<DSceneComponent*>(Parent.Component), {false}));
+	const auto Copy = F.Editor.GetActorEditor()->DuplicateComponent(*F.Actor, Added.Component, {false});
 	ASSERT_TRUE(Copy);
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->DeleteComponent(*F.Actor, Added.Component, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->DeleteComponent(*F.Actor, Added.Component, {false}));
 	for (int Step = 0; Step < 6; ++Step) { ASSERT_TRUE(F.Transactions->Undo()); CollectGarbage(); }
 	EXPECT_FALSE(F.Actor->OwnsComponent(Added.Component));
 	EXPECT_FALSE(F.Actor->OwnsComponent(Copy.Component));
@@ -870,17 +863,18 @@ TEST(FComponentMutationTests, SuspendedComponentsStayOutOfPackageCaptureAndPrese
 	Package->InitializeAssetPackage(Path);
 	TStrongObjectPtr<DPackage> PackageRoot(Package);
 	auto* Level = NewObject<DLevel>(Package, Path.GetPackageName());
+	ASSERT_TRUE(F.World->SetCurrentLevel(Level));
 	auto* Owner = Level->SpawnActor<AActor>("Owner");
 	Package->ClearDirty();
 	F.Transactions->EstablishSavedState(*Package);
 	ObjectPackage::FLinkerTables Baseline, Active, Absent;
 	ASSERT_TRUE(CapturePackageLinker(Package, EDefaultDeltaMode::NoDelta, {}, Baseline));
-	const auto Added = Durin::Tests::FTestActorEditor(F.Transactions.Get())->AddComponent(*Owner, DSceneComponent::StaticClass(), nullptr, {nullptr, false});
+	const auto Added = F.Editor.GetActorEditor()->AddComponent(*Owner, DSceneComponent::StaticClass(), nullptr, {false});
 	ASSERT_TRUE(Added) << Added.Message;
 	EXPECT_TRUE(Package->IsDirty());
 	ASSERT_TRUE(CapturePackageLinker(Package, EDefaultDeltaMode::NoDelta, {}, Active));
 	EXPECT_EQ(Active.Exports.size(), Baseline.Exports.size() + 1);
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->DeleteComponent(*Owner, Added.Component, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->DeleteComponent(*Owner, Added.Component, {false}));
 	ASSERT_TRUE(CapturePackageLinker(Package, EDefaultDeltaMode::NoDelta, {}, Absent));
 	EXPECT_EQ(Absent.Exports.size(), Baseline.Exports.size());
 	ASSERT_TRUE(F.Transactions->Undo());
@@ -896,8 +890,8 @@ TEST(FComponentMutationTests, SuspendedComponentsStayOutOfPackageCaptureAndPrese
 	auto* Child = static_cast<DSceneComponent*>(Owner->AddInstanceComponent(DSceneComponent::StaticClass(), "Child"));
 	Package->ClearDirty();
 	F.Transactions->EstablishSavedState(*Package);
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->RenameComponent(*Owner, Child, "Renamed", {nullptr, false}));
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->ReparentComponent(*Owner, Child, Parent, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameComponent(*Owner, Child, "Renamed", {false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->ReparentComponent(*Owner, Child, Parent, {false}));
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_TRUE(Package->IsDirty());
 	ASSERT_TRUE(F.Transactions->Undo());
@@ -910,12 +904,12 @@ TEST(FComponentMutationTests, SuspendedComponentsStayOutOfPackageCaptureAndPrese
 	auto* Actor = Level->SpawnActor<AStaticMeshActor>("ActorHistory");
 	Package->ClearDirty();
 	F.Transactions->EstablishSavedState(*Package);
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->RenameComponent(*Owner, Child, "SecondName", {nullptr, false}));
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->RenameActor(*Level, Actor, "RenamedActor", {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameComponent(*Owner, Child, "SecondName", {false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameActor(*Level, Actor, "RenamedActor", {false}));
 	AActor* Target = Actor;
-	const auto Copy = Durin::Tests::FTestActorEditor(F.Transactions.Get())->DuplicateActors(*Level, {&Target, 1}, {nullptr, false});
+	const auto Copy = F.Editor.GetActorEditor()->DuplicateActors(*Level, {&Target, 1}, {false});
 	ASSERT_TRUE(Copy) << Copy.Message;
-	ASSERT_TRUE(Durin::Tests::FTestActorEditor(F.Transactions.Get())->DestroyActors(*Level, {&Target, 1}, {nullptr, false}));
+	ASSERT_TRUE(F.Editor.GetActorEditor()->DestroyActors(*Level, {&Target, 1}, {false}));
 	EXPECT_TRUE(IsPackageCaptureObjectOmitted(Actor));
 	ObjectPackage::FLinkerTables ActorCapture;
 	ASSERT_TRUE(CapturePackageLinker(Package, EDefaultDeltaMode::NoDelta, {}, ActorCapture));
@@ -932,11 +926,11 @@ TEST(FActorMutationTests, PreparationRejectsRecursionAndCleansThrowingAndRejecte
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
-	Durin::Tests::FTestActorEditor Editor(F.Transactions.Get());
+	auto* Editor = F.Editor.GetActorEditor();
 	AActor* Prepared = nullptr;
-	const auto Failed = Editor->SpawnActor(*Level, AStaticMeshActor::StaticClass(), "Unpublished", {}, {nullptr, false}, [&](AActor& Actor) {
+	const auto Failed = Editor->SpawnActor(*Level, AStaticMeshActor::StaticClass(), "Unpublished", {}, {false}, [&](AActor& Actor) {
 		Prepared = &Actor;
-		const auto Recursive = Editor->SpawnActor(*Level, AActor::StaticClass(), "Recursive", {}, {nullptr, false});
+		const auto Recursive = Editor->SpawnActor(*Level, AActor::StaticClass(), "Recursive", {}, {false});
 		EXPECT_EQ(Recursive.Error, EActorEditError::HistoryUnavailable);
 		throw std::runtime_error("Preparation fixture");
 	});
@@ -944,7 +938,7 @@ TEST(FActorMutationTests, PreparationRejectsRecursionAndCleansThrowingAndRejecte
 	EXPECT_FALSE(IsValid(Prepared));
 	EXPECT_EQ(Level->FindActorByName("Unpublished"), nullptr);
 	EXPECT_FALSE(F.Transactions->CanUndo());
-	const auto Succeeded = Editor->SpawnActor(*Level, AActor::StaticClass(), "Unpublished", {}, {nullptr, false});
+	const auto Succeeded = Editor->SpawnActor(*Level, AActor::StaticClass(), "Unpublished", {}, {false});
 	ASSERT_TRUE(Succeeded) << Succeeded.Message;
 	EXPECT_EQ(Succeeded.Actors.front()->GetFName(), FName("Unpublished"));
 }
@@ -953,12 +947,12 @@ TEST(FActorMutationTests, DetachedOwnerAndDuplicateAttachmentParticipantsAreReje
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
-	Durin::Tests::FTestActorEditor Editor(F.Transactions.Get());
+	auto* Editor = F.Editor.GetActorEditor();
 	AActor* Targets[] = {F.Actor, F.Actor};
-	EXPECT_FALSE(Editor->AttachActors(*Level, Targets, F.Actor, EAttachmentTransformRule::KeepWorld, {nullptr, false}));
+	EXPECT_FALSE(Editor->AttachActors(*Level, Targets, F.Actor, EAttachmentTransformRule::KeepWorld, {false}));
 	AActor* Actor = F.Actor;
-	ASSERT_TRUE(Editor->DestroyActors(*Level, {&Actor, 1}, {nullptr, false}));
-	EXPECT_EQ(Editor->AddComponent(*Actor, DSceneComponent::StaticClass(), nullptr, {nullptr, false}).Error, EActorEditError::InvalidTarget);
+	ASSERT_TRUE(Editor->DestroyActors(*Level, {&Actor, 1}, {false}));
+	EXPECT_EQ(Editor->AddComponent(*Actor, DSceneComponent::StaticClass(), nullptr, {false}).Error, EActorEditError::InvalidTarget);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_TRUE(Level->ContainsActor(Actor));
 }
@@ -967,13 +961,13 @@ TEST(FActorMutationTests, WrongThreadCannotEnterActorOrComponentPreparation)
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
-	Durin::Tests::FTestActorEditor Editor(F.Transactions.Get());
+	auto* Editor = F.Editor.GetActorEditor();
 	FActorEditResult WorkerResult;
 	FComponentEditResult WorkerComponentResult;
-	auto* Service = Editor.operator->();
+	auto* Service = Editor;
 	std::thread Worker([&] {
-		WorkerResult = Service->SpawnActor(*Level, AActor::StaticClass(), "Worker", {}, {nullptr, false});
-		WorkerComponentResult = Service->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {nullptr, false});
+		WorkerResult = Service->SpawnActor(*Level, AActor::StaticClass(), "Worker", {}, {false});
+		WorkerComponentResult = Service->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {false});
 	});
 	Worker.join();
 	EXPECT_EQ(WorkerResult.Error, EActorEditError::WrongThread);
@@ -997,7 +991,7 @@ TEST(FActorMutationTests, DuplicationDoesNotPublishBoundaryAttachmentsDuringDeri
 		EXPECT_EQ(F.Actor->GetRootComponent()->GetAttachChildren().size(), ChildCount);
 	};
 	AActor* Target = Source;
-	const auto Copied = Durin::Tests::FTestActorEditor(F.Transactions.Get())->DuplicateActors(*Level, {&Target, 1}, {nullptr, false});
+	const auto Copied = F.Editor.GetActorEditor()->DuplicateActors(*Level, {&Target, 1}, {false});
 	ASSERT_TRUE(Copied) << Copied.Message;
 	EXPECT_GT(Observed, 0);
 	EXPECT_EQ(F.Actor->GetRootComponent()->GetAttachChildren().size(), ChildCount + 1);
@@ -1012,8 +1006,8 @@ TEST(FActorMutationTests, UnavailableServiceAndRecoveringHistoryRejectBeforePrep
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
-	Durin::Tests::FTestActorEditor Unavailable(nullptr);
-	EXPECT_EQ(Unavailable->SpawnActor(*Level, AActor::StaticClass(), "Unavailable", {}, {nullptr, false}).Error, EActorEditError::Unavailable);
+	TStrongObjectPtr<DEditorActorSubsystem> Unavailable(NewObject<DEditorActorSubsystem>(nullptr, "UninitializedActorService"));
+	EXPECT_EQ(Unavailable->SpawnActor(*Level, AActor::StaticClass(), "Unavailable", {}, {false}).Error, EActorEditError::Unavailable);
 	class FIncompleteChange final : public FActorCommandChange
 	{
 	public:
@@ -1021,10 +1015,10 @@ TEST(FActorMutationTests, UnavailableServiceAndRecoveringHistoryRejectBeforePrep
 		auto Replay(ETransactionOperation) -> FActorChangeResult override
 		{ return {{.Code = EActorChangeError::RollbackIncomplete}}; }
 	};
-	Durin::Tests::FTestTransactorOwner Recovering("RecoveringActorHistory");
+	auto* Recovering = F.Transactions.Get();
 	EXPECT_EQ(Durin::Editor::ApplyEditorChange(*Recovering, std::make_unique<FIncompleteChange>()).Code, ETransactorResultCode::RecoveryRequired);
-	Durin::Tests::FTestActorEditor Editor(Recovering.Get());
-	EXPECT_EQ(Editor->SpawnActor(*Level, AActor::StaticClass(), "RecoveryBlocked", {}, {nullptr, false}).Error, EActorEditError::HistoryUnavailable);
+	auto* Editor = F.Editor.GetActorEditor();
+	EXPECT_EQ(Editor->SpawnActor(*Level, AActor::StaticClass(), "RecoveryBlocked", {}, {false}).Error, EActorEditError::HistoryUnavailable);
 	EXPECT_EQ(Level->FindActorByName("RecoveryBlocked"), nullptr);
 }
 
@@ -1032,9 +1026,9 @@ TEST(FActorMutationTests, GeneralHistoryRetiresWithDurinEdRatherThanLevelEditor)
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
-	Durin::Tests::FTestActorEditor Editor(F.Transactions.Get());
-	ASSERT_TRUE(Editor->RenameActor(*Level, F.Actor, "ModuleOwnedActor", {nullptr, false}));
-	ASSERT_TRUE(Editor->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {nullptr, false}));
+	auto* Editor = F.Editor.GetActorEditor();
+	ASSERT_TRUE(Editor->RenameActor(*Level, F.Actor, "ModuleOwnedActor", {false}));
+	ASSERT_TRUE(Editor->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {false}));
 	const auto UndoId = F.Transactions->GetUndoId();
 	EXPECT_EQ(F.Transactions->DiscardCustomChangesByModule("LevelEditor").Code, ETransactorResultCode::NoOp);
 	EXPECT_EQ(F.Transactions->GetUndoId(), UndoId);
@@ -1051,14 +1045,14 @@ TEST(FComponentMutationTests, ReplayRejectsDetachedOwnersBeforeChangingMembershi
 		auto* Level = F.World->GetCurrentLevel();
 		auto* Child = static_cast<DSceneComponent*>(F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Child"));
 		auto* Parent = static_cast<DSceneComponent*>(F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Parent"));
-		Durin::Tests::FTestActorEditor Editor(F.Transactions.Get());
+		auto* Editor = F.Editor.GetActorEditor();
 		FComponentEditResult Result;
 		switch (Operation)
 		{
-		case 0: Result = Editor->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {nullptr, false}); break;
-		case 1: Result = Editor->DeleteComponent(*F.Actor, Child, {nullptr, false}); break;
-		case 2: Result = Editor->RenameComponent(*F.Actor, Child, "Renamed", {nullptr, false}); break;
-		case 3: Result = Editor->ReparentComponent(*F.Actor, Child, Parent, {nullptr, false}); break;
+		case 0: Result = Editor->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {false}); break;
+		case 1: Result = Editor->DeleteComponent(*F.Actor, Child, {false}); break;
+		case 2: Result = Editor->RenameComponent(*F.Actor, Child, "Renamed", {false}); break;
+		case 3: Result = Editor->ReparentComponent(*F.Actor, Child, Parent, {false}); break;
 		}
 		ASSERT_TRUE(Result) << Result.Message;
 		const auto Head = F.Transactions->GetUndoId();
@@ -1077,8 +1071,8 @@ TEST(FComponentMutationTests, ReplayRejectsDetachedOwnersBeforeChangingMembershi
 TEST(FComponentMutationTests, AdditionHistoryRetainsSubobjectsCreatedAfterPublication)
 {
 	FComponentFixture F;
-	Durin::Tests::FTestActorEditor Editor(F.Transactions.Get());
-	const auto Added = Editor->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {nullptr, false});
+	auto* Editor = F.Editor.GetActorEditor();
+	const auto Added = Editor->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {false});
 	ASSERT_TRUE(Added) << Added.Message;
 	auto* Payload = NewObject<DObject>(Added.Component, "LatePayload");
 	TWeakObjectPtr<DObject> WeakPayload(Payload);
@@ -1139,13 +1133,13 @@ TEST(FActorMutationTests, UnrecordableStructuralEditRemainsAppliedAndInvalidates
 TEST(FComponentMutationTests, ComponentRemovingItselfDuringCreationCannotReportSuccess)
 {
 	FComponentFixture F;
-	Durin::Tests::FTestTransactorOwner RecoveryHistory("InterruptedCreationHistory");
-	Durin::Tests::FTestActorEditor Editor(RecoveryHistory.Get());
+	auto* RecoveryHistory = F.Transactions.Get();
+	auto* Editor = F.Editor.GetActorEditor();
 	struct FResetProbe { ~FResetProbe() { FStructuralTestLight::CreationProbe = {}; } } Reset;
 	FStructuralTestLight::CreationProbe = [](FStructuralTestLight& Component) {
 		EXPECT_TRUE(Component.GetOwner()->DestroyInstanceComponent(&Component));
 	};
-	const auto Result = Editor->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {nullptr, false});
+	const auto Result = Editor->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {false});
 	EXPECT_FALSE(Result);
 	ASSERT_TRUE(Result.History);
 	EXPECT_EQ(Result.History->Code, ETransactorResultCode::RecoveryRequired);
@@ -1156,8 +1150,8 @@ TEST(FActorMutationTests, OversizedActorEditsStillPublishUndoableIdentity)
 {
 	FComponentFixture F;
 	Durin::FTransBufferTestAccess::InitializeMemoryBudget(*F.Transactions.Get(), 1);
-	Durin::Tests::FTestActorEditor Editor(F.Transactions.Get());
-	const auto Added = Editor->SpawnActor(*F.World->GetCurrentLevel(), AStaticMeshActor::StaticClass(), "Oversized", {}, {nullptr, false});
+	auto* Editor = F.Editor.GetActorEditor();
+	const auto Added = Editor->SpawnActor(*F.World->GetCurrentLevel(), AStaticMeshActor::StaticClass(), "Oversized", {}, {false});
 	ASSERT_TRUE(Added) << Added.Message;
 	auto* Actor = Added.Actors.front().Get();
 	EXPECT_TRUE(F.World->GetCurrentLevel()->ContainsActor(Actor));
@@ -1171,15 +1165,15 @@ TEST(FActorMutationTests, OversizedActorEditsStillPublishUndoableIdentity)
 TEST(FActorMutationTests, WorldClosingDuringActorRemovalCannotReportSuccess)
 {
 	FComponentFixture F;
-	Durin::Tests::FTestActorEditor Setup(F.Transactions.Get());
-	ASSERT_TRUE(Setup->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {nullptr, false}));
+	auto* Setup = F.Editor.GetActorEditor();
+	ASSERT_TRUE(Setup->AddComponent(*F.Actor, FStructuralTestLight::StaticClass(), nullptr, {false}));
 	ASSERT_TRUE(F.Transactions->Reset());
-	Durin::Tests::FTestTransactorOwner RecoveryHistory("InterruptedRemovalHistory");
-	Durin::Tests::FTestActorEditor Editor(RecoveryHistory.Get());
+	auto* RecoveryHistory = F.Transactions.Get();
+	auto* Editor = F.Editor.GetActorEditor();
 	struct FResetProbe { ~FResetProbe() { FStructuralTestLight::UnregisterProbe = {}; } } Reset;
 	FStructuralTestLight::UnregisterProbe = [&](FStructuralTestLight&) { F.World->RequestShutdown(); };
 	auto* Actor = F.Actor;
-	const auto Result = Editor->DestroyActors(*F.World->GetCurrentLevel(), {&Actor, 1}, {nullptr, false});
+	const auto Result = Editor->DestroyActors(*F.World->GetCurrentLevel(), {&Actor, 1}, {false});
 	EXPECT_FALSE(Result);
 	ASSERT_TRUE(Result.History);
 	EXPECT_EQ(Result.History->Code, ETransactorResultCode::RecoveryRequired);
