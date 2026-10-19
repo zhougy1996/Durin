@@ -1,3 +1,4 @@
+#include "NativeRHIExecutionTestSupport.h"
 #include <gtest/gtest.h>
 #include "VulkanTestSupport.h"
 
@@ -38,122 +39,124 @@ namespace Durin::VulkanRHI
 			FInlineRHITestScope Scope;
 			if (bThreaded) _putenv_s("DURIN_RHI_EXECUTION", "threaded");
 			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-			const auto& Queues = GDynamicRHI->RHIGetQueueCapabilities();
-			if (Queues.Compute == Queues.Graphics) GTEST_SKIP() << "Requested independent compute topology unavailable: " << Policy;
-			ASSERT_EQ(Queues.Queues.size(), 2u);
-			EXPECT_EQ(Queues.Queues[0].OwnershipDomain == Queues.Queues[1].OwnershipDomain, bSameFamily);
-			if (bRHITransfer)
-			{
-				auto& Commands = FRHICommandListImmediate::Get();
-				auto Texture = GDynamicRHI->RHICreateTexture(Commands,
-					FRHITextureCreateDesc::Create2D("RHIQueueRoundTrip", 4, 4, EPixelFormat::RGBA8_UNORM)
-						.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));
-				ASSERT_TRUE(Texture);
-				std::array<uint8, 64> Expected;
-				for (uint32 Index = 0; Index < Expected.size(); ++Index) Expected[Index] = static_cast<uint8>(Index + 31);
-				Commands.UpdateTexture2D(Texture, 0, 0,
-					FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16, std::as_bytes(std::span{Expected}));
-				Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
-					Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
-					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
-				FRHIQueueTransferDesc Forward{.Source = Queues.Graphics, .Destination = Queues.Compute,
-					.Textures = {FRHITextureTransition::Whole(Texture.GetReference(), ERHIAccess::GraphicsShaderRead, ERHIAccess::ComputeShaderRead)}};
-				FRHIQueueTransferDesc Backward{.Source = Queues.Compute, .Destination = Queues.Graphics,
-					.Textures = {FRHITextureTransition::Whole(Texture.GetReference(), ERHIAccess::ComputeShaderRead, ERHIAccess::GraphicsShaderRead)}};
-				auto ToCompute = GDynamicRHI->RHICreateQueueTransfer(Forward);
-				auto ToGraphics = GDynamicRHI->RHICreateQueueTransfer(Backward);
-				ASSERT_TRUE(ToCompute && ToGraphics);
-				EXPECT_FALSE(GDynamicRHI->RHICreateQueueTransfer({}));
-				Forward.Destination = Forward.Source;
-				EXPECT_FALSE(GDynamicRHI->RHICreateQueueTransfer(Forward));
-				const auto Release = Commands.BeginGPUSubmission({.Queue = Queues.Graphics});
-				Commands.ReleaseQueueOwnership(ToCompute);
-				Commands.EndGPUSubmission();
-				const auto Compute = Commands.BeginGPUSubmission({.Queue = Queues.Compute, .Waits = {Release}});
-				Commands.BeginDiagnosticRegion("ComputeHandoff");
-				Commands.AcquireQueueOwnership(ToCompute);
-				Commands.ReleaseQueueOwnership(ToGraphics);
-				Commands.EndDiagnosticRegion();
-				Commands.EndGPUSubmission();
-				const auto Join = Commands.BeginGPUSubmission({.Queue = Queues.Graphics, .Waits = {Compute}});
-				Commands.AcquireQueueOwnership(ToGraphics);
-				Commands.EndGPUSubmission();
-				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::None);
-				EXPECT_EQ(Release.GetState(), ERHIGPUSubmissionState::Pending);
-				EXPECT_EQ(Compute.GetState(), ERHIGPUSubmissionState::Pending);
-				EXPECT_EQ(Join.GetState(), ERHIGPUSubmissionState::Pending);
-				EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(Compute).Queue, Queues.Compute);
-				EXPECT_GT(FRHIGPUSyncPointBackend::GetPoint(Join).Value, FRHIGPUSyncPointBackend::GetPoint(Release).Value);
-				ToCompute.reset(); ToGraphics.reset();
-				FByteBuffer Actual;
-				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Texture, 0, 0, Actual));
-				const auto Bytes = std::as_bytes(std::span{Expected});
-				EXPECT_EQ(Actual, (FByteBuffer(Bytes.begin(), Bytes.end())));
-				EXPECT_EQ(Join.GetState(), ERHIGPUSubmissionState::Complete);
-				FRDGBuilder Graph;
-				Graph.SetAsyncComputeEnabled(true);
-				const auto Imported = Graph.RegisterExternalTexture(Texture, "Imported",
-					ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-				for (uint32 Index = 0; Index < 3; ++Index)
+			::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+				const auto& Queues = GDynamicRHI->RHIGetQueueCapabilities();
+				if (Queues.Compute == Queues.Graphics) GTEST_SKIP() << "Requested independent compute topology unavailable: " << Policy;
+				ASSERT_EQ(Queues.Queues.size(), 2u);
+				EXPECT_EQ(Queues.Queues[0].OwnershipDomain == Queues.Queues[1].OwnershipDomain, bSameFamily);
+				if (bRHITransfer)
 				{
-					const bool bCompute = Index != 1;
-					const auto Pass = FRDGBuilderTestAccessor::AddPass(Graph, std::to_string(Index),
-						bCompute ? ERDGPassType::Compute : ERDGPassType::Graphics);
-					if (bCompute) Graph.SetPassAsyncComputeEligible(Pass);
-					FRDGBuilderTestAccessor::UseTexture(Graph, Pass, Imported,
-						{ERHITextureAspect::Color, 0, 1, 0, 1}, ERDGUse::Read,
-						bCompute ? ERHIAccess::ComputeShaderRead : ERHIAccess::GraphicsShaderRead);
+					auto& Commands = FRHICommandListImmediate::Get();
+					auto Texture = GDynamicRHI->RHICreateTexture(Commands,
+						FRHITextureCreateDesc::Create2D("RHIQueueRoundTrip", 4, 4, EPixelFormat::RGBA8_UNORM)
+							.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));
+					ASSERT_TRUE(Texture);
+					std::array<uint8, 64> Expected;
+					for (uint32 Index = 0; Index < Expected.size(); ++Index) Expected[Index] = static_cast<uint8>(Index + 31);
+					Commands.UpdateTexture2D(Texture, 0, 0,
+						FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16, std::as_bytes(std::span{Expected}));
+					Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+						Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
+					FRHIQueueTransferDesc Forward{.Source = Queues.Graphics, .Destination = Queues.Compute,
+						.Textures = {FRHITextureTransition::Whole(Texture.GetReference(), ERHIAccess::GraphicsShaderRead, ERHIAccess::ComputeShaderRead)}};
+					FRHIQueueTransferDesc Backward{.Source = Queues.Compute, .Destination = Queues.Graphics,
+						.Textures = {FRHITextureTransition::Whole(Texture.GetReference(), ERHIAccess::ComputeShaderRead, ERHIAccess::GraphicsShaderRead)}};
+					auto ToCompute = GDynamicRHI->RHICreateQueueTransfer(Forward);
+					auto ToGraphics = GDynamicRHI->RHICreateQueueTransfer(Backward);
+					ASSERT_TRUE(ToCompute && ToGraphics);
+					EXPECT_FALSE(GDynamicRHI->RHICreateQueueTransfer({}));
+					Forward.Destination = Forward.Source;
+					EXPECT_FALSE(GDynamicRHI->RHICreateQueueTransfer(Forward));
+					const auto Release = Commands.BeginGPUSubmission({.Queue = Queues.Graphics});
+					Commands.ReleaseQueueOwnership(ToCompute);
+					Commands.EndGPUSubmission();
+					const auto Compute = Commands.BeginGPUSubmission({.Queue = Queues.Compute, .Waits = {Release}});
+					Commands.BeginDiagnosticRegion("ComputeHandoff");
+					Commands.AcquireQueueOwnership(ToCompute);
+					Commands.ReleaseQueueOwnership(ToGraphics);
+					Commands.EndDiagnosticRegion();
+					Commands.EndGPUSubmission();
+					const auto Join = Commands.BeginGPUSubmission({.Queue = Queues.Graphics, .Waits = {Compute}});
+					Commands.AcquireQueueOwnership(ToGraphics);
+					Commands.EndGPUSubmission();
+					Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::None);
+					EXPECT_EQ(Release.GetState(), ERHIGPUSubmissionState::Pending);
+					EXPECT_EQ(Compute.GetState(), ERHIGPUSubmissionState::Pending);
+					EXPECT_EQ(Join.GetState(), ERHIGPUSubmissionState::Pending);
+					EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(Compute).Queue, Queues.Compute);
+					EXPECT_GT(FRHIGPUSyncPointBackend::GetPoint(Join).Value, FRHIGPUSyncPointBackend::GetPoint(Release).Value);
+					ToCompute.reset(); ToGraphics.reset();
+					FByteBuffer Actual;
+					ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Texture, 0, 0, Actual));
+					const auto Bytes = std::as_bytes(std::span{Expected});
+					EXPECT_EQ(Actual, (FByteBuffer(Bytes.begin(), Bytes.end())));
+					EXPECT_EQ(Join.GetState(), ERHIGPUSubmissionState::Complete);
+					FRDGBuilder Graph;
+					Graph.SetAsyncComputeEnabled(true);
+					const auto Imported = Graph.RegisterExternalTexture(Texture, "Imported",
+						ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+					for (uint32 Index = 0; Index < 3; ++Index)
+					{
+						const bool bCompute = Index != 1;
+						const auto Pass = FRDGBuilderTestAccessor::AddPass(Graph, std::to_string(Index),
+							bCompute ? ERDGPassType::Compute : ERDGPassType::Graphics);
+						if (bCompute) Graph.SetPassAsyncComputeEligible(Pass);
+						FRDGBuilderTestAccessor::UseTexture(Graph, Pass, Imported,
+							{ERHITextureAspect::Color, 0, 1, 0, 1}, ERDGUse::Read,
+							bCompute ? ERHIAccess::ComputeShaderRead : ERHIAccess::GraphicsShaderRead);
+					}
+					const auto Recorded = Graph.Execute(Commands);
+					ASSERT_TRUE(Recorded.has_value()) << ToString(Recorded.error());
+					Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::None);
+					ASSERT_EQ(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph).size(), 4u);
+					for (uint32 Index = 0; Index < 4; ++Index)
+					{
+						EXPECT_EQ(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph)[Index].GetState(), ERHIGPUSubmissionState::Pending);
+						EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph)[Index]).Queue,
+							Index % 2 == 0 ? Queues.Compute : Queues.Graphics);
+					}
+					Actual.clear();
+					ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Texture, 0, 0, Actual));
+					EXPECT_EQ(Actual, (FByteBuffer(Bytes.begin(), Bytes.end())));
+					for (const auto& LogicalSignal : FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph))
+						EXPECT_EQ(LogicalSignal.GetState(), ERHIGPUSubmissionState::Complete);
+					return;
 				}
-				const auto Recorded = Graph.Execute(Commands);
-				ASSERT_TRUE(Recorded.has_value()) << ToString(Recorded.error());
-				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::None);
-				ASSERT_EQ(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph).size(), 4u);
-				for (uint32 Index = 0; Index < 4; ++Index)
+				if (TransferSync2)
 				{
-					EXPECT_EQ(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph)[Index].GetState(), ERHIGPUSubmissionState::Pending);
-					EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph)[Index]).Queue,
-						Index % 2 == 0 ? Queues.Compute : Queues.Graphics);
+					if (*TransferSync2 && !GDynamicRHI->RHIGetCapabilities()->bSupportsSynchronization2)
+						GTEST_SKIP() << "Synchronization2 ownership barriers unavailable";
+					const auto Result = RunVulkanQueueTransferForTesting(*TransferSync2);
+					EXPECT_TRUE(Result.bBufferMatched);
+					EXPECT_TRUE(Result.bTextureMatched);
+					EXPECT_TRUE(Result.bRetainedUntilCompletion);
+					EXPECT_TRUE(Result.bReleasedAfterCompletion);
+					EXPECT_TRUE(Result.bUnselectedRangesPreserved);
+					return;
 				}
-				Actual.clear();
-				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Texture, 0, 0, Actual));
-				EXPECT_EQ(Actual, (FByteBuffer(Bytes.begin(), Bytes.end())));
-				for (const auto& LogicalSignal : FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph))
-					EXPECT_EQ(LogicalSignal.GetState(), ERHIGPUSubmissionState::Complete);
-				return;
-			}
-			if (TransferSync2)
-			{
-				if (*TransferSync2 && !GDynamicRHI->RHIGetCapabilities()->bSupportsSynchronization2)
-					GTEST_SKIP() << "Synchronization2 ownership barriers unavailable";
-				const auto Result = RunVulkanQueueTransferForTesting(*TransferSync2);
-				EXPECT_TRUE(Result.bBufferMatched);
-				EXPECT_TRUE(Result.bTextureMatched);
-				EXPECT_TRUE(Result.bRetainedUntilCompletion);
-				EXPECT_TRUE(Result.bReleasedAfterCompletion);
-				EXPECT_TRUE(Result.bUnselectedRangesPreserved);
-				return;
-			}
-			EXPECT_TRUE(TestVulkanSealedPressureDependency());
-			const auto Result = RunVulkanCrossQueueWaitForTesting();
-			EXPECT_TRUE(Result.bConsumerBlocked);
-			EXPECT_TRUE(Result.bFramePacingIndependent);
-			EXPECT_TRUE(Result.bRetirementBlocked);
-			EXPECT_TRUE(Result.bTransferReuseBlocked);
-			EXPECT_TRUE(Result.bTransferReusedAfterCompletion);
-			EXPECT_TRUE(Result.bBatchOrdered);
-			EXPECT_TRUE(Result.bBatchCycleRejected);
-			EXPECT_TRUE(Result.bBatchMissingProducerRejected);
-			EXPECT_TRUE(Result.bBatchMissingReservationRejected);
-			EXPECT_TRUE(Result.bUniformReuseBlocked);
-			EXPECT_TRUE(Result.bUniformReusedAfterCompletion);
-			if (Result.bTimingSupported)
-			{
-				EXPECT_TRUE(Result.bTimingBlocked);
-				EXPECT_TRUE(Result.bTimingCompleted);
-			}
-			EXPECT_TRUE(Result.bCompleted);
-			EXPECT_NE(Result.Producer.Queue, Result.Consumer.Queue);
-			EXPECT_EQ(Result.Producer.DeviceGeneration, Result.Consumer.DeviceGeneration);
+				EXPECT_TRUE(TestVulkanSealedPressureDependency());
+				const auto Result = RunVulkanCrossQueueWaitForTesting();
+				EXPECT_TRUE(Result.bConsumerBlocked);
+				EXPECT_TRUE(Result.bFramePacingIndependent);
+				EXPECT_TRUE(Result.bRetirementBlocked);
+				EXPECT_TRUE(Result.bTransferReuseBlocked);
+				EXPECT_TRUE(Result.bTransferReusedAfterCompletion);
+				EXPECT_TRUE(Result.bBatchOrdered);
+				EXPECT_TRUE(Result.bBatchCycleRejected);
+				EXPECT_TRUE(Result.bBatchMissingProducerRejected);
+				EXPECT_TRUE(Result.bBatchMissingReservationRejected);
+				EXPECT_TRUE(Result.bUniformReuseBlocked);
+				EXPECT_TRUE(Result.bUniformReusedAfterCompletion);
+				if (Result.bTimingSupported)
+				{
+					EXPECT_TRUE(Result.bTimingBlocked);
+					EXPECT_TRUE(Result.bTimingCompleted);
+				}
+				EXPECT_TRUE(Result.bCompleted);
+				EXPECT_NE(Result.Producer.Queue, Result.Consumer.Queue);
+				EXPECT_EQ(Result.Producer.DeviceGeneration, Result.Consumer.DeviceGeneration);
+			});
 		}
 	}
 
@@ -161,55 +164,63 @@ namespace Durin::VulkanRHI
 	{
 		FInlineRHITestScope Scope;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		const auto Result = TestVulkanSubmissionBoundary();
-		EXPECT_TRUE(Result.bPayloadUsesExplicitSyncPoint);
-		EXPECT_TRUE(Result.bLogicalSignalUsesRecordingSyncPoint);
-		EXPECT_TRUE(Result.bQueuedStorageRetired);
-		EXPECT_TRUE(Result.bQueuedStorageDiscarded);
-		EXPECT_TRUE(Result.bSealDidNotSubmit);
-		EXPECT_TRUE(Result.bEarlierSyncPointSubmitted);
-		EXPECT_TRUE(Result.bDiscardCanceled);
-		EXPECT_TRUE(Result.bStorageRetained);
-		EXPECT_TRUE(Result.bStorageReleased);
-		EXPECT_TRUE(Result.bAllocationRetained);
-		EXPECT_TRUE(Result.bAllocationReturned);
-		EXPECT_TRUE(Result.bTimingDiscarded);
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			const auto Result = TestVulkanSubmissionBoundary();
+			EXPECT_TRUE(Result.bPayloadUsesExplicitSyncPoint);
+			EXPECT_TRUE(Result.bLogicalSignalUsesRecordingSyncPoint);
+			EXPECT_TRUE(Result.bQueuedStorageRetired);
+			EXPECT_TRUE(Result.bQueuedStorageDiscarded);
+			EXPECT_TRUE(Result.bSealDidNotSubmit);
+			EXPECT_TRUE(Result.bEarlierSyncPointSubmitted);
+			EXPECT_TRUE(Result.bDiscardCanceled);
+			EXPECT_TRUE(Result.bStorageRetained);
+			EXPECT_TRUE(Result.bStorageReleased);
+			EXPECT_TRUE(Result.bAllocationRetained);
+			EXPECT_TRUE(Result.bAllocationReturned);
+			EXPECT_TRUE(Result.bTimingDiscarded);
+		});
 	}
 
 	TEST(FVulkanCompletionIntegrationTests, UniformReservationsGrowAndReuseReleasedIntervals)
 	{
 		FInlineRHITestScope Scope;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		EXPECT_TRUE(TestVulkanUniformBufferAdmission());
-		std::vector<std::shared_ptr<void>> Reservations;
-		constexpr uint32 Size = 17u * 1024 * 1024;
-		for (int Index = 0; Index < 8; ++Index)
-			Reservations.push_back(ReserveVulkanUniformBufferBackingForTest(Size));
-		EXPECT_GE(GetBufferUploadStats().BackingLiveBytes, 8ull * Size);
-		FRHICommandList Commands;
-		const std::array<std::byte, 16> Bytes{};
-		auto Buffer = Commands.CreateUniformBuffer({16}, ERHIBufferLifetimeUsage::SingleDraw, Bytes);
-		ASSERT_TRUE(Buffer);
-		EXPECT_EQ(Commands.GetNumRecordedCommands(), 0u);
-		Reservations.clear();
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			EXPECT_TRUE(TestVulkanUniformBufferAdmission());
+			std::vector<std::shared_ptr<void>> Reservations;
+			constexpr uint32 Size = 17u * 1024 * 1024;
+			for (int Index = 0; Index < 8; ++Index)
+				Reservations.push_back(ReserveVulkanUniformBufferBackingForTest(Size));
+			EXPECT_GE(GetBufferUploadStats().BackingLiveBytes, 8ull * Size);
+			FRHICommandList Commands;
+			const std::array<std::byte, 16> Bytes{};
+			auto Buffer = Commands.CreateUniformBuffer({16}, ERHIBufferLifetimeUsage::SingleDraw, Bytes);
+			ASSERT_TRUE(Buffer);
+			EXPECT_EQ(Commands.GetNumRecordedCommands(), 0u);
+			Reservations.clear();
+		});
 	}
 
 	TEST(FVulkanCompletionIntegrationTests, SealedPressureSubmitsOnlyEligibleAllocationDependencies)
 	{
 		FInlineRHITestScope Scope;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		const auto Result = TestVulkanSealedPressure();
-		EXPECT_TRUE(Result.bMissingReservationPreserved);
-		EXPECT_TRUE(Result.bOnlyRequiredPrefixSubmitted);
-		EXPECT_TRUE(Result.bLeaseReleasedAfterWait);
-		EXPECT_TRUE(Result.bActiveUsePreserved);
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			const auto Result = TestVulkanSealedPressure();
+			EXPECT_TRUE(Result.bMissingReservationPreserved);
+			EXPECT_TRUE(Result.bOnlyRequiredPrefixSubmitted);
+			EXPECT_TRUE(Result.bLeaseReleasedAfterWait);
+			EXPECT_TRUE(Result.bActiveUsePreserved);
+		});
 	}
 
 	TEST(FVulkanCompletionIntegrationTests, RetainedLogicalObserversReleaseReservationStorage)
 	{
 		FInlineRHITestScope Scope;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		EXPECT_TRUE(TestVulkanSyncPointStorage());
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			EXPECT_TRUE(TestVulkanSyncPointStorage());
+		});
 	}
 
 	TEST(FVulkanCompletionIntegrationTests, RDGDefersDispatchUntilOuterTimingQueryCloses)
@@ -217,19 +228,21 @@ namespace Durin::VulkanRHI
 		FInlineRHITestScope Scope;
 		_putenv_s("DURIN_RHI_EXECUTION", "threaded");
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		auto Timing = GDynamicRHI->RHICreateGPUTimingQuery();
-		ASSERT_TRUE(Timing);
-		auto& Commands = FRHICommandListImmediate::Get();
-		Commands.BeginGPUTimingQuery(Timing);
-		EXPECT_FALSE(Commands.CanDispatchToRHIThread());
-		FRDGBuilder Graph;
-		FRDGBuilderTestAccessor::AddPass(Graph, "TimedPass", ERDGPassType::Copy,
-			[](FRHICommandListImmediate&, const FRDGPassResources&) {});
-		EXPECT_TRUE(Graph.Execute(Commands));
-		Commands.EndGPUTimingQuery(Timing);
-		EXPECT_TRUE(Commands.CanDispatchToRHIThread());
-		Commands.DispatchToRHIThread();
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			auto Timing = GDynamicRHI->RHICreateGPUTimingQuery();
+			ASSERT_TRUE(Timing);
+			auto& Commands = FRHICommandListImmediate::Get();
+			Commands.BeginGPUTimingQuery(Timing);
+			EXPECT_FALSE(Commands.CanDispatchToRHIThread());
+			FRDGBuilder Graph;
+			FRDGBuilderTestAccessor::AddPass(Graph, "TimedPass", ERDGPassType::Copy,
+				[](FRHICommandListImmediate&, const FRDGPassResources&) {});
+			EXPECT_TRUE(Graph.Execute(Commands));
+			Commands.EndGPUTimingQuery(Timing);
+			EXPECT_TRUE(Commands.CanDispatchToRHIThread());
+			Commands.DispatchToRHIThread();
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		});
 	}
 
 	TEST(FVulkanCompletionIntegrationTests, RDGDispatchesBeforeLaterPassRecordingCompletes)
@@ -237,24 +250,26 @@ namespace Durin::VulkanRHI
 		FInlineRHITestScope Scope;
 		_putenv_s("DURIN_RHI_EXECUTION", "threaded");
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		std::atomic<bool> bReplayed = false;
-		bool bOverlapped = false;
-		FRDGBuilder Graph;
-		FRDGBuilderTestAccessor::AddPass(Graph, "Early", ERDGPassType::Copy,
-			[&](FRHICommandListImmediate& Commands, const FRDGPassResources&) {
-				Commands.EnqueueLambda([&] { bReplayed.store(true, std::memory_order_release); });
-			});
-		FRDGBuilderTestAccessor::AddPass(Graph, "Later", ERDGPassType::Copy,
-			[&](FRHICommandListImmediate&, const FRDGPassResources&) {
-				const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-				while (!bReplayed.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < Deadline)
-					std::this_thread::yield();
-				bOverlapped = bReplayed.load(std::memory_order_acquire);
-			});
-		auto& Commands = FRHICommandListImmediate::Get();
-		EXPECT_TRUE(Graph.Execute(Commands));
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-		EXPECT_TRUE(bOverlapped);
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			std::atomic<bool> bReplayed = false;
+			bool bOverlapped = false;
+			FRDGBuilder Graph;
+			FRDGBuilderTestAccessor::AddPass(Graph, "Early", ERDGPassType::Copy,
+				[&](FRHICommandListImmediate& Commands, const FRDGPassResources&) {
+					Commands.EnqueueLambda([&] { bReplayed.store(true, std::memory_order_release); });
+				});
+			FRDGBuilderTestAccessor::AddPass(Graph, "Later", ERDGPassType::Copy,
+				[&](FRHICommandListImmediate&, const FRDGPassResources&) {
+					const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+					while (!bReplayed.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < Deadline)
+						std::this_thread::yield();
+					bOverlapped = bReplayed.load(std::memory_order_acquire);
+				});
+			auto& Commands = FRHICommandListImmediate::Get();
+			EXPECT_TRUE(Graph.Execute(Commands));
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			EXPECT_TRUE(bOverlapped);
+		});
 	}
 
 	TEST(FVulkanCompletionIntegrationTests, SameFamilyComputeQueueWaitsForNativeTimelineSignal)
@@ -401,120 +416,123 @@ namespace Durin::VulkanRHI
 		FInlineRHITestScope Scope;
 
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		GDynamicRHI->RHIResetMemoryStatistics();
-		FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
-		auto CreateBuffer = [&Commands](const char* Name, EBufferUsageFlags Usage) {
-			return GDynamicRHI->RHICreateBuffer(Commands,
-				FRHIBufferCreateDesc::Create(Name, 4096, 16, Usage));
-		};
-		FBufferRHIRef Static = CreateBuffer("ClassStatic",
-			EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Static);
-		FBufferRHIRef Dynamic = CreateBuffer("ClassDynamic",
-			EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Dynamic);
-		FBufferRHIRef Upload = CreateBuffer("ClassUpload",
-			EBufferUsageFlags::Dynamic | EBufferUsageFlags::SourceCopy);
-		FBufferRHIRef Readback = CreateBuffer("ClassReadback",
-			EBufferUsageFlags::Dynamic | EBufferUsageFlags::DestinationCopy
-				| EBufferUsageFlags::KeepCPUAccessible);
-		FRHITextureCreateDesc TextureDesc = FRHITextureCreateDesc::Create2D(
-			"ClassTexture", 8, 8, EPixelFormat::RGBA8_UNORM);
-		TextureDesc.Flags = ETextureCreateFlags::ShaderResource;
-		FTextureRHIRef Texture = GDynamicRHI->RHICreateTexture(Commands, TextureDesc);
-		ASSERT_TRUE(Static && Dynamic && Upload && Readback && Texture);
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			GDynamicRHI->RHIResetMemoryStatistics();
+			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
+			auto CreateBuffer = [&Commands](const char* Name, EBufferUsageFlags Usage) {
+				return GDynamicRHI->RHICreateBuffer(Commands,
+					FRHIBufferCreateDesc::Create(Name, 4096, 16, Usage));
+			};
+			FBufferRHIRef Static = CreateBuffer("ClassStatic",
+				EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Static);
+			FBufferRHIRef Dynamic = CreateBuffer("ClassDynamic",
+				EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Dynamic);
+			FBufferRHIRef Upload = CreateBuffer("ClassUpload",
+				EBufferUsageFlags::Dynamic | EBufferUsageFlags::SourceCopy);
+			FBufferRHIRef Readback = CreateBuffer("ClassReadback",
+				EBufferUsageFlags::Dynamic | EBufferUsageFlags::DestinationCopy
+					| EBufferUsageFlags::KeepCPUAccessible);
+			FRHITextureCreateDesc TextureDesc = FRHITextureCreateDesc::Create2D(
+				"ClassTexture", 8, 8, EPixelFormat::RGBA8_UNORM);
+			TextureDesc.Flags = ETextureCreateFlags::ShaderResource;
+			FTextureRHIRef Texture = GDynamicRHI->RHICreateTexture(Commands, TextureDesc);
+			ASSERT_TRUE(Static && Dynamic && Upload && Readback && Texture);
 
-		auto* VulkanStatic = static_cast<FVulkanBuffer*>(Static.GetReference());
-		auto* VulkanDynamic = static_cast<FVulkanBuffer*>(Dynamic.GetReference());
-		auto* VulkanUpload = static_cast<FVulkanBuffer*>(Upload.GetReference());
-		auto* VulkanReadback = static_cast<FVulkanBuffer*>(Readback.GetReference());
-		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture.GetReference());
-		EXPECT_EQ(VulkanStatic->GetAllocationClass(),
-			EVulkanAllocationClassCandidate::DeviceLocal);
-		EXPECT_TRUE(static_cast<bool>(VulkanStatic->GetMemoryPropertyFlags()
-			& vk::MemoryPropertyFlagBits::eDeviceLocal));
-		EXPECT_EQ(VulkanDynamic->GetAllocationClass(),
-			EVulkanAllocationClassCandidate::DynamicUpload);
-		EXPECT_EQ(VulkanUpload->GetAllocationClass(),
-			EVulkanAllocationClassCandidate::TransferUpload);
-		EXPECT_EQ(VulkanReadback->GetAllocationClass(),
-			EVulkanAllocationClassCandidate::TransferReadback);
-		EXPECT_EQ(VulkanTexture->GetAllocationClass(),
-			EVulkanAllocationClassCandidate::DeviceLocal);
-		for (FVulkanBuffer* HostBuffer :
-			{VulkanDynamic, VulkanUpload, VulkanReadback})
-		{
-			EXPECT_TRUE(static_cast<bool>(HostBuffer->GetMemoryPropertyFlags()
-				& vk::MemoryPropertyFlagBits::eHostVisible));
-			EXPECT_NE(HostBuffer->GetMappedPointer(), nullptr);
-		}
+			auto* VulkanStatic = static_cast<FVulkanBuffer*>(Static.GetReference());
+			auto* VulkanDynamic = static_cast<FVulkanBuffer*>(Dynamic.GetReference());
+			auto* VulkanUpload = static_cast<FVulkanBuffer*>(Upload.GetReference());
+			auto* VulkanReadback = static_cast<FVulkanBuffer*>(Readback.GetReference());
+			auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture.GetReference());
+			EXPECT_EQ(VulkanStatic->GetAllocationClass(),
+				EVulkanAllocationClassCandidate::DeviceLocal);
+			EXPECT_TRUE(static_cast<bool>(VulkanStatic->GetMemoryPropertyFlags()
+				& vk::MemoryPropertyFlagBits::eDeviceLocal));
+			EXPECT_EQ(VulkanDynamic->GetAllocationClass(),
+				EVulkanAllocationClassCandidate::DynamicUpload);
+			EXPECT_EQ(VulkanUpload->GetAllocationClass(),
+				EVulkanAllocationClassCandidate::TransferUpload);
+			EXPECT_EQ(VulkanReadback->GetAllocationClass(),
+				EVulkanAllocationClassCandidate::TransferReadback);
+			EXPECT_EQ(VulkanTexture->GetAllocationClass(),
+				EVulkanAllocationClassCandidate::DeviceLocal);
+			for (FVulkanBuffer* HostBuffer :
+				{VulkanDynamic, VulkanUpload, VulkanReadback})
+			{
+				EXPECT_TRUE(static_cast<bool>(HostBuffer->GetMemoryPropertyFlags()
+					& vk::MemoryPropertyFlagBits::eHostVisible));
+				EXPECT_NE(HostBuffer->GetMappedPointer(), nullptr);
+			}
 
-		const FRHIMemoryStatistics BeforeReset =
-			GDynamicRHI->RHIGetMemoryStatistics();
-		EXPECT_GE(BeforeReset.Classes[static_cast<uint32>(
-			ERHIMemoryAllocationClass::DeviceLocal)].LiveAllocationCount, 2u);
-		EXPECT_GT(BeforeReset.HeapCount, 0u);
-		GDynamicRHI->RHIResetMemoryStatistics();
-		const FRHIMemoryStatistics AfterReset =
-			GDynamicRHI->RHIGetMemoryStatistics();
-		for (uint32 ClassIndex = 0; ClassIndex < AfterReset.Classes.size();
-			++ClassIndex)
-		{
-			EXPECT_EQ(AfterReset.Classes[ClassIndex].LiveAllocationCount,
-				BeforeReset.Classes[ClassIndex].LiveAllocationCount);
-			EXPECT_EQ(AfterReset.Classes[ClassIndex].LiveBytes,
-				BeforeReset.Classes[ClassIndex].LiveBytes);
-			EXPECT_EQ(AfterReset.Classes[ClassIndex].AllocationCount, 0u);
-			EXPECT_EQ(AfterReset.Classes[ClassIndex].PeakLiveBytes,
-				AfterReset.Classes[ClassIndex].LiveBytes);
-		}
-
+			const FRHIMemoryStatistics BeforeReset =
+				GDynamicRHI->RHIGetMemoryStatistics();
+			EXPECT_GE(BeforeReset.Classes[static_cast<uint32>(
+				ERHIMemoryAllocationClass::DeviceLocal)].LiveAllocationCount, 2u);
+			EXPECT_GT(BeforeReset.HeapCount, 0u);
+			GDynamicRHI->RHIResetMemoryStatistics();
+			const FRHIMemoryStatistics AfterReset =
+				GDynamicRHI->RHIGetMemoryStatistics();
+			for (uint32 ClassIndex = 0; ClassIndex < AfterReset.Classes.size();
+				++ClassIndex)
+			{
+				EXPECT_EQ(AfterReset.Classes[ClassIndex].LiveAllocationCount,
+					BeforeReset.Classes[ClassIndex].LiveAllocationCount);
+				EXPECT_EQ(AfterReset.Classes[ClassIndex].LiveBytes,
+					BeforeReset.Classes[ClassIndex].LiveBytes);
+				EXPECT_EQ(AfterReset.Classes[ClassIndex].AllocationCount, 0u);
+				EXPECT_EQ(AfterReset.Classes[ClassIndex].PeakLiveBytes,
+					AfterReset.Classes[ClassIndex].LiveBytes);
+			}
+		});
 	}
 
 	TEST(FVulkanTransferArenaIntegrationTests, BindingPagesBoundCapacityAndRetainExactLeases)
 	{
 		FInlineRHITestScope Scope;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		auto* Device = GetVulkanDeviceForTest(FVulkanDynamicRHI::Get());
-		auto& Commands = FRHICommandListImmediate::Get();
-		const auto Signal = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
-		Commands.EndGPUSubmission();
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-		FVulkanTransferArena Arena(*Device, {
-			.AllocationClass = EVulkanAllocationClassCandidate::DynamicUpload,
-			.PageSize = 256, .MaxPageCount = 2, .DebugName = "BoundedBindingPages",
-			.MaxCapacity = 768, .MaxAllocation = 512, .BindingUsage = EBufferUsageFlags::UniformBuffer});
-		auto A = Arena.Acquire(256, 256, Signal);
-		auto B = Arena.Acquire(512, 256, Signal);
-		ASSERT_TRUE(A.Range && B.Range);
-		EXPECT_EQ(Arena.GetCapacity(), 768u);
-		auto LeaseA = A.Range.GetAllocationOwner();
-		auto LeaseB = B.Range.GetAllocationOwner();
-		auto* BufferA = A.Range.GetBuffer();
-		auto* BufferB = B.Range.GetBuffer();
-		A.Range.Retire();
-		B.Range.Retire();
-		const auto Pressure = Arena.Acquire(16, 16, Signal);
-		EXPECT_FALSE(Pressure.Range);
-		EXPECT_EQ(Pressure.WaitOwner.lock(), LeaseA);
-		EXPECT_EQ(Arena.GetCapacity(), 768u);
-		EXPECT_EQ(Arena.Acquire(513, 16, Signal).AllocationResult, vk::Result::eErrorOutOfPoolMemory);
-		const auto NextSignal = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
-		Commands.EndGPUSubmission();
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-		Arena.MarkUsed(LeaseB, NextSignal);
-		EXPECT_EQ(Arena.Acquire(512, 256, NextSignal).WaitSyncPoint, NextSignal);
-		// Neither frame age nor completion releases a separately retained CPU lease.
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
-		ASSERT_EQ(GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000), ERHIGPUWaitResult::Complete);
-		EXPECT_FALSE(Arena.Acquire(16, 16, Signal).Range);
-		LeaseA.reset();
-		auto ReusedA = Arena.Acquire(256, 256, Signal);
-		ASSERT_TRUE(ReusedA.Range);
-		EXPECT_EQ(ReusedA.Range.GetBuffer(), BufferA);
-		LeaseB.reset();
-		auto ReusedB = Arena.Acquire(512, 256, Signal);
-		ASSERT_TRUE(ReusedB.Range);
-		EXPECT_EQ(ReusedB.Range.GetBuffer(), BufferB);
-		EXPECT_EQ(Arena.GetCapacity(), 768u);
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			auto* Device = GetVulkanDeviceForTest(FVulkanDynamicRHI::Get());
+			auto& Commands = FRHICommandListImmediate::Get();
+			const auto Signal = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+			Commands.EndGPUSubmission();
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			FVulkanTransferArena Arena(*Device, {
+				.AllocationClass = EVulkanAllocationClassCandidate::DynamicUpload,
+				.PageSize = 256, .MaxPageCount = 2, .DebugName = "BoundedBindingPages",
+				.MaxCapacity = 768, .MaxAllocation = 512, .BindingUsage = EBufferUsageFlags::UniformBuffer});
+			auto A = Arena.Acquire(256, 256, Signal);
+			auto B = Arena.Acquire(512, 256, Signal);
+			ASSERT_TRUE(A.Range && B.Range);
+			EXPECT_EQ(Arena.GetCapacity(), 768u);
+			auto LeaseA = A.Range.GetAllocationOwner();
+			auto LeaseB = B.Range.GetAllocationOwner();
+			auto* BufferA = A.Range.GetBuffer();
+			auto* BufferB = B.Range.GetBuffer();
+			A.Range.Retire();
+			B.Range.Retire();
+			const auto Pressure = Arena.Acquire(16, 16, Signal);
+			EXPECT_FALSE(Pressure.Range);
+			EXPECT_EQ(Pressure.WaitOwner.lock(), LeaseA);
+			EXPECT_EQ(Arena.GetCapacity(), 768u);
+			EXPECT_EQ(Arena.Acquire(513, 16, Signal).AllocationResult, vk::Result::eErrorOutOfPoolMemory);
+			const auto NextSignal = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+			Commands.EndGPUSubmission();
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			Arena.MarkUsed(LeaseB, NextSignal);
+			EXPECT_EQ(Arena.Acquire(512, 256, NextSignal).WaitSyncPoint, NextSignal);
+			// Neither frame age nor completion releases a separately retained CPU lease.
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+			ASSERT_EQ(GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000), ERHIGPUWaitResult::Complete);
+			EXPECT_FALSE(Arena.Acquire(16, 16, Signal).Range);
+			LeaseA.reset();
+			auto ReusedA = Arena.Acquire(256, 256, Signal);
+			ASSERT_TRUE(ReusedA.Range);
+			EXPECT_EQ(ReusedA.Range.GetBuffer(), BufferA);
+			LeaseB.reset();
+			auto ReusedB = Arena.Acquire(512, 256, Signal);
+			ASSERT_TRUE(ReusedB.Range);
+			EXPECT_EQ(ReusedB.Range.GetBuffer(), BufferB);
+			EXPECT_EQ(Arena.GetCapacity(), 768u);
+		});
 	}
 
 	TEST(FVulkanTransferArenaIntegrationTests,
@@ -522,139 +540,141 @@ namespace Durin::VulkanRHI
 	{
 		FInlineRHITestScope Scope;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		auto* Device = GetVulkanDeviceForTest(FVulkanDynamicRHI::Get());
-		ASSERT_NE(Device, nullptr);
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			auto* Device = GetVulkanDeviceForTest(FVulkanDynamicRHI::Get());
+			ASSERT_NE(Device, nullptr);
 
-		// A small independent arena makes alignment, holes, cap exhaustion,
-		// oversize fallback, cancellation, and allocation failure deterministic.
-		auto& Recording = FRHICommandListImmediate::Get();
-		const auto Signal = Recording.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
-		Recording.EndGPUSubmission();
-		Recording.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-		const auto SyncPoint = Signal;
-		{
-			FVulkanTransferArena Arena(*Device, {
-				.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
-				.PageSize = 256,
-				.MaxPageCount = 1,
-				.DebugName = "TransferArenaUnitPage"});
-			auto First = Arena.Acquire(48, 64, SyncPoint);
-			auto Middle = Arena.Acquire(64, 64, SyncPoint);
-			auto Tail = Arena.Acquire(64, 64, SyncPoint);
-			ASSERT_TRUE(First.Range && Middle.Range && Tail.Range);
-			EXPECT_EQ(First.Range.GetOffset(), 0u);
-			EXPECT_EQ(Middle.Range.GetOffset(), 64u);
-			EXPECT_EQ(Tail.Range.GetOffset(), 128u);
-			Middle.Range = {};
-			auto Fragmented = Arena.Acquire(96, 16, SyncPoint);
-			EXPECT_FALSE(Fragmented.Range);
-			EXPECT_EQ(Fragmented.WaitSyncPoint.GetState(), ERHIGPUSubmissionState::Invalid);
-			auto ReusedHole = Arena.Acquire(64, 16, SyncPoint);
-			ASSERT_TRUE(ReusedHole.Range);
-			EXPECT_EQ(ReusedHole.Range.GetOffset(), 48u);
-			auto Oversize = Arena.Acquire(320, 64, SyncPoint);
-			ASSERT_TRUE(Oversize.Range);
-			EXPECT_EQ(Oversize.Range.GetOffset(), 0u);
-		}
-		{
-			FVulkanTransferArena Arena(*Device, {
-				.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
-				.PageSize = 128, .MaxPageCount = 1, .DebugName = "TransferLeaseRetention"});
-			auto Allocation = Arena.Acquire(128, 16, SyncPoint);
-			ASSERT_TRUE(Allocation.Range);
-			auto Lease = Allocation.Range.GetAllocationOwner();
-			Allocation.Range = {};
-			Recording.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
-			ASSERT_EQ(GDynamicRHI->RHIWaitForCompletion(SyncPoint, 1'000'000'000), ERHIGPUWaitResult::Complete);
-			// Completion alone cannot reclaim storage retained outside the submission.
-			EXPECT_FALSE(Arena.Acquire(128, 16, SyncPoint).Range);
-			Lease.reset();
-			EXPECT_TRUE(Arena.Acquire(128, 16, SyncPoint).Range);
-		}
+			// A small independent arena makes alignment, holes, cap exhaustion,
+			// oversize fallback, cancellation, and allocation failure deterministic.
+			auto& Recording = FRHICommandListImmediate::Get();
+			const auto Signal = Recording.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+			Recording.EndGPUSubmission();
+			Recording.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			const auto SyncPoint = Signal;
+			{
+				FVulkanTransferArena Arena(*Device, {
+					.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
+					.PageSize = 256,
+					.MaxPageCount = 1,
+					.DebugName = "TransferArenaUnitPage"});
+				auto First = Arena.Acquire(48, 64, SyncPoint);
+				auto Middle = Arena.Acquire(64, 64, SyncPoint);
+				auto Tail = Arena.Acquire(64, 64, SyncPoint);
+				ASSERT_TRUE(First.Range && Middle.Range && Tail.Range);
+				EXPECT_EQ(First.Range.GetOffset(), 0u);
+				EXPECT_EQ(Middle.Range.GetOffset(), 64u);
+				EXPECT_EQ(Tail.Range.GetOffset(), 128u);
+				Middle.Range = {};
+				auto Fragmented = Arena.Acquire(96, 16, SyncPoint);
+				EXPECT_FALSE(Fragmented.Range);
+				EXPECT_EQ(Fragmented.WaitSyncPoint.GetState(), ERHIGPUSubmissionState::Invalid);
+				auto ReusedHole = Arena.Acquire(64, 16, SyncPoint);
+				ASSERT_TRUE(ReusedHole.Range);
+				EXPECT_EQ(ReusedHole.Range.GetOffset(), 48u);
+				auto Oversize = Arena.Acquire(320, 64, SyncPoint);
+				ASSERT_TRUE(Oversize.Range);
+				EXPECT_EQ(Oversize.Range.GetOffset(), 0u);
+			}
+			{
+				FVulkanTransferArena Arena(*Device, {
+					.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
+					.PageSize = 128, .MaxPageCount = 1, .DebugName = "TransferLeaseRetention"});
+				auto Allocation = Arena.Acquire(128, 16, SyncPoint);
+				ASSERT_TRUE(Allocation.Range);
+				auto Lease = Allocation.Range.GetAllocationOwner();
+				Allocation.Range = {};
+				Recording.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				ASSERT_EQ(GDynamicRHI->RHIWaitForCompletion(SyncPoint, 1'000'000'000), ERHIGPUWaitResult::Complete);
+				// Completion alone cannot reclaim storage retained outside the submission.
+				EXPECT_FALSE(Arena.Acquire(128, 16, SyncPoint).Range);
+				Lease.reset();
+				EXPECT_TRUE(Arena.Acquire(128, 16, SyncPoint).Range);
+			}
 
-		GDynamicRHI->RHIResetMemoryStatistics();
-		FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
-		constexpr uint32 PageSize = 8 * 1024 * 1024;
-		Durin::FByteBuffer Bytes(PageSize, std::byte{0x5a});
-		std::vector<FBufferRHIRef> Destinations;
-		for (uint32 Index = 0; Index < 5; ++Index)
-		{
-			FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(Commands,
-				FRHIBufferCreateDesc::Create("ArenaCapDestination", PageSize, 4,
-					EBufferUsageFlags::Static | EBufferUsageFlags::DestinationCopy));
-			ASSERT_TRUE(Buffer);
-			Destinations.push_back(Buffer);
-			Commands.WriteBuffer(Buffer, 0, Bytes);
-		}
-		FBufferRHIRef OversizeDestination = GDynamicRHI->RHICreateBuffer(Commands,
-			FRHIBufferCreateDesc::Create("ArenaOversizeDestination", PageSize + 256,
-				4, EBufferUsageFlags::Static | EBufferUsageFlags::DestinationCopy));
-		ASSERT_TRUE(OversizeDestination);
-		Bytes.resize(PageSize + 256, std::byte{0x7c});
-		Commands.WriteBuffer(OversizeDestination.GetReference(), Bytes.data(),
-			static_cast<uint32>(Bytes.size()), 0);
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
-			ERHISubmitFlags::SubmitToGPU);
-		WaitForAllVulkanSubmissionsForTesting();
-		Device->GetUploadArena().ReclaimCompleted();
+			GDynamicRHI->RHIResetMemoryStatistics();
+			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
+			constexpr uint32 PageSize = 8 * 1024 * 1024;
+			Durin::FByteBuffer Bytes(PageSize, std::byte{0x5a});
+			std::vector<FBufferRHIRef> Destinations;
+			for (uint32 Index = 0; Index < 5; ++Index)
+			{
+				FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(Commands,
+					FRHIBufferCreateDesc::Create("ArenaCapDestination", PageSize, 4,
+						EBufferUsageFlags::Static | EBufferUsageFlags::DestinationCopy));
+				ASSERT_TRUE(Buffer);
+				Destinations.push_back(Buffer);
+				Commands.WriteBuffer(Buffer, 0, Bytes);
+			}
+			FBufferRHIRef OversizeDestination = GDynamicRHI->RHICreateBuffer(Commands,
+				FRHIBufferCreateDesc::Create("ArenaOversizeDestination", PageSize + 256,
+					4, EBufferUsageFlags::Static | EBufferUsageFlags::DestinationCopy));
+			ASSERT_TRUE(OversizeDestination);
+			Bytes.resize(PageSize + 256, std::byte{0x7c});
+			Commands.WriteBuffer(OversizeDestination.GetReference(), Bytes.data(),
+				static_cast<uint32>(Bytes.size()), 0);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+				ERHISubmitFlags::SubmitToGPU);
+			WaitForAllVulkanSubmissionsForTesting();
+			Device->GetUploadArena().ReclaimCompleted();
 
-		const FRHIMemoryStatistics UploadStatistics =
-			GDynamicRHI->RHIGetMemoryStatistics();
-		const auto& Upload = UploadStatistics.Classes[
-			static_cast<uint32>(ERHIMemoryAllocationClass::TransferUpload)];
-		EXPECT_EQ(Upload.ArenaCapacityBytes, 32ull * 1024 * 1024);
-		EXPECT_EQ(Upload.ArenaLiveBytes, 0u);
-		EXPECT_GE(Upload.ArenaHighWaterBytes, 32ull * 1024 * 1024);
-		EXPECT_GE(Upload.ArenaReuseCount, 1u);
-		EXPECT_GE(Upload.ArenaOversizeCount, 1u);
-		// Five full-page uploads exhaust the four-page arena before its pending
-		// payload is submitted. The fifth must submit and wait for that owner.
-		EXPECT_EQ(Upload.ArenaWaitCount, 1u);
-		GDynamicRHI->RHIResetMemoryStatistics();
-		const FRHIMemoryStatistics ResetStatistics =
-			GDynamicRHI->RHIGetMemoryStatistics();
-		const auto& ResetUpload = ResetStatistics.Classes[
-			static_cast<uint32>(ERHIMemoryAllocationClass::TransferUpload)];
-		EXPECT_EQ(ResetUpload.ArenaCapacityBytes, Upload.ArenaCapacityBytes);
-		EXPECT_EQ(ResetUpload.ArenaLiveBytes, 0u);
-		EXPECT_EQ(ResetUpload.ArenaHighWaterBytes, 0u);
-		EXPECT_EQ(ResetUpload.ArenaReuseCount, 0u);
-		EXPECT_EQ(ResetUpload.ArenaOverflowCount, 0u);
-		EXPECT_EQ(ResetUpload.ArenaOversizeCount, 0u);
-		EXPECT_EQ(ResetUpload.ArenaWaitCount, 0u);
+			const FRHIMemoryStatistics UploadStatistics =
+				GDynamicRHI->RHIGetMemoryStatistics();
+			const auto& Upload = UploadStatistics.Classes[
+				static_cast<uint32>(ERHIMemoryAllocationClass::TransferUpload)];
+			EXPECT_EQ(Upload.ArenaCapacityBytes, 32ull * 1024 * 1024);
+			EXPECT_EQ(Upload.ArenaLiveBytes, 0u);
+			EXPECT_GE(Upload.ArenaHighWaterBytes, 32ull * 1024 * 1024);
+			EXPECT_GE(Upload.ArenaReuseCount, 1u);
+			EXPECT_GE(Upload.ArenaOversizeCount, 1u);
+			// Five full-page uploads exhaust the four-page arena before its pending
+			// payload is submitted. The fifth must submit and wait for that owner.
+			EXPECT_EQ(Upload.ArenaWaitCount, 1u);
+			GDynamicRHI->RHIResetMemoryStatistics();
+			const FRHIMemoryStatistics ResetStatistics =
+				GDynamicRHI->RHIGetMemoryStatistics();
+			const auto& ResetUpload = ResetStatistics.Classes[
+				static_cast<uint32>(ERHIMemoryAllocationClass::TransferUpload)];
+			EXPECT_EQ(ResetUpload.ArenaCapacityBytes, Upload.ArenaCapacityBytes);
+			EXPECT_EQ(ResetUpload.ArenaLiveBytes, 0u);
+			EXPECT_EQ(ResetUpload.ArenaHighWaterBytes, 0u);
+			EXPECT_EQ(ResetUpload.ArenaReuseCount, 0u);
+			EXPECT_EQ(ResetUpload.ArenaOverflowCount, 0u);
+			EXPECT_EQ(ResetUpload.ArenaOversizeCount, 0u);
+			EXPECT_EQ(ResetUpload.ArenaWaitCount, 0u);
 
-		const FRHITextureCreateDesc TextureDesc = FRHITextureCreateDesc::Create2D(
-			"ArenaReadbackTexture", 4, 4, EPixelFormat::RGBA8_UNORM)
-			.SetFlags(ETextureCreateFlags::ShaderResource
-				| ETextureCreateFlags::CPUReadback);
-		FTextureRHIRef Texture = GDynamicRHI->RHICreateTexture(Commands, TextureDesc);
-		ASSERT_TRUE(Texture);
-		std::array<uint8, 64> Expected{};
-		for (uint32 Index = 0; Index < Expected.size(); ++Index)
-			Expected[Index] = static_cast<uint8>(Index + 17);
-		Commands.UpdateTexture2D(Texture, 0, 0,
-			FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16,
-			std::as_bytes(std::span{Expected}));
-		Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
-			Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
-			Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
-		for (uint32 ReadIndex = 0; ReadIndex < 3; ++ReadIndex)
-		{
-			Durin::FByteBuffer Actual;
-			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
-				Commands, Texture, 0, 0, Actual));
-			const Durin::FByteView ExpectedBytes =
-				std::as_bytes(std::span{Expected});
-			EXPECT_EQ(Actual, (Durin::FByteBuffer(
-				ExpectedBytes.begin(), ExpectedBytes.end())));
-		}
-		const FRHIMemoryStatistics ReadbackStatistics =
-			GDynamicRHI->RHIGetMemoryStatistics();
-		const auto& Readback = ReadbackStatistics.Classes[
-			static_cast<uint32>(ERHIMemoryAllocationClass::TransferReadback)];
-		EXPECT_EQ(Readback.ArenaCapacityBytes, 4ull * 1024 * 1024);
-		EXPECT_EQ(Readback.ArenaLiveBytes, 0u);
-		EXPECT_GE(Readback.ArenaReuseCount, 2u);
+			const FRHITextureCreateDesc TextureDesc = FRHITextureCreateDesc::Create2D(
+				"ArenaReadbackTexture", 4, 4, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource
+					| ETextureCreateFlags::CPUReadback);
+			FTextureRHIRef Texture = GDynamicRHI->RHICreateTexture(Commands, TextureDesc);
+			ASSERT_TRUE(Texture);
+			std::array<uint8, 64> Expected{};
+			for (uint32 Index = 0; Index < Expected.size(); ++Index)
+				Expected[Index] = static_cast<uint8>(Index + 17);
+			Commands.UpdateTexture2D(Texture, 0, 0,
+				FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16,
+				std::as_bytes(std::span{Expected}));
+			Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+				Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+				Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
+			for (uint32 ReadIndex = 0; ReadIndex < 3; ++ReadIndex)
+			{
+				Durin::FByteBuffer Actual;
+				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+					Commands, Texture, 0, 0, Actual));
+				const Durin::FByteView ExpectedBytes =
+					std::as_bytes(std::span{Expected});
+				EXPECT_EQ(Actual, (Durin::FByteBuffer(
+					ExpectedBytes.begin(), ExpectedBytes.end())));
+			}
+			const FRHIMemoryStatistics ReadbackStatistics =
+				GDynamicRHI->RHIGetMemoryStatistics();
+			const auto& Readback = ReadbackStatistics.Classes[
+				static_cast<uint32>(ERHIMemoryAllocationClass::TransferReadback)];
+			EXPECT_EQ(Readback.ArenaCapacityBytes, 4ull * 1024 * 1024);
+			EXPECT_EQ(Readback.ArenaLiveBytes, 0u);
+			EXPECT_GE(Readback.ArenaReuseCount, 2u);
+		});
 	}
 
 	TEST(FVulkanCompletionIntegrationTests, AsyncTextureReadbackPreservesPixelsAndCancelsWithoutGPUWait)
@@ -662,97 +682,103 @@ namespace Durin::VulkanRHI
 		FInlineRHITestScope Scope;
 		_putenv_s("DURIN_RHI_EXECUTION", "threaded");
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		auto& Commands = FRHICommandListImmediate::Get();
-		auto Texture = GDynamicRHI->RHICreateTexture(Commands,
-			FRHITextureCreateDesc::Create2D("AsyncReadback", 7, 3, EPixelFormat::RGBA8_UNORM)
-				.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));
-		ASSERT_TRUE(Texture);
-		FByteBuffer Expected(7 * 3 * 4, std::byte{0x39});
-		Commands.UpdateTexture2D(Texture, 0, 0,
-			FUpdateTextureRegion2D(0, 0, 0, 0, 7, 3), 28, Expected);
-		Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
-			Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
-			Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
-		auto First = Commands.EnqueueTextureReadback(Texture);
-		EXPECT_EQ(First->GetState(), ERHITextureReadbackState::Pending);
-		FByteBuffer Replacement(Expected.size(), std::byte{0x71});
-		Commands.UpdateTexture2D(Texture, 0, 0,
-			FUpdateTextureRegion2D(0, 0, 0, 0, 7, 3), 28, Replacement);
-		Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
-			Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
-			Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
-		auto Second = Commands.EnqueueTextureReadback(Texture);
-		auto Canceled = Commands.EnqueueTextureReadback(Texture);
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-		Canceled->Cancel();
-		Texture = nullptr; // Recorded GPU copies retain their source allocation.
-		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-		do
-		{
-			Commands.PollTextureReadbacks();
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			auto& Commands = FRHICommandListImmediate::Get();
+			auto Texture = GDynamicRHI->RHICreateTexture(Commands,
+				FRHITextureCreateDesc::Create2D("AsyncReadback", 7, 3, EPixelFormat::RGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));
+			ASSERT_TRUE(Texture);
+			FByteBuffer Expected(7 * 3 * 4, std::byte{0x39});
+			Commands.UpdateTexture2D(Texture, 0, 0,
+				FUpdateTextureRegion2D(0, 0, 0, 0, 7, 3), 28, Expected);
+			Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+				Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+				Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
+			auto First = Commands.EnqueueTextureReadback(Texture);
+			EXPECT_EQ(First->GetState(), ERHITextureReadbackState::Pending);
+			FByteBuffer Replacement(Expected.size(), std::byte{0x71});
+			Commands.UpdateTexture2D(Texture, 0, 0,
+				FUpdateTextureRegion2D(0, 0, 0, 0, 7, 3), 28, Replacement);
+			Commands.TransitionTextures(std::array{Durin::FRHITextureTransition{
+				Texture, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+				Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
+			auto Second = Commands.EnqueueTextureReadback(Texture);
+			auto Canceled = Commands.EnqueueTextureReadback(Texture);
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-			if (First->GetState() != ERHITextureReadbackState::Pending
-				&& Second->GetState() != ERHITextureReadbackState::Pending) break;
-			std::this_thread::yield();
-		} while (std::chrono::steady_clock::now() < Deadline);
-		FByteBuffer Pixels;
-		ASSERT_TRUE(First->TakePixels(Pixels));
-		EXPECT_EQ(Pixels, Expected);
-		EXPECT_FALSE(First->TakePixels(Pixels));
-		ASSERT_TRUE(Second->TakePixels(Pixels));
-		EXPECT_EQ(Pixels, Replacement);
-		EXPECT_EQ(Canceled->GetState(), ERHITextureReadbackState::Canceled);
-		EXPECT_FALSE(Canceled->TakePixels(Pixels));
-		auto Invalid = Commands.EnqueueTextureReadback(nullptr);
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-		EXPECT_EQ(Invalid->GetState(), ERHITextureReadbackState::Failed);
+			Canceled->Cancel();
+			Texture = nullptr; // Recorded GPU copies retain their source allocation.
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+			do
+			{
+				Commands.PollTextureReadbacks();
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+				if (First->GetState() != ERHITextureReadbackState::Pending
+					&& Second->GetState() != ERHITextureReadbackState::Pending) break;
+				std::this_thread::yield();
+			} while (std::chrono::steady_clock::now() < Deadline);
+			FByteBuffer Pixels;
+			ASSERT_TRUE(First->TakePixels(Pixels));
+			EXPECT_EQ(Pixels, Expected);
+			EXPECT_FALSE(First->TakePixels(Pixels));
+			ASSERT_TRUE(Second->TakePixels(Pixels));
+			EXPECT_EQ(Pixels, Replacement);
+			EXPECT_EQ(Canceled->GetState(), ERHITextureReadbackState::Canceled);
+			EXPECT_FALSE(Canceled->TakePixels(Pixels));
+			auto Invalid = Commands.EnqueueTextureReadback(nullptr);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			EXPECT_EQ(Invalid->GetState(), ERHITextureReadbackState::Failed);
+		});
 	}
 
 	TEST(FVulkanCompletionIntegrationTests, EarlyNativeRetirementDoesNotCancelAnOpenLogicalBatch)
 	{
 		FInlineRHITestScope Scope;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		auto& Commands = FRHICommandListImmediate::Get();
-		const auto Signal = Commands.BeginGPUSubmission(
-			{.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
-		const auto Prefix = GetLastVulkanSyncPointForTesting();
-		ASSERT_EQ(GDynamicRHI->RHIWaitForCompletion(Prefix, 1'000'000'000), ERHIGPUWaitResult::Complete);
-		EXPECT_EQ(Signal.GetState(), ERHIGPUSubmissionState::Pending);
-		EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(Signal).Value, 0u);
-		Commands.EndGPUSubmission();
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
-		ASSERT_EQ(Signal.GetState(), ERHIGPUSubmissionState::Submitted);
-		EXPECT_GT(FRHIGPUSyncPointBackend::GetPoint(Signal).Value, FRHIGPUSyncPointBackend::GetPoint(Prefix).Value);
-		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000), ERHIGPUWaitResult::Complete);
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			auto& Commands = FRHICommandListImmediate::Get();
+			const auto Signal = Commands.BeginGPUSubmission(
+				{.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+			const auto Prefix = GetLastVulkanSyncPointForTesting();
+			ASSERT_EQ(GDynamicRHI->RHIWaitForCompletion(Prefix, 1'000'000'000), ERHIGPUWaitResult::Complete);
+			EXPECT_EQ(Signal.GetState(), ERHIGPUSubmissionState::Pending);
+			EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(Signal).Value, 0u);
+			Commands.EndGPUSubmission();
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+			ASSERT_EQ(Signal.GetState(), ERHIGPUSubmissionState::Submitted);
+			EXPECT_GT(FRHIGPUSyncPointBackend::GetPoint(Signal).Value, FRHIGPUSyncPointBackend::GetPoint(Prefix).Value);
+			EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Signal, 1'000'000'000), ERHIGPUWaitResult::Complete);
+		});
 	}
 
 	TEST(FVulkanCompletionIntegrationTests, LogicalBatchesCoalesceAcrossCPUReplaySegments)
 	{
 		FInlineRHITestScope Scope;
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		auto& Commands = FRHICommandListImmediate::Get();
-		const auto Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics;
-		const auto First = Commands.BeginGPUSubmission({.Queue = Queue});
-		const auto Observer = First;
-		EXPECT_EQ(WaitForRHIGPUSyncPoint(First, 1'000'000'000), ERHIGPUWaitResult::Pending);
-		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(First, 0), ERHIGPUWaitResult::Pending);
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-		EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(First).Value, 0u);
-		Commands.EndGPUSubmission();
-		const auto Second = Commands.BeginGPUSubmission({.Queue = Queue, .Waits = {First}});
-		Commands.EndGPUSubmission();
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-		ASSERT_EQ(First.GetState(), ERHIGPUSubmissionState::Pending);
-		EXPECT_EQ(First, Observer);
-		EXPECT_NE(First, Second);
-		EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(Second), FRHIGPUSyncPointBackend::GetPoint(First));
-		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Second, 0), ERHIGPUWaitResult::Pending);
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
-		EXPECT_EQ(Second.GetState(), ERHIGPUSubmissionState::Submitted);
-		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Second, 1'000'000'000), ERHIGPUWaitResult::Complete);
-		EXPECT_EQ(First.GetState(), ERHIGPUSubmissionState::Complete);
-		EXPECT_TRUE(Observer->IsComplete());
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			auto& Commands = FRHICommandListImmediate::Get();
+			const auto Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics;
+			const auto First = Commands.BeginGPUSubmission({.Queue = Queue});
+			const auto Observer = First;
+			EXPECT_EQ(WaitForRHIGPUSyncPoint(First, 1'000'000'000), ERHIGPUWaitResult::Pending);
+			EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(First, 0), ERHIGPUWaitResult::Pending);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(First).Value, 0u);
+			Commands.EndGPUSubmission();
+			const auto Second = Commands.BeginGPUSubmission({.Queue = Queue, .Waits = {First}});
+			Commands.EndGPUSubmission();
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			ASSERT_EQ(First.GetState(), ERHIGPUSubmissionState::Pending);
+			EXPECT_EQ(First, Observer);
+			EXPECT_NE(First, Second);
+			EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(Second), FRHIGPUSyncPointBackend::GetPoint(First));
+			EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Second, 0), ERHIGPUWaitResult::Pending);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+			EXPECT_EQ(Second.GetState(), ERHIGPUSubmissionState::Submitted);
+			EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Second, 1'000'000'000), ERHIGPUWaitResult::Complete);
+			EXPECT_EQ(First.GetState(), ERHIGPUSubmissionState::Complete);
+			EXPECT_TRUE(Observer->IsComplete());
+		});
 	}
 
 	TEST(FVulkanCompletionIntegrationTests,
@@ -761,54 +787,56 @@ namespace Durin::VulkanRHI
 		FInlineRHITestScope Scope;
 
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		ResetVulkanMemoryBaselineStatistics();
-		FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
-		FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(Commands,
-			FRHIBufferCreateDesc::Create("CompletionTokenBuffer", 256, 16,
-				EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Static));
-		ASSERT_TRUE(Buffer);
-		const std::array<uint8, 16> Bytes{};
-		Commands.WriteBuffer(Buffer.GetReference(), Bytes.data(), Bytes.size(), 0);
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-		const auto Pending = GetLastVulkanSyncPointForTesting();
-		EXPECT_EQ(Pending.GetState(), ERHIGPUSubmissionState::Pending);
-		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Pending, 0), ERHIGPUWaitResult::Pending);
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
-			ERHISubmitFlags::SubmitToGPU);
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			ResetVulkanMemoryBaselineStatistics();
+			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
+			FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(Commands,
+				FRHIBufferCreateDesc::Create("CompletionTokenBuffer", 256, 16,
+					EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Static));
+			ASSERT_TRUE(Buffer);
+			const std::array<uint8, 16> Bytes{};
+			Commands.WriteBuffer(Buffer.GetReference(), Bytes.data(), Bytes.size(), 0);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			const auto Pending = GetLastVulkanSyncPointForTesting();
+			EXPECT_EQ(Pending.GetState(), ERHIGPUSubmissionState::Pending);
+			EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Pending, 0), ERHIGPUWaitResult::Pending);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+				ERHISubmitFlags::SubmitToGPU);
 
-		const FVulkanCompletionTestStats Submitted =
-			GetVulkanCompletionTestStats();
-		EXPECT_GT(Submitted.LastSubmittedToken, 0u);
-		EXPECT_EQ(Submitted.LastReservedToken, Submitted.LastSubmittedToken);
-		EXPECT_GT(Submitted.PendingSubmissionCount, 0u);
-		const auto SyncPoint = GetLastVulkanSyncPointForTesting();
-		EXPECT_EQ(SyncPoint.GetState(), ERHIGPUSubmissionState::Submitted);
-		EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value, Submitted.LastSubmittedToken);
-		EXPECT_GT(FRHIGPUSyncPointBackend::GetPoint(SyncPoint).DeviceGeneration, 0u);
-		const auto& Queues = GDynamicRHI->RHIGetQueueCapabilities();
-		ASSERT_EQ(Queues.Queues.size(), 1u);
-		EXPECT_EQ(Queues.Graphics, Queues.Compute);
-		EXPECT_FALSE(Queues.bSplitBarriers);
-		EXPECT_EQ(Queues.DeviceGeneration, FRHIGPUSyncPointBackend::GetPoint(SyncPoint).DeviceGeneration);
-		EXPECT_EQ(GDynamicRHI->RHIGetCompletionStatus(SyncPoint), ERHIGPUSubmissionState::Submitted);
-		EXPECT_EQ(GDynamicRHI->RHIGetCompletionStatus({}), ERHIGPUSubmissionState::Invalid);
-		EXPECT_FALSE(SyncPoint.IsRetirementEligible());
-		// The native payload now retains the RHI wrapper as well as its allocation.
-		EXPECT_GT(Buffer->GetRefCount(), 1u);
+			const FVulkanCompletionTestStats Submitted =
+				GetVulkanCompletionTestStats();
+			EXPECT_GT(Submitted.LastSubmittedToken, 0u);
+			EXPECT_EQ(Submitted.LastReservedToken, Submitted.LastSubmittedToken);
+			EXPECT_GT(Submitted.PendingSubmissionCount, 0u);
+			const auto SyncPoint = GetLastVulkanSyncPointForTesting();
+			EXPECT_EQ(SyncPoint.GetState(), ERHIGPUSubmissionState::Submitted);
+			EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value, Submitted.LastSubmittedToken);
+			EXPECT_GT(FRHIGPUSyncPointBackend::GetPoint(SyncPoint).DeviceGeneration, 0u);
+			const auto& Queues = GDynamicRHI->RHIGetQueueCapabilities();
+			ASSERT_EQ(Queues.Queues.size(), 1u);
+			EXPECT_EQ(Queues.Graphics, Queues.Compute);
+			EXPECT_FALSE(Queues.bSplitBarriers);
+			EXPECT_EQ(Queues.DeviceGeneration, FRHIGPUSyncPointBackend::GetPoint(SyncPoint).DeviceGeneration);
+			EXPECT_EQ(GDynamicRHI->RHIGetCompletionStatus(SyncPoint), ERHIGPUSubmissionState::Submitted);
+			EXPECT_EQ(GDynamicRHI->RHIGetCompletionStatus({}), ERHIGPUSubmissionState::Invalid);
+			EXPECT_FALSE(SyncPoint.IsRetirementEligible());
+			// The native payload now retains the RHI wrapper as well as its allocation.
+			EXPECT_GT(Buffer->GetRefCount(), 1u);
 
-		Buffer = nullptr;
-		Commands.ImmediateFlush(
-			EImmediateFlushType::FlushRHIThreadFlushResources);
-		EXPECT_FALSE(SyncPoint.IsRetirementEligible());
+			Buffer = nullptr;
+			Commands.ImmediateFlush(
+				EImmediateFlushType::FlushRHIThreadFlushResources);
+			EXPECT_FALSE(SyncPoint.IsRetirementEligible());
 
-		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(SyncPoint, 1'000'000'000), ERHIGPUWaitResult::Complete);
-		ReleaseCompletedVulkanResourcesForTesting();
-		const FVulkanCompletionTestStats Completed =
-			GetVulkanCompletionTestStats();
-		EXPECT_EQ(Completed.CompletedToken, Submitted.LastSubmittedToken);
-		EXPECT_EQ(Completed.PendingSubmissionCount, 0u);
-		EXPECT_EQ(SyncPoint.GetState(), ERHIGPUSubmissionState::Complete);
-		EXPECT_TRUE(SyncPoint.IsRetirementEligible());
+			EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(SyncPoint, 1'000'000'000), ERHIGPUWaitResult::Complete);
+			ReleaseCompletedVulkanResourcesForTesting();
+			const FVulkanCompletionTestStats Completed =
+				GetVulkanCompletionTestStats();
+			EXPECT_EQ(Completed.CompletedToken, Submitted.LastSubmittedToken);
+			EXPECT_EQ(Completed.PendingSubmissionCount, 0u);
+			EXPECT_EQ(SyncPoint.GetState(), ERHIGPUSubmissionState::Complete);
+			EXPECT_TRUE(SyncPoint.IsRetirementEligible());
+		});
 	}
 
 	TEST(FVulkanCompletionIntegrationTests,
@@ -817,27 +845,29 @@ namespace Durin::VulkanRHI
 		FInlineRHITestScope Scope;
 
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		auto& Commands = FRHICommandListImmediate::Get();
-		uint64 PreviousSubmittedToken = 0;
-		for (uint32 Frame = 0; Frame < 5; ++Frame)
-		{
-			// The executor owns the monotonic frame number used in production.
-			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
-				ERHISubmitFlags::BeginFrame);
-			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
-				ERHISubmitFlags::EndFrame | ERHISubmitFlags::DeleteResources);
-			const FVulkanCompletionTestStats Statistics =
-				GetVulkanCompletionTestStats();
-			EXPECT_GT(Statistics.LastSubmittedToken, PreviousSubmittedToken);
-			EXPECT_LE(Statistics.CompletedToken, Statistics.LastSubmittedToken);
-			PreviousSubmittedToken = Statistics.LastSubmittedToken;
-		}
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			auto& Commands = FRHICommandListImmediate::Get();
+			uint64 PreviousSubmittedToken = 0;
+			for (uint32 Frame = 0; Frame < 5; ++Frame)
+			{
+				// The executor owns the monotonic frame number used in production.
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+					ERHISubmitFlags::BeginFrame);
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+					ERHISubmitFlags::EndFrame | ERHISubmitFlags::DeleteResources);
+				const FVulkanCompletionTestStats Statistics =
+					GetVulkanCompletionTestStats();
+				EXPECT_GT(Statistics.LastSubmittedToken, PreviousSubmittedToken);
+				EXPECT_LE(Statistics.CompletedToken, Statistics.LastSubmittedToken);
+				PreviousSubmittedToken = Statistics.LastSubmittedToken;
+			}
 
-		WaitForAllVulkanSubmissionsForTesting();
-		const FVulkanCompletionTestStats Completed =
-			GetVulkanCompletionTestStats();
-		EXPECT_EQ(Completed.LastSubmittedToken, PreviousSubmittedToken);
-		EXPECT_EQ(Completed.CompletedToken, PreviousSubmittedToken);
-		EXPECT_EQ(Completed.PendingSubmissionCount, 0u);
+			WaitForAllVulkanSubmissionsForTesting();
+			const FVulkanCompletionTestStats Completed =
+				GetVulkanCompletionTestStats();
+			EXPECT_EQ(Completed.LastSubmittedToken, PreviousSubmittedToken);
+			EXPECT_EQ(Completed.CompletedToken, PreviousSubmittedToken);
+			EXPECT_EQ(Completed.PendingSubmissionCount, 0u);
+		});
 	}
 } // namespace Durin::VulkanRHI

@@ -1,6 +1,7 @@
 #include "Rendering/MonaRHIRenderer.h"
 
 #include "DynamicRHI.h"
+#include "CoreGlobals.h"
 #include "RenderingThread.h"
 #include "Widgets/MWindow.h"
 
@@ -17,6 +18,28 @@ namespace Durin::Mona
 
 	namespace
 	{
+		auto ExecuteViewportOperation(std::function<void()> Operation) -> void
+		{
+			requiref(GIsGameThreadIdInitialized && IsInGameThread(),
+				"Viewport coordination requires the registered game thread.");
+			if (GRHIThread)
+			{
+				Operation();
+				return;
+			}
+			requiref(GRenderingThread, "Inline viewport operations require a running rendering thread.");
+			std::exception_ptr Failure;
+			ENQUEUE_RENDER_COMMAND(MonaInlineViewportOperation)(
+				[Operation = std::move(Operation), &Failure](FRHICommandListImmediate&) {
+					try { Operation(); }
+					catch (...) { Failure = std::current_exception(); }
+				});
+			FRenderCommandFence Fence;
+			Fence.BeginFence();
+			Fence.Wait();
+			if (Failure) std::rethrow_exception(Failure);
+		}
+
 		auto ReleaseViewportInfo(FMonaViewportInfo* Info) -> void
 		{
 			if (!Info) return;
@@ -77,8 +100,9 @@ namespace Durin::Mona
 			.PresentationPolicy = GetPresentationPolicyOverride().value_or(Window->GetViewportPresentationPolicy()),
 			.bAdoptInitializationPresentationCandidate =
 				bAdoptInitializationPresentationCandidate};
-		ViewportInfo->ViewportRHI =
-			GDynamicRHI->RHICreateViewport(CreateInfo);
+		ExecuteViewportOperation([&] {
+			ViewportInfo->ViewportRHI = GDynamicRHI->RHICreateViewport(CreateInfo);
+		});
 		if (ViewportInfo->ViewportRHI
 			&& CreateInfo.bAdoptInitializationPresentationCandidate)
 		{
@@ -134,14 +158,15 @@ namespace Durin::Mona
 			}
 			if (const std::optional<FIntPoint> PendingExtent = ViewportInfo->TakePendingResize())
 			{
-				// Resize is a main-thread RHI call; retire old draws before replacing their back buffer.
+				// Retire old draws before replacing their back buffer on the execution thread.
 				if (GRenderingThread) FlushRenderingCommands();
-				GDynamicRHI->RHIResizeViewport(
-					ViewportInfo->ViewportRHI.GetReference(),
-					static_cast<uint32>(PendingExtent->x),
-					static_cast<uint32>(PendingExtent->y),
-					ViewportInfo->bFullScreen
-				);
+				ExecuteViewportOperation([&] {
+					GDynamicRHI->RHIResizeViewport(
+						ViewportInfo->ViewportRHI.GetReference(),
+						static_cast<uint32>(PendingExtent->x),
+						static_cast<uint32>(PendingExtent->y),
+						ViewportInfo->bFullScreen);
+				});
 				ViewportInfo->SubmittedExtent = *PendingExtent;
 			}
 			return ViewportInfo->ViewportRHI;

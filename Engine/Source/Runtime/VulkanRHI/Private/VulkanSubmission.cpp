@@ -31,7 +31,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPayload::AttachSignal(const FRHIGPUSyncPointRef& Signal) -> bool
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		// Retain the same logical object, allocating storage before publishing its binding.
 		Signals.push_back(Signal);
 		if (FRHIGPUSyncPointBackend::Attach(Signal, SyncPoint)) return true;
@@ -51,7 +51,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSubmissionCoordinator::SubmitBatch(std::vector<std::unique_ptr<FVulkanPayload>> Payloads) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		Payloads.reserve(Payloads.size() + PendingPayloads.size());
 		for (auto& Pending : PendingPayloads) Payloads.push_back(std::move(Pending));
 		PendingPayloads.clear();
@@ -128,7 +128,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanSubmissionCoordinator::TrySubmitPendingAllocation(
 		const std::weak_ptr<void>& Owner, const FRHIGPUSyncPointRef& LatestUse) -> bool
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		const auto Retained = Owner.lock();
 		if (!Retained || LatestUse.GetState() != ERHIGPUSubmissionState::Pending) return false;
 		std::vector<FVulkanPayload*> Selected;
@@ -176,7 +176,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanSubmissionCoordinator::SubmitNative(std::unique_ptr<FVulkanPayload> Payload) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Submission.SubmitNative");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(Payload && Device.FindQueue(FRHIGPUSyncPointBackend::GetPoint(Payload->SyncPoint).Queue) == &Payload->Queue);
 		std::vector<FVulkanPayload*> NativePayloads{Payload.get()};
 		try { Payload->Queue.SubmitPayloads(NativePayloads); }
@@ -200,7 +200,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanSubmissionCoordinator::EnqueueContext(FVulkanCommandListContext& Context) -> FRHIGPUSyncPointRef
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Submission.EnqueueContext");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		auto Payload = Context.Finalize();
 		const auto SyncPoint = Payload->GetSyncPoint();
 		PendingPayloads.push_back(std::move(Payload));
@@ -209,14 +209,14 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSubmissionCoordinator::DiscardPending() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		PendingPayloads.clear();
 	}
 
 	auto FVulkanSubmissionCoordinator::SubmitPendingContexts(FVulkanCommandListContext* CallingContext) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Submission.SubmitPendingContexts");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		std::vector<std::unique_ptr<FVulkanPayload>> Batch;
 		if (CallingContext && CallingContext->HasPendingCommands()) Batch.push_back(CallingContext->Finalize());
 		for (const auto& Queue : Device.GetQueueCapabilities().Queues)
@@ -227,7 +227,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSubmissionCoordinator::GetAllocationUses(const std::shared_ptr<void>& Owner) const -> FRHIRetirementPrerequisites
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		FRHIRetirementPrerequisites Uses;
 		for (const auto& Queue : Device.GetQueueCapabilities().Queues)
 			Device.FindQueue(Queue.Id)->GetCompletionTracker().AppendAllocationUses(Owner, Uses);
@@ -236,7 +236,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSubmissionCoordinator::WaitForAllocation(const std::weak_ptr<void>& Owner) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (auto Retained = Owner.lock())
 		{
 			const auto Uses = GetAllocationUses(Retained);
@@ -249,18 +249,18 @@ namespace Durin::VulkanRHI
 	FVulkanFrame::FVulkanFrame(FVulkanDevice& InDevice)
 		: Device(InDevice)
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 	}
 
 	auto FVulkanFrame::Prepare() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		Device.WaitForUses(RetirementUses);
 	}
 
 	auto FVulkanFrame::SetRetirementUses(FRHIRetirementPrerequisites Uses) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		RetirementUses = std::move(Uses);
 	}
 }

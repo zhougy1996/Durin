@@ -104,7 +104,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanTransferArena::~FVulkanTransferArena()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		for (const auto& Queue : Device.GetQueueCapabilities().Queues)
 			Device.FindQueue(Queue.Id)->GetCompletionTracker().WaitForAll();
 		ReclaimCompleted();
@@ -123,7 +123,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanTransferArena::Acquire(uint64 Size, uint64 Alignment,
 		const FRHIGPUSyncPointRef& SyncPoint) -> FVulkanTransferAcquireResult
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(Size > 0 && Size <= std::numeric_limits<uint32>::max()
 			&& Alignment > 0);
 		auto* Queue = Device.FindQueue(FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue);
@@ -201,7 +201,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanTransferArena::ReclaimCompleted() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		Device.PollQueues();
 		for (auto& Page : Pages)
 		{
@@ -249,7 +249,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanTransferArena::MarkUsed(const std::shared_ptr<void>& Owner,
 		const FRHIGPUSyncPointRef& SyncPoint) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		const auto Update = [&](auto& Pool) {
 			for (auto& Page : Pool)
 				for (auto& Range : Page->RetiredRanges)

@@ -22,7 +22,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCompletionTracker::ReserveSyncPoint() -> FRHIGPUSyncPointRef
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		const auto SyncPoint = Timeline.Reserve();
 		require(SyncPoint.GetState() == ERHIGPUSubmissionState::Pending);
 		LastReservedToken = FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value;
@@ -35,7 +35,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCompletionTracker::CancelUnsubmitted(const FRHIGPUSyncPointRef& SyncPoint) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(Timeline.Cancel(SyncPoint));
 	}
 
@@ -49,7 +49,7 @@ namespace Durin::VulkanRHI
 		FVulkanFence* Fence,
 		std::span<FVulkanPayload* const> Payloads) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(!bFailed && Fence && !Payloads.empty());
 		require(Submissions.empty() || Submissions.back().bSubmitted);
 		FSubmission Submission;
@@ -64,7 +64,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCompletionTracker::CommitSubmission() -> FVulkanCompletionToken
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(!bFailed && !Submissions.empty() && !Submissions.back().bSubmitted);
 		auto& Submission = Submissions.back();
 		const bool bAccepted = Timeline.MarkSubmitted(Submission.SyncPoint);
@@ -76,14 +76,14 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCompletionTracker::FailSubmission(bool bDeviceLost) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		bFailed = true;
 		Timeline.Fail(bDeviceLost);
 	}
 
 	auto FVulkanCompletionTracker::ReleaseAfterDeviceStopped() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		// Teardown is not successful completion. Command buffers remain in their
 		// owning pool; quarantined fences are destroyed without reuse or reset.
 		Timeline.Fail();
@@ -98,7 +98,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCompletionTracker::Poll() -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Completion.Poll");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (bFailed) return;
 		for (FSubmission& Submission : Submissions)
 		{
@@ -119,7 +119,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCompletionTracker::WaitForToken(
 		FVulkanCompletionToken Token) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		requiref(!bFailed, "Cannot wait for failed Vulkan submission as normal GPU completion.");
 		if (Token == 0 || Token <= CompletedToken.load(std::memory_order_acquire))
 		{
@@ -147,7 +147,7 @@ namespace Durin::VulkanRHI
 		uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Completion.WaitForSyncPoint");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (!Timeline.Owns(SyncPoint)) return ERHIGPUWaitResult::Invalid;
 		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("queue={} token={}",
 			FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue.Index,
@@ -214,7 +214,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCompletionTracker::GetPendingSubmissionCount() const -> uint64
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		return Submissions.size();
 	}
 
@@ -241,7 +241,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCompletionTracker::AppendAllocationUses(const std::shared_ptr<void>& Owner,
 		FRHIRetirementPrerequisites& Uses) const -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		for (const auto& Submission : Submissions)
 			for (const auto* Payload : Submission.Payloads)
 				if (Payload->AllocationOwners.contains(Owner))

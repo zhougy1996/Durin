@@ -16,13 +16,13 @@ namespace Durin::VulkanRHI
 		: Device(InDevice)
 		, Pool(InPool)
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		AllocMemory();
 	}
 
 	FVulkanCommandBuffer::~FVulkanCommandBuffer()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (State != EState::NotAllocated)
 		{
 			FreeMemory();
@@ -31,7 +31,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::Begin() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(State == EState::ReadyForBegin);
 		vk::CommandBufferBeginInfo BeginInfo;
 		Handle.begin(BeginInfo);
@@ -53,7 +53,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandBuffer::BindPipeline(vk::PipelineBindPoint BindPoint, vk::Pipeline Pipeline) -> void
 	{
 		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.Pipeline");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
 		check(BindPoint == vk::PipelineBindPoint::eGraphics || BindPoint == vk::PipelineBindPoint::eCompute);
 		auto& Recorded = RecordedPipelines[BindPoint == vk::PipelineBindPoint::eGraphics ? 0 : 1];
@@ -68,7 +68,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandBuffer::BindVertexBuffer(uint32 Stream, vk::Buffer Buffer, vk::DeviceSize Offset) -> void
 	{
 		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.VertexBuffer");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
 		check(Stream < Device.GetGpuProperties().limits.maxVertexInputBindings);
 		if (RecordedVertexBuffers.size() <= Stream) RecordedVertexBuffers.resize(Stream + 1);
@@ -85,7 +85,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandBuffer::BindIndexBuffer(vk::Buffer Buffer, vk::DeviceSize Offset, vk::IndexType Type) -> void
 	{
 		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.IndexBuffer");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
 		const auto Binding = std::make_tuple(Buffer, Offset, Type);
 		if (RecordedIndexBuffer && *RecordedIndexBuffer == Binding) return;
@@ -100,7 +100,7 @@ namespace Durin::VulkanRHI
 		const vk::Rect2D& Scissor, float DepthBiasConstant, float DepthBiasClamp,
 		float DepthBiasSlope) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
 		if (!RecordedViewport || *RecordedViewport != Viewport)
 		{
@@ -124,7 +124,7 @@ namespace Durin::VulkanRHI
 		vk::PipelineLayout Layout, std::span<const vk::DescriptorSet> Sets,
 		std::span<const uint32> DynamicOffsets) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
 		check(BindPoint == vk::PipelineBindPoint::eGraphics || BindPoint == vk::PipelineBindPoint::eCompute);
 		auto& Binding = RecordedDescriptors[BindPoint == vk::PipelineBindPoint::eGraphics ? 0 : 1];
@@ -138,7 +138,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::End() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (State == EState::HasEnded)
 		{
 			return;
@@ -151,7 +151,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::AllocMemory() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(State == EState::NotAllocated);
 
 		vk::CommandBufferAllocateInfo AllocInfo;
@@ -169,7 +169,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::FreeMemory() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(State != EState::NotAllocated);
 		check(Handle != VK_NULL_HANDLE);
 		Device.GetHandle().freeCommandBuffers(Pool->GetHandle(), Handle);
@@ -178,7 +178,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::Reset() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(State != EState::NotAllocated);
 		if (State == EState::ReadyForBegin)
 		{
@@ -193,14 +193,14 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::SetSubmitted() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(State == EState::HasEnded);
 		State = EState::Submitted;
 	}
 
 	auto FVulkanCommandBuffer::BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer, std::span<const vk::ClearValue> InClearValues, FName DebugName) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(State == EState::IsInsideBegin);
 		if (!DebugName.IsNone())
 		{
@@ -222,7 +222,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::EndRenderPass() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(State == EState::IsInsideRenderPass);
 		Handle.endRenderPass();
 		if (bRenderPassDebugLabelOpen)
@@ -235,7 +235,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::BeginDiagnosticRegion(std::string_view Name) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
 		if (Device.GetRHI().GetDebugUtils().BeginLabel(Handle, Name))
 			++DiagnosticRegionDepth;
@@ -243,7 +243,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::EndDiagnosticRegion() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
 		if (DiagnosticRegionDepth == 0) return;
 		Device.GetRHI().GetDebugUtils().EndLabel(Handle);
@@ -262,7 +262,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanCommandBufferPool::~FVulkanCommandBufferPool()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		for (FVulkanCommandBuffer* CmdBuffer : CmdBuffers)
 		{
 			delete CmdBuffer;
@@ -278,7 +278,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBufferPool::CreatePool(uint32 QueueFamilyIndex) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		vk::CommandPoolCreateInfo CmdPoolInfo;
 		CmdPoolInfo
 			.setQueueFamilyIndex(QueueFamilyIndex)
@@ -291,7 +291,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBufferPool::Create() -> FVulkanCommandBuffer*
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		FVulkanCommandBuffer* CmdBuffer = nullptr;
 
 		if (!FreeCmdBuffers.empty())
@@ -312,7 +312,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBufferPool::FreeUnusedCommandBuffers(FVulkanQueue* Queue) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		auto RangeToFree = std::ranges::partition(CmdBuffers, [](FVulkanCommandBuffer* CmdBuffer) {
 			if (CmdBuffer->State == FVulkanCommandBuffer::EState::ReadyForBegin || CmdBuffer->State == FVulkanCommandBuffer::EState::NeedReset)
 			{

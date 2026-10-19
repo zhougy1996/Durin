@@ -67,7 +67,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanUniformBufferPool::~FVulkanUniformBufferPool()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		for (const auto& [Index, Buffer] : Buffers)
 			if (Buffer) GVulkanMemoryBaselineTracker.RecordArenaPageFreed(EVulkanAllocationClassCandidate::DynamicUpload, Buffer->GetSize());
 	}
@@ -75,7 +75,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanUniformBufferPool::Resolve(const std::shared_ptr<FVulkanUniformBufferAdmission::FReservation>& Reservation)
 		-> std::pair<TRefCountPtr<FVulkanBuffer>, uint64>
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(Reservation && Reservation->Owner == Admission && Reservation->Slot.Size);
 		const auto& Slot = Reservation->Slot;
 		auto& Buffer = Buffers[Slot.Page];

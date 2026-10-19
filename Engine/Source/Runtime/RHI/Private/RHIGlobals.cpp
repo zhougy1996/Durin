@@ -3,6 +3,8 @@
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
 #include "RHIThread.h"
+#include "CoreGlobals.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
@@ -199,6 +201,10 @@ namespace Durin
 
 	auto RHIInit(FRHIInitializationContext Context) -> bool
 	{
+		requiref(GIsGameThreadIdInitialized && IsInGameThread(),
+			"RHI lifecycle entry requires the registered game thread.");
+		requiref(!GRenderingThread,
+			"Stop and join the rendering thread before entering RHI lifecycle operations.");
 		if (GDynamicRHI || RHIThreadOwner)
 		{
 			DURIN_ERROR("Cannot initialize RHI more than once.");
@@ -238,6 +244,10 @@ namespace Durin
 		bool bForceThreadLaunchFailure,
 		FRHIInitializationContext Context) -> bool
 	{
+		requiref(GIsGameThreadIdInitialized && IsInGameThread(),
+			"RHI lifecycle entry requires the registered game thread.");
+		requiref(!GRenderingThread,
+			"Stop and join the rendering thread before entering RHI lifecycle operations.");
 		return InitializeRHI(
 			Backend, bThreaded, bForceThreadLaunchFailure, false,
 			std::move(Context));
@@ -245,6 +255,10 @@ namespace Durin
 
 	auto RHIExit() -> void
 	{
+		requiref(GIsGameThreadIdInitialized && IsInGameThread(),
+			"RHI lifecycle entry requires the registered game thread.");
+		requiref(!GRenderingThread,
+			"Stop and join the rendering thread before entering RHI lifecycle operations.");
 		check(GDynamicRHI);
 		GDynamicRHI->RHIStopPipelineCreation();
 		RHIReleaseResourcesDelegate.Broadcast();

@@ -52,7 +52,7 @@ namespace Durin::VulkanRHI
 	{
 		try
 		{
-			CheckVulkanRHIThread();
+			CheckRHIExecutionThread();
 			const std::optional<FRHIPresentationTarget>& PresentationTarget =
 				Context.GetPresentationTarget();
 			FVulkanSurfaceRequirementsResult SurfaceRequirements;
@@ -185,7 +185,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::Shutdown() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		RHIStopPipelineCreation();
 		RHIRetirePipelineCreationResults();
 		ViewCache->Clear();
@@ -282,7 +282,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanDynamicRHI::RHIBeginFrame(
 		const FRHIBeginFrameArgs& Args) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		ViewCache->Trim(Args.FrameNumber);
 		const uint32 FrameIndex = static_cast<uint32>(
 			Args.FrameNumber % FrameInFlight);
@@ -327,7 +327,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHIEndFrame() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		Device->GetImmediateContext()->RHIEndFrame();
 		Device->GetGlobalDescriptorPool().RetireUsedPools();
 		Device->PollQueues();
@@ -353,7 +353,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanDynamicRHI::RHIGetDiagnosticSnapshot() const
 		-> FRHIDiagnosticSnapshot
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		FRHIDiagnosticSnapshot Result;
 		Result.Executor = GCommandListExecutor.GetStats();
 		Result.Availability = {
@@ -422,7 +422,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHIResetDiagnosticStatistics() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (Device)
 		{
 			Device->ResetPipelineCacheStatistics();
@@ -436,19 +436,19 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHIGetVkDevice() const -> vk::Device
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		return Device->GetHandle();
 	}
 
 	auto FVulkanDynamicRHI::RHIGetVkInstance() const -> vk::Instance
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		return Instance;
 	}
 
 	auto FVulkanDynamicRHI::RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		return Device->GetGpu();
 	}
 
@@ -458,7 +458,7 @@ namespace Durin::VulkanRHI
 		check(Operation);
 		GCommandListExecutor.ExecuteSynchronousOperation(true,
 			[this, Operation = std::move(Operation)]() mutable {
-				CheckVulkanRHIThread();
+				CheckRHIExecutionThread();
 				Operation(Device->GetImmediateContext()
 					->GetCommandBuffer()->GetHandle());
 			});
@@ -467,7 +467,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanDynamicRHI::CreateInstance(
 		std::span<const std::string> SurfaceProviderRequiredExtensions) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		std::string EngineName = "Durin";
 		const FEngineVersion& EngineVersion = GetEngineVersion();
 		const uint32 PackedEngineVersion = VK_MAKE_API_VERSION(0, EngineVersion.Major, EngineVersion.Minor, EngineVersion.Patch);
@@ -619,7 +619,7 @@ namespace Durin::VulkanRHI
 		vk::SurfaceKHR PresentationSurface,
 		bool bRequirePresentation) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(!bRequirePresentation || PresentationSurface);
 		std::vector<vk::PhysicalDevice> Gpus = Instance.enumeratePhysicalDevices();
 

@@ -146,14 +146,14 @@ namespace Durin::VulkanRHI
 		, PendingGfxState(std::make_unique<FVulkanPendingGraphicsState>(InDevice))
 		, PendingComputeState(std::make_unique<FVulkanPendingComputeState>(InDevice))
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		Pool = new FVulkanCommandBufferPool(Device);
 		Pool->CreatePool(Queue->GetFamilyIndex());
 	}
 
 	FVulkanCommandListContext::~FVulkanCommandListContext()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		for (auto& Readback : PendingReadbacks)
 		{
 			Readback.Request->Fail();
@@ -172,7 +172,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHISetReplayStorageOwner(std::shared_ptr<void> Owner) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		ReplayStorageOwner = std::move(Owner);
 		// Teardown replays CPU-only detach commands after admission has closed.
 		// They must not reserve fresh native work on a failed timeline.
@@ -181,7 +181,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIGetQueueContext(FRHIQueueId Id) -> IRHICommandContext*
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		auto* Target = Device.GetQueueContext(Id);
 		require(Target);
 		if (Target != this)
@@ -195,7 +195,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIBeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		requiref(!bInsideGPUSubmission, "GPU submissions cannot nest.");
 		requiref(Desc.Queue == Queue->GetId(),
 			"GPU submission queue must match its recording context.");
@@ -222,7 +222,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIEndGPUSubmission(const FRHIGPUSyncPointRef& Signal) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		requiref(bInsideGPUSubmission, "GPU submission end requires a matching begin.");
 		if (Queue != Device.GetGraphicsQueue())
 			requiref(DiagnosticRegions.empty() && ActiveTimingQueries.empty(),
@@ -254,7 +254,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::ReleaseQueueOwnership(const std::shared_ptr<FVulkanQueueTransfer>& Transfer) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(Transfer && PendingAttachmentStates.empty());
 		auto& Payload = GetPayload();
 		Payload.RetainedTransitions.push_back(Transfer);
@@ -263,7 +263,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::AcquireQueueOwnership(const std::shared_ptr<FVulkanQueueTransfer>& Transfer) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(Transfer && PendingAttachmentStates.empty());
 		auto& Payload = GetPayload();
 		Payload.RetainedTransitions.push_back(Transfer);
@@ -273,27 +273,27 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		PendingGfxState->SetViewport(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
 	}
 
 	auto FVulkanCommandListContext::RHISetScissor(float MinX, float MinY, float Width, float Height) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		PendingGfxState->SetScissor(MinX, MinY, Width, Height);
 	}
 
 	auto FVulkanCommandListContext::RHISetDepthBias(float ConstantFactor,
 		float Clamp, float SlopeFactor) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		PendingGfxState->SetDepthBias(ConstantFactor, Clamp, SlopeFactor);
 	}
 
 	auto FVulkanCommandListContext::RHIBeginFrame(
 		const FRHIBeginFrameArgs&) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		RHIPollTextureReadbacks();
 		PendingGfxState->ClearDescriptorSetCache();
 		PendingComputeState->ClearDescriptorSetCache();
@@ -302,13 +302,13 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHISubmitCommands() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		Device.GetSubmissionCoordinator().SubmitPendingContexts(this);
 	}
 
 	auto FVulkanCommandListContext::RHIEndFrame() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		FVulkanFrame& Frame = Device.GetCurrentFrame();
 		// Frame pacing follows this graphics context, not unrelated work on other queues.
 		// Resources retain their own complete multi-queue retirement prerequisites.
@@ -324,14 +324,14 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIBeginDiagnosticRegion(
 		std::string_view Name) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		GetCommandBuffer()->BeginDiagnosticRegion(Name);
 		DiagnosticRegions.emplace_back(Name);
 	}
 
 	auto FVulkanCommandListContext::RHIEndDiagnosticRegion() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(!DiagnosticRegions.empty());
 		GetCommandBuffer()->EndDiagnosticRegion();
 		DiagnosticRegions.pop_back();
@@ -357,7 +357,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIBeginRenderPass(const FRHIRenderPassInfo& InRenderPassInfo, FName DebugName) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.RenderPass.Begin");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		FRHIRenderPassInfo CanonicalInfo = InRenderPassInfo;
 		std::array<FTextureViewRHIRef, MaxSimultaneousRenderTargets> ColorViews;
 		std::array<FTextureViewRHIRef, MaxSimultaneousRenderTargets> ResolveViews;
@@ -433,7 +433,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIEndRenderPass() -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.RenderPass.End");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		Device.GetRenderPassManager().EndRenderPass(GetCommandBuffer());
 		for (const FPendingAttachmentState& State : PendingAttachmentStates)
 		{
@@ -445,7 +445,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHICopyBuffer(FRHIBuffer* SourceRHI, FRHIBuffer* DestinationRHI,
 		std::span<const FRHIBufferCopyRegion> Regions) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 #if DO_CHECK
 		const auto ValidationResult = ValidateBufferCopies(SourceRHI, DestinationRHI, Regions);
 		checkf(ValidationResult,
@@ -474,7 +474,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHICopyBufferToTexture(FRHIBuffer* SourceRHI, FRHITexture* DestinationRHI,
 		std::span<const FRHIBufferTextureCopyRegion> Regions) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 #if DO_CHECK
 		const auto ValidationResult = ValidateBufferToTextureCopies(SourceRHI, DestinationRHI, Regions);
 		checkf(ValidationResult,
@@ -514,7 +514,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHICopyTextureToBuffer(FRHITexture* SourceRHI, FRHIBuffer* DestinationRHI,
 		std::span<const FRHIBufferTextureCopyRegion> Regions) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureToBufferCopies(SourceRHI, DestinationRHI, Regions);
 		checkf(ValidationResult,
@@ -554,7 +554,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHICopyTexture(FRHITexture* SourceRHI, FRHITexture* DestinationRHI,
 		std::span<const FRHITextureCopyRegion> Regions) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureCopies(SourceRHI, DestinationRHI, Regions);
 		checkf(ValidationResult,
@@ -593,7 +593,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 #ifdef __APPLE__
 		// MoltenVK obtains the Metal drawable while encoding the window render
 		// pass at native submission. Submit offscreen work first so drawable
@@ -609,7 +609,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIEndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (!bPresent)
 		{
 			return;
@@ -623,7 +623,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& GraphicsPipelineState) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		const auto* Previous = PendingGfxState->GetPipelineState();
 		if (!Previous || Previous->GetKey().PipelineLayout != static_cast<FVulkanGraphicsPipelineState&>(GraphicsPipelineState).GetKey().PipelineLayout)
 			GraphicsPushConstants.clear();
@@ -633,7 +633,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHISetComputePipelineState(
 		FRHIComputePipelineState& ComputePipelineState) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		const auto* Previous = PendingComputeState->GetPipelineState();
 		if (!Previous || Previous->GetKey().PipelineLayout != static_cast<FVulkanComputePipelineState&>(ComputePipelineState).GetKey().PipelineLayout)
 			ComputePushConstants.clear();
@@ -644,7 +644,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIBindVertexBuffer(uint32 StreamIndex, FRHIBuffer* InVertexBuffer, uint32 Offset) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (!InVertexBuffer)
 		{
 			BoundVertexBuffers.erase(StreamIndex);
@@ -672,7 +672,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIBindIndexBuffer(FRHIBuffer* InIndexBuffer, uint32 Offset) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (!InIndexBuffer)
 		{
 			BoundIndexBuffer = nullptr;
@@ -702,7 +702,7 @@ namespace Durin::VulkanRHI
 		std::span<const FRHIBufferTransition> Transitions) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Barriers.Buffers");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		for (const auto& Transition : Transitions)
 		{
 			RetainWriteRange(FVulkanBuffer::Cast(Transition.Buffer)->GetWriteRange());
@@ -783,7 +783,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIAliasingBarrier(const FRHITransientAliasingBarrier& Handoff) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(Handoff.After);
 		const vk::MemoryBarrier Barrier(vk::AccessFlagBits::eMemoryRead | vk::AccessFlagBits::eMemoryWrite,
 			vk::AccessFlagBits::eMemoryRead | vk::AccessFlagBits::eMemoryWrite);
@@ -795,7 +795,7 @@ namespace Durin::VulkanRHI
 		std::span<const FRHITextureTransition> Transitions) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Barriers.Textures");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		for (const auto& Transition : Transitions)
 			requiref(static_cast<FVulkanTexture*>(Transition.Texture)->GetStateTracker().CanUseOwnership(
 				Transition.Range, Queue->GetFamilyIndex()), "Texture range is owned by another queue family or awaiting acquire.");
@@ -882,7 +882,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIBeginTransition(
 		const std::shared_ptr<FRHITransition>& Transition) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (!RHI->RHIGetQueueCapabilities().bSplitBarriers) return;
 		auto VulkanTransition = std::dynamic_pointer_cast<FVulkanTransition>(Transition);
 		requiref(VulkanTransition, "Vulkan split transition has an incompatible backend object.");
@@ -905,7 +905,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIEndTransition(
 		const std::shared_ptr<FRHITransition>& Transition) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (!RHI->RHIGetQueueCapabilities().bSplitBarriers)
 		{
 			IRHICommandContext::RHIEndTransition(Transition);
@@ -945,7 +945,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIWriteBuffer(
 		FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(Buffer);
 		FVulkanBuffer::Cast(Buffer)->Write(*this, Offset, Data);
 	}
@@ -953,7 +953,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIInitializeTexture(
 		FRHITexture* Texture) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		RHI->InitializeTexture(*this, Texture);
 	}
 
@@ -965,7 +965,7 @@ namespace Durin::VulkanRHI
 		uint32 SourcePitch,
 		FByteView SourceData) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		RHI->UpdateTexture2D(
 			*this, Texture, MipIndex, ArraySlice,
 			UpdateRegion, SourcePitch, SourceData);
@@ -979,7 +979,7 @@ namespace Durin::VulkanRHI
 		uint32 SourceDepthPitch,
 		FByteView SourceData) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		RHI->UpdateTexture3D(*this, Texture, MipIndex, UpdateRegion,
 			SourceRowPitch, SourceDepthPitch, SourceData);
 	}
@@ -990,7 +990,7 @@ namespace Durin::VulkanRHI
 		uint32 ArraySlice,
 		FByteBuffer& OutData) -> bool
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		return RHI->ReadTexture2D(
 			*this, Texture, MipIndex, ArraySlice, OutData);
 	}
@@ -998,7 +998,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIEnqueueTextureReadback(FRHITexture* Texture,
 		uint32 MipIndex, uint32 ArraySlice, std::shared_ptr<FRHITextureReadback> Request) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (Request->GetState() != ERHITextureReadbackState::Pending) return;
 		RHIPollTextureReadbacks();
 		FByteBuffer Unused;
@@ -1009,7 +1009,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::TryAcquireReadbackRange(uint64 Size, uint64 Alignment)
 		-> FVulkanTransferRange
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		constexpr uint64 MaximumReadbackBytes = 64ull * 1024 * 1024;
 		uint64 LiveBytes = 0;
 		for (const auto& Readback : PendingReadbacks) LiveBytes += Readback.Range.GetSize();
@@ -1033,7 +1033,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIPollTextureReadbacks() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (PendingReadbacks.empty()) return;
 		Device.PollQueues();
 		std::erase_if(PendingReadbacks, [](FPendingReadback& Readback) {
@@ -1063,14 +1063,14 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIAcquireBackBuffer(
 		FRHITexture* BackBuffer) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(BackBuffer);
 		static_cast<FVulkanBackBuffer*>(BackBuffer)->AcquireBackBufferImage(*this);
 	}
 
 	auto FVulkanCommandListContext::RHIBlockUntilGPUIdle() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		Device.GetSubmissionCoordinator().SubmitPendingContexts(this);
 		Device.WaitUtilIdle();
 	}
@@ -1078,7 +1078,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void
 	{
 		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.PushConstants");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(Data && Size && Offset % 4 == 0 && Size % 4 == 0
 			&& uint64(Offset) + Size <= Device.GetGpuProperties().limits.maxPushConstantsSize);
 		auto& Words = StageFlags == EShaderStageFlags::Compute ? ComputePushConstants : GraphicsPushConstants;
@@ -1105,7 +1105,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHISetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
 		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Bind.ShaderParameters");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (InShader && InShader->GetFrequency() == EShaderFrequency::Compute)
 		{
 			PendingComputeState->SetShaderParameters(InShader, InResourceParameters);
@@ -1122,7 +1122,7 @@ namespace Durin::VulkanRHI
 		uint32 GroupCountY, uint32 GroupCountZ) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Compute.Dispatch");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(PendingComputeState->GetPipelineState());
 		const FRHICapabilities* Capabilities = RHI->RHIGetCapabilities();
 		check(Capabilities);
@@ -1138,7 +1138,7 @@ namespace Durin::VulkanRHI
 		FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Compute.DispatchIndirect");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(PendingComputeState->GetPipelineState());
 		const auto* Buffer = FVulkanBuffer::Cast(ArgumentBuffer);
 		ERHIAccess Tracked = ERHIAccess::None;
@@ -1207,7 +1207,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIDraw(const FRHIDrawArguments& Arguments) -> void
 	{
 		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.Direct");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (Arguments.VertexCount == 0 || Arguments.InstanceCount == 0) return;
 		ValidateDrawBindings(Arguments.VertexCount, Arguments.InstanceCount,
 			Arguments.FirstVertex, Arguments.FirstInstance, false);
@@ -1223,7 +1223,7 @@ namespace Durin::VulkanRHI
 		const FRHIDrawIndexedArguments& Arguments) -> void
 	{
 		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.Indexed");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (Arguments.IndexCount == 0 || Arguments.InstanceCount == 0) return;
 		checkf(BoundIndexBuffer, "Indexed draw requires a bound index buffer.");
 		{
@@ -1266,7 +1266,7 @@ namespace Durin::VulkanRHI
 		FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void
 	{
 		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.Indirect");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		checkf(PendingGfxState->GetPipelineState(),
 			"Indirect draw requires an active graphics pipeline.");
 		const auto* Buffer = FVulkanBuffer::Cast(ArgumentBuffer);
@@ -1287,7 +1287,7 @@ namespace Durin::VulkanRHI
 		FRHIBuffer* ArgumentBuffer, uint64 Offset) -> void
 	{
 		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Draw.IndexedIndirect");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		checkf(PendingGfxState->GetPipelineState(),
 			"Indexed indirect draw requires an active graphics pipeline.");
 		checkf(BoundIndexBuffer,
@@ -1308,7 +1308,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::GetCommandBuffer() -> FVulkanCommandBuffer*
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		FVulkanPayload& Payload = GetPayload();
 		if (Payload.CommandBuffers.empty())
 		{
@@ -1319,18 +1319,18 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHISetShaderUniformBuffer(FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FRHIBuffer* InUniformBuffer) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 	}
 
 	auto FVulkanCommandListContext::AddWaitSemaphore(vk::PipelineStageFlags InWaitFlag, FVulkanSemaphore* InWaitSemaphore) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		AddWaitSemaphores(InWaitFlag, std::span(&InWaitSemaphore, 1));
 	}
 
 	auto FVulkanCommandListContext::AddWaitSemaphores(vk::PipelineStageFlags InWaitFlag, std::span<FVulkanSemaphore*> InWaitSemaphores) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		auto& Payload = GetPayload();
 		Payload.WaitSemaphores.insert(Payload.WaitSemaphores.end(), InWaitSemaphores.begin(), InWaitSemaphores.end());
 		Payload.WaitFlags.insert(Payload.WaitFlags.end(), InWaitSemaphores.size(), InWaitFlag);
@@ -1338,26 +1338,26 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::AddSignalSemaphore(FVulkanSemaphore* InSignalSemaphore) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
  		AddSignalSemaphores(std::span(&InSignalSemaphore, 1));
 	}
 
 	auto FVulkanCommandListContext::AddSignalSemaphores(std::span<FVulkanSemaphore*> InSignalSemaphores) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		auto& Payload = GetPayload();
 		Payload.SignalSemaphores.insert(Payload.SignalSemaphores.end(), InSignalSemaphores.begin(), InSignalSemaphores.end());
 	}
 
 	auto FVulkanCommandListContext::NotifyDeleted_Image(vk::Image Image) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 	}
 
 	auto FVulkanCommandListContext::NotifyDeleted_GraphicsPipeline(
 		FVulkanGraphicsPipelineState* PipelineState) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (PendingGfxState->GetPipelineState() == PipelineState) GraphicsPushConstants.clear();
 		PendingGfxState->NotifyDeletedPipeline(PipelineState);
 	}
@@ -1365,7 +1365,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::NotifyDeleted_ComputePipeline(
 		FVulkanComputePipelineState* PipelineState) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (PendingComputeState->GetPipelineState() == PipelineState) ComputePushConstants.clear();
 		PendingComputeState->NotifyDeletedPipeline(PipelineState);
 	}
@@ -1395,7 +1395,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::Finalize() -> std::unique_ptr<FVulkanPayload>
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		auto* Commands = GetCommandBuffer();
 		for (size_t Index = DiagnosticRegions.size(); Index > 0; --Index)
 			Commands->EndDiagnosticRegion();
@@ -1411,7 +1411,7 @@ namespace Durin::VulkanRHI
 		EVulkanAllocationClassCandidate AllocationClass, uint64 Size,
 		uint64 Alignment) -> FVulkanTransferRange
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(AllocationClass == EVulkanAllocationClassCandidate::TransferUpload
 			|| AllocationClass
 				== EVulkanAllocationClassCandidate::TransferReadback);
@@ -1450,7 +1450,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::PrepareNewCommandBuffer(FVulkanPayload& InPayload) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(InPayload.CommandBuffers.empty());
 		FVulkanCommandBuffer* NewCmdBuffer = Pool->Create();
 		InPayload.CommandBuffers.push_back(NewCmdBuffer);
@@ -1491,7 +1491,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::GetPayload() -> FVulkanPayload&
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		// Currently only support one payload per submit.
 		if (Payloads.empty())
 		{
@@ -1509,13 +1509,13 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHIGetDefaultContext() -> IRHICommandContext*
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		return Device->GetImmediateContext();
 	}
 
 	auto FVulkanDynamicRHI::RHIGetCommandContext(ERHIPipeline Pipeline) const -> IRHICommandContext*
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (Pipeline != ERHIPipeline::Graphics)
 		{
 			return nullptr;

@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
 #include "CoreGlobals.h"
+#include "HAL/PlatformLTS.h"
 #include "RHIThread.h"
+#include "Threading/Runnable.h"
 #include "Threading/ThreadEvent.h"
 #include "Threading/RunnableThread.h"
 
@@ -25,6 +27,105 @@ namespace Durin
 		private:
 			FRHIThread& Thread;
 		};
+
+		class FGameThreadRegistrationGuard
+		{
+		public:
+			FGameThreadRegistrationGuard()
+				: PreviousId(GGameThreadId), bPreviouslyInitialized(GIsGameThreadIdInitialized)
+			{
+				GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+				GIsGameThreadIdInitialized = true;
+			}
+			~FGameThreadRegistrationGuard()
+			{
+				GGameThreadId = PreviousId;
+				GIsGameThreadIdInitialized = bPreviouslyInitialized;
+			}
+		private:
+			uint32 PreviousId;
+			bool bPreviouslyInitialized;
+		};
+
+		class FExecutionThreadProbe final : public FRunnable
+		{
+		public:
+			auto Run() -> uint32 override
+			{
+				if (bWaitForPublication) Published.Wait();
+				bAllowed = IsInRHIExecutionThread();
+				bRHIRole = IsInRHIThread();
+				if (bAllowed) CheckRHIExecutionThread();
+				return 0;
+			}
+			bool bAllowed = false;
+			bool bWaitForPublication = false;
+			FThreadEvent Published;
+			bool bRHIRole = false;
+		};
+	}
+
+	TEST(FRHIThreadTests, InlineExecutionUsesRenderingThreadOrStoppedRenderingGameThread)
+	{
+		ASSERT_EQ(GRHIThread, nullptr);
+		FGameThreadRegistrationGuard Registration;
+		EXPECT_TRUE(IsInRHIExecutionThread());
+		CheckRHIExecutionThread();
+		EXPECT_FALSE(IsInRHIThread());
+		GIsGameThreadIdInitialized = false;
+		EXPECT_FALSE(IsInRHIExecutionThread());
+		GIsGameThreadIdInitialized = true;
+
+		for (const auto Role : {EThreadRole::Unknown, EThreadRole::GameThread,
+			EThreadRole::RenderingThread, EThreadRole::RHIThread,
+			EThreadRole::WorkerThread, EThreadRole::IOThread})
+		{
+			FExecutionThreadProbe Probe;
+			Probe.bWaitForPublication = Role == EThreadRole::RenderingThread;
+			std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(
+				&Probe, "ExecutionProbe", 0, EThreadPriority::Normal, Role));
+			ASSERT_TRUE(Thread);
+			if (Probe.bWaitForPublication)
+			{
+				GRenderingThread = Thread.get();
+				EXPECT_FALSE(IsInRHIExecutionThread());
+				Probe.Published.Trigger();
+			}
+			Thread->WaitForCompletion();
+			if (Probe.bWaitForPublication) GRenderingThread = nullptr;
+			EXPECT_EQ(Probe.bAllowed, Role == EThreadRole::RenderingThread);
+			EXPECT_TRUE(IsInRHIExecutionThread());
+		}
+	}
+
+	TEST(FRHIThreadTests, DedicatedExecutionRequiresExactOwnerAndRestoresGameFallbackAfterStop)
+	{
+		FGameThreadRegistrationGuard Registration;
+		FRHIThread Thread;
+		FRHIThreadTestGuard Guard(Thread);
+		ASSERT_TRUE(Thread.Start());
+		EXPECT_FALSE(IsInRHIExecutionThread());
+		bool bOwnerAllowed = false;
+		FRHIThreadWork Work;
+		Work.Execute = [&] {
+			bOwnerAllowed = IsInRHIExecutionThread();
+			CheckRHIExecutionThread();
+		};
+		ASSERT_TRUE(Thread.EnqueueSynchronous(Work).IsCompleted());
+		EXPECT_TRUE(bOwnerAllowed);
+		for (const auto Role : {EThreadRole::Unknown, EThreadRole::RenderingThread,
+			EThreadRole::RHIThread, EThreadRole::WorkerThread, EThreadRole::IOThread})
+		{
+			FExecutionThreadProbe Probe;
+			std::unique_ptr<FRunnableThread> Other(FRunnableThread::Create(
+				&Probe, "NonOwnerProbe", 0, EThreadPriority::Normal, Role));
+			ASSERT_TRUE(Other);
+			Other->WaitForCompletion();
+			EXPECT_FALSE(Probe.bAllowed);
+			EXPECT_EQ(Probe.bRHIRole, Role == EThreadRole::RHIThread);
+		}
+		Thread.Stop();
+		EXPECT_TRUE(IsInRHIExecutionThread());
 	}
 
 	TEST(FRHIThreadDeathTest, UnhandledWorkExceptionsTerminate)

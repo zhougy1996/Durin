@@ -1,3 +1,4 @@
+#include "NativeRHIExecutionTestSupport.h"
 #include "VulkanIntegrationTestFixture.h"
 #include "VulkanPipelinePrecacheTestSupport.h"
 #include "VulkanTestSupport.h"
@@ -22,6 +23,41 @@ namespace Durin::VulkanRHI
 	{
 	};
 
+	TEST_F(FVulkanResourceIntegrationTests, InlineViewportGameThreadEntryDispatchesNativeWorkToRenderingThread)
+	{
+		_putenv_s("DURIN_RHI_EXECUTION", "inline");
+		const auto Context = GetVulkanTestInitializationContext();
+		ASSERT_TRUE(Context.GetPresentationTarget());
+		ASSERT_TRUE(RHIInit(Context));
+		struct FRenderingScope
+		{
+			FRenderingScope() { InitRenderingThread(); }
+			~FRenderingScope() { ShutdownRenderingThread(); }
+		} RenderingScope;
+		EXPECT_FALSE(IsInRHIExecutionThread());
+		auto Viewport = GDynamicRHI->RHICreateViewport({
+			.PresentationTarget = *Context.GetPresentationTarget(),
+			.SizeX = 64, .SizeY = 64,
+			.bAdoptInitializationPresentationCandidate = true});
+		ASSERT_TRUE(Viewport);
+		GDynamicRHI->RHIResizeViewport(Viewport, 32, 48, false);
+		FIntPoint Extent;
+		ENQUEUE_RENDER_COMMAND(ObserveInlineViewportResize)(
+			[&](FRHICommandListImmediate& Commands) {
+				CheckRHIExecutionThread();
+				auto BackBuffer = Viewport->GetBackBuffer(Commands);
+				ASSERT_TRUE(BackBuffer);
+				Extent = {static_cast<int32>(BackBuffer->GetSizeX()),
+					static_cast<int32>(BackBuffer->GetSizeY())};
+			});
+		FlushRenderingCommands();
+		// The window system may impose its current surface extent on the request.
+		EXPECT_GT(Extent.x, 0);
+		EXPECT_GT(Extent.y, 0);
+		Viewport = nullptr;
+		FlushRenderingCommands();
+	}
+
 	TEST_F(FVulkanResourceIntegrationTests, NativeCreationFailureDiagnosticsLogOneResult)
 	{
 		auto& Logger = FLogger::Get();
@@ -40,53 +76,55 @@ namespace Durin::VulkanRHI
 	{
 		_putenv_s("DURIN_RHI_EXECUTION", "inline");
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		auto& Commands = FRHICommandListImmediate::Get();
-		Commands.SwitchPipeline(ERHIPipeline::Graphics);
-		auto Desc = FRHIBufferCreateDesc::CreateVertex("SharedDynamicPageTest", 256);
-		Desc.Usage |= EBufferUsageFlags::Dynamic | EBufferUsageFlags::CPUWriteDiscard;
-		auto First = GDynamicRHI->RHICreateBuffer(Commands, Desc);
-		auto Second = GDynamicRHI->RHICreateBuffer(Commands, Desc);
-		ASSERT_TRUE(First && Second);
-		for (const auto& Buffer : {First, Second})
-		{
-			auto* Bytes = static_cast<std::byte*>(Commands.LockBuffer(Buffer, 0, 16, EResourceLockMode::WriteOnlyDiscard));
-			std::memset(Bytes, 7, 16);
-			Commands.UnlockBuffer(Buffer);
-			// Full logical transitions must not cover neighboring page slices.
-			Commands.TransitionBuffers(std::array{FRHIBufferTransition::Whole(Buffer, ERHIAccess::Discard, ERHIAccess::VertexBufferRead)});
-		}
-		Commands.BindVertexBuffer(0, First, 0);
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-		GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
-			const auto* A = FVulkanBuffer::Cast(First.GetReference());
-			const auto* B = FVulkanBuffer::Cast(Second.GetReference());
-			EXPECT_EQ(A->GetHandle(), B->GetHandle());
-			EXPECT_NE(A->GetBackingOffset(), B->GetBackingOffset());
-			EXPECT_EQ(A->GetMappedSize(), 16u);
-			EXPECT_EQ(A->GetSize(), 256u);
-			EXPECT_EQ(A->GetNativeRangeSize(0, 256), 16u);
-			EXPECT_EQ(A->GetNativeRangeSize(16, 240), 0u);
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			auto& Commands = FRHICommandListImmediate::Get();
+			Commands.SwitchPipeline(ERHIPipeline::Graphics);
+			auto Desc = FRHIBufferCreateDesc::CreateVertex("SharedDynamicPageTest", 256);
+			Desc.Usage |= EBufferUsageFlags::Dynamic | EBufferUsageFlags::CPUWriteDiscard;
+			auto First = GDynamicRHI->RHICreateBuffer(Commands, Desc);
+			auto Second = GDynamicRHI->RHICreateBuffer(Commands, Desc);
+			ASSERT_TRUE(First && Second);
+			for (const auto& Buffer : {First, Second})
+			{
+				auto* Bytes = static_cast<std::byte*>(Commands.LockBuffer(Buffer, 0, 16, EResourceLockMode::WriteOnlyDiscard));
+				std::memset(Bytes, 7, 16);
+				Commands.UnlockBuffer(Buffer);
+				// Full logical transitions must not cover neighboring page slices.
+				Commands.TransitionBuffers(std::array{FRHIBufferTransition::Whole(Buffer, ERHIAccess::Discard, ERHIAccess::VertexBufferRead)});
+			}
+			Commands.BindVertexBuffer(0, First, 0);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+				const auto* A = FVulkanBuffer::Cast(First.GetReference());
+				const auto* B = FVulkanBuffer::Cast(Second.GetReference());
+				EXPECT_EQ(A->GetHandle(), B->GetHandle());
+				EXPECT_NE(A->GetBackingOffset(), B->GetBackingOffset());
+				EXPECT_EQ(A->GetMappedSize(), 16u);
+				EXPECT_EQ(A->GetSize(), 256u);
+				EXPECT_EQ(A->GetNativeRangeSize(0, 256), 16u);
+				EXPECT_EQ(A->GetNativeRangeSize(16, 240), 0u);
+			});
+			const std::array Patch{std::byte{9}};
+			Commands.WriteBuffer(First, 32, Patch);
+			Commands.TransitionBuffers(std::array{FRHIBufferTransition{First, 32, 1,
+				ERHIAccess::TransferWrite, ERHIAccess::VertexBufferRead}});
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+				const auto* A = FVulkanBuffer::Cast(First.GetReference());
+				const auto* B = FVulkanBuffer::Cast(Second.GetReference());
+				EXPECT_NE(A->GetHandle(), B->GetHandle());
+				EXPECT_EQ(A->GetMappedSize(), 256u);
+				const auto* Bytes = static_cast<const std::byte*>(A->GetMappedPointer());
+				EXPECT_EQ(Bytes[0], std::byte{7});
+				EXPECT_EQ(Bytes[15], std::byte{7});
+				EXPECT_EQ(Bytes[32], std::byte{9});
+				ERHIAccess Tracked = ERHIAccess::None;
+				EXPECT_TRUE(A->GetStateTracker().Validate(0, 16, ERHIAccess::VertexBufferRead, Tracked));
+				EXPECT_EQ(static_cast<const std::byte*>(B->GetMappedPointer())[0], std::byte{7});
+			});
+			Commands.BindVertexBuffer(0, nullptr, 0);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 		});
-		const std::array Patch{std::byte{9}};
-		Commands.WriteBuffer(First, 32, Patch);
-		Commands.TransitionBuffers(std::array{FRHIBufferTransition{First, 32, 1,
-			ERHIAccess::TransferWrite, ERHIAccess::VertexBufferRead}});
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-		GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
-			const auto* A = FVulkanBuffer::Cast(First.GetReference());
-			const auto* B = FVulkanBuffer::Cast(Second.GetReference());
-			EXPECT_NE(A->GetHandle(), B->GetHandle());
-			EXPECT_EQ(A->GetMappedSize(), 256u);
-			const auto* Bytes = static_cast<const std::byte*>(A->GetMappedPointer());
-			EXPECT_EQ(Bytes[0], std::byte{7});
-			EXPECT_EQ(Bytes[15], std::byte{7});
-			EXPECT_EQ(Bytes[32], std::byte{9});
-			ERHIAccess Tracked = ERHIAccess::None;
-			EXPECT_TRUE(A->GetStateTracker().Validate(0, 16, ERHIAccess::VertexBufferRead, Tracked));
-			EXPECT_EQ(static_cast<const std::byte*>(B->GetMappedPointer())[0], std::byte{7});
-		});
-		Commands.BindVertexBuffer(0, nullptr, 0);
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 	}
 
 	TEST_F(FVulkanResourceIntegrationTests, NativeResourceFactoriesRunOutsideReplayAndReleaseResources)
@@ -102,62 +140,64 @@ namespace Durin::VulkanRHI
 			SCOPED_TRACE(Mode);
 			_putenv_s("DURIN_RHI_EXECUTION", Mode);
 			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-			auto& Commands = FRHICommandListImmediate::Get();
-			const auto BufferDesc = FRHIBufferCreateDesc::Create("IndependentBuffer", 256, 0, EBufferUsageFlags::FormattedBuffer);
-			const auto TextureDesc = FRHITextureCreateDesc::Create2D("IndependentTexture", 4, 4, EPixelFormat::RGBA8_UNORM)
-				.SetFlags(ETextureCreateFlags::ShaderResource);
-			auto Buffer = GDynamicRHI->RHICreateBuffer(Commands, BufferDesc);
-			auto Texture = GDynamicRHI->RHICreateTexture(Commands, TextureDesc);
-			ASSERT_TRUE(Buffer); ASSERT_TRUE(Texture);
-			const auto BufferViewDesc = MakeDefaultBufferViewDesc(*Buffer, ERHIBufferViewType::Formatted, EPixelFormat::R32_UINT);
-			const auto TextureViewDesc = MakeDefaultTextureViewDesc(*Texture, ERHITextureViewUsage::Sampled);
-			const auto& Shader = Compiled.CompiledShaders[0];
-			auto ShaderDesc = FRHIShaderCreateDesc::Create("IndependentShader", Shader.Frequency, Shader.Code, Shader.CodeHash);
-			ShaderDesc.SetEntryPoint(Shader.BinaryEntryPoint.c_str());
-			const std::array<std::function<TRefCountPtr<FRHIResource>()>, 6> Factories{
-				[&] { return GDynamicRHI->RHICreateShader(ShaderDesc); },
-				[&] { return GDynamicRHI->RHICreateSampler({}); },
-				[&] { return GDynamicRHI->RHICreateBuffer(Commands, BufferDesc); },
-				[&] { return GDynamicRHI->RHICreateTexture(Commands, TextureDesc); },
-				[&] { return GDynamicRHI->RHICreateBufferView(Buffer, BufferViewDesc); },
-				[&] { return GDynamicRHI->RHICreateTextureView(Texture, TextureViewDesc); }};
-			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
-			const auto BeforeMemory = GDynamicRHI->RHIGetMemoryStatistics();
-			std::promise<void> Entered, Release;
-			auto EnteredFuture = Entered.get_future();
-			auto Released = Release.get_future().share();
-			if (GRHIThread)
-			{
-				Commands.EnqueueLambda([&] { Entered.set_value(); Released.wait(); }, 0);
-				GCommandListExecutor.Submit({}, ERHISubmitFlags::None);
-				EXPECT_EQ(EnteredFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
-			}
-			const auto Before = GCommandListExecutor.GetStats();
-			std::vector<std::future<bool>> Workers;
-			for (uint32 Index = 0; Index < 16; ++Index)
-				Workers.push_back(std::async(std::launch::async, [&] {
-					bool Complete = true;
-					for (const auto& Factory : Factories) { auto Resource = Factory(); Complete = !!Resource && Complete; }
-					return Complete;
-				}));
-			for (auto& Worker : Workers) EXPECT_EQ(Worker.wait_for(std::chrono::seconds(5)), std::future_status::ready);
-			Release.set_value();
-			for (auto& Worker : Workers) EXPECT_TRUE(Worker.get());
-			const auto After = GCommandListExecutor.GetStats();
-			EXPECT_EQ(After.SynchronousOperationCount, Before.SynchronousOperationCount);
-			EXPECT_EQ(After.LastSubmittedSerial, Before.LastSubmittedSerial);
-			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
-			GDynamicRHI->RHIBlockUntilGPUIdle();
-			GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
-				ReleaseCompletedVulkanResourcesForTesting();
+			::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+				auto& Commands = FRHICommandListImmediate::Get();
+				const auto BufferDesc = FRHIBufferCreateDesc::Create("IndependentBuffer", 256, 0, EBufferUsageFlags::FormattedBuffer);
+				const auto TextureDesc = FRHITextureCreateDesc::Create2D("IndependentTexture", 4, 4, EPixelFormat::RGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::ShaderResource);
+				auto Buffer = GDynamicRHI->RHICreateBuffer(Commands, BufferDesc);
+				auto Texture = GDynamicRHI->RHICreateTexture(Commands, TextureDesc);
+				ASSERT_TRUE(Buffer); ASSERT_TRUE(Texture);
+				const auto BufferViewDesc = MakeDefaultBufferViewDesc(*Buffer, ERHIBufferViewType::Formatted, EPixelFormat::R32_UINT);
+				const auto TextureViewDesc = MakeDefaultTextureViewDesc(*Texture, ERHITextureViewUsage::Sampled);
+				const auto& Shader = Compiled.CompiledShaders[0];
+				auto ShaderDesc = FRHIShaderCreateDesc::Create("IndependentShader", Shader.Frequency, Shader.Code, Shader.CodeHash);
+				ShaderDesc.SetEntryPoint(Shader.BinaryEntryPoint.c_str());
+				const std::array<std::function<TRefCountPtr<FRHIResource>()>, 6> Factories{
+					[&] { return GDynamicRHI->RHICreateShader(ShaderDesc); },
+					[&] { return GDynamicRHI->RHICreateSampler({}); },
+					[&] { return GDynamicRHI->RHICreateBuffer(Commands, BufferDesc); },
+					[&] { return GDynamicRHI->RHICreateTexture(Commands, TextureDesc); },
+					[&] { return GDynamicRHI->RHICreateBufferView(Buffer, BufferViewDesc); },
+					[&] { return GDynamicRHI->RHICreateTextureView(Texture, TextureViewDesc); }};
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+				const auto BeforeMemory = GDynamicRHI->RHIGetMemoryStatistics();
+				std::promise<void> Entered, Release;
+				auto EnteredFuture = Entered.get_future();
+				auto Released = Release.get_future().share();
+				if (GRHIThread)
+				{
+					Commands.EnqueueLambda([&] { Entered.set_value(); Released.wait(); }, 0);
+					GCommandListExecutor.Submit({}, ERHISubmitFlags::None);
+					EXPECT_EQ(EnteredFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+				}
+				const auto Before = GCommandListExecutor.GetStats();
+				std::vector<std::future<bool>> Workers;
+				for (uint32 Index = 0; Index < 16; ++Index)
+					Workers.push_back(std::async(std::launch::async, [&] {
+						bool Complete = true;
+						for (const auto& Factory : Factories) { auto Resource = Factory(); Complete = !!Resource && Complete; }
+						return Complete;
+					}));
+				for (auto& Worker : Workers) EXPECT_EQ(Worker.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+				Release.set_value();
+				for (auto& Worker : Workers) EXPECT_TRUE(Worker.get());
+				const auto After = GCommandListExecutor.GetStats();
+				EXPECT_EQ(After.SynchronousOperationCount, Before.SynchronousOperationCount);
+				EXPECT_EQ(After.LastSubmittedSerial, Before.LastSubmittedSerial);
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+				GDynamicRHI->RHIBlockUntilGPUIdle();
+				GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
+					ReleaseCompletedVulkanResourcesForTesting();
+				});
+				const auto AfterMemory = GDynamicRHI->RHIGetMemoryStatistics();
+				for (size_t Index = 0; Index < BeforeMemory.Classes.size(); ++Index)
+				{
+					EXPECT_EQ(AfterMemory.Classes[Index].LiveAllocationCount, BeforeMemory.Classes[Index].LiveAllocationCount);
+					EXPECT_EQ(AfterMemory.Classes[Index].LiveBytes, BeforeMemory.Classes[Index].LiveBytes);
+				}
+				Buffer = nullptr; Texture = nullptr;
 			});
-			const auto AfterMemory = GDynamicRHI->RHIGetMemoryStatistics();
-			for (size_t Index = 0; Index < BeforeMemory.Classes.size(); ++Index)
-			{
-				EXPECT_EQ(AfterMemory.Classes[Index].LiveAllocationCount, BeforeMemory.Classes[Index].LiveAllocationCount);
-				EXPECT_EQ(AfterMemory.Classes[Index].LiveBytes, BeforeMemory.Classes[Index].LiveBytes);
-			}
-			Buffer = nullptr; Texture = nullptr;
 			RHIExit();
 		}
 	}
@@ -168,45 +208,47 @@ namespace Durin::VulkanRHI
 		{
 			_putenv_s("DURIN_RHI_EXECUTION", Mode);
 			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-			std::promise<void> ReleaseReplay;
-			auto Released = ReleaseReplay.get_future().share();
-			FRHICommandListFence HeldFence;
-			if (GRHIThread)
-			{
-				auto Started = std::make_shared<std::promise<void>>();
-				auto StartedFuture = Started->get_future();
-				GCommandListExecutor.GetImmediateCommandList().EnqueueLambda([Started, Released] {
-					Started->set_value();
-					Released.wait();
-				}, 0);
-				GCommandListExecutor.Submit({}, ERHISubmitFlags::None);
-				HeldFence = GCommandListExecutor.CreateFence();
-				EXPECT_EQ(StartedFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
-			}
-			const auto Before = GCommandListExecutor.GetStats();
-			const auto BeforeSerial = GCommandListExecutor.GetLastSubmittedSerial();
-			FVertexDeclarationElementList Elements{};
-			Elements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, 12);
-			auto Pending = std::async(std::launch::async, [&] {
-				return GDynamicRHI->RHICreateVertexDeclaration(Elements);
+			::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+				std::promise<void> ReleaseReplay;
+				auto Released = ReleaseReplay.get_future().share();
+				FRHICommandListFence HeldFence;
+				if (GRHIThread)
+				{
+					auto Started = std::make_shared<std::promise<void>>();
+					auto StartedFuture = Started->get_future();
+					GCommandListExecutor.GetImmediateCommandList().EnqueueLambda([Started, Released] {
+						Started->set_value();
+						Released.wait();
+					}, 0);
+					GCommandListExecutor.Submit({}, ERHISubmitFlags::None);
+					HeldFence = GCommandListExecutor.CreateFence();
+					EXPECT_EQ(StartedFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+				}
+				const auto Before = GCommandListExecutor.GetStats();
+				const auto BeforeSerial = GCommandListExecutor.GetLastSubmittedSerial();
+				FVertexDeclarationElementList Elements{};
+				Elements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, 12);
+				auto Pending = std::async(std::launch::async, [&] {
+					return GDynamicRHI->RHICreateVertexDeclaration(Elements);
+				});
+				// A regression may enqueue; release replay before get() so failure cannot deadlock teardown.
+				EXPECT_EQ(Pending.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+				ReleaseReplay.set_value();
+				auto Declaration = Pending.get();
+				if (GRHIThread) HeldFence.Wait();
+				ASSERT_TRUE(Declaration);
+				Elements[0].Offset = 4;
+				EXPECT_EQ(Declaration->GetElements()[0].Offset, 0);
+				EXPECT_EQ(Declaration->GetElements()[0].Stride, 12);
+				auto Updated = GDynamicRHI->RHICreateVertexDeclaration(Elements);
+				ASSERT_TRUE(Updated);
+				EXPECT_EQ(Updated->GetElements()[0].Offset, 4);
+				const auto After = GCommandListExecutor.GetStats();
+				EXPECT_EQ(After.SynchronousOperationCount, Before.SynchronousOperationCount);
+				EXPECT_EQ(GCommandListExecutor.GetLastSubmittedSerial(), BeforeSerial);
+				Updated = nullptr;
+				Declaration = nullptr;
 			});
-			// A regression may enqueue; release replay before get() so failure cannot deadlock teardown.
-			EXPECT_EQ(Pending.wait_for(std::chrono::seconds(5)), std::future_status::ready);
-			ReleaseReplay.set_value();
-			auto Declaration = Pending.get();
-			if (GRHIThread) HeldFence.Wait();
-			ASSERT_TRUE(Declaration);
-			Elements[0].Offset = 4;
-			EXPECT_EQ(Declaration->GetElements()[0].Offset, 0);
-			EXPECT_EQ(Declaration->GetElements()[0].Stride, 12);
-			auto Updated = GDynamicRHI->RHICreateVertexDeclaration(Elements);
-			ASSERT_TRUE(Updated);
-			EXPECT_EQ(Updated->GetElements()[0].Offset, 4);
-			const auto After = GCommandListExecutor.GetStats();
-			EXPECT_EQ(After.SynchronousOperationCount, Before.SynchronousOperationCount);
-			EXPECT_EQ(GCommandListExecutor.GetLastSubmittedSerial(), BeforeSerial);
-			Updated = nullptr;
-			Declaration = nullptr;
 			RHIExit();
 		}
 	}
@@ -216,97 +258,99 @@ namespace Durin::VulkanRHI
 	{
 		_putenv_s("DURIN_RHI_EXECUTION", "inline");
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		const FRHICapabilities* Capabilities = GDynamicRHI->RHIGetCapabilities();
-		ASSERT_NE(Capabilities, nullptr);
-		EXPECT_EQ(Capabilities->FeatureLevel, ERHIFeatureLevel::ES3_1);
-		EXPECT_EQ(Capabilities->SupportedTextureDimensions,
-			ERHITextureDimensionFlags::Texture2D
-				| ERHITextureDimensionFlags::Texture2DArray
-				| ERHITextureDimensionFlags::Texture3D
-				| ERHITextureDimensionFlags::TextureCube);
-		EXPECT_GE(Capabilities->MaxTextureDimension2D, 1u);
-		EXPECT_GE(Capabilities->MaxTextureDimension3D, 1u);
-		EXPECT_GE(Capabilities->MaxTextureDimensionCube, 1u);
-		EXPECT_GE(Capabilities->MaxTextureArrayLayers,
-			static_cast<uint32>(TextureCubeFaceCount));
-		EXPECT_TRUE(std::ranges::all_of(
-			Capabilities->MaxComputeWorkGroupCount,
-			[](uint32 Limit) { return Limit > 0; }));
-		EXPECT_TRUE(EnumHasAnyFlags(Capabilities->ColorSampleCounts,
-			ERHISampleCountFlags::Samples1));
-		EXPECT_TRUE(EnumHasAnyFlags(Capabilities->DepthSampleCounts,
-			ERHISampleCountFlags::Samples1));
-		EXPECT_TRUE(Capabilities->bSupportsGPUTimestamps);
-		EXPECT_GT(Capabilities->GPUTimestampNanosecondsPerTick, 0.0);
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			const FRHICapabilities* Capabilities = GDynamicRHI->RHIGetCapabilities();
+			ASSERT_NE(Capabilities, nullptr);
+			EXPECT_EQ(Capabilities->FeatureLevel, ERHIFeatureLevel::ES3_1);
+			EXPECT_EQ(Capabilities->SupportedTextureDimensions,
+				ERHITextureDimensionFlags::Texture2D
+					| ERHITextureDimensionFlags::Texture2DArray
+					| ERHITextureDimensionFlags::Texture3D
+					| ERHITextureDimensionFlags::TextureCube);
+			EXPECT_GE(Capabilities->MaxTextureDimension2D, 1u);
+			EXPECT_GE(Capabilities->MaxTextureDimension3D, 1u);
+			EXPECT_GE(Capabilities->MaxTextureDimensionCube, 1u);
+			EXPECT_GE(Capabilities->MaxTextureArrayLayers,
+				static_cast<uint32>(TextureCubeFaceCount));
+			EXPECT_TRUE(std::ranges::all_of(
+				Capabilities->MaxComputeWorkGroupCount,
+				[](uint32 Limit) { return Limit > 0; }));
+			EXPECT_TRUE(EnumHasAnyFlags(Capabilities->ColorSampleCounts,
+				ERHISampleCountFlags::Samples1));
+			EXPECT_TRUE(EnumHasAnyFlags(Capabilities->DepthSampleCounts,
+				ERHISampleCountFlags::Samples1));
+			EXPECT_TRUE(Capabilities->bSupportsGPUTimestamps);
+			EXPECT_GT(Capabilities->GPUTimestampNanosecondsPerTick, 0.0);
 
-		FRHITextureCreateDesc Texture2D = FRHITextureCreateDesc::Create2D(
-			"Supported2D", 4, 4, EPixelFormat::RGBA8_UNORM);
-		Texture2D.Flags = ETextureCreateFlags::ShaderResource;
-		FRHITextureCreateDesc TextureCube = FRHITextureCreateDesc::CreateCube(
-			"SupportedCube").SetExtent(4).SetFormat(EPixelFormat::RGBA8_UNORM)
-			.SetFlags(ETextureCreateFlags::ShaderResource);
-		FRHITextureCreateDesc Texture2DArray =
-			FRHITextureCreateDesc::Create2DArray("Supported2DArray")
-				.SetExtent(4, 4).SetArraySize(3)
+			FRHITextureCreateDesc Texture2D = FRHITextureCreateDesc::Create2D(
+				"Supported2D", 4, 4, EPixelFormat::RGBA8_UNORM);
+			Texture2D.Flags = ETextureCreateFlags::ShaderResource;
+			FRHITextureCreateDesc TextureCube = FRHITextureCreateDesc::CreateCube(
+				"SupportedCube").SetExtent(4).SetFormat(EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource);
+			FRHITextureCreateDesc Texture2DArray =
+				FRHITextureCreateDesc::Create2DArray("Supported2DArray")
+					.SetExtent(4, 4).SetArraySize(3)
+					.SetFormat(EPixelFormat::RGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::ShaderResource);
+			FRHITextureCreateDesc Texture3D = FRHITextureCreateDesc::Create3D(
+				"Supported3D").SetExtent(4, 4).SetDepth(4)
 				.SetFormat(EPixelFormat::RGBA8_UNORM)
 				.SetFlags(ETextureCreateFlags::ShaderResource);
-		FRHITextureCreateDesc Texture3D = FRHITextureCreateDesc::Create3D(
-			"Supported3D").SetExtent(4, 4).SetDepth(4)
-			.SetFormat(EPixelFormat::RGBA8_UNORM)
-			.SetFlags(ETextureCreateFlags::ShaderResource);
-		EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture2D));
-		EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture2DArray));
-		EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture3D));
-		EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(TextureCube));
-		for (EPixelFormat Format : {EPixelFormat::R8_UNORM, EPixelFormat::RG8_UNORM,
-			EPixelFormat::RGBA8_UNORM, EPixelFormat::R16_FLOAT,
-			EPixelFormat::RGBA16_FLOAT})
-		{
-			Texture3D.SetFormat(Format).SetFlags(ETextureCreateFlags::ShaderResource);
-			EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture3D))
-				<< static_cast<uint32>(Format);
-		}
-		for (EPixelFormat Format : {EPixelFormat::R8_UNORM, EPixelFormat::RGBA16_FLOAT})
-		{
-			Texture3D.SetFormat(Format).SetFlags(ETextureCreateFlags::Storage);
-			EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture3D))
-				<< static_cast<uint32>(Format);
-		}
+			EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture2D));
+			EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture2DArray));
+			EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture3D));
+			EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(TextureCube));
+			for (EPixelFormat Format : {EPixelFormat::R8_UNORM, EPixelFormat::RG8_UNORM,
+				EPixelFormat::RGBA8_UNORM, EPixelFormat::R16_FLOAT,
+				EPixelFormat::RGBA16_FLOAT})
+			{
+				Texture3D.SetFormat(Format).SetFlags(ETextureCreateFlags::ShaderResource);
+				EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture3D))
+					<< static_cast<uint32>(Format);
+			}
+			for (EPixelFormat Format : {EPixelFormat::R8_UNORM, EPixelFormat::RGBA16_FLOAT})
+			{
+				Texture3D.SetFormat(Format).SetFlags(ETextureCreateFlags::Storage);
+				EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture3D))
+					<< static_cast<uint32>(Format);
+			}
 
-		const std::array DeferredDescriptions{
-			FRHITextureCreateDesc::CreateCubeArray("DeferredCubeArray")
-				.SetExtent(4).SetFormat(EPixelFormat::RGBA8_UNORM),
-		};
-		FRHICommandListImmediate& RHICmdList = FRHICommandListImmediate::Get();
-		for (const FRHITextureCreateDesc& Desc : DeferredDescriptions)
-		{
-			SCOPED_TRACE(static_cast<uint32>(Desc.Dimension));
-			EXPECT_FALSE(GDynamicRHI->RHIIsTextureSupported(Desc));
-			EXPECT_FALSE(GDynamicRHI->RHICreateTexture(RHICmdList, Desc));
-		}
+			const std::array DeferredDescriptions{
+				FRHITextureCreateDesc::CreateCubeArray("DeferredCubeArray")
+					.SetExtent(4).SetFormat(EPixelFormat::RGBA8_UNORM),
+			};
+			FRHICommandListImmediate& RHICmdList = FRHICommandListImmediate::Get();
+			for (const FRHITextureCreateDesc& Desc : DeferredDescriptions)
+			{
+				SCOPED_TRACE(static_cast<uint32>(Desc.Dimension));
+				EXPECT_FALSE(GDynamicRHI->RHIIsTextureSupported(Desc));
+				EXPECT_FALSE(GDynamicRHI->RHICreateTexture(RHICmdList, Desc));
+			}
 
-		FRHITextureCreateDesc Oversized = Texture2D;
-		Oversized.SetExtent(static_cast<int32>(Capabilities->MaxTextureDimension2D + 1), 1);
-		const auto TextureCreateDescResult = ValidateTextureCreateDesc(Oversized);
-		ASSERT_TRUE(TextureCreateDescResult) << ToString(TextureCreateDescResult.error());
-		EXPECT_FALSE(GDynamicRHI->RHIIsTextureSupported(Oversized));
+			FRHITextureCreateDesc Oversized = Texture2D;
+			Oversized.SetExtent(static_cast<int32>(Capabilities->MaxTextureDimension2D + 1), 1);
+			const auto TextureCreateDescResult = ValidateTextureCreateDesc(Oversized);
+			ASSERT_TRUE(TextureCreateDescResult) << ToString(TextureCreateDescResult.error());
+			EXPECT_FALSE(GDynamicRHI->RHIIsTextureSupported(Oversized));
 
-		FTextureRHIRef Created2D = GDynamicRHI->RHICreateTexture(RHICmdList, Texture2D);
-		FTextureRHIRef Created2DArray =
-			GDynamicRHI->RHICreateTexture(RHICmdList, Texture2DArray);
-		Texture3D.SetFormat(EPixelFormat::RGBA8_UNORM)
-			.SetFlags(ETextureCreateFlags::ShaderResource);
-		FTextureRHIRef Created3D = GDynamicRHI->RHICreateTexture(RHICmdList, Texture3D);
-		FTextureRHIRef CreatedCube = GDynamicRHI->RHICreateTexture(RHICmdList, TextureCube);
-		EXPECT_TRUE(Created2D);
-		EXPECT_TRUE(Created2DArray);
-		EXPECT_TRUE(Created3D);
-		EXPECT_TRUE(CreatedCube);
-		Created2D = nullptr;
-		Created2DArray = nullptr;
-		Created3D = nullptr;
-		CreatedCube = nullptr;
-		RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+			FTextureRHIRef Created2D = GDynamicRHI->RHICreateTexture(RHICmdList, Texture2D);
+			FTextureRHIRef Created2DArray =
+				GDynamicRHI->RHICreateTexture(RHICmdList, Texture2DArray);
+			Texture3D.SetFormat(EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource);
+			FTextureRHIRef Created3D = GDynamicRHI->RHICreateTexture(RHICmdList, Texture3D);
+			FTextureRHIRef CreatedCube = GDynamicRHI->RHICreateTexture(RHICmdList, TextureCube);
+			EXPECT_TRUE(Created2D);
+			EXPECT_TRUE(Created2DArray);
+			EXPECT_TRUE(Created3D);
+			EXPECT_TRUE(CreatedCube);
+			Created2D = nullptr;
+			Created2DArray = nullptr;
+			Created3D = nullptr;
+			CreatedCube = nullptr;
+			RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+		});
 	}
 
 	TEST_F(FVulkanResourceIntegrationTests,

@@ -121,7 +121,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanQueueTransfer::RecordRelease(FVulkanQueue& Queue, vk::CommandBuffer Commands,
 		const FRHIGPUSyncPointRef& SyncPoint) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(State->Phase == FState::EPhase::Prepared && Queue.GetId() == State->Source);
 		require(State->Device.FindQueue(Queue.GetId()) == &Queue);
 		require(Queue.GetCompletionTracker().Owns(SyncPoint) && SyncPoint.GetState() == ERHIGPUSubmissionState::Pending);
@@ -193,7 +193,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanQueueTransfer::RecordAcquire(FVulkanQueue& Queue, vk::CommandBuffer Commands,
 		const FRHIGPUSyncPointRef& SyncPoint) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(State->Phase == FState::EPhase::Released && Queue.GetId() == State->Destination);
 		require(State->Device.FindQueue(Queue.GetId()) == &Queue);
 		for (const auto& Range : State->WriteRanges) Range->AddGPUUse(SyncPoint);

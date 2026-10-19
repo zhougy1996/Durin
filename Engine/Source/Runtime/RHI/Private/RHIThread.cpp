@@ -7,6 +7,20 @@
 
 namespace Durin
 {
+	auto IsInRHIExecutionThread() -> bool
+	{
+		if (GRHIThread) return GetCurrentThread() == GRHIThread;
+		return IsInRenderingThread()
+			|| (!GRenderingThread && GIsGameThreadIdInitialized && IsInGameThread());
+	}
+
+	auto CheckRHIExecutionThread() -> void
+	{
+		checkf(IsInRHIExecutionThread(),
+			"Expected RHI execution thread (dedicated owner, rendering thread, or game thread without a rendering thread), current thread is {}.",
+			GetCurrentThreadName());
+	}
+
 	struct FRHIThreadQueueEntry
 	{
 		uint64 Serial = 0;

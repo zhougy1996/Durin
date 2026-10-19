@@ -202,7 +202,11 @@ namespace Durin
 		auto Ready = Release.get_future().share();
 		std::atomic<bool> Consumed{false};
 		bool bResizeAfterPriorFrame = false;
-		RHI.OnResize = [&] { bResizeAfterPriorFrame = Consumed.load(); };
+		bool bResizeOnRenderingThread = false;
+		RHI.OnResize = [&] {
+			bResizeAfterPriorFrame = Consumed.load();
+			bResizeOnRenderingThread = IsInRenderingThread();
+		};
 		ENQUEUE_RENDER_COMMAND(ConsumePreResizeWindowFrame)([Ready, &Consumed](FRHICommandListImmediate&) {
 			Ready.wait();
 			Consumed = true;
@@ -213,6 +217,7 @@ namespace Durin
 		});
 		Renderer.PrepareViewportForDraw(Window);
 		EXPECT_TRUE(bResizeAfterPriorFrame);
+		EXPECT_TRUE(bResizeOnRenderingThread);
 		EXPECT_EQ(RHI.ResizeCount, 1u);
 		Info->QueueResize({900, 600});
 		Renderer.PrepareViewportForDraw(Window);

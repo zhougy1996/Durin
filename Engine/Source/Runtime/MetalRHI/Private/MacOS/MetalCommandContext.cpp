@@ -1,5 +1,6 @@
 #include "Backend/RHITextureUpload.h"
 #include "MetalCommandContext.h"
+#include "RHIThread.h"
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICompletionBackend.h"
 #include "MetalAutoreleasePool.h"
@@ -28,15 +29,17 @@ namespace Durin
 		{
 		public:
 			auto Configure(std::shared_ptr<FMetalSubmissionState> InState) -> void override
-			{ State = std::move(InState); }
+			{ CheckRHIExecutionThread(); State = std::move(InState); }
 			auto RHISetReplayStorageOwner(std::shared_ptr<void> Owner) -> void override
 			{
+				CheckRHIExecutionThread();
 				StorageOwner = std::move(Owner);
 				if (Active && StorageOwner)
 					Active->StorageOwners.push_back(StorageOwner);
 			}
 			auto RHIBeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(State && !Active, "Metal GPU submissions cannot nest.");
 				requiref(Desc.Queue == FRHIQueueId{0},
@@ -69,6 +72,7 @@ namespace Durin
 			}
 			auto RHIEndGPUSubmission(const FRHIGPUSyncPointRef& Signal) -> void override
 			{
+				CheckRHIExecutionThread();
 				requiref(State && Active && Signal && !RenderEncoder,
 					"Metal GPU submission end requires an active recording and signal.");
 				{
@@ -83,12 +87,14 @@ namespace Durin
 			}
 			auto RHIBeginFrame(const FRHIBeginFrameArgs&) -> void override
 			{
+				CheckRHIExecutionThread();
 				requiref(State && !bFrameOpen && !Active,
 					"Metal frame begin requires an idle command context.");
 				bFrameOpen = true;
 			}
 			auto RHISubmitCommands() -> void override
 			{
+				CheckRHIExecutionThread();
 				DURIN_PROFILE_CPU_ZONE_NAMED("Metal.SubmitCommands");
 				const FMetalAutoreleasePool Pool;
 				requiref(State && !Active,
@@ -125,6 +131,7 @@ namespace Durin
 			}
 			auto RHIEndFrame() -> void override
 			{
+				CheckRHIExecutionThread();
 				requiref(bFrameOpen && !Active && !RenderEncoder,
 					"Metal frame end requires closed GPU submissions.");
 				RHISubmitCommands();
@@ -132,6 +139,7 @@ namespace Durin
 			}
 			auto RHIBeginGPUTimingQuery(FRHIGPUTimingQuery* Query) -> void override
 			{
+				CheckRHIExecutionThread();
 				auto* Timing = dynamic_cast<FMetalGPUTimingQuery*>(Query);
 				requiref(Timing && State && Timing->Pool == State->TimingPool && !RenderEncoder,
 					"Metal timing requires a live device query outside a render pass.");
@@ -140,6 +148,7 @@ namespace Durin
 			}
 			auto RHIEndGPUTimingQuery(FRHIGPUTimingQuery* Query) -> void override
 			{
+				CheckRHIExecutionThread();
 				auto* Timing = dynamic_cast<FMetalGPUTimingQuery*>(Query);
 				requiref(Timing && !OpenTimingQueries.empty() && OpenTimingQueries.back() == Timing,
 					"Metal timing intervals must end in nesting order.");
@@ -148,10 +157,11 @@ namespace Durin
 				OpenTimingQueries.pop_back();
 			}
 			// Public recording validates region scope; unavailable native labels are harmless.
-			auto RHIBeginDiagnosticRegion(std::string_view) -> void override {}
-			auto RHIEndDiagnosticRegion() -> void override {}
+			auto RHIBeginDiagnosticRegion(std::string_view) -> void override { CheckRHIExecutionThread(); }
+			auto RHIEndDiagnosticRegion() -> void override { CheckRHIExecutionThread(); }
 			auto RHIBeginRenderPass(const FRHIRenderPassInfo& Info, FName) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				if (!Active && State)
 				{
@@ -285,6 +295,7 @@ namespace Durin
 			}
 			auto RHIEndRenderPass() -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(static_cast<bool>(RenderEncoder), "Metal render pass is not active.");
 				RenderEncoder->endEncoding();
@@ -312,6 +323,7 @@ namespace Durin
 			auto RHIBeginDrawingViewport(FRHIViewport* Viewport,
 				FRHITexture*) -> void override
 			{
+				CheckRHIExecutionThread();
 				auto* MetalViewport = dynamic_cast<FMetalViewport*>(Viewport);
 				requiref(State && MetalViewport && !Active && !RenderEncoder,
 					"Metal viewport drawing requires an idle context and viewport.");
@@ -320,6 +332,7 @@ namespace Durin
 			auto RHIEndDrawingViewport(FRHIViewport* Viewport,
 				bool bPresent, bool) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				auto* MetalViewport = dynamic_cast<FMetalViewport*>(Viewport);
 				requiref(State && MetalViewport && !Active && !RenderEncoder,
@@ -377,6 +390,7 @@ namespace Durin
 			auto RHISetViewport(float MinX, float MinY, float MinZ,
 				float MaxX, float MaxY, float MaxZ) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(RenderEncoder && std::isfinite(MinX)
 					&& std::isfinite(MinY) && std::isfinite(MinZ)
@@ -394,6 +408,7 @@ namespace Durin
 			auto RHISetScissor(float MinX, float MinY,
 				float Width, float Height) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(RenderEncoder && std::isfinite(MinX)
 					&& std::isfinite(MinY) && std::isfinite(Width)
@@ -411,6 +426,7 @@ namespace Durin
 			auto RHISetDepthBias(float ConstantFactor, float Clamp,
 				float SlopeFactor) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(RenderEncoder && GraphicsPipeline
 					&& GraphicsPipeline->GetRasterizer().bEnableDepthBias
@@ -421,6 +437,7 @@ namespace Durin
 			}
 			auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& State) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				auto* Pipeline = dynamic_cast<FMetalGraphicsPipelineState*>(&State);
 				requiref(RenderEncoder && Pipeline
@@ -444,6 +461,7 @@ namespace Durin
 			}
 			auto RHISetComputePipelineState(FRHIComputePipelineState& State) -> void override
 			{
+				CheckRHIExecutionThread();
 				requiref(Active && !RenderEncoder,
 					"Metal compute pipeline requires an active submission outside a render pass.");
 				auto* Pipeline = dynamic_cast<FMetalComputePipelineState*>(&State);
@@ -456,6 +474,7 @@ namespace Durin
 			auto RHIBindVertexBuffer(uint32 Stream, FRHIBuffer* Resource,
 				uint32 Offset) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(RenderEncoder, "Metal vertex binding requires a render pass.");
 				requiref(Stream < 16, "Metal vertex stream index exceeds 15.");
@@ -480,6 +499,7 @@ namespace Durin
 			}
 			auto RHIBindIndexBuffer(FRHIBuffer* Resource, uint32 Offset) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(RenderEncoder && Resource
 					&& IsBufferResource(Resource)
@@ -498,6 +518,7 @@ namespace Durin
 			auto RHITransitionBuffers(std::span<const FRHIBufferTransition> Transitions)
 			-> void override
 			{
+				CheckRHIExecutionThread();
 				const auto Error = ApplyMetalBufferTransitions(Transitions);
 				requiref(!Error, "{}", Error.value_or(""));
 				// Tracked resources on the single queue supply native hazard synchronization.
@@ -505,12 +526,14 @@ namespace Durin
 			auto RHITransitionTextures(std::span<const FRHITextureTransition> Transitions)
 			-> void override
 			{
+				CheckRHIExecutionThread();
 				const auto Error = ApplyMetalTextureTransitions(Transitions);
 				requiref(!Error, "{}", Error.value_or(""));
 			}
 			auto RHICopyBuffer(FRHIBuffer* Source, FRHIBuffer* Destination,
 			std::span<const FRHIBufferCopyRegion> Regions) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(Active && ValidateBufferCopies(Source, Destination, Regions),
 					"Invalid Metal buffer copy recording.");
@@ -532,6 +555,7 @@ namespace Durin
 			auto RHICopyBufferToTexture(FRHIBuffer* Source, FRHITexture* Destination,
 			std::span<const FRHIBufferTextureCopyRegion> Regions) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(Active && ValidateBufferToTextureCopies(Source, Destination, Regions),
 					"Invalid Metal buffer-to-texture copy.");
@@ -563,6 +587,7 @@ namespace Durin
 			auto RHICopyTextureToBuffer(FRHITexture* Source, FRHIBuffer* Destination,
 			std::span<const FRHIBufferTextureCopyRegion> Regions) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(Active && ValidateTextureToBufferCopies(Source, Destination, Regions),
 					"Invalid Metal texture-to-buffer copy.");
@@ -593,6 +618,7 @@ namespace Durin
 			auto RHICopyTexture(FRHITexture* Source, FRHITexture* Destination,
 			std::span<const FRHITextureCopyRegion> Regions) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(Active && ValidateTextureCopies(Source, Destination, Regions),
 					"Invalid Metal texture copy.");
@@ -620,6 +646,7 @@ namespace Durin
 			auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset,
 			FByteView Data) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(State && !RenderEncoder && Buffer
 					&& Offset <= Buffer->GetSize()
@@ -661,6 +688,7 @@ namespace Durin
 			}
 			auto RHIInitializeTexture(FRHITexture* Texture) -> void override
 			{
+				CheckRHIExecutionThread();
 				requiref(Texture && (Texture->GetDimension() == ETextureDimension::Texture2D
 					|| Texture->GetDimension() == ETextureDimension::Texture2DArray
 					|| Texture->GetDimension() == ETextureDimension::TextureCube
@@ -674,6 +702,7 @@ namespace Durin
 			uint32 ArraySlice, const FUpdateTextureRegion2D& Region,
 			uint32 SourcePitch, FByteView SourceData) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(State && Texture
 					&& (Texture->GetDimension() == ETextureDimension::Texture2D
@@ -747,6 +776,7 @@ namespace Durin
 			const FUpdateTextureRegion3D& Region, uint32 SourceRowPitch,
 			uint32 SourceDepthPitch, FByteView SourceData) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(State && Texture && Texture->GetDimension() == ETextureDimension::Texture3D
 					&& ToMetalPixelFormat(Texture->GetFormat()) != MTL::PixelFormatInvalid
@@ -816,6 +846,7 @@ namespace Durin
 			auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex,
 			uint32 ArraySlice, FByteBuffer& OutData) -> bool override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				OutData.clear();
 				if (!State || Active || !Texture || MipIndex >= Texture->GetNumMips()
@@ -862,6 +893,7 @@ namespace Durin
 			auto RHIEnqueueTextureReadback(FRHITexture* Texture, uint32 MipIndex,
 				uint32 ArraySlice, std::shared_ptr<FRHITextureReadback> Request) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				if (!Request || Request->GetState() != ERHITextureReadbackState::Pending)
 					return;
@@ -937,9 +969,10 @@ namespace Durin
 				}
 				Command->commit();
 			}
-			auto RHIAcquireBackBuffer(FRHITexture*) -> void override { Unsupported(); }
+			auto RHIAcquireBackBuffer(FRHITexture*) -> void override { CheckRHIExecutionThread(); Unsupported(); }
 			auto RHIBlockUntilGPUIdle() -> void override
 			{
+				CheckRHIExecutionThread();
 				RHISubmitCommands();
 				std::unique_lock Lock(State->Mutex);
 				State->Completion.wait(Lock,
@@ -948,6 +981,7 @@ namespace Durin
 			auto RHIPushConstants(EShaderStageFlags Stages, uint32 Offset,
 			uint32 Size, const void* Data) -> void override
 			{
+				CheckRHIExecutionThread();
 				if (RenderEncoder)
 				{
 					requiref(GraphicsPipeline && Data && Size
@@ -977,6 +1011,7 @@ namespace Durin
 			auto RHISetShaderParameters(FRHIShader* Shader,
 			const std::span<const FRHIShaderParameterResource>& Parameters) -> void override
 			{
+				CheckRHIExecutionThread();
 				FMetalParameterState* Values = nullptr;
 				FBoundBufferAllocations* Allocations = nullptr;
 				EShaderStageFlags Stage;
@@ -1005,10 +1040,14 @@ namespace Durin
 			}
 
 			auto RHIDispatch(uint32 X, uint32 Y, uint32 Z) -> void override
-				{ EncodeComputeDispatch(X, Y, Z, nullptr, 0); }
+			{
+				CheckRHIExecutionThread();
+				EncodeComputeDispatch(X, Y, Z, nullptr, 0);
+			}
 			auto RHIDispatchIndirect(FRHIBuffer* ArgumentBuffer,
 				uint64 Offset) -> void override
 			{
+				CheckRHIExecutionThread();
 				requiref(ArgumentBuffer
 					&& EnumHasAnyFlags(ArgumentBuffer->GetUsage(),
 						EBufferUsageFlags::DrawIndirect)
@@ -1131,6 +1170,7 @@ namespace Durin
 			}
 			auto RHIDraw(const FRHIDrawArguments& Args) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(RenderEncoder && GraphicsPipeline && Args.VertexCount
 					&& Args.InstanceCount
@@ -1148,6 +1188,7 @@ namespace Durin
 			}
 			auto RHIDrawIndexed(const FRHIDrawIndexedArguments& Args) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(RenderEncoder && GraphicsPipeline && IndexBuffer
 					&& Args.IndexCount && Args.InstanceCount
@@ -1169,6 +1210,7 @@ namespace Durin
 			auto RHIDrawIndirect(FRHIBuffer* ArgumentBuffer,
 				uint64 Offset) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(RenderEncoder && GraphicsPipeline && ArgumentBuffer
 					&& EnumHasAnyFlags(ArgumentBuffer->GetUsage(),
@@ -1189,6 +1231,7 @@ namespace Durin
 			auto RHIDrawIndexedIndirect(FRHIBuffer* ArgumentBuffer,
 				uint64 Offset) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				requiref(RenderEncoder && GraphicsPipeline && IndexBuffer
 					&& ArgumentBuffer
@@ -1368,6 +1411,7 @@ namespace Durin
 		public:
 			auto CancelPending() -> void override
 			{
+				CheckRHIExecutionThread();
 				PendingAttachmentStates.clear();
 				const FMetalAutoreleasePool Pool;
 				if (!State) return;

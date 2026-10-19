@@ -516,7 +516,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSemaphore::DestroyImmediately() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (Semaphore != VK_NULL_HANDLE)
 		{
 			Device.GetHandle().destroySemaphore(Semaphore);

@@ -163,7 +163,7 @@ namespace Durin::VulkanRHI
 
 	auto FDeferredDeletionQueue::ReleaseResources(bool bDeleteImmediately) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (bDeleteImmediately)
 		{
 			std::lock_guard<std::mutex> Lock(Mutex);
@@ -325,7 +325,7 @@ namespace Durin::VulkanRHI
 
 	void FVulkanDevice::InitGpu(const uint32 EnabledInstanceExtensionCount)
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		GpuProps = Gpu.getProperties();
 		DURIN_TRACE("Vulkan physical device: name=\"{}\", type={}, vendor=0x{:04x}, device=0x{:04x}, API={}.{}.{}, driver=0x{:x}.",
 			GpuProps.deviceName.data(), vk::to_string(GpuProps.deviceType), GpuProps.vendorID, GpuProps.deviceID,
@@ -517,7 +517,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDevice::WaitUtilIdle() const -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		Device.waitIdle();
 		PollQueues();
 	}
@@ -541,20 +541,20 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDevice::GetCurrentFrame() -> FVulkanFrame&
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		return *Frames[CurrentFrameIndex];
 	}
 
 	auto FVulkanDevice::SetCurrentFrameIndex(uint32 FrameIndex) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(FrameIndex < Frames.size());
 		CurrentFrameIndex = FrameIndex;
 	}
 
 	auto FVulkanDevice::GetCurrentFrameIndex() const -> uint32
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		return CurrentFrameIndex;
 	}
 
@@ -566,7 +566,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanDevice::NotifyDeleted_GraphicsPipeline(
 		FVulkanGraphicsPipelineState* PipelineState) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (ImmediateContext)
 		{
 			ImmediateContext->NotifyDeleted_GraphicsPipeline(PipelineState);
@@ -578,7 +578,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanDevice::NotifyDeleted_ComputePipeline(
 		FVulkanComputePipelineState* PipelineState) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (ImmediateContext)
 			ImmediateContext->NotifyDeleted_ComputePipeline(PipelineState);
 		if (ComputeContext && ComputeContext != ImmediateContext)
@@ -618,7 +618,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDevice::WaitForUses(const FRHIRetirementPrerequisites& Uses) const -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		for (const auto& SyncPoint : Uses.GetSyncPoints())
 		{
 			if (SyncPoint.IsRetirementEligible()) continue;
@@ -688,7 +688,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDevice::Destroy() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		// Creator work and published PSOs must retire while native managers live.
 		ShutdownPipelineStateCache();
 		if (!Device)

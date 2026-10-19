@@ -1,3 +1,4 @@
+#include "NativeRHIExecutionTestSupport.h"
 #include "VulkanIntegrationTestFixture.h"
 #include "VulkanTestSupport.h"
 #include "VulkanRHITestEnvironment.h"
@@ -188,11 +189,13 @@ namespace Durin::VulkanRHI
 			SCOPED_TRACE(Policy);
 			_putenv_s("DURIN_VULKAN_VALIDATION", Policy);
 			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-			const auto& Availability = static_cast<FVulkanDynamicRHI*>(GDynamicRHI)->GetDiagnosticAvailability();
-			const bool Requested = std::string_view(Policy) == "on";
-			EXPECT_EQ(Availability.bRequested, Requested);
-			EXPECT_EQ(Availability.bDebugUtilsActive, Requested && Availability.bDebugUtilsSupported);
-			EXPECT_EQ(Availability.bMessengerActive, Availability.bDebugUtilsActive);
+			::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+				const auto& Availability = static_cast<FVulkanDynamicRHI*>(GDynamicRHI)->GetDiagnosticAvailability();
+				const bool Requested = std::string_view(Policy) == "on";
+				EXPECT_EQ(Availability.bRequested, Requested);
+				EXPECT_EQ(Availability.bDebugUtilsActive, Requested && Availability.bDebugUtilsSupported);
+				EXPECT_EQ(Availability.bMessengerActive, Availability.bDebugUtilsActive);
+			});
 			RHIExit();
 			ExpectVulkanModuleUnloaded();
 		}
@@ -203,133 +206,49 @@ namespace Durin::VulkanRHI
 	{
 		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		static_cast<FVulkanDynamicRHI*>(GDynamicRHI)->GetDebugUtils().ResetStatistics();
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			static_cast<FVulkanDynamicRHI*>(GDynamicRHI)->GetDebugUtils().ResetStatistics();
 
-		FRHICommandListImmediate& Immediate = FRHICommandListImmediate::Get();
-		FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(
-			Immediate, FRHIBufferCreateDesc::Create(
-				"Stage2NamedBuffer", 256, 16,
-				EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Static));
-		ASSERT_TRUE(Buffer);
-		std::string Utf8BoundaryName(254, 'a');
-		Utf8BoundaryName += "\xc3\xa9";
-		auto* VulkanRHI = static_cast<FVulkanDynamicRHI*>(GDynamicRHI);
-		VulkanRHI->GetDebugUtils().NameObject(
-			static_cast<FVulkanBuffer*>(Buffer.GetReference())->GetHandle(),
-			Utf8BoundaryName);
-		std::string Outer = "Stage2Outer";
-		Immediate.BeginDiagnosticRegion(Outer);
-		Outer = "MutatedAfterRecording";
-		Immediate.BeginDiagnosticRegion("Stage2Inner");
-		Immediate.EndDiagnosticRegion();
-		Immediate.EndDiagnosticRegion();
-		Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
-			ERHISubmitFlags::SubmitToGPU);
-		GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
-			auto* Context = GDynamicRHI->RHIGetDefaultContext();
-			Context->RHIBeginDiagnosticRegion("NativeOuter");
-			Context->RHIBeginDiagnosticRegion("NativeInner");
-			Context->RHISubmitCommands();
-			Context->RHIEndDiagnosticRegion();
-			Context->RHIEndDiagnosticRegion();
-			Context->RHISubmitCommands();
-		});
-
-		const auto BeforePass = VulkanRHI->GetDebugUtils().Snapshot();
-		EXPECT_GE(BeforePass.NamingAttemptCount, 2u);
-		EXPECT_EQ(BeforePass.NamingFailureCount, 0u);
-		EXPECT_EQ(BeforePass.LabelBeginCount, 6u);
-		EXPECT_EQ(BeforePass.LabelEndCount, 6u);
-		EXPECT_EQ(BeforePass.ActiveLabelDepth, 0u);
-		EXPECT_GE(BeforePass.LabelHighWater, 2u);
-
-		FRHITextureCreateDesc RenderTargetDesc = FRHITextureCreateDesc::Create2D(
-			"Stage2RegionRenderTarget", 4, 4, EPixelFormat::RGBA8_UNORM);
-		RenderTargetDesc.Flags = ETextureCreateFlags::RenderTargetable;
-		FTextureRHIRef RenderTarget =
-			GDynamicRHI->RHICreateTexture(Immediate, RenderTargetDesc);
-		ASSERT_TRUE(RenderTarget);
-		FRHIRenderPassInfo PassInfo;
-		PassInfo.RenderTargetLayout.NumColorRenderTargets = 1;
-		auto& Attachment =
-			PassInfo.RenderTargetLayout.ColorAttachments[0].RenderTarget;
-		Attachment.Format = EPixelFormat::RGBA8_UNORM;
-		Attachment.LoadAction = ERHIRenderTargetLoadAction::Clear;
-		Attachment.StoreAction = ERHIRenderTargetStoreAction::Store;
-		Attachment.InitialLayout = ERHITextureLayout::Undefined;
-		Attachment.InitialAccess = ERHIAccess::None;
-		Attachment.FinalLayout = ERHITextureLayout::ColorAttachment;
-		Attachment.FinalAccess = ERHIAccess::ColorAttachmentReadWrite;
-		PassInfo.ColorRenderTargets[0] = RenderTarget;
-		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-			auto* Context = GDynamicRHI->RHIGetDefaultContext();
-			Context->RHIBeginDiagnosticRegion("Stage2OutsidePass");
-			Context->RHIBeginRenderPass(PassInfo, "Stage2RenderPass_42");
-			Context->RHIEndRenderPass();
-			Context->RHIEndDiagnosticRegion();
-		});
-		const auto AfterPass = VulkanRHI->GetDebugUtils().Snapshot();
-		EXPECT_EQ(AfterPass.LabelBeginCount - BeforePass.LabelBeginCount, 2u);
-		EXPECT_EQ(AfterPass.LabelEndCount - BeforePass.LabelEndCount, 2u);
-		EXPECT_EQ(AfterPass.ActiveLabelDepth, 0u);
-
-		Buffer = nullptr;
-		RenderTarget = nullptr;
-		Immediate.ImmediateFlush(
-			EImmediateFlushType::FlushRHIThreadFlushResources);
-	}
-
-	TEST_F(FVulkanDiagnosticsIntegrationTests,
-		PublicTransferTimingBecomesReadyWithoutImplicitWait)
-	{
-		for (const char* Mode : {"inline", "threaded"})
-		{
-			SCOPED_TRACE(Mode);
-			_putenv_s("DURIN_RHI_EXECUTION", Mode);
-			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 			FRHICommandListImmediate& Immediate = FRHICommandListImmediate::Get();
-			FGPUTimingQueryRHIRef Query =
-				GDynamicRHI->RHICreateGPUTimingQuery();
-			ASSERT_TRUE(Query);
-			EXPECT_EQ(GDynamicRHI->RHIGetGPUTimingResult(Query).State,
-				ERHIGPUTimingResultState::Invalid);
-
-			const auto Desc = FRHIBufferCreateDesc::Create(
-				"Stage3TimingBuffer", 4096, 4,
-				EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy);
-			FBufferRHIRef Source = GDynamicRHI->RHICreateBuffer(Immediate, Desc);
-			FBufferRHIRef Destination = GDynamicRHI->RHICreateBuffer(Immediate, Desc);
-			ASSERT_TRUE(Source && Destination);
-			Immediate.BeginGPUTimingQuery(Query);
-			Immediate.TransitionBuffers(std::array{
-				FRHIBufferTransition{Source, 0, 4096,
-					ERHIAccess::Discard, ERHIAccess::TransferRead},
-				FRHIBufferTransition{Destination, 0, 4096,
-					ERHIAccess::Discard, ERHIAccess::TransferWrite}});
-			Immediate.CopyBuffer(Source, Destination,
-				std::array{FRHIBufferCopyRegion{0, 0, 4096}});
-			Immediate.EndGPUTimingQuery(Query);
+			FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(
+				Immediate, FRHIBufferCreateDesc::Create(
+					"Stage2NamedBuffer", 256, 16,
+					EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Static));
+			ASSERT_TRUE(Buffer);
+			std::string Utf8BoundaryName(254, 'a');
+			Utf8BoundaryName += "\xc3\xa9";
+			auto* VulkanRHI = static_cast<FVulkanDynamicRHI*>(GDynamicRHI);
+			VulkanRHI->GetDebugUtils().NameObject(
+				static_cast<FVulkanBuffer*>(Buffer.GetReference())->GetHandle(),
+				Utf8BoundaryName);
+			std::string Outer = "Stage2Outer";
+			Immediate.BeginDiagnosticRegion(Outer);
+			Outer = "MutatedAfterRecording";
+			Immediate.BeginDiagnosticRegion("Stage2Inner");
+			Immediate.EndDiagnosticRegion();
+			Immediate.EndDiagnosticRegion();
 			Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
 				ERHISubmitFlags::SubmitToGPU);
-			EXPECT_EQ(GDynamicRHI->RHIGetGPUTimingResult(Query).State,
-				ERHIGPUTimingResultState::Pending);
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
+				auto* Context = GDynamicRHI->RHIGetDefaultContext();
+				Context->RHIBeginDiagnosticRegion("NativeOuter");
+				Context->RHIBeginDiagnosticRegion("NativeInner");
+				Context->RHISubmitCommands();
+				Context->RHIEndDiagnosticRegion();
+				Context->RHIEndDiagnosticRegion();
+				Context->RHISubmitCommands();
+			});
 
-			FRHIGPUTimingResult Result;
-			for (uint32 Attempt = 0; Attempt < 500; ++Attempt)
-			{
-				GCommandListExecutor.ExecuteSynchronousOperation(false, []() {
-					auto* VulkanRHI = static_cast<FVulkanDynamicRHI*>(GDynamicRHI);
-					PollVulkanGPUTimingForTest(*VulkanRHI);
-				});
-				Result = GDynamicRHI->RHIGetGPUTimingResult(Query);
-				if (Result.State == ERHIGPUTimingResultState::Ready) break;
-				std::this_thread::sleep_for(std::chrono::milliseconds(1));
-			}
-			EXPECT_EQ(Result.State, ERHIGPUTimingResultState::Ready);
-			EXPECT_GT(Result.DurationNanoseconds, 0u);
-			FRHITextureCreateDesc RenderTargetDesc =
-				FRHITextureCreateDesc::Create2D(
-					"Stage3TimingRenderTarget", 16, 16, EPixelFormat::RGBA8_UNORM);
+			const auto BeforePass = VulkanRHI->GetDebugUtils().Snapshot();
+			EXPECT_GE(BeforePass.NamingAttemptCount, 2u);
+			EXPECT_EQ(BeforePass.NamingFailureCount, 0u);
+			EXPECT_EQ(BeforePass.LabelBeginCount, 6u);
+			EXPECT_EQ(BeforePass.LabelEndCount, 6u);
+			EXPECT_EQ(BeforePass.ActiveLabelDepth, 0u);
+			EXPECT_GE(BeforePass.LabelHighWater, 2u);
+
+			FRHITextureCreateDesc RenderTargetDesc = FRHITextureCreateDesc::Create2D(
+				"Stage2RegionRenderTarget", 4, 4, EPixelFormat::RGBA8_UNORM);
 			RenderTargetDesc.Flags = ETextureCreateFlags::RenderTargetable;
 			FTextureRHIRef RenderTarget =
 				GDynamicRHI->RHICreateTexture(Immediate, RenderTargetDesc);
@@ -346,62 +265,150 @@ namespace Durin::VulkanRHI
 			Attachment.FinalLayout = ERHITextureLayout::ColorAttachment;
 			Attachment.FinalAccess = ERHIAccess::ColorAttachmentReadWrite;
 			PassInfo.ColorRenderTargets[0] = RenderTarget;
-			Immediate.SwitchPipeline(ERHIPipeline::Graphics);
-			Immediate.BeginGPUTimingQuery(Query);
-			Immediate.BeginRenderPass(PassInfo, "Stage3TimedGraphicsPass");
-			Immediate.EndRenderPass();
-			Immediate.EndGPUTimingQuery(Query);
-			Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
-				ERHISubmitFlags::SubmitToGPU);
-			EXPECT_EQ(GDynamicRHI->RHIGetGPUTimingResult(Query).State,
-				ERHIGPUTimingResultState::Pending);
-			for (uint32 Attempt = 0; Attempt < 500; ++Attempt)
-			{
-				GCommandListExecutor.ExecuteSynchronousOperation(false, []() {
-					PollVulkanGPUTimingForTest(
-						*static_cast<FVulkanDynamicRHI*>(GDynamicRHI));
-				});
-				Result = GDynamicRHI->RHIGetGPUTimingResult(Query);
-				if (Result.State == ERHIGPUTimingResultState::Ready) break;
-				std::this_thread::sleep_for(std::chrono::milliseconds(1));
-			}
-			EXPECT_EQ(Result.State, ERHIGPUTimingResultState::Ready);
-			EXPECT_GT(Result.DurationNanoseconds, 0u);
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+				auto* Context = GDynamicRHI->RHIGetDefaultContext();
+				Context->RHIBeginDiagnosticRegion("Stage2OutsidePass");
+				Context->RHIBeginRenderPass(PassInfo, "Stage2RenderPass_42");
+				Context->RHIEndRenderPass();
+				Context->RHIEndDiagnosticRegion();
+			});
+			const auto AfterPass = VulkanRHI->GetDebugUtils().Snapshot();
+			EXPECT_EQ(AfterPass.LabelBeginCount - BeforePass.LabelBeginCount, 2u);
+			EXPECT_EQ(AfterPass.LabelEndCount - BeforePass.LabelEndCount, 2u);
+			EXPECT_EQ(AfterPass.ActiveLabelDepth, 0u);
 
-			Query = nullptr;
-			Source = nullptr;
-			Destination = nullptr;
+			Buffer = nullptr;
 			RenderTarget = nullptr;
 			Immediate.ImmediateFlush(
 				EImmediateFlushType::FlushRHIThreadFlushResources);
+		});
+	}
 
-			FGPUTimingQueryRHIRef Orphaned =
-				GDynamicRHI->RHICreateGPUTimingQuery();
-			ASSERT_TRUE(Orphaned);
-			Immediate.BeginGPUTimingQuery(Orphaned);
-			Immediate.EndGPUTimingQuery(Orphaned);
-			// Replay without submitting, then drop the caller's last reference.
-			// The Vulkan context must own the recorded interval until submission.
-			Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
-			Orphaned = nullptr;
-			Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
-			Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
-				ERHISubmitFlags::SubmitToGPU);
-			for (uint32 Attempt = 0; Attempt < 500; ++Attempt)
-			{
-				GCommandListExecutor.ExecuteSynchronousOperation(false, []() {
-					PollVulkanGPUTimingForTest(
-						*static_cast<FVulkanDynamicRHI*>(GDynamicRHI));
-				});
-				if (GetVulkanGPUTimingStatisticsForTest(
-					*static_cast<FVulkanDynamicRHI*>(GDynamicRHI))
-					.PendingIntervals == 0) break;
-				std::this_thread::sleep_for(std::chrono::milliseconds(1));
-			}
-			Immediate.ImmediateFlush(
-				EImmediateFlushType::FlushRHIThreadFlushResources);
-			EXPECT_EQ(GetVulkanGPUTimingStatisticsForTest(
-				*static_cast<FVulkanDynamicRHI*>(GDynamicRHI)).LiveIntervals, 0u);
+	TEST_F(FVulkanDiagnosticsIntegrationTests,
+		PublicTransferTimingBecomesReadyWithoutImplicitWait)
+	{
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			SCOPED_TRACE(Mode);
+			_putenv_s("DURIN_RHI_EXECUTION", Mode);
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+			::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+				FRHICommandListImmediate& Immediate = FRHICommandListImmediate::Get();
+				FGPUTimingQueryRHIRef Query =
+					GDynamicRHI->RHICreateGPUTimingQuery();
+				ASSERT_TRUE(Query);
+				EXPECT_EQ(GDynamicRHI->RHIGetGPUTimingResult(Query).State,
+					ERHIGPUTimingResultState::Invalid);
+
+				const auto Desc = FRHIBufferCreateDesc::Create(
+					"Stage3TimingBuffer", 4096, 4,
+					EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy);
+				FBufferRHIRef Source = GDynamicRHI->RHICreateBuffer(Immediate, Desc);
+				FBufferRHIRef Destination = GDynamicRHI->RHICreateBuffer(Immediate, Desc);
+				ASSERT_TRUE(Source && Destination);
+				Immediate.BeginGPUTimingQuery(Query);
+				Immediate.TransitionBuffers(std::array{
+					FRHIBufferTransition{Source, 0, 4096,
+						ERHIAccess::Discard, ERHIAccess::TransferRead},
+					FRHIBufferTransition{Destination, 0, 4096,
+						ERHIAccess::Discard, ERHIAccess::TransferWrite}});
+				Immediate.CopyBuffer(Source, Destination,
+					std::array{FRHIBufferCopyRegion{0, 0, 4096}});
+				Immediate.EndGPUTimingQuery(Query);
+				Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+					ERHISubmitFlags::SubmitToGPU);
+				EXPECT_EQ(GDynamicRHI->RHIGetGPUTimingResult(Query).State,
+					ERHIGPUTimingResultState::Pending);
+
+				FRHIGPUTimingResult Result;
+				for (uint32 Attempt = 0; Attempt < 500; ++Attempt)
+				{
+					GCommandListExecutor.ExecuteSynchronousOperation(false, []() {
+						auto* VulkanRHI = static_cast<FVulkanDynamicRHI*>(GDynamicRHI);
+						PollVulkanGPUTimingForTest(*VulkanRHI);
+					});
+					Result = GDynamicRHI->RHIGetGPUTimingResult(Query);
+					if (Result.State == ERHIGPUTimingResultState::Ready) break;
+					std::this_thread::sleep_for(std::chrono::milliseconds(1));
+				}
+				EXPECT_EQ(Result.State, ERHIGPUTimingResultState::Ready);
+				EXPECT_GT(Result.DurationNanoseconds, 0u);
+				FRHITextureCreateDesc RenderTargetDesc =
+					FRHITextureCreateDesc::Create2D(
+						"Stage3TimingRenderTarget", 16, 16, EPixelFormat::RGBA8_UNORM);
+				RenderTargetDesc.Flags = ETextureCreateFlags::RenderTargetable;
+				FTextureRHIRef RenderTarget =
+					GDynamicRHI->RHICreateTexture(Immediate, RenderTargetDesc);
+				ASSERT_TRUE(RenderTarget);
+				FRHIRenderPassInfo PassInfo;
+				PassInfo.RenderTargetLayout.NumColorRenderTargets = 1;
+				auto& Attachment =
+					PassInfo.RenderTargetLayout.ColorAttachments[0].RenderTarget;
+				Attachment.Format = EPixelFormat::RGBA8_UNORM;
+				Attachment.LoadAction = ERHIRenderTargetLoadAction::Clear;
+				Attachment.StoreAction = ERHIRenderTargetStoreAction::Store;
+				Attachment.InitialLayout = ERHITextureLayout::Undefined;
+				Attachment.InitialAccess = ERHIAccess::None;
+				Attachment.FinalLayout = ERHITextureLayout::ColorAttachment;
+				Attachment.FinalAccess = ERHIAccess::ColorAttachmentReadWrite;
+				PassInfo.ColorRenderTargets[0] = RenderTarget;
+				Immediate.SwitchPipeline(ERHIPipeline::Graphics);
+				Immediate.BeginGPUTimingQuery(Query);
+				Immediate.BeginRenderPass(PassInfo, "Stage3TimedGraphicsPass");
+				Immediate.EndRenderPass();
+				Immediate.EndGPUTimingQuery(Query);
+				Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+					ERHISubmitFlags::SubmitToGPU);
+				EXPECT_EQ(GDynamicRHI->RHIGetGPUTimingResult(Query).State,
+					ERHIGPUTimingResultState::Pending);
+				for (uint32 Attempt = 0; Attempt < 500; ++Attempt)
+				{
+					GCommandListExecutor.ExecuteSynchronousOperation(false, []() {
+						PollVulkanGPUTimingForTest(
+							*static_cast<FVulkanDynamicRHI*>(GDynamicRHI));
+					});
+					Result = GDynamicRHI->RHIGetGPUTimingResult(Query);
+					if (Result.State == ERHIGPUTimingResultState::Ready) break;
+					std::this_thread::sleep_for(std::chrono::milliseconds(1));
+				}
+				EXPECT_EQ(Result.State, ERHIGPUTimingResultState::Ready);
+				EXPECT_GT(Result.DurationNanoseconds, 0u);
+
+				Query = nullptr;
+				Source = nullptr;
+				Destination = nullptr;
+				RenderTarget = nullptr;
+				Immediate.ImmediateFlush(
+					EImmediateFlushType::FlushRHIThreadFlushResources);
+
+				FGPUTimingQueryRHIRef Orphaned =
+					GDynamicRHI->RHICreateGPUTimingQuery();
+				ASSERT_TRUE(Orphaned);
+				Immediate.BeginGPUTimingQuery(Orphaned);
+				Immediate.EndGPUTimingQuery(Orphaned);
+				// Replay without submitting, then drop the caller's last reference.
+				// The Vulkan context must own the recorded interval until submission.
+				Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+				Orphaned = nullptr;
+				Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+				Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+					ERHISubmitFlags::SubmitToGPU);
+				for (uint32 Attempt = 0; Attempt < 500; ++Attempt)
+				{
+					GCommandListExecutor.ExecuteSynchronousOperation(false, []() {
+						PollVulkanGPUTimingForTest(
+							*static_cast<FVulkanDynamicRHI*>(GDynamicRHI));
+					});
+					if (GetVulkanGPUTimingStatisticsForTest(
+						*static_cast<FVulkanDynamicRHI*>(GDynamicRHI))
+						.PendingIntervals == 0) break;
+					std::this_thread::sleep_for(std::chrono::milliseconds(1));
+				}
+				Immediate.ImmediateFlush(
+					EImmediateFlushType::FlushRHIThreadFlushResources);
+				EXPECT_EQ(GetVulkanGPUTimingStatisticsForTest(
+					*static_cast<FVulkanDynamicRHI*>(GDynamicRHI)).LiveIntervals, 0u);
+			});
 			RHIExit();
 			ExpectVulkanModuleUnloaded();
 		}
@@ -412,36 +419,38 @@ namespace Durin::VulkanRHI
 	{
 		_putenv_s("DURIN_RHI_EXECUTION", "threaded");
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		auto* VulkanRHI = static_cast<FVulkanDynamicRHI*>(GDynamicRHI);
-		std::vector<FGPUTimingQueryRHIRef> Queries;
-		Queries.reserve(1280);
-		for (uint32 Index = 0; Index < 1280; ++Index)
-		{
-			FGPUTimingQueryRHIRef Query =
-				GDynamicRHI->RHICreateGPUTimingQuery();
-			ASSERT_TRUE(Query) << Index;
-			Queries.push_back(std::move(Query));
-		}
-		EXPECT_FALSE(GDynamicRHI->RHICreateGPUTimingQuery());
-		auto Statistics = GetVulkanGPUTimingStatisticsForTest(*VulkanRHI);
-		EXPECT_EQ(Statistics.IntervalCapacity, 1280u);
-		EXPECT_EQ(Statistics.AllocatedPages, 20u);
-		EXPECT_EQ(Statistics.LiveIntervals, 1280u);
-		EXPECT_EQ(Statistics.IntervalHighWater, 1280u);
-		EXPECT_EQ(Statistics.ExhaustionCount, 1u);
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			auto* VulkanRHI = static_cast<FVulkanDynamicRHI*>(GDynamicRHI);
+			std::vector<FGPUTimingQueryRHIRef> Queries;
+			Queries.reserve(1280);
+			for (uint32 Index = 0; Index < 1280; ++Index)
+			{
+				FGPUTimingQueryRHIRef Query =
+					GDynamicRHI->RHICreateGPUTimingQuery();
+				ASSERT_TRUE(Query) << Index;
+				Queries.push_back(std::move(Query));
+			}
+			EXPECT_FALSE(GDynamicRHI->RHICreateGPUTimingQuery());
+			auto Statistics = GetVulkanGPUTimingStatisticsForTest(*VulkanRHI);
+			EXPECT_EQ(Statistics.IntervalCapacity, 1280u);
+			EXPECT_EQ(Statistics.AllocatedPages, 20u);
+			EXPECT_EQ(Statistics.LiveIntervals, 1280u);
+			EXPECT_EQ(Statistics.IntervalHighWater, 1280u);
+			EXPECT_EQ(Statistics.ExhaustionCount, 1u);
 
-		Queries.clear();
-		FRHICommandListImmediate::Get().ImmediateFlush(
-			EImmediateFlushType::FlushRHIThreadFlushResources);
-		Statistics = GetVulkanGPUTimingStatisticsForTest(*VulkanRHI);
-		EXPECT_EQ(Statistics.LiveIntervals, 0u);
-		FGPUTimingQueryRHIRef Reused =
-			GDynamicRHI->RHICreateGPUTimingQuery();
-		ASSERT_TRUE(Reused);
-		EXPECT_GE(GetVulkanGPUTimingStatisticsForTest(*VulkanRHI).ReuseCount, 1u);
-		Reused = nullptr;
-		FRHICommandListImmediate::Get().ImmediateFlush(
-			EImmediateFlushType::FlushRHIThreadFlushResources);
+			Queries.clear();
+			FRHICommandListImmediate::Get().ImmediateFlush(
+				EImmediateFlushType::FlushRHIThreadFlushResources);
+			Statistics = GetVulkanGPUTimingStatisticsForTest(*VulkanRHI);
+			EXPECT_EQ(Statistics.LiveIntervals, 0u);
+			FGPUTimingQueryRHIRef Reused =
+				GDynamicRHI->RHICreateGPUTimingQuery();
+			ASSERT_TRUE(Reused);
+			EXPECT_GE(GetVulkanGPUTimingStatisticsForTest(*VulkanRHI).ReuseCount, 1u);
+			Reused = nullptr;
+			FRHICommandListImmediate::Get().ImmediateFlush(
+				EImmediateFlushType::FlushRHIThreadFlushResources);
+		});
 	}
 
 	TEST_F(FVulkanDiagnosticsIntegrationTests,
@@ -449,77 +458,79 @@ namespace Durin::VulkanRHI
 	{
 		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		FGPUTimingQueryRHIRef Query = GDynamicRHI->RHICreateGPUTimingQuery();
-		ASSERT_TRUE(Query);
-		FRHIDiagnosticSnapshot Before;
-		FRHIDiagnosticSnapshot Repeated;
-		FRHIDiagnosticSnapshot After;
-		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-			Before = GDynamicRHI->RHIGetDiagnosticSnapshot();
-			Repeated = GDynamicRHI->RHIGetDiagnosticSnapshot();
-			GDynamicRHI->RHIResetDiagnosticStatistics();
-			After = GDynamicRHI->RHIGetDiagnosticSnapshot();
+		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+			FGPUTimingQueryRHIRef Query = GDynamicRHI->RHICreateGPUTimingQuery();
+			ASSERT_TRUE(Query);
+			FRHIDiagnosticSnapshot Before;
+			FRHIDiagnosticSnapshot Repeated;
+			FRHIDiagnosticSnapshot After;
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+				Before = GDynamicRHI->RHIGetDiagnosticSnapshot();
+				Repeated = GDynamicRHI->RHIGetDiagnosticSnapshot();
+				GDynamicRHI->RHIResetDiagnosticStatistics();
+				After = GDynamicRHI->RHIGetDiagnosticSnapshot();
+			});
+
+			EXPECT_TRUE(Before.Availability.bRequested);
+			EXPECT_TRUE(Before.Availability.bDebugUtilsActive);
+			EXPECT_TRUE(Before.Availability.bValidationLayerActive);
+			EXPECT_TRUE(Before.Availability.bMessengerActive);
+			EXPECT_EQ(Before.Timing.IntervalCapacity, 1280u);
+			EXPECT_EQ(Before.Timing.AllocatedPages, 1u);
+			EXPECT_EQ(Before.Timing.LiveIntervals, 1u);
+			EXPECT_EQ(Before.Executor.Mode, ERHICommandListExecutorMode::Threaded);
+			EXPECT_GT(Before.Naming.NamingAttempts, 0u);
+			EXPECT_EQ(Repeated.Executor.RecordedCommandCount,
+				Before.Executor.RecordedCommandCount);
+			EXPECT_EQ(Repeated.Executor.SynchronousOperationCount,
+				Before.Executor.SynchronousOperationCount);
+			EXPECT_EQ(Repeated.Completion.LastSubmittedToken,
+				Before.Completion.LastSubmittedToken);
+			EXPECT_EQ(Repeated.Messages.Total, Before.Messages.Total);
+			EXPECT_EQ(Repeated.Naming.NamingAttempts, Before.Naming.NamingAttempts);
+			EXPECT_EQ(Repeated.Timing.ResultPollCount,
+				Before.Timing.ResultPollCount);
+
+			EXPECT_EQ(After.Availability.bDebugUtilsActive,
+				Before.Availability.bDebugUtilsActive);
+			EXPECT_EQ(After.Executor.RecordedCommandCount,
+				Before.Executor.RecordedCommandCount);
+			EXPECT_EQ(After.PipelineCache.GraphicsPipelines.Capacity,
+				Before.PipelineCache.GraphicsPipelines.Capacity);
+			EXPECT_EQ(After.PipelineCache.GraphicsPipelines.Occupancy,
+				Before.PipelineCache.GraphicsPipelines.Occupancy);
+			EXPECT_EQ(After.Completion.LastSubmittedToken,
+				Before.Completion.LastSubmittedToken);
+			EXPECT_EQ(After.Completion.PendingSubmissions,
+				Before.Completion.PendingSubmissions);
+			EXPECT_EQ(After.Memory.RetirementPendingCount,
+				Before.Memory.RetirementPendingCount);
+			for (uint32 ClassIndex = 0;
+				ClassIndex < FRHIMemoryStatistics::AllocationClassCount; ++ClassIndex)
+			{
+				EXPECT_EQ(After.Memory.Classes[ClassIndex].LiveAllocationCount,
+					Before.Memory.Classes[ClassIndex].LiveAllocationCount);
+				EXPECT_EQ(After.Memory.Classes[ClassIndex].LiveBytes,
+					Before.Memory.Classes[ClassIndex].LiveBytes);
+				EXPECT_EQ(After.Memory.Classes[ClassIndex].ArenaLiveBytes,
+					Before.Memory.Classes[ClassIndex].ArenaLiveBytes);
+			}
+			EXPECT_EQ(After.Timing.AllocatedPages, 1u);
+			EXPECT_EQ(After.Timing.LiveIntervals, 1u);
+			EXPECT_EQ(After.Timing.IntervalHighWater, 1u);
+			EXPECT_EQ(After.Timing.ExhaustionCount, 0u);
+			EXPECT_EQ(After.Messages.Total, 0u);
+			EXPECT_EQ(After.Naming.NamingAttempts, 0u);
+			EXPECT_EQ(After.Naming.ActiveRegionDepth, 0u);
+
+			Query = nullptr;
+			FRHICommandListImmediate::Get().ImmediateFlush(
+				EImmediateFlushType::FlushRHIThreadFlushResources);
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+				After = GDynamicRHI->RHIGetDiagnosticSnapshot();
+			});
+			EXPECT_EQ(After.Timing.LiveIntervals, 0u);
 		});
-
-		EXPECT_TRUE(Before.Availability.bRequested);
-		EXPECT_TRUE(Before.Availability.bDebugUtilsActive);
-		EXPECT_TRUE(Before.Availability.bValidationLayerActive);
-		EXPECT_TRUE(Before.Availability.bMessengerActive);
-		EXPECT_EQ(Before.Timing.IntervalCapacity, 1280u);
-		EXPECT_EQ(Before.Timing.AllocatedPages, 1u);
-		EXPECT_EQ(Before.Timing.LiveIntervals, 1u);
-		EXPECT_EQ(Before.Executor.Mode, ERHICommandListExecutorMode::Threaded);
-		EXPECT_GT(Before.Naming.NamingAttempts, 0u);
-		EXPECT_EQ(Repeated.Executor.RecordedCommandCount,
-			Before.Executor.RecordedCommandCount);
-		EXPECT_EQ(Repeated.Executor.SynchronousOperationCount,
-			Before.Executor.SynchronousOperationCount);
-		EXPECT_EQ(Repeated.Completion.LastSubmittedToken,
-			Before.Completion.LastSubmittedToken);
-		EXPECT_EQ(Repeated.Messages.Total, Before.Messages.Total);
-		EXPECT_EQ(Repeated.Naming.NamingAttempts, Before.Naming.NamingAttempts);
-		EXPECT_EQ(Repeated.Timing.ResultPollCount,
-			Before.Timing.ResultPollCount);
-
-		EXPECT_EQ(After.Availability.bDebugUtilsActive,
-			Before.Availability.bDebugUtilsActive);
-		EXPECT_EQ(After.Executor.RecordedCommandCount,
-			Before.Executor.RecordedCommandCount);
-		EXPECT_EQ(After.PipelineCache.GraphicsPipelines.Capacity,
-			Before.PipelineCache.GraphicsPipelines.Capacity);
-		EXPECT_EQ(After.PipelineCache.GraphicsPipelines.Occupancy,
-			Before.PipelineCache.GraphicsPipelines.Occupancy);
-		EXPECT_EQ(After.Completion.LastSubmittedToken,
-			Before.Completion.LastSubmittedToken);
-		EXPECT_EQ(After.Completion.PendingSubmissions,
-			Before.Completion.PendingSubmissions);
-		EXPECT_EQ(After.Memory.RetirementPendingCount,
-			Before.Memory.RetirementPendingCount);
-		for (uint32 ClassIndex = 0;
-			ClassIndex < FRHIMemoryStatistics::AllocationClassCount; ++ClassIndex)
-		{
-			EXPECT_EQ(After.Memory.Classes[ClassIndex].LiveAllocationCount,
-				Before.Memory.Classes[ClassIndex].LiveAllocationCount);
-			EXPECT_EQ(After.Memory.Classes[ClassIndex].LiveBytes,
-				Before.Memory.Classes[ClassIndex].LiveBytes);
-			EXPECT_EQ(After.Memory.Classes[ClassIndex].ArenaLiveBytes,
-				Before.Memory.Classes[ClassIndex].ArenaLiveBytes);
-		}
-		EXPECT_EQ(After.Timing.AllocatedPages, 1u);
-		EXPECT_EQ(After.Timing.LiveIntervals, 1u);
-		EXPECT_EQ(After.Timing.IntervalHighWater, 1u);
-		EXPECT_EQ(After.Timing.ExhaustionCount, 0u);
-		EXPECT_EQ(After.Messages.Total, 0u);
-		EXPECT_EQ(After.Naming.NamingAttempts, 0u);
-		EXPECT_EQ(After.Naming.ActiveRegionDepth, 0u);
-
-		Query = nullptr;
-		FRHICommandListImmediate::Get().ImmediateFlush(
-			EImmediateFlushType::FlushRHIThreadFlushResources);
-		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-			After = GDynamicRHI->RHIGetDiagnosticSnapshot();
-		});
-		EXPECT_EQ(After.Timing.LiveIntervals, 0u);
 	}
 
 	TEST_F(FVulkanDiagnosticsIntegrationTests,
@@ -533,17 +544,19 @@ namespace Durin::VulkanRHI
 			SCOPED_TRACE(Modes[Index]);
 			_putenv_s("DURIN_RHI_EXECUTION", Modes[Index]);
 			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-			FGPUTimingQueryRHIRef Query = GDynamicRHI->RHICreateGPUTimingQuery();
-			ASSERT_TRUE(Query);
-			GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-				Snapshots[Index] = GDynamicRHI->RHIGetDiagnosticSnapshot();
+			::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+				FGPUTimingQueryRHIRef Query = GDynamicRHI->RHICreateGPUTimingQuery();
+				ASSERT_TRUE(Query);
+				GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+					Snapshots[Index] = GDynamicRHI->RHIGetDiagnosticSnapshot();
+				});
+				EXPECT_EQ(Snapshots[Index].Executor.Mode, Index == 0
+					? ERHICommandListExecutorMode::Inline
+					: ERHICommandListExecutorMode::Threaded);
+				Query = nullptr;
+				FRHICommandListImmediate::Get().ImmediateFlush(
+					EImmediateFlushType::FlushRHIThreadFlushResources);
 			});
-			EXPECT_EQ(Snapshots[Index].Executor.Mode, Index == 0
-				? ERHICommandListExecutorMode::Inline
-				: ERHICommandListExecutorMode::Threaded);
-			Query = nullptr;
-			FRHICommandListImmediate::Get().ImmediateFlush(
-				EImmediateFlushType::FlushRHIThreadFlushResources);
 			RHIExit();
 			ExpectVulkanModuleUnloaded();
 		}

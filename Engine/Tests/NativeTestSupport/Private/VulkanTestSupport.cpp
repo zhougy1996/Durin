@@ -138,7 +138,7 @@ namespace Durin::VulkanRHI
 
 	auto RunVulkanQueueTransferForTesting(bool bSynchronization2) -> FVulkanQueueTransferTestResult
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		auto& RHI = FVulkanDynamicRHI::Get();
 		auto& Device = *GetTestDevice(RHI);
 		auto& Graphics = *Device.GetImmediateContext();
@@ -213,7 +213,7 @@ namespace Durin::VulkanRHI
 		require(&Compute != Device.GetGraphicsQueue() && Device.SupportsTimelineSemaphores());
 		vk::Semaphore Gate;
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
-			CheckVulkanRHIThread();
+			CheckRHIExecutionThread();
 			vk::SemaphoreTypeCreateInfo Type(vk::SemaphoreType::eTimeline, 0);
 			vk::SemaphoreCreateInfo Info;
 			Info.setPNext(&Type);
@@ -260,7 +260,7 @@ namespace Durin::VulkanRHI
 
 	auto RunVulkanCrossQueueWaitForTesting() -> FVulkanCrossQueueWaitTestResult
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		auto& Device = *GetTestDevice();
 		auto& Compute = *Device.GetComputeQueue();
 		auto& Graphics = *Device.GetGraphicsQueue();
@@ -459,7 +459,7 @@ namespace Durin::VulkanRHI
 
 	auto TestVulkanSubmissionBoundary() -> FVulkanSubmissionBoundaryTestResult
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		auto& Device = *GetTestDevice();
 		auto& Context = *Device.GetImmediateContext();
 		auto& Tracker = Context.GetQueue()->GetCompletionTracker();
@@ -571,7 +571,7 @@ namespace Durin::VulkanRHI
 
 	auto TestVulkanSealedPressure() -> FVulkanSealedPressureTestResult
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		auto& RHI = FVulkanDynamicRHI::Get();
 		auto& Device = *GetTestDevice(RHI);
 		auto& Coordinator = Device.GetSubmissionCoordinator();
@@ -637,7 +637,7 @@ namespace Durin::VulkanRHI
 
 	auto TestVulkanSealedPressureDependency() -> bool
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		auto& RHI = FVulkanDynamicRHI::Get();
 		auto& Device = *GetTestDevice(RHI);
 		auto& Coordinator = Device.GetSubmissionCoordinator();
@@ -669,7 +669,7 @@ namespace Durin::VulkanRHI
 
 	auto GetLastVulkanSyncPointForTesting() -> FRHIGPUSyncPointRef
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		auto* Device = GetTestDevice();
 		return Device ? Device->GetCompletionTracker().GetLastReservedSyncPoint()
 			: FRHIGPUSyncPointRef{};
@@ -677,7 +677,7 @@ namespace Durin::VulkanRHI
 
 	auto TestVulkanSyncPointStorage() -> bool
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		auto& Device = *GetTestDevice();
 		auto& Queue = *Device.GetGraphicsQueue();
 		auto& Tracker = Queue.GetCompletionTracker();
@@ -715,7 +715,7 @@ namespace Durin::VulkanRHI
 
 	auto GetVulkanCompletionTestStats() -> FVulkanCompletionTestStats
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		FVulkanDevice* Device = GetTestDevice();
 		if (!Device)
 		{
@@ -731,7 +731,7 @@ namespace Durin::VulkanRHI
 
 	auto SubmitAndRetireDescriptorPoolsForTesting() -> uint64
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		FVulkanDevice* Device = GetTestDevice();
 		const FVulkanCompletionToken Token =
 			FRHIGPUSyncPointBackend::GetPoint(Device->GetSubmissionCoordinator().SubmitContext(*Device->GetImmediateContext())).Value;
@@ -741,14 +741,14 @@ namespace Durin::VulkanRHI
 
 	auto WaitForAllVulkanSubmissionsForTesting() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		GetTestDevice()
 			->GetCompletionTracker().WaitForAll();
 	}
 
 	auto ReleaseCompletedVulkanResourcesForTesting() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		GetTestDevice()
 			->GetDeferredDeletionQueue().ReleaseResources();
 	}

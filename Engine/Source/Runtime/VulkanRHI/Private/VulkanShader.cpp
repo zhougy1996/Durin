@@ -127,7 +127,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanShader::~FVulkanShader()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (ShaderModule)
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(

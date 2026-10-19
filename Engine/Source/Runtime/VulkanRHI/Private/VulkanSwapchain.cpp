@@ -187,7 +187,7 @@ namespace Durin::VulkanRHI
 		, Surface(InSurface)
 		, PresentationPolicy(InPresentationPolicy)
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		bOutNativeSwapchainCreated = false;
 		if (!Device.SetupPresentQueue(Surface))
 		{
@@ -257,7 +257,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSwapchain::InitializeSynchronizationResources() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(ImageAcquiredSemaphores.empty());
 		try
 		{
@@ -280,7 +280,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanSwapchain::~FVulkanSwapchain()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		Destroy();
 	}
 
@@ -291,7 +291,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSwapchain::AcquireImageIndex(FVulkanSemaphore** OutImageAcquiredSemaphore) -> uint32
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		FVulkanSemaphore* CurrentSemaphore = ImageAcquiredSemaphores[NextSemaphoreIndex];
 		NextSemaphoreIndex = (NextSemaphoreIndex + 1) % ImageAcquiredSemaphores.size();
 
@@ -348,7 +348,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSwapchain::Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore, vk::Fence PresentFence) -> FVulkanPresentOutcome
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (CurrentImageIndex < 0)
 		{
 			return {};
@@ -439,7 +439,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSwapchain::Destroy() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		for (FVulkanSemaphore* Semaphore : ImageAcquiredSemaphores)
 		{
 			Semaphore->DestroyImmediately();

@@ -42,7 +42,7 @@ namespace Durin::VulkanRHI
 		: FVulkanTexture(InDevice, nullptr)
 		, Viewport(InViewport)
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (Viewport->GetSwapchain() != nullptr)
 		{
 			UpdateSwapchain();
@@ -51,7 +51,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanBackBuffer::UpdateSwapchain() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		AdvanceExternalImageBacking();
 		const vk::Extent2D Extent = Viewport->GetSwapchain()->GetExtent();
 		SizeX = Extent.width;
@@ -64,7 +64,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanBackBuffer::InvalidateSwapchain() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		AdvanceExternalImageBacking();
 		SetExternalImage(VK_NULL_HANDLE);
 	}
@@ -72,7 +72,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanBackBuffer::AcquireBackBufferImage(
 		FVulkanCommandListContext& Context) -> bool
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		const FVulkanView* View = Viewport->AcquireBackBufferImage();
 		if (View == nullptr)
 		{
@@ -115,7 +115,7 @@ namespace Durin::VulkanRHI
 		, PresentationPolicy(InPresentationPolicy)
 		, RequestedPresentationPolicy(InPresentationPolicy)
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		Surface = InPresentationSurface
 			? InPresentationSurface
 			: FVulkanGenericPlatform::CreateSurface(
@@ -145,7 +145,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanViewport::~FVulkanViewport()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		WaitForSwapchainIdle();
 		DestroySwapchain();
 		CollectRetiredSwapchains(true);
@@ -172,7 +172,7 @@ namespace Durin::VulkanRHI
 		const bool bFullscreenChanged = bIsFullScreen != bInIsFullScreen;
 		GCommandListExecutor.ExecuteSynchronousOperation(true,
 			[this, InSizeX, InSizeY, bInIsFullScreen, bFullscreenChanged]() {
-				CheckVulkanRHIThread();
+				CheckRHIExecutionThread();
 				bIsFullScreen = bInIsFullScreen;
 				RequestResize(InSizeX, InSizeY);
 				bSwapchainNeedsRecreate |= bFullscreenChanged;
@@ -182,7 +182,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::BeginDrawing() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		const auto RequestedPolicy = RequestedPresentationPolicy.load(std::memory_order_relaxed);
 		if (PresentationPolicy != RequestedPolicy)
 		{
@@ -195,7 +195,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::RequestResize(uint32 InSizeX, uint32 InSizeY) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (InSizeX == 0 || InSizeY == 0)
 		{
 			return;
@@ -215,7 +215,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::PrepareSwapchain() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (Swapchain != nullptr && Swapchain->NeedsRecreate() && !bSwapchainNeedsRecreate)
 		{
 			bSwapchainNeedsRecreate = true;
@@ -246,14 +246,14 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::MarkSwapchainNeedsRecreate() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		bSwapchainNeedsRecreate = true;
 		bSwapchainRetryEligible = true;
 	}
 
 	auto FVulkanViewport::RecreateSwapchain() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		bSwapchainNeedsRecreate = true;
 		bSwapchainRetryEligible = true;
 		PrepareSwapchain();
@@ -261,7 +261,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::AcquireBackBufferImage() -> FVulkanView*
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (Swapchain == nullptr)
 		{
 			return nullptr;
@@ -304,7 +304,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanViewport::Present(FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("VulkanViewport.Present");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (AcquiredBackBufferIndex < 0 || AcquiredBackBufferIndex >= static_cast<int32>(FrameResources.size()))
 		{
 			return false;
@@ -358,7 +358,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanViewport::TryCreateSwapchain(uint32 TargetSizeX, uint32 TargetSizeY) -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("VulkanViewport.TryCreateSwapchain");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		CollectRetiredSwapchains(false);
 		const bool bDeferCurrentSwapchainDestruction =
 			CanDeferCurrentSwapchainDestruction();
@@ -531,7 +531,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanViewport::DestroySwapchain() -> void
 	{
 		PublishedPresentMode.store(EViewportPresentMode::Unavailable, std::memory_order_relaxed);
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		for (const FVulkanView& View : TextureViews)
 		{
 			Device.GetHandle().destroyImageView(View.ImageView);
@@ -645,7 +645,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::SetOutputUnavailable() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (RHIBackBuffer)
 		{
 			RHIBackBuffer->InvalidateSwapchain();
@@ -656,7 +656,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanViewport::DestroyFrameResources(
 		std::vector<FVulkanViewportFrameResources>& Resources) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		for (FVulkanViewportFrameResources& FrameResource : Resources)
 		{
 			check(FrameResource.State != EVulkanPresentResourceState::PresentPending);
@@ -674,7 +674,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::WaitForFrameResource(FVulkanViewportFrameResources& FrameResource) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (FrameResource.State == EVulkanPresentResourceState::Available)
 		{
 			return;
@@ -690,7 +690,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::WaitForSwapchainIdle() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (!Device.SupportsSwapchainMaintenance1())
 		{
 			Device.GetGraphicsQueue()->GetHandle().waitIdle();
@@ -736,7 +736,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanDynamicRHI::RHICreateViewport(
 		const FRHIViewportCreateInfo& CreateInfo) -> TRefCountPtr<FRHIViewport>
 	{
-		check(IsInGameThread());
+		check(IsInGameThread() || (!GRHIThread && IsInRHIExecutionThread()));
 		if (!CreateInfo.PresentationTarget.IsValid()
 			|| CreateInfo.SizeX == 0 || CreateInfo.SizeY == 0)
 		{
@@ -776,22 +776,51 @@ namespace Durin::VulkanRHI
 				});
 			return Result;
 		}
-		return MakeRefCount<FVulkanViewport>(*Device,
-			CreateInfo.PresentationTarget.GetNativeWindowHandle(),
-			CreateInfo.SizeX, CreateInfo.SizeY, CreateInfo.bIsFullscreen,
-			CreateInfo.PreferredPixelFormat, CreateInfo.PresentationPolicy,
-			PresentationSurface);
+		if (IsInRHIExecutionThread())
+		{
+			return MakeRefCount<FVulkanViewport>(*Device,
+				CreateInfo.PresentationTarget.GetNativeWindowHandle(),
+				CreateInfo.SizeX, CreateInfo.SizeY, CreateInfo.bIsFullscreen,
+				CreateInfo.PreferredPixelFormat, CreateInfo.PresentationPolicy,
+				PresentationSurface);
+		}
+		requiref(GRenderingThread,
+			"Inline Vulkan viewport creation requires a running rendering thread.");
+		std::exception_ptr Failure;
+		ENQUEUE_RENDER_COMMAND(CreateInlineVulkanViewport)(
+			[this, CreateInfo, PresentationSurface, &Result, &Failure](FRHICommandListImmediate&) {
+				try
+				{
+					Result = MakeRefCount<FVulkanViewport>(*Device,
+						CreateInfo.PresentationTarget.GetNativeWindowHandle(),
+						CreateInfo.SizeX, CreateInfo.SizeY, CreateInfo.bIsFullscreen,
+						CreateInfo.PreferredPixelFormat, CreateInfo.PresentationPolicy,
+						PresentationSurface);
+				}
+				catch (...) { Failure = std::current_exception(); }
+			});
+		FRenderCommandFence Fence;
+		Fence.BeginFence();
+		Fence.Wait();
+		if (Failure) std::rethrow_exception(Failure);
+		return Result;
 	}
 
 	auto FVulkanDynamicRHI::RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen) -> void
 	{
-		check(IsInGameThread());
+		check(IsInGameThread() || (!GRHIThread && IsInRHIExecutionThread()));
 		if (InSizeX == 0 || InSizeY == 0)
 		{
 			return;
 		}
 
 		TRefCountPtr<FRHIViewport> Viewport = InViewport;
+		if (!GRHIThread && IsInRHIExecutionThread())
+		{
+			static_cast<FVulkanViewport*>(InViewport)->Resize(
+				FRHICommandListImmediate::Get(), InSizeX, InSizeY, bInIsFullscreen);
+			return;
+		}
 		ENQUEUE_RENDER_COMMAND(ResizeViewport)(
 			[Viewport = std::move(Viewport), InSizeX, InSizeY,
 			 bInIsFullscreen](FRHICommandListImmediate& RHICmdList)

@@ -1,4 +1,6 @@
 #include "VulkanRHITestEnvironment.h"
+#include "CoreGlobals.h"
+#include "HAL/PlatformLTS.h"
 
 #include "Application/GenericApplication.h"
 #include "ApplicationCoreGlobals.h"
@@ -92,6 +94,11 @@ namespace Durin::VulkanRHI
 
 	auto GetVulkanTestInitializationContext() -> FRHIInitializationContext
 	{
+		if (!GIsGameThreadIdInitialized)
+		{
+			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+			GIsGameThreadIdInitialized = true;
+		}
 	#if defined(_WIN32) || defined(__APPLE__)
 		static FVulkanTestPresentationWindow PresentationWindow;
 		return PresentationWindow.GetInitializationContext();

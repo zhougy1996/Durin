@@ -243,7 +243,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanBuffer::PrepareDiscardWrite(IRHICommandContext&) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		// Temporary bytes are consumed on replay, using the original backing and its
 		// existing frame synchronization. Never overwrite an in-flight discard version.
 		ActiveWriteRange.reset();
@@ -254,7 +254,7 @@ namespace Durin::VulkanRHI
 		std::shared_ptr<FRHIDynamicBufferWriteRange> Range, uint32 Offset, uint32 Size) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Buffer.CommitMappedWrite");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		ActiveWriteRange = std::move(Range);
 		auto* Backing = GetBackingBuffer();
 		Backing->FlushMappedMemory(Offset, Size);
@@ -274,7 +274,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanBuffer::InitializeUniformRange(FByteView Data, uint32 Offset) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(Offset <= GetSize() && Data.size() <= GetSize() - Offset && GetMappedPointer());
 		std::memcpy(static_cast<std::byte*>(GetMappedPointer()) + Offset, Data.data(), Data.size());
 		FlushMappedMemory(Offset, static_cast<uint32>(Data.size()));
@@ -285,7 +285,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanBuffer::~FVulkanBuffer()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 #if DURIN_WITH_TRACY
 		if (bMappedWriteBacking)
 		{
@@ -312,7 +312,7 @@ namespace Durin::VulkanRHI
 		uint32 Offset,
 		FByteView Data) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset);
 		require(!bUniformBacking);
 		if (ActiveWriteRange)

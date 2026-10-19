@@ -260,10 +260,12 @@ namespace Durin
 		virtual auto RHIEndFrame() -> void = 0;
 		RHI_API virtual auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void;
 
-		// Must be called from the main thread.
+		// Prepare the platform target on the main thread. Inline creation runs on
+		// the rendering execution thread; coordination layers dispatch as needed.
 		virtual auto RHICreateViewport(const FRHIViewportCreateInfo& CreateInfo)
 			-> TRefCountPtr<FRHIViewport> = 0;
-		// Must be called from the main thread.
+		// Inline back-buffer mutation runs on the rendering execution thread,
+		// ordered after earlier draws. Threaded backends retain main-thread entry.
 		virtual auto RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bIsFullscreen) -> void = 0;
 
 		virtual auto RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> = 0;

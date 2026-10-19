@@ -26,7 +26,7 @@ namespace Durin::VulkanRHI
 		std::span<FRHIResource* const> References) -> void
 	{
 		DURIN_VULKAN_PROFILE_DETAIL("Vulkan.Uniform.Update");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		require(Data.size() == GetSize());
 		auto Next = std::make_shared<FVulkanUniformAllocation>();
 		Next->Reservation = Device.GetUniformBufferPool().Reserve(GetSize());
@@ -48,7 +48,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanUniformBuffer::GetAllocation() -> const std::shared_ptr<FVulkanUniformAllocation>&
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (!Allocation)
 		{
 			require(GetPendingData());

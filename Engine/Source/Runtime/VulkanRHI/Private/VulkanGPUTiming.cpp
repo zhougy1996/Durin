@@ -114,7 +114,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanGPUTimingManager::CreateQuery()
 		-> TRefCountPtr<FVulkanGPUTimingQuery>
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		for (;;)
 		{
 			for (uint32 PageIndex = 0; PageIndex < Pages.size(); ++PageIndex)
@@ -234,7 +234,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanGPUTimingManager::ReleaseSlot(uint32 PageIndex,
 		uint32 IntervalIndex, uint32 Generation, bool bWasReady) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(PageIndex < Pages.size());
 		FPage& Page = Pages[PageIndex];
 		check(Page.Generations[IntervalIndex] == Generation);

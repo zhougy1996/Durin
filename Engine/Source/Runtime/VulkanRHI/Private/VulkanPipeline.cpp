@@ -455,7 +455,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanGraphicsPipelineState::~FVulkanGraphicsPipelineState()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(Pipeline);
 		check(PipelineLayout);
 		Device.NotifyDeleted_GraphicsPipeline(this);
@@ -549,7 +549,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanComputePipelineState::~FVulkanComputePipelineState()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		Device.NotifyDeleted_ComputePipeline(this);
 		Device.GetDeferredDeletionQueue().EnqueueResource(
 			FDeferredDeletionQueue::EType::Pipeline, Pipeline);

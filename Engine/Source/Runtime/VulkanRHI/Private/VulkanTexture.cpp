@@ -163,7 +163,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanTexture::~FVulkanTexture()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (OwnerType == EImageOwnerType::LocalOwner)
 		{
 			constexpr ETextureCreateFlags FramebufferAttachmentFlags =
@@ -222,7 +222,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanSampler::~FVulkanSampler()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (Sampler)
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(
@@ -288,7 +288,7 @@ namespace Durin::VulkanRHI
 		FVulkanCommandListContext& Context,
 		FRHITexture* Texture) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
 		check(VulkanTexture);
 		if (!EnumHasAnyFlags(VulkanTexture->CreateFlags, ETextureCreateFlags::Storage))
@@ -502,7 +502,7 @@ namespace Durin::VulkanRHI
 		uint32 SourcePitch,
 		FByteView SourceData) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		checkf(Texture != nullptr, "RHIUpdateTexture2D requires a texture.");
 		checkf(!SourceData.empty(), "RHIUpdateTexture2D requires source data.");
 		const FRHITextureDesc TextureDesc = GetTextureUploadDesc(*Texture);
@@ -570,7 +570,7 @@ namespace Durin::VulkanRHI
 		uint32 SourceDepthPitch,
 		FByteView SourceData) -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		checkf(Texture != nullptr, "RHIUpdateTexture3D requires a texture.");
 		checkf(!SourceData.empty(), "RHIUpdateTexture3D requires source data.");
 		const FRHITextureDesc TextureDesc = GetTextureUploadDesc(*Texture);
@@ -633,7 +633,7 @@ namespace Durin::VulkanRHI
 		std::shared_ptr<FRHITextureReadback> AsyncRequest
 	) -> bool
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		OutData.clear();
 		if (Texture == nullptr || MipIndex >= Texture->GetNumMips() || ArraySlice >= Texture->GetArraySize()
 			|| Texture->GetNumSamples() != 1)

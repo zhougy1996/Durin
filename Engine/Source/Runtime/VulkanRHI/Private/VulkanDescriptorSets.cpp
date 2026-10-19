@@ -197,7 +197,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanGlobalDescriptorPool::GetActiveBatch() -> FPoolBatch&
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(ActiveBatchIndex < Batches.size());
 		return Batches[ActiveBatchIndex];
 	}
@@ -295,7 +295,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanGlobalDescriptorPool::PrepareForUse() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(ActiveBatchIndex == std::numeric_limits<uint32>::max());
 		Device.PollQueues();
 		for (uint32 Index = 0; Index < Batches.size(); ++Index)
@@ -334,7 +334,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanGlobalDescriptorPool::RetireUsedPools() -> void
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (ActiveBatchIndex == std::numeric_limits<uint32>::max())
 		{
 			return;

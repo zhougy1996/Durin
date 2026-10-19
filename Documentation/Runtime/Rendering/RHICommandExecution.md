@@ -11,6 +11,37 @@ executor contract but replays on the rendering thread for focused diagnostics.
 `Immediate` identifies the primary timeline and coordination surface, not a
 direct backend-call path.
 
+Backends share `IsInRHIExecutionThread()` and `CheckRHIExecutionThread()` from
+`RHIThread.h` for execution affinity. When `GRHIThread` exists, only that exact
+owner is accepted. Without an RHI thread, execution belongs to the rendering
+thread. The registered game thread is accepted only when no rendering thread
+exists, so initialization, shutdown, and synchronous single-threaded operation
+use the same fallback. A live rendering thread never grants game-thread backend
+execution permission. Unknown, worker, and IO threads remain rejected.
+
+`RHIInit`, `RHIInitWithBackendForTests`, and `RHIExit` require the registered game
+thread and no live rendering thread. Initialization precedes rendering-thread
+launch; shutdown follows rendering-thread stop and join. These entry preconditions
+are checked in every build configuration. Actual ordering comes from the managed
+thread lifecycle, command queues, fences, and joins. Affinity checks do not acquire
+locks or temporary execution permissions; there is no rendering-loop ownership
+scope. Thread publication/removal must be synchronized with callers, as with the
+rest of the RHI lifecycle. `IsInRHIThread()` retains its thread-role meaning;
+`IsExecutingRHICommands()` describes replay scope.
+
+Metal checks lifecycle, command-context mutation and uniform allocation through
+the same execution-affinity API, retaining its uniform command-replay checks.
+Thread-safe creation factories, pipeline compiler tasks, synchronized snapshots,
+and driver completion callbacks retain their own concurrency contracts.
+
+Platform presentation targets are prepared on the game thread. In inline mode,
+Mona dispatches viewport creation and resize to the rendering thread and waits
+for completion before publishing their result. Vulkan also dispatches native
+viewport creation when its game-thread entrypoint is used directly; rendering
+execution can create or resize inline without another dispatch. Metal's inline
+viewport mutations use the same execution-affinity check. These runtime paths
+do not grant game-thread access while a rendering thread is running.
+
 ## Results and diagnostics
 
 Detailed resource, transfer, transition, indirect-command, and shader-binding

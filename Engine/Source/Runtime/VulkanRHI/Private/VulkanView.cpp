@@ -38,7 +38,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanBufferView::~FVulkanBufferView()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (BufferView)
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(
@@ -80,7 +80,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanTextureView::~FVulkanTextureView()
 	{
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		if (ImageView)
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(

@@ -8,6 +8,15 @@ namespace Durin
 {
 	class FRunnableThread;
 
+	// Backend execution affinity, independent of command replay scope.
+	// With a dedicated RHI owner, only that exact thread may execute. Without
+	// one, execution belongs to the rendering thread, or the registered game
+	// thread when no rendering thread exists. This is an affinity check, not
+	// synchronization: rendering-thread start/stop and command fences order work.
+	// Thread-owner publication/removal must be synchronized with these calls.
+	RHI_API auto IsInRHIExecutionThread() -> bool;
+	RHI_API auto CheckRHIExecutionThread() -> void;
+
 	enum class ERHIThreadAdmissionState : uint8
 	{
 		Stopped,

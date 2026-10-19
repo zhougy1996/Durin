@@ -52,7 +52,7 @@ namespace Durin::VulkanRHI
 		-> FVulkanCompletionToken
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Submission.SubmitPayloads");
-		CheckVulkanRHIThread();
+		CheckRHIExecutionThread();
 		check(!Payloads.empty());
 		std::vector<FVulkanSubmitInfoStorage> SubmitInfoStorages;
 		SubmitInfoStorages.reserve(Payloads.size());

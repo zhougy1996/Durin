@@ -16,6 +16,8 @@
 #include "MetalResourceState.h"
 #include <mach/mach_time.h>
 #include "RHICommandList.h"
+#include "RHIThread.h"
+#include "CoreGlobals.h"
 #include "PipelineStateCache.h"
 #include "Threading/Task.h"
 
@@ -24,6 +26,7 @@ namespace Durin
 
 	auto FMetalUniformBuffer::UpdateContents(FByteView Data, std::span<FRHIResource* const> References) -> void
 	{
+		CheckRHIExecutionThread();
 		require(IsExecutingRHICommands() && Data.size() == GetSize());
 		const FMetalAutoreleasePool Pool;
 		auto Next = std::make_shared<FMetalUniformAllocation>();
@@ -36,6 +39,7 @@ namespace Durin
 
 	auto FMetalUniformBuffer::GetAllocation() -> const std::shared_ptr<FMetalUniformAllocation>&
 	{
+		CheckRHIExecutionThread();
 		require(IsExecutingRHICommands());
 		if (!Allocation)
 		{
@@ -70,6 +74,7 @@ namespace Durin
 			auto GetSubmissionQueue() const -> MTL::CommandQueue* { return Queue.get(); }
 			auto Init(const FRHIInitializationContext& Context) -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				try
 				{
@@ -224,6 +229,7 @@ namespace Durin
 
 			auto Shutdown() -> void override
 			{
+				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				RHIStopPipelineCreation();
 				RHIRetirePipelineCreationResults();
@@ -289,6 +295,7 @@ namespace Durin
 			auto RHICreateViewport(const FRHIViewportCreateInfo& Info)
 			-> TRefCountPtr<FRHIViewport> override
 			{
+				if (!GRHIThread) CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
 				if (!Device || !Info.PresentationTarget.IsValid() || !Info.SizeX || !Info.SizeY) return nullptr;
 				const auto* NativeTarget = dynamic_cast<const FMacOSPresentationTarget*>(Info.PresentationTarget.PlatformTarget.get());
@@ -320,6 +327,7 @@ namespace Durin
 			auto RHIResizeViewport(FRHIViewport* Viewport,
 				uint32 Width, uint32 Height, bool) -> void override
 			{
+				if (!GRHIThread) CheckRHIExecutionThread();
 				auto* MetalViewport = dynamic_cast<FMetalViewport*>(Viewport);
 				requiref(MetalViewport, "Metal viewport resize requires a Metal viewport.");
 				if (Width && Height)
