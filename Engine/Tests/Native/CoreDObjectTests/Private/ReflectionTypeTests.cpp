@@ -7116,10 +7116,10 @@ TEST(FObjectModifyTests, RuntimeNeutralBridgeRequiresTransactionalParticipation)
 	TStrongObjectPtr<DObject> Object(NewObject<DObject>(nullptr, "RuntimeModifyBridge"));
 	EXPECT_FALSE(Object->Modify(false));
 	int Captures = 0;
-	FObjectTransaction Recorder{&Captures, [](void* Owner, DObject*) { ++*static_cast<int*>(Owner); return true; }};
-	struct FRestoreRecorder { FObjectTransaction* Previous; ~FRestoreRecorder() { SetLegacyObjectTransactionRecorder(Previous); } } Restore{GetLegacyObjectTransactionRecorder()};
-	SetLegacyObjectTransactionRecorder(&Recorder);
-	EXPECT_EQ(GetLegacyObjectTransactionRecorder(), &Recorder);
+	auto Recorder = std::make_shared<FObjectTransaction>();
+	Recorder->Owner = &Captures;
+	Recorder->SaveObject = [](void* Owner, DObject*) { ++*static_cast<int*>(Owner); return true; };
+	FScopedObjectTransactionBinding Binding(Recorder);
 	EXPECT_FALSE(Object->Modify(false)); EXPECT_EQ(Captures, 0);
 	Object->SetFlags(EObjectFlags::Transactional);
 	EXPECT_TRUE(Object->Modify(false)); EXPECT_EQ(Captures, 1);
