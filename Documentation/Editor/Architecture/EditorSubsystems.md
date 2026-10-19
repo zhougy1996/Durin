@@ -9,8 +9,10 @@ Last reviewed: 2026-10-19
 ## Host Contract
 
 There is one active editor engine per process. Construction is inert;
-ActivateEditor, full Init and headless subsystem initialization reject a second
-active editor. Shutdown releases activation only after callback and World work
+ActivateEditor is the sole publication boundary and rejects repeated activation,
+including activation of the same instance. Launch and headless fixture setup
+call it explicitly. Full Init and subsystem initialization require that already
+active editor and never publish one themselves. Shutdown releases activation only after callback and World work
 is quiescent. A later editor lifetime can then activate without reusing old gates.
 
 `DEditorSubsystem` extends the [common subsystem contract](../../Runtime/Core/Subsystems.md)

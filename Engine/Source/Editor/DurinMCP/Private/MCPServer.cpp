@@ -66,22 +66,22 @@ namespace Durin
 				(void)Service->Cancel(Invocation); return true;
 			}
 			// Called by the response worker, or by maintenance only after that worker exits.
-			auto Poll() -> std::optional<FToolResult>
+			auto Poll() -> std::shared_ptr<const FToolResult>
 			{
 				if (!IsPending()) return {};
 				auto Native = Service->GetInvocation(Invocation);
-				std::optional<FToolResult> Result;
-				if (!Native) Result = FToolResult{EToolStatus::Failed, {}, {Native.error()}};
+				std::shared_ptr<const FToolResult> Result;
+				if (!Native) Result = std::make_shared<const FToolResult>(FToolResult{EToolStatus::Failed, {}, {Native.error()}});
 				else if (Native->Result) Result = std::move(Native->Result);
 				else if (Native->State == EToolInvocationState::Cancelled || Native->State == EToolInvocationState::Expired)
-					Result = FToolResult{EToolStatus::Failed, {}, {{EToolError::Cancelled, "Invocation ended without a result.", {}}}};
+					Result = std::make_shared<const FToolResult>(FToolResult{EToolStatus::Failed, {}, {{EToolError::Cancelled, "Invocation ended without a result.", {}}}});
 				if (Result)
 				{
 					auto Expected = EState::Pending;
 					if (State.compare_exchange_strong(Expected, EState::Completed)) return Result;
 				}
 				else if (std::chrono::steady_clock::now() >= Deadline && Cancel())
-					return FToolResult{EToolStatus::Failed, {}, {{EToolError::Cancelled, "MCP call deadline exceeded; cancellation does not roll back completed effects.", {}}}};
+					return std::make_shared<const FToolResult>(FToolResult{EToolStatus::Failed, {}, {{EToolError::Cancelled, "MCP call deadline exceeded; cancellation does not roll back completed effects.", {}}}});
 				return {};
 			}
 			~FPending() { try { (void)Cancel(); } catch (...) {} }

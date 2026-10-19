@@ -1770,10 +1770,10 @@ TEST(FTransBufferTests, StaleScopesCannotEndOrCancelReplacementRecording)
 		FScopedTransaction Old(Buffer.Get(), {.Description = "Old"});
 		if (CancelOld) Buffer->Cancel(); else EXPECT_EQ(1, Buffer->End());
 		FScopedTransaction Replacement(Buffer.Get(), {.Description = "Replacement"});
-		const auto Id = Buffer->GetRecordingId();
+		const auto Id = Buffer->GetLastResult().TransactionId;
 		EXPECT_FALSE(Old.IsOutstanding());
 		if (CancelOld) Old.Cancel(); else EXPECT_EQ(0, Old.End());
-		EXPECT_EQ(Id, Buffer->GetRecordingId());
+		EXPECT_EQ(Id, Buffer->GetLastResult().TransactionId);
 		EXPECT_TRUE(Replacement.IsOutstanding());
 		EXPECT_EQ(1, Replacement.End());
 	}

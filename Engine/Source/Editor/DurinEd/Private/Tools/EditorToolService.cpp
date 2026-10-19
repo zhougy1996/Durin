@@ -483,7 +483,8 @@ namespace Durin
 		Impl->Prune();
 		if (Id.Session != Impl->Session || Id.Sequence == 0 || Id.Sequence >= Impl->NextSequence) return std::unexpected(Diagnostic(EToolError::TargetNotFound, "Unknown invocation identity."));
 		const auto Found = Impl->Invocations.find(Id.Sequence);
-		if (Found == Impl->Invocations.end()) return FEditorToolInvocation{EToolInvocationState::Expired, Failure(EToolError::InvocationExpired, "Invocation result expired.")};
+		if (Found == Impl->Invocations.end()) return FEditorToolInvocation{EToolInvocationState::Expired,
+			ReadyToolResult(Failure(EToolError::InvocationExpired, "Invocation result expired.")).GetResultShared()};
 		auto Result = Found->second->Future.GetResultShared();
 		return FEditorToolInvocation{Found->second->State, std::move(Result)};
 	}

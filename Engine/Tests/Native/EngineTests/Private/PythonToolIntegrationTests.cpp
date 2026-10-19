@@ -25,7 +25,7 @@ namespace Durin
         DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FPythonTestEditor)
     public:
         explicit FPythonTestEditor(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer) {}
-        auto Start() -> FSubsystemResult { return InitializeEditorSubsystems(); }
+        auto Start() -> FSubsystemResult { return ActivateEditor() ? InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."}; }
     };
     IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FPythonTestEditor)
     struct FEditorEngineTestAccess

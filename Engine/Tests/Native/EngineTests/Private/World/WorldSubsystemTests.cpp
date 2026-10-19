@@ -533,7 +533,7 @@ namespace Durin
 		auto SetEditorWorld(DWorld* World) -> void { EditorWorld = World; SetWorld(World); }
 		auto StartPlay(DLevel* Level) -> bool { return StartPlaySessionInternal({.SourceLevel = Level}, std::optional<DClass*>{nullptr}, nullptr); }
 		auto StartEngine() -> FSubsystemResult { return InitializeEngineSubsystems(); }
-		auto StartEditor() -> FSubsystemResult { return InitializeEditorSubsystems(); }
+		auto StartEditor() -> FSubsystemResult { return ActivateEditor() ? InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."}; }
 		auto Dispatch(const std::function<void()>& Callback) -> void { FHostOperationScope Operation(*this); Callback(); }
 	};
 	class FEngineSubsystemProbe : public DEngineSubsystem

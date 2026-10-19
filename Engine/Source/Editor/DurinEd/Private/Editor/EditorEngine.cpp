@@ -48,7 +48,7 @@ namespace Durin
 	auto DEditorEngine::ActivateEditor() -> bool
 	{
 		CheckGameThread();
-		if (bShutdownRequested || !IsValid(this) || (GEditor && GEditor != this)) return false;
+		if (bShutdownRequested || !IsValid(this) || GEditor) return false;
 		GEditor = this;
 		return true;
 	}
@@ -75,7 +75,9 @@ namespace Durin
 
 	auto DEditorEngine::InitializeEditorSubsystems() -> FSubsystemResult
 	{
-		if (!ActivateEditor()) return {ESubsystemError::InvalidState, "Only one editor engine may be active."};
+		CheckGameThread();
+		if (GEditor != this || bShutdownRequested || !IsValid(this))
+			return {ESubsystemError::InvalidState, "Editor subsystem initialization requires the active editor."};
 		FHostOperationScope Operation(*this);
 		if (!FModuleManager::Get().LoadModule("DurinEd"))
 			return {ESubsystemError::ProviderUnavailable, "DurinEd subsystem providers could not start."};
@@ -84,9 +86,10 @@ namespace Durin
 
 	auto DEditorEngine::Init(const FEngineInitContext& Context) -> bool
 	{
-		if (bEditorInitStarted || !ActivateEditor())
+		CheckGameThread();
+		if (bEditorInitStarted || GEditor != this || bShutdownRequested || !IsValid(this))
 		{
-			DURIN_ERROR("Editor initialization is one-shot.");
+			DURIN_ERROR("Editor initialization requires the active editor and is one-shot.");
 			return false;
 		}
 		bEditorInitStarted = true;

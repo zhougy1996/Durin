@@ -21,7 +21,8 @@ namespace Durin
 		DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FDynamicEditorHost)
 	public:
 		explicit FDynamicEditorHost(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer) {}
-		auto Start() -> FSubsystemResult { return InitializeEditorSubsystems(); }
+		auto Start() -> FSubsystemResult { return ActivateEditor() ? InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."}; }
+		auto InitializeServices() -> FSubsystemResult { return InitializeEditorSubsystems(); }
 	};
 	class FDynamicEditorA : public DEditorSubsystem
 	{
@@ -94,6 +95,31 @@ namespace
 		EXPECT_EQ(ESubsystemState::Ready, First->GetEditorSubsystemState());
 		EXPECT_EQ(Tools, First->GetEditorSubsystem<DEditorToolSubsystem>());
 		EXPECT_EQ(nullptr, First->GetEditorSubsystem<FDynamicEditorA>());
+	}
+
+	TEST_F(FEditorSubsystemTests, InitializationRequiresExplicitActivationAndNeverPublishesEditor)
+	{
+		auto* First = NewObject<FDynamicEditorHost>(nullptr, "ExplicitFirstEditor"); Hosts.emplace_back(First);
+		auto* Second = NewObject<FDynamicEditorHost>(nullptr, "ExplicitSecondEditor"); Hosts.emplace_back(Second);
+		EXPECT_EQ(GEditor, nullptr);
+		EXPECT_FALSE(First->Init({}));
+		EXPECT_EQ(First->InitializeServices().Error, ESubsystemError::InvalidState);
+		EXPECT_EQ(GEditor, nullptr);
+		ASSERT_TRUE(First->ActivateEditor());
+		EXPECT_FALSE(First->ActivateEditor());
+		EXPECT_EQ(First->GetEditorSubsystemState(), ESubsystemState::Uninitialized);
+		EXPECT_EQ(Second->InitializeServices().Error, ESubsystemError::InvalidState);
+		EXPECT_FALSE(Second->Init({}));
+		EXPECT_EQ(GEditor, First);
+		ASSERT_TRUE(First->InitializeServices());
+		First->PrepareForShutdown();
+		EXPECT_EQ(GEditor, nullptr);
+		EXPECT_FALSE(First->ActivateEditor());
+		ASSERT_TRUE(Second->ActivateEditor());
+		ASSERT_TRUE(Second->InitializeServices());
+		EXPECT_EQ(GEditor, Second);
+		Second->PrepareForShutdown();
+		EXPECT_EQ(GEditor, nullptr);
 	}
 
 	TEST_F(FEditorSubsystemTests, ConstructionCannotReplaceActiveEditorAndActivationIsExclusive)

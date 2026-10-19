@@ -20,6 +20,7 @@ namespace Durin::Editor
 {
 
 	class FPropertyEditSession;
+	class FScopedTransaction;
 
 	// Describes one producing tool and the optional primary participant for a transaction.
 	struct FTransactionContext
@@ -238,9 +239,6 @@ namespace Durin
 		DURINED_API virtual auto End() -> int32;
 		DURINED_API virtual auto Cancel(int32 StartIndex = 0) -> void;
 		DURINED_API virtual auto IsActive() const -> bool;
-		// Internal scope validity; zero means no supported live recording.
-		virtual auto GetRecordingId() const -> Editor::FTransactionId { return 0; }
-		DURINED_API virtual auto SaveObject(DObject* Object) -> bool;
 		DURINED_API virtual auto StoreUndo(DObject* Object, std::unique_ptr<Editor::FCommandChange> Change) -> Editor::FTransactorResult;
 		auto StoreUndo(std::unique_ptr<Editor::FCommandChange> Change) -> Editor::FTransactorResult
 		{ return StoreUndo(nullptr, std::move(Change)); }
@@ -287,6 +285,9 @@ namespace Durin
 		std::map<uint64, FTransactionListener> Listeners;
 		uint64 NextListener = 1;
 	private:
+		friend class Editor::FScopedTransaction;
+		// Exact scope validity; zero means no supported live recording.
+		virtual auto GetRecordingId() const -> Editor::FTransactionId { return 0; }
 		friend auto Editor::ApplyEditorChange(DTransactor&, std::unique_ptr<Editor::FCommandChange>) -> Editor::FTransactorResult;
 		DURINED_API virtual auto ReportChangeFailure(std::unique_ptr<Editor::FCommandChange> Change, Editor::FCommandChangeError Error) -> Editor::FTransactorResult;
 		friend class Editor::FPropertyEditSession;
@@ -307,8 +308,6 @@ namespace Durin
 		DURINED_API auto End() -> int32 override;
 		DURINED_API auto Cancel(int32 StartIndex = 0) -> void override;
 		auto IsActive() const -> bool override { return ActiveCount != 0; }
-		auto GetRecordingId() const -> Editor::FTransactionId override { return ActiveCount && Pending ? Pending->GetId() : 0; }
-		DURINED_API auto SaveObject(DObject* Object) -> bool override;
 		DURINED_API auto StoreUndo(DObject* Object, std::unique_ptr<Editor::FCommandChange> Change) -> Editor::FTransactorResult override;
 		using DTransactor::StoreUndo;
 		DURINED_API auto Undo(bool bCanRedo = true) -> bool override;
@@ -353,6 +352,9 @@ namespace Durin
 		DURINED_API auto GetRedoContext() const -> Editor::FTransactionContext override;
 
 	private:
+		friend class Editor::FTransaction;
+		auto GetRecordingId() const -> Editor::FTransactionId override { return ActiveCount && Pending ? Pending->GetId() : 0; }
+		DURINED_API auto CaptureObject(DObject* Object) -> bool;
 		friend class FTransactorReloadParticipant;
 		DURINED_API auto ReportChangeFailure(std::unique_ptr<Editor::FCommandChange> Change, Editor::FCommandChangeError Error) -> Editor::FTransactorResult override;
 
@@ -419,7 +421,7 @@ namespace Durin
 
 namespace Durin::Editor
 {
-	// Delineates one level of the explicitly supplied transactor's recording.
+	// Delineates one level of the active editor or explicitly supplied recording.
 	class FScopedTransaction
 	{
 	public:

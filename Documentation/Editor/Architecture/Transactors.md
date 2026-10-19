@@ -20,6 +20,10 @@ End, Cancel, owner retirement and destruction clear it before releasing storage.
 A competing buffer cannot begin while another recording is published. There is
 no candidate registry or host recorder binding stack. Object capture retains
 Durin's typed failures through the owning buffer; CoreDObject has no editor dependency.
+Buffer object capture and exact recording identity are private collaboration
+hooks for FTransaction and FScopedTransaction. Ordinary callers use Modify(),
+scopes and transaction results; DTransactor exposes no object-capture method or
+recording-identity query. ITransaction::SaveObject remains the runtime boundary.
 
 Host callback scopes protect execution and GC lifetime, not transaction routing.
 Ending a callback never ends recording. Without a current recording, Modify

@@ -105,9 +105,11 @@ Completed, Cancelled, or Expired with an owned result when available. Wrong-sess
 zero, and future identities are unknown; an issued identity with no retained
 receipt is expired. No unbounded tombstone list is kept.
 `RetainInvocation` obtains the same validated native Future used by receipts; it
-retains completion after TTL eviction. Lookup snapshots share its read-only Result storage and accounting; copies of
-the snapshot do not duplicate the result tree. Legacy adapter conversion can
-materialize its own bounded protocol payload. Immediate invocation
+retains completion after TTL eviction. Lookup snapshots expose the same
+`shared_ptr<const FToolResult>` allocation and accounting; copying a snapshot
+does not copy the result tree. There is no optional-like result wrapper or
+implicit owned-result conversion. MCP retains this allocation through bounded
+protocol serialization; synthetic transport errors have separate owned storage. Immediate invocation
 contexts have unique sequences but no retained receipt.
 
 Queued cancellation removes the queue item and publishes a cancellation receipt.

@@ -33,27 +33,11 @@ namespace Durin
 		std::vector<FEditorToolsetCatalogEntry> Toolsets;
 		std::vector<FToolDiagnostic> Diagnostics;
 	};
-	// Read-only compatibility view over the one validated native result allocation.
-	class FEditorToolResultView
-	{
-	public:
-		FEditorToolResultView() = default;
-		FEditorToolResultView(std::shared_ptr<const FToolResult> InStorage) : Storage(std::move(InStorage)) {}
-		FEditorToolResultView(FToolResult Result) : Storage(ReadyToolResult(std::move(Result)).GetResultShared()) {}
-		auto has_value() const -> bool { return static_cast<bool>(Storage); }
-		explicit operator bool() const { return has_value(); }
-		auto operator->() const -> const FToolResult* { return Storage.get(); }
-		auto operator*() const -> const FToolResult& { return value(); }
-		auto value() const -> const FToolResult& { if (!Storage) throw std::bad_optional_access(); return *Storage; }
-		// Legacy adapters materialize their converted payload under adapter limits.
-		operator std::optional<FToolResult>() const { return Storage ? std::optional<FToolResult>(*Storage) : std::nullopt; }
-	private:
-		std::shared_ptr<const FToolResult> Storage;
-	};
 	struct FEditorToolInvocation
 	{
 		EToolInvocationState State = EToolInvocationState::Queued;
-		FEditorToolResultView Result;
+		// Shares the validated Future allocation and accounting; empty until publication.
+		std::shared_ptr<const FToolResult> Result;
 	};
 	struct FEditorToolLimits
 	{
@@ -72,7 +56,7 @@ namespace Durin
 		std::chrono::milliseconds ResultTTL{std::chrono::minutes(5)};
 	};
 
-	// Detached endpoint. These four operations are thread-safe and never access engine objects.
+	// Detached endpoint. Lookup, submission, retention and cancellation never access engine objects.
 	class FEditorToolService final
 	{
 	public:

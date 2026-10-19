@@ -17,7 +17,7 @@ namespace Durin
 		DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FToolEditorHost)
 	public:
 		explicit FToolEditorHost(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer) {}
-		auto Start() -> FSubsystemResult { return InitializeEditorSubsystems(); }
+		auto Start() -> FSubsystemResult { return ActivateEditor() ? InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."}; }
 	};
 	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FToolEditorHost)
 }
@@ -168,7 +168,7 @@ TEST_F(FEditorToolTests, NativeAndCrossThreadCallsShareNormalizationAndExplicitH
 	First->Tick(0.0f, false); // Exercise the production editor tick safe point.
 	auto Completed = Endpoint->GetInvocation(*Id);
 	ASSERT_TRUE(Completed.has_value());
-	ASSERT_TRUE(Completed->Result.has_value());
+	ASSERT_TRUE(Completed->Result);
 	EXPECT_EQ(Direct.Data, Completed->Result->Data);
 	EXPECT_EQ(2, Toolset.Executions);
 	EXPECT_EQ(Endpoint->GetInvocation(*Id)->State, EToolInvocationState::Completed);
@@ -672,12 +672,15 @@ TEST_F(FEditorToolTests, ConsumerPinsRemainChargedAfterReceiptExpiryAndReleaseRe
 	auto Alias = Future->GetResultShared(); ASSERT_TRUE(Alias);
 	auto Snapshot = Endpoint->GetInvocation(*Id); ASSERT_TRUE(Snapshot && Snapshot->Result);
 	auto CopiedSnapshot = *Snapshot;
-	EXPECT_EQ(Alias.get(), &*Snapshot->Result);
-	EXPECT_EQ(Alias.get(), &*CopiedSnapshot.Result);
+	EXPECT_EQ(Alias, Snapshot->Result);
+	EXPECT_EQ(Alias, CopiedSnapshot.Result);
 	*Future = {};
 	Limits.ResultTTL = std::chrono::milliseconds(0);
 	ASSERT_TRUE(Endpoint->Configure(Limits)); (void)Tools->ListToolsets();
-	EXPECT_EQ(EToolInvocationState::Expired, Endpoint->GetInvocation(*Id)->State);
+	auto Expired = Endpoint->GetInvocation(*Id); ASSERT_TRUE(Expired);
+	EXPECT_EQ(EToolInvocationState::Expired, Expired->State);
+	ASSERT_TRUE(Expired->Result);
+	EXPECT_EQ(EToolError::InvocationExpired, Expired->Result->Diagnostics.front().Code);
 	EXPECT_EQ(EToolError::Busy, Endpoint->Submit(Request()).error().Code);
 	EXPECT_EQ(EToolStatus::Succeeded, Alias->Status);
 	Alias.reset();

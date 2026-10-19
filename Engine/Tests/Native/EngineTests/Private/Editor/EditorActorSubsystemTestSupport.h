@@ -16,7 +16,7 @@ namespace Durin
 		{
 			Editor.EditorWorld = &World;
 			Editor.SetWorld(&World);
-			return Editor.InitializeEditorSubsystems();
+			return Editor.ActivateEditor() ? Editor.InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."};
 		}
 	};
 }

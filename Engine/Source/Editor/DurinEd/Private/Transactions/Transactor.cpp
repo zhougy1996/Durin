@@ -267,7 +267,7 @@ namespace Durin::Editor
 
 	auto FTransaction::SaveObject(DObject* Object) -> void
 	{
-		if (RecordingOwner) (void)RecordingOwner->SaveObject(Object);
+		if (RecordingOwner) (void)RecordingOwner->CaptureObject(Object);
 		else (void)CaptureObject(Object);
 	}
 	auto FTransaction::ContainsObject(const DObject* Object) const -> bool
@@ -576,7 +576,6 @@ namespace Durin
 	auto DTransactor::End() -> int32 { return 0; }
 	auto DTransactor::Cancel(int32) -> void {}
 	auto DTransactor::IsActive() const -> bool { return false; }
-	auto DTransactor::SaveObject(DObject*) -> bool { return false; }
 	auto DTransactor::ReportChangeFailure(std::unique_ptr<FCommandChange>, FCommandChangeError) -> FTransactorResult { return Unsupported(); }
 	auto DTransactor::StoreUndo(DObject*, std::unique_ptr<FCommandChange>) -> FTransactorResult { return Unsupported(); }
 	auto DTransactor::Record(FTransactionObjectRecord) -> std::expected<uint64, FTransactorResult> { return std::unexpected(Unsupported()); }
@@ -663,7 +662,7 @@ namespace Durin
 	}
 	auto DTransBuffer::SetPrimaryUndoObject(DObject* Object) -> void
 	{ if (Pending && Pending->Context.PrimaryObject.IsNull()) Pending->Context.PrimaryObject = FPersistentObjectRef(Object); }
-	auto DTransBuffer::SaveObject(DObject* Object) -> bool
+	auto DTransBuffer::CaptureObject(DObject* Object) -> bool
 	{
 		CheckThread();
 		if (State != ETransactorState::Recording || !Pending || !IsValid(Object)) return false;

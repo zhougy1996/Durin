@@ -22,7 +22,7 @@ namespace Durin
         DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FPythonReflectionEditor)
     public:
         explicit FPythonReflectionEditor(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer) {}
-        auto Start() -> FSubsystemResult { return InitializeEditorSubsystems(); }
+        auto Start() -> FSubsystemResult { return ActivateEditor() ? InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."}; }
     };
     IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FPythonReflectionEditor)
     struct FEditorEngineTestAccess

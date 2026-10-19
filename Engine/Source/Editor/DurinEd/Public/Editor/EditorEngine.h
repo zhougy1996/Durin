@@ -86,6 +86,7 @@ namespace Durin
 		DURINED_API ~DEditorEngine() override;
 		// Launch and headless hosts retain the engine until shutdown completes.
 		// Construction alone never changes the process editor.
+		// Explicit one-shot publication; Init and subsystem initialization require it.
 		DURINED_API auto ActivateEditor() -> bool;
 		auto GetInitialWorldType() const -> EWorldType override { return EWorldType::Editor; }
 		DURINED_API auto Init(const FEngineInitContext& Context)
