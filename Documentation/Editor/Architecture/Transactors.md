@@ -106,8 +106,13 @@ No-op pruning and cancellation do not promise to clear dirtiness.
 ## Structural History And Barriers
 
 `DTransactor::GetHistoryCount()` reports the retained history size, including
-both Undo and Redo entries. `GetTransaction(Index)` reads an entry in that history;
-`DTransBuffer::GetUndoCount()` and `GetRedoCount()` report the two sides of the cursor.
+both Undo and Redo entries. `GetTransaction(Index)` reads an entry in that history.
+`DTransBuffer::GetUndoCount()` follows UE's meaning: the number of transactions
+already undone and available for Redo. `GetUndoableCount()` reports entries before
+the cursor that can be undone. Their sum equals `GetHistoryCount()`. For example,
+after three commits and two Undo operations, the counts are two undone and one
+undoable. Redo decreases the undone count; committing a new branch discards the
+remaining Redo entries and resets that count to zero.
 
 History entries before the cursor are undoable; entries after it are redoable.
 A successful new commit replaces the redo suffix. IDs remain monotonic across

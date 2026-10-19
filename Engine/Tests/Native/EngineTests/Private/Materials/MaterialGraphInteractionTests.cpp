@@ -51,9 +51,9 @@ TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCan
 		Drag();
 		const auto Preview = Material->FindParameterDefinition(Definition.Id)->Value;
 		EXPECT_NE(Preview, Original);
-		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		EXPECT_EQ(Transactions->GetUndoableCount(), 0u);
 		Frame({Start.x + 60, Start.y}, false);
-		EXPECT_EQ(Transactions->GetUndoCount(), 1u);
+		EXPECT_EQ(Transactions->GetUndoableCount(), 1u);
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value, Original);
 		ASSERT_TRUE(Transactions->Redo());
@@ -63,11 +63,11 @@ TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCan
 		IO.AddKeyEvent(ImGuiKey_Escape, true); Frame({Start.x + 60, Start.y}, true);
 		IO.AddKeyEvent(ImGuiKey_Escape, false); Frame({Start.x + 60, Start.y}, false);
 		EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value, Preview);
-		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		EXPECT_EQ(Transactions->GetUndoableCount(), 0u);
 		Drag();
 		Frame({Start.x + 60, Start.y}, true, false);
 		EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value, Preview);
-		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		EXPECT_EQ(Transactions->GetUndoableCount(), 0u);
 		EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, Generation);
 		EXPECT_EQ(Errors, 0);
 		Canvas.CancelInteraction();
@@ -400,7 +400,7 @@ TEST(FMaterialGraphInteractionTests, FunctionDefaultControlsPreserveInheritedCom
 			ImGui::End(); ImGui::Render();
 		};
 		Frame(); Frame();
-		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		EXPECT_EQ(Transactions->GetUndoableCount(), 0u);
 		const auto* Call = FindExpression<DMaterialExpressionFunctionCall>(*Material, CallId);
 		ASSERT_NE(Call, nullptr);
 		EXPECT_TRUE(std::ranges::all_of(Call->Inputs, [](const auto& Input) { return Input.InputDefault.empty(); }));
@@ -414,11 +414,11 @@ TEST(FMaterialGraphInteractionTests, FunctionDefaultControlsPreserveInheritedCom
 		ASSERT_NE(Binding, Call->Inputs.end());
 		const std::array Expected{2.f, Case.Default.Y, Case.Default.Z, Case.Default.W};
 		EXPECT_EQ(Binding->InputDefault, (std::vector<float>(Expected.begin(), Expected.begin() + static_cast<int>(Case.Type) + 1)));
-		EXPECT_EQ(Transactions->GetUndoCount(), 1u);
+		EXPECT_EQ(Transactions->GetUndoableCount(), 1u);
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_TRUE(std::ranges::all_of(Call->Inputs, [](const auto& Input) { return Input.InputDefault.empty(); }));
 		Frame();
-		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		EXPECT_EQ(Transactions->GetUndoableCount(), 0u);
 		Canvas.CancelInteraction();
 		ImGui::DestroyContext(Context);
 	}
@@ -517,7 +517,7 @@ TEST(FMaterialGraphInteractionTests, NodePinChevronExpandsOnlyClickedNodeWithout
 	EXPECT_EQ(FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), FirstId)->Inputs.size(), CollapsedCount);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Presentation);
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, Generation);
-	EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+	EXPECT_EQ(Transactions->GetUndoableCount(), 0u);
 	EXPECT_TRUE(Canvas.GetSelection().empty());
 	Canvas.CancelInteraction();
 	ImGui::DestroyContext(Context);
@@ -1785,7 +1785,7 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SurfaceDetailsCommitImmediatelyAndU
 	const auto* Edited = Cast<DMaterialExpressionGetSurfaceAttributes>(Node->Get());
 	ASSERT_NE(Edited, nullptr);
 	EXPECT_EQ(Edited->AttributeMask, 2);
-	EXPECT_EQ(Transactions->GetUndoCount(), 1u);
+	EXPECT_EQ(Transactions->GetUndoableCount(), 1u);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Edited->AttributeMask, 3);
 	ASSERT_TRUE(Transactions->Redo());

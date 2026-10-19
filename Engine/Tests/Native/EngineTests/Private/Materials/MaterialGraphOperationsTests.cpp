@@ -3277,7 +3277,7 @@ TEST(FMaterialGraphOperationsTests, SharedMoveDraftPreservesIndependentPresentat
 		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
 		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240, "Ignored"}}));
 		EXPECT_EQ(Read(), Initial); // Preview cannot dirty or publish the owner.
-		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		EXPECT_EQ(Transactions->GetUndoableCount(), 0u);
 		auto External = Read();
 		std::ranges::find(External.Nodes, Id, &FMaterialGraphNodePresentation::NodeId)->DisplayName = "Renamed";
 		std::ranges::find(External.Nodes, OtherId, &FMaterialGraphNodePresentation::NodeId)->X = 900;
@@ -3287,7 +3287,7 @@ TEST(FMaterialGraphOperationsTests, SharedMoveDraftPreservesIndependentPresentat
 		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
 		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240}}));
 		ASSERT_TRUE(Move.Commit());
-		EXPECT_EQ(Transactions->GetUndoCount(), 1u);
+		EXPECT_EQ(Transactions->GetUndoableCount(), 1u);
 		EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Presentation.DisplayName, "Renamed");
 		auto Later = Read();
 		std::ranges::find(Later.Nodes, Id, &FMaterialGraphNodePresentation::NodeId)->DisplayName = "After move";
@@ -3303,7 +3303,7 @@ TEST(FMaterialGraphOperationsTests, SharedMoveDraftPreservesIndependentPresentat
 		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
 		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240}}));
 		EXPECT_EQ(Move.Commit().GetStatus(), EMaterialGraphCommandStatus::NoChange);
-		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		EXPECT_EQ(Transactions->GetUndoableCount(), 0u);
 		// Direct position commands must also ignore the presentation label argument.
 		ASSERT_TRUE(Document.MoveNodes(std::array{FMaterialGraphNodePresentation{Id, 450, 240, "Ignored"}}, Transactions.Get()));
 		EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Presentation.DisplayName, "After move");
@@ -3346,7 +3346,7 @@ TEST(FMaterialGraphOperationsTests, SharedMoveRejectsInvalidDraftsAndStaleOwners
 		EXPECT_FALSE(Stale);
 		EXPECT_EQ(Stale.Message.find("The graph changed semantically during the move."), 0u);
 		EXPECT_FALSE(Move.IsActive());
-		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		EXPECT_EQ(Transactions->GetUndoableCount(), 0u);
 		EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Presentation.X, 40);
 		// A node without an authored presentation can still be moved and undone.
 		auto P = GraphEditInternals::ReadGraphPresentation(*Owner.Get());

@@ -147,7 +147,7 @@ namespace
 		ASSERT_EQ(Session.Apply(Capture(Changed)).GetStatus(), Editor::EPropertyEditResult::Changed);
 		ExpectPreview(Changed);
 		ASSERT_EQ(Session.Commit().GetStatus(), Editor::EPropertyEditResult::Changed);
-		EXPECT_EQ(Transactor->GetUndoCount(), 1u);
+		EXPECT_EQ(Transactor->GetUndoableCount(), 1u);
 		EXPECT_TRUE(Package->IsDirty());
 		ASSERT_TRUE(Transactor->Undo());
 		ExpectPreview(Original);

@@ -342,8 +342,9 @@ namespace Durin
 
 		auto GetState() const -> Editor::ETransactorState { return State; }
 		auto GetMemoryBudget() const -> size_t { return MemoryBudget; }
-		auto GetUndoCount() const -> size_t { return Cursor; }
-		auto GetRedoCount() const -> size_t { return History.size() - Cursor; }
+		// Matches UE: counts transactions already undone and available for Redo.
+		auto GetUndoCount() const -> size_t { return History.size() - Cursor; }
+		auto GetUndoableCount() const -> size_t { return Cursor; }
 		auto GetOwnedBytes() const -> size_t { return OwnedBytes; }
 		DURINED_API auto GetUndoId() const -> Editor::FTransactionId override;
 		DURINED_API auto GetRedoId() const -> Editor::FTransactionId override;
