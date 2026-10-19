@@ -1,4 +1,5 @@
 #include "PropertyEditor/PropertyView.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "PropertyEditor/PropertyValueDraft.h"
 
 #include "Asset/PackageSerialization.h"
@@ -26,20 +27,7 @@
 
 namespace
 {
-	class FPropertyViewTestTransactorOwner
-	{
-	public:
-		FPropertyViewTestTransactorOwner()
-			: Transactor(Durin::NewObject<Durin::DTransBuffer>(nullptr, "PropertyViewTestTransactor"))
-			, TransactorRoot(Transactor)
-		{}
-
-		auto Get() const -> Durin::DTransBuffer* { return Transactor; }
-
-	private:
-		Durin::DTransBuffer* Transactor = nullptr;
-		Durin::TStrongObjectPtr<Durin::DObject> TransactorRoot;
-	};
+	using FPropertyViewTestTransactorOwner = Durin::Tests::FTestEditorTransactorOwner;
 
 	using FSoftObjectViewValue = Durin::TSoftObjectPtr<Durin::DObject>;
 	using FSoftObjectViewArray = std::vector<FSoftObjectViewValue>;
@@ -514,6 +502,7 @@ TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestorat
 	Durin::Editor::FPropertyView View;
 	uint32 ErrorReports = 0;
 	const Durin::Editor::FPropertyViewContext Context{
+		.TransactionMode = Durin::Editor::ETransactionMode::NotTransactable,
 		.ReportError = [&](std::string) { ++ErrorReports; },
 	};
 	First.bAllowRestore = true;
@@ -543,6 +532,7 @@ TEST(FReflectedPropertyViewTests, ReadOnlyTransitionWaitsForFailedPreviewRestora
 	Durin::Editor::FPropertyView View;
 	uint32 ErrorReports = 0;
 	const Durin::Editor::FPropertyViewContext EditableContext{
+		.TransactionMode = Durin::Editor::ETransactionMode::NotTransactable,
 		.ReportError = [&](std::string) { ++ErrorReports; },
 	};
 	Object.bAllowRestore = true;
@@ -704,8 +694,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 	FPropertyViewTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyView View;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactor = Transactions.Get(),
-	};
+		};
 	auto AssignPath = [](Durin::FObjectPath Path) {
 		return [Path = std::move(Path)](
 			Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
@@ -790,6 +779,7 @@ TEST(FReflectedPropertyViewTests, NumericWidgetClampsDraggingAndManualInputWitho
 		Editor::FPropertyView View;
 		uint32 ErrorReports = 0;
 		const Editor::FPropertyViewContext Context{
+		.TransactionMode = Durin::Editor::ETransactionMode::NotTransactable,
 			.ReportError = [&](std::string) { ++ErrorReports; },
 		};
 		ImGuiContext* ImContext = ImGui::CreateContext();
@@ -865,7 +855,6 @@ TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransac
 	Durin::Editor::FPropertyView View;
 	uint32 ErrorReports = 0;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactor = Transactions.Get(),
 		.ReportError = [&](std::string) { ++ErrorReports; },
 	};
 
@@ -891,7 +880,6 @@ TEST(FReflectedPropertyViewTests, TypedExtensionRejectionPreservesLiveStateAndAl
 	FPropertyView View;
 	std::string Message;
 	const FPropertyViewContext Context{
-		.Transactor = Transactions.Get(),
 		.ReportError = [&](std::string Text) { Message = std::move(Text); }};
 	bool Reject = true;
 	uint32 PostCount = 0;
@@ -973,7 +961,7 @@ TEST(FReflectedPropertyViewTests, TypedDeferredCompletionRejectsAndIgnoresLatePu
 	ASSERT_NE(Extension.Handle, 0u);
 	FPropertyEditSession Session;
 	auto Start = [&] {
-		EXPECT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Object, Reflection.Property), "Deferred Test", Transactions.Get()));
+		EXPECT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Object, Reflection.Property), "Deferred Test", *Transactions.Get()));
 		EXPECT_EQ(Session.Apply(Proposed).GetStatus(), EPropertyEditResult::Pending);
 		EXPECT_TRUE(Session.HasPendingDeferredEdit());
 		EXPECT_EQ(Object->Value, 5);
@@ -1147,7 +1135,7 @@ TEST(FReflectedPropertyViewTests, SessionMessagesSurviveResetAndRetry)
 	using namespace Durin::Editor;
 	FPropertyEditSession Session;
 	EXPECT_EQ(Session.Commit().GetStatus(), EPropertyEditResult::Failed);
-	const auto Missing = Session.Begin({}, "Missing target");
+	const auto Missing = Session.Begin({}, "Missing target", Durin::Editor::ETransactionMode::NotTransactable);
 	EXPECT_FALSE(Missing);
 	EXPECT_EQ(Missing.GetStatus(), EPropertyEditResult::Failed);
 	const auto MissingMessage = Missing.Message;
@@ -1155,8 +1143,8 @@ TEST(FReflectedPropertyViewTests, SessionMessagesSurviveResetAndRetry)
 	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedSessionErrors");
 	TStrongObjectPtr<DObject> Root(Object);
 	const auto Target = FPropertyEditTarget::ForMember(Object, Reflection.Property);
-	ASSERT_TRUE(Session.Begin(Target, "Owned session description"));
-	const auto Active = Session.Begin(Target, "Replacement description");
+	ASSERT_TRUE(Session.Begin(Target, "Owned session description", Durin::Editor::ETransactionMode::NotTransactable));
+	const auto Active = Session.Begin(Target, "Replacement description", Durin::Editor::ETransactionMode::NotTransactable);
 	EXPECT_FALSE(Active);
 	const auto ActiveMessage = Active.Message;
 	const auto Invalid = Session.Apply(FPropertyValueSnapshotPayload{});

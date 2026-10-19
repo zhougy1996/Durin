@@ -3,23 +3,11 @@
 #include "CoreMinimal.h"
 #include "Actors/EditorActorSubsystem.h"
 #include "DObject/StrongObjectPtr.h"
-#include "Editor/EditorEngine.h"
+#include "Editor/EditorEngineTestSupport.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "NativeDObjectTestSupport.h"
 
-namespace Durin
-{
-	struct FEditorEngineTestAccess
-	{
-		static auto InitializeActorEditor(DEditorEngine& Editor, DWorld& World) -> FSubsystemResult
-		{
-			Editor.EditorWorld = &World;
-			Editor.SetWorld(&World);
-			return Editor.ActivateEditor() ? Editor.InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."};
-		}
-	};
-}
 namespace Durin::Tests
 {
 	// Real editor-owned services without application, renderer or window startup.
@@ -32,8 +20,10 @@ namespace Durin::Tests
 			Editor = NewObject<DEditorEngine>(nullptr, "ActorTestEditor");
 			World = NewObject<DWorld>(Editor.Get(), "ActorTestWorld");
 			if (!World->SetWorldType(EWorldType::Editor) || !World->InitializeSubsystems()
-				|| !World->SetCurrentLevel(NewObject<DLevel>(World.Get(), "ActorTestLevel"))
-				|| !FEditorEngineTestAccess::InitializeActorEditor(*Editor, *World))
+				|| !World->SetCurrentLevel(NewObject<DLevel>(World.Get(), "ActorTestLevel")))
+				throw std::runtime_error("Actor editor fixture world initialization failed.");
+			FEditorEngineTestAccess::SetEditorWorld(*Editor, World.Get());
+			if (!FEditorEngineTestAccess::StartEditor(*Editor))
 				throw std::runtime_error("Actor editor fixture initialization failed.");
 		}
 		~FActorEditorFixture()

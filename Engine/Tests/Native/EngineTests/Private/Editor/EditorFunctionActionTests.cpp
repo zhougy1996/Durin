@@ -168,10 +168,10 @@ namespace
 
 TEST_F(FEditorFunctionTests, InheritedVirtualActionRecordsValuesAndNeverReinvokesOnReplay)
 {
-	Tests::FTestTransactorOwner Buffer;
+	Tests::FTestEditorTransactorOwner Buffer;
 	TStrongObjectPtr<DDerivedFunctionTarget> Target(NewObject<DDerivedFunctionTarget>(nullptr, "InheritedAction"));
 	FPropertyView View;
-	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	FPropertyViewContext Context{};
 	const auto Action = ExecuteEditorFunction(View, Context, Request(Target));
 	EXPECT_EQ(Action.Error, EEditorFunctionError::None);
 	EXPECT_TRUE(Action.bInvoked);
@@ -197,15 +197,15 @@ TEST_F(FEditorFunctionTests, InheritedVirtualActionRecordsValuesAndNeverReinvoke
 
 TEST_F(FEditorFunctionTests, AdmissionAndReentrancyPreventNativeMutation)
 {
-	Tests::FTestTransactorOwner Buffer;
+	Tests::FTestEditorTransactorOwner Buffer;
 	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "RejectedAction"));
 	FPropertyView View;
-	FPropertyViewContext Context{.Transactor = Buffer.Get(), .bReadOnly = true};
+	FPropertyViewContext Context{.bReadOnly = true};
 	EXPECT_EQ(ExecuteEditorFunction(View, Context, Request(Target)).Error, EEditorFunctionError::ReadOnly);
 	Context.bReadOnly = false;
-	Context.Transactor = nullptr;
+	Context.TransactionMode = ETransactionMode::NotTransactable;
 	EXPECT_EQ(ExecuteEditorFunction(View, Context, Request(Target)).Error, EEditorFunctionError::MissingTransactor);
-	Context.Transactor = Buffer.Get();
+	Context.TransactionMode = ETransactionMode::Record;
 	FScopedTransaction Busy(Buffer.Get(), {"test", "Busy"});
 	EXPECT_TRUE(ExecuteEditorFunction(View, Context, Request(Target)).bInvoked);
 	(void)Busy.Cancel();
@@ -222,13 +222,13 @@ TEST_F(FEditorFunctionTests, AdmissionAndReentrancyPreventNativeMutation)
 
 TEST_F(FEditorFunctionTests, OversizedActionRemainsUndoableAndPreservesCheckpoint)
 {
-	Tests::FTestTransactorOwner Buffer("OversizedAction", 1);
+	Tests::FTestEditorTransactorOwner Buffer("OversizedAction", 1);
 	auto* Package = MakeActionPackage();
 	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(Package, "FailedHistoryAction"));
 	Buffer->EstablishSavedState(*Package);
 	FPropertyView View;
 	std::string Error;
-	FPropertyViewContext Context{.Transactor = Buffer.Get(), .ReportError = [&](std::string Message) { Error = std::move(Message); }};
+	FPropertyViewContext Context{.ReportError = [&](std::string Message) { Error = std::move(Message); }};
 	const auto Result = ExecuteEditorFunction(View, Context, Request(Target));
 	EXPECT_TRUE(Result.bInvoked);
 	EXPECT_EQ(Result.Error, EEditorFunctionError::None);
@@ -263,7 +263,7 @@ TEST_F(FEditorFunctionTests, LayoutDeduplicatesHidesAndSearchesInheritedActions)
 
 TEST_F(FEditorFunctionTests, GeneratedPrivatePointLightActionSupportsUndoAndNoOp)
 {
-	Tests::FTestTransactorOwner Buffer;
+	Tests::FTestEditorTransactorOwner Buffer;
 	auto* Package = MakeActionPackage();
 	TStrongObjectPtr<DPointLightComponent> Light(NewObject<DPointLightComponent>(Package, "NormalizeLight"));
 	auto* Intensity = Light->GetClass()->FindPropertyByName("Intensity");
@@ -271,7 +271,7 @@ TEST_F(FEditorFunctionTests, GeneratedPrivatePointLightActionSupportsUndoAndNoOp
 	*Intensity->ContainerPtrToValuePtr<float>(Light.Get()) = -3.0f;
 	Buffer->EstablishSavedState(*Package);
 	FPropertyView View;
-	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	FPropertyViewContext Context{};
 	const auto ActionRequest = Request(Light, "NormalizeSettings");
 	const auto Action = ExecuteEditorFunction(View, Context, ActionRequest);
 	ASSERT_EQ(Action.Error, EEditorFunctionError::None);
@@ -299,10 +299,10 @@ TEST_F(FEditorFunctionTests, GeneratedPrivatePointLightActionSupportsUndoAndNoOp
 
 TEST_F(FEditorFunctionTests, ActivePropertyEditCommitsBeforeIndependentAction)
 {
-	Tests::FTestTransactorOwner Buffer;
+	Tests::FTestEditorTransactorOwner Buffer;
 	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "EditedBeforeAction"));
 	FPropertyView View;
-	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	FPropertyViewContext Context{};
 	const auto Edit = FPropertyEditTarget::ForMember(Target, Target->GetClass()->FindPropertyByName("Value"));
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, Edit, [](FProperty* Property, void* Storage, uint32 Index) {
 		*Property->ContainerPtrToValuePtr<int32>(Storage, Index) = 7;
@@ -321,7 +321,7 @@ TEST_F(FEditorFunctionTests, ActivePropertyEditCommitsBeforeIndependentAction)
 
 TEST_F(FEditorFunctionTests, DisabledAndMissingEditorScopesRemainInert)
 {
-	Tests::FTestTransactorOwner Buffer;
+	Tests::FTestEditorTransactorOwner Buffer;
 	FScopedTransaction Missing(nullptr, {"test", "Missing"});
 	EXPECT_FALSE(Missing.IsOutstanding());
 	FScopedTransaction Disabled(Buffer.Get(), {"test", "Disabled"}, false);
@@ -332,10 +332,10 @@ TEST_F(FEditorFunctionTests, DisabledAndMissingEditorScopesRemainInert)
 
 TEST_F(FEditorFunctionTests, DetailsClickExecutesOnlyAfterAllRowsAndRequestsRefresh)
 {
-	Tests::FTestTransactorOwner Buffer;
+	Tests::FTestEditorTransactorOwner Buffer;
 	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "ClickedAction"));
 	FPropertyView View;
-	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	FPropertyViewContext Context{};
 	struct FImGuiScope
 	{
 		ImGuiContext* Context = ImGui::CreateContext();
@@ -384,9 +384,9 @@ TEST_F(FEditorFunctionTests, DetailsClickExecutesOnlyAfterAllRowsAndRequestsRefr
 
 TEST_F(FEditorFunctionTests, ParameterizedFunctionsAreReflectedButExcludedFromEditorActions)
 {
-	Tests::FTestTransactorOwner Buffer;
+	Tests::FTestEditorTransactorOwner Buffer;
 	TStrongObjectPtr<DParameterizedFunctionTarget> Target(NewObject<DParameterizedFunctionTarget>(nullptr, "ParameterizedEditorAction"));
-	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	FPropertyViewContext Context{};
 	const auto* Function = Target->GetClass()->FindFunctionByName("WithArgs");
 	ASSERT_NE(Function, nullptr);
 	EXPECT_EQ(CanExecuteEditorFunction(Context, Request(Target, "WithArgs")), EEditorFunctionError::FunctionUnavailable);
@@ -407,9 +407,9 @@ TEST_F(FEditorFunctionTests, ParameterizedFunctionsAreReflectedButExcludedFromEd
 
 TEST_F(FEditorFunctionTests, EffectiveOverrideCanRemoveTheInheritedEditorButton)
 {
-	Tests::FTestTransactorOwner Buffer;
+	Tests::FTestEditorTransactorOwner Buffer;
 	TStrongObjectPtr<DOptOutFunctionTarget> Target(NewObject<DOptOutFunctionTarget>(nullptr, "OptOutAction"));
-	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	FPropertyViewContext Context{};
 	EXPECT_EQ(CanExecuteEditorFunction(Context, Request(Target)), EEditorFunctionError::FunctionUnavailable);
 	const auto* Effective = Target->GetClass()->FindFunctionByName("Run");
 	EXPECT_EQ(Effective->GetDisplayName(), "Hidden Action");
@@ -425,11 +425,11 @@ TEST_F(FEditorFunctionTests, EffectiveOverrideCanRemoveTheInheritedEditorButton)
 
 TEST_F(FEditorFunctionTests, NonTransactionalTargetStillExecutesNativeAction)
 {
-	Tests::FTestTransactorOwner Buffer;
+	Tests::FTestEditorTransactorOwner Buffer;
 	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "UnrecordedAction"));
 	Target->ClearFlags(EObjectFlags::Transactional);
 	FPropertyView View;
-	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	FPropertyViewContext Context{};
 	const auto Result = ExecuteEditorFunction(View, Context, Request(Target));
 	EXPECT_EQ(Result.Error, EEditorFunctionError::None);
 	EXPECT_TRUE(Result.bInvoked);
@@ -440,10 +440,10 @@ TEST_F(FEditorFunctionTests, NonTransactionalTargetStillExecutesNativeAction)
 
 TEST_F(FEditorFunctionTests, OversizedPropertyEditCompletesBeforeActionAndLatestActionRemainsUndoable)
 {
-	Tests::FTestTransactorOwner Buffer("OversizedAction", 1);
+	Tests::FTestEditorTransactorOwner Buffer("OversizedAction", 1);
 	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "UnfinishedActionEdit"));
 	FPropertyView View;
-	FPropertyViewContext Context{.Transactor = Buffer.Get()};
+	FPropertyViewContext Context{};
 	const auto Edit = FPropertyEditTarget::ForMember(Target, Target->GetClass()->FindPropertyByName("Value"));
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, Edit, [](FProperty* Property, void* Storage, uint32 Index) {
 		*Property->ContainerPtrToValuePtr<int32>(Storage, Index) = 7;

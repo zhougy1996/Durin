@@ -143,11 +143,11 @@ namespace
 		const auto Changed = AddRoad();
 		ASSERT_TRUE(ValidateDefinition(Changed));
 		Editor::FPropertyEditSession Session;
-		ASSERT_TRUE(Session.Begin(Editor::FPropertyEditTarget::ForMember(Asset, Property), "Add road", Transactor));
+		ASSERT_TRUE(Session.Begin(Editor::FPropertyEditTarget::ForMember(Asset, Property), "Add road", *Transactor));
 		ASSERT_EQ(Session.Apply(Capture(Changed)).GetStatus(), Editor::EPropertyEditResult::Changed);
 		ExpectPreview(Changed);
 		ASSERT_EQ(Session.Commit().GetStatus(), Editor::EPropertyEditResult::Changed);
-		EXPECT_EQ(Transactor->GetUndoableCount(), 1u);
+		EXPECT_EQ((Transactor->GetQueueLength() - Transactor->GetUndoCount()), 1u);
 		EXPECT_TRUE(Package->IsDirty());
 		ASSERT_TRUE(Transactor->Undo());
 		ExpectPreview(Original);
@@ -160,7 +160,7 @@ namespace
 	TEST_P(FRoadEditorIntegrationTests, CancelRestoresStructuralPreviewWithoutCreatingHistory)
 	{
 		Editor::FPropertyEditSession Session;
-		ASSERT_TRUE(Session.Begin(Editor::FPropertyEditTarget::ForMember(Asset, Property), "Cancel road addition", Transactor));
+		ASSERT_TRUE(Session.Begin(Editor::FPropertyEditTarget::ForMember(Asset, Property), "Cancel road addition", *Transactor));
 		ASSERT_EQ(Session.Apply(Capture(AddRoad())).GetStatus(), Editor::EPropertyEditResult::Changed);
 		ASSERT_EQ(Actor->GetAlignments().size(), 2u);
 		ASSERT_EQ(Session.Cancel().GetStatus(), Editor::EPropertyEditResult::Changed);
@@ -176,7 +176,7 @@ namespace
 		Invalid.Roads.back().LaneSections.front().Lanes.front().Id = Original.Roads.front().LaneSections.front().Lanes.front().Id;
 		const auto Before = Actor->GetAlignments().front();
 		Editor::FPropertyEditSession Session;
-		ASSERT_TRUE(Session.Begin(Editor::FPropertyEditTarget::ForMember(Asset, Property), "Reject duplicate lane", Transactor));
+		ASSERT_TRUE(Session.Begin(Editor::FPropertyEditTarget::ForMember(Asset, Property), "Reject duplicate lane", *Transactor));
 		EXPECT_EQ(Session.Apply(Capture(Invalid)).GetStatus(), Editor::EPropertyEditResult::Failed);
 		EXPECT_EQ(Session.Commit().GetStatus(), Editor::EPropertyEditResult::NoChange);
 		ExpectPreview(Original);

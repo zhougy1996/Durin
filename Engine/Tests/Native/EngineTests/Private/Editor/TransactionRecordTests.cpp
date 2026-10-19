@@ -1,10 +1,9 @@
 #include "Editor/EditorTransactionTestSupport.h"
-#include "Editor/EditorCommand.h"
+#include "Transactions/Transactor.h"
 #include "Editor/EditorEngine.h"
 #include "Actors/ActorChange.h"
 #include "Transactions/TransactionRecord.h"
 #include "PropertyEditor/PropertyEditing.h"
-#include "Transactions/Transactor.h"
 
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
@@ -669,6 +668,8 @@ TEST(FFocusedTransactionObjectSnapshotTests, RejectsIncompatibleResolvedMember)
 	EXPECT_EQ(Rejected.error().Member, "Value");
 }
 
+static_assert(std::is_abstract_v<Durin::DTransactor>);
+static_assert(!std::is_abstract_v<Durin::DTransBuffer>);
 static_assert(!std::is_copy_constructible_v<Durin::Editor::FTransaction>);
 static_assert(std::is_move_constructible_v<Durin::Editor::FTransaction>);
 static_assert(!std::is_copy_constructible_v<Durin::Editor::FScopedTransaction>);
@@ -734,7 +735,7 @@ TEST(FTransBufferTests, UndoCountTracksUndoneEntriesAcrossReplayAndBranchReplace
 	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "UndoCountBuffer"));
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "UndoCountTarget"));
 	auto ExpectCounts = [&](size_t Undoable, size_t Undone) {
-		EXPECT_EQ(Buffer->GetUndoableCount(), Undoable);
+		EXPECT_EQ((Buffer->GetQueueLength() - Buffer->GetUndoCount()), Undoable);
 		EXPECT_EQ(Buffer->GetUndoCount(), Undone);
 		EXPECT_EQ(Buffer->GetQueueLength(), Undoable + Undone);
 	};
@@ -882,7 +883,7 @@ TEST(FTransBufferTests, OversizedRecordingRemainsUndoableAndPreservesFailedUndoC
 	Durin::CollectGarbage();
 	EXPECT_EQ(Buffer->UndoExpected(Durin::Editor::FTransactionId{0}).Code, Durin::Editor::ETransactorResultCode::Failed);
 	EXPECT_EQ(Buffer->GetUndoId(), Id);
-	EXPECT_EQ(Buffer->GetUndoableCount(), 1u);
+	EXPECT_EQ((Buffer->GetQueueLength() - Buffer->GetUndoCount()), 1u);
 	EXPECT_EQ(Buffer->GetUndoCount(), 0u);
 }
 
@@ -907,7 +908,7 @@ TEST(FTransBufferTests, ExpectedIdsPreserveHistoryPosition)
 	EXPECT_EQ(Buffer->UndoExpected(First.TransactionId).Code,
 		Durin::Editor::ETransactorResultCode::Rejected);
 	EXPECT_EQ(Buffer->GetUndoId(), Second.TransactionId);
-	EXPECT_EQ(Buffer->GetUndoableCount(), 2u);
+	EXPECT_EQ((Buffer->GetQueueLength() - Buffer->GetUndoCount()), 2u);
 	ASSERT_TRUE(Buffer->UndoExpected(Second.TransactionId));
 	EXPECT_EQ(Buffer->GetRedoId(), Second.TransactionId);
 	EXPECT_EQ(Buffer->RedoExpected(First.TransactionId).Code,
@@ -915,10 +916,10 @@ TEST(FTransBufferTests, ExpectedIdsPreserveHistoryPosition)
 	EXPECT_EQ(Buffer->GetRedoId(), Second.TransactionId);
 
 	EXPECT_EQ(Buffer->GetQueueLength(), 2u);
-	EXPECT_EQ(Buffer->GetUndoableCount(), 1u);
+	EXPECT_EQ((Buffer->GetQueueLength() - Buffer->GetUndoCount()), 1u);
 	ASSERT_TRUE(Buffer->RedoExpected(Second.TransactionId));
 	EXPECT_EQ(Buffer->GetUndoId(), Second.TransactionId);
-	EXPECT_EQ(Buffer->GetUndoableCount(), 2u);
+	EXPECT_EQ((Buffer->GetQueueLength() - Buffer->GetUndoCount()), 2u);
 	EXPECT_EQ(Buffer->GetUndoCount(), 0u);
 }
 
@@ -1295,7 +1296,7 @@ TEST(FTransBufferTests, FailedCompensationPreservesEveryMessageAndDisablesHistor
 	ASSERT_TRUE(Buffer->GetPackageRevisionState(*Package));
 	EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->bCheckpointValid);
 	EXPECT_TRUE(Package->IsDirty());
-	EXPECT_EQ(Buffer->GetUndoableCount(), 1u);
+	EXPECT_EQ((Buffer->GetQueueLength() - Buffer->GetUndoCount()), 1u);
 	EXPECT_FALSE(Buffer->CanUndo());
 	EXPECT_FALSE(Buffer->CanRedo());
 	EXPECT_EQ(Buffer->UndoExpected(Durin::Editor::FTransactionId{0}).Code, ETransactorResultCode::Rejected);

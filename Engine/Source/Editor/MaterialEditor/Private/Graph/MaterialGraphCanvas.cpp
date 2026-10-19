@@ -552,7 +552,7 @@ namespace Durin::Editor::Material
 	{
 		if (NodeIds.empty()) return;
 		FMaterialGraphClipboardPayload Payload;
-		const FMaterialGraphCommandResult Cut = GraphDocument.CutSelection(NodeIds, Payload, &Transactions);
+		const FMaterialGraphCommandResult Cut = GraphDocument.CutSelection(NodeIds, Payload);
 		if (!CheckCommand(Cut)) return;
 		GraphClipboard = std::move(Payload);
 		SelectedNodes.clear();
@@ -565,7 +565,7 @@ namespace Durin::Editor::Material
 	{
 		if (NodeIds.empty()) return;
 		const auto& Document = GraphDocument;
-		const auto Duplicated = Document.DuplicateNodes(NodeIds, 40, 40, &Transactions);
+		const auto Duplicated = Document.DuplicateNodes(NodeIds, 40, 40);
 		if (!CheckCommand(Duplicated)) return;
 		SelectedNodes.clear();
 		SelectedNodes.insert(Duplicated.GeneratedNodeIds.begin(),
@@ -580,9 +580,7 @@ namespace Durin::Editor::Material
 		if (!GraphClipboard) return;
 		const bool bRepeated = LastPasteAnchor && LastPasteAnchor->x == GraphPosition.x && LastPasteAnchor->y == GraphPosition.y;
 		const uint32 Offset = bRepeated ? RepeatedPasteCount + 1 : 0;
-		const FMaterialGraphCommandResult Pasted = GraphDocument.Paste(*GraphClipboard,
-			static_cast<int32>(std::round(GraphPosition.x)) + 24 * Offset,
-			static_cast<int32>(std::round(GraphPosition.y)) + 24 * Offset, &Transactions);
+		const FMaterialGraphCommandResult Pasted = GraphDocument.Paste(*GraphClipboard, static_cast<int32>(std::round(GraphPosition.x)) + 24 * Offset, static_cast<int32>(std::round(GraphPosition.y)) + 24 * Offset);
 		if (!CheckCommand(Pasted)) return;
 		LastPasteAnchor = GraphPosition;
 		RepeatedPasteCount = Offset;
@@ -599,7 +597,7 @@ namespace Durin::Editor::Material
 	{
 		if (NodeIds.empty()) return;
 		const FMaterialGraphCommandResult Removed =
-			GraphDocument.RemoveNodes(NodeIds, &Transactions);
+			GraphDocument.RemoveNodes(NodeIds);
 		if (CheckCommand(Removed)) SelectedNodes.clear();
 	}
 
@@ -644,8 +642,7 @@ namespace Durin::Editor::Material
 				{
 					if (ImGui::MenuItem(GetProgramTypeName(Type), nullptr, Edited.ResultType == Type))
 					{
-						CheckCommand(GraphDocument.SetConstantValue(
-							Edited.Id, MakeParameterValue(Type, Edited.GetConstantLiteral()), &Transactions));
+						CheckCommand(GraphDocument.SetConstantValue(Edited.Id, MakeParameterValue(Type, Edited.GetConstantLiteral())));
 					}
 				}
 				ImGui::EndMenu();
@@ -654,8 +651,7 @@ namespace Durin::Editor::Material
 			{
 				ImGui::InputTextWithHint("##ParameterName", "Parameter name", PromotionNameDraft.data(), PromotionNameDraft.size());
 				if (ImGui::MenuItem("Create / Reuse"))
-					CheckCommand(FMaterialGraphOperations::PromoteConstantToParameter(
-						*SurfaceMaterial, Edited.Id, FName(PromotionNameDraft.data()), &Transactions));
+					CheckCommand(FMaterialGraphOperations::PromoteConstantToParameter(*SurfaceMaterial, Edited.Id, FName(PromotionNameDraft.data())));
 				ImGui::EndMenu();
 			}
 			if (ImGui::MenuItem("Copy"))
@@ -676,7 +672,7 @@ namespace Durin::Editor::Material
 			if (static_cast<size_t>(*ContextSurfaceOutput) == 8)
 			{
 				if (ImGui::MenuItem("Disconnect Surface"))
-					CheckCommand(FMaterialGraphDocument(*SurfaceMaterial).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id), &Transactions));
+					CheckCommand(FMaterialGraphDocument(*SurfaceMaterial).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id)));
 			}
 			else
 			{
@@ -691,18 +687,15 @@ namespace Durin::Editor::Material
 				};
 				if (Link.SourceNodeId.IsValid()
 					&& ImGui::MenuItem("Disconnect to Default"))
-					CheckCommand(FMaterialGraphDocument(*SurfaceMaterial).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id, *ContextSurfaceOutput), &Transactions));
+					CheckCommand(FMaterialGraphDocument(*SurfaceMaterial).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id, *ContextSurfaceOutput)));
 				if (ImGui::MenuItem("Reset Default"))
-					CheckCommand(FMaterialGraphOperations::ResetSurfaceDefault(
-						*SurfaceMaterial, *ContextSurfaceOutput, &Transactions));
+					CheckCommand(FMaterialGraphOperations::ResetSurfaceDefault(*SurfaceMaterial, *ContextSurfaceOutput));
 				if (!Link.SourceNodeId.IsValid()
 					&& ImGui::MenuItem("Promote to Parameter"))
 					CheckCommand(
-						FMaterialGraphOperations::PromoteSurfaceOutputToParameter(
-							*SurfaceMaterial, NodeRequest, &Transactions));
+						FMaterialGraphOperations::PromoteSurfaceOutputToParameter(*SurfaceMaterial, NodeRequest));
 				if (ImGui::MenuItem("Add Texture"))
-					CheckCommand(FMaterialGraphOperations::AddTextureToSurfaceOutput(
-						*SurfaceMaterial, NodeRequest, &Transactions));
+					CheckCommand(FMaterialGraphOperations::AddTextureToSurfaceOutput(*SurfaceMaterial, NodeRequest));
 			}
 		}
 		ImGui::EndPopup();
@@ -774,7 +767,7 @@ namespace Durin::Editor::Material
 			});
 			if (Entry == Catalog.end()) continue;
 			const auto Created = GraphDocument.Create({MakeCreationAction(*Entry),
-				static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y))}, &Transactions);
+				static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y))});
 			if (CheckCommand(Created))
 			{
 				SelectedNodes.clear();
@@ -864,7 +857,7 @@ namespace Durin::Editor::Material
 				{
 					const auto Position = Multiply(Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
 					const auto Created = GraphDocument.Create({MakeFunctionCreationAction(Path.ToString()),
-						static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y))}, &Transactions);
+						static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y))});
 					if (CheckCommand(Created))
 					{
 						SelectedSurfaceOutput.reset();
@@ -892,8 +885,7 @@ namespace Durin::Editor::Material
 				return GraphEditInternals::RejectCommand("The graph input is unavailable.");
 			const auto& Pin = Node->Inputs[PinIndex];
 			const auto& Document = GraphDocument;
-			return Document.Connect(Node->InputAddress(Pin),
-				FMaterialGraphPinAddress::Output(Source), bReplace, &Transactions);
+			return Document.Connect(Node->InputAddress(Pin), FMaterialGraphPinAddress::Output(Source), bReplace);
 		};
 		const bool bCanvasPointerInteractionAvailable = bPointerAvailable;
 		const bool bCanvasKeyboardInteractionAvailable =
@@ -1093,8 +1085,7 @@ namespace Durin::Editor::Material
 					const auto& Pin = HoveredOutput->View->Outputs[HoveredOutputIndex];
 					const FMaterialProgramLink Source{HoveredOutput->View->Node.Id, Pin.OutputIndex, Pin.PortId};
 					const auto& Document = GraphDocument;
-					CheckCommand(Document.Connect(Address,
-						FMaterialGraphPinAddress::Output(Source), true, &Transactions));
+					CheckCommand(Document.Connect(Address, FMaterialGraphPinAddress::Output(Source), true));
 				}
 				ResetInteraction();
 			}
@@ -1150,7 +1141,7 @@ namespace Durin::Editor::Material
 			ImGui::SameLine();
 			if (ImGui::Button("Auto Layout"))
 			{
-				const FMaterialGraphCommandResult Layout = GraphDocument.Layout({}, &Transactions);
+				const FMaterialGraphCommandResult Layout = GraphDocument.Layout({});
 				CheckCommand(Layout);
 			}
 			ImGui::SameLine();

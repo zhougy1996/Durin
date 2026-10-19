@@ -188,8 +188,10 @@ namespace Durin::Editor
 			const FPropertyEditTarget& InTarget,
 			// An empty description uses "Edit <MemberProperty>" after target validation.
 			std::string_view InDescription,
-			DTransactor* InTransactor = nullptr
+			ETransactionMode Mode = ETransactionMode::Record
 		) -> FPropertyEditOperationResult;
+		DURINED_API auto Begin(const FPropertyEditTarget& Target, std::string_view Description,
+			DTransactor& Transactor) -> FPropertyEditOperationResult;
 		DURINED_API auto Apply(const FPropertyValueSnapshot& ProposedValue) -> FPropertyEditOperationResult;
 		DURINED_API auto Apply(const FPropertyValueSnapshotPayload& ProposedValue) -> FPropertyEditOperationResult;
 		DURINED_API auto Commit() -> FPropertyEditOperationResult;
@@ -204,6 +206,8 @@ namespace Durin::Editor
 		auto GetCurrentValue() const -> const FPropertyValueSnapshotPayload& { return CurrentValue; }
 
 	private:
+		auto BeginInternal(const FPropertyEditTarget& Target, std::string_view Description,
+			DTransactor* Transactor) -> FPropertyEditOperationResult;
 		struct FDeferredOwnerState;
 		auto CompleteDeferredEdit(
 			std::expected<void, FObjectValidationError> Validation,

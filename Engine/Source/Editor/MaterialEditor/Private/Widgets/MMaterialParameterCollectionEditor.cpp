@@ -167,7 +167,7 @@ namespace Durin::Editor::Material
 
 	auto MMaterialParameterCollectionEditor::Context() -> FPropertyViewContext
 	{
-		return {.Transactor = GEditor ? GEditor->GetTransactor() : nullptr,
+		return {
 			.ReportError = [this](std::string Message) {
 				Report(std::move(Message));
 			}};

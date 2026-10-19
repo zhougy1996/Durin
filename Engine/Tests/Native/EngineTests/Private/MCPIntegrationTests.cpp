@@ -3,7 +3,7 @@
 #include "MCPCodec.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/NativeToolset.h"
-#include "Editor/EditorEngine.h"
+#include "Editor/EditorEngineTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "DObject/Class.h"
 #include "DObject/StrongObjectPtr.h"
@@ -13,23 +13,6 @@
 #include "Engine/Level.h"
 #include <gtest/gtest.h>
 
-namespace Durin
-{
-	class FMCPTestEditor : public DEditorEngine
-	{
-		static auto GetPrivateStaticClass() -> DClass*;
-		DECLARE_CLASS(FMCPTestEditor, DEditorEngine, FMCPTestEditor::GetPrivateStaticClass)
-		DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FMCPTestEditor)
-	public:
-		explicit FMCPTestEditor(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer) {}
-		auto Start() -> FSubsystemResult { return ActivateEditor() ? InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."}; }
-	};
-	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FMCPTestEditor)
-	struct FEditorEngineTestAccess
-	{
-		static auto SetEditorWorld(DEditorEngine& Editor, DWorld* World) -> void { Editor.EditorWorld = World; Editor.SetWorld(World); }
-	};
-}
 namespace
 {
 	using namespace Durin;
@@ -58,8 +41,8 @@ namespace
 		auto SetUp() -> void override
 		{
 			Testing::InitializeDObjectSystemForTests();
-			Host = TStrongObjectPtr<FMCPTestEditor>(NewObject<FMCPTestEditor>(nullptr, {}));
-			ASSERT_TRUE(Host->Start());
+			Host = TStrongObjectPtr<DEditorEngine>(NewObject<DEditorEngine>(nullptr, {}));
+			ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
 			ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
 			ASSERT_TRUE(Host->RefreshEditorSubsystems()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
 			auto Started = Server.Start(*Host, {.BearerToken = std::string(Token)});
@@ -128,7 +111,7 @@ namespace
 		}
 		FMCPServer Server;
 		uint16 Port = 0;
-		TStrongObjectPtr<FMCPTestEditor> Host;
+		TStrongObjectPtr<DEditorEngine> Host;
 		DEditorToolSubsystem* Tools = nullptr;
 		std::unique_ptr<FNativeToolset> Toolset;
 		FModularFeatureRegistration Registration;

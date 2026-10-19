@@ -1,7 +1,7 @@
 #include "Panels/ConsoleToolAdapter.h"
 #include "Panels/ConsoleToolArguments.h"
 #include "Tools/NativeToolset.h"
-#include "Editor/EditorEngine.h"
+#include "Editor/EditorEngineTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "Editor/LevelEditorSubsystem.h"
 #include "DObject/Class.h"
@@ -28,24 +28,6 @@ namespace
 	};
 }
 
-namespace Durin
-{
-	class FConsoleTestEditor : public DEditorEngine
-	{
-		static auto GetPrivateStaticClass() -> DClass*;
-		DECLARE_CLASS(FConsoleTestEditor, DEditorEngine, FConsoleTestEditor::GetPrivateStaticClass)
-		DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FConsoleTestEditor)
-	public:
-		explicit FConsoleTestEditor(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer) {}
-		auto Start() -> FSubsystemResult { return ActivateEditor() ? InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."}; }
-	};
-	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FConsoleTestEditor)
-	struct FEditorEngineTestAccess
-	{
-		static auto SetState(DEditorEngine& Editor, Editor::EPlayState State) -> void { Editor.PlayState = State; }
-		static auto SetEditorWorld(DEditorEngine& Editor, DWorld* World) -> void { Editor.EditorWorld = World; Editor.SetWorld(World); }
-	};
-}
 
 namespace Durin::Editor::MainFrame
 {
@@ -84,10 +66,10 @@ namespace Durin::Editor::MainFrame
 				Editors.clear(); CollectGarbage();
 				Testing::RemoveTestWorkDirectory(Temp);
 			}
-			auto NewHost() -> FConsoleTestEditor*
+			auto NewHost() -> DEditorEngine*
 			{
-				auto* Editor = NewObject<FConsoleTestEditor>(nullptr, {});
-				Editors.emplace_back(Editor); EXPECT_TRUE(Editor->Start()); return Editor;
+				auto* Editor = NewObject<DEditorEngine>(nullptr, {});
+				Editors.emplace_back(Editor); EXPECT_TRUE(FEditorEngineTestAccess::StartEditor(*Editor)); return Editor;
 			}
 			auto Register(FToolDescriptor Descriptor = EchoDescriptor()) -> void
 			{
@@ -112,8 +94,8 @@ namespace Durin::Editor::MainFrame
 			std::unique_ptr<FConsoleToolAdapter> Adapter;
 			std::unique_ptr<FNativeToolset> Toolset;
 			FModularFeatureRegistration Registration;
-			std::vector<TStrongObjectPtr<FConsoleTestEditor>> Editors;
-			FConsoleTestEditor* Host = nullptr;
+			std::vector<TStrongObjectPtr<DEditorEngine>> Editors;
+			DEditorEngine* Host = nullptr;
 			std::filesystem::path Temp;
 			FToolValue LastArguments;
 			EToolSource LastSource = EToolSource::Native;
@@ -238,7 +220,7 @@ namespace Durin::Editor::MainFrame
 
 	TEST_F(FConsoleToolTests, PIECallsUseTheAdmittingEditorAndRejectRemovedCompatibilityCommands)
 	{
-		auto* Other = NewObject<FConsoleTestEditor>(nullptr, "InactiveConsoleEditor");
+		auto* Other = NewObject<DEditorEngine>(nullptr, "InactiveConsoleEditor");
 		Editors.emplace_back(Other);
 		EXPECT_EQ(Host, GEditor);
 		EXPECT_FALSE(Other->ActivateEditor());

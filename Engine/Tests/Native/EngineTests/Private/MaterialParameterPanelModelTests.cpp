@@ -23,7 +23,7 @@
 
 namespace
 {
-	using FPropertyTransactionHarness = Durin::Tests::FTestTransactorOwner;
+	using FPropertyTransactionHarness = Durin::Tests::FTestEditorTransactorOwner;
 
 	auto FindEntry(
 		const Durin::Editor::Material::FMaterialParameterPanelModel& Model,
@@ -41,7 +41,6 @@ namespace
 	) -> Durin::Editor::FPropertyViewContext
 	{
 		return {
-			.Transactor = Transactions.Get(),
 			.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 		};
 	}
@@ -285,7 +284,7 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	ASSERT_NE(BaseOpacity, nullptr);
 	auto ScalarValue = BaseOpacity->Value;
 	ScalarValue.GetScalar() = 0.7f;
-	ASSERT_TRUE(Durin::Editor::Material::FMaterialGraphOperations::SetParameterValue(*Base, BaseOpacity->ParameterId, ScalarValue, Transactions.Get()));
+	ASSERT_TRUE(Durin::Editor::Material::FMaterialGraphOperations::SetParameterValue(*Base, BaseOpacity->ParameterId, ScalarValue));
 	float Opacity = 0.0f;
 	ASSERT_TRUE(Base->GetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), Opacity));
 	EXPECT_FLOAT_EQ(Opacity, 0.7f);
@@ -673,8 +672,8 @@ TEST(FMaterialParameterPanelModelTests, MetadataNotificationsReachEachObserverAc
 	ASSERT_TRUE(Instance->SetParent(Base.Get()));
 	const auto Id = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value;
 	FMaterialParameterPanelModel First(Base.Get()), Second(Instance.Get());
-	Tests::FTestTransactorOwner Transactions;
-	ASSERT_TRUE(FMaterialGraphOperations::RenameParameter(*Base, Id, "Coverage", Transactions.Get()));
+	Tests::FTestEditorTransactorOwner Transactions;
+	ASSERT_TRUE(FMaterialGraphOperations::RenameParameter(*Base, Id, "Coverage"));
 	EXPECT_TRUE(First.NeedsRefresh());
 	EXPECT_TRUE(Second.NeedsRefresh());
 	First.Refresh();

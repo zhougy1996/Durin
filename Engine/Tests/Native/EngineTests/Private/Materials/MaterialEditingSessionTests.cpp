@@ -180,7 +180,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	const auto GetCall = [](DMaterial& Material) {
 		return Cast<DMaterialExpressionFunctionCall>(Material.GetExpressionCollection().Expressions.at(0).Get());
 	};
-	Tests::FTestTransactorOwner Transactions;
+	Tests::FTestEditorTransactorOwner Transactions;
 	FMaterialEditingSession Session;
 	std::string Error;
 	ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error, Transactions.Get())) << Error;
@@ -266,7 +266,7 @@ TEST_F(FMaterialEditingSessionTests, ExternalSourceChangeRejectsApplyWithoutOver
 
 TEST_F(FMaterialEditingSessionTests, DiscardRetiresDraftAndItsHistoryWithoutChangingSource)
 {
-	Tests::FTestTransactorOwner Transactions;
+	Tests::FTestEditorTransactorOwner Transactions;
 	TObjectPtr<DMaterial> RetiredDraft;
 	const auto Original = Source->GetExpressionOutputs();
 	{
@@ -279,7 +279,7 @@ TEST_F(FMaterialEditingSessionTests, DiscardRetiresDraftAndItsHistoryWithoutChan
 		FMaterialGraphSurfaceDefaultRequest Request;
 		Request.Output = EMaterialSurfaceOutput::Roughness;
 		Request.Value.X = 0.21f;
-		ASSERT_TRUE(FMaterialGraphOperations::SetSurfaceDefault(*Draft, Request, Transactions.Get()));
+		ASSERT_TRUE(FMaterialGraphOperations::SetSurfaceDefault(*Draft, Request));
 		EXPECT_TRUE(Session.HasUnappliedChanges());
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_FALSE(Session.HasUnappliedChanges());

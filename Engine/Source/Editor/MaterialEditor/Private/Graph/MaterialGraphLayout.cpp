@@ -39,6 +39,16 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphDocument::MoveNodes(
 		std::span<const FMaterialGraphNodePresentation> Positions,
+		ETransactionMode Mode) const -> FMaterialGraphCommandResult
+	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
+		return MoveNodesInternal(Positions, Transactions);
+	}
+
+	auto FMaterialGraphDocument::MoveNodesInternal(
+		std::span<const FMaterialGraphNodePresentation> Positions,
 		DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
@@ -74,14 +84,16 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphDocument::MoveMaterialOutput(
 		int32 X,
 		int32 Y,
-		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		const auto* Material = Cast<DMaterial>(Owner.Get());
 		const auto* Output = Material ? Material->GetOutputNode() : nullptr;
 		if (!Output) return RejectCommand("The material output node is unavailable.");
 		const FMaterialGraphNodePresentation Position{Output->Id, X, Y};
-		return MoveNodes(std::span(&Position, 1), Transactions);
+		return MoveNodes(std::span(&Position, 1), Mode);
 	}
 
 	auto FMaterialGraphDocument::CalculateLayout(
@@ -268,8 +280,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::Layout(std::span<const FGuid> NodeIds,
-		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		FMaterialGraphPresentation Presentation;
 		auto Calculated = CalculateLayout(NodeIds, Presentation);
 		if (!Calculated) return Calculated;

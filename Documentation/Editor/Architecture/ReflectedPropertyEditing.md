@@ -208,6 +208,14 @@ discarding the preview state.
 
 ## History Submission
 
+Begin defaults to ETransactionMode::Record and resolves the active editor.
+ETransactionMode::NotTransactable explicitly requests no scope or history record;
+it rejects an existing GUndo instead of joining an outer recording. The explicit
+non-null DTransactor reference overload remains for low-level native composition.
+NonTransactional property metadata continues to exclude that property from
+history, including when ordinary recorded admission is selected. Local preview
+snapshots, validation and cancellation restoration remain available without history.
+
 The session opens one scope and calls `Modify(false)` for transaction-owned
 object capture, including fields authored by edit reactions. Successful capture
 still marks the package dirty. An uncaptured probe leaves its dirty state intact

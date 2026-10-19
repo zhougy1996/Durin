@@ -12,6 +12,9 @@ namespace Durin
 
 namespace Durin::Editor
 {
+	// Explicit editor admission policy; unrecorded edits cannot join a live recording.
+	enum class ETransactionMode : uint8 { Record, NotTransactable };
+
 	using FTransactionId = uint64;
 	using FRevisionId = uint64;
 

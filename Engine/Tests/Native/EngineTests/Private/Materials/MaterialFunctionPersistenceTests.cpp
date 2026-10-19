@@ -20,7 +20,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	DMaterialFunction* Second = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FirstPath, First));
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SecondPath, Second));
-	ASSERT_TRUE(FMaterialGraphDocument(*Second).InsertFunctionCall(*First, 0, 300));
+	ASSERT_TRUE(FMaterialGraphDocument(*Second).InsertFunctionCall(*First, 0, 300, Durin::Editor::ETransactionMode::NotTransactable));
 	ASSERT_TRUE(SavePackage(First->GetPackage()));
 	ASSERT_TRUE(SavePackage(Second->GetPackage()));
 	FWorkspaceManager Manager;
@@ -41,7 +41,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	ASSERT_TRUE(Workspace);
 	auto Signature = First->GetFunctionSignature();
 	Signature.Outputs[0].Name = "Saved Surface";
-	ASSERT_TRUE(FMaterialGraphDocument(*First).SetPort(true, Signature.Outputs[0]));
+	ASSERT_TRUE(FMaterialGraphDocument(*First).SetPort(true, Signature.Outputs[0], Durin::Editor::ETransactionMode::NotTransactable));
 	EXPECT_TRUE(Workspace->IsDocumentDirty(FirstTab));
 	EXPECT_EQ(Manager.RequestCloseDocument(FirstTab.Id), EDocumentCloseResult::PendingConfirmation);
 	ASSERT_TRUE(Workspace->SaveDocument(FirstTab));
@@ -53,7 +53,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	PreviewInvalidation.SetFunction(Second);
 	EXPECT_TRUE(PreviewInvalidation.ConsumeRefreshRequest());
 	Signature.Outputs[0].Name = "Discarded Surface";
-	ASSERT_TRUE(FMaterialGraphDocument(*First).SetPort(true, Signature.Outputs[0]));
+	ASSERT_TRUE(FMaterialGraphDocument(*First).SetPort(true, Signature.Outputs[0], Durin::Editor::ETransactionMode::NotTransactable));
 	EXPECT_TRUE(PreviewInvalidation.ConsumeRefreshRequest());
 	const bool Discarded = Workspace->DiscardDocument(FirstTab);
 	if (!Discarded)
@@ -72,7 +72,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	EXPECT_EQ(Reloaded->GetFunctionSignature().Outputs[0].Name, "Saved Surface");
 	EXPECT_EQ(GetFunctionCalls(*Second)[0]->Function.Get(), Reloaded);
 	EXPECT_TRUE(PreviewInvalidation.ConsumeRefreshRequest());
-	const auto Pasted = FMaterialGraphDocument(*Second).Paste(Clipboard, 300, 300);
+	const auto Pasted = FMaterialGraphDocument(*Second).Paste(Clipboard, 300, 300, Durin::Editor::ETransactionMode::NotTransactable);
 	EXPECT_TRUE(Pasted) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Pasted);
 	EXPECT_EQ(GetFunctionCalls(*Second).back()->Function.Get(), Reloaded);
 	EXPECT_FALSE(Workspace->IsDocumentDirty(FirstTab));

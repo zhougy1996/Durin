@@ -59,8 +59,10 @@ namespace Durin::Editor::Material
 			[&](const auto& Port) { return FMaterialGraphSchema::AcceptsPort(Port.Type, *SourceType); });
 	}
 	auto FMaterialGraphDocument::Create(const FMaterialGraphCreationRequest& Request,
-		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FMaterialProgramLink Source;
 		std::optional<EMaterialProgramValueType> SourceType;
@@ -83,8 +85,7 @@ namespace Durin::Editor::Material
 		if (!Schema.CanCreate(Request.Action, SourceType))
 			return RejectCommand("This action is not compatible with the graph or source output.");
 		if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Request.Action.Payload))
-			return CreateCatalogNode(*Entry, Request.X, Request.Y,
-				{Source.SourceNodeId, Source.SourceOutputIndex, Source.SourceOutputId}, Transactions);
+			return CreateCatalogNode(*Entry, Request.X, Request.Y, {Source.SourceNodeId, Source.SourceOutputIndex, Source.SourceOutputId}, Mode);
 		if (const auto* Spec = std::get_if<FMaterialGraphPortCreation>(&Request.Action.Payload))
 		{
 			const auto* Function = Cast<DMaterialFunction>(Owner.Get());
@@ -102,7 +103,7 @@ namespace Durin::Editor::Material
 				Port.Default.Kind = Port.Type == EMaterialProgramValueType::Surface ? EMaterialFunctionDefaultKind::Surface
 					: Port.Type == EMaterialProgramValueType::Texture2D ? EMaterialFunctionDefaultKind::Texture
 					: EMaterialFunctionDefaultKind::Numeric;
-			return AddPort(Spec->bOutput, Port, Source, Request.X, Request.Y, Transactions);
+			return AddPort(Spec->bOutput, Port, Source, Request.X, Request.Y, Mode);
 		}
 		if (const auto* Spec = std::get_if<
 			FMaterialGraphCollectionParameterCreation>(&Request.Action.Payload))
@@ -123,7 +124,7 @@ namespace Durin::Editor::Material
 			Expression->Id = FGuid::NewGuid();
 			Expression->Collection = *Loaded;
 			Expression->ParameterId = Spec->ParameterId;
-			return CreateExpression(*Expression, Request.X, Request.Y, Transactions);
+			return CreateExpression(*Expression, Request.X, Request.Y, Mode);
 		}
 		auto Loaded = LoadCreationFunction(std::get<std::string>(Request.Action.Payload));
 		if (!Loaded)
@@ -138,7 +139,7 @@ namespace Durin::Editor::Material
 				if (FMaterialGraphSchema::AcceptsPort(Port.Type, *SourceType)) { Inputs.push_back({Port.Id, Port.Type, Source}); break; }
 			if (Inputs.empty()) return RejectCommand("This function has no compatible input.");
 		}
-		return InsertFunctionCall(*Function, Request.X, Request.Y, Inputs, Transactions);
+		return InsertFunctionCall(*Function, Request.X, Request.Y, Inputs, Mode);
 	}
 	namespace GraphEditInternals
 	{
@@ -317,8 +318,11 @@ namespace Durin::Editor::Material
 		: Owner(&InOwner), Schema(SelectGraphSchema(InOwner)) {}
 
 	auto FMaterialGraphDocument::SetPort(bool bOutput, FMaterialFunctionPort Port,
-		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		auto* Function = Cast<DMaterialFunction>(Owner.Get());
 		if (!Function) return RejectCommand("Only function documents have an interface.");
@@ -341,8 +345,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::AddPort(bool bOutput, FMaterialFunctionPort Port,
-		FMaterialProgramLink Source, int32 X, int32 Y, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		FMaterialProgramLink Source, int32 X, int32 Y, ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		auto* Function = Cast<DMaterialFunction>(Owner.Get());
 		if (!Function) return RejectCommand("Only function documents have an interface.");
@@ -370,8 +377,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::RemovePort(bool bOutput, const FGuid& PortId,
-		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		auto* Function = Cast<DMaterialFunction>(Owner.Get());
 		if (!Function) return RejectCommand("Only function documents have an interface.");
@@ -390,8 +400,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::CreateCatalogNode(const FMaterialGraphCatalogEntry& Entry, int32 X, int32 Y,
-		FMaterialExpressionInput FirstInput, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		FMaterialExpressionInput FirstInput, ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		const auto* Registration = FindMaterialGraphExpressionRegistration(Entry.ExpressionClass);
 		if (!Registration || Registration->CreationKind != EMaterialGraphCreationKind::Direct)
@@ -494,8 +507,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::CreateExpression(const DMaterialExpression& Expression, int32 X, int32 Y,
-		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		if (!Schema.CanCreateExpression(Expression)) return RejectCommand("This expression is not supported by the graph.");
 		FGraphEditSession State(*Owner.Get());
@@ -525,8 +541,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::ReplaceExpression(const DMaterialExpression& Expression,
-		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FGraphEditSession State(*Owner.Get());
 		const auto Existing = std::ranges::find_if(State.Expressions, [&](const auto& Value) { return Value->Id == Expression.Id; });
@@ -551,8 +570,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::SetConstantValue(const FGuid& NodeId, const FMaterialParameterValue& Value,
-		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		const auto* Material = Cast<DMaterial>(Owner.Get());
 		const auto* Function = Cast<DMaterialFunction>(Owner.Get());
@@ -593,12 +615,15 @@ namespace Durin::Editor::Material
 		default: return RejectCommand("Constants require a numeric value.");
 		}
 		Replacement->Id = NodeId;
-		return ReplaceExpression(*Replacement.Get(), Transactions);
+		return ReplaceExpression(*Replacement.Get(), Mode);
 	}
 
 	auto FMaterialGraphDocument::SetSwizzleComponents(const FGuid& NodeId, std::span<const uint8> Components,
-		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		const auto Invalid = std::ranges::find_if(Components, [](uint8 Value) { return Value > 3; });
 		if (Components.empty() || Components.size() > 4 || Invalid != Components.end())
 		{
@@ -619,8 +644,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::RemoveNodes(std::span<const FGuid> NodeIds,
-		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (NodeIds.size() > MaterialProgramMaxNodeCount) return RejectCommand("The removal selection exceeds the graph bound.");
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FGraphEditSession State(*Owner.Get());
@@ -649,8 +677,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::Connect(const FMaterialGraphPinAddress& TargetAddress,
-		const FMaterialGraphPinAddress& SourceAddress, bool bReplaceExisting, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		const FMaterialGraphPinAddress& SourceAddress, bool bReplaceExisting, ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		if (!Schema.IsSourceAddressValid(SourceAddress))
 			return RejectCommand("The source must be an output pin.");
@@ -726,8 +757,11 @@ namespace Durin::Editor::Material
 		return Result;
 	}
 
-	auto FMaterialGraphDocument::SetUseMaterialAttributes(bool bEnabled, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+	auto FMaterialGraphDocument::SetUseMaterialAttributes(bool bEnabled, ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		auto* Material = Cast<DMaterial>(Owner.Get());
 		if (!Material) return RejectCommand("Only materials have a material output mode.");
@@ -738,15 +772,20 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::InsertFunctionCall(DMaterialFunctionInterface& Function,
-		int32 X, int32 Y, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		int32 X, int32 Y, ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
-		return InsertFunctionCall(Function, X, Y, {}, Transactions);
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		return InsertFunctionCall(Function, X, Y, {}, Mode);
 	}
 
 	auto FMaterialGraphDocument::InsertFunctionCall(DMaterialFunctionInterface& Function,
 		int32 X, int32 Y, std::span<const FMaterialFunctionInputBinding> Inputs,
-		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FGraphEditSession State(*Owner.Get());
 		std::vector<FMaterialFunctionOwnerStamp> Closure;
@@ -783,8 +822,10 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::Disconnect(const FMaterialGraphPinAddress& Target,
-		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
-		return Connect(Target, FMaterialGraphPinAddress::Output({}), true, Transactions);
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		return Connect(Target, FMaterialGraphPinAddress::Output({}), true, Mode);
 	}
 }

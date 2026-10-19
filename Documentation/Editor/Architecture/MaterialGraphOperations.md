@@ -534,6 +534,17 @@ published RHI allocations and retire registrations after their last canvas consu
 
 ## Transactions and gestures
 
+Ordinary document and static graph commands select ETransactionMode::Record by
+default and resolve the active editor before editing. UI callers do not pass
+transactors. Missing or busy editor services reject the command without mutation.
+Explicit ETransactionMode::NotTransactable permits standalone edits without
+creating history, but rejects an existing GUndo. It retains domain snapshots,
+validation, compensation and normal successful dirty/revision publication.
+Read-only inspection, copying and layout calculation need no transaction service.
+Move gestures retain their original service and use a private position submission
+path; their Commit never redirects to a replacement editor. Working-copy checkpoint
+ownership and explicit low-level gesture bindings are separate from command modes.
+
 `Modify()` captures reflected members before mutation, including participants
 introduced by type adaptation. Only changed member payloads enter the global
 transactor. Structural history detaches deleted children and retains them through
@@ -617,7 +628,7 @@ again when it moves away from that checkpoint.
 Material and function node movement use `FMaterialGraphMoveSession`. Pointer-down
 captures the selection and semantic revision; drag samples validate detached position
 drafts displayed by the canvas. Pointer-up merges only drafted coordinates into the
-current presentation through `FMaterialGraphDocument::MoveNodes` and records one
+current presentation through the document's private position submission and records one
 position-delta transaction. Labels are never written by movement. Escape, document
 switch, deactivation, discard, close, destruction, or stale owner discards the draft
 without changing the asset or unrelated presentation edits. Each document owns a

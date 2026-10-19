@@ -1204,9 +1204,9 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	FMaterialGraphDocument Document(*Material), FunctionDocument(*Function);
 	ASSERT_TRUE(Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::TextureSampleParameter2D, EMaterialProgramValueType::Float4));
 	ASSERT_TRUE(Testing::CreateGraphCatalogNode(FunctionDocument, EMaterialProgramOpcode::Multiply));
-	const auto Call = Document.InsertFunctionCall(*Function, 300, 0);
+	const auto Call = Document.InsertFunctionCall(*Function, 300, 0, Durin::Editor::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Call);
-	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, std::nullopt), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, Function->GetFunctionSignature().Outputs[0].Id}), true));
+	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, std::nullopt), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, Function->GetFunctionSignature().Outputs[0].Id}), true, Durin::Editor::ETransactionMode::NotTransactable));
 	const auto CaptureFields = [](const auto& Owner) {
 		std::vector<FPropertyValueSnapshotPayload> Fields;
 		for (const auto& Expression : Owner.GetExpressionCollection().Expressions)

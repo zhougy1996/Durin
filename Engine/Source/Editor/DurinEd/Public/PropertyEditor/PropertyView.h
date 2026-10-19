@@ -55,7 +55,7 @@ namespace Durin::Editor
 	// Supplies transaction, error, and read-only policy to a property view.
 	struct FPropertyViewContext
 	{
-		DTransactor* Transactor = nullptr;
+		ETransactionMode TransactionMode = ETransactionMode::Record;
 		std::function<void(std::string)> ReportError;
 		std::function<bool(const FPackagePath&, std::string&)> RevealAsset;
 		std::function<bool(const FPackagePath&, std::string&)> OpenAsset;

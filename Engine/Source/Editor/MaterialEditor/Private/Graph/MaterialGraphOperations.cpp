@@ -135,9 +135,12 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphOperations::CreateParameter(
-		DMaterial& Material, FMaterialParameterDefinition Definition, DTransactor* Transactions)
+		DMaterial& Material, FMaterialParameterDefinition Definition, ETransactionMode Mode)
 		-> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Definition.Id.IsValid()) Definition.Id = FGuid::NewGuid();
 		FGraphEditSession State(Material);
 		auto Created = MakeParameterExpression(Definition);
@@ -158,9 +161,12 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphOperations::RenameParameter(
-		DMaterial& Material, const FGuid& ParameterId, FName Name, DTransactor* Transactions)
+		DMaterial& Material, const FGuid& ParameterId, FName Name, ETransactionMode Mode)
 		-> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		FGraphEditSession State(Material);
 		DMaterialExpressionParameter* Parameter = nullptr;
 		for (const auto& Expression : State.Expressions)
@@ -181,21 +187,26 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphOperations::DeleteParameter(
-		DMaterial& Material, const FGuid& ParameterId, DTransactor* Transactions)
+		DMaterial& Material, const FGuid& ParameterId, ETransactionMode Mode)
 		-> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
 		std::vector<FGuid> Nodes;
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == ParameterId)
 				Nodes.push_back(Parameter->Id);
 		if (Nodes.empty()) return RejectCommand("Parameter owner is unavailable.");
-		return FMaterialGraphDocument(Material).RemoveNodes(Nodes, Transactions);
+		return FMaterialGraphDocument(Material).RemoveNodes(Nodes, Mode);
 	}
 
 	auto FMaterialGraphOperations::PromoteConstantToParameter(
-		DMaterial& Material, const FGuid& NodeId, FName Name, DTransactor* Transactions)
+		DMaterial& Material, const FGuid& NodeId, FName Name, ETransactionMode Mode)
 		-> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		FGraphEditSession State(Material);
 		const auto It = std::ranges::find(State.Expressions, NodeId, [](const auto& E) { return E->Id; });
 		if (It == State.Expressions.end()) return RejectCommand("Only a numeric constant can be promoted to a parameter.");
@@ -238,8 +249,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphOperations::SetSurfaceDefault(DMaterial& Material,
-		const FMaterialGraphSurfaceDefaultRequest& Request, DTransactor* Transactions) -> FMaterialGraphCommandResult
+		const FMaterialGraphSurfaceDefaultRequest& Request, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		FGraphEditSession State(Material);
 		const auto Previous = State.GetOutputs();
 		const auto& Value = Request.Value;
@@ -253,17 +267,22 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphOperations::ResetSurfaceDefault(DMaterial& Material,
-		EMaterialSurfaceOutput Output, DTransactor* Transactions) -> FMaterialGraphCommandResult
+		EMaterialSurfaceOutput Output, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
-		return FMaterialGraphDocument(Material).SetInputConstantEnabled(Material.GetOutputNode()->Id, static_cast<uint32>(Output), false, Transactions);
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		return FMaterialGraphDocument(Material).SetInputConstantEnabled(Material.GetOutputNode()->Id, static_cast<uint32>(Output), false, Mode);
 	}
 
 	auto FMaterialGraphOperations::SetParameterValue(
 		DMaterial& Material,
 		const FGuid& ParameterId,
 		FMaterialParameterValue Value,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
+		ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		FMaterialGraphParameterEditSession Session;
 		const auto Begun = Session.Begin(Material, ParameterId, Transactions);
 		if (!Begun) return Begun;
@@ -283,8 +302,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphOperations::PromoteSurfaceOutputToParameter(DMaterial& Material,
-		const FMaterialGraphSurfaceNodeRequest& Request, DTransactor* Transactions) -> FMaterialGraphCommandResult
+		const FMaterialGraphSurfaceNodeRequest& Request, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		FGraphEditSession State(Material);
 		auto* Link = GetSurfaceLink(State.GetOutputs(), Request.Output);
 		if (!Link) return RejectCommand("The material surface output is invalid.");
@@ -320,8 +342,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphOperations::AddTextureToSurfaceOutput(DMaterial& Material,
-		const FMaterialGraphSurfaceNodeRequest& Request, DTransactor* Transactions) -> FMaterialGraphCommandResult
+		const FMaterialGraphSurfaceNodeRequest& Request, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		FGraphEditSession State(Material);
 		auto* Link = GetSurfaceLink(State.GetOutputs(), Request.Output);
 		if (!Link) return RejectCommand("The material surface output is invalid.");

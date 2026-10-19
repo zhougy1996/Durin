@@ -1,6 +1,6 @@
 #include "Threading/TaskComposition.h"
 #include "WorldTestSupport.h"
-#include "Editor/EditorEngine.h"
+#include "Editor/EditorEngineTestSupport.h"
 #include "Actors/EditorActorSubsystem.h"
 #include "Notifications/EditorNotificationSubsystem.h"
 #include "DObject/StrongObjectPtr.h"
@@ -533,7 +533,7 @@ namespace Durin
 		auto SetEditorWorld(DWorld* World) -> void { EditorWorld = World; SetWorld(World); }
 		auto StartPlay(DLevel* Level) -> bool { return StartPlaySessionInternal({.SourceLevel = Level}, std::optional<DClass*>{nullptr}, nullptr); }
 		auto StartEngine() -> FSubsystemResult { return InitializeEngineSubsystems(); }
-		auto StartEditor() -> FSubsystemResult { return ActivateEditor() ? InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."}; }
+		auto StartEditor() -> FSubsystemResult { return FEditorEngineTestAccess::StartEditor(*this); }
 		auto Dispatch(const std::function<void()>& Callback) -> void { FHostOperationScope Operation(*this); Callback(); }
 	};
 	class FEngineSubsystemProbe : public DEngineSubsystem

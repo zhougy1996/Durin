@@ -1568,7 +1568,7 @@ namespace Durin::Editor
 
 		if (!EditSession.IsActive())
 		{
-			if (const auto Begin = EditSession.Begin(Target, {}, Context.Transactor); !Begin)
+			if (const auto Begin = EditSession.Begin(Target, {}, Context.TransactionMode); !Begin)
 			{
 				ReportError(Context, Begin.Message);
 				return false;

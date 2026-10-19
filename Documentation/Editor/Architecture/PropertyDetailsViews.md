@@ -17,10 +17,16 @@ owns Actor/Component aggregation.
 panel or standalone asset editor. A host stores one instance and supplies a
 context containing:
 
-- the editor's externally owned transactor;
+- transaction mode (recorded by default, or explicit NotTransactable);
 - an error-reporting callback;
 - optional asset reveal/open callbacks; and
 - read-only state.
+
+The context does not select a transaction service. A new interaction resolves
+the active editor once; its session retains the exact scope until completion.
+Unavailable recorded admission rejects the edit rather than silently disabling
+history. CallInEditor actions require recorded mode. Custom spline commands use
+the same admission policy as ordinary property writes.
 
 `EditObject()` is the default object-level API. It enumerates inherited `Edit`
 properties, expands fixed arrays, applies caller-provided search and filtering,

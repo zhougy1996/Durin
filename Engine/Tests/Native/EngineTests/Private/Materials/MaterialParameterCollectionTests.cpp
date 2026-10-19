@@ -403,8 +403,7 @@ TEST(FMaterialParameterCollectionPersistenceTests,
 		.Action = MakeCollectionParameterCreationAction(
 			Collection->GetObjectPath(), Tint.Id, "Tint"),
 		.X = 120, .Y = 80};
-	const auto Created = FMaterialGraphDocument(*AuthoringMaterial).Create(
-		Request, nullptr);
+	const auto Created = FMaterialGraphDocument(*AuthoringMaterial).Create(Request, Durin::Editor::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Created) << FormatMaterialGraphCommandResult(Created);
 	ASSERT_EQ(Created.GeneratedNodeIds.size(), 1u);
 	const auto Authored = std::ranges::find_if(

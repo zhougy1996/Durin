@@ -1,6 +1,6 @@
 #include "PythonRuntime.h"
 #include "PythonReflectionTestTypes.h"
-#include "Editor/EditorEngine.h"
+#include "Editor/EditorEngineTestSupport.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/EditorToolService.h"
 #include "Tools/EditorScriptCall.h"
@@ -13,23 +13,6 @@
 #include "NativeDObjectTestSupport.h"
 #include <gtest/gtest.h>
 
-namespace Durin
-{
-    class FPythonReflectionEditor : public DEditorEngine
-    {
-        static auto GetPrivateStaticClass() -> DClass*;
-        DECLARE_CLASS(FPythonReflectionEditor, DEditorEngine, FPythonReflectionEditor::GetPrivateStaticClass)
-        DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FPythonReflectionEditor)
-    public:
-        explicit FPythonReflectionEditor(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer) {}
-        auto Start() -> FSubsystemResult { return ActivateEditor() ? InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."}; }
-    };
-    IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FPythonReflectionEditor)
-    struct FEditorEngineTestAccess
-    {
-        static auto SetEditorWorld(DEditorEngine& Editor, DWorld* World) -> void { Editor.EditorWorld = World; Editor.SetWorld(World); }
-    };
-}
 namespace
 {
     using namespace Durin;
@@ -38,7 +21,7 @@ namespace
     {
     protected:
         FPythonRuntime Runtime;
-        TStrongObjectPtr<FPythonReflectionEditor> Host;
+        TStrongObjectPtr<DEditorEngine> Host;
         DEditorToolSubsystem* Tools = nullptr;
         std::unique_ptr<FEditorSubsystemRegistration> First, Second;
         uint64 Session = 0;
@@ -49,8 +32,8 @@ namespace
             ASSERT_TRUE(FModuleManager::Get().LoadModule("DurinEd"));
             ASSERT_TRUE(FModuleManager::Get().LoadModule("DurinPython"));
             First = Register(DReflectionService::StaticClass()); Second = Register(DSecondaryService::StaticClass());
-            Host = TStrongObjectPtr<FPythonReflectionEditor>(NewObject<FPythonReflectionEditor>(nullptr, {}));
-            ASSERT_TRUE(Host->Start()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>(); ASSERT_NE(Tools, nullptr);
+            Host = TStrongObjectPtr<DEditorEngine>(NewObject<DEditorEngine>(nullptr, {}));
+            ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host)); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>(); ASSERT_NE(Tools, nullptr);
             const auto Started = Runtime.Start(); ASSERT_TRUE(Started) << Started.error();
             const auto Created = Runtime.CreateSession(Tools->GetService()); ASSERT_TRUE(Created); Session = *Created;
         }
@@ -129,7 +112,7 @@ else:
     TEST_F(PythonReflectionTests, RetiredEditorCachedMethodsRejectAfterSequentialReplacement)
     {
         Save(); Host->PrepareForShutdown();
-        TStrongObjectPtr<FPythonReflectionEditor> Other(NewObject<FPythonReflectionEditor>(nullptr, {})); ASSERT_TRUE(Other->Start());
+        TStrongObjectPtr<DEditorEngine> Other(NewObject<DEditorEngine>(nullptr, {})); ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Other));
         auto* OtherTools = Other->GetEditorSubsystem<DEditorToolSubsystem>(); ASSERT_NE(OtherTools, nullptr);
         auto Created = Runtime.CreateSession(OtherTools->GetService()); ASSERT_TRUE(Created);
         const auto Result = Run(R"(

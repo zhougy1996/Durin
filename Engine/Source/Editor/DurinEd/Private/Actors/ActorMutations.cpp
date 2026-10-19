@@ -1,5 +1,5 @@
 #include "Actors/EditorActorSubsystem.h"
-#include "Editor/EditorCommand.h"
+#include "Transactions/Transactor.h"
 #include "Actors/ActorChange.h"
 #include "Actors/ActorEditingScope.h"
 #include "Actors/ActorEditingValidation.h"
@@ -16,7 +16,6 @@
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
-#include "Transactions/Transactor.h"
 
 namespace Durin
 {

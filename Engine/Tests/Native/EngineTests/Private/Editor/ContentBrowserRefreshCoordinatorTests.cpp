@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "Editor/EditorCommand.h"
+#include "Transactions/Transactor.h"
 #include "Actors/ActorChange.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"

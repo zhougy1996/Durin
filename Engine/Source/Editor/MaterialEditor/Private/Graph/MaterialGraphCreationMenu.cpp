@@ -255,7 +255,7 @@ namespace Durin::Editor::Material
 			if (HasClipboard()) ImGui::SameLine();
 			if (auto* Base = Cast<DMaterial>(&Owner); Base && ImGui::Button("Auto Layout"))
 			{
-				const auto Layout = FMaterialGraphDocument(*Base).Layout({}, &Transactions);
+				const auto Layout = FMaterialGraphDocument(*Base).Layout({});
 				CheckCommand(Layout);
 				ResetInteraction();
 				ImGui::CloseCurrentPopup();
@@ -270,7 +270,7 @@ namespace Durin::Editor::Material
 				static_cast<int32>(std::round(CreationMenu->GraphPosition.x)), static_cast<int32>(std::round(CreationMenu->GraphPosition.y))};
 			if (CreationMenu->SourceNode.IsValid()) Request.Source = FMaterialGraphPinAddress::Output(
 				{CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId});
-			const auto Created = GraphDocument.Create(Request, &Transactions);
+			const auto Created = GraphDocument.Create(Request);
 			if (CheckCommand(Created))
 			{
 				SelectedSurfaceOutput.reset();

@@ -1,4 +1,4 @@
-#include "Editor/EditorEngine.h"
+#include "Editor/EditorEngineTestSupport.h"
 #include "Editor/EditorSubsystem.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Subsystems/AssetEditorSubsystem.h"
@@ -14,16 +14,6 @@
 
 namespace Durin
 {
-	class FDynamicEditorHost : public DEditorEngine
-	{
-		static auto GetPrivateStaticClass() -> DClass*;
-		DECLARE_CLASS(FDynamicEditorHost, DEditorEngine, FDynamicEditorHost::GetPrivateStaticClass)
-		DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FDynamicEditorHost)
-	public:
-		explicit FDynamicEditorHost(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer) {}
-		auto Start() -> FSubsystemResult { return ActivateEditor() ? InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."}; }
-		auto InitializeServices() -> FSubsystemResult { return InitializeEditorSubsystems(); }
-	};
 	class FDynamicEditorA : public DEditorSubsystem
 	{
 		static auto GetPrivateStaticClass() -> DClass*;
@@ -46,7 +36,6 @@ namespace Durin
 	public:
 		explicit FDynamicEditorB(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer) {}
 	};
-	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FDynamicEditorHost)
 	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FDynamicEditorA)
 	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FDynamicEditorB)
 }
@@ -64,14 +53,14 @@ namespace
 			for (auto& Host : Hosts) { Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); }
 			Hosts.clear(); CollectGarbage();
 		}
-		auto NewHost() -> FDynamicEditorHost*
+		auto NewHost() -> DEditorEngine*
 		{
-			auto* Host = NewObject<FDynamicEditorHost>(nullptr, {}); Hosts.emplace_back(Host);
-			EXPECT_TRUE(Host->Start()); return Host;
+			auto* Host = NewObject<DEditorEngine>(nullptr, {}); Hosts.emplace_back(Host);
+			EXPECT_TRUE(FEditorEngineTestAccess::StartEditor(*Host)); return Host;
 		}
 		auto RegisterA() -> std::unique_ptr<FEditorSubsystemRegistration>
 		{ return std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{.Type = FDynamicEditorA::StaticClass()}); }
-		std::vector<TStrongObjectPtr<FDynamicEditorHost>> Hosts;
+		std::vector<TStrongObjectPtr<DEditorEngine>> Hosts;
 	};
 
 	TEST_F(FEditorSubsystemTests, AddsAndRemovesInstancesWithoutRetiringTheActiveEditor)
@@ -99,24 +88,24 @@ namespace
 
 	TEST_F(FEditorSubsystemTests, InitializationRequiresExplicitActivationAndNeverPublishesEditor)
 	{
-		auto* First = NewObject<FDynamicEditorHost>(nullptr, "ExplicitFirstEditor"); Hosts.emplace_back(First);
-		auto* Second = NewObject<FDynamicEditorHost>(nullptr, "ExplicitSecondEditor"); Hosts.emplace_back(Second);
+		auto* First = NewObject<DEditorEngine>(nullptr, "ExplicitFirstEditor"); Hosts.emplace_back(First);
+		auto* Second = NewObject<DEditorEngine>(nullptr, "ExplicitSecondEditor"); Hosts.emplace_back(Second);
 		EXPECT_EQ(GEditor, nullptr);
 		EXPECT_FALSE(First->Init({}));
-		EXPECT_EQ(First->InitializeServices().Error, ESubsystemError::InvalidState);
+		EXPECT_EQ(FEditorEngineTestAccess::InitializeServices(*First).Error, ESubsystemError::InvalidState);
 		EXPECT_EQ(GEditor, nullptr);
 		ASSERT_TRUE(First->ActivateEditor());
 		EXPECT_FALSE(First->ActivateEditor());
 		EXPECT_EQ(First->GetEditorSubsystemState(), ESubsystemState::Uninitialized);
-		EXPECT_EQ(Second->InitializeServices().Error, ESubsystemError::InvalidState);
+		EXPECT_EQ(FEditorEngineTestAccess::InitializeServices(*Second).Error, ESubsystemError::InvalidState);
 		EXPECT_FALSE(Second->Init({}));
 		EXPECT_EQ(GEditor, First);
-		ASSERT_TRUE(First->InitializeServices());
+		ASSERT_TRUE(FEditorEngineTestAccess::InitializeServices(*First));
 		First->PrepareForShutdown();
 		EXPECT_EQ(GEditor, nullptr);
 		EXPECT_FALSE(First->ActivateEditor());
 		ASSERT_TRUE(Second->ActivateEditor());
-		ASSERT_TRUE(Second->InitializeServices());
+		ASSERT_TRUE(FEditorEngineTestAccess::InitializeServices(*Second));
 		EXPECT_EQ(GEditor, Second);
 		Second->PrepareForShutdown();
 		EXPECT_EQ(GEditor, nullptr);
@@ -125,13 +114,13 @@ namespace
 	TEST_F(FEditorSubsystemTests, ConstructionCannotReplaceActiveEditorAndActivationIsExclusive)
 	{
 		auto* First = NewHost();
-		TStrongObjectPtr<FDynamicEditorHost> Second(NewObject<FDynamicEditorHost>(nullptr, "InactiveEditor"));
+		TStrongObjectPtr<DEditorEngine> Second(NewObject<DEditorEngine>(nullptr, "InactiveEditor"));
 		EXPECT_EQ(GEditor, First);
-		EXPECT_EQ(Second->Start().Error, ESubsystemError::InvalidState);
+		EXPECT_EQ(FEditorEngineTestAccess::StartEditor(*Second).Error, ESubsystemError::InvalidState);
 		EXPECT_EQ(GEditor, First);
 		First->PrepareForShutdown();
 		EXPECT_EQ(GEditor, nullptr);
-		ASSERT_TRUE(Second->Start());
+		ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Second));
 		EXPECT_EQ(GEditor, Second.Get());
 		Second->PrepareForShutdown();
 		EXPECT_EQ(GEditor, nullptr);

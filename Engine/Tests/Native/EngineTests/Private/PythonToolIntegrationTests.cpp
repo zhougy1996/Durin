@@ -4,7 +4,7 @@
 #include "Transactions/Transactor.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/NativeToolset.h"
-#include "Editor/EditorEngine.h"
+#include "Editor/EditorEngineTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "DObject/Class.h"
 #include "DObject/StrongObjectPtr.h"
@@ -16,23 +16,6 @@
 #include "Threading/RunnableThread.h"
 #include <gtest/gtest.h>
 
-namespace Durin
-{
-    class FPythonTestEditor : public DEditorEngine
-    {
-        static auto GetPrivateStaticClass() -> DClass*;
-        DECLARE_CLASS(FPythonTestEditor, DEditorEngine, FPythonTestEditor::GetPrivateStaticClass)
-        DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FPythonTestEditor)
-    public:
-        explicit FPythonTestEditor(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer) {}
-        auto Start() -> FSubsystemResult { return ActivateEditor() ? InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."}; }
-    };
-    IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FPythonTestEditor)
-    struct FEditorEngineTestAccess
-    {
-        static auto SetEditorWorld(DEditorEngine& Editor, DWorld* World) -> void { Editor.EditorWorld = World; Editor.SetWorld(World); }
-    };
-}
 
 namespace
 {
@@ -43,8 +26,8 @@ namespace
         auto SetUp() -> void override
         {
             Testing::InitializeDObjectSystemForTests();
-            Host = TStrongObjectPtr<FPythonTestEditor>(NewObject<FPythonTestEditor>(nullptr, {}));
-            ASSERT_TRUE(Host->Start());
+            Host = TStrongObjectPtr<DEditorEngine>(NewObject<DEditorEngine>(nullptr, {}));
+            ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
             ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
             ASSERT_TRUE(Host->RefreshEditorSubsystems()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
             auto Started = Runtime.Start(); ASSERT_TRUE(Started) << Started.error();
@@ -120,7 +103,7 @@ namespace
         std::unique_ptr<FNativeToolset> PendingToolset;
         FModularFeatureRegistration PendingRegistration;
         FPythonRuntime Runtime;
-        TStrongObjectPtr<FPythonTestEditor> Host;
+        TStrongObjectPtr<DEditorEngine> Host;
         DEditorToolSubsystem* Tools = nullptr;
         uint64 Session = 0;
         std::unique_ptr<FNativeToolset> Toolset;

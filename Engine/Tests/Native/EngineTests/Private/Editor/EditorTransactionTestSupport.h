@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Editor/EditorEngineTestSupport.h"
 
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/StrongObjectPtr.h"
@@ -38,6 +39,33 @@ namespace Durin::Tests
 		Buffer.DispatchEvents(); Buffer.RemoveTransactionListener(Id);
 		return Events;
 	}
+
+	// Editor-command tests exercise the real process editor and its own history.
+	class FTestEditorTransactorOwner final
+	{
+	public:
+		explicit FTestEditorTransactorOwner(std::string_view NamePrefix = "TestEditor", size_t MemoryBudget = 64u * 1024u * 1024u)
+			: Editor(NewObject<DEditorEngine>(nullptr, MakeName(NamePrefix)))
+		{
+			FTransBufferTestAccess::InitializeMemoryBudget(*Get(), MemoryBudget);
+			if (!Editor->ActivateEditor()) throw std::runtime_error("Test editor activation failed.");
+		}
+		~FTestEditorTransactorOwner()
+		{
+			Editor->PrepareForShutdown();
+			MarkObjectHierarchyAsGarbage(Editor.Get());
+		}
+		auto Get() const -> DTransBuffer* { return static_cast<DTransBuffer*>(Editor->GetTransactor()); }
+		auto operator*() const -> DTransBuffer& { return *Get(); }
+		auto operator->() const -> DTransBuffer* { return Get(); }
+	private:
+		static auto MakeName(std::string_view Prefix) -> FName
+		{
+			static uint64 NextId = 1;
+			return FName(std::string(Prefix) + std::to_string(NextId++));
+		}
+		TStrongObjectPtr<DEditorEngine> Editor;
+	};
 
 	// Gives a native test one uniquely named, strongly retained transaction buffer.
 	class FTestTransactorOwner final

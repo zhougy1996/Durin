@@ -1,7 +1,7 @@
 #include "WorldTestSupport.h"
 
 #include "DObject/Class.h"
-#include "Editor/EditorEngine.h"
+#include "Editor/EditorEngineTestSupport.h"
 #include "Client/ViewportClient.h"
 #include "Engine/GameEngine.h"
 #include "Gameplay/PawnControlIntent.h"
@@ -10,59 +10,6 @@
 
 namespace Durin
 {
-	struct FEditorEngineTestAccess
-	{
-		static auto Initialize(DEditorEngine& Engine, DWorld* EditorWorld) -> void
-		{
-			Engine.EditorWorld = EditorWorld;
-			Engine.SetWorld(EditorWorld);
-		}
-
-		static auto StartPlaySession(
-			DEditorEngine& Engine,
-			const Editor::FPlayRequest& Request,
-			DClass* GameModeClass,
-			std::string* OutError = nullptr) -> bool
-		{
-			return Engine.StartPlaySessionInternal(
-				Request, std::optional<DClass*>{GameModeClass}, OutError);
-		}
-
-		static auto ConfigureMouseCapture(
-			DEditorEngine& Engine,
-			Editor::EPlayDestination Destination = Editor::EPlayDestination::EmbeddedViewport) -> void
-		{
-			Engine.PlayState = Editor::EPlayState::Playing;
-			Engine.PlayDestination = Destination;
-		}
-
-		static auto InitializePlayWindowViewportClient(
-			DEditorEngine& Engine,
-			const FViewportClient* SourceClient) -> void
-		{
-			Engine.InitializePlayWindowViewportClient(SourceClient);
-		}
-
-		static auto KeyDown(DEditorEngine& Engine, const std::shared_ptr<FGenericWindow>& Window, EKey Key, bool bRepeat = false) -> bool
-		{
-			return Engine.HandleGameInputKeyDown(Window, Key, bRepeat);
-		}
-
-		static auto Focus(DEditorEngine& Engine, const std::shared_ptr<FGenericWindow>& Window, bool bFocused) -> void
-		{
-			Engine.HandleGameInputWindowFocus(Window, bFocused);
-		}
-
-		static auto MouseDown(DEditorEngine& Engine, const std::shared_ptr<FGenericWindow>& Window, EMouseButton Button) -> bool
-		{
-			return Engine.HandleGameInputMouseDown(Window, Button);
-		}
-
-		static auto Close(DEditorEngine& Engine, const std::shared_ptr<FGenericWindow>& Window) -> void
-		{
-			Engine.HandleGameInputWindowClose(Window);
-		}
-	};
 
 	struct FEngineInputTestAccess
 	{
@@ -1024,7 +971,7 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	ASSERT_NE(EditorLevel->SpawnActor<Durin::APlayerStart>("Start"), nullptr);
 	auto* AuthoredCamera = EditorLevel->SpawnActor<Durin::ACameraActor>("AuthoredCamera");
 	ASSERT_NE(AuthoredCamera, nullptr);
-	Durin::FEditorEngineTestAccess::Initialize(*Engine, EditorWorld);
+	Durin::FEditorEngineTestAccess::SetEditorWorld(*Engine, EditorWorld);
 
 	Durin::Editor::FPlayRequest Request;
 	Request.SourceLevel = EditorLevel;

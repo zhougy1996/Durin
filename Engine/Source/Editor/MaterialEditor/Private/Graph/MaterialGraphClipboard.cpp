@@ -63,8 +63,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::Paste(const FMaterialGraphClipboardPayload& Payload,
-		int32 X, int32 Y, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		int32 X, int32 Y, ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FGraphEditSession State(*Owner.Get());
 		if (Payload.SchemaVersion != CurrentMaterialGraphClipboardSchemaVersion)
@@ -192,8 +195,10 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::DuplicateNodes(std::span<const FGuid> NodeIds,
-		int32 OffsetX, int32 OffsetY, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		int32 OffsetX, int32 OffsetY, ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
 		FMaterialGraphClipboardPayload Payload;
 		const auto Copied = CopySelection(NodeIds, Payload);
 		if (!Copied) return Copied;
@@ -216,16 +221,17 @@ namespace Durin::Editor::Material
 			|| AnchorY < -MaterialGraphPresentationCoordinateLimit
 			|| AnchorY > MaterialGraphPresentationCoordinateLimit)
 			return RejectCommand("Duplicating would place a material graph node outside the supported coordinate range.");
-		return Paste(Payload, static_cast<int32>(AnchorX),
-			static_cast<int32>(AnchorY), Transactions);
+		return Paste(Payload, static_cast<int32>(AnchorX), static_cast<int32>(AnchorY), Mode);
 	}
 
 	auto FMaterialGraphDocument::CutSelection(std::span<const FGuid> NodeIds,
-		FMaterialGraphClipboardPayload& OutPayload, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		FMaterialGraphClipboardPayload& OutPayload, ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
 		FMaterialGraphCommandResult Copied = CopySelection(NodeIds, OutPayload);
 		if (!Copied) return Copied;
-		FMaterialGraphCommandResult Removed = RemoveNodes(NodeIds, Transactions);
+		FMaterialGraphCommandResult Removed = RemoveNodes(NodeIds, Mode);
 		if (!Removed) OutPayload = {};
 		return Removed;
 	}

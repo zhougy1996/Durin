@@ -14,6 +14,12 @@ Windows, documents, tools and script sessions share this ordered history.
 `DEngine` exposes BeginTransaction, EndTransaction, CancelTransaction and
 CanTransact; the editor implements them through its transactor.
 
+DTransactor requires all recording, history and package-revision capabilities
+through pure virtual functions. Concrete implementations cannot inherit silent
+no-op or unsupported behavior. The base retains listener registration, result
+storage and convenience forwarding. ApplyEditorChange is declared only in
+Transactions/Transactor.h; consumers include that header directly.
+
 Core defines the runtime-neutral `ITransaction` capture interface and ordinary
 GameThread pointer `GUndo`. Outermost Begin publishes the pending `FTransaction`;
 End, Cancel, owner retirement and destruction clear it before releasing storage.
@@ -31,6 +37,13 @@ keeps its normal dirty behavior and returns false. Undo/Redo reject an active
 recording and do not expose replay as a new recording.
 
 ## Transactions And Scoped Recording
+
+ResolveEditorTransactor is the editor command admission boundary. Record requires
+the active editor to accept recording. NotTransactable returns no service only
+when no GUndo is published, preventing unrecorded commands from joining another
+recording. This policy does not suspend GUndo or change low-level Modify behavior.
+Property UI and ordinary material commands carry this mode instead of selecting
+a service; exact owners remain inside long-lived edit sessions.
 
 Recording and replay run synchronously on GameThread. `Begin(Context,
 Description)` returns the previous active-action count: zero for the outermost
@@ -55,8 +68,8 @@ The index is an activity count, never a history ID or an isolated savepoint.
 using the active editor. A disabled scope or unavailable editor remains inert.
 Simple panel actions such as actor visibility and primary-camera selection use
 these constructors rather than passing the process editor's transactor through
-panel contexts. Reusable property/material backends and suspended script scopes
-retain explicit transactors where exact recording ownership is part of their contract.
+panel contexts. Low-level property composition, material gestures and suspended
+script scopes retain explicit transactors where exact recording ownership is part of their contract.
 The explicit-transactor overload supports native composition and independent
 low-level buffer tests; it cannot open a competing concurrent recording.
 Cancel(), IsOutstanding() and optional End are retained, and destruction ends
@@ -110,8 +123,8 @@ No-op pruning and cancellation do not promise to clear dirtiness.
 `DTransactor::GetQueueLength()` reports the retained history size, including
 both Undo and Redo entries. `GetTransaction(Index)` reads an entry in that history.
 `DTransBuffer::GetUndoCount()` follows UE's meaning: the number of transactions
-already undone and available for Redo. `GetUndoableCount()` reports entries before
-the cursor that can be undone. Their sum equals `GetQueueLength()`. For example,
+already undone and available for Redo. The number of entries available for Undo
+is `GetQueueLength() - GetUndoCount()`, with no separate cursor-count API. For example,
 after three commits and two Undo operations, the counts are two undone and one
 undoable. Redo decreases the undone count; committing a new branch discards the
 remaining Redo entries and resets that count to zero.

@@ -128,8 +128,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::SetInputConstantEnabled(const FGuid& NodeId, uint32 InputIndex,
-		bool Enabled, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		bool Enabled, ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FGraphEditSession State(*Owner.Get());
 		const auto Input = FindInput(State, NodeId, InputIndex, {});
@@ -141,8 +144,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::SetInputDefault(const FGuid& NodeId, uint32 InputIndex,
-		FMaterialInputDefault Value, FGuid PortId, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		FMaterialInputDefault Value, FGuid PortId, ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FGraphEditSession State(*Owner.Get());
 		const auto Input = FindInput(State, NodeId, InputIndex, PortId);
@@ -162,8 +168,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::ExtractInputDefault(const FGuid& NodeId, uint32 InputIndex,
-		FGuid PortId, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		FGuid PortId, ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FGraphEditSession State(*Owner.Get());
 		const auto Input = FindInput(State, NodeId, InputIndex, PortId);
@@ -184,8 +193,11 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphDocument::InlineInputNode(const FGuid& NodeId, uint32 InputIndex,
-		FGuid PortId, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+		FGuid PortId, ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FGraphEditSession State(*Owner.Get());
 		const auto Input = FindInput(State, NodeId, InputIndex, PortId);

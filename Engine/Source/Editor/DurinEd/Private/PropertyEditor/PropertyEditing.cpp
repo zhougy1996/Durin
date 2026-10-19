@@ -911,7 +911,22 @@ namespace Durin::Editor
 		Reset();
 	}
 
-	auto FPropertyEditSession::Begin(
+	auto FPropertyEditSession::Begin(const FPropertyEditTarget& Target,
+		std::string_view Description, ETransactionMode Mode) -> FPropertyEditOperationResult
+	{
+		if (Mode == ETransactionMode::Record && Target.SnapshotProperty
+			&& Target.SnapshotProperty->HasAnyPropertyFlags(EPropertyFlags::NonTransactional))
+			return BeginInternal(Target, Description, nullptr);
+		auto Owner = ResolveEditorTransactor(Mode);
+		if (!Owner) return Reject(Owner.error());
+		return BeginInternal(Target, Description, *Owner);
+	}
+
+	auto FPropertyEditSession::Begin(const FPropertyEditTarget& Target,
+		std::string_view Description, DTransactor& Transactor) -> FPropertyEditOperationResult
+	{ return BeginInternal(Target, Description, &Transactor); }
+
+	auto FPropertyEditSession::BeginInternal(
 		const FPropertyEditTarget& InTarget,
 		std::string_view InDescription,
 		DTransactor* InTransactor

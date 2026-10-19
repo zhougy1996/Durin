@@ -493,7 +493,7 @@ TEST(FWorldTests, ReflectedActorVisibilitySynchronizesInteractiveCancelAndHistor
 	Durin::Tests::FTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyEditSession Session;
 	const auto Target = Durin::Editor::FPropertyEditTarget::ForMember(Light, Hidden);
-	ASSERT_TRUE(Session.Begin(Target, "Hide light", Transactions.Get()));
+	ASSERT_TRUE(Session.Begin(Target, "Hide light", *Transactions.Get()));
 	ASSERT_TRUE(Session.Apply(HiddenValue));
 	EXPECT_TRUE(Light->IsHidden());
 	EXPECT_TRUE(Scene.Lights.empty());
@@ -501,7 +501,7 @@ TEST(FWorldTests, ReflectedActorVisibilitySynchronizesInteractiveCancelAndHistor
 	EXPECT_FALSE(Light->IsHidden());
 	EXPECT_TRUE(Scene.Lights.contains(Light->GetLightComponent()));
 	EXPECT_FALSE(Transactions->CanUndo());
-	ASSERT_TRUE(Session.Begin(Target, "Hide light", Transactions.Get()));
+	ASSERT_TRUE(Session.Begin(Target, "Hide light", *Transactions.Get()));
 	ASSERT_TRUE(Session.Apply(HiddenValue));
 	ASSERT_TRUE(Session.Commit());
 	EXPECT_TRUE(Scene.Lights.empty());

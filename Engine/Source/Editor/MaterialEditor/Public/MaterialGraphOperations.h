@@ -5,6 +5,7 @@
 #include "Materials/MaterialExpressions.h"
 
 #include "MaterialEditorAPI.h"
+#include "Transactions/Transaction.h"
 #include "Materials/MaterialProgramTypes.h"
 #include "DObject/WeakObjectPtr.h"
 
@@ -294,43 +295,43 @@ namespace Durin::Editor::Material
 		// Creates a node; an existing name reuses its compatible parameter definition.
 		MATERIALEDITOR_API static auto CreateParameter(
 			DMaterial& Material, FMaterialParameterDefinition Definition,
-			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
+			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		// Renames all references while preserving the parameter ID and instance overrides.
 		MATERIALEDITOR_API static auto RenameParameter(
 			DMaterial& Material, const FGuid& ParameterId, FName Name,
-			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
+			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		// Removes every node referencing this parameter; RemoveNodes deletes individual references.
 		MATERIALEDITOR_API static auto DeleteParameter(
 			DMaterial& Material, const FGuid& ParameterId,
-			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
+			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto PromoteConstantToParameter(
 			DMaterial& Material, const FGuid& NodeId, FName Name,
-			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
+			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto SetSurfaceDefault(
 			DMaterial& Material,
 			const FMaterialGraphSurfaceDefaultRequest& Request,
-			DTransactor* Transactions = nullptr)
+			ETransactionMode Mode = ETransactionMode::Record)
 			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto ResetSurfaceDefault(
 			DMaterial& Material,
 			EMaterialSurfaceOutput Output,
-			DTransactor* Transactions = nullptr)
+			ETransactionMode Mode = ETransactionMode::Record)
 			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto SetParameterValue(
 			DMaterial& Material,
 			const FGuid& ParameterId,
 			FMaterialParameterValue Value,
-			DTransactor* Transactions = nullptr)
+			ETransactionMode Mode = ETransactionMode::Record)
 			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto PromoteSurfaceOutputToParameter(
 			DMaterial& Material,
 			const FMaterialGraphSurfaceNodeRequest& Request,
-			DTransactor* Transactions = nullptr)
+			ETransactionMode Mode = ETransactionMode::Record)
 			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto AddTextureToSurfaceOutput(
 			DMaterial& Material,
 			const FMaterialGraphSurfaceNodeRequest& Request,
-			DTransactor* Transactions = nullptr)
+			ETransactionMode Mode = ETransactionMode::Record)
 			-> FMaterialGraphCommandResult;
 	};
 

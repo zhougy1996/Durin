@@ -8,26 +8,13 @@
 #include "Threading/RunnableThread.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/NativeToolset.h"
-#include "Editor/EditorEngine.h"
+#include "Editor/EditorEngineTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "DObject/Class.h"
 #include "DObject/StrongObjectPtr.h"
 #include "NativeDObjectTestSupport.h"
 #include <gtest/gtest.h>
 
-namespace Durin
-{
-    class FMCPPythonTestEditor : public DEditorEngine
-    {
-        static auto GetPrivateStaticClass() -> DClass*;
-        DECLARE_CLASS(FMCPPythonTestEditor, DEditorEngine, FMCPPythonTestEditor::GetPrivateStaticClass)
-        DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FMCPPythonTestEditor)
-    public:
-        explicit FMCPPythonTestEditor(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer) {}
-        auto Start() -> FSubsystemResult { return ActivateEditor() ? InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."}; }
-    };
-    IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FMCPPythonTestEditor)
-}
 namespace
 {
     using namespace Durin;
@@ -56,8 +43,8 @@ namespace
         auto SetUp() -> void override
         {
             Testing::InitializeDObjectSystemForTests();
-            Host = TStrongObjectPtr<FMCPPythonTestEditor>(NewObject<FMCPPythonTestEditor>(nullptr, {}));
-            ASSERT_TRUE(Host->Start());
+            Host = TStrongObjectPtr<DEditorEngine>(NewObject<DEditorEngine>(nullptr, {}));
+            ASSERT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
             ASSERT_TRUE(FModuleManager::Get().LoadModule("LevelEditor"));
             ASSERT_TRUE(Host->RefreshEditorSubsystems()); Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
             Runtime = std::make_shared<FPythonRuntime>();
@@ -137,7 +124,7 @@ namespace
         std::shared_ptr<FPythonRuntime> Runtime;
         std::unique_ptr<FNativeToolset> PythonTools;
         FModularFeatureRegistration PythonRegistration;
-        TStrongObjectPtr<FMCPPythonTestEditor> Host;
+        TStrongObjectPtr<DEditorEngine> Host;
         DEditorToolSubsystem* Tools = nullptr;
         uint16 Port = 0;
         std::string Session;

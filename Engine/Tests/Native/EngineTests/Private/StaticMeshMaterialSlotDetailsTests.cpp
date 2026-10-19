@@ -27,7 +27,7 @@
 
 namespace
 {
-	using FPropertyTransactionHarness = Durin::Tests::FTestTransactorOwner;
+	using FPropertyTransactionHarness = Durin::Tests::FTestEditorTransactorOwner;
 
 	auto AddSlot(Durin::DStaticMesh* Mesh, std::string_view Name, Durin::DMaterialInterface* Default = nullptr)
 		-> uint32
@@ -50,8 +50,7 @@ namespace
 	auto MakeContext(FPropertyTransactionHarness& Transactions, std::string& Error)
 		-> Durin::Editor::FPropertyViewContext
 	{
-		return {.Transactor = Transactions.Get(),
-			.ReportError = [&Error](std::string Message) { Error = std::move(Message); }};
+		return {.ReportError = [&Error](std::string Message) { Error = std::move(Message); }};
 	}
 }
 
@@ -212,6 +211,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	EXPECT_EQ(Component->GetClass()->FindPropertyByName("MaterialOverridesVersion"), nullptr);
 
 	FPropertyTransactionHarness Transactions;
+	Transactions->EstablishSavedState(*Component->GetPackage());
 	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);

@@ -392,11 +392,10 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 	EXPECT_EQ(NearTarget.Path[0].Property, Projection);
 	EXPECT_EQ(NearTarget.Path[1].Property, NearClip);
 
-	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	Durin::Editor::FPropertyView View;
 	std::string Error;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactor = Transactions.Get(),
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	auto SubmitFloat = [&](Durin::FProperty* Field, float Value, bool bContinuous) {

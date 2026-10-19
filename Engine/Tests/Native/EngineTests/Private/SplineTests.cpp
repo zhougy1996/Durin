@@ -361,13 +361,12 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 	ASSERT_NE(Reflection.Position, nullptr);
 	ASSERT_NE(Reflection.ClosedLoop, nullptr);
 
-	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	const uint64 MountedContentRevision =
 		Transactions->GetMountedContentMutationRevision();
 	Durin::Editor::FPropertyView View;
 	std::string Error;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactor = Transactions.Get(),
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	auto SubmitPosition = [&](const Durin::FVector3& Position, bool bContinuous) {
@@ -431,13 +430,12 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdent
 	const FSplineReflection Reflection = FSplineReflection::Resolve(Actor->GetSplineComponent());
 	ASSERT_NE(Reflection.Position, nullptr);
 
-	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	Level->GetPackage()->ClearDirty();
 	Transactions->EstablishSavedState(*Level->GetPackage());
 	Durin::Editor::FPropertyView View;
 	std::string Error;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactor = Transactions.Get(),
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	auto SubmitPosition = [&](const Durin::FVector3& Position, bool bContinuous) {
@@ -555,7 +553,7 @@ TEST(FSplineMeshActorEditingTests, ActorModifyRestoresInputsAfterGeneratedCompon
 	Actor->SetPathMesh(DStaticMesh::CreateDebugTriangle(Level));
 	Actor->GetSplineComponent()->SetSplinePoints({MakePoint({0.0, 0.0, 0.0}), MakePoint({100.0, 0.0, 0.0}), MakePoint({200.0, 0.0, 0.0})});
 	ASSERT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
-	Tests::FTestTransactorOwner Transactions;
+	Tests::FTestEditorTransactorOwner Transactions;
 	{
 		FScopedTransaction Scope(Transactions.Get(), {"test", "Edit actor construction input"});
 		ASSERT_TRUE(Actor->Modify());

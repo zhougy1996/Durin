@@ -1,3 +1,4 @@
+#include "Editor/EditorTransactionTestSupport.h"
 #include "FunctionPortTestFixture.h"
 #include "MaterialFunctionTestSupport.h"
 
@@ -61,8 +62,8 @@ TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEdits
 	TStrongObjectPtr<DMaterialFunction> Wrapper(NewObject<DMaterialFunction>(nullptr, "PreviewParent"));
 	TStrongObjectPtr<DMaterialFunction> Root(NewObject<DMaterialFunction>(nullptr, "PreviewRoot"));
 	TStrongObjectPtr<DMaterialFunction> Other(NewObject<DMaterialFunction>(nullptr, "PreviewOther"));
-	ASSERT_TRUE(FMaterialGraphDocument(*Wrapper).InsertFunctionCall(*Leaf, 0, 100));
-	ASSERT_TRUE(FMaterialGraphDocument(*Root).InsertFunctionCall(*Wrapper, 0, 100));
+	ASSERT_TRUE(FMaterialGraphDocument(*Wrapper).InsertFunctionCall(*Leaf, 0, 100, Durin::Editor::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphDocument(*Root).InsertFunctionCall(*Wrapper, 0, 100, Durin::Editor::ETransactionMode::NotTransactable));
 	FMaterialFunctionPreviewInvalidation First, Second;
 	First.SetFunction(Root.Get());
 	Second.SetFunction(Root.Get());
@@ -75,13 +76,13 @@ TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEdits
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
 	auto Port = Other->GetFunctionSignature().Outputs.front();
 	Port.Name = "Unrelated edit";
-	ASSERT_TRUE(FMaterialGraphDocument(*Other).SetPort(true, Port));
+	ASSERT_TRUE(FMaterialGraphDocument(*Other).SetPort(true, Port, Durin::Editor::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
 
-	Tests::FTestTransactorOwner Transactions;
+	Tests::FTestEditorTransactorOwner Transactions;
 	Port = Leaf->GetFunctionSignature().Outputs.front();
 	Port.Name = "Transitive edit";
-	ASSERT_TRUE(FMaterialGraphDocument(*Leaf).SetPort(true, Port, Transactions.Get()));
+	ASSERT_TRUE(FMaterialGraphDocument(*Leaf).SetPort(true, Port));
 	EXPECT_TRUE(First.ConsumeRefreshRequest());
 	EXPECT_TRUE(Second.ConsumeRefreshRequest());
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
@@ -98,7 +99,7 @@ TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEdits
 	First.SetFunction(Other.Get());
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
 	Port.Name = "Former dependency";
-	ASSERT_TRUE(FMaterialGraphDocument(*Leaf).SetPort(true, Port));
+	ASSERT_TRUE(FMaterialGraphDocument(*Leaf).SetPort(true, Port, Durin::Editor::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
 	EXPECT_TRUE(Second.ConsumeRefreshRequest());
 	EXPECT_TRUE(Transactions->Reset());

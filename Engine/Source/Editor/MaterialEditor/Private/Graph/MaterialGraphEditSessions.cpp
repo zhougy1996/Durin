@@ -94,7 +94,7 @@ namespace Durin::Editor::Material
 	{
 		const auto Validated = Apply({});
 		if (!Validated) return Validated;
-		auto Result = FMaterialGraphDocument(*Impl->Owner.Get()).MoveNodes(Impl->Draft, Impl->Transactions);
+		auto Result = FMaterialGraphDocument(*Impl->Owner.Get()).MoveNodesInternal(Impl->Draft, Impl->Transactions);
 		if (Result) { Impl->bActive = false; Impl->Draft.clear(); }
 		return Result;
 	}

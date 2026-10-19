@@ -1,5 +1,5 @@
 #include "SkyBoxPlacement.h"
-#include "Editor/EditorCommand.h"
+#include "Transactions/Transactor.h"
 #include "Actors/ActorChange.h"
 #include "Actors/EditorActorSubsystem.h"
 
@@ -9,7 +9,6 @@
 #include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
-#include "Transactions/Transactor.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Texture/TextureCube.h"

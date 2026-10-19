@@ -225,9 +225,9 @@ TEST(FSharedDetailCustomizationTests, DeferredTargetsPreserveDragReleaseEscapeAn
 	IO.IniFilename = nullptr;
 	IO.DeltaTime = 1.0f / 60.0f;
 	IO.Fonts->Build();
-	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	Durin::Editor::FPropertyView View;
-	const Durin::Editor::FPropertyViewContext Context{.Transactor = Transactions.Get()};
+	const Durin::Editor::FPropertyViewContext Context{};
 	ASSERT_TRUE(View.HandleOwnerContext(Context, Light));
 	ImVec2 Center;
 	const auto Draw = [&] {

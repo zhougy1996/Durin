@@ -1,5 +1,5 @@
 #include "Actors/EditorActorSubsystem.h"
-#include "Editor/EditorCommand.h"
+#include "Transactions/Transactor.h"
 #include "Actors/ActorEditingScope.h"
 #include "Actors/ActorAttachmentTransaction.h"
 #include "Editor/EditorEngine.h"

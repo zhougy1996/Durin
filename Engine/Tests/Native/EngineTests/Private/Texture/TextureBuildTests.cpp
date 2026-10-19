@@ -2410,10 +2410,9 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	ASSERT_NE(AlphaMipModeProperty, nullptr);
 	ASSERT_NE(AlphaCoverageThresholdProperty, nullptr);
 	Durin::Editor::FPropertyView PropertyView;
-	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	std::string Error;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactor = Transactions.Get(),
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 
@@ -2575,10 +2574,9 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	Durin::FProperty* UsageProperty = Texture->GetClass()->FindPropertyByName("Usage");
 	ASSERT_NE(UsageProperty, nullptr);
 	Durin::Editor::FPropertyView PropertyView;
-	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	std::string Error;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactor = Transactions.Get(),
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); }};
 	const auto SubmitUsage = [&](Durin::ETextureUsage Usage) {
 		return PropertyView.SubmitPropertyValueEdit(

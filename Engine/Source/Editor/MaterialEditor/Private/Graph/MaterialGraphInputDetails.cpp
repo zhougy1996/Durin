@@ -161,9 +161,9 @@ namespace Durin::Editor::Material
 					TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Copy(DuplicateObject(Sample, nullptr, NAME_None).value());
 					if (!Copy) { ReportError("Unable to copy the parameter expression."); return; }
 					if (const auto Applied = Copy->SetParameterDefinition(Parameter); !Applied) { ReportError(FormatMaterialError(Applied.Error)); return; }
-					Submit(Document.ReplaceExpression(*Copy.Get(), &Transactions));
+					Submit(Document.ReplaceExpression(*Copy.Get()));
 				}
-				else Submit(Document.ReplaceExpression(*Replacement.Get(), &Transactions));
+				else Submit(Document.ReplaceExpression(*Replacement.Get()));
 			};
 			std::string Name = Parameter.Name.ToString();
 			if (!Changed && EditText("Parameter name", Name)) { Parameter.Name = FName(Name); CommitParameter(); }
@@ -182,7 +182,7 @@ namespace Durin::Editor::Material
 					.AssignSelection = [&](DObject* Object, std::string& Error) {
 						auto Value = Parameter.Value;
 						Value.GetTexture().Texture = Cast<DTexture2D>(Object);
-						const auto Result = FMaterialGraphOperations::SetParameterValue(*Material, Parameter.Id, Value, &Transactions);
+						const auto Result = FMaterialGraphOperations::SetParameterValue(*Material, Parameter.Id, Value);
 						Error = FormatMaterialGraphCommandResult(Result); Changed = Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded;
 						return static_cast<bool>(Result);
 					}});
@@ -194,7 +194,7 @@ namespace Durin::Editor::Material
 						int Index = static_cast<int>(Value);
 						if (Changed || !DetailsStyle::EditRow(Label, [&] { return ImGui::Combo("##Value", &Index, Names); })) return;
 						Value = static_cast<std::remove_reference_t<decltype(Value)>>(Index);
-						Submit(FMaterialGraphOperations::SetParameterValue(*Material, Parameter.Id, Parameter.Value, &Transactions));
+						Submit(FMaterialGraphOperations::SetParameterValue(*Material, Parameter.Id, Parameter.Value));
 					};
 					Combo("Missing texture", Parameter.Value.GetTexture().TextureFallback, "White\0Black\0Flat normal\0");
 					Combo("Min filter", Parameter.Value.GetTexture().SamplerState.MinFilter, "Nearest\0Linear\0Nearest mip nearest\0Linear mip nearest\0Nearest mip linear\0Linear mip linear\0");
@@ -217,7 +217,7 @@ namespace Durin::Editor::Material
 			else if (const auto* E = Cast<DMaterialExpressionVector4Constant>(Expression.Get())) { Type = EMaterialProgramValueType::Float4; Value = {static_cast<float>(E->Value.x), static_cast<float>(E->Value.y), static_cast<float>(E->Value.z), static_cast<float>(E->Value.w)}; }
 			else bConstant = false;
 			if (bConstant && EditLiteral("Value", Type, Value))
-				Submit(Document.SetConstantValue(Expression->Id, MakeParameterValue(Type, Value), &Transactions));
+				Submit(Document.SetConstantValue(Expression->Id, MakeParameterValue(Type, Value)));
 		}
 		if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get()); Swizzle && !Changed)
 		{
@@ -235,7 +235,7 @@ namespace Durin::Editor::Material
 					for (uint8 Candidate = 0; Candidate < 4; ++Candidate)
 						if (Candidate == Channel ? Enabled : std::ranges::contains(Swizzle->Components, Candidate))
 							Mask.push_back(Candidate);
-					Submit(Document.SetSwizzleComponents(Expression->Id, Mask, &Transactions));
+					Submit(Document.SetSwizzleComponents(Expression->Id, Mask));
 					return true;
 				}
 				return false;
@@ -331,7 +331,7 @@ namespace Durin::Editor::Material
 				if (EditLiteralValue(Value.Type, Value.Literal))
 				{
 					Value.Kind = EMaterialInputDefaultKind::Literal;
-					Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, Value, Pin.PortId, &Transactions));
+					Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, Value, Pin.PortId));
 				}
 			};
 			const auto Label = Pin.bSupportsConstant ? Pin.Name + (Pin.bUseConstant ? " (constant)" : " (inherited)") : Pin.Name;
@@ -365,13 +365,12 @@ namespace Durin::Editor::Material
 			{
 				if (!Changed && bConnected)
 				{
-					if (ImGui::MenuItem("Inline constant")) Submit(Document.InlineInputNode(Selected->Node.Id, Pin.InputIndex, Pin.PortId, &Transactions));
-					if (!Changed && ImGui::MenuItem("Disconnect")) Submit(Document.Disconnect(
-						Selected->InputAddress(Pin), &Transactions));
+					if (ImGui::MenuItem("Inline constant")) Submit(Document.InlineInputNode(Selected->Node.Id, Pin.InputIndex, Pin.PortId));
+					if (!Changed && ImGui::MenuItem("Disconnect")) Submit(Document.Disconnect(Selected->InputAddress(Pin)));
 				}
 				else if (!Changed)
 				{
-					if (ImGui::MenuItem("Extract constant", nullptr, false, Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal)) Submit(Document.ExtractInputDefault(Selected->Node.Id, Pin.InputIndex, Pin.PortId, &Transactions));
+					if (ImGui::MenuItem("Extract constant", nullptr, false, Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal)) Submit(Document.ExtractInputDefault(Selected->Node.Id, Pin.InputIndex, Pin.PortId));
 					if (!Changed && Material && ImGui::MenuItem("Promote to parameter", nullptr, false, !bInheritedDynamic))
 					{
 						FMaterialParameterDefinition Definition;
@@ -413,15 +412,15 @@ namespace Durin::Editor::Material
 					}
 				}
 				if (!Changed && Pin.bSupportsConstant && ImGui::MenuItem(Pin.bUseConstant ? "Use definition default" : "Use retained constant"))
-					Submit(Document.SetInputConstantEnabled(Selected->Node.Id, Pin.InputIndex, !Pin.bUseConstant, &Transactions));
+					Submit(Document.SetInputConstantEnabled(Selected->Node.Id, Pin.InputIndex, !Pin.bUseConstant));
 				if (!Changed && bInheritedDynamic && ImGui::MenuItem("Override with constant"))
 				{
 					Value.Kind = EMaterialInputDefaultKind::Literal;
-					Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, Value, Pin.PortId, &Transactions));
+					Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, Value, Pin.PortId));
 				}
 				if (!Changed && Pin.PortId.IsValid() && !Pin.bRequired
 					&& Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None && ImGui::MenuItem("Use function default"))
-					Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, {}, Pin.PortId, &Transactions));
+					Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, {}, Pin.PortId));
 				if (!Changed && bConnected && ImGui::BeginMenu("When disconnected"))
 				{
 					ImGui::TextUnformatted("Value used after disconnecting");

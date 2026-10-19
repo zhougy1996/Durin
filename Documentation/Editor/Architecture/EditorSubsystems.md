@@ -15,6 +15,12 @@ call it explicitly. Full Init and subsystem initialization require that already
 active editor and never publish one themselves. Shutdown releases activation only after callback and World work
 is quiescent. A later editor lifetime can then activate without reusing old gates.
 
+Native headless tests share Editor/EditorEngineTestSupport.h for explicit startup
+and private test access. Ordinary fixtures construct real DEditorEngine instances;
+specialized subclasses remain only for additional lifecycle probes. Startup-only
+reflected subclasses and translation-unit-specific definitions of the same test
+accessor are not needed.
+
 `DEditorSubsystem` extends the [common subsystem contract](../../Runtime/Core/Subsystems.md)
 in DurinEd. The single active `DEditorEngine` owns an Editor collection separately from its inherited
 Engine collection. `GetEditorSubsystem<T>()` selects exact Editor types;

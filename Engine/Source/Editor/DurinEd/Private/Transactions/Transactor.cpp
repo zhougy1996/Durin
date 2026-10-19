@@ -66,7 +66,6 @@ namespace Durin::Editor
 			const auto& Error = *Result.FailureCause;
 			switch (Error.Code)
 			{
-			case ETransactorFailure::Unsupported: Message = "The abstract transactor does not implement this operation."; break;
 			case ETransactorFailure::EntryAccounting: Message = "Transaction byte accounting overflowed."; break;
 			case ETransactorFailure::RetainedAccounting: Message = "Retained transaction byte accounting overflowed."; break;
 			case ETransactorFailure::ModuleAccounting: Message = "Retained transaction byte accounting overflowed during module drain."; break;
@@ -501,6 +500,19 @@ namespace Durin::Editor
 		return true;
 	}
 
+	auto ResolveEditorTransactor(ETransactionMode Mode) -> std::expected<DTransactor*, std::string>
+	{
+		if (!IsInGameThread()) return std::unexpected("Editor edits require the game thread.");
+		if (Mode == ETransactionMode::NotTransactable)
+		{
+			if (GUndo) return std::unexpected("Unrecorded edits cannot join an active transaction.");
+			return nullptr;
+		}
+		if (!GEditor || !GEditor->CanTransact())
+			return std::unexpected("The active editor transaction service is unavailable or busy.");
+		return GEditor->GetTransactor();
+	}
+
 	FScopedTransaction::FScopedTransaction(std::string_view Description, bool bShouldActuallyTransact)
 		: FScopedTransaction(GEditor && GEditor->CanTransact() ? GEditor->GetTransactor() : nullptr,
 			{.Description = std::string(Description)}, bShouldActuallyTransact) {}
@@ -563,59 +575,10 @@ namespace Durin
 	{
 	}
 
-	namespace
-	{
-		auto Unsupported() -> FTransactorResult
-		{
-			return {.Code = ETransactorResultCode::Rejected,
-				.FailureCause = FTransactorFailure{.Code = ETransactorFailure::Unsupported}};
-		}
-	}
-
-	auto DTransactor::Begin(std::string_view, std::string_view) -> int32 { LastResult = Unsupported(); return -1; }
-	auto DTransactor::End() -> int32 { return 0; }
-	auto DTransactor::Cancel(int32) -> void {}
-	auto DTransactor::IsActive() const -> bool { return false; }
-	auto DTransactor::ReportChangeFailure(std::unique_ptr<FCommandChange>, FCommandChangeError) -> FTransactorResult { return Unsupported(); }
-	auto DTransactor::StoreUndo(DObject*, std::unique_ptr<FCommandChange>) -> FTransactorResult { return Unsupported(); }
-	auto DTransactor::Record(FTransactionObjectRecord) -> std::expected<uint64, FTransactorResult> { return std::unexpected(Unsupported()); }
-	auto DTransactor::UpdateRecord(uint64, FTransactionObjectRecord) -> FTransactorResult { return Unsupported(); }
-	auto DTransactor::Undo(bool) -> bool { return false; }
-	auto DTransactor::UndoExpected(FTransactionId) -> FTransactorResult { return Unsupported(); }
-	auto DTransactor::Redo() -> bool { return false; }
-	auto DTransactor::RedoExpected(FTransactionId) -> FTransactorResult { return Unsupported(); }
-	auto DTransactor::Reset(std::string_view) -> FTransactorResult { return Unsupported(); }
-	auto DTransactor::CanTransact() const -> bool { return false; }
-	auto DTransactor::SetPrimaryUndoObject(DObject*) -> void {}
-	auto DTransactor::GetTransactionDetails(FTransactionId, ETransactionOperation) const -> std::string { return {}; }
-	auto DTransactor::DiscardCustomChangesByModule(std::string_view) -> FTransactorResult { return Unsupported(); }
-	auto DTransactor::CanUndo(std::string*) const -> bool { return false; }
-	auto DTransactor::CanRedo(std::string*) const -> bool { return false; }
-
-	auto DTransactor::GetUndoId() const -> FTransactionId { return 0; }
-	auto DTransactor::GetRedoId() const -> FTransactionId { return 0; }
 
 	auto DTransactor::AddTransactionListener(FTransactionListener Listener) -> uint64
 	{ if (!Listener) return 0; const auto Id = NextListener++; Listeners.emplace(Id, std::move(Listener)); return Id; }
 	auto DTransactor::RemoveTransactionListener(uint64 Handle) -> void { Listeners.erase(Handle); }
-	auto DTransactor::DispatchEvents() -> void {}
-	auto DTransactor::GetQueueLength() const -> size_t { return 0; }
-	auto DTransactor::GetTransaction(size_t) const -> const FTransaction* { return nullptr; }
-	auto DTransactor::GetUndoContext(bool) const -> FTransactionContext { return {}; }
-	auto DTransactor::GetRedoContext() const -> FTransactionContext { return {}; }
-	auto DTransactor::GetMountedContentMutationRevision() const -> uint64 { return 1; }
-	auto DTransactor::NotifyMountedContentMutation() -> void {}
-	auto DTransactor::NotifyMountedContentMutation(FContentChangeBatch) -> void { NotifyMountedContentMutation(); }
-	auto DTransactor::CaptureMountedContentChanges(uint64 FromRevision) const -> FContentChangeBatch
-	{
-		return {FromRevision, GetMountedContentMutationRevision(), true};
-	}
-	auto DTransactor::EstablishSavedState(DPackage&) -> void {}
-	auto DTransactor::MarkSaved(DPackage&) -> void {}
-	auto DTransactor::InvalidateSavedState(DPackage&) -> void {}
-	auto DTransactor::GetPackageRevisionState(const DPackage&) const
-		-> std::optional<FPackageRevisionState> { return std::nullopt; }
-	auto DTransactor::ForgetPackage(DPackage&) -> void {}
 
 	DTransBuffer::DTransBuffer(const FObjectInitializer& ObjectInitializer)
 		: DTransactor(ObjectInitializer)

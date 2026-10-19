@@ -57,7 +57,8 @@ Nested actions join that recording; replay, recovery, and destruction remain una
 
 ## Transactions And Author Obligations
 
-The adapter opens a normal scope on `Context.Transactor` with the action label,
+The adapter requires recorded mode and opens a normal scope on the active
+editor's transactor with the action label,
 slot identity, and primary target, then calls `Target->Modify()`. The return value
 reports recording and does not veto invocation; nontransactional native actions
 can still execute. Capture failures remain available through diagnostics.

@@ -1,3 +1,4 @@
+#include "Editor/EditorTransactionTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "StaticMesh/StaticMeshMaterialBinding.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
@@ -331,11 +332,10 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	const auto RedEntry = std::ranges::find(
 		Model.GetCurrentEntries(), RedIndex, &Durin::Editor::Level::FStaticMeshMaterialSlotDetailsEntry::SlotIndex);
 	ASSERT_NE(RedEntry, Model.GetCurrentEntries().end());
-	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	Durin::Editor::FPropertyView PropertyView;
 	std::string EditError;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactor = Transactions.Get(),
 		.ReportError = [&EditError](std::string Error) { EditError = std::move(Error); }};
 	ASSERT_TRUE(Model.AssignMaterial(PropertyView, Context, *RedEntry, Material));
 	ASSERT_TRUE(EditError.empty());

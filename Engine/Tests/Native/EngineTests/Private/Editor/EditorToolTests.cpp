@@ -1,6 +1,6 @@
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/NativeToolset.h"
-#include "Editor/EditorEngine.h"
+#include "Editor/EditorEngineTestSupport.h"
 #include "DObject/Class.h"
 #include "DObject/StrongObjectPtr.h"
 #include "NativeDObjectTestSupport.h"
@@ -8,19 +8,6 @@
 
 #include <gtest/gtest.h>
 
-namespace Durin
-{
-	class FToolEditorHost : public DEditorEngine
-	{
-		static auto GetPrivateStaticClass() -> DClass*;
-		DECLARE_CLASS(FToolEditorHost, DEditorEngine, FToolEditorHost::GetPrivateStaticClass)
-		DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(FToolEditorHost)
-	public:
-		explicit FToolEditorHost(const FObjectInitializer& Initializer = FObjectInitializer::Get()) : Super(Initializer) {}
-		auto Start() -> FSubsystemResult { return ActivateEditor() ? InitializeEditorSubsystems() : FSubsystemResult{ESubsystemError::InvalidState, "Editor activation failed."}; }
-	};
-	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(FToolEditorHost)
-}
 
 namespace
 {
@@ -80,15 +67,15 @@ namespace
 			for (auto& Host : Hosts) { Host->PrepareForShutdown(); MarkObjectHierarchyAsGarbage(Host.Get()); }
 			Hosts.clear(); CollectGarbage();
 		}
-		auto MakeHost() -> FToolEditorHost*
+		auto MakeHost() -> DEditorEngine*
 		{
-			auto* Host = NewObject<FToolEditorHost>(nullptr, {});
+			auto* Host = NewObject<DEditorEngine>(nullptr, {});
 			Hosts.emplace_back(Host);
-			EXPECT_TRUE(Host->Start());
+			EXPECT_TRUE(FEditorEngineTestAccess::StartEditor(*Host));
 			return Host;
 		}
 		static auto Request(std::string Name = "echo") -> FToolRequest { return {{"tests", std::move(Name)}, 1}; }
-		std::vector<TStrongObjectPtr<FToolEditorHost>> Hosts;
+		std::vector<TStrongObjectPtr<DEditorEngine>> Hosts;
 	};
 }
 

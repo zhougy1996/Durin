@@ -268,7 +268,7 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	Durin::Editor::Level::FLevelEditorViewportInput Input;
 	Input.bDelete = true;
-	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, Transactions.Get()));
 	EXPECT_EQ(Spline->GetNumSplinePoints(), 1u);
 	ASSERT_TRUE(Transactions->Undo());
@@ -414,9 +414,9 @@ TEST(FActorComponentDetailsTests, CuratedActorTransformAndVisibilityPreserveUndo
 	Durin::Editor::Level::FLevelDetailLayoutBuilder Builder(Context);
 	Builder.ApplyCustomization(Actor, *Durin::Editor::Level::CreateStaticMeshActorDetailsCustomization());
 	Durin::Editor::Level::BuildActorComponentDetails(Context, Actor, Builder, {});
-	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	Durin::Editor::FPropertyView View;
-	const Durin::Editor::FPropertyViewContext ViewContext{.Transactor = Transactions.Get()};
+	const Durin::Editor::FPropertyViewContext ViewContext{};
 	ASSERT_TRUE(View.HandleOwnerContext(ViewContext, Actor));
 	auto* Transform = Component->GetClass()->FindPropertyByName("RelativeTransform");
 	ASSERT_NE(Transform, nullptr);
@@ -1111,9 +1111,9 @@ TEST(FObjectPropertyViewCustomizationTests, CameraViewDistanceSearchAndUndoUseOr
 	ASSERT_NE(Field, nullptr);
 	auto* Settings = Root->ContainerPtrToValuePtr<Durin::FViewDistanceSettings>(Camera);
 	const float Before = Settings->RenderDistance;
-	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	Durin::Editor::FPropertyView View;
-	const Durin::Editor::FPropertyViewContext ViewContext{.Transactor = Transactions.Get()};
+	const Durin::Editor::FPropertyViewContext ViewContext{};
 	ASSERT_TRUE(View.HandleOwnerContext(ViewContext, Camera));
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(ViewContext,
 		Durin::Editor::FPropertyEditTarget::ForMember(Camera, Root).ForStructMember(Field),

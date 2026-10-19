@@ -28,21 +28,21 @@ namespace Durin::Testing
 		return Expression;
 	}
 	inline auto CreateGraphConstant(const Editor::Material::FMaterialGraphDocument& Document, float Value = 0.f,
-		int32 X = 0, int32 Y = 0, DTransactor* Transactions = nullptr) -> Editor::Material::FMaterialGraphCommandResult
+		int32 X = 0, int32 Y = 0, Editor::ETransactionMode Mode = Editor::ETransactionMode::NotTransactable) -> Editor::Material::FMaterialGraphCommandResult
 	{
 		auto Constant = MakeGraphExpression<DMaterialExpressionScalarConstant>();
 		Constant->Value = Value;
-		return Document.CreateExpression(*Constant.Get(), X, Y, Transactions);
+		return Document.CreateExpression(*Constant.Get(), X, Y, Mode);
 	}
 	inline auto CreateGraphCatalogNode(const Editor::Material::FMaterialGraphDocument& Document,
 		EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type = EMaterialProgramValueType::Float,
-		FMaterialExpressionInput Input = {}, int32 X = 0, int32 Y = 0, DTransactor* Transactions = nullptr)
+		FMaterialExpressionInput Input = {}, int32 X = 0, int32 Y = 0, Editor::ETransactionMode Mode = Editor::ETransactionMode::NotTransactable)
 		-> Editor::Material::FMaterialGraphCommandResult
 	{
 		const auto Catalog = Editor::Material::FMaterialGraphOperations::EnumerateCatalog();
 		const auto Entry = std::ranges::find_if(Catalog, [&](const auto& Value) { return Value.Opcode == Opcode && Value.ResultType == Type; });
 		if (Entry == Catalog.end()) return {.Status = Editor::Material::EMaterialGraphCommandStatus::Rejected,
 			.Message = "The catalog expression shape is stale."};
-		return Document.CreateCatalogNode(*Entry, X, Y, Input, Transactions);
+		return Document.CreateCatalogNode(*Entry, X, Y, Input, Mode);
 	}
 }

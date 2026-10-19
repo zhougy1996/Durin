@@ -1,4 +1,5 @@
 #include "PropertyEditor/EditorFunctionAction.h"
+#include "Editor/EditorEngine.h"
 
 #include "DObject/Class.h"
 #include "DObject/StrongObjectPtr.h"
@@ -42,8 +43,9 @@ namespace Durin::Editor
 		if (!Function || !Function->HasAnyFunctionFlags(EFunctionFlags::CallInEditor) || Function->GetNumParms() != 0
 			|| Function->GetRootFunction().GetOuterDClass()->GetQualifiedName() != Request.RootOwner)
 			return EEditorFunctionError::FunctionUnavailable;
-		if (!Context.Transactor) return EEditorFunctionError::MissingTransactor;
-		if (!Context.Transactor->CanTransact()) return EEditorFunctionError::BusyTransactor;
+		if (Context.TransactionMode != ETransactionMode::Record || !GEditor || !GEditor->GetTransactor())
+			return EEditorFunctionError::MissingTransactor;
+		if (!GEditor->CanTransact()) return EEditorFunctionError::BusyTransactor;
 		return EEditorFunctionError::None;
 	}
 
@@ -69,7 +71,7 @@ namespace Durin::Editor
 		Result.Error = CanExecuteEditorFunction(Context, Request);
 		if (Result.Error != EEditorFunctionError::None) return Report();
 		TStrongObjectPtr<DObject> Target(Request.Target);
-		TStrongObjectPtr<DTransactor> Transactor(Context.Transactor);
+		TStrongObjectPtr<DTransactor> Transactor(GEditor->GetTransactor());
 		const auto* Function = Target->GetClass()->FindFunctionByName(Request.FunctionName);
 		struct FExecutionGuard
 		{
