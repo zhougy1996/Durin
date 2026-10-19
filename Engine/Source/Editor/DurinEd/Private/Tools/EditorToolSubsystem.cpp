@@ -15,11 +15,11 @@ namespace Durin
 	DEditorToolSubsystem::DEditorToolSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DEditorToolSubsystem::CanCallNow() const -> bool
 	{
-		return IsInGameThread() && Service && GetEditor() && Service->CanDispatch(*GetEditor());
+		return IsInGameThread() && Service && Service->CanDispatch();
 	}
 	auto DEditorToolSubsystem::Initialize() -> FSubsystemResult
 	{
-		Service = std::shared_ptr<FEditorToolService>(new FEditorToolService(GetWorkGate()));
+		Service = std::shared_ptr<FEditorToolService>(new FEditorToolService(*GetEditor(), GetWorkGate()));
 		Service->RefreshCatalog();
 		return {};
 	}
@@ -64,7 +64,7 @@ namespace Durin
 		if (!CanCallNow()) return {false, {{EToolError::Busy, "Editor is outside the tool dispatch safe point.", {}}}};
 		FToolAvailability Availability{false, Unavailable().Diagnostics};
 		GetEditor()->DispatchSubsystemCallback([&] {
-			auto Result = Service->Call(*GetEditor(), Request, Source, true, &Availability);
+			auto Result = Service->Call(Request, Source, true, &Availability);
 			if (Result.Status == EToolStatus::Failed) Availability = {false, std::move(Result.Diagnostics)};
 		});
 		return Availability;
@@ -75,7 +75,7 @@ namespace Durin
 		if (!IsInGameThread()) return Unavailable(EToolError::WrongThread);
 		if (!CanCallNow()) return {EToolStatus::Failed, {}, {{EToolError::Busy, "Editor is outside the tool dispatch safe point.", {}}}};
 		auto Result = Unavailable();
-		GetEditor()->DispatchSubsystemCallback([&] { Result = Service->Call(*GetEditor(), Request, Source, false, nullptr, Client, Cancellation); });
+		GetEditor()->DispatchSubsystemCallback([&] { Result = Service->Call(Request, Source, false, nullptr, Client, Cancellation); });
 		return Result;
 	}
 	auto DEditorToolSubsystem::SubmitNow(const FToolRequest& Request, EToolSource Source,
@@ -84,19 +84,19 @@ namespace Durin
 		if (!IsInGameThread()) return std::unexpected(Unavailable(EToolError::WrongThread).Diagnostics.front());
 		if (!CanCallNow()) return std::unexpected(Unavailable(EToolError::Busy).Diagnostics.front());
 		std::expected<FEditorToolSubmission, FToolDiagnostic> Result = std::unexpected(Unavailable().Diagnostics.front());
-		GetEditor()->DispatchSubsystemCallback([&] { Result = Service->SubmitNow(*GetEditor(), Request, Source, Client, Cancellation); });
+		GetEditor()->DispatchSubsystemCallback([&] { Result = Service->SubmitNow(Request, Source, Client, Cancellation); });
 		return Result;
 	}
 	auto DEditorToolSubsystem::TickTools() -> void
 	{
 		require(IsInGameThread());
 		if (!CanCallNow()) return;
-		GetEditor()->DispatchSubsystemCallback([&] { Service->Drain(*GetEditor()); });
+		GetEditor()->DispatchSubsystemCallback([&] { Service->Drain(); });
 	}
 	auto DEditorToolSubsystem::TickScripts() -> void
 	{
 		require(IsInGameThread());
 		if (!CanCallNow()) return;
-		GetEditor()->DispatchSubsystemCallback([&] { Service->PumpScripts(*GetEditor(), Service); });
+		GetEditor()->DispatchSubsystemCallback([&] { Service->PumpScripts(Service); });
 	}
 }

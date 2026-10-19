@@ -38,6 +38,8 @@ namespace Durin
 		if (auto* Host = Cast<DEngine>(GetOuter())) HostScope.emplace(*Host, *this);
 		FOperationScope OperationScope(*this, EOperation::Initializing);
 		auto Result = Subsystems.Initialize();
+		if (Result && !bShutdownRequested)
+			if (auto* Host = Cast<DEngine>(GetOuter())) Host->RegisterWorldContext(*this);
 		return Result;
 	}
 

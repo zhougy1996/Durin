@@ -10,7 +10,6 @@
 #include "Engine/World.h"
 #include "Engine/EngineSubsystem.h"
 #include "DObject/ObjectLifecycle.h"
-#include "Misc/ITransaction.h"
 
 #include "Engine.gen.h"
 
@@ -77,8 +76,6 @@ namespace Durin
 		ENGINE_API auto RegisterAuxiliarySceneViewport(const std::shared_ptr<FSceneViewport>& InSceneViewport) -> void;
 		ENGINE_API auto UnregisterAuxiliarySceneViewport(const FSceneViewport* InSceneViewport) -> void;
 		ENGINE_API virtual auto SetWorld(DWorld* InWorld) -> void;
-		ENGINE_API auto RegisterWorldContext(DWorld& World) -> void;
-		ENGINE_API auto DestroyWorldContext(DWorld* World) -> void;
 		ENGINE_API auto GetWorldContextFromWorld(const DWorld* World) const -> const FWorldContext*;
 		auto GetWorldContexts() const -> std::span<const FWorldContext> { return WorldContexts; }
 
@@ -136,6 +133,9 @@ namespace Durin
 		};
 		std::vector<DWorld*> InitializingWorlds;
 		std::vector<FWorldContext> WorldContexts;
+		// World lifecycle and SetWorld are the only writers of the context registry.
+		ENGINE_API auto RegisterWorldContext(DWorld& World) -> void;
+		ENGINE_API auto DestroyWorldContext(DWorld* World) -> void;
 		friend class DWorld;
 		auto InitInternal(const FEngineInitContext& Context) -> bool;
 		uint32 HostOperationDepth = 0;

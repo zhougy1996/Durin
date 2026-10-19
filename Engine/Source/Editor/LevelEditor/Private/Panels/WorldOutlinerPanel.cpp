@@ -160,8 +160,7 @@ namespace Durin::Editor::Level
 
 	auto FWorldOutlinerPanel::SetActorVisibility(FLevelEditorContext& Context, const std::vector<TObjectPtr<AActor>>& TargetActors, bool bHidden) -> void
 	{
-		::Durin::Editor::FScopedTransaction Transaction(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr,
-			{.Description = bHidden ? "Hide actors" : "Show actors"});
+		::Durin::Editor::FScopedTransaction Transaction(bHidden ? "Hide actors" : "Show actors");
 		for (const TObjectPtr<AActor>& Actor : TargetActors)
 		{
 			if (!Actor || Actor->IsHidden() == bHidden) continue;
@@ -234,8 +233,7 @@ namespace Durin::Editor::Level
 				}
 				else if (ImGui::MenuItem("Set as Primary Camera"))
 				{
-					::Durin::Editor::FScopedTransaction Transaction(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr,
-						{.Description = "Set primary camera"});
+					::Durin::Editor::FScopedTransaction Transaction("Set primary camera");
 					(void)Context.Level->Modify();
 					if (!Context.Level->SetPrimaryCameraActor(Camera))
 						Context.SetError("Failed to set the primary camera.");

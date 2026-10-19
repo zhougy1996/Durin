@@ -824,6 +824,7 @@ namespace Durin
 			OwnedBytes = RetainedBytes;
 			TrimHistoryToBudget();
 		}
+		Pending->RecordingOwner = nullptr;
 		History.push_back(std::move(*Pending));
 		Pending.reset();
 		Cursor = History.size();

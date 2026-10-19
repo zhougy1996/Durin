@@ -60,7 +60,7 @@ namespace Durin
 		if (LastResult && !ProviderError) LastResult = std::move(ProviderError);
 		return LastResult;
 	}
-	auto FEditorSubsystemCollection::CanSynchronizeAll() -> bool
+	auto FEditorSubsystemCollection::CanSynchronizeActiveEditor() -> bool
 	{
 		if (IsGarbageCollecting() || FModularFeatureRegistry::Get().IsDispatching()) return false;
 		if (!GEditor) return true;
@@ -70,9 +70,9 @@ namespace Durin
 		if (Collection.GetState() == ESubsystemState::Ready && !GEditor->CanRefreshEditorSubsystems()) return false;
 		return true;
 	}
-	auto FEditorSubsystemCollection::SynchronizeAll() -> void
+	auto FEditorSubsystemCollection::SynchronizeActiveEditor() -> void
 	{
-		requiref(CanSynchronizeAll(), "Editor providers must unregister at an idle host safe point.");
+		requiref(CanSynchronizeActiveEditor(), "Editor providers must unregister at an idle host safe point.");
 		FGarbageCollectionDeferralScope Deferral;
 		if (GEditor && GEditor->GetEditorSubsystemState() == ESubsystemState::Ready)
 			(void)GEditor->RefreshEditorSubsystems(true);

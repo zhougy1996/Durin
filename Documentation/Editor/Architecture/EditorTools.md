@@ -15,8 +15,10 @@ The active editor owns one service shared by windows, clients and PIE controls. 
 remain the authority for values, schemas, provider interfaces, and feature lifetime.
 
 Acquire `GetService()` on GameThread and retain its shared native
-`FEditorToolService` endpoint for external threads. The endpoint stores no
-editor or provider pointer. `GetCatalog`, `Submit`, `GetInvocation`, and `Cancel`
+`FEditorToolService` endpoint for external threads. Construction binds a weak
+reference to its owning editor once; dispatch does not accept a caller-selected
+editor. Only open GameThread dispatch resolves that reference. The endpoint
+stores no provider pointer. `GetCatalog`, `Submit`, `GetInvocation`, and `Cancel`
 use detached data and a mutex; they never call ModularFeature or resolve DObjects.
 Retaining the endpoint retains its subsystem work/code gate. Release endpoints
 as part of adapter shutdown before requesting provider module unload.
@@ -82,6 +84,8 @@ callback defers cleanup until the next host Tick/shutdown boundary, matching the
 `GetToolEditor(Context)` resolves the admitting editor only during the exact
 provider availability/execution callback for that context object. It returns
 null for a copied/fabricated context, another thread, or outside the callback.
+The callback binding stores only the exact invocation context; the editor comes
+from the active process editor protected by the enclosing callback lifetime.
 Do not retain its editor pointer. Core context stays engine-independent; provider
 implementations receive the active editor through their validated callback context. Client/session identities remain independent of editor identity.
 

@@ -2,6 +2,7 @@
 #include "Tools/EditorScriptPump.h"
 #include "Editor/EditorEngine.h"
 #include "DObject/Object.h"
+#include "DObject/WeakObjectPtr.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -65,18 +66,17 @@ namespace Durin
 		}
 		auto HostReady(DEditorEngine& Host) -> bool
 		{
-			return GEditor == &Host && Host.GetEditorSubsystemState() == ESubsystemState::Ready
+			return Host.GetEditorSubsystemState() == ESubsystemState::Ready
 				&& !Host.AreEditorSubsystemsUpdating() && Host.CanTransact();
 		}
-		struct FHostBinding;
-		thread_local FHostBinding* GBinding = nullptr;
-		struct FHostBinding
+		struct FInvocationBinding;
+		thread_local FInvocationBinding* GBinding = nullptr;
+		struct FInvocationBinding
 		{
-			DEditorEngine& Editor;
 			const FToolContext& Context;
-			FHostBinding* Previous = GBinding;
-			FHostBinding(DEditorEngine& InEditor, const FToolContext& InContext) : Editor(InEditor), Context(InContext) { GBinding = this; }
-			~FHostBinding() { GBinding = Previous; }
+			FInvocationBinding* Previous = GBinding;
+			explicit FInvocationBinding(const FToolContext& InContext) : Context(InContext) { GBinding = this; }
+			~FInvocationBinding() { GBinding = Previous; }
 		};
 		struct FExecutingScope
 		{
@@ -121,6 +121,8 @@ namespace Durin
 		};
 		// Retaining the native endpoint also retains the subsystem's code/work gate.
 		std::shared_ptr<const FSubsystemWorkGate> Gate;
+		// Resolved only on GameThread while this endpoint is open; never redirects to a replacement editor.
+		TWeakObjectPtr<DEditorEngine> Editor;
 		mutable std::mutex Mutex;
 		FEditorToolLimits Limits;
 		std::map<FToolAddress, std::shared_ptr<const FRoute>> Routes;
@@ -144,7 +146,7 @@ namespace Durin
 		uint64 PythonControlIdentity = 0;
 		FPythonJobControl PythonControl;
 
-		explicit FImpl(std::shared_ptr<const FSubsystemWorkGate> InGate) : Gate(std::move(InGate))
+		FImpl(DEditorEngine& InEditor, std::shared_ptr<const FSubsystemWorkGate> InGate) : Gate(std::move(InGate)), Editor(&InEditor)
 		{
 			static uint64 NextSession = 1; // Endpoint construction is GameThread-only.
 			Session = NextSession++;
@@ -229,7 +231,7 @@ namespace Durin
 		{
 			if (!Gate->IsOpen() || Entry.Cancellation.GetToken().IsCancellationRequested()) return ReadyToolResult(Failure(EToolError::Cancelled, "Tool admission closed."));
 			auto Call = FModularFeatureRegistry::Get().InvokeRegistered<IToolset>(Entry.Route->ToolsetIdentity, [&](auto& Toolset) {
-				FHostBinding Binding(Host, Entry.Context);
+				FInvocationBinding Binding(Entry.Context);
 				auto Available = Toolset.CheckAvailability(Entry.Request, Entry.Context);
 				if (!ValidDiagnostics(Available.Diagnostics)) return ReadyToolResult(Failure(EToolError::LimitExceeded, "Toolset availability diagnostics exceed the contract."));
 				if (!Available.bAvailable && Available.Diagnostics.empty()) Available.Diagnostics.push_back(Diagnostic(EToolError::ToolUnavailable, "Tool is unavailable in the current state."));
@@ -302,16 +304,18 @@ namespace Durin
 
 	auto GetToolEditor(const FToolContext& Context) -> DEditorEngine*
 	{
-		return IsInGameThread() && GBinding && &GBinding->Context == &Context ? &GBinding->Editor : nullptr;
+		return IsInGameThread() && GBinding && &GBinding->Context == &Context ? GEditor : nullptr;
 	}
-	FEditorToolService::FEditorToolService(std::shared_ptr<const FSubsystemWorkGate> Gate) : Impl(std::make_unique<FImpl>(std::move(Gate))) {}
+	FEditorToolService::FEditorToolService(DEditorEngine& Editor, std::shared_ptr<const FSubsystemWorkGate> Gate)
+		: Impl(std::make_unique<FImpl>(Editor, std::move(Gate))) {}
 	FEditorToolService::~FEditorToolService() = default;
-	auto FEditorToolService::CanDispatch(DEditorEngine& Editor) const -> bool
+	auto FEditorToolService::CanDispatch() const -> bool
 	{
 		require(IsInGameThread());
-		if (Impl->Executing || !HostReady(Editor)) return false;
 		std::scoped_lock Lock(Impl->Mutex);
-		return Impl->Open();
+		if (Impl->Executing || !Impl->Open()) return false;
+		auto* Editor = Impl->Editor.Get();
+		return Editor && HostReady(*Editor);
 	}
 
 	auto FEditorToolService::RefreshCatalog() -> void
@@ -527,13 +531,13 @@ namespace Durin
 		Impl->Routes.clear(); Impl->Toolsets.clear(); Impl->CatalogDiagnostics.clear(); ++Impl->CatalogRevision;
 		Impl->Prune(); return {};
 	}
-	auto FEditorToolService::Call(DEditorEngine& Editor, const FToolRequest& Request, EToolSource Source,
+	auto FEditorToolService::Call(const FToolRequest& Request, EToolSource Source,
 		bool AvailabilityOnly, FToolAvailability* Availability, const FToolClientContext& Client,
 		FToolCancellationToken Cancellation) -> FToolResult
 	{
 		if (Client.Id.size() > 128 || Client.Id.find('\0') != std::string::npos)
 			return Failure(EToolError::InvalidArguments, "Invalid tool client identity.");
-		if (!CanDispatch(Editor)) return Failure(EToolError::Busy, "Editor tool dispatch is not at an idle safe point.");
+		if (!CanDispatch()) return Failure(EToolError::Busy, "Editor tool dispatch is not at an idle safe point.");
 		FExecutingScope Scope(Impl->Executing);
 		RefreshCatalog();
 		if (auto Check = ValidateRequest(Request, Source); !Check) return {EToolStatus::Failed, {}, {BoundedDiagnostic(Check.error())}};
@@ -549,13 +553,13 @@ namespace Durin
 			Entry->State = EToolInvocationState::Running;
 		}
 		if (!AvailabilityOnly && Entry->Route->Descriptor.bMayPend) return Failure(EToolError::Busy, "CallNow rejects tools that may pend before provider dispatch.");
-		Entry->Raw = Impl->Run(Editor, *Entry, AvailabilityOnly, Availability);
+		Entry->Raw = Impl->Run(*Impl->Editor.Get(), *Entry, AvailabilityOnly, Availability);
 		return Impl->Resolve(*Entry, AvailabilityOnly);
 	}
-	auto FEditorToolService::SubmitNow(DEditorEngine& Editor, const FToolRequest& Request, EToolSource Source,
+	auto FEditorToolService::SubmitNow(const FToolRequest& Request, EToolSource Source,
 		const FToolClientContext& Client, FToolCancellationToken Cancellation) -> std::expected<FEditorToolSubmission, FToolDiagnostic>
 	{
-		if (!CanDispatch(Editor)) return std::unexpected(Diagnostic(EToolError::Busy, "Editor is outside the tool safe point."));
+		if (!CanDispatch()) return std::unexpected(Diagnostic(EToolError::Busy, "Editor is outside the tool safe point."));
 		if (Client.Id.size() > 128 || Client.Id.find('\0') != std::string::npos)
 			return std::unexpected(Diagnostic(EToolError::InvalidArguments, "Invalid client identity."));
 		if (Client.Cancellation.IsCancellationRequested() || Cancellation.IsCancellationRequested())
@@ -579,13 +583,13 @@ namespace Durin
 			Submission.Future = Owned->Future; Entry = Owned.get();
 			Impl->Invocations.emplace(Submission.Id.Sequence, std::move(Owned));
 		}
-		auto Raw = Impl->Run(Editor, *Entry, false, nullptr);
+		auto Raw = Impl->Run(*Impl->Editor.Get(), *Entry, false, nullptr);
 		{ std::scoped_lock Lock(Impl->Mutex); Impl->FinishDispatch(Submission.Id.Sequence, std::move(Raw)); }
 		return Submission;
 	}
-	auto FEditorToolService::Drain(DEditorEngine& Editor) -> void
+	auto FEditorToolService::Drain() -> void
 	{
-		if (!CanDispatch(Editor)) return;
+		if (!CanDispatch()) return;
 		FExecutingScope Scope(Impl->Executing);
 		RefreshCatalog();
 		FEditorToolLimits Limits;
@@ -601,7 +605,7 @@ namespace Durin
 		const auto Start = FClock::now();
 		for (size_t Count = 0; Count < Limits.MaxDispatchPerTick && (Count == 0 || FClock::now() - Start < Limits.TickBudget); ++Count)
 		{
-			if (!HostReady(Editor)) break;
+			if (!HostReady(*Impl->Editor.Get())) break;
 			FImpl::FInvocation* Entry;
 			uint64 Id;
 			{
@@ -614,7 +618,7 @@ namespace Durin
 				++Impl->PendingCount; Impl->PendingBytes += Entry->Bytes; Entry->Dispatching = true;
 				Entry->State = EToolInvocationState::Running;
 			}
-			auto Raw = Impl->Run(Editor, *Entry, false, nullptr);
+			auto Raw = Impl->Run(*Impl->Editor.Get(), *Entry, false, nullptr);
 			std::scoped_lock Lock(Impl->Mutex);
 			Impl->FinishDispatch(Id, std::move(Raw));
 		}
@@ -627,9 +631,9 @@ namespace Durin
 		if (!Impl->Open()) return;
 		Impl->PythonControlIdentity = Identity; Impl->PythonControl = std::move(Control);
 	}
-	auto FEditorToolService::PumpScripts(DEditorEngine& Editor, const std::shared_ptr<FEditorToolService>& Endpoint) -> void
+	auto FEditorToolService::PumpScripts(const std::shared_ptr<FEditorToolService>& Endpoint) -> void
 	{
-		if (!CanDispatch(Editor)) return;
+		if (!CanDispatch()) return;
 		RefreshCatalog();
 		{
 			std::scoped_lock Lock(Impl->Mutex);
@@ -637,7 +641,7 @@ namespace Durin
 			Impl->ScriptExecuting = true;
 		}
 		(void)FModularFeatureRegistry::Get().InvokeAll<IEditorScriptPump>([&](auto& Pump) {
-			if (CanDispatch(Editor)) Pump.Pump(Editor, Endpoint);
+			if (CanDispatch()) Pump.Pump(*Impl->Editor.Get(), Endpoint);
 		});
 		std::scoped_lock Lock(Impl->Mutex); Impl->ScriptExecuting = false;
 	}

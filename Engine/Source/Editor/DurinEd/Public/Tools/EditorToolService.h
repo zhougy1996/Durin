@@ -94,16 +94,16 @@ namespace Durin
 		// GameThread configuration, permitted only with no queued/running invocation.
 		[[nodiscard]] DURINED_API auto Configure(const FEditorToolLimits& Limits) -> FToolValidationResult;
 	private:
-		explicit FEditorToolService(std::shared_ptr<const FSubsystemWorkGate> Gate);
+		explicit FEditorToolService(DEditorEngine& Editor, std::shared_ptr<const FSubsystemWorkGate> Gate);
 		auto RefreshCatalog() -> void;
-		auto CanDispatch(DEditorEngine& Editor) const -> bool;
-		auto Call(DEditorEngine& Editor, const FToolRequest& Request, EToolSource Source, bool bAvailabilityOnly,
+		auto CanDispatch() const -> bool;
+		auto Call(const FToolRequest& Request, EToolSource Source, bool bAvailabilityOnly,
 			FToolAvailability* Availability = nullptr, const FToolClientContext& Client = {},
 			FToolCancellationToken Cancellation = {}) -> FToolResult;
-		auto SubmitNow(DEditorEngine& Editor, const FToolRequest& Request, EToolSource Source,
+		auto SubmitNow(const FToolRequest& Request, EToolSource Source,
 			const FToolClientContext& Client, FToolCancellationToken Cancellation) -> std::expected<FEditorToolSubmission, FToolDiagnostic>;
-		auto Drain(DEditorEngine& Editor) -> void;
-		auto PumpScripts(DEditorEngine& Editor, const std::shared_ptr<FEditorToolService>& Endpoint) -> void;
+		auto Drain() -> void;
+		auto PumpScripts(const std::shared_ptr<FEditorToolService>& Endpoint) -> void;
 		auto Close() noexcept -> void;
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;

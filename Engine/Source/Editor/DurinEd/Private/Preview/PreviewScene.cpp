@@ -43,7 +43,6 @@ namespace Durin::Editor
 			Error = Result.Message;
 		else if (!World->SetCurrentLevel(Level.Get(), false))
 			Error = "The preview level could not be attached to its world.";
-		if (Error.empty()) GEngine->RegisterWorldContext(*World.Get());
 		if (!Error.empty()) World->Shutdown();
 	}
 

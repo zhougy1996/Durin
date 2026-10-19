@@ -64,6 +64,23 @@ namespace
 	};
 }
 
+TEST_F(FWorldSubsystemTests, FailedEngineWorldInitializationDoesNotPublishContext)
+{
+	TStrongObjectPtr<DEngine> Engine(NewObject<DEngine>(nullptr, "FailedWorldOwner"));
+	FWorldSubsystemRegistration Token({.Type = FSubsystemProbeA::StaticClass()});
+	auto* World = NewObject<DWorld>(Engine.Get(), "FailedContextWorld");
+	Worlds.emplace_back(World);
+	FSubsystemProbeA::Callback = [](FSubsystemProbeA& Service, std::string_view Event) {
+		if (Event == "Init") Service.Failure = true;
+	};
+	EXPECT_EQ(World->InitializeSubsystems().Error, EWorldSubsystemError::InitializationFailed);
+	EXPECT_TRUE(Engine->GetWorldContexts().empty());
+	World->Shutdown();
+	EXPECT_TRUE(Engine->GetWorldContexts().empty());
+	Engine->PrepareForShutdown();
+	MarkAsGarbage(Engine.Get());
+}
+
 TEST_F(FWorldSubsystemTests, OrdersDependenciesRetainsObjectsAndFreezesRegistration)
 {
 	FWorldSubsystemRegistration B({.Type = FSubsystemProbeB::StaticClass(), .Dependencies = {FSubsystemProbeA::StaticClass()}});
@@ -571,7 +588,9 @@ TEST_F(FWorldSubsystemTests, OneEditorKeepsServicesAcrossEditorPlayAndPreviewWor
 	EXPECT_EQ(First->GetEditorWorldContext().WorldType, EWorldType::Editor);
 	auto* PreviewWorld = NewObject<DWorld>(First.Get(), "ContextPreviewWorld");
 	Worlds.emplace_back(PreviewWorld); PreviewWorld->SetWorldType(EWorldType::Preview);
-	ASSERT_TRUE(PreviewWorld->InitializeSubsystems()); First->RegisterWorldContext(*PreviewWorld);
+	EXPECT_EQ(First->GetWorldContextFromWorld(PreviewWorld), nullptr);
+	ASSERT_TRUE(PreviewWorld->InitializeSubsystems());
+	ASSERT_NE(First->GetWorldContextFromWorld(PreviewWorld), nullptr);
 	EXPECT_EQ(First->GetWorldContextFromWorld(PreviewWorld)->WorldType, EWorldType::Preview);
 	for (int Session = 0; Session < 2; ++Session) {
 		ASSERT_TRUE(First->StartPlay(EditorWorld->GetCurrentLevel()));
@@ -633,6 +652,10 @@ TEST_F(FWorldSubsystemTests, WorldAndEditorCleanupRetainEngineDependencies)
 	ASSERT_TRUE(Host->StartEngine()); ASSERT_TRUE(Host->StartEditor());
 	auto* World = NewObject<DWorld>(Host.Get(), {}); Worlds.emplace_back(World);
 	ASSERT_TRUE(World->InitializeSubsystems()); Host->SetWorld(World);
+	auto* Preview = NewObject<DWorld>(Host.Get(), "UnselectedPreviewWorld");
+	Worlds.emplace_back(Preview);
+	ASSERT_TRUE(Preview->SetWorldType(EWorldType::Preview));
+	ASSERT_TRUE(Preview->InitializeSubsystems());
 	int Checks = 0;
 	FSubsystemProbeA::Callback = [&](FSubsystemProbeA&, std::string_view Event) {
 		if (Event == "Deinit") { EXPECT_NE(Host->GetSubsystem<FEngineSubsystemProbe>(), nullptr); ++Checks; }
@@ -641,7 +664,8 @@ TEST_F(FWorldSubsystemTests, WorldAndEditorCleanupRetainEngineDependencies)
 		if (!bInit) { EXPECT_NE(Host->GetSubsystem<FEngineSubsystemProbe>(), nullptr); ++Checks; }
 	};
 	Host->PrepareForShutdown();
-	EXPECT_EQ(Checks, 2);
+	EXPECT_EQ(Checks, 3);
+	EXPECT_TRUE(Host->GetWorldContexts().empty());
 	FEditorSubsystemProbe::Callback = {};
 }
 

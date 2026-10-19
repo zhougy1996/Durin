@@ -21,12 +21,12 @@ namespace Durin
 			AssetEditors = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
 				.Type = DAssetEditorSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 		}
-		auto CanShutdownModule() const -> bool override { return FEditorSubsystemCollection::CanSynchronizeAll(); }
+		auto CanShutdownModule() const -> bool override { return FEditorSubsystemCollection::CanSynchronizeActiveEditor(); }
 		auto ShutdownModule() -> void override
 		{
 			require(CanShutdownModule());
 			AssetEditors.reset(); Tools.reset(); Notifications.reset(); Actors.reset();
-			FEditorSubsystemCollection::SynchronizeAll();
+			FEditorSubsystemCollection::SynchronizeActiveEditor();
 		}
 	private:
 		std::unique_ptr<FEditorSubsystemRegistration> Actors;

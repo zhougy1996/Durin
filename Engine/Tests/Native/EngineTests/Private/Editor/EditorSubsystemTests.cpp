@@ -224,12 +224,12 @@ namespace
 			Registration = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{.Type = FDynamicEditorA::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 			if (DuringStartup) DuringStartup();
 		}
-		auto CanShutdownModule() const -> bool override { return FEditorSubsystemCollection::CanSynchronizeAll(); }
+		auto CanShutdownModule() const -> bool override { return FEditorSubsystemCollection::CanSynchronizeActiveEditor(); }
 		auto ShutdownModule() -> void override
 		{
 			require(CanShutdownModule());
 			Registration.reset();
-			FEditorSubsystemCollection::SynchronizeAll();
+			FEditorSubsystemCollection::SynchronizeActiveEditor();
 			++*Stopped;
 		}
 		std::unique_ptr<FEditorSubsystemRegistration> Registration;

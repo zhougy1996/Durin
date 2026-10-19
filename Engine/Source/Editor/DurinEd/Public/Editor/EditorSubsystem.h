@@ -10,7 +10,7 @@ namespace Durin
 {
 	class DEditorEngine;
 
-	// One transient service per Editor host; host shutdown owns retirement.
+	// One transient service on the active editor; editor shutdown owns retirement.
 	DCLASS(Abstract, NoClassDefaultObject)
 	class DEditorSubsystem : public DSubsystem
 	{
@@ -22,7 +22,7 @@ namespace Durin
 		DURINED_API auto GetEditor() const -> DEditorEngine*;
 	};
 
-	// Explicit provider token; live Editor hosts reconcile publication changes at safe points.
+	// Explicit provider token; the active editor reconciles publication changes at safe points.
 	class FEditorSubsystemRegistration : public FSubsystemRegistration
 	{
 	public:
@@ -39,8 +39,8 @@ namespace Durin
 		DURINED_API auto Initialize() -> FSubsystemResult;
 		DURINED_API auto Synchronize(bool bForce = false) -> FSubsystemResult;
 		// Providers preflight before removing tokens, then synchronize inside ShutdownModule.
-		DURINED_API static auto CanSynchronizeAll() -> bool;
-		DURINED_API static auto SynchronizeAll() -> void;
+		DURINED_API static auto CanSynchronizeActiveEditor() -> bool;
+		DURINED_API static auto SynchronizeActiveEditor() -> void;
 	private:
 		uint64 LastRevision = UINT64_MAX;
 		FSubsystemResult LastResult;

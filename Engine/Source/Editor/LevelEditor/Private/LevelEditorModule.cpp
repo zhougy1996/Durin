@@ -132,7 +132,7 @@ namespace Durin
 
 	LEVELEDITOR_API auto FLevelEditorModule::CanShutdownModule() const -> bool
 	{
-		return FEditorSubsystemCollection::CanSynchronizeAll();
+		return FEditorSubsystemCollection::CanSynchronizeActiveEditor();
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
@@ -141,7 +141,7 @@ namespace Durin
 		Integration->PIERegistration.Reset();
 		Integration->PIE.reset();
 		Integration->Levels.reset();
-		FEditorSubsystemCollection::SynchronizeAll();
+		FEditorSubsystemCollection::SynchronizeActiveEditor();
 		UnregisterLevelEditorWorkspace();
 		if (GEditor)
 			checkf(GEditor->GetTransactor()

@@ -80,14 +80,20 @@ and preview Worlds are separate contexts, not separate editor engines.
 `DEngine::GetWorldContexts()` and `GetWorldContextFromWorld()` expose borrowed
 role/World views. Contexts contain weak identities; existing engine fields or
 preview owners retain World lifetime. Do not retain a context address across
-registration/removal. SetWorld registers an active World, previews explicitly
-register their World, and World shutdown removes its context.
+registration/removal. SetWorld registers an active World, and World shutdown
+removes its context. Successful World subsystem initialization automatically
+registers an engine-owned World; failed or retiring initialization does not
+publish one. Context mutation is private to Engine and World. Preview owners
+and tools never maintain the registry manually.
 
 `DEditorEngine::GetEditorWorldContext()` requires an initialized editor World;
 `GetPIEWorldContext()` returns null outside PIE. Context roles do not change the
 single shared editor transaction history. World operation boundaries and render
 fences still govern destruction. The context list also closes World admission
-and checks operation quiescence during engine shutdown.
+and checks operation quiescence during engine shutdown. After retiring editor
+consumers, Engine shuts down any remaining registered Worlds before engine
+subsystems, including initialized Worlds that never became the active World.
+
 ## World Play State
 
 `DWorld` publishes one authoritative game-thread play state:

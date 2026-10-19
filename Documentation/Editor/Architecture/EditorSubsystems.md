@@ -143,12 +143,12 @@ failed batch. Its result exposes missing-dependency, duplicate, cycle, provider,
 initialization and safe-point diagnostics to native hosts.
 
 Providers own removal in `ShutdownModule()`: DurinEd and LevelEditor destroy
-their registration tokens and call `FEditorSubsystemCollection::SynchronizeAll()`
+their registration tokens and call `FEditorSubsystemCollection::SynchronizeActiveEditor()`
 before releasing the remaining provider resources. This removes active-editor instances
 and dependent services before shutdown returns. There is no module-manager
 consumer callback or separate suppressed-registration list.
 
-Their read-only `CanShutdownModule()` calls `CanSynchronizeAll()` to preflight
+Their read-only `CanShutdownModule()` calls `CanSynchronizeActiveEditor()` to preflight
 the active Editor collection. Initialization, cleanup, host callbacks, GC, feature
 dispatch and non-idle history postpone the entire shutdown. `UnloadModule()`
 returns false without changing an active module at an unsafe point; explicit

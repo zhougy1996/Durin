@@ -49,6 +49,10 @@ The index is an activity count, never a history ID or an isolated savepoint.
 
 `FScopedTransaction` provides UE-shaped description and full-context constructors
 using the active editor. A disabled scope or unavailable editor remains inert.
+Simple panel actions such as actor visibility and primary-camera selection use
+these constructors rather than passing the process editor's transactor through
+panel contexts. Reusable property/material backends and suspended script scopes
+retain explicit transactors where exact recording ownership is part of their contract.
 The explicit-transactor overload supports native composition and independent
 low-level buffer tests; it cannot open a competing concurrent recording.
 Cancel(), IsOutstanding() and optional End are retained, and destruction ends
