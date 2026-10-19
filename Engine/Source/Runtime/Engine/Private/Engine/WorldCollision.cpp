@@ -149,33 +149,40 @@ namespace Durin
 			if (Result.Bodies.size() >= MaximumDebugBodies) break;
 			auto* Component = reinterpret_cast<DPrimitiveComponent*>(Body.Desc.UserToken);
 			if (!Component) continue;
-			FCollisionDebugBody DebugBody;
-			DebugBody.Handle = Body.Handle;
-			DebugBody.GeometryKind = Body.Desc.Geometry.GetKind();
-			DebugBody.ResourceIdentity = Body.Desc.Geometry.GetIdentity();
-			DebugBody.RetainedBytes = Body.Desc.Geometry.GetRetainedBytes();
-			DebugBody.Transform = Body.Desc.Transform;
-			DebugBody.ObjectChannel = static_cast<ECollisionChannel>(Body.Desc.Filter.ObjectChannel);
-			DebugBody.Actor = Component->GetOwner();
-			DebugBody.Component = Component;
-			if (const FCollisionGeometryChild* Child = Body.Desc.Geometry.GetChild(0))
+			for (uint32 Index = 0; Index < 2; ++Index)
 			{
-				DebugBody.Shape = Child->Shape;
-				DebugBody.bHasPrimitiveShape = Child->Shape.IsValid();
+				const auto& Geometry = Index == 0 ? Body.Desc.SimpleGeometry : Body.Desc.ComplexGeometry;
+				const auto& Transform = Index == 0 ? Body.Desc.SimpleTransform : Body.Desc.ComplexTransform;
+				if (!Geometry || Result.Bodies.size() >= MaximumDebugBodies) continue;
+				FCollisionDebugBody DebugBody;
+				DebugBody.Handle = Body.Handle;
+				DebugBody.Representation = Index == 0 ? EPhysicsQueryComplexity::Simple : EPhysicsQueryComplexity::Complex;
+				DebugBody.GeometryKind = Geometry.GetKind();
+				DebugBody.ResourceIdentity = Geometry.GetIdentity();
+				DebugBody.RetainedBytes = Geometry.GetRetainedBytes();
+				DebugBody.Transform = Transform;
+				DebugBody.ObjectChannel = static_cast<ECollisionChannel>(Body.Desc.Filter.ObjectChannel);
+				DebugBody.Actor = Component->GetOwner();
+				DebugBody.Component = Component;
+				if (const FCollisionGeometryChild* Child = Geometry.GetChild(0))
+				{
+					DebugBody.Shape = Child->Shape;
+					DebugBody.bHasPrimitiveShape = Child->Shape.IsValid();
+				}
+				Geometry.GetLocalBounds(DebugBody.LocalBoundsMinimum, DebugBody.LocalBoundsMaximum);
+				DebugBody.TotalTriangles = Geometry.GetTriangleCount();
+				const uint32 SampleCount = std::min(DebugBody.TotalTriangles, RemainingDebugTriangles);
+				DebugBody.TriangleSample.reserve(SampleCount);
+				for (uint32 Index = 0; Index < SampleCount; ++Index)
+				{
+					std::array<FVector3, 3> Triangle;
+					if (!Geometry.GetTriangleVertices(
+						Index, Triangle[0], Triangle[1], Triangle[2])) break;
+					DebugBody.TriangleSample.push_back(Triangle);
+				}
+				RemainingDebugTriangles -= static_cast<uint32>(DebugBody.TriangleSample.size());
+				Result.Bodies.push_back(std::move(DebugBody));
 			}
-			Body.Desc.Geometry.GetLocalBounds(DebugBody.LocalBoundsMinimum, DebugBody.LocalBoundsMaximum);
-			DebugBody.TotalTriangles = Body.Desc.Geometry.GetTriangleCount();
-			const uint32 SampleCount = std::min(DebugBody.TotalTriangles, RemainingDebugTriangles);
-			DebugBody.TriangleSample.reserve(SampleCount);
-			for (uint32 Index = 0; Index < SampleCount; ++Index)
-			{
-				std::array<FVector3, 3> Triangle;
-				if (!Body.Desc.Geometry.GetTriangleVertices(
-					Index, Triangle[0], Triangle[1], Triangle[2])) break;
-				DebugBody.TriangleSample.push_back(Triangle);
-			}
-			RemainingDebugTriangles -= static_cast<uint32>(DebugBody.TriangleSample.size());
-			Result.Bodies.push_back(std::move(DebugBody));
 		}
 		Result.LastBlockingHit = GetSubsystem<DCollisionDebugSubsystem>()->GetLastHit();
 		return Result;

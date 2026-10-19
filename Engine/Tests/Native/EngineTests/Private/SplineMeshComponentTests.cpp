@@ -232,10 +232,12 @@ TEST(FSplineMeshCollisionTests, ComplexProxyUsesPrimarySourceCoordinatesAndPrese
 	EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, RenderRevision);
 	EXPECT_EQ(Component->GetSplineMeshCollisionMode(), ESplineMeshCollisionMode::Disabled);
 	EXPECT_EQ(Component->GetBodySetup(), nullptr);
-	FCollisionShape Shape;
-	FTransform Local;
-	ASSERT_TRUE(Mesh->GetBodySetup()->BuildShape(Shape, Local));
-	EXPECT_EQ(Local.Translation, FVector3(4, 5, 6));
+	FPhysicsBodyDesc Desc;
+	ASSERT_TRUE(Mesh->GetBodySetup()->PopulateCollisionGeometry(Desc, FTransform{}));
+	ASSERT_TRUE(Desc.SimpleGeometry);
+	const auto* Child = Desc.SimpleGeometry.GetChild(0);
+	ASSERT_NE(Child, nullptr);
+	EXPECT_EQ(Child->LocalTransform.Translation, FVector3(4, 5, 6));
 	const auto Data = Mesh->GetPhysicsTriMeshData();
 	ASSERT_TRUE(Data);
 	ASSERT_EQ(Data->Positions.size(), 3u);
@@ -364,9 +366,8 @@ TEST(FSplineMeshCollisionTests, PrimaryNormalizationChangesRemapProxyAndMirrored
 	Component->SetSplineMeshParams(Params);
 	const auto Deformed = Component->GetPhysicsTriMeshData();
 	ASSERT_TRUE(Deformed);
-	FCollisionGeometryRef Collision;
-	FTransform Transform;
-	ASSERT_TRUE(Component->BuildCollisionGeometry(Collision, Transform));
+	FPhysicsBodyDesc CollisionDesc; auto& Collision = CollisionDesc.ComplexGeometry; auto& Transform = CollisionDesc.ComplexTransform;
+	ASSERT_TRUE(Component->BuildPhysicsBodyDesc(CollisionDesc));
 	const FVector3 A(Deformed->Positions[0]), B(Deformed->Positions[1]), C(Deformed->Positions[2]);
 	const auto Center = (A + B + C) / 3.0;
 	const auto Normal = Math::NormalizeOr(Math::Cross(B - A, C - A), FVectorConstants::Up);
@@ -490,11 +491,10 @@ TEST(FSplineMeshComponentTests, DeferredEditsPublishOnceAndCleanUpdatesDoNothing
 	Component->UpdateMesh();
 	EXPECT_EQ(Component->GetDerivedState(), Updated);
 	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::Disabled, false);
-	FCollisionGeometryRef Geometry;
-	FTransform Transform;
-	EXPECT_TRUE(Component->BuildCollisionGeometry(Geometry, Transform));
+	FPhysicsBodyDesc CollisionDesc;
+	EXPECT_TRUE(Component->BuildPhysicsBodyDesc(CollisionDesc));
 	Component->UpdateMesh();
-	EXPECT_FALSE(Component->BuildCollisionGeometry(Geometry, Transform));
+	EXPECT_FALSE(Component->BuildPhysicsBodyDesc(CollisionDesc));
 	EXPECT_EQ(Component->GetDeformationRevision(), Updated->DeformationRevision);
 }
 
@@ -758,9 +758,8 @@ TEST(FSplineMeshCollisionTests, UsesExactDerivedTriangleMeshAndRevisionsEveryInp
 	ASSERT_TRUE(FirstGeometry.IsValid());
 	EXPECT_EQ(FirstGeometry.GetKind(), ECollisionGeometryKind::TriangleMesh);
 	EXPECT_EQ(FirstGeometry.GetTriangleCount(), 1u);
-	FCollisionGeometryRef Geometry;
-	FTransform Transform;
-	ASSERT_TRUE(Component->BuildCollisionGeometry(Geometry, Transform));
+	FPhysicsBodyDesc CollisionDesc; auto& Geometry = CollisionDesc.ComplexGeometry; auto& Transform = CollisionDesc.ComplexTransform;
+	ASSERT_TRUE(Component->BuildPhysicsBodyDesc(CollisionDesc));
 	EXPECT_EQ(Geometry.GetIdentity(), FirstGeometry.GetIdentity());
 
 	const FVector3 A(FirstData->Positions[0]);
@@ -796,7 +795,7 @@ TEST(FSplineMeshCollisionTests, UsesExactDerivedTriangleMeshAndRevisionsEveryInp
 	Params.StartScale = {-1.0, 1.0};
 	Params.EndScale = {-1.0, 1.0};
 	Component->SetSplineMeshParams(Params);
-	EXPECT_TRUE(Component->BuildCollisionGeometry(Geometry, Transform));
+	EXPECT_TRUE(Component->BuildPhysicsBodyDesc(CollisionDesc));
 	Params.StartScale = {0.0, 0.0};
 	Params.EndScale = {0.0, 0.0};
 	Params.EndPosition = Params.StartPosition;
@@ -804,7 +803,7 @@ TEST(FSplineMeshCollisionTests, UsesExactDerivedTriangleMeshAndRevisionsEveryInp
 	Params.EndTangent = FVector3(0.0);
 	Component->SetSplineMeshParams(Params);
 	EXPECT_TRUE(Component->GetDerivedState()->IsValid());
-	EXPECT_FALSE(Component->BuildCollisionGeometry(Geometry, Transform));
+	EXPECT_FALSE(Component->BuildPhysicsBodyDesc(CollisionDesc));
 	EXPECT_FALSE(Component->GetCollisionBuildError().empty());
 	EXPECT_TRUE(Component->GetMeshUpdateError().empty());
 	EXPECT_FALSE(Component->IsMeshDirty());
@@ -813,7 +812,7 @@ TEST(FSplineMeshCollisionTests, UsesExactDerivedTriangleMeshAndRevisionsEveryInp
 	EXPECT_FALSE(Component->GetCollisionBuildError().empty());
 	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::Disabled);
 	EXPECT_TRUE(Component->GetCollisionBuildError().empty());
-	EXPECT_FALSE(Component->BuildCollisionGeometry(Geometry, Transform));
+	EXPECT_FALSE(Component->BuildPhysicsBodyDesc(CollisionDesc));
 }
 
 TEST(FSplineMeshCollisionTests, ComponentsOwnTransientBodiesAndIgnoreSourceCollisionPolicy)
@@ -1100,9 +1099,8 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 		EXPECT_FALSE(Segment->IsVisible());
 		EXPECT_EQ(Segment->GetCollisionEnabled(), ECollisionEnabled::QueryOnly);
 		EXPECT_EQ(Segment->GetSplineMeshCollisionMode(), ESplineMeshCollisionMode::DeformedTriangleMesh);
-		FCollisionGeometryRef Geometry;
-		FTransform Transform;
-		EXPECT_TRUE(Segment->BuildCollisionGeometry(Geometry, Transform));
+		FPhysicsBodyDesc CollisionDesc;
+		EXPECT_TRUE(Segment->BuildPhysicsBodyDesc(CollisionDesc));
 	}
 	auto* ReplacementMesh = CreateAuthoredDebugTriangle(Level, "ReplacementStaticMesh");
 	ASSERT_NE(ReplacementMesh, nullptr);
@@ -1257,7 +1255,7 @@ TEST(FSplineMeshCollisionTests, DeformsSimpleBoxesAndConvexesIndependentlyAndPre
 	Component->UpdateMesh(); ASSERT_TRUE(Body->BuildSimpleGeometry(Deferred)); EXPECT_NE(Deferred.GetIdentity(), Before.GetIdentity());
 	EXPECT_TRUE(Component->GetCollisionBuildError().empty());
 	Params.StartPosition.x = std::numeric_limits<double>::quiet_NaN(); Component->SetSplineMeshParams(Params);
-	FCollisionGeometryRef Geometry; FTransform Transform; EXPECT_FALSE(Component->BuildCollisionGeometry(Geometry, Transform));
+	FPhysicsBodyDesc CollisionDesc; auto& Transform = CollisionDesc.SimpleTransform; EXPECT_FALSE(Component->BuildPhysicsBodyDesc(CollisionDesc));
 }
 
 TEST(FSplineMeshCollisionTests, SphereAndCapsuleUseSliceScaleAndCylinderLengthIncludingMirroredAxes)
@@ -1346,7 +1344,7 @@ TEST(FSplineMeshCollisionTests, CapsulePreservesSourceScaleConventionAndCanColla
 	ASSERT_TRUE(Component->GetCollisionBuildError().empty()) << Component->GetCollisionBuildError();
 	const auto& Collapsed = Component->GetBodySetup()->GetSimpleCollision(); ASSERT_EQ(Collapsed.size(), 1u);
 	EXPECT_NEAR(Collapsed[0].Dimensions.x, 0.4, 1.e-9); EXPECT_NEAR(Collapsed[0].Dimensions.z, 0.4, 1.e-9);
-	FCollisionGeometryRef Geometry; FTransform Transform; EXPECT_TRUE(Component->BuildCollisionGeometry(Geometry, Transform));
+	FPhysicsBodyDesc CollisionDesc; auto& Transform = CollisionDesc.ComplexTransform; EXPECT_TRUE(Component->BuildPhysicsBodyDesc(CollisionDesc));
 }
 
 TEST(FSplineMeshCollisionTests, DomainUpdatesPublishOnceAndReuseUnaffectedGeometry)
@@ -1447,4 +1445,72 @@ TEST(FSplineMeshCollisionTests, CombinedRebuildAndFailureEachPublishOneBodyRevis
 	Params.StartPosition.x = std::numeric_limits<double>::quiet_NaN(); Component->SetSplineMeshParams(Params);
 	EXPECT_EQ(Body->GetRevision(), BeforeFailure + 1);
 	EXPECT_FALSE(Body->BuildSimpleGeometry(Simple)); EXPECT_FALSE(Body->GetResidentComplexGeometry());
+}
+
+TEST(FSplineMeshCollisionTests, PrimitiveAndAggregateInputsDeformIdenticallyWithoutCenterCompensation)
+{
+	auto [Component, Mesh] = MakeComponentWithMesh();
+	auto* Source = NewObject<DBodySetup>(Mesh, "UnifiedSplineSimpleSource");
+	ASSERT_TRUE(Mesh->SetBodySetup(Source));
+	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::DeformedSimpleCollision);
+	for (const auto Type : {EBodySetupShapeType::Box, EBodySetupShapeType::Sphere, EBodySetupShapeType::Capsule})
+	{
+		if (Type == EBodySetupShapeType::Box) ASSERT_TRUE(Source->SetBox({0.1, 0.2, 0.3}, {0.2, 0.3, 0.1}));
+		else if (Type == EBodySetupShapeType::Sphere) ASSERT_TRUE(Source->SetSphere(0.2, {0.2, 0.3, 0.1}));
+		else ASSERT_TRUE(Source->SetCapsule(0.2, 0.5, {0.2, 0.3, 0.1}));
+		ASSERT_TRUE(Component->GetCollisionBuildError().empty()) << Component->GetCollisionBuildError();
+		auto* Body = Component->GetBodySetup(); ASSERT_NE(Body, nullptr);
+		const auto Before = Body->GetSimpleCollision(); ASSERT_EQ(Before.size(), 1u);
+		FCollisionGeometryRef PrimitiveGeometry; ASSERT_TRUE(Body->BuildSimpleGeometry(PrimitiveGeometry));
+		FVector3 BeforeMin, BeforeMax; ASSERT_TRUE(PrimitiveGeometry.GetLocalBounds(BeforeMin, BeforeMax));
+		ASSERT_TRUE(Source->SetSimpleCollision(Source->GetSimpleCollision()));
+		ASSERT_TRUE(Component->GetCollisionBuildError().empty()) << Component->GetCollisionBuildError();
+		const auto& After = Body->GetSimpleCollision(); ASSERT_EQ(After.size(), Before.size());
+		EXPECT_EQ(After[0].Type, Before[0].Type);
+		EXPECT_EQ(After[0].Dimensions, Before[0].Dimensions);
+		EXPECT_EQ(After[0].Transform.Translation, Before[0].Transform.Translation);
+		EXPECT_EQ(After[0].Transform.Rotation, Before[0].Transform.Rotation);
+		EXPECT_EQ(After[0].Vertices, Before[0].Vertices);
+		EXPECT_EQ(After[0].Indices, Before[0].Indices);
+		FCollisionGeometryRef AggregateGeometry; ASSERT_TRUE(Body->BuildSimpleGeometry(AggregateGeometry));
+		FVector3 AfterMin, AfterMax; ASSERT_TRUE(AggregateGeometry.GetLocalBounds(AfterMin, AfterMax));
+		EXPECT_EQ(AfterMin, BeforeMin); EXPECT_EQ(AfterMax, BeforeMax);
+		ASSERT_TRUE(Source->SetSimpleCollision({}));
+		EXPECT_TRUE(Body->GetSimpleCollision().empty());
+		FCollisionGeometryRef Empty; EXPECT_FALSE(Body->BuildSimpleGeometry(Empty));
+	}
+}
+
+TEST(FSplineMeshCollisionTests, WorldQueriesDefaultToSimpleAndDebugCapturesPublishedRepresentations)
+{
+	InitializeDObjectSystem();
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	auto* World = NewObject<DWorld>(nullptr, "PublishedSplineQueries"); ASSERT_TRUE(World->InitializeSubsystems());
+	auto* Level = NewObject<DLevel>(World, "PublishedSplineLevel"); ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* Actor = Level->SpawnActor<AActor>("Owner");
+	auto* Component = Cast<DSplineMeshComponent>(Actor->AddInstanceComponent(DSplineMeshComponent::StaticClass(), "Spline"));
+	auto* Mesh = DStaticMesh::CreateDebugTriangle(Level); Component->SetStaticMesh(Mesh);
+	auto* Source = NewObject<DBodySetup>(Mesh, "SourceBody"); ASSERT_TRUE(Mesh->SetBodySetup(Source));
+	ASSERT_TRUE(Source->SetSphere(0.2, {0, 4, 0}));
+	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::DeformedTriangleMesh);
+	Component->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	const auto Data = Component->GetPhysicsTriMeshData(); ASSERT_TRUE(Data);
+	const auto Center = (FVector3(Data->Positions[Data->Indices[0]]) + FVector3(Data->Positions[Data->Indices[1]]) + FVector3(Data->Positions[Data->Indices[2]])) / 3.0;
+	const auto Normal = Math::NormalizeOr(Math::Cross(FVector3(Data->Positions[1]) - FVector3(Data->Positions[0]), FVector3(Data->Positions[2]) - FVector3(Data->Positions[0])), FVectorConstants::Up);
+	FHitResult Hit; FCollisionQueryParams Complex; Complex.Complexity = EPhysicsQueryComplexity::Complex;
+	EXPECT_FALSE(World->LineTraceSingleByChannel(Hit, Center + Normal, Center - Normal, ECollisionChannel::Visibility));
+	EXPECT_TRUE(World->LineTraceSingleByChannel(Hit, Center + Normal, Center - Normal, ECollisionChannel::Visibility, Complex));
+	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::DeformedSimpleAndComplex);
+	World->SetCollisionDebugDrawEnabled(true);
+	auto Snapshot = World->CaptureCollisionDebugSnapshot(); ASSERT_EQ(Snapshot.Bodies.size(), 2u);
+	EXPECT_EQ(Snapshot.Bodies[0].Handle, Snapshot.Bodies[1].Handle);
+	EXPECT_EQ(Snapshot.Bodies[0].Representation, EPhysicsQueryComplexity::Simple);
+	EXPECT_EQ(Snapshot.Bodies[1].Representation, EPhysicsQueryComplexity::Complex);
+	EXPECT_NE(Snapshot.Bodies[0].ResourceIdentity, Snapshot.Bodies[1].ResourceIdentity);
+	Source->SetCollisionTraceMode(EBodySetupCollisionTraceMode::ComplexAsSimple);
+	EXPECT_TRUE(World->LineTraceSingleByChannel(Hit, Center + Normal, Center - Normal, ECollisionChannel::Visibility));
+	Snapshot = World->CaptureCollisionDebugSnapshot(); ASSERT_EQ(Snapshot.Bodies.size(), 1u);
+	EXPECT_EQ(Snapshot.Bodies[0].Representation, EPhysicsQueryComplexity::Complex);
+	EXPECT_EQ(Snapshot.Bodies[0].Component, Component);
+	MarkObjectHierarchyAsGarbage(World); CollectGarbage();
 }

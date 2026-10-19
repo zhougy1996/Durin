@@ -41,6 +41,12 @@ namespace Durin
 	{
 	}
 
+	auto DBodySetup::PostLoad() -> void
+	{
+		Super::PostLoad();
+		InvalidateSimpleGeometry();
+	}
+
 	FScopedBodySetupUpdate::FScopedBodySetupUpdate(DBodySetup& InBody) : Body(&InBody) { InBody.BeginUpdate(); }
 	FScopedBodySetupUpdate::~FScopedBodySetupUpdate()
 	{
@@ -77,9 +83,8 @@ namespace Durin
 	auto DBodySetup::InvalidateSimpleGeometry() -> void
 	{
 		++SimpleGeometryRevision;
-		CachedGeometry = {};
 		CachedAggregate = {};
-		CachedGeometryRevision = CachedAggregateRevision = 0;
+		CachedAggregateRevision = 0;
 	}
 
 	auto DBodySetup::InvalidatePhysicsData() -> void
@@ -130,7 +135,7 @@ namespace Durin
 
 	auto DBodySetup::GetCookInfo(FTriMeshCollisionData Data, bool bPersistDerivedData) const -> FCookBodySetupInfo
 	{
-		return {std::move(Data), CollisionSourceMode, CollisionQueryPolicy, bPersistDerivedData};
+		return {std::move(Data), CollisionSourceMode, bPersistDerivedData};
 	}
 
 	auto DBodySetup::IsCompiling() const -> bool { return IsPhysicsMeshCompiling(*this); }
@@ -178,54 +183,41 @@ namespace Durin
 
 	auto DBodySetup::SetBox(const FVector3& HalfExtent, const FVector3& InCenter) -> bool
 	{
-		const FCollisionShape Candidate = FCollisionShape::MakeBox(HalfExtent);
-		if (!Candidate.IsValid() || !Math::IsFinite(InCenter)) return false;
-		if (SimpleCollision.empty() && ShapeType == EBodySetupShapeType::Box && Dimensions == HalfExtent && Center == InCenter) return true;
-		SimpleCollision.clear();
-		ShapeType = EBodySetupShapeType::Box;
-		Dimensions = HalfExtent;
-		Center = InCenter;
-		InvalidateSimpleGeometry();
-		MarkChanged(EBodySetupChange::SimpleGeometry);
-		MarkPackageDirty();
-		return true;
+		FSimpleCollisionElement Element;
+		Element.Type = EBodySetupShapeType::Box;
+		Element.Dimensions = HalfExtent;
+		Element.Transform.Translation = InCenter;
+		return SetSimpleCollision({Element});
 	}
 
 	auto DBodySetup::SetSphere(double Radius, const FVector3& InCenter) -> bool
 	{
-		const FCollisionShape Candidate = FCollisionShape::MakeSphere(Radius);
-		if (!Candidate.IsValid() || !Math::IsFinite(InCenter)) return false;
-		if (SimpleCollision.empty() && ShapeType == EBodySetupShapeType::Sphere && Dimensions == FVector3(Radius) && Center == InCenter) return true;
-		SimpleCollision.clear();
-		ShapeType = EBodySetupShapeType::Sphere;
-		Dimensions = FVector3(Radius);
-		Center = InCenter;
-		InvalidateSimpleGeometry();
-		MarkChanged(EBodySetupChange::SimpleGeometry);
-		MarkPackageDirty();
-		return true;
+		FSimpleCollisionElement Element;
+		Element.Type = EBodySetupShapeType::Sphere;
+		Element.Dimensions = FVector3(Radius);
+		Element.Transform.Translation = InCenter;
+		return SetSimpleCollision({Element});
 	}
 
 	auto DBodySetup::SetCapsule(double Radius, double HalfHeight, const FVector3& InCenter) -> bool
 	{
-		const FCollisionShape Candidate = FCollisionShape::MakeCapsule(Radius, HalfHeight);
-		if (!Candidate.IsValid() || !Math::IsFinite(InCenter)) return false;
-		if (SimpleCollision.empty() && ShapeType == EBodySetupShapeType::Capsule && Dimensions == FVector3(Radius, Radius, HalfHeight) && Center == InCenter) return true;
-		SimpleCollision.clear();
-		ShapeType = EBodySetupShapeType::Capsule;
-		Dimensions = FVector3(Radius, Radius, HalfHeight);
-		Center = InCenter;
-		InvalidateSimpleGeometry();
-		MarkChanged(EBodySetupChange::SimpleGeometry);
-		MarkPackageDirty();
-		return true;
+		FSimpleCollisionElement Element;
+		Element.Type = EBodySetupShapeType::Capsule;
+		Element.Dimensions = FVector3(Radius, Radius, HalfHeight);
+		Element.Transform.Translation = InCenter;
+		return SetSimpleCollision({Element});
 	}
 
 	auto DBodySetup::SetSimpleCollision(std::vector<FSimpleCollisionElement> Elements) -> bool
 	{
-		if (Elements.empty() && SimpleCollision.empty()) return true;
 		const auto Candidate = Elements.empty() ? FCollisionGeometryRef{} : BuildAggregate(Elements);
 		if (!Elements.empty() && !Candidate) return false;
+		if (std::ranges::equal(SimpleCollision, Elements, [](const auto& Before, const auto& After) {
+			return Before.Type == After.Type && Before.Dimensions == After.Dimensions
+				&& Before.Transform.Translation == After.Transform.Translation
+				&& Before.Transform.Rotation == After.Transform.Rotation && Before.Transform.Scale3D == After.Transform.Scale3D
+				&& Before.Vertices == After.Vertices && Before.Indices == After.Indices;
+		})) return true;
 		// Keep the validated topology so package loading does not run hull discovery again.
 		for (uint32 Index = 0; Index < Elements.size(); ++Index)
 		{
@@ -260,78 +252,17 @@ namespace Durin
 		MarkPackageDirty();
 	}
 
-	auto DBodySetup::ConfigureQueryGeometry(FPhysicsBodyDesc& Desc, const FTransform& WorldTransform) const -> void
+	auto DBodySetup::PopulateCollisionGeometry(FPhysicsBodyDesc& Desc, const FTransform& WorldTransform) const -> bool
 	{
 		Desc.SimpleGeometry = {};
 		Desc.ComplexGeometry = {};
-		Desc.bHasQueryGeometry = true;
 		Desc.TracePolicy = static_cast<EPhysicsCollisionTracePolicy>(CollisionTraceMode);
 		Desc.SimpleTransform = WorldTransform;
 		Desc.ComplexTransform = WorldTransform;
 		if (CollisionQueryPolicy != EBodySetupCollisionQueryPolicy::ComplexOnly)
-		{
 			BuildSimpleGeometry(Desc.SimpleGeometry);
-			if (SimpleCollision.empty() && !CachedSimpleCollision && Desc.SimpleGeometry)
-			{
-				FTransform Local;
-				FCollisionShape Shape;
-				if (BuildShape(Shape, Local)) Desc.SimpleTransform = FTransform::Combine(WorldTransform, Local);
-			}
-		}
 		if (CollisionQueryPolicy != EBodySetupCollisionQueryPolicy::SimpleOnly) BuildComplexGeometry(Desc.ComplexGeometry);
-	}
-
-	auto DBodySetup::BuildShape(FCollisionShape& OutShape, FTransform& OutLocalTransform) const -> bool
-	{
-		if (!SimpleCollision.empty()) return false;
-		switch (ShapeType)
-		{
-		case EBodySetupShapeType::Box: OutShape = FCollisionShape::MakeBox(Dimensions); break;
-		case EBodySetupShapeType::Sphere: OutShape = FCollisionShape::MakeSphere(Dimensions.x); break;
-		case EBodySetupShapeType::Capsule: OutShape = FCollisionShape::MakeCapsule(Dimensions.x, Dimensions.z); break;
-		case EBodySetupShapeType::None:
-		case EBodySetupShapeType::Convex: return false;
-		}
-		if (!OutShape.IsValid() || !Math::IsFinite(Center)) return false;
-		OutLocalTransform = FTransform();
-		OutLocalTransform.Translation = Center;
-		return true;
-	}
-
-	auto DBodySetup::BuildGeometry(
-		FCollisionGeometryRef& OutGeometry, FTransform& OutLocalTransform) const -> bool
-	{
-		if (CollisionTraceMode == EBodySetupCollisionTraceMode::ComplexAsSimple)
-		{
-			OutLocalTransform = FTransform();
-			return CollisionQueryPolicy != EBodySetupCollisionQueryPolicy::SimpleOnly && BuildComplexGeometry(OutGeometry);
-		}
-		if (CollisionTraceMode == EBodySetupCollisionTraceMode::SimpleAsComplex)
-		{
-			OutLocalTransform = FTransform();
-			if (SimpleCollision.empty() && !CachedSimpleCollision) OutLocalTransform.Translation = Center;
-			return CollisionQueryPolicy != EBodySetupCollisionQueryPolicy::ComplexOnly && BuildSimpleGeometry(OutGeometry);
-		}
-
-		if (CollisionSourceMode != EBodySetupCollisionSourceMode::None || !SimpleCollision.empty())
-		{
-			OutLocalTransform = FTransform();
-			if (CollisionQueryPolicy != EBodySetupCollisionQueryPolicy::ComplexOnly
-				&& (CachedSimpleCollision || !SimpleCollision.empty() || CollisionSourceMode == EBodySetupCollisionSourceMode::None)
-				&& BuildSimpleGeometry(OutGeometry)) return true;
-			if (CollisionQueryPolicy != EBodySetupCollisionQueryPolicy::SimpleOnly
-				&& BuildComplexGeometry(OutGeometry)) return true;
-			return false;
-		}
-		FCollisionShape Shape;
-		if (!BuildShape(Shape, OutLocalTransform)) return false;
-		if (!CachedGeometry.IsValid() || CachedGeometryRevision != SimpleGeometryRevision)
-		{
-			CachedGeometry = FCollisionGeometryRef::MakePrimitive(Shape);
-			CachedGeometryRevision = CachedGeometry.IsValid() ? SimpleGeometryRevision : 0;
-		}
-		OutGeometry = CachedGeometry;
-		return OutGeometry.IsValid();
+		return bool(Desc.SimpleGeometry) || bool(Desc.ComplexGeometry);
 	}
 
 	auto DBodySetup::BuildSimpleGeometry(FCollisionGeometryRef& OutGeometry) const -> bool
@@ -347,16 +278,6 @@ namespace Durin
 			return bool(OutGeometry);
 		}
 		OutGeometry = CachedSimpleCollision;
-		if (OutGeometry) return true;
-		FCollisionShape Shape;
-		FTransform Local;
-		if (!BuildShape(Shape, Local)) return false;
-		if (!CachedGeometry || CachedGeometryRevision != SimpleGeometryRevision)
-		{
-			CachedGeometry = FCollisionGeometryRef::MakePrimitive(Shape);
-			CachedGeometryRevision = SimpleGeometryRevision;
-		}
-		OutGeometry = CachedGeometry;
 		return bool(OutGeometry);
 	}
 
@@ -428,13 +349,11 @@ namespace Durin
 
 	auto DBodySetup::IsValid(std::string* OutDiagnostic) const -> bool
 	{
-		FCollisionShape Shape;
-		FTransform Transform;
 		FCollisionGeometryRef Simple;
 		const bool bValid = !SimpleCollision.empty() ? BuildSimpleGeometry(Simple)
 			: CollisionSourceMode != EBodySetupCollisionSourceMode::None
 				? (CachedSimpleCollision.IsValid() || CachedComplexCollision.IsValid())
-				: BuildShape(Shape, Transform);
+				: BuildSimpleGeometry(Simple);
 		if (OutDiagnostic) *OutDiagnostic = bValid ? std::string{}
 			: CollisionSourceMode != EBodySetupCollisionSourceMode::None
 				? "Body setup has no published collision geometry."

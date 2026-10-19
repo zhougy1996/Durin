@@ -13,15 +13,15 @@ namespace Durin::PhysicsPrivate
 		auto Cancelled() -> FBuildInputError { return Error("Physics cooking was cancelled."); }
 		auto Reference(FXxHash128 Identity) -> FBuildInputReference
 		{ return {"Geometry", Identity, "CollisionGeometry", 1, "TriangleMesh.PositionsIndices", 1}; }
-		struct FSettings { EBodySetupCollisionSourceMode Mode; EBodySetupCollisionQueryPolicy Policy; };
+		struct FSettings { EBodySetupCollisionSourceMode Mode; };
 		auto Settings(const FBuildContext& Context) -> std::expected<FSettings, std::string>
 		{
-			const auto* Mode = Context.FindConstant<uint64>("SourceMode"); const auto* Policy = Context.FindConstant<uint64>("QueryPolicy");
+			const auto* Mode = Context.FindConstant<uint64>("SourceMode");
 			const auto* Target = Context.FindConstant<uint64>("TargetPlatform"); const auto* Weld = Context.FindConstant<uint64>("WeldToleranceBits");
-			if (!Mode || !Policy || !Target || !Weld || *Weld
-				|| *Target != uint64(EAssetPayloadTargetPlatform::Win64) || *Mode < 1 || *Mode > 2 || *Policy > 2)
+			if (!Mode || !Target || !Weld || *Weld
+				|| *Target != uint64(EAssetPayloadTargetPlatform::Win64) || *Mode < 1 || *Mode > 2)
 				return std::unexpected("Physics action constants are invalid.");
-			return FSettings{EBodySetupCollisionSourceMode(*Mode), EBodySetupCollisionQueryPolicy(*Policy)};
+			return FSettings{EBodySetupCollisionSourceMode(*Mode)};
 		}
 		class FResolver final : public IBuildInputResolver
 		{
@@ -76,7 +76,7 @@ namespace Durin::PhysicsPrivate
 				if (!Positions || !Indices || Positions->size() % sizeof(FVector3f) || Indices->size() % sizeof(uint32))
 					return Fail("Physics source arrays are malformed.");
 				const auto PositionCount = Positions->size() / sizeof(FVector3f), IndexCount = Indices->size() / sizeof(uint32);
-				if (auto Valid = CheckCookInput(PositionCount, IndexCount, Config->Mode, Config->Policy, std::numeric_limits<uint64>::max()); !Valid)
+				if (auto Valid = CheckCookInput(PositionCount, IndexCount, Config->Mode, std::numeric_limits<uint64>::max()); !Valid)
 					return Fail(Valid.error());
 				const auto Identity = HashInput(Positions->GetBytes(), Indices->GetBytes(), Cancel);
 				if (!Identity) return Fail(Cancelled().Description);
@@ -106,7 +106,7 @@ namespace Durin::PhysicsPrivate
 					: FCollisionCookedData::BuildTriangleMesh(ConvertedPositions, *NativeIndices, &Diagnostics, Cancel);
 				if (Cancel() || Diagnostics.Status == ECollisionGeometryBuildStatus::Cancelled) return Fail(Cancelled().Description);
 				if (!Cooked) return Context.FailExecution(std::format("Physics geometry construction failed (status {}).", int(Diagnostics.Status)));
-				auto Output = MakeSharedOutput(std::move(Cooked), Config->Mode, Config->Policy, Cancel);
+				auto Output = MakeSharedOutput(std::move(Cooked), Config->Mode, Cancel);
 				if (Cancel()) return Fail(Cancelled().Description);
 				if (!Output) return Context.FailExecution(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());

@@ -971,7 +971,6 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	const FPhysicsCookKeyInput KeyInput{
 		.GeometryHash = {0x1111222233334444ull, 0xaaaabbbbccccddddull},
 		.SourceMode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		.QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex,
 		.WeldToleranceBits = std::bit_cast<uint32>(1.0e-5f),
 		.BuilderVersion = 0x123456789abcdef0ull,
 		.TargetPlatform = EAssetPayloadTargetPlatform::Win64};
@@ -979,10 +978,10 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	const auto Action = MakePhysicsCookBuildAction(KeyInput);
 	ASSERT_TRUE(Action);
 	const auto KeyBytes = Action->GetCanonicalBytes();
-	EXPECT_EQ(KeyBytes.size(), 403u);
-	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "873e6983dabf6373677a20dd2d296a8b");
+	EXPECT_EQ(KeyBytes.size(), 375u);
+	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "f9f3f9e64fd189c40d2b1686b5ea9d43");
 	EXPECT_EQ(Action->GetKey().ToString(),
-		"873e6983dabf6373677a20dd2d296a8b");
+		"f9f3f9e64fd189c40d2b1686b5ea9d43");
 
 	const FCollisionSourceFixture Tetra = MakeTetrahedron();
 	std::vector<FVector3> Positions;
@@ -991,8 +990,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 		Positions, Tetra.Indices);
 	ASSERT_TRUE(Geometry.IsValid());
 	FPhysicsCollisionPayloadData Payload;
-	ASSERT_TRUE(MakePhysicsCollisionPayloadData(Geometry,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Payload));
+	ASSERT_TRUE(MakePhysicsCollisionPayloadData(Geometry, Payload));
 	Durin::FByteBuffer First;
 	Durin::FByteBuffer Second;
 	ASSERT_TRUE(EncodeCollisionPayload(
@@ -1119,8 +1117,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	std::string Error;
 	std::expected<FPhysicsCookResult, std::string> Cold;
 	ASSERT_TRUE((Cold = FPhysicsCookHelper::Cook(StaticMeshBuildTestSupport::CaptureCollisionCookInfoForTest(*Mesh->GetRenderData(),
-		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex)))) << Error;
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)))) << Error;
 	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
@@ -1137,8 +1134,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Ready);
 	std::expected<FPhysicsCookResult, std::string> Warm;
 	ASSERT_TRUE((Warm = FPhysicsCookHelper::Cook(StaticMeshBuildTestSupport::CaptureCollisionCookInfoForTest(*Mesh->GetRenderData(),
-		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex)))) << Error;
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)))) << Error;
 	FCollisionGeometryRef CachedGeometry;
 	ASSERT_TRUE(Setup->BuildComplexGeometry(CachedGeometry));
 	EXPECT_NE(CachedGeometry.GetIdentity(), FirstIdentity);
@@ -1169,8 +1165,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	EXPECT_NE(Rejected->find("Cook:"), std::string::npos);
 	std::expected<FPhysicsCookResult, std::string> Changed;
 	ASSERT_TRUE((Changed = FPhysicsCookHelper::Cook(StaticMeshBuildTestSupport::CaptureCollisionCookInfoForTest(*Mesh->GetRenderData(),
-		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-		EBodySetupCollisionQueryPolicy::ComplexOnly)))) << Error;
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)))) << Error;
 	Mesh->SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy::ComplexOnly);
 	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
 	ASSERT_NE(Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)

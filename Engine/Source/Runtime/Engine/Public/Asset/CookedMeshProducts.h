@@ -30,8 +30,6 @@ namespace Durin
 		uint64 Expected = 0;
 		EBodySetupCollisionSourceMode ActualMode = EBodySetupCollisionSourceMode::None;
 		EBodySetupCollisionSourceMode ExpectedMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy ActualPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		EBodySetupCollisionQueryPolicy ExpectedPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		std::optional<FPhysicsCollisionPayloadError> CollisionCause;
 		std::optional<FStaticMeshPayloadError> RenderCause;
 	};
@@ -59,7 +57,6 @@ namespace Durin
 		FByteView CollisionBytes,
 		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 		EBodySetupCollisionSourceMode CollisionMode,
-		EBodySetupCollisionQueryPolicy CollisionPolicy,
 		FStaticMeshCookedProduct& OutProduct,
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64) -> FCookedMeshProductResult;
 }

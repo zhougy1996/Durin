@@ -38,8 +38,6 @@ namespace Durin
 				Children.push_back({.Geometry = Geometry});
 			else for (uint32 Index = 0; Index < Geometry.GetChildCount(); ++Index)
 				Children.push_back(*Geometry.GetChild(Index));
-			if (Source.GetSimpleCollision().empty() && !Source.GetResidentSimpleGeometry())
-				for (auto& Child : Children) Child.LocalTransform.Translation += Source.GetCenter();
 			std::vector<FSimpleCollisionElement> Result;
 			for (const auto& Child : Children)
 			{
@@ -342,19 +340,11 @@ namespace Durin
 		return Data;
 	}
 
-	auto DSplineMeshComponent::ConfigureCollisionQueries(FPhysicsBodyDesc& Desc) const -> void
+	auto DSplineMeshComponent::PopulateCollisionGeometry(FPhysicsBodyDesc& Desc) const -> bool
 	{
-		if (auto* Setup = GetBodySetup()) Setup->ConfigureQueryGeometry(Desc, GetWorldTransform());
-	}
-
-	auto DSplineMeshComponent::BuildCollisionGeometry(
-		FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool
-	{
-		if (PublishedCollisionMode == ESplineMeshCollisionMode::Disabled || !BodySetup) return false;
-		FTransform LocalTransform;
-		if (!BodySetup->BuildGeometry(OutGeometry, LocalTransform)) return false;
-		OutWorldTransform = FTransform::Combine(GetWorldTransform(), LocalTransform);
-		return IsValidPhysicsTransform(OutWorldTransform);
+		if (PublishedCollisionMode == ESplineMeshCollisionMode::Disabled) return false;
+		auto* Setup = GetBodySetup();
+		return Setup && Setup->PopulateCollisionGeometry(Desc, GetWorldTransform());
 	}
 
 	auto DSplineMeshComponent::GetCollisionStateRevision() const -> uint64

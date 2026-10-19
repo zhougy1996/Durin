@@ -65,15 +65,14 @@ namespace Durin
 		// Migrates an existing scene body between spatial partitions without exposing index state.
 		ENGINE_API auto SetPhysicsBodyMotionType(EPhysicsBodyMotionType MotionType) -> void;
 		ENGINE_API virtual auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool;
-		ENGINE_API virtual auto BuildCollisionGeometry(
-			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool;
+		ENGINE_API auto BuildPhysicsBodyDesc(FPhysicsBodyDesc& Desc) const -> bool;
 		ENGINE_API auto RecreatePhysicsState() -> void;
 		// Requests policy-owned creation; a required request may block only at an explicit lifecycle barrier.
 		ENGINE_API virtual auto RequestPhysicsStateCreation(bool bWaitUntilReady = false) -> bool;
 
 
 	protected:
-		ENGINE_API virtual auto ConfigureCollisionQueries(FPhysicsBodyDesc& Desc) const -> void {}
+		ENGINE_API virtual auto PopulateCollisionGeometry(FPhysicsBodyDesc& Desc) const -> bool;
 		ENGINE_API auto OnUpdateTransform() -> void override;
 		ENGINE_API virtual auto BuildMaterialRenderProxyBindingUpdate(
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool;
@@ -85,9 +84,6 @@ namespace Durin
 
 	private:
 		auto CreateRenderState() -> void;
-		auto MakePhysicsBodyDesc(
-			const FCollisionGeometryRef& Geometry,
-			const FTransform& Transform) const -> FPhysicsBodyDesc;
 		ENGINE_API auto EnsurePrimitiveComponentId() -> FPrimitiveComponentId;
 		auto UpdatePhysicsState() -> void;
 		auto ApplyPhysicsStateCreationPolicy() -> void;

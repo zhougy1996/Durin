@@ -29,10 +29,7 @@ namespace Durin
 		// Refreshes render and physics consumers after transactional reference replacement.
 		ENGINE_API auto RefreshReloadedAssetBindings() -> void;
 		ENGINE_API auto GetBodySetup() const -> DBodySetup*;
-		ENGINE_API auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool override;
-		ENGINE_API auto ConfigureCollisionQueries(FPhysicsBodyDesc& Desc) const -> void override;
-		ENGINE_API auto BuildCollisionGeometry(
-			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool override;
+		ENGINE_API auto PopulateCollisionGeometry(FPhysicsBodyDesc& Desc) const -> bool override;
 		ENGINE_API auto GetNumMaterials() const -> uint32 override;
 		ENGINE_API auto GetMaterialIndex(FName SlotName) const -> std::optional<uint32> override;
 		ENGINE_API auto GetDefaultMaterial(uint32 SlotIndex) const -> DMaterialInterface* override;

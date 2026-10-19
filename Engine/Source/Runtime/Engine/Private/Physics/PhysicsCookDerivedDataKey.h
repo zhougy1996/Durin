@@ -8,9 +8,9 @@
 
 namespace Durin
 {
-	inline constexpr uint32 PhysicsCollisionOutputSchemaVersion = 2;
-	inline constexpr uint32 PhysicsCollisionBuildFunctionVersion = 2;
-	inline constexpr uint32 PhysicsCollisionConstantsSchemaVersion = 2;
+	inline constexpr uint32 PhysicsCollisionOutputSchemaVersion = 3;
+	inline constexpr uint32 PhysicsCollisionBuildFunctionVersion = 3;
+	inline constexpr uint32 PhysicsCollisionConstantsSchemaVersion = 3;
 	// Bucket identity is stable; definition keys intentionally invalidate old entries.
 	inline constexpr std::string_view PhysicsCollisionCacheBucket =
 		"StaticMeshCollision";
@@ -29,8 +29,6 @@ namespace Durin
 	{
 		FXxHash128 GeometryHash;
 		EBodySetupCollisionSourceMode SourceMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy QueryPolicy =
-			EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		uint32 WeldToleranceBits = 0;
 		uint64 BuilderVersion = 0;
 		uint32 FunctionVersion = PhysicsCollisionBuildFunctionVersion;
@@ -40,7 +38,7 @@ namespace Durin
 	};
 
 	ENGINE_API auto MakePhysicsCookSessionDefinition(EBodySetupCollisionSourceMode Mode,
-		EBodySetupCollisionQueryPolicy Policy, uint64 BuilderVersion, uint32 WeldToleranceBits = 0,
+		uint64 BuilderVersion, uint32 WeldToleranceBits = 0,
 		EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Win64)
 		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>;
 	ENGINE_API auto GetPhysicsCookBuildDescriptor(uint32 FunctionVersion = PhysicsCollisionBuildFunctionVersion,

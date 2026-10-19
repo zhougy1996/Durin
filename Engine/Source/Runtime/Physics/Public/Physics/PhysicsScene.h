@@ -123,6 +123,8 @@ namespace Durin
 		uint64 FilterOnlyUpdates = 0;
 		uint64 SpatialFallbacks = 0;
 		uint64 ScratchOverflows = 0;
+		// Body publication storage is separate from acceleration-index storage.
+		uint64 RetainedBodyBytes = 0;
 		uint64 RetainedSpatialBytes = 0;
 		uint64 UniqueGeometryResources = 0;
 		uint64 RetainedGeometryBytes = 0;
@@ -204,6 +206,8 @@ namespace Durin
 			FPhysicsBodyDesc Desc;
 			std::array<float, 6> Bounds{};
 			uint32 Slot = 0;
+			uint8 SimpleQueryMask = 0;
+			uint8 ComplexQueryMask = 0;
 		};
 
 		// Resolves one generation-checked identity or links one free-list entry.

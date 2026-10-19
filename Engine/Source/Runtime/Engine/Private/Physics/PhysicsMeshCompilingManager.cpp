@@ -46,7 +46,7 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 				if (!bDispatch)
 				{
-					if (Completion) Outcome = PhysicsPrivate::ConsumeCookBuild(CookInfo.Mode, CookInfo.Policy, std::move(*Completion), Control);
+					if (Completion) Outcome = PhysicsPrivate::ConsumeCookBuild(CookInfo.Mode, std::move(*Completion), Control);
 					Completion.reset();
 					return false;
 				}

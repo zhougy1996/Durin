@@ -60,9 +60,8 @@ namespace Durin
 				Error.Code == ECookedMeshProductError::CollisionArchive ? "collision" : "render",
 				Error.ByteOffset, Error.ByteCount, Error.ArchiveCode ? static_cast<int>(*Error.ArchiveCode) : -1, Error.ArchivePath);
 		case ECookedMeshProductError::CollisionMetadata:
-			return std::format("DCOL mode/policy ({}/{}) does not match cooked BodySetup metadata ({}/{}).",
-				static_cast<int>(Error.ActualMode), static_cast<int>(Error.ActualPolicy),
-				static_cast<int>(Error.ExpectedMode), static_cast<int>(Error.ExpectedPolicy));
+			return std::format("DCOL mode ({}) does not match cooked BodySetup metadata ({}).",
+				static_cast<int>(Error.ActualMode), static_cast<int>(Error.ExpectedMode));
 		case ECookedMeshProductError::CollisionConstruction:
 			return Error.CollisionCause ? FormatPhysicsCollisionPayloadError(*Error.CollisionCause) : "Cooked collision construction failed.";
 		case ECookedMeshProductError::RenderConstruction:
@@ -79,7 +78,6 @@ namespace Durin
 		FByteView CollisionBytes,
 		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 		EBodySetupCollisionSourceMode CollisionMode,
-		EBodySetupCollisionQueryPolicy CollisionPolicy,
 		FStaticMeshCookedProduct& OutProduct,
 		ECookTargetPlatform TargetPlatform) -> FCookedMeshProductResult
 	{
@@ -90,19 +88,17 @@ namespace Durin
 		{
 			if (CollisionBytes.empty())
 				return {{.Code = ECookedMeshProductError::MissingCollision,
-					.ExpectedMode = CollisionMode, .ExpectedPolicy = CollisionPolicy}};
+					.ExpectedMode = CollisionMode}};
 			FPhysicsCollisionPayloadData CollisionPayload;
 			FCanonicalMemoryReader CollisionAr(
 				CollisionBytes, EArchivePurpose::CookedPayload, {.Target = ArchiveTarget});
 			CollisionPayload.Serialize(CollisionAr);
 			if (CollisionAr.IsError() || !RequireArchiveEnd(CollisionAr))
 				return ArchiveFailure(ECookedMeshProductError::CollisionArchive, CollisionAr, CollisionBytes.size());
-			if (CollisionPayload.SourceMode != CollisionMode
-				|| CollisionPayload.QueryPolicy != CollisionPolicy)
+			if (CollisionPayload.SourceMode != CollisionMode)
 			{
 				return {{.Code = ECookedMeshProductError::CollisionMetadata,
-					.ActualMode = CollisionPayload.SourceMode, .ExpectedMode = CollisionMode,
-					.ActualPolicy = CollisionPayload.QueryPolicy, .ExpectedPolicy = CollisionPolicy}};
+					.ActualMode = CollisionPayload.SourceMode, .ExpectedMode = CollisionMode}};
 			}
 			FCollisionGeometryRef Geometry;
 			if (const auto Built = MakePhysicsCollisionGeometry(CollisionPayload, Geometry); !Built)

@@ -356,7 +356,6 @@ TEST(FStaticMeshCookedProductTests, DetachedCodecMatchesBaselineAndClassifiesTru
 	ASSERT_TRUE(Result = Durin::DecodeStaticMeshCookedProduct(
 		Bytes, {}, Slots,
 		Durin::EBodySetupCollisionSourceMode::None,
-		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
 		Product)) << Durin::FormatCookedMeshProductError(Result.Error);
 	ASSERT_NE(Product.RenderData, nullptr);
 	ASSERT_EQ(Product.RenderData->LODResources.size(), Baseline->LODResources.size());
@@ -375,7 +374,6 @@ TEST(FStaticMeshCookedProductTests, DetachedCodecMatchesBaselineAndClassifiesTru
 	EXPECT_FALSE(Result = Durin::DecodeStaticMeshCookedProduct(
 		Truncated, {}, Slots,
 		Durin::EBodySetupCollisionSourceMode::None,
-		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
 		Rejected));
 	EXPECT_EQ(Result.Error.Code, Durin::ECookedMeshProductError::RenderArchive);
 
@@ -385,7 +383,6 @@ TEST(FStaticMeshCookedProductTests, DetachedCodecMatchesBaselineAndClassifiesTru
 	EXPECT_FALSE(Result = Durin::DecodeStaticMeshCookedProduct(
 		Incompatible, {}, Slots,
 		Durin::EBodySetupCollisionSourceMode::None,
-		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
 		Rejected));
 	EXPECT_EQ(Result.Error.Code, Durin::ECookedMeshProductError::RenderArchive);
 
@@ -397,7 +394,6 @@ TEST(FStaticMeshCookedProductTests, DetachedCodecMatchesBaselineAndClassifiesTru
 	EXPECT_FALSE(Result = Durin::DecodeStaticMeshCookedProduct(
 		Oversized, {}, Slots,
 		Durin::EBodySetupCollisionSourceMode::None,
-		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
 		Rejected));
 	EXPECT_EQ(Result.Error.Code, Durin::ECookedMeshProductError::RenderArchive);
 
@@ -410,7 +406,6 @@ TEST(FStaticMeshCookedProductTests, DetachedCodecMatchesBaselineAndClassifiesTru
 	EXPECT_FALSE(Result = Durin::DecodeStaticMeshCookedProduct(
 		Compressed, {}, Slots,
 		Durin::EBodySetupCollisionSourceMode::None,
-		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
 		Rejected));
 	EXPECT_EQ(Result.Error.Code, Durin::ECookedMeshProductError::RenderArchive);
 
@@ -1067,8 +1062,7 @@ TEST(FPhysicsCollisionPayloadTests, RejectionOwnsOrdinalContextAndPreservesGeome
 	const auto Geometry = FCollisionGeometryRef::MakeTriangleMesh(Vertices, Indices, Ordinals);
 	ASSERT_TRUE(Geometry);
 	FPhysicsCollisionPayloadData Payload;
-	ASSERT_TRUE(MakePhysicsCollisionPayloadData(Geometry,
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Payload));
+	ASSERT_TRUE(MakePhysicsCollisionPayloadData(Geometry, Payload));
 	FCollisionGeometryRef Output = Geometry;
 	uint32 Checks = 0;
 	const auto Cancelled = MakePhysicsCollisionGeometry(Payload, Output, [&] { return ++Checks == 2; });
@@ -1098,13 +1092,11 @@ TEST(FPhysicsCollisionPayloadTests, InvalidExtractionAndCancellationPreserveOutp
 	using namespace Durin;
 	FPhysicsCollisionPayloadData Output;
 	Output.Positions.push_back(FVector3f(7, 8, 9));
-	const auto Invalid = MakePhysicsCollisionPayloadData({},
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Output);
+	const auto Invalid = MakePhysicsCollisionPayloadData({}, Output);
 	EXPECT_EQ(Invalid.error().Code, EPhysicsCollisionPayloadError::InvalidGeometry);
 	EXPECT_EQ(Invalid.error().Operation, EPhysicsCollisionPayloadOperation::Extract);
 	EXPECT_EQ(Output.Positions, (std::vector<FVector3f>{FVector3f(7, 8, 9)}));
-	const auto Cancelled = MakePhysicsCollisionPayloadData({},
-		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Output, [] { return true; });
+	const auto Cancelled = MakePhysicsCollisionPayloadData({}, Output, [] { return true; });
 	EXPECT_EQ(Cancelled.error().Code, EPhysicsCollisionPayloadError::Cancelled);
 	EXPECT_EQ(Output.Positions.size(), 1u);
 	FCollisionGeometryRef Geometry;
@@ -1207,11 +1199,11 @@ TEST(FStaticMeshCookedProductTests, TypedArchiveAndMetadataFailuresPreserveProdu
 		{.Name = FName("Body")}, {.Name = FName("Trim")}};
 	FStaticMeshCookedProduct Product;
 	ASSERT_TRUE(DecodeStaticMeshCookedProduct(Bytes, {}, Slots,
-		EBodySetupCollisionSourceMode::None, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Product));
+		EBodySetupCollisionSourceMode::None, Product));
 	const auto* Original = Product.RenderData.get();
 	Slots.pop_back();
 	const auto Metadata = DecodeStaticMeshCookedProduct(Bytes, {}, Slots,
-		EBodySetupCollisionSourceMode::None, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Product);
+		EBodySetupCollisionSourceMode::None, Product);
 	EXPECT_FALSE(Metadata);
 	Slots.clear();
 	EXPECT_EQ(Metadata.Error.Code, ECookedMeshProductError::MaterialSlotCount);
@@ -1222,7 +1214,7 @@ TEST(FStaticMeshCookedProductTests, TypedArchiveAndMetadataFailuresPreserveProdu
 	WriteU32(Bytes, 4, StaticMeshPayloadSchemaVersion + 1);
 	Rehash(Bytes);
 	const auto Schema = DecodeStaticMeshCookedProduct(Bytes, {}, Slots,
-		EBodySetupCollisionSourceMode::None, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Product);
+		EBodySetupCollisionSourceMode::None, Product);
 	EXPECT_FALSE(Schema);
 	const auto ByteCount = Bytes.size();
 	Bytes.clear();
@@ -1232,36 +1224,34 @@ TEST(FStaticMeshCookedProductTests, TypedArchiveAndMetadataFailuresPreserveProdu
 	EXPECT_LE(Schema.Error.ByteOffset, Schema.Error.ByteCount);
 	EXPECT_EQ(Product.RenderData.get(), Original);
 	const auto Missing = DecodeStaticMeshCookedProduct({}, {}, Slots,
-		EBodySetupCollisionSourceMode::ConvexHullFromLOD0, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Product);
+		EBodySetupCollisionSourceMode::ConvexHullFromLOD0, Product);
 	EXPECT_FALSE(Missing);
 	EXPECT_EQ(Missing.Error.Code, ECookedMeshProductError::MissingCollision);
 	EXPECT_EQ(Missing.Error.ExpectedMode, EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
 	EXPECT_EQ(Product.RenderData.get(), Original);
 }
 
-TEST(FStaticMeshCookedProductTests, CollisionMismatchOwnsModeAndPolicy)
+TEST(FStaticMeshCookedProductTests, CollisionMismatchOwnsSourceMode)
 {
 	const std::array Vertices{FVector3(0, 0, 0), FVector3(1, 0, 0), FVector3(0, 1, 0), FVector3(0, 0, 1)};
 	const std::array<uint32, 12> Indices{0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3};
 	const auto Geometry = FCollisionGeometryRef::MakeConvexHull(Vertices, Indices);
 	ASSERT_TRUE(Geometry);
 	FPhysicsCollisionPayloadData Payload;
-	ASSERT_TRUE(MakePhysicsCollisionPayloadData(Geometry, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Payload));
+	ASSERT_TRUE(MakePhysicsCollisionPayloadData(Geometry, Payload));
 	FByteBuffer Bytes;
 	FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
 	Payload.Serialize(Ar);
 	ASSERT_FALSE(Ar.IsError()) << Ar.GetError();
 	FStaticMeshCookedProduct Product;
 	const auto Result = DecodeStaticMeshCookedProduct({}, Bytes, {},
-		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Product);
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Product);
 	ASSERT_FALSE(Result);
 	Payload = {};
 	Bytes.clear();
 	EXPECT_EQ(Result.Error.Code, ECookedMeshProductError::CollisionMetadata);
 	EXPECT_EQ(Result.Error.ActualMode, EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
 	EXPECT_EQ(Result.Error.ExpectedMode, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
-	EXPECT_EQ(Result.Error.ActualPolicy, EBodySetupCollisionQueryPolicy::SimpleAndComplex);
-	EXPECT_EQ(Result.Error.ExpectedPolicy, EBodySetupCollisionQueryPolicy::SimpleAndComplex);
 	EXPECT_EQ(Product.RenderData, nullptr);
 	EXPECT_FALSE(FormatCookedMeshProductError(Result.Error).empty());
 }
@@ -1600,16 +1590,15 @@ TEST(FStaticMeshPayloadCodecTests, CollisionSharedOutputRetainsColdArraysAndPres
 	for (bool Hull : {false, true}) for (bool Compressed : {false, true})
 	{
 		const auto Mode = Hull ? EBodySetupCollisionSourceMode::ConvexHullFromLOD0 : EBodySetupCollisionSourceMode::TriangleMeshFromLOD0;
-		const auto Policy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		auto Cooked = Hull ? FCollisionCookedData::BuildConvexHull(Points) : FCollisionCookedData::BuildTriangleMesh(Points, Indices);
 		ASSERT_TRUE(Cooked);
 		const auto Block = Cooked.GetVertices();
-		auto Output = PhysicsPrivate::MakeSharedOutput(std::move(Cooked), Mode, Policy); ASSERT_TRUE(Output) << Output.error();
-		auto Cold = PhysicsPrivate::AssembleSharedOutput(*Output, Mode, Policy); ASSERT_TRUE(Cold) << Cold.error();
+		auto Output = PhysicsPrivate::MakeSharedOutput(std::move(Cooked), Mode); ASSERT_TRUE(Output) << Output.error();
+		auto Cold = PhysicsPrivate::AssembleSharedOutput(*Output, Mode); ASSERT_TRUE(Cold) << Cold.error();
 		const auto& Geometry = Hull ? Cold->Simple : Cold->Complex;
 		EXPECT_EQ(Geometry.GetVertex(0), Block.GetNativeView<FVector3>()->data());
 		FPhysicsCollisionPayloadData ExpectedPayload;
-		ASSERT_TRUE(MakePhysicsCollisionPayloadData(Geometry, Policy, ExpectedPayload));
+		ASSERT_TRUE(MakePhysicsCollisionPayloadData(Geometry, ExpectedPayload));
 		FByteBuffer ExpectedBytes;
 		FCanonicalMemoryWriter ExpectedWriter(ExpectedBytes, EArchivePurpose::CookedPackage, {.Target = {"Win64", "Game"}});
 		ExpectedPayload.Serialize(ExpectedWriter); ASSERT_FALSE(ExpectedWriter.IsError());
@@ -1621,11 +1610,11 @@ TEST(FStaticMeshPayloadCodecTests, CollisionSharedOutputRetainsColdArraysAndPres
 		auto Loaded = FCacheRecordFixtureCodec::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
 		auto Warm = Loaded->ToOutput(Key); ASSERT_TRUE(Warm);
 		EXPECT_FALSE(Warm->FindValue(CollisionBlockId(Hull ? 0 : 1, 0))->GetData().GetNativeView<FVector3>());
-		auto Assembled = PhysicsPrivate::AssembleSharedOutput(*Warm, Mode, Policy); ASSERT_TRUE(Assembled) << Assembled.error();
+		auto Assembled = PhysicsPrivate::AssembleSharedOutput(*Warm, Mode); ASSERT_TRUE(Assembled) << Assembled.error();
 		const auto& Restored = Hull ? Assembled->Simple : Assembled->Complex;
 		EXPECT_NE(Restored.GetIdentity(), Geometry.GetIdentity());
 		Output = FBuildOutput{}; Warm = FBuildOutput{}; Loaded = FCacheRecord{}; Encoded = FSharedByteBuffer{}; Cold = FPhysicsCookResult{};
-		FPhysicsCollisionPayloadData ActualPayload; ASSERT_TRUE(MakePhysicsCollisionPayloadData(Restored, Policy, ActualPayload));
+		FPhysicsCollisionPayloadData ActualPayload; ASSERT_TRUE(MakePhysicsCollisionPayloadData(Restored, ActualPayload));
 		FByteBuffer ActualBytes;
 		FCanonicalMemoryWriter ActualWriter(ActualBytes, EArchivePurpose::CookedPackage, {.Target = {"Win64", "Game"}});
 		ActualPayload.Serialize(ActualWriter); ASSERT_FALSE(ActualWriter.IsError());
@@ -1639,8 +1628,7 @@ TEST(FStaticMeshPayloadCodecTests, CollisionSharedOutputRejectsInvalidMetadataAn
 	const std::array<FVector3, 3> Points{FVector3{0.0}, FVector3{1, 0, 0}, FVector3{0, 1, 0}};
 	const std::array<uint32, 3> Indices{0, 1, 2};
 	const auto Mode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0;
-	const auto Policy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-	auto Output = PhysicsPrivate::MakeSharedOutput(FCollisionCookedData::BuildTriangleMesh(Points, Indices), Mode, Policy);
+	auto Output = PhysicsPrivate::MakeSharedOutput(FCollisionCookedData::BuildTriangleMesh(Points, Indices), Mode);
 	ASSERT_TRUE(Output);
 	for (uint32 Fault = 0; Fault < 13; ++Fault)
 	{
@@ -1651,9 +1639,9 @@ TEST(FStaticMeshPayloadCodecTests, CollisionSharedOutputRejectsInvalidMetadataAn
 		if (Fault == 1) WriteU32(Metadata, 0, 999);
 		if (Fault == 2) WriteU32(Metadata, 4, 999);
 		if (Fault == 3) WriteU32(Metadata, 8, uint32(EBodySetupCollisionSourceMode::ConvexHullFromLOD0));
-		if (Fault == 4) WriteU32(Metadata, 12, uint32(EBodySetupCollisionQueryPolicy::SimpleOnly));
-		if (Fault == 5) WriteU32(Metadata, 16, 1);
-		if (Fault == 6) WriteU32(Metadata, 24, uint32(ECollisionGeometryKind::Primitive));
+		if (Fault == 4) WriteU32(Metadata, 12, 1);
+		if (Fault == 5) WriteU32(Metadata, 16, 0);
+		if (Fault == 6) WriteU32(Metadata, 20, uint32(ECollisionGeometryKind::Primitive));
 		if (Fault == 7) Metadata.pop_back();
 		if (Fault == 8) Metadata.push_back(std::byte{});
 		if (Fault == 9) Data.Values.pop_back();
@@ -1663,13 +1651,13 @@ TEST(FStaticMeshPayloadCodecTests, CollisionSharedOutputRejectsInvalidMetadataAn
 			Value = FSharedByteBuffer::TakeNative(std::vector<uint32>{999});
 		Data.Metadata = FSharedByteBuffer::Take(std::move(Metadata));
 		auto Invalid = std::move(Data).Build(); ASSERT_TRUE(Invalid);
-		EXPECT_FALSE(PhysicsPrivate::ValidateSharedOutput(*Invalid, Mode, Policy));
-		EXPECT_FALSE(PhysicsPrivate::AssembleSharedOutput(*Invalid, Mode, Policy));
+		EXPECT_FALSE(PhysicsPrivate::ValidateSharedOutput(*Invalid, Mode));
+		EXPECT_FALSE(PhysicsPrivate::AssembleSharedOutput(*Invalid, Mode));
 	}
-	EXPECT_FALSE(PhysicsPrivate::MakeSharedOutput({}, Mode, Policy));
-	EXPECT_FALSE(PhysicsPrivate::ValidateSharedOutput(*Output, Mode, Policy, [] { return true; }));
+	EXPECT_FALSE(PhysicsPrivate::MakeSharedOutput({}, Mode));
+	EXPECT_FALSE(PhysicsPrivate::ValidateSharedOutput(*Output, Mode, [] { return true; }));
 	uint32 Checks = 0;
-	EXPECT_FALSE(PhysicsPrivate::AssembleSharedOutput(*Output, Mode, Policy, [&] { return ++Checks == 3; }));
+	EXPECT_FALSE(PhysicsPrivate::AssembleSharedOutput(*Output, Mode, [&] { return ++Checks == 3; }));
 }
 
 TEST(FStaticMeshPayloadCodecTests, PositionBufferMovesRvaluesAndPreservesBorrowedInputs)

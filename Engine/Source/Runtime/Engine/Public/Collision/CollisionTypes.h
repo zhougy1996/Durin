@@ -65,7 +65,7 @@ namespace Durin
 	// Selects actors and components that must be excluded from one synchronous query.
 	struct FCollisionQueryParams
 	{
-		EPhysicsQueryComplexity Complexity = EPhysicsQueryComplexity::Default;
+		EPhysicsQueryComplexity Complexity = EPhysicsQueryComplexity::Simple;
 		std::vector<const AActor*> IgnoredActors;
 		std::vector<const DPrimitiveComponent*> IgnoredComponents;
 
@@ -115,6 +115,7 @@ namespace Durin
 	// Inspectable collision debug data produced only while World collision debugging is enabled.
 	struct FCollisionDebugBody
 	{
+		EPhysicsQueryComplexity Representation = EPhysicsQueryComplexity::Simple;
 		FPhysicsActorHandle Handle;
 		FCollisionShape Shape;
 		bool bHasPrimitiveShape = false;

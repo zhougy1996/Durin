@@ -23,7 +23,6 @@ namespace Durin
 		auto GetIndices() const -> const FSharedByteBuffer& { return Indices; }
 		auto GetIdentity() const -> FXxHash128 { return Identity; }
 		auto GetMode() const -> EBodySetupCollisionSourceMode { return Mode; }
-		auto GetPolicy() const -> EBodySetupCollisionQueryPolicy { return Policy; }
 		auto ShouldPersist() const -> bool { return bPersist; }
 		auto GetTargetPlatform() const -> EAssetPayloadTargetPlatform { return TargetPlatform; }
 	private:
@@ -31,7 +30,6 @@ namespace Durin
 		FSharedByteBuffer Positions, Indices;
 		FXxHash128 Identity;
 		EBodySetupCollisionSourceMode Mode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy Policy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		bool bPersist = true;
 		EAssetPayloadTargetPlatform TargetPlatform = EAssetPayloadTargetPlatform::Win64;
 	};

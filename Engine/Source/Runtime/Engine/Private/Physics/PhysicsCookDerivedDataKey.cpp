@@ -8,7 +8,7 @@
 
 namespace Durin
 {
-	auto MakePhysicsCookSessionDefinition(EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy,
+	auto MakePhysicsCookSessionDefinition(EBodySetupCollisionSourceMode Mode,
 		uint64 BuilderVersion, uint32 WeldToleranceBits, EAssetPayloadTargetPlatform TargetPlatform) -> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>
 	{
 		const auto Target = ResolveTargetPlatform(static_cast<ECookTargetPlatform>(TargetPlatform));
@@ -18,7 +18,7 @@ namespace Durin
 		DerivedData::FBuildDefinitionBuilder Builder("Durin.Physics.Collision");
 		Builder.AddConstant("BuilderVersion", BuilderVersion);
 		Builder.AddConstant("TargetPlatform", uint64(TargetPlatform))
-			.AddConstant("SourceMode", uint64(Mode)).AddConstant("QueryPolicy", uint64(Policy))
+			.AddConstant("SourceMode", uint64(Mode))
 			.AddConstant("WeldToleranceBits", uint64(WeldToleranceBits)).AddInput("Geometry", "CapturedGeometry");
 		return std::move(Builder).Build();
 	}
@@ -34,7 +34,7 @@ namespace Durin
 		using namespace DerivedData;
 		if (Input.TargetPlatform != EAssetPayloadTargetPlatform::Win64)
 			return std::unexpected(FPhysicsCookKeyError{.Code = EPhysicsCookKeyError::UnsupportedTarget, .TargetPlatform = Input.TargetPlatform});
-		auto Request = MakePhysicsCookSessionDefinition(Input.SourceMode, Input.QueryPolicy, Input.BuilderVersion, Input.WeldToleranceBits, Input.TargetPlatform);
+		auto Request = MakePhysicsCookSessionDefinition(Input.SourceMode, Input.BuilderVersion, Input.WeldToleranceBits, Input.TargetPlatform);
 		if (!Request) return std::unexpected(FPhysicsCookKeyError{.Code = EPhysicsCookKeyError::Archive,
 			.TargetPlatform = Input.TargetPlatform, .ArchiveCode = EArchiveFailureCode::InvalidData});
 		FBuildActionBuilder Builder(*Request, GetPhysicsCookBuildDescriptor(Input.FunctionVersion, Input.OutputSchemaVersion));

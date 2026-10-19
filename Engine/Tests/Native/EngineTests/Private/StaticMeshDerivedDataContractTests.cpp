@@ -30,7 +30,6 @@ namespace
 		return {
 			.GeometryHash = {0x0123456789abcdefull, 0xfedcba9876543210ull},
 			.SourceMode = Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-			.QueryPolicy = Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
 			.WeldToleranceBits = 0x3a83126fu,
 			.BuilderVersion = 0x123456789abcdef0ull,
 			.TargetPlatform = Durin::EAssetPayloadTargetPlatform::Win64};
@@ -106,8 +105,9 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 	auto MissingIdentity = Baseline;
 	MissingIdentity.BuilderVersion = 0;
 	EXPECT_FALSE(Durin::MakePhysicsCookBuildAction(MissingIdentity));
+	EXPECT_EQ(std::ranges::find(Constants, "QueryPolicy", &Durin::DerivedData::FBuildConstant::Name), Constants.end());
 	const auto BaselineKey = Action->GetKey();
-	EXPECT_EQ(BaselineKey.ToString(), "0d2616c67fd7f2718d886f732d3c9e3e");
+	EXPECT_EQ(BaselineKey.ToString(), "278c71de4c580af89bdd1e063232233d");
 
 	auto ExpectChanged = [&](auto Mutate)
 	{
@@ -128,9 +128,6 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 	ExpectChanged([](auto& Value) { ++Value.GeometryHash.HashLow; });
 	ExpectChanged([](auto& Value) {
 		Value.SourceMode = Durin::EBodySetupCollisionSourceMode::None;
-	});
-	ExpectChanged([](auto& Value) {
-		Value.QueryPolicy = Durin::EBodySetupCollisionQueryPolicy::ComplexOnly;
 	});
 	ExpectChanged([](auto& Value) { ++Value.WeldToleranceBits; });
 	ExpectChanged([](auto& Value) { ++Value.BuilderVersion; });

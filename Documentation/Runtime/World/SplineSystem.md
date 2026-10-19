@@ -256,9 +256,13 @@ the source asset's collision enablement or Simple/Complex policy. New
 `DeformedSimpleCollision` and `DeformedSimpleAndComplex` modes deform the primary
 BodySetup's simple aggregate and inherit its trace mode. Boxes and convexes are
 rebuilt per element; spheres and capsules use UE-style slice approximations.
+Single-shape authoring uses the same aggregate and includes its element transform,
+so deformation does not add a separate source-center offset.
 ComplexAsSimple selects deformed triangles instead of simple elements. Explicit
-Simple/Complex World queries select the corresponding representation; default
-Disabled and existing triangle behavior are unchanged. `UpdateMesh()` synchronously waits for the
+Simple/Complex World queries match published per-shape masks. World queries
+default to Simple, so DeformedTriangleMesh requires an explicit Complex query.
+Modes inheriting ComplexAsSimple also allow Simple queries against their triangles.
+Collision remains disabled by default. `UpdateMesh()` synchronously waits for the
 standard BodySetup physics cook, with persistent cache writes disabled for these
 dynamic products. Simple inputs are prepared before generated cooking, within one
 `FScopedBodySetupUpdate`; the component replaces its physics body once after

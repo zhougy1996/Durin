@@ -86,29 +86,10 @@ namespace Durin
 		return StaticMesh ? StaticMesh->EnsureQualifiedBoxBodySetup() : nullptr;
 	}
 
-	auto DStaticMeshComponent::BuildCollisionShape(
-		FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool
+	auto DStaticMeshComponent::PopulateCollisionGeometry(FPhysicsBodyDesc& Desc) const -> bool
 	{
-		DBodySetup* Setup = GetBodySetup();
-		FTransform LocalTransform;
-		if (!Setup || !Setup->BuildShape(OutShape, LocalTransform)) return false;
-		OutWorldTransform = FTransform::Combine(GetWorldTransform(), LocalTransform);
-		return IsValidPhysicsTransform(OutWorldTransform);
-	}
-
-	auto DStaticMeshComponent::ConfigureCollisionQueries(FPhysicsBodyDesc& Desc) const -> void
-	{
-		if (auto* Setup = GetBodySetup()) Setup->ConfigureQueryGeometry(Desc, GetWorldTransform());
-	}
-
-	auto DStaticMeshComponent::BuildCollisionGeometry(
-		FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool
-	{
-		DBodySetup* Setup = GetBodySetup();
-		FTransform LocalTransform;
-		if (!Setup || !Setup->BuildGeometry(OutGeometry, LocalTransform)) return false;
-		OutWorldTransform = FTransform::Combine(GetWorldTransform(), LocalTransform);
-		return IsValidPhysicsTransform(OutWorldTransform);
+		auto* Setup = GetBodySetup();
+		return Setup && Setup->PopulateCollisionGeometry(Desc, GetWorldTransform());
 	}
 
 	auto DStaticMeshComponent::GetCollisionStateRevision() const -> uint64

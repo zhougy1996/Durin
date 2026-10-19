@@ -55,7 +55,6 @@ namespace Durin
 
 	auto MakePhysicsCollisionPayloadData(
 		const FCollisionGeometryRef& Geometry,
-		EBodySetupCollisionQueryPolicy QueryPolicy,
 		FPhysicsCollisionPayloadData& OutPayload,
 		const std::function<bool()>& ShouldCancel) -> std::expected<void, FPhysicsCollisionPayloadError>
 	try
@@ -80,7 +79,6 @@ namespace Durin
 		Candidate.SourceMode = Geometry.GetKind() == ECollisionGeometryKind::ConvexHull
 			? EBodySetupCollisionSourceMode::ConvexHullFromLOD0
 			: EBodySetupCollisionSourceMode::TriangleMeshFromLOD0;
-		Candidate.QueryPolicy = QueryPolicy;
 		Candidate.Positions.reserve(Geometry.GetVertexCount());
 		for (uint32 Index = 0; Index < Geometry.GetVertexCount(); ++Index)
 		{
@@ -367,7 +365,6 @@ namespace Durin
 			return Reject(EArchiveFailureCode::LimitExceeded, "DCOL decoded allocation budget is exceeded.");
 		SourceMode = Counts[3] == 0 ? EBodySetupCollisionSourceMode::ConvexHullFromLOD0
 			: EBodySetupCollisionSourceMode::TriangleMeshFromLOD0;
-		QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		Control.Check();
 		Positions.resize(static_cast<size_t>(Counts[0]));
 		Indices.resize(static_cast<size_t>(Counts[1]));

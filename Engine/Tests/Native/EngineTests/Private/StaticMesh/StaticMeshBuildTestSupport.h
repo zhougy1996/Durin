@@ -40,10 +40,10 @@ namespace StaticMeshBuildTestSupport
 	}
 
 	inline auto CaptureCollisionCookInfoForTest(const Durin::FStaticMeshRenderData& Render,
-		Durin::EBodySetupCollisionSourceMode Mode, Durin::EBodySetupCollisionQueryPolicy Policy,
+		Durin::EBodySetupCollisionSourceMode Mode,
 		bool bPersistDerivedData = true) -> Durin::FCookBodySetupInfo
 	{
-		Durin::FCookBodySetupInfo Info{.Mode = Mode, .Policy = Policy, .bPersistDerivedData = bPersistDerivedData};
+		Durin::FCookBodySetupInfo Info{.Mode = Mode, .bPersistDerivedData = bPersistDerivedData};
 		if (Mode != Durin::EBodySetupCollisionSourceMode::None && !Render.LODResources.empty())
 		{
 			const auto Positions = Render.LODResources.front().VertexBuffers.PositionVertexBuffer.GetPositions();
@@ -236,8 +236,7 @@ namespace StaticMeshBuildTestSupport
 			std::expected<FPhysicsCookResult, std::string> Collision;
 			const auto CollisionStart = std::chrono::steady_clock::now();
 			ASSERT_TRUE((Collision = FPhysicsCookHelper::Cook(CaptureCollisionCookInfoForTest(*(*Render),
-				EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
-				EBodySetupCollisionQueryPolicy::SimpleAndComplex, false)))) << Error;
+				EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, false)))) << Error;
 			ASSERT_TRUE(Collision->Complex);
 			const auto CollisionEnd = std::chrono::steady_clock::now();
 			const auto Nanoseconds = [](auto Duration) {

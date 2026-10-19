@@ -190,43 +190,111 @@ namespace Durin
 			return Math::IsFinite(OutMin) && Math::IsFinite(OutMax);
 		}
 
-		auto SelectQueryGeometry(const FPhysicsBodyDesc& Body, EPhysicsQueryComplexity Complexity,
-			FTransform& OutTransform) -> const FCollisionGeometryRef&
+		auto BuildGeometryBounds(const FCollisionGeometryRef& Geometry, const FTransform& Transform, std::array<float, 6>& OutBounds) -> bool
 		{
-			OutTransform = Body.Transform;
-			if (Complexity == EPhysicsQueryComplexity::Default
-				&& Body.TracePolicy == EPhysicsCollisionTracePolicy::SimpleAndComplex) return Body.Geometry;
-			if (Body.TracePolicy == EPhysicsCollisionTracePolicy::SimpleAsComplex) Complexity = EPhysicsQueryComplexity::Simple;
-			if (Body.TracePolicy == EPhysicsCollisionTracePolicy::ComplexAsSimple) Complexity = EPhysicsQueryComplexity::Complex;
-			if (Complexity == EPhysicsQueryComplexity::Simple)
+			if (!IsValidPhysicsTransform(Transform)) return false;
+			if (!Geometry.IsValid()) return false;
+			if (Geometry.GetKind() == ECollisionGeometryKind::ConvexHull
+				|| Geometry.GetKind() == ECollisionGeometryKind::TriangleMesh)
 			{
-				OutTransform = Body.SimpleGeometry ? Body.SimpleTransform : Body.Transform;
-				return Body.SimpleGeometry ? Body.SimpleGeometry
-					: (!Body.bHasQueryGeometry && !Body.ComplexGeometry && Body.Geometry.GetKind() != ECollisionGeometryKind::TriangleMesh ? Body.Geometry : Body.SimpleGeometry);
+				FVector3 LocalMinimum;
+				FVector3 LocalMaximum;
+				if (!Geometry.GetLocalBounds(LocalMinimum, LocalMaximum)) return false;
+				const FMatrix Matrix = Transform.ToMatrix();
+				FVector3 Minimum(std::numeric_limits<double>::infinity());
+				FVector3 Maximum(-std::numeric_limits<double>::infinity());
+				for (uint32 Corner = 0; Corner < 8; ++Corner)
+				{
+					const FVector3 Local(
+						(Corner & 1u) ? LocalMaximum.x : LocalMinimum.x,
+						(Corner & 2u) ? LocalMaximum.y : LocalMinimum.y,
+						(Corner & 4u) ? LocalMaximum.z : LocalMinimum.z);
+					const FVector3 World(Matrix * FVector4(Local, 1.0));
+					Minimum = Math::Min(Minimum, World);
+					Maximum = Math::Max(Maximum, World);
+				}
+				return CompactBounds(Minimum, Maximum, OutBounds);
 			}
-			OutTransform = Body.ComplexGeometry ? Body.ComplexTransform : Body.Transform;
-			return Body.ComplexGeometry ? Body.ComplexGeometry
-				: (!Body.bHasQueryGeometry && !Body.SimpleGeometry && Body.Geometry.GetKind() == ECollisionGeometryKind::TriangleMesh ? Body.Geometry : Body.ComplexGeometry);
+			FVector3 Min;
+			FVector3 Max;
+			bool bHasBounds = false;
+			for (uint32 Index = 0; Index < Geometry.GetChildCount(); ++Index)
+			{
+				const FCollisionGeometryChild* Child = Geometry.GetChild(Index);
+				if (!Child) return false;
+				FVector3 ChildMin;
+				FVector3 ChildMax;
+				if (Child->Geometry)
+				{
+					std::array<float, 6> Bounds;
+					if (!BuildGeometryBounds(Child->Geometry, FTransform::Combine(Transform, Child->LocalTransform), Bounds)) return false;
+					ChildMin = FVector3(Bounds[0], Bounds[1], Bounds[2]);
+					ChildMax = FVector3(Bounds[3], Bounds[4], Bounds[5]);
+				}
+				else if (!BuildShapeBounds(Child->Shape, FTransform::Combine(Transform, Child->LocalTransform),
+					ChildMin, ChildMax)) return false;
+				if (!bHasBounds)
+				{
+					Min = ChildMin;
+					Max = ChildMax;
+					bHasBounds = true;
+				}
+				else
+				{
+					Min = Math::Min(Min, ChildMin);
+					Max = Math::Max(Max, ChildMax);
+				}
+			}
+			return bHasBounds && CompactBounds(Min, Max, OutBounds);
+		}
+
+		// Resolve asset policy once at publication, matching UE's per-shape query flags.
+		auto PrepareQueryGeometry(FPhysicsBodyDesc& Desc, uint8& SimpleMask, uint8& ComplexMask) -> bool
+		{
+			if (Desc.TracePolicy != EPhysicsCollisionTracePolicy::SimpleAndComplex
+				&& Desc.TracePolicy != EPhysicsCollisionTracePolicy::SimpleAsComplex
+				&& Desc.TracePolicy != EPhysicsCollisionTracePolicy::ComplexAsSimple) return false;
+			if ((Desc.SimpleGeometry && !IsValidPhysicsTransform(Desc.SimpleTransform))
+				|| (Desc.ComplexGeometry && !IsValidPhysicsTransform(Desc.ComplexTransform))) return false;
+			SimpleMask = 1; ComplexMask = 2;
+			if (Desc.TracePolicy == EPhysicsCollisionTracePolicy::SimpleAsComplex && Desc.SimpleGeometry)
+			{
+				Desc.ComplexGeometry = {}; SimpleMask = 3;
+			}
+			else if (Desc.TracePolicy == EPhysicsCollisionTracePolicy::ComplexAsSimple && Desc.ComplexGeometry)
+			{
+				Desc.SimpleGeometry = {}; ComplexMask = 3;
+			}
+			return bool(Desc.SimpleGeometry) || bool(Desc.ComplexGeometry);
+		}
+
+		auto SelectQueryGeometry(const FPhysicsBodyDesc& Body, uint8 SimpleMask, uint8 ComplexMask,
+			EPhysicsQueryComplexity Complexity, FTransform& OutTransform) -> const FCollisionGeometryRef&
+		{
+			const uint8 Mask = Complexity == EPhysicsQueryComplexity::Simple ? 1 : 2;
+			if (Body.SimpleGeometry && (SimpleMask & Mask))
+			{
+				OutTransform = Body.SimpleTransform;
+				return Body.SimpleGeometry;
+			}
+			if (Body.ComplexGeometry && (ComplexMask & Mask))
+			{
+				OutTransform = Body.ComplexTransform;
+				return Body.ComplexGeometry;
+			}
+			static const FCollisionGeometryRef Empty;
+			return Empty;
 		}
 
 		auto HasSameSpatialState(const FPhysicsBodyDesc& Left, const FPhysicsBodyDesc& Right) -> bool
 		{
 			if (Left.MotionType != Right.MotionType
-				|| Left.Geometry.GetIdentity() != Right.Geometry.GetIdentity()
 				|| Left.SimpleGeometry.GetIdentity() != Right.SimpleGeometry.GetIdentity()
 				|| Left.ComplexGeometry.GetIdentity() != Right.ComplexGeometry.GetIdentity()
-				|| Left.TracePolicy != Right.TracePolicy
 				|| Left.SimpleTransform.Translation != Right.SimpleTransform.Translation
 				|| Left.SimpleTransform.Rotation != Right.SimpleTransform.Rotation || Left.SimpleTransform.Scale3D != Right.SimpleTransform.Scale3D
 				|| Left.ComplexTransform.Translation != Right.ComplexTransform.Translation
 				|| Left.ComplexTransform.Rotation != Right.ComplexTransform.Rotation || Left.ComplexTransform.Scale3D != Right.ComplexTransform.Scale3D) return false;
-			for (uint32 Index = 0; Index < 4; ++Index)
-				if (Left.Transform.Rotation[Index] != Right.Transform.Rotation[Index]) return false;
-			for (uint32 Index = 0; Index < 3; ++Index)
-			{
-				if (Left.Transform.Translation[Index] != Right.Transform.Translation[Index]
-					|| Left.Transform.Scale3D[Index] != Right.Transform.Scale3D[Index]) return false;
-			}
 			return true;
 		}
 
@@ -239,10 +307,12 @@ namespace Durin
 
 	FPhysicsScene::~FPhysicsScene() = default;
 
-	auto FPhysicsScene::AddBody(const FPhysicsBodyDesc& Desc) -> FPhysicsActorHandle
+	auto FPhysicsScene::AddBody(const FPhysicsBodyDesc& InDesc) -> FPhysicsActorHandle
 	{
 		CountMutation(Diagnostics.Mutations.AddCalls);
-		if (!IsOwningThread() || !Desc.Geometry.IsValid() || !IsValidPhysicsTransform(Desc.Transform)
+		FPhysicsBodyDesc Desc = InDesc;
+		uint8 SimpleMask = 0, ComplexMask = 0;
+		if (!IsOwningThread() || !PrepareQueryGeometry(Desc, SimpleMask, ComplexMask)
 			|| Desc.Filter.ObjectChannel >= MaximumPhysicsChannels || !IsValidMotionType(Desc.MotionType))
 		{
 			CountMutation(Diagnostics.Mutations.AddRejected);
@@ -277,8 +347,7 @@ namespace Durin
 		FSlot& Slot = Slots[SlotIndex];
 		Slot.DenseOrNext = static_cast<uint32>(Bodies.size());
 		Slot.ProxyParent = InvalidSpatialIndex;
-		Bodies.push_back({Desc, Bounds, SlotIndex});
-		RetainGeometry(Desc.Geometry);
+		Bodies.push_back({Desc, Bounds, SlotIndex, SimpleMask, ComplexMask});
 		RetainGeometry(Desc.SimpleGeometry);
 		RetainGeometry(Desc.ComplexGeometry);
 		if (Desc.MotionType == EPhysicsBodyMotionType::Static) bStaticTreeDirty = true;
@@ -311,7 +380,6 @@ namespace Durin
 		const uint32 SlotIndex = Body->Slot;
 		const uint32 DenseIndex = Slots[SlotIndex].DenseOrNext;
 		const FPhysicsBodyDesc RemovedDesc = Body->Desc;
-		const FCollisionGeometryRef RemovedGeometry = RemovedDesc.Geometry;
 		if (Body->Desc.MotionType == EPhysicsBodyMotionType::Static) bStaticTreeDirty = true;
 		else RemoveMovingProxy(SlotIndex);
 		if (Body->Desc.MotionType == EPhysicsBodyMotionType::Static) --Diagnostics.Mutations.StaticBodies;
@@ -324,7 +392,6 @@ namespace Durin
 			CountMutation(Diagnostics.Mutations.DenseSwaps);
 		}
 		Bodies.pop_back();
-		ReleaseGeometry(RemovedGeometry);
 		ReleaseGeometry(RemovedDesc.SimpleGeometry);
 		ReleaseGeometry(RemovedDesc.ComplexGeometry);
 		FSlot& Slot = Slots[SlotIndex];
@@ -342,10 +409,12 @@ namespace Durin
 		return true;
 	}
 
-	auto FPhysicsScene::UpdateBody(FPhysicsActorHandle Handle, const FPhysicsBodyDesc& Desc) -> bool
+	auto FPhysicsScene::UpdateBody(FPhysicsActorHandle Handle, const FPhysicsBodyDesc& InDesc) -> bool
 	{
 		CountMutation(Diagnostics.Mutations.UpdateCalls);
-		if (!IsOwningThread() || Desc.Filter.ObjectChannel >= MaximumPhysicsChannels
+		FPhysicsBodyDesc Desc = InDesc;
+		uint8 SimpleMask = 0, ComplexMask = 0;
+		if (!IsOwningThread() || !PrepareQueryGeometry(Desc, SimpleMask, ComplexMask) || Desc.Filter.ObjectChannel >= MaximumPhysicsChannels
 			|| !IsValidMotionType(Desc.MotionType))
 		{
 			CountMutation(Diagnostics.Mutations.UpdateRejected);
@@ -361,14 +430,11 @@ namespace Durin
 		if (HasSameSpatialState(Body->Desc, Desc))
 		{
 			Body->Desc = Desc;
+			Body->SimpleQueryMask = SimpleMask;
+			Body->ComplexQueryMask = ComplexMask;
 			CountMutation(Diagnostics.Mutations.FilterOnlyUpdates);
 			CountMutation(Diagnostics.Mutations.UpdateSuccesses);
 			return true;
-		}
-		if (!Desc.Geometry.IsValid() || !IsValidPhysicsTransform(Desc.Transform))
-		{
-			CountMutation(Diagnostics.Mutations.UpdateRejected);
-			return false;
 		}
 		std::array<float, 6> Bounds;
 		if (!BuildBodyBounds(Desc, Bounds))
@@ -379,7 +445,6 @@ namespace Durin
 		CountMutation(Diagnostics.Mutations.BoundBuilds);
 		const EPhysicsBodyMotionType OldMotion = Body->Desc.MotionType;
 		const FPhysicsBodyDesc OldDesc = Body->Desc;
-		const FCollisionGeometryRef OldGeometry = OldDesc.Geometry;
 		const bool bMigration = OldMotion != Desc.MotionType;
 		const bool bContainedMovingUpdate = !bMigration && OldMotion != EPhysicsBodyMotionType::Static
 			&& ContainsBounds(MovingProxyBounds(Body->Bounds), Bounds);
@@ -391,11 +456,8 @@ namespace Durin
 		}
 		else if (bContainedMovingUpdate) CountMutation(Diagnostics.Mutations.MovingContainedUpdates);
 		Body->Desc = Desc;
-		if (OldGeometry.GetIdentity() != Desc.Geometry.GetIdentity())
-		{
-			RetainGeometry(Desc.Geometry);
-			ReleaseGeometry(OldGeometry);
-		}
+		Body->SimpleQueryMask = SimpleMask;
+		Body->ComplexQueryMask = ComplexMask;
 		if (OldDesc.SimpleGeometry.GetIdentity() != Desc.SimpleGeometry.GetIdentity())
 		{
 			RetainGeometry(Desc.SimpleGeometry);
@@ -499,6 +561,7 @@ namespace Durin
 		const uint64 StaticBodies = Diagnostics.Mutations.StaticBodies;
 		const uint64 KinematicBodies = Diagnostics.Mutations.KinematicBodies;
 		const uint64 DynamicBodies = Diagnostics.Mutations.DynamicBodies;
+		const uint64 RetainedBodyBytes = Diagnostics.Mutations.RetainedBodyBytes;
 		const uint64 RetainedSpatialBytes = Diagnostics.Mutations.RetainedSpatialBytes;
 		const uint64 UniqueGeometryResources = Diagnostics.Mutations.UniqueGeometryResources;
 		const uint64 RetainedGeometryBytes = Diagnostics.Mutations.RetainedGeometryBytes;
@@ -509,6 +572,7 @@ namespace Durin
 		Diagnostics.Mutations.StaticBodies = StaticBodies;
 		Diagnostics.Mutations.KinematicBodies = KinematicBodies;
 		Diagnostics.Mutations.DynamicBodies = DynamicBodies;
+		Diagnostics.Mutations.RetainedBodyBytes = RetainedBodyBytes;
 		Diagnostics.Mutations.RetainedSpatialBytes = RetainedSpatialBytes;
 		Diagnostics.Mutations.UniqueGeometryResources = UniqueGeometryResources;
 		Diagnostics.Mutations.RetainedGeometryBytes = RetainedGeometryBytes;
@@ -776,7 +840,7 @@ namespace Durin
 	{
 		return IsOwningThread() && Math::IsFinite(Start) && Math::IsFinite(End)
 			&& Filter.QueryChannel < MaximumPhysicsChannels
-			&& (Filter.Complexity == EPhysicsQueryComplexity::Default || Filter.Complexity == EPhysicsQueryComplexity::Simple
+			&& (Filter.Complexity == EPhysicsQueryComplexity::Simple
 				|| Filter.Complexity == EPhysicsQueryComplexity::Complex);
 	}
 
@@ -788,7 +852,7 @@ namespace Durin
 	{
 		return IsOwningThread() && Shape.IsValid() && IsValidPhysicsTransform(StartTransform)
 			&& Math::IsFinite(Delta) && Filter.QueryChannel < MaximumPhysicsChannels
-			&& (Filter.Complexity == EPhysicsQueryComplexity::Default || Filter.Complexity == EPhysicsQueryComplexity::Simple
+			&& (Filter.Complexity == EPhysicsQueryComplexity::Simple
 				|| Filter.Complexity == EPhysicsQueryComplexity::Complex);
 	}
 
@@ -799,7 +863,7 @@ namespace Durin
 	{
 		return IsOwningThread() && Shape.IsValid() && IsValidPhysicsTransform(Transform)
 			&& Filter.QueryChannel < MaximumPhysicsChannels
-			&& (Filter.Complexity == EPhysicsQueryComplexity::Default || Filter.Complexity == EPhysicsQueryComplexity::Simple
+			&& (Filter.Complexity == EPhysicsQueryComplexity::Simple
 				|| Filter.Complexity == EPhysicsQueryComplexity::Complex);
 	}
 
@@ -828,7 +892,7 @@ namespace Durin
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Candidate;
 			FTransform QueryTargetTransform;
-			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Filter.Complexity, QueryTargetTransform);
+			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Body.SimpleQueryMask, Body.ComplexQueryMask, Filter.Complexity, QueryTargetTransform);
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
@@ -875,7 +939,7 @@ namespace Durin
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Candidate;
 			FTransform QueryTargetTransform;
-			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Filter.Complexity, QueryTargetTransform);
+			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Body.SimpleQueryMask, Body.ComplexQueryMask, Filter.Complexity, QueryTargetTransform);
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
@@ -930,7 +994,7 @@ namespace Durin
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Candidate;
 			FTransform QueryTargetTransform;
-			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Filter.Complexity, QueryTargetTransform);
+			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Body.SimpleQueryMask, Body.ComplexQueryMask, Filter.Complexity, QueryTargetTransform);
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
@@ -989,7 +1053,7 @@ namespace Durin
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Candidate;
 			FTransform QueryTargetTransform;
-			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Filter.Complexity, QueryTargetTransform);
+			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Body.SimpleQueryMask, Body.ComplexQueryMask, Filter.Complexity, QueryTargetTransform);
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
@@ -1050,7 +1114,7 @@ namespace Durin
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Hit;
 			FTransform QueryTargetTransform;
-			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Filter.Complexity, QueryTargetTransform);
+			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Body.SimpleQueryMask, Body.ComplexQueryMask, Filter.Complexity, QueryTargetTransform);
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
@@ -1098,7 +1162,7 @@ namespace Durin
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Hit;
 			FTransform QueryTargetTransform;
-			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Filter.Complexity, QueryTargetTransform);
+			const auto& QueryTarget = SelectQueryGeometry(Body.Desc, Body.SimpleQueryMask, Body.ComplexQueryMask, Filter.Complexity, QueryTargetTransform);
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
@@ -1360,92 +1424,24 @@ namespace Durin
 			|| MotionType == EPhysicsBodyMotionType::Dynamic;
 	}
 
-	auto FPhysicsScene::BuildBodyBounds(
-		const FPhysicsBodyDesc& Desc, std::array<float, 6>& OutBounds) const -> bool
+	auto FPhysicsScene::BuildBodyBounds(const FPhysicsBodyDesc& Desc, std::array<float, 6>& OutBounds) const -> bool
 	{
-		if (Desc.TracePolicy != EPhysicsCollisionTracePolicy::SimpleAndComplex
-			&& Desc.TracePolicy != EPhysicsCollisionTracePolicy::SimpleAsComplex
-			&& Desc.TracePolicy != EPhysicsCollisionTracePolicy::ComplexAsSimple) return false;
-		if ((Desc.SimpleGeometry && !IsValidPhysicsTransform(Desc.SimpleTransform))
-			|| (Desc.ComplexGeometry && !IsValidPhysicsTransform(Desc.ComplexTransform))) return false;
-		if (Desc.SimpleGeometry || Desc.ComplexGeometry)
-		{
-			FPhysicsBodyDesc Part = Desc;
-			Part.SimpleGeometry = {};
-			Part.ComplexGeometry = {};
-			if (!BuildBodyBounds(Part, OutBounds)) return false;
-			for (uint32 Index = 0; Index < 2; ++Index)
-			{
-				Part.Geometry = Index == 0 ? Desc.SimpleGeometry : Desc.ComplexGeometry;
-				if (!Part.Geometry) continue;
-				Part.Transform = Index == 0 ? Desc.SimpleTransform : Desc.ComplexTransform;
-				std::array<float, 6> Other;
-				if (!BuildBodyBounds(Part, Other)) return false;
-				for (uint32 Axis = 0; Axis < 3; ++Axis)
-				{
-					OutBounds[Axis] = std::min(OutBounds[Axis], Other[Axis]);
-					OutBounds[Axis + 3] = std::max(OutBounds[Axis + 3], Other[Axis + 3]);
-				}
-			}
-			return true;
-		}
-
-		if (!Desc.Geometry.IsValid()) return false;
-		if (Desc.Geometry.GetKind() == ECollisionGeometryKind::ConvexHull
-			|| Desc.Geometry.GetKind() == ECollisionGeometryKind::TriangleMesh)
-		{
-			FVector3 LocalMinimum;
-			FVector3 LocalMaximum;
-			if (!Desc.Geometry.GetLocalBounds(LocalMinimum, LocalMaximum)) return false;
-			const FMatrix Matrix = Desc.Transform.ToMatrix();
-			FVector3 Minimum(std::numeric_limits<double>::infinity());
-			FVector3 Maximum(-std::numeric_limits<double>::infinity());
-			for (uint32 Corner = 0; Corner < 8; ++Corner)
-			{
-				const FVector3 Local(
-					(Corner & 1u) ? LocalMaximum.x : LocalMinimum.x,
-					(Corner & 2u) ? LocalMaximum.y : LocalMinimum.y,
-					(Corner & 4u) ? LocalMaximum.z : LocalMinimum.z);
-				const FVector3 World(Matrix * FVector4(Local, 1.0));
-				Minimum = Math::Min(Minimum, World);
-				Maximum = Math::Max(Maximum, World);
-			}
-			return CompactBounds(Minimum, Maximum, OutBounds);
-		}
-		FVector3 Min;
-		FVector3 Max;
 		bool bHasBounds = false;
-		for (uint32 Index = 0; Index < Desc.Geometry.GetChildCount(); ++Index)
+		for (uint32 Index = 0; Index < 2; ++Index)
 		{
-			const FCollisionGeometryChild* Child = Desc.Geometry.GetChild(Index);
-			if (!Child) return false;
-			FVector3 ChildMin;
-			FVector3 ChildMax;
-			if (Child->Geometry)
+			const auto& Geometry = Index == 0 ? Desc.SimpleGeometry : Desc.ComplexGeometry;
+			if (!Geometry) continue;
+			std::array<float, 6> Other;
+			if (!BuildGeometryBounds(Geometry, Index == 0 ? Desc.SimpleTransform : Desc.ComplexTransform, Other)) return false;
+			if (!bHasBounds) OutBounds = Other;
+			else for (uint32 Axis = 0; Axis < 3; ++Axis)
 			{
-				FPhysicsBodyDesc Part;
-				Part.Geometry = Child->Geometry;
-				Part.Transform = FTransform::Combine(Desc.Transform, Child->LocalTransform);
-				std::array<float, 6> Bounds;
-				if (!BuildBodyBounds(Part, Bounds)) return false;
-				ChildMin = FVector3(Bounds[0], Bounds[1], Bounds[2]);
-				ChildMax = FVector3(Bounds[3], Bounds[4], Bounds[5]);
+				OutBounds[Axis] = std::min(OutBounds[Axis], Other[Axis]);
+				OutBounds[Axis + 3] = std::max(OutBounds[Axis + 3], Other[Axis + 3]);
 			}
-			else if (!BuildShapeBounds(Child->Shape, FTransform::Combine(Desc.Transform, Child->LocalTransform),
-				ChildMin, ChildMax)) return false;
-			if (!bHasBounds)
-			{
-				Min = ChildMin;
-				Max = ChildMax;
-				bHasBounds = true;
-			}
-			else
-			{
-				Min = Math::Min(Min, ChildMin);
-				Max = Math::Max(Max, ChildMax);
-			}
+			bHasBounds = true;
 		}
-		return bHasBounds && CompactBounds(Min, Max, OutBounds);
+		return bHasBounds;
 	}
 
 	auto FPhysicsScene::BuildQueryBounds(const FCollisionShape& Shape, const FTransform& Transform,
@@ -1677,16 +1673,16 @@ namespace Durin
 		}
 		bStaticTreeDirty = false;
 		SaturatingAdd(Diagnostics.Mutations.StaticBuilds, 1);
+		Diagnostics.Mutations.RetainedBodyBytes = Bodies.capacity() * sizeof(FBodyRecord);
 		Diagnostics.Mutations.RetainedSpatialBytes = Slots.capacity() * sizeof(FSlot)
-			+ StaticNodes.capacity() * sizeof(FSpatialNode) + MovingNodes.capacity() * sizeof(FSpatialNode)
-			+ Bodies.capacity() * (sizeof(FBodyRecord) > 176 ? sizeof(FBodyRecord) - 176 : 0);
+			+ StaticNodes.capacity() * sizeof(FSpatialNode) + MovingNodes.capacity() * sizeof(FSpatialNode);
 		return true;
 	}
 
 	auto FPhysicsScene::RefreshSpatialDiagnostics() -> void
 	{
+		Diagnostics.Mutations.RetainedBodyBytes = Bodies.capacity() * sizeof(FBodyRecord);
 		Diagnostics.Mutations.RetainedSpatialBytes = Slots.capacity() * sizeof(FSlot)
-			+ StaticNodes.capacity() * sizeof(FSpatialNode) + MovingNodes.capacity() * sizeof(FSpatialNode)
-			+ Bodies.capacity() * (sizeof(FBodyRecord) > 176 ? sizeof(FBodyRecord) - 176 : 0);
+			+ StaticNodes.capacity() * sizeof(FSpatialNode) + MovingNodes.capacity() * sizeof(FSpatialNode);
 	}
 }

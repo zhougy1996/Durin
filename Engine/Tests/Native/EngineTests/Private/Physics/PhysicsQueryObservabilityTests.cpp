@@ -26,10 +26,10 @@ namespace
 		const Durin::FVector3& HalfExtent = Durin::FVector3(0.5)) -> Durin::FPhysicsBodyDesc
 	{
 		Durin::FPhysicsBodyDesc Desc;
-		Desc.Geometry = Durin::FCollisionGeometryRef::MakePrimitive(
+		Desc.SimpleGeometry = Durin::FCollisionGeometryRef::MakePrimitive(
 			Durin::FCollisionShape::MakeBox(HalfExtent));
-		Desc.Transform = Durin::FTransform();
-		Desc.Transform.Translation = Center;
+		Desc.SimpleTransform = Durin::FTransform();
+		Desc.SimpleTransform.Translation = Center;
 		Desc.UserToken = UserToken;
 		return Desc;
 	}
@@ -48,9 +48,9 @@ namespace
 				-200.0 + static_cast<double>((Index / 100) % 100) * 4.0,
 				20.0 + static_cast<double>(Index / 10'000) * 4.0};
 			Durin::FPhysicsBodyDesc Desc = MakeBoxBody(Center, static_cast<uint64>(Index + 1));
-			Desc.Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
+			Desc.SimpleTransform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
 				Generator.NextUnit() * 180.0, Durin::FVectorConstants::Up);
-			Desc.Transform.Scale3D = {
+			Desc.SimpleTransform.Scale3D = {
 				0.5 + Generator.NextUnit() * 1.5,
 				0.5 + Generator.NextUnit() * 1.5,
 				0.5 + Generator.NextUnit() * 1.5};
@@ -641,7 +641,7 @@ TEST(FPhysicsQueryDiagnosticsTests, MutationCountersAndResetRetainAConstantTimeB
 	const Durin::FPhysicsActorHandle Handle = Scene.AddBody(Desc);
 	ASSERT_TRUE(Handle.IsValid());
 	EXPECT_FALSE(Scene.AddBody({}).IsValid());
-	Desc.Transform.Translation = {1.0, 0.0, 0.0};
+	Desc.SimpleTransform.Translation = {1.0, 0.0, 0.0};
 	EXPECT_TRUE(Scene.UpdateBody(Handle, Desc));
 	EXPECT_FALSE(Scene.UpdateBody({999, 1}, Desc));
 	EXPECT_TRUE(Scene.RemoveBody(Handle));
@@ -721,7 +721,7 @@ TEST(FPhysicsSceneAccelerationTests, BuildsConservativeBoundsForEveryShapeAndRej
 
 	Durin::FPhysicsScene Scene;
 	Durin::FPhysicsBodyDesc Box = MakeBoxBody({10.0, 20.0, 30.0}, 1, {2.0, 1.0, 0.5});
-	Box.Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(90.0, Durin::FVectorConstants::Up);
+	Box.SimpleTransform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(90.0, Durin::FVectorConstants::Up);
 	const Durin::FPhysicsActorHandle BoxHandle = Scene.AddBody(Box);
 	ASSERT_TRUE(BoxHandle.IsValid());
 	const auto BoxBounds = Durin::FPhysicsSceneQueryTestAccess::GetBodyBounds(Scene, BoxHandle);
@@ -731,9 +731,9 @@ TEST(FPhysicsSceneAccelerationTests, BuildsConservativeBoundsForEveryShapeAndRej
 	EXPECT_GT(BoxBounds[4], 22.0f);
 
 	Durin::FPhysicsBodyDesc Sphere;
-	Sphere.Geometry = Durin::FCollisionGeometryRef::MakePrimitive(
+	Sphere.SimpleGeometry = Durin::FCollisionGeometryRef::MakePrimitive(
 		Durin::FCollisionShape::MakeSphere(2.0));
-	Sphere.Transform.Scale3D = {1.0, 2.0, 3.0};
+	Sphere.SimpleTransform.Scale3D = {1.0, 2.0, 3.0};
 	const auto SphereHandle = Scene.AddBody(Sphere);
 	ASSERT_TRUE(SphereHandle.IsValid());
 	const auto SphereBounds = Durin::FPhysicsSceneQueryTestAccess::GetBodyBounds(Scene, SphereHandle);
@@ -741,9 +741,9 @@ TEST(FPhysicsSceneAccelerationTests, BuildsConservativeBoundsForEveryShapeAndRej
 	EXPECT_GT(SphereBounds[3], 6.0f);
 
 	Durin::FPhysicsBodyDesc Capsule;
-	Capsule.Geometry = Durin::FCollisionGeometryRef::MakePrimitive(
+	Capsule.SimpleGeometry = Durin::FCollisionGeometryRef::MakePrimitive(
 		Durin::FCollisionShape::MakeCapsule(1.0, 3.0));
-	Capsule.Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(90.0, Durin::FVectorConstants::Right);
+	Capsule.SimpleTransform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(90.0, Durin::FVectorConstants::Right);
 	const auto CapsuleHandle = Scene.AddBody(Capsule);
 	ASSERT_TRUE(CapsuleHandle.IsValid());
 	const auto CapsuleBounds = Durin::FPhysicsSceneQueryTestAccess::GetBodyBounds(Scene, CapsuleHandle);
@@ -751,7 +751,7 @@ TEST(FPhysicsSceneAccelerationTests, BuildsConservativeBoundsForEveryShapeAndRej
 	EXPECT_GT(CapsuleBounds[3], 3.0f);
 
 	Durin::FPhysicsBodyDesc Overflow = Box;
-	Overflow.Transform.Translation.x = std::numeric_limits<double>::max();
+	Overflow.SimpleTransform.Translation.x = std::numeric_limits<double>::max();
 	EXPECT_FALSE(Scene.AddBody(Overflow).IsValid());
 }
 
@@ -773,7 +773,7 @@ TEST(FPhysicsSceneAccelerationTests, MaintainsMotionPartitionsAndIsolatesMovingU
 
 	Moving.UserToken = 22;
 	ASSERT_TRUE(Scene.UpdateBody(MovingHandle, Moving));
-	Moving.Transform.Translation.x += 0.05;
+	Moving.SimpleTransform.Translation.x += 0.05;
 	ASSERT_TRUE(Scene.UpdateBody(MovingHandle, Moving));
 	EXPECT_TRUE(Scene.LineTraceSingle({-2.0, 0.0, 0.0}, {8.0, 0.0, 0.0}, {}, Hit));
 	auto Mutations = Scene.CaptureQueryDiagnostics().Mutations;
@@ -782,7 +782,7 @@ TEST(FPhysicsSceneAccelerationTests, MaintainsMotionPartitionsAndIsolatesMovingU
 	EXPECT_EQ(Mutations.FilterOnlyUpdates, 1u);
 	EXPECT_EQ(Mutations.MovingContainedUpdates, 1u);
 
-	Moving.Transform.Translation.x = 30.0;
+	Moving.SimpleTransform.Translation.x = 30.0;
 	ASSERT_TRUE(Scene.UpdateBody(MovingHandle, Moving));
 	Mutations = Scene.CaptureQueryDiagnostics().Mutations;
 	EXPECT_EQ(Mutations.MovingReinsertions, 1u);
@@ -837,10 +837,10 @@ TEST(FPhysicsQueryParityTests, FixedSeedRandomizedAdversarialScenesRemainMismatc
 					0.2 + Generator.NextUnit() * 1.8,
 					0.2 + Generator.NextUnit() * 1.8,
 					0.2 + Generator.NextUnit() * 1.8});
-			Desc.Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
+			Desc.SimpleTransform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
 				Generator.NextUnit() * 180.0,
 				Index % 2 == 0 ? Durin::FVectorConstants::Up : Durin::FVectorConstants::Right);
-			Desc.Transform.Scale3D = {
+			Desc.SimpleTransform.Scale3D = {
 				0.25 + Generator.NextUnit() * 2.0,
 				0.25 + Generator.NextUnit() * 2.0,
 				0.25 + Generator.NextUnit() * 2.0};
@@ -875,7 +875,7 @@ TEST(FPhysicsQueryParityTests, FixedSeedRandomizedAdversarialScenesRemainMismatc
 			{-12.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, Filter, Hit);
 		EXPECT_EQ(bQueryResult, Hit.IsHit());
 		bQueryResult = Scene.LineTraceSingle(
-			Descs.front().Transform.Translation, Descs.front().Transform.Translation, Filter, Hit);
+			Descs.front().SimpleTransform.Translation, Descs.front().SimpleTransform.Translation, Filter, Hit);
 		EXPECT_EQ(bQueryResult, Hit.IsHit());
 		bQueryResult = Scene.LineTraceSingle(
 			{0.0, -12.0, 0.0}, {0.0, 12.0, 0.0}, Filter, Hit);
@@ -901,7 +901,7 @@ TEST(FPhysicsQueryParityTests, FixedSeedRandomizedAdversarialScenesRemainMismatc
 		const size_t RemovedIndex = Scenario % Handles.size();
 		EXPECT_TRUE(Scene.RemoveBody(Handles[RemovedIndex]));
 		Durin::FPhysicsBodyDesc Updated = Descs[(Scenario + 1) % Descs.size()];
-		Updated.Transform.Translation += Durin::FVector3(0.125, -0.25, 0.5);
+		Updated.SimpleTransform.Translation += Durin::FVector3(0.125, -0.25, 0.5);
 		const size_t UpdatedIndex = (RemovedIndex + 1) % Handles.size();
 		EXPECT_TRUE(Scene.UpdateBody(Handles[UpdatedIndex], Updated));
 		EXPECT_TRUE(Scene.AddBody(Descs[(Scenario + 2) % Descs.size()]).IsValid());

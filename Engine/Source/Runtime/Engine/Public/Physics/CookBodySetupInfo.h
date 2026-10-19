@@ -12,7 +12,6 @@ namespace Durin
 	{
 		FTriMeshCollisionData TriangleMeshDesc;
 		EBodySetupCollisionSourceMode Mode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy Policy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		bool bPersistDerivedData = true;
 	};
 }

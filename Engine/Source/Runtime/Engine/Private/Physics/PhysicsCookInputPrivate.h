@@ -15,7 +15,7 @@ namespace Durin::PhysicsPrivate
 	ENGINE_API auto SetAsyncCacheForTests(std::shared_ptr<DerivedData::ICache> Cache) -> void;
 	auto DispatchCookBuild(const FPhysicsCookInput& Input, DerivedData::IRequestOwner& Owner,
 		const FAssetBuildTaskContext& Control, DerivedData::FBuildCompletionCallback Completion) -> std::expected<void, std::string>;
-	auto ConsumeCookBuild(EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy,
+	auto ConsumeCookBuild(EBodySetupCollisionSourceMode Mode,
 		DerivedData::FBuildCompleteParams Completion, const FAssetBuildTaskContext& Control) -> std::expected<FPhysicsCookResult, std::string>;
 #endif
 
@@ -44,13 +44,10 @@ namespace Durin::PhysicsPrivate
 		return Memory.Add(1, 1024 * 1024) && Memory.Add(Positions, 512) && Memory.Add(Indices, 192);
 	}
 	inline auto CheckCookInput(uint64 Positions, uint64 Indices, EBodySetupCollisionSourceMode Mode,
-		EBodySetupCollisionQueryPolicy Policy, uint64 MaximumWorkingSetBytes) -> std::expected<void, std::string>
+		uint64 MaximumWorkingSetBytes) -> std::expected<void, std::string>
 	{
 		if (Mode != EBodySetupCollisionSourceMode::ConvexHullFromLOD0 && Mode != EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
 			return std::unexpected(MakeAssetBuildDiagnostic("Physics cook source mode is invalid.", "Cook"));
-		if (Policy != EBodySetupCollisionQueryPolicy::SimpleOnly && Policy != EBodySetupCollisionQueryPolicy::ComplexOnly
-			&& Policy != EBodySetupCollisionQueryPolicy::SimpleAndComplex)
-			return std::unexpected(MakeAssetBuildDiagnostic("Physics cook query policy is invalid.", "Cook"));
 		if (!CheckCookReservation(Positions, Indices, MaximumWorkingSetBytes))
 			return std::unexpected(MakeAssetBuildDiagnostic("Physics cook input and working set exceed the reservation.", "Cook"));
 		if (!Positions || !Indices || Indices % 3)

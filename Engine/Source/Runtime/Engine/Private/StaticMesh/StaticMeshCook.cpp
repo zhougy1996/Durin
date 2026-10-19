@@ -295,7 +295,7 @@ namespace Durin
 					if (!Built) return std::unexpected(Built.error());
 					const auto& Geometry = Input->GetMode() == EBodySetupCollisionSourceMode::ConvexHullFromLOD0 ? Built->Simple : Built->Complex;
 					FPhysicsCollisionPayloadData Payload;
-					if (const auto Made = MakePhysicsCollisionPayloadData(Geometry, Input->GetPolicy(), Payload); !Made)
+					if (const auto Made = MakePhysicsCollisionPayloadData(Geometry, Payload); !Made)
 						return std::unexpected(FormatPhysicsCollisionPayloadError(Made.error()));
 					FByteBuffer Bytes;
 					FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload, {.Target = ArchiveTarget});
@@ -506,11 +506,8 @@ namespace Durin
 		const EBodySetupCollisionSourceMode CollisionMode = bRequiresCollision
 			? BodySetup->GetCollisionSourceMode()
 			: EBodySetupCollisionSourceMode::None;
-		const EBodySetupCollisionQueryPolicy CollisionPolicy = BodySetup
-			? BodySetup->GetCollisionQueryPolicy()
-			: EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		if (const auto Result = DecodeStaticMeshCookedProduct(Bytes, CollisionBytes, MaterialSlots,
-			CollisionMode, CollisionPolicy, Product,
+			CollisionMode, Product,
 			GetAssetRuntimeConfiguration().GetCookTargetPlatform()); !Result)
 		{
 			return {.Error = {.Code = ECookedMeshLoadError::Product, .Owner = FObjectKey(this),
@@ -550,9 +547,6 @@ namespace Durin
 		const EBodySetupCollisionSourceMode CollisionMode = CurrentBodySetup
 			? CurrentBodySetup->GetCollisionSourceMode()
 			: EBodySetupCollisionSourceMode::None;
-		const EBodySetupCollisionQueryPolicy CollisionPolicy = CurrentBodySetup
-			? CurrentBodySetup->GetCollisionQueryPolicy()
-			: EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		const bool bRequiresCollision =
 			CollisionMode != EBodySetupCollisionSourceMode::None;
 		const uint64 Generation =
@@ -572,7 +566,7 @@ namespace Durin
 				.MetadataIdentity = MetadataIdentity},
 			.Fields = {CookedRenderData},
 			.Worker = [SlotSnapshot = std::move(SlotSnapshot), CollisionMode,
-				CollisionPolicy, bRequiresCollision, TargetPlatform](
+				bRequiresCollision, TargetPlatform](
 				std::span<const FSharedByteBuffer> Buffers,
 				const FTaskCancellationToken& Cancellation)
 				-> FCookedMeshWorkerResult {
@@ -584,7 +578,7 @@ namespace Durin
 				const FByteView CollisionBytes = bRequiresCollision
 					? Buffers[1].GetBytes() : FByteView{};
 				if (const auto Decoded = DecodeStaticMeshCookedProduct(Buffers[0].GetBytes(),
-					CollisionBytes, SlotSnapshot, CollisionMode, CollisionPolicy,
+					CollisionBytes, SlotSnapshot, CollisionMode,
 					Result->Product, TargetPlatform); !Decoded)
 				{
 					return {.Error = {.Code = ECookedMeshLoadError::Product,

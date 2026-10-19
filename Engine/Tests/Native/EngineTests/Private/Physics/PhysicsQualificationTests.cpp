@@ -9,7 +9,11 @@ namespace
 {
 	constexpr uint64 FixtureSeed = 0xA37E'2026'0811'0001ull;
 	constexpr std::array<size_t, 4> FixtureBodyCounts{0, 32, 1'000, 10'000};
-	inline constexpr uint64 ExpectedPrimitiveRetainedBytes = 200u;
+#if defined(_WIN32)
+	inline constexpr uint64 ExpectedPrimitiveRetainedBytes = DURIN_BUILD_DEBUG ? 224u : 216u;
+#else
+	inline constexpr uint64 ExpectedPrimitiveRetainedBytes = 216u;
+#endif
 
 	enum class EFixtureDistribution
 	{
@@ -34,9 +38,9 @@ namespace
 		const Durin::FVector3& HalfExtent = Durin::FVector3(0.5)) -> Durin::FPhysicsBodyDesc
 	{
 		Durin::FPhysicsBodyDesc Desc;
-		Desc.Geometry = Durin::FCollisionGeometryRef::MakePrimitive(
+		Desc.SimpleGeometry = Durin::FCollisionGeometryRef::MakePrimitive(
 			Durin::FCollisionShape::MakeBox(HalfExtent));
-		Desc.Transform.Translation = Center;
+		Desc.SimpleTransform.Translation = Center;
 		Desc.UserToken = UserToken;
 		return Desc;
 	}
@@ -68,9 +72,9 @@ namespace
 			}
 
 			Durin::FPhysicsBodyDesc Desc = MakeBoxBody(Center, static_cast<uint64>(Index + 1));
-			Desc.Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
+			Desc.SimpleTransform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
 				Generator.NextUnit() * 180.0, Durin::FVectorConstants::Up);
-			Desc.Transform.Scale3D = {
+			Desc.SimpleTransform.Scale3D = {
 				0.5 + Generator.NextUnit() * 1.5,
 				0.5 + Generator.NextUnit() * 1.5,
 				0.5 + Generator.NextUnit() * 1.5};
@@ -98,8 +102,8 @@ TEST(FPhysicsCollisionGeometryQualificationTests, TenThousandBodiesRetainOneShar
 	for (uint32 Index = 0; Index < 10'000; ++Index)
 	{
 		Durin::FPhysicsBodyDesc Desc;
-		Desc.Geometry = Geometry;
-		Desc.Transform.Translation = {static_cast<double>(Index) * 2.0, 0.0, 0.0};
+		Desc.SimpleGeometry = Geometry;
+		Desc.SimpleTransform.Translation = {static_cast<double>(Index) * 2.0, 0.0, 0.0};
 		Handles.push_back(Scene.AddBody(Desc));
 		ASSERT_TRUE(Handles.back().IsValid());
 	}
@@ -213,7 +217,7 @@ TEST(FPhysicsCollisionGeometryQualificationTests, ProductionBvhMatchesReferenceA
 TEST(FPhysicsSceneAccelerationQualificationTests, MeetsSparseDenseScratchAndRetainedMemoryGatesAtScale)
 {
 	constexpr size_t BodyCount = 10'000;
-	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetBodyRecordSize() == 176);
+	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetBodyRecordSize() == 272);
 	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetSlotSize() == 12);
 	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetSpatialNodeSize() == 36);
 	Durin::FPhysicsScene SparseScene;
@@ -265,6 +269,12 @@ TEST(FPhysicsSceneAccelerationQualificationTests, RetainedMemoryFitsEveryScaleAn
 		StaticScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
 		MixedScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
 		const uint64 Budget = 64u * BodyCount + 64u * 1024u;
+		for (const auto* Scene : {&StaticScene, &MixedScene})
+		{
+			const uint64 BodyBytes = Scene->CaptureQueryDiagnostics().Mutations.RetainedBodyBytes;
+			EXPECT_GE(BodyBytes, BodyCount * Durin::FPhysicsSceneQueryTestAccess::GetBodyRecordSize());
+			EXPECT_LE(BodyBytes, (BodyCount + 255) * Durin::FPhysicsSceneQueryTestAccess::GetBodyRecordSize());
+		}
 		EXPECT_LE(StaticScene.CaptureQueryDiagnostics().Mutations.RetainedSpatialBytes, Budget);
 		EXPECT_LE(MixedScene.CaptureQueryDiagnostics().Mutations.RetainedSpatialBytes, Budget);
 		EXPECT_EQ(StaticScene.CaptureQueryDiagnostics().Mutations.StaticBodies, BodyCount);

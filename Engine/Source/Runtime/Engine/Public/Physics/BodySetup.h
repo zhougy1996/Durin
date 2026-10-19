@@ -35,7 +35,8 @@ namespace Durin
 		GENERATED_BODY()
 		DPROPERTY()
 		EBodySetupShapeType Type = EBodySetupShapeType::None;
-		DPROPERTY()
+		// Box: XYZ half extents; Sphere: X radius; Capsule: X radius and Z half height.
+		DPROPERTY(Edit, Category = "Shape", ToolTip = "Shape dimensions in local space", Units = "Meters")
 		FVector3 Dimensions{0.0};
 		DPROPERTY()
 		FTransform Transform;
@@ -53,6 +54,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DBodySetup(const FObjectInitializer& ObjectInitializer);
+		ENGINE_API auto PostLoad() -> void override;
 		// Owner-thread lifecycle. Async capture owns its inputs and never retains the provider.
 		// Every request notifies once: input/admission failures and disabled collision complete inline;
 		// accepted work completes through the owner pump after task retirement.
@@ -88,15 +90,13 @@ namespace Durin
 		ENGINE_API auto SetBox(const FVector3& HalfExtent, const FVector3& Center = FVector3(0.0)) -> bool;
 		ENGINE_API auto SetSphere(double Radius, const FVector3& Center = FVector3(0.0)) -> bool;
 		ENGINE_API auto SetCapsule(double Radius, double HalfHeight, const FVector3& Center = FVector3(0.0)) -> bool;
-		// Atomically replaces the flat authored aggregate (up to 64 elements). Empty restores the legacy shape.
+		// Atomically replaces the flat authored aggregate (up to 64 elements). Empty removes authored simple collision.
 		ENGINE_API auto SetSimpleCollision(std::vector<FSimpleCollisionElement> Elements) -> bool;
 		auto GetSimpleCollision() const -> const std::vector<FSimpleCollisionElement>& { return SimpleCollision; }
 		ENGINE_API auto SetCollisionTraceMode(EBodySetupCollisionTraceMode Mode) -> void;
 		auto GetCollisionTraceMode() const -> EBodySetupCollisionTraceMode { return CollisionTraceMode; }
-		// Publishes both representations using component-world coordinates; Geometry remains the legacy default.
-		ENGINE_API auto ConfigureQueryGeometry(FPhysicsBodyDesc& Desc, const FTransform& WorldTransform) const -> void;
-		ENGINE_API auto BuildShape(FCollisionShape& OutShape, FTransform& OutLocalTransform) const -> bool;
-		ENGINE_API auto BuildGeometry(FCollisionGeometryRef& OutGeometry, FTransform& OutLocalTransform) const -> bool;
+		// Publishes both representations using component-world coordinates.
+		ENGINE_API auto PopulateCollisionGeometry(FPhysicsBodyDesc& Desc, const FTransform& WorldTransform) const -> bool;
 		ENGINE_API auto BuildSimpleGeometry(FCollisionGeometryRef& OutGeometry) const -> bool;
 		ENGINE_API auto BuildComplexGeometry(FCollisionGeometryRef& OutGeometry) const -> bool;
 		// Requires a declared EBodySetupCollisionSourceMode value.
@@ -113,9 +113,6 @@ namespace Durin
 		auto GetResidentSimpleGeometry() const -> const FCollisionGeometryRef& { return CachedSimpleCollision; }
 		auto GetResidentComplexGeometry() const -> const FCollisionGeometryRef& { return CachedComplexCollision; }
 		auto GetRevision() const -> uint64 { return Revision; }
-		auto GetDimensions() const -> FVector3 { return Dimensions; }
-		auto GetCenter() const -> FVector3 { return Center; }
-		auto GetShapeType() const -> EBodySetupShapeType { return ShapeType; }
 		auto GetCollisionSourceMode() const -> EBodySetupCollisionSourceMode { return CollisionSourceMode; }
 		auto GetCollisionQueryPolicy() const -> EBodySetupCollisionQueryPolicy { return CollisionQueryPolicy; }
 #if DURIN_WITH_EDITORONLY_DATA
@@ -139,15 +136,6 @@ namespace Durin
 		EPhysicsMeshBuildStatus PhysicsMeshStatus = EPhysicsMeshBuildStatus::Ready;
 		std::optional<std::string> PhysicsMeshError;
 		uint64 PhysicsMeshRequestGeneration = 1;
-		DPROPERTY()
-		EBodySetupShapeType ShapeType = EBodySetupShapeType::None;
-
-		// Box uses XYZ half extents; Sphere uses X radius; Capsule uses X radius and Z half height.
-		DPROPERTY(Edit, Category = "Shape", ToolTip = "Shape dimensions in local space", Units = "Meters")
-		FVector3 Dimensions{0.0};
-
-		DPROPERTY(Edit)
-		FVector3 Center{0.0};
 
 		DPROPERTY()
 		uint64 Revision = 1;
@@ -169,8 +157,6 @@ namespace Durin
 		EBodySetupCollisionTraceMode CollisionTraceMode = EBodySetupCollisionTraceMode::SimpleAndComplex;
 		mutable FCollisionGeometryRef CachedAggregate;
 		mutable uint64 CachedAggregateRevision = 0;
-		mutable FCollisionGeometryRef CachedGeometry;
-		mutable uint64 CachedGeometryRevision = 0;
 		FCollisionGeometryRef CachedSimpleCollision;
 		FCollisionGeometryRef CachedComplexCollision;
 	};

@@ -79,9 +79,7 @@ namespace Durin
 		ENGINE_API auto ContainsPhysicsTriMeshData() const -> bool override;
 		// Owner-thread capture of source collision triangles deformed with the applied parameters.
 		ENGINE_API auto GetPhysicsTriMeshData() const -> std::expected<FTriMeshCollisionData, std::string> override;
-		ENGINE_API auto ConfigureCollisionQueries(FPhysicsBodyDesc& Desc) const -> void override;
-		ENGINE_API auto BuildCollisionGeometry(
-			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool override;
+		ENGINE_API auto PopulateCollisionGeometry(FPhysicsBodyDesc& Desc) const -> bool override;
 
 		ENGINE_API auto GetNumMaterials() const -> uint32 override;
 		ENGINE_API auto GetMaterialIndex(FName SlotName) const -> std::optional<uint32> override;

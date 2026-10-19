@@ -105,7 +105,7 @@ canonical source and normalization, then acquire/decode on the worker. The defau
 provider implementation captures actual arrays on the owner thread; source-less
 procedural/debug meshes copy resident LOD0.
 
-`DBodySetup::GetCookInfo` combines prepared geometry with mode, policy and cache
+`DBodySetup::GetCookInfo` combines prepared geometry with source mode and cache
 settings into the owning value `FCookBodySetupInfo`. `FPhysicsCookHelper::Cook`
 reads that descriptor. Editor requests execute Engine's registered collision
 function, which finishes immutable PhysicsCore cooked arrays before owner-side
@@ -121,6 +121,11 @@ nonzero opaque 64-bit identity, hashing its private algorithm revision and GLM v
 Engine includes it as the named `BuilderVersion` action constant and validates it
 before recipe decoding. The adapter version and constants/output schemas are separate.
 All contribute to the package cook fingerprint alongside the DCOL schema.
+Collision build function, constants and shared-output schemas are version 3. Query
+policy and trace mode belong to BodySetup publication settings, not geometry cook
+inputs, keys or shared-output metadata. Changing them reuses the same geometry
+cache record. DCOL carries geometry only; loading validates source mode independently
+from the asset query settings.
 Algorithm upgrades invalidate cached builds without rejecting compatible cooked data.
 DCOL schema 3 uses a 60-byte header with no producer word; older payload schemas
 require recook. Schema, target, layout, bounds and checksum remain compatibility gates.
@@ -199,28 +204,57 @@ its setup and installed immutable geometry, without a per-generation snapshot ca
 `SimpleOnly`, `ComplexOnly`, and `SimpleAndComplex` retain their existing
 representation-availability rules without changing component filters.
 `FCollisionQueryParams::Complexity` (forwarded to `FPhysicsQueryFilter`) accepts
-`Default`, `Simple`, or `Complex`. Default preserves the historical geometry
-choice; explicit queries select one representation and emit at most one hit per
-body. Asset source modes continue to select the existing cooked recipe; a trace
-mode does not implicitly enable generated asset collision.
-`EBodySetupCollisionTraceMode` adds UE-style `SimpleAndComplex`,
-`SimpleAsComplex`, and `ComplexAsSimple` routing. The latter two also change the
-default geometry when explicitly selected. Missing representations do not fall
-back to the other kind under `SimpleAndComplex`. Scene bounds include every
-published representation, including separate offsets; updates and retirement
-retain and release all geometry resources.
+`Simple` or `Complex`, with `Simple` as the default. Triangle-only bodies require
+an explicit Complex query or `ComplexAsSimple`; queries do not automatically
+select the other representation.
+
+`EBodySetupCollisionTraceMode` selects `SimpleAndComplex`, `SimpleAsComplex`, or
+`ComplexAsSimple`. BodySetup supplies available representations and this policy
+through `PopulateCollisionGeometry`; `DPrimitiveComponent::BuildPhysicsBodyDesc`
+publishes geometry, transforms, filters, and owner identity in one pass.
+`FPhysicsBodyDesc` has only Simple/Complex geometry and their independent world
+transforms. There is no third default geometry or legacy kind-based inference.
+At scene registration/update, trace policy is resolved into per-representation
+Simple/Complex query masks. SimpleAsComplex publishes only simple geometry when
+available and enables both query masks; ComplexAsSimple does the equivalent for
+complex geometry. If that preferred representation is absent, the other kind is
+retained with its own query mask only, matching UE 5.8 shape creation. Asset
+availability policy is applied before this resolution and cannot be bypassed.
+Each query matches the published mask without reinterpreting TraceMode. The
+reference, production and Compare executors share that selection.
+
+Bounds, spatial-state comparisons, resource retention and debug snapshots use
+the published representations. Debug entries identify their Simple/Complex
+representation and include both independent offsets. Invalid or empty publications
+are rejected atomically, preserving an existing registration on failed updates.
+`RetainedBodyBytes` reports body-record capacity independently from
+`RetainedSpatialBytes` (slot and tree capacity) and `RetainedGeometryBytes`
+(unique immutable payloads); diagnostics reset preserves these resident values.
 
 `DBodySetup::SetSimpleCollision` atomically replaces an aggregate of at most 64
 mesh-local `FSimpleCollisionElement` values (Box, Sphere, Capsule, Convex).
 Invalid dimensions, transforms, point sets or topology reject the whole edit.
 Convex elements retain validated hull vertices and triangle topology in both
 authored and cooked packages; immutable resources are reconstructed lazily
-without imported source data or Developer modules. Empty aggregates restore the
-legacy single shape; `SetBox`, `SetSphere`, and `SetCapsule` replace an aggregate.
+without imported source data or Developer modules. `SetBox`, `SetSphere`, and
+`SetCapsule` write one element through the same aggregate validation and cache;
+there is no separate runtime shape, dimensions, center, or primitive cache.
+Empty aggregates remove authored simple geometry without exposing an older shape.
+An authored aggregate pairs each base shape or hull with its element-to-mesh
+local transform in a child. This does not require baking transforms into vertices
+or storing the component's world transform in reusable geometry. Generated hulls
+already use mesh-local vertices. Consumers apply the component transform outside
+the aggregate. `PopulateCollisionGeometry` supplies these mesh-local resources
+with separate component world transforms. StaticMesh components publish the complete
+aggregate through this path; they expose no single-shape extraction override.
+Box/Sphere/Capsule components retain their analytic shape API for movement queries.
 The aggregate is independent of the triangle source recipe, allowing authored
-simple elements and collision-LOD/proxy triangles in the same body. A legacy
-single shape can also answer explicit Simple queries alongside triangles; its
-presence does not alter the old default triangle choice. The qualified `/Engine/Models/Box` asset
+simple elements and collision-LOD/proxy triangles in the same body. All authored
+entry points use the same selection: authored simple elements take precedence
+over a generated hull. Empty authored data uses generated simple geometry when
+available. There are no per-entry-point selection flags or single-shape package
+migration routes.
+The qualified `/Engine/Models/Box` asset
 continues to derive its authored Box setup from verified LOD 0 bounds.
 
 `DStaticMesh::SetComplexCollisionMesh` optionally replaces complex triangle input.
@@ -262,7 +296,7 @@ never recursively invalidate asset input sources.
 
 Editor derived data uses the separate `StaticMeshCollision` namespace
 and a key containing collision builder/schema/platform versions, exact source
-geometry hash, mode/policy, and target platform. Asset commits with changed source
+geometry hash, source mode, and target platform. Asset commits with changed source
 or normalization invalidate prior derived collision and schedule independently.
 Same-geometry commits and pure render publication preserve physics resources.
 Failure cannot roll back accepted render/source state.

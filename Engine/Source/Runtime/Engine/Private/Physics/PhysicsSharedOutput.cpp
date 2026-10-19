@@ -9,7 +9,7 @@ namespace Durin::PhysicsPrivate
 	using namespace DerivedData;
 	namespace
 	{
-		constexpr uint64 MaximumMetadataBytes = 24 + 2 * (4 + 48 + 7 * 4);
+		constexpr uint64 MaximumMetadataBytes = 20 + 2 * (4 + 48 + 7 * 4);
 		struct FArrayDescriptor
 		{
 			std::string_view Name;
@@ -28,34 +28,32 @@ namespace Durin::PhysicsPrivate
 		auto ValueId(size_t Geometry, size_t Array) -> FValueId
 		{ return FValueId::FromName("Durin.Physics.CollisionBlock").MakeIndexed(uint32(Geometry * Arrays.size() + Array)); }
 		using FLayout = std::array<std::optional<FCollisionCookedBlocks>, 2>;
-		auto ValidSettings(EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy) -> bool
+		auto ValidSettings(EBodySetupCollisionSourceMode Mode) -> bool
 		{
 			return (Mode == EBodySetupCollisionSourceMode::None || Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
-				|| Mode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
-				&& (Policy == EBodySetupCollisionQueryPolicy::SimpleOnly || Policy == EBodySetupCollisionQueryPolicy::ComplexOnly
-					|| Policy == EBodySetupCollisionQueryPolicy::SimpleAndComplex);
+				|| Mode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 		}
 		auto ActiveArray(size_t Array, size_t Geometry) -> bool
 		{
 			return Array < 2 || (Geometry == 0 ? Array >= 4 : Array == 2 || Array == 3);
 		}
 		auto ReadLayout(const FBuildOutput& Output, EBodySetupCollisionSourceMode Mode,
-			EBodySetupCollisionQueryPolicy Policy, const std::function<bool()>& ShouldCancel,
+			const std::function<bool()>& ShouldCancel,
 			bool ValidateArrays) -> std::expected<FLayout, std::string>
 		{
 			if (ShouldCancel && ShouldCancel()) return std::unexpected("Collision output validation was cancelled.");
 			const auto Metadata = GetBuildMetadataPayload(Output);
-			if (!ValidSettings(Mode, Policy) || Output.GetSchema() != "Physics.CollisionOutput" || Output.GetSchemaVersion() != 2
+			if (!ValidSettings(Mode) || Output.GetSchema() != "Physics.CollisionOutput" || Output.GetSchemaVersion() != 3
 				|| Metadata.GetSize() > MaximumMetadataBytes
 				|| !Output.CheckLimits({.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes}))
 				return std::unexpected("Collision output schema, settings or size is invalid.");
 			FBinaryReader Reader(Metadata.GetBytes(), {.MaximumTotalBytes = MaximumMetadataBytes});
-			uint32 Platform = 0, Profile = 0, SourceMode = 0, QueryPolicy = 0;
+			uint32 Platform = 0, Profile = 0, SourceMode = 0;
 			std::array<uint32, 2> Present{};
-			if (!Reader.ReadU32(Platform) || !Reader.ReadU32(Profile) || !Reader.ReadU32(SourceMode) || !Reader.ReadU32(QueryPolicy)
+			if (!Reader.ReadU32(Platform) || !Reader.ReadU32(Profile) || !Reader.ReadU32(SourceMode)
 				|| !Reader.ReadU32(Present[0]) || !Reader.ReadU32(Present[1])
 				|| Platform != uint32(ECookTargetPlatform::Win64) || Profile != uint32(ECookTargetProfile::Game)
-				|| SourceMode != uint32(Mode) || QueryPolicy != uint32(Policy)
+				|| SourceMode != uint32(Mode)
 				|| Present[0] != uint32(Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)
 				|| Present[1] != uint32(Mode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0))
 				return std::unexpected("Collision output header or geometry presence is invalid.");
@@ -101,15 +99,15 @@ namespace Durin::PhysicsPrivate
 	}
 
 	auto MakeSharedOutput(FCollisionCookedData Cooked, EBodySetupCollisionSourceMode Mode,
-		EBodySetupCollisionQueryPolicy Policy, const std::function<bool()>& ShouldCancel)
+		const std::function<bool()>& ShouldCancel)
 		-> std::expected<FBuildOutput, std::string>
 	{
-		if (!ValidSettings(Mode, Policy) || bool(Cooked) != (Mode != EBodySetupCollisionSourceMode::None))
+		if (!ValidSettings(Mode) || bool(Cooked) != (Mode != EBodySetupCollisionSourceMode::None))
 			return std::unexpected("Collision recipe presence or settings are invalid.");
-		FBuildOutputBuilder Output("Physics.CollisionOutput", 2, {.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes});
+		FBuildOutputBuilder Output("Physics.CollisionOutput", 3, {.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes});
 		FBinaryWriter Metadata({.MaximumTotalBytes = MaximumMetadataBytes});
 		Metadata.WriteU32(uint32(ECookTargetPlatform::Win64)); Metadata.WriteU32(uint32(ECookTargetProfile::Game));
-		Metadata.WriteU32(uint32(Mode)); Metadata.WriteU32(uint32(Policy));
+		Metadata.WriteU32(uint32(Mode));
 		Metadata.WriteU32(Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
 		Metadata.WriteU32(Mode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 		if (Cooked)
@@ -133,25 +131,25 @@ namespace Durin::PhysicsPrivate
 		auto Meta = MakeBuildMetadata(FSharedByteBuffer::Take(Metadata.TakeBytes()));
 		if (!Meta || !Output.AddMeta(FValueId::FromName("Metadata"), std::move(*Meta))) return std::unexpected("Collision metadata is invalid.");
 		auto Built = std::move(Output).Build(); if (!Built) return Built;
-		if (auto Valid = ValidateSharedOutput(*Built, Mode, Policy, ShouldCancel); !Valid) return std::unexpected(std::move(Valid.error()));
+		if (auto Valid = ValidateSharedOutput(*Built, Mode, ShouldCancel); !Valid) return std::unexpected(std::move(Valid.error()));
 		return Built;
 	}
 
 	auto ValidateSharedOutput(const FBuildOutput& Output, EBodySetupCollisionSourceMode Mode,
-		EBodySetupCollisionQueryPolicy Policy, const std::function<bool()>& ShouldCancel) -> std::expected<void, std::string>
+		const std::function<bool()>& ShouldCancel) -> std::expected<void, std::string>
 	{
-		auto Layout = ReadLayout(Output, Mode, Policy, ShouldCancel, true);
+		auto Layout = ReadLayout(Output, Mode, ShouldCancel, true);
 		if (!Layout) return std::unexpected(std::move(Layout.error()));
 		return {};
 	}
 
 	auto AssembleSharedOutput(const FBuildOutput& Output, EBodySetupCollisionSourceMode Mode,
-		EBodySetupCollisionQueryPolicy Policy, const std::function<bool()>& ShouldCancel) -> std::expected<FPhysicsCookResult, std::string>
+		const std::function<bool()>& ShouldCancel) -> std::expected<FPhysicsCookResult, std::string>
 	{
 		bool bCancelled = false;
 		const auto Cancel = [&] { bCancelled = bCancelled || (ShouldCancel && ShouldCancel()); return bCancelled; };
 		// FromBlocks validates arrays immediately before conversion; do not repeat it here.
-		auto Layout = ReadLayout(Output, Mode, Policy, Cancel, false);
+		auto Layout = ReadLayout(Output, Mode, Cancel, false);
 		if (!Layout) return std::unexpected(std::move(Layout.error()));
 		FPhysicsCookResult Result;
 		for (size_t Geometry = 0; Geometry < 2; ++Geometry)

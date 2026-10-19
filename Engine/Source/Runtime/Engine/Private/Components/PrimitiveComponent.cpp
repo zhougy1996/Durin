@@ -99,12 +99,10 @@ namespace Durin
 		return false;
 	}
 
-	auto DPrimitiveComponent::BuildCollisionGeometry(
-		FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform
-	) const -> bool
+	auto DPrimitiveComponent::PopulateCollisionGeometry(FPhysicsBodyDesc& Desc) const -> bool
 	{
 		FCollisionShape Shape;
-		if (!BuildCollisionShape(Shape, OutWorldTransform)) return false;
+		if (!BuildCollisionShape(Shape, Desc.SimpleTransform)) return false;
 		const FCollisionGeometryChild* Existing = CachedCollisionGeometry.GetChild(0);
 		bool bSameShape = Existing && Existing->Shape.GetType() == Shape.GetType();
 		if (bSameShape)
@@ -124,8 +122,8 @@ namespace Durin
 			}
 		}
 		if (!bSameShape) CachedCollisionGeometry = FCollisionGeometryRef::MakePrimitive(Shape);
-		OutGeometry = CachedCollisionGeometry;
-		return OutGeometry.IsValid();
+		Desc.SimpleGeometry = CachedCollisionGeometry;
+		return Desc.SimpleGeometry.IsValid();
 	}
 
 	auto DPrimitiveComponent::RecreatePhysicsState() -> void
@@ -133,10 +131,8 @@ namespace Durin
 		DestroyPhysicsState();
 		if (!IsRegistered() || BodyInstance.CollisionEnabled == ECollisionEnabled::NoCollision) return;
 		DWorld* World = GetPhysicsWorld();
-		FCollisionGeometryRef Geometry;
-		FTransform Transform;
-		if (!World || !BuildCollisionGeometry(Geometry, Transform)) return;
-		const FPhysicsBodyDesc Desc = MakePhysicsBodyDesc(Geometry, Transform);
+		FPhysicsBodyDesc Desc;
+		if (!World || !BuildPhysicsBodyDesc(Desc)) return;
 		BodyInstance.ActorHandle = World->GetPhysicsScene().AddBody(Desc);
 		BodyInstance.PublishedBodySetupRevision = BodyInstance.ActorHandle.IsValid() ? GetCollisionStateRevision() : 0;
 	}
@@ -190,36 +186,31 @@ namespace Durin
 			return;
 		}
 		DWorld* World = GetPhysicsWorld();
-		FCollisionGeometryRef Geometry;
-		FTransform Transform;
-		if (!World || !BuildCollisionGeometry(Geometry, Transform))
+		FPhysicsBodyDesc Desc;
+		if (!World || !BuildPhysicsBodyDesc(Desc))
 		{
 			DestroyPhysicsState();
 			return;
 		}
-		const FPhysicsBodyDesc Desc = MakePhysicsBodyDesc(Geometry, Transform);
 		if (!World->GetPhysicsScene().UpdateBody(BodyInstance.ActorHandle, Desc))
 			RecreatePhysicsState();
 		else
 			BodyInstance.PublishedBodySetupRevision = GetCollisionStateRevision();
 	}
 
-	auto DPrimitiveComponent::MakePhysicsBodyDesc(
-		const FCollisionGeometryRef& Geometry,
-		const FTransform& Transform
-	) const -> FPhysicsBodyDesc
+	auto DPrimitiveComponent::BuildPhysicsBodyDesc(FPhysicsBodyDesc& Desc) const -> bool
 	{
-		FPhysicsBodyDesc Desc;
-		Desc.Geometry = Geometry;
-		Desc.Transform = Transform;
+		Desc = {};
+		if (!PopulateCollisionGeometry(Desc)) return false;
+		if ((Desc.SimpleGeometry && !IsValidPhysicsTransform(Desc.SimpleTransform))
+			|| (Desc.ComplexGeometry && !IsValidPhysicsTransform(Desc.ComplexTransform))) return false;
 		Desc.Filter.ObjectChannel = static_cast<uint8>(BodyInstance.ObjectChannel);
 		for (uint8 Index = 0; Index < MaximumPhysicsChannels; ++Index)
 			Desc.Filter.Responses[Index] =
 				ToPhysicsResponse(BodyInstance.Responses.Responses[Index]);
 		Desc.UserToken = reinterpret_cast<uint64>(this);
 		Desc.MotionType = BodyInstance.MotionType;
-		ConfigureCollisionQueries(Desc);
-		return Desc;
+		return true;
 	}
 
 	auto DPrimitiveComponent::GetPhysicsWorld() const -> DWorld*

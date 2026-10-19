@@ -24,7 +24,6 @@ namespace Durin
 	struct FPhysicsCollisionPayloadData
 	{
 		EBodySetupCollisionSourceMode SourceMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		std::vector<FVector3f> Positions;
 		std::vector<uint32> Indices;
 		std::vector<uint32> SourceOrdinals;
@@ -64,7 +63,6 @@ namespace Durin
 
 	ENGINE_API auto MakePhysicsCollisionPayloadData(
 		const FCollisionGeometryRef& Geometry,
-		EBodySetupCollisionQueryPolicy QueryPolicy,
 		FPhysicsCollisionPayloadData& OutPayload,
 		const std::function<bool()>& ShouldCancel = {}) -> std::expected<void, FPhysicsCollisionPayloadError>;
 	ENGINE_API auto MakePhysicsCollisionGeometry(
