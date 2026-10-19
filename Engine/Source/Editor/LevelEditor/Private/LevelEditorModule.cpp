@@ -1,4 +1,3 @@
-#include "Preview/StudioLighting.h"
 #include "LevelEditorModule.h"
 #include "Editor/LevelEditorSubsystem.h"
 #include "Tools/PIEToolset.h"
@@ -52,7 +51,6 @@ namespace Durin
 				OutError = Created.Message;
 				return false;
 			}
-			if (auto* Level = Cast<DLevel>(Created.Asset)) (void)Editor::AddStudioSkyLight(*Level);
 			const FAssetWriteResult Result = SavePackage(Created.Package);
 			if (!Result)
 			{

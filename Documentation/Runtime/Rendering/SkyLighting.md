@@ -4,7 +4,7 @@ Summary: Scene-owned Sky Lights consume ordinary HDR cubes or capture a bounded 
 
 Modules: Engine, Renderer, RenderCore, VulkanRHI, MetalRHI, TextureCompressor, DurinEd, Launch
 
-Last reviewed: 2026-10-05
+Last reviewed: 2026-10-19
 
 ## Authoring and source selection
 
@@ -105,8 +105,9 @@ contributes neutral black with a diagnostic.
 ## Studio content
 
 `/Engine/Renderer/DefaultStudioCube.DefaultStudioCube` is an ordinary HDR cube.
-Checked-in levels, newly created levels, asset previews, and thumbnails use
-normal Sky Light component references. Renderer startup does not load a fixed
+Checked-in levels, asset previews, and thumbnails use normal Sky Light component
+references. Newly created levels are empty; add a Sky Light explicitly when needed.
+Renderer startup does not load a fixed
 environment asset. `StudioCubeGenerate <Engine/Content>` reproducibly builds
 the retained analytic panorama and ordinary cube using TextureCompressor. The sole
 argument selects the output content root; generation writes the Studio cube
